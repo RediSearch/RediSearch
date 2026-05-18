@@ -12,10 +12,7 @@
 //! This crate bridges the pure Rust [`geo`] crate (including its [`geo::hash`]
 //! module), providing the same C API that was previously in `src/rs_geo.c`.
 
-use std::{
-    ffi::{CString, c_int},
-    ptr::NonNull,
-};
+use std::{ffi::c_int, ptr::NonNull};
 
 use decorum::R64;
 use geo::ParseGeoError;
@@ -116,7 +113,6 @@ pub unsafe extern "C" fn isWithinRadiusLonLat(
 /// # Panics
 ///
 /// - If `status` is null.
-/// - If the [`ParseGeoError`] display string contains an interior nul byte.
 ///
 /// # Safety
 ///
@@ -124,23 +120,9 @@ pub unsafe extern "C" fn isWithinRadiusLonLat(
 ///   `QueryError_Default`.
 unsafe fn set_parse_error(status: *mut OpaqueQueryError, err: ParseGeoError) {
     log_error!(err, level: tracing::Level::WARN, "parseGeo: failed to parse geo string");
-    let msg = err.to_string();
     // SAFETY: caller guarantees `status` is valid.
     let query_error = unsafe { QueryError::from_opaque_mut_ptr(status) }.expect("status is null");
-    let public_message = CString::new(msg.clone()).expect("error message contains nul byte");
-
-    let prefix = QueryErrorCode::ParseArgs
-        .prefix_c_str()
-        .to_str()
-        .unwrap_or("");
-    let prefixed = format!("{prefix}{msg}");
-    let private_message = CString::new(prefixed).unwrap_or_else(|_| public_message.clone());
-
-    query_error.set_code_and_messages(
-        QueryErrorCode::ParseArgs,
-        Some(public_message),
-        Some(private_message),
-    );
+    query_error.set_error(QueryErrorCode::ParseArgs, &err.to_string());
 }
 
 /// Parse a `"lon,lat"` or `"lon lat"` string into separate longitude and
