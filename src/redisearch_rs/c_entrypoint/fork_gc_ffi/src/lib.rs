@@ -220,9 +220,10 @@ pub unsafe extern "C" fn recvFieldHeader(
 ) -> FGCError {
     // SAFETY: caller guarantees (1).
     let fgc = unsafe { ForkGC::from_ptr_mut(fgc) };
+    let mut reader = fgc.reader();
 
-    let (frame, id) = match fgc.reader().recv_buffer_and_id() {
-        Ok((frame, id)) => (frame, id),
+    let frame = match reader.recv_buffer() {
+        Ok(frame) => frame,
         Err(e) => {
             log_error!(e, level: Level::WARN, "ForkGC pipe read error");
             return FGCError::ParentError;
@@ -233,7 +234,14 @@ pub unsafe extern "C" fn recvFieldHeader(
         return FGCError::Done;
     }
 
+    let mut id_bytes = [0u8; size_of::<u64>()];
+    if let Err(e) = reader.recv_fixed(&mut id_bytes) {
+        log_error!(e, level: Level::WARN, "ForkGC pipe read error");
+        return FGCError::ParentError;
+    };
+
     let (name_ptr, name_len) = util::frame_into_c_buffer(frame);
+    let id = u64::from_ne_bytes(id_bytes);
 
     // SAFETY: caller guarantees (2).
     unsafe { *field_name = name_ptr.cast() };
