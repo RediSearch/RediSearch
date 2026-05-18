@@ -104,9 +104,7 @@ pub unsafe extern "C" fn FGC_sendBuffer(fgc: *mut ffi::ForkGC, buff: *const c_vo
         &[]
     };
 
-    fgc.writer()
-        .write_frame(Frame::data(slice))
-        .unwrap_or_exit();
+    Frame::data(slice).write(&mut fgc.writer()).unwrap_or_exit();
 }
 
 /// Write the end-of-stream sentinel, signalling to the parent reader
@@ -124,7 +122,7 @@ pub unsafe extern "C" fn FGC_sendTerminator(fgc: *mut ffi::ForkGC) {
     // SAFETY: caller guarantees (1).
     let fgc = unsafe { ForkGC::from_ptr_mut(fgc) };
 
-    fgc.writer().write_frame(Frame::Terminator).unwrap_or_exit();
+    Frame::Terminator.write(&mut fgc.writer()).unwrap_or_exit();
 }
 
 /// Read exactly `len` bytes from the FGC pipe into `buf`.
@@ -185,7 +183,7 @@ pub unsafe extern "C" fn FGC_recvBuffer(
     // SAFETY: caller guarantees (1).
     let fgc = unsafe { ForkGC::from_ptr_mut(fgc) };
 
-    let frame = match fgc.reader().read_frame() {
+    let frame = match Frame::read(&mut fgc.reader()) {
         Ok(frame) => frame,
         Err(e) => {
             log_error!(e, level: Level::WARN, "ForkGC pipe read error");
@@ -227,7 +225,7 @@ pub unsafe extern "C" fn recvFieldHeader(
     let fgc = unsafe { ForkGC::from_ptr_mut(fgc) };
     let mut reader = fgc.reader();
 
-    let frame = match reader.read_frame() {
+    let frame = match Frame::read(&mut reader) {
         Ok(frame) => frame,
         Err(e) => {
             log_error!(e, level: Level::WARN, "ForkGC pipe read error");

@@ -7,7 +7,10 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 
-use std::ops::Deref;
+use std::{
+    io::{self, Read, Write},
+    ops::Deref,
+};
 
 pub(crate) const EMPTY: usize = 0;
 pub(crate) const TERMINATOR: usize = usize::MAX;
@@ -19,11 +22,8 @@ pub(crate) const TERMINATOR: usize = usize::MAX;
 /// length.
 ///
 /// `D` is the data container for the [`Frame::Data`] variant. Use `Box<[u8]>`
-/// on the read path (as returned by
-/// [`Reader::read_frame`](crate::reader::Reader::read_frame)) or `&[u8]` on
-/// the write path (passed to
-/// [`Writer::write_frame`](crate::writer::Writer::write_frame)) to avoid
-/// copying.
+/// on the read path (as returned by [`Frame::read`]) or `&[u8]` on the write
+/// path (passed to [`Frame::write`]) to avoid copying.
 #[derive(Debug)]
 pub enum Frame<D> {
     /// End-of-stream sentinel; no payload follows.
@@ -42,23 +42,80 @@ pub enum Frame<D> {
     Data(FrameData<D>),
 }
 
-impl<D: AsRef<[u8]>> Frame<D> {
+impl Frame<Box<[u8]>> {
+    /// Read one frame from `reader`.
+    ///
+    /// Reads a native-endian `usize` length prefix, then:
+    ///
+    /// - `usize::MAX` → [`Frame::Terminator`] (no further bytes consumed)
+    /// - `0` → [`Frame::Empty`] (no further bytes consumed)
+    /// - `n` → reads exactly `n` payload bytes into a [`Box<[u8]>`] and
+    ///   returns [`Frame::Data`]
+    ///
+    /// # Errors
+    ///
+    /// Propagates any [`io::Error`] from `reader`, including
+    /// [`io::ErrorKind::UnexpectedEof`] if the stream ends before the length
+    /// prefix or payload are fully read.
+    pub fn read(reader: &mut impl Read) -> io::Result<Self> {
+        let mut len_bytes = [0u8; size_of::<usize>()];
+        reader.read_exact(&mut len_bytes)?;
+        let len = usize::from_ne_bytes(len_bytes);
+
+        if len == TERMINATOR {
+            return Ok(Frame::Terminator);
+        }
+        if len == EMPTY {
+            return Ok(Frame::Empty);
+        }
+
+        let mut data = vec![0u8; len].into_boxed_slice();
+        reader.read_exact(&mut data)?;
+
+        Ok(Frame::Data(FrameData(data)))
+    }
+}
+
+impl<'a> Frame<&'a [u8]> {
     /// Construct a `Frame` from `data`.
     ///
-    /// - `data.as_ref().is_empty()` → [`Frame::Empty`]
+    /// - `data.is_empty()` → [`Frame::Empty`]
     /// - otherwise → [`Frame::Data`]
     ///
     /// # Panics
     ///
-    /// Panics if `data.as_ref().len() == usize::MAX`, as that value is
-    /// reserved for the [`Frame::Terminator`] wire encoding.
-    pub fn data(data: D) -> Self {
-        match data.as_ref().len() {
+    /// Panics if `data.len() == usize::MAX`, as that value is reserved for
+    /// the [`Frame::Terminator`] wire encoding.
+    pub fn data(data: &'a [u8]) -> Self {
+        match data.len() {
             EMPTY => Self::Empty,
             TERMINATOR => {
                 panic!("data length usize::MAX is reserved for the Frame::Terminator wire encoding")
             }
             _ => Self::Data(FrameData(data)),
+        }
+    }
+
+    /// Write this frame to `writer`.
+    ///
+    /// Encodes the frame as a native-endian `usize` length prefix followed by
+    /// the payload (if any):
+    ///
+    /// - [`Frame::Terminator`] → writes `usize::MAX`; no payload
+    /// - [`Frame::Empty`] → writes `0`; no payload
+    /// - [`Frame::Data`] → writes the payload length, then the payload bytes
+    ///
+    /// # Errors
+    ///
+    /// Propagates any [`io::Error`] from `writer`.
+    pub fn write(self, writer: &mut impl Write) -> io::Result<()> {
+        match self {
+            Frame::Terminator => writer.write_all(&TERMINATOR.to_ne_bytes()),
+            Frame::Empty => writer.write_all(&EMPTY.to_ne_bytes()),
+            Frame::Data(data) => {
+                writer.write_all(&data.len().to_ne_bytes())?;
+                writer.write_all(&data)
+            }
         }
     }
 }
@@ -77,17 +134,6 @@ impl<D: AsRef<[u8]>> Frame<D> {
 pub struct FrameData<D>(D);
 
 impl<D> FrameData<D> {
-    /// Wrap `data` without checking the length invariant.
-    ///
-    /// # Safety
-    ///
-    /// The caller must ensure the underlying slice length is neither `0`
-    /// (reserved for [`Frame::Empty`]) nor `usize::MAX` (reserved for
-    /// [`Frame::Terminator`]).
-    pub(crate) const unsafe fn new_unchecked(data: D) -> Self {
-        Self(data)
-    }
-
     /// Unwrap and return the inner `D`, consuming `self`.
     pub fn into_inner(self) -> D {
         self.0
