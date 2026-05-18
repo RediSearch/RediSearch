@@ -192,6 +192,11 @@ src/redisearch_rs/
 
 ## Common Workflows
 
+When implementing changes that may become a PR, first check the current checkout. If it is dirty,
+on an unrelated branch, or already tied to another open PR, automatically create a dedicated
+worktree from the target branch and do the work there. Use the existing checkout only when it is
+already the right clean branch for the task.
+
 ### C Code
 Invoke [/code-review](.skills/code-review/SKILL.md) to review C code changes or PRs.
 Invoke [/run-c-unit-tests](.skills/run-c-unit-tests/SKILL.md) to run C/C++ unit tests.
