@@ -16,6 +16,7 @@ workspace = true
 test_utils = []
 
 [dependencies]
+itertools.workspace = true
 lending-iterator.workspace = true
 libc.workspace = true
 memchr.workspace = true

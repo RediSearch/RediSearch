@@ -2912,6 +2912,7 @@ version = "0.0.1"
 dependencies = [
  "fs-err",
  "insta",
+ "itertools 0.14.0",
  "lending-iterator",
  "libc",
  "memchr",
