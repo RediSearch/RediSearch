@@ -46,6 +46,13 @@ impl<Data> RuneTrieMap<Data> {
         self.inner.insert(&split_key(key), data);
     }
 
+    pub fn insert_with<F>(&mut self, key: &[Rune], f: F)
+    where
+        F: FnOnce(Option<Data>) -> Data,
+    {
+        self.inner.insert_with(&split_key(key), f);
+    }
+
     pub fn remove(&mut self, key: &[Rune]) {
         self.inner.remove(&split_key(key));
     }
@@ -74,13 +81,13 @@ impl<'a, Data> Iterator for RuneTrieMapIter<'a, Data> {
 }
 
 fn split_key(key: &[Rune]) -> Vec<Byte> {
-    key.into_iter().flat_map(|x| x.to_le_bytes()).collect_vec()
+    key.into_iter().flat_map(|x| x.to_be_bytes()).collect_vec()
 }
 
 fn join_key(key: &[Byte]) -> Vec<Rune> {
     key.as_chunks()
         .0
         .iter()
-        .map(|&[x, y]| Rune::from_le_bytes([x, y]))
+        .map(|&[x, y]| Rune::from_be_bytes([x, y]))
         .collect_vec()
 }
