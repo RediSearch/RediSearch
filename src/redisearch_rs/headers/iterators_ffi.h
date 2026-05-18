@@ -152,7 +152,7 @@ bool IsWildcardIterator(const QueryIterator *it);
  *
  * 1. `child`, when non-null, must be a valid owning pointer to a C query iterator that is not aliased.
  * 2. `q` must be a valid non-null pointer to a [`QueryEvalCtx`] satisfying all preconditions of
- *    [`new_optional_iterator`](rqe_iterators::optional_reducer::new_optional_iterator).
+ *    [`new_optional_iterator`].
  */
 QueryIterator *NewOptionalIterator(QueryIterator *child, QueryEvalCtx *q, t_docId max_doc_id, double weight);
 
@@ -371,7 +371,7 @@ QueryIterator *IntoProfiled(QueryIterator *iter);
  *
  * # Safety
  *
- * 1. `header` must be a valid non-null pointer created via [`NewIntersectionIterator`].
+ * 1. `header` must be a valid non-null pointer created via [`NewIntersectionIterator()`].
  */
 size_t GetIntersectionIteratorNumChildren(const QueryIterator *header);
 
@@ -447,7 +447,7 @@ RLookupKey * *GetMetricOwnKeyRef(QueryIterator *header);
  *
  * # Safety
  *
- * 1. `header` must be a valid non-null pointer created via [`NewIntersectionIterator`].
+ * 1. `header` must be a valid non-null pointer created via [`NewIntersectionIterator()`].
  * 2. `idx` must be less than [`GetIntersectionIteratorNumChildren`]`(header)`.
  */
 const QueryIterator *GetIntersectionIteratorChild(const QueryIterator *header, size_t idx);
@@ -624,7 +624,7 @@ enum MetricType GetMetricType(const QueryIterator *header);
  *
  * # Safety
  *
- * 1. `header` must be a valid non-null pointer created via [`NewIntersectionIterator`].
+ * 1. `header` must be a valid non-null pointer created via [`NewIntersectionIterator()`].
  * 2. `child` must be a valid non-null pointer to a `QueryIterator`, not aliased.
  */
 void AddIntersectionIteratorChild(QueryIterator *header, QueryIterator *child);
@@ -734,8 +734,8 @@ const char *GetUnionIteratorQueryString(const QueryIterator *it);
  * # Safety
  *
  * 1. `it` must be a valid non-null pointer to a non-reduced NOT iterator
- *    created via [`NewNotIterator`]. Must not be called on a reduced
- *    (wildcard/empty) iterator returned by [`NewNotIterator`].
+ *    created via [`NewNotIterator()`]. Must not be called on a reduced
+ *    (wildcard/empty) iterator returned by [`NewNotIterator()`].
  */
 const QueryIterator *GetNotIteratorChild(const QueryIterator *it);
 

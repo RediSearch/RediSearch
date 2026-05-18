@@ -118,7 +118,7 @@ pub unsafe extern "C" fn NewIntersectionIterator(
 ///
 /// # Safety
 ///
-/// 1. `header` must be a valid non-null pointer created via [`NewIntersectionIterator`].
+/// 1. `header` must be a valid non-null pointer created via [`NewIntersectionIterator()`].
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn GetIntersectionIteratorNumChildren(header: *const QueryIterator) -> usize {
     debug_assert!(!header.is_null());
@@ -141,7 +141,7 @@ pub unsafe extern "C" fn GetIntersectionIteratorNumChildren(header: *const Query
 ///
 /// # Safety
 ///
-/// 1. `header` must be a valid non-null pointer created via [`NewIntersectionIterator`].
+/// 1. `header` must be a valid non-null pointer created via [`NewIntersectionIterator()`].
 /// 2. `idx` must be less than [`GetIntersectionIteratorNumChildren`]`(header)`.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn GetIntersectionIteratorChild(
@@ -173,7 +173,7 @@ pub unsafe extern "C" fn GetIntersectionIteratorChild(
 ///
 /// # Safety
 ///
-/// 1. `header` must be a valid non-null pointer created via [`NewIntersectionIterator`].
+/// 1. `header` must be a valid non-null pointer created via [`NewIntersectionIterator()`].
 /// 2. `child` must be a valid non-null pointer to a `QueryIterator`, not aliased.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn AddIntersectionIteratorChild(
