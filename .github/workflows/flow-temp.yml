@@ -11,10 +11,10 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - case: deactivated-user-u03nft
-            author-mention-json: '"U03NFTSRB5G"'
-          - case: deactivated-user-ujd2q
-            author-mention-json: '"UJD2QQYVD"'
+          - case: workflow-id
+            author-mention-json: '"Wf09US77CY12"'
+          - case: github-app-member-id
+            author-mention-json: '"U01UN6JM38B"'
     steps:
       - name: Send Slack payload variant
         uses: slackapi/slack-github-action@v3
