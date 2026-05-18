@@ -18,6 +18,11 @@ use crate::{
 };
 
 /// An iterator that is either [`Empty`] or the provided [`RQEIterator`].
+///
+/// `#[repr(C)]` so that `MaybeEmpty<I>` is layout-compatible with
+/// `MaybeEmpty<I::Suspended>` once the iterator's `Suspended` counterpart
+/// (added in the suspend/resume phase) lines up with `I`.
+#[repr(C)]
 pub struct MaybeEmpty<I>(MaybeEmptyOption<I>);
 
 impl<'index, I> MaybeEmpty<I>
@@ -75,6 +80,7 @@ where
     }
 }
 
+#[repr(C)]
 enum MaybeEmptyOption<I> {
     None(Empty),
     Some(I),
