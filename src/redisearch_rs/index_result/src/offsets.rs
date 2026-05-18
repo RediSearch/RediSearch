@@ -97,7 +97,18 @@ impl<'a> RSOffsetSlice<'a> {
         let data = if bytes.is_empty() {
             None
         } else {
-            Some(SharedPtr::from_ref(&bytes[0]))
+            // Retag through the *whole* slice and then cast to a `u8`
+            // pointer. Going through `SharedPtr::from_ref(&bytes[0])`
+            // would retag only the first byte under Stacked Borrows, so
+            // the subsequent `as_bytes()` / `Debug` calls — which read
+            // `len` bytes through the same `SharedPtr` — would trip the
+            // borrow stack on `bytes[1..]`. The slice retag preserves
+            // provenance over all `len` bytes for the lifetime `'a`.
+            let nn = std::ptr::NonNull::from_ref(bytes).cast::<u8>();
+            // SAFETY: `bytes` is a `&'a [u8]` that is non-empty, so `nn`
+            // is non-null and valid for reads of `bytes.len()` bytes for
+            // the lifetime `'a`, with no aliasing mutable references.
+            Some(unsafe { SharedPtr::<Suspended, _>::from_non_null(nn).into_active::<'a>() })
         };
         Self {
             data,
