@@ -155,6 +155,17 @@ setup_clang_sanitizer() {
 		export LSAN_OPTIONS="suppressions=$ROOT/tests/memcheck/asan.supp:print_suppressions=0:verbosity=0"
 		# :use_tls=0
 
+		# Preload libstdc++ so ASAN resolves __cxa_throw at process init.
+		# redis-server no longer links libstdc++ (upstream 670993a), so the
+		# interceptor captures NULL and the first C++ throw from a module
+		# aborts the process.
+		if [[ $OS != macos ]] && command -v g++ &> /dev/null; then
+			local libstdcxx
+			libstdcxx=$(g++ -print-file-name=libstdc++.so.6 2> /dev/null)
+			if [[ -n $libstdcxx && -e $libstdcxx ]]; then
+				export LD_PRELOAD="${libstdcxx}${LD_PRELOAD:+:$LD_PRELOAD}"
+			fi
+		fi
 	fi
 }
 

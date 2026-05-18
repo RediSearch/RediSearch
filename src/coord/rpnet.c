@@ -8,6 +8,7 @@
 */
 
 #include <stdatomic.h>
+#include "value_ffi.h"
 #include "rpnet.h"
 #include "rmr/reply.h"
 #include "rmr/rmr.h"
@@ -343,6 +344,14 @@ int getNextReply(RPNet *nc) {
     // Abort-flag-only pop (no wall-clock deadline). Flipped by the FAIL / RETURN-STRICT
     // timeout callback via MRChannel_WakeAbort. Under Return the flag is never flipped,
     // degrading to a blocking pop. No areq means no wake mechanism — use MRIterator_Next.
+#ifdef ENABLE_ASSERT
+    // Sync point (debug): park BG when it is about to wait for the next shard
+    // reply. Reaching this site implies any previously admitted reply has been
+    // fully drained downstream.
+    if (nc->areq) {
+      SyncPoint_WaitUntil(SYNC_POINT_RPNET_WAITING_FOR_REPLY, areq_timed_out, nc->areq);
+    }
+#endif
     root = nc->areq
       ? MRIterator_NextWithTimeout(nc->it, NULL, &nc->areq->syncCtx.timedOut, NULL)
       : MRIterator_Next(nc->it);
@@ -534,6 +543,21 @@ void RPNet_resetCurrent(RPNet *nc) {
 
 int rpnetNext(ResultProcessor *self, SearchResult *r) {
   RPNet *nc = (RPNet *)self;
+  AREQ *areq = nc->areq;
+
+#ifdef ENABLE_ASSERT
+  if (areq) {
+    SyncPoint_WaitUntil(SYNC_POINT_BEFORE_RPNET_NEXT, areq_timed_out, areq);
+  }
+#endif
+
+  // Surface RETURN_STRICT timeouts on follow-up cursor reads where the channel
+  // may already hold a buffered reply (the NULL-reply check below wouldn't fire
+  // and we'd silently return rows). Skipped during the timer's own drain.
+  if (areq && areq->useReplyCallback && !nc->drainOnly && AREQ_TimedOut(nc->areq)) {
+    return RS_RESULT_TIMEDOUT;
+  }
+
   MRReply *root = nc->current.root, *rows = nc->current.rows;
   const bool resp3 = nc->cmd.protocol == 3;
 

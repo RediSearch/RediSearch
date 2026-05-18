@@ -8,6 +8,7 @@
 */
 
 #include "json.h"
+#include "value_ffi.h"
 #include "document.h"
 #include "rmutil/rm_assert.h"
 #include "vector_index.h"

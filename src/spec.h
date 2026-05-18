@@ -15,12 +15,11 @@
 #include "redismodule.h"
 #include "config.h"
 #include "doc_table.h"
-#include "trie/trie_type.h"
+#include "trie/trie.h"
 #include "sortable.h"
 #include "stopwords.h"
 #include "gc.h"
 #include "synonym_map.h"
-#include "query_error.h"
 #include "field_spec.h"
 #include "util/dict.h"
 #include "util/references.h"
@@ -31,6 +30,8 @@
 #include "obfuscation/hidden.h"
 #include "search_disk_api.h"
 #include "rs_wall_clock.h"
+
+typedef struct QueryError QueryError;
 
 #ifdef __cplusplus
 extern "C" {
@@ -117,7 +118,6 @@ struct IndexesScanner;
 
 #define SPEC_MAX_FIELDS 1024
 #define SPEC_MAX_FIELD_ID (sizeof(t_fieldMask) * 8)
-#define MAX_SCHEMA_PREFIXES 1000000
 #define MAX_SYNONYM_TERMS 1000000     // reasonable limit for synonym map terms
 #define MAX_SYNONYM_GROUP_IDS 4096    // reasonable limit for group IDs per term
 
@@ -237,10 +237,6 @@ typedef uint16_t FieldSpecDedupeArray[SPEC_MAX_FIELDS];
 
 #define INDEX_DEFAULT_FLAGS \
   Index_StoreFreqs | Index_StoreTermOffsets | Index_StoreFieldFlags | Index_StoreByteOffsets
-
-#define INDEX_STORAGE_MASK                                                                  \
-  (Index_StoreFreqs | Index_StoreFieldFlags | Index_StoreTermOffsets | Index_StoreNumeric | \
-   Index_WideSchema)
 
 #define INDEX_CURRENT_VERSION 26
 #define INDEX_DISK_VERSION 26
@@ -758,6 +754,12 @@ size_t Indexes_Count();
 void Indexes_Propagate(RedisModuleCtx *ctx);
 void Indexes_UpdateMatchingWithSchemaRules(RedisModuleCtx *ctx, RedisModuleString *key, DocumentType type,
                                            RedisModuleString **hashFields);
+// Fast path for keyspace events that only change the document-level TTL
+// (EXPIRE/PERSIST): re-reads the key's absolute expiration and writes it
+// directly onto the matching DMDs, without re-running schema-rule filters or
+// re-indexing the document. In-memory flow only; callers must fall back to
+// Indexes_UpdateMatchingWithSchemaRules for disk-backed indexes.
+void Indexes_UpdateMatchingDocExpiration(RedisModuleCtx *ctx, RedisModuleString *key, DocumentType type);
 void Indexes_DeleteMatchingWithSchemaRules(RedisModuleCtx *ctx, RedisModuleString *key,
                                            DocumentType type,
                                            RedisModuleString **hashFields);

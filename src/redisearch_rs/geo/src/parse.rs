@@ -22,6 +22,9 @@ pub enum ParseGeoError {
     /// The input string exceeds 128 bytes.
     #[error("Geo string cannot be longer than {MAX_GEO_STRING_LEN} bytes")]
     TooLong,
+    /// The input is not valid UTF-8.
+    #[error("Invalid geo string: not valid UTF-8")]
+    InvalidUtf8,
     /// The input string does not contain a comma or space separator.
     #[error("Invalid geo string: missing separator")]
     MissingSeparator,
@@ -74,6 +77,8 @@ impl FromStr for Coordinates {
     /// Parse a string representing a `"lon,lat"` or `"lon lat"` pair.
     ///
     /// The separator can be either a comma (`,`) or a space (` `).
+    /// Leading and trailing whitespace around each coordinate value is
+    /// trimmed, so `"10.0, 20.0"` and `"10.0,  20.0"` are accepted.
     ///
     /// # Errors
     ///

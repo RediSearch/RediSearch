@@ -14,13 +14,14 @@ use crate::{
     utils::OwnedSlice,
 };
 use ffi::{RLookupKey, RLookupKeyHandle, t_docId};
+use index_spec::IndexSpecReadGuard;
 use inverted_index::RSIndexResult;
 
 /// The different types of metrics.
 /// At the moment, only vector distance is supported.
 #[repr(C)]
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-/// cbindgen:rename-all=ScreamingSnakeCase
+#[cheadergen::config(rename_all = "SCREAMING_SNAKE_CASE")]
 pub enum MetricType {
     VectorDistance,
 }
@@ -185,12 +186,11 @@ impl<'index, const SORTED_BY_ID: bool> RQEIterator<'index> for Metric<'index, SO
     }
 
     #[inline(always)]
-    unsafe fn revalidate(
+    fn revalidate(
         &mut self,
-        spec: std::ptr::NonNull<ffi::IndexSpec>,
+        spec: &IndexSpecReadGuard,
     ) -> Result<RQEValidateStatus<'_, 'index>, RQEIteratorError> {
-        // SAFETY: Delegating to inner iterator with the same `spec` passed by our caller.
-        unsafe { self.base.revalidate(spec) }
+        self.base.revalidate(spec)
     }
 
     #[inline(always)]

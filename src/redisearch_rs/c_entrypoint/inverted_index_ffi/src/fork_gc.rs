@@ -7,33 +7,27 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 
+use libc::size_t;
 use std::{
     ffi::{c_int, c_void},
     io::{self, Read, Write},
 };
 
-// This alias can be removed once it lands in stable Rust
-#[expect(non_camel_case_types)]
-pub type c_size_t = usize;
-
 /// A writer that calls a C function to write data.
+#[cheadergen::config(export, rename = "II_GCWriter")]
 #[repr(C)]
 pub struct InvertedIndexGCWriter {
     /// Context pointer passed to the write function.
     pub ctx: *mut c_void,
 
     /// Function pointer to the write function.
-    pub write: extern "C" fn(ctx: *mut c_void, buf: *const c_void, len: c_size_t),
+    pub write: extern "C" fn(ctx: *mut c_void, buf: *const c_void, len: size_t),
 }
 
 impl Write for InvertedIndexGCWriter {
     fn write(&mut self, buf: &[u8]) -> io::Result<usize> {
         let f = self.write;
-        f(
-            self.ctx,
-            buf.as_ptr() as *const c_void,
-            buf.len() as c_size_t,
-        );
+        f(self.ctx, buf.as_ptr() as *const c_void, buf.len() as size_t);
         Ok(buf.len())
     }
 
@@ -43,13 +37,14 @@ impl Write for InvertedIndexGCWriter {
 }
 
 /// A reader that calls a C function to read data.
+#[cheadergen::config(export, rename = "II_GCReader")]
 #[repr(C)]
 pub struct InvertedIndexGCReader {
     /// Context pointer passed to the read function.
     pub ctx: *mut c_void,
 
     /// Function pointer to the read function.
-    pub read: extern "C" fn(ctx: *mut c_void, buf: *mut c_void, len: c_size_t) -> c_int,
+    pub read: extern "C" fn(ctx: *mut c_void, buf: *mut c_void, len: size_t) -> c_int,
 }
 
 impl Read for InvertedIndexGCReader {
@@ -61,7 +56,7 @@ impl Read for InvertedIndexGCReader {
         let rc = f(
             self.ctx,
             buf.as_mut_ptr() as *mut c_void,
-            buf.len() as c_size_t,
+            buf.len() as size_t,
         );
         if rc == 0 {
             Ok(buf.len())
@@ -75,6 +70,7 @@ impl Read for InvertedIndexGCReader {
 }
 
 /// A callback structure to trigger garbage collection operations.
+#[cheadergen::config(export, rename = "II_GCCallback")]
 #[repr(C)]
 pub struct InvertedIndexGCCallback {
     /// Context pointer passed to the call function.
@@ -90,7 +86,7 @@ mod tests {
 
     use super::*;
 
-    extern "C" fn vec_writer(ctx: *mut c_void, buf: *const c_void, len: c_size_t) {
+    extern "C" fn vec_writer(ctx: *mut c_void, buf: *const c_void, len: size_t) {
         unsafe {
             let v = &mut *(ctx as *mut Vec<u8>);
             let src = core::slice::from_raw_parts(buf as *const u8, len as usize);
@@ -98,7 +94,7 @@ mod tests {
         }
     }
 
-    extern "C" fn vec_reader(ctx: *mut c_void, buf: *mut c_void, len: c_size_t) -> c_int {
+    extern "C" fn vec_reader(ctx: *mut c_void, buf: *mut c_void, len: size_t) -> c_int {
         unsafe {
             let v = &mut *(ctx as *mut Vec<u8>);
             let want = len as usize;

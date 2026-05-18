@@ -8,7 +8,7 @@
 */
 #pragma once
 
-#include "value.h"
+#include "redismodule.h"
 #include "sorting_vector.h"
 
 #ifdef __cplusplus

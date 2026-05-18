@@ -7,12 +7,14 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 #include "forward_index.h"
+#include "inverted_index_ffi.h"
 #include "tokenize.h"
-#include "util/fnv.h"
+#include "fnv_ffi.h"
 #include "util/logging.h"
 #include <stdio.h>
 #include <sys/param.h>
 #include "rmalloc.h"
+#include "metrics_ffi.h"
 
 typedef struct {
   KHTableEntry khBase;
@@ -286,7 +288,8 @@ size_t InvertedIndex_WriteForwardIndexEntry(InvertedIndex *idx, ForwardIndexEntr
                        .data.term.borrowed.tag = RSTermRecord_Borrowed,
                        .docId = ent->docId,
                        .freq = ent->freq,
-                       .fieldMask = ent->fieldMask};
+                       .fieldMask = ent->fieldMask,
+                       .metrics = MetricsVec_New()};
 
   if (ent->vw) {
     rec.data.term.borrowed.offsets.data = VVW_GetByteData(ent->vw);

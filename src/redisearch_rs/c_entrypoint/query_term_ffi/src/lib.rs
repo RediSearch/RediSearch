@@ -10,7 +10,7 @@
 //! FFI bridge for [`query_term::RSQueryTerm`].
 //!
 //! Provides C-callable lifecycle functions (`NewQueryTerm`, `Term_Free`) and
-//! generates the `query_term.h` header via cbindgen.
+//! generates the `query_term_ffi.h` header via cheadergen.
 
 use std::ffi::c_int;
 

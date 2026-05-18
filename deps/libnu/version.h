@@ -14,7 +14,7 @@ extern "C" {
  *
  * @ingroup defines
  */
-#define NU_VERSION "custom"
+#define NU_VERSION "1.11"
 
 /** Human-readable version of nunicode
  *

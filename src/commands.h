@@ -121,6 +121,7 @@ bool IsEnterprise();
 #define RS_DICT_DUMP "FT.DICTDUMP"
 #define RS_SYNDUMP_CMD "FT.SYNDUMP"
 #define RS_INDEX_LIST_CMD "FT._LIST"
+#define RS_ALIASLIST_CMD "FT.ALIASLIST"
 #define RS_SYNADD_CMD "FT.SYNADD" // Deprecated, always returns an error
 
 // Read commands always use the internal "_FT" prefix

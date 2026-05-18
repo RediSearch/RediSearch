@@ -197,13 +197,8 @@ def testGeoLargeRadiusDecreaseStep(env):
 
 @skip(cluster=True)
 def testGeoParseNaN(env):
-  """NaN passes C parseGeo (fast_float v7 parses it) and slips through
-  geohashEncode (NaN comparisons are always false), so the document
-  indexes with garbage geohash data.
-
-  TODO: Once the Rust parseGeo replacement is active, NaN will be
-  rejected at parse time and these documents should fail to index.
-  Flip assertions to expect hash_indexing_failures."""
+  """NaN is rejected by Rust parseGeo (R64 rejects non-finite values),
+  so documents with NaN coordinates fail to index."""
   conn = getConnectionByEnv(env)
   env.expect('FT.CREATE', 'idx', 'SCHEMA', 'g', 'GEO').ok()
 
@@ -211,18 +206,13 @@ def testGeoParseNaN(env):
   conn.execute_command('HSET', 'nan_lat', 'g', '1.0,NaN')
   conn.execute_command('HSET', 'nan_both', 'g', 'NaN,NaN')
 
-  # Currently no indexing failures — NaN sneaks through the C path.
-  assertInfoField(env, 'idx', 'hash_indexing_failures', 0)
+  assertInfoField(env, 'idx', 'hash_indexing_failures', 3)
 
 @skip(cluster=True)
 def testGeoParseInfinity(env):
-  """inf/-inf/infinity pass C parseGeo (fast_float v7 parses them) but
-  are caught by geohashEncode bounds checking (inf > 180 is true), so
-  they fail to index with 'Invalid geo coordinates'.
-
-  TODO: Once the Rust parseGeo replacement is active, these will be
-  rejected earlier at parse time. The end-to-end behavior (indexing
-  failure) stays the same, but the error reason changes."""
+  """inf/-inf/infinity are rejected by Rust parseGeo (R64 rejects
+  non-finite values), so documents with infinite coordinates fail to
+  index."""
   conn = getConnectionByEnv(env)
   env.expect('FT.CREATE', 'idx', 'SCHEMA', 'g', 'GEO').ok()
 
@@ -231,23 +221,16 @@ def testGeoParseInfinity(env):
   conn.execute_command('HSET', 'inf_lat', 'g', '1.0,inf')
   conn.execute_command('HSET', 'infinity_lon', 'g', 'infinity,1.0')
 
-  # All four fail to index (caught by encodeGeo bounds check).
   assertInfoField(env, 'idx', 'hash_indexing_failures', 4)
 
 @skip(cluster=True)
 def testGeoParseTrailingWhitespace(env):
-  """Trailing whitespace after a coordinate value: fast_float parses the
-  number but leaves the end pointer at the space, so the C check
-  `if (*end1 || *end2)` triggers and parseGeo rejects the input.
-
-  TODO: Once the Rust parseGeo replacement is active, trim() strips
-  trailing whitespace before parsing, so these inputs will index
-  successfully. Flip assertions to expect hash_indexing_failures == 0."""
+  """Trailing whitespace after a coordinate value is accepted by Rust
+  parseGeo (trim() strips it before parsing)."""
   conn = getConnectionByEnv(env)
   env.expect('FT.CREATE', 'idx', 'SCHEMA', 'g', 'GEO').ok()
 
   conn.execute_command('HSET', 'ws1', 'g', '1.23,4.56 ')
   conn.execute_command('HSET', 'ws2', 'g', '1.23, 4.56 ')
 
-  # Both fail to index under the C path: trailing whitespace in lat.
-  assertInfoField(env, 'idx', 'hash_indexing_failures', 2)
+  assertInfoField(env, 'idx', 'hash_indexing_failures', 0)

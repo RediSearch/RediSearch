@@ -9,7 +9,7 @@
 
 #include <rmutil/rm_assert.h>
 #include "rmalloc.h"
-#include "query_error.h"
+#include "query_error_ffi.h"
 
 /**
  * Set the error code using a custom-formatted string

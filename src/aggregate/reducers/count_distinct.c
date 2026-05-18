@@ -7,9 +7,10 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 #include "aggregate/reducer.h"
+#include "value_ffi.h"
 #include "util/block_alloc.h"
 #include "util/khash.h"
-#include "util/fnv.h"
+#include "fnv_ffi.h"
 #include "hll/hll.h"
 
 #define HLL_PRECISION_BITS 8

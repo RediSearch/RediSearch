@@ -24,7 +24,7 @@
 #include "VecSim/query_results.h"
 #include "info/global_stats.h"
 #include "ext/default.h"
-#include "query_error.h"
+#include "query_error_ffi.h"
 #include "asm_state_machine.h"
 
 // Macro for BLOB data that all tests using $BLOB should use

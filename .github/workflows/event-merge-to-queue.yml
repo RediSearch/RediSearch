@@ -15,22 +15,11 @@ concurrency:
 
 jobs:
   get-latest-redis-tag:
-    # TODO: Revert to using the latest stable ref in redis
-    runs-on: ubuntu-slim
-    outputs:
-      tag: 3cd464263b03b425ffae2e23db24df3dc9346871
-    steps:
-      - run: echo "Dummy step to set output"
-    # uses: ./.github/workflows/task-get-latest-tag.yml
-    # with:
-    #   repo: redis/redis
-
-  check-what-changed:
-    uses: ./.github/workflows/task-check-changes.yml
+    uses: ./.github/workflows/task-get-latest-tag.yml
+    with:
+      repo: redis/redis
 
   lint:
-    needs: check-what-changed
-    if: ${{ needs.check-what-changed.outputs.CODE_CHANGED == 'true' }}
     permissions:
       contents: read
       packages: write
@@ -42,11 +31,8 @@ jobs:
       compare-advisories-to-base: true
       advisories-base-ref: ${{ github.event.merge_group.base_sha }}
 
-  test-matrix:
-    # Wait for lint so we do not spend MQ test capacity when CI is already going to fail.
-    # Use explicit status checks so test-only changes still run even when lint is skipped.
-    needs: [get-latest-redis-tag, check-what-changed, lint]
-    if: ${{ !cancelled() && !failure() && (needs.check-what-changed.outputs.CODE_CHANGED == 'true' || needs.check-what-changed.outputs.TESTS_CHANGED == 'true') }}
+  build-unique-oses:
+    needs: get-latest-redis-tag
     permissions:
       contents: read
       packages: write
@@ -55,20 +41,37 @@ jobs:
     uses: ./.github/workflows/flow-test.yml
     secrets: inherit
     with:
-      platform: 'ubuntu:noble,macos-26,alpine:3.23,intel'  # on feature branches this should be 'all'
+      platform: 'macos-26,alpine:3.23,intel'
       architecture: all
       redis-ref: ${{ needs.get-latest-redis-tag.outputs.tag }}
-      job-test-config: '{"test": "", "coverage": "", "sanitize": ""}'
-      options: ${{ vars.ENABLE_CODE_COVERAGE != 'false' && 'unit-tests,coordinator,standalone,rejson,fail-fast,coverage,sanitize' || 'unit-tests,coordinator,standalone,rejson,fail-fast,sanitize' }}
+      options: skip-tests,fail-fast
+      rejson-branch: master
+
+  test-ubuntu:
+    # Always run tests for merge queue submissions, including text-only PRs.
+    needs: get-latest-redis-tag
+    permissions:
+      contents: read
+      packages: write
+      id-token: write # OIDC role assumption for sccache S3 (used inside task-test.yml)
+      actions: write  # Swatinem/rust-cache read/write of GH cache (used inside task-test.yml)
+    uses: ./.github/workflows/flow-test.yml
+    secrets: inherit
+    with:
+      platform: ubuntu:noble
+      architecture: x86_64
+      redis-ref: ${{ needs.get-latest-redis-tag.outputs.tag }}
+      job-test-config: '{"test": "QUICK=1", "coverage": "QUICK=1", "sanitize": "QUICK=1"}'
+      options: unit-tests,coordinator,standalone,rejson,fail-fast
       separate-coordinator-job: true
       rejson-branch: master
 
   pr-validation:
     needs:
       - get-latest-redis-tag
-      - check-what-changed
       - lint
-      - test-matrix
+      - build-unique-oses
+      - test-ubuntu
     runs-on: ubuntu-slim
     if: ${{ !cancelled() }}
     steps:
