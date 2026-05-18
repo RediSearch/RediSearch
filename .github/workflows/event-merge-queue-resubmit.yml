@@ -244,7 +244,7 @@ jobs:
           reason = latest_removal.get("reason") or "No reason provided"
           actor = latest_removal.get("actor") or {}
           enqueuer = latest_add.get("enqueuer") or latest_removal.get("enqueuer") or {}
-          enqueuer_login = enqueuer.get("login") or ""
+          enqueuer_login = enqueuer.get("login") or "unknown-enqueuer"
           detector_workflow_url = f"{os.environ['SERVER_URL']}/{repo}/actions/runs/{os.environ['CURRENT_RUN_ID']}"
           current_merge_queue_run, previous_merge_queue_run = query_merge_queue_workflow_runs(
               repo, pr_number, queue_branch
@@ -288,7 +288,7 @@ jobs:
               return f"{login} (missing Slack mapping)", SLACK_MAPPING_FALLBACK_USER_ID
 
 
-          author_login = pull_request["author"]["login"]
+          author_login = (pull_request.get("author") or {}).get("login") or "deleted-github-user"
           author_display, author_mention = slack_fields_for(author_login, "author")
           enqueuer_display, enqueuer_mention = slack_fields_for(enqueuer_login, "enqueuer")
 
