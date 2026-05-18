@@ -18,7 +18,12 @@ use crate::{IteratorType, RQEIterator, RQEIteratorError, RQEValidateStatus, Skip
 /// An iterator that yields no results.
 ///
 /// The [`Empty`] iterator is a sentinel iterator that represents an empty result set.
+///
+/// `#[repr(C)]` makes `Empty` trivially layout-compatible with itself across
+/// `Active`/`Suspended` instantiations of any containing iterator — it has no
+/// `Rf` fields of its own, so its Suspended counterpart is just `Empty` itself.
 #[derive(Default)]
+#[repr(C)]
 pub struct Empty;
 
 impl<'index> RQEIterator<'index> for Empty {

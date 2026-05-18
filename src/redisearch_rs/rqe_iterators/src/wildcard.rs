@@ -12,10 +12,11 @@
 use std::ptr::NonNull;
 
 use ffi::{RS_FIELDMASK_ALL, t_docId};
-use index_result::RSIndexResult;
+use index_result::{RSIndexResult, RawIndexResult};
 use index_spec::IndexSpecReadGuard;
 use inverted_index::codec::{doc_ids_only::DocIdsOnly, raw_doc_ids_only::RawDocIdsOnly};
 use inverted_index::{DocIdsDecoder, opaque};
+use ref_mode::{Active, Ref};
 
 use crate::IteratorType;
 use crate::{
@@ -23,15 +24,25 @@ use crate::{
     SkipToOutcome,
 };
 
-/// An iterator that yields all ids within a given range, from 1 to max id (inclusive) in an index.
-#[derive(Default)]
-pub struct Wildcard<'index> {
+/// An iterator that yields all ids within a given range, from 1 to max id
+/// (inclusive) in an index.
+///
+/// Parameterised over a [`Ref`] mode — see [`Wildcard`] for the [`Active`]
+/// instantiation that implements [`RQEIterator`]. The struct owns no
+/// references into the index (it's a pure counter); the only `Rf`-dependent
+/// field is `result`.
+#[repr(C)]
+pub struct RawWildcard<Rf: Ref> {
     // Supposed to be the max id in the index
     top_id: t_docId,
 
     /// A reusable result object to avoid allocations on each `read` call.
-    result: RSIndexResult<'index>,
+    result: RawIndexResult<Rf>,
 }
+
+/// Alias for an [`Active`] [`RawWildcard`] — the only instantiation with an
+/// [`RQEIterator`] impl today.
+pub type Wildcard<'index> = RawWildcard<Active<'index>>;
 
 impl Wildcard<'_> {
     pub fn new(top_id: t_docId, weight: f64) -> Self {

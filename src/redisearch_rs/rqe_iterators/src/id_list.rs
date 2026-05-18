@@ -10,8 +10,9 @@
 //! Supporting types for [`IdList`].
 
 use ffi::t_docId;
-use index_result::RSIndexResult;
+use index_result::{RSIndexResult, RawIndexResult};
 use index_spec::IndexSpecReadGuard;
+use ref_mode::{Active, Ref};
 use std::cmp::Ordering;
 
 use crate::{
@@ -26,7 +27,12 @@ pub type IdListSorted<'index> = IdList<'index, true>;
 pub type IdListUnsorted<'index> = IdList<'index, false>;
 
 /// An iterator that yields results according to an IDs list given on construction.
-pub struct IdList<'index, const SORTED: bool> {
+///
+/// Parameterised over a [`Ref`] mode — see [`IdList`] for the [`Active`]
+/// instantiation that implements [`RQEIterator`]. The struct owns its data
+/// (the list of document IDs); the only `Rf`-dependent field is `result`.
+#[repr(C)]
+pub struct RawIdList<Rf: Ref, const SORTED: bool> {
     /// The list of document IDs to iterate over.
     /// There must be no duplicates. The list must be sorted if `SORTED` is set to `true`.
     ids: OwnedSlice<t_docId>,
@@ -34,8 +40,12 @@ pub struct IdList<'index, const SORTED: bool> {
     /// When `offset` is equal to the length of `ids`, the iterator is at EOF.
     offset: usize,
     /// A reusable result object to avoid allocations on each [`read`](RQEIterator::read) call.
-    result: RSIndexResult<'index>,
+    result: RawIndexResult<Rf>,
 }
+
+/// Alias for an [`Active`] [`RawIdList`] — the only instantiation with an
+/// [`RQEIterator`] impl today.
+pub type IdList<'index, const SORTED: bool> = RawIdList<Active<'index>, SORTED>;
 
 impl<'index, const SORTED: bool> IdList<'index, SORTED> {
     /// Creates a new ID list iterator.
