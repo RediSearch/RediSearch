@@ -15,6 +15,7 @@
 #include "info/indexes_info.h"
 #include "config.h"
 #include "numeric_range_tree.h"
+#include "rules.h"
 
 #include <set>
 #include <string>
@@ -1477,6 +1478,28 @@ TEST_F(LLApiTest, testInfoSizeWithExistingIndex) {
   EXPECT_EQ(RediSearch_MemUsage(index), 2 + additional_overhead);
   // we have 2 left over b/c of the offset vector size which we cannot clean
   // since the data is not maintained.
+
+  RediSearch_DropIndex(index);
+}
+
+// Calling RediSearch_IndexExisting with more prefixes than MAX_SCHEMA_PREFIXES
+// used to dereference a NULL QueryError inside SchemaRule_CreateInternal and
+// abort the process. The call must now return without crashing and leave
+// sp->rule unset so the spec stays in a safe state.
+TEST_F(LLApiTest, testIndexExistingTooManyPrefixes) {
+  RSIndex *index = RediSearch_CreateIndex("idx_existing_overlimit", NULL);
+  ASSERT_NE(index, nullptr);
+
+  char config_index_all[] = "ENABLE";
+  SchemaRuleArgs args = {};
+  args.type = "HASH";
+  args.index_all = config_index_all;
+  args.nprefixes = MAX_SCHEMA_PREFIXES + 1;  // check fires before iteration
+  args.prefixes = nullptr;
+
+  RediSearch_IndexExisting(index, &args);
+
+  ASSERT_EQ(get_spec(index)->rule, nullptr);
 
   RediSearch_DropIndex(index);
 }
