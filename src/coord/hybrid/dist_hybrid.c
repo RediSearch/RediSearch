@@ -589,10 +589,6 @@ static int HybridRequest_prepareForExecution(HybridRequest *hreq,
         size_t numShards, QueryError *status,
         const HybridDebugParams *debugParams) {
 
-    // Point the tail-pipeline qctx error at hreq's own storage. The
-    // qctx->err must live for hreq's lifetime.
-    QueryError_ClearError(&hreq->tailPipelineError);
-    hreq->tailPipeline->qctx.err = &hreq->tailPipelineError;
     hreq->profile = printDistHybridProfile;
 
     // Parse the hybrid command (equivalent to AREQ_Compile)

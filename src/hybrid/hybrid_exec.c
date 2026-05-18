@@ -782,7 +782,7 @@ static int buildPipelineAndExecute(StrongRef hybrid_ref, HybridPipelineParams *h
     if (HybridRequest_BuildDepletionPipeline(hreq, hybridParams, depleteInBackground) != REDISMODULE_OK) {
       return REDISMODULE_ERR;
     }
-  } else if (HybridRequest_BuildPipeline(hreq, hybridParams, depleteInBackground, &hreq->tailPipelineError) != REDISMODULE_OK) {
+  } else if (HybridRequest_BuildPipeline(hreq, hybridParams, depleteInBackground, status) != REDISMODULE_OK) {
     return REDISMODULE_ERR;
   }
 
