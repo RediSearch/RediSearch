@@ -18,7 +18,8 @@ The codebase is primarily C, with an ongoing effort to port modules to Rust in `
 ./build.sh RUN_UNIT_TESTS TEST=unit_test_name # Specific C/C++ unit tests
 ./build.sh RUN_UNIT_TESTS SAN=address         # C/C++ unit tests with AddressSanitizer
 ./build.sh RUN_PYTEST                         # Python behavioral tests
-./build.sh RUN_PYTEST TEST=test_name          # Specific Python test
+./build.sh RUN_PYTEST TEST=<file>             # Whole Python test file
+./build.sh RUN_PYTEST TEST=<file>:<function>  # Specific Python test function
 cargo nextest run                             # Rust tests, from `src/redisearch_rs/`
 cargo +nightly miri test                      # Rust tests under `miri`, from `src/redisearch_rs/`
 ```
