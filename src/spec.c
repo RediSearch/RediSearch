@@ -3736,6 +3736,77 @@ void Indexes_UpdateMatchingWithSchemaRules(RedisModuleCtx *ctx, RedisModuleStrin
   Indexes_SpecOpsIndexingCtxFree(specs);
 }
 
+void Indexes_UpdateMatchingDocExpiration(RedisModuleCtx *ctx, RedisModuleString *key, DocumentType type) {
+  if (type == DocumentType_Unsupported || !RSGlobalConfig.monitorExpiration) {
+    return;
+  }
+
+  // Find all indexes that match the key's name prefix. runFilters=false:
+  // EXPIRE/PERSIST do not change field values, so a doc's schema-rule FILTER
+  // outcome cannot have flipped since the last write. The DocTable lookup
+  // below (DocTable_BorrowByKeyR) is the only discriminator we need — it
+  // returns the existing DMD when the doc is currently indexed, and NULL
+  // otherwise. Re-evaluating the filter here would re-read hash/JSON fields
+  // on the main thread for a result the loop would ignore.
+  SpecOpIndexingCtx *specs = Indexes_FindMatchingSchemaRules(ctx, key, type, false, NULL);
+
+  // EXPIRE/PERSIST notifications fire for every key in the keyspace. When no
+  // spec prefix matches we have nothing to update, so skip the OpenKey/TTL
+  // read entirely — that overhead would otherwise be paid on every event.
+  if (array_len(specs->specsOps) == 0) {
+    Indexes_SpecOpsIndexingCtxFree(specs);
+    return;
+  }
+
+  RedisModuleKey *kp = RedisModule_OpenKey(ctx, key, DOCUMENT_OPEN_KEY_INDEXING_FLAGS);
+  RS_ASSERT(kp);
+  t_expirationTimePoint ttl = GetKeyExpirationTime(kp);
+  RedisModule_CloseKey(kp);
+
+  for (size_t i = 0; i < array_len(specs->specsOps); ++i) {
+    SpecOpCtx *specOp = &specs->specsOps[i];
+    IndexSpec *spec = specOp->spec;
+    // Skip TTL update for specs that opted out of doc-level TTL tracking,
+    // matching the gate in Document_LoadSchemaFieldHash/Json. Otherwise
+    // DocTable_IsDocExpired could drop rows for an index that doesn't
+    // monitor TTLs.
+    //
+    // No spec lock needed: monitorDocumentExpiration is only written from
+    // main-thread callbacks (spec init, FT.CONFIG SET, FT.DEBUG
+    // MONITOR_EXPIRATION), and this keyspace-notification callback also
+    // runs on the main thread, so the Redis event loop serializes them.
+    // The spec write lock guards index data against background workers,
+    // not main-thread config flags (same pattern as the load path).
+    if (!spec->monitorDocumentExpiration) {
+      continue;
+    }
+    RedisSearchCtx sctx = SEARCH_CTX_STATIC(ctx, spec);
+    // Read lock is sufficient: the only mutation is the relaxed atomic store on
+    // `dmd->expirationTimeNs` inside DocTable_UpdateExpiration (paired with a
+    // relaxed atomic load in DocTable_IsDocExpired). The DMD chain traversal
+    // and refcount manipulation in DocTable_BorrowByKeyR / DMD_Return are
+    // explicitly documented as safe under either lock mode (doc_table.c, near
+    // DocTable_GetOwn). Concurrent writers cannot race here because keyspace
+    // notifications all dispatch on the Redis main thread, so this callback is
+    // serialized against itself and against other notification-driven writers
+    // by the event loop, not by the spec lock.
+    RedisSearchCtx_LockSpecRead(&sctx);
+    const RSDocumentMetadata *cdmd = DocTable_BorrowByKeyR(&spec->docs, key);
+    if (cdmd) {
+      // Reuse the canonical setter so the doc-level write goes through the
+      // same path as Indexer_Add (indexer.c) and the timespec->ns conversion
+      // assertion in expirationTimePointToNs runs. Pass NULL for the field
+      // expirations: EXPIRE/PERSIST do not affect HEXPIRE state, so the
+      // existing per-spec TTL table entries must be preserved untouched.
+      DocTable_UpdateExpiration(&spec->docs, (RSDocumentMetadata *)cdmd, ttl, NULL);
+      DMD_Return(cdmd);
+    }
+    RedisSearchCtx_UnlockSpec(&sctx);
+  }
+
+  Indexes_SpecOpsIndexingCtxFree(specs);
+}
+
 void Indexes_DeleteMatchingWithSchemaRules(RedisModuleCtx *ctx, RedisModuleString *key,
                                            DocumentType type,
                                            RedisModuleString **hashFields) {

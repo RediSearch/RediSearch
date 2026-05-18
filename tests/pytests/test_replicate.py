@@ -293,12 +293,16 @@ def expireDocs(isSortable, iter1_expected_without_sortby, iter1_expected_with_so
             'SORTABLE ' if isSortable else '', 'without' if i == 0 else 'with')
         # First iteration
         expected_res = iter1_expected_without_sortby if i == 0 else iter1_expected_with_sortby
+        # Accept both orders, since docID did not advance: pair up (name, fields)
+        # entries and compare as unordered sets.
+        def to_pairs(r):
+            return [r[0], sorted(zip(r[1::2], r[2::2]))]
         # Opening the key should fail on both slave and master should and the result should be marked with
         # a null value.
         res = slave.execute_command('FT.SEARCH', 'idx', '*', *sortby_cmd)
-        env.assertEqual(res, expected_res, message=(msg + " slave"))
+        env.assertEqual(to_pairs(res), to_pairs(expected_res), message=(msg + " slave"))
         res = master.execute_command('FT.SEARCH', 'idx', '*', *sortby_cmd)
-        env.assertEqual(res, expected_res, message=(msg + " master"))
+        env.assertEqual(to_pairs(res), to_pairs(expected_res), message=(msg + " master"))
 
         # Cancel lazy expire to allow the deletion of the key
         master.execute_command('DEBUG', 'SET-ACTIVE-EXPIRE', '1')
