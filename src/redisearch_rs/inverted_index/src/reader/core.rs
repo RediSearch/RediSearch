@@ -7,7 +7,9 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 
-use std::{io::Cursor, sync::atomic};
+use std::{io::Cursor, marker::PhantomData, sync::atomic};
+
+use ref_mode::{Active, Ref, SharedPtr};
 
 use super::{IndexReader, NumericReader, TermReader};
 use crate::{
@@ -18,13 +20,34 @@ use ffi::{IndexFlags, IndexFlags_Index_HasMultiValue};
 use index_result::RSIndexResult;
 use rqe_core::DocId;
 
-/// Reader that is able to read the records from an [`InvertedIndex`]
-pub struct IndexReaderCore<'index, E> {
+/// Reader that is able to read the records from an [`InvertedIndex`].
+///
+/// Parameterised over a [`Ref`] mode:
+///
+/// - With [`Active<'a>`], the pointers in this struct are real `&'a` references
+///   into the index and the [`IndexReader`] trait is implemented — see
+///   [`IndexReaderCore`] for that instantiation.
+/// - With [`Suspended`](ref_mode::Suspended), the pointers are inert raw
+///   pointers — the struct is a passive carrier across a lock release/reacquire
+///   cycle. It will be re-promoted to [`Active`] under the read lock before any
+///   reading happens.
+///
+/// Both instantiations have identical memory layout (`#[repr(C)]` +
+/// [`SharedPtr`] is `#[repr(transparent)]` over `NonNull`), so converting from
+/// `Active` to `Suspended` and back is a zero-cost transmute.
+#[repr(C)]
+pub struct RawIndexReaderCore<Rf: Ref, E> {
     /// The inverted index that is being read from.
-    pub(crate) ii: &'index InvertedIndex<E>,
+    pub(crate) ii: SharedPtr<Rf, InvertedIndex<E>>,
 
-    /// The current position in the block that is being read from.
-    current_buffer: Cursor<&'index [u8]>,
+    /// The buffer of the current block. In [`Active`] mode this is a real
+    /// `&'a [u8]` into the block buffer; in [`Suspended`](ref_mode::Suspended)
+    /// mode it is a raw pointer that may be stale and is refreshed when
+    /// re-promoting to [`Active`].
+    buf: SharedPtr<Rf, [u8]>,
+
+    /// The current read position into [`Self::buf`].
+    buf_pos: u64,
 
     /// The index of the current block in the `blocks` vector. This is used to keep track of
     /// which block we are currently reading from, especially when the current buffer is empty and we
@@ -44,17 +67,24 @@ pub struct IndexReaderCore<'index, E> {
     /// pointer comparison in [`Self::points_to_ii`] to detect the ABA problem: if the original
     /// index is freed and a new one is allocated at the same address, the unique IDs will differ.
     ii_unique_id: IndexUniqueId,
+
+    /// Keeps `E` in the type signature even though it only appears through `ii`.
+    _phantom: PhantomData<E>,
 }
 
+/// Alias for an [`Active`] [`RawIndexReaderCore`] — the only instantiation
+/// that can actually read records from the underlying index.
+pub type IndexReaderCore<'index, E> = RawIndexReaderCore<Active<'index>, E>;
+
 // Automatically implemented if the IndexReaderCore uses a NumericDecoder.
-impl<'index, E: DecodedBy<Decoder = D>, D: Decoder + NumericDecoder> NumericReader<'index>
-    for IndexReaderCore<'index, E>
+impl<'a, E: DecodedBy<Decoder = D> + 'a, D: Decoder + NumericDecoder> NumericReader<'a>
+    for RawIndexReaderCore<Active<'a>, E>
 {
 }
 
 /// Automatically implemented if the IndexReaderCore uses a TermDecoder.
-impl<'index, E: DecodedBy<Decoder = D> + OpaqueEncoding, D: Decoder + TermDecoder>
-    TermReader<'index> for IndexReaderCore<'index, E>
+impl<'a, E: DecodedBy<Decoder = D> + OpaqueEncoding + 'a, D: Decoder + TermDecoder> TermReader<'a>
+    for RawIndexReaderCore<Active<'a>, E>
 where
     E::Storage: HasInnerIndex<E>,
 {
@@ -65,14 +95,14 @@ where
     }
 }
 
-impl<'index, E: DecodedBy<Decoder = D>, D: Decoder> IndexReader<'index>
-    for IndexReaderCore<'index, E>
+impl<'a, E: DecodedBy<Decoder = D> + 'a, D: Decoder> IndexReader<'a>
+    for RawIndexReaderCore<Active<'a>, E>
 {
     #[inline(always)]
-    fn next_record(&mut self, result: &mut RSIndexResult<'index>) -> std::io::Result<bool> {
+    fn next_record(&mut self, result: &mut RSIndexResult<'a>) -> std::io::Result<bool> {
         // Check if the current buffer is empty or the end of the buffer has been reached
-        if self.current_buffer.get_ref().len() as u64 <= self.current_buffer.position() {
-            if self.current_block_idx + 1 >= self.ii.blocks.len() {
+        if (self.buf.get().len() as u64) <= self.buf_pos {
+            if self.current_block_idx + 1 >= self.ii.get().blocks.len() {
                 // No more blocks to read from
                 return Ok(false);
             };
@@ -80,8 +110,12 @@ impl<'index, E: DecodedBy<Decoder = D>, D: Decoder> IndexReader<'index>
             self.set_current_block(self.current_block_idx + 1);
         }
 
-        let base = D::base_id(&self.ii.blocks[self.current_block_idx], self.last_doc_id);
-        D::decode(&mut self.current_buffer, base, result)?;
+        let ii = self.ii.get();
+        let base = D::base_id(&ii.blocks[self.current_block_idx], self.last_doc_id);
+        let mut cursor = Cursor::new(self.buf.get());
+        cursor.set_position(self.buf_pos);
+        D::decode(&mut cursor, base, result)?;
+        self.buf_pos = cursor.position();
 
         self.last_doc_id = result.doc_id;
 
@@ -92,14 +126,18 @@ impl<'index, E: DecodedBy<Decoder = D>, D: Decoder> IndexReader<'index>
     fn seek_record(
         &mut self,
         doc_id: DocId,
-        result: &mut RSIndexResult<'index>,
+        result: &mut RSIndexResult<'a>,
     ) -> std::io::Result<bool> {
         if !self.skip_to(doc_id) {
             return Ok(false);
         }
 
-        let base = D::base_id(&self.ii.blocks[self.current_block_idx], self.last_doc_id);
-        let success = D::seek(&mut self.current_buffer, base, doc_id, result)?;
+        let ii = self.ii.get();
+        let base = D::base_id(&ii.blocks[self.current_block_idx], self.last_doc_id);
+        let mut cursor = Cursor::new(self.buf.get());
+        cursor.set_position(self.buf_pos);
+        let success = D::seek(&mut cursor, base, doc_id, result)?;
+        self.buf_pos = cursor.position();
 
         if success {
             self.last_doc_id = result.doc_id;
@@ -109,18 +147,19 @@ impl<'index, E: DecodedBy<Decoder = D>, D: Decoder> IndexReader<'index>
     }
 
     fn skip_to(&mut self, doc_id: DocId) -> bool {
-        if self.ii.blocks.is_empty() {
+        let ii = self.ii.get();
+        if ii.blocks.is_empty() {
             return false;
         }
 
-        if self.ii.blocks[self.current_block_idx].last_doc_id >= doc_id {
+        if ii.blocks[self.current_block_idx].last_doc_id >= doc_id {
             // We are already in the correct block
             return true;
         }
 
         // SAFETY: it is safe to unwrap because we checked that the blocks are not empty when
         // creating the reader.
-        if self.ii.blocks.last().unwrap().last_doc_id < doc_id {
+        if ii.blocks.last().unwrap().last_doc_id < doc_id {
             // The document ID is greater than the last document ID in the index
             return false;
         }
@@ -128,7 +167,7 @@ impl<'index, E: DecodedBy<Decoder = D>, D: Decoder> IndexReader<'index>
         // Check if the very next block is correct before doing a binary search. This is a small
         // optimization for the common case where we are skipping to the next block.
         let search_start = self.current_block_idx + 1;
-        if let Some(next_block) = self.ii.blocks.get(search_start)
+        if let Some(next_block) = ii.blocks.get(search_start)
             && next_block.last_doc_id >= doc_id
         {
             self.set_current_block(search_start);
@@ -136,7 +175,7 @@ impl<'index, E: DecodedBy<Decoder = D>, D: Decoder> IndexReader<'index>
         }
 
         // Binary search to find the correct block index
-        let relative_idx = self.ii.blocks[search_start..]
+        let relative_idx = ii.blocks[search_start..]
             .binary_search_by_key(&doc_id, |b| b.last_doc_id)
             .unwrap_or_else(|insertion_point| insertion_point);
 
@@ -146,65 +185,68 @@ impl<'index, E: DecodedBy<Decoder = D>, D: Decoder> IndexReader<'index>
     }
 
     fn reset(&mut self) {
-        if !self.ii.blocks.is_empty() {
+        let ii = self.ii.get();
+        if !ii.blocks.is_empty() {
             self.set_current_block(0);
         } else {
-            self.current_buffer = Cursor::new(&[]);
+            self.buf = SharedPtr::from_ref(&[]);
+            self.buf_pos = 0;
             self.last_doc_id = 0;
         }
 
-        self.gc_marker = self.ii.gc_marker.load(atomic::Ordering::Relaxed);
+        self.gc_marker = self.ii.get().gc_marker.load(atomic::Ordering::Relaxed);
     }
 
     fn unique_docs(&self) -> u64 {
-        self.ii.unique_docs() as u64
+        self.ii.get().unique_docs() as u64
     }
 
     fn has_duplicates(&self) -> bool {
-        self.ii.flags() & IndexFlags_Index_HasMultiValue > 0
+        self.ii.get().flags() & IndexFlags_Index_HasMultiValue > 0
     }
 
     fn flags(&self) -> IndexFlags {
-        self.ii.flags()
+        self.ii.get().flags()
     }
 
     fn needs_revalidation(&self) -> bool {
-        self.gc_marker != self.ii.gc_marker.load(atomic::Ordering::Relaxed)
+        self.gc_marker != self.ii.get().gc_marker.load(atomic::Ordering::Relaxed)
     }
 
     fn refresh_buffer_pointers(&mut self) {
-        if !self.ii.blocks.is_empty() && self.current_block_idx < self.ii.blocks.len() {
-            let current_block = &self.ii.blocks[self.current_block_idx];
+        let ii = self.ii.get();
+        if !ii.blocks.is_empty() && self.current_block_idx < ii.blocks.len() {
+            let current_block = &ii.blocks[self.current_block_idx];
             // Update the cursor to point to the current position in the refreshed buffer
-            let position = self.current_buffer.position();
-            self.current_buffer = Cursor::new(&current_block.buffer);
-            self.current_buffer.set_position(position);
+            self.buf = SharedPtr::from_ref(current_block.buffer.as_slice());
         }
     }
 }
 
-impl<'index, E: DecodedBy<Decoder = D>, D: Decoder> IndexReaderCore<'index, E> {
+impl<'a, E: DecodedBy<Decoder = D> + 'a, D: Decoder> RawIndexReaderCore<Active<'a>, E> {
     /// Create a new index reader that reads from the given [`InvertedIndex`].
     ///
     /// # Panic
     /// This function will panic if the inverted index is empty.
-    pub(crate) fn new(ii: &'index InvertedIndex<E>) -> Self {
-        let (current_buffer, last_doc_id) = if let Some(first_block) = ii.blocks.first() {
+    pub(crate) fn new(ii: &'a InvertedIndex<E>) -> Self {
+        let (buf, last_doc_id) = if let Some(first_block) = ii.blocks.first() {
             (
-                Cursor::new(first_block.buffer.as_ref()),
+                SharedPtr::from_ref(first_block.buffer.as_slice()),
                 first_block.first_doc_id,
             )
         } else {
-            (Cursor::new(&[] as &[u8]), 0)
+            (SharedPtr::from_ref(&[][..]), 0)
         };
 
         Self {
-            ii,
-            current_buffer,
+            ii: SharedPtr::from_ref(ii),
+            buf,
+            buf_pos: 0,
             current_block_idx: 0,
             last_doc_id,
             gc_marker: ii.gc_marker.load(atomic::Ordering::Relaxed),
             ii_unique_id: ii.unique_id(),
+            _phantom: PhantomData,
         }
     }
 
@@ -212,32 +254,33 @@ impl<'index, E: DecodedBy<Decoder = D>, D: Decoder> IndexReaderCore<'index, E> {
     /// unique IDs. The dual check prevents the ABA problem: if the original index is freed and a
     /// new one is allocated at the same address, the unique IDs will differ.
     pub fn points_to_ii(&self, index: &InvertedIndex<E>) -> bool {
-        std::ptr::eq(self.ii, index) && self.ii_unique_id == index.unique_id()
+        std::ptr::eq(self.ii.as_raw(), index) && self.ii_unique_id == index.unique_id()
     }
 
     /// Swap the inverted index of the reader with the supplied index. This is only used by the C
     /// tests to trigger a revalidation.
-    pub const fn swap_index(&mut self, index: &mut &'index InvertedIndex<E>) {
-        std::mem::swap(&mut self.ii, index);
-        self.ii_unique_id = self.ii.unique_id();
+    pub const fn swap_index(&mut self, index: &mut &'a InvertedIndex<E>) {
+        let current = self.ii.get();
+        let new_ii = std::mem::replace(index, current);
+        self.ii = SharedPtr::from_ref(new_ii);
+        self.ii_unique_id = new_ii.unique_id();
     }
 
     /// Get the internal index of the reader. This is only used by some C tests.
     pub const fn internal_index(&self) -> &InvertedIndex<E> {
-        self.ii
+        self.ii.get()
     }
 
     /// Set the current active block to the given index
     fn set_current_block(&mut self, index: usize) {
-        debug_assert!(
-            index < self.ii.blocks.len(),
-            "block index should stay in bounds"
-        );
+        let ii = self.ii.get();
+        debug_assert!(index < ii.blocks.len(), "block index should stay in bounds");
 
         self.current_block_idx = index;
-        let current_block = &self.ii.blocks[self.current_block_idx];
+        let current_block = &ii.blocks[self.current_block_idx];
         self.last_doc_id = current_block.first_doc_id;
-        self.current_buffer = Cursor::new(&current_block.buffer);
+        self.buf = SharedPtr::from_ref(current_block.buffer.as_slice());
+        self.buf_pos = 0;
     }
 }
 

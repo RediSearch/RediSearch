@@ -126,7 +126,8 @@ impl<'index> WildcardIterator<'index> for Wildcard<'index> {}
 impl<'index, E> WildcardIterator<'index> for crate::inverted_index::Wildcard<'index, E>
 where
     E: inverted_index::DecodedBy
-        + inverted_index::opaque::OpaqueEncoding<Storage = inverted_index::InvertedIndex<E>>,
+        + inverted_index::opaque::OpaqueEncoding<Storage = inverted_index::InvertedIndex<E>>
+        + 'index,
     <E as inverted_index::DecodedBy>::Decoder: DocIdsDecoder,
 {
 }
