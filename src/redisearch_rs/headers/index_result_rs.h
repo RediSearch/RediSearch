@@ -31,6 +31,82 @@ typedef struct RLookupKey RLookupKey;
  */
 typedef struct RSOffsetVector RSOffsetSlice;
 
+#ifndef RAWMETRICSSLICE_ACTIVE_DEFINED
+#define RAWMETRICSSLICE_ACTIVE_DEFINED
+/**
+ * A read-only, C-visible slice view over the entries of a [`MetricsVec`].
+ *
+ * Returned by [`MetricsVec::as_metrics_slice`] for zero-copy iteration
+ * from C. The pointed-to data is valid as long as the originating
+ * [`MetricsVec`] is not mutated or dropped.
+ */
+typedef struct RawMetricsSlice_Active {
+  /**
+   * Pointer to the first [`MetricEntry`].  May be dangling (but not null)
+   * when `len == 0`.
+   */
+  const struct RawMetricEntry_Active *data;
+  /**
+   * Number of entries.
+   */
+  size_t len;
+} RawMetricsSlice_Active;
+#endif /* RAWMETRICSSLICE_ACTIVE_DEFINED */
+
+#ifndef THINVEC_BOX_RAWINDEXRESULT_ACTIVE__U16_DEFINED
+#define THINVEC_BOX_RAWINDEXRESULT_ACTIVE__U16_DEFINED
+/**
+ * See the crate's top level documentation for a description of this type.
+ */
+typedef struct ThinVec_Box_RawIndexResult_Active__u16 {
+  struct Header_u16 *ptr;
+} ThinVec_Box_RawIndexResult_Active__u16;
+#endif /* THINVEC_BOX_RAWINDEXRESULT_ACTIVE__U16_DEFINED */
+
+#ifndef THINVEC_RAWMETRICENTRY_ACTIVE__U64_DEFINED
+#define THINVEC_RAWMETRICENTRY_ACTIVE__U64_DEFINED
+/**
+ * See the crate's top level documentation for a description of this type.
+ */
+typedef struct ThinVec_RawMetricEntry_Active__u64 {
+  struct Header_u64 *ptr;
+} ThinVec_RawMetricEntry_Active__u64;
+#endif /* THINVEC_RAWMETRICENTRY_ACTIVE__U64_DEFINED */
+
+#ifndef RAWMETRICSVEC_ACTIVE_DEFINED
+#define RAWMETRICSVEC_ACTIVE_DEFINED
+/**
+ * A dynamically-sized collection of [`MetricEntry`] values.
+ *
+ * Backed by a [`ThinVec`] — a single-pointer vec that stores len/cap in
+ * the allocation header. `MetricsVec::new()` does not allocate.
+ *
+ * `repr(transparent)` over `ThinVec` means this type is pointer-sized
+ * and can be embedded directly in `repr(C)` structs.
+ */
+typedef struct ThinVec_RawMetricEntry_Active__u64 RawMetricsVec_Active;
+#endif /* RAWMETRICSVEC_ACTIVE_DEFINED */
+
+/**
+ * The [`Active`] instantiation of [`RawMetricsVec`].
+ */
+typedef RawMetricsVec_Active MetricsVec;
+
+#ifndef THINVEC_SHAREDPTR_ACTIVE__RAWINDEXRESULT_ACTIVE__U16_DEFINED
+#define THINVEC_SHAREDPTR_ACTIVE__RAWINDEXRESULT_ACTIVE__U16_DEFINED
+/**
+ * See the crate's top level documentation for a description of this type.
+ */
+typedef struct ThinVec_SharedPtr_Active__RawIndexResult_Active__u16 {
+  struct Header_u16 *ptr;
+} ThinVec_SharedPtr_Active__RawIndexResult_Active__u16;
+#endif /* THINVEC_SHAREDPTR_ACTIVE__RAWINDEXRESULT_ACTIVE__U16_DEFINED */
+
+/**
+ * The [`Active`] instantiation of [`RawMetricsSlice`].
+ */
+typedef struct RawMetricsSlice_Active MetricsSlice;
+
 #ifndef SHAREDPTR_ACTIVE__RLOOKUPKEY_DEFINED
 #define SHAREDPTR_ACTIVE__RLOOKUPKEY_DEFINED
 /**
@@ -264,82 +340,6 @@ typedef union RawTermRecord_Active {
  * The [`Active`] instantiation of [`RawTermRecord`].
  */
 typedef union RawTermRecord_Active RSTermRecord;
-
-#ifndef RAWMETRICSSLICE_ACTIVE_DEFINED
-#define RAWMETRICSSLICE_ACTIVE_DEFINED
-/**
- * A read-only, C-visible slice view over the entries of a [`MetricsVec`].
- *
- * Returned by [`MetricsVec::as_metrics_slice`] for zero-copy iteration
- * from C. The pointed-to data is valid as long as the originating
- * [`MetricsVec`] is not mutated or dropped.
- */
-typedef struct RawMetricsSlice_Active {
-  /**
-   * Pointer to the first [`MetricEntry`].  May be dangling (but not null)
-   * when `len == 0`.
-   */
-  const struct RawMetricEntry_Active *data;
-  /**
-   * Number of entries.
-   */
-  size_t len;
-} RawMetricsSlice_Active;
-#endif /* RAWMETRICSSLICE_ACTIVE_DEFINED */
-
-#ifndef THINVEC_BOX_RAWINDEXRESULT_ACTIVE__U16_DEFINED
-#define THINVEC_BOX_RAWINDEXRESULT_ACTIVE__U16_DEFINED
-/**
- * See the crate's top level documentation for a description of this type.
- */
-typedef struct ThinVec_Box_RawIndexResult_Active__u16 {
-  struct Header_u16 *ptr;
-} ThinVec_Box_RawIndexResult_Active__u16;
-#endif /* THINVEC_BOX_RAWINDEXRESULT_ACTIVE__U16_DEFINED */
-
-#ifndef THINVEC_RAWMETRICENTRY_ACTIVE__U64_DEFINED
-#define THINVEC_RAWMETRICENTRY_ACTIVE__U64_DEFINED
-/**
- * See the crate's top level documentation for a description of this type.
- */
-typedef struct ThinVec_RawMetricEntry_Active__u64 {
-  struct Header_u64 *ptr;
-} ThinVec_RawMetricEntry_Active__u64;
-#endif /* THINVEC_RAWMETRICENTRY_ACTIVE__U64_DEFINED */
-
-#ifndef RAWMETRICSVEC_ACTIVE_DEFINED
-#define RAWMETRICSVEC_ACTIVE_DEFINED
-/**
- * A dynamically-sized collection of [`MetricEntry`] values.
- *
- * Backed by a [`ThinVec`] — a single-pointer vec that stores len/cap in
- * the allocation header. `MetricsVec::new()` does not allocate.
- *
- * `repr(transparent)` over `ThinVec` means this type is pointer-sized
- * and can be embedded directly in `repr(C)` structs.
- */
-typedef struct ThinVec_RawMetricEntry_Active__u64 RawMetricsVec_Active;
-#endif /* RAWMETRICSVEC_ACTIVE_DEFINED */
-
-/**
- * The [`Active`] instantiation of [`RawMetricsVec`].
- */
-typedef RawMetricsVec_Active MetricsVec;
-
-#ifndef THINVEC_SHAREDPTR_ACTIVE__RAWINDEXRESULT_ACTIVE__U16_DEFINED
-#define THINVEC_SHAREDPTR_ACTIVE__RAWINDEXRESULT_ACTIVE__U16_DEFINED
-/**
- * See the crate's top level documentation for a description of this type.
- */
-typedef struct ThinVec_SharedPtr_Active__RawIndexResult_Active__u16 {
-  struct Header_u16 *ptr;
-} ThinVec_SharedPtr_Active__RawIndexResult_Active__u16;
-#endif /* THINVEC_SHAREDPTR_ACTIVE__RAWINDEXRESULT_ACTIVE__U16_DEFINED */
-
-/**
- * The [`Active`] instantiation of [`RawMetricsSlice`].
- */
-typedef struct RawMetricsSlice_Active MetricsSlice;
 
 #ifndef SMALLTHINVEC_BOX_RAWINDEXRESULT_ACTIVE_DEFINED
 #define SMALLTHINVEC_BOX_RAWINDEXRESULT_ACTIVE_DEFINED
