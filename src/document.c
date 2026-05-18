@@ -663,7 +663,7 @@ FIELD_PREPROCESSOR(geoPreprocessor) {
   switch (field->unionType) {
     case FLD_VAR_T_GEO:
       fdata->isMulti = 0;
-      geohash = calcGeoHash(field->lon, field->lat);
+      geohash = encodeGeo(field->lon, field->lat);
       if (geohash == INVALID_GEOHASH) {
         QueryError_SetWithUserDataFmt(status, QUERY_ERROR_CODE_GEO_COORDINATES_INVALID, "Invalid geo coordinates", ": %f, %f",
                                field->lon, field->lat);
@@ -697,7 +697,7 @@ FIELD_PREPROCESSOR(geoPreprocessor) {
     if (parseGeo((const uint8_t *)str, len, &lon, &lat, status) != REDISMODULE_OK) {
       return REDISMODULE_ERR;
     }
-    geohash = calcGeoHash(lon, lat);
+    geohash = encodeGeo(lon, lat);
     if (geohash == INVALID_GEOHASH) {
       QueryError_SetWithUserDataFmt(status, QUERY_ERROR_CODE_GEO_COORDINATES_INVALID, "Invalid geo coordinates", ": %f, %f",
                         lon, lat);
@@ -714,7 +714,7 @@ FIELD_PREPROCESSOR(geoPreprocessor) {
         fdata->arrNumeric = NULL;
         return REDISMODULE_ERR;
       }
-      geohash = calcGeoHash(lon, lat);
+      geohash = encodeGeo(lon, lat);
       if (geohash == INVALID_GEOHASH) {
         QueryError_SetWithUserDataFmt(status, QUERY_ERROR_CODE_GEO_COORDINATES_INVALID, "Invalid geo coordinates", ": %f, %f",
                         lon, lat);

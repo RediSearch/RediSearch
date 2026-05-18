@@ -26,31 +26,25 @@ use tracing_log_error::log_error;
 #[cheadergen::config(export)]
 pub const GEO_RANGE_COUNT: usize = geo::GEO_RANGE_COUNT;
 
-/// Encode longitude and latitude into a single `f64` geohash value.
+/// Encode longitude and latitude into a 52-bit-aligned geohash score,
+/// or return `INVALID_GEOHASH` (`-1.0`) on invalid coordinates.
 ///
-/// Returns non-zero on success, 0 on failure.
-///
-/// # Safety
-///
-/// - `bits` must be a valid, non-null pointer to a writable `f64`.
+/// Valid geohash scores are non-negative, so any negative return value
+/// signals an error.
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn encodeGeo(lon: f64, lat: f64, bits: *mut f64) -> c_int {
+pub extern "C" fn encodeGeo(lon: f64, lat: f64) -> f64 {
     let coords = match geo::hash::WGS84Coordinates::from_f64(lon, lat) {
         Ok(coords) => coords,
         Err(err) => {
             log_error!(err, level: tracing::Level::WARN, "encodeGeo: invalid WGS-84 coordinates");
-            // SAFETY: caller guarantees `bits` is valid.
-            unsafe { *bits = 0.0 };
-            return 0;
+            return INVALID_GEOHASH;
         }
     };
     let hash = geo::hash::encode_wgs84(coords, geo::hash::GEO_STEP_MAX);
-    // SAFETY: caller guarantees `bits` is valid.
-    unsafe {
-        *bits = geo::hash::align_52bits(hash) as f64;
-    }
-    1
+    geo::hash::align_52bits(hash) as f64
 }
+
+const INVALID_GEOHASH: f64 = -1.0;
 
 /// Decode a geohash `f64` back into a `[longitude, latitude]` pair.
 ///

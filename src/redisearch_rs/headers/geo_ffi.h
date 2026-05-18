@@ -27,15 +27,13 @@ extern "C" {
 #endif // __cplusplus
 
 /**
- * Encode longitude and latitude into a single `f64` geohash value.
+ * Encode longitude and latitude into a 52-bit-aligned geohash score,
+ * or return `INVALID_GEOHASH` (`-1.0`) on invalid coordinates.
  *
- * Returns non-zero on success, 0 on failure.
- *
- * # Safety
- *
- * - `bits` must be a valid, non-null pointer to a writable `f64`.
+ * Valid geohash scores are non-negative, so any negative return value
+ * signals an error.
  */
-int encodeGeo(double lon, double lat, double *bits);
+double encodeGeo(double lon, double lat);
 
 /**
  * Decode a geohash `f64` back into a `[longitude, latitude]` pair.
@@ -71,7 +69,8 @@ bool isWithinRadiusLonLat(double lon1, double lat1, double lon2, double lat2, do
 
 /**
  * Parse a `"lon,lat"` or `"lon lat"` string into separate longitude and
- * latitude values.
+ * latitude values. Leading and trailing whitespace around each coordinate
+ * value is trimmed.
  *
  * Returns `REDISMODULE_OK` on success, `REDISMODULE_ERR` on failure (with
  * the error details written to `status`).
