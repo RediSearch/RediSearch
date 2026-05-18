@@ -1123,6 +1123,7 @@ dependencies = [
  "qint",
  "query_term",
  "redis_reply",
+ "ref_mode",
  "serde",
  "smallvec",
  "thin_vec",

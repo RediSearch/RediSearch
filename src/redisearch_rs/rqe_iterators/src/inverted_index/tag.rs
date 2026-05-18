@@ -45,7 +45,7 @@ pub struct Tag<'index, E, C = crate::expiration_checker::NoOpChecker> {
 
 impl<'index, E, C> Tag<'index, E, C>
 where
-    E: DecodedBy + OpaqueEncoding<Storage = inverted_index::InvertedIndex<E>>,
+    E: DecodedBy + OpaqueEncoding<Storage = inverted_index::InvertedIndex<E>> + 'index,
     <E as DecodedBy>::Decoder: DocIdsDecoder,
     C: ExpirationChecker,
 {
@@ -176,7 +176,7 @@ where
 
 impl<'index, E, C> RQEIterator<'index> for Tag<'index, E, C>
 where
-    E: DecodedBy + OpaqueEncoding<Storage = inverted_index::InvertedIndex<E>>,
+    E: DecodedBy + OpaqueEncoding<Storage = inverted_index::InvertedIndex<E>> + 'index,
     <E as DecodedBy>::Decoder: DocIdsDecoder,
     C: ExpirationChecker,
 {

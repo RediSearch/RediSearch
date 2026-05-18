@@ -51,7 +51,7 @@ pub struct Missing<'index, E: DecodedBy, C = crate::expiration_checker::NoOpChec
 
 impl<'index, E, C> Missing<'index, E, C>
 where
-    E: DecodedBy + OpaqueEncoding<Storage = inverted_index::InvertedIndex<E>>,
+    E: DecodedBy + OpaqueEncoding<Storage = inverted_index::InvertedIndex<E>> + 'index,
     <E as DecodedBy>::Decoder: DocIdsDecoder,
     C: ExpirationChecker,
 {
@@ -172,7 +172,7 @@ where
 
 impl<'index, E, C> RQEIterator<'index> for Missing<'index, E, C>
 where
-    E: DecodedBy + OpaqueEncoding<Storage = inverted_index::InvertedIndex<E>>,
+    E: DecodedBy + OpaqueEncoding<Storage = inverted_index::InvertedIndex<E>> + 'index,
     <E as DecodedBy>::Decoder: DocIdsDecoder,
     C: ExpirationChecker,
 {

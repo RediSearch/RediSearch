@@ -17,6 +17,11 @@ use index_result::RSIndexResult;
 /// A reader that filters out records that do not match a given field mask. It is used to
 /// filter records in an index based on their field mask, allowing only those that match the
 /// specified mask to be returned.
+///
+/// `#[repr(C)]` so that, once `IR` is layout-compatible across `Active`/`Suspended`
+/// instantiations of its inner [`RawIndexReaderCore`](crate::RawIndexReaderCore),
+/// the whole `FilterMaskReader` is too.
+#[repr(C)]
 pub struct FilterMaskReader<IR> {
     /// Mask which a record needs to match to be valid
     mask: t_fieldMask,
@@ -121,7 +126,7 @@ impl<'index, E: DecodedBy<Decoder = D>, D: Decoder> FilterMaskReader<IndexReader
 }
 
 /// Automatically implemented if the IndexReaderCore uses a TermDecoder.
-impl<'index, E: DecodedBy<Decoder = D> + OpaqueEncoding, D: Decoder + TermDecoder>
+impl<'index, E: DecodedBy<Decoder = D> + OpaqueEncoding + 'index, D: Decoder + TermDecoder>
     TermReader<'index> for FilterMaskReader<IndexReaderCore<'index, E>>
 where
     E::Storage: HasInnerIndex<E>,
