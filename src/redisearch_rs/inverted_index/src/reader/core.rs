@@ -9,9 +9,9 @@
 
 use std::{io::Cursor, marker::PhantomData, sync::atomic};
 
-use ref_mode::{Active, Ref, SharedPtr};
+use ref_mode::{Active, Ref, SharedPtr, Suspended};
 
-use super::{IndexReader, NumericReader, TermReader};
+use super::{IndexReader, NumericReader, ResumableReader, SuspendableReader, TermReader};
 use crate::{
     DecodedBy, Decoder, Encoder, HasInnerIndex, InvertedIndex, NumericDecoder, TermDecoder,
     index::unique_id::IndexUniqueId, opaque::OpaqueEncoding,
@@ -27,7 +27,7 @@ use rqe_core::DocId;
 /// - With [`Active<'index>`], the pointers in this struct are real `&'index` references
 ///   into the index and the [`IndexReader`] trait is implemented — see
 ///   [`IndexReaderCore`] for that instantiation.
-/// - With [`Suspended`](ref_mode::Suspended), the pointers are inert raw
+/// - With [`Suspended`], the pointers are inert raw
 ///   pointers — the struct is a passive carrier across a lock release/reacquire
 ///   cycle. It will be re-promoted to [`Active`] under the read lock before any
 ///   reading happens.
@@ -41,7 +41,7 @@ pub struct RawIndexReaderCore<Rf: Ref, E> {
     pub(crate) ii: SharedPtr<Rf, InvertedIndex<E>>,
 
     /// The buffer of the current block. In [`Active`] mode this is a real
-    /// `&'index [u8]` into the block buffer; in [`Suspended`](ref_mode::Suspended)
+    /// `&'index [u8]` into the block buffer; in [`Suspended`]
     /// mode it is a raw pointer that may be stale and is refreshed when
     /// re-promoting to [`Active`].
     buf: SharedPtr<Rf, [u8]>,
@@ -75,6 +75,21 @@ pub struct RawIndexReaderCore<Rf: Ref, E> {
 /// Alias for an [`Active`] [`RawIndexReaderCore`] — the only instantiation
 /// that can actually read records from the underlying index.
 pub type IndexReaderCore<'index, E> = RawIndexReaderCore<Active<'index>, E>;
+
+/// `IndexReaderCore<Active<'a>, E>` suspends to `IndexReaderCore<Suspended, E>`.
+impl<'a, E> SuspendableReader for RawIndexReaderCore<Active<'a>, E> {
+    type Suspended = RawIndexReaderCore<Suspended, E>;
+}
+
+/// Inverse of the above: `RawIndexReaderCore<Suspended, E>` resumes to
+/// `IndexReaderCore<Active<'a>, E>` at any index lifetime `'a`.
+impl<E: 'static> ResumableReader for RawIndexReaderCore<Suspended, E>
+where
+    Self: IndexReader<'static>,
+    for<'a> RawIndexReaderCore<Active<'a>, E>: IndexReader<'a>,
+{
+    type Resumed<'a> = RawIndexReaderCore<Active<'a>, E>;
+}
 
 // Automatically implemented if the IndexReaderCore uses a NumericDecoder.
 impl<'index, E: DecodedBy<Decoder = D> + 'index, D: Decoder + NumericDecoder> NumericReader<'index>
