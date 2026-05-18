@@ -278,8 +278,7 @@ impl TimeToLiveTable {
         }
     }
 
-    /// Return the number of buckets currently allocated
-    #[cfg(feature = "test-utils")]
+    /// Return the number of buckets currently allocated.
     pub const fn n_allocated_buckets(&self) -> usize {
         self.buckets.len()
     }
