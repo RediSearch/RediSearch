@@ -377,6 +377,8 @@ typedef struct IndexSpec {
   RedisSearchDiskIndexSpec *diskSpec;
 
   pthread_rwlock_t disk_fork_rwlock;
+  // Flags indicating state of the replication process. Needed to abort replication process
+  // in a healthy way
   ReplicationLockFlags repl_flags;
 } IndexSpec;
 

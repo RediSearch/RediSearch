@@ -669,6 +669,7 @@ static void SSTReplicationEvent(RedisModuleCtx *ctx, RedisModuleEvent eid,
       }
       break;
     default:
+      RS_LOG_ASSERT_FMT(false, "Received unknown sub-event %llu for SST replication", (unsigned long long)subevent);
       RedisModule_Log(ctx, "warning",
                       "SST replication: unknown sub-event %llu",
                       (unsigned long long)subevent);
