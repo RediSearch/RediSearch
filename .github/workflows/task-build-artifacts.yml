@@ -181,7 +181,7 @@ jobs:
       # Upload
       - name: Configure AWS Credentials Using Role (node20)
         if: vars.USE_AWS_ROLE == 'true' && steps.node20.outputs.supported == 'true'
-        uses: aws-actions/configure-aws-credentials@v4
+        uses: aws-actions/configure-aws-credentials@v6
         with:
           role-to-assume: ${{ vars.ARTIFACT_UPLOAD_AWS_ROLE_TO_ASSUME }}
           aws-region: ${{ vars.ARTIFACT_UPLOAD_AWS_REGION }}
@@ -241,7 +241,7 @@ jobs:
           echo "AWS credentials configured successfully using OIDC."
       - name: Configure AWS Credentials Using Keys (node20)
         if: vars.USE_AWS_ROLE == 'false' && steps.node20.outputs.supported == 'true'
-        uses: aws-actions/configure-aws-credentials@v4
+        uses: aws-actions/configure-aws-credentials@v6
         with:
           aws-access-key-id: ${{ secrets.ARTIFACT_UPLOAD_AWS_ACCESS_KEY_ID }}
           aws-secret-access-key: ${{ secrets.ARTIFACT_UPLOAD_AWS_SECRET_ACCESS_KEY }}
