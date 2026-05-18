@@ -60,6 +60,47 @@ pub trait IndexReader<'index> {
     fn refresh_buffer_pointers(&mut self);
 }
 
+/// Type-level mapping from an Active reader to its Suspended counterpart.
+///
+/// Each reader type that contains `Active<'a>` somewhere in its type
+/// parameters declares its matching `Suspended` shape via this trait. The
+/// suspended/resume work in `rqe_iterators` uses it to express the
+/// `Suspended` associated type of an iterator generically, e.g.
+/// `InvIndIterator<Active<'a>, R, E>` has
+/// `Suspended = InvIndIterator<Suspended, R::Suspended, E>` for any
+/// `R: SuspendableReader`.
+///
+/// This is purely a type-level helper — there is no runtime method. The
+/// trait is intentionally not bound by `IndexReader<'_>` so it can also be
+/// implemented for the `Suspended` instantiations themselves if needed by
+/// future work; for now only the `Active<'_>`-side impls are useful.
+pub trait SuspendableReader {
+    /// The matching reader type carrying [`ref_mode::Suspended`] instead of
+    /// [`ref_mode::Active`].
+    type Suspended;
+}
+
+/// Inverse of [`SuspendableReader`]: type-level mapping from a Suspended
+/// reader to its Active counterpart at a given index lifetime.
+///
+/// Together with [`SuspendableReader`], implementers of this trait form a
+/// bijection between Active and Suspended reader types — used by the
+/// `RQESuspendedIterator` impl on the suspended side of inverted-index
+/// iterators (in `rqe_iterators`) to express the [`Resumed`](Self::Resumed)
+/// associated type generically.
+///
+/// The `'static` bound reflects that a suspended reader carries no live
+/// references into the index. The trait is therefore implementable on
+/// reader types whose layout does not embed an `&'index …` reference;
+/// readers that borrow query-side resources (e.g.
+/// [`FilterNumericReader`] / [`FilterGeoReader`]'s borrowed filter) are
+/// covered separately under the wrapping iterator's own design.
+pub trait ResumableReader: 'static {
+    /// The matching active reader type, parameterised by the index
+    /// lifetime under which the suspended reader is being resumed.
+    type Resumed<'a>: IndexReader<'a> + SuspendableReader<Suspended = Self> + 'a;
+}
+
 /// Marker trait for readers producing numeric values.
 pub trait NumericReader<'index>: IndexReader<'index> {}
 

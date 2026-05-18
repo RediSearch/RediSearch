@@ -9,7 +9,7 @@
 
 use std::ffi::c_void;
 
-use super::{IndexReader, IndexReaderCore, NumericReader};
+use super::{IndexReader, IndexReaderCore, NumericReader, SuspendableReader};
 use crate::{DecodedBy, Decoder, InvertedIndex};
 use ffi::{FieldSpec, IndexFlags};
 use index_result::RSIndexResult;
@@ -103,6 +103,12 @@ impl<'index, IR: NumericReader<'index>> FilterNumericReader<IR> {
     pub const fn new(filter: NumericFilter, inner: IR) -> Self {
         Self { filter, inner }
     }
+}
+
+/// `FilterNumericReader<IR>` suspends to `FilterNumericReader<IR::Suspended>`
+/// — only the inner reader switches modes.
+impl<IR: SuspendableReader> SuspendableReader for FilterNumericReader<IR> {
+    type Suspended = FilterNumericReader<IR::Suspended>;
 }
 
 impl<'index, E> FilterNumericReader<IndexReaderCore<'index, E>> {
