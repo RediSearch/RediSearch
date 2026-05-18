@@ -10,6 +10,8 @@
 //! Integration tests that snapshot the C rune-trie's behavior.
 
 mod insert_iterate;
+mod splits;
+mod unicode;
 
 // Force-link the lib crate so its build script's `static:-bundle=redisearch_all`
 // directive (the only place we declare the dependency on `libredisearch_all.a`)
