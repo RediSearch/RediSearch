@@ -695,9 +695,13 @@ name = "fork_gc"
 version = "0.0.1"
 dependencies = [
  "ffi",
+ "inverted_index",
  "libc",
  "nix",
  "redis-module",
+ "rmp-serde",
+ "search_ctx",
+ "serde",
  "tracing",
  "workspace_hack",
 ]
@@ -709,6 +713,7 @@ dependencies = [
  "cheadergen",
  "ffi",
  "fork_gc",
+ "search_ctx",
  "tracing",
  "tracing_log_error",
  "workspace_hack",
@@ -1022,6 +1027,7 @@ version = "0.0.1"
 dependencies = [
  "ffi",
  "field_spec",
+ "inverted_index",
  "pretty_assertions",
  "redis_mock",
  "redisearch_rs",
@@ -2353,6 +2359,15 @@ dependencies = [
  "pretty_assertions",
  "redis_mock",
  "redisearch_rs",
+ "workspace_hack",
+]
+
+[[package]]
+name = "search_ctx"
+version = "0.0.1"
+dependencies = [
+ "ffi",
+ "index_spec",
  "workspace_hack",
 ]
 

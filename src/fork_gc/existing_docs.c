@@ -11,28 +11,6 @@
 #include "inverted_index_ffi.h"
 #include "numeric_range_tree_ffi.h"
 
-void FGC_childCollectExistingDocs(ForkGC *gc, RedisSearchCtx *sctx) {
-  IndexSpec *spec = sctx->spec;
-
-  InvertedIndex *idx = spec->existingDocs;
-  if (idx) {
-    struct iovec iov = {.iov_base = (void *)"", 0};
-
-    CTX_II_GC_Callback cbCtx = { .gc = gc, .hdrarg = &iov };
-    II_GCCallback cb = { .ctx = &cbCtx, .call = sendHeaderString };
-
-    II_GCWriter wr = { .ctx = gc, .write = pipe_write_cb };
-
-    InvertedIndex_GcDelta_Scan(
-        &wr, sctx, idx,
-        &cb, NULL
-    );
-  }
-
-  // we are done with existing docs inverted index
-  FGC_sendTerminator(gc);
-}
-
 FGCError FGC_parentHandleExistingDocs(ForkGC *gc) {
   FGCError status = FGC_COLLECTED;
 
