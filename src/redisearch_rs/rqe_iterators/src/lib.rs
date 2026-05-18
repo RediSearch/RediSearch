@@ -13,7 +13,8 @@ use ffi::t_docId;
 use index_spec::IndexSpecReadGuard;
 use thiserror::Error;
 
-use ::inverted_index::{RSIndexResult, t_fieldMask};
+use ::inverted_index::t_fieldMask;
+use index_result::RSIndexResult;
 use query_term::RSQueryTerm;
 
 pub mod c2rust;

@@ -22,7 +22,8 @@ use std::io::{Cursor, Seek, Write};
 
 use ffi::t_docId;
 
-use crate::{IndexBlock, RSIndexResult};
+use crate::IndexBlock;
+use index_result::RSIndexResult;
 
 /// Trait used to correctly derive the delta needed for different encoders
 pub trait IdDelta

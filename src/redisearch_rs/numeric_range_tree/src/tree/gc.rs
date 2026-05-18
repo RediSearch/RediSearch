@@ -15,7 +15,8 @@
 
 use std::collections::HashMap;
 
-use inverted_index::{GcApplyInfo, GcScanDelta, IndexBlock, RSIndexResult};
+use index_result::RSIndexResult;
+use inverted_index::{GcApplyInfo, GcScanDelta, IndexBlock};
 
 use super::{NumericRangeTree, TrimEmptyLeavesResult};
 use crate::NumericRangeNode;

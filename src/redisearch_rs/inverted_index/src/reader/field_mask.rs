@@ -9,10 +9,10 @@
 
 use super::{IndexReader, IndexReaderCore, TermReader};
 use crate::{
-    DecodedBy, Decoder, HasInnerIndex, InvertedIndex, RSIndexResult, TermDecoder,
-    opaque::OpaqueEncoding,
+    DecodedBy, Decoder, HasInnerIndex, InvertedIndex, TermDecoder, opaque::OpaqueEncoding,
 };
 use ffi::{IndexFlags, t_docId, t_fieldMask};
+use index_result::RSIndexResult;
 
 /// A reader that filters out records that do not match a given field mask. It is used to
 /// filter records in an index based on their field mask, allowing only those that match the

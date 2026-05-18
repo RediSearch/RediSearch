@@ -8,8 +8,9 @@
 */
 
 use super::{IndexReader, IndexReaderCore, NumericFilter, NumericReader};
-use crate::{DecodedBy, Decoder, InvertedIndex, RSIndexResult};
+use crate::{DecodedBy, Decoder, InvertedIndex};
 use ffi::{GeoFilter, IndexFlags, t_docId};
+use index_result::RSIndexResult;
 
 // Manually define some C functions, because we'll create a circular dependency if we use the FFI
 // crate to make them automatically.

@@ -9,7 +9,8 @@
 
 use std::io::Cursor;
 
-use inverted_index::{Decoder, Encoder, RSIndexResult, raw_doc_ids_only::RawDocIdsOnly};
+use index_result::RSIndexResult;
+use inverted_index::{Decoder, Encoder, raw_doc_ids_only::RawDocIdsOnly};
 
 #[test]
 fn test_encode_raw_doc_ids_only() {
@@ -53,7 +54,7 @@ fn test_encode_raw_doc_ids_only_output_too_small() {
     // Not enough space in the buffer to write the encoded data.
     let buf = [0u8; 1];
     let mut cursor = Cursor::new(buf);
-    let record = inverted_index::RSIndexResult::build_virt().build();
+    let record = index_result::RSIndexResult::build_virt().build();
 
     let res = RawDocIdsOnly::encode(&mut cursor, 0, &record);
     assert_eq!(res.is_err(), true);

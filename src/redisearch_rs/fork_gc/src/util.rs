@@ -7,8 +7,13 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 
+use nix::poll::{PollFd, PollFlags};
 use redis_module::raw::RedisModule_ExitFromChild;
-use std::io;
+use std::{
+    io::{self, Read},
+    os::fd::AsRawFd,
+    time::Duration,
+};
 
 /// Log a write error and terminate the current process.
 pub(crate) fn exit_on_write_error(err: io::Error) -> ! {
@@ -30,4 +35,45 @@ pub(crate) fn exit_on_write_error(err: io::Error) -> ! {
     }
 
     unreachable!("RedisModule_ExitFromChild returned")
+}
+
+/// Read from `reader` with a timeout, returning the number of bytes
+/// actually read.
+///
+/// Polls the reader's file descriptor for `POLLIN` with `timeout`,
+/// then delegates to [`Read::read`] when the fd is ready. Surfaces
+/// timeouts as [`io::ErrorKind::TimedOut`] and `POLLHUP` / `POLLERR` /
+/// `POLLNVAL` as [`io::ErrorKind::Other`]. `EINTR` from either `poll`
+/// or the underlying read is handled internally by looping.
+pub fn read_with_timeout<R: Read + AsRawFd>(
+    reader: &mut R,
+    buf: &mut [u8],
+    timeout: Duration,
+) -> io::Result<usize> {
+    let timeout_ms = timeout.as_millis().min(i32::MAX as u128) as i32;
+    let mut pfd = PollFd::new(reader.as_raw_fd(), PollFlags::POLLIN);
+
+    loop {
+        match nix::poll::poll(std::slice::from_mut(&mut pfd), timeout_ms) {
+            Err(nix::errno::Errno::EINTR) => continue,
+            Err(e) => return Err(io::Error::from(e)),
+            Ok(0) => return Err(io::Error::new(io::ErrorKind::TimedOut, "read timed out")),
+            Ok(_) => {
+                let revents = pfd
+                    .revents()
+                    .expect("poll returned unknown bits in revents");
+                // Reads from closed empty pipes return only `POLLHUP`, while reads from closed
+                // unix domain sockets return `POLLIN | POLLHUP`. In both cases however, a
+                // subsequent read doesn't block and returns 0, signalling EOF.
+                if revents.intersects(PollFlags::POLLIN | PollFlags::POLLHUP) {
+                    match reader.read(buf) {
+                        Err(err) if err.kind() == io::ErrorKind::Interrupted => continue,
+                        result => return result,
+                    }
+                } else {
+                    return Err(io::Error::other(format!("poll error: revents={revents:?}")));
+                }
+            }
+        }
+    }
 }

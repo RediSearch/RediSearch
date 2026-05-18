@@ -8,7 +8,7 @@
 */
 
 use ffi::{QueryIterator, t_docId};
-use inverted_index::RSIndexResult;
+use index_result::RSIndexResult;
 use rqe_iterators::interop::RQEIteratorWrapper;
 use rqe_iterators::{id_list::IdList, utils::OwnedSlice};
 

@@ -12,7 +12,8 @@ use std::io::{Cursor, Seek, Write};
 use ffi::t_docId;
 use qint::{qint_decode, qint_encode};
 
-use crate::{Decoder, Encoder, RSIndexResult, TermDecoder};
+use crate::{Decoder, Encoder, TermDecoder};
+use index_result::RSIndexResult;
 
 /// Encode and decode only the delta and frequencies of a record, without any other data.
 /// The delta and frequency are encoded using [qint encoding](qint).

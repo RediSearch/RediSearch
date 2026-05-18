@@ -695,6 +695,8 @@ name = "fork_gc"
 version = "0.0.1"
 dependencies = [
  "ffi",
+ "libc",
+ "nix",
  "redis-module",
  "tracing",
  "workspace_hack",
@@ -707,6 +709,8 @@ dependencies = [
  "cheadergen",
  "ffi",
  "fork_gc",
+ "tracing",
+ "tracing_log_error",
  "workspace_hack",
 ]
 
@@ -1088,6 +1092,7 @@ dependencies = [
  "buffer",
  "criterion",
  "ffi",
+ "index_result",
  "inverted_index",
  "itertools 0.14.0",
  "query_term",
@@ -1102,6 +1107,7 @@ version = "0.0.1"
 dependencies = [
  "cheadergen",
  "ffi",
+ "index_result",
  "inverted_index",
  "libc",
  "rmp-serde",
@@ -1115,6 +1121,7 @@ version = "0.0.1"
 dependencies = [
  "ffi",
  "field",
+ "index_result",
  "index_spec",
  "inverted_index",
  "inverted_index_ffi",
@@ -1291,10 +1298,20 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "f8ca58f447f06ed17d5fc4043ce1b10dd205e060fb3ce5b979b8ed8e59ff3f79"
 
 [[package]]
+name = "memoffset"
+version = "0.7.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "5de893c32cde5f383baa4c04c5d6dbdd735cfd4a794b0debdb2bb1b421da5ff4"
+dependencies = [
+ "autocfg",
+]
+
+[[package]]
 name = "metrics_ffi"
 version = "0.0.1"
 dependencies = [
  "ffi",
+ "index_result",
  "inverted_index",
  "workspace_hack",
 ]
@@ -1346,6 +1363,8 @@ dependencies = [
  "bitflags 1.3.2",
  "cfg-if",
  "libc",
+ "memoffset",
+ "pin-utils",
 ]
 
 [[package]]
@@ -1416,6 +1435,7 @@ dependencies = [
  "ffi",
  "generational_slab",
  "hyperloglog",
+ "index_result",
  "insta",
  "inverted_index",
  "numeric_range_tree",
@@ -1516,6 +1536,12 @@ name = "pin-project-lite"
 version = "0.2.16"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "3b3cff922bd51709b605d9ead9aa71031d81447142d828eb4a6eba76fe619f9b"
+
+[[package]]
+name = "pin-utils"
+version = "0.1.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "8b870d8c151b6f2fb93e84a13146138f05d02ed11c7e7c54f8826aaaf7c9f184"
 
 [[package]]
 name = "plotters"
@@ -2110,6 +2136,7 @@ dependencies = [
  "field",
  "geo",
  "idf",
+ "index_result",
  "index_spec",
  "inverted_index",
  "libc",
@@ -2145,6 +2172,7 @@ dependencies = [
  "criterion",
  "ffi",
  "field",
+ "index_result",
  "inverted_index",
  "inverted_index_ffi",
  "iterators_ffi",
@@ -2164,6 +2192,7 @@ version = "0.0.1"
 dependencies = [
  "ffi",
  "field",
+ "index_result",
  "index_spec",
  "inverted_index",
  "inverted_index_ffi",
@@ -2334,6 +2363,7 @@ dependencies = [
  "document_metadata",
  "enumflags2",
  "ffi",
+ "index_result",
  "inverted_index",
  "rlookup",
  "workspace_hack",
@@ -2862,6 +2892,7 @@ name = "types_ffi"
 version = "0.0.1"
 dependencies = [
  "field",
+ "index_result",
  "inverted_index",
  "workspace_hack",
 ]
@@ -3423,6 +3454,7 @@ dependencies = [
  "libc",
  "memchr",
  "miniz_oxide",
+ "nix",
  "num-traits 0.2.19",
  "ppv-lite86",
  "proc-macro2",

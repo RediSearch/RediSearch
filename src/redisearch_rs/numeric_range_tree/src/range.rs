@@ -15,7 +15,8 @@
 
 use ffi::t_docId;
 use hyperloglog::{HyperLogLog6, WyHasher};
-use inverted_index::{IndexReader as _, RSIndexResult};
+use index_result::RSIndexResult;
+use inverted_index::IndexReader as _;
 
 use crate::index::{NumericIndex, NumericIndexReader};
 

@@ -3513,12 +3513,13 @@ IndexSpec *IndexSpec_RdbLoad(RedisModuleIO *rdb, int encver, bool useSst, QueryE
     }
   }
 
-  // Load the disk-related index data if we are on disk and the save flow used
-  // sst-files. We load it into a temporary in-memory object first, then use it
-  // to open the index with the RDB state applied.
-  // We must always consume the RDB data to avoid corrupting the stream,
-  // even for duplicates. We just won't use it in the duplicate case.
-  if (isSpecOnDisk(sp) && encver >= INDEX_DISK_VERSION && useSst) {
+  if (isSpecOnDisk(sp) && useSst) {
+    // Load the disk-related index data if we are on disk and the save flow used
+    // sst-files. We load it into a temporary in-memory object first, then use it
+    // to open the index with the RDB state applied.
+    // We must always consume the RDB data to avoid corrupting the stream,
+    // even for duplicates. We just won't use it in the duplicate case.
+    RS_ASSERT(encver >= INDEX_DISK_VERSION);
     RS_ASSERT(disk_db);
     IndexScoringStats_RdbLoad(rdb, &sp->stats.scoring, encver);
     if (sp->terms) {
@@ -3534,25 +3535,16 @@ IndexSpec *IndexSpec_RdbLoad(RedisModuleIO *rdb, int encver, bool useSst, QueryE
     if (!sp->pendingDiskRdbState) {
       goto cleanup;
     }
-  }
-
-  // Open the index on disk only if we are on Flex, and this is not a duplicate.
-  if (isSpecOnDisk(sp) && !sp->isDuplicate) {
-    RS_ASSERT(disk_db);
-    RS_LOG_ASSERT((sp->pendingDiskRdbState != NULL) == useSst,
-                  "pendingDiskRdbState / SST_RDB context flag out of sync");
-
-    if (!sp->pendingDiskRdbState) {
-      // Non-SST RDB path (e.g. pre-INDEX_DISK_VERSION on-disk RDB): no
-      // RDB-side disk state to apply, open the index eagerly.
-      sp->diskSpec = SearchDisk_OpenIndex(ctx, sp->specName, sp->obfuscatedName, sp->rule->type, false);
-      if (!sp->diskSpec) {
-        goto cleanup;
-      }
-      IndexSpec_PopulateVectorDiskParams(sp);
-      IndexSpec_PopulateTagDiskIndexes(sp);
-      SearchDisk_RegisterIndex(ctx, sp);
+  } else if (isSpecOnDisk(sp) && !sp->isDuplicate) {
+    // If the regular RDB method is used, just open an Index without any populated data.
+    RS_ASSERT(!useSst);
+    sp->diskSpec = SearchDisk_OpenIndex(ctx, sp->specName, sp->obfuscatedName, sp->rule->type, false);
+    if (!sp->diskSpec) {
+      goto cleanup;
     }
+    IndexSpec_PopulateVectorDiskParams(sp);
+    IndexSpec_PopulateTagDiskIndexes(sp);
+    SearchDisk_RegisterIndex(ctx, sp);
   }
 
   return sp;

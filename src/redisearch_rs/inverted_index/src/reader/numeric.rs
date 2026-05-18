@@ -10,8 +10,9 @@
 use std::ffi::c_void;
 
 use super::{IndexReader, IndexReaderCore, NumericReader};
-use crate::{DecodedBy, Decoder, InvertedIndex, RSIndexResult};
+use crate::{DecodedBy, Decoder, InvertedIndex};
 use ffi::{FieldSpec, IndexFlags, t_docId};
+use index_result::RSIndexResult;
 
 /// Filter details to apply to numeric values
 #[derive(Debug)]

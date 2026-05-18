@@ -12,9 +12,9 @@
 use ffi::t_fieldMask;
 use query_term::RSQueryTerm;
 
-use crate::{RSIndexResult, RSOffsetSlice};
+use index_result::{RSIndexResult, RSOffsetSlice};
 
-/// Wrapper around `inverted_index::RSIndexResult` ensuring the offsets
+/// Wrapper around `index_result::RSIndexResult` ensuring the offsets
 /// pointer used internally stays valid for the duration of the test or bench.
 #[derive(Debug)]
 pub struct TestTermRecord<'index> {

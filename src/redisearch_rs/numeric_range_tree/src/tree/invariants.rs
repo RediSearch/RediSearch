@@ -13,7 +13,8 @@
 //! after every mutation (`add`, `trim_empty_leaves`) to catch structural
 //! violations early.
 
-use inverted_index::{IndexReader, NumericFilter, RSIndexResult};
+use index_result::RSIndexResult;
+use inverted_index::{IndexReader, NumericFilter};
 
 use super::{AddResult, CheckedCount, NumericRangeTree, TreeStats, TrimEmptyLeavesResult};
 use crate::NumericRange;
