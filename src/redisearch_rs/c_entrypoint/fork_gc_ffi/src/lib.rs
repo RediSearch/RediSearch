@@ -182,7 +182,10 @@ pub unsafe extern "C" fn FGC_recvBuffer(
 
     let frame = match fgc.reader().recv_buffer() {
         Ok(frame) => frame,
-        Err(_) => return ffi::REDISMODULE_ERR as c_int,
+        Err(e) => {
+            log_error!(e, level: Level::WARN, "ForkGC pipe read error");
+            return ffi::REDISMODULE_ERR as c_int;
+        }
     };
 
     let (ptr, payload_len) = util::frame_into_c_buffer(frame);
@@ -220,7 +223,10 @@ pub unsafe extern "C" fn recvFieldHeader(
 
     let (frame, id) = match fgc.reader().recv_buffer_and_id() {
         Ok((frame, id)) => (frame, id),
-        Err(_) => return FGCError::ParentError,
+        Err(e) => {
+            log_error!(e, level: Level::WARN, "ForkGC pipe read error");
+            return FGCError::ParentError;
+        }
     };
 
     if matches!(frame, RecvFrame::Terminator) {
