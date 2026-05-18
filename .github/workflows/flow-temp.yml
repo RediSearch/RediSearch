@@ -11,14 +11,10 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - case: valid-user-id
-            author-mention-json: '"U02M4V63048"'
-          - case: plain-string
-            author-mention-json: '"redisearch-backport-pull-request"'
-          - case: empty-string
-            author-mention-json: '""'
-          - case: null-value
-            author-mention-json: 'null'
+          - case: deactivated-user-u03nft
+            author-mention-json: '"U03NFTSRB5G"'
+          - case: deactivated-user-ujd2q
+            author-mention-json: '"UJD2QQYVD"'
     steps:
       - name: Send Slack payload variant
         uses: slackapi/slack-github-action@v3
