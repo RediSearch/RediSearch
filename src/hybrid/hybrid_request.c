@@ -125,7 +125,7 @@ void HybridRequest_SynchronizeLookupKeys(HybridRequest *req) {
   }
 }
 
-int HybridRequest_BuildMergePipeline(HybridRequest *req, const RLookupKey *scoreKey, HybridPipelineParams *params) {
+int HybridRequest_BuildMergePipeline(HybridRequest *req, const RLookupKey *scoreKey, HybridPipelineParams *params, QueryError *status) {
     // Array to collect upstream from each individual request pipeline
     arrayof(ResultProcessor*) upstreams = array_new(ResultProcessor *, req->nrequests);
     for (size_t i = 0; i < req->nrequests; i++) {
@@ -133,7 +133,7 @@ int HybridRequest_BuildMergePipeline(HybridRequest *req, const RLookupKey *score
         // In profile mode, the end processor must be RP_PROFILE (which wraps the depleter)
         if (IsProfile(req) && areq->pipeline.qctx.endProc->type != RP_PROFILE) {
             QueryError_SetWithoutUserDataFmt(
-                &req->tailPipelineError,
+                status,
                 QUERY_ERROR_CODE_GENERIC,
                 "Expected %s processor at end of pipeline, found %s",
                 RPTypeToString(RP_PROFILE),
@@ -164,11 +164,11 @@ int HybridRequest_BuildMergePipeline(HybridRequest *req, const RLookupKey *score
     // Build the aggregation part of the tail pipeline for final result processing
     // This handles sorting, filtering, field loading, and output formatting of merged results
     uint32_t stateFlags = 0;
-    int rc = Pipeline_BuildAggregationPart(req->tailPipeline, &params->aggregationParams, &stateFlags);
+    int rc = Pipeline_BuildAggregationPart(req->tailPipeline, &params->aggregationParams, &stateFlags, status);
     return rc;
 }
 
-int HybridRequest_BuildPipeline(HybridRequest *req, HybridPipelineParams *params, bool depleteInBackground) {
+int HybridRequest_BuildPipeline(HybridRequest *req, HybridPipelineParams *params, bool depleteInBackground, QueryError *status) {
     // Build the depletion pipeline for extracting results from individual search requests
     if (HybridRequest_BuildDepletionPipeline(req, params, depleteInBackground) != REDISMODULE_OK) {
       return REDISMODULE_ERR;
@@ -185,13 +185,13 @@ int HybridRequest_BuildPipeline(HybridRequest *req, HybridPipelineParams *params
       HybridRequest_SynchronizeLookupKeys(req);
     }
 
-    const RLookupKey *scoreKey = OpenMergeScoreKey(tailLookup, params->aggregationParams.common.scoreAlias, &req->tailPipelineError);
-    if (QueryError_HasError(&req->tailPipelineError)) {
+    const RLookupKey *scoreKey = OpenMergeScoreKey(tailLookup, params->aggregationParams.common.scoreAlias, status);
+    if (QueryError_HasError(status)) {
       return REDISMODULE_ERR;
     }
 
     // Build the merge pipeline for combining and processing results from the depletion pipeline
-    return HybridRequest_BuildMergePipeline(req, scoreKey, params);
+    return HybridRequest_BuildMergePipeline(req, scoreKey, params, status);
 }
 
 /**
