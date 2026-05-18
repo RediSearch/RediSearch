@@ -97,6 +97,29 @@ TrieNode *__newTrieNode(const rune *str, t_len offset, t_len len, const char *pa
 
 #define __trieNode_isTerminal(n) (n->flags & TRIENODE_TERMINAL)
 
+/* Opaque accessors over TrieNode struct internals. Prefer these over direct
+ * field/macro access so callers stay decoupled from layout changes. */
+static inline t_len TrieNode_NumChildren(const TrieNode *n) {
+  return n->numChildren;
+}
+
+static inline TrieNode *TrieNode_ChildAt(const TrieNode *n, t_len i) {
+  /* Mirror __trieNode_children but with char* arithmetic so this stays valid
+   * when included in C++ TUs (void* arithmetic is a GCC C extension). */
+  TrieNode **children = (TrieNode **)((char *)n + sizeof(TrieNode) +
+                                      ((n->len + 1) + n->numChildren) * sizeof(rune));
+  return children[i];
+}
+
+/* If the node has a payload, write its data pointer and length to *data and
+ * *len and return true. Otherwise (or if n is NULL) return false. */
+static inline bool TrieNode_GetPayload(const TrieNode *n, char **data, uint32_t *len) {
+  if (!n || !n->payload) return false;
+  *data = n->payload->data;
+  *len = n->payload->len;
+  return true;
+}
+
 typedef enum {
   ADD_REPLACE,
   ADD_INCR,
