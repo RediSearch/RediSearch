@@ -58,13 +58,25 @@ impl<R: Ref> Debug for RawOffsetSlice<R> {
         let Some(data) = self.data else {
             return write!(f, "RSOffsetSlice(null)");
         };
-        // SAFETY: `len` is guaranteed to be a valid length for the data pointer
-        // when the slice was constructed from a valid `&[u8]` source. Debug
-        // output for `Suspended` instances may be stale; callers must ensure
-        // the underlying memory is still valid before using this impl.
-        let offsets = unsafe { std::slice::from_raw_parts(data.as_raw(), self.len as usize) };
-
-        write!(f, "RSOffsetSlice {offsets:?}")
+        if R::is_active() {
+            // SAFETY: `R::is_active()` returns `true` only for the [`Active`]
+            // instantiation of the sealed [`Ref`] trait. Every constructor of
+            // `RawOffsetSlice<Active<'_>>` (see [`RSOffsetSlice::from_slice`]
+            // and [`RSOffsetVector::as_slice`]) retains slice-wide provenance
+            // for the full `len` bytes and ties them to the carrying
+            // lifetime, so reconstructing a `&[u8]` of that length here is
+            // valid for reads with no aliasing mutable references.
+            let offsets =
+                unsafe { std::slice::from_raw_parts(data.as_raw(), self.len as usize) };
+            write!(f, "RSOffsetSlice {offsets:?}")
+        } else {
+            // Suspended: the pointer may be stale, so we cannot dereference
+            // it. Print the raw address and length instead.
+            f.debug_struct("RSOffsetSlice")
+                .field("data", &data.as_raw())
+                .field("len", &self.len)
+                .finish()
+        }
     }
 }
 
