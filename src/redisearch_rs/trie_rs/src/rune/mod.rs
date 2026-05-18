@@ -68,16 +68,6 @@ impl<Data> RuneTrieMap<Data> {
     pub fn iter(&self) -> RuneTrieMapIter<'_, Data> {
         RuneTrieMapIter(self.inner.iter())
     }
-
-    pub fn decrement_num_docs(&self, term: &[u16], delta: usize) -> DecrResult {
-        todo!("lets not put this on the type")
-    }
-}
-
-pub enum DecrResult {
-    NotFound,
-    Updated,
-    Deleted,
 }
 
 pub struct RuneTrieMapIter<'a, Data>(iter::Iter<'a, Data, filter::VisitAll>);
