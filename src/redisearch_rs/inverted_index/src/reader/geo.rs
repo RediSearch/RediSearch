@@ -7,7 +7,7 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 
-use super::{IndexReader, IndexReaderCore, NumericFilter, NumericReader};
+use super::{IndexReader, IndexReaderCore, NumericFilter, NumericReader, SuspendableReader};
 use crate::{DecodedBy, Decoder, InvertedIndex};
 use ffi::{GeoFilter, IndexFlags, t_docId};
 use index_result::RSIndexResult;
@@ -77,6 +77,12 @@ impl<'index, IR: NumericReader<'index>> FilterGeoReader<IR> {
             inner,
         }
     }
+}
+
+/// `FilterGeoReader<IR>` suspends to `FilterGeoReader<IR::Suspended>` —
+/// only the inner reader switches modes.
+impl<IR: SuspendableReader> SuspendableReader for FilterGeoReader<IR> {
+    type Suspended = FilterGeoReader<IR::Suspended>;
 }
 
 impl<'index, E> FilterGeoReader<IndexReaderCore<'index, E>> {
