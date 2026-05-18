@@ -3306,100 +3306,6 @@ class TestCoordinatorTimeout:
 
         run_command_on_all_shards(env, 'CONFIG', 'SET', ON_TIMEOUT_CONFIG, prev_policy)
 
-
-class TestCoordinatorTimeoutCursorReadResp2:
-    """RESP2 coverage for RETURN_STRICT FT.CURSOR READ timeout reply shape.
-
-    Mirrors ``test_return_strict_timeout_in_pipeline_cursor_read_observed`` on
-    a RESP2 connection: the cursor-read timeout reply is an outer two-element
-    array ``[results_array, cid]`` where ``results_array[0]`` is the
-    total_results long, followed by the drained per-doc payloads. RESP2 has
-    no per-reply warnings array — timeout is tracked only in the global
-    warning metric.
-    """
-
-    def __init__(self):
-        skipTest(cluster=False)
-        self.env = Env(moduleArgs='WORKERS 1', protocol=2)
-        self.n_docs = 100
-        for i in range(1, self.env.shardsCount + 1):
-            verify_shard_init(self.env.getConnection(i))
-        conn = getConnectionByEnv(self.env)
-        self.env.expect('FT.CREATE', 'idx', 'PREFIX', '1', 'doc',
-                        'SCHEMA', 'name', 'TEXT').ok()
-        for i in range(self.n_docs):
-            conn.execute_command('HSET', f'doc{i}', 'name', f'hello{i}')
-        self.env.expect('FT.SEARCH', 'idx', '*').noError()
-
-    def test_return_strict_cursor_read_resp2_timeout(self):
-        """RESP2 mirror of the *observed* in-pipeline cursor-read timeout
-        via the ``rpnetNext`` short-circuit. BG parks at ``BeforeRPNetNext``;
-        timer fires; on resume the short-circuit returns ``RS_RESULT_TIMEDOUT``
-        before any rows are emitted, so the RESP2 reply carries
-        ``total_results == 0`` with a preserved cursor id.
-        """
-        env = self.env
-        skipIfNoEnableAssert(env)
-
-        prev_policy, cursor_id, baseline, _, base_warn, _ = \
-            _setup_return_strict_cursor_state(env)
-
-        sync_point = 'BeforeRPNetNext'
-        env.cmd(debug_cmd(), 'SYNC_POINT', 'CLEAR')
-        env.cmd(debug_cmd(), 'SYNC_POINT', 'ARM', sync_point)
-
-        replies = []
-        try:
-            t_query = threading.Thread(
-                target=call_and_store,
-                args=(env.cmd, ['FT.CURSOR', 'READ', 'idx', str(cursor_id)], replies),
-                daemon=True
-            )
-            t_query.start()
-            blocked_client_id = wait_for_blocked_query_client(
-                env, 'FT.CURSOR|READ', 'Client for FT.CURSOR|READ not found')
-            wait_for_condition(
-                lambda: (env.cmd(debug_cmd(), 'SYNC_POINT', 'IS_WAITING', sync_point) == 1, {}),
-                f'worker never reached {sync_point}'
-            )
-            env.expect('CLIENT', 'UNBLOCK', blocked_client_id, 'TIMEOUT').equal(1)
-            wait_for_client_unblocked(env, blocked_client_id)
-        finally:
-            env.cmd(debug_cmd(), 'SYNC_POINT', 'SIGNAL', sync_point)
-
-        t_query.join(timeout=10)
-        env.assertFalse(t_query.is_alive(), message="Cursor read thread should have finished")
-        env.assertEqual(len(replies), 1, message="Expected one reply collected")
-        reply = replies[0]
-
-        # RESP2 cursor reply: [results_array, cid];
-        env.assertEqual(len(reply), 2,
-                        message=f"reply={reply!r}")
-        env.debugPrint(f"{replies[0]}", force=True)
-        results_array, cid = reply[0], reply[1]
-        env.assertEqual(cid, cursor_id,
-                        message=f"reply={reply!r}")
-        # BG parked at BeforeRPNetNext returns TIMEDOUT before emitting rows
-        # itself, but ``drainPartialResultsAfterTimeout`` then pops up to
-        # ``chunk_size`` rows out of the channel/sorter buffer into the
-        # timed-out reply. RESP2 envelope is [total_results, *doc_payloads]
-        # so the total length is 1 + chunk_size.
-        chunk_size = 10  # matches _setup_return_strict_cursor_state default
-        env.assertEqual(len(results_array), 1 + chunk_size,
-                        message=f"reply={reply!r}")
-
-        # Coord-side warning metric still bumps under RESP2.
-        after_info = info_modules_to_dict(env)
-        env.assertEqual(after_info[COORD_WARN_ERR_SECTION][TIMEOUT_WARNING_COORD_METRIC],
-                        str(base_warn + 1),
-                        message="Coordinator timeout warning metric should be +1 (RESP2)")
-
-        # Cursor must remain reusable on RESP2 too.
-        _drain_cursor(env, cursor_id)
-        _wait_for_cursor_cleanup(env, baseline, 'RETURN_STRICT RESP2 cursor-read drain')
-        env.expect('FT.CURSOR', 'READ', 'idx', str(cursor_id)).error().contains('Cursor not found')
-        run_command_on_all_shards(env, 'CONFIG', 'SET', ON_TIMEOUT_CONFIG, prev_policy)
-
     # ------------------------------------------------------------------
     # Shard-level RETURN_STRICT timeout: a single shard's blocked-client
     # timer (CLIENT UNBLOCK ... TIMEOUT) fires while the user query
@@ -3954,6 +3860,100 @@ class TestCoordinatorTimeoutReturnStrictResp2:
                                           prev_on_timeout_policy)
             except Exception:
                 pass
+
+class TestCoordinatorTimeoutCursorReadResp2:
+    """RESP2 coverage for RETURN_STRICT FT.CURSOR READ timeout reply shape.
+
+    Mirrors ``test_return_strict_timeout_in_pipeline_cursor_read_observed`` on
+    a RESP2 connection: the cursor-read timeout reply is an outer two-element
+    array ``[results_array, cid]`` where ``results_array[0]`` is the
+    total_results long, followed by the drained per-doc payloads. RESP2 has
+    no per-reply warnings array — timeout is tracked only in the global
+    warning metric.
+    """
+
+    def __init__(self):
+        skipTest(cluster=False)
+        self.env = Env(moduleArgs='WORKERS 1', protocol=2)
+        self.n_docs = 100
+        for i in range(1, self.env.shardsCount + 1):
+            verify_shard_init(self.env.getConnection(i))
+        conn = getConnectionByEnv(self.env)
+        self.env.expect('FT.CREATE', 'idx', 'PREFIX', '1', 'doc',
+                        'SCHEMA', 'name', 'TEXT').ok()
+        for i in range(self.n_docs):
+            conn.execute_command('HSET', f'doc{i}', 'name', f'hello{i}')
+        self.env.expect('FT.SEARCH', 'idx', '*').noError()
+
+    def test_return_strict_cursor_read_resp2_timeout(self):
+        """RESP2 mirror of the *observed* in-pipeline cursor-read timeout
+        via the ``rpnetNext`` short-circuit. BG parks at ``BeforeRPNetNext``;
+        timer fires; on resume the short-circuit returns ``RS_RESULT_TIMEDOUT``
+        before any rows are emitted, so the RESP2 reply carries
+        ``total_results == 0`` with a preserved cursor id.
+        """
+        env = self.env
+        skipIfNoEnableAssert(env)
+
+        prev_policy, cursor_id, baseline, _, base_warn, _ = \
+            _setup_return_strict_cursor_state(env)
+
+        sync_point = 'BeforeRPNetNext'
+        env.cmd(debug_cmd(), 'SYNC_POINT', 'CLEAR')
+        env.cmd(debug_cmd(), 'SYNC_POINT', 'ARM', sync_point)
+
+        replies = []
+        try:
+            t_query = threading.Thread(
+                target=call_and_store,
+                args=(env.cmd, ['FT.CURSOR', 'READ', 'idx', str(cursor_id)], replies),
+                daemon=True
+            )
+            t_query.start()
+            blocked_client_id = wait_for_blocked_query_client(
+                env, 'FT.CURSOR|READ', 'Client for FT.CURSOR|READ not found')
+            wait_for_condition(
+                lambda: (env.cmd(debug_cmd(), 'SYNC_POINT', 'IS_WAITING', sync_point) == 1, {}),
+                f'worker never reached {sync_point}'
+            )
+            env.expect('CLIENT', 'UNBLOCK', blocked_client_id, 'TIMEOUT').equal(1)
+            wait_for_client_unblocked(env, blocked_client_id)
+        finally:
+            env.cmd(debug_cmd(), 'SYNC_POINT', 'SIGNAL', sync_point)
+
+        t_query.join(timeout=10)
+        env.assertFalse(t_query.is_alive(), message="Cursor read thread should have finished")
+        env.assertEqual(len(replies), 1, message="Expected one reply collected")
+        reply = replies[0]
+
+        # RESP2 cursor reply: [results_array, cid];
+        env.assertEqual(len(reply), 2,
+                        message=f"reply={reply!r}")
+        env.debugPrint(f"{replies[0]}", force=True)
+        results_array, cid = reply[0], reply[1]
+        env.assertEqual(cid, cursor_id,
+                        message=f"reply={reply!r}")
+        # BG parked at BeforeRPNetNext returns TIMEDOUT before emitting rows
+        # itself, but ``drainPartialResultsAfterTimeout`` then pops up to
+        # ``chunk_size`` rows out of the channel/sorter buffer into the
+        # timed-out reply. RESP2 envelope is [total_results, *doc_payloads]
+        # so the total length is 1 + chunk_size.
+        chunk_size = 10  # matches _setup_return_strict_cursor_state default
+        env.assertEqual(len(results_array), 1 + chunk_size,
+                        message=f"reply={reply!r}")
+
+        # Coord-side warning metric still bumps under RESP2.
+        after_info = info_modules_to_dict(env)
+        env.assertEqual(after_info[COORD_WARN_ERR_SECTION][TIMEOUT_WARNING_COORD_METRIC],
+                        str(base_warn + 1),
+                        message="Coordinator timeout warning metric should be +1 (RESP2)")
+
+        # Cursor must remain reusable on RESP2 too.
+        _drain_cursor(env, cursor_id)
+        _wait_for_cursor_cleanup(env, baseline, 'RETURN_STRICT RESP2 cursor-read drain')
+        env.expect('FT.CURSOR', 'READ', 'idx', str(cursor_id)).error().contains('Cursor not found')
+        run_command_on_all_shards(env, 'CONFIG', 'SET', ON_TIMEOUT_CONFIG, prev_policy)
+
 
 class TestCoordinatorReducePause:
     """Tests for timeout during coordinator reduction using the PAUSE_BEFORE_REDUCE mechanism.
@@ -5414,6 +5414,7 @@ class TestShardTimeout:
         self._run_return_strict_timeout_after_aggregate_result(
             ['FT.AGGREGATE', 'idx', '*', 'LIMIT', '0', str(limit)], 'FT.AGGREGATE',
             pause_after_n=limit - 1, expected_rows=limit - 1)
+
 class TestShardTimeoutResp2:
     """Tests for shard timeout behavior with RESP2 protocol.
 
@@ -5462,8 +5463,7 @@ class TestShardTimeoutResp2:
                                         message=f"Expected 0 total results in RESP2 {cmd_type}, got: {res}")
                 finally:
                     env.cmd('CONFIG', 'SET', ON_TIMEOUT_CONFIG, 'return')
-
-
+s
 class TestNoDeadlockQueryWithConcurrentWriter:
     """MOD-15364: BG query holds the spec read lock; a concurrent writer
     parks on the spec write lock and blocks the main thread. With the fix,
