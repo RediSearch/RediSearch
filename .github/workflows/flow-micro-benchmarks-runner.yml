@@ -104,6 +104,9 @@ jobs:
         env:
           ARCH: ${{ inputs.architecture }}
           LTO: 1
+          # Use committed Rust C headers; cheadergen is not installed on the
+          # benchmark EC2 runner (see redis/redis#15220 for the same pattern).
+          REDISEARCH_GENERATE_HEADERS: "0"
         timeout-minutes: 300
         run: |
           export HOME=/home/ubuntu
