@@ -1352,7 +1352,6 @@
                   {
                     "name": "generic_body",
                     "type": "block",
-                    "summary": "Applies a reducer function, like `SUM` or `COUNT`, on grouped results.",
                     "arguments": [
                       {
                         "name": "function",

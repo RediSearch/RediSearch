@@ -1549,7 +1549,6 @@ int SetFtAggregateInfo(RedisModuleCommand *cmd) {
                 .subargs = (RedisModuleCommandArg[]){
                   {
                     .name = "generic_body",
-                    .summary = "Applies a reducer function, like `SUM` or `COUNT`, on grouped results.",
                     .type = REDISMODULE_ARG_TYPE_BLOCK,
                     .subargs = (RedisModuleCommandArg[]){
                       {
@@ -2829,7 +2828,6 @@ int SetFtHybridInfo(RedisModuleCommand *cmd) {
                 .subargs = (RedisModuleCommandArg[]){
                   {
                     .name = "generic_body",
-                    .summary = "",
                     .type = REDISMODULE_ARG_TYPE_BLOCK,
                     .subargs = (RedisModuleCommandArg[]){
                       {
