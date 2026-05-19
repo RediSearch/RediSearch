@@ -853,7 +853,9 @@ void RDB_LoadingEvent(RedisModuleCtx *ctx, RedisModuleEvent eid, uint64_t subeve
     break;
   case REDISMODULE_SUBEVENT_LOADING_ENDED:
     if (!useSst) {
-      Indexes_EndRDBLoadingEvent(ctx, useSst);
+      // SST replication only carries v25+ payloads, so legacy upgrade only
+      // runs on the non-SST path.
+      Indexes_FinishLegacyRDBLoad(ctx);
     }
     if (useSst) {
       RS_ASSERT(SearchDisk_IsEnabled());

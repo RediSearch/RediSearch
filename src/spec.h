@@ -792,8 +792,9 @@ void IndexSpecRef_Release(StrongRef ref);
 // This function is called in case the server starts RDB loading.
 void Indexes_StartRDBLoadingEvent(RedisModuleCtx *ctx);
 
-// This function is called in case the server ends RDB loading.
-void Indexes_EndRDBLoadingEvent(RedisModuleCtx *ctx, bool useSst);
+// Called at the end of legacy (pre-v25) RDB loading to upgrade staged legacy
+// specs into the current spec format and trigger a keyspace reindex.
+void Indexes_FinishLegacyRDBLoad(RedisModuleCtx *ctx);
 
 // This function is to be called when loading finishes (failed or not)
 void Indexes_EndLoading();

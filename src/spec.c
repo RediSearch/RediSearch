@@ -3352,11 +3352,7 @@ void IndexSpec_DropLegacyIndexFromKeySpace(IndexSpec *sp) {
   HiddenString_LegacyDropFromKeySpace(ctx.redisCtx, INDEX_SPEC_KEY_FMT, sp->specName);
 }
 
-void Indexes_UpgradeLegacyIndexes(RedisModuleCtx *ctx, bool useSst) {
-  // SST replication only carries v25+ payloads, so reaching here means there
-  // can't be any legacy specs staged for an SST flow.
-  RS_ASSERT(!useSst || dictSize(legacySpecDict) == 0);
-
+void Indexes_UpgradeLegacyIndexes(RedisModuleCtx *ctx) {
   dictIterator *iter = dictGetIterator(legacySpecDict);
   dictEntry *entry = NULL;
   while ((entry = dictNext(iter))) {
@@ -3364,11 +3360,12 @@ void Indexes_UpgradeLegacyIndexes(RedisModuleCtx *ctx, bool useSst) {
     IndexSpec *sp = StrongRef_Get(spec_ref);
     IndexSpec_DropLegacyIndexFromKeySpace(sp);
 
-    // recreate the doctable
+    // Recreate the doctable. Always allocate a fresh empty one — even for disk
+    // specs — so IndexSpec_FreeUnlinkedData's later DocTable_Free sees a valid
+    // struct. Leaving sp->docs zeroed-out-after-free would cause a UAF on the
+    // dangling buckets and a double-free of the DocIdMap TrieMap.
     DocTable_Free(&sp->docs);
-    if (!isSpecOnDisk(sp)) {
-      sp->docs = DocTable_New(INITIAL_DOC_TABLE_SIZE);
-    }
+    sp->docs = DocTable_New(INITIAL_DOC_TABLE_SIZE);
 
     // clear index stats
     memset(&sp->stats, 0, sizeof(sp->stats));
@@ -4742,9 +4739,9 @@ void Indexes_StartRDBLoadingEvent(RedisModuleCtx* ctx) {
   g_isLoading = true;
 }
 
-void Indexes_EndRDBLoadingEvent(RedisModuleCtx *ctx, bool useSst) {
+void Indexes_FinishLegacyRDBLoad(RedisModuleCtx *ctx) {
   int hasLegacyIndexes = dictSize(legacySpecDict);
-  Indexes_UpgradeLegacyIndexes(ctx, useSst);
+  Indexes_UpgradeLegacyIndexes(ctx);
 
   // we do not need the legacy dict specs anymore
   dictRelease(legacySpecDict);
@@ -4752,7 +4749,8 @@ void Indexes_EndRDBLoadingEvent(RedisModuleCtx *ctx, bool useSst) {
 
   LegacySchemaRulesArgs_Free(ctx);
 
-  if (hasLegacyIndexes) {
+  if (hasLegacyIndexes && !SearchDisk_IsEnabled()) {
+    // TODO: SearchDisk does not yet support Scan And reindex
     Indexes_ScanAndReindex();
   }
 }
