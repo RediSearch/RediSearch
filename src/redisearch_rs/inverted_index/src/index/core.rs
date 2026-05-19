@@ -55,6 +55,20 @@ pub struct InvertedIndex<E> {
     pub(crate) _encoder: PhantomData<E>,
 }
 
+/// Outcome of [`InvertedIndex::add_record`]: the memory the index grew by and how many new
+/// blocks the write created. `u32` is plenty for both — `mem_growth` per call is bounded by the
+/// block size plus a doubling of its buffer capacity, and `blocks_added` is at most 2 (a new
+/// block when the previous one was full, plus another when the encoded delta overflowed). Kept
+/// `#[repr(C)]` so callers (including the FFI) can read it as a flat struct.
+#[derive(Debug, Default, Clone, Copy, Eq, PartialEq)]
+#[repr(C)]
+pub struct AddRecordOutcome {
+    /// Number of bytes the inverted index's memory usage grew by.
+    pub mem_growth: u32,
+    /// Number of new index blocks this write created.
+    pub blocks_added: u32,
+}
+
 /// Each `IndexBlock` contains a set of entries for a specific range of document IDs. The entries
 /// are ordered by document ID, so the first entry in the block has the lowest document ID, and the
 /// last entry has the highest document ID. The block also contains a buffer that is used to
@@ -219,9 +233,15 @@ impl<E: Encoder> InvertedIndex<E> {
         blocks_heap + blocks_buffers + stack
     }
 
-    /// Add a new record to the index and return by how much memory grew. It is expected that
-    /// the document ID of the record is greater than or equal the last document ID in the index.
-    pub fn add_record(&mut self, record: &RSIndexResult) -> std::io::Result<usize> {
+    /// Add a new record to the index. Returns an [`AddRecordOutcome`] reporting how many bytes
+    /// the index's memory usage grew by and how many new index blocks the write created (0 in
+    /// the common case, up to 2 when a new block was needed for the encoded delta and/or the
+    /// previous block was full). Callers that maintain a per-spec block counter should add
+    /// `outcome.blocks_added` to it.
+    ///
+    /// It is expected that the document ID of the record is greater than or equal to the last
+    /// document ID in the index.
+    pub fn add_record(&mut self, record: &RSIndexResult) -> std::io::Result<AddRecordOutcome> {
         let doc_id = record.doc_id;
 
         let same_doc = match (
@@ -233,10 +253,12 @@ impl<E: Encoder> InvertedIndex<E> {
                 // Even though we might allow duplicate document IDs, this encoder does not allow
                 // it since it will contain redundant information. Therefore, we are skipping this
                 // record.
-                return Ok(0);
+                return Ok(AddRecordOutcome::default());
             }
             (_, false) => false,
         };
+
+        let blocks_before = self.blocks.len();
 
         // We take ownership of the block since we are going to keep using self. So we can't have a
         // mutable reference to the block we are working with at the same time.
@@ -288,7 +310,10 @@ impl<E: Encoder> InvertedIndex<E> {
             self.flags |= IndexFlags_Index_HasMultiValue;
         }
 
-        Ok(buf_growth + mem_growth)
+        Ok(AddRecordOutcome {
+            mem_growth: (buf_growth + mem_growth) as u32,
+            blocks_added: (self.blocks.len() - blocks_before) as u32,
+        })
     }
 
     /// Returns the last document ID in the index, if any.

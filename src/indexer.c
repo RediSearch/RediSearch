@@ -32,15 +32,17 @@ extern RedisModuleCtx *RSDummyContext;
 #include <unistd.h>
 
 static void writeIndexEntry(IndexSpec *spec, InvertedIndex *idx, ForwardIndexEntry *entry) {
-  // `&spec->stats.totalInvertedIndexBlocks` is the per-spec block counter that the Rust write
-  // atomically bumps if a new block was created. See `InvertedIndex_WriteEntryGeneric` docs.
-  size_t sz = InvertedIndex_WriteForwardIndexEntry(idx, entry,
-                                                   &spec->stats.totalInvertedIndexBlocks);
+  AddRecordOutcome r = InvertedIndex_WriteForwardIndexEntry(idx, entry);
 
   // Update index statistics:
 
   // Number of additional bytes
-  spec->stats.invertedSize += sz;
+  spec->stats.invertedSize += r.mem_growth;
+  // Per-spec block count for FT.INFO `total_inverted_index_blocks`.
+  if (r.blocks_added) {
+    __atomic_add_fetch(&spec->stats.totalInvertedIndexBlocks,
+                       r.blocks_added, __ATOMIC_RELAXED);
+  }
   // Number of records
   spec->stats.numRecords++;
 
@@ -394,8 +396,12 @@ static void writeMissingFieldDocs(RSAddDocumentCtx *aCtx, RedisSearchCtx *sctx, 
     t_docId docId = aCtx->doc->docId;
     RSIndexResult rec = {.data.tag = RSResultData_Virtual, .docId = docId, .freq = 0,
                          .metrics = MetricsVec_New()};
-    aCtx->spec->stats.invertedSize += InvertedIndex_WriteEntryGeneric(
-        iiMissingDocs, &rec, &aCtx->spec->stats.totalInvertedIndexBlocks);
+    AddRecordOutcome r = InvertedIndex_WriteEntryGeneric(iiMissingDocs, &rec);
+    aCtx->spec->stats.invertedSize += r.mem_growth;
+    if (r.blocks_added) {
+      __atomic_add_fetch(&aCtx->spec->stats.totalInvertedIndexBlocks,
+                         r.blocks_added, __ATOMIC_RELAXED);
+    }
   }
   dictReleaseIterator(iter);
   dictRelease(df_fields_dict);
@@ -416,8 +422,12 @@ static void writeExistingDocs(RSAddDocumentCtx *aCtx, RedisSearchCtx *sctx) {
   t_docId docId = aCtx->doc->docId;
   RSIndexResult rec = {.data.tag = RSResultData_Virtual, .docId = docId, .freq = 0,
                        .metrics = MetricsVec_New()};
-  aCtx->spec->stats.invertedSize += InvertedIndex_WriteEntryGeneric(
-      sctx->spec->existingDocs, &rec, &aCtx->spec->stats.totalInvertedIndexBlocks);
+  AddRecordOutcome r = InvertedIndex_WriteEntryGeneric(sctx->spec->existingDocs, &rec);
+  aCtx->spec->stats.invertedSize += r.mem_growth;
+  if (r.blocks_added) {
+    __atomic_add_fetch(&aCtx->spec->stats.totalInvertedIndexBlocks,
+                       r.blocks_added, __ATOMIC_RELAXED);
+  }
 }
 
 /**

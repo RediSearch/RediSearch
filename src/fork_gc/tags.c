@@ -159,8 +159,12 @@ FGCError FGC_parentHandleTags(ForkGC *gc) {
       goto loop_cleanup;
     }
 
-    InvertedIndex_ApplyGcDelta(idx, delta, &info, &sctx->spec->stats.totalInvertedIndexBlocks);
+    InvertedIndex_ApplyGcDelta(idx, delta, &info);
     delta = NULL;
+    if (info.block_count_delta) {
+      __atomic_add_fetch(&sctx->spec->stats.totalInvertedIndexBlocks,
+                         (size_t)info.block_count_delta, __ATOMIC_RELAXED);
+    }
 
     // if tag value is empty, let's remove it.
     if (InvertedIndex_NumDocs(idx) == 0) {

@@ -192,8 +192,9 @@ impl NumericRangeTree {
                 if let NumericRangeNode::Internal(internal) = &mut nodes[node_idx]
                     && let Some(range) = internal.range.as_mut()
                 {
-                    let size = range.add_without_cardinality(doc_id, value);
-                    rv.size_delta += size as i64;
+                    let outcome = range.add_without_cardinality(doc_id, value);
+                    rv.size_delta += outcome.mem_growth as i64;
+                    rv.block_count_delta += outcome.blocks_added as i32;
                     rv.num_records_delta += 1;
                 }
 
@@ -227,13 +228,14 @@ impl NumericRangeTree {
                     *empty_leaves -= 1;
                 }
 
-                let size = leaf.range.add(doc_id, value);
+                let outcome = leaf.range.add(doc_id, value);
                 let mut rv = AddResult {
-                    size_delta: size as i64,
+                    size_delta: outcome.mem_growth as i64,
                     num_records_delta: 1,
                     changed: false,
                     num_ranges_delta: 0,
                     num_leaves_delta: 0,
+                    block_count_delta: outcome.blocks_added as i32,
                 };
 
                 let card = leaf.range.cardinality();
@@ -329,8 +331,9 @@ impl NumericRangeTree {
             };
 
             if let Some(target_range) = nodes[target_idx].range_mut() {
-                let size = target_range.add(result.doc_id, entry_value);
-                rv.size_delta += size as i64;
+                let outcome = target_range.add(result.doc_id, entry_value);
+                rv.size_delta += outcome.mem_growth as i64;
+                rv.block_count_delta += outcome.blocks_added as i32;
             }
             rv.num_records_delta += 1;
         }

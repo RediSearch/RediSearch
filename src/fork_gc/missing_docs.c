@@ -91,8 +91,12 @@ FGCError FGC_parentHandleMissingDocs(ForkGC *gc) {
     goto cleanup;
   }
 
-  InvertedIndex_ApplyGcDelta(idx, delta, &info, &sctx->spec->stats.totalInvertedIndexBlocks);
+  InvertedIndex_ApplyGcDelta(idx, delta, &info);
   delta = NULL;
+  if (info.block_count_delta) {
+    __atomic_add_fetch(&sctx->spec->stats.totalInvertedIndexBlocks,
+                       (size_t)info.block_count_delta, __ATOMIC_RELAXED);
+  }
 
   if (InvertedIndex_NumDocs(idx) == 0) {
     // inverted index was cleaned entirely lets free it

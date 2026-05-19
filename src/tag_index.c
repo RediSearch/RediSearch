@@ -213,8 +213,12 @@ static inline size_t tagIndex_Put(TagIndex *idx, const char *value, size_t len, 
   RSIndexResult rec = {.data.tag = RSResultData_Virtual, .docId = docId, .freq = 0,
                        .metrics = MetricsVec_New()};
   InvertedIndex *iv = TagIndex_OpenIndex(idx, value, len, CREATE_INDEX, &sz);
-  size_t bytes = InvertedIndex_WriteEntryGeneric(iv, &rec, &stats->totalInvertedIndexBlocks);
-  return bytes + sz;
+  AddRecordOutcome r = InvertedIndex_WriteEntryGeneric(iv, &rec);
+  if (r.blocks_added) {
+    __atomic_add_fetch(&stats->totalInvertedIndexBlocks,
+                       r.blocks_added, __ATOMIC_RELAXED);
+  }
+  return r.mem_growth + sz;
 }
 
 /* Index a vector of pre-processed tags for a docId */

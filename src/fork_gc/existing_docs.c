@@ -74,8 +74,12 @@ FGCError FGC_parentHandleExistingDocs(ForkGC *gc) {
 
   idx = sp->existingDocs;
 
-  InvertedIndex_ApplyGcDelta(idx, delta, &info, &sp->stats.totalInvertedIndexBlocks);
+  InvertedIndex_ApplyGcDelta(idx, delta, &info);
   delta = NULL;
+  if (info.block_count_delta) {
+    __atomic_add_fetch(&sp->stats.totalInvertedIndexBlocks,
+                       (size_t)info.block_count_delta, __ATOMIC_RELAXED);
+  }
 
   // We don't count the records that we removed, because we also don't count
   // their addition (they are duplications so we have no such desire).
