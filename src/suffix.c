@@ -81,7 +81,7 @@ void addSuffixTrie(Trie *trie, const char *str, uint32_t len) {
 
   // Save string copy to all suffixes of it
   // If it exists, move to the next field
-  for (int j = 1; j < len - MIN_SUFFIX + 1; ++j) {
+  for (size_t j = 1; j + MIN_SUFFIX <= rlen; ++j) {
     TrieNode *trienode = Trie_GetNode(trie, runes + j, rlen - j, true, NULL);
 
     data = Suffix_GetData(trienode);
@@ -122,19 +122,29 @@ void deleteSuffixTrie(Trie *trie, const char *str, uint32_t len) {
   rune *runes = runeBufFill(str, len, &buf, &rlen);
   char *oldTerm = NULL;
 
-  // iterate all matching terms and remove word
-  for (int j = 0; j < len - MIN_SUFFIX + 1; ++j) {
+  // Remove the full-word entry (always inserted by addSuffixTrie).
+  if (rlen > 0) {
+    TrieNode *node = Trie_GetNode(trie, runes, rlen, true, NULL);
+    suffixData *data = Suffix_GetData(node);
+    if (data) {
+      oldTerm = data->term;
+      data->term = NULL;
+      removeSuffix(str, len, data->array);
+      if (array_len(data->array) == 0) {
+        RS_LOG_ASSERT(!data->term, "array should contain a pointer to the string");
+        Trie_DeleteRunes(trie, runes, rlen);
+      }
+    }
+  }
+
+  // Remove suffix entries.
+  for (size_t j = 1; j + MIN_SUFFIX <= rlen; ++j) {
     TrieNode *node = Trie_GetNode(trie, runes + j, rlen - j, true, NULL);
     suffixData *data = Suffix_GetData(node);
     // suffix trie is shared between all text fields in index, even if they don't use it.
     // if the trie is owned by other fields and not any one containing this suffix,
     // then failure to find the suffix is not an error. just move along.
     if (!data) continue;
-    if (j == 0) {
-      // keep pointer to word string to free after it was found in al sub tokens.
-      oldTerm = data->term;
-      data->term = NULL;
-    }
     // remove from array
     removeSuffix(str, len, data->array);
     // if array is empty, remove the node
