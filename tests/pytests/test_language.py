@@ -560,10 +560,43 @@ def testTagalogLanguage(env):
     res = env.cmd('FT.SEARCH', 'idx_tl', 'kain', 'SORTBY', 'word', 'ASC')
     env.assertEqual(res[0], 2)
 
+
+def testMalayLanguage(env):
+    conn = getConnectionByEnv(env)
+
+    # Malay is stemmed via the Indonesian Snowball algorithm; both pairs below
+    # share a stem (niaga / selamat) under that algorithm.
+    conn.execute_command('HSET', '{ml}:1', 'word', 'perniagaan')
+    conn.execute_command('HSET', '{ml}:2', 'word', 'berniaga')
+
+    env.cmd('FT.CREATE', 'idx_ml', 'ON', 'HASH', 'PREFIX', '1', '{ml}:',
+            'LANGUAGE', 'malay', 'SCHEMA', 'word', 'TEXT')
+    waitForIndex(env, 'idx_ml')
+
+    res = env.cmd('FT.SEARCH', 'idx_ml', 'perniagaan', 'SORTBY', 'word', 'ASC')
+    env.assertEqual(res[0], 2)
+
+    res = env.cmd('FT.SEARCH', 'idx_ml', 'berniaga', 'SORTBY', 'word', 'ASC')
+    env.assertEqual(res[0], 2)
+
+    conn.execute_command('HSET', '{ml2}:1', 'word', 'keselamatan')
+    conn.execute_command('HSET', '{ml2}:2', 'word', 'selamat')
+
+    env.cmd('FT.CREATE', 'idx_ml2', 'ON', 'HASH', 'PREFIX', '1', '{ml2}:',
+            'LANGUAGE', 'malay', 'SCHEMA', 'word', 'TEXT')
+    waitForIndex(env, 'idx_ml2')
+
+    res = env.cmd('FT.SEARCH', 'idx_ml2', 'keselamatan', 'SORTBY', 'word', 'ASC')
+    env.assertEqual(res[0], 2)
+
+    res = env.cmd('FT.SEARCH', 'idx_ml2', 'selamat', 'SORTBY', 'word', 'ASC')
+    env.assertEqual(res[0], 2)
+
+
 def testLanguageInfo(env):
     languages = ['arabic', 'armenian', 'basque', 'catalan', 'danish', 'dutch',
                  'finnish', 'french', 'german', 'greek', 'hindi', 'hungarian',
-                 'indonesian', 'irish', 'italian', 'lithuanian',
+                 'indonesian', 'irish', 'italian', 'lithuanian', 'malay',
                  'nepali', 'norwegian', 'portuguese', 'romanian', 'russian',
                  'serbian', 'spanish', 'swedish', 'tagalog', 'tamil',
                  'turkish', 'yiddish', 'chinese']
