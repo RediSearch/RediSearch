@@ -38,6 +38,7 @@ static const char *stripAtPrefix(const char *s) {
 }
 
 static const char *distDupCStr(BlkAlloc *alloc, const char *s) {
+  RS_ASSERT(s != nullptr);
   size_t n = strlen(s) + 1;
   char *p = (char *)BlkAlloc_Alloc(alloc, n, std::max(n, DIST_REDUCER_BLOCK_SIZE));
   memcpy(p, s, n);
@@ -47,13 +48,17 @@ static const char *distDupCStr(BlkAlloc *alloc, const char *s) {
 static const char *distAllocU64Str(BlkAlloc *alloc, uint64_t v) {
   char buf[32];
   int n = snprintf(buf, sizeof(buf), "%llu", (unsigned long long)v);
-  char *p = (char *)BlkAlloc_Alloc(alloc, (size_t)n + 1,
-                                   std::max(size_t(n + 1), DIST_REDUCER_BLOCK_SIZE));
-  memcpy(p, buf, (size_t)n + 1);
+  // `%llu` for a `uint64_t` is at most 20 chars + NUL, so the result always
+  // fits in `buf` and `snprintf` cannot truncate or return a negative value.
+  RS_ASSERT(n > 0 && (size_t)n < sizeof(buf));
+  size_t len = (size_t)n + 1;
+  char *p = (char *)BlkAlloc_Alloc(alloc, len, std::max(len, DIST_REDUCER_BLOCK_SIZE));
+  memcpy(p, buf, len);
   return p;
 }
 
 static const char *distAllocAtName(BlkAlloc *alloc, const char *stripped) {
+  RS_ASSERT(stripped != nullptr);
   size_t n = strlen(stripped);
   char *p = (char *)BlkAlloc_Alloc(alloc, n + 2, std::max(n + 2, DIST_REDUCER_BLOCK_SIZE));
   p[0] = '@';
