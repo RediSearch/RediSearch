@@ -4735,15 +4735,7 @@ void Indexes_FinishSSTReplication(RedisModuleCtx *ctx) {
     StrongRef spec_ref = dictGetRef(entry);
     IndexSpec *sp = StrongRef_Get(spec_ref);
     RS_ASSERT(sp);
-
-    if (!sp->pendingDiskRdbState) {
-      // Spec was loaded via the non-SST RDB path and is already fully opened
-      // and registered. Nothing to finalize here.
-      RS_ASSERT(sp->diskSpec != NULL);
-      RS_ASSERT(sp->diskRegistered);
-      continue;
-    }
-
+    RS_ASSERT(sp->pendingDiskRdbState);
     RS_ASSERT(sp->diskSpec == NULL);
     RS_ASSERT(!sp->diskRegistered);
 
