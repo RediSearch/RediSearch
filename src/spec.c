@@ -4683,10 +4683,12 @@ static inline void DebugIndexesScanner_pauseCheck(DebugIndexesScanner* dScanner,
 
 void Indexes_StartRDBLoadingEvent(RedisModuleCtx* ctx) {
   Indexes_Free(ctx, specDict_g, false);
-  if (legacySpecDict) {
-    dictEmpty(legacySpecDict, NULL);
-  } else {
-    legacySpecDict = dictCreate(&dictTypeHeapHiddenStrings, NULL);
+  if (!SearchDisk_IsEnabled()) {
+    if (legacySpecDict) {
+      dictEmpty(legacySpecDict, NULL);
+    } else {
+      legacySpecDict = dictCreate(&dictTypeHeapHiddenStrings, NULL);
+    }
   }
   g_isLoading = true;
 }
