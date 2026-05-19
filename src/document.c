@@ -600,20 +600,14 @@ FIELD_BULK_INDEXER(numericIndexer) {
     AddResult rv = NumericRangeTree_Add(rt, aCtx->doc->docId, fdata->numeric, false);
     ctx->spec->stats.invertedSize += rv.size_delta;
     ctx->spec->stats.numRecords += rv.num_records_delta;
-    if (rv.block_count_delta) {
-      __atomic_add_fetch(&ctx->spec->stats.totalInvertedIndexBlocks,
-                         (size_t)rv.block_count_delta, __ATOMIC_RELAXED);
-    }
+    IndexStats_BlockCountAdd(&ctx->spec->stats, rv.block_count_delta);
   } else {
     for (uint32_t i = 0; i < array_len(fdata->arrNumeric); ++i) {
       double numval = fdata->arrNumeric[i];
       AddResult rv = NumericRangeTree_Add(rt, aCtx->doc->docId, numval, true);
       ctx->spec->stats.invertedSize += rv.size_delta;
       ctx->spec->stats.numRecords += rv.num_records_delta;
-      if (rv.block_count_delta) {
-        __atomic_add_fetch(&ctx->spec->stats.totalInvertedIndexBlocks,
-                           (size_t)rv.block_count_delta, __ATOMIC_RELAXED);
-      }
+      IndexStats_BlockCountAdd(&ctx->spec->stats, rv.block_count_delta);
     }
   }
 

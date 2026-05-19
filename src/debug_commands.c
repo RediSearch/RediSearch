@@ -1060,10 +1060,7 @@ DEBUG_COMMAND(GCCleanNumeric) {
   }
 
   rv = NumericRangeTree_TrimEmptyLeaves(rt);
-  if (rv.block_count_delta) {
-    __atomic_add_fetch(&sctx->spec->stats.totalInvertedIndexBlocks,
-                       (size_t)rv.block_count_delta, __ATOMIC_RELAXED);
-  }
+  IndexStats_BlockCountAdd(&sctx->spec->stats, rv.block_count_delta);
 
 end:
   SearchCtx_Free(sctx);

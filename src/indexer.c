@@ -38,11 +38,7 @@ static void writeIndexEntry(IndexSpec *spec, InvertedIndex *idx, ForwardIndexEnt
 
   // Number of additional bytes
   spec->stats.invertedSize += r.mem_growth;
-  // Per-spec block count for FT.INFO `total_inverted_index_blocks`.
-  if (r.blocks_added) {
-    __atomic_add_fetch(&spec->stats.totalInvertedIndexBlocks,
-                       r.blocks_added, __ATOMIC_RELAXED);
-  }
+  IndexStats_BlockCountAdd(&spec->stats, r.blocks_added);
   // Number of records
   spec->stats.numRecords++;
 
@@ -398,10 +394,7 @@ static void writeMissingFieldDocs(RSAddDocumentCtx *aCtx, RedisSearchCtx *sctx, 
                          .metrics = MetricsVec_New()};
     AddRecordOutcome r = InvertedIndex_WriteEntryGeneric(iiMissingDocs, &rec);
     aCtx->spec->stats.invertedSize += r.mem_growth;
-    if (r.blocks_added) {
-      __atomic_add_fetch(&aCtx->spec->stats.totalInvertedIndexBlocks,
-                         r.blocks_added, __ATOMIC_RELAXED);
-    }
+    IndexStats_BlockCountAdd(&aCtx->spec->stats, r.blocks_added);
   }
   dictReleaseIterator(iter);
   dictRelease(df_fields_dict);
@@ -424,10 +417,7 @@ static void writeExistingDocs(RSAddDocumentCtx *aCtx, RedisSearchCtx *sctx) {
                        .metrics = MetricsVec_New()};
   AddRecordOutcome r = InvertedIndex_WriteEntryGeneric(sctx->spec->existingDocs, &rec);
   aCtx->spec->stats.invertedSize += r.mem_growth;
-  if (r.blocks_added) {
-    __atomic_add_fetch(&aCtx->spec->stats.totalInvertedIndexBlocks,
-                       r.blocks_added, __ATOMIC_RELAXED);
-  }
+  IndexStats_BlockCountAdd(&aCtx->spec->stats, r.blocks_added);
 }
 
 /**

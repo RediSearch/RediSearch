@@ -166,19 +166,24 @@ typedef struct {
   size_t offsetVecRecords;
   size_t termsSize;
   // Number of inverted-index blocks currently owned by this spec; reported by FT.INFO as
-  // `total_inverted_index_blocks`. Maintained at operation time: writes return
-  // `AddRecordOutcome.blocks_added`, GC and numeric-tree mutations return signed
-  // `block_count_delta` fields in their result structs — callers `__atomic_add_fetch` the
-  // delta into this counter. When freeing an inverted index mid-life, read
-  // `InvertedIndex_NumBlocks(idx)` before the free and `__atomic_sub_fetch` (mirroring how
-  // `InvertedIndex_MemUsage` is queried before `InvertedIndex_Free`). Reads should also be
-  // atomic (e.g. `__atomic_load_n`).
+  // `total_inverted_index_blocks`. Update via `IndexStats_BlockCountAdd` (handles +/- deltas)
+  // or the explicit `__atomic_sub_fetch` for mid-life destruction. Reads should be atomic.
   size_t totalInvertedIndexBlocks;
   rs_wall_clock_ns_t totalIndexTime;
   IndexError indexError;
   uint32_t activeQueries;
   uint32_t activeWrites;
 } IndexStats;
+
+// Atomically apply `delta` to `stats->totalInvertedIndexBlocks`. Accepts signed deltas:
+// negative values wrap via size_t two's-complement, producing the correct unsigned
+// subtraction. Zero is a no-op (skips the atomic in the common no-new-blocks path).
+static inline void IndexStats_BlockCountAdd(IndexStats *stats, ptrdiff_t delta) {
+  if (delta) {
+    __atomic_add_fetch(&stats->totalInvertedIndexBlocks,
+                       (size_t)delta, __ATOMIC_RELAXED);
+  }
+}
 
 typedef enum {
   Index_StoreTermOffsets = 0x01,

@@ -143,11 +143,8 @@ FGCError FGC_parentHandleNumeric(ForkGC *gc) {
                         r.gc_result.index_gc_info.bytes_freed,
                         r.gc_result.index_gc_info.bytes_allocated,
                         r.gc_result.index_gc_info.ignored_last_block);
-        if (r.gc_result.index_gc_info.block_count_delta) {
-          __atomic_add_fetch(&_sctx.spec->stats.totalInvertedIndexBlocks,
-                             (size_t)r.gc_result.index_gc_info.block_count_delta,
-                             __ATOMIC_RELAXED);
-        }
+        IndexStats_BlockCountAdd(&_sctx.spec->stats,
+                                 r.gc_result.index_gc_info.block_count_delta);
         break;
       case NodeNotFound:
         gc->stats.gcNumericNodesMissed++;
@@ -179,10 +176,7 @@ FGCError FGC_parentHandleNumeric(ForkGC *gc) {
     if (r.inverted_index_size_delta < 0) {
       FGC_updateStats(gc, &sctx2, 0, -r.inverted_index_size_delta, 0, 0);
     }
-    if (r.block_count_delta) {
-      __atomic_add_fetch(&sctx2.spec->stats.totalInvertedIndexBlocks,
-                         (size_t)r.block_count_delta, __ATOMIC_RELAXED);
-    }
+    IndexStats_BlockCountAdd(&sctx2.spec->stats, r.block_count_delta);
     RedisSearchCtx_UnlockSpec(&sctx2);
     IndexSpecRef_Release(spec_ref);
   }

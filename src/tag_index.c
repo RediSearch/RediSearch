@@ -214,10 +214,7 @@ static inline size_t tagIndex_Put(TagIndex *idx, const char *value, size_t len, 
                        .metrics = MetricsVec_New()};
   InvertedIndex *iv = TagIndex_OpenIndex(idx, value, len, CREATE_INDEX, &sz);
   AddRecordOutcome r = InvertedIndex_WriteEntryGeneric(iv, &rec);
-  if (r.blocks_added) {
-    __atomic_add_fetch(&stats->totalInvertedIndexBlocks,
-                       r.blocks_added, __ATOMIC_RELAXED);
-  }
+  IndexStats_BlockCountAdd(stats, r.blocks_added);
   return r.mem_growth + sz;
 }
 
