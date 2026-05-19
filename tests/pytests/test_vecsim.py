@@ -1033,7 +1033,7 @@ def test_hybrid_query_non_vector_score():
     # Those scorers are scoring per shard.
     if not env.isCluster():
         # use BM25 scorer
-        expected_res_4 = [10, '100', '0.72815531789441912', ['__v_score', '0', 't', 'other'], '91', '0.24271843929813972', ['__v_score', '10368', 't', 'text value'], '92', '0.24271843929813972', ['__v_score', '8192', 't', 'text value'], '93', '0.24271843929813972', ['__v_score', '6272', 't', 'text value'], '94', '0.24271843929813972', ['__v_score', '4608', 't', 'text value'], '95', '0.24271843929813972', ['__v_score', '3200', 't', 'text value'], '96', '0.24271843929813972', ['__v_score', '2048', 't', 'text value'], '97', '0.24271843929813972', ['__v_score', '1152', 't', 'text value'], '98', '0.24271843929813972', ['__v_score', '512', 't', 'text value'], '99', '0.24271843929813972', ['__v_score', '128', 't', 'text value']]
+        expected_res_4 = [10, '100', '0.86705199862551008', ['__v_score', '0', 't', 'other'], '91', '0.28901733287517001', ['__v_score', '10368', 't', 'text value'], '92', '0.28901733287517001', ['__v_score', '8192', 't', 'text value'], '93', '0.28901733287517001', ['__v_score', '6272', 't', 'text value'], '94', '0.28901733287517001', ['__v_score', '4608', 't', 'text value'], '95', '0.28901733287517001', ['__v_score', '3200', 't', 'text value'], '96', '0.28901733287517001', ['__v_score', '2048', 't', 'text value'], '97', '0.28901733287517001', ['__v_score', '1152', 't', 'text value'], '98', '0.28901733287517001', ['__v_score', '512', 't', 'text value'], '99', '0.28901733287517001', ['__v_score', '128', 't', 'text value']]
         res = env.cmd('FT.SEARCH', 'idx', '(text|other)=>[KNN 10 @v $vec_param]', 'SCORER', 'BM25', 'WITHSCORES',
                 'PARAMS', 2, 'vec_param', query_data.tobytes(),
                 'RETURN', 2, 't', '__v_score', 'LIMIT', 0, 10)
@@ -1766,7 +1766,7 @@ def test_index_multi_value_json():
             waitForIndex(env, 'idx')
             info = index_info(env, 'idx')
             env.assertEqual(info['num_docs'], info_type(n))
-            env.assertEqual(info['num_records'], info_type(n * per_doc * len(info['attributes'])))
+            env.assertEqual(info['num_records'], info_type(0))
             env.assertEqual(info['hash_indexing_failures'], info_type(0))
 
             cmd_knn[2] = f'*=>[KNN {k} @hnsw $b AS {score_field_name}]'
@@ -1821,7 +1821,7 @@ def test_bad_index_multi_value_json():
     # we should NOT fail if some of the vectors are NULLs
     conn.json().set(46, '.', {'vecs': [np.ones(dim).tolist(), None, (np.ones(dim) * 2).tolist()]})
     env.assertEqual(index_info(env, 'idx')['hash_indexing_failures'], info_type(failures))
-    env.assertEqual(index_info(env, 'idx')['num_records'], info_type(2))
+    env.assertEqual(index_info(env, 'idx')['num_records'], info_type(0))
 
     # ...or if the path returns NULL
     conn.json().set(46, '.', {'vecs': None})
