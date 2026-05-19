@@ -31,12 +31,11 @@ static const FuncEntry globalRegistry[] = {
   {"RANDOM_SAMPLE", RDCRRandomSample_New},
   {"HLL", RDCRHLL_New},
   {"HLL_SUM", RDCRHLLSum_New},
-#ifdef RS_WIP_FEATURES
-  {"COLLECT", RDCRCollect_New},
-#endif
+  {"COLLECT", RDCRCollect_New}
 };
 
-#define REGISTRY_SIZE (sizeof(globalRegistry) / sizeof(FuncEntry))
+#define REGISTRY_SIZE 15
+static_assert(sizeof(globalRegistry) == sizeof(FuncEntry) * REGISTRY_SIZE);
 
 ReducerFactory RDCR_GetFactory(const char *name) {
   for (size_t ii = 0; ii < REGISTRY_SIZE; ++ii) {
