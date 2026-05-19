@@ -725,11 +725,17 @@ def testKeyPersistWithNonMatchingIndexes(env):
     # the non-matching indexes keep their pre-TTL view.
     conn = _setup_non_matching_indexes(env)
 
-    conn.execute_command('PEXPIRE', 'doc:1', '1')
-    # PERSIST runs synchronously on the main thread before the sleep, so it
-    # clears the DocTable expiration recorded by the PEXPIRE notification.
+    # The TTL must be long enough that lazy expiration cannot fire between the
+    # client sending PEXPIRE and the server starting PERSIST. With a 1 ms TTL,
+    # PERSIST races against the deadline on slow CI runners; the server then
+    # lazy-expires the key inside expireIfNeeded() and fires `expired` (not
+    # `persist`), which removes doc:1 from idx_match entirely and masks the
+    # behavior this test is supposed to verify.
+    conn.execute_command('PEXPIRE', 'doc:1', '1000')
     conn.execute_command('PERSIST', 'doc:1')
-    time.sleep(0.015)
+    # Sleep past the original PEXPIRE deadline: if PERSIST had failed to clear
+    # dmd->expirationTimeNs, DocTable_IsDocExpired would now filter doc:1 out.
+    time.sleep(1.5)
 
     # idx_match: PERSIST cleared the DocTable TTL, so DocTable_IsDocExpired
     # returns false and doc:1 is still visible.
