@@ -102,6 +102,12 @@ void ConcurrentCmdCtx_KeepBlockedClient(struct ConcurrentCmdCtx *ctx);
 // Returns the WeakRef held in the context.
 WeakRef ConcurrentCmdCtx_GetWeakRef(struct ConcurrentCmdCtx *cctx);
 
+// Take ownership of the WeakRef held in the context: returns the stored
+// WeakRef and clears the field so subsequent ConcurrentCmdCtx_GetWeakRef
+// calls return a zeroed ref. The caller is responsible for releasing the
+// returned WeakRef via WeakRef_Release.
+WeakRef ConcurrentCmdCtx_TakeWeakRef(struct ConcurrentCmdCtx *cctx);
+
 // Returns the coordinator start time held in the context.
 rs_wall_clock_ns_t ConcurrentCmdCtx_GetCoordStartTime(struct ConcurrentCmdCtx *cctx);
 

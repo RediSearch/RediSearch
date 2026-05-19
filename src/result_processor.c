@@ -1962,6 +1962,16 @@ void RPSafeDepleter_StartDepletion(ResultProcessor *base) {
   RS_ASSERT(base->type == RP_SAFE_DEPLETER);
   RPSafeDepleter *self = (RPSafeDepleter *)base;
   RS_ASSERT(self->first_call);
+  // If the query already timed out, skip submission. The BG worker would
+  // no-op anyway (its own TimedOut check in RPSafeDepleter_Deplete), but
+  // skipping saves a pool slot and the signal/wait round-trip. Leave
+  // first_call=true so RPSafeDepleter_WaitForCompletion no-ops, and so a
+  // late Next() call (lazy path) re-detects the timeout and switches to
+  // Yield with RS_RESULT_TIMEDOUT.
+  if (!self->nextThreadCtx->time.skipTimeoutChecks &&
+      TimedOut(&self->nextThreadCtx->time.timeout) == TIMED_OUT) {
+    return;
+  }
   self->first_call = false;
   RPSafeDepleter_StartDepletionThread(self);
 }

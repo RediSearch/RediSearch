@@ -110,6 +110,12 @@ WeakRef ConcurrentCmdCtx_GetWeakRef(ConcurrentCmdCtx *cctx) {
   return cctx->spec_ref;
 }
 
+WeakRef ConcurrentCmdCtx_TakeWeakRef(ConcurrentCmdCtx *cctx) {
+  WeakRef ref = cctx->spec_ref;
+  cctx->spec_ref = (WeakRef){0};
+  return ref;
+}
+
 rs_wall_clock_ns_t ConcurrentCmdCtx_GetCoordStartTime(ConcurrentCmdCtx *cctx) {
   return cctx->coordStartTime;
 }

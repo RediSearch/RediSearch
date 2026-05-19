@@ -938,8 +938,12 @@ static void scheduleHybridTail(HybridRequest *hreq, StrongRef indexSpecRef,
     ConcurrentSearch_ThreadPoolRun(HybridDispatchCtx_Tail, dispatch, hreq->poolId);
 
     // Drop the cmdCtx's inherited weak ref. The indexSpecRef transferred to
-    // the tail keeps the RefManager alive until HybridDispatchCtx_Free.
-    WeakRef_Release(ConcurrentCmdCtx_GetWeakRef(cmdCtx));
+    // the tail keeps the RefManager alive via its internal weak count, so
+    // this release does not free anything. Use Take rather than Get so the
+    // cmdCtx->spec_ref field is also cleared: it has been logically returned,
+    // and any subsequent accessor would otherwise see a weak ref whose count
+    // has already been decremented (risking a double-release).
+    WeakRef_Release(ConcurrentCmdCtx_TakeWeakRef(cmdCtx));
 }
 
 static void DistHybridCleanups(RedisModuleCtx *ctx,
