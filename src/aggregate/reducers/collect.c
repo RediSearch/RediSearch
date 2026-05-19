@@ -379,7 +379,7 @@ Reducer *RDCRCollect_New(const ReducerOptions *options) {
       }
     }
 
-    if (array_len(args.sort_names) > 0) {
+    if (args.sort_names && array_len(args.sort_names) > 0) {
       if (!resolveSortKeys(options, &args, &sort_keys)) {
         array_free(field_keys);
         CollectArgs_Free(&args);
