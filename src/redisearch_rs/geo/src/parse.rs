@@ -13,15 +13,9 @@ use std::{num::ParseFloatError, str::FromStr};
 
 use decorum::R64;
 
-/// Maximum length of a geo string input (in bytes).
-const MAX_GEO_STRING_LEN: usize = 128;
-
 /// Error type for geo string parsing.
 #[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
 pub enum ParseGeoError {
-    /// The input string exceeds 128 bytes.
-    #[error("Geo string cannot be longer than {MAX_GEO_STRING_LEN} bytes")]
-    TooLong,
     /// The input is not valid UTF-8.
     #[error("Invalid geo string: not valid UTF-8")]
     InvalidUtf8,
@@ -82,7 +76,6 @@ impl FromStr for Coordinates {
     ///
     /// # Errors
     ///
-    /// Returns [`ParseGeoError::TooLong`] if `s` is longer than 128 bytes.
     /// Returns [`ParseGeoError::MissingSeparator`] if the string does not
     /// contain a comma or space.
     /// Returns [`ParseGeoError::Invalid`] if a coordinate cannot be parsed as a
@@ -90,10 +83,6 @@ impl FromStr for Coordinates {
     /// Returns [`ParseGeoError::NotFinite`] if a parsed coordinate is NaN or
     /// infinity.
     fn from_str(s: &str) -> Result<Self, Self::Err> {
-        if s.len() > MAX_GEO_STRING_LEN {
-            return Err(ParseGeoError::TooLong);
-        }
-
         let (lon_str, lat_str) = s
             .split_once([',', ' '])
             .ok_or(ParseGeoError::MissingSeparator)?;

@@ -11,6 +11,7 @@
 #include "redismock/redismock.h"
 #include "redismock/util.h"
 #include "document.h"
+#include "llapi_test_helpers.h"
 
 class DocumentTest : public ::testing::Test {
  protected:

@@ -7,7 +7,6 @@
 #include <stddef.h>
 #include <stdint.h>
 #include <stdlib.h>
-#include "geohash/geohash_helper.h"
 
 /**
  * An opaque query error which can be passed by value to C.
@@ -21,6 +20,26 @@ typedef struct QueryError QueryError;
  * The number of geohash ranges: the center cell plus its 8 neighbors.
  */
 #define GEO_RANGE_COUNT 9
+
+/**
+ * WGS-84 latitude lower bound (EPSG:900913).
+ */
+#define GEO_LAT_MIN -85.051128779999999
+
+/**
+ * WGS-84 latitude upper bound (EPSG:900913).
+ */
+#define GEO_LAT_MAX 85.051128779999999
+
+/**
+ * WGS-84 longitude lower bound.
+ */
+#define GEO_LONG_MIN -180.0
+
+/**
+ * WGS-84 longitude upper bound.
+ */
+#define GEO_LONG_MAX 180.0
 
 #ifdef __cplusplus
 extern "C" {
@@ -46,6 +65,13 @@ double encodeGeo(double lon, double lat);
  * - `xy` must be a valid, non-null pointer to a writable `[f64; 2]`.
  */
 void decodeGeo(double bits, double *xy);
+
+/**
+ * Calculate the haversine great-circle distance between two WGS-84 points.
+ *
+ * All coordinates are in degrees. Returns distance in meters.
+ */
+double geohashGetDistance(double lon1, double lat1, double lon2, double lat2);
 
 /**
  * Return `true` if the distance between two lon/lat points is within `radius`

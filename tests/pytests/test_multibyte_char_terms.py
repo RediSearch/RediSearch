@@ -744,6 +744,52 @@ def testLongTerms(env):
         res = env.cmd(debug_cmd(), 'DUMP_TERMS', 'idx2')
         env.assertEqual(res, [f'+{long_term_lower[:148]}', long_term_lower])
 
+@skip(cluster=True)
+def testLongTermWildcardQuery(env):
+    '''Test that a wildcard (contains) query with >128 runes exercises the heap
+    allocation path in strToLowerRunes.'''
+    env.expect('FT.CREATE', 'idx', 'ON', 'HASH',
+               'SCHEMA', 't', 'TEXT', 'NOSTEM', 'WITHSUFFIXTRIE').ok()
+    conn = getConnectionByEnv(env)
+
+    # 'б' is a single Cyrillic rune; 130 repetitions > SSO_MAX_LENGTH (128)
+    long_term = 'б' * 130
+    conn.execute_command('HSET', 'doc:1', 't', long_term)
+
+    # Contains query (*term*) calls strToLowerRunes at query time
+    res = env.cmd('FT.SEARCH', 'idx', f'@t:*{long_term}*', 'NOCONTENT', 'DIALECT', 2)
+    env.assertEqual(res, [1, 'doc:1'])
+
+    # Uppercase query — verifies case folding on the heap path
+    res = env.cmd('FT.SEARCH', 'idx', f'@t:*{long_term.upper()}*', 'NOCONTENT', 'DIALECT', 2)
+    env.assertEqual(res, [1, 'doc:1'])
+
+@skip(cluster=True)
+def testSingleRuneMultibyteSuffixTrie(env):
+    '''Test that a single multi-byte rune (rlen=1, len=3) is correctly
+    inserted and deleted from the suffix trie without leaking memory.
+    addSuffixTrie inserts the full-word entry unconditionally, so
+    deleteSuffixTrie must handle it even when rlen < MIN_SUFFIX.'''
+    env.expect('FT.CREATE', 'idx', 'ON', 'HASH',
+               'SCHEMA', 't', 'TEXT', 'NOSTEM', 'WITHSUFFIXTRIE').ok()
+    conn = getConnectionByEnv(env)
+
+    # '中' is a single CJK rune (3 bytes UTF-8, 1 rune)
+    conn.execute_command('HSET', 'doc:1', 't', '中')
+
+    res = env.cmd('FT.SEARCH', 'idx', '中', 'NOCONTENT', 'DIALECT', 2)
+    env.assertEqual(res, [1, 'doc:1'])
+
+    # Delete the document; the suffix trie entry must be cleaned up
+    conn.execute_command('DEL', 'doc:1')
+
+    # Trigger GC to exercise deleteSuffixTrie on the single-rune term
+    forceInvokeGC(env, 'idx')
+
+    res = env.cmd('FT.SEARCH', 'idx', '中', 'NOCONTENT', 'DIALECT', 2)
+    env.assertEqual(res, [0])
+
+
 def testMultibyteTag(env):
     '''Test that multibyte characters are correctly converted to lowercase and
     that queries are case-insensitive using TAG fields'''

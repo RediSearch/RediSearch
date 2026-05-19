@@ -11,7 +11,6 @@
 
 #include "module.h"
 #include "config.h"
-#include "redisearch_api.h"
 #include <assert.h>
 #include <dlfcn.h>
 #include "concurrent_ctx.h"
@@ -21,7 +20,6 @@
 #include "notifications.h"
 #include "aggregate/aggregate.h"
 #include "ext/default.h"
-#include "rwlock.h"
 #include "json.h"
 #include "VecSim/vec_sim.h"
 #include "util/workers.h"
@@ -63,26 +61,12 @@ static int validateAofSettings(RedisModuleCtx *ctx) {
 }
 
 static int initAsModule(RedisModuleCtx *ctx) {
-  if (RediSearch_ExportCapi(ctx) != REDISMODULE_OK) {
-    RedisModule_Log(ctx, "warning", "Could not initialize low level api");
-  } else {
-    RedisModule_Log(ctx, "notice", "Low level api version %d initialized successfully",
-                    REDISEARCH_CAPI_VERSION);
-  }
-
   if (!validateAofSettings(ctx)) {
     return REDISMODULE_ERR;
   }
 
   GetJSONAPIs(ctx, 1);
 
-  return REDISMODULE_OK;
-}
-
-static int initAsLibrary(RedisModuleCtx *ctx) {
-  RSGlobalConfig.iteratorsConfigParams.minTermPrefix = 0;
-  RSGlobalConfig.iteratorsConfigParams.maxPrefixExpansions = LONG_MAX;
-  RSGlobalConfig.iteratorsConfigParams.minStemLength = DEFAULT_MIN_STEM_LENGTH;
   return REDISMODULE_OK;
 }
 
@@ -97,17 +81,13 @@ static inline const char* RS_GetExtraVersion() {
 int RS_Initialized = 0;
 RedisModuleCtx *RSDummyContext = NULL;
 
-int RediSearch_Init(RedisModuleCtx *ctx, int mode) {
-#define DO_LOG(...)                                 \
-  do {                                              \
-    if (ctx && (mode != REDISEARCH_INIT_LIBRARY)) { \
-      RedisModule_Log(ctx, ##__VA_ARGS__);          \
-    }                                               \
+int RediSearch_Init(RedisModuleCtx *ctx) {
+#define DO_LOG(...)                        \
+  do {                                     \
+    if (ctx) {                             \
+      RedisModule_Log(ctx, ##__VA_ARGS__); \
+    }                                      \
   } while (false)
-
-  if (RediSearch_LockInit(ctx) != REDISMODULE_OK) {
-    return REDISMODULE_ERR;
-  }
 
   // Print version string!
   DO_LOG("notice", "RediSearch version %d.%d.%d (Git=%s)", REDISEARCH_VERSION_MAJOR,
@@ -124,9 +104,7 @@ int RediSearch_Init(RedisModuleCtx *ctx, int mode) {
     RSDummyContext = RedisModule_GetDetachedThreadSafeContext(ctx);
   }
 
-  if (mode == REDISEARCH_INIT_MODULE && initAsModule(ctx) != REDISMODULE_OK) {
-    return REDISMODULE_ERR;
-  } else if (mode == REDISEARCH_INIT_LIBRARY && initAsLibrary(ctx) != REDISMODULE_OK) {
+  if (initAsModule(ctx) != REDISMODULE_OK) {
     return REDISMODULE_ERR;
   }
 

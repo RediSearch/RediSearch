@@ -86,26 +86,34 @@ RedisSearchDiskIndexSpec* SearchDisk_OpenIndex(RedisModuleCtx *ctx, const Hidden
 void SearchDisk_MarkIndexForDeletion(RedisSearchDiskIndexSpec *index);
 
 /**
- * @brief Register an index's database with Redis BigModule APIs
+ * @brief Register the spec's disk index with Redis BigModule APIs
  *
  * Must be called from the main thread with a valid RedisModuleCtx.
  * Call this after SearchDisk_OpenIndex to register the database with Redis.
  *
+ * Must not be called on an already-registered spec; doing so asserts in debug
+ * builds. The spec's diskRegistered flag is updated by this function; callers
+ * must not toggle it directly.
+ *
  * @param ctx Redis module context (required, must be valid)
- * @param index Pointer to the index to register
+ * @param spec IndexSpec whose diskSpec should be registered (must have a non-NULL diskSpec)
  */
-void SearchDisk_RegisterIndex(RedisModuleCtx *ctx, RedisSearchDiskIndexSpec *index);
+void SearchDisk_RegisterIndex(RedisModuleCtx *ctx, IndexSpec *spec);
 
 /**
- * @brief Unregister an index's database from Redis BigModule APIs
+ * @brief Unregister the spec's disk index from Redis BigModule APIs
  *
  * Must be called from the main thread with a valid RedisModuleCtx.
  * Call this before SearchDisk_CloseIndex to unregister the database from Redis.
  *
+ * Idempotent: a no-op when the spec is not currently registered (either never
+ * registered, or already unregistered). The spec's diskRegistered flag is
+ * updated by this function; callers must not toggle it directly.
+ *
  * @param ctx Redis module context (required, must be valid)
- * @param index Pointer to the index to unregister
+ * @param spec IndexSpec whose diskSpec should be unregistered (must have a non-NULL diskSpec)
  */
-void SearchDisk_UnregisterIndex(RedisModuleCtx *ctx, RedisSearchDiskIndexSpec *index);
+void SearchDisk_UnregisterIndex(RedisModuleCtx *ctx, IndexSpec *spec);
 
 /**
  * @brief Close an index, **Important** must be called once and only once for every index
@@ -149,7 +157,7 @@ RedisSearchDiskRdbState* SearchDisk_LoadRdbToTempObject(RedisModuleIO *rdb);
  * @return Pointer to the created IndexSpec, or NULL on error
  */
 RedisSearchDiskIndexSpec* SearchDisk_OpenIndexWithRdbState(RedisModuleCtx *ctx,
-                                                            const HiddenString *indexName,  
+                                                            const HiddenString *indexName,
                                                             const char *obfuscatedName,
                                                             DocumentType type,
                                                             RedisSearchDiskRdbState *rdbState);
@@ -554,6 +562,46 @@ uint64_t SearchDisk_GetDiskUsage(RedisSearchDiskIndexSpec* index);
  * @param index Pointer to the disk index spec
  */
 void SearchDisk_Flush(RedisSearchDiskIndexSpec* index);
+
+/**
+ * @brief Master-side SST replication PRE_CHECKPOINT hook for a single index.
+ *
+ * Acquires the IndexSpec read lock (blocks writes, allows queries) and
+ * dispatches to the disk-side preCheckpoint hook.
+ *
+ * @param sp Pointer to the IndexSpec (must have a non-NULL diskSpec)
+ */
+void SearchDisk_PreCheckpoint(IndexSpec *sp);
+
+/**
+ * @brief Master-side SST replication PRE_FORK hook for a single index.
+ *
+ * Acquires the per-spec fork lock, then the IndexSpec read lock, then
+ * dispatches to the disk-side preFork hook.
+ *
+ * @param sp Pointer to the IndexSpec (must have a non-NULL diskSpec)
+ */
+void SearchDisk_PreFork(IndexSpec *sp);
+
+/**
+ * @brief Master-side SST replication POST_FORK hook for a single index.
+ *
+ * Dispatches to the disk-side postFork hook, then releases the read lock and
+ * the fork lock acquired in SearchDisk_PreFork.
+ *
+ * @param sp Pointer to the IndexSpec
+ */
+void SearchDisk_PostFork(IndexSpec *sp);
+
+/**
+ * @brief Master-side SST replication ABORT hook for a single index.
+ *
+ * Dispatches to the disk-side replicationAbort hook, then releases whichever
+ * subset of locks (fork lock, read lock) is currently held for this cycle.
+ *
+ * @param sp Pointer to the IndexSpec
+ */
+void SearchDisk_ReplicationAbort(IndexSpec *sp);
 
 /**
  * @brief Update the buffer budget and WBM in response to RAM configuration changes

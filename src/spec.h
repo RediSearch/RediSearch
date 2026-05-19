@@ -23,7 +23,6 @@
 #include "field_spec.h"
 #include "util/dict.h"
 #include "util/references.h"
-#include "redisearch_api.h"
 #include "rules.h"
 #include <pthread.h>
 #include "info/index_error.h"
@@ -189,7 +188,6 @@ typedef enum {
   Index_HasPhonetic = 0x400,
   Index_Async = 0x800,
   Index_SkipInitialScan = 0x1000,
-  Index_FromLLAPI = 0x2000,
   Index_HasFieldAlias = 0x4000,
   Index_HasVecSim = 0x8000,
   Index_HasSuffixTrie = 0x10000,
@@ -200,6 +198,13 @@ typedef enum {
 
   Index_HasNonEmpty = 0x80000,  // Index has at least one field that does not indexes empty values
 } IndexFlags;
+
+// SST replication lock state held by an IndexSpec. PRE_FORK sets
+// DISK_FORK_PROTECTED; POST_FORK and the replication abort handler clear it.
+typedef enum {
+  REPL_LOCK_NONE                = 0x00,
+  REPL_LOCK_DISK_FORK_PROTECTED = 0x01,
+} ReplicationLockFlags;
 
 // redis version (its here because most file include it with no problem,
 // we should introduce proper common.h file)
@@ -322,7 +327,7 @@ typedef struct IndexSpec {
   SynonymMap *smap;               // List of synonym
   HiddenString **aliases;         // Aliases to self-remove when the index is deleted
 
-  struct SchemaRule *rule;        // Contains schema rules for follow-the-hash/JSON
+  struct SchemaRule *rule;        // Contains schema rules for follow-the-hash/JSON. It must always be set
   struct IndexesScanner *scanner; // Scans new hash/JSON documents or rescan
   // can be true even if scanner == NULL, in case of a scan being cancelled
   // in favor on a newer, pending scan
@@ -341,10 +346,6 @@ typedef struct IndexSpec {
 
   // bitarray of dialects used by this index
   uint_least8_t used_dialects;
-
-  // For criteria tester
-  RSGetValueCallback getValue;
-  void *getValueCtx;
 
   // Count the number of times the index was used
   long long counter;
@@ -368,6 +369,14 @@ typedef struct IndexSpec {
 
   // Disk index handle (NULL for memory-only indexes)
   RedisSearchDiskIndexSpec *diskSpec;
+
+  // Disk RDB state (NULL for memory-only indexes), pending to be applied at replication ending
+  RedisSearchDiskRdbState *pendingDiskRdbState;
+  bool diskRegistered;
+  pthread_rwlock_t disk_fork_rwlock;
+  // Flags indicating state of the replication process. Needed to abort replication process
+  // in a healthy way
+  ReplicationLockFlags repl_flags;
 } IndexSpec;
 
 typedef enum SpecOp { SpecOp_Add, SpecOp_Del } SpecOp;
@@ -533,7 +542,6 @@ int IndexSpec_Deserialize(const RedisModuleString *serialized, int encver);
 
 /* Start the garbage collection loop on the index spec */
 void IndexSpec_StartGC(StrongRef spec_ref, IndexSpec *sp, GCPolicy gcPolicy);
-void IndexSpec_StartGCFromSpec(StrongRef spec_ref, IndexSpec *sp, uint32_t gcPolicy);
 
 /* Same as IndexSpec_Parse, but takes a NUL-terminated C-string name and wraps it in a HiddenString
  * internally. Intended for unit tests only.
@@ -741,6 +749,13 @@ size_t Indexes_Count();
 void Indexes_Propagate(RedisModuleCtx *ctx);
 void Indexes_UpdateMatchingWithSchemaRules(RedisModuleCtx *ctx, RedisModuleString *key, DocumentType type,
                                            RedisModuleString **hashFields);
+// Refresh the per-field TTL entries on every spec that indexes `key`: reads
+// the hash's current per-field expiration timestamps and writes them onto
+// the matching specs' TTL tables, without re-tokenizing the document or
+// rebuilding inverted indexes. In-memory flow only; callers must use
+// Indexes_UpdateMatchingWithSchemaRules for disk-backed indexes.
+void Indexes_UpdateMatchingHashFieldExpiration(RedisModuleCtx *ctx, RedisModuleString *key,
+                                               DocumentType type);
 // Fast path for keyspace events that only change the document-level TTL
 // (EXPIRE/PERSIST): re-reads the key's absolute expiration and writes it
 // directly onto the matching DMDs, without re-running schema-rule filters or
@@ -783,6 +798,20 @@ void Indexes_EndRDBLoadingEvent(RedisModuleCtx *ctx);
 // This function is to be called when loading finishes (failed or not)
 void Indexes_EndLoading();
 
+// Replica-side SST replication completion.
+//
+// Upon SST and RDB replication ending, complete the binding
+void Indexes_FinishSSTReplication(RedisModuleCtx *ctx);
+
+// Replica-side SST replication abort.
+//
+// Tear down everything staged for SST replication. Frees any pending disk RDB
+// state, closes any opened-but-unregistered disk specs, and unregisters +
+// closes any specs that had already been registered. Removes the affected
+// specs from specDict_g. Called from the REDISMODULE_SUBEVENT_SST_REPL_ABORT
+// handler.
+void Indexes_AbortSSTReplicationLoading(RedisModuleCtx *ctx);
+
 // =============================================================================
 // Compaction FFI Functions (called by Rust during GC)
 // =============================================================================
@@ -798,6 +827,56 @@ void IndexSpec_AcquireWriteLock(IndexSpec* sp);
  * @param sp Pointer to the IndexSpec
  */
 void IndexSpec_ReleaseWriteLock(IndexSpec* sp);
+
+/**
+ * @brief Block the SST replication snapshot fork from starting.
+ *
+ * Takes a shared (read) lock on the per-spec fork rwlock. Multiple callers
+ * may block the fork concurrently; the fork can proceed only once every
+ * blocker has released via IndexSpec_EnableDiskForkIfPossible. Used by
+ * critical sections (e.g. compaction) that must be ordered with respect to
+ * the snapshot fork.
+ *
+ * Lock order: must be acquired before the IndexSpec rwlock by any caller
+ * that takes both.
+ *
+ * @param sp Pointer to the IndexSpec
+ */
+void IndexSpec_BlockDiskFork(IndexSpec *sp);
+
+/**
+ * @brief Release a prior IndexSpec_BlockDiskFork.
+ *
+ * The fork becomes eligible to start only after the last outstanding blocker
+ * releases — hence "IfPossible".
+ *
+ * @param sp Pointer to the IndexSpec
+ */
+void IndexSpec_EnableDiskForkIfPossible(IndexSpec *sp);
+
+/**
+ * @brief Enter the protected fork window.
+ *
+ * Takes an exclusive (write) lock on the per-spec fork rwlock and blocks
+ * until every outstanding IndexSpec_BlockDiskFork blocker has released.
+ * Used by the SST replication PRE_FORK callback.
+ *
+ * Lock order: must be acquired before the IndexSpec rwlock by any caller
+ * that takes both.
+ *
+ * @param sp Pointer to the IndexSpec
+ */
+void IndexSpec_ProtectDiskFork(IndexSpec *sp);
+
+/**
+ * @brief Leave the protected fork window.
+ *
+ * Releases the exclusive lock taken by IndexSpec_ProtectDiskFork, allowing
+ * pending blockers to proceed.
+ *
+ * @param sp Pointer to the IndexSpec
+ */
+void IndexSpec_UnProtectDiskFork(IndexSpec *sp);
 
 /**
  * @brief Update a term's document count in the Serving Trie

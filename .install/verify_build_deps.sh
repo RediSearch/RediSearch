@@ -50,6 +50,7 @@ declare -A os_package_checkers=(
   ["ubuntu"]="check_package_dpkg"
   ["debian"]="check_package_dpkg"
   ["rocky"]="check_package_rpm"
+  ["almalinux"]="check_package_rpm"
   ["amzn2"]="check_package_yum"
   ["amzn2023"]="check_package_dnf"
   ["alpine"]="check_package_apk"
@@ -232,7 +233,7 @@ if [[ "$OS" == "ubuntu" || "$OS" == "debian" ]]; then
   for key in "${!ubuntu_dependencies[@]}"; do
     dependencies["$key"]="${ubuntu_dependencies[$key]}"
   done
-elif [[ "$OS" == "rocky" ]]; then
+elif [[ "$OS" == "rocky" || "$OS" == "almalinux" ]]; then
   for key in "${!rocky_dependencies[@]}"; do
     dependencies["$key"]="${rocky_dependencies[$key]}"
   done
