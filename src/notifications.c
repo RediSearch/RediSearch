@@ -832,6 +832,8 @@ void Initialize_RoleChangeNotifications(RedisModuleCtx *ctx) {
 // This function is called in case the server is started or
 // when the replica is loading the RDB file from the master.
 void RDB_LoadingEvent(RedisModuleCtx *ctx, RedisModuleEvent eid, uint64_t subevent, void *data) {
+  bool useSst = IS_SST_RDB_IN_PROCESS(ctx);
+
   switch (subevent) {
   case REDISMODULE_SUBEVENT_LOADING_RDB_START:
   case REDISMODULE_SUBEVENT_LOADING_AOF_START:
@@ -850,7 +852,6 @@ void RDB_LoadingEvent(RedisModuleCtx *ctx, RedisModuleEvent eid, uint64_t subeve
     RedisModule_Log(RSDummyContext, "notice", "Loading RDB event ended");
     break;
   case REDISMODULE_SUBEVENT_LOADING_ENDED:
-    bool useSst = IS_SST_RDB_IN_PROCESS(ctx);
     if (!SearchDisk_IsEnabled()) {
       // This only handles legacy indices that are not available in disk
       Indexes_EndRDBLoadingEvent(ctx);
