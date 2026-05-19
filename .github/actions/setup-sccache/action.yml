@@ -1,13 +1,10 @@
 name: Setup sccache
 description: |
   Install the sccache binary and optionally configure S3 remote cache via AWS
-  OIDC. Jobs that enable remote cache MUST grant `id-token: write`.
+  OIDC. Remote cache setup is best-effort; jobs that can use it MUST grant
+  `id-token: write`.
 
 inputs:
-  remote-cache-enabled:
-    description: 'Whether to configure S3 remote cache'
-    required: false
-    default: 'true'
   aws-role:
     description: 'AWS IAM role ARN for sccache S3 access (pass vars.SCCACHE_AWS_ROLE_TO_ASSUME)'
     required: false
@@ -25,7 +22,9 @@ runs:
   using: composite
   steps:
     - name: Configure AWS Credentials for sccache
-      if: ${{ inputs.remote-cache-enabled == 'true' && inputs.aws-role != '' && inputs.s3-bucket != '' && inputs.s3-region != '' && inputs.s3-key-prefix != '' }}
+      id: aws-credentials
+      if: ${{ inputs.aws-role != '' && inputs.s3-bucket != '' && inputs.s3-region != '' && inputs.s3-key-prefix != '' }}
+      continue-on-error: true
       uses: aws-actions/configure-aws-credentials@v6
       with:
         role-to-assume: ${{ inputs.aws-role }}
@@ -46,13 +45,13 @@ runs:
       # as script-injection sinks.
       shell: bash --noprofile --norc -eo pipefail {0}
       env:
-        INPUT_REMOTE_CACHE_ENABLED: ${{ inputs.remote-cache-enabled }}
+        INPUT_REMOTE_CACHE_CONFIGURED: ${{ steps.aws-credentials.outcome == 'success' }}
         INPUT_AWS_ROLE: ${{ inputs.aws-role }}
         INPUT_S3_BUCKET: ${{ inputs.s3-bucket }}
         INPUT_S3_REGION: ${{ inputs.s3-region }}
         INPUT_S3_KEY_PREFIX: ${{ inputs.s3-key-prefix }}
       run: |
-        if [[ "$INPUT_REMOTE_CACHE_ENABLED" == "true" &&
+        if [[ "$INPUT_REMOTE_CACHE_CONFIGURED" == "true" &&
               -n "$INPUT_AWS_ROLE" &&
               -n "$INPUT_S3_BUCKET" &&
               -n "$INPUT_S3_REGION" &&
