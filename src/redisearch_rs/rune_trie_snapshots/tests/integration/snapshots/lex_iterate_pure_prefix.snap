@@ -1,0 +1,36 @@
+---
+source: rune_trie_snapshots/tests/integration/dfa_iteration.rs
+expression: dump
+---
+size: 10
+
+query: prefix="", maxDist=0, prefixMode=1
+  ape         dist=0  score=1  numDocs=1
+  appl        dist=0  score=1  numDocs=1
+  apple       dist=0  score=1  numDocs=1
+  apply       dist=0  score=1  numDocs=1
+  b           dist=0  score=1  numDocs=1
+  banana      dist=0  score=1  numDocs=1
+  band        dist=0  score=1  numDocs=1
+  bandana     dist=0  score=1  numDocs=1
+  cat         dist=0  score=1  numDocs=1
+  category    dist=0  score=1  numDocs=1
+
+query: prefix="ap", maxDist=0, prefixMode=1
+  ape         dist=0  score=1  numDocs=1
+  appl        dist=0  score=1  numDocs=1
+  apple       dist=0  score=1  numDocs=1
+  apply       dist=0  score=1  numDocs=1
+
+query: prefix="ban", maxDist=0, prefixMode=1
+  banana      dist=0  score=1  numDocs=1
+  band        dist=0  score=1  numDocs=1
+  bandana     dist=0  score=1  numDocs=1
+
+query: prefix="z", maxDist=0, prefixMode=1
+  <no matches>
+
+query: prefix="appl", maxDist=0, prefixMode=1
+  appl        dist=0  score=1  numDocs=1
+  apple       dist=0  score=1  numDocs=1
+  apply       dist=0  score=1  numDocs=1
