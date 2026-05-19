@@ -310,8 +310,15 @@ impl<E: Encoder> InvertedIndex<E> {
             self.flags |= IndexFlags_Index_HasMultiValue;
         }
 
+        let total_mem_growth = buf_growth + mem_growth;
+        // A single add_record can grow memory by at most one block-buffer doubling plus the
+        // overhead of inserting one new block into the `blocks` ThinVec — comfortably below 4 GiB.
+        debug_assert!(
+            total_mem_growth <= u32::MAX as usize,
+            "AddRecordOutcome::mem_growth overflowed u32 ({total_mem_growth} bytes in one add)"
+        );
         Ok(AddRecordOutcome {
-            mem_growth: (buf_growth + mem_growth) as u32,
+            mem_growth: total_mem_growth as u32,
             blocks_added: (self.blocks.len() - blocks_before) as u32,
         })
     }
