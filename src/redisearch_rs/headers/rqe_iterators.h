@@ -17,6 +17,30 @@ typedef enum MetricType {
 } MetricType;
 
 /**
+ * Configuration parameters related to the query execution.
+ */
+typedef struct IteratorsConfig {
+  /**
+   * The maximal number of expansions we allow for a prefix. Default: 200
+   */
+  long long maxPrefixExpansions;
+  /**
+   * The minimal number of characters we allow expansion for in a prefix
+   * search. Default: 2
+   */
+  long long minTermPrefix;
+  /**
+   * The minimal word length to stem. Default: 4
+   */
+  unsigned int minStemLength;
+  /**
+   * Minimum number of children for a union iterator to use a heap-based
+   * implementation instead of a flat (linear scan) one. Default: 20
+   */
+  long long minUnionIterHeap;
+} IteratorsConfig;
+
+/**
  * Profile counters collected during query execution.
  *
  * This struct is `#[repr(C)]` so that C code can access its fields directly.

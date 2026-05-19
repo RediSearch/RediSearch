@@ -12,6 +12,7 @@
 #include "hiredis/sds.h"
 #include "rmutil/args.h"
 #include "reply.h"
+#include "rqe_iterators.h"
 #include "util/config_macros.h"
 #include "ext/default.h"
 
@@ -106,17 +107,6 @@ typedef struct {
   // OOM policy
   RSOomPolicy oomPolicy;
 } RequestConfig;
-
-// Configuration parameters related to the query execution.
-typedef struct {
-  // The maximal number of expansions we allow for a prefix. Default: 200
-  long long maxPrefixExpansions;
-  // The minimal number of characters we allow expansion for in a prefix search. Default: 2
-  long long minTermPrefix;
-  // The minimal word length to stem. Default 4
-  unsigned int minStemLength;
-  long long minUnionIterHeap;
-} IteratorsConfig;
 
 /* RSConfig is a global configuration struct for the module, it can be included from each file,
  * and is initialized with user config options during module startup */
