@@ -80,6 +80,7 @@ exec env -u CARGO_BUILD_TARGET RUSTFLAGS="${rustflags}" cheadergen generate \
     --package=rqe_iterator_type \
     --package=rqe_iterators \
     --package=search_result \
+    --package=query_flags \
     --package=query_node_type \
     --config=cheadergen.toml \
     --output-dir=headers \
