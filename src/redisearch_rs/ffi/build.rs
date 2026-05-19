@@ -255,8 +255,22 @@ const HEADERS: &[HeaderAllowlist] = &[
     },
     HeaderAllowlist {
         path: "src/trie/trie.h",
-        fns: &["Trie_DecrementNumDocs"],
+        fns: &[
+            "NewTrie",
+            "Trie_DecrementNumDocs",
+            "Trie_Delete",
+            "Trie_InsertStringBuffer",
+            "Trie_IterateAll",
+            "Trie_Size",
+            "TrieType_Free",
+        ],
         types: &[],
+        vars: &[],
+    },
+    HeaderAllowlist {
+        path: "src/trie/trie_node.h",
+        fns: &["TrieIterator_Free", "TrieIterator_Next"],
+        types: &["TrieSortMode", "rune", "t_len"],
         vars: &[],
     },
     HeaderAllowlist {
