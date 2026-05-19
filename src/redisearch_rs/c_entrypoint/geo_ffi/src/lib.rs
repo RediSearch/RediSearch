@@ -23,6 +23,22 @@ use tracing_log_error::log_error;
 #[cheadergen::config(export)]
 pub const GEO_RANGE_COUNT: usize = geo::GEO_RANGE_COUNT;
 
+/// WGS-84 latitude lower bound (EPSG:900913).
+#[cheadergen::config(export)]
+pub const GEO_LAT_MIN: f64 = geo::hash::GEO_LAT_MIN;
+
+/// WGS-84 latitude upper bound (EPSG:900913).
+#[cheadergen::config(export)]
+pub const GEO_LAT_MAX: f64 = geo::hash::GEO_LAT_MAX;
+
+/// WGS-84 longitude lower bound.
+#[cheadergen::config(export)]
+pub const GEO_LONG_MIN: f64 = geo::hash::GEO_LONG_MIN;
+
+/// WGS-84 longitude upper bound.
+#[cheadergen::config(export)]
+pub const GEO_LONG_MAX: f64 = geo::hash::GEO_LONG_MAX;
+
 /// Encode longitude and latitude into a 52-bit-aligned geohash score,
 /// or return `INVALID_GEOHASH` (`-1.0`) on invalid coordinates.
 ///
@@ -69,6 +85,22 @@ pub unsafe extern "C" fn decodeGeo(bits: f64, xy: *mut f64) {
     unsafe {
         *xy_lat = lat.into_inner();
     }
+}
+
+/// Calculate the haversine great-circle distance between two WGS-84 points.
+///
+/// All coordinates are in degrees. Returns distance in meters.
+#[unsafe(no_mangle)]
+pub extern "C" fn geohashGetDistance(lon1: f64, lat1: f64, lon2: f64, lat2: f64) -> f64 {
+    let (Ok(lon1), Ok(lat1), Ok(lon2), Ok(lat2)) = (
+        R64::try_new(lon1),
+        R64::try_new(lat1),
+        R64::try_new(lon2),
+        R64::try_new(lat2),
+    ) else {
+        return f64::NAN;
+    };
+    geo::hash::haversine_distance(lon1, lat1, lon2, lat2)
 }
 
 /// Return `true` if the distance between two lon/lat points is within `radius`
