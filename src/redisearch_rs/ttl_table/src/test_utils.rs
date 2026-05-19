@@ -9,6 +9,7 @@
 
 use std::num::NonZeroUsize;
 
+use crate::FieldExpirations;
 use ffi::{FieldExpiration, t_docId, t_expirationTimePoint as timespec};
 use thin_vec::ThinVec;
 
@@ -40,12 +41,23 @@ pub const NEVER: timespec = ts(0, 0);
 
 pub const TEST_MAX_SIZE: NonZeroUsize = NonZeroUsize::new(1024).unwrap();
 
-pub const fn empty_fields() -> ThinVec<FieldExpiration> {
-    ThinVec::new()
+pub const fn empty_fields() -> FieldExpirations {
+    FieldExpirations::new()
 }
 
 pub const fn fe(index: u16, point: timespec) -> FieldExpiration {
     FieldExpiration { index, point }
+}
+
+/// Builds a [`FieldExpirations`] from a `[FieldExpiration; N]` literal.
+///
+/// All call sites in the test suite already pass sorted, duplicate-free
+/// inputs by inspection; the helper centralizes the corresponding
+/// `unsafe` block.
+pub fn fes<const N: usize>(arr: [FieldExpiration; N]) -> FieldExpirations {
+    let v: ThinVec<FieldExpiration> = arr.into_iter().collect();
+    // SAFETY: tests construct sorted, duplicate-free input by inspection.
+    unsafe { FieldExpirations::from_thin_vec_unchecked(v) }
 }
 
 /// Identity mapping from bit position → field index (bit `i` ↔ field `i`).
