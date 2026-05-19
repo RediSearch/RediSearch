@@ -166,13 +166,13 @@ typedef struct {
   size_t offsetVecRecords;
   size_t termsSize;
   // Number of inverted-index blocks currently owned by this spec; reported by FT.INFO as
-  // `total_inverted_index_blocks`. Pass `&stats.totalInvertedIndexBlocks` as the
-  // `spec_block_counter` argument to `InvertedIndex_WriteEntryGeneric`,
-  // `InvertedIndex_WriteNumericEntry`, and `InvertedIndex_ApplyGcDelta` — the Rust side
-  // atomically updates it. When freeing an inverted index, read
-  // `InvertedIndex_NumBlocks(idx)` before the free and atomically decrement this counter
-  // (mirroring how `InvertedIndex_MemUsage` is queried before `InvertedIndex_Free`). C reads
-  // should also be atomic (e.g. `__atomic_load_n`).
+  // `total_inverted_index_blocks`. Maintained at operation time: writes return
+  // `AddRecordOutcome.blocks_added`, GC and numeric-tree mutations return signed
+  // `block_count_delta` fields in their result structs — callers `__atomic_add_fetch` the
+  // delta into this counter. When freeing an inverted index mid-life, read
+  // `InvertedIndex_NumBlocks(idx)` before the free and `__atomic_sub_fetch` (mirroring how
+  // `InvertedIndex_MemUsage` is queried before `InvertedIndex_Free`). Reads should also be
+  // atomic (e.g. `__atomic_load_n`).
   size_t totalInvertedIndexBlocks;
   rs_wall_clock_ns_t totalIndexTime;
   IndexError indexError;

@@ -78,7 +78,7 @@ fn adding_same_record_twice() {
     let mut ii = InvertedIndex::<Dummy>::new(IndexFlags_Index_DocIdsOnly);
     let record = RSIndexResult::build_virt().doc_id(10).build();
 
-    ii.add_record(&record).unwrap().mem_growth as usize;
+    ii.add_record(&record).unwrap();
     assert_eq!(ii.blocks.len(), 1);
     assert_eq!(ii.blocks[0].buffer, [0, 0, 0, 0]);
     assert_eq!(ii.blocks[0].num_entries, 1);
@@ -124,12 +124,12 @@ fn adding_same_record_twice() {
 
     let mut ii = InvertedIndex::<AllowDupsDummy>::new(IndexFlags_Index_DocIdsOnly);
 
-    ii.add_record(&record).unwrap().mem_growth as usize;
+    ii.add_record(&record).unwrap();
     assert_eq!(ii.blocks.len(), 1);
     assert_eq!(ii.blocks[0].buffer, [255]);
     assert_eq!(ii.flags(), IndexFlags_Index_DocIdsOnly);
 
-    let _mem_growth = ii.add_record(&record).unwrap().mem_growth as usize;
+    ii.add_record(&record).unwrap();
 
     assert_eq!(ii.blocks.len(), 1);
     assert_eq!(

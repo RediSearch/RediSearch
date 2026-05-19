@@ -350,7 +350,10 @@ impl TestContext {
             let record = RSIndexResult::build_virt().doc_id(doc_id).build();
             // SAFETY: ii is a valid pointer created via NewInvertedIndex_Ex
             unsafe {
-                inverted_index_ffi::InvertedIndex_WriteEntryGeneric(ii_ptr, &record as *const _ as *mut _);
+                inverted_index_ffi::InvertedIndex_WriteEntryGeneric(
+                    ii_ptr,
+                    &record as *const _ as *mut _,
+                );
             }
         }
 
@@ -411,7 +414,10 @@ impl TestContext {
             let record = RSIndexResult::build_virt().doc_id(doc_id).build();
             // SAFETY: ii is a valid pointer created via NewInvertedIndex_Ex
             unsafe {
-                inverted_index_ffi::InvertedIndex_WriteEntryGeneric(ii_ptr, &record as *const _ as *mut _);
+                inverted_index_ffi::InvertedIndex_WriteEntryGeneric(
+                    ii_ptr,
+                    &record as *const _ as *mut _,
+                );
             }
         }
 
@@ -498,7 +504,10 @@ impl TestContext {
             // SAFETY: ii_opaque is a valid pointer created via TagIndex_OpenIndex
             // which delegates to NewInvertedIndex_Ex (Rust FFI).
             unsafe {
-                inverted_index_ffi::InvertedIndex_WriteEntryGeneric(ii_opaque, &record as *const _ as *mut _);
+                inverted_index_ffi::InvertedIndex_WriteEntryGeneric(
+                    ii_opaque,
+                    &record as *const _ as *mut _,
+                );
             }
         }
 
