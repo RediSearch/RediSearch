@@ -2858,6 +2858,19 @@ dependencies = [
 ]
 
 [[package]]
+name = "ttl_table_bencher"
+version = "0.0.1"
+dependencies = [
+ "criterion",
+ "ffi",
+ "libc",
+ "rand 0.9.3",
+ "thin_vec",
+ "ttl_table",
+ "workspace_hack",
+]
+
+[[package]]
 name = "types_ffi"
 version = "0.0.1"
 dependencies = [
