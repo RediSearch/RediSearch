@@ -1684,6 +1684,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "query_flags"
+version = "0.0.1"
+dependencies = [
+ "cheadergen",
+ "enumflags2",
+ "workspace_hack",
+]
+
+[[package]]
 name = "query_node_type"
 version = "0.0.1"
 dependencies = [

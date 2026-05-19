@@ -18,6 +18,7 @@ members = [
     "thin_vec",
     "qint",
     "query_error",
+    "query_flags",
     "query_term",
     "redis_json_api",
     "redis_mock",
@@ -118,6 +119,7 @@ numeric_range_tree = { path = "./numeric_range_tree" }
 redis_reply = { path = "./redis_reply" }
 qint = { path = "./qint" }
 query_error = { path = "./query_error" }
+query_flags = { path = "./query_flags" }
 query_term = { path = "./query_term" }
 redis_json_api = { path = "./redis_json_api" }
 redis_mock = { path = "./redis_mock" }
