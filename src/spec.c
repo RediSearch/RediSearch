@@ -4746,6 +4746,8 @@ void Indexes_FinishSSTReplication(RedisModuleCtx *ctx) {
       continue;
     }
     IndexSpec_PopulateVectorDiskParams(sp);
+    // Make sure TagDiskIndex is created for every TAG field. In regular FT.CREATE the TagIndex is ensured lazily
+    // in the first document insertion
     IndexSpec_EnsureTagDiskIndexes(sp);
     SearchDisk_RegisterIndex(ctx, sp);
     // GC start was deferred by IndexSpec_StoreAfterRdbLoad for the SST path
