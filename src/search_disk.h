@@ -86,26 +86,34 @@ RedisSearchDiskIndexSpec* SearchDisk_OpenIndex(RedisModuleCtx *ctx, const Hidden
 void SearchDisk_MarkIndexForDeletion(RedisSearchDiskIndexSpec *index);
 
 /**
- * @brief Register an index's database with Redis BigModule APIs
+ * @brief Register the spec's disk index with Redis BigModule APIs
  *
  * Must be called from the main thread with a valid RedisModuleCtx.
  * Call this after SearchDisk_OpenIndex to register the database with Redis.
  *
+ * Must not be called on an already-registered spec; doing so asserts in debug
+ * builds. The spec's diskRegistered flag is updated by this function; callers
+ * must not toggle it directly.
+ *
  * @param ctx Redis module context (required, must be valid)
- * @param index Pointer to the index to register
+ * @param spec IndexSpec whose diskSpec should be registered (must have a non-NULL diskSpec)
  */
-void SearchDisk_RegisterIndex(RedisModuleCtx *ctx, RedisSearchDiskIndexSpec *index);
+void SearchDisk_RegisterIndex(RedisModuleCtx *ctx, IndexSpec *spec);
 
 /**
- * @brief Unregister an index's database from Redis BigModule APIs
+ * @brief Unregister the spec's disk index from Redis BigModule APIs
  *
  * Must be called from the main thread with a valid RedisModuleCtx.
  * Call this before SearchDisk_CloseIndex to unregister the database from Redis.
  *
+ * Idempotent: a no-op when the spec is not currently registered (either never
+ * registered, or already unregistered). The spec's diskRegistered flag is
+ * updated by this function; callers must not toggle it directly.
+ *
  * @param ctx Redis module context (required, must be valid)
- * @param index Pointer to the index to unregister
+ * @param spec IndexSpec whose diskSpec should be unregistered (must have a non-NULL diskSpec)
  */
-void SearchDisk_UnregisterIndex(RedisModuleCtx *ctx, RedisSearchDiskIndexSpec *index);
+void SearchDisk_UnregisterIndex(RedisModuleCtx *ctx, IndexSpec *spec);
 
 /**
  * @brief Close an index, **Important** must be called once and only once for every index
