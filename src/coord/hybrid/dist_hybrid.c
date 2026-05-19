@@ -801,14 +801,15 @@ static void HybridDispatchCtx_Free(HybridDispatchCtx *dispatch) {
     StrongRef indexSpecRef = dispatch->indexSpecRef;
     RedisModuleBlockedClient *bc = dispatch->bc;
     RedisModuleCtx *redisCtx = dispatch->ctx;
-    QueryError_ClearError(&dispatch->qctxErr);
 
     // DecrRef may run Pipeline_Clean → QITR_FreeChain on the tail pipeline,
-    // whose qctx->err still points into dispatch->qctxErr. Free dispatch only
-    // after teardown so that storage outlives any RP Free that reads err.
+    // whose qctx->err still points into dispatch->qctxErr. Tear down hreq
+    // first so any RP Free that reads or writes through err sees live storage,
+    // then clear any error contents it may have left behind, then free dispatch.
     if (hreq) {
         HybridRequest_DecrRef(hreq);
     }
+    QueryError_ClearError(&dispatch->qctxErr);
     rm_free(dispatch);
     // The dispatcher thread already called CurrentThread_ClearIndexSpec() after
     // transferring strong_ref ownership here, so only release the strong ref.
