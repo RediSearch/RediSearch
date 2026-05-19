@@ -1,0 +1,45 @@
+---
+source: rune_trie_snapshots/tests/integration/payloads.rs
+expression: out
+---
+=== step 1: insert three terms with distinct payloads ===
+insert("apple", "payload-apple") -> rc=1
+insert("ape", "payload-ape") -> rc=1
+insert("banana", "payload-banana") -> rc=1
+size: 3
+entries:
+  ape       payload="payload-ape"
+  apple     payload="payload-apple"
+  banana    payload="payload-banana"
+freecb fired: <none>
+
+=== step 2: ADD_REPLACE over existing terminal — old payload freed ===
+insert("apple", "payload-apple-v2") -> rc=0
+size: 3
+entries:
+  ape       payload="payload-ape"
+  apple     payload="payload-apple-v2"
+  banana    payload="payload-banana"
+freecb fired (1x):
+  "payload-apple"
+
+=== step 3: delete leaf "ape" — physical removal fires freecb ===
+Trie_Delete("ape") -> 1
+size: 2
+entries:
+  apple     payload="payload-apple-v2"
+  banana    payload="payload-banana"
+freecb fired (1x):
+  "payload-ape"
+
+=== step 4: delete leaf "apple" — physical removal fires freecb on v2 payload ===
+Trie_Delete("apple") -> 1
+size: 1
+entries:
+  banana    payload="payload-banana"
+freecb fired (1x):
+  "payload-apple-v2"
+
+=== step 5: TrieType_Free — all remaining payloads freed in tree order ===
+freecb fired (1x):
+  "payload-banana"
