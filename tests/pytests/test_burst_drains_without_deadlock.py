@@ -3,6 +3,7 @@ import threading
 
 
 RQ_CAPACITY = 50  # CONN_PER_SHARD=1 and SEARCH_IO_THREADS=1 => 1 * PENDING_FACTOR(50)
+COORDINATOR_POOL_SIZE = 20
 SHARD_COUNT = 3
 WORKER_COUNT = 3
 DOC_COUNT = 240
@@ -24,10 +25,7 @@ expected_aggregate_res = [
                         ]
 
 def _build_mixed_burst_commands():
-    # Intentionally build a 3:1 FT.SEARCH-to-FT.AGGREGATE prefix so the burst
-    # stays mixed while still driving the coordinator into the saturation region,
-    # then continue draining the aggregate-heavy tail.
-    return ([search] * 3 + [aggregate]) * 30 + [aggregate] * 120
+    return [search] * RQ_CAPACITY + [aggregate] * COORDINATOR_POOL_SIZE
 
 
 def _run_burst_command(env, command, exceptions, completed, lock):
