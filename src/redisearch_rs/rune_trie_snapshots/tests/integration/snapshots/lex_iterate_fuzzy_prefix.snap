@@ -1,0 +1,18 @@
+---
+source: rune_trie_snapshots/tests/integration/dfa_iteration.rs
+expression: dump
+---
+size: 10
+
+query: prefix="apl", maxDist=1, prefixMode=1
+  ape         dist=1  score=1  numDocs=1
+  appl        dist=1  score=1  numDocs=1
+  apple       dist=1  score=1  numDocs=1
+  apply       dist=1  score=1  numDocs=1
+
+query: prefix="bnd", maxDist=1, prefixMode=1
+  band        dist=1  score=1  numDocs=1
+  bandana     dist=1  score=1  numDocs=1
+
+query: prefix="cta", maxDist=1, prefixMode=1
+  cat         dist=1  score=1  numDocs=1

@@ -1,0 +1,14 @@
+---
+source: rune_trie_snapshots/tests/integration/dfa_iteration.rs
+expression: dump
+---
+size: 10
+
+query: prefix="apple", maxDist=0, prefixMode=0
+  apple       dist=0  score=1  numDocs=1
+
+query: prefix="appl", maxDist=0, prefixMode=0
+  appl        dist=0  score=1  numDocs=1
+
+query: prefix="apples", maxDist=0, prefixMode=0
+  <no matches>
