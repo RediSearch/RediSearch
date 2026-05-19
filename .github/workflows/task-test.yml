@@ -282,6 +282,7 @@ jobs:
       - name: Setup sccache
         uses: ./.github/actions/setup-sccache
         with:
+          remote-cache-enabled: ${{ !(github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository) }}
           aws-role: ${{ vars.SCCACHE_AWS_ROLE_TO_ASSUME }}
           s3-bucket: ${{ vars.SCCACHE_S3_BUCKET }}
           s3-region: ${{ vars.SCCACHE_S3_REGION }}
@@ -448,7 +449,8 @@ jobs:
         run: make rust-tests
 
       - name: Show sccache stats
-        run: ${SCCACHE_PATH:-sccache} --show-stats
+        if: always()
+        run: ${SCCACHE_PATH:-sccache} --show-stats || true
 
       - name: Check test logs folder size
         if: always()
@@ -547,39 +549,43 @@ jobs:
         run: gpg --import .github/codecov_gpg.pub
       - name: Upload flow coverage (combined)
         if: inputs.coverage && inputs.standalone && inputs.coordinator
+        continue-on-error: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository }}
         uses: codecov/codecov-action@v6 # NOSONAR
         with:
           files: bin/flow_standalone.info,bin/flow_coordinator.info
           disable_search: true
           flags: flow
-          fail_ci_if_error: true # Fail on upload errors
+          fail_ci_if_error: ${{ !(github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository) }}
           token: ${{ secrets.CODECOV_TOKEN }}
       - name: Upload flow coverage (standalone)
         if: inputs.coverage && inputs.standalone && !inputs.coordinator
+        continue-on-error: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository }}
         uses: codecov/codecov-action@v6 # NOSONAR
         with:
           files: bin/flow_standalone.info
           disable_search: true
           flags: flow
-          fail_ci_if_error: true # Fail on upload errors
+          fail_ci_if_error: ${{ !(github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository) }}
           token: ${{ secrets.CODECOV_TOKEN }}
       - name: Upload flow coverage (coordinator)
         if: inputs.coverage && !inputs.standalone && inputs.coordinator
+        continue-on-error: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository }}
         uses: codecov/codecov-action@v6 # NOSONAR
         with:
           files: bin/flow_coordinator.info
           disable_search: true
           flags: flow
-          fail_ci_if_error: true # Fail on upload errors
+          fail_ci_if_error: ${{ !(github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository) }}
           token: ${{ secrets.CODECOV_TOKEN }}
       - name: Upload unit coverage
         if: inputs.coverage && inputs.unit-tests
+        continue-on-error: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository }}
         uses: codecov/codecov-action@v6 # NOSONAR
         with:
           files: bin/unit.info,bin/rust_cov.info
           disable_search: true
           flags: unit
-          fail_ci_if_error: true # Fail on upload errors
+          fail_ci_if_error: ${{ !(github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository) }}
           token: ${{ secrets.CODECOV_TOKEN }}
 
   # Stop EC2 runner for self-hosted platforms (always runs if `start-runner` succeeds, to ensure cleanup)

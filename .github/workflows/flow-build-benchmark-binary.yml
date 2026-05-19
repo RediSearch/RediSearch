@@ -49,6 +49,7 @@ jobs:
       - name: Setup sccache
         uses: ./.github/actions/setup-sccache
         with:
+          remote-cache-enabled: ${{ !(github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository) }}
           aws-role: ${{ vars.SCCACHE_AWS_ROLE_TO_ASSUME }}
           s3-bucket: ${{ vars.SCCACHE_S3_BUCKET }}
           s3-region: ${{ vars.SCCACHE_S3_REGION }}
@@ -56,7 +57,8 @@ jobs:
       - name: Build RediSearch
         run: make build LTO=1
       - name: Show sccache stats
-        run: ${SCCACHE_PATH:-sccache} --show-stats
+        if: always()
+        run: ${SCCACHE_PATH:-sccache} --show-stats || true
       - name: Upload redisearch.so artifact
         uses: actions/upload-artifact@v4
         with:

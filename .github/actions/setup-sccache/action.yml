@@ -1,26 +1,31 @@
 name: Setup sccache
 description: |
-  Assume the sccache AWS role via OIDC, install the sccache binary, and export
-  sccache S3 env vars. Calling job MUST grant `id-token: write`.
+  Install the sccache binary and optionally configure S3 remote cache via AWS
+  OIDC. Jobs that enable remote cache MUST grant `id-token: write`.
 
 inputs:
+  remote-cache-enabled:
+    description: 'Whether to configure S3 remote cache'
+    required: false
+    default: 'true'
   aws-role:
     description: 'AWS IAM role ARN for sccache S3 access (pass vars.SCCACHE_AWS_ROLE_TO_ASSUME)'
-    required: true
+    required: false
   s3-bucket:
     description: 'S3 bucket name for sccache (pass vars.SCCACHE_S3_BUCKET)'
-    required: true
+    required: false
   s3-region:
     description: 'AWS region of the sccache S3 bucket (pass vars.SCCACHE_S3_REGION)'
-    required: true
+    required: false
   s3-key-prefix:
     description: 'S3 key prefix for sccache objects (pass vars.SCCACHE_S3_KEY_PREFIX)'
-    required: true
+    required: false
 
 runs:
   using: composite
   steps:
     - name: Configure AWS Credentials for sccache
+      if: ${{ inputs.remote-cache-enabled == 'true' && inputs.aws-role != '' && inputs.s3-bucket != '' && inputs.s3-region != '' && inputs.s3-key-prefix != '' }}
       uses: aws-actions/configure-aws-credentials@v6
       with:
         role-to-assume: ${{ inputs.aws-role }}
@@ -41,14 +46,25 @@ runs:
       # as script-injection sinks.
       shell: bash --noprofile --norc -eo pipefail {0}
       env:
+        INPUT_REMOTE_CACHE_ENABLED: ${{ inputs.remote-cache-enabled }}
+        INPUT_AWS_ROLE: ${{ inputs.aws-role }}
         INPUT_S3_BUCKET: ${{ inputs.s3-bucket }}
         INPUT_S3_REGION: ${{ inputs.s3-region }}
         INPUT_S3_KEY_PREFIX: ${{ inputs.s3-key-prefix }}
       run: |
-        echo "SCCACHE_BUCKET=$INPUT_S3_BUCKET" >> "$GITHUB_ENV"
-        echo "SCCACHE_REGION=$INPUT_S3_REGION" >> "$GITHUB_ENV"
-        echo "SCCACHE_S3_KEY_PREFIX=$INPUT_S3_KEY_PREFIX" >> "$GITHUB_ENV"
-        echo "SCCACHE_S3_USE_SSL=true" >> "$GITHUB_ENV"
+        if [[ "$INPUT_REMOTE_CACHE_ENABLED" == "true" &&
+              -n "$INPUT_AWS_ROLE" &&
+              -n "$INPUT_S3_BUCKET" &&
+              -n "$INPUT_S3_REGION" &&
+              -n "$INPUT_S3_KEY_PREFIX" ]]; then
+          echo "SCCACHE_BUCKET=$INPUT_S3_BUCKET" >> "$GITHUB_ENV"
+          echo "SCCACHE_REGION=$INPUT_S3_REGION" >> "$GITHUB_ENV"
+          echo "SCCACHE_S3_KEY_PREFIX=$INPUT_S3_KEY_PREFIX" >> "$GITHUB_ENV"
+          echo "SCCACHE_S3_USE_SSL=true" >> "$GITHUB_ENV"
+          echo "Configured sccache S3 remote cache."
+        else
+          echo "Using local sccache only; S3 remote cache is disabled or not fully configured."
+        fi
         # Disable idle timeout so the sccache server stays alive for the
         # entire job, otherwise stats are lost if it shuts down between steps.
         echo "SCCACHE_IDLE_TIMEOUT=0" >> "$GITHUB_ENV"
