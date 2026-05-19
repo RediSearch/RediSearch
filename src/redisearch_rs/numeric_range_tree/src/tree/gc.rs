@@ -330,6 +330,7 @@ impl NumericRangeTree {
                 let br = Self::balance_node(nodes, node_idx);
                 rv.size_delta += br.size_delta;
                 rv.num_ranges_delta += br.num_ranges_delta;
+                rv.block_count_delta += br.block_count_delta;
                 if let NumericRangeNode::Internal(internal) = &mut nodes[node_idx] {
                     internal.max_depth = br.new_depth;
                 }
@@ -354,6 +355,7 @@ impl NumericRangeTree {
         if let Some(r) = nodes[node_idx].take_range() {
             rv.size_delta -= r.memory_usage() as i64;
             rv.num_ranges_delta -= 1;
+            rv.block_count_delta -= r.entries().num_blocks() as i32;
         }
 
         if right_empty {

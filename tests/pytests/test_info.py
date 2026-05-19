@@ -164,9 +164,10 @@ def test_total_inverted_index_blocks_per_spec(env):
   conn = getConnectionByEnv(env)
 
   # Two indexes with deliberately different sizes so a global-counter bug would surface as
-  # both reports having the same (summed) value.
-  env.expect('FT.CREATE', 'small_idx', 'SCHEMA', 'tag1', 'TAG').ok()
-  env.expect('FT.CREATE', 'large_idx', 'SCHEMA', 'tag1', 'TAG').ok()
+  # both reports having the same (summed) value. PREFIX keeps each spec isolated so each
+  # doc gets indexed into exactly one of them.
+  env.expect('FT.CREATE', 'small_idx', 'PREFIX', 1, 'small:', 'SCHEMA', 'tag1', 'TAG').ok()
+  env.expect('FT.CREATE', 'large_idx', 'PREFIX', 1, 'large:', 'SCHEMA', 'tag1', 'TAG').ok()
 
   # Each unique tag value gets its own inverted index (with at least one block), so a unique
   # tag per doc maximises block count per doc.

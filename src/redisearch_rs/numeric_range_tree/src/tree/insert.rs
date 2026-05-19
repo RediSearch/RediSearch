@@ -204,6 +204,7 @@ impl NumericRangeTree {
                     rv.size_delta += br.size_delta;
                     rv.num_records_delta += br.num_records_delta;
                     rv.num_ranges_delta += br.num_ranges_delta;
+                    rv.block_count_delta += br.block_count_delta;
                     if let NumericRangeNode::Internal(internal) = &mut nodes[node_idx] {
                         internal.max_depth = br.new_depth;
                     }
@@ -381,6 +382,7 @@ impl NumericRangeTree {
             rv.size_delta -= range.memory_usage() as i64;
             rv.num_records_delta -= range.num_entries() as i32;
             rv.num_ranges_delta -= 1;
+            rv.block_count_delta -= range.entries().num_blocks() as i32;
         }
     }
 
@@ -438,6 +440,7 @@ impl NumericRangeTree {
                 result.size_delta -= range.memory_usage() as i64;
                 result.num_records_delta -= range.num_entries() as i32;
                 result.num_ranges_delta -= 1;
+                result.block_count_delta -= range.entries().num_blocks() as i32;
             }
         }
 
@@ -460,4 +463,6 @@ pub(super) struct BalanceResult {
     pub num_records_delta: i32,
     /// Change in range count from dropped ranges.
     pub num_ranges_delta: i32,
+    /// Change in inverted-index block count from dropped ranges (always ≤ 0).
+    pub block_count_delta: i32,
 }
