@@ -1,0 +1,20 @@
+---
+source: rune_trie_snapshots/tests/integration/boundary_cases.rs
+expression: out
+---
+--- empty string (bytes=0, expected: rejected by Trie_InsertRune (len > 0 required)) ---
+rc = 0
+--- single ASCII rune (bytes=1, expected: accepted (minimum non-empty input)) ---
+rc = 1
+--- 255-rune ASCII (one below TRIE_INITIAL_STRING_LEN) (bytes=255, expected: accepted (255 < 256)) ---
+rc = 1
+--- 256-rune ASCII (at TRIE_INITIAL_STRING_LEN — strict `<`) (bytes=256, expected: rejected by Trie_InsertRune (256 not strictly < 256)) ---
+rc = 0
+--- 513-byte ASCII (one above TRIE_INITIAL_STRING_LEN * sizeof(rune)) (bytes=513, expected: rejected by Trie_InsertStringBuffer (513 > 512 bytes)) ---
+rc = 0
+
+--- final trie contents ---
+size: 2
+entries:
+  runeLen=  1  "a"
+  runeLen=255  <255-rune term: "xxxx".."xxxx">
