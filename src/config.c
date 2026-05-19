@@ -153,6 +153,21 @@ static int set_uint_numeric_config(const char *name, long long val,
   return REDISMODULE_OK;
 }
 
+// Like set_uint_numeric_config but accepts values above UINT32_MAX (clamping with a warning).
+// Used for fields that were previously long long and may have larger values persisted in RDB.
+static int set_uint_clamped_numeric_config(const char *name, long long val,
+                                           void *privdata, RedisModuleString **err) {
+  REDISMODULE_NOT_USED(err);
+  if (val > UINT32_MAX) {
+    RedisModule_Log(RSDummyContext, "warning",
+                    "%s value %lld exceeds maximum (%u), clamping",
+                    name, val, UINT32_MAX);
+    val = UINT32_MAX;
+  }
+  *(unsigned int *)privdata = (unsigned int) val;
+  return REDISMODULE_OK;
+}
+
 static long long get_uint_numeric_config(const char *name, void *privdata) {
   REDISMODULE_NOT_USED(name);
   return (long long)(*(unsigned int *)privdata);
@@ -378,13 +393,24 @@ CONFIG_BOOLEAN_GETTER(getNoMemPools, noMemPool, 0)
 
 // MINPREFIX
 CONFIG_SETTER(setMinPrefix) {
-  int acrc = AC_GetLongLong(ac, &config->iteratorsConfigParams.minTermPrefix, AC_F_GE1);
-  RETURN_STATUS(acrc);
+  long long val;
+  int acrc = AC_GetLongLong(ac, &val, AC_F_GE1);
+  if (acrc != AC_OK) {
+    RETURN_STATUS(acrc);
+  }
+  if (val > UINT32_MAX) {
+    RedisModule_Log(RSDummyContext, "warning",
+                    "MINPREFIX value %lld exceeds maximum (%u), clamping",
+                    val, UINT32_MAX);
+    val = UINT32_MAX;
+  }
+  config->iteratorsConfigParams.minTermPrefix = (uint32_t) val;
+  return REDISMODULE_OK;
 }
 
 CONFIG_GETTER(getMinPrefix) {
   sds ss = sdsempty();
-  return sdscatprintf(ss, "%lld", config->iteratorsConfigParams.minTermPrefix);
+  return sdscatprintf(ss, "%u", config->iteratorsConfigParams.minTermPrefix);
 }
 
 // MINSTEMLEN
@@ -479,13 +505,24 @@ CONFIG_GETTER(getMaxAggregateResults) {
 
 // MAXEXPANSIONS MAXPREFIXEXPANSIONS
 CONFIG_SETTER(setMaxExpansions) {
-  int acrc = AC_GetLongLong(ac, &config->iteratorsConfigParams.maxPrefixExpansions, AC_F_GE1);
-  RETURN_STATUS(acrc);
+  long long val;
+  int acrc = AC_GetLongLong(ac, &val, AC_F_GE1);
+  if (acrc != AC_OK) {
+    RETURN_STATUS(acrc);
+  }
+  if (val > UINT32_MAX) {
+    RedisModule_Log(RSDummyContext, "warning",
+                    "MAXPREFIXEXPANSIONS value %lld exceeds maximum (%u), clamping",
+                    val, UINT32_MAX);
+    val = UINT32_MAX;
+  }
+  config->iteratorsConfigParams.maxPrefixExpansions = (uint32_t) val;
+  return REDISMODULE_OK;
 }
 
 CONFIG_GETTER(getMaxExpansions) {
   sds ss = sdsempty();
-  return sdscatprintf(ss, "%llu", config->iteratorsConfigParams.maxPrefixExpansions);
+  return sdscatprintf(ss, "%u", config->iteratorsConfigParams.maxPrefixExpansions);
 }
 
 // TIMEOUT
@@ -907,13 +944,24 @@ CONFIG_GETTER(getForkGcRetryInterval) {
 
 // UNION_ITERATOR_HEAP
 CONFIG_SETTER(setMinUnionIteratorHeap) {
-  int acrc = AC_GetLongLong(ac, &config->iteratorsConfigParams.minUnionIterHeap, AC_F_GE1);
-  RETURN_STATUS(acrc);
+  long long val;
+  int acrc = AC_GetLongLong(ac, &val, AC_F_GE1);
+  if (acrc != AC_OK) {
+    RETURN_STATUS(acrc);
+  }
+  if (val > UINT32_MAX) {
+    RedisModule_Log(RSDummyContext, "warning",
+                    "UNION_ITERATOR_HEAP value %lld exceeds maximum (%u), clamping",
+                    val, UINT32_MAX);
+    val = UINT32_MAX;
+  }
+  config->iteratorsConfigParams.minUnionIterHeap = (uint32_t) val;
+  return REDISMODULE_OK;
 }
 
 CONFIG_GETTER(getMinUnionIteratorHeap) {
   sds ss = sdsempty();
-  return sdscatprintf(ss, "%lld", config->iteratorsConfigParams.minUnionIterHeap);
+  return sdscatprintf(ss, "%u", config->iteratorsConfigParams.minUnionIterHeap);
 }
 
 // CURSOR_MAX_IDLE
@@ -1750,9 +1798,9 @@ sds RSConfig_GetInfoString(const RSConfig *config) {
   sds ss = sdsempty();
 
   ss = sdscatprintf(ss, "gc: %s, ", config->gcConfigParams.enableGC ? "ON" : "OFF");
-  ss = sdscatprintf(ss, "prefix min length: %lld, ", config->iteratorsConfigParams.minTermPrefix);
+  ss = sdscatprintf(ss, "prefix min length: %u, ", config->iteratorsConfigParams.minTermPrefix);
   ss = sdscatprintf(ss, "min word length to stem: %u, ", config->iteratorsConfigParams.minStemLength);
-  ss = sdscatprintf(ss, "prefix max expansions: %lld, ", config->iteratorsConfigParams.maxPrefixExpansions);
+  ss = sdscatprintf(ss, "prefix max expansions: %u, ", config->iteratorsConfigParams.maxPrefixExpansions);
   ss = sdscatprintf(ss, "query timeout (ms): %lld, ", config->requestConfigParams.queryTimeoutMS);
   ss = sdscatprintf(ss, "timeout policy: %s, ", TimeoutPolicy_ToString(config->requestConfigParams.timeoutPolicy));
   ss = sdscatprintf(ss, "oom policy: %s, ", OomPolicy_ToString(config->requestConfigParams.oomPolicy));
@@ -2007,8 +2055,8 @@ int RegisterModuleConfig_Local(RedisModuleCtx *ctx) {
   RM_TRY(
     RedisModule_RegisterNumericConfig(
       ctx, "search-max-prefix-expansions", DEFAULT_MAX_PREFIX_EXPANSIONS,
-      REDISMODULE_CONFIG_UNPREFIXED, 1, LLONG_MAX,
-      get_long_numeric_config, set_long_numeric_config, NULL,
+      REDISMODULE_CONFIG_UNPREFIXED, 1,
+      LLONG_MAX, get_uint_numeric_config, set_uint_clamped_numeric_config, NULL,
       (void *)&(RSGlobalConfig.iteratorsConfigParams.maxPrefixExpansions)
     )
   )
@@ -2063,7 +2111,7 @@ int RegisterModuleConfig_Local(RedisModuleCtx *ctx) {
     RedisModule_RegisterNumericConfig(
       ctx, "search-min-prefix", DEFAULT_MIN_TERM_PREFIX,
       REDISMODULE_CONFIG_UNPREFIXED, 1,
-      LLONG_MAX, get_long_numeric_config, set_long_numeric_config, NULL,
+      LLONG_MAX, get_uint_numeric_config, set_uint_clamped_numeric_config, NULL,
       (void *)&(RSGlobalConfig.iteratorsConfigParams.minTermPrefix)
     )
   )
@@ -2108,7 +2156,7 @@ int RegisterModuleConfig_Local(RedisModuleCtx *ctx) {
     RedisModule_RegisterNumericConfig(
       ctx, "search-union-iterator-heap", DEFAULT_UNION_ITERATOR_HEAP,
       REDISMODULE_CONFIG_UNPREFIXED, 1,
-      LLONG_MAX, get_long_numeric_config, set_long_numeric_config, NULL,
+      LLONG_MAX, get_uint_numeric_config, set_uint_clamped_numeric_config, NULL,
       (void *)&(RSGlobalConfig.iteratorsConfigParams.minUnionIterHeap)
     )
   )
