@@ -186,9 +186,11 @@ int HashNotificationCallback(RedisModuleCtx *ctx, int type, const char *event,
  ********************************************************/
     case hexpire_cmd:
     case hpersist_cmd:
-      // We do not support field-TTL metadata changes in the disk flow.
+      // HEXPIRE/HPERSIST only change per-field TTL metadata, so refresh the
+      // matching specs' TTL tables without re-indexing the document. Disk-
+      // backed indexes do not support field-TTL metadata and are skipped.
       if (!SearchDisk_IsEnabled()) {
-        Indexes_UpdateMatchingWithSchemaRules(ctx, key, getDocTypeFromString(key), hashFields);
+        Indexes_UpdateMatchingHashFieldExpiration(ctx, key, getDocTypeFromString(key));
       } else {
         static bool hpexpire_warned = false;
         if (!hpexpire_warned && Indexes_Count() > 0) {
@@ -286,6 +288,13 @@ void CommandFilterCallback(RedisModuleCommandFilterCtx *filter) {
   } else if (!strcasecmp("HDEL", cmdStr)) {
     // Nothing to do
   } else {
+    // TODO: HEXPIRE/HPEXPIRE/HEXPIREAT/HPEXPIREAT/HPERSIST also carry an
+    // explicit `FIELDS numfields field [field ...]` list. Capturing it here
+    // (scan argv for the FIELDS keyword, parse numfields, retain each field)
+    // would let Indexes_UpdateMatchingHashFieldExpiration in src/spec.c skip
+    // specs whose schema does not reference any of the affected fields,
+    // saving a HashFieldMinExpire + per-indexed-field HashGet pass on wide
+    // schemas where HEXPIRE only touches unindexed fields.
     return;
   }
 
@@ -523,15 +532,14 @@ static void ServerReadyEvent(RedisModuleCtx *ctx, RedisModuleEvent eid, uint64_t
   REDISMODULE_NOT_USED(eid);
   REDISMODULE_NOT_USED(subevent);
   REDISMODULE_NOT_USED(data);
+  RS_ASSERT(SearchDisk_IsEnabled());
   RedisModule_Log(ctx, "notice", "Got Server ready event.");
-  if (SearchDisk_IsEnabled()) {
-    bool disk_initialized = SearchDisk_Initialize(ctx);
-    RS_LOG_ASSERT(disk_initialized, "Search Disk is enabled but could not be initialized")
-    if (RSGlobalConfig.numWorkerThreads == 0) {
-      RSGlobalConfig.numWorkerThreads = DEFAULT_WORKER_THREADS_FLEX;
-      workersThreadPool_SetNumWorkers();
-      RedisModule_Log(ctx, "notice", "WORKERS set to 1 (Flex mode default)");
-    }
+  bool disk_initialized = SearchDisk_Initialize(ctx);
+  RS_LOG_ASSERT(disk_initialized, "Search Disk is enabled but could not be initialized")
+  if (RSGlobalConfig.numWorkerThreads == 0) {
+    RSGlobalConfig.numWorkerThreads = DEFAULT_WORKER_THREADS_FLEX;
+    workersThreadPool_SetNumWorkers();
+    RedisModule_Log(ctx, "notice", "WORKERS set to 1 (Flex mode default)");
   }
 }
 
@@ -603,12 +611,88 @@ void Initialize_KeyspaceNotifications() {
   }
 }
 
+// Iterate every live IndexSpec with a disk-backed companion and invoke `fn`
+// against the IndexSpec. This must be called from the main thread
+static void ForEachIndex(void (*fn)(IndexSpec *)) {
+  if (!specDict_g) {
+    return;
+  }
+  dictIterator *iter = dictGetIterator(specDict_g);
+  dictEntry *entry = NULL;
+  while ((entry = dictNext(iter))) {
+    StrongRef spec_ref = dictGetRef(entry);
+    IndexSpec *sp = StrongRef_Get(spec_ref);
+    if (sp) {
+      RS_ASSERT(sp->diskSpec);
+      fn(sp);
+    }
+  }
+  dictReleaseIterator(iter);
+}
+
+//Keeps track to know if SST replication holds the lock avoiding background vector index building jobs from running
+static bool vecsimdisk_sst_consistency_lock_held = false;
+
+// SST replication event handler.
+//
+// Dispatches each replication sub-event to the matching per-spec wrapper in
+// search_disk.h
+//
+static void SSTReplicationEvent(RedisModuleCtx *ctx, RedisModuleEvent eid,
+                                uint64_t subevent, void *data) {
+  REDISMODULE_NOT_USED(eid);
+  REDISMODULE_NOT_USED(data);
+  RS_ASSERT(SearchDisk_IsEnabled());
+
+  if (!SearchDisk_IsInitialized()) {
+    return;
+  }
+
+  switch (subevent) {
+    case REDISMODULE_SUBEVENT_SST_REPL_PRE_CHECKPOINT:
+      RedisModule_Log(ctx, "notice", "SST replication: PRE_CHECKPOINT");
+      ForEachIndex(SearchDisk_PreCheckpoint);
+      break;
+    case REDISMODULE_SUBEVENT_SST_REPL_POST_CHECKPOINT:
+      RedisModule_Log(ctx, "notice", "SST replication: POST_CHECKPOINT");
+      break;
+    case REDISMODULE_SUBEVENT_SST_REPL_PRE_FORK:
+      RedisModule_Log(ctx, "notice", "SST replication: PRE_FORK");
+      VecSimDisk_AcquireConsistencyLock();
+      vecsimdisk_sst_consistency_lock_held = true;
+      ForEachIndex(SearchDisk_PreFork);
+      break;
+    case REDISMODULE_SUBEVENT_SST_REPL_POST_FORK:
+      RedisModule_Log(ctx, "notice", "SST replication: POST_FORK");
+      ForEachIndex(SearchDisk_PostFork);
+      RS_ASSERT(vecsimdisk_sst_consistency_lock_held);
+      VecSimDisk_ReleaseConsistencyLock();
+      vecsimdisk_sst_consistency_lock_held = false;
+      break;
+    case REDISMODULE_SUBEVENT_SST_REPL_ABORT:
+      RedisModule_Log(ctx, "notice", "SST replication: ABORT");
+      ForEachIndex(SearchDisk_ReplicationAbort);
+      if (vecsimdisk_sst_consistency_lock_held) {
+        VecSimDisk_ReleaseConsistencyLock();
+        vecsimdisk_sst_consistency_lock_held = false;
+      }
+      break;
+    default:
+      RS_LOG_ASSERT_FMT(false, "Received unknown sub-event %llu for SST replication", (unsigned long long)subevent);
+      RedisModule_Log(ctx, "warning",
+                      "SST replication: unknown sub-event %llu",
+                      (unsigned long long)subevent);
+      break;
+  }
+}
+
 // Persistence event handler.
 // Called on BGSAVE/AOF rewrite start and end.
 static void PersistenceEvent(RedisModuleCtx *ctx, RedisModuleEvent eid,
                              uint64_t subevent, void *data) {
   REDISMODULE_NOT_USED(eid);
   REDISMODULE_NOT_USED(data);
+  RS_ASSERT(SearchDisk_IsEnabled());
 
   switch (subevent) {
   case REDISMODULE_SUBEVENT_PERSISTENCE_RDB_START:
@@ -660,6 +744,9 @@ void Initialize_ServerEventNotifications(RedisModuleCtx *ctx) {
 
     RedisModule_Log(ctx, "notice", "Subscribe to persistence events");
     RedisModule_SubscribeToServerEvent(ctx, RedisModuleEvent_Persistence, PersistenceEvent);
+
+    RedisModule_Log(ctx, "notice", "Subscribe to SST replication events");
+    RedisModule_SubscribeToServerEvent(ctx, RedisModuleEvent_SSTReplication, SSTReplicationEvent);
   }
 }
 

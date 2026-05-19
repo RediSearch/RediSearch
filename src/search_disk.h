@@ -157,7 +157,7 @@ RedisSearchDiskRdbState* SearchDisk_LoadRdbToTempObject(RedisModuleIO *rdb);
  * @return Pointer to the created IndexSpec, or NULL on error
  */
 RedisSearchDiskIndexSpec* SearchDisk_OpenIndexWithRdbState(RedisModuleCtx *ctx,
-                                                            const HiddenString *indexName,  
+                                                            const HiddenString *indexName,
                                                             const char *obfuscatedName,
                                                             DocumentType type,
                                                             RedisSearchDiskRdbState *rdbState);
@@ -562,6 +562,46 @@ uint64_t SearchDisk_GetDiskUsage(RedisSearchDiskIndexSpec* index);
  * @param index Pointer to the disk index spec
  */
 void SearchDisk_Flush(RedisSearchDiskIndexSpec* index);
+
+/**
+ * @brief Master-side SST replication PRE_CHECKPOINT hook for a single index.
+ *
+ * Acquires the IndexSpec read lock (blocks writes, allows queries) and
+ * dispatches to the disk-side preCheckpoint hook.
+ *
+ * @param sp Pointer to the IndexSpec (must have a non-NULL diskSpec)
+ */
+void SearchDisk_PreCheckpoint(IndexSpec *sp);
+
+/**
+ * @brief Master-side SST replication PRE_FORK hook for a single index.
+ *
+ * Acquires the per-spec fork lock, then the IndexSpec read lock, then
+ * dispatches to the disk-side preFork hook.
+ *
+ * @param sp Pointer to the IndexSpec (must have a non-NULL diskSpec)
+ */
+void SearchDisk_PreFork(IndexSpec *sp);
+
+/**
+ * @brief Master-side SST replication POST_FORK hook for a single index.
+ *
+ * Dispatches to the disk-side postFork hook, then releases the read lock and
+ * the fork lock acquired in SearchDisk_PreFork.
+ *
+ * @param sp Pointer to the IndexSpec
+ */
+void SearchDisk_PostFork(IndexSpec *sp);
+
+/**
+ * @brief Master-side SST replication ABORT hook for a single index.
+ *
+ * Dispatches to the disk-side replicationAbort hook, then releases whichever
+ * subset of locks (fork lock, read lock) is currently held for this cycle.
+ *
+ * @param sp Pointer to the IndexSpec
+ */
+void SearchDisk_ReplicationAbort(IndexSpec *sp);
 
 /**
  * @brief Update the buffer budget and WBM in response to RAM configuration changes
