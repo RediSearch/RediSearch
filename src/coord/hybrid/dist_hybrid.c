@@ -16,7 +16,6 @@
 #include "dist_plan.h"
 #include "rmr/rmr.h"
 #include "rmutil/util.h"
-#include "commands.h"
 #include "rpnet.h"
 #include "hybrid_cursor_mappings.h"
 #include "info/global_stats.h"
@@ -28,7 +27,6 @@
 #include "debug_commands.h"
 #include "result_processor.h"
 #include "concurrent_ctx.h"
-#include "module.h"
 #include "info/info_redis/threads/current_thread.h"
 
 // We mainly need the resp protocol to be three in order to easily extract the "score" key from the response
@@ -786,8 +784,7 @@ static int HybridRequest_prepareCursors(HybridRequest *hreq, struct ConcurrentCm
 
 typedef struct {
     HybridRequest *hreq;
-    StrongRef strong_ref;
-    WeakRef weak_ref;
+    StrongRef indexSpecRef;
     RedisModuleBlockedClient *bc;
     RedisModuleCtx *ctx;
     // `qctxErr` is the storage that `hreq->tailPipeline->qctx.err` points to during
@@ -801,8 +798,7 @@ typedef struct {
 
 static void HybridDispatchCtx_Free(HybridDispatchCtx *dispatch) {
     HybridRequest *hreq = dispatch->hreq;
-    StrongRef strong_ref = dispatch->strong_ref;
-    WeakRef weak_ref = dispatch->weak_ref;
+    StrongRef indexSpecRef = dispatch->indexSpecRef;
     RedisModuleBlockedClient *bc = dispatch->bc;
     RedisModuleCtx *redisCtx = dispatch->ctx;
     QueryError_ClearError(&dispatch->qctxErr);
@@ -816,8 +812,7 @@ static void HybridDispatchCtx_Free(HybridDispatchCtx *dispatch) {
     rm_free(dispatch);
     // The dispatcher thread already called CurrentThread_ClearIndexSpec() after
     // transferring strong_ref ownership here, so only release the strong ref.
-    StrongRef_Release(strong_ref);
-    WeakRef_Release(weak_ref);
+    StrongRef_Release(indexSpecRef);
 
     // Free the thread-safe context first; it's tied to the BC and must be
     // released before UnblockClient runs the reply_callback / tears down the BC.
@@ -900,23 +895,26 @@ static void HybridDispatchCtx_Tail(void *arg) {
     HybridDispatchCtx_Free(dispatch);
 }
 
-// Hand off ownership of dispatcher-owned state (hreq pin, spec strong_ref,
-// weak_ref, BC, thread-safe ctx) to a heap dispatch context, mark cmdCtx so
+// Hand off ownership of dispatcher-owned state (hreq pin, spec indexSpecRef,
+// BC, thread-safe ctx) to a heap dispatch context, mark cmdCtx so
 // threadHandleCommand stops auto-unblocking the client, and submit the tail
 // continuation to the coord pool. Caller must not touch any of the moved
 // resources after this returns.
+//
+// The cmdCtx's inherited spec WeakRef is released here: the indexSpecRef
+// transferred to the tail keeps both the spec and its RefManager alive,
+// so the standalone weak ref no longer needs to be carried forward.
 //
 // `dispatcherStatus` is the dispatcher-thread QueryError that ProcessHybridCursorMappings
 // may have stamped non-fatal warnings onto (e.g. COORD OOM under OomPolicy_Return).
 // We forward those warning bits into the tail's qctxErr so finishSendChunkReply_hybrid
 // can emit them.
-static void scheduleHybridTail(HybridRequest *hreq, StrongRef strong_ref,
+static void scheduleHybridTail(HybridRequest *hreq, StrongRef indexSpecRef,
                              struct ConcurrentCmdCtx *cmdCtx, RedisModuleCtx *ctx,
                              const QueryError *dispatcherStatus) {
     HybridDispatchCtx *dispatch = rm_calloc(1, sizeof(*dispatch));
     dispatch->hreq = hreq;
-    dispatch->strong_ref = strong_ref;
-    dispatch->weak_ref = ConcurrentCmdCtx_GetWeakRef(cmdCtx);
+    dispatch->indexSpecRef = indexSpecRef;
     dispatch->bc = ConcurrentCmdCtx_GetBlockedClient(cmdCtx);
     dispatch->ctx = ctx;
     dispatch->qctxErr = QueryError_Default();
@@ -937,6 +935,10 @@ static void scheduleHybridTail(HybridRequest *hreq, StrongRef strong_ref,
     ConcurrentCmdCtx_KeepBlockedClient(cmdCtx);
 
     ConcurrentSearch_ThreadPoolRun(HybridDispatchCtx_Tail, dispatch, hreq->poolId);
+
+    // Drop the cmdCtx's inherited weak ref. The indexSpecRef transferred to
+    // the tail keeps the RefManager alive until HybridDispatchCtx_Free.
+    WeakRef_Release(ConcurrentCmdCtx_GetWeakRef(cmdCtx));
 }
 
 static void DistHybridCleanups(RedisModuleCtx *ctx,
