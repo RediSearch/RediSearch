@@ -83,7 +83,6 @@ typedef enum {
 
 struct ResultProcessor;
 struct RLookup;
-struct AREQ;
 
 // QueryProcessingCtx is defined in Rust (ffi crate) and generated via cbindgen
 // into result_processor_rs.h which is included above.
@@ -147,16 +146,7 @@ typedef struct ResultProcessor {
   void (*Free)(struct ResultProcessor *self);
 } ResultProcessor;
 
-/**
- * Construct an RPIndex result processor.
- *
- * `areq` is a borrowed pointer used by `rpQueryItNext` to consult per-request
- * state (currently `AREQ_TimedOut`). The caller must guarantee that `areq`
- * outlives the returned processor; the processor neither retains nor frees
- * it. May be NULL on paths that do not have a single owning request, in which
- * case the per-request timeout check is skipped.
- */
-ResultProcessor *RPQueryIterator_New(QueryIterator *itr, const RedisModuleSlotRangeArray *querySlots, uint32_t slotsVersion, RedisSearchCtx *sctx, struct AREQ *areq);
+ResultProcessor *RPQueryIterator_New(QueryIterator *itr, const RedisModuleSlotRangeArray *querySlots, uint32_t slotsVersion, RedisSearchCtx *sctx);
 
 ResultProcessor *RPScorer_New(const ExtScoringFunctionCtx *funcs,
                               const ScoringFunctionArgs *fnargs,

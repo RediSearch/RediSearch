@@ -25,6 +25,9 @@ void ReplyWithTimeoutError(RedisModule_Reply *reply);
 
 void destroyResults(SearchResult **results);
 
+// TODO: replace `areq` with the borrowed atomic timed-out flag once it lives
+// on QueryProcessingCtx; the AREQ back-pointer is a temporary plumbing
+// shortcut for the main-thread RETURN-STRICT abort signal.
 SearchResult **AggregateResults(ResultProcessor *rp, struct AREQ *areq, int *rc);
 
 typedef struct CommonPipelineCtx {
@@ -33,10 +36,10 @@ typedef struct CommonPipelineCtx {
   RSOomPolicy oomPolicy;
   bool skipTimeoutChecks;
 
-  // AREQ for the request being executed, used by the debug pause loop in
-  // AggregateResults to self-release when the main-thread timeout callback
-  // flips AREQ_TimedOut. NULL on paths that don't have a single owning AREQ
-  // (e.g. hybrid).
+  // AREQ for the request being executed; consulted by AggregateResults (and
+  // its debug pause loop) to bail when the main-thread timeout callback flips
+  // AREQ_TimedOut. NULL on paths without a single owning AREQ (e.g. hybrid).
+  // TODO: migrate to a borrowed atomic flag on QueryProcessingCtx.
   struct AREQ *areq;
 } CommonPipelineCtx;
 

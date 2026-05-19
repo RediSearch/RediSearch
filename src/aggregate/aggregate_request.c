@@ -1112,6 +1112,13 @@ void AREQ_SetTimedOut(AREQ *req) {
   atomic_store_explicit(&req->syncCtx.timedOut, true, memory_order_release);
 }
 
+bool SearchTime_IsTimedOut(void *arg) {
+  const SearchTime *time = arg;
+  if (!time || !time->timedOutFlag) return false;
+  return atomic_load_explicit((const _Atomic(bool) *)time->timedOutFlag,
+                              memory_order_relaxed);
+}
+
 bool AREQ_RequiresThreadsSyncResults(const AREQ *req) {
   return req->syncCtx.requiresAggregateResultsSync;
 }
@@ -1488,6 +1495,10 @@ int AREQ_ApplyContext(AREQ *req, RedisSearchCtx *sctx, QueryError *status) {
   IndexSpec *index = sctx->spec;
   RSSearchOptions *opts = &req->searchopts;
   req->sctx = sctx;
+  // Borrow the request's timed-out flag onto the sctx so pipeline RPs can
+  // observe a RETURN-STRICT main-thread timeout without holding an AREQ
+  // back-pointer (read via SearchTime_IsTimedOut).
+  sctx->time.timedOutFlag = &req->syncCtx.timedOut;
 
   if (!IsIndexCoherent(req)) {
     QueryError_SetError(status, QUERY_ERROR_CODE_MISMATCH, NULL);
@@ -1753,7 +1764,6 @@ int AREQ_BuildPipeline(AREQ *req, QueryError *status) {
       .scorerName = req->searchopts.scorerName,
       .reqConfig = &req->reqConfig,
       .keySpaceVersion = req->keySpaceVersion,
-      .areq = req,
     };
     req->rootiter = NULL; // Ownership of the root iterator is now with the params.
     req->querySlots = NULL; // Ownership of the slot ranges is now with the params.

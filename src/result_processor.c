@@ -65,7 +65,6 @@ typedef struct {
   ResultProcessor base;
   QueryIterator *iterator;
   RedisSearchCtx *sctx;
-  AREQ *areq;                                   // Borrowed pointer to the request; used to query per-request state (e.g. AREQ_TimedOut) from rpQueryItNext
   uint32_t timeoutLimiter;                      // counter to limit number of calls to TimedOut_WithCounter()
   uint32_t keySpaceVersion;                     // version of the Keyspace slot ranges used for filtering
   const RedisModuleSlotRangeArray *querySlots;  // Query slots info, may be used for filtering
@@ -268,17 +267,17 @@ static int rpQueryItNext(ResultProcessor *base, SearchResult *res) {
   // Make sure MT is enabled and `workers > 0` - deadlock otherwise.
   // Interruptible wait: existing tests ARM/SIGNAL this point, while
   // RETURN-STRICT shard-timeout tests rely on the predicate to break out as
-  // soon as the main-thread callback flips AREQ_TimedOut (mirrors the
-  // coordinator's BeforeRPNetStart).
+  // soon as the main-thread callback flips sctx->time.timedOutFlag (mirrors
+  // the coordinator's BeforeRPNetStart).
   if (self->firstRead) {
     self->firstRead = false;
-    SyncPoint_WaitUntil(SYNC_POINT_BEFORE_FIRST_READ, areq_timed_out, self->areq);
+    SyncPoint_WaitUntil(SYNC_POINT_BEFORE_FIRST_READ, SearchTime_IsTimedOut, &sctx->time);
   }
 #endif
 
   while (1) {
     if ((TimedOut_WithCounter(&sctx->time.timeout, &self->timeoutLimiter) == TIMED_OUT) ||
-        (self->areq && AREQ_TimedOut(self->areq))) {
+        SearchTime_IsTimedOut(&sctx->time)) {
       return UnlockSpec_and_ReturnRPResult(sctx, RS_RESULT_TIMEDOUT);
     }
 
@@ -329,7 +328,7 @@ static int rpQueryItNext_AsyncDisk(ResultProcessor *base, SearchResult *res) {
   // See rpQueryItNext: same interruptible park for the async-disk variant.
   if (self->firstRead) {
     self->firstRead = false;
-    SyncPoint_WaitUntil(SYNC_POINT_BEFORE_FIRST_READ, areq_timed_out, self->areq);
+    SyncPoint_WaitUntil(SYNC_POINT_BEFORE_FIRST_READ, SearchTime_IsTimedOut, &sctx->time);
   }
 #endif
 
@@ -395,7 +394,7 @@ static void rpQueryItFree(ResultProcessor *iter) {
   rm_free(iter);
 }
 
-ResultProcessor *RPQueryIterator_New(QueryIterator *root, const RedisModuleSlotRangeArray *querySlots, uint32_t keySpaceVersion, RedisSearchCtx *sctx, AREQ *areq) {
+ResultProcessor *RPQueryIterator_New(QueryIterator *root, const RedisModuleSlotRangeArray *querySlots, uint32_t keySpaceVersion, RedisSearchCtx *sctx) {
   RS_ASSERT(root != NULL);
   RPQueryIterator *ret = rm_calloc(1, sizeof(*ret));
   ret->iterator = root;
@@ -403,7 +402,6 @@ ResultProcessor *RPQueryIterator_New(QueryIterator *root, const RedisModuleSlotR
   ret->keySpaceVersion = keySpaceVersion;
   ret->base.Free = rpQueryItFree;
   ret->sctx = sctx;
-  ret->areq = areq;
   ret->base.type = RP_INDEX;
   // Use REDISEARCH_UNINITIALIZED counter to skip timeout checks
   ret->timeoutLimiter = sctx->time.skipTimeoutChecks ? REDISEARCH_UNINITIALIZED : 0;
