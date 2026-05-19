@@ -1065,12 +1065,30 @@ int JSON_LoadDocumentField(JSONResultsIterator jsonIter, size_t len,
                           "Disk JSON index supports JSON array values only for VECTOR fields");
       return REDISMODULE_ERR;
     }
-    if (FieldSpec_CheckJsonType(fs->types, jsonType, status) != REDISMODULE_OK) {
-      return REDISMODULE_ERR;
-    }
 
-    if (JSON_StoreInDocField(json, jsonType, fs, df, status) != REDISMODULE_OK) {
-      return REDISMODULE_ERR;
+    // PoC: a JSON Object on a TEXT NOINDEX field is stored as its serialized
+    // JSON text in the sortable slot. The indexer skips tokenization for
+    // non-indexable fields (see fulltextPreprocessor in document.c), so the
+    // serialized form is never tokenized — it just rides along for RETURN
+    // and SORTABLE read-back.
+    if (jsonType == JSONType_Object && !FieldSpec_IsIndexable(fs) &&
+        fs->types == INDEXFLD_T_FULLTEXT) {
+      RedisModuleString *rstr = NULL;
+      japi->getJSON(json, ctx, &rstr);
+      size_t l;
+      const char *s = RedisModule_StringPtrLen(rstr, &l);
+      df->strval = rm_strndup(s, l);
+      df->strlen = l;
+      df->unionType = FLD_VAR_T_CSTR;
+      RedisModule_FreeString(ctx, rstr);
+    } else {
+      if (FieldSpec_CheckJsonType(fs->types, jsonType, status) != REDISMODULE_OK) {
+        return REDISMODULE_ERR;
+      }
+
+      if (JSON_StoreInDocField(json, jsonType, fs, df, status) != REDISMODULE_OK) {
+        return REDISMODULE_ERR;
+      }
     }
   } else {
     switch (fs->types) {
