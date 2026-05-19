@@ -7,7 +7,7 @@ publish.workspace = true
 
 [features]
 unittest = []
-# Compile in work-in-progress reducers (currently: COLLECT). Off by default.
+# Compile in work-in-progress reducers. Off by default.
 wip_features = []
 
 [dependencies]

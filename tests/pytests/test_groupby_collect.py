@@ -55,34 +55,8 @@ def _sort_collected(entries, key):
 
 
 # ---------------------------------------------------------------------------
-# COLLECT should fail when WIP is disabled
-# ---------------------------------------------------------------------------
-def test_collect_wip_disabled(env):
-    if WIP_FEATURES:
-        env.skip()
-
-    enable_unstable_features(env)
-    try:
-        env.cmd('FT.CREATE', '__collect_probe_no_idx__', 'ON', 'HASH',
-               'SCHEMA', 'x', 'TAG', 'y', 'TAG')
-        env.cmd('HSET', 'doc1', 'x', 'hello')
-        res = env.cmd('FT.AGGREGATE', '__collect_probe_no_idx__', '*',
-                'GROUPBY', '1', '@x',
-                    'REDUCE', 'COLLECT', '3', 'FIELDS', '1', '@y')
-        print(res)
-        env.assertTrue(False)
-    except Exception as e:
-        print('exception', str(e))
-        if not 'No such reducer: COLLECT' in str(e):
-            print('COLLECT supported')
-            env.assertEqual(False, 'COLLECT should fail')
-        else:
-            print('NO COLLECT')
-
-# ---------------------------------------------------------------------------
 # COLLECT coordinator merge across shards, HASH
 # ---------------------------------------------------------------------------
-@wip
 @skip(cluster=False)
 def test_collect_cluster_merges_same_group_across_shards():
     env = Env(shardsCount=3, protocol=3)
@@ -125,7 +99,6 @@ def test_collect_cluster_merges_same_group_across_shards():
 # ---------------------------------------------------------------------------
 # Chained GROUPBY
 # ---------------------------------------------------------------------------
-@wip
 def test_collect_cluster_chained_groupby_collect():
     env = Env(protocol=3)
     enable_unstable_features(env)
@@ -175,7 +148,6 @@ def test_collect_cluster_chained_groupby_collect():
 # ---------------------------------------------------------------------------
 # COLLECT 1 field, HASH
 # ---------------------------------------------------------------------------
-@wip
 def test_collect_1_field_hash():
     env = Env(protocol=3)
     enable_unstable_features(env)
@@ -204,7 +176,6 @@ def test_collect_1_field_hash():
 # ---------------------------------------------------------------------------
 # COLLECT 3 fields, HASH  (TEXT fields are lowercased in HASH)
 # ---------------------------------------------------------------------------
-@wip
 def test_collect_3_fields_hash():
     env = Env(protocol=3)
     enable_unstable_features(env)
@@ -239,7 +210,6 @@ def test_collect_3_fields_hash():
 # ---------------------------------------------------------------------------
 # COLLECT 1 field, JSON
 # ---------------------------------------------------------------------------
-@wip
 @skip(no_json=True)
 def test_collect_1_field_json():
     env = Env(protocol=3)
@@ -264,7 +234,6 @@ def test_collect_1_field_json():
 # ---------------------------------------------------------------------------
 # COLLECT 3 fields, JSON  (JSON preserves original case)
 # ---------------------------------------------------------------------------
-@wip
 @skip(no_json=True)
 def test_collect_3_fields_json():
     env = Env(protocol=3)
@@ -294,7 +263,6 @@ def test_collect_3_fields_json():
 # ---------------------------------------------------------------------------
 # Chained GROUPBY: second COLLECT collects previous reducers output
 # ---------------------------------------------------------------------------
-@wip
 def test_chained_groupby_collect():
     env = Env(protocol=3)
     enable_unstable_features(env)
@@ -324,7 +292,6 @@ def test_chained_groupby_collect():
 # ---------------------------------------------------------------------------
 # COLLECT with NULL/missing values
 # ---------------------------------------------------------------------------
-@wip
 def test_collect_missing_values():
     env = Env(protocol=3)
     enable_unstable_features(env)
@@ -360,7 +327,6 @@ def test_collect_missing_values():
 # ---------------------------------------------------------------------------
 # COLLECT with AS alias
 # ---------------------------------------------------------------------------
-@wip
 def test_collect_alias():
     env = Env(protocol=3)
     enable_unstable_features(env)
@@ -380,7 +346,6 @@ def test_collect_alias():
 # ---------------------------------------------------------------------------
 # COLLECT with multi-key GROUPBY
 # ---------------------------------------------------------------------------
-@wip
 def test_collect_multi_groupby_keys():
     env = Env(protocol=3)
     enable_unstable_features(env)
@@ -404,7 +369,6 @@ def test_collect_multi_groupby_keys():
 # ---------------------------------------------------------------------------
 # Verify output structure: array of maps
 # ---------------------------------------------------------------------------
-@wip
 def test_collect_output_structure():
     env = Env(protocol=3)
     enable_unstable_features(env)
@@ -428,7 +392,6 @@ def test_collect_output_structure():
 # ---------------------------------------------------------------------------
 # COLLECT requires ENABLE_UNSTABLE_FEATURES
 # ---------------------------------------------------------------------------
-@wip
 def test_collect_requires_unstable_features():
     env = Env()
     enable_unstable_features(env)
@@ -448,7 +411,6 @@ def test_collect_requires_unstable_features():
 # ---------------------------------------------------------------------------
 # COLLECT with LOAD json path aliased field
 # ---------------------------------------------------------------------------
-@wip
 @skip(no_json=True)
 def test_collect_loaded_json_path():
     env = Env(protocol=3)
@@ -480,7 +442,6 @@ def test_collect_loaded_json_path():
 # Internal-path serialization: _FT.AGGREGATE sets QEXEC_F_INTERNAL and must
 # cause the shard to include sort-key values alongside projected fields.
 # ---------------------------------------------------------------------------
-@wip
 @skip(cluster=True)
 def test_collect_internal_serializes_sort_fields():
     """In internal mode the shard includes SORTBY fields alongside FIELDS."""
@@ -508,7 +469,6 @@ def test_collect_internal_serializes_sort_fields():
                         message='internal should include both FIELDS and SORTBY keys')
 
 
-@wip
 @skip(cluster=True)
 def test_collect_internal_without_sortby_equals_external_shape():
     """No spurious widening: _FT without SORTBY must match FT output."""
@@ -541,7 +501,6 @@ def test_collect_internal_without_sortby_equals_external_shape():
             env.assertEqual(set(row.keys()), {'name'})
 
 
-@wip
 @skip(cluster=True)
 def test_collect_internal_duplicate_field_and_sort():
     """When a field is also the sort key, internal mode emits exactly one wire entry per row.
@@ -630,7 +589,6 @@ def _collect_load_all_extract_rows(internal_resp2):
             yield row
 
 
-@wip
 @skip(cluster=True)
 def test_collect_internal_load_all_partial_load_emits_only_loaded_fields():
     """Loading a strict subset of the schema produces a strict subset on the
@@ -667,7 +625,6 @@ def test_collect_internal_load_all_partial_load_emits_only_loaded_fields():
             message=f'partial-load row must emit only the loaded subset, got {row_keys}')
 
 
-@wip
 @skip(cluster=True)
 def test_collect_internal_load_all_emits_dunder_key_when_loaded():
     """``@__key`` rides through `FIELDS *` like any other loaded field.
@@ -713,7 +670,6 @@ def test_collect_internal_load_all_emits_dunder_key_when_loaded():
         message='each doc must emit its own @__key value through FIELDS *')
 
 
-@wip
 @skip(cluster=True)
 def test_collect_internal_load_all_with_load_star_emits_full_schema():
     """``LOAD *`` populates the rlookup with every schema field, so
@@ -749,7 +705,6 @@ def test_collect_internal_load_all_with_load_star_emits_full_schema():
             message=f'LOAD * row must emit the full schema, got {row_keys}')
 
 
-@wip
 @skip(cluster=True)
 def test_collect_internal_load_all_omits_missing_fields():
     """When a row has no value for a key, `FIELDS *` drops it from the map.
@@ -826,7 +781,6 @@ def test_collect_internal_load_all_omits_missing_fields():
 #                      registered (`color`); wildcard emits {color: ...}
 #                      and `$` is absent.
 # ---------------------------------------------------------------------------
-@wip
 @skip(cluster=True, no_json=True)
 def test_collect_internal_load_all_emits_dollar_on_json():
     """`LOAD *` on JSON adds a single ``$`` key to the rlookup carrying
@@ -892,7 +846,6 @@ def test_collect_internal_load_all_emits_dollar_on_json():
         message=f'every fruit must appear in some collected group, saw {seen_names}')
 
 
-@wip
 @skip(cluster=True, no_json=True)
 def test_collect_internal_no_load_emits_only_groupby_key_on_json():
     """Without `LOAD *`, only fields the request itself registered in the
@@ -955,7 +908,6 @@ def test_collect_internal_no_load_emits_only_groupby_key_on_json():
 # Chained GROUPBY: outer COLLECT FIELDS * projects every key the inner
 # reducers placed in the lookup
 # ---------------------------------------------------------------------------
-@wip
 def test_chained_groupby_collect_load_all():
     """Outer ``COLLECT FIELDS *`` after a chained GROUPBY projects every
     key surfaced by the inner reducers (``@color``, ``@cnt``,
@@ -989,7 +941,6 @@ def test_chained_groupby_collect_load_all():
 
 # RESP2 sanity: basic COLLECT works under RESP2
 # ---------------------------------------------------------------------------
-@wip
 def test_collect_resp2_sanity():
     env = Env(protocol=2)
     enable_unstable_features(env)
@@ -1024,7 +975,6 @@ def test_collect_resp2_sanity():
 #   3. APPLY over a reducer alias, outer COLLECT  (reducer->APPLY->outer COLLECT)
 #   4. APPLY + outer COLLECT FIELDS *             (wildcard walk picks up APPLY)
 # ---------------------------------------------------------------------------
-@wip
 def test_collect_apply_alias_as_groupby_key():
     """APPLY before GROUPBY writes `upper(@color)` into the upstream
     rlookup; ``GROUPBY @COLOR_UP`` then partitions by the derived alias.
@@ -1057,7 +1007,6 @@ def test_collect_apply_alias_as_groupby_key():
                     [{'name': 'banana'}, {'name': 'lemon'}])
 
 
-@wip
 def test_collect_apply_alias_as_field():
     """APPLY-derived alias flows through the upstream rlookup into
     COLLECT's per-row projection. Each collected map carries exactly
@@ -1093,7 +1042,6 @@ def test_collect_apply_alias_as_field():
             env.assertEqual(set(entry.keys()), {'NAME_UP'})
 
 
-@wip
 def test_chained_groupby_collect_apply_on_reducer_alias():
     """APPLY between two GROUPBYs consumes two reducer aliases
     (``@cnt`` and ``@avg_sweet``) and writes ``@weighted`` into the
@@ -1135,7 +1083,6 @@ def test_chained_groupby_collect_apply_on_reducer_alias():
     ])
 
 
-@wip
 def test_chained_groupby_collect_apply_load_all():
     """Outer ``COLLECT FIELDS *`` after a chained GROUPBY + APPLY
     projects every key the inner stages placed in the source rlookup:
@@ -1295,7 +1242,6 @@ def _names(entries):
 # ---------------------------------------------------------------------------
 # LIMIT without SORTBY (array path, first-K in insertion order)
 # ---------------------------------------------------------------------------
-@wip
 @skip(no_json=True)
 def test_collect_limit_without_sortby():
     env = Env(protocol=3)
@@ -1397,7 +1343,6 @@ def test_collect_sortby_without_limit_caps_at_default_10():
 # ---------------------------------------------------------------------------
 # Array path (no SORTBY, no LIMIT) capped by MAXAGGREGATERESULTS
 # ---------------------------------------------------------------------------
-@wip
 @skip(no_json=True)
 def test_collect_array_path_capped_by_max_aggregate_results():
     env = Env(protocol=3)

@@ -11,8 +11,6 @@
 // (`test_groupby_collect.py`) and delete this file along with the FFI
 // accessors in `reducers_ffi/src/collect.rs` and `reducers/src/collect.rs`.
 
-#ifdef RS_WIP_FEATURES
-
 #include "gtest/gtest.h"
 
 #include "aggregate/reducer.h"
@@ -594,6 +592,4 @@ TEST_F(CollectParserTest, LimitOffsetExceedsAggregateMax) {
   expectError({"FIELDS", "1", "@x", "LIMIT", "9999999999", "10"},
       "LIMIT offset exceeds maximum of");
 }
-
-#endif // RS_WIP_FEATURES
 
