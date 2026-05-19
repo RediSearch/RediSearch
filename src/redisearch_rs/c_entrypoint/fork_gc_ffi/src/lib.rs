@@ -183,7 +183,7 @@ pub unsafe extern "C" fn FGC_recvBuffer(
     let frame = match fgc.reader().recv_buffer() {
         Ok(frame) => frame,
         Err(e) => {
-            log_error!(e, level: Level::WARN, "ForkGC pipe read error");
+            log_error!(e, level: Level::WARN, "ForkGC pipe read error: failed to read frame");
             return ffi::REDISMODULE_ERR as c_int;
         }
     };
@@ -225,7 +225,7 @@ pub unsafe extern "C" fn recvFieldHeader(
     let frame = match reader.recv_buffer() {
         Ok(frame) => frame,
         Err(e) => {
-            log_error!(e, level: Level::WARN, "ForkGC pipe read error");
+            log_error!(e, level: Level::WARN, "ForkGC pipe read error: failed to read frame for field header");
             return FGCError::ParentError;
         }
     };
@@ -236,7 +236,7 @@ pub unsafe extern "C" fn recvFieldHeader(
 
     let mut id_bytes = [0u8; size_of::<u64>()];
     if let Err(e) = reader.recv_fixed(&mut id_bytes) {
-        log_error!(e, level: Level::WARN, "ForkGC pipe read error");
+        log_error!(e, level: Level::WARN, "ForkGC pipe read error: failed to read id for field header");
         return FGCError::ParentError;
     };
 

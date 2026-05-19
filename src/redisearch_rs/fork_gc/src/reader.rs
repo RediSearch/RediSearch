@@ -67,7 +67,7 @@ impl<R: Read> Reader<R> {
 /// The three variants correspond to the three possible length prefixes
 /// of the Fork GC buffer protocol: `usize::MAX` (end of stream), `0`
 /// (empty), or a positive payload length.
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub enum RecvFrame {
     /// End-of-stream sentinel — the writer called
     /// [`Writer::send_terminator`](crate::writer::Writer::send_terminator).
