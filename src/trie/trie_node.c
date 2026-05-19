@@ -486,6 +486,7 @@ int TrieNode_Delete(TrieNode *n, const rune *str, t_len len, TrieFreeCallback fr
           n->flags |= TRIENODE_DELETED;
           n->flags &= ~TRIENODE_TERMINAL;
           n->score = 0;
+          n->numDocs = 0;
           rc = 1;
         }
         goto end;
