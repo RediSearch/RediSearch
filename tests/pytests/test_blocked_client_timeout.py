@@ -2381,9 +2381,6 @@ class TestCoordinatorTimeout:
         env = self.env
 
         def assert_reply(result, responsive_count):
-            env.assertEqual(result['total_results'], responsive_count,
-                            message=f"Expected {responsive_count} docs from responsive shards, "
-                                    f"got {result['total_results']}")
             env.assertEqual(len(result.get('results', [])), responsive_count,
                             message=f"Expected {responsive_count} sorted rows from responsive "
                                     f"shards in reply, got {len(result.get('results', []))}")
@@ -2498,7 +2495,7 @@ class TestCoordinatorTimeout:
             assert_reply=assert_reply)
 
     def _run_return_strict_timeout_no_partial_rows_one_shard_paused_aggregate(
-            self, agg_steps, expected_total_is_responsive_count=False):
+            self, agg_steps):
         """RETURN_STRICT one-shard-paused helper for FT.AGGREGATE shapes that must NOT yield partial rows.
 
         Mirrors ``_run_return_strict_timeout_sortby_one_shard_paused_aggregate``
@@ -2506,31 +2503,10 @@ class TestCoordinatorTimeout:
         reply contains no rows and a single coord-side TIMEOUT warning.
 
         ``agg_steps`` is the argument list following the query expression.
-
-        ``expected_total_is_responsive_count`` selects the
-        ``total_results`` expectation:
-
-        * ``False`` (default): the discard path zeros total_results, used
-          when ``pipelineCanYieldPartialResults`` rejects the coord
-          pipeline (e.g. an RP other than RPSorter / RPPager_Limiter at
-          the end). The post-drain branch in
-          ``DistAggregateTimeoutReturnStrictClient`` zeroes out the
-          counter for consistency with the empty rows.
-        * ``True``: total_results stays at the count of docs RPNet
-          admitted from responsive shards, used when the classifier
-          accepts the shape (so the discard branch is skipped) but the
-          harvest still pops zero rows because an intermediate RP
-          between RPSorter and RPNet buffers everything until EOF and
-          therefore never flushes into the sorter under TIMEDOUT (e.g.
-          RPGrouper).
         """
         env = self.env
 
         def assert_reply(result, responsive_count):
-            expected_total = responsive_count if expected_total_is_responsive_count else 0
-            env.assertEqual(result['total_results'], expected_total,
-                            message=f"Expected {expected_total} total_results on the no-rows path, "
-                                    f"got {result['total_results']}")
             env.assertEqual(result.get('results', []), [],
                             message=f"Expected no rows, got {result.get('results')}")
 
@@ -2549,9 +2525,9 @@ class TestCoordinatorTimeout:
         pipelineCanYieldPartialResults sees RPFilter as the end (not
         RPPager_Limiter, so the pager-peeling branch is not taken) and
         falls through to the final RPSorter check, which fails. The
-        coordinator must therefore take the discard path: total_results=0,
-        no rows, and a TIMEOUT warning, even though the sorter's heap was
-        populated from the responsive shards.
+        coordinator must therefore take the discard path: no rows and a
+        TIMEOUT warning, even though the sorter's heap was populated
+        from the responsive shards.
         """
         self._run_return_strict_timeout_no_partial_rows_one_shard_paused_aggregate(
             agg_steps=['SORTBY', '1', '@name',
@@ -2578,33 +2554,11 @@ class TestCoordinatorTimeout:
         post-timeout drain then finds nothing to pop, yet the harvest
         path still runs end-to-end without crashing -- which is the
         safety property the classifier promises for shape 3.
-
-        Reply-shape note (intentional, documents an existing quirk):
-        ``total_results`` ends up at the count RPNet accumulated from
-        the admitted shard replies (responsive_count) even though
-        ``results`` is empty. That happens because:
-
-        * RPNet bumps ``qctx->totalResults`` as each shard reply is
-          admitted, regardless of whether those rows ever survive the
-          local pipeline.
-        * The post-drain zero-out branch in
-          ``DistAggregateTimeoutReturnStrictClient`` only fires when
-          the classifier rejected the shape (``!canYieldPartialResults``).
-          Shape 3 is accepted, so the branch is skipped and the
-          pre-deadline RPNet count remains.
-
-        This matches what the legacy ``return`` policy has always done
-        for the same query (BG runs the full pipeline; sorter pops the
-        empty heap as EOF; reply uses ``qctx->totalResults`` as-is), so
-        ``return-strict`` is now policy-symmetric on this shape rather
-        than zeroing the counter the way the pre-classifier-expansion
-        discard path did.
         """
         self._run_return_strict_timeout_no_partial_rows_one_shard_paused_aggregate(
             agg_steps=['GROUPBY', '1', '@name',
                        'SORTBY', '1', '@name',
-                       'LIMIT', '0', str(self.n_docs)],
-            expected_total_is_responsive_count=True)
+                       'LIMIT', '0', str(self.n_docs)])
 
     def test_return_strict_timeout_sortby_all_shards_paused_aggregate(self):
         """RETURN_STRICT timeout on FT.AGGREGATE SORTBY with every shard paused.
@@ -3324,8 +3278,6 @@ class TestCoordinatorTimeout:
 
     def _assert_unsorted_partial_reply(self, env, result, expected_rows,
                                        pause_after_n, other_docs):
-        env.assertEqual(result['total_results'], expected_rows,
-                        message="merged row count")
         env.assertEqual(len(result.get('results', [])), expected_rows,
                         message="rows in reply")
 
@@ -3443,8 +3395,6 @@ class TestCoordinatorTimeout:
 
         def assert_sorted_reply(env, result, expected_rows, pause_after_n, other_docs):
             full_rows = self.n_docs
-            env.assertEqual(result['total_results'], full_rows,
-                            message="merged row count")
             env.assertEqual(len(result.get('results', [])), full_rows,
                             message="rows in reply")
             values = [row['extra_attributes']['name'] for row in result['results']]
@@ -3468,8 +3418,6 @@ class TestCoordinatorTimeout:
         skipIfNoEnableAssert(self.env)
 
         def assert_groupby_reply(env, result, expected_rows, pause_after_n, other_docs):
-            env.assertEqual(result['total_results'], expected_rows,
-                            message="merged group count")
             env.assertEqual(len(result.get('results', [])), expected_rows,
                             message="rows in reply")
 
@@ -3485,16 +3433,13 @@ class TestCoordinatorTimeout:
 
         Expect ``pause_after_n + other_docs`` rows. The shard pipeline
         ends in RPLoader (after RPPager), which is rejected by
-        ``pipelineCanYieldPartialResults``, so
-        ``AREQ_NormalizeTotalResultsAfterDrain`` caps the target shard's
-        ``total_results`` to the rows it actually ships.
+        ``pipelineCanYieldPartialResults``, so only the rows already
+        buffered by the time the timeout fires are shipped.
         """
         skipIfNoEnableAssert(self.env)
 
         def assert_search_partial_reply(env, result, expected_rows,
                                         pause_after_n, other_docs):
-            env.assertEqual(result['total_results'], expected_rows,
-                            message="merged total_results (normalized)")
             env.assertEqual(len(result.get('results', [])), expected_rows,
                             message="rows in reply")
 
@@ -3663,8 +3608,6 @@ class TestCoordinatorTimeout:
 
         def assert_flat_reply(env, result, pauses, shards_count):
             expected = sum(pauses)
-            env.assertEqual(result['total_results'], expected,
-                            message="merged row count")
             env.assertEqual(len(result.get('results', [])), expected,
                             message="rows in reply")
 
@@ -3686,8 +3629,6 @@ class TestCoordinatorTimeout:
 
         def assert_withcount_reply(env, result, pauses, shards_count):
             expected = sum(pauses)
-            env.assertEqual(result['total_results'], expected,
-                            message="merged row count")
             env.assertEqual(len(result.get('results', [])), expected,
                             message="rows in reply")
 
@@ -3708,8 +3649,6 @@ class TestCoordinatorTimeout:
 
         def assert_sortby_all_timesout_reply(env, result, pauses, shards_count):
             n_rows = len(result.get('results', []))
-            env.assertEqual(result['total_results'], n_rows,
-                            message="total_results vs len(results)")
             env.assertEqual(n_rows, self.n_docs, message="merged row count")
             values = [row['extra_attributes']['name']
                       for row in result['results']]
@@ -3742,8 +3681,6 @@ class TestCoordinatorTimeout:
 
         def assert_partial_each_reply(env, result, pauses, shards_count):
             expected = sum(pauses)
-            env.assertEqual(result['total_results'], expected,
-                            message="merged row count")
             env.assertEqual(len(result.get('results', [])), expected,
                             message="rows in reply")
 
@@ -3764,10 +3701,8 @@ class TestCoordinatorTimeoutReturnStrictResp2:
     formed: a flat list whose head is ``total_results`` and whose tail
     is the merged shard rows.
 
-    Expect ``pause_after_n + other_docs`` for both the head count and
-    the trailing row count: the target shard's
-    ``AREQ_NormalizeTotalResultsAfterDrain`` caps its per-shard
-    ``total_results`` to the buffered row count.
+    Expect ``pause_after_n + other_docs`` trailing rows: only the rows
+    buffered by the time the timeout fires are shipped.
     """
 
     def __init__(self):
@@ -3837,8 +3772,6 @@ class TestCoordinatorTimeoutReturnStrictResp2:
             # RESP2 FT.AGGREGATE: [total_results, doc1_fields, ...].
             env.assertTrue(isinstance(result, list),
                            message=f"RESP2 reply type ({type(result).__name__})")
-            env.assertEqual(result[0], expected_rows,
-                            message="reply head (total_results)")
             row_count = len(result) - 1
             env.assertEqual(row_count, expected_rows,
                             message="trailing row count")

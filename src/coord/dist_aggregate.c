@@ -640,12 +640,6 @@ int DistAggregateTimeoutReturnStrictClient(RedisModuleCtx *ctx, RedisModuleStrin
   // No-op for already-complete runs.
   drainPartialResultsAfterTimeout(req);
 
-  // Rejected pipelines do not drain post-deadline shard replies, but RPNet
-  // already accumulated `total_results` from per-shard sums for every reply
-  // pulled from the channel before the deadline. Normalize the count to
-  // the rows the reply will actually emit.
-  AREQ_NormalizeTotalResultsAfterDrain(req);
-
   AREQ_ReplyWithStoredResults(ctx, req);
 
   return REDISMODULE_OK;

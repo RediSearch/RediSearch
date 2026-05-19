@@ -96,17 +96,3 @@ bool pipelineCanYieldPartialResults(struct AREQ *r);
  * terminates at EOF.
  */
 void AREQ_DrainStoredResultsAfterTimeout(struct AREQ *req);
-
-/**
- * Normalize `qctx->totalResults` to the number of rows the strict-bail
- * reply will actually emit when the pipeline cannot yield partial results.
- * Without this, the wire `total_results` count would still reflect the
- * pre-bail upstream cardinality (e.g. RPIndex's row counter, or RPNet's
- * accumulated per-shard sums) while the reply only ships the rows that
- * happened to be buffered before the abort, producing an inconsistent
- * "X of N matched" reply for X rows.
- *
- * Pipelines classified as yielding partial results are left untouched:
- * their drain matches whatever the buffer already counts.
- */
-void AREQ_NormalizeTotalResultsAfterDrain(struct AREQ *req);

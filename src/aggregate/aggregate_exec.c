@@ -1594,12 +1594,6 @@ static int QueryTimeoutReturnStrictCallback(RedisModuleCtx *ctx, RedisModuleStri
   // No-op for shapes that already accumulated their rows in state.results.
   drainPartialResultsAfterTimeout(req);
 
-  // Rejected pipelines do not drain their post-park buffer, but RPIndex
-  // already accumulated `total_results` for every doc the index iterator
-  // visited (including rows that were later dropped or never reached the
-  // sink). Normalize the count to the rows the reply will actually emit.
-  AREQ_NormalizeTotalResultsAfterDrain(req);
-
   AREQ_ReplyWithStoredResults(ctx, req);
 
   return REDISMODULE_OK;
