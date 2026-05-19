@@ -11,9 +11,11 @@
 //! iterator tree.
 
 mod query_eval_ctx;
+mod query_node_ref;
 pub mod string_utils;
 
 pub use query_eval_ctx::QueryEvalContext;
+pub use query_node_ref::{QueryNode, QueryNodeRef, WildcardMode};
 
 #[cfg(test)]
 mod _test_link {
