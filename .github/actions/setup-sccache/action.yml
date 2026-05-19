@@ -37,7 +37,15 @@ runs:
         # container and reports nothing. We show stats ourselves.
         disable_annotations: true
 
-    - name: Configure sccache environment
+    - name: Configure local sccache environment
+      shell: bash --noprofile --norc -eo pipefail {0}
+      run: |
+        # Disable idle timeout so the sccache server stays alive for the
+        # entire job, otherwise stats are lost if it shuts down between steps.
+        echo "SCCACHE_IDLE_TIMEOUT=0" >> "$GITHUB_ENV"
+
+    - name: Configure sccache S3 environment
+      if: ${{ steps.aws-credentials.outcome == 'success' }}
       # Use --noprofile --norc to avoid Alpine's /etc/profile resetting PATH,
       # which would hide the sccache binary installed by the previous step.
       # Input values are passed via env (not interpolated into the script)
@@ -45,25 +53,11 @@ runs:
       # as script-injection sinks.
       shell: bash --noprofile --norc -eo pipefail {0}
       env:
-        INPUT_REMOTE_CACHE_CONFIGURED: ${{ steps.aws-credentials.outcome == 'success' }}
-        INPUT_AWS_ROLE: ${{ inputs.aws-role }}
         INPUT_S3_BUCKET: ${{ inputs.s3-bucket }}
         INPUT_S3_REGION: ${{ inputs.s3-region }}
         INPUT_S3_KEY_PREFIX: ${{ inputs.s3-key-prefix }}
       run: |
-        if [[ "$INPUT_REMOTE_CACHE_CONFIGURED" == "true" &&
-              -n "$INPUT_AWS_ROLE" &&
-              -n "$INPUT_S3_BUCKET" &&
-              -n "$INPUT_S3_REGION" &&
-              -n "$INPUT_S3_KEY_PREFIX" ]]; then
-          echo "SCCACHE_BUCKET=$INPUT_S3_BUCKET" >> "$GITHUB_ENV"
-          echo "SCCACHE_REGION=$INPUT_S3_REGION" >> "$GITHUB_ENV"
-          echo "SCCACHE_S3_KEY_PREFIX=$INPUT_S3_KEY_PREFIX" >> "$GITHUB_ENV"
-          echo "SCCACHE_S3_USE_SSL=true" >> "$GITHUB_ENV"
-          echo "Configured sccache S3 remote cache."
-        else
-          echo "Using local sccache only; S3 remote cache is disabled or not fully configured."
-        fi
-        # Disable idle timeout so the sccache server stays alive for the
-        # entire job, otherwise stats are lost if it shuts down between steps.
-        echo "SCCACHE_IDLE_TIMEOUT=0" >> "$GITHUB_ENV"
+        echo "SCCACHE_BUCKET=$INPUT_S3_BUCKET" >> "$GITHUB_ENV"
+        echo "SCCACHE_REGION=$INPUT_S3_REGION" >> "$GITHUB_ENV"
+        echo "SCCACHE_S3_KEY_PREFIX=$INPUT_S3_KEY_PREFIX" >> "$GITHUB_ENV"
+        echo "SCCACHE_S3_USE_SSL=true" >> "$GITHUB_ENV"
