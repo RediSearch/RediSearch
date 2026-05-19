@@ -2547,7 +2547,6 @@
                   {
                     "name": "generic_body",
                     "type": "block",
-                    "summary": null,
                     "arguments": [
                       {
                         "name": "function",
