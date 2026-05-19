@@ -21,14 +21,21 @@ harness = false
 name = "verify_doc_and_field_mask"
 harness = false
 
+[build-dependencies]
+build_utils = { path = "../build_utils" }
+
 [dependencies]
 criterion.workspace = true
 ffi.workspace = true
 libc.workspace = true
 rand.workspace = true
+redis_mock.workspace = true
 thin_vec.workspace = true
 ttl_table = { workspace = true, features = ["test-utils"] }
 workspace_hack.workspace = true
+
+# Crate required to invoke C symbols
+redisearch_rs = { path = "../c_entrypoint/redisearch_rs", features = ["mock_allocator"] }
 
 [lints]
 workspace = true

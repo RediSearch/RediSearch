@@ -2861,10 +2861,13 @@ dependencies = [
 name = "ttl_table_bencher"
 version = "0.0.1"
 dependencies = [
+ "build_utils",
  "criterion",
  "ffi",
  "libc",
  "rand 0.9.3",
+ "redis_mock",
+ "redisearch_rs",
  "thin_vec",
  "ttl_table",
  "workspace_hack",
