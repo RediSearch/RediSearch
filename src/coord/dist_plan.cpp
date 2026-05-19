@@ -37,6 +37,54 @@ static const char *stripAtPrefix(const char *s) {
   return s;
 }
 
+static const char *distDupCStr(BlkAlloc *alloc, const char *s) {
+  size_t n = strlen(s) + 1;
+  char *p = (char *)BlkAlloc_Alloc(alloc, n, std::max(n, DIST_REDUCER_BLOCK_SIZE));
+  memcpy(p, s, n);
+  return p;
+}
+
+static const char *distAllocU64Str(BlkAlloc *alloc, uint64_t v) {
+  char buf[32];
+  int n = snprintf(buf, sizeof(buf), "%llu", (unsigned long long)v);
+  char *p = (char *)BlkAlloc_Alloc(alloc, (size_t)n + 1,
+                                   std::max(size_t(n + 1), DIST_REDUCER_BLOCK_SIZE));
+  memcpy(p, buf, (size_t)n + 1);
+  return p;
+}
+
+static const char *distAllocAtName(BlkAlloc *alloc, const char *stripped) {
+  size_t n = strlen(stripped);
+  char *p = (char *)BlkAlloc_Alloc(alloc, n + 2, std::max(n + 2, DIST_REDUCER_BLOCK_SIZE));
+  p[0] = '@';
+  memcpy(p + 1, stripped, n + 1);
+  return p;
+}
+
+// Build the argv shape that `PLNGroupStep_AddReducer` expects:
+//   <nargs=tokens.size()> <tokens...> [<trailing...>]
+// Trailing tokens sit *outside* the counted slice. The local COLLECT path uses
+// this to append `AS <user_alias>`, consumed after the args slice.
+static ArgsCursor distBuildReducerArgv(BlkAlloc *alloc, const std::vector<const char *> &tokens,
+                                       std::initializer_list<const char *> trailing = {}) {
+  size_t n = tokens.size();
+  size_t total = n + 1 + trailing.size();
+  const char **objs = (const char **)BlkAlloc_Alloc(
+      alloc, sizeof(const char *) * total,
+      std::max(sizeof(const char *) * total, DIST_REDUCER_BLOCK_SIZE));
+  objs[0] = distAllocU64Str(alloc, n);  // leading <nargs>
+  for (size_t i = 0; i < n; i++) {
+    objs[i + 1] = tokens[i];
+  }
+  size_t k = n + 1;
+  for (const char *t : trailing) {
+    objs[k++] = t;
+  }
+  ArgsCursor out;
+  ArgsCursor_InitCString(&out, objs, (int)total);
+  return out;
+}
+
 struct ReducerDistCtx {
   AGGPlan *localPlan;
   AGGPlan *remotePlan;
@@ -380,39 +428,17 @@ static int distributeCollect(ReducerDistCtx *rdctx, QueryError *status) {
     return REDISMODULE_ERR;
   }
 
-  auto dupCStr = [&](const char *s) -> const char * {
-    size_t n = strlen(s) + 1;
-    char *p = (char *)BlkAlloc_Alloc(rdctx->alloc, n, std::max(n, DIST_REDUCER_BLOCK_SIZE));
-    memcpy(p, s, n);
-    return p;
-  };
-  auto allocU64Str = [&](uint64_t v) -> const char * {
-    char buf[32];
-    int n = snprintf(buf, sizeof(buf), "%llu", (unsigned long long)v);
-    char *p = (char *)BlkAlloc_Alloc(rdctx->alloc, (size_t)n + 1,
-                                     std::max(size_t(n + 1), DIST_REDUCER_BLOCK_SIZE));
-    memcpy(p, buf, (size_t)n + 1);
-    return p;
-  };
-  auto allocAtName = [&](const char *stripped) -> const char * {
-    size_t n = strlen(stripped);
-    char *p = (char *)BlkAlloc_Alloc(rdctx->alloc, n + 2, std::max(n + 2, DIST_REDUCER_BLOCK_SIZE));
-    p[0] = '@';
-    memcpy(p + 1, stripped, n + 1);
-    return p;
-  };
-
   // ---- Build the FIELDS section (shared between remote and local). ----
   // Layout: ["FIELDS", "*"]  OR  ["FIELDS", <n>, "@f1", "@f2", ...].
   std::vector<const char *> fieldsTokens;
-  fieldsTokens.push_back(dupCStr("FIELDS"));
+  fieldsTokens.push_back(distDupCStr(rdctx->alloc, "FIELDS"));
   if (args.load_all) {
-    fieldsTokens.push_back(dupCStr("*"));
+    fieldsTokens.push_back(distDupCStr(rdctx->alloc, "*"));
   } else {
     size_t n = args.field_names ? array_len(args.field_names) : 0;
-    fieldsTokens.push_back(allocU64Str(n));
+    fieldsTokens.push_back(distAllocU64Str(rdctx->alloc, n));
     for (size_t i = 0; i < n; i++) {
-      fieldsTokens.push_back(allocAtName(args.field_names[i]));
+      fieldsTokens.push_back(distAllocAtName(rdctx->alloc, args.field_names[i]));
     }
   }
 
@@ -423,48 +449,24 @@ static int distributeCollect(ReducerDistCtx *rdctx, QueryError *status) {
   const bool has_sortby = (args.sort_names != nullptr);
   if (has_sortby) {
     size_t m = array_len(args.sort_names);
-    sortbyTokens.push_back(dupCStr("SORTBY"));
-    sortbyTokens.push_back(allocU64Str(m * 2));
+    sortbyTokens.push_back(distDupCStr(rdctx->alloc, "SORTBY"));
+    sortbyTokens.push_back(distAllocU64Str(rdctx->alloc, m * 2));
     for (size_t i = 0; i < m; i++) {
-      sortbyTokens.push_back(allocAtName(args.sort_names[i]));
-      sortbyTokens.push_back(dupCStr(SORTASCMAP_GETASC(args.sortAscMap, i) ? "ASC" : "DESC"));
+      sortbyTokens.push_back(distAllocAtName(rdctx->alloc, args.sort_names[i]));
+      sortbyTokens.push_back(
+          distDupCStr(rdctx->alloc, SORTASCMAP_GETASC(args.sortAscMap, i) ? "ASC" : "DESC"));
     }
   }
-
-  // ---- Helper: build the argv shape that `PLNGroupStep_AddReducer` expects.
-  //   Output layout: <nargs=tokens.size()> <tokens...> [<trailing...>]
-  // Trailing tokens sit *outside* the counted slice — used by the local path
-  // to append `AS <user_alias>`, which `PLNGroupStep_AddReducer` consumes
-  // after the args slice.
-  auto buildReducerArgv = [&](const std::vector<const char *> &tokens,
-                              std::initializer_list<const char *> trailing = {}) -> ArgsCursor {
-    size_t n = tokens.size();
-    size_t total = n + 1 + trailing.size();
-    const char **objs = (const char **)BlkAlloc_Alloc(
-        rdctx->alloc, sizeof(const char *) * total,
-        std::max(sizeof(const char *) * total, DIST_REDUCER_BLOCK_SIZE));
-    objs[0] = allocU64Str(n);  // leading <nargs>
-    for (size_t i = 0; i < n; i++) {
-      objs[i + 1] = tokens[i];
-    }
-    size_t k = n + 1;
-    for (const char *t : trailing) {
-      objs[k++] = t;
-    }
-    ArgsCursor out;
-    ArgsCursor_InitCString(&out, objs, (int)total);
-    return out;
-  };
 
   // ---- Remote argv: FIELDS [SORTBY ...] [LIMIT 0 (offset+count)]
   std::vector<const char *> remoteTokens = fieldsTokens;
   remoteTokens.insert(remoteTokens.end(), sortbyTokens.begin(), sortbyTokens.end());
   if (args.has_limit) {
-    remoteTokens.push_back(dupCStr("LIMIT"));
-    remoteTokens.push_back(allocU64Str(0));
-    remoteTokens.push_back(allocU64Str(args.limit_offset + args.limit_count));
+    remoteTokens.push_back(distDupCStr(rdctx->alloc, "LIMIT"));
+    remoteTokens.push_back(distAllocU64Str(rdctx->alloc, 0));
+    remoteTokens.push_back(distAllocU64Str(rdctx->alloc, args.limit_offset + args.limit_count));
   }
-  ArgsCursor remoteArgs = buildReducerArgv(remoteTokens);
+  ArgsCursor remoteArgs = distBuildReducerArgv(rdctx->alloc, remoteTokens);
 
   const char *alias = nullptr;
   if (!rdctx->addRemote("COLLECT", &alias, status, &remoteArgs)) {
@@ -477,12 +479,13 @@ static int distributeCollect(ReducerDistCtx *rdctx, QueryError *status) {
   std::vector<const char *> localTokens = fieldsTokens;
   localTokens.insert(localTokens.end(), sortbyTokens.begin(), sortbyTokens.end());
   if (args.has_limit) {
-    localTokens.push_back(dupCStr("LIMIT"));
-    localTokens.push_back(allocU64Str(args.limit_offset));
-    localTokens.push_back(allocU64Str(args.limit_count));
+    localTokens.push_back(distDupCStr(rdctx->alloc, "LIMIT"));
+    localTokens.push_back(distAllocU64Str(rdctx->alloc, args.limit_offset));
+    localTokens.push_back(distAllocU64Str(rdctx->alloc, args.limit_count));
   }
-  ArgsCursor localArgs = buildReducerArgv(localTokens,
-                                          {dupCStr("AS"), dupCStr(src->alias)});
+  ArgsCursor localArgs = distBuildReducerArgv(
+      rdctx->alloc, localTokens,
+      {distDupCStr(rdctx->alloc, "AS"), distDupCStr(rdctx->alloc, src->alias)});
 
   if (!rdctx->add(rdctx->localGroup, "COLLECT", nullptr, status, &localArgs)) {
     CollectArgs_Free(&args);
