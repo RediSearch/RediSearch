@@ -96,7 +96,7 @@ const char *RSLanguage_ToSnowballStemmer(RSLanguage language) {
   // Malay is not in libstemmer; Indonesian shares enough morphology to be a
   // reasonable backing algorithm.
   if (language == RS_LANG_MALAY) {
-    return "indonesian";
+    RSLanguage_ToString(RS_LANG_INDONESIAN);
   }
   return RSLanguage_ToString(language);
 }
