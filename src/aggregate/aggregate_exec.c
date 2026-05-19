@@ -694,9 +694,12 @@ static int serializeAndReplyResults_Resp2(AREQ *req, RedisModule_Reply *reply, R
 done_2:
     RedisModule_Reply_ArrayEnd(reply);    // </results>
 
-    state->cursor_done = (rc != RS_RESULT_OK
-                          && !(rc == RS_RESULT_TIMEDOUT
-                               && req->reqConfig.timeoutPolicy != TimeoutPolicy_Fail));
+    // Preserve a pre-set cursor_done (forced by AREQ_ReplyWithStoredResults on
+    // shard timeout under RETURN_STRICT); otherwise derive it from rc.
+    state->cursor_done = state->cursor_done
+                         || (rc != RS_RESULT_OK
+                             && !(rc == RS_RESULT_TIMEDOUT
+                                  && req->reqConfig.timeoutPolicy != TimeoutPolicy_Fail));
 
     trackWarnings_Resp2(req, qctx, rc);
     finishSendChunkReply_Resp2(req, reply, state->cursor_done);
@@ -909,9 +912,12 @@ static int serializeAndReplyResults_Resp3(AREQ *req, RedisModule_Reply *reply, R
     }
 
 done_3:
-    state->cursor_done = (rc != RS_RESULT_OK
-                          && !(rc == RS_RESULT_TIMEDOUT
-                               && req->reqConfig.timeoutPolicy != TimeoutPolicy_Fail));
+    // Preserve a pre-set cursor_done (forced by AREQ_ReplyWithStoredResults on
+    // shard timeout under RETURN_STRICT); otherwise derive it from rc.
+    state->cursor_done = state->cursor_done
+                         || (rc != RS_RESULT_OK
+                             && !(rc == RS_RESULT_TIMEDOUT
+                                  && req->reqConfig.timeoutPolicy != TimeoutPolicy_Fail));
 
     finishSendChunkReply_Resp3(req, reply, qctx, rc, state->cursor_done);
 
@@ -1611,12 +1617,15 @@ void AREQ_ReplyWithStoredResults(RedisModuleCtx *ctx, AREQ *req) {
   qctx->err = &stored->err;
 
   // Build ChunkSerializeState from stored results
+  // On a shard-side timeout (RETURN_STRICT), force cursor_done so the reply
+  // carries cursor=0, freeing the shard cursor and stopping the coord from
+  // issuing further _FT.CURSOR READs to this shard.
   ChunkSerializeState state = {
     .results = stored->results,
     .r = NULL,
     .nelem = 0,
     .resultsLen = REDISMODULE_POSTPONED_ARRAY_LEN,
-    .cursor_done = false
+    .cursor_done = (AREQ_RequestFlags(req) & QEXEC_F_INTERNAL) && AREQ_TimedOut(req)
   };
   int rc = stored->rc;
 

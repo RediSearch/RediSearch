@@ -5463,7 +5463,7 @@ class TestShardTimeoutResp2:
                                         message=f"Expected 0 total results in RESP2 {cmd_type}, got: {res}")
                 finally:
                     env.cmd('CONFIG', 'SET', ON_TIMEOUT_CONFIG, 'return')
-s
+
 class TestNoDeadlockQueryWithConcurrentWriter:
     """MOD-15364: BG query holds the spec read lock; a concurrent writer
     parks on the spec write lock and blocks the main thread. With the fix,
