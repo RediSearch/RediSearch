@@ -1770,7 +1770,7 @@ static void IndexSpec_PopulateVectorDiskParams(IndexSpec *sp) {
 
 // Initialize spec->tagOpts.tagIndex for every TAG field after the disk index
 // is opened.
-static void IndexSpec_PopulateTagDiskIndexes(IndexSpec *sp) {
+static void IndexSpec_EnsureTagDiskIndexes(IndexSpec *sp) {
   if (!sp->diskSpec) return;
 
   for (int i = 0; i < sp->numFields; i++) {
@@ -3552,7 +3552,7 @@ IndexSpec *IndexSpec_RdbLoad(RedisModuleIO *rdb, int encver, bool useSst, QueryE
       goto cleanup;
     }
     IndexSpec_PopulateVectorDiskParams(sp);
-    IndexSpec_PopulateTagDiskIndexes(sp);
+    IndexSpec_EnsureTagDiskIndexes(sp);
     SearchDisk_RegisterIndex(ctx, sp);
   }
 
@@ -4683,10 +4683,12 @@ static inline void DebugIndexesScanner_pauseCheck(DebugIndexesScanner* dScanner,
 
 void Indexes_StartRDBLoadingEvent(RedisModuleCtx* ctx) {
   Indexes_Free(ctx, specDict_g, false);
-  if (legacySpecDict) {
-    dictEmpty(legacySpecDict, NULL);
-  } else {
-    legacySpecDict = dictCreate(&dictTypeHeapHiddenStrings, NULL);
+  if (!SearchDisk_IsEnabled()) {
+    if (legacySpecDict) {
+      dictEmpty(legacySpecDict, NULL);
+    } else {
+      legacySpecDict = dictCreate(&dictTypeHeapHiddenStrings, NULL);
+    }
   }
   g_isLoading = true;
 }
@@ -4746,7 +4748,9 @@ void Indexes_FinishSSTReplication(RedisModuleCtx *ctx) {
       continue;
     }
     IndexSpec_PopulateVectorDiskParams(sp);
-    IndexSpec_PopulateTagDiskIndexes(sp);
+    // Make sure TagDiskIndex is created for every TAG field. In regular FT.CREATE the TagIndex is ensured lazily
+    // in the first document insertion
+    IndexSpec_EnsureTagDiskIndexes(sp);
     SearchDisk_RegisterIndex(ctx, sp);
     // GC start was deferred by IndexSpec_StoreAfterRdbLoad for the SST path
     // (diskSpec was NULL there); start it now that the disk handle exists.

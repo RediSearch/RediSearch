@@ -154,9 +154,7 @@ void SearchDisk_MarkIndexForDeletion(RedisSearchDiskIndexSpec *index) {
 
 void SearchDisk_RegisterIndex(RedisModuleCtx *ctx, IndexSpec *spec) {
     RS_ASSERT(disk_db && spec && spec->diskSpec && ctx);
-    if (spec->diskRegistered) {
-        return;
-    }
+    RS_ASSERT(!spec->diskRegistered);
     disk->basic.registerIndex(ctx, spec->diskSpec);
     spec->diskRegistered = true;
 }

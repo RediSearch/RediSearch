@@ -91,9 +91,9 @@ void SearchDisk_MarkIndexForDeletion(RedisSearchDiskIndexSpec *index);
  * Must be called from the main thread with a valid RedisModuleCtx.
  * Call this after SearchDisk_OpenIndex to register the database with Redis.
  *
- * Idempotent: a second call on an already-registered spec is a no-op. The
- * spec's diskRegistered flag is updated by this function; callers must not
- * toggle it directly.
+ * Must not be called on an already-registered spec; doing so asserts in debug
+ * builds. The spec's diskRegistered flag is updated by this function; callers
+ * must not toggle it directly.
  *
  * @param ctx Redis module context (required, must be valid)
  * @param spec IndexSpec whose diskSpec should be registered (must have a non-NULL diskSpec)
