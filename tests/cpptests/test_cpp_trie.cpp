@@ -40,7 +40,7 @@ static void *triePayload(Trie *t, const char *s, size_t len, bool exact) {
   rune *runes = runeBufFill(s, len, &buf, &len);
   TrieNode *node = Trie_GetNode(t, runes, len, exact, NULL);
   runeBufFree(&buf);
-  return (node && node->payload) ? node->payload->data : nullptr;
+  return TrieNode_GetPayloadData(node);
 }
 
 static int rangeFunc(const rune *u16, size_t nrune, void *ctx, void *payload, size_t numDocsInTerm) {
@@ -836,7 +836,7 @@ static size_t trieGetNumDocs(Trie *t, const char *s) {
   if (node == NULL) {
     return 0;
   }
-  return node->numDocs;
+  return TrieNode_NumDocs(node);
 }
 
 TEST_F(TrieTest, testRdbSaveLoadWithNumDocs) {

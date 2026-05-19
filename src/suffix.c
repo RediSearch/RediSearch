@@ -322,7 +322,7 @@ int Suffix_CB_Wildcard(const rune *rune, size_t len, void *p, void *payload, siz
     return REDISMODULE_OK;
   }
 
-  suffixData *data = (suffixData *)pl->data;
+  suffixData *data = (suffixData *)TriePayload_Data(pl);
   arrayof(char *) array = data->array;
   for (int i = 0; i < array_len(array); ++i) {
     if (Wildcard_MatchChar(sufCtx->cstr, sufCtx->cstrlen, array[i], strlen(array[i]))

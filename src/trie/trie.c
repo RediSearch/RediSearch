@@ -14,6 +14,7 @@
 #include "util/misc.h"
 #include "rune_util.h"
 #include "trie.h"
+#include "trie_node_internal.h"
 #include "rmalloc.h"
 #include "rdb.h"
 
@@ -158,7 +159,7 @@ static TrieDecrResult Trie_DecrementNumDocsRunes(Trie *t, const rune *runes, siz
   // Non-terminal nodes are internal split/prefix nodes and should not be modified.
   // TrieNode_Delete only succeeds on terminal nodes, so we must check this first
   // to avoid corrupting numDocs on non-terminal nodes.
-  if (!__trieNode_isTerminal(node)) {
+  if (!TrieNode_IsTerminal(node)) {
     return TRIE_DECR_NOT_FOUND;
   }
 
