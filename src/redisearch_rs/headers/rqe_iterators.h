@@ -23,21 +23,21 @@ typedef struct IteratorsConfig {
   /**
    * The maximal number of expansions we allow for a prefix. Default: 200
    */
-  long long maxPrefixExpansions;
+  uint32_t maxPrefixExpansions;
   /**
    * The minimal number of characters we allow expansion for in a prefix
    * search. Default: 2
    */
-  long long minTermPrefix;
+  uint32_t minTermPrefix;
   /**
    * The minimal word length to stem. Default: 4
    */
-  unsigned int minStemLength;
+  uint32_t minStemLength;
   /**
    * Minimum number of children for a union iterator to use a heap-based
    * implementation instead of a flat (linear scan) one. Default: 20
    */
-  long long minUnionIterHeap;
+  uint32_t minUnionIterHeap;
 } IteratorsConfig;
 
 /**

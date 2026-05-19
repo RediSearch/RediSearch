@@ -564,16 +564,16 @@ numericConfigs = [
     ('search-index-cursor-limit', 'INDEX_CURSOR_LIMIT', 128, 0, LLONG_MAX, False, False),
     ('search-max-aggregate-results', 'MAXAGGREGATERESULTS', DEFAULT_MAX_AGGREGATE_REQUEST_RESULTS, 0, MAX_AGGREGATE_REQUEST_RESULTS, False, False),
     ('search-max-doctablesize', 'MAXDOCTABLESIZE', 1_000_000, 1, 100_000_000, True, False),
-    ('search-max-prefix-expansions', 'MAXPREFIXEXPANSIONS', 200, 1, LLONG_MAX, False, False),
+    ('search-max-prefix-expansions', 'MAXPREFIXEXPANSIONS', 200, 1, UINT32_MAX, False, False),
     ('search-max-search-results', 'MAXSEARCHRESULTS', DEFAULT_MAX_SEARCH_REQUEST_RESULTS, 0, MAX_SEARCH_REQUEST_RESULTS, False, False),
     ('search-min-operation-workers', 'MIN_OPERATION_WORKERS', 4, 0, 16, False, False),
     ('search-min-phonetic-term-len', 'MIN_PHONETIC_TERM_LEN', 3, 1, LLONG_MAX, False, False),
-    ('search-min-prefix', 'MINPREFIX', 2, 1, LLONG_MAX, False, False),
+    ('search-min-prefix', 'MINPREFIX', 2, 1, UINT32_MAX, False, False),
     ('search-min-stem-len', 'MINSTEMLEN', 4, 2, UINT32_MAX, False, False),
     ('search-multi-text-slop', 'MULTI_TEXT_SLOP', 100, 1, UINT32_MAX, True, False),
     ('search-tiered-hnsw-buffer-limit', 'TIERED_HNSW_BUFFER_LIMIT', 1024, 0, LLONG_MAX, True, False),
     ('search-timeout', 'TIMEOUT', 500, 1, LLONG_MAX, False, False),
-    ('search-union-iterator-heap', 'UNION_ITERATOR_HEAP', 20, 1, LLONG_MAX, False, False),
+    ('search-union-iterator-heap', 'UNION_ITERATOR_HEAP', 20, 1, UINT32_MAX, False, False),
     ('search-vss-max-resize', 'VSS_MAX_RESIZE', 0, 0, UINT32_MAX, False, False),
     ('search-workers', 'WORKERS', min(MAX_WORKER_THREADS, os.cpu_count()), 0, 16, False, False),
     ('search-workers-priority-bias-threshold', 'WORKERS_PRIORITY_BIAS_THRESHOLD', 1, 0, LLONG_MAX, True, False),
@@ -590,6 +590,14 @@ numericConfigs = [
     ('search-conn-per-shard', 'CONN_PER_SHARD', 0, 0, UINT32_MAX, False, True),
     ('search-connect-timeout', 'CONNECT_TIMEOUT', 10_000, 0, INT_MAX, False, True),
 ]
+
+# Configs whose backing type narrowed from long long to uint32_t. Values above
+# UINT32_MAX are accepted but clamped (for backwards compatibility with persisted settings).
+CLAMPED_CONFIGS = {
+    'search-max-prefix-expansions': UINT32_MAX,
+    'search-min-prefix': UINT32_MAX,
+    'search-union-iterator-heap': UINT32_MAX,
+}
 
 @skip(redis_less_than='7.9.227')
 def testConfigAPIRunTimeNumericParams():
@@ -632,8 +640,14 @@ def testConfigAPIRunTimeNumericParams():
             .contains('CONFIG SET failed')
         env.expect('CONFIG', 'SET', configName, str(min - 1)).error()\
             .contains('CONFIG SET failed')
-        env.expect('CONFIG', 'SET', configName, str(max + 1)).error()\
-            .contains('CONFIG SET failed')
+        if configName in CLAMPED_CONFIGS:
+            # Values above UINT32_MAX are accepted and clamped (backwards compat)
+            env.expect('CONFIG', 'SET', configName, str(max + 1)).equal('OK')
+            env.expect('CONFIG', 'GET', configName)\
+                .equal([configName, str(max)])
+        else:
+            env.expect('CONFIG', 'SET', configName, str(max + 1)).error()\
+                .contains('CONFIG SET failed')
 
         # test valid range limits
         env.expect('CONFIG', 'SET', configName, str(min)).equal('OK')
@@ -769,6 +783,9 @@ def testConfigAPILoadTimeNumericParams():
 
     for configName, argName, default, minValue, maxValue, immutable, clusterConfig in numericConfigs:
         if clusterConfig:
+            continue
+        if configName in CLAMPED_CONFIGS:
+            # Values above UINT32_MAX are accepted and clamped (backwards compat)
             continue
 
         # Test that the limits are enforced using MODULE LOADEX
