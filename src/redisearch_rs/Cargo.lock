@@ -1728,10 +1728,15 @@ version = "0.0.1"
 dependencies = [
  "build_utils",
  "ffi",
+ "inverted_index",
  "proptest",
+ "query_error",
  "query_eval",
+ "query_flags",
  "redis_mock",
  "redisearch_rs",
+ "rlookup",
+ "rqe_iterators",
  "thiserror",
  "workspace_hack",
 ]

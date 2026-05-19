@@ -15,6 +15,11 @@ build_utils.workspace = true
 
 [dependencies]
 ffi.workspace = true
+inverted_index.workspace = true
+query_error.workspace = true
+query_flags.workspace = true
+rlookup.workspace = true
+rqe_iterators.workspace = true
 thiserror.workspace = true
 workspace_hack.workspace = true
 

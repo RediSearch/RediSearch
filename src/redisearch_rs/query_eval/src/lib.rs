@@ -10,4 +10,13 @@
 //! Query evaluation: traverses a parsed query AST and builds an executable
 //! iterator tree.
 
+mod query_eval_ctx;
 pub mod string_utils;
+
+pub use query_eval_ctx::QueryEvalContext;
+
+#[cfg(test)]
+mod _test_link {
+    extern crate redisearch_rs;
+    redis_mock::mock_or_stub_missing_redis_c_symbols!();
+}
