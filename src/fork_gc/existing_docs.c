@@ -74,17 +74,23 @@ FGCError FGC_parentHandleExistingDocs(ForkGC *gc) {
 
   idx = sp->existingDocs;
 
-  InvertedIndex_ApplyGcDelta(idx, delta, &info);
+  InvertedIndex_ApplyGcDelta(idx, delta, &info, &sp->stats.totalInvertedIndexBlocks);
   delta = NULL;
 
   // We don't count the records that we removed, because we also don't count
   // their addition (they are duplications so we have no such desire).
 
   if (InvertedIndex_NumDocs(idx) == 0) {
-    // inverted index was cleaned entirely, let's free it
+    // inverted index was cleaned entirely, let's free it. Read the per-spec stats off the
+    // index before freeing it — `InvertedIndex_Free` doesn't know about the owning spec.
     info.bytes_freed += InvertedIndex_MemUsage(idx);
+    size_t inv_idx_blocks = InvertedIndex_NumBlocks(idx);
     InvertedIndex_Free(idx);
     sp->existingDocs = NULL;
+    if (inv_idx_blocks > 0) {
+      __atomic_sub_fetch(&sp->stats.totalInvertedIndexBlocks,
+                         inv_idx_blocks, __ATOMIC_RELAXED);
+    }
   }
   FGC_updateStats(gc, sctx, 0, info.bytes_freed, info.bytes_allocated, info.ignored_last_block);
 

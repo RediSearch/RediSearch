@@ -282,8 +282,14 @@ int forwardIndexTokenFunc(ForwardIndexTokenizerCtx *tokCtx, const Token *tokInfo
   return 0;
 }
 
-/** Write a forward-index entry to the index */
-size_t InvertedIndex_WriteForwardIndexEntry(InvertedIndex *idx, ForwardIndexEntry *ent) {
+/** Write a forward-index entry to the index.
+ *
+ * `spec_block_counter`, when non-NULL, is the address of the owning spec's
+ * `stats.totalInvertedIndexBlocks` counter. The Rust write atomically bumps it by the number of
+ * new blocks created by this write (typically 0 or 1). Pass NULL to skip per-spec accounting.
+ */
+size_t InvertedIndex_WriteForwardIndexEntry(InvertedIndex *idx, ForwardIndexEntry *ent,
+                                            size_t *spec_block_counter) {
   RSIndexResult rec = {.data.term_tag = RSResultData_Term,
                        .data.term.borrowed.tag = RSTermRecord_Borrowed,
                        .docId = ent->docId,
@@ -295,7 +301,7 @@ size_t InvertedIndex_WriteForwardIndexEntry(InvertedIndex *idx, ForwardIndexEntr
     rec.data.term.borrowed.offsets.data = VVW_GetByteData(ent->vw);
     rec.data.term.borrowed.offsets.len = VVW_GetByteLength(ent->vw);
   }
-  return InvertedIndex_WriteEntryGeneric(idx, &rec);
+  return InvertedIndex_WriteEntryGeneric(idx, &rec, spec_block_counter);
 }
 
 ForwardIndexEntry *ForwardIndex_Find(ForwardIndex *i, const char *s, size_t n, uint32_t hash) {

@@ -207,12 +207,14 @@ struct InvertedIndex *TagIndex_OpenIndex(const TagIndex *idx, const char *value,
 // Encode a single docId into a specific tag value
 // Returns the number of bytes occupied by the encoded entry plus the size of
 // the inverted index (if a new inverted index was created)
-static inline size_t tagIndex_Put(TagIndex *idx, const char *value, size_t len, t_docId docId) {
+static inline size_t tagIndex_Put(TagIndex *idx, const char *value, size_t len, t_docId docId,
+                                  IndexStats *stats) {
   size_t sz;
   RSIndexResult rec = {.data.tag = RSResultData_Virtual, .docId = docId, .freq = 0,
                        .metrics = MetricsVec_New()};
   InvertedIndex *iv = TagIndex_OpenIndex(idx, value, len, CREATE_INDEX, &sz);
-  return InvertedIndex_WriteEntryGeneric(iv, &rec) + sz;
+  size_t bytes = InvertedIndex_WriteEntryGeneric(iv, &rec, &stats->totalInvertedIndexBlocks);
+  return bytes + sz;
 }
 
 /* Index a vector of pre-processed tags for a docId */
@@ -241,7 +243,7 @@ bool TagIndex_Index(RedisModuleCtx *ctx, TagIndex *idx, const char **values, siz
     for (size_t ii = 0; ii < n; ++ii) {
       const char *tok = values[ii];
       if (tok) {
-        stats->invertedSize += tagIndex_Put(idx, tok, strlen(tok), docId);
+        stats->invertedSize += tagIndex_Put(idx, tok, strlen(tok), docId, stats);
 
         if (idx->suffix && (*tok != '\0')) { // add to suffix TrieMap
           addSuffixTrieMap(idx->suffix, tok, strlen(tok));

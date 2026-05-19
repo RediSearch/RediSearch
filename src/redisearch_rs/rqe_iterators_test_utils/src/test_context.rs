@@ -353,6 +353,7 @@ impl TestContext {
                 inverted_index_ffi::InvertedIndex_WriteEntryGeneric(
                     ii_ptr,
                     &record as *const _ as *mut _,
+                    std::ptr::null_mut(),
                 );
             }
         }
@@ -417,6 +418,7 @@ impl TestContext {
                 inverted_index_ffi::InvertedIndex_WriteEntryGeneric(
                     ii_ptr,
                     &record as *const _ as *mut _,
+                    std::ptr::null_mut(),
                 );
             }
         }
@@ -507,6 +509,7 @@ impl TestContext {
                 inverted_index_ffi::InvertedIndex_WriteEntryGeneric(
                     ii_opaque,
                     &record as *const _ as *mut _,
+                    std::ptr::null_mut(),
                 );
             }
         }
@@ -552,7 +555,7 @@ impl TestContext {
 
         // Write the entry to the inverted index
         unsafe {
-            ffi::InvertedIndex_WriteForwardIndexEntry(idx, &mut entry);
+            ffi::InvertedIndex_WriteForwardIndexEntry(idx, &mut entry, std::ptr::null_mut());
         }
 
         varint_ffi::VVW_Free(Some(vw_nonnull));

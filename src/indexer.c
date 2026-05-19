@@ -32,7 +32,10 @@ extern RedisModuleCtx *RSDummyContext;
 #include <unistd.h>
 
 static void writeIndexEntry(IndexSpec *spec, InvertedIndex *idx, ForwardIndexEntry *entry) {
-  size_t sz = InvertedIndex_WriteForwardIndexEntry(idx, entry);
+  // `&spec->stats.totalInvertedIndexBlocks` is the per-spec block counter that the Rust write
+  // atomically bumps if a new block was created. See `InvertedIndex_WriteEntryGeneric` docs.
+  size_t sz = InvertedIndex_WriteForwardIndexEntry(idx, entry,
+                                                   &spec->stats.totalInvertedIndexBlocks);
 
   // Update index statistics:
 
@@ -391,7 +394,8 @@ static void writeMissingFieldDocs(RSAddDocumentCtx *aCtx, RedisSearchCtx *sctx, 
     t_docId docId = aCtx->doc->docId;
     RSIndexResult rec = {.data.tag = RSResultData_Virtual, .docId = docId, .freq = 0,
                          .metrics = MetricsVec_New()};
-    aCtx->spec->stats.invertedSize +=InvertedIndex_WriteEntryGeneric(iiMissingDocs, &rec);
+    aCtx->spec->stats.invertedSize += InvertedIndex_WriteEntryGeneric(
+        iiMissingDocs, &rec, &aCtx->spec->stats.totalInvertedIndexBlocks);
   }
   dictReleaseIterator(iter);
   dictRelease(df_fields_dict);
@@ -412,7 +416,8 @@ static void writeExistingDocs(RSAddDocumentCtx *aCtx, RedisSearchCtx *sctx) {
   t_docId docId = aCtx->doc->docId;
   RSIndexResult rec = {.data.tag = RSResultData_Virtual, .docId = docId, .freq = 0,
                        .metrics = MetricsVec_New()};
-  aCtx->spec->stats.invertedSize += InvertedIndex_WriteEntryGeneric(sctx->spec->existingDocs, &rec);
+  aCtx->spec->stats.invertedSize += InvertedIndex_WriteEntryGeneric(
+      sctx->spec->existingDocs, &rec, &aCtx->spec->stats.totalInvertedIndexBlocks);
 }
 
 /**

@@ -244,7 +244,12 @@ impl InvertedIndex {
     #[inline(always)]
     pub fn write_numeric_entry(&self, doc_id: u64, value: f64) {
         unsafe {
-            inverted_index_ffi::InvertedIndex_WriteNumericEntry(self.ii.cast(), doc_id, value);
+            inverted_index_ffi::InvertedIndex_WriteNumericEntry(
+                self.ii.cast(),
+                doc_id,
+                value,
+                std::ptr::null_mut(),
+            );
         }
     }
 
@@ -269,6 +274,7 @@ impl InvertedIndex {
             inverted_index_ffi::InvertedIndex_WriteEntryGeneric(
                 self.ii.cast(),
                 &record as *const _ as *mut _,
+                std::ptr::null_mut(),
             );
         }
     }

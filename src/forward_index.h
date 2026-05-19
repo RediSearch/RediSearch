@@ -87,9 +87,14 @@ ForwardIndexEntry *ForwardIndexIterator_Next(ForwardIndexIterator *iter);
 // Find an existing entry within the index
 ForwardIndexEntry *ForwardIndex_Find(ForwardIndex *i, const char *s, size_t n, uint32_t hash);
 
-/* Write a ForwardIndexEntry into an indexWriter. Returns the number of bytes written to the index
+/* Write a ForwardIndexEntry into an indexWriter. Returns the number of bytes written to the index.
+ *
+ * `spec_block_counter`, when non-NULL, is the address of the owning spec's
+ * `stats.totalInvertedIndexBlocks` counter. The Rust write atomically bumps it by the number of
+ * new blocks created by this write (typically 0 or 1). Pass NULL to skip per-spec accounting.
  */
-size_t InvertedIndex_WriteForwardIndexEntry(InvertedIndex *idx, ForwardIndexEntry *ent);
+size_t InvertedIndex_WriteForwardIndexEntry(InvertedIndex *idx, ForwardIndexEntry *ent,
+                                            size_t *spec_block_counter);
 
 #ifdef __cplusplus
 }

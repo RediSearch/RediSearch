@@ -155,6 +155,45 @@ def test_info_text_tag_overhead(env):
   env.assertEqual(float(res['tag_overhead_sz_mb']), 24. / 1024 / 1024)
   env.assertEqual(float(res['text_overhead_sz_mb']), 0)
 
+@skip(cluster=True)
+def test_total_inverted_index_blocks_per_spec(env):
+  """Regression test for MOD-15781: `FT.INFO total_inverted_index_blocks` must reflect only the
+  queried spec's blocks, not the process-global block count summed across all in-memory
+  indexes."""
+
+  conn = getConnectionByEnv(env)
+
+  # Two indexes with deliberately different sizes so a global-counter bug would surface as
+  # both reports having the same (summed) value.
+  env.expect('FT.CREATE', 'small_idx', 'SCHEMA', 'tag1', 'TAG').ok()
+  env.expect('FT.CREATE', 'large_idx', 'SCHEMA', 'tag1', 'TAG').ok()
+
+  # Each unique tag value gets its own inverted index (with at least one block), so a unique
+  # tag per doc maximises block count per doc.
+  for i in range(50):
+    conn.execute_command('HSET', f'small:{i}', 'tag1', f'sm{i}')
+  for i in range(500):
+    conn.execute_command('HSET', f'large:{i}', 'tag1', f'lg{i}')
+
+  small_blocks = int(index_info(env, 'small_idx')['total_inverted_index_blocks'])
+  large_blocks = int(index_info(env, 'large_idx')['total_inverted_index_blocks'])
+
+  # Each unique tag yields one DocIdsOnly inverted index with a single block. With a
+  # process-global counter (the pre-fix bug) both reports would equal the sum and `small_blocks`
+  # would equal `large_blocks`; with a per-spec counter `large_blocks` is ~10x `small_blocks`.
+  env.assertGreaterEqual(small_blocks, 50, message=f'small={small_blocks}, large={large_blocks}')
+  env.assertGreaterEqual(large_blocks, 500, message=f'small={small_blocks}, large={large_blocks}')
+  env.assertGreater(large_blocks, small_blocks * 5,
+                    message=f'per-spec counter regressed to a global sum: '
+                            f'small={small_blocks}, large={large_blocks}')
+
+  # Dropping `large_idx` must not change `small_idx`'s block count.
+  env.expect('FT.DROPINDEX', 'large_idx', 'DD').ok()
+  small_blocks_after_drop = int(index_info(env, 'small_idx')['total_inverted_index_blocks'])
+  env.assertEqual(small_blocks_after_drop, small_blocks,
+                  message=f'dropping a sibling spec must not change this spec\'s block count: '
+                          f'before={small_blocks} after={small_blocks_after_drop}')
+
 def test_vecsim_info_stats_memory():
   env = Env(protocol=3)
   vec_size = 6

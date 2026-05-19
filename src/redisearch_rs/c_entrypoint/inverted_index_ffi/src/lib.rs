@@ -228,14 +228,20 @@ pub unsafe extern "C" fn InvertedIndex_MemUsage(ii: *const InvertedIndex) -> usi
 /// with the `StoreNumeric` flag. The function returns the number of bytes the memory usage of the
 /// index grew by.
 ///
+/// `spec_block_counter`, when non-NULL, points to a per-spec `size_t` counter that is
+/// atomically incremented by the number of new blocks this write created (typically 0 or 1).
+/// Pass NULL when there's no owning spec (tests, transient indexes).
+///
 /// # Safety
-/// The following invariant must be upheld when calling this function:
 /// - `ii` must be a valid pointer to an `InvertedIndex` instance and cannot be NULL.
+/// - `spec_block_counter` is either NULL or points to a `size_t` valid for atomic access for
+///   the duration of this call.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn InvertedIndex_WriteNumericEntry(
     ii: *mut InvertedIndex,
     doc_id: t_docId,
     value: f64,
+    spec_block_counter: *mut usize,
 ) -> usize {
     debug_assert!(!ii.is_null(), "ii must not be null");
 
@@ -243,20 +249,32 @@ pub unsafe extern "C" fn InvertedIndex_WriteNumericEntry(
 
     // SAFETY: The caller must ensure that `ii` is a valid pointer to an `InvertedIndex`
     let ii = unsafe { &mut *ii };
-    ii_dispatch!(ii, add_record, &record).unwrap()
+    let blocks_before = ii_dispatch!(&*ii, number_of_blocks);
+    let mem_growth = ii_dispatch!(ii, add_record, &record).unwrap();
+    let blocks_after = ii_dispatch!(&*ii, number_of_blocks);
+    // SAFETY: the contract on `spec_block_counter` guarantees the pointer is valid for atomic
+    // access (or null).
+    unsafe { bump_spec_counter(spec_block_counter, blocks_after, blocks_before) };
+    mem_growth
 }
 
 /// Write a new entry to the inverted index. The function returns the number of bytes the memory
 /// usage of the index grew by.
 ///
+/// `spec_block_counter`, when non-NULL, points to a per-spec `size_t` counter that is
+/// atomically incremented by the number of new blocks this write created (typically 0 or 1).
+/// Pass NULL when there's no owning spec (tests, transient indexes).
+///
 /// # Safety
-/// The following invariants must be upheld when calling this function:
 /// - `ii` must be a valid pointer to an `InvertedIndex` instance and cannot be NULL.
 /// - `record` must be a valid pointer to an `RSIndexResult` instance and cannot be NULL.
+/// - `spec_block_counter` is either NULL or points to a `size_t` valid for atomic access for
+///   the duration of this call.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn InvertedIndex_WriteEntryGeneric(
     ii: *mut InvertedIndex,
     record: *const RSIndexResult,
+    spec_block_counter: *mut usize,
 ) -> usize {
     debug_assert!(!ii.is_null(), "ii must not be null");
     debug_assert!(!record.is_null(), "record must not be null");
@@ -267,7 +285,33 @@ pub unsafe extern "C" fn InvertedIndex_WriteEntryGeneric(
     // SAFETY: The caller must ensure that `record` is a valid pointer to an `RSIndexResult`
     let record = unsafe { &*record };
 
-    ii_dispatch!(ii, add_record, record).unwrap()
+    let blocks_before = ii_dispatch!(&*ii, number_of_blocks);
+    let mem_growth = ii_dispatch!(ii, add_record, record).unwrap();
+    let blocks_after = ii_dispatch!(&*ii, number_of_blocks);
+    // SAFETY: the contract on `spec_block_counter` guarantees the pointer is valid for atomic
+    // access (or null).
+    unsafe { bump_spec_counter(spec_block_counter, blocks_after, blocks_before) };
+    mem_growth
+}
+
+/// Apply `new_blocks - old_blocks` (signed) to `*counter` atomically. NULL pointer is a no-op.
+///
+/// # Safety
+/// `counter`, if non-null, must point to a `size_t` valid for atomic read/write for the
+/// duration of this call. Sized to match C's `size_t`/Rust's `usize` exactly.
+#[inline]
+unsafe fn bump_spec_counter(counter: *mut usize, new_blocks: usize, old_blocks: usize) {
+    if counter.is_null() {
+        return;
+    }
+    // SAFETY: caller-guaranteed.
+    let atomic = unsafe { std::sync::atomic::AtomicUsize::from_ptr(counter) };
+    use std::sync::atomic::Ordering::Relaxed;
+    if new_blocks > old_blocks {
+        atomic.fetch_add(new_blocks - old_blocks, Relaxed);
+    } else if old_blocks > new_blocks {
+        atomic.fetch_sub(old_blocks - new_blocks, Relaxed);
+    }
 }
 
 /// Return the number of blocks in the inverted index.
@@ -647,6 +691,7 @@ pub unsafe extern "C" fn InvertedIndex_ApplyGcDelta(
     ii: *mut InvertedIndex,
     deltas: *mut GcScanDelta,
     apply_info: *mut GcApplyInfo,
+    spec_block_counter: *mut usize,
 ) {
     debug_assert!(!ii.is_null(), "ii must not be null");
     debug_assert!(!deltas.is_null(), "deltas must not be null");
@@ -659,7 +704,12 @@ pub unsafe extern "C" fn InvertedIndex_ApplyGcDelta(
     let deltas = unsafe { Box::from_raw(deltas) };
     let deltas = *deltas;
 
+    let blocks_before = ii_dispatch!(&*ii, number_of_blocks);
     let info = ii_dispatch!(ii, apply_gc, deltas);
+    let blocks_after = ii_dispatch!(&*ii, number_of_blocks);
+
+    // SAFETY: contract on `spec_block_counter` guarantees validity.
+    unsafe { bump_spec_counter(spec_block_counter, blocks_after, blocks_before) };
 
     // SAFETY: The caller must ensure `apply_info` is a valid pointer to a `GcApplyInfo`
     unsafe { *apply_info = info };

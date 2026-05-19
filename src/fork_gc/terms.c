@@ -96,7 +96,7 @@ FGCError FGC_parentHandleTerms(ForkGC *gc) {
     goto cleanup;
   }
 
-  InvertedIndex_ApplyGcDelta(idx, delta, &info);
+  InvertedIndex_ApplyGcDelta(idx, delta, &info, &sctx->spec->stats.totalInvertedIndexBlocks);
   delta = NULL;
 
   if (InvertedIndex_NumDocs(idx) == 0) {
@@ -106,8 +106,15 @@ FGCError FGC_parentHandleTerms(ForkGC *gc) {
       CharBuf termKey = {.buf = term, .len = len};
       // get memory before deleting the inverted index
       size_t inv_idx_size = InvertedIndex_MemUsage(idx);
+      // Decrement per-spec block counter for any remaining blocks before the destructor
+      // callback (`InvIndFreeCb`) frees the index without spec context.
+      size_t remaining_blocks = InvertedIndex_NumBlocks(idx);
       if (dictDelete(sctx->spec->keysDict, &termKey) == DICT_OK) {
         info.bytes_freed += inv_idx_size;
+        if (remaining_blocks > 0) {
+          __atomic_sub_fetch(&sctx->spec->stats.totalInvertedIndexBlocks,
+                             remaining_blocks, __ATOMIC_RELAXED);
+        }
       }
     }
 

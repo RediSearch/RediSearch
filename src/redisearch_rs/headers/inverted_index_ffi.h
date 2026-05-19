@@ -138,22 +138,32 @@ size_t InvertedIndex_MemUsage(const struct InvertedIndex *ii);
  * with the `StoreNumeric` flag. The function returns the number of bytes the memory usage of the
  * index grew by.
  *
+ * `spec_block_counter`, when non-NULL, points to a per-spec `size_t` counter that is
+ * atomically incremented by the number of new blocks this write created (typically 0 or 1).
+ * Pass NULL when there's no owning spec (tests, transient indexes).
+ *
  * # Safety
- * The following invariant must be upheld when calling this function:
  * - `ii` must be a valid pointer to an `InvertedIndex` instance and cannot be NULL.
+ * - `spec_block_counter` is either NULL or points to a `size_t` valid for atomic access for
+ *   the duration of this call.
  */
-size_t InvertedIndex_WriteNumericEntry(struct InvertedIndex *ii, t_docId doc_id, double value);
+size_t InvertedIndex_WriteNumericEntry(struct InvertedIndex *ii, t_docId doc_id, double value, size_t *spec_block_counter);
 
 /**
  * Write a new entry to the inverted index. The function returns the number of bytes the memory
  * usage of the index grew by.
  *
+ * `spec_block_counter`, when non-NULL, points to a per-spec `size_t` counter that is
+ * atomically incremented by the number of new blocks this write created (typically 0 or 1).
+ * Pass NULL when there's no owning spec (tests, transient indexes).
+ *
  * # Safety
- * The following invariants must be upheld when calling this function:
  * - `ii` must be a valid pointer to an `InvertedIndex` instance and cannot be NULL.
  * - `record` must be a valid pointer to an `RSIndexResult` instance and cannot be NULL.
+ * - `spec_block_counter` is either NULL or points to a `size_t` valid for atomic access for
+ *   the duration of this call.
  */
-size_t InvertedIndex_WriteEntryGeneric(struct InvertedIndex *ii, const struct RSIndexResult *record);
+size_t InvertedIndex_WriteEntryGeneric(struct InvertedIndex *ii, const struct RSIndexResult *record, size_t *spec_block_counter);
 
 /**
  * Return the number of blocks in the inverted index.
@@ -329,7 +339,7 @@ void InvertedIndex_GcDelta_Free(struct InvertedIndexGcDelta *deltas);
  *   [`InvertedIndex_GcDelta_Read`].
  * - `apply_info` must be a valid, non NULL, pointer to a `GcApplyInfo` instance.
  */
-void InvertedIndex_ApplyGcDelta(struct InvertedIndex *ii, struct InvertedIndexGcDelta *deltas, struct II_GCScanStats *apply_info);
+void InvertedIndex_ApplyGcDelta(struct InvertedIndex *ii, struct InvertedIndexGcDelta *deltas, struct II_GCScanStats *apply_info, size_t *spec_block_counter);
 
 /**
  * Get the index of the last block in the GC delta.
@@ -524,10 +534,18 @@ bool IndexReader_Revalidate(struct IndexReader *ir);
 }  // extern "C"
 #endif  // __cplusplus
 // Create a new inverted index object, with the given flag.
-// The out parameter memsize must be not NULL, the total of allocated memory
-// will be returned in it.
+// The out parameter `memsize` must not be NULL: the total allocated memory is returned in it.
+// The inverted index should be freed using `InvertedIndex_Free` when no longer needed.
 //
-// The inverted index should be freed using [`InvertedIndex_Free`] when no longer needed.
+// Per-spec `total_inverted_index_blocks` accounting is opt-in at *operation* time: pass the
+// address of `spec->stats.totalInvertedIndexBlocks` to `InvertedIndex_WriteEntryGeneric`,
+// `InvertedIndex_WriteNumericEntry`, and `InvertedIndex_ApplyGcDelta` — the Rust side reads
+// `blocks.len()` before and after each call and atomically bumps the pointed-to counter.
+// When freeing an inverted index, the C caller is responsible for reading
+// `InvertedIndex_NumBlocks(ii)` and atomically decrementing the per-spec counter before
+// calling `InvertedIndex_Free` (mirroring the existing `InvertedIndex_MemUsage` pattern).
+// Pass NULL when no spec is involved (tests / transient indexes); the process-global
+// `TotalIIBlocks()` is always maintained.
 inline static struct InvertedIndex *NewInvertedIndex(IndexFlags flags, size_t *memsize) {
   return NewInvertedIndex_Ex(flags, RSGlobalConfig.invertedIndexRawDocidEncoding, RSGlobalConfig.numericCompress, memsize);
 }

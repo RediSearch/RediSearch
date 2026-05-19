@@ -159,13 +159,20 @@ FGCError FGC_parentHandleTags(ForkGC *gc) {
       goto loop_cleanup;
     }
 
-    InvertedIndex_ApplyGcDelta(idx, delta, &info);
+    InvertedIndex_ApplyGcDelta(idx, delta, &info, &sctx->spec->stats.totalInvertedIndexBlocks);
     delta = NULL;
 
     // if tag value is empty, let's remove it.
     if (InvertedIndex_NumDocs(idx) == 0) {
       // get memory before deleting the inverted index
       info.bytes_freed += InvertedIndex_MemUsage(idx);
+      // Decrement per-spec block counter for any remaining blocks before the TrieMap destructor
+      // callback frees the index without spec context.
+      size_t remaining_blocks = InvertedIndex_NumBlocks(idx);
+      if (remaining_blocks > 0) {
+        __atomic_sub_fetch(&sctx->spec->stats.totalInvertedIndexBlocks,
+                           remaining_blocks, __ATOMIC_RELAXED);
+      }
       TrieMap_Delete(tagIdx->values, tagVal, tagValLen, (void (*)(void *))InvertedIndex_Free);
 
       if (tagIdx->suffix) {

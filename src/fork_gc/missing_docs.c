@@ -91,12 +91,19 @@ FGCError FGC_parentHandleMissingDocs(ForkGC *gc) {
     goto cleanup;
   }
 
-  InvertedIndex_ApplyGcDelta(idx, delta, &info);
+  InvertedIndex_ApplyGcDelta(idx, delta, &info, &sctx->spec->stats.totalInvertedIndexBlocks);
   delta = NULL;
 
   if (InvertedIndex_NumDocs(idx) == 0) {
     // inverted index was cleaned entirely lets free it
     info.bytes_freed += InvertedIndex_MemUsage(idx);
+    // Decrement per-spec block counter for any remaining blocks before the destructor
+    // callback (`InvIndFreeCb`) frees the index without spec context.
+    size_t remaining_blocks = InvertedIndex_NumBlocks(idx);
+    if (remaining_blocks > 0) {
+      __atomic_sub_fetch(&sctx->spec->stats.totalInvertedIndexBlocks,
+                         remaining_blocks, __ATOMIC_RELAXED);
+    }
     dictDelete(sctx->spec->missingFieldDict, fieldName);
   }
   FGC_updateStats(gc, sctx, info.entries_removed, info.bytes_freed, info.bytes_allocated, info.ignored_last_block);
