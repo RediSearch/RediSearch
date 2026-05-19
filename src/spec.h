@@ -376,14 +376,15 @@ typedef struct IndexSpec {
   // Disk index handle (NULL for memory-only indexes)
   RedisSearchDiskIndexSpec *diskSpec;
 
-  pthread_rwlock_t disk_fork_rwlock;
-  // Flags indicating state of the replication process. Needed to abort replication process
-  ReplicationLockFlags repl_flags;
   // Disk RDB state (NULL for memory-only indexes), pending to be applied at replication ending
   RedisSearchDiskRdbState *pendingDiskRdbState;
   bool diskRegistered;
-
+  pthread_rwlock_t disk_fork_rwlock;
+  // Flags indicating state of the replication process. Needed to abort replication process
+  // in a healthy way
+  ReplicationLockFlags repl_flags;
 } IndexSpec;
+
 typedef enum SpecOp { SpecOp_Add, SpecOp_Del } SpecOp;
 typedef enum TimerOp { TimerOp_Add, TimerOp_Del } TimerOp;
 
