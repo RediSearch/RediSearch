@@ -12,6 +12,8 @@ else
     VERSION=${VERSION#"VERSION_ID="}
     OS_NAME=$(grep '^NAME=' /etc/os-release | sed 's/"//g')
     OS_NAME=${OS_NAME#"NAME="}
+    # AlmaLinux is RHEL-compatible and uses the same install scripts as Rocky Linux.
+    [[ $OS_NAME == 'AlmaLinux' ]] && OS_NAME='Rocky Linux'
     [[ $OS_NAME == 'Rocky Linux' ]] && VERSION=${VERSION%.*} # remove minor version for Rocky Linux
     [[ $OS_NAME == 'Alpine Linux' ]] && VERSION=${VERSION%.*.*} # remove minor and patch version for Alpine Linux
     OS=${OS_NAME,,}_${VERSION}
