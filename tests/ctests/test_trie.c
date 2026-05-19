@@ -479,37 +479,42 @@ int testNumDocs() {
   return 0;
 }
 
-// Regression: TrieNode_Delete is a soft delete (tombstone). It must zero numDocs
-// alongside score so that re-inserting the same term doesn't accumulate the
-// pre-delete count via __trieNode_Add's `n->numDocs += numDocs`.
-int testDeleteThenReinsertResetsNumDocs() {
+// Regression: TrieNode_Delete is a soft delete (tombstone). It must zero both
+// numDocs and score so that re-inserting the same term doesn't accumulate the
+// pre-delete values via __trieNode_Add's `n->numDocs += numDocs` (always
+// accumulates) and `n->score += score` (accumulates in ADD_INCR mode). Use
+// ADD_INCR (incr=1) so the score half is also exercised — ADD_REPLACE would
+// mask a missing score reset.
+int testDeleteThenReinsertResetsState() {
   Trie *t = NewTrie(NULL, Trie_Sort_Score);
   ASSERT(t != NULL);
 
   size_t helloLen;
   rune *helloRunes = strToRunes("hello", &helloLen);
 
-  // Insert "hello" with numDocs = 7.
-  int rc = Trie_InsertStringBuffer(t, "hello", 5, 1.0, 0, NULL, 7);
+  // Insert "hello" with score = 2.5 and numDocs = 7 in ADD_INCR mode.
+  int rc = Trie_InsertStringBuffer(t, "hello", 5, 2.5, 1, NULL, 7);
   ASSERT_EQUAL(1, rc);
   TrieNode *node = Trie_GetNode(t, helloRunes, helloLen, true, NULL);
   ASSERT(node != NULL);
+  ASSERT(node->score == 2.5f);
   ASSERT_EQUAL(7, node->numDocs);
 
-  // Soft-delete the term.
+  // Soft-delete the term; tombstone must zero both fields.
   int delRc = Trie_Delete(t, "hello", 5);
   ASSERT_EQUAL(1, delRc);
   // Trie_GetNode filters deleted nodes.
   node = Trie_GetNode(t, helloRunes, helloLen, true, NULL);
   ASSERT(node == NULL);
 
-  // Re-insert "hello" with numDocs = 3.
-  // Pre-fix this would accumulate to 10 (7 stale + 3 new); post-fix it should be 3.
-  rc = Trie_InsertStringBuffer(t, "hello", 5, 1.0, 0, NULL, 3);
+  // Re-insert with score = 1.0 and numDocs = 3 in ADD_INCR mode.
+  // Without the reset, score would accumulate to 3.5 and numDocs to 10.
+  rc = Trie_InsertStringBuffer(t, "hello", 5, 1.0, 1, NULL, 3);
   // Re-inserting a deleted node returns TRIE_OK_NEW (rc == 1), not UPDATED.
   ASSERT_EQUAL(1, rc);
   node = Trie_GetNode(t, helloRunes, helloLen, true, NULL);
   ASSERT(node != NULL);
+  ASSERT(node->score == 1.0f);
   ASSERT_EQUAL(3, node->numDocs);
 
   free(helloRunes);
@@ -1139,7 +1144,7 @@ TEST_MAIN({
   TESTFUNC(testPayload);
   TESTFUNC(testUnicode);
   TESTFUNC(testNumDocs);
-  TESTFUNC(testDeleteThenReinsertResetsNumDocs);
+  TESTFUNC(testDeleteThenReinsertResetsState);
   TESTFUNC(testDecrementNumDocs);
   TESTFUNC(testDecrementNumDocsComplex);
   TESTFUNC(testDecrementNumDocsNonTerminal);
