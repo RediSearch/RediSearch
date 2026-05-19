@@ -793,7 +793,7 @@ void IndexSpecRef_Release(StrongRef ref);
 void Indexes_StartRDBLoadingEvent(RedisModuleCtx *ctx);
 
 // This function is called in case the server ends RDB loading.
-void Indexes_EndRDBLoadingEvent(RedisModuleCtx *ctx);
+void Indexes_EndRDBLoadingEvent(RedisModuleCtx *ctx, bool useSst);
 
 // This function is to be called when loading finishes (failed or not)
 void Indexes_EndLoading();

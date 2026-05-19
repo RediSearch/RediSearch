@@ -1780,6 +1780,57 @@ static void IndexSpec_EnsureTagDiskIndexes(IndexSpec *sp) {
   }
 }
 
+// Open the disk handle for an RDB-loaded spec, populate vector/tag disk state,
+// and register with disk. On failure sp->diskSpec is left NULL and the caller
+// must handle teardown. Used by the non-SST RDB load path and by the legacy
+// upgrade — not by FT.CREATE, which opens the disk handle earlier (before
+// field parsing).
+static bool IndexSpec_OpenDiskFromRdb(RedisModuleCtx *ctx, IndexSpec *sp) {
+  sp->diskSpec = SearchDisk_OpenIndex(ctx, sp->specName, sp->obfuscatedName,
+                                      sp->rule->type, false);
+  if (!sp->diskSpec) return false;
+  IndexSpec_PopulateVectorDiskParams(sp);
+  IndexSpec_EnsureTagDiskIndexes(sp);
+  SearchDisk_RegisterIndex(ctx, sp);
+  return true;
+}
+
+// Forward declaration: defined later in the RDB save/load section.
+static void IndexScoringStats_RdbLoad(RedisModuleIO *rdb, ScoringIndexStats *stats, int encver);
+
+// Consume the SST-flow disk payload from the RDB and stash it on the spec.
+//
+// The SST save flow writes the scoring stats, the terms trie, and a
+// disk-RDB blob (max_doc_id, deleted_ids) right after the schema. We always
+// consume the bytes — even for duplicates — so the RDB stream stays aligned.
+// The disk blob is stashed in sp->pendingDiskRdbState and consumed later by
+// Indexes_FinishSSTReplication at LOADING_SST_ENDED, or freed by the spec
+// destructor on the duplicate / cleanup / abort paths.
+//
+// Returns false if the disk-RDB blob could not be parsed; the terms-trie
+// failure path is fatal (RS_LOG_ASSERT) since a missing trie means an
+// already-corrupt stream.
+static bool IndexSpec_LoadStateFromRdb(RedisModuleCtx *ctx, IndexSpec *sp,
+                                          RedisModuleIO *rdb, int encver) {
+  RS_ASSERT(encver >= INDEX_DISK_VERSION);
+  RS_ASSERT(disk_db);
+
+  IndexScoringStats_RdbLoad(rdb, &sp->stats.scoring, encver);
+  if (sp->terms) {
+    TrieType_Free(sp->terms);
+  }
+  sp->terms = TrieType_GenericLoad(rdb, false, true);
+  RS_LOG_ASSERT(sp->terms, "SST replication: Failed to load terms trie");
+
+  sp->pendingDiskRdbState = SearchDisk_LoadRdbToTempObject(rdb);
+  if (!sp->pendingDiskRdbState) {
+    RedisModule_Log(ctx, "error",
+                    "SST replication: Failed to load disk index data for spec from RDB");
+    return false;
+  }
+  return true;
+}
+
 void handleBadArguments(IndexSpec *spec, const char *badarg, QueryError *status, ACArgSpec *non_flex_argopts) {
   if (isSpecOnDiskForValidation(spec)) {
     bool isKnownArg = false;
@@ -3301,7 +3352,11 @@ void IndexSpec_DropLegacyIndexFromKeySpace(IndexSpec *sp) {
   HiddenString_LegacyDropFromKeySpace(ctx.redisCtx, INDEX_SPEC_KEY_FMT, sp->specName);
 }
 
-void Indexes_UpgradeLegacyIndexes() {
+void Indexes_UpgradeLegacyIndexes(RedisModuleCtx *ctx, bool useSst) {
+  // SST replication only carries v25+ payloads, so reaching here means there
+  // can't be any legacy specs staged for an SST flow.
+  RS_ASSERT(!useSst || dictSize(legacySpecDict) == 0);
+
   dictIterator *iter = dictGetIterator(legacySpecDict);
   dictEntry *entry = NULL;
   while ((entry = dictNext(iter))) {
@@ -3311,12 +3366,30 @@ void Indexes_UpgradeLegacyIndexes() {
 
     // recreate the doctable
     DocTable_Free(&sp->docs);
-    sp->docs = DocTable_New(INITIAL_DOC_TABLE_SIZE);
+    if (!isSpecOnDisk(sp)) {
+      sp->docs = DocTable_New(INITIAL_DOC_TABLE_SIZE);
+    }
 
     // clear index stats
     memset(&sp->stats, 0, sizeof(sp->stats));
     // Init the index error
     sp->stats.indexError = IndexError_Init();
+
+    // On disk, open the empty disk index so the subsequent keyspace reindex
+    // routes documents through the disk pipeline. Legacy RDB carries no disk
+    // state, so this mirrors the non-SST disk-open path in IndexSpec_RdbLoad.
+    if (isSpecOnDisk(sp)) {
+      RS_ASSERT(!sp->isDuplicate);
+      bool opened = IndexSpec_OpenDiskFromRdb(ctx, sp);
+      RS_LOG_ASSERT(opened,
+                    "Legacy upgrade: failed to open disk index for spec");
+      if (opened) {
+        IndexSpec_StartGC(spec_ref, sp, GCPolicy_Disk);
+      } else {
+        RedisModule_Log(ctx, "error",
+          "Legacy upgrade: failed to open disk index for spec");
+      }
+    }
 
     // put the new index in the global spec dictionaries (by name and by specId)
     dictAdd(specDict_g, (void*)sp->specName, spec_ref.rm);
@@ -3513,37 +3586,18 @@ IndexSpec *IndexSpec_RdbLoad(RedisModuleIO *rdb, int encver, bool useSst, QueryE
   }
 
   if (isSpecOnDisk(sp) && useSst) {
-    // Load the disk-related index data if we are on disk and the save flow used
-    // sst-files. We load it into a temporary in-memory object first, then use it
-    // to open the index with the RDB state applied.
-    // We must always consume the RDB data to avoid corrupting the stream,
-    // even for duplicates. We just won't use it in the duplicate case.
-    RS_ASSERT(encver >= INDEX_DISK_VERSION);
-    RS_ASSERT(disk_db);
-    IndexScoringStats_RdbLoad(rdb, &sp->stats.scoring, encver);
-    if (sp->terms) {
-      TrieType_Free(sp->terms);
-    }
-    sp->terms = TrieType_GenericLoad(rdb, false, true);
-    RS_LOG_ASSERT(sp->terms, "Failed to load terms trie");
-
-    // Load disk metadata (max_doc_id, deleted_ids) into the spec. Stashed
-    // here directly; consumed at LOADING_SST_ENDED (SST flow) or freed by
-    // the spec destructor (duplicate / cleanup / abort).
-    sp->pendingDiskRdbState = SearchDisk_LoadRdbToTempObject(rdb);
-    if (!sp->pendingDiskRdbState) {
+    if (!IndexSpec_LoadStateFromRdb(ctx, sp, rdb, encver)) {
       goto cleanup;
     }
   } else if (isSpecOnDisk(sp) && !sp->isDuplicate) {
     // If the regular RDB method is used, just open an Index without any populated data.
     RS_ASSERT(!useSst);
-    sp->diskSpec = SearchDisk_OpenIndex(ctx, sp->specName, sp->obfuscatedName, sp->rule->type, false);
-    if (!sp->diskSpec) {
+    bool opened = IndexSpec_OpenDiskFromRdb(ctx, sp);
+    RS_LOG_ASSERT(opened, "RDB load: Failed to open disk index for spec");
+    if (!opened) {
+      RedisModule_Log(ctx, "error", "RDB load: Failed to open disk index for spec");
       goto cleanup;
     }
-    IndexSpec_PopulateVectorDiskParams(sp);
-    IndexSpec_EnsureTagDiskIndexes(sp);
-    SearchDisk_RegisterIndex(ctx, sp);
   }
 
   return sp;
@@ -3618,7 +3672,9 @@ void *IndexSpec_LegacyRdbLoad(RedisModuleIO *rdb, int encver) {
   if (encver < LEGACY_INDEX_MIN_VERSION || encver > LEGACY_INDEX_MAX_VERSION) {
     return NULL;
   }
-  RS_LOG_ASSERT(!SearchDisk_IsEnabled(), "Legacy indexes are not supported on disk");
+  // SST replication only happens between v25+ peers, so legacy + SST is impossible.
+  RS_LOG_ASSERT(!IS_SST_RDB_IN_PROCESS(RedisModule_GetContextFromIO(rdb)),
+                "Legacy indexes cannot arrive via SST replication");
   char *legacyName = RedisModule_LoadStringBuffer(rdb, NULL);
 
   RedisModuleCtx *ctx = RedisModule_GetContextFromIO(rdb);
@@ -3744,7 +3800,12 @@ void *IndexSpec_LegacyRdbLoad(RedisModuleIO *rdb, int encver) {
     return NULL;
   }
 
-  IndexSpec_StartGC(spec_ref, sp, GCPolicy_Fork);
+  // Fork GC is for memory-mode specs only. On disk-enabled instances the
+  // disk GC is started later from Indexes_UpgradeLegacyIndexes, once diskSpec
+  // is opened.
+  if (!SearchDisk_IsEnabled()) {
+    IndexSpec_StartGC(spec_ref, sp, GCPolicy_Fork);
+  }
   Cursors_initSpec(sp);
 
   dictAdd(legacySpecDict, (void*)sp->specName, spec_ref.rm);
@@ -4673,19 +4734,17 @@ static inline void DebugIndexesScanner_pauseCheck(DebugIndexesScanner* dScanner,
 
 void Indexes_StartRDBLoadingEvent(RedisModuleCtx* ctx) {
   Indexes_Free(ctx, specDict_g, false);
-  if (!SearchDisk_IsEnabled()) {
-    if (legacySpecDict) {
-      dictEmpty(legacySpecDict, NULL);
-    } else {
-      legacySpecDict = dictCreate(&dictTypeHeapHiddenStrings, NULL);
-    }
+  if (legacySpecDict) {
+    dictEmpty(legacySpecDict, NULL);
+  } else {
+    legacySpecDict = dictCreate(&dictTypeHeapHiddenStrings, NULL);
   }
   g_isLoading = true;
 }
 
-void Indexes_EndRDBLoadingEvent(RedisModuleCtx *ctx) {
+void Indexes_EndRDBLoadingEvent(RedisModuleCtx *ctx, bool useSst) {
   int hasLegacyIndexes = dictSize(legacySpecDict);
-  Indexes_UpgradeLegacyIndexes();
+  Indexes_UpgradeLegacyIndexes(ctx, useSst);
 
   // we do not need the legacy dict specs anymore
   dictRelease(legacySpecDict);

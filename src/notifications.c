@@ -852,10 +852,11 @@ void RDB_LoadingEvent(RedisModuleCtx *ctx, RedisModuleEvent eid, uint64_t subeve
     RedisModule_Log(RSDummyContext, "notice", "Loading RDB event ended");
     break;
   case REDISMODULE_SUBEVENT_LOADING_ENDED:
-    if (!SearchDisk_IsEnabled()) {
-      // This only handles legacy indices that are not available in disk
-      Indexes_EndRDBLoadingEvent(ctx);
-    } else if (useSst) {
+    if (!useSst) {
+      Indexes_EndRDBLoadingEvent(ctx, useSst);
+    }
+    if (useSst) {
+      RS_ASSERT(SearchDisk_IsEnabled());
       RedisModule_Log(RSDummyContext, "notice", "Loading event ended (SST + RDB ready). Finish loading");
       Indexes_FinishSSTReplication(ctx);
     }
