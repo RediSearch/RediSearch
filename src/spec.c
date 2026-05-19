@@ -2392,8 +2392,6 @@ static void initializeIndexSpec(IndexSpec *sp, const HiddenString *name, IndexFl
   sp->suffix = NULL;
   sp->suffixMask = (t_fieldMask)0;
   sp->keysDict = NULL;
-  sp->getValue = NULL;
-  sp->getValueCtx = NULL;
   sp->timeout = 0;
   sp->isTimerSet = false;
   sp->timerId = 0;
@@ -2444,17 +2442,15 @@ FieldSpec *IndexSpec_CreateField(IndexSpec *sp, const char *name, const char *pa
   fs->ftWeight = 1.0;
   fs->sortIdx = -1;
   fs->tagOpts.tagFlags = TAG_FIELD_DEFAULT_FLAGS;
-  if (!(sp->flags & Index_FromLLAPI)) {
-    RS_LOG_ASSERT((sp->rule), "index w/o a rule?");
-    switch (sp->rule->type) {
-      case DocumentType_Hash:
-        fs->tagOpts.tagSep = TAG_FIELD_DEFAULT_HASH_SEP; break;
-      case DocumentType_Json:
-        fs->tagOpts.tagSep = TAG_FIELD_DEFAULT_JSON_SEP; break;
-      case DocumentType_Unsupported:
-        RS_ABORT("shouldn't get here");
-        break;
-    }
+  RS_LOG_ASSERT((sp->rule), "index w/o a rule?");
+  switch (sp->rule->type) {
+    case DocumentType_Hash:
+      fs->tagOpts.tagSep = TAG_FIELD_DEFAULT_HASH_SEP; break;
+    case DocumentType_Json:
+      fs->tagOpts.tagSep = TAG_FIELD_DEFAULT_JSON_SEP; break;
+    case DocumentType_Unsupported:
+      RS_ABORT("shouldn't get here");
+      break;
   }
   return fs;
 }
@@ -2515,12 +2511,6 @@ static dictType missingFieldDictType = {
 void IndexSpec_MakeKeyless(IndexSpec *sp) {
   sp->keysDict = dictCreate(&invIdxDictType, NULL);
   sp->missingFieldDict = dictCreate(&missingFieldDictType, NULL);
-}
-
-// Only used on new specs so it's thread safe
-void IndexSpec_StartGCFromSpec(StrongRef global, IndexSpec *sp, uint32_t gcPolicy) {
-  sp->gc = GCContext_CreateGC(global, gcPolicy);
-  GCContext_Start(sp->gc);
 }
 
 /* Start the garbage collection loop on the index spec. The GC removes garbage data left on the
