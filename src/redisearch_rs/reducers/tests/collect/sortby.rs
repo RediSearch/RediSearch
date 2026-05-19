@@ -89,6 +89,7 @@ fn remote_sortby_mixed_directions() {
         0b01,
         Some((0, 3)),
         false,
+        None,
     );
     let mut ctx = RemoteCollectCtx::new(&r);
 
@@ -124,6 +125,7 @@ fn remote_sortby_internal_emits_sort_snapshot() {
         SORT_ASC,
         Some((0, 2)),
         true, // is_internal
+        None,
     );
     let mut ctx = RemoteCollectCtx::new(&r);
     for n in [3.0_f64, 1.0, 4.0, 2.0] {

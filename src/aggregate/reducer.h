@@ -50,6 +50,13 @@ typedef struct Reducer {
   RLookupKey *dstkey;  // Destination key where the reducer output is placed
 
   /**
+   * Optional hidden key in the source lookup that the reducer wants the
+   * grouper to populate with the upstream document id (see
+   * `Grouper_rpAccum`). NULL means "this reducer doesn't need doc_id".
+   */
+  const RLookupKey *docIdKey;
+
+  /**
    * Common allocator for all groups. Used to reduce fragmentation when allocating
    * like-sized objects for different groups.
    */

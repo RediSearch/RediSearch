@@ -409,6 +409,10 @@ Reducer *RDCRCollect_New(const ReducerOptions *options) {
       data.limit_count
     );
   } else {
+    const RLookupKey *docIdKey = NULL;
+    if (data.sort_keys && array_len(data.sort_keys) > 0) {
+      docIdKey = RLookup_GetKey_Write(options->srclookup, "__docid", RLOOKUP_F_HIDDEN);
+    }
     rbase = CollectReducer_CreateRemote(
       data.field_keys,
       data.field_keys ? array_len(data.field_keys) : 0,
@@ -419,7 +423,8 @@ Reducer *RDCRCollect_New(const ReducerOptions *options) {
       data.has_limit,
       data.limit_offset,
       data.limit_count,
-      ReducerOpts_IsInternal(options)
+      ReducerOpts_IsInternal(options),
+      docIdKey
     );
   }
 

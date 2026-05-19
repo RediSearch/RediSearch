@@ -72,6 +72,10 @@ typedef struct Grouper {
   // array of reducers
   Reducer **reducers;
 
+  // Hidden `__docid` key registered by an attached reducer; NULL if no reducer
+  // needs `doc_id`.
+  const RLookupKey *docIdKey;
+
   // Used for maintaining state when yielding groups
   khiter_t iter;
 } Grouper;
@@ -226,7 +230,14 @@ static int Grouper_rpAccum(ResultProcessor *base, SearchResult *res) {
   int rc;
 
   while ((rc = base->upstream->Next(base->upstream, res)) == RS_RESULT_OK) {
-    invokeGroupReducers(g, SearchResult_GetRowDataMut(res));
+    RLookupRow *row = SearchResult_GetRowDataMut(res);
+    // If any reducer requested the upstream doc id, plant it into the
+    // hidden `__docid` slot on the source row before invoking reducers.
+    if (g->docIdKey) {
+      RLookup_WriteOwnKey(g->docIdKey, row,
+                          RSValue_NewNumberFromInt64((int64_t)SearchResult_GetDocId(res)));
+    }
+    invokeGroupReducers(g, row);
     SearchResult_Clear(res);
   }
   base->parent->resultLimit = chunkLimit; // restore the limit
@@ -302,6 +313,12 @@ void Grouper_AddReducer(Grouper *g, Reducer *r, RLookupKey *dstkey) {
   Reducer **rpp = array_ensure_tail(&g->reducers, Reducer *);
   *rpp = r;
   r->dstkey = dstkey;
+  // Pick up the first non-NULL `docIdKey` registered by any reducer. All
+  // reducers attached to the same grouper share the same source lookup, so
+  // the key pointers are interchangeable.
+  if (r->docIdKey && !g->docIdKey) {
+    g->docIdKey = r->docIdKey;
+  }
 }
 
 ResultProcessor *Grouper_GetRP(Grouper *g) {

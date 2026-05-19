@@ -47,6 +47,11 @@ pub unsafe extern "C" fn CollectReducer_CreateRemote(
     limit_offset: u64,
     limit_count: u64,
     is_internal: bool,
+    // Hidden `__docid` key reserved by the C-side caller on the source
+    // lookup (see `collect.c`). The C grouper writes the upstream
+    // `t_docId` to this slot per row; the reducer reads it back in
+    // `RemoteCollectCtx::add` to feed the heap tie-breaker.
+    doc_id_key: *const ffi::RLookupKey,
 ) -> *mut ffi::Reducer {
     let field_keys: Box<[&RLookupKey]> = if !field_keys.is_null() && field_keys_len > 0 {
         // SAFETY: ensured by caller (1.)
@@ -67,6 +72,16 @@ pub unsafe extern "C" fn CollectReducer_CreateRemote(
     // SAFETY: ensured by caller (4.)
     let srclookup: Option<&RLookup> = unsafe { srclookup.cast::<RLookup>().as_ref() };
 
+    // The hidden `__docid` key is pre-registered by the C caller (see
+    // `collect.c`). Stash it so `RemoteCollectCtx::add` can read each row's
+    // doc id back out for the heap tie-breaker, and inform the C grouper
+    // (via `set_doc_id_key`) that it should plant the upstream id there.
+    //
+    // SAFETY: `doc_id_key` is either null or a valid `*const ffi::RLookupKey`
+    // pointer per caller contract; the layout is interchangeable with
+    // `RLookupKey` (`#[repr(C)]`).
+    let doc_id_key: Option<&RLookupKey> = unsafe { doc_id_key.cast::<RLookupKey>().as_ref() };
+
     let limit = has_limit.then_some((limit_offset, limit_count));
 
     let mut cr = Box::new(RemoteCollectReducer::new(
@@ -76,6 +91,7 @@ pub unsafe extern "C" fn CollectReducer_CreateRemote(
         sort_asc_map,
         limit,
         is_internal,
+        doc_id_key,
     ));
 
     cr.reducer_mut()
@@ -83,7 +99,10 @@ pub unsafe extern "C" fn CollectReducer_CreateRemote(
         .set_add(collectRemoteAdd)
         .set_finalize(collectRemoteFinalize)
         .set_free_instance(collectRemoteFreeInstance)
-        .set_free(collectRemoteFree);
+        .set_free(collectRemoteFree)
+        // Inform the C grouper that this reducer wants the per-row doc_id
+        // plumbed into the `__docid` slot we just registered.
+        .set_doc_id_key(doc_id_key);
 
     Box::into_raw(cr).cast()
 }

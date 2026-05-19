@@ -1751,3 +1751,102 @@ def test_collect_followed_by_apply_and_filter():
     env.assertEqual(attrs['color_upper'], 'RED')
     env.assertEqual(int(attrs['cnt']), 2)
     env.assertEqual(attrs['names'], [{'name': 'apple'}, {'name': 'strawberry'}])
+
+
+# ---------------------------------------------------------------------------
+# Tie-breaking on COLLECT + SORTBY.
+# ---------------------------------------------------------------------------
+@skip(cluster=True)
+def test_collect_sortby_tiebreak_stable_under_asc():
+    """Single shard, ASC SORTBY. All rows tie on the sort key, so the order
+    must come entirely from the doc_id tie-breaker — smaller doc_id wins
+    under ASC, matching FT.AGGREGATE SORTBY."""
+    env = Env(protocol=3)
+    enable_unstable_features(env)
+    _setup_hash(env)
+    conn = getConnectionByEnv(env)
+    # All docs share color='black' and sweetness=1 — the SORTBY key fully ties.
+    names_in_insert_order = ['a', 'b', 'c', 'd', 'e']
+    for i, name in enumerate(names_in_insert_order):
+        conn.execute_command('HSET', f'doc:{i}', 'name', name,
+                             'color', 'black', 'sweetness', '1')
+
+    cmd = (
+        'FT.AGGREGATE', 'idx', '@color:{black}',
+        'GROUPBY', '1', '@color',
+            'REDUCE', 'COLLECT', '7',
+                'FIELDS', '1', '@name',
+                'SORTBY', '2', '@sweetness', 'ASC',
+            'AS', 'names')
+
+    res1 = env.cmd(*cmd)
+    res2 = env.cmd(*cmd)
+    env.assertEqual(res1, res2, message='order must be stable across runs')
+
+    attrs = res1['results'][0]['extra_attributes']
+    # ASC + ties → smaller doc_id wins → insertion order preserved.
+    env.assertEqual([r['name'] for r in attrs['names']], names_in_insert_order)
+
+
+@skip(cluster=True)
+def test_collect_sortby_tiebreak_stable_under_desc():
+    """Single shard, DESC SORTBY. All rows tie → larger doc_id wins."""
+    env = Env(protocol=3)
+    enable_unstable_features(env)
+    _setup_hash(env)
+    conn = getConnectionByEnv(env)
+    # All docs share color='black' and sweetness=1 — the SORTBY key fully ties.
+    names_in_insert_order = ['a', 'b', 'c', 'd', 'e']
+    for i, name in enumerate(names_in_insert_order):
+        conn.execute_command('HSET', f'doc:{i}', 'name', name,
+                             'color', 'black', 'sweetness', '1')
+
+    cmd = (
+        'FT.AGGREGATE', 'idx', '@color:{black}',
+        'GROUPBY', '1', '@color',
+            'REDUCE', 'COLLECT', '7',
+                'FIELDS', '1', '@name',
+                'SORTBY', '2', '@sweetness', 'DESC',
+            'AS', 'names')
+
+    res1 = env.cmd(*cmd)
+    res2 = env.cmd(*cmd)
+    env.assertEqual(res1, res2, message='order must be stable across runs')
+
+    attrs = res1['results'][0]['extra_attributes']
+    # DESC + ties → larger doc_id wins → reverse insertion order.
+    env.assertEqual([r['name'] for r in attrs['names']],
+                    list(reversed(names_in_insert_order)))
+
+
+@skip(cluster=False)
+def test_collect_cluster_sortby_tiebreak_result_complete():
+    """Multi-shard. With ties on the SORTBY key, the coordinator's
+    arrival-counter tie-breaker yields a deterministic order *for a given
+    shard arrival sequence*. Shard arrival order itself isn't guaranteed
+    stable across runs (matching FT.AGGREGATE SORTBY semantics on coord),
+    so this test only verifies completeness of the result set. The
+    within-context arrival-order property is covered by the Rust unit test
+    `local_sortby_breaks_ties_by_arrival_order_under_asc`."""
+    env = Env(shardsCount=3, protocol=3)
+    enable_unstable_features(env)
+    _setup_hash(env)
+    conn = getConnectionByEnv(env)
+    # Spread documents across shards via hash tags; all share the same
+    # sweetness so the SORTBY key fully ties.
+    for i in range(9):
+        conn.execute_command('HSET', f'doc:{i}{{shard:{i % 3}}}',
+                             'name', f'n{i}', 'color', 'black', 'sweetness', '1')
+
+    cmd = (
+        'FT.AGGREGATE', 'idx', '@color:{black}',
+        'GROUPBY', '1', '@color',
+            'REDUCE', 'COLLECT', '7',
+                'FIELDS', '1', '@name',
+                'SORTBY', '2', '@sweetness', 'ASC',
+            'AS', 'names')
+    res = env.cmd(*cmd)
+    attrs = res['results'][0]['extra_attributes']
+    print(attrs['names'])
+    names = sorted(r['name'] for r in attrs['names'])
+    env.assertEqual(names, [f'n{i}' for i in range(9)])
