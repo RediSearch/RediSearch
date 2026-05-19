@@ -93,6 +93,8 @@ runs:
         SAN: ${{ inputs.san }}
         COVERAGE: ${{ inputs.coverage }}
         BUILD_TLS: ${{ inputs.build_tls }}
+        # Use committed Rust C headers; Redis's build context lacks rustc (see redis/redis#15220).
+        REDISEARCH_GENERATE_HEADERS: "0"
       run: |
         EXTRA=()
         if [[ "$BUILD_TLS" == "true" ]]; then
