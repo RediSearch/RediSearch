@@ -982,7 +982,7 @@ CONFIG_SETTER(setNumericTreeMaxDepthRange) {
 
 CONFIG_GETTER(getNumericTreeMaxDepthRange) {
   sds ss = sdsempty();
-  return sdscatprintf(ss, "%ld", config->numericTreeMaxDepthRange);
+  return sdscatprintf(ss, "%zu", config->numericTreeMaxDepthRange);
 }
 
 // DEFAULT_DIALECT
