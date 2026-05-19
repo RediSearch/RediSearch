@@ -915,10 +915,28 @@ def access_nested_list(lst, index):
         result = result[entry]
     return result
 
+def _isValidRdbFile(path):
+    # An RDB file always starts with the ASCII bytes "REDIS" followed by a
+    # 4-byte version. Treat anything shorter / different as a corrupt cache
+    # entry so we re-download rather than feeding garbage to Redis (which
+    # aborts with "Unexpected EOF reading RDB file" at offset 0 and crashes
+    # the server, surfacing later as a misleading ConnectionRefusedError).
+    try:
+        with open(path, 'rb') as f:
+            return f.read(5) == b'REDIS'
+    except OSError:
+        return False
+
 def downloadFile(env, file_name, depth=0, max_retries=3):
     path = os.path.join(REDISEARCH_CACHE_DIR, file_name)
     path_dir = os.path.dirname(path)
     os.makedirs(path_dir, exist_ok=True)  # create dir if not exists
+    if os.path.exists(path) and not _isValidRdbFile(path):
+        env.debugPrint(f"cached {file_name} is missing the RDB header, re-downloading", force=True)
+        try:
+            os.remove(path)
+        except OSError:
+            pass
     if not os.path.exists(path):
         env.debugPrint(f"downloading {file_name}", force=True)
         try:
@@ -954,6 +972,17 @@ def downloadFile(env, file_name, depth=0, max_retries=3):
             message=f"{path} does not exist after download",
             depth=depth + 1,
         )
+        return False
+    if not _isValidRdbFile(path):
+        env.assertTrue(
+            False,
+            message=f"{path} is not a valid RDB file (missing REDIS header)",
+            depth=depth + 1,
+        )
+        try:
+            os.remove(path)
+        except OSError:
+            pass
         return False
     return True
 
