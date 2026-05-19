@@ -11,12 +11,12 @@
 
 use std::{ffi::c_char, ptr::NonNull};
 
-use ffi::{IteratorsConfig, QueryIterator, QueryNodeType};
+use ffi::{QueryIterator, QueryNodeType};
 
 use crate::profile::Profile_AddIters;
 use rqe_iterator_type::IteratorType;
 use rqe_iterators::{
-    RQEIterator, UnionVariant, c2rust::CRQEIterator, interop::RQEIteratorWrapper,
+    IteratorsConfig, RQEIterator, UnionVariant, c2rust::CRQEIterator, interop::RQEIteratorWrapper,
     union_opaque::UnionOpaque, union_reducer::new_union_iterator,
 };
 
@@ -158,7 +158,7 @@ pub unsafe extern "C" fn NewUnionIterator(
     debug_assert!(num >= 0, "NewUnionIterator called with negative num: {num}");
     let num = num.max(0) as usize;
     // SAFETY: caller guarantees config is valid (4).
-    let min_union_iter_heap = unsafe { (*config).minUnionIterHeap } as usize;
+    let min_union_iter_heap = unsafe { (*config).min_union_iter_heap } as usize;
 
     // Build Vec<CRQEIterator> from the C array.
     let children: Vec<CRQEIterator> = (0..num)
