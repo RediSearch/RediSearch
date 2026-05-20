@@ -177,7 +177,7 @@ impl CRQEIterator {
     /// the callback that recurses into their children during profiling.
     pub fn from_rust_leaf<'index, I>(inner: I) -> Self
     where
-        I: RQEIterator<'index> + ProfilePrint + 'index,
+        I: RQEIteratorBoxed<'index> + ProfilePrint + 'index,
     {
         let ptr = RQEIteratorWrapper::boxed_new(inner);
         // SAFETY: `boxed_new` uses `Box::into_raw`, which is guaranteed non-null.
@@ -373,7 +373,7 @@ impl<'index> RQEIterator<'index> for CRQEIterator {
                 //   padding between `header` and `inner` in `RQEIteratorWrapper`.
                 let n = unsafe {
                     RQEIteratorWrapper::<Intersection<'_, CRQEIterator>>::ref_from_header_ptr(ptr)
-                        .inner
+                        .inner()
                         .num_children()
                 };
                 1.0 / n.max(1) as f64
@@ -392,7 +392,7 @@ impl<'index> RQEIterator<'index> for CRQEIterator {
                     RQEIteratorWrapper::<super::UnionOpaque<'_, CRQEIterator>>::ref_from_header_ptr(
                         ptr,
                     )
-                    .inner
+                    .inner()
                     .num_children_active()
                 };
                 n.max(1) as f64

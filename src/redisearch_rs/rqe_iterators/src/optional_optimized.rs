@@ -509,9 +509,10 @@ where
         self.wcii.num_estimated()
     }
 }
-
-impl<'index, W: WildcardIterator<'index> + 'index> crate::interop::ProfileChildren<'index>
+impl<'index, W> crate::interop::ProfileChildren<'index>
     for OptionalOptimized<'index, W, crate::c2rust::CRQEIterator>
+where
+    W: crate::RQEIteratorBoxed<'index> + 'index,
 {
     fn profile_children(self) -> Self {
         OptionalOptimized {
