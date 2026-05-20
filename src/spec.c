@@ -1733,6 +1733,92 @@ inline static bool isSpecOnDiskForValidation(const IndexSpec *sp) {
   return SearchDisk_IsEnabledForValidation();
 }
 
+// Forward declaration: defined below; called from IndexSpec_SstRdbOpenAndApply.
+static void IndexSpec_PopulateVectorDiskParams(IndexSpec *sp);
+
+// Save the disk layer's portion of an RDB snapshot when SST replication is
+// in use: writes the IndexSpec's partial RDB state (max_doc_id, deleted_ids)
+// alongside a length-framed in-memory dump of every disk-backed vector
+// field. The replica reads this stream into a temporary RDB state object
+// and applies each vector frame once the matching SST data has arrived
+// (see IndexSpec_SstRdbOpenAndApply on the load side).
+//
+// Caller must hold an appropriate lock on `sp` (or be running inside the
+// forked save child) so the vector indexes can be quiesced for the duration
+// of the call.
+static void IndexSpec_SSTRdbSave(RedisModuleIO *rdb, IndexSpec *sp) {
+  // Collect (fieldIndex, VecSimIndex*) entries for the spec's vector fields.
+  // The Rust layer keys each frame by fieldIndex so the replica can apply it
+  // to the matching VecSimIndex after SST data is in place. Only HNSW-disk-
+  // backed (tiered/HNSW) vectors are eligible — see
+  // IndexSpec_PopulateVectorDiskParams for the gating that establishes
+  // fs->vectorOpts.vecSimIndex on those fields.
+  VectorRdbSaveEntry vectorFields[SPEC_MAX_FIELDS];
+  size_t numVectorFields = 0;
+  for (int i = 0; i < sp->numFields; i++) {
+    FieldSpec *fs = &sp->fields[i];
+    if (!FIELD_IS(fs, INDEXFLD_T_VECTOR)) continue;
+    RS_ASSERT(fs->vectorOpts.vecSimIndex);
+    vectorFields[numVectorFields].fieldIndex = fs->index;
+    vectorFields[numVectorFields].vecIndex = fs->vectorOpts.vecSimIndex;
+    numVectorFields++;
+  }
+
+  SearchDisk_IndexSpecRdbSave(rdb, sp->diskSpec, vectorFields, numVectorFields);
+}
+
+// Mirror of IndexSpec_SstRdbSave on the load side: opens sp->diskSpec from
+// the partial RDB state, eagerly materializes each disk-backed VecSimIndex,
+// and replays the matching in-memory blob into it.
+//
+// Returns true on success (sp->diskSpec is set and ready to register).
+// Returns false if SearchDisk_OpenIndexWithRdbState fails — `diskRdbState`
+// is *not* freed in that case so the caller can route it through the same
+// `goto cleanup` path that frees on any error.
+//
+// On the success path the rdb_state is consumed and freed here; the caller
+// does not need (and must not) call SearchDisk_FreeRdbState afterwards.
+static bool IndexSpec_SSTRdbOpenAndApply(RedisModuleCtx *ctx, IndexSpec *sp,
+                                          RedisSearchDiskRdbState *diskRdbState) {
+  // The disk layer borrows diskRdbState: it pulls max_doc_id and an
+  // Arc-clone of deleted_ids into the spec. Per-field vector blobs remain
+  // on diskRdbState so we can apply each one below, after creating the
+  // matching VecSimIndex from the now-restored SST data.
+  sp->diskSpec = SearchDisk_OpenIndexWithRdbState(
+      ctx, sp->specName, sp->obfuscatedName, sp->rule->type, diskRdbState);
+  if (!sp->diskSpec) {
+    return false;
+  }
+
+  // Populate diskCtx for every HNSW-disk-backed vector field so the eager
+  // creation loop below has the storage context it needs.
+  IndexSpec_PopulateVectorDiskParams(sp);
+
+  // Eagerly create each disk-backed VecSimIndex and replay its in-memory
+  // state. We do this up front (rather than relying on lazy creation via
+  // openVectorIndex on the query path) so the HNSW graph metadata + SQ8
+  // vectors are available to readers immediately after RDB load completes.
+  for (int i = 0; i < sp->numFields; i++) {
+    FieldSpec *fs = &sp->fields[i];
+    if (!FIELD_IS(fs, INDEXFLD_T_VECTOR)) continue;
+    if (!fs->vectorOpts.diskCtx.storage) continue;  // RAM-only vector
+    VecSimIndex *vecsim = openVectorIndex(ctx, fs, CREATE_INDEX);
+    if (!vecsim) {
+      RedisModule_Log(RSDummyContext, "warning",
+                      "Failed to eagerly create disk vector index for field %u during RDB load",
+                      fs->index);
+      continue;
+    }
+    // Drain the matching blob from diskRdbState and replay it into the
+    // freshly-created VecSimIndex. Returns false when no blob existed
+    // (empty index — fine) or when deserialization failed (the disk layer
+    // logs the underlying error).
+    SearchDisk_ApplyRdbStateToVectorIndex(diskRdbState, fs->index, vecsim);
+  }
+
+  return true;
+}
+
 // Populate diskCtx for all HNSW vector fields in the spec.
 // This must be called after sp->diskSpec is set.
 static void IndexSpec_PopulateVectorDiskParams(IndexSpec *sp) {
@@ -3382,25 +3468,7 @@ void IndexSpec_RdbSave(RedisModuleIO *rdb, IndexSpec *sp, int contextFlags) {
     }
     IndexScoringStats_RdbSave(rdb, &sp->stats.scoring);
     TrieType_GenericSave(rdb, sp->terms, false, true);
-
-    // Collect the in-memory state of vector fields so the disk layer can frame
-    // them into the same RDB stream. The Rust layer keys each frame by
-    // fieldIndex so the replica can apply it to the matching VecSimIndex once
-    // the SST data is in place. Only HNSW-disk-backed (tiered/HNSW) vectors
-    // are eligible — see IndexSpec_PopulateVectorDiskParams for the gating.
-    VectorRdbSaveEntry vectorFields[SPEC_MAX_FIELDS];
-    size_t numVectorFields = 0;
-    for (int i = 0; i < sp->numFields; i++) {
-      FieldSpec *fs = &sp->fields[i];
-      if (!FIELD_IS(fs, INDEXFLD_T_VECTOR)) continue;
-      RS_ASSERT(fs->vectorOpts.vecSimIndex);
-      vectorFields[numVectorFields].fieldIndex = fs->index;
-      vectorFields[numVectorFields].vecIndex = fs->vectorOpts.vecSimIndex;
-      numVectorFields++;
-    }
-
-    // Save disk metadata via IndexSpecRdbState (loaded via SearchDisk_LoadRdbToTempObject)
-    SearchDisk_IndexSpecRdbSave(rdb, sp->diskSpec, vectorFields, numVectorFields);
+    IndexSpec_SSTRdbSave(rdb, sp);
     if (inMainProcess) {
       RedisSearchCtx_UnlockSpec(&sctx);
     }
@@ -3547,32 +3615,12 @@ IndexSpec *IndexSpec_RdbLoad(RedisModuleIO *rdb, int encver, bool useSst, QueryE
   if (isSpecOnDisk(sp) && !sp->isDuplicate) {
     RS_ASSERT(disk_db);
     if (diskRdbState) {
-      // SST+RDB path: the disk layer borrows diskRdbState here, pulling
-      // max_doc_id + (an Arc-clone of) deleted_ids into the spec. Per-field
-      // vector blobs remain on diskRdbState and are applied below, once each
-      // VecSimIndex has been created from the now-restored SST data. The
-      // rdb_state is freed at the end (success or failure) by this function.
-      sp->diskSpec = SearchDisk_OpenIndexWithRdbState(ctx, sp->specName, sp->obfuscatedName, sp->rule->type, diskRdbState);
-      if (!sp->diskSpec) {
+      // SST+RDB path: opens diskSpec, eagerly creates vector indexes, and
+      // replays per-field blobs from diskRdbState. On success the rdb_state
+      // is consumed and freed by the helper; on failure it stays alive so
+      // the `cleanup:` path can release it.
+      if (!IndexSpec_SSTRdbOpenAndApply(ctx, sp, diskRdbState)) {
         goto cleanup;
-      }
-      IndexSpec_PopulateVectorDiskParams(sp);
-      for (int i = 0; i < sp->numFields; i++) {
-        FieldSpec *fs = &sp->fields[i];
-        if (!FIELD_IS(fs, INDEXFLD_T_VECTOR)) continue;
-        if (!fs->vectorOpts.diskCtx.storage) continue;  // RAM-only vector
-        VecSimIndex *vecsim = openVectorIndex(ctx, fs, CREATE_INDEX);
-        if (!vecsim) {
-          RedisModule_Log(RSDummyContext, "warning",
-                          "Failed to eagerly create disk vector index for field %u during RDB load",
-                          fs->index);
-          continue;
-        }
-        // Drain the matching blob from diskRdbState and replay it into the
-        // freshly-created VecSimIndex. Returns false when no blob existed
-        // (which is fine — empty index — and also when deserialization
-        // failed; failures are already logged by the disk layer).
-        SearchDisk_ApplyRdbStateToVectorIndex(diskRdbState, fs->index, vecsim);
       }
       SearchDisk_FreeRdbState(diskRdbState);
       diskRdbState = NULL;
