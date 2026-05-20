@@ -221,3 +221,29 @@ fn counters_default_is_zero() {
     let counters = ProfileCounters::default();
     assert_eq!(counters.num_reading_operations(), 0);
 }
+
+mod via_resume {
+    use super::*;
+    use rqe_iterators::TypeErasedRQEIterator;
+    use rqe_iterators_test_utils::{ResumeOutcomeExt, revalidate_via_resume};
+
+    #[test]
+    fn profile_revalidate() {
+        let mock_ctx = rqe_iterators_test_utils::MockContext::new(0, 0);
+        let child = Wildcard::new(10, 1.0);
+        let mut profile = Box::new(Profile::new(child));
+
+        let _ = profile.read(); // doc 1
+        let _ = profile.read(); // doc 2
+
+        // Resume (Wildcard returns OK)
+        let mut profile =
+            revalidate_via_resume(TypeErasedRQEIterator::new(profile), &mock_ctx.spec_read())
+                .expect("resume failed")
+                .expect_ok();
+
+        // Verify delegation still works
+        assert_eq!(profile.last_doc_id(), 2);
+        assert_eq!(profile.current().unwrap().doc_id, 2);
+    }
+}
