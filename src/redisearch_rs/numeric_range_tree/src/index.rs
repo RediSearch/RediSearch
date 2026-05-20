@@ -169,11 +169,44 @@ impl NumericIndex {
 /// Iterate over the entries stored in a numeric index.
 ///
 /// This abstracts over whether the underlying index is compressed or uncompressed.
+///
+/// `#[repr(C)]` so that the active enum is layout-compatible with its
+/// suspended counterpart [`NumericIndexReaderSuspended`] — required by
+/// the `RQESuspendedIterator` design in `rqe_iterators`.
+#[repr(C)]
 pub enum NumericIndexReader<'a> {
     /// Reader over uncompressed entries.
     Uncompressed(IndexReaderCore<'a, Numeric>),
     /// Reader over compressed entries.
     Compressed(IndexReaderCore<'a, NumericFloatCompression>),
+}
+
+/// Parallel `'static`-typed counterpart of [`NumericIndexReader`], used
+/// as the `SuspendableReader::Suspended` type. Each variant holds the
+/// `Suspended` form of the corresponding [`IndexReaderCore`].
+#[repr(C)]
+pub enum NumericIndexReaderSuspended {
+    /// Suspended counterpart of [`NumericIndexReader::Uncompressed`].
+    Uncompressed(inverted_index::RawIndexReaderCore<ref_mode::Suspended, Numeric>),
+    /// Suspended counterpart of [`NumericIndexReader::Compressed`].
+    Compressed(
+        inverted_index::RawIndexReaderCore<ref_mode::Suspended, NumericFloatCompression>,
+    ),
+}
+
+impl<'a> inverted_index::SuspendableReader for NumericIndexReader<'a> {
+    type Suspended = NumericIndexReaderSuspended;
+}
+
+impl inverted_index::ResumableReader for NumericIndexReaderSuspended {
+    type Resumed<'a> = NumericIndexReader<'a>;
+
+    fn refresh_pointers(&mut self) -> inverted_index::RefreshOutcome {
+        match self {
+            Self::Uncompressed(r) => r.refresh_pointers(),
+            Self::Compressed(r) => r.refresh_pointers(),
+        }
+    }
 }
 
 /// Marker trait for readers producing numeric values.
