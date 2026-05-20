@@ -155,6 +155,11 @@ typedef enum {
   QEXEC_S_ITERDONE = 0x02,
   /* ASM trimming delay timeout */
   QEXEC_S_ASM_TRIMMING_DELAY_TIMEOUT = 0x04,
+  /* A shard reply carried a TIMEDOUT warning. Set by the coord-side RPNet
+   * when it observes a shard's TIMEDOUT warning meta entry; the coord pipeline
+   * keeps draining other shards (the coord has its own deadline check) and the
+   * reply emitters surface the TIMEOUT warning to the user via this flag. */
+  QEXEC_S_SHARD_TIMED_OUT_WARNING = 0x08,
 } QEStateFlags;
 
 
@@ -373,6 +378,14 @@ int AREQ_ApplyContext(AREQ *req, RedisSearchCtx *sctx, QueryError *status);
  * the requests. This does not yet start iterating over the objects
  */
 int AREQ_BuildPipeline(AREQ *req, QueryError *status);
+
+/**
+ * Classify the request's (already-built) pipeline as yielding a valid partial
+ * answer on RETURN-STRICT timeout and store the result on the request's
+ * QueryProcessingCtx. Writes `false` if the pipeline has no end/root processor
+ * yet (e.g. called before the pipeline is built).
+ */
+void AREQ_SetCanYieldPartialResults(AREQ *req);
 
 static inline QEFlags AREQ_RequestFlags(const AREQ *req) {
   return (QEFlags)req->reqflags;
