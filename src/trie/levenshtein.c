@@ -237,6 +237,15 @@ void DFAFilter_Free(DFAFilter *fc) {
   Vector_Free(fc->distStack);
 }
 
+// Emit the running minimum edit distance into the caller-supplied matchCtx
+// (an `int *`). On each rune step we track minDist = MIN over all accept-state
+// costs reached along the current DFA path, kept in parallel with the DFA
+// state stack via distStack. dn->distance is the cost stored at the last
+// entry of the DFA state's sparse vector — when dn->match is true this is
+// min Levenshtein(query, input consumed so far) (see SparseAutomaton_IsMatch).
+// In prefix mode, once the prefix accepts, minDist is preserved across the
+// NULL stack entries pushed for the remainder of the term, so *matchCtx ends
+// up holding the cost recorded at the accept boundary.
 FilterCode FilterFunc(rune b, void *ctx, int *matched, void *matchCtx, runeTransform rTransform) {
   DFAFilter *fc = ctx;
   dfaNode *dn;
