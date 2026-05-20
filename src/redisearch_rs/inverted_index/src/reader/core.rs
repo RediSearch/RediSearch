@@ -7,11 +7,14 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 
-use std::{io::Cursor, marker::PhantomData, sync::atomic};
+use std::{io::Cursor, marker::PhantomData, ptr::NonNull, sync::atomic};
 
 use ref_mode::{Active, Ref, SharedPtr, Suspended};
 
-use super::{IndexReader, NumericReader, ResumableReader, SuspendableReader, TermReader};
+use super::{
+    IndexReader, NumericReader, PointsToOpaqueIndex, RefreshOutcome, ResumableReader,
+    SuspendableReader, TermReader,
+};
 use crate::{
     DecodedBy, Decoder, Encoder, HasInnerIndex, InvertedIndex, NumericDecoder, TermDecoder,
     index::unique_id::IndexUniqueId, opaque::OpaqueEncoding,
@@ -76,6 +79,20 @@ pub struct RawIndexReaderCore<Rf: Ref, E> {
 /// that can actually read records from the underlying index.
 pub type IndexReaderCore<'index, E> = RawIndexReaderCore<Active<'index>, E>;
 
+impl<Rf: Ref, E: Encoder> RawIndexReaderCore<Rf, E> {
+    /// Check if this reader is reading from the given index by comparing both their pointers and
+    /// unique IDs. The dual check prevents the ABA problem: if the original index is freed and a
+    /// new one is allocated at the same address, the unique IDs will differ.
+    ///
+    /// Mode-independent: neither the raw `ii` pointer nor the cached
+    /// `ii_unique_id` requires dereferencing the [`Suspended`] pointer,
+    /// so leaves (`Tag`, `Term`, …) can call this from their suspended-side
+    /// `should_abort` checks.
+    pub fn points_to_ii(&self, index: &InvertedIndex<E>) -> bool {
+        std::ptr::eq(self.ii.as_raw(), index) && self.ii_unique_id == index.unique_id()
+    }
+}
+
 /// `IndexReaderCore<Active<'a>, E>` suspends to `IndexReaderCore<Suspended, E>`.
 impl<'a, E> SuspendableReader for RawIndexReaderCore<Active<'a>, E> {
     type Suspended = RawIndexReaderCore<Suspended, E>;
@@ -85,10 +102,47 @@ impl<'a, E> SuspendableReader for RawIndexReaderCore<Active<'a>, E> {
 /// `IndexReaderCore<Active<'a>, E>` at any index lifetime `'a`.
 impl<E: 'static> ResumableReader for RawIndexReaderCore<Suspended, E>
 where
-    Self: IndexReader<'static>,
     for<'a> RawIndexReaderCore<Active<'a>, E>: IndexReader<'a>,
 {
     type Resumed<'a> = RawIndexReaderCore<Active<'a>, E>;
+
+    fn refresh_pointers(&mut self) -> RefreshOutcome {
+        // SAFETY: The caller holds the IndexSpec's read lock (documented
+        // invariant on [`ResumableReader::refresh_pointers`]). The
+        // `InvertedIndex` struct that `self.ii` points to is owned by the
+        // spec and its address is stable for the spec's lifetime — GC
+        // mutates the index in place rather than replacing the struct.
+        // The borrow ends with this function so it cannot escape and is
+        // not aliased with any mutable reference (the read lock excludes
+        // writers).
+        let ii: &InvertedIndex<E> = unsafe { &*self.ii.as_raw() };
+
+        let current_gc = ii.gc_marker.load(atomic::Ordering::Relaxed);
+        if current_gc != self.gc_marker {
+            // GC ran while we were suspended. The cached block offset is
+            // stale; refreshing the buffer pointer alone would not be
+            // enough, and would in fact mislead the caller into thinking
+            // the offset is still valid. Leave `self.buf` as it is (its
+            // value is about to be overwritten by `rewind` on the active
+            // side) and report that a re-seek is needed.
+            return RefreshOutcome::NeedsReseek {
+                last_doc_id: self.last_doc_id,
+            };
+        }
+
+        if !ii.blocks.is_empty() && self.current_block_idx < ii.blocks.len() {
+            let current_block = &ii.blocks[self.current_block_idx];
+            // Write a fresh `Suspended` pointer to the current block's
+            // buffer. We do *not* dereference `self.buf` first — its
+            // previous value may be dangling if the block buffer was
+            // reallocated by a non-GC operation (e.g. an append landing
+            // on a different allocator slot).
+            let new_buf: NonNull<[u8]> = NonNull::from(current_block.buffer.as_slice());
+            self.buf = SharedPtr::from_non_null(new_buf);
+        }
+
+        RefreshOutcome::Ok
+    }
 }
 
 // Automatically implemented if the IndexReaderCore uses a NumericDecoder.
@@ -97,9 +151,17 @@ impl<'a, E: DecodedBy<Decoder = D> + 'a, D: Decoder + NumericDecoder> NumericRea
 {
 }
 
-/// Automatically implemented if the IndexReaderCore uses a TermDecoder.
-impl<'a, E: DecodedBy<Decoder = D> + OpaqueEncoding + 'a, D: Decoder + TermDecoder> TermReader<'a>
-    for RawIndexReaderCore<Active<'a>, E>
+/// Mode-independent: any `RawIndexReaderCore<Rf, E>` whose encoding `E`
+/// satisfies the term-decoder bounds can resolve an opaque
+/// [`InvertedIndex`](crate::opaque::InvertedIndex) and compare against
+/// its own `ii` pointer. The body uses only mode-independent helpers
+/// ([`E::from_opaque`](crate::DecodedBy) +
+/// [`Self::points_to_ii`](RawIndexReaderCore::points_to_ii)), so it
+/// works in [`Active`] and [`Suspended`] modes alike — leaves (`Term`)
+/// call this from their suspended-side `should_abort` checks without
+/// upgrading the reader.
+impl<Rf: Ref, E: DecodedBy<Decoder = D> + OpaqueEncoding, D: Decoder + TermDecoder>
+    PointsToOpaqueIndex for RawIndexReaderCore<Rf, E>
 where
     E::Storage: HasInnerIndex<E>,
 {
@@ -108,6 +170,16 @@ where
         let ii = storage.inner_index();
         self.points_to_ii(ii)
     }
+}
+
+/// Automatically implemented if the IndexReaderCore uses a TermDecoder.
+/// The [`PointsToOpaqueIndex`] supertrait is satisfied via the
+/// mode-independent impl above.
+impl<'a, E: DecodedBy<Decoder = D> + OpaqueEncoding + 'a, D: Decoder + TermDecoder> TermReader<'a>
+    for RawIndexReaderCore<Active<'a>, E>
+where
+    E::Storage: HasInnerIndex<E>,
+{
 }
 
 impl<'a, E: DecodedBy<Decoder = D> + 'a, D: Decoder> IndexReader<'a>
@@ -263,13 +335,6 @@ impl<'a, E: DecodedBy<Decoder = D> + 'a, D: Decoder> RawIndexReaderCore<Active<'
             ii_unique_id: ii.unique_id(),
             _phantom: PhantomData,
         }
-    }
-
-    /// Check if this reader is reading from the given index by comparing both their pointers and
-    /// unique IDs. The dual check prevents the ABA problem: if the original index is freed and a
-    /// new one is allocated at the same address, the unique IDs will differ.
-    pub fn points_to_ii(&self, index: &InvertedIndex<E>) -> bool {
-        std::ptr::eq(self.ii.as_raw(), index) && self.ii_unique_id == index.unique_id()
     }
 
     /// Swap the inverted index of the reader with the supplied index. This is only used by the C
