@@ -1019,21 +1019,6 @@ fn multiple_docs_on_distinct_slots_are_independently_retrievable() {
 }
 
 #[test]
-#[cfg(debug_assertions)]
-#[should_panic(expected = "FieldExpirations must be sorted ascending by index")]
-fn from_thin_vec_unchecked_unsorted_panics_in_debug() {
-    use thin_vec::thin_vec;
-    // SAFETY: intentionally violates the unchecked-constructor contract to
-    // exercise the debug-assert.
-    let _ = unsafe {
-        FieldExpirations::from_thin_vec_unchecked(thin_vec![
-            fe(FIELD_INDEX_2, FUTURE),
-            fe(FIELD_INDEX_1, FUTURE),
-        ])
-    };
-}
-
-#[test]
 fn verify_mask_with_two_bits_translating_to_same_field_index() {
     let mut map = vec![0u16; 32];
     map[0] = FIELD_INDEX_1;

@@ -11,7 +11,6 @@ use std::num::NonZeroUsize;
 
 use crate::FieldExpirations;
 use ffi::{FieldExpiration, t_docId, t_expirationTimePoint as timespec};
-use thin_vec::ThinVec;
 
 pub const fn ts(sec: i64, nsec: i64) -> timespec {
     // `libc::time_t` is deprecated on musl (musl 1.2 changed it to 64-bit,
@@ -51,13 +50,15 @@ pub const fn fe(index: u16, point: timespec) -> FieldExpiration {
 
 /// Builds a [`FieldExpirations`] from a `[FieldExpiration; N]` literal.
 ///
-/// All call sites in the test suite already pass sorted, duplicate-free
-/// inputs by inspection; the helper centralizes the corresponding
-/// `unsafe` block.
+/// Entries are appended via [`FieldExpirations::push`], so a misordered or
+/// duplicate-index literal panics loudly instead of silently violating the
+/// container's invariant.
 pub fn fes<const N: usize>(arr: [FieldExpiration; N]) -> FieldExpirations {
-    let v: ThinVec<FieldExpiration> = arr.into_iter().collect();
-    // SAFETY: tests construct sorted, duplicate-free input by inspection.
-    unsafe { FieldExpirations::from_thin_vec_unchecked(v) }
+    let mut fields = FieldExpirations::new();
+    for fe in arr {
+        fields.push(fe);
+    }
+    fields
 }
 
 /// Identity mapping from bit position → field index (bit `i` ↔ field `i`).

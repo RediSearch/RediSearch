@@ -73,10 +73,7 @@ impl FieldExpirations {
     ///
     /// Returns `Err(fe)` if an entry with `fe.index` already exists; the list
     /// is left unchanged and `fe` is handed back to the caller untouched.
-    pub fn add(
-        &mut self,
-        fe: FieldExpiration,
-    ) -> std::result::Result<&FieldExpiration, FieldExpiration> {
+    pub fn add(&mut self, fe: FieldExpiration) -> Result<&FieldExpiration, FieldExpiration> {
         let result = self.inner.binary_search_by_key(&fe.index, |a| a.index);
 
         match result {
@@ -85,6 +82,28 @@ impl FieldExpirations {
                 self.inner.insert(index, fe);
                 Ok(&self.inner[index])
             }
+        }
+    }
+
+    /// Appends `fe` to the end of the list without searching for the
+    /// insertion point.
+    ///
+    /// # Panics
+    ///
+    /// `fe.index` must be **strictly greater** than the `index` of every
+    /// entry already present in `self`.
+    pub fn push(&mut self, fe: FieldExpiration) {
+        if let Some(last) = self.last() {
+            assert!(
+                last.index < fe.index,
+                "pushed index {} must be strictly greater than the last index {}",
+                fe.index,
+                last.index
+            );
+        }
+        // Safety: checked above
+        unsafe {
+            self.push_unchecked(fe);
         }
     }
 
@@ -104,23 +123,6 @@ impl FieldExpirations {
             debug_assert!(last.index < fe.index);
         }
         self.inner.push(fe);
-    }
-
-    /// Wraps a pre-built [`ThinVec<FieldExpiration>`] without re-validating
-    /// its contents.
-    ///
-    /// # Safety
-    ///
-    /// `v` must be sorted ascending by `index` with no duplicate indices.
-    /// The same invariants are checked via `debug_assert!` and elided in
-    /// release.
-    #[cfg(feature = "test-utils")]
-    pub unsafe fn from_thin_vec_unchecked(v: ThinVec<FieldExpiration>) -> Self {
-        debug_assert!(
-            v.is_sorted_by(|a, b| a.index < b.index),
-            "FieldExpirations must be sorted ascending by index with no duplicates"
-        );
-        Self { inner: v }
     }
 }
 
@@ -382,26 +384,13 @@ impl TimeToLiveTable {
         expiration_point: &timespec,
         ft_id_to_field_index: &[u16],
     ) -> bool {
-        #[cfg(target_pointer_width = "64")]
-        {
-            verify_mask::<u128>(
-                self.find_entry(doc_id),
-                field_mask,
-                predicate,
-                expiration_point,
-                ft_id_to_field_index,
-            )
-        }
-        #[cfg(target_pointer_width = "32")]
-        {
-            verify_mask::<u64>(
-                self.find_entry(doc_id),
-                field_mask,
-                predicate,
-                expiration_point,
-                ft_id_to_field_index,
-            )
-        }
+        verify_mask::<FieldMask>(
+            self.find_entry(doc_id),
+            field_mask,
+            predicate,
+            expiration_point,
+            ft_id_to_field_index,
+        )
     }
 
     /// Direct-modulo slot formula
@@ -974,5 +963,26 @@ mod tests {
             &NOW,
             &map,
         ));
+    }
+
+    #[test]
+    fn push_appends_entries_with_strictly_increasing_index() {
+        let mut list = FieldExpirations::new();
+        list.push(fe(1, PAST));
+        list.push(fe(2, NOW));
+        list.push(fe(3, FUTURE));
+
+        let indices: Vec<u16> = list.iter().map(|fe| fe.index).collect();
+        assert_eq!(indices, [1, 2, 3]);
+    }
+
+    #[test]
+    #[should_panic(expected = "must be strictly greater than the last index")]
+    fn push_panics_when_index_not_greater_than_last() {
+        let mut list = FieldExpirations::new();
+        list.push(fe(5, PAST));
+        // Deliberately violates the precondition (3 < 5) to exercise the panic
+        // branch; the call is expected to abort the test via panic.
+        list.push(fe(3, FUTURE));
     }
 }
