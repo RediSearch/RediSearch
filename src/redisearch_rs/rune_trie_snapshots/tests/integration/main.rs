@@ -12,6 +12,7 @@
 mod boundary_cases;
 mod delete_and_decrement;
 mod dfa_iteration;
+mod incr_mode;
 mod insert_iterate;
 mod payloads;
 mod splits;

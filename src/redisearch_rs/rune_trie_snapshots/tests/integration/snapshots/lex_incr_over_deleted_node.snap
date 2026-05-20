@@ -1,0 +1,24 @@
+---
+source: rune_trie_snapshots/tests/integration/incr_mode.rs
+expression: out
+---
+=== step 1: build internal-terminal "foo" via "foo" + "foobar" ===
+insert("foo", REPLACE, score=1, numDocs=2) -> OK_NEW
+insert("foobar", REPLACE, score=1, numDocs=1) -> OK_NEW
+size: 2
+entries:
+  foo         score=1  numDocs=2
+  foobar      score=1  numDocs=1
+
+=== step 2: Trie_Delete("foo") — mark-delete internal terminal ===
+Trie_Delete("foo") -> 1
+size: 1
+entries:
+  foobar      score=1  numDocs=1
+
+=== step 3: INCR over deleted node — score/numDocs reset to new values ===
+insert("foo", INCR, score=5, numDocs=10) -> OK_NEW
+size: 2
+entries:
+  foo         score=5  numDocs=10
+  foobar      score=1  numDocs=1
