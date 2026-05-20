@@ -9,6 +9,10 @@
 
 #![allow(dead_code, reason = "used by later PRs")]
 
+mod json;
+
+pub use json::JsonFormat;
+
 use std::ffi::CStr;
 use std::ops::Deref;
 use std::ptr;
@@ -44,6 +48,10 @@ pub enum LoadFieldError {
     /// Key exists but is not a hash.
     #[error("document key has the wrong type")]
     WrongHashKeyType,
+
+    /// Failed to serialize JSON value to string.
+    #[error(transparent)]
+    JsonSerialization(#[from] redis_json_api::SerializeError),
 }
 
 impl LoadFieldError {
@@ -51,6 +59,7 @@ impl LoadFieldError {
         match self {
             Self::KeyNotFound => QueryErrorCode::NoDoc,
             Self::WrongHashKeyType => QueryErrorCode::RedisKeyType,
+            Self::JsonSerialization(_) => QueryErrorCode::Generic,
         }
     }
 }
@@ -60,6 +69,14 @@ pub enum LoadAllError {
     /// `RedisModule_OpenKey` / `japi->openKeyWithFlags` returned NULL.
     #[error("document key is missing or has the wrong type")]
     KeyNotFound,
+
+    /// `japi->get(jsonRoot, "$")` returned NULL.
+    #[error("JSON document has no root value")]
+    JsonRootMissing,
+
+    /// Failed to serialize JSON value to string.
+    #[error(transparent)]
+    JsonSerialization(#[from] redis_json_api::SerializeError),
 }
 
 pub struct DocumentLoader<'env, 'a, F: DocumentFormat> {
