@@ -9,9 +9,11 @@
 
 use ffi::QueryIterator;
 use rqe_iterator_type::IteratorType;
-use rqe_iterators::c2rust::CRQEIterator;
-use rqe_iterators::interop::RQEIteratorWrapper;
-use rqe_iterators::profile::{Profile, ProfileCounters};
+use rqe_iterators::{
+    c2rust::CRQEIterator,
+    interop::{InnerState, RQEIteratorWrapper},
+    profile::{Profile, ProfileCounters},
+};
 use std::ptr::NonNull;
 
 type ProfileIteratorImpl = Profile<'static, CRQEIterator>;
@@ -53,7 +55,10 @@ pub unsafe extern "C" fn ProfileIterator_GetChild(
     );
     // SAFETY: guaranteed by 1.
     let wrapper = unsafe { RQEIteratorWrapper::<ProfileIteratorImpl>::ref_from_header_ptr(it) };
-    let child: &QueryIterator = wrapper.inner().child();
+    let child: &QueryIterator = match wrapper.state() {
+        InnerState::Active(p) => p.child(),
+        InnerState::Suspended(p) => p.child(),
+    };
     std::ptr::from_ref(child)
 }
 
@@ -78,7 +83,10 @@ pub unsafe extern "C" fn ProfileIterator_GetCounters(
     );
     // SAFETY: guaranteed by 1.
     let wrapper = unsafe { RQEIteratorWrapper::<ProfileIteratorImpl>::ref_from_header_ptr(it) };
-    let counters: &ProfileCounters = wrapper.inner().counters();
+    let counters: &ProfileCounters = match wrapper.state() {
+        InnerState::Active(p) => p.counters(),
+        InnerState::Suspended(p) => p.counters(),
+    };
     std::ptr::from_ref(counters)
 }
 
@@ -98,7 +106,10 @@ pub unsafe extern "C" fn ProfileIterator_GetWallTimeNs(it: *const QueryIterator)
     );
     // SAFETY: guaranteed by 1.
     let wrapper = unsafe { RQEIteratorWrapper::<ProfileIteratorImpl>::ref_from_header_ptr(it) };
-    wrapper.inner().wall_time_ns()
+    match wrapper.state() {
+        InnerState::Active(p) => p.wall_time_ns(),
+        InnerState::Suspended(p) => p.wall_time_ns(),
+    }
 }
 
 
