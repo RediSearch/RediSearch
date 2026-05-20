@@ -9,6 +9,10 @@
 
 #![allow(dead_code, reason = "used by later PRs")]
 
+mod hash;
+
+pub use hash::HashFormat;
+
 use std::ffi::CStr;
 use std::ops::Deref;
 use std::ptr;
@@ -44,6 +48,18 @@ pub enum LoadFieldError {
     /// Key exists but is not a hash.
     #[error("document key has the wrong type")]
     WrongHashKeyType,
+
+    /// Failed to open the underlying redis key.
+    #[error("Redis API error: {0}")]
+    Redis(redis_module::RedisError),
+}
+
+// TODO remove once upstream redis_module::RedisError implements std::error::Error
+// <https://github.com/RedisLabsModules/redismodule-rs/pull/467>
+impl From<redis_module::RedisError> for LoadFieldError {
+    fn from(err: redis_module::RedisError) -> Self {
+        Self::Redis(err)
+    }
 }
 
 impl LoadFieldError {
@@ -51,6 +67,7 @@ impl LoadFieldError {
         match self {
             Self::KeyNotFound => QueryErrorCode::NoDoc,
             Self::WrongHashKeyType => QueryErrorCode::RedisKeyType,
+            Self::Redis(_) => QueryErrorCode::Generic,
         }
     }
 }
