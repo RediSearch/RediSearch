@@ -1104,14 +1104,6 @@ AREQ *AREQ_New(void) {
   return req;
 }
 
-bool AREQ_TimedOut(AREQ *req) {
-  return atomic_load_explicit(&req->syncCtx.timedOut, memory_order_acquire);
-}
-
-void AREQ_SetTimedOut(AREQ *req) {
-  atomic_store_explicit(&req->syncCtx.timedOut, true, memory_order_release);
-}
-
 bool SearchTime_IsTimedOut(void *arg) {
   const SearchTime *time = arg;
   if (!time || !time->timedOutFlag) return false;
@@ -1119,13 +1111,10 @@ bool SearchTime_IsTimedOut(void *arg) {
                               memory_order_relaxed);
 }
 
-bool AREQ_RequiresThreadsSyncResults(const AREQ *req) {
-  return req->syncCtx.requiresAggregateResultsSync;
-}
-
 bool AREQ_TryClaimAggregateResults(AREQ *req) {
   bool expected = false;
-  return atomic_compare_exchange_strong(&req->syncCtx.aggregatingResults, &expected, true);
+  return atomic_compare_exchange_strong_explicit(&req->syncCtx.aggregatingResults, &expected, true,
+                                                 memory_order_relaxed, memory_order_relaxed);
 }
 
 void AREQ_SignalAggregateResultsComplete(AREQ *req) {
@@ -1144,11 +1133,11 @@ void AREQ_WaitForAggregateResultsComplete(AREQ *req) {
 }
 
 void AREQ_ResetForCursorReadReturnStrict(AREQ *req) {
-  atomic_store_explicit(&req->syncCtx.aggregatingResults, false, memory_order_release);
+  RS_AtomicStoreRelaxed(&req->syncCtx.aggregatingResults, false);
   pthread_mutex_lock(&req->syncCtx.aggregateResultsLock);
   req->syncCtx.aggregateResultsDone = false;
   pthread_mutex_unlock(&req->syncCtx.aggregateResultsLock);
-  atomic_store_explicit(&req->syncCtx.timedOut, false, memory_order_release);
+  RS_AtomicStoreRelaxed(&req->syncCtx.timedOut, false);
   ResultProcessor *root = AREQ_QueryProcessingCtx(req)->rootProc;
   if (root && root->type == RP_NETWORK) {
     ((RPNet *)root)->drainOnly = false;

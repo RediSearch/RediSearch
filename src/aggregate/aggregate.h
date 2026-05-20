@@ -29,10 +29,14 @@
 #ifdef __cplusplus
 #include <atomic>
 #define RS_Atomic(T) std::atomic<T>
+#define RS_AtomicLoadRelaxed(p)     ((p)->load(std::memory_order_relaxed))
+#define RS_AtomicStoreRelaxed(p, v) ((p)->store((v), std::memory_order_relaxed))
 extern "C" {
 #else
 #define RS_Atomic(T) _Atomic(T)
 #include <stdatomic.h>
+#define RS_AtomicLoadRelaxed(p)     atomic_load_explicit((p), memory_order_relaxed)
+#define RS_AtomicStoreRelaxed(p, v) atomic_store_explicit((p), (v), memory_order_relaxed)
 #endif
 
 #define DEFAULT_LIMIT 10
@@ -636,8 +640,12 @@ void SetSearchCtx(RedisSearchCtx *sctx, const AREQ *req);
 // Allows calling parseProfileArgs from reply_empty.c
 int parseProfileArgs(RedisModuleString **argv, int argc, AREQ *r);
 
-bool AREQ_TimedOut(AREQ *req);
-void AREQ_SetTimedOut(AREQ *req);
+static inline bool AREQ_TimedOut(AREQ *req) {
+  return RS_AtomicLoadRelaxed(&req->syncCtx.timedOut);
+}
+static inline void AREQ_SetTimedOut(AREQ *req) {
+  RS_AtomicStoreRelaxed(&req->syncCtx.timedOut, true);
+}
 #ifdef ENABLE_ASSERT
 // SyncPointStopFn predicate adapter for AREQ_TimedOut. Pass the AREQ as `arg`
 // to SyncPoint_WaitUntil to release the wait when the request is timed out.
@@ -647,7 +655,9 @@ bool areq_timed_out(void *arg);
 /* True when this AREQ uses the BG-thread / timeout-callback claim handshake
  * around AggregateResults (TryClaim/Signal/Wait). Currently set only on the
  * coordinator AREQ under RETURN-STRICT; all other paths skip the protocol. */
-bool AREQ_RequiresThreadsSyncResults(const AREQ *req);
+static inline bool AREQ_RequiresThreadsSyncResults(const AREQ *req) {
+  return req->syncCtx.requiresAggregateResultsSync;
+}
 
 /* TryClaim: atomic CAS on `aggregatingResults`; winner runs AggregateResults.
  * Signal: called by winner at completion. Wait: called by loser, blocks until Signal.
