@@ -30,10 +30,14 @@
 #ifdef __cplusplus
 #include <atomic>
 #define RS_Atomic(T) std::atomic<T>
+#define RS_AtomicLoadRelaxed(p)     ((p)->load(std::memory_order_relaxed))
+#define RS_AtomicStoreRelaxed(p, v) ((p)->store((v), std::memory_order_relaxed))
 extern "C" {
 #else
 #define RS_Atomic(T) _Atomic(T)
 #include <stdatomic.h>
+#define RS_AtomicLoadRelaxed(p)     atomic_load_explicit((p), memory_order_relaxed)
+#define RS_AtomicStoreRelaxed(p, v) atomic_store_explicit((p), (v), memory_order_relaxed)
 #endif
 
 #define DEFAULT_LIMIT 10
@@ -547,18 +551,10 @@ void SetSearchCtx(RedisSearchCtx *sctx, const AREQ *req);
 int parseProfileArgs(RedisModuleString **argv, int argc, AREQ *r);
 
 static inline bool AREQ_TimedOut(AREQ *req) {
-#ifdef __cplusplus
-  return req->syncCtx.timedOut.load(std::memory_order_relaxed);
-#else
-  return atomic_load_explicit(&req->syncCtx.timedOut, memory_order_relaxed);
-#endif
+  return RS_AtomicLoadRelaxed(&req->syncCtx.timedOut);
 }
 static inline void AREQ_SetTimedOut(AREQ *req) {
-#ifdef __cplusplus
-  req->syncCtx.timedOut.store(true, std::memory_order_relaxed);
-#else
-  atomic_store_explicit(&req->syncCtx.timedOut, true, memory_order_relaxed);
-#endif
+  RS_AtomicStoreRelaxed(&req->syncCtx.timedOut, true);
 }
 #ifdef ENABLE_ASSERT
 // SyncPointStopFn predicate adapter for AREQ_TimedOut. Pass the AREQ as `arg`
