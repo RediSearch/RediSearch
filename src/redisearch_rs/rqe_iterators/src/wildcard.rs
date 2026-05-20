@@ -327,6 +327,64 @@ impl<'index> RQEIterator<'index> for OptimizedWildcard<'index> {
 
 impl<'index> WildcardIterator<'index> for OptimizedWildcard<'index> {}
 
+/// Parallel `'static`-typed counterpart of [`OptimizedWildcard`] used as
+/// its `RQEIteratorBoxed::Suspended` type. Each variant holds the
+/// `Suspended` form of the corresponding inverted-index wildcard reader.
+#[repr(C)]
+pub enum OptimizedWildcardSuspended {
+    /// Suspended counterpart of [`OptimizedWildcard::DocIdsOnly`].
+    DocIdsOnly(crate::inverted_index::RawWildcard<Suspended, DocIdsOnly>),
+    /// Suspended counterpart of [`OptimizedWildcard::RawDocIdsOnly`].
+    RawDocIdsOnly(crate::inverted_index::RawWildcard<Suspended, RawDocIdsOnly>),
+}
+
+impl<'index> RQEIteratorBoxed<'index> for OptimizedWildcard<'index> {
+    type Suspended = OptimizedWildcardSuspended;
+
+    fn suspend(self: Box<Self>) -> Box<Self::Suspended> {
+        let raw = Box::into_raw(self);
+        // SAFETY: both enums are `#[repr(C)]`; corresponding variants hold
+        // `RawWildcard<Active<'index>, E>` / `RawWildcard<Suspended, E>`,
+        // which are layout-compatible by the [`RQEIteratorBoxed`]
+        // contract on `inverted_index::Wildcard`. Box::from_raw reuses the
+        // heap allocation.
+        unsafe { Box::from_raw(raw as *mut OptimizedWildcardSuspended) }
+    }
+}
+
+impl RQESuspendedIterator for OptimizedWildcardSuspended {
+    type Resumed<'a> = OptimizedWildcard<'a>;
+
+    fn resume<'a>(
+        self: Box<Self>,
+        guard: &'a IndexSpecReadGuard<'a>,
+    ) -> (Box<Self::Resumed<'a>>, ValidateStatus) {
+        match *self {
+            OptimizedWildcardSuspended::DocIdsOnly(it) => {
+                let (active, status) = Box::new(it).resume(guard);
+                (
+                    Box::new(OptimizedWildcard::DocIdsOnly(*active)),
+                    status,
+                )
+            }
+            OptimizedWildcardSuspended::RawDocIdsOnly(it) => {
+                let (active, status) = Box::new(it).resume(guard);
+                (
+                    Box::new(OptimizedWildcard::RawDocIdsOnly(*active)),
+                    status,
+                )
+            }
+        }
+    }
+
+    fn last_doc_id(&self) -> t_docId {
+        match self {
+            OptimizedWildcardSuspended::DocIdsOnly(it) => RQESuspendedIterator::last_doc_id(it),
+            OptimizedWildcardSuspended::RawDocIdsOnly(it) => RQESuspendedIterator::last_doc_id(it),
+        }
+    }
+}
+
 /// Delegates each [`RQEIterator`] method to the active variant.
 macro_rules! delegate_wildcard_iterator {
     ($self:ident, $method:ident $(, $arg:ident)*) => {
