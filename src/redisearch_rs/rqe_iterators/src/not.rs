@@ -11,12 +11,13 @@
 
 use std::time::Duration;
 
-use ffi::{RS_FIELDMASK_ALL, t_docId};
+use ffi::{RS_FIELDMASK_ALL, ValidateStatus, ValidateStatus_VALIDATE_ABORTED, ValidateStatus_VALIDATE_OK, t_docId};
 use index_result::{RSIndexResult, RawIndexResult};
-use ref_mode::{Active, Ref};
+use ref_mode::{Active, Ref, Suspended};
 
 use crate::{
-    IteratorType, RQEIterator, RQEIteratorError, RQEValidateStatus, SkipToOutcome,
+    IteratorType, RQEIterator, RQEIteratorBoxed, RQEIteratorError, RQESuspendedIterator,
+    RQEValidateStatus, SkipToOutcome,
     maybe_empty::MaybeEmpty, utils::TimeoutContext,
 };
 
@@ -275,6 +276,75 @@ where
     }
 }
 
+impl<'index, I> RQEIteratorBoxed<'index> for Not<'index, I>
+where
+    I: RQEIteratorBoxed<'index>,
+{
+    type Suspended = RawNot<Suspended, I::Suspended>;
+
+    fn suspend(self: Box<Self>) -> Box<Self::Suspended> {
+        let raw = Box::into_raw(self);
+        // SAFETY: `RawNot` is `#[repr(C)]`. The only `Rf`-dependent field
+        // is `result: RawIndexResult<Rf>`, layout-compatible across `Rf`
+        // via `SharedPtr` transparency. `MaybeEmpty<I>` and
+        // `MaybeEmpty<I::Suspended>` are layout-compatible by the
+        // [`RQEIteratorBoxed`] contract (see [`MaybeEmpty::suspend`]).
+        // Box::from_raw reuses the same heap allocation.
+        unsafe { Box::from_raw(raw as *mut RawNot<Suspended, I::Suspended>) }
+    }
+}
+
+impl<S> RQESuspendedIterator for RawNot<Suspended, S>
+where
+    S: RQESuspendedIterator,
+{
+    type Resumed<'a> = Not<'a, S::Resumed<'a>>;
+
+    fn resume<'a>(
+        self: Box<Self>,
+        guard: &'a IndexSpecReadGuard<'a>,
+    ) -> (Box<Self::Resumed<'a>>, ValidateStatus) {
+        let RawNot {
+            child,
+            max_doc_id,
+            forced_eof,
+            result,
+            timeout_ctx,
+        } = *self;
+
+        let (active_child, child_status) = Box::new(child).resume(guard);
+        let mut child = *active_child;
+
+        // Mirror the existing `revalidate` semantics: if the child aborted,
+        // `NOT (aborted)` collapses to "NOT empty" — drop the child and
+        // return OK so the iterator stays usable. A child move doesn't
+        // shift NOT's position because NOT keeps its own cursor.
+        if child_status == ValidateStatus_VALIDATE_ABORTED {
+            child = MaybeEmpty::new_empty();
+        }
+
+        // SAFETY: `Not`'s `result` is a virtual sentinel built via
+        // `build_virt()` — its `data` is `RawResultData::Virtual` (carries
+        // no pointers), `dmd` is null at this iterator's construction, and
+        // `metrics` is empty. There are therefore no aliased pointers
+        // whose validity could be in question, so the `Active<'a>`
+        // re-typing is unconditionally sound.
+        let result = unsafe { result.into_active::<'a>() };
+
+        let active = Box::new(Not {
+            child,
+            max_doc_id,
+            forced_eof,
+            result,
+            timeout_ctx,
+        });
+        (active, ValidateStatus_VALIDATE_OK)
+    }
+
+    fn last_doc_id(&self) -> t_docId {
+        self.result.doc_id
+    }
+}
 /// Trait for NOT iterators ([`Not`] and [`crate::not_optimized::NotOptimized`]).
 pub trait NotIterator<'index>: RQEIterator<'index> {
     // Those methods are used by profile.c to wrap the child iterator.
