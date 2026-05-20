@@ -13,6 +13,7 @@
 #include <limits.h>
 #include <sys/errno.h>
 #include <ctype.h>
+#include <inttypes.h>
 #include <math.h>
 #include <stdarg.h>
 
@@ -40,7 +41,7 @@ void CmdArg_Print(CmdArg *n, int depth) {
   pad(depth);
   switch (n->type) {
     case CmdArg_Integer:
-      printf("%zd", n->i);
+      printf("%" PRId64, n->i);
       break;
     case CmdArg_Double:
       printf("%f", n->d);

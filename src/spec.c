@@ -2998,10 +2998,10 @@ static void Indexes_ScanAndReindexTask(IndexesScanner *scanner) {
     if (scanner->cancelled) {
 
       if (scanner->global) {
-        RedisModule_Log(ctx, "notice", "Scanning indexes in background: cancelled (scanned=%ld)",
+        RedisModule_Log(ctx, "notice", "Scanning indexes in background: cancelled (scanned=%zu)",
                         scanner->scannedKeys);
       } else {
-        RedisModule_Log(ctx, "notice", "Scanning index %s in background: cancelled (scanned=%ld)",
+        RedisModule_Log(ctx, "notice", "Scanning index %s in background: cancelled (scanned=%zu)",
                     scanner->spec_name_for_logs, scanner->scannedKeys);
         goto end;
       }
@@ -3014,10 +3014,10 @@ static void Indexes_ScanAndReindexTask(IndexesScanner *scanner) {
   }
 
   if (scanner->global) {
-    RedisModule_Log(ctx, "notice", "Scanning indexes in background: done (scanned=%ld)",
+    RedisModule_Log(ctx, "notice", "Scanning indexes in background: done (scanned=%zu)",
                     scanner->scannedKeys);
   } else {
-    RedisModule_Log(ctx, "notice", "Scanning index %s in background: done (scanned=%ld)",
+    RedisModule_Log(ctx, "notice", "Scanning index %s in background: done (scanned=%zu)",
                     scanner->spec_name_for_logs, scanner->scannedKeys);
   }
 
