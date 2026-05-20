@@ -3831,9 +3831,10 @@ void *IndexSpec_RdbLoad_Logic(RedisModuleIO *rdb, int encver) {
     // New index, loaded normally.
     // Even though we don't actually load or save the index spec in the key space, this implementation is useful
     // because it allows us to serialize and deserialize the index spec in a clean way.
+    // Required to support loading during ASM migration.
     RS_ASSERT(encver >= INDEX_ASM_PROPAGATE_DEFINITIONS_VERSION);
     if (encver < INDEX_ASM_PROPAGATE_DEFINITIONS_VERSION) {
-      RedisModule_LogIOError(rdb, "error", "RDB Load: Unexpected encver %lu found in RDB_Load, encver not expected to be lower than %llu", encver, INDEX_ASM_PROPAGATE_DEFINITIONS_VERSION);
+      RedisModule_LogIOError(rdb, "error", "RDB Load: Unexpected encver %d found in RDB_Load, encver not expected to be lower than %d", encver, INDEX_ASM_PROPAGATE_DEFINITIONS_VERSION);
       return NULL;
     }
     QueryError status = QueryError_Default();
