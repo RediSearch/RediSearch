@@ -1968,3 +1968,45 @@ def test_collect_sortby_does_not_clobber_user_schema_field_on_slot_name_collisio
     # tie-break slot must not bind to the user-visible field of the same name.
     env.assertEqual(sorted(collected_values), sorted(user_values),
                     message=f'user @{slot_name} clobbered by internal slot: {collected_values}')
+
+
+@skip(cluster=True)
+def test_collect_sortby_does_not_clobber_apply_alias_on_slot_name_collision():
+    """COLLECT ... SORTBY reserves an internal hidden slot in the source lookup
+    to plant the upstream doc id for tie-breaking.
+    Slot reservation must not bind to a non-schema upstream key with the same
+    name (here created by `APPLY ... AS <slot>` before the GROUPBY); on
+    collision the reducer must skip tie-break (logs a warning) and pass the
+    APPLY output through untouched. The slot name must match
+    `COLLECT_DOCID_SLOT` in `src/aggregate/reducers/collect.c`."""
+    env = Env(protocol=3)
+    enable_unstable_features(env)
+    slot_name = '__internal_collect_docid'
+    env.expect('FT.CREATE', 'idx', 'ON', 'HASH',
+               'SCHEMA',
+               'color', 'TAG', 'SORTABLE',
+               'sweetness', 'NUMERIC', 'SORTABLE',
+               'name', 'TEXT', 'SORTABLE').ok()
+    conn = getConnectionByEnv(env)
+    names_in_order = ['alpha', 'beta', 'gamma', 'delta']
+    for i, n in enumerate(names_in_order):
+        conn.execute_command('HSET', f'doc:{i}',
+                             'color', 'black', 'sweetness', str(i), 'name', n)
+
+    # APPLY ... AS <slot_name> installs a non-hidden, query-source key in
+    # the lookup *before* GROUPBY. The COLLECT reducer must reject this
+    # name as its internal slot and pass the APPLY output through.
+    res = env.cmd(
+        'FT.AGGREGATE', 'idx', '@color:{black}',
+        'APPLY', 'upper(@name)', 'AS', slot_name,
+        'GROUPBY', '1', '@color',
+            'REDUCE', 'COLLECT', '7',
+                'FIELDS', '1', f'@{slot_name}',
+                'SORTBY', '2', '@sweetness', 'ASC',
+            'AS', 'collected')
+
+    attrs = res['results'][0]['extra_attributes']
+    collected_values = [str(r.get(slot_name, '')) for r in attrs['collected']]
+    expected = sorted(n.upper() for n in names_in_order)
+    env.assertEqual(sorted(collected_values), expected,
+                    message=f'APPLY alias @{slot_name} clobbered by internal slot: {collected_values}')

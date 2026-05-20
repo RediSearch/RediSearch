@@ -414,20 +414,24 @@ Reducer *RDCRCollect_New(const ReducerOptions *options) {
     // Read first and only create if missing, so multiple sorted
     // COLLECTs share one slot.
     static const char COLLECT_DOCID_SLOT[] = "__internal_collect_docid";
+    const uint32_t COLLECT_DOCID_REJECT_FLAGS = RLOOKUP_F_DOCSRC | RLOOKUP_F_SCHEMASRC;
     const RLookupKey *docIdKey = NULL;
     if (data.sort_keys && array_len(data.sort_keys) > 0) {
       docIdKey = RLookup_GetKey_Read(options->srclookup, COLLECT_DOCID_SLOT, RLOOKUP_F_HIDDEN);
-      if (docIdKey && (RLookupKey_GetFlags(docIdKey) & RLOOKUP_F_SCHEMASRC)) {
-        // Name collision with a user-defined schema field — skip tie-break
-        // for this COLLECT rather than clobbering user data. The query
-        // still returns correct results; only stability of ties is lost.
-        RedisModule_Log(RSDummyContext, "warning",
-          "COLLECT: SORTBY tie-break disabled because the index schema "
-          "defines a field named '%s'. Order on tied sort keys will be "
-          "unstable. Rename the field to restore stable tie-breaking.",
-          COLLECT_DOCID_SLOT);
-        docIdKey = NULL;
-      } else if (!docIdKey) {
+      if (docIdKey) {
+        uint32_t flags = RLookupKey_GetFlags(docIdKey);
+        if (!(flags & RLOOKUP_F_HIDDEN) || (flags & COLLECT_DOCID_REJECT_FLAGS)) {
+          // Name collision with a user-visible key.
+          // Skip tie-break rather than clobbering user data.
+          RedisModule_Log(RSDummyContext, "warning",
+            "COLLECT: SORTBY tie-break disabled because the lookup "
+            "already exposes a key named '%s' (from schema, LOAD, or "
+            "APPLY). Order on tied sort keys will be unstable. Rename "
+            "the field/alias to restore stable tie-breaking.",
+            COLLECT_DOCID_SLOT);
+          docIdKey = NULL;
+        }
+      } else {
         // GetKey_Write without F_OVERRIDE returns NULL on name collision,
         // which also leaves docIdKey NULL — safe fallback.
         docIdKey = RLookup_GetKey_Write(options->srclookup, COLLECT_DOCID_SLOT, RLOOKUP_F_HIDDEN);
