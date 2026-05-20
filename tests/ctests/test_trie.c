@@ -965,7 +965,7 @@ int testDecrementNumDocsNonTerminal() {
   runes = strToRunes("helloworld", &runeLen);
   node = Trie_GetNode(t, runes, runeLen, true, NULL);
   ASSERT(node != NULL);
-  ASSERT(__trieNode_isTerminal(node));
+  ASSERT(TrieNode_IsTerminal(node));
   ASSERT_EQUAL(100, node->numDocs);
   free(runes);
 
@@ -996,7 +996,7 @@ int testDecrementNumDocsNonTerminal() {
   runes = strToRunes("hello", &runeLen);
   node = Trie_GetNode(t, runes, runeLen, true, NULL);
   ASSERT(node != NULL);
-  ASSERT(__trieNode_isTerminal(node));
+  ASSERT(TrieNode_IsTerminal(node));
   ASSERT_EQUAL(50, node->numDocs);
   free(runes);
 
