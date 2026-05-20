@@ -10,18 +10,22 @@
 use std::{f64, ptr::NonNull};
 
 use crate::{
-    FieldExpirationChecker, IteratorType, RQEIterator, RQEIteratorError, RQEValidateStatus,
-    SkipToOutcome,
+    FieldExpirationChecker, IteratorType, RQEIterator, RQEIteratorBoxed, RQEIteratorError,
+    RQESuspendedIterator, RQEValidateStatus, SkipToOutcome,
     expiration_checker::{ExpirationChecker, NoOpChecker},
 };
-use ffi::{FieldType_INDEXFLD_T_GEO, FieldType_INDEXFLD_T_NUMERIC, IndexFlags, t_docId};
+use ffi::{
+    FieldType_INDEXFLD_T_GEO, FieldType_INDEXFLD_T_NUMERIC, IndexFlags, ValidateStatus,
+    ValidateStatus_VALIDATE_ABORTED, ValidateStatus_VALIDATE_OK, t_docId,
+};
 use index_result::RSIndexResult;
 use index_spec::IndexSpecReadGuard;
 use inverted_index::{
     FilterGeoReader, FilterNumericReader, IndexReader, NumericFilter, NumericReader,
+    RefreshOutcome, ResumableReader, SuspendableReader,
 };
 use numeric_range_tree::{NumericIndexReader, NumericRangeTree};
-use ref_mode::{Active, Ref};
+use ref_mode::{Active, Ref, Suspended};
 
 use super::core::{InvIndIterator, RawInvIndIterator};
 
@@ -58,6 +62,60 @@ struct RangeTreeInfo {
     /// The revision ID at the time the iterator was created.
     /// Used to detect if the tree has been modified.
     revision_id: u32,
+}
+
+impl<Rf: Ref, R, E> RawNumeric<Rf, R, E> {
+    /// Cached minimum numeric range (only used in debug print / FT.PROFILE).
+    /// Mode-independent — the value is set at construction and never changes.
+    pub const fn range_min(&self) -> f64 {
+        self.range_min
+    }
+
+    /// Cached maximum numeric range (only used in debug print / FT.PROFILE).
+    /// Mode-independent — see [`range_min`](Self::range_min).
+    pub const fn range_max(&self) -> f64 {
+        self.range_max
+    }
+
+    /// Cached [`IndexFlags`] of the underlying inverted index — see
+    /// [`RawInvIndIterator::flags`].
+    pub const fn flags(&self) -> ffi::IndexFlags {
+        self.it.flags()
+    }
+
+    /// Check if the iterator should abort revalidation.
+    ///
+    /// The numeric range tree's revision id changes when the tree is
+    /// modified by GC (a node split or removal). The iterator's cached
+    /// `revision_id` snapshot is compared against the current value; if
+    /// they differ, the cursor is invalidated and the iterator must
+    /// [abort](RQEValidateStatus::Aborted).
+    ///
+    /// # Why mode-independent
+    ///
+    /// The body reads only mode-independent fields: the `NonNull` tree
+    /// pointer is stable across modes, and `revision_id()` is a plain
+    /// field read on a struct that's owned by the spec (its address is
+    /// stable under the read lock). No `&'a` borrow of any
+    /// reader/buffer field is materialized, so `should_abort` is safe
+    /// to call on `RawNumeric<Suspended, RS, E>` from
+    /// `RQESuspendedIterator::resume`.
+    pub(crate) const fn should_abort(&self) -> bool {
+        // If there's no range tree, we can't check for changes
+        let Some(ref info) = self.range_tree_info else {
+            return false;
+        };
+
+        let current_revision_id = {
+            // SAFETY: Condition 2 of `Self::new` guarantees the tree
+            // remains valid for the iterator's lifetime.
+            let tree = unsafe { info.tree.as_ref() };
+            tree.revision_id()
+        };
+        // If the revision id changed the numeric tree was either completely deleted or a node was split or removed.
+        // The cursor is invalidated so we cannot revalidate the iterator.
+        current_revision_id != info.revision_id
+    }
 }
 
 impl<'index, R, E> Numeric<'index, R, E>
@@ -112,31 +170,6 @@ where
         }
     }
 
-    const fn should_abort(&self) -> bool {
-        // If there's no range tree, we can't check for changes
-        let Some(ref info) = self.range_tree_info else {
-            return false;
-        };
-
-        let current_revision_id = {
-            // SAFETY: Condition 2 of `Self::new` guarantees the tree
-            // remains valid for the iterator's lifetime.
-            let tree = unsafe { info.tree.as_ref() };
-            tree.revision_id()
-        };
-        // If the revision id changed the numeric tree was either completely deleted or a node was split or removed.
-        // The cursor is invalidated so we cannot revalidate the iterator.
-        current_revision_id != info.revision_id
-    }
-
-    pub const fn range_min(&self) -> f64 {
-        self.range_min
-    }
-
-    pub const fn range_max(&self) -> f64 {
-        self.range_max
-    }
-
     /// Get a reference to the underlying reader.
     ///
     /// This is used by FFI code to access the reader.
@@ -145,6 +178,81 @@ where
     }
 }
 
+impl<'index, R, E> RQEIteratorBoxed<'index> for Numeric<'index, R, E>
+where
+    R: NumericReader<'index> + SuspendableReader + 'index,
+    R::Suspended: ResumableReader,
+    for<'a> <R::Suspended as ResumableReader>::Resumed<'a>: NumericReader<'a>,
+    E: ExpirationChecker + 'static,
+{
+    type Suspended = RawNumeric<Suspended, R::Suspended, E>;
+
+    fn suspend(self: Box<Self>) -> Box<Self::Suspended> {
+        let raw = Box::into_raw(self);
+        // SAFETY: `RawNumeric` is `#[repr(C)]`. The `Rf`-dependent field is
+        // the inner `RawInvIndIterator<Rf, R, E>`, whose layout is identical
+        // across modes (see [`InvIndIterator::suspend`]). The remaining
+        // fields (`range_tree_info`, `range_min`, `range_max`) carry no
+        // `Rf` in their type, so they survive the cast unchanged.
+        // Box::from_raw reuses the same heap allocation.
+        unsafe { Box::from_raw(raw as *mut RawNumeric<Suspended, R::Suspended, E>) }
+    }
+}
+
+impl<RS, E> RQESuspendedIterator for RawNumeric<Suspended, RS, E>
+where
+    RS: ResumableReader,
+    for<'a> RS::Resumed<'a>: NumericReader<'a>,
+    E: ExpirationChecker + 'static,
+{
+    type Resumed<'a> = Numeric<'a, RS::Resumed<'a>, E>;
+
+    fn resume<'a>(
+        mut self: Box<Self>,
+        _guard: &'a IndexSpecReadGuard<'a>,
+    ) -> (Box<Self::Resumed<'a>>, ValidateStatus) {
+        // Step 1: should_abort on the suspended form. Reads only
+        // mode-independent fields (the cached `range_tree_info` pointer
+        // and the tree's `revision_id`).
+        let abort = self.should_abort();
+
+        // Step 2: refresh reader pointers in place while still
+        // suspended. Skipped on the abort path.
+        let outcome = if abort {
+            RefreshOutcome::Ok
+        } else {
+            self.it.refresh_pointers()
+        };
+
+        // Step 3: whole-box cast Suspended → Active.
+        let raw = Box::into_raw(self);
+        // SAFETY: `RawNumeric` is `#[repr(C)]` over `RawInvIndIterator<Rf, R, E>`,
+        // plus mode-independent `range_tree_info` / `range_min` / `range_max`
+        // fields. The `RawInvIndIterator` layout is identical across
+        // modes (see `RawInvIndIterator::suspend`). The caller's read
+        // lock (witnessed by `_guard`) plus the `refresh_pointers` step
+        // above together ensure every pointer inside the iterator is
+        // valid for `'a`.
+        let mut active = unsafe { Box::from_raw(raw as *mut Numeric<'a, RS::Resumed<'a>, E>) };
+
+        if abort {
+            return (active, ValidateStatus_VALIDATE_ABORTED);
+        }
+
+        // Step 4: if GC ran, re-seek to the previous last_doc_id.
+        let status = match outcome {
+            RefreshOutcome::Ok => ValidateStatus_VALIDATE_OK,
+            RefreshOutcome::NeedsReseek { last_doc_id } => {
+                active.it.reseek_after_refresh(last_doc_id)
+            }
+        };
+        (active, status)
+    }
+
+    fn last_doc_id(&self) -> t_docId {
+        self.it.last_doc_id_field()
+    }
+}
 impl<'index, R, E> RQEIterator<'index> for Numeric<'index, R, E>
 where
     R: NumericReader<'index>,
@@ -408,12 +516,12 @@ impl<'index> NumericIteratorVariant<'index> {
         }
     }
 
-    /// Returns the flags from the underlying index reader.
-    pub fn flags(&self) -> IndexFlags {
+    /// Returns the cached flags of the underlying index reader.
+    pub const fn flags(&self) -> IndexFlags {
         match self {
-            Self::Unfiltered(iter) => iter.reader().flags(),
-            Self::Filtered(iter) => iter.reader().flags(),
-            Self::Geo(iter) => iter.reader().flags(),
+            Self::Unfiltered(iter) => iter.flags(),
+            Self::Filtered(iter) => iter.flags(),
+            Self::Geo(iter) => iter.flags(),
         }
     }
 

@@ -414,6 +414,12 @@ fn numeric_no_range_tree_revalidate() {
     assert_eq!(status, RQEValidateStatus::Ok);
 }
 
+// `numeric_no_range_tree_revalidate`'s resume sibling lands in the R2
+// NumericIteratorVariant commit (alongside the rest of the Numeric
+// via_resume tests), once `NumericIndexReader` implements
+// `SuspendableReader`. The legacy test above continues to exercise the
+// `RQEIterator::revalidate` path here.
+
 /// A [`GeoFilter`] with a non-null address so `is_numeric_filter()` returns `false`.
 /// `fieldSpec` and `numericFilters` are null — tests using this stub must not
 /// reach code paths that dereference those pointers.
@@ -1101,4 +1107,10 @@ mod not_miri {
         test.test
             .revalidate_numeric_after_document_deleted(&mut it, ii);
     }
+
+    // Resume-flavored sibling tests for Numeric land in the R2
+    // NumericIteratorVariant commit, where `NumericIndexReader` finally
+    // implements `SuspendableReader` (a precondition for
+    // `RQEIteratorBoxed for Numeric<_, NumericIndexReader, _>` to be
+    // satisfied at the concrete type).
 }
