@@ -157,8 +157,6 @@ jobs:
             echo "    cargo hakari generate && cargo hakari manage-deps"
             exit 1
           fi
-      - name: Show sccache stats
-        run: ${SCCACHE_PATH:-sccache} --show-stats
       - name: Fail if any step failed
         if: |
           steps.lint.outcome == 'failure' ||

@@ -172,6 +172,7 @@ jobs:
       actions: write  # Swatinem/rust-cache read/write of GH cache
 
     env:
+      IS_FORK_PR: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository }}
       # LTO is disabled on coverage and sanitizer tasks
       LTO: ${{ needs.get-config.outputs.enable_lto == '1' && inputs.san == '' && !inputs.coverage && 1 || 0 }}
 
@@ -447,9 +448,6 @@ jobs:
           ENABLE_ASSERT: 1
         run: make rust-tests
 
-      - name: Show sccache stats
-        run: ${SCCACHE_PATH:-sccache} --show-stats
-
       - name: Check test logs folder size
         if: always()
         run: |
@@ -552,7 +550,7 @@ jobs:
           files: bin/flow_standalone.info,bin/flow_coordinator.info
           disable_search: true
           flags: flow
-          fail_ci_if_error: true # Fail on upload errors
+          fail_ci_if_error: ${{ env.IS_FORK_PR != 'true' }}
           token: ${{ secrets.CODECOV_TOKEN }}
       - name: Upload flow coverage (standalone)
         if: inputs.coverage && inputs.standalone && !inputs.coordinator
@@ -561,7 +559,7 @@ jobs:
           files: bin/flow_standalone.info
           disable_search: true
           flags: flow
-          fail_ci_if_error: true # Fail on upload errors
+          fail_ci_if_error: ${{ env.IS_FORK_PR != 'true' }}
           token: ${{ secrets.CODECOV_TOKEN }}
       - name: Upload flow coverage (coordinator)
         if: inputs.coverage && !inputs.standalone && inputs.coordinator
@@ -570,7 +568,7 @@ jobs:
           files: bin/flow_coordinator.info
           disable_search: true
           flags: flow
-          fail_ci_if_error: true # Fail on upload errors
+          fail_ci_if_error: ${{ env.IS_FORK_PR != 'true' }}
           token: ${{ secrets.CODECOV_TOKEN }}
       - name: Upload unit coverage
         if: inputs.coverage && inputs.unit-tests
@@ -579,7 +577,7 @@ jobs:
           files: bin/unit.info,bin/rust_cov.info
           disable_search: true
           flags: unit
-          fail_ci_if_error: true # Fail on upload errors
+          fail_ci_if_error: ${{ env.IS_FORK_PR != 'true' }}
           token: ${{ secrets.CODECOV_TOKEN }}
 
   # Stop EC2 runner for self-hosted platforms (always runs if `start-runner` succeeds, to ensure cleanup)
