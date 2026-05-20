@@ -23,13 +23,14 @@
 
 use std::ffi::c_char;
 
-use ffi::{QueryNodeType, t_docId};
+use ffi::{QueryNodeType, ValidateStatus, t_docId};
 use index_result::RSIndexResult;
-use ref_mode::{Active, Ref};
+use ref_mode::{Active, Ref, Suspended};
 
 use crate::{
-    IteratorType, RQEIterator, RQEIteratorError, RQEValidateStatus, SkipToOutcome, UnionFullFlat,
-    union_flat::RawUnionFlat, union_heap::RawUnionHeap, union_trimmed::RawUnionTrimmed,
+    IteratorType, RQEIterator, RQEIteratorBoxed, RQEIteratorError, RQESuspendedIterator,
+    RQEValidateStatus, SkipToOutcome, UnionFullFlat, union_flat::RawUnionFlat,
+    union_heap::RawUnionHeap, union_trimmed::RawUnionTrimmed,
 };
 
 use index_spec::IndexSpecReadGuard;
@@ -217,5 +218,94 @@ impl<'index, I: RQEIterator<'index>> RQEIterator<'index> for UnionOpaque<'index,
 
     fn intersection_sort_weight(&self, prioritize_union_children: bool) -> f64 {
         delegate_variant_ref!(self, intersection_sort_weight, prioritize_union_children)
+    }
+}
+impl<'index, I> RQEIteratorBoxed<'index> for UnionOpaque<'index, I>
+where
+    I: RQEIteratorBoxed<'index>,
+{
+    type Suspended = RawUnionOpaque<Suspended, I::Suspended>;
+
+    fn suspend(self: Box<Self>) -> Box<Self::Suspended> {
+        let raw = Box::into_raw(self);
+        // SAFETY: `RawUnionOpaque` is `#[repr(C)]` over `variant` (a
+        // `#[repr(C)]` enum with layout-compatible variants across `Rf`),
+        // a plain `QueryNodeType`, and a `*const c_char`. Box::from_raw
+        // reuses the same heap allocation.
+        unsafe { Box::from_raw(raw as *mut RawUnionOpaque<Suspended, I::Suspended>) }
+    }
+}
+
+impl<S> RQESuspendedIterator for RawUnionOpaque<Suspended, S>
+where
+    S: RQESuspendedIterator,
+{
+    type Resumed<'a> = UnionOpaque<'a, S::Resumed<'a>>;
+
+    fn resume<'a>(
+        self: Box<Self>,
+        guard: &'a IndexSpecReadGuard<'a>,
+    ) -> (Box<Self::Resumed<'a>>, ValidateStatus) {
+        let RawUnionOpaque {
+            variant,
+            query_node_type,
+            query_string,
+        } = *self;
+
+        // Per-variant dispatch — `RawUnionVariant` itself doesn't impl
+        // RQESuspendedIterator, so we match here and forward each arm to
+        // the concrete variant's resume.
+        let (variant, status) = match variant {
+            RawUnionVariant::FlatFull(it) => {
+                let (active, status) = Box::new(it).resume(guard);
+                (UnionVariant::FlatFull(*active), status)
+            }
+            RawUnionVariant::FlatQuick(it) => {
+                let (active, status) = Box::new(it).resume(guard);
+                (UnionVariant::FlatQuick(*active), status)
+            }
+            RawUnionVariant::HeapFull(it) => {
+                let (active, status) = Box::new(it).resume(guard);
+                (UnionVariant::HeapFull(*active), status)
+            }
+            RawUnionVariant::HeapQuick(it) => {
+                let (active, status) = Box::new(it).resume(guard);
+                (UnionVariant::HeapQuick(*active), status)
+            }
+            RawUnionVariant::Trimmed(it) => {
+                // In practice this branch is unreachable — trimmed unions
+                // are not subject to GC. `UnionTrimmed::resume` panics if
+                // reached.
+                let (active, status) = Box::new(it).resume(guard);
+                (UnionVariant::Trimmed(*active), status)
+            }
+        };
+
+        let active = Box::new(UnionOpaque {
+            variant,
+            query_node_type,
+            query_string,
+        });
+        (active, status)
+    }
+
+    fn last_doc_id(&self) -> t_docId {
+        match &self.variant {
+            RawUnionVariant::FlatFull(it) => {
+                <RawUnionFlat<Suspended, S, false> as RQESuspendedIterator>::last_doc_id(it)
+            }
+            RawUnionVariant::FlatQuick(it) => {
+                <RawUnionFlat<Suspended, S, true> as RQESuspendedIterator>::last_doc_id(it)
+            }
+            RawUnionVariant::HeapFull(it) => {
+                <RawUnionHeap<Suspended, S, false> as RQESuspendedIterator>::last_doc_id(it)
+            }
+            RawUnionVariant::HeapQuick(it) => {
+                <RawUnionHeap<Suspended, S, true> as RQESuspendedIterator>::last_doc_id(it)
+            }
+            RawUnionVariant::Trimmed(it) => {
+                <RawUnionTrimmed<Suspended, S> as RQESuspendedIterator>::last_doc_id(it)
+            }
+        }
     }
 }
