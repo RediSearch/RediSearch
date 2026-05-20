@@ -11,12 +11,13 @@
 
 use index_result::{RSIndexResult, RawIndexResult};
 use index_spec::IndexSpecReadGuard;
-use ref_mode::{Active, Ref};
+use ref_mode::{Active, Ref, Suspended};
 use rqe_core::DocId;
 use std::cmp::Ordering;
 
 use crate::{
-    IteratorType, RQEIterator, RQEIteratorError, RQEValidateStatus, SkipToOutcome,
+    BoxedRQEIterator, IteratorType, RQEIterator, RQEIteratorBoxed, RQEIteratorError,
+    RQESuspendedIterator, RQEValidateStatus, ResumeOutcome, SkipToOutcome,
     profile_print::{ProfilePrint, ProfilePrintCtx},
     utils::OwnedSlice,
 };
@@ -281,5 +282,52 @@ impl<const SORTED: bool> ProfilePrint for IdList<'_, SORTED> {
         } else {
             ctx.print_leaf(c"ID-LIST-UNSORTED", map);
         }
+    }
+}
+
+impl<Rf: Ref, const SORTED: bool> RawIdList<Rf, SORTED> {
+    /// Read `result.doc_id` without exposing the private `result` field to
+    /// other modules. Used by [`Metric`](crate::metric::Metric)'s
+    /// [`RQESuspendedIterator`] impl, which can't reach into the inner
+    /// `RawIdList` directly.
+    pub(crate) const fn suspended_result_doc_id(s: &Self) -> DocId {
+        s.result.doc_id
+    }
+}
+
+impl<'index, const SORTED: bool> RQEIteratorBoxed<'index> for IdList<'index, SORTED> {
+    type Suspended = RawIdList<Suspended, SORTED>;
+
+    fn suspend(self: Box<Self>) -> Box<Self::Suspended> {
+        let raw = Box::into_raw(self);
+        // SAFETY: `RawIdList` is `#[repr(C)]`. The only `Rf`-dependent field
+        // is `result: RawIndexResult<Rf>`, layout-compatible across `Rf` via
+        // `SharedPtr` transparency. The other fields (`ids: OwnedSlice<...>`,
+        // `offset: usize`) carry no `Rf`. Suspend is widening, so casting
+        // the box's heap pointer to the suspended counterpart is sound and
+        // preserves the box's heap allocation.
+        unsafe { Box::from_raw(raw as *mut RawIdList<Suspended, SORTED>) }
+    }
+}
+
+impl<const SORTED: bool> RQESuspendedIterator for RawIdList<Suspended, SORTED> {
+    type Resumed<'a> = IdList<'a, SORTED>;
+
+    fn resume<'a>(
+        self: Box<Self>,
+        _guard: &'a IndexSpecReadGuard<'a>,
+    ) -> Result<ResumeOutcome<'a>, RQEIteratorError> {
+        let raw = Box::into_raw(self);
+        // SAFETY: layout-compatible — see `suspend`. `IdList` owns its data
+        // entirely (the `OwnedSlice<DocId>`) and the virtual `result` has
+        // no aliased pointers, so promoting back to `Active<'a>` is
+        // unconditionally sound. Box::from_raw reuses the same heap
+        // allocation as suspend's Box::into_raw.
+        let active = unsafe { Box::from_raw(raw as *mut IdList<'a, SORTED>) };
+        Ok(ResumeOutcome::Ok(BoxedRQEIterator::new(active)))
+    }
+
+    fn last_doc_id(&self) -> DocId {
+        Self::suspended_result_doc_id(self)
     }
 }
