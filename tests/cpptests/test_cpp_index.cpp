@@ -706,6 +706,9 @@ TEST_F(IndexTest, testHybridVector) {
     ASSERT_EQ(hybridIt->lastDocId, expected_id);
   }
   ASSERT_EQ(hybridIt->lastDocId, max_id - step*((k/2)-1));
+  // The iterator protocol is `Suspend → unlock → re-acquire → Revalidate`. The
+  // Rust-wrapped children panic if `Revalidate` is called from Active state.
+  hybridIt->Suspend(hybridIt);
   ASSERT_EQ(hybridIt->Revalidate(hybridIt, mockQctx.sctx.spec), VALIDATE_OK);
 
   // Rerun in AD_HOC BF mode.
