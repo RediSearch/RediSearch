@@ -214,7 +214,6 @@ static void handleCollectLimit(const ArgParser *parser, const void *value, void 
 
 bool CollectArgs_Parse(const ReducerOptions *options, CollectArgs *out) {
   RS_ASSERT(options && out);
-  memset(out, 0, sizeof(*out));
   out->sortAscMap = SORTASCMAP_INIT;
 
   if (!RSGlobalConfig.enableUnstableFeatures) {
@@ -287,37 +286,17 @@ void CollectArgs_Free(CollectArgs *args) {
 
 // ===== Post-parse key resolution (side-effectful: opens RLookupKeys) =====
 
-// Resolves a single stripped field name against `options->srclookup`. Mirrors
-// the post-`ExtractKeyName` body of `ReducerOpts_GetKey`.
-static bool resolveKeyByName(const ReducerOptions *options, const char *context,
-                             const char *keyName, const RLookupKey **out) {
-  *out = RLookup_GetKey_Read(options->srclookup, keyName, RLOOKUP_F_HIDDEN);
-  if (!*out) {
-    if (options->loadKeys) {
-      *out = RLookup_GetKey_Load(options->srclookup, keyName, keyName, RLOOKUP_F_HIDDEN);
-      *options->loadKeys = array_ensure_append_1(*options->loadKeys, *out);
-    }
-    if (!options->loadKeys || !(RLookupKey_GetFlags(*out) & RLOOKUP_F_SCHEMASRC)) {
-      QueryError_SetWithUserDataFmt(options->status, QUERY_ERROR_CODE_NO_PROP_KEY,
-        "Property not loaded nor in pipeline", ": `%s`", keyName);
-      (void)context;  // could prefix the message with `context` if useful.
-      return false;
-    }
-  }
-  return true;
-}
-
 // Resolves stripped names into a freshly-allocated `arrayof(const RLookupKey *)`.
 // Caller owns the result and must `array_free` it.
 // On failure, frees the partial array and returns false.
-static bool resolveKeyNames(const ReducerOptions *options, const char *context,
+static bool resolveKeyNames(const ReducerOptions *options,
                             arrayof(const char *) names,
                             arrayof(const RLookupKey *) *out_keys) {
   const size_t n = array_len(names);
   *out_keys = array_new(const RLookupKey *, n);
   for (size_t i = 0; i < n; i++) {
     const RLookupKey *key = NULL;
-    if (!resolveKeyByName(options, context, names[i], &key)) {
+    if (!ReducerOpts_ResolveKey(options, names[i], &key)) {
       array_free(*out_keys);
       *out_keys = NULL;
       return false;
@@ -329,12 +308,12 @@ static bool resolveKeyNames(const ReducerOptions *options, const char *context,
 
 static bool resolveFieldKeys(const ReducerOptions *options, const CollectArgs *args,
                              arrayof(const RLookupKey *) *out_keys) {
-  return resolveKeyNames(options, "FIELDS", args->field_names, out_keys);
+  return resolveKeyNames(options, args->field_names, out_keys);
 }
 
 static bool resolveSortKeys(const ReducerOptions *options, const CollectArgs *args,
                             arrayof(const RLookupKey *) *out_keys) {
-  return resolveKeyNames(options, "SORTBY", args->sort_names, out_keys);
+  return resolveKeyNames(options, args->sort_names, out_keys);
 }
 
 // ===== Factory =====
@@ -349,12 +328,7 @@ Reducer *RDCRCollect_New(const ReducerOptions *options) {
   Reducer *rbase = NULL;
 
   if (options->is_local) {
-    if (!options->input_key) {
-      QueryError_SetError(options->status, QUERY_ERROR_CODE_PARSE_ARGS,
-        "COLLECT input key was not provided");
-      CollectArgs_Free(&args);
-      return NULL;
-    }
+    RS_ASSERT(options->input_key);
     rbase = CollectReducer_CreateLocal(
       options->input_key,
       (const char *const *)args.field_names,

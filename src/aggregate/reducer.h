@@ -172,6 +172,15 @@ int ReducerOpts_GetKey(const ReducerOptions *options, const RLookupKey **kout);
 #define ReducerOptions_GetKey ReducerOpts_GetKey
 
 /**
+ * Resolves an already-extracted (stripped) field name against
+ * `options->srclookup`, opening a load slot via `options->loadKeys` when
+ * available. On failure, sets `QUERY_ERROR_CODE_NO_PROP_KEY` on
+ * `options->status`.
+ */
+bool ReducerOpts_ResolveKey(const ReducerOptions *options, const char *keyName,
+                            const RLookupKey **out);
+
+/**
  * This helper function ensures that all of a reducer's arguments are consumed.
  * Otherwise, an error is raised to the user.
  */

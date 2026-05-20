@@ -405,9 +405,10 @@ static int distributeAvg(ReducerDistCtx *rdctx, QueryError *status) {
 /* Distribute COLLECT.
  *
  * Both halves of the split GROUPBY are emitted from the parsed `CollectArgs`
- * struct rather than from the raw argv. The remote command is reconstructed
- * from scratch — FIELDS, optional SORTBY, optional LIMIT — and the local
- * command is reconstructed the same way and decorated with `AS <alias>`.
+ * struct rather than from the raw argv. The FIELDS and SORTBY tokens are
+ * identical for both sides, so they are built once into `commonTokens` and
+ * reused. The remote and local argvs only diverge on LIMIT (and the local
+ * side's trailing `AS <alias>`).
  *
  * Limited path: whenever the user supplied `LIMIT offset count`, the remote
  * `LIMIT` is rewritten to `0 (offset+count)` so each shard returns enough rows
@@ -463,9 +464,14 @@ static int distributeCollect(ReducerDistCtx *rdctx, QueryError *status) {
     }
   }
 
-  // ---- Remote argv: FIELDS [SORTBY ...] [LIMIT 0 (offset+count)]
-  std::vector<const char *> remoteTokens = fieldsTokens;
-  remoteTokens.insert(remoteTokens.end(), sortbyTokens.begin(), sortbyTokens.end());
+  // ---- Shared prefix: FIELDS [SORTBY ...]. Remote and local only differ on
+  //      LIMIT (and the local-side trailing `AS <alias>`), so build the common
+  //      portion once.
+  std::vector<const char *> commonTokens = fieldsTokens;
+  commonTokens.insert(commonTokens.end(), sortbyTokens.begin(), sortbyTokens.end());
+
+  // ---- Remote argv: <common> [LIMIT 0 (offset+count)]
+  std::vector<const char *> remoteTokens = commonTokens;
   if (args.has_limit) {
     remoteTokens.push_back(distDupCStr(rdctx->alloc, "LIMIT"));
     remoteTokens.push_back(distAllocU64Str(rdctx->alloc, 0));
@@ -479,10 +485,8 @@ static int distributeCollect(ReducerDistCtx *rdctx, QueryError *status) {
     return REDISMODULE_ERR;
   }
   RS_ASSERT(alias)
-  // ---- Local argv: same shape as remote, but with the original LIMIT preserved
-  //     and an `AS <user_alias>` suffix.
-  std::vector<const char *> localTokens = fieldsTokens;
-  localTokens.insert(localTokens.end(), sortbyTokens.begin(), sortbyTokens.end());
+  // ---- Local argv: <common> [LIMIT offset count], plus an `AS <user_alias>` suffix.
+  std::vector<const char *> localTokens = commonTokens;
   if (args.has_limit) {
     localTokens.push_back(distDupCStr(rdctx->alloc, "LIMIT"));
     localTokens.push_back(distAllocU64Str(rdctx->alloc, args.limit_offset));
