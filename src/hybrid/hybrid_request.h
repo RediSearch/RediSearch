@@ -81,18 +81,10 @@ typedef struct HybridRequest {
 
 // Timeout helper functions for HybridRequest (mirrors AREQ pattern)
 static inline bool HybridRequest_TimedOut(HybridRequest *req) {
-#ifdef __cplusplus
-  return req->syncCtx.timedOut.load(std::memory_order_relaxed);
-#else
-  return atomic_load_explicit(&req->syncCtx.timedOut, memory_order_relaxed);
-#endif
+  return RS_AtomicLoadRelaxed(&req->syncCtx.timedOut);
 }
 static inline void HybridRequest_SetTimedOut(HybridRequest *req) {
-#ifdef __cplusplus
-  req->syncCtx.timedOut.store(true, std::memory_order_relaxed);
-#else
-  atomic_store_explicit(&req->syncCtx.timedOut, true, memory_order_relaxed);
-#endif
+  RS_AtomicStoreRelaxed(&req->syncCtx.timedOut, true);
 }
 
 // Cursor mutex wrappers for synchronizing cursor creation with timeout callback

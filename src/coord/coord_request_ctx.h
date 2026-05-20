@@ -94,7 +94,7 @@ void *CoordRequestCtx_GetRequest(CoordRequestCtx *ctx);
  * Check if the coordinator request has timed out.
  */
 static inline bool CoordRequestCtx_TimedOut(CoordRequestCtx *ctx) {
-  return atomic_load_explicit(&ctx->timedOut, memory_order_relaxed);
+  return RS_AtomicLoadRelaxed(&ctx->timedOut);
 }
 
 /**
