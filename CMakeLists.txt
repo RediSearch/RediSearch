@@ -212,8 +212,8 @@ execute_process(
 set(CMAKE_LINKER_FLAGS "${CMAKE_LINKER_FLAGS} ${CMAKE_LD_FLAGS}")
 
 # Treat all format-string warnings as errors
-set(CMAKE_C_FLAGS   "${CMAKE_C_FLAGS} -Wformat")
-set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -Wformat")
+set(CMAKE_C_FLAGS   "${CMAKE_C_FLAGS} -Werror=format")
+set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -Werror=format")
 
 # Promote specific warnings to errors. These use add_compile_options() which
 # propagates to ALL subdirectories, including deps (libuv, VectorSimilarity, etc.).
