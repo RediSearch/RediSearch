@@ -658,6 +658,14 @@ FIELD_BULK_INDEXER(vectorIndexer) {
     QueryError_SetError(status, QUERY_ERROR_CODE_GENERIC, "Could not open vector for indexing");
     return -1;
   }
+  // Disk mode: defer the actual `VecSimIndex_AddVector` to `commitVectorFields`
+  // so a failed batch commit never leaves the vector index referencing a
+  // doc-id that was not persisted. The vector blob in `fdata->vector` is
+  // borrowed (not copied) and lives until `AddDocumentCtx_Free`, so it is
+  // safe for the post-commit phase to read.
+  if (aCtx->diskBatch) {
+    return 0;
+  }
   char *curr_vec = (char *)fdata->vector;
   for (size_t i = 0; i < fdata->numVec; i++) {
     VecSimIndex_AddVector(vecsim, curr_vec, aCtx->doc->docId);
@@ -845,8 +853,11 @@ int IndexerBulkAdd(RSAddDocumentCtx *cur, RedisSearchCtx *sctx,
       }
     }
   }
-  // If the indexing was successful, update the global statistics.
-  if (rc == 0) {
+  // If the indexing was successful, update the global statistics. In disk
+  // mode the bump is deferred to the per-field commit helpers
+  // (`commitTagFields`, `commitVectorFields`), which only run after a
+  // successful batch commit.
+  if (rc == 0 && !sctx->spec->diskSpec) {
     FieldsGlobalStats_UpdateFieldDocsIndexed(fs->types, 1);
   }
   return rc;

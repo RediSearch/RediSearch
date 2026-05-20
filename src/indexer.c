@@ -355,20 +355,17 @@ static void doAssignIds(RSAddDocumentCtx *cur, RedisSearchCtx *ctx) {
  * Redis and apply the scoring stat deltas captured by `doAssignIds`. Called
  * only on successful batch commit.
  *
- * `DocIdMeta_Set` failure here is exceedingly rare (a Redis hash write); on
- * failure the disk-side state is already committed, so we surface the error to
- * the caller via `aCtx->status` but cannot roll back the durable write.
+ * `DocIdMeta_Set` failure here means `RedisModule_HashSet` itself failed —
+ * effectively OOM / fundamentally broken Redis. The disk batch is already
+ * committed (and for REPLACE the prior doc is already gone from disk) so
+ * best-effort cleanup would leave the in-memory and on-disk views permanently
+ * divergent. Crash via `RS_LOG_ASSERT_ALWAYS` instead so the server restarts
+ * from a well-defined state.
  */
 static void commitDocTable(RSAddDocumentCtx *aCtx, RedisSearchCtx *ctx) {
   IndexSpec *spec = ctx->spec;
-  if (DocIdMeta_Set(ctx->redisCtx, aCtx->doc->docKey, spec->specId, aCtx->doc->docId) != REDISMODULE_OK) {
-    if (!QueryError_HasError(&aCtx->status)) {
-      QueryError_SetError(&aCtx->status, QUERY_ERROR_CODE_GENERIC,
-                          "Failed to record doc-id metadata");
-    }
-    aCtx->stateFlags |= ACTX_F_ERRORED;
-    return;
-  }
+  int rc = DocIdMeta_Set(ctx->redisCtx, aCtx->doc->docKey, spec->specId, aCtx->doc->docId);
+  RS_LOG_ASSERT_ALWAYS(rc == REDISMODULE_OK, "DocIdMeta_Set failed after a successful disk commit");
 
   bool updated = false;
   if (aCtx->oldDocLen > 0) {
@@ -503,7 +500,9 @@ static void writeExistingDocs(RSAddDocumentCtx *aCtx, RedisSearchCtx *sctx) {
 /**
  * Phase 3 for tag fields (disk mode only): re-walk the per-field tag data
  * captured at stage time and apply the TrieMap / suffix-trie / `numRecords`
- * updates that pair with writes committed by `SearchDisk_CommitWriteBatch`.
+ * updates that pair with writes committed by `SearchDisk_CommitWriteBatch`,
+ * and bump the docs-indexed counter that `IndexerBulkAdd` skipped in disk
+ * mode.
  */
 static void commitTagFields(RSAddDocumentCtx *aCtx, RedisSearchCtx *ctx) {
   const Document *doc = aCtx->doc;
@@ -517,6 +516,33 @@ static void commitTagFields(RSAddDocumentCtx *aCtx, RedisSearchCtx *ctx) {
     if (!tidx) continue;
     TagIndex_Commit(tidx, (const char **)fdata->tags, array_len(fdata->tags),
                     &ctx->spec->stats);
+    FieldsGlobalStats_UpdateFieldDocsIndexed(INDEXFLD_T_TAG, 1);
+  }
+}
+
+/**
+ * Phase 3 for vector fields (disk mode only): the vector blobs themselves
+ * live in `fdata->vector` (borrowed; freed by `AddDocumentCtx_Free`). Inserts
+ * are deferred so a failed commit never leaves a VecSim index referencing a
+ * doc-id that was never persisted.
+ */
+static void commitVectorFields(RSAddDocumentCtx *aCtx, RedisSearchCtx *ctx) {
+  IndexSpec *spec = ctx->spec;
+  const Document *doc = aCtx->doc;
+  for (size_t ii = 0; ii < doc->numFields; ++ii) {
+    const FieldSpec *fs = aCtx->fspecs + ii;
+    FieldIndexerData *fdata = aCtx->fdatas + ii;
+    if (!FieldSpec_IsIndexable(fs) || fdata->isNull) continue;
+    if (!(doc->fields[ii].indexAs & INDEXFLD_T_VECTOR)) continue;
+
+    VecSimIndex *vecsim = openVectorIndex(NULL, &spec->fields[fs->index], DONT_CREATE_INDEX);
+    if (!vecsim) continue;
+    const char *curr_vec = (const char *)fdata->vector;
+    for (size_t i = 0; i < fdata->numVec; i++) {
+      VecSimIndex_AddVector(vecsim, curr_vec, aCtx->doc->docId);
+      curr_vec += fdata->vecLen;
+    }
+    FieldsGlobalStats_UpdateFieldDocsIndexed(INDEXFLD_T_VECTOR, 1);
   }
 }
 
@@ -626,21 +652,16 @@ static void Indexer_Process(RSAddDocumentCtx *aCtx) {
   aCtx->diskBatch = NULL;
 
   // Phase 3: commit succeeded — apply the matching in-memory updates.
+  // `commitDocTable` either succeeds or panics (DocIdMeta_Set failure is
+  // treated as fatal), so the remaining helpers run unconditionally.
   commitDocTable(aCtx, &ctx);
-  if (aCtx->stateFlags & ACTX_F_ERRORED) {
-    // `DocIdMeta_Set` failed after a durable disk commit. The doc exists on
-    // disk but has no key→docId mapping; queries that scan inverted indexes
-    // can still find it, but key-based lookups cannot. Skip the remaining
-    // in-memory commits — applying them would create partially consistent
-    // state for a doc the caller has already been told failed.
-    return;
-  }
   writeExistingDocs(aCtx, &ctx);
   writeMissingFieldDocs(aCtx, &ctx, fes);
   if (aCtx->fwIdx) {
     commitTextIndex(aCtx, &ctx);
   }
   commitTagFields(aCtx, &ctx);
+  commitVectorFields(aCtx, &ctx);
 }
 
 int IndexDocument(RSAddDocumentCtx *aCtx) {
