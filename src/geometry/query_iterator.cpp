@@ -140,6 +140,7 @@ QueryIterator CPPQueryIterator::init_base() {
       .Read = QIter_Read,
       .SkipTo = QIter_SkipTo,
       .Revalidate = QIter_Revalidate,
+      .Suspend = Default_Suspend,
       .Free = QIter_Free,
       .Rewind = QIter_Rewind,
   };
