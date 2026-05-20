@@ -38,7 +38,27 @@ typedef RSDocumentMetadata* (*AllocateDMDCallback)(const void* key_data, size_t 
 
 // Callback functions for applying text compaction delta updates.
 // The C side owns private_data/update_ctx semantics; Rust treats them as opaque.
+//
+// Lifecycle, per compaction, in calling order:
+//
+//   compactionStarted(private_data)            // once at compaction start
+//   beginUpdate(private_data) -> update_ctx    // once before delta apply
+//   decrementTrieTermCount(update_ctx, ...)    // 0..N times
+//   decrementNumTerms(update_ctx, ...)         // 0 or 1 time
+//   endUpdate(update_ctx)                      // once after delta apply
+//   compactionCompleted(private_data)          // once at compaction end
+//
+// `compactionStarted` / `compactionCompleted` bracket the whole compaction
+// and are intended for coarse-grained protection that must hold for its full
+// duration (e.g. blocking the snapshot fork). `beginUpdate` / `endUpdate`
+// bracket just the delta-apply window and are intended for fine-grained
+// protection (e.g. the IndexSpec wrlock around the trie/numTerms updates).
 typedef struct SearchDiskCompactionCallbacks {
+  // Called once at the start of a parent compaction, before any
+  // beginUpdate/endUpdate pair. Implementations may take long-lived locks
+  // here; the matching release goes in `compactionCompleted`.
+  void (*compactionStarted)(void *private_data);
+
   // Opens an update session and returns opaque update context.
   // Implementations may acquire internal locks here.
   void *(*beginUpdate)(void *private_data);
@@ -56,6 +76,10 @@ typedef struct SearchDiskCompactionCallbacks {
   // Closes an update session.
   // Implementations may release internal locks here.
   void (*endUpdate)(void *update_ctx);
+
+  // Called once at the end of a parent compaction, after every
+  // beginUpdate/endUpdate pair has returned. Pairs with `compactionStarted`.
+  void (*compactionCompleted)(void *private_data);
 } SearchDiskCompactionCallbacks;
 
 // Result of polling the async read pool
