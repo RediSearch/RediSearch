@@ -7,12 +7,7 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 
-mod fmt;
-mod matches;
-mod parse;
-// Disable the proptests when testing with Miri,
-// as proptest accesses the file system, which is not supported by Miri
-#[cfg(not(miri))]
-mod properties;
-mod remove_escape;
-mod utils;
+//! Query evaluation: traverses a parsed query AST and builds an executable
+//! iterator tree.
+
+pub mod string_utils;

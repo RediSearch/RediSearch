@@ -6,13 +6,9 @@
  * (RSALv2); or (b) the Server Side Public License v1 (SSPLv1); or (c) the
  * GNU Affero General Public License v3 (AGPLv3).
 */
+#![cfg_attr(miri, allow(dead_code, unused_imports))]
 
-mod fmt;
-mod matches;
-mod parse;
-// Disable the proptests when testing with Miri,
-// as proptest accesses the file system, which is not supported by Miri
-#[cfg(not(miri))]
-mod properties;
-mod remove_escape;
-mod utils;
+redis_mock::mock_or_stub_missing_redis_c_symbols!();
+extern crate redisearch_rs;
+
+mod string_utils;

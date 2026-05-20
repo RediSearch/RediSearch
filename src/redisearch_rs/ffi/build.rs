@@ -115,7 +115,7 @@ const HEADERS: &[HeaderAllowlist] = &[
     },
     HeaderAllowlist {
         path: "src/query.h",
-        fns: &[],
+        fns: &["tag_strtolower"],
         types: &["QueryEvalCtx"],
         vars: &[],
     },
@@ -254,6 +254,12 @@ const HEADERS: &[HeaderAllowlist] = &[
         vars: &[],
     },
     HeaderAllowlist {
+        path: "src/trie/rune_util.h",
+        fns: &["strToLowerRunes"],
+        types: &[],
+        vars: &[],
+    },
+    HeaderAllowlist {
         path: "src/trie/trie.h",
         fns: &["Trie_DecrementNumDocs"],
         types: &[],
@@ -291,6 +297,18 @@ const HEADERS: &[HeaderAllowlist] = &[
     HeaderAllowlist {
         path: "src/util/references.h",
         fns: &["StrongRef_Get"],
+        types: &[],
+        vars: &[],
+    },
+    HeaderAllowlist {
+        path: "src/util/strconv.h",
+        fns: &["unicode_tolower_fn"],
+        types: &[],
+        vars: &[],
+    },
+    HeaderAllowlist {
+        path: "src/wildcard/wildcard.h",
+        fns: &["Wildcard_RemoveEscape"],
         types: &[],
         vars: &[],
     },

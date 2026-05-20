@@ -1684,6 +1684,19 @@ dependencies = [
 ]
 
 [[package]]
+name = "query_eval"
+version = "0.0.1"
+dependencies = [
+ "build_utils",
+ "ffi",
+ "proptest",
+ "query_eval",
+ "redis_mock",
+ "redisearch_rs",
+ "workspace_hack",
+]
+
+[[package]]
 name = "query_flags"
 version = "0.0.1"
 dependencies = [
@@ -3236,9 +3249,12 @@ dependencies = [
 name = "wildcard"
 version = "0.0.1"
 dependencies = [
+ "build_utils",
  "criterion",
+ "ffi",
  "memchr",
  "proptest",
+ "wildcard 0.0.1",
  "wildcard 0.3.0",
  "workspace_hack",
 ]

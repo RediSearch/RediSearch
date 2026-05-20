@@ -1,5 +1,5 @@
 [package]
-name = "wildcard"
+name = "query_eval"
 version.workspace = true
 edition.workspace = true
 license-file.workspace = true
@@ -10,27 +10,18 @@ publish.workspace = true
 # see https://github.com/rust-lang/cargo/issues/4789#issuecomment-2308131243
 unittest = []
 
-[lib]
-# See https://bheisler.github.io/criterion.rs/book/faq.html#cargo-bench-gives-unrecognized-option-errors-for-valid-command-line-options
-bench = false
-
-[[bench]]
-name = "matching"
-harness = false
-
-[lints]
-workspace = true
-
 [build-dependencies]
 build_utils.workspace = true
 
 [dependencies]
-memchr.workspace = true
 workspace_hack.workspace = true
 
 [dev-dependencies]
-criterion.workspace = true
 ffi.workspace = true
 proptest = { workspace = true, features = ["std"] }
-wildcard = { path = ".", features = ["unittest"] }
-wildcard_cloudflare.workspace = true
+query_eval = { path = ".", features = ["unittest"] }
+redis_mock.workspace = true
+redisearch_rs = { workspace = true, features = ["mock_allocator"] }
+
+[lints]
+workspace = true
