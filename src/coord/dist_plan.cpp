@@ -11,15 +11,19 @@
 #include "aggregate/aggregate_plan.h"
 #include "pipeline/pipeline_construction.h"
 #include "aggregate/reducer.h"
+#include "aggregate/reducers/collect_parse.h"
 #include "util/arr.h"
 #include "util/stringify.h"
 #include "dist_plan.h"
-#include "dist_plan_utils.h"
 
 #include <vector>
 #include <string>
 #include <sstream>
 #include <algorithm>
+
+// Minimum block size for the reducer-rewriter scratch allocator
+// (`ReducerDistCtx::alloc`).
+#define DIST_REDUCER_BLOCK_SIZE ((size_t)128)
 
 static char *getLastAlias(const PLN_GroupStep *gstp) {
   return gstp->reducers[array_len(gstp->reducers) - 1].alias;
@@ -30,6 +34,59 @@ static const char *stripAtPrefix(const char *s) {
     s++;
   }
   return s;
+}
+
+static const char *distDupCStr(BlkAlloc *alloc, const char *s) {
+  RS_ASSERT(s != nullptr);
+  size_t n = strlen(s) + 1;
+  char *p = (char *)BlkAlloc_Alloc(alloc, n, std::max(n, DIST_REDUCER_BLOCK_SIZE));
+  memcpy(p, s, n);
+  return p;
+}
+
+static const char *distAllocU64Str(BlkAlloc *alloc, uint64_t v) {
+  char buf[32];
+  int n = snprintf(buf, sizeof(buf), "%llu", (unsigned long long)v);
+  // `%llu` for a `uint64_t` is at most 20 chars + NUL, so the result always
+  // fits in `buf` and `snprintf` cannot truncate or return a negative value.
+  RS_ASSERT(n > 0 && (size_t)n < sizeof(buf));
+  size_t len = (size_t)n + 1;
+  char *p = (char *)BlkAlloc_Alloc(alloc, len, std::max(len, DIST_REDUCER_BLOCK_SIZE));
+  memcpy(p, buf, len);
+  return p;
+}
+
+static const char *distAllocAtName(BlkAlloc *alloc, const char *stripped) {
+  RS_ASSERT(stripped != nullptr);
+  size_t n = strlen(stripped);
+  char *p = (char *)BlkAlloc_Alloc(alloc, n + 2, std::max(n + 2, DIST_REDUCER_BLOCK_SIZE));
+  p[0] = '@';
+  memcpy(p + 1, stripped, n + 1);
+  return p;
+}
+
+// Build the argv shape that `PLNGroupStep_AddReducer` expects:
+//   <nargs=tokens.size()> <tokens...> [<trailing...>]
+// Trailing tokens sit *outside* the counted slice. The local COLLECT path uses
+// this to append `AS <user_alias>`, consumed after the args slice.
+static ArgsCursor distBuildReducerArgv(BlkAlloc *alloc, const std::vector<const char *> &tokens,
+                                       std::initializer_list<const char *> trailing = {}) {
+  size_t n = tokens.size();
+  size_t total = n + 1 + trailing.size();
+  const char **objs = (const char **)BlkAlloc_Alloc(
+      alloc, sizeof(const char *) * total,
+      std::max(sizeof(const char *) * total, DIST_REDUCER_BLOCK_SIZE));
+  objs[0] = distAllocU64Str(alloc, n);  // leading <nargs>
+  for (size_t i = 0; i < n; i++) {
+    objs[i + 1] = tokens[i];
+  }
+  size_t k = n + 1;
+  for (const char *t : trailing) {
+    objs[k++] = t;
+  }
+  ArgsCursor out;
+  ArgsCursor_InitCString(&out, objs, (int)total);
+  return out;
 }
 
 struct ReducerDistCtx {
@@ -53,7 +110,7 @@ struct ReducerDistCtx {
   ArgsCursor *copyArgs(ArgsCursor *args) {
     // Because args are only in temporary storage
     size_t allocsz = sizeof(void *) * args->argc;
-    void **arr = (void **)BlkAlloc_Alloc(alloc, allocsz, std::max(allocsz, size_t(32)));
+    void **arr = (void **)BlkAlloc_Alloc(alloc, allocsz, std::max(allocsz, DIST_REDUCER_BLOCK_SIZE));
     memcpy(arr, args->objs, args->argc * sizeof(*args->objs));
     args->objs = arr;
     return args;
@@ -334,46 +391,103 @@ static int distributeAvg(ReducerDistCtx *rdctx, QueryError *status) {
   return REDISMODULE_OK;
 }
 
-/* Remote COLLECT emits array-of-maps; local COLLECT consumes the remote alias.
+/* Distribute COLLECT.
  *
- * Note: this rewriter currently forwards the user's `LIMIT offset count` to
- * the shard verbatim (via `buildCollectArgs`), unlike `serializeArrange` in
- * `aggregate_plan.c` which rewrites `LIMIT offset count` to
- * `LIMIT 0 (offset+count)`. Because of that, the shard reducer needs LIMIT
- * context and an `is_internal` flag so it skips the local `skip(offset)` and
- * lets the coordinator apply the global offset.
+ * Both halves of the split GROUPBY are emitted from the parsed `CollectArgs`
+ * struct rather than from the raw argv. The remote command is reconstructed
+ * from scratch — FIELDS, optional SORTBY, optional LIMIT — and the local
+ * command is reconstructed the same way and decorated with `AS <alias>`.
  *
- * TODO: reconsider switching to the `LIMIT 0 (offset+count)` rewrite pattern.
- * It would let the shard COLLECT reducer drop both its `limit` and
- * `is_internal` fields.
+ * Limited path: whenever the user supplied `LIMIT offset count`, the remote
+ * `LIMIT` is rewritten to `0 (offset+count)` so each shard returns enough rows
+ * for the coordinator to perform the final offset/count trim. The local
+ * COLLECT keeps the original offset/count. This mirrors `serializeArrange`'s
+ * behavior for top-level LIMIT and concentrates offset semantics at the
+ * coordinator — internal shards never see a non-zero offset.
  */
 static int distributeCollect(ReducerDistCtx *rdctx, QueryError *status) {
   const PLN_Reducer *src = rdctx->srcReducer;
-  size_t argc = src->args.argc;
+  RS_ASSERT(src->alias);
 
-  // Build temporary args, then persist their object arrays with copyArgs.
-  std::string remoteCountStr = std::to_string(argc);
-  std::vector<void *> remoteObjs(collectObjsBufLen(argc, /*has_alias=*/false));
-  ArgsCursor remoteArgs = buildCollectArgs(remoteObjs.data(), remoteCountStr.c_str(),
-                                           &src->args, nullptr);
-  rdctx->copyArgs(&remoteArgs);
-
-  const char *alias;
-  if (!rdctx->add(rdctx->remoteGroup, "COLLECT", &alias, status, &remoteArgs)) {
+  // Parse the original COLLECT args into a pure data struct. No keys are
+  // opened; the parse cursor uses a synthesized lookup-less `ReducerOptions`.
+  ArgsCursor parseAc = src->args;
+  ReducerOptions opts = REDUCEROPTS_INIT(src->name, &parseAc, /*srclookup*/nullptr,
+                                         /*loadKeys*/nullptr, status, /*strictPrefix*/false,
+                                         /*is_local*/false, /*input_key*/nullptr,
+                                         /*reqflags*/0);
+  CollectArgs args = {0};
+  if (!CollectArgs_Parse(&opts, &args)) {
+    CollectArgs_Free(&args);
     return REDISMODULE_ERR;
   }
 
-  std::string localCountStr = std::to_string(argc);
-  std::vector<void *> localObjs(collectObjsBufLen(argc, /*has_alias=*/true));
-  ArgsCursor localArgs = buildCollectArgs(localObjs.data(), localCountStr.c_str(),
-                                          &src->args, src->alias);
-  rdctx->copyArgs(&localArgs);
+  // ---- Build the FIELDS section (shared between remote and local). ----
+  // Layout: ["FIELDS", "*"]  OR  ["FIELDS", <n>, "@f1", "@f2", ...].
+  std::vector<const char *> fieldsTokens;
+  fieldsTokens.push_back(distDupCStr(rdctx->alloc, "FIELDS"));
+  if (args.load_all) {
+    fieldsTokens.push_back(distDupCStr(rdctx->alloc, "*"));
+  } else {
+    size_t n = args.field_names ? array_len(args.field_names) : 0;
+    fieldsTokens.push_back(distAllocU64Str(rdctx->alloc, n));
+    for (size_t i = 0; i < n; i++) {
+      fieldsTokens.push_back(distAllocAtName(rdctx->alloc, args.field_names[i]));
+    }
+  }
+
+  // ---- Build the SORTBY section (shared between remote and local). ----
+  // Each sort key is emitted with an explicit ASC/DESC token; the resulting
+  // count is `2 * sort_names_len`.
+  std::vector<const char *> sortbyTokens;
+  const bool has_sortby = (args.sort_names != nullptr);
+  if (has_sortby) {
+    size_t m = array_len(args.sort_names);
+    sortbyTokens.push_back(distDupCStr(rdctx->alloc, "SORTBY"));
+    sortbyTokens.push_back(distAllocU64Str(rdctx->alloc, m * 2));
+    for (size_t i = 0; i < m; i++) {
+      sortbyTokens.push_back(distAllocAtName(rdctx->alloc, args.sort_names[i]));
+      sortbyTokens.push_back(
+          distDupCStr(rdctx->alloc, SORTASCMAP_GETASC(args.sortAscMap, i) ? "ASC" : "DESC"));
+    }
+  }
+
+  // ---- Remote argv: FIELDS [SORTBY ...] [LIMIT 0 (offset+count)]
+  std::vector<const char *> remoteTokens = fieldsTokens;
+  remoteTokens.insert(remoteTokens.end(), sortbyTokens.begin(), sortbyTokens.end());
+  if (args.has_limit) {
+    remoteTokens.push_back(distDupCStr(rdctx->alloc, "LIMIT"));
+    remoteTokens.push_back(distAllocU64Str(rdctx->alloc, 0));
+    remoteTokens.push_back(distAllocU64Str(rdctx->alloc, args.limit_offset + args.limit_count));
+  }
+  ArgsCursor remoteArgs = distBuildReducerArgv(rdctx->alloc, remoteTokens);
+
+  const char *alias = nullptr;
+  if (!rdctx->add(rdctx->remoteGroup, "COLLECT", &alias, status, &remoteArgs)) {
+    CollectArgs_Free(&args);
+    return REDISMODULE_ERR;
+  }
+  RS_ASSERT(alias)
+  // ---- Local argv: same shape as remote, but with the original LIMIT preserved
+  //     and an `AS <user_alias>` suffix.
+  std::vector<const char *> localTokens = fieldsTokens;
+  localTokens.insert(localTokens.end(), sortbyTokens.begin(), sortbyTokens.end());
+  if (args.has_limit) {
+    localTokens.push_back(distDupCStr(rdctx->alloc, "LIMIT"));
+    localTokens.push_back(distAllocU64Str(rdctx->alloc, args.limit_offset));
+    localTokens.push_back(distAllocU64Str(rdctx->alloc, args.limit_count));
+  }
+  ArgsCursor localArgs = distBuildReducerArgv(
+      rdctx->alloc, localTokens,
+      {distDupCStr(rdctx->alloc, "AS"), distDupCStr(rdctx->alloc, src->alias)});
 
   if (!rdctx->add(rdctx->localGroup, "COLLECT", nullptr, status, &localArgs)) {
+    CollectArgs_Free(&args);
     return REDISMODULE_ERR;
   }
   array_tail(rdctx->localGroup->reducers).inputAlias = rm_strdup(alias);
 
+  CollectArgs_Free(&args);
   return REDISMODULE_OK;
 }
 

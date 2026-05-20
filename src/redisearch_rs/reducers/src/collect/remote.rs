@@ -133,6 +133,11 @@ impl<'a> RemoteCollectReducer<'a> {
         limit: Option<(u64, u64)>,
         is_internal: bool,
     ) -> Self {
+        // `distributeCollect` rewrites the shard wire's LIMIT to
+        // `(0, offset+count)`, so an internal shard never sees a non-zero
+        // offset.
+        debug_assert!(!(is_internal && limit.is_some_and(|(offset, _)| offset != 0)));
+
         let fields = match srclookup {
             Some(src_lookup) => Fields::All {
                 src_lookup,
@@ -257,12 +262,7 @@ impl RemoteCollectCtx {
     /// [`LocalCollectCtx::finalize`][crate::collect::local::LocalCollectCtx::finalize]
     /// reconstructs the client-facing result from the emitted payload.
     pub fn finalize(&mut self, r: &RemoteCollectReducer<'_>) -> SharedValue {
-        // TODO: drop `limit` and the `apply_limit` argument to `drain` once
-        // `distributeCollect` switches to the `LIMIT 0 (offset+count)`
-        // rewrite that other `distribute*` paths use; the shard would no
-        // longer need LIMIT context and `drain` could be called
-        // unconditionally.
-        let rows = self.storage.drain(!r.is_internal);
+        let rows = self.storage.drain();
         let template = r.fields.build_template(r.is_internal);
         SharedValue::new_array(rows.map(|row| {
             let entries: Vec<_> = template
