@@ -28,6 +28,7 @@ field.workspace = true
 index_result.workspace = true
 index_spec.workspace = true
 inverted_index.workspace = true
+ref_mode.workspace = true
 inverted_index_ffi = { path = "../inverted_index_ffi" }
 numeric_range_tree_ffi = { path = "../numeric_range_tree_ffi" }
 numeric_range_tree.workspace = true

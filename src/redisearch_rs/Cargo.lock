@@ -1168,6 +1168,7 @@ dependencies = [
  "numeric_range_tree_ffi",
  "query_node_type",
  "redis_reply",
+ "ref_mode",
  "rqe_core",
  "rqe_iterator_type",
  "rqe_iterators",
