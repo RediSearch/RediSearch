@@ -566,7 +566,7 @@ int SetFtAliaslistInfo(RedisModuleCommand *cmd) {
       },
       {0}
     },
-    .arity = 2,
+    .arity = -2,
     .since = "8.10.0",
     .tips = "dont_cache",
   };
