@@ -16,6 +16,22 @@
 #include "trie_node.h"
 
 /*
+ * This file contains two layers:
+ *
+ * 1. Sparse Levenshtein automaton (`SparseAutomaton`, `dfaNode`, `dfa_build`,
+ *    `SparseAutomaton_IsMatch`). A DFA over query Q and threshold k that
+ *    accepts string S iff Levenshtein(Q, S) <= k.
+ *
+ * 2. Trie-walk filter built on top of the automaton (`DFAFilter`, `FilterFunc`,
+ *    `StackPop`). The automaton is used as a building block to compute prefix
+ *    edit distance (PED) — the metric reported through `matchCtx`:
+ *        PED(Q, T) = min over k in [0..|T|] of Levenshtein(Q, T[0..k])
+ *    See `FilterFunc` docs for details and worked examples. PED is the
+ *    standard scoring metric for approximate autocomplete and the basis of
+ *    FT.SUGGET FUZZY ranking.
+ */
+
+/*
 * SparseAutomaton is a C implementation of a levenshtein automaton using
 * sparse vectors, as described and implemented here:
 * http://julesjacobs.github.io/2015/06/17/disqus-levenshtein-simple-and-fast.html
