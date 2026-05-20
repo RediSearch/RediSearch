@@ -569,6 +569,16 @@ FIELD_PREPROCESSOR(geometryPreprocessor) {
 }
 
 FIELD_BULK_INDEXER(geometryIndexer) {
+  // Geometry indexes aren't backed by the per-doc disk write batch yet, so we
+  // intentionally write to the in-memory index eagerly. If a batch is open for
+  // this doc it means the doc-table / fulltext / tag writes are being staged
+  // for disk commit — the geometry write is not. A commit failure here would
+  // leave the geometry index referencing a doc that never reached disk, so
+  // assert until geometry indexing is plumbed through the batch (or a
+  // commit-gated path is added).
+  RS_LOG_ASSERT_ALWAYS(!aCtx->diskBatch,
+                       "geometryIndexer is not commit-batched; disk-mode geometry is not supported");
+
   GeometryIndex *rt = OpenGeometryIndex(&ctx->spec->fields[fs->index], CREATE_INDEX);
   if (!rt) {
     QueryError_SetError(status, QUERY_ERROR_CODE_GENERIC, "Could not open geoshape index for indexing");
@@ -597,6 +607,12 @@ FIELD_BULK_INDEXER(geometryIndexer) {
   _NumericRangeTree_Add((t), (docId), (value), (isMulti), RSGlobalConfig.numericTreeMaxDepthRange)
 
 FIELD_BULK_INDEXER(numericIndexer) {
+  // Numeric and geo (geohash-as-numeric) indexes aren't backed by the per-doc
+  // disk write batch yet — the writes here go to the in-memory range tree
+  // eagerly. Same caveat as `geometryIndexer`: if a batch is open we'd leak
+  // entries on commit failure. Assert until numeric/geo land on disk.
+  RS_LOG_ASSERT_ALWAYS(!aCtx->diskBatch,
+                       "numericIndexer is not commit-batched; disk-mode numeric/geo is not supported");
 
   NumericRangeTree *rt = openNumericOrGeoIndex(ctx->spec, &ctx->spec->fields[fs->index], CREATE_INDEX);
   if (!rt) {
@@ -647,6 +663,37 @@ FIELD_PREPROCESSOR(vectorPreprocessor) {
   return 0;
 }
 
+// Hook data for the deferred disk-mode vector add. Holds the target VecSim
+// index, an owned copy of the vector blob, and the doc-id to assign. The blob
+// is copied because `fdata->vector` borrows from the document field, which can
+// outlive the staging call but is not guaranteed to outlive the batch in all
+// indexing paths — copying decouples the lifetimes.
+typedef struct {
+  VecSimIndex *vecsim;
+  char *vector_data;
+  size_t vecLen;
+  size_t numVec;
+  t_docId docId;
+} VectorIndexWriteCommitData;
+
+static void freeVectorIndexWriteCommitData(void *user_data) {
+  VectorIndexWriteCommitData *data = user_data;
+  rm_free(data->vector_data);
+  rm_free(data);
+}
+
+// Post-commit: feed each vector into the VecSim index. Skipped on abort /
+// commit failure so the index never advertises a vector for a doc that did
+// not make it into the doc table.
+static void onCommit_VectorIndex(void *user_data) {
+  VectorIndexWriteCommitData *data = user_data;
+  char *curr_vec = data->vector_data;
+  for (size_t i = 0; i < data->numVec; ++i) {
+    VecSimIndex_AddVector(data->vecsim, curr_vec, data->docId);
+    curr_vec += data->vecLen;
+  }
+}
+
 FIELD_BULK_INDEXER(vectorIndexer) {
   IndexSpec *sp = ctx->spec;
   VecSimIndex *vecsim = openVectorIndex(ctx->redisCtx, &sp->fields[fs->index], CREATE_INDEX);
@@ -654,6 +701,24 @@ FIELD_BULK_INDEXER(vectorIndexer) {
     QueryError_SetError(status, QUERY_ERROR_CODE_GENERIC, "Could not open vector for indexing");
     return -1;
   }
+
+  if (aCtx->diskBatch) {
+    // Disk mode: defer the actual `VecSimIndex_AddVector` calls to an on-commit
+    // hook so a failed batch commit cannot leave the vector index referencing a
+    // doc that never reached the doc table.
+    VectorIndexWriteCommitData *hook_data = rm_malloc(sizeof(*hook_data));
+    const size_t total_bytes = fdata->vecLen * fdata->numVec;
+    hook_data->vecsim = vecsim;
+    hook_data->vector_data = rm_malloc(total_bytes);
+    memcpy(hook_data->vector_data, fdata->vector, total_bytes);
+    hook_data->vecLen = fdata->vecLen;
+    hook_data->numVec = fdata->numVec;
+    hook_data->docId = aCtx->doc->docId;
+    SearchDisk_WriteBatch_OnCommit(aCtx->diskBatch, onCommit_VectorIndex,
+                                   hook_data, freeVectorIndexWriteCommitData);
+    return 0;
+  }
+
   char *curr_vec = (char *)fdata->vector;
   for (size_t i = 0; i < fdata->numVec; i++) {
     VecSimIndex_AddVector(vecsim, curr_vec, aCtx->doc->docId);
