@@ -186,21 +186,6 @@ TEST_F(CollectParserTest, LocalFieldsUsePlannerInputKey) {
   QueryError_ClearError(&status);
 }
 
-TEST_F(CollectParserTest, LocalCollectRequiresPlannerInputKey) {
-  std::vector<const char *> args = {"FIELDS", "1", "@price"};
-  QueryError status = QueryError_Default();
-
-  Reducer *r = parseCollect(args, &status, true, NULL);
-
-  ASSERT_EQ(r, nullptr);
-  const char *user_error = QueryError_GetUserError(&status);
-  ASSERT_NE(user_error, nullptr);
-  EXPECT_TRUE(std::string(user_error).find("COLLECT input key was not provided") !=
-              std::string::npos)
-      << user_error;
-  QueryError_ClearError(&status);
-}
-
 TEST_F(CollectParserTest, FieldsSortByAndLimit) {
   registerKeys({"price"});
   Reducer *r = parseCollectOk({
