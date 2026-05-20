@@ -23,12 +23,12 @@ from deepdiff import DeepDiff
 from unittest.mock import ANY, _ANY
 from unittest import SkipTest
 import inspect
-import subprocess
 import math
+import tempfile
 import faker
 
-BASE_RDBS_URL = 'https://dev.cto.redis.s3.amazonaws.com/RediSearch/rdbs/'
-REDISEARCH_CACHE_DIR = '/tmp/redisearch-rdbs/'
+TEST_RDBS_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'test_rdbs')
+REDISEARCH_CACHE_DIR = os.path.join(tempfile.gettempdir(), 'redisearch-rdbs')
 VECSIM_DATA_TYPES = ['FLOAT32', 'FLOAT64', 'FLOAT16', 'BFLOAT16']
 VECSIM_ALGOS = ['FLAT', 'HNSW', 'SVS-VAMANA']
 
@@ -916,54 +916,40 @@ def access_nested_list(lst, index):
         result = result[entry]
     return result
 
-def downloadFile(env, file_name, depth=0, max_retries=3):
-    path = os.path.join(REDISEARCH_CACHE_DIR, file_name)
-    path_dir = os.path.dirname(path)
-    os.makedirs(path_dir, exist_ok=True)  # create dir if not exists
-    if not os.path.exists(path):
-        env.debugPrint(f"downloading {file_name}", force=True)
-        try:
-            subprocess.run(
-                [
-                "wget",
-                "--no-check-certificate",
-                "--tries", str(max_retries + 1),  # wget tries
-                "--waitretry", "2",  # wait 2 seconds between retries
-                "--retry-connrefused",  # retry on connection refused
-                BASE_RDBS_URL + file_name,
-                "-O",
-                path,
-                "-v"  # verbose to get better error info
-            ], check=True, capture_output=True, text=True)
-
-        except subprocess.CalledProcessError as e:
-            env.debugPrint(f"Failed to download {file_name} after {max_retries + 1} attempts. "
-                           f"Return code: {e.returncode}, stdout: {e.stdout}, stderr: {e.stderr}", force=True)
-
-            # Clean up partial download
-            try:
-                if os.path.exists(path):
-                    os.remove(path)
-                    env.debugPrint(f"Removed partially downloaded file {path}", force=True)
-            except OSError:
-                env.debugPrint(f"Failed to remove {path}", force=True)
-                pass
-            return False
-    if not os.path.exists(path):
+def getRDBFile(env, file_name, depth=0):
+    # Materialise a bundled RDB fixture from tests/pytests/test_rdbs/<file_name>.zip
+    # into REDISEARCH_CACHE_DIR/<file_name>. Extraction is idempotent: if the
+    # target file already exists with non-zero size we skip re-extracting.
+    src = os.path.join(TEST_RDBS_DIR, file_name + '.zip')
+    dst = os.path.join(REDISEARCH_CACHE_DIR, file_name)
+    if os.path.exists(dst) and os.path.getsize(dst) > 0:
+        return True
+    if not os.path.exists(src):
         env.assertTrue(
             False,
-            message=f"{path} does not exist after download",
+            message=f"bundled RDB fixture {src} is missing",
+            depth=depth + 1,
+        )
+        return False
+    import zipfile
+    os.makedirs(os.path.dirname(dst), exist_ok=True)
+    try:
+        with zipfile.ZipFile(src, 'r') as z:
+            z.extract(os.path.basename(file_name), os.path.dirname(dst))
+    except (zipfile.BadZipFile, KeyError, OSError) as e:
+        env.assertTrue(
+            False,
+            message=f"failed to extract bundled RDB fixture {src}: {e}",
             depth=depth + 1,
         )
         return False
     return True
 
-def downloadFiles(env, rdbs=None, depth=0):
+def getRDBFiles(env, rdbs=None, depth=0):
     if rdbs is None:
         return False
-
     for f in rdbs:
-        if not downloadFile(env, f, depth=depth + 1):
+        if not getRDBFile(env, f, depth=depth + 1):
             return False
     return True
 
