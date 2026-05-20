@@ -3821,15 +3821,21 @@ void Indexes_RdbSave2(RedisModuleIO *rdb, int when) {
   }
 }
 
+
 void *IndexSpec_RdbLoad_Logic(RedisModuleIO *rdb, int encver) {
   const bool useSst = CheckRdbSstPersistence(RedisModule_GetContextFromIO(rdb), "RDB Load Logic");
-  if (encver < INDEX_VECSIM_SVS_VAMANA_VERSION) {
+  if (encver <= LEGACY_INDEX_MAX_VERSION) {
     // Legacy index, loaded in order to upgrade from an old version
     return IndexSpec_LegacyRdbLoad(rdb, encver);
   } else {
     // New index, loaded normally.
     // Even though we don't actually load or save the index spec in the key space, this implementation is useful
     // because it allows us to serialize and deserialize the index spec in a clean way.
+    RS_ASSERT(encver >= INDEX_ASM_PROPAGATE_DEFINITIONS_VERSION);
+    if (encver < INDEX_ASM_PROPAGATE_DEFINITIONS_VERSION) {
+      RedisModule_LogIOError(rdb, "error", "RDB Load: Unexpected encver %lu found in RDB_Load, encver not expected to be lower than %llu", encver, INDEX_ASM_PROPAGATE_DEFINITIONS_VERSION);
+      return NULL;
+    }
     QueryError status = QueryError_Default();
     IndexSpec *sp = IndexSpec_RdbLoad(rdb, encver, useSst, &status);
     if (!sp) {
