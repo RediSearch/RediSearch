@@ -1471,6 +1471,38 @@ def testErrorStatsResp3():
         res = conn.execute_command('info', 'errorstats')
         env.assertEqual(res, expected_errorstats)
 
+@skip(cluster=False)
+def test_groupby_duplicate_collect_dedup_cluster():
+    # MOD-15816: two REDUCE COLLECT calls over identical (name, args) inside one GROUPBY must be
+    # deduped on the remote side, so each shard runs a single COLLECT and the coordinator fans out
+    # the shared output into per-alias local reducers. Without dedup, distributeCollect appends
+    # two remote reducers with colliding synthetic aliases (`__generated_aliascollectfields,...`),
+    # which the coordinator's RLookup rejects with SEARCH_FIELD_DUP before any data is shipped.
+    env = Env(shardsCount=2, protocol=3)
+    enable_unstable_features(env)
+    env.expect('FT.CREATE', 'idx', 'ON', 'HASH', 'SCHEMA',
+               'color', 'TAG', 'SORTABLE', 'name', 'TEXT', 'SORTABLE').ok()
+    conn = getConnectionByEnv(env)
+    docs = [('red', 'apple'), ('red', 'cherry'), ('green', 'kiwi'), ('green', 'pear')]
+    for i, (color, name) in enumerate(docs):
+        conn.execute_command('HSET', f'doc{i}', 'color', color, 'name', name)
+
+    res = env.cmd(
+        'FT.AGGREGATE', 'idx', '*',
+        'GROUPBY', '1', '@color',
+            'REDUCE', 'COLLECT', '3', 'FIELDS', '1', '@name', 'AS', 'names_a',
+            'REDUCE', 'COLLECT', '3', 'FIELDS', '1', '@name', 'AS', 'names_b')
+
+    groups = sorted(res['results'], key=lambda r: r['extra_attributes']['color'])
+    env.assertEqual([g['extra_attributes']['color'] for g in groups], ['green', 'red'])
+    for g in groups:
+        attrs = g['extra_attributes']
+        a = sorted(entry['name'] for entry in attrs['names_a'])
+        b = sorted(entry['name'] for entry in attrs['names_b'])
+        env.assertEqual(a, b)
+        env.assertEqual(a, sorted(n for c, n in docs if c == attrs['color']))
+
+
 def testAggregateBadLoadArgs(env):
     """Tests that we get a proper error message when passing bad arguments to LOAD"""
     env.expect('FT.CREATE', 'idx', 'SCHEMA', 'title', 'TEXT').ok()
