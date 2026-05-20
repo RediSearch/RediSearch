@@ -118,9 +118,16 @@ impl FieldExpirations {
     /// `fe.index` must be **strictly greater** than the `index` of every
     /// entry already present in `self`.
     pub unsafe fn push_unchecked(&mut self, fe: FieldExpiration) {
-        // Elided in release mode
-        if let Some(last) = self.last() {
-            debug_assert!(last.index < fe.index);
+        #[cfg(debug_assertions)]
+        {
+            if let Some(last) = self.last() {
+                assert!(
+                    last.index < fe.index,
+                    "pushed index {} must be strictly greater than the last index {}",
+                    fe.index,
+                    last.index
+                );
+            }
         }
         self.inner.push(fe);
     }
@@ -198,12 +205,30 @@ impl TimeToLiveTable {
 
     /// Inserts a document's per-field expirations.
     ///
-    /// Ownership of `sorted_by_id` transfers to the table.
+    /// # Panics
+    ///
+    /// Panics if `field_expirations` is empty or if `doc_id` is already present
+    /// in the table.
+    pub fn add(&mut self, doc_id: t_docId, field_expirations: FieldExpirations) {
+        assert!(
+            !field_expirations.is_empty(),
+            "TTL table add requires at least one field expiration"
+        );
+        assert!(
+            self.find_entry(doc_id).is_none(),
+            "duplicate docId in TTL table"
+        );
+        // SAFETY: both preconditions of `add_unchecked` were just verified —
+        // `field_expirations` is non-empty and `doc_id` is absent from the table.
+        unsafe { self.add_unchecked(doc_id, field_expirations) };
+    }
+
+    /// Inserts a document's per-field expirations.
     ///
     /// # Safety
     ///
     /// The caller must guarantee:
-    /// - `sorted_by_id` is non-empty.
+    /// - `field_expirations` is non-empty.
     /// - `doc_id` is not already present in the table.
     ///
     /// These invariants are load-bearing for the lookup hot paths
@@ -212,11 +237,7 @@ impl TimeToLiveTable {
     /// [`verify_doc_and_wide_field_mask`](Self::verify_doc_and_wide_field_mask)),
     /// which assume them when scanning the per-bucket chain and the
     /// per-entry field-expiration list.
-    ///
-    /// In debug builds these preconditions are checked via `debug_assert!`
-    /// and will panic on violation; in release builds the checks are
-    /// elided.
-    pub unsafe fn add(&mut self, doc_id: t_docId, field_expirations: FieldExpirations) {
+    pub unsafe fn add_unchecked(&mut self, doc_id: t_docId, field_expirations: FieldExpirations) {
         debug_assert!(
             !field_expirations.is_empty(),
             "TTL table add requires at least one field expiration"
@@ -267,7 +288,8 @@ impl TimeToLiveTable {
     /// if no entry exists.
     ///
     /// The slice aliases storage owned by the table and is invalidated by any
-    /// subsequent [`add`](Self::add) / [`remove`](Self::remove) on this table.
+    /// subsequent [`add`](Self::add) / [`add_unchecked`](Self::add_unchecked) /
+    /// [`remove`](Self::remove) on this table.
     pub fn field_expirations(&self, doc_id: t_docId) -> Option<&FieldExpirations> {
         self.find_entry(doc_id).map(|e| &e.field_expirations)
     }
@@ -723,10 +745,6 @@ const fn did_expire(field: &timespec, now: &timespec) -> bool {
 }
 
 #[cfg(test)]
-#[expect(
-    clippy::undocumented_unsafe_blocks,
-    reason = "every `t.add` site below passes a non-empty, fresh-doc-id pair by inspection"
-)]
 mod tests {
     use super::test_utils::*;
     use super::*;
@@ -738,8 +756,7 @@ mod tests {
         // return true.
         const MAX: usize = 8;
         let mut t = TimeToLiveTable::new(NonZeroUsize::new(MAX).unwrap());
-        // SAFETY: `DOC_ID_1` is fresh; the single-entry list is non-empty.
-        unsafe { t.add(DOC_ID_1, fes([fe(FIELD_INDEX_1, PAST)])) };
+        t.add(DOC_ID_1, fes([fe(FIELD_INDEX_1, PAST)]));
 
         let unknown_collider: u64 = DOC_ID_1 + MAX as u64;
         // Be sure it is a collider
@@ -772,11 +789,9 @@ mod tests {
         assert_eq!(t.slot(DOC_ID_1), t.slot(DOC_ID_1_COLLIDER_1));
         assert_eq!(t.slot(DOC_ID_1), t.slot(DOC_ID_1_COLLIDER_2));
 
-        // SAFETY (each call below): the `doc_id` is unique across this test
-        // and each single-element list is non-empty.
-        unsafe { t.add(DOC_ID_1, fes([fe(FIELD_INDEX_1, FUTURE)])) };
-        unsafe { t.add(DOC_ID_1_COLLIDER_1, fes([fe(FIELD_INDEX_1, PAST)])) };
-        unsafe { t.add(DOC_ID_1_COLLIDER_2, fes([fe(FIELD_INDEX_1, FUTURE)])) };
+        t.add(DOC_ID_1, fes([fe(FIELD_INDEX_1, FUTURE)]));
+        t.add(DOC_ID_1_COLLIDER_1, fes([fe(FIELD_INDEX_1, PAST)]));
+        t.add(DOC_ID_1_COLLIDER_2, fes([fe(FIELD_INDEX_1, FUTURE)]));
         t.remove(DOC_ID_1);
         // Doc 9: PAST ⇒ Default false.
         assert!(!t.verify_doc_and_field(
@@ -810,8 +825,7 @@ mod tests {
         const DOC_ID_1_COLLIDER: u64 = DOC_ID_1 + MAX as u64;
 
         let mut t = TimeToLiveTable::new(NonZeroUsize::new(MAX).unwrap());
-        // SAFETY: `DOC_ID_1` is fresh; the single-element list is non-empty.
-        unsafe { t.add(DOC_ID_1, fes([fe(FIELD_INDEX_1, FUTURE)])) };
+        t.add(DOC_ID_1, fes([fe(FIELD_INDEX_1, FUTURE)]));
 
         // Slot collider
         assert_eq!(t.slot(DOC_ID_1), t.slot(DOC_ID_1_COLLIDER));
@@ -830,11 +844,9 @@ mod tests {
     fn max_size_one_collapses_every_doc_to_slot_zero() {
         const MAX: usize = 1;
         let mut t = TimeToLiveTable::new(NonZeroUsize::new(MAX).unwrap());
-        // SAFETY (each call below): doc_ids 0, 1, 2 are distinct; each
-        // single-element list is non-empty.
-        unsafe { t.add(0, fes([fe(FIELD_INDEX_1, FUTURE)])) };
-        unsafe { t.add(1, fes([fe(FIELD_INDEX_1, PAST)])) };
-        unsafe { t.add(2, fes([fe(FIELD_INDEX_1, FUTURE)])) };
+        t.add(0, fes([fe(FIELD_INDEX_1, FUTURE)]));
+        t.add(1, fes([fe(FIELD_INDEX_1, PAST)]));
+        t.add(2, fes([fe(FIELD_INDEX_1, FUTURE)]));
         assert_eq!(t.n_allocated_buckets(), 1);
         assert!(t.verify_doc_and_field(0, FIELD_INDEX_1, FieldExpirationPredicate::Default, &NOW,));
         assert!(
@@ -876,12 +888,9 @@ mod tests {
         for x in 1u64..8 {
             assert_eq!(t.slot(x), t.slot(x + CAP));
             assert_eq!(t.slot(x), t.slot(x + 2 * CAP));
-            // SAFETY (each call below): `x`, `x + CAP`, `x + 2 * CAP` are
-            // distinct and never repeat across loop iterations; each
-            // single-element list is non-empty.
-            unsafe { t.add(x, fes([fe(0, PAST)])) };
-            unsafe { t.add(x + CAP, fes([fe(0, FUTURE)])) };
-            unsafe { t.add(x + 2 * CAP, fes([fe(0, PAST)])) };
+            t.add(x, fes([fe(0, PAST)]));
+            t.add(x + CAP, fes([fe(0, FUTURE)]));
+            t.add(x + 2 * CAP, fes([fe(0, PAST)]));
         }
         for x in 1u64..8 {
             assert!(!t.verify_doc_and_field(x, 0, FieldExpirationPredicate::Default, &NOW));

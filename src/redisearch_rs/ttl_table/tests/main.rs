@@ -7,14 +7,6 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 
-// Every test in this file constructs a fresh table and inserts one or more
-// documents whose IDs are obviously distinct, paired with one or more
-// `FieldExpiration`s whose `index`es are obviously sorted ascending and
-// whose vec is non-empty. The safety preconditions of `TimeToLiveTable::add`
-// are therefore met at every call site by inspection — adding per-call
-// `// SAFETY:` comments to ~60 callsites would be more noise than signal.
-#![expect(clippy::undocumented_unsafe_blocks)]
-
 use std::num::NonZeroUsize;
 
 use ttl_table::{test_utils::*, *};
@@ -29,15 +21,13 @@ fn new_table_doesnt_allocate() {
 #[test]
 fn add_then_remove_leaves_table_empty() {
     let mut t = TimeToLiveTable::new(TEST_MAX_SIZE);
-    unsafe {
-        t.add(
-            DOC_ID_1,
-            fes([FieldExpiration {
-                index: FIELD_INDEX_1,
-                point: FUTURE,
-            }]),
-        );
-    }
+    t.add(
+        DOC_ID_1,
+        fes([FieldExpiration {
+            index: FIELD_INDEX_1,
+            point: FUTURE,
+        }]),
+    );
     assert!(!t.is_empty());
     t.remove(DOC_ID_1);
     assert!(t.is_empty());
@@ -62,7 +52,7 @@ fn field_expirations_on_empty_table_is_none() {
 fn field_expirations_returns_inserted_slice() {
     let mut t = TimeToLiveTable::new(TEST_MAX_SIZE);
     let inserted = fes([fe(FIELD_INDEX_1, FUTURE), fe(FIELD_INDEX_2, PAST)]);
-    unsafe { t.add(DOC_ID_1, inserted.clone()) };
+    t.add(DOC_ID_1, inserted.clone());
 
     let got = t.field_expirations(DOC_ID_1).expect("entry must exist");
     assert_eq!(got.len(), 2);
@@ -80,7 +70,7 @@ fn field_expirations_returns_inserted_slice() {
 #[test]
 fn field_expirations_after_remove_is_none() {
     let mut t = TimeToLiveTable::new(TEST_MAX_SIZE);
-    unsafe { t.add(DOC_ID_1, fes([fe(FIELD_INDEX_1, FUTURE)])) };
+    t.add(DOC_ID_1, fes([fe(FIELD_INDEX_1, FUTURE)]));
     assert!(t.field_expirations(DOC_ID_1).is_some());
     t.remove(DOC_ID_1);
     assert!(t.field_expirations(DOC_ID_1).is_none());
@@ -90,14 +80,14 @@ fn field_expirations_after_remove_is_none() {
 #[should_panic(expected = "at least one field expiration")]
 fn add_with_empty_fields_panics() {
     let mut t = TimeToLiveTable::new(TEST_MAX_SIZE);
-    unsafe { t.add(1, empty_fields()) };
+    t.add(1, empty_fields());
 }
 
 #[test]
 fn field_with_zero_expiration_never_expires() {
     let mut t = TimeToLiveTable::new(TEST_MAX_SIZE);
     // Field never expires
-    unsafe { t.add(DOC_ID_1, fes([fe(FIELD_INDEX_1, NEVER)])) };
+    t.add(DOC_ID_1, fes([fe(FIELD_INDEX_1, NEVER)]));
     assert!(t.verify_doc_and_field(
         DOC_ID_1,
         FIELD_INDEX_1,
@@ -116,7 +106,7 @@ fn field_with_zero_expiration_never_expires() {
 fn field_with_past_expiration_has_expired() {
     let mut t = TimeToLiveTable::new(TEST_MAX_SIZE);
     // Expired field
-    unsafe { t.add(DOC_ID_1, fes([fe(FIELD_INDEX_1, PAST)])) };
+    t.add(DOC_ID_1, fes([fe(FIELD_INDEX_1, PAST)]));
     assert!(!t.verify_doc_and_field(
         DOC_ID_1,
         FIELD_INDEX_1,
@@ -134,7 +124,7 @@ fn field_with_past_expiration_has_expired() {
 #[test]
 fn field_with_equal_expiration_has_expired() {
     let mut t = TimeToLiveTable::new(TEST_MAX_SIZE);
-    unsafe { t.add(DOC_ID_1, fes([fe(FIELD_INDEX_1, NOW)])) };
+    t.add(DOC_ID_1, fes([fe(FIELD_INDEX_1, NOW)]));
     assert!(!t.verify_doc_and_field(
         DOC_ID_1,
         FIELD_INDEX_1,
@@ -152,7 +142,7 @@ fn field_with_equal_expiration_has_expired() {
 #[test]
 fn nanoseconds_break_seconds_tie() {
     let mut t = TimeToLiveTable::new(TEST_MAX_SIZE);
-    unsafe { t.add(DOC_ID_1, fes([fe(FIELD_INDEX_1, FUTURE)])) };
+    t.add(DOC_ID_1, fes([fe(FIELD_INDEX_1, FUTURE)]));
     assert!(t.verify_doc_and_field(
         DOC_ID_1,
         FIELD_INDEX_1,
@@ -170,7 +160,7 @@ fn nanoseconds_break_seconds_tie() {
 #[test]
 fn field_with_future_expiration_has_not_expired() {
     let mut t = TimeToLiveTable::new(TEST_MAX_SIZE);
-    unsafe { t.add(DOC_ID_1, fes([fe(FIELD_INDEX_1, FAR_IN_THE_FUTURE)])) };
+    t.add(DOC_ID_1, fes([fe(FIELD_INDEX_1, FAR_IN_THE_FUTURE)]));
     assert!(t.verify_doc_and_field(
         DOC_ID_1,
         FIELD_INDEX_1,
@@ -205,7 +195,7 @@ fn verify_field_returns_true_for_unknown_doc() {
 #[test]
 fn verify_field_absent_default_returns_true() {
     let mut t = TimeToLiveTable::new(TEST_MAX_SIZE);
-    unsafe { t.add(DOC_ID_1, fes([fe(FIELD_INDEX_1, PAST)])) };
+    t.add(DOC_ID_1, fes([fe(FIELD_INDEX_1, PAST)]));
     assert!(t.verify_doc_and_field(
         DOC_ID_1,
         FIELD_INDEX_2,
@@ -243,12 +233,10 @@ fn verify_mask_returns_true_for_unknown_doc() {
 #[test]
 fn verify_mask_default_short_circuits_when_more_bits_than_field_expirations() {
     let mut t = TimeToLiveTable::new(TEST_MAX_SIZE);
-    unsafe {
-        t.add(
-            DOC_ID_1,
-            fes([fe(FIELD_INDEX_1, PAST), fe(FIELD_INDEX_2, PAST)]),
-        );
-    }
+    t.add(
+        DOC_ID_1,
+        fes([fe(FIELD_INDEX_1, PAST), fe(FIELD_INDEX_2, PAST)]),
+    );
     let map = identity_ft_id();
     assert!(t.verify_doc_and_field_mask(
         DOC_ID_1,
@@ -263,12 +251,10 @@ fn verify_mask_default_short_circuits_when_more_bits_than_field_expirations() {
 #[test]
 fn verify_mask_default_returns_false_when_all_matched_fields_expired_and_no_extras() {
     let mut t = TimeToLiveTable::new(TEST_MAX_SIZE);
-    unsafe {
-        t.add(
-            DOC_ID_1,
-            fes([fe(FIELD_INDEX_1, PAST), fe(FIELD_INDEX_2, PAST)]),
-        );
-    }
+    t.add(
+        DOC_ID_1,
+        fes([fe(FIELD_INDEX_1, PAST), fe(FIELD_INDEX_2, PAST)]),
+    );
     // Mask covers exactly the two expired fields ⇒ no field is valid.
     let map = identity_ft_id();
     assert!(!t.verify_doc_and_field_mask(
@@ -283,12 +269,10 @@ fn verify_mask_default_returns_false_when_all_matched_fields_expired_and_no_extr
 #[test]
 fn verify_mask_missing_returns_true_when_any_matched_field_expired() {
     let mut t = TimeToLiveTable::new(TEST_MAX_SIZE);
-    unsafe {
-        t.add(
-            DOC_ID_1,
-            fes([fe(FIELD_INDEX_1, FUTURE), fe(FIELD_INDEX_2, PAST)]),
-        );
-    }
+    t.add(
+        DOC_ID_1,
+        fes([fe(FIELD_INDEX_1, FUTURE), fe(FIELD_INDEX_2, PAST)]),
+    );
     let map = identity_ft_id();
     assert!(t.verify_doc_and_field_mask(
         DOC_ID_1,
@@ -302,12 +286,10 @@ fn verify_mask_missing_returns_true_when_any_matched_field_expired() {
 #[test]
 fn verify_mask_missing_returns_false_when_no_matched_field_expired() {
     let mut t = TimeToLiveTable::new(TEST_MAX_SIZE);
-    unsafe {
-        t.add(
-            DOC_ID_1,
-            fes([fe(FIELD_INDEX_1, FUTURE), fe(FIELD_INDEX_2, FUTURE)]),
-        );
-    }
+    t.add(
+        DOC_ID_1,
+        fes([fe(FIELD_INDEX_1, FUTURE), fe(FIELD_INDEX_2, FUTURE)]),
+    );
     let map = identity_ft_id();
     assert!(!t.verify_doc_and_field_mask(
         DOC_ID_1,
@@ -321,12 +303,10 @@ fn verify_mask_missing_returns_false_when_no_matched_field_expired() {
 #[test]
 fn verify_mask_default_returns_true_when_at_least_one_matched_field_valid() {
     let mut t = TimeToLiveTable::new(TEST_MAX_SIZE);
-    unsafe {
-        t.add(
-            DOC_ID_1,
-            fes([fe(FIELD_INDEX_1, PAST), fe(FIELD_INDEX_2, FUTURE)]),
-        );
-    }
+    t.add(
+        DOC_ID_1,
+        fes([fe(FIELD_INDEX_1, PAST), fe(FIELD_INDEX_2, FUTURE)]),
+    );
     let map = identity_ft_id();
     assert!(t.verify_doc_and_field_mask(
         DOC_ID_1,
@@ -347,12 +327,10 @@ fn verify_mask_skips_bits_whose_field_index_is_not_tracked() {
     // The doc only tracks FIELD_INDEX_1 and FIELD_INDEX_2; bit
     // UNTRACKED_FIELD_ID translates to FIELD_INDEX_3, which the entry
     // does not record — so the scan should treat it as "field absent".
-    unsafe {
-        t.add(
-            DOC_ID_1,
-            fes([fe(FIELD_INDEX_1, PAST), fe(FIELD_INDEX_2, PAST)]),
-        );
-    }
+    t.add(
+        DOC_ID_1,
+        fes([fe(FIELD_INDEX_1, PAST), fe(FIELD_INDEX_2, PAST)]),
+    );
     assert!(t.verify_doc_and_field_mask(
         DOC_ID_1,
         mask_bit(&[FIELD_ID as u16]),
@@ -375,16 +353,14 @@ fn verify_mask_with_sparse_monotonic_translation_table() {
     // 5 are valid.
     let map: Vec<u16> = vec![FIELD_INDEX_1, FIELD_INDEX_2, FIELD_INDEX_3, 0, 0];
     let mut t = TimeToLiveTable::new(TEST_MAX_SIZE);
-    unsafe {
-        t.add(
-            DOC_ID_1,
-            fes([
-                fe(FIELD_INDEX_1, FUTURE),
-                fe(FIELD_INDEX_2, PAST),
-                fe(FIELD_INDEX_3, FUTURE),
-            ]),
-        );
-    }
+    t.add(
+        DOC_ID_1,
+        fes([
+            fe(FIELD_INDEX_1, FUTURE),
+            fe(FIELD_INDEX_2, PAST),
+            fe(FIELD_INDEX_3, FUTURE),
+        ]),
+    );
     assert!(t.verify_doc_and_field_mask(
         DOC_ID_1,
         mask_bit(&[0, 1, 2]),
@@ -415,7 +391,7 @@ fn verify_wide_mask_high_bits_use_correct_field_index() {
     let mut map: Vec<u16> = vec![0; 128];
     map[MAPPING_BIT] = FIELD_INDEX_1;
     let mut t = TimeToLiveTable::new(TEST_MAX_SIZE);
-    unsafe { t.add(DOC_ID_1, fes([fe(FIELD_INDEX_1, PAST)])) };
+    t.add(DOC_ID_1, fes([fe(FIELD_INDEX_1, PAST)]));
     let mask: u128 = 1u128 << MAPPING_BIT;
     assert!(!t.verify_doc_and_wide_field_mask(
         DOC_ID_1,
@@ -450,7 +426,7 @@ fn verify_wide_mask_returns_true_for_unknown_doc() {
 fn bucket_array_grows_lazily_from_zero() {
     let mut t = TimeToLiveTable::new(TEST_MAX_SIZE);
     assert_eq!(t.n_allocated_buckets(), 0);
-    unsafe { t.add(0, fes([fe(FIELD_INDEX_1, FUTURE)])) };
+    t.add(0, fes([fe(FIELD_INDEX_1, FUTURE)]));
     // First grow seeds at TTL_BUCKET_INITIAL_CAP = 64.
     assert_eq!(t.n_allocated_buckets(), 64);
 }
@@ -461,7 +437,7 @@ fn bucket_array_grows_to_cover_requested_slot() {
     // doc_id 200 is past the initial-cap of 64, so growth must round up to
     // at least 201. Geometric step from 0 → 64 → 64+1+32 = 97; still not
     // enough for slot 200, so newcap is bumped to slot+1 = 201.
-    unsafe { t.add(DOC_ID_1, fes([fe(FIELD_INDEX_1, FUTURE)])) };
+    t.add(DOC_ID_1, fes([fe(FIELD_INDEX_1, FUTURE)]));
     assert!(t.n_allocated_buckets() >= (DOC_ID_1 as usize + 1));
 }
 
@@ -469,7 +445,7 @@ fn bucket_array_grows_to_cover_requested_slot() {
 fn bucket_array_never_exceeds_max_size() {
     const MAX: usize = 16;
     let mut t = TimeToLiveTable::new(NonZeroUsize::new(MAX).unwrap());
-    unsafe { t.add(0, fes([fe(0, FUTURE)])) };
+    t.add(0, fes([fe(0, FUTURE)]));
     // Initial cap of 64 gets clamped down to MAX.
     assert_eq!(t.n_allocated_buckets(), MAX);
 }
@@ -479,8 +455,8 @@ fn slot_collisions_are_handled_via_bucket_chains() {
     const MAX: usize = 8;
     let mut t = TimeToLiveTable::new(NonZeroUsize::new(MAX).unwrap());
     // doc_id 1 and doc_id 9 both land in slot 1.
-    unsafe { t.add(DOC_ID_1, fes([fe(FIELD_INDEX_1, FUTURE)])) };
-    unsafe { t.add(DOC_ID_2, fes([fe(FIELD_INDEX_1, PAST)])) };
+    t.add(DOC_ID_1, fes([fe(FIELD_INDEX_1, FUTURE)]));
+    t.add(DOC_ID_2, fes([fe(FIELD_INDEX_1, PAST)]));
     assert!(!t.is_empty());
     assert!(t.verify_doc_and_field(
         DOC_ID_1,
@@ -507,7 +483,7 @@ fn slot_collisions_are_handled_via_bucket_chains() {
 #[test]
 fn no_shrink_on_delete() {
     let mut t = TimeToLiveTable::new(TEST_MAX_SIZE);
-    unsafe { t.add(DOC_ID_1, fes([fe(0, FUTURE)])) };
+    t.add(DOC_ID_1, fes([fe(0, FUTURE)]));
     let cap_after_add = t.n_allocated_buckets();
     t.remove(DOC_ID_1);
     assert_eq!(t.n_allocated_buckets(), cap_after_add);
@@ -516,17 +492,15 @@ fn no_shrink_on_delete() {
 #[test]
 fn verify_wide_mask_with_bits_in_both_halves() {
     let mut t = TimeToLiveTable::new(TEST_MAX_SIZE);
-    unsafe {
-        t.add(
-            DOC_ID_1,
-            fes([
-                fe(FIELD_INDEX_1, PAST),
-                fe(FIELD_INDEX_2, PAST),
-                fe(FIELD_INDEX_3, FUTURE),
-                fe(FIELD_INDEX_4, PAST),
-            ]),
-        );
-    }
+    t.add(
+        DOC_ID_1,
+        fes([
+            fe(FIELD_INDEX_1, PAST),
+            fe(FIELD_INDEX_2, PAST),
+            fe(FIELD_INDEX_3, FUTURE),
+            fe(FIELD_INDEX_4, PAST),
+        ]),
+    );
     // NB: 64 and 65 fall in the second half
     let mut map = vec![0u16; 128];
     map[0] = FIELD_INDEX_1;
@@ -558,7 +532,7 @@ fn verify_mask_with_empty_mask_returns_false_for_both_predicates() {
     // ("one of the fields need to be valid"/"expired"), an empty query
     // cannot satisfy either ⇒ both predicates return false.
     let mut t = TimeToLiveTable::new(TEST_MAX_SIZE);
-    unsafe { t.add(DOC_ID_1, fes([fe(FIELD_INDEX_1, PAST)])) };
+    t.add(DOC_ID_1, fes([fe(FIELD_INDEX_1, PAST)]));
     let map = identity_ft_id();
     assert!(!t.verify_doc_and_field_mask(
         DOC_ID_1,
@@ -579,7 +553,7 @@ fn verify_mask_with_empty_mask_returns_false_for_both_predicates() {
 #[test]
 fn verify_wide_mask_with_empty_mask_returns_false_for_both_predicates() {
     let mut t = TimeToLiveTable::new(TEST_MAX_SIZE);
-    unsafe { t.add(DOC_ID_1, fes([fe(FIELD_INDEX_1, PAST)])) };
+    t.add(DOC_ID_1, fes([fe(FIELD_INDEX_1, PAST)]));
     let map = identity_ft_id();
     assert!(!t.verify_doc_and_wide_field_mask(
         DOC_ID_1,
@@ -603,7 +577,7 @@ fn verify_mask_panics_when_translation_table_is_too_short() {
     let count = 5;
 
     let mut t = TimeToLiveTable::new(TEST_MAX_SIZE);
-    unsafe { t.add(DOC_ID_1, fes([fe(FIELD_INDEX_1, FUTURE)])) };
+    t.add(DOC_ID_1, fes([fe(FIELD_INDEX_1, FUTURE)]));
     let map: Vec<u16> = vec![0u16; count];
     let _ = t.verify_doc_and_field_mask(
         DOC_ID_1,
@@ -620,7 +594,7 @@ fn verify_wide_mask_panics_when_translation_table_is_too_short() {
     let count = 70;
 
     let mut t = TimeToLiveTable::new(TEST_MAX_SIZE);
-    unsafe { t.add(DOC_ID_1, fes([fe(FIELD_INDEX_1, FUTURE)])) };
+    t.add(DOC_ID_1, fes([fe(FIELD_INDEX_1, FUTURE)]));
     let map: Vec<u16> = vec![0u16; count];
     let _ = t.verify_doc_and_wide_field_mask(
         DOC_ID_1,
@@ -638,17 +612,17 @@ fn add_duplicate_doc_id_panics_in_debug() {
     // Per docs: in debug builds, `add` panics if `doc_id` is already
     // present in the table.
     let mut t = TimeToLiveTable::new(TEST_MAX_SIZE);
-    unsafe { t.add(DOC_ID_1, fes([fe(FIELD_INDEX_1, FUTURE)])) };
-    unsafe { t.add(DOC_ID_1, fes([fe(FIELD_INDEX_2, FUTURE)])) };
+    t.add(DOC_ID_1, fes([fe(FIELD_INDEX_1, FUTURE)]));
+    t.add(DOC_ID_1, fes([fe(FIELD_INDEX_2, FUTURE)]));
 }
 
 #[test]
 fn add_then_remove_then_add_keeps_count_consistent() {
     let mut t = TimeToLiveTable::new(TEST_MAX_SIZE);
-    unsafe { t.add(DOC_ID_1, fes([fe(FIELD_INDEX_1, PAST)])) };
+    t.add(DOC_ID_1, fes([fe(FIELD_INDEX_1, PAST)]));
     t.remove(DOC_ID_1);
     assert!(t.is_empty());
-    unsafe { t.add(DOC_ID_1, fes([fe(FIELD_INDEX_2, FUTURE)])) };
+    t.add(DOC_ID_1, fes([fe(FIELD_INDEX_2, FUTURE)]));
     assert!(!t.is_empty());
 
     assert!(t.verify_doc_and_field(
@@ -684,7 +658,7 @@ fn add_then_remove_then_add_keeps_count_consistent() {
 #[test]
 fn remove_same_doc_twice_is_idempotent() {
     let mut t = TimeToLiveTable::new(TEST_MAX_SIZE);
-    unsafe { t.add(DOC_ID_1, fes([fe(FIELD_INDEX_1, FUTURE)])) };
+    t.add(DOC_ID_1, fes([fe(FIELD_INDEX_1, FUTURE)]));
     t.remove(DOC_ID_1);
     t.remove(DOC_ID_1);
     assert!(t.is_empty());
@@ -693,9 +667,7 @@ fn remove_same_doc_twice_is_idempotent() {
 #[test]
 fn verify_field_walks_multi_field_entry() {
     let mut t = TimeToLiveTable::new(TEST_MAX_SIZE);
-    unsafe {
-        t.add(DOC_ID_1, fes([fe(1, FUTURE), fe(3, PAST), fe(5, FUTURE)]));
-    }
+    t.add(DOC_ID_1, fes([fe(1, FUTURE), fe(3, PAST), fe(5, FUTURE)]));
     // Field 1: FUTURE.
     assert!(t.verify_doc_and_field(DOC_ID_1, 1, FieldExpirationPredicate::Default, &NOW));
     assert!(!t.verify_doc_and_field(DOC_ID_1, 1, FieldExpirationPredicate::Missing, &NOW));
@@ -721,18 +693,16 @@ fn verify_mask_interleaved_skip_and_match_pattern() {
     // Entry: 5 fields at indices 1, 3, 5, 7, 9.
     // Identity translation lets us mix tracked and untracked bits.
     let mut t = TimeToLiveTable::new(TEST_MAX_SIZE);
-    unsafe {
-        t.add(
-            DOC_ID_1,
-            fes([
-                fe(1, PAST),
-                fe(3, FUTURE),
-                fe(5, PAST),
-                fe(7, FUTURE),
-                fe(9, PAST),
-            ]),
-        );
-    }
+    t.add(
+        DOC_ID_1,
+        fes([
+            fe(1, PAST),
+            fe(3, FUTURE),
+            fe(5, PAST),
+            fe(7, FUTURE),
+            fe(9, PAST),
+        ]),
+    );
     let map = identity_ft_id();
 
     // Mask {1, 2, 3, 5, 7}: 5 bits, entry has 5 fields ⇒ no Default
@@ -783,7 +753,7 @@ fn field_with_zero_seconds_but_nonzero_nanos_is_not_the_never_sentinel() {
     // tv_sec == 0 but tv_nsec > 0 is a legitimate time (1ns past
     // epoch), which is in the past relative to NOW ⇒ expired.
     let mut t = TimeToLiveTable::new(TEST_MAX_SIZE);
-    unsafe { t.add(DOC_ID_1, fes([fe(FIELD_INDEX_1, ts(0, 1))])) };
+    t.add(DOC_ID_1, fes([fe(FIELD_INDEX_1, ts(0, 1))]));
     assert!(!t.verify_doc_and_field(
         DOC_ID_1,
         FIELD_INDEX_1,
@@ -806,7 +776,7 @@ fn verify_wide_mask_at_bit_64_uses_correct_field_index() {
     let mut map = vec![0u16; 128];
     map[64] = FIELD_INDEX_1;
     let mut t = TimeToLiveTable::new(TEST_MAX_SIZE);
-    unsafe { t.add(DOC_ID_1, fes([fe(FIELD_INDEX_1, PAST)])) };
+    t.add(DOC_ID_1, fes([fe(FIELD_INDEX_1, PAST)]));
     let mask = mask_bit_u128(&[64]);
     assert!(!t.verify_doc_and_wide_field_mask(
         DOC_ID_1,
@@ -829,7 +799,7 @@ fn verify_wide_mask_at_bit_127_uses_correct_field_index() {
     let mut map = vec![0u16; 128];
     map[127] = FIELD_INDEX_1;
     let mut t = TimeToLiveTable::new(TEST_MAX_SIZE);
-    unsafe { t.add(DOC_ID_1, fes([fe(FIELD_INDEX_1, FUTURE)])) };
+    t.add(DOC_ID_1, fes([fe(FIELD_INDEX_1, FUTURE)]));
     let mask = mask_bit_u128(&[127]);
     assert!(t.verify_doc_and_wide_field_mask(
         DOC_ID_1,
@@ -850,12 +820,10 @@ fn verify_wide_mask_at_bit_127_uses_correct_field_index() {
 #[test]
 fn verify_wide_mask_default_short_circuits_when_more_bits_than_field_expirations() {
     let mut t = TimeToLiveTable::new(TEST_MAX_SIZE);
-    unsafe {
-        t.add(
-            DOC_ID_1,
-            fes([fe(FIELD_INDEX_1, PAST), fe(FIELD_INDEX_2, PAST)]),
-        );
-    }
+    t.add(
+        DOC_ID_1,
+        fes([fe(FIELD_INDEX_1, PAST), fe(FIELD_INDEX_2, PAST)]),
+    );
     let map = identity_ft_id();
     let mask = mask_bit_u128(&[0, 1, 2, 3, 4, 5, 6, 7, 8, 9]);
     assert!(t.verify_doc_and_wide_field_mask(
@@ -870,12 +838,10 @@ fn verify_wide_mask_default_short_circuits_when_more_bits_than_field_expirations
 #[test]
 fn verify_wide_mask_default_returns_false_when_all_matched_fields_expired_and_no_extras() {
     let mut t = TimeToLiveTable::new(TEST_MAX_SIZE);
-    unsafe {
-        t.add(
-            DOC_ID_1,
-            fes([fe(FIELD_INDEX_1, PAST), fe(FIELD_INDEX_2, PAST)]),
-        );
-    }
+    t.add(
+        DOC_ID_1,
+        fes([fe(FIELD_INDEX_1, PAST), fe(FIELD_INDEX_2, PAST)]),
+    );
     let map = identity_ft_id();
     let mask = mask_bit_u128(&[FIELD_INDEX_1, FIELD_INDEX_2]);
     assert!(!t.verify_doc_and_wide_field_mask(
@@ -890,12 +856,10 @@ fn verify_wide_mask_default_returns_false_when_all_matched_fields_expired_and_no
 #[test]
 fn verify_wide_mask_missing_returns_true_when_any_matched_field_expired() {
     let mut t = TimeToLiveTable::new(TEST_MAX_SIZE);
-    unsafe {
-        t.add(
-            DOC_ID_1,
-            fes([fe(FIELD_INDEX_1, FUTURE), fe(FIELD_INDEX_2, PAST)]),
-        );
-    }
+    t.add(
+        DOC_ID_1,
+        fes([fe(FIELD_INDEX_1, FUTURE), fe(FIELD_INDEX_2, PAST)]),
+    );
     let map = identity_ft_id();
     let mask = mask_bit_u128(&[FIELD_INDEX_1, FIELD_INDEX_2]);
     assert!(t.verify_doc_and_wide_field_mask(
@@ -910,12 +874,10 @@ fn verify_wide_mask_missing_returns_true_when_any_matched_field_expired() {
 #[test]
 fn verify_wide_mask_missing_returns_false_when_no_matched_field_expired() {
     let mut t = TimeToLiveTable::new(TEST_MAX_SIZE);
-    unsafe {
-        t.add(
-            DOC_ID_1,
-            fes([fe(FIELD_INDEX_1, FUTURE), fe(FIELD_INDEX_2, FUTURE)]),
-        );
-    }
+    t.add(
+        DOC_ID_1,
+        fes([fe(FIELD_INDEX_1, FUTURE), fe(FIELD_INDEX_2, FUTURE)]),
+    );
     let map = identity_ft_id();
     let mask = mask_bit_u128(&[FIELD_INDEX_1, FIELD_INDEX_2]);
     assert!(!t.verify_doc_and_wide_field_mask(
@@ -933,12 +895,10 @@ fn verify_wide_mask_skips_bits_whose_field_index_is_not_tracked() {
     let mut map: Vec<u16> = (0u16..128).collect();
     map[FIELD_ID] = FIELD_INDEX_3;
     let mut t = TimeToLiveTable::new(TEST_MAX_SIZE);
-    unsafe {
-        t.add(
-            DOC_ID_1,
-            fes([fe(FIELD_INDEX_1, PAST), fe(FIELD_INDEX_2, PAST)]),
-        );
-    }
+    t.add(
+        DOC_ID_1,
+        fes([fe(FIELD_INDEX_1, PAST), fe(FIELD_INDEX_2, PAST)]),
+    );
     let mask = mask_bit_u128(&[FIELD_ID as u16]);
     // Untracked field ⇒ Default true, Missing false.
     assert!(t.verify_doc_and_wide_field_mask(
@@ -964,11 +924,11 @@ fn bucket_array_grows_geometrically_across_multiple_steps() {
     //   step 2: 64 → 64+1+32 = 97 (slot 64 forces a grow)
     //   step 3: 97 → 97+1+48 = 146 (slot 97 forces a grow)
     let mut t = TimeToLiveTable::new(TEST_MAX_SIZE);
-    unsafe { t.add(0, fes([fe(FIELD_INDEX_1, FUTURE)])) };
+    t.add(0, fes([fe(FIELD_INDEX_1, FUTURE)]));
     assert_eq!(t.n_allocated_buckets(), 64);
-    unsafe { t.add(64, fes([fe(FIELD_INDEX_1, FUTURE)])) };
+    t.add(64, fes([fe(FIELD_INDEX_1, FUTURE)]));
     assert_eq!(t.n_allocated_buckets(), 97);
-    unsafe { t.add(97, fes([fe(FIELD_INDEX_1, FUTURE)])) };
+    t.add(97, fes([fe(FIELD_INDEX_1, FUTURE)]));
     assert_eq!(t.n_allocated_buckets(), 146);
 }
 
@@ -978,7 +938,7 @@ fn bucket_array_rounds_up_to_slot_plus_one_when_geometric_step_too_small() {
     // First add into slot 500: initial cap of 64 is too small, so the
     // final cap must be `slot + 1 = 501`.
     let mut t = TimeToLiveTable::new(TEST_MAX_SIZE);
-    unsafe { t.add(500, fes([fe(FIELD_INDEX_1, FUTURE)])) };
+    t.add(500, fes([fe(FIELD_INDEX_1, FUTURE)]));
     assert_eq!(t.n_allocated_buckets(), 501);
 }
 
@@ -986,7 +946,7 @@ fn bucket_array_rounds_up_to_slot_plus_one_when_geometric_step_too_small() {
 fn add_at_max_size_minus_one_works() {
     const MAX: usize = 16;
     let mut t = TimeToLiveTable::new(NonZeroUsize::new(MAX).unwrap());
-    unsafe { t.add((MAX - 1) as u64, fes([fe(FIELD_INDEX_1, FUTURE)])) };
+    t.add((MAX - 1) as u64, fes([fe(FIELD_INDEX_1, FUTURE)]));
     assert!(!t.is_empty());
     assert!(t.verify_doc_and_field(
         (MAX - 1) as u64,
@@ -999,11 +959,11 @@ fn add_at_max_size_minus_one_works() {
 #[test]
 fn multiple_docs_on_distinct_slots_are_independently_retrievable() {
     let mut t = TimeToLiveTable::new(TEST_MAX_SIZE);
-    unsafe { t.add(1, fes([fe(FIELD_INDEX_1, FUTURE)])) };
-    unsafe { t.add(2, fes([fe(FIELD_INDEX_1, PAST)])) };
-    unsafe { t.add(3, fes([fe(FIELD_INDEX_1, FUTURE)])) };
-    unsafe { t.add(4, fes([fe(FIELD_INDEX_1, PAST)])) };
-    unsafe { t.add(5, fes([fe(FIELD_INDEX_1, FUTURE)])) };
+    t.add(1, fes([fe(FIELD_INDEX_1, FUTURE)]));
+    t.add(2, fes([fe(FIELD_INDEX_1, PAST)]));
+    t.add(3, fes([fe(FIELD_INDEX_1, FUTURE)]));
+    t.add(4, fes([fe(FIELD_INDEX_1, PAST)]));
+    t.add(5, fes([fe(FIELD_INDEX_1, FUTURE)]));
     // FUTURE ⇒ Default true; PAST ⇒ Default false.
     assert!(t.verify_doc_and_field(1, FIELD_INDEX_1, FieldExpirationPredicate::Default, &NOW));
     assert!(!t.verify_doc_and_field(2, FIELD_INDEX_1, FieldExpirationPredicate::Default, &NOW));
@@ -1024,12 +984,10 @@ fn verify_mask_with_two_bits_translating_to_same_field_index() {
     map[0] = FIELD_INDEX_1;
     map[1] = FIELD_INDEX_1;
     let mut t = TimeToLiveTable::new(TEST_MAX_SIZE);
-    unsafe {
-        t.add(
-            DOC_ID_1,
-            fes([fe(FIELD_INDEX_1, FUTURE), fe(FIELD_INDEX_2, FUTURE)]),
-        );
-    }
+    t.add(
+        DOC_ID_1,
+        fes([fe(FIELD_INDEX_1, FUTURE), fe(FIELD_INDEX_2, FUTURE)]),
+    );
     let mask = mask_bit(&[0, 1]);
 
     assert!(t.verify_doc_and_field_mask(
@@ -1052,7 +1010,7 @@ fn verify_mask_with_two_bits_translating_to_same_field_index() {
 #[test]
 fn verify_mask_with_all_bits_set_default_short_circuits_to_true() {
     let mut t = TimeToLiveTable::new(TEST_MAX_SIZE);
-    unsafe { t.add(DOC_ID_1, fes([fe(FIELD_INDEX_1, PAST)])) };
+    t.add(DOC_ID_1, fes([fe(FIELD_INDEX_1, PAST)]));
     let map = identity_ft_id();
     assert!(t.verify_doc_and_field_mask(
         DOC_ID_1,
@@ -1066,7 +1024,7 @@ fn verify_mask_with_all_bits_set_default_short_circuits_to_true() {
 #[test]
 fn verify_wide_mask_with_all_bits_set_default_short_circuits_to_true() {
     let mut t = TimeToLiveTable::new(TEST_MAX_SIZE);
-    unsafe { t.add(DOC_ID_1, fes([fe(FIELD_INDEX_1, PAST)])) };
+    t.add(DOC_ID_1, fes([fe(FIELD_INDEX_1, PAST)]));
     let map = identity_ft_id();
     assert!(t.verify_doc_and_wide_field_mask(
         DOC_ID_1,
@@ -1080,7 +1038,7 @@ fn verify_wide_mask_with_all_bits_set_default_short_circuits_to_true() {
 #[test]
 fn doc_id_zero_is_a_valid_doc_id() {
     let mut t = TimeToLiveTable::new(TEST_MAX_SIZE);
-    unsafe { t.add(0, fes([fe(FIELD_INDEX_1, FUTURE)])) };
+    t.add(0, fes([fe(FIELD_INDEX_1, FUTURE)]));
     assert!(!t.is_empty());
     assert!(t.verify_doc_and_field(0, FIELD_INDEX_1, FieldExpirationPredicate::Default, &NOW,));
     t.remove(0);
@@ -1100,7 +1058,7 @@ fn high_density_chain_alternating_states_with_swap_last_removes() {
 
     for d in 1..=N {
         let point = if d & 1 == 1 { PAST } else { FUTURE };
-        unsafe { t.add(d, fes([fe(0, point)])) };
+        t.add(d, fes([fe(0, point)]));
     }
     for d in 1..=N {
         let valid = t.verify_doc_and_field(d, 0, FieldExpirationPredicate::Default, &NOW);
@@ -1143,7 +1101,7 @@ fn production_scale_max_size_keeps_cap_proportional_to_use() {
 
     let small_ids: [u64; 4] = [1, 5, 42, 100];
     for d in small_ids {
-        unsafe { t.add(d, fes([fe(0, PAST)])) };
+        t.add(d, fes([fe(0, PAST)]));
     }
     let cap_after_small = t.n_allocated_buckets();
     assert!(
@@ -1157,7 +1115,7 @@ fn production_scale_max_size_keeps_cap_proportional_to_use() {
 
     // Reads for docIds whose slot is still unallocated report "no TTL".
     assert!(t.verify_doc_and_field(999_999, 0, FieldExpirationPredicate::Default, &NOW));
-    unsafe { t.add(999_999, fes([fe(0, PAST)])) };
+    t.add(999_999, fes([fe(0, PAST)]));
     assert!(t.n_allocated_buckets() >= 1_000_000);
     assert!(!t.verify_doc_and_field(999_999, 0, FieldExpirationPredicate::Default, &NOW));
 
@@ -1171,7 +1129,7 @@ fn production_scale_max_size_keeps_cap_proportional_to_use() {
     // Wrap-around docId routes via modulo into an already-allocated slot,
     // so cap must NOT change.
     let cap_before_wrap = t.n_allocated_buckets();
-    unsafe { t.add(MAX as u64 + 5, fes([fe(0, PAST)])) };
+    t.add(MAX as u64 + 5, fes([fe(0, PAST)]));
     assert_eq!(t.n_allocated_buckets(), cap_before_wrap);
     assert!(!t.verify_doc_and_field(MAX as u64 + 5, 0, FieldExpirationPredicate::Default, &NOW,));
     // The original docId=5 entry must remain distinct from the wrap.
