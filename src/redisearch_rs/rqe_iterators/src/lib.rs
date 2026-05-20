@@ -18,6 +18,7 @@ use ::inverted_index::t_fieldMask;
 use index_result::{RSIndexResult, RawIndexResult};
 use query_term::RSQueryTerm;
 
+pub mod boxed;
 pub mod c2rust;
 pub mod empty;
 pub mod expiration_checker;
@@ -43,6 +44,10 @@ mod union_trimmed;
 pub mod utils;
 pub mod wildcard;
 
+pub use boxed::{
+    BoxedRQEIterator, BoxedRQESuspendedIterator, RQEDynIterator, RQEDynSuspendedIterator,
+    RQEIteratorBoxed, RQESuspendedIterator,
+};
 pub use empty::Empty;
 pub use expiration_checker::{ExpirationChecker, FieldExpirationChecker, NoOpChecker};
 pub use id_list::IdList;
