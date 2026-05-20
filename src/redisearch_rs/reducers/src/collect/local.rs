@@ -248,9 +248,13 @@ impl LocalCollectCtx {
                 );
                 continue;
             }
+            // Shard payloads carry no document id, so the tie-break
+            // collapses on coord (matches FT.AGGREGATE SORTBY coord
+            // semantics).
             self.storage.insert_entry(
                 || snapshot_sort_keys(r.fields.sort_key_names(), item),
                 || r.fields.prepare_row(item, &mut self.lookup),
+                0,
             );
         }
     }

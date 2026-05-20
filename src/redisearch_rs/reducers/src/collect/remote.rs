@@ -107,6 +107,10 @@ pub struct RemoteCollectReducer<'a> {
     fields: Fields<'a>,
     limit: Option<(u64, u64)>,
     is_internal: bool,
+    /// Hidden `__docid` lookup key. Set by the FFI constructor; the C
+    /// grouper writes the upstream document id to this slot per row, and
+    /// [`RemoteCollectCtx::add`] reads it back to feed the heap tie-break.
+    doc_id_key: Option<&'a RLookupKey<'a>>,
 }
 
 const _: () = assert!(core::mem::offset_of!(RemoteCollectReducer<'_>, reducer) == 0);
@@ -132,6 +136,7 @@ impl<'a> RemoteCollectReducer<'a> {
         sort_asc_map: u64,
         limit: Option<(u64, u64)>,
         is_internal: bool,
+        doc_id_key: Option<&'a RLookupKey<'a>>,
     ) -> Self {
         let fields = match srclookup {
             Some(src_lookup) => Fields::All {
@@ -150,7 +155,12 @@ impl<'a> RemoteCollectReducer<'a> {
             fields,
             limit,
             is_internal,
+            doc_id_key,
         }
+    }
+
+    pub const fn doc_id_key(&self) -> Option<&'a RLookupKey<'a>> {
+        self.doc_id_key
     }
 
     pub const fn reducer_mut(&mut self) -> &mut Reducer {
@@ -249,7 +259,17 @@ impl RemoteCollectCtx {
             }
             dst
         };
-        self.storage.insert_entry(sort_vals, project);
+        // Read the doc id the grouper planted into the hidden `__docid`
+        // slot. Falls back to 0 when the key is absent (no grouper above us)
+        // or the slot is unset (pre-existing row from a context that didn't
+        // run through `Grouper_rpAccum`).
+        let doc_id = r
+            .doc_id_key
+            .and_then(|k| row.get(k))
+            .and_then(|v| v.as_num())
+            .map(|n| n as ffi::t_docId)
+            .unwrap_or(0);
+        self.storage.insert_entry(sort_vals, project, doc_id);
     }
 
     /// Serialize the buffered rows into an array of maps. Keys absent from a

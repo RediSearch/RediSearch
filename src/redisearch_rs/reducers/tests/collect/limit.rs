@@ -116,6 +116,7 @@ fn remote_internal_mode_does_not_apply_limit_offset_locally() {
             SORT_ASC,
             Some((5, 3)),
             is_internal,
+            None,
         );
         let mut ctx = RemoteCollectCtx::new(&r);
         for i in 0..10 {

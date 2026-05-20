@@ -23,6 +23,7 @@
 //! current worst — see [`super::storage`].
 //!
 
+use ffi::t_docId;
 use std::cmp::Ordering;
 use value::SharedValue;
 use value::comparison::cmp_fields;
@@ -32,16 +33,29 @@ use value::comparison::cmp_fields;
 ///
 /// Bit `i` of `sort_asc_map` (LSB-first) selects ASC for the `i`-th key
 /// (set) or DESC (clear), matching `SORTASCMAP_GETASC` / `cmp_fields`.
+///
+/// `doc_id` is the secondary key used when all `sort_vals` compare equal,
+/// mirroring `SearchResult_CmpByFields`. On shards it is the upstream
+/// document id read out of the hidden `__docid` slot that the C grouper
+/// plants on every row; on the coordinator shard payloads carry no
+/// document id, so it is always `0` and the tie-break collapses
+/// (matching FT.AGGREGATE SORTBY coord semantics).
 pub struct EntryKey {
     sort_vals: Box<[Option<SharedValue>]>,
     sort_asc_map: u64,
+    doc_id: t_docId,
 }
 
 impl EntryKey {
-    pub const fn new(sort_vals: Box<[Option<SharedValue>]>, sort_asc_map: u64) -> Self {
+    pub const fn new(
+        sort_vals: Box<[Option<SharedValue>]>,
+        sort_asc_map: u64,
+        doc_id: t_docId,
+    ) -> Self {
         Self {
             sort_vals,
             sort_asc_map,
+            doc_id,
         }
     }
 }
@@ -72,11 +86,21 @@ impl Ord for EntryKey {
             .iter()
             .zip(other.sort_vals.iter())
             .map(|(a, b)| (a.as_deref(), b.as_deref()));
-        // Direct delegation: `cmp_fields` already returns
-        // `Ordering::Greater` for the "better" side, matching the
-        // "best = max" convention in `SearchResult_CmpByFields` and the
-        // C `RPSorter`'s `mmh_pop_max` consumer.
-        cmp_fields(pairs, self.sort_asc_map, None)
+        // `cmp_fields` returns `Ordering::Greater` for the "better" side
+        // (matching the "best = max" convention in `SearchResult_CmpByFields`
+        // and the C `RPSorter`'s `mmh_pop_max` consumer).
+        match cmp_fields(pairs, self.sort_asc_map, None) {
+            Ordering::Equal => {
+                // Tiebreak by docid — ascending uses the last key's flag,
+                // matching the original C loop where `ascending` retains its
+                // last value. Identical to `SearchResult_CmpByFields`
+                let nkeys = self.sort_vals.len();
+                let ascending = nkeys > 0 && (self.sort_asc_map & (1u64 << (nkeys - 1))) != 0;
+                let raw = self.doc_id.cmp(&other.doc_id);
+                if ascending { raw.reverse() } else { raw }
+            }
+            ord => ord,
+        }
     }
 }
 

@@ -65,6 +65,7 @@ impl RemoteCollectFixture {
             0,
             None,
             is_internal,
+            None,
         )
     }
 
@@ -108,6 +109,7 @@ pub(super) fn run_collect(
         sort_asc_map,
         limit,
         /* is_internal */ false,
+        None,
     );
     let mut ctx = RemoteCollectCtx::new(&r);
     for (projected, sort_vals) in rows {

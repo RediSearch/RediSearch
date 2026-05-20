@@ -17,6 +17,7 @@
 //!   primitive defined in [`super::heap`] and draining best→worst.
 //!   Suitable when a ranked top-K is needed.
 
+use ffi::t_docId;
 use itertools::Either;
 use min_max_heap::MinMaxHeap;
 use rlookup::RLookupRow;
@@ -86,7 +87,10 @@ impl Storage {
     ///   the current worst).
     ///
     /// Returns `true` if the entry was buffered, `false` if it was dropped.
-    pub fn insert_entry<S, P>(&mut self, sort_vals: S, project: P) -> bool
+    ///
+    /// `doc_id` is the upstream document id used as a secondary tie-breaker
+    /// in the heap comparator (see [`EntryKey`]). Ignored by the array path.
+    pub fn insert_entry<S, P>(&mut self, sort_vals: S, project: P, doc_id: t_docId) -> bool
     where
         S: FnOnce() -> Box<[Option<SharedValue>]>,
         P: FnOnce() -> RLookupRow<'static>,
@@ -114,11 +118,11 @@ impl Storage {
                     return false;
                 }
                 if heap.len() < max_size {
-                    let key = EntryKey::new(sort_vals(), *sort_asc_map);
+                    let key = EntryKey::new(sort_vals(), *sort_asc_map, doc_id);
                     heap.push(HeapEntry::new(key, project()));
                     true
                 } else {
-                    let cand_key = EntryKey::new(sort_vals(), *sort_asc_map);
+                    let cand_key = EntryKey::new(sort_vals(), *sort_asc_map, doc_id);
                     // `peek_min` returns the worst surviving candidate
                     // under the "best = max" convention (see `heap`).
                     // The unwrap is sound: `cap > 0` implies the heap is

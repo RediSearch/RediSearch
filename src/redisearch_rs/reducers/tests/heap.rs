@@ -20,8 +20,13 @@ use value::SharedValue;
 redis_mock::mock_or_stub_missing_redis_c_symbols!();
 
 /// Builds an [`EntryKey`] from `f64`s — `f64::NAN` projects to `None` so tests
-/// can exercise the missing-worst policy.
+/// can exercise the missing-worst policy. Doc id defaults to `0`; use
+/// [`key_with_docid`] to exercise tie-break behavior.
 fn key(vals: &[f64], asc: u64) -> EntryKey {
+    key_with_docid(vals, asc, 0)
+}
+
+fn key_with_docid(vals: &[f64], asc: u64, doc_id: u64) -> EntryKey {
     let snapshot: Box<[Option<SharedValue>]> = vals
         .iter()
         .map(|v| {
@@ -32,7 +37,7 @@ fn key(vals: &[f64], asc: u64) -> EntryKey {
             }
         })
         .collect();
-    EntryKey::new(snapshot, asc)
+    EntryKey::new(snapshot, asc, doc_id)
 }
 
 /// Bit `i` ASC.
@@ -161,4 +166,42 @@ fn min_max_heap_top_k_under_asc() {
     // Sorted drain best→worst = ASC top-K = 1,2,3.
     let drained: Vec<u64> = heap.drain_desc().map(HeapEntry::into_projected).collect();
     assert_eq!(drained, vec![1, 2, 3]);
+}
+
+#[test]
+fn ord_tiebreak_by_docid_under_asc_last_key() {
+    // ASC last key + tied sort_vals → smaller doc_id is "better" (i.e.
+    // returns `Greater` under the heap's "best = max" convention).
+    let a = key_with_docid(&[1.0], asc(0), 10);
+    let b = key_with_docid(&[1.0], asc(0), 20);
+    assert_eq!(a.cmp(&b), Ordering::Greater);
+    assert_eq!(b.cmp(&a), Ordering::Less);
+}
+
+#[test]
+fn ord_tiebreak_by_docid_under_desc_last_key() {
+    let a = key_with_docid(&[1.0], 0, 20);
+    let b = key_with_docid(&[1.0], 0, 10);
+    assert_eq!(a.cmp(&b), Ordering::Greater);
+    assert_eq!(b.cmp(&a), Ordering::Less);
+}
+
+#[test]
+fn ord_tiebreak_direction_follows_last_key() {
+    // ASC then DESC → tie-break direction follows last key (DESC).
+    let a = key_with_docid(&[1.0, 5.0], asc(0), 20);
+    let b = key_with_docid(&[1.0, 5.0], asc(0), 10);
+    assert_eq!(a.cmp(&b), Ordering::Greater);
+
+    // ASC then ASC → larger doc_id loses.
+    let a = key_with_docid(&[1.0, 5.0], asc(0) | asc(1), 20);
+    let b = key_with_docid(&[1.0, 5.0], asc(0) | asc(1), 10);
+    assert_eq!(a.cmp(&b), Ordering::Less);
+}
+
+#[test]
+fn ord_tiebreak_only_kicks_in_on_full_tie() {
+    let a = key_with_docid(&[1.0], asc(0), u64::MAX);
+    let b = key_with_docid(&[2.0], asc(0), 0);
+    assert_eq!(a.cmp(&b), Ordering::Greater);
 }
