@@ -1,4 +1,4 @@
-redisbench_admin>=0.12.29
+redisbench_admin @ git+https://github.com/redis-performance/redisbench-admin.git@ce2911b9bd048a0e933fee16e4fb7497cbafda69
 numpy>=2.0.0
 pandas
 requests
