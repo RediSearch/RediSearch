@@ -252,6 +252,17 @@ pub const fn assert_layout_compatible<A, B>() {
     );
 }
 
+/// Compile-time assertion that resuming `I`'s suspended form yields `I`.
+///
+/// Relabelling a slot back to `I` after [`resume_child_slot_in_place`] needs
+/// this type identity; equal layouts alone do not make the value valid as `I`.
+pub const fn assert_resumes_to_itself<I>()
+where
+    I: RQEIteratorBoxed<'static>,
+    I::Suspended: RQESuspendedIterator<'static, Resumed<'static> = I>,
+{
+}
+
 /// Suspend, in place, an iterator whose only [`Ref`](ref_mode::Ref)-dependent
 /// state is the owned result `result` projects onto, returning `slot` as its
 /// suspended form `S`. The allocation never moves.
