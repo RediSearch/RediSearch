@@ -99,7 +99,7 @@ FGCError FGC_parentHandleMissingDocs(ForkGC *gc) {
     // Sample memory and block count before the destructor callback (InvIndFreeCb) frees
     // the index without spec context.
     info.bytes_freed += InvertedIndex_MemUsage(idx);
-    IndexStats_BlockCountAdd(&sctx->spec->stats, -(ptrdiff_t)InvertedIndex_NumBlocks(idx));
+    IndexStats_BlockCountAdd(&sctx->spec->stats, -(int64_t)InvertedIndex_NumBlocks(idx));
     dictDelete(sctx->spec->missingFieldDict, fieldName);
   }
   FGC_updateStats(gc, sctx, info.entries_removed, info.bytes_freed, info.bytes_allocated, info.ignored_last_block);

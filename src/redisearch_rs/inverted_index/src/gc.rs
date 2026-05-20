@@ -88,7 +88,7 @@ pub struct GcApplyInfo {
     /// Net change in the index's block count for this apply. Positive when blocks were added
     /// (e.g. a `Replace` repair adding more blocks than it removed), negative when removed.
     /// Callers maintaining per-spec totals should add this signed value to their counter.
-    pub block_count_delta: isize,
+    pub block_count_delta: i64,
 
     /// Whether or not we ignored the last block in the index, since it changed
     /// compared to the time we performed the scan
@@ -289,7 +289,7 @@ impl<E: Encoder + DecodedBy> InvertedIndex<E> {
             }
         }
 
-        info.block_count_delta = self.blocks.len() as isize - blocks_before as isize;
+        info.block_count_delta = self.blocks.len() as i64 - blocks_before as i64;
         self.gc_marker_inc();
 
         info

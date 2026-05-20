@@ -168,7 +168,7 @@ FGCError FGC_parentHandleTags(ForkGC *gc) {
       // Sample memory and block count before the TrieMap destructor callback frees the
       // index without spec context.
       info.bytes_freed += InvertedIndex_MemUsage(idx);
-      IndexStats_BlockCountAdd(&sctx->spec->stats, -(ptrdiff_t)InvertedIndex_NumBlocks(idx));
+      IndexStats_BlockCountAdd(&sctx->spec->stats, -(int64_t)InvertedIndex_NumBlocks(idx));
       TrieMap_Delete(tagIdx->values, tagVal, tagValLen, (void (*)(void *))InvertedIndex_Free);
 
       if (tagIdx->suffix) {

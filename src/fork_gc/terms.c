@@ -111,7 +111,7 @@ FGCError FGC_parentHandleTerms(ForkGC *gc) {
       size_t remaining_blocks = InvertedIndex_NumBlocks(idx);
       if (dictDelete(sctx->spec->keysDict, &termKey) == DICT_OK) {
         info.bytes_freed += inv_idx_size;
-        IndexStats_BlockCountAdd(&sctx->spec->stats, -(ptrdiff_t)remaining_blocks);
+        IndexStats_BlockCountAdd(&sctx->spec->stats, -(int64_t)remaining_blocks);
       }
     }
 

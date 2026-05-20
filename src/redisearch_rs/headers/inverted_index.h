@@ -178,7 +178,7 @@ typedef struct II_GCScanStats {
    * (e.g. a `Replace` repair adding more blocks than it removed), negative when removed.
    * Callers maintaining per-spec totals should add this signed value to their counter.
    */
-  ptrdiff_t block_count_delta;
+  int64_t block_count_delta;
   /**
    * Whether or not we ignored the last block in the index, since it changed
    * compared to the time we performed the scan

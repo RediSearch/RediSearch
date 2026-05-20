@@ -85,7 +85,7 @@ FGCError FGC_parentHandleExistingDocs(ForkGC *gc) {
     // Sample memory and block count before freeing the index — `InvertedIndex_Free`
     // doesn't know about the owning spec.
     info.bytes_freed += InvertedIndex_MemUsage(idx);
-    IndexStats_BlockCountAdd(&sp->stats, -(ptrdiff_t)InvertedIndex_NumBlocks(idx));
+    IndexStats_BlockCountAdd(&sp->stats, -(int64_t)InvertedIndex_NumBlocks(idx));
     InvertedIndex_Free(idx);
     sp->existingDocs = NULL;
   }

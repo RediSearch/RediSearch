@@ -178,7 +178,7 @@ typedef struct {
 // Atomically apply `delta` to `stats->totalInvertedIndexBlocks`. Accepts signed deltas:
 // negative values wrap via size_t two's-complement, producing the correct unsigned
 // subtraction. Zero is a no-op (skips the atomic in the common no-new-blocks path).
-static inline void IndexStats_BlockCountAdd(IndexStats *stats, ptrdiff_t delta) {
+static inline void IndexStats_BlockCountAdd(IndexStats *stats, int64_t delta) {
   if (delta) {
     __atomic_add_fetch(&stats->totalInvertedIndexBlocks,
                        (size_t)delta, __ATOMIC_RELAXED);
