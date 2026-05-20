@@ -198,7 +198,7 @@ on an unrelated branch, or already tied to another open PR, automatically create
 worktree from the target branch and do the work there. Use the existing checkout only when it is
 already the right clean branch for the task.
 
-To remove a worktree, use `git worktree remove --force <path>` (plain `remove` fails on initialized submodules), then `git branch -D <name>`.
+To remove a worktree, use `git worktree remove --force <path>` (plain `remove` fails on initialized submodules).
 
 ### C Code
 Invoke [/code-review](.skills/code-review/SKILL.md) to review C code changes or PRs.
