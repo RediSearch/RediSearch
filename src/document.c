@@ -663,23 +663,26 @@ FIELD_PREPROCESSOR(vectorPreprocessor) {
   return 0;
 }
 
-// Hook data for the deferred disk-mode vector add. Holds the target VecSim
-// index, an owned copy of the vector blob, and the doc-id to assign. The blob
-// is copied because `fdata->vector` borrows from the document field, which can
-// outlive the staging call but is not guaranteed to outlive the batch in all
-// indexing paths — copying decouples the lifetimes.
+// Hook data for the deferred disk-mode vector add.
+//
+// `vector_data` is **borrowed** from the document field (`fdata->vector`), which
+// in turn points into `aCtx->doc->fields[ii]`. The document and its fields live
+// until `AddDocumentCtx_Free` runs, and the commit hook fires from
+// `SearchDisk_CommitWriteBatch` inside `Indexer_Process` — well before
+// `AddDocumentCtx_Finish` / `AddDocumentCtx_Free`. So the borrowed pointer is
+// guaranteed live at hook time. `VecSimIndex_AddVector` is synchronous and
+// copies internally (the eager non-batched path also passes the same borrowed
+// pointer directly), so it does not retain the pointer past return.
 typedef struct {
   VecSimIndex *vecsim;
-  char *vector_data;
+  const char *vector_data;
   size_t vecLen;
   size_t numVec;
   t_docId docId;
 } VectorIndexWriteCommitData;
 
 static void freeVectorIndexWriteCommitData(void *user_data) {
-  VectorIndexWriteCommitData *data = user_data;
-  rm_free(data->vector_data);
-  rm_free(data);
+  rm_free(user_data);
 }
 
 // Post-commit: feed each vector into the VecSim index. Skipped on abort /
@@ -687,7 +690,7 @@ static void freeVectorIndexWriteCommitData(void *user_data) {
 // not make it into the doc table.
 static void onCommit_VectorIndex(void *user_data) {
   VectorIndexWriteCommitData *data = user_data;
-  char *curr_vec = data->vector_data;
+  const char *curr_vec = data->vector_data;
   for (size_t i = 0; i < data->numVec; ++i) {
     VecSimIndex_AddVector(data->vecsim, curr_vec, data->docId);
     curr_vec += data->vecLen;
@@ -705,12 +708,12 @@ FIELD_BULK_INDEXER(vectorIndexer) {
   if (aCtx->diskBatch) {
     // Disk mode: defer the actual `VecSimIndex_AddVector` calls to an on-commit
     // hook so a failed batch commit cannot leave the vector index referencing a
-    // doc that never reached the doc table.
+    // doc that never reached the doc table. The vector blob is borrowed from
+    // `fdata->vector` — see the comment on `VectorIndexWriteCommitData` for the
+    // lifetime reasoning.
     VectorIndexWriteCommitData *hook_data = rm_malloc(sizeof(*hook_data));
-    const size_t total_bytes = fdata->vecLen * fdata->numVec;
     hook_data->vecsim = vecsim;
-    hook_data->vector_data = rm_malloc(total_bytes);
-    memcpy(hook_data->vector_data, fdata->vector, total_bytes);
+    hook_data->vector_data = fdata->vector;
     hook_data->vecLen = fdata->vecLen;
     hook_data->numVec = fdata->numVec;
     hook_data->docId = aCtx->doc->docId;
