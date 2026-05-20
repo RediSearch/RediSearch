@@ -1291,6 +1291,8 @@ dependencies = [
  "rqe_core",
  "rqe_iterator_type",
  "rqe_iterators",
+ "rqe_iterators_test_utils",
+ "rstest",
  "top_k",
  "trie_rs",
  "vecsim",
