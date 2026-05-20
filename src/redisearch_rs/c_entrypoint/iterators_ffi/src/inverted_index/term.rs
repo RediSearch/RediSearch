@@ -12,8 +12,9 @@ use std::ptr::NonNull;
 use field::{FieldExpirationPredicate, FieldFilterContext, FieldMaskOrIndex};
 use index_result::{RSIndexResult, RSQueryTerm};
 use inverted_index::{
-    FilterMaskReader, IndexReader, IndexReaderCore, TermReader, doc_ids_only::DocIdsOnly,
-    fields_offsets, fields_only, freqs_fields, freqs_offsets, freqs_only, full, offsets_only,
+    FilterMaskReader, IndexReader, IndexReaderCore, PointsToOpaqueIndex, RefreshOutcome,
+    ResumableReader, SuspendableReader, TermReader, doc_ids_only::DocIdsOnly, fields_offsets,
+    fields_only, freqs_fields, freqs_offsets, freqs_only, full, offsets_only,
     raw_doc_ids_only::RawDocIdsOnly, t_docId,
 };
 use rqe_iterators::interop::RQEIteratorWrapper;
@@ -113,12 +114,76 @@ impl<'index> IndexReader<'index> for TermIndexReader<'index> {
     }
 }
 
-impl<'index> TermReader<'index> for TermIndexReader<'index> {
+impl<'index> PointsToOpaqueIndex for TermIndexReader<'index> {
     fn points_to_the_same_opaque_index(
         &self,
         opaque: &inverted_index::opaque::InvertedIndex,
     ) -> bool {
         term_ir_dispatch!(self, points_to_the_same_opaque_index, opaque)
+    }
+}
+
+impl<'index> TermReader<'index> for TermIndexReader<'index> {}
+
+/// Suspended counterpart of [`TermIndexReader`] — held across a lock release and
+/// resumed via [`ResumableReader::Resumed`].
+///
+/// Each variant carries the [`SuspendableReader::Suspended`] type of the
+/// corresponding active variant.
+pub(super) enum TermIndexReaderSuspended {
+    Full(<FilterMaskReader<IndexReaderCore<'static, full::Full>> as SuspendableReader>::Suspended),
+    FullWide(<FilterMaskReader<IndexReaderCore<'static, full::FullWide>> as SuspendableReader>::Suspended),
+    FreqsFields(<FilterMaskReader<IndexReaderCore<'static, freqs_fields::FreqsFields>> as SuspendableReader>::Suspended),
+    FreqsFieldsWide(<FilterMaskReader<IndexReaderCore<'static, freqs_fields::FreqsFieldsWide>> as SuspendableReader>::Suspended),
+    FieldsOnly(<FilterMaskReader<IndexReaderCore<'static, fields_only::FieldsOnly>> as SuspendableReader>::Suspended),
+    FieldsOnlyWide(<FilterMaskReader<IndexReaderCore<'static, fields_only::FieldsOnlyWide>> as SuspendableReader>::Suspended),
+    FieldsOffsets(<FilterMaskReader<IndexReaderCore<'static, fields_offsets::FieldsOffsets>> as SuspendableReader>::Suspended),
+    FieldsOffsetsWide(<FilterMaskReader<IndexReaderCore<'static, fields_offsets::FieldsOffsetsWide>> as SuspendableReader>::Suspended),
+    FreqsOnly(<IndexReaderCore<'static, freqs_only::FreqsOnly> as SuspendableReader>::Suspended),
+    OffsetsOnly(<IndexReaderCore<'static, offsets_only::OffsetsOnly> as SuspendableReader>::Suspended),
+    FreqsOffsets(<IndexReaderCore<'static, freqs_offsets::FreqsOffsets> as SuspendableReader>::Suspended),
+    DocIdsOnly(<IndexReaderCore<'static, DocIdsOnly> as SuspendableReader>::Suspended),
+    RawDocIdsOnly(<IndexReaderCore<'static, RawDocIdsOnly> as SuspendableReader>::Suspended),
+}
+
+impl<'index> SuspendableReader for TermIndexReader<'index> {
+    type Suspended = TermIndexReaderSuspended;
+}
+
+macro_rules! term_ir_suspended_dispatch {
+    ($self:expr, $method:ident $(, $args:expr)*) => {
+        match $self {
+            TermIndexReaderSuspended::Full(r) => r.$method($($args),*),
+            TermIndexReaderSuspended::FullWide(r) => r.$method($($args),*),
+            TermIndexReaderSuspended::FreqsFields(r) => r.$method($($args),*),
+            TermIndexReaderSuspended::FreqsFieldsWide(r) => r.$method($($args),*),
+            TermIndexReaderSuspended::FieldsOnly(r) => r.$method($($args),*),
+            TermIndexReaderSuspended::FieldsOnlyWide(r) => r.$method($($args),*),
+            TermIndexReaderSuspended::FieldsOffsets(r) => r.$method($($args),*),
+            TermIndexReaderSuspended::FieldsOffsetsWide(r) => r.$method($($args),*),
+            TermIndexReaderSuspended::FreqsOnly(r) => r.$method($($args),*),
+            TermIndexReaderSuspended::OffsetsOnly(r) => r.$method($($args),*),
+            TermIndexReaderSuspended::FreqsOffsets(r) => r.$method($($args),*),
+            TermIndexReaderSuspended::DocIdsOnly(r) => r.$method($($args),*),
+            TermIndexReaderSuspended::RawDocIdsOnly(r) => r.$method($($args),*),
+        }
+    };
+}
+
+impl ResumableReader for TermIndexReaderSuspended {
+    type Resumed<'a> = TermIndexReader<'a>;
+
+    fn refresh_pointers(&mut self) -> RefreshOutcome {
+        term_ir_suspended_dispatch!(self, refresh_pointers)
+    }
+}
+
+impl PointsToOpaqueIndex for TermIndexReaderSuspended {
+    fn points_to_the_same_opaque_index(
+        &self,
+        opaque: &inverted_index::opaque::InvertedIndex,
+    ) -> bool {
+        term_ir_suspended_dispatch!(self, points_to_the_same_opaque_index, opaque)
     }
 }
 
