@@ -221,13 +221,17 @@ QueryIterator* SearchDisk_NewTagIterator(RedisSearchDiskIndexSpec *index, const 
     return disk->index.newTagIterator(index, tok, fieldIndex, weight);
 }
 
+// Called once at the start of a parent compaction. Blocks the snapshot fork
+// for the full duration of compaction (released in Compaction_Completed).
+static void Compaction_Started(void *private_data) {
+    IndexSpec *sp = private_data;
+    RS_ASSERT(sp);
+    IndexSpec_BlockDiskFork(sp);
+}
+
 static void* Compaction_BeginUpdate(void *private_data) {
     IndexSpec *sp = private_data;
     RS_ASSERT(sp);
-    // Lock order: block-fork then wrlock - must match the order in
-    // SearchDisk_PreFork (protect-fork then rdlock).
-    // TODO: move the block-fork acquisition to a start callback once the Job-ID based compaction is there.
-    IndexSpec_BlockDiskFork(sp);
     IndexSpec_AcquireWriteLock(sp);
     return sp;
 }
@@ -253,18 +257,26 @@ static void Compaction_EndUpdate(void *update_ctx) {
     IndexSpec *sp = update_ctx;
     RS_ASSERT(sp);
 
-    // Release in reverse order of acquisition (wrlock first, then fork gate).
     IndexSpec_ReleaseWriteLock(sp);
+}
+
+// Called once at the end of a parent compaction. Pairs with Compaction_Started.
+static void Compaction_Completed(void *private_data) {
+    IndexSpec *sp = private_data;
+    RS_ASSERT(sp);
     IndexSpec_EnableDiskForkIfPossible(sp);
 }
+
 size_t SearchDisk_RunGC(RedisSearchDiskIndexSpec *index, IndexSpec *spec) {
     RS_ASSERT(disk && index && spec);
 
     SearchDiskCompactionCallbacks callbacks = {
+        .compactionStarted = Compaction_Started,
         .beginUpdate = Compaction_BeginUpdate,
         .decrementTrieTermCount = Compaction_DecrementTrieTermCount,
         .decrementNumTerms = Compaction_DecrementNumTerms,
         .endUpdate = Compaction_EndUpdate,
+        .compactionCompleted = Compaction_Completed,
     };
 
     return disk->index.runGC(index, &callbacks, spec);
