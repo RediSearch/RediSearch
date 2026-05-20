@@ -9,16 +9,19 @@
 
 use std::ptr::NonNull;
 
-use ffi::RedisSearchCtx;
+use ffi::{RedisSearchCtx, ValidateStatus_VALIDATE_MOVED, ValidateStatus_VALIDATE_OK};
 use index_result::{RSIndexResult, RSOffsetSlice};
 use index_spec::IndexSpecReadGuard;
-use inverted_index::TermReader;
+use inverted_index::{
+    PointsToOpaqueIndex, RefreshOutcome, ResumableReader, SuspendableReader, TermReader,
+};
 use query_term::RSQueryTerm;
-use ref_mode::{Active, Ref};
+use ref_mode::{Active, Ref, Suspended};
 use rqe_core::{DocId, RS_FIELDMASK_ALL};
 
 use crate::{
-    IteratorType, RQEIterator, RQEIteratorError, RQEValidateStatus, SkipToOutcome,
+    IteratorType, RQEIterator, RQEIteratorBoxed, RQEIteratorError, RQESuspendedIterator,
+    RQEValidateStatus, ResumeOutcome, SkipToOutcome,
     expiration_checker::ExpirationChecker,
     profile_print::{ProfilePrint, ProfilePrintCtx},
 };
@@ -43,6 +46,88 @@ pub struct RawTerm<'query, Rf: Ref, R, E = crate::expiration_checker::NoOpChecke
 /// [`RQEIterator`] impl today.
 pub type Term<'index, R, E = crate::expiration_checker::NoOpChecker> =
     RawTerm<'index, Active<'index>, R, E>;
+
+impl<'query, Rf: Ref, R, E> RawTerm<'query, Rf, R, E> {
+    /// Cached [`IndexFlags`](ffi::IndexFlags) of the underlying inverted index — see
+    /// [`RawInvIndIterator::flags`]. Mode-independent.
+    pub const fn flags(&self) -> ffi::IndexFlags {
+        self.it.flags()
+    }
+}
+
+impl<'query, Rf: Ref, R: PointsToOpaqueIndex, E> RawTerm<'query, Rf, R, E> {
+    /// Check if the iterator should abort revalidation.
+    ///
+    /// The term's inverted index may have been garbage-collected and
+    /// replaced with a new allocation. If the index pointer looked up via
+    /// `spec.keysDict` no longer matches the reader's stored index, the
+    /// iterator must [abort](RQEValidateStatus::Aborted).
+    ///
+    /// # Why mode-independent
+    ///
+    /// The body uses only mode-independent reads:
+    /// - The cached query term is fetched via
+    ///   [`RawTermRecord::query_term_owned`](index_result::RawTermRecord::query_term_owned),
+    ///   which works for the `Borrowed` term-record variant that `Term::new`
+    ///   constructs.
+    /// - The reader is queried via [`PointsToOpaqueIndex`], whose body
+    ///   ([`E::from_opaque`](inverted_index::DecodedBy) + `points_to_ii`)
+    ///   reads only mode-independent reader fields (`ii.as_raw()` and
+    ///   `ii_unique_id`).
+    ///
+    /// This means `should_abort` is callable on `RawTerm<Suspended, RS, E>`
+    /// inside `RQESuspendedIterator::resume` *before* the
+    /// `Box<Suspended>` → `Box<Active<'a>>` cast — no `&'a` borrow of any
+    /// potentially-stale field is materialized.
+    ///
+    /// # Safety
+    ///
+    /// The raw pointers inside `spec` (e.g. `keysDict`) must be valid and
+    /// dereferenceable for the duration of the call.
+    pub(crate) fn should_abort(&self, spec: &IndexSpecReadGuard) -> bool {
+        // Redis_OpenInvertedIndex() relies on keysDict to open the II.
+        // It should always be set in production flows but some tests do not set up a full spec.
+        if !spec.has_keys_dict() {
+            return false;
+        }
+
+        let term = self
+            .it
+            .result
+            .as_term()
+            .expect("Term iterator should always have a term result")
+            .query_term_owned()
+            .expect("Term iterator should always have a query term");
+
+        let str_ptr = term
+            .as_bytes()
+            .map_or(std::ptr::null(), |b| b.as_ptr().cast());
+
+        // SAFETY: spec.as_mut_ptr() points to a valid IndexSpec for the duration
+        // of this call, guaranteed by the caller holding the spec read lock.
+        // `str_ptr` is a valid byte slice of `term.len()` bytes.
+        let idx = unsafe {
+            ffi::Redis_OpenInvertedIndex(
+                spec.as_mut_ptr(),
+                str_ptr,
+                term.len(),
+                false,
+                std::ptr::null_mut(),
+            )
+        };
+
+        let Some(idx) = NonNull::new(idx as *mut _) else {
+            // The inverted index was collected entirely by GC.
+            return true;
+        };
+
+        let opaque = idx.cast::<inverted_index::opaque::InvertedIndex>();
+        // SAFETY: `Redis_OpenInvertedIndex` returned a non-null pointer to a
+        // valid opaque `InvertedIndex`.
+        let opaque = unsafe { opaque.as_ref() };
+        !self.it.reader.points_to_the_same_opaque_index(opaque)
+    }
+}
 
 impl<'index, R, E> Term<'index, R, E>
 where
@@ -97,61 +182,6 @@ where
     /// Get a reference to the underlying reader.
     pub const fn reader(&self) -> &R {
         &self.it.reader
-    }
-
-    /// Check if the iterator should abort revalidation.
-    ///
-    /// The term's inverted index may have been garbage-collected and
-    /// replaced with a new allocation. If the index pointer looked up via
-    /// `spec.keysDict` no longer matches the reader's stored index, the
-    /// iterator must [abort](RQEValidateStatus::Aborted).
-    ///
-    /// # Safety
-    ///
-    /// The raw pointers inside `spec` (e.g. `keysDict`) must be valid and
-    /// dereferenceable for the duration of the call.
-    fn should_abort(&self, spec: &IndexSpecReadGuard) -> bool {
-        // Redis_OpenInvertedIndex() relies on keysDict to open the II.
-        // It should always be set in production flows but some tests do not set up a full spec.
-        if !spec.has_keys_dict() {
-            return false;
-        }
-
-        let term = self
-            .it
-            .result
-            .as_term()
-            .expect("Term iterator should always have a term result")
-            .query_term()
-            .expect("Term iterator should always have a query term");
-
-        let str_ptr = term
-            .as_bytes()
-            .map_or(std::ptr::null(), |b| b.as_ptr().cast());
-
-        // SAFETY: spec.as_mut_ptr() points to a valid IndexSpec for the duration
-        // of this call, guaranteed by the caller holding the spec read lock.
-        // `str_ptr` is a valid byte slice of `term.len()` bytes.
-        let idx = unsafe {
-            ffi::Redis_OpenInvertedIndex(
-                spec.as_mut_ptr(),
-                str_ptr,
-                term.len(),
-                false,
-                std::ptr::null_mut(),
-            )
-        };
-
-        let Some(idx) = NonNull::new(idx as *mut _) else {
-            // The inverted index was collected entirely by GC.
-            return true;
-        };
-
-        let opaque = idx.cast::<inverted_index::opaque::InvertedIndex>();
-        // SAFETY: `Redis_OpenInvertedIndex` returned a non-null pointer to a
-        // valid opaque `InvertedIndex`.
-        let opaque = unsafe { opaque.as_ref() };
-        !self.it.reader.points_to_the_same_opaque_index(opaque)
     }
 }
 
@@ -244,5 +274,91 @@ where
         }
         ctx.print_optional_counters(map);
         map.kv_long_long(c"Estimated number of matches", self.num_estimated() as i64);
+    }
+}
+
+impl<'index, R, E> RQEIteratorBoxed<'index> for Term<'index, R, E>
+where
+    R: TermReader<'index> + SuspendableReader + 'index,
+    R::Suspended: ResumableReader + PointsToOpaqueIndex,
+    for<'a> <R::Suspended as ResumableReader>::Resumed<'a>: TermReader<'a>,
+    E: ExpirationChecker + 'static,
+{
+    type Suspended = RawTerm<'index, Suspended, R::Suspended, E>;
+
+    fn suspend(self: Box<Self>) -> Box<Self::Suspended> {
+        let raw = Box::into_raw(self);
+        // SAFETY: `RawTerm` is `#[repr(C)]` containing only a
+        // `RawInvIndIterator<Rf, R, E>` field, whose layout is identical
+        // across `Active`/`Suspended` instantiations (see
+        // `InvIndIterator::suspend`). Box::from_raw reuses the same heap
+        // allocation; the active drop won't run on the moved-out bytes.
+        unsafe { Box::from_raw(raw as *mut RawTerm<'index, Suspended, R::Suspended, E>) }
+    }
+}
+
+impl<'query, RS, E> RQESuspendedIterator<'query> for RawTerm<'query, Suspended, RS, E>
+where
+    RS: ResumableReader + PointsToOpaqueIndex,
+    for<'a> RS::Resumed<'a>: TermReader<'a>,
+    E: ExpirationChecker + 'static,
+{
+    type Resumed<'a>
+        = Term<'a, RS::Resumed<'a>, E>
+    where
+        'query: 'a;
+
+    fn resume<'a>(
+        mut self: Box<Self>,
+        spec: &IndexSpecReadGuard<'a>,
+    ) -> Result<ResumeOutcome<Box<Self::Resumed<'a>>>, RQEIteratorError>
+    where
+        'query: 'a,
+    {
+        // Step 1: should_abort on the suspended form. The check reads
+        // only mode-independent fields (the cached query term and the
+        // reader's `ii.as_raw()` / `ii_unique_id`), so it materializes
+        // no `&'a` borrow of any potentially-stale pointer. On abort we
+        // drop the suspended iterator without promoting it to Active —
+        // nothing is materialized.
+        if self.should_abort(spec) {
+            return Ok(ResumeOutcome::Aborted);
+        }
+
+        // Step 2: refresh reader pointers in place while still
+        // suspended. `spec` witnesses the read lock the refresh requires.
+        let outcome = self.it.refresh_pointers(spec);
+
+        // Step 3: whole-box cast Suspended → Active. The heap address
+        // is preserved across the cast.
+        let raw = Box::into_raw(self);
+        // SAFETY: `RawTerm` is `#[repr(C)]` over `RawInvIndIterator<Rf, R, E>`,
+        // whose `Active`/`Suspended` instantiations are layout-compatible
+        // (see `RawInvIndIterator::suspend`). The caller's read lock
+        // (witnessed by `spec`) plus the `refresh_pointers` step above
+        // together ensure every pointer inside the iterator is valid for
+        // `'a`.
+        let mut active = unsafe { Box::from_raw(raw as *mut Term<'a, RS::Resumed<'a>, E>) };
+
+        // Step 4: if GC ran, re-seek to the previous last_doc_id.
+        let status = match outcome {
+            RefreshOutcome::Ok => ValidateStatus_VALIDATE_OK,
+            RefreshOutcome::NeedsReseek { last_doc_id } => {
+                active.it.reseek_after_refresh(last_doc_id)
+            }
+        };
+        Ok(if status == ValidateStatus_VALIDATE_MOVED {
+            ResumeOutcome::Moved(active)
+        } else {
+            ResumeOutcome::Ok(active)
+        })
+    }
+
+    fn last_doc_id(&self) -> DocId {
+        self.it.last_doc_id_field()
+    }
+
+    fn num_estimated(&self) -> usize {
+        self.it.num_estimated()
     }
 }
