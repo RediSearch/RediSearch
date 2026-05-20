@@ -134,26 +134,27 @@ void InvertedIndex_Free(struct InvertedIndex *ii);
 size_t InvertedIndex_MemUsage(const struct InvertedIndex *ii);
 
 /**
- * Write a new numeric entry to the inverted index. This is only valid for numeric indexes created
- * with the `StoreNumeric` flag. The function returns the number of bytes the memory usage of the
- * index grew by.
+ * Write a new numeric entry to the inverted index. This is only valid for numeric indexes
+ * created with the `StoreNumeric` flag. Returns an [`AddRecordOutcome`] reporting both the
+ * memory growth and the number of new index blocks created. The 8-byte struct returns by
+ * value in a single register (x86_64 SysV ABI), so this is no more expensive than a plain
+ * `size_t` return.
  *
  * # Safety
- * The following invariant must be upheld when calling this function:
  * - `ii` must be a valid pointer to an `InvertedIndex` instance and cannot be NULL.
  */
-size_t InvertedIndex_WriteNumericEntry(struct InvertedIndex *ii, t_docId doc_id, double value);
+struct AddRecordOutcome InvertedIndex_WriteNumericEntry(struct InvertedIndex *ii, t_docId doc_id, double value);
 
 /**
- * Write a new entry to the inverted index. The function returns the number of bytes the memory
- * usage of the index grew by.
+ * Write a new entry to the inverted index. Returns an [`AddRecordOutcome`] reporting both
+ * the memory growth and the number of new index blocks created. The 8-byte struct returns
+ * by value in a single register (x86_64 SysV ABI).
  *
  * # Safety
- * The following invariants must be upheld when calling this function:
  * - `ii` must be a valid pointer to an `InvertedIndex` instance and cannot be NULL.
  * - `record` must be a valid pointer to an `RSIndexResult` instance and cannot be NULL.
  */
-size_t InvertedIndex_WriteEntryGeneric(struct InvertedIndex *ii, const struct RSIndexResult *record);
+struct AddRecordOutcome InvertedIndex_WriteEntryGeneric(struct InvertedIndex *ii, const struct RSIndexResult *record);
 
 /**
  * Return the number of blocks in the inverted index.
@@ -316,7 +317,9 @@ void InvertedIndex_GcDelta_Free(struct InvertedIndexGcDelta *deltas);
 
 /**
  * Apply a GC delta to the inverted index. The output parameter `apply_info` will be set to
- * information about the applied delta.
+ * information about the applied delta — in particular, `apply_info.block_count_delta` carries
+ * the signed change in block count, which callers maintaining per-spec totals should add to
+ * their counter.
  *
  * This will take ownership of the `deltas` pointer and free it. Therefore, it should not be
  * used or freed after calling this function.

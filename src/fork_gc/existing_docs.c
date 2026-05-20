@@ -76,13 +76,16 @@ FGCError FGC_parentHandleExistingDocs(ForkGC *gc) {
 
   InvertedIndex_ApplyGcDelta(idx, delta, &info);
   delta = NULL;
+  IndexStats_BlockCountAdd(&sp->stats, info.block_count_delta);
 
   // We don't count the records that we removed, because we also don't count
   // their addition (they are duplications so we have no such desire).
 
   if (InvertedIndex_NumDocs(idx) == 0) {
-    // inverted index was cleaned entirely, let's free it
+    // Sample memory and block count before freeing the index — `InvertedIndex_Free`
+    // doesn't know about the owning spec.
     info.bytes_freed += InvertedIndex_MemUsage(idx);
+    IndexStats_BlockCountAdd(&sp->stats, -(ptrdiff_t)InvertedIndex_NumBlocks(idx));
     InvertedIndex_Free(idx);
     sp->existingDocs = NULL;
   }

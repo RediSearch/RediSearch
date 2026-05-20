@@ -1060,6 +1060,7 @@ DEBUG_COMMAND(GCCleanNumeric) {
   }
 
   rv = NumericRangeTree_TrimEmptyLeaves(rt);
+  IndexStats_BlockCountAdd(&sctx->spec->stats, rv.block_count_delta);
 
 end:
   SearchCtx_Free(sctx);
