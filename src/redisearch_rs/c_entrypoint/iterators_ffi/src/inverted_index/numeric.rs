@@ -12,7 +12,150 @@ use std::ptr::{self, NonNull};
 use ffi::{FieldSpec, RSGlobalConfig};
 use field::FieldFilterContext;
 use inverted_index::NumericFilter;
-use rqe_iterators::{IteratorsConfig, open_numeric_or_geo_index};
+use rqe_iterator_type::IteratorType;
+use rqe_iterators::{
+    IteratorsConfig, NumericIteratorVariant, RQEIteratorBoxed, RQEIteratorError,
+    RQESuspendedIterator, ResumeOutcome, open_numeric_or_geo_index,
+};
+
+/// Suspended counterpart of [`NumericIterator`] — produced by
+/// [`RQEIteratorBoxed::suspend`] and consumed by [`RQESuspendedIterator::resume`].
+pub(super) struct NumericIteratorSuspended<'query> {
+    iterator: <NumericIteratorVariant<'query> as RQEIteratorBoxed<'query>>::Suspended,
+}
+
+impl<'index> RQEIteratorBoxed<'index> for NumericIterator<'index> {
+    type Suspended = NumericIteratorSuspended<'index>;
+
+    fn suspend(self: Box<Self>) -> Box<Self::Suspended> {
+        let Self { iterator } = *self;
+        Box::new(NumericIteratorSuspended {
+            iterator: *<NumericIteratorVariant<'index> as RQEIteratorBoxed<'index>>::suspend(
+                Box::new(iterator),
+            ),
+        })
+    }
+}
+
+impl<'query> RQESuspendedIterator<'query> for NumericIteratorSuspended<'query> {
+    type Resumed<'a>
+        = NumericIterator<'a>
+    where
+        'query: 'a;
+
+    fn resume<'a>(
+        self: Box<Self>,
+        guard: &index_spec::IndexSpecReadGuard<'a>,
+    ) -> Result<ResumeOutcome<Box<Self::Resumed<'a>>>, RQEIteratorError>
+    where
+        'query: 'a,
+    {
+        let Self { iterator } = *self;
+        // Forward the inner variant's outcome, re-wrapping the resumed variant.
+        Ok(
+            match <_ as RQESuspendedIterator>::resume(Box::new(iterator), guard)? {
+                ResumeOutcome::Aborted => ResumeOutcome::Aborted,
+                ResumeOutcome::Ok(resumed) => {
+                    ResumeOutcome::Ok(Box::new(NumericIterator { iterator: *resumed }))
+                }
+                ResumeOutcome::Moved(resumed) => {
+                    ResumeOutcome::Moved(Box::new(NumericIterator { iterator: *resumed }))
+                }
+            },
+        )
+    }
+
+    fn last_doc_id(&self) -> u64 {
+        self.iterator.last_doc_id()
+    }
+
+    fn num_estimated(&self) -> usize {
+        self.iterator.num_estimated()
+    }
+}
+
+/// Wrapper around [`NumericIteratorVariant`].
+pub(super) struct NumericIterator<'index> {
+    /// The iterator variant (unfiltered, filtered numeric, or geo).
+    iterator: NumericIteratorVariant<'index>,
+}
+
+impl<'index> NumericIterator<'index> {
+    /// Wrap a variant for use by [`crate::inverted_index::geo`].
+    #[expect(
+        dead_code,
+        reason = "constructor for the geo FFI accessor path, wired in a later commit"
+    )]
+    pub(super) const fn new(iterator: NumericIteratorVariant<'index>) -> Self {
+        Self { iterator }
+    }
+
+    /// Get the flags from the underlying reader.
+    pub(super) const fn flags(&self) -> ffi::IndexFlags {
+        self.iterator.flags()
+    }
+}
+
+impl<'index> rqe_iterators::RQEIterator<'index> for NumericIterator<'index> {
+    #[inline(always)]
+    fn current(&mut self) -> Option<&mut index_result::RSIndexResult<'index>> {
+        self.iterator.current()
+    }
+
+    #[inline(always)]
+    fn read(
+        &mut self,
+    ) -> Result<Option<&mut index_result::RSIndexResult<'index>>, rqe_iterators::RQEIteratorError>
+    {
+        self.iterator.read()
+    }
+
+    #[inline(always)]
+    fn skip_to(
+        &mut self,
+        doc_id: u64,
+    ) -> Result<Option<rqe_iterators::SkipToOutcome<'_, 'index>>, rqe_iterators::RQEIteratorError>
+    {
+        self.iterator.skip_to(doc_id)
+    }
+
+    #[inline(always)]
+    fn revalidate(
+        &mut self,
+        spec: &index_spec::IndexSpecReadGuard,
+    ) -> Result<rqe_iterators::RQEValidateStatus<'_, 'index>, rqe_iterators::RQEIteratorError> {
+        self.iterator.revalidate(spec)
+    }
+
+    #[inline(always)]
+    fn rewind(&mut self) {
+        self.iterator.rewind()
+    }
+
+    #[inline(always)]
+    fn num_estimated(&self) -> usize {
+        self.iterator.num_estimated()
+    }
+
+    #[inline(always)]
+    fn last_doc_id(&self) -> u64 {
+        self.iterator.last_doc_id()
+    }
+
+    #[inline(always)]
+    fn at_eof(&self) -> bool {
+        self.iterator.at_eof()
+    }
+
+    #[inline(always)]
+    fn type_(&self) -> IteratorType {
+        IteratorType::InvIdxNumeric
+    }
+
+    fn intersection_sort_weight(&self, _prioritize_union_children: bool) -> f64 {
+        1.0
+    }
+}
 
 ///
 /// # Safety

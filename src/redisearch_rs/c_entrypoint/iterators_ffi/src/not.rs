@@ -7,12 +7,13 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 
-use std::ptr::NonNull;
+use std::ptr::{self, NonNull};
 
-use ffi::{AREQ, QueryIterator, timespec};
+use ffi::{AREQ, QueryIterator, t_docId, timespec};
 use rqe_core::DocId;
+use rqe_iterator_type::IteratorType;
 use rqe_iterators::{
-    NewWildcardIterator, RQEIterator,
+    NewWildcardIterator, RQEIterator, RQEIteratorBoxed, RQESuspendedIterator, ResumeOutcome,
     c2rust::CRQEIterator,
     interop::RQEIteratorWrapper,
     not::Not,
@@ -33,6 +34,12 @@ type NotOptimizedFfi<'index> =
 /// The `NotOptimized` variant is intentionally large because it inlines a
 /// `WildcardIterator` to avoid heap allocation. Both variants are
 /// long-lived (query lifetime), and the size difference is acceptable.
+///
+/// `#[repr(C, u8)]` matches [`NotIteratorEnumSuspended`]'s layout so
+/// that suspend/resume can ptr::read+ptr::write the variant payload
+/// in place — see [`NotIteratorEnumSuspended`] for the heap-stability
+/// argument.
+#[repr(C, u8)]
 #[expect(
     clippy::large_enum_variant,
     reason = "both variants are query-lifetime; boxing would add a needless allocation"
@@ -40,6 +47,17 @@ type NotOptimizedFfi<'index> =
 enum NotIteratorEnum<'index> {
     Not(NotFfi<'index>),
     NotOptimized(NotOptimizedFfi<'index>),
+}
+
+impl<'index> NotIteratorEnum<'index> {
+    /// Returns the underlying child iterator, if any. None when the NOT
+    /// wraps an empty/wildcard child reduced at construction.
+    fn child(&self) -> Option<&CRQEIterator> {
+        match self {
+            Self::Not(it) => it.child(),
+            Self::NotOptimized(it) => it.child(),
+        }
+    }
 }
 
 impl rqe_iterators::profile_print::ProfilePrint for NotIteratorEnum<'_> {
@@ -200,6 +218,181 @@ unsafe fn build_timeout_context(
         }
     }
 }
+
+/// Suspended counterpart of [`NotIteratorEnum`].
+///
+/// Variants hold the [`RQEIteratorBoxed::Suspended`] counterparts of each active
+/// variant.
+///
+/// `#[repr(C, u8)]` matches [`NotIteratorEnum`]'s layout so that
+/// suspend/resume can `ptr::read` the variant payload out, drive
+/// the inner suspend/resume, and `ptr::write` the result back into
+/// the same outer-Box slot — preserving the outer Box's heap
+/// allocation across the cycle. The FFI wrapper's `header.current`
+/// is a borrowed pointer into the inner iterator's `result.current`
+/// slot at a fixed offset within this outer Box; re-allocating the
+/// outer Box would leave that pointer dangling.
+#[repr(C, u8)]
+#[expect(
+    clippy::large_enum_variant,
+    reason = "matches the layout of the active variant; boxing would needlessly allocate"
+)]
+enum NotIteratorEnumSuspended<'query> {
+    Not(<NotFfi<'query> as RQEIteratorBoxed<'query>>::Suspended),
+    NotOptimized(<NotOptimizedFfi<'query> as RQEIteratorBoxed<'query>>::Suspended),
+}
+
+impl<'index> RQEIteratorBoxed<'index> for NotIteratorEnum<'index> {
+    type Suspended = NotIteratorEnumSuspended<'index>;
+
+    fn suspend(self: Box<Self>) -> Box<Self::Suspended> {
+        // Preserve the outer Box's heap allocation across the cycle.
+        // The FFI wrapper's `header.current` is a borrowed pointer
+        // into the inner iterator's `result.current` slot, whose
+        // address is at a fixed offset within this outer Box (since
+        // the variant payload sits inline per `#[repr(C, u8)]`).
+        // Re-allocating the outer Box would shift that offset and
+        // leave `header.current` dangling.
+        let raw = Box::into_raw(self);
+        // SAFETY: `raw` came from `Box::into_raw` (valid pointer,
+        // exclusive ownership). `ptr::read` moves the value out,
+        // leaving the slot's bytes typed-but-moved-from; we
+        // overwrite via `ptr::write` before reconstituting the Box.
+        let active_val = unsafe { ptr::read(raw) };
+
+        let suspended_val = match active_val {
+            Self::Not(it) => NotIteratorEnumSuspended::Not(
+                *<NotFfi<'index> as RQEIteratorBoxed<'index>>::suspend(Box::new(it)),
+            ),
+            Self::NotOptimized(it) => NotIteratorEnumSuspended::NotOptimized(
+                *<NotOptimizedFfi<'index> as RQEIteratorBoxed<'index>>::suspend(Box::new(it)),
+            ),
+        };
+
+        let suspended_raw = raw as *mut NotIteratorEnumSuspended<'index>;
+        // SAFETY: `suspended_raw` is the same heap allocation as `raw`,
+        // retyped as `NotIteratorEnumSuspended` (layout-compatible by
+        // `#[repr(C, u8)]` — see [`NotIteratorEnumSuspended`]). The
+        // slot is uninitialised after the earlier `ptr::read`;
+        // writing a valid `NotIteratorEnumSuspended` reinitialises it.
+        unsafe { ptr::write(suspended_raw, suspended_val) };
+        // SAFETY: outer Box reconstituted on the same heap allocation.
+        unsafe { Box::from_raw(suspended_raw) }
+    }
+}
+
+impl<'query> RQESuspendedIterator<'query> for NotIteratorEnumSuspended<'query> {
+    type Resumed<'a>
+        = NotIteratorEnum<'a>
+    where
+        'query: 'a;
+
+    fn resume<'a>(
+        self: Box<Self>,
+        guard: &index_spec::IndexSpecReadGuard<'a>,
+    ) -> Result<ResumeOutcome<Box<Self::Resumed<'a>>>, rqe_iterators::RQEIteratorError>
+    where
+        'query: 'a,
+    {
+        // Mirror of [`NotIteratorEnum::suspend`]: on the recoverable path,
+        // preserve the outer Box's heap allocation via `ptr::read` +
+        // `ptr::write` instead of `Box::new(NotIteratorEnum::...)` (which would
+        // re-allocate and dangle `header.current` / a parent's pointer into the
+        // aggregate).
+        let raw = Box::into_raw(self);
+        // SAFETY: `raw` came from `Box::into_raw` (valid, exclusive).
+        // `ptr::read` moves the suspended value out, leaving the slot
+        // logically uninitialised until we either `ptr::write` a resumed value
+        // back (recoverable path) or deallocate the raw slot (abort/error path).
+        let suspended_val = unsafe { ptr::read(raw) };
+
+        // Forward the inner variant's outcome. `None` means the inner aborted;
+        // `Err` propagates a resume error (e.g. timeout). Both non-recoverable
+        // cases leave the `raw` slot uninitialised.
+        let resumed: Result<Option<(NotIteratorEnum<'a>, bool)>, rqe_iterators::RQEIteratorError> =
+            match suspended_val {
+                NotIteratorEnumSuspended::Not(s) => {
+                    match <_ as RQESuspendedIterator>::resume(Box::new(s), guard) {
+                        Err(e) => Err(e),
+                        Ok(ResumeOutcome::Aborted) => Ok(None),
+                        Ok(ResumeOutcome::Ok(r)) => Ok(Some((NotIteratorEnum::Not(*r), false))),
+                        Ok(ResumeOutcome::Moved(r)) => Ok(Some((NotIteratorEnum::Not(*r), true))),
+                    }
+                }
+                NotIteratorEnumSuspended::NotOptimized(s) => {
+                    match <_ as RQESuspendedIterator>::resume(Box::new(s), guard) {
+                        Err(e) => Err(e),
+                        Ok(ResumeOutcome::Aborted) => Ok(None),
+                        Ok(ResumeOutcome::Ok(r)) => {
+                            Ok(Some((NotIteratorEnum::NotOptimized(*r), false)))
+                        }
+                        Ok(ResumeOutcome::Moved(r)) => {
+                            Ok(Some((NotIteratorEnum::NotOptimized(*r), true)))
+                        }
+                    }
+                }
+            };
+
+        match resumed {
+            Ok(Some((active_val, moved))) => {
+                let active_raw = raw as *mut NotIteratorEnum<'a>;
+                // SAFETY: same heap allocation as `raw`, retyped as
+                // `NotIteratorEnum<'a>` (layout-compatible by `#[repr(C, u8)]`).
+                // The slot was uninitialised after the earlier `ptr::read`;
+                // writing a valid `NotIteratorEnum<'a>` reinitialises it.
+                unsafe { ptr::write(active_raw, active_val) };
+                // SAFETY: outer Box reconstituted on the same heap allocation.
+                let active = unsafe { Box::from_raw(active_raw) };
+                Ok(if moved {
+                    ResumeOutcome::Moved(active)
+                } else {
+                    ResumeOutcome::Ok(active)
+                })
+            }
+            non_recoverable => {
+                // Abort / error: the payload was consumed by the inner `resume`,
+                // so the `raw` slot is uninitialised. Free the allocation as raw
+                // memory — reconstituting a `Box` would drop the uninitialised
+                // slot (UB).
+                // SAFETY: `raw` came from `Box::<NotIteratorEnumSuspended>::into_raw`,
+                // so it was allocated by the global allocator with this exact
+                // layout; its contents were moved out via `ptr::read`.
+                unsafe {
+                    std::alloc::dealloc(
+                        raw.cast::<u8>(),
+                        std::alloc::Layout::new::<NotIteratorEnumSuspended>(),
+                    );
+                }
+                match non_recoverable {
+                    Ok(None) => Ok(ResumeOutcome::Aborted),
+                    Err(e) => Err(e),
+                    Ok(Some(_)) => unreachable!("handled by the recoverable arm above"),
+                }
+            }
+        }
+    }
+
+    fn last_doc_id(&self) -> t_docId {
+        match self {
+            NotIteratorEnumSuspended::Not(s) => s.last_doc_id(),
+            NotIteratorEnumSuspended::NotOptimized(s) => s.last_doc_id(),
+        }
+    }
+
+    fn num_estimated(&self) -> usize {
+        match self {
+            NotIteratorEnumSuspended::Not(s) => s.num_estimated(),
+            NotIteratorEnumSuspended::NotOptimized(s) => s.num_estimated(),
+        }
+    }
+}
+
+/// FFI wrapper for non-reduced NOT iterators ([`NotIteratorEnum`]).
+///
+/// Used by [`GetNotIteratorChild`] to recover the Rust iterator from a raw
+/// [`QueryIterator`] pointer.
+type NotIteratorWrapper<'index> = RQEIteratorWrapper<'index, NotIteratorEnum<'index>>;
+
 /// Creates a NOT iterator, choosing between non-optimized and optimized based
 /// on the query evaluation context.
 ///
@@ -276,4 +469,31 @@ pub unsafe extern "C" fn NewNotIterator(
             RQEIteratorWrapper::boxed_new_compound(NotIteratorEnum::NotOptimized(iter))
         }
     }
+}
+
+/// Get the child pointer of a NOT iterator, or NULL if there is no child.
+///
+/// # Safety
+///
+/// 1. `it` must be a valid non-null pointer to a non-reduced NOT iterator
+///    created via [`NewNotIterator()`]. Must not be called on a reduced
+///    (wildcard/empty) iterator returned by [`NewNotIterator()`].
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn GetNotIteratorChild(it: *const QueryIterator) -> *const QueryIterator {
+    debug_assert!(!it.is_null());
+    debug_assert!(
+        matches!(
+            // SAFETY: Safe thanks to 1
+            unsafe { (*it).type_ },
+            IteratorType::Not | IteratorType::NotOptimized
+        ),
+        "Expected a NOT or NOT_OPTIMIZED iterator"
+    );
+    // SAFETY: Safe thanks to 1
+    let wrapper = unsafe { NotIteratorWrapper::ref_from_header_ptr(it) };
+    wrapper
+        .inner()
+        .child()
+        .map(|c| c.as_ref() as *const _)
+        .unwrap_or(std::ptr::null())
 }

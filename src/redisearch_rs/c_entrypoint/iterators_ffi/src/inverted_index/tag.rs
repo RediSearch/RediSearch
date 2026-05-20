@@ -118,6 +118,16 @@ impl Debug for TagIterator<'_> {
     }
 }
 
+impl TagIterator<'_> {
+    /// Get the flags from the underlying reader.
+    pub(super) fn flags(&self) -> ffi::IndexFlags {
+        match self {
+            TagIterator::Encoded(t) => t.reader().flags(),
+            TagIterator::Raw(t) => t.reader().flags(),
+        }
+    }
+}
+
 /// Macro to dispatch RQEIterator methods across all TagIterator variants.
 macro_rules! tag_it_dispatch {
     ($self:expr, $method:ident $(, $arg:expr)*) => {

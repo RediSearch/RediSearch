@@ -22,6 +22,12 @@ use rqe_core::{DocId, RS_FIELDMASK_ALL};
 use rqe_iterators::interop::RQEIteratorWrapper;
 use rqe_iterators::{FieldExpirationChecker, inverted_index::Term};
 
+/// The concrete term iterator type produced by [`NewInvIndIterator_TermQuery`]
+/// and wrapped in an [`RQEIteratorWrapper`]. Aliased so the FFI accessor path
+/// can recover the wrapped iterator without spelling out the full generics.
+pub(super) type TermIterator<'index> =
+    Term<'index, TermIndexReader<'index>, FieldExpirationChecker>;
+
 /// Wrapper around different term reader types to avoid generics in FFI code,
 /// parameterised over the [`Ref`] mode `Rf`. See [`TermIndexReader`] for the
 /// [`Active`] instantiation (the live reader implementing [`IndexReader`]);
