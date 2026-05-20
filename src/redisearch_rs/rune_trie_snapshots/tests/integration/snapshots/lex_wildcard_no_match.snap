@@ -1,0 +1,8 @@
+---
+source: rune_trie_snapshots/tests/integration/wildcard_iteration.rs
+expression: dump
+---
+size: 7
+
+query: xyz  pattern="xyz"
+  <no matches>

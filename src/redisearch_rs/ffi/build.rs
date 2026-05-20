@@ -262,6 +262,9 @@ const HEADERS: &[HeaderAllowlist] = &[
             "Trie_InsertStringBuffer",
             "Trie_Iterate",
             "Trie_IterateAll",
+            "Trie_IterateContains",
+            "Trie_IterateRange",
+            "Trie_IterateWildcard",
             "Trie_Size",
             "TrieType_Free",
         ],
@@ -271,7 +274,7 @@ const HEADERS: &[HeaderAllowlist] = &[
     HeaderAllowlist {
         path: "src/trie/trie_node.h",
         fns: &["TrieIterator_Free", "TrieIterator_Next"],
-        types: &["TrieSortMode", "rune", "t_len"],
+        types: &["TrieRangeCallback", "TrieSortMode", "rune", "t_len"],
         vars: &[],
     },
     HeaderAllowlist {

@@ -10,13 +10,16 @@
 //! Integration tests that snapshot the C rune-trie's behavior.
 
 mod boundary_cases;
+mod contains_iteration;
 mod delete_and_decrement;
 mod dfa_iteration;
 mod incr_mode;
 mod insert_iterate;
 mod payloads;
+mod range_iteration;
 mod splits;
 mod unicode;
+mod wildcard_iteration;
 
 // Force-link the lib crate so its build script's `static:-bundle=redisearch_all`
 // directive (the only place we declare the dependency on `libredisearch_all.a`)

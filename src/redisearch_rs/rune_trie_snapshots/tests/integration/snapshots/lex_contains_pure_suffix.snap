@@ -1,0 +1,10 @@
+---
+source: rune_trie_snapshots/tests/integration/contains_iteration.rs
+expression: dump
+---
+size: 6
+
+query: ends-with "cat"  str="cat"  prefix=false  suffix=true
+  cat         numDocs=1
+  concat      numDocs=1
+  scat        numDocs=1
