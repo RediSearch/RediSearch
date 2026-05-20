@@ -217,36 +217,35 @@ struct SearchDiskWriteBatch {
     OnCommitNode *hooks_tail;
 };
 
-// Walks the hook list and applies `node_action` to every node, freeing each node
-// after `node_action` returns. The wrapper itself is also freed.
+// Walks the hook list, freeing each node and the wrapper after iterating.
 //
-// `node_action` is responsible for invoking whatever combination of `on_commit`
-// / `user_data_free` is appropriate for the path (commit vs abort).
-static void searchDisk_writeBatchDrain(SearchDiskWriteBatch *batch,
-                                       void (*node_action)(OnCommitNode *)) {
+// `run_on_commit` controls whether each hook's `on_commit` callback should be
+// invoked. Once any hook returns `false`, the remaining hooks have their
+// `on_commit` skipped (their `user_data_free` still runs) — this is how the
+// drain propagates a logical failure to downstream hooks that would otherwise
+// keep mutating in-memory state for a document that the failing hook just
+// undid on disk.
+//
+// Returns `true` if every invoked `on_commit` succeeded (or if `run_on_commit`
+// was false); `false` if any hook reported a failure.
+static bool searchDisk_writeBatchDrain(SearchDiskWriteBatch *batch, bool run_on_commit) {
+    bool all_ok = true;
     OnCommitNode *node = batch->hooks_head;
     while (node) {
         OnCommitNode *next = node->next;
-        node_action(node);
+        if (run_on_commit && all_ok && node->on_commit) {
+            if (!node->on_commit(node->user_data)) {
+                all_ok = false;
+            }
+        }
+        if (node->user_data_free) {
+            node->user_data_free(node->user_data);
+        }
         rm_free(node);
         node = next;
     }
     rm_free(batch);
-}
-
-static void onCommitNode_runAndFree(OnCommitNode *node) {
-    if (node->on_commit) {
-        node->on_commit(node->user_data);
-    }
-    if (node->user_data_free) {
-        node->user_data_free(node->user_data);
-    }
-}
-
-static void onCommitNode_freeOnly(OnCommitNode *node) {
-    if (node->user_data_free) {
-        node->user_data_free(node->user_data);
-    }
+    return all_ok;
 }
 
 SearchDiskWriteBatch *SearchDisk_CreateWriteBatch(RedisSearchDiskIndexSpec *index) {
@@ -265,14 +264,19 @@ bool SearchDisk_CommitWriteBatch(SearchDiskWriteBatch *batch) {
     bool ok = disk->index.commitWriteBatch(batch->handle);
     // On success, run each hook then free its `user_data`. On failure, only free
     // — the in-memory mutations stay pending so they never diverge from disk.
-    searchDisk_writeBatchDrain(batch, ok ? onCommitNode_runAndFree : onCommitNode_freeOnly);
-    return ok;
+    //
+    // If any post-commit hook itself fails, the drain reports it back here so
+    // the overall commit is treated as a failure (status is set, ACTX_F_ERRORED
+    // flips). The disk write itself stays committed; the hook is responsible
+    // for any disk-side cleanup it needs (e.g. SearchDisk_DeleteDocumentById).
+    bool hooks_ok = searchDisk_writeBatchDrain(batch, ok);
+    return ok && hooks_ok;
 }
 
 void SearchDisk_AbortWriteBatch(SearchDiskWriteBatch *batch) {
     RS_ASSERT(disk && batch);
     disk->index.abortWriteBatch(batch->handle);
-    searchDisk_writeBatchDrain(batch, onCommitNode_freeOnly);
+    searchDisk_writeBatchDrain(batch, false);
 }
 
 void SearchDisk_WriteBatch_OnCommit(SearchDiskWriteBatch *batch,

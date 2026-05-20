@@ -30,7 +30,13 @@ typedef struct SearchDiskWriteBatch SearchDiskWriteBatch;
 // after a successful `SearchDisk_CommitWriteBatch`, in registration order, with
 // the `user_data` pointer that was paired with it at registration time. Skipped
 // on abort or commit failure.
-typedef void (*SearchDiskWriteBatchOnCommit)(void *user_data);
+//
+// Returns `false` to signal that the in-memory bookkeeping the hook tried to
+// apply could not be completed (e.g. a follow-on Redis-side write failed). When
+// a hook returns `false` the drain skips every subsequent hook's `on_commit`
+// callback (`user_data_free` still runs for each one), so unconditional state
+// updates downstream of a logical failure do not run.
+typedef bool (*SearchDiskWriteBatchOnCommit)(void *user_data);
 
 // Destructor for the `user_data` paired with `SearchDisk_WriteBatch_OnCommit`.
 // Runs after the corresponding `on_commit` on success, or by itself on abort /

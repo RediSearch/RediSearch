@@ -233,7 +233,9 @@ static void freeTagIndexHookData(void *user_data) {
 // (and the suffix trie when enabled), and bump the per-spec record counter.
 // Kept paired with the staged disk writes so aborts / commit failures leave
 // the trie out of date by exactly the same amount as the disk itself.
-static void onCommit_TagIndex(void *user_data) {
+//
+// Returns `true`: this hook only does in-memory bookkeeping that cannot fail.
+static bool onCommit_TagIndex(void *user_data) {
   TagIndexHookData *data = user_data;
 
   for (size_t ii = 0; ii < data->numValues; ++ii) {
@@ -247,6 +249,7 @@ static void onCommit_TagIndex(void *user_data) {
   }
 
   data->stats->numRecords++;
+  return true;
 }
 
 /* Index a vector of pre-processed tags for a docId.

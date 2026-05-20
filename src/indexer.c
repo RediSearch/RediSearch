@@ -34,7 +34,11 @@ extern RedisModuleCtx *RSDummyContext;
 // Hook data carrying the per-document mutations that must run only after a
 // successful disk-batch commit (doc-id metadata, scoring stats, GC notify).
 // Allocated with `rm_malloc` and freed via `freeAssignIdsHookData`.
+//
+// `aCtx` is borrowed — the indexing flow keeps it alive for the duration of the
+// batch (commit / abort happen before `AddDocumentCtx_Free` returns).
 typedef struct {
+  RSAddDocumentCtx *aCtx;
   RedisModuleCtx *redisCtx;
   RedisModuleString *docKey;
   IndexSpec *spec;
@@ -63,7 +67,9 @@ static void freeWriteCurEntriesHookData(void *user_data) {
 // (where applicable) the suffix trie, then publish the per-field "docs indexed"
 // global stat. Keeping this paired with the staged inverted-index writes means
 // the term trie never advertises a term that did not actually reach disk.
-static void onCommit_WriteCurEntries(void *user_data) {
+//
+// Returns `true`: this hook only does in-memory bookkeeping that cannot fail.
+static bool onCommit_WriteCurEntries(void *user_data) {
   WriteCurEntriesHookData *data = user_data;
   IndexSpec *spec = data->spec;
   RSAddDocumentCtx *aCtx = data->aCtx;
@@ -88,24 +94,45 @@ static void onCommit_WriteCurEntries(void *user_data) {
 
   FieldsGlobalStats_UpdateFieldDocsIndexed(INDEXFLD_T_FULLTEXT,
                                            spec->stats.scoring.numTerms - prevNumTerms);
+  return true;
 }
 
 // Post-commit: stamp the Redis-side `key -> docId` mapping and apply the scoring
 // stats that pair with the staged doc-table write.
 //
-// If `DocIdMeta_Set` fails here, the disk already holds the new doc but Redis can
-// no longer find it by key. We attempt to remove the orphan via
-// `SearchDisk_DeleteDocumentById` and skip the stats updates. There is no clean
-// way to undo the commit itself; this matches the pre-batch behaviour where the
-// PutDocument-then-DocIdMeta_Set pair had the same residual risk.
-static void onCommit_AssignIds(void *user_data) {
+// On `DocIdMeta_Set` failure the disk already holds the new doc but Redis cannot
+// find it by key. We:
+//   - remove the orphan via `SearchDisk_DeleteDocumentById`,
+//   - apply only the REPLACE-side stat decrement (the new doc no longer exists
+//     on disk, so the new-doc increment is intentionally skipped),
+//   - mark the add-document context as errored and stamp its `status` so the
+//     reply path returns an error rather than OK, and
+//   - return `false` so downstream hooks (term-trie / suffix-trie / tag-trie /
+//     `numRecords` updates) skip — those would otherwise advertise a document
+//     that no longer exists on disk.
+static bool onCommit_AssignIds(void *user_data) {
   AssignIdsHookData *data = user_data;
 
   int rc = DocIdMeta_Set(data->redisCtx, data->docKey, data->spec->specId, data->docId);
   if (rc != REDISMODULE_OK) {
     uint32_t docLen = 0;
     SearchDisk_DeleteDocumentById(data->spec->diskSpec, data->docId, &docLen);
-    return;
+
+    // REPLACE: the staged delete of the old doc landed during the commit;
+    // reflect that in stats. INSERT: nothing to decrement (the new doc is gone too).
+    if (data->oldDocLen > 0) {
+      RS_ASSERT(data->spec->stats.scoring.numDocuments > 0);
+      data->spec->stats.scoring.numDocuments--;
+      RS_ASSERT(data->spec->stats.scoring.totalDocsLen >= data->oldDocLen);
+      data->spec->stats.scoring.totalDocsLen -= data->oldDocLen;
+    }
+
+    if (!QueryError_HasError(&data->aCtx->status)) {
+      QueryError_SetError(&data->aCtx->status, QUERY_ERROR_CODE_GENERIC,
+                          "Failed to record doc-id metadata after disk commit");
+    }
+    data->aCtx->stateFlags |= ACTX_F_ERRORED;
+    return false;
   }
 
   bool updated = false;
@@ -126,6 +153,7 @@ static void onCommit_AssignIds(void *user_data) {
       GCContext_OnWrite(data->spec->gc);
     }
   }
+  return true;
 }
 
 static void writeIndexEntry(IndexSpec *spec, InvertedIndex *idx, ForwardIndexEntry *entry) {
@@ -367,6 +395,7 @@ static void doAssignIds(RSAddDocumentCtx *cur, RedisSearchCtx *ctx) {
       // counters) only if the batch reaches disk. On abort or commit failure
       // none of these run, keeping the in-memory view consistent with disk.
       AssignIdsHookData *hook_data = rm_malloc(sizeof(*hook_data));
+      hook_data->aCtx = cur;
       hook_data->redisCtx = ctx->redisCtx;
       hook_data->docKey = cur->doc->docKey;
       hook_data->spec = spec;
