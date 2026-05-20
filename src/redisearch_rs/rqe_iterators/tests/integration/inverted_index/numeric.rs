@@ -168,7 +168,7 @@ fn numeric_read() {
     let test = NumericBaseTest::new(100);
     let filter = NumericFilter::default();
     let reader = test.test.ii.reader();
-    let reader = FilterNumericReader::new(&filter, reader);
+    let reader = FilterNumericReader::new(filter, reader);
     let mut it = NumericBuilder::new(reader)
         .range_tree(test.test.mock_ctx.numeric_range_tree())
         .build();
@@ -192,7 +192,7 @@ fn numeric_filter() {
         max: 75.0,
         ..Default::default()
     };
-    let reader = FilterNumericReader::new(&filter, test.test.ii.reader());
+    let reader = FilterNumericReader::new(filter, test.test.ii.reader());
     let mut it = NumericBuilder::new(reader)
         .range_tree(test.test.mock_ctx.numeric_range_tree())
         .build();
@@ -277,7 +277,7 @@ fn get_correct_value() {
         max: 3.0,
         ..Default::default()
     };
-    let reader = FilterNumericReader::new(&filter, ii.reader());
+    let reader = FilterNumericReader::new(filter, ii.reader());
 
     let context = MockContext::new(0, 0);
     let mut it = NumericBuilder::new(reader)
@@ -315,7 +315,7 @@ fn eof_after_filtering() {
         max: 2.0,
         ..Default::default()
     };
-    let reader = FilterNumericReader::new(&filter, ii.reader());
+    let reader = FilterNumericReader::new(filter, ii.reader());
     let context = MockContext::new(0, 0);
     let mut it = NumericBuilder::new(reader)
         .range_tree(context.numeric_range_tree())
