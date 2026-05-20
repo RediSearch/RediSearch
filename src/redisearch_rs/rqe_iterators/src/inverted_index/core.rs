@@ -7,15 +7,15 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 
-use ffi::t_docId;
+use ffi::{IndexFlags, ValidateStatus, ValidateStatus_VALIDATE_MOVED, ValidateStatus_VALIDATE_OK, t_docId};
 use index_result::{RSIndexResult, RawIndexResult};
 use index_spec::IndexSpecReadGuard;
-use inverted_index::IndexReader;
-use ref_mode::{Active, Ref};
+use inverted_index::{IndexReader, RefreshOutcome, ResumableReader, SuspendableReader};
+use ref_mode::{Active, Ref, Suspended};
 
 use crate::{
-    IteratorType, RQEIterator, RQEIteratorError, RQEValidateStatus, SkipToOutcome,
-    SkipToOutcomeRaw,
+    IteratorType, RQEIterator, RQEIteratorBoxed, RQEIteratorError, RQESuspendedIterator,
+    RQEValidateStatus, SkipToOutcome, SkipToOutcomeRaw,
     expiration_checker::{ExpirationChecker, NoOpChecker},
 };
 
@@ -52,6 +52,14 @@ pub struct RawInvIndIterator<Rf: Ref, R, E = NoOpChecker> {
     /// The expiration checker used to determine if documents are expired.
     expiration_checker: E,
 
+    /// Cached [`IndexFlags`] of the underlying inverted index, snapshotted at
+    /// construction time from `reader.flags()`. Kept here so FFI introspection
+    /// (e.g. `InvIndIterator_GetReaderFlags` during FT.PROFILE printing) can
+    /// read flags regardless of `Rf` — the live reader's `flags()` method is
+    /// only available in the [`Active`] instantiation, but the value itself
+    /// is immutable for the iterator's lifetime.
+    flags: IndexFlags,
+
     /// The implementation of the [`read`](RQEIterator::read) method.
     /// Using dynamic dispatch so we can pick the right version during the
     /// iterator construction saving to re-do the checks each time [`read()`](RQEIterator::read) is called.
@@ -69,6 +77,29 @@ pub struct RawInvIndIterator<Rf: Ref, R, E = NoOpChecker> {
 /// Alias for an [`Active`] [`RawInvIndIterator`] — the only instantiation
 /// with an [`RQEIterator`] impl today.
 pub type InvIndIterator<'index, R, E = NoOpChecker> = RawInvIndIterator<Active<'index>, R, E>;
+
+impl<Rf: Ref, R, E> RawInvIndIterator<Rf, R, E> {
+    /// Read the cached `last_doc_id` regardless of mode.
+    ///
+    /// `last_doc_id` is a plain `t_docId` field whose value survives the
+    /// suspend/resume transition unchanged. Composite iterators
+    /// (`Term`, `Numeric`, …, `Optional`, etc.) need this on the suspended
+    /// side to feed [`RQESuspendedIterator::last_doc_id`].
+    pub(crate) const fn last_doc_id_field(&self) -> t_docId {
+        self.last_doc_id
+    }
+
+    /// Read the cached [`IndexFlags`] regardless of mode.
+    ///
+    /// Snapshotted at construction time from the reader's `flags()`. The
+    /// value is immutable for the iterator's lifetime; callers reading this
+    /// while suspended (e.g. FT.PROFILE introspection after the iterator has
+    /// transitioned to `Suspended`) get the same answer they would on
+    /// `Active`.
+    pub const fn flags(&self) -> IndexFlags {
+        self.flags
+    }
+}
 
 impl<'index, R, E> InvIndIterator<'index, R, E>
 where
@@ -95,12 +126,15 @@ where
             Self::skip_to_default
         };
 
+        let flags = reader.flags();
+
         Self {
             reader,
             at_eos: false,
             last_doc_id: 0,
             result,
             expiration_checker,
+            flags,
             read_impl,
             skip_to_impl,
         }
@@ -348,5 +382,155 @@ where
 
     fn intersection_sort_weight(&self, _prioritize_union_children: bool) -> f64 {
         1.0
+    }
+}
+// ---- Suspend / Resume ------------------------------------------------------
+
+impl<RS, E> RawInvIndIterator<Suspended, RS, E>
+where
+    RS: ResumableReader,
+    E: ExpirationChecker + 'static,
+{
+    /// Refresh this iterator's reader-side pointers in place while still
+    /// in [`Suspended`] mode.
+    ///
+    /// Delegates to [`ResumableReader::refresh_pointers`] on the inner
+    /// reader. Returns whether the iterator's position is still usable as
+    /// a [`RefreshOutcome::Ok`], or whether the caller must rewind +
+    /// re-seek to `last_doc_id` after the cast to [`Active`]
+    /// ([`RefreshOutcome::NeedsReseek`]).
+    ///
+    /// # Why on the suspended form
+    ///
+    /// See [`ResumableReader::refresh_pointers`] for the full argument.
+    /// In short: doing the refresh on the suspended form avoids
+    /// materializing any `&'a` borrow of `self.reader.buf` before the
+    /// fresh pointer has been written — the `Box<Suspended>` →
+    /// `Box<Active<'a>>` cast happens only after every `Rf`-dependent
+    /// field is known to be valid.
+    pub(crate) fn refresh_pointers(&mut self) -> RefreshOutcome {
+        self.reader.refresh_pointers()
+    }
+}
+
+impl<'index, R, E> InvIndIterator<'index, R, E>
+where
+    R: IndexReader<'index>,
+    E: ExpirationChecker,
+{
+    /// Re-seek the iterator to its previous `last_doc_id` after a GC
+    /// cycle invalidated the cached block offset.
+    ///
+    /// Called from [`RQESuspendedIterator::resume`] on the active side,
+    /// after [`RawInvIndIterator::refresh_pointers`] reported
+    /// [`RefreshOutcome::NeedsReseek`]. Translates the
+    /// [`SkipToOutcome`] returned by [`skip_to`](Self::skip_to) into a
+    /// [`ValidateStatus`].
+    ///
+    /// The `last_doc_id` parameter is the value reported by
+    /// `refresh_pointers` (the reader's decoder base) and is ignored —
+    /// it can be non-zero on a freshly-constructed reader before any
+    /// reads happen, which would cause a spurious reseek. We use
+    /// [`Self::last_doc_id_field`] instead (the iterator's tracked
+    /// "position of the most recent read", 0 if no reads have happened).
+    ///
+    /// # Outcome mapping
+    ///
+    /// - [`SkipToOutcome::Found`] → `VALIDATE_OK` (same logical position).
+    /// - [`SkipToOutcome::NotFound`] or EOF → `VALIDATE_MOVED` (the
+    ///   previous `last_doc_id` no longer exists; the iterator has
+    ///   advanced past it).
+    /// - `skip_to` I/O error → `VALIDATE_MOVED` (modeled as moved rather
+    ///   than aborted: callers should consult [`current`](Self::current)
+    ///   — which yields `None` at EOF — rather than treat the iterator
+    ///   as unrecoverable).
+    pub(crate) fn reseek_after_refresh(&mut self, _last_doc_id: t_docId) -> ValidateStatus {
+        let target_doc_id = self.last_doc_id;
+        self.rewind();
+
+        if target_doc_id == 0 {
+            // We hadn't returned anything yet, so there's nothing to
+            // re-seek; a fresh `read()` will produce the right next doc.
+            return ValidateStatus_VALIDATE_OK;
+        }
+
+        match self.skip_to(target_doc_id) {
+            Ok(Some(SkipToOutcome::Found(_))) => ValidateStatus_VALIDATE_OK,
+            Ok(Some(SkipToOutcome::NotFound(_))) | Ok(None) => ValidateStatus_VALIDATE_MOVED,
+            Err(_) => ValidateStatus_VALIDATE_MOVED,
+        }
+    }
+}
+
+
+impl<'index, R, E> RQEIteratorBoxed<'index> for InvIndIterator<'index, R, E>
+where
+    R: IndexReader<'index> + SuspendableReader + 'index,
+    R::Suspended: ResumableReader,
+    E: ExpirationChecker + 'static,
+{
+    type Suspended = RawInvIndIterator<Suspended, R::Suspended, E>;
+
+    fn suspend(self: Box<Self>) -> Box<Self::Suspended> {
+        let raw = Box::into_raw(self);
+        // SAFETY: `RawInvIndIterator` is `#[repr(C)]`, and each
+        // `Rf`-dependent field (`reader: R`, `result: RawIndexResult<Rf>`,
+        // the `fn` pointers) is layout-compatible across `Active` and
+        // `Suspended` instantiations. The `SharedPtr<Rf, T>` fields used
+        // inside the reader and result are `#[repr(transparent)]` over
+        // `NonNull<T>`. Box::from_raw reuses the same heap allocation, so
+        // the box address is preserved.
+        unsafe { Box::from_raw(raw as *mut RawInvIndIterator<Suspended, R::Suspended, E>) }
+    }
+}
+
+impl<RS, E> RQESuspendedIterator for RawInvIndIterator<Suspended, RS, E>
+where
+    RS: ResumableReader,
+    E: ExpirationChecker + 'static,
+{
+    type Resumed<'a> = InvIndIterator<'a, RS::Resumed<'a>, E>;
+
+    fn resume<'a>(
+        mut self: Box<Self>,
+        _guard: &'a IndexSpecReadGuard<'a>,
+    ) -> (Box<Self::Resumed<'a>>, ValidateStatus) {
+        // Step 1: refresh reader pointers *on the suspended form*. This
+        // never materializes a `&'a` borrow of any potentially-dangling
+        // field — the `Box<Suspended>` → `Box<Active<'a>>` cast happens
+        // afterwards, only once every `Rf`-dependent field is valid.
+        let outcome = self.refresh_pointers();
+
+        // Step 2: whole-box cast Suspended → Active. The heap allocation
+        // is preserved, so external pointers into this iterator's
+        // interior (composite aggregate results) stay valid across the
+        // cycle.
+        let raw = Box::into_raw(self);
+        // SAFETY: `RawInvIndIterator` is `#[repr(C)]`. Each `Rf`-dependent
+        // field (`reader: R`, `result: RawIndexResult<Rf>`, the `fn`
+        // pointers) is layout-compatible across `Active` and `Suspended`
+        // instantiations: `SharedPtr<Rf, T>` is `#[repr(transparent)]`
+        // over `NonNull<T>`. The caller's read lock (witnessed by
+        // `_guard`) plus the `refresh_pointers` call above together
+        // ensure every pointer inside the iterator is dereferenceable
+        // for `'a`.
+        let mut active =
+            unsafe { Box::from_raw(raw as *mut InvIndIterator<'a, RS::Resumed<'a>, E>) };
+
+        // Step 3: if GC ran while we were suspended, the cached block
+        // offset is stale even though the buffer pointer was refreshed.
+        // Rewind and re-seek to the last doc id.
+        let status = match outcome {
+            RefreshOutcome::Ok => ValidateStatus_VALIDATE_OK,
+            RefreshOutcome::NeedsReseek { last_doc_id } => {
+                active.reseek_after_refresh(last_doc_id)
+            }
+        };
+
+        (active, status)
+    }
+
+    fn last_doc_id(&self) -> t_docId {
+        self.last_doc_id_field()
     }
 }

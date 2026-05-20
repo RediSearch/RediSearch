@@ -542,36 +542,6 @@ QueryIterator *NewInvIndIterator_MissingQuery(const InvertedIndex *idx, const Re
 QueryIterator *NewInvIndIterator_TagQuery(const InvertedIndex *idx, const TagIndex *tag_idx, const RedisSearchCtx *sctx, union FieldMaskOrIndex field_mask_or_index, struct RSQueryTerm *term, double weight);
 
 /**
- * Creates a new term inverted index iterator for querying term fields.
- *
- * # Parameters
- *
- * * `idx` - Pointer to the inverted index to query.
- * * `sctx` - Pointer to the Redis search context.
- * * `field_mask_or_index` - Field mask or field index to filter on.
- * * `term` - Pointer to the query term. Ownership is transferred to the iterator.
- * * `weight` - Weight to apply to the term results.
- *
- * # Returns
- *
- * A pointer to a `QueryIterator` that can be used from C code.
- *
- * # Safety
- *
- * The following invariants must be upheld when calling this function:
- *
- * 1. `idx` must be a valid pointer to a term `InvertedIndex` and cannot be NULL.
- * 2. `idx` must remain valid between `revalidate()` calls, since the revalidation
- *    mechanism detects when the index has been replaced via `Redis_OpenInvertedIndex()`
- *    pointer comparison.
- * 3. `sctx` must be a valid pointer to a `RedisSearchCtx` and cannot be NULL.
- * 4. `sctx` and `sctx.spec` must remain valid for the lifetime of the returned iterator.
- * 5. `term` must be a valid pointer to a heap-allocated `RSQueryTerm` (e.g. created by
- *    `NewQueryTerm`) and cannot be NULL. Ownership is transferred to the iterator.
- */
-QueryIterator *NewInvIndIterator_TermQuery(const InvertedIndex *idx, const RedisSearchCtx *sctx, union FieldMaskOrIndex field_mask_or_index, struct RSQueryTerm *term, double weight);
-
-/**
  * Gets the minimum range value for profiling a numeric iterator.
  *
  * # Safety
@@ -688,6 +658,36 @@ NumericRangeTree *openNumericOrGeoIndex(IndexSpec *spec, FieldSpec *fs, bool cre
  * 2. `idx` must be less than [`GetUnionIteratorNumChildren`]`(it)`.
  */
 const QueryIterator *GetUnionIteratorChild(const QueryIterator *it, size_t idx);
+
+/**
+ * Creates a new term inverted index iterator for querying term fields.
+ *
+ * # Parameters
+ *
+ * * `idx` - Pointer to the inverted index to query.
+ * * `sctx` - Pointer to the Redis search context.
+ * * `field_mask_or_index` - Field mask or field index to filter on.
+ * * `term` - Pointer to the query term. Ownership is transferred to the iterator.
+ * * `weight` - Weight to apply to the term results.
+ *
+ * # Returns
+ *
+ * A pointer to a `QueryIterator` that can be used from C code.
+ *
+ * # Safety
+ *
+ * The following invariants must be upheld when calling this function:
+ *
+ * 1. `idx` must be a valid pointer to a term `InvertedIndex` and cannot be NULL.
+ * 2. `idx` must remain valid between `revalidate()` calls, since the revalidation
+ *    mechanism detects when the index has been replaced via `Redis_OpenInvertedIndex()`
+ *    pointer comparison.
+ * 3. `sctx` must be a valid pointer to a `RedisSearchCtx` and cannot be NULL.
+ * 4. `sctx` and `sctx.spec` must remain valid for the lifetime of the returned iterator.
+ * 5. `term` must be a valid pointer to a heap-allocated `RSQueryTerm` (e.g. created by
+ *    `NewQueryTerm`) and cannot be NULL. Ownership is transferred to the iterator.
+ */
+QueryIterator *NewInvIndIterator_TermQuery(const InvertedIndex *idx, const RedisSearchCtx *sctx, union FieldMaskOrIndex field_mask_or_index, struct RSQueryTerm *term, double weight);
 
 /**
  * Returns the [`QueryNodeType`] stored in the union iterator.

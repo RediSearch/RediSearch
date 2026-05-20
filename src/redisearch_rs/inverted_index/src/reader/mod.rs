@@ -20,6 +20,29 @@ pub use field_mask::FilterMaskReader;
 pub use geo::FilterGeoReader;
 pub use numeric::{FilterNumericReader, NumericFilter};
 
+/// Outcome of [`ResumableReader::refresh_pointers`].
+///
+/// Communicates to the iterator's `resume` body whether the reader's
+/// cached buffer pointer was successfully refreshed in place, or whether
+/// a garbage-collection cycle invalidated the position and the iterator
+/// must rewind + re-seek after being promoted back to [`Active`](ref_mode::Active).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum RefreshOutcome {
+    /// The buffer pointer was refreshed without intervening GC. The
+    /// reader's position is still valid; the caller can cast Suspended →
+    /// Active and resume reading at the same offset.
+    Ok,
+    /// GC ran while suspended; the cached block offset is no longer
+    /// meaningful and the buffer pointer was *not* refreshed (any update
+    /// would be moot). The caller must promote to Active, rewind, and
+    /// re-seek to `last_doc_id` to recover the iterator's position.
+    NeedsReseek {
+        /// The last document ID the iterator returned before suspending.
+        /// Resume target for the active-side re-seek.
+        last_doc_id: t_docId,
+    },
+}
+
 /// A reader is something which knows how to read / decode the records from an [`InvertedIndex`](crate::InvertedIndex).
 pub trait IndexReader<'index> {
     /// Read the next record from the index into `result`. If there are no more records to read,
@@ -97,17 +120,67 @@ pub trait ResumableReader: 'static {
     /// The matching active reader type, parameterised by the index
     /// lifetime under which the suspended reader is being resumed.
     type Resumed<'a>: IndexReader<'a> + SuspendableReader<Suspended = Self> + 'a;
+
+    /// Refresh any reader-internal pointers that may have been invalidated
+    /// while suspended, *without* leaving the [`Suspended`](ref_mode::Suspended)
+    /// type-state.
+    ///
+    /// Returns whether the iterator's last-known position is still usable
+    /// after the refresh, or whether garbage collection ran and the caller
+    /// must rewind + re-seek after promoting back to [`Active`](ref_mode::Active).
+    ///
+    /// # Why this method exists on the suspended side
+    ///
+    /// The active form of a reader holds `SharedPtr<Active<'a>, [u8]>`
+    /// fields whose `'a` validity guarantee may have been broken by a GC
+    /// cycle that reallocated the underlying block buffer. Promoting
+    /// Suspended → Active *before* refreshing those pointers is a
+    /// validity hazard: any code path inside the refresh that materializes
+    /// a `&'a [u8]` borrow from the stale field (even through
+    /// [`SharedPtr::get`](ref_mode::SharedPtr::get)) is UB.
+    ///
+    /// Doing the refresh on the suspended form sidesteps this entirely:
+    /// `SharedPtr<Suspended, _>` exposes no safe deref, so the refresh
+    /// has to either write a fresh pointer directly or upgrade fields
+    /// one at a time under a documented invariant. Only after every
+    /// `Rf`-dependent field has been refreshed does the iterator perform
+    /// the whole-box `Box<Suspended> → Box<Active<'a>>` cast.
+    ///
+    /// # Safety contract
+    ///
+    /// The caller must hold the [`IndexSpec`](ffi::IndexSpec)'s read lock
+    /// for the duration of the call. The contract is enforced one level
+    /// up by the `RQESuspendedIterator::resume` signature
+    /// (in `rqe_iterators`), which takes
+    /// `&IndexSpecReadGuard` and passes it transitively to leaf
+    /// iterators; this trait does not depend on `index_spec` and so the
+    /// invariant is documented rather than typed.
+    fn refresh_pointers(&mut self) -> RefreshOutcome;
 }
 
 /// Marker trait for readers producing numeric values.
 pub trait NumericReader<'index>: IndexReader<'index> {}
 
-/// Trait for readers producing term values.
-pub trait TermReader<'index>: IndexReader<'index> {
+/// Mode-independent: check whether a reader is linked to the same
+/// [`InvertedIndex`](crate::opaque::InvertedIndex) as an externally-held
+/// opaque pointer.
+///
+/// Extracted from [`TermReader`] so that [`Suspended`](ref_mode::Suspended)
+/// reader forms can implement it too — the body
+/// ([`E::from_opaque`](crate::DecodedBy) then
+/// [`RawIndexReaderCore::points_to_ii`](crate::RawIndexReaderCore::points_to_ii))
+/// is itself mode-independent. Leaves (`Term`, FFI enums) call this from
+/// their suspended-side `should_abort` checks during
+/// `RQESuspendedIterator::resume`, without ever upgrading the reader to
+/// [`Active`](ref_mode::Active).
+pub trait PointsToOpaqueIndex {
     /// Check if this reader's underlying index points to the same one
     /// contained in the given opaque [`InvertedIndex`](crate::opaque::InvertedIndex).
     fn points_to_the_same_opaque_index(&self, opaque: &crate::opaque::InvertedIndex) -> bool;
 }
+
+/// Trait for readers producing term values.
+pub trait TermReader<'index>: IndexReader<'index> + PointsToOpaqueIndex {}
 
 /// Filter to apply when reading from an index. Entries which don't match the filter will not be
 /// returned by the reader.
