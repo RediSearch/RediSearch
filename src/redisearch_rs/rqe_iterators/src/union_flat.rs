@@ -9,11 +9,14 @@
 
 //! Flat array variant of the union iterator with O(n) min-finding.
 
-use ffi::t_docId;
+use ffi::{ValidateStatus, ValidateStatus_VALIDATE_ABORTED, ValidateStatus_VALIDATE_MOVED, ValidateStatus_VALIDATE_OK, t_docId};
 use index_result::{RSIndexResult, RawIndexResult};
-use ref_mode::{Active, Ref};
+use ref_mode::{Active, Ref, Suspended};
 
-use crate::{IteratorType, RQEIterator, RQEIteratorError, RQEValidateStatus, SkipToOutcome};
+use crate::{
+    IteratorType, RQEIterator, RQEIteratorBoxed, RQEIteratorError, RQESuspendedIterator,
+    RQEValidateStatus, SkipToOutcome,
+};
 use index_spec::IndexSpecReadGuard;
 
 /// A child iterator paired with its original insertion index.
@@ -616,6 +619,109 @@ where
         } else {
             1.0
         }
+    }
+}
+
+impl<'index, I, const QUICK_EXIT: bool> RQEIteratorBoxed<'index>
+    for UnionFlat<'index, I, QUICK_EXIT>
+where
+    I: RQEIteratorBoxed<'index>,
+{
+    type Suspended = RawUnionFlat<Suspended, I::Suspended, QUICK_EXIT>;
+
+    fn suspend(self: Box<Self>) -> Box<Self::Suspended> {
+        let raw = Box::into_raw(self);
+        // SAFETY: `RawUnionFlat` is `#[repr(C)]`. The `Rf`-dependent fields
+        // are `Vec<IndexedChild<I>>` (layout-compatible with the suspended
+        // form because `I` and `I::Suspended` are layout-compatible) and
+        // `result: RawIndexResult<Rf>` (layout-compatible via `SharedPtr`
+        // transparency). Suspend is widening; Box::from_raw reuses the
+        // same heap allocation.
+        unsafe { Box::from_raw(raw as *mut RawUnionFlat<Suspended, I::Suspended, QUICK_EXIT>) }
+    }
+}
+
+impl<S, const QUICK_EXIT: bool> RQESuspendedIterator for RawUnionFlat<Suspended, S, QUICK_EXIT>
+where
+    S: RQESuspendedIterator,
+{
+    type Resumed<'a> = UnionFlat<'a, S::Resumed<'a>, QUICK_EXIT>;
+
+    fn resume<'a>(
+        self: Box<Self>,
+        guard: &'a IndexSpecReadGuard<'a>,
+    ) -> (Box<Self::Resumed<'a>>, ValidateStatus) {
+        let RawUnionFlat {
+            children,
+            num_active: _,
+            num_estimated,
+            is_eof,
+            result,
+        } = *self;
+
+        // Read plain-data fields off the suspended aggregate before
+        // discarding it — the suspended aggregate's borrowed children
+        // pointers would dangle after we consume the children by value.
+        let saved_weight = result.weight;
+        let saved_last_doc_id = result.doc_id;
+        drop(result);
+
+        // Resume each child; drop children whose resume reported ABORTED.
+        let mut active_children: Vec<IndexedChild<S::Resumed<'a>>> =
+            Vec::with_capacity(children.len());
+        for IndexedChild {
+            original_index,
+            inner,
+        } in children
+        {
+            let (active_inner, status) = Box::new(inner).resume(guard);
+            if status == ValidateStatus_VALIDATE_ABORTED {
+                continue;
+            }
+            active_children.push(IndexedChild {
+                original_index,
+                inner: *active_inner,
+            });
+        }
+
+        let num_children = active_children.len();
+        let result = RSIndexResult::build_union(num_children)
+            .weight(saved_weight)
+            .build();
+
+        if num_children == 0 {
+            let active = Box::new(UnionFlat {
+                children: active_children,
+                num_active: 0,
+                num_estimated,
+                is_eof: true,
+                result,
+            });
+            return (active, ValidateStatus_VALIDATE_ABORTED);
+        }
+
+        let mut active = Box::new(UnionFlat {
+            children: active_children,
+            num_active: num_children,
+            num_estimated,
+            is_eof,
+            result,
+        });
+
+        if active.is_eof || saved_last_doc_id == 0 {
+            return (active, ValidateStatus_VALIDATE_OK);
+        }
+
+        match active.skip_to(saved_last_doc_id) {
+            Ok(Some(SkipToOutcome::Found(_))) => (active, ValidateStatus_VALIDATE_OK),
+            Ok(Some(SkipToOutcome::NotFound(_))) | Ok(None) | Err(_) => {
+                (active, ValidateStatus_VALIDATE_MOVED)
+            }
+        }
+    }
+
+    fn last_doc_id(&self) -> t_docId {
+        self.result.doc_id
     }
 }
 
