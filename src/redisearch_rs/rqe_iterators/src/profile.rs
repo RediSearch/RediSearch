@@ -87,7 +87,18 @@ impl<'index, I: RQEIterator<'index>> Profile<'index, I> {
             _marker: std::marker::PhantomData,
         }
     }
+}
 
+/// `Rf`-independent metadata accessors.
+///
+/// These methods read fields stored directly on [`RawProfile`] — `child`,
+/// `counters`, `wall_time` — none of which depend on whether the iterator is in
+/// [`Active`] or [`Suspended`] mode. Exposing them on the underlying
+/// `Rf`-generic struct lets FFI introspection sites (FT.PROFILE printing) read
+/// them via [`RQEIteratorWrapper::state`](crate::interop::RQEIteratorWrapper::state)
+/// in either typestate by branching on the variant and calling the matching
+/// method on each side.
+impl<Rf: Ref, I> RawProfile<Rf, I> {
     /// Returns a reference to the child iterator.
     #[inline]
     pub const fn child(&self) -> &I {
