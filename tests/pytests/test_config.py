@@ -672,7 +672,7 @@ def testModuleLoadexNumericParams():
         os.unlink(rdbFilePath)
 
 # Skip on ASAN since RedisModule_Unload is not fully implemented (MOD-7161)
-@skip(redis_less_than='7.9.227', asan=True)
+@skip(cluster=True, redis_less_than='7.9.227', asan=True)
 def testConfigAPILoadTimeNumericParams():
     env = Env(noDefaultModuleArgs=True, module='', moduleArgs='')
     redisearch_module_path = os.getenv('MODULE')
