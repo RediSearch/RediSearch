@@ -40,8 +40,8 @@ impl Reducer {
     /// Pass [`None`] to clear (the default — reducer doesn't want `doc_id`).
     ///
     /// The Rust `RLookupKey` is `#[repr(C)]` over the layout that bindgen
-    /// surfaces as `ffi::RLookupKey`, so we re-tag the pointer with
-    /// [`pointer::cast`][std::primitive::pointer#method.cast].
+    /// surfaces as `ffi::RLookupKey`, so we re-tag the pointer with raw pointer
+    /// [`cast`](https://doc.rust-lang.org/std/primitive.pointer.html#method.cast).
     pub fn set_doc_id_key(&mut self, key: Option<&rlookup::RLookupKey<'_>>) -> &mut Self {
         self.0.docIdKey = key.map_or(ptr::null(), |k| (k as *const rlookup::RLookupKey).cast());
         self
