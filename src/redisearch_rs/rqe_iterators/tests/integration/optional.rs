@@ -1143,3 +1143,66 @@ mod optional_iterator_non_sequential_reads {
         let _ = it.read();
     }
 }
+
+mod via_resume {
+    use super::*;
+    use rqe_iterators::{
+        RQEIteratorBoxed, RQESuspendedIterator, ResumeOutcome, TypeErasedRQEIterator,
+    };
+
+    /// Regression: `Optional` wrapping a *type-erased* child must dispatch the
+    /// child's own `suspend`/`resume` rather than byte-casting the child slot
+    /// (a byte cast keeps the erased child's active `dyn` vtable under a
+    /// suspended type, so `resume` would dispatch through the wrong vtable), and
+    /// must **reuse its allocation** across the cycle because it hands out
+    /// `&mut self.result` (a pointer into the box) from
+    /// `current()`/`read()`/`skip_to`.
+    #[test]
+    fn optional_over_type_erased_child_round_trips() {
+        let mock_ctx = rqe_iterators_test_utils::MockContext::new(0, 0);
+        // Type-erased child — the case a whole-box cast gets wrong.
+        let child = TypeErasedRQEIterator::new(Box::new(Wildcard::new(10, 1.0)));
+        let mut optional = Box::new(Optional::new(MAX_DOC_ID, WEIGHT, child));
+
+        // Advance into the real-child range (docs 1..=10 come from the child).
+        let _ = optional.read().unwrap(); // doc 1
+        let _ = optional.read().unwrap(); // doc 2
+        let last_before = optional.last_doc_id();
+        let addr_before = &*optional as *const _ as usize;
+
+        let suspended = optional.suspend();
+        let mut active = match suspended
+            .resume(&mock_ctx.spec_read())
+            .expect("resume failed")
+        {
+            ResumeOutcome::Ok(it) | ResumeOutcome::Moved(it) => it,
+            ResumeOutcome::Aborted => panic!("Optional never aborts as a whole"),
+        };
+
+        // Allocation reused → the box (and the `result` it hands out) keeps its
+        // address across the cycle.
+        assert_eq!(
+            &*active as *const _ as usize, addr_before,
+            "resume must reuse the allocation (Optional hands out &mut self.result)"
+        );
+        // The erased child must have survived the round-trip. If `suspend`
+        // byte-casts instead of dispatching, the retained active vtable makes the
+        // child resume dispatch through the wrong vtable; Optional then reads it
+        // as a spurious abort and drops the child to `Gone` (fully virtual). So a
+        // surviving `Present` child is the discriminating signal.
+        assert!(
+            active.child().is_some(),
+            "type-erased child must survive suspend/resume (not be dropped to Gone)"
+        );
+        assert_eq!(active.last_doc_id(), last_before);
+        // Doc `last_before + 1` (3) is within the child's range (1..=10), so it is
+        // a *real* child hit with the Optional's weight applied — not a virtual
+        // sentinel (which is what a dropped child would yield).
+        let next = active.read().unwrap().unwrap();
+        assert_eq!(next.doc_id, last_before + 1);
+        assert_eq!(next.weight, WEIGHT, "must be a real (weighted) child hit");
+    }
+
+    const MAX_DOC_ID: DocId = 100;
+    const WEIGHT: f64 = 2.0;
+}
