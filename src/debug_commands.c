@@ -3264,12 +3264,6 @@ static DebugCommandType assertOnlyCommands[] = {
     {NULL, NULL}};
 #endif
 
-#ifdef RS_WIP_FEATURES
-static DebugCommandType wipOnlyCommands[] = {
-    {"WIP_PROBE", WipProbe},
-    {NULL, NULL}};
-#endif
-
 int DebugHelpCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
   RedisModule_ReplyWithArray(ctx, REDISMODULE_POSTPONED_ARRAY_LEN);
   size_t len = 0;
@@ -3288,10 +3282,8 @@ int DebugHelpCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
   }
 #endif
 #ifdef RS_WIP_FEATURES
-  for (DebugCommandType *c = &wipOnlyCommands[0]; c->name != NULL; c++) {
-    RedisModule_ReplyWithCString(ctx, c->name);
-    ++len;
-  }
+  RedisModule_ReplyWithCString(ctx, "WIP_PROBE");
+  ++len;
 #endif
   RedisModule_ReplySetArrayLength(ctx, len);
   return REDISMODULE_OK;
@@ -3313,8 +3305,8 @@ int RegisterDebugCommands(RedisModuleCommand *debugCommand) {
   }
 #endif
 #ifdef RS_WIP_FEATURES
-  for (DebugCommandType *c = &wipOnlyCommands[0]; c->name != NULL; c++) {
-    int rc = RedisModule_CreateSubcommand(debugCommand, c->name, c->callback,
+  {
+    int rc = RedisModule_CreateSubcommand(debugCommand, "WIP_PROBE", WipProbe,
               IsEnterprise() ? "readonly " CMD_PROXY_FILTERED : "readonly",
               RS_DEBUG_FLAGS);
     if (rc != REDISMODULE_OK) return rc;
