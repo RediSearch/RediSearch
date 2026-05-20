@@ -40,7 +40,7 @@
 
 use std::fmt::Write as _;
 
-use trie_rs::rune::{Rune, RuneTrieMap};
+use trie_rs::str::StrTrieMap;
 
 /// Mirror of the per-term payload the C trie carries (`score`, `numDocs`).
 /// The dump format includes both, so `Data` has to expose them.
@@ -156,7 +156,11 @@ fn lex_iterate_pure_prefix() {
 
 #[test]
 fn lex_iterate_exact_match() {
-    let dump = run(&[("apple", 0, false), ("appl", 0, false), ("apples", 0, false)]);
+    let dump = run(&[
+        ("apple", 0, false),
+        ("appl", 0, false),
+        ("apples", 0, false),
+    ]);
     assert_against_shared_snapshot("lex_iterate_exact_match", dump);
 }
 

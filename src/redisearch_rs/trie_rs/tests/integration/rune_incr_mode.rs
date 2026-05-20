@@ -71,7 +71,7 @@
 use std::cell::RefCell;
 use std::fmt::Write as _;
 
-use trie_rs::rune::{Rune, RuneTrieMap};
+use trie_rs::str::StrTrieMap;
 
 thread_local! {
     /// Rust analog of the C-side `FREECB_LOG`. Each `LoggingPayload::drop`
@@ -104,10 +104,6 @@ impl Drop for LoggingPayload {
     }
 }
 
-fn term_runes(s: &str) -> Vec<Rune> {
-    s.encode_utf16().collect()
-}
-
 /// Mirror C `TRIE_OK_*` rendering (`trie_node.h:29-32`).
 const fn rc_name(rc: i32) -> &'static str {
     match rc {
@@ -121,13 +117,8 @@ const fn rc_name(rc: i32) -> &'static str {
 /// ADD_INCR emulation: `n->score += score`, `n->numDocs += numDocs`.
 /// Returns the C rc (OK_NEW=1 if the key wasn't present, OK_UPDATED=0
 /// otherwise).
-fn insert_incr(
-    trie: &mut RuneTrieMap<TermEntry>,
-    term: &str,
-    score: f32,
-    num_docs: usize,
-) -> i32 {
-    let key = term_runes(term);
+fn insert_incr(trie: &mut StrTrieMap<TermEntry>, term: &str, score: f32, num_docs: usize) -> i32 {
+    let key = term;
     let prev = trie.remove(&key);
     let was_present = prev.is_some();
     let new_entry = match prev {
@@ -145,12 +136,12 @@ fn insert_incr(
 /// numDocs` (accumulates regardless of mode — verified against
 /// `trie_node.c:296`).
 fn insert_replace(
-    trie: &mut RuneTrieMap<TermEntry>,
+    trie: &mut StrTrieMap<TermEntry>,
     term: &str,
     score: f32,
     num_docs: usize,
 ) -> i32 {
-    let key = term_runes(term);
+    let key = term;
     let prev = trie.remove(&key);
     let was_present = prev.is_some();
     let new_entry = match prev {
@@ -169,13 +160,13 @@ fn insert_replace(
 /// the C trie's "free old payload, install new one" order inside
 /// `__trieNode_Add`.
 fn insert_incr_with_payload(
-    trie: &mut RuneTrieMap<TermEntryWithPayload>,
+    trie: &mut StrTrieMap<TermEntryWithPayload>,
     term: &str,
     score: f32,
     num_docs: usize,
     label: &str,
 ) -> i32 {
-    let key = term_runes(term);
+    let key = term;
     let prev = trie.remove(&key);
     let was_present = prev.is_some();
     let new_entry = match prev {
@@ -201,13 +192,13 @@ fn insert_incr_with_payload(
 /// ADD_REPLACE with payload — same as `insert_incr_with_payload` but
 /// score is overwritten rather than added.
 fn insert_replace_with_payload(
-    trie: &mut RuneTrieMap<TermEntryWithPayload>,
+    trie: &mut StrTrieMap<TermEntryWithPayload>,
     term: &str,
     score: f32,
     num_docs: usize,
     label: &str,
 ) -> i32 {
-    let key = term_runes(term);
+    let key = term;
     let prev = trie.remove(&key);
     let was_present = prev.is_some();
     let new_entry = match prev {
@@ -232,12 +223,12 @@ fn insert_replace_with_payload(
 
 /// Field widths chosen to byte-match the C-side `dump_all` so the shared
 /// snapshot aligns column-for-column.
-fn dump_all(trie: &RuneTrieMap<TermEntry>) -> String {
+fn dump_all(trie: &StrTrieMap<TermEntry>) -> String {
     let mut out = String::new();
     writeln!(&mut out, "size: {}", trie.len()).unwrap();
     writeln!(&mut out, "entries:").unwrap();
     for (key, entry) in trie.iter() {
-        let term = String::from_utf16(&key).expect("trie runes are valid BMP UTF-16");
+        let term = key;
         writeln!(
             &mut out,
             "  {term:10}  score={score}  numDocs={num_docs}",
@@ -249,12 +240,12 @@ fn dump_all(trie: &RuneTrieMap<TermEntry>) -> String {
     out
 }
 
-fn dump_with_payloads(trie: &RuneTrieMap<TermEntryWithPayload>) -> String {
+fn dump_with_payloads(trie: &StrTrieMap<TermEntryWithPayload>) -> String {
     let mut out = String::new();
     writeln!(&mut out, "size: {}", trie.len()).unwrap();
     writeln!(&mut out, "entries:").unwrap();
     for (key, entry) in trie.iter() {
-        let term = String::from_utf16(&key).expect("trie runes are valid BMP UTF-16");
+        let term = key;
         writeln!(
             &mut out,
             "  {term:6}  score={score}  numDocs={num_docs}  payload={payload:?}",
@@ -289,7 +280,7 @@ const fn mode_name(incr: i32) -> &'static str {
 
 #[test]
 fn lex_incr_score_and_numdocs_accumulation() {
-    let mut trie = RuneTrieMap::<TermEntry>::new();
+    let mut trie = StrTrieMap::<TermEntry>::new();
 
     // Parallel pair — same triples on "foo" with INCR and "bar" with REPLACE.
     // INCR: score accumulates 1.0 + 0.5 + 2.0 = 3.5.
@@ -297,12 +288,48 @@ fn lex_incr_score_and_numdocs_accumulation() {
     // Both: numDocs accumulates 1 + 1 + 1 = 3 (mode-independent per
     // trie_node.c:296).
     let steps: &[(&str, i32, f32, usize, &str)] = &[
-        ("foo", ADD_INCR, 1.0, 1, "first insert — creates leaf (rc=OK_NEW)"),
-        ("foo", ADD_INCR, 0.5, 1, "score += 0.5 -> 1.5; numDocs += 1 -> 2"),
-        ("foo", ADD_INCR, 2.0, 1, "score += 2.0 -> 3.5; numDocs += 1 -> 3"),
-        ("bar", ADD_REPLACE, 1.0, 1, "first insert — creates leaf (rc=OK_NEW)"),
-        ("bar", ADD_REPLACE, 0.5, 1, "score = 0.5 (overwrite); numDocs += 1 -> 2"),
-        ("bar", ADD_REPLACE, 2.0, 1, "score = 2.0 (overwrite); numDocs += 1 -> 3"),
+        (
+            "foo",
+            ADD_INCR,
+            1.0,
+            1,
+            "first insert — creates leaf (rc=OK_NEW)",
+        ),
+        (
+            "foo",
+            ADD_INCR,
+            0.5,
+            1,
+            "score += 0.5 -> 1.5; numDocs += 1 -> 2",
+        ),
+        (
+            "foo",
+            ADD_INCR,
+            2.0,
+            1,
+            "score += 2.0 -> 3.5; numDocs += 1 -> 3",
+        ),
+        (
+            "bar",
+            ADD_REPLACE,
+            1.0,
+            1,
+            "first insert — creates leaf (rc=OK_NEW)",
+        ),
+        (
+            "bar",
+            ADD_REPLACE,
+            0.5,
+            1,
+            "score = 0.5 (overwrite); numDocs += 1 -> 2",
+        ),
+        (
+            "bar",
+            ADD_REPLACE,
+            2.0,
+            1,
+            "score = 2.0 (overwrite); numDocs += 1 -> 3",
+        ),
     ];
 
     let mut out = String::new();
@@ -333,7 +360,7 @@ fn lex_incr_score_and_numdocs_accumulation() {
 
 #[test]
 fn lex_incr_over_deleted_node() {
-    let mut trie = RuneTrieMap::<TermEntry>::new();
+    let mut trie = StrTrieMap::<TermEntry>::new();
 
     let mut out = String::new();
 
@@ -371,7 +398,7 @@ fn lex_incr_over_deleted_node() {
         "\n=== step 2: Trie_Delete(\"foo\") — mark-delete internal terminal ==="
     )
     .unwrap();
-    let r = i32::from(trie.remove(&term_runes("foo")).is_some());
+    let r = i32::from(trie.remove("foo").is_some());
     writeln!(&mut out, "Trie_Delete(\"foo\") -> {r}").unwrap();
     out.push_str(&dump_all(&trie));
 
@@ -405,7 +432,7 @@ fn lex_incr_over_deleted_node() {
 
 #[test]
 fn lex_incr_over_non_terminal_split() {
-    let mut trie = RuneTrieMap::<TermEntry>::new();
+    let mut trie = StrTrieMap::<TermEntry>::new();
 
     let mut out = String::new();
 
@@ -465,7 +492,7 @@ fn lex_incr_over_non_terminal_split() {
 fn lex_incr_with_payload_vs_replace_with_payload() {
     FREECB_LOG.with(|log| log.borrow_mut().clear());
 
-    let mut trie = RuneTrieMap::<TermEntryWithPayload>::new();
+    let mut trie = StrTrieMap::<TermEntryWithPayload>::new();
     let mut out = String::new();
 
     // Step 1: install "v1". No prior payload, no Drop fires.
@@ -542,7 +569,7 @@ fn lex_incr_with_payload_vs_replace_with_payload() {
 
 #[test]
 fn lex_incr_mixed_with_replace() {
-    let mut trie = RuneTrieMap::<TermEntry>::new();
+    let mut trie = StrTrieMap::<TermEntry>::new();
 
     let mut out = String::new();
 
@@ -557,12 +584,7 @@ fn lex_incr_mixed_with_replace() {
             5,
             "score overwritten to 10; numDocs += 5 -> 6 (always additive)",
         ),
-        (
-            ADD_INCR,
-            2.0,
-            1,
-            "score += 2 -> 12; numDocs += 1 -> 7",
-        ),
+        (ADD_INCR, 2.0, 1, "score += 2 -> 12; numDocs += 1 -> 7"),
     ];
 
     for (incr, score, num_docs, note) in steps {

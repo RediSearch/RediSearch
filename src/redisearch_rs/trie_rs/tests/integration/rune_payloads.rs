@@ -47,7 +47,7 @@
 use std::cell::RefCell;
 use std::fmt::Write as _;
 
-use trie_rs::rune::{Rune, RuneTrieMap};
+use trie_rs::str::StrTrieMap;
 
 thread_local! {
     /// The Rust-side analog of `FREECB_LOG` in the C oracle. Each entry
@@ -71,20 +71,12 @@ impl Drop for LoggingPayload {
     }
 }
 
-fn term_runes(s: &str) -> Vec<Rune> {
-    s.encode_utf16().collect()
-}
-
 /// Insert `term` carrying `label` and return the C rc: 1 = NEW, 0 = UPDATED.
 /// The `prev` Option dropping at the end of the function body is what
 /// fires the freecb log push on replacement — matching the C trie's
 /// "free old payload, install new one" order in `TrieNode_Add`.
-fn insert_with_payload(
-    trie: &mut RuneTrieMap<LoggingPayload>,
-    term: &str,
-    label: &str,
-) -> i32 {
-    let key = term_runes(term);
+fn insert_with_payload(trie: &mut StrTrieMap<LoggingPayload>, term: &str, label: &str) -> i32 {
+    let key = term;
     let prev = trie.insert(
         &key,
         LoggingPayload {
@@ -94,24 +86,24 @@ fn insert_with_payload(
     if prev.is_none() { 1 } else { 0 }
 }
 
-fn delete(trie: &mut RuneTrieMap<LoggingPayload>, term: &str) -> i32 {
+fn delete(trie: &mut StrTrieMap<LoggingPayload>, term: &str) -> i32 {
     // The returned `Option<LoggingPayload>` drops at the end of this
     // function, firing the freecb log push when present. Mirrors the
     // C trie's `__trieNode_optimizeChildren` calling freecb on the
     // physical-free path.
-    let removed = trie.remove(&term_runes(term));
+    let removed = trie.remove(term);
     i32::from(removed.is_some())
 }
 
 /// Dump every terminal: term + payload label (we control all inputs so
 /// strings decode cleanly). Field widths chosen to match the C-side
 /// `dump_with_payloads` so the snapshots align column-for-column.
-fn dump_with_payloads(trie: &RuneTrieMap<LoggingPayload>) -> String {
+fn dump_with_payloads(trie: &StrTrieMap<LoggingPayload>) -> String {
     let mut out = String::new();
     writeln!(&mut out, "size: {}", trie.len()).unwrap();
     writeln!(&mut out, "entries:").unwrap();
     for (key, payload) in trie.iter() {
-        let term = String::from_utf16(&key).expect("trie runes are valid BMP UTF-16");
+        let term = key;
         writeln!(&mut out, "  {term:8}  payload={:?}", payload.label).unwrap();
     }
     out
@@ -140,7 +132,7 @@ fn lex_payload_roundtrip_and_freecb_lifecycle() {
     // default, but this is cheap).
     FREECB_LOG.with(|log| log.borrow_mut().clear());
 
-    let mut trie = RuneTrieMap::<LoggingPayload>::new();
+    let mut trie = StrTrieMap::<LoggingPayload>::new();
     let mut out = String::new();
 
     // Step 1 — three distinct payloads, none should be freed.

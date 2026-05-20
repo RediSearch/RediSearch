@@ -44,24 +44,20 @@
 
 use std::fmt::Write as _;
 
-use trie_rs::rune::{Rune, RuneTrieMap};
+use trie_rs::str::StrTrieMap;
 
 struct TermEntry {
     score: f32,
     num_docs: usize,
 }
 
-fn term_runes(s: &str) -> Vec<Rune> {
-    s.encode_utf16().collect()
-}
-
-fn dump_all(trie: &RuneTrieMap<TermEntry>) -> String {
+fn dump_all(trie: &StrTrieMap<TermEntry>) -> String {
     let mut out = String::new();
     writeln!(&mut out, "size: {}", trie.len()).unwrap();
     writeln!(&mut out, "entries:").unwrap();
 
     for (key, entry) in trie.iter() {
-        let term = String::from_utf16(&key).expect("trie runes are valid BMP UTF-16");
+        let term = key;
         writeln!(
             &mut out,
             "  {term:10}  score={score}  numDocs={num_docs}",
@@ -84,7 +80,7 @@ const fn decr_name(r: DecrResult) -> &'static str {
 }
 
 /// Same 7-term fixture as `rune_trie_snapshots::delete_and_decrement::build_base`.
-fn build_base(trie: &mut RuneTrieMap<TermEntry>) {
+fn build_base(trie: &mut StrTrieMap<TermEntry>) {
     let terms: &[(&str, f32, usize)] = &[
         ("apple", 1.0, 3),
         ("apply", 1.0, 2),
@@ -96,7 +92,7 @@ fn build_base(trie: &mut RuneTrieMap<TermEntry>) {
     ];
     for (term, score, num_docs) in terms {
         trie.insert(
-            &term_runes(term),
+            term,
             TermEntry {
                 score: *score,
                 num_docs: *num_docs,
@@ -107,7 +103,7 @@ fn build_base(trie: &mut RuneTrieMap<TermEntry>) {
 
 #[test]
 fn lex_delete_sequence_structural_events() {
-    let mut trie = RuneTrieMap::<TermEntry>::new();
+    let mut trie = StrTrieMap::<TermEntry>::new();
     build_base(&mut trie);
 
     let mut out = String::new();
@@ -118,7 +114,7 @@ fn lex_delete_sequence_structural_events() {
     // observe in iteration output (the C optimize-sweep merge is invisible in
     // `Trie_IterateAll` anyway).
     {
-        let r = i32::from(trie.remove(&term_runes("ape")).is_some());
+        let r = i32::from(trie.remove("ape").is_some());
         writeln!(&mut out, "\n--- delete leaf with sibling \"ape\" — physical removal + parent single-child merge ---").unwrap();
         writeln!(&mut out, "Trie_Delete(\"ape\") -> {r}").unwrap();
         out.push_str(&dump_all(&trie));
@@ -130,7 +126,7 @@ fn lex_delete_sequence_structural_events() {
     // call site (this test).
     let appl_preserved_num_docs;
     {
-        let removed = trie.remove(&term_runes("appl"));
+        let removed = trie.remove("appl");
         appl_preserved_num_docs = removed.as_ref().map(|e| e.num_docs).unwrap_or(0);
         let r = i32::from(removed.is_some());
         writeln!(&mut out, "\n--- delete internal-terminal \"appl\" — children survive (mark-deleted, not physical) ---").unwrap();
@@ -140,7 +136,7 @@ fn lex_delete_sequence_structural_events() {
 
     // Step 3: missing key.
     {
-        let r = i32::from(trie.remove(&term_runes("zzz")).is_some());
+        let r = i32::from(trie.remove("zzz").is_some());
         writeln!(
             &mut out,
             "\n--- delete non-existent \"zzz\" — returns 0, size unchanged ---"
@@ -153,7 +149,7 @@ fn lex_delete_sequence_structural_events() {
     // Step 4: re-delete the already-removed key. Falls out naturally because
     // the previous `remove` physically dropped the entry.
     {
-        let r = i32::from(trie.remove(&term_runes("appl")).is_some());
+        let r = i32::from(trie.remove("appl").is_some());
         writeln!(
             &mut out,
             "\n--- delete already-deleted \"appl\" — second delete is a no-op ---"
@@ -166,7 +162,7 @@ fn lex_delete_sequence_structural_events() {
     // Step 5: re-insert. Mirror C's `n->numDocs += numDocs` over the deleted
     // node's preserved-numDocs (=4) plus the new numDocs (=10) -> 14.
     {
-        let key = term_runes("appl");
+        let key = "appl";
         trie.insert(
             &key,
             TermEntry {
@@ -198,7 +194,7 @@ fn lex_delete_sequence_structural_events() {
 
 #[test]
 fn lex_decrement_numdocs_return_codes() {
-    let mut trie = RuneTrieMap::<TermEntry>::new();
+    let mut trie = StrTrieMap::<TermEntry>::new();
     build_base(&mut trie);
 
     let mut out = String::new();
@@ -245,7 +241,7 @@ fn lex_decrement_numdocs_return_codes() {
     ];
 
     for (label, term, delta, note) in steps {
-        let r = decrement_num_docs(&mut trie, &term_runes(term), *delta);
+        let r = decrement_num_docs(&mut trie, term, *delta);
         writeln!(&mut out, "\n--- {label} ---").unwrap();
         writeln!(
             &mut out,
@@ -265,7 +261,7 @@ fn lex_decrement_numdocs_return_codes() {
     );
 }
 
-fn decrement_num_docs(trie: &mut RuneTrieMap<TermEntry>, key: &[u16], delta: usize) -> DecrResult {
+fn decrement_num_docs(trie: &mut StrTrieMap<TermEntry>, key: &str, delta: usize) -> DecrResult {
     // TODO: Add find_mut().
     match trie.remove(key) {
         Some(mut data) if delta < data.num_docs => {

@@ -16,25 +16,21 @@
 
 use std::fmt::Write as _;
 
-use trie_rs::rune::{Rune, RuneTrieMap};
+use trie_rs::str::StrTrieMap;
 
 struct TermEntry {
     score: f32,
     num_docs: usize,
 }
 
-fn term_runes(s: &str) -> Vec<Rune> {
-    s.encode_utf16().collect()
-}
-
-fn dump_all(trie: &RuneTrieMap<TermEntry>) -> String {
+fn dump_all(trie: &StrTrieMap<TermEntry>) -> String {
     let mut out = String::new();
     writeln!(&mut out, "size: {}", trie.len()).unwrap();
     writeln!(&mut out, "entries:").unwrap();
 
     for (key, entry) in trie.iter() {
-        let term = String::from_utf16(&key).expect("trie runes are valid BMP UTF-16");
-        let first_cp = key.first().copied().unwrap_or(0);
+        let term = &key;
+        let first_cp = key.chars().next().map(u32::from).unwrap_or(0);
         writeln!(
             &mut out,
             "  U+{first_cp:04X}  {term:8}  score={score}  numDocs={num_docs}",
@@ -48,7 +44,7 @@ fn dump_all(trie: &RuneTrieMap<TermEntry>) -> String {
 
 #[test]
 fn lex_unicode_bmp_iteration_order() {
-    let mut trie = RuneTrieMap::<TermEntry>::new();
+    let mut trie = StrTrieMap::<TermEntry>::new();
 
     // Same fixture as `rune_trie_snapshots::unicode`; inserts deliberately
     // out of lex order.
@@ -63,7 +59,7 @@ fn lex_unicode_bmp_iteration_order() {
     ];
     for (term, score, num_docs) in terms {
         trie.insert(
-            &term_runes(term),
+            term,
             TermEntry {
                 score: *score,
                 num_docs: *num_docs,

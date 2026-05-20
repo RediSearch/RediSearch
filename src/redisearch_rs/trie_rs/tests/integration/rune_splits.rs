@@ -28,24 +28,20 @@
 
 use std::fmt::Write as _;
 
-use trie_rs::rune::{Rune, RuneTrieMap};
+use trie_rs::str::StrTrieMap;
 
 struct TermEntry {
     score: f32,
     num_docs: usize,
 }
 
-fn term_runes(s: &str) -> Vec<Rune> {
-    s.encode_utf16().collect()
-}
-
-fn dump_all(trie: &RuneTrieMap<TermEntry>) -> String {
+fn dump_all(trie: &StrTrieMap<TermEntry>) -> String {
     let mut out = String::new();
     writeln!(&mut out, "size: {}", trie.len()).unwrap();
     writeln!(&mut out, "entries:").unwrap();
 
     for (key, entry) in trie.iter() {
-        let term = String::from_utf16(&key).expect("trie runes are valid BMP UTF-16");
+        let term = key;
         writeln!(
             &mut out,
             "  {term:12}  score={score}  numDocs={num_docs}",
@@ -59,12 +55,17 @@ fn dump_all(trie: &RuneTrieMap<TermEntry>) -> String {
 
 #[test]
 fn lex_insert_sequence_splits() {
-    let mut trie = RuneTrieMap::<TermEntry>::new();
+    let mut trie = StrTrieMap::<TermEntry>::new();
 
     let steps: &[(&str, &str, f32, usize)] = &[
         ("first insert into empty trie", "apple", 1.0, 1),
         ("split leaf at shared prefix 'appl'", "apply", 2.0, 1),
-        ("exact-prefix insert -> terminal at internal", "appl", 3.0, 1),
+        (
+            "exact-prefix insert -> terminal at internal",
+            "appl",
+            3.0,
+            1,
+        ),
         ("deep split below internal 'appl'", "ape", 4.0, 1),
         ("disjoint first rune -> new root child", "b", 5.0, 1),
         ("re-insert existing terminal (REPLACE)", "b", 6.0, 2),
@@ -72,7 +73,7 @@ fn lex_insert_sequence_splits() {
 
     let mut out = String::new();
     for (label, term, score, num_docs) in steps {
-        let key = term_runes(term);
+        let key = term;
         // Mirror the C trie's existing-terminal merge: score is replaced,
         // numDocs accumulates. `.map(|e| e.num_docs)` drops the borrow on
         // `trie` before the subsequent `insert` call.
