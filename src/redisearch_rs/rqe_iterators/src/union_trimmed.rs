@@ -45,11 +45,14 @@
 //! via [`UnionTrimmed::child_at`], so trimmed-away children must remain
 //! accessible even though they are inactive.
 
-use ffi::t_docId;
+use ffi::{ValidateStatus, t_docId};
 use index_result::{RSIndexResult, RawIndexResult};
-use ref_mode::{Active, Ref};
+use ref_mode::{Active, Ref, Suspended};
 
-use crate::{IteratorType, RQEIterator, RQEIteratorError, RQEValidateStatus, SkipToOutcome};
+use crate::{
+    IteratorType, RQEIterator, RQEIteratorBoxed, RQEIteratorError, RQESuspendedIterator,
+    RQEValidateStatus, SkipToOutcome,
+};
 use index_spec::IndexSpecReadGuard;
 
 /// Union iterator that drains children sequentially in reverse order.
@@ -334,3 +337,46 @@ where
         }
     }
 }
+
+impl<'index, I> RQEIteratorBoxed<'index> for UnionTrimmed<'index, I>
+where
+    I: RQEIteratorBoxed<'index>,
+{
+    type Suspended = RawUnionTrimmed<Suspended, I::Suspended>;
+
+    fn suspend(self: Box<Self>) -> Box<Self::Suspended> {
+        let raw = Box::into_raw(self);
+        // SAFETY: `RawUnionTrimmed` is `#[repr(C)]`; `Vec<I>` ↔
+        // `Vec<I::Suspended>` are layout-compatible by the
+        // [`RQEIteratorBoxed`] contract; `result: RawIndexResult<Rf>` via
+        // `SharedPtr` transparency. Box::from_raw reuses the heap.
+        unsafe { Box::from_raw(raw as *mut RawUnionTrimmed<Suspended, I::Suspended>) }
+    }
+}
+
+impl<S> RQESuspendedIterator for RawUnionTrimmed<Suspended, S>
+where
+    S: RQESuspendedIterator,
+{
+    type Resumed<'a> = UnionTrimmed<'a, S::Resumed<'a>>;
+
+    fn resume<'a>(
+        self: Box<Self>,
+        _guard: &'a IndexSpecReadGuard<'a>,
+    ) -> (Box<Self::Resumed<'a>>, ValidateStatus) {
+        // Trimmed unions are not subject to GC — they're only constructed
+        // for `Q_OPT_PARTIAL_RANGE` (numeric SORTBY), whose result-processor
+        // pipeline drains every upstream result inside a single locked
+        // `sendChunk` call, so the FFI `Revalidate` path never reaches a
+        // trimmed union. See the parallel `unreachable!` in
+        // `RQEIterator::revalidate` for the full justification.
+        unreachable!(
+            "resume is not supported on UnionTrimmed — trimmed unions are not subject to GC"
+        );
+    }
+
+    fn last_doc_id(&self) -> t_docId {
+        self.result.doc_id
+    }
+}
+
