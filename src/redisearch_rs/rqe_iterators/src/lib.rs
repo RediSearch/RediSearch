@@ -30,6 +30,7 @@ use index_result::{RSIndexResult, RawIndexResult};
 pub use query_error::QueryError;
 use query_term::RSQueryTerm;
 
+pub mod boxed;
 pub mod c2rust;
 pub mod config;
 pub mod deferred;
@@ -60,6 +61,10 @@ mod union_trimmed;
 pub mod utils;
 pub mod wildcard;
 
+pub use boxed::{
+    BoxedRQEIterator, BoxedRQESuspendedIterator, RQEDynIterator, RQEDynSuspendedIterator,
+    RQEIteratorBoxed, RQESuspendedIterator,
+};
 pub use config::IteratorsConfig;
 pub use empty::Empty;
 pub use expiration_checker::{ExpirationChecker, FieldExpirationChecker, NoOpChecker};
