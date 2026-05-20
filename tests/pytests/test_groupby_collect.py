@@ -1929,3 +1929,42 @@ def test_collect_sortby_tiebreak_two_collects_same_groupby_asc_desc():
     desc_names = [r['name'] for r in attrs['desc_names']]
 
     env.assertEqual(desc_names, list(reversed(asc_names)))
+
+
+@skip(cluster=True)
+def test_collect_sortby_does_not_clobber_user_schema_field_on_slot_name_collision():
+    """COLLECT ... SORTBY reserves an internal hidden slot in the source lookup
+    to plant the upstream doc id for tie-breaking.
+    Slot reservation must not bind to a user-visible schema field, on collision
+    the reducer must skip tie-break (logs a warning) and pass user data through
+    untouched. The slot name must match `COLLECT_DOCID_SLOT` in
+    `src/aggregate/reducers/collect.c`."""
+    env = Env(protocol=3)
+    enable_unstable_features(env)
+    slot_name = '__internal_collect_docid'
+    env.expect('FT.CREATE', 'idx', 'ON', 'HASH',
+               'SCHEMA',
+               'color', 'TAG', 'SORTABLE',
+               'sweetness', 'NUMERIC', 'SORTABLE',
+               slot_name, 'TEXT', 'SORTABLE').ok()
+    conn = getConnectionByEnv(env)
+    user_values = ['alpha', 'beta', 'gamma', 'delta']
+    for i, val in enumerate(user_values):
+        conn.execute_command('HSET', f'doc:{i}',
+                             'color', 'black', 'sweetness', str(i),
+                             slot_name, val)
+
+    res = env.cmd(
+        'FT.AGGREGATE', 'idx', '@color:{black}',
+        'GROUPBY', '1', '@color',
+            'REDUCE', 'COLLECT', '7',
+                'FIELDS', '1', f'@{slot_name}',
+                'SORTBY', '2', '@sweetness', 'ASC',
+            'AS', 'collected')
+
+    attrs = res['results'][0]['extra_attributes']
+    collected_values = [str(r.get(slot_name, '')) for r in attrs['collected']]
+    # The user's field must come through untouched; the internal
+    # tie-break slot must not bind to the user-visible field of the same name.
+    env.assertEqual(sorted(collected_values), sorted(user_values),
+                    message=f'user @{slot_name} clobbered by internal slot: {collected_values}')
