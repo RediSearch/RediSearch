@@ -58,7 +58,7 @@ fn reading_filter_based_on_geo_filter() {
         offset: 0,
     };
 
-    let mut reader = FilterGeoReader::new(&filter, iter.into_iter());
+    let mut reader = FilterGeoReader::new(filter, iter.into_iter());
     let mut result = RSIndexResult::build_numeric(0.0).build();
 
     let found = reader.next_record(&mut result).unwrap();

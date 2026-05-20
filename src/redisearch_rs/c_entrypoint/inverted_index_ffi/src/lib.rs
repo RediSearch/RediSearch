@@ -773,29 +773,21 @@ pub enum IndexReader<'index_and_filter> {
     RawDocIdsOnly(inverted_index::IndexReaderCore<'index_and_filter, RawDocIdsOnly>),
     Numeric(inverted_index::IndexReaderCore<'index_and_filter, Numeric>),
     NumericFiltered(
-        FilterNumericReader<
-            'index_and_filter,
-            inverted_index::IndexReaderCore<'index_and_filter, Numeric>,
-        >,
+        FilterNumericReader<inverted_index::IndexReaderCore<'index_and_filter, Numeric>>,
     ),
     NumericGeoFiltered(
-        FilterGeoReader<
-            'index_and_filter,
-            inverted_index::IndexReaderCore<'index_and_filter, Numeric>,
-        >,
+        FilterGeoReader<inverted_index::IndexReaderCore<'index_and_filter, Numeric>>,
     ),
     NumericFloatCompression(
         inverted_index::IndexReaderCore<'index_and_filter, NumericFloatCompression>,
     ),
     NumericFilteredFloatCompression(
         FilterNumericReader<
-            'index_and_filter,
             inverted_index::IndexReaderCore<'index_and_filter, NumericFloatCompression>,
         >,
     ),
     NumericGeoFilteredFloatCompression(
         FilterGeoReader<
-            'index_and_filter,
             inverted_index::IndexReaderCore<'index_and_filter, NumericFloatCompression>,
         >,
     ),
@@ -958,10 +950,10 @@ pub unsafe extern "C" fn NewIndexReader(
         (InvertedIndex::RawDocIdsOnly(ii), _) => IndexReader::RawDocIdsOnly(ii.reader()),
         (InvertedIndex::Numeric(ii), ReadFilter::None) => IndexReader::Numeric(ii.reader()),
         (InvertedIndex::Numeric(ii), ReadFilter::Numeric(filter)) if filter.is_numeric_filter() => {
-            IndexReader::NumericFiltered(FilterNumericReader::new(filter, ii.reader()))
+            IndexReader::NumericFiltered(FilterNumericReader::new(*filter, ii.reader()))
         }
         (InvertedIndex::Numeric(ii), ReadFilter::Numeric(filter)) => {
-            IndexReader::NumericGeoFiltered(FilterGeoReader::new(filter, ii.reader()))
+            IndexReader::NumericGeoFiltered(FilterGeoReader::new(*filter, ii.reader()))
         }
         (InvertedIndex::NumericFloatCompression(ii), ReadFilter::None) => {
             IndexReader::NumericFloatCompression(ii.reader())
@@ -970,13 +962,13 @@ pub unsafe extern "C" fn NewIndexReader(
             if filter.is_numeric_filter() =>
         {
             IndexReader::NumericFilteredFloatCompression(FilterNumericReader::new(
-                filter,
+                *filter,
                 ii.reader(),
             ))
         }
         (InvertedIndex::NumericFloatCompression(ii), ReadFilter::Numeric(filter)) => {
             IndexReader::NumericGeoFilteredFloatCompression(FilterGeoReader::new(
-                filter,
+                *filter,
                 ii.reader(),
             ))
         }

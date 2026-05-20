@@ -9,13 +9,15 @@
 
 use std::ffi::c_void;
 
-use super::{IndexReader, IndexReaderCore, NumericReader, SuspendableReader};
+use super::{
+    IndexReader, IndexReaderCore, NumericReader, RefreshOutcome, ResumableReader, SuspendableReader,
+};
 use crate::{DecodedBy, Decoder, InvertedIndex};
 use ffi::{FieldSpec, IndexFlags, t_docId};
 use index_result::RSIndexResult;
 
 /// Filter details to apply to numeric values
-#[derive(Debug)]
+#[derive(Debug, Clone, Copy)]
 #[repr(C)]
 #[cheadergen::config(export, rename_all = "camelCase")]
 pub struct NumericFilter {
@@ -89,37 +91,51 @@ impl NumericFilter {
 /// instantiations of its inner [`RawIndexReaderCore`](crate::RawIndexReaderCore),
 /// the whole `FilterNumericReader` is too.
 #[repr(C)]
-pub struct FilterNumericReader<'filter, IR> {
+pub struct FilterNumericReader<IR> {
     /// The numeric filter that is used to filter the records.
-    filter: &'filter NumericFilter,
+    ///
+    /// Owned by value (the filter is [`Copy`]) so the reader does not
+    /// carry a borrow of the filter — this lets the suspended counterpart
+    /// be `'static`, which the `RQESuspendedIterator` design requires.
+    filter: NumericFilter,
 
     /// The inner reader that will be used to read the records from the index.
     inner: IR,
 }
 
-impl<'filter, 'index, IR: NumericReader<'index>> FilterNumericReader<'filter, IR> {
+impl<'index, IR: NumericReader<'index>> FilterNumericReader<IR> {
     /// Create a new filter numeric reader with the given filter and inner iterator.
-    pub const fn new(filter: &'filter NumericFilter, inner: IR) -> Self {
+    pub const fn new(filter: NumericFilter, inner: IR) -> Self {
         Self { filter, inner }
     }
 }
 
-/// `FilterNumericReader<'filter, IR>` suspends to
-/// `FilterNumericReader<'filter, IR::Suspended>` — the borrowed filter
-/// references live for `'filter` (independent of the index lifetime), so
-/// they don't switch modes when the inner reader does.
-impl<'filter, IR: SuspendableReader> SuspendableReader for FilterNumericReader<'filter, IR> {
-    type Suspended = FilterNumericReader<'filter, IR::Suspended>;
+/// `FilterNumericReader<IR>` suspends to `FilterNumericReader<IR::Suspended>`.
+impl<IR: SuspendableReader> SuspendableReader for FilterNumericReader<IR> {
+    type Suspended = FilterNumericReader<IR::Suspended>;
 }
 
-impl<'filter, 'index, E> FilterNumericReader<'filter, IndexReaderCore<'index, E>> {
-    /// Get the numeric filter used by this reader.
-    pub const fn filter(&self) -> &NumericFilter {
-        self.filter
+/// Inverse of the above: `FilterNumericReader<RS>` resumes to
+/// `FilterNumericReader<RS::Resumed<'a>>` for any `RS: ResumableReader`.
+impl<RS: ResumableReader> ResumableReader for FilterNumericReader<RS>
+where
+    for<'a> FilterNumericReader<RS::Resumed<'a>>: IndexReader<'a>,
+{
+    type Resumed<'a> = FilterNumericReader<RS::Resumed<'a>>;
+
+    fn refresh_pointers(&mut self) -> RefreshOutcome {
+        self.inner.refresh_pointers()
     }
 }
 
-impl<'index, IR: NumericReader<'index>> IndexReader<'index> for FilterNumericReader<'index, IR> {
+impl<'index, E> FilterNumericReader<IndexReaderCore<'index, E>> {
+    /// Get the numeric filter used by this reader.
+    pub const fn filter(&self) -> &NumericFilter {
+        &self.filter
+    }
+}
+
+impl<'index, IR: NumericReader<'index>> IndexReader<'index> for FilterNumericReader<IR> {
     /// Get the next record from the inner reader that matches the numeric filter.
     ///
     /// # Safety
@@ -199,8 +215,8 @@ impl<'index, IR: NumericReader<'index>> IndexReader<'index> for FilterNumericRea
     }
 }
 
-impl<'filter, 'index, E: DecodedBy<Decoder = D>, D: Decoder>
-    FilterNumericReader<'filter, IndexReaderCore<'index, E>>
+impl<'index, E: DecodedBy<Decoder = D>, D: Decoder>
+    FilterNumericReader<IndexReaderCore<'index, E>>
 {
     /// Check if the underlying index has been modified since the last time this reader read from it.
     /// If it has, then the reader should be reset before reading from it again.
@@ -226,4 +242,4 @@ impl<'filter, 'index, E: DecodedBy<Decoder = D>, D: Decoder>
 }
 
 /// A [`FilterNumericReader`] wrapping a [`NumericReader`] is also a [`NumericReader`].
-impl<'index, IR: NumericReader<'index>> NumericReader<'index> for FilterNumericReader<'index, IR> {}
+impl<'index, IR: NumericReader<'index>> NumericReader<'index> for FilterNumericReader<IR> {}
