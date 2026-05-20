@@ -143,7 +143,8 @@ pub unsafe extern "C" fn AddIntersectionIteratorChild(
         "Expected an INTERSECT_ITERATOR"
     );
     debug_assert!(!child.is_null());
-    // SAFETY: safe thanks to 1
+    // SAFETY: 1. and 2. by 1. 3. C does not touch the intersection while adding a child to
+    // it. 4. The borrow ends within this call, while 1 keeps the iterator alive.
     let wrapper = unsafe {
         RQEIteratorWrapper::<Intersection<CRQEIterator>>::mut_ref_from_header_ptr(header)
     };
@@ -151,5 +152,5 @@ pub unsafe extern "C" fn AddIntersectionIteratorChild(
     // justified by the same contract point.
     #[expect(clippy::multiple_unsafe_ops_per_block)]
     let child = unsafe { CRQEIterator::new(NonNull::new_unchecked(child)) };
-    wrapper.inner.push_child(child);
+    wrapper.inner_mut().push_child(child);
 }

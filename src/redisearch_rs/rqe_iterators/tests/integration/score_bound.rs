@@ -119,7 +119,7 @@ fn wrappers_forward_every_hook() {
 
 /// Six documents in three blocks: under a threshold of 2 the middle block is jumped whole, and
 /// documents 2 and 5 are stepped over inside blocks that are kept.
-fn three_blocks() -> Blocked {
+fn three_blocks() -> Blocked<'static> {
     Blocked::new(vec![
         Block::tight(&[(1, 5.0), (2, 1.0)]),
         Block::tight(&[(3, 0.5)]),
