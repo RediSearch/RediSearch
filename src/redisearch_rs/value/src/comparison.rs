@@ -7,8 +7,8 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 
-use crate::Value;
-use crate::util::{num_to_str, str_to_float};
+use crate::util::{debug_assert_warn, num_to_str, str_to_float};
+use crate::{Array, Map, Value};
 use query_error::{QueryError, QueryErrorCode};
 use std::cmp::Ordering;
 use std::ops::Deref;
@@ -184,6 +184,88 @@ pub fn compare(
         )),
         _ => Err(CompareError::IncompatibleTypes),
     }
+}
+
+fn string_keyed<'a>(
+    pairs: impl Iterator<Item = (&'a Value, &'a Value)>,
+) -> Vec<(&'a [u8], &'a Value)> {
+    pairs
+        .filter_map(|(key, value)| {
+            let bytes = key.as_str_bytes();
+            debug_assert_warn!(
+                bytes.is_some(),
+                "non-string key in map comparison; pair skipped"
+            );
+            Some((bytes?, value))
+        })
+        .collect()
+}
+
+fn entries_equal(entries1: &[(&[u8], &Value)], entries2: &[(&[u8], &Value)]) -> bool {
+    debug_assert_eq!(entries1.len(), entries2.len());
+    entries1.iter().zip(entries2).all(|((k1, v1), (k2, v2))| {
+        // Nested maps/arrays are not supported: `compare_on_equality_only` treats them as
+        // equal regardless of content. This function is intended for flat hash results only.
+        debug_assert_warn!(
+            !matches!(v1, Value::Map(_) | Value::Array(_)),
+            "nested map/array value in map equality comparison; result may be incorrect"
+        );
+        debug_assert_warn!(
+            !matches!(v2, Value::Map(_) | Value::Array(_)),
+            "nested map/array value in map equality comparison; result may be incorrect"
+        );
+        k1 == k2 && compare_on_equality_only(v1, v2)
+    })
+}
+
+fn collect_array(array: &Array) -> Vec<(&[u8], &Value)> {
+    let (pairs, remainder) = array.as_chunks::<2>();
+    debug_assert_warn!(
+        remainder.is_empty(),
+        "arrays_equal_as_maps called on an odd-length array;"
+    );
+    string_keyed(pairs.iter().map(|[key, value]| (&**key, &**value)))
+}
+
+fn collect_map(map: &Map) -> Vec<(&[u8], &Value)> {
+    string_keyed(map.iter().map(|(key, value)| (&**key, &**value)))
+}
+
+/// Check whether two flat key-value arrays are equal when interpreted as maps.
+///
+/// The arrays are interpreted as RESP2 map fallbacks: `[k1, v1, k2, v2, ...]`.
+/// String and Redis string keys participate in the map; non-string keys are
+/// skipped. Odd trailing elements are ignored with the same warning behavior as
+/// [`Array::map_get`].
+///
+/// # Panics
+///
+/// Asserts in debug builds and warns in release builds if either array has an
+/// odd number of elements.
+pub fn arrays_equal_as_maps(a1: &Array, a2: &Array) -> bool {
+    let mut e1 = collect_array(a1);
+    let mut e2 = collect_array(a2);
+    if e1.len() != e2.len() {
+        return false;
+    }
+    e1.sort_unstable_by_key(|k| k.0);
+    e2.sort_unstable_by_key(|k| k.0);
+    entries_equal(&e1, &e2)
+}
+
+/// Check whether two maps are equal by their string keys and corresponding values.
+///
+/// This is an explicit map equality helper. It does not change the default
+/// [`compare`] behavior for [`Value::Map`], which remains unsupported.
+pub fn maps_equal(m1: &Map, m2: &Map) -> bool {
+    let mut e1 = collect_map(m1);
+    let mut e2 = collect_map(m2);
+    if e1.len() != e2.len() {
+        return false;
+    }
+    e1.sort_unstable_by_key(|k| k.0);
+    e2.sort_unstable_by_key(|k| k.0);
+    entries_equal(&e1, &e2)
 }
 
 /// Compare a number to a byte-string.
