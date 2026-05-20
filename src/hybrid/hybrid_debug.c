@@ -205,7 +205,8 @@ static HybridRequest_Debug* HybridRequest_Debug_New(RedisModuleCtx *ctx, RedisMo
 
   // Set request flags from hybridParams
   hreq->reqflags = hybridParams.aggregationParams.common.reqflags;
-  if (HybridRequest_BuildPipeline(hreq, &hybridParams, false, status) != REDISMODULE_OK) {
+  // Foreground build (depleteInBackground=false): no thread pool needed.
+  if (HybridRequest_BuildPipeline(hreq, &hybridParams, false, NULL, status) != REDISMODULE_OK) {
     if (hybridParams.scoringCtx) {
       HybridScoringContext_Free(hybridParams.scoringCtx);
     }

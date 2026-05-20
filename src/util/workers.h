@@ -45,6 +45,12 @@ size_t workersThreadPool_NumThreads(void);
 // adds a task
 int workersThreadPool_AddWork(redisearch_thpool_proc, void *arg_p);
 
+// Returns the underlying thread pool handle. Callers that need to submit jobs
+// to the same pool used by workersThreadPool_AddWork (e.g. RPSafeDepleter) can
+// pass this directly into the per-job APIs. NULL if the pool has not been
+// created yet.
+redisearch_thpool_t *workersThreadPool_GetPool(void);
+
 // Wait until the workers job queue contains no more than <threshold> jobs.
 void workersThreadPool_Drain(RedisModuleCtx *ctx, size_t threshold);
 

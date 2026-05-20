@@ -71,13 +71,20 @@ def test_hybrid_multithread():
     env.expect(debug_cmd(), 'WORKERS', 'DRAIN').ok()
 
     if env.isCluster():
-        # Expect 5 jobs done: 3 for the hybrid search + its depleters,
-        # 1 for the search equivalent, and 1 for the vector equivalent
-        env.assertEqual(getWorkersThpoolStats(env)['totalJobsDone'], 5)
+        # Expect 8 jobs done: dispatcher + 2 depleters + tail (4) on the shard
+        # handling the hybrid, plus 3 for the hybrid search + its depleters,
+        # 1 for the search equivalent. The shard-side hybrid pipeline is split
+        # so the dispatcher returns immediately and the depleters and tail run
+        # as separate jobs on the same workers pool.
+        env.assertEqual(getWorkersThpoolStats(env)['totalJobsDone'], 8)
     else:
-        # Expect 3 jobs done: 1 for the hybrid search, 1 for the search
-        # equivalent, and 1 for the vector equivalent
-        env.assertEqual(getWorkersThpoolStats(env)['totalJobsDone'], 3)
+        # Expect 6 jobs done: 4 for the hybrid search (dispatcher + 2 depleters
+        # + tail), 1 for the search equivalent, and 1 for the vector
+        # equivalent. The shard-side hybrid pipeline is split so the
+        # dispatcher worker thread is freed while depleters run; the depleters
+        # are submitted to the same workers pool and FIFO ordering ensures
+        # they run before the tail.
+        env.assertEqual(getWorkersThpoolStats(env)['totalJobsDone'], 6)
 
     env.assertEqual(getWorkersThpoolStats(env)['numThreadsAlive'], 2)
 
@@ -89,10 +96,12 @@ def test_hybrid_multithread():
     # Drain the thread pool to make sure all jobs are done.
     env.expect(debug_cmd(), 'WORKERS', 'DRAIN').ok()
     if env.isCluster():
-        # Expect 10 jobs done: 5 more once the scenario is run again
-        env.assertEqual(getWorkersThpoolStats(env)['totalJobsDone'], 10)
+        # Expect 16 jobs done: 8 more once the scenario is run again
+        env.assertEqual(getWorkersThpoolStats(env)['totalJobsDone'], 16)
     else:
-        # Expect 6 jobs done: 3 more once the scenario is run again
-        env.assertEqual(getWorkersThpoolStats(env)['totalJobsDone'], 6)
+        # Expect 12 jobs done: 6 more once the scenario is run again
+        # (dispatcher + 2 depleters + tail + search equivalent + vector
+        # equivalent).
+        env.assertEqual(getWorkersThpoolStats(env)['totalJobsDone'], 12)
 
     env.assertEqual(getWorkersThpoolStats(env)['numThreadsAlive'], 1)

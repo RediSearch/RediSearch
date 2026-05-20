@@ -34,8 +34,6 @@
 #include "util/logging.h"
 #include "asm_state_machine.h"
 
-#define DEPLETER_POOL_SIZE 4
-
 /**
  * Check if we can run under the current AOF configuration. Returns true
  * or false
@@ -165,8 +163,6 @@ int RediSearch_Init(RedisModuleCtx *ctx, int mode) {
   }
   DO_LOG("verbose", "threadpool has %lu high-priority bias that always prefer running queries "
                     "when possible", RSGlobalConfig.highPriorityBiasNum);
-
-  depleterPool = redisearch_thpool_create(DEPLETER_POOL_SIZE, DEFAULT_HIGH_PRIORITY_BIAS_THRESHOLD, LogCallback, "depleter");
 
   IndexAlias_InitGlobal();
 

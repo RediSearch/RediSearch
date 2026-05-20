@@ -23,14 +23,12 @@
 #include "rmalloc.h"
 #include "cursor.h"
 #include "score_explain.h"
-#include "util/timeout.h"
 #include "util/workers.h"
 #include "info/global_stats.h"
 #include "info/info_redis/block_client.h"
 #include "info/info_redis/threads/current_thread.h"
 #include "info/info_redis/types/blocked_queries.h"
 #include "pipeline/pipeline.h"
-#include "util/units.h"
 #include "value_ffi.h"
 #include "module.h"
 #include "aggregate/reply_empty.h"
@@ -775,14 +773,15 @@ static int buildPipelineAndExecute(StrongRef hybrid_ref, HybridPipelineParams *h
     rs_wall_clock_init(&pipelineClock);
   }
 
-  // Internal commands do not have a hybrid merger and only have a depletion pipeline
+  // Internal commands do not have a hybrid merger and only have a depletion pipeline.
+  // Foreground (WORKERS=0) caller: depleteInBackground=false, so no thread pool is needed.
   if (internal) {
     RS_LOG_ASSERT(isCursor, "Internal hybrid command must be a cursor request from a coordinator");
     isCursor = true;
-    if (HybridRequest_BuildDepletionPipeline(hreq, hybridParams, depleteInBackground) != REDISMODULE_OK) {
+    if (HybridRequest_BuildDepletionPipeline(hreq, hybridParams, depleteInBackground, NULL) != REDISMODULE_OK) {
       return REDISMODULE_ERR;
     }
-  } else if (HybridRequest_BuildPipeline(hreq, hybridParams, depleteInBackground, status) != REDISMODULE_OK) {
+  } else if (HybridRequest_BuildPipeline(hreq, hybridParams, depleteInBackground, NULL, status) != REDISMODULE_OK) {
     return REDISMODULE_ERR;
   }
 
@@ -1173,11 +1172,95 @@ static void blockedClientHybridCtx_destroy(blockedClientHybridCtx *BCHCtx) {
   rm_free(BCHCtx);
 }
 
+// Tail context handed off from the dispatcher worker thread to the tail worker
+// thread. Owns the resources transferred from the dispatcher (BCHCtx, outctx,
+// spec strong ref, collected depleters) so the tail can finish the request and
+// unblock the client without the dispatcher having to wait for depletion.
+typedef struct HybridTailCtx {
+  blockedClientHybridCtx *BCHCtx;
+  RedisModuleCtx *outctx;
+  StrongRef execution_ref;
+  arrayof(ResultProcessor*) depleters;
+  bool isCursor;
+} HybridTailCtx;
+
+// Walks each subquery's pipeline and collects the safe-depleter result processors.
+// Returns NULL with `status` populated if any subquery's end processor is not the
+// expected RPSafeDepleter (programmer error). Caller frees the returned array
+// with array_free.
+static arrayof(ResultProcessor*) collectHybridSafeDepleters(HybridRequest *hreq, QueryError *status) {
+  arrayof(ResultProcessor*) depleters = array_new(ResultProcessor *, hreq->nrequests);
+  for (size_t i = 0; i < hreq->nrequests; i++) {
+    ResultProcessor *depleter = hreq->requests[i]->pipeline.qctx.endProc;
+    if (IsProfile(hreq) && depleter->type == RP_PROFILE) {
+      depleter = depleter->upstream;
+    }
+    if (depleter->type != RP_SAFE_DEPLETER) {
+      QueryError_SetWithoutUserDataFmt(status, QUERY_ERROR_CODE_GENERIC,
+        "Unexpected depleter type: expected %s, got %s",
+        RPTypeToString(RP_SAFE_DEPLETER), RPTypeToString(depleter->type));
+      array_free(depleters);
+      return NULL;
+    }
+    array_ensure_append_1(depleters, depleter);
+  }
+  return depleters;
+}
+
+// Reserves a cursor for each subquery under the cursor mutex, after checking
+// the request-level timed-out flag. On success, hreq->cursors holds the reserved
+// cursors. On failure, hreq->cursors is cleared and an error is set in `status`.
+// The cursor mutex is always released before returning.
+static int reserveHybridCursors(StrongRef hybrid_ref, QueryError *status) {
+  HybridRequest *req = StrongRef_Get(hybrid_ref);
+
+  debugPauseHybridStoreCursors(req, true);
+  HybridRequest_LockCursors(req);
+
+  if (HybridRequest_TimedOut(req)) {
+    HybridRequest_UnlockCursors(req);
+    QueryError_SetError(status, QUERY_ERROR_CODE_TIMED_OUT, NULL);
+    return REDISMODULE_ERR;
+  }
+
+  req->cursors = array_new(Cursor*, req->nrequests);
+  for (size_t i = 0; i < req->nrequests; i++) {
+    AREQ *areq = req->requests[i];
+    Cursor *cursor = Cursors_Reserve(getCursorList(false), areq->sctx->spec->own_ref,
+                                     areq->cursorConfig.maxIdle, status);
+    if (!cursor) {
+      array_free_ex(req->cursors, Cursor_Free(*(Cursor**)ptr));
+      req->cursors = NULL;
+      HybridRequest_UnlockCursors(req);
+      return REDISMODULE_ERR;
+    }
+    cursor->execState = areq;
+    cursor->hybrid_ref = StrongRef_Clone(hybrid_ref);
+    areq->cursor_id = cursor->id;
+    array_ensure_append_1(req->cursors, cursor);
+  }
+
+  HybridRequest_UnlockCursors(req);
+  debugPauseHybridStoreCursors(req, false);
+  return REDISMODULE_OK;
+}
+
+static void HREQ_Tail_Callback(HybridTailCtx *tail);
+
 /**
- * Background execution callback for hybrid requests.
- * This function is called by the worker thread to execute hybrid requests.
+ * Dispatcher half of the hybrid request worker callback.
  *
- * @param BCHCtx The blocked client context containing the request
+ * Promotes the spec strong ref, builds the pipeline under the spec read lock,
+ * reserves cursors (for cursor mode), submits the depleter jobs and waits only
+ * for the spec-lock hand-off to complete. As soon as the depleters have taken
+ * their own read locks (or skipped because a writer was waiting), the
+ * dispatcher's spec lock is released and a tail callback is scheduled on the
+ * workers pool to drain the depleters and run the merger / send the cursor
+ * reply. The dispatcher thread then returns, freeing the worker slot while
+ * depletion is still in flight.
+ *
+ * @param BCHCtx Ownership transferred to the tail on the happy path; freed
+ *               here on any early-exit path.
  */
 static void HREQ_Execute_Callback(blockedClientHybridCtx *BCHCtx) {
   StrongRef hybrid_ref = BCHCtx->hybrid_ref;
@@ -1203,28 +1286,207 @@ static void HREQ_Execute_Callback(blockedClientHybridCtx *BCHCtx) {
     sctx->redisCtx = outctx;
   }
 
-  // Acquire read lock before building pipeline (matching AREQ_Execute_Callback)
+  // Acquire read lock before building pipeline (matching AREQ_Execute_Callback).
+  // The lock is released as part of the depleter hand-off in
+  // RPSafeDepleter_StartDepletionAndHandoffLock below, or via the
+  // RedisSearchCtx_UnlockSpec call on the early-exit path.
   RedisSearchCtx_LockSpecRead(sctx);
 
-  if (buildPipelineAndExecute(hybrid_ref, hybridParams, outctx, sctx, &status, BCHCtx->internal, true) == REDISMODULE_OK) {
-    // Set hybridParams to NULL so they won't be freed in destroy
-    BCHCtx->hybridParams = NULL;
-    RedisSearchCtx_UnlockSpec(sctx);
+  // Mirror buildPipelineAndExecute's setup: bring the request flags from the
+  // parsed parameters and decide cursor mode based on the source of truth.
+  hreq->reqflags = hybridParams->aggregationParams.common.reqflags;
+  bool isCursor = hreq->reqflags & QEXEC_F_IS_CURSOR;
+
+  // Declared up front because the error paths below `goto dispatch_error` and
+  // some compilers reject jumps past variable initializations.
+  arrayof(ResultProcessor*) depleters = NULL;
+  int build_rc;
+
+  rs_wall_clock pipelineClock;
+  const bool isProfile = hreq->tailPipeline->qctx.isProfile;
+  if (isProfile) {
+    rs_wall_clock_init(&pipelineClock);
+  }
+
+  // Build the pipeline. Internal hybrid commands only build the per-subquery
+  // depletion pipeline (the merger runs on the coordinator); user-facing
+  // commands build the full pipeline including the merger and tail.
+  // Background depletion jobs are submitted to the same _workers_thpool that
+  // runs this dispatcher and will run the tail; the dispatcher does not
+  // busy-wait, so a small WORKERS setting will serialize the depletion+tail
+  // rather than deadlock.
+  redisearch_thpool_t *workers_pool = workersThreadPool_GetPool();
+  if (BCHCtx->internal) {
+    RS_LOG_ASSERT(isCursor, "Internal hybrid command must be a cursor request from a coordinator");
+    isCursor = true;
+    build_rc = HybridRequest_BuildDepletionPipeline(hreq, hybridParams, true, workers_pool);
   } else {
-    // buildPipelineAndExecute failed - release the lock if still held.
-    // Note: If failure occurred after RPSafeDepleter_DepleteAll started, the lock
-    // was already released in WaitForDepletionToStart. RedisSearchCtx_UnlockSpec
-    // safely handles this case by checking sctx->flags before unlocking.
-    RedisSearchCtx_UnlockSpec(sctx);
+    build_rc = HybridRequest_BuildPipeline(hreq, hybridParams, true, workers_pool, &hreq->tailPipelineError);
+  }
+  if (build_rc != REDISMODULE_OK) {
+    goto dispatch_error;
+  }
+
+  if (isProfile) {
+    hreq->profileClocks.profilePipelineBuildTime = rs_wall_clock_elapsed_ns(&pipelineClock);
+  }
+
+  if (hreq->debugParams && applyHybridDebugTimeout(hreq, hreq->debugParams) != REDISMODULE_OK) {
+    QueryError_SetError(&status, QUERY_ERROR_CODE_INVAL, "Failed to apply debug timeouts");
+    goto dispatch_error;
+  }
+
+  depleters = collectHybridSafeDepleters(hreq, &status);
+  if (!depleters) {
+    goto dispatch_error;
+  }
+
+  // For cursor mode reserve the cursors that will be returned to the caller
+  // before kicking off depletion. Reservation may fail with timeout or a
+  // cursor-creation error; in either case we abort before scheduling the tail.
+  if (isCursor) {
+    if (reserveHybridCursors(hybrid_ref, &status) != REDISMODULE_OK) {
+      array_free(depleters);
+      goto dispatch_error;
+    }
+  }
+
+  // Submit the depleter jobs and wait only for the lock hand-off. Once this
+  // returns RS_RESULT_OK the dispatcher's read lock has been released, every
+  // depleter has either taken its own read lock or recorded a skip, and the
+  // background depletion is in flight.
+  if (RPSafeDepleter_StartDepletionAndHandoffLock(depleters, &status) != RS_RESULT_OK) {
+    array_free(depleters);
+    if (isCursor) {
+      HybridRequest_LockCursors(hreq);
+      if (hreq->cursors) {
+        array_free_ex(hreq->cursors, Cursor_Free(*(Cursor**)ptr));
+        hreq->cursors = NULL;
+      }
+      HybridRequest_UnlockCursors(hreq);
+    }
+    goto dispatch_error;
+  }
+
+  {
+    // Pipeline build succeeded; the tail no longer needs hybridParams.
+    freeHybridParams(hybridParams);
+    BCHCtx->hybridParams = NULL;
+
+    // Hand off ownership of the remaining resources to the tail callback.
+    HybridTailCtx *tail = rm_new(HybridTailCtx);
+    tail->BCHCtx = BCHCtx;
+    tail->outctx = outctx;
+    tail->execution_ref = execution_ref;
+    tail->depleters = depleters;
+    tail->isCursor = isCursor;
+
+    int sched_rc = workersThreadPool_AddWork((redisearch_thpool_proc)HREQ_Tail_Callback, tail);
+    RS_ASSERT(sched_rc == 0);
+    return;
+  }
+
+dispatch_error:
+  // Release the spec lock if it is still held. RedisSearchCtx_UnlockSpec is
+  // idempotent — if depletion already released it via the hand-off, this is a
+  // no-op.
+  RedisSearchCtx_UnlockSpec(sctx);
+  if (!QueryError_HasError(&status)) {
+    // There was an error but it was not set in status, get it from hreq.
+    HybridRequest_GetError(hreq, &status);
+    HybridRequest_ClearErrors(hreq);
+  }
+  HREQ_ReplyOrStoreError(hreq, outctx, &status);
+  RedisModule_FreeThreadSafeContext(outctx);
+  IndexSpecRef_Release(execution_ref);
+  blockedClientHybridCtx_destroy(BCHCtx);
+}
+
+/**
+ * Tail half of the hybrid request worker callback.
+ *
+ * Drains the in-flight depleter jobs scheduled by the dispatcher, then either
+ * runs the merger and stores results (non-cursor) or leaves the cursor array
+ * intact for the main-thread reply callback to serialize (cursor mode). On
+ * any fatal depletion outcome the cursors are freed and an error reply is
+ * stored for the main-thread reply callback.
+ *
+ * @param tail Ownership transferred from the dispatcher; freed here.
+ */
+static void HREQ_Tail_Callback(HybridTailCtx *tail) {
+  blockedClientHybridCtx *BCHCtx = tail->BCHCtx;
+  RedisModuleCtx *outctx = tail->outctx;
+  StrongRef execution_ref = tail->execution_ref;
+  arrayof(ResultProcessor*) depleters = tail->depleters;
+  bool isCursor = tail->isCursor;
+  HybridRequest *hreq = StrongRef_Get(BCHCtx->hybrid_ref);
+
+  QueryError status = QueryError_Default();
+  int dep_rc = RPSafeDepleter_WaitForDepletionAll(depleters, &status);
+  array_free(depleters);
+  tail->depleters = NULL;
+
+  // Classify the depletion outcome. RS_RESULT_ERROR (lock-acquisition failure)
+  // is always fatal. RS_RESULT_TIMEDOUT is fatal under the FAIL timeout policy
+  // but tolerated under RETURN (the depleters have whatever results they read
+  // before the timeout).
+  bool depletionFatal = false;
+  bool depletionTimedOut = false;
+  if (dep_rc == RS_RESULT_ERROR) {
+    depletionFatal = true;
+  } else if (dep_rc == RS_RESULT_TIMEDOUT) {
+    if (hreq->reqConfig.timeoutPolicy == TimeoutPolicy_Fail) {
+      depletionFatal = true;
+    } else {
+      depletionTimedOut = true;
+    }
+  }
+
+  if (depletionFatal) {
+    if (isCursor) {
+      // Drop the reserved cursors so the reply callback doesn't try to use
+      // them. The timeout-fail callback also frees cursors under the same
+      // mutex, so either path is safe.
+      HybridRequest_LockCursors(hreq);
+      if (hreq->cursors) {
+        array_free_ex(hreq->cursors, Cursor_Free(*(Cursor**)ptr));
+        hreq->cursors = NULL;
+      }
+      HybridRequest_UnlockCursors(hreq);
+    }
     if (!QueryError_HasError(&status)) {
-      // There was an error but it was not set in status, get it from hreq
       HybridRequest_GetError(hreq, &status);
       HybridRequest_ClearErrors(hreq);
     }
     HREQ_ReplyOrStoreError(hreq, outctx, &status);
+    goto tail_cleanup;
   }
 
+  // If the timeout callback already fired (FAIL policy), the client has been
+  // replied to. Skip merger and cursor finalization — the reply callback will
+  // see hreq->cursors == NULL (timeout callback cleared it) and produce nothing.
+  if (HybridRequest_TimedOut(hreq)) {
+    goto tail_cleanup;
+  }
+
+  if (!isCursor) {
+    // Run the merger. For FAIL policy (useReplyCallback=true) sendChunk_hybrid
+    // stores results for the main-thread HybridQueryReplyCallback; for RETURN
+    // policy it replies inline to outctx.
+    HybridRequest_Execute(hreq, outctx, HREQ_SearchCtx(hreq));
+  } else if (!hreq->useReplyCallback) {
+    // RETURN policy cursor mode: reply with cursor IDs inline on this worker
+    // thread (no reply callback will run). For FAIL policy
+    // HybridQueryCursorReplyCallback will serialize the cursors after
+    // UnblockClient below.
+    replyWithCursors(outctx, hreq->cursors, hreq, depletionTimedOut);
+    array_free(hreq->cursors);
+    hreq->cursors = NULL;
+  }
+
+tail_cleanup:
   RedisModule_FreeThreadSafeContext(outctx);
   IndexSpecRef_Release(execution_ref);
   blockedClientHybridCtx_destroy(BCHCtx);
+  rm_free(tail);
 }

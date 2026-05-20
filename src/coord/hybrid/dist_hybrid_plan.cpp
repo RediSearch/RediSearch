@@ -21,10 +21,11 @@ static void pushResultProcessor(QueryProcessingCtx *qctx, ResultProcessor *rp) {
 
 // should make sure the product of AREQ_BuildPipeline(areq, &req->errors[i]) would result in rpSorter only (can set up the aggplan to be a sorter only)
 int HybridRequest_BuildDistributedDepletionPipeline(HybridRequest *req, const HybridPipelineParams *params) {
-  // Create synchronization context for coordinating depleter processors
-  // We avoid taking the index lock since we are not directly accessing the index at all
-  // This avoids deadlocks with main thread while it is trying to access the index
-  StrongRef sync_ref = DepleterSync_New(req->nrequests, false);
+  // Create synchronization context for coordinating depleter processors.
+  // The coordinator's depleters drain from network shards rather than from a
+  // local index, so take_index_lock is false and no dispatcher lock release
+  // target is needed (nextThreadCtx is NULL).
+  StrongRef sync_ref = DepleterSync_New(req->nrequests, false, NULL);
 
   // Build individual pipelines for each search request
   for (size_t i = 0; i < req->nrequests; i++) {

@@ -23,13 +23,13 @@
 extern "C" {
 #endif
 
-int HybridRequest_BuildDepletionPipeline(HybridRequest *req, const HybridPipelineParams *params, bool depleteInBackground) {
+int HybridRequest_BuildDepletionPipeline(HybridRequest *req, const HybridPipelineParams *params, bool depleteInBackground, redisearch_thpool_t *pool) {
     // Create synchronization context for coordinating depleter processors
     // This ensures thread-safe access when multiple depleters read from their pipelines
     StrongRef sync_ref = {0};
     int rc = REDISMODULE_OK;
     if (depleteInBackground) {
-      sync_ref = DepleterSync_New(req->nrequests, true);
+      sync_ref = DepleterSync_New(req->nrequests, true, params->aggregationParams.common.sctx);
     }
 
     // Build individual pipelines for each search request
@@ -78,7 +78,7 @@ int HybridRequest_BuildDepletionPipeline(HybridRequest *req, const HybridPipelin
           // The safe depleter will feed results to the hybrid merger
           RedisSearchCtx *nextThread = params->aggregationParams.common.sctx; // We will use the context provided in the params
           RedisSearchCtx *depletingThread = AREQ_SearchCtx(areq); // when constructing the AREQ a new context should have been created
-          ResultProcessor *depleter = RPSafeDepleter_New(StrongRef_Clone(sync_ref), depletingThread, nextThread, depleterPool);
+          ResultProcessor *depleter = RPSafeDepleter_New(StrongRef_Clone(sync_ref), depletingThread, nextThread, pool);
           QITR_PushRP(qctx, depleter);
         } else {
           // Create a depleter processor for foreground depletion (WORKERS == 0)
@@ -168,9 +168,9 @@ int HybridRequest_BuildMergePipeline(HybridRequest *req, const RLookupKey *score
     return rc;
 }
 
-int HybridRequest_BuildPipeline(HybridRequest *req, HybridPipelineParams *params, bool depleteInBackground, QueryError *status) {
+int HybridRequest_BuildPipeline(HybridRequest *req, HybridPipelineParams *params, bool depleteInBackground, redisearch_thpool_t *pool, QueryError *status) {
     // Build the depletion pipeline for extracting results from individual search requests
-    if (HybridRequest_BuildDepletionPipeline(req, params, depleteInBackground) != REDISMODULE_OK) {
+    if (HybridRequest_BuildDepletionPipeline(req, params, depleteInBackground, pool) != REDISMODULE_OK) {
       return REDISMODULE_ERR;
     }
     RLookup *tailLookup = AGPLN_GetLookup(&req->tailPipeline->ap, NULL, AGPLN_GETLOOKUP_FIRST);

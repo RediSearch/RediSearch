@@ -119,8 +119,6 @@ pthread_mutex_t query_version_tracker_mutex;
 arrayof(int*) asm_sanitizer_allocs;
 #endif
 
-redisearch_thpool_t *depleterPool = NULL;
-
 static int DIST_THREADPOOL = -1;
 
 // Number of shards in the cluster. Hint we can read and modify from the main thread

@@ -146,6 +146,10 @@ int workersThreadPool_AddWork(redisearch_thpool_proc function_p, void *arg_p) {
   return redisearch_thpool_add_work(_workers_thpool, function_p, arg_p, THPOOL_PRIORITY_HIGH);
 }
 
+redisearch_thpool_t *workersThreadPool_GetPool(void) {
+  return _workers_thpool;
+}
+
 // Wait until job queue contains no more than <threshold> pending jobs.
 void workersThreadPool_Drain(RedisModuleCtx *ctx, size_t threshold) {
   if (!_workers_thpool || redisearch_thpool_paused(_workers_thpool)) {

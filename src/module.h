@@ -40,8 +40,6 @@ extern "C" {
 
 int RediSearch_InitModuleInternal(RedisModuleCtx *ctx);
 
-extern redisearch_thpool_t *depleterPool;
-
 int IsMaster();
 bool IsEnterprise();
 
