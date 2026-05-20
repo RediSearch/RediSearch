@@ -13,12 +13,18 @@
 //! - `max_slop`: Maximum allowed slop between term positions (`None` = no constraint)
 //! - `in_order`: Require terms to appear in order
 
-use crate::{IteratorType, RQEIterator, RQEIteratorError, RQEValidateStatus, SkipToOutcome};
+use crate::{
+    IteratorType, RQEIterator, RQEIteratorBoxed, RQEIteratorError, RQESuspendedIterator,
+    RQEValidateStatus, SkipToOutcome,
+};
 
-use ffi::t_docId;
+use ffi::{
+    ValidateStatus, ValidateStatus_VALIDATE_ABORTED, ValidateStatus_VALIDATE_MOVED,
+    ValidateStatus_VALIDATE_OK, t_docId,
+};
 use index_result::{RSIndexResult, RawIndexResult};
 use index_spec::IndexSpecReadGuard;
-use ref_mode::{Active, Ref};
+use ref_mode::{Active, Ref, Suspended};
 
 /// Yields documents appearing in ALL child iterators using a merge (AND) algorithm.
 ///
@@ -579,6 +585,105 @@ where
     }
 }
 
+impl<'index, I> RQEIteratorBoxed<'index> for Intersection<'index, I>
+where
+    I: RQEIteratorBoxed<'index>,
+{
+    type Suspended = RawIntersection<Suspended, I::Suspended>;
+
+    fn suspend(self: Box<Self>) -> Box<Self::Suspended> {
+        let raw = Box::into_raw(self);
+        // SAFETY: `RawIntersection` is `#[repr(C)]`. The `Rf`-dependent
+        // fields are `Vec<I>` (layout-compatible with `Vec<I::Suspended>`
+        // because `I` and `I::Suspended` have the same layout by the
+        // [`RQEIteratorBoxed`] contract) and `result: RawIndexResult<Rf>`
+        // (layout-compatible via `SharedPtr` transparency). Suspend is
+        // widening, so the byte cast is sound; the active aggregate's
+        // borrowed pointers into children's interiors are still valid
+        // because the children's heap addresses didn't change (only the
+        // type label flipped). Box::from_raw reuses the heap allocation.
+        unsafe { Box::from_raw(raw as *mut RawIntersection<Suspended, I::Suspended>) }
+    }
+}
+
+impl<S> RQESuspendedIterator for RawIntersection<Suspended, S>
+where
+    S: RQESuspendedIterator,
+{
+    type Resumed<'a> = Intersection<'a, S::Resumed<'a>>;
+
+    fn resume<'a>(
+        self: Box<Self>,
+        guard: &'a IndexSpecReadGuard<'a>,
+    ) -> (Box<Self::Resumed<'a>>, ValidateStatus) {
+        let RawIntersection {
+            children,
+            last_doc_id,
+            num_expected,
+            is_eof,
+            max_slop,
+            in_order,
+            result,
+        } = *self;
+
+        // The suspended aggregate `result` holds borrowed pointers into the
+        // children we're about to consume. After the per-child `resume`
+        // calls below, those pointers would dangle: each child is consumed
+        // by value and produces a fresh Active value at a new address. We
+        // therefore extract the `weight` (a plain `f64`, no aliasing
+        // concerns), drop the suspended result, and build a fresh empty
+        // Active aggregate. The aggregate is repopulated by the subsequent
+        // `rewind` + `skip_to` call, which calls `build_aggregate_result`
+        // with the new children's addresses.
+        let weight = result.weight;
+        let num_children = children.len();
+        drop(result);
+
+        let mut any_aborted = false;
+        let mut active_children: Vec<S::Resumed<'a>> = Vec::with_capacity(num_children);
+        for child in children {
+            let (active_child, status) = Box::new(child).resume(guard);
+            if status == ValidateStatus_VALIDATE_ABORTED {
+                any_aborted = true;
+            }
+            active_children.push(*active_child);
+        }
+
+        let result = RSIndexResult::build_intersect(num_children)
+            .weight(weight)
+            .build();
+
+        let mut active = Box::new(Intersection {
+            children: active_children,
+            last_doc_id,
+            num_expected,
+            is_eof,
+            max_slop,
+            in_order,
+            result,
+        });
+
+        if any_aborted {
+            return (active, ValidateStatus_VALIDATE_ABORTED);
+        }
+        if active.is_eof || active.last_doc_id == 0 {
+            return (active, ValidateStatus_VALIDATE_OK);
+        }
+
+        active.rewind();
+        match active.skip_to(last_doc_id) {
+            Ok(Some(SkipToOutcome::Found(_))) => (active, ValidateStatus_VALIDATE_OK),
+            Ok(Some(SkipToOutcome::NotFound(_))) | Ok(None) | Err(_) => {
+                (active, ValidateStatus_VALIDATE_MOVED)
+            }
+        }
+    }
+
+    fn last_doc_id(&self) -> t_docId {
+        self.last_doc_id
+    }
+}
+ 
 impl<'index> crate::interop::ProfileChildren<'index>
     for Intersection<'index, crate::c2rust::CRQEIterator>
 {
