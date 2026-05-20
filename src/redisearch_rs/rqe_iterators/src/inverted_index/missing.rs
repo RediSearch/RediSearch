@@ -12,17 +12,21 @@ use std::{
     ptr::NonNull,
 };
 
-use ffi::{RedisSearchCtx, t_docId, t_fieldIndex};
+use ffi::{
+    RedisSearchCtx, ValidateStatus, ValidateStatus_VALIDATE_ABORTED, ValidateStatus_VALIDATE_OK,
+    t_docId, t_fieldIndex,
+};
 use index_result::RSIndexResult;
 use index_spec::IndexSpecReadGuard;
 use inverted_index::{
-    DecodedBy, DocIdsDecoder, IndexReaderCore, RawIndexReaderCore, opaque::OpaqueEncoding,
+    DecodedBy, DocIdsDecoder, IndexReaderCore, RawIndexReaderCore, RefreshOutcome,
+    opaque::OpaqueEncoding,
 };
-use ref_mode::{Active, Ref};
+use ref_mode::{Active, Ref, Suspended};
 
 use crate::{
-    ExpirationChecker, IteratorType, RQEIterator, RQEIteratorError, RQEValidateStatus,
-    SkipToOutcome,
+    ExpirationChecker, IteratorType, RQEIterator, RQEIteratorBoxed, RQEIteratorError,
+    RQESuspendedIterator, RQEValidateStatus, SkipToOutcome,
 };
 
 use super::{InvIndIterator, core::RawInvIndIterator};
@@ -59,6 +63,108 @@ pub struct RawMissing<Rf: Ref, E: DecodedBy, C = crate::expiration_checker::NoOp
 /// [`RQEIterator`] impl today.
 pub type Missing<'index, E, C = crate::expiration_checker::NoOpChecker> =
     RawMissing<Active<'index>, E, C>;
+
+impl<Rf: Ref, E: DecodedBy, C> RawMissing<Rf, E, C> {
+    /// Cached [`IndexFlags`] of the underlying inverted index — see
+    /// [`RawInvIndIterator::flags`]. Mode-independent.
+    pub const fn flags(&self) -> ffi::IndexFlags {
+        self.it.flags()
+    }
+
+    /// Get the field name tracked by this missing-field iterator.
+    /// Mode-independent — the field name is stored as an owned [`CString`].
+    pub fn field_name(&self) -> (*const c_char, usize) {
+        (self.field_name.as_ptr(), self.field_name.as_bytes().len())
+    }
+}
+
+impl<'index, E: DecodedBy + 'index, C> Missing<'index, E, C>
+where
+    C: ExpirationChecker,
+{
+    /// Forwarding shim: re-seek the inner [`RawInvIndIterator`] after a
+    /// GC cycle invalidated the cached block offset. Used by enum-level
+    /// `RQESuspendedIterator::resume` implementations in
+    /// `iterators_ffi` that need to drive the active-side reseek step
+    /// from outside this crate.
+    pub fn reseek_after_refresh(&mut self, last_doc_id: t_docId) -> ValidateStatus {
+        self.it.reseek_after_refresh(last_doc_id)
+    }
+}
+
+impl<E: DecodedBy + 'static, C: ExpirationChecker + 'static> RawMissing<Suspended, E, C>
+where
+    for<'a> RawIndexReaderCore<ref_mode::Active<'a>, E>:
+        inverted_index::IndexReader<'a>,
+{
+    /// Forwarding shim: refresh the inner [`RawInvIndIterator`]'s reader
+    /// pointers while still in [`Suspended`] mode. Used by enum-level
+    /// `RQESuspendedIterator::resume` implementations in
+    /// `iterators_ffi` that need to drive the suspended-side refresh
+    /// step from outside this crate.
+    pub fn refresh_pointers(&mut self) -> inverted_index::RefreshOutcome {
+        self.it.refresh_pointers()
+    }
+}
+
+impl<Rf: Ref, E, C> RawMissing<Rf, E, C>
+where
+    E: DecodedBy + OpaqueEncoding<Storage = inverted_index::InvertedIndex<E>>,
+    <E as DecodedBy>::Decoder: DocIdsDecoder,
+{
+    /// Check if the iterator should abort revalidation.
+    ///
+    /// The garbage collector may remove all documents from the
+    /// missing-field inverted index or replace it with a new allocation.
+    /// In both cases the reader's pointer is stale and the iterator
+    /// must [abort](RQEValidateStatus::Aborted).
+    ///
+    /// # Why mode-independent
+    ///
+    /// The body reads only mode-independent state:
+    /// - `field_index` / `spec.fields_ptr()` / `spec.missing_field_dict()`
+    ///   are not affected by the iterator's `Rf`.
+    /// - The reader's `points_to_ii` is mode-independent (only uses
+    ///   `ii.as_raw()` and `ii_unique_id`).
+    ///
+    /// This means `should_abort` is callable on `RawMissing<Suspended, E, C>`
+    /// inside `RQESuspendedIterator::resume` *before* the
+    /// `Box<Suspended>` → `Box<Active<'a>>` cast.
+    ///
+    /// # Safety
+    ///
+    /// 1. `self.field_index` must be a valid index into `spec.fields`.
+    /// 2. `spec.missingFieldDict` must be a non-null, valid dict pointer.
+    /// 3. The entry in `missingFieldDict` for `spec.fields[field_index].fieldName`,
+    ///    when non-null, must point to an opaque
+    ///    [`InvertedIndex`](inverted_index::opaque::InvertedIndex) whose encoding
+    ///    variant matches `E`.
+    pub fn should_abort(&self, spec: &IndexSpecReadGuard) -> bool {
+        debug_assert!(
+            !spec.missing_field_dict().is_null(),
+            "spec.missing_field_dict() must be non-null",
+        );
+
+        // SAFETY: field_index is a valid index into spec.fields (guaranteed by constructor pre-conditions).
+        let field_ptr = unsafe { spec.fields_ptr().offset(self.field_index as isize) };
+        // SAFETY: the pointer is valid per the above.
+        let field = unsafe { &*field_ptr };
+        // SAFETY: The dict is non-null and valid (guaranteed by constructor pre-conditions).
+        let missing_ii_ptr =
+            unsafe { ffi::RS_dictFetchValue(spec.missing_field_dict(), field.fieldName as *mut _) };
+
+        if missing_ii_ptr.is_null() {
+            // The inverted index was removed from the dict (garbage collected).
+            return true;
+        }
+
+        let missing_ii = missing_ii_ptr.cast::<inverted_index::opaque::InvertedIndex>();
+        // SAFETY: 3. guarantees the encoding variant matches E.
+        let ii = E::from_opaque(unsafe { &*missing_ii });
+
+        !self.it.reader.points_to_ii(ii)
+    }
+}
 
 impl<'index, E, C> Missing<'index, E, C>
 where
@@ -129,55 +235,9 @@ where
         }
     }
 
-    /// Check if the iterator should abort revalidation.
-    ///
-    /// The garbage collector may remove all documents from the missing-field
-    /// inverted index or replace it with a new allocation. In both cases the
-    /// reader's pointer is stale and the iterator must
-    /// [abort](RQEValidateStatus::Aborted).
-    ///
-    /// # Safety
-    ///
-    /// 1. `self.field_index` must be a valid index into `spec.fields`.
-    /// 2. `spec.missingFieldDict` must be a non-null, valid dict pointer.
-    /// 3. The entry in `missingFieldDict` for `spec.fields[field_index].fieldName`,
-    ///    when non-null, must point to an opaque
-    ///    [`InvertedIndex`](inverted_index::opaque::InvertedIndex) whose encoding
-    ///    variant matches `E`.
-    fn should_abort(&self, spec: &IndexSpecReadGuard) -> bool {
-        debug_assert!(
-            !spec.missing_field_dict().is_null(),
-            "spec.missing_field_dict() must be non-null",
-        );
-
-        // SAFETY: field_index is a valid index into spec.fields (guaranteed by constructor pre-conditions).
-        let field_ptr = unsafe { spec.fields_ptr().offset(self.field_index as isize) };
-        // SAFETY: the pointer is valid per the above.
-        let field = unsafe { &*field_ptr };
-        // SAFETY: The dict is non-null and valid (guaranteed by constructor pre-conditions).
-        let missing_ii_ptr =
-            unsafe { ffi::RS_dictFetchValue(spec.missing_field_dict(), field.fieldName as *mut _) };
-
-        if missing_ii_ptr.is_null() {
-            // The inverted index was removed from the dict (garbage collected).
-            return true;
-        }
-
-        let missing_ii = missing_ii_ptr.cast::<inverted_index::opaque::InvertedIndex>();
-        // SAFETY: 3. guarantees the encoding variant matches E.
-        let ii = E::from_opaque(unsafe { &*missing_ii });
-
-        !self.it.reader.points_to_ii(ii)
-    }
-
     /// Get a reference to the underlying reader.
     pub const fn reader(&self) -> &IndexReaderCore<'index, E> {
         &self.it.reader
-    }
-
-    /// Get the field name tracked by this missing-field iterator.
-    pub fn field_name(&self) -> (*const c_char, usize) {
-        (self.field_name.as_ptr(), self.field_name.as_bytes().len())
     }
 }
 
@@ -247,5 +307,81 @@ where
 
     fn intersection_sort_weight(&self, _prioritize_union_children: bool) -> f64 {
         1.0
+    }
+}
+
+impl<'index, E, C> RQEIteratorBoxed<'index> for Missing<'index, E, C>
+where
+    E: DecodedBy + OpaqueEncoding<Storage = inverted_index::InvertedIndex<E>> + 'static,
+    <E as DecodedBy>::Decoder: DocIdsDecoder,
+    C: ExpirationChecker + 'static,
+{
+    type Suspended = RawMissing<Suspended, E, C>;
+
+    fn suspend(self: Box<Self>) -> Box<Self::Suspended> {
+        let raw = Box::into_raw(self);
+        // SAFETY: `RawMissing` is `#[repr(C)]`. The `Rf`-dependent field is
+        // the inner `RawInvIndIterator<Rf, RawIndexReaderCore<Rf, E>, C>`,
+        // whose layout is identical across modes (see
+        // [`InvIndIterator::suspend`]). `field_index: t_fieldIndex` and
+        // `field_name: CString` carry no `Rf` and survive the cast.
+        // Box::from_raw reuses the same heap allocation.
+        unsafe { Box::from_raw(raw as *mut RawMissing<Suspended, E, C>) }
+    }
+}
+
+impl<E, C> RQESuspendedIterator for RawMissing<Suspended, E, C>
+where
+    E: DecodedBy + OpaqueEncoding<Storage = inverted_index::InvertedIndex<E>> + 'static,
+    <E as DecodedBy>::Decoder: DocIdsDecoder,
+    C: ExpirationChecker + 'static,
+{
+    type Resumed<'a> = Missing<'a, E, C>;
+
+    fn resume<'a>(
+        mut self: Box<Self>,
+        spec: &'a IndexSpecReadGuard<'a>,
+    ) -> (Box<Self::Resumed<'a>>, ValidateStatus) {
+        // Step 1: should_abort on the suspended form. Reads only
+        // mode-independent state (`field_index`, the spec lookups, and
+        // the reader's `points_to_ii`).
+        let abort = self.should_abort(spec);
+
+        // Step 2: refresh reader pointers in place while still
+        // suspended. Skipped on the abort path.
+        let outcome = if abort {
+            RefreshOutcome::Ok
+        } else {
+            self.it.refresh_pointers()
+        };
+
+        // Step 3: whole-box cast Suspended → Active.
+        let raw = Box::into_raw(self);
+        // SAFETY: `RawMissing` is `#[repr(C)]` over the inner
+        // `RawInvIndIterator<Rf, RawIndexReaderCore<Rf, E>, C>`, plus
+        // mode-independent `field_index: t_fieldIndex` and
+        // `field_name: CString`. The `RawInvIndIterator` layout is
+        // identical across modes (see `RawInvIndIterator::suspend`).
+        // The caller's read lock (witnessed by `spec`) plus the
+        // `refresh_pointers` step above together ensure every pointer
+        // inside the iterator is valid for `'a`.
+        let mut active = unsafe { Box::from_raw(raw as *mut Missing<'a, E, C>) };
+
+        if abort {
+            return (active, ValidateStatus_VALIDATE_ABORTED);
+        }
+
+        // Step 4: if GC ran, re-seek to the previous last_doc_id.
+        let status = match outcome {
+            RefreshOutcome::Ok => ValidateStatus_VALIDATE_OK,
+            RefreshOutcome::NeedsReseek { last_doc_id } => {
+                active.it.reseek_after_refresh(last_doc_id)
+            }
+        };
+        (active, status)
+    }
+
+    fn last_doc_id(&self) -> t_docId {
+        self.it.last_doc_id_field()
     }
 }
