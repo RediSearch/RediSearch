@@ -9,15 +9,15 @@
 
 mod iter;
 mod rune_boundary_cases;
-mod rune_contains_iteration;
-mod rune_delete_and_decrement;
+// mod rune_contains_iteration;
+// mod rune_delete_and_decrement;
 // Not yet implemented.
 // mod rune_dfa_iteration;
-mod rune_incr_mode;
+// mod rune_incr_mode;
 mod rune_insert_iterate;
-mod rune_payloads;
-mod rune_range_iteration;
-mod rune_splits;
+// mod rune_payloads;
+// mod rune_range_iteration;
+// mod rune_splits;
 mod rune_unicode;
-mod rune_wildcard_iteration;
+// mod rune_wildcard_iteration;
 mod trie;

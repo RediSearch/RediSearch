@@ -21,10 +21,11 @@
 //   └───────────┴───────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────┘
 
 use itertools::Itertools;
+use wildcard::WildcardPattern;
 
 use crate::{
     TrieMap,
-    iter::{self, filter},
+    iter::{self, RangeBoundary, RangeFilter, filter},
 };
 
 pub type Rune = u16;
@@ -68,11 +69,49 @@ impl<Data> RuneTrieMap<Data> {
     pub fn iter(&self) -> RuneTrieMapIter<'_, Data> {
         RuneTrieMapIter(self.inner.iter())
     }
+
+    pub fn iterate_contains<'a>(
+        &'a self,
+        _target: &'a [u16],
+        _prefix: bool,
+        _suffix: bool,
+    ) -> RuneTrieMapContainsIter<'a, Data> {
+        // RuneTrieMapContainsIter(self.inner.contains_iter(&split_key(_target)))
+        todo!()
+    }
+
+    pub fn iterate_range(
+        &self,
+        _as_deref_1: Option<&[u16]>,
+        _include_min: bool,
+        _as_deref_2: Option<&[u16]>,
+        _include_max: bool,
+    ) -> RuneTrieMapIter<'_, Data> {
+        self.inner.range_iter(RangeFilter {
+            min: Some(RangeBoundary::included(&rune_to_bytes(_as_deref_1.unwrap()))),
+            max: Some(RangeBoundary::included(&rune_to_bytes(_as_deref_2.unwrap()))),
+        })
+    }
+
+    pub fn iterate_wildcard(&self, buf: &[u16]) -> RuneTrieMapIter<'_, Data> {
+        self.inner
+            .wildcard_iter(WildcardPattern::parse(&rune_to_bytes(buf)))
+    }
 }
 
 pub struct RuneTrieMapIter<'a, Data>(iter::Iter<'a, Data, filter::VisitAll>);
 
 impl<'a, Data> Iterator for RuneTrieMapIter<'a, Data> {
+    type Item = (Vec<Rune>, &'a Data);
+
+    fn next(&mut self) -> Option<Self::Item> {
+        self.0.next().map(|(k, v)| (bytes_to_rune(&k), v))
+    }
+}
+
+pub struct RuneTrieMapContainsIter<'a, Data>(iter::ContainsIter<'a, Data>);
+
+impl<'a, Data> Iterator for RuneTrieMapContainsIter<'a, Data> {
     type Item = (Vec<Rune>, &'a Data);
 
     fn next(&mut self) -> Option<Self::Item> {
