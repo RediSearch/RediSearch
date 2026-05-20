@@ -7,7 +7,10 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 
-use super::{IndexReader, IndexReaderCore, NumericFilter, NumericReader, SuspendableReader};
+use super::{
+    IndexReader, IndexReaderCore, NumericFilter, NumericReader, RefreshOutcome, ResumableReader,
+    SuspendableReader,
+};
 use crate::{DecodedBy, Decoder, InvertedIndex};
 use ffi::{GeoFilter, IndexFlags, t_docId};
 use index_result::RSIndexResult;
@@ -83,6 +86,19 @@ impl<'index, IR: NumericReader<'index>> FilterGeoReader<IR> {
 /// only the inner reader switches modes.
 impl<IR: SuspendableReader> SuspendableReader for FilterGeoReader<IR> {
     type Suspended = FilterGeoReader<IR::Suspended>;
+}
+
+/// Inverse of the above: `FilterGeoReader<RS>` resumes to
+/// `FilterGeoReader<RS::Resumed<'a>>` for any `RS: ResumableReader`.
+impl<RS: ResumableReader> ResumableReader for FilterGeoReader<RS>
+where
+    for<'a> FilterGeoReader<RS::Resumed<'a>>: IndexReader<'a>,
+{
+    type Resumed<'a> = FilterGeoReader<RS::Resumed<'a>>;
+
+    fn refresh_pointers(&mut self) -> RefreshOutcome {
+        self.inner.refresh_pointers()
+    }
 }
 
 impl<'index, E> FilterGeoReader<IndexReaderCore<'index, E>> {

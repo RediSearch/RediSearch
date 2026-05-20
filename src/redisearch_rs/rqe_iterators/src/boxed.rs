@@ -401,9 +401,8 @@ impl RQESuspendedIterator for BoxedRQESuspendedIterator {
         guard: &'a IndexSpecReadGuard<'a>,
     ) -> (Box<Self::Resumed<'a>>, ValidateStatus) {
         let BoxedRQESuspendedIterator(inner) = *self;
-        let (active, status) = <dyn RQEDynSuspendedIterator as RQEDynSuspendedIterator>::resume(
-            inner, guard,
-        );
+        let (active, status) =
+            <dyn RQEDynSuspendedIterator as RQEDynSuspendedIterator>::resume(inner, guard);
         (Box::new(active), status)
     }
 
