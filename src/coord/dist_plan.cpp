@@ -105,7 +105,6 @@ struct ReducerDistCtx {
   template <typename... T>
   bool addRemote(const char *name, const char **alias, QueryError *status, T... uargs) {
     ArgsCursorCXX args(uargs...);
-    // Upcast disambiguates against this very template (`ArgsCursorCXX*` would re-match `T...`).
     ArgsCursor *cargs = &args;
     return addRemote(name, alias, status, cargs);
   }
@@ -369,9 +368,6 @@ static int distributeCollect(ReducerDistCtx *rdctx, QueryError *status) {
                                            &src->args, nullptr);
 
   const char *alias;
-  // Use addRemote (not add) so identical remote COLLECTs across sibling reducers are deduped;
-  // see MOD-15816. Each local reducer below will still produce its own user-aliased output by
-  // reading the shared remote alias via `inputAlias`.
   if (!rdctx->addRemote("COLLECT", &alias, status, &remoteArgs)) {
     return REDISMODULE_ERR;
   }
