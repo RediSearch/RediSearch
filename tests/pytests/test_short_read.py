@@ -3,11 +3,9 @@
 import collections
 import random
 import re
-import subprocess
 import tempfile
 import zipfile
 from itertools import chain
-import tempfile
 
 import gevent.queue
 import gevent.server
@@ -24,13 +22,13 @@ SHORT_READ_FULL_TEST = int(os.getenv('SHORT_READ_FULL_TEST', '0'))
 ExpectedIndex = collections.namedtuple('ExpectedIndex', ['count', 'pattern', 'search_result_count'])
 
 RDBS_SHORT_READS = {
-    'short-reads/redisearch_2.2.0.rdb.zip'             : ExpectedIndex(2, 'shortread_idxSearch_[1-9]', [20, 55]),
-    'short-reads/rejson_2.0.0.rdb.zip'                 : ExpectedIndex(2, 'shortread_idxJson_[1-9]', [20, 55]),
-    'short-reads/redisearch_2.2.0_rejson_2.0.0.rdb.zip': ExpectedIndex(2, 'shortread_idxSearchJson_[1-9]', [10, 35]),
-    'short-reads/redisearch_2.8.0.rdb.zip'             : ExpectedIndex(2, 'shortread_idxSearch_with_geom_[1-9]', [20, 60]),
-    'short-reads/redisearch_2.8.4.rdb.zip'             : ExpectedIndex(2, 'shortread_idxSearch_with_geom_[1-9]', [20, 60]),
-    'short-reads/redisearch_2.10.3.rdb.zip'            : ExpectedIndex(2, 'shortread_idxSearch_[1-9]', [10, 35]),
-    'short-reads/redisearch_2.10.3_missing.rdb.zip'    : ExpectedIndex(2, 'shortread_idxSearch_[1-9]', [20, 55]),
+    'short-reads/redisearch_2.2.0.rdb'             : ExpectedIndex(2, 'shortread_idxSearch_[1-9]', [20, 55]),
+    'short-reads/rejson_2.0.0.rdb'                 : ExpectedIndex(2, 'shortread_idxJson_[1-9]', [20, 55]),
+    'short-reads/redisearch_2.2.0_rejson_2.0.0.rdb': ExpectedIndex(2, 'shortread_idxSearchJson_[1-9]', [10, 35]),
+    'short-reads/redisearch_2.8.0.rdb'             : ExpectedIndex(2, 'shortread_idxSearch_with_geom_[1-9]', [20, 60]),
+    'short-reads/redisearch_2.8.4.rdb'             : ExpectedIndex(2, 'shortread_idxSearch_with_geom_[1-9]', [20, 60]),
+    'short-reads/redisearch_2.10.3.rdb'            : ExpectedIndex(2, 'shortread_idxSearch_[1-9]', [10, 35]),
+    'short-reads/redisearch_2.10.3_missing.rdb'    : ExpectedIndex(2, 'shortread_idxSearch_[1-9]', [20, 55]),
 }
 RDBS_COMPATIBILITY = {
     'redisearch_2.0.9.rdb': ExpectedIndex(1, 'idx', [1000]),
@@ -39,15 +37,6 @@ RDBS_COMPATIBILITY = {
 RDBS = RDBS_SHORT_READS.copy()
 if not CODE_COVERAGE and SANITIZER == '' and SHORT_READ_FULL_TEST:
     RDBS.update(RDBS_COMPATIBILITY)
-
-def unzip(zip_path, to_dir):
-    if not zipfile.is_zipfile(zip_path):
-        return False
-    with zipfile.ZipFile(zip_path, 'r') as db_zip:
-        for info in db_zip.infolist():
-            if not os.path.exists(db_zip.extract(info, to_dir)):
-                return False
-    return True
 
 def rand_name(k):
     # rand alphabetic string with between 2 to k chars
@@ -596,23 +585,11 @@ def runShortRead(env, data, total_len, expected_index):
 seed = str(time.time())
 random.seed(seed)
 
-def downloadFile(file_name):
-    path = os.path.join(REDISEARCH_CACHE_DIR, file_name)
-    path_dir = os.path.dirname(path)
-    os.makedirs(path_dir, exist_ok=True)
-    if not os.path.exists(path):
-        subprocess.run(["wget", "--no-check-certificate", BASE_RDBS_URL + file_name, "-O", path, "-q"])
-        if os.path.splitext(path)[-1] == '.zip':
-            return unzip(path, path_dir)
-        else:
-            return os.path.exists(path) and os.path.getsize(path) > 0
-    return True
-
 def doTest(env: Env, test_name, rdb_name, expected_index):
     env.debugPrint(f'random seed for {test_name}: {seed}', force=True)
-    env.assertTrue(downloadFile(rdb_name), message='Failed to download ' + rdb_name)
-    name, ext = os.path.splitext(rdb_name)
-    fullPath = os.path.join(REDISEARCH_CACHE_DIR, name if ext == '.zip' else rdb_name)
+    if not getRDBFile(env, rdb_name):
+        return False
+    fullPath = os.path.join(REDISEARCH_CACHE_DIR, rdb_name)
 
     if MT_BUILD:
         env.cmd('FT.CONFIG', 'SET', 'MIN_OPERATION_WORKERS', '0') # test without MT
