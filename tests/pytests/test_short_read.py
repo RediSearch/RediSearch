@@ -3,11 +3,9 @@
 import collections
 import random
 import re
-import subprocess
 import tempfile
 import zipfile
 from itertools import chain
-import tempfile
 
 import gevent.queue
 import gevent.server
@@ -40,15 +38,6 @@ RDBS_COMPATIBILITY = {
 RDBS = RDBS_SHORT_READS.copy()
 if not CODE_COVERAGE and SANITIZER == '' and SHORT_READ_FULL_TEST:
     RDBS.update(RDBS_COMPATIBILITY)
-
-def unzip(zip_path, to_dir):
-    if not zipfile.is_zipfile(zip_path):
-        return False
-    with zipfile.ZipFile(zip_path, 'r') as db_zip:
-        for info in db_zip.infolist():
-            if not os.path.exists(db_zip.extract(info, to_dir)):
-                return False
-    return True
 
 def rand_name(k):
     # rand alphabetic string with between 2 to k chars

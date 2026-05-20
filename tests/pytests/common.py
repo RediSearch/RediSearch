@@ -24,10 +24,11 @@ from unittest.mock import ANY, _ANY
 from unittest import SkipTest
 import inspect
 import math
+import tempfile
 import faker
 
 TEST_RDBS_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'test_rdbs')
-REDISEARCH_CACHE_DIR = '/tmp/redisearch-rdbs'
+REDISEARCH_CACHE_DIR = os.path.join(tempfile.gettempdir(), 'redisearch-rdbs')
 VECSIM_DATA_TYPES = ['FLOAT32', 'FLOAT64', 'FLOAT16', 'BFLOAT16']
 VECSIM_ALGOS = ['FLAT', 'HNSW', 'SVS-VAMANA']
 
@@ -934,7 +935,7 @@ def getRDBFile(env, file_name, depth=0):
     try:
         with zipfile.ZipFile(src, 'r') as z:
             z.extract(os.path.basename(file_name), os.path.dirname(dst))
-    except (zipfile.BadZipFile, OSError) as e:
+    except (zipfile.BadZipFile, KeyError, OSError) as e:
         env.assertTrue(
             False,
             message=f"failed to extract bundled RDB fixture {src}: {e}",
