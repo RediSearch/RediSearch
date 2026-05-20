@@ -9,7 +9,23 @@ The codebase is primarily C, with an ongoing effort to port modules to Rust in `
 ./build.sh                    # Full build (C + Rust)
 ./build.sh DEBUG=1            # Debug build (recommended for development)
 ./build.sh FORCE              # Rebuild discarding previous artifacts
+./build.sh WIP_FEATURES=1     # Compile in work-in-progress features
 ```
+
+### Work-in-progress features
+
+`WIP_FEATURES` is a compile-time toggle, **on by default**, used to keep
+unfinished features out of release artifacts. When set, it defines
+`RS_WIP_FEATURES` for C/C++ and enables the `wip_features` cargo feature on
+crates that opt in.
+
+- Gate at entry points: wrap reducer registration, command exposure, or test
+  registration with `#ifdef RS_WIP_FEATURES` / `#[cfg(feature = "wip_features")]`.
+  Don't remove implementation modules that are still needed for compilation.
+- Coverage with `WIP_FEATURES=0` excludes disabled entry points from execution.
+  Run coverage with `WIP_FEATURES=1` to measure WIP behavior.
+- Policy: master CI should build with `WIP_FEATURES=1` so the code doesn't
+  bit-rot; release/version-branch builds leave it OFF.
 
 ## Testing
 

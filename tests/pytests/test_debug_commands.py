@@ -90,15 +90,32 @@ class TestDebugCommands(object):
         if isEnableAssertEnabled(self.env):
             help_list.append('SYNC_POINT')
             help_list.append('BG_PENDING_REPLIES')
+        if WIP_FEATURES:
+            help_list.append('WIP_PROBE')
 
         self.env.expect(debug_cmd(), 'help').equal(help_list)
 
         arity_2_cmds = ['GIT_SHA', 'DUMP_PREFIX_TRIE', 'GC_WAIT_FOR_JOBS', 'DELETE_LOCAL_CURSORS',
                         'DELETE_LOCAL_COORD_CURSORS', 'SHARD_CONNECTION_STATES',
                         'PAUSE_TOPOLOGY_UPDATER', 'RESUME_TOPOLOGY_UPDATER', 'CLEAR_PENDING_TOPOLOGY', 'INFO', 'INDEXES', 'GET_HIDE_USER_DATA_FROM_LOGS',
-                        'REGISTER_TEST_SCORERS', 'BG_PENDING_REPLIES']
+                        'REGISTER_TEST_SCORERS', 'BG_PENDING_REPLIES', 'WIP_PROBE']
         for cmd in [c for c in help_list if c not in arity_2_cmds]:
             self.env.expect(debug_cmd(), cmd).error().contains(err_msg)
+
+    @wip
+    def testWipDecorator(self):
+        # This test is just to verify that the @wip decorator works as expected,
+        # and that the test is skipped when WIP_FEATURES is not enabled.
+        self.env.expect(debug_cmd(), 'WIP_PROBE').equal('OK')
+
+    def testWipProbe(self):
+        # WIP_PROBE is a no-op debug subcommand gated by RS_WIP_FEATURES. It
+        # exists so the WIP_FEATURES build toggle stays exercised end-to-end.
+        if WIP_FEATURES:
+            self.env.expect(debug_cmd(), 'WIP_PROBE').equal('OK')
+        else:
+            self.env.expect(debug_cmd(), 'WIP_PROBE').error()\
+                .contains("unknown subcommand 'WIP_PROBE'")
 
     def testDocInfo(self):
         rv = self.env.cmd(debug_cmd(), 'docinfo', 'idx', 'doc1', 'REVEAL')

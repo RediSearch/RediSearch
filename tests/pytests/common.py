@@ -441,6 +441,14 @@ def unstable(f):
         return f(env, *args, **kwargs)
     return wrapper
 
+def wip(f):
+    @wraps(f)
+    def wrapper(*args, **kwargs):
+        if not WIP_FEATURES:
+            raise SkipTest()
+        return f(*args, **kwargs)
+    return wrapper
+
 # Wraps the decorator `skip` for calling from within a test function
 def skipTest(**kwargs):
     skip(**kwargs)(lambda: None)()

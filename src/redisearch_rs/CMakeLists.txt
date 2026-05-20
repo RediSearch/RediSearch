@@ -23,6 +23,14 @@ endif()
 # This avoids CMake argument parsing issues with complex flag values
 set(RUST_FLAGS "$ENV{RUSTFLAGS}")
 
+# Forward the WIP-features toggle as a cargo feature. Declare `wip_features` on
+# the crates that actually need it; unrelated crates ignore the flag.
+if(RS_WIP_FEATURES_ENABLED)
+    set(CARGO_WIP_FEATURES_ARGS "--features" "wip_features")
+else()
+    set(CARGO_WIP_FEATURES_ARGS "")
+endif()
+
 # Configure ASAN flags for Rust if sanitizer is enabled
 if(SAN STREQUAL "address")
   message(STATUS "Configuring Rust build with AddressSanitizer")
@@ -72,6 +80,7 @@ if(NOT TARGET redisearch_rs_build)
             build
             --package redisearch_rs
             --profile=${RUST_PROFILE}
+            ${CARGO_WIP_FEATURES_ARGS}
         WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}
         COMMENT "Building Rust workspace with profile ${RUST_PROFILE}"
     )
@@ -139,3 +148,4 @@ message(STATUS "  Cargo Build Flags: ${CARGO_BUILD_FLAGS}")
 message(STATUS "  RUSTFLAGS: ${RUST_FLAGS}")
 message(STATUS "  Target Dir: ${RUST_TARGET_DIR}")
 message(STATUS "  Library Path: ${RUST_LIB_PATH}")
+message(STATUS "  WIP features: ${RS_WIP_FEATURES_ENABLED}")

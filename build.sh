@@ -34,6 +34,7 @@ REDISEARCH_GENERATE_HEADERS=${REDISEARCH_GENERATE_HEADERS:-1}
 # Inline LSE atomics on Linux AArch64 (Armv8.1-a+). Set to 0 on pre-Armv8.1-a
 # cores (Cortex-A72, AWS Graviton1, Raspberry Pi 4) to avoid SIGILL on load.
 INLINE_LSE_ATOMICS=${INLINE_LSE_ATOMICS:-1}
+WIP_FEATURES=${WIP_FEATURES:-1}   # Compile in work-in-progress features
 
 # Test configuration (0=disabled, 1=enabled)
 BUILD_TESTS=0          # Build test binaries
@@ -163,6 +164,12 @@ parse_arguments() {
         ;;
       INLINE_LSE_ATOMICS=*)
         INLINE_LSE_ATOMICS="${arg#*=}"
+        ;;
+      WIP_FEATURES?(=1))
+        WIP_FEATURES=1
+        ;;
+      WIP_FEATURES=0)
+        WIP_FEATURES=0
         ;;
       *)
         # Pass all other arguments directly to CMake
@@ -548,6 +555,14 @@ prepare_cmake_arguments() {
     CMAKE_BASIC_ARGS="$CMAKE_BASIC_ARGS -DREDISEARCH_GENERATE_HEADERS=OFF"
   fi
 
+  if [[ "$WIP_FEATURES" == "1" ]]; then
+    CMAKE_BASIC_ARGS="$CMAKE_BASIC_ARGS -DRS_WIP_FEATURES_ENABLED=ON"
+    echo "WIP features ENABLED (RS_WIP_FEATURES defined; cargo feature 'wip_features' on)"
+  else
+    CMAKE_BASIC_ARGS="$CMAKE_BASIC_ARGS -DRS_WIP_FEATURES_ENABLED=OFF"
+    echo "WIP features DISABLED"
+  fi
+
   if [[ -n "$SAN" ]]; then
     CMAKE_BASIC_ARGS="$CMAKE_BASIC_ARGS -DSAN=$SAN"
     DEBUG="1"
@@ -707,18 +722,17 @@ run_cmake() {
   echo "Configuring CMake..."
   echo "Build directory: $BINDIR"
 
-  # Run CMake with all the flags
-  if [[ "$FORCE" == "1" || ! -f "$BINDIR/Makefile" ]]; then
-    CMAKE_CMD="cmake $ROOT $CMAKE_BASIC_ARGS $CMAKE_ARGS"
-    echo "$CMAKE_CMD"
+  # Run CMake with all the flags. Always reconfigure so changes to -D options
+  # (WIP_FEATURES, DEBUG, COV, SAN, ...) update CMakeCache.txt without needing FORCE.
+  CMAKE_CMD="cmake $ROOT $CMAKE_BASIC_ARGS $CMAKE_ARGS"
+  echo "$CMAKE_CMD"
 
-    # If verbose, dump all CMake variables before and after configuration
-    if [[ "$VERBOSE" == "1" ]]; then
-      echo "Running CMake with verbose output..."
-      RUSTFLAGS="$RUSTFLAGS" $CMAKE_CMD --trace-expand
-    else
-      RUSTFLAGS="$RUSTFLAGS" $CMAKE_CMD
-    fi
+  # If verbose, dump all CMake variables before and after configuration
+  if [[ "$VERBOSE" == "1" ]]; then
+    echo "Running CMake with verbose output..."
+    RUSTFLAGS="$RUSTFLAGS" $CMAKE_CMD --trace-expand
+  else
+    RUSTFLAGS="$RUSTFLAGS" $CMAKE_CMD
   fi
 }
 
@@ -904,6 +918,10 @@ run_rust_tests() {
     RUST_TEST_OPTIONS="--cargo-profile=$RUST_PROFILE"
   fi
 
+  if [[ "$WIP_FEATURES" == "1" ]]; then
+    RUST_TEST_OPTIONS="$RUST_TEST_OPTIONS --features wip_features"
+  fi
+
   # Run cargo test with the appropriate filter
   cd "$RUST_DIR"
   RUSTFLAGS="${RUSTFLAGS}" cargo $RUST_TOOLCHAIN_MODIFIER $CARGO_BUILD_FLAGS $RUST_TEST_COMMAND $RUST_TEST_OPTIONS --workspace $TEST_FILTER
@@ -987,6 +1005,7 @@ run_python_tests() {
   export FULL_VARIANT
   export BINDIR
   export REJSON="${REJSON:-1}"
+  export WIP_FEATURES
   export REJSON_BRANCH="${REJSON_BRANCH:-master}"
   export REJSON_PATH
   export REJSON_ARGS
