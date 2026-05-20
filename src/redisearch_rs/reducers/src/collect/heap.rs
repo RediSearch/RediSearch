@@ -37,8 +37,9 @@ use value::comparison::cmp_fields;
 /// `doc_id` is the secondary key used when all `sort_vals` compare equal,
 /// mirroring `SearchResult_CmpByFields`. On shards it is the upstream
 /// document id read out of the hidden `__docid` slot that the C grouper
-/// plants on every row; on the coordinator it is a synthetic arrival
-/// counter (see `LocalCollectCtx`).
+/// plants on every row; on the coordinator shard payloads carry no
+/// document id, so it is always `0` and the tie-break collapses
+/// (matching FT.AGGREGATE SORTBY coord semantics).
 pub struct EntryKey {
     sort_vals: Box<[Option<SharedValue>]>,
     sort_asc_map: u64,

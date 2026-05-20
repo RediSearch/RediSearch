@@ -248,13 +248,9 @@ impl LocalCollectCtx {
                 );
                 continue;
             }
-            // Shard payloads carry no document id, and `doc_id = 0` on
-            // both sides produces no real tie-break — same behavior as
-            // FT.AGGREGATE SORTBY on coord (`SearchResult_CmpByFields`
-            // with both `SearchResult.doc_id == 0`). Ties on the SORTBY
-            // key are resolved by `MinMaxHeap` insertion shape; output is
-            // deterministic given a fixed shard arrival sequence but not
-            // guaranteed stable across runs.
+            // Shard payloads carry no document id, so the tie-break
+            // collapses on coord (matches FT.AGGREGATE SORTBY coord
+            // semantics).
             self.storage.insert_entry(
                 || snapshot_sort_keys(r.fields.sort_key_names(), item),
                 || r.fields.prepare_row(item, &mut self.lookup),

@@ -1821,13 +1821,11 @@ def test_collect_sortby_tiebreak_stable_under_desc():
 
 @skip(cluster=False)
 def test_collect_cluster_sortby_tiebreak_result_complete():
-    """Multi-shard. With ties on the SORTBY key, the coordinator's
-    arrival-counter tie-breaker yields a deterministic order *for a given
-    shard arrival sequence*. Shard arrival order itself isn't guaranteed
-    stable across runs (matching FT.AGGREGATE SORTBY semantics on coord),
-    so this test only verifies completeness of the result set. The
-    within-context arrival-order property is covered by the Rust unit test
-    `local_sortby_breaks_ties_by_arrival_order_under_asc`."""
+    """Multi-shard. Shard payloads arriving on the coordinator carry no
+    document id, so the tie-break collapses on coord — matching
+    FT.AGGREGATE SORTBY's coord semantics: order depends on shard
+    arrival sequence and is not guaranteed stable across runs. This
+    test therefore only verifies completeness of the result set."""
     env = Env(shardsCount=3, protocol=3)
     enable_unstable_features(env)
     _setup_hash(env)
@@ -1847,6 +1845,87 @@ def test_collect_cluster_sortby_tiebreak_result_complete():
             'AS', 'names')
     res = env.cmd(*cmd)
     attrs = res['results'][0]['extra_attributes']
-    print(attrs['names'])
     names = sorted(r['name'] for r in attrs['names'])
     env.assertEqual(names, [f'n{i}' for i in range(9)])
+
+
+@skip(cluster=True)
+def test_collect_sortby_tiebreak_two_collects_same_groupby():
+    """Two sibling COLLECT … SORTBY reducers in the same GROUPBY must both
+    receive the doc_id tie-break — not only the first one. Regression
+    guard for the read-then-write fix on `RLookup_GetKey_Write`, which
+    returns NULL on a duplicate name and would silently leave the second
+    reducer with `doc_id_key == NULL`."""
+    env = Env(protocol=3)
+    enable_unstable_features(env)
+    _setup_hash(env)
+    conn = getConnectionByEnv(env)
+    # All docs share color='black' and sweetness=1 — both SORTBY keys fully
+    # tie, so the only thing that can order the rows is the doc_id
+    # tie-break.
+    names_in_insert_order = ['a', 'b', 'c', 'd', 'e']
+    for i, name in enumerate(names_in_insert_order):
+        conn.execute_command('HSET', f'doc:{i}', 'name', name,
+                             'color', 'black', 'sweetness', '1')
+
+    res = env.cmd(
+        'FT.AGGREGATE', 'idx', '@color:{black}',
+        'GROUPBY', '1', '@color',
+            'REDUCE', 'COLLECT', '7',
+                'FIELDS', '1', '@name',
+                'SORTBY', '2', '@sweetness', 'ASC',
+            'AS', 'first_names',
+            'REDUCE', 'COLLECT', '7',
+                'FIELDS', '1', '@name',
+                'SORTBY', '2', '@sweetness', 'ASC',
+            'AS', 'second_names')
+
+    attrs = res['results'][0]['extra_attributes']
+    first  = [r['name'] for r in attrs['first_names']]
+    second = [r['name'] for r in attrs['second_names']]
+
+    # Under ASC with all sort-values tied, both must collapse to
+    # insertion (doc_id) order.
+    env.assertEqual(first, names_in_insert_order)
+    env.assertEqual(second, names_in_insert_order,
+                    message="second COLLECT lost its doc_id tie-break "
+                            "(RLookup_GetKey_Write returned NULL on a "
+                            "duplicate `__docid` registration)")
+
+
+@skip(cluster=True)
+def test_collect_sortby_tiebreak_two_collects_same_groupby_asc_desc():
+    """Two sibling COLLECT … SORTBY reducers with opposite directions must
+    be exact reverses of each other when all sort values tie. Holds only
+    on a single shard (real doc_ids drive the tie-break); in cluster
+    mode each shard pre-sorts its slice in its own direction, and the
+    coordinator merges differently ordered shard payloads without global
+    doc_ids, so the reverse-invariant breaks."""
+    env = Env(protocol=3)
+    enable_unstable_features(env)
+    _setup_hash(env)
+    conn = getConnectionByEnv(env)
+    # All docs share color='black' and sweetness=1 — the SORTBY key fully
+    # ties, so ASC/DESC differ only by the doc_id tie-break direction.
+    names_in_insert_order = ['a', 'b', 'c', 'd', 'e']
+    for i, name in enumerate(names_in_insert_order):
+        conn.execute_command('HSET', f'doc:{i}', 'name', name,
+                             'color', 'black', 'sweetness', '1')
+
+    res = env.cmd(
+        'FT.AGGREGATE', 'idx', '@color:{black}',
+        'GROUPBY', '1', '@color',
+            'REDUCE', 'COLLECT', '7',
+                'FIELDS', '1', '@name',
+                'SORTBY', '2', '@sweetness', 'ASC',
+            'AS', 'asc_names',
+            'REDUCE', 'COLLECT', '7',
+                'FIELDS', '1', '@name',
+                'SORTBY', '2', '@sweetness', 'DESC',
+            'AS', 'desc_names')
+
+    attrs = res['results'][0]['extra_attributes']
+    asc_names = [r['name'] for r in attrs['asc_names']]
+    desc_names = [r['name'] for r in attrs['desc_names']]
+
+    env.assertEqual(desc_names, list(reversed(asc_names)))

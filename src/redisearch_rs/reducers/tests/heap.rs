@@ -183,6 +183,7 @@ fn ord_tiebreak_by_docid_under_desc_last_key() {
     let a = key_with_docid(&[1.0], 0, 20);
     let b = key_with_docid(&[1.0], 0, 10);
     assert_eq!(a.cmp(&b), Ordering::Greater);
+    assert_eq!(b.cmp(&a), Ordering::Less);
 }
 
 #[test]
