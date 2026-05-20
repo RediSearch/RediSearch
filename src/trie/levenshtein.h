@@ -29,6 +29,14 @@
  *    See `FilterFunc` docs for details and worked examples. PED is the
  *    standard scoring metric for approximate autocomplete and the basis of
  *    FT.SUGGET FUZZY ranking.
+ *
+ *    Admission criteria differ by mode (DFAFilter.prefixMode):
+ *      - non-prefix: term T is admitted iff Lev(Q, T) <= maxDist.
+ *      - prefix:     term T is admitted iff PED(Q, T) <= maxDist (some prefix
+ *                    of T is within maxDist of Q; the tail is unconstrained).
+ *    *matchCtx reports PED in both modes; only in prefix mode does PED also
+ *    gate admission. This is why the prefix example in FilterFunc can yield
+ *    a term whose Lev(query, term) exceeds maxDist.
  */
 
 /*
