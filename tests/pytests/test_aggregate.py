@@ -803,6 +803,19 @@ def testAggregateGroupByOnEmptyField(env):
     for var in expected:
         env.assertContains(var, res)
 
+def test_groupby_same_reducer(env):
+    conn = getConnectionByEnv(env)
+    env.expect('FT.CREATE', 'idx:fruits', 'SCHEMA', 'color', 'TAG').ok()
+    conn.execute_command('HSET', 'doc1', 'color', 'red')
+    conn.execute_command('HSET', 'doc2', 'color', 'red')
+    conn.execute_command('HSET', 'doc3', 'color', 'green')
+
+    res = env.cmd('FT.AGGREGATE', 'idx:fruits', '*',
+                  'GROUPBY', '1', '@color',
+                  'REDUCE', 'COUNT', '0',
+                  'REDUCE', 'COUNT', '0')
+    env.assertEqual(res[0], 2, message=res)
+
 def test_groupby_array(env: Env):
   env.expect('FT.CREATE', 'idx', 'SCHEMA', 't1', 'TEXT', 'SORTABLE', 't2', 'TEXT', 'SORTABLE').ok()
   with env.getClusterConnectionIfNeeded() as con:
