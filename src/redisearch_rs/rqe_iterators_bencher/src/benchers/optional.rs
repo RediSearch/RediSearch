@@ -15,7 +15,7 @@
 use std::{hint::black_box, time::Duration};
 
 use criterion::{BenchmarkGroup, Criterion, measurement::WallTime};
-use rand::{Rng as _, SeedableRng as _, rngs::StdRng};
+use rand::{RngExt as _, SeedableRng as _, rngs::StdRng};
 use rqe_iterators::{IdList, RQEIterator, SkipToOutcome, optional::Optional};
 
 #[derive(Default)]
