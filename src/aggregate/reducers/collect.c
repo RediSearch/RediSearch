@@ -332,10 +332,10 @@ Reducer *RDCRCollect_New(const ReducerOptions *options) {
     rbase = CollectReducer_CreateLocal(
       options->input_key,
       (const char *const *)args.field_names,
-      args.field_names ? array_len(args.field_names) : 0,
+      array_len(args.field_names),
       args.load_all,
       (const char *const *)args.sort_names,
-      args.sort_names ? array_len(args.sort_names) : 0,
+      array_len(args.sort_names),
       args.sortAscMap,
       args.has_limit,
       args.limit_offset,
