@@ -112,27 +112,28 @@ DFAFilter *NewDFAFilter(rune *str, size_t len, int maxDist, int prefixMode);
 
 /* A callback function for the DFA Filter, passed to the Trie iterator.
  *
- * `matchCtx` is an `int *`. On every accept state reached along the DFA path,
- * the filter writes `MIN(state->distance, running_min_so_far)` into *matchCtx,
- * where running_min_so_far is tracked on a parallel `distStack` that mirrors
- * the DFA state stack and pops in sync with it on backtrack. At yield time
- * *matchCtx therefore holds the minimum accept cost reached on the DFA path
- * leading to the yielded term — i.e. the edit distance of the best query
- * match against any consumed prefix of the term. In prefix mode, once the
- * prefix has been accepted, distStack carries this value forward across the
- * remaining runes so *matchCtx reflects the cost at the accept boundary.
+ * Computes prefix edit distance (see file header) for the yielded term and
+ * writes it through `matchCtx` (typed `int *`). Mechanics:
  *
- * NOTE: This is NOT Levenshtein(query, yielded_term) in the general case;
- * it is the minimum cost reached among all accept states encountered along
- * the consumed-input prefix of the term. For prefix-mode FUZZY ranking this
- * is the desired metric (FT.SUGGET FUZZY scoring depends on it via
- * `score *= exp(-2 * dist)`).
+ *   - The DFAFilter keeps a `distStack` parallel to its DFA state stack,
+ *     each entry holding the running minimum of accept-state costs along
+ *     the current DFA path. Both stacks pop in sync on backtrack
+ *     (`StackPop`).
+ *   - On each rune step that reaches an accept state, *matchCtx is set to
+ *     `MIN(state->distance, running_min_so_far)`.
+ *   - In prefix mode, once a prefix has accepted, the filter pushes NULL
+ *     state-stack frames for the remaining runes; distStack carries the
+ *     running minimum forward unchanged, so *matchCtx at yield time
+ *     reflects the cost at the accept boundary.
  *
  * Examples (maxDist=2):
  *   non-prefix: query "ab", term "abc" → *matchCtx=0 (exact accept at "ab"),
  *               Levenshtein("ab","abc")=1.
  *   prefix:     query "abc", term "abzzz" → *matchCtx=1 (cost at "ab" accept,
- *               carried across NULL frames), Levenshtein("abc","abzzz")=4. */
+ *               carried across NULL frames), Levenshtein("abc","abzzz")=4.
+ *
+ * FT.SUGGET FUZZY ranks results by `score *= exp(-2 * dist)` using this
+ * metric. */
 // FilterCode FilterFunc(rune b, void *ctx, int *matched, void *matchCtx);
 FilterCode FoldingFilterFunc(rune b, void *ctx, int *matched, void *matchCtx);
 FilterCode LoweringFilterFunc(rune b, void *ctx, int *matched, void *matchCtx);
