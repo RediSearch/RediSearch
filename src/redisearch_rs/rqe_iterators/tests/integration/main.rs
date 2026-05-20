@@ -36,6 +36,7 @@ mod c2rust;
 mod contract_checker;
 mod deferred;
 mod empty;
+mod ffi_suspend;
 #[cfg(not(miri))]
 mod format_g;
 mod geo_shape;

@@ -124,6 +124,11 @@ pub unsafe extern "C" fn NewIntersectionIterator(
 ///
 /// Unlike the constructor, this method does **not** re-sort the child list after insertion.
 ///
+/// # Panics
+///
+/// Panics if the intersection is no longer active: children are added while the query plan is
+/// built, before the first `Suspend`.
+///
 /// # Safety
 ///
 /// 1. `header` must be a valid non-null pointer created via [`NewIntersectionIterator()`].
@@ -149,5 +154,5 @@ pub unsafe extern "C" fn AddIntersectionIteratorChild(
     // justified by the same contract point.
     #[expect(clippy::multiple_unsafe_ops_per_block)]
     let child = unsafe { CRQEIterator::new(NonNull::new_unchecked(child)) };
-    wrapper.inner.push_child(child);
+    wrapper.inner_mut().push_child(child);
 }

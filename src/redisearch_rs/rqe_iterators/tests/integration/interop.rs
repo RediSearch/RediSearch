@@ -30,6 +30,24 @@ use std::sync::atomic::{AtomicUsize, Ordering};
 
 use crate::utils::{Mock, MockData, MockRevalidateResult, drain_doc_ids};
 
+/// Drive the C lock-release protocol on `it`: `Suspend` before the lock is dropped, then
+/// `Revalidate` once it is re-acquired.
+///
+/// # Safety
+///
+/// `it` is a live iterator built by an [`RQEIteratorWrapper`] constructor, and `spec` is the spec
+/// it is revalidated against.
+unsafe fn suspend_then_revalidate(
+    it: *mut QueryIterator,
+    spec: *mut ffi::IndexSpec,
+) -> ValidateStatus {
+    // SAFETY: guaranteed by the caller; every wrapper constructor populates both callbacks.
+    unsafe {
+        ((*it).Suspend.expect("Suspend must be populated"))(it);
+        ((*it).Revalidate.expect("Revalidate must be populated"))(it, spec)
+    }
+}
+
 /// Call the C `Revalidate` callback on a Rust iterator lowered to the C ABI, then free it.
 fn revalidate_through_c_abi(outcome: MockRevalidateResult) -> ValidateStatus {
     let ctx = MockContext::new(100, 10);
@@ -39,11 +57,7 @@ fn revalidate_through_c_abi(outcome: MockRevalidateResult) -> ValidateStatus {
     let it: *mut QueryIterator = RQEIteratorWrapper::boxed_new(mock);
     // SAFETY: `sctx` is a valid `RedisSearchCtx` owned by the mock context, and its `spec` is the
     // spec the iterator is revalidated against. `boxed_new` populates every callback.
-    let status = unsafe {
-        let spec = (*ctx.sctx().as_ptr()).spec;
-        let revalidate = (*it).Revalidate.expect("Revalidate must be populated");
-        revalidate(it, spec)
-    };
+    let status = unsafe { suspend_then_revalidate(it, (*ctx.sctx().as_ptr()).spec) };
     // SAFETY: `it` is the owning pointer returned by `boxed_new` and is not used afterwards.
     unsafe { ((*it).Free.expect("Free must be populated"))(it) };
 
@@ -603,10 +617,7 @@ fn a_child_timeout_reaches_c_as_a_timeout_through_a_composite() {
     let it: *mut QueryIterator = RQEIteratorWrapper::boxed_new_compound(intersection);
 
     // SAFETY: as in `revalidate_through_c_abi`.
-    let status = unsafe {
-        let spec = (*ctx.sctx().as_ptr()).spec;
-        ((*it).Revalidate.expect("Revalidate must be populated"))(it, spec)
-    };
+    let status = unsafe { suspend_then_revalidate(it, (*ctx.sctx().as_ptr()).spec) };
     // SAFETY: `it` is the owning pointer returned by `boxed_new_compound` and is not used after.
     unsafe { ((*it).Free.expect("Free must be populated"))(it) };
 
@@ -629,10 +640,7 @@ fn the_debug_switch_reports_a_timeout_without_consulting_the_iterator() {
 
     rqe_iterators::interop::set_mock_revalidate_timeout(true);
     // SAFETY: as in `revalidate_through_c_abi`.
-    let status = unsafe {
-        let spec = (*ctx.sctx().as_ptr()).spec;
-        ((*it).Revalidate.expect("Revalidate must be populated"))(it, spec)
-    };
+    let status = unsafe { suspend_then_revalidate(it, (*ctx.sctx().as_ptr()).spec) };
     rqe_iterators::interop::set_mock_revalidate_timeout(false);
     // SAFETY: `it` is the owning pointer returned by `boxed_new` and is not used afterwards.
     unsafe { ((*it).Free.expect("Free must be populated"))(it) };
@@ -644,4 +652,33 @@ fn the_debug_switch_reports_a_timeout_without_consulting_the_iterator() {
         "the switch stands in for an expired deadline, so it must short-circuit rather than let \
          the iterator revalidate and then discard the outcome",
     );
+}
+
+/// An exhausted iterator publishes no result, and C tells it apart from one sitting on a document
+/// by `current` being NULL with `atEOF` set. Revalidate re-derives the header from the resumed
+/// iterator, so that has to survive the cycle, along with the last position.
+#[test]
+fn an_exhausted_wrapper_stays_exhausted_across_a_cycle() {
+    let ctx = MockContext::new(100, 10);
+    let it: *mut QueryIterator = RQEIteratorWrapper::boxed_new(Mock::new([1, 2]));
+
+    // SAFETY: `it` was just built by `boxed_new`, which populates every callback, and `sctx`
+    // carries the spec it is revalidated against.
+    unsafe {
+        let read = (*it).Read.expect("Read must be populated");
+        while read(it) == ffi::IteratorStatus_ITERATOR_OK {}
+        assert!((*it).current.is_null() && (*it).atEOF);
+
+        assert_eq!(
+            suspend_then_revalidate(it, (*ctx.sctx().as_ptr()).spec),
+            ValidateStatus_VALIDATE_OK
+        );
+        assert!(
+            (*it).current.is_null(),
+            "an exhausted iterator publishes no result"
+        );
+        assert!((*it).atEOF);
+        assert_eq!((*it).lastDocId, 2, "the last position survives the cycle");
+        ((*it).Free.expect("Free must be populated"))(it);
+    }
 }

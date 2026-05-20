@@ -12,5 +12,5 @@ mod numeric;
 mod tag;
 mod term;
 
-pub use tag::CTagIndexLookup;
+pub use tag::{CTagIndexLookup, NewInvIndIterator_TagQuery};
 pub use term::NewInvIndIterator_TermQuery;

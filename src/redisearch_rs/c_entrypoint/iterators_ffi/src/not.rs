@@ -7,12 +7,13 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 
-use std::ptr::NonNull;
+use std::{mem::MaybeUninit, ptr::NonNull};
 
 use ffi::QueryIterator;
 use rqe_core::DocId;
 use rqe_iterators::{
-    NewWildcardIterator, RQEIterator,
+    NewWildcardIterator, RQEIterator, RQEIteratorBoxed, RQESuspendedIterator, ResumeOutcome,
+    boxed::{ResumeSlotOutcome, resume_child_slot_in_place, suspend_child_slot_in_place},
     c2rust::CRQEIterator,
     interop::RQEIteratorWrapper,
     not::Not,
@@ -30,6 +31,9 @@ type NotOptimizedFfi<'index> =
 /// The `NotOptimized` variant is intentionally large because it inlines a
 /// `WildcardIterator` to avoid heap allocation. Both variants are
 /// long-lived (query lifetime), and the size difference is acceptable.
+///
+/// `#[repr(C, u8)]` so it shares its layout with [`NotIteratorEnumSuspended`].
+#[repr(C, u8)]
 #[expect(
     clippy::large_enum_variant,
     reason = "both variants are query-lifetime; boxing would add a needless allocation"
@@ -164,6 +168,150 @@ unsafe fn build_timeout_context(q: NonNull<ffi::QueryEvalCtx>) -> AnyTimeoutCont
     // changes and deadline writes during probes.
     unsafe { AnyTimeoutContext::from_sctx(sctx, TIMEOUT_CHECK_GRANULARITY) }
 }
+/// Suspended counterpart of [`NotIteratorEnum`].
+///
+/// Variants hold the [`RQEIteratorBoxed::Suspended`] counterparts of each active
+/// variant.
+///
+/// `#[repr(C, u8)]`, like [`NotIteratorEnum`], so the two enums share their tag
+/// encoding and payload offset. Suspend and resume rewrite the payload in place
+/// and relabel the whole box, rather than rebuilding it, so the iterator's
+/// result keeps its address across the cycle: a parent's aggregate result
+/// points into it.
+#[repr(C, u8)]
+#[expect(
+    clippy::large_enum_variant,
+    reason = "matches the layout of the active variant; boxing would needlessly allocate"
+)]
+#[expect(
+    dead_code,
+    reason = "only ever produced by relabelling a `NotIteratorEnum` in place, never constructed by name"
+)]
+enum NotIteratorEnumSuspended<'query> {
+    Not(<NotFfi<'query> as RQEIteratorBoxed<'query>>::Suspended),
+    NotOptimized(<NotOptimizedFfi<'query> as RQEIteratorBoxed<'query>>::Suspended),
+}
+
+// Compile-time proof that the in-place retyping in suspend/resume is sound: the
+// allocation is reused and freed under either type, so the two enums must have
+// the same size and alignment. Under `#[repr(C, u8)]` every variant's payload
+// starts at the tag rounded up to the enum's alignment, so equal alignment also
+// pins each payload at the same offset. The payload pairs must be
+// layout-compatible themselves for a payload written back in place to keep its
+// fields where the header's borrowed pointers expect them.
+const _: () = {
+    use rqe_iterators::boxed::assert_layout_compatible;
+    assert_layout_compatible::<NotIteratorEnum<'static>, NotIteratorEnumSuspended<'static>>();
+    assert_layout_compatible::<
+        NotFfi<'static>,
+        <NotFfi<'static> as RQEIteratorBoxed<'static>>::Suspended,
+    >();
+    assert_layout_compatible::<
+        NotOptimizedFfi<'static>,
+        <NotOptimizedFfi<'static> as RQEIteratorBoxed<'static>>::Suspended,
+    >();
+};
+
+impl<'index> RQEIteratorBoxed<'index> for NotIteratorEnum<'index> {
+    type Suspended = NotIteratorEnumSuspended<'index>;
+
+    fn suspend(self: Box<Self>) -> Box<Self::Suspended> {
+        let mut raw = NonNull::new(Box::into_raw(self)).expect("Box pointers are non-null");
+        // SAFETY: `raw` came from `Box::into_raw`, so it is valid and exclusively
+        // owned; the borrow only reaches the live payload and ends with the match.
+        match unsafe { raw.as_mut() } {
+            Self::Not(it) => {
+                // SAFETY: `it` is the valid, exclusively-owned payload; the slot is
+                // relabelled as its suspended form below.
+                unsafe { suspend_child_slot_in_place(it as *mut _) }
+            }
+            Self::NotOptimized(it) => {
+                // SAFETY: as above.
+                unsafe { suspend_child_slot_in_place(it as *mut _) }
+            }
+        }
+        // SAFETY: the payload now holds its suspended form at the same offset and
+        // the tag is unchanged, so the allocation is a valid
+        // `NotIteratorEnumSuspended` (layout proof next to it). `Box::from_raw`
+        // reuses the allocation, keeping the result's address.
+        unsafe { Box::from_raw(raw.cast::<NotIteratorEnumSuspended<'index>>().as_ptr()) }
+    }
+}
+
+impl<'query> RQESuspendedIterator<'query> for NotIteratorEnumSuspended<'query> {
+    type Resumed<'a>
+        = NotIteratorEnum<'a>
+    where
+        'query: 'a;
+
+    fn resume<'a>(
+        self: Box<Self>,
+        guard: &index_spec::IndexSpecReadGuard<'a>,
+    ) -> Result<ResumeOutcome<Box<Self::Resumed<'a>>>, rqe_iterators::RQEIteratorError>
+    where
+        'query: 'a,
+    {
+        // Mirror of `NotIteratorEnum::suspend`: resume the payload in place, then
+        // relabel the box, or free it as a shell if the payload was consumed.
+        let mut raw = NonNull::new(Box::into_raw(self)).expect("Box pointers are non-null");
+        // SAFETY: `raw` came from `Box::into_raw`, so it is valid and exclusively
+        // owned; the borrow only reaches the live payload and ends with the match.
+        let outcome = match unsafe { raw.as_mut() } {
+            Self::Not(s) => {
+                // SAFETY: `s` is the valid, exclusively-owned payload. On a
+                // recoverable outcome the slot holds its resumed form; otherwise it
+                // is left uninitialised and the shell is freed below without
+                // dropping it.
+                unsafe { resume_child_slot_in_place(s as *mut _, guard) }
+            }
+            Self::NotOptimized(s) => {
+                // SAFETY: as above.
+                unsafe { resume_child_slot_in_place(s as *mut _, guard) }
+            }
+        };
+
+        let rebox = || {
+            // SAFETY: the payload holds its resumed form at the same offset and the
+            // tag is unchanged, so the allocation is a valid `NotIteratorEnum<'a>`
+            // (layout proof above). `Box::from_raw` reuses the allocation.
+            unsafe { Box::from_raw(raw.cast::<NotIteratorEnum<'a>>().as_ptr()) }
+        };
+        let free_shell = || {
+            // SAFETY: `raw` owns an allocation of `Self`'s layout whose payload was
+            // consumed; reboxing it as `MaybeUninit` frees it without running drop
+            // glue on the consumed payload.
+            drop(unsafe { Box::from_raw(raw.cast::<MaybeUninit<Self>>().as_ptr()) });
+        };
+
+        match outcome {
+            Ok(ResumeSlotOutcome::Unchanged) => Ok(ResumeOutcome::Ok(rebox())),
+            Ok(ResumeSlotOutcome::Moved) => Ok(ResumeOutcome::Moved(rebox())),
+            Ok(ResumeSlotOutcome::Aborted) => {
+                free_shell();
+                Ok(ResumeOutcome::Aborted)
+            }
+            Err(e) => {
+                free_shell();
+                Err(e)
+            }
+        }
+    }
+
+    fn last_doc_id(&self) -> DocId {
+        match self {
+            NotIteratorEnumSuspended::Not(s) => s.last_doc_id(),
+            NotIteratorEnumSuspended::NotOptimized(s) => s.last_doc_id(),
+        }
+    }
+
+    fn num_estimated(&self) -> usize {
+        match self {
+            NotIteratorEnumSuspended::Not(s) => s.num_estimated(),
+            NotIteratorEnumSuspended::NotOptimized(s) => s.num_estimated(),
+        }
+    }
+}
+
 /// Creates a NOT iterator, choosing between non-optimized and optimized based
 /// on the query evaluation context.
 ///
