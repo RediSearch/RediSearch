@@ -28,9 +28,9 @@ def _build_mixed_burst_commands():
     return [search] * RQ_CAPACITY + [aggregate] * COORDINATOR_POOL_SIZE
 
 
-def _run_burst_command(env, command, exceptions, completed, lock):
+def _run_burst_command(env, conn, command, start_barrier, exceptions, completed, lock):
     try:
-        conn = getConnectionByEnv(env)
+        start_barrier.wait(timeout=20)
         res = conn.execute_command(*command)
         if command[0] == 'FT.SEARCH':
             env.assertEqual(res, expected_search_res)
@@ -122,10 +122,12 @@ def test_search_and_aggregate_burst():
     waitForIndex(env, 'idx')
 
     commands = _build_mixed_burst_commands()
+    connections = [getConnectionByEnv(env) for _ in commands]
     exceptions = []
     completed = [0]
     lock = threading.Lock()
     threads = []
+    start_barrier = threading.Barrier(len(commands) + 1)
 
     coord_initial_stats = getCoordThpoolStats(env)
     coord_initial_jobs_done = coord_initial_stats['totalJobsDone']
@@ -144,15 +146,17 @@ def test_search_and_aggregate_burst():
     verify_command_OK_on_all_shards(env, debug_cmd(), 'WORKERS', 'PAUSE')
 
     try:
-        for i, command in enumerate(commands):
+        for i, (conn, command) in enumerate(zip(connections, commands)):
             thread = threading.Thread(
                 target=_run_burst_command,
-                args=(env, command, exceptions, completed, lock),
+                args=(env, conn, command, start_barrier, exceptions, completed, lock),
                 name=f'search-and-aggregate-burst-query-{i}',
                 daemon=True,
             )
             thread.start()
             threads.append(thread)
+
+        start_barrier.wait(timeout=20)
 
         wait_for_condition(
             lambda: _coordinator_reached_rq_limit(
