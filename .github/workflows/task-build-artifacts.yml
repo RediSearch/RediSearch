@@ -172,9 +172,6 @@ jobs:
             COORD: oss
         run: ${{ env.BUILD_CMD }} && make pack
 
-      - name: Show sccache stats
-        run: ${SCCACHE_PATH:-sccache} --show-stats || true
-
       - name: Validate glibc version
         if: runner.os == 'Linux' && inputs.platform != 'ubuntu:focal'
         uses: ./.github/actions/validate-glibc-version

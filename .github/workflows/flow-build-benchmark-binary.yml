@@ -55,8 +55,6 @@ jobs:
           s3-key-prefix: ${{ vars.SCCACHE_S3_KEY_PREFIX }}
       - name: Build RediSearch
         run: make build LTO=1
-      - name: Show sccache stats
-        run: ${SCCACHE_PATH:-sccache} --show-stats || true
       - name: Upload redisearch.so artifact
         uses: actions/upload-artifact@v4
         with:

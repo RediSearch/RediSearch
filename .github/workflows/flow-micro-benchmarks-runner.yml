@@ -112,8 +112,6 @@ jobs:
           export HOME=/home/ubuntu
           export PATH="$HOME/.cargo/bin:$PATH"
           make micro-benchmarks
-      - name: Show sccache stats
-        run: ${SCCACHE_PATH:-sccache} --show-stats || true
       - name: Collect results
         env:
           INPUT_ARCHITECTURE: ${{ inputs.architecture }}

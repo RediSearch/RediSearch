@@ -448,9 +448,6 @@ jobs:
           ENABLE_ASSERT: 1
         run: make rust-tests
 
-      - name: Show sccache stats
-        run: ${SCCACHE_PATH:-sccache} --show-stats || true
-
       - name: Check test logs folder size
         if: always()
         run: |

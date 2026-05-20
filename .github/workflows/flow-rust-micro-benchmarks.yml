@@ -61,9 +61,6 @@ jobs:
         run: cargo bench --workspace -- --save-baseline master
         working-directory: src/redisearch_rs
 
-      - name: Show sccache stats
-        run: ${SCCACHE_PATH:-sccache} --show-stats || true
-
       - name: Upload rust baseline benchmarks for master
         if: github.ref == 'refs/heads/master' && github.event_name == 'push'
         uses: actions/upload-artifact@v4
