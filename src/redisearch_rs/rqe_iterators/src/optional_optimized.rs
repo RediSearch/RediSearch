@@ -486,9 +486,12 @@ where
         self.last_doc_id
     }
 }
-
-impl<'index, W: WildcardIterator<'index> + 'index> crate::interop::ProfileChildren<'index>
+impl<'index, W> crate::interop::ProfileChildren<'index>
     for OptionalOptimized<'index, W, crate::c2rust::CRQEIterator>
+where
+    W: WildcardIterator<'index> + crate::RQEIteratorBoxed<'index> + 'index,
+    for<'a> <W::Suspended as crate::RQESuspendedIterator>::Resumed<'a>:
+        WildcardIterator<'a> + crate::RQEIteratorBoxed<'a, Suspended = W::Suspended>,
 {
     fn profile_children(self) -> Self {
         OptionalOptimized {

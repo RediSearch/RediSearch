@@ -476,8 +476,10 @@ where
 impl<'index, W, TC> crate::interop::ProfileChildren<'index>
     for NotOptimized<'index, W, crate::c2rust::CRQEIterator, TC>
 where
-    W: crate::WildcardIterator<'index> + 'index,
-    TC: TimeoutContext + 'index,
+    W: crate::WildcardIterator<'index> + crate::RQEIteratorBoxed<'index> + 'index,
+    for<'a> <W::Suspended as RQESuspendedIterator>::Resumed<'a>:
+        crate::WildcardIterator<'a> + crate::RQEIteratorBoxed<'a, Suspended = W::Suspended>,
+    TC: TimeoutContext + 'index + 'static,
 {
     fn profile_children(self) -> Self {
         NotOptimized {

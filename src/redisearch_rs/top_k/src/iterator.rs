@@ -656,7 +656,7 @@ where
     }
 }
 
-impl<'index, S: ScoreSource + 'index> rqe_iterators::interop::ProfileChildren<'index>
+impl<'index, S: ScoreSource + 'index + 'static> rqe_iterators::interop::ProfileChildren<'index>
     for TopKIterator<'index, S, rqe_iterators::c2rust::CRQEIterator>
 {
     fn profile_children(self) -> Self {

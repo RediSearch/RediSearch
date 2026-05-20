@@ -31,6 +31,7 @@
 //!   [`MemTracker`] implementation, backed by the index's externally-owned
 //!   counter shared across the C boundary.
 
+use ffi::{ValidateStatus, ValidateStatus_VALIDATE_OK};
 use index_result::RSIndexResult;
 use index_spec::IndexSpecReadGuard;
 use rqe_core::{DocId, RS_FIELDMASK_ALL};
@@ -394,5 +395,51 @@ impl<T, E, M: MemTracker> ProfilePrint for GeoShape<'_, T, E, M> {
 impl<T, E, M: MemTracker> Drop for GeoShape<'_, T, E, M> {
     fn drop(&mut self) {
         self.mem_tracker.sub(self.tracked_bytes);
+    }
+}
+
+impl<'index, T, E, M> crate::RQEIteratorBoxed<'index> for GeoShape<'index, T, E, M>
+where
+    T: TimeoutContext + 'static,
+    E: ExpirationChecker + 'static,
+    M: MemTracker + 'static,
+{
+    /// `GeoShape` owns its result data (the doc-id list is materialized
+    /// up front), so it has no `Rf`-dependent state to drop on suspend;
+    /// the Suspended counterpart is the same type.
+    type Suspended = GeoShape<'static, T, E, M>;
+
+    fn suspend(self: Box<Self>) -> Box<Self::Suspended> {
+        // SAFETY: `GeoShape<'index, T, E, M>` and
+        // `GeoShape<'static, T, E, M>` are layout-identical (`'index`
+        // is phantom: the only borrow it constrains is `result`, an
+        // `RSIndexResult<'index>`, whose `'index`-dependent state lives
+        // entirely behind raw pointers — see [`RSIndexResult`]). The
+        // round-trip identity is established by [`RQESuspendedIterator::resume`].
+        let raw = Box::into_raw(self);
+        unsafe { Box::from_raw(raw as *mut GeoShape<'static, T, E, M>) }
+    }
+}
+
+impl<T, E, M> crate::RQESuspendedIterator for GeoShape<'static, T, E, M>
+where
+    T: TimeoutContext + 'static,
+    E: ExpirationChecker + 'static,
+    M: MemTracker + 'static,
+{
+    type Resumed<'a> = GeoShape<'a, T, E, M>;
+
+    fn resume<'a>(
+        self: Box<Self>,
+        _guard: &'a index_spec::IndexSpecReadGuard<'a>,
+    ) -> (Box<Self::Resumed<'a>>, ValidateStatus) {
+        // SAFETY: see `suspend` — `'static` ↔ `'a` is purely phantom.
+        let raw = Box::into_raw(self);
+        let active = unsafe { Box::from_raw(raw as *mut GeoShape<'a, T, E, M>) };
+        (active, ValidateStatus_VALIDATE_OK)
+    }
+
+    fn last_doc_id(&self) -> ffi::t_docId {
+        self.last_doc_id
     }
 }

@@ -346,7 +346,7 @@ where
 impl<'index, TC> crate::interop::ProfileChildren<'index>
     for Not<'index, crate::c2rust::CRQEIterator, TC>
 where
-    TC: TimeoutContext + 'index,
+    TC: TimeoutContext + 'index + 'static,
 {
     fn profile_children(self) -> Self {
         Not {

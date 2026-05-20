@@ -15,9 +15,50 @@ use inverted_index::NumericFilter;
 use query_node_type::QueryNodeType;
 use rqe_iterator_type::IteratorType;
 use rqe_iterators::{
-    IteratorsConfig, NumericIteratorVariant, c2rust::CRQEIterator, interop::RQEIteratorWrapper,
-    open_numeric_or_geo_index, profile_print,
+    IteratorsConfig, NumericIteratorVariant, RQEIteratorBoxed, RQESuspendedIterator,
+    c2rust::CRQEIterator, interop::RQEIteratorWrapper, open_numeric_or_geo_index, profile_print,
 };
+
+/// Suspended counterpart of [`NumericIterator`] — produced by
+/// [`RQEIteratorBoxed::suspend`] and consumed by [`RQESuspendedIterator::resume`].
+pub(super) struct NumericIteratorSuspended {
+    iterator: <NumericIteratorVariant<'static> as RQEIteratorBoxed<'static>>::Suspended,
+}
+
+impl<'index> RQEIteratorBoxed<'index> for NumericIterator<'index> {
+    type Suspended = NumericIteratorSuspended;
+
+    fn suspend(self: Box<Self>) -> Box<Self::Suspended> {
+        let Self { iterator } = *self;
+        Box::new(NumericIteratorSuspended {
+            iterator: *<NumericIteratorVariant<'index> as RQEIteratorBoxed<'index>>::suspend(
+                Box::new(iterator),
+            ),
+        })
+    }
+}
+
+impl RQESuspendedIterator for NumericIteratorSuspended {
+    type Resumed<'a> = NumericIterator<'a>;
+
+    fn resume<'a>(
+        self: Box<Self>,
+        guard: &'a index_spec::IndexSpecReadGuard<'a>,
+    ) -> (Box<Self::Resumed<'a>>, ffi::ValidateStatus) {
+        let Self { iterator } = *self;
+        let (resumed, status) = <_ as RQESuspendedIterator>::resume(Box::new(iterator), guard);
+        (
+            Box::new(NumericIterator {
+                iterator: *resumed,
+            }),
+            status,
+        )
+    }
+
+    fn last_doc_id(&self) -> u64 {
+        self.iterator.last_doc_id()
+    }
+}
 
 /// Wrapper around [`NumericIteratorVariant`].
 pub(super) struct NumericIterator<'index> {
@@ -29,6 +70,11 @@ impl<'index> NumericIterator<'index> {
     /// Wrap a variant for use by [`crate::inverted_index::geo`].
     pub(super) const fn new(iterator: NumericIteratorVariant<'index>) -> Self {
         Self { iterator }
+    }
+
+    /// Get the flags from the underlying reader.
+    pub(super) const fn flags(&self) -> ffi::IndexFlags {
+        self.iterator.flags()
     }
 }
 
