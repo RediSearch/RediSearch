@@ -24,6 +24,7 @@
 #include "query_term_ffi.h"
 #include "search_disk.h"
 #include "spec.h"
+#include "info/global_stats.h"
 
 extern RedisModuleCtx *RSDummyContext;
 
@@ -223,18 +224,23 @@ typedef struct {
   const char **values;
   size_t numValues;
   IndexStats *stats;
-} TagIndexHookData;
+} TagIndexWriteCommitData;
 
-static void freeTagIndexHookData(void *user_data) {
+static void freeTagIndexWriteCommitData(void *user_data) {
   rm_free(user_data);
 }
 
 // Post-commit: publish the tag tokens in the in-memory tag enumeration trie
-// (and the suffix trie when enabled), and bump the per-spec record counter.
-// Kept paired with the staged disk writes so aborts / commit failures leave
-// the trie out of date by exactly the same amount as the disk itself.
+// (and the suffix trie when enabled), bump the per-spec record counter, and
+// account for this doc in the global "tag docs indexed" metric. Kept paired
+// with the staged disk writes so aborts / commit failures leave none of these
+// counters advanced for a document that did not actually reach disk.
+//
+// `IndexerBulkAdd` skips the eager `FieldsGlobalStats_UpdateFieldDocsIndexed`
+// call for disk-mode tag fields specifically so the deferred update here is
+// the only one that fires.
 static void onCommit_TagIndex(void *user_data) {
-  TagIndexHookData *data = user_data;
+  TagIndexWriteCommitData *data = user_data;
 
   for (size_t ii = 0; ii < data->numValues; ++ii) {
     const char *tok = data->values[ii];
@@ -247,6 +253,7 @@ static void onCommit_TagIndex(void *user_data) {
   }
 
   data->stats->numRecords++;
+  FieldsGlobalStats_UpdateFieldDocsIndexed(INDEXFLD_T_TAG, 1);
 }
 
 /* Index a vector of pre-processed tags for a docId.
@@ -267,13 +274,13 @@ bool TagIndex_Index(RedisModuleCtx *ctx, TagIndex *idx, SearchDiskWriteBatch *ba
     }
 
     if (batch) {
-      TagIndexHookData *hook_data = rm_malloc(sizeof(*hook_data));
+      TagIndexWriteCommitData *hook_data = rm_malloc(sizeof(*hook_data));
       hook_data->idx = idx;
       hook_data->values = values;
       hook_data->numValues = n;
       hook_data->stats = stats;
       SearchDisk_WriteBatch_OnCommit(batch, onCommit_TagIndex, hook_data,
-                                     freeTagIndexHookData);
+                                     freeTagIndexWriteCommitData);
     }
   } else {
     // MEMORY MODE

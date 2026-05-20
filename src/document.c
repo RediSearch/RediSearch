@@ -833,7 +833,14 @@ int IndexerBulkAdd(RSAddDocumentCtx *cur, RedisSearchCtx *sctx,
     }
   }
   // If the indexing was successful, update the global statistics.
-  if (rc == 0) {
+  //
+  // Disk-mode tag fields stage their writes on the per-document batch and defer
+  // every in-memory update — including this counter — to the on-commit hook
+  // registered in `TagIndex_Index`. Skipping the eager call here keeps the
+  // counter from advancing for a document that may never reach disk if the
+  // batch is later aborted or its commit fails.
+  bool defer_to_commit = (fs->types == INDEXFLD_T_TAG) && (sctx->spec->diskSpec != NULL);
+  if (rc == 0 && !defer_to_commit) {
     FieldsGlobalStats_UpdateFieldDocsIndexed(fs->types, 1);
   }
   return rc;
