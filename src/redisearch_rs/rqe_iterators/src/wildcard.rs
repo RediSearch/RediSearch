@@ -859,9 +859,7 @@ impl<'index> RQEIteratorBoxed<'index> for DiskWildcardIterator<'index> {
         // identical (a `Box` of a trait object is two pointers regardless
         // of lifetime). Lifetime-extending the inner trait object from
         // `'index` to `'static` is a lie that is closed at resume time;
-        // the suspended value is opaque (no read/skip path), and the
-        // existing `Suspendable::suspend` for this type uses the same
-        // pattern (`Suspended = Self`) under the same discipline.
+        // the suspended value is opaque (no read/skip path).
         unsafe { Box::from_raw(raw as *mut DiskWildcardSuspended) }
     }
 }
@@ -880,8 +878,7 @@ impl RQESuspendedIterator for DiskWildcardSuspended {
         // `'a`. Box::from_raw reuses the same heap allocation.
         let mut active = unsafe { Box::from_raw(raw as *mut DiskWildcardIterator<'a>) };
         // Drive validity recovery through the inner trait object's
-        // `revalidate` callback — the same path the legacy
-        // `Suspendable::resume` used.
+        // `revalidate` callback.
         let status = match active.revalidate(spec) {
             Ok(RQEValidateStatus::Ok) => ffi::ValidateStatus_VALIDATE_OK,
             Ok(RQEValidateStatus::Moved { .. }) => ffi::ValidateStatus_VALIDATE_MOVED,

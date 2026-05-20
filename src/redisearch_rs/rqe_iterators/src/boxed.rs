@@ -10,7 +10,7 @@
 //! `Box<Self>`-based suspend/resume trait scaffolding.
 //!
 //! This module introduces the suspend/resume trait hierarchy that will
-//! supersede the existing [`Suspendable`](super::Suspendable) +
+//! supersede the legacy
 //! [`RQEIterator::revalidate`](super::RQEIterator::revalidate) design:
 //!
 //! | Concept              | Concrete (type-state preserved)   | Dyn-safe sibling                |
