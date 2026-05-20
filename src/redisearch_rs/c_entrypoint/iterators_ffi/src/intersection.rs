@@ -149,5 +149,5 @@ pub unsafe extern "C" fn AddIntersectionIteratorChild(
     // justified by the same contract point.
     #[expect(clippy::multiple_unsafe_ops_per_block)]
     let child = unsafe { CRQEIterator::new(NonNull::new_unchecked(child)) };
-    wrapper.inner.push_child(child);
+    wrapper.inner_mut().push_child(child);
 }

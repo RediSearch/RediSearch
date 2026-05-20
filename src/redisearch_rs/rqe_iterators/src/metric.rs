@@ -500,28 +500,28 @@ pub unsafe fn own_key_ref<'index>(header: NonNull<QueryIterator>) -> *mut *mut R
             // SAFETY: safe thanks to 1 + 2.
             let wrapper =
                 unsafe { RQEIteratorWrapper::<MetricSortedById>::mut_ref_from_header_ptr(header) };
-            wrapper.inner.key_mut_ref()
+            wrapper.inner_mut().key_mut_ref()
         }
         IteratorType::MetricSortedByScore => {
             // SAFETY: safe thanks to 1 + 2.
             let wrapper = unsafe {
                 RQEIteratorWrapper::<MetricSortedByScore>::mut_ref_from_header_ptr(header)
             };
-            wrapper.inner.key_mut_ref()
+            wrapper.inner_mut().key_mut_ref()
         }
         IteratorType::MetricLazySortedById => {
             // SAFETY: safe thanks to 1 + 2.
             let wrapper = unsafe {
                 RQEIteratorWrapper::<MetricLazySortedById>::mut_ref_from_header_ptr(header)
             };
-            wrapper.inner.key_mut_ref()
+            wrapper.inner_mut().key_mut_ref()
         }
         IteratorType::MetricLazySortedByScore => {
             // SAFETY: safe thanks to 1 + 2.
             let wrapper = unsafe {
                 RQEIteratorWrapper::<MetricLazySortedByScore>::mut_ref_from_header_ptr(header)
             };
-            wrapper.inner.key_mut_ref()
+            wrapper.inner_mut().key_mut_ref()
         }
         _ => unreachable!(
             "expected a metric iterator, either sorted by ID or Score (metric value): unexpected type: {iterator_type}"
@@ -557,7 +557,7 @@ pub unsafe fn set_key_handle(header: NonNull<QueryIterator>, handle: *mut RLooku
             let wrapper =
                 unsafe { RQEIteratorWrapper::<MetricSortedById>::mut_ref_from_header_ptr(header) };
             // SAFETY: safe thanks to 3.
-            unsafe { wrapper.inner.set_handle(handle) };
+            unsafe { wrapper.inner_mut().set_handle(handle) };
         }
         IteratorType::MetricSortedByScore => {
             // SAFETY: safe thanks to 1 + 2.
@@ -565,7 +565,7 @@ pub unsafe fn set_key_handle(header: NonNull<QueryIterator>, handle: *mut RLooku
                 RQEIteratorWrapper::<MetricSortedByScore>::mut_ref_from_header_ptr(header)
             };
             // SAFETY: safe thanks to 3.
-            unsafe { wrapper.inner.set_handle(handle) };
+            unsafe { wrapper.inner_mut().set_handle(handle) };
         }
         IteratorType::MetricLazySortedById => {
             // SAFETY: safe thanks to 1 + 2.
@@ -573,7 +573,7 @@ pub unsafe fn set_key_handle(header: NonNull<QueryIterator>, handle: *mut RLooku
                 RQEIteratorWrapper::<MetricLazySortedById>::mut_ref_from_header_ptr(header)
             };
             // SAFETY: safe thanks to 3.
-            unsafe { wrapper.inner.set_handle(handle) };
+            unsafe { wrapper.inner_mut().set_handle(handle) };
         }
         IteratorType::MetricLazySortedByScore => {
             // SAFETY: safe thanks to 1 + 2.
@@ -581,7 +581,7 @@ pub unsafe fn set_key_handle(header: NonNull<QueryIterator>, handle: *mut RLooku
                 RQEIteratorWrapper::<MetricLazySortedByScore>::mut_ref_from_header_ptr(header)
             };
             // SAFETY: safe thanks to 3.
-            unsafe { wrapper.inner.set_handle(handle) };
+            unsafe { wrapper.inner_mut().set_handle(handle) };
         }
         _ => unreachable!(
             "expected a metric iterator, either sorted by ID or Score (metric value): unexpected type: {iterator_type}"
