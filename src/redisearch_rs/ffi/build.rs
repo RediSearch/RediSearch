@@ -79,9 +79,31 @@ const HEADERS: &[HeaderAllowlist] = &[
         vars: &[],
     },
     HeaderAllowlist {
+        path: "src/iterators/hybrid_reader.h",
+        fns: &[
+            "HybridIterator_GetChild",
+            "HybridIterator_GetMaxBatchIteration",
+            "HybridIterator_GetMaxBatchSize",
+            "HybridIterator_GetNumIterations",
+            "HybridIterator_GetSearchModeString",
+            "HybridIterator_IsBatchMode",
+        ],
+        types: &[],
+        vars: &[],
+    },
+    HeaderAllowlist {
         path: "src/iterators/iterator_api.h",
         fns: &[],
         types: &["QueryIterator"],
+        vars: &[],
+    },
+    HeaderAllowlist {
+        path: "src/iterators/optimizer_reader.h",
+        fns: &[
+            "OptimizerIterator_GetChild",
+            "OptimizerIterator_GetOptimizationType",
+        ],
+        types: &[],
         vars: &[],
     },
     HeaderAllowlist {
@@ -318,6 +340,8 @@ const PERMITTED_GENERATED_HEADERS: &[&str] = &[
     // `query_error_ffi.h` only because cheadergen emits the type and the
     // function surface in two files).
     "query_error.h",
+    // `QEFlags` is included by `src/aggregate/aggregate.h`.
+    "query_flags.h",
     // `QueryNodeType` is taken by value in `src/query_node.h`.
     "query_node_type.h",
     // `geo_index.h` includes `geo_ffi.h` for the Rust geo function declarations.
@@ -343,6 +367,9 @@ const PERMITTED_GENERATED_HEADERS: &[&str] = &[
     // `RSSortingVector` (a typedef of `ThinVec_SharedValue__u64`) is embedded
     // by value in `RSDocumentMetadata` (src/redisearch.h).
     "sorting_vector.h",
+    // `aggregate.h` includes `value_ffi.h`; reachable via
+    // `optimizer_reader.h` -> `query_optimizer.h` -> `aggregate.h`.
+    "value_ffi.h",
     // `src/byte_offsets.h` defines `static inline` functions that call
     // `NewVarintVectorWriter` / `VVW_Free` / `VVW_Write`. The whole file is
     // small (one opaque type + a handful of functions).

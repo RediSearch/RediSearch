@@ -11,7 +11,9 @@ use std::fmt::Debug;
 
 use index_result::RSIndexResult;
 use inverted_index::{doc_ids_only::DocIdsOnly, raw_doc_ids_only::RawDocIdsOnly, t_docId};
-use rqe_iterators::{IteratorType, interop::RQEIteratorWrapper, inverted_index::Wildcard};
+use rqe_iterators::{
+    IteratorType, interop::RQEIteratorWrapper, inverted_index::Wildcard, profile_print,
+};
 
 /// Wrapper around different II wildcard iterator encoding types to avoid generics in FFI code.
 ///
@@ -113,6 +115,19 @@ impl<'index> rqe_iterators::RQEIterator<'index> for WildcardIterator<'index> {
 
     fn intersection_sort_weight(&self, _prioritize_union_children: bool) -> f64 {
         1.0
+    }
+}
+
+impl profile_print::ProfilePrint for WildcardIterator<'_> {
+    fn print_profile(
+        &self,
+        map: &mut redis_reply::MapBuilder<'_>,
+        ctx: &mut profile_print::ProfilePrintCtx<'_>,
+    ) {
+        match self {
+            WildcardIterator::Encoded(w) => w.print_profile(map, ctx),
+            WildcardIterator::Raw(w) => w.print_profile(map, ctx),
+        }
     }
 }
 

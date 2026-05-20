@@ -15,6 +15,7 @@ use inverted_index::{DecodedBy, DocIdsDecoder, IndexReaderCore, opaque::OpaqueEn
 use crate::{
     IteratorType, RQEIterator, RQEIteratorError, RQEValidateStatus, SkipToOutcome,
     expiration_checker::NoOpChecker,
+    profile_print::{ProfilePrint, ProfilePrintCtx},
 };
 
 use super::core::InvIndIterator;
@@ -160,5 +161,11 @@ where
 
     fn intersection_sort_weight(&self, _prioritize_union_children: bool) -> f64 {
         1.0
+    }
+}
+
+impl<E: DecodedBy> ProfilePrint for Wildcard<'_, E> {
+    fn print_profile(&self, map: &mut redis_reply::MapBuilder<'_>, ctx: &mut ProfilePrintCtx<'_>) {
+        ctx.print_leaf(c"WILDCARD", map);
     }
 }

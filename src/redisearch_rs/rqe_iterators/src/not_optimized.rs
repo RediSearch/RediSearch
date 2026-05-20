@@ -16,7 +16,10 @@ use index_result::RSIndexResult;
 
 use crate::{
     IteratorType, RQEIterator, RQEIteratorError, RQEValidateStatus, SkipToOutcome,
-    WildcardIterator, maybe_empty::MaybeEmpty, not::NotIterator, utils::TimeoutContext,
+    WildcardIterator,
+    maybe_empty::MaybeEmpty,
+    profile_print::{ProfilePrint, ProfilePrintCtx},
+    utils::TimeoutContext,
 };
 use index_spec::IndexSpecReadGuard;
 
@@ -343,16 +346,6 @@ where
     }
 }
 
-impl<'index, W> NotIterator<'index>
-    for NotOptimized<'index, W, Box<dyn RQEIterator<'index> + 'index>>
-where
-    W: crate::WildcardIterator<'index>,
-{
-    fn child(&self) -> Option<&dyn RQEIterator<'index>> {
-        NotOptimized::child(self).map(|c| &**c as &dyn RQEIterator<'index>)
-    }
-}
-
 impl<'index, W: crate::WildcardIterator<'index> + 'index> crate::interop::ProfileChildren<'index>
     for NotOptimized<'index, W, crate::c2rust::CRQEIterator>
 {
@@ -365,5 +358,15 @@ impl<'index, W: crate::WildcardIterator<'index> + 'index> crate::interop::Profil
             result: self.result,
             timeout_ctx: self.timeout_ctx,
         }
+    }
+}
+
+impl<'index, W, I> ProfilePrint for NotOptimized<'index, W, I>
+where
+    W: crate::WildcardIterator<'index>,
+    I: RQEIterator<'index> + ProfilePrint,
+{
+    fn print_profile(&self, map: &mut redis_reply::MapBuilder<'_>, ctx: &mut ProfilePrintCtx<'_>) {
+        ctx.print_single_child(c"NOT", self.child(), map);
     }
 }
