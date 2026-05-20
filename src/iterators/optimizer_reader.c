@@ -289,6 +289,7 @@ QueryIterator *NewOptimizerIterator(QOptimizer *qOpt, QueryIterator *root, Itera
   ri->Free = OptimizerIterator_Free;
   ri->Rewind = OPT_Rewind;
   ri->Revalidate = OPT_Validate;
+  ri->Suspend = Default_Suspend;
   ri->SkipTo = NULL;            // The iterator is always on top and and Read() is called
   ri->Read = OPT_Read;
   ri->ProfileChildren = OPT_ProfileChildren;
