@@ -14,10 +14,6 @@ bench = false
 [lints]
 workspace = true
 
-[features]
-# Passthrough for work-in-progress reducers. Off by default.
-wip_features = ["reducers/wip_features"]
-
 [dependencies]
 ffi.workspace = true
 query_error.workspace = true
