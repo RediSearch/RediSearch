@@ -9,12 +9,14 @@
 
 //! Supporting types for [`Empty`].
 
+use ffi::{ValidateStatus, ValidateStatus_VALIDATE_OK};
 use index_result::RSIndexResult;
 use index_spec::IndexSpecReadGuard;
 use rqe_core::DocId;
 
 use crate::{
-    IteratorType, RQEIterator, RQEIteratorError, RQEValidateStatus, SkipToOutcome,
+    IteratorType, RQEIterator, RQEIteratorBoxed, RQEIteratorError, RQESuspendedIterator,
+    RQEValidateStatus, SkipToOutcome,
     profile_print::{ProfilePrint, ProfilePrintCtx},
 };
 
@@ -87,5 +89,30 @@ impl<'index> RQEIterator<'index> for Empty {
 impl ProfilePrint for Empty {
     fn print_profile(&self, map: &mut redis_reply::MapBuilder<'_>, ctx: &mut ProfilePrintCtx<'_>) {
         ctx.print_leaf(c"EMPTY", map);
+    }
+}
+
+impl<'index> RQEIteratorBoxed<'index> for Empty {
+    /// `Empty` has no `Rf`-dependent state, so its Suspended counterpart is
+    /// itself.
+    type Suspended = Empty;
+
+    fn suspend(self: Box<Self>) -> Box<Self::Suspended> {
+        self
+    }
+}
+
+impl RQESuspendedIterator for Empty {
+    type Resumed<'a> = Empty;
+
+    fn resume<'a>(
+        self: Box<Self>,
+        _guard: &'a IndexSpecReadGuard<'a>,
+    ) -> (Box<Self::Resumed<'a>>, ValidateStatus) {
+        (self, ValidateStatus_VALIDATE_OK)
+    }
+
+    fn last_doc_id(&self) -> DocId {
+        0
     }
 }
