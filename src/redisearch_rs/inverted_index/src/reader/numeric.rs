@@ -147,7 +147,6 @@ unsafe impl<IR: SuspendableReader> SuspendableReader for FilterNumericReader<IR>
 /// proof there).
 unsafe impl<RS: ResumableReader> ResumableReader for FilterNumericReader<RS>
 where
-    for<'a> Self: 'static,
     for<'a> FilterNumericReader<RS::Resumed<'a>>: IndexReader<'a>,
 {
     type Resumed<'a> = FilterNumericReader<RS::Resumed<'a>>;
