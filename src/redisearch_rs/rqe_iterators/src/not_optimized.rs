@@ -377,6 +377,11 @@ where
             Box::from_raw(raw as *mut RawNotOptimized<Suspended, W::Suspended, I::Suspended>)
         }
     }
+
+    fn cascade_suspend(&mut self) {
+        self.wcii.cascade_suspend();
+        self.child.cascade_suspend();
+    }
 }
 
 impl<WS, IS> RQESuspendedIterator for RawNotOptimized<Suspended, WS, IS>

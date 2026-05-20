@@ -1137,7 +1137,10 @@ void AREQ_Execute(AREQ *req, RedisModuleCtx *ctx) {
   RedisModule_Reply _reply = RedisModule_NewReply(ctx), *reply = &_reply;
   sendChunk(req, reply, UINT64_MAX);
   RedisModule_EndReply(reply);
-  // Release the spec read lock before dropping our reference to `req`.
+  // Suspend the root query iterator and release the spec read lock before
+  // dropping our reference to `req`. Idempotent if the pipeline already
+  // suspended on EOF.
+  QITR_SuspendRootIterator(AREQ_QueryProcessingCtx(req));
   RedisSearchCtx_UnlockSpec(AREQ_SearchCtx(req));
   AREQ_DecrRef(req);
 }
@@ -1961,6 +1964,10 @@ static void runCursor(RedisModule_Reply *reply, Cursor *cursor, size_t num) {
   }
 
   sendChunk(req, reply, num);
+  // Suspend the root query iterator before releasing the spec read lock so it
+  // drops any lock-dependent state (e.g. inverted-index borrows). The next
+  // cursor read's `Revalidate` will refresh the borrows under a fresh lock.
+  QITR_SuspendRootIterator(AREQ_QueryProcessingCtx(req));
   RedisSearchCtx_UnlockSpec(AREQ_SearchCtx(req)); // Verify that we release the spec lock
 
   if (req->useReplyCallback) {

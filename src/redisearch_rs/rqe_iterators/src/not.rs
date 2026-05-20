@@ -295,6 +295,10 @@ where
         // Box::from_raw reuses the same heap allocation.
         unsafe { Box::from_raw(raw as *mut RawNot<Suspended, I::Suspended>) }
     }
+
+    fn cascade_suspend(&mut self) {
+        self.child.cascade_suspend();
+    }
 }
 
 impl<S> RQESuspendedIterator for RawNot<Suspended, S>

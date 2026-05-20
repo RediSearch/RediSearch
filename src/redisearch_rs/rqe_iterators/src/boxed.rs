@@ -289,7 +289,7 @@ impl<'a, T: RQEIteratorBoxed<'a> + 'a> RQEDynIterator<'a> for T {
     }
 
     fn cascade_suspend(&mut self) {
-        <T as RQEIteratorBoxed<'a>>::cascade_suspend(self)
+        <T as RQEIteratorBoxed<'a>>::cascade_suspend(self);
     }
 }
 
@@ -387,7 +387,7 @@ impl<'a> RQEIteratorBoxed<'a> for BoxedRQEIterator<'a> {
     }
 
     fn cascade_suspend(&mut self) {
-        self.0.cascade_suspend()
+        self.0.cascade_suspend();
     }
 }
 

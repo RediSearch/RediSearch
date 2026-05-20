@@ -69,6 +69,24 @@ where
     state: WrapperState<'index, I>,
 }
 
+/// Borrow into the wrapper's current typestate, exposed to FFI accessor sites.
+///
+/// Returned by [`RQEIteratorWrapper::state`]. FFI sites that read metadata fields
+/// (counters, num-children, range bounds, etc.) branch on the variant and call the
+/// matching method on each — both `A` and `S` typically share method signatures
+/// because the underlying `#[repr(C)]` struct is `Rf`-generic.
+pub enum InnerState<'a, A, S> {
+    Active(&'a A),
+    Suspended(&'a S),
+}
+
+/// Mutable counterpart of [`InnerState`]. Returned by
+/// [`RQEIteratorWrapper::state_mut`].
+pub enum InnerStateMut<'a, A, S> {
+    Active(&'a mut A),
+    Suspended(&'a mut S),
+}
+
 /// Active/Suspended typestate for [`RQEIteratorWrapper`].
 ///
 /// `Box<I>` and `Box<I::Suspended>` are byte-identical (`NonNull<T>` under the hood),
@@ -151,14 +169,53 @@ where
     I: RQEIteratorBoxed<'index> + 'index,
 {
     /// Borrow the inner active iterator. Panics if the wrapper has been suspended.
+    ///
+    /// Prefer [`state`](Self::state) for FFI accessor sites that may be called
+    /// after the iterator has been suspended (FT.PROFILE introspection, etc.);
+    /// `state()` returns an enum the caller can branch on.
     pub fn inner(&self) -> &I {
         self.state.active_ref()
     }
 
     /// Mutably borrow the inner active iterator. Panics if the wrapper has been
-    /// suspended.
+    /// suspended. See [`inner`](Self::inner).
     pub fn inner_mut(&mut self) -> &mut I {
         self.state.active_mut()
+    }
+
+    /// Expose the wrapper's typestate to FFI accessor sites that may be called
+    /// in either state.
+    ///
+    /// FFI introspection (FT.PROFILE counters, intersection/union child queries,
+    /// reader flags, range bounds, etc.) is called from C code that doesn't know
+    /// whether the iterator is currently Active or Suspended. Those accessors
+    /// fetch fields that exist on both `I` and `I::Suspended` — they live on the
+    /// underlying `#[repr(C)]` `RawFoo<Rf, ...>` struct, independent of `Rf`
+    /// mode. Branch on the variant and call the matching method on each.
+    ///
+    /// Do **not** use this to drive read/skip/rewind — those callbacks dereference
+    /// inverted-index pointers that are invalid in the Suspended state. They go
+    /// through [`WrapperState::active_mut`] (private) and panic loudly on
+    /// Suspended state by design.
+    pub fn state(&self) -> InnerState<'_, I, I::Suspended> {
+        match &self.state {
+            WrapperState::Active(active) => InnerState::Active(active),
+            WrapperState::Suspended(suspended) => InnerState::Suspended(suspended),
+            WrapperState::Empty => {
+                panic!("RQEIteratorWrapper accessed mid-transition (Empty state)")
+            }
+        }
+    }
+
+    /// Mutable counterpart of [`state`](Self::state).
+    pub fn state_mut(&mut self) -> InnerStateMut<'_, I, I::Suspended> {
+        match &mut self.state {
+            WrapperState::Active(active) => InnerStateMut::Active(active),
+            WrapperState::Suspended(suspended) => InnerStateMut::Suspended(suspended),
+            WrapperState::Empty => {
+                panic!("RQEIteratorWrapper accessed mid-transition (Empty state)")
+            }
+        }
     }
 
     /// Re-synchronize the C header's `current` pointer from the inner iterator's
@@ -277,7 +334,8 @@ where
             state: WrapperState::Active(Box::new(inner)),
         });
         if let Some(current) = wrapper
-            .inner_mut()
+            .state
+            .active_mut()
             .current()
             .map(|c| c as *mut RSIndexResult as *mut ffi::RSIndexResult)
         {
@@ -403,14 +461,15 @@ where
 /// `Suspend` C callback. Transitions the wrapper from
 /// [`Active`](WrapperState::Active) to [`Suspended`](WrapperState::Suspended).
 ///
-/// Called by C immediately before the spec read lock is released. Panics if the
-/// wrapper is not in [`Active`](WrapperState::Active) state (defense-in-depth — the
-/// C protocol guarantees suspend is called exactly once per Active→Suspended
-/// transition).
+/// Called by C immediately before the spec read lock is released. **Idempotent**:
+/// if the wrapper is already in [`Suspended`](WrapperState::Suspended) state, this
+/// is a no-op. Pipelines can stack multiple "suspend the upstream iterator before
+/// releasing the lock" call sites (e.g. nested SafeLoaders) without coordinating;
+/// the first one transitions, the rest see no-op.
 ///
-/// After this returns, `header.current` is nulled out: the previous result pointer
-/// almost certainly pointed into the inverted-index data that may be invalidated
-/// during the lock release / re-acquire cycle.
+/// On the Active→Suspended transition, `header.current` is nulled out: the
+/// previous result pointer almost certainly pointed into the inverted-index data
+/// that may be invalidated during the lock release / re-acquire cycle.
 extern "C" fn suspend<'index, I>(base: *mut QueryIterator)
 where
     I: RQEIteratorBoxed<'index> + 'index,
@@ -419,13 +478,28 @@ where
     debug_assert!(base.is_aligned());
     // SAFETY: Guaranteed by invariant 1. in [`RQEIteratorWrapper`].
     let wrapper = unsafe { RQEIteratorWrapper::<'index, I>::mut_ref_from_header_ptr(base) };
+    if !matches!(wrapper.state, WrapperState::Active(_)) {
+        // Already suspended (or transiently Empty during another transition) —
+        // nothing to do. Don't touch `header.current`: it was nulled by the
+        // original Active→Suspended transition.
+        return;
+    }
+    // Cascade Suspend to child wrappers before the type-cast. Composite
+    // iterators (Union, Intersection, ...) iterate their children here so each
+    // `CRQEIterator` child invokes its wrapped C iterator's `Suspend` vtable
+    // entry, flipping that wrapper's typestate too. Without this, the parent's
+    // resume cascade no-ops on Active children and their internal state stays
+    // stale across the lock release / re-acquire cycle.
+    wrapper.state.active_mut().cascade_suspend();
     let active = wrapper.state.take_active();
     let suspended = <I as RQEIteratorBoxed>::suspend(active);
     wrapper.state = WrapperState::Suspended(suspended);
-    // The pointer was almost certainly aimed at inverted-index data that may now
-    // be invalidated. The C side must not dereference `header.current` while the
-    // iterator is suspended; null it out so any stray read fails loudly.
-    wrapper.header.current = std::ptr::null_mut();
+    // Note: `header.current` is intentionally **not** nulled. It points to the
+    // iterator's owned `RSIndexResult` struct (stored inside the iterator),
+    // which is byte-stable across the Suspend/Resume cycle — only the inverted-
+    // index borrows it transitively contains may go stale. FT.PROFILE printing
+    // reads only stable fields off this struct (query_term, type tag) and must
+    // succeed after the query has run and the iterator has been suspended.
 }
 
 /// `Revalidate` C callback. Drives the iterator's resume path: takes the
@@ -461,6 +535,17 @@ where
 
     // SAFETY: Guaranteed by invariant 1. in [`RQEIteratorWrapper`].
     let wrapper = unsafe { RQEIteratorWrapper::<'index, I>::mut_ref_from_header_ptr(base) };
+
+    if matches!(wrapper.state, WrapperState::Active(_)) {
+        // Already active — borrows are still valid. Symmetric with [`suspend`]'s
+        // idempotency on Suspended. If a `Suspend` was missed at some unlock site,
+        // the iterator's borrows may be stale — but that's a bug in the unlock-
+        // wiring, not something this callback can recover from. Surfacing it via
+        // a panic here would only fire on the very next Read after the missed
+        // Suspend, not at the actual unlock site, so the panic wouldn't help
+        // identify the culprit.
+        return ffi::ValidateStatus_VALIDATE_OK;
+    }
 
     // SAFETY: spec is a valid pointer (guaranteed by C caller).
     let spec_ref = unsafe { &*spec };
