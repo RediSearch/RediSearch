@@ -9,12 +9,15 @@
 
 //! Heap variant of the union iterator with O(log n) min-finding.
 
-use ffi::t_docId;
+use ffi::{ValidateStatus, ValidateStatus_VALIDATE_ABORTED, ValidateStatus_VALIDATE_MOVED, ValidateStatus_VALIDATE_OK, t_docId};
 use index_result::{RSIndexResult, RawIndexResult};
-use ref_mode::{Active, Ref};
+use ref_mode::{Active, Ref, Suspended};
 
 use crate::utils::DocIdMinHeap;
-use crate::{IteratorType, RQEIterator, RQEIteratorError, RQEValidateStatus, SkipToOutcome};
+use crate::{
+    IteratorType, RQEIterator, RQEIteratorBoxed, RQEIteratorError, RQESuspendedIterator,
+    RQEValidateStatus, SkipToOutcome,
+};
 use index_spec::IndexSpecReadGuard;
 
 /// Yields documents appearing in ANY child iterator using a binary heap.
@@ -501,6 +504,100 @@ where
         } else {
             1.0
         }
+    }
+}
+
+impl<'index, I, const QUICK_EXIT: bool> RQEIteratorBoxed<'index>
+    for UnionHeap<'index, I, QUICK_EXIT>
+where
+    I: RQEIteratorBoxed<'index>,
+{
+    type Suspended = RawUnionHeap<Suspended, I::Suspended, QUICK_EXIT>;
+
+    fn suspend(self: Box<Self>) -> Box<Self::Suspended> {
+        let raw = Box::into_raw(self);
+        // SAFETY: `RawUnionHeap` is `#[repr(C)]`. `Vec<I>` ↔
+        // `Vec<I::Suspended>` are layout-compatible by the
+        // [`RQEIteratorBoxed`] contract; `result: RawIndexResult<Rf>` via
+        // `SharedPtr` transparency; the heap holds plain doc-ids and
+        // indices (no `Rf` in its types). Box::from_raw reuses the heap
+        // allocation.
+        unsafe { Box::from_raw(raw as *mut RawUnionHeap<Suspended, I::Suspended, QUICK_EXIT>) }
+    }
+}
+
+impl<S, const QUICK_EXIT: bool> RQESuspendedIterator for RawUnionHeap<Suspended, S, QUICK_EXIT>
+where
+    S: RQESuspendedIterator,
+{
+    type Resumed<'a> = UnionHeap<'a, S::Resumed<'a>, QUICK_EXIT>;
+
+    fn resume<'a>(
+        self: Box<Self>,
+        guard: &'a IndexSpecReadGuard<'a>,
+    ) -> (Box<Self::Resumed<'a>>, ValidateStatus) {
+        let RawUnionHeap {
+            children,
+            num_estimated,
+            num_active: _,
+            is_eof,
+            result,
+            heap: _,
+        } = *self;
+
+        let saved_weight = result.weight;
+        let saved_last_doc_id = result.doc_id;
+        drop(result);
+
+        let mut active_children: Vec<S::Resumed<'a>> = Vec::with_capacity(children.len());
+        for inner in children {
+            let (active_inner, status) = Box::new(inner).resume(guard);
+            if status == ValidateStatus_VALIDATE_ABORTED {
+                continue;
+            }
+            active_children.push(*active_inner);
+        }
+
+        let num_children = active_children.len();
+        let result = RSIndexResult::build_union(num_children)
+            .weight(saved_weight)
+            .build();
+
+        if num_children == 0 {
+            let active = Box::new(UnionHeap {
+                children: active_children,
+                num_estimated,
+                num_active: 0,
+                is_eof: true,
+                result,
+                heap: DocIdMinHeap::new(),
+            });
+            return (active, ValidateStatus_VALIDATE_ABORTED);
+        }
+
+        let mut active = Box::new(UnionHeap {
+            children: active_children,
+            num_estimated,
+            num_active: num_children,
+            is_eof,
+            result,
+            heap: DocIdMinHeap::with_capacity(num_children),
+        });
+
+        if active.is_eof || saved_last_doc_id == 0 {
+            return (active, ValidateStatus_VALIDATE_OK);
+        }
+
+        match active.skip_to(saved_last_doc_id) {
+            Ok(Some(SkipToOutcome::Found(_))) => (active, ValidateStatus_VALIDATE_OK),
+            Ok(Some(SkipToOutcome::NotFound(_))) | Ok(None) | Err(_) => {
+                (active, ValidateStatus_VALIDATE_MOVED)
+            }
+        }
+    }
+
+    fn last_doc_id(&self) -> t_docId {
+        self.result.doc_id
     }
 }
 
