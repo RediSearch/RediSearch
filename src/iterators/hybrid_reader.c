@@ -670,6 +670,7 @@ QueryIterator *NewHybridVectorIterator(HybridIteratorParams hParams, QueryError 
   ri->Free = HybridIterator_Free;
   ri->Rewind = HR_Rewind;
   ri->Revalidate = HR_Revalidate;
+  ri->Suspend = Default_Suspend;
   ri->ProfileChildren = HR_ProfileChildren;
   ri->PrintProfile = Hybrid_PrintProfile;
   ri->SkipTo = NULL; // As long as this iterator is always at the root, this is not needed.

@@ -85,6 +85,18 @@ typedef struct QueryIterator {
    */
   ValidateStatus (*Revalidate)(struct QueryIterator *self, struct IndexSpec *spec);
 
+  /**
+   * Called immediately before the spec read lock is released, to inform the iterator that it
+   * must drop any state that depends on the lock being held (in particular, borrows into
+   * inverted-index data). After `Suspend` returns, the only callback that may be invoked on
+   * the iterator (until the lock is re-acquired and `Revalidate` is called) is `Free`.
+   *
+   * Most iterators have no lock-dependent state and use `Default_Suspend` (a no-op).
+   * Rust-wrapped iterators flip their internal typestate from Active to Suspended here, so
+   * that subsequent calls to read/skip/current/rewind would hard-fail at the FFI boundary.
+   */
+  void (*Suspend)(struct QueryIterator *self);
+
   /* release the iterator's context and free everything needed */
   void (*Free)(struct QueryIterator *self);
 
@@ -105,6 +117,11 @@ typedef struct QueryIterator {
 static inline ValidateStatus Default_Revalidate(struct QueryIterator *base, struct IndexSpec *spec) {
   // Default implementation does nothing.
   return VALIDATE_OK;
+}
+
+static inline void Default_Suspend(struct QueryIterator *base) {
+  // Default implementation does nothing. Used by iterators that hold no lock-dependent state.
+  (void)base;
 }
 
 #endif

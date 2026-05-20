@@ -56,6 +56,7 @@ where
                 Read: Some(read::<I>),
                 SkipTo: Some(skip_to::<I>),
                 Revalidate: Some(revalidate::<I>),
+                Suspend: None,
                 Free: Some(free_iterator::<I>),
                 Rewind: Some(rewind::<I>),
                 ProfileChildren: profile_children,
