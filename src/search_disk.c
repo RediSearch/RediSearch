@@ -220,23 +220,14 @@ struct SearchDiskWriteBatch {
 // Walks the hook list, freeing each node and the wrapper after iterating.
 //
 // `run_on_commit` controls whether each hook's `on_commit` callback should be
-// invoked. Once any hook returns `false`, the remaining hooks have their
-// `on_commit` skipped (their `user_data_free` still runs) — this is how the
-// drain propagates a logical failure to downstream hooks that would otherwise
-// keep mutating in-memory state for a document that the failing hook just
-// undid on disk.
-//
-// Returns `true` if every invoked `on_commit` succeeded (or if `run_on_commit`
-// was false); `false` if any hook reported a failure.
-static bool searchDisk_writeBatchDrain(SearchDiskWriteBatch *batch, bool run_on_commit) {
-    bool all_ok = true;
+// invoked. Every node's `user_data_free` runs regardless so heap data is
+// always released.
+static void searchDisk_writeBatchDrain(SearchDiskWriteBatch *batch, bool run_on_commit) {
     OnCommitNode *node = batch->hooks_head;
     while (node) {
         OnCommitNode *next = node->next;
-        if (run_on_commit && all_ok && node->on_commit) {
-            if (!node->on_commit(node->user_data)) {
-                all_ok = false;
-            }
+        if (run_on_commit && node->on_commit) {
+            node->on_commit(node->user_data);
         }
         if (node->user_data_free) {
             node->user_data_free(node->user_data);
@@ -245,7 +236,6 @@ static bool searchDisk_writeBatchDrain(SearchDiskWriteBatch *batch, bool run_on_
         node = next;
     }
     rm_free(batch);
-    return all_ok;
 }
 
 SearchDiskWriteBatch *SearchDisk_CreateWriteBatch(RedisSearchDiskIndexSpec *index) {
@@ -264,13 +254,9 @@ bool SearchDisk_CommitWriteBatch(SearchDiskWriteBatch *batch) {
     bool ok = disk->index.commitWriteBatch(batch->handle);
     // On success, run each hook then free its `user_data`. On failure, only free
     // — the in-memory mutations stay pending so they never diverge from disk.
-    //
-    // If any post-commit hook itself fails, the drain reports it back here so
-    // the overall commit is treated as a failure (status is set, ACTX_F_ERRORED
-    // flips). The disk write itself stays committed; the hook is responsible
-    // for any disk-side cleanup it needs (e.g. SearchDisk_DeleteDocumentById).
-    bool hooks_ok = searchDisk_writeBatchDrain(batch, ok);
-    return ok && hooks_ok;
+    // Hooks must be infallible at this point (see `SearchDiskWriteBatchOnCommit`).
+    searchDisk_writeBatchDrain(batch, ok);
+    return ok;
 }
 
 void SearchDisk_AbortWriteBatch(SearchDiskWriteBatch *batch) {
