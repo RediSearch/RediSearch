@@ -683,6 +683,13 @@ pub struct MockSuspended<const N: usize> {
     data: MockData,
 }
 
+// A wrapper that is suspended when C frees it drops this form, not `Mock`, so it has to count too.
+impl<const N: usize> Drop for MockSuspended<N> {
+    fn drop(&mut self) {
+        self.data.0.borrow_mut().drop_count += 1;
+    }
+}
+
 // Compile-time proof that the `Mock` and `MockSuspended` are layout-identical.
 const _: () = {
     use std::mem::offset_of;
