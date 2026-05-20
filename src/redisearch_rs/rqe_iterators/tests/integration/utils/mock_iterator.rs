@@ -443,6 +443,50 @@ impl<'index, const N: usize> RQEIterator<'index> for Mock<'index, N> {
 
 impl<'index, const N: usize> WildcardIterator<'index> for Mock<'index, N> {}
 
+/// Suspended counterpart of [`Mock`].
+///
+/// Tests that drive the suspend/resume cycle through the FFI wrapper need the inner
+/// iterator type to implement [`RQEIteratorBoxed`]. The Mock holds no real index
+/// borrows (its `result` is a freshly-built [`RSIndexResult`] over owned data), so
+/// the suspended counterpart is byte-identical to the active form at any lifetime.
+pub struct MockSuspended<const N: usize> {
+    _result: index_result::RSIndexResult<'static>,
+    _doc_ids: [ffi::t_docId; N],
+    _positions: Option<[u8; N]>,
+    _next_index: usize,
+    _data: MockData,
+}
+
+impl<'index, const N: usize> rqe_iterators::RQEIteratorBoxed<'index> for Mock<'index, N> {
+    type Suspended = MockSuspended<N>;
+
+    fn suspend(self: Box<Self>) -> Box<Self::Suspended> {
+        let raw = Box::into_raw(self);
+        // SAFETY: `Mock<'index, N>` and `MockSuspended<N>` have identical layout
+        // (lifetime parameter is phantom in this test helper). Box::from_raw reuses
+        // the same heap allocation.
+        unsafe { Box::from_raw(raw as *mut MockSuspended<N>) }
+    }
+}
+
+impl<const N: usize> rqe_iterators::RQESuspendedIterator for MockSuspended<N> {
+    type Resumed<'a> = Mock<'a, N>;
+
+    fn resume<'a>(
+        self: Box<Self>,
+        _guard: &'a index_spec::IndexSpecReadGuard<'a>,
+    ) -> (Box<Self::Resumed<'a>>, ffi::ValidateStatus) {
+        let raw = Box::into_raw(self);
+        // SAFETY: layout-identical (see [`Mock::suspend`]).
+        let active = unsafe { Box::from_raw(raw as *mut Mock<'a, N>) };
+        (active, ffi::ValidateStatus_VALIDATE_OK)
+    }
+
+    fn last_doc_id(&self) -> ffi::t_docId {
+        self._doc_ids.get(self._next_index.saturating_sub(1)).copied().unwrap_or(0)
+    }
+}
+
 /// Dynamic-size variant of [`Mock`] that uses a [`Vec`] instead of a fixed array.
 ///
 /// This is useful when the document IDs are determined at runtime.
