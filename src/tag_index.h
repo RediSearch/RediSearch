@@ -133,14 +133,24 @@ static inline void TagIndex_FreePreprocessedData(char **s) {
   array_free(s);
 }
 
-/* Index a vector of pre-processed tags for a docId.
- * Updates stats->invertedSize (memory mode) and stats->numRecords on success.
- * Returns true on success, false on failure (disk mode only).
- *
- * In disk mode `batch` must be the open write batch the tag writes should be staged into;
- * the parameter is ignored in memory mode. The caller retains ownership of the batch.
- * @param ctx RedisModuleCtx pointer */
-bool TagIndex_Index(RedisModuleCtx *ctx, TagIndex *idx, SearchDiskWriteBatch *batch, const char **values, size_t n, t_docId docId, IndexStats *stats);
+/* Index a vector of pre-processed tags for a docId in memory mode.
+ * Updates stats->invertedSize and stats->numRecords. Always returns true;
+ * the bool return is kept for symmetry with the disk-mode pair below.
+ * Must not be called in disk mode — use `TagIndex_Stage` + `TagIndex_Commit`.
+ * @param ctx RedisModuleCtx pointer (unused in memory mode) */
+bool TagIndex_Index(RedisModuleCtx *ctx, TagIndex *idx, const char **values, size_t n, t_docId docId, IndexStats *stats);
+
+/* Disk-mode phase 1: stage the per-tag inverted-index writes onto `batch`.
+ * Does not touch any in-memory state (`idx->values`, `idx->suffix`, `stats`).
+ * Returns false if the underlying disk staging rejected the input — the
+ * caller is expected to set `ACTX_F_ERRORED` so the batch is aborted.
+ * @param ctx RedisModuleCtx pointer (required for BigModule APIs) */
+bool TagIndex_Stage(RedisModuleCtx *ctx, TagIndex *idx, SearchDiskWriteBatch *batch, const char **values, size_t n, t_docId docId);
+
+/* Disk-mode phase 3: apply the in-memory updates that pair with a successfully
+ * committed `TagIndex_Stage` call. Adds NULL sentinels to `idx->values`,
+ * populates `idx->suffix`, and bumps `stats->numRecords`. Infallible. */
+void TagIndex_Commit(TagIndex *idx, const char **values, size_t n, IndexStats *stats);
 
 /* Open an index reader to iterate a tag index for a specific tag. Used at query evaluation time.
  * Returns NULL if there is no such tag in the index */

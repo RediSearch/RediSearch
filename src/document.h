@@ -324,6 +324,13 @@ typedef struct RSAddDocumentCtx {
   // committed (or aborted on error) before `Indexer_Process` returns. NULL in memory mode
   // or once consumed by commit/abort.
   SearchDiskWriteBatch *diskBatch;
+
+  // Length (in tokens) of the document that this one replaces on disk, captured
+  // from `SearchDisk_PutDocument` during staging. Consumed by `commitDocTable`
+  // to drive the `numDocuments` / `totalDocsLen` stat adjustments once the
+  // batch has committed. Zero when no prior document existed (insert, not
+  // replace). Unused in memory mode.
+  uint32_t oldDocLen;
 } RSAddDocumentCtx;
 
 /**

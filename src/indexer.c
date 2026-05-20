@@ -26,6 +26,7 @@
 #include "gc.h"
 #include "doc_id_meta.h"
 #include "metrics_ffi.h"
+#include "tag_index.h"
 
 extern RedisModuleCtx *RSDummyContext;
 
@@ -88,64 +89,98 @@ static size_t countMerged(mergedEntry *ent) {
   return n;
 }
 
+// Returns true on terms that should be indexed in the suffix trie.
+static inline bool entryWantsSuffixTrie(const IndexSpec *spec, const ForwardIndexEntry *entry) {
+  return (spec->suffixMask & entry->fieldMask)
+      && entry->term[0] != STEM_PREFIX
+      && entry->term[0] != PHONETIC_PREFIX
+      && entry->term[0] != SYNONYM_PREFIX_CHAR
+      && strlen(entry->term) != 0;
+}
+
 /**
- * Simple implementation, writes all the entries for a single document. This
- * function is used when there is only one item in the queue. In this case
- * it's simpler to forego building the merged dictionary because there is
- * nothing to merge.
+ * Stage (disk mode) or apply (memory mode) the full-text inverted-index writes
+ * for a single document.
+ *
+ * In disk mode this is phase 1: each successfully staged term has
+ * `entry->staged = true` set on it; rejected terms are dropped silently and
+ * left with `staged = false`. The matching in-memory mutations
+ * (`IndexSpec_AddTerm`, `addSuffixTrie`, `FieldsGlobalStats_UpdateFieldDocsIndexed`)
+ * run in `commitTextIndex` once the per-document batch has committed.
+ *
+ * In memory mode there is no commit step, so the in-memory mutations happen
+ * inline here as they always have.
  */
-static void writeCurEntries(RSAddDocumentCtx *aCtx, RedisSearchCtx *ctx) {
+static void stageTextIndex(RSAddDocumentCtx *aCtx, RedisSearchCtx *ctx) {
   RS_LOG_ASSERT(ctx, "ctx should not be NULL");
 
   IndexSpec *spec = ctx->spec;
   ForwardIndexIterator it = ForwardIndex_Iterate(aCtx->fwIdx);
   ForwardIndexEntry *entry = ForwardIndexIterator_Next(&it);
 
-  // Save the number of terms before indexing the current document for metrics
-  size_t prevNumTerms = spec->stats.scoring.numTerms;
-
-  while (entry != NULL) {
-    if (spec->diskSpec) {
-      // Get offset data if available (when Index_StoreTermOffsets flag is set)
+  if (spec->diskSpec) {
+    while (entry != NULL) {
       const uint8_t *offsets = NULL;
       size_t offsetsLen = 0;
       if ((spec->flags & Index_StoreTermOffsets) && entry->vw) {
         offsets = VVW_GetByteData(entry->vw);
         offsetsLen = VVW_GetByteLength(entry->vw);
       }
-      // Stage the inverted-index write on the per-document batch and apply the
-      // matching term-trie update eagerly. If anything later in the document
-      // fails — including the commit itself — `Indexer_Process` adds the
-      // doc-id to `deleted_ids`, which makes the term-trie / suffix-trie
-      // entries get filtered out of query results.
-      if (SearchDisk_IndexTerm(spec->diskSpec, aCtx->diskBatch, entry->term, entry->len, aCtx->doc->docId, entry->fieldMask, entry->freq, offsets, offsetsLen)) {
-        IndexSpec_AddTerm(spec, entry->term, entry->len);
-      }
-    } else {
-      bool isNew;
-      InvertedIndex *invidx = Redis_OpenInvertedIndex(ctx->spec, entry->term, entry->len, 1, &isNew);
-      if (isNew && strlen(entry->term) != 0) {
-        IndexSpec_AddTerm(spec, entry->term, entry->len);
-      }
-      if (invidx) {
-        entry->docId = aCtx->doc->docId;
-        RS_LOG_ASSERT(entry->docId, "docId should not be 0");
-        writeIndexEntry(spec, invidx, entry);
-      }
+      entry->staged = SearchDisk_IndexTerm(spec->diskSpec, aCtx->diskBatch,
+                                           entry->term, entry->len, aCtx->doc->docId,
+                                           entry->fieldMask, entry->freq,
+                                           offsets, offsetsLen);
+      entry = ForwardIndexIterator_Next(&it);
+    }
+    return;
+  }
+
+  // Memory mode — writes happen inline (no commit step).
+  size_t prevNumTerms = spec->stats.scoring.numTerms;
+  while (entry != NULL) {
+    bool isNew;
+    InvertedIndex *invidx = Redis_OpenInvertedIndex(ctx->spec, entry->term, entry->len, 1, &isNew);
+    if (isNew && strlen(entry->term) != 0) {
+      IndexSpec_AddTerm(spec, entry->term, entry->len);
+    }
+    if (invidx) {
+      entry->docId = aCtx->doc->docId;
+      RS_LOG_ASSERT(entry->docId, "docId should not be 0");
+      writeIndexEntry(spec, invidx, entry);
     }
 
-    if (spec->suffixMask & entry->fieldMask
-        && entry->term[0] != STEM_PREFIX
-        && entry->term[0] != PHONETIC_PREFIX
-        && entry->term[0] != SYNONYM_PREFIX_CHAR
-        && strlen(entry->term) != 0) {
+    if (entryWantsSuffixTrie(spec, entry)) {
       addSuffixTrie(spec->suffix, entry->term, entry->len);
     }
 
     entry = ForwardIndexIterator_Next(&it);
   }
 
-  // Update the number of terms added for metrics
+  FieldsGlobalStats_UpdateFieldDocsIndexed(INDEXFLD_T_FULLTEXT, spec->stats.scoring.numTerms - prevNumTerms);
+}
+
+/**
+ * Phase 3 for full-text fields (disk mode only): apply the in-memory updates
+ * that pair with the inverted-index writes staged by `stageTextIndex`. Only
+ * entries with `entry->staged == true` get their term-trie / suffix-trie
+ * updates applied; rejected terms are skipped to keep RAM and disk consistent.
+ */
+static void commitTextIndex(RSAddDocumentCtx *aCtx, RedisSearchCtx *ctx) {
+  IndexSpec *spec = ctx->spec;
+  size_t prevNumTerms = spec->stats.scoring.numTerms;
+
+  ForwardIndexIterator it = ForwardIndex_Iterate(aCtx->fwIdx);
+  for (ForwardIndexEntry *entry = ForwardIndexIterator_Next(&it); entry;
+       entry = ForwardIndexIterator_Next(&it)) {
+    if (!entry->staged) continue;
+
+    IndexSpec_AddTerm(spec, entry->term, entry->len);
+
+    if (entryWantsSuffixTrie(spec, entry)) {
+      addSuffixTrie(spec->suffix, entry->term, entry->len);
+    }
+  }
+
   FieldsGlobalStats_UpdateFieldDocsIndexed(INDEXFLD_T_FULLTEXT, spec->stats.scoring.numTerms - prevNumTerms);
 }
 
@@ -199,6 +234,14 @@ static RSDocumentMetadata *makeDocumentId(RedisModuleCtx *ctx, RSAddDocumentCtx 
  * Performs bulk document ID assignment to all items in the queue.
  * If one item cannot be assigned an ID, it is marked as being errored.
  *
+ * In disk mode this is phase 1: stages the doc-table write onto a freshly
+ * opened per-document batch and assigns the new doc-id synchronously. The
+ * matching in-memory updates (`DocIdMeta_Set`, scoring stats, GC notification)
+ * are deferred to `commitDocTable`, which runs once the batch has committed.
+ *
+ * Memory mode runs unchanged — the doc-id assignment and all RAM mutations
+ * happen inline here.
+ *
  * This function also sets the document's sorting vector, if present.
  */
 static void doAssignIds(RSAddDocumentCtx *cur, RedisSearchCtx *ctx) {
@@ -209,7 +252,6 @@ static void doAssignIds(RSAddDocumentCtx *cur, RedisSearchCtx *ctx) {
     }
 
     RS_ASSERT(cur->doc);
-    bool updated = false;
     if (SearchDisk_IsEnabled()) {
       RS_ASSERT(spec->diskSpec);
       size_t len;
@@ -231,8 +273,8 @@ static void doAssignIds(RSAddDocumentCtx *cur, RedisSearchCtx *ctx) {
       // `Indexer_Process` once all of `cur`'s indexing work has finished.
       cur->diskBatch = SearchDisk_CreateWriteBatch(spec->diskSpec);
 
-      // Put the document and get a new doc-id, and remove the old id->dmd entry
-      // if it existed.
+      // Stage the doc-table write and obtain the new doc-id. The doc-id is
+      // assigned synchronously even though the batch has not yet committed.
       t_docId docId = cur->diskBatch
         ? SearchDisk_PutDocument(spec->diskSpec, cur->diskBatch, key, len,
             cur->doc->score, cur->docFlags, cur->fwIdx->maxTermFreq,
@@ -256,37 +298,13 @@ static void doAssignIds(RSAddDocumentCtx *cur, RedisSearchCtx *ctx) {
       }
 
       cur->doc->docId = docId;
-
-      // Apply the in-memory mutations that pair with the staged disk writes
-      // eagerly. If the eventual `SearchDisk_CommitWriteBatch` fails,
-      // `Indexer_Process` marks this doc-id as deleted via
-      // `SearchDisk_DeleteDocumentById`, which puts it into `deleted_ids` so
-      // queries against the term / tag / vector indexes filter it out.
-
-      // Store docId in key metadata for fast lookup.
-      if (DocIdMeta_Set(ctx->redisCtx, cur->doc->docKey, spec->specId, docId) != REDISMODULE_OK) {
-        // Catastrophic: Redis cannot record the key->docId mapping. The disk
-        // batch is still uncommitted and will be aborted by `AddDocumentCtx_Free`.
-        if (!QueryError_HasError(&cur->status)) {
-          QueryError_SetError(&cur->status, QUERY_ERROR_CODE_GENERIC,
-                              "Failed to record doc-id metadata");
-        }
-        cur->stateFlags |= ACTX_F_ERRORED;
-        continue;
-      }
-
-      if (oldLen > 0) {
-        // We deleted a document in the above call, update the stats accordingly
-        RS_ASSERT(spec->stats.scoring.numDocuments > 0);
-        spec->stats.scoring.numDocuments--;
-        RS_ASSERT(spec->stats.scoring.totalDocsLen >= oldLen);
-        spec->stats.scoring.totalDocsLen -= oldLen;
-        updated = true;
-      }
-      spec->stats.scoring.totalDocsLen += cur->fwIdx->totalFreq;
-      ++spec->stats.scoring.numDocuments;
+      cur->oldDocLen = oldLen;
+      // No in-memory mutations here — `commitDocTable` applies them once the
+      // batch has committed. Subsequent stagers read `cur->doc->docId`
+      // directly, so it is safe to reference even before commit.
     } else {
       RS_LOG_ASSERT(!cur->doc->docId, "docId must be 0");
+      bool updated = false;
       RSDocumentMetadata *md = makeDocumentId(ctx->redisCtx, cur, spec,
                                               cur->options & DOCUMENT_ADD_REPLACE, &updated);
       if (!md) {
@@ -320,15 +338,55 @@ static void doAssignIds(RSAddDocumentCtx *cur, RedisSearchCtx *ctx) {
         doc->fieldExpirations = NULL; // Moved to DocTable (TTL table actually)
       }
       DMD_Return(md);
+
+      if (spec->gc) {
+        if (updated) {
+          GCContext_OnUpdate(spec->gc);
+        } else {
+          GCContext_OnWrite(spec->gc);
+        }
+      }
     }
+  }
+}
+
+/**
+ * Phase 3 for the doc-table (disk mode only): record the key->docId mapping in
+ * Redis and apply the scoring stat deltas captured by `doAssignIds`. Called
+ * only on successful batch commit.
+ *
+ * `DocIdMeta_Set` failure here is exceedingly rare (a Redis hash write); on
+ * failure the disk-side state is already committed, so we surface the error to
+ * the caller via `aCtx->status` but cannot roll back the durable write.
+ */
+static void commitDocTable(RSAddDocumentCtx *aCtx, RedisSearchCtx *ctx) {
+  IndexSpec *spec = ctx->spec;
+  if (DocIdMeta_Set(ctx->redisCtx, aCtx->doc->docKey, spec->specId, aCtx->doc->docId) != REDISMODULE_OK) {
+    if (!QueryError_HasError(&aCtx->status)) {
+      QueryError_SetError(&aCtx->status, QUERY_ERROR_CODE_GENERIC,
+                          "Failed to record doc-id metadata");
+    }
+    aCtx->stateFlags |= ACTX_F_ERRORED;
+    return;
+  }
+
+  bool updated = false;
+  if (aCtx->oldDocLen > 0) {
+    // The committed batch replaced an existing document — fold the stats deltas.
+    RS_ASSERT(spec->stats.scoring.numDocuments > 0);
+    spec->stats.scoring.numDocuments--;
+    RS_ASSERT(spec->stats.scoring.totalDocsLen >= aCtx->oldDocLen);
+    spec->stats.scoring.totalDocsLen -= aCtx->oldDocLen;
+    updated = true;
+  }
+  spec->stats.scoring.totalDocsLen += aCtx->fwIdx->totalFreq;
+  ++spec->stats.scoring.numDocuments;
+
+  if (spec->gc) {
     if (updated) {
-      if (spec->gc) {
-        GCContext_OnUpdate(spec->gc);
-      }
+      GCContext_OnUpdate(spec->gc);
     } else {
-      if (spec->gc) {
-        GCContext_OnWrite(spec->gc);
-      }
+      GCContext_OnWrite(spec->gc);
     }
   }
 }
@@ -443,8 +501,41 @@ static void writeExistingDocs(RSAddDocumentCtx *aCtx, RedisSearchCtx *sctx) {
 }
 
 /**
+ * Phase 3 for tag fields (disk mode only): re-walk the per-field tag data
+ * captured at stage time and apply the TrieMap / suffix-trie / `numRecords`
+ * updates that pair with writes committed by `SearchDisk_CommitWriteBatch`.
+ */
+static void commitTagFields(RSAddDocumentCtx *aCtx, RedisSearchCtx *ctx) {
+  const Document *doc = aCtx->doc;
+  for (size_t ii = 0; ii < doc->numFields; ++ii) {
+    const FieldSpec *fs = aCtx->fspecs + ii;
+    FieldIndexerData *fdata = aCtx->fdatas + ii;
+    if (!FieldSpec_IsIndexable(fs) || fdata->isNull) continue;
+    if (!(doc->fields[ii].indexAs & INDEXFLD_T_TAG)) continue;
+
+    TagIndex *tidx = TagIndex_Open(fs);
+    if (!tidx) continue;
+    TagIndex_Commit(tidx, (const char **)fdata->tags, array_len(fdata->tags),
+                    &ctx->spec->stats);
+  }
+}
+
+/**
  * Perform the processing chain on a single document entry, optionally merging
- * the tokens of further entries in the queue
+ * the tokens of further entries in the queue.
+ *
+ * Disk mode runs the indexing in three phases:
+ *   1. Stage all disk writes (`doAssignIds` for the doc-table, `stageTextIndex`
+ *      for full-text terms, `tagIndexer` → `TagIndex_Stage` for tag fields).
+ *      No in-memory state is mutated.
+ *   2. Commit the per-document batch via `SearchDisk_CommitWriteBatch`.
+ *   3. Apply the in-memory updates that pair with the now-durable writes
+ *      (`commitDocTable`, `writeExistingDocs` / `writeMissingFieldDocs`,
+ *      `commitTextIndex`, `commitTagFields`).
+ *
+ * On commit failure or any upstream error the batch is aborted and phase 3 is
+ * skipped — no in-memory state was mutated yet, so there is nothing to roll
+ * back. Memory mode skips phase 2/3 entirely and runs all writes inline.
  */
 static void Indexer_Process(RSAddDocumentCtx *aCtx) {
   RSAddDocumentCtx *firstZeroId = aCtx;
@@ -484,9 +575,6 @@ static void Indexer_Process(RSAddDocumentCtx *aCtx) {
     doAssignIds(firstZeroId, &ctx);
   }
 
-  // Index the document in the `existing docs` inverted index
-  writeExistingDocs(aCtx, &ctx);
-
   // On the non-disk path, `doc->fieldExpirations` ownership has already been
   // moved into the TTL table by `doAssignIds` on success. On failure (e.g.
   // `makeDocumentId` returned NULL), the array stays attached to `doc` so
@@ -497,53 +585,62 @@ static void Indexer_Process(RSAddDocumentCtx *aCtx) {
   } else {
     fes = (arrayof(FieldExpiration))DocTable_GetFieldExpirations(&ctx.spec->docs, doc->docId);
   }
-  writeMissingFieldDocs(aCtx, &ctx, fes);
 
-  // Handle FULLTEXT indexes
+  // Memory mode writes existing/missing docs eagerly. Disk mode defers them
+  // to the post-commit block below so they only apply on durable commit.
+  if (!SearchDisk_IsEnabled()) {
+    writeExistingDocs(aCtx, &ctx);
+    writeMissingFieldDocs(aCtx, &ctx, fes);
+  }
+
+  // Full-text: stage in disk mode, inline writes in memory mode.
   if ((aCtx->fwIdx && (aCtx->stateFlags & ACTX_F_ERRORED) == 0)) {
-    writeCurEntries(aCtx, &ctx);
+    stageTextIndex(aCtx, &ctx);
   }
 
   if (!(aCtx->stateFlags & ACTX_F_OTHERINDEXED)) {
     indexBulkFields(aCtx, &ctx);
   }
 
-  // Finalize the per-document disk write batch. Three paths:
-  //
-  //  - happy path: not errored upstream, commit succeeds. The eager in-memory
-  //    mutations (DocIdMeta_Set / scoring stats / term-trie / suffix tries /
-  //    tag-trie / numRecords / existingDocs / missingFieldDict / vector index)
-  //    are already applied and now agree with disk.
-  //  - upstream error after eager mutations ran (e.g. tag staging rejected a
-  //    value): abort the batch and mark the doc-id as deleted. The eager
-  //    mutations still reference `aCtx->doc->docId`; adding it to
-  //    `deleted_ids` makes query iterators filter the entries out, and GC
-  //    eventually reclaims them.
-  //  - commit failure: same as above — mark deleted, set status, error out.
-  //
-  // The mark-deleted call is a no-op if `aCtx->doc->docId` is zero (the doc
-  // never reached `doAssignIds` past the staging step, so no eager mutations
-  // happened either).
-  if (aCtx->diskBatch) {
-    bool need_mark_deleted = false;
-    if (aCtx->stateFlags & ACTX_F_ERRORED) {
-      SearchDisk_AbortWriteBatch(aCtx->diskBatch);
-      need_mark_deleted = true;
-    } else if (!SearchDisk_CommitWriteBatch(aCtx->diskBatch)) {
-      if (!QueryError_HasError(&aCtx->status)) {
-        QueryError_SetError(&aCtx->status, QUERY_ERROR_CODE_GENERIC,
-                            "Failed to commit disk write batch");
-      }
-      aCtx->stateFlags |= ACTX_F_ERRORED;
-      need_mark_deleted = true;
-    }
-    aCtx->diskBatch = NULL;
-
-    if (need_mark_deleted && aCtx->doc->docId != 0) {
-      uint32_t oldLen = 0;
-      SearchDisk_DeleteDocumentById(ctx.spec->diskSpec, aCtx->doc->docId, &oldLen);
-    }
+  // Memory mode has no per-document batch to finalize.
+  if (!aCtx->diskBatch) {
+    return;
   }
+
+  // Disk mode finalization (stage → commit → apply).
+  if (aCtx->stateFlags & ACTX_F_ERRORED) {
+    SearchDisk_AbortWriteBatch(aCtx->diskBatch);
+    aCtx->diskBatch = NULL;
+    return;
+  }
+
+  if (!SearchDisk_CommitWriteBatch(aCtx->diskBatch)) {
+    aCtx->diskBatch = NULL;
+    if (!QueryError_HasError(&aCtx->status)) {
+      QueryError_SetError(&aCtx->status, QUERY_ERROR_CODE_GENERIC,
+                          "Failed to commit disk write batch");
+    }
+    aCtx->stateFlags |= ACTX_F_ERRORED;
+    return;
+  }
+  aCtx->diskBatch = NULL;
+
+  // Phase 3: commit succeeded — apply the matching in-memory updates.
+  commitDocTable(aCtx, &ctx);
+  if (aCtx->stateFlags & ACTX_F_ERRORED) {
+    // `DocIdMeta_Set` failed after a durable disk commit. The doc exists on
+    // disk but has no key→docId mapping; queries that scan inverted indexes
+    // can still find it, but key-based lookups cannot. Skip the remaining
+    // in-memory commits — applying them would create partially consistent
+    // state for a doc the caller has already been told failed.
+    return;
+  }
+  writeExistingDocs(aCtx, &ctx);
+  writeMissingFieldDocs(aCtx, &ctx, fes);
+  if (aCtx->fwIdx) {
+    commitTextIndex(aCtx, &ctx);
+  }
+  commitTagFields(aCtx, &ctx);
 }
 
 int IndexDocument(RSAddDocumentCtx *aCtx) {

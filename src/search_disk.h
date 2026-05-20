@@ -23,10 +23,12 @@
 // `SearchDisk_CreateWriteBatch` and consumed by `SearchDisk_CommitWriteBatch` or
 // `SearchDisk_AbortWriteBatch`.
 //
-// In-memory state updates that pair with the staged disk writes are applied
-// eagerly by the OSS-side indexing flow. If the commit later fails, callers
-// recover by marking the doc-id deleted via `SearchDisk_DeleteDocumentById` so
-// queries filter it out via `deleted_ids`.
+// The OSS indexing flow uses the batch in three phases: stage (`indexTerm` /
+// `indexTags` / `putDocument` queue writes onto the batch), commit (the batch
+// is durably written, or aborted on error), and apply (the matching in-memory
+// updates — DocIdMeta, trie / suffix-trie inserts, scoring stats — run only on
+// successful commit). On abort or commit failure no in-memory updates have run
+// yet, so there is nothing to roll back.
 typedef struct SearchDiskWriteBatch SearchDiskWriteBatch;
 
 __attribute__((weak))

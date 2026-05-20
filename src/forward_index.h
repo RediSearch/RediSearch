@@ -33,6 +33,10 @@ typedef struct ForwardIndexEntry {
   uint32_t len;
   uint32_t hash;
   VarintVectorWriter *vw;
+  // Disk-mode staging flag. Set by `stageTextIndex` to the return value of
+  // `SearchDisk_IndexTerm`; read by `commitTextIndex` to decide whether to
+  // apply the matching in-memory trie / stats updates. Unused in memory mode.
+  bool staged;
 } ForwardIndexEntry;
 
 // the quantizationn factor used to encode normalized (0..1) frequencies in the index

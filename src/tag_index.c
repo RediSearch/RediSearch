@@ -215,46 +215,53 @@ static inline size_t tagIndex_Put(TagIndex *idx, const char *value, size_t len, 
   return InvertedIndex_WriteEntryGeneric(iv, &rec) + sz;
 }
 
-/* Index a vector of pre-processed tags for a docId */
-bool TagIndex_Index(RedisModuleCtx *ctx, TagIndex *idx, SearchDiskWriteBatch *batch, const char **values, size_t n, t_docId docId, IndexStats *stats) {
+/* Index a vector of pre-processed tags for a docId — memory mode only. */
+bool TagIndex_Index(RedisModuleCtx *ctx, TagIndex *idx, const char **values, size_t n, t_docId docId, IndexStats *stats) {
+  RS_ASSERT(!idx->diskSpec);
   if (!values) return true;
 
-  if (idx->diskSpec) {
-    // DISK MODE: Index to disk and add tags to TrieMap with NULL sentinel.
-    // The trie updates are applied eagerly; if the document later errors
-    // (including a commit failure), `Indexer_Process` adds the doc-id to
-    // `deleted_ids` so query iterators filter the orphaned trie entries out.
-    if (!SearchDisk_IndexTags(ctx, idx->diskSpec, batch, values, n, docId, idx->fieldIndex)) {
-      return false;
-    }
+  for (size_t ii = 0; ii < n; ++ii) {
+    const char *tok = values[ii];
+    if (tok) {
+      stats->invertedSize += tagIndex_Put(idx, tok, strlen(tok), docId);
 
-    // Also populate TrieMap with NULL sentinels for tag enumeration
-    for (size_t ii = 0; ii < n; ++ii) {
-      const char *tok = values[ii];
-      if (tok) {
-        TrieMap_Add(idx->values, tok, strlen(tok), NULL, NULL);
-
-        if (idx->suffix && (*tok != '\0')) {
-          addSuffixTrieMap(idx->suffix, tok, strlen(tok));
-        }
-      }
-    }
-  } else {
-    // MEMORY MODE
-    for (size_t ii = 0; ii < n; ++ii) {
-      const char *tok = values[ii];
-      if (tok) {
-        stats->invertedSize += tagIndex_Put(idx, tok, strlen(tok), docId);
-
-        if (idx->suffix && (*tok != '\0')) { // add to suffix TrieMap
-          addSuffixTrieMap(idx->suffix, tok, strlen(tok));
-        }
+      if (idx->suffix && (*tok != '\0')) { // add to suffix TrieMap
+        addSuffixTrieMap(idx->suffix, tok, strlen(tok));
       }
     }
   }
 
   stats->numRecords++;
   return true;
+}
+
+/* Disk-mode phase 1: stage tag writes onto `batch`. No in-memory mutations. */
+bool TagIndex_Stage(RedisModuleCtx *ctx, TagIndex *idx, SearchDiskWriteBatch *batch, const char **values, size_t n, t_docId docId) {
+  RS_ASSERT(idx->diskSpec);
+  if (!values) return true;
+  return SearchDisk_IndexTags(ctx, idx->diskSpec, batch, values, n, docId, idx->fieldIndex);
+}
+
+/* Disk-mode phase 3: apply the in-memory updates that pair with a successful
+ * `TagIndex_Stage` + commit. Infallible. */
+void TagIndex_Commit(TagIndex *idx, const char **values, size_t n, IndexStats *stats) {
+  RS_ASSERT(idx->diskSpec);
+  if (!values) return;
+
+  // Populate TrieMap with NULL sentinels for tag enumeration, and add to the
+  // suffix trie. These pair with disk writes that have already committed.
+  for (size_t ii = 0; ii < n; ++ii) {
+    const char *tok = values[ii];
+    if (tok) {
+      TrieMap_Add(idx->values, tok, strlen(tok), NULL, NULL);
+
+      if (idx->suffix && (*tok != '\0')) {
+        addSuffixTrieMap(idx->suffix, tok, strlen(tok));
+      }
+    }
+  }
+
+  stats->numRecords++;
 }
 
 static QueryIterator *TagIndex_GetReader(const TagIndex *idx, const RedisSearchCtx *sctx, InvertedIndex *iv,

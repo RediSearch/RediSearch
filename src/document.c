@@ -196,6 +196,7 @@ RSAddDocumentCtx *NewAddDocumentCtx(IndexSpec *sp, Document *doc, QueryError *st
   aCtx->specFlags = sp->flags;
   aCtx->spec = sp;
   aCtx->diskBatch = NULL;
+  aCtx->oldDocLen = 0;
   if (aCtx->specFlags & Index_Async) {
     HiddenString_Clone(sp->specName, &aCtx->specName);
   }
@@ -352,8 +353,11 @@ void AddDocumentCtx_Free(RSAddDocumentCtx *aCtx) {
   ByteOffsetWriter_Cleanup(&aCtx->offsetsWriter);
   QueryError_ClearError(&aCtx->status);
 
-  // Safety net: if the indexing flow bailed out before reaching the commit/abort
-  // logic in `Indexer_Process`, discard the staged writes rather than leaking the batch.
+  // Safety net: if the indexing flow bailed out before reaching the
+  // commit/abort logic in `Indexer_Process`, discard the staged writes rather
+  // than leaking the batch. No in-memory state needs reverting — disk-mode
+  // RAM updates are only applied in the post-commit phase, which we never
+  // reached on this path.
   if (aCtx->diskBatch) {
     SearchDisk_AbortWriteBatch(aCtx->diskBatch);
     aCtx->diskBatch = NULL;
@@ -784,8 +788,17 @@ FIELD_BULK_INDEXER(tagIndexer) {
     tidx->suffix = NewTrieMap();
   }
 
-  // TagIndex_Index handles both disk and memory modes internally
-  if (!TagIndex_Index(ctx->redisCtx, tidx, aCtx->diskBatch, (const char **)fdata->tags, array_len(fdata->tags), aCtx->doc->docId, &ctx->spec->stats)) {
+  // In disk mode, this is phase 1: stage the writes onto the per-document
+  // batch. The matching in-memory updates (`TagIndex_Commit`) run in
+  // `Indexer_Process` once the batch has committed.
+  bool ok = ctx->spec->diskSpec
+              ? TagIndex_Stage(ctx->redisCtx, tidx, aCtx->diskBatch,
+                               (const char **)fdata->tags, array_len(fdata->tags),
+                               aCtx->doc->docId)
+              : TagIndex_Index(ctx->redisCtx, tidx,
+                               (const char **)fdata->tags, array_len(fdata->tags),
+                               aCtx->doc->docId, &ctx->spec->stats);
+  if (!ok) {
     QueryError_SetError(status, QUERY_ERROR_CODE_GENERIC, "Tag indexing failed");
     return -1;
   }
