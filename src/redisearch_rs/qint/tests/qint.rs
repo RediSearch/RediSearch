@@ -246,7 +246,7 @@ mod property_based {
         prop_compose, prop_oneof,
         strategy::Strategy,
     };
-    use rand::{Rng as _, SeedableRng as _};
+    use rand::{RngExt as _, SeedableRng as _};
 
     #[derive(Debug, Clone)]
     pub enum PropEncoding {
