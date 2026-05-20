@@ -21,7 +21,8 @@ use std::{cmp::Ordering, num::NonZeroUsize};
 
 use criterion::{BatchSize, BenchmarkId, Criterion, criterion_group, criterion_main};
 use rand::{SeedableRng as _, seq::SliceRandom as _};
-use top_k::TopKHeap;
+use rqe_iterators::RQEIterator;
+use top_k::{CollectionStrategy, TopKHeap, TopKIterator, mock::MockScoreSource};
 
 fn asc(a: f64, b: f64) -> Ordering {
     a.partial_cmp(&b).unwrap_or(Ordering::Equal)
@@ -113,5 +114,57 @@ fn bench_heap_pop_all(c: &mut Criterion) {
     group.finish();
 }
 
-criterion_group!(benches, bench_heap_insert, bench_heap_pop_all);
+// ── Iterator benchmarks (mock sources) ───────────────────────────────────────
+
+fn bench_intersection_overlap(c: &mut Criterion) {
+    let mut group = c.benchmark_group("iterator");
+    let k = NonZeroUsize::new(100).unwrap();
+    // 50% overlap: batch docs are even numbers, child docs are every other even.
+    for n in [1_000usize, 10_000] {
+        let batch: Vec<(u64, f64)> = (0..n as u64).map(|i| (i * 2, i as f64)).collect();
+        let child_ids: Vec<u64> = (0..n as u64).step_by(2).map(|i| i * 2).collect();
+
+        group.bench_with_input(BenchmarkId::new("batches_50pct_overlap", n), &n, |b, _| {
+            b.iter(|| {
+                let source =
+                    MockScoreSource::new(vec![batch.clone()], |_, _| CollectionStrategy::Continue);
+                let child: Box<dyn RQEIterator> =
+                    Box::new(rqe_iterators::IdList::<true>::new(child_ids.clone()));
+                let mut it = TopKIterator::new(source, Some(child), k, asc);
+                while black_box(it.read()).unwrap().is_some() {}
+            })
+        });
+    }
+    group.finish();
+}
+
+fn bench_intersection_disjoint(c: &mut Criterion) {
+    let mut group = c.benchmark_group("iterator");
+    let k = NonZeroUsize::new(100).unwrap();
+    // 0% overlap: batch has even IDs, child has odd IDs.
+    for n in [1_000usize, 10_000] {
+        let batch: Vec<(u64, f64)> = (0..n as u64).map(|i| (i * 2, i as f64)).collect();
+        let child_ids: Vec<u64> = (0..n as u64).map(|i| i * 2 + 1).collect();
+
+        group.bench_with_input(BenchmarkId::new("batches_0pct_overlap", n), &n, |b, _| {
+            b.iter(|| {
+                let source =
+                    MockScoreSource::new(vec![batch.clone()], |_, _| CollectionStrategy::Continue);
+                let child: Box<dyn RQEIterator> =
+                    Box::new(rqe_iterators::IdList::<true>::new(child_ids.clone()));
+                let mut it = TopKIterator::new(source, Some(child), k, asc);
+                while black_box(it.read()).unwrap().is_some() {}
+            })
+        });
+    }
+    group.finish();
+}
+
+criterion_group!(
+    benches,
+    bench_heap_insert,
+    bench_heap_pop_all,
+    bench_intersection_overlap,
+    bench_intersection_disjoint,
+);
 criterion_main!(benches);
