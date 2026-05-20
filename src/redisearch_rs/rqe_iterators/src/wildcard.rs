@@ -359,7 +359,7 @@ impl<'query> RQESuspendedIterator<'query> for OptimizedWildcardSuspended<'query>
                 if w.should_abort(spec) {
                     OptimizedResumeOutcome::Abort
                 } else {
-                    match w.refresh_pointers() {
+                    match w.refresh_pointers(spec) {
                         inverted_index::RefreshOutcome::Ok => OptimizedResumeOutcome::Ok,
                         inverted_index::RefreshOutcome::NeedsReseek { last_doc_id } => {
                             OptimizedResumeOutcome::NeedsReseek { last_doc_id }
@@ -371,7 +371,7 @@ impl<'query> RQESuspendedIterator<'query> for OptimizedWildcardSuspended<'query>
                 if w.should_abort(spec) {
                     OptimizedResumeOutcome::Abort
                 } else {
-                    match w.refresh_pointers() {
+                    match w.refresh_pointers(spec) {
                         inverted_index::RefreshOutcome::Ok => OptimizedResumeOutcome::Ok,
                         inverted_index::RefreshOutcome::NeedsReseek { last_doc_id } => {
                             OptimizedResumeOutcome::NeedsReseek { last_doc_id }

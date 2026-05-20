@@ -42,7 +42,7 @@ impl RQESuspendedIterator for InfiniteSuspended {
 
     fn resume<'a>(
         self: Box<Self>,
-        _guard: &'a index_spec::IndexSpecReadGuard<'a>,
+        _guard: &index_spec::IndexSpecReadGuard<'a>,
     ) -> Result<ResumeOutcome<Box<Self::Resumed<'a>>>, RQEIteratorError> {
         let raw = Box::into_raw(self);
         // SAFETY: layout-identical — see [`Infinite::suspend`].

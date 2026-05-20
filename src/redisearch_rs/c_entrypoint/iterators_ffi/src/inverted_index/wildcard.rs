@@ -10,10 +10,91 @@
 use std::fmt::Debug;
 
 use index_result::RSIndexResult;
-use inverted_index::{DocId, doc_ids_only::DocIdsOnly, raw_doc_ids_only::RawDocIdsOnly};
+use inverted_index::{doc_ids_only::DocIdsOnly, raw_doc_ids_only::RawDocIdsOnly};
+use rqe_core::DocId;
 use rqe_iterators::{
-    IteratorType, interop::RQEIteratorWrapper, inverted_index::Wildcard, profile_print,
+    IteratorType, RQEIteratorBoxed, RQEIteratorError, RQESuspendedIterator, ResumeOutcome,
+    interop::RQEIteratorWrapper, inverted_index::Wildcard, profile_print,
 };
+
+/// Suspended counterpart of [`WildcardIterator`] — produced by
+/// [`RQEIteratorBoxed::suspend`] and consumed by [`RQESuspendedIterator::resume`].
+///
+/// Retains the `'query` lifetime so query-attached borrows stay valid across
+/// the suspend/resume cycle.
+pub(super) enum WildcardIteratorSuspended<'query> {
+    Encoded(<Wildcard<'query, DocIdsOnly> as RQEIteratorBoxed<'query>>::Suspended),
+    Raw(<Wildcard<'query, RawDocIdsOnly> as RQEIteratorBoxed<'query>>::Suspended),
+}
+
+impl<'index> RQEIteratorBoxed<'index> for WildcardIterator<'index> {
+    type Suspended = WildcardIteratorSuspended<'index>;
+
+    fn suspend(self: Box<Self>) -> Box<Self::Suspended> {
+        match *self {
+            WildcardIterator::Encoded(w) => Box::new(WildcardIteratorSuspended::Encoded(
+                *<Wildcard<'index, _> as RQEIteratorBoxed<'index>>::suspend(Box::new(w)),
+            )),
+            WildcardIterator::Raw(w) => Box::new(WildcardIteratorSuspended::Raw(
+                *<Wildcard<'index, _> as RQEIteratorBoxed<'index>>::suspend(Box::new(w)),
+            )),
+        }
+    }
+}
+
+impl<'query> RQESuspendedIterator<'query> for WildcardIteratorSuspended<'query> {
+    type Resumed<'a>
+        = WildcardIterator<'a>
+    where
+        'query: 'a;
+
+    fn resume<'a>(
+        self: Box<Self>,
+        guard: &index_spec::IndexSpecReadGuard<'a>,
+    ) -> Result<ResumeOutcome<Box<Self::Resumed<'a>>>, RQEIteratorError>
+    where
+        'query: 'a,
+    {
+        // Forward the inner variant's outcome, reconstructing the concrete
+        // `WildcardIterator` enum and preserving the `Ok`/`Moved`/`Aborted` status.
+        let (variant, moved) = match *self {
+            WildcardIteratorSuspended::Encoded(s) => {
+                match <_ as RQESuspendedIterator>::resume(Box::new(s), guard)? {
+                    ResumeOutcome::Aborted => return Ok(ResumeOutcome::Aborted),
+                    ResumeOutcome::Ok(resumed) => (WildcardIterator::Encoded(*resumed), false),
+                    ResumeOutcome::Moved(resumed) => (WildcardIterator::Encoded(*resumed), true),
+                }
+            }
+            WildcardIteratorSuspended::Raw(s) => {
+                match <_ as RQESuspendedIterator>::resume(Box::new(s), guard)? {
+                    ResumeOutcome::Aborted => return Ok(ResumeOutcome::Aborted),
+                    ResumeOutcome::Ok(resumed) => (WildcardIterator::Raw(*resumed), false),
+                    ResumeOutcome::Moved(resumed) => (WildcardIterator::Raw(*resumed), true),
+                }
+            }
+        };
+        let active = Box::new(variant);
+        Ok(if moved {
+            ResumeOutcome::Moved(active)
+        } else {
+            ResumeOutcome::Ok(active)
+        })
+    }
+
+    fn last_doc_id(&self) -> DocId {
+        match self {
+            WildcardIteratorSuspended::Encoded(s) => s.last_doc_id(),
+            WildcardIteratorSuspended::Raw(s) => s.last_doc_id(),
+        }
+    }
+
+    fn num_estimated(&self) -> usize {
+        match self {
+            WildcardIteratorSuspended::Encoded(s) => s.num_estimated(),
+            WildcardIteratorSuspended::Raw(s) => s.num_estimated(),
+        }
+    }
+}
 
 /// Wrapper around different II wildcard iterator encoding types to avoid generics in FFI code.
 ///

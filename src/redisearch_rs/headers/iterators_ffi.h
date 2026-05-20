@@ -565,6 +565,16 @@ void TrimUnionIterator(QueryIterator *it, size_t limit, bool asc);
 void Profile_PrintIterators(RedisModuleCtx *ctx, const QueryIterator *root, bool limited, bool print_profile_clock);
 
 /**
+ * Get a mutable reference to the [`RLookupKey`] stored inside this metric iterator.
+ *
+ * # Safety
+ *
+ * 1. `header` is a valid non-null pointer to a [`QueryIterator`].
+ * 2. `header` was built via [`NewMetricIteratorSortedByScore`] or [`NewMetricIteratorSortedById`].
+ */
+RLookupKey * *GetMetricOwnKeyRef(QueryIterator *header);
+
+/**
  * Creates a new tag inverted index iterator.
  *
  * # Parameters
@@ -626,16 +636,6 @@ QueryIterator *NewInvIndIterator_TagQuery(const InvertedIndex *idx, const TagInd
  * 4. `sctx` and `sctx.spec` must remain valid for the lifetime of the returned iterator.
  */
 QueryIterator *NewInvIndIterator_WildcardQuery(const InvertedIndex *idx, const RedisSearchCtx *sctx, double weight);
-
-/**
- * Get a mutable reference to the [`RLookupKey`] stored inside this metric iterator.
- *
- * # Safety
- *
- * 1. `header` is a valid non-null pointer to a [`QueryIterator`].
- * 2. `header` was built via [`NewMetricIteratorSortedByScore`] or [`NewMetricIteratorSortedById`].
- */
-RLookupKey * *GetMetricOwnKeyRef(QueryIterator *header);
 
 /**
  * Creates a new term inverted index iterator for querying term fields.
