@@ -152,6 +152,46 @@ after_includes = """
 typedef struct RLookupKey RLookupKey;
 """
 
+[header.query_flags]
+after_includes = """
+/* QEFlags is a uint32_t bitfield; the enum provides named constants. */
+typedef uint32_t QEFlags;
+
+/* Backward-compatible aliases for C code that uses the old enum constant names. */
+#define QEXEC_F_IS_AGGREGATE                       QEFlag_IsAggregate
+#define QEXEC_F_SEND_SCORES                        QEFlag_SendScores
+#define QEXEC_F_SEND_SORTKEYS                      QEFlag_SendSortkeys
+#define QEXEC_F_SEND_NOFIELDS                      QEFlag_SendNoFields
+#define QEXEC_F_SEND_PAYLOADS                      QEFlag_SendPayloads
+#define QEXEC_F_IS_CURSOR                          QEFlag_IsCursor
+#define QEXEC_F_REQUIRED_FIELDS                    QEFlag_RequiredFields
+#define QEXEC_F_BUILDPIPELINE_NO_ROOT              QEFlag_BuildPipelineNoRoot
+#define QEXEC_F_RUN_IN_BACKGROUND                  QEFlag_RunInBackground
+#define QEXEC_F_IS_SEARCH                          QEFlag_IsSearch
+#define QEXEC_F_SEND_HIGHLIGHT                     QEFlag_SendHighlight
+#define QEXEC_F_NOROWS                             QEFlag_NoRows
+#define QEXEC_F_TYPED                              QEFlag_Typed
+#define QEXEC_F_SENDRAWIDS                         QEFlag_SendRawIds
+#define QEXEC_F_SEND_SCOREEXPLAIN                  QEFlag_SendScoreExplain
+#define QEXEC_F_PROFILE                            QEFlag_Profile
+#define QEXEC_F_PROFILE_LIMITED                    QEFlag_ProfileLimited
+#define QEXEC_AGG_LOAD_ALL                         QEFlag_AggLoadAll
+#define QEXEC_OPTIMIZE                             QEFlag_Optimize
+#define QEXEC_FORMAT_EXPAND                        QEFlag_FormatExpand
+#define QEXEC_FORMAT_DEFAULT                       QEFlag_FormatDefault
+#define QEXEC_F_SEND_SCORES_AS_FIELD               QEFlag_SendScoresAsField
+#define QEXEC_F_INTERNAL                           QEFlag_Internal
+#define QEXEC_F_IS_HYBRID_TAIL                     QEFlag_IsHybridTail
+#define QEXEC_F_IS_HYBRID_SEARCH_SUBQUERY          QEFlag_IsHybridSearchSubquery
+#define QEXEC_F_IS_HYBRID_VECTOR_AGGREGATE_SUBQUERY QEFlag_IsHybridVectorAggregateSubquery
+#define QEXEC_F_NO_SORT                            QEFlag_NoSort
+#define QEXEC_F_HAS_SORTBY                         QEFlag_HasSortby
+#define QEXEC_F_HAS_DEPLETER                       QEFlag_HasDepleter
+#define QEXEC_F_HAS_WITHCOUNT                      QEFlag_HasWithcount
+#define QEXEC_F_HAS_GROUPBY                        QEFlag_HasGroupby
+#define QEXEC_F_DEBUG                              QEFlag_Debug
+"""
+
 [header.query_node_type]
 after_includes = """
 /* Backward-compatible aliases for C code that uses the old enum constant names. */

@@ -1,0 +1,22 @@
+#!/usr/bin/env python3
+#-*- coding: UTF-8
+
+import sys
+from unidata import *
+
+d = dict()
+
+for line in sys.stdin:
+	if unidata_comment(line):
+		continue
+
+	tokens = line.split(';')
+	codepoint, upper = tokens[0], tokens[12]
+
+	if not upper:
+		continue
+
+	d[unidata_strip(codepoint)] = unidata_split(upper)
+
+for codepoint, replacement in sorted(d.items()):
+	print('%06X %s' % (int(codepoint, base=16), ','.join(replacement)))

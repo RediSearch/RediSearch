@@ -28,19 +28,6 @@ typedef struct QueryError QueryError;
 extern "C" {
 #endif
 
-// Smart pointer handle for RLookupKey that can be invalidated when iterator is freed
-typedef struct RLookupKeyHandle {
-  RLookupKey **key_ptr;  // Pointer to the actual RLookupKey* field in the iterator
-  bool is_valid;         // Whether the iterator is still alive
-} RLookupKeyHandle;
-
-// Holds a yieldable field name, and the address to write the RLookupKey pointer later.
-typedef struct MetricRequest{
-  const char *metric_name;
-  RLookupKeyHandle *key_handle; // Handle that can be invalidated when iterator is freed
-  bool isInternal; // Indicates if this metric should be excluded from the response
-} MetricRequest;
-
 // Flags indicating which syntax features are enabled for this query
 typedef enum {
   // All syntax features are enabled

@@ -36,6 +36,7 @@ langPair_t __langPairs[] = {
   { "irish",      RS_LANG_IRISH },
   { "italian",    RS_LANG_ITALIAN },
   { "lithuanian", RS_LANG_LITHUANIAN },
+  { "malay",      RS_LANG_MALAY },
   { "nepali",     RS_LANG_NEPALI },
   { "norwegian",  RS_LANG_NORWEGIAN },
   { "portuguese", RS_LANG_PORTUGUESE },
@@ -72,6 +73,7 @@ const char *RSLanguage_ToString(RSLanguage language) {
     case  RS_LANG_IRISH:       ret = "irish";      break;
     case  RS_LANG_ITALIAN:     ret = "italian";    break;
     case  RS_LANG_LITHUANIAN:  ret = "lithuanian"; break;
+    case  RS_LANG_MALAY:       ret = "malay";      break;
     case  RS_LANG_NEPALI:      ret = "nepali";     break;
     case  RS_LANG_NORWEGIAN:   ret = "norwegian";  break;
     case  RS_LANG_PORTUGUESE:  ret = "portuguese"; break;
@@ -88,6 +90,15 @@ const char *RSLanguage_ToString(RSLanguage language) {
     default: break;
   }
   return (const char *)ret;
+}
+
+const char *RSLanguage_ToSnowballStemmer(RSLanguage language) {
+  // Malay is not in libstemmer; Indonesian shares enough morphology to be a
+  // reasonable backing algorithm.
+  if (language == RS_LANG_MALAY) {
+    return RSLanguage_ToString(RS_LANG_INDONESIAN);
+  }
+  return RSLanguage_ToString(language);
 }
 
 RSLanguage RSLanguage_Find(const char *language, size_t len) {

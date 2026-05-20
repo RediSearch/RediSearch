@@ -23,7 +23,6 @@
 #include "field_spec.h"
 #include "util/dict.h"
 #include "util/references.h"
-#include "redisearch_api.h"
 #include "rules.h"
 #include <pthread.h>
 #include "info/index_error.h"
@@ -189,7 +188,6 @@ typedef enum {
   Index_HasPhonetic = 0x400,
   Index_Async = 0x800,
   Index_SkipInitialScan = 0x1000,
-  Index_FromLLAPI = 0x2000,
   Index_HasFieldAlias = 0x4000,
   Index_HasVecSim = 0x8000,
   Index_HasSuffixTrie = 0x10000,
@@ -329,7 +327,7 @@ typedef struct IndexSpec {
   SynonymMap *smap;               // List of synonym
   HiddenString **aliases;         // Aliases to self-remove when the index is deleted
 
-  struct SchemaRule *rule;        // Contains schema rules for follow-the-hash/JSON
+  struct SchemaRule *rule;        // Contains schema rules for follow-the-hash/JSON. It must always be set
   struct IndexesScanner *scanner; // Scans new hash/JSON documents or rescan
   // can be true even if scanner == NULL, in case of a scan being cancelled
   // in favor on a newer, pending scan
@@ -348,10 +346,6 @@ typedef struct IndexSpec {
 
   // bitarray of dialects used by this index
   uint_least8_t used_dialects;
-
-  // For criteria tester
-  RSGetValueCallback getValue;
-  void *getValueCtx;
 
   // Count the number of times the index was used
   long long counter;
@@ -376,6 +370,9 @@ typedef struct IndexSpec {
   // Disk index handle (NULL for memory-only indexes)
   RedisSearchDiskIndexSpec *diskSpec;
 
+  // Disk RDB state (NULL for memory-only indexes), pending to be applied at replication ending
+  RedisSearchDiskRdbState *pendingDiskRdbState;
+  bool diskRegistered;
   pthread_rwlock_t disk_fork_rwlock;
   // Flags indicating state of the replication process. Needed to abort replication process
   // in a healthy way
@@ -545,7 +542,6 @@ int IndexSpec_Deserialize(const RedisModuleString *serialized, int encver);
 
 /* Start the garbage collection loop on the index spec */
 void IndexSpec_StartGC(StrongRef spec_ref, IndexSpec *sp, GCPolicy gcPolicy);
-void IndexSpec_StartGCFromSpec(StrongRef spec_ref, IndexSpec *sp, uint32_t gcPolicy);
 
 /* Same as IndexSpec_Parse, but takes a NUL-terminated C-string name and wraps it in a HiddenString
  * internally. Intended for unit tests only.
@@ -801,6 +797,20 @@ void Indexes_EndRDBLoadingEvent(RedisModuleCtx *ctx);
 
 // This function is to be called when loading finishes (failed or not)
 void Indexes_EndLoading();
+
+// Replica-side SST replication completion.
+//
+// Upon SST and RDB replication ending, complete the binding
+void Indexes_FinishSSTReplication(RedisModuleCtx *ctx);
+
+// Replica-side SST replication abort.
+//
+// Tear down everything staged for SST replication. Frees any pending disk RDB
+// state, closes any opened-but-unregistered disk specs, and unregisters +
+// closes any specs that had already been registered. Removes the affected
+// specs from specDict_g. Called from the REDISMODULE_SUBEVENT_SST_REPL_ABORT
+// handler.
+void Indexes_AbortSSTReplicationLoading(RedisModuleCtx *ctx);
 
 // =============================================================================
 // Compaction FFI Functions (called by Rust during GC)

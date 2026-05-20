@@ -26,6 +26,12 @@ typedef struct timespec timespec;
 typedef struct NumericFilter NumericFilter;
 
 /**
+ * Smart pointer handle for [`RLookupKey`] that can be
+ * invalidated when the iterator that owns the key is freed.
+ */
+typedef struct RLookupKeyHandle RLookupKeyHandle;
+
+/**
  * A single term being evaluated at query time.
  *
  * Each term carries scoring metadata ([`idf`](RSQueryTerm::idf),

@@ -9,6 +9,7 @@
 
 mod bindings;
 mod lookup;
+mod metric_request;
 mod row;
 
 // Link both Rust-provided and C-provided symbols
@@ -23,5 +24,6 @@ pub use lookup::{
     Cursor, CursorMut, Iter, IterMut, RLookup, RLookupKey, RLookupKeyFlag, RLookupKeyFlags,
     RLookupOption, RLookupOptions, opaque::OpaqueRLookup,
 };
+pub use metric_request::{MetricRequest, RLookupKeyHandle};
 pub use row::RLookupRow;
 pub use row::opaque::OpaqueRLookupRow;
