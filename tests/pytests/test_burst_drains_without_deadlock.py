@@ -3,6 +3,7 @@ import threading
 
 
 RQ_CAPACITY = 50  # CONN_PER_SHARD=1 and SEARCH_IO_THREADS=1 => 1 * PENDING_FACTOR(50)
+COORDINATOR_POOL_SIZE = 20
 SHARD_COUNT = 3
 WORKER_COUNT = 3
 DOC_COUNT = 240
@@ -24,15 +25,43 @@ expected_aggregate_res = [
                         ]
 
 def _build_mixed_burst_commands():
-    # Intentionally build a 3:1 FT.SEARCH-to-FT.AGGREGATE prefix so the burst
-    # stays mixed while still driving the coordinator into the saturation region,
-    # then continue draining the aggregate-heavy tail.
-    return ([search] * 3 + [aggregate]) * 30 + [aggregate] * 120
+    return [search] * RQ_CAPACITY + [aggregate] * COORDINATOR_POOL_SIZE
 
 
-def _run_burst_command(env, command, exceptions, completed, lock):
+def _new_burst_state():
+    return {
+        'ready': 0,
+        'started': 0,
+        'completed': 0,
+        'ready_by_type': {'FT.SEARCH': 0, 'FT.AGGREGATE': 0},
+        'started_by_type': {'FT.SEARCH': 0, 'FT.AGGREGATE': 0},
+        'completed_by_type': {'FT.SEARCH': 0, 'FT.AGGREGATE': 0},
+    }
+
+
+def _snapshot_burst_state(burst_state, lock):
+    with lock:
+        return {
+            'ready': burst_state['ready'],
+            'started': burst_state['started'],
+            'completed': burst_state['completed'],
+            'ready_by_type': burst_state['ready_by_type'].copy(),
+            'started_by_type': burst_state['started_by_type'].copy(),
+            'completed_by_type': burst_state['completed_by_type'].copy(),
+        }
+
+
+def _increment_burst_state(burst_state, lock, field, command):
+    with lock:
+        burst_state[field] += 1
+        burst_state[f'{field}_by_type'][command[0]] += 1
+
+
+def _run_burst_command(env, conn, command, start_barrier, exceptions, burst_state, lock):
     try:
-        conn = getConnectionByEnv(env)
+        _increment_burst_state(burst_state, lock, 'ready', command)
+        start_barrier.wait(timeout=20)
+        _increment_burst_state(burst_state, lock, 'started', command)
         res = conn.execute_command(*command)
         if command[0] == 'FT.SEARCH':
             env.assertEqual(res, expected_search_res)
@@ -42,11 +71,16 @@ def _run_burst_command(env, command, exceptions, completed, lock):
         with lock:
             exceptions.append(f'{command}: {exc}')
     finally:
-        with lock:
-            completed[0] += 1
+        _increment_burst_state(burst_state, lock, 'completed', command)
 
 
-def _coordinator_reached_rq_limit(env, coord_initial_jobs_done, coord_initial_pending_jobs, completed):
+def _burst_threads_ready(commands, burst_state, lock):
+    state = _snapshot_burst_state(burst_state, lock)
+    return state['ready'] == len(commands), {'burst_state': state, 'total': len(commands)}
+
+
+def _coordinator_reached_rq_limit(env, coord_initial_jobs_done, coord_initial_pending_jobs,
+                                  burst_state, lock):
     stats = getCoordThpoolStats(env)
     jobs_done_delta = stats['totalJobsDone'] - coord_initial_jobs_done
     pending_jobs_delta = stats['totalPendingJobs'] - coord_initial_pending_jobs
@@ -57,7 +91,7 @@ def _coordinator_reached_rq_limit(env, coord_initial_jobs_done, coord_initial_pe
         'jobs_done_delta': jobs_done_delta,
         'pending_jobs_delta': pending_jobs_delta,
         'jobs_seen_delta': jobs_seen_delta,
-        'completed': completed[0],
+        'burst_state': _snapshot_burst_state(burst_state, lock),
     }
 
 
@@ -67,18 +101,20 @@ def _shards_started_draining(env, shard_initial_jobs_done):
     return done, {'current_jobs_done': current, 'initial_jobs_done': shard_initial_jobs_done}
 
 
-def _burst_completed(commands, completed, exceptions):
-    return completed[0] == len(commands), {
-        'completed': completed[0],
+def _burst_completed(commands, burst_state, lock, exceptions):
+    state = _snapshot_burst_state(burst_state, lock)
+    return state['completed'] == len(commands), {
+        'burst_state': state,
         'total': len(commands),
         'exceptions': exceptions,
     }
 
 
 def _print_debug_stats(label, env, coord_initial_jobs_done, coord_initial_pending_jobs,
-                       shard_initial_jobs_done, completed):
+                       shard_initial_jobs_done, burst_state, lock):
     coord_current_stats = getCoordThpoolStats(env)
     shard_current_jobs_done = [stats['totalJobsDone'] for stats in getWorkersThpoolStatsFromAllShards(env)]
+    burst_state_snapshot = _snapshot_burst_state(burst_state, lock)
     env.debugPrint('-' * 80, force=True)
     env.debugPrint(
         f'[{label}] '
@@ -87,7 +123,7 @@ def _print_debug_stats(label, env, coord_initial_jobs_done, coord_initial_pendin
         f'shard_initial_jobs_done={shard_initial_jobs_done} '
         f'coord_current_stats={coord_current_stats} '
         f'shard_current_jobs_done={shard_current_jobs_done} '
-        f'completed={completed[0]}',
+        f'burst_state={burst_state_snapshot}',
         force=True,
     )
 
@@ -124,10 +160,12 @@ def test_search_and_aggregate_burst():
     waitForIndex(env, 'idx')
 
     commands = _build_mixed_burst_commands()
+    connections = [getConnectionByEnv(env) for _ in commands]
     exceptions = []
-    completed = [0]
+    burst_state = _new_burst_state()
     lock = threading.Lock()
     threads = []
+    start_barrier = threading.Barrier(len(commands) + 1)
 
     coord_initial_stats = getCoordThpoolStats(env)
     coord_initial_jobs_done = coord_initial_stats['totalJobsDone']
@@ -140,16 +178,17 @@ def test_search_and_aggregate_burst():
         coord_initial_jobs_done,
         coord_initial_pending_jobs,
         shard_initial_jobs_done,
-        completed,
+        burst_state,
+        lock,
     )
 
     verify_command_OK_on_all_shards(env, debug_cmd(), 'WORKERS', 'PAUSE')
 
     try:
-        for i, command in enumerate(commands):
+        for i, (conn, command) in enumerate(zip(connections, commands)):
             thread = threading.Thread(
                 target=_run_burst_command,
-                args=(env, command, exceptions, completed, lock),
+                args=(env, conn, command, start_barrier, exceptions, burst_state, lock),
                 name=f'search-and-aggregate-burst-query-{i}',
                 daemon=True,
             )
@@ -157,11 +196,20 @@ def test_search_and_aggregate_burst():
             threads.append(thread)
 
         wait_for_condition(
+            lambda: _burst_threads_ready(commands, burst_state, lock),
+            'Timeout waiting for burst threads to reach the launch barrier',
+            timeout=20,
+        )
+
+        start_barrier.wait(timeout=20)
+
+        wait_for_condition(
             lambda: _coordinator_reached_rq_limit(
                 env,
                 coord_initial_jobs_done,
                 coord_initial_pending_jobs,
-                completed,
+                burst_state,
+                lock,
             ),
             'Timeout waiting for coordinator to reach the RQ saturation threshold',
             timeout=20,
@@ -183,11 +231,12 @@ def test_search_and_aggregate_burst():
             coord_initial_jobs_done,
             coord_initial_pending_jobs,
             shard_initial_jobs_done,
-            completed,
+            burst_state,
+            lock,
         )
 
         wait_for_condition(
-            lambda: _burst_completed(commands, completed, exceptions),
+            lambda: _burst_completed(commands, burst_state, lock, exceptions),
             'Timeout waiting for mixed FT.SEARCH/FT.AGGREGATE burst to drain',
             timeout=15,
         )
@@ -198,7 +247,8 @@ def test_search_and_aggregate_burst():
             coord_initial_jobs_done,
             coord_initial_pending_jobs,
             shard_initial_jobs_done,
-            completed,
+            burst_state,
+            lock,
         )
     # Best-effort cleanup: if the happy-path RESUME was skipped by a failure,
     # try to leave shard workers runnable before joining the background threads.
