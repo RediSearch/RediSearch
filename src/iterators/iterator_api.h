@@ -148,11 +148,31 @@ typedef struct QueryIterator {
    * Set by Rust iterators at construction time. C iterators set this to a
    * Rust-exported function. */
   void (*PrintProfile)(const struct QueryIterator *self, RsMapBuilder *map, RsProfilePrintCtx *ctx);
+
+  /**
+   * Called immediately before the spec read lock is released, to inform the iterator that it
+   * must drop any state that depends on the lock being held (in particular, borrows into
+   * inverted-index data). After `Suspend` returns, the only callback that may be invoked on
+   * the iterator (until the lock is re-acquired and `Revalidate` is called) is `Free`.
+   *
+   * Most iterators have no lock-dependent state and use `Default_Suspend` (a no-op).
+   * Rust-wrapped iterators flip their internal typestate from Active to Suspended here, so
+   * that subsequent calls to read/skip/current/rewind would hard-fail at the FFI boundary.
+   *
+   * Last in the struct so that adding it left the offsets of the other callbacks unchanged for
+   * iterators built outside this module, such as the disk API's.
+   */
+  void (*Suspend)(struct QueryIterator *self);
 } QueryIterator;
 
 static inline ValidateStatus Default_Revalidate(struct QueryIterator *base, struct IndexSpec *spec) {
   // Default implementation does nothing.
   return VALIDATE_OK;
+}
+
+static inline void Default_Suspend(struct QueryIterator *base) {
+  // Default implementation does nothing. Used by iterators that hold no lock-dependent state.
+  (void)base;
 }
 
 #endif
