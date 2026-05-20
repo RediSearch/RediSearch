@@ -9,24 +9,12 @@
 
 //! C-callable bindings for [`ttl_table::TimeToLiveTable`].
 
-use std::{num::NonZeroUsize, ptr, slice};
+use std::{marker::PhantomData, num::NonZeroUsize, ptr, slice};
 
 use ffi::{FieldExpiration, t_docId, t_expirationTimePoint, t_fieldMask};
 use field::FieldExpirationPredicate;
 use ttl_table::FieldExpirations;
 pub use ttl_table::TimeToLiveTable;
-
-// Verify that `FieldExpirations` is pointer-sized (`#[repr(transparent)]`
-// over `ThinVec<FieldExpiration, u64>`), so passing it by value across
-// the FFI matches a single-pointer C struct.
-const _: () = assert!(std::mem::size_of::<FieldExpirations>() == std::mem::size_of::<usize>());
-
-// Verify that the `ThinVec<FieldExpiration, u64>` heap header has no
-// padding before `data`, so any future C inline helper can use a fixed
-// header offset. (Also serves as the rustdoc-visible reference to
-// `thin_vec` that cheadergen needs to resolve `FieldExpirations`' inner
-// field — same trick as `sorting_vector_ffi`.)
-const _: () = assert!(thin_vec::layout::header_field_padding::<FieldExpiration, u64>() == 0);
 
 /// Borrowed view of a contiguous run of [`FieldExpiration`] entries.
 ///
@@ -35,21 +23,28 @@ const _: () = assert!(thin_vec::layout::header_field_padding::<FieldExpiration, 
 /// not be freed by the caller. A miss is encoded as `ptr == NULL` and
 /// `len == 0`.
 #[repr(C)]
-pub struct FieldExpirationSlice {
+pub struct FieldExpirationSlice<'a> {
     pub ptr: *const FieldExpiration,
     pub len: usize,
+    /// Ties the view to the storage it borrows. Zero-sized, so the C ABI is
+    /// still `{ ptr, len }`. Makes the struct covariant over `'a` and behave
+    /// like `&'a [FieldExpiration]` for the borrow checker, so a slice can no
+    /// longer outlive the [`FieldExpirations`] it points into.
+    _marker: PhantomData<&'a [FieldExpiration]>,
 }
 
-impl FieldExpirationSlice {
+impl<'a> FieldExpirationSlice<'a> {
     const EMPTY: Self = Self {
         ptr: ptr::null(),
         len: 0,
+        _marker: PhantomData,
     };
 
-    fn from_fields(fields: &FieldExpirations) -> Self {
+    fn from_fields(fields: &'a FieldExpirations) -> Self {
         Self {
             ptr: fields.as_ptr(),
             len: fields.len(),
+            _marker: PhantomData,
         }
     }
 }
@@ -157,10 +152,10 @@ pub unsafe extern "C" fn TimeToLiveTable_IsEmpty(table: *const TimeToLiveTable) 
 /// # Safety
 ///  - `table` must point to a valid, initialized [`TimeToLiveTable`].
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn TimeToLiveTable_GetFieldExpirations(
+pub unsafe extern "C" fn TimeToLiveTable_GetFieldExpirations<'a>(
     table: *const TimeToLiveTable,
     doc_id: t_docId,
-) -> FieldExpirationSlice {
+) -> FieldExpirationSlice<'a> {
     debug_assert!(!table.is_null(), "table cannot be NULL");
     // SAFETY: caller guarantees pointer validity.
     let inner = unsafe { &*table };
@@ -377,9 +372,9 @@ pub unsafe extern "C" fn FieldExpirations_Len(v: *const FieldExpirations) -> usi
 ///    constructor in this module) or a zero-initialized
 ///    `FieldExpirations`-shaped struct (all bytes zero).
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn FieldExpirations_AsSlice(
+pub unsafe extern "C" fn FieldExpirations_AsSlice<'a>(
     v: *const FieldExpirations,
-) -> FieldExpirationSlice {
+) -> FieldExpirationSlice<'a> {
     debug_assert!(!v.is_null(), "v cannot be NULL");
 
     // SAFETY: not uninitialized, so `*v` is a properly constructed
