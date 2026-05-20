@@ -27,7 +27,7 @@ use rqe_iterators::{
 /// module recover a reference to the wrapper from a raw `*mut QueryIterator`
 /// via [`RQEIteratorWrapper::ref_from_header_ptr`] /
 /// [`RQEIteratorWrapper::mut_ref_from_header_ptr`].
-type UnionWrapper<'index> = RQEIteratorWrapper<UnionOpaque<'index, CRQEIterator>>;
+type UnionWrapper<'index> = RQEIteratorWrapper<'index, UnionOpaque<'index, CRQEIterator>>;
 
 /// `ProfileChildren` callback for union iterators.
 ///
@@ -42,7 +42,7 @@ unsafe extern "C" fn union_profile_children(base: *mut QueryIterator) -> *mut Qu
     debug_assert!(!base.is_null());
     // SAFETY: caller guarantees `base` is valid and points to a union wrapper.
     let wrapper = unsafe { UnionWrapper::mut_ref_from_header_ptr(base) };
-    for child in wrapper.inner.children_mut() {
+    for child in wrapper.inner_mut().children_mut() {
         // SAFETY: CRQEIterator is #[repr(transparent)] over NonNull<QueryIterator>,
         // which is layout-compatible with *mut QueryIterator (same size/alignment).
         // The cast to *mut *mut QueryIterator is therefore valid for in-place mutation.
@@ -205,7 +205,7 @@ pub unsafe extern "C" fn GetUnionIteratorNumChildren(it: *const QueryIterator) -
     debug_assert_eq!(unsafe { (*it).type_ }, IteratorType::Union);
     // SAFETY: caller guarantees `it` is valid and points to a union iterator (1).
     let wrapper = unsafe { UnionWrapper::ref_from_header_ptr(it) };
-    wrapper.inner.num_children_total()
+    wrapper.inner().num_children_total()
 }
 
 /// Returns a non-owning raw pointer to the child at `idx`.
@@ -225,7 +225,7 @@ pub unsafe extern "C" fn GetUnionIteratorChild(
     debug_assert_eq!(unsafe { (*it).type_ }, IteratorType::Union);
     // SAFETY: caller guarantees `it` is valid and points to a union iterator (1).
     let wrapper = unsafe { UnionWrapper::ref_from_header_ptr(it) };
-    match wrapper.inner.child_at(idx) {
+    match wrapper.inner().child_at(idx) {
         Some(child) => child.as_ref() as *const QueryIterator,
         None => std::ptr::null(),
     }
@@ -244,7 +244,7 @@ pub unsafe extern "C" fn GetUnionIteratorQueryNodeType(it: *const QueryIterator)
     debug_assert_eq!(unsafe { (*it).type_ }, IteratorType::Union);
     // SAFETY: caller guarantees `it` is valid and points to a union iterator (1).
     let wrapper = unsafe { UnionWrapper::ref_from_header_ptr(it) };
-    wrapper.inner.query_node_type
+    wrapper.inner().query_node_type
 }
 
 /// Returns the query string pointer stored in the union iterator, or null.
@@ -260,7 +260,7 @@ pub unsafe extern "C" fn GetUnionIteratorQueryString(it: *const QueryIterator) -
     debug_assert_eq!(unsafe { (*it).type_ }, IteratorType::Union);
     // SAFETY: caller guarantees `it` is valid and points to a union iterator (1).
     let wrapper = unsafe { UnionWrapper::ref_from_header_ptr(it) };
-    wrapper.inner.query_string
+    wrapper.inner().query_string
 }
 
 // ============================================================================
@@ -281,7 +281,7 @@ pub unsafe extern "C" fn TrimUnionIterator(it: *mut QueryIterator, limit: usize,
     debug_assert_eq!(unsafe { (*it).type_ }, IteratorType::Union);
     // SAFETY: caller guarantees `it` is valid and points to a union iterator (1).
     let wrapper = unsafe { UnionWrapper::mut_ref_from_header_ptr(it) };
-    let dispatch = &mut wrapper.inner;
+    let dispatch = wrapper.inner_mut();
 
     // With fewer than 3 children, trimming is a no-op — keep the
     // current sorted union variant so skip_to and merge order are preserved.

@@ -131,7 +131,7 @@ pub unsafe extern "C" fn GetIntersectionIteratorNumChildren(header: *const Query
     // SAFETY: safe thanks to 1
     let wrapper =
         unsafe { RQEIteratorWrapper::<Intersection<CRQEIterator>>::ref_from_header_ptr(header) };
-    wrapper.inner.num_children()
+    wrapper.inner().num_children()
 }
 
 /// Returns a non-owning raw pointer to the child at `idx`.
@@ -159,7 +159,7 @@ pub unsafe extern "C" fn GetIntersectionIteratorChild(
     let wrapper =
         unsafe { RQEIteratorWrapper::<Intersection<CRQEIterator>>::ref_from_header_ptr(header) };
     // SAFETY: safe thanks to 2
-    wrapper.inner.child_at(idx).as_ref() as *const QueryIterator
+    wrapper.inner().child_at(idx).as_ref() as *const QueryIterator
 }
 
 /// Append a new child iterator to the intersection.
@@ -196,5 +196,5 @@ pub unsafe extern "C" fn AddIntersectionIteratorChild(
     // justified by the same contract point.
     #[expect(clippy::multiple_unsafe_ops_per_block)]
     let child = unsafe { CRQEIterator::new(NonNull::new_unchecked(child)) };
-    wrapper.inner.push_child(child);
+    wrapper.inner_mut().push_child(child);
 }

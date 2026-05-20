@@ -14,9 +14,60 @@ use index_result::RSIndexResult;
 use inverted_index::{
     IndexReader, doc_ids_only::DocIdsOnly, raw_doc_ids_only::RawDocIdsOnly, t_docId,
 };
+use ffi::ValidateStatus;
 use rqe_iterators::{
-    FieldExpirationChecker, IteratorType, interop::RQEIteratorWrapper, inverted_index::Missing,
+    FieldExpirationChecker, IteratorType, RQEIteratorBoxed, RQESuspendedIterator,
+    interop::RQEIteratorWrapper, inverted_index::Missing,
 };
+
+/// Suspended counterpart of [`MissingIterator`] — produced by
+/// [`RQEIteratorBoxed::suspend`] and consumed by [`RQESuspendedIterator::resume`].
+pub(super) enum MissingIteratorSuspended {
+    Encoded(<Missing<'static, DocIdsOnly, FieldExpirationChecker> as RQEIteratorBoxed<'static>>::Suspended),
+    Raw(<Missing<'static, RawDocIdsOnly, FieldExpirationChecker> as RQEIteratorBoxed<'static>>::Suspended),
+}
+
+impl<'index> RQEIteratorBoxed<'index> for MissingIterator<'index> {
+    type Suspended = MissingIteratorSuspended;
+
+    fn suspend(self: Box<Self>) -> Box<Self::Suspended> {
+        match *self {
+            MissingIterator::Encoded(m) => Box::new(MissingIteratorSuspended::Encoded(
+                *<Missing<'index, _, _> as RQEIteratorBoxed<'index>>::suspend(Box::new(m)),
+            )),
+            MissingIterator::Raw(m) => Box::new(MissingIteratorSuspended::Raw(
+                *<Missing<'index, _, _> as RQEIteratorBoxed<'index>>::suspend(Box::new(m)),
+            )),
+        }
+    }
+}
+
+impl RQESuspendedIterator for MissingIteratorSuspended {
+    type Resumed<'a> = MissingIterator<'a>;
+
+    fn resume<'a>(
+        self: Box<Self>,
+        guard: &'a index_spec::IndexSpecReadGuard<'a>,
+    ) -> (Box<Self::Resumed<'a>>, ValidateStatus) {
+        match *self {
+            MissingIteratorSuspended::Encoded(s) => {
+                let (resumed, status) = <_ as RQESuspendedIterator>::resume(Box::new(s), guard);
+                (Box::new(MissingIterator::Encoded(*resumed)), status)
+            }
+            MissingIteratorSuspended::Raw(s) => {
+                let (resumed, status) = <_ as RQESuspendedIterator>::resume(Box::new(s), guard);
+                (Box::new(MissingIterator::Raw(*resumed)), status)
+            }
+        }
+    }
+
+    fn last_doc_id(&self) -> t_docId {
+        match self {
+            MissingIteratorSuspended::Encoded(s) => s.last_doc_id(),
+            MissingIteratorSuspended::Raw(s) => s.last_doc_id(),
+        }
+    }
+}
 
 /// Wrapper around different II missing iterator encoding types to avoid generics in FFI code.
 ///
@@ -216,7 +267,7 @@ pub unsafe extern "C" fn InvIndMissingIterator_GetFieldName(
     // SAFETY: 1. and 2. guarantee the iterator is a valid missing iterator wrapper.
     let wrapper =
         unsafe { RQEIteratorWrapper::<MissingIterator<'static>>::ref_from_header_ptr(it.cast()) };
-    let (field_name, field_name_len) = wrapper.inner.field_name();
+    let (field_name, field_name_len) = wrapper.inner().field_name();
     // SAFETY: 3. guarantees `out_len` is valid and writable.
     unsafe { *out_len = field_name_len };
     field_name

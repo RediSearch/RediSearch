@@ -56,7 +56,7 @@ pub unsafe extern "C" fn InvIndIterator_GetReaderFlags(
             let wrapper = unsafe {
                 RQEIteratorWrapper::<NumericIterator<'static>>::ref_from_header_ptr(it.cast())
             };
-            wrapper.inner.flags()
+            wrapper.inner().flags()
         }
         IteratorType::InvIdxWildcard => {
             // Wildcard iterators always read from `spec.existingDocs`, which is
@@ -72,21 +72,21 @@ pub unsafe extern "C" fn InvIndIterator_GetReaderFlags(
             let wrapper = unsafe {
                 RQEIteratorWrapper::<TermIterator<'static>>::ref_from_header_ptr(it.cast())
             };
-            wrapper.inner.reader().flags()
+            wrapper.inner().reader().flags()
         }
         IteratorType::InvIdxMissing => {
             // SAFETY: 4. the missing iterator is in Rust.
             let wrapper = unsafe {
                 RQEIteratorWrapper::<MissingIterator<'static>>::ref_from_header_ptr(it.cast())
             };
-            wrapper.inner.flags()
+            wrapper.inner().flags()
         }
         IteratorType::InvIdxTag => {
             // SAFETY: 5. the tag iterator is in Rust.
             let wrapper = unsafe {
                 RQEIteratorWrapper::<TagIterator<'static>>::ref_from_header_ptr(it.cast())
             };
-            wrapper.inner.flags()
+            wrapper.inner().flags()
         }
         other => {
             panic!("InvIndIterator_GetReaderFlags: unexpected iterator type {other}")

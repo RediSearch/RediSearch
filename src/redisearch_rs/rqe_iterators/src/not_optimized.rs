@@ -479,8 +479,12 @@ where
     }
 }
 
-impl<'index, W: crate::WildcardIterator<'index> + 'index> crate::interop::ProfileChildren<'index>
+impl<'index, W> crate::interop::ProfileChildren<'index>
     for NotOptimized<'index, W, crate::c2rust::CRQEIterator>
+where
+    W: crate::WildcardIterator<'index> + crate::RQEIteratorBoxed<'index> + 'index,
+    for<'a> <W::Suspended as RQESuspendedIterator>::Resumed<'a>:
+        crate::WildcardIterator<'a> + crate::RQEIteratorBoxed<'a, Suspended = W::Suspended>,
 {
     fn profile_children(self) -> Self {
         NotOptimized {
