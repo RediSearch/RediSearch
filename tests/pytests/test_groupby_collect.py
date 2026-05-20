@@ -394,7 +394,6 @@ def test_collect_output_structure():
 # ---------------------------------------------------------------------------
 def test_collect_requires_unstable_features():
     env = Env()
-    enable_unstable_features(env)
     run_command_on_all_shards(env, 'CONFIG', 'SET', 'search-enable-unstable-features', 'no')
     env.expect('FT.CREATE', 'idx', 'ON', 'HASH',
                'SCHEMA', 'name', 'TEXT', 'color', 'TAG').ok()
@@ -601,7 +600,6 @@ def test_collect_internal_load_all_partial_load_emits_only_loaded_fields():
     schema, drives the load-all walk.
     """
     env = Env(protocol=2)
-    enable_unstable_features(env)
     _collect_load_all_index_with_three_fields(env)
 
     _, slots_data = get_shard_slot_ranges(env)[0]
@@ -639,7 +637,6 @@ def test_collect_internal_load_all_emits_dunder_key_when_loaded():
     to ``@__key``) is emitted.
     """
     env = Env(protocol=2)
-    enable_unstable_features(env)
     _collect_load_all_index_with_three_fields(env)
 
     _, slots_data = get_shard_slot_ranges(env)[0]
@@ -681,7 +678,6 @@ def test_collect_internal_load_all_with_load_star_emits_full_schema():
     and `@__key` cases above.
     """
     env = Env(protocol=2)
-    enable_unstable_features(env)
     _collect_load_all_index_with_three_fields(env)
 
     _, slots_data = get_shard_slot_ranges(env)[0]
@@ -916,8 +912,8 @@ def test_chained_groupby_collect_load_all():
     """
     env = Env(protocol=3)
     enable_unstable_features(env)
-
     _setup_hash(env)
+
     res = env.cmd(
         'FT.AGGREGATE', 'idx', '*',
         'GROUPBY', '1', '@color',

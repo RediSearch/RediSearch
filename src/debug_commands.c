@@ -1241,6 +1241,17 @@ DEBUG_COMMAND(GitSha) {
   return REDISMODULE_OK;
 }
 
+#ifdef RS_WIP_FEATURES
+// Probe used by tests to confirm that the WIP_FEATURES build toggle still
+// gates entry points.
+DEBUG_COMMAND(WipProbe) {
+  if (!debugCommandsEnabled(ctx)) {
+    return RedisModule_ReplyWithError(ctx, NODEBUG_ERR);
+  }
+  return RedisModule_ReplyWithSimpleString(ctx, "OK");
+}
+#endif
+
 typedef struct {
   // Whether to enumerate the number of docids per entry
   int countValueEntries;
@@ -3102,6 +3113,12 @@ static DebugCommandType assertOnlyCommands[] = {
     {NULL, NULL}};
 #endif
 
+#ifdef RS_WIP_FEATURES
+static DebugCommandType wipOnlyCommands[] = {
+    {"WIP_PROBE", WipProbe},
+    {NULL, NULL}};
+#endif
+
 int DebugHelpCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
   RedisModule_ReplyWithArray(ctx, REDISMODULE_POSTPONED_ARRAY_LEN);
   size_t len = 0;
@@ -3119,6 +3136,12 @@ int DebugHelpCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
     ++len;
   }
 #endif
+#ifdef RS_WIP_FEATURES
+  for (DebugCommandType *c = &wipOnlyCommands[0]; c->name != NULL; c++) {
+    RedisModule_ReplyWithCString(ctx, c->name);
+    ++len;
+  }
+#endif
   RedisModule_ReplySetArrayLength(ctx, len);
   return REDISMODULE_OK;
 }
@@ -3132,6 +3155,14 @@ int RegisterDebugCommands(RedisModuleCommand *debugCommand) {
   }
 #ifdef ENABLE_ASSERT
   for (DebugCommandType *c = &assertOnlyCommands[0]; c->name != NULL; c++) {
+    int rc = RedisModule_CreateSubcommand(debugCommand, c->name, c->callback,
+              IsEnterprise() ? "readonly " CMD_PROXY_FILTERED : "readonly",
+              RS_DEBUG_FLAGS);
+    if (rc != REDISMODULE_OK) return rc;
+  }
+#endif
+#ifdef RS_WIP_FEATURES
+  for (DebugCommandType *c = &wipOnlyCommands[0]; c->name != NULL; c++) {
     int rc = RedisModule_CreateSubcommand(debugCommand, c->name, c->callback,
               IsEnterprise() ? "readonly " CMD_PROXY_FILTERED : "readonly",
               RS_DEBUG_FLAGS);
