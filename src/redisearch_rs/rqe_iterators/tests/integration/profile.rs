@@ -168,3 +168,27 @@ fn profile_revalidate() {
     assert_eq!(profile.last_doc_id(), 2);
     assert_eq!(profile.current().unwrap().doc_id, 2);
 }
+
+mod via_resume {
+    use super::*;
+    use ffi::ValidateStatus_VALIDATE_OK;
+    use rqe_iterators_test_utils::revalidate_via_resume;
+
+    #[test]
+    fn profile_revalidate() {
+        let mock_ctx = rqe_iterators_test_utils::MockContext::new(0, 0);
+        let child = Wildcard::new(10, 1.0);
+        let mut profile = Box::new(Profile::new(child));
+
+        let _ = profile.read(); // doc 1
+        let _ = profile.read(); // doc 2
+
+        // Revalidate (Wildcard returns OK)
+        let (mut profile, status) = revalidate_via_resume(profile, &mock_ctx.spec_read());
+        assert_eq!(status, ValidateStatus_VALIDATE_OK);
+
+        // Verify delegation still works
+        assert_eq!(profile.last_doc_id(), 2);
+        assert_eq!(profile.current().unwrap().doc_id, 2);
+    }
+}
