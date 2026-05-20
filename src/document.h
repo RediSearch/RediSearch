@@ -12,12 +12,15 @@
 #include "redismodule.h"
 #include "search_ctx.h"
 #include "redisearch.h"
-#include "search_disk_api.h"
 #include "tokenize.h"
 #include "concurrent_ctx.h"
 #include "byte_offsets.h"
 #include "rmutil/args.h"
 #include "json.h"
+
+// Forward declaration of the C-side write-batch wrapper (defined in search_disk.h).
+// Forward-declared here to avoid pulling the entire disk-API surface into document.h.
+typedef struct SearchDiskWriteBatch SearchDiskWriteBatch;
 
 typedef struct QueryError QueryError;
 

@@ -215,26 +215,65 @@ static inline size_t tagIndex_Put(TagIndex *idx, const char *value, size_t len, 
   return InvertedIndex_WriteEntryGeneric(iv, &rec) + sz;
 }
 
-/* Index a vector of pre-processed tags for a docId */
+// Hook data for the deferred disk-mode tag-trie updates. Holds borrowed
+// references to `idx`, `values`, and `stats`; the caller of `TagIndex_Index`
+// must keep all three alive until the paired batch is committed or aborted.
+typedef struct {
+  TagIndex *idx;
+  const char **values;
+  size_t numValues;
+  IndexStats *stats;
+} TagIndexHookData;
+
+static void freeTagIndexHookData(void *user_data) {
+  rm_free(user_data);
+}
+
+// Post-commit: publish the tag tokens in the in-memory tag enumeration trie
+// (and the suffix trie when enabled), and bump the per-spec record counter.
+// Kept paired with the staged disk writes so aborts / commit failures leave
+// the trie out of date by exactly the same amount as the disk itself.
+static void onCommit_TagIndex(void *user_data) {
+  TagIndexHookData *data = user_data;
+
+  for (size_t ii = 0; ii < data->numValues; ++ii) {
+    const char *tok = data->values[ii];
+    if (tok) {
+      TrieMap_Add(data->idx->values, tok, strlen(tok), NULL, NULL);
+      if (data->idx->suffix && (*tok != '\0')) {
+        addSuffixTrieMap(data->idx->suffix, tok, strlen(tok));
+      }
+    }
+  }
+
+  data->stats->numRecords++;
+}
+
+/* Index a vector of pre-processed tags for a docId.
+ *
+ * In disk mode the caller must keep `idx`, `values`, and `stats` alive until
+ * `batch` is committed or aborted: the in-memory tag-trie / suffix-trie / stats
+ * updates that pair with the staged disk writes are deferred to an on-commit
+ * hook on the batch. */
 bool TagIndex_Index(RedisModuleCtx *ctx, TagIndex *idx, SearchDiskWriteBatch *batch, const char **values, size_t n, t_docId docId, IndexStats *stats) {
   if (!values) return true;
 
   if (idx->diskSpec) {
-    // DISK MODE: Index to disk and add tags to TrieMap with NULL sentinel
+    // DISK MODE: stage the writes; the trie updates and numRecords++ fire from
+    // the on-commit hook registered below so they never advertise tags that
+    // didn't reach disk.
     if (!SearchDisk_IndexTags(ctx, idx->diskSpec, batch, values, n, docId, idx->fieldIndex)) {
       return false;
     }
 
-    // Also populate TrieMap with NULL sentinels for tag enumeration
-    for (size_t ii = 0; ii < n; ++ii) {
-      const char *tok = values[ii];
-      if (tok) {
-        TrieMap_Add(idx->values, tok, strlen(tok), NULL, NULL);
-
-        if (idx->suffix && (*tok != '\0')) {
-          addSuffixTrieMap(idx->suffix, tok, strlen(tok));
-        }
-      }
+    if (batch) {
+      TagIndexHookData *hook_data = rm_malloc(sizeof(*hook_data));
+      hook_data->idx = idx;
+      hook_data->values = values;
+      hook_data->numValues = n;
+      hook_data->stats = stats;
+      SearchDisk_WriteBatch_OnCommit(batch, onCommit_TagIndex, hook_data,
+                                     freeTagIndexHookData);
     }
   } else {
     // MEMORY MODE
@@ -248,9 +287,9 @@ bool TagIndex_Index(RedisModuleCtx *ctx, TagIndex *idx, SearchDiskWriteBatch *ba
         }
       }
     }
+    stats->numRecords++;
   }
 
-  stats->numRecords++;
   return true;
 }
 

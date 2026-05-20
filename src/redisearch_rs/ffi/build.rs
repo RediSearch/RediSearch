@@ -220,7 +220,7 @@ const HEADERS: &[HeaderAllowlist] = &[
             "RedisSearchDiskAsyncReadPool",
             "RedisSearchDiskRdbState",
             "SearchDiskCompactionCallbacks",
-            "SearchDiskWriteBatch",
+            "SearchDiskWriteBatchHandle",
             "VectorDiskAPI",
         ],
         vars: &[],

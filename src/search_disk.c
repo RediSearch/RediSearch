@@ -198,29 +198,110 @@ void SearchDisk_FreeRdbState(RedisSearchDiskRdbState *rdbState) {
 }
 
 // Index API wrappers
+
+// Singly linked list node for the C-side on-commit hooks. Appended in registration
+// order so we can iterate front-to-back when committing.
+typedef struct OnCommitNode {
+    SearchDiskWriteBatchOnCommit on_commit;
+    SearchDiskWriteBatchUserDataFree user_data_free;
+    void *user_data;
+    struct OnCommitNode *next;
+} OnCommitNode;
+
+// C-side wrapper bundling the underlying storage-layer batch handle with the
+// C-owned on-commit hook list. Allocated by `SearchDisk_CreateWriteBatch` and
+// freed by the commit / abort wrappers.
+struct SearchDiskWriteBatch {
+    SearchDiskWriteBatchHandle *handle;
+    OnCommitNode *hooks_head;
+    OnCommitNode *hooks_tail;
+};
+
+// Walks the hook list and applies `node_action` to every node, freeing each node
+// after `node_action` returns. The wrapper itself is also freed.
+//
+// `node_action` is responsible for invoking whatever combination of `on_commit`
+// / `user_data_free` is appropriate for the path (commit vs abort).
+static void searchDisk_writeBatchDrain(SearchDiskWriteBatch *batch,
+                                       void (*node_action)(OnCommitNode *)) {
+    OnCommitNode *node = batch->hooks_head;
+    while (node) {
+        OnCommitNode *next = node->next;
+        node_action(node);
+        rm_free(node);
+        node = next;
+    }
+    rm_free(batch);
+}
+
+static void onCommitNode_runAndFree(OnCommitNode *node) {
+    if (node->on_commit) {
+        node->on_commit(node->user_data);
+    }
+    if (node->user_data_free) {
+        node->user_data_free(node->user_data);
+    }
+}
+
+static void onCommitNode_freeOnly(OnCommitNode *node) {
+    if (node->user_data_free) {
+        node->user_data_free(node->user_data);
+    }
+}
+
 SearchDiskWriteBatch *SearchDisk_CreateWriteBatch(RedisSearchDiskIndexSpec *index) {
     RS_ASSERT(disk && index);
-    return disk->index.createWriteBatch(index);
+    SearchDiskWriteBatchHandle *handle = disk->index.createWriteBatch(index);
+    if (!handle) {
+        return NULL;
+    }
+    SearchDiskWriteBatch *batch = rm_calloc(1, sizeof(*batch));
+    batch->handle = handle;
+    return batch;
 }
 
 bool SearchDisk_CommitWriteBatch(SearchDiskWriteBatch *batch) {
     RS_ASSERT(disk && batch);
-    return disk->index.commitWriteBatch(batch);
+    bool ok = disk->index.commitWriteBatch(batch->handle);
+    // On success, run each hook then free its `user_data`. On failure, only free
+    // — the in-memory mutations stay pending so they never diverge from disk.
+    searchDisk_writeBatchDrain(batch, ok ? onCommitNode_runAndFree : onCommitNode_freeOnly);
+    return ok;
 }
 
 void SearchDisk_AbortWriteBatch(SearchDiskWriteBatch *batch) {
     RS_ASSERT(disk && batch);
-    disk->index.abortWriteBatch(batch);
+    disk->index.abortWriteBatch(batch->handle);
+    searchDisk_writeBatchDrain(batch, onCommitNode_freeOnly);
+}
+
+void SearchDisk_WriteBatch_OnCommit(SearchDiskWriteBatch *batch,
+                                    SearchDiskWriteBatchOnCommit on_commit,
+                                    void *user_data,
+                                    SearchDiskWriteBatchUserDataFree user_data_free) {
+    RS_ASSERT(batch);
+    OnCommitNode *node = rm_malloc(sizeof(*node));
+    node->on_commit = on_commit;
+    node->user_data_free = user_data_free;
+    node->user_data = user_data;
+    node->next = NULL;
+
+    if (batch->hooks_tail) {
+        batch->hooks_tail->next = node;
+    } else {
+        batch->hooks_head = node;
+    }
+    batch->hooks_tail = node;
 }
 
 bool SearchDisk_IndexTerm(RedisSearchDiskIndexSpec *index, SearchDiskWriteBatch *batch, const char *term, size_t termLen, t_docId docId, t_fieldMask fieldMask, uint32_t freq, const uint8_t *offsets, size_t offsetsLen) {
     RS_ASSERT(disk && index && batch);
-    return disk->index.indexTerm(index, batch, term, termLen, docId, fieldMask, freq, offsets, offsetsLen);
+    return disk->index.indexTerm(index, batch->handle, term, termLen, docId, fieldMask, freq, offsets, offsetsLen);
 }
 
 bool SearchDisk_IndexTags(RedisModuleCtx *ctx, RedisSearchDiskIndexSpec *index, SearchDiskWriteBatch *batch, const char **values, size_t numValues, t_docId docId, t_fieldIndex fieldIndex) {
     RS_ASSERT(disk && index && batch);
-    return disk->index.indexTags(ctx, index, batch, values, numValues, docId, fieldIndex);
+    return disk->index.indexTags(ctx, index, batch->handle, values, numValues, docId, fieldIndex);
 }
 
 QueryIterator* SearchDisk_NewTermIterator(RedisSearchDiskIndexSpec *index, RSToken *tok, int tokenId, t_fieldMask fieldMask, double weight, double idf, double bm25_idf, bool needsOffsets) {
@@ -287,7 +368,7 @@ size_t SearchDisk_RunGC(RedisSearchDiskIndexSpec *index, IndexSpec *spec) {
 
 t_docId SearchDisk_PutDocument(RedisSearchDiskIndexSpec *handle, SearchDiskWriteBatch *batch, const char *key, size_t keyLen, float score, uint32_t flags, uint32_t maxTermFreq, uint32_t docLen, uint32_t *oldLen, t_expirationTimePoint documentTtl, t_docId oldDocId) {
     RS_ASSERT(disk && handle && batch);
-    return disk->docTable.putDocument(handle, batch, key, keyLen, score, flags, maxTermFreq, docLen, oldLen, documentTtl, oldDocId);
+    return disk->docTable.putDocument(handle, batch->handle, key, keyLen, score, flags, maxTermFreq, docLen, oldLen, documentTtl, oldDocId);
 }
 
 bool SearchDisk_GetDocumentMetadata(RedisSearchDiskIndexSpec *handle, t_docId docId, RSDocumentMetadata *dmd, struct timespec *current_time) {

@@ -30,17 +30,14 @@ typedef const void* RedisSearchDiskIterator;
 typedef void* RedisSearchDiskAsyncReadPool;
 typedef const void* RedisSearchDiskRdbState;
 
-// Opaque handle for a batched group of writes that target a single IndexSpec.
+// Opaque handle for the underlying storage-layer write batch.
 //
-// The caller opens a batch via `IndexDiskAPI.createWriteBatch`, passes it to one
-// or more `indexTerm` / `indexTags` / `putDocument` calls to stage writes, and
-// then either commits the batch (flushes the writes atomically) or aborts it
-// (discards the staged writes). Each batch must be passed to exactly one of
-// `commitWriteBatch` or `abortWriteBatch`; both consume the batch.
-//
-// A batch must not outlive the `RedisSearchDiskIndexSpec` it was created from,
-// and a single batch must not be used concurrently from multiple threads.
-typedef struct SearchDiskWriteBatch SearchDiskWriteBatch;
+// Allocated and freed by the storage implementation behind this API; the only
+// C-visible operations are the create / commit / abort / stage entry points on
+// `IndexDiskAPI` and `DocTableDiskAPI`. Most C-side code does not see this type
+// directly — it is wrapped by `SearchDiskWriteBatch` (declared in
+// `search_disk.h`), which adds the C-owned post-commit hook list on top.
+typedef struct SearchDiskWriteBatchHandle SearchDiskWriteBatchHandle;
 
 // Callback function to allocate memory for the key in the scope of the search module memory
 typedef char* (*AllocateKeyCallback)(const void*, size_t len);
@@ -236,7 +233,7 @@ typedef struct IndexDiskAPI {
    * @param index Pointer to the index this batch will write to
    * @return Pointer to the new batch, or NULL if the index pointer is invalid
    */
-  SearchDiskWriteBatch *(*createWriteBatch)(RedisSearchDiskIndexSpec *index);
+  SearchDiskWriteBatchHandle *(*createWriteBatch)(RedisSearchDiskIndexSpec *index);
 
   /**
    * @brief Atomically commits all writes staged on `batch` to the database.
@@ -247,7 +244,7 @@ typedef struct IndexDiskAPI {
    * @param batch Pointer to the batch returned by `createWriteBatch`
    * @return true if the commit succeeded, false otherwise
    */
-  bool (*commitWriteBatch)(SearchDiskWriteBatch *batch);
+  bool (*commitWriteBatch)(SearchDiskWriteBatchHandle *batch);
 
   /**
    * @brief Discards all writes staged on `batch` without touching the database.
@@ -256,7 +253,7 @@ typedef struct IndexDiskAPI {
    *
    * @param batch Pointer to the batch returned by `createWriteBatch`
    */
-  void (*abortWriteBatch)(SearchDiskWriteBatch *batch);
+  void (*abortWriteBatch)(SearchDiskWriteBatchHandle *batch);
 
   /**
    * @brief Indexes a term for fulltext search
@@ -276,7 +273,7 @@ typedef struct IndexDiskAPI {
    * @param offsetsLen Length of the offsets data in bytes
    * @return true if the write was staged successfully, false otherwise
    */
-  bool (*indexTerm)(RedisSearchDiskIndexSpec *index, SearchDiskWriteBatch *batch, const char *term, size_t termLen, t_docId docId, t_fieldMask fieldMask, uint32_t freq, const uint8_t *offsets, size_t offsetsLen);
+  bool (*indexTerm)(RedisSearchDiskIndexSpec *index, SearchDiskWriteBatchHandle *batch, const char *term, size_t termLen, t_docId docId, t_fieldMask fieldMask, uint32_t freq, const uint8_t *offsets, size_t offsetsLen);
 
   /**
    * @brief Indexes multiple tag values for a document
@@ -297,7 +294,7 @@ typedef struct IndexDiskAPI {
    * @param fieldIndex Field index for the tag field
    * @return true if the writes were staged successfully, false otherwise
    */
-  bool (*indexTags)(RedisModuleCtx *ctx, RedisSearchDiskIndexSpec *index, SearchDiskWriteBatch *batch, const char **values, size_t numValues, t_docId docId, t_fieldIndex fieldIndex);
+  bool (*indexTags)(RedisModuleCtx *ctx, RedisSearchDiskIndexSpec *index, SearchDiskWriteBatchHandle *batch, const char **values, size_t numValues, t_docId docId, t_fieldIndex fieldIndex);
 
   /**
    * @brief Deletes a document by its doc ID directly, removing it from the doc table and marking its ID as deleted
@@ -452,7 +449,7 @@ typedef struct DocTableDiskAPI {
    * @param oldDocId Old document ID from DocIdMeta (0 if new document)
    * @return New document ID, or 0 on error
    */
-  t_docId (*putDocument)(RedisSearchDiskIndexSpec* handle, SearchDiskWriteBatch *batch, const char* key, size_t keyLen, float score, uint32_t flags, uint32_t maxTermFreq, uint32_t docLen, uint32_t *oldLen, t_expirationTimePoint documentTtl, t_docId oldDocId);
+  t_docId (*putDocument)(RedisSearchDiskIndexSpec* handle, SearchDiskWriteBatchHandle *batch, const char* key, size_t keyLen, float score, uint32_t flags, uint32_t maxTermFreq, uint32_t docLen, uint32_t *oldLen, t_expirationTimePoint documentTtl, t_docId oldDocId);
 
   /**
    * @brief Returns whether the docId is in the deleted set
