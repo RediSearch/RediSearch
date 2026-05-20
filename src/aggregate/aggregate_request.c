@@ -1105,11 +1105,11 @@ AREQ *AREQ_New(void) {
 }
 
 bool AREQ_TimedOut(AREQ *req) {
-  return atomic_load_explicit(&req->syncCtx.timedOut, memory_order_acquire);
+  return atomic_load_explicit(&req->syncCtx.timedOut, memory_order_relaxed);
 }
 
 void AREQ_SetTimedOut(AREQ *req) {
-  atomic_store_explicit(&req->syncCtx.timedOut, true, memory_order_release);
+  atomic_store_explicit(&req->syncCtx.timedOut, true, memory_order_relaxed);
 }
 
 bool SearchTime_IsTimedOut(void *arg) {
@@ -1148,7 +1148,7 @@ void AREQ_ResetForCursorReadReturnStrict(AREQ *req) {
   pthread_mutex_lock(&req->syncCtx.aggregateResultsLock);
   req->syncCtx.aggregateResultsDone = false;
   pthread_mutex_unlock(&req->syncCtx.aggregateResultsLock);
-  atomic_store_explicit(&req->syncCtx.timedOut, false, memory_order_release);
+  atomic_store_explicit(&req->syncCtx.timedOut, false, memory_order_relaxed);
   ResultProcessor *root = AREQ_QueryProcessingCtx(req)->rootProc;
   if (root && root->type == RP_NETWORK) {
     ((RPNet *)root)->drainOnly = false;
