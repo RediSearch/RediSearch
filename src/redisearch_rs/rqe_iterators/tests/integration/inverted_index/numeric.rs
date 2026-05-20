@@ -415,6 +415,38 @@ fn numeric_no_range_tree_revalidate() {
     assert_eq!(status, RQEValidateStatus::Ok);
 }
 
+/// Resume sibling of [`numeric_no_range_tree_revalidate`]: with no range tree,
+/// `should_abort` returns false, so a suspend/resume cycle promotes the iterator
+/// back to `Active` (`Ok`) and the position is preserved.
+#[test]
+fn numeric_no_range_tree_resume() {
+    use rqe_iterators::TypeErasedRQEIterator;
+    use rqe_iterators_test_utils::{ResumeOutcomeExt, revalidate_via_resume};
+
+    let mock_ctx = rqe_iterators_test_utils::MockContext::new(0, 0);
+    let mut ii =
+        InvertedIndex::<inverted_index::numeric::Numeric>::new(IndexFlags_Index_StoreNumeric);
+    let _ = ii.add_record(&RSIndexResult::build_numeric(1.0).doc_id(1).build());
+    let _ = ii.add_record(&RSIndexResult::build_numeric(2.0).doc_id(3).build());
+
+    // Build without a range tree — should_abort will return false.
+    let it = NumericBuilder::new(ii.reader()).build();
+
+    let guard = mock_ctx.spec_read();
+    let mut it = revalidate_via_resume(TypeErasedRQEIterator::new(Box::new(it)), &guard)
+        .expect("resume should not fail in this test")
+        .expect_ok();
+
+    // The first doc is still available after resume (no range tree ⇒ no abort).
+    let record = it.read().expect("read failed").expect("expected a result");
+    assert_eq!(record.doc_id, 1);
+
+    // A second resume also succeeds.
+    revalidate_via_resume(it, &guard)
+        .expect("resume should not fail in this test")
+        .expect_ok();
+}
+
 /// A [`GeoFilter`] with a non-null address so `is_numeric_filter()` returns `false`.
 /// `fieldSpec` and `numericFilters` are null — tests using this stub must not
 /// reach code paths that dereference those pointers.
@@ -1101,5 +1133,69 @@ mod not_miri {
 
         test.test
             .revalidate_numeric_after_document_deleted(&mut it, ii);
+    }
+
+    /// Resume-flavored siblings of the `revalidate` tests above: the same
+    /// scenarios driven through a suspend/resume cycle
+    /// ([`revalidate_via_resume`]) rather than in-place [`RQEIterator::revalidate`].
+    mod via_resume {
+        use super::*;
+        use crate::inverted_index::utils::via_resume::{
+            revalidate_at_eof, revalidate_basic, revalidate_numeric_after_document_deleted,
+        };
+        use rqe_iterators::{ResumeOutcome, TypeErasedRQEIterator};
+        use rqe_iterators_test_utils::{ResumeOutcomeExt, revalidate_via_resume};
+
+        #[test]
+        fn numeric_revalidate_basic() {
+            let test = NumericRevalidateTest::new(10);
+            let it = test.create_iterator();
+            revalidate_basic(&test.test, Box::new(it));
+        }
+
+        #[test]
+        fn numeric_revalidate_at_eof() {
+            let test = NumericRevalidateTest::new(10);
+            let it = test.create_iterator();
+            revalidate_at_eof(&test.test, Box::new(it));
+        }
+
+        #[test]
+        fn numeric_revalidate_after_document_deleted() {
+            let test = NumericRevalidateTest::new(10);
+            let it = test.create_iterator();
+            let ii = test.test.context.numeric_inverted_index();
+            revalidate_numeric_after_document_deleted(&test.test, Box::new(it), ii);
+        }
+
+        /// Resume sibling of [`numeric_revalidate_after_index_disappears`]: a
+        /// range-tree revision bump while suspended (simulating a GC node
+        /// split/removal) must abort the resume, since the cached revision id no
+        /// longer matches.
+        #[test]
+        fn numeric_revalidate_after_range_tree_modified() {
+            let test = NumericRevalidateTest::new(10);
+            let it = Box::new(test.create_iterator());
+            let guard = test.test.context.spec_read();
+
+            // A clean resume cycle works before any modification; read one doc so
+            // the iterator holds a non-trivial position.
+            let mut it = revalidate_via_resume(TypeErasedRQEIterator::new(it), &guard)
+                .expect("resume should not fail in this test")
+                .expect_ok();
+            assert!(it.read().expect("failed to read").is_some());
+
+            // Bump the range tree's revision id (interior mutability via raw
+            // pointer, so it does not conflict with the read guard).
+            {
+                let rt = test.test.context.numeric_range_tree_mut();
+                rt.increment_revision();
+            }
+
+            // The cached revision no longer matches, so resume must abort.
+            let outcome =
+                revalidate_via_resume(it, &guard).expect("resume should not fail in this test");
+            assert!(matches!(outcome, ResumeOutcome::Aborted));
+        }
     }
 }
