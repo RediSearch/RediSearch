@@ -52,7 +52,7 @@ FGCError FGC_parentHandleExistingDocs(ForkGC *gc) {
   InvertedIndexGcDelta *delta = InvertedIndex_GcDelta_Read(&rd);
 
   if (delta == NULL) {
-    rm_free(empty_indicator);
+    FGC_freeBuffer(empty_indicator, ei_len);
     return FGC_CHILD_ERROR;
   }
 
@@ -89,7 +89,7 @@ FGCError FGC_parentHandleExistingDocs(ForkGC *gc) {
   FGC_updateStats(gc, sctx, 0, info.bytes_freed, info.bytes_allocated, info.ignored_last_block);
 
 cleanup:
-  rm_free(empty_indicator);
+  FGC_freeBuffer(empty_indicator, ei_len);
   if (sp) {
     RedisSearchCtx_UnlockSpec(sctx);
     IndexSpecRef_Release(spec_ref);

@@ -181,10 +181,10 @@ FGCError FGC_parentHandleTags(ForkGC *gc) {
     InvertedIndex_GcDelta_Free(delta);
 
     if (tagVal) {
-      rm_free(tagVal);
+      FGC_freeBuffer(tagVal, tagValLen);
     }
   }
 
-  rm_free(fieldName);
+  FGC_freeBuffer(fieldName, fieldNameLen);
   return status;
 }
