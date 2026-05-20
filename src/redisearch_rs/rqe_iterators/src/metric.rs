@@ -10,14 +10,15 @@
 //! Supporting types for [`Metric`].
 
 use crate::{
-    IteratorType, RQEIterator, RQEIteratorError, RQEValidateStatus, SkipToOutcome,
+    IteratorType, RQEIterator, RQEIteratorBoxed, RQEIteratorError, RQESuspendedIterator,
+    RQEValidateStatus, SkipToOutcome,
     id_list::{IdList, RawIdList},
     utils::OwnedSlice,
 };
-use ffi::{RLookupKey, RLookupKeyHandle, t_docId};
+use ffi::{RLookupKey, RLookupKeyHandle, ValidateStatus, ValidateStatus_VALIDATE_OK, t_docId};
 use index_result::RSIndexResult;
 use index_spec::IndexSpecReadGuard;
-use ref_mode::{Active, Ref};
+use ref_mode::{Active, Ref, Suspended};
 
 /// The different types of metrics.
 /// At the moment, only vector distance is supported.
@@ -216,5 +217,45 @@ impl<'index, const SORTED_BY_ID: bool> RQEIterator<'index> for Metric<'index, SO
 
     fn intersection_sort_weight(&self, _prioritize_union_children: bool) -> f64 {
         1.0
+    }
+}
+
+impl<'index, const SORTED_BY_ID: bool> RQEIteratorBoxed<'index> for Metric<'index, SORTED_BY_ID> {
+    type Suspended = RawMetric<Suspended, SORTED_BY_ID>;
+
+    fn suspend(self: Box<Self>) -> Box<Self::Suspended> {
+        let raw = Box::into_raw(self);
+        // SAFETY: `RawMetric` is `#[repr(C)]`. The only `Rf`-dependent field
+        // is the inner `RawIdList<Rf, SORTED_BY_ID>`, layout-compatible
+        // across `Rf` (its only `Rf` field is `result: RawIndexResult<Rf>`,
+        // backed by `SharedPtr` transparency). The remaining fields
+        // (`metric_data`, `type_`, `own_key`, `key_handle`) carry no `Rf`.
+        // Suspend is widening, so casting the box's heap pointer is sound
+        // and preserves the heap allocation; the active `Drop` impl
+        // (`key_handle` nullification) does not run on these bytes —
+        // ownership of the allocation transfers to the suspended box.
+        unsafe { Box::from_raw(raw as *mut RawMetric<Suspended, SORTED_BY_ID>) }
+    }
+}
+
+impl<const SORTED_BY_ID: bool> RQESuspendedIterator for RawMetric<Suspended, SORTED_BY_ID> {
+    type Resumed<'a> = Metric<'a, SORTED_BY_ID>;
+
+    fn resume<'a>(
+        self: Box<Self>,
+        _guard: &'a IndexSpecReadGuard<'a>,
+    ) -> (Box<Self::Resumed<'a>>, ValidateStatus) {
+        let raw = Box::into_raw(self);
+        // SAFETY: layout-compatible — see `suspend`. `Metric` owns all its
+        // pointee data (the `OwnedSlice` and the inner `IdList`'s
+        // `OwnedSlice`); the virtual `result` has no aliased pointers, so
+        // promotion back to `Active<'a>` is unconditionally sound and
+        // re-uses the same heap allocation.
+        let active = unsafe { Box::from_raw(raw as *mut Metric<'a, SORTED_BY_ID>) };
+        (active, ValidateStatus_VALIDATE_OK)
+    }
+
+    fn last_doc_id(&self) -> t_docId {
+        RawIdList::<Suspended, SORTED_BY_ID>::suspended_result_doc_id(&self.base)
     }
 }
