@@ -92,6 +92,23 @@ impl<R: Ref> RawTermRecord<R> {
     pub const fn is_copy(&self) -> bool {
         matches!(self, Self::Owned { .. } | Self::FullyOwned { .. })
     }
+
+    /// Mode-independent variant of [`RSTermRecord::query_term`]: returns
+    /// `Some(&term)` for variants that own their term ([`Borrowed`] and
+    /// [`FullyOwned`]), and `None` for [`Owned`].
+    ///
+    /// The [`Owned`] variant stores the term via
+    /// `SharedPtr<R, RSQueryTerm>`, whose `get()` is only available in
+    /// [`Active`] mode. This accessor lets [`Suspended`] callers
+    /// (`Term::should_abort` and friends, which during `resume` only
+    /// have a `RawTermRecord<Suspended>`) read the term without
+    /// upgrading the iterator's type-state.
+    pub fn query_term_owned(&self) -> Option<&RSQueryTerm> {
+        match self {
+            Self::Borrowed { term, .. } | Self::FullyOwned { term, .. } => term.as_deref(),
+            Self::Owned { .. } => None,
+        }
+    }
 }
 
 impl<'a> RSTermRecord<'a> {
