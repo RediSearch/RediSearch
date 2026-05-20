@@ -114,9 +114,10 @@ static void writeCurEntries(RSAddDocumentCtx *aCtx, RedisSearchCtx *ctx) {
         offsetsLen = VVW_GetByteLength(entry->vw);
       }
       // Stage the inverted-index write on the per-document batch and apply the
-      // matching term-trie update eagerly. If the commit later fails the doc-id
-      // is added to `deleted_ids` by `Indexer_Process`, which causes the term
-      // trie / suffix trie to filter the entry out of query results.
+      // matching term-trie update eagerly. If anything later in the document
+      // fails — including the commit itself — `Indexer_Process` adds the
+      // doc-id to `deleted_ids`, which makes the term-trie / suffix-trie
+      // entries get filtered out of query results.
       if (SearchDisk_IndexTerm(spec->diskSpec, aCtx->diskBatch, entry->term, entry->len, aCtx->doc->docId, entry->fieldMask, entry->freq, offsets, offsetsLen)) {
         IndexSpec_AddTerm(spec, entry->term, entry->len);
       }
@@ -507,28 +508,41 @@ static void Indexer_Process(RSAddDocumentCtx *aCtx) {
     indexBulkFields(aCtx, &ctx);
   }
 
-  // Finalize the per-document disk write batch. On the happy path this flushes
-  // the staged doc-table / inverted-index / tag writes atomically. If the
-  // document already errored upstream we leave the batch for
-  // `AddDocumentCtx_Free` to abort.
+  // Finalize the per-document disk write batch. Three paths:
   //
-  // On commit failure we mark the doc-id as deleted via
-  // `SearchDisk_DeleteDocumentById`: the in-memory term / tag / suffix tries,
-  // existing/missing-field index, vector index, and scoring stats were all
-  // applied eagerly and now reference a doc that never reached disk. Adding
-  // the id to `deleted_ids` is enough to make query iterators filter it out
-  // (and GC will eventually reclaim the trie entries on its own schedule).
-  if (aCtx->diskBatch && !(aCtx->stateFlags & ACTX_F_ERRORED)) {
-    if (!SearchDisk_CommitWriteBatch(aCtx->diskBatch)) {
-      uint32_t oldLen = 0;
-      SearchDisk_DeleteDocumentById(ctx.spec->diskSpec, aCtx->doc->docId, &oldLen);
+  //  - happy path: not errored upstream, commit succeeds. The eager in-memory
+  //    mutations (DocIdMeta_Set / scoring stats / term-trie / suffix tries /
+  //    tag-trie / numRecords / existingDocs / missingFieldDict / vector index)
+  //    are already applied and now agree with disk.
+  //  - upstream error after eager mutations ran (e.g. tag staging rejected a
+  //    value): abort the batch and mark the doc-id as deleted. The eager
+  //    mutations still reference `aCtx->doc->docId`; adding it to
+  //    `deleted_ids` makes query iterators filter the entries out, and GC
+  //    eventually reclaims them.
+  //  - commit failure: same as above — mark deleted, set status, error out.
+  //
+  // The mark-deleted call is a no-op if `aCtx->doc->docId` is zero (the doc
+  // never reached `doAssignIds` past the staging step, so no eager mutations
+  // happened either).
+  if (aCtx->diskBatch) {
+    bool need_mark_deleted = false;
+    if (aCtx->stateFlags & ACTX_F_ERRORED) {
+      SearchDisk_AbortWriteBatch(aCtx->diskBatch);
+      need_mark_deleted = true;
+    } else if (!SearchDisk_CommitWriteBatch(aCtx->diskBatch)) {
       if (!QueryError_HasError(&aCtx->status)) {
         QueryError_SetError(&aCtx->status, QUERY_ERROR_CODE_GENERIC,
                             "Failed to commit disk write batch");
       }
       aCtx->stateFlags |= ACTX_F_ERRORED;
+      need_mark_deleted = true;
     }
     aCtx->diskBatch = NULL;
+
+    if (need_mark_deleted && aCtx->doc->docId != 0) {
+      uint32_t oldLen = 0;
+      SearchDisk_DeleteDocumentById(ctx.spec->diskSpec, aCtx->doc->docId, &oldLen);
+    }
   }
 }
 

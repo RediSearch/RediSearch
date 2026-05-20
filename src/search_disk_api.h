@@ -258,15 +258,13 @@ typedef struct IndexDiskAPI {
   /**
    * @brief Indexes a term for fulltext search
    *
-   * Stages an inverted-index write for the specified term into `batch`. The write
-   * is not visible to the database until the batch is committed via
+   * Stages an inverted-index write for the specified term into `batch`. The
+   * write is not visible to the database until the batch is committed via
    * `commitWriteBatch`. Used for fulltext field indexing.
    *
-   * On failure (e.g., the implementation rejects the term as invalid input) this
-   * function poisons `batch` so the eventual `commitWriteBatch` will fail without
-   * persisting anything. Callers that defer in-memory bookkeeping via
-   * `SearchDisk_WriteBatch_OnCommit` therefore stay consistent with disk even if
-   * they discard the return value.
+   * Callers must check the return value — a `false` indicates the implementation
+   * rejected this particular term (e.g. invalid UTF-8) and skipped staging it.
+   * Other staged writes on the same batch are unaffected.
    *
    * @param index Pointer to the index
    * @param batch Open write batch to append the write to (must have been returned by `createWriteBatch(index)`)
@@ -277,8 +275,7 @@ typedef struct IndexDiskAPI {
    * @param freq Frequency of the term in the document
    * @param offsets Pointer to varint-encoded term offset data (can be NULL)
    * @param offsetsLen Length of the offsets data in bytes
-   * @return true if the write was staged successfully, false if the input was
-   *         rejected (in which case `batch` is poisoned)
+   * @return true if the write was staged successfully, false if the input was rejected
    */
   bool (*indexTerm)(RedisSearchDiskIndexSpec *index, SearchDiskWriteBatchHandle *batch, const char *term, size_t termLen, t_docId docId, t_fieldMask fieldMask, uint32_t freq, const uint8_t *offsets, size_t offsetsLen);
 
@@ -290,9 +287,10 @@ typedef struct IndexDiskAPI {
    * Used for tag field indexing. Creates a new column family if this is the first
    * time indexing this tag field, and registers it with Redis BigModule.
    *
-   * On failure (rejected tag, CF creation failure, etc.) `batch` is poisoned so
-   * the eventual `commitWriteBatch` cannot land a partial write — earlier tags
-   * in the same call that were staged successfully are discarded with the rest.
+   * On a partial failure (e.g. a rejected tag value), the call short-circuits
+   * and returns `false`. Tags already staged in this call remain on the batch;
+   * the caller is expected to surface the failure to its add-document context
+   * so the batch is later aborted by the OSS indexing flow.
    *
    * @param ctx Redis module context for BigModule APIs (used to register new CFs)
    * @param index Pointer to the index
@@ -303,8 +301,7 @@ typedef struct IndexDiskAPI {
    * @param numValues Number of tag values in the array
    * @param docId Document ID to index
    * @param fieldIndex Field index for the tag field
-   * @return true if all writes were staged successfully, false if any value was
-   *         rejected (in which case `batch` is poisoned)
+   * @return true if all writes were staged successfully, false if any value was rejected
    */
   bool (*indexTags)(RedisModuleCtx *ctx, RedisSearchDiskIndexSpec *index, SearchDiskWriteBatchHandle *batch, const char **values, size_t numValues, t_docId docId, t_fieldIndex fieldIndex);
 
@@ -448,8 +445,9 @@ typedef struct DocTableDiskAPI {
    * The new document ID is assigned synchronously and returned; even if the batch is
    * later aborted, the ID is not reused.
    *
-   * On failure (input rejected, internal staging error) `batch` is poisoned so
-   * the eventual `commitWriteBatch` cannot land a partial write.
+   * Returns 0 on failure (input rejected, internal staging error). The caller
+   * is expected to mark the add-document context errored so the batch is later
+   * aborted by the OSS indexing flow.
    *
    * @param handle Handle to the document table
    * @param batch Open write batch to append the write to (must have been returned by `createWriteBatch(handle)`)

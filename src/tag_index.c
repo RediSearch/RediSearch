@@ -221,9 +221,9 @@ bool TagIndex_Index(RedisModuleCtx *ctx, TagIndex *idx, SearchDiskWriteBatch *ba
 
   if (idx->diskSpec) {
     // DISK MODE: Index to disk and add tags to TrieMap with NULL sentinel.
-    // The trie updates are applied eagerly; if the eventual commit fails the
-    // doc-id is added to `deleted_ids` by `Indexer_Process`, which causes
-    // query iterators to filter out the orphaned trie entries.
+    // The trie updates are applied eagerly; if the document later errors
+    // (including a commit failure), `Indexer_Process` adds the doc-id to
+    // `deleted_ids` so query iterators filter the orphaned trie entries out.
     if (!SearchDisk_IndexTags(ctx, idx->diskSpec, batch, values, n, docId, idx->fieldIndex)) {
       return false;
     }
