@@ -15,7 +15,7 @@ use inverted_index::NumericFilter;
 use query_node_type::QueryNodeType;
 use rqe_iterator_type::IteratorType;
 use rqe_iterators::{
-    NumericIteratorVariant, c2rust::CRQEIterator, interop::RQEIteratorWrapper,
+    IteratorsConfig, NumericIteratorVariant, c2rust::CRQEIterator, interop::RQEIteratorWrapper,
     open_numeric_or_geo_index,
 };
 
@@ -245,7 +245,7 @@ pub unsafe extern "C" fn openNumericOrGeoIndex(
 /// 3. `flt` must be a valid non-NULL pointer to a [`NumericFilter`] whose `field_spec` field
 ///    is a valid non-NULL pointer to a [`FieldSpec`], remaining valid for the lifetime of the
 ///    returned iterator.
-/// 4. `config` must be a valid non-NULL pointer to an [`ffi::IteratorsConfig`].
+/// 4. `config` must be a valid non-NULL pointer to an [`IteratorsConfig`].
 /// 5. `filter_ctx` must be a valid non-NULL pointer to a [`FieldFilterContext`] with a field
 ///    index (not a field mask).
 #[unsafe(no_mangle)]
@@ -253,7 +253,7 @@ pub unsafe extern "C" fn NewNumericFilterIterator(
     ctx: *const ffi::RedisSearchCtx,
     flt: *const NumericFilter,
     _for_type: ffi::FieldType,
-    config: *const ffi::IteratorsConfig,
+    config: *const IteratorsConfig,
     filter_ctx: *const FieldFilterContext,
 ) -> *mut ffi::QueryIterator {
     debug_assert!(!ctx.is_null());
@@ -264,7 +264,7 @@ pub unsafe extern "C" fn NewNumericFilterIterator(
     // SAFETY: RSGlobalConfig is initialised by the time any index is created.
     let compress = unsafe { RSGlobalConfig.numericCompress };
     // SAFETY: 4. guarantees config is valid and non-null.
-    let min_union_iter_heap = unsafe { (*config).minUnionIterHeap } as usize;
+    let min_union_iter_heap = unsafe { (*config).min_union_iter_heap } as usize;
 
     // SAFETY: 1. guarantees ctx is valid and non-null.
     let sctx = unsafe { NonNull::new_unchecked(ctx as *mut ffi::RedisSearchCtx) };
