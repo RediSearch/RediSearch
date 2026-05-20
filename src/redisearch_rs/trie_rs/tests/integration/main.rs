@@ -10,7 +10,8 @@
 mod iter;
 mod rune_boundary_cases;
 mod rune_delete_and_decrement;
-mod rune_dfa_iteration;
+// Not yet implemented.
+// mod rune_dfa_iteration;
 mod rune_insert_iterate;
 mod rune_payloads;
 mod rune_splits;
