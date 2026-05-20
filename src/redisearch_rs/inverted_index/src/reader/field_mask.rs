@@ -7,7 +7,10 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 
-use super::{IndexReader, IndexReaderCore, ResumableReader, SuspendableReader, TermReader};
+use super::{
+    IndexReader, IndexReaderCore, PointsToOpaqueIndex, RefreshOutcome, ResumableReader,
+    SuspendableReader, TermReader,
+};
 use crate::{
     DecodedBy, Decoder, HasInnerIndex, InvertedIndex, TermDecoder, opaque::OpaqueEncoding,
 };
@@ -51,6 +54,10 @@ where
     for<'a> FilterMaskReader<RS::Resumed<'a>>: IndexReader<'a>,
 {
     type Resumed<'a> = FilterMaskReader<RS::Resumed<'a>>;
+
+    fn refresh_pointers(&mut self) -> RefreshOutcome {
+        self.inner.refresh_pointers()
+    }
 }
 
 impl<'index, IR: IndexReader<'index>> IndexReader<'index> for FilterMaskReader<IR> {
@@ -141,13 +148,22 @@ impl<'index, E: DecodedBy<Decoder = D>, D: Decoder> FilterMaskReader<IndexReader
     }
 }
 
+/// Mode-independent delegation: any `FilterMaskReader<IR>` over an inner
+/// reader that implements [`PointsToOpaqueIndex`] forwards the check
+/// through. The same impl covers both [`Active`](ref_mode::Active) and
+/// [`Suspended`](ref_mode::Suspended) inner readers.
+impl<IR: PointsToOpaqueIndex> PointsToOpaqueIndex for FilterMaskReader<IR> {
+    fn points_to_the_same_opaque_index(&self, opaque: &crate::opaque::InvertedIndex) -> bool {
+        self.inner.points_to_the_same_opaque_index(opaque)
+    }
+}
+
 /// Automatically implemented if the IndexReaderCore uses a TermDecoder.
+/// The [`PointsToOpaqueIndex`] supertrait is satisfied via the
+/// mode-independent impl above.
 impl<'index, E: DecodedBy<Decoder = D> + OpaqueEncoding + 'index, D: Decoder + TermDecoder>
     TermReader<'index> for FilterMaskReader<IndexReaderCore<'index, E>>
 where
     E::Storage: HasInnerIndex<E>,
 {
-    fn points_to_the_same_opaque_index(&self, opaque: &crate::opaque::InvertedIndex) -> bool {
-        self.inner.points_to_the_same_opaque_index(opaque)
-    }
 }
