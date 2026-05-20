@@ -83,21 +83,31 @@ struct ReducerDistCtx {
   bool addLocal(const char *name, QueryError *status, T... uargs) {
     return add(localGroup, name, NULL, status, uargs...);
   }
-  template <typename... T>
-  bool addRemote(const char *name, const char **alias, QueryError *status, T... uargs) {
-    ArgsCursorCXX args(uargs...);
-    ArgsCursor tmp = args;
-    // Check if the reducer already exists in the remote group. This may happen NOT AS SYNTAX ERROR if the client
-    // sends, for example, a query with COUNT and AVG, which we send to the shards as COUNT, COUNT and SUM. In this case,
-    // we don't want or need to add the same reducer twice.
+  // Dedup-aware remote add. If an identical (name, args) reducer already lives in the remote
+  // group, returns its alias via `*alias` and skips re-adding. Otherwise persists `cargs` and
+  // appends a new reducer.
+  //
+  // The same logical reducer may legitimately appear multiple times in a single distributed plan:
+  // e.g. an `AVG` rewrites to remote `COUNT` + `SUM`, so a client that asked for both `COUNT` and
+  // `AVG` produces two remote `COUNT`s. Likewise two `REDUCE COLLECT` calls over the same field in
+  // the same `GROUPBY` should run as a single remote COLLECT, with both local reducers reading its
+  // output. Deduping here avoids redundant shard work and avoids `SEARCH_FIELD_DUP` on synthetic
+  // remote aliases.
+  bool addRemote(const char *name, const char **alias, QueryError *status, ArgsCursor *cargs) {
+    ArgsCursor tmp = *cargs;
     auto existing = PLNGroupStep_FindReducer(remoteGroup, name, &tmp);
     if (existing) {
       if (alias) *alias = existing->alias;
       return true;
-    } else {
-      ArgsCursor *cargs = copyArgs(&args);
-      return add(remoteGroup, name, alias, status, cargs);
     }
+    return add(remoteGroup, name, alias, status, copyArgs(cargs));
+  }
+
+  template <typename... T>
+  bool addRemote(const char *name, const char **alias, QueryError *status, T... uargs) {
+    ArgsCursorCXX args(uargs...);
+    ArgsCursor *cargs = &args;
+    return addRemote(name, alias, status, cargs);
   }
 
   const char *srcarg(size_t n) const {
@@ -352,15 +362,14 @@ static int distributeCollect(ReducerDistCtx *rdctx, QueryError *status) {
   const PLN_Reducer *src = rdctx->srcReducer;
   size_t argc = src->args.argc;
 
-  // Build temporary args, then persist their object arrays with copyArgs.
+  // Build temporary remote args; `addRemote` lazily persists them only on a miss.
   std::string remoteCountStr = std::to_string(argc);
   std::vector<void *> remoteObjs(collectObjsBufLen(argc, /*has_alias=*/false));
   ArgsCursor remoteArgs = buildCollectArgs(remoteObjs.data(), remoteCountStr.c_str(),
                                            &src->args, nullptr);
-  rdctx->copyArgs(&remoteArgs);
 
   const char *alias;
-  if (!rdctx->add(rdctx->remoteGroup, "COLLECT", &alias, status, &remoteArgs)) {
+  if (!rdctx->addRemote("COLLECT", &alias, status, &remoteArgs)) {
     return REDISMODULE_ERR;
   }
 
