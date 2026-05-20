@@ -7,7 +7,9 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 
-use super::{IndexReader, IndexReaderCore, ResumableReader, SuspendableReader, TermReader};
+use super::{
+    IndexReader, IndexReaderCore, RefreshOutcome, ResumableReader, SuspendableReader, TermReader,
+};
 use crate::{
     DecodedBy, Decoder, HasInnerIndex, InvertedIndex, TermDecoder, opaque::OpaqueEncoding,
 };
@@ -19,9 +21,15 @@ use rqe_core::{DocId, FieldMask};
 /// filter records in an index based on their field mask, allowing only those that match the
 /// specified mask to be returned.
 ///
-/// `#[repr(C)]` so that, once `IR` is layout-compatible across `Active`/`Suspended`
-/// instantiations of its inner [`RawIndexReaderCore`](crate::RawIndexReaderCore),
-/// the whole `FilterMaskReader` is too.
+/// # Invariants
+///
+/// 1. **Layout compatibility across modes.** When the inner reader `IR` is
+///    layout-compatible with its suspended form (invariant 1 on
+///    [`RawIndexReaderCore`](crate::RawIndexReaderCore)), so is
+///    `FilterMaskReader<IR>`: it is `#[repr(C)]` and `IR` is its only
+///    mode-dependent field. This is the layout compatibility the
+///    [`SuspendableReader`]/[`ResumableReader`] contract requires. Enforced by
+///    the `const _` proof below.
 #[repr(C)]
 pub struct FilterMaskReader<IR> {
     /// Mask which a record needs to match to be valid
@@ -31,6 +39,22 @@ pub struct FilterMaskReader<IR> {
     inner: IR,
 }
 
+// Compile-time proof of invariant 1 on `FilterMaskReader`, for a representative
+// concrete inner reader. The inner reader's own layout compatibility is invariant
+// 1 on `RawIndexReaderCore`.
+const _: () = {
+    use crate::RawIndexReaderCore;
+    use crate::codec::doc_ids_only::DocIdsOnly;
+    use ref_mode::{Active, Suspended};
+    use std::mem::{align_of, offset_of, size_of};
+    type A = FilterMaskReader<RawIndexReaderCore<Active<'static>, DocIdsOnly>>;
+    type S = FilterMaskReader<RawIndexReaderCore<Suspended, DocIdsOnly>>;
+    assert!(offset_of!(A, mask) == offset_of!(S, mask));
+    assert!(offset_of!(A, inner) == offset_of!(S, inner));
+    assert!(size_of::<A>() == size_of::<S>());
+    assert!(align_of::<A>() == align_of::<S>());
+};
+
 impl<'index, IR: IndexReader<'index>> FilterMaskReader<IR> {
     /// Create a new filter mask reader with the given mask and inner iterator
     pub const fn new(mask: FieldMask, inner: IR) -> Self {
@@ -39,18 +63,30 @@ impl<'index, IR: IndexReader<'index>> FilterMaskReader<IR> {
 }
 
 /// `FilterMaskReader<IR>` suspends to `FilterMaskReader<IR::Suspended>`.
-impl<IR: SuspendableReader> SuspendableReader for FilterMaskReader<IR> {
+///
+/// SAFETY: layout compatibility is invariant 1 on [`FilterMaskReader`] (const
+/// proof there), given `IR`'s own layout compatibility.
+unsafe impl<IR: SuspendableReader> SuspendableReader for FilterMaskReader<IR> {
     type Suspended = FilterMaskReader<IR::Suspended>;
 }
 
 /// Inverse of the above: `FilterMaskReader<RS>` resumes to
 /// `FilterMaskReader<RS::Resumed<'a>>` for any `RS: ResumableReader`.
-impl<RS: ResumableReader> ResumableReader for FilterMaskReader<RS>
+///
+/// SAFETY: layout compatibility is invariant 1 on [`FilterMaskReader`] (const
+/// proof there).
+unsafe impl<RS: ResumableReader> ResumableReader for FilterMaskReader<RS>
 where
     for<'a> Self: 'static,
     for<'a> FilterMaskReader<RS::Resumed<'a>>: IndexReader<'a>,
 {
     type Resumed<'a> = FilterMaskReader<RS::Resumed<'a>>;
+
+    unsafe fn refresh_pointers(&mut self) -> RefreshOutcome {
+        // SAFETY: our caller upholds `ResumableReader::refresh_pointers`'s
+        // read-lock obligation, which we forward unchanged to the inner reader.
+        unsafe { self.inner.refresh_pointers() }
+    }
 }
 
 impl<'index, IR: IndexReader<'index>> IndexReader<'index> for FilterMaskReader<IR> {
