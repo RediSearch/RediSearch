@@ -17,7 +17,7 @@
 #include "result_processor_ffi.h"
 #include "sorting_vector_ffi.h"
 #include "rlookup.h"
-#include "rlookup_load_document.h"
+#include "rlookup.h"
 #include "rmutil/rm_assert.h"
 #include "util/timeout.h"
 #include "util/arr.h"
@@ -873,8 +873,11 @@ ResultProcessor *RPPager_New(size_t offset, size_t limit) {
 typedef struct {
   ResultProcessor base;
   RLookup *lk;
-  RLookupLoadOptions loadopts;
+  RedisSearchCtx *sctx;
+  const RLookupKey **keys;
+  size_t nkeys;
   bool load_all;
+  bool forceLoad;
   QueryError status;
 } RPLoader;
 
@@ -886,9 +889,9 @@ typedef struct {
  */
 
 static bool isDocumentStillValid(const RPLoader *self, SearchResult *r) {
-  if (self->loadopts.sctx->spec->diskSpec) {
+  if (self->sctx->spec->diskSpec) {
     // The Document_Deleted and Document_FailedToOpen flags are not used on disk and are not updated after we take the GIL, so we check the disk directly.
-    if (SearchDisk_DocIdDeleted(self->loadopts.sctx->spec->diskSpec, SearchResult_GetDocumentMetadata(r)->id)) {
+    if (SearchDisk_DocIdDeleted(self->sctx->spec->diskSpec, SearchResult_GetDocumentMetadata(r)->id)) {
       SearchResult_SetFlags(r, SearchResult_GetFlags(r) | Result_ExpiredDoc);
       return false;
     }
@@ -908,13 +911,29 @@ static void rpLoader_loadDocument(RPLoader *self, SearchResult *r) {
     return;
   }
 
-  self->loadopts.dmd = SearchResult_GetDocumentMetadata(r);
+  const RSDocumentMetadata *dmd = SearchResult_GetDocumentMetadata(r);
 
   int ret;
   if (self->load_all) {
-      ret = RLookup_LoadDocumentAll(self->lk, SearchResult_GetRowDataMut(r), &self->loadopts);
+      RLookupLoadAllOptions opts = {
+          .sctx = self->sctx,
+          .dmd = dmd,
+          .force_string = true,
+          .status = &self->status,
+      };
+      ret = RLookup_LoadDocumentAll(self->lk, SearchResult_GetRowDataMut(r), &opts);
   } else {
-      ret = RLookup_LoadDocumentIndividual(self->lk, SearchResult_GetRowDataMut(r), &self->loadopts);
+      RLookupLoadIndividualOptions opts = {
+          .sctx = self->sctx,
+          .dmd = dmd,
+          .keys = self->keys,
+          .nkeys = self->nkeys,
+          .force_string = true,
+          .force_load = self->forceLoad,
+          .cached_only = false,
+          .status = &self->status,
+      };
+      ret = RLookup_LoadDocumentIndividual(self->lk, SearchResult_GetRowDataMut(r), &opts);
   }
 
   // if loading the document has failed, we keep the row as it was.
@@ -942,7 +961,7 @@ static int rploaderNext(ResultProcessor *base, SearchResult *r) {
 static void rploaderFreeInternal(ResultProcessor *base) {
   RPLoader *lc = (RPLoader *)base;
   QueryError_ClearError(&lc->status);
-  rm_free(lc->loadopts.keys);
+  rm_free(lc->keys);
 }
 
 static void rploaderFree(ResultProcessor *base) {
@@ -951,15 +970,12 @@ static void rploaderFree(ResultProcessor *base) {
 }
 
 static void rploaderNew_setLoadOpts(RPLoader *self, RedisSearchCtx *sctx, RLookup *lk, const RLookupKey **keys, size_t nkeys, bool forceLoad) {
-  self->loadopts.forceString = 1; // used in `LOAD_ALLKEYS` mode.
-  self->loadopts.forceLoad = forceLoad;
-  self->loadopts.status = &self->status;
-  self->loadopts.sctx = sctx;
-  self->loadopts.dmd = NULL;
+  self->sctx = sctx;
+  self->forceLoad = forceLoad;
   if (nkeys) {
-    self->loadopts.keys = rm_malloc(sizeof(*keys) * nkeys);
-    memcpy(self->loadopts.keys, keys, sizeof(*keys) * nkeys);
-    self->loadopts.nkeys = nkeys;
+    self->keys = rm_malloc(sizeof(*keys) * nkeys);
+    memcpy(self->keys, keys, sizeof(*keys) * nkeys);
+    self->nkeys = nkeys;
     self->load_all = false;
   } else {
     self->load_all = true;
@@ -1290,7 +1306,7 @@ static ResultProcessor *RPSafeLoader_New_FromPlainLoader(RPLoader *loader) {
 
   // Copy the loader, move ownership of the keys
   sl->base_loader = *loader;
-  sl->sctx = loader->loadopts.sctx;
+  sl->sctx = loader->sctx;
   rm_free(loader);
 
   // Reset the loader's buffer and state

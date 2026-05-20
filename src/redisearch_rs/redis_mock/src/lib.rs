@@ -24,6 +24,7 @@ pub mod log;
 pub mod reply;
 pub mod scan_key_cursor;
 pub mod string;
+pub mod string_to_number;
 
 use std::ffi::{CString, c_char};
 
@@ -36,6 +37,7 @@ use redis_module::KeyType;
 use reply::*;
 use scan_key_cursor::*;
 use string::*;
+use string_to_number::*;
 
 /// A test context that can be used to hold state for testing with the mock.
 pub struct TestContext {
@@ -141,6 +143,10 @@ pub fn init_redis_module_mock() {
     unsafe { redis_module::raw::RedisModule_OpenKey = Some(RedisModule_OpenKey) };
     unsafe { redis_module::raw::RedisModule_CloseKey = Some(RedisModule_CloseKey) };
     unsafe { redis_module::raw::RedisModule_KeyType = Some(RedisModule_KeyType) };
+
+    // register string-to-number conversions
+    unsafe { redis_module::raw::RedisModule_StringToLongLong = Some(RedisModule_StringToLongLong) };
+    unsafe { redis_module::raw::RedisModule_StringToDouble = Some(RedisModule_StringToDouble) };
 
     // register scan key cursor methods
     unsafe { redis_module::raw::RedisModule_ScanCursorCreate = Some(RedisModule_ScanCursorCreate) };

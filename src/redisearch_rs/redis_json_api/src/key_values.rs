@@ -14,19 +14,22 @@ use std::{ffi::c_void, ptr::NonNull};
 
 // An iterators over key value pairs if the json value is an object
 pub struct KeyValuesIterator<'a> {
-    pub(crate) ptr: NonNull<c_void>,
+    ptr: NonNull<c_void>,
     // Get the next key-value pair
     // The caller gains ownership of `key_name`
     // The caller must pass 'ptr' which was allocated with allocJson
-    pub(crate) next: unsafe extern "C" fn(
+    next: unsafe extern "C" fn(
         iter: ffi::JSONKeyValuesIterator,
         key_name: *mut *mut ffi::RedisModuleString,
         ptr: ffi::RedisJSONPtr,
     ) -> i32,
     // Free the iterator
-    pub(crate) free: unsafe extern "C" fn(ptr: ffi::JSONKeyValuesIterator),
-    pub(crate) ctx: *mut ffi::RedisModuleCtx,
-    pub(crate) api: &'a RedisJsonApi,
+    free: unsafe extern "C" fn(ptr: ffi::JSONKeyValuesIterator),
+    ctx: *mut ffi::RedisModuleCtx,
+    api: &'a RedisJsonApi,
+    /// Remaining items. Probed once at construction from the source object via
+    /// `getLen` — the iterator handle itself has no length API.
+    remaining: usize,
 }
 
 impl Drop for KeyValuesIterator<'_> {
@@ -41,6 +44,10 @@ impl<'a> KeyValuesIterator<'a> {
     ///
     /// Only available with RedisJSON API v4 and later.
     ///
+    /// `len` is the number of key-value pairs the iterator will yield —
+    /// probed by the caller from the source object before constructing the
+    /// iterator (the handle itself does not expose a length API).
+    ///
     /// # Safety
     ///
     /// 1. `ctx` must be a valid Redis module context.
@@ -49,6 +56,7 @@ impl<'a> KeyValuesIterator<'a> {
         ptr: NonNull<c_void>,
         ctx: *mut ffi::RedisModuleCtx,
         api: &'a RedisJsonApi,
+        len: usize,
     ) -> Self {
         let vtable = api.vtable();
         let next = vtable
@@ -64,6 +72,7 @@ impl<'a> KeyValuesIterator<'a> {
             free,
             ctx,
             api,
+            remaining: len,
         }
     }
 }
@@ -83,10 +92,18 @@ impl<'a> Iterator for KeyValuesIterator<'a> {
 
         if status == ffi::REDISMODULE_OK as i32 {
             let key = RedisString::from_redis_module_string(self.ctx.cast(), key.cast());
+            self.remaining = self.remaining.saturating_sub(1);
             Some((key, value))
         } else {
             debug_assert!(key.is_null());
+            self.remaining = 0;
             None
         }
     }
+
+    fn size_hint(&self) -> (usize, Option<usize>) {
+        (self.remaining, Some(self.remaining))
+    }
 }
+
+impl ExactSizeIterator for KeyValuesIterator<'_> {}

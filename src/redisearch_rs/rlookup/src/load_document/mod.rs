@@ -9,6 +9,12 @@
 
 #![allow(dead_code, reason = "used by later PRs")]
 
+mod hash;
+mod json;
+
+pub use hash::HashFormat;
+pub use json::JsonFormat;
+
 use std::ffi::CStr;
 use std::ops::Deref;
 use std::ptr;
@@ -44,6 +50,22 @@ pub enum LoadFieldError {
     /// Key exists but is not a hash.
     #[error("document key has the wrong type")]
     WrongHashKeyType,
+
+    /// Failed to open the underlying redis key.
+    #[error("Redis API error: {0}")]
+    Redis(redis_module::RedisError),
+
+    /// Failed to serialize JSON value to string.
+    #[error(transparent)]
+    JsonSerialization(#[from] redis_json_api::SerializeError),
+}
+
+// TODO remove once upstream redis_module::RedisError implements std::error::Error
+// <https://github.com/RedisLabsModules/redismodule-rs/pull/467>
+impl From<redis_module::RedisError> for LoadFieldError {
+    fn from(err: redis_module::RedisError) -> Self {
+        Self::Redis(err)
+    }
 }
 
 impl LoadFieldError {
@@ -51,6 +73,7 @@ impl LoadFieldError {
         match self {
             Self::KeyNotFound => QueryErrorCode::NoDoc,
             Self::WrongHashKeyType => QueryErrorCode::RedisKeyType,
+            Self::Redis(_) | Self::JsonSerialization(_) => QueryErrorCode::Generic,
         }
     }
 }
@@ -60,6 +83,14 @@ pub enum LoadAllError {
     /// `RedisModule_OpenKey` / `japi->openKeyWithFlags` returned NULL.
     #[error("document key is missing or has the wrong type")]
     KeyNotFound,
+
+    /// `japi->get(jsonRoot, "$")` returned NULL.
+    #[error("JSON document has no root value")]
+    JsonRootMissing,
+
+    /// Failed to serialize JSON value to string.
+    #[error(transparent)]
+    JsonSerialization(#[from] redis_json_api::SerializeError),
 }
 
 pub struct DocumentLoader<'env, 'a, F: DocumentFormat> {
