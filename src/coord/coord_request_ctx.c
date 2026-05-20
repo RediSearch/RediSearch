@@ -115,11 +115,11 @@ void *CoordRequestCtx_GetRequest(CoordRequestCtx *ctx) {
 }
 
 bool CoordRequestCtx_TimedOut(CoordRequestCtx *ctx) {
-  return atomic_load_explicit(&ctx->timedOut, memory_order_acquire);
+  return atomic_load_explicit(&ctx->timedOut, memory_order_relaxed);
 }
 
 void CoordRequestCtx_SetTimedOut(CoordRequestCtx *ctx) {
-  atomic_store_explicit(&ctx->timedOut, true, memory_order_release);
+  atomic_store_explicit(&ctx->timedOut, true, memory_order_relaxed);
   // Also propagate to the underlying request if set
   if (ctx->type == COMMAND_HYBRID) {
     if (ctx->hreq) HybridRequest_SetTimedOut(ctx->hreq);
