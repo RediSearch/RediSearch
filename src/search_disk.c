@@ -199,44 +199,13 @@ void SearchDisk_FreeRdbState(RedisSearchDiskRdbState *rdbState) {
 
 // Index API wrappers
 
-// Singly linked list node for the C-side on-commit hooks. Appended in registration
-// order so we can iterate front-to-back when committing.
-typedef struct OnCommitNode {
-    SearchDiskWriteBatchOnCommit on_commit;
-    SearchDiskWriteBatchUserDataFree user_data_free;
-    void *user_data;
-    struct OnCommitNode *next;
-} OnCommitNode;
-
-// C-side wrapper bundling the underlying storage-layer batch handle with the
-// C-owned on-commit hook list. Allocated by `SearchDisk_CreateWriteBatch` and
-// freed by the commit / abort wrappers.
+// Thin C-side wrapper around the storage-layer batch handle. Allocated by
+// `SearchDisk_CreateWriteBatch` and freed by the commit / abort wrappers. The
+// indirection exists so other source files have a stable C-level type to pass
+// around without ever touching the underlying FFI handle directly.
 struct SearchDiskWriteBatch {
     SearchDiskWriteBatchHandle *handle;
-    OnCommitNode *hooks_head;
-    OnCommitNode *hooks_tail;
 };
-
-// Walks the hook list, freeing each node and the wrapper after iterating.
-//
-// `run_on_commit` controls whether each hook's `on_commit` callback should be
-// invoked. Every node's `user_data_free` runs regardless so heap data is
-// always released.
-static void searchDisk_writeBatchDrain(SearchDiskWriteBatch *batch, bool run_on_commit) {
-    OnCommitNode *node = batch->hooks_head;
-    while (node) {
-        OnCommitNode *next = node->next;
-        if (run_on_commit && node->on_commit) {
-            node->on_commit(node->user_data);
-        }
-        if (node->user_data_free) {
-            node->user_data_free(node->user_data);
-        }
-        rm_free(node);
-        node = next;
-    }
-    rm_free(batch);
-}
 
 SearchDiskWriteBatch *SearchDisk_CreateWriteBatch(RedisSearchDiskIndexSpec *index) {
     RS_ASSERT(disk && index);
@@ -252,36 +221,14 @@ SearchDiskWriteBatch *SearchDisk_CreateWriteBatch(RedisSearchDiskIndexSpec *inde
 bool SearchDisk_CommitWriteBatch(SearchDiskWriteBatch *batch) {
     RS_ASSERT(disk && batch);
     bool ok = disk->index.commitWriteBatch(batch->handle);
-    // On success, run each hook then free its `user_data`. On failure, only free
-    // — the in-memory mutations stay pending so they never diverge from disk.
-    // Hooks must be infallible at this point (see `SearchDiskWriteBatchOnCommit`).
-    searchDisk_writeBatchDrain(batch, ok);
+    rm_free(batch);
     return ok;
 }
 
 void SearchDisk_AbortWriteBatch(SearchDiskWriteBatch *batch) {
     RS_ASSERT(disk && batch);
     disk->index.abortWriteBatch(batch->handle);
-    searchDisk_writeBatchDrain(batch, false);
-}
-
-void SearchDisk_WriteBatch_OnCommit(SearchDiskWriteBatch *batch,
-                                    SearchDiskWriteBatchOnCommit on_commit,
-                                    void *user_data,
-                                    SearchDiskWriteBatchUserDataFree user_data_free) {
-    RS_ASSERT(batch);
-    OnCommitNode *node = rm_malloc(sizeof(*node));
-    node->on_commit = on_commit;
-    node->user_data_free = user_data_free;
-    node->user_data = user_data;
-    node->next = NULL;
-
-    if (batch->hooks_tail) {
-        batch->hooks_tail->next = node;
-    } else {
-        batch->hooks_head = node;
-    }
-    batch->hooks_tail = node;
+    rm_free(batch);
 }
 
 bool SearchDisk_IndexTerm(RedisSearchDiskIndexSpec *index, SearchDiskWriteBatch *batch, const char *term, size_t termLen, t_docId docId, t_fieldMask fieldMask, uint32_t freq, const uint8_t *offsets, size_t offsetsLen) {

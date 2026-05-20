@@ -31,102 +31,6 @@ extern RedisModuleCtx *RSDummyContext;
 
 #include <unistd.h>
 
-// Hook data carrying the per-document mutations that must run only after a
-// successful disk-batch commit (doc-id metadata, scoring stats, GC notify).
-// Allocated with `rm_malloc` and freed via `freeAssignIdsWriteCommitData`.
-typedef struct {
-  RedisModuleCtx *redisCtx;
-  RedisModuleString *docKey;
-  IndexSpec *spec;
-  t_docId docId;
-  uint32_t oldDocLen;  // > 0 when this insert replaces an existing doc
-  uint32_t totalFreq;  // new document length to add to totalDocsLen
-} AssignIdsWriteCommitData;
-
-static void freeAssignIdsWriteCommitData(void *user_data) {
-  rm_free(user_data);
-}
-
-// Hook data for the deferred fulltext term-trie / suffix-trie updates. The hook
-// re-walks `aCtx->fwIdx` (still alive until `AddDocumentCtx_Free`) so we don't
-// have to snapshot per-term state at staging time.
-typedef struct {
-  IndexSpec *spec;
-  RSAddDocumentCtx *aCtx;
-} WriteCurEntriesWriteCommitData;
-
-static void freeWriteCurEntriesWriteCommitData(void *user_data) {
-  rm_free(user_data);
-}
-
-// Post-commit: register every staged term in the index-wide terms trie and
-// (where applicable) the suffix trie, then publish the per-field "docs indexed"
-// global stat. Keeping this paired with the staged inverted-index writes means
-// the term trie never advertises a term that did not actually reach disk.
-static void onCommit_WriteCurEntries(void *user_data) {
-  WriteCurEntriesWriteCommitData *data = user_data;
-  IndexSpec *spec = data->spec;
-  RSAddDocumentCtx *aCtx = data->aCtx;
-
-  size_t prevNumTerms = spec->stats.scoring.numTerms;
-
-  ForwardIndexIterator it = ForwardIndex_Iterate(aCtx->fwIdx);
-  ForwardIndexEntry *entry = ForwardIndexIterator_Next(&it);
-  while (entry != NULL) {
-    IndexSpec_AddTerm(spec, entry->term, entry->len);
-
-    if (spec->suffixMask & entry->fieldMask
-        && entry->term[0] != STEM_PREFIX
-        && entry->term[0] != PHONETIC_PREFIX
-        && entry->term[0] != SYNONYM_PREFIX_CHAR
-        && strlen(entry->term) != 0) {
-      addSuffixTrie(spec->suffix, entry->term, entry->len);
-    }
-
-    entry = ForwardIndexIterator_Next(&it);
-  }
-
-  FieldsGlobalStats_UpdateFieldDocsIndexed(INDEXFLD_T_FULLTEXT,
-                                           spec->stats.scoring.numTerms - prevNumTerms);
-}
-
-// Post-commit: stamp the Redis-side `key -> docId` mapping and apply the scoring
-// stats that pair with the staged doc-table write.
-//
-// `DocIdMeta_Set` only fails when `RedisModule_HashSet` does (OOM or otherwise
-// fundamentally-broken Redis). At that point the disk already holds the new doc
-// and the module has no clean way to recover — any cleanup we attempt
-// (`SearchDisk_DeleteDocumentById`, stats rollback) might itself fail and leave
-// the in-memory and on-disk views permanently inconsistent. Crash loudly
-// instead so the operator sees the failure and the server restarts into a
-// well-defined state from the WAL.
-static void onCommit_AssignIds(void *user_data) {
-  AssignIdsWriteCommitData *data = user_data;
-
-  int rc = DocIdMeta_Set(data->redisCtx, data->docKey, data->spec->specId, data->docId);
-  RS_LOG_ASSERT_ALWAYS(rc == REDISMODULE_OK,
-                       "DocIdMeta_Set failed after a successful disk commit");
-
-  bool updated = false;
-  if (data->oldDocLen > 0) {
-    RS_ASSERT(data->spec->stats.scoring.numDocuments > 0);
-    data->spec->stats.scoring.numDocuments--;
-    RS_ASSERT(data->spec->stats.scoring.totalDocsLen >= data->oldDocLen);
-    data->spec->stats.scoring.totalDocsLen -= data->oldDocLen;
-    updated = true;
-  }
-  data->spec->stats.scoring.totalDocsLen += data->totalFreq;
-  ++data->spec->stats.scoring.numDocuments;
-
-  if (data->spec->gc) {
-    if (updated) {
-      GCContext_OnUpdate(data->spec->gc);
-    } else {
-      GCContext_OnWrite(data->spec->gc);
-    }
-  }
-}
-
 static void writeIndexEntry(IndexSpec *spec, InvertedIndex *idx, ForwardIndexEntry *entry) {
   size_t sz = InvertedIndex_WriteForwardIndexEntry(idx, entry);
 
@@ -209,11 +113,13 @@ static void writeCurEntries(RSAddDocumentCtx *aCtx, RedisSearchCtx *ctx) {
         offsets = VVW_GetByteData(entry->vw);
         offsetsLen = VVW_GetByteLength(entry->vw);
       }
-      // Stage the inverted-index write only. The matching term-trie /
-      // suffix-trie updates and the per-field "docs indexed" stat are deferred
-      // to the on-commit hook registered after this loop so they fire only
-      // once the batch reaches disk.
-      SearchDisk_IndexTerm(spec->diskSpec, aCtx->diskBatch, entry->term, entry->len, aCtx->doc->docId, entry->fieldMask, entry->freq, offsets, offsetsLen);
+      // Stage the inverted-index write on the per-document batch and apply the
+      // matching term-trie update eagerly. If the commit later fails the doc-id
+      // is added to `deleted_ids` by `Indexer_Process`, which causes the term
+      // trie / suffix trie to filter the entry out of query results.
+      if (SearchDisk_IndexTerm(spec->diskSpec, aCtx->diskBatch, entry->term, entry->len, aCtx->doc->docId, entry->fieldMask, entry->freq, offsets, offsetsLen)) {
+        IndexSpec_AddTerm(spec, entry->term, entry->len);
+      }
     } else {
       bool isNew;
       InvertedIndex *invidx = Redis_OpenInvertedIndex(ctx->spec, entry->term, entry->len, 1, &isNew);
@@ -225,35 +131,21 @@ static void writeCurEntries(RSAddDocumentCtx *aCtx, RedisSearchCtx *ctx) {
         RS_LOG_ASSERT(entry->docId, "docId should not be 0");
         writeIndexEntry(spec, invidx, entry);
       }
+    }
 
-      if (spec->suffixMask & entry->fieldMask
-          && entry->term[0] != STEM_PREFIX
-          && entry->term[0] != PHONETIC_PREFIX
-          && entry->term[0] != SYNONYM_PREFIX_CHAR
-          && strlen(entry->term) != 0) {
-        addSuffixTrie(spec->suffix, entry->term, entry->len);
-      }
+    if (spec->suffixMask & entry->fieldMask
+        && entry->term[0] != STEM_PREFIX
+        && entry->term[0] != PHONETIC_PREFIX
+        && entry->term[0] != SYNONYM_PREFIX_CHAR
+        && strlen(entry->term) != 0) {
+      addSuffixTrie(spec->suffix, entry->term, entry->len);
     }
 
     entry = ForwardIndexIterator_Next(&it);
   }
 
-  if (spec->diskSpec) {
-    if (aCtx->diskBatch) {
-      // Pair the staged term writes with their in-memory bookkeeping. The hook
-      // re-walks `fwIdx` (still alive until `AddDocumentCtx_Free`) so we don't
-      // have to snapshot per-term state at staging time.
-      WriteCurEntriesWriteCommitData *hook_data = rm_malloc(sizeof(*hook_data));
-      hook_data->spec = spec;
-      hook_data->aCtx = aCtx;
-      SearchDisk_WriteBatch_OnCommit(aCtx->diskBatch, onCommit_WriteCurEntries,
-                                     hook_data, freeWriteCurEntriesWriteCommitData);
-    }
-  } else {
-    // Memory mode applies updates eagerly above, so we can publish the global
-    // stat directly. The disk path publishes it from `onCommit_WriteCurEntries`.
-    FieldsGlobalStats_UpdateFieldDocsIndexed(INDEXFLD_T_FULLTEXT, spec->stats.scoring.numTerms - prevNumTerms);
-  }
+  // Update the number of terms added for metrics
+  FieldsGlobalStats_UpdateFieldDocsIndexed(INDEXFLD_T_FULLTEXT, spec->stats.scoring.numTerms - prevNumTerms);
 }
 
 /** Assigns a document ID to a single document. Handles only RAM index */
@@ -347,13 +239,10 @@ static void doAssignIds(RSAddDocumentCtx *cur, RedisSearchCtx *ctx) {
         : 0;
 
       if (docId == 0) {
-        // Either `SearchDisk_CreateWriteBatch` returned NULL (so `cur->diskBatch`
-        // is NULL and the ternary short-circuited to 0) or `SearchDisk_PutDocument`
-        // itself failed. Both indicate the storage layer rejected the operation
-        // (typically OOM / disk-init failure). Surface the failure via
-        // `aCtx->status` and let the batch (if any was opened) be aborted by
-        // `AddDocumentCtx_Free` — no in-memory side effects need rolling back
-        // since they are now all gated on a successful commit.
+        // Either `SearchDisk_CreateWriteBatch` returned NULL or `SearchDisk_PutDocument`
+        // itself failed (typically OOM / disk-init failure). Surface the failure
+        // via `cur->status` and let `AddDocumentCtx_Free` abort the batch (if
+        // any) as a safety net.
         const char *reason = cur->diskBatch
                                  ? "Failed to stage document on disk"
                                  : "Failed to open disk write batch";
@@ -367,21 +256,34 @@ static void doAssignIds(RSAddDocumentCtx *cur, RedisSearchCtx *ctx) {
 
       cur->doc->docId = docId;
 
-      // Pair the staged put with an on-commit hook that runs the matching
-      // in-memory mutations (Redis-side `key -> docId` map, scoring stats, GC
-      // counters) only if the batch reaches disk. On abort or commit failure
-      // none of these run, keeping the in-memory view consistent with disk.
-      AssignIdsWriteCommitData *hook_data = rm_malloc(sizeof(*hook_data));
-      hook_data->redisCtx = ctx->redisCtx;
-      hook_data->docKey = cur->doc->docKey;
-      hook_data->spec = spec;
-      hook_data->docId = docId;
-      hook_data->oldDocLen = oldLen;
-      hook_data->totalFreq = cur->fwIdx->totalFreq;
-      SearchDisk_WriteBatch_OnCommit(cur->diskBatch, onCommit_AssignIds, hook_data,
-                                     freeAssignIdsWriteCommitData);
-      // Skip the trailing GC notify — it runs from `onCommit_AssignIds` instead.
-      continue;
+      // Apply the in-memory mutations that pair with the staged disk writes
+      // eagerly. If the eventual `SearchDisk_CommitWriteBatch` fails,
+      // `Indexer_Process` marks this doc-id as deleted via
+      // `SearchDisk_DeleteDocumentById`, which puts it into `deleted_ids` so
+      // queries against the term / tag / vector indexes filter it out.
+
+      // Store docId in key metadata for fast lookup.
+      if (DocIdMeta_Set(ctx->redisCtx, cur->doc->docKey, spec->specId, docId) != REDISMODULE_OK) {
+        // Catastrophic: Redis cannot record the key->docId mapping. The disk
+        // batch is still uncommitted and will be aborted by `AddDocumentCtx_Free`.
+        if (!QueryError_HasError(&cur->status)) {
+          QueryError_SetError(&cur->status, QUERY_ERROR_CODE_GENERIC,
+                              "Failed to record doc-id metadata");
+        }
+        cur->stateFlags |= ACTX_F_ERRORED;
+        continue;
+      }
+
+      if (oldLen > 0) {
+        // We deleted a document in the above call, update the stats accordingly
+        RS_ASSERT(spec->stats.scoring.numDocuments > 0);
+        spec->stats.scoring.numDocuments--;
+        RS_ASSERT(spec->stats.scoring.totalDocsLen >= oldLen);
+        spec->stats.scoring.totalDocsLen -= oldLen;
+        updated = true;
+      }
+      spec->stats.scoring.totalDocsLen += cur->fwIdx->totalFreq;
+      ++spec->stats.scoring.numDocuments;
     } else {
       RS_LOG_ASSERT(!cur->doc->docId, "docId must be 0");
       RSDocumentMetadata *md = makeDocumentId(ctx->redisCtx, cur, spec,
@@ -462,22 +364,12 @@ static void reopenCb(void *arg) {}
   (((actx)->stateFlags & (ACTX_F_OTHERINDEXED | ACTX_F_TEXTINDEXED)) == \
    (ACTX_F_OTHERINDEXED | ACTX_F_TEXTINDEXED))
 
-// In-memory side-index writes for the "doc exists" and "field missing" markers.
-// Split out from `writeExistingDocs` / `writeMissingFieldDocs` so the same body
-// can run eagerly in memory mode and from an on-commit hook in disk mode.
-static void writeExistingDocs_apply(IndexSpec *spec, t_docId docId) {
-  if (!spec->existingDocs) {
-    size_t index_size;
-    spec->existingDocs = NewInvertedIndex(Index_DocIdsOnly, &index_size);
-    spec->stats.invertedSize += index_size;
-  }
-  RSIndexResult rec = {.data.tag = RSResultData_Virtual, .docId = docId, .freq = 0,
-                       .metrics = MetricsVec_New()};
-  spec->stats.invertedSize += InvertedIndex_WriteEntryGeneric(spec->existingDocs, &rec);
-}
-
-static void writeMissingFieldDocs_apply(IndexSpec *spec, Document *doc,
-                                        arrayof(FieldExpiration) sortedFieldWithExpiration) {
+// Index missing field docs.
+// Add field names to missingFieldDict if it is missing in the document
+// and add the doc to its corresponding inverted index
+static void writeMissingFieldDocs(RSAddDocumentCtx *aCtx, RedisSearchCtx *sctx, arrayof(FieldExpiration) sortedFieldWithExpiration) {
+  Document *doc = aCtx->doc;
+  IndexSpec *spec = sctx->spec;
   // We use a dictionary as a set, to keep all the fields that we've seen so far (optimization)
   dict *df_fields_dict = dictCreate(&dictTypeHeapHiddenStrings, NULL);
 
@@ -518,75 +410,17 @@ static void writeMissingFieldDocs_apply(IndexSpec *spec, Document *doc,
     if (iiMissingDocs == NULL) {
       size_t index_size;
       iiMissingDocs = NewInvertedIndex(Index_DocIdsOnly, &index_size);
-      spec->stats.invertedSize += index_size;
+      aCtx->spec->stats.invertedSize += index_size;
       dictAdd(spec->missingFieldDict, (void*)fs->fieldName, iiMissingDocs);
     }
     // Add docId to inverted index
-    RSIndexResult rec = {.data.tag = RSResultData_Virtual, .docId = doc->docId, .freq = 0,
+    t_docId docId = aCtx->doc->docId;
+    RSIndexResult rec = {.data.tag = RSResultData_Virtual, .docId = docId, .freq = 0,
                          .metrics = MetricsVec_New()};
-    spec->stats.invertedSize += InvertedIndex_WriteEntryGeneric(iiMissingDocs, &rec);
+    aCtx->spec->stats.invertedSize += InvertedIndex_WriteEntryGeneric(iiMissingDocs, &rec);
   }
   dictReleaseIterator(iter);
   dictRelease(df_fields_dict);
-}
-
-// Hook data + on-commit shells for the side-index writes above. In disk mode the
-// writes are deferred to commit so an aborted or failed-to-commit batch does not
-// leave phantom doc IDs in `existingDocs` / `missingFieldDict`.
-
-typedef struct {
-  IndexSpec *spec;
-  t_docId docId;
-} WriteExistingDocsWriteCommitData;
-
-static void freeWriteExistingDocsWriteCommitData(void *user_data) {
-  rm_free(user_data);
-}
-
-static void onCommit_WriteExistingDocs(void *user_data) {
-  WriteExistingDocsWriteCommitData *data = user_data;
-  writeExistingDocs_apply(data->spec, data->docId);
-}
-
-typedef struct {
-  IndexSpec *spec;
-  Document *doc;
-  arrayof(FieldExpiration) sortedFieldWithExpiration;
-} WriteMissingFieldDocsWriteCommitData;
-
-static void freeWriteMissingFieldDocsWriteCommitData(void *user_data) {
-  rm_free(user_data);
-}
-
-static void onCommit_WriteMissingFieldDocs(void *user_data) {
-  WriteMissingFieldDocsWriteCommitData *data = user_data;
-  writeMissingFieldDocs_apply(data->spec, data->doc, data->sortedFieldWithExpiration);
-}
-
-// Index missing field docs.
-// Add field names to missingFieldDict if it is missing in the document
-// and add the doc to its corresponding inverted index
-static void writeMissingFieldDocs(RSAddDocumentCtx *aCtx, RedisSearchCtx *sctx, arrayof(FieldExpiration) sortedFieldWithExpiration) {
-  IndexSpec *spec = sctx->spec;
-
-  if (spec->diskSpec) {
-    // Disk mode: defer to an on-commit hook so the in-memory `missingFieldDict`
-    // and `invertedSize` accounting only advance when the batch reaches disk.
-    // If staging already failed and no batch is open, skip entirely — the doc
-    // isn't going to land on disk either.
-    if (aCtx->stateFlags & ACTX_F_ERRORED || !aCtx->diskBatch) {
-      return;
-    }
-    WriteMissingFieldDocsWriteCommitData *hook_data = rm_malloc(sizeof(*hook_data));
-    hook_data->spec = spec;
-    hook_data->doc = aCtx->doc;
-    hook_data->sortedFieldWithExpiration = sortedFieldWithExpiration;
-    SearchDisk_WriteBatch_OnCommit(aCtx->diskBatch, onCommit_WriteMissingFieldDocs,
-                                   hook_data, freeWriteMissingFieldDocsWriteCommitData);
-    return;
-  }
-
-  writeMissingFieldDocs_apply(spec, aCtx->doc, sortedFieldWithExpiration);
 }
 
 // Index the doc in the existing docs inverted index
@@ -594,21 +428,17 @@ static void writeExistingDocs(RSAddDocumentCtx *aCtx, RedisSearchCtx *sctx) {
   if (!sctx->spec->rule || !sctx->spec->rule->index_all) {
     return;
   }
-
-  if (sctx->spec->diskSpec) {
-    // Disk mode: defer to an on-commit hook (see writeMissingFieldDocs).
-    if (aCtx->stateFlags & ACTX_F_ERRORED || !aCtx->diskBatch) {
-      return;
-    }
-    WriteExistingDocsWriteCommitData *hook_data = rm_malloc(sizeof(*hook_data));
-    hook_data->spec = sctx->spec;
-    hook_data->docId = aCtx->doc->docId;
-    SearchDisk_WriteBatch_OnCommit(aCtx->diskBatch, onCommit_WriteExistingDocs,
-                                   hook_data, freeWriteExistingDocsWriteCommitData);
-    return;
+  if (!sctx->spec->existingDocs) {
+    // Create the inverted index if it doesn't exist
+    size_t index_size;
+    aCtx->spec->existingDocs = NewInvertedIndex(Index_DocIdsOnly, &index_size);
+    aCtx->spec->stats.invertedSize += index_size;
   }
 
-  writeExistingDocs_apply(sctx->spec, aCtx->doc->docId);
+  t_docId docId = aCtx->doc->docId;
+  RSIndexResult rec = {.data.tag = RSResultData_Virtual, .docId = docId, .freq = 0,
+                       .metrics = MetricsVec_New()};
+  aCtx->spec->stats.invertedSize += InvertedIndex_WriteEntryGeneric(sctx->spec->existingDocs, &rec);
 }
 
 /**
@@ -678,15 +508,20 @@ static void Indexer_Process(RSAddDocumentCtx *aCtx) {
   }
 
   // Finalize the per-document disk write batch. On the happy path this flushes
-  // the staged doc-table / inverted-index / tag writes atomically and runs the
-  // registered on-commit hooks. If the document already errored anywhere
-  // upstream, we leave the batch open — `AddDocumentCtx_Free` aborts it as a
-  // safety net, which keeps the cleanup logic in one place instead of three.
+  // the staged doc-table / inverted-index / tag writes atomically. If the
+  // document already errored upstream we leave the batch for
+  // `AddDocumentCtx_Free` to abort.
+  //
+  // On commit failure we mark the doc-id as deleted via
+  // `SearchDisk_DeleteDocumentById`: the in-memory term / tag / suffix tries,
+  // existing/missing-field index, vector index, and scoring stats were all
+  // applied eagerly and now reference a doc that never reached disk. Adding
+  // the id to `deleted_ids` is enough to make query iterators filter it out
+  // (and GC will eventually reclaim the trie entries on its own schedule).
   if (aCtx->diskBatch && !(aCtx->stateFlags & ACTX_F_ERRORED)) {
     if (!SearchDisk_CommitWriteBatch(aCtx->diskBatch)) {
-      // Tell the reply path that nothing was persisted. Without setting
-      // `aCtx->status`, `replyCallback` (which keys off `QueryError_HasError`)
-      // would still return OK to the client even though no writes reached disk.
+      uint32_t oldLen = 0;
+      SearchDisk_DeleteDocumentById(ctx.spec->diskSpec, aCtx->doc->docId, &oldLen);
       if (!QueryError_HasError(&aCtx->status)) {
         QueryError_SetError(&aCtx->status, QUERY_ERROR_CODE_GENERIC,
                             "Failed to commit disk write batch");

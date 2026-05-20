@@ -24,7 +24,6 @@
 #include "query_term_ffi.h"
 #include "search_disk.h"
 #include "spec.h"
-#include "info/global_stats.h"
 
 extern RedisModuleCtx *RSDummyContext;
 
@@ -216,71 +215,29 @@ static inline size_t tagIndex_Put(TagIndex *idx, const char *value, size_t len, 
   return InvertedIndex_WriteEntryGeneric(iv, &rec) + sz;
 }
 
-// Hook data for the deferred disk-mode tag-trie updates. Holds borrowed
-// references to `idx`, `values`, and `stats`; the caller of `TagIndex_Index`
-// must keep all three alive until the paired batch is committed or aborted.
-typedef struct {
-  TagIndex *idx;
-  const char **values;
-  size_t numValues;
-  IndexStats *stats;
-} TagIndexWriteCommitData;
-
-static void freeTagIndexWriteCommitData(void *user_data) {
-  rm_free(user_data);
-}
-
-// Post-commit: publish the tag tokens in the in-memory tag enumeration trie
-// (and the suffix trie when enabled), bump the per-spec record counter, and
-// account for this doc in the global "tag docs indexed" metric. Kept paired
-// with the staged disk writes so aborts / commit failures leave none of these
-// counters advanced for a document that did not actually reach disk.
-//
-// `IndexerBulkAdd` skips the eager `FieldsGlobalStats_UpdateFieldDocsIndexed`
-// call for disk-mode tag fields specifically so the deferred update here is
-// the only one that fires.
-static void onCommit_TagIndex(void *user_data) {
-  TagIndexWriteCommitData *data = user_data;
-
-  for (size_t ii = 0; ii < data->numValues; ++ii) {
-    const char *tok = data->values[ii];
-    if (tok) {
-      TrieMap_Add(data->idx->values, tok, strlen(tok), NULL, NULL);
-      if (data->idx->suffix && (*tok != '\0')) {
-        addSuffixTrieMap(data->idx->suffix, tok, strlen(tok));
-      }
-    }
-  }
-
-  data->stats->numRecords++;
-  FieldsGlobalStats_UpdateFieldDocsIndexed(INDEXFLD_T_TAG, 1);
-}
-
-/* Index a vector of pre-processed tags for a docId.
- *
- * In disk mode the caller must keep `idx`, `values`, and `stats` alive until
- * `batch` is committed or aborted: the in-memory tag-trie / suffix-trie / stats
- * updates that pair with the staged disk writes are deferred to an on-commit
- * hook on the batch. */
+/* Index a vector of pre-processed tags for a docId */
 bool TagIndex_Index(RedisModuleCtx *ctx, TagIndex *idx, SearchDiskWriteBatch *batch, const char **values, size_t n, t_docId docId, IndexStats *stats) {
   if (!values) return true;
 
   if (idx->diskSpec) {
-    // DISK MODE: stage the writes; the trie updates and numRecords++ fire from
-    // the on-commit hook registered below so they never advertise tags that
-    // didn't reach disk.
+    // DISK MODE: Index to disk and add tags to TrieMap with NULL sentinel.
+    // The trie updates are applied eagerly; if the eventual commit fails the
+    // doc-id is added to `deleted_ids` by `Indexer_Process`, which causes
+    // query iterators to filter out the orphaned trie entries.
     if (!SearchDisk_IndexTags(ctx, idx->diskSpec, batch, values, n, docId, idx->fieldIndex)) {
       return false;
     }
 
-    if (batch) {
-      TagIndexWriteCommitData *hook_data = rm_malloc(sizeof(*hook_data));
-      hook_data->idx = idx;
-      hook_data->values = values;
-      hook_data->numValues = n;
-      hook_data->stats = stats;
-      SearchDisk_WriteBatch_OnCommit(batch, onCommit_TagIndex, hook_data,
-                                     freeTagIndexWriteCommitData);
+    // Also populate TrieMap with NULL sentinels for tag enumeration
+    for (size_t ii = 0; ii < n; ++ii) {
+      const char *tok = values[ii];
+      if (tok) {
+        TrieMap_Add(idx->values, tok, strlen(tok), NULL, NULL);
+
+        if (idx->suffix && (*tok != '\0')) {
+          addSuffixTrieMap(idx->suffix, tok, strlen(tok));
+        }
+      }
     }
   } else {
     // MEMORY MODE
@@ -294,9 +251,9 @@ bool TagIndex_Index(RedisModuleCtx *ctx, TagIndex *idx, SearchDiskWriteBatch *ba
         }
       }
     }
-    stats->numRecords++;
   }
 
+  stats->numRecords++;
   return true;
 }
 

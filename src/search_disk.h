@@ -17,29 +17,17 @@
 
 #include <stdbool.h>
 
-// C-side wrapper around an underlying storage-layer write batch. Adds a list of
-// on-commit hooks owned by the C side on top of the opaque storage handle.
+// C-side wrapper around an underlying storage-layer write batch.
 //
 // Defined in `search_disk.c` (opaque to other translation units); created by
 // `SearchDisk_CreateWriteBatch` and consumed by `SearchDisk_CommitWriteBatch` or
-// `SearchDisk_AbortWriteBatch`. Hooks are registered via
-// `SearchDisk_WriteBatch_OnCommit`.
-typedef struct SearchDiskWriteBatch SearchDiskWriteBatch;
-
-// Post-commit callback registered via `SearchDisk_WriteBatch_OnCommit`. Invoked
-// after a successful `SearchDisk_CommitWriteBatch`, in registration order, with
-// the `user_data` pointer that was paired with it at registration time. Skipped
-// on abort or commit failure.
+// `SearchDisk_AbortWriteBatch`.
 //
-// Hooks must be infallible — anything that can fail belongs before the commit
-// (poisoning the batch on failure) or as a `RS_LOG_ASSERT_ALWAYS` inside the
-// hook if a failure here would mean the module cannot continue.
-typedef void (*SearchDiskWriteBatchOnCommit)(void *user_data);
-
-// Destructor for the `user_data` paired with `SearchDisk_WriteBatch_OnCommit`.
-// Runs after the corresponding `on_commit` on success, or by itself on abort /
-// commit failure. May be NULL when no cleanup is required.
-typedef void (*SearchDiskWriteBatchUserDataFree)(void *user_data);
+// In-memory state updates that pair with the staged disk writes are applied
+// eagerly by the OSS-side indexing flow. If the commit later fails, callers
+// recover by marking the doc-id deleted via `SearchDisk_DeleteDocumentById` so
+// queries filter it out via `deleted_ids`.
+typedef struct SearchDiskWriteBatch SearchDiskWriteBatch;
 
 __attribute__((weak))
 bool SearchDisk_HasAPI();
@@ -252,35 +240,11 @@ bool SearchDisk_CommitWriteBatch(SearchDiskWriteBatch *batch);
 /**
  * @brief Discard all writes staged on `batch` without touching the database.
  *
- * Consumes `batch`. Registered post-commit hooks are skipped (their
- * `on_commit` callbacks never run); their `user_data_free` destructors still
- * run so the caller's owned data is released.
+ * Consumes `batch`.
  *
  * @param batch Pointer returned by `SearchDisk_CreateWriteBatch`
  */
 void SearchDisk_AbortWriteBatch(SearchDiskWriteBatch *batch);
-
-/**
- * @brief Register an action to run if and only if `batch` commits successfully.
- *
- * Pairs an in-memory mutation with the staged disk writes so the in-memory state
- * can be applied after — and only after — the writes reach the database. On
- * commit, `on_commit(user_data)` runs, then `user_data_free(user_data)`. On abort
- * or commit failure, only `user_data_free(user_data)` runs. Either callback may
- * be NULL.
- *
- * The list is owned entirely by the C side; the underlying storage layer never
- * sees the callbacks.
- *
- * @param batch          Open batch returned by `SearchDisk_CreateWriteBatch`
- * @param on_commit      Mutation to apply on commit. May be NULL.
- * @param user_data      Opaque pointer passed to both callbacks. May be NULL.
- * @param user_data_free Optional destructor for `user_data`. May be NULL.
- */
-void SearchDisk_WriteBatch_OnCommit(SearchDiskWriteBatch *batch,
-                                    SearchDiskWriteBatchOnCommit on_commit,
-                                    void *user_data,
-                                    SearchDiskWriteBatchUserDataFree user_data_free);
 
 /**
  * @brief Delete a document by its doc ID directly, removing it from the doc table and marking its ID as deleted
