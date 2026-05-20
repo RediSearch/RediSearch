@@ -102,7 +102,7 @@ unsafe fn get_optional_non_optimized_iterator_child(
     let wrapper =
         unsafe { RQEIteratorWrapper::<Optional<CRQEIterator>>::ref_from_header_ptr(header) };
     wrapper
-        .inner
+        .inner()
         .child()
         .map(|p| p.as_ref() as *const _)
         .unwrap_or(std::ptr::null())
@@ -132,7 +132,7 @@ unsafe fn get_optional_optimized_iterator_child(
     let wrapper =
         unsafe { RQEIteratorWrapper::<OptionalOptimizedFfi>::ref_from_header_ptr(header) };
     wrapper
-        .inner
+        .inner()
         .child()
         .map(|p| p.as_ref() as *const _)
         .unwrap_or(std::ptr::null())

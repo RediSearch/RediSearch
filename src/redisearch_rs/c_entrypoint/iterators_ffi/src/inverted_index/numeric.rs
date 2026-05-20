@@ -15,9 +15,53 @@ use inverted_index::NumericFilter;
 use query_node_type::QueryNodeType;
 use rqe_iterator_type::IteratorType;
 use rqe_iterators::{
-    IteratorsConfig, NumericIteratorVariant, c2rust::CRQEIterator, interop::RQEIteratorWrapper,
-    open_numeric_or_geo_index,
+    IteratorsConfig, NumericIteratorVariant, RQEIteratorBoxed, RQESuspendedIterator,
+    c2rust::CRQEIterator, interop::RQEIteratorWrapper, open_numeric_or_geo_index,
 };
+
+/// Suspended counterpart of [`NumericIterator`] — produced by
+/// [`RQEIteratorBoxed::suspend`] and consumed by [`RQESuspendedIterator::resume`].
+pub(super) struct NumericIteratorSuspended {
+    filter: Option<NonNull<NumericFilter>>,
+    iterator: <NumericIteratorVariant<'static> as RQEIteratorBoxed<'static>>::Suspended,
+}
+
+impl<'index> RQEIteratorBoxed<'index> for NumericIterator<'index> {
+    type Suspended = NumericIteratorSuspended;
+
+    fn suspend(self: Box<Self>) -> Box<Self::Suspended> {
+        let Self { filter, iterator } = *self;
+        Box::new(NumericIteratorSuspended {
+            filter,
+            iterator: *<NumericIteratorVariant<'index> as RQEIteratorBoxed<'index>>::suspend(
+                Box::new(iterator),
+            ),
+        })
+    }
+}
+
+impl RQESuspendedIterator for NumericIteratorSuspended {
+    type Resumed<'a> = NumericIterator<'a>;
+
+    fn resume<'a>(
+        self: Box<Self>,
+        guard: &'a index_spec::IndexSpecReadGuard<'a>,
+    ) -> (Box<Self::Resumed<'a>>, ffi::ValidateStatus) {
+        let Self { filter, iterator } = *self;
+        let (resumed, status) = <_ as RQESuspendedIterator>::resume(Box::new(iterator), guard);
+        (
+            Box::new(NumericIterator {
+                filter,
+                iterator: *resumed,
+            }),
+            status,
+        )
+    }
+
+    fn last_doc_id(&self) -> u64 {
+        self.iterator.last_doc_id()
+    }
+}
 
 /// Wrapper around [`NumericIteratorVariant`].
 /// Needed to keep the `filter` pointer around so it can be returned in
@@ -148,7 +192,7 @@ pub unsafe extern "C" fn NumericInvIndIterator_GetNumericFilter(
     // SAFETY: The filter is pinned and has a stable address for the lifetime of the iterator
     // Both types have the same #[repr(C)] layout so we can cast the pointer
     wrapper
-        .inner
+        .inner()
         .filter
         .map(|f| f.as_ptr() as *const ffi::NumericFilter)
         .unwrap_or(std::ptr::null())
@@ -174,7 +218,7 @@ pub unsafe extern "C" fn NumericInvIndIterator_GetProfileRangeMin(
     // SAFETY: 1
     let wrapper =
         unsafe { RQEIteratorWrapper::<NumericIterator<'static>>::ref_from_header_ptr(it.cast()) };
-    wrapper.inner.range_min()
+    wrapper.inner().range_min()
 }
 
 /// Gets the maximum range value for profiling a numeric iterator.
@@ -197,7 +241,7 @@ pub unsafe extern "C" fn NumericInvIndIterator_GetProfileRangeMax(
     // SAFETY: 1
     let wrapper =
         unsafe { RQEIteratorWrapper::<NumericIterator<'static>>::ref_from_header_ptr(it.cast()) };
-    wrapper.inner.range_max()
+    wrapper.inner().range_max()
 }
 
 ///
