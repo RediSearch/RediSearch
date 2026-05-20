@@ -110,7 +110,13 @@ DFAFilter *NewDFAFilter(rune *str, size_t len, int maxDist, int prefixMode);
  * it is the minimum cost reached among all accept states encountered along
  * the consumed-input prefix of the term. For prefix-mode FUZZY ranking this
  * is the desired metric (FT.SUGGET FUZZY scoring depends on it via
- * `score *= exp(-2 * dist)`). */
+ * `score *= exp(-2 * dist)`).
+ *
+ * Examples (maxDist=2):
+ *   non-prefix: query "ab", term "abc" → *matchCtx=0 (exact accept at "ab"),
+ *               Levenshtein("ab","abc")=1.
+ *   prefix:     query "abc", term "abzzz" → *matchCtx=1 (cost at "ab" accept,
+ *               carried across NULL frames), Levenshtein("abc","abzzz")=4. */
 // FilterCode FilterFunc(rune b, void *ctx, int *matched, void *matchCtx);
 FilterCode FoldingFilterFunc(rune b, void *ctx, int *matched, void *matchCtx);
 FilterCode LoweringFilterFunc(rune b, void *ctx, int *matched, void *matchCtx);
