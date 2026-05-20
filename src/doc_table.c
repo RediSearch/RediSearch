@@ -251,13 +251,14 @@ static inline int64_t expirationTimePointToNs(t_expirationTimePoint t) {
 // pass a non-empty `sortedFieldWithExpiration` (e.g. `Indexer_Add`) still
 // hold the write lock — the atomic store is a no-op in that case but keeps
 // a single source of truth for the field write.
-void DocTable_UpdateExpiration(DocTable *t, RSDocumentMetadata* dmd, t_expirationTimePoint ttl, arrayof(FieldExpiration) sortedFieldWithExpiration) {
+void DocTable_UpdateExpiration(DocTable *t, RSDocumentMetadata* dmd, t_expirationTimePoint ttl, FieldExpirations sortedFieldWithExpiration) {
   __atomic_store_n(&dmd->expirationTimeNs, expirationTimePointToNs(ttl), __ATOMIC_RELAXED);
-  if (array_len(sortedFieldWithExpiration) > 0) {
+  if (FieldExpirations_Len(&sortedFieldWithExpiration) > 0) {
+
     TimeToLiveTable_VerifyInit(&t->ttl, t->maxSize);
     TimeToLiveTable_Add(t->ttl, dmd->id, sortedFieldWithExpiration);
   } else {
-    array_free(sortedFieldWithExpiration);
+    FieldExpirations_Free(&sortedFieldWithExpiration);
   }
 }
 

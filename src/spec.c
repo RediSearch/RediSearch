@@ -4314,10 +4314,13 @@ void Indexes_UpdateMatchingDocExpiration(RedisModuleCtx *ctx, RedisModuleString 
     if (cdmd) {
       // Reuse the canonical setter so the doc-level write goes through the
       // same path as Indexer_Add (indexer.c) and the timespec->ns conversion
-      // assertion in expirationTimePointToNs runs. Pass NULL for the field
-      // expirations: EXPIRE/PERSIST do not affect HEXPIRE state, so the
-      // existing per-spec TTL table entries must be preserved untouched.
-      DocTable_UpdateExpiration(&spec->docs, (RSDocumentMetadata *)cdmd, ttl, NULL);
+      // assertion in expirationTimePointToNs runs. Pass the NULL-sentinel
+      // ThinVec for the field expirations: EXPIRE/PERSIST do not affect
+      // HEXPIRE state, so the existing per-spec TTL table entries must be
+      // preserved untouched (_len() returns 0 on the NULL sentinel and the
+      // else branch in DocTable_UpdateExpiration treats it as "no work").
+      DocTable_UpdateExpiration(&spec->docs, (RSDocumentMetadata *)cdmd, ttl,
+                                FieldExpirations_Empty());
       DMD_Return(cdmd);
     }
     RedisSearchCtx_UnlockSpec(&sctx);

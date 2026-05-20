@@ -114,7 +114,6 @@ fn main() {
         let inverted_index = src.join("inverted_index");
         let vecsim = deps.join("VectorSimilarity").join("src");
         let buffer = src.join("buffer");
-        let ttl_table = src.join("ttl_table");
         let trie = src.join("trie");
         let rmalloc = deps.join("rmalloc");
 
@@ -125,7 +124,6 @@ fn main() {
             inverted_index,
             vecsim,
             buffer,
-            ttl_table,
             trie,
             rmalloc,
         ]
@@ -168,7 +166,10 @@ fn main() {
         src.join("tag_index.h"),
         src.join("trie").join("trie_node.h"),
         src.join("trie").join("trie.h"),
-        src.join("ttl_table").join("ttl_table.h"),
+        src.join("ttl_table.h"),
+        src.join("redisearch_rs")
+            .join("headers")
+            .join("ttl_table.h"),
         src.join("util").join("arr").join("arr.h"),
         src.join("util").join("dict").join("dict.h"),
         src.join("util").join("references.h"),

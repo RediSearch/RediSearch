@@ -1893,6 +1893,7 @@ dependencies = [
  "syn 2.0.117",
  "toml",
  "triemap_ffi",
+ "ttl_table_ffi",
  "types_ffi",
  "value_ffi",
  "varint_ffi",
