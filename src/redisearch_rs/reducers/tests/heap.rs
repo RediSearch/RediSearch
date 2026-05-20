@@ -162,3 +162,61 @@ fn min_max_heap_top_k_under_asc() {
     let drained: Vec<u64> = heap.drain_desc().map(HeapEntry::into_projected).collect();
     assert_eq!(drained, vec![1, 2, 3]);
 }
+
+/// Build owned `Option<SharedValue>`s from `f64`s. `f64::NAN` projects to
+/// `None` so tests can exercise the missing-worst policy.
+fn vals(nums: &[f64]) -> Vec<Option<SharedValue>> {
+    nums.iter()
+        .map(|v| {
+            if v.is_nan() {
+                None
+            } else {
+                Some(SharedValue::new_num(*v))
+            }
+        })
+        .collect()
+}
+
+/// Borrowed view fixture: project owned values into the
+/// `Option<&SharedValue>` shape consumed by [`EntryKey::cmp_candidate`].
+fn cand(owned: &[Option<SharedValue>]) -> Vec<Option<&SharedValue>> {
+    owned.iter().map(|v| v.as_ref()).collect()
+}
+
+// The cases below pin properties unique to `cmp_candidate`. ASC/DESC,
+// missing-worst, and multi-key semantics are owned by `cmp_fields` and
+// covered by the `ord_*` tests above; we do not re-test those here.
+
+#[test]
+fn cmp_candidate_under_asc_returns_greater_when_candidate_is_smaller() {
+    // Orientation contract: cand wins → Greater under "best = max".
+    let worst = key(&[5.0], asc(0));
+    let cand_vals = vals(&[1.0]);
+    assert_eq!(worst.cmp_candidate(cand(&cand_vals)), Ordering::Greater);
+}
+
+#[test]
+fn cmp_candidate_under_desc_returns_greater_when_candidate_is_larger() {
+    // Orientation must be invariant under direction flip.
+    let worst = key(&[1.0], 0);
+    let cand_vals = vals(&[5.0]);
+    assert_eq!(worst.cmp_candidate(cand(&cand_vals)), Ordering::Greater);
+}
+
+#[test]
+fn cmp_candidate_missing_candidate_value_ranks_as_worst() {
+    // Pins that `None` items survive the borrowed-view shim so the
+    // missing-worst branch in `cmp_fields` is reached. Direction-agnostic.
+    let worst = key(&[3.0], asc(0));
+    let cand_vals = vals(&[f64::NAN]);
+    assert_eq!(worst.cmp_candidate(cand(&cand_vals)), Ordering::Less);
+}
+
+#[test]
+fn cmp_candidate_breaks_tie_using_secondary_key_under_mixed_directions() {
+    // Pins iterator-zip alignment across keys: key0 ASC (bit 0 set), key1
+    // DESC (bit 1 clear). Tie on key0, cand wins on key1.
+    let worst = key(&[5.0, 1.0], asc(0));
+    let cand_vals = vals(&[5.0, 9.0]);
+    assert_eq!(worst.cmp_candidate(cand(&cand_vals)), Ordering::Greater);
+}

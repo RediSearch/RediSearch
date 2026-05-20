@@ -44,6 +44,28 @@ impl EntryKey {
             sort_asc_map,
         }
     }
+
+    /// Borrow-only counterpart to [`Ord::cmp`] against `self`.
+    ///
+    /// Returns [`Ordering::Greater`] when `candidate` beats `self`, without
+    /// allocating the owned snapshot or per-key [`SharedValue`] clones that
+    /// [`EntryKey::new`] would incur. Lets [`Storage::insert_entry`] reject
+    /// doomed heap-at-cap candidates with a single borrowed pass.
+    ///
+    /// `candidate` yields one value per sort key, in the same order as
+    /// `self`'s. Missing-worst handling is delegated to [`cmp_fields`].
+    ///
+    /// [`Storage::insert_entry`]: super::storage::Storage::insert_entry
+    pub fn cmp_candidate<'a, I>(&self, candidate: I) -> Ordering
+    where
+        I: IntoIterator<Item = Option<&'a SharedValue>>,
+    {
+        let pairs = candidate
+            .into_iter()
+            .map(|v| v.map(|s| &**s))
+            .zip(self.sort_vals.iter().map(|v| v.as_deref()));
+        cmp_fields(pairs, self.sort_asc_map, None)
+    }
 }
 
 impl PartialEq for EntryKey {

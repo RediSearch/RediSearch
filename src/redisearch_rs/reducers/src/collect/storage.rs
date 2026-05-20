@@ -76,19 +76,25 @@ impl Storage {
         }
     }
 
-    /// Insert an entry under the cap. Two-phase to preserve the
-    /// deferred-projection invariant:
+    /// Insert an entry, honouring the `offset + count` cap.
     ///
-    /// - `sort_vals` is invoked only on the heap path (the array path
-    ///   ignores it).
-    /// - `project` is invoked only when the entry will actually be
-    ///   retained (i.e. on the heap path, only when the candidate beats
-    ///   the current worst).
+    /// Both closures defer their cost: the array path ignores `sort_view`,
+    /// and `project` runs only when the entry will be retained. On the
+    /// heap-at-cap branch, `sort_view` is consulted via
+    /// [`EntryKey::cmp_candidate`] for a borrow-only compare against the
+    /// worst survivor; the owned snapshot is built only when the
+    /// candidate wins.
     ///
-    /// Returns `true` if the entry was buffered, `false` if it was dropped.
-    pub fn insert_entry<S, P>(&mut self, sort_vals: S, project: P) -> bool
+    /// `sort_view` is [`Fn`] (not [`FnOnce`]) because it may be invoked
+    /// twice on a winner — compare, then materialize. Callers must shape
+    /// it as an idempotent projection over a stable borrowed source.
+    ///
+    /// Returns `true` if the entry was buffered, `false` if it was
+    /// dropped.
+    pub fn insert_entry<'r, F, I, P>(&mut self, sort_view: F, project: P) -> bool
     where
-        S: FnOnce() -> Box<[Option<SharedValue>]>,
+        F: Fn() -> I,
+        I: IntoIterator<Item = Option<&'r SharedValue>>,
         P: FnOnce() -> RLookupRow<'static>,
     {
         match self {
@@ -114,18 +120,20 @@ impl Storage {
                     return false;
                 }
                 if heap.len() < max_size {
-                    let key = EntryKey::new(sort_vals(), *sort_asc_map);
+                    // Below cap: no worst to beat — materialize directly.
+                    let owned: Box<[Option<SharedValue>]> =
+                        sort_view().into_iter().map(|v| v.cloned()).collect();
+                    let key = EntryKey::new(owned, *sort_asc_map);
                     heap.push(HeapEntry::new(key, project()));
                     true
                 } else {
-                    let cand_key = EntryKey::new(sort_vals(), *sort_asc_map);
-                    // `peek_min` returns the worst surviving candidate
-                    // under the "best = max" convention (see `heap`).
-                    // The unwrap is sound: `cap > 0` implies the heap is
-                    // non-empty once we've reached the cap.
+                    // At cap: borrow-compare first; materialize only on win.
                     let worst = heap.peek_min().expect("heap at cap is non-empty");
-                    if cand_key > *worst.key() {
-                        heap.push_pop_min(HeapEntry::new(cand_key, project()));
+                    if worst.key().cmp_candidate(sort_view()) == std::cmp::Ordering::Greater {
+                        let owned: Box<[Option<SharedValue>]> =
+                            sort_view().into_iter().map(|v| v.cloned()).collect();
+                        let key = EntryKey::new(owned, *sort_asc_map);
+                        heap.push_pop_min(HeapEntry::new(key, project()));
                         true
                     } else {
                         false
