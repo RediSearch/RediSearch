@@ -10,11 +10,12 @@
 //! Supporting types for [`Optional`].
 
 use index_result::{RSIndexResult, RawIndexResult};
-use ref_mode::{Active, Ref};
+use ref_mode::{Active, Ref, Suspended};
 use std::cmp;
 
 use crate::{
-    IteratorType, RQEIterator, RQEIteratorError, RQEValidateStatus, SkipToOutcome,
+    IteratorType, RQEIterator, RQEIteratorBoxed, RQEIteratorError, RQESuspendedIterator,
+    RQEValidateStatus, ResumeOutcome, SkipToOutcome,
     profile_print::{ProfilePrint, ProfilePrintCtx},
 };
 use index_spec::IndexSpecReadGuard;
@@ -293,6 +294,105 @@ where
     }
 }
 
+impl<'index, I> RQEIteratorBoxed<'index> for Optional<'index, I>
+where
+    I: RQEIteratorBoxed<'index>,
+{
+    type Suspended = RawOptional<'index, Suspended, I::Suspended>;
+
+    fn suspend(self: Box<Self>) -> Box<Self::Suspended> {
+        let raw = Box::into_raw(self);
+        // SAFETY: `RawOptional` is `#[repr(C)]`. The only `Rf`-dependent
+        // field is `result: RawIndexResult<Rf>`, layout-compatible across
+        // `Rf` via `SharedPtr` transparency. `Option<I>` ↔ `Option<I::Suspended>`
+        // are layout-compatible by the [`RQEIteratorBoxed`] contract.
+        // Box::from_raw reuses the same heap allocation.
+        unsafe { Box::from_raw(raw as *mut RawOptional<'index, Suspended, I::Suspended>) }
+    }
+}
+
+impl<'query, S> RQESuspendedIterator<'query> for RawOptional<'query, Suspended, S>
+where
+    S: RQESuspendedIterator<'query>,
+{
+    type Resumed<'a>
+        = Optional<'a, S::Resumed<'a>>
+    where
+        'query: 'a;
+
+    fn resume<'a>(
+        self: Box<Self>,
+        guard: &IndexSpecReadGuard<'a>,
+    ) -> Result<ResumeOutcome<Box<Self::Resumed<'a>>>, RQEIteratorError>
+    where
+        'query: 'a,
+    {
+        let RawOptional {
+            max_doc_id,
+            weight,
+            result,
+            child,
+        } = *self;
+
+        // Resume the child first (if present) so we never construct the
+        // active `Optional<'a, …>` with a still-suspended `child` field.
+        // Track whether the child aborted or moved to mirror `revalidate`;
+        // an aborted child is dropped (`Gone`), leaving us fully virtual.
+        let (child, child_disturbed, last_child_doc_id) = match child {
+            OptionalChild::Gone => (OptionalChild::Gone, false, 0),
+            OptionalChild::Present(c) => {
+                let last = S::last_doc_id(&c);
+                match Box::new(c).resume(guard)? {
+                    ResumeOutcome::Aborted => (OptionalChild::Gone, true, last),
+                    ResumeOutcome::Ok(active_child) => {
+                        (OptionalChild::Present(*active_child), false, last)
+                    }
+                    ResumeOutcome::Moved(active_child) => {
+                        (OptionalChild::Present(*active_child), true, last)
+                    }
+                }
+            }
+        };
+
+        // SAFETY: `Optional`'s `result` is a virtual sentinel built via
+        // `build_virt()` — no aliased pointers to validate. The
+        // `Active<'a>` re-typing is unconditionally sound. See the same
+        // SAFETY note in `Not::resume`.
+        let result = unsafe { result.into_active::<'a>() };
+
+        let mut active = Box::new(Optional {
+            max_doc_id,
+            weight,
+            result,
+            child,
+        });
+
+        // Mirror `revalidate`: a child that aborted or moved forces a re-read
+        // iff the previous result came from the child (its doc id matches the
+        // aggregate's current doc id) rather than being a virtual sentinel.
+        let moved = if child_disturbed && last_child_doc_id == active.result.doc_id {
+            active.read()?;
+            true
+        } else {
+            false
+        };
+
+        Ok(if moved {
+            ResumeOutcome::Moved(active)
+        } else {
+            ResumeOutcome::Ok(active)
+        })
+    }
+
+    fn last_doc_id(&self) -> DocId {
+        self.result.doc_id
+    }
+
+    fn num_estimated(&self) -> usize {
+        // Mode-independent — mirrors the active `num_estimated`.
+        self.max_doc_id as usize
+    }
+}
 impl<'index> crate::interop::ProfileChildren<'index>
     for Optional<'index, crate::c2rust::CRQEIterator>
 {
