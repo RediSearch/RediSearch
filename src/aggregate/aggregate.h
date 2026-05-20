@@ -636,8 +636,20 @@ void SetSearchCtx(RedisSearchCtx *sctx, const AREQ *req);
 // Allows calling parseProfileArgs from reply_empty.c
 int parseProfileArgs(RedisModuleString **argv, int argc, AREQ *r);
 
-bool AREQ_TimedOut(AREQ *req);
-void AREQ_SetTimedOut(AREQ *req);
+static inline bool AREQ_TimedOut(AREQ *req) {
+#ifdef __cplusplus
+  return req->syncCtx.timedOut.load(std::memory_order_relaxed);
+#else
+  return atomic_load_explicit(&req->syncCtx.timedOut, memory_order_relaxed);
+#endif
+}
+static inline void AREQ_SetTimedOut(AREQ *req) {
+#ifdef __cplusplus
+  req->syncCtx.timedOut.store(true, std::memory_order_relaxed);
+#else
+  atomic_store_explicit(&req->syncCtx.timedOut, true, memory_order_relaxed);
+#endif
+}
 #ifdef ENABLE_ASSERT
 // SyncPointStopFn predicate adapter for AREQ_TimedOut. Pass the AREQ as `arg`
 // to SyncPoint_WaitUntil to release the wait when the request is timed out.
@@ -647,7 +659,9 @@ bool areq_timed_out(void *arg);
 /* True when this AREQ uses the BG-thread / timeout-callback claim handshake
  * around AggregateResults (TryClaim/Signal/Wait). Currently set only on the
  * coordinator AREQ under RETURN-STRICT; all other paths skip the protocol. */
-bool AREQ_RequiresThreadsSyncResults(const AREQ *req);
+static inline bool AREQ_RequiresThreadsSyncResults(const AREQ *req) {
+  return req->syncCtx.requiresAggregateResultsSync;
+}
 
 /* TryClaim: atomic CAS on `aggregatingResults`; winner runs AggregateResults.
  * Signal: called by winner at completion. Wait: called by loser, blocks until Signal.
