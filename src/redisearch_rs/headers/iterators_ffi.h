@@ -297,6 +297,15 @@ QueryIterator *NewMetricIteratorSortedByScore(t_docId *ids, double *metric_list,
 QueryIterator *NewIntersectionIterator(QueryIterator * *its, size_t num, int32_t max_slop, bool in_order, double weight);
 
 /**
+ * Return the child pointer of an optional iterator (optimized or non-optimized), or NULL if there is no child.
+ *
+ * # Safety
+ *
+ * 1. `base` must be a valid non-null pointer to an optional iterator created via [`NewOptionalIterator`].
+ */
+const QueryIterator *GetOptionalIteratorChild(const QueryIterator *base);
+
+/**
  * Get the profile counters from a profile iterator.
  *
  * The returned pointer borrows from the iterator — it is valid as long as
@@ -307,15 +316,6 @@ QueryIterator *NewIntersectionIterator(QueryIterator * *its, size_t num, int32_t
  * 1. `it` must be a valid non-null pointer created by [`NewProfileIterator`].
  */
 const struct ProfileCounters *ProfileIterator_GetCounters(const QueryIterator *it);
-
-/**
- * Return the child pointer of an optional iterator (optimized or non-optimized), or NULL if there is no child.
- *
- * # Safety
- *
- * 1. `base` must be a valid non-null pointer to an optional iterator created via [`NewOptionalIterator`].
- */
-const QueryIterator *GetOptionalIteratorChild(const QueryIterator *base);
 
 /**
  * Creates a new wildcard iterator from a query evaluation context.
@@ -364,15 +364,6 @@ QueryIterator *NewWildcardIterator(const QueryEvalCtx *q, double weight);
 void Optimus_PrintProfile(const QueryIterator *self_, struct MapBuilder *map, struct ProfilePrintCtx *ctx);
 
 /**
- * Get the accumulated wall time in nanoseconds from a profile iterator.
- *
- * # Safety
- *
- * 1. `it` must be a valid non-null pointer created by [`NewProfileIterator`].
- */
-uint64_t ProfileIterator_GetWallTimeNs(const QueryIterator *it);
-
-/**
  * Creates a new geometry-query iterator over a list of matching document IDs.
  *
  * `ids` is the set of documents matched by the geometry index, in arbitrary
@@ -402,6 +393,15 @@ uint64_t ProfileIterator_GetWallTimeNs(const QueryIterator *it);
 QueryIterator *NewGeometryQueryIterator(const RedisSearchCtx *sctx, const struct FieldFilterContext *filter_ctx, t_docId *ids, size_t num, size_t *allocated);
 
 /**
+ * Get the accumulated wall time in nanoseconds from a profile iterator.
+ *
+ * # Safety
+ *
+ * 1. `it` must be a valid non-null pointer created by [`NewProfileIterator`].
+ */
+uint64_t ProfileIterator_GetWallTimeNs(const QueryIterator *it);
+
+/**
  * Sets the [`RLookupKeyHandle`] for this metric iterator.
  *
  * # Safety
@@ -411,21 +411,6 @@ QueryIterator *NewGeometryQueryIterator(const RedisSearchCtx *sctx, const struct
  * 3. `key_handle` is either a null pointer or a valid non-null pointer to a [`RLookupKeyHandle`] instance.
  */
 void SetMetricRLookupHandle(QueryIterator *header, RLookupKeyHandle *key_handle);
-
-/**
- * Profile-wrap an iterator and its entire subtree.
- *
- * Wraps the iterator as a [`CRQEIterator`], calls
- * [`CRQEIterator::into_profiled`](rqe_iterators::c2rust::CRQEIterator::into_profiled)
- * (which recursively profiles all descendants), then returns the result
- * as a `QueryIterator*`.
- *
- * # Safety
- *
- * 1. `iter` must be a valid non-null pointer to an implementation of the C query iterator API.
- * 2. `iter` must not be aliased.
- */
-QueryIterator *IntoProfiled(QueryIterator *iter);
 
 /**
  * Returns the number of child iterators held by the intersection iterator.
@@ -448,19 +433,19 @@ size_t GetIntersectionIteratorNumChildren(const QueryIterator *header);
 void GeoShape_PrintProfile(const QueryIterator *self_, struct MapBuilder *map, struct ProfilePrintCtx *ctx);
 
 /**
- * Add profile iterators to all nodes in the iterator tree.
+ * Profile-wrap an iterator and its entire subtree.
  *
- * Wraps the root as a [`CRQEIterator`], calls
+ * Wraps the iterator as a [`CRQEIterator`], calls
  * [`CRQEIterator::into_profiled`](rqe_iterators::c2rust::CRQEIterator::into_profiled)
- * (which recursively profiles
- * all descendants), then writes the result back as a `QueryIterator*`.
+ * (which recursively profiles all descendants), then returns the result
+ * as a `QueryIterator*`.
  *
  * # Safety
  *
- * 1. `root` must be a valid non-null pointer to a `*mut QueryIterator`.
- * 2. `*root` must be null or a valid non-null, non-aliased pointer to a `QueryIterator`.
+ * 1. `iter` must be a valid non-null pointer to an implementation of the C query iterator API.
+ * 2. `iter` must not be aliased.
  */
-void Profile_AddIters(QueryIterator * *root);
+QueryIterator *IntoProfiled(QueryIterator *iter);
 
 /**
  * Get a mutable reference to the [`RLookupKey`] stored inside this metric iterator.
@@ -493,6 +478,21 @@ const QueryIterator *GetIntersectionIteratorChild(const QueryIterator *header, s
  * 2. `fs` must be a valid non-null pointer to a [`FieldSpec`] for a numeric or geo field.
  */
 NumericRangeTree *openNumericOrGeoIndex(IndexSpec *spec, FieldSpec *fs, bool create_if_missing);
+
+/**
+ * Add profile iterators to all nodes in the iterator tree.
+ *
+ * Wraps the root as a [`CRQEIterator`], calls
+ * [`CRQEIterator::into_profiled`](rqe_iterators::c2rust::CRQEIterator::into_profiled)
+ * (which recursively profiles
+ * all descendants), then writes the result back as a `QueryIterator*`.
+ *
+ * # Safety
+ *
+ * 1. `root` must be a valid non-null pointer to a `*mut QueryIterator`.
+ * 2. `*root` must be null or a valid non-null, non-aliased pointer to a `QueryIterator`.
+ */
+void Profile_AddIters(QueryIterator * *root);
 
 /**
  * Creates a new union iterator, applying reduction rules and choosing between

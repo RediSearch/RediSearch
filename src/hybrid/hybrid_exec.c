@@ -1257,12 +1257,14 @@ static void HREQ_Execute_Callback(blockedClientHybridCtx *BCHCtx) {
   if (buildPipelineAndExecute(hybrid_ref, hybridParams, outctx, sctx, &status, BCHCtx->internal, true) == REDISMODULE_OK) {
     // Set hybridParams to NULL so they won't be freed in destroy
     BCHCtx->hybridParams = NULL;
+    QITR_SuspendRootIterator(&hreq->tailPipeline->qctx);
     RedisSearchCtx_UnlockSpec(sctx);
   } else {
     // buildPipelineAndExecute failed - release the lock if still held.
     // Note: If failure occurred after RPSafeDepleter_DepleteAll started, the lock
     // was already released in WaitForDepletionToStart. RedisSearchCtx_UnlockSpec
     // safely handles this case by checking sctx->flags before unlocking.
+    QITR_SuspendRootIterator(&hreq->tailPipeline->qctx);
     RedisSearchCtx_UnlockSpec(sctx);
     if (!QueryError_HasError(&status)) {
       // There was an error but it was not set in status, get it from hreq
