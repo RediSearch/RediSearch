@@ -288,6 +288,22 @@ fn revalidate() {
     assert_eq!(status, RQEValidateStatus::Ok);
 }
 
+mod via_resume {
+    use super::*;
+    use rqe_iterators::TypeErasedRQEIterator;
+    use rqe_iterators_test_utils::{ResumeOutcomeExt, revalidate_via_resume};
+
+    #[test]
+    fn revalidate() {
+        let mock_ctx = rqe_iterators_test_utils::MockContext::new(0, 0);
+        let metric_data = vec![0.1, 0.2, 0.3];
+        let it = Box::new(MetricSortedById::new(vec![1, 2, 3], metric_data));
+        revalidate_via_resume(TypeErasedRQEIterator::new(it), &mock_ctx.spec_read())
+            .expect("resume should not fail")
+            .expect_ok();
+    }
+}
+
 #[test]
 fn metric_type_returns_vector_distance() {
     let it = MetricSortedById::new(vec![1], vec![0.5]);

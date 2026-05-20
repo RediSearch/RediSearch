@@ -10,7 +10,8 @@
 //! Supporting types for [`Metric`].
 
 use crate::{
-    IteratorType, RQEIterator, RQEIteratorError, RQEValidateStatus, SkipToOutcome,
+    IteratorType, RQEIterator, RQEIteratorBoxed, RQEIteratorError, RQESuspendedIterator,
+    RQEValidateStatus, ResumeOutcome, SkipToOutcome,
     id_list::{IdList, RawIdList},
     profile_print::{ProfilePrint, ProfilePrintCtx},
     utils::OwnedSlice,
@@ -18,7 +19,7 @@ use crate::{
 use ffi::{RLookupKey, RLookupKeyHandle};
 use index_result::RSIndexResult;
 use index_spec::IndexSpecReadGuard;
-use ref_mode::{Active, Ref};
+use ref_mode::{Active, Ref, Suspended};
 use rqe_core::DocId;
 
 /// The different types of metrics.
@@ -266,5 +267,65 @@ impl<const SORTED_BY_ID: bool> ProfilePrint for Metric<'_, SORTED_BY_ID> {
         if matches!(metric_type, MetricType::VectorDistance) {
             map.kv_simple_string(c"Vector search mode", c"RANGE_QUERY");
         }
+    }
+}
+
+impl<'query, const SORTED_BY_ID: bool> RawMetric<'query, Suspended, SORTED_BY_ID> {
+    /// Read the suspended iterator's `doc_id` without exposing the private
+    /// `base` field to other modules. Used by
+    /// [`MetricLazySuspended`](crate::metric_lazy::MetricLazySuspended)'s
+    /// [`RQESuspendedIterator`] impl, which can't reach into the inner
+    /// `RawMetric` directly.
+    pub(crate) fn suspended_result_doc_id(&self) -> DocId {
+        RawIdList::<'query, Suspended, SORTED_BY_ID>::suspended_result_doc_id(&self.base)
+    }
+}
+
+impl<'index, const SORTED_BY_ID: bool> RQEIteratorBoxed<'index> for Metric<'index, SORTED_BY_ID> {
+    type Suspended = RawMetric<'index, Suspended, SORTED_BY_ID>;
+
+    fn suspend(self: Box<Self>) -> Box<Self::Suspended> {
+        let raw = Box::into_raw(self);
+        // SAFETY: `RawMetric` is `#[repr(C)]`. The only `Rf`-dependent field
+        // is the inner `RawIdList<'index, Rf, SORTED_BY_ID>`, layout-compatible
+        // across `Rf` (its only `Rf` field is `result: RawIndexResult<'index, Rf>`,
+        // backed by `SharedPtr` transparency). The remaining fields
+        // (`metric_data`, `type_`, `own_key`, `key_handle`) carry no `Rf`.
+        // Suspend preserves `'query` and only widens `Rf`, so casting the box's
+        // heap pointer is sound and preserves the heap allocation; the active
+        // `Drop` impl (`key_handle` nullification) does not run on these bytes —
+        // ownership of the allocation transfers to the suspended box.
+        unsafe { Box::from_raw(raw as *mut RawMetric<'index, Suspended, SORTED_BY_ID>) }
+    }
+}
+
+impl<'query, const SORTED_BY_ID: bool> RQESuspendedIterator<'query>
+    for RawMetric<'query, Suspended, SORTED_BY_ID>
+{
+    type Resumed<'index>
+        = Metric<'index, SORTED_BY_ID>
+    where
+        'query: 'index;
+
+    fn resume<'index>(
+        self: Box<Self>,
+        _guard: &IndexSpecReadGuard<'index>,
+    ) -> Result<ResumeOutcome<Box<Self::Resumed<'index>>>, RQEIteratorError>
+    where
+        'query: 'index,
+    {
+        let raw = Box::into_raw(self);
+        // SAFETY: layout-compatible — see `suspend`. `Metric` owns all its
+        // pointee data (the `OwnedSlice` and the inner `IdList`'s
+        // `OwnedSlice`); the virtual `result` has no aliased pointers, so
+        // promotion back to `Active<'index>` is unconditionally sound (the
+        // `'query: 'index` bound keeps any retained query-pipeline pointers
+        // valid) and re-uses the same heap allocation.
+        let active = unsafe { Box::from_raw(raw as *mut Metric<'index, SORTED_BY_ID>) };
+        Ok(ResumeOutcome::Ok(active))
+    }
+
+    fn last_doc_id(&self) -> DocId {
+        self.suspended_result_doc_id()
     }
 }
