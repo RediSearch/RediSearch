@@ -14,9 +14,89 @@ use index_result::{RSIndexResult, RSQueryTerm};
 use inverted_index::{IndexReader, doc_ids_only::DocIdsOnly, raw_doc_ids_only::RawDocIdsOnly};
 use rqe_core::DocId;
 use rqe_iterators::{
-    FieldExpirationChecker, IteratorType, interop::RQEIteratorWrapper, inverted_index::Tag,
+    FieldExpirationChecker, IteratorType, RQEIteratorBoxed, RQEIteratorError, RQESuspendedIterator,
+    ResumeOutcome, interop::RQEIteratorWrapper, inverted_index::Tag,
     profile_print,
 };
+
+/// Suspended counterpart of [`TagIterator`] — produced by
+/// [`RQEIteratorBoxed::suspend`] and consumed by [`RQESuspendedIterator::resume`].
+///
+/// Retains the `'query` lifetime so query-attached borrows stay valid across
+/// the suspend/resume cycle.
+pub(super) enum TagIteratorSuspended<'query> {
+    Encoded(<Tag<'query, DocIdsOnly, FieldExpirationChecker> as RQEIteratorBoxed<'query>>::Suspended),
+    Raw(<Tag<'query, RawDocIdsOnly, FieldExpirationChecker> as RQEIteratorBoxed<'query>>::Suspended),
+}
+
+impl<'index> RQEIteratorBoxed<'index> for TagIterator<'index> {
+    type Suspended = TagIteratorSuspended<'index>;
+
+    fn suspend(self: Box<Self>) -> Box<Self::Suspended> {
+        match *self {
+            TagIterator::Encoded(t) => Box::new(TagIteratorSuspended::Encoded(
+                *<Tag<'index, _, _> as RQEIteratorBoxed<'index>>::suspend(Box::new(t)),
+            )),
+            TagIterator::Raw(t) => Box::new(TagIteratorSuspended::Raw(
+                *<Tag<'index, _, _> as RQEIteratorBoxed<'index>>::suspend(Box::new(t)),
+            )),
+        }
+    }
+}
+
+impl<'query> RQESuspendedIterator<'query> for TagIteratorSuspended<'query> {
+    type Resumed<'a>
+        = TagIterator<'a>
+    where
+        'query: 'a;
+
+    fn resume<'a>(
+        self: Box<Self>,
+        guard: &index_spec::IndexSpecReadGuard<'a>,
+    ) -> Result<ResumeOutcome<Box<Self::Resumed<'a>>>, RQEIteratorError>
+    where
+        'query: 'a,
+    {
+        // Forward the inner variant's outcome, reconstructing the concrete
+        // `TagIterator` enum and preserving the `Ok`/`Moved`/`Aborted` status.
+        let (variant, moved) = match *self {
+            TagIteratorSuspended::Encoded(s) => {
+                match <_ as RQESuspendedIterator>::resume(Box::new(s), guard)? {
+                    ResumeOutcome::Aborted => return Ok(ResumeOutcome::Aborted),
+                    ResumeOutcome::Ok(resumed) => (TagIterator::Encoded(*resumed), false),
+                    ResumeOutcome::Moved(resumed) => (TagIterator::Encoded(*resumed), true),
+                }
+            }
+            TagIteratorSuspended::Raw(s) => {
+                match <_ as RQESuspendedIterator>::resume(Box::new(s), guard)? {
+                    ResumeOutcome::Aborted => return Ok(ResumeOutcome::Aborted),
+                    ResumeOutcome::Ok(resumed) => (TagIterator::Raw(*resumed), false),
+                    ResumeOutcome::Moved(resumed) => (TagIterator::Raw(*resumed), true),
+                }
+            }
+        };
+        let active = Box::new(variant);
+        Ok(if moved {
+            ResumeOutcome::Moved(active)
+        } else {
+            ResumeOutcome::Ok(active)
+        })
+    }
+
+    fn last_doc_id(&self) -> DocId {
+        match self {
+            TagIteratorSuspended::Encoded(s) => s.last_doc_id(),
+            TagIteratorSuspended::Raw(s) => s.last_doc_id(),
+        }
+    }
+
+    fn num_estimated(&self) -> usize {
+        match self {
+            TagIteratorSuspended::Encoded(s) => s.num_estimated(),
+            TagIteratorSuspended::Raw(s) => s.num_estimated(),
+        }
+    }
+}
 
 /// Wrapper around different tag iterator encoding types to avoid generics in FFI code.
 ///
