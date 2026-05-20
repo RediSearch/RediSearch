@@ -577,6 +577,15 @@ static QueryIterator* HybridIteratorReducer(HybridIteratorParams *hParams) {
   return ret;
 }
 
+// Suspend the hybrid iterator. Cascades the suspend signal to the child so
+// it can drop any lock-dependent state before the spec read lock is released.
+static void HR_Suspend(QueryIterator *ctx) {
+  HybridIterator *hr = (HybridIterator *)ctx;
+  if (hr->child) {
+    hr->child->Suspend(hr->child);
+  }
+}
+
 // Revalidate the hybrid iterator.
 // If we already have the results prepared, we are OK, and if not, we didn't execute the query yet so we are also OK.
 // Only if we have a child iterator, and it aborted, we need to abort the hybrid iterator.
@@ -676,7 +685,7 @@ QueryIterator *NewHybridVectorIterator(HybridIteratorParams hParams, QueryError 
   ri->Free = HybridIterator_Free;
   ri->Rewind = HR_Rewind;
   ri->Revalidate = HR_Revalidate;
-  ri->Suspend = Default_Suspend;
+  ri->Suspend = HR_Suspend;
   ri->ProfileChildren = HR_ProfileChildren;
   ri->PrintProfile = Hybrid_PrintProfile;
   ri->SkipTo = NULL; // As long as this iterator is always at the root, this is not needed.
