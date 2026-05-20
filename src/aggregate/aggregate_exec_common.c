@@ -15,6 +15,10 @@
  #include "util/array.h"
  #include "debug_commands.h"
 
+#ifdef ENABLE_ASSERT
+#include <unistd.h>  // usleep, used by debugCheckAndPauseAfterAggregateResult
+#endif
+
  bool hasTimeoutError(QueryError *err) {
    return QueryError_GetCode(err) == QUERY_ERROR_CODE_TIMED_OUT;
  }
