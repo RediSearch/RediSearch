@@ -79,7 +79,9 @@ typedef struct {
     Vector *cache;
     // A stack of the states leading up to the current state
     Vector *stack;
-    // A stack of the minimal distance for each state, used for prefix matching
+    // A stack tracking, per DFA state on `stack`, the running minimum of
+    // accept-state distances along the path leading to it. Used to report the
+    // cost of the best prefix match seen so far via matchCtx in FilterFunc.
     Vector *distStack;
     // whether the filter works in prefix mode or not
     int prefixMode;
@@ -92,7 +94,23 @@ typedef struct {
  * onwards to all suffixes. */
 DFAFilter *NewDFAFilter(rune *str, size_t len, int maxDist, int prefixMode);
 
-/* A callback function for the DFA Filter, passed to the Trie iterator */
+/* A callback function for the DFA Filter, passed to the Trie iterator.
+ *
+ * `matchCtx` is an `int *`. On every accept state reached along the DFA path,
+ * the filter writes `MIN(state->distance, running_min_so_far)` into *matchCtx,
+ * where running_min_so_far is tracked on a parallel `distStack` that mirrors
+ * the DFA state stack and pops in sync with it on backtrack. At yield time
+ * *matchCtx therefore holds the minimum accept cost reached on the DFA path
+ * leading to the yielded term — i.e. the edit distance of the best query
+ * match against any consumed prefix of the term. In prefix mode, once the
+ * prefix has been accepted, distStack carries this value forward across the
+ * remaining runes so *matchCtx reflects the cost at the accept boundary.
+ *
+ * NOTE: This is NOT Levenshtein(query, yielded_term) in the general case;
+ * it is the minimum cost reached among all accept states encountered along
+ * the consumed-input prefix of the term. For prefix-mode FUZZY ranking this
+ * is the desired metric (FT.SUGGET FUZZY scoring depends on it via
+ * `score *= exp(-2 * dist)`). */
 // FilterCode FilterFunc(rune b, void *ctx, int *matched, void *matchCtx);
 FilterCode FoldingFilterFunc(rune b, void *ctx, int *matched, void *matchCtx);
 FilterCode LoweringFilterFunc(rune b, void *ctx, int *matched, void *matchCtx);
