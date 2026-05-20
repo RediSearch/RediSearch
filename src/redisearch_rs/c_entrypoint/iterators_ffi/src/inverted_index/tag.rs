@@ -14,9 +14,60 @@ use index_result::{RSIndexResult, RSQueryTerm};
 use inverted_index::{
     IndexReader, doc_ids_only::DocIdsOnly, raw_doc_ids_only::RawDocIdsOnly, t_docId,
 };
+use ffi::ValidateStatus;
 use rqe_iterators::{
-    FieldExpirationChecker, IteratorType, interop::RQEIteratorWrapper, inverted_index::Tag,
+    FieldExpirationChecker, IteratorType, RQEIteratorBoxed, RQESuspendedIterator,
+    interop::RQEIteratorWrapper, inverted_index::Tag,
 };
+
+/// Suspended counterpart of [`TagIterator`] — produced by
+/// [`RQEIteratorBoxed::suspend`] and consumed by [`RQESuspendedIterator::resume`].
+pub(super) enum TagIteratorSuspended {
+    Encoded(<Tag<'static, DocIdsOnly, FieldExpirationChecker> as RQEIteratorBoxed<'static>>::Suspended),
+    Raw(<Tag<'static, RawDocIdsOnly, FieldExpirationChecker> as RQEIteratorBoxed<'static>>::Suspended),
+}
+
+impl<'index> RQEIteratorBoxed<'index> for TagIterator<'index> {
+    type Suspended = TagIteratorSuspended;
+
+    fn suspend(self: Box<Self>) -> Box<Self::Suspended> {
+        match *self {
+            TagIterator::Encoded(t) => Box::new(TagIteratorSuspended::Encoded(
+                *<Tag<'index, _, _> as RQEIteratorBoxed<'index>>::suspend(Box::new(t)),
+            )),
+            TagIterator::Raw(t) => Box::new(TagIteratorSuspended::Raw(
+                *<Tag<'index, _, _> as RQEIteratorBoxed<'index>>::suspend(Box::new(t)),
+            )),
+        }
+    }
+}
+
+impl RQESuspendedIterator for TagIteratorSuspended {
+    type Resumed<'a> = TagIterator<'a>;
+
+    fn resume<'a>(
+        self: Box<Self>,
+        guard: &'a index_spec::IndexSpecReadGuard<'a>,
+    ) -> (Box<Self::Resumed<'a>>, ValidateStatus) {
+        match *self {
+            TagIteratorSuspended::Encoded(s) => {
+                let (resumed, status) = <_ as RQESuspendedIterator>::resume(Box::new(s), guard);
+                (Box::new(TagIterator::Encoded(*resumed)), status)
+            }
+            TagIteratorSuspended::Raw(s) => {
+                let (resumed, status) = <_ as RQESuspendedIterator>::resume(Box::new(s), guard);
+                (Box::new(TagIterator::Raw(*resumed)), status)
+            }
+        }
+    }
+
+    fn last_doc_id(&self) -> t_docId {
+        match self {
+            TagIteratorSuspended::Encoded(s) => s.last_doc_id(),
+            TagIteratorSuspended::Raw(s) => s.last_doc_id(),
+        }
+    }
+}
 
 /// Wrapper around different tag iterator encoding types to avoid generics in FFI code.
 ///

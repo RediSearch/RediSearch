@@ -11,7 +11,60 @@ use std::fmt::Debug;
 
 use index_result::RSIndexResult;
 use inverted_index::{doc_ids_only::DocIdsOnly, raw_doc_ids_only::RawDocIdsOnly, t_docId};
-use rqe_iterators::{IteratorType, interop::RQEIteratorWrapper, inverted_index::Wildcard};
+use ffi::ValidateStatus;
+use rqe_iterators::{
+    IteratorType, RQEIteratorBoxed, RQESuspendedIterator, interop::RQEIteratorWrapper,
+    inverted_index::Wildcard,
+};
+
+/// Suspended counterpart of [`WildcardIterator`] — produced by
+/// [`RQEIteratorBoxed::suspend`] and consumed by [`RQESuspendedIterator::resume`].
+pub(super) enum WildcardIteratorSuspended {
+    Encoded(<Wildcard<'static, DocIdsOnly> as RQEIteratorBoxed<'static>>::Suspended),
+    Raw(<Wildcard<'static, RawDocIdsOnly> as RQEIteratorBoxed<'static>>::Suspended),
+}
+
+impl<'index> RQEIteratorBoxed<'index> for WildcardIterator<'index> {
+    type Suspended = WildcardIteratorSuspended;
+
+    fn suspend(self: Box<Self>) -> Box<Self::Suspended> {
+        match *self {
+            WildcardIterator::Encoded(w) => Box::new(WildcardIteratorSuspended::Encoded(
+                *<Wildcard<'index, _> as RQEIteratorBoxed<'index>>::suspend(Box::new(w)),
+            )),
+            WildcardIterator::Raw(w) => Box::new(WildcardIteratorSuspended::Raw(
+                *<Wildcard<'index, _> as RQEIteratorBoxed<'index>>::suspend(Box::new(w)),
+            )),
+        }
+    }
+}
+
+impl RQESuspendedIterator for WildcardIteratorSuspended {
+    type Resumed<'a> = WildcardIterator<'a>;
+
+    fn resume<'a>(
+        self: Box<Self>,
+        guard: &'a index_spec::IndexSpecReadGuard<'a>,
+    ) -> (Box<Self::Resumed<'a>>, ValidateStatus) {
+        match *self {
+            WildcardIteratorSuspended::Encoded(s) => {
+                let (resumed, status) = <_ as RQESuspendedIterator>::resume(Box::new(s), guard);
+                (Box::new(WildcardIterator::Encoded(*resumed)), status)
+            }
+            WildcardIteratorSuspended::Raw(s) => {
+                let (resumed, status) = <_ as RQESuspendedIterator>::resume(Box::new(s), guard);
+                (Box::new(WildcardIterator::Raw(*resumed)), status)
+            }
+        }
+    }
+
+    fn last_doc_id(&self) -> t_docId {
+        match self {
+            WildcardIteratorSuspended::Encoded(s) => s.last_doc_id(),
+            WildcardIteratorSuspended::Raw(s) => s.last_doc_id(),
+        }
+    }
+}
 
 /// Wrapper around different II wildcard iterator encoding types to avoid generics in FFI code.
 ///
