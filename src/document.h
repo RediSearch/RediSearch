@@ -12,6 +12,7 @@
 #include "redismodule.h"
 #include "search_ctx.h"
 #include "redisearch.h"
+#include "search_disk_api.h"
 #include "tokenize.h"
 #include "concurrent_ctx.h"
 #include "byte_offsets.h"
@@ -312,6 +313,14 @@ typedef struct RSAddDocumentCtx {
   uint8_t stateFlags;    // Indexing state, ACTX_F_xxx
   DocumentAddCompleted donecb;
   void *donecbData;
+
+  // Open disk write batch for this document's indexing operation.
+  //
+  // Created by `doAssignIds` when the disk path is active, populated by `putDocument`,
+  // `indexTerm`, and `indexTags` calls during the rest of `Indexer_Process`, and finally
+  // committed (or aborted on error) before `Indexer_Process` returns. NULL in memory mode
+  // or once consumed by commit/abort.
+  SearchDiskWriteBatch *diskBatch;
 } RSAddDocumentCtx;
 
 /**

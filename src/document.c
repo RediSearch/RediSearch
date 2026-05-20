@@ -195,6 +195,7 @@ RSAddDocumentCtx *NewAddDocumentCtx(IndexSpec *sp, Document *doc, QueryError *st
   aCtx->next = NULL;
   aCtx->specFlags = sp->flags;
   aCtx->spec = sp;
+  aCtx->diskBatch = NULL;
   if (aCtx->specFlags & Index_Async) {
     HiddenString_Clone(sp->specName, &aCtx->specName);
   }
@@ -350,6 +351,13 @@ void AddDocumentCtx_Free(RSAddDocumentCtx *aCtx) {
 
   ByteOffsetWriter_Cleanup(&aCtx->offsetsWriter);
   QueryError_ClearError(&aCtx->status);
+
+  // Safety net: if the indexing flow bailed out before reaching the commit/abort
+  // logic in `Indexer_Process`, discard the staged writes rather than leaking the batch.
+  if (aCtx->diskBatch) {
+    SearchDisk_AbortWriteBatch(aCtx->diskBatch);
+    aCtx->diskBatch = NULL;
+  }
 
   mempool_release(actxPool_g, aCtx);
 }
@@ -777,7 +785,7 @@ FIELD_BULK_INDEXER(tagIndexer) {
   }
 
   // TagIndex_Index handles both disk and memory modes internally
-  if (!TagIndex_Index(ctx->redisCtx, tidx, (const char **)fdata->tags, array_len(fdata->tags), aCtx->doc->docId, &ctx->spec->stats)) {
+  if (!TagIndex_Index(ctx->redisCtx, tidx, aCtx->diskBatch, (const char **)fdata->tags, array_len(fdata->tags), aCtx->doc->docId, &ctx->spec->stats)) {
     QueryError_SetError(status, QUERY_ERROR_CODE_GENERIC, "Tag indexing failed");
     return -1;
   }

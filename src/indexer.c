@@ -113,7 +113,7 @@ static void writeCurEntries(RSAddDocumentCtx *aCtx, RedisSearchCtx *ctx) {
         offsets = VVW_GetByteData(entry->vw);
         offsetsLen = VVW_GetByteLength(entry->vw);
       }
-      if (SearchDisk_IndexTerm(spec->diskSpec, entry->term, entry->len, aCtx->doc->docId, entry->fieldMask, entry->freq, offsets, offsetsLen)) {
+      if (SearchDisk_IndexTerm(spec->diskSpec, aCtx->diskBatch, entry->term, entry->len, aCtx->doc->docId, entry->fieldMask, entry->freq, offsets, offsetsLen)) {
         IndexSpec_AddTerm(spec, entry->term, entry->len);
       }
     } else {
@@ -221,11 +221,18 @@ static void doAssignIds(RSAddDocumentCtx *cur, RedisSearchCtx *ctx) {
       uint64_t oldDocId = 0;
       DocIdMeta_Get(ctx->redisCtx, cur->doc->docKey, spec->specId, &oldDocId);
 
+      // Open a per-document write batch that doc-table / inverted-index / tag-index writes
+      // will be staged into. The batch is committed (or aborted on error) by
+      // `Indexer_Process` once all of `cur`'s indexing work has finished.
+      cur->diskBatch = SearchDisk_CreateWriteBatch(spec->diskSpec);
+
       // Put the document and get a new doc-id, and remove the old id->dmd entry
       // if it existed.
-      t_docId docId = SearchDisk_PutDocument(spec->diskSpec, key, len,
-        cur->doc->score, cur->docFlags, cur->fwIdx->maxTermFreq,
-        cur->fwIdx->totalFreq, &oldLen, cur->doc->docExpirationTime, oldDocId);
+      t_docId docId = cur->diskBatch
+        ? SearchDisk_PutDocument(spec->diskSpec, cur->diskBatch, key, len,
+            cur->doc->score, cur->docFlags, cur->fwIdx->maxTermFreq,
+            cur->fwIdx->totalFreq, &oldLen, cur->doc->docExpirationTime, oldDocId)
+        : 0;
 
       bool failure = docId == 0;
 
@@ -244,16 +251,19 @@ static void doAssignIds(RSAddDocumentCtx *cur, RedisSearchCtx *ctx) {
         int rc = DocIdMeta_Set(ctx->redisCtx, cur->doc->docKey, spec->specId, docId);
         failure = rc != REDISMODULE_OK;
 
-        if (failure) {
-          uint32_t docLen = 0;
-          SearchDisk_DeleteDocumentById(spec->diskSpec, docId, &docLen);
-        } else {
+        if (!failure) {
           spec->stats.scoring.totalDocsLen += cur->fwIdx->totalFreq;
           ++spec->stats.scoring.numDocuments;
         }
       }
 
       if (failure) {
+        // Discard any writes staged on the per-document batch so the disk stays
+        // consistent with the in-memory state we're rolling back to.
+        if (cur->diskBatch) {
+          SearchDisk_AbortWriteBatch(cur->diskBatch);
+          cur->diskBatch = NULL;
+        }
         cur->stateFlags |= ACTX_F_ERRORED;
         RS_LOG_ASSERT(false, "Unexpected: Failed to add document to disk index");
         continue;
@@ -479,6 +489,18 @@ static void Indexer_Process(RSAddDocumentCtx *aCtx) {
 
   if (!(aCtx->stateFlags & ACTX_F_OTHERINDEXED)) {
     indexBulkFields(aCtx, &ctx);
+  }
+
+  // Finalize the per-document disk write batch. On success this flushes the staged
+  // doc-table / inverted-index / tag writes atomically; on error the batch is
+  // discarded so disk state matches the rolled-back in-memory state.
+  if (aCtx->diskBatch) {
+    if (aCtx->stateFlags & ACTX_F_ERRORED) {
+      SearchDisk_AbortWriteBatch(aCtx->diskBatch);
+    } else if (!SearchDisk_CommitWriteBatch(aCtx->diskBatch)) {
+      aCtx->stateFlags |= ACTX_F_ERRORED;
+    }
+    aCtx->diskBatch = NULL;
   }
 }
 
