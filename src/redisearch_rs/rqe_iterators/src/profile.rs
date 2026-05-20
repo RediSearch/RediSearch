@@ -15,10 +15,14 @@
 
 use std::time::{Duration, Instant};
 
-use crate::{IteratorType, RQEIterator, RQEIteratorError, RQEValidateStatus, SkipToOutcome};
+use crate::{
+    IteratorType, RQEIterator, RQEIteratorBoxed, RQEIteratorError, RQESuspendedIterator,
+    RQEValidateStatus, SkipToOutcome,
+};
+use ffi::ValidateStatus;
 use index_result::RSIndexResult;
 use index_spec::IndexSpecReadGuard;
-use ref_mode::{Active, Ref};
+use ref_mode::{Active, Ref, Suspended};
 use rqe_core::DocId;
 
 /// Profile counters collected during query execution.
@@ -182,5 +186,62 @@ where
         let counters = self.counters();
         let mut child_ctx = ctx.with_counters(counters, self.wall_time_ns());
         self.child().print_profile(map, &mut child_ctx);
+    }
+}
+
+
+impl<'index, I> RQEIteratorBoxed<'index> for Profile<'index, I>
+where
+    I: RQEIteratorBoxed<'index>,
+{
+    type Suspended = RawProfile<Suspended, I::Suspended>;
+
+    fn suspend(self: Box<Self>) -> Box<Self::Suspended> {
+        let raw = Box::into_raw(self);
+        // SAFETY: `RawProfile` is `#[repr(C)]`. The `Rf`-dependent field is
+        // only `_marker: PhantomData<Rf>` (zero-sized). `child: I` and the
+        // suspended counterpart's `child: I::Suspended` are layout-
+        // compatible by the [`RQEIteratorBoxed`] contract. `counters` and
+        // `wall_time` carry no `Rf`. Box::from_raw reuses the same heap
+        // allocation, so the box address is preserved.
+        unsafe { Box::from_raw(raw as *mut RawProfile<Suspended, I::Suspended>) }
+    }
+}
+
+impl<S> RQESuspendedIterator for RawProfile<Suspended, S>
+where
+    S: RQESuspendedIterator,
+{
+    type Resumed<'a> = Profile<'a, S::Resumed<'a>>;
+
+    fn resume<'a>(
+        self: Box<Self>,
+        guard: &'a IndexSpecReadGuard<'a>,
+    ) -> (Box<Self::Resumed<'a>>, ValidateStatus) {
+        // Field-by-field rebuild: we can't whole-box-cast on resume
+        // because the child needs `resume` driven on it (re-validating
+        // its state against the lock), and the active iterator's
+        // `PhantomData<Active<'a>>` carries a borrow we have to construct.
+        let RawProfile {
+            child,
+            counters,
+            wall_time,
+            _marker,
+        } = *self;
+        // Box the child to drive its `resume`. Profile has no aggregate
+        // result, so the child's heap address is not load-bearing — the
+        // re-allocation is acceptable.
+        let (active_child, status) = Box::new(child).resume(guard);
+        let active = Box::new(Profile {
+            child: *active_child,
+            counters,
+            wall_time,
+            _marker: std::marker::PhantomData,
+        });
+        (active, status)
+    }
+
+    fn last_doc_id(&self) -> DocId {
+        S::last_doc_id(&self.child)
     }
 }
