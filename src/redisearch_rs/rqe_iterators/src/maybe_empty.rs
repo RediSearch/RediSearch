@@ -9,12 +9,13 @@
 
 //! Helper wrapping either [`Empty`] or the provided [`RQEIterator`].
 
-use ffi::t_docId;
+use ffi::{ValidateStatus, ValidateStatus_VALIDATE_OK, t_docId};
 use index_result::RSIndexResult;
 use index_spec::IndexSpecReadGuard;
 
 use crate::{
-    IteratorType, RQEIterator, RQEIteratorError, RQEValidateStatus, SkipToOutcome, empty::Empty,
+    IteratorType, RQEIterator, RQEIteratorBoxed, RQEIteratorError, RQESuspendedIterator,
+    RQEValidateStatus, SkipToOutcome, empty::Empty,
 };
 
 /// An iterator that is either [`Empty`] or the provided [`RQEIterator`].
@@ -153,7 +154,9 @@ where
     #[inline(always)]
     fn last_doc_id(&self) -> t_docId {
         match &self.0 {
-            MaybeEmptyOption::None(empty) => empty.last_doc_id(),
+            // Disambiguated against `RQESuspendedIterator::last_doc_id`
+            // (Empty's suspended counterpart is itself).
+            MaybeEmptyOption::None(empty) => RQEIterator::last_doc_id(empty),
             MaybeEmptyOption::Some(it) => it.last_doc_id(),
         }
     }
@@ -180,6 +183,58 @@ where
                 empty.intersection_sort_weight(prioritize_union_children)
             }
             MaybeEmptyOption::Some(it) => it.intersection_sort_weight(prioritize_union_children),
+        }
+    }
+}
+
+impl<'index, I> RQEIteratorBoxed<'index> for MaybeEmpty<I>
+where
+    I: RQEIteratorBoxed<'index>,
+{
+    type Suspended = MaybeEmpty<I::Suspended>;
+
+    fn suspend(self: Box<Self>) -> Box<Self::Suspended> {
+        let raw = Box::into_raw(self);
+        // SAFETY: `MaybeEmpty<I>` is `#[repr(C)]` and contains a
+        // `#[repr(C)]` enum `MaybeEmptyOption<I>` whose layout is
+        // tag + (max(size_of::<Empty>(), size_of::<I>())) =
+        // tag + size_of::<I>(). `I` and `I::Suspended` are layout-
+        // compatible by the [`RQEIteratorBoxed`] contract, so the two
+        // instantiations share the same byte layout. Box::from_raw reuses
+        // the same heap allocation.
+        unsafe { Box::from_raw(raw as *mut MaybeEmpty<I::Suspended>) }
+    }
+}
+
+impl<S> RQESuspendedIterator for MaybeEmpty<S>
+where
+    S: RQESuspendedIterator,
+{
+    type Resumed<'a> = MaybeEmpty<S::Resumed<'a>>;
+
+    fn resume<'a>(
+        self: Box<Self>,
+        guard: &'a IndexSpecReadGuard<'a>,
+    ) -> (Box<Self::Resumed<'a>>, ValidateStatus) {
+        match (*self).0 {
+            MaybeEmptyOption::None(empty) => (
+                Box::new(MaybeEmpty(MaybeEmptyOption::None(empty))),
+                ValidateStatus_VALIDATE_OK,
+            ),
+            MaybeEmptyOption::Some(child) => {
+                let (active_child, status) = Box::new(child).resume(guard);
+                (
+                    Box::new(MaybeEmpty(MaybeEmptyOption::Some(*active_child))),
+                    status,
+                )
+            }
+        }
+    }
+
+    fn last_doc_id(&self) -> t_docId {
+        match &self.0 {
+            MaybeEmptyOption::None(_) => 0,
+            MaybeEmptyOption::Some(child) => S::last_doc_id(child),
         }
     }
 }
