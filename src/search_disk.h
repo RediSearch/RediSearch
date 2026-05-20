@@ -119,9 +119,13 @@ void SearchDisk_CloseIndex(RedisSearchDiskIndexSpec *index);
  *
  * @param rdb Redis module rdb file
  * @param index Pointer to the index
- * @return true if successful, false otherwise
+ * @param vectorFields Array of (fieldIndex, VecSimIndex*) entries for vector
+ *                     fields whose in-memory state must be persisted. May be
+ *                     NULL when numVectorFields is 0.
+ * @param numVectorFields Number of entries in vectorFields
  */
-void SearchDisk_IndexSpecRdbSave(RedisModuleIO *rdb, RedisSearchDiskIndexSpec *index);
+void SearchDisk_IndexSpecRdbSave(RedisModuleIO *rdb, RedisSearchDiskIndexSpec *index,
+                                  const VectorRdbSaveEntry *vectorFields, size_t numVectorFields);
 
 /**
  * @brief Load disk-related RDB data into a temporary in-memory object.
@@ -455,6 +459,18 @@ void* SearchDisk_CreateVectorIndex(RedisModuleCtx *ctx, RedisSearchDiskIndexSpec
  * @param vecIndex The vector index handle returned by SearchDisk_CreateVectorIndex
  */
 void SearchDisk_FreeVectorIndex(void *vecIndex);
+
+/**
+ * @brief Apply a per-field vector blob captured in the partial RDB state.
+ *
+ * @param rdbState Temporary RDB state (must still be alive — not yet freed)
+ * @param fieldIndex Stable per-spec field identifier
+ * @param vecIndex Freshly created VecSimIndex* handle for that field
+ * @return true if a blob existed and was applied successfully; false if no
+ *         blob was present for this field (no-op) or deserialization failed
+ */
+bool SearchDisk_ApplyRdbStateToVectorIndex(RedisSearchDiskRdbState *rdbState,
+                                            t_fieldIndex fieldIndex, void *vecIndex);
 
 // Metrics API wrappers
 

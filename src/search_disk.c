@@ -167,9 +167,10 @@ void SearchDisk_CloseIndex(RedisSearchDiskIndexSpec *index) {
     disk->basic.closeIndexSpec(disk_db, index);
 }
 
-void SearchDisk_IndexSpecRdbSave(RedisModuleIO *rdb, RedisSearchDiskIndexSpec *index) {
+void SearchDisk_IndexSpecRdbSave(RedisModuleIO *rdb, RedisSearchDiskIndexSpec *index,
+                                  const VectorRdbSaveEntry *vectorFields, size_t numVectorFields) {
   RS_ASSERT(disk && index);
-  disk->basic.indexSpecRdbSave(rdb, index);
+  disk->basic.indexSpecRdbSave(rdb, index, vectorFields, numVectorFields);
 }
 
 RedisSearchDiskRdbState* SearchDisk_LoadRdbToTempObject(RedisModuleIO *rdb) {
@@ -381,6 +382,13 @@ void SearchDisk_FreeVectorIndex(void *vecIndex) {
     // to avoid silent memory leaks from partially implemented API
     RS_ASSERT(!vecIndex || disk->vector.freeVectorIndex);
     disk->vector.freeVectorIndex(vecIndex);
+}
+
+bool SearchDisk_ApplyRdbStateToVectorIndex(RedisSearchDiskRdbState *rdbState,
+                                            t_fieldIndex fieldIndex, void *vecIndex) {
+    RS_ASSERT(disk && rdbState && vecIndex);
+    RS_ASSERT(disk->vector.applyRdbStateToVectorIndex);
+    return disk->vector.applyRdbStateToVectorIndex(rdbState, fieldIndex, vecIndex);
 }
 
 // Throttle callback wrappers for VecSim

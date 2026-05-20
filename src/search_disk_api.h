@@ -71,6 +71,13 @@ typedef struct AsyncReadResult {
   uint64_t user_data;       // Generic user data passed to addAsyncRead (e.g., index, pointer, flags)
 } AsyncReadResult;
 
+// Identifies a vector field whose in-memory state should be serialized into
+// the RDB stream alongside the IndexSpec's disk-related state.
+typedef struct VectorRdbSaveEntry {
+  t_fieldIndex fieldIndex;  // Stable per-spec field identifier
+  void *vecIndex;           // VecSimIndex* handle returned by createVectorIndex
+} VectorRdbSaveEntry;
+
 typedef struct BasicDiskAPI {
   /**
    * @brief Open the disk storage context
@@ -131,7 +138,24 @@ typedef struct BasicDiskAPI {
    *       Call this before closeIndexSpec to unregister the database from Redis.
    */
   void (*unregisterIndex)(RedisModuleCtx *ctx, RedisSearchDiskIndexSpec *index);
-  void (*indexSpecRdbSave)(RedisModuleIO *rdb, RedisSearchDiskIndexSpec *index);
+  /**
+   * @brief Save the index spec's disk-related state to RDB.
+   *
+   * Writes the IndexSpec's partial RDB state (max_doc_id, deleted_ids) plus,
+   * for each entry in `vectorFields`, a length-framed in-memory dump of the
+   * corresponding VecSimIndex. Replicas read the same stream into a temporary
+   * state object (see loadRdbToTempObject) and apply each frame to the
+   * matching VecSimIndex at the end of SST Replication.
+   *
+   * @param rdb RedisModuleIO RDB save stream
+   * @param index Pointer to the index spec
+   * @param vectorFields Array of (fieldIndex, VecSimIndex*) entries for the
+   *                     spec's vector fields whose in-memory state must be
+   *                     persisted. May be NULL when numVectorFields is 0.
+   * @param numVectorFields Number of entries in vectorFields
+   */
+  void (*indexSpecRdbSave)(RedisModuleIO *rdb, RedisSearchDiskIndexSpec *index,
+                           const VectorRdbSaveEntry *vectorFields, size_t numVectorFields);
 
   /**
    * @brief Check if async I/O is supported by the underlying storage engine
@@ -163,14 +187,19 @@ typedef struct BasicDiskAPI {
    * @brief Create an IndexSpec and restore state from a previously loaded RDB state.
    *
    * Called after SST files are ready (e.g., after FULL_REPLICATION_FINISHED event).
-   * Takes ownership of rdbState - it will be consumed and freed.
+   * Borrows `rdbState`: only `max_doc_id` and (an `Arc`-clone of)
+   * `deleted_ids` are copied into the new spec. Per-field vector blobs stay
+   * on `rdbState` and must be applied through `applyRdbStateToVectorIndex`
+   * once the matching VecSimIndex handles exist. The caller owns the
+   * `rdbState` lifetime and must release it via `freeRdbState`.
    *
    * @param disk Pointer to the disk context
    * @param indexName Name of the index
    * @param obfuscatedName Obfuscated name of the index (for logging)
    * @param obfuscatedNameLen Length of the obfuscated name
    * @param type Document type for this index
-   * @param rdbState Temporary RDB state from loadRdbToTempObject (will be consumed)
+   * @param rdbState Temporary RDB state from loadRdbToTempObject (borrowed,
+   *                 caller still owns and must free it later)
    * @return Pointer to the created IndexSpec, or NULL on error
    */
   RedisSearchDiskIndexSpec *(*openIndexSpecWithRdbState)(RedisModuleCtx *ctx,
@@ -541,6 +570,18 @@ typedef struct VectorDiskAPI {
    * @param vecIndex The vector index handle returned by createVectorIndex
    */
   void (*freeVectorIndex)(void* vecIndex);
+
+  /**
+   * @brief Apply a per-field vector blob captured in the partial RDB state.
+   *
+   * @param rdbState Temporary RDB state (must still be alive — not yet freed)
+   * @param fieldIndex Stable per-spec field identifier
+   * @param vecIndex Freshly created VecSimIndex* handle for that field
+   * @return true if a blob existed and was applied successfully; false if no
+   *         blob was present for this field (no-op) or deserialization failed
+   */
+  bool (*applyRdbStateToVectorIndex)(RedisSearchDiskRdbState *rdbState,
+                                      t_fieldIndex fieldIndex, void *vecIndex);
 } VectorDiskAPI;
 
 typedef struct MetricsDiskAPI {

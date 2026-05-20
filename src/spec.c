@@ -3382,8 +3382,25 @@ void IndexSpec_RdbSave(RedisModuleIO *rdb, IndexSpec *sp, int contextFlags) {
     }
     IndexScoringStats_RdbSave(rdb, &sp->stats.scoring);
     TrieType_GenericSave(rdb, sp->terms, false, true);
+
+    // Collect the in-memory state of vector fields so the disk layer can frame
+    // them into the same RDB stream. The Rust layer keys each frame by
+    // fieldIndex so the replica can apply it to the matching VecSimIndex once
+    // the SST data is in place. Only HNSW-disk-backed (tiered/HNSW) vectors
+    // are eligible — see IndexSpec_PopulateVectorDiskParams for the gating.
+    VectorRdbSaveEntry vectorFields[SPEC_MAX_FIELDS];
+    size_t numVectorFields = 0;
+    for (int i = 0; i < sp->numFields; i++) {
+      FieldSpec *fs = &sp->fields[i];
+      if (!FIELD_IS(fs, INDEXFLD_T_VECTOR)) continue;
+      RS_ASSERT(fs->vectorOpts.vecSimIndex);
+      vectorFields[numVectorFields].fieldIndex = fs->index;
+      vectorFields[numVectorFields].vecIndex = fs->vectorOpts.vecSimIndex;
+      numVectorFields++;
+    }
+
     // Save disk metadata via IndexSpecRdbState (loaded via SearchDisk_LoadRdbToTempObject)
-    SearchDisk_IndexSpecRdbSave(rdb, sp->diskSpec);
+    SearchDisk_IndexSpecRdbSave(rdb, sp->diskSpec, vectorFields, numVectorFields);
     if (inMainProcess) {
       RedisSearchCtx_UnlockSpec(&sctx);
     }
@@ -3519,7 +3536,7 @@ IndexSpec *IndexSpec_RdbLoad(RedisModuleIO *rdb, int encver, bool useSst, QueryE
     sp->terms = TrieType_GenericLoad(rdb, false, true);
     RS_LOG_ASSERT(sp->terms, "Failed to load terms trie");
 
-    // Load disk metadata (max_doc_id, deleted_ids) into temporary object
+    // Load disk metadata (max_doc_id, deleted_id, and vector info) into temporary object
     diskRdbState = SearchDisk_LoadRdbToTempObject(rdb);
     if (!diskRdbState) {
       goto cleanup;
@@ -3530,18 +3547,44 @@ IndexSpec *IndexSpec_RdbLoad(RedisModuleIO *rdb, int encver, bool useSst, QueryE
   if (isSpecOnDisk(sp) && !sp->isDuplicate) {
     RS_ASSERT(disk_db);
     if (diskRdbState) {
-      // Use the new API that applies the RDB state during index opening
+      // SST+RDB path: the disk layer borrows diskRdbState here, pulling
+      // max_doc_id + (an Arc-clone of) deleted_ids into the spec. Per-field
+      // vector blobs remain on diskRdbState and are applied below, once each
+      // VecSimIndex has been created from the now-restored SST data. The
+      // rdb_state is freed at the end (success or failure) by this function.
       sp->diskSpec = SearchDisk_OpenIndexWithRdbState(ctx, sp->specName, sp->obfuscatedName, sp->rule->type, diskRdbState);
-      diskRdbState = NULL; // Ownership transferred
+      if (!sp->diskSpec) {
+        goto cleanup;
+      }
+      IndexSpec_PopulateVectorDiskParams(sp);
+      for (int i = 0; i < sp->numFields; i++) {
+        FieldSpec *fs = &sp->fields[i];
+        if (!FIELD_IS(fs, INDEXFLD_T_VECTOR)) continue;
+        if (!fs->vectorOpts.diskCtx.storage) continue;  // RAM-only vector
+        VecSimIndex *vecsim = openVectorIndex(ctx, fs, CREATE_INDEX);
+        if (!vecsim) {
+          RedisModule_Log(RSDummyContext, "warning",
+                          "Failed to eagerly create disk vector index for field %u during RDB load",
+                          fs->index);
+          continue;
+        }
+        // Drain the matching blob from diskRdbState and replay it into the
+        // freshly-created VecSimIndex. Returns false when no blob existed
+        // (which is fine — empty index — and also when deserialization
+        // failed; failures are already logged by the disk layer).
+        SearchDisk_ApplyRdbStateToVectorIndex(diskRdbState, fs->index, vecsim);
+      }
+      SearchDisk_FreeRdbState(diskRdbState);
+      diskRdbState = NULL;
     } else {
       // No RDB state (non-SST flow), just open the index normally
       sp->diskSpec = SearchDisk_OpenIndex(ctx, sp->specName, sp->obfuscatedName, sp->rule->type, false);
+      if (!sp->diskSpec) {
+        goto cleanup;
+      }
+      IndexSpec_PopulateVectorDiskParams(sp);
     }
 
-    IndexSpec_PopulateVectorDiskParams(sp);
-    if (!sp->diskSpec) {
-      goto cleanup;
-    }
     SearchDisk_RegisterIndex(ctx, sp->diskSpec);
     indexRegistered = true;
   } else if (diskRdbState) {
