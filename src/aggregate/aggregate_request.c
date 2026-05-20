@@ -812,33 +812,22 @@ static char *getReducerAlias(PLN_GroupStep *g, const char *func, const ArgsCurso
   // Two identical un-aliased reducers in the same GROUPBY
   // (e.g. `REDUCE COUNT 0 REDUCE COUNT 0`) would otherwise produce the same
   // synthetic alias and collide on the RLookup write key, failing the query
-  // with `SEARCH_FIELD_DUP`. Only when a clash is detected against an
-  // already-added reducer (or against a user-provided alias on a prior
-  // reducer) do we suffix with `_2`, `_3`, ... — this keeps the alias of the
-  // common single-reducer case unchanged, avoiding a behavior break for
-  // clients that depend on the historical synthetic alias format.
+  // with `SEARCH_FIELD_DUP`. On a duplicate, append `_<idx>` where `idx` is
+  // this reducer's position in the group — that's unique among auto-generated
+  // aliases in the same group, so a single check + bump is enough. The common
+  // single-reducer case keeps its historical alias unchanged.
   //
-  // NOTE: This is a wasteful O(n^2) way to enforce uniqueness, kept only to
-  // avoid a breaking change to the generated alias format.
-  // TODO: switch to an unconditional unique suffix (e.g. reducer index) once
-  // we are willing to change the generated alias contract.
-  size_t n = array_len(g->reducers);
-  size_t base_len = sdslen(out);
-  size_t suffix = 1;
-  bool clash;
-  do {
-    clash = false;
-    // The current reducer was just appended to g->reducers by the caller and
-    // its alias is not set yet; compare only against the prior entries.
-    for (size_t i = 0; i + 1 < n; ++i) {
-      if (g->reducers[i].alias && strcmp(g->reducers[i].alias, out) == 0) {
-        clash = true;
-        sdsrange(out, 0, base_len - 1);             // drop any prior suffix
-        out = sdscatprintf(out, "_%zu", ++suffix);  // _2, _3, ...
-        break;
-      }
+  // NOTE: This conditional suffixing exists only to avoid breaking the
+  // historical generated-alias format for clients that depend on it.
+  // TODO: drop the conditional and always append `_<idx>` once we are
+  // willing to change the generated alias contract.
+  size_t idx = array_len(g->reducers) - 1;
+  for (size_t i = 0; i < idx; ++i) {
+    if (g->reducers[i].alias && strcmp(g->reducers[i].alias, out) == 0) {
+      out = sdscatprintf(out, "_%zu", idx);
+      break;
     }
-  } while (clash);
+  }
 
   // duplicate everything. yeah this is lame but this function is not in a tight loop
   char *dup = rm_strndup(out, sdslen(out));
