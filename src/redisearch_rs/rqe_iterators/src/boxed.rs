@@ -97,6 +97,21 @@ pub trait RQEIteratorBoxed<'a>: RQEIterator<'a> + 'a {
     /// is what keeps composite aggregate-result pointers valid across the
     /// cycle.
     fn suspend(self: Box<Self>) -> Box<Self::Suspended>;
+
+    /// Cascade the suspend signal to child iterators' C-side wrappers.
+    ///
+    /// Composite iterators must override this to call `cascade_suspend` on each
+    /// child (so `CRQEIterator` children invoke their wrapped iterator's
+    /// `Suspend` vtable entry, flipping its typestate). [`CRQEIterator`] itself
+    /// overrides this to call its `Suspend` callback. Leaf iterators inherit
+    /// the default no-op.
+    ///
+    /// Called by the FFI wrapper's `Suspend` callback **before**
+    /// [`suspend`](Self::suspend) does its `Box<Self>` type-cast — without
+    /// this, child wrappers stay Active across the parent's suspend/resume
+    /// cycle, and the parent's resume cascade no-ops on them, leaving their
+    /// internal state stale.
+    fn cascade_suspend(&mut self) {}
 }
 
 /// Concrete-typed suspended iterator trait — counterpart of
@@ -150,6 +165,8 @@ pub trait RQESuspendedIterator: 'static {
 pub trait RQEDynIterator<'a>: RQEIterator<'a> + 'a {
     /// Type-erased counterpart of [`RQEIteratorBoxed::suspend`].
     fn suspend(self: Box<Self>) -> BoxedRQESuspendedIterator;
+    /// Type-erased counterpart of [`RQEIteratorBoxed::cascade_suspend`].
+    fn cascade_suspend(&mut self);
 }
 
 /// Dyn-safe sibling of [`RQESuspendedIterator`].
@@ -208,6 +225,10 @@ impl<'a, T: RQEIteratorBoxed<'a> + 'a> RQEDynIterator<'a> for T {
     fn suspend(self: Box<Self>) -> BoxedRQESuspendedIterator {
         let suspended = <T as RQEIteratorBoxed<'a>>::suspend(self);
         BoxedRQESuspendedIterator(suspended as Box<dyn RQEDynSuspendedIterator>)
+    }
+
+    fn cascade_suspend(&mut self) {
+        <T as RQEIteratorBoxed<'a>>::cascade_suspend(self);
     }
 }
 
@@ -298,6 +319,10 @@ impl<'a> RQEIteratorBoxed<'a> for BoxedRQEIterator<'a> {
         Box::new(<dyn RQEDynIterator<'a> as RQEDynIterator<'a>>::suspend(
             inner,
         ))
+    }
+
+    fn cascade_suspend(&mut self) {
+        self.0.cascade_suspend();
     }
 }
 

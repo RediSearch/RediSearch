@@ -211,6 +211,13 @@ impl<'index> RQEIteratorBoxed<'index> for NotIteratorEnum<'index> {
         // SAFETY: outer Box reconstituted on the same heap allocation.
         unsafe { Box::from_raw(suspended_raw) }
     }
+
+    fn cascade_suspend(&mut self) {
+        match self {
+            Self::Not(it) => it.cascade_suspend(),
+            Self::NotOptimized(it) => it.cascade_suspend(),
+        }
+    }
 }
 
 impl RQESuspendedIterator for NotIteratorEnumSuspended {

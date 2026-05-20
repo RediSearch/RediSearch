@@ -234,6 +234,10 @@ where
         // reuses the same heap allocation.
         unsafe { Box::from_raw(raw as *mut RawUnionOpaque<Suspended, I::Suspended>) }
     }
+
+    fn cascade_suspend(&mut self) {
+        delegate_variant_ref_mut!(self, cascade_suspend);
+    }
 }
 
 impl<S> RQESuspendedIterator for RawUnionOpaque<Suspended, S>

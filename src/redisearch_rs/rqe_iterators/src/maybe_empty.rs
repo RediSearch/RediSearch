@@ -204,6 +204,13 @@ where
         // the same heap allocation.
         unsafe { Box::from_raw(raw as *mut MaybeEmpty<I::Suspended>) }
     }
+
+    fn cascade_suspend(&mut self) {
+        match &mut self.0 {
+            MaybeEmptyOption::Some(it) => it.cascade_suspend(),
+            MaybeEmptyOption::None(_) => {} // Empty iterator — nothing to cascade
+        }
+    }
 }
 
 impl<S> RQESuspendedIterator for MaybeEmpty<S>

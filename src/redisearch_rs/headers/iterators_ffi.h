@@ -352,6 +352,15 @@ QueryIterator *NewWildcardIterator(const QueryEvalCtx *q, double weight);
 void SetMetricRLookupHandle(QueryIterator *header, RLookupKeyHandle *key_handle);
 
 /**
+ * Returns the number of child iterators held by the intersection iterator.
+ *
+ * # Safety
+ *
+ * 1. `header` must be a valid non-null pointer created via [`NewIntersectionIterator()`].
+ */
+size_t GetIntersectionIteratorNumChildren(const QueryIterator *header);
+
+/**
  * Profile-wrap an iterator and its entire subtree.
  *
  * Wraps the iterator as a [`CRQEIterator`], calls
@@ -365,30 +374,6 @@ void SetMetricRLookupHandle(QueryIterator *header, RLookupKeyHandle *key_handle)
  * 2. `iter` must not be aliased.
  */
 QueryIterator *IntoProfiled(QueryIterator *iter);
-
-/**
- * Returns the number of child iterators held by the intersection iterator.
- *
- * # Safety
- *
- * 1. `header` must be a valid non-null pointer created via [`NewIntersectionIterator()`].
- */
-size_t GetIntersectionIteratorNumChildren(const QueryIterator *header);
-
-/**
- * Add profile iterators to all nodes in the iterator tree.
- *
- * Wraps the root as a [`CRQEIterator`], calls
- * [`CRQEIterator::into_profiled`](rqe_iterators::c2rust::CRQEIterator::into_profiled)
- * (which recursively profiles
- * all descendants), then writes the result back as a `QueryIterator*`.
- *
- * # Safety
- *
- * 1. `root` must be a valid non-null pointer to a `*mut QueryIterator`.
- * 2. `*root` must be null or a valid non-null, non-aliased pointer to a `QueryIterator`.
- */
-void Profile_AddIters(QueryIterator * *root);
 
 /**
  * Get a mutable reference to the [`RLookupKey`] stored inside this metric iterator.
@@ -412,6 +397,21 @@ RLookupKey * *GetMetricOwnKeyRef(QueryIterator *header);
  * 2. `idx` must be less than [`GetIntersectionIteratorNumChildren`]`(header)`.
  */
 const QueryIterator *GetIntersectionIteratorChild(const QueryIterator *header, size_t idx);
+
+/**
+ * Add profile iterators to all nodes in the iterator tree.
+ *
+ * Wraps the root as a [`CRQEIterator`], calls
+ * [`CRQEIterator::into_profiled`](rqe_iterators::c2rust::CRQEIterator::into_profiled)
+ * (which recursively profiles
+ * all descendants), then writes the result back as a `QueryIterator*`.
+ *
+ * # Safety
+ *
+ * 1. `root` must be a valid non-null pointer to a `*mut QueryIterator`.
+ * 2. `*root` must be null or a valid non-null, non-aliased pointer to a `QueryIterator`.
+ */
+void Profile_AddIters(QueryIterator * *root);
 
 /**
  * Creates a new union iterator, applying reduction rules and choosing between
@@ -627,6 +627,19 @@ double NumericInvIndIterator_GetProfileRangeMin(const QueryIterator *it);
 const QueryIterator *GetUnionIteratorChild(const QueryIterator *it, size_t idx);
 
 /**
+ * Gets the maximum range value for profiling a numeric iterator.
+ *
+ * # Safety
+ *
+ * 1. `it` must be a valid pointer to a `QueryIterator` wrapping a [`NumericIterator`].
+ *
+ * # Returns
+ *
+ * The maximum range value from the filter, or positive infinity if no filter was provided.
+ */
+double NumericInvIndIterator_GetProfileRangeMax(const QueryIterator *it);
+
+/**
  * Creates a NOT iterator, choosing between non-optimized and optimized based
  * on the query evaluation context.
  *
@@ -649,19 +662,6 @@ const QueryIterator *GetUnionIteratorChild(const QueryIterator *it, size_t idx);
  *    [`crate::wildcard::NewWildcardIterator_Optimized`] must hold.
  */
 QueryIterator *NewNotIterator(QueryIterator *child, t_docId max_doc_id, double weight, timespec timeout, QueryEvalCtx *q);
-
-/**
- * Gets the maximum range value for profiling a numeric iterator.
- *
- * # Safety
- *
- * 1. `it` must be a valid pointer to a `QueryIterator` wrapping a [`NumericIterator`].
- *
- * # Returns
- *
- * The maximum range value from the filter, or positive infinity if no filter was provided.
- */
-double NumericInvIndIterator_GetProfileRangeMax(const QueryIterator *it);
 
 /**
  * Returns the [`QueryNodeType`] stored in the union iterator.

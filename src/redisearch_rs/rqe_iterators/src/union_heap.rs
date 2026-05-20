@@ -524,6 +524,12 @@ where
         // allocation.
         unsafe { Box::from_raw(raw as *mut RawUnionHeap<Suspended, I::Suspended, QUICK_EXIT>) }
     }
+
+    fn cascade_suspend(&mut self) {
+        for child in self.children.iter_mut() {
+            child.cascade_suspend();
+        }
+    }
 }
 
 impl<S, const QUICK_EXIT: bool> RQESuspendedIterator for RawUnionHeap<Suspended, S, QUICK_EXIT>

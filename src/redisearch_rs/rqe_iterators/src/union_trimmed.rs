@@ -352,6 +352,12 @@ where
         // `SharedPtr` transparency. Box::from_raw reuses the heap.
         unsafe { Box::from_raw(raw as *mut RawUnionTrimmed<Suspended, I::Suspended>) }
     }
+
+    fn cascade_suspend(&mut self) {
+        for child in self.children.iter_mut() {
+            child.cascade_suspend();
+        }
+    }
 }
 
 impl<S> RQESuspendedIterator for RawUnionTrimmed<Suspended, S>

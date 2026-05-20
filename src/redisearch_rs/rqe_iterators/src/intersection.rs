@@ -604,6 +604,12 @@ where
         // type label flipped). Box::from_raw reuses the heap allocation.
         unsafe { Box::from_raw(raw as *mut RawIntersection<Suspended, I::Suspended>) }
     }
+
+    fn cascade_suspend(&mut self) {
+        for child in self.children.iter_mut() {
+            child.cascade_suspend();
+        }
+    }
 }
 
 impl<S> RQESuspendedIterator for RawIntersection<Suspended, S>
