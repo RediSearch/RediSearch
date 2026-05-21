@@ -33,8 +33,9 @@ target_compile_options(benchmark PRIVATE
 target_compile_options(benchmark_main PRIVATE
   $<$<CXX_COMPILER_ID:Clang>:-Wno-unknown-warning-option -Wno-c2y-extensions>)
 
-file(GLOB BENCHMARK_ITER_SOURCES "benchmark_*_iterator.cpp")
-foreach(benchmark_file ${BENCHMARK_ITER_SOURCES})
+file(GLOB BENCHMARK_SOURCES "benchmark_*.cpp")
+list(FILTER BENCHMARK_SOURCES EXCLUDE REGEX "benchmark_doc_id_pattern_iteration\\.cpp")
+foreach(benchmark_file ${BENCHMARK_SOURCES})
   get_filename_component(benchmark_name ${benchmark_file} NAME_WE)
   add_executable(${benchmark_name} ${benchmark_file} ../index_utils.cpp ../llapi_test_helpers.cpp ../iterator_util.cpp)
   target_link_libraries(${benchmark_name} redisearch redismock benchmark::benchmark)

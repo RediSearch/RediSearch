@@ -56,7 +56,9 @@ RefManager* RediSearch_CreateIndex(const char* name, const RSIndexOptions* optio
   }
   if (options->gcPolicy != GC_POLICY_NONE) {
     spec->gc = GCContext_CreateGC(spec->own_ref, options->gcPolicy);
-    GCContext_Start(spec->gc);
+    if (RSGlobalConfig.gcConfigParams.enableGC) {
+      GCContext_Start(spec->gc);
+    }
   }
   if (options->stopwordsLen != -1) {
     // replace default list which is a global so no need to free anything.
