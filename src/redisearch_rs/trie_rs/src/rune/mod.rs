@@ -43,22 +43,22 @@ impl<Data> RuneTrieMap<Data> {
     }
 
     pub fn insert(&mut self, key: &[Rune], data: Data) -> Option<Data> {
-        self.inner.insert(&split_key(key), data)
+        self.inner.insert(&rune_to_bytes(key), data)
     }
 
     pub fn insert_with<F>(&mut self, key: &[Rune], f: F)
     where
         F: FnOnce(Option<Data>) -> Data,
     {
-        self.inner.insert_with(&split_key(key), f);
+        self.inner.insert_with(&rune_to_bytes(key), f);
     }
 
     pub fn remove(&mut self, key: &[Rune]) -> Option<Data> {
-        self.inner.remove(&split_key(key))
+        self.inner.remove(&rune_to_bytes(key))
     }
 
     pub fn get(&mut self, key: &[Rune]) -> Option<&Data> {
-        self.inner.find(&split_key(key))
+        self.inner.find(&rune_to_bytes(key))
     }
 
     pub fn len(&self) -> usize {
@@ -76,18 +76,21 @@ impl<'a, Data> Iterator for RuneTrieMapIter<'a, Data> {
     type Item = (Vec<Rune>, &'a Data);
 
     fn next(&mut self) -> Option<Self::Item> {
-        self.0.next().map(|(k, v)| (join_key(&k), v))
+        self.0.next().map(|(k, v)| (bytes_to_rune(&k), v))
     }
 }
 
-fn split_key(key: &[Rune]) -> Vec<Byte> {
-    key.into_iter().flat_map(|x| x.to_be_bytes()).collect_vec()
+fn rune_to_bytes(rune: &[Rune]) -> Vec<Byte> {
+    rune.iter()
+        .map(|x| x.to_be_bytes())
+        .collect_vec()
+        .into_flattened()
 }
 
-fn join_key(key: &[Byte]) -> Vec<Rune> {
+fn bytes_to_rune(key: &[u8]) -> Vec<u16> {
     key.as_chunks()
         .0
         .iter()
-        .map(|&[x, y]| Rune::from_be_bytes([x, y]))
-        .collect_vec()
+        .map(|&c| u16::from_be_bytes(c))
+        .collect()
 }
