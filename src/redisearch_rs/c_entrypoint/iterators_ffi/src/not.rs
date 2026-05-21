@@ -76,7 +76,7 @@ impl rqe_iterators::profile_print::ProfilePrint for NotIteratorEnum<'_> {
 impl<'query> NotIteratorEnumSuspended<'query> {
     /// Mirror of [`NotIteratorEnum::child`] on the suspended side. CRQEIterator's
     /// `Suspended` is `CRQEIterator` itself, so both forms return `Option<&CRQEIterator>`.
-    fn child(&self) -> Option<&CRQEIterator> {
+    const fn child(&self) -> Option<&CRQEIterator> {
         match self {
             Self::Not(it) => it.child(),
             Self::NotOptimized(it) => it.child(),
