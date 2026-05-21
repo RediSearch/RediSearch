@@ -840,7 +840,7 @@ static int HybridQueryTimeoutFailCallback(RedisModuleCtx *ctx, RedisModuleString
     return REDISMODULE_OK;
   }
 
-  HybridRequest *hreq = (HybridRequest *)node->privdata;
+  HybridRequest *hreq = RequestSyncCtx_GetHybridRequest((RequestSyncCtx *)node->privdata);
 
   // Lock to synchronize with cursor creation in HybridRequest_StartCursors.
   // After setting timedOut, any subsequent cursor creation attempt will be skipped.
@@ -880,7 +880,7 @@ static int HybridQueryCursorReplyCallback(RedisModuleCtx *ctx, RedisModuleString
     return REDISMODULE_OK;
   }
 
-  HybridRequest *req = (HybridRequest *)node->privdata;
+  HybridRequest *req = RequestSyncCtx_GetHybridRequest((RequestSyncCtx *)node->privdata);
 
   if (QueryError_HasError(&req->storedReplyState.err)) {
     QueryErrorsGlobalStats_UpdateError(QueryError_GetCode(&req->storedReplyState.err), 1, SHARD_ERR_WARN);
@@ -910,7 +910,7 @@ static int HybridQueryReplyCallback(RedisModuleCtx *ctx, RedisModuleString **arg
     return REDISMODULE_OK;
   }
 
-  HybridRequest *req = (HybridRequest *)node->privdata;
+  HybridRequest *req = RequestSyncCtx_GetHybridRequest((RequestSyncCtx *)node->privdata);
 
   // Check if results were stored (background thread completed successfully)
   if (!req->storedReplyState.hasStoredResults) {
@@ -931,11 +931,6 @@ static int HybridQueryReplyCallback(RedisModuleCtx *ctx, RedisModuleString **arg
 
   return REDISMODULE_OK;
 
-}
-
-// Wrapper for HybridRequest_DecrRef to match BlockedClientFreePrivDataCB signature
-static void HybridRequest_DecrRefWrapper(void *privdata) {
-  HybridRequest_DecrRef((HybridRequest *)privdata);
 }
 
 // Background execution functions implementation
@@ -964,9 +959,9 @@ static int HybridRequest_BuildPipelineAndExecute(HybridRequest *hreq, HybridPipe
     BlockClientCtx blockClientCtx = {0};
 
     blockClientCtx.ast = &hreq->requests[0]->ast;
-    blockClientCtx.privdata = hreq;
+    blockClientCtx.privdata = hreq->syncCtx;
     HybridRequest_IncrRef(hreq);
-    blockClientCtx.freePrivData = HybridRequest_DecrRefWrapper;
+    blockClientCtx.freePrivData = RequestSyncCtx_ReleaseQueryRefCB;
 
     if (hreq->reqConfig.timeoutPolicy == TimeoutPolicy_Fail) {
       blockClientCtx.timeoutCallback = HybridQueryTimeoutFailCallback;

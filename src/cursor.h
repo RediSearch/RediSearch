@@ -73,8 +73,7 @@ typedef struct Cursor {
 AREQ *Cursor_GetAREQ(const Cursor *cursor);
 
 static inline HybridRequest *Cursor_GetHybridRequest(const Cursor *cursor) {
-  return (cursor->query && cursor->query->kind == REQUEST_KIND_HYBRID) ? cursor->query->query.hreq
-                                                                       : NULL;
+  return RequestSyncCtx_GetHybridRequest(cursor->query);
 }
 
 static inline bool Cursor_IsHybrid(const Cursor *cursor) {

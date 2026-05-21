@@ -54,18 +54,14 @@ static void runCursor(RedisModule_Reply *reply, Cursor *cursor, size_t num);
 static int prepareExecutionPlan(AREQ *req, QueryError *status);
 static int QueryReplyCallback(RedisModuleCtx *ctx, RedisModuleString **argv, int argc);
 
-// Wrapper for AREQ_DecrRef to match BlockedClientFreePrivDataCB signature
-static void AREQ_DecrRefWrapper(void *privdata) {
-  AREQ_DecrRef((AREQ *)privdata);
-}
-
 // freePrivData for BlockCursorClientWithTimeout on the shard FAIL path. Drains any cursor
 // parked in storedReplyState before releasing our AREQ ref (no-op on the happy
 // path, where CursorReadReplyCallback already cleared it).
-static void ShardCursorBlockClient_FreeAREQ(void *privdata) {
-  AREQ *req = (AREQ *)privdata;
+static void ShardCursorBlockClient_FreeRSC(void *privdata) {
+  RequestSyncCtx *rsc = (RequestSyncCtx *)privdata;
+  AREQ *req = RequestSyncCtx_GetAREQ(rsc);
   AREQ_CleanUpStoredCursor(req);
-  AREQ_DecrRef(req);
+  RequestSyncCtx_ReleaseQueryRef(rsc);
 }
 
 /**
@@ -1540,7 +1536,7 @@ static int QueryTimeoutFailCallback(RedisModuleCtx *ctx, RedisModuleString **arg
     return REDISMODULE_OK;
   }
 
-  AREQ *req = (AREQ *)node->privdata;
+  AREQ *req = RequestSyncCtx_GetAREQ((RequestSyncCtx *)node->privdata);
   // Signal timeout to background thread (will notice and skip storing results)
   AREQ_SetTimedOut(req);
 
@@ -1590,7 +1586,7 @@ static int QueryTimeoutReturnStrictCallback(RedisModuleCtx *ctx, RedisModuleStri
     return REDISMODULE_OK;
   }
 
-  AREQ *req = (AREQ *)node->privdata;
+  AREQ *req = RequestSyncCtx_GetAREQ((RequestSyncCtx *)node->privdata);
 
   // Signal timeout to background thread
   AREQ_SetTimedOut(req);
@@ -1690,7 +1686,7 @@ static int QueryReplyCallback(RedisModuleCtx *ctx, RedisModuleString **argv, int
     return REDISMODULE_OK;
   }
 
-  AREQ *req = (AREQ *)node->privdata;
+  AREQ *req = RequestSyncCtx_GetAREQ((RequestSyncCtx *)node->privdata);
 
   // Check if results were stored (background thread completed successfully)
   if (!req->storedReplyState.hasStoredResults) {
@@ -1727,7 +1723,7 @@ static int CursorReadTimeoutFailCallback(RedisModuleCtx *ctx, RedisModuleString 
     return REDISMODULE_OK;
   }
 
-  AREQ *req = (AREQ *)node->privdata;
+  AREQ *req = RequestSyncCtx_GetAREQ((RequestSyncCtx *)node->privdata);
   // Signal timeout to background thread so it skips storing results.
   AREQ_SetTimedOut(req);
 
@@ -1740,7 +1736,7 @@ static int CursorReadTimeoutFailCallback(RedisModuleCtx *ctx, RedisModuleString 
 // Shard FT.CURSOR READ FAIL-path reply callback.
 // Mirrors QueryReplyCallbackbut uses a different privdata type (BlockedCursorNode).
 // Not invoked if the timeout fired first.
-// The BlockedCursorNode reference is released by FreeCursorNode → ShardCursorBlockClient_FreeAREQ after this callback.
+// The BlockedCursorNode reference is released by FreeCursorNode → ShardCursorBlockClient_FreeRSC after this callback.
 // Can be consolidated with QueryReplyCallback - See MOD-15038.
 static int CursorReadReplyCallback(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
   UNUSED(argv);
@@ -1754,7 +1750,7 @@ static int CursorReadReplyCallback(RedisModuleCtx *ctx, RedisModuleString **argv
     return REDISMODULE_OK;
   }
 
-  AREQ *req = (AREQ *)node->privdata;
+  AREQ *req = RequestSyncCtx_GetAREQ((RequestSyncCtx *)node->privdata);
 
   if (!req->storedReplyState.hasStoredResults) {
     // Background thread didn't store results - some early error occurred.
@@ -1781,8 +1777,8 @@ static int buildPipelineAndExecute(AREQ *r, RedisModuleCtx *ctx, QueryError *sta
 
     // Take a reference for BlockedQueryNode to access in timeout/reply callbacks.
     AREQ_IncrRef(r);
-    blockClientCtx.freePrivData = AREQ_DecrRefWrapper;
-    blockClientCtx.privdata = r;
+    blockClientCtx.freePrivData = RequestSyncCtx_ReleaseQueryRefCB;
+    blockClientCtx.privdata = r->syncCtx;
     blockClientCtx.ast = &r->ast;
     RSTimeoutPolicy policy = r->reqConfig.timeoutPolicy;
 
@@ -2230,8 +2226,8 @@ int RSCursorReadCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc)
       RS_ASSERT(cursor->queryTimeoutPolicy == req->reqConfig.timeoutPolicy);
       // Extra ref owned by the BlockedCursorNode, released in FreeCursorNode.
       AREQ_IncrRef(req);
-      blockClientCtx.privdata        = req;
-      blockClientCtx.freePrivData    = ShardCursorBlockClient_FreeAREQ;
+      blockClientCtx.privdata        = req->syncCtx;
+      blockClientCtx.freePrivData    = ShardCursorBlockClient_FreeRSC;
       blockClientCtx.replyCallback   = CursorReadReplyCallback;
       blockClientCtx.timeoutCallback = CursorReadTimeoutFailCallback;
       blockClientCtx.timeoutMS       = (rs_wall_clock_ms_t)cursor->queryTimeoutMS;

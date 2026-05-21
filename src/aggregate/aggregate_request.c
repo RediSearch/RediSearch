@@ -1107,6 +1107,49 @@ void RequestSyncCtx_Free(RequestSyncCtx *ctx) {
   rm_free(ctx);
 }
 
+AREQ *RequestSyncCtx_GetAREQ(RequestSyncCtx *ctx) {
+  return (ctx && ctx->kind == REQUEST_KIND_AREQ) ? ctx->query.areq : NULL;
+}
+
+HybridRequest *RequestSyncCtx_GetHybridRequest(RequestSyncCtx *ctx) {
+  return (ctx && ctx->kind == REQUEST_KIND_HYBRID) ? ctx->query.hreq : NULL;
+}
+
+AREQ *RequestSyncCtx_GetCursorAREQ(RequestSyncCtx *ctx, uint64_t cursorId) {
+  AREQ *areq = RequestSyncCtx_GetAREQ(ctx);
+  if (areq) {
+    return areq;
+  }
+
+  HybridRequest *hreq = RequestSyncCtx_GetHybridRequest(ctx);
+  if (!hreq) {
+    return NULL;
+  }
+
+  for (size_t i = 0; i < hreq->nrequests; i++) {
+    AREQ *subquery = hreq->requests[i];
+    if (subquery->cursor_id == cursorId) {
+      return subquery;
+    }
+  }
+  return NULL;
+}
+
+void RequestSyncCtx_ReleaseQueryRef(RequestSyncCtx *ctx) {
+  if (!ctx) {
+    return;
+  }
+  if (ctx->kind == REQUEST_KIND_AREQ) {
+    AREQ_DecrRef(ctx->query.areq);
+  } else {
+    HybridRequest_DecrRef(ctx->query.hreq);
+  }
+}
+
+void RequestSyncCtx_ReleaseQueryRefCB(void *ctx) {
+  RequestSyncCtx_ReleaseQueryRef((RequestSyncCtx *)ctx);
+}
+
 AREQ *AREQ_New(void) {
   AREQ* req = rm_calloc(1, sizeof(AREQ));
   /*

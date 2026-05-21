@@ -29,21 +29,7 @@ CursorList g_CursorsList;
 CursorList g_CursorsListCoord;
 
 AREQ *Cursor_GetAREQ(const Cursor *cursor) {
-  if (!cursor->query) {
-    return NULL;
-  }
-  if (cursor->query->kind == REQUEST_KIND_AREQ) {
-    return cursor->query->query.areq;
-  }
-
-  HybridRequest *hreq = cursor->query->query.hreq;
-  for (size_t i = 0; i < hreq->nrequests; i++) {
-    AREQ *areq = hreq->requests[i];
-    if (areq->cursor_id == cursor->id) {
-      return areq;
-    }
-  }
-  return NULL;
+  return RequestSyncCtx_GetCursorAREQ(cursor->query, cursor->id);
 }
 
 static uint64_t curTimeNs() {
@@ -103,11 +89,7 @@ static void Cursor_FreeInternal(Cursor *cur) {
   RS_LOG_ASSERT(kh_get(cursors, cl->lookup, cur->id) == kh_end(cl->lookup),
                                                     "Failed to delete cursor");
   if (cur->query) {
-    if (cur->query->kind == REQUEST_KIND_HYBRID) {
-      HybridRequest_DecrRef(cur->query->query.hreq);
-    } else {
-      AREQ_DecrRef(cur->query->query.areq);
-    }
+    RequestSyncCtx_ReleaseQueryRef(cur->query);
     cur->query = NULL;
   }
   // if There's a spec associated with the cursor

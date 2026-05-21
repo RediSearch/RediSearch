@@ -234,6 +234,11 @@ static inline void RequestSyncCtx_Init(RequestSyncCtx *ctx, RequestKind kind, vo
 RequestSyncCtx *RequestSyncCtx_NewAREQ(AREQ *areq);
 RequestSyncCtx *RequestSyncCtx_NewHybrid(HybridRequest *hreq);
 void RequestSyncCtx_Free(RequestSyncCtx *ctx);
+AREQ *RequestSyncCtx_GetAREQ(RequestSyncCtx *ctx);
+HybridRequest *RequestSyncCtx_GetHybridRequest(RequestSyncCtx *ctx);
+AREQ *RequestSyncCtx_GetCursorAREQ(RequestSyncCtx *ctx, uint64_t cursorId);
+void RequestSyncCtx_ReleaseQueryRef(RequestSyncCtx *ctx);
+void RequestSyncCtx_ReleaseQueryRefCB(void *ctx);
 
 // Release resources owned by a RequestSyncCtx. Must be called exactly once
 // per successful Init, from the request's free path.
