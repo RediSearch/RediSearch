@@ -1280,9 +1280,7 @@ static void HREQ_Tail_Callback(HybridTailCtx *tail);
  *     and `RedisSearchCtx_UnlockSpec` is idempotent w.r.t. `sctx->flags`, so
  *     the early-exit path's defensive unlock at `dispatch_error` is also safe.
  *   - The dispatcher does not spin. With depleters on the same pool as the
- *     dispatcher itself, this is what makes the small-WORKERS case (e.g.
- *     WORKERS=1) non-deadlocking — see commit message for the failure mode
- *     that the previous busy-wait introduced.
+ *     dispatcher itself.
  *
  * @param BCHCtx Ownership transferred to the tail on the happy path; freed
  *               here on any early-exit path.
@@ -1376,10 +1374,7 @@ static void HREQ_Execute_Callback(blockedClientHybridCtx *BCHCtx) {
     }
   }
 
-  // Submit the depleter jobs and wait only for the lock hand-off. Once this
-  // returns RS_RESULT_OK the dispatcher's read lock has been released, every
-  // depleter has either taken its own read lock or recorded a skip, and the
-  // background depletion is in flight.
+  // Submit the depleter jobs.
   if (RPSafeDepleter_StartDepletionAll(depleters, &status) != RS_RESULT_OK) {
     array_free(depleters);
     if (isCursor) {
