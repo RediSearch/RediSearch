@@ -68,14 +68,21 @@ pub struct RawOptionalOptimized<'query, Rf: Ref, W, I> {
 /// with an [`RQEIterator`] impl today.
 pub type OptionalOptimized<'index, W, I> = RawOptionalOptimized<'index, Active<'index>, W, I>;
 
+impl<'query, Rf: Ref, W, I> RawOptionalOptimized<'query, Rf, W, I> {
+    /// Returns a reference to the child iterator, if any. Mode-independent.
+    pub const fn child(&self) -> Option<&I> {
+        self.child.as_ref()
+    }
+}
+
 impl<'index, W, I> OptionalOptimized<'index, W, I>
 where
     W: WildcardIterator<'index>,
     I: RQEIterator<'index>,
 {
-    /// Returns a reference to the child iterator, if any.
-    pub const fn child(&self) -> Option<&I> {
-        self.child.as_ref()
+    /// Takes the child iterator out, replacing it with an [`Empty`](crate::Empty) iterator.
+    pub fn take_child(&mut self) -> Option<I> {
+        self.child.take_iterator()
     }
 
     /// Sets the child iterator.

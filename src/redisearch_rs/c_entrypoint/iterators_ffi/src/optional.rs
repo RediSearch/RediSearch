@@ -13,7 +13,7 @@ use ffi::{QueryEvalCtx, QueryIterator};
 use rqe_core::DocId;
 use rqe_iterator_type::IteratorType;
 use rqe_iterators::c2rust::CRQEIterator;
-use rqe_iterators::interop::RQEIteratorWrapper;
+use rqe_iterators::interop::{InnerState, RQEIteratorWrapper};
 use rqe_iterators::optional::Optional;
 use rqe_iterators::optional_reducer::{
     NewOptionalIterator as OptionalIteratorOutcome, new_optional_iterator,
@@ -24,7 +24,7 @@ use rqe_iterators::optional_reducer::{
 ///
 /// - If `child` is null or an empty iterator, a wildcard iterator is returned instead (all results will be virtual hits).
 /// - If `child` is a wildcard iterator, it is returned as-is with `weight` applied.
-/// - Otherwise, an [`Optional`](rqe_iterators::optional::Optional) or [`OptionalOptimized`](rqe_iterators::optional_optimized::OptionalOptimized)
+/// - Otherwise, an [`Optional`] or [`OptionalOptimized`](rqe_iterators::optional_optimized::OptionalOptimized)
 ///   iterator is constructed based on whether `q.sctx.spec.rule.index_all` is set.
 ///
 /// # Safety
@@ -103,9 +103,11 @@ unsafe fn get_optional_non_optimized_iterator_child(
     // SAFETY: Safe thanks to 1
     let wrapper =
         unsafe { RQEIteratorWrapper::<Optional<CRQEIterator>>::ref_from_header_ptr(header) };
-    wrapper
-        .inner()
-        .child()
+    let child = match wrapper.state() {
+        InnerState::Active(it) => it.child(),
+        InnerState::Suspended(it) => it.child(),
+    };
+    child
         .map(|p| p.as_ref() as *const _)
         .unwrap_or(std::ptr::null())
 }
@@ -133,9 +135,11 @@ unsafe fn get_optional_optimized_iterator_child(
     // SAFETY: Safe thanks to 1
     let wrapper =
         unsafe { RQEIteratorWrapper::<OptionalOptimizedFfi>::ref_from_header_ptr(header) };
-    wrapper
-        .inner()
-        .child()
+    let child = match wrapper.state() {
+        InnerState::Active(it) => it.child(),
+        InnerState::Suspended(it) => it.child(),
+    };
+    child
         .map(|p| p.as_ref() as *const _)
         .unwrap_or(std::ptr::null())
 }
