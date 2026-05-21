@@ -8,7 +8,7 @@
 */
 
 use crate::{matches, no_match, partial_match};
-use wildcard::WildcardPattern;
+use rqe_wildcard::WildcardPattern;
 
 #[test]
 fn test_matches() {
