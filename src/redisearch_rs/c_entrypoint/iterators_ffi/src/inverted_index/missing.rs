@@ -14,7 +14,10 @@ use index_result::RSIndexResult;
 use inverted_index::{
     IndexReader, doc_ids_only::DocIdsOnly, raw_doc_ids_only::RawDocIdsOnly, t_docId,
 };
-use ffi::ValidateStatus;
+use ffi::{
+    ValidateStatus, ValidateStatus_VALIDATE_ABORTED, ValidateStatus_VALIDATE_OK,
+};
+use inverted_index::RefreshOutcome;
 use rqe_iterators::{
     FieldExpirationChecker, IteratorType, RQEIteratorBoxed, RQESuspendedIterator,
     interop::{InnerState, RQEIteratorWrapper},
@@ -23,23 +26,39 @@ use rqe_iterators::{
 
 /// Suspended counterpart of [`MissingIterator`] — produced by
 /// [`RQEIteratorBoxed::suspend`] and consumed by [`RQESuspendedIterator::resume`].
+///
+/// `#[repr(C, u8)]` matches the layout of [`MissingIterator`] so that
+/// [`RQEIteratorBoxed::suspend`] / [`RQESuspendedIterator::resume`]
+/// can perform whole-`Box` pointer casts between the two — see
+/// [`super::tag::TagIteratorSuspended`] for the same argument and
+/// why the previous `match` + `Box::new` shape was unsound.
+#[repr(C, u8)]
 pub(super) enum MissingIteratorSuspended {
     Encoded(<Missing<'static, DocIdsOnly, FieldExpirationChecker> as RQEIteratorBoxed<'static>>::Suspended),
     Raw(<Missing<'static, RawDocIdsOnly, FieldExpirationChecker> as RQEIteratorBoxed<'static>>::Suspended),
+}
+
+/// Local 3-state outcome carrying the work done while still on the
+/// suspended form (`should_abort` + `refresh_pointers`) into the active
+/// form for the optional reseek dispatch.
+enum MissingResumeOutcome {
+    Abort,
+    Ok,
+    NeedsReseek { last_doc_id: t_docId },
 }
 
 impl<'index> RQEIteratorBoxed<'index> for MissingIterator<'index> {
     type Suspended = MissingIteratorSuspended;
 
     fn suspend(self: Box<Self>) -> Box<Self::Suspended> {
-        match *self {
-            MissingIterator::Encoded(m) => Box::new(MissingIteratorSuspended::Encoded(
-                *<Missing<'index, _, _> as RQEIteratorBoxed<'index>>::suspend(Box::new(m)),
-            )),
-            MissingIterator::Raw(m) => Box::new(MissingIteratorSuspended::Raw(
-                *<Missing<'index, _, _> as RQEIteratorBoxed<'index>>::suspend(Box::new(m)),
-            )),
-        }
+        let raw = Box::into_raw(self);
+        // SAFETY: `MissingIterator<'index>` and `MissingIteratorSuspended`
+        // are both `#[repr(C, u8)]` with the same variant order and
+        // layout-compatible payloads (the underlying `RawMissing<Active, E, C>`
+        // / `RawMissing<Suspended, E, C>` instantiations are
+        // layout-compatible via `#[repr(C)]` + the `SharedPtr` argument).
+        // `Box::from_raw` reuses the same heap allocation.
+        unsafe { Box::from_raw(raw as *mut MissingIteratorSuspended) }
     }
 }
 
@@ -47,19 +66,55 @@ impl RQESuspendedIterator for MissingIteratorSuspended {
     type Resumed<'a> = MissingIterator<'a>;
 
     fn resume<'a>(
-        self: Box<Self>,
-        guard: &'a index_spec::IndexSpecReadGuard<'a>,
+        mut self: Box<Self>,
+        spec: &'a index_spec::IndexSpecReadGuard<'a>,
     ) -> (Box<Self::Resumed<'a>>, ValidateStatus) {
-        match *self {
-            MissingIteratorSuspended::Encoded(s) => {
-                let (resumed, status) = <_ as RQESuspendedIterator>::resume(Box::new(s), guard);
-                (Box::new(MissingIterator::Encoded(*resumed)), status)
+        // Step 1: should_abort + refresh_pointers on the suspended
+        // variant. See `TagIteratorSuspended::resume` for the
+        // mode-independence argument.
+        let outcome = match &mut *self {
+            MissingIteratorSuspended::Encoded(m) => {
+                if m.should_abort(spec) {
+                    MissingResumeOutcome::Abort
+                } else {
+                    match m.refresh_pointers() {
+                        RefreshOutcome::Ok => MissingResumeOutcome::Ok,
+                        RefreshOutcome::NeedsReseek { last_doc_id } => {
+                            MissingResumeOutcome::NeedsReseek { last_doc_id }
+                        }
+                    }
+                }
             }
-            MissingIteratorSuspended::Raw(s) => {
-                let (resumed, status) = <_ as RQESuspendedIterator>::resume(Box::new(s), guard);
-                (Box::new(MissingIterator::Raw(*resumed)), status)
+            MissingIteratorSuspended::Raw(m) => {
+                if m.should_abort(spec) {
+                    MissingResumeOutcome::Abort
+                } else {
+                    match m.refresh_pointers() {
+                        RefreshOutcome::Ok => MissingResumeOutcome::Ok,
+                        RefreshOutcome::NeedsReseek { last_doc_id } => {
+                            MissingResumeOutcome::NeedsReseek { last_doc_id }
+                        }
+                    }
+                }
             }
-        }
+        };
+
+        // Step 2: whole-box cast Suspended → Active.
+        let raw = Box::into_raw(self);
+        // SAFETY: layout-compatible — see `suspend`.
+        let mut active = unsafe { Box::from_raw(raw as *mut MissingIterator<'a>) };
+
+        // Step 3: dispatch the outcome.
+        let status = match outcome {
+            MissingResumeOutcome::Abort => ValidateStatus_VALIDATE_ABORTED,
+            MissingResumeOutcome::Ok => ValidateStatus_VALIDATE_OK,
+            MissingResumeOutcome::NeedsReseek { last_doc_id } => match &mut *active {
+                MissingIterator::Encoded(m) => m.reseek_after_refresh(last_doc_id),
+                MissingIterator::Raw(m) => m.reseek_after_refresh(last_doc_id),
+            },
+        };
+
+        (active, status)
     }
 
     fn last_doc_id(&self) -> t_docId {
@@ -68,12 +123,23 @@ impl RQESuspendedIterator for MissingIteratorSuspended {
             MissingIteratorSuspended::Raw(s) => s.last_doc_id(),
         }
     }
+
+    fn num_estimated(&self) -> usize {
+        match self {
+            MissingIteratorSuspended::Encoded(s) => s.num_estimated(),
+            MissingIteratorSuspended::Raw(s) => s.num_estimated(),
+        }
+    }
 }
 
 /// Wrapper around different II missing iterator encoding types to avoid generics in FFI code.
 ///
 /// Handles both the standard variable-length encoding ([`DocIdsOnly`]) and the
 /// fixed 4-byte raw encoding ([`RawDocIdsOnly`]).
+///
+/// `#[repr(C, u8)]` to make the layout match
+/// [`MissingIteratorSuspended`].
+#[repr(C, u8)]
 pub(super) enum MissingIterator<'index> {
     Encoded(Missing<'index, DocIdsOnly, FieldExpirationChecker>),
     Raw(Missing<'index, RawDocIdsOnly, FieldExpirationChecker>),

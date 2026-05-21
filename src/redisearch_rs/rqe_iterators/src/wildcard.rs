@@ -156,7 +156,12 @@ impl RQESuspendedIterator for RawWildcard<Suspended> {
     fn last_doc_id(&self) -> t_docId {
         self.result.doc_id
     }
+
+    fn num_estimated(&self) -> usize {
+        self.top_id as usize
+    }
 }
+
 /// A marker trait for iterators that match all documents.
 pub trait WildcardIterator<'index>: RQEIterator<'index> {}
 
@@ -585,6 +590,15 @@ impl RQESuspendedIterator for NewWildcardSuspended {
             NewWildcardSuspended::Disk(it) => RQESuspendedIterator::last_doc_id(it),
         }
     }
+
+    fn num_estimated(&self) -> usize {
+        match self {
+            NewWildcardSuspended::NotOptimized(it) => RQESuspendedIterator::num_estimated(it),
+            NewWildcardSuspended::Optimized(it) => RQESuspendedIterator::num_estimated(it),
+            NewWildcardSuspended::Empty(it) => RQESuspendedIterator::num_estimated(it),
+            NewWildcardSuspended::Disk(it) => RQESuspendedIterator::num_estimated(it),
+        }
+    }
 }
 
 /// Create a [`WildcardIterator`] for an index whose spec has
@@ -874,5 +888,12 @@ impl RQESuspendedIterator for DiskWildcardSuspended {
         // dyn's `RQEIterator::last_doc_id` is therefore sound despite the
         // `'static` lifetime lie.
         RQEIterator::last_doc_id(&*self.0)
+    }
+
+    fn num_estimated(&self) -> usize {
+        // SAFETY: same as `last_doc_id`: `num_estimated` reads a cached
+        // primitive on every Rust iterator and an FFI vtable field on C
+        // iterators — no borrowed index pointer is dereferenced.
+        RQEIterator::num_estimated(&*self.0)
     }
 }
