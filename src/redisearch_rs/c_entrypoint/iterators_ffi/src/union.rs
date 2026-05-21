@@ -16,7 +16,8 @@ use ffi::{QueryIterator, QueryNodeType};
 use crate::profile::Profile_AddIters;
 use rqe_iterator_type::IteratorType;
 use rqe_iterators::{
-    IteratorsConfig, RQEIterator, UnionVariant, c2rust::CRQEIterator, interop::RQEIteratorWrapper,
+    IteratorsConfig, RQEIterator, UnionVariant, c2rust::CRQEIterator,
+    interop::{InnerState, RQEIteratorWrapper},
     union_opaque::UnionOpaque, union_reducer::new_union_iterator,
 };
 
@@ -205,7 +206,10 @@ pub unsafe extern "C" fn GetUnionIteratorNumChildren(it: *const QueryIterator) -
     debug_assert_eq!(unsafe { (*it).type_ }, IteratorType::Union);
     // SAFETY: caller guarantees `it` is valid and points to a union iterator (1).
     let wrapper = unsafe { UnionWrapper::ref_from_header_ptr(it) };
-    wrapper.inner().num_children_total()
+    match wrapper.state() {
+        InnerState::Active(it) => it.num_children_total(),
+        InnerState::Suspended(it) => it.num_children_total(),
+    }
 }
 
 /// Returns a non-owning raw pointer to the child at `idx`.
@@ -225,7 +229,11 @@ pub unsafe extern "C" fn GetUnionIteratorChild(
     debug_assert_eq!(unsafe { (*it).type_ }, IteratorType::Union);
     // SAFETY: caller guarantees `it` is valid and points to a union iterator (1).
     let wrapper = unsafe { UnionWrapper::ref_from_header_ptr(it) };
-    match wrapper.inner().child_at(idx) {
+    let child = match wrapper.state() {
+        InnerState::Active(it) => it.child_at(idx),
+        InnerState::Suspended(it) => it.child_at(idx),
+    };
+    match child {
         Some(child) => child.as_ref() as *const QueryIterator,
         None => std::ptr::null(),
     }
@@ -244,7 +252,10 @@ pub unsafe extern "C" fn GetUnionIteratorQueryNodeType(it: *const QueryIterator)
     debug_assert_eq!(unsafe { (*it).type_ }, IteratorType::Union);
     // SAFETY: caller guarantees `it` is valid and points to a union iterator (1).
     let wrapper = unsafe { UnionWrapper::ref_from_header_ptr(it) };
-    wrapper.inner().query_node_type
+    match wrapper.state() {
+        InnerState::Active(it) => it.query_node_type,
+        InnerState::Suspended(it) => it.query_node_type,
+    }
 }
 
 /// Returns the query string pointer stored in the union iterator, or null.
@@ -260,7 +271,10 @@ pub unsafe extern "C" fn GetUnionIteratorQueryString(it: *const QueryIterator) -
     debug_assert_eq!(unsafe { (*it).type_ }, IteratorType::Union);
     // SAFETY: caller guarantees `it` is valid and points to a union iterator (1).
     let wrapper = unsafe { UnionWrapper::ref_from_header_ptr(it) };
-    wrapper.inner().query_string
+    match wrapper.state() {
+        InnerState::Active(it) => it.query_string,
+        InnerState::Suspended(it) => it.query_string,
+    }
 }
 
 
