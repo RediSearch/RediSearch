@@ -65,6 +65,13 @@ pub struct RawNotOptimized<Rf: Ref, W, I> {
 /// with an [`RQEIterator`] impl today.
 pub type NotOptimized<'index, W, I> = RawNotOptimized<Active<'index>, W, I>;
 
+impl<Rf: Ref, W, I> RawNotOptimized<Rf, W, I> {
+    /// Get a shared reference to the _child_ iterator. Mode-independent.
+    pub const fn child(&self) -> Option<&I> {
+        self.child.as_ref()
+    }
+}
+
 impl<'index, W, I> NotOptimized<'index, W, I>
 where
     W: WildcardIterator<'index>,
@@ -119,11 +126,6 @@ where
             return Ok(false);
         }
         Ok(true)
-    }
-
-    /// Get a shared reference to the _child_ iterator.
-    pub const fn child(&self) -> Option<&I> {
-        self.child.as_ref()
     }
 
     /// Check whether the child iterator is positionally past `doc_id`

@@ -12,7 +12,7 @@ use std::ptr::NonNull;
 use ffi::{QueryEvalCtx, QueryIterator, t_docId};
 use rqe_iterator_type::IteratorType;
 use rqe_iterators::c2rust::CRQEIterator;
-use rqe_iterators::interop::RQEIteratorWrapper;
+use rqe_iterators::interop::{InnerState, RQEIteratorWrapper};
 use rqe_iterators::optional::Optional;
 use rqe_iterators::optional_reducer::{
     NewOptionalIterator as OptionalIteratorOutcome, new_optional_iterator,
@@ -101,9 +101,11 @@ unsafe fn get_optional_non_optimized_iterator_child(
     // SAFETY: Safe thanks to 1
     let wrapper =
         unsafe { RQEIteratorWrapper::<Optional<CRQEIterator>>::ref_from_header_ptr(header) };
-    wrapper
-        .inner()
-        .child()
+    let child = match wrapper.state() {
+        InnerState::Active(it) => it.child(),
+        InnerState::Suspended(it) => it.child(),
+    };
+    child
         .map(|p| p.as_ref() as *const _)
         .unwrap_or(std::ptr::null())
 }
@@ -131,9 +133,11 @@ unsafe fn get_optional_optimized_iterator_child(
     // SAFETY: Safe thanks to 1
     let wrapper =
         unsafe { RQEIteratorWrapper::<OptionalOptimizedFfi>::ref_from_header_ptr(header) };
-    wrapper
-        .inner()
-        .child()
+    let child = match wrapper.state() {
+        InnerState::Active(it) => it.child(),
+        InnerState::Suspended(it) => it.child(),
+    };
+    child
         .map(|p| p.as_ref() as *const _)
         .unwrap_or(std::ptr::null())
 }
