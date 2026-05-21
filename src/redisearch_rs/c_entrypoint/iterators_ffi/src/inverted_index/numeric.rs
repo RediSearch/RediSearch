@@ -16,7 +16,8 @@ use query_node_type::QueryNodeType;
 use rqe_iterator_type::IteratorType;
 use rqe_iterators::{
     NumericIteratorVariant, RQEIteratorBoxed, RQESuspendedIterator, c2rust::CRQEIterator,
-    interop::RQEIteratorWrapper, open_numeric_or_geo_index,
+    interop::{InnerState, RQEIteratorWrapper},
+    open_numeric_or_geo_index,
 };
 
 /// Suspended counterpart of [`NumericIterator`] — produced by
@@ -91,17 +92,44 @@ impl<'index> NumericIterator<'index> {
     }
 
     /// Get the flags from the underlying reader.
-    pub(super) fn flags(&self) -> ffi::IndexFlags {
+    pub(super) const fn flags(&self) -> ffi::IndexFlags {
         self.iterator.flags()
     }
 
+    /// Get the filter pointer.
+    pub(super) const fn filter(&self) -> Option<NonNull<NumericFilter>> {
+        self.filter
+    }
+
     /// Get the range minimum value for profiling.
-    const fn range_min(&self) -> f64 {
+    pub(super) const fn range_min(&self) -> f64 {
         self.iterator.range_min()
     }
 
     /// Get the range maximum value for profiling.
-    const fn range_max(&self) -> f64 {
+    pub(super) const fn range_max(&self) -> f64 {
+        self.iterator.range_max()
+    }
+}
+
+impl NumericIteratorSuspended {
+    /// Mirror of [`NumericIterator::flags`] on the suspended side.
+    pub(super) const fn flags(&self) -> ffi::IndexFlags {
+        self.iterator.flags()
+    }
+
+    /// Mirror of [`NumericIterator::filter`] on the suspended side.
+    pub(super) const fn filter(&self) -> Option<NonNull<NumericFilter>> {
+        self.filter
+    }
+
+    /// Mirror of [`NumericIterator::range_min`] on the suspended side.
+    pub(super) const fn range_min(&self) -> f64 {
+        self.iterator.range_min()
+    }
+
+    /// Mirror of [`NumericIterator::range_max`] on the suspended side.
+    pub(super) const fn range_max(&self) -> f64 {
         self.iterator.range_max()
     }
 }
@@ -188,12 +216,16 @@ pub unsafe extern "C" fn NumericInvIndIterator_GetNumericFilter(
     let wrapper =
         unsafe { RQEIteratorWrapper::<NumericIterator<'static>>::ref_from_header_ptr(it.cast()) };
 
-    // Return a pointer to the pinned filter, or NULL if no filter was provided
-    // SAFETY: The filter is pinned and has a stable address for the lifetime of the iterator
-    // Both types have the same #[repr(C)] layout so we can cast the pointer
-    wrapper
-        .inner()
-        .filter
+    // The filter pointer is the same Copy value in either typestate — the
+    // underlying numeric iterator carries it across suspend/resume unchanged.
+    // SAFETY: The filter is pinned and has a stable address for the lifetime
+    // of the iterator. Both types have the same #[repr(C)] layout so we can
+    // cast the pointer.
+    let filter = match wrapper.state() {
+        InnerState::Active(it) => it.filter(),
+        InnerState::Suspended(it) => it.filter(),
+    };
+    filter
         .map(|f| f.as_ptr() as *const ffi::NumericFilter)
         .unwrap_or(std::ptr::null())
 }
@@ -218,7 +250,10 @@ pub unsafe extern "C" fn NumericInvIndIterator_GetProfileRangeMin(
     // SAFETY: 1
     let wrapper =
         unsafe { RQEIteratorWrapper::<NumericIterator<'static>>::ref_from_header_ptr(it.cast()) };
-    wrapper.inner().range_min()
+    match wrapper.state() {
+        InnerState::Active(it) => it.range_min(),
+        InnerState::Suspended(it) => it.range_min(),
+    }
 }
 
 /// Gets the maximum range value for profiling a numeric iterator.
@@ -241,7 +276,10 @@ pub unsafe extern "C" fn NumericInvIndIterator_GetProfileRangeMax(
     // SAFETY: 1
     let wrapper =
         unsafe { RQEIteratorWrapper::<NumericIterator<'static>>::ref_from_header_ptr(it.cast()) };
-    wrapper.inner().range_max()
+    match wrapper.state() {
+        InnerState::Active(it) => it.range_max(),
+        InnerState::Suspended(it) => it.range_max(),
+    }
 }
 
 ///
