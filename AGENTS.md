@@ -3,6 +3,8 @@
 RediSearch is a Redis module providing full-text search, secondary indexing, and vector similarity search.
 The codebase is primarily C, with an ongoing effort to port modules to Rust in `src/redisearch_rs/`.
 
+For human contributor instructions, see `CONTRIBUTING.md`. This file is optimized for coding agents and internal automation workflows.
+
 ## Build Commands
 
 ```bash
