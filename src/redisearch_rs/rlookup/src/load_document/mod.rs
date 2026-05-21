@@ -23,16 +23,11 @@ use sorting_vector::RSSortingVector;
 const UNDERSCORE_KEY: &CStr = c"__key";
 
 /// Equivalent to `DOCUMENT_OPEN_KEY_QUERY_FLAGS` from `document.h`.
-///
-/// FIXME: `ACCESS_TRIMMED` (bit 22) is hardcoded because the `redis-module` crate
-/// does not expose it yet. This MUST be fixed by upstreaming the flag to
-/// `redismodule-rs` (`KeyFlags::ACCESS_TRIMMED`) and then replacing the raw bit
-/// here.
 const DOCUMENT_OPEN_KEY_QUERY_FLAGS: KeyFlags = KeyFlags::from_bits_retain(
     KeyFlags::NOEFFECTS.bits()
         | KeyFlags::NOEXPIRE.bits()
         | KeyFlags::ACCESS_EXPIRED.bits()
-        | (1 << 22), // ACCESS_TRIMMED
+        | KeyFlags::ACCESS_TRIMMED.bits(),
 );
 
 #[derive(Debug, thiserror::Error)]
