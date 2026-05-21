@@ -1701,7 +1701,9 @@ StrongRef DepleterSync_New(uint32_t num_depleters, bool take_index_lock, RedisSe
 static inline void RPSafeDepleter_TryReleaseDispatcherLock(DepleterSync *sync, bool acquired_lock) {
   if (!sync->take_index_lock) return;
 
-  int my_increment, other;
+  int my_increment;
+  int other;
+
   if (acquired_lock) {
     my_increment = atomic_fetch_add(&sync->num_locked, 1) + 1;
     other = atomic_load(&sync->num_skipped_lock);
@@ -1714,10 +1716,8 @@ static inline void RPSafeDepleter_TryReleaseDispatcherLock(DepleterSync *sync, b
   }
 
   int expected = 0;
-  if (atomic_compare_exchange_strong(&sync->index_released, &expected, 1)) {
-    if (sync->nextThreadCtx) {
-      RedisSearchCtx_UnlockSpec(sync->nextThreadCtx);
-    }
+  if (atomic_compare_exchange_strong(&sync->index_released, &expected, 1) && sync->nextThreadCtx) {
+    RedisSearchCtx_UnlockSpec(sync->nextThreadCtx);
   }
 }
 

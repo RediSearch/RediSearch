@@ -1189,7 +1189,7 @@ typedef struct HybridTailCtx {
 // Returns NULL with `status` populated if any subquery's end processor is not the
 // expected RPSafeDepleter (programmer error). Caller frees the returned array
 // with array_free.
-static arrayof(ResultProcessor*) collectHybridSafeDepleters(HybridRequest *hreq, QueryError *status) {
+static arrayof(ResultProcessor*) collectHybridSafeDepleters(const HybridRequest *hreq, QueryError *status) {
   arrayof(ResultProcessor*) depleters = array_new(ResultProcessor *, hreq->nrequests);
   for (size_t i = 0; i < hreq->nrequests; i++) {
     ResultProcessor *depleter = hreq->requests[i]->pipeline.qctx.endProc;
@@ -1368,11 +1368,9 @@ static void HREQ_Execute_Callback(blockedClientHybridCtx *BCHCtx) {
   // For cursor mode reserve the cursors that will be returned to the caller
   // before kicking off depletion. Reservation may fail with timeout or a
   // cursor-creation error; in either case we abort before scheduling the tail.
-  if (isCursor) {
-    if (reserveHybridCursors(hybrid_ref, &status) != REDISMODULE_OK) {
-      array_free(depleters);
-      goto dispatch_error;
-    }
+  if (isCursor && reserveHybridCursors(hybrid_ref, &status) != REDISMODULE_OK) {
+    array_free(depleters);
+    goto dispatch_error;
   }
 
   // Submit the depleter jobs.

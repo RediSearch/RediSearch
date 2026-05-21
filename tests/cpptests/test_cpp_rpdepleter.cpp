@@ -61,7 +61,7 @@ protected:
     // Per-test thread pool that depleter jobs are submitted to. We can't reuse
     // the production _workers_thpool because it is created with 0 threads
     // under the unit-test config, which would cause submitted jobs to hang.
-    testPool = redisearch_thpool_create(4, 0, NULL, "rpdepleter_test");
+    testPool = redisearch_thpool_create(4, 0, nullptr, "rpdepleter_test");
     ASSERT_NE(testPool, nullptr);
 
     // Initialize Redis contexts for all test variants (WithoutIndexLock and WithIndexLock)

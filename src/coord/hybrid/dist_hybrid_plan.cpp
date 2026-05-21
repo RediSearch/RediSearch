@@ -24,8 +24,8 @@ int HybridRequest_BuildDistributedDepletionPipeline(HybridRequest *req, const Hy
   // Create synchronization context for coordinating depleter processors.
   // The coordinator's depleters drain from network shards rather than from a
   // local index, so take_index_lock is false and no dispatcher lock release
-  // target is needed (nextThreadCtx is NULL).
-  StrongRef sync_ref = DepleterSync_New(req->nrequests, false, NULL);
+  // target is needed (nextThreadCtx is nullptr).
+  StrongRef sync_ref = DepleterSync_New(req->nrequests, false, nullptr);
 
   // Build individual pipelines for each search request
   for (size_t i = 0; i < req->nrequests; i++) {
