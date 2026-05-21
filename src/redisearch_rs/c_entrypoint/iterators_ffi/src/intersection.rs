@@ -12,7 +12,7 @@ use std::ptr::NonNull;
 use ffi::{IteratorType, QueryIterator};
 use rqe_iterators::{
     c2rust::CRQEIterator,
-    interop::RQEIteratorWrapper,
+    interop::{InnerState, RQEIteratorWrapper},
     intersection::{Intersection, NewIntersectionIterator, new_intersection_iterator},
 };
 
@@ -131,7 +131,10 @@ pub unsafe extern "C" fn GetIntersectionIteratorNumChildren(header: *const Query
     // SAFETY: safe thanks to 1
     let wrapper =
         unsafe { RQEIteratorWrapper::<Intersection<CRQEIterator>>::ref_from_header_ptr(header) };
-    wrapper.inner().num_children()
+    match wrapper.state() {
+        InnerState::Active(it) => it.num_children(),
+        InnerState::Suspended(it) => it.num_children(),
+    }
 }
 
 /// Returns a non-owning raw pointer to the child at `idx`.
@@ -159,7 +162,11 @@ pub unsafe extern "C" fn GetIntersectionIteratorChild(
     let wrapper =
         unsafe { RQEIteratorWrapper::<Intersection<CRQEIterator>>::ref_from_header_ptr(header) };
     // SAFETY: safe thanks to 2
-    wrapper.inner().child_at(idx).as_ref() as *const QueryIterator
+    let child = match wrapper.state() {
+        InnerState::Active(it) => it.child_at(idx),
+        InnerState::Suspended(it) => it.child_at(idx),
+    };
+    child.as_ref() as *const QueryIterator
 }
 
 /// Append a new child iterator to the intersection.
