@@ -109,6 +109,14 @@ impl<I> OptionalChild<I> {
 /// [`RQEIterator`] impl today.
 pub type Optional<'index, I> = RawOptional<'index, Active<'index>, I>;
 
+impl<'query, Rf: Ref, I> RawOptional<'query, Rf, I> {
+    /// Get a shared reference to the _child_ iterator
+    /// wrapped by this [`Optional`] iterator. Mode-independent.
+    pub const fn child(&self) -> Option<&I> {
+        self.child.as_ref()
+    }
+}
+
 impl<'index, I> Optional<'index, I>
 where
     I: RQEIterator<'index>,
@@ -134,10 +142,25 @@ where
         }
     }
 
-    /// Get a shared reference to the _child_ iterator
-    /// wrapped by this [`Optional`] iterator.
-    pub const fn child(&self) -> Option<&I> {
-        self.child.as_ref()
+    /// Set the child of this [`Optional`] iterator.
+    pub fn set_child(&mut self, new_child: I) {
+        self.child = OptionalChild::Present(new_child);
+    }
+
+    /// Unset the child of this [`Optional`] iterator (make it behave as if
+    /// it had no child — i.e. [`Gone`](OptionalChild::Gone)).
+    pub fn unset_child(&mut self) {
+        self.child = OptionalChild::Gone;
+    }
+
+    /// Take the child of this [`Optional`] iterator if it had one.
+    /// After this the child iterator of this [`Optional`] will behave
+    /// as if it was the [`Empty`](crate::Empty) iterator.
+    pub fn take_child(&mut self) -> Option<I> {
+        match std::mem::replace(&mut self.child, OptionalChild::Gone) {
+            OptionalChild::Present(child) => Some(child),
+            OptionalChild::Gone => None,
+        }
     }
 }
 

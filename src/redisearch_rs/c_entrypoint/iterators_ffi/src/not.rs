@@ -15,7 +15,7 @@ use rqe_iterator_type::IteratorType;
 use rqe_iterators::{
     NewWildcardIterator, RQEIterator, RQEIteratorBoxed, RQESuspendedIterator, ResumeOutcome,
     c2rust::CRQEIterator,
-    interop::RQEIteratorWrapper,
+    interop::{InnerState, RQEIteratorWrapper},
     not::Not,
     not_optimized::NotOptimized,
     not_reducer::{NewNotIterator, TIMEOUT_CHECK_GRANULARITY, new_not_iterator},
@@ -52,7 +52,7 @@ enum NotIteratorEnum<'index> {
 impl<'index> NotIteratorEnum<'index> {
     /// Returns the underlying child iterator, if any. None when the NOT
     /// wraps an empty/wildcard child reduced at construction.
-    fn child(&self) -> Option<&CRQEIterator> {
+    const fn child(&self) -> Option<&CRQEIterator> {
         match self {
             Self::Not(it) => it.child(),
             Self::NotOptimized(it) => it.child(),
@@ -69,6 +69,17 @@ impl rqe_iterators::profile_print::ProfilePrint for NotIteratorEnum<'_> {
         match self {
             Self::Not(it) => it.print_profile(map, ctx),
             Self::NotOptimized(it) => it.print_profile(map, ctx),
+        }
+    }
+}
+
+impl<'query> NotIteratorEnumSuspended<'query> {
+    /// Mirror of [`NotIteratorEnum::child`] on the suspended side. CRQEIterator's
+    /// `Suspended` is `CRQEIterator` itself, so both forms return `Option<&CRQEIterator>`.
+    fn child(&self) -> Option<&CRQEIterator> {
+        match self {
+            Self::Not(it) => it.child(),
+            Self::NotOptimized(it) => it.child(),
         }
     }
 }
@@ -491,9 +502,11 @@ pub unsafe extern "C" fn GetNotIteratorChild(it: *const QueryIterator) -> *const
     );
     // SAFETY: Safe thanks to 1
     let wrapper = unsafe { NotIteratorWrapper::ref_from_header_ptr(it) };
-    wrapper
-        .inner()
-        .child()
+    let child = match wrapper.state() {
+        InnerState::Active(it) => it.child(),
+        InnerState::Suspended(it) => it.child(),
+    };
+    child
         .map(|c| c.as_ref() as *const _)
         .unwrap_or(std::ptr::null())
 }

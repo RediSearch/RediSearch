@@ -104,8 +104,11 @@ where
         self.timeout_ctx.reset_counter();
     }
 
+}
+
+impl<'query, Rf: Ref, I, TC> RawNot<'query, Rf, I, TC> {
     /// Get a shared reference to the _child_ iterator
-    /// wrapped by this [`Not`] iterator.
+    /// wrapped by this [`Not`] iterator. Mode-independent.
     pub const fn child(&self) -> Option<&I> {
         self.child.as_ref()
     }
