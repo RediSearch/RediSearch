@@ -316,6 +316,46 @@ static void handleCollectLimit(ArgParser *parser, const void *value, void *user_
   data->limit_count = count;
 }
 
+// Reserves the hidden lookup slot used to plant the upstream doc id for the
+// COLLECT ... SORTBY tie-breaker. Returns the slot key, or NULL when the
+// name collides with a user-visible key (in which case tie-break is
+// disabled for this COLLECT and a warning is logged).
+static const RLookupKey *reserveDocIdSlot(RLookup *srclookup) {
+  static const char COLLECT_DOCID_SLOT[] = "__internal_collect_docid";
+  static const uint32_t COLLECT_DOCID_REJECT_FLAGS = RLOOKUP_F_DOCSRC | RLOOKUP_F_SCHEMASRC;
+
+  const RLookupKey *docIdKey = NULL;
+  bool collision = false;
+
+  if (RLookup_FindFieldInSpecCache(srclookup, COLLECT_DOCID_SLOT)) {
+    collision = true;
+  } else {
+    docIdKey = RLookup_GetKey_Read(srclookup, COLLECT_DOCID_SLOT, RLOOKUP_F_HIDDEN);
+    if (docIdKey) {
+      uint32_t flags = RLookupKey_GetFlags(docIdKey);
+      if (!(flags & RLOOKUP_F_HIDDEN) || (flags & COLLECT_DOCID_REJECT_FLAGS)) {
+        collision = true;
+        docIdKey = NULL;
+      }
+    } else {
+      // GetKey_Write without F_OVERRIDE returns NULL on name collision,
+      // which also leaves docIdKey NULL — safe fallback.
+      docIdKey = RLookup_GetKey_Write(srclookup, COLLECT_DOCID_SLOT, RLOOKUP_F_HIDDEN);
+    }
+  }
+
+  if (collision) {
+    RedisModule_Log(RSDummyContext, "warning",
+      "COLLECT: SORTBY tie-break disabled because the lookup "
+      "already exposes a key named '%s' (from schema, LOAD, or "
+      "APPLY). Order on tied sort keys will be unstable. Rename "
+      "the field/alias to restore stable tie-breaking.",
+      COLLECT_DOCID_SLOT);
+  }
+
+  return docIdKey;
+}
+
 // ===== Factory =====
 
 Reducer *RDCRCollect_New(const ReducerOptions *options) {
@@ -410,32 +450,9 @@ Reducer *RDCRCollect_New(const ReducerOptions *options) {
       data.limit_count
     );
   } else {
-    // Reserve the hidden internal slot only when SORTBY is present.
-    // Read first and only create if missing, so multiple sorted
-    // COLLECTs share one slot.
-    static const char COLLECT_DOCID_SLOT[] = "__internal_collect_docid";
-    const uint32_t COLLECT_DOCID_REJECT_FLAGS = RLOOKUP_F_DOCSRC | RLOOKUP_F_SCHEMASRC;
     const RLookupKey *docIdKey = NULL;
     if (data.sort_keys && array_len(data.sort_keys) > 0) {
-      docIdKey = RLookup_GetKey_Read(options->srclookup, COLLECT_DOCID_SLOT, RLOOKUP_F_HIDDEN);
-      if (docIdKey) {
-        uint32_t flags = RLookupKey_GetFlags(docIdKey);
-        if (!(flags & RLOOKUP_F_HIDDEN) || (flags & COLLECT_DOCID_REJECT_FLAGS)) {
-          // Name collision with a user-visible key.
-          // Skip tie-break rather than clobbering user data.
-          RedisModule_Log(RSDummyContext, "warning",
-            "COLLECT: SORTBY tie-break disabled because the lookup "
-            "already exposes a key named '%s' (from schema, LOAD, or "
-            "APPLY). Order on tied sort keys will be unstable. Rename "
-            "the field/alias to restore stable tie-breaking.",
-            COLLECT_DOCID_SLOT);
-          docIdKey = NULL;
-        }
-      } else {
-        // GetKey_Write without F_OVERRIDE returns NULL on name collision,
-        // which also leaves docIdKey NULL — safe fallback.
-        docIdKey = RLookup_GetKey_Write(options->srclookup, COLLECT_DOCID_SLOT, RLOOKUP_F_HIDDEN);
-      }
+      docIdKey = reserveDocIdSlot(options->srclookup);
     }
     rbase = CollectReducer_CreateRemote(
       data.field_keys,

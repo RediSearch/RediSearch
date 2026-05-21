@@ -2010,3 +2010,48 @@ def test_collect_sortby_does_not_clobber_apply_alias_on_slot_name_collision():
     expected = sorted(n.upper() for n in names_in_order)
     env.assertEqual(sorted(collected_values), expected,
                     message=f'APPLY alias @{slot_name} clobbered by internal slot: {collected_values}')
+
+
+@skip(cluster=True)
+def test_collect_sortby_fields_star_does_not_drop_user_schema_field_on_slot_name_collision():
+    """COLLECT FIELDS * SORTBY ... probes the source lookup for the internal
+    slot. The probe must not mark a sortable user-defined schema field
+    of the same name as hidden, which would cause `FIELDS *` to filter
+    it out and silently omit user data. The slot name must match
+    `COLLECT_DOCID_SLOT` in `src/aggregate/reducers/collect.c`."""
+    env = Env(protocol=3)
+    enable_unstable_features(env)
+    slot_name = '__internal_collect_docid'
+    env.expect('FT.CREATE', 'idx', 'ON', 'HASH',
+               'SCHEMA',
+               'color', 'TAG', 'SORTABLE',
+               'sweetness', 'NUMERIC', 'SORTABLE',
+               slot_name, 'TEXT', 'SORTABLE').ok()
+    conn = getConnectionByEnv(env)
+    user_values = ['alpha', 'beta', 'gamma', 'delta']
+    for i, val in enumerate(user_values):
+        conn.execute_command('HSET', f'doc:{i}',
+                             'color', 'black', 'sweetness', str(i),
+                             slot_name, val)
+
+    # `LOAD *` materializes every hash field at exec time via
+    # `RLookup_HGETALL`, which respects pre-existing lookup keys. If
+    # the COLLECT probe pre-marked the schema field as F_HIDDEN, the
+    # value is written into the hidden key and then filtered out of
+    # the FIELDS * projection — silently dropping user data. The
+    # spec-cache probe must short-circuit before the mutating Read.
+    res = env.cmd(
+        'FT.AGGREGATE', 'idx', '@color:{black}',
+        'LOAD', '*',
+        'GROUPBY', '1', '@color',
+            'REDUCE', 'COLLECT', '6',
+                'FIELDS', '*',
+                'SORTBY', '2', '@sweetness', 'ASC',
+            'AS', 'collected')
+
+    attrs = res['results'][0]['extra_attributes']
+    collected_values = [str(r.get(slot_name, '')) for r in attrs['collected']]
+    # The user's field must appear in the FIELDS * projection. If the
+    # probe accidentally marked it hidden, the values come back empty.
+    env.assertEqual(sorted(collected_values), sorted(user_values),
+                    message=f'user @{slot_name} dropped from FIELDS *: {collected_values}')

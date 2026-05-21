@@ -159,10 +159,6 @@ impl<'a> RemoteCollectReducer<'a> {
         }
     }
 
-    pub const fn doc_id_key(&self) -> Option<&'a RLookupKey<'a>> {
-        self.doc_id_key
-    }
-
     pub const fn reducer_mut(&mut self) -> &mut Reducer {
         &mut self.reducer
     }
