@@ -13,6 +13,7 @@
 #include "cursor.h"
 #include "info/indexes_info.h"
 #include "util/units.h"
+#include <inttypes.h>
 #include "module_init_ffi.h"
 #include "info/info_redis/types/blocked_queries.h"
 #include "info/info_redis/threads/current_thread.h"
@@ -459,7 +460,7 @@ static void AddCursorsToInfo(RedisModuleInfoCtx *ctx, BlockedQueries* activeQuer
     BlockedCursorNode *at = DLLIST_ITEM(node, BlockedCursorNode, llnode);
     IndexSpec *spec = StrongRef_Get(at->spec);
     char buffer[21]; // 20 is the max length of a uint64_t
-    snprintf(buffer, sizeof(buffer), "%zu", at->cursorId);
+    snprintf(buffer, sizeof(buffer), "%" PRIu64, at->cursorId);
     RedisModule_InfoBeginDictField(ctx, buffer);
     RedisModule_InfoAddFieldCString(ctx, "index", spec ? IndexSpec_FormatName(spec, RSGlobalConfig.hideUserDataFromLog) : "n/a");
     RedisModule_InfoAddFieldULongLong(ctx, "started_at", at->start);

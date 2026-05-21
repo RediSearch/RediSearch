@@ -164,6 +164,49 @@ typedef uint8_t Size_40[40];
 #endif /* SIZE_40_DEFINED */
 
 /**
+ * Smart pointer handle for [`RLookupKey`] that can be
+ * invalidated when the iterator that owns the key is freed.
+ */
+typedef struct RLookupKeyHandle {
+  /**
+   * Pointer to the [`RLookupKey`] pointer field inside
+   * the owning iterator.
+   */
+  RLookupKey * *key_ptr;
+  /**
+   * Whether the owning iterator is still alive. Set to `true` on
+   * creation and cleared to `false` when the iterator is freed.
+   */
+  bool is_valid;
+} RLookupKeyHandle;
+
+/**
+ * A deferred binding between a metric name produced during query parsing
+ * and the [`RLookupKey`] that will be resolved during
+ * pipeline construction.
+ */
+typedef struct MetricRequest {
+  /**
+   * The name of the metric field to register in the
+   * [`RLookup`] table (e.g. `"__vec_score"`).
+   */
+  const char *metric_name;
+  /**
+   * Optional handle back to the iterator's
+   * [`RLookupKey`] slot. `NULL` when the iterator
+   * that requested this metric was not created (e.g. an early
+   * empty-result short-circuit).
+   */
+  struct RLookupKeyHandle *key_handle;
+  /**
+   * When `true`, the metric is excluded from the query response
+   * (the corresponding [`RLookupKey`] is created
+   * with the `HIDDEN` flag).
+   */
+  bool isInternal;
+} MetricRequest;
+
+/**
  * An opaque lookup row which can be passed by value to C.
  *
  * The size and alignment of this struct must match the Rust `RLookupRow`

@@ -268,6 +268,17 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "9330f8b2ff13f34540b44e946ef35111825727b38d33286ef986142615121801"
 
 [[package]]
+name = "chacha20"
+version = "0.10.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "6f8d983286843e49675a4b7a2d174efe136dc93a18d69130dd18198a6c167601"
+dependencies = [
+ "cfg-if",
+ "cpufeatures",
+ "rand_core 0.10.1",
+]
+
+[[package]]
 name = "cheadergen"
 version = "0.2.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -360,6 +371,15 @@ dependencies = [
  "libc",
  "once_cell",
  "windows-sys 0.59.0",
+]
+
+[[package]]
+name = "cpufeatures"
+version = "0.3.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "8b2a41393f66f16b0823bb79094d54ac5fbd34ab292ddafb9a0456ac9f87d201"
+dependencies = [
+ "libc",
 ]
 
 [[package]]
@@ -786,6 +806,7 @@ dependencies = [
  "cfg-if",
  "libc",
  "r-efi",
+ "rand_core 0.10.1",
  "wasip2",
  "wasip3",
 ]
@@ -1634,7 +1655,7 @@ checksum = "37566cb3fdacef14c0737f9546df7cfeadbfbc9fef10991038bf5015d0c80532"
 dependencies = [
  "bitflags 2.11.0",
  "num-traits 0.2.19",
- "rand 0.9.3",
+ "rand 0.9.4",
  "rand_chacha 0.9.0",
  "rand_xorshift",
  "regex-syntax",
@@ -1659,7 +1680,7 @@ dependencies = [
  "criterion",
  "proptest",
  "proptest-derive",
- "rand 0.9.3",
+ "rand 0.10.1",
  "workspace_hack",
 ]
 
@@ -1680,6 +1701,15 @@ dependencies = [
  "c_ffi_utils",
  "query_error",
  "strum",
+ "workspace_hack",
+]
+
+[[package]]
+name = "query_flags"
+version = "0.0.1"
+dependencies = [
+ "cheadergen",
+ "enumflags2",
  "workspace_hack",
 ]
 
@@ -1731,9 +1761,9 @@ checksum = "69cdb34c158ceb288df11e18b4bd39de994f6657d83847bdffdbd7f346754b0f"
 
 [[package]]
 name = "rand"
-version = "0.8.5"
+version = "0.8.6"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "34af8d1a0e25924bc5b7c43c079c942339d8f0a8b57c39049bef581b46327404"
+checksum = "5ca0ecfa931c29007047d1bc58e623ab12e5590e8c7cc53200d5202b69266d8a"
 dependencies = [
  "libc",
  "rand_chacha 0.3.1",
@@ -1742,12 +1772,23 @@ dependencies = [
 
 [[package]]
 name = "rand"
-version = "0.9.3"
+version = "0.9.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "7ec095654a25171c2124e9e3393a930bddbffdc939556c914957a4c3e0a87166"
+checksum = "44c5af06bb1b7d3216d91932aed5265164bf384dc89cd6ba05cf59a35f5f76ea"
 dependencies = [
  "rand_chacha 0.9.0",
  "rand_core 0.9.5",
+]
+
+[[package]]
+name = "rand"
+version = "0.10.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "d2e8e8bcc7961af1fdac401278c6a831614941f6164ee3bf4ce61b7edb162207"
+dependencies = [
+ "chacha20",
+ "getrandom 0.4.1",
+ "rand_core 0.10.1",
 ]
 
 [[package]]
@@ -1787,6 +1828,12 @@ checksum = "76afc826de14238e6e8c374ddcc1fa19e374fd8dd986b0d2af0d02377261d83c"
 dependencies = [
  "getrandom 0.3.4",
 ]
+
+[[package]]
+name = "rand_core"
+version = "0.10.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "63b8176103e19a2643978565ca18b50549f6101881c443590420e4dc998a3c69"
 
 [[package]]
 name = "rand_xorshift"
@@ -2178,7 +2225,7 @@ dependencies = [
  "iterators_ffi",
  "itertools 0.14.0",
  "query_term",
- "rand 0.9.3",
+ "rand 0.10.1",
  "redis_mock",
  "redisearch_rs",
  "rqe_iterators",
@@ -2239,7 +2286,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "b3a8fb4672e840a587a66fc577a5491375df51ddb88f2a2c2a792598c326fe14"
 dependencies = [
  "quote 1.0.44",
- "rand 0.8.5",
+ "rand 0.8.6",
  "syn 2.0.117",
 ]
 
@@ -2757,7 +2804,7 @@ dependencies = [
  "bindgen",
  "build_utils",
  "criterion",
- "rand 0.9.3",
+ "rand 0.10.1",
  "redis_mock",
  "redisearch_rs",
  "rqe_iterators",
@@ -3474,6 +3521,7 @@ dependencies = [
  "clang-sys",
  "either",
  "getrandom 0.2.17",
+ "getrandom 0.4.1",
  "insta",
  "itertools 0.13.0",
  "libc",
@@ -3484,8 +3532,6 @@ dependencies = [
  "ppv-lite86",
  "proc-macro2",
  "quote 1.0.44",
- "rand 0.9.3",
- "rand_chacha 0.9.0",
  "rand_core 0.6.4",
  "redis-module",
  "regex",

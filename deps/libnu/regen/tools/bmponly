@@ -1,0 +1,21 @@
+#!/usr/bin/env python3
+#-*- coding: UTF-8
+
+import sys
+
+
+for line in sys.stdin:
+	line = line.strip()
+	chunks = line.strip().split(' ')
+
+	bmp = True
+	for chunk in chunks:
+		try:
+			if int(chunks[0], base=16) > 0xFFFF:
+				bmp = False
+				break
+		except:
+			pass
+
+	if bmp:
+		print(line)

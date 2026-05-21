@@ -749,55 +749,29 @@ pub unsafe extern "C" fn IndexBlock_Data(ib: *const IndexBlock) -> *const c_char
 /// based on the index type and filter provided when creating the reader. This allows us to have a
 /// single interface for all index reader types while still being able to optimize the storage
 /// and performance for each index reader type.
-pub enum IndexReader<'index_and_filter> {
-    Full(FilterMaskReader<inverted_index::IndexReaderCore<'index_and_filter, Full>>),
-    FullWide(FilterMaskReader<inverted_index::IndexReaderCore<'index_and_filter, FullWide>>),
-    FreqsFields(FilterMaskReader<inverted_index::IndexReaderCore<'index_and_filter, FreqsFields>>),
-    FreqsFieldsWide(
-        FilterMaskReader<inverted_index::IndexReaderCore<'index_and_filter, FreqsFieldsWide>>,
-    ),
-    FreqsOnly(inverted_index::IndexReaderCore<'index_and_filter, FreqsOnly>),
-    FieldsOnly(FilterMaskReader<inverted_index::IndexReaderCore<'index_and_filter, FieldsOnly>>),
-    FieldsOnlyWide(
-        FilterMaskReader<inverted_index::IndexReaderCore<'index_and_filter, FieldsOnlyWide>>,
-    ),
-    FieldsOffsets(
-        FilterMaskReader<inverted_index::IndexReaderCore<'index_and_filter, FieldsOffsets>>,
-    ),
-    FieldsOffsetsWide(
-        FilterMaskReader<inverted_index::IndexReaderCore<'index_and_filter, FieldsOffsetsWide>>,
-    ),
-    OffsetsOnly(inverted_index::IndexReaderCore<'index_and_filter, OffsetsOnly>),
-    FreqsOffsets(inverted_index::IndexReaderCore<'index_and_filter, FreqsOffsets>),
-    DocIdsOnly(inverted_index::IndexReaderCore<'index_and_filter, DocIdsOnly>),
-    RawDocIdsOnly(inverted_index::IndexReaderCore<'index_and_filter, RawDocIdsOnly>),
-    Numeric(inverted_index::IndexReaderCore<'index_and_filter, Numeric>),
-    NumericFiltered(
-        FilterNumericReader<
-            'index_and_filter,
-            inverted_index::IndexReaderCore<'index_and_filter, Numeric>,
-        >,
-    ),
-    NumericGeoFiltered(
-        FilterGeoReader<
-            'index_and_filter,
-            inverted_index::IndexReaderCore<'index_and_filter, Numeric>,
-        >,
-    ),
-    NumericFloatCompression(
-        inverted_index::IndexReaderCore<'index_and_filter, NumericFloatCompression>,
-    ),
+pub enum IndexReader<'index> {
+    Full(FilterMaskReader<inverted_index::IndexReaderCore<'index, Full>>),
+    FullWide(FilterMaskReader<inverted_index::IndexReaderCore<'index, FullWide>>),
+    FreqsFields(FilterMaskReader<inverted_index::IndexReaderCore<'index, FreqsFields>>),
+    FreqsFieldsWide(FilterMaskReader<inverted_index::IndexReaderCore<'index, FreqsFieldsWide>>),
+    FreqsOnly(inverted_index::IndexReaderCore<'index, FreqsOnly>),
+    FieldsOnly(FilterMaskReader<inverted_index::IndexReaderCore<'index, FieldsOnly>>),
+    FieldsOnlyWide(FilterMaskReader<inverted_index::IndexReaderCore<'index, FieldsOnlyWide>>),
+    FieldsOffsets(FilterMaskReader<inverted_index::IndexReaderCore<'index, FieldsOffsets>>),
+    FieldsOffsetsWide(FilterMaskReader<inverted_index::IndexReaderCore<'index, FieldsOffsetsWide>>),
+    OffsetsOnly(inverted_index::IndexReaderCore<'index, OffsetsOnly>),
+    FreqsOffsets(inverted_index::IndexReaderCore<'index, FreqsOffsets>),
+    DocIdsOnly(inverted_index::IndexReaderCore<'index, DocIdsOnly>),
+    RawDocIdsOnly(inverted_index::IndexReaderCore<'index, RawDocIdsOnly>),
+    Numeric(inverted_index::IndexReaderCore<'index, Numeric>),
+    NumericFiltered(FilterNumericReader<inverted_index::IndexReaderCore<'index, Numeric>>),
+    NumericGeoFiltered(FilterGeoReader<inverted_index::IndexReaderCore<'index, Numeric>>),
+    NumericFloatCompression(inverted_index::IndexReaderCore<'index, NumericFloatCompression>),
     NumericFilteredFloatCompression(
-        FilterNumericReader<
-            'index_and_filter,
-            inverted_index::IndexReaderCore<'index_and_filter, NumericFloatCompression>,
-        >,
+        FilterNumericReader<inverted_index::IndexReaderCore<'index, NumericFloatCompression>>,
     ),
     NumericGeoFilteredFloatCompression(
-        FilterGeoReader<
-            'index_and_filter,
-            inverted_index::IndexReaderCore<'index_and_filter, NumericFloatCompression>,
-        >,
+        FilterGeoReader<inverted_index::IndexReaderCore<'index, NumericFloatCompression>>,
     ),
 }
 
@@ -828,7 +802,7 @@ macro_rules! ir_dispatch {
     };
 }
 
-impl<'index_and_filter> IndexReader<'index_and_filter> {
+impl<'index> IndexReader<'index> {
     /// Get the flags associated with this index reader.
     pub fn flags(&self) -> IndexFlags {
         ir_dispatch!(self, flags)
@@ -836,7 +810,7 @@ impl<'index_and_filter> IndexReader<'index_and_filter> {
 
     /// Swap the inverted index of the reader with the given inverted index. This is only used
     /// by some C tests to trigger revalidation on the reader.
-    pub const fn swap_index(&mut self, ii: &'index_and_filter InvertedIndex) {
+    pub const fn swap_index(&mut self, ii: &'index InvertedIndex) {
         match (self, ii) {
             (IndexReader::Full(ir), InvertedIndex::Full(ii)) => ir.swap_index(&mut ii.inner()),
             (IndexReader::FullWide(ir), InvertedIndex::FullWide(ii)) => {
@@ -958,10 +932,10 @@ pub unsafe extern "C" fn NewIndexReader(
         (InvertedIndex::RawDocIdsOnly(ii), _) => IndexReader::RawDocIdsOnly(ii.reader()),
         (InvertedIndex::Numeric(ii), ReadFilter::None) => IndexReader::Numeric(ii.reader()),
         (InvertedIndex::Numeric(ii), ReadFilter::Numeric(filter)) if filter.is_numeric_filter() => {
-            IndexReader::NumericFiltered(FilterNumericReader::new(filter, ii.reader()))
+            IndexReader::NumericFiltered(FilterNumericReader::new(*filter, ii.reader()))
         }
         (InvertedIndex::Numeric(ii), ReadFilter::Numeric(filter)) => {
-            IndexReader::NumericGeoFiltered(FilterGeoReader::new(filter, ii.reader()))
+            IndexReader::NumericGeoFiltered(FilterGeoReader::new(*filter, ii.reader()))
         }
         (InvertedIndex::NumericFloatCompression(ii), ReadFilter::None) => {
             IndexReader::NumericFloatCompression(ii.reader())
@@ -970,13 +944,13 @@ pub unsafe extern "C" fn NewIndexReader(
             if filter.is_numeric_filter() =>
         {
             IndexReader::NumericFilteredFloatCompression(FilterNumericReader::new(
-                filter,
+                *filter,
                 ii.reader(),
             ))
         }
         (InvertedIndex::NumericFloatCompression(ii), ReadFilter::Numeric(filter)) => {
             IndexReader::NumericGeoFilteredFloatCompression(FilterGeoReader::new(
-                filter,
+                *filter,
                 ii.reader(),
             ))
         }
@@ -1114,9 +1088,9 @@ pub unsafe extern "C" fn IndexReader_IsIndex(
 /// - `ir` must be a valid, non NULL, pointer to an `IndexReader` instance.
 /// - `res` must be a valid pointer to an `RSIndexResult` instance.
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn IndexReader_Next<'index_and_filter>(
-    ir: *mut IndexReader<'index_and_filter>,
-    res: *mut RSIndexResult<'index_and_filter>,
+pub unsafe extern "C" fn IndexReader_Next<'index>(
+    ir: *mut IndexReader<'index>,
+    res: *mut RSIndexResult<'index>,
 ) -> bool {
     debug_assert!(!ir.is_null(), "ir must not be null");
     debug_assert!(!res.is_null(), "res must not be null");
@@ -1160,10 +1134,10 @@ pub unsafe extern "C" fn IndexReader_SkipTo(ir: *mut IndexReader, doc_id: t_docI
 /// - `ir` must be a valid, non NULL, pointer to an `IndexReader` instance.
 /// - `res` must be a valid pointer to an `RSIndexResult` instance.
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn IndexReader_Seek<'index_and_filter>(
-    ir: *mut IndexReader<'index_and_filter>,
+pub unsafe extern "C" fn IndexReader_Seek<'index>(
+    ir: *mut IndexReader<'index>,
     doc_id: t_docId,
-    res: *mut RSIndexResult<'index_and_filter>,
+    res: *mut RSIndexResult<'index>,
 ) -> bool {
     debug_assert!(!ir.is_null(), "ir must not be null");
     debug_assert!(!res.is_null(), "res must not be null");

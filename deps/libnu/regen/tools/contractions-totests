@@ -1,0 +1,245 @@
+#!/usr/bin/env python3
+#-*- coding: UTF-8
+
+import sys
+import time
+
+from coldata import *
+
+
+def tab(s, tabs=1):
+	return '\t' * tabs + s
+
+
+def gen_header(tag, contractions):
+	print('''/* Automatically generated file (contractions-totests), %d
+*
+* Tag          : %s
+* Contractions : %d
+*/''' % (time.time(), tag, len(contractions)))
+	print()
+
+
+def gen_includes():
+	print('#include <assert.h>')
+	print('#include <stddef.h>')
+	print('#include <stdint.h>')
+	print()
+	print('#include "switch_test_base.h"')
+	print()
+
+
+def gen_globals(tag):
+	'''produce global definitions'''
+	print('extern int32_t %s_weight_switch(uint32_t u, int32_t *w, void *context);' % (tag))
+	print()
+	print('static const nu_codepoint_weight_t weight = %s_weight_switch;' % (tag))
+	print()
+
+
+def gen_run_suite():
+	'''produce code for running test suite'''
+	print(tab('size_t i = 0; for (; i < contractions_num; ++i) {'))
+	print(tab('int32_t r = 0;', 2))
+	print(tab('int32_t w = _nu_test_contraction_weight(weight, contractions[i].seq, contractions[i].len, &r);', 2))
+	print(tab('assert(w == contractions[i].weight);', 2))
+	print(tab('assert(r == contractions[i].rollback);', 2))
+	print(tab('}'))
+
+
+def gen_weights_test(tag, cotractions):
+	'''check that encoded contractions produce expected weights'''
+	def expand_contraction(contraction, weight):
+		'''produce a single record for test suite'''
+		joined = ', '.join('0x%06X' % int(point, base=16) for point in contraction)
+		print(tab('{ 0x%06X, 0, %d, (uint32_t[%d]){ %s, },  },' % (weight,
+																len(contraction),
+																len(contraction),
+																joined), 2))
+
+
+	print('/* test all contractions with assigned weight */')
+	print('void test_%s_weight_switch() {' % (tag))
+	print(tab('const _nu_contraction_test_t contractions[] = {'))
+
+	for contraction, weight in contractions:
+		expand_contraction(contraction, weight)
+
+	print(tab('};'))
+	print(tab('const size_t contractions_num = sizeof(contractions) / sizeof(*contractions);'))
+	print()
+
+	gen_run_suite()
+
+	print('}')
+	print()
+
+
+def point2bin2point(point, offset):
+	'''basically apply integer offset to a number in string type'''
+	return '%06X' % (int(point, base=16) + offset)
+
+
+def gen_rollback_test(tag, contractions, codepoints):
+	'''check that state machine rolls back correctly from the middle of contraction'''
+	def check_contraction(contraction, contractions):
+		for c, _ in contractions:
+			if c == contraction:
+				return True
+		return False
+
+	def find_closest_parent(c, contractions, codepoints):
+		'''closest parent with weight'''
+		closest_parent = None
+		weight = None
+		for i in range(1, len(contraction)):
+			assert(len(c) > 1)
+
+			c = contraction[:-i]
+			w = find_weight(c, contractions) or find_weight(c, codepoints)
+
+			if not w:
+				continue
+
+			if closest_parent is None or len(closest_parent) > len(c):
+				closest_parent = c
+				weight = w
+
+		return (closest_parent, weight)  # return None instead of empty list
+
+	def expand_contraction_with_rollback(c):
+		'''produce one record for test suite'''
+		closest_parent, weight = find_closest_parent(c, contractions, codepoints)
+		assert(closest_parent is not None)
+
+		rollback = len(c) - len(closest_parent)
+		joined = ', '.join('0x%06X' % int(point, base=16) for point in c)
+
+		print(tab('{ %d, %d, %d, (uint32_t[%d]){ %s, },  },' % (weight,
+																rollback,
+																len(c),
+																len(c),
+																joined), 2))
+
+	def expand_contraction(contraction):
+		'''find out contraction variants before and after original contraction.
+		if before or after is a valid contraction - ignore it, otherwise
+		use it as a test'''
+		top = contraction[:-1] + [ point2bin2point(contraction[-1], -1) ]
+		bottom = contraction[:-1] + [ point2bin2point(contraction[-1], +1) ]
+
+		if not check_contraction(top, contractions):
+			expand_contraction_with_rollback(top)
+		if not check_contraction(bottom, contractions):
+			expand_contraction_with_rollback(bottom)
+
+		# test parent contraction recursively
+		if len(contraction) > 2:
+			expand_contraction(contraction[:-1])
+
+
+	print('/* test unweighted contractions using weighted contractions as a base:')
+	print(' * base contraction: U+006C, U+00B7; contractions around it:')
+	print(' *  a) U+006C, U+00B6')
+	print(' *  b) U+006C, U+00B8 */')
+	print('void test_%s_weight_switch_rollbacks() {' % (tag))
+	print(tab('const _nu_contraction_test_t contractions[] = {'))
+
+	for contraction, weight in contractions:
+		expand_contraction(contraction)
+
+	print(tab('};'))
+	print(tab('const size_t contractions_num = sizeof(contractions) / sizeof(*contractions);'))
+	print()
+
+	gen_run_suite()
+
+	print('}')
+	print()
+
+
+def gen_unknowns_test(tag, contractions, codepoints):
+	'''produce test that codepoints not included into weighted list
+	are weighted correctly (weight == 0 == unknown weight)'''
+	def check_codepoint(point, contractions):
+		'''return True if point is a root of any of known contractions'''
+		for c, _ in contractions:
+			if c[0] == point:
+				return True
+		return False
+
+	def expand_contraction_wo_weight(c):
+		'''procude single record for contraction w/o weight'''
+		joined = ', '.join('0x%06X' % int(point, base=16) for point in c)
+		print(tab('{ 0, 0, %d, (uint32_t[%d]){ %s, },  },' % (len(c),
+															len(c),
+															joined), 2))
+
+	def codepoints(contraction, contractions):
+		'''return codepoints around contraction (before root codepoint
+		of contraction and after)'''
+		top = [ point2bin2point(contraction[0], -1) ]
+		bottom = [ point2bin2point(contraction[0], +1) ]
+
+		assert(len(top) == 1)
+		assert(len(bottom) == 1)
+
+		if not check_codepoint(top[0], contractions):
+			yield top[0]
+		if not check_codepoint(bottom[0], contractions):
+			yield bottom[0]
+
+	def expand_codepoints(codepoints):
+		'''just iteration over set'''
+		for c in codepoints:
+			if c is not None:
+				expand_contraction_wo_weight([ c ])
+
+
+	print('/* test that switch successfully recognize unweighted contractions')
+	print(' * (weight == 0) based on weighted contractions. e.g.')
+	print(' * base contraction: U+006C, U+00B7; codepoints to check:')
+	print(' *  a) U+006B')
+	print(' *  b) U+006D */')
+	print('void test_%s_weight_switch_unknowns() {' % (tag))
+	print(tab('const _nu_contraction_test_t contractions[] = {'))
+
+	cps = set()  # different contractions might have same root codepoint
+	for contraction, weight in contractions:
+		cps.update(codepoints(contraction, contractions))
+	expand_codepoints(cps)
+
+	print(tab('};'))
+	print(tab('const size_t contractions_num = sizeof(contractions) / sizeof(*contractions);'))
+	print()
+
+	gen_run_suite()
+
+	print('}')
+	print()
+
+
+def usage():
+	print('usage: ' + sys.argv[0] + ' [CODEPOINTS] [CONTRACTIONS] [TAG]')
+	print()
+	print('  [CODEPOINTS]   - filename with list of codepoints')
+	print('  [CONTRACTIONS] - filename with list of contractions from the same collation')
+	print('  [TAG]          - prefix to weighting switch')
+
+
+if __name__ == '__main__':
+	if len(sys.argv) < 4:
+		usage()
+		sys.exit(1)
+
+	codepoints_file, contractions_file = sys.argv[1], sys.argv[2]
+	tag = sys.argv[3]
+
+	codepoints, contractions = collect_contractions(codepoints_file, contractions_file)
+
+	gen_header(tag, contractions)
+	gen_includes()
+	gen_globals(tag)
+	gen_weights_test(tag, contractions)
+	gen_rollback_test(tag, contractions, codepoints)
+	gen_unknowns_test(tag, contractions, codepoints)

@@ -13,6 +13,7 @@
 #include "rmutil/rm_assert.h"
 #include "rdb.h"
 #include "util/likely.h"
+#include <inttypes.h>
 
 #define INITIAL_CAPACITY 2
 #define SYNONYM_PREFIX "~%s"
@@ -88,7 +89,7 @@ TermData* TermData_RdbLoad(RedisModuleIO* rdb, int encver) {
   if (unlikely(ids_len > MAX_SYNONYM_GROUP_IDS)) {
     RedisModule_LogIOError(
         rdb, "warning",
-        "RDB Load: Synonym group IDs (%llu) exceeds maximum allowed (%d)",
+        "RDB Load: Synonym group IDs (%" PRIu64 ") exceeds maximum allowed (%d)",
         ids_len, MAX_SYNONYM_GROUP_IDS);
     goto cleanup;
   }
@@ -97,7 +98,7 @@ TermData* TermData_RdbLoad(RedisModuleIO* rdb, int encver) {
     char* groupId = NULL;
     if (encver <= INDEX_MIN_WITH_SYNONYMS_INT_GROUP_ID) {
       uint64_t id = LoadUnsigned_IOError(rdb, goto cleanup);
-      rm_asprintf(&groupId, "%ld", id);
+      rm_asprintf(&groupId, "%" PRIu64, id);
     } else {
       groupId = LoadStringBuffer_IOError(rdb, NULL, goto cleanup);
     }

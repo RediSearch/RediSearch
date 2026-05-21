@@ -22,6 +22,8 @@ Defaults:
 - Parent epic: `MOD-9672` (`[RQE] CI Stability - MAG`)
 - Issue type: `Bug`
 - Components: `RediSearch`, `RedisAI`
+- Labels: `flaky_test` (every existing flaky-test ticket in MOD carries this label; always set it
+  on new tickets and prefer it as a JQL filter, e.g. `labels = flaky_test`)
 
 ## Instructions
 
@@ -43,6 +45,20 @@ gh run view <run_id> --repo RediSearch/RediSearch --json url,headBranch,headSha,
 gh run view <run_id> --repo RediSearch/RediSearch --log-failed
 mkdir -p /tmp/redisearch-flaky-<run_id>
 gh run download <run_id> --repo RediSearch/RediSearch --dir /tmp/redisearch-flaky-<run_id>
+```
+
+Gotcha: `gh run view --log-failed` sometimes exits 0 with an empty body (seen on
+`merge_group` runs and on some macOS matrix jobs). If the output is empty, fall back to the
+raw job log via the REST API, then grep for the failure:
+
+```bash
+# Pick the failing job id first:
+gh run view <run_id> --repo RediSearch/RediSearch \
+  --json jobs --jq '.jobs[] | select(.conclusion=="failure") | {name, databaseId, url}'
+
+# Download the full job log (works when --log-failed returns empty):
+gh api /repos/RediSearch/RediSearch/actions/jobs/<job_id>/logs > /tmp/job-<job_id>.log
+grep -nE 'FAIL|Total Tests Failed|Traceback|❌' /tmp/job-<job_id>.log | head
 ```
 
 CI uploads failed test artifacts named `Test Logs ...` from `task-test.yml`. Look in the downloaded
@@ -113,6 +129,7 @@ Notes:
 If no existing issue is found, prepare a new Jira `Bug` under `MOD-9672`:
 - Summary: `Flaky test: <test_file>:<test_name> <short symptom/context>`
 - Components: `RediSearch`, `RedisAI`
+- Labels: `flaky_test`
 - Description:
 
 ~~~markdown

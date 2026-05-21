@@ -12,6 +12,7 @@
 
 #include "query_node.h"
 
+#include <inttypes.h>
 #include <string.h>
 
 void Obfuscate_Index(const Sha1 *hash, char* buffer) {
@@ -21,15 +22,15 @@ void Obfuscate_Index(const Sha1 *hash, char* buffer) {
 }
 
 void Obfuscate_Field(t_uniqueId fieldId, char* buffer) {
-  sprintf(buffer, "Field@%zu", fieldId);
+  sprintf(buffer, "Field@%" PRIu64, fieldId);
 }
 
 void Obfuscate_FieldPath(t_uniqueId fieldId, char* buffer) {
-  sprintf(buffer, "FieldPath@%zu", fieldId);
+  sprintf(buffer, "FieldPath@%" PRIu64, fieldId);
 }
 
 void Obfuscate_Document(t_uniqueId docId, char* buffer) {
-  sprintf(buffer, "Document@%zu", docId);
+  sprintf(buffer, "Document@%" PRIu64, docId);
 }
 
 void Obfuscate_KeyWithTime(struct timespec spec, char* buffer) {
