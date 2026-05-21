@@ -90,11 +90,22 @@ impl Debug for TagIterator<'_> {
 }
 
 impl<'index> TagIterator<'index> {
-    /// Get the flags from the underlying reader.
-    pub(super) fn flags(&self) -> ffi::IndexFlags {
+    /// Get the cached flags of the underlying reader.
+    pub(super) const fn flags(&self) -> ffi::IndexFlags {
         match self {
-            TagIterator::Encoded(t) => t.reader().flags(),
-            TagIterator::Raw(t) => t.reader().flags(),
+            TagIterator::Encoded(t) => t.flags(),
+            TagIterator::Raw(t) => t.flags(),
+        }
+    }
+}
+
+impl TagIteratorSuspended {
+    /// Mirror of [`TagIterator::flags`] on the suspended side — see
+    /// [`super::super::interop::RQEIteratorWrapper::state`].
+    pub(super) const fn flags(&self) -> ffi::IndexFlags {
+        match self {
+            TagIteratorSuspended::Encoded(t) => t.flags(),
+            TagIteratorSuspended::Raw(t) => t.flags(),
         }
     }
 }
