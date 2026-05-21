@@ -45,7 +45,7 @@
 // This context is created on the main thread and passed to the background worker.
 // Ownership: The main thread transfers its AREQ reference (from AREQ_New) to this context.
 typedef struct {
-  AREQ *req;  // Owns transferred reference from main thread.
+  RequestSyncCtx *rsc;  // Owns transferred query reference from main thread.
   RedisModuleBlockedClient *blockedClient;
   WeakRef spec_ref;
 } blockedClientReqCtx;
@@ -1159,18 +1159,18 @@ void AREQ_Execute(AREQ *req, RedisModuleCtx *ctx) {
 static blockedClientReqCtx *blockedClientReqCtx_New(AREQ *req,
                                                     RedisModuleBlockedClient *blockedClient, StrongRef spec) {
   blockedClientReqCtx *ret = rm_new(blockedClientReqCtx);
-  ret->req = req;
+  ret->rsc = req->syncCtx;
   ret->blockedClient = blockedClient;
   ret->spec_ref = StrongRef_Demote(spec);
   return ret;
 }
 
 static AREQ *blockedClientReqCtx_getRequest(const blockedClientReqCtx *BCRctx) {
-  return BCRctx->req;
+  return RequestSyncCtx_GetAREQ(BCRctx->rsc);
 }
 
-static void blockedClientReqCtx_setRequest(blockedClientReqCtx *BCRctx, AREQ *req) {
-  BCRctx->req = req;
+static void blockedClientReqCtx_setRequest(blockedClientReqCtx *BCRctx, RequestSyncCtx *rsc) {
+  BCRctx->rsc = rsc;
 }
 
 static void blockedClientReqCtx_destroy(blockedClientReqCtx *BCRctx) {
@@ -1183,9 +1183,9 @@ static void blockedClientReqCtx_destroy(blockedClientReqCtx *BCRctx) {
   // the owner clears it via blockedClientReqCtx_setRequest(BCRctx, NULL),
   // so this conditional avoids a double-decr while still handling error paths
   // where AREQ_Execute() is never called.
-  if (BCRctx->req) {
-    AREQ_DecrRef(BCRctx->req);
-    BCRctx->req = NULL;
+  if (BCRctx->rsc) {
+    RequestSyncCtx_ReleaseQueryRef(BCRctx->rsc);
+    BCRctx->rsc = NULL;
   }
 
   WeakRef_Release(BCRctx->spec_ref);

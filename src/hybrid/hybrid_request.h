@@ -111,7 +111,7 @@ static inline void HybridRequest_SetSkipTimeoutChecks(HybridRequest *req, bool s
 
 // Blocked client context for HybridRequest background execution
 typedef struct blockedClientHybridCtx {
-  HybridRequest *hreq;
+  RequestSyncCtx *rsc;
   HybridPipelineParams *hybridParams;
   RedisModuleBlockedClient *blockedClient;
   WeakRef spec_ref;

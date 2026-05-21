@@ -939,7 +939,7 @@ static blockedClientHybridCtx *blockedClientHybridCtx_New(HybridRequest *hreq,
                                                    RedisModuleBlockedClient *blockedClient,
                                                    StrongRef spec, bool internal) {
   blockedClientHybridCtx *ret = rm_new(blockedClientHybridCtx);
-  ret->hreq = hreq;
+  ret->rsc = hreq->syncCtx;
   ret->blockedClient = blockedClient;
   ret->spec_ref = StrongRef_Demote(spec);
   ret->hybridParams = hybridParams;
@@ -1173,7 +1173,7 @@ int hybridCommandHandler(RedisModuleCtx *ctx, RedisModuleString **argv, int argc
  * @param BCHCtx The blocked client context to destroy
  */
 static void blockedClientHybridCtx_destroy(blockedClientHybridCtx *BCHCtx) {
-  HybridRequest_DecrRef(BCHCtx->hreq);
+  RequestSyncCtx_ReleaseQueryRef(BCHCtx->rsc);
   freeHybridParams(BCHCtx->hybridParams);
   RedisModule_BlockedClientMeasureTimeEnd(BCHCtx->blockedClient);
   void *privdata = RedisModule_BlockClientGetPrivateData(BCHCtx->blockedClient);
@@ -1189,7 +1189,7 @@ static void blockedClientHybridCtx_destroy(blockedClientHybridCtx *BCHCtx) {
  * @param BCHCtx The blocked client context containing the request
  */
 static void HREQ_Execute_Callback(blockedClientHybridCtx *BCHCtx) {
-  HybridRequest *hreq = BCHCtx->hreq;
+  HybridRequest *hreq = RequestSyncCtx_GetHybridRequest(BCHCtx->rsc);
   HybridPipelineParams *hybridParams = BCHCtx->hybridParams;
   RedisModuleCtx *outctx = RedisModule_GetThreadSafeContext(BCHCtx->blockedClient);
   QueryError status = QueryError_Default();
