@@ -39,6 +39,11 @@ protected:
 
     MockUpstream(int max_docs = 3, int final_result = RS_RESULT_EOF, int sleep_ms = 0, int doc_id_offset = 0) {
       memset(this, 0, sizeof(*this));
+      // RP_INDEX has discriminant 0, so memset would mark this mock as an
+      // RP_INDEX. QITR_SuspendRootIterator (called before lock release) then
+      // tries to cast the mock to RPQueryIterator and read its `iterator`
+      // field, which crashes since this mock does not have that field.
+      this->type = RP_LOADER;
       this->Next = NextFn;
       this->max_docs = max_docs;
       this->final_result = final_result;
