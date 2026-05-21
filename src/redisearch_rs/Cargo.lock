@@ -1714,6 +1714,7 @@ dependencies = [
  "query_eval",
  "redis_mock",
  "redisearch_rs",
+ "thiserror",
  "workspace_hack",
 ]
 

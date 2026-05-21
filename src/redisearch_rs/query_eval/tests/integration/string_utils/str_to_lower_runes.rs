@@ -7,32 +7,45 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 
-use query_eval::string_utils::str_to_lower_runes;
+use query_eval::string_utils::{MAX_RUNE_STR_LEN, str_to_lower_runes};
 
 #[test]
 fn ascii() {
-    let runes = str_to_lower_runes("ABC");
+    let runes = str_to_lower_runes("ABC").unwrap();
     assert_eq!(runes, vec![b'a' as u16, b'b' as u16, b'c' as u16]);
 }
 
 #[test]
 fn unicode_multibyte() {
     // 'É' (U+00C9) → 'é' (U+00E9)
-    let runes = str_to_lower_runes("É");
+    let runes = str_to_lower_runes("É").unwrap();
     assert_eq!(runes, vec![0x00E9]);
 }
 
 #[test]
 fn empty() {
-    let runes = str_to_lower_runes("");
+    let runes = str_to_lower_runes("").unwrap();
     assert!(runes.is_empty());
 }
 
 #[test]
 fn multi_codepoint_mapping() {
     // U+0130 LATIN CAPITAL LETTER I WITH DOT ABOVE → U+0069 + U+0307
-    let runes = str_to_lower_runes("\u{0130}");
+    let runes = str_to_lower_runes("\u{0130}").unwrap();
     assert_eq!(runes, vec![0x0069, 0x0307]);
+}
+
+#[test]
+fn exactly_at_limit() {
+    let s: String = std::iter::repeat_n('a', MAX_RUNE_STR_LEN).collect();
+    assert_eq!(str_to_lower_runes(&s).unwrap().len(), MAX_RUNE_STR_LEN);
+}
+
+#[test]
+fn exceeds_limit() {
+    let s: String = std::iter::repeat_n('a', MAX_RUNE_STR_LEN + 1).collect();
+    let err = str_to_lower_runes(&s).unwrap_err();
+    assert_eq!(err.len, MAX_RUNE_STR_LEN + 1);
 }
 
 // strToLowerRunes calls nu_readstr which reads until a null byte (ignoring
@@ -68,7 +81,7 @@ mod ffi_comparison {
     fn assert_runes_match_c(s: &str) {
         let c_result =
             c_str_to_lower_runes(s).expect("FFI strToLowerRunes returned NULL unexpectedly");
-        let rust_result = str_to_lower_runes(s);
+        let rust_result = str_to_lower_runes(s).unwrap();
         assert_eq!(
             rust_result, c_result,
             "mismatch for input {:?}: rust={:?}, c={:?}",
@@ -132,7 +145,7 @@ mod proptest_checks {
     proptest! {
         #[test]
         fn agrees_with_std_lowercase(s in bmp_string()) {
-            let runes = str_to_lower_runes(&s);
+            let runes = str_to_lower_runes(&s).unwrap();
             let from_runes: String = runes
                 .iter()
                 .filter_map(|&r| char::from_u32(r as u32))
