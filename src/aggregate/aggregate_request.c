@@ -1156,6 +1156,22 @@ void RequestSyncCtx_ReleaseQueryRefCB(void *ctx) {
   RequestSyncCtx_ReleaseQueryRef((RequestSyncCtx *)ctx);
 }
 
+bool RequestSyncCtx_UseReplyCallback(RequestSyncCtx *ctx) {
+  return ctx && ctx->useReplyCallback;
+}
+
+void RequestSyncCtx_SetUseReplyCallback(RequestSyncCtx *ctx, bool useReplyCallback) {
+  if (!ctx) {
+    return;
+  }
+  ctx->useReplyCallback = useReplyCallback;
+  if (ctx->kind == REQUEST_KIND_AREQ) {
+    ctx->query.areq->useReplyCallback = useReplyCallback;
+  } else {
+    ctx->query.hreq->useReplyCallback = useReplyCallback;
+  }
+}
+
 AREQ *AREQ_New(void) {
   AREQ* req = rm_calloc(1, sizeof(AREQ));
   /*

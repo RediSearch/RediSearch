@@ -192,6 +192,9 @@ typedef struct RequestSyncCtx {
   RS_Atomic(bool) timedOut;
   // Reference count for shared ownership between timeout callback (main thread) and background thread
   uint8_t refcount;
+  // Reply mode for the current compatibility cycle. Mirrored to the request until
+  // storedReplyState moves onto RequestSyncCtx.
+  bool useReplyCallback;
 
   /* Partial-timeout coordination. The CAS claim grants exclusive ownership of
    * the result-production phase: the BG-thread winner runs AggregateResults
@@ -222,6 +225,7 @@ static inline void RequestSyncCtx_Init(RequestSyncCtx *ctx, RequestKind kind, vo
   }
   ctx->timedOut = false;
   ctx->refcount = 1;
+  ctx->useReplyCallback = false;
   ctx->requiresAggregateResultsSync = false;
   ctx->aggregatingResults = false;
   ctx->aggregateResultsDone = false;
@@ -241,6 +245,8 @@ HybridRequest *RequestSyncCtx_GetHybridRequest(RequestSyncCtx *ctx);
 AREQ *RequestSyncCtx_GetCursorAREQ(RequestSyncCtx *ctx, uint64_t cursorId);
 void RequestSyncCtx_ReleaseQueryRef(RequestSyncCtx *ctx);
 void RequestSyncCtx_ReleaseQueryRefCB(void *ctx);
+bool RequestSyncCtx_UseReplyCallback(RequestSyncCtx *ctx);
+void RequestSyncCtx_SetUseReplyCallback(RequestSyncCtx *ctx, bool useReplyCallback);
 
 // Release resources owned by a RequestSyncCtx. Must be called exactly once
 // per successful Init, from the request's free path.
