@@ -17,7 +17,8 @@ use rqe_core::FieldIndex;
 use rqe_iterator_type::IteratorType;
 use rqe_iterators::{
     FieldExpirationChecker, RQEIteratorBoxed, RQESuspendedIterator,
-    interop::RQEIteratorWrapper, inverted_index::Missing,
+    interop::{InnerState, RQEIteratorWrapper},
+    inverted_index::Missing,
 };
 
 /// Suspended counterpart of [`MissingIterator`] — produced by
@@ -93,11 +94,11 @@ impl Debug for MissingIterator<'_> {
 }
 
 impl MissingIterator<'_> {
-    /// Get the flags from the underlying reader.
-    pub(super) fn flags(&self) -> ffi::IndexFlags {
+    /// Get the cached flags of the underlying reader.
+    pub(super) const fn flags(&self) -> ffi::IndexFlags {
         match self {
-            MissingIterator::Encoded(m) => m.reader().flags(),
-            MissingIterator::Raw(m) => m.reader().flags(),
+            MissingIterator::Encoded(m) => m.flags(),
+            MissingIterator::Raw(m) => m.flags(),
         }
     }
 
@@ -105,6 +106,26 @@ impl MissingIterator<'_> {
         match self {
             MissingIterator::Encoded(m) => m.field_name(),
             MissingIterator::Raw(m) => m.field_name(),
+        }
+    }
+}
+
+impl MissingIteratorSuspended {
+    /// Mirror of [`MissingIterator::flags`] on the suspended side — see
+    /// [`super::super::interop::RQEIteratorWrapper::state`].
+    pub(super) const fn flags(&self) -> ffi::IndexFlags {
+        match self {
+            MissingIteratorSuspended::Encoded(m) => m.flags(),
+            MissingIteratorSuspended::Raw(m) => m.flags(),
+        }
+    }
+
+    /// Mirror of [`MissingIterator::field_name`] on the suspended side — see
+    /// [`super::super::interop::RQEIteratorWrapper::state`].
+    pub(super) fn field_name(&self) -> (*const std::ffi::c_char, usize) {
+        match self {
+            MissingIteratorSuspended::Encoded(m) => m.field_name(),
+            MissingIteratorSuspended::Raw(m) => m.field_name(),
         }
     }
 }
@@ -283,7 +304,10 @@ pub unsafe extern "C" fn InvIndMissingIterator_GetFieldName(
     // SAFETY: 1. and 2. guarantee the iterator is a valid missing iterator wrapper.
     let wrapper =
         unsafe { RQEIteratorWrapper::<MissingIterator<'static>>::ref_from_header_ptr(it.cast()) };
-    let (field_name, field_name_len) = wrapper.inner().field_name();
+    let (field_name, field_name_len) = match wrapper.state() {
+        InnerState::Active(it) => it.field_name(),
+        InnerState::Suspended(it) => it.field_name(),
+    };
     // SAFETY: 3. guarantees `out_len` is valid and writable.
     unsafe { *out_len = field_name_len };
     field_name
