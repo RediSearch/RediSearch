@@ -11,7 +11,13 @@ use std::{fmt::Debug, ptr::NonNull};
 
 use field::{FieldExpirationPredicate, FieldFilterContext, FieldMaskOrIndex};
 use index_result::{RSIndexResult, RSQueryTerm};
-use inverted_index::{IndexReader, doc_ids_only::DocIdsOnly, raw_doc_ids_only::RawDocIdsOnly};
+use ffi::{
+    ValidateStatus_VALIDATE_ABORTED, ValidateStatus_VALIDATE_MOVED, ValidateStatus_VALIDATE_OK,
+    t_docId,
+};
+use inverted_index::{
+    IndexReader, RefreshOutcome, doc_ids_only::DocIdsOnly, raw_doc_ids_only::RawDocIdsOnly,
+};
 use rqe_core::DocId;
 use rqe_iterators::{
     FieldExpirationChecker, IteratorType, RQEIteratorBoxed, RQEIteratorError, RQESuspendedIterator,
@@ -22,25 +28,54 @@ use rqe_iterators::{
 /// Suspended counterpart of [`TagIterator`] — produced by
 /// [`RQEIteratorBoxed::suspend`] and consumed by [`RQESuspendedIterator::resume`].
 ///
+/// `#[repr(C, u8)]` matches the layout of [`TagIterator`] so that
+/// [`RQEIteratorBoxed::suspend`] and [`RQESuspendedIterator::resume`]
+/// can perform whole-`Box` pointer casts between the two — the heap
+/// allocation is preserved across suspend/resume, which is critical
+/// because the FFI wrapper's `header.current` field on the
+/// containing [`RQEIteratorWrapper`] is a borrowed pointer into the
+/// inner iterator's `result.current` slot. Re-allocating the inner
+/// iterator (which the previous `match` + `Box::new` shape did) would
+/// leave that pointer dangling. See also
+/// `RawInvIndIterator::suspend` for the same argument at the leaf level.
+///
 /// Retains the `'query` lifetime so query-attached borrows stay valid across
 /// the suspend/resume cycle.
+#[repr(C, u8)]
+#[expect(
+    dead_code,
+    reason = "variants are constructed via the #[repr(C, u8)] whole-Box cast in `suspend`, never by name"
+)]
 pub(super) enum TagIteratorSuspended<'query> {
     Encoded(<Tag<'query, DocIdsOnly, FieldExpirationChecker> as RQEIteratorBoxed<'query>>::Suspended),
     Raw(<Tag<'query, RawDocIdsOnly, FieldExpirationChecker> as RQEIteratorBoxed<'query>>::Suspended),
+}
+
+/// Local 3-state outcome carrying the work done while still on the
+/// suspended form (`should_abort` + `refresh_pointers`) into the active
+/// form for the optional reseek dispatch.
+enum TagResumeOutcome {
+    Abort,
+    Ok,
+    NeedsReseek { last_doc_id: t_docId },
 }
 
 impl<'index> RQEIteratorBoxed<'index> for TagIterator<'index> {
     type Suspended = TagIteratorSuspended<'index>;
 
     fn suspend(self: Box<Self>) -> Box<Self::Suspended> {
-        match *self {
-            TagIterator::Encoded(t) => Box::new(TagIteratorSuspended::Encoded(
-                *<Tag<'index, _, _> as RQEIteratorBoxed<'index>>::suspend(Box::new(t)),
-            )),
-            TagIterator::Raw(t) => Box::new(TagIteratorSuspended::Raw(
-                *<Tag<'index, _, _> as RQEIteratorBoxed<'index>>::suspend(Box::new(t)),
-            )),
-        }
+        let raw = Box::into_raw(self);
+        // SAFETY: `TagIterator<'index>` and `TagIteratorSuspended` are
+        // both `#[repr(C, u8)]` with the same variant order and
+        // layout-compatible payloads (the underlying `RawTag<Active, E, C>`
+        // / `RawTag<Suspended, E, C>` instantiations are layout-compatible
+        // via `#[repr(C)]` + the `SharedPtr` argument; see
+        // `RawInvIndIterator::suspend`). The discriminant byte is shared
+        // identically. `Box::from_raw` reuses the same heap allocation,
+        // so any external borrowed pointer into the iterator's interior
+        // (e.g. the wrapper's `header.current`) stays valid across the
+        // cast.
+        unsafe { Box::from_raw(raw as *mut TagIteratorSuspended<'index>) }
     }
 }
 
@@ -51,35 +86,69 @@ impl<'query> RQESuspendedIterator<'query> for TagIteratorSuspended<'query> {
         'query: 'a;
 
     fn resume<'a>(
-        self: Box<Self>,
+        mut self: Box<Self>,
         guard: &index_spec::IndexSpecReadGuard<'a>,
     ) -> Result<ResumeOutcome<Box<Self::Resumed<'a>>>, RQEIteratorError>
     where
         'query: 'a,
     {
-        // Forward the inner variant's outcome, reconstructing the concrete
-        // `TagIterator` enum and preserving the `Ok`/`Moved`/`Aborted` status.
-        let (variant, moved) = match *self {
-            TagIteratorSuspended::Encoded(s) => {
-                match <_ as RQESuspendedIterator>::resume(Box::new(s), guard)? {
-                    ResumeOutcome::Aborted => return Ok(ResumeOutcome::Aborted),
-                    ResumeOutcome::Ok(resumed) => (TagIterator::Encoded(*resumed), false),
-                    ResumeOutcome::Moved(resumed) => (TagIterator::Encoded(*resumed), true),
+        // Step 1: should_abort + refresh_pointers on the suspended
+        // variant. Both methods are mode-independent and read only
+        // mode-independent state (cached term, `tag_index`,
+        // `points_to_ii`, the inverted-index `gc_marker`); no `&'a`
+        // borrow of any potentially-stale buffer is materialized.
+        let outcome = match &mut *self {
+            TagIteratorSuspended::Encoded(t) => {
+                if t.should_abort() {
+                    TagResumeOutcome::Abort
+                } else {
+                    match t.refresh_pointers(guard) {
+                        RefreshOutcome::Ok => TagResumeOutcome::Ok,
+                        RefreshOutcome::NeedsReseek { last_doc_id } => {
+                            TagResumeOutcome::NeedsReseek { last_doc_id }
+                        }
+                    }
                 }
             }
-            TagIteratorSuspended::Raw(s) => {
-                match <_ as RQESuspendedIterator>::resume(Box::new(s), guard)? {
-                    ResumeOutcome::Aborted => return Ok(ResumeOutcome::Aborted),
-                    ResumeOutcome::Ok(resumed) => (TagIterator::Raw(*resumed), false),
-                    ResumeOutcome::Moved(resumed) => (TagIterator::Raw(*resumed), true),
+            TagIteratorSuspended::Raw(t) => {
+                if t.should_abort() {
+                    TagResumeOutcome::Abort
+                } else {
+                    match t.refresh_pointers(guard) {
+                        RefreshOutcome::Ok => TagResumeOutcome::Ok,
+                        RefreshOutcome::NeedsReseek { last_doc_id } => {
+                            TagResumeOutcome::NeedsReseek { last_doc_id }
+                        }
+                    }
                 }
             }
         };
-        let active = Box::new(variant);
-        Ok(if moved {
-            ResumeOutcome::Moved(active)
-        } else {
-            ResumeOutcome::Ok(active)
+
+        // Step 2: whole-box cast Suspended → Active. Heap address
+        // preserved; external borrows into the inner iterator stay valid.
+        let raw = Box::into_raw(self);
+        // SAFETY: layout-compatible — see `suspend`. The per-variant
+        // `refresh_pointers` step above ensures every pointer inside is
+        // valid for `'a`.
+        let mut active = unsafe { Box::from_raw(raw as *mut TagIterator<'a>) };
+
+        // Step 3: dispatch the outcome into a ValidateStatus, reseeking if
+        // needed (only defined on the active form).
+        let status = match outcome {
+            TagResumeOutcome::Abort => ValidateStatus_VALIDATE_ABORTED,
+            TagResumeOutcome::Ok => ValidateStatus_VALIDATE_OK,
+            TagResumeOutcome::NeedsReseek { last_doc_id } => match &mut *active {
+                TagIterator::Encoded(t) => t.reseek_after_refresh(last_doc_id),
+                TagIterator::Raw(t) => t.reseek_after_refresh(last_doc_id),
+            },
+        };
+
+        // Map the status to the generic `ResumeOutcome`; on Aborted `active` drops.
+        #[expect(non_upper_case_globals)]
+        Ok(match status {
+            ValidateStatus_VALIDATE_OK => ResumeOutcome::Ok(active),
+            ValidateStatus_VALIDATE_MOVED => ResumeOutcome::Moved(active),
+            _ => ResumeOutcome::Aborted,
         })
     }
 
@@ -103,6 +172,11 @@ impl<'query> RQESuspendedIterator<'query> for TagIteratorSuspended<'query> {
 /// Tag inverted indices are always created with `DocIdsOnly` flags, so only
 /// the standard variable-length encoding ([`DocIdsOnly`]) and the fixed 4-byte
 /// raw encoding ([`RawDocIdsOnly`]) are supported.
+///
+/// `#[repr(C, u8)]` to make the layout match
+/// [`TagIteratorSuspended`] — see that type's docs for the heap-address
+/// preservation argument.
+#[repr(C, u8)]
 pub(super) enum TagIterator<'index> {
     Encoded(Tag<'index, DocIdsOnly, FieldExpirationChecker>),
     Raw(Tag<'index, RawDocIdsOnly, FieldExpirationChecker>),

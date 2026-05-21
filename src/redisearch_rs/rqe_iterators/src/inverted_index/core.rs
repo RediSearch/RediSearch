@@ -73,13 +73,13 @@ pub struct RawInvIndIterator<'query, Rf: Ref, R, E = NoOpChecker> {
     flags: IndexFlags,
 
     /// Cached count of unique documents in the underlying index, snapshotted at
-    /// construction time from `reader.unique_docs()`. Kept here so introspection
-    /// (e.g. `FT.PROFILE` estimate printing) can read the estimate regardless of
-    /// `Rf` — the live reader's `unique_docs()` is only callable in the
-    /// [`Active`] instantiation, but the snapshot is a stable estimate that both
-    /// modes can report.
+    /// construction time from `reader.unique_docs()`. Backs
+    /// [`RQEIterator::num_estimated`] (active) and
+    /// [`RQESuspendedIterator::num_estimated`] (suspended) uniformly, so
+    /// FT.PROFILE introspection can read the estimate regardless of `Rf` — the
+    /// live reader's `unique_docs()` is only callable in the [`Active`]
+    /// instantiation. The value is an estimate; the snapshot is acceptable.
     num_docs: u64,
-
     /// The implementation of the [`read`](RQEIterator::read) method.
     /// Using dynamic dispatch so we can pick the right version during the
     /// iterator construction saving to re-do the checks each time [`read()`](RQEIterator::read) is called.
@@ -146,9 +146,10 @@ impl<'query, Rf: Ref, R, E> RawInvIndIterator<'query, Rf, R, E> {
 
     /// Read the cached unique-document count regardless of mode.
     ///
-    /// Snapshotted at construction from `reader.unique_docs()`. Feeds
-    /// [`RQESuspendedIterator::num_estimated`] on the suspended side, where the
-    /// live reader is unavailable.
+    /// Snapshotted at construction from `reader.unique_docs()`. Backs both the
+    /// active and suspended [`num_estimated`](RQESuspendedIterator::num_estimated)
+    /// impls, so FT.PROFILE introspection works after the iterator has
+    /// transitioned to `Suspended`, where the live reader is unavailable.
     pub(crate) const fn num_docs_field(&self) -> u64 {
         self.num_docs
     }
@@ -397,7 +398,7 @@ where
     }
 
     fn num_estimated(&self) -> usize {
-        self.reader.unique_docs() as usize
+        self.num_docs_field() as usize
     }
 
     fn last_doc_id(&self) -> DocId {

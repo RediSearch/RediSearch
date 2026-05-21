@@ -586,10 +586,15 @@ impl<'query> RQESuspendedIterator<'query> for CRQEIterator {
     }
 
     fn num_estimated(&self) -> usize {
-        // SAFETY: Safe thanks to invariant 3. of [`CRQEIterator::header`].
+        // Same as the Active impl: delegate to the C iterator's
+        // `NumEstimated` vtable entry. For C iterators the callback returns
+        // a primitive that doesn't depend on the spec read lock; for Rust
+        // iterators wrapped in `RQEIteratorWrapper`, the callback returns
+        // the wrapper's cached snapshot regardless of typestate.
+        // SAFETY: invariant 3. of [`CRQEIterator::header`] guarantees the
+        // callback is non-null.
         let callback = unsafe { self.NumEstimated.unwrap_unchecked() };
-        // SAFETY: the C code guarantees, by constructor, that callbacks can
-        // be called on types that implement its C iterator API.
+        // SAFETY: same as the Active impl — see [`CRQEIterator::num_estimated`].
         unsafe { callback(self.header.as_ptr()) }
     }
 }

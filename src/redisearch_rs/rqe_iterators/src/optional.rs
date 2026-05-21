@@ -412,7 +412,6 @@ where
     }
 
     fn num_estimated(&self) -> usize {
-        // Mode-independent — mirrors the active `num_estimated`.
         self.max_doc_id as usize
     }
 }

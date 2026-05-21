@@ -477,7 +477,6 @@ where
     }
 
     fn num_estimated(&self) -> usize {
-        // Mirrors the active `num_estimated`, which delegates to the wildcard base.
         self.wcii.num_estimated()
     }
 }

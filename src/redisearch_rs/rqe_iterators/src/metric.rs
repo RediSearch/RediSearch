@@ -440,6 +440,6 @@ impl<'query, const SORTED_BY_ID: bool> RQESuspendedIterator<'query>
     }
 
     fn num_estimated(&self) -> usize {
-        self._num_estimated()
+        self.base.num_estimated()
     }
 }
