@@ -50,9 +50,10 @@ typedef struct {
 /* TrieNode represents a single node in a trie. The actual size of it is bigger,
  * as the children are
  * allocated after str[].
- * Non terminal nodes always have a score of 0, meaning you can't insert nodes
- * with score 0 to the
- * trie.
+ * Terminal nodes (real string ends) are identified by the TRIENODE_TERMINAL flag;
+ * tombstoned terminals carry TRIENODE_DELETED.
+ * Inserts with score == 0 are rejected at TrieNode_Add to keep the public API
+ * contract that callers always provide a positive score.
  */
 typedef struct {
   // the string length of this node. can be 0
