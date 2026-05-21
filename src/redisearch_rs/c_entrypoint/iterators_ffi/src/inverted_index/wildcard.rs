@@ -29,6 +29,11 @@ use rqe_iterators::{
 /// [`super::tag::TagIteratorSuspended`] for the heap-address
 /// preservation argument.
 #[repr(C, u8)]
+#[expect(
+    dead_code,
+    reason = "Variants are constructed via the whole-box pointer cast in `suspend`; \
+              the dead-code analyzer doesn't see that cast as construction."
+)]
 pub(super) enum WildcardIteratorSuspended {
     Encoded(<Wildcard<'static, DocIdsOnly> as RQEIteratorBoxed<'static>>::Suspended),
     Raw(<Wildcard<'static, RawDocIdsOnly> as RQEIteratorBoxed<'static>>::Suspended),

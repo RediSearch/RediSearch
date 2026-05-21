@@ -38,6 +38,11 @@ use rqe_iterators::{
 /// [`RawInvIndIterator::suspend`](rqe_iterators::inverted_index::RawInvIndIterator)
 /// for the same argument at the leaf level.
 #[repr(C, u8)]
+#[expect(
+    dead_code,
+    reason = "Variants are constructed via the whole-box pointer cast in `suspend`; \
+              the dead-code analyzer doesn't see that cast as construction."
+)]
 pub(super) enum TagIteratorSuspended {
     Encoded(<Tag<'static, DocIdsOnly, FieldExpirationChecker> as RQEIteratorBoxed<'static>>::Suspended),
     Raw(<Tag<'static, RawDocIdsOnly, FieldExpirationChecker> as RQEIteratorBoxed<'static>>::Suspended),
