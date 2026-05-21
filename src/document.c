@@ -574,12 +574,10 @@ FIELD_PREPROCESSOR(geometryPreprocessor) {
 
 FIELD_BULK_INDEXER(geometryIndexer) {
   // Geometry indexes are not yet plumbed through the per-document disk write
-  // batch — the write below goes to the in-memory R-tree eagerly. If a batch
-  // is open for this doc it means doc-table / fulltext / tag writes are being
-  // staged for disk commit, and an aborted commit would leave the geometry
-  // index referencing a doc that never reached disk. Assert until geometry
-  // indexing is staged on the batch (or a commit-gated path is added).
-  RS_LOG_ASSERT_ALWAYS(!aCtx->diskBatch,
+  // batch — the write below goes to the in-memory R-tree eagerly. In disk mode
+  // an aborted commit would leave the geometry index referencing a doc that
+  // never reached disk; assert until geometry indexing is staged on the batch.
+  RS_LOG_ASSERT_ALWAYS(!SearchDisk_IsEnabled(),
                        "geometryIndexer is not commit-batched; disk-mode geometry is not supported");
 
   GeometryIndex *rt = OpenGeometryIndex(&ctx->spec->fields[fs->index], CREATE_INDEX);
@@ -612,10 +610,9 @@ FIELD_BULK_INDEXER(geometryIndexer) {
 FIELD_BULK_INDEXER(numericIndexer) {
   // Numeric and geo (geohash-as-numeric) indexes are not yet plumbed through
   // the per-document disk write batch — writes go to the in-memory range tree
-  // eagerly. Same caveat as `geometryIndexer`: if a batch is open we would
-  // leak entries on commit failure. Assert until numeric/geo land on the
-  // batch.
-  RS_LOG_ASSERT_ALWAYS(!aCtx->diskBatch,
+  // eagerly. Same caveat as `geometryIndexer`: in disk mode an aborted commit
+  // would leak entries. Assert until numeric/geo land on the batch.
+  RS_LOG_ASSERT_ALWAYS(!SearchDisk_IsEnabled(),
                        "numericIndexer is not commit-batched; disk-mode numeric/geo is not supported");
 
   NumericRangeTree *rt = openNumericOrGeoIndex(ctx->spec, &ctx->spec->fields[fs->index], CREATE_INDEX);
@@ -812,17 +809,13 @@ FIELD_BULK_INDEXER(tagIndexer) {
     tidx->suffix = NewTrieMap();
   }
 
-  // In disk mode, this is phase 1: stage the writes onto the per-document
-  // batch. The matching in-memory updates (`TagIndex_Commit`) run in
-  // `Indexer_Process` once the batch has committed.
-  bool ok = ctx->spec->diskSpec
-              ? TagIndex_Stage(ctx->redisCtx, tidx, aCtx->diskBatch,
-                               (const char **)fdata->tags, array_len(fdata->tags),
-                               aCtx->doc->docId)
-              : TagIndex_Index(ctx->redisCtx, tidx,
-                               (const char **)fdata->tags, array_len(fdata->tags),
-                               aCtx->doc->docId, &ctx->spec->stats);
-  if (!ok) {
+  // `TagIndex_Index` branches internally: in disk mode it stages onto the
+  // per-document batch (matching in-memory updates run in `TagIndex_Commit`
+  // from `Indexer_Process` once the batch commits); in memory mode it writes
+  // inline.
+  if (!TagIndex_Index(ctx->redisCtx, tidx, aCtx->diskBatch,
+                      (const char **)fdata->tags, array_len(fdata->tags),
+                      aCtx->doc->docId, &ctx->spec->stats)) {
     QueryError_SetError(status, QUERY_ERROR_CODE_GENERIC, "Tag indexing failed");
     return -1;
   }
@@ -870,10 +863,11 @@ int IndexerBulkAdd(RSAddDocumentCtx *cur, RedisSearchCtx *sctx,
     }
   }
   // If the indexing was successful, update the global statistics. In disk
-  // mode the bump is deferred to the per-field commit helpers
-  // (`commitTagFields`, `commitVectorFields`), which only run after a
+  // mode (`batch_write == true`) the bump is deferred to the per-field commit
+  // helpers (`commitTagFields`, `commitVectorFields`), which only run after a
   // successful batch commit.
-  if (rc == 0 && !sctx->spec->diskSpec) {
+  const bool batch_write = sctx->spec->diskSpec;
+  if (rc == 0 && !batch_write) {
     FieldsGlobalStats_UpdateFieldDocsIndexed(fs->types, 1);
   }
   return rc;

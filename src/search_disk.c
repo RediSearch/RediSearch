@@ -197,48 +197,33 @@ void SearchDisk_FreeRdbState(RedisSearchDiskRdbState *rdbState) {
   disk->basic.freeRdbState(rdbState);
 }
 
-// Index API wrappers
+// Index API wrappers — thin pass-throughs over the disk-API vtable. The
+// `SearchDiskWriteBatchHandle` is the storage-layer batch handle itself; no
+// C-side wrapping is needed.
 
-// Thin C-side wrapper around the storage-layer batch handle. Allocated by
-// `SearchDisk_CreateWriteBatch` and freed by the commit / abort wrappers. The
-// indirection exists so other source files have a stable C-level type to pass
-// around without ever touching the underlying FFI handle directly.
-struct SearchDiskWriteBatch {
-    SearchDiskWriteBatchHandle *handle;
-};
-
-SearchDiskWriteBatch *SearchDisk_CreateWriteBatch(RedisSearchDiskIndexSpec *index) {
+SearchDiskWriteBatchHandle *SearchDisk_CreateWriteBatch(RedisSearchDiskIndexSpec *index) {
     RS_ASSERT(disk && index);
-    SearchDiskWriteBatchHandle *handle = disk->index.createWriteBatch(index);
-    if (!handle) {
-        return NULL;
-    }
-    SearchDiskWriteBatch *batch = rm_calloc(1, sizeof(*batch));
-    batch->handle = handle;
-    return batch;
+    return disk->index.createWriteBatch(index);
 }
 
-bool SearchDisk_CommitWriteBatch(SearchDiskWriteBatch *batch) {
+bool SearchDisk_CommitWriteBatch(SearchDiskWriteBatchHandle *batch) {
     RS_ASSERT(disk && batch);
-    bool ok = disk->index.commitWriteBatch(batch->handle);
-    rm_free(batch);
-    return ok;
+    return disk->index.commitWriteBatch(batch);
 }
 
-void SearchDisk_AbortWriteBatch(SearchDiskWriteBatch *batch) {
+void SearchDisk_AbortWriteBatch(SearchDiskWriteBatchHandle *batch) {
     RS_ASSERT(disk && batch);
-    disk->index.abortWriteBatch(batch->handle);
-    rm_free(batch);
+    disk->index.abortWriteBatch(batch);
 }
 
-bool SearchDisk_IndexTerm(RedisSearchDiskIndexSpec *index, SearchDiskWriteBatch *batch, const char *term, size_t termLen, t_docId docId, t_fieldMask fieldMask, uint32_t freq, const uint8_t *offsets, size_t offsetsLen) {
+bool SearchDisk_IndexTerm(RedisSearchDiskIndexSpec *index, SearchDiskWriteBatchHandle *batch, const char *term, size_t termLen, t_docId docId, t_fieldMask fieldMask, uint32_t freq, const uint8_t *offsets, size_t offsetsLen) {
     RS_ASSERT(disk && index && batch);
-    return disk->index.indexTerm(index, batch->handle, term, termLen, docId, fieldMask, freq, offsets, offsetsLen);
+    return disk->index.indexTerm(index, batch, term, termLen, docId, fieldMask, freq, offsets, offsetsLen);
 }
 
-bool SearchDisk_IndexTags(RedisModuleCtx *ctx, RedisSearchDiskIndexSpec *index, SearchDiskWriteBatch *batch, const char **values, size_t numValues, t_docId docId, t_fieldIndex fieldIndex) {
+bool SearchDisk_IndexTags(RedisModuleCtx *ctx, RedisSearchDiskIndexSpec *index, SearchDiskWriteBatchHandle *batch, const char **values, size_t numValues, t_docId docId, t_fieldIndex fieldIndex) {
     RS_ASSERT(disk && index && batch);
-    return disk->index.indexTags(ctx, index, batch->handle, values, numValues, docId, fieldIndex);
+    return disk->index.indexTags(ctx, index, batch, values, numValues, docId, fieldIndex);
 }
 
 QueryIterator* SearchDisk_NewTermIterator(RedisSearchDiskIndexSpec *index, RSToken *tok, int tokenId, t_fieldMask fieldMask, double weight, double idf, double bm25_idf, bool needsOffsets) {
@@ -303,9 +288,9 @@ size_t SearchDisk_RunGC(RedisSearchDiskIndexSpec *index, IndexSpec *spec) {
     return disk->index.runGC(index, &callbacks, spec);
 }
 
-t_docId SearchDisk_PutDocument(RedisSearchDiskIndexSpec *handle, SearchDiskWriteBatch *batch, const char *key, size_t keyLen, float score, uint32_t flags, uint32_t maxTermFreq, uint32_t docLen, uint32_t *oldLen, t_expirationTimePoint documentTtl, t_docId oldDocId) {
+t_docId SearchDisk_PutDocument(RedisSearchDiskIndexSpec *handle, SearchDiskWriteBatchHandle *batch, const char *key, size_t keyLen, float score, uint32_t flags, uint32_t maxTermFreq, uint32_t docLen, uint32_t *oldLen, t_expirationTimePoint documentTtl, t_docId oldDocId) {
     RS_ASSERT(disk && handle && batch);
-    return disk->docTable.putDocument(handle, batch->handle, key, keyLen, score, flags, maxTermFreq, docLen, oldLen, documentTtl, oldDocId);
+    return disk->docTable.putDocument(handle, batch, key, keyLen, score, flags, maxTermFreq, docLen, oldLen, documentTtl, oldDocId);
 }
 
 bool SearchDisk_GetDocumentMetadata(RedisSearchDiskIndexSpec *handle, t_docId docId, RSDocumentMetadata *dmd, struct timespec *current_time) {

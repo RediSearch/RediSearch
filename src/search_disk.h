@@ -17,19 +17,12 @@
 
 #include <stdbool.h>
 
-// C-side wrapper around an underlying storage-layer write batch.
-//
-// Defined in `search_disk.c` (opaque to other translation units); created by
-// `SearchDisk_CreateWriteBatch` and consumed by `SearchDisk_CommitWriteBatch` or
-// `SearchDisk_AbortWriteBatch`.
-//
-// The OSS indexing flow uses the batch in three phases: stage (`indexTerm` /
-// `indexTags` / `putDocument` queue writes onto the batch), commit (the batch
-// is durably written, or aborted on error), and apply (the matching in-memory
-// updates — DocIdMeta, trie / suffix-trie inserts, scoring stats — run only on
-// successful commit). On abort or commit failure no in-memory updates have run
-// yet, so there is nothing to roll back.
-typedef struct SearchDiskWriteBatch SearchDiskWriteBatch;
+// The opaque write-batch handle (declared in `search_disk_api.h`) is the only
+// type the OSS-side write path exposes. Indexing stages writes onto a handle
+// via `indexTerm` / `indexTags` / `putDocument`, then either commits (durable)
+// or aborts (discards). The matching in-memory updates run only after a
+// successful commit; on abort no in-memory state was mutated, so there is
+// nothing to roll back.
 
 __attribute__((weak))
 bool SearchDisk_HasAPI();
@@ -200,7 +193,7 @@ void SearchDisk_FreeRdbState(RedisSearchDiskRdbState *rdbState);
  * @param offsetsLen Length of the offsets data in bytes
  * @return true if successful, false otherwise
  */
-bool SearchDisk_IndexTerm(RedisSearchDiskIndexSpec *index, SearchDiskWriteBatch *batch, const char *term, size_t termLen, t_docId docId, t_fieldMask fieldMask, uint32_t freq, const uint8_t *offsets, size_t offsetsLen);
+bool SearchDisk_IndexTerm(RedisSearchDiskIndexSpec *index, SearchDiskWriteBatchHandle *batch, const char *term, size_t termLen, t_docId docId, t_fieldMask fieldMask, uint32_t freq, const uint8_t *offsets, size_t offsetsLen);
 
 /**
  * @brief Index multiple tag values for a document
@@ -214,7 +207,7 @@ bool SearchDisk_IndexTerm(RedisSearchDiskIndexSpec *index, SearchDiskWriteBatch 
  * @param fieldIndex Field index for the tag field
  * @return true if successful, false otherwise
  */
-bool SearchDisk_IndexTags(RedisModuleCtx *ctx, RedisSearchDiskIndexSpec *index, SearchDiskWriteBatch *batch, const char **values, size_t numValues, t_docId docId, t_fieldIndex fieldIndex);
+bool SearchDisk_IndexTags(RedisModuleCtx *ctx, RedisSearchDiskIndexSpec *index, SearchDiskWriteBatchHandle *batch, const char **values, size_t numValues, t_docId docId, t_fieldIndex fieldIndex);
 
 /**
  * @brief Open a new write batch bound to the given disk index.
@@ -227,7 +220,7 @@ bool SearchDisk_IndexTags(RedisModuleCtx *ctx, RedisSearchDiskIndexSpec *index, 
  * @param index Pointer to the disk index this batch will write to
  * @return Pointer to the new batch, or NULL on error
  */
-SearchDiskWriteBatch *SearchDisk_CreateWriteBatch(RedisSearchDiskIndexSpec *index);
+SearchDiskWriteBatchHandle *SearchDisk_CreateWriteBatch(RedisSearchDiskIndexSpec *index);
 
 /**
  * @brief Atomically commit all writes staged on `batch`.
@@ -237,7 +230,7 @@ SearchDiskWriteBatch *SearchDisk_CreateWriteBatch(RedisSearchDiskIndexSpec *inde
  * @param batch Pointer returned by `SearchDisk_CreateWriteBatch`
  * @return true on success, false on error
  */
-bool SearchDisk_CommitWriteBatch(SearchDiskWriteBatch *batch);
+bool SearchDisk_CommitWriteBatch(SearchDiskWriteBatchHandle *batch);
 
 /**
  * @brief Discard all writes staged on `batch` without touching the database.
@@ -246,7 +239,7 @@ bool SearchDisk_CommitWriteBatch(SearchDiskWriteBatch *batch);
  *
  * @param batch Pointer returned by `SearchDisk_CreateWriteBatch`
  */
-void SearchDisk_AbortWriteBatch(SearchDiskWriteBatch *batch);
+void SearchDisk_AbortWriteBatch(SearchDiskWriteBatchHandle *batch);
 
 /**
  * @brief Delete a document by its doc ID directly, removing it from the doc table and marking its ID as deleted
@@ -325,7 +318,7 @@ QueryIterator* SearchDisk_NewTagIterator(RedisSearchDiskIndexSpec *index, const 
  * @param oldDocId Old document ID from DocIdMeta (0 if new document)
  * @return New document ID, or 0 on error
  */
-t_docId SearchDisk_PutDocument(RedisSearchDiskIndexSpec *handle, SearchDiskWriteBatch *batch, const char *key, size_t keyLen, float score, uint32_t flags, uint32_t maxTermFreq, uint32_t totalFreq, uint32_t *oldLen, t_expirationTimePoint documentTtl, t_docId oldDocId);
+t_docId SearchDisk_PutDocument(RedisSearchDiskIndexSpec *handle, SearchDiskWriteBatchHandle *batch, const char *key, size_t keyLen, float score, uint32_t flags, uint32_t maxTermFreq, uint32_t totalFreq, uint32_t *oldLen, t_expirationTimePoint documentTtl, t_docId oldDocId);
 
 /**
  * @brief Get document metadata by document ID

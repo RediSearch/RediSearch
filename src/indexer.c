@@ -637,6 +637,13 @@ static void Indexer_Process(RSAddDocumentCtx *aCtx) {
   if (aCtx->stateFlags & ACTX_F_ERRORED) {
     SearchDisk_AbortWriteBatch(aCtx->diskBatch);
     aCtx->diskBatch = NULL;
+    // `indexBulkFields` records the originating field error in stats and then
+    // clears `cur->status`, so by the time we get here `aCtx->status` may be
+    // empty. Ensure the reply path sees an error.
+    if (!QueryError_HasError(&aCtx->status)) {
+      QueryError_SetError(&aCtx->status, QUERY_ERROR_CODE_GENERIC,
+                          "Document indexing failed; disk write batch aborted");
+    }
     return;
   }
 

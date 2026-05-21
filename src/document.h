@@ -20,7 +20,7 @@
 
 // Forward declaration of the C-side write-batch wrapper (defined in search_disk.h).
 // Forward-declared here to avoid pulling the entire disk-API surface into document.h.
-typedef struct SearchDiskWriteBatch SearchDiskWriteBatch;
+typedef struct SearchDiskWriteBatchHandle SearchDiskWriteBatchHandle;
 
 typedef struct QueryError QueryError;
 
@@ -317,19 +317,11 @@ typedef struct RSAddDocumentCtx {
   DocumentAddCompleted donecb;
   void *donecbData;
 
-  // Open disk write batch for this document's indexing operation.
-  //
-  // Created by `doAssignIds` when the disk path is active, populated by `putDocument`,
-  // `indexTerm`, and `indexTags` calls during the rest of `Indexer_Process`, and finally
-  // committed (or aborted on error) before `Indexer_Process` returns. NULL in memory mode
-  // or once consumed by commit/abort.
-  SearchDiskWriteBatch *diskBatch;
+  // Per-document disk write batch (disk mode only; NULL otherwise).
+  SearchDiskWriteBatchHandle *diskBatch;
 
-  // Length (in tokens) of the document that this one replaces on disk, captured
-  // from `SearchDisk_PutDocument` during staging. Consumed by `commitDocTable`
-  // to drive the `numDocuments` / `totalDocsLen` stat adjustments once the
-  // batch has committed. Zero when no prior document existed (insert, not
-  // replace). Unused in memory mode.
+  // Length of the document this one replaces on disk (0 if it's a new doc).
+  // Used by `commitDocTable` for the REPLACE stats adjustment. Disk mode only.
   uint32_t oldDocLen;
 } RSAddDocumentCtx;
 

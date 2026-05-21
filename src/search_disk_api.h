@@ -34,9 +34,9 @@ typedef const void* RedisSearchDiskRdbState;
 //
 // Allocated and freed by the storage implementation behind this API; the only
 // C-visible operations are the create / commit / abort / stage entry points on
-// `IndexDiskAPI` and `DocTableDiskAPI`. Most C-side code does not see this type
-// directly — it is wrapped by `SearchDiskWriteBatch` (declared in
-// `search_disk.h`), which adds the C-owned post-commit hook list on top.
+// `IndexDiskAPI` and `DocTableDiskAPI`. C-side callers pass the handle through
+// the thin wrappers in `search_disk.h` (`SearchDisk_CreateWriteBatch`,
+// `SearchDisk_CommitWriteBatch`, `SearchDisk_AbortWriteBatch`, etc.).
 typedef struct SearchDiskWriteBatchHandle SearchDiskWriteBatchHandle;
 
 // Callback function to allocate memory for the key in the scope of the search module memory

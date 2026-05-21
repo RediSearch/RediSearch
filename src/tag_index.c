@@ -215,11 +215,22 @@ static inline size_t tagIndex_Put(TagIndex *idx, const char *value, size_t len, 
   return InvertedIndex_WriteEntryGeneric(iv, &rec) + sz;
 }
 
-/* Index a vector of pre-processed tags for a docId — memory mode only. */
-bool TagIndex_Index(RedisModuleCtx *ctx, TagIndex *idx, const char **values, size_t n, t_docId docId, IndexStats *stats) {
-  RS_ASSERT(!idx->diskSpec);
-  if (!values) return true;
+/* Index a vector of pre-processed tags for a docId.
+ *
+ * In disk mode this is phase 1: the writes are staged onto `batch` and the
+ * in-memory trie / suffix-trie / numRecords updates are deferred to
+ * `TagIndex_Commit`, which runs after the batch commits.
+ *
+ * In memory mode there is no commit step, so the in-memory writes happen
+ * inline here. `batch` is ignored. */
+bool TagIndex_Index(RedisModuleCtx *ctx, TagIndex *idx, SearchDiskWriteBatchHandle *batch,
+                    const char **values, size_t n, t_docId docId, IndexStats *stats) {
+  if (idx->diskSpec) {
+    if (!values) return true;
+    return SearchDisk_IndexTags(ctx, idx->diskSpec, batch, values, n, docId, idx->fieldIndex);
+  }
 
+  if (!values) return true;
   for (size_t ii = 0; ii < n; ++ii) {
     const char *tok = values[ii];
     if (tok) {
@@ -235,15 +246,8 @@ bool TagIndex_Index(RedisModuleCtx *ctx, TagIndex *idx, const char **values, siz
   return true;
 }
 
-/* Disk-mode phase 1: stage tag writes onto `batch`. No in-memory mutations. */
-bool TagIndex_Stage(RedisModuleCtx *ctx, TagIndex *idx, SearchDiskWriteBatch *batch, const char **values, size_t n, t_docId docId) {
-  RS_ASSERT(idx->diskSpec);
-  if (!values) return true;
-  return SearchDisk_IndexTags(ctx, idx->diskSpec, batch, values, n, docId, idx->fieldIndex);
-}
-
 /* Disk-mode phase 3: apply the in-memory updates that pair with a successful
- * `TagIndex_Stage` + commit. Infallible. */
+ * `TagIndex_Index` (in disk mode) + commit. Infallible. */
 void TagIndex_Commit(TagIndex *idx, const char **values, size_t n, IndexStats *stats) {
   RS_ASSERT(idx->diskSpec);
   if (!values) return;
