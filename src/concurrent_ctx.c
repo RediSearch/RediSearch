@@ -128,7 +128,7 @@ RedisModuleBlockedClient *ConcurrentCmdCtx_GetBlockedClient(ConcurrentCmdCtx *cc
   return cctx->bc;
 }
 
-int ConcurrentCmdCtx_GetPoolId(ConcurrentCmdCtx *cctx) {
+int ConcurrentCmdCtx_GetPoolId(const ConcurrentCmdCtx *cctx) {
   return cctx->poolId;
 }
 

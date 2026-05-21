@@ -332,7 +332,7 @@ TEST_P(RPSafeDepleterTest, RPSafeDepleter_Error) {
 // returns within `timeout_ms`. If it blocks longer, fail the test rather than
 // deadlock the whole binary.
 static void AssertWaitForCompletionDoesNotBlock(ResultProcessor *depleter, int timeout_ms = 5000) {
-  std::atomic<bool> done{false};
+  std::atomic done{false};
   std::thread waiter([&] {
     RPSafeDepleter_WaitForCompletion(depleter);
     done.store(true);
@@ -351,7 +351,7 @@ static void AssertWaitForCompletionDoesNotBlock(ResultProcessor *depleter, int t
 // immediately, not block on `done_depleting` which will never be signaled.
 TEST_P(RPSafeDepleterTest, RPSafeDepleter_LazyTimeoutThenWaitForCompletion) {
   bool take_index_lock = GetParam();
-  QueryProcessingCtx qitr = {0};
+  QueryProcessingCtx qitr = {nullptr};
 
   MockUpstream mockUpstream(3, RS_RESULT_EOF);
 
@@ -386,7 +386,7 @@ TEST_P(RPSafeDepleterTest, RPSafeDepleter_LazyTimeoutThenWaitForCompletion) {
 //   - a subsequent Next() runs the lazy branch and yields TIMEDOUT
 TEST_P(RPSafeDepleterTest, RPSafeDepleter_StartDepletionTimeoutBailout) {
   bool take_index_lock = GetParam();
-  QueryProcessingCtx qitr = {0};
+  QueryProcessingCtx qitr = {nullptr};
 
   MockUpstream mockUpstream(3, RS_RESULT_EOF);
 
@@ -428,4 +428,3 @@ INSTANTIATE_TEST_SUITE_P(
       return info.param ? "WithIndexLock" : "WithoutIndexLock";
     }
 );
-

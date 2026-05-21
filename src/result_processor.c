@@ -2002,7 +2002,7 @@ void RPSafeDepleter_StartDepletion(ResultProcessor *base) {
  */
 void RPSafeDepleter_WaitForCompletion(ResultProcessor *base) {
   RS_ASSERT(base->type == RP_SAFE_DEPLETER);
-  RPSafeDepleter *self = (RPSafeDepleter *)base;
+  const RPSafeDepleter *self = (RPSafeDepleter *)base;
   // No BG depletion job in flight: nothing to wait for.
   if (!self->depletion_scheduled) {
     return;
