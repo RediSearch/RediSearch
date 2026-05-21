@@ -106,6 +106,16 @@ where
     }
 }
 
+impl<'query, Rf: Ref, R, E, RA> RawTerm<'query, Rf, R, E, RA> {
+    /// Cached [`IndexFlags`](ffi::IndexFlags) of the underlying inverted index —
+    /// see [`RawInvIndIterator::flags`]. Mode-independent, so FFI introspection
+    /// (`FT.PROFILE`) can read it whether the iterator is [`Active`] or
+    /// [`Suspended`].
+    pub const fn flags(&self) -> ffi::IndexFlags {
+        self.it.flags()
+    }
+}
+
 impl<'query, Rf: Ref, R, E, RA> RawTerm<'query, Rf, R, E, RA>
 where
     R: PointsToOpaqueIndex,
