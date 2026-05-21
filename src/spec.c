@@ -2581,6 +2581,7 @@ static void FieldSpec_RdbSave(RedisModuleIO *rdb, FieldSpec *f, int contextFlags
     // empty VecSimIndex on its own and we skip the blob entirely.
     const bool storeDiskRdbData = contextFlags & REDISMODULE_CTX_FLAGS_SST_RDB;
     if (storeDiskRdbData) {
+      RS_ASSERT(SearchDisk_IsEnabled());
       RS_ASSERT(f->vectorOpts.diskCtx.storage);
 
       const bool vecSimWithData = f->vectorOpts.vecSimIndex &&
@@ -2590,7 +2591,7 @@ static void FieldSpec_RdbSave(RedisModuleIO *rdb, FieldSpec *f, int contextFlags
         unsigned char *blob = NULL;
         size_t blobLen = 0;
         bool ok = SearchDisk_SerializeVectorIndexToBlob(f->vectorOpts.vecSimIndex, &blob, &blobLen);
-        RS_ASSERT(ok);
+        RS_LOG_ASSERT_ALWAYS(ok, "Failed to serialize vector index to blob");
         RedisModule_SaveStringBuffer(rdb, (const char *)blob, blobLen);
         SearchDisk_FreeSerializedVectorBlob(blob, blobLen);
       }
@@ -3461,15 +3462,21 @@ static bool IndexSpec_SSTRdbOpenAndApply(RedisModuleCtx *ctx, IndexSpec *sp) {
     // in that case the freshly created VecSimIndex is already in the
     // correct state and we leave it untouched.
     if (fs->vectorOpts.pendingRdbBlob) {
-      if (!SearchDisk_ApplyBlobToVectorIndex(vecsim, fs->vectorOpts.pendingRdbBlob,
-                                              fs->vectorOpts.pendingRdbBlobLen)) {
-        RedisModule_Log(RSDummyContext, "warning",
-                        "Failed to apply vector RDB blob for field %u",
-                        fs->index);
-      }
+      bool applied = SearchDisk_ApplyBlobToVectorIndex(vecsim, fs->vectorOpts.pendingRdbBlob,
+                                                       fs->vectorOpts.pendingRdbBlobLen);
       RedisModule_Free(fs->vectorOpts.pendingRdbBlob);
       fs->vectorOpts.pendingRdbBlob = NULL;
       fs->vectorOpts.pendingRdbBlobLen = 0;
+      if (!applied) {
+        // The VecSimIndex was created but its in-memory state from the RDB
+        // (HNSW graph metadata + SQ8 vectors) could not be restored. Serving
+        // queries against this spec would silently return wrong KNN results
+        // — treat as fatal so the caller drops the spec.
+        RedisModule_Log(RSDummyContext, "warning",
+                        "Failed to apply vector RDB blob for field %u; aborting spec load",
+                        fs->index);
+        return false;
+      }
     }
   }
 
@@ -4853,14 +4860,6 @@ void Indexes_EndLoading() {
 // that was staged in this round.
 void Indexes_FinishSSTReplication(RedisModuleCtx *ctx) {
   RS_ASSERT(SearchDisk_IsEnabled());
-
-  // Specs whose disk open failed are collected here and dropped after the
-  // iterator is released, since IndexSpec_RemoveFromGlobals mutates specDict_g.
-  // Leaving a failed spec in specDict_g would be visible to subsequent
-  // operations (e.g. IndexSpec_DeleteDocById) while diskSpec is NULL, tripping
-  // the disk-path assertions.
-  arrayof(StrongRef) failed = NULL;
-
   dictIterator *iter = dictGetIterator(specDict_g);
   dictEntry *entry = NULL;
   while ((entry = dictNext(iter))) {
@@ -4870,32 +4869,12 @@ void Indexes_FinishSSTReplication(RedisModuleCtx *ctx) {
     RS_ASSERT(sp->pendingDiskRdbState);
     RS_ASSERT(sp->diskSpec == NULL);
     RS_ASSERT(!sp->diskRegistered);
-
-    if (!IndexSpec_SSTRdbOpenAndApply(ctx, sp)) {
-      RedisModule_Log(ctx, "warning",
-                      "SST replication: failed to open disk index for spec during LOADING_ENDED");
-      if (!failed) failed = array_new(StrongRef, 1);
-      array_append(failed, spec_ref);
-      continue;
-    }
+    RS_LOG_ASSERT_ALWAYS(IndexSpec_SSTRdbOpenAndApply(ctx, sp), "SST replication: failed to open disk index for spec during LOADING_ENDED");
     // GC start was deferred by IndexSpec_StoreAfterRdbLoad for the SST path
     // (diskSpec was NULL there); start it now that the disk handle exists.
     IndexSpec_StartGC(spec_ref, sp, GCPolicy_Disk);
   }
   dictReleaseIterator(iter);
-
-  if (failed) {
-    // diskRegistered is false on these specs (SearchDisk_RegisterIndex never
-    // ran), so SearchDisk_UnregisterIndex is not needed. diskSpec may be NULL
-    // (SearchDisk_OpenIndexWithRdbState failed) or non-NULL (open succeeded
-    // but eager vector-index creation failed); IndexSpec_FreeUnlinkedData
-    // closes a non-NULL diskSpec via SearchDisk_CloseIndex when the last
-    // StrongRef is dropped.
-    for (size_t i = 0; i < array_len(failed); ++i) {
-      IndexSpec_RemoveFromGlobals(failed[i], false);
-    }
-    array_free(failed);
-  }
 }
 
 // Replica-side SST replication: abort the in-progress replication round.
