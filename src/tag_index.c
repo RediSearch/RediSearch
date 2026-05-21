@@ -215,57 +215,65 @@ static inline size_t tagIndex_Put(TagIndex *idx, const char *value, size_t len, 
   return InvertedIndex_WriteEntryGeneric(iv, &rec) + sz;
 }
 
+/* Memory-mode helper: write the per-tag inverted-index postings for `docId`.
+ * `tagIndex_Put` also inserts the matching `InvertedIndex*` into `idx->values`
+ * if it is not already there. */
+static void tag_index_write_postings(TagIndex *idx, const char **values, size_t n,
+                                     t_docId docId, IndexStats *stats) {
+  if (!values) return;
+  for (size_t ii = 0; ii < n; ++ii) {
+    const char *tok = values[ii];
+    if (tok) {
+      stats->invertedSize += tagIndex_Put(idx, tok, strlen(tok), docId);
+    }
+  }
+}
+
+/* Apply the in-memory tag-trie updates for a vector of tag tokens.
+ *
+ * Disk mode: runs after a successful `TagIndex_Index` staging + batch commit.
+ * Inserts NULL sentinels into `idx->values` (postings live on disk).
+ *
+ * Memory mode: called directly from `TagIndex_Index` after the per-tag
+ * postings have been written. The trie already holds `InvertedIndex*` pointers
+ * from `tag_index_write_postings`, so the trie insert is skipped to preserve
+ * them.
+ *
+ * Both modes populate `idx->suffix` and bump `stats->numRecords`. Infallible. */
+void TagIndex_Commit(TagIndex *idx, const char **values, size_t n, IndexStats *stats) {
+  if (!values) return;
+  for (size_t ii = 0; ii < n; ++ii) {
+    const char *tok = values[ii];
+    if (!tok) continue;
+    size_t len = strlen(tok);
+    if (idx->diskSpec) {
+      TrieMap_Add(idx->values, tok, len, NULL, NULL);
+    }
+    if (idx->suffix && (*tok != '\0')) {
+      addSuffixTrieMap(idx->suffix, tok, len);
+    }
+  }
+  stats->numRecords++;
+}
+
 /* Index a vector of pre-processed tags for a docId.
  *
  * In disk mode this is phase 1: the writes are staged onto `batch` and the
- * in-memory trie / suffix-trie / numRecords updates are deferred to
- * `TagIndex_Commit`, which runs after the batch commits.
+ * in-memory updates are deferred to `TagIndex_Commit`, which runs after the
+ * batch commits.
  *
- * In memory mode there is no commit step, so the in-memory writes happen
- * inline here. `batch` is ignored. */
+ * In memory mode there is no separate commit step; the per-tag postings are
+ * written here and the trie/suffix bookkeeping is delegated to
+ * `TagIndex_Commit`. `batch` is ignored. */
 bool TagIndex_Index(RedisModuleCtx *ctx, TagIndex *idx, SearchDiskWriteBatchHandle *batch,
                     const char **values, size_t n, t_docId docId, IndexStats *stats) {
   if (idx->diskSpec) {
     if (!values) return true;
     return SearchDisk_IndexTags(ctx, idx->diskSpec, batch, values, n, docId, idx->fieldIndex);
   }
-
-  if (!values) return true;
-  for (size_t ii = 0; ii < n; ++ii) {
-    const char *tok = values[ii];
-    if (tok) {
-      stats->invertedSize += tagIndex_Put(idx, tok, strlen(tok), docId);
-
-      if (idx->suffix && (*tok != '\0')) { // add to suffix TrieMap
-        addSuffixTrieMap(idx->suffix, tok, strlen(tok));
-      }
-    }
-  }
-
-  stats->numRecords++;
+  tag_index_write_postings(idx, values, n, docId, stats);
+  TagIndex_Commit(idx, values, n, stats);
   return true;
-}
-
-/* Disk-mode phase 3: apply the in-memory updates that pair with a successful
- * `TagIndex_Index` (in disk mode) + commit. Infallible. */
-void TagIndex_Commit(TagIndex *idx, const char **values, size_t n, IndexStats *stats) {
-  RS_ASSERT(idx->diskSpec);
-  if (!values) return;
-
-  // Populate TrieMap with NULL sentinels for tag enumeration, and add to the
-  // suffix trie. These pair with disk writes that have already committed.
-  for (size_t ii = 0; ii < n; ++ii) {
-    const char *tok = values[ii];
-    if (tok) {
-      TrieMap_Add(idx->values, tok, strlen(tok), NULL, NULL);
-
-      if (idx->suffix && (*tok != '\0')) {
-        addSuffixTrieMap(idx->suffix, tok, strlen(tok));
-      }
-    }
-  }
-
-  stats->numRecords++;
 }
 
 static QueryIterator *TagIndex_GetReader(const TagIndex *idx, const RedisSearchCtx *sctx, InvertedIndex *iv,

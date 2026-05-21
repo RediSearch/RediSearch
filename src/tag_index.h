@@ -147,10 +147,16 @@ static inline void TagIndex_FreePreprocessedData(char **s) {
 bool TagIndex_Index(RedisModuleCtx *ctx, TagIndex *idx, SearchDiskWriteBatchHandle *batch,
                     const char **values, size_t n, t_docId docId, IndexStats *stats);
 
-/* Disk-mode phase 3: apply the in-memory updates that pair with a successfully
- * committed `TagIndex_Index` (disk mode) call. Adds NULL sentinels to
- * `idx->values`, populates `idx->suffix`, and bumps `stats->numRecords`.
- * Infallible. */
+/* Apply the in-memory tag-trie updates for a vector of tag tokens. Infallible.
+ *
+ * Disk mode: runs after a successful `TagIndex_Index` staging + batch commit;
+ * inserts NULL sentinels into `idx->values` (postings live on disk).
+ *
+ * Memory mode: called from `TagIndex_Index` after the per-tag inverted-index
+ * postings have already been written, so the trie insert is skipped (existing
+ * `InvertedIndex*` values are preserved).
+ *
+ * Both modes populate `idx->suffix` and bump `stats->numRecords`. */
 void TagIndex_Commit(TagIndex *idx, const char **values, size_t n, IndexStats *stats);
 
 /* Open an index reader to iterate a tag index for a specific tag. Used at query evaluation time.
