@@ -473,6 +473,19 @@ RLookupKey * *GetMetricOwnKeyRef(QueryIterator *header);
 void Profile_AddIters(QueryIterator * *root);
 
 /**
+ * Returns a non-owning raw pointer to the child at `idx`.
+ *
+ * The returned pointer is valid as long as the intersection iterator is alive and no
+ * structural modifications are made (e.g. via [`AddIntersectionIteratorChild`]).
+ *
+ * # Safety
+ *
+ * 1. `header` must be a valid non-null pointer created via [`NewIntersectionIterator()`].
+ * 2. `idx` must be less than [`GetIntersectionIteratorNumChildren`]`(header)`.
+ */
+const QueryIterator *GetIntersectionIteratorChild(const QueryIterator *header, size_t idx);
+
+/**
  * Creates a new union iterator, applying reduction rules and choosing between
  * flat and heap variants based on the number of children.
  *
@@ -489,19 +502,6 @@ void Profile_AddIters(QueryIterator * *root);
  * 4. `config` must be a valid non-null pointer to an [`IteratorsConfig`].
  */
 QueryIterator *NewUnionIterator(QueryIterator * *its, int32_t num, bool quick_exit, double weight, QueryNodeType type_, const char *q_str, const struct IteratorsConfig *config);
-
-/**
- * Returns a non-owning raw pointer to the child at `idx`.
- *
- * The returned pointer is valid as long as the intersection iterator is alive and no
- * structural modifications are made (e.g. via [`AddIntersectionIteratorChild`]).
- *
- * # Safety
- *
- * 1. `header` must be a valid non-null pointer created via [`NewIntersectionIterator()`].
- * 2. `idx` must be less than [`GetIntersectionIteratorNumChildren`]`(header)`.
- */
-const QueryIterator *GetIntersectionIteratorChild(const QueryIterator *header, size_t idx);
 
 /**
  * Print iterator profile tree as a Redis reply.
@@ -711,16 +711,6 @@ QueryIterator *NewInvIndIterator_TermQuery(const InvertedIndex *idx, const Redis
 QueryIterator *NewInvIndIterator_MissingQuery(const InvertedIndex *idx, const RedisSearchCtx *sctx, t_fieldIndex field_index);
 
 /**
- * Returns the [`QueryNodeType`] stored in the union iterator.
- *
- * # Safety
- *
- * 1. `it` must be a valid non-null pointer to a non-reduced union iterator
- *    created via [`NewUnionIterator`].
- */
-QueryNodeType GetUnionIteratorQueryNodeType(const QueryIterator *it);
-
-/**
  * Gets the minimum range value for profiling a numeric iterator.
  *
  * # Safety
@@ -732,6 +722,16 @@ QueryNodeType GetUnionIteratorQueryNodeType(const QueryIterator *it);
  * The minimum range value from the filter, or negative infinity if no filter was provided.
  */
 double NumericInvIndIterator_GetProfileRangeMin(const QueryIterator *it);
+
+/**
+ * Returns the [`QueryNodeType`] stored in the union iterator.
+ *
+ * # Safety
+ *
+ * 1. `it` must be a valid non-null pointer to a non-reduced union iterator
+ *    created via [`NewUnionIterator`].
+ */
+QueryNodeType GetUnionIteratorQueryNodeType(const QueryIterator *it);
 
 /**
  * Returns the query string pointer stored in the union iterator, or null.

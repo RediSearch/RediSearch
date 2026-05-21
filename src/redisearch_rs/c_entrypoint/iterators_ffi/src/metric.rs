@@ -10,7 +10,7 @@
 use ffi::{QueryIterator, RLookupKey, RLookupKeyHandle};
 use rqe_core::DocId;
 use rqe_iterator_type::IteratorType;
-use rqe_iterators::interop::RQEIteratorWrapper;
+use rqe_iterators::interop::{InnerState, RQEIteratorWrapper};
 use rqe_iterators::{
     metric::{Metric, MetricSortedById, MetricSortedByScore, MetricType},
     utils::OwnedSlice,
@@ -185,13 +185,19 @@ pub unsafe extern "C" fn GetMetricType(header: *const QueryIterator) -> MetricTy
             // SAFETY: Safe thanks to 1 + 2.
             let wrapper =
                 unsafe { RQEIteratorWrapper::<MetricSortedById>::ref_from_header_ptr(header) };
-            wrapper.inner().metric_type()
+            match wrapper.state() {
+                InnerState::Active(it) => it.metric_type(),
+                InnerState::Suspended(it) => it.metric_type(),
+            }
         }
         IteratorType::MetricSortedByScore => {
             // SAFETY: Safe thanks to 1 + 2.
             let wrapper =
                 unsafe { RQEIteratorWrapper::<MetricSortedByScore>::ref_from_header_ptr(header) };
-            wrapper.inner().metric_type()
+            match wrapper.state() {
+                InnerState::Active(it) => it.metric_type(),
+                InnerState::Suspended(it) => it.metric_type(),
+            }
         }
         _ => unreachable!(
             "expected a metric iterator, either sorted by ID or Score (metric value): unexpected type: {iterator_type}"
