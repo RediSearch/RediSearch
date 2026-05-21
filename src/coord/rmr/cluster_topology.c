@@ -13,6 +13,10 @@
 #include "slot_ranges.h"
 #include "rmutil/rm_assert.h"
 
+#include <arpa/inet.h>
+
+extern RedisModuleCtx *RSDummyContext;
+
 MRClusterShard MR_NewClusterShard(MRClusterNode *node, RedisModuleSlotRangeArray *slotRanges) {
   MRClusterShard ret = (MRClusterShard){
       .node = *node,
@@ -52,6 +56,89 @@ MRClusterTopology *MRClusterTopology_Clone(MRClusterTopology *t) {
 
     MRClusterTopology_AddShard(topo, &new_shard);
   }
+  return topo;
+}
+
+MRClusterTopology *MRClusterTopology_FromAPI(RedisModuleCtx *ctx, const char *auth, size_t auth_len, uint32_t *my_shard_idx) {
+  RS_ASSERT(ctx != RSDummyContext);
+  RedisModule_AutoMemory(ctx);
+
+  *my_shard_idx = UINT32_MAX;
+
+  size_t numNodes = 0;
+  char **node_ids = RedisModule_GetClusterNodesList(ctx, &numNodes);
+  if (!node_ids || numNodes == 0) {
+    if (node_ids) RedisModule_FreeClusterNodesList(node_ids);
+    RedisModule_Log(ctx, "warning", "Failed to get cluster nodes list");
+    return NULL;
+  }
+
+  bool saw_myself = false;
+
+  // Topology can contain at most one entry per node; replicas and slot-less
+  // masters will be skipped, so this is an upper bound on the final size.
+  MRClusterTopology *topo = MR_NewTopology(numNodes);
+
+  for (size_t i = 0; i < numNodes; i++) {
+    const char *node_id = node_ids[i];
+
+    char ip[INET6_ADDRSTRLEN] = {0};
+    int port = 0;
+    int flags = 0;
+    if (RedisModule_GetClusterNodeInfo(ctx, node_id, ip, NULL, &port, &flags) != REDISMODULE_OK) {
+      continue;
+    }
+
+    if (flags & REDISMODULE_NODE_MYSELF) saw_myself = true;
+
+    // Skip replicas, unreachable nodes, and nodes with no valid endpoint
+    if (!(flags & REDISMODULE_NODE_MASTER) || port <= 0 || ip[0] == '\0' || ip[0] == '?') {
+      continue;
+    }
+
+    // Fetch the slot ranges owned by this master node. Slot-less masters
+    // (e.g. fresh nodes not yet assigned slots) are excluded from the topology.
+    RedisModuleSlotRangeArray *node_slots = RedisModule_ClusterGetSlotRangesByNodeId(ctx, node_id);
+    if (!node_slots || node_slots->num_ranges <= 0) {
+      continue;
+    }
+
+    MRClusterNode node = {
+      .id = rm_strndup(node_id, REDISMODULE_NODE_ID_LEN),
+      .endpoint = (MREndpoint){
+        .host = rm_strdup(ip),
+        .port = port,
+        .unixSock = NULL,
+        .password = (auth && auth_len > 0) ? rm_strndup(auth, auth_len) : NULL,
+      },
+    };
+
+    // The topology owns its slot range arrays and frees them with rm_free,
+    // so we must clone (auto memory will free the original after this call).
+    RedisModuleSlotRangeArray *cloned_slots = SlotRangeArray_Clone(node_slots);
+
+    if (flags & REDISMODULE_NODE_MYSELF) *my_shard_idx = topo->numShards;
+    MRClusterShard shard = MR_NewClusterShard(&node, cloned_slots);
+    MRClusterTopology_AddShard(topo, &shard);
+  }
+
+  RedisModule_FreeClusterNodesList(node_ids);
+
+  if (topo->numShards == 0) {
+    RedisModule_Log(ctx, "warning", "Got no valid shards from cluster API");
+    MRClusterTopology_Free(topo);
+    return NULL;
+  }
+
+  // If we never saw ourselves in the node list, the topology is unusable for
+  // this node. A known replica or slot-less master is fine and leaves
+  // *my_shard_idx at UINT32_MAX (matching RedisEnterprise_ParseTopology).
+  if (!saw_myself) {
+    RedisModule_Log(ctx, "warning", "Local node not found in cluster nodes list");
+    MRClusterTopology_Free(topo);
+    return NULL;
+  }
+
   return topo;
 }
 
