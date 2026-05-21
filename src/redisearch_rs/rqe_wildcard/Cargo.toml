@@ -32,5 +32,32 @@ workspace_hack.workspace = true
 [dev-dependencies]
 criterion.workspace = true
 proptest = { workspace = true, features = ["std"] }
+redis_mock.workspace = true
 rqe_wildcard = { path = ".", features = ["unittest"] }
 wildcard_cloudflare.workspace = true
+
+# FFI crates whose #[no_mangle] symbols are referenced by objects in
+# libredisearch_all.a. They must be listed here (and force-linked via
+# `extern crate` in tests/integration/main.rs) so the linker can
+# resolve those symbols when building the test binary.
+fnv_ffi = { path = "../c_entrypoint/fnv_ffi" }
+fork_gc_ffi = { path = "../c_entrypoint/fork_gc_ffi" }
+geo_ffi = { path = "../c_entrypoint/geo_ffi" }
+idf_ffi = { path = "../c_entrypoint/idf_ffi" }
+inverted_index_ffi = { path = "../c_entrypoint/inverted_index_ffi" }
+iterators_ffi = { path = "../c_entrypoint/iterators_ffi" }
+metrics_ffi = { path = "../c_entrypoint/metrics_ffi" }
+module_init_ffi = { path = "../c_entrypoint/module_init_ffi" }
+numeric_range_tree_ffi = { path = "../c_entrypoint/numeric_range_tree_ffi" }
+query_error_ffi = { path = "../c_entrypoint/query_error_ffi" }
+query_term_ffi = { path = "../c_entrypoint/query_term_ffi" }
+reducers_ffi = { path = "../c_entrypoint/reducers_ffi" }
+result_processor_ffi = { path = "../c_entrypoint/result_processor_ffi" }
+rlookup_ffi = { path = "../c_entrypoint/rlookup_ffi" }
+search_result_ffi = { path = "../c_entrypoint/search_result_ffi" }
+slots_tracker_ffi = { path = "../c_entrypoint/slots_tracker_ffi" }
+sorting_vector_ffi = { path = "../c_entrypoint/sorting_vector_ffi" }
+triemap_ffi = { path = "../c_entrypoint/triemap_ffi" }
+types_ffi = { path = "../c_entrypoint/types_ffi" }
+value_ffi = { path = "../c_entrypoint/value_ffi" }
+varint_ffi = { path = "../c_entrypoint/varint_ffi" }
