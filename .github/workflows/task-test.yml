@@ -177,7 +177,11 @@ jobs:
       # Gates WIP features for every step in this job (build + test runs).
       # Master = 1, version/backport branches = 0, so build and tests stay
       # in sync with the release artifact.
-      WIP_FEATURES: ${{ (github.base_ref || github.ref_name) == 'master' && '1' || '0' }}
+      # Target branch by event type:
+      #   pull_request:  github.base_ref                    (e.g. "master")
+      #   merge_group:   github.event.merge_group.base_ref  (e.g. "refs/heads/master")
+      #   push/other:    github.ref_name                    (e.g. "master")
+      WIP_FEATURES: ${{ (github.base_ref == 'master' || github.event.merge_group.base_ref == 'refs/heads/master' || github.ref_name == 'master') && '1' || '0' }}
 
     defaults:
       run:

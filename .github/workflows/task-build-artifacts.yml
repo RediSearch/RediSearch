@@ -83,6 +83,12 @@ jobs:
       # These artifacts feed tag releases (event-release.yml reuses version-branch
       # snapshots), so only master keeps WIP features on. Version branches get 0
       # to keep unreleased entry points out of release artifacts.
+      #
+      # Target branch resolution (same precedence as REF/BRANCH above):
+      #   inputs.ref      — explicit branch passed by the caller.
+      #   github.ref_name — fallback to the branch of the triggering push event.
+      # Only `push` and `workflow_call` reach this job, so neither `base_ref` nor
+      # `merge_group.base_ref` apply here.
       WIP_FEATURES: ${{ (inputs.ref || github.ref_name) == 'master' && '1' || '0' }}
       # Build command
       BUILD_CMD: echo '::group::Build' && make build VERBOSE= GIT_BRANCH=$BRANCH WIP_FEATURES=$WIP_FEATURES && echo '::endgroup::'
