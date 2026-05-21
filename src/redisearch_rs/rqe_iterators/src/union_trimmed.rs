@@ -107,6 +107,30 @@ pub struct RawUnionTrimmed<Rf: Ref, I> {
 /// with an [`RQEIterator`] impl today.
 pub type UnionTrimmed<'index, I> = RawUnionTrimmed<Active<'index>, I>;
 
+impl<Rf: Ref, I> RawUnionTrimmed<Rf, I> {
+    /// Returns the total number of children (including trimmed and exhausted ones).
+    /// Mode-independent.
+    pub const fn num_children_total(&self) -> usize {
+        self.children.len()
+    }
+
+    /// Returns the number of currently active (non-exhausted, non-trimmed) children.
+    /// Mode-independent.
+    pub const fn num_children_active(&self) -> usize {
+        if self.is_eof {
+            0
+        } else {
+            self.cursor - self.trim_start + 1
+        }
+    }
+
+    /// Returns a shared reference to the child at `idx` (across all children).
+    /// Returns `None` if the index is out of range. Mode-independent.
+    pub fn child_at(&self, idx: usize) -> Option<&I> {
+        self.children.get(idx)
+    }
+}
+
 impl<'index, I> UnionTrimmed<'index, I>
 where
     I: RQEIterator<'index>,
@@ -190,26 +214,6 @@ where
             cursor: end - 1,
             is_eof: false,
         }
-    }
-
-    /// Returns the total number of children (including trimmed and exhausted ones).
-    pub const fn num_children_total(&self) -> usize {
-        self.children.len()
-    }
-
-    /// Returns the number of currently active (non-exhausted, non-trimmed) children.
-    pub const fn num_children_active(&self) -> usize {
-        if self.is_eof {
-            0
-        } else {
-            self.cursor - self.trim_start + 1
-        }
-    }
-
-    /// Returns a shared reference to the child at `idx` (across all children).
-    /// Returns `None` if the index is out of range.
-    pub fn child_at(&self, idx: usize) -> Option<&I> {
-        self.children.get(idx)
     }
 
     /// Returns a mutable iterator over all children (including trimmed and exhausted ones).
