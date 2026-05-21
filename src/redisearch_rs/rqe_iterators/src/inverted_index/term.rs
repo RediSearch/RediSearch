@@ -107,6 +107,16 @@ where
     }
 }
 
+impl<'query, Rf: Ref, R, E> RawTerm<'query, Rf, R, E> {
+    /// Cached [`IndexFlags`](ffi::IndexFlags) of the underlying inverted index —
+    /// see [`RawInvIndIterator::flags`]. Mode-independent, so FFI introspection
+    /// (`FT.PROFILE`) can read it whether the iterator is [`Active`] or
+    /// [`Suspended`].
+    pub const fn flags(&self) -> ffi::IndexFlags {
+        self.it.flags()
+    }
+}
+
 /// `should_abort` is available in both the [`Active`] and [`Suspended`] modes:
 /// [`revalidate`](RQEIterator::revalidate) calls it on the live iterator, while
 /// [`resume`](RQESuspendedIterator::resume) calls it on the suspended carrier

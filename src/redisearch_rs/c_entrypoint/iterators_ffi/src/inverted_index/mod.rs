@@ -14,9 +14,8 @@ mod tag;
 mod term;
 mod wildcard;
 
-use inverted_index::IndexReader;
 use rqe_iterator_type::IteratorType;
-use rqe_iterators::interop::RQEIteratorWrapper;
+use rqe_iterators::interop::{InnerState, RQEIteratorWrapper};
 
 use missing::MissingIterator;
 use numeric::NumericIterator;
@@ -58,7 +57,10 @@ pub unsafe extern "C" fn InvIndIterator_GetReaderFlags(
             let wrapper = unsafe {
                 RQEIteratorWrapper::<NumericIterator<'static>>::ref_from_header_ptr(it.cast())
             };
-            wrapper.inner().flags()
+            match wrapper.state() {
+                InnerState::Active(it) => it.flags(),
+                InnerState::Suspended(it) => it.flags(),
+            }
         }
         IteratorType::InvIdxWildcard => {
             // Wildcard iterators always read from `spec.existingDocs`, which is
@@ -74,21 +76,30 @@ pub unsafe extern "C" fn InvIndIterator_GetReaderFlags(
             let wrapper = unsafe {
                 RQEIteratorWrapper::<TermIterator<'static>>::ref_from_header_ptr(it.cast())
             };
-            wrapper.inner().reader().flags()
+            match wrapper.state() {
+                InnerState::Active(it) => it.flags(),
+                InnerState::Suspended(it) => it.flags(),
+            }
         }
         IteratorType::InvIdxMissing => {
             // SAFETY: 4. the missing iterator is in Rust.
             let wrapper = unsafe {
                 RQEIteratorWrapper::<MissingIterator<'static>>::ref_from_header_ptr(it.cast())
             };
-            wrapper.inner().flags()
+            match wrapper.state() {
+                InnerState::Active(it) => it.flags(),
+                InnerState::Suspended(it) => it.flags(),
+            }
         }
         IteratorType::InvIdxTag => {
             // SAFETY: 5. the tag iterator is in Rust.
             let wrapper = unsafe {
                 RQEIteratorWrapper::<TagIterator<'static>>::ref_from_header_ptr(it.cast())
             };
-            wrapper.inner().flags()
+            match wrapper.state() {
+                InnerState::Active(it) => it.flags(),
+                InnerState::Suspended(it) => it.flags(),
+            }
         }
         other => {
             panic!("InvIndIterator_GetReaderFlags: unexpected iterator type {other}")
