@@ -495,7 +495,7 @@ bool SearchDisk_SerializeVectorIndexToBlob(void *vecIndex, unsigned char **outBl
 void SearchDisk_FreeSerializedVectorBlob(unsigned char *blob, size_t blobLen);
 
 /**
- * @brief Apply a previously-serialized blob to a freshly-created VecSimIndex*.
+ * @brief Apply a previously-serialized blob to a VecSimIndex*.
  *
  * @param vecIndex VecSimIndex* handle
  * @param blob Pointer to the blob bytes (may be NULL when blobLen == 0)

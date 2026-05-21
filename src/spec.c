@@ -2572,15 +2572,28 @@ static void FieldSpec_RdbSave(RedisModuleIO *rdb, FieldSpec *f, int contextFlags
     // path can stash it on fs->vectorOpts.pendingRdbBlob and replay it once
     // the matching VecSimIndex is created. Only emit the blob during SST
     // replication saves — regular RDB save does not include disk state.
+    //
+    // An "empty" flag is emitted unconditionally so the load side knows
+    // whether to expect a blob. The VecSim is empty when it was never
+    // materialized (vecSimIndex == NULL — no documents ever exercised the
+    // field) or when it currently holds zero vectors. In both cases there
+    // is no in-memory state worth shipping; the replica creates a fresh
+    // empty VecSimIndex on its own and we skip the blob entirely.
     const bool storeDiskRdbData = contextFlags & REDISMODULE_CTX_FLAGS_SST_RDB;
     if (storeDiskRdbData) {
-      RS_ASSERT(f->vectorOpts.diskCtx.storage && f->vectorOpts.vecSimIndex);
-      unsigned char *blob = NULL;
-      size_t blobLen = 0;
-      bool ok = SearchDisk_SerializeVectorIndexToBlob(f->vectorOpts.vecSimIndex, &blob, &blobLen);
-      RS_ASSERT(ok);
-      RedisModule_SaveStringBuffer(rdb, (const char *)blob, blobLen);
-      SearchDisk_FreeSerializedVectorBlob(blob, blobLen);
+      RS_ASSERT(f->vectorOpts.diskCtx.storage);
+
+      const bool vecSimWithData = f->vectorOpts.vecSimIndex &&
+                               VecSimIndex_IndexSize(f->vectorOpts.vecSimIndex) > 0;
+      RedisModule_SaveUnsigned(rdb, vecSimWithData ? 1 : 0);
+      if (vecSimWithData) {
+        unsigned char *blob = NULL;
+        size_t blobLen = 0;
+        bool ok = SearchDisk_SerializeVectorIndexToBlob(f->vectorOpts.vecSimIndex, &blob, &blobLen);
+        RS_ASSERT(ok);
+        RedisModule_SaveStringBuffer(rdb, (const char *)blob, blobLen);
+        SearchDisk_FreeSerializedVectorBlob(blob, blobLen);
+      }
     }
   }
   if (FIELD_IS(f, INDEXFLD_T_GEOMETRY) || (f->options & FieldSpec_Dynamic)) {
@@ -2709,6 +2722,11 @@ static int FieldSpec_RdbLoad(RedisModuleIO *rdb, FieldSpec *f, StrongRef sp_ref,
     // VecSimIndex* is created. The blob is written by FieldSpec_RdbSave
     // only for SST-replication saves; regular saves emit nothing here.
     //
+    // The save side emits an "empty" flag first: when set, the VecSim held
+    // no vectors at save time and no blob follows. We leave pendingRdbBlob
+    // NULL in that case so the apply loop is a no-op and the freshly
+    // created VecSimIndex stays empty.
+    //
     // Ownership: the loader's buffer is `RedisModule_Alloc`'d, and `rm_free`
     // (called both by the SST apply loop on the happy path and by
     // FieldSpec_Cleanup on abort) resolves to `RedisModule_Free`. So we
@@ -2716,10 +2734,13 @@ static int FieldSpec_RdbLoad(RedisModuleIO *rdb, FieldSpec *f, StrongRef sp_ref,
     // immediate free — and let one of those two callers release it.
     if (useSst) {
       RS_ASSERT(SearchDisk_IsEnabled());
-      size_t blobLen = 0;
-      char *raw = LoadStringBuffer_IOError(rdb, &blobLen, goto fail);
-      f->vectorOpts.pendingRdbBlob = (unsigned char *)raw;
-      f->vectorOpts.pendingRdbBlobLen = blobLen;
+      const bool vecSimWithData = LoadUnsigned_IOError(rdb, goto fail) != 0;
+      if (vecSimWithData) {
+        size_t blobLen = 0;
+        char *raw = LoadStringBuffer_IOError(rdb, &blobLen, goto fail);
+        f->vectorOpts.pendingRdbBlob = (unsigned char *)raw;
+        f->vectorOpts.pendingRdbBlobLen = blobLen;
+      }
     }
   }
 
@@ -3346,7 +3367,6 @@ static void IndexSpec_PopulateVectorDiskParams(IndexSpec *sp) {
     VecSimParams *primaryParams = params->algoParams.tieredParams.primaryIndexParams;
     if (!primaryParams || primaryParams->algo != VecSimAlgo_HNSWLIB) continue;
 
-    const HNSWParams *hnsw = &primaryParams->algoParams.hnswParams;
     size_t nameLen;
     const char *namePtr = HiddenString_GetUnsafe(fs->fieldName, &nameLen);
 
@@ -3378,19 +3398,14 @@ static void IndexSpec_EnsureTagDiskIndexes(IndexSpec *sp) {
 }
 
 // Save the disk layer's portion of an RDB snapshot when SST replication is
-// in use: writes the IndexSpec's partial RDB state (max_doc_id, deleted_ids)
-// alongside a length-framed in-memory dump of every disk-backed vector
-// field. The replica reads this stream into a temporary RDB state object
-// and applies each vector frame once the matching SST data has arrived
-// (see IndexSpec_SstRdbOpenAndApply on the load side).
+// in use: writes the IndexSpec's partial RDB state
 //
 // Caller must hold an appropriate lock on `sp` (or be running inside the
-// forked save child) so the vector indexes can be quiesced for the duration
-// of the call.
+// forked save child)
 static void IndexSpec_SSTRdbSave(RedisModuleIO *rdb, IndexSpec *sp) {
   // Per-field vector blob serialization is handled inline by FieldSpec_RdbSave
   // (gated by REDISMODULE_CTX_FLAGS_SST_RDB). Here we only need the spec-level
-  // disk metadata (max_doc_id, deleted_ids, num_records).
+  // disk metadata.
   SearchDisk_IndexSpecRdbSave(rdb, sp->diskSpec);
 }
 
@@ -3434,12 +3449,12 @@ static bool IndexSpec_SSTRdbOpenAndApply(RedisModuleCtx *ctx, IndexSpec *sp) {
       continue;
     }
     // Drain the per-field blob stashed by FieldSpec_RdbLoad and replay it
-    // into the freshly-created VecSimIndex. A zero-length blob means the
-    // save-side serializer reported failure (empty-buffer fallback) — leave
-    // the index empty but still release the loader's allocation.
+    // into the freshly-created VecSimIndex. pendingRdbBlob is NULL when the
+    // save side flagged the VecSim as empty (no in-memory state to ship);
+    // in that case the freshly created VecSimIndex is already in the
+    // correct state and we leave it untouched.
     if (fs->vectorOpts.pendingRdbBlob) {
-      if (fs->vectorOpts.pendingRdbBlobLen > 0 &&
-          !SearchDisk_ApplyBlobToVectorIndex(vecsim, fs->vectorOpts.pendingRdbBlob,
+      if (!SearchDisk_ApplyBlobToVectorIndex(vecsim, fs->vectorOpts.pendingRdbBlob,
                                               fs->vectorOpts.pendingRdbBlobLen)) {
         RedisModule_Log(RSDummyContext, "warning",
                         "Failed to apply vector RDB blob for field %u",

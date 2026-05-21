@@ -28,16 +28,11 @@ typedef const void* RedisSearchDiskIndexSpec;
 typedef const void* RedisSearchDiskInvertedIndex;
 typedef const void* RedisSearchDiskIterator;
 typedef void* RedisSearchDiskAsyncReadPool;
-// Opaque handle to a temporary RDB state object. Carries the spec's
-// disk-related metadata (max_doc_id, deleted_ids, num_records) across the
-// "RDB arrives before SST" window during replication. Consumed by ownership
-// in openIndexSpecWithRdbState; freed with freeRdbState only on abort paths
-// where that call was never made.
+// Opaque handle to a temporary RDB state object. ¡
 //
 // Per-field vector blobs are NOT carried here — they ride inline with each
 // field's own RDB encoding (FieldSpec_RdbSave / FieldSpec_RdbLoad) and are
-// stashed on fs->vectorOpts.pendingRdbBlob until applyBlobToVectorIndex
-// drains them after the matching VecSimIndex* is created.
+// stashed on fs->vectorOpts.pendingRdbBlob
 typedef const void* RedisSearchDiskRdbState;
 
 // Callback function to allocate memory for the key in the scope of the search module memory
@@ -144,8 +139,7 @@ typedef struct BasicDiskAPI {
   /**
    * @brief Save the index spec's disk-related state to RDB.
    *
-   * Writes the IndexSpec's partial RDB state (max_doc_id, deleted_ids,
-   * num_records). Per-field vector blobs are written inline with each
+   * Writes the IndexSpec's partial RDB state. Per-field vector blobs are written inline with each
    * field's own RDB encoding by FieldSpec_RdbSave on the C side — they are
    * NOT part of this payload.
    *
@@ -597,7 +591,7 @@ typedef struct VectorDiskAPI {
   void (*freeSerializedVectorBlob)(unsigned char *blob, size_t blobLen);
 
   /**
-   * @brief Apply a previously-serialized blob to a freshly-created VecSimIndex*.
+   * @brief Apply a previously-serialized blob to a VecSimIndex*.
    *
    * @param vecIndex VecSimIndex* handle for the field
    * @param blob Pointer to the blob bytes (may be NULL when blobLen == 0)
