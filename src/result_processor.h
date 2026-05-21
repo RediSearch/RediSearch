@@ -88,6 +88,20 @@ struct RLookup;
 // into result_processor_rs.h which is included above.
 
 QueryIterator *QITR_GetRootFilter(QueryProcessingCtx *it);
+
+/**
+ * Return the `RedisSearchCtx` that owns the root query iterator's spec, if the
+ * pipeline has an `RP_INDEX` root. Returns `NULL` for pipelines without one
+ * (e.g., coordinator pipelines with a network root) — mirroring the contract
+ * of `QITR_GetRootFilter`.
+ *
+ * Used by downstream result processors (e.g. the highlight processor) that
+ * need to re-acquire the spec read lock and revalidate the iterator around
+ * an iterator-touching code path that runs after the lock has been dropped
+ * (typically by a SafeLoader batch ending).
+ */
+struct RedisSearchCtx *QITR_GetRootSearchCtx(QueryProcessingCtx *it);
+
 /**
  * Suspend the root query iterator in this pipeline, if any. Call this at every
  * spec-unlock site that may run while the iterator is in Active state — the

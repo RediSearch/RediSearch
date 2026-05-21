@@ -494,6 +494,15 @@ QueryIterator *QITR_GetRootFilter(QueryProcessingCtx *it) {
   return NULL;
 }
 
+RedisSearchCtx *QITR_GetRootSearchCtx(QueryProcessingCtx *it) {
+  /* Same skip as QITR_GetRootFilter: coordinator pipelines have a non-RP_INDEX
+   * root (e.g. RP_NETWORK) and there's no owning search context to expose. */
+  if (it->rootProc && it->rootProc->type == RP_INDEX) {
+    return ((RPQueryIterator *)it->rootProc)->sctx;
+  }
+  return NULL;
+}
+
 void QITR_PushRP(QueryProcessingCtx *it, ResultProcessor *rp) {
   rp->parent = it;
   if (!it->rootProc) {

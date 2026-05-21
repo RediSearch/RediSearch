@@ -88,28 +88,30 @@ impl RQESuspendedIterator for NumericIteratorSuspended {
         // at a known `#[repr(C)]` offset.
         let inner_suspended_ptr =
             unsafe { ptr::addr_of_mut!((*active_raw).iterator) } as *mut <NumericIteratorVariant<'static> as RQEIteratorBoxed<'static>>::Suspended;
-        // SAFETY: the bytes at `inner_suspended_ptr` are currently a
-        // valid `NumericIteratorVariantSuspended` (the outer box was
-        // suspended; only the type label flipped). We take ownership
-        // by reading the bytes out.
         let inner_suspended_box: Box<<NumericIteratorVariant<'static> as RQEIteratorBoxed<'static>>::Suspended> = {
             // Build a Box that owns the read-out bytes. We allocate a
             // fresh Box around the read value so the type machinery
             // can drive the trait method.
+            //
+            // SAFETY: the bytes at `inner_suspended_ptr` are currently a
+            // valid `NumericIteratorVariantSuspended` (the outer box was
+            // suspended; only the type label flipped). We take ownership
+            // by reading the bytes out.
             let read_bytes = unsafe { ptr::read(inner_suspended_ptr) };
             Box::new(read_bytes)
         };
         let (active_inner, status) =
             <_ as RQESuspendedIterator>::resume(inner_suspended_box, guard);
+        // SAFETY: `active_raw` points to a valid `NumericIterator<'a>` box,
+        // so `addr_of_mut!((*active_raw).iterator)` is a valid raw pointer
+        // to its `iterator` field.
+        let iterator_slot = unsafe { ptr::addr_of_mut!((*active_raw).iterator) };
         // SAFETY: write the resumed inner bytes back into the outer
         // box's `iterator` slot. The slot has the right size and
         // alignment for `NumericIteratorVariant<'a>` (it was just
         // labelled as such by the outer cast).
         unsafe {
-            ptr::write(
-                ptr::addr_of_mut!((*active_raw).iterator),
-                *active_inner,
-            );
+            ptr::write(iterator_slot, *active_inner);
         }
 
         // SAFETY: outer box is now fully Active.

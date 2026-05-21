@@ -533,10 +533,6 @@ impl<const N: usize> rqe_iterators::RQESuspendedIterator for MockSuspended<N> {
     fn num_estimated(&self) -> usize {
         self._doc_ids.len()
     }
-
-    fn num_estimated(&self) -> usize {
-        self._doc_ids.len()
-    }
 }
 
 /// Dynamic-size variant of [`Mock`] that uses a [`Vec`] instead of a fixed array.
