@@ -1166,11 +1166,6 @@ void RequestSyncCtx_SetUseReplyCallback(RequestSyncCtx *ctx, bool useReplyCallba
     return;
   }
   ctx->useReplyCallback = useReplyCallback;
-  if (ctx->kind == REQUEST_KIND_AREQ) {
-    ctx->query.areq->useReplyCallback = useReplyCallback;
-  } else {
-    ctx->query.hreq->useReplyCallback = useReplyCallback;
-  }
 }
 
 ChunkReplyState *RequestSyncCtx_GetReplyState(RequestSyncCtx *ctx) {

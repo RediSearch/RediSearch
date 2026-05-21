@@ -2045,9 +2045,7 @@ static void cursorRead(RedisModuleCtx *ctx, Cursor *cursor, size_t count, bool b
     if (!StrongRef_Get(execution_ref)) {
       QueryError_SetWithoutUserDataFmt(&status, QUERY_ERROR_CODE_DROPPED_BACKGROUND,
                                        "The index was dropped while the cursor was idle");
-      // Reply before Free: on non-reqCtx paths the cursor holds the
-      // only AREQ ref, so freeing first would UAF the req->useReplyCallback
-      // read inside AREQ_ReplyOrStoreError.
+      // Reply before Free: on non-reqCtx paths the cursor holds the only AREQ ref.
       AREQ_ReplyOrStoreError(req, ctx, &status);
       Cursor_Free(cursor);
       return;
@@ -2074,7 +2072,7 @@ static void cursorRead(RedisModuleCtx *ctx, Cursor *cursor, size_t count, bool b
   }
 
   if (req) {
-    // useReplyCallback is authoritative from the caller: RSCursorReadCommand either
+    // Reply mode is authoritative from the caller: RSCursorReadCommand either
     // attaches a CoordRequestCtx (coord + FAIL path) which propagates the flag,
     // or clears it before invoking cursorRead.
     RedisModule_Reply _reply = RedisModule_NewReply(ctx), *reply = &_reply;
@@ -2262,7 +2260,7 @@ int RSCursorReadCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc)
         Cursor_Free(cursor);
         return REDISMODULE_OK;
       }
-      // Attach AREQ to the ctx (IncrRefs, propagates useReplyCallback/timedOut).
+      // Attach AREQ to the ctx (IncrRefs, propagates reply mode/timedOut).
       CoordRequestCtx_SetRequest(reqCtx, Cursor_GetAREQ(cursor));
       CoordRequestCtx_UnlockSetRequest(reqCtx);
     } else if (Cursor_GetAREQ(cursor)) {

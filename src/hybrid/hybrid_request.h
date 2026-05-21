@@ -49,8 +49,6 @@ struct HybridRequest {
     // Flag to indicate whether to skip timeout checks using clock checks
     bool skipTimeoutChecks;
 
-    bool useReplyCallback;
-
     // Mutex for synchronizing cursor creation with timeout callback.
     // Protects cursor array access to ensure proper cleanup on timeout.
     pthread_mutex_t cursorMutex;

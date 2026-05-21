@@ -193,7 +193,7 @@ typedef struct RequestSyncCtx {
   // Reference count for shared ownership between timeout callback (main thread) and background thread
   uint8_t refcount;
   // Reply mode for the current compatibility cycle. Mirrored to the request until
-  // callers are fully switched to the sync context.
+  // BeginCycle can derive the mode from the reply callback.
   bool useReplyCallback;
   ChunkReplyState storedReplyState;
 
@@ -347,8 +347,6 @@ struct AREQ {
 
   // Flag to indicate whether to skip timeout checks using clock checks
   bool skipTimeoutChecks;
-
-  bool useReplyCallback;
 
 };
 
