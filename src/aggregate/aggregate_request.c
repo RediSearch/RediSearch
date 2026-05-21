@@ -38,8 +38,6 @@
 
 extern RSConfig RSGlobalConfig;
 
-static void AREQ_Free(AREQ *req);
-
 /**
  * Ensures that the user has not requested one of the 'extended' features. Extended
  * in this case refers to reducers which re-create the search results.
@@ -1082,45 +1080,6 @@ bool RunInThread(RedisModuleCtx *ctx) {
   return true;
 }
 
-RequestSyncCtx *RequestSyncCtx_NewAREQ(AREQ *areq) {
-  RequestSyncCtx *ctx = rm_new(RequestSyncCtx);
-  RequestSyncCtx_Init(ctx, REQUEST_KIND_AREQ, areq);
-  return ctx;
-}
-
-RequestSyncCtx *RequestSyncCtx_NewHybrid(HybridRequest *hreq) {
-  RequestSyncCtx *ctx = rm_new(RequestSyncCtx);
-  RequestSyncCtx_Init(ctx, REQUEST_KIND_HYBRID, hreq);
-  return ctx;
-}
-
-void RequestSyncCtx_Free(RequestSyncCtx *ctx) {
-  if (!ctx) {
-    return;
-  }
-  ChunkReplyState_Destroy(&ctx->storedReplyState);
-  if (ctx->kind == REQUEST_KIND_AREQ) {
-    AREQ_Free(ctx->query.areq);
-  } else {
-    HybridRequest_Free(ctx->query.hreq);
-  }
-  RequestSyncCtx_Destroy(ctx);
-  rm_free(ctx);
-}
-
-RequestSyncCtx *RequestSyncCtx_IncrRef(RequestSyncCtx *ctx) {
-  if (ctx) {
-    __atomic_fetch_add(&ctx->refcount, 1, __ATOMIC_RELAXED);
-  }
-  return ctx;
-}
-
-void RequestSyncCtx_DecrRef(RequestSyncCtx *ctx) {
-  if (ctx && !__atomic_sub_fetch(&ctx->refcount, 1, __ATOMIC_ACQ_REL)) {
-    RequestSyncCtx_Free(ctx);
-  }
-}
-
 AREQ *AREQ_New(void) {
   AREQ* req = rm_calloc(1, sizeof(AREQ));
   /*
@@ -1651,7 +1610,7 @@ void ChunkReplyState_Destroy(ChunkReplyState *state) {
   QueryError_ClearError(&state->err);
 }
 
-static void AREQ_Free(AREQ *req) {
+void AREQ_Free(AREQ *req) {
   // Check if rootiter exists but pipeline was never built (no result processors)
   // In this case, we need to free the rootiter manually since no RPQueryIterator
   // was created to take ownership of it.

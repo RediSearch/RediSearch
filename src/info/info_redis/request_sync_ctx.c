@@ -11,6 +11,47 @@
 #include "coord/rmr/chan.h"
 #include "hybrid/hybrid_request.h"
 
+void AREQ_Free(AREQ *req);
+
+RequestSyncCtx *RequestSyncCtx_NewAREQ(AREQ *areq) {
+  RequestSyncCtx *ctx = rm_new(RequestSyncCtx);
+  RequestSyncCtx_Init(ctx, REQUEST_KIND_AREQ, areq);
+  return ctx;
+}
+
+RequestSyncCtx *RequestSyncCtx_NewHybrid(HybridRequest *hreq) {
+  RequestSyncCtx *ctx = rm_new(RequestSyncCtx);
+  RequestSyncCtx_Init(ctx, REQUEST_KIND_HYBRID, hreq);
+  return ctx;
+}
+
+void RequestSyncCtx_Free(RequestSyncCtx *ctx) {
+  if (!ctx) {
+    return;
+  }
+  ChunkReplyState_Destroy(&ctx->storedReplyState);
+  if (ctx->kind == REQUEST_KIND_AREQ) {
+    AREQ_Free(ctx->query.areq);
+  } else {
+    HybridRequest_Free(ctx->query.hreq);
+  }
+  RequestSyncCtx_Destroy(ctx);
+  rm_free(ctx);
+}
+
+RequestSyncCtx *RequestSyncCtx_IncrRef(RequestSyncCtx *ctx) {
+  if (ctx) {
+    __atomic_fetch_add(&ctx->refcount, 1, __ATOMIC_RELAXED);
+  }
+  return ctx;
+}
+
+void RequestSyncCtx_DecrRef(RequestSyncCtx *ctx) {
+  if (ctx && !__atomic_sub_fetch(&ctx->refcount, 1, __ATOMIC_ACQ_REL)) {
+    RequestSyncCtx_Free(ctx);
+  }
+}
+
 AREQ *RequestSyncCtx_GetAREQ(RequestSyncCtx *ctx) {
   return (ctx && ctx->kind == REQUEST_KIND_AREQ) ? ctx->query.areq : NULL;
 }
