@@ -173,10 +173,29 @@ pub trait RQEIterator<'index> {
     ///
     /// The caller must hold the spec read lock, represented by [`IndexSpecReadGuard`].
     /// The lock ensures the spec remains valid and unchanged during this call.
+    ///
+    /// # Migration to suspend/resume
+    ///
+    /// This method is being phased out in favour of the
+    /// [`RQEIteratorBoxed::suspend`](crate::boxed::RQEIteratorBoxed::suspend) +
+    /// [`RQESuspendedIterator::resume`](crate::boxed::RQESuspendedIterator::resume) cycle,
+    /// which is the canonical path used by the FFI wrapper (see
+    /// `rqe_iterators::interop::revalidate`). The default implementation panics
+    /// so that any production call site that still goes through `revalidate`
+    /// surfaces loudly — production code should not be calling this. Tests are
+    /// migrating to `suspend`/`resume` iterator-by-iterator; once no iterator
+    /// overrides this method, it can be removed from the trait entirely.
     fn revalidate(
         &mut self,
-        spec: &IndexSpecReadGuard,
-    ) -> Result<RQEValidateStatus<'_, 'index>, RQEIteratorError>;
+        _spec: &IndexSpecReadGuard,
+    ) -> Result<RQEValidateStatus<'_, 'index>, RQEIteratorError> {
+        unreachable!(
+            "RQEIterator::revalidate is being phased out; the suspend/resume path \
+             (RQEIteratorBoxed::suspend + RQESuspendedIterator::resume) is canonical. \
+             Each iterator's revalidate override is removed in its own revision once \
+             its tests have migrated."
+        )
+    }
 
     /// Rewind the iterator to the beginning and reset its properties.
     fn rewind(&mut self);
