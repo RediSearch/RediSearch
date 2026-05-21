@@ -2077,8 +2077,12 @@ static void IndexSpec_FreeUnlinkedData(IndexSpec *spec) {
 
   if (spec->diskSpec) SearchDisk_CloseIndex(spec->diskSpec);
   if (spec->pendingDiskRdbState) {
-    SearchDisk_FreeRdbState(spec->pendingDiskRdbState);
+    SearchDisk_FreeDiskRdbState(spec->pendingDiskRdbState);
     spec->pendingDiskRdbState = NULL;
+  }
+  if (spec->pendingVecSimRdbState) {
+    SearchDisk_FreeVecSimRdbState(spec->pendingVecSimRdbState);
+    spec->pendingVecSimRdbState = NULL;
   }
 
   // Free spec struct
@@ -2369,6 +2373,7 @@ static void initializeIndexSpec(IndexSpec *sp, const HiddenString *name, IndexFl
   sp->scan_in_progress = false;
   sp->diskSpec = NULL;
   sp->pendingDiskRdbState = NULL;
+  sp->pendingVecSimRdbState = NULL;
   sp->diskRegistered = false;
   sp->monitorDocumentExpiration = RSGlobalConfig.monitorExpiration;
   sp->monitorFieldExpiration = RSGlobalConfig.monitorExpiration &&
@@ -3377,18 +3382,19 @@ static void IndexSpec_SSTRdbSave(RedisModuleIO *rdb, IndexSpec *sp) {
 // and replays the matching in-memory blob into it.
 //
 // Returns true on success (sp->diskSpec is set and ready to register).
-// Returns false if SearchDisk_OpenIndexWithRdbState fails — `diskRdbState`
-// is *not* freed in that case so the caller can route it through the same
-// `goto cleanup` path that frees on any error.
-//
-// On the success path the rdb_state is consumed and freed here; the caller
-// does not need (and must not) call SearchDisk_FreeRdbState afterwards.
+// Returns false if SearchDisk_OpenIndexWithRdbState fails. Note that the
+// disk half (sp->pendingDiskRdbState) is consumed by that call on both
+// success and failure — we null the pointer here unconditionally. The
+// vector half (sp->pendingVecSimRdbState) is freed on the success path
+// after every blob has been applied; on the failure path the caller's
+// cleanup (or the spec destructor) frees it.
 static bool IndexSpec_SSTRdbOpenAndApply(RedisModuleCtx *ctx, IndexSpec *sp) {
-  // The disk layer borrows diskRdbState: it pulls max_doc_id and an
-  // Arc-clone of deleted_ids into the spec. Per-field vector blobs remain
-  // on diskRdbState so we can apply each one below, after creating the
+  // The disk layer consumes pendingDiskRdbState by ownership: max_doc_id and
+  // deleted_ids are moved into the spec. The vector half lives on
+  // pendingVecSimRdbState and is drained below, after creating each
   // matching VecSimIndex from the now-restored SST data.
   sp->diskSpec = SearchDisk_OpenIndexWithRdbState(ctx, sp->specName, sp->obfuscatedName, sp->rule->type, sp->pendingDiskRdbState);
+  sp->pendingDiskRdbState = NULL;  // consumed regardless of result
   if (!sp->diskSpec) {
     return false;
   }
@@ -3412,15 +3418,15 @@ static bool IndexSpec_SSTRdbOpenAndApply(RedisModuleCtx *ctx, IndexSpec *sp) {
                       fs->index);
       continue;
     }
-    // Drain the matching blob from diskRdbState and replay it into the
-    // freshly-created VecSimIndex. Returns false when no blob existed
+    // Drain the matching blob from pendingVecSimRdbState and replay it into
+    // the freshly-created VecSimIndex. Returns false when no blob existed
     // (empty index — fine) or when deserialization failed (the disk layer
     // logs the underlying error).
-    SearchDisk_ApplyRdbStateToVectorIndex(sp->pendingDiskRdbState, fs->index, vecsim);
+    SearchDisk_ApplyRdbStateToVectorIndex(sp->pendingVecSimRdbState, fs->index, vecsim);
   }
 
-  SearchDisk_FreeRdbState(sp->pendingDiskRdbState);
-  sp->pendingDiskRdbState = NULL;
+  SearchDisk_FreeVecSimRdbState(sp->pendingVecSimRdbState);
+  sp->pendingVecSimRdbState = NULL;
   // Make sure TagDiskIndex is created for every TAG field. In regular FT.CREATE the TagIndex is ensured lazily
   // in the first document insertion
   IndexSpec_EnsureTagDiskIndexes(sp);
@@ -3615,11 +3621,11 @@ IndexSpec *IndexSpec_RdbLoad(RedisModuleIO *rdb, int encver, bool useSst, QueryE
     sp->terms = TrieType_GenericLoad(rdb, false, true);
     RS_LOG_ASSERT(sp->terms, "Failed to load terms trie");
 
-    // Load disk metadata (max_doc_id, deleted_ids and vector info) into the spec. Stashed
-    // here directly; consumed at LOADING_SST_ENDED (SST flow) or freed by
-    // the spec destructor (duplicate / cleanup / abort).
-    sp->pendingDiskRdbState = SearchDisk_LoadRdbToTempObject(rdb);
-    if (!sp->pendingDiskRdbState) {
+    // Load disk metadata (max_doc_id, deleted_ids and vector info) into the
+    // spec as two independent halves. Stashed here directly; consumed at
+    // LOADING_SST_ENDED (SST flow) or freed by the spec destructor
+    // (duplicate / cleanup / abort).
+    if (!SearchDisk_LoadRdbToTempObject(rdb, &sp->pendingDiskRdbState, &sp->pendingVecSimRdbState)) {
       goto cleanup;
     }
   } else if (isSpecOnDisk(sp) && !sp->isDuplicate) {
@@ -4809,6 +4815,7 @@ void Indexes_FinishSSTReplication(RedisModuleCtx *ctx) {
     IndexSpec *sp = StrongRef_Get(spec_ref);
     RS_ASSERT(sp);
     RS_ASSERT(sp->pendingDiskRdbState);
+    RS_ASSERT(sp->pendingVecSimRdbState);
     RS_ASSERT(sp->diskSpec == NULL);
     RS_ASSERT(!sp->diskRegistered);
 
@@ -4872,8 +4879,8 @@ void Indexes_AbortSSTReplicationLoading(RedisModuleCtx *ctx) {
     if (spec->diskSpec) {
       SearchDisk_UnregisterIndex(ctx, spec);
     }
-    // pendingDiskRdbState and diskSpec are freed by IndexSpec_FreeUnlinkedData
-    // once the last StrongRef is dropped below.
+    // pendingDiskRdbState, pendingVecSimRdbState, and diskSpec are freed by
+    // IndexSpec_FreeUnlinkedData once the last StrongRef is dropped below.
     IndexSpec_RemoveFromGlobals(specs[i], false);
   }
   array_free(specs);

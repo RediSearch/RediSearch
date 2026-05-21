@@ -370,8 +370,15 @@ typedef struct IndexSpec {
   // Disk index handle (NULL for memory-only indexes)
   RedisSearchDiskIndexSpec *diskSpec;
 
-  // Disk RDB state (NULL for memory-only indexes), pending to be applied at replication ending
-  RedisSearchDiskRdbState *pendingDiskRdbState;
+  // Disk RDB state (NULL for memory-only indexes), pending to be applied at replication ending.
+  // Split into two independent halves:
+  //  - pendingDiskRdbState is consumed by SearchDisk_OpenIndexWithRdbState
+  //    (unconditionally — null this pointer after the call, on any path).
+  //  - pendingVecSimRdbState outlives the open call and is drained piecewise
+  //    by SearchDisk_ApplyRdbStateToVectorIndex, then freed with
+  //    SearchDisk_FreeVecSimRdbState.
+  RedisSearchDiskDiskRdbState *pendingDiskRdbState;
+  RedisSearchDiskVecSimRdbState *pendingVecSimRdbState;
   bool diskRegistered;
   pthread_rwlock_t disk_fork_rwlock;
   // Flags indicating state of the replication process. Needed to abort replication process

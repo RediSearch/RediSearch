@@ -179,23 +179,30 @@ void SearchDisk_IndexSpecRdbSave(RedisModuleIO *rdb, RedisSearchDiskIndexSpec *i
   disk->basic.indexSpecRdbSave(rdb, index, vectorFields, numVectorFields);
 }
 
-RedisSearchDiskRdbState* SearchDisk_LoadRdbToTempObject(RedisModuleIO *rdb) {
-  RS_ASSERT(disk);
-  return disk->basic.loadRdbToTempObject(rdb);
+bool SearchDisk_LoadRdbToTempObject(RedisModuleIO *rdb,
+                                    RedisSearchDiskDiskRdbState **outDiskState,
+                                    RedisSearchDiskVecSimRdbState **outVecSimState) {
+  RS_ASSERT(disk && outDiskState && outVecSimState);
+  return disk->basic.loadRdbToTempObject(rdb, outDiskState, outVecSimState);
 }
 
 RedisSearchDiskIndexSpec* SearchDisk_OpenIndexWithRdbState(RedisModuleCtx *ctx,
                                                             const HiddenString *indexName,
                                                             const char *obfuscatedName,
                                                             DocumentType type,
-                                                            RedisSearchDiskRdbState *rdbState) {
-  RS_ASSERT(disk && disk_db && indexName && rdbState);
-  return disk->basic.openIndexSpecWithRdbState(ctx, disk_db, indexName, obfuscatedName, strlen(obfuscatedName), type, rdbState);
+                                                            RedisSearchDiskDiskRdbState *diskRdbState) {
+  RS_ASSERT(disk && disk_db && indexName && diskRdbState);
+  return disk->basic.openIndexSpecWithRdbState(ctx, disk_db, indexName, obfuscatedName, strlen(obfuscatedName), type, diskRdbState);
 }
 
-void SearchDisk_FreeRdbState(RedisSearchDiskRdbState *rdbState) {
+void SearchDisk_FreeDiskRdbState(RedisSearchDiskDiskRdbState *diskRdbState) {
   RS_ASSERT(disk);
-  disk->basic.freeRdbState(rdbState);
+  disk->basic.freeDiskRdbState(diskRdbState);
+}
+
+void SearchDisk_FreeVecSimRdbState(RedisSearchDiskVecSimRdbState *vecSimRdbState) {
+  RS_ASSERT(disk);
+  disk->basic.freeVecSimRdbState(vecSimRdbState);
 }
 
 // Index API wrappers
@@ -390,11 +397,11 @@ void SearchDisk_FreeVectorIndex(void *vecIndex) {
     disk->vector.freeVectorIndex(vecIndex);
 }
 
-bool SearchDisk_ApplyRdbStateToVectorIndex(RedisSearchDiskRdbState *rdbState,
+bool SearchDisk_ApplyRdbStateToVectorIndex(RedisSearchDiskVecSimRdbState *vecSimRdbState,
                                             t_fieldIndex fieldIndex, void *vecIndex) {
-    RS_ASSERT(disk && rdbState && vecIndex);
+    RS_ASSERT(disk && vecSimRdbState && vecIndex);
     RS_ASSERT(disk->vector.applyRdbStateToVectorIndex);
-    return disk->vector.applyRdbStateToVectorIndex(rdbState, fieldIndex, vecIndex);
+    return disk->vector.applyRdbStateToVectorIndex(vecSimRdbState, fieldIndex, vecIndex);
 }
 
 // Throttle callback wrappers for VecSim
