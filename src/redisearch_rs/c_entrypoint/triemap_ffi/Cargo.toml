@@ -15,7 +15,7 @@ lending-iterator.workspace = true
 libc.workspace = true
 thin_vec.workspace = true
 trie_rs = { workspace = true }
-wildcard = { workspace = true }
+rqe_wildcard = { workspace = true }
 workspace_hack.workspace = true
 
 [dev-dependencies]

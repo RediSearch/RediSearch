@@ -7,7 +7,7 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 
-use wildcard::WildcardPattern;
+use rqe_wildcard::WildcardPattern;
 
 use crate::{
     iter::{

@@ -1,5 +1,5 @@
 [package]
-name = "wildcard"
+name = "rqe_wildcard"
 version.workspace = true
 edition.workspace = true
 license-file.workspace = true

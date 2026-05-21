@@ -280,18 +280,18 @@ dependencies = [
 
 [[package]]
 name = "cheadergen"
-version = "0.2.2"
+version = "0.2.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "a93c10d445b47e01eb304b8423277433ffa17c3f5eca3cc7846b4f147ad88957"
+checksum = "05b761058a928fa8f932d79ed1ad18b417ef2238a90f3a605cda6365b40c9658"
 dependencies = [
  "cheadergen_macros",
 ]
 
 [[package]]
 name = "cheadergen_macros"
-version = "0.2.2"
+version = "0.2.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "f414ca77cccf32686829086ed51fb015af6248cd2bd9bab5e6cd4b1db81b7777"
+checksum = "057f8322e701b896c5bbc5ac64aed5f17174a32e12ca8f34315a26ed8e83619a"
 dependencies = [
  "proc-macro2",
  "quote 1.0.45",
@@ -529,9 +529,9 @@ dependencies = [
 
 [[package]]
 name = "either"
-version = "1.15.0"
+version = "1.16.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "48c757948c5ede0e46177b7add2e67155f70e33c07fea8284df6576da70b3719"
+checksum = "91622ff5e7162018101f2fea40d6ebf4a78bbe5a49736a2020649edf9693679e"
 
 [[package]]
 name = "encode_unicode"
@@ -2288,6 +2288,17 @@ dependencies = [
 ]
 
 [[package]]
+name = "rqe_wildcard"
+version = "0.0.1"
+dependencies = [
+ "criterion",
+ "memchr",
+ "proptest",
+ "wildcard",
+ "workspace_hack",
+]
+
+[[package]]
 name = "rstest"
 version = "0.26.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2940,9 +2951,9 @@ dependencies = [
  "fs-err",
  "lending-iterator",
  "redis_mock",
+ "rqe_wildcard",
  "trie_rs",
  "ureq",
- "wildcard 0.0.1",
  "workspace_hack",
 ]
 
@@ -2957,8 +2968,8 @@ dependencies = [
  "memchr",
  "proptest",
  "proptest-derive",
+ "rqe_wildcard",
  "trie_rs",
- "wildcard 0.0.1",
  "workspace_hack",
 ]
 
@@ -2971,9 +2982,9 @@ dependencies = [
  "libc",
  "redis-module",
  "redis_mock",
+ "rqe_wildcard",
  "thin_vec",
  "trie_rs",
- "wildcard 0.0.1",
  "workspace_hack",
 ]
 
@@ -3308,17 +3319,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "52f5ee44c96cf55f1b349600768e3ece3a8f26010c05265ab73f945bb1a2eb9d"
 dependencies = [
  "rustls-pki-types",
-]
-
-[[package]]
-name = "wildcard"
-version = "0.0.1"
-dependencies = [
- "criterion",
- "memchr",
- "proptest",
- "wildcard 0.3.0",
- "workspace_hack",
 ]
 
 [[package]]

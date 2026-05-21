@@ -11,8 +11,8 @@ use super::iter_types::TrieMapIteratorImpl;
 use super::*;
 use lending_iterator::LendingIterator;
 use libc::timespec;
+use rqe_wildcard::WildcardPattern;
 use std::ffi::{c_char, c_int, c_void};
-use wildcard::WildcardPattern;
 
 /// Used by [`TrieMapIterator`] to determine type of query.
 #[repr(C)]

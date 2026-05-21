@@ -13,8 +13,8 @@
 //! [wildcard]: https://github.com/cloudflare/wildcard/blob/c560ef01dda595d038e2f46b91cd5804fccb00e0/src/lib.rs#L1170-L1432
 use crate::matches;
 use proptest::{prelude::*, proptest};
+use rqe_wildcard::{Token, WildcardPattern};
 use std::{fmt, ops::Range};
-use wildcard::{Token, WildcardPattern};
 
 #[derive(Clone)]
 struct PatternAndKeys {
@@ -128,11 +128,11 @@ proptest! {
         for key in input.keys {
             let outcome = pattern.matches(&key);
             if wc_cf.is_match(&key) {
-                assert_eq!(outcome, wildcard::MatchOutcome::Match);
+                assert_eq!(outcome, rqe_wildcard::MatchOutcome::Match);
             } else {
                 // In this case, our implementation may return
                 // either `MatchOutcome::NoMatch` or `MatchOutcome::PartialMatch`.
-                assert_ne!(outcome, wildcard::MatchOutcome::Match);
+                assert_ne!(outcome, rqe_wildcard::MatchOutcome::Match);
             }
         }
     }

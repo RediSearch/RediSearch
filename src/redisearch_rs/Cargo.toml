@@ -48,7 +48,7 @@ members = [
     "value",
     "varint",
     "varint_bencher",
-    "wildcard",
+    "rqe_wildcard",
     "workspace_hack",
     "idf",
 ]
@@ -145,7 +145,7 @@ trie_rs = { path = "./trie_rs" }
 ttl_table = { path = "./ttl_table" }
 value = { path = "./value" }
 varint = { path = "./varint" }
-wildcard = { path = "./wildcard" }
+rqe_wildcard = { path = "./rqe_wildcard" }
 workspace_hack = { path = "./workspace_hack" }
 
 ahash = "0.8"
