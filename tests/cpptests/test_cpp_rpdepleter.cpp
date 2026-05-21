@@ -17,12 +17,9 @@
 #include "module.h"
 #include <thread>
 #include <chrono>
+#include <atomic>
 #include "redismock/redismock.h"
 #include "search_result.h"
-
-#include <thread>
-#include <chrono>
-#include <atomic>
 
 #define NumberOfContexts 3
 
@@ -373,8 +370,8 @@ TEST_P(RPSafeDepleterTest, RPSafeDepleter_LazyTimeoutThenWaitForCompletion) {
   searchContexts[1].time.timeout = past_timeout;
 
   ResultProcessor *depleter = RPSafeDepleter_New(
-      DepleterSync_New(1, take_index_lock),
-      &searchContexts[0], &searchContexts[1], depleterPool);
+      DepleterSync_New(1, take_index_lock, &searchContexts[1]),
+      &searchContexts[0], &searchContexts[1], testPool);
 
   QITR_PushRP(&qitr, &mockUpstream);
   QITR_PushRP(&qitr, depleter);
@@ -407,8 +404,8 @@ TEST_P(RPSafeDepleterTest, RPSafeDepleter_StartDepletionTimeoutBailout) {
   searchContexts[1].time.timeout = past_timeout;
 
   ResultProcessor *depleter = RPSafeDepleter_New(
-      DepleterSync_New(1, take_index_lock),
-      &searchContexts[0], &searchContexts[1], depleterPool);
+      DepleterSync_New(1, take_index_lock, &searchContexts[1]),
+      &searchContexts[0], &searchContexts[1], testPool);
 
   QITR_PushRP(&qitr, &mockUpstream);
   QITR_PushRP(&qitr, depleter);

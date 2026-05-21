@@ -12,8 +12,6 @@
 #include "parse_hybrid.h"
 #include "hybrid_request.h"
 #include "aggregate/aggregate_exec_common.h"
-#include "debug_commands.h"
-
 #include "redismodule.h"
 #include "redisearch.h"
 #include "search_ctx.h"
