@@ -233,7 +233,8 @@ typedef uint16_t FieldSpecDedupeArray[SPEC_MAX_FIELDS];
 #define INDEX_DEFAULT_FLAGS \
   Index_StoreFreqs | Index_StoreTermOffsets | Index_StoreFieldFlags | Index_StoreByteOffsets
 
-#define INDEX_CURRENT_VERSION 26
+#define INDEX_CURRENT_VERSION 27
+#define INDEX_VECSIM_DISK_BLOB_VERSION 27
 #define INDEX_DISK_VERSION 26
 #define INDEX_VECSIM_SVS_VAMANA_VERSION 25
 #define INDEX_INDEXALL_VERSION 24
@@ -370,15 +371,14 @@ typedef struct IndexSpec {
   // Disk index handle (NULL for memory-only indexes)
   RedisSearchDiskIndexSpec *diskSpec;
 
-  // Disk RDB state (NULL for memory-only indexes), pending to be applied at replication ending.
-  // Split into two independent halves:
-  //  - pendingDiskRdbState is consumed by SearchDisk_OpenIndexWithRdbState
-  //    (unconditionally — null this pointer after the call, on any path).
-  //  - pendingVecSimRdbState outlives the open call and is drained piecewise
-  //    by SearchDisk_ApplyRdbStateToVectorIndex, then freed with
-  //    SearchDisk_FreeVecSimRdbState.
-  RedisSearchDiskDiskRdbState *pendingDiskRdbState;
-  RedisSearchDiskVecSimRdbState *pendingVecSimRdbState;
+  // Disk RDB state (NULL for memory-only indexes), pending to be applied at
+  // replication ending. Consumed by SearchDisk_OpenIndexWithRdbState on both
+  // success and failure paths — null this pointer after the call.
+  //
+  // Per-field vector blobs are NOT carried here — each one is stashed on
+  // fs->vectorOpts.pendingRdbBlob by FieldSpec_RdbLoad and drained at
+  // LOADING_SST_ENDED via SearchDisk_ApplyBlobToVectorIndex.
+  RedisSearchDiskRdbState *pendingDiskRdbState;
   bool diskRegistered;
   pthread_rwlock_t disk_fork_rwlock;
   // Flags indicating state of the replication process. Needed to abort replication process

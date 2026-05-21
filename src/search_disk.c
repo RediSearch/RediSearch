@@ -173,36 +173,28 @@ void SearchDisk_CloseIndex(RedisSearchDiskIndexSpec *index) {
     disk->basic.closeIndexSpec(disk_db, index);
 }
 
-void SearchDisk_IndexSpecRdbSave(RedisModuleIO *rdb, RedisSearchDiskIndexSpec *index,
-                                  const VectorRdbSaveEntry *vectorFields, size_t numVectorFields) {
+void SearchDisk_IndexSpecRdbSave(RedisModuleIO *rdb, RedisSearchDiskIndexSpec *index) {
   RS_ASSERT(disk && index);
-  disk->basic.indexSpecRdbSave(rdb, index, vectorFields, numVectorFields);
+  disk->basic.indexSpecRdbSave(rdb, index);
 }
 
-bool SearchDisk_LoadRdbToTempObject(RedisModuleIO *rdb,
-                                    RedisSearchDiskDiskRdbState **outDiskState,
-                                    RedisSearchDiskVecSimRdbState **outVecSimState) {
-  RS_ASSERT(disk && outDiskState && outVecSimState);
-  return disk->basic.loadRdbToTempObject(rdb, outDiskState, outVecSimState);
+RedisSearchDiskRdbState* SearchDisk_LoadRdbToTempObject(RedisModuleIO *rdb) {
+  RS_ASSERT(disk);
+  return disk->basic.loadRdbToTempObject(rdb);
 }
 
 RedisSearchDiskIndexSpec* SearchDisk_OpenIndexWithRdbState(RedisModuleCtx *ctx,
                                                             const HiddenString *indexName,
                                                             const char *obfuscatedName,
                                                             DocumentType type,
-                                                            RedisSearchDiskDiskRdbState *diskRdbState) {
-  RS_ASSERT(disk && disk_db && indexName && diskRdbState);
-  return disk->basic.openIndexSpecWithRdbState(ctx, disk_db, indexName, obfuscatedName, strlen(obfuscatedName), type, diskRdbState);
+                                                            RedisSearchDiskRdbState *rdbState) {
+  RS_ASSERT(disk && disk_db && indexName && rdbState);
+  return disk->basic.openIndexSpecWithRdbState(ctx, disk_db, indexName, obfuscatedName, strlen(obfuscatedName), type, rdbState);
 }
 
-void SearchDisk_FreeDiskRdbState(RedisSearchDiskDiskRdbState *diskRdbState) {
+void SearchDisk_FreeRdbState(RedisSearchDiskRdbState *rdbState) {
   RS_ASSERT(disk);
-  disk->basic.freeDiskRdbState(diskRdbState);
-}
-
-void SearchDisk_FreeVecSimRdbState(RedisSearchDiskVecSimRdbState *vecSimRdbState) {
-  RS_ASSERT(disk);
-  disk->basic.freeVecSimRdbState(vecSimRdbState);
+  disk->basic.freeRdbState(rdbState);
 }
 
 // Index API wrappers
@@ -397,11 +389,24 @@ void SearchDisk_FreeVectorIndex(void *vecIndex) {
     disk->vector.freeVectorIndex(vecIndex);
 }
 
-bool SearchDisk_ApplyRdbStateToVectorIndex(RedisSearchDiskVecSimRdbState *vecSimRdbState,
-                                            t_fieldIndex fieldIndex, void *vecIndex) {
-    RS_ASSERT(disk && vecSimRdbState && vecIndex);
-    RS_ASSERT(disk->vector.applyRdbStateToVectorIndex);
-    return disk->vector.applyRdbStateToVectorIndex(vecSimRdbState, fieldIndex, vecIndex);
+bool SearchDisk_SerializeVectorIndexToBlob(void *vecIndex, unsigned char **outBlob,
+                                            size_t *outBlobLen) {
+    RS_ASSERT(disk && vecIndex && outBlob && outBlobLen);
+    RS_ASSERT(disk->vector.serializeVectorIndexToBlob);
+    return disk->vector.serializeVectorIndexToBlob(vecIndex, outBlob, outBlobLen);
+}
+
+void SearchDisk_FreeSerializedVectorBlob(unsigned char *blob, size_t blobLen) {
+    RS_ASSERT(disk);
+    RS_ASSERT(disk->vector.freeSerializedVectorBlob);
+    disk->vector.freeSerializedVectorBlob(blob, blobLen);
+}
+
+bool SearchDisk_ApplyBlobToVectorIndex(void *vecIndex, const unsigned char *blob,
+                                        size_t blobLen) {
+    RS_ASSERT(disk && vecIndex);
+    RS_ASSERT(disk->vector.applyBlobToVectorIndex);
+    return disk->vector.applyBlobToVectorIndex(vecIndex, blob, blobLen);
 }
 
 // Throttle callback wrappers for VecSim

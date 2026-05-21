@@ -125,84 +125,60 @@ void SearchDisk_CloseIndex(RedisSearchDiskIndexSpec *index);
 /**
  * @brief Save the disk-related data of the index to the rdb file
  *
+ * Per-field vector blobs are saved inline by FieldSpec_RdbSave and are NOT
+ * part of this payload.
+ *
  * @param rdb Redis module rdb file
  * @param index Pointer to the index
- * @param vectorFields Array of (fieldIndex, VecSimIndex*) entries for vector
- *                     fields whose in-memory state must be persisted. May be
- *                     NULL when numVectorFields is 0.
- * @param numVectorFields Number of entries in vectorFields
  */
-void SearchDisk_IndexSpecRdbSave(RedisModuleIO *rdb, RedisSearchDiskIndexSpec *index,
-                                  const VectorRdbSaveEntry *vectorFields, size_t numVectorFields);
+void SearchDisk_IndexSpecRdbSave(RedisModuleIO *rdb, RedisSearchDiskIndexSpec *index);
 
 /**
- * @brief Load disk-related RDB data into two temporary in-memory objects.
+ * @brief Load disk-related RDB data into a temporary in-memory object.
  *
  * Called during RDB load when the IndexSpec cannot be created yet (e.g., during replication
- * before SST files arrive). The two halves have independent lifetimes:
+ * before SST files arrive). The returned state is consumed by ownership in
+ * SearchDisk_OpenIndexWithRdbState, or freed on abort paths with
+ * SearchDisk_FreeRdbState.
  *
- * - `*outDiskState` is consumed by ownership in SearchDisk_OpenIndexWithRdbState.
- *   On abort paths free it with SearchDisk_FreeDiskRdbState.
- * - `*outVecSimState` outlives the open call and is drained piecewise by
- *   SearchDisk_ApplyRdbStateToVectorIndex, then freed with
- *   SearchDisk_FreeVecSimRdbState.
- *
- * On success both out-params are written with non-NULL pointers and the
- * function returns true. On failure both are set to NULL and the function
- * returns false — the caller has nothing to free.
+ * Per-field vector blobs are NOT carried here — they ride inline with each
+ * field's own RDB encoding (FieldSpec_RdbLoad).
  *
  * @param rdb Redis module rdb file
- * @param outDiskState Out-param for the disk half (must be non-NULL)
- * @param outVecSimState Out-param for the vector half (must be non-NULL)
- * @return true on success, false on failure
+ * @return Pointer to the temporary RDB state, or NULL on error
  */
-bool SearchDisk_LoadRdbToTempObject(RedisModuleIO *rdb,
-                                    RedisSearchDiskDiskRdbState **outDiskState,
-                                    RedisSearchDiskVecSimRdbState **outVecSimState);
+RedisSearchDiskRdbState* SearchDisk_LoadRdbToTempObject(RedisModuleIO *rdb);
 
 /**
- * @brief Create an IndexSpec from the disk half of a previously loaded RDB state.
+ * @brief Create an IndexSpec from a previously loaded RDB state.
  *
  * Called after SST files are ready (e.g., after FULL_REPLICATION_FINISHED event).
  *
- * Consumes `diskRdbState` unconditionally — the disk state is freed by this
- * call regardless of whether IndexSpec creation succeeds or fails. The
- * caller MUST null its pointer after this call, on both paths.
- *
- * The vector half (VecSimRdbState) is independent and untouched by this call.
+ * Consumes `rdbState` unconditionally — the state is freed by this call
+ * regardless of whether IndexSpec creation succeeds or fails. The caller
+ * MUST null its pointer after this call, on both paths.
  *
  * @param ctx Redis module context for BigModule APIs
  * @param indexName Name of the index
  * @param obfuscatedName Obfuscated name of the index (for logging)
  * @param type Document type for this index
- * @param diskRdbState Disk half of the RDB state (consumed)
+ * @param rdbState The RDB state (consumed)
  * @return Pointer to the created IndexSpec, or NULL on error
  */
 RedisSearchDiskIndexSpec* SearchDisk_OpenIndexWithRdbState(RedisModuleCtx *ctx,
                                                             const HiddenString *indexName,
                                                             const char *obfuscatedName,
                                                             DocumentType type,
-                                                            RedisSearchDiskDiskRdbState *diskRdbState);
+                                                            RedisSearchDiskRdbState *rdbState);
 
 /**
- * @brief Free the disk half of a partial RDB state.
+ * @brief Free a temporary RDB state object.
  *
- * Use on abort paths where SearchDisk_OpenIndexWithRdbState was never called
- * (that function already consumes the disk half on both success and failure).
+ * Use on abort paths where SearchDisk_OpenIndexWithRdbState was never called.
  *
- * @param diskRdbState The disk half to free (may be NULL)
+ * @param rdbState The state to free (may be NULL)
  */
-void SearchDisk_FreeDiskRdbState(RedisSearchDiskDiskRdbState *diskRdbState);
-
-/**
- * @brief Free the vector half of a partial RDB state.
- *
- * Called after every blob the caller intended to apply has been drained
- * (or on any abort path).
- *
- * @param vecSimRdbState The vector half to free (may be NULL)
- */
-void SearchDisk_FreeVecSimRdbState(RedisSearchDiskVecSimRdbState *vecSimRdbState);
+void SearchDisk_FreeRdbState(RedisSearchDiskRdbState *rdbState);
 
 // Index API wrappers
 
@@ -498,16 +474,36 @@ void* SearchDisk_CreateVectorIndex(RedisModuleCtx *ctx, RedisSearchDiskIndexSpec
 void SearchDisk_FreeVectorIndex(void *vecIndex);
 
 /**
- * @brief Apply a per-field vector blob captured in the partial RDB state.
+ * @brief Serialize a freshly-quiesced VecSimIndex* into a newly-allocated buffer.
  *
- * @param vecSimRdbState Vector half of the partial RDB state (not yet freed)
- * @param fieldIndex Stable per-spec field identifier
- * @param vecIndex Freshly created VecSimIndex* handle for that field
- * @return true if a blob existed and was applied successfully; false if no
- *         blob was present for this field (no-op) or deserialization failed
+ * Caller MUST release the buffer via SearchDisk_FreeSerializedVectorBlob.
+ *
+ * @param vecIndex VecSimIndex* handle
+ * @param outBlob Out-param: blob byte pointer
+ * @param outBlobLen Out-param: blob length in bytes
+ * @return true on success, false otherwise (out-params set to NULL/0)
  */
-bool SearchDisk_ApplyRdbStateToVectorIndex(RedisSearchDiskVecSimRdbState *vecSimRdbState,
-                                            t_fieldIndex fieldIndex, void *vecIndex);
+bool SearchDisk_SerializeVectorIndexToBlob(void *vecIndex, unsigned char **outBlob,
+                                            size_t *outBlobLen);
+
+/**
+ * @brief Free a buffer returned by SearchDisk_SerializeVectorIndexToBlob.
+ *
+ * @param blob Pointer returned by SearchDisk_SerializeVectorIndexToBlob (may be NULL)
+ * @param blobLen Length returned by SearchDisk_SerializeVectorIndexToBlob
+ */
+void SearchDisk_FreeSerializedVectorBlob(unsigned char *blob, size_t blobLen);
+
+/**
+ * @brief Apply a previously-serialized blob to a freshly-created VecSimIndex*.
+ *
+ * @param vecIndex VecSimIndex* handle
+ * @param blob Pointer to the blob bytes (may be NULL when blobLen == 0)
+ * @param blobLen Length of the blob in bytes; pass 0 to leave the index empty
+ * @return true on successful application; false otherwise
+ */
+bool SearchDisk_ApplyBlobToVectorIndex(void *vecIndex, const unsigned char *blob,
+                                        size_t blobLen);
 
 // Metrics API wrappers
 
