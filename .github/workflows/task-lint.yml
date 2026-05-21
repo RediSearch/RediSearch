@@ -40,6 +40,9 @@ jobs:
         && fromJSON(format('{{"image":"{0}","options":"--user root"}}', needs.build-image.outputs.image))
       || null }}
 
+    env:
+      IS_FORK_PR: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository }}
+
     steps:
       - name: Checkout
         uses: actions/checkout@v6
@@ -70,6 +73,7 @@ jobs:
             echo "mode=sudo" >> "$GITHUB_OUTPUT"
           fi
       - name: Setup sccache
+        if: ${{ env.IS_FORK_PR != 'true' }}
         uses: ./.github/actions/setup-sccache
         with:
           aws-role: ${{ vars.SCCACHE_AWS_ROLE_TO_ASSUME }}

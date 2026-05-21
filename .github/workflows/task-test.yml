@@ -281,6 +281,7 @@ jobs:
           echo "Runner Architecture: $RUNNER_ARCH"
           echo "========================"
       - name: Setup sccache
+        if: ${{ env.IS_FORK_PR != 'true' }}
         uses: ./.github/actions/setup-sccache
         with:
           aws-role: ${{ vars.SCCACHE_AWS_ROLE_TO_ASSUME }}

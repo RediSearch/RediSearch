@@ -37,13 +37,6 @@ runs:
         # container and reports nothing. We show stats ourselves.
         disable_annotations: true
 
-    - name: Configure local sccache environment
-      shell: bash --noprofile --norc -eo pipefail {0}
-      run: |
-        # Disable idle timeout so the sccache server stays alive for the
-        # entire job, otherwise stats are lost if it shuts down between steps.
-        echo "SCCACHE_IDLE_TIMEOUT=0" >> "$GITHUB_ENV"
-
     - name: Configure sccache S3 environment
       if: ${{ steps.aws-credentials.outcome == 'success' }}
       # Use --noprofile --norc to avoid Alpine's /etc/profile resetting PATH,
@@ -61,3 +54,6 @@ runs:
         echo "SCCACHE_REGION=$INPUT_S3_REGION" >> "$GITHUB_ENV"
         echo "SCCACHE_S3_KEY_PREFIX=$INPUT_S3_KEY_PREFIX" >> "$GITHUB_ENV"
         echo "SCCACHE_S3_USE_SSL=true" >> "$GITHUB_ENV"
+        # Disable idle timeout so the sccache server stays alive for the
+        # entire job, otherwise stats are lost if it shuts down between steps.
+        echo "SCCACHE_IDLE_TIMEOUT=0" >> "$GITHUB_ENV"
