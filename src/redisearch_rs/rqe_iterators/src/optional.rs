@@ -103,6 +103,14 @@ pub struct RawOptional<Rf: Ref, I> {
 /// [`RQEIterator`] impl today.
 pub type Optional<'index, I> = RawOptional<Active<'index>, I>;
 
+impl<Rf: Ref, I> RawOptional<Rf, I> {
+    /// Get a shared reference to the _child_ iterator
+    /// wrapped by this [`Optional`] iterator. Mode-independent.
+    pub const fn child(&self) -> Option<&I> {
+        self.child.as_ref()
+    }
+}
+
 impl<'index, I> Optional<'index, I>
 where
     I: RQEIterator<'index>,
@@ -126,12 +134,6 @@ where
                 .build(),
             child: Some(child),
         }
-    }
-
-    /// Get a shared reference to the _child_ iterator
-    /// wrapped by this [`Optional`] iterator.
-    pub const fn child(&self) -> Option<&I> {
-        self.child.as_ref()
     }
 
     /// Set the child of this [`Optional`] iterator.
