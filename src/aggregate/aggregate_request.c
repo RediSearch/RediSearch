@@ -1121,57 +1121,6 @@ void RequestSyncCtx_DecrRef(RequestSyncCtx *ctx) {
   }
 }
 
-AREQ *RequestSyncCtx_GetAREQ(RequestSyncCtx *ctx) {
-  return (ctx && ctx->kind == REQUEST_KIND_AREQ) ? ctx->query.areq : NULL;
-}
-
-HybridRequest *RequestSyncCtx_GetHybridRequest(RequestSyncCtx *ctx) {
-  return (ctx && ctx->kind == REQUEST_KIND_HYBRID) ? ctx->query.hreq : NULL;
-}
-
-AREQ *RequestSyncCtx_GetCursorAREQ(RequestSyncCtx *ctx, uint64_t cursorId) {
-  AREQ *areq = RequestSyncCtx_GetAREQ(ctx);
-  if (areq) {
-    return areq;
-  }
-
-  HybridRequest *hreq = RequestSyncCtx_GetHybridRequest(ctx);
-  if (!hreq) {
-    return NULL;
-  }
-
-  for (size_t i = 0; i < hreq->nrequests; i++) {
-    AREQ *subquery = hreq->requests[i];
-    if (subquery->cursor_id == cursorId) {
-      return subquery;
-    }
-  }
-  return NULL;
-}
-
-void RequestSyncCtx_ReleaseQueryRef(RequestSyncCtx *ctx) {
-  RequestSyncCtx_DecrRef(ctx);
-}
-
-void RequestSyncCtx_ReleaseQueryRefCB(void *ctx) {
-  RequestSyncCtx_ReleaseQueryRef((RequestSyncCtx *)ctx);
-}
-
-bool RequestSyncCtx_UseReplyCallback(RequestSyncCtx *ctx) {
-  return ctx && ctx->useReplyCallback;
-}
-
-void RequestSyncCtx_SetUseReplyCallback(RequestSyncCtx *ctx, bool useReplyCallback) {
-  if (!ctx) {
-    return;
-  }
-  ctx->useReplyCallback = useReplyCallback;
-}
-
-ChunkReplyState *RequestSyncCtx_GetReplyState(RequestSyncCtx *ctx) {
-  return ctx ? &ctx->storedReplyState : NULL;
-}
-
 AREQ *AREQ_New(void) {
   AREQ* req = rm_calloc(1, sizeof(AREQ));
   /*
@@ -1235,28 +1184,6 @@ void AREQ_ResetForCursorReadReturnStrict(AREQ *req) {
     ((RPNet *)root)->drainOnly = false;
   }
 }
-
-void RequestSyncCtx_RegisterAbortWakeChannel(RequestSyncCtx *ctx, struct MRChannel *chan) {
-  pthread_mutex_lock(&ctx->abortWakeLock);
-  ctx->abortWakeChannel = chan;
-  pthread_mutex_unlock(&ctx->abortWakeLock);
-}
-
-void RequestSyncCtx_UnregisterAbortWakeChannel(RequestSyncCtx *ctx) {
-  pthread_mutex_lock(&ctx->abortWakeLock);
-  ctx->abortWakeChannel = NULL;
-  pthread_mutex_unlock(&ctx->abortWakeLock);
-}
-
-void RequestSyncCtx_WakeAbortChannel(RequestSyncCtx *ctx) {
-  pthread_mutex_lock(&ctx->abortWakeLock);
-  if (ctx->abortWakeChannel) {
-    MRChannel_WakeAbort(ctx->abortWakeChannel);
-  }
-  pthread_mutex_unlock(&ctx->abortWakeLock);
-}
-
-
 
 int parseAggPlan(ParseAggPlanContext *papCtx, ArgsCursor *ac, bool isDiskIndex, QueryError *status) {
   while (!AC_IsAtEnd(ac)) {
