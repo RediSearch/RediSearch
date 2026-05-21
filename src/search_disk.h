@@ -474,7 +474,7 @@ void* SearchDisk_CreateVectorIndex(RedisModuleCtx *ctx, RedisSearchDiskIndexSpec
 void SearchDisk_FreeVectorIndex(void *vecIndex);
 
 /**
- * @brief Serialize a freshly-quiesced VecSimIndex* into a newly-allocated buffer.
+ * @brief Serialize a VecSimIndex* into an allocated buffer.
  *
  * Caller MUST release the buffer via SearchDisk_FreeSerializedVectorBlob.
  *
