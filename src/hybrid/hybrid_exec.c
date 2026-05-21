@@ -109,6 +109,19 @@ static void replyWarningsWithSuffixes(RedisModule_Reply *reply, HybridRequest *h
 
 static void HREQ_Execute_Callback(blockedClientHybridCtx *BCHCtx);
 
+static inline void runHybridRequestCycleEnter(RedisSearchCtx *sctx) {
+  (void)sctx;
+  RS_ASSERT(sctx->lock_state == SPEC_LOCK_UNSET);
+}
+
+static inline void runHybridRequestCycleExit(RedisSearchCtx *sctx) {
+#ifdef ENABLE_ASSERT
+  RS_ASSERT(sctx->lock_state == SPEC_LOCK_UNSET);
+#else
+  RedisSearchCtx_UnlockSpec(sctx);
+#endif
+}
+
 // Serializes a result for the `FT.HYBRID` command.
 // The format is consistent, i.e., does not change according to the values of
 // the reply, or the RESP protocol used.
@@ -1211,6 +1224,7 @@ static void HREQ_Execute_Callback(blockedClientHybridCtx *BCHCtx) {
   }
 
   // Acquire read lock before building pipeline (matching AREQ_Execute_Callback)
+  runHybridRequestCycleEnter(sctx);
   RedisSearchCtx_LockSpecRead(sctx);
 
   if (buildPipelineAndExecute(hybrid_ref, hybridParams, outctx, sctx, &status, BCHCtx->internal, true) == REDISMODULE_OK) {
@@ -1221,16 +1235,21 @@ static void HREQ_Execute_Callback(blockedClientHybridCtx *BCHCtx) {
     // buildPipelineAndExecute failed - release the lock if still held.
     // Note: If failure occurred after RPSafeDepleter_DepleteAll started, the lock
     // was already released in WaitForDepletionToStart. RedisSearchCtx_UnlockSpec
-    // safely handles this case by checking sctx->flags before unlocking.
+    // safely handles this case by checking sctx->lock_state before unlocking.
     RedisSearchCtx_UnlockSpec(sctx);
+    runHybridRequestCycleExit(sctx);
     if (!QueryError_HasError(&status)) {
       // There was an error but it was not set in status, get it from hreq
       HybridRequest_GetError(hreq, &status);
       HybridRequest_ClearErrors(hreq);
     }
     HREQ_ReplyOrStoreError(hreq, outctx, &status);
+    sctx = NULL;
   }
 
+  if (sctx) {
+    runHybridRequestCycleExit(sctx);
+  }
   RedisModule_FreeThreadSafeContext(outctx);
   IndexSpecRef_Release(execution_ref);
   blockedClientHybridCtx_destroy(BCHCtx);

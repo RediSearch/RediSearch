@@ -161,7 +161,7 @@ static RedisSearchCtx* GetDummySearchCtx() {
     .time = {.current = {0, 0}, .timeout = {0, 0}, .skipTimeoutChecks = true},
     .apiVersion = 0,
     .expanded = 0,
-    .flags = RS_CTX_UNSET,
+    .lock_state = SPEC_LOCK_UNSET,
   };
   return &dummySctx;
 }

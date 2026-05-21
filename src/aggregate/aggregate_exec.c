@@ -396,6 +396,20 @@ static inline void debugPauseStoreResults(AREQ *req, bool before) {
   UNUSED(before);
 }
 #endif
+
+static inline void runRequestCycleEnter(RedisSearchCtx *sctx) {
+  (void)sctx;
+  RS_ASSERT(sctx->lock_state == SPEC_LOCK_UNSET);
+}
+
+static inline void runRequestCycleExit(RedisSearchCtx *sctx) {
+#ifdef ENABLE_ASSERT
+  RS_ASSERT(sctx->lock_state == SPEC_LOCK_UNSET);
+#else
+  RedisSearchCtx_UnlockSpec(sctx);
+#endif
+}
+
 static void startPipeline(AREQ *req, ResultProcessor *rp, SearchResult ***results, SearchResult *r, int *rc) {
   CommonPipelineCtx ctx = {
     .timeoutPolicy = req->reqConfig.timeoutPolicy,
@@ -1138,7 +1152,9 @@ void AREQ_Execute(AREQ *req, RedisModuleCtx *ctx) {
   sendChunk(req, reply, UINT64_MAX);
   RedisModule_EndReply(reply);
   // Release the spec read lock before dropping our reference to `req`.
-  RedisSearchCtx_UnlockSpec(AREQ_SearchCtx(req));
+  RedisSearchCtx *sctx = AREQ_SearchCtx(req);
+  RedisSearchCtx_UnlockSpec(sctx);
+  runRequestCycleExit(sctx);
   AREQ_DecrRef(req);
 }
 
@@ -1246,6 +1262,7 @@ void AREQ_Execute_Callback(blockedClientReqCtx *BCRctx) {
 #endif
 
   // Lock spec. Should be released on the BG thread by every downstream path.
+  runRequestCycleEnter(sctx);
   RedisSearchCtx_LockSpecRead(sctx);
 
   if (prepareExecutionPlan(req, &status) != REDISMODULE_OK) {
@@ -1279,6 +1296,7 @@ void AREQ_Execute_Callback(blockedClientReqCtx *BCRctx) {
     }
   } else {
     AREQ_Execute(req, outctx);
+    sctx = NULL;
   }
 
   // If the execution was successful, we either:
@@ -1292,6 +1310,9 @@ error:
   AREQ_ReplyOrStoreError(req, outctx, &status);
 
 cleanup:
+  if (sctx) {
+    runRequestCycleExit(sctx);
+  }
   RedisModule_FreeThreadSafeContext(outctx);
   IndexSpecRef_Release(execution_ref);
   blockedClientReqCtx_destroy(BCRctx);
@@ -1790,10 +1811,11 @@ static int buildPipelineAndExecute(AREQ *r, RedisModuleCtx *ctx, QueryError *sta
     RS_ASSERT(rc == 0);
   } else {
     // Take a read lock on the spec (to avoid conflicts with the GC).
-    // This is released in AREQ_Free or while executing the query.
+    // This is released while executing the query or on the error path below.
     RedisSearchCtx_LockSpecRead(sctx);
 
     if (prepareExecutionPlan(r, status) != REDISMODULE_OK) {
+      RedisSearchCtx_UnlockSpec(sctx);
       CurrentThread_ClearIndexSpec();
       return REDISMODULE_ERR;
     }
@@ -1815,6 +1837,7 @@ static int buildPipelineAndExecute(AREQ *r, RedisModuleCtx *ctx, QueryError *sta
       int rc = AREQ_StartCursor(r, reply, spec_ref, status, false);
       RedisModule_EndReply(reply);
       if (rc != REDISMODULE_OK) {
+        RedisSearchCtx_UnlockSpec(sctx);
         CurrentThread_ClearIndexSpec();
         return REDISMODULE_ERR;
       }
@@ -1894,14 +1917,16 @@ char *RS_GetExplainOutput(RedisModuleCtx *ctx, RedisModuleString **argv, int arg
   }
   RedisSearchCtx *sctx = AREQ_SearchCtx(r);
   // Take a read lock on the spec (to avoid conflicts with the GC).
-  // released in `AREQ_Free`.
+  // The explain path releases it explicitly before freeing the request.
   RedisSearchCtx_LockSpecRead(sctx);
   if (prepareExecutionPlan(r, status) != REDISMODULE_OK) {
+    RedisSearchCtx_UnlockSpec(sctx);
     AREQ_DecrRef(r);
     CurrentThread_ClearIndexSpec();
     return NULL;
   }
   char *ret = QAST_DumpExplain(&r->ast, sctx->spec);
+  RedisSearchCtx_UnlockSpec(sctx);
   AREQ_DecrRef(r);
   CurrentThread_ClearIndexSpec();
   return ret;
