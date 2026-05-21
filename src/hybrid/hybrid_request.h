@@ -20,7 +20,7 @@ struct Cursor;
 // Field name for implicit key loading in hybrid requests
 #define HYBRID_IMPLICIT_KEY_FIELD "__key"
 
-typedef struct HybridRequest {
+struct HybridRequest {
     /* Arguments converted to sds. Received on input */
     // We need to copy the arguments so rlookup keys can point to them
     // in short lifetime of the strings
@@ -49,7 +49,7 @@ typedef struct HybridRequest {
     // so the syncCtx.refcount initial value of 1 is implicitly owned by the StrongRef system.
     // Additional HybridRequest_IncrRef calls (e.g., from BlockHybridQueryClientWithTimeout) safely
     // add to syncCtx.refcount, and all decrements will happen correctly during cleanup.
-    RequestSyncCtx syncCtx;
+    RequestSyncCtx *syncCtx;
 
     // Flag to indicate whether to skip timeout checks using clock checks
     bool skipTimeoutChecks;
@@ -77,14 +77,14 @@ typedef struct HybridRequest {
     // When non-NULL, debug timeouts are applied after pipeline building.
     // Heap-allocated and owned by HybridRequest — freed in HybridRequest_Free.
     HybridDebugParams *debugParams;
-} HybridRequest;
+};
 
 // Timeout helper functions for HybridRequest (mirrors AREQ pattern)
 static inline bool HybridRequest_TimedOut(HybridRequest *req) {
-  return RS_AtomicLoadRelaxed(&req->syncCtx.timedOut);
+  return RS_AtomicLoadRelaxed(&req->syncCtx->timedOut);
 }
 static inline void HybridRequest_SetTimedOut(HybridRequest *req) {
-  RS_AtomicStoreRelaxed(&req->syncCtx.timedOut, true);
+  RS_AtomicStoreRelaxed(&req->syncCtx->timedOut, true);
 }
 
 // Cursor mutex wrappers for synchronizing cursor creation with timeout callback
@@ -146,6 +146,8 @@ HybridRequest *HybridRequest_New(RedisSearchCtx *sctx, AREQ **requests, size_t n
  * @param nrequests Number of requests in the array
  */
 void HybridRequest_Init(HybridRequest *hybridReq, RedisSearchCtx *sctx, AREQ **requests, size_t nrequests);
+
+void HybridRequest_Free(HybridRequest *req);
 
 /*
 * We need to clone the arguments so the objects that rely on them can use them throughout the lifetime of the hybrid request

@@ -169,11 +169,25 @@ typedef enum {
 
 typedef enum { COMMAND_AGGREGATE, COMMAND_SEARCH, COMMAND_EXPLAIN, COMMAND_HYBRID } CommandType;
 
+typedef struct AREQ AREQ;
+typedef struct HybridRequest HybridRequest;
+
+typedef enum {
+  REQUEST_KIND_AREQ,
+  REQUEST_KIND_HYBRID,
+} RequestKind;
+
 /**
  * Common synchronization context for request types (AREQ, HybridRequest).
  * This context is used for timeout handling and synchronization between the main thread and the background thread.
  */
 typedef struct RequestSyncCtx {
+  RequestKind kind;
+  union {
+    AREQ *areq;
+    HybridRequest *hreq;
+  } query;
+
   // Timeout signaling flag set by timeout callback on main thread
   RS_Atomic(bool) timedOut;
   // Reference count for shared ownership between timeout callback (main thread) and background thread
@@ -199,7 +213,13 @@ typedef struct RequestSyncCtx {
 } RequestSyncCtx;
 
 // Initialize a RequestSyncCtx with default values
-static inline void RequestSyncCtx_Init(RequestSyncCtx *ctx) {
+static inline void RequestSyncCtx_Init(RequestSyncCtx *ctx, RequestKind kind, void *query) {
+  ctx->kind = kind;
+  if (kind == REQUEST_KIND_AREQ) {
+    ctx->query.areq = (AREQ *)query;
+  } else {
+    ctx->query.hreq = (HybridRequest *)query;
+  }
   ctx->timedOut = false;
   ctx->refcount = 1;
   ctx->requiresAggregateResultsSync = false;
@@ -211,6 +231,10 @@ static inline void RequestSyncCtx_Init(RequestSyncCtx *ctx) {
   pthread_mutex_init(&ctx->abortWakeLock, NULL);
 }
 
+RequestSyncCtx *RequestSyncCtx_NewAREQ(AREQ *areq);
+RequestSyncCtx *RequestSyncCtx_NewHybrid(HybridRequest *hreq);
+void RequestSyncCtx_Free(RequestSyncCtx *ctx);
+
 // Release resources owned by a RequestSyncCtx. Must be called exactly once
 // per successful Init, from the request's free path.
 static inline void RequestSyncCtx_Destroy(RequestSyncCtx *ctx) {
@@ -219,7 +243,7 @@ static inline void RequestSyncCtx_Destroy(RequestSyncCtx *ctx) {
   pthread_mutex_destroy(&ctx->abortWakeLock);
 }
 
-typedef struct AREQ {
+struct AREQ {
   /* Arguments converted to sds. Received on input */
   sds *args;
   size_t nargs;
@@ -303,7 +327,7 @@ typedef struct AREQ {
   ProfilePrinterCtx profileCtx;
 
   // Synchronization context for timeout/reply callbacks
-  RequestSyncCtx syncCtx;
+  RequestSyncCtx *syncCtx;
 
   // Flag to indicate whether to skip timeout checks using clock checks
   bool skipTimeoutChecks;
@@ -314,7 +338,7 @@ typedef struct AREQ {
   // Background thread stores results here, then calls UnblockClient.
   // The reply_callback reads from here to build the reply on the main thread.
   ChunkReplyState storedReplyState;
-} AREQ;
+};
 
 /**
  * Create a new aggregate request. The request's lifecycle consists of several
@@ -551,10 +575,10 @@ void SetSearchCtx(RedisSearchCtx *sctx, const AREQ *req);
 int parseProfileArgs(RedisModuleString **argv, int argc, AREQ *r);
 
 static inline bool AREQ_TimedOut(AREQ *req) {
-  return RS_AtomicLoadRelaxed(&req->syncCtx.timedOut);
+  return RS_AtomicLoadRelaxed(&req->syncCtx->timedOut);
 }
 static inline void AREQ_SetTimedOut(AREQ *req) {
-  RS_AtomicStoreRelaxed(&req->syncCtx.timedOut, true);
+  RS_AtomicStoreRelaxed(&req->syncCtx->timedOut, true);
 }
 #ifdef ENABLE_ASSERT
 // SyncPointStopFn predicate adapter for AREQ_TimedOut. Pass the AREQ as `arg`
@@ -566,7 +590,7 @@ bool areq_timed_out(void *arg);
  * around AggregateResults (TryClaim/Signal/Wait). Currently set only on the
  * coordinator AREQ under RETURN-STRICT; all other paths skip the protocol. */
 static inline bool AREQ_RequiresThreadsSyncResults(const AREQ *req) {
-  return req->syncCtx.requiresAggregateResultsSync;
+  return req->syncCtx->requiresAggregateResultsSync;
 }
 
 /* TryClaim: atomic CAS on `aggregatingResults`; winner runs AggregateResults.

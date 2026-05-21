@@ -25,6 +25,7 @@
 #include "resp3.h"
 #include "obfuscation/hidden.h"
 #include "hybrid/vector_query_utils.h"
+#include "hybrid/hybrid_request.h"
 #include "vector_index.h"
 #include "slots_tracker_ffi.h"
 #include "asm_state_machine.h"
@@ -36,6 +37,8 @@
 #include "doc_id_meta.h"
 
 extern RSConfig RSGlobalConfig;
+
+static void AREQ_Free(AREQ *req);
 
 /**
  * Ensures that the user has not requested one of the 'extended' features. Extended
@@ -1079,6 +1082,31 @@ bool RunInThread(RedisModuleCtx *ctx) {
   return true;
 }
 
+RequestSyncCtx *RequestSyncCtx_NewAREQ(AREQ *areq) {
+  RequestSyncCtx *ctx = rm_new(RequestSyncCtx);
+  RequestSyncCtx_Init(ctx, REQUEST_KIND_AREQ, areq);
+  return ctx;
+}
+
+RequestSyncCtx *RequestSyncCtx_NewHybrid(HybridRequest *hreq) {
+  RequestSyncCtx *ctx = rm_new(RequestSyncCtx);
+  RequestSyncCtx_Init(ctx, REQUEST_KIND_HYBRID, hreq);
+  return ctx;
+}
+
+void RequestSyncCtx_Free(RequestSyncCtx *ctx) {
+  if (!ctx) {
+    return;
+  }
+  if (ctx->kind == REQUEST_KIND_AREQ) {
+    AREQ_Free(ctx->query.areq);
+  } else {
+    HybridRequest_Free(ctx->query.hreq);
+  }
+  RequestSyncCtx_Destroy(ctx);
+  rm_free(ctx);
+}
+
 AREQ *AREQ_New(void) {
   AREQ* req = rm_calloc(1, sizeof(AREQ));
   /*
@@ -1099,7 +1127,7 @@ AREQ *AREQ_New(void) {
   req->prefixesOffset = 0;
   req->keySpaceVersion = INVALID_KEYSPACE_VERSION;
   req->querySlots = NULL;
-  RequestSyncCtx_Init(&req->syncCtx);
+  req->syncCtx = RequestSyncCtx_NewAREQ(req);
   req->storedReplyState.err = QueryError_Default();
   return req;
 }
@@ -1113,31 +1141,31 @@ bool SearchTime_IsTimedOut(void *arg) {
 
 bool AREQ_TryClaimAggregateResults(AREQ *req) {
   bool expected = false;
-  return atomic_compare_exchange_strong_explicit(&req->syncCtx.aggregatingResults, &expected, true,
+  return atomic_compare_exchange_strong_explicit(&req->syncCtx->aggregatingResults, &expected, true,
                                                  memory_order_relaxed, memory_order_relaxed);
 }
 
 void AREQ_SignalAggregateResultsComplete(AREQ *req) {
-  pthread_mutex_lock(&req->syncCtx.aggregateResultsLock);
-  req->syncCtx.aggregateResultsDone = true;
-  pthread_cond_broadcast(&req->syncCtx.aggregateResultsCond);
-  pthread_mutex_unlock(&req->syncCtx.aggregateResultsLock);
+  pthread_mutex_lock(&req->syncCtx->aggregateResultsLock);
+  req->syncCtx->aggregateResultsDone = true;
+  pthread_cond_broadcast(&req->syncCtx->aggregateResultsCond);
+  pthread_mutex_unlock(&req->syncCtx->aggregateResultsLock);
 }
 
 void AREQ_WaitForAggregateResultsComplete(AREQ *req) {
-  pthread_mutex_lock(&req->syncCtx.aggregateResultsLock);
-  while (!req->syncCtx.aggregateResultsDone) {
-    pthread_cond_wait(&req->syncCtx.aggregateResultsCond, &req->syncCtx.aggregateResultsLock);
+  pthread_mutex_lock(&req->syncCtx->aggregateResultsLock);
+  while (!req->syncCtx->aggregateResultsDone) {
+    pthread_cond_wait(&req->syncCtx->aggregateResultsCond, &req->syncCtx->aggregateResultsLock);
   }
-  pthread_mutex_unlock(&req->syncCtx.aggregateResultsLock);
+  pthread_mutex_unlock(&req->syncCtx->aggregateResultsLock);
 }
 
 void AREQ_ResetForCursorReadReturnStrict(AREQ *req) {
-  RS_AtomicStoreRelaxed(&req->syncCtx.aggregatingResults, false);
-  pthread_mutex_lock(&req->syncCtx.aggregateResultsLock);
-  req->syncCtx.aggregateResultsDone = false;
-  pthread_mutex_unlock(&req->syncCtx.aggregateResultsLock);
-  RS_AtomicStoreRelaxed(&req->syncCtx.timedOut, false);
+  RS_AtomicStoreRelaxed(&req->syncCtx->aggregatingResults, false);
+  pthread_mutex_lock(&req->syncCtx->aggregateResultsLock);
+  req->syncCtx->aggregateResultsDone = false;
+  pthread_mutex_unlock(&req->syncCtx->aggregateResultsLock);
+  RS_AtomicStoreRelaxed(&req->syncCtx->timedOut, false);
   ResultProcessor *root = AREQ_QueryProcessingCtx(req)->rootProc;
   if (root && root->type == RP_NETWORK) {
     ((RPNet *)root)->drainOnly = false;
@@ -1487,7 +1515,7 @@ int AREQ_ApplyContext(AREQ *req, RedisSearchCtx *sctx, QueryError *status) {
   // Borrow the request's timed-out flag onto the sctx so pipeline RPs can
   // observe a RETURN-STRICT main-thread timeout without holding an AREQ
   // back-pointer (read via SearchTime_IsTimedOut).
-  sctx->time.timedOutFlag = &req->syncCtx.timedOut;
+  sctx->time.timedOutFlag = &req->syncCtx->timedOut;
 
   if (!IsIndexCoherent(req)) {
     QueryError_SetError(status, QUERY_ERROR_CODE_MISMATCH, NULL);
@@ -1713,19 +1741,17 @@ static void AREQ_Free(AREQ *req) {
 
   rm_free(req->args);
 
-  RequestSyncCtx_Destroy(&req->syncCtx);
-
   rm_free(req);
 }
 
 AREQ *AREQ_IncrRef(AREQ *req) {
-  __atomic_fetch_add(&req->syncCtx.refcount, 1, __ATOMIC_RELAXED);
+  __atomic_fetch_add(&req->syncCtx->refcount, 1, __ATOMIC_RELAXED);
   return req;
 }
 
 void AREQ_DecrRef(AREQ *req) {
-  if (req && !__atomic_sub_fetch(&req->syncCtx.refcount, 1, __ATOMIC_ACQ_REL)) {
-    AREQ_Free(req);
+  if (req && !__atomic_sub_fetch(&req->syncCtx->refcount, 1, __ATOMIC_ACQ_REL)) {
+    RequestSyncCtx_Free(req->syncCtx);
   }
 }
 

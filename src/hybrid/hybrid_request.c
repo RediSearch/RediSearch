@@ -243,7 +243,7 @@ void HybridRequest_Init(HybridRequest *hybridReq, RedisSearchCtx *sctx, AREQ **r
     hybridReq->profileClocks.initClock = now;
 
     // Initialize timeout coordination fields
-    RequestSyncCtx_Init(&hybridReq->syncCtx);
+    hybridReq->syncCtx = RequestSyncCtx_NewHybrid(hybridReq);
     pthread_mutex_init(&hybridReq->cursorMutex, NULL);
     hybridReq->storedReplyState.err = QueryError_Default();
 }
@@ -279,7 +279,7 @@ void HybridRequest_InitArgsCursor(HybridRequest *req, ArgsCursor *ac, RedisModul
  *
  * @param req The HybridRequest to free
  */
-static void HybridRequest_Free(HybridRequest *req) {
+void HybridRequest_Free(HybridRequest *req) {
     if (!req) return;
 
     // Cursors should have been freed by the timeout callback or reply callback.
@@ -341,8 +341,6 @@ static void HybridRequest_Free(HybridRequest *req) {
 
     rm_free(req->debugParams);
 
-    RequestSyncCtx_Destroy(&req->syncCtx);
-
     if (req->args) {
       for (size_t ii = 0; ii < req->nargs; ++ii) {
         sdsfree(req->args[ii]);
@@ -354,15 +352,15 @@ static void HybridRequest_Free(HybridRequest *req) {
 }
 
 HybridRequest *HybridRequest_IncrRef(HybridRequest *req) {
-  __atomic_fetch_add(&req->syncCtx.refcount, 1, __ATOMIC_RELAXED);
+  __atomic_fetch_add(&req->syncCtx->refcount, 1, __ATOMIC_RELAXED);
   return req;
 }
 
 void HybridRequest_DecrRef(HybridRequest *req) {
   // Use ACQ_REL: release ensures our writes are visible before decrement,
   // acquire ensures we see all writes from other threads when refcount reaches 0.
-  if (req && !__atomic_sub_fetch(&req->syncCtx.refcount, 1, __ATOMIC_ACQ_REL)) {
-    HybridRequest_Free(req);
+  if (req && !__atomic_sub_fetch(&req->syncCtx->refcount, 1, __ATOMIC_ACQ_REL)) {
+    RequestSyncCtx_Free(req->syncCtx);
   }
 }
 

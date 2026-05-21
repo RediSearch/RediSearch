@@ -101,7 +101,7 @@ static int rpnetNext_Start(ResultProcessor *rp, SearchResult *r) {
   // Register the iterator's channel so the main-thread timeout callback can wake
   // this reader if it blocks in MRIterator_NextWithTimeout after AREQ timed out.
   // Paired with RequestSyncCtx_UnregisterAbortWakeChannel in rpnetFree.
-  RequestSyncCtx_RegisterAbortWakeChannel(&nc->areq->syncCtx, MRIterator_GetChannel(it));
+  RequestSyncCtx_RegisterAbortWakeChannel(nc->areq->syncCtx, MRIterator_GetChannel(it));
 #ifdef ENABLE_ASSERT
   // Expose the iterator to FT.DEBUG BG_PENDING_REPLIES; cleared in rpnetFree.
   DebugBgIterator_Set(it);
@@ -512,7 +512,7 @@ void RSExecDistAggregate(RedisModuleCtx *ctx, RedisModuleString **argv, int argc
   AREQ *r = AREQ_New();
 
   if (r->reqConfig.timeoutPolicy == TimeoutPolicy_ReturnStrict) {
-    r->syncCtx.requiresAggregateResultsSync = true;
+    r->syncCtx->requiresAggregateResultsSync = true;
   }
   CoordRequestCtx_SetRequest(reqCtx, r);
   CoordRequestCtx_UnlockSetRequest(reqCtx);
@@ -628,7 +628,7 @@ int DistAggregateTimeoutReturnStrictClient(RedisModuleCtx *ctx, RedisModuleStrin
 
   // Losing TryClaim means BG owns the claim, it may be blocked in MRIterator_NextWithTimeout.
   // Wake it so it observes the Timeout and exits the pipeline promptly.
-  RequestSyncCtx_WakeAbortChannel(&req->syncCtx);
+  RequestSyncCtx_WakeAbortChannel(req->syncCtx);
 
   // Sync with the background thread
   AREQ_WaitForAggregateResultsComplete(req);
@@ -733,7 +733,7 @@ int DistCursorReadTimeoutReturnStrictClient(RedisModuleCtx *ctx, RedisModuleStri
 
   // BG has taken the cursor. Wake the abort channel — unblocks BG from
   // MRIterator_NextWithTimeout if it's mid-pipeline; no-op otherwise.
-  RequestSyncCtx_WakeAbortChannel(&req->syncCtx);
+  RequestSyncCtx_WakeAbortChannel(req->syncCtx);
 
   // Sync with BG.
   AREQ_WaitForAggregateResultsComplete(req);
@@ -802,7 +802,7 @@ void DEBUG_RSExecDistAggregate(RedisModuleCtx *ctx, RedisModuleString **argv, in
   r = &debug_req->r;
 
   if (r->reqConfig.timeoutPolicy == TimeoutPolicy_ReturnStrict) {
-    r->syncCtx.requiresAggregateResultsSync = true;
+    r->syncCtx->requiresAggregateResultsSync = true;
   }
   CoordRequestCtx_SetRequest(reqCtx, r);
   CoordRequestCtx_UnlockSetRequest(reqCtx);

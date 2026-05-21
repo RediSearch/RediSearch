@@ -304,7 +304,7 @@ int getNextReply(RPNet *nc) {
       // No areq means no wake mechanism is available — degrade to a blocking pop.
       bool nextTimedOut = false;
       MRReply *reply = nc->areq
-        ? MRIterator_NextWithTimeout(nc->it, getAbsTimeout(nc), &nc->areq->syncCtx.timedOut, &nextTimedOut)
+        ? MRIterator_NextWithTimeout(nc->it, getAbsTimeout(nc), &nc->areq->syncCtx->timedOut, &nextTimedOut)
         : MRIterator_Next(nc->it);
       if (reply == NULL) {
         break;  // No more replies, timed out, or aborted
@@ -364,7 +364,7 @@ int getNextReply(RPNet *nc) {
     }
 #endif
     root = nc->areq
-      ? MRIterator_NextWithTimeout(nc->it, NULL, &nc->areq->syncCtx.timedOut, NULL)
+      ? MRIterator_NextWithTimeout(nc->it, NULL, &nc->areq->syncCtx->timedOut, NULL)
       : MRIterator_Next(nc->it);
   }
 
@@ -485,7 +485,7 @@ int rpnetNext_StartWithMappings(ResultProcessor *rp, SearchResult *r) {
     // blocked reader after flipping AREQ's `timedOut` flag. Paired with
     // RequestSyncCtx_UnregisterAbortWakeChannel in rpnetFree.
     if (nc->areq) {
-      RequestSyncCtx_RegisterAbortWakeChannel(&nc->areq->syncCtx, MRIterator_GetChannel(nc->it));
+      RequestSyncCtx_RegisterAbortWakeChannel(nc->areq->syncCtx, MRIterator_GetChannel(nc->it));
     }
 #ifdef ENABLE_ASSERT
     DebugBgIterator_Set(nc->it);
@@ -509,7 +509,7 @@ void rpnetFree(ResultProcessor *rp) {
     // Unregister the abort-wake channel before releasing the iterator, so the main
     // thread's timeout callback cannot observe a channel that is about to be freed.
     if (nc->areq) {
-      RequestSyncCtx_UnregisterAbortWakeChannel(&nc->areq->syncCtx);
+      RequestSyncCtx_UnregisterAbortWakeChannel(nc->areq->syncCtx);
     }
 #ifdef ENABLE_ASSERT
     // Drop the FT.DEBUG BG_PENDING_REPLIES handle before releasing the iterator.

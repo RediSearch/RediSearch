@@ -30,6 +30,7 @@ AREQ_Debug *AREQ_Debug_New(RedisModuleString **argv, int argc, QueryError *statu
   debug_req->debug_params = debug_params;
 
   AREQ *r = &debug_req->r;
+  r->syncCtx->query.areq = r;
   AREQ_AddRequestFlags(r, QEXEC_F_DEBUG);
 
   return debug_req;

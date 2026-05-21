@@ -1791,7 +1791,7 @@ static int buildPipelineAndExecute(AREQ *r, RedisModuleCtx *ctx, QueryError *sta
       if (policy == TimeoutPolicy_Fail) {
         blockClientCtx.timeoutCallback = QueryTimeoutFailCallback;
       } else {
-        r->syncCtx.requiresAggregateResultsSync = true;
+        r->syncCtx->requiresAggregateResultsSync = true;
         blockClientCtx.timeoutCallback = QueryTimeoutReturnStrictCallback;
       }
       blockClientCtx.replyCallback = QueryReplyCallback;
