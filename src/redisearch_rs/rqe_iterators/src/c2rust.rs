@@ -517,5 +517,18 @@ impl RQESuspendedIterator for CRQEIterator {
     fn last_doc_id(&self) -> t_docId {
         self.lastDocId
     }
+
+    fn num_estimated(&self) -> usize {
+        // Same as the Active impl: delegate to the C iterator's
+        // `NumEstimated` vtable entry. For C iterators the callback returns
+        // a primitive that doesn't depend on the spec read lock; for Rust
+        // iterators wrapped in `RQEIteratorWrapper`, the callback returns
+        // the wrapper's cached snapshot regardless of typestate.
+        // SAFETY: invariant 3. of [`CRQEIterator::header`] guarantees the
+        // callback is non-null.
+        let callback = unsafe { self.NumEstimated.unwrap_unchecked() };
+        // SAFETY: same as the Active impl — see [`CRQEIterator::num_estimated`].
+        unsafe { callback(self.header.as_ptr()) }
+    }
 }
 

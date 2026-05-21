@@ -485,6 +485,10 @@ impl<const N: usize> rqe_iterators::RQESuspendedIterator for MockSuspended<N> {
     fn last_doc_id(&self) -> ffi::t_docId {
         self._doc_ids.get(self._next_index.saturating_sub(1)).copied().unwrap_or(0)
     }
+
+    fn num_estimated(&self) -> usize {
+        self._doc_ids.len()
+    }
 }
 
 /// Dynamic-size variant of [`Mock`] that uses a [`Vec`] instead of a fixed array.

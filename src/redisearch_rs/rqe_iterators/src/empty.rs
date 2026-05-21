@@ -107,4 +107,8 @@ impl RQESuspendedIterator for Empty {
     fn last_doc_id(&self) -> t_docId {
         0
     }
+
+    fn num_estimated(&self) -> usize {
+        0
+    }
 }

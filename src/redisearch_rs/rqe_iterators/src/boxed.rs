@@ -150,6 +150,15 @@ pub trait RQESuspendedIterator: 'static {
     /// resuming. Composite iterators use this during resume to compare
     /// their previous position against the child's pre-resume position.
     fn last_doc_id(&self) -> t_docId;
+
+    /// Read the cached `num_estimated` from the suspended state without
+    /// resuming. Used by FFI introspection (`FT.PROFILE` printing) which
+    /// is called after the iterator has been suspended at the unlock site.
+    ///
+    /// The value is an estimate, so returning a snapshot from construction
+    /// is acceptable — the underlying invariant is that the FFI consumer
+    /// uses it for display only.
+    fn num_estimated(&self) -> usize;
 }
 
 /// Dyn-safe sibling of [`RQEIteratorBoxed`].
@@ -182,6 +191,8 @@ pub trait RQEDynSuspendedIterator: 'static {
     ) -> (BoxedRQEIterator<'a>, ValidateStatus);
 
     fn last_doc_id(&self) -> t_docId;
+
+    fn num_estimated(&self) -> usize;
 }
 
 /// Type-erased, active iterator.
@@ -247,6 +258,10 @@ impl<S: RQESuspendedIterator> RQEDynSuspendedIterator for S {
 
     fn last_doc_id(&self) -> t_docId {
         <S as RQESuspendedIterator>::last_doc_id(self)
+    }
+
+    fn num_estimated(&self) -> usize {
+        <S as RQESuspendedIterator>::num_estimated(self)
     }
 }
 
@@ -343,5 +358,9 @@ impl RQESuspendedIterator for BoxedRQESuspendedIterator {
 
     fn last_doc_id(&self) -> t_docId {
         self.0.last_doc_id()
+    }
+
+    fn num_estimated(&self) -> usize {
+        self.0.num_estimated()
     }
 }

@@ -690,8 +690,12 @@ where
     fn last_doc_id(&self) -> t_docId {
         self.last_doc_id
     }
+
+    fn num_estimated(&self) -> usize {
+        self.num_expected
+    }
 }
- 
+
 impl<'index> crate::interop::ProfileChildren<'index>
     for Intersection<'index, crate::c2rust::CRQEIterator>
 {

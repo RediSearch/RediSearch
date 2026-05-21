@@ -334,4 +334,24 @@ where
             }
         }
     }
+
+    fn num_estimated(&self) -> usize {
+        match &self.variant {
+            RawUnionVariant::FlatFull(it) => {
+                <RawUnionFlat<Suspended, S, false> as RQESuspendedIterator>::num_estimated(it)
+            }
+            RawUnionVariant::FlatQuick(it) => {
+                <RawUnionFlat<Suspended, S, true> as RQESuspendedIterator>::num_estimated(it)
+            }
+            RawUnionVariant::HeapFull(it) => {
+                <RawUnionHeap<Suspended, S, false> as RQESuspendedIterator>::num_estimated(it)
+            }
+            RawUnionVariant::HeapQuick(it) => {
+                <RawUnionHeap<Suspended, S, true> as RQESuspendedIterator>::num_estimated(it)
+            }
+            RawUnionVariant::Trimmed(it) => {
+                <RawUnionTrimmed<Suspended, S> as RQESuspendedIterator>::num_estimated(it)
+            }
+        }
+    }
 }

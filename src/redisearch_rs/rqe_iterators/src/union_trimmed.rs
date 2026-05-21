@@ -388,5 +388,9 @@ where
     fn last_doc_id(&self) -> t_docId {
         self.result.doc_id
     }
+
+    fn num_estimated(&self) -> usize {
+        self.num_estimated
+    }
 }
 

@@ -279,7 +279,12 @@ where
     fn last_doc_id(&self) -> t_docId {
         self.it.last_doc_id_field()
     }
+
+    fn num_estimated(&self) -> usize {
+        self.it.num_estimated_field()
+    }
 }
+
 impl<'index, R, E> RQEIterator<'index> for Numeric<'index, R, E>
 where
     R: NumericReader<'index>,
@@ -836,6 +841,18 @@ impl RQESuspendedIterator for NumericIteratorVariantSuspended {
             }
             NumericIteratorVariantSuspended::Filtered(it) => RQESuspendedIterator::last_doc_id(it),
             NumericIteratorVariantSuspended::Geo(it) => RQESuspendedIterator::last_doc_id(it),
+        }
+    }
+
+    fn num_estimated(&self) -> usize {
+        match self {
+            NumericIteratorVariantSuspended::Unfiltered(it) => {
+                RQESuspendedIterator::num_estimated(it)
+            }
+            NumericIteratorVariantSuspended::Filtered(it) => {
+                RQESuspendedIterator::num_estimated(it)
+            }
+            NumericIteratorVariantSuspended::Geo(it) => RQESuspendedIterator::num_estimated(it),
         }
     }
 }

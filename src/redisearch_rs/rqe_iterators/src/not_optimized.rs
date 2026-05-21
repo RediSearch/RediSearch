@@ -474,8 +474,12 @@ where
     fn last_doc_id(&self) -> t_docId {
         self.result.doc_id
     }
+
+    fn num_estimated(&self) -> usize {
+        self.wcii.num_estimated()
+    }
 }
- 
+
 impl<'index, W> NotIterator<'index>
     for NotOptimized<'index, W, Box<dyn RQEIterator<'index> + 'index>>
 where
