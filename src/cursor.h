@@ -32,13 +32,11 @@ typedef struct Cursor {
   WeakRef spec_ref;
 
   /**
-   * Hybrid request reference. This is a strong reference to the hybrid request.
-   * If the hybrid request is NULL, this is a regular cursor.
+   * Request sync context for the query parked on this cursor.
+   * Temporarily uses the underlying AREQ/HybridRequest refcount while
+   * RequestSyncCtx ownership is being inverted.
    */
-  StrongRef hybrid_ref;
-
-  /** Execution state. Opaque to the cursor - managed by consumer */
-  AREQ *execState;
+  RequestSyncCtx *query;
 
   /** Time when this cursor will no longer be valid, in nanos */
   uint64_t nextTimeoutNs;
@@ -71,6 +69,17 @@ typedef struct Cursor {
    *  Should only be accessed under cursor list lock */
   bool delete_mark;
 } Cursor;
+
+AREQ *Cursor_GetAREQ(const Cursor *cursor);
+
+static inline HybridRequest *Cursor_GetHybridRequest(const Cursor *cursor) {
+  return (cursor->query && cursor->query->kind == REQUEST_KIND_HYBRID) ? cursor->query->query.hreq
+                                                                       : NULL;
+}
+
+static inline bool Cursor_IsHybrid(const Cursor *cursor) {
+  return cursor->query && cursor->query->kind == REQUEST_KIND_HYBRID;
+}
 
 KHASH_MAP_INIT_INT64(cursors, Cursor *);
 /**

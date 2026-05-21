@@ -7,6 +7,7 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 #include "cursor.h"
+#include "hybrid/hybrid_request.h"
 #include "module.h"
 #include "resp3.h"
 #include <time.h>
@@ -26,6 +27,24 @@ static void Cursors_RequestRescheduleSweep(CursorList *cl);
 // coord cursors will have odd ids and regular cursors will have even ids
 CursorList g_CursorsList;
 CursorList g_CursorsListCoord;
+
+AREQ *Cursor_GetAREQ(const Cursor *cursor) {
+  if (!cursor->query) {
+    return NULL;
+  }
+  if (cursor->query->kind == REQUEST_KIND_AREQ) {
+    return cursor->query->query.areq;
+  }
+
+  HybridRequest *hreq = cursor->query->query.hreq;
+  for (size_t i = 0; i < hreq->nrequests; i++) {
+    AREQ *areq = hreq->requests[i];
+    if (areq->cursor_id == cursor->id) {
+      return areq;
+    }
+  }
+  return NULL;
+}
 
 static uint64_t curTimeNs() {
   struct timespec tv;
@@ -83,13 +102,13 @@ static void Cursor_FreeInternal(Cursor *cur) {
   kh_del(cursors, cl->lookup, khi);
   RS_LOG_ASSERT(kh_get(cursors, cl->lookup, cur->id) == kh_end(cl->lookup),
                                                     "Failed to delete cursor");
-  if (cur->hybrid_ref.rm) {
-    // The AREQ will be free by the hybrid request free function.
-    StrongRef_Release(cur->hybrid_ref);
-    cur->execState = NULL;
-  } else if (cur->execState) {
-    AREQ_DecrRef(cur->execState);
-    cur->execState = NULL;
+  if (cur->query) {
+    if (cur->query->kind == REQUEST_KIND_HYBRID) {
+      HybridRequest_DecrRef(cur->query->query.hreq);
+    } else {
+      AREQ_DecrRef(cur->query->query.areq);
+    }
+    cur->query = NULL;
   }
   // if There's a spec associated with the cursor
   if(cur->spec_ref.rm) {
@@ -316,8 +335,9 @@ static uint64_t CursorList_GenerateId(CursorList *curlist) {
 }
 
 static void cursorMarkASMInaccuracyCb(CursorList *cl, Cursor *cur, void *arg) {
-  if (cur->execState) {
-    cur->execState->stateflags |= QEXEC_S_ASM_TRIMMING_DELAY_TIMEOUT;
+  AREQ *req = Cursor_GetAREQ(cur);
+  if (req) {
+    req->stateflags |= QEXEC_S_ASM_TRIMMING_DELAY_TIMEOUT;
   }
 }
 
@@ -445,7 +465,7 @@ CursorTimeoutInfo Cursors_PeekTimeoutInfo(CursorList *cl, uint64_t cid) {
     info.queryTimeoutPolicy = cur->queryTimeoutPolicy;
     info.found = true;
 #ifdef ENABLE_ASSERT
-    info.isHybrid = (cur->hybrid_ref.rm != NULL);
+    info.isHybrid = Cursor_IsHybrid(cur);
 #endif
   }
   CursorList_Unlock(cl);

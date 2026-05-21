@@ -42,13 +42,8 @@ struct HybridRequest {
     ProfilePrinterCtx profileCtx;
 
     // Synchronization context for timeout/reply callbacks
-    // In Shard level, HybridRequest has two reference counting mechanisms working together:
-    // 1. StrongRef (RefManager.strong_refcount) - for cursor lifetime and cross-thread sharing
-    // 2. syncCtx.refcount - for timeout callback coordination (BlockedQueryNode)
-    // Both are valid: StrongRef_Release calls HybridRequest_DecrRef (via FreeHybridRequest callback),
-    // so the syncCtx.refcount initial value of 1 is implicitly owned by the StrongRef system.
-    // Additional HybridRequest_IncrRef calls (e.g., from BlockHybridQueryClientWithTimeout) safely
-    // add to syncCtx.refcount, and all decrements will happen correctly during cleanup.
+    // Temporary compatibility shim while RequestSyncCtx ownership is being inverted.
+    // Subsequent refactor slices remove this refcount and transfer the wrapper directly.
     RequestSyncCtx *syncCtx;
 
     // Flag to indicate whether to skip timeout checks using clock checks
@@ -116,9 +111,7 @@ static inline void HybridRequest_SetSkipTimeoutChecks(HybridRequest *req, bool s
 
 // Blocked client context for HybridRequest background execution
 typedef struct blockedClientHybridCtx {
-  // We keep a strong ref mainly for the sake of cursors amd life time management
-  // On the caller side it needs to know when he can free the hybrid request - especially when an error occurred.
-  StrongRef hybrid_ref;
+  HybridRequest *hreq;
   HybridPipelineParams *hybridParams;
   RedisModuleBlockedClient *blockedClient;
   WeakRef spec_ref;

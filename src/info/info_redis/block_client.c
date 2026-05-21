@@ -61,7 +61,8 @@ RedisModuleBlockedClient *BlockQueryClientWithTimeout(RedisModuleCtx *ctx, Stron
 
 RedisModuleBlockedClient *BlockCursorClientWithTimeout(RedisModuleCtx *ctx, Cursor *cursor, size_t count, BlockClientCtx *blockClientCtx) {
   RS_ASSERT(blockClientCtx != NULL);
-  RS_ASSERT(cursor->execState != NULL);
+  AREQ *req = Cursor_GetAREQ(cursor);
+  RS_ASSERT(req != NULL);
   RS_ASSERT(blockClientCtx->timeoutMS == 0 ||
             (blockClientCtx->timeoutCallback != NULL && blockClientCtx->replyCallback != NULL));
 
@@ -72,7 +73,7 @@ RedisModuleBlockedClient *BlockCursorClientWithTimeout(RedisModuleCtx *ctx, Curs
   // callbacks). Caller takes the extra ref (e.g. AREQ_IncrRef on FAIL);
   // FreeCursorNode releases it via freePrivData.
   BlockedCursorNode *node = BlockedQueries_AddCursor(blockedQueries, cursor->spec_ref, cursor->id,
-                                                     &cursor->execState->ast, count,
+                                                     &req->ast, count,
                                                      blockClientCtx->privdata,
                                                      blockClientCtx->freePrivData);
 

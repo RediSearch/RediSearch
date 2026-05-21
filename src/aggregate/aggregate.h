@@ -62,8 +62,8 @@ typedef struct {
  * ## Cursor ↔ AREQ Ownership
  *
  * **Cursor owns AREQ** (not vice versa):
- * - cursor->execState points to the AREQ
- * - Cursor_FreeInternal calls AREQ_DecrRef(cur->execState)
+ * - cursor->query points to the request sync context
+ * - Cursor_FreeInternal releases the request through cursor->query
  *
  * **AREQ does NOT own Cursor**:
  * - The `cursor` field below is a NON-OWNING handle.
