@@ -320,6 +320,12 @@ static void handleCollectLimit(ArgParser *parser, const void *value, void *user_
 // COLLECT ... SORTBY tie-breaker. Returns the slot key, or NULL when the
 // name collides with a user-visible key (in which case tie-break is
 // disabled for this COLLECT and a warning is logged).
+//
+// Known limitation: a stray document hash field literally named
+// `COLLECT_DOCID_SLOT` and not declared in the index schema collides
+// with this reservation at exec time and gets silently dropped from
+// the COLLECT output (LOAD * + FIELDS *). Narrow and not addressed
+// here. See the matching pytest for the reproducer.
 static const RLookupKey *reserveDocIdSlot(RLookup *srclookup) {
   static const char COLLECT_DOCID_SLOT[] = "__internal_collect_docid";
   static const uint32_t COLLECT_DOCID_REJECT_FLAGS = RLOOKUP_F_DOCSRC | RLOOKUP_F_SCHEMASRC;

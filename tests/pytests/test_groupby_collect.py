@@ -2055,3 +2055,40 @@ def test_collect_sortby_fields_star_does_not_drop_user_schema_field_on_slot_name
     # probe accidentally marked it hidden, the values come back empty.
     env.assertEqual(sorted(collected_values), sorted(user_values),
                     message=f'user @{slot_name} dropped from FIELDS *: {collected_values}')
+
+
+@skip(cluster=True)
+def test_collect_sortby_fields_star_drops_stray_hash_field_on_slot_name_collision_known_limitation():
+    """Known limitation: if a document hash field is named exactly
+    `__internal_collect_docid` but is NOT declared in the index schema,
+    the field is dropped from the COLLECT output. See
+    `reserveDocIdSlot()` in `src/aggregate/reducers/collect.c`."""
+    env = Env(protocol=3)
+    enable_unstable_features(env)
+    stray_field = '__internal_collect_docid'
+    env.expect('FT.CREATE', 'idx', 'ON', 'HASH',
+               'SCHEMA',
+               'color', 'TAG', 'SORTABLE',
+               'sweetness', 'NUMERIC', 'SORTABLE').ok()
+    conn = getConnectionByEnv(env)
+    user_values = ['alpha', 'beta', 'gamma', 'delta']
+    for i, val in enumerate(user_values):
+        conn.execute_command('HSET', f'doc:{i}',
+                             'color', 'black', 'sweetness', str(i),
+                             stray_field, val)
+
+    res = env.cmd(
+        'FT.AGGREGATE', 'idx', '@color:{black}',
+        'LOAD', '*',
+        'GROUPBY', '1', '@color',
+            'REDUCE', 'COLLECT', '6',
+                'FIELDS', '*',
+                'SORTBY', '2', '@sweetness', 'ASC',
+            'AS', 'collected')
+
+    attrs = res['results'][0]['extra_attributes']
+    # Known limitation: the stray hash field is silently dropped from
+    # every collected row.
+    for r in attrs['collected']:
+        env.assertNotIn(stray_field, r,
+            message=f'stray @{stray_field} unexpectedly present — limitation may be fixed; update this test')
