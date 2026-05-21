@@ -245,7 +245,6 @@ void HybridRequest_Init(HybridRequest *hybridReq, RedisSearchCtx *sctx, AREQ **r
     // Initialize timeout coordination fields
     hybridReq->syncCtx = RequestSyncCtx_NewHybrid(hybridReq);
     pthread_mutex_init(&hybridReq->cursorMutex, NULL);
-    hybridReq->storedReplyState.err = QueryError_Default();
 }
 
 HybridRequest *HybridRequest_New(RedisSearchCtx *sctx, AREQ **requests, size_t nrequests) {
@@ -332,9 +331,6 @@ void HybridRequest_Free(HybridRequest *req) {
 
     // Clean up the tail pipeline error
     QueryError_ClearError(&req->tailPipelineError);
-
-    // Clean up storedReplyState
-    ChunkReplyState_Destroy(&req->storedReplyState);
 
     // Destroy the cursor mutex
     pthread_mutex_destroy(&req->cursorMutex);

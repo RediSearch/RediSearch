@@ -194,7 +194,7 @@ static inline void debugCheckAndPauseAfterAggregateResult(AREQ *areq) {}
  }
 
  /**
-  * Drain results buffered post-timeout into `req->storedReplyState.results`.
+  * Drain results buffered post-timeout into the request sync context.
   * Only safe for pipelines classified as yielding partial results -- caller
   * must gate on `qctx->canYieldPartialResults` and perform any root-specific
   * pre-drain setup (such as flipping RPNet's `drainOnly` mode on the
@@ -211,7 +211,7 @@ static inline void debugCheckAndPauseAfterAggregateResult(AREQ *areq) {}
  void AREQ_DrainStoredResultsAfterTimeout(AREQ *req) {
    QueryProcessingCtx *qctx = AREQ_QueryProcessingCtx(req);
    ResultProcessor *endProc = qctx->endProc;
-   ChunkReplyState *stored = &req->storedReplyState;
+   ChunkReplyState *stored = RequestSyncCtx_GetReplyState(req->syncCtx);
    if (!stored->results) {
      stored->results = array_new(SearchResult *, 8);
    }

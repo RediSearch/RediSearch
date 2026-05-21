@@ -410,20 +410,22 @@ static inline void debugPauseHybridStoreCursors(HybridRequest *hreq, bool before
 /**
  * Store pipeline results for reply_callback path (FAIL policy with workers).
  * Called after startPipelineHybrid when using reply_callback mode.
- * Stores results in hreq->storedReplyState so serializeStoredResults_hybrid can be called
+ * Stores results in the request sync context so serializeStoredResults_hybrid can be called
  * from the reply_callback on the main thread.
  *
  * @param hreq The hybrid request
- * @param results Pipeline results (ownership transferred to storedReplyState)
+ * @param results Pipeline results (ownership transferred to the stored reply state)
  * @param rc Pipeline return code
  * @param cv Cached variables for result serialization
  */
 void HREQ_StoreResults(HybridRequest *hreq, SearchResult **results, int rc, cachedVars cv) {
+  ChunkReplyState *stored = RequestSyncCtx_GetReplyState(hreq->syncCtx);
+
   // Store results in hreq for reply_callback to use
-  hreq->storedReplyState.results = results;
-  hreq->storedReplyState.rc = rc;
-  hreq->storedReplyState.cv = cv;
-  hreq->storedReplyState.hasStoredResults = true;
+  stored->results = results;
+  stored->rc = rc;
+  stored->cv = cv;
+  stored->hasStoredResults = true;
 }
 
 // Helper for error handling in coordinator HREQ execution.
@@ -431,10 +433,11 @@ void HREQ_StoreResults(HybridRequest *hreq, SearchResult **results, int rc, cach
 // For RETURN policy: replies with error directly.
 void HREQ_ReplyOrStoreError(HybridRequest *hreq, RedisModuleCtx *ctx, QueryError *status) {
   if (RequestSyncCtx_UseReplyCallback(hreq->syncCtx)) {
+    ChunkReplyState *stored = RequestSyncCtx_GetReplyState(hreq->syncCtx);
     // Deep copy since QueryError contains heap-allocated strings.
     // reply_callback will clear the stored error after replying.
-    QueryError_ClearError(&hreq->storedReplyState.err);
-    QueryError_CloneFrom(status, &hreq->storedReplyState.err);
+    QueryError_ClearError(&stored->err);
+    QueryError_CloneFrom(status, &stored->err);
     // Clear the original to avoid leaking heap-allocated strings.
     QueryError_ClearError(status);
   } else {
@@ -507,7 +510,7 @@ done_err:
 void serializeStoredResults_hybrid(HybridRequest *hreq, RedisModule_Reply *reply) {
     QueryProcessingCtx *qctx = &hreq->tailPipeline->qctx;
     ResultProcessor *rp = qctx->endProc;
-    ChunkReplyState *stored = &hreq->storedReplyState;
+    ChunkReplyState *stored = RequestSyncCtx_GetReplyState(hreq->syncCtx);
 
     // Create a stack-allocated SearchResult for finishSendChunk_HREQ cleanup
     SearchResult r = SearchResult_New();
@@ -881,10 +884,11 @@ static int HybridQueryCursorReplyCallback(RedisModuleCtx *ctx, RedisModuleString
   }
 
   HybridRequest *req = RequestSyncCtx_GetHybridRequest((RequestSyncCtx *)node->privdata);
+  ChunkReplyState *stored = RequestSyncCtx_GetReplyState(req->syncCtx);
 
-  if (QueryError_HasError(&req->storedReplyState.err)) {
-    QueryErrorsGlobalStats_UpdateError(QueryError_GetCode(&req->storedReplyState.err), 1, SHARD_ERR_WARN);
-    QueryError_ReplyAndClear(ctx, &req->storedReplyState.err);
+  if (QueryError_HasError(&stored->err)) {
+    QueryErrorsGlobalStats_UpdateError(QueryError_GetCode(&stored->err), 1, SHARD_ERR_WARN);
+    QueryError_ReplyAndClear(ctx, &stored->err);
     return REDISMODULE_OK;
   }
 
@@ -911,13 +915,14 @@ static int HybridQueryReplyCallback(RedisModuleCtx *ctx, RedisModuleString **arg
   }
 
   HybridRequest *req = RequestSyncCtx_GetHybridRequest((RequestSyncCtx *)node->privdata);
+  ChunkReplyState *stored = RequestSyncCtx_GetReplyState(req->syncCtx);
 
   // Check if results were stored (background thread completed successfully)
-  if (!req->storedReplyState.hasStoredResults) {
+  if (!stored->hasStoredResults) {
     // Background thread didn't store results - some early error occurred.
-    if (QueryError_HasError(&req->storedReplyState.err)) {
-      QueryErrorsGlobalStats_UpdateError(QueryError_GetCode(&req->storedReplyState.err), 1, COORD_ERR_WARN);
-      QueryError_ReplyAndClear(ctx, &req->storedReplyState.err);
+    if (QueryError_HasError(&stored->err)) {
+      QueryErrorsGlobalStats_UpdateError(QueryError_GetCode(&stored->err), 1, COORD_ERR_WARN);
+      QueryError_ReplyAndClear(ctx, &stored->err);
     } else {
       RedisModule_ReplyWithError(ctx, "Internal error: no results stored");
     }

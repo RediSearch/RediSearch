@@ -42,7 +42,7 @@ void CoordRequestCtx_Free(CoordRequestCtx *ctx) {
     if (ctx->hreq) HybridRequest_DecrRef(ctx->hreq);
   } else if (ctx->type == COMMAND_AGGREGATE) {
     if (ctx->areq) {
-      // Dispose any cursor stashed in storedReplyState.cursor by runCursor.
+      // Dispose any cursor stashed in the request sync context by runCursor.
       // Skipped for RETURN_STRICT: the cursor survives timeout and a delayed
       // free_privdata for an earlier Read could otherwise free a cursor that
       // a later Read has already parked in the same AREQ slot. Trade-off is

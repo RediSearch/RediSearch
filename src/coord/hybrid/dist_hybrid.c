@@ -1002,7 +1002,7 @@ int DistHybridTimeoutFailClient(RedisModuleCtx *ctx, RedisModuleString **argv, i
 
 // Reply callback for Coordinator HybridRequest execution (FAIL policy).
 // Called on the main thread when the background thread calls UnblockClient.
-// The background thread stored results in hreq->storedReplyState, which we use to build the reply.
+// The background thread stored results in the sync context, which we use to build the reply.
 // Note: This callback is NOT called if timeout fired first (bc->client becomes NULL).
 int DistHybridReplyCallback(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
   UNUSED(argv);
@@ -1029,12 +1029,14 @@ int DistHybridReplyCallback(RedisModuleCtx *ctx, RedisModuleString **argv, int a
     return RedisModule_ReplyWithError(ctx, "Internal error: no hybrid request and no preRequestError");
   }
 
+  ChunkReplyState *stored = RequestSyncCtx_GetReplyState(hreq->syncCtx);
+
   // Check if results were stored (background thread completed successfully)
-  if (!hreq->storedReplyState.hasStoredResults) {
+  if (!stored->hasStoredResults) {
     // Background thread didn't store results - some early error occurred.
-    if (QueryError_HasError(&hreq->storedReplyState.err)) {
-      QueryErrorsGlobalStats_UpdateError(QueryError_GetCode(&hreq->storedReplyState.err), 1, COORD_ERR_WARN);
-      QueryError_ReplyAndClear(ctx, &hreq->storedReplyState.err);
+    if (QueryError_HasError(&stored->err)) {
+      QueryErrorsGlobalStats_UpdateError(QueryError_GetCode(&stored->err), 1, COORD_ERR_WARN);
+      QueryError_ReplyAndClear(ctx, &stored->err);
     } else {
       RedisModule_ReplyWithError(ctx, "Internal error: no results stored");
     }

@@ -55,7 +55,7 @@ static int prepareExecutionPlan(AREQ *req, QueryError *status);
 static int QueryReplyCallback(RedisModuleCtx *ctx, RedisModuleString **argv, int argc);
 
 // freePrivData for BlockCursorClientWithTimeout on the shard FAIL path. Drains any cursor
-// parked in storedReplyState before releasing our AREQ ref (no-op on the happy
+// parked in the request sync context before releasing our AREQ ref (no-op on the happy
 // path, where CursorReadReplyCallback already cleared it).
 static void ShardCursorBlockClient_FreeRSC(void *privdata) {
   RequestSyncCtx *rsc = (RequestSyncCtx *)privdata;
@@ -436,29 +436,30 @@ static void startPipeline(AREQ *req, ResultProcessor *rp, SearchResult ***result
 /**
  * Store pipeline results for reply_callback path.
  * Called after startPipeline when using reply_callback mode (FAIL policy with workers).
- * Stores results in req->storedReplyState so serializeAndReplyResults can be called
+ * Stores results in the request sync context so serializeAndReplyResults can be called
  * from the reply_callback on the main thread.
  *
  * @param req The aggregate request
- * @param results Pipeline results (ownership transferred to storedReplyState)
+ * @param results Pipeline results (ownership transferred to the stored reply state)
  * @param rc Pipeline return code
  * @param cv Cached variables for result serialization
  * @param limit Original limit passed to sendChunk (for RESP2 resultsLen calculation)
  */
 static void AREQ_StoreResults(AREQ *req, SearchResult **results, int rc, cachedVars cv, size_t limit) {
   QueryProcessingCtx *qctx = AREQ_QueryProcessingCtx(req);
+  ChunkReplyState *stored = RequestSyncCtx_GetReplyState(req->syncCtx);
 
   // Store results in AREQ for reply_callback to use
-  req->storedReplyState.results = results;
-  req->storedReplyState.rc = rc;
-  req->storedReplyState.cv = cv;
-  req->storedReplyState.limit = limit;
-  req->storedReplyState.hasStoredResults = true;
+  stored->results = results;
+  stored->rc = rc;
+  stored->cv = cv;
+  stored->limit = limit;
+  stored->hasStoredResults = true;
 
   // Deep copy error state since qctx->err points to a local variable in the caller
   // which will go out of scope. QueryError contains heap-allocated strings.
-  QueryError_ClearError(&req->storedReplyState.err);
-  QueryError_CloneFrom(qctx->err, &req->storedReplyState.err);
+  QueryError_ClearError(&stored->err);
+  QueryError_CloneFrom(qctx->err, &stored->err);
   QueryError_ClearError(qctx->err);
 }
 
@@ -1197,11 +1198,12 @@ static void blockedClientReqCtx_destroy(blockedClientReqCtx *BCRctx) {
 // For RETURN policy: replies with error directly.
 void AREQ_ReplyOrStoreError(AREQ *req, RedisModuleCtx *ctx, QueryError *status) {
   if (RequestSyncCtx_UseReplyCallback(req->syncCtx)) {
+    ChunkReplyState *stored = RequestSyncCtx_GetReplyState(req->syncCtx);
     // Clear destination before cloning to avoid leaking any existing error strings.
     // Deep copy since QueryError contains heap-allocated strings.
     // QueryReplyCallback will clear the stored error after replying.
-    QueryError_ClearError(&req->storedReplyState.err);
-    QueryError_CloneFrom(status, &req->storedReplyState.err);
+    QueryError_ClearError(&stored->err);
+    QueryError_CloneFrom(status, &stored->err);
     // Clear the original to avoid leaking heap-allocated strings.
     QueryError_ClearError(status);
     // Defensive: wake any RETURN_STRICT timer waiting on aggregateResultsDone.
@@ -1552,7 +1554,7 @@ void AREQ_SetCanYieldPartialResults(AREQ *req) {
       pipelineCanYieldPartialResults(req);
 }
 
-// Drain any queued partial results into `storedReplyState.results` on the main
+// Drain any queued partial results into the request sync context on the main
 // thread after the background pipeline has aborted. Shard pipelines need no
 // root-specific pre-drain setup (unlike the coordinator's RPNet drainOnly
 // flip), so this just gates and delegates the actual loop to the shared helper.
@@ -1603,7 +1605,7 @@ static int QueryTimeoutReturnStrictCallback(RedisModuleCtx *ctx, RedisModuleStri
   AREQ_WaitForAggregateResultsComplete(req);
 
   // BG signals only after AREQ_StoreResults
-  RS_ASSERT(req->storedReplyState.hasStoredResults);
+  RS_ASSERT(RequestSyncCtx_GetReplyState(req->syncCtx)->hasStoredResults);
 
   // Drain any results buffered post-timeout (e.g. RPSorter heap).
   // No-op for shapes that already accumulated their rows in state.results.
@@ -1619,7 +1621,7 @@ void AREQ_ReplyWithStoredResults(RedisModuleCtx *ctx, AREQ *req) {
   // Use stored state directly - no need to recompute cv, it was stored by AREQ_StoreResults
   QueryProcessingCtx *qctx = AREQ_QueryProcessingCtx(req);
   ResultProcessor *rp = qctx->endProc;
-  ChunkReplyState *stored = &req->storedReplyState;
+  ChunkReplyState *stored = RequestSyncCtx_GetReplyState(req->syncCtx);
 
   // Point qctx->err to the stored error so serializeAndReplyResults/finishSendChunk can access it.
   // This is the end of the request lifecycle, so no need to restore.
@@ -1671,7 +1673,7 @@ void AREQ_ReplyWithStoredResults(RedisModuleCtx *ctx, AREQ *req) {
 
 // Reply callback for AREQ execution in Run in Threads mode (FAIL policy).
 // Called on the main thread when the background thread calls UnblockClient.
-// The background thread stored results in req->storedReplyState, which we use to build the reply.
+// The background thread stored results in the sync context, which we use to build the reply.
 // Note: This callback is NOT called if timeout fired first (bc->client becomes NULL).
 // Reference counting: BlockedQueryNode holds a reference released via FreeQueryNode after this callback.
 static int QueryReplyCallback(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
@@ -1687,14 +1689,15 @@ static int QueryReplyCallback(RedisModuleCtx *ctx, RedisModuleString **argv, int
   }
 
   AREQ *req = RequestSyncCtx_GetAREQ((RequestSyncCtx *)node->privdata);
+  ChunkReplyState *stored = RequestSyncCtx_GetReplyState(req->syncCtx);
 
   // Check if results were stored (background thread completed successfully)
-  if (!req->storedReplyState.hasStoredResults) {
+  if (!stored->hasStoredResults) {
     // Background thread didn't store results - some early error occurred.
     // Use the stored error if available, otherwise generic error.
-    if (QueryError_HasError(&req->storedReplyState.err)) {
-      QueryErrorsGlobalStats_UpdateError(QueryError_GetCode(&req->storedReplyState.err), 1, !IsInternal(req));
-      QueryError_ReplyAndClear(ctx, &req->storedReplyState.err);
+    if (QueryError_HasError(&stored->err)) {
+      QueryErrorsGlobalStats_UpdateError(QueryError_GetCode(&stored->err), 1, !IsInternal(req));
+      QueryError_ReplyAndClear(ctx, &stored->err);
     } else {
       RedisModule_ReplyWithError(ctx, "ERR Internal error: no results stored");
     }
@@ -1751,12 +1754,13 @@ static int CursorReadReplyCallback(RedisModuleCtx *ctx, RedisModuleString **argv
   }
 
   AREQ *req = RequestSyncCtx_GetAREQ((RequestSyncCtx *)node->privdata);
+  ChunkReplyState *stored = RequestSyncCtx_GetReplyState(req->syncCtx);
 
-  if (!req->storedReplyState.hasStoredResults) {
+  if (!stored->hasStoredResults) {
     // Background thread didn't store results - some early error occurred.
-    if (QueryError_HasError(&req->storedReplyState.err)) {
-      QueryErrorsGlobalStats_UpdateError(QueryError_GetCode(&req->storedReplyState.err), 1, !IsInternal(req));
-      QueryError_ReplyAndClear(ctx, &req->storedReplyState.err);
+    if (QueryError_HasError(&stored->err)) {
+      QueryErrorsGlobalStats_UpdateError(QueryError_GetCode(&stored->err), 1, !IsInternal(req));
+      QueryError_ReplyAndClear(ctx, &stored->err);
     } else {
       RedisModule_ReplyWithError(ctx, "ERR Internal error: no results stored");
     }
@@ -1977,8 +1981,8 @@ static void runCursor(RedisModule_Reply *reply, Cursor *cursor, size_t num) {
 
   if (RequestSyncCtx_UseReplyCallback(req->syncCtx)) {
     // Stash the cursor BEFORE sendChunk: sendChunk's signal can wake the
-    // timeout_callback, which reads storedReplyState.cursor to pause/free it.
-    req->storedReplyState.cursor = cursor;
+    // timeout_callback, which reads the stored cursor to pause/free it.
+    RequestSyncCtx_GetReplyState(req->syncCtx)->cursor = cursor;
   }
 
   sendChunk(req, reply, num);

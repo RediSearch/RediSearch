@@ -193,8 +193,9 @@ typedef struct RequestSyncCtx {
   // Reference count for shared ownership between timeout callback (main thread) and background thread
   uint8_t refcount;
   // Reply mode for the current compatibility cycle. Mirrored to the request until
-  // storedReplyState moves onto RequestSyncCtx.
+  // callers are fully switched to the sync context.
   bool useReplyCallback;
+  ChunkReplyState storedReplyState;
 
   /* Partial-timeout coordination. The CAS claim grants exclusive ownership of
    * the result-production phase: the BG-thread winner runs AggregateResults
@@ -226,6 +227,7 @@ static inline void RequestSyncCtx_Init(RequestSyncCtx *ctx, RequestKind kind, vo
   ctx->timedOut = false;
   ctx->refcount = 1;
   ctx->useReplyCallback = false;
+  ctx->storedReplyState.err = QueryError_Default();
   ctx->requiresAggregateResultsSync = false;
   ctx->aggregatingResults = false;
   ctx->aggregateResultsDone = false;
@@ -247,6 +249,7 @@ void RequestSyncCtx_ReleaseQueryRef(RequestSyncCtx *ctx);
 void RequestSyncCtx_ReleaseQueryRefCB(void *ctx);
 bool RequestSyncCtx_UseReplyCallback(RequestSyncCtx *ctx);
 void RequestSyncCtx_SetUseReplyCallback(RequestSyncCtx *ctx, bool useReplyCallback);
+ChunkReplyState *RequestSyncCtx_GetReplyState(RequestSyncCtx *ctx);
 
 // Release resources owned by a RequestSyncCtx. Must be called exactly once
 // per successful Init, from the request's free path.
@@ -347,10 +350,6 @@ struct AREQ {
 
   bool useReplyCallback;
 
-  // State for reply_callback path (FAIL policy with workers)
-  // Background thread stores results here, then calls UnblockClient.
-  // The reply_callback reads from here to build the reply on the main thread.
-  ChunkReplyState storedReplyState;
 };
 
 /**
@@ -538,11 +537,11 @@ AREQ *AREQ_IncrRef(AREQ *req);
 void AREQ_DecrRef(AREQ *req);
 
 /**
- * Free a cursor parked in `req->storedReplyState.cursor`, if any.
+ * Free a cursor parked in the request sync context's stored reply state, if any.
  * Used by cleanup paths to release a cursor left behind when the
  * blocked-client timeout fires before the reply callback runs and
  * drains it via `AREQ_ReplyWithStoredResults`.
- * No-op when `storedReplyState.cursor` is NULL.
+ * No-op when no cursor is stored.
  */
 void AREQ_CleanUpStoredCursor(AREQ *req);
 

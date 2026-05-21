@@ -84,7 +84,7 @@ void startPipelineCommon(CommonPipelineCtx *ctx, ResultProcessor *rp, SearchResu
 bool pipelineCanYieldPartialResults(struct AREQ *r);
 
 /**
- * Drain results buffered post-timeout into `req->storedReplyState.results`.
+ * Drain results buffered post-timeout into the request sync context.
  * Only safe for pipelines classified as yielding partial results -- caller
  * must gate on `qctx->canYieldPartialResults` and perform any root-specific
  * pre-drain setup (such as flipping RPNet's `drainOnly` mode on the

@@ -1098,6 +1098,7 @@ void RequestSyncCtx_Free(RequestSyncCtx *ctx) {
   if (!ctx) {
     return;
   }
+  ChunkReplyState_Destroy(&ctx->storedReplyState);
   if (ctx->kind == REQUEST_KIND_AREQ) {
     AREQ_Free(ctx->query.areq);
   } else {
@@ -1172,6 +1173,10 @@ void RequestSyncCtx_SetUseReplyCallback(RequestSyncCtx *ctx, bool useReplyCallba
   }
 }
 
+ChunkReplyState *RequestSyncCtx_GetReplyState(RequestSyncCtx *ctx) {
+  return ctx ? &ctx->storedReplyState : NULL;
+}
+
 AREQ *AREQ_New(void) {
   AREQ* req = rm_calloc(1, sizeof(AREQ));
   /*
@@ -1193,7 +1198,6 @@ AREQ *AREQ_New(void) {
   req->keySpaceVersion = INVALID_KEYSPACE_VERSION;
   req->querySlots = NULL;
   req->syncCtx = RequestSyncCtx_NewAREQ(req);
-  req->storedReplyState.err = QueryError_Default();
   return req;
 }
 
@@ -1726,8 +1730,6 @@ void ChunkReplyState_Destroy(ChunkReplyState *state) {
 }
 
 static void AREQ_Free(AREQ *req) {
-  ChunkReplyState_Destroy(&req->storedReplyState);
-
   // Check if rootiter exists but pipeline was never built (no result processors)
   // In this case, we need to free the rootiter manually since no RPQueryIterator
   // was created to take ownership of it.
@@ -1821,9 +1823,9 @@ void AREQ_DecrRef(AREQ *req) {
 }
 
 void AREQ_CleanUpStoredCursor(AREQ *req) {
-  if (req->storedReplyState.cursor) {
-    Cursor *cursor = req->storedReplyState.cursor;
-    req->storedReplyState.cursor = NULL;
+  if (RequestSyncCtx_GetReplyState(req->syncCtx)->cursor) {
+    Cursor *cursor = RequestSyncCtx_GetReplyState(req->syncCtx)->cursor;
+    RequestSyncCtx_GetReplyState(req->syncCtx)->cursor = NULL;
     Cursor_Free(cursor);
   }
 }
