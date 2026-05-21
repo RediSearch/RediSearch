@@ -2734,6 +2734,7 @@ static int FieldSpec_RdbLoad(RedisModuleIO *rdb, FieldSpec *f, StrongRef sp_ref,
     // immediate free — and let one of those two callers release it.
     if (useSst) {
       RS_ASSERT(SearchDisk_IsEnabled());
+      RS_ASSERT(encver >= INDEX_DISK_VERSION);
       const bool vecSimWithData = LoadUnsigned_IOError(rdb, goto fail) != 0;
       if (vecSimWithData) {
         size_t blobLen = 0;
@@ -3414,11 +3415,13 @@ static void IndexSpec_SSTRdbSave(RedisModuleIO *rdb, IndexSpec *sp) {
 // and replays the in-memory blob stashed on the matching FieldSpec.
 //
 // Returns true on success (sp->diskSpec is set and ready to register).
-// Returns false if SearchDisk_OpenIndexWithRdbState fails. Note that the
-// state (sp->pendingDiskRdbState) is consumed by that call on both success
-// and failure — we null the pointer here unconditionally. Any unapplied
-// per-field blobs are released by FieldSpec_Cleanup when the spec is freed
-// on the failure path.
+// Returns false if SearchDisk_OpenIndexWithRdbState fails, or if any
+// disk-backed vector field cannot be eagerly created. Note that the
+// state (sp->pendingDiskRdbState) is consumed by SearchDisk_OpenIndexWithRdbState
+// on both success and failure — we null the pointer here unconditionally.
+// On the failure path, sp->diskSpec (if already created) is closed by the
+// spec destructor; any unapplied per-field blobs and partially-created
+// vecSimIndexes are released by FieldSpec_Cleanup when the spec is freed.
 static bool IndexSpec_SSTRdbOpenAndApply(RedisModuleCtx *ctx, IndexSpec *sp) {
   // The disk layer consumes pendingDiskRdbState by ownership: max_doc_id and
   // deleted_ids are moved into the spec. Per-field vector blobs are stashed
@@ -3437,6 +3440,10 @@ static bool IndexSpec_SSTRdbOpenAndApply(RedisModuleCtx *ctx, IndexSpec *sp) {
   // state. We do this up front (rather than relying on lazy creation via
   // openVectorIndex on the query path) so the HNSW graph metadata + SQ8
   // vectors are available to readers immediately after RDB load completes.
+  // This is the only replay point for fs->vectorOpts.pendingRdbBlob, so if
+  // the disk-backed VecSimIndex cannot be created the staged blob would be
+  // silently dropped and the spec would finish loading with an empty vector
+  // index — we treat that as fatal and let the caller drop the spec.
   for (int i = 0; i < sp->numFields; i++) {
     FieldSpec *fs = &sp->fields[i];
     if (!FIELD_IS(fs, INDEXFLD_T_VECTOR)) continue;
@@ -3444,9 +3451,9 @@ static bool IndexSpec_SSTRdbOpenAndApply(RedisModuleCtx *ctx, IndexSpec *sp) {
     VecSimIndex *vecsim = openVectorIndex(ctx, fs, CREATE_INDEX);
     if (!vecsim) {
       RedisModule_Log(RSDummyContext, "warning",
-                      "Failed to eagerly create disk vector index for field %u during RDB load",
+                      "Failed to eagerly create disk vector index for field %u during RDB load; aborting spec load",
                       fs->index);
-      continue;
+      return false;
     }
     // Drain the per-field blob stashed by FieldSpec_RdbLoad and replay it
     // into the freshly-created VecSimIndex. pendingRdbBlob is NULL when the
@@ -3475,6 +3482,22 @@ static bool IndexSpec_SSTRdbOpenAndApply(RedisModuleCtx *ctx, IndexSpec *sp) {
 }
 
 void IndexSpec_RdbSave(RedisModuleIO *rdb, IndexSpec *sp, int contextFlags) {
+  // When saving disk-backed state from the main process, acquire the spec
+  // read lock before serializing any field state. FieldSpec_RdbSave
+  // serializes the in-memory VecSimIndex of disk-backed vector fields (gated
+  // by REDISMODULE_CTX_FLAGS_SST_RDB), and background tiered-index threads
+  // can mutate that index concurrently. The same lock also guards the
+  // spec-level SST block below (terms trie, scoring stats, disk metadata).
+  // In a forked child the memory is a snapshot and no lock is needed.
+  const bool storeDiskRdbData = contextFlags & REDISMODULE_CTX_FLAGS_SST_RDB;
+  const bool inMainProcess = !(contextFlags & REDISMODULE_CTX_FLAGS_IS_CHILD);
+  const bool needLock = sp->diskSpec && storeDiskRdbData && inMainProcess;
+  RedisModuleCtx *ctx = RedisModule_GetContextFromIO(rdb);
+  RedisSearchCtx sctx = SEARCH_CTX_STATIC(ctx, sp);
+  if (needLock) {
+    RedisSearchCtx_LockSpecRead(&sctx);
+  }
+
   // Save the name plus the null terminator
   HiddenString_SaveToRdb(sp->specName, rdb);
   RedisModule_SaveUnsigned(rdb, (uint64_t)sp->flags);
@@ -3505,7 +3528,6 @@ void IndexSpec_RdbSave(RedisModuleIO *rdb, IndexSpec *sp, int contextFlags) {
     RedisModule_SaveUnsigned(rdb, 0);
   }
 
-  const bool storeDiskRdbData = contextFlags & REDISMODULE_CTX_FLAGS_SST_RDB;
   // Disk index
   // Check if we are using SST files with this RDB. If so, we save the disk-related
   // RAM-based data-structures to the RDB. Both save and load paths go through
@@ -3514,23 +3536,14 @@ void IndexSpec_RdbSave(RedisModuleIO *rdb, IndexSpec *sp, int contextFlags) {
   // We assume symmetry w.r.t this context flag. I.e., If it is not set, we
   // assume it was not set in when the RDB will be loaded as well
   if (sp->diskSpec && storeDiskRdbData) {
-    // If we're saving from the main process (not a fork), we need to acquire
-    // the read lock to ensure consistent access to the data structures.
-    // In a forked child process, the memory is a snapshot so no lock is needed.
-    RedisModuleCtx *ctx = RedisModule_GetContextFromIO(rdb);
-    RedisSearchCtx sctx = SEARCH_CTX_STATIC(ctx, sp);
-    const bool inMainProcess = !(contextFlags & REDISMODULE_CTX_FLAGS_IS_CHILD);
-    if (inMainProcess) {
-      RedisSearchCtx_LockSpecRead(&sctx);
-    }
     IndexScoringStats_RdbSave(rdb, &sp->stats.scoring);
     TrieType_GenericSave(rdb, sp->terms, false, true);
     IndexSpec_SSTRdbSave(rdb, sp);
-    if (inMainProcess) {
-      RedisSearchCtx_UnlockSpec(&sctx);
-    }
   }
 
+  if (needLock) {
+    RedisSearchCtx_UnlockSpec(&sctx);
+  }
 }
 
 static void IndexSpec_NormalizeStorageFlagsOnLoad(IndexFlags *flags) {
@@ -4872,9 +4885,12 @@ void Indexes_FinishSSTReplication(RedisModuleCtx *ctx) {
   dictReleaseIterator(iter);
 
   if (failed) {
-    // diskRegistered is false and diskSpec is NULL on these specs, so
-    // SearchDisk_UnregisterIndex is not needed; IndexSpec_FreeUnlinkedData
-    // performs final cleanup when the last StrongRef is dropped.
+    // diskRegistered is false on these specs (SearchDisk_RegisterIndex never
+    // ran), so SearchDisk_UnregisterIndex is not needed. diskSpec may be NULL
+    // (SearchDisk_OpenIndexWithRdbState failed) or non-NULL (open succeeded
+    // but eager vector-index creation failed); IndexSpec_FreeUnlinkedData
+    // closes a non-NULL diskSpec via SearchDisk_CloseIndex when the last
+    // StrongRef is dropped.
     for (size_t i = 0; i < array_len(failed); ++i) {
       IndexSpec_RemoveFromGlobals(failed[i], false);
     }

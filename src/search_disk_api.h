@@ -28,7 +28,7 @@ typedef const void* RedisSearchDiskIndexSpec;
 typedef const void* RedisSearchDiskInvertedIndex;
 typedef const void* RedisSearchDiskIterator;
 typedef void* RedisSearchDiskAsyncReadPool;
-// Opaque handle to a temporary RDB state object. ¡
+// Opaque handle to a temporary RDB state object.
 //
 // Per-field vector blobs are NOT carried here — they ride inline with each
 // field's own RDB encoding (FieldSpec_RdbSave / FieldSpec_RdbLoad) and are
