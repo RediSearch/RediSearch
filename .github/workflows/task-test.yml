@@ -174,9 +174,10 @@ jobs:
     env:
       # LTO is disabled on coverage and sanitizer tasks
       LTO: ${{ needs.get-config.outputs.enable_lto == '1' && inputs.san == '' && !inputs.coverage && 1 || 0 }}
-      # Gates work-in-progress features. Keep 1 on master;
-      # set to 0 on release/backport branches to exclude unreleased code.
-      WIP_FEATURES: 1
+      # Gates WIP features for every step in this job (build + test runs).
+      # Master = 1, version/backport branches = 0, so build and tests stay
+      # in sync with the release artifact.
+      WIP_FEATURES: ${{ (github.base_ref || github.ref_name) == 'master' && '1' || '0' }}
 
     defaults:
       run:
@@ -374,8 +375,6 @@ jobs:
           SAN: ${{ inputs.san }}
           REDIS_VER: ${{ inputs.redis-ref }}
           ENABLE_ASSERT: 1
-          # The `master` branch is the only one that should include WIP features.
-          WIP_FEATURES: ${{ (github.base_ref || github.ref_name) == 'master' && '1' || '0' }}
         run: make build TESTS=1 WIP_FEATURES=$WIP_FEATURES
       - name: Validate glibc version
         if: runner.os == 'Linux' && inputs.platform != 'ubuntu:focal'

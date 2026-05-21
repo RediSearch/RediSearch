@@ -54,6 +54,7 @@ jobs:
           s3-region: ${{ vars.SCCACHE_S3_REGION }}
           s3-key-prefix: ${{ vars.SCCACHE_S3_KEY_PREFIX }}
       - name: Build RediSearch
+        # Benchmark numbers should reflect release behavior — exclude WIP code.
         run: make build LTO=1 WIP_FEATURES=0
       - name: Show sccache stats
         run: ${SCCACHE_PATH:-sccache} --show-stats
