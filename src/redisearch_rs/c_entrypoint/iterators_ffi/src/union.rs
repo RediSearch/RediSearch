@@ -20,7 +20,7 @@ use rqe_iterator_type::IteratorType;
 use rqe_iterators::{
     IteratorsConfig, RQEIterator,
     c2rust::CRQEIterator,
-    interop::RQEIteratorWrapper,
+    interop::{InnerState, RQEIteratorWrapper},
     union_opaque::{UnionOpaque, build_union, build_union_with_q_str},
 };
 
@@ -137,7 +137,10 @@ pub unsafe extern "C" fn GetUnionIteratorNumChildren(it: *const QueryIterator) -
     debug_assert_eq!(unsafe { (*it).type_ }, IteratorType::Union);
     // SAFETY: caller guarantees `it` is valid and points to a union iterator (1).
     let wrapper = unsafe { UnionWrapper::ref_from_header_ptr(it) };
-    wrapper.inner().num_children_total()
+    match wrapper.state() {
+        InnerState::Active(it) => it.num_children_total(),
+        InnerState::Suspended(it) => it.num_children_total(),
+    }
 }
 
 /// Returns a non-owning raw pointer to the child at `idx`.
@@ -157,7 +160,11 @@ pub unsafe extern "C" fn GetUnionIteratorChild(
     debug_assert_eq!(unsafe { (*it).type_ }, IteratorType::Union);
     // SAFETY: caller guarantees `it` is valid and points to a union iterator (1).
     let wrapper = unsafe { UnionWrapper::ref_from_header_ptr(it) };
-    match wrapper.inner().child_at(idx) {
+    let child = match wrapper.state() {
+        InnerState::Active(it) => it.child_at(idx),
+        InnerState::Suspended(it) => it.child_at(idx),
+    };
+    match child {
         Some(child) => child.as_ref() as *const QueryIterator,
         None => std::ptr::null(),
     }
@@ -176,7 +183,10 @@ pub unsafe extern "C" fn GetUnionIteratorQueryNodeType(it: *const QueryIterator)
     debug_assert_eq!(unsafe { (*it).type_ }, IteratorType::Union);
     // SAFETY: caller guarantees `it` is valid and points to a union iterator (1).
     let wrapper = unsafe { UnionWrapper::ref_from_header_ptr(it) };
-    wrapper.inner().query_node_type
+    match wrapper.state() {
+        InnerState::Active(it) => it.query_node_type,
+        InnerState::Suspended(it) => it.query_node_type,
+    }
 }
 
 /// Returns the query string pointer stored in the union iterator, or null.
@@ -192,10 +202,17 @@ pub unsafe extern "C" fn GetUnionIteratorQueryString(it: *const QueryIterator) -
     debug_assert_eq!(unsafe { (*it).type_ }, IteratorType::Union);
     // SAFETY: caller guarantees `it` is valid and points to a union iterator (1).
     let wrapper = unsafe { UnionWrapper::ref_from_header_ptr(it) };
-    wrapper
-        .inner()
-        .query_string
-        .map_or(std::ptr::null(), |sp| sp.get().as_ptr())
+    // The query-string borrow is mode-independent (it points into the AST, not
+    // the index), so read its raw pointer regardless of Active/Suspended state.
+    match wrapper.state() {
+        InnerState::Active(it) => it
+            .query_string
+            .map_or(std::ptr::null(), |sp| sp.as_raw() as *const c_char),
+        InnerState::Suspended(it) => it
+            .query_string
+            .map_or(std::ptr::null(), |sp| sp.as_raw() as *const c_char),
+    }
+
 }
 
 
