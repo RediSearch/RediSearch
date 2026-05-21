@@ -62,6 +62,26 @@ pub struct RawUnionHeap<'query, Rf: Ref, I, const QUICK_EXIT: bool> {
 pub type UnionHeap<'index, I, const QUICK_EXIT: bool> =
     RawUnionHeap<'index, Active<'index>, I, QUICK_EXIT>;
 
+impl<'query, Rf: Ref, I, const QUICK_EXIT: bool> RawUnionHeap<'query, Rf, I, QUICK_EXIT> {
+    /// Returns the total number of children (including exhausted ones).
+    /// Mode-independent.
+    pub const fn num_children_total(&self) -> usize {
+        self.children.len()
+    }
+
+    /// Returns the number of currently active (non-exhausted) children.
+    /// Mode-independent.
+    pub const fn num_children_active(&self) -> usize {
+        self.num_active
+    }
+
+    /// Returns a shared reference to the child originally at insertion index `idx`.
+    /// Mode-independent — see [`UnionHeap::child_at`] for the original docs.
+    pub fn child_at(&self, idx: usize) -> Option<&I> {
+        self.children.get(idx)
+    }
+}
+
 impl<'index, I, const QUICK_EXIT: bool> UnionHeap<'index, I, QUICK_EXIT>
 where
     I: RQEIterator<'index>,
@@ -92,24 +112,6 @@ where
             result: RSIndexResult::build_union(num_children).build(),
             heap: DocIdMinHeap::with_capacity(num_children),
         }
-    }
-
-    /// Returns the total number of children (including exhausted ones).
-    pub const fn num_children_total(&self) -> usize {
-        self.children.len()
-    }
-
-    /// Returns the number of currently active (non-exhausted) children.
-    pub const fn num_children_active(&self) -> usize {
-        self.num_active
-    }
-
-    /// Returns a shared reference to the child originally at insertion index `idx`.
-    ///
-    /// If any child was removed, there is no guarantee that the same child will be at this position.
-    /// Returns [`None`] if the child is out of range.
-    pub fn child_at(&self, idx: usize) -> Option<&I> {
-        self.children.get(idx)
     }
 
     /// Returns a mutable iterator over all children (including exhausted ones).
