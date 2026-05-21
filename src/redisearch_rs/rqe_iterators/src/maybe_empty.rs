@@ -272,10 +272,10 @@ where
 
     fn num_estimated(&self) -> usize {
         match &self.0 {
-            // Empty is its own suspended counterpart; disambiguate against
-            // `RQEIterator::num_estimated`.
-            MaybeEmptyOption::None(empty) => RQESuspendedIterator::num_estimated(empty),
-            MaybeEmptyOption::Some(child) => S::num_estimated(child),
+            MaybeEmptyOption::None(empty) => {
+                <Empty as RQESuspendedIterator>::num_estimated(empty)
+            }
+            MaybeEmptyOption::Some(child) => <S as RQESuspendedIterator>::num_estimated(child),
         }
     }
 }

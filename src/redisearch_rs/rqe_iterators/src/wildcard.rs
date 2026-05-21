@@ -166,10 +166,10 @@ impl<'query> RQESuspendedIterator<'query> for RawWildcard<'query, Suspended> {
     }
 
     fn num_estimated(&self) -> usize {
-        // Mode-independent — mirrors the active `num_estimated`.
         self.top_id as usize
     }
 }
+
 /// A marker trait for iterators that match all documents.
 pub trait WildcardIterator<'index>: RQEIterator<'index> {}
 
@@ -899,9 +899,9 @@ impl<'query> RQESuspendedIterator<'query> for DiskWildcardSuspended {
     }
 
     fn num_estimated(&self) -> usize {
-        // `num_estimated` reads a cached count — it does not dereference any
-        // borrowed index pointer, so forwarding to the inner dyn is sound
-        // despite the `'static` lifetime lie.
+        // SAFETY: same as `last_doc_id`: `num_estimated` reads a cached
+        // primitive on every Rust iterator and an FFI vtable field on C
+        // iterators — no borrowed index pointer is dereferenced.
         RQEIterator::num_estimated(&*self.0)
     }
 }

@@ -10,7 +10,11 @@
 use std::fmt::Debug;
 
 use index_result::RSIndexResult;
-use inverted_index::{doc_ids_only::DocIdsOnly, raw_doc_ids_only::RawDocIdsOnly};
+use ffi::{
+    ValidateStatus_VALIDATE_ABORTED, ValidateStatus_VALIDATE_MOVED, ValidateStatus_VALIDATE_OK,
+    t_docId,
+};
+use inverted_index::{RefreshOutcome, doc_ids_only::DocIdsOnly, raw_doc_ids_only::RawDocIdsOnly};
 use rqe_core::DocId;
 use rqe_iterators::{
     IteratorType, RQEIteratorBoxed, RQEIteratorError, RQESuspendedIterator, ResumeOutcome,
@@ -20,25 +24,39 @@ use rqe_iterators::{
 /// Suspended counterpart of [`WildcardIterator`] — produced by
 /// [`RQEIteratorBoxed::suspend`] and consumed by [`RQESuspendedIterator::resume`].
 ///
+/// `#[repr(C, u8)]` matches the layout of [`WildcardIterator`] so that
+/// [`RQEIteratorBoxed::suspend`] / [`RQESuspendedIterator::resume`]
+/// can perform whole-`Box` pointer casts between the two — see
+/// [`super::tag::TagIteratorSuspended`] for the heap-address
+/// preservation argument.
+///
 /// Retains the `'query` lifetime so query-attached borrows stay valid across
 /// the suspend/resume cycle.
+#[repr(C, u8)]
+#[expect(
+    dead_code,
+    reason = "variants are constructed via the #[repr(C, u8)] whole-Box cast in `suspend`, never by name"
+)]
 pub(super) enum WildcardIteratorSuspended<'query> {
     Encoded(<Wildcard<'query, DocIdsOnly> as RQEIteratorBoxed<'query>>::Suspended),
     Raw(<Wildcard<'query, RawDocIdsOnly> as RQEIteratorBoxed<'query>>::Suspended),
+}
+
+/// Local 3-state outcome carrying the work done while still on the
+/// suspended form into the active form for the optional reseek dispatch.
+enum WildcardResumeOutcome {
+    Abort,
+    Ok,
+    NeedsReseek { last_doc_id: t_docId },
 }
 
 impl<'index> RQEIteratorBoxed<'index> for WildcardIterator<'index> {
     type Suspended = WildcardIteratorSuspended<'index>;
 
     fn suspend(self: Box<Self>) -> Box<Self::Suspended> {
-        match *self {
-            WildcardIterator::Encoded(w) => Box::new(WildcardIteratorSuspended::Encoded(
-                *<Wildcard<'index, _> as RQEIteratorBoxed<'index>>::suspend(Box::new(w)),
-            )),
-            WildcardIterator::Raw(w) => Box::new(WildcardIteratorSuspended::Raw(
-                *<Wildcard<'index, _> as RQEIteratorBoxed<'index>>::suspend(Box::new(w)),
-            )),
-        }
+        let raw = Box::into_raw(self);
+        // SAFETY: layout-compatible enums (see `WildcardIteratorSuspended`).
+        unsafe { Box::from_raw(raw as *mut WildcardIteratorSuspended<'index>) }
     }
 }
 
@@ -49,35 +67,63 @@ impl<'query> RQESuspendedIterator<'query> for WildcardIteratorSuspended<'query> 
         'query: 'a;
 
     fn resume<'a>(
-        self: Box<Self>,
-        guard: &index_spec::IndexSpecReadGuard<'a>,
+        mut self: Box<Self>,
+        spec: &index_spec::IndexSpecReadGuard<'a>,
     ) -> Result<ResumeOutcome<Box<Self::Resumed<'a>>>, RQEIteratorError>
     where
         'query: 'a,
     {
-        // Forward the inner variant's outcome, reconstructing the concrete
-        // `WildcardIterator` enum and preserving the `Ok`/`Moved`/`Aborted` status.
-        let (variant, moved) = match *self {
-            WildcardIteratorSuspended::Encoded(s) => {
-                match <_ as RQESuspendedIterator>::resume(Box::new(s), guard)? {
-                    ResumeOutcome::Aborted => return Ok(ResumeOutcome::Aborted),
-                    ResumeOutcome::Ok(resumed) => (WildcardIterator::Encoded(*resumed), false),
-                    ResumeOutcome::Moved(resumed) => (WildcardIterator::Encoded(*resumed), true),
+        // Step 1: should_abort + refresh_pointers on the suspended
+        // variant (see `TagIteratorSuspended::resume` for the
+        // mode-independence argument).
+        let outcome = match &mut *self {
+            WildcardIteratorSuspended::Encoded(w) => {
+                if w.should_abort(spec) {
+                    WildcardResumeOutcome::Abort
+                } else {
+                    match w.refresh_pointers(spec) {
+                        RefreshOutcome::Ok => WildcardResumeOutcome::Ok,
+                        RefreshOutcome::NeedsReseek { last_doc_id } => {
+                            WildcardResumeOutcome::NeedsReseek { last_doc_id }
+                        }
+                    }
                 }
             }
-            WildcardIteratorSuspended::Raw(s) => {
-                match <_ as RQESuspendedIterator>::resume(Box::new(s), guard)? {
-                    ResumeOutcome::Aborted => return Ok(ResumeOutcome::Aborted),
-                    ResumeOutcome::Ok(resumed) => (WildcardIterator::Raw(*resumed), false),
-                    ResumeOutcome::Moved(resumed) => (WildcardIterator::Raw(*resumed), true),
+            WildcardIteratorSuspended::Raw(w) => {
+                if w.should_abort(spec) {
+                    WildcardResumeOutcome::Abort
+                } else {
+                    match w.refresh_pointers(spec) {
+                        RefreshOutcome::Ok => WildcardResumeOutcome::Ok,
+                        RefreshOutcome::NeedsReseek { last_doc_id } => {
+                            WildcardResumeOutcome::NeedsReseek { last_doc_id }
+                        }
+                    }
                 }
             }
         };
-        let active = Box::new(variant);
-        Ok(if moved {
-            ResumeOutcome::Moved(active)
-        } else {
-            ResumeOutcome::Ok(active)
+
+        // Step 2: whole-box cast Suspended → Active.
+        let raw = Box::into_raw(self);
+        // SAFETY: layout-compatible — see `suspend`.
+        let mut active = unsafe { Box::from_raw(raw as *mut WildcardIterator<'a>) };
+
+        // Step 3: dispatch the outcome into a ValidateStatus, reseeking if needed.
+        let status = match outcome {
+            WildcardResumeOutcome::Abort => ValidateStatus_VALIDATE_ABORTED,
+            WildcardResumeOutcome::Ok => ValidateStatus_VALIDATE_OK,
+            WildcardResumeOutcome::NeedsReseek { last_doc_id } => match &mut *active {
+                WildcardIterator::Encoded(w) => w.reseek_after_refresh(last_doc_id),
+                WildcardIterator::Raw(w) => w.reseek_after_refresh(last_doc_id),
+            },
+        };
+
+        // Map the status to the generic `ResumeOutcome`; on Aborted `active` drops.
+        #[expect(non_upper_case_globals)]
+        Ok(match status {
+            ValidateStatus_VALIDATE_OK => ResumeOutcome::Ok(active),
+            ValidateStatus_VALIDATE_MOVED => ResumeOutcome::Moved(active),
+            _ => ResumeOutcome::Aborted,
         })
     }
 
@@ -100,6 +146,10 @@ impl<'query> RQESuspendedIterator<'query> for WildcardIteratorSuspended<'query> 
 ///
 /// Handles both the standard variable-length encoding ([`DocIdsOnly`]) and the
 /// fixed 4-byte raw encoding ([`RawDocIdsOnly`]).
+///
+/// `#[repr(C, u8)]` to make the layout match
+/// [`WildcardIteratorSuspended`].
+#[repr(C, u8)]
 pub(super) enum WildcardIterator<'index> {
     Encoded(Wildcard<'index, DocIdsOnly>),
     Raw(Wildcard<'index, RawDocIdsOnly>),

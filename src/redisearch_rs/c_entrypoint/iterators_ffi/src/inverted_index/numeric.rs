@@ -22,6 +22,13 @@ use rqe_iterators::{
 
 /// Suspended counterpart of [`NumericIterator`] — produced by
 /// [`RQEIteratorBoxed::suspend`] and consumed by [`RQESuspendedIterator::resume`].
+///
+/// `#[repr(C)]` matches the layout of [`NumericIterator`] so that
+/// [`RQEIteratorBoxed::suspend`] / [`RQESuspendedIterator::resume`]
+/// can perform whole-`Box` pointer casts that preserve the heap
+/// allocation across the cycle — see
+/// [`super::tag::TagIteratorSuspended`] for the same argument.
+#[repr(C)]
 pub(super) struct NumericIteratorSuspended<'query> {
     filter: Option<NonNull<NumericFilter>>,
     iterator: <NumericIteratorVariant<'query> as RQEIteratorBoxed<'query>>::Suspended,
@@ -31,13 +38,15 @@ impl<'index> RQEIteratorBoxed<'index> for NumericIterator<'index> {
     type Suspended = NumericIteratorSuspended<'index>;
 
     fn suspend(self: Box<Self>) -> Box<Self::Suspended> {
-        let Self { filter, iterator } = *self;
-        Box::new(NumericIteratorSuspended {
-            filter,
-            iterator: *<NumericIteratorVariant<'index> as RQEIteratorBoxed<'index>>::suspend(
-                Box::new(iterator),
-            ),
-        })
+        let raw = Box::into_raw(self);
+        // SAFETY: `NumericIterator<'index>` and `NumericIteratorSuspended`
+        // are both `#[repr(C)]` with the same field order and
+        // layout-compatible fields (`filter` is mode-independent; the
+        // `iterator` field's Active/Suspended counterparts are
+        // layout-compatible via `NumericIteratorVariant`'s own
+        // `#[repr(C, u8)]` design). `Box::from_raw` reuses the same
+        // heap allocation.
+        unsafe { Box::from_raw(raw as *mut NumericIteratorSuspended) }
     }
 }
 
@@ -86,6 +95,12 @@ impl<'query> RQESuspendedIterator<'query> for NumericIteratorSuspended<'query> {
 }
 
 /// Wrapper around [`NumericIteratorVariant`].
+///
+/// Needed to keep the `filter` pointer around so it can be returned in
+/// [`NumericInvIndIterator_GetNumericFilter`].
+///
+/// `#[repr(C)]` so that the layout matches [`NumericIteratorSuspended`].
+#[repr(C)]
 pub(super) struct NumericIterator<'index> {
     /// Optional pointer to the [`NumericFilter`] this iterator was created with.
     /// Threaded through suspend/resume so that FFI accessors can read it in

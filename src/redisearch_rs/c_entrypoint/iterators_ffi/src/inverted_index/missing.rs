@@ -9,10 +9,15 @@
 
 use std::{fmt::Debug, ptr::NonNull};
 
-use ffi::t_docId;
+use ffi::{
+    ValidateStatus_VALIDATE_ABORTED, ValidateStatus_VALIDATE_MOVED, ValidateStatus_VALIDATE_OK,
+    t_docId,
+};
 use field::{FieldExpirationPredicate, FieldFilterContext, FieldMaskOrIndex};
 use index_result::RSIndexResult;
-use inverted_index::{IndexReader, doc_ids_only::DocIdsOnly, raw_doc_ids_only::RawDocIdsOnly};
+use inverted_index::{
+    IndexReader, RefreshOutcome, doc_ids_only::DocIdsOnly, raw_doc_ids_only::RawDocIdsOnly,
+};
 use rqe_core::FieldIndex;
 use rqe_iterator_type::IteratorType;
 use rqe_iterators::{
@@ -23,6 +28,17 @@ use rqe_iterators::{
 
 /// Suspended counterpart of [`MissingIterator`] — produced by
 /// [`RQEIteratorBoxed::suspend`] and consumed by [`RQESuspendedIterator::resume`].
+///
+/// `#[repr(C, u8)]` matches the layout of [`MissingIterator`] so that
+/// [`RQEIteratorBoxed::suspend`] / [`RQESuspendedIterator::resume`]
+/// can perform whole-`Box` pointer casts between the two — see
+/// [`super::tag::TagIteratorSuspended`] for the same argument and
+/// why the previous `match` + `Box::new` shape was unsound.
+#[repr(C, u8)]
+#[expect(
+    dead_code,
+    reason = "variants are constructed via the #[repr(C, u8)] whole-Box cast in `suspend`, never by name"
+)]
 pub(super) enum MissingIteratorSuspended<'query> {
     Encoded(
         <Missing<'query, DocIdsOnly, FieldExpirationChecker> as RQEIteratorBoxed<'query>>::Suspended,
@@ -32,18 +48,27 @@ pub(super) enum MissingIteratorSuspended<'query> {
     ),
 }
 
+/// Local 3-state outcome carrying the work done while still on the
+/// suspended form (`should_abort` + `refresh_pointers`) into the active
+/// form for the optional reseek dispatch.
+enum MissingResumeOutcome {
+    Abort,
+    Ok,
+    NeedsReseek { last_doc_id: t_docId },
+}
+
 impl<'index> RQEIteratorBoxed<'index> for MissingIterator<'index> {
     type Suspended = MissingIteratorSuspended<'index>;
 
     fn suspend(self: Box<Self>) -> Box<Self::Suspended> {
-        match *self {
-            MissingIterator::Encoded(m) => Box::new(MissingIteratorSuspended::Encoded(
-                *<Missing<'index, _, _> as RQEIteratorBoxed<'index>>::suspend(Box::new(m)),
-            )),
-            MissingIterator::Raw(m) => Box::new(MissingIteratorSuspended::Raw(
-                *<Missing<'index, _, _> as RQEIteratorBoxed<'index>>::suspend(Box::new(m)),
-            )),
-        }
+        let raw = Box::into_raw(self);
+        // SAFETY: `MissingIterator<'index>` and `MissingIteratorSuspended`
+        // are both `#[repr(C, u8)]` with the same variant order and
+        // layout-compatible payloads (the underlying `RawMissing<Active, E, C>`
+        // / `RawMissing<Suspended, E, C>` instantiations are
+        // layout-compatible via `#[repr(C)]` + the `SharedPtr` argument).
+        // `Box::from_raw` reuses the same heap allocation.
+        unsafe { Box::from_raw(raw as *mut MissingIteratorSuspended<'index>) }
     }
 }
 
@@ -54,35 +79,64 @@ impl<'query> RQESuspendedIterator<'query> for MissingIteratorSuspended<'query> {
         'query: 'a;
 
     fn resume<'a>(
-        self: Box<Self>,
-        guard: &index_spec::IndexSpecReadGuard<'a>,
+        mut self: Box<Self>,
+        spec: &index_spec::IndexSpecReadGuard<'a>,
     ) -> Result<ResumeOutcome<Box<Self::Resumed<'a>>>, RQEIteratorError>
     where
         'query: 'a,
     {
-        // Forward the inner variant's outcome, reconstructing the concrete
-        // `MissingIterator` enum and preserving the `Ok`/`Moved`/`Aborted` status.
-        let (variant, moved) = match *self {
-            MissingIteratorSuspended::Encoded(s) => {
-                match <_ as RQESuspendedIterator>::resume(Box::new(s), guard)? {
-                    ResumeOutcome::Aborted => return Ok(ResumeOutcome::Aborted),
-                    ResumeOutcome::Ok(resumed) => (MissingIterator::Encoded(*resumed), false),
-                    ResumeOutcome::Moved(resumed) => (MissingIterator::Encoded(*resumed), true),
+        // Step 1: should_abort + refresh_pointers on the suspended
+        // variant. See `TagIteratorSuspended::resume` for the
+        // mode-independence argument.
+        let outcome = match &mut *self {
+            MissingIteratorSuspended::Encoded(m) => {
+                if m.should_abort(spec) {
+                    MissingResumeOutcome::Abort
+                } else {
+                    match m.refresh_pointers(spec) {
+                        RefreshOutcome::Ok => MissingResumeOutcome::Ok,
+                        RefreshOutcome::NeedsReseek { last_doc_id } => {
+                            MissingResumeOutcome::NeedsReseek { last_doc_id }
+                        }
+                    }
                 }
             }
-            MissingIteratorSuspended::Raw(s) => {
-                match <_ as RQESuspendedIterator>::resume(Box::new(s), guard)? {
-                    ResumeOutcome::Aborted => return Ok(ResumeOutcome::Aborted),
-                    ResumeOutcome::Ok(resumed) => (MissingIterator::Raw(*resumed), false),
-                    ResumeOutcome::Moved(resumed) => (MissingIterator::Raw(*resumed), true),
+            MissingIteratorSuspended::Raw(m) => {
+                if m.should_abort(spec) {
+                    MissingResumeOutcome::Abort
+                } else {
+                    match m.refresh_pointers(spec) {
+                        RefreshOutcome::Ok => MissingResumeOutcome::Ok,
+                        RefreshOutcome::NeedsReseek { last_doc_id } => {
+                            MissingResumeOutcome::NeedsReseek { last_doc_id }
+                        }
+                    }
                 }
             }
         };
-        let active = Box::new(variant);
-        Ok(if moved {
-            ResumeOutcome::Moved(active)
-        } else {
-            ResumeOutcome::Ok(active)
+
+        // Step 2: whole-box cast Suspended → Active (preserves the heap
+        // allocation so the FFI wrapper's `header.current` stays valid).
+        let raw = Box::into_raw(self);
+        // SAFETY: layout-compatible — see `suspend`.
+        let mut active = unsafe { Box::from_raw(raw as *mut MissingIterator<'a>) };
+
+        // Step 3: dispatch the outcome into a ValidateStatus, reseeking if needed.
+        let status = match outcome {
+            MissingResumeOutcome::Abort => ValidateStatus_VALIDATE_ABORTED,
+            MissingResumeOutcome::Ok => ValidateStatus_VALIDATE_OK,
+            MissingResumeOutcome::NeedsReseek { last_doc_id } => match &mut *active {
+                MissingIterator::Encoded(m) => m.reseek_after_refresh(last_doc_id),
+                MissingIterator::Raw(m) => m.reseek_after_refresh(last_doc_id),
+            },
+        };
+
+        // Map the status to the generic `ResumeOutcome`; on Aborted `active` drops.
+        #[expect(non_upper_case_globals)]
+        Ok(match status {
+            ValidateStatus_VALIDATE_OK => ResumeOutcome::Ok(active),
+            ValidateStatus_VALIDATE_MOVED => ResumeOutcome::Moved(active),
+            _ => ResumeOutcome::Aborted,
         })
     }
 
@@ -105,6 +159,10 @@ impl<'query> RQESuspendedIterator<'query> for MissingIteratorSuspended<'query> {
 ///
 /// Handles both the standard variable-length encoding ([`DocIdsOnly`]) and the
 /// fixed 4-byte raw encoding ([`RawDocIdsOnly`]).
+///
+/// `#[repr(C, u8)]` to make the layout match
+/// [`MissingIteratorSuspended`].
+#[repr(C, u8)]
 pub(super) enum MissingIterator<'index> {
     Encoded(Missing<'index, DocIdsOnly, FieldExpirationChecker>),
     Raw(Missing<'index, RawDocIdsOnly, FieldExpirationChecker>),
