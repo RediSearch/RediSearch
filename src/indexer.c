@@ -98,28 +98,81 @@ static inline bool entryWantsSuffixTrie(const IndexSpec *spec, const ForwardInde
       && strlen(entry->term) != 0;
 }
 
+/* Memory-mode helper: open the per-term InvertedIndex and write the doc
+ * entry. Sets `entry->staged` based on the master memory-mode `IndexSpec_AddTerm`
+ * gating semantics — only first occurrences of a term in the spec should have
+ * the term-trie update applied (the MOD-4140 ingest perf optimization). See
+ * MOD-15846 for the downstream `numDocs` / IDF impact and the planned fix. */
+static void text_index_write_postings(IndexSpec *spec, RedisSearchCtx *ctx,
+                                      ForwardIndex *fwIdx, t_docId docId) {
+  ForwardIndexIterator it = ForwardIndex_Iterate(fwIdx);
+  for (ForwardIndexEntry *entry = ForwardIndexIterator_Next(&it); entry;
+       entry = ForwardIndexIterator_Next(&it)) {
+    bool isNew;
+    InvertedIndex *invidx = Redis_OpenInvertedIndex(ctx->spec, entry->term, entry->len, 1, &isNew);
+    entry->staged = isNew && strlen(entry->term) != 0;
+    if (invidx) {
+      entry->docId = docId;
+      RS_LOG_ASSERT(entry->docId, "docId should not be 0");
+      writeIndexEntry(spec, invidx, entry);
+    }
+  }
+}
+
 /**
- * Stage (disk mode) or apply (memory mode) the full-text inverted-index writes
- * for a single document.
+ * Apply the in-memory term-trie / suffix-trie / metric updates for a doc's
+ * full-text forward-index entries.
  *
- * In disk mode this is phase 1: each successfully staged term has
- * `entry->staged = true` set on it; rejected terms are dropped silently and
- * left with `staged = false`. The matching in-memory mutations
- * (`IndexSpec_AddTerm`, `addSuffixTrie`, `FieldsGlobalStats_UpdateFieldDocsIndexed`)
- * run in `commitTextIndex` once the per-document batch has committed.
+ * `IndexSpec_AddTerm` fires for entries with `entry->staged == true`.
+ * `entry->staged` is set by the caller and has mode-dependent semantics:
+ *   - Disk mode: `entry->staged = SearchDisk_IndexTerm(...)` — true on per-term
+ *     staging success. Rejected terms (e.g. invalid UTF-8) leave `staged=false`.
+ *   - Memory mode: `entry->staged = isNew && strlen(entry->term) != 0` — true
+ *     only the first time a term gets an `InvertedIndex` in this spec.
  *
- * In memory mode there is no commit step, so the in-memory mutations happen
- * inline here as they always have.
+ * `addSuffixTrie` fires for entries that pass `entryWantsSuffixTrie`,
+ * independent of `entry->staged` — matching master behavior in both modes.
+ *
+ * Called from `stageTextIndex` inline in memory mode, and from `Indexer_Process`
+ * after the per-document batch commits in disk mode.
+ */
+static void commitTextIndex(RSAddDocumentCtx *aCtx, RedisSearchCtx *ctx) {
+  IndexSpec *spec = ctx->spec;
+  size_t prevNumTerms = spec->stats.scoring.numTerms;
+
+  ForwardIndexIterator it = ForwardIndex_Iterate(aCtx->fwIdx);
+  for (ForwardIndexEntry *entry = ForwardIndexIterator_Next(&it); entry;
+       entry = ForwardIndexIterator_Next(&it)) {
+    if (entry->staged) {
+      IndexSpec_AddTerm(spec, entry->term, entry->len);
+    }
+    if (entryWantsSuffixTrie(spec, entry)) {
+      addSuffixTrie(spec->suffix, entry->term, entry->len);
+    }
+  }
+
+  FieldsGlobalStats_UpdateFieldDocsIndexed(INDEXFLD_T_FULLTEXT, spec->stats.scoring.numTerms - prevNumTerms);
+}
+
+/**
+ * Index the full-text forward-index entries of a single document.
+ *
+ * In disk mode this is phase 1: each entry's `staged` flag is set to the
+ * result of `SearchDisk_IndexTerm` so `commitTextIndex` can apply the matching
+ * in-memory updates after the per-document batch commits.
+ *
+ * In memory mode there is no separate commit step; per-term inverted-index
+ * writes happen inline via `text_index_write_postings`, and the trie /
+ * suffix-trie bookkeeping is delegated to `commitTextIndex`.
  */
 static void stageTextIndex(RSAddDocumentCtx *aCtx, RedisSearchCtx *ctx) {
   RS_LOG_ASSERT(ctx, "ctx should not be NULL");
 
   IndexSpec *spec = ctx->spec;
-  ForwardIndexIterator it = ForwardIndex_Iterate(aCtx->fwIdx);
-  ForwardIndexEntry *entry = ForwardIndexIterator_Next(&it);
-
   if (spec->diskSpec) {
-    while (entry != NULL) {
+    ForwardIndexIterator it = ForwardIndex_Iterate(aCtx->fwIdx);
+    for (ForwardIndexEntry *entry = ForwardIndexIterator_Next(&it); entry;
+         entry = ForwardIndexIterator_Next(&it)) {
       const uint8_t *offsets = NULL;
       size_t offsetsLen = 0;
       if ((spec->flags & Index_StoreTermOffsets) && entry->vw) {
@@ -130,58 +183,12 @@ static void stageTextIndex(RSAddDocumentCtx *aCtx, RedisSearchCtx *ctx) {
                                            entry->term, entry->len, aCtx->doc->docId,
                                            entry->fieldMask, entry->freq,
                                            offsets, offsetsLen);
-      entry = ForwardIndexIterator_Next(&it);
     }
     return;
   }
 
-  // Memory mode — writes happen inline (no commit step).
-  size_t prevNumTerms = spec->stats.scoring.numTerms;
-  while (entry != NULL) {
-    bool isNew;
-    InvertedIndex *invidx = Redis_OpenInvertedIndex(ctx->spec, entry->term, entry->len, 1, &isNew);
-    if (isNew && strlen(entry->term) != 0) {
-      IndexSpec_AddTerm(spec, entry->term, entry->len);
-    }
-    if (invidx) {
-      entry->docId = aCtx->doc->docId;
-      RS_LOG_ASSERT(entry->docId, "docId should not be 0");
-      writeIndexEntry(spec, invidx, entry);
-    }
-
-    if (entryWantsSuffixTrie(spec, entry)) {
-      addSuffixTrie(spec->suffix, entry->term, entry->len);
-    }
-
-    entry = ForwardIndexIterator_Next(&it);
-  }
-
-  FieldsGlobalStats_UpdateFieldDocsIndexed(INDEXFLD_T_FULLTEXT, spec->stats.scoring.numTerms - prevNumTerms);
-}
-
-/**
- * Phase 3 for full-text fields (disk mode only): apply the in-memory updates
- * that pair with the inverted-index writes staged by `stageTextIndex`. Only
- * entries with `entry->staged == true` get their term-trie / suffix-trie
- * updates applied; rejected terms are skipped to keep RAM and disk consistent.
- */
-static void commitTextIndex(RSAddDocumentCtx *aCtx, RedisSearchCtx *ctx) {
-  IndexSpec *spec = ctx->spec;
-  size_t prevNumTerms = spec->stats.scoring.numTerms;
-
-  ForwardIndexIterator it = ForwardIndex_Iterate(aCtx->fwIdx);
-  for (ForwardIndexEntry *entry = ForwardIndexIterator_Next(&it); entry;
-       entry = ForwardIndexIterator_Next(&it)) {
-    if (!entry->staged) continue;
-
-    IndexSpec_AddTerm(spec, entry->term, entry->len);
-
-    if (entryWantsSuffixTrie(spec, entry)) {
-      addSuffixTrie(spec->suffix, entry->term, entry->len);
-    }
-  }
-
-  FieldsGlobalStats_UpdateFieldDocsIndexed(INDEXFLD_T_FULLTEXT, spec->stats.scoring.numTerms - prevNumTerms);
+  text_index_write_postings(spec, ctx, aCtx->fwIdx, aCtx->doc->docId);
+  commitTextIndex(aCtx, ctx);
 }
 
 /** Assigns a document ID to a single document. Handles only RAM index */
