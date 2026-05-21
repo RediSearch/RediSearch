@@ -492,7 +492,12 @@ where
     fn last_doc_id(&self) -> DocId {
         self.last_doc_id
     }
+
+    fn num_estimated(&self) -> usize {
+        self.wcii.num_estimated()
+    }
 }
+
 impl<'index, W> crate::interop::ProfileChildren<'index>
     for OptionalOptimized<'index, W, crate::c2rust::CRQEIterator>
 where

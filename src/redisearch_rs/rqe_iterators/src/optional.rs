@@ -358,6 +358,10 @@ where
     fn last_doc_id(&self) -> DocId {
         self.result.doc_id
     }
+
+    fn num_estimated(&self) -> usize {
+        self.max_doc_id as usize
+    }
 }
 impl<'index> crate::interop::ProfileChildren<'index>
     for Optional<'index, crate::c2rust::CRQEIterator>

@@ -566,82 +566,6 @@ void AddIntersectionIteratorChild(QueryIterator *header, QueryIterator *child);
 size_t GetUnionIteratorNumChildren(const QueryIterator *it);
 
 /**
- * Creates a new wildcard inverted index iterator for querying all existing documents.
- *
- * # Parameters
- *
- * * `idx` - Pointer to the existingDocs inverted index (DocIdsOnly or RawDocIdsOnly encoded).
- * * `sctx` - Pointer to the Redis search context.
- * * `weight` - Weight to apply to all results.
- *
- * # Returns
- *
- * A pointer to a `QueryIterator` that can be used from C code.
- *
- * # Safety
- *
- * The following invariants must be upheld when calling this function:
- *
- * 1. `idx` must be a valid pointer to an `InvertedIndex` and cannot be NULL.
- * 2. `idx` must remain valid between `revalidate()` calls, since the revalidation
- *    mechanism detects when the index has been replaced via `spec.existingDocs` pointer
- *    comparison.
- * 3. `sctx` must be a valid pointer to a `RedisSearchCtx` and cannot be NULL.
- * 4. `sctx` and `sctx.spec` must remain valid for the lifetime of the returned iterator.
- */
-QueryIterator *NewInvIndIterator_WildcardQuery(const InvertedIndex *idx, const RedisSearchCtx *sctx, double weight);
-
-/**
- * Gets the numeric filter from a numeric inverted index iterator.
- *
- * # Safety
- *
- * 1. `it` must be a valid pointer to a `QueryIterator` wrapping a [`NumericIterator`].
- *
- * # Returns
- *
- * A pointer to the numeric filter, or NULL if no filter was provided when creating the iterator.
- */
-const NumericFilter *NumericInvIndIterator_GetNumericFilter(const QueryIterator *it);
-
-/**
- * Creates a new tag inverted index iterator.
- *
- * # Parameters
- *
- * * `idx` - Pointer to the tag's inverted index ([`DocIdsOnly`] or [`RawDocIdsOnly`] encoded).
- * * `tag_idx` - Pointer to the [`TagIndex`](ffi::TagIndex) containing the `TrieMap` of tag values.
- * * `sctx` - Pointer to the Redis search context.
- * * `field_mask_or_index` - Field mask or field index to filter on.
- * * `term` - Pointer to the query term representing the tag value. Ownership is
- *   transferred to the iterator.
- * * `weight` - Weight to apply to the term results.
- *
- * # Returns
- *
- * A pointer to a heap-allocated [`QueryIterator`](ffi::QueryIterator) that can be used from C
- * code. The caller is responsible for freeing the iterator by calling its `Free` callback
- * (i.e. `it->Free(it)`).
- *
- * # Safety
- *
- * The following invariants must be upheld when calling this function:
- *
- * 1. `idx` must be a valid pointer to a [`DocIdsOnly`] or [`RawDocIdsOnly`]
- *    [`InvertedIndex`](ffi::InvertedIndex) and cannot be NULL.
- * 2. `idx` must remain valid between [`revalidate()`](rqe_iterators::RQEIterator::revalidate) calls, since the revalidation
- *    mechanism detects when the index has been replaced via [`TagIndex`](ffi::TagIndex) `TrieMap` lookup.
- * 3. `tag_idx` must be a valid pointer to a [`TagIndex`](ffi::TagIndex) and cannot be NULL.
- * 4. `tag_idx` and `tag_idx.values` must remain valid for the lifetime of the returned
- *    iterator.
- * 5. `sctx` must be a valid pointer to a [`RedisSearchCtx`](ffi::RedisSearchCtx) and cannot be NULL.
- * 6. `sctx` and `sctx.spec` must remain valid for the lifetime of the returned iterator.
- * 7. `term` must be a valid pointer to a heap-allocated [`RSQueryTerm`] (e.g. created by
- *    `NewQueryTerm`) and cannot be NULL. Ownership is transferred to the iterator.
- */
-QueryIterator *NewInvIndIterator_TagQuery(const InvertedIndex *idx, const TagIndex *tag_idx, const RedisSearchCtx *sctx, union FieldMaskOrIndex field_mask_or_index, struct RSQueryTerm *term, double weight);
-
-/**
  * Returns a non-owning raw pointer to the child at `idx`.
  *
  * # Safety
@@ -681,6 +605,113 @@ const QueryIterator *GetUnionIteratorChild(const QueryIterator *it, size_t idx);
  *    `NewQueryTerm`) and cannot be NULL. Ownership is transferred to the iterator.
  */
 QueryIterator *NewInvIndIterator_TermQuery(const InvertedIndex *idx, const RedisSearchCtx *sctx, union FieldMaskOrIndex field_mask_or_index, struct RSQueryTerm *term, double weight);
+
+/**
+ * Returns the [`QueryNodeType`] stored in the union iterator.
+ *
+ * # Safety
+ *
+ * 1. `it` must be a valid non-null pointer to a non-reduced union iterator
+ *    created via [`NewUnionIterator`].
+ */
+QueryNodeType GetUnionIteratorQueryNodeType(const QueryIterator *it);
+
+/**
+ * Creates a new wildcard inverted index iterator for querying all existing documents.
+ *
+ * # Parameters
+ *
+ * * `idx` - Pointer to the existingDocs inverted index (DocIdsOnly or RawDocIdsOnly encoded).
+ * * `sctx` - Pointer to the Redis search context.
+ * * `weight` - Weight to apply to all results.
+ *
+ * # Returns
+ *
+ * A pointer to a `QueryIterator` that can be used from C code.
+ *
+ * # Safety
+ *
+ * The following invariants must be upheld when calling this function:
+ *
+ * 1. `idx` must be a valid pointer to an `InvertedIndex` and cannot be NULL.
+ * 2. `idx` must remain valid between `revalidate()` calls, since the revalidation
+ *    mechanism detects when the index has been replaced via `spec.existingDocs` pointer
+ *    comparison.
+ * 3. `sctx` must be a valid pointer to a `RedisSearchCtx` and cannot be NULL.
+ * 4. `sctx` and `sctx.spec` must remain valid for the lifetime of the returned iterator.
+ */
+QueryIterator *NewInvIndIterator_WildcardQuery(const InvertedIndex *idx, const RedisSearchCtx *sctx, double weight);
+
+/**
+ * Returns the query string pointer stored in the union iterator, or null.
+ *
+ * # Safety
+ *
+ * 1. `it` must be a valid non-null pointer to a non-reduced union iterator
+ *    created via [`NewUnionIterator`].
+ */
+const char *GetUnionIteratorQueryString(const QueryIterator *it);
+
+/**
+ * Gets the numeric filter from a numeric inverted index iterator.
+ *
+ * # Safety
+ *
+ * 1. `it` must be a valid pointer to a `QueryIterator` wrapping a [`NumericIterator`].
+ *
+ * # Returns
+ *
+ * A pointer to the numeric filter, or NULL if no filter was provided when creating the iterator.
+ */
+const NumericFilter *NumericInvIndIterator_GetNumericFilter(const QueryIterator *it);
+
+/**
+ * Trims a union iterator for the LIMIT optimizer, then switches to unsorted
+ * sequential read mode.
+ *
+ * # Safety
+ *
+ * 1. `it` must be a valid non-null pointer to a non-reduced union iterator
+ *    created via [`NewUnionIterator`].
+ */
+void TrimUnionIterator(QueryIterator *it, size_t limit, bool asc);
+
+/**
+ * Creates a new tag inverted index iterator.
+ *
+ * # Parameters
+ *
+ * * `idx` - Pointer to the tag's inverted index ([`DocIdsOnly`] or [`RawDocIdsOnly`] encoded).
+ * * `tag_idx` - Pointer to the [`TagIndex`](ffi::TagIndex) containing the `TrieMap` of tag values.
+ * * `sctx` - Pointer to the Redis search context.
+ * * `field_mask_or_index` - Field mask or field index to filter on.
+ * * `term` - Pointer to the query term representing the tag value. Ownership is
+ *   transferred to the iterator.
+ * * `weight` - Weight to apply to the term results.
+ *
+ * # Returns
+ *
+ * A pointer to a heap-allocated [`QueryIterator`](ffi::QueryIterator) that can be used from C
+ * code. The caller is responsible for freeing the iterator by calling its `Free` callback
+ * (i.e. `it->Free(it)`).
+ *
+ * # Safety
+ *
+ * The following invariants must be upheld when calling this function:
+ *
+ * 1. `idx` must be a valid pointer to a [`DocIdsOnly`] or [`RawDocIdsOnly`]
+ *    [`InvertedIndex`](ffi::InvertedIndex) and cannot be NULL.
+ * 2. `idx` must remain valid between [`revalidate()`](rqe_iterators::RQEIterator::revalidate) calls, since the revalidation
+ *    mechanism detects when the index has been replaced via [`TagIndex`](ffi::TagIndex) `TrieMap` lookup.
+ * 3. `tag_idx` must be a valid pointer to a [`TagIndex`](ffi::TagIndex) and cannot be NULL.
+ * 4. `tag_idx` and `tag_idx.values` must remain valid for the lifetime of the returned
+ *    iterator.
+ * 5. `sctx` must be a valid pointer to a [`RedisSearchCtx`](ffi::RedisSearchCtx) and cannot be NULL.
+ * 6. `sctx` and `sctx.spec` must remain valid for the lifetime of the returned iterator.
+ * 7. `term` must be a valid pointer to a heap-allocated [`RSQueryTerm`] (e.g. created by
+ *    `NewQueryTerm`) and cannot be NULL. Ownership is transferred to the iterator.
+ */
+QueryIterator *NewInvIndIterator_TagQuery(const InvertedIndex *idx, const TagIndex *tag_idx, const RedisSearchCtx *sctx, union FieldMaskOrIndex field_mask_or_index, struct RSQueryTerm *term, double weight);
 
 /**
  * Creates a new missing-field inverted index iterator.
@@ -724,26 +755,6 @@ QueryIterator *NewInvIndIterator_MissingQuery(const InvertedIndex *idx, const Re
 double NumericInvIndIterator_GetProfileRangeMin(const QueryIterator *it);
 
 /**
- * Returns the [`QueryNodeType`] stored in the union iterator.
- *
- * # Safety
- *
- * 1. `it` must be a valid non-null pointer to a non-reduced union iterator
- *    created via [`NewUnionIterator`].
- */
-QueryNodeType GetUnionIteratorQueryNodeType(const QueryIterator *it);
-
-/**
- * Returns the query string pointer stored in the union iterator, or null.
- *
- * # Safety
- *
- * 1. `it` must be a valid non-null pointer to a non-reduced union iterator
- *    created via [`NewUnionIterator`].
- */
-const char *GetUnionIteratorQueryString(const QueryIterator *it);
-
-/**
  * Gets the maximum range value for profiling a numeric iterator.
  *
  * # Safety
@@ -755,17 +766,6 @@ const char *GetUnionIteratorQueryString(const QueryIterator *it);
  * The maximum range value from the filter, or positive infinity if no filter was provided.
  */
 double NumericInvIndIterator_GetProfileRangeMax(const QueryIterator *it);
-
-/**
- * Trims a union iterator for the LIMIT optimizer, then switches to unsorted
- * sequential read mode.
- *
- * # Safety
- *
- * 1. `it` must be a valid non-null pointer to a non-reduced union iterator
- *    created via [`NewUnionIterator`].
- */
-void TrimUnionIterator(QueryIterator *it, size_t limit, bool asc);
 
 /**
  * Gets the field name used by a missing-field inverted index iterator.
@@ -786,31 +786,6 @@ const char *InvIndMissingIterator_GetFieldName(const QueryIterator *it, size_t *
  * 2. `fs` must be a valid non-null pointer to a [`FieldSpec`] for a numeric or geo field.
  */
 NumericRangeTree *openNumericOrGeoIndex(IndexSpec *spec, FieldSpec *fs, bool create_if_missing);
-
-/**
- * Opens the numeric/geo index and creates an iterator over all matching sub-ranges.
- *
- * # Returns
- *
- * - `NULL` if the index doesn't exist for this field (i.e., no documents have been indexed
- *   for it yet).
- * - `NULL` if no sub-ranges in the tree match the filter.
- * - A single iterator if exactly one sub-range matches.
- * - A union iterator over all matching sub-ranges otherwise.
- *
- * # Safety
- *
- * 1. `ctx` must be a valid non-NULL pointer to a [`ffi::RedisSearchCtx`], remaining valid
- *    for the lifetime of the returned iterator.
- * 2. `ctx.spec` must be a valid non-NULL pointer to an [`ffi::IndexSpec`].
- * 3. `flt` must be a valid non-NULL pointer to a [`NumericFilter`] whose `field_spec` field
- *    is a valid non-NULL pointer to a [`FieldSpec`], remaining valid for the lifetime of the
- *    returned iterator.
- * 4. `config` must be a valid non-NULL pointer to an [`IteratorsConfig`].
- * 5. `filter_ctx` must be a valid non-NULL pointer to a [`FieldFilterContext`] with a field
- *    index (not a field mask).
- */
-QueryIterator *NewNumericFilterIterator(const RedisSearchCtx *ctx, const struct NumericFilter *flt, FieldType _for_type, const struct IteratorsConfig *config, const struct FieldFilterContext *filter_ctx);
 
 /**
  * Creates a NOT iterator, choosing between non-optimized and optimized based
@@ -846,6 +821,31 @@ QueryIterator *NewNumericFilterIterator(const RedisSearchCtx *ctx, const struct 
  *    valid for the lifetime of the returned iterator.
  */
 QueryIterator *NewNotIterator(QueryIterator *child, t_docId max_doc_id, double weight, timespec timeout, AREQ *bc_timeout_areq, QueryEvalCtx *q);
+
+/**
+ * Opens the numeric/geo index and creates an iterator over all matching sub-ranges.
+ *
+ * # Returns
+ *
+ * - `NULL` if the index doesn't exist for this field (i.e., no documents have been indexed
+ *   for it yet).
+ * - `NULL` if no sub-ranges in the tree match the filter.
+ * - A single iterator if exactly one sub-range matches.
+ * - A union iterator over all matching sub-ranges otherwise.
+ *
+ * # Safety
+ *
+ * 1. `ctx` must be a valid non-NULL pointer to a [`ffi::RedisSearchCtx`], remaining valid
+ *    for the lifetime of the returned iterator.
+ * 2. `ctx.spec` must be a valid non-NULL pointer to an [`ffi::IndexSpec`].
+ * 3. `flt` must be a valid non-NULL pointer to a [`NumericFilter`] whose `field_spec` field
+ *    is a valid non-NULL pointer to a [`FieldSpec`], remaining valid for the lifetime of the
+ *    returned iterator.
+ * 4. `config` must be a valid non-NULL pointer to an [`IteratorsConfig`].
+ * 5. `filter_ctx` must be a valid non-NULL pointer to a [`FieldFilterContext`] with a field
+ *    index (not a field mask).
+ */
+QueryIterator *NewNumericFilterIterator(const RedisSearchCtx *ctx, const struct NumericFilter *flt, FieldType _for_type, const struct IteratorsConfig *config, const struct FieldFilterContext *filter_ctx);
 
 /**
  * Get the child pointer of a NOT iterator, or NULL if there is no child.

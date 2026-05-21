@@ -473,6 +473,10 @@ where
     fn last_doc_id(&self) -> DocId {
         self.result.doc_id
     }
+
+    fn num_estimated(&self) -> usize {
+        self.wcii.num_estimated()
+    }
 }
 
 impl<'index, W, TC> crate::interop::ProfileChildren<'index>

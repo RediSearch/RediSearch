@@ -255,4 +255,8 @@ where
     fn last_doc_id(&self) -> DocId {
         S::last_doc_id(&self.child)
     }
+
+    fn num_estimated(&self) -> usize {
+        S::num_estimated(&self.child)
+    }
 }

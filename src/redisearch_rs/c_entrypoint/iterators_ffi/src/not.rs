@@ -337,6 +337,13 @@ impl RQESuspendedIterator for NotIteratorEnumSuspended {
             NotIteratorEnumSuspended::NotOptimized(s) => s.last_doc_id(),
         }
     }
+
+    fn num_estimated(&self) -> usize {
+        match self {
+            NotIteratorEnumSuspended::Not(s) => s.num_estimated(),
+            NotIteratorEnumSuspended::NotOptimized(s) => s.num_estimated(),
+        }
+    }
 }
 
 /// FFI wrapper for non-reduced NOT iterators ([`NotIteratorEnum`]).
