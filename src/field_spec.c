@@ -48,7 +48,7 @@ void FieldSpec_Cleanup(FieldSpec* fs) {
       // Released by the SST apply loop on the happy path; this catches the
       // abort case where the index was never created from the staged blob.
       // Allocated via rm_malloc by FieldSpec_RdbLoad, so free with rm_free.
-      rm_free(fs->vectorOpts.pendingRdbBlob);
+      RedisModule_Free(fs->vectorOpts.pendingRdbBlob);
       fs->vectorOpts.pendingRdbBlob = NULL;
       fs->vectorOpts.pendingRdbBlobLen = 0;
     }
