@@ -54,11 +54,6 @@ RS_Suggestions *RS_SuggestionsCreate() {
 void RS_SuggestionsAdd(RS_Suggestions *s, char *term, size_t len, double score, int incr) {
   double currScore;
   bool isExists = SpellCheck_IsTermExistsInTrie(s->suggestionsTrie, term, len, &currScore);
-  if (score == 0) {
-    /** we can not add zero score so we set it to -1 instead :\ **/
-    score = -1;
-  }
-
   if (!incr) {
     if (!isExists) {
       // Payload is NULL so TRIE_ERR_PAYLOAD_OVERFLOW cannot occur.
@@ -67,11 +62,11 @@ void RS_SuggestionsAdd(RS_Suggestions *s, char *term, size_t len, double score, 
     return;
   }
 
-  if (isExists && score == -1) {
+  if (isExists && score == 0) {
     return;
   }
 
-  if (!isExists || currScore == -1) {
+  if (!isExists || currScore == 0) {
     incr = 0;
   }
 
