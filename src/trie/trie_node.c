@@ -1114,7 +1114,7 @@ void TrieNode_IterateRange(TrieNode *n, const rune *min, int nmin, bool includeM
       // min = max, we should just search for min and check for its existence
       if (includeMin || includeMax) {
         TrieNode *node = TrieNode_Get(n, (rune *)min, nmin, true, NULL);
-        if (node && node->score != 0) {
+        if (node && TrieNode_IsTerminal(node)) {
           callback(min, nmin, ctx, NULL, node->numDocs);
         }
       }
@@ -1145,7 +1145,7 @@ void TrieNode_IterateContains(TrieNode *n, const rune *str, int nstr, bool prefi
   // exact match - should not be used. change to assert
   if (!prefix && !suffix) {
     TrieNode *node = TrieNode_Get(n, (rune *)str, nstr, true, NULL);
-    if (node && node->score != 0) {
+    if (node && TrieNode_IsTerminal(node)) {
       callback(str, nstr, ctx, NULL, node->numDocs);
     }
     return;
