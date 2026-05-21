@@ -374,7 +374,9 @@ jobs:
           SAN: ${{ inputs.san }}
           REDIS_VER: ${{ inputs.redis-ref }}
           ENABLE_ASSERT: 1
-        run: make build TESTS=1
+          # The `master` branch is the only one that should include WIP features.
+          WIP_FEATURES: ${{ (github.base_ref || github.ref_name) == 'master' && '1' || '0' }}
+        run: make build TESTS=1 WIP_FEATURES=$WIP_FEATURES
       - name: Validate glibc version
         if: runner.os == 'Linux' && inputs.platform != 'ubuntu:focal'
         uses: ./.github/actions/validate-glibc-version

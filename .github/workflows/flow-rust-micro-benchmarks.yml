@@ -28,7 +28,7 @@ jobs:
           s3-region: ${{ vars.SCCACHE_S3_REGION }}
           s3-key-prefix: ${{ vars.SCCACHE_S3_KEY_PREFIX }}
       - name: Build RediSearch
-        run: make build LTO=1
+        run: make build LTO=1 WIP_FEATURES=0
       - name: Download Latest Baseline Artifact from master
         id: get-artifact
         if: github.event_name == 'pull_request'

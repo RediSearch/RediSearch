@@ -80,8 +80,10 @@ jobs:
       VERBOSE: 1 # For logging
       RELEASE: 0 # We build snapshots. This variable is used in the pack name (see `make pack`)
       LTO: ${{ needs.get-config.outputs.enable_lto }}
+      # The `master` branch is the only one that should include WIP features.
+      WIP_FEATURES: ${{ (inputs.ref || github.ref_name) == 'master' && '1' || '0' }}
       # Build command
-      BUILD_CMD: echo '::group::Build' && make build VERBOSE= GIT_BRANCH=$BRANCH && echo '::endgroup::'
+      BUILD_CMD: echo '::group::Build' && make build VERBOSE= GIT_BRANCH=$BRANCH WIP_FEATURES=$WIP_FEATURES && echo '::endgroup::'
       GITHUB_REPOSITORY: ${{ github.repository }}
       SETUP_RETRY_LOOP: |
         SUCCESS=0
