@@ -573,6 +573,15 @@ FIELD_PREPROCESSOR(geometryPreprocessor) {
 }
 
 FIELD_BULK_INDEXER(geometryIndexer) {
+  // Geometry indexes are not yet plumbed through the per-document disk write
+  // batch — the write below goes to the in-memory R-tree eagerly. If a batch
+  // is open for this doc it means doc-table / fulltext / tag writes are being
+  // staged for disk commit, and an aborted commit would leave the geometry
+  // index referencing a doc that never reached disk. Assert until geometry
+  // indexing is staged on the batch (or a commit-gated path is added).
+  RS_LOG_ASSERT_ALWAYS(!aCtx->diskBatch,
+                       "geometryIndexer is not commit-batched; disk-mode geometry is not supported");
+
   GeometryIndex *rt = OpenGeometryIndex(&ctx->spec->fields[fs->index], CREATE_INDEX);
   if (!rt) {
     QueryError_SetError(status, QUERY_ERROR_CODE_GENERIC, "Could not open geoshape index for indexing");
@@ -601,6 +610,13 @@ FIELD_BULK_INDEXER(geometryIndexer) {
   _NumericRangeTree_Add((t), (docId), (value), (isMulti), RSGlobalConfig.numericTreeMaxDepthRange)
 
 FIELD_BULK_INDEXER(numericIndexer) {
+  // Numeric and geo (geohash-as-numeric) indexes are not yet plumbed through
+  // the per-document disk write batch — writes go to the in-memory range tree
+  // eagerly. Same caveat as `geometryIndexer`: if a batch is open we would
+  // leak entries on commit failure. Assert until numeric/geo land on the
+  // batch.
+  RS_LOG_ASSERT_ALWAYS(!aCtx->diskBatch,
+                       "numericIndexer is not commit-batched; disk-mode numeric/geo is not supported");
 
   NumericRangeTree *rt = openNumericOrGeoIndex(ctx->spec, &ctx->spec->fields[fs->index], CREATE_INDEX);
   if (!rt) {
