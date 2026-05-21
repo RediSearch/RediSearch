@@ -231,11 +231,12 @@ static int Grouper_rpAccum(ResultProcessor *base, SearchResult *res) {
 
   while ((rc = base->upstream->Next(base->upstream, res)) == RS_RESULT_OK) {
     RLookupRow *row = SearchResult_GetRowDataMut(res);
-    // If any reducer requested the upstream doc id, plant it into the
-    // hidden `__docid` slot on the source row before invoking reducers.
+    // If any reducer requested the upstream doc id, plant it losslessly into
+    // the hidden doc-id slot on the source row before invoking reducers.
     if (g->docIdKey) {
+      t_docId docId = SearchResult_GetDocId(res);
       RLookup_WriteOwnKey(g->docIdKey, row,
-                          RSValue_NewNumberFromInt64((int64_t)SearchResult_GetDocId(res)));
+                          RSValue_NewCopiedString((const char *)&docId, sizeof(docId)));
     }
     invokeGroupReducers(g, row);
     SearchResult_Clear(res);

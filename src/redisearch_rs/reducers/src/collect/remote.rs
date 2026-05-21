@@ -225,6 +225,11 @@ fn dedup_by_dstidx<'a>(
         .collect()
 }
 
+fn decode_doc_id(value: &SharedValue) -> Option<ffi::t_docId> {
+    let bytes = value.as_str_bytes()?.try_into().ok()?;
+    Some(ffi::t_docId::from_ne_bytes(bytes))
+}
+
 impl RemoteCollectCtx {
     pub fn new(r: &RemoteCollectReducer<'_>) -> Self {
         Self {
@@ -255,15 +260,12 @@ impl RemoteCollectCtx {
             }
             dst
         };
-        // Read the doc id the grouper planted into the hidden `__docid`
-        // slot. Falls back to 0 when the key is absent (no grouper above us)
-        // or the slot is unset (pre-existing row from a context that didn't
-        // run through `Grouper_rpAccum`).
+        // Read the native-endian doc id bytes the grouper planted into the
+        // hidden doc-id slot.
         let doc_id = r
             .doc_id_key
             .and_then(|k| row.get(k))
-            .and_then(|v| v.as_num())
-            .map(|n| n as ffi::t_docId)
+            .and_then(decode_doc_id)
             .unwrap_or(0);
         self.storage.insert_entry(sort_vals, project, doc_id);
     }

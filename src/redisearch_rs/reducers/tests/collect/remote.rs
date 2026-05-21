@@ -12,7 +12,8 @@ use rlookup::RLookupRow;
 use value::SharedValue;
 
 use super::helpers::{
-    RemoteCollectFixture, RemoteCollectLoadAllFixture, array_entries, map_entries, string_value,
+    RemoteCollectFixture, RemoteCollectLoadAllFixture, array_entries, make_key, map_entries,
+    string_value,
 };
 
 #[test]
@@ -88,6 +89,61 @@ fn remote_finalize_dedupes_overlapping_field_and_sort_key() {
     assert_eq!(
         map.get(b"name").and_then(|v| v.as_str_bytes()),
         Some(b"apple".as_slice())
+    );
+}
+
+#[test]
+fn remote_sortby_tiebreak_reads_lossless_doc_id_bytes() {
+    let fixture = RemoteCollectFixture::new();
+    let doc_id_key = make_key(c"__internal_collect_docid", 2);
+    let reducer = RemoteCollectReducer::new(
+        Box::new([&fixture.name_key]),
+        None,
+        Box::new([&fixture.sweetness_key]),
+        1, // ASC on sweetness; tied rows fall through to doc id.
+        Some((0, 2)),
+        false,
+        Some(&doc_id_key),
+    );
+    let mut ctx = RemoteCollectCtx::new(&reducer);
+
+    // Both values straddle the 53-bit float boundary — decoding as f64 would
+    // lose precision. Lossless byte decoding must order them exactly.
+    let larger_doc_id: ffi::t_docId = (1_u64 << 53) + 1;
+    let smaller_doc_id: ffi::t_docId = 1_u64 << 53;
+
+    let mut larger = fixture.row("larger-docid", 10.0);
+    larger.write_key(
+        &doc_id_key,
+        SharedValue::new_string(larger_doc_id.to_ne_bytes().to_vec()),
+    );
+
+    let mut smaller = fixture.row("smaller-docid", 10.0);
+    smaller.write_key(
+        &doc_id_key,
+        SharedValue::new_string(smaller_doc_id.to_ne_bytes().to_vec()),
+    );
+
+    // Insert worse-first so insertion order would mislead a broken decoder.
+    // ASC drain yields rows best→worst, so the smaller doc id must come first.
+    ctx.add(&reducer, &larger);
+    ctx.add(&reducer, &smaller);
+
+    let output = ctx.finalize(&reducer);
+    let rows = array_entries(&output);
+    assert_eq!(rows.len(), 2);
+    let names: Vec<&[u8]> = rows
+        .iter()
+        .map(|r| {
+            map_entries(r)
+                .get(b"name")
+                .and_then(|v| v.as_str_bytes())
+                .expect("row must carry a `name` field")
+        })
+        .collect();
+    assert_eq!(
+        names,
+        [b"smaller-docid".as_slice(), b"larger-docid".as_slice()]
     );
 }
 
