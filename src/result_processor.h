@@ -308,20 +308,25 @@ rs_wall_clock_ns_t RPDepleter_GetDepletionTime(const ResultProcessor *depleter);
 int RPDepleter_DepleteAll(arrayof(ResultProcessor*) depleters);
 
 /**
- * Submits every depleter's background job and waits for the dispatcher-to-depleter
- * lock hand-off to complete. After this returns RS_RESULT_OK, every depleter has
- * either acquired its own read lock or recorded a skip, and the dispatcher's
- * spec read lock has been released. The background jobs may still be running.
+ * Submits every depleter's background job to its configured thread pool and
+ * returns immediately. The dispatcher's spec read lock is NOT released by this
+ * function — the hand-off is delegated to the depleter jobs themselves: the
+ * last depleter to finish the acquire phase (lock or skip) atomically calls
+ * `RedisSearchCtx_UnlockSpec` on the dispatcher's `sctx` via
+ * RPSafeDepleter_TryReleaseDispatcherLock. This lets the dispatcher worker
+ * thread return as soon as the jobs are queued, without spinning on the
+ * hand-off.
  *
  * @param safeDepleters Array of safe depleter processors sharing a sync object
  * @param status Query error to populate on validation failure
- * @return RS_RESULT_OK on success, RS_RESULT_ERROR if the array is in an invalid state
+ * @return RS_RESULT_OK on success (jobs submitted; lock release is in flight),
+ *         RS_RESULT_ERROR if the array is in an invalid state (no jobs submitted)
  */
-int RPSafeDepleter_StartDepletionAndHandoffLock(arrayof(ResultProcessor*) safeDepleters, QueryError *status);
+int RPSafeDepleter_StartDepletionAll(arrayof(ResultProcessor*) safeDepleters, QueryError *status);
 
 /**
  * Blocks until every depleter in the array has finished its background job.
- * Must only be called after RPSafeDepleter_StartDepletionAndHandoffLock returned
+ * Must only be called after RPSafeDepleter_StartDepletionAll returned
  * RS_RESULT_OK on the same array.
  *
  * @param safeDepleters Array of safe depleter processors sharing a sync object
@@ -332,7 +337,7 @@ int RPSafeDepleter_StartDepletionAndHandoffLock(arrayof(ResultProcessor*) safeDe
 int RPSafeDepleter_WaitForDepletionAll(arrayof(ResultProcessor*) safeDepleters, QueryError *status);
 
 /**
- * Convenience wrapper around StartDepletionAndHandoffLock + WaitForDepletionAll.
+ * Convenience wrapper around StartDepletionAll + WaitForDepletionAll.
  * Triggers depletion and blocks until everything is drained. Intended for callers
  * (e.g. WORKERS=0 foreground path) that don't want to yield between phases.
  * @param safeDepleters Array of safe depleter processors

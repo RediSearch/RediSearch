@@ -1173,9 +1173,9 @@ static void blockedClientHybridCtx_destroy(blockedClientHybridCtx *BCHCtx) {
 }
 
 // Tail context handed off from the dispatcher worker thread to the tail worker
-// thread. Owns the resources transferred from the dispatcher (BCHCtx, outctx,
-// spec strong ref, collected depleters) so the tail can finish the request and
-// unblock the client without the dispatcher having to wait for depletion.
+// thread. Owns the resources transferred from the dispatcher so the tail can
+// finish the request and unblock the client without the dispatcher having to
+// wait for depletion.
 typedef struct HybridTailCtx {
   blockedClientHybridCtx *BCHCtx;
   RedisModuleCtx *outctx;
@@ -1250,14 +1250,39 @@ static void HREQ_Tail_Callback(HybridTailCtx *tail);
 /**
  * Dispatcher half of the hybrid request worker callback.
  *
- * Promotes the spec strong ref, builds the pipeline under the spec read lock,
- * reserves cursors (for cursor mode), submits the depleter jobs and waits only
- * for the spec-lock hand-off to complete. As soon as the depleters have taken
- * their own read locks (or skipped because a writer was waiting), the
- * dispatcher's spec lock is released and a tail callback is scheduled on the
- * workers pool to drain the depleters and run the merger / send the cursor
- * reply. The dispatcher thread then returns, freeing the worker slot while
- * depletion is still in flight.
+ * On the happy path:
+ *   - Promotes the spec strong ref.
+ *   - Acquires the spec read lock on the dispatcher's `sctx`.
+ *   - Builds the pipeline (per-subquery depletion + optional merger).
+ *   - Reserves cursors (for cursor mode).
+ *   - Submits the depleter jobs to `_workers_thpool` via
+ *     `RPSafeDepleter_StartDepletionAll` — fire-and-forget; this call does NOT
+ *     block on the lock hand-off.
+ *   - Schedules `HREQ_Tail_Callback` on `_workers_thpool` (FIFO after the
+ *     depleter jobs).
+ *   - Returns. The dispatcher's worker thread is freed.
+ *
+ * The dispatcher's spec read lock is intentionally still held when this
+ * function returns. Ownership of releasing it is handed off asynchronously to
+ * the depleter jobs: each depleter atomically increments either `num_locked`
+ * (after its own `TryLockSpecRead` succeeded) or `num_skipped_lock` (after a
+ * writer-queued failure or a pre-start timeout). Whichever depleter is the
+ * last to complete the acquire phase wins a CAS on
+ * `DepleterSync::index_released` and calls `RedisSearchCtx_UnlockSpec` on the
+ * dispatcher's `sctx` (see `RPSafeDepleter_TryReleaseDispatcherLock`).
+ *
+ * This means:
+ *   - No writer can slip in between the dispatcher's lock and the depleters'
+ *     locks — readers stack while the dispatcher holds the read lock, and a
+ *     queued writer causes individual depleters to skip rather than read a
+ *     half-mutated index.
+ *   - The lock is released exactly once. The CAS gates concurrent releasers,
+ *     and `RedisSearchCtx_UnlockSpec` is idempotent w.r.t. `sctx->flags`, so
+ *     the early-exit path's defensive unlock at `dispatch_error` is also safe.
+ *   - The dispatcher does not spin. With depleters on the same pool as the
+ *     dispatcher itself, this is what makes the small-WORKERS case (e.g.
+ *     WORKERS=1) non-deadlocking — see commit message for the failure mode
+ *     that the previous busy-wait introduced.
  *
  * @param BCHCtx Ownership transferred to the tail on the happy path; freed
  *               here on any early-exit path.
@@ -1288,7 +1313,7 @@ static void HREQ_Execute_Callback(blockedClientHybridCtx *BCHCtx) {
 
   // Acquire read lock before building pipeline (matching AREQ_Execute_Callback).
   // The lock is released as part of the depleter hand-off in
-  // RPSafeDepleter_StartDepletionAndHandoffLock below, or via the
+  // RPSafeDepleter_StartDepletionAll below, or via the
   // RedisSearchCtx_UnlockSpec call on the early-exit path.
   RedisSearchCtx_LockSpecRead(sctx);
 
@@ -1355,7 +1380,7 @@ static void HREQ_Execute_Callback(blockedClientHybridCtx *BCHCtx) {
   // returns RS_RESULT_OK the dispatcher's read lock has been released, every
   // depleter has either taken its own read lock or recorded a skip, and the
   // background depletion is in flight.
-  if (RPSafeDepleter_StartDepletionAndHandoffLock(depleters, &status) != RS_RESULT_OK) {
+  if (RPSafeDepleter_StartDepletionAll(depleters, &status) != RS_RESULT_OK) {
     array_free(depleters);
     if (isCursor) {
       HybridRequest_LockCursors(hreq);

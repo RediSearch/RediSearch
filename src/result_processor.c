@@ -2050,7 +2050,7 @@ static inline bool verifyInvariants(arrayof(ResultProcessor*) safeDepleters, Dep
  * Background depletion may still be in progress when this returns; call
  * RPSafeDepleter_WaitForDepletionAll to drain it.
  */
-int RPSafeDepleter_StartDepletionAndHandoffLock(arrayof(ResultProcessor*) safeDepleters, QueryError *status) {
+int RPSafeDepleter_StartDepletionAll(arrayof(ResultProcessor*) safeDepleters, QueryError *status) {
   DepleterSync *sync = NULL;
   RedisSearchCtx *searchCtx = NULL;
   if (!verifyInvariants(safeDepleters, &sync, &searchCtx)) {
@@ -2074,7 +2074,7 @@ int RPSafeDepleter_StartDepletionAndHandoffLock(arrayof(ResultProcessor*) safeDe
 
 /*
  * Blocks until every depleter's background job has finished. Must only be called
- * after RPSafeDepleter_StartDepletionAndHandoffLock returned RS_RESULT_OK on the
+ * after RPSafeDepleter_StartDepletionAll returned RS_RESULT_OK on the
  * same array.
  *
  * Returns RS_RESULT_OK if all depleters finished successfully, RS_RESULT_TIMEDOUT
@@ -2086,7 +2086,7 @@ int RPSafeDepleter_WaitForDepletionAll(arrayof(ResultProcessor*) safeDepleters, 
   if (count == 0) return RS_RESULT_OK;
 
   // Sync object is shared across all depleters; recover it from the first one.
-  // Invariants were already verified by StartDepletionAndHandoffLock.
+  // Invariants were already verified by StartDepletionAll.
   DepleterSync *sync = (DepleterSync *)StrongRef_Get(((RPSafeDepleter*)safeDepleters[0])->sync_ref);
 
   for (size_t numDone = 0; numDone < count; ) {
@@ -2111,7 +2111,7 @@ int RPSafeDepleter_WaitForDepletionAll(arrayof(ResultProcessor*) safeDepleters, 
   }
 
   // Note: The dispatcher's lock was already released by
-  // RPSafeDepleter_WaitForDepletionToStart inside StartDepletionAndHandoffLock,
+  // RPSafeDepleter_WaitForDepletionToStart inside StartDepletionAll,
   // after all depleters acquired their own locks (or when any failed).
   // This early release prevents deadlock with SafeLoader GIL acquisition.
 
@@ -2148,13 +2148,13 @@ int RPSafeDepleter_WaitForDepletionAll(arrayof(ResultProcessor*) safeDepleters, 
  * 4. Returns only after all depletion threads finished running
  * 5. If any depleter fails to acquire the lock, returns RS_RESULT_ERROR
  *
- * Equivalent to RPSafeDepleter_StartDepletionAndHandoffLock followed by
+ * Equivalent to RPSafeDepleter_StartDepletionAll followed by
  * RPSafeDepleter_WaitForDepletionAll on the same array. Used by foreground
  * callers that want to block until everything is drained; callers that want to
  * yield between the two phases should invoke the helpers directly.
  */
 int RPSafeDepleter_DepleteAll(arrayof(ResultProcessor*) safeDepleters, QueryError *status) {
-  int rc = RPSafeDepleter_StartDepletionAndHandoffLock(safeDepleters, status);
+  int rc = RPSafeDepleter_StartDepletionAll(safeDepleters, status);
   if (rc != RS_RESULT_OK) {
     return rc;
   }
