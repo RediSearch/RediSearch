@@ -225,7 +225,7 @@ where
     }
 
     /// Re-synchronize the C header's `current` pointer from the inner iterator's
-    /// [`RQEIterator::current`].
+    /// [`current`](crate::RQEIterator::current).
     ///
     /// Call this after any operation that may invalidate the previously stored
     /// `header.current` (e.g. replacing the inner variant in-place). Panics if the
@@ -575,6 +575,11 @@ where
     // SAFETY: Guaranteed by invariant 1. in [`RQEIteratorWrapper`].
     let wrapper = unsafe { RQEIteratorWrapper::<'index, I>::mut_ref_from_header_ptr(base) };
 
+    if matches!(wrapper.state, WrapperState::Empty) {
+        // An earlier aborted or failed resume consumed the iterator. It stays
+        // dead: report that again so the owner replaces it.
+        return ValidateStatus_VALIDATE_ABORTED;
+    }
     if matches!(wrapper.state, WrapperState::Active(_)) {
         // No `Suspend` preceded this lock re-acquisition: not every unlock site
         // suspends the root iterator, and a freshly built one was never suspended
@@ -640,7 +645,7 @@ where
 }
 
 /// `NumEstimated` C callback. Returns the inner iterator's
-/// [`num_estimated`](RQEIterator::num_estimated) regardless of typestate —
+/// [`num_estimated`](crate::RQEIterator::num_estimated) regardless of typestate —
 /// the active and suspended trait counterparts both surface the same
 /// snapshotted value, so FT.PROFILE introspection works after the iterator
 /// has been suspended at the unlock site.

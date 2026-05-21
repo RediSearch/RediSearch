@@ -29,6 +29,8 @@
 #include "search_result.h"
 #include "search_result_rs.h"
 #include "util/array.h"
+#include "search_ctx.h"
+#include "spec.h"
 
 typedef struct {
   ResultProcessor base;
@@ -352,28 +354,92 @@ static const RSIndexResult *getIndexResult(ResultProcessor *rp, t_docId docId) {
   return rc == ITERATOR_OK ? it->current : NULL;
 }
 
-static int hlpNext(ResultProcessor *rbase, SearchResult *r) {
-  int rc = rbase->upstream->Next(rbase->upstream, r);
-  if (rc != RS_RESULT_OK) {
-    return rc;
+/* Bracket the iterator-touching part of `hlpNext` with a re-acquire of the
+ * spec read lock and a `Revalidate` of the root iterator. SafeLoader drops
+ * the lock (and suspends the iterator) before yielding us each row — without
+ * this re-acquire, `getIndexResult` would call `Rewind`/`SkipTo`/`Read` on a
+ * Suspended iterator (panic on the Rust side; race against concurrent GC on
+ * the C side), and the offsets borrowed by the `RSIndexResult` would point
+ * into inverted-index blocks that may have been freed.
+ *
+ * Mirrors the contract of `handleSpecLockAndRevalidate` (result_processor.c)
+ * with one difference: that helper leaves the lock held for the caller to
+ * release later; this one releases the lock (and re-suspends the iterator) at
+ * the end of the bracketed region. */
+typedef struct {
+  RedisSearchCtx *sctx;  // Non-NULL iff we acquired the lock and have to release it
+  bool aborted;          // VALIDATE_ABORTED: iterator died; caller skips highlight work
+} HlpIterAccess;
+
+static HlpIterAccess hlpLockAndRevalidate(QueryProcessingCtx *qctx) {
+  HlpIterAccess access = {.sctx = NULL, .aborted = false};
+
+  RedisSearchCtx *sctx = QITR_GetRootSearchCtx(qctx);
+  if (!sctx) {
+    // Coordinator pipelines and similar — no root RPQueryIterator to lock
+    // around. No iterator access happens in `hlpNext` either; nothing to do.
+    return access;
+  }
+  if (sctx->spec->diskSpec) {
+    // Disk-backed iterators are snapshot-isolated — no spec lock semantics.
+    // Same skip as `handleSpecLockAndRevalidate`.
+    return access;
+  }
+  if (IndexSpec_IsLocked(sctx->spec)) {
+    // Lock already held by this thread (e.g., we ended up here through a
+    // synchronous pipeline that didn't unlock at SafeLoader's batch boundary).
+    // Same skip as `handleSpecLockAndRevalidate`.
+    return access;
   }
 
-  HlpProcessor *hlp = (HlpProcessor *)rbase;
+  IndexSpec_LockRead(sctx->spec);
+  QueryIterator *it = QITR_GetRootFilter(qctx);
+  ValidateStatus rc = it->Revalidate(it, sctx->spec);
+  if (rc == VALIDATE_ABORTED || rc == VALIDATE_TIMEOUT) {
+    // Iterator's underlying state is unrecoverable. Suspend (idempotent on
+    // anything that survived Revalidate's transition back to Active) and
+    // release the lock. The next `handleSpecLockAndRevalidate` from
+    // `rpQueryItNext` sees an abort too and does the proper
+    // `Free` + `NewEmptyIterator` replacement; an expired deadline is still
+    // caught there by its own timeout check.
+    it->Suspend(it);
+    IndexSpec_Unlock(sctx->spec);
+    access.aborted = true;
+    return access;
+  }
+  // VALIDATE_OK / VALIDATE_MOVED: iterator is callable. We don't care about
+  // `it->current` having shifted to a different docId — `getIndexResult` will
+  // `SkipTo` to the row's docid anyway.
+  access.sctx = sctx;
+  return access;
+}
 
+static void hlpSuspendAndUnlock(HlpIterAccess access, QueryProcessingCtx *qctx) {
+  if (!access.sctx) return;  // Nothing was locked.
+  QITR_SuspendRootIterator(qctx);
+  IndexSpec_Unlock(access.sctx->spec);
+}
+
+/* Inner body of `hlpNext`, factored out so the outer caller can wrap the
+ * iterator/offsets accesses with a single lock/revalidate/suspend/unlock
+ * bracket regardless of how many early returns the body has. */
+static void hlpHighlightRow(HlpProcessor *hlp, SearchResult *r) {
   // Get the index result for the current document from the root iterator.
   // The current result should not contain an index result
-  const RSIndexResult *ir = SearchResult_HasIndexResult(r) ? SearchResult_GetIndexResult(r) : getIndexResult(rbase, SearchResult_GetDocId(r));
+  const RSIndexResult *ir = SearchResult_HasIndexResult(r)
+                                ? SearchResult_GetIndexResult(r)
+                                : getIndexResult(&hlp->base, SearchResult_GetDocId(r));
 
   // we can't work without the index result, just return QUEUED
   if (!ir) {
-    return RS_RESULT_OK;
+    return;
   }
 
   size_t numIovsArr = 0;
   const FieldList *fields = hlp->fields;
   const RSDocumentMetadata *dmd = SearchResult_GetDocumentMetadata(r);
   if (!dmd) {
-    return RS_RESULT_OK;
+    return;
   }
 
   hlpDocContext docParams = {.byteOffsets = dmd->byteOffsets,  // nl
@@ -410,6 +476,19 @@ static int hlpNext(ResultProcessor *rbase, SearchResult *r) {
     Array_Free(&docParams.iovsArr[ii]);
   }
   rm_free(docParams.iovsArr);
+}
+
+static int hlpNext(ResultProcessor *rbase, SearchResult *r) {
+  int rc = rbase->upstream->Next(rbase->upstream, r);
+  if (rc != RS_RESULT_OK) {
+    return rc;
+  }
+
+  HlpIterAccess access = hlpLockAndRevalidate(rbase->parent);
+  if (!access.aborted) {
+    hlpHighlightRow((HlpProcessor *)rbase, r);
+  }
+  hlpSuspendAndUnlock(access, rbase->parent);
   return RS_RESULT_OK;
 }
 
