@@ -1107,6 +1107,19 @@ void RequestSyncCtx_Free(RequestSyncCtx *ctx) {
   rm_free(ctx);
 }
 
+RequestSyncCtx *RequestSyncCtx_IncrRef(RequestSyncCtx *ctx) {
+  if (ctx) {
+    __atomic_fetch_add(&ctx->refcount, 1, __ATOMIC_RELAXED);
+  }
+  return ctx;
+}
+
+void RequestSyncCtx_DecrRef(RequestSyncCtx *ctx) {
+  if (ctx && !__atomic_sub_fetch(&ctx->refcount, 1, __ATOMIC_ACQ_REL)) {
+    RequestSyncCtx_Free(ctx);
+  }
+}
+
 AREQ *RequestSyncCtx_GetAREQ(RequestSyncCtx *ctx) {
   return (ctx && ctx->kind == REQUEST_KIND_AREQ) ? ctx->query.areq : NULL;
 }
@@ -1136,14 +1149,7 @@ AREQ *RequestSyncCtx_GetCursorAREQ(RequestSyncCtx *ctx, uint64_t cursorId) {
 }
 
 void RequestSyncCtx_ReleaseQueryRef(RequestSyncCtx *ctx) {
-  if (!ctx) {
-    return;
-  }
-  if (ctx->kind == REQUEST_KIND_AREQ) {
-    AREQ_DecrRef(ctx->query.areq);
-  } else {
-    HybridRequest_DecrRef(ctx->query.hreq);
-  }
+  RequestSyncCtx_DecrRef(ctx);
 }
 
 void RequestSyncCtx_ReleaseQueryRefCB(void *ctx) {
@@ -1788,13 +1794,13 @@ static void AREQ_Free(AREQ *req) {
 }
 
 AREQ *AREQ_IncrRef(AREQ *req) {
-  __atomic_fetch_add(&req->syncCtx->refcount, 1, __ATOMIC_RELAXED);
+  RequestSyncCtx_IncrRef(req->syncCtx);
   return req;
 }
 
 void AREQ_DecrRef(AREQ *req) {
-  if (req && !__atomic_sub_fetch(&req->syncCtx->refcount, 1, __ATOMIC_ACQ_REL)) {
-    RequestSyncCtx_Free(req->syncCtx);
+  if (req) {
+    RequestSyncCtx_DecrRef(req->syncCtx);
   }
 }
 

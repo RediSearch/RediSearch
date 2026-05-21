@@ -352,15 +352,13 @@ void HybridRequest_Free(HybridRequest *req) {
 }
 
 HybridRequest *HybridRequest_IncrRef(HybridRequest *req) {
-  __atomic_fetch_add(&req->syncCtx->refcount, 1, __ATOMIC_RELAXED);
+  RequestSyncCtx_IncrRef(req->syncCtx);
   return req;
 }
 
 void HybridRequest_DecrRef(HybridRequest *req) {
-  // Use ACQ_REL: release ensures our writes are visible before decrement,
-  // acquire ensures we see all writes from other threads when refcount reaches 0.
-  if (req && !__atomic_sub_fetch(&req->syncCtx->refcount, 1, __ATOMIC_ACQ_REL)) {
-    RequestSyncCtx_Free(req->syncCtx);
+  if (req) {
+    RequestSyncCtx_DecrRef(req->syncCtx);
   }
 }
 

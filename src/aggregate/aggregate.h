@@ -234,6 +234,8 @@ static inline void RequestSyncCtx_Init(RequestSyncCtx *ctx, RequestKind kind, vo
 RequestSyncCtx *RequestSyncCtx_NewAREQ(AREQ *areq);
 RequestSyncCtx *RequestSyncCtx_NewHybrid(HybridRequest *hreq);
 void RequestSyncCtx_Free(RequestSyncCtx *ctx);
+RequestSyncCtx *RequestSyncCtx_IncrRef(RequestSyncCtx *ctx);
+void RequestSyncCtx_DecrRef(RequestSyncCtx *ctx);
 AREQ *RequestSyncCtx_GetAREQ(RequestSyncCtx *ctx);
 HybridRequest *RequestSyncCtx_GetHybridRequest(RequestSyncCtx *ctx);
 AREQ *RequestSyncCtx_GetCursorAREQ(RequestSyncCtx *ctx, uint64_t cursorId);
