@@ -715,8 +715,7 @@ static void FreeCursorMappings(void *mappings) {
 // until all shards have replied with their cursor IDs.
 //
 // This does not run the hybrid merger part of the pipeline - see submitHybridTail.
-static int HybridRequest_prepareCursors(HybridRequest *hreq, struct ConcurrentCmdCtx *cmdCtx,
-                        QueryError *status) {
+static int HybridRequest_prepareCursors(HybridRequest *hreq, QueryError *status) {
 
     // Get RPNet structures from query context
     QueryProcessingCtx *searchQctx = AREQ_QueryProcessingCtx(hreq->requests[0]);
@@ -833,7 +832,7 @@ static void HybridDispatchCtx_Free(HybridDispatchCtx *dispatch) {
 // Locate the RPSafeDepleter in the i-th subquery's pipeline. The depleter is
 // always present (built by HybridRequest_BuildDepletionPipeline) but its
 // position relative to endProc may vary, so walk upstream until we find it.
-static ResultProcessor *findSafeDepleter(HybridRequest *hreq, size_t i) {
+static ResultProcessor *findSafeDepleter(const HybridRequest *hreq, size_t i) {
     ResultProcessor *rp = AREQ_QueryProcessingCtx(hreq->requests[i])->endProc;
     while (rp && rp->type != RP_SAFE_DEPLETER) {
         rp = rp->upstream;
@@ -1060,7 +1059,7 @@ void RSExecDistHybrid(RedisModuleCtx *ctx, RedisModuleString **argv, int argc,
       return;
     }
 
-    if (HybridRequest_prepareCursors(hreq, cmdCtx, &status) != REDISMODULE_OK) {
+    if (HybridRequest_prepareCursors(hreq, &status) != REDISMODULE_OK) {
         DistHybridCleanups(ctx, cmdCtx, sp, &strong_ref, hreq, &status);
         return;
     }
@@ -1143,7 +1142,7 @@ void DEBUG_RSExecDistHybrid(RedisModuleCtx *ctx, RedisModuleString **argv, int a
       return;
     }
 
-    if (HybridRequest_prepareCursors(hreq, cmdCtx, &status) != REDISMODULE_OK) {
+    if (HybridRequest_prepareCursors(hreq, &status) != REDISMODULE_OK) {
         DistHybridCleanups(ctx, cmdCtx, sp, &strong_ref, hreq, &status);
         return;
     }

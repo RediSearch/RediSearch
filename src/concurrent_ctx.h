@@ -118,7 +118,7 @@ size_t ConcurrentCmdCtx_GetNumShards(const struct ConcurrentCmdCtx *cctx);
 RedisModuleBlockedClient *ConcurrentCmdCtx_GetBlockedClient(struct ConcurrentCmdCtx *cctx);
 
 // Returns the thread pool ID the command was dispatched on.
-int ConcurrentCmdCtx_GetPoolId(struct ConcurrentCmdCtx *cctx);
+int ConcurrentCmdCtx_GetPoolId(const struct ConcurrentCmdCtx *cctx);
 
 /* Same as handleRedis command, but set flags for the concurrent context */
 int ConcurrentSearch_HandleRedisCommandEx(int poolType, ConcurrentCmdHandler handler,
