@@ -340,7 +340,7 @@ static TrieAddChildResult __trieNode_addChild_score(
 
 static int __trieNode_Add(TrieNode **np, const rune *str, t_len len, RSPayload *payload, float score,
                    TrieAddOp op, TrieFreeCallback freecb, size_t numDocs) {
-  if (score == 0 || len == 0) {
+  if (len == 0) {
     return TRIE_OK_UPDATED;
   }
   TrieNode *n = *np;
@@ -431,7 +431,7 @@ static int __trieNode_Add(TrieNode **np, const rune *str, t_len len, RSPayload *
 
 int TrieNode_Add(TrieNode **np, const rune *str, t_len len, RSPayload *payload, float score,
                  TrieAddOp op, TrieFreeCallback freecb, size_t numDocs) {
-  if (score == 0 || len == 0) {
+  if (len == 0) {
     return TRIE_OK_UPDATED;
   }
 

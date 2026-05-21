@@ -90,6 +90,10 @@ int RSSuggestAddCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc)
     RedisModule_ReplyWithError(ctx, "ERR invalid score");
     goto end;
   }
+  if (score == 0) {
+    RedisModule_ReplyWithError(ctx, "ERR score must not be 0");
+    goto end;
+  }
 
   /* Create an empty value object if the key is currently empty. */
   if (type == REDISMODULE_KEYTYPE_EMPTY) {
