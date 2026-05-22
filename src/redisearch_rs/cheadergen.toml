@@ -280,7 +280,7 @@ static const uint8_t Result_ExpiredDoc = 1 << 0;
  * Declared directly here (rather than auto-generated from the document_metadata
  * crate) to preserve the `const` qualifier that C callers rely on. */
 typedef struct RSDocumentMetadata_s RSDocumentMetadata;
-typedef const RSDocumentMetadata *DocumentMetadata;
+typedef const RSDocumentMetadata *OwnedDocumentMetadata;
 """
 
 [header.triemap_ffi]

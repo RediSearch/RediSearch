@@ -7,8 +7,8 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 
+use rqe_wildcard::WildcardPattern;
 use trie_rs::TrieMap;
-use wildcard::WildcardPattern;
 
 /// Return all the keys that match the given pattern.
 fn matches<Data>(trie: &TrieMap<Data>, pattern: &str) -> Vec<Vec<u8>> {
