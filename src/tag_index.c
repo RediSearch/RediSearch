@@ -229,15 +229,14 @@ static void tag_index_write_postings(TagIndex *idx, const char **values, size_t 
   }
 }
 
-/* Apply the in-memory tag-trie updates for a vector of tag tokens.
+/* Apply the in-memory tag-trie updates for a vector of tag tokens (Phase 3).
  *
- * Disk mode: runs after a successful `TagIndex_Index` staging + batch commit.
- * Inserts NULL sentinels into `idx->values` (postings live on disk).
- *
- * Memory mode: called directly from `TagIndex_Index` after the per-tag
- * postings have been written. The trie already holds `InvertedIndex*` pointers
- * from `tag_index_write_postings`, so the trie insert is skipped to preserve
- * them.
+ * Called from `tagApplier` in both modes:
+ *   - Disk mode: runs after a successful batch commit. Inserts NULL sentinels
+ *     into `idx->values` (postings live on disk).
+ *   - Memory mode: the trie already holds `InvertedIndex*` pointers from
+ *     `tag_index_write_postings`, so the trie insert is skipped to preserve
+ *     them.
  *
  * Both modes populate `idx->suffix` and bump `stats->numRecords`. Infallible. */
 void TagIndex_Commit(TagIndex *idx, const char **values, size_t n, IndexStats *stats) {
@@ -256,15 +255,13 @@ void TagIndex_Commit(TagIndex *idx, const char **values, size_t n, IndexStats *s
   stats->numRecords++;
 }
 
-/* Index a vector of pre-processed tags for a docId.
+/* Phase 1 (index) for a vector of pre-processed tags. Writes the per-tag
+ * postings only — the matching trie / suffix-trie / `numRecords` updates run
+ * later from `tagApplier` via `TagIndex_Commit`.
  *
- * In disk mode this is phase 1: the writes are staged onto `batch` and the
- * in-memory updates are deferred to `TagIndex_Commit`, which runs after the
- * batch commits.
- *
- * In memory mode there is no separate commit step; the per-tag postings are
- * written here and the trie/suffix bookkeeping is delegated to
- * `TagIndex_Commit`. `batch` is ignored. */
+ * In disk mode the postings are staged onto `batch` (committed by
+ * `commitDocument`). In memory mode they are written inline into the per-tag
+ * `InvertedIndex` and `batch` is ignored. */
 bool TagIndex_Index(RedisModuleCtx *ctx, TagIndex *idx, SearchDiskWriteBatchHandle *batch,
                     const char **values, size_t n, t_docId docId, IndexStats *stats) {
   if (idx->diskSpec) {
@@ -272,7 +269,6 @@ bool TagIndex_Index(RedisModuleCtx *ctx, TagIndex *idx, SearchDiskWriteBatchHand
     return SearchDisk_IndexTags(ctx, idx->diskSpec, batch, values, n, docId, idx->fieldIndex);
   }
   tag_index_write_postings(idx, values, n, docId, stats);
-  TagIndex_Commit(idx, values, n, stats);
   return true;
 }
 

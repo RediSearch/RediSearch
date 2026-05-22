@@ -78,6 +78,13 @@ int IndexerBulkAdd(RSAddDocumentCtx *cur, RedisSearchCtx *sctx,
                    const DocumentField *field, const FieldSpec *fs, FieldIndexerData *fdata,
                    QueryError *status);
 
+/* Phase 3 dispatcher: apply the per-field-type RAM bookkeeping for a single
+ * (doc, field) pair. Called from `applyMemoryChanges` after Phase 1 indexing
+ * (and a successful batch commit in disk mode). Infallible. */
+void IndexerBulkApply(RSAddDocumentCtx *aCtx, RedisSearchCtx *sctx,
+                      const DocumentField *field, const FieldSpec *fs,
+                      FieldIndexerData *fdata);
+
 /**
  * Yield to Redis after a certain number of operations during indexing while loading.
  * This helps keep Redis responsive during long indexing operations.

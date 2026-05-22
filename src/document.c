@@ -383,6 +383,16 @@ static void writeByteOffsets(ForwardIndexTokenizerCtx *tokCtx, const Token *tokI
   static int name(RSAddDocumentCtx *aCtx, RedisSearchCtx *ctx, const DocumentField *field,  \
                   const FieldSpec *fs, FieldIndexerData *fdata, QueryError *status)
 
+/* Phase 3 (apply) hook for a single field of a given type. Mirrors
+ * `FIELD_BULK_INDEXER`. Appliers run in `applyMemoryChanges` after Phase 1
+ * indexing (and, in disk mode, after a successful batch commit). They are
+ * infallible — they only perform RAM bookkeeping (trie inserts, stats
+ * counters, global-stats bumps) that pairs with the durable writes from
+ * Phase 1/2. */
+#define FIELD_BULK_APPLIER(name)                                                            \
+  static void name(RSAddDocumentCtx *aCtx, RedisSearchCtx *ctx, const DocumentField *field, \
+                   const FieldSpec *fs, FieldIndexerData *fdata)
+
 #define FIELD_BULK_CTOR(name) \
   static void name(IndexBulkData *bulk, const FieldSpec *fs, RedisSearchCtx *ctx)
 #define FIELD_BULK_FINALIZER(name) static void name(IndexBulkData *bulk, RedisSearchCtx *ctx)
@@ -809,10 +819,10 @@ FIELD_BULK_INDEXER(tagIndexer) {
     tidx->suffix = NewTrieMap();
   }
 
-  // `TagIndex_Index` branches internally: in disk mode it stages onto the
-  // per-document batch (matching in-memory updates run in `TagIndex_Commit`
-  // from `Indexer_Process` once the batch commits); in memory mode it writes
-  // inline.
+  // `TagIndex_Index` branches internally: disk mode stages onto the per-document
+  // batch; memory mode writes the per-tag postings inline. In both modes the
+  // matching trie / suffix-trie / `numRecords` updates run in `tagApplier`
+  // from `applyMemoryChanges` (after the batch commits in disk mode).
   if (!TagIndex_Index(ctx->redisCtx, tidx, aCtx->diskBatch,
                       (const char **)fdata->tags, array_len(fdata->tags),
                       aCtx->doc->docId, &ctx->spec->stats)) {
@@ -820,6 +830,54 @@ FIELD_BULK_INDEXER(tagIndexer) {
     return -1;
   }
   return 0;
+}
+
+/* Phase 3 (apply) hooks. Each runs once per (doc, indexed field) pair from
+ * `IndexerBulkApply`. See `FIELD_BULK_APPLIER` for the contract. */
+
+FIELD_BULK_APPLIER(tagApplier) {
+  // `aCtx->fspecs` is a shallow copy taken in `AddDocumentCtx_SetDocument`.
+  // The TagIndex is lazily allocated by `tagIndexer` via `TagIndex_Ensure` on
+  // the live spec field, so the copy's `tagOpts.tagIndex` may still be NULL
+  // here. Look up the live spec field directly.
+  TagIndex *tidx = TagIndex_Open(&ctx->spec->fields[fs->index]);
+  if (!tidx) return;
+  TagIndex_Commit(tidx, (const char **)fdata->tags, array_len(fdata->tags),
+                  &ctx->spec->stats);
+  FieldsGlobalStats_UpdateFieldDocsIndexed(INDEXFLD_T_TAG, 1);
+}
+
+FIELD_BULK_APPLIER(vectorApplier) {
+  // The VecSim insert itself runs in Phase 2 (`commitDocument`) for disk mode
+  // and inline in `vectorIndexer` for memory mode. Phase 3 only handles the
+  // global-stats bump, which is mode-independent.
+  FieldsGlobalStats_UpdateFieldDocsIndexed(INDEXFLD_T_VECTOR, 1);
+}
+
+FIELD_BULK_APPLIER(numericApplier) {
+  // TODO: when numeric lands on the per-document disk write batch, move the
+  // `spec->stats.invertedSize` / `numRecords` deltas and the `NumericRangeTree`
+  // mutation here. Today both are done inline in `numericIndexer`, which
+  // asserts disk-mode is disabled.
+  (void)aCtx; (void)ctx; (void)field; (void)fs; (void)fdata;
+  FieldsGlobalStats_UpdateFieldDocsIndexed(INDEXFLD_T_NUMERIC, 1);
+}
+
+FIELD_BULK_APPLIER(geoApplier) {
+  // TODO: when geo lands on the per-document disk write batch, move the
+  // numeric-tree mutation + stats deltas here. Today `numericIndexer` (which
+  // handles both numeric and geo) does the work inline and asserts disk-mode
+  // is disabled.
+  (void)aCtx; (void)ctx; (void)field; (void)fs; (void)fdata;
+  FieldsGlobalStats_UpdateFieldDocsIndexed(INDEXFLD_T_GEO, 1);
+}
+
+FIELD_BULK_APPLIER(geometryApplier) {
+  // TODO: when geometry lands on the per-document disk write batch, move the
+  // R-tree mutation here. Today `geometryIndexer` does the insert inline and
+  // asserts disk-mode is disabled.
+  (void)aCtx; (void)ctx; (void)field; (void)fs; (void)fdata;
+  FieldsGlobalStats_UpdateFieldDocsIndexed(INDEXFLD_T_GEOMETRY, 1);
 }
 
 static PreprocessorFunc preprocessorMap[] = {
@@ -862,15 +920,23 @@ int IndexerBulkAdd(RSAddDocumentCtx *cur, RedisSearchCtx *sctx,
       }
     }
   }
-  // If the indexing was successful, update the global statistics. In disk
-  // mode (`batch_write == true`) the bump is deferred to the per-field commit
-  // helpers (`commitTagFields`, `commitVectorFields`), which only run after a
-  // successful batch commit.
-  const bool batch_write = sctx->spec->diskSpec;
-  if (rc == 0 && !batch_write) {
-    FieldsGlobalStats_UpdateFieldDocsIndexed(fs->types, 1);
-  }
   return rc;
+}
+
+void IndexerBulkApply(RSAddDocumentCtx *aCtx, RedisSearchCtx *sctx,
+                      const DocumentField *field, const FieldSpec *fs,
+                      FieldIndexerData *fdata) {
+  for (size_t ii = 0; ii < INDEXFLD_NUM_TYPES; ++ii) {
+    if (!(field->indexAs & INDEXTYPE_FROM_POS(ii))) continue;
+    switch (ii) {
+      case IXFLDPOS_TAG:      tagApplier(aCtx, sctx, field, fs, fdata);      break;
+      case IXFLDPOS_NUMERIC:  numericApplier(aCtx, sctx, field, fs, fdata);  break;
+      case IXFLDPOS_GEO:      geoApplier(aCtx, sctx, field, fs, fdata);      break;
+      case IXFLDPOS_VECTOR:   vectorApplier(aCtx, sctx, field, fs, fdata);   break;
+      case IXFLDPOS_GEOMETRY: geometryApplier(aCtx, sctx, field, fs, fdata); break;
+      case IXFLDPOS_FULLTEXT: break;
+    }
+  }
 }
 
 int Document_AddToIndexes(RSAddDocumentCtx *aCtx, RedisSearchCtx *sctx) {
