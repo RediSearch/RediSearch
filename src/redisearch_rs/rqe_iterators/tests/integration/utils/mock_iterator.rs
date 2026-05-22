@@ -473,13 +473,39 @@ impl<const N: usize> rqe_iterators::RQESuspendedIterator for MockSuspended<N> {
     type Resumed<'a> = Mock<'a, N>;
 
     fn resume<'a>(
-        self: Box<Self>,
+        mut self: Box<Self>,
         _guard: &'a index_spec::IndexSpecReadGuard<'a>,
     ) -> (Box<Self::Resumed<'a>>, ffi::ValidateStatus) {
+        // Honour the [`MockRevalidateResult`] configured on the mock's
+        // [`MockData`] — mirrors what `Mock::revalidate` did on the legacy
+        // path, so tests driving suspend/resume see the same per-mock
+        // outcomes as before. Without this, every resume would report OK
+        // and tests that pre-configure Abort/Move behaviour would silently
+        // see the Ok path.
+        let revalidate_result = {
+            let mut data = self._data.0.borrow_mut();
+            data.validation_count += 1;
+            data.revalidate_result
+        };
+        let status = match revalidate_result {
+            MockRevalidateResult::Ok => ffi::ValidateStatus_VALIDATE_OK,
+            MockRevalidateResult::Move => {
+                // Mirror `Mock::revalidate`'s Move case: set the result to
+                // the doc id at `_next_index`, then advance past it. This
+                // matches the legacy path's side effects so suspend/resume
+                // and revalidate produce indistinguishable end states.
+                if self._next_index < N {
+                    self._result.doc_id = self._doc_ids[self._next_index];
+                    self._next_index += 1;
+                }
+                ffi::ValidateStatus_VALIDATE_MOVED
+            }
+            MockRevalidateResult::Abort => ffi::ValidateStatus_VALIDATE_ABORTED,
+        };
         let raw = Box::into_raw(self);
         // SAFETY: layout-identical (see [`Mock::suspend`]).
         let active = unsafe { Box::from_raw(raw as *mut Mock<'a, N>) };
-        (active, ffi::ValidateStatus_VALIDATE_OK)
+        (active, status)
     }
 
     fn last_doc_id(&self) -> ffi::t_docId {

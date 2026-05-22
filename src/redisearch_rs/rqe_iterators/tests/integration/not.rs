@@ -9,11 +9,14 @@
 
 use std::time::Duration;
 
-use ffi::t_docId;
-use rqe_iterators::{
-    IteratorType, RQEIterator, RQEIteratorError, RQEValidateStatus, SkipToOutcome,
-    id_list::IdListSorted, not::Not,
+use ffi::{
+    ValidateStatus_VALIDATE_ABORTED, ValidateStatus_VALIDATE_MOVED, ValidateStatus_VALIDATE_OK,
+    t_docId,
 };
+use rqe_iterators::{
+    IteratorType, RQEIterator, RQEIteratorError, SkipToOutcome, id_list::IdListSorted, not::Not,
+};
+use rqe_iterators_test_utils::revalidate_via_resume;
 
 use crate::utils::{Mock, MockIteratorError, MockRevalidateResult};
 
@@ -306,17 +309,16 @@ fn rewind_resets_state() {
     assert_eq!(it.last_doc_id(), 1);
 }
 
-// Child revalidate Ok: NOT still excludes the child's doc IDs.
+// Child resume Ok: NOT still excludes the child's doc IDs.
 #[test]
 fn revalidate_child_ok_preserves_exclusions() {
     let mock_ctx = rqe_iterators_test_utils::MockContext::new(0, 0);
+    let guard = mock_ctx.spec_read();
     let child = Mock::new([2, 4]);
-    let mut it = Not::new(child, 5, 1.0, Duration::ZERO, true);
+    let it = Box::new(Not::new(child, 5, 1.0, Duration::ZERO, true));
 
-    let status = it
-        .revalidate(&*mock_ctx.spec_read())
-        .expect("revalidate() failed");
-    assert_eq!(status, RQEValidateStatus::Ok);
+    let (mut it, status) = revalidate_via_resume(it, &guard);
+    assert_eq!(status, ValidateStatus_VALIDATE_OK);
 
     let mut seen = Vec::new();
     while let Some(doc) = it.read().unwrap() {
@@ -327,19 +329,20 @@ fn revalidate_child_ok_preserves_exclusions() {
     assert_eq!(seen, vec![1, 3, 5]);
 }
 
-// Child revalidate Aborted: NOT degenerates to wildcard (empty child).
+// Child resume Aborted: NOT degenerates to wildcard (empty child).
 #[test]
 fn revalidate_child_aborted_replaces_child_with_empty() {
     let mock_ctx = rqe_iterators_test_utils::MockContext::new(0, 0);
+    let guard = mock_ctx.spec_read();
     let child = Mock::new([2, 4]);
     let mut data = child.data();
     data.set_revalidate_result(MockRevalidateResult::Abort);
-    let mut it = Not::new(child, 5, 1.0, Duration::ZERO, true);
+    let it = Box::new(Not::new(child, 5, 1.0, Duration::ZERO, true));
 
-    let status = it
-        .revalidate(&*mock_ctx.spec_read())
-        .expect("revalidate() failed");
-    assert_eq!(status, RQEValidateStatus::Ok);
+    let (mut it, status) = revalidate_via_resume(it, &guard);
+    // NOT's resume always reports OK — child's Aborted is absorbed into
+    // "treat child as empty".
+    assert_eq!(status, ValidateStatus_VALIDATE_OK);
 
     let mut seen = Vec::new();
     while let Some(doc) = it.read().unwrap() {
@@ -350,20 +353,19 @@ fn revalidate_child_aborted_replaces_child_with_empty() {
     assert_eq!(seen, vec![1, 2, 3, 4, 5]);
 }
 
-// Child revalidate Moved on fresh iterator: should not panic.
+// Child resume Moved on fresh iterator: should not panic.
 #[test]
 fn revalidate_child_moved_on_fresh_iterator() {
     let mock_ctx = rqe_iterators_test_utils::MockContext::new(0, 0);
+    let guard = mock_ctx.spec_read();
     let child = Mock::new([2, 4]);
     let mut data = child.data();
     data.set_revalidate_result(MockRevalidateResult::Move);
-    let mut it = Not::new(child, 5, 1.0, Duration::ZERO, true);
+    let it = Box::new(Not::new(child, 5, 1.0, Duration::ZERO, true));
 
-    // Revalidate before any read/skip_to - both iterators at doc_id = 0
-    let status = it
-        .revalidate(&*mock_ctx.spec_read())
-        .expect("revalidate() failed");
-    assert_eq!(status, RQEValidateStatus::Ok);
+    // Resume before any read/skip_to - both iterators at doc_id = 0
+    let (mut it, status) = revalidate_via_resume(it, &guard);
+    assert_eq!(status, ValidateStatus_VALIDATE_OK);
 
     // Iterator should still work correctly after revalidate
     let mut seen = Vec::new();
@@ -375,13 +377,14 @@ fn revalidate_child_moved_on_fresh_iterator() {
     assert_eq!(seen, vec![1, 3, 5]);
 }
 
-// Child revalidate Moved after read: child ahead, should not panic.
+// Child resume Moved after read: child ahead, should not panic.
 #[test]
 fn revalidate_child_moved_after_read_with_child_ahead() {
     let mock_ctx = rqe_iterators_test_utils::MockContext::new(0, 0);
+    let guard = mock_ctx.spec_read();
     let child = Mock::new([5, 10]);
     let mut data = child.data();
-    let mut it = Not::new(child, 15, 1.0, Duration::ZERO, true);
+    let mut it = Box::new(Not::new(child, 15, 1.0, Duration::ZERO, true));
 
     // Read first doc (1) - child will be at 5, NOT at 1
     let doc = it.read().expect("read() failed").expect("expected doc");
@@ -393,10 +396,8 @@ fn revalidate_child_moved_after_read_with_child_ahead() {
     data.set_revalidate_result(MockRevalidateResult::Move);
 
     // This should not panic - child is ahead of NOT's position
-    let status = it
-        .revalidate(&*mock_ctx.spec_read())
-        .expect("revalidate() failed");
-    assert_eq!(status, RQEValidateStatus::Ok);
+    let (mut it, status) = revalidate_via_resume(it, &guard);
+    assert_eq!(status, ValidateStatus_VALIDATE_OK);
 
     // Continue reading - should still work correctly
     let mut seen = vec![1]; // Already read 1
@@ -413,9 +414,10 @@ fn revalidate_child_moved_after_read_with_child_ahead() {
 #[test]
 fn revalidate_child_moved_after_skip_to_with_child_ahead() {
     let mock_ctx = rqe_iterators_test_utils::MockContext::new(0, 0);
+    let guard = mock_ctx.spec_read();
     let child = Mock::new([8, 15]);
     let mut data = child.data();
-    let mut it = Not::new(child, 20, 1.0, Duration::ZERO, true);
+    let mut it = Box::new(Not::new(child, 20, 1.0, Duration::ZERO, true));
 
     // Skip to 3 - child will be at 8, NOT at 3
     let outcome = it
@@ -433,10 +435,8 @@ fn revalidate_child_moved_after_skip_to_with_child_ahead() {
     data.set_revalidate_result(MockRevalidateResult::Move);
 
     // This should not panic - child is ahead of NOT's position
-    let status = it
-        .revalidate(&*mock_ctx.spec_read())
-        .expect("revalidate() failed");
-    assert_eq!(status, RQEValidateStatus::Ok);
+    let (mut it, status) = revalidate_via_resume(it, &guard);
+    assert_eq!(status, ValidateStatus_VALIDATE_OK);
 
     // Continue reading - should still work correctly
     let mut seen = vec![3]; // Already at 3
