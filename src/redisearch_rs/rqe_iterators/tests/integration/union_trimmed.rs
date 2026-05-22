@@ -276,7 +276,14 @@ fn current_none_after_exhaustion() {
 // revalidate()
 // =============================================================================
 
-/// `revalidate` panics.
+/// `revalidate` panics — trimmed unions are never expected to revalidate.
+///
+/// This test still goes through the legacy `RQEIterator::revalidate` trait
+/// method (rather than the canonical suspend/resume path) because
+/// `UnionTrimmed`'s children are `Box<dyn RQEIterator>` and dyn-erased
+/// iterators don't implement [`RQEIteratorBoxed`]. The panic message
+/// matches both the legacy `revalidate` and the suspend/resume `resume`
+/// bodies — both flow into the same `unreachable!`.
 #[test]
 #[should_panic(expected = "revalidate is not supported on UnionTrimmed")]
 fn revalidate_panics() {

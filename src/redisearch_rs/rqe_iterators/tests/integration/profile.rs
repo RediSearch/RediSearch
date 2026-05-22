@@ -10,6 +10,7 @@
 use std::time::Duration;
 
 use rqe_iterators::{IteratorType, RQEIterator, Wildcard, profile::Profile};
+use rqe_iterators_test_utils::revalidate_via_resume;
 
 use crate::utils::{Mock, MockIteratorError};
 
@@ -155,16 +156,16 @@ fn profile_rewind() {
 fn profile_revalidate() {
     let mock_ctx = rqe_iterators_test_utils::MockContext::new(0, 0);
     let child = Wildcard::new(10, 1.0);
-    let mut profile = Profile::new(child);
+    let mut profile = Box::new(Profile::new(child));
 
     let _ = profile.read(); // doc 1
     let _ = profile.read(); // doc 2
 
-    // Revalidate (Wildcard returns OK)
-    let status = profile.revalidate(&*mock_ctx.spec_read());
-    assert!(status.is_ok());
+    // Drive the canonical suspend/resume cycle (Wildcard yields OK).
+    let guard = mock_ctx.spec_read();
+    let (mut profile, _status) = revalidate_via_resume(profile, &guard);
 
-    // Verify delegation still works
+    // Verify position survives the cycle.
     assert_eq!(profile.last_doc_id(), 2);
     assert_eq!(profile.current().unwrap().doc_id, 2);
 }

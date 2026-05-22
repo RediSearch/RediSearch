@@ -7,10 +7,12 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 
+use ffi::ValidateStatus_VALIDATE_OK;
 use rqe_iterators::{
-    IteratorType, RQEIterator, RQEValidateStatus,
+    IteratorType, RQEIterator,
     metric::{MetricSortedById, MetricSortedByScore},
 };
+use rqe_iterators_test_utils::revalidate_via_resume;
 
 #[test]
 fn type_sorted_by_id() {
@@ -282,10 +284,11 @@ mod metrics_tests {
 #[test]
 fn revalidate() {
     let mock_ctx = rqe_iterators_test_utils::MockContext::new(0, 0);
+    let guard = mock_ctx.spec_read();
     let metric_data = vec![0.1, 0.2, 0.3];
-    let mut it = MetricSortedById::new(vec![1, 2, 3], metric_data);
-    let status = it.revalidate(&*mock_ctx.spec_read()).unwrap();
-    assert_eq!(status, RQEValidateStatus::Ok);
+    let it = Box::new(MetricSortedById::new(vec![1, 2, 3], metric_data));
+    let (_it, status) = revalidate_via_resume(it, &guard);
+    assert_eq!(status, ValidateStatus_VALIDATE_OK);
 }
 
 #[test]
