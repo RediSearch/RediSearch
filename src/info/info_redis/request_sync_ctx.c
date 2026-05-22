@@ -9,9 +9,36 @@
 
 #include "aggregate/aggregate.h"
 #include "coord/rmr/chan.h"
+#include "cursor.h"
 #include "hybrid/hybrid_request.h"
+#include "search_result_ffi.h"
 
 void AREQ_Free(AREQ *req);
+
+void ChunkReplyState_Destroy(ChunkReplyState *state) {
+  // Free any stored results that weren't consumed
+  // (e.g., if timeout occurred before reply_callback ran)
+  if (state->results) {
+    for (size_t i = 0; i < array_len(state->results); i++) {
+      SearchResult_Destroy(state->results[i]);
+      rm_free(state->results[i]);
+    }
+    array_free(state->results);
+    state->results = NULL;
+  }
+
+  // Timeout edge case: cursor wasn't handled by reply_callback.
+  // See ChunkReplyState ownership model in aggregate.h for full explanation.
+  // We must clear query before Cursor_Free to prevent the AREQ_DecrRef loop.
+  if (state->cursor) {
+    state->cursor->query = NULL;
+    Cursor_Free(state->cursor);
+    state->cursor = NULL;
+  }
+
+  // Clear stored error state
+  QueryError_ClearError(&state->err);
+}
 
 RequestSyncCtx *RequestSyncCtx_NewAREQ(AREQ *areq) {
   RequestSyncCtx *ctx = rm_new(RequestSyncCtx);
