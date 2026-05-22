@@ -18,12 +18,55 @@ use ref_mode::{Active, Ref, Suspended};
 use std::cmp;
 
 use crate::{
-    IteratorType, RQEIterator, RQEIteratorBoxed, RQEIteratorError, RQESuspendedIterator,
-    SkipToOutcome,
+    BoxedRQEIterator, IteratorType, RQEIterator, RQEIteratorBoxed, RQEIteratorError,
+    RQESuspendedIterator, SkipToOutcome,
     profile_print::{ProfilePrint, ProfilePrintCtx},
 };
 use index_spec::IndexSpecReadGuard;
 use rqe_core::{DocId, RS_FIELDMASK_ALL};
+
+/// Trait implemented by all optional iterator variants.
+///
+/// Both [`Optional`] and [`crate::optional_optimized::OptionalOptimized`] implement this,
+/// with the child stored as a [`BoxedRQEIterator`].
+pub trait OptionalIterator<'index>: RQEIterator<'index> {
+    /// Returns a shared reference to the child iterator, if any.
+    fn child(&self) -> Option<&(dyn RQEIterator<'index> + 'index)>;
+
+    /// Takes ownership of the child iterator, replacing it with an empty state.
+    ///
+    /// Returns `None` if there is no child.
+    fn take_child(&mut self) -> Option<BoxedRQEIterator<'index>>;
+
+    /// Sets (or overwrites) the child iterator.
+    fn set_child(&mut self, child: BoxedRQEIterator<'index>);
+
+    /// Unsets the child iterator (makes it `None`).
+    ///
+    /// # Panics
+    ///
+    /// Panics for iterator variants that do not support an absent child
+    /// (e.g. [`crate::optional_optimized::OptionalOptimized`]).
+    fn unset_child(&mut self);
+}
+
+impl<'index> OptionalIterator<'index> for Optional<'index, BoxedRQEIterator<'index>> {
+    fn child(&self) -> Option<&(dyn RQEIterator<'index> + 'index)> {
+        Optional::child(self).map(|c| c as &dyn RQEIterator<'index>)
+    }
+
+    fn take_child(&mut self) -> Option<BoxedRQEIterator<'index>> {
+        Optional::take_child(self)
+    }
+
+    fn set_child(&mut self, child: BoxedRQEIterator<'index>) {
+        Optional::set_child(self, child);
+    }
+
+    fn unset_child(&mut self) {
+        Optional::unset_child(self);
+    }
+}
 
 /// An iterator that emits a sequence of results with no gaps, up to a given document id.
 /// Results are pulled from an underlying [`RQEIterator`] instance. If there is no entry

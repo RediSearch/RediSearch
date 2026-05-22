@@ -17,10 +17,10 @@ use index_result::{RSIndexResult, RawIndexResult};
 use ref_mode::{Active, Ref, Suspended};
 
 use crate::{
-    IteratorType, RQEIterator, RQEIteratorBoxed, RQEIteratorError, RQESuspendedIterator,
-    SkipToOutcome,
-    WildcardIterator,
+    BoxedRQEIterator, IteratorType, RQEIterator, RQEIteratorBoxed, RQEIteratorError,
+    RQESuspendedIterator, SkipToOutcome, WildcardIterator,
     maybe_empty::MaybeEmpty,
+    not::NotIterator,
     profile_print::{ProfilePrint, ProfilePrintCtx},
     utils::TimeoutContext,
 };
@@ -409,6 +409,16 @@ where
 
     fn num_estimated(&self) -> usize {
         self.wcii.num_estimated()
+    }
+}
+
+impl<'index, W, TC> NotIterator<'index> for NotOptimized<'index, W, BoxedRQEIterator<'index>, TC>
+where
+    W: crate::WildcardIterator<'index>,
+    TC: TimeoutContext,
+{
+    fn child(&self) -> Option<&dyn RQEIterator<'index>> {
+        NotOptimized::child(self).map(|c| c as &dyn RQEIterator<'index>)
     }
 }
 

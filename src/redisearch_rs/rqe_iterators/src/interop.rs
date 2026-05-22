@@ -371,7 +371,7 @@ where
 /// For these casts to remain valid after profiling, the wrapper's type parameter must
 /// stay the same. For example, `Intersection<CRQEIterator>` must remain
 /// `Intersection<CRQEIterator>` after its children are profiled — not become
-/// `Intersection<Box<dyn RQEIterator>>`.
+/// `Intersection<BoxedRQEIterator>`.
 ///
 /// This trait provides that guarantee: [`profile_children`](Self::profile_children)
 /// returns `Self`, so the type is preserved through profiling. Each child is profiled
