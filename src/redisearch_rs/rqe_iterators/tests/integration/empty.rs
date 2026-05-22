@@ -7,11 +7,9 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 
-use rqe_iterators::{
-    IteratorType,
-    empty::Empty,
-    {RQEIterator, RQEValidateStatus},
-};
+use ffi::ValidateStatus_VALIDATE_OK;
+use rqe_iterators::{IteratorType, RQEIterator, empty::Empty};
+use rqe_iterators_test_utils::revalidate_via_resume;
 
 #[test]
 fn current() {
@@ -66,9 +64,7 @@ fn type_() {
 #[test]
 fn revalidate() {
     let mock_ctx = rqe_iterators_test_utils::MockContext::new(0, 0);
-    let mut it = Empty::default();
-    let status = it
-        .revalidate(&*mock_ctx.spec_read())
-        .expect("revalidate failed");
-    assert_eq!(status, RQEValidateStatus::Ok);
+    let guard = mock_ctx.spec_read();
+    let (_it, status) = revalidate_via_resume(Box::new(Empty), &guard);
+    assert_eq!(status, ValidateStatus_VALIDATE_OK);
 }
