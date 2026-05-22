@@ -21,3 +21,45 @@ pub mod test_context;
 
 pub use mock_context::MockContext;
 pub use test_context::{GlobalGuard, TestContext};
+
+/// Drive a suspend/resume cycle on `it` under the given lock guard.
+///
+/// Mirrors the production FFI `revalidate` callback (see
+/// `rqe_iterators::interop::revalidate`): box-suspend → resume → cast back to
+/// the same active type. Tests use this to exercise the canonical
+/// suspend/resume path during the in-progress migration away from
+/// `RQEIterator::revalidate`.
+///
+/// # Safety contract
+///
+/// The cast `Box<T::Suspended::Resumed<'a>> → Box<T>` relies on the
+/// layout-compatibility guarantee documented on
+/// [`rqe_iterators::RQEIteratorBoxed::suspend`]: active and suspended forms
+/// of an iterator are `#[repr(C)]` over `SharedPtr` fields, so the heap
+/// allocation can be relabelled between modes without copying or
+/// reallocating. All iterators in `rqe_iterators` honour this contract, and
+/// the FFI wrapper uses the same cast (see
+/// `rqe_iterators::interop::revalidate`).
+pub fn revalidate_via_resume<'borrow, 'spec, T>(
+    it: Box<T>,
+    spec: &'borrow index_spec::IndexSpecReadGuard<'spec>,
+) -> (Box<T>, ffi::ValidateStatus)
+where
+    T: rqe_iterators::RQEIteratorBoxed<'spec> + 'spec,
+{
+    // Suspend walks children via `suspend_child_slot_in_place`, which
+    // dispatches each child's `suspend` through the trait. For
+    // `BoxedRQEIterator` children that goes through the dyn vtable,
+    // correctly transitioning the inner concrete iterator; for `CRQEIterator`
+    // children it fires their `Suspend` vtable entry. Mirrors what the FFI
+    // wrapper does before each lock release.
+    let suspended = <T as rqe_iterators::RQEIteratorBoxed<'spec>>::suspend(it);
+    let (resumed, status) =
+        <T::Suspended as rqe_iterators::RQESuspendedIterator>::resume(suspended, spec);
+    // SAFETY: `T` and `<T::Suspended as RQESuspendedIterator>::Resumed<'spec>`
+    // are layout-identical by the `RQEIteratorBoxed::suspend` contract.
+    // The FFI wrapper relies on the same cast (see
+    // `rqe_iterators::interop::revalidate`).
+    let active: Box<T> = unsafe { Box::from_raw(Box::into_raw(resumed) as *mut T) };
+    (active, status)
+}
