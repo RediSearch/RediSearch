@@ -463,6 +463,78 @@ impl<const N: usize> rqe_iterators::profile_print::ProfilePrint for Mock<'_, N> 
     }
 }
 
+/// Suspended counterpart of [`Mock`].
+///
+/// Tests that drive the suspend/resume cycle need the inner iterator type to
+/// implement [`rqe_iterators::RQEIteratorBoxed`]. The Mock holds no real index
+/// borrows (its `result` is a freshly-built [`RSIndexResult`] over owned data),
+/// so the suspended counterpart is byte-identical to the active form at any
+/// lifetime.
+pub struct MockSuspended<const N: usize> {
+    _result: RSIndexResult<'static>,
+    _doc_ids: [DocId; N],
+    _positions: Option<[u8; N]>,
+    _next_index: usize,
+    _data: MockData,
+}
+
+impl<'index, const N: usize> rqe_iterators::RQEIteratorBoxed<'index> for Mock<'index, N> {
+    type Suspended = MockSuspended<N>;
+
+    fn suspend(self: Box<Self>) -> Box<Self::Suspended> {
+        let raw = Box::into_raw(self);
+        // SAFETY: `Mock<'index, N>` and `MockSuspended<N>` have identical layout
+        // (lifetime parameter is phantom in this test helper). Box::from_raw
+        // reuses the same heap allocation.
+        unsafe { Box::from_raw(raw as *mut MockSuspended<N>) }
+    }
+}
+
+impl<const N: usize> rqe_iterators::RQESuspendedIterator for MockSuspended<N> {
+    type Resumed<'a> = Mock<'a, N>;
+
+    fn resume<'a>(
+        mut self: Box<Self>,
+        _guard: &'a index_spec::IndexSpecReadGuard<'a>,
+    ) -> (Box<Self::Resumed<'a>>, ffi::ValidateStatus) {
+        // Honour the [`MockRevalidateResult`] configured on the mock's
+        // [`MockData`] — mirrors what `Mock::revalidate` does on the legacy
+        // path, so tests driving suspend/resume see the same per-mock
+        // outcomes as before.
+        let revalidate_result = {
+            let mut data = self._data.0.borrow_mut();
+            data.validation_count += 1;
+            data.revalidate_result
+        };
+        let status = match revalidate_result {
+            MockRevalidateResult::Ok => ffi::ValidateStatus_VALIDATE_OK,
+            MockRevalidateResult::Move => {
+                if self._next_index < N {
+                    self._result.doc_id = self._doc_ids[self._next_index];
+                    self._next_index += 1;
+                }
+                ffi::ValidateStatus_VALIDATE_MOVED
+            }
+            MockRevalidateResult::Abort => ffi::ValidateStatus_VALIDATE_ABORTED,
+        };
+        let raw = Box::into_raw(self);
+        // SAFETY: layout-identical (see [`Mock::suspend`]).
+        let active = unsafe { Box::from_raw(raw as *mut Mock<'a, N>) };
+        (active, status)
+    }
+
+    fn last_doc_id(&self) -> DocId {
+        self._doc_ids
+            .get(self._next_index.saturating_sub(1))
+            .copied()
+            .unwrap_or(0)
+    }
+
+    fn num_estimated(&self) -> usize {
+        self._doc_ids.len()
+    }
+}
+
 /// Dynamic-size variant of [`Mock`] that uses a [`Vec`] instead of a fixed array.
 ///
 /// This is useful when the document IDs are determined at runtime.
@@ -630,5 +702,53 @@ impl<'index> RQEIterator<'index> for MockVec<'index> {
 
     fn intersection_sort_weight(&self, _prioritize_union_children: bool) -> f64 {
         1.0
+    }
+}
+
+/// Suspended counterpart of [`MockVec`].
+///
+/// Layout-identical to [`MockVec`] (the lifetime parameter is purely phantom
+/// in this test helper: `result` is a freshly-built [`RSIndexResult`] over
+/// owned data).
+pub struct MockVecSuspended {
+    _result: RSIndexResult<'static>,
+    _doc_ids: Vec<DocId>,
+    _next_index: usize,
+    _data: MockData,
+}
+
+impl<'index> rqe_iterators::RQEIteratorBoxed<'index> for MockVec<'index> {
+    type Suspended = MockVecSuspended;
+
+    fn suspend(self: Box<Self>) -> Box<Self::Suspended> {
+        let raw = Box::into_raw(self);
+        // SAFETY: `MockVec<'index>` and `MockVecSuspended` have identical layout
+        // (lifetime parameter is phantom in this test helper).
+        unsafe { Box::from_raw(raw as *mut MockVecSuspended) }
+    }
+}
+
+impl rqe_iterators::RQESuspendedIterator for MockVecSuspended {
+    type Resumed<'a> = MockVec<'a>;
+
+    fn resume<'a>(
+        self: Box<Self>,
+        _guard: &'a index_spec::IndexSpecReadGuard<'a>,
+    ) -> (Box<Self::Resumed<'a>>, ffi::ValidateStatus) {
+        let raw = Box::into_raw(self);
+        // SAFETY: layout-identical (see [`MockVec::suspend`]).
+        let active = unsafe { Box::from_raw(raw as *mut MockVec<'a>) };
+        (active, ffi::ValidateStatus_VALIDATE_OK)
+    }
+
+    fn last_doc_id(&self) -> DocId {
+        self._doc_ids
+            .get(self._next_index.saturating_sub(1))
+            .copied()
+            .unwrap_or(0)
+    }
+
+    fn num_estimated(&self) -> usize {
+        self._doc_ids.len()
     }
 }
