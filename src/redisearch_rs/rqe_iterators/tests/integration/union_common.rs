@@ -24,9 +24,14 @@ macro_rules! union_common_tests {
             Mock, MockIteratorError, MockRevalidateResult, MockVec, create_mock_1, create_mock_2,
             create_mock_3, create_union_children, drain_doc_ids,
         };
-        use rqe_iterators::{
-            IteratorType, RQEIterator, RQEIteratorError, RQEValidateStatus, SkipToOutcome,
+        use ffi::{
+            ValidateStatus_VALIDATE_ABORTED, ValidateStatus_VALIDATE_MOVED,
+            ValidateStatus_VALIDATE_OK,
         };
+        use rqe_iterators::{
+            BoxedRQEIterator, IteratorType, RQEIterator, RQEIteratorError, SkipToOutcome,
+        };
+        use rqe_iterators_test_utils::revalidate_via_resume;
         use crate::utils::FieldMaskMock;
 
         type Union<I> = $UnionFull<'static, I>;
@@ -507,8 +512,9 @@ macro_rules! union_common_tests {
         #[test]
         #[cfg_attr(miri, ignore)] // Calls RSYieldableMetric_Concat FFI in push_borrowed
         fn revalidate_ok() {
-            let child0: Mock<'static, 5> = Mock::new([10, 20, 30, 40, 50]);
-            let child1: Mock<'static, 5> = Mock::new([15, 25, 35, 45, 55]);
+            let mock_ctx = rqe_iterators_test_utils::MockContext::new(0, 0);
+            let child0: Mock<'_, 5> = Mock::new([10, 20, 30, 40, 50]);
+            let child1: Mock<'_, 5> = Mock::new([15, 25, 35, 45, 55]);
 
             child0
                 .data()
@@ -517,19 +523,21 @@ macro_rules! union_common_tests {
                 .data()
                 .set_revalidate_result(MockRevalidateResult::Ok);
 
-            let children: Vec<Box<dyn RQEIterator<'static> + 'static>> =
-                vec![Box::new(child0), Box::new(child1)];
+            let children: Vec<BoxedRQEIterator<'_>> = vec![
+                BoxedRQEIterator::new(Box::new(child0)),
+                BoxedRQEIterator::new(Box::new(child1)),
+            ];
 
-            let mut union_iter = Union::new(children);
+            let mut union_iter = Box::new($UnionFull::new(children));
 
             let result = union_iter.read().expect("read failed").unwrap();
             assert_eq!(result.doc_id, 10);
             let result = union_iter.read().expect("read failed").unwrap();
             assert_eq!(result.doc_id, 15);
 
-            let mock_ctx = rqe_iterators_test_utils::MockContext::new(0, 0);
-            let status = union_iter.revalidate(&*mock_ctx.spec_read()).expect("revalidate failed");
-            assert!(matches!(status, RQEValidateStatus::Ok));
+            let guard = mock_ctx.spec_read();
+            let (mut union_iter, status) = revalidate_via_resume(union_iter, &guard);
+            assert_eq!(status, ValidateStatus_VALIDATE_OK);
 
             let result = union_iter.read().expect("read failed").unwrap();
             assert_eq!(result.doc_id, 20);
@@ -538,8 +546,9 @@ macro_rules! union_common_tests {
         #[test]
         #[cfg_attr(miri, ignore)] // Calls RSYieldableMetric_Concat FFI in push_borrowed
         fn revalidate_moved() {
-            let child0: Mock<'static, 5> = Mock::new([10, 20, 30, 40, 50]);
-            let child1: Mock<'static, 5> = Mock::new([15, 25, 35, 45, 55]);
+            let mock_ctx = rqe_iterators_test_utils::MockContext::new(0, 0);
+            let child0: Mock<'_, 5> = Mock::new([10, 20, 30, 40, 50]);
+            let child1: Mock<'_, 5> = Mock::new([15, 25, 35, 45, 55]);
 
             child0
                 .data()
@@ -548,28 +557,30 @@ macro_rules! union_common_tests {
                 .data()
                 .set_revalidate_result(MockRevalidateResult::Move);
 
-            let children: Vec<Box<dyn RQEIterator<'static> + 'static>> =
-                vec![Box::new(child0), Box::new(child1)];
+            let children: Vec<BoxedRQEIterator<'_>> = vec![
+                BoxedRQEIterator::new(Box::new(child0)),
+                BoxedRQEIterator::new(Box::new(child1)),
+            ];
 
-            let mut union_iter = Union::new(children);
+            let mut union_iter = Box::new($UnionFull::new(children));
 
             let result = union_iter.read().expect("read failed").unwrap();
             assert_eq!(result.doc_id, 10);
 
-            let mock_ctx = rqe_iterators_test_utils::MockContext::new(0, 0);
-            let status = union_iter.revalidate(&*mock_ctx.spec_read()).expect("revalidate failed");
-            assert!(
-                matches!(status, RQEValidateStatus::Moved { current: Some(_) }),
-                "Expected Moved with current, got {:?}",
-                status
+            let guard = mock_ctx.spec_read();
+            let (_union_iter, status) = revalidate_via_resume(union_iter, &guard);
+            assert_eq!(
+                status, ValidateStatus_VALIDATE_MOVED,
+                "Expected MOVED, got {status:?}"
             );
         }
 
         #[test]
         #[cfg_attr(miri, ignore)] // Calls RSYieldableMetric_Concat FFI in push_borrowed
         fn revalidate_after_eof() {
-            let child0: Mock<'static, 2> = Mock::new([10, 20]);
-            let child1: Mock<'static, 2> = Mock::new([15, 25]);
+            let mock_ctx = rqe_iterators_test_utils::MockContext::new(0, 0);
+            let child0: Mock<'_, 2> = Mock::new([10, 20]);
+            let child1: Mock<'_, 2> = Mock::new([15, 25]);
 
             child0
                 .data()
@@ -578,26 +589,29 @@ macro_rules! union_common_tests {
                 .data()
                 .set_revalidate_result(MockRevalidateResult::Move);
 
-            let children: Vec<Box<dyn RQEIterator<'static> + 'static>> =
-                vec![Box::new(child0), Box::new(child1)];
+            let children: Vec<BoxedRQEIterator<'_>> = vec![
+                BoxedRQEIterator::new(Box::new(child0)),
+                BoxedRQEIterator::new(Box::new(child1)),
+            ];
 
-            let mut union_iter = Union::new(children);
+            let mut union_iter = Box::new($UnionFull::new(children));
 
             while union_iter.read().expect("read failed").is_some() {}
             assert!(union_iter.at_eof());
 
-            let mock_ctx = rqe_iterators_test_utils::MockContext::new(0, 0);
-            let status = union_iter.revalidate(&*mock_ctx.spec_read()).expect("revalidate failed");
-            assert!(matches!(status, RQEValidateStatus::Ok));
+            let guard = mock_ctx.spec_read();
+            let (union_iter, status) = revalidate_via_resume(union_iter, &guard);
+            assert_eq!(status, ValidateStatus_VALIDATE_OK);
             assert!(union_iter.at_eof());
         }
 
         #[test]
         #[cfg_attr(miri, ignore)] // Calls RSYieldableMetric_Concat FFI in push_borrowed
         fn revalidate_single_child_aborts() {
-            let child0: Mock<'static, 5> = Mock::new([10, 20, 30, 40, 50]);
-            let child1: Mock<'static, 5> = Mock::new([15, 25, 35, 45, 55]);
-            let child2: Mock<'static, 5> = Mock::new([12, 22, 32, 42, 52]);
+            let mock_ctx = rqe_iterators_test_utils::MockContext::new(0, 0);
+            let child0: Mock<'_, 5> = Mock::new([10, 20, 30, 40, 50]);
+            let child1: Mock<'_, 5> = Mock::new([15, 25, 35, 45, 55]);
+            let child2: Mock<'_, 5> = Mock::new([12, 22, 32, 42, 52]);
 
             child0
                 .data()
@@ -609,18 +623,21 @@ macro_rules! union_common_tests {
                 .data()
                 .set_revalidate_result(MockRevalidateResult::Ok);
 
-            let children: Vec<Box<dyn RQEIterator<'static> + 'static>> =
-                vec![Box::new(child0), Box::new(child1), Box::new(child2)];
+            let children: Vec<BoxedRQEIterator<'_>> = vec![
+                BoxedRQEIterator::new(Box::new(child0)),
+                BoxedRQEIterator::new(Box::new(child1)),
+                BoxedRQEIterator::new(Box::new(child2)),
+            ];
 
-            let mut union_iter = Union::new(children);
+            let mut union_iter = Box::new($UnionFull::new(children));
 
             let result = union_iter.read().expect("read failed").unwrap();
             assert_eq!(result.doc_id, 10);
 
-            let mock_ctx = rqe_iterators_test_utils::MockContext::new(0, 0);
-            let status = union_iter.revalidate(&*mock_ctx.spec_read()).expect("revalidate failed");
-            assert!(
-                !matches!(status, RQEValidateStatus::Aborted),
+            let guard = mock_ctx.spec_read();
+            let (union_iter, status) = revalidate_via_resume(union_iter, &guard);
+            assert_ne!(
+                status, ValidateStatus_VALIDATE_ABORTED,
                 "Union should not abort when only one child aborts"
             );
             assert!(!union_iter.at_eof());
@@ -628,8 +645,9 @@ macro_rules! union_common_tests {
         #[test]
         #[cfg_attr(miri, ignore)] // Calls RSYieldableMetric_Concat FFI in push_borrowed
         fn revalidate_all_children_abort() {
-            let child0: Mock<'static, 5> = Mock::new([10, 20, 30, 40, 50]);
-            let child1: Mock<'static, 5> = Mock::new([15, 25, 35, 45, 55]);
+            let mock_ctx = rqe_iterators_test_utils::MockContext::new(0, 0);
+            let child0: Mock<'_, 5> = Mock::new([10, 20, 30, 40, 50]);
+            let child1: Mock<'_, 5> = Mock::new([15, 25, 35, 45, 55]);
 
             child0
                 .data()
@@ -638,18 +656,20 @@ macro_rules! union_common_tests {
                 .data()
                 .set_revalidate_result(MockRevalidateResult::Abort);
 
-            let children: Vec<Box<dyn RQEIterator<'static> + 'static>> =
-                vec![Box::new(child0), Box::new(child1)];
+            let children: Vec<BoxedRQEIterator<'_>> = vec![
+                BoxedRQEIterator::new(Box::new(child0)),
+                BoxedRQEIterator::new(Box::new(child1)),
+            ];
 
-            let mut union_iter = Union::new(children);
+            let mut union_iter = Box::new($UnionFull::new(children));
 
             let result = union_iter.read().expect("read failed").unwrap();
             assert_eq!(result.doc_id, 10);
 
-            let mock_ctx = rqe_iterators_test_utils::MockContext::new(0, 0);
-            let status = union_iter.revalidate(&*mock_ctx.spec_read()).expect("revalidate failed");
-            assert!(
-                matches!(status, RQEValidateStatus::Aborted),
+            let guard = mock_ctx.spec_read();
+            let (union_iter, status) = revalidate_via_resume(union_iter, &guard);
+            assert_eq!(
+                status, ValidateStatus_VALIDATE_ABORTED,
                 "Union should abort when all children abort"
             );
             assert!(
@@ -661,8 +681,9 @@ macro_rules! union_common_tests {
         #[test]
         #[cfg_attr(miri, ignore)] // Calls RSYieldableMetric_Concat FFI in push_borrowed
         fn revalidate_child_moves_to_eof() {
-            let child0: Mock<'static, 2> = Mock::new([10, 20]);
-            let child1: Mock<'static, 5> = Mock::new([15, 25, 35, 45, 55]);
+            let mock_ctx = rqe_iterators_test_utils::MockContext::new(0, 0);
+            let child0: Mock<'_, 2> = Mock::new([10, 20]);
+            let child1: Mock<'_, 5> = Mock::new([15, 25, 35, 45, 55]);
 
             child0
                 .data()
@@ -671,10 +692,12 @@ macro_rules! union_common_tests {
                 .data()
                 .set_revalidate_result(MockRevalidateResult::Ok);
 
-            let children: Vec<Box<dyn RQEIterator<'static> + 'static>> =
-                vec![Box::new(child0), Box::new(child1)];
+            let children: Vec<BoxedRQEIterator<'_>> = vec![
+                BoxedRQEIterator::new(Box::new(child0)),
+                BoxedRQEIterator::new(Box::new(child1)),
+            ];
 
-            let mut union_iter = Union::new(children);
+            let mut union_iter = Box::new($UnionFull::new(children));
 
             let result = union_iter.read().expect("read failed").unwrap();
             assert_eq!(result.doc_id, 10);
@@ -683,9 +706,9 @@ macro_rules! union_common_tests {
             let result = union_iter.read().expect("read failed").unwrap();
             assert_eq!(result.doc_id, 20);
 
-            let mock_ctx = rqe_iterators_test_utils::MockContext::new(0, 0);
-            let status = union_iter.revalidate(&*mock_ctx.spec_read()).expect("revalidate failed");
-            assert!(matches!(status, RQEValidateStatus::Ok));
+            let guard = mock_ctx.spec_read();
+            let (mut union_iter, status) = revalidate_via_resume(union_iter, &guard);
+            assert_eq!(status, ValidateStatus_VALIDATE_OK);
 
             assert!(!union_iter.at_eof());
             let result = union_iter.read().expect("read failed").unwrap();
@@ -695,9 +718,10 @@ macro_rules! union_common_tests {
         #[test]
         #[cfg_attr(miri, ignore)] // Calls RSYieldableMetric_Concat FFI in push_borrowed
         fn revalidate_mixed_ok_moved_abort() {
-            let child0: Mock<'static, 5> = Mock::new([10, 20, 30, 40, 50]);
-            let child1: Mock<'static, 5> = Mock::new([15, 25, 35, 45, 55]);
-            let child2: Mock<'static, 5> = Mock::new([12, 22, 32, 42, 52]);
+            let mock_ctx = rqe_iterators_test_utils::MockContext::new(0, 0);
+            let child0: Mock<'_, 5> = Mock::new([10, 20, 30, 40, 50]);
+            let child1: Mock<'_, 5> = Mock::new([15, 25, 35, 45, 55]);
+            let child2: Mock<'_, 5> = Mock::new([12, 22, 32, 42, 52]);
 
             child0
                 .data()
@@ -709,18 +733,21 @@ macro_rules! union_common_tests {
                 .data()
                 .set_revalidate_result(MockRevalidateResult::Abort);
 
-            let children: Vec<Box<dyn RQEIterator<'static> + 'static>> =
-                vec![Box::new(child0), Box::new(child1), Box::new(child2)];
+            let children: Vec<BoxedRQEIterator<'_>> = vec![
+                BoxedRQEIterator::new(Box::new(child0)),
+                BoxedRQEIterator::new(Box::new(child1)),
+                BoxedRQEIterator::new(Box::new(child2)),
+            ];
 
-            let mut union_iter = Union::new(children);
+            let mut union_iter = Box::new($UnionFull::new(children));
 
             let result = union_iter.read().expect("read failed").unwrap();
             assert_eq!(result.doc_id, 10);
 
-            let mock_ctx = rqe_iterators_test_utils::MockContext::new(0, 0);
-            let status = union_iter.revalidate(&*mock_ctx.spec_read()).expect("revalidate failed");
-            assert!(
-                !matches!(status, RQEValidateStatus::Aborted),
+            let guard = mock_ctx.spec_read();
+            let (union_iter, status) = revalidate_via_resume(union_iter, &guard);
+            assert_ne!(
+                status, ValidateStatus_VALIDATE_ABORTED,
                 "Union should not abort when some children are still Ok"
             );
             assert!(!union_iter.at_eof());
@@ -729,8 +756,9 @@ macro_rules! union_common_tests {
         #[test]
         #[cfg_attr(miri, ignore)] // Calls RSYieldableMetric_Concat FFI in push_borrowed
         fn revalidate_all_children_move_to_eof() {
-            let child0: Mock<'static, 2> = Mock::new([10, 20]);
-            let child1: Mock<'static, 2> = Mock::new([15, 25]);
+            let mock_ctx = rqe_iterators_test_utils::MockContext::new(0, 0);
+            let child0: Mock<'_, 2> = Mock::new([10, 20]);
+            let child1: Mock<'_, 2> = Mock::new([15, 25]);
 
             child0
                 .data()
@@ -739,17 +767,19 @@ macro_rules! union_common_tests {
                 .data()
                 .set_revalidate_result(MockRevalidateResult::Ok);
 
-            let children: Vec<Box<dyn RQEIterator<'static> + 'static>> =
-                vec![Box::new(child0), Box::new(child1)];
+            let children: Vec<BoxedRQEIterator<'_>> = vec![
+                BoxedRQEIterator::new(Box::new(child0)),
+                BoxedRQEIterator::new(Box::new(child1)),
+            ];
 
-            let mut union_iter = Union::new(children);
+            let mut union_iter = Box::new($UnionFull::new(children));
 
             while union_iter.read().expect("read failed").is_some() {}
             assert!(union_iter.at_eof());
 
-            let mock_ctx = rqe_iterators_test_utils::MockContext::new(0, 0);
-            let status = union_iter.revalidate(&*mock_ctx.spec_read()).expect("revalidate failed");
-            assert!(matches!(status, RQEValidateStatus::Ok));
+            let guard = mock_ctx.spec_read();
+            let (_union_iter, status) = revalidate_via_resume(union_iter, &guard);
+            assert_eq!(status, ValidateStatus_VALIDATE_OK);
         }
         #[test]
         #[cfg_attr(miri, ignore)] // Calls RSYieldableMetric_Concat FFI in push_borrowed
@@ -784,16 +814,19 @@ macro_rules! union_common_tests {
         #[test]
         #[cfg_attr(miri, ignore)] // Calls RSYieldableMetric_Concat FFI in push_borrowed
         fn revalidate_when_already_at_eof() {
-            let mock1: Mock<'static, 2> = Mock::new([10, 20]);
-            let mock2: Mock<'static, 2> = Mock::new([10, 30]);
+            let mock_ctx = rqe_iterators_test_utils::MockContext::new(0, 0);
+            let mock1: Mock<'_, 2> = Mock::new([10, 20]);
+            let mock2: Mock<'_, 2> = Mock::new([10, 30]);
 
             mock1.data().set_revalidate_result(MockRevalidateResult::Ok);
             mock2.data().set_revalidate_result(MockRevalidateResult::Ok);
 
-            let children: Vec<Box<dyn RQEIterator<'static> + 'static>> =
-                vec![Box::new(mock1), Box::new(mock2)];
+            let children: Vec<BoxedRQEIterator<'_>> = vec![
+                BoxedRQEIterator::new(Box::new(mock1)),
+                BoxedRQEIterator::new(Box::new(mock2)),
+            ];
 
-            let mut quick_iter = $UnionQuick::new(children);
+            let mut quick_iter = Box::new($UnionQuick::new(children));
 
             let mut read_docs = Vec::new();
             while let Some(result) = quick_iter.read().expect("read failed") {
@@ -801,9 +834,9 @@ macro_rules! union_common_tests {
             }
             assert_eq!(read_docs, vec![10, 20, 30]);
             assert!(quick_iter.at_eof());
-            let mock_ctx = rqe_iterators_test_utils::MockContext::new(0, 0);
-            let status = quick_iter.revalidate(&*mock_ctx.spec_read()).expect("revalidate failed");
-            assert!(matches!(status, RQEValidateStatus::Ok));
+            let guard = mock_ctx.spec_read();
+            let (_quick_iter, status) = revalidate_via_resume(quick_iter, &guard);
+            assert_eq!(status, ValidateStatus_VALIDATE_OK);
         }
 
         #[test]
@@ -811,15 +844,18 @@ macro_rules! union_common_tests {
         fn revalidate_with_children_at_eof() {
             // Test 1: Child moves to EOF during revalidate
             {
-                let mock1: Mock<'static, 3> = Mock::new([10, 20, 30]);
-                let mock2: Mock<'static, 3> = Mock::new([5, 25, 50]);
+                let mock_ctx = rqe_iterators_test_utils::MockContext::new(0, 0);
+                let mock1: Mock<'_, 3> = Mock::new([10, 20, 30]);
+                let mock2: Mock<'_, 3> = Mock::new([5, 25, 50]);
 
                 let mut data1 = mock1.data();
 
-                let children: Vec<Box<dyn RQEIterator<'static> + 'static>> =
-                    vec![Box::new(mock1), Box::new(mock2)];
+                let children: Vec<BoxedRQEIterator<'_>> = vec![
+                    BoxedRQEIterator::new(Box::new(mock1)),
+                    BoxedRQEIterator::new(Box::new(mock2)),
+                ];
 
-                let mut union_iter = Union::new(children);
+                let mut union_iter = Box::new($UnionFull::new(children));
 
                 let result = union_iter.read().expect("read failed").unwrap();
                 assert_eq!(result.doc_id, 5);
@@ -829,26 +865,26 @@ macro_rules! union_common_tests {
 
                 data1.set_revalidate_result(MockRevalidateResult::Move);
 
-                let mock_ctx = rqe_iterators_test_utils::MockContext::new(0, 0);
-                let status = union_iter.revalidate(&*mock_ctx.spec_read()).expect("revalidate failed");
-                assert!(matches!(
-                    status,
-                    RQEValidateStatus::Moved { current: Some(_) }
-                ));
+                let guard = mock_ctx.spec_read();
+                let (_union_iter, status) = revalidate_via_resume(union_iter, &guard);
+                assert_eq!(status, ValidateStatus_VALIDATE_MOVED);
             }
 
             // Test 2: ALL children move to EOF during revalidate
             {
-                let mock1: Mock<'static, 3> = Mock::new([10, 20, 30]);
-                let mock2: Mock<'static, 3> = Mock::new([10, 25, 35]);
+                let mock_ctx = rqe_iterators_test_utils::MockContext::new(0, 0);
+                let mock1: Mock<'_, 3> = Mock::new([10, 20, 30]);
+                let mock2: Mock<'_, 3> = Mock::new([10, 25, 35]);
 
                 let mut data1 = mock1.data();
                 let mut data2 = mock2.data();
 
-                let children: Vec<Box<dyn RQEIterator<'static> + 'static>> =
-                    vec![Box::new(mock1), Box::new(mock2)];
+                let children: Vec<BoxedRQEIterator<'_>> = vec![
+                    BoxedRQEIterator::new(Box::new(mock1)),
+                    BoxedRQEIterator::new(Box::new(mock2)),
+                ];
 
-                let mut union_iter = Union::new(children);
+                let mut union_iter = Box::new($UnionFull::new(children));
 
                 union_iter.read().expect("read failed").unwrap();
                 union_iter.read().expect("read failed").unwrap();
@@ -856,9 +892,9 @@ macro_rules! union_common_tests {
                 data1.set_revalidate_result(MockRevalidateResult::Move);
                 data2.set_revalidate_result(MockRevalidateResult::Move);
 
-                let mock_ctx = rqe_iterators_test_utils::MockContext::new(0, 0);
-                let status = union_iter.revalidate(&*mock_ctx.spec_read()).expect("revalidate failed");
-                assert!(matches!(status, RQEValidateStatus::Moved { current: None }));
+                let guard = mock_ctx.spec_read();
+                let (union_iter, status) = revalidate_via_resume(union_iter, &guard);
+                assert_eq!(status, ValidateStatus_VALIDATE_MOVED);
                 assert!(union_iter.at_eof());
             }
         }
@@ -866,8 +902,9 @@ macro_rules! union_common_tests {
         #[test]
         #[cfg_attr(miri, ignore)] // Calls RSYieldableMetric_Concat FFI in push_borrowed
         fn revalidate_quick_triggers_quick_exit() {
-            let mock1: Mock<'static, 3> = Mock::new([10, 30, 50]);
-            let mock2: Mock<'static, 3> = Mock::new([20, 40, 60]);
+            let mock_ctx = rqe_iterators_test_utils::MockContext::new(0, 0);
+            let mock1: Mock<'_, 3> = Mock::new([10, 30, 50]);
+            let mock2: Mock<'_, 3> = Mock::new([20, 40, 60]);
 
             let mut data1 = mock1.data();
             let mut data2 = mock2.data();
@@ -875,10 +912,12 @@ macro_rules! union_common_tests {
             data1.set_revalidate_result(MockRevalidateResult::Ok);
             data2.set_revalidate_result(MockRevalidateResult::Ok);
 
-            let children: Vec<Box<dyn RQEIterator<'static> + 'static>> =
-                vec![Box::new(mock1), Box::new(mock2)];
+            let children: Vec<BoxedRQEIterator<'_>> = vec![
+                BoxedRQEIterator::new(Box::new(mock1)),
+                BoxedRQEIterator::new(Box::new(mock2)),
+            ];
 
-            let mut quick_iter = $UnionQuick::new(children);
+            let mut quick_iter = Box::new($UnionQuick::new(children));
 
             let result = quick_iter.read().expect("read failed").unwrap();
             assert_eq!(result.doc_id, 10);
@@ -886,20 +925,18 @@ macro_rules! union_common_tests {
             data1.set_revalidate_result(MockRevalidateResult::Move);
             data2.set_revalidate_result(MockRevalidateResult::Ok);
 
-            let mock_ctx = rqe_iterators_test_utils::MockContext::new(0, 0);
-            let status = quick_iter.revalidate(&*mock_ctx.spec_read()).expect("revalidate failed");
-            assert!(matches!(
-                status,
-                RQEValidateStatus::Moved { current: Some(_) }
-            ));
+            let guard = mock_ctx.spec_read();
+            let (quick_iter, status) = revalidate_via_resume(quick_iter, &guard);
+            assert_eq!(status, ValidateStatus_VALIDATE_MOVED);
             assert_eq!(quick_iter.last_doc_id(), 20);
         }
 
         #[test]
         #[cfg_attr(miri, ignore)] // Calls RSYieldableMetric_Concat FFI in push_borrowed
         fn revalidate_keeps_children_at_current_position() {
-            let child0: Mock<'static, 3> = Mock::new([10, 20, 30]);
-            let child1: Mock<'static, 3> = Mock::new([10, 25, 35]);
+            let mock_ctx = rqe_iterators_test_utils::MockContext::new(0, 0);
+            let child0: Mock<'_, 3> = Mock::new([10, 20, 30]);
+            let child1: Mock<'_, 3> = Mock::new([10, 25, 35]);
 
             let mut data0 = child0.data();
             let mut data1 = child1.data();
@@ -907,17 +944,19 @@ macro_rules! union_common_tests {
             data0.set_revalidate_result(MockRevalidateResult::Ok);
             data1.set_revalidate_result(MockRevalidateResult::Ok);
 
-            let children: Vec<Box<dyn RQEIterator<'static>>> =
-                vec![Box::new(child0), Box::new(child1)];
-            let mut union = $UnionFull::new(children);
+            let children: Vec<BoxedRQEIterator<'_>> = vec![
+                BoxedRQEIterator::new(Box::new(child0)),
+                BoxedRQEIterator::new(Box::new(child1)),
+            ];
+            let mut union = Box::new($UnionFull::new(children));
 
             let result = union.read().expect("read failed").unwrap();
             assert_eq!(result.doc_id, 10);
 
             data0.set_revalidate_result(MockRevalidateResult::Move);
 
-            let mock_ctx = rqe_iterators_test_utils::MockContext::new(0, 0);
-            let _status = union.revalidate(&*mock_ctx.spec_read()).expect("revalidate failed");
+            let guard = mock_ctx.spec_read();
+            let (mut union, _status) = revalidate_via_resume(union, &guard);
 
             let mut remaining = Vec::new();
             while let Some(result) = union.read().expect("read failed") {
@@ -939,8 +978,9 @@ macro_rules! union_common_tests {
         #[test]
         #[cfg_attr(miri, ignore)] // Calls RSYieldableMetric_Concat FFI in push_borrowed
         fn revalidate_minimum_unchanged_returns_ok() {
-            let child0: Mock<'static, 3> = Mock::new([10, 30, 50]);
-            let child1: Mock<'static, 3> = Mock::new([10, 40, 60]);
+            let mock_ctx = rqe_iterators_test_utils::MockContext::new(0, 0);
+            let child0: Mock<'_, 3> = Mock::new([10, 30, 50]);
+            let child1: Mock<'_, 3> = Mock::new([10, 40, 60]);
 
             child0
                 .data()
@@ -949,22 +989,23 @@ macro_rules! union_common_tests {
                 .data()
                 .set_revalidate_result(MockRevalidateResult::Ok);
 
-            let children: Vec<Box<dyn RQEIterator<'static>>> =
-                vec![Box::new(child0), Box::new(child1)];
+            let children: Vec<BoxedRQEIterator<'_>> = vec![
+                BoxedRQEIterator::new(Box::new(child0)),
+                BoxedRQEIterator::new(Box::new(child1)),
+            ];
 
-            let mut union = $UnionFull::new(children);
+            let mut union = Box::new($UnionFull::new(children));
 
             // Both children share doc_id 10.
             let result = union.read().expect("read failed").unwrap();
             assert_eq!(result.doc_id, 10);
 
             // Revalidate — nothing moved, nothing aborted.
-            let mock_ctx = rqe_iterators_test_utils::MockContext::new(0, 0);
-            let status = union.revalidate(&*mock_ctx.spec_read()).expect("revalidate failed");
-            assert!(
-                matches!(status, RQEValidateStatus::Ok),
-                "Expected Ok when minimum doc_id is unchanged, got {:?}",
-                status
+            let guard = mock_ctx.spec_read();
+            let (mut union, status) = revalidate_via_resume(union, &guard);
+            assert_eq!(
+                status, ValidateStatus_VALIDATE_OK,
+                "Expected OK when minimum doc_id is unchanged, got {status:?}"
             );
 
             // Union should still be able to continue reading.
@@ -979,15 +1020,18 @@ macro_rules! union_common_tests {
         #[test]
         #[cfg_attr(miri, ignore)] // Calls RSYieldableMetric_Concat FFI in push_borrowed
         fn revalidate_child_behind_union_position_is_kept() {
-            let child0: Mock<'static, 3> = Mock::new([5, 100, 300]);
-            let child1: Mock<'static, 3> = Mock::new([10, 50, 200]);
+            let mock_ctx = rqe_iterators_test_utils::MockContext::new(0, 0);
+            let child0: Mock<'_, 3> = Mock::new([5, 100, 300]);
+            let child1: Mock<'_, 3> = Mock::new([10, 50, 200]);
 
             let mut data1 = child1.data();
 
-            let children: Vec<Box<dyn RQEIterator<'static>>> =
-                vec![Box::new(child0), Box::new(child1)];
+            let children: Vec<BoxedRQEIterator<'_>> = vec![
+                BoxedRQEIterator::new(Box::new(child0)),
+                BoxedRQEIterator::new(Box::new(child1)),
+            ];
 
-            let mut union = $UnionQuick::new(children);
+            let mut union = Box::new($UnionQuick::new(children));
 
             let r = union.read().expect("read failed").unwrap();
             assert_eq!(r.doc_id, 5);
@@ -1004,11 +1048,11 @@ macro_rules! union_common_tests {
             //   child1.last_doc_id() = 50  <  100 = union.last_doc_id()
             data1.set_revalidate_result(MockRevalidateResult::Move);
 
-            let mock_ctx = rqe_iterators_test_utils::MockContext::new(0, 0);
-            let status = union.revalidate(&*mock_ctx.spec_read()).expect("revalidate failed");
-            assert!(
-                matches!(status, RQEValidateStatus::Moved { current: Some(_) }),
-                "Expected Moved with a current result, got {status:?}",
+            let guard = mock_ctx.spec_read();
+            let (mut union, status) = revalidate_via_resume(union, &guard);
+            assert_eq!(
+                status, ValidateStatus_VALIDATE_MOVED,
+                "Expected MOVED, got {status:?}",
             );
             assert_eq!(union.last_doc_id(), 50, "union should move to child1 (50)");
 
