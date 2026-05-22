@@ -773,12 +773,12 @@ pub unsafe fn new_wildcard_iterator<'index>(
 
 /// A wildcard iterator backed by an enterprise disk index iterator.
 ///
-/// This is a thin wrapper around a [`Box<dyn RQEIterator>`] provided by
+/// This is a thin wrapper around a [`BoxedRQEIterator`] provided by
 /// [`SEARCH_ENTERPRISE_ITERATORS`] that implements [`WildcardIterator`],
 /// allowing disk-based wildcard queries to be used interchangeably with
 /// in-memory ones.
 #[repr(transparent)]
-pub struct DiskWildcardIterator<'index>(Box<dyn RQEIterator<'index> + 'index>);
+pub struct DiskWildcardIterator<'index>(crate::BoxedRQEIterator<'index>);
 
 impl<'index> RQEIterator<'index> for DiskWildcardIterator<'index> {
     fn current(&mut self) -> Option<&mut RSIndexResult<'index>> {
@@ -828,30 +828,26 @@ impl<'index> WildcardIterator<'index> for DiskWildcardIterator<'index> {}
 /// `'static`-typed counterpart of [`DiskWildcardIterator`] used as its
 /// `RQEIteratorBoxed::Suspended` type.
 ///
-/// Wraps a `Box<dyn RQEIterator<'static> + 'static>` — the `'static`
-/// here is a **lifetime lie**: the actual borrowed lifetime is `'index`,
-/// inherited from the original [`DiskWildcardIterator`]. The lie is
-/// closed by the FFI-side discipline: while a `DiskWildcardSuspended`
-/// exists, no code dereferences the inner iterator. On resume the
-/// lifetime contracts back to the guard's lifetime `'a` (which the
-/// caller proves is still valid for the underlying index).
+/// A thin wrapper around [`BoxedRQESuspendedIterator`] — the
+/// dyn-erased suspended counterpart of the disk iterator. On resume
+/// the lifetime is taken from the guard, then the inner is unwrapped
+/// and wrapped back into a `BoxedRQEIterator<'a>` to construct the
+/// resumed [`DiskWildcardIterator`].
 #[repr(transparent)]
-pub struct DiskWildcardSuspended(pub(crate) Box<dyn RQEIterator<'static> + 'static>);
+pub struct DiskWildcardSuspended(pub(crate) crate::BoxedRQESuspendedIterator);
 
 impl<'index> RQEIteratorBoxed<'index> for DiskWildcardIterator<'index> {
     type Suspended = DiskWildcardSuspended;
 
     fn suspend(self: Box<Self>) -> Box<Self::Suspended> {
-        let raw = Box::into_raw(self);
-        // SAFETY: `DiskWildcardIterator<'index>` is `#[repr(transparent)]`
-        // over `Box<dyn RQEIterator<'index> + 'index>`, and
-        // `DiskWildcardSuspended` is `#[repr(transparent)]` over
-        // `Box<dyn RQEIterator<'static> + 'static>`. The two are byte-
-        // identical (a `Box` of a trait object is two pointers regardless
-        // of lifetime). Lifetime-extending the inner trait object from
-        // `'index` to `'static` is a lie that is closed at resume time;
-        // the suspended value is opaque (no read/skip path).
-        unsafe { Box::from_raw(raw as *mut DiskWildcardSuspended) }
+        // Drive the inner dyn-erased iterator's suspend via the
+        // `RQEDynIterator` vtable, then wrap the resulting
+        // `BoxedRQESuspendedIterator` as `DiskWildcardSuspended`. The
+        // explicit `Box::new` here is a small overhead the disk path
+        // can afford; see `boxed::suspend_child_slot_in_place` for the
+        // no-allocation pattern composites use on their hot children.
+        let inner_suspended = self.0.0.suspend();
+        Box::new(DiskWildcardSuspended(inner_suspended))
     }
 }
 
@@ -860,19 +856,15 @@ impl RQESuspendedIterator for DiskWildcardSuspended {
 
     fn resume<'a>(
         self: Box<Self>,
-        _spec: &'a IndexSpecReadGuard<'a>,
+        spec: &'a IndexSpecReadGuard<'a>,
     ) -> (Box<Self::Resumed<'a>>, ValidateStatus) {
-        let raw = Box::into_raw(self);
-        // SAFETY: contract the lifetime back from the suspended `'static`
-        // to the caller-provided `'a`. The caller's read lock on `spec`
-        // witnesses that the underlying index data is dereferenceable at
-        // `'a`. Box::from_raw reuses the same heap allocation.
-        let active = unsafe { Box::from_raw(raw as *mut DiskWildcardIterator<'a>) };
-        // The disk crate's iterators are read-only snapshots that aren't
-        // subject to in-memory GC, so revalidation always reports OK. When
-        // the disk crate migrates to `RQEIteratorBoxed` natively, this can
-        // delegate to the inner iterator's `resume` like other composites.
-        (active, ffi::ValidateStatus_VALIDATE_OK)
+        // Drive the inner dyn-erased resume; whatever it reports is the
+        // disk iterator's validity. The disk crate's iterators are
+        // read-only snapshots so the inner currently reports OK; once
+        // the disk crate's iterators implement `RQESuspendedIterator`
+        // natively this will surface their genuine status.
+        let (active_inner, status) = self.0.0.resume(spec);
+        (Box::new(DiskWildcardIterator(active_inner)), status)
     }
 
     fn last_doc_id(&self) -> t_docId {
@@ -880,14 +872,11 @@ impl RQESuspendedIterator for DiskWildcardSuspended {
         // dereference any borrowed index pointer. Forwarding to the inner
         // dyn's `RQEIterator::last_doc_id` is therefore sound despite the
         // `'static` lifetime lie.
-        RQEIterator::last_doc_id(&*self.0)
+        crate::boxed::RQEDynSuspendedIterator::last_doc_id(&*self.0.0)
     }
 
     fn num_estimated(&self) -> usize {
-        // SAFETY: same as `last_doc_id`: `num_estimated` reads a cached
-        // primitive on every Rust iterator and an FFI vtable field on C
-        // iterators — no borrowed index pointer is dereferenced.
-        RQEIterator::num_estimated(&*self.0)
+        crate::boxed::RQEDynSuspendedIterator::num_estimated(&*self.0.0)
     }
 }
 
