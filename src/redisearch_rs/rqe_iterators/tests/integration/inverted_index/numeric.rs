@@ -401,17 +401,16 @@ fn numeric_no_range_tree_revalidate() {
     let _ = ii.add_record(&RSIndexResult::build_numeric(2.0).doc_id(3).build());
 
     // Build without a range tree — should_abort will return false.
-    let mut it = NumericBuilder::new(ii.reader()).build();
+    let mut it = Box::new(NumericBuilder::new(ii.reader()).build());
 
     // Read one doc to advance the iterator.
     let record = it.read().expect("read failed").expect("expected a result");
     assert_eq!(record.doc_id, 1);
 
     // Revalidate should succeed (not abort) even though there is no range tree.
-    let status = it
-        .revalidate(&*mock_ctx.spec_read())
-        .expect("revalidate failed");
-    assert_eq!(status, RQEValidateStatus::Ok);
+    let guard = mock_ctx.spec_read();
+    let (_it, status) = rqe_iterators_test_utils::revalidate_via_resume(it, &guard);
+    assert_eq!(status, ffi::ValidateStatus_VALIDATE_OK);
 }
 
 /// A [`GeoFilter`] with a non-null address so `is_numeric_filter()` returns `false`.
@@ -433,8 +432,9 @@ mod from_tree {
     use field::{FieldExpirationPredicate, FieldFilterContext, FieldMaskOrIndex};
     use inverted_index::NumericFilter;
     use numeric_range_tree::NumericRangeTree;
-    use rqe_iterators::{NumericIteratorVariant, RQEIterator, RQEValidateStatus};
-    use rqe_iterators_test_utils::MockContext;
+    use ffi::{ValidateStatus_VALIDATE_ABORTED, ValidateStatus_VALIDATE_OK};
+    use rqe_iterators::{NumericIteratorVariant, RQEIterator};
+    use rqe_iterators_test_utils::{MockContext, revalidate_via_resume};
 
     fn make_field_ctx() -> FieldFilterContext {
         FieldFilterContext {
@@ -648,10 +648,11 @@ mod from_tree {
         // write does not violate aliasing rules.
         unsafe { (*tree_ptr).increment_revision() };
 
-        let status = iters[0]
-            .revalidate(&*ctx.spec_read())
-            .expect("revalidate failed");
-        assert_eq!(status, RQEValidateStatus::Aborted);
+        let it = Box::new(iters.swap_remove(0));
+        let guard = ctx.spec_read();
+        let (_it, status) = revalidate_via_resume(it, &guard);
+        assert_eq!(status, ValidateStatus_VALIDATE_ABORTED);
+        drop(iters);
         // SAFETY: `tree_ptr` was created by `Box::into_raw` above; `iters` is dropped
         // before this point and holds only a `NonNull` (not ownership), so no double-free.
         unsafe { drop(Box::from_raw(tree_ptr)) };
@@ -683,10 +684,11 @@ mod from_tree {
         // write does not violate aliasing rules.
         unsafe { (*tree_ptr).increment_revision() };
 
-        let status = iters[0]
-            .revalidate(&*ctx.spec_read())
-            .expect("revalidate failed");
-        assert_eq!(status, RQEValidateStatus::Ok);
+        let it = Box::new(iters.swap_remove(0));
+        let guard = ctx.spec_read();
+        let (_it, status) = revalidate_via_resume(it, &guard);
+        assert_eq!(status, ValidateStatus_VALIDATE_OK);
+        drop(iters);
 
         // SAFETY: `tree_ptr` was created by `Box::into_raw` above; `iters` is dropped
         // before this point and holds only a `NonNull` (not ownership), so no double-free.
@@ -819,8 +821,9 @@ mod not_miri {
     use crate::inverted_index::utils::{
         ExpirationTest, MockExpirationChecker, RevalidateIndexType, RevalidateTest,
     };
+    use ffi::{ValidateStatus_VALIDATE_ABORTED, ValidateStatus_VALIDATE_OK};
     use numeric_range_tree::NumericIndexReader;
-    use rqe_iterators::RQEValidateStatus;
+    use rqe_iterators_test_utils::revalidate_via_resume;
 
     struct NumericExpirationTest {
         test: ExpirationTest,
@@ -993,7 +996,7 @@ mod not_miri {
     #[test]
     fn numeric_revalidate_needs_revalidation_before_reads() {
         let test = NumericRevalidateTest::new(10);
-        let mut it = test.create_iterator();
+        let it = Box::new(test.create_iterator());
         let ii = test.test.context.numeric_inverted_index();
 
         // Trigger GC on the index so needs_revalidation() returns true.
@@ -1001,10 +1004,9 @@ mod not_miri {
 
         // Revalidate before any reads. last_doc_id is 0, so even though
         // needs_revalidation is true, we should get Ok.
-        let status = it
-            .revalidate(&*test.test.context.spec_read())
-            .expect("revalidate failed");
-        assert_eq!(status, RQEValidateStatus::Ok);
+        let guard = test.test.context.spec_read();
+        let (mut it, status) = revalidate_via_resume(it, &guard);
+        assert_eq!(status, ValidateStatus_VALIDATE_OK);
 
         // The iterator should still work — doc 1 was removed, so first doc is 3.
         let record = it.read().expect("read failed").expect("expected a result");
@@ -1060,18 +1062,15 @@ mod not_miri {
     #[test]
     fn numeric_revalidate_after_index_disappears() {
         let test = NumericRevalidateTest::new(10);
-        let mut it = test.create_iterator();
+        let it = Box::new(test.create_iterator());
 
         // First, verify the iterator works normally and read at least one document
-        let status = it
-            .revalidate(&*test.test.context.spec_read())
-            .expect("revalidate failed");
-        assert_eq!(status, RQEValidateStatus::Ok);
+        let guard = test.test.context.spec_read();
+        let (mut it, status) = revalidate_via_resume(it, &guard);
+        assert_eq!(status, ValidateStatus_VALIDATE_OK);
         assert!(it.read().expect("failed to read").is_some());
-        let status = it
-            .revalidate(&*test.test.context.spec_read())
-            .expect("revalidate failed");
-        assert_eq!(status, RQEValidateStatus::Ok);
+        let (it, status) = revalidate_via_resume(it, &guard);
+        assert_eq!(status, ValidateStatus_VALIDATE_OK);
 
         // For numeric iterators, we can simulate index disappearance by
         // manipulating the revision ID. check_abort() compares the stored
@@ -1086,10 +1085,8 @@ mod not_miri {
         }
 
         // Now Revalidate should return Aborted because the revision IDs don't match
-        let status = it
-            .revalidate(&*test.test.context.spec_read())
-            .expect("revalidate failed");
-        assert_eq!(status, RQEValidateStatus::Aborted);
+        let (_it, status) = revalidate_via_resume(it, &guard);
+        assert_eq!(status, ValidateStatus_VALIDATE_ABORTED);
     }
 
     #[test]
