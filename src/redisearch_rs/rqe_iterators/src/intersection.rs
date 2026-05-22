@@ -595,15 +595,30 @@ where
 
     fn suspend(self: Box<Self>) -> Box<Self::Suspended> {
         let raw = Box::into_raw(self);
-        // SAFETY: `RawIntersection` is `#[repr(C)]`. The `Rf`-dependent
-        // fields are `Vec<I>` (layout-compatible with `Vec<I::Suspended>`
-        // because `I` and `I::Suspended` have the same layout by the
-        // [`RQEIteratorBoxed`] contract) and `result: RawIndexResult<Rf>`
-        // (layout-compatible via `SharedPtr` transparency). Suspend is
-        // widening, so the byte cast is sound; the active aggregate's
-        // borrowed pointers into children's interiors are still valid
-        // because the children's heap addresses didn't change (only the
-        // type label flipped). Box::from_raw reuses the heap allocation.
+        // Walk children: dispatch each child's `suspend` through the trait so
+        // dyn-erased `I` (e.g. [`BoxedRQEIterator`](crate::BoxedRQEIterator),
+        // whose active and suspended forms carry different vtables) correctly
+        // transitions. For concrete-typed `I` this is the same whole-box cast
+        // that the outer composite would otherwise have done, just per-child
+        // instead of per-composite. Either way the inner concrete iterator's
+        // heap address is preserved; only the wrapper bytes (which nothing
+        // external points at) are re-typed.
+        //
+        // SAFETY: `raw` came from `Box::into_raw` and is exclusively owned for
+        // the rest of this function. Each Vec slot is then suspended via the
+        // helper, leaving the Vec contents byte-typed as `I::Suspended`.
+        unsafe {
+            for slot in (*raw).children.iter_mut() {
+                crate::boxed::suspend_child_slot_in_place(slot);
+            }
+        }
+        // SAFETY: `RawIntersection` is `#[repr(C)]` over `Vec<I>` (now byte-
+        // rewritten as `Vec<I::Suspended>` contents — Vec metadata is
+        // identical) and `result: RawIndexResult<Rf>` (layout-compatible
+        // via `SharedPtr` transparency). The active aggregate's borrowed
+        // pointers into children's interiors are still valid because each
+        // child's inner concrete iterator heap was preserved by the
+        // per-child suspend above.
         unsafe { Box::from_raw(raw as *mut RawIntersection<Suspended, I::Suspended>) }
     }
 

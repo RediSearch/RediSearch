@@ -218,6 +218,51 @@ impl<'a> BoxedRQEIterator<'a> {
     }
 }
 
+/// Suspend a single child slot in place: read the value out, call its
+/// [`RQEIteratorBoxed::suspend`] through the trait, and write the suspended
+/// counterpart back into the same slot.
+///
+/// This is the composite-side primitive that lets `Vec<I>` storage hold
+/// children whose `I::Suspended` byte representation has different invariants
+/// from `I`'s — most importantly, dyn-erased children like [`BoxedRQEIterator`]
+/// whose active and suspended forms carry different vtables. The trait
+/// `suspend` call dispatches via the vtable for those, correctly transitioning
+/// the inner concrete iterator; for concrete-typed `I` (where `I` and
+/// `I::Suspended` are byte-layout-compatible by `#[repr(C)]`), the trait call
+/// is the same whole-box cast that the composite would have done at the outer
+/// level — just per-child instead of per-composite.
+///
+/// # Safety
+///
+/// * `slot` must point to a valid, exclusively-owned `I` value.
+/// * After this call, the slot's bytes are a valid `I::Suspended` value. The
+///   caller is responsible for ensuring the slot is *interpreted* as
+///   `I::Suspended` from this point on — typically by performing a whole-box
+///   cast on the containing composite (relabelling the Vec slot's static
+///   type) and not reading the slot as `I` again.
+/// * `I` and `I::Suspended` must have the same size and alignment — guaranteed
+///   for all `RQEIteratorBoxed` impls in this crate by their `#[repr(C)]`
+///   layouts over `SharedPtr`/fat-pointer fields.
+pub(crate) unsafe fn suspend_child_slot_in_place<'a, I>(slot: *mut I)
+where
+    I: RQEIteratorBoxed<'a> + 'a,
+{
+    // SAFETY: caller guarantees `slot` is exclusively owned and points to a
+    // valid `I` value. `ptr::read` moves the value out; the slot bytes are
+    // typed-but-moved-from until the matching `ptr::write` below.
+    let active = unsafe { std::ptr::read(slot) };
+    // Dispatches via the vtable for dyn-erased `I` (e.g. `BoxedRQEIterator`);
+    // a whole-box cast at the leaf level for concrete `I`. Either way the
+    // inner concrete iterator's heap allocation is preserved — only the
+    // outer wrapper bytes may differ (and the wrapper's address doesn't
+    // matter, see [`crate::interop::revalidate`] for the rationale).
+    let suspended = *<I as RQEIteratorBoxed<'a>>::suspend(Box::new(active));
+    // SAFETY: `I` and `I::Suspended` share size and alignment (see contract
+    // above). The slot is uninitialised after the earlier `ptr::read`;
+    // writing a valid `I::Suspended` reinitialises it.
+    unsafe { std::ptr::write(slot as *mut I::Suspended, suspended) };
+}
+
 impl BoxedRQESuspendedIterator {
     /// Wrap a concrete suspended iterator into the type-erased wrapper.
     pub fn new<S: RQESuspendedIterator>(iter: Box<S>) -> Self {
