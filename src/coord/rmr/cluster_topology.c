@@ -98,7 +98,7 @@ MRClusterTopology *MRClusterTopology_FromAPI(RedisModuleCtx *ctx, const char *au
 
     // Fetch the slot ranges owned by this master node. Slot-less masters
     // (e.g. fresh nodes not yet assigned slots) are excluded from the topology.
-    RedisModuleSlotRangeArray *node_slots = RedisModule_ClusterGetSlotRangesByNodeId(ctx, node_id);
+    const RedisModuleSlotRangeArray *node_slots = RedisModule_ClusterGetSlotRangesByNodeId(ctx, node_id);
     if (!node_slots || node_slots->num_ranges <= 0) {
       continue;
     }

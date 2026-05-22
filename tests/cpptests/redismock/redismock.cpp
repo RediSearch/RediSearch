@@ -881,7 +881,7 @@ std::vector<MockClusterNode> mockClusterNodes;
 std::mutex mockClusterMutex;
 
 const MockClusterNode *findMockNode(const char *id) {
-  for (auto &n : mockClusterNodes) {
+  for (const auto &n : mockClusterNodes) {
     if (n.id == id) return &n;
   }
   return nullptr;
@@ -889,13 +889,13 @@ const MockClusterNode *findMockNode(const char *id) {
 }  // namespace
 
 void RMCK_ClusterMock_Reset() {
-  std::lock_guard<std::mutex> lock(mockClusterMutex);
+  std::scoped_lock lock(mockClusterMutex);
   mockClusterNodes.clear();
 }
 
 void RMCK_ClusterMock_AddNode(const char *id, const char *ip, int port, int flags,
                               const std::vector<RedisModuleSlotRange> &slots) {
-  std::lock_guard<std::mutex> lock(mockClusterMutex);
+  std::scoped_lock lock(mockClusterMutex);
   MockClusterNode node;
   node.id = id ? id : "";
   node.ip = ip ? ip : "";
@@ -905,8 +905,8 @@ void RMCK_ClusterMock_AddNode(const char *id, const char *ip, int port, int flag
   mockClusterNodes.push_back(std::move(node));
 }
 
-static char **RMCK_GetClusterNodesList(RedisModuleCtx *ctx, size_t *numnodes) {
-  std::lock_guard<std::mutex> lock(mockClusterMutex);
+static char **RMCK_GetClusterNodesList(RedisModuleCtx * /*ctx*/, size_t *numnodes) {
+  std::scoped_lock lock(mockClusterMutex);
   *numnodes = mockClusterNodes.size();
   if (*numnodes == 0) return nullptr;
   // Real Redis null-terminates the list — mirror that so callers iterating
@@ -927,9 +927,9 @@ static void RMCK_FreeClusterNodesList(char **ids) {
   RMCK_Free(ids);
 }
 
-static int RMCK_GetClusterNodeInfo(RedisModuleCtx *ctx, const char *id, char *ip,
-                                   char *master_id, int *port, int *flags) {
-  std::lock_guard<std::mutex> lock(mockClusterMutex);
+static int RMCK_GetClusterNodeInfo(RedisModuleCtx * /*ctx*/, const char *id, char *ip,
+                                   char * /*master_id*/, int *port, int *flags) {
+  std::scoped_lock lock(mockClusterMutex);
   const MockClusterNode *n = findMockNode(id);
   if (!n) return REDISMODULE_ERR;
   // The real API expects the caller to pass a buffer of at least
@@ -944,21 +944,21 @@ static int RMCK_GetClusterNodeInfo(RedisModuleCtx *ctx, const char *id, char *ip
 }
 
 static const char *RMCK_GetMyClusterID(void) {
-  std::lock_guard<std::mutex> lock(mockClusterMutex);
-  for (auto &n : mockClusterNodes) {
+  std::scoped_lock lock(mockClusterMutex);
+  for (const auto &n : mockClusterNodes) {
     if (n.flags & REDISMODULE_NODE_MYSELF) return n.id.c_str();
   }
   return nullptr;
 }
 
 static size_t RMCK_GetClusterSize(void) {
-  std::lock_guard<std::mutex> lock(mockClusterMutex);
+  std::scoped_lock lock(mockClusterMutex);
   return mockClusterNodes.size();
 }
 
 static RedisModuleSlotRangeArray *RMCK_ClusterGetSlotRangesByNodeId(RedisModuleCtx *ctx,
                                                                     const char *nodeid) {
-  std::lock_guard<std::mutex> lock(mockClusterMutex);
+  std::scoped_lock lock(mockClusterMutex);
   const MockClusterNode *n = findMockNode(nodeid);
   if (!n) return nullptr;
   size_t buf_size =

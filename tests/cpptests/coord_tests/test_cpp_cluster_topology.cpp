@@ -30,7 +30,7 @@ constexpr const char *NODE_C = "cccccccccccccccccccccccccccccccccccccccc";
 constexpr const char *NODE_D = "dddddddddddddddddddddddddddddddddddddddd";
 
 inline void addNode(const char *id, const char *ip, int port, int flags,
-                    std::vector<RedisModuleSlotRange> slots = {}) {
+                    const std::vector<RedisModuleSlotRange> &slots = {}) {
   RMCK_ClusterMock_AddNode(id, ip, port, flags, slots);
 }
 
@@ -48,7 +48,7 @@ class ClusterTopologyFromAPITest : public ::testing::Test {
   RedisModuleCtx *ctx = nullptr;
 
   void SetUp() override {
-    ctx = RedisModule_GetThreadSafeContext(NULL);
+    ctx = RedisModule_GetThreadSafeContext(nullptr);
     RMCK_ClusterMock_Reset();
   }
 
