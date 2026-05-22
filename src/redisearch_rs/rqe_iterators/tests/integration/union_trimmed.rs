@@ -51,7 +51,6 @@ fn new_panics_on_two_children() {
 
 /// Three children — verifies full reverse-order drain.
 #[test]
-#[cfg_attr(miri, ignore = "Calls RSYieldableMetric_Concat FFI in push_borrowed")]
 fn three_children_reverse_order() {
     let (children, _data) = create_mock_3([1], [2], [3]);
     let mut union = UnionTrimmed::new(children, usize::MAX, true);
@@ -67,7 +66,6 @@ fn three_children_reverse_order() {
 
 /// Four children with multiple docs each — full reverse drain.
 #[test]
-#[cfg_attr(miri, ignore = "Calls RSYieldableMetric_Concat FFI in push_borrowed")]
 fn four_children_reverse_order() {
     let children = make_children(&[&[1, 2], &[3, 4], &[5, 6], &[7, 8]]);
     let mut union = UnionTrimmed::new(children, usize::MAX, true);
@@ -93,7 +91,6 @@ fn skip_to_panics() {
 // =============================================================================
 
 #[test]
-#[cfg_attr(miri, ignore = "Calls RSYieldableMetric_Concat FFI in push_borrowed")]
 fn rewind_restores_full_iteration() {
     let (children, _data) = create_mock_3([1], [2], [3]);
     let mut union = UnionTrimmed::new(children, usize::MAX, true);
@@ -129,7 +126,6 @@ fn num_estimated_sums_children() {
 
 /// When the last child is empty, it is skipped and the next child is read.
 #[test]
-#[cfg_attr(miri, ignore = "Calls RSYieldableMetric_Concat FFI in push_borrowed")]
 fn skips_exhausted_children() {
     let (children, _data) = create_mock_3([10, 20], [], [30]);
     // children[1] is empty, so it is skipped.
@@ -163,7 +159,6 @@ fn accessors_work() {
 /// Scanning from child[1]: child[1]=3, child[2]=3 → total=6 > 5 → keep=3.
 /// All 5 children stay alive, but only the first 3 are read.
 #[test]
-#[cfg_attr(miri, ignore = "Calls RSYieldableMetric_Concat FFI in push_borrowed")]
 fn new_asc_basic() {
     let children = make_children(&[
         &[1, 2, 3],
@@ -192,7 +187,6 @@ fn new_asc_keeps_all_when_limit_large() {
 /// Scanning from child[3] backward: child[3]=3, child[2]=3 → total=6 > 5 → skip=2.
 /// Active window is children[2..5], all 5 stay alive.
 #[test]
-#[cfg_attr(miri, ignore = "Calls RSYieldableMetric_Concat FFI in push_borrowed")]
 fn new_desc_basic() {
     let children = make_children(&[
         &[1, 2, 3],
@@ -218,7 +212,6 @@ fn new_desc_keeps_all_when_limit_large() {
 
 /// Ascending: verify the kept children are the correct prefix.
 #[test]
-#[cfg_attr(miri, ignore = "Calls RSYieldableMetric_Concat FFI in push_borrowed")]
 fn new_asc_keeps_correct_prefix() {
     // Children: A=[1], B=[2,3], C=[4,5,6], D=[7,8,9,10]
     // Scanning from B: B.est=2, C.est=3 → total=5 > limit=4 → keep=3 (A,B,C).
@@ -232,7 +225,6 @@ fn new_asc_keeps_correct_prefix() {
 
 /// Descending: verify the kept children are the correct suffix.
 #[test]
-#[cfg_attr(miri, ignore = "Calls RSYieldableMetric_Concat FFI in push_borrowed")]
 fn new_desc_keeps_correct_suffix() {
     // Children: A=[1], B=[2,3], C=[4,5,6], D=[7,8,9,10]
     // Scanning from C backward: C.est=3, B.est=2 → total=5 > limit=4 → skip=1.
@@ -251,7 +243,6 @@ fn new_desc_keeps_correct_suffix() {
 
 /// `current` returns `Some` after a successful read.
 #[test]
-#[cfg_attr(miri, ignore = "Calls RSYieldableMetric_Concat FFI in push_borrowed")]
 fn current_some_after_read() {
     let children = make_children(&[&[1], &[2], &[42]]);
     let mut union = UnionTrimmed::new(children, usize::MAX, true);
@@ -263,7 +254,6 @@ fn current_some_after_read() {
 
 /// `current` returns `None` after all children are exhausted.
 #[test]
-#[cfg_attr(miri, ignore = "Calls RSYieldableMetric_Concat FFI in push_borrowed")]
 fn current_none_after_exhaustion() {
     let (children, _data) = create_mock_3([1], [2], [3]);
     let mut union = UnionTrimmed::new(children, usize::MAX, true);
@@ -332,7 +322,6 @@ fn child_at_accesses_trimmed_children() {
 /// the last doc from a child doesn't move the cursor until the *next*
 /// read discovers EOF on that child.
 #[test]
-#[cfg_attr(miri, ignore = "Calls RSYieldableMetric_Concat FFI in push_borrowed")]
 fn num_children_active_shrinks_as_children_exhaust() {
     // 4 children with 2 docs each, asc trim with large limit → active window [0..4).
     let children = make_children(&[&[1, 2], &[3, 4], &[5, 6], &[7, 8]]);
@@ -420,7 +409,6 @@ fn intersection_sort_weight_with_priority() {
 
 /// Weight shrinks as children exhaust during reads.
 #[test]
-#[cfg_attr(miri, ignore = "Calls RSYieldableMetric_Concat FFI in push_borrowed")]
 fn intersection_sort_weight_decreases_after_reads() {
     let children = make_children(&[&[1, 2], &[3, 4], &[5, 6]]);
     let mut union = UnionTrimmed::new(children, usize::MAX, true);
@@ -435,7 +423,6 @@ fn intersection_sort_weight_decreases_after_reads() {
 
 /// At EOF, weight is 1.0.
 #[test]
-#[cfg_attr(miri, ignore = "Calls RSYieldableMetric_Concat FFI in push_borrowed")]
 fn intersection_sort_weight_at_eof() {
     let children = make_children(&[&[1], &[2], &[3]]);
     let mut union = UnionTrimmed::new(children, usize::MAX, true);
@@ -450,7 +437,6 @@ fn intersection_sort_weight_at_eof() {
 /// `into_trimmed` re-trims with new parameters, preserving all children
 /// including those previously trimmed away.
 #[test]
-#[cfg_attr(miri, ignore = "Calls RSYieldableMetric_Concat FFI in push_borrowed")]
 fn into_trimmed_reuses_all_children() {
     // 5 children, each with est=3. Asc trim with limit=5:
     // scan from child[1]: child[1]=3, child[2]=3 → total=6 > 5 → keep=3.

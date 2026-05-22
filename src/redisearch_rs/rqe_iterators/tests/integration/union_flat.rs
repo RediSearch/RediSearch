@@ -27,7 +27,6 @@ use rqe_iterators::{RQEIterator, UnionFullFlat, UnionQuickFlat};
 // =============================================================================
 
 #[test]
-#[cfg_attr(miri, ignore = "Calls RSYieldableMetric_Concat FFI in push_borrowed")]
 fn reuse_results_optimization_quick_mode() {
     let (children, data) = create_mock_2([3], [2]);
     let mut union = UnionQuickFlat::new(children);
@@ -101,7 +100,6 @@ fn into_children_returns_all_children() {
 /// `into_trimmed` on a `UnionFullFlat` produces a working `UnionTrimmed` that
 /// yields all children in reverse order when the limit is large enough.
 #[test]
-#[cfg_attr(miri, ignore = "Calls RSYieldableMetric_Concat FFI in push_borrowed")]
 fn into_trimmed_full_flat_yields_all_children() {
     let (children, _data) = create_mock_3([1, 2], [3, 4], [5, 6]);
     let union = UnionFullFlat::new(children);
@@ -117,7 +115,6 @@ fn into_trimmed_full_flat_yields_all_children() {
 
 /// `into_trimmed` on a `UnionQuickFlat` applies trimming correctly.
 #[test]
-#[cfg_attr(miri, ignore = "Calls RSYieldableMetric_Concat FFI in push_borrowed")]
 fn into_trimmed_quick_flat_trims_asc() {
     // 3 children with est [2, 2, 2], limit=1.
     // Asc scan from child[1]: child[1].est=2 > 1 → keep=2.

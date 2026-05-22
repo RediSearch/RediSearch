@@ -180,7 +180,6 @@ fn heap_quick_selected() {
 // ---------------------------------------------------------------------------
 
 #[test]
-#[cfg_attr(miri, ignore = "Calls FFI function `RSYieldableMetric_Concat`")]
 fn flat_union_produces_all_docs() {
     let children: Vec<BoxedRQEIterator<'static>> = vec![
         BoxedRQEIterator::new(Box::new(Mock::new([1, 3, 5]))),
@@ -199,7 +198,6 @@ fn flat_union_produces_all_docs() {
 }
 
 #[test]
-#[cfg_attr(miri, ignore = "Calls FFI function `RSYieldableMetric_Concat`")]
 fn heap_union_produces_all_docs() {
     let children: Vec<BoxedRQEIterator<'static>> = vec![
         BoxedRQEIterator::new(Box::new(Mock::new([1, 4, 7]))),

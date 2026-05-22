@@ -119,7 +119,6 @@ fn optional_wraps_child_and_self() {
 }
 
 /// Wrapping `Intersection` in `Profile` counts reads.
-#[cfg_attr(miri, ignore = "call ffi::RSYieldableMetric_Concat")]
 #[test]
 fn intersection_wraps_children_and_self() {
     let a = Mock::new([1, 3, 5, 7]);
@@ -158,7 +157,6 @@ fn intersection_empty_children() {
 }
 
 /// Wrapping `Union` (full mode) in `Profile` counts reads.
-#[cfg_attr(miri, ignore = "call ffi::RSYieldableMetric_Concat")]
 #[test]
 fn union_full_wraps_children_and_self() {
     let a = Mock::new([1, 3, 5]);
@@ -195,7 +193,6 @@ fn union_full_wraps_children_and_self() {
 }
 
 /// `UnionQuickFlat` wrapped in `Profile` returns after first match per doc.
-#[cfg_attr(miri, ignore = "call ffi::RSYieldableMetric_Concat")]
 #[test]
 fn union_quick_wraps_children_and_self() {
     let a = Mock::new([1, 5]);
