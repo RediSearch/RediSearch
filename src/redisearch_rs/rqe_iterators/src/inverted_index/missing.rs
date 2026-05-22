@@ -65,7 +65,7 @@ pub type Missing<'index, E, C = crate::expiration_checker::NoOpChecker> =
     RawMissing<Active<'index>, E, C>;
 
 impl<Rf: Ref, E: DecodedBy, C> RawMissing<Rf, E, C> {
-    /// Cached [`IndexFlags`] of the underlying inverted index — see
+    /// Cached [`ffi::IndexFlags`] of the underlying inverted index — see
     /// [`RawInvIndIterator::flags`]. Mode-independent.
     pub const fn flags(&self) -> ffi::IndexFlags {
         self.it.flags()

@@ -722,10 +722,10 @@ pub unsafe fn new_wildcard_iterator<'index>(
 
 /// A wildcard iterator backed by an enterprise disk index iterator.
 ///
-/// This is a thin wrapper around a [`BoxedRQEIterator`] provided by
-/// [`SEARCH_ENTERPRISE_ITERATORS`] that implements [`WildcardIterator`],
-/// allowing disk-based wildcard queries to be used interchangeably with
-/// in-memory ones.
+/// This is a thin wrapper around a [`BoxedRQEIterator`](crate::BoxedRQEIterator)
+/// provided by [`SEARCH_ENTERPRISE_ITERATORS`] that implements
+/// [`WildcardIterator`], allowing disk-based wildcard queries to be used
+/// interchangeably with in-memory ones.
 #[repr(transparent)]
 pub struct DiskWildcardIterator<'index>(crate::BoxedRQEIterator<'index>);
 
@@ -790,11 +790,11 @@ impl<'index> WildcardIterator<'index> for DiskWildcardIterator<'index> {}
 /// `'static`-typed counterpart of [`DiskWildcardIterator`] used as its
 /// `RQEIterator::Suspended` type.
 ///
-/// A thin wrapper around [`BoxedRQESuspendedIterator`] — the
-/// dyn-erased suspended counterpart of the disk iterator. On resume
-/// the lifetime is taken from the guard, then the inner is unwrapped
-/// and wrapped back into a `BoxedRQEIterator<'a>` to construct the
-/// resumed [`DiskWildcardIterator`].
+/// A thin wrapper around [`BoxedRQESuspendedIterator`](crate::BoxedRQESuspendedIterator)
+/// — the dyn-erased suspended counterpart of the disk iterator. On
+/// resume the lifetime is taken from the guard, then the inner is
+/// unwrapped and wrapped back into a `BoxedRQEIterator<'a>` to construct
+/// the resumed [`DiskWildcardIterator`].
 #[repr(transparent)]
 pub struct DiskWildcardSuspended(pub(crate) crate::BoxedRQESuspendedIterator);
 

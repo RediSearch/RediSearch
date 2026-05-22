@@ -154,10 +154,11 @@ impl<'a, E: DecodedBy<Decoder = D> + 'a, D: Decoder + NumericDecoder> NumericRea
 /// satisfies the term-decoder bounds can resolve an opaque
 /// [`InvertedIndex`](crate::opaque::InvertedIndex) and compare against
 /// its own `ii` pointer. The body uses only mode-independent helpers
-/// ([`E::from_opaque`] + [`Self::points_to_ii`]), so it works in
-/// [`Active`] and [`Suspended`] modes alike — leaves
-/// (`Term`) call this from their suspended-side `should_abort` checks
-/// without upgrading the reader.
+/// ([`E::from_opaque`](crate::DecodedBy) +
+/// [`Self::points_to_ii`](RawIndexReaderCore::points_to_ii)), so it
+/// works in [`Active`] and [`Suspended`] modes alike — leaves (`Term`)
+/// call this from their suspended-side `should_abort` checks without
+/// upgrading the reader.
 impl<Rf: Ref, E: DecodedBy<Decoder = D> + OpaqueEncoding, D: Decoder + TermDecoder>
     PointsToOpaqueIndex for RawIndexReaderCore<Rf, E>
 where

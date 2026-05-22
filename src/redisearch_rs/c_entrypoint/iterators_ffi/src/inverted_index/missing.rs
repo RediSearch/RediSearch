@@ -33,6 +33,10 @@ use rqe_iterators::{
 /// [`super::tag::TagIteratorSuspended`] for the same argument and
 /// why the previous `match` + `Box::new` shape was unsound.
 #[repr(C, u8)]
+#[expect(
+    dead_code,
+    reason = "variants are reached via Box::from_raw cast from sibling MissingIterator, not via Rust constructors"
+)]
 pub(super) enum MissingIteratorSuspended {
     Encoded(<Missing<'static, DocIdsOnly, FieldExpirationChecker> as RQEIterator<'static>>::Suspended),
     Raw(<Missing<'static, RawDocIdsOnly, FieldExpirationChecker> as RQEIterator<'static>>::Suspended),

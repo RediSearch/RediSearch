@@ -116,10 +116,12 @@ impl<'index, I: RQEIterator<'index>> RQEIterator<'index> for Profile<'index, I> 
         // `I` correctly transitions its vtable. See
         // [`crate::boxed::suspend_child_slot_in_place`].
         //
-        // SAFETY: `raw` came from `Box::into_raw`, exclusively owned.
-        unsafe {
-            crate::boxed::suspend_child_slot_in_place(std::ptr::addr_of_mut!((*raw).child));
-        }
+        // SAFETY: `raw` came from `Box::into_raw`, exclusively owned and
+        // valid, so the child field is reachable.
+        let child_slot = unsafe { std::ptr::addr_of_mut!((*raw).child) };
+        // SAFETY: `child_slot` is a valid `*mut I`; the function leaves it
+        // in a valid `I::Suspended` state.
+        unsafe { crate::boxed::suspend_child_slot_in_place(child_slot) };
         // SAFETY: `RawProfile` is `#[repr(C)]` over a (now byte-rewritten)
         // child, plain counters, and `PhantomData<Rf>`. Layout-identical
         // between Active and Suspended forms.

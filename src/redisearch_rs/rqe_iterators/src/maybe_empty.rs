@@ -107,16 +107,13 @@ where
         // dyn-erased `I` correctly transitions its vtable. The `None(Empty)`
         // arm needs no suspend (Empty is a unit struct with no state).
         //
-        // SAFETY: `raw` came from `Box::into_raw`, exclusively owned. The
-        // pattern match takes a mutable reference into the slot; we then
-        // call the per-slot helper on the `I` payload's address.
-        unsafe {
-            match &mut (*raw).0 {
-                MaybeEmptyOption::Some(it) => {
-                    crate::boxed::suspend_child_slot_in_place(it as *mut I);
-                }
-                MaybeEmptyOption::None(_) => {}
-            }
+        // SAFETY: `raw` came from `Box::into_raw`, exclusively owned and
+        // valid, so the inner enum slot is reachable.
+        let inner: &mut MaybeEmptyOption<I> = unsafe { &mut (*raw).0 };
+        if let MaybeEmptyOption::Some(it) = inner {
+            // SAFETY: `it` is a valid `&mut I` aliased to nothing else;
+            // the function leaves the slot in a valid `I::Suspended` state.
+            unsafe { crate::boxed::suspend_child_slot_in_place(it as *mut I) };
         }
         // SAFETY: `MaybeEmpty<I>` is `#[repr(C)]` over a `#[repr(C)]` enum
         // `MaybeEmptyOption<I>` whose `Some` payload (now byte-rewritten as

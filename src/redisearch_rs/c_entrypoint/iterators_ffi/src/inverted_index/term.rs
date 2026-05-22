@@ -130,6 +130,10 @@ impl<'index> TermReader<'index> for TermIndexReader<'index> {}
 ///
 /// Each variant carries the [`SuspendableReader::Suspended`] type of the
 /// corresponding active variant.
+#[expect(
+    dead_code,
+    reason = "variants are reached via Box::from_raw cast from sibling TermIndexReader, not via Rust constructors"
+)]
 pub(super) enum TermIndexReaderSuspended {
     Full(<FilterMaskReader<IndexReaderCore<'static, full::Full>> as SuspendableReader>::Suspended),
     FullWide(<FilterMaskReader<IndexReaderCore<'static, full::FullWide>> as SuspendableReader>::Suspended),

@@ -149,11 +149,17 @@ where
     fn suspend(self: Box<Self>) -> Box<Self::Suspended> {
         let raw = Box::into_raw(self);
         // Walk both children — see Not/NotOptimized for the rationale.
-        // SAFETY: `raw` came from `Box::into_raw`, exclusively owned.
-        unsafe {
-            crate::boxed::suspend_child_slot_in_place(std::ptr::addr_of_mut!((*raw).wcii));
-            crate::boxed::suspend_child_slot_in_place(std::ptr::addr_of_mut!((*raw).child));
-        }
+        // SAFETY: `raw` came from `Box::into_raw`, exclusively owned and
+        // valid, so the wcii/child fields are reachable.
+        let wcii_slot = unsafe { std::ptr::addr_of_mut!((*raw).wcii) };
+        // SAFETY: same as wcii_slot.
+        let child_slot = unsafe { std::ptr::addr_of_mut!((*raw).child) };
+        // SAFETY: `wcii_slot` is a valid `*mut W`; the function leaves it
+        // in a valid `W::Suspended` state.
+        unsafe { crate::boxed::suspend_child_slot_in_place(wcii_slot) };
+        // SAFETY: `child_slot` is a valid `*mut MaybeEmpty<I>`; the
+        // function leaves it in a valid `MaybeEmpty<I::Suspended>` state.
+        unsafe { crate::boxed::suspend_child_slot_in_place(child_slot) };
         // SAFETY: `RawOptionalOptimized` is `#[repr(C)]` over `wcii: W` and
         // `child: MaybeEmpty<I>` (now byte-rewritten as suspended forms),
         // `virt: RawIndexResult<Rf>` (layout-compatible via `SharedPtr`),

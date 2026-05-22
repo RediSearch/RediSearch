@@ -166,11 +166,13 @@ where
         // child's `suspend` via the trait (vtable for dyn-erased `I`); when
         // `None`, no-op. See [`crate::boxed::suspend_child_slot_in_place`].
         //
-        // SAFETY: `raw` came from `Box::into_raw`, exclusively owned.
-        unsafe {
-            if let Some(child) = (*raw).child.as_mut() {
-                crate::boxed::suspend_child_slot_in_place(child as *mut I);
-            }
+        // SAFETY: `raw` came from `Box::into_raw`, exclusively owned and
+        // valid, so the child field is reachable.
+        let child_opt = unsafe { &mut (*raw).child };
+        if let Some(child) = child_opt.as_mut() {
+            // SAFETY: `child` is a valid `&mut I` aliased to nothing else;
+            // the function leaves the slot in a valid `I::Suspended` state.
+            unsafe { crate::boxed::suspend_child_slot_in_place(child as *mut I) };
         }
         // SAFETY: `RawOptional` is `#[repr(C)]` over `child: Option<I>`
         // (now byte-rewritten when `Some`), `result: RawIndexResult<Rf>`

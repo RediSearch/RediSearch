@@ -167,12 +167,12 @@ pub trait NumericReader<'index>: IndexReader<'index> {}
 ///
 /// Extracted from [`TermReader`] so that [`Suspended`](ref_mode::Suspended)
 /// reader forms can implement it too — the body
-/// ([`E::from_opaque`](crate::DecodedBy)
-/// + [`RawIndexReaderCore::points_to_ii`](crate::RawIndexReaderCore::points_to_ii))
-/// is itself mode-independent. Leaves (`Term`,
-/// FFI enums) call this from their suspended-side `should_abort` checks
-/// during `RQESuspendedIterator::resume`, without ever upgrading the
-/// reader to [`Active`](ref_mode::Active).
+/// ([`E::from_opaque`](crate::DecodedBy) then
+/// [`RawIndexReaderCore::points_to_ii`](crate::RawIndexReaderCore::points_to_ii))
+/// is itself mode-independent. Leaves (`Term`, FFI enums) call this from
+/// their suspended-side `should_abort` checks during
+/// `RQESuspendedIterator::resume`, without ever upgrading the reader to
+/// [`Active`](ref_mode::Active).
 pub trait PointsToOpaqueIndex {
     /// Check if this reader's underlying index points to the same one
     /// contained in the given opaque [`InvertedIndex`](crate::opaque::InvertedIndex).

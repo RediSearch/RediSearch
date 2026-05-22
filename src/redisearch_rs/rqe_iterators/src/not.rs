@@ -133,9 +133,13 @@ where
         // `I`). We invoke `MaybeEmpty::suspend` here by going through the
         // `RQEIterator::suspend` trait method via a temp Box.
         //
-        // SAFETY: `raw` came from `Box::into_raw`, exclusively owned.
+        // SAFETY: `raw` came from `Box::into_raw`, exclusively owned and
+        // points to a valid `Self`, so the child field is reachable.
+        let child_slot = unsafe { std::ptr::addr_of_mut!((*raw).child) };
+        // SAFETY: `child_slot` points to a valid `MaybeEmpty<I>`; the
+        // function leaves it in a valid `MaybeEmpty<I::Suspended>` state.
         unsafe {
-            crate::boxed::suspend_child_slot_in_place(std::ptr::addr_of_mut!((*raw).child));
+            crate::boxed::suspend_child_slot_in_place(child_slot);
         }
         // SAFETY: `RawNot` is `#[repr(C)]` over `child: MaybeEmpty<I>` (now
         // byte-rewritten as `MaybeEmpty<I::Suspended>` contents),

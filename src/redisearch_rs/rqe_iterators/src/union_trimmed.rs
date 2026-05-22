@@ -237,11 +237,13 @@ where
     fn suspend(self: Box<Self>) -> Box<Self::Suspended> {
         let raw = Box::into_raw(self);
         // Walk children — see [`crate::boxed::suspend_child_slot_in_place`].
-        // SAFETY: `raw` came from `Box::into_raw`, exclusively owned.
-        unsafe {
-            for child in (*raw).children.iter_mut() {
-                crate::boxed::suspend_child_slot_in_place(child);
-            }
+        // SAFETY: `raw` came from `Box::into_raw`, exclusively owned and
+        // valid, so the children Vec is reachable and unaliased.
+        let children: &mut Vec<I> = unsafe { &mut (*raw).children };
+        for child in children.iter_mut() {
+            // SAFETY: `child` is a valid `&mut I` aliased to nothing else;
+            // the function leaves the slot in a valid `I::Suspended` state.
+            unsafe { crate::boxed::suspend_child_slot_in_place(child) };
         }
         // SAFETY: `RawUnionTrimmed` is `#[repr(C)]` over `Vec<I>` (now
         // byte-rewritten as `Vec<I::Suspended>` contents) and

@@ -438,12 +438,15 @@ where
         // external points at) are re-typed.
         //
         // SAFETY: `raw` came from `Box::into_raw` and is exclusively owned for
-        // the rest of this function. Each Vec slot is then suspended via the
-        // helper, leaving the Vec contents byte-typed as `I::Suspended`.
-        unsafe {
-            for slot in (*raw).children.iter_mut() {
-                crate::boxed::suspend_child_slot_in_place(slot);
-            }
+        // the rest of this function, so the children Vec field is reachable
+        // and not aliased.
+        let children: &mut Vec<I> = unsafe { &mut (*raw).children };
+        // Each Vec slot is then suspended via the helper, leaving the Vec
+        // contents byte-typed as `I::Suspended`.
+        for slot in children.iter_mut() {
+            // SAFETY: `slot` is a valid `&mut I`; the function leaves it in
+            // a valid `I::Suspended` state.
+            unsafe { crate::boxed::suspend_child_slot_in_place(slot) };
         }
         // SAFETY: `RawIntersection` is `#[repr(C)]` over `Vec<I>` (now byte-
         // rewritten as `Vec<I::Suspended>` contents — Vec metadata is

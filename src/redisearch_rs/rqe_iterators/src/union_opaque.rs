@@ -196,32 +196,28 @@ impl<'index, I: RQEIterator<'index>> RQEIterator<'index> for UnionOpaque<'index,
         // A whole-box cast at this level alone would skip those per-variant
         // walks and leave inner children's vtables stale.
         //
-        // SAFETY: `raw` came from `Box::into_raw`, exclusively owned.
-        // `ptr::read` moves the variant out of the slot; we suspend it
-        // via its `RQEIterator::suspend` impl (which itself walks
-        // children correctly), then `ptr::write` the suspended counterpart
-        // back into the same slot. The outer `RawUnionOpaque`'s heap is
-        // preserved by the whole-box cast at the end.
+        // SAFETY: `raw` came from `Box::into_raw`, exclusively owned and
+        // valid, so the variant field is reachable.
+        let variant_slot = unsafe { std::ptr::addr_of_mut!((*raw).variant) };
+        // SAFETY: `variant_slot` is a valid `*mut UnionVariant<...>`;
+        // `ptr::read` moves the value out, leaving the slot logically
+        // uninitialized until the matching `ptr::write` below.
+        let active_variant = unsafe { std::ptr::read(variant_slot) };
+        // The inner variant's own `RQEIterator::suspend` impl walks its
+        // children and produces the suspended form. Per-variant dispatch
+        // ensures dyn-erased `I` correctly transitions its vtable; a
+        // whole-box cast at this outer level alone would skip those walks.
+        let suspended_variant = match active_variant {
+            UnionVariant::FlatFull(it) => RawUnionVariant::FlatFull(*Box::new(it).suspend()),
+            UnionVariant::FlatQuick(it) => RawUnionVariant::FlatQuick(*Box::new(it).suspend()),
+            UnionVariant::HeapFull(it) => RawUnionVariant::HeapFull(*Box::new(it).suspend()),
+            UnionVariant::HeapQuick(it) => RawUnionVariant::HeapQuick(*Box::new(it).suspend()),
+            UnionVariant::Trimmed(it) => RawUnionVariant::Trimmed(*Box::new(it).suspend()),
+        };
+        // SAFETY: `variant_slot` has the same size and alignment as the
+        // suspended variant (both via `#[repr(C, u8)]` over layout-compatible
+        // payloads). Writing reinitialises the slot moved-from above.
         unsafe {
-            let variant_slot = std::ptr::addr_of_mut!((*raw).variant);
-            let active_variant = std::ptr::read(variant_slot);
-            let suspended_variant = match active_variant {
-                UnionVariant::FlatFull(it) => {
-                    RawUnionVariant::FlatFull(*Box::new(it).suspend())
-                }
-                UnionVariant::FlatQuick(it) => {
-                    RawUnionVariant::FlatQuick(*Box::new(it).suspend())
-                }
-                UnionVariant::HeapFull(it) => {
-                    RawUnionVariant::HeapFull(*Box::new(it).suspend())
-                }
-                UnionVariant::HeapQuick(it) => {
-                    RawUnionVariant::HeapQuick(*Box::new(it).suspend())
-                }
-                UnionVariant::Trimmed(it) => {
-                    RawUnionVariant::Trimmed(*Box::new(it).suspend())
-                }
-            };
             std::ptr::write(
                 variant_slot as *mut RawUnionVariant<Suspended, I::Suspended>,
                 suspended_variant,

@@ -79,20 +79,26 @@ impl RQESuspendedIterator for NumericIteratorSuspended {
             // Build a Box that owns the read-out bytes. We allocate a
             // fresh Box around the read value so the type machinery
             // can drive the trait method.
+            //
+            // SAFETY: `inner_suspended_ptr` points to a valid
+            // `NumericIteratorVariantSuspended` (see preceding
+            // comment); reading the bytes moves the value out, leaving
+            // the slot logically uninitialized until the `ptr::write`
+            // below restores it.
             let read_bytes = unsafe { ptr::read(inner_suspended_ptr) };
             Box::new(read_bytes)
         };
         let (active_inner, status) =
             <_ as RQESuspendedIterator>::resume(inner_suspended_box, guard);
-        // SAFETY: write the resumed inner bytes back into the outer
-        // box's `iterator` slot. The slot has the right size and
-        // alignment for `NumericIteratorVariant<'a>` (it was just
-        // labelled as such by the outer cast).
+        // SAFETY: `active_raw` was just produced by `Box::into_raw`, so
+        // it points to valid storage; the `iterator` field is reachable.
+        let iterator_slot = unsafe { ptr::addr_of_mut!((*active_raw).iterator) };
+        // SAFETY: `iterator_slot` has the right size and alignment for
+        // `NumericIteratorVariant<'a>` (the outer cast just labelled it
+        // as such). The previous `ptr::read` left the slot moved-from;
+        // writing the resumed value re-initialises it.
         unsafe {
-            ptr::write(
-                ptr::addr_of_mut!((*active_raw).iterator),
-                *active_inner,
-            );
+            ptr::write(iterator_slot, *active_inner);
         }
 
         // SAFETY: outer box is now fully Active.

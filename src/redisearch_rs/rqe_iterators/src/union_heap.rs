@@ -353,11 +353,14 @@ where
         // so dyn-erased `I` correctly transitions its vtable. See
         // [`crate::boxed::suspend_child_slot_in_place`] for the rationale.
         //
-        // SAFETY: `raw` came from `Box::into_raw` and is exclusively owned.
-        unsafe {
-            for child in (*raw).children.iter_mut() {
-                crate::boxed::suspend_child_slot_in_place(child);
-            }
+        // SAFETY: `raw` came from `Box::into_raw` and is exclusively owned
+        // for the rest of this function, so the children Vec is reachable
+        // and unaliased.
+        let children: &mut Vec<I> = unsafe { &mut (*raw).children };
+        for child in children.iter_mut() {
+            // SAFETY: `child` is a valid `&mut I` aliased to nothing else;
+            // the function leaves the slot in a valid `I::Suspended` state.
+            unsafe { crate::boxed::suspend_child_slot_in_place(child) };
         }
         // SAFETY: `RawUnionHeap` is `#[repr(C)]` over `Vec<I>` (now byte-
         // rewritten as `Vec<I::Suspended>` contents), `result:
@@ -507,6 +510,7 @@ where
             Vec::with_capacity(children.len().saturating_sub(num_active));
         for (i, inner) in children.into_iter().enumerate() {
             let (active_inner, status) = Box::new(inner).resume(guard);
+            #[expect(non_upper_case_globals, reason = "bindgen-generated constants")]
             match status {
                 ValidateStatus_VALIDATE_ABORTED => {
                     any_change = true;

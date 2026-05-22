@@ -469,11 +469,15 @@ where
         // level, just per-child. See
         // [`crate::boxed::suspend_child_slot_in_place`] for the rationale.
         //
-        // SAFETY: `raw` came from `Box::into_raw` and is exclusively owned.
-        unsafe {
-            for child in (*raw).children.iter_mut() {
-                crate::boxed::suspend_child_slot_in_place(&mut child.inner);
-            }
+        // SAFETY: `raw` came from `Box::into_raw` and is exclusively owned
+        // for the rest of this function, so the children Vec is reachable
+        // and unaliased.
+        let children: &mut Vec<IndexedChild<I>> = unsafe { &mut (*raw).children };
+        for child in children.iter_mut() {
+            // SAFETY: `child.inner` is a valid `I` accessed via a fresh
+            // `&mut`; the function leaves the slot in a valid
+            // `I::Suspended` state.
+            unsafe { crate::boxed::suspend_child_slot_in_place(&mut child.inner) };
         }
         // SAFETY: `RawUnionFlat` is `#[repr(C)]` over `Vec<IndexedChild<I>>`
         // (now byte-rewritten with `I::Suspended` payloads) and
@@ -603,6 +607,7 @@ where
             Vec::with_capacity(children.len().saturating_sub(num_active));
         for (i, IndexedChild { original_index, inner }) in children.into_iter().enumerate() {
             let (active_inner, status) = Box::new(inner).resume(guard);
+            #[expect(non_upper_case_globals, reason = "bindgen-generated constants")]
             match status {
                 ValidateStatus_VALIDATE_ABORTED => {
                     any_change = true;

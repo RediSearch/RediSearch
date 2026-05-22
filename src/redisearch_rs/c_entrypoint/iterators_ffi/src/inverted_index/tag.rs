@@ -38,6 +38,10 @@ use rqe_iterators::{
 /// [`RawInvIndIterator::suspend`](rqe_iterators::inverted_index::RawInvIndIterator)
 /// for the same argument at the leaf level.
 #[repr(C, u8)]
+#[expect(
+    dead_code,
+    reason = "variants are reached via Box::from_raw cast from sibling TagIterator, not via Rust constructors"
+)]
 pub(super) enum TagIteratorSuspended {
     Encoded(<Tag<'static, DocIdsOnly, FieldExpirationChecker> as RQEIterator<'static>>::Suspended),
     Raw(<Tag<'static, RawDocIdsOnly, FieldExpirationChecker> as RQEIterator<'static>>::Suspended),
