@@ -683,6 +683,12 @@ where
         drop(result);
 
         // Resume each child; drop children whose resume reported ABORTED.
+        // Track whether any child reported MOVED or ABORTED so we can
+        // distinguish "nothing changed" from "some child changed" — the two
+        // cases need different aggregate-rebuild strategies. When nothing
+        // changed, the union's recorded position is still valid and any
+        // exhausted children will be discovered naturally on the next read.
+        let mut any_change = false;
         let mut active_children: Vec<IndexedChild<S::Resumed<'a>>> =
             Vec::with_capacity(children.len());
         for IndexedChild {
@@ -691,8 +697,13 @@ where
         } in children
         {
             let (active_inner, status) = Box::new(inner).resume(guard);
-            if status == ValidateStatus_VALIDATE_ABORTED {
-                continue;
+            match status {
+                ValidateStatus_VALIDATE_ABORTED => {
+                    any_change = true;
+                    continue;
+                }
+                ValidateStatus_VALIDATE_MOVED => any_change = true,
+                _ => {}
             }
             active_children.push(IndexedChild {
                 original_index,
@@ -728,11 +739,49 @@ where
             return (active, ValidateStatus_VALIDATE_OK);
         }
 
-        match active.skip_to(saved_last_doc_id) {
-            Ok(Some(SkipToOutcome::Found(_))) => (active, ValidateStatus_VALIDATE_OK),
-            Ok(Some(SkipToOutcome::NotFound(_))) | Ok(None) | Err(_) => {
-                (active, ValidateStatus_VALIDATE_MOVED)
+        if !any_change {
+            // All children resumed Ok with state preserved; rebuild the
+            // aggregate at `saved_last_doc_id` so subsequent reads pick up
+            // from the same logical position. Don't proactively trim
+            // at_eof children — the next read will surface them.
+            active.build_aggregate_result(saved_last_doc_id);
+            return (active, ValidateStatus_VALIDATE_OK);
+        }
+
+        // Some child moved or aborted: re-discover the new minimum doc_id
+        // among survivors, dropping any that hit EOF. The `skip_to(saved)`
+        // shortcut the previous design used loses information in two ways:
+        //   - `QUICK_EXIT` returns Found on the first match and never
+        //     observes the MOVED signal from later children that advanced.
+        //   - When every child has moved past `saved`, the union's status
+        //     must reflect that — but a Found from a child that happens to
+        //     still be at `saved` would mask it.
+        let mut min_doc_id: t_docId = t_docId::MAX;
+        let mut i = 0;
+        while i < active.num_active {
+            let child = &active.children[i].inner;
+            if child.at_eof() {
+                active.swap_remove_child(i);
+                continue;
             }
+            let child_doc_id = child.last_doc_id();
+            if child_doc_id < min_doc_id {
+                min_doc_id = child_doc_id;
+            }
+            i += 1;
+        }
+
+        if active.num_active == 0 {
+            active.is_eof = true;
+            return (active, ValidateStatus_VALIDATE_MOVED);
+        }
+
+        active.build_aggregate_result(min_doc_id);
+
+        if min_doc_id == saved_last_doc_id {
+            (active, ValidateStatus_VALIDATE_OK)
+        } else {
+            (active, ValidateStatus_VALIDATE_MOVED)
         }
     }
 
