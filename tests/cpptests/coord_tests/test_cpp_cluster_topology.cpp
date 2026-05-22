@@ -27,7 +27,6 @@ namespace {
 constexpr const char *NODE_A = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
 constexpr const char *NODE_B = "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb";
 constexpr const char *NODE_C = "cccccccccccccccccccccccccccccccccccccccc";
-constexpr const char *NODE_D = "dddddddddddddddddddddddddddddddddddddddd";
 
 inline void addNode(const char *id, const char *ip, int port, int flags,
                     const std::vector<RedisModuleSlotRange> &slots = {}) {
@@ -162,14 +161,13 @@ TEST_F(ClusterTopologyFromAPITest, SlotlessMasterFilteredOut) {
 }
 
 // ============================================================================
-// Nodes with bad endpoints (port=0, missing IP, "?") are skipped.
+// Nodes with bad endpoints (port=0, missing IP) are skipped.
 // ============================================================================
 TEST_F(ClusterTopologyFromAPITest, InvalidEndpointsSkipped) {
   addNode(NODE_A, "127.0.0.1", 6379, REDISMODULE_NODE_MASTER | REDISMODULE_NODE_MYSELF,
           {{0, 5460}});
   addNode(NODE_B, "127.0.0.2", 0 /* invalid port */, REDISMODULE_NODE_MASTER, {{5461, 10922}});
-  addNode(NODE_C, "", 6381 /* missing host */, REDISMODULE_NODE_MASTER, {{10923, 16000}});
-  addNode(NODE_D, "?", 6382 /* unknown host */, REDISMODULE_NODE_MASTER, {{16001, 16383}});
+  addNode(NODE_C, "", 6381 /* missing host */, REDISMODULE_NODE_MASTER, {{10923, 16383}});
 
   uint32_t my_shard_idx = UINT32_MAX;
   MRClusterTopology *topo = MRClusterTopology_FromAPI(ctx, nullptr, 0, &my_shard_idx);

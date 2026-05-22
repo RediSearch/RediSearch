@@ -92,7 +92,7 @@ MRClusterTopology *MRClusterTopology_FromAPI(RedisModuleCtx *ctx, const char *au
     if (flags & REDISMODULE_NODE_MYSELF) saw_myself = true;
 
     // Skip replicas, unreachable nodes, and nodes with no valid endpoint
-    if (!(flags & REDISMODULE_NODE_MASTER) || port <= 0 || ip[0] == '\0' || ip[0] == '?') {
+    if (!(flags & REDISMODULE_NODE_MASTER) || port <= 0 || ip[0] == '\0') {
       continue;
     }
 
