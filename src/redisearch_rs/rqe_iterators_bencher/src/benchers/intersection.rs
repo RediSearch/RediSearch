@@ -26,7 +26,8 @@ use index_result::{RSIndexResult, RSOffsetSlice};
 use inverted_index::{InvertedIndex, full::Full};
 use query_term::RSQueryTerm;
 use rqe_iterators::{
-    Intersection, NoOpChecker, RQEIterator, id_list::IdListSorted, inverted_index::Term,
+    BoxedRQEIterator, Intersection, NoOpChecker, RQEIterator, id_list::IdListSorted,
+    inverted_index::Term,
 };
 use rqe_iterators_test_utils::MockContext;
 
@@ -305,8 +306,10 @@ impl Bencher {
                             NoOpChecker,
                         )
                     };
-                    let children: Vec<Box<dyn RQEIterator<'_>>> =
-                        vec![Box::new(first_iter), Box::new(second_iter)];
+                    let children: Vec<BoxedRQEIterator<'_>> = vec![
+                        BoxedRQEIterator::new(Box::new(first_iter)),
+                        BoxedRQEIterator::new(Box::new(second_iter)),
+                    ];
                     Intersection::new_with_slop_order(
                         children,
                         WEIGHT,
