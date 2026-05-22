@@ -16,8 +16,9 @@ use index_result::{RSIndexResult, RawIndexResult};
 use ref_mode::{Active, Ref, Suspended};
 
 use crate::{
-    IteratorType, RQEIterator, RQEIteratorBoxed, RQEIteratorError, RQESuspendedIterator, SkipToOutcome,
-    WildcardIterator, maybe_empty::MaybeEmpty, not::NotIterator, utils::TimeoutContext,
+    BoxedRQEIterator, IteratorType, RQEIterator, RQEIteratorBoxed, RQEIteratorError,
+    RQESuspendedIterator, SkipToOutcome, WildcardIterator, maybe_empty::MaybeEmpty,
+    not::NotIterator, utils::TimeoutContext,
 };
 use index_spec::IndexSpecReadGuard;
 
@@ -420,13 +421,12 @@ where
     }
 }
 
-impl<'index, W> NotIterator<'index>
-    for NotOptimized<'index, W, Box<dyn RQEIterator<'index> + 'index>>
+impl<'index, W> NotIterator<'index> for NotOptimized<'index, W, BoxedRQEIterator<'index>>
 where
     W: crate::WildcardIterator<'index>,
 {
     fn child(&self) -> Option<&dyn RQEIterator<'index>> {
-        NotOptimized::child(self).map(|c| &**c as &dyn RQEIterator<'index>)
+        NotOptimized::child(self).map(|c| c as &dyn RQEIterator<'index>)
     }
 }
 

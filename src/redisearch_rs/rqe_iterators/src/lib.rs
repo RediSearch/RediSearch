@@ -237,56 +237,6 @@ impl<'index, I: RQEIterator<'index> + 'index> RQEIterator<'index> for Box<I> {
     }
 }
 
-/// [`RQEIterator`] impl for type-erased iterators.
-///
-/// All methods — including profiling — delegate through the vtable to the
-/// concrete type's implementation.
-impl<'index> RQEIterator<'index> for Box<dyn RQEIterator<'index> + 'index> {
-    fn current(&mut self) -> Option<&mut RSIndexResult<'index>> {
-        (**self).current()
-    }
-
-    fn read(&mut self) -> Result<Option<&mut RSIndexResult<'index>>, RQEIteratorError> {
-        (**self).read()
-    }
-
-    fn skip_to(
-        &mut self,
-        doc_id: t_docId,
-    ) -> Result<Option<SkipToOutcome<'_, 'index>>, RQEIteratorError> {
-        (**self).skip_to(doc_id)
-    }
-
-    fn rewind(&mut self) {
-        (**self).rewind()
-    }
-
-    fn num_estimated(&self) -> usize {
-        (**self).num_estimated()
-    }
-
-    fn last_doc_id(&self) -> t_docId {
-        (**self).last_doc_id()
-    }
-
-    fn at_eof(&self) -> bool {
-        (**self).at_eof()
-    }
-
-    #[inline(always)]
-    fn type_(&self) -> IteratorType {
-        (**self).type_()
-    }
-
-    fn as_c_iterator(&self) -> Option<&c2rust::CRQEIterator> {
-        (**self).as_c_iterator()
-    }
-
-    fn intersection_sort_weight(&self, prioritize_union_children: bool) -> f64 {
-        (**self).intersection_sort_weight(prioritize_union_children)
-    }
-}
-
 /// Global holder for APIs to get iterators for SearchEnterprise. This allows `rqe_iterators`
 /// to get access to iterators it does not know about.
 pub static SEARCH_ENTERPRISE_ITERATORS: OnceLock<Box<dyn SearchEnterpriseIterators>> =

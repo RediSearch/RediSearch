@@ -15,14 +15,15 @@ use ref_mode::{Active, Ref, Suspended};
 use std::cmp;
 
 use crate::{
-    IteratorType, RQEIterator, RQEIteratorBoxed, RQEIteratorError, RQESuspendedIterator, SkipToOutcome,
+    BoxedRQEIterator, IteratorType, RQEIterator, RQEIteratorBoxed, RQEIteratorError,
+    RQESuspendedIterator, SkipToOutcome,
 };
 use index_spec::IndexSpecReadGuard;
 
 /// Trait implemented by all optional iterator variants.
 ///
 /// Both [`Optional`] and [`crate::optional_optimized::OptionalOptimized`] implement this,
-/// with the child stored as `Box<dyn RQEIterator>`.
+/// with the child stored as a [`BoxedRQEIterator`].
 pub trait OptionalIterator<'index>: RQEIterator<'index> {
     /// Returns a shared reference to the child iterator, if any.
     fn child(&self) -> Option<&(dyn RQEIterator<'index> + 'index)>;
@@ -30,10 +31,10 @@ pub trait OptionalIterator<'index>: RQEIterator<'index> {
     /// Takes ownership of the child iterator, replacing it with an empty state.
     ///
     /// Returns `None` if there is no child.
-    fn take_child(&mut self) -> Option<Box<dyn RQEIterator<'index> + 'index>>;
+    fn take_child(&mut self) -> Option<BoxedRQEIterator<'index>>;
 
     /// Sets (or overwrites) the child iterator.
-    fn set_child(&mut self, child: Box<dyn RQEIterator<'index> + 'index>);
+    fn set_child(&mut self, child: BoxedRQEIterator<'index>);
 
     /// Unsets the child iterator (makes it `None`).
     ///
@@ -44,16 +45,16 @@ pub trait OptionalIterator<'index>: RQEIterator<'index> {
     fn unset_child(&mut self);
 }
 
-impl<'index> OptionalIterator<'index> for Optional<'index, Box<dyn RQEIterator<'index> + 'index>> {
+impl<'index> OptionalIterator<'index> for Optional<'index, BoxedRQEIterator<'index>> {
     fn child(&self) -> Option<&(dyn RQEIterator<'index> + 'index)> {
-        Optional::child(self).map(|c| c.as_ref())
+        Optional::child(self).map(|c| c as &dyn RQEIterator<'index>)
     }
 
-    fn take_child(&mut self) -> Option<Box<dyn RQEIterator<'index> + 'index>> {
+    fn take_child(&mut self) -> Option<BoxedRQEIterator<'index>> {
         Optional::take_child(self)
     }
 
-    fn set_child(&mut self, child: Box<dyn RQEIterator<'index> + 'index>) {
+    fn set_child(&mut self, child: BoxedRQEIterator<'index>) {
         Optional::set_child(self, child);
     }
 
