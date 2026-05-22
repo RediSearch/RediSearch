@@ -19,8 +19,8 @@ use index_result::{RSIndexResult, RawIndexResult};
 use ref_mode::{Active, Ref, Suspended};
 
 use crate::{
-    IteratorType, RQEIterator, RQEIteratorBoxed, RQEIteratorError, RQESuspendedIterator,
-    SkipToOutcome, maybe_empty::MaybeEmpty, utils::TimeoutContext,
+    BoxedRQEIterator, IteratorType, RQEIterator, RQEIteratorBoxed, RQEIteratorError,
+    RQESuspendedIterator, SkipToOutcome, maybe_empty::MaybeEmpty, utils::TimeoutContext,
 };
 use index_spec::IndexSpecReadGuard;
 
@@ -337,11 +337,9 @@ pub trait NotIterator<'index>: RQEIterator<'index> {
     fn child(&self) -> Option<&dyn RQEIterator<'index>>;
 }
 
-impl<'index> NotIterator<'index> for Not<'index, Box<dyn RQEIterator<'index> + 'index>> {
+impl<'index> NotIterator<'index> for Not<'index, BoxedRQEIterator<'index>> {
     fn child(&self) -> Option<&dyn RQEIterator<'index>> {
-        self.child
-            .as_ref()
-            .map(|c| &**c as &dyn RQEIterator<'index>)
+        self.child.as_ref().map(|c| c as &dyn RQEIterator<'index>)
     }
 }
 

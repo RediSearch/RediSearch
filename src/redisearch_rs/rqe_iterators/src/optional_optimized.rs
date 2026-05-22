@@ -22,8 +22,9 @@ use index_result::{RSIndexResult, RawIndexResult};
 use ref_mode::{Active, Ref, Suspended};
 
 use crate::{
-    RQEIterator, RQEIteratorBoxed, RQEIteratorError, RQESuspendedIterator, SkipToOutcome,
-    maybe_empty::MaybeEmpty, optional::OptionalIterator, wildcard::WildcardIterator,
+    BoxedRQEIterator, RQEIterator, RQEIteratorBoxed, RQEIteratorError, RQESuspendedIterator,
+    SkipToOutcome, maybe_empty::MaybeEmpty, optional::OptionalIterator,
+    wildcard::WildcardIterator,
 };
 use index_spec::IndexSpecReadGuard;
 
@@ -114,19 +115,19 @@ where
 }
 
 impl<'index, W> OptionalIterator<'index>
-    for OptionalOptimized<'index, W, Box<dyn RQEIterator<'index> + 'index>>
+    for OptionalOptimized<'index, W, BoxedRQEIterator<'index>>
 where
     W: WildcardIterator<'index>,
 {
     fn child(&self) -> Option<&(dyn RQEIterator<'index> + 'index)> {
-        OptionalOptimized::child(self).map(|c| c.as_ref())
+        OptionalOptimized::child(self).map(|c| c as &dyn RQEIterator<'index>)
     }
 
-    fn take_child(&mut self) -> Option<Box<dyn RQEIterator<'index> + 'index>> {
+    fn take_child(&mut self) -> Option<BoxedRQEIterator<'index>> {
         self.child.take_iterator()
     }
 
-    fn set_child(&mut self, child: Box<dyn RQEIterator<'index> + 'index>) {
+    fn set_child(&mut self, child: BoxedRQEIterator<'index>) {
         self.child = MaybeEmpty::new(child);
     }
 
