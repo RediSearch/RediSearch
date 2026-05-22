@@ -902,7 +902,11 @@ mod optional_optimized_iterator_revalidate_tests {
             fn setup<'index>(
                 test_ctx: &'index TestContext,
             ) -> (
-                OptionalOptimized<'index, Wildcard<'index, DocIdsOnly>, utils::Mock<'index, NUM_DOCS>>,
+                OptionalOptimized<
+                    'index,
+                    Wildcard<'index, DocIdsOnly>,
+                    utils::Mock<'index, NUM_DOCS>,
+                >,
                 utils::MockData,
             ) {
                 let ii = DocIdsOnly::from_opaque(test_ctx.wildcard_inverted_index());
@@ -947,7 +951,10 @@ mod optional_optimized_iterator_revalidate_tests {
                 let (mut it, status) = revalidate_via_resume(Box::new(it), &guard);
                 // Child aborted while on a virtual result → Ok (no state change needed)
                 assert_eq!(status, ffi::ValidateStatus_VALIDATE_OK);
-                assert!(it.child().is_none(), "child must be replaced by Empty after abort");
+                assert!(
+                    it.child().is_none(),
+                    "child must be replaced by Empty after abort"
+                );
                 assert_eq!(data.revalidate_count(), 1);
 
                 let r = it.read().expect("read").expect("result");
@@ -1112,7 +1119,10 @@ mod optional_optimized_iterator_revalidate_tests {
             let r = it.current().expect("current");
             assert_eq!(r.doc_id, 20);
             assert_eq!(r.weight, 0.);
-            assert!(it.child().is_none(), "child must be replaced by Empty after abort");
+            assert!(
+                it.child().is_none(),
+                "child must be replaced by Empty after abort"
+            );
             assert_eq!(wcii_data.revalidate_count(), 1);
             assert_eq!(child_data.revalidate_count(), 1);
         }

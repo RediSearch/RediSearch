@@ -193,9 +193,9 @@ macro_rules! union_common_tests {
             let mut union_iter = Union::new(children);
 
             // Record the pointer (address) of each child before any reads.
-            let ptrs_before: Vec<*const dyn RQEIterator<'static>> = (0..3)
+            let ptrs_before: Vec<*const dyn rqe_iterators::RQEDynIterator<'static>> = (0..3)
                 .map(|i| {
-                    union_iter.child_at(i).unwrap() as *const dyn RQEIterator<'static>
+                    union_iter.child_at(i).unwrap() as *const dyn rqe_iterators::RQEDynIterator<'static>
                 })
                 .collect();
 
@@ -206,7 +206,7 @@ macro_rules! union_common_tests {
             union_iter.rewind();
             for i in 0..3 {
                 let ptr_after = union_iter.child_at(i).unwrap()
-                    as *const dyn RQEIterator<'static>;
+                    as *const dyn rqe_iterators::RQEDynIterator<'static>;
                 assert!(
                     std::ptr::addr_eq(ptrs_before[i], ptr_after),
                     "child_at({i}) should return the same child after rewind"

@@ -309,6 +309,16 @@ impl<'index, const N: usize> Mock<'index, N> {
 }
 
 impl<'index, const N: usize> RQEIterator<'index> for Mock<'index, N> {
+    type Suspended = MockSuspended<N>;
+
+    fn suspend(self: Box<Self>) -> Box<Self::Suspended> {
+        let raw = Box::into_raw(self);
+        // SAFETY: `Mock<'index, N>` and `MockSuspended<N>` have identical layout
+        // (lifetime parameter is phantom in this test helper). Box::from_raw reuses
+        // the same heap allocation.
+        unsafe { Box::from_raw(raw as *mut MockSuspended<N>) }
+    }
+
     fn current(&mut self) -> Option<&mut RSIndexResult<'index>> {
         Some(&mut self.result)
     }
@@ -440,7 +450,7 @@ impl<const N: usize> rqe_iterators::profile_print::ProfilePrint for Mock<'_, N> 
 /// Suspended counterpart of [`Mock`].
 ///
 /// Tests that drive the suspend/resume cycle through the FFI wrapper need the inner
-/// iterator type to implement [`RQEIteratorBoxed`]. The Mock holds no real index
+/// iterator type to implement [`RQEIterator`]. The Mock holds no real index
 /// borrows (its `result` is a freshly-built [`RSIndexResult`] over owned data), so
 /// the suspended counterpart is byte-identical to the active form at any lifetime.
 pub struct MockSuspended<const N: usize> {
@@ -449,18 +459,6 @@ pub struct MockSuspended<const N: usize> {
     _positions: Option<[u8; N]>,
     _next_index: usize,
     _data: MockData,
-}
-
-impl<'index, const N: usize> rqe_iterators::RQEIteratorBoxed<'index> for Mock<'index, N> {
-    type Suspended = MockSuspended<N>;
-
-    fn suspend(self: Box<Self>) -> Box<Self::Suspended> {
-        let raw = Box::into_raw(self);
-        // SAFETY: `Mock<'index, N>` and `MockSuspended<N>` have identical layout
-        // (lifetime parameter is phantom in this test helper). Box::from_raw reuses
-        // the same heap allocation.
-        unsafe { Box::from_raw(raw as *mut MockSuspended<N>) }
-    }
 }
 
 impl<const N: usize> rqe_iterators::RQESuspendedIterator for MockSuspended<N> {
@@ -548,6 +546,15 @@ impl<'index> MockVec<'index> {
 }
 
 impl<'index> RQEIterator<'index> for MockVec<'index> {
+    type Suspended = MockVecSuspended;
+
+    fn suspend(self: Box<Self>) -> Box<Self::Suspended> {
+        let raw = Box::into_raw(self);
+        // SAFETY: `MockVec<'index>` and `MockVecSuspended` have identical layout
+        // (lifetime parameter is phantom in this test helper).
+        unsafe { Box::from_raw(raw as *mut MockVecSuspended) }
+    }
+
     fn current(&mut self) -> Option<&mut RSIndexResult<'index>> {
         Some(&mut self.result)
     }
@@ -670,17 +677,6 @@ pub struct MockVecSuspended {
     _doc_ids: Vec<DocId>,
     _next_index: usize,
     _data: MockData,
-}
-
-impl<'index> rqe_iterators::RQEIteratorBoxed<'index> for MockVec<'index> {
-    type Suspended = MockVecSuspended;
-
-    fn suspend(self: Box<Self>) -> Box<Self::Suspended> {
-        let raw = Box::into_raw(self);
-        // SAFETY: `MockVec<'index>` and `MockVecSuspended` have identical layout
-        // (lifetime parameter is phantom in this test helper).
-        unsafe { Box::from_raw(raw as *mut MockVecSuspended) }
-    }
 }
 
 impl rqe_iterators::RQESuspendedIterator for MockVecSuspended {

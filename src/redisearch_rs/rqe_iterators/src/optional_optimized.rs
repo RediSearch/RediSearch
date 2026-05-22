@@ -22,8 +22,7 @@ use index_result::{RSIndexResult, RawIndexResult};
 use ref_mode::{Active, Ref, Suspended};
 
 use crate::{
-    BoxedRQEIterator, RQEIterator, RQEIteratorBoxed, RQEIteratorError, RQESuspendedIterator,
-    SkipToOutcome,
+    BoxedRQEIterator, RQEIterator, RQEIteratorError, RQESuspendedIterator, SkipToOutcome,
     maybe_empty::MaybeEmpty,
     optional::OptionalIterator,
     profile_print::{ProfilePrint, ProfilePrintCtx},
@@ -52,7 +51,7 @@ pub struct RawOptionalOptimized<Rf: Ref, W, I> {
     wcii: W,
     /// Query child — provides real hits at positions where it has a match.
     /// Wrapped in [`MaybeEmpty`] so it can be replaced with an empty iterator
-    /// when it is aborted during the legacy `revalidate` method.
+    /// when it is aborted during `RQEIterator::revalidate` (removed).
     child: MaybeEmpty<I>,
     /// Virtual result returned when `wcii` has a doc but `child` does not.
     virt: RawIndexResult<Rf>,
@@ -118,13 +117,14 @@ where
     }
 }
 
-impl<'index, W> OptionalIterator<'index>
-    for OptionalOptimized<'index, W, BoxedRQEIterator<'index>>
+impl<'index, W> OptionalIterator<'index> for OptionalOptimized<'index, W, BoxedRQEIterator<'index>>
 where
     W: WildcardIterator<'index>,
+    for<'a> <W::Suspended as RQESuspendedIterator>::Resumed<'a>:
+        WildcardIterator<'a> + RQEIterator<'a, Suspended = W::Suspended>,
 {
-    fn child(&self) -> Option<&(dyn RQEIterator<'index> + 'index)> {
-        OptionalOptimized::child(self).map(|c| c as &dyn RQEIterator<'index>)
+    fn child(&self) -> Option<&(dyn crate::RQEDynIterator<'index> + 'index)> {
+        OptionalOptimized::child(self).map(|c| c as &dyn crate::RQEDynIterator<'index>)
     }
 
     fn take_child(&mut self) -> Option<BoxedRQEIterator<'index>> {
@@ -143,8 +143,35 @@ where
 impl<'index, W, I> RQEIterator<'index> for OptionalOptimized<'index, W, I>
 where
     W: WildcardIterator<'index>,
+    for<'a> <W::Suspended as RQESuspendedIterator>::Resumed<'a>:
+        WildcardIterator<'a> + RQEIterator<'a, Suspended = W::Suspended>,
     I: RQEIterator<'index>,
 {
+    type Suspended = RawOptionalOptimized<Suspended, W::Suspended, I::Suspended>;
+
+    fn suspend(self: Box<Self>) -> Box<Self::Suspended> {
+        let raw = Box::into_raw(self);
+        // Walk both children — see Not/NotOptimized for the rationale.
+        // SAFETY: `raw` came from `Box::into_raw`, exclusively owned and
+        // valid, so the wcii/child fields are reachable.
+        let wcii_slot = unsafe { std::ptr::addr_of_mut!((*raw).wcii) };
+        // SAFETY: same as wcii_slot.
+        let child_slot = unsafe { std::ptr::addr_of_mut!((*raw).child) };
+        // SAFETY: `wcii_slot` is a valid `*mut W`; the function leaves it
+        // in a valid `W::Suspended` state.
+        unsafe { crate::boxed::suspend_child_slot_in_place(wcii_slot) };
+        // SAFETY: `child_slot` is a valid `*mut MaybeEmpty<I>`; the
+        // function leaves it in a valid `MaybeEmpty<I::Suspended>` state.
+        unsafe { crate::boxed::suspend_child_slot_in_place(child_slot) };
+        // SAFETY: `RawOptionalOptimized` is `#[repr(C)]` over `wcii: W` and
+        // `child: MaybeEmpty<I>` (now byte-rewritten as suspended forms),
+        // `virt: RawIndexResult<Rf>` (layout-compatible via `SharedPtr`),
+        // and plain fields.
+        unsafe {
+            Box::from_raw(raw as *mut RawOptionalOptimized<Suspended, W::Suspended, I::Suspended>)
+        }
+    }
+
     #[inline(always)]
     fn current(&mut self) -> Option<&mut RSIndexResult<'index>> {
         if self.last_doc_id != 0
@@ -296,34 +323,10 @@ where
     }
 }
 
-impl<'index, W, I> RQEIteratorBoxed<'index> for OptionalOptimized<'index, W, I>
-where
-    W: WildcardIterator<'index> + RQEIteratorBoxed<'index>,
-    for<'a> <W::Suspended as RQESuspendedIterator>::Resumed<'a>:
-        WildcardIterator<'a> + RQEIteratorBoxed<'a, Suspended = W::Suspended>,
-    I: RQEIteratorBoxed<'index>,
-{
-    type Suspended = RawOptionalOptimized<Suspended, W::Suspended, I::Suspended>;
-
-    fn suspend(self: Box<Self>) -> Box<Self::Suspended> {
-        let raw = Box::into_raw(self);
-        // SAFETY: `RawOptionalOptimized` is `#[repr(C)]`. The only
-        // `Rf`-dependent field is `virt: RawIndexResult<Rf>`, layout-
-        // compatible across `Rf` via `SharedPtr` transparency. `W`/`I` are
-        // layout-compatible with `W::Suspended`/`I::Suspended` by the
-        // [`RQEIteratorBoxed`] contract, and `MaybeEmpty<I>` likewise
-        // (see [`MaybeEmpty::suspend`]). Box::from_raw reuses the same
-        // heap allocation.
-        unsafe {
-            Box::from_raw(raw as *mut RawOptionalOptimized<Suspended, W::Suspended, I::Suspended>)
-        }
-    }
-}
-
 impl<WS, IS> RQESuspendedIterator for RawOptionalOptimized<Suspended, WS, IS>
 where
     WS: RQESuspendedIterator,
-    for<'a> WS::Resumed<'a>: WildcardIterator<'a> + RQEIteratorBoxed<'a, Suspended = WS>,
+    for<'a> WS::Resumed<'a>: WildcardIterator<'a> + RQEIterator<'a, Suspended = WS>,
     IS: RQESuspendedIterator,
 {
     type Resumed<'a> = OptionalOptimized<'a, WS::Resumed<'a>, IS::Resumed<'a>>;
@@ -434,9 +437,9 @@ where
 impl<'index, W> crate::interop::ProfileChildren<'index>
     for OptionalOptimized<'index, W, crate::c2rust::CRQEIterator>
 where
-    W: WildcardIterator<'index> + crate::RQEIteratorBoxed<'index> + 'index,
+    W: WildcardIterator<'index> + crate::RQEIterator<'index> + 'index,
     for<'a> <W::Suspended as crate::RQESuspendedIterator>::Resumed<'a>:
-        WildcardIterator<'a> + crate::RQEIteratorBoxed<'a, Suspended = W::Suspended>,
+        WildcardIterator<'a> + crate::RQEIterator<'a, Suspended = W::Suspended>,
 {
     fn profile_children(self) -> Self {
         OptionalOptimized {

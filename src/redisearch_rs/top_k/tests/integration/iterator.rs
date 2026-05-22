@@ -16,7 +16,7 @@ use rqe_core::DocId;
 use index_result::RSIndexResult;
 use rqe_iterator_type::IteratorType;
 use rqe_iterators::{
-    IdList, RQEIterator, RQEIteratorError,
+    BoxedRQEIterator, IdList, RQEIterator, RQEIteratorError,
     c2rust::CRQEIterator,
     interop::{ProfileChildren, RQEIteratorWrapper},
 };
@@ -71,8 +71,8 @@ fn asc(a: f64, b: f64) -> Ordering {
     a.partial_cmp(&b).unwrap_or(Ordering::Equal)
 }
 
-fn make_child<'a>(ids: Vec<DocId>) -> Box<dyn RQEIterator<'a> + 'a> {
-    Box::new(IdList::<true>::new(ids))
+fn make_child<'a>(ids: Vec<DocId>) -> BoxedRQEIterator<'a> {
+    BoxedRQEIterator::new(Box::new(IdList::<true>::new(ids)))
 }
 
 /// Build an [`IdList`] from `ids` and wrap it in a [`CRQEIterator`] so the

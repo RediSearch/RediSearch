@@ -15,10 +15,7 @@
 
 use std::time::{Duration, Instant};
 
-use crate::{
-    IteratorType, RQEIterator, RQEIteratorBoxed, RQEIteratorError, RQESuspendedIterator,
-    SkipToOutcome,
-};
+use crate::{IteratorType, RQEIterator, RQEIteratorError, RQESuspendedIterator, SkipToOutcome};
 use ffi::ValidateStatus;
 use index_result::RSIndexResult;
 use index_spec::IndexSpecReadGuard;
@@ -120,7 +117,22 @@ impl<Rf: Ref, I> RawProfile<Rf, I> {
     }
 }
 
-impl<'index, I: RQEIterator<'index>> RQEIterator<'index> for Profile<'index, I> {
+impl<'index, I> RQEIterator<'index> for Profile<'index, I>
+where
+    I: RQEIterator<'index>,
+{
+    type Suspended = RawProfile<Suspended, I::Suspended>;
+
+    fn suspend(self: Box<Self>) -> Box<Self::Suspended> {
+        let raw = Box::into_raw(self);
+        // SAFETY: `RawProfile` is `#[repr(C)]`. The `Rf`-dependent field is
+        // only `_marker: PhantomData<Rf>` (zero-sized). `child: I` and the
+        // suspended counterpart's `child: I::Suspended` are layout-
+        // compatible by the [`RQEIterator`] contract. `counters` and
+        // `wall_time` carry no `Rf`. Box::from_raw reuses the same heap
+        // allocation, so the box address is preserved.
+        unsafe { Box::from_raw(raw as *mut RawProfile<Suspended, I::Suspended>) }
+    }
     #[inline(always)]
     fn current(&mut self) -> Option<&mut RSIndexResult<'index>> {
         self.child.current()
@@ -190,25 +202,6 @@ where
         let counters = self.counters();
         let mut child_ctx = ctx.with_counters(counters, self.wall_time_ns());
         self.child().print_profile(map, &mut child_ctx);
-    }
-}
-
-
-impl<'index, I> RQEIteratorBoxed<'index> for Profile<'index, I>
-where
-    I: RQEIteratorBoxed<'index>,
-{
-    type Suspended = RawProfile<Suspended, I::Suspended>;
-
-    fn suspend(self: Box<Self>) -> Box<Self::Suspended> {
-        let raw = Box::into_raw(self);
-        // SAFETY: `RawProfile` is `#[repr(C)]`. The `Rf`-dependent field is
-        // only `_marker: PhantomData<Rf>` (zero-sized). `child: I` and the
-        // suspended counterpart's `child: I::Suspended` are layout-
-        // compatible by the [`RQEIteratorBoxed`] contract. `counters` and
-        // `wall_time` carry no `Rf`. Box::from_raw reuses the same heap
-        // allocation, so the box address is preserved.
-        unsafe { Box::from_raw(raw as *mut RawProfile<Suspended, I::Suspended>) }
     }
 }
 

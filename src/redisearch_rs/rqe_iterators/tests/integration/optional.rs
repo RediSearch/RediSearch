@@ -645,7 +645,7 @@ mod optional_iterator_with_empty_child_test {
 mod optional_iterator_non_sequential_reads {
     use super::*;
 
-    struct ReadStepIterator<'index, const N: usize> {
+    pub struct ReadStepIterator<'index, const N: usize> {
         read_steps: [DocId; N],
         read_step: usize,
         result: index_result::RSIndexResult<'index>,
@@ -661,7 +661,39 @@ mod optional_iterator_non_sequential_reads {
         }
     }
 
+    /// Suspended counterpart of [`ReadStepIterator`] — phantom lifetime, byte-identical.
+    pub struct ReadStepIteratorSuspended<const N: usize> {
+        _read_steps: [DocId; N],
+        _read_step: usize,
+        _result: index_result::RSIndexResult<'static>,
+    }
+
+    impl<const N: usize> rqe_iterators::RQESuspendedIterator for ReadStepIteratorSuspended<N> {
+        type Resumed<'a> = ReadStepIterator<'a, N>;
+        fn resume<'a>(
+            self: Box<Self>,
+            _guard: &'a index_spec::IndexSpecReadGuard<'a>,
+        ) -> (Box<Self::Resumed<'a>>, ffi::ValidateStatus) {
+            let raw = Box::into_raw(self);
+            let active = unsafe { Box::from_raw(raw as *mut ReadStepIterator<'a, N>) };
+            (active, ffi::ValidateStatus_VALIDATE_OK)
+        }
+        fn last_doc_id(&self) -> ffi::t_docId {
+            self._result.doc_id
+        }
+        fn num_estimated(&self) -> usize {
+            N
+        }
+    }
+
     impl<'index, const N: usize> RQEIterator<'index> for ReadStepIterator<'index, N> {
+        type Suspended = ReadStepIteratorSuspended<N>;
+
+        fn suspend(self: Box<Self>) -> Box<Self::Suspended> {
+            let raw = Box::into_raw(self);
+            unsafe { Box::from_raw(raw as *mut ReadStepIteratorSuspended<N>) }
+        }
+
         fn current(&mut self) -> Option<&mut index_result::RSIndexResult<'index>> {
             Some(&mut self.result)
         }

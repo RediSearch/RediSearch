@@ -846,9 +846,10 @@ mod revalidate {
 
             it.read().unwrap().unwrap();
 
-            let new_ii = Box::into_raw(Box::new(inverted_index::opaque::InvertedIndex::DocIdsOnly(
-                InvertedIndex::<DocIdsOnly>::new(IndexFlags_Index_DocIdsOnly),
-            )));
+            let new_ii =
+                Box::into_raw(Box::new(inverted_index::opaque::InvertedIndex::DocIdsOnly(
+                    InvertedIndex::<DocIdsOnly>::new(IndexFlags_Index_DocIdsOnly),
+                )));
             let old_existing_docs = context.spec_read().existing_docs_ptr();
             context.spec_write().set_existing_docs_ptr(new_ii.cast());
 
@@ -856,7 +857,9 @@ mod revalidate {
             let (_it, status) = revalidate_via_resume(Box::new(it), &guard);
             assert_eq!(status, ffi::ValidateStatus_VALIDATE_ABORTED);
 
-            context.spec_write().set_existing_docs_ptr(old_existing_docs);
+            context
+                .spec_write()
+                .set_existing_docs_ptr(old_existing_docs);
             // SAFETY: Dropping Box from raw pointer.
             unsafe {
                 drop(Box::from_raw(new_ii));

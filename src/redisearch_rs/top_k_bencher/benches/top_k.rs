@@ -21,7 +21,7 @@ use std::{cmp::Ordering, num::NonZeroUsize};
 
 use criterion::{BatchSize, BenchmarkId, Criterion, criterion_group, criterion_main};
 use rand::{SeedableRng as _, seq::SliceRandom as _};
-use rqe_iterators::RQEIterator;
+use rqe_iterators::{BoxedRQEIterator, RQEIterator};
 use top_k::{BatchStrategy, TopKHeap, TopKIterator, TopKMode, mock::MockScoreSource};
 
 fn asc(a: f64, b: f64) -> Ordering {
@@ -193,8 +193,9 @@ fn bench_adhoc_vs_batches(c: &mut Criterion) {
                     let source = MockScoreSource::new(vec![], source_docs.clone(), |_, _| {
                         BatchStrategy::Continue
                     });
-                    let child: Box<dyn RQEIterator> =
-                        Box::new(rqe_iterators::IdList::<true>::new(child_ids.clone()));
+                    let child = BoxedRQEIterator::new(Box::new(
+                        rqe_iterators::IdList::<true>::new(child_ids.clone()),
+                    ));
                     (source, child)
                 },
                 |(source, child)| {
@@ -213,8 +214,9 @@ fn bench_adhoc_vs_batches(c: &mut Criterion) {
                     let source = MockScoreSource::new(vec![source_docs.clone()], vec![], |_, _| {
                         BatchStrategy::Continue
                     });
-                    let child: Box<dyn RQEIterator> =
-                        Box::new(rqe_iterators::IdList::<true>::new(child_ids.clone()));
+                    let child = BoxedRQEIterator::new(Box::new(
+                        rqe_iterators::IdList::<true>::new(child_ids.clone()),
+                    ));
                     (source, child)
                 },
                 |(source, child)| {

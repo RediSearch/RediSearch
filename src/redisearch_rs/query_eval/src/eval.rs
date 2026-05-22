@@ -65,13 +65,14 @@ impl<'index> Evaluated<'index> {
     pub fn into_boxed(self) -> EvalResult<'index> {
         match self {
             Evaluated::Rust(it) => it,
-            // SAFETY: `Evaluated::C` always holds a valid, owning `QueryIterator`
-            // with all required callbacks populated (it came from
-            // `ffi::Query_EvalNode`) — exactly the preconditions of
-            // `CRQEIterator::new`.
-            Evaluated::C(it) => rqe_iterators::BoxedRQEIterator::new(Box::new(unsafe {
-                CRQEIterator::new(it)
-            })),
+            Evaluated::C(it) => {
+                // SAFETY: `Evaluated::C` always holds a valid, owning `QueryIterator`
+                // with all required callbacks populated (it came from
+                // `ffi::Query_EvalNode`) — exactly the preconditions of
+                // `CRQEIterator::new`.
+                let crqe = unsafe { CRQEIterator::new(it) };
+                rqe_iterators::BoxedRQEIterator::new(Box::new(crqe))
+            }
         }
     }
 }

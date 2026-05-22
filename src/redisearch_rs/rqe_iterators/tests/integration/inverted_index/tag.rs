@@ -116,7 +116,9 @@ fn tag_empty_index() {
 mod not_miri {
     use super::*;
     use crate::inverted_index::utils::{RevalidateIndexType, RevalidateTest};
+    use ffi::{ValidateStatus_VALIDATE_ABORTED, ValidateStatus_VALIDATE_OK};
     use inverted_index::opaque::OpaqueEncoding;
+    use rqe_iterators_test_utils::revalidate_via_resume;
     use std::ffi::c_void;
 
     struct TagRevalidateTest {
@@ -160,35 +162,18 @@ mod not_miri {
         }
     }
 
-    /// Test that `reader()` returns a reference to the underlying reader.
-    #[test]
-    fn tag_reader_accessor() {
-        let test = TagRevalidateTest::new(10);
-        let it = test.create_iterator();
-
-        let reader = it.reader();
-        let ii = DocIdsOnly::from_opaque(test.test.context.tag_inverted_index());
-        assert!(reader.points_to_ii(ii));
-    }
-
-    use crate::inverted_index::utils::{
-        revalidate_after_document_deleted, revalidate_at_eof, revalidate_basic,
-    };
-    use ffi::{ValidateStatus_VALIDATE_ABORTED, ValidateStatus_VALIDATE_OK};
-    use rqe_iterators_test_utils::revalidate_via_resume;
-
     #[test]
     fn tag_revalidate_basic() {
         let test = TagRevalidateTest::new(10);
         let it = test.create_iterator();
-        revalidate_basic(&test.test, Box::new(it));
+        test.test.revalidate_basic(Box::new(it));
     }
 
     #[test]
     fn tag_revalidate_at_eof() {
         let test = TagRevalidateTest::new(10);
         let it = test.create_iterator();
-        revalidate_at_eof(&test.test, Box::new(it));
+        test.test.revalidate_at_eof(Box::new(it));
     }
 
     #[test]
@@ -218,6 +203,9 @@ mod not_miri {
         let tag_index = test.test.context.tag_index();
 
         // Delete the old entry then add the new one.
+        // The iterator's reader holds a (now-dangling) raw pointer to the
+        // original II, but `should_abort` only compares pointers via
+        // `points_to_ii` (`std::ptr::eq`) without dereferencing it.
         // SAFETY: `tag_index` is valid (created by `TagIndex_Ensure`), `values`
         // is a valid TrieMap.
         let trie = unsafe { &mut *tag_index.as_ref().values.cast::<trie_rs::TrieMapOpaque>() };
@@ -233,6 +221,7 @@ mod not_miri {
 
         // SAFETY: `old_ii` was allocated by `NewInvertedIndex_Ex` (via `Box::new`)
         // and has not been freed. We are the sole owner after removing it from the TrieMap.
+        // The new II will be freed when the TrieMap is freed during TagIndex cleanup.
         unsafe { drop(Box::from_raw(old_ii)) };
     }
 
@@ -242,7 +231,8 @@ mod not_miri {
         let it = test.create_iterator();
         let ii = DocIdsOnly::from_mut_opaque(test.test.context.tag_inverted_index());
 
-        revalidate_after_document_deleted(&test.test, Box::new(it), ii);
+        test.test
+            .revalidate_after_document_deleted(Box::new(it), ii);
     }
 
     /// Test that revalidation returns `Aborted` when the tag value is removed
@@ -281,5 +271,4 @@ mod not_miri {
         // and has not been freed. We are the sole owner after removing it from the TrieMap.
         unsafe { drop(Box::from_raw(old_ii)) };
     }
-
 }

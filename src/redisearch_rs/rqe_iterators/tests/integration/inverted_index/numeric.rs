@@ -878,6 +878,6 @@ mod not_miri {
     // Resume-flavored sibling tests for Numeric land in the R2
     // NumericIteratorVariant commit, where `NumericIndexReader` finally
     // implements `SuspendableReader` (a precondition for
-    // `RQEIteratorBoxed for Numeric<_, NumericIndexReader, _>` to be
+    // `RQEIterator for Numeric<_, NumericIndexReader, _>` to be
     // satisfied at the concrete type).
 }

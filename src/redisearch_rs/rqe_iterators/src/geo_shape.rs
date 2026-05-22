@@ -267,10 +267,34 @@ fn lower_bound(ids: &[DocId], doc_id: DocId) -> usize {
 
 impl<'index, T, E, M> RQEIterator<'index> for GeoShape<'index, T, E, M>
 where
-    T: TimeoutContext,
-    E: ExpirationChecker,
-    M: MemTracker,
+    T: TimeoutContext + 'static,
+    E: ExpirationChecker + 'static,
+    M: MemTracker + 'static,
 {
+    /// `GeoShape` owns its result data (the doc-id list is materialized
+    /// up front), so it has no `Rf`-dependent state to drop on suspend;
+    /// the Suspended counterpart is the same type with `'static`.
+    type Suspended = GeoShape<'static, T, E, M>;
+
+    fn suspend(self: Box<Self>) -> Box<Self::Suspended> {
+        let raw = Box::into_raw(self);
+        // `GeoShape<'index, T, E, M>` and `GeoShape<'static, T, E, M>` are
+        // layout-identical (`'index` is phantom: the only borrow it
+        // constrains is `result`, an `RSIndexResult<'index>`, whose
+        // `'index`-dependent state lives entirely behind raw pointers — see
+        // [`RSIndexResult`]). With `T/E/M: 'static`, clippy folds the cast
+        // away even though the lifetime relabel is the point.
+        #[expect(
+            clippy::unnecessary_cast,
+            reason = "lifetime relabel — types are layout-identical with 'static bounds"
+        )]
+        // SAFETY: see comment above. The round-trip identity is established
+        // by [`RQESuspendedIterator::resume`].
+        unsafe {
+            Box::from_raw(raw as *mut GeoShape<'static, T, E, M>)
+        }
+    }
+
     #[inline(always)]
     fn current(&mut self) -> Option<&mut RSIndexResult<'index>> {
         Some(&mut self.result)
@@ -386,29 +410,6 @@ impl<T, E, M: MemTracker> Drop for GeoShape<'_, T, E, M> {
     }
 }
 
-impl<'index, T, E, M> crate::RQEIteratorBoxed<'index> for GeoShape<'index, T, E, M>
-where
-    T: TimeoutContext + 'static,
-    E: ExpirationChecker + 'static,
-    M: MemTracker + 'static,
-{
-    /// `GeoShape` owns its result data (the doc-id list is materialized
-    /// up front), so it has no `Rf`-dependent state to drop on suspend;
-    /// the Suspended counterpart is the same type.
-    type Suspended = GeoShape<'static, T, E, M>;
-
-    fn suspend(self: Box<Self>) -> Box<Self::Suspended> {
-        // SAFETY: `GeoShape<'index, T, E, M>` and
-        // `GeoShape<'static, T, E, M>` are layout-identical (`'index`
-        // is phantom: the only borrow it constrains is `result`, an
-        // `RSIndexResult<'index>`, whose `'index`-dependent state lives
-        // entirely behind raw pointers — see [`RSIndexResult`]). The
-        // round-trip identity is established by [`RQESuspendedIterator::resume`].
-        let raw = Box::into_raw(self);
-        unsafe { Box::from_raw(raw as *mut GeoShape<'static, T, E, M>) }
-    }
-}
-
 impl<T, E, M> crate::RQESuspendedIterator for GeoShape<'static, T, E, M>
 where
     T: TimeoutContext + 'static,
@@ -421,13 +422,21 @@ where
         self: Box<Self>,
         _guard: &'a index_spec::IndexSpecReadGuard<'a>,
     ) -> (Box<Self::Resumed<'a>>, ValidateStatus) {
-        // SAFETY: see `suspend` — `'static` ↔ `'a` is purely phantom.
         let raw = Box::into_raw(self);
+        #[expect(
+            clippy::unnecessary_cast,
+            reason = "lifetime relabel — types are layout-identical with 'static bounds"
+        )]
+        // SAFETY: see `suspend` — `'static` ↔ `'a` is purely phantom.
         let active = unsafe { Box::from_raw(raw as *mut GeoShape<'a, T, E, M>) };
         (active, ValidateStatus_VALIDATE_OK)
     }
 
     fn last_doc_id(&self) -> ffi::t_docId {
         self.last_doc_id
+    }
+
+    fn num_estimated(&self) -> usize {
+        self.ids.len()
     }
 }

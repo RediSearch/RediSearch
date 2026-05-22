@@ -9,10 +9,11 @@
 
 //! Supporting types for [`Wildcard`].
 
-use std::ptr::NonNull;
+use std::ptr::{self, NonNull};
 
-use ffi::{ValidateStatus, ValidateStatus_VALIDATE_OK, t_docId};
+use ffi::{ValidateStatus, ValidateStatus_VALIDATE_ABORTED, ValidateStatus_VALIDATE_OK, t_docId};
 use index_result::{RSIndexResult, RawIndexResult};
+use index_spec::IndexSpecReadGuard;
 use inverted_index::codec::{doc_ids_only::DocIdsOnly, raw_doc_ids_only::RawDocIdsOnly};
 use inverted_index::{DocIdsDecoder, opaque};
 use ref_mode::{Active, Ref, Suspended};
@@ -20,12 +21,11 @@ use ref_mode::{Active, Ref, Suspended};
 use rqe_core::{DocId, RS_FIELDMASK_ALL};
 
 use crate::{
-    Empty, RQEIterator, RQEIteratorBoxed, RQEIteratorError, RQESuspendedIterator,
-    SEARCH_ENTERPRISE_ITERATORS, SkipToOutcome,
+    Empty, RQEIterator, RQEIteratorError, RQESuspendedIterator, SEARCH_ENTERPRISE_ITERATORS,
+    SkipToOutcome,
     profile_print::{ProfilePrint, ProfilePrintCtx},
 };
 use crate::{IteratorType, QueryError};
-use index_spec::IndexSpecReadGuard;
 
 /// An iterator that yields all ids within a given range, from 1 to max id
 /// (inclusive) in an index.
@@ -61,6 +61,17 @@ impl Wildcard<'_> {
 }
 
 impl<'index> RQEIterator<'index> for Wildcard<'index> {
+    type Suspended = RawWildcard<Suspended>;
+
+    fn suspend(self: Box<Self>) -> Box<Self::Suspended> {
+        let raw = Box::into_raw(self);
+        // SAFETY: `RawWildcard` is `#[repr(C)]` with the only `Rf`-dependent
+        // field being `result: RawIndexResult<Rf>`, layout-compatible across
+        // `Rf` (see [`crate::inverted_index::Wildcard::suspend`] for the
+        // same argument). Box::from_raw reuses the same heap allocation.
+        unsafe { Box::from_raw(raw as *mut RawWildcard<Suspended>) }
+    }
+
     #[inline(always)]
     fn current(&mut self) -> Option<&mut RSIndexResult<'index>> {
         Some(&mut self.result)
@@ -121,19 +132,6 @@ impl<'index> RQEIterator<'index> for Wildcard<'index> {
     }
 }
 
-impl<'index> RQEIteratorBoxed<'index> for Wildcard<'index> {
-    type Suspended = RawWildcard<Suspended>;
-
-    fn suspend(self: Box<Self>) -> Box<Self::Suspended> {
-        let raw = Box::into_raw(self);
-        // SAFETY: `RawWildcard` is `#[repr(C)]` with the only `Rf`-dependent
-        // field being `result: RawIndexResult<Rf>`, layout-compatible across
-        // `Rf` (see [`crate::inverted_index::Wildcard::suspend`] for the
-        // same argument). Box::from_raw reuses the same heap allocation.
-        unsafe { Box::from_raw(raw as *mut RawWildcard<Suspended>) }
-    }
-}
-
 impl RQESuspendedIterator for RawWildcard<Suspended> {
     type Resumed<'a> = Wildcard<'a>;
 
@@ -169,7 +167,7 @@ impl<'index, E> WildcardIterator<'index> for crate::inverted_index::Wildcard<'in
 where
     E: inverted_index::DecodedBy
         + inverted_index::opaque::OpaqueEncoding<Storage = inverted_index::InvertedIndex<E>>
-        + 'index,
+        + 'static,
     <E as inverted_index::DecodedBy>::Decoder: DocIdsDecoder,
 {
 }
@@ -187,10 +185,13 @@ impl<'index, I: WildcardIterator<'index>> WildcardIterator<'index>
 /// `QueryIterator*` for the `wcii` field.
 impl<'index> WildcardIterator<'index> for crate::c2rust::CRQEIterator {}
 
-impl<'index> WildcardIterator<'index> for Box<dyn WildcardIterator<'index> + 'index> {}
-
 /// The result of [`new_wildcard_iterator`], representing the different kinds of
 /// wildcard iterators that can be created depending on the index configuration.
+///
+/// `#[repr(C, u8)]` matches [`NewWildcardSuspended`] so that
+/// suspend/resume use whole-`Box` casts that preserve the heap
+/// allocation across the cycle.
+#[repr(C, u8)]
 pub enum NewWildcardIterator<'index> {
     /// Non-optimized wildcard: yields all document ids from 1 to `maxDocId`.
     NotOptimized(Wildcard<'index>),
@@ -206,6 +207,12 @@ pub enum NewWildcardIterator<'index> {
 ///
 /// The encoding may be either [`DocIdsOnly`] or [`RawDocIdsOnly`], depending on
 /// the index configuration.
+///
+/// `#[repr(C, u8)]` so the layout matches [`OptimizedWildcardSuspended`] —
+/// suspend/resume use whole-`Box` pointer casts that preserve the heap
+/// allocation across the cycle. See
+/// [`crate::inverted_index::Wildcard`] for the same argument at the leaf level.
+#[repr(C, u8)]
 pub enum OptimizedWildcard<'index> {
     /// Optimized wildcard with [`DocIdsOnly`] encoding.
     DocIdsOnly(crate::inverted_index::Wildcard<'index, DocIdsOnly>),
@@ -218,11 +225,24 @@ macro_rules! delegate_rqe_iterator {
     ($self:ident, $method:ident $(, $arg:ident)*) => {
         match $self {
             Self::DocIdsOnly(it) => it.$method($($arg),*),
-            Self::RawDocIdsOnly(it) => it.$method($($arg),*)}
+            Self::RawDocIdsOnly(it) => it.$method($($arg),*),
+        }
     };
 }
 
 impl<'index> RQEIterator<'index> for OptimizedWildcard<'index> {
+    type Suspended = OptimizedWildcardSuspended;
+
+    fn suspend(self: Box<Self>) -> Box<Self::Suspended> {
+        let raw = Box::into_raw(self);
+        // SAFETY: both enums are `#[repr(C)]`; corresponding variants hold
+        // `RawWildcard<Active<'index>, E>` / `RawWildcard<Suspended, E>`,
+        // which are layout-compatible by the [`RQEIterator`]
+        // contract on `inverted_index::Wildcard`. Box::from_raw reuses the
+        // heap allocation.
+        unsafe { Box::from_raw(raw as *mut OptimizedWildcardSuspended) }
+    }
+
     #[inline(always)]
     fn current(&mut self) -> Option<&mut RSIndexResult<'index>> {
         delegate_rqe_iterator!(self, current)
@@ -281,7 +301,7 @@ impl crate::profile_print::ProfilePrint for OptimizedWildcard<'_> {
 }
 
 /// Parallel `'static`-typed counterpart of [`OptimizedWildcard`] used as
-/// its `RQEIteratorBoxed::Suspended` type. Each variant holds the
+/// its `RQEIterator::Suspended` type. Each variant holds the
 /// `Suspended` form of the corresponding inverted-index wildcard reader.
 ///
 /// `#[repr(C, u8)]` matches [`OptimizedWildcard`]'s layout.
@@ -301,20 +321,6 @@ enum OptimizedResumeOutcome {
     NeedsReseek { last_doc_id: DocId },
 }
 
-impl<'index> RQEIteratorBoxed<'index> for OptimizedWildcard<'index> {
-    type Suspended = OptimizedWildcardSuspended;
-
-    fn suspend(self: Box<Self>) -> Box<Self::Suspended> {
-        let raw = Box::into_raw(self);
-        // SAFETY: both enums are `#[repr(C, u8)]`; corresponding variants
-        // hold `RawWildcard<Active<'index>, E>` / `RawWildcard<Suspended,
-        // E>`, which are layout-compatible by the [`RQEIteratorBoxed`]
-        // contract on `inverted_index::Wildcard`. Box::from_raw reuses the
-        // heap allocation.
-        unsafe { Box::from_raw(raw as *mut OptimizedWildcardSuspended) }
-    }
-}
-
 impl RQESuspendedIterator for OptimizedWildcardSuspended {
     type Resumed<'a> = OptimizedWildcard<'a>;
 
@@ -323,9 +329,10 @@ impl RQESuspendedIterator for OptimizedWildcardSuspended {
         spec: &'a IndexSpecReadGuard<'a>,
     ) -> (Box<Self::Resumed<'a>>, ValidateStatus) {
         // Step 1: should_abort + refresh_pointers on the suspended
-        // variant. Preserves the heap allocation across the cycle so
-        // external borrows into the iterator's interior (FFI wrapper's
-        // `header.current`) stay valid.
+        // variant (same pattern as `TagIteratorSuspended::resume` in
+        // iterators_ffi). Preserves the heap allocation across the
+        // cycle so external borrows into the iterator's interior
+        // (FFI wrapper's `header.current`) stay valid.
         let outcome = match &mut *self {
             OptimizedWildcardSuspended::DocIdsOnly(w) => {
                 if w.should_abort(spec) {
@@ -359,7 +366,7 @@ impl RQESuspendedIterator for OptimizedWildcardSuspended {
         let mut active = unsafe { Box::from_raw(raw as *mut OptimizedWildcard<'a>) };
 
         let status = match outcome {
-            OptimizedResumeOutcome::Abort => ffi::ValidateStatus_VALIDATE_ABORTED,
+            OptimizedResumeOutcome::Abort => ValidateStatus_VALIDATE_ABORTED,
             OptimizedResumeOutcome::Ok => ValidateStatus_VALIDATE_OK,
             OptimizedResumeOutcome::NeedsReseek { last_doc_id } => match &mut *active {
                 OptimizedWildcard::DocIdsOnly(w) => w.reseek_after_refresh(last_doc_id),
@@ -393,11 +400,20 @@ macro_rules! delegate_wildcard_iterator {
             Self::NotOptimized(it) => it.$method($($arg),*),
             Self::Optimized(it) => it.$method($($arg),*),
             Self::Empty(it) => it.$method($($arg),*),
-            Self::Disk(it) => it.$method($($arg),*)}
+            Self::Disk(it) => it.$method($($arg),*),
+        }
     };
 }
 
 impl<'index> RQEIterator<'index> for NewWildcardIterator<'index> {
+    type Suspended = NewWildcardSuspended;
+
+    fn suspend(self: Box<Self>) -> Box<Self::Suspended> {
+        let raw = Box::into_raw(self);
+        // SAFETY: layout-compatible enums (`#[repr(C, u8)]`).
+        unsafe { Box::from_raw(raw as *mut NewWildcardSuspended) }
+    }
+
     #[inline(always)]
     fn current(&mut self) -> Option<&mut RSIndexResult<'index>> {
         delegate_wildcard_iterator!(self, current)
@@ -457,8 +473,11 @@ impl<'index> RQEIterator<'index> for NewWildcardIterator<'index> {
 impl<'index> WildcardIterator<'index> for NewWildcardIterator<'index> {}
 
 /// Parallel `'static`-typed counterpart of [`NewWildcardIterator`] used as
-/// its `RQEIteratorBoxed::Suspended` type. Each variant holds the
+/// its `RQEIterator::Suspended` type. Each variant holds the
 /// `Suspended` form of the corresponding active variant.
+///
+/// `#[repr(C, u8)]` matches [`NewWildcardIterator`]'s layout.
+#[repr(C, u8)]
 pub enum NewWildcardSuspended {
     /// Suspended counterpart of [`NewWildcardIterator::NotOptimized`].
     NotOptimized(RawWildcard<Suspended>),
@@ -470,31 +489,6 @@ pub enum NewWildcardSuspended {
     Disk(DiskWildcardSuspended),
 }
 
-impl<'index> RQEIteratorBoxed<'index> for NewWildcardIterator<'index> {
-    type Suspended = NewWildcardSuspended;
-
-    fn suspend(self: Box<Self>) -> Box<Self::Suspended> {
-        match *self {
-            NewWildcardIterator::NotOptimized(it) => {
-                let suspended = RQEIteratorBoxed::suspend(Box::new(it));
-                Box::new(NewWildcardSuspended::NotOptimized(*suspended))
-            }
-            NewWildcardIterator::Optimized(it) => {
-                let suspended = RQEIteratorBoxed::suspend(Box::new(it));
-                Box::new(NewWildcardSuspended::Optimized(*suspended))
-            }
-            NewWildcardIterator::Empty(it) => {
-                let suspended = RQEIteratorBoxed::suspend(Box::new(it));
-                Box::new(NewWildcardSuspended::Empty(*suspended))
-            }
-            NewWildcardIterator::Disk(it) => {
-                let suspended = RQEIteratorBoxed::suspend(Box::new(it));
-                Box::new(NewWildcardSuspended::Disk(*suspended))
-            }
-        }
-    }
-}
-
 impl RQESuspendedIterator for NewWildcardSuspended {
     type Resumed<'a> = NewWildcardIterator<'a>;
 
@@ -502,24 +496,55 @@ impl RQESuspendedIterator for NewWildcardSuspended {
         self: Box<Self>,
         guard: &'a IndexSpecReadGuard<'a>,
     ) -> (Box<Self::Resumed<'a>>, ValidateStatus) {
-        match *self {
+        // Preserve the outer Box's heap allocation across the cycle.
+        // The FFI wrapper's `header.current` is a borrowed pointer
+        // into the inner iterator's `result.current` slot, whose
+        // address is at a fixed offset within this outer Box (since
+        // the variant payload sits inline per `#[repr(C, u8)]`).
+        // Re-allocating the outer Box would shift that offset and
+        // leave `header.current` dangling.
+        //
+        // Strategy: `ptr::read` the suspended value out of the outer
+        // slot, drive the per-variant resume, then `ptr::write` the
+        // active value back into the same slot. `Box::from_raw` at
+        // the end reuses the same heap allocation.
+        let raw = Box::into_raw(self);
+        // SAFETY: `raw` came from `Box::into_raw` (valid pointer,
+        // exclusive ownership). The bytes are a valid
+        // `NewWildcardSuspended`. `ptr::read` moves them out, leaving
+        // the slot's bytes typed-but-moved-from; we overwrite via
+        // `ptr::write` before reconstituting the Box.
+        let suspended_val = unsafe { ptr::read(raw) };
+
+        let (active_val, status) = match suspended_val {
             NewWildcardSuspended::NotOptimized(it) => {
                 let (active, status) = Box::new(it).resume(guard);
-                (Box::new(NewWildcardIterator::NotOptimized(*active)), status)
+                (NewWildcardIterator::NotOptimized(*active), status)
             }
             NewWildcardSuspended::Optimized(it) => {
                 let (active, status) = Box::new(it).resume(guard);
-                (Box::new(NewWildcardIterator::Optimized(*active)), status)
+                (NewWildcardIterator::Optimized(*active), status)
             }
             NewWildcardSuspended::Empty(it) => {
                 let (active, status) = Box::new(it).resume(guard);
-                (Box::new(NewWildcardIterator::Empty(*active)), status)
+                (NewWildcardIterator::Empty(*active), status)
             }
             NewWildcardSuspended::Disk(it) => {
                 let (active, status) = Box::new(it).resume(guard);
-                (Box::new(NewWildcardIterator::Disk(*active)), status)
+                (NewWildcardIterator::Disk(*active), status)
             }
-        }
+        };
+
+        let active_raw = raw as *mut NewWildcardIterator<'a>;
+        // SAFETY: `active_raw` is the same heap allocation as `raw`,
+        // retyped as `NewWildcardIterator<'a>` (layout-compatible by
+        // `#[repr(C, u8)]`). The slot is uninitialised after the
+        // earlier `ptr::read`; writing a valid `NewWildcardIterator<'a>`
+        // reinitialises it.
+        unsafe { ptr::write(active_raw, active_val) };
+        // SAFETY: outer Box reconstituted on the same heap allocation.
+        let active = unsafe { Box::from_raw(active_raw) };
+        (active, status)
     }
 
     fn last_doc_id(&self) -> DocId {
@@ -726,14 +751,27 @@ pub unsafe fn new_wildcard_iterator<'index>(
 
 /// A wildcard iterator backed by an enterprise disk index iterator.
 ///
-/// This is a thin wrapper around a [`crate::BoxedRQEIterator`] provided by
-/// [`SEARCH_ENTERPRISE_ITERATORS`] that implements [`WildcardIterator`],
-/// allowing disk-based wildcard queries to be used interchangeably with
-/// in-memory ones.
+/// This is a thin wrapper around a [`BoxedRQEIterator`](crate::BoxedRQEIterator)
+/// provided by [`SEARCH_ENTERPRISE_ITERATORS`] that implements
+/// [`WildcardIterator`], allowing disk-based wildcard queries to be used
+/// interchangeably with in-memory ones.
 #[repr(transparent)]
 pub struct DiskWildcardIterator<'index>(crate::BoxedRQEIterator<'index>);
 
 impl<'index> RQEIterator<'index> for DiskWildcardIterator<'index> {
+    type Suspended = DiskWildcardSuspended;
+
+    fn suspend(self: Box<Self>) -> Box<Self::Suspended> {
+        // Drive the inner dyn-erased iterator's suspend via the
+        // `RQEDynIterator` vtable, then wrap the resulting
+        // `BoxedRQESuspendedIterator` as `DiskWildcardSuspended`. The
+        // explicit `Box::new` here is a small overhead the disk path
+        // can afford; see `boxed::suspend_child_slot_in_place` for the
+        // no-allocation pattern composites use on their hot children.
+        let inner_suspended = self.0.0.suspend();
+        Box::new(DiskWildcardSuspended(inner_suspended))
+    }
+
     fn current(&mut self) -> Option<&mut RSIndexResult<'index>> {
         self.0.current()
     }
@@ -809,21 +847,6 @@ impl ProfilePrint for NewWildcardIterator<'_> {
 #[repr(transparent)]
 pub struct DiskWildcardSuspended(pub(crate) crate::BoxedRQESuspendedIterator);
 
-impl<'index> RQEIteratorBoxed<'index> for DiskWildcardIterator<'index> {
-    type Suspended = DiskWildcardSuspended;
-
-    fn suspend(self: Box<Self>) -> Box<Self::Suspended> {
-        // Drive the inner dyn-erased iterator's suspend via the
-        // `RQEDynIterator` vtable, then wrap the resulting
-        // `BoxedRQESuspendedIterator` as `DiskWildcardSuspended`. The
-        // explicit `Box::new` here is a small overhead the disk path
-        // can afford; see `boxed::suspend_child_slot_in_place` for the
-        // no-allocation pattern composites use on their hot children.
-        let inner_suspended = self.0.0.suspend();
-        Box::new(DiskWildcardSuspended(inner_suspended))
-    }
-}
-
 impl RQESuspendedIterator for DiskWildcardSuspended {
     type Resumed<'a> = DiskWildcardIterator<'a>;
 
@@ -841,6 +864,10 @@ impl RQESuspendedIterator for DiskWildcardSuspended {
     }
 
     fn last_doc_id(&self) -> t_docId {
+        // SAFETY: `last_doc_id` reads a cached primitive — it does not
+        // dereference any borrowed index pointer. Forwarding to the inner
+        // dyn's `RQEIterator::last_doc_id` is therefore sound despite the
+        // `'static` lifetime lie.
         crate::boxed::RQEDynSuspendedIterator::last_doc_id(&*self.0.0)
     }
 
