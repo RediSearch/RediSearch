@@ -767,8 +767,20 @@ impl<'index> RQEIteratorBoxed<'index> for TypeErasedRQEIterator<'index> {
 
     #[inline(always)]
     fn suspend(self: Box<Self>) -> Box<Self::Suspended> {
-        let TypeErasedRQEIterator(inner) = *self;
-        Box::new(<dyn RQEDynIterator<'index> as RQEDynIterator<'index>>::suspend(inner))
+        const { assert_layout_compatible::<Self, Self::Suspended>() };
+        // Reuse this box for the suspended form: lowered to C, it is the box
+        // `RQEIteratorWrapper` must find again on resume.
+        let slot = Box::into_raw(self);
+        // SAFETY: `slot` came from `Box::into_raw`. The value is moved out and the
+        // slot rewritten before it is reclaimed; a panic in between leaks it.
+        let TypeErasedRQEIterator(inner) = unsafe { slot.read() };
+        let suspended = <dyn RQEDynIterator<'index> as RQEDynIterator<'index>>::suspend(inner);
+        let slot = slot.cast::<Self::Suspended>();
+        // SAFETY: the slot is uninitialised, and laid out for `Self::Suspended`
+        // (asserted above).
+        unsafe { slot.write(suspended) };
+        // SAFETY: `slot` came from `Box::into_raw` and holds a valid value again.
+        unsafe { Box::from_raw(slot) }
     }
 }
 
@@ -788,17 +800,41 @@ impl<'query> RQESuspendedIterator<'query> for TypeErasedRQESuspendedIterator<'qu
     where
         'query: 'index,
     {
-        let TypeErasedRQESuspendedIterator(inner) = *self;
-        // `Self::Resumed` is the already-erased `TypeErasedRQEIterator`, so the
-        // concrete `ResumeOutcome<Box<Self::Resumed>>` shape forces a
-        // (deliberate) double box here. This is a transient allocation only on
-        // the resume path for an erased composite child; the hot path resumes
-        // the concrete inner via the blanket bridge (single box).
-        Ok(match inner.resume(guard)? {
-            ResumeOutcome::Ok(it) => ResumeOutcome::Ok(Box::new(it)),
-            ResumeOutcome::Moved(it) => ResumeOutcome::Moved(Box::new(it)),
-            ResumeOutcome::Aborted => ResumeOutcome::Aborted,
-        })
+        const { assert_layout_compatible::<Self, TypeErasedRQEIterator<'index>>() };
+        // Resume into this box, mirroring `suspend`.
+        let slot = Box::into_raw(self);
+        // SAFETY: `slot` came from `Box::into_raw`. The value is moved out and the
+        // slot rewritten or freed below; a panic in between leaks it.
+        let TypeErasedRQESuspendedIterator(inner) = unsafe { slot.read() };
+        let outcome = inner.resume(guard);
+        let slot = slot.cast::<TypeErasedRQEIterator<'index>>();
+        let reuse = |it| {
+            // SAFETY: the slot is uninitialised, and laid out for
+            // `TypeErasedRQEIterator` (asserted above).
+            unsafe { slot.write(it) };
+            // SAFETY: `slot` came from `Box::into_raw` and holds a valid value again.
+            unsafe { Box::from_raw(slot) }
+        };
+        // Nothing to put back: free the slot without dropping its moved-out bytes.
+        let free = || {
+            // SAFETY: `slot` came from `Box::into_raw`, and `MaybeUninit` has the
+            // layout of the value it was allocated for.
+            drop(unsafe {
+                Box::from_raw(slot.cast::<std::mem::MaybeUninit<TypeErasedRQEIterator<'index>>>())
+            })
+        };
+        match outcome {
+            Ok(ResumeOutcome::Ok(it)) => Ok(ResumeOutcome::Ok(reuse(it))),
+            Ok(ResumeOutcome::Moved(it)) => Ok(ResumeOutcome::Moved(reuse(it))),
+            Ok(ResumeOutcome::Aborted) => {
+                free();
+                Ok(ResumeOutcome::Aborted)
+            }
+            Err(e) => {
+                free();
+                Err(e)
+            }
+        }
     }
 
     #[inline(always)]
