@@ -573,7 +573,7 @@ where
     ) -> (Box<Self::Resumed<'a>>, ValidateStatus) {
         let RawUnionFlat {
             children,
-            num_active: _,
+            num_active,
             num_estimated,
             is_eof,
             result,
@@ -586,20 +586,22 @@ where
         let saved_last_doc_id = result.doc_id;
         drop(result);
 
-        // Resume each child; drop children whose resume reported ABORTED.
-        // Track whether any child reported MOVED or ABORTED so we can
-        // distinguish "nothing changed" from "some child changed" — the two
-        // cases need different aggregate-rebuild strategies. When nothing
-        // changed, the union's recorded position is still valid and any
-        // exhausted children will be discovered naturally on the next read.
+        // `swap_remove_child` keeps EOF children in the Vec at indices
+        // `[num_active..]` so [`rewind`](RQEIterator::rewind) can sort them
+        // back into the active set. Resume must preserve that split: the
+        // tail children stay in their resumed-active form so they survive
+        // a future rewind, but they don't count toward `num_active` (their
+        // last_doc_id would otherwise be picked up as a spurious min and
+        // yielded again after the live children exhaust).
+        //
+        // Track changes the same way as in the non-rewind case: a MOVED or
+        // ABORTED child means the cached aggregate position may no longer
+        // be the union's actual min, so we re-find min below.
         let mut any_change = false;
-        let mut active_children: Vec<IndexedChild<S::Resumed<'a>>> =
-            Vec::with_capacity(children.len());
-        for IndexedChild {
-            original_index,
-            inner,
-        } in children
-        {
+        let mut live: Vec<IndexedChild<S::Resumed<'a>>> = Vec::with_capacity(num_active);
+        let mut dead: Vec<IndexedChild<S::Resumed<'a>>> =
+            Vec::with_capacity(children.len().saturating_sub(num_active));
+        for (i, IndexedChild { original_index, inner }) in children.into_iter().enumerate() {
             let (active_inner, status) = Box::new(inner).resume(guard);
             match status {
                 ValidateStatus_VALIDATE_ABORTED => {
@@ -609,27 +611,22 @@ where
                 ValidateStatus_VALIDATE_MOVED => any_change = true,
                 _ => {}
             }
-            active_children.push(IndexedChild {
+            let resumed = IndexedChild {
                 original_index,
                 inner: *active_inner,
-            });
+            };
+            if i < num_active {
+                live.push(resumed);
+            } else {
+                dead.push(resumed);
+            }
         }
-
-        let num_children = active_children.len();
+        let num_children = live.len();
+        let mut active_children = live;
+        active_children.extend(dead);
         let result = RSIndexResult::build_union(num_children)
             .weight(saved_weight)
             .build();
-
-        if num_children == 0 {
-            let active = Box::new(UnionFlat {
-                children: active_children,
-                num_active: 0,
-                num_estimated,
-                is_eof: true,
-                result,
-            });
-            return (active, ValidateStatus_VALIDATE_ABORTED);
-        }
 
         let mut active = Box::new(UnionFlat {
             children: active_children,
@@ -641,6 +638,15 @@ where
 
         if active.is_eof || saved_last_doc_id == 0 {
             return (active, ValidateStatus_VALIDATE_OK);
+        }
+
+        // `num_children == 0` here means every previously-live child
+        // ABORTED during resume (children that reached EOF naturally went
+        // into `dead` and don't count toward `num_children`). The union
+        // has no recoverable state.
+        if num_children == 0 {
+            active.is_eof = true;
+            return (active, ValidateStatus_VALIDATE_ABORTED);
         }
 
         if !any_change {
