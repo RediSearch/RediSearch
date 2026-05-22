@@ -10,7 +10,7 @@
 //! Tests for [`new_union_iterator`].
 
 use rqe_iterators::{
-    Empty, IteratorType, RQEIterator, Wildcard,
+    BoxedRQEIterator, Empty, IteratorType, RQEIterator, Wildcard,
     union_reducer::{NewUnionIterator, new_union_iterator},
 };
 
@@ -63,10 +63,10 @@ fn single_child_reduces_to_single() {
 
 #[test]
 fn single_non_empty_after_filtering_reduces_to_single() {
-    let children: Vec<Box<dyn RQEIterator>> = vec![
-        Box::new(Empty),
-        Box::new(Mock::new([5, 10])),
-        Box::new(Empty),
+    let children: Vec<BoxedRQEIterator<'static>> = vec![
+        BoxedRQEIterator::new(Box::new(Empty)),
+        BoxedRQEIterator::new(Box::new(Mock::new([5, 10]))),
+        BoxedRQEIterator::new(Box::new(Empty)),
     ];
     let result = new_union_iterator(children, false, 20);
 
@@ -86,10 +86,10 @@ fn single_non_empty_after_filtering_reduces_to_single() {
 
 #[test]
 fn quick_exit_wildcard_reduces_to_single() {
-    let children: Vec<Box<dyn RQEIterator>> = vec![
-        Box::new(Mock::new([1, 2])),
-        Box::new(Wildcard::new(10, 1.0)),
-        Box::new(Mock::new([3, 4])),
+    let children: Vec<BoxedRQEIterator<'static>> = vec![
+        BoxedRQEIterator::new(Box::new(Mock::new([1, 2]))),
+        BoxedRQEIterator::new(Box::new(Wildcard::new(10, 1.0))),
+        BoxedRQEIterator::new(Box::new(Mock::new([3, 4]))),
     ];
     let result = new_union_iterator(children, true, 20);
 
@@ -104,9 +104,9 @@ fn quick_exit_wildcard_reduces_to_single() {
 
 #[test]
 fn non_quick_exit_wildcard_not_reduced() {
-    let children: Vec<Box<dyn RQEIterator>> = vec![
-        Box::new(Mock::new([1, 2])),
-        Box::new(Wildcard::new(10, 1.0)),
+    let children: Vec<BoxedRQEIterator<'static>> = vec![
+        BoxedRQEIterator::new(Box::new(Mock::new([1, 2]))),
+        BoxedRQEIterator::new(Box::new(Wildcard::new(10, 1.0))),
     ];
     // quick_exit = false, so wildcard should NOT cause reduction.
     let result = new_union_iterator(children, false, 20);
@@ -124,8 +124,10 @@ fn non_quick_exit_wildcard_not_reduced() {
 #[test]
 fn flat_selected_when_at_threshold() {
     // 2 children, threshold 2 → flat (2 is NOT > 2)
-    let children: Vec<Box<dyn RQEIterator>> =
-        vec![Box::new(Mock::new([1, 3])), Box::new(Mock::new([2, 4]))];
+    let children: Vec<BoxedRQEIterator<'static>> = vec![
+        BoxedRQEIterator::new(Box::new(Mock::new([1, 3]))),
+        BoxedRQEIterator::new(Box::new(Mock::new([2, 4]))),
+    ];
     let result = new_union_iterator(children, false, 2);
 
     assert!(matches!(result, NewUnionIterator::Flat(_)), "Expected Flat");
@@ -134,10 +136,10 @@ fn flat_selected_when_at_threshold() {
 #[test]
 fn heap_selected_when_above_threshold() {
     // 3 children, threshold 2 → heap (3 > 2)
-    let children: Vec<Box<dyn RQEIterator>> = vec![
-        Box::new(Mock::new([1, 4])),
-        Box::new(Mock::new([2, 5])),
-        Box::new(Mock::new([3, 6])),
+    let children: Vec<BoxedRQEIterator<'static>> = vec![
+        BoxedRQEIterator::new(Box::new(Mock::new([1, 4]))),
+        BoxedRQEIterator::new(Box::new(Mock::new([2, 5]))),
+        BoxedRQEIterator::new(Box::new(Mock::new([3, 6]))),
     ];
     let result = new_union_iterator(children, false, 2);
 
@@ -146,8 +148,10 @@ fn heap_selected_when_above_threshold() {
 
 #[test]
 fn flat_quick_selected() {
-    let children: Vec<Box<dyn RQEIterator>> =
-        vec![Box::new(Mock::new([1, 3])), Box::new(Mock::new([2, 4]))];
+    let children: Vec<BoxedRQEIterator<'static>> = vec![
+        BoxedRQEIterator::new(Box::new(Mock::new([1, 3]))),
+        BoxedRQEIterator::new(Box::new(Mock::new([2, 4]))),
+    ];
     let result = new_union_iterator(children, true, 20);
 
     assert!(
@@ -158,10 +162,10 @@ fn flat_quick_selected() {
 
 #[test]
 fn heap_quick_selected() {
-    let children: Vec<Box<dyn RQEIterator>> = vec![
-        Box::new(Mock::new([1, 4])),
-        Box::new(Mock::new([2, 5])),
-        Box::new(Mock::new([3, 6])),
+    let children: Vec<BoxedRQEIterator<'static>> = vec![
+        BoxedRQEIterator::new(Box::new(Mock::new([1, 4]))),
+        BoxedRQEIterator::new(Box::new(Mock::new([2, 5]))),
+        BoxedRQEIterator::new(Box::new(Mock::new([3, 6]))),
     ];
     let result = new_union_iterator(children, true, 2);
 
@@ -178,9 +182,9 @@ fn heap_quick_selected() {
 #[test]
 #[cfg_attr(miri, ignore = "Calls FFI function `RSYieldableMetric_Concat`")]
 fn flat_union_produces_all_docs() {
-    let children: Vec<Box<dyn RQEIterator>> = vec![
-        Box::new(Mock::new([1, 3, 5])),
-        Box::new(Mock::new([2, 3, 4])),
+    let children: Vec<BoxedRQEIterator<'static>> = vec![
+        BoxedRQEIterator::new(Box::new(Mock::new([1, 3, 5]))),
+        BoxedRQEIterator::new(Box::new(Mock::new([2, 3, 4]))),
     ];
     let result = new_union_iterator(children, false, 20);
 
@@ -197,10 +201,10 @@ fn flat_union_produces_all_docs() {
 #[test]
 #[cfg_attr(miri, ignore = "Calls FFI function `RSYieldableMetric_Concat`")]
 fn heap_union_produces_all_docs() {
-    let children: Vec<Box<dyn RQEIterator>> = vec![
-        Box::new(Mock::new([1, 4, 7])),
-        Box::new(Mock::new([2, 5, 8])),
-        Box::new(Mock::new([3, 6, 9])),
+    let children: Vec<BoxedRQEIterator<'static>> = vec![
+        BoxedRQEIterator::new(Box::new(Mock::new([1, 4, 7]))),
+        BoxedRQEIterator::new(Box::new(Mock::new([2, 5, 8]))),
+        BoxedRQEIterator::new(Box::new(Mock::new([3, 6, 9]))),
     ];
     let result = new_union_iterator(children, false, 2);
 

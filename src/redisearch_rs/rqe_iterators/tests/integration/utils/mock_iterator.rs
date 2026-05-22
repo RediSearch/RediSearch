@@ -11,7 +11,7 @@ use std::{cell::RefCell, rc::Rc, time::Duration};
 
 use index_result::{RSIndexResult, RSOffsetSlice};
 use rqe_core::{DocId, RS_FIELDMASK_ALL};
-use rqe_iterators::{IteratorType, RQEIterator, WildcardIterator};
+use rqe_iterators::{BoxedRQEIterator, IteratorType, RQEIterator, WildcardIterator};
 
 /// Test iterator used in unit tests that expect an [`RQEIterator`]
 /// child which produces a fixed sequence of document identifiers.
@@ -37,9 +37,9 @@ use rqe_iterators::{IteratorType, RQEIterator, WildcardIterator};
 /// reference counted cell.  Test code can obtain a handle to this
 /// state through [`Mock::data`] in order to:
 ///
-/// * Inspect how many times [`RQEIterator::revalidate`] was called.
+/// * Inspect how many times `RQEIterator::revalidate` (removed) was called.
 /// * Inspect how many times [`RQEIterator::read`] was called.
-/// * Configure what [`RQEIterator::revalidate`] will return through
+/// * Configure what `RQEIterator::revalidate` (removed) will return through
 ///   [`MockData::set_revalidate_result`].
 /// * Configure an error that will be returned once the iterator
 ///   reaches the end of the document ids through
@@ -439,11 +439,10 @@ impl<const N: usize> rqe_iterators::profile_print::ProfilePrint for Mock<'_, N> 
 
 /// Suspended counterpart of [`Mock`].
 ///
-/// Tests that drive the suspend/resume cycle need the inner iterator type to
-/// implement [`rqe_iterators::RQEIteratorBoxed`]. The Mock holds no real index
-/// borrows (its `result` is a freshly-built [`RSIndexResult`] over owned data),
-/// so the suspended counterpart is byte-identical to the active form at any
-/// lifetime.
+/// Tests that drive the suspend/resume cycle through the FFI wrapper need the inner
+/// iterator type to implement [`RQEIteratorBoxed`]. The Mock holds no real index
+/// borrows (its `result` is a freshly-built [`RSIndexResult`] over owned data), so
+/// the suspended counterpart is byte-identical to the active form at any lifetime.
 pub struct MockSuspended<const N: usize> {
     _result: RSIndexResult<'static>,
     _doc_ids: [DocId; N],
@@ -458,8 +457,8 @@ impl<'index, const N: usize> rqe_iterators::RQEIteratorBoxed<'index> for Mock<'i
     fn suspend(self: Box<Self>) -> Box<Self::Suspended> {
         let raw = Box::into_raw(self);
         // SAFETY: `Mock<'index, N>` and `MockSuspended<N>` have identical layout
-        // (lifetime parameter is phantom in this test helper). Box::from_raw
-        // reuses the same heap allocation.
+        // (lifetime parameter is phantom in this test helper). Box::from_raw reuses
+        // the same heap allocation.
         unsafe { Box::from_raw(raw as *mut MockSuspended<N>) }
     }
 }
@@ -472,9 +471,11 @@ impl<const N: usize> rqe_iterators::RQESuspendedIterator for MockSuspended<N> {
         _guard: &'a index_spec::IndexSpecReadGuard<'a>,
     ) -> (Box<Self::Resumed<'a>>, ffi::ValidateStatus) {
         // Honour the [`MockRevalidateResult`] configured on the mock's
-        // [`MockData`] — mirrors what `Mock::revalidate` does on the legacy
+        // [`MockData`] — mirrors what `Mock::revalidate` did on the legacy
         // path, so tests driving suspend/resume see the same per-mock
-        // outcomes as before.
+        // outcomes as before. Without this, every resume would report OK
+        // and tests that pre-configure Abort/Move behaviour would silently
+        // see the Ok path.
         let revalidate_result = {
             let mut data = self._data.0.borrow_mut();
             data.validation_count += 1;
@@ -483,6 +484,10 @@ impl<const N: usize> rqe_iterators::RQESuspendedIterator for MockSuspended<N> {
         let status = match revalidate_result {
             MockRevalidateResult::Ok => ffi::ValidateStatus_VALIDATE_OK,
             MockRevalidateResult::Move => {
+                // Mirror `Mock::revalidate`'s Move case: set the result to
+                // the doc id at `_next_index`, then advance past it. This
+                // matches the legacy path's side effects so suspend/resume
+                // and revalidate produce indistinguishable end states.
                 if self._next_index < N {
                     self._result.doc_id = self._doc_ids[self._next_index];
                     self._next_index += 1;
@@ -536,9 +541,9 @@ impl<'index> MockVec<'index> {
         }
     }
 
-    /// Create a boxed [`MockVec`] as a trait object.
-    pub fn new_boxed(doc_ids: Vec<DocId>) -> Box<dyn RQEIterator<'index> + 'index> {
-        Box::new(Self::new(doc_ids))
+    /// Create a [`MockVec`] wrapped as a [`BoxedRQEIterator`].
+    pub fn new_boxed(doc_ids: Vec<DocId>) -> BoxedRQEIterator<'index> {
+        BoxedRQEIterator::new(Box::new(Self::new(doc_ids)))
     }
 }
 
