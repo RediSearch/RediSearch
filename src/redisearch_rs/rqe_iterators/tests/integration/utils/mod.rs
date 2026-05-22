@@ -41,6 +41,14 @@ impl<'index> FieldMaskMock<'index> {
 }
 
 impl<'index> RQEIterator<'index> for FieldMaskMock<'index> {
+    type Suspended = FieldMaskMockSuspended;
+
+    fn suspend(self: Box<Self>) -> Box<Self::Suspended> {
+        let raw = Box::into_raw(self);
+        // SAFETY: `FieldMaskMock` and `FieldMaskMockSuspended` have identical layout.
+        unsafe { Box::from_raw(raw as *mut FieldMaskMockSuspended) }
+    }
+
     fn current(&mut self) -> Option<&mut RSIndexResult<'index>> {
         Some(&mut self.result)
     }
@@ -112,15 +120,6 @@ pub(crate) struct FieldMaskMockSuspended {
     _mask: inverted_index::t_fieldMask,
 }
 
-impl<'index> rqe_iterators::RQEIteratorBoxed<'index> for FieldMaskMock<'index> {
-    type Suspended = FieldMaskMockSuspended;
-
-    fn suspend(self: Box<Self>) -> Box<Self::Suspended> {
-        let raw = Box::into_raw(self);
-        // SAFETY: `FieldMaskMock` and `FieldMaskMockSuspended` have identical layout.
-        unsafe { Box::from_raw(raw as *mut FieldMaskMockSuspended) }
-    }
-}
 
 impl rqe_iterators::RQESuspendedIterator for FieldMaskMockSuspended {
     type Resumed<'a> = FieldMaskMock<'a>;

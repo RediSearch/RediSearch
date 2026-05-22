@@ -14,19 +14,17 @@ use ffi::{
     ValidateStatus_VALIDATE_OK, t_docId,
 };
 use index_result::{RSIndexResult, RSOffsetSlice};
-use inverted_index::{
-    PointsToOpaqueIndex, RefreshOutcome, ResumableReader, SuspendableReader, TermReader,
-};
+use index_spec::IndexSpecReadGuard;
+use inverted_index::{PointsToOpaqueIndex, RefreshOutcome, ResumableReader, SuspendableReader, TermReader};
 use query_term::RSQueryTerm;
 use ref_mode::{Active, Ref, Suspended};
 
 use crate::{
-    IteratorType, RQEIterator, RQEIteratorBoxed, RQEIteratorError, RQESuspendedIterator,
-    SkipToOutcome, expiration_checker::ExpirationChecker,
+    IteratorType, RQEIterator, RQEIteratorError, RQESuspendedIterator, SkipToOutcome,
+    expiration_checker::ExpirationChecker,
 };
 
 use super::core::{InvIndIterator, RawInvIndIterator};
-use index_spec::IndexSpecReadGuard;
 
 /// An iterator over term inverted index entries, parameterised over a
 /// [`Ref`] mode. See [`Term`] for the [`Active`] instantiation that
@@ -61,7 +59,7 @@ impl<Rf: Ref, R: PointsToOpaqueIndex, E> RawTerm<Rf, R, E> {
     /// The term's inverted index may have been garbage-collected and
     /// replaced with a new allocation. If the index pointer looked up via
     /// `spec.keysDict` no longer matches the reader's stored index, the
-    /// iterator must abort.
+    /// iterator must abort with `VALIDATE_ABORTED`.
     ///
     /// # Why mode-independent
     ///
@@ -191,7 +189,7 @@ impl<'index, Enc: inverted_index::DecodedBy, E>
 {
     /// Swap the underlying inverted index of the reader.
     ///
-    /// Used by tests to trigger revalidation.
+    /// Used by tests to trigger revalidation (removed API).
     pub const fn swap_index(&mut self, index: &mut &'index inverted_index::InvertedIndex<Enc>) {
         self.it.reader.swap_index(index);
     }
@@ -199,9 +197,23 @@ impl<'index, Enc: inverted_index::DecodedBy, E>
 
 impl<'index, R, E> RQEIterator<'index> for Term<'index, R, E>
 where
-    R: TermReader<'index>,
-    E: ExpirationChecker,
+    R: TermReader<'index> + SuspendableReader + 'index,
+    R::Suspended: ResumableReader + PointsToOpaqueIndex,
+    for<'a> <R::Suspended as ResumableReader>::Resumed<'a>: TermReader<'a>,
+    E: ExpirationChecker + 'static,
 {
+    type Suspended = RawTerm<Suspended, R::Suspended, E>;
+
+    fn suspend(self: Box<Self>) -> Box<Self::Suspended> {
+        let raw = Box::into_raw(self);
+        // SAFETY: `RawTerm` is `#[repr(C)]` containing only a
+        // `RawInvIndIterator<Rf, R, E>` field, whose layout is identical
+        // across `Active`/`Suspended` instantiations (see
+        // `InvIndIterator::suspend`). Box::from_raw reuses the same heap
+        // allocation; the active drop won't run on the moved-out bytes.
+        unsafe { Box::from_raw(raw as *mut RawTerm<Suspended, R::Suspended, E>) }
+    }
+
     #[inline(always)]
     fn current(&mut self) -> Option<&mut RSIndexResult<'index>> {
         self.it.current()
@@ -250,25 +262,6 @@ where
     }
 }
 
-impl<'index, R, E> RQEIteratorBoxed<'index> for Term<'index, R, E>
-where
-    R: TermReader<'index> + SuspendableReader + 'index,
-    R::Suspended: ResumableReader + PointsToOpaqueIndex,
-    for<'a> <R::Suspended as ResumableReader>::Resumed<'a>: TermReader<'a>,
-    E: ExpirationChecker + 'static,
-{
-    type Suspended = RawTerm<Suspended, R::Suspended, E>;
-
-    fn suspend(self: Box<Self>) -> Box<Self::Suspended> {
-        let raw = Box::into_raw(self);
-        // SAFETY: `RawTerm` is `#[repr(C)]` containing only a
-        // `RawInvIndIterator<Rf, R, E>` field, whose layout is identical
-        // across `Active`/`Suspended` instantiations (see
-        // `InvIndIterator::suspend`). Box::from_raw reuses the same heap
-        // allocation; the active drop won't run on the moved-out bytes.
-        unsafe { Box::from_raw(raw as *mut RawTerm<Suspended, R::Suspended, E>) }
-    }
-}
 
 impl<RS, E> RQESuspendedIterator for RawTerm<Suspended, RS, E>
 where

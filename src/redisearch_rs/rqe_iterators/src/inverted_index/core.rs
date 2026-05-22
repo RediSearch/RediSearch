@@ -7,19 +7,16 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 
-use ffi::{
-    IndexFlags, ValidateStatus, ValidateStatus_VALIDATE_MOVED, ValidateStatus_VALIDATE_OK, t_docId,
-};
+use ffi::{IndexFlags, ValidateStatus, ValidateStatus_VALIDATE_MOVED, ValidateStatus_VALIDATE_OK, t_docId};
 use index_result::{RSIndexResult, RawIndexResult};
+use index_spec::IndexSpecReadGuard;
 use inverted_index::{IndexReader, RefreshOutcome, ResumableReader, SuspendableReader};
 use ref_mode::{Active, Ref, Suspended};
 
 use crate::{
-    IteratorType, RQEIterator, RQEIteratorBoxed, RQEIteratorError, RQESuspendedIterator,
-    SkipToOutcome, SkipToOutcomeRaw,
+    IteratorType, RQEIterator, RQEIteratorError, RQESuspendedIterator, SkipToOutcome, SkipToOutcomeRaw,
     expiration_checker::{ExpirationChecker, NoOpChecker},
 };
-use index_spec::IndexSpecReadGuard;
 
 /// A generic iterator over inverted index entries, parameterised over a
 /// [`Ref`] mode.
@@ -36,8 +33,8 @@ use index_spec::IndexSpecReadGuard;
 /// # Type Parameters
 ///
 /// * `Rf` - The [`Ref`] mode: [`Active<'a>`] gives the iterator working,
-///   readable references into the index; [`Suspended`]
-///   produces a passive carrier with no callable surface.
+///   readable references into the index; [`Suspended`] produces a
+///   passive carrier with no callable surface.
 /// * `R` - The reader type used to read the inverted index.
 /// * `E` - The expiration checker type used to check for expired documents.
 #[repr(C)]
@@ -302,7 +299,7 @@ where
 
         // The seeker found a record but it's expired. Fall back to read to get the next valid record.
         // This matches the C implementation behavior in InvIndIterator_SkipTo_CheckExpiration.
-        match self.read()? {
+        match (self.read_impl)(self)? {
             Some(_) => {
                 // Found a valid record, it must be greater than the requested doc_id.
                 // It cannot be equal to the requested doc_id because multi-values indices are only
@@ -319,9 +316,24 @@ where
 
 impl<'index, R, E> RQEIterator<'index> for InvIndIterator<'index, R, E>
 where
-    R: IndexReader<'index>,
-    E: ExpirationChecker,
+    R: IndexReader<'index> + SuspendableReader + 'index,
+    R::Suspended: ResumableReader,
+    E: ExpirationChecker + 'static,
 {
+    type Suspended = RawInvIndIterator<Suspended, R::Suspended, E>;
+
+    fn suspend(self: Box<Self>) -> Box<Self::Suspended> {
+        let raw = Box::into_raw(self);
+        // SAFETY: `RawInvIndIterator` is `#[repr(C)]`, and each
+        // `Rf`-dependent field (`reader: R`, `result: RawIndexResult<Rf>`,
+        // the `fn` pointers) is layout-compatible across `Active` and
+        // `Suspended` instantiations. The `SharedPtr<Rf, T>` fields used
+        // inside the reader and result are `#[repr(transparent)]` over
+        // `NonNull<T>`. Box::from_raw reuses the same heap allocation, so
+        // the box address is preserved.
+        unsafe { Box::from_raw(raw as *mut RawInvIndIterator<Suspended, R::Suspended, E>) }
+    }
+
     #[inline(always)]
     fn current(&mut self) -> Option<&mut RSIndexResult<'index>> {
         Some(&mut self.result)
@@ -404,10 +416,11 @@ where
 
 impl<'index, R, E> InvIndIterator<'index, R, E>
 where
-    R: IndexReader<'index>,
-    E: ExpirationChecker,
+    R: IndexReader<'index> + SuspendableReader + 'index,
+    R::Suspended: ResumableReader,
+    E: ExpirationChecker + 'static,
 {
-    /// Re-seek the iterator to its previous `last_doc_id` after a GC
+    /// Re-seek the iterator to its previous `last_doc_id` after a GC.
     /// cycle invalidated the cached block offset.
     ///
     /// Called from [`RQESuspendedIterator::resume`] on the active side,
@@ -451,26 +464,7 @@ where
     }
 }
 
-impl<'index, R, E> RQEIteratorBoxed<'index> for InvIndIterator<'index, R, E>
-where
-    R: IndexReader<'index> + SuspendableReader + 'index,
-    R::Suspended: ResumableReader,
-    E: ExpirationChecker + 'static,
-{
-    type Suspended = RawInvIndIterator<Suspended, R::Suspended, E>;
 
-    fn suspend(self: Box<Self>) -> Box<Self::Suspended> {
-        let raw = Box::into_raw(self);
-        // SAFETY: `RawInvIndIterator` is `#[repr(C)]`, and each
-        // `Rf`-dependent field (`reader: R`, `result: RawIndexResult<Rf>`,
-        // the `fn` pointers) is layout-compatible across `Active` and
-        // `Suspended` instantiations. The `SharedPtr<Rf, T>` fields used
-        // inside the reader and result are `#[repr(transparent)]` over
-        // `NonNull<T>`. Box::from_raw reuses the same heap allocation, so
-        // the box address is preserved.
-        unsafe { Box::from_raw(raw as *mut RawInvIndIterator<Suspended, R::Suspended, E>) }
-    }
-}
 
 impl<RS, E> RQESuspendedIterator for RawInvIndIterator<Suspended, RS, E>
 where
@@ -510,7 +504,9 @@ where
         // Rewind and re-seek to the last doc id.
         let status = match outcome {
             RefreshOutcome::Ok => ValidateStatus_VALIDATE_OK,
-            RefreshOutcome::NeedsReseek { last_doc_id } => active.reseek_after_refresh(last_doc_id),
+            RefreshOutcome::NeedsReseek { last_doc_id } => {
+                active.reseek_after_refresh(last_doc_id)
+            }
         };
 
         (active, status)

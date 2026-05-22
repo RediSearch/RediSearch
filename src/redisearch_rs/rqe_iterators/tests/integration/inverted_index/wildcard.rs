@@ -81,7 +81,9 @@ fn wildcard_empty_index() {
 mod not_miri {
     use super::*;
     use crate::inverted_index::utils::{RevalidateIndexType, RevalidateTest};
+    use ffi::{ValidateStatus_VALIDATE_ABORTED, ValidateStatus_VALIDATE_OK};
     use inverted_index::opaque::OpaqueEncoding;
+    use rqe_iterators_test_utils::revalidate_via_resume;
 
     struct WildcardRevalidateTest {
         test: RevalidateTest,
@@ -115,35 +117,18 @@ mod not_miri {
         }
     }
 
-    /// Test that `reader()` returns a reference to the underlying reader.
-    #[test]
-    fn wildcard_reader_accessor() {
-        let test = WildcardRevalidateTest::new(10);
-        let it = test.create_iterator();
-
-        let reader = it.reader();
-        let ii = DocIdsOnly::from_opaque(test.test.context.wildcard_inverted_index());
-        assert!(reader.points_to_ii(ii));
-    }
-
-    use crate::inverted_index::utils::{
-        revalidate_after_document_deleted, revalidate_at_eof, revalidate_basic,
-    };
-    use ffi::{ValidateStatus_VALIDATE_ABORTED, ValidateStatus_VALIDATE_OK};
-    use rqe_iterators_test_utils::revalidate_via_resume;
-
     #[test]
     fn wildcard_revalidate_basic() {
         let test = WildcardRevalidateTest::new(10);
         let it = test.create_iterator();
-        revalidate_basic(&test.test, Box::new(it));
+        test.test.revalidate_basic(Box::new(it));
     }
 
     #[test]
     fn wildcard_revalidate_at_eof() {
         let test = WildcardRevalidateTest::new(10);
         let it = test.create_iterator();
-        revalidate_at_eof(&test.test, Box::new(it));
+        test.test.revalidate_at_eof(Box::new(it));
     }
 
     #[test]
@@ -192,7 +177,7 @@ mod not_miri {
         let it = test.create_iterator();
         let ii = DocIdsOnly::from_mut_opaque(test.test.context.wildcard_inverted_index());
 
-        revalidate_after_document_deleted(&test.test, Box::new(it), ii);
+        test.test.revalidate_after_document_deleted(Box::new(it), ii);
     }
 
     /// Test that revalidation returns `Aborted` when `existingDocs` is set to
@@ -224,5 +209,16 @@ mod not_miri {
             .context
             .spec_write()
             .set_existing_docs(old_existing_docs);
+    }
+
+    /// Test that `reader()` returns a reference to the underlying reader.
+    #[test]
+    fn wildcard_reader_accessor() {
+        let test = WildcardRevalidateTest::new(10);
+        let it = test.create_iterator();
+
+        let reader = it.reader();
+        let ii = DocIdsOnly::from_opaque(test.test.context.wildcard_inverted_index());
+        assert!(reader.points_to_ii(ii));
     }
 }

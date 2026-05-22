@@ -11,14 +11,13 @@
 
 use ffi::{ValidateStatus, ValidateStatus_VALIDATE_OK, t_docId};
 use index_result::{RSIndexResult, RawIndexResult};
+use index_spec::IndexSpecReadGuard;
 use ref_mode::{Active, Ref, Suspended};
 use std::cmp::Ordering;
 
 use crate::{
-    IteratorType, RQEIterator, RQEIteratorBoxed, RQEIteratorError, RQESuspendedIterator,
-    SkipToOutcome, utils::OwnedSlice,
+    IteratorType, RQEIterator, RQEIteratorError, RQESuspendedIterator, SkipToOutcome, utils::OwnedSlice,
 };
-use index_spec::IndexSpecReadGuard;
 
 /// An iterator that yields results according to a sorted list of unique IDs, specified on construction.
 pub type IdListSorted<'index> = IdList<'index, true>;
@@ -206,6 +205,19 @@ impl<'index, const SORTED: bool> IdList<'index, SORTED> {
 }
 
 impl<'index, const SORTED_BY_ID: bool> RQEIterator<'index> for IdList<'index, SORTED_BY_ID> {
+    type Suspended = RawIdList<Suspended, SORTED_BY_ID>;
+
+    fn suspend(self: Box<Self>) -> Box<Self::Suspended> {
+        let raw = Box::into_raw(self);
+        // SAFETY: `RawIdList` is `#[repr(C)]`. The only `Rf`-dependent field
+        // is `result: RawIndexResult<Rf>`, layout-compatible across `Rf` via
+        // `SharedPtr` transparency. The other fields (`ids: OwnedSlice<...>`,
+        // `offset: usize`) carry no `Rf`. Suspend is widening, so casting
+        // the box's heap pointer to the suspended counterpart is sound and
+        // preserves the box's heap allocation.
+        unsafe { Box::from_raw(raw as *mut RawIdList<Suspended, SORTED_BY_ID>) }
+    }
+
     #[inline(always)]
     fn current(&mut self) -> Option<&mut RSIndexResult<'index>> {
         Some(&mut self.result)
@@ -272,21 +284,6 @@ impl<Rf: Ref, const SORTED: bool> RawIdList<Rf, SORTED> {
     /// `RawIdList` directly.
     pub(crate) const fn suspended_result_doc_id(s: &Self) -> t_docId {
         s.result.doc_id
-    }
-}
-
-impl<'index, const SORTED: bool> RQEIteratorBoxed<'index> for IdList<'index, SORTED> {
-    type Suspended = RawIdList<Suspended, SORTED>;
-
-    fn suspend(self: Box<Self>) -> Box<Self::Suspended> {
-        let raw = Box::into_raw(self);
-        // SAFETY: `RawIdList` is `#[repr(C)]`. The only `Rf`-dependent field
-        // is `result: RawIndexResult<Rf>`, layout-compatible across `Rf` via
-        // `SharedPtr` transparency. The other fields (`ids: OwnedSlice<...>`,
-        // `offset: usize`) carry no `Rf`. Suspend is widening, so casting
-        // the box's heap pointer to the suspended counterpart is sound and
-        // preserves the box's heap allocation.
-        unsafe { Box::from_raw(raw as *mut RawIdList<Suspended, SORTED>) }
     }
 }
 

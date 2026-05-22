@@ -11,12 +11,11 @@
 
 use ffi::{ValidateStatus, ValidateStatus_VALIDATE_OK, t_docId};
 use index_result::RSIndexResult;
+use index_spec::IndexSpecReadGuard;
 
 use crate::{
-    IteratorType, RQEIterator, RQEIteratorBoxed, RQEIteratorError, RQESuspendedIterator,
-    SkipToOutcome, empty::Empty,
+    IteratorType, RQEIterator, RQEIteratorError, RQESuspendedIterator, SkipToOutcome, empty::Empty,
 };
-use index_spec::IndexSpecReadGuard;
 
 /// An iterator that is either [`Empty`] or the provided [`RQEIterator`].
 ///
@@ -100,6 +99,35 @@ impl<'index, I> RQEIterator<'index> for MaybeEmpty<I>
 where
     I: RQEIterator<'index>,
 {
+    type Suspended = MaybeEmpty<I::Suspended>;
+
+    fn suspend(self: Box<Self>) -> Box<Self::Suspended> {
+        let raw = Box::into_raw(self);
+        // Walk the `Some(I)` arm if present — dispatches via the trait so
+        // dyn-erased `I` correctly transitions its vtable. The `None(Empty)`
+        // arm needs no suspend (Empty is a unit struct with no state).
+        //
+        // SAFETY: `raw` came from `Box::into_raw`, exclusively owned and
+        // valid, so the inner enum slot is reachable.
+        let inner: &mut MaybeEmptyOption<I> = unsafe { &mut (*raw).0 };
+        if let MaybeEmptyOption::Some(it) = inner {
+            // SAFETY: `it` is a valid `&mut I` aliased to nothing else;
+            // the function leaves the slot in a valid `I::Suspended` state.
+            unsafe { crate::boxed::suspend_child_slot_in_place(it as *mut I) };
+        }
+        // SAFETY: `MaybeEmpty<I>` is `#[repr(C)]` over a `#[repr(C)]` enum
+        // `MaybeEmptyOption<I>` whose `Some` payload (now byte-rewritten as
+        // `I::Suspended`) is layout-compatible with the suspended form.
+        unsafe { Box::from_raw(raw as *mut MaybeEmpty<I::Suspended>) }
+    }
+
+    fn cascade_suspend(&mut self) {
+        match &mut self.0 {
+            MaybeEmptyOption::Some(it) => it.cascade_suspend(),
+            MaybeEmptyOption::None(_) => {} // Empty iterator — nothing to cascade
+        }
+    }
+
     #[inline(always)]
     fn current(&mut self) -> Option<&mut RSIndexResult<'index>> {
         match &mut self.0 {
@@ -181,41 +209,6 @@ where
     }
 }
 
-impl<'index, I> RQEIteratorBoxed<'index> for MaybeEmpty<I>
-where
-    I: RQEIteratorBoxed<'index>,
-{
-    type Suspended = MaybeEmpty<I::Suspended>;
-
-    fn suspend(self: Box<Self>) -> Box<Self::Suspended> {
-        let raw = Box::into_raw(self);
-        // Walk the `Some(I)` arm if present — dispatches via the trait so
-        // dyn-erased `I` correctly transitions its vtable. The `None(Empty)`
-        // arm needs no suspend (Empty is a unit struct with no state).
-        //
-        // SAFETY: `raw` came from `Box::into_raw`, exclusively owned and
-        // valid, so the inner enum slot is reachable.
-        let inner: &mut MaybeEmptyOption<I> = unsafe { &mut (*raw).0 };
-        if let MaybeEmptyOption::Some(it) = inner {
-            // SAFETY: `it` is a valid `&mut I` aliased to nothing else;
-            // the function leaves the slot in a valid `I::Suspended` state.
-            unsafe { crate::boxed::suspend_child_slot_in_place(it as *mut I) };
-        }
-        // SAFETY: `MaybeEmpty<I>` is `#[repr(C)]` over a `#[repr(C)]` enum
-        // `MaybeEmptyOption<I>` whose `Some` payload (now byte-rewritten as
-        // `I::Suspended`) is layout-compatible with the suspended form.
-        // `I` and `I::Suspended` share layout by the [`RQEIteratorBoxed`]
-        // contract.
-        unsafe { Box::from_raw(raw as *mut MaybeEmpty<I::Suspended>) }
-    }
-
-    fn cascade_suspend(&mut self) {
-        match &mut self.0 {
-            MaybeEmptyOption::Some(it) => it.cascade_suspend(),
-            MaybeEmptyOption::None(_) => {} // Empty iterator — nothing to cascade
-        }
-    }
-}
 
 impl<S> RQESuspendedIterator for MaybeEmpty<S>
 where
@@ -251,7 +244,9 @@ where
 
     fn num_estimated(&self) -> usize {
         match &self.0 {
-            MaybeEmptyOption::None(empty) => <Empty as RQESuspendedIterator>::num_estimated(empty),
+            MaybeEmptyOption::None(empty) => {
+                <Empty as RQESuspendedIterator>::num_estimated(empty)
+            }
             MaybeEmptyOption::Some(child) => <S as RQESuspendedIterator>::num_estimated(child),
         }
     }

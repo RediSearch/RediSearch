@@ -10,7 +10,7 @@
 use std::{f64, ptr::NonNull};
 
 use crate::{
-    FieldExpirationChecker, IteratorType, RQEIterator, RQEIteratorBoxed, RQEIteratorError,
+    FieldExpirationChecker, IteratorType, RQEIterator, RQEIteratorError,
     RQESuspendedIterator, SkipToOutcome,
     expiration_checker::{ExpirationChecker, NoOpChecker},
 };
@@ -19,6 +19,7 @@ use ffi::{
     ValidateStatus_VALIDATE_ABORTED, ValidateStatus_VALIDATE_OK, t_docId,
 };
 use index_result::RSIndexResult;
+use index_spec::IndexSpecReadGuard;
 use inverted_index::{
     FilterGeoReader, FilterNumericReader, IndexReader, NumericFilter, NumericReader,
     RefreshOutcome, ResumableReader, SuspendableReader,
@@ -27,7 +28,6 @@ use numeric_range_tree::{NumericIndexReader, NumericIndexReaderSuspended, Numeri
 use ref_mode::{Active, Ref, Suspended};
 
 use super::core::{InvIndIterator, RawInvIndIterator};
-use index_spec::IndexSpecReadGuard;
 
 /// An iterator over numeric inverted index entries, parameterised over a
 /// [`Ref`] mode. See [`Numeric`] for the [`Active`] instantiation that
@@ -89,7 +89,7 @@ impl<Rf: Ref, R, E> RawNumeric<Rf, R, E> {
     /// modified by GC (a node split or removal). The iterator's cached
     /// `revision_id` snapshot is compared against the current value; if
     /// they differ, the cursor is invalidated and the iterator must
-    /// abort.
+    /// abort with `VALIDATE_ABORTED`.
     ///
     /// # Why mode-independent
     ///
@@ -178,24 +178,31 @@ where
     }
 }
 
-impl<'index, R, E> RQEIteratorBoxed<'index> for Numeric<'index, R, E>
+impl<'index, R, E> Numeric<'index, R, E>
 where
     R: NumericReader<'index> + SuspendableReader + 'index,
     R::Suspended: ResumableReader,
-    for<'a> <R::Suspended as ResumableReader>::Resumed<'a>: NumericReader<'a>,
     E: ExpirationChecker + 'static,
 {
-    type Suspended = RawNumeric<Suspended, R::Suspended, E>;
+    /// Forwarding shim: re-seek the inner [`RawInvIndIterator`] — used
+    /// by enum-level resume bodies (`NumericIteratorVariantSuspended`,
+    /// `NumericIteratorSuspended` in iterators_ffi) to drive the
+    /// active-side reseek step.
+    pub fn reseek_after_refresh(&mut self, last_doc_id: t_docId) -> ValidateStatus {
+        self.it.reseek_after_refresh(last_doc_id)
+    }
+}
 
-    fn suspend(self: Box<Self>) -> Box<Self::Suspended> {
-        let raw = Box::into_raw(self);
-        // SAFETY: `RawNumeric` is `#[repr(C)]`. The `Rf`-dependent field is
-        // the inner `RawInvIndIterator<Rf, R, E>`, whose layout is identical
-        // across modes (see [`InvIndIterator::suspend`]). The remaining
-        // fields (`range_tree_info`, `range_min`, `range_max`) carry no
-        // `Rf` in their type, so they survive the cast unchanged.
-        // Box::from_raw reuses the same heap allocation.
-        unsafe { Box::from_raw(raw as *mut RawNumeric<Suspended, R::Suspended, E>) }
+impl<RS, E> RawNumeric<Suspended, RS, E>
+where
+    RS: ResumableReader,
+    E: ExpirationChecker + 'static,
+{
+    /// Forwarding shim: refresh the inner [`RawInvIndIterator`]'s reader
+    /// pointers while still in [`Suspended`] mode — used by enum-level
+    /// resume bodies.
+    pub fn refresh_pointers(&mut self) -> RefreshOutcome {
+        self.it.refresh_pointers()
     }
 }
 
@@ -260,9 +267,24 @@ where
 
 impl<'index, R, E> RQEIterator<'index> for Numeric<'index, R, E>
 where
-    R: NumericReader<'index>,
-    E: ExpirationChecker,
+    R: NumericReader<'index> + SuspendableReader + 'index,
+    R::Suspended: ResumableReader,
+    for<'a> <R::Suspended as ResumableReader>::Resumed<'a>: NumericReader<'a>,
+    E: ExpirationChecker + 'static,
 {
+    type Suspended = RawNumeric<Suspended, R::Suspended, E>;
+
+    fn suspend(self: Box<Self>) -> Box<Self::Suspended> {
+        let raw = Box::into_raw(self);
+        // SAFETY: `RawNumeric` is `#[repr(C)]`. The `Rf`-dependent field is
+        // the inner `RawInvIndIterator<Rf, R, E>`, whose layout is identical
+        // across modes (see [`InvIndIterator::suspend`]). The remaining
+        // fields (`range_tree_info`, `range_min`, `range_max`) carry no
+        // `Rf` in their type, so they survive the cast unchanged.
+        // Box::from_raw reuses the same heap allocation.
+        unsafe { Box::from_raw(raw as *mut RawNumeric<Suspended, R::Suspended, E>) }
+    }
+
     #[inline(always)]
     fn current(&mut self) -> Option<&mut RSIndexResult<'index>> {
         self.it.current()
@@ -365,15 +387,31 @@ pub unsafe fn open_numeric_or_geo_index<'a>(
 /// - No filter → [`NumericIteratorVariant::Unfiltered`]
 /// - Numeric filter (no geo sub-filter) → [`NumericIteratorVariant::Filtered`]
 /// - Geo filter → [`NumericIteratorVariant::Geo`]
+///
+/// `#[repr(C, u8)]` matches the layout of
+/// [`NumericIteratorVariantSuspended`] so that suspend/resume can use
+/// whole-`Box` pointer casts that preserve the heap allocation across
+/// the cycle.
+#[repr(C, u8)]
 pub enum NumericIteratorVariant<'index> {
     /// No filter: iterates all entries in the range.
     Unfiltered(Numeric<'index, NumericIndexReader<'index>, FieldExpirationChecker>),
     /// Numeric filter: skips entries outside the filter's value range.
     Filtered(
-        Numeric<'index, FilterNumericReader<NumericIndexReader<'index>>, FieldExpirationChecker>,
+        Numeric<
+            'index,
+            FilterNumericReader<NumericIndexReader<'index>>,
+            FieldExpirationChecker,
+        >,
     ),
     /// Geo filter: skips entries that do not pass the geo predicate.
-    Geo(Numeric<'index, FilterGeoReader<NumericIndexReader<'index>>, FieldExpirationChecker>),
+    Geo(
+        Numeric<
+            'index,
+            FilterGeoReader<NumericIndexReader<'index>>,
+            FieldExpirationChecker,
+        >,
+    ),
 }
 
 impl<'index> NumericIteratorVariant<'index> {
@@ -538,6 +576,20 @@ impl<'index> NumericIteratorVariant<'index> {
 }
 
 impl<'index> RQEIterator<'index> for NumericIteratorVariant<'index> {
+    type Suspended = NumericIteratorVariantSuspended;
+
+    fn suspend(self: Box<Self>) -> Box<Self::Suspended> {
+        let raw = Box::into_raw(self);
+        // SAFETY: `NumericIteratorVariant<'index>` and
+        // `NumericIteratorVariantSuspended` are both `#[repr(C, u8)]`
+        // with the same variant order and layout-compatible payloads.
+        // The underlying `Numeric<'index, R, FieldExpirationChecker>` /
+        // `RawNumeric<Suspended, R::Suspended, FieldExpirationChecker>`
+        // pairs are layout-compatible via `#[repr(C)]` + `SharedPtr`
+        // transparency. `Box::from_raw` reuses the same heap allocation.
+        unsafe { Box::from_raw(raw as *mut NumericIteratorVariantSuspended) }
+    }
+
     #[inline(always)]
     fn current(&mut self) -> Option<&mut RSIndexResult<'index>> {
         match self {
@@ -615,11 +667,17 @@ impl<'index> RQEIterator<'index> for NumericIteratorVariant<'index> {
 }
 
 /// Parallel `'static`-typed counterpart of [`NumericIteratorVariant`] used
-/// as its `RQEIteratorBoxed::Suspended` type. Each variant holds the
+/// as its `RQEIterator::Suspended` type. Each variant holds the
 /// `Suspended` form of the corresponding `Numeric` instantiation.
+///
+/// `#[repr(C, u8)]` matches the layout of [`NumericIteratorVariant`] —
+/// see that type's docs for the heap-preservation argument.
+#[repr(C, u8)]
 pub enum NumericIteratorVariantSuspended {
     /// Suspended counterpart of [`NumericIteratorVariant::Unfiltered`].
-    Unfiltered(RawNumeric<Suspended, NumericIndexReaderSuspended, FieldExpirationChecker>),
+    Unfiltered(
+        RawNumeric<Suspended, NumericIndexReaderSuspended, FieldExpirationChecker>,
+    ),
     /// Suspended counterpart of [`NumericIteratorVariant::Filtered`].
     Filtered(
         RawNumeric<
@@ -630,12 +688,29 @@ pub enum NumericIteratorVariantSuspended {
     ),
     /// Suspended counterpart of [`NumericIteratorVariant::Geo`].
     Geo(
-        RawNumeric<Suspended, FilterGeoReader<NumericIndexReaderSuspended>, FieldExpirationChecker>,
+        RawNumeric<
+            Suspended,
+            FilterGeoReader<NumericIndexReaderSuspended>,
+            FieldExpirationChecker,
+        >,
     ),
 }
 
 impl NumericIteratorVariantSuspended {
-    /// Mirror of [`NumericIteratorVariant::range_min`] on the suspended side.
+    /// Returns the cached flags of the underlying index reader. Mirrors
+    /// [`NumericIteratorVariant::flags`] on the suspended side — FFI
+    /// introspection (FT.PROFILE etc.) calls this after the iterator has
+    /// been suspended at the unlock site.
+    pub const fn flags(&self) -> IndexFlags {
+        match self {
+            Self::Unfiltered(iter) => iter.flags(),
+            Self::Filtered(iter) => iter.flags(),
+            Self::Geo(iter) => iter.flags(),
+        }
+    }
+
+    /// Returns the minimum value of the numeric range (used for profiling).
+    /// Mirrors [`NumericIteratorVariant::range_min`] on the suspended side.
     pub const fn range_min(&self) -> f64 {
         match self {
             Self::Unfiltered(iter) => iter.range_min(),
@@ -644,7 +719,8 @@ impl NumericIteratorVariantSuspended {
         }
     }
 
-    /// Mirror of [`NumericIteratorVariant::range_max`] on the suspended side.
+    /// Returns the maximum value of the numeric range (used for profiling).
+    /// Mirrors [`NumericIteratorVariant::range_max`] on the suspended side.
     pub const fn range_max(&self) -> f64 {
         match self {
             Self::Unfiltered(iter) => iter.range_max(),
@@ -652,68 +728,79 @@ impl NumericIteratorVariantSuspended {
             Self::Geo(iter) => iter.range_max(),
         }
     }
-
-    /// Mirror of [`NumericIteratorVariant::flags`] on the suspended side.
-    pub const fn flags(&self) -> ffi::IndexFlags {
-        match self {
-            Self::Unfiltered(iter) => iter.flags(),
-            Self::Filtered(iter) => iter.flags(),
-            Self::Geo(iter) => iter.flags(),
-        }
-    }
 }
 
-impl<'index> RQEIteratorBoxed<'index> for NumericIteratorVariant<'index> {
-    type Suspended = NumericIteratorVariantSuspended;
-
-    fn suspend(self: Box<Self>) -> Box<Self::Suspended> {
-        // Field-by-field dispatch: the enum tag's discriminant layout is
-        // unspecified across these two distinct enum types, so we can't
-        // whole-box-cast. Match arms call the inner `RawNumeric`'s
-        // `RQEIteratorBoxed::suspend` (disambiguated via UFCS so it isn't
-        // resolved against an inherent or auto-impl `suspend`) and re-wrap
-        // into the suspended enum.
-        match *self {
-            NumericIteratorVariant::Unfiltered(it) => {
-                let suspended = RQEIteratorBoxed::suspend(Box::new(it));
-                Box::new(NumericIteratorVariantSuspended::Unfiltered(*suspended))
-            }
-            NumericIteratorVariant::Filtered(it) => {
-                let suspended = RQEIteratorBoxed::suspend(Box::new(it));
-                Box::new(NumericIteratorVariantSuspended::Filtered(*suspended))
-            }
-            NumericIteratorVariant::Geo(it) => {
-                let suspended = RQEIteratorBoxed::suspend(Box::new(it));
-                Box::new(NumericIteratorVariantSuspended::Geo(*suspended))
-            }
-        }
-    }
+/// Local 3-state outcome carrying the work done while still on the
+/// suspended form into the active form for the optional reseek dispatch.
+enum NumericResumeOutcome {
+    Abort,
+    Ok,
+    NeedsReseek { last_doc_id: t_docId },
 }
 
 impl RQESuspendedIterator for NumericIteratorVariantSuspended {
     type Resumed<'a> = NumericIteratorVariant<'a>;
 
     fn resume<'a>(
-        self: Box<Self>,
-        guard: &'a IndexSpecReadGuard<'a>,
+        mut self: Box<Self>,
+        _guard: &'a IndexSpecReadGuard<'a>,
     ) -> (Box<Self::Resumed<'a>>, ValidateStatus) {
-        match *self {
+        // Step 1: should_abort + refresh_pointers on the suspended
+        // variant.
+        let outcome = match &mut *self {
             NumericIteratorVariantSuspended::Unfiltered(it) => {
-                let (active, status) = Box::new(it).resume(guard);
-                (
-                    Box::new(NumericIteratorVariant::Unfiltered(*active)),
-                    status,
-                )
+                if it.should_abort() {
+                    NumericResumeOutcome::Abort
+                } else {
+                    match it.refresh_pointers() {
+                        RefreshOutcome::Ok => NumericResumeOutcome::Ok,
+                        RefreshOutcome::NeedsReseek { last_doc_id } => {
+                            NumericResumeOutcome::NeedsReseek { last_doc_id }
+                        }
+                    }
+                }
             }
             NumericIteratorVariantSuspended::Filtered(it) => {
-                let (active, status) = Box::new(it).resume(guard);
-                (Box::new(NumericIteratorVariant::Filtered(*active)), status)
+                if it.should_abort() {
+                    NumericResumeOutcome::Abort
+                } else {
+                    match it.refresh_pointers() {
+                        RefreshOutcome::Ok => NumericResumeOutcome::Ok,
+                        RefreshOutcome::NeedsReseek { last_doc_id } => {
+                            NumericResumeOutcome::NeedsReseek { last_doc_id }
+                        }
+                    }
+                }
             }
             NumericIteratorVariantSuspended::Geo(it) => {
-                let (active, status) = Box::new(it).resume(guard);
-                (Box::new(NumericIteratorVariant::Geo(*active)), status)
+                if it.should_abort() {
+                    NumericResumeOutcome::Abort
+                } else {
+                    match it.refresh_pointers() {
+                        RefreshOutcome::Ok => NumericResumeOutcome::Ok,
+                        RefreshOutcome::NeedsReseek { last_doc_id } => {
+                            NumericResumeOutcome::NeedsReseek { last_doc_id }
+                        }
+                    }
+                }
             }
-        }
+        };
+
+        // Step 2: whole-box cast Suspended → Active.
+        let raw = Box::into_raw(self);
+        // SAFETY: layout-compatible — see `suspend`.
+        let mut active = unsafe { Box::from_raw(raw as *mut NumericIteratorVariant<'a>) };
+
+        let status = match outcome {
+            NumericResumeOutcome::Abort => ValidateStatus_VALIDATE_ABORTED,
+            NumericResumeOutcome::Ok => ValidateStatus_VALIDATE_OK,
+            NumericResumeOutcome::NeedsReseek { last_doc_id } => match &mut *active {
+                NumericIteratorVariant::Unfiltered(it) => it.reseek_after_refresh(last_doc_id),
+                NumericIteratorVariant::Filtered(it) => it.reseek_after_refresh(last_doc_id),
+                NumericIteratorVariant::Geo(it) => it.reseek_after_refresh(last_doc_id),
+            },
+        };
+        (active, status)
     }
 
     fn last_doc_id(&self) -> t_docId {
@@ -738,3 +825,4 @@ impl RQESuspendedIterator for NumericIteratorVariantSuspended {
         }
     }
 }
+

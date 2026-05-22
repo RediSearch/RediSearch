@@ -15,40 +15,24 @@ use inverted_index::NumericFilter;
 use query_node_type::QueryNodeType;
 use rqe_iterator_type::IteratorType;
 use rqe_iterators::{
-    IteratorsConfig, NumericIteratorVariant, RQEIteratorBoxed, RQESuspendedIterator,
+    IteratorsConfig, NumericIteratorVariant, RQEIterator, RQESuspendedIterator,
     c2rust::CRQEIterator,
     interop::{InnerState, RQEIteratorWrapper},
     open_numeric_or_geo_index,
 };
 
 /// Suspended counterpart of [`NumericIterator`] — produced by
-/// [`RQEIteratorBoxed::suspend`] and consumed by [`RQESuspendedIterator::resume`].
+/// [`RQEIterator::suspend`] and consumed by [`RQESuspendedIterator::resume`].
 ///
 /// `#[repr(C)]` matches the layout of [`NumericIterator`] so that
-/// [`RQEIteratorBoxed::suspend`] / [`RQESuspendedIterator::resume`]
+/// [`RQEIterator::suspend`] / [`RQESuspendedIterator::resume`]
 /// can perform whole-`Box` pointer casts that preserve the heap
 /// allocation across the cycle — see
 /// [`super::tag::TagIteratorSuspended`] for the same argument.
 #[repr(C)]
 pub(super) struct NumericIteratorSuspended {
     filter: Option<NonNull<NumericFilter>>,
-    iterator: <NumericIteratorVariant<'static> as RQEIteratorBoxed<'static>>::Suspended,
-}
-
-impl<'index> RQEIteratorBoxed<'index> for NumericIterator<'index> {
-    type Suspended = NumericIteratorSuspended;
-
-    fn suspend(self: Box<Self>) -> Box<Self::Suspended> {
-        let raw = Box::into_raw(self);
-        // SAFETY: `NumericIterator<'index>` and `NumericIteratorSuspended`
-        // are both `#[repr(C)]` with the same field order and
-        // layout-compatible fields (`filter` is mode-independent; the
-        // `iterator` field's Active/Suspended counterparts are
-        // layout-compatible via `NumericIteratorVariant`'s own
-        // `#[repr(C, u8)]` design). `Box::from_raw` reuses the same
-        // heap allocation.
-        unsafe { Box::from_raw(raw as *mut NumericIteratorSuspended) }
-    }
+    iterator: <NumericIteratorVariant<'static> as RQEIterator<'static>>::Suspended,
 }
 
 impl RQESuspendedIterator for NumericIteratorSuspended {
@@ -86,32 +70,34 @@ impl RQESuspendedIterator for NumericIteratorSuspended {
         // SAFETY: `active_raw` points to a valid `NumericIterator<'a>`
         // (just produced from `Box::into_raw`). The `iterator` field is
         // at a known `#[repr(C)]` offset.
-        let inner_suspended_ptr = unsafe { ptr::addr_of_mut!((*active_raw).iterator) }
-            as *mut <NumericIteratorVariant<'static> as RQEIteratorBoxed<'static>>::Suspended;
-        let inner_suspended_box: Box<
-            <NumericIteratorVariant<'static> as RQEIteratorBoxed<'static>>::Suspended,
-        > = {
+        let inner_suspended_ptr =
+            unsafe { ptr::addr_of_mut!((*active_raw).iterator) } as *mut <NumericIteratorVariant<'static> as RQEIterator<'static>>::Suspended;
+        // SAFETY: the bytes at `inner_suspended_ptr` are currently a
+        // valid `NumericIteratorVariantSuspended` (the outer box was
+        // suspended; only the type label flipped). We take ownership
+        // by reading the bytes out.
+        let inner_suspended_box: Box<<NumericIteratorVariant<'static> as RQEIterator<'static>>::Suspended> = {
             // Build a Box that owns the read-out bytes. We allocate a
             // fresh Box around the read value so the type machinery
             // can drive the trait method.
             //
-            // SAFETY: the bytes at `inner_suspended_ptr` are currently a
-            // valid `NumericIteratorVariantSuspended` (the outer box was
-            // suspended; only the type label flipped). We take ownership
-            // by reading the bytes out.
+            // SAFETY: `inner_suspended_ptr` points to a valid
+            // `NumericIteratorVariantSuspended` (see preceding
+            // comment); reading the bytes moves the value out, leaving
+            // the slot logically uninitialized until the `ptr::write`
+            // below restores it.
             let read_bytes = unsafe { ptr::read(inner_suspended_ptr) };
             Box::new(read_bytes)
         };
         let (active_inner, status) =
             <_ as RQESuspendedIterator>::resume(inner_suspended_box, guard);
-        // SAFETY: `active_raw` points to a valid `NumericIterator<'a>` box,
-        // so `addr_of_mut!((*active_raw).iterator)` is a valid raw pointer
-        // to its `iterator` field.
+        // SAFETY: `active_raw` was just produced by `Box::into_raw`, so
+        // it points to valid storage; the `iterator` field is reachable.
         let iterator_slot = unsafe { ptr::addr_of_mut!((*active_raw).iterator) };
-        // SAFETY: write the resumed inner bytes back into the outer
-        // box's `iterator` slot. The slot has the right size and
-        // alignment for `NumericIteratorVariant<'a>` (it was just
-        // labelled as such by the outer cast).
+        // SAFETY: `iterator_slot` has the right size and alignment for
+        // `NumericIteratorVariant<'a>` (the outer cast just labelled it
+        // as such). The previous `ptr::read` left the slot moved-from;
+        // writing the resumed value re-initialises it.
         unsafe {
             ptr::write(iterator_slot, *active_inner);
         }
@@ -204,6 +190,20 @@ impl NumericIteratorSuspended {
 }
 
 impl<'index> rqe_iterators::RQEIterator<'index> for NumericIterator<'index> {
+    type Suspended = NumericIteratorSuspended;
+
+    fn suspend(self: Box<Self>) -> Box<Self::Suspended> {
+        let raw = Box::into_raw(self);
+        // SAFETY: `NumericIterator<'index>` and `NumericIteratorSuspended`
+        // are both `#[repr(C)]` with the same field order and
+        // layout-compatible fields (`filter` is mode-independent; the
+        // `iterator` field's Active/Suspended counterparts are
+        // layout-compatible via `NumericIteratorVariant`'s own
+        // `#[repr(C, u8)]` design). `Box::from_raw` reuses the same
+        // heap allocation.
+        unsafe { Box::from_raw(raw as *mut NumericIteratorSuspended) }
+    }
+
     #[inline(always)]
     fn current(&mut self) -> Option<&mut index_result::RSIndexResult<'index>> {
         self.iterator.current()

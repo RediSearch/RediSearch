@@ -10,8 +10,7 @@
 //! Supporting types for [`Metric`].
 
 use crate::{
-    IteratorType, RQEIterator, RQEIteratorBoxed, RQEIteratorError, RQESuspendedIterator,
-    SkipToOutcome,
+    IteratorType, RQEIterator, RQEIteratorError, RQESuspendedIterator, SkipToOutcome,
     id_list::{IdList, RawIdList},
     utils::OwnedSlice,
 };
@@ -140,6 +139,22 @@ impl<Rf: Ref, const SORTED_BY_ID: bool> RawMetric<Rf, SORTED_BY_ID> {
 }
 
 impl<'index, const SORTED_BY_ID: bool> RQEIterator<'index> for Metric<'index, SORTED_BY_ID> {
+    type Suspended = RawMetric<Suspended, SORTED_BY_ID>;
+
+    fn suspend(self: Box<Self>) -> Box<Self::Suspended> {
+        let raw = Box::into_raw(self);
+        // SAFETY: `RawMetric` is `#[repr(C)]`. The only `Rf`-dependent field
+        // is the inner `RawIdList<Rf, SORTED_BY_ID>`, layout-compatible
+        // across `Rf` (its only `Rf` field is `result: RawIndexResult<Rf>`,
+        // backed by `SharedPtr` transparency). The remaining fields
+        // (`metric_data`, `type_`, `own_key`, `key_handle`) carry no `Rf`.
+        // Suspend is widening, so casting the box's heap pointer is sound
+        // and preserves the heap allocation; the active `Drop` impl
+        // (`key_handle` nullification) does not run on these bytes —
+        // ownership of the allocation transfers to the suspended box.
+        unsafe { Box::from_raw(raw as *mut RawMetric<Suspended, SORTED_BY_ID>) }
+    }
+
     #[inline(always)]
     fn current(&mut self) -> Option<&mut RSIndexResult<'index>> {
         self.base.current()
@@ -215,23 +230,6 @@ impl<'index, const SORTED_BY_ID: bool> RQEIterator<'index> for Metric<'index, SO
     }
 }
 
-impl<'index, const SORTED_BY_ID: bool> RQEIteratorBoxed<'index> for Metric<'index, SORTED_BY_ID> {
-    type Suspended = RawMetric<Suspended, SORTED_BY_ID>;
-
-    fn suspend(self: Box<Self>) -> Box<Self::Suspended> {
-        let raw = Box::into_raw(self);
-        // SAFETY: `RawMetric` is `#[repr(C)]`. The only `Rf`-dependent field
-        // is the inner `RawIdList<Rf, SORTED_BY_ID>`, layout-compatible
-        // across `Rf` (its only `Rf` field is `result: RawIndexResult<Rf>`,
-        // backed by `SharedPtr` transparency). The remaining fields
-        // (`metric_data`, `type_`, `own_key`, `key_handle`) carry no `Rf`.
-        // Suspend is widening, so casting the box's heap pointer is sound
-        // and preserves the heap allocation; the active `Drop` impl
-        // (`key_handle` nullification) does not run on these bytes —
-        // ownership of the allocation transfers to the suspended box.
-        unsafe { Box::from_raw(raw as *mut RawMetric<Suspended, SORTED_BY_ID>) }
-    }
-}
 
 impl<const SORTED_BY_ID: bool> RQESuspendedIterator for RawMetric<Suspended, SORTED_BY_ID> {
     type Resumed<'a> = Metric<'a, SORTED_BY_ID>;

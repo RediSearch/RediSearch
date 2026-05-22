@@ -11,12 +11,11 @@
 
 use ffi::{ValidateStatus, ValidateStatus_VALIDATE_OK, t_docId};
 use index_result::RSIndexResult;
+use index_spec::IndexSpecReadGuard;
 
 use crate::{
-    IteratorType, RQEIterator, RQEIteratorBoxed, RQEIteratorError, RQESuspendedIterator,
-    SkipToOutcome,
+    IteratorType, RQEIterator, RQEIteratorError, RQESuspendedIterator, SkipToOutcome,
 };
-use index_spec::IndexSpecReadGuard;
 
 /// An iterator that yields no results.
 ///
@@ -30,6 +29,14 @@ use index_spec::IndexSpecReadGuard;
 pub struct Empty;
 
 impl<'index> RQEIterator<'index> for Empty {
+    /// `Empty` has no `Rf`-dependent state, so its Suspended counterpart is
+    /// itself.
+    type Suspended = Empty;
+
+    fn suspend(self: Box<Self>) -> Box<Self::Suspended> {
+        self
+    }
+
     #[inline(always)]
     fn current(&mut self) -> Option<&mut RSIndexResult<'index>> {
         None
@@ -73,16 +80,6 @@ impl<'index> RQEIterator<'index> for Empty {
 
     fn intersection_sort_weight(&self, _prioritize_union_children: bool) -> f64 {
         1.0
-    }
-}
-
-impl<'index> RQEIteratorBoxed<'index> for Empty {
-    /// `Empty` has no `Rf`-dependent state, so its Suspended counterpart is
-    /// itself.
-    type Suspended = Empty;
-
-    fn suspend(self: Box<Self>) -> Box<Self::Suspended> {
-        self
     }
 }
 

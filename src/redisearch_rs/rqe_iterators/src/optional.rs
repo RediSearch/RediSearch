@@ -9,17 +9,14 @@
 
 //! Supporting types for [`Optional`].
 
-use ffi::{
-    RS_FIELDMASK_ALL, ValidateStatus, ValidateStatus_VALIDATE_ABORTED,
-    ValidateStatus_VALIDATE_MOVED, ValidateStatus_VALIDATE_OK, t_docId,
-};
+use ffi::{RS_FIELDMASK_ALL, ValidateStatus, ValidateStatus_VALIDATE_ABORTED, ValidateStatus_VALIDATE_MOVED, ValidateStatus_VALIDATE_OK, t_docId};
 use index_result::{RSIndexResult, RawIndexResult};
 use ref_mode::{Active, Ref, Suspended};
 use std::cmp;
 
 use crate::{
-    BoxedRQEIterator, IteratorType, RQEIterator, RQEIteratorBoxed, RQEIteratorError,
-    RQESuspendedIterator, SkipToOutcome,
+    BoxedRQEIterator, IteratorType, RQEIterator, RQEIteratorError, RQESuspendedIterator,
+    SkipToOutcome,
 };
 use index_spec::IndexSpecReadGuard;
 
@@ -29,7 +26,7 @@ use index_spec::IndexSpecReadGuard;
 /// with the child stored as a [`BoxedRQEIterator`].
 pub trait OptionalIterator<'index>: RQEIterator<'index> {
     /// Returns a shared reference to the child iterator, if any.
-    fn child(&self) -> Option<&(dyn RQEIterator<'index> + 'index)>;
+    fn child(&self) -> Option<&(dyn crate::RQEDynIterator<'index> + 'index)>;
 
     /// Takes ownership of the child iterator, replacing it with an empty state.
     ///
@@ -49,8 +46,8 @@ pub trait OptionalIterator<'index>: RQEIterator<'index> {
 }
 
 impl<'index> OptionalIterator<'index> for Optional<'index, BoxedRQEIterator<'index>> {
-    fn child(&self) -> Option<&(dyn RQEIterator<'index> + 'index)> {
-        Optional::child(self).map(|c| c as &dyn RQEIterator<'index>)
+    fn child(&self) -> Option<&(dyn crate::RQEDynIterator<'index> + 'index)> {
+        Optional::child(self).map(|c| c as &dyn crate::RQEDynIterator<'index>)
     }
 
     fn take_child(&mut self) -> Option<BoxedRQEIterator<'index>> {
@@ -95,7 +92,7 @@ pub struct RawOptional<Rf: Ref, I> {
     /// It is used while it can still produce results. Once exhausted,
     /// the iterator yields virtual results until [`Optional::max_doc_id`] is reached.
     ///
-    /// In case child aborts during the legacy `revalidate` method,
+    /// In case child aborts during `RQEIterator::revalidate` (removed),
     /// this child is turned into [`None`], changed from the [`Some`] state it starts
     /// at when creating using [`Optional::new`]. From that point onward all results
     /// will be virtual until `max_doc_id` is reached.
@@ -161,6 +158,34 @@ impl<'index, I> RQEIterator<'index> for Optional<'index, I>
 where
     I: RQEIterator<'index>,
 {
+    type Suspended = RawOptional<Suspended, I::Suspended>;
+
+    fn suspend(self: Box<Self>) -> Box<Self::Suspended> {
+        let raw = Box::into_raw(self);
+        // Walk the single child (`Option<I>`). When `Some(I)`, dispatch the
+        // child's `suspend` via the trait (vtable for dyn-erased `I`); when
+        // `None`, no-op. See [`crate::boxed::suspend_child_slot_in_place`].
+        //
+        // SAFETY: `raw` came from `Box::into_raw`, exclusively owned and
+        // valid, so the child field is reachable.
+        let child_opt = unsafe { &mut (*raw).child };
+        if let Some(child) = child_opt.as_mut() {
+            // SAFETY: `child` is a valid `&mut I` aliased to nothing else;
+            // the function leaves the slot in a valid `I::Suspended` state.
+            unsafe { crate::boxed::suspend_child_slot_in_place(child as *mut I) };
+        }
+        // SAFETY: `RawOptional` is `#[repr(C)]` over `child: Option<I>`
+        // (now byte-rewritten when `Some`), `result: RawIndexResult<Rf>`
+        // (layout-compatible via `SharedPtr`), and plain fields.
+        unsafe { Box::from_raw(raw as *mut RawOptional<Suspended, I::Suspended>) }
+    }
+
+    fn cascade_suspend(&mut self) {
+        if let Some(child) = self.child.as_mut() {
+            child.cascade_suspend();
+        }
+    }
+
     #[inline(always)]
     fn current(&mut self) -> Option<&mut RSIndexResult<'index>> {
         if let Some(child) = self.child.as_mut()
@@ -276,28 +301,6 @@ where
     }
 }
 
-impl<'index, I> RQEIteratorBoxed<'index> for Optional<'index, I>
-where
-    I: RQEIteratorBoxed<'index>,
-{
-    type Suspended = RawOptional<Suspended, I::Suspended>;
-
-    fn suspend(self: Box<Self>) -> Box<Self::Suspended> {
-        let raw = Box::into_raw(self);
-        // SAFETY: `RawOptional` is `#[repr(C)]`. The only `Rf`-dependent
-        // field is `result: RawIndexResult<Rf>`, layout-compatible across
-        // `Rf` via `SharedPtr` transparency. `Option<I>` ↔ `Option<I::Suspended>`
-        // are layout-compatible by the [`RQEIteratorBoxed`] contract.
-        // Box::from_raw reuses the same heap allocation.
-        unsafe { Box::from_raw(raw as *mut RawOptional<Suspended, I::Suspended>) }
-    }
-
-    fn cascade_suspend(&mut self) {
-        if let Some(child) = self.child.as_mut() {
-            child.cascade_suspend();
-        }
-    }
-}
 
 impl<S> RQESuspendedIterator for RawOptional<Suspended, S>
 where

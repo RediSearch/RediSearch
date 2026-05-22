@@ -144,7 +144,9 @@ fn term_filter() {
 mod not_miri {
     use super::*;
     use crate::inverted_index::utils::{ExpirationTest, MockExpirationChecker};
+    use ffi::{ValidateStatus_VALIDATE_ABORTED, ValidateStatus_VALIDATE_OK};
     use rqe_iterators::RQEIterator;
+    use rqe_iterators_test_utils::revalidate_via_resume;
 
     struct TermExpirationTest {
         test: ExpirationTest,
@@ -337,24 +339,18 @@ mod not_miri {
         }
     }
 
-    use crate::inverted_index::utils::{
-        revalidate_after_document_deleted, revalidate_at_eof, revalidate_basic,
-    };
-    use ffi::{ValidateStatus_VALIDATE_ABORTED, ValidateStatus_VALIDATE_OK};
-    use rqe_iterators_test_utils::revalidate_via_resume;
-
     #[test]
     fn term_revalidate_basic() {
         let test = TermRevalidateTest::new(10);
         let it = test.create_iterator();
-        revalidate_basic(&test.test, Box::new(it));
+        test.test.revalidate_basic(Box::new(it));
     }
 
     #[test]
     fn term_revalidate_at_eof() {
         let test = TermRevalidateTest::new(10);
         let it = test.create_iterator();
-        revalidate_at_eof(&test.test, Box::new(it));
+        test.test.revalidate_at_eof(Box::new(it));
     }
 
     #[test]
@@ -439,6 +435,6 @@ mod not_miri {
             Full::from_mut_opaque(test.test.context.term_inverted_index_mut()).inner_mut()
         };
 
-        revalidate_after_document_deleted(&test.test, Box::new(it), ii);
+        test.test.revalidate_after_document_deleted(Box::new(it), ii);
     }
 }

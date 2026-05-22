@@ -9,17 +9,13 @@
 
 //! Heap variant of the union iterator with O(log n) min-finding.
 
-use ffi::{
-    ValidateStatus, ValidateStatus_VALIDATE_ABORTED, ValidateStatus_VALIDATE_MOVED,
-    ValidateStatus_VALIDATE_OK, t_docId,
-};
+use ffi::{ValidateStatus, ValidateStatus_VALIDATE_ABORTED, ValidateStatus_VALIDATE_MOVED, ValidateStatus_VALIDATE_OK, t_docId};
 use index_result::{RSIndexResult, RawIndexResult};
 use ref_mode::{Active, Ref, Suspended};
 
 use crate::utils::DocIdMinHeap;
 use crate::{
-    IteratorType, RQEIterator, RQEIteratorBoxed, RQEIteratorError, RQESuspendedIterator,
-    SkipToOutcome,
+    IteratorType, RQEIterator, RQEIteratorError, RQESuspendedIterator, SkipToOutcome,
 };
 use index_spec::IndexSpecReadGuard;
 
@@ -349,6 +345,36 @@ impl<'index, I, const QUICK_EXIT: bool> RQEIterator<'index> for UnionHeap<'index
 where
     I: RQEIterator<'index>,
 {
+    type Suspended = RawUnionHeap<Suspended, I::Suspended, QUICK_EXIT>;
+
+    fn suspend(self: Box<Self>) -> Box<Self::Suspended> {
+        let raw = Box::into_raw(self);
+        // Walk children: dispatch each child's `suspend` through the trait
+        // so dyn-erased `I` correctly transitions its vtable. See
+        // [`crate::boxed::suspend_child_slot_in_place`] for the rationale.
+        //
+        // SAFETY: `raw` came from `Box::into_raw` and is exclusively owned
+        // for the rest of this function, so the children Vec is reachable
+        // and unaliased.
+        let children: &mut Vec<I> = unsafe { &mut (*raw).children };
+        for child in children.iter_mut() {
+            // SAFETY: `child` is a valid `&mut I` aliased to nothing else;
+            // the function leaves the slot in a valid `I::Suspended` state.
+            unsafe { crate::boxed::suspend_child_slot_in_place(child) };
+        }
+        // SAFETY: `RawUnionHeap` is `#[repr(C)]` over `Vec<I>` (now byte-
+        // rewritten as `Vec<I::Suspended>` contents), `result:
+        // RawIndexResult<Rf>` (layout-compatible via `SharedPtr`), and
+        // a heap of plain doc-ids/indices (no `Rf` in its types).
+        unsafe { Box::from_raw(raw as *mut RawUnionHeap<Suspended, I::Suspended, QUICK_EXIT>) }
+    }
+
+    fn cascade_suspend(&mut self) {
+        for child in self.children.iter_mut() {
+            child.cascade_suspend();
+        }
+    }
+
     #[inline]
     fn current(&mut self) -> Option<&mut RSIndexResult<'index>> {
         (!self.is_eof).then_some(&mut self.result)
@@ -439,41 +465,6 @@ where
     }
 }
 
-impl<'index, I, const QUICK_EXIT: bool> RQEIteratorBoxed<'index>
-    for UnionHeap<'index, I, QUICK_EXIT>
-where
-    I: RQEIteratorBoxed<'index>,
-{
-    type Suspended = RawUnionHeap<Suspended, I::Suspended, QUICK_EXIT>;
-
-    fn suspend(self: Box<Self>) -> Box<Self::Suspended> {
-        let raw = Box::into_raw(self);
-        // Walk children: dispatch each child's `suspend` through the trait
-        // so dyn-erased `I` correctly transitions its vtable. See
-        // [`crate::boxed::suspend_child_slot_in_place`] for the rationale.
-        //
-        // SAFETY: `raw` came from `Box::into_raw` and is exclusively owned
-        // for the rest of this function, so the children Vec is reachable
-        // and unaliased.
-        let children: &mut Vec<I> = unsafe { &mut (*raw).children };
-        for child in children.iter_mut() {
-            // SAFETY: `child` is a valid `&mut I` aliased to nothing else;
-            // the function leaves the slot in a valid `I::Suspended` state.
-            unsafe { crate::boxed::suspend_child_slot_in_place(child) };
-        }
-        // SAFETY: `RawUnionHeap` is `#[repr(C)]` over `Vec<I>` (now byte-
-        // rewritten as `Vec<I::Suspended>` contents), `result:
-        // RawIndexResult<Rf>` (layout-compatible via `SharedPtr`), and
-        // a heap of plain doc-ids/indices (no `Rf` in its types).
-        unsafe { Box::from_raw(raw as *mut RawUnionHeap<Suspended, I::Suspended, QUICK_EXIT>) }
-    }
-
-    fn cascade_suspend(&mut self) {
-        for child in self.children.iter_mut() {
-            child.cascade_suspend();
-        }
-    }
-}
 
 impl<S, const QUICK_EXIT: bool> RQESuspendedIterator for RawUnionHeap<Suspended, S, QUICK_EXIT>
 where
@@ -546,6 +537,10 @@ where
             return (active, ValidateStatus_VALIDATE_OK);
         }
 
+        // `num_children == 0` here means every previously-live child
+        // ABORTED during resume (children that reached EOF naturally went
+        // into `dead` and don't count toward `num_children`). The union
+        // has no recoverable state.
         if num_children == 0 {
             active.is_eof = true;
             return (active, ValidateStatus_VALIDATE_ABORTED);

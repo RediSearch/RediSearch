@@ -1441,7 +1441,7 @@ fn sort_weight_nested_intersection_sorts_first() {
 
 mod reducer {
     use rqe_iterators::{
-        BoxedRQEIterator, Empty, RQEIterator, RQEIteratorBoxed, Wildcard,
+        BoxedRQEIterator, Empty, RQEIterator, Wildcard,
         intersection::{NewIntersectionIterator, new_intersection_iterator},
     };
 
@@ -1451,7 +1451,7 @@ mod reducer {
     /// in a single `Vec` passed to `new_intersection_iterator`.
     type DynIter = BoxedRQEIterator<'static>;
 
-    fn dyn_iter<I: RQEIteratorBoxed<'static> + 'static>(it: I) -> DynIter {
+    fn dyn_iter<I: RQEIterator<'static> + 'static>(it: I) -> DynIter {
         BoxedRQEIterator::new(Box::new(it))
     }
 

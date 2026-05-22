@@ -651,19 +651,6 @@ void TrimUnionIterator(QueryIterator *it, size_t limit, bool asc);
 QueryIterator *NewInvIndIterator_TagQuery(const InvertedIndex *idx, const TagIndex *tag_idx, const RedisSearchCtx *sctx, union FieldMaskOrIndex field_mask_or_index, struct RSQueryTerm *term, double weight);
 
 /**
- * Gets the minimum range value for profiling a numeric iterator.
- *
- * # Safety
- *
- * 1. `it` must be a valid pointer to a `QueryIterator` wrapping a [`NumericIterator`].
- *
- * # Returns
- *
- * The minimum range value from the filter, or negative infinity if no filter was provided.
- */
-double NumericInvIndIterator_GetProfileRangeMin(const QueryIterator *it);
-
-/**
  * Creates a NOT iterator, choosing between non-optimized and optimized based
  * on the query evaluation context.
  *
@@ -686,6 +673,19 @@ double NumericInvIndIterator_GetProfileRangeMin(const QueryIterator *it);
  *    [`crate::wildcard::NewWildcardIterator_Optimized`] must hold.
  */
 QueryIterator *NewNotIterator(QueryIterator *child, t_docId max_doc_id, double weight, timespec timeout, QueryEvalCtx *q);
+
+/**
+ * Gets the minimum range value for profiling a numeric iterator.
+ *
+ * # Safety
+ *
+ * 1. `it` must be a valid pointer to a `QueryIterator` wrapping a [`NumericIterator`].
+ *
+ * # Returns
+ *
+ * The minimum range value from the filter, or negative infinity if no filter was provided.
+ */
+double NumericInvIndIterator_GetProfileRangeMin(const QueryIterator *it);
 
 /**
  * Gets the maximum range value for profiling a numeric iterator.

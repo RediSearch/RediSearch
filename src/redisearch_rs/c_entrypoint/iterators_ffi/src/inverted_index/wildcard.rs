@@ -9,32 +9,33 @@
 
 use std::fmt::Debug;
 
-use ffi::{ValidateStatus, ValidateStatus_VALIDATE_ABORTED, ValidateStatus_VALIDATE_OK};
 use index_result::RSIndexResult;
-use inverted_index::RefreshOutcome;
 use inverted_index::{doc_ids_only::DocIdsOnly, raw_doc_ids_only::RawDocIdsOnly, t_docId};
+use ffi::{
+    ValidateStatus, ValidateStatus_VALIDATE_ABORTED, ValidateStatus_VALIDATE_OK,
+};
+use inverted_index::RefreshOutcome;
 use rqe_iterators::{
-    IteratorType, RQEIteratorBoxed, RQESuspendedIterator, interop::RQEIteratorWrapper,
+    IteratorType, RQEIterator, RQESuspendedIterator, interop::RQEIteratorWrapper,
     inverted_index::Wildcard,
 };
 
 /// Suspended counterpart of [`WildcardIterator`] — produced by
-/// [`RQEIteratorBoxed::suspend`] and consumed by [`RQESuspendedIterator::resume`].
+/// [`RQEIterator::suspend`] and consumed by [`RQESuspendedIterator::resume`].
 ///
 /// `#[repr(C, u8)]` matches the layout of [`WildcardIterator`] so that
-/// [`RQEIteratorBoxed::suspend`] / [`RQESuspendedIterator::resume`]
+/// [`RQEIterator::suspend`] / [`RQESuspendedIterator::resume`]
 /// can perform whole-`Box` pointer casts between the two — see
 /// [`super::tag::TagIteratorSuspended`] for the heap-address
 /// preservation argument.
 #[repr(C, u8)]
 #[expect(
     dead_code,
-    reason = "Variants are constructed via the whole-box pointer cast in `suspend`; \
-              the dead-code analyzer doesn't see that cast as construction."
+    reason = "variants are reached via Box::from_raw cast from sibling WildcardIterator, not via Rust constructors"
 )]
 pub(super) enum WildcardIteratorSuspended {
-    Encoded(<Wildcard<'static, DocIdsOnly> as RQEIteratorBoxed<'static>>::Suspended),
-    Raw(<Wildcard<'static, RawDocIdsOnly> as RQEIteratorBoxed<'static>>::Suspended),
+    Encoded(<Wildcard<'static, DocIdsOnly> as RQEIterator<'static>>::Suspended),
+    Raw(<Wildcard<'static, RawDocIdsOnly> as RQEIterator<'static>>::Suspended),
 }
 
 /// Local 3-state outcome carrying the work done while still on the
@@ -43,16 +44,6 @@ enum WildcardResumeOutcome {
     Abort,
     Ok,
     NeedsReseek { last_doc_id: t_docId },
-}
-
-impl<'index> RQEIteratorBoxed<'index> for WildcardIterator<'index> {
-    type Suspended = WildcardIteratorSuspended;
-
-    fn suspend(self: Box<Self>) -> Box<Self::Suspended> {
-        let raw = Box::into_raw(self);
-        // SAFETY: layout-compatible enums (see `WildcardIteratorSuspended`).
-        unsafe { Box::from_raw(raw as *mut WildcardIteratorSuspended) }
-    }
 }
 
 impl RQESuspendedIterator for WildcardIteratorSuspended {
@@ -148,6 +139,14 @@ impl Debug for WildcardIterator<'_> {
 }
 
 impl<'index> rqe_iterators::RQEIterator<'index> for WildcardIterator<'index> {
+    type Suspended = WildcardIteratorSuspended;
+
+    fn suspend(self: Box<Self>) -> Box<Self::Suspended> {
+        let raw = Box::into_raw(self);
+        // SAFETY: layout-compatible enums (see `WildcardIteratorSuspended`).
+        unsafe { Box::from_raw(raw as *mut WildcardIteratorSuspended) }
+    }
+
     #[inline(always)]
     fn current(&mut self) -> Option<&mut RSIndexResult<'index>> {
         match self {

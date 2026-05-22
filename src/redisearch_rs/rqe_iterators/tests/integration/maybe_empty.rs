@@ -8,9 +8,9 @@
 */
 
 use rqe_iterators::{
-    IteratorType, RQEIterator, RQEIteratorBoxed, RQEIteratorError, RQESuspendedIterator,
-    SkipToOutcome, maybe_empty::MaybeEmpty,
+    IteratorType, RQEIterator, RQEIteratorError, RQESuspendedIterator, SkipToOutcome, maybe_empty::MaybeEmpty,
 };
+use rqe_iterators_test_utils::revalidate_via_resume;
 
 #[derive(Default)]
 #[repr(C)]
@@ -21,19 +21,6 @@ struct Infinite<'index>(index_result::RSIndexResult<'index>);
 /// active form at any lifetime.
 #[repr(C)]
 struct InfiniteSuspended(index_result::RSIndexResult<'static>);
-
-impl<'index> RQEIteratorBoxed<'index> for Infinite<'index> {
-    type Suspended = InfiniteSuspended;
-
-    fn suspend(self: Box<Self>) -> Box<Self::Suspended> {
-        let raw = Box::into_raw(self);
-        // SAFETY: `Infinite<'index>` and `InfiniteSuspended` are both
-        // `#[repr(C)]` over `RSIndexResult`; the mock holds no live index
-        // borrows, so the lifetime parameter is phantom and the layouts
-        // are byte-identical. Box::from_raw reuses the same heap.
-        unsafe { Box::from_raw(raw as *mut InfiniteSuspended) }
-    }
-}
 
 impl RQESuspendedIterator for InfiniteSuspended {
     type Resumed<'a> = Infinite<'a>;
@@ -58,6 +45,17 @@ impl RQESuspendedIterator for InfiniteSuspended {
 }
 
 impl<'index> RQEIterator<'index> for Infinite<'index> {
+    type Suspended = InfiniteSuspended;
+
+    fn suspend(self: Box<Self>) -> Box<Self::Suspended> {
+        let raw = Box::into_raw(self);
+        // SAFETY: `Infinite<'index>` and `InfiniteSuspended` are both
+        // `#[repr(C)]` over `RSIndexResult`; the mock holds no live index
+        // borrows, so the lifetime parameter is phantom and the layouts
+        // are byte-identical. Box::from_raw reuses the same heap.
+        unsafe { Box::from_raw(raw as *mut InfiniteSuspended) }
+    }
+
     fn current(&mut self) -> Option<&mut index_result::RSIndexResult<'index>> {
         Some(&mut self.0)
     }
@@ -230,6 +228,24 @@ fn rewind_not_empty() {
 }
 
 #[test]
+fn revalidate_empty() {
+    let mock_ctx = rqe_iterators_test_utils::MockContext::new(0, 0);
+    let guard = mock_ctx.spec_read();
+    let it = Box::new(MaybeEmpty::<Infinite>::new_empty());
+    let (_it, status) = revalidate_via_resume(it, &guard);
+    assert_eq!(status, ffi::ValidateStatus_VALIDATE_OK);
+}
+
+#[test]
+fn revalidate_not_empty() {
+    let mock_ctx = rqe_iterators_test_utils::MockContext::new(0, 0);
+    let guard = mock_ctx.spec_read();
+    let it = Box::new(MaybeEmpty::new(Infinite::default()));
+    let (_it, status) = revalidate_via_resume(it, &guard);
+    assert_eq!(status, ffi::ValidateStatus_VALIDATE_OK);
+}
+
+#[test]
 fn current_empty_returns_none() {
     let mut it = MaybeEmpty::<Infinite>::new_empty();
     assert!(it.current().is_none());
@@ -262,24 +278,4 @@ fn take_iterator_from_empty_returns_none() {
     // Still behaves as empty
     assert!(it.at_eof());
     assert!(matches!(it.read(), Ok(None)));
-}
-
-use rqe_iterators_test_utils::revalidate_via_resume;
-
-#[test]
-fn revalidate_empty() {
-    let mock_ctx = rqe_iterators_test_utils::MockContext::new(0, 0);
-    let guard = mock_ctx.spec_read();
-    let it = Box::new(MaybeEmpty::<Infinite>::new_empty());
-    let (_it, status) = revalidate_via_resume(it, &guard);
-    assert_eq!(status, ffi::ValidateStatus_VALIDATE_OK);
-}
-
-#[test]
-fn revalidate_not_empty() {
-    let mock_ctx = rqe_iterators_test_utils::MockContext::new(0, 0);
-    let guard = mock_ctx.spec_read();
-    let it = Box::new(MaybeEmpty::new(Infinite::default()));
-    let (_it, status) = revalidate_via_resume(it, &guard);
-    assert_eq!(status, ffi::ValidateStatus_VALIDATE_OK);
 }

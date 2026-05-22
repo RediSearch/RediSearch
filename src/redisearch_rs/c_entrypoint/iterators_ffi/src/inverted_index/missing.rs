@@ -9,36 +9,38 @@
 
 use std::{fmt::Debug, ptr::NonNull};
 
-use ffi::{ValidateStatus, ValidateStatus_VALIDATE_ABORTED, ValidateStatus_VALIDATE_OK};
 use field::{FieldExpirationPredicate, FieldFilterContext, FieldMaskOrIndex};
 use index_result::RSIndexResult;
-use inverted_index::RefreshOutcome;
 use inverted_index::{
     IndexReader, doc_ids_only::DocIdsOnly, raw_doc_ids_only::RawDocIdsOnly, t_docId,
 };
+use ffi::{
+    ValidateStatus, ValidateStatus_VALIDATE_ABORTED, ValidateStatus_VALIDATE_OK,
+};
+use inverted_index::RefreshOutcome;
 use rqe_iterators::{
-    FieldExpirationChecker, IteratorType, RQEIteratorBoxed, RQESuspendedIterator,
+    FieldExpirationChecker, IteratorType, RQEIterator, RQESuspendedIterator,
     interop::{InnerState, RQEIteratorWrapper},
     inverted_index::Missing,
 };
 
 /// Suspended counterpart of [`MissingIterator`] — produced by
-/// [`RQEIteratorBoxed::suspend`] and consumed by [`RQESuspendedIterator::resume`].
+/// [`RQEIterator::suspend`] and consumed by [`RQESuspendedIterator::resume`].
 ///
 /// `#[repr(C, u8)]` matches the layout of [`MissingIterator`] so that
-/// [`RQEIteratorBoxed::suspend`] / [`RQESuspendedIterator::resume`]
+/// [`RQEIterator::suspend`] / [`RQESuspendedIterator::resume`]
 /// can perform whole-`Box` pointer casts between the two — see
 /// [`super::tag::TagIteratorSuspended`] for the same argument and
 /// why the previous `match` + `Box::new` shape was unsound.
 #[repr(C, u8)]
 #[expect(
     dead_code,
-    reason = "Variants are constructed via the whole-box pointer cast in `suspend`; \
-              the dead-code analyzer doesn't see that cast as construction."
+    reason = "variants are reached via Box::from_raw cast from sibling MissingIterator, not via Rust constructors"
 )]
 pub(super) enum MissingIteratorSuspended {
-    Encoded(<Missing<'static, DocIdsOnly, FieldExpirationChecker> as RQEIteratorBoxed<'static>>::Suspended),
-    Raw(<Missing<'static, RawDocIdsOnly, FieldExpirationChecker> as RQEIteratorBoxed<'static>>::Suspended)}
+    Encoded(<Missing<'static, DocIdsOnly, FieldExpirationChecker> as RQEIterator<'static>>::Suspended),
+    Raw(<Missing<'static, RawDocIdsOnly, FieldExpirationChecker> as RQEIterator<'static>>::Suspended),
+}
 
 /// Local 3-state outcome carrying the work done while still on the
 /// suspended form (`should_abort` + `refresh_pointers`) into the active
@@ -47,21 +49,6 @@ enum MissingResumeOutcome {
     Abort,
     Ok,
     NeedsReseek { last_doc_id: t_docId },
-}
-
-impl<'index> RQEIteratorBoxed<'index> for MissingIterator<'index> {
-    type Suspended = MissingIteratorSuspended;
-
-    fn suspend(self: Box<Self>) -> Box<Self::Suspended> {
-        let raw = Box::into_raw(self);
-        // SAFETY: `MissingIterator<'index>` and `MissingIteratorSuspended`
-        // are both `#[repr(C, u8)]` with the same variant order and
-        // layout-compatible payloads (the underlying `RawMissing<Active, E, C>`
-        // / `RawMissing<Suspended, E, C>` instantiations are
-        // layout-compatible via `#[repr(C)]` + the `SharedPtr` argument).
-        // `Box::from_raw` reuses the same heap allocation.
-        unsafe { Box::from_raw(raw as *mut MissingIteratorSuspended) }
-    }
 }
 
 impl RQESuspendedIterator for MissingIteratorSuspended {
@@ -199,11 +186,25 @@ macro_rules! dispatch {
     ($self:expr, $method:ident $(, $arg:expr)*) => {
         match $self {
             MissingIterator::Encoded(m) => m.$method($($arg),*),
-            MissingIterator::Raw(m) => m.$method($($arg),*)}
+            MissingIterator::Raw(m) => m.$method($($arg),*),
+        }
     };
 }
 
 impl<'index> rqe_iterators::RQEIterator<'index> for MissingIterator<'index> {
+    type Suspended = MissingIteratorSuspended;
+
+    fn suspend(self: Box<Self>) -> Box<Self::Suspended> {
+        let raw = Box::into_raw(self);
+        // SAFETY: `MissingIterator<'index>` and `MissingIteratorSuspended`
+        // are both `#[repr(C, u8)]` with the same variant order and
+        // layout-compatible payloads (the underlying `RawMissing<Active, E, C>`
+        // / `RawMissing<Suspended, E, C>` instantiations are
+        // layout-compatible via `#[repr(C)]` + the `SharedPtr` argument).
+        // `Box::from_raw` reuses the same heap allocation.
+        unsafe { Box::from_raw(raw as *mut MissingIteratorSuspended) }
+    }
+
     #[inline(always)]
     fn current(&mut self) -> Option<&mut RSIndexResult<'index>> {
         dispatch!(self, current)

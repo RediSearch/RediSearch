@@ -11,19 +11,16 @@
 
 use std::time::Duration;
 
-use ffi::{
-    RS_FIELDMASK_ALL, ValidateStatus, ValidateStatus_VALIDATE_ABORTED, ValidateStatus_VALIDATE_OK,
-    t_docId,
-};
+use ffi::{RS_FIELDMASK_ALL, ValidateStatus, ValidateStatus_VALIDATE_ABORTED, ValidateStatus_VALIDATE_OK, t_docId};
 use index_result::{RSIndexResult, RawIndexResult};
 use ref_mode::{Active, Ref, Suspended};
 
 use crate::{
-    BoxedRQEIterator, IteratorType, RQEIterator, RQEIteratorBoxed, RQEIteratorError,
-    RQESuspendedIterator, SkipToOutcome, maybe_empty::MaybeEmpty, utils::TimeoutContext,
+    BoxedRQEIterator, IteratorType, RQEIterator, RQEIteratorError, RQESuspendedIterator,
+    SkipToOutcome, maybe_empty::MaybeEmpty, utils::TimeoutContext,
 };
-use index_spec::IndexSpecReadGuard;
 
+use index_spec::IndexSpecReadGuard;
 /// An iterator that negates the results of its child iterator.
 ///
 /// Parameterised over a [`Ref`] mode — see [`Not`] for the [`Active`]
@@ -112,6 +109,7 @@ where
             ctx.reset_counter();
         }
     }
+
 }
 
 impl<Rf: Ref, I> RawNot<Rf, I> {
@@ -126,6 +124,34 @@ impl<'index, I> RQEIterator<'index> for Not<'index, I>
 where
     I: RQEIterator<'index>,
 {
+    type Suspended = RawNot<Suspended, I::Suspended>;
+
+    fn suspend(self: Box<Self>) -> Box<Self::Suspended> {
+        let raw = Box::into_raw(self);
+        // Walk the single child: `MaybeEmpty<I>`'s own suspend walks its
+        // `Some(I)` arm via the trait (dispatches via vtable for dyn-erased
+        // `I`). We invoke `MaybeEmpty::suspend` here by going through the
+        // `RQEIterator::suspend` trait method via a temp Box.
+        //
+        // SAFETY: `raw` came from `Box::into_raw`, exclusively owned and
+        // points to a valid `Self`, so the child field is reachable.
+        let child_slot = unsafe { std::ptr::addr_of_mut!((*raw).child) };
+        // SAFETY: `child_slot` points to a valid `MaybeEmpty<I>`; the
+        // function leaves it in a valid `MaybeEmpty<I::Suspended>` state.
+        unsafe {
+            crate::boxed::suspend_child_slot_in_place(child_slot);
+        }
+        // SAFETY: `RawNot` is `#[repr(C)]` over `child: MaybeEmpty<I>` (now
+        // byte-rewritten as `MaybeEmpty<I::Suspended>` contents),
+        // `result: RawIndexResult<Rf>` (layout-compatible via `SharedPtr`),
+        // and plain fields.
+        unsafe { Box::from_raw(raw as *mut RawNot<Suspended, I::Suspended>) }
+    }
+
+    fn cascade_suspend(&mut self) {
+        self.child.cascade_suspend();
+    }
+
     #[inline(always)]
     fn current(&mut self) -> Option<&mut RSIndexResult<'index>> {
         Some(&mut self.result)
@@ -251,27 +277,6 @@ where
     }
 }
 
-impl<'index, I> RQEIteratorBoxed<'index> for Not<'index, I>
-where
-    I: RQEIteratorBoxed<'index>,
-{
-    type Suspended = RawNot<Suspended, I::Suspended>;
-
-    fn suspend(self: Box<Self>) -> Box<Self::Suspended> {
-        let raw = Box::into_raw(self);
-        // SAFETY: `RawNot` is `#[repr(C)]`. The only `Rf`-dependent field
-        // is `result: RawIndexResult<Rf>`, layout-compatible across `Rf`
-        // via `SharedPtr` transparency. `MaybeEmpty<I>` and
-        // `MaybeEmpty<I::Suspended>` are layout-compatible by the
-        // [`RQEIteratorBoxed`] contract (see [`MaybeEmpty::suspend`]).
-        // Box::from_raw reuses the same heap allocation.
-        unsafe { Box::from_raw(raw as *mut RawNot<Suspended, I::Suspended>) }
-    }
-
-    fn cascade_suspend(&mut self) {
-        self.child.cascade_suspend();
-    }
-}
 
 impl<S> RQESuspendedIterator for RawNot<Suspended, S>
 where
@@ -334,12 +339,12 @@ pub trait NotIterator<'index>: RQEIterator<'index> {
     // Those methods are used by profile.c to wrap the child iterator.
     // They can be removed once this code is ported to Rust.
     /// Get a shared reference to the child iterator, or `None` if unset.
-    fn child(&self) -> Option<&dyn RQEIterator<'index>>;
+    fn child(&self) -> Option<&dyn crate::RQEDynIterator<'index>>;
 }
 
 impl<'index> NotIterator<'index> for Not<'index, BoxedRQEIterator<'index>> {
-    fn child(&self) -> Option<&dyn RQEIterator<'index>> {
-        self.child.as_ref().map(|c| c as &dyn RQEIterator<'index>)
+    fn child(&self) -> Option<&dyn crate::RQEDynIterator<'index>> {
+        self.child.as_ref().map(|c| c as &dyn crate::RQEDynIterator<'index>)
     }
 }
 
