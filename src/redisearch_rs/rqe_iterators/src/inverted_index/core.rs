@@ -434,14 +434,21 @@ where
     R: IndexReader<'index>,
     E: ExpirationChecker,
 {
-    /// Re-seek the iterator to `last_doc_id` after a GC cycle invalidated
-    /// the cached block offset.
+    /// Re-seek the iterator to its previous `last_doc_id` after a GC
+    /// cycle invalidated the cached block offset.
     ///
     /// Called from [`RQESuspendedIterator::resume`] on the active side,
     /// after [`RawInvIndIterator::refresh_pointers`] reported
     /// [`RefreshOutcome::NeedsReseek`]. Translates the
     /// [`SkipToOutcome`] returned by [`skip_to`](Self::skip_to) into a
     /// [`ValidateStatus`].
+    ///
+    /// The `last_doc_id` parameter is the value reported by
+    /// `refresh_pointers` (the reader's decoder base) and is ignored —
+    /// it can be non-zero on a freshly-constructed reader before any
+    /// reads happen, which would cause a spurious reseek. We use
+    /// [`Self::last_doc_id_field`] instead (the iterator's tracked
+    /// "position of the most recent read", 0 if no reads have happened).
     ///
     /// # Outcome mapping
     ///
@@ -453,16 +460,17 @@ where
     ///   than aborted: callers should consult [`current`](Self::current)
     ///   — which yields `None` at EOF — rather than treat the iterator
     ///   as unrecoverable).
-    pub(crate) fn reseek_after_refresh(&mut self, last_doc_id: t_docId) -> ValidateStatus {
+    pub(crate) fn reseek_after_refresh(&mut self, _last_doc_id: t_docId) -> ValidateStatus {
+        let target_doc_id = self.last_doc_id;
         self.rewind();
 
-        if last_doc_id == 0 {
+        if target_doc_id == 0 {
             // We hadn't returned anything yet, so there's nothing to
             // re-seek; a fresh `read()` will produce the right next doc.
             return ValidateStatus_VALIDATE_OK;
         }
 
-        match self.skip_to(last_doc_id) {
+        match self.skip_to(target_doc_id) {
             Ok(Some(SkipToOutcome::Found(_))) => ValidateStatus_VALIDATE_OK,
             Ok(Some(SkipToOutcome::NotFound(_))) | Ok(None) => ValidateStatus_VALIDATE_MOVED,
             Err(_) => ValidateStatus_VALIDATE_MOVED,
