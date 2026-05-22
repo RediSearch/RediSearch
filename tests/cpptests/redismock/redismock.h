@@ -36,7 +36,7 @@ void RMCK_KeyMetaUnlink(RedisModuleKeyMetaClassId classId, uint64_t *meta);
 std::string &RMCK_GetLastError(RedisModuleCtx *ctx);
 
 // Configure the mock cluster topology used by RedisModule_GetClusterNodesList /
-// GetClusterNodeInfo / ClusterGetSlotRangesByNodeId / GetMyClusterID. Tests
+// GetClusterNodeInfo / GetClusterNodeSlotRanges / GetMyClusterID. Tests
 // should call RMCK_ClusterMock_Reset() between cases. Pass an empty `slots`
 // for a slot-less node. Mark the local node by including REDISMODULE_NODE_MYSELF
 // in `flags`.

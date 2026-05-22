@@ -956,8 +956,8 @@ static size_t RMCK_GetClusterSize(void) {
   return mockClusterNodes.size();
 }
 
-static RedisModuleSlotRangeArray *RMCK_ClusterGetSlotRangesByNodeId(RedisModuleCtx *ctx,
-                                                                    const char *nodeid) {
+static RedisModuleSlotRangeArray *RMCK_GetClusterNodeSlotRanges(RedisModuleCtx *ctx,
+                                                                const char *nodeid) {
   std::scoped_lock lock(mockClusterMutex);
   const MockClusterNode *n = findMockNode(nodeid);
   if (!n) return nullptr;
@@ -1800,7 +1800,7 @@ static void registerApis() {
   // Cluster
   REGISTER_API(ClusterPropagateForSlotMigration);
   REGISTER_API(ClusterGetLocalSlotRanges);
-  REGISTER_API(ClusterGetSlotRangesByNodeId);
+  REGISTER_API(GetClusterNodeSlotRanges);
   REGISTER_API(ClusterFreeSlotRanges);
   REGISTER_API(GetClusterNodesList);
   REGISTER_API(FreeClusterNodesList);

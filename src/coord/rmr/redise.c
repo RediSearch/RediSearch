@@ -111,7 +111,7 @@ error:
 
 MRClusterTopology *RedisEnterprise_ParseTopology(RedisModuleCtx *ctx, RedisModuleString **argv,
                                                  int argc, uint32_t *my_shard_idx) {
-  if (argc == 3 && RedisModule_ClusterGetSlotRangesByNodeId) {
+  if (argc == 3 && RedisModule_GetClusterNodeSlotRanges) {
     return parse_topology_short_form(ctx, argv, argc, my_shard_idx);
   }
   ArgsCursor ac; // Name is important for error macros, same goes for `ctx`
