@@ -200,13 +200,24 @@ where
 
     fn suspend(self: Box<Self>) -> Box<Self::Suspended> {
         let raw = Box::into_raw(self);
-        // SAFETY: `MaybeEmpty<I>` is `#[repr(C)]` and contains a
-        // `#[repr(C)]` enum `MaybeEmptyOption<I>` whose layout is
-        // tag + (max(size_of::<Empty>(), size_of::<I>())) =
-        // tag + size_of::<I>(). `I` and `I::Suspended` are layout-
-        // compatible by the [`RQEIteratorBoxed`] contract, so the two
-        // instantiations share the same byte layout. Box::from_raw reuses
-        // the same heap allocation.
+        // Walk the `Some(I)` arm if present — dispatches via the trait so
+        // dyn-erased `I` correctly transitions its vtable. The `None(Empty)`
+        // arm needs no suspend (Empty is a unit struct with no state).
+        //
+        // SAFETY: `raw` came from `Box::into_raw`, exclusively owned. The
+        // pattern match takes a mutable reference into the slot; we then
+        // call the per-slot helper on the `I` payload's address.
+        unsafe {
+            match &mut (*raw).0 {
+                MaybeEmptyOption::Some(it) => {
+                    crate::boxed::suspend_child_slot_in_place(it as *mut I);
+                }
+                MaybeEmptyOption::None(_) => {}
+            }
+        }
+        // SAFETY: `MaybeEmpty<I>` is `#[repr(C)]` over a `#[repr(C)]` enum
+        // `MaybeEmptyOption<I>` whose `Some` payload (now byte-rewritten as
+        // `I::Suspended`) is layout-compatible with the suspended form.
         unsafe { Box::from_raw(raw as *mut MaybeEmpty<I::Suspended>) }
     }
 

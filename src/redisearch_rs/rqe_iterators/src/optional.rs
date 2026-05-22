@@ -315,11 +315,19 @@ where
 
     fn suspend(self: Box<Self>) -> Box<Self::Suspended> {
         let raw = Box::into_raw(self);
-        // SAFETY: `RawOptional` is `#[repr(C)]`. The only `Rf`-dependent
-        // field is `result: RawIndexResult<Rf>`, layout-compatible across
-        // `Rf` via `SharedPtr` transparency. `Option<I>` ↔ `Option<I::Suspended>`
-        // are layout-compatible by the [`RQEIteratorBoxed`] contract.
-        // Box::from_raw reuses the same heap allocation.
+        // Walk the single child (`Option<I>`). When `Some(I)`, dispatch the
+        // child's `suspend` via the trait (vtable for dyn-erased `I`); when
+        // `None`, no-op. See [`crate::boxed::suspend_child_slot_in_place`].
+        //
+        // SAFETY: `raw` came from `Box::into_raw`, exclusively owned.
+        unsafe {
+            if let Some(child) = (*raw).child.as_mut() {
+                crate::boxed::suspend_child_slot_in_place(child as *mut I);
+            }
+        }
+        // SAFETY: `RawOptional` is `#[repr(C)]` over `child: Option<I>`
+        // (now byte-rewritten when `Some`), `result: RawIndexResult<Rf>`
+        // (layout-compatible via `SharedPtr`), and plain fields.
         unsafe { Box::from_raw(raw as *mut RawOptional<Suspended, I::Suspended>) }
     }
 

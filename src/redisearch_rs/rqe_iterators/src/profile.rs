@@ -183,12 +183,17 @@ where
 
     fn suspend(self: Box<Self>) -> Box<Self::Suspended> {
         let raw = Box::into_raw(self);
-        // SAFETY: `RawProfile` is `#[repr(C)]`. The `Rf`-dependent field is
-        // only `_marker: PhantomData<Rf>` (zero-sized). `child: I` and the
-        // suspended counterpart's `child: I::Suspended` are layout-
-        // compatible by the [`RQEIteratorBoxed`] contract. `counters` and
-        // `wall_time` carry no `Rf`. Box::from_raw reuses the same heap
-        // allocation, so the box address is preserved.
+        // Walk the single child — dispatches via the trait so dyn-erased
+        // `I` correctly transitions its vtable. See
+        // [`crate::boxed::suspend_child_slot_in_place`].
+        //
+        // SAFETY: `raw` came from `Box::into_raw`, exclusively owned.
+        unsafe {
+            crate::boxed::suspend_child_slot_in_place(std::ptr::addr_of_mut!((*raw).child));
+        }
+        // SAFETY: `RawProfile` is `#[repr(C)]` over a (now byte-rewritten)
+        // child, plain counters, and `PhantomData<Rf>`. Layout-identical
+        // between Active and Suspended forms.
         unsafe { Box::from_raw(raw as *mut RawProfile<Suspended, I::Suspended>) }
     }
 

@@ -518,12 +518,20 @@ where
 
     fn suspend(self: Box<Self>) -> Box<Self::Suspended> {
         let raw = Box::into_raw(self);
-        // SAFETY: `RawUnionHeap` is `#[repr(C)]`. `Vec<I>` ↔
-        // `Vec<I::Suspended>` are layout-compatible by the
-        // [`RQEIteratorBoxed`] contract; `result: RawIndexResult<Rf>` via
-        // `SharedPtr` transparency; the heap holds plain doc-ids and
-        // indices (no `Rf` in its types). Box::from_raw reuses the heap
-        // allocation.
+        // Walk children: dispatch each child's `suspend` through the trait
+        // so dyn-erased `I` correctly transitions its vtable. See
+        // [`crate::boxed::suspend_child_slot_in_place`] for the rationale.
+        //
+        // SAFETY: `raw` came from `Box::into_raw` and is exclusively owned.
+        unsafe {
+            for child in (*raw).children.iter_mut() {
+                crate::boxed::suspend_child_slot_in_place(child);
+            }
+        }
+        // SAFETY: `RawUnionHeap` is `#[repr(C)]` over `Vec<I>` (now byte-
+        // rewritten as `Vec<I::Suspended>` contents), `result:
+        // RawIndexResult<Rf>` (layout-compatible via `SharedPtr`), and
+        // a heap of plain doc-ids/indices (no `Rf` in its types).
         unsafe { Box::from_raw(raw as *mut RawUnionHeap<Suspended, I::Suspended, QUICK_EXIT>) }
     }
 

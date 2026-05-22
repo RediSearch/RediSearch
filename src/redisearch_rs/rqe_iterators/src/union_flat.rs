@@ -631,12 +631,22 @@ where
 
     fn suspend(self: Box<Self>) -> Box<Self::Suspended> {
         let raw = Box::into_raw(self);
-        // SAFETY: `RawUnionFlat` is `#[repr(C)]`. The `Rf`-dependent fields
-        // are `Vec<IndexedChild<I>>` (layout-compatible with the suspended
-        // form because `I` and `I::Suspended` are layout-compatible) and
-        // `result: RawIndexResult<Rf>` (layout-compatible via `SharedPtr`
-        // transparency). Suspend is widening; Box::from_raw reuses the
-        // same heap allocation.
+        // Walk children: dispatch each child's `suspend` through the trait
+        // so dyn-erased `I` (e.g. [`BoxedRQEIterator`](crate::BoxedRQEIterator))
+        // correctly transitions its vtable. For concrete-typed `I` this is
+        // the same whole-box cast that would otherwise happen at the outer
+        // level, just per-child. See
+        // [`crate::boxed::suspend_child_slot_in_place`] for the rationale.
+        //
+        // SAFETY: `raw` came from `Box::into_raw` and is exclusively owned.
+        unsafe {
+            for child in (*raw).children.iter_mut() {
+                crate::boxed::suspend_child_slot_in_place(&mut child.inner);
+            }
+        }
+        // SAFETY: `RawUnionFlat` is `#[repr(C)]` over `Vec<IndexedChild<I>>`
+        // (now byte-rewritten with `I::Suspended` payloads) and
+        // `result: RawIndexResult<Rf>` (layout-compatible via `SharedPtr`).
         unsafe { Box::from_raw(raw as *mut RawUnionFlat<Suspended, I::Suspended, QUICK_EXIT>) }
     }
 

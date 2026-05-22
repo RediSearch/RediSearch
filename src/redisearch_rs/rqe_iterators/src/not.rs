@@ -287,12 +287,19 @@ where
 
     fn suspend(self: Box<Self>) -> Box<Self::Suspended> {
         let raw = Box::into_raw(self);
-        // SAFETY: `RawNot` is `#[repr(C)]`. The only `Rf`-dependent field
-        // is `result: RawIndexResult<Rf>`, layout-compatible across `Rf`
-        // via `SharedPtr` transparency. `MaybeEmpty<I>` and
-        // `MaybeEmpty<I::Suspended>` are layout-compatible by the
-        // [`RQEIteratorBoxed`] contract (see [`MaybeEmpty::suspend`]).
-        // Box::from_raw reuses the same heap allocation.
+        // Walk the single child: `MaybeEmpty<I>`'s own suspend walks its
+        // `Some(I)` arm via the trait (dispatches via vtable for dyn-erased
+        // `I`). We invoke `MaybeEmpty::suspend` here by going through the
+        // `RQEIteratorBoxed::suspend` trait method via a temp Box.
+        //
+        // SAFETY: `raw` came from `Box::into_raw`, exclusively owned.
+        unsafe {
+            crate::boxed::suspend_child_slot_in_place(std::ptr::addr_of_mut!((*raw).child));
+        }
+        // SAFETY: `RawNot` is `#[repr(C)]` over `child: MaybeEmpty<I>` (now
+        // byte-rewritten as `MaybeEmpty<I::Suspended>` contents),
+        // `result: RawIndexResult<Rf>` (layout-compatible via `SharedPtr`),
+        // and plain fields.
         unsafe { Box::from_raw(raw as *mut RawNot<Suspended, I::Suspended>) }
     }
 

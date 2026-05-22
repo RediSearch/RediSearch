@@ -350,10 +350,16 @@ where
 
     fn suspend(self: Box<Self>) -> Box<Self::Suspended> {
         let raw = Box::into_raw(self);
-        // SAFETY: `RawUnionTrimmed` is `#[repr(C)]`; `Vec<I>` ↔
-        // `Vec<I::Suspended>` are layout-compatible by the
-        // [`RQEIteratorBoxed`] contract; `result: RawIndexResult<Rf>` via
-        // `SharedPtr` transparency. Box::from_raw reuses the heap.
+        // Walk children — see [`crate::boxed::suspend_child_slot_in_place`].
+        // SAFETY: `raw` came from `Box::into_raw`, exclusively owned.
+        unsafe {
+            for child in (*raw).children.iter_mut() {
+                crate::boxed::suspend_child_slot_in_place(child);
+            }
+        }
+        // SAFETY: `RawUnionTrimmed` is `#[repr(C)]` over `Vec<I>` (now
+        // byte-rewritten as `Vec<I::Suspended>` contents) and
+        // `result: RawIndexResult<Rf>` (layout-compatible via `SharedPtr`).
         unsafe { Box::from_raw(raw as *mut RawUnionTrimmed<Suspended, I::Suspended>) }
     }
 

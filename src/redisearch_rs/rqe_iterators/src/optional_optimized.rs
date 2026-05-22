@@ -393,13 +393,16 @@ where
 
     fn suspend(self: Box<Self>) -> Box<Self::Suspended> {
         let raw = Box::into_raw(self);
-        // SAFETY: `RawOptionalOptimized` is `#[repr(C)]`. The only
-        // `Rf`-dependent field is `virt: RawIndexResult<Rf>`, layout-
-        // compatible across `Rf` via `SharedPtr` transparency. `W`/`I` are
-        // layout-compatible with `W::Suspended`/`I::Suspended` by the
-        // [`RQEIteratorBoxed`] contract, and `MaybeEmpty<I>` likewise
-        // (see [`MaybeEmpty::suspend`]). Box::from_raw reuses the same
-        // heap allocation.
+        // Walk both children — see Not/NotOptimized for the rationale.
+        // SAFETY: `raw` came from `Box::into_raw`, exclusively owned.
+        unsafe {
+            crate::boxed::suspend_child_slot_in_place(std::ptr::addr_of_mut!((*raw).wcii));
+            crate::boxed::suspend_child_slot_in_place(std::ptr::addr_of_mut!((*raw).child));
+        }
+        // SAFETY: `RawOptionalOptimized` is `#[repr(C)]` over `wcii: W` and
+        // `child: MaybeEmpty<I>` (now byte-rewritten as suspended forms),
+        // `virt: RawIndexResult<Rf>` (layout-compatible via `SharedPtr`),
+        // and plain fields.
         unsafe {
             Box::from_raw(raw as *mut RawOptionalOptimized<Suspended, W::Suspended, I::Suspended>)
         }
