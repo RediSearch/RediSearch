@@ -914,8 +914,8 @@ static char **RMCK_GetClusterNodesList(RedisModuleCtx *ctx, size_t *numnodes) {
   auto **list = static_cast<char **>(RMCK_Alloc(sizeof(char *) * (*numnodes + 1)));
   for (size_t i = 0; i < *numnodes; i++) {
     list[i] = static_cast<char *>(RMCK_Alloc(REDISMODULE_NODE_ID_LEN + 1));
-    std::strncpy(list[i], mockClusterNodes[i].id.c_str(), REDISMODULE_NODE_ID_LEN);
-    list[i][REDISMODULE_NODE_ID_LEN] = '\0';
+    size_t copied = mockClusterNodes[i].id.copy(list[i], REDISMODULE_NODE_ID_LEN);
+    list[i][copied] = '\0';
   }
   list[*numnodes] = nullptr;
   return list;
@@ -935,8 +935,8 @@ static int RMCK_GetClusterNodeInfo(RedisModuleCtx *ctx, const char *id, char *ip
   // The real API expects the caller to pass a buffer of at least
   // NET_IP_STR_LEN (46) bytes; we copy at most that to match.
   if (ip) {
-    std::strncpy(ip, n->ip.c_str(), 46 - 1);
-    ip[46 - 1] = '\0';
+    size_t copied = n->ip.copy(ip, 46 - 1);
+    ip[copied] = '\0';
   }
   if (port) *port = n->port;
   if (flags) *flags = n->flags;
