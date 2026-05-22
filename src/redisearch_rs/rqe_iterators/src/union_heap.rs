@@ -565,11 +565,24 @@ where
         let saved_last_doc_id = result.doc_id;
         drop(result);
 
+        // Resume each child; drop ABORTED. Track whether any child changed
+        // so we can distinguish "nothing moved" from "some child moved" —
+        // the previous shortcut of `active.skip_to(saved_last_doc_id)` lost
+        // the MOVED signal in QUICK_EXIT mode (a child still at saved
+        // produced Found, masking a sibling that advanced past it) and
+        // failed to mark the union at_eof when every child moved past saved
+        // and away.
+        let mut any_change = false;
         let mut active_children: Vec<S::Resumed<'a>> = Vec::with_capacity(children.len());
         for inner in children {
             let (active_inner, status) = Box::new(inner).resume(guard);
-            if status == ValidateStatus_VALIDATE_ABORTED {
-                continue;
+            match status {
+                ValidateStatus_VALIDATE_ABORTED => {
+                    any_change = true;
+                    continue;
+                }
+                ValidateStatus_VALIDATE_MOVED => any_change = true,
+                _ => {}
             }
             active_children.push(*active_inner);
         }
@@ -604,11 +617,53 @@ where
             return (active, ValidateStatus_VALIDATE_OK);
         }
 
-        match active.skip_to(saved_last_doc_id) {
-            Ok(Some(SkipToOutcome::Found(_))) => (active, ValidateStatus_VALIDATE_OK),
-            Ok(Some(SkipToOutcome::NotFound(_))) | Ok(None) | Err(_) => {
-                (active, ValidateStatus_VALIDATE_MOVED)
+        if !any_change {
+            // Children's positions are unchanged. Rebuild the heap from
+            // their current positions so subsequent reads have a valid
+            // structure, then build the aggregate at saved_last_doc_id —
+            // exhausted children get discovered naturally on the next
+            // read, matching legacy revalidate's early-return.
+            for (idx, child) in active.children.iter().enumerate() {
+                if !child.at_eof() {
+                    active.heap.push(child.last_doc_id(), idx);
+                }
             }
+            active.build_aggregate_result(saved_last_doc_id);
+            return (active, ValidateStatus_VALIDATE_OK);
+        }
+
+        // Some child moved or aborted: rebuild the heap from survivors,
+        // dropping those at EOF. The new minimum is the heap root.
+        let mut num_active = 0usize;
+        for (idx, child) in active.children.iter().enumerate() {
+            if !child.at_eof() {
+                active.heap.push(child.last_doc_id(), idx);
+                num_active += 1;
+            }
+        }
+        active.num_active = num_active;
+
+        if num_active == 0 {
+            active.is_eof = true;
+            return (active, ValidateStatus_VALIDATE_MOVED);
+        }
+
+        let min_entry = active
+            .heap
+            .peek()
+            .expect("heap is non-empty after num_active check");
+        let min_doc_id = min_entry.doc_id;
+
+        if QUICK_EXIT {
+            active.quick_set_from_child(min_entry.child_idx);
+        } else {
+            active.build_aggregate_result(min_doc_id);
+        }
+
+        if min_doc_id == saved_last_doc_id {
+            (active, ValidateStatus_VALIDATE_OK)
+        } else {
+            (active, ValidateStatus_VALIDATE_MOVED)
         }
     }
 
