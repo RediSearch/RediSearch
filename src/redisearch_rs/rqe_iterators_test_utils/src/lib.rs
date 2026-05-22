@@ -40,12 +40,12 @@ pub use test_context::{GlobalGuard, TestContext};
 /// reallocating. All iterators in `rqe_iterators` honour this contract, and
 /// the FFI wrapper uses the same cast (see
 /// `rqe_iterators::interop::revalidate`).
-pub fn revalidate_via_resume<'a, T>(
+pub fn revalidate_via_resume<'borrow, 'spec, T>(
     mut it: Box<T>,
-    spec: &'a index_spec::IndexSpecReadGuard<'a>,
+    spec: &'borrow index_spec::IndexSpecReadGuard<'spec>,
 ) -> (Box<T>, ffi::ValidateStatus)
 where
-    T: rqe_iterators::RQEIteratorBoxed<'a> + 'a,
+    T: rqe_iterators::RQEIteratorBoxed<'spec> + 'spec,
 {
     // Cascade-suspend first: this flips the typestate of any nested
     // trait-object children (e.g. `BoxedRQEIterator` wrapping a `Box<dyn
@@ -56,13 +56,17 @@ where
     // UB on subsequent resume calls. Mirrors what the FFI wrapper does
     // via `it->Suspend(it)` before each lock release.
     it.cascade_suspend();
-    let suspended = <T as rqe_iterators::RQEIteratorBoxed<'a>>::suspend(it);
+    let suspended = <T as rqe_iterators::RQEIteratorBoxed<'spec>>::suspend(it);
     let (resumed, status) =
         <T::Suspended as rqe_iterators::RQESuspendedIterator>::resume(suspended, spec);
-    // SAFETY: `T` and `<T::Suspended as RQESuspendedIterator>::Resumed<'a>`
+    // SAFETY: `T` and `<T::Suspended as RQESuspendedIterator>::Resumed<'_>`
     // are layout-identical by the `RQEIteratorBoxed::suspend` contract.
-    // The FFI wrapper relies on the same cast (see
-    // `rqe_iterators::interop::revalidate`).
+    // The cast also coerces the resumed iterator's lifetime back to the
+    // input's `'spec`; that's sound because iterator types are covariant in
+    // their lifetime parameter (the lifetime is purely phantom via
+    // `ref_mode::Active<'a>`), so widening from the resume's chosen `'a`
+    // (which the compiler picks from the borrow lifetime) to `'spec` (which
+    // is at least as long) doesn't extend any real borrow.
     let active: Box<T> = unsafe { Box::from_raw(Box::into_raw(resumed) as *mut T) };
     (active, status)
 }

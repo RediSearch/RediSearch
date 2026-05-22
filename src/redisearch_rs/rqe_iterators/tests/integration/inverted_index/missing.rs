@@ -136,15 +136,15 @@ mod not_miri {
     #[test]
     fn missing_revalidate_basic() {
         let test = MissingRevalidateTest::new(10);
-        let mut it = test.create_iterator();
-        test.test.revalidate_basic(&mut it);
+        let it = test.create_iterator();
+        test.test.revalidate_basic(Box::new(it));
     }
 
     #[test]
     fn missing_revalidate_at_eof() {
         let test = MissingRevalidateTest::new(10);
-        let mut it = test.create_iterator();
-        test.test.revalidate_at_eof(&mut it);
+        let it = test.create_iterator();
+        test.test.revalidate_at_eof(Box::new(it));
     }
 
     #[test]
@@ -198,10 +198,10 @@ mod not_miri {
     #[test]
     fn missing_revalidate_after_document_deleted() {
         let test = MissingRevalidateTest::new(10);
-        let mut it = test.create_iterator();
+        let it = test.create_iterator();
         let ii = DocIdsOnly::from_mut_opaque(test.test.context.missing_inverted_index());
 
-        test.test.revalidate_after_document_deleted(&mut it, ii);
+        test.test.revalidate_after_document_deleted(Box::new(it), ii);
     }
 
     /// Test that revalidation returns `Aborted` when the missing-field inverted

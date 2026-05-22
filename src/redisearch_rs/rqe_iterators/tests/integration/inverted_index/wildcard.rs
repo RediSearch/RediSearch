@@ -119,15 +119,15 @@ mod not_miri {
     #[test]
     fn wildcard_revalidate_basic() {
         let test = WildcardRevalidateTest::new(10);
-        let mut it = test.create_iterator();
-        test.test.revalidate_basic(&mut it);
+        let it = test.create_iterator();
+        test.test.revalidate_basic(Box::new(it));
     }
 
     #[test]
     fn wildcard_revalidate_at_eof() {
         let test = WildcardRevalidateTest::new(10);
-        let mut it = test.create_iterator();
-        test.test.revalidate_at_eof(&mut it);
+        let it = test.create_iterator();
+        test.test.revalidate_at_eof(Box::new(it));
     }
 
     #[test]
@@ -178,10 +178,10 @@ mod not_miri {
     #[test]
     fn wildcard_revalidate_after_document_deleted() {
         let test = WildcardRevalidateTest::new(10);
-        let mut it = test.create_iterator();
+        let it = test.create_iterator();
         let ii = DocIdsOnly::from_mut_opaque(test.test.context.wildcard_inverted_index());
 
-        test.test.revalidate_after_document_deleted(&mut it, ii);
+        test.test.revalidate_after_document_deleted(Box::new(it), ii);
     }
 
     /// Test that revalidation returns `Aborted` when `existingDocs` is set to

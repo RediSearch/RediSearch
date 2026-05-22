@@ -1046,15 +1046,15 @@ mod not_miri {
     #[test]
     fn numeric_revalidate_basic() {
         let test = NumericRevalidateTest::new(10);
-        let mut it = test.create_iterator();
-        test.test.revalidate_basic(&mut it);
+        let it = test.create_iterator();
+        test.test.revalidate_basic(Box::new(it));
     }
 
     #[test]
     fn numeric_revalidate_at_eof() {
         let test = NumericRevalidateTest::new(10);
-        let mut it = test.create_iterator();
-        test.test.revalidate_at_eof(&mut it);
+        let it = test.create_iterator();
+        test.test.revalidate_at_eof(Box::new(it));
     }
 
     #[test]
@@ -1095,10 +1095,10 @@ mod not_miri {
     #[test]
     fn numeric_revalidate_after_document_deleted() {
         let test = NumericRevalidateTest::new(10);
-        let mut it = test.create_iterator();
+        let it = test.create_iterator();
         let ii = test.test.context.numeric_inverted_index();
 
         test.test
-            .revalidate_numeric_after_document_deleted(&mut it, ii);
+            .revalidate_numeric_after_document_deleted(Box::new(it), ii);
     }
 }
