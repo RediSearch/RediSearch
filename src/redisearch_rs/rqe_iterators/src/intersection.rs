@@ -655,19 +655,36 @@ where
         // by value and produces a fresh Active value at a new address. We
         // therefore extract the `weight` (a plain `f64`, no aliasing
         // concerns), drop the suspended result, and build a fresh empty
-        // Active aggregate. The aggregate is repopulated by the subsequent
-        // `rewind` + `skip_to` call, which calls `build_aggregate_result`
-        // with the new children's addresses.
+        // Active aggregate. It's repopulated at the end of this method
+        // from the resumed children's current positions.
         let weight = result.weight;
         let num_children = children.len();
         drop(result);
 
+        // Resume each child, tracking aggregate position-shift signals.
+        // This mirrors what the legacy `Intersection::revalidate` body did
+        // when consuming child statuses: stay at `last_doc_id` when no
+        // child moved; otherwise advance to the new max child position to
+        // find the next common doc. The previous resume body rewound all
+        // children before re-seeking to `last_doc_id`, which undid the
+        // child-side move signal and produced different semantics from
+        // `revalidate` whenever the synthetic test mock advanced children.
         let mut any_aborted = false;
+        let mut any_moved = false;
+        let mut max_child_doc_id: t_docId = 0;
+        let mut moved_to_eof = false;
         let mut active_children: Vec<S::Resumed<'a>> = Vec::with_capacity(num_children);
         for child in children {
             let (active_child, status) = Box::new(child).resume(guard);
             if status == ValidateStatus_VALIDATE_ABORTED {
                 any_aborted = true;
+            } else if status == ValidateStatus_VALIDATE_MOVED {
+                any_moved = true;
+                if active_child.at_eof() {
+                    moved_to_eof = true;
+                } else {
+                    max_child_doc_id = max_child_doc_id.max(active_child.last_doc_id());
+                }
             }
             active_children.push(*active_child);
         }
@@ -689,17 +706,31 @@ where
         if any_aborted {
             return (active, ValidateStatus_VALIDATE_ABORTED);
         }
-        if active.is_eof || active.last_doc_id == 0 {
+
+        // No child moved (or we're at EOF / before-first-read): the
+        // children are still at the same positions as before suspend, so
+        // the aggregate's `last_doc_id` is still valid. Repopulate the
+        // (now-empty) aggregate from each child's current result.
+        if !any_moved || active.is_eof || active.last_doc_id == 0 {
+            if active.last_doc_id > 0 && !active.is_eof {
+                active.build_aggregate_result(active.last_doc_id);
+            }
             return (active, ValidateStatus_VALIDATE_OK);
         }
 
-        active.rewind();
-        match active.skip_to(last_doc_id) {
-            Ok(Some(SkipToOutcome::Found(_))) => (active, ValidateStatus_VALIDATE_OK),
-            Ok(Some(SkipToOutcome::NotFound(_))) | Ok(None) | Err(_) => {
-                (active, ValidateStatus_VALIDATE_MOVED)
-            }
+        // At least one child moved to EOF — the intersection can't continue.
+        if moved_to_eof {
+            active.is_eof = true;
+            return (active, ValidateStatus_VALIDATE_MOVED);
         }
+
+        // Some children moved forward. Advance the intersection to the new
+        // max child position and find the next common doc from there.
+        // `Intersection::skip_to`'s internal `agree_on_doc_id` skips
+        // children already at the target (no `skip_to` precondition
+        // violation) and advances ones behind via their own `skip_to`.
+        let _ = active.skip_to(max_child_doc_id);
+        (active, ValidateStatus_VALIDATE_MOVED)
     }
 
     fn last_doc_id(&self) -> t_docId {
