@@ -11,7 +11,7 @@ use std::{cell::RefCell, rc::Rc, time::Duration};
 
 use ffi::{RS_FIELDMASK_ALL, t_docId};
 use index_result::{RSIndexResult, RSOffsetSlice};
-use rqe_iterators::{IteratorType, RQEIterator, WildcardIterator};
+use rqe_iterators::{BoxedRQEIterator, IteratorType, RQEIterator, WildcardIterator};
 
 /// Test iterator used in unit tests that expect an [`RQEIterator`]
 /// child which produces a fixed sequence of document identifiers.
@@ -528,9 +528,9 @@ impl<'index> MockVec<'index> {
         }
     }
 
-    /// Create a boxed [`MockVec`] as a trait object.
-    pub fn new_boxed(doc_ids: Vec<t_docId>) -> Box<dyn RQEIterator<'index> + 'index> {
-        Box::new(Self::new(doc_ids))
+    /// Create a [`MockVec`] wrapped as a [`BoxedRQEIterator`].
+    pub fn new_boxed(doc_ids: Vec<t_docId>) -> BoxedRQEIterator<'index> {
+        BoxedRQEIterator::new(Box::new(Self::new(doc_ids)))
     }
 }
 
@@ -644,5 +644,53 @@ impl<'index> RQEIterator<'index> for MockVec<'index> {
 
     fn intersection_sort_weight(&self, _prioritize_union_children: bool) -> f64 {
         1.0
+    }
+}
+
+/// Suspended counterpart of [`MockVec`].
+///
+/// Layout-identical to [`MockVec`] (the lifetime parameter is purely phantom
+/// in this test helper: `result` is a freshly-built [`RSIndexResult`] over
+/// owned data).
+pub struct MockVecSuspended {
+    _result: index_result::RSIndexResult<'static>,
+    _doc_ids: Vec<t_docId>,
+    _next_index: usize,
+    _data: MockData,
+}
+
+impl<'index> rqe_iterators::RQEIteratorBoxed<'index> for MockVec<'index> {
+    type Suspended = MockVecSuspended;
+
+    fn suspend(self: Box<Self>) -> Box<Self::Suspended> {
+        let raw = Box::into_raw(self);
+        // SAFETY: `MockVec<'index>` and `MockVecSuspended` have identical layout
+        // (lifetime parameter is phantom in this test helper).
+        unsafe { Box::from_raw(raw as *mut MockVecSuspended) }
+    }
+}
+
+impl rqe_iterators::RQESuspendedIterator for MockVecSuspended {
+    type Resumed<'a> = MockVec<'a>;
+
+    fn resume<'a>(
+        self: Box<Self>,
+        _guard: &'a index_spec::IndexSpecReadGuard<'a>,
+    ) -> (Box<Self::Resumed<'a>>, ffi::ValidateStatus) {
+        let raw = Box::into_raw(self);
+        // SAFETY: layout-identical (see [`MockVec::suspend`]).
+        let active = unsafe { Box::from_raw(raw as *mut MockVec<'a>) };
+        (active, ffi::ValidateStatus_VALIDATE_OK)
+    }
+
+    fn last_doc_id(&self) -> t_docId {
+        self._doc_ids
+            .get(self._next_index.saturating_sub(1))
+            .copied()
+            .unwrap_or(0)
+    }
+
+    fn num_estimated(&self) -> usize {
+        self._doc_ids.len()
     }
 }

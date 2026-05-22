@@ -220,7 +220,7 @@ macro_rules! union_common_tests {
 
         #[test]
         fn edge_case_no_children() {
-            let children: Vec<Box<dyn RQEIterator<'static>>> = vec![];
+            let children: Vec<BoxedRQEIterator<'static>> = vec![];
             let mut union_iter = Union::new(children);
 
             assert!(matches!(union_iter.read(), Ok(None)));
@@ -384,8 +384,11 @@ macro_rules! union_common_tests {
             let child1: Mock<'static, 3> = Mock::new([10, 20, 30]);
             let child2: Mock<'static, 3> = Mock::new([15, 25, 35]);
 
-            let children: Vec<Box<dyn RQEIterator<'static>>> =
-                vec![Box::new(empty_child), Box::new(child1), Box::new(child2)];
+            let children: Vec<BoxedRQEIterator<'static>> = vec![
+                BoxedRQEIterator::new(Box::new(empty_child)),
+                BoxedRQEIterator::new(Box::new(child1)),
+                BoxedRQEIterator::new(Box::new(child2)),
+            ];
             let mut union_iter = Union::new(children);
 
             let expected = vec![10, 15, 20, 25, 30, 35];
@@ -405,8 +408,11 @@ macro_rules! union_common_tests {
             let empty2: Mock<'static, 0> = Mock::new([]);
             let empty3: Mock<'static, 0> = Mock::new([]);
 
-            let children: Vec<Box<dyn RQEIterator<'static>>> =
-                vec![Box::new(empty1), Box::new(empty2), Box::new(empty3)];
+            let children: Vec<BoxedRQEIterator<'static>> = vec![
+                BoxedRQEIterator::new(Box::new(empty1)),
+                BoxedRQEIterator::new(Box::new(empty2)),
+                BoxedRQEIterator::new(Box::new(empty3)),
+            ];
             let mut union_iter = Union::new(children);
             assert!(matches!(union_iter.read(), Ok(None)));
             assert!(union_iter.at_eof());
@@ -460,12 +466,12 @@ macro_rules! union_common_tests {
             let child2: Mock<'static, 2> = Mock::new([15, 25]);
             let empty3: Mock<'static, 0> = Mock::new([]);
 
-            let children: Vec<Box<dyn RQEIterator<'static>>> = vec![
-                Box::new(empty1),
-                Box::new(child1),
-                Box::new(empty2),
-                Box::new(child2),
-                Box::new(empty3),
+            let children: Vec<BoxedRQEIterator<'static>> = vec![
+                BoxedRQEIterator::new(Box::new(empty1)),
+                BoxedRQEIterator::new(Box::new(child1)),
+                BoxedRQEIterator::new(Box::new(empty2)),
+                BoxedRQEIterator::new(Box::new(child2)),
+                BoxedRQEIterator::new(Box::new(empty3)),
             ];
             let mut quick_iter = $UnionQuick::new(children);
 
@@ -488,8 +494,10 @@ macro_rules! union_common_tests {
             let mut data1 = mock1.data();
             data1.set_force_read_none(true);
 
-            let children: Vec<Box<dyn RQEIterator<'static> + 'static>> =
-                vec![Box::new(mock1), Box::new(mock2)];
+            let children: Vec<BoxedRQEIterator<'static>> = vec![
+                BoxedRQEIterator::new(Box::new(mock1)),
+                BoxedRQEIterator::new(Box::new(mock2)),
+            ];
 
             let mut union_iter = Union::new(children);
 
@@ -794,8 +802,10 @@ macro_rules! union_common_tests {
                 .data()
                 .set_revalidate_result(MockRevalidateResult::Ok);
 
-            let children: Vec<Box<dyn RQEIterator<'static> + 'static>> =
-                vec![Box::new(child0), Box::new(child1)];
+            let children: Vec<BoxedRQEIterator<'static>> = vec![
+                BoxedRQEIterator::new(Box::new(child0)),
+                BoxedRQEIterator::new(Box::new(child1)),
+            ];
 
             let mut union_iter = Union::new(children);
 
@@ -1141,8 +1151,10 @@ macro_rules! union_common_tests {
             let child0: Mock<'static, 1> = Mock::new([10]);
             let child1: Mock<'static, 3> = Mock::new([10, 20, 30]);
 
-            let children: Vec<Box<dyn RQEIterator<'static>>> =
-                vec![Box::new(child0), Box::new(child1)];
+            let children: Vec<BoxedRQEIterator<'static>> = vec![
+                BoxedRQEIterator::new(Box::new(child0)),
+                BoxedRQEIterator::new(Box::new(child1)),
+            ];
 
             let mut union = $UnionFull::new(children);
 
@@ -1170,8 +1182,10 @@ macro_rules! union_common_tests {
             let child0: Mock<'static, 1> = Mock::new([10]);
             let child1: Mock<'static, 3> = Mock::new([10, 20, 30]);
 
-            let children: Vec<Box<dyn RQEIterator<'static>>> =
-                vec![Box::new(child0), Box::new(child1)];
+            let children: Vec<BoxedRQEIterator<'static>> = vec![
+                BoxedRQEIterator::new(Box::new(child0)),
+                BoxedRQEIterator::new(Box::new(child1)),
+            ];
 
             let mut union = $UnionQuick::new(children);
 
@@ -1483,14 +1497,14 @@ macro_rules! union_common_tests {
 
         #[test]
         fn type_full() {
-            let children: Vec<Box<dyn RQEIterator<'static>>> = vec![MockVec::new_boxed(vec![1, 2, 3])];
+            let children: Vec<BoxedRQEIterator<'static>> = vec![MockVec::new_boxed(vec![1, 2, 3])];
             let it = $UnionFull::new(children);
             assert_eq!(it.type_(), IteratorType::Union);
         }
 
         #[test]
         fn type_quick() {
-            let children: Vec<Box<dyn RQEIterator<'static>>> = vec![MockVec::new_boxed(vec![1, 2, 3])];
+            let children: Vec<BoxedRQEIterator<'static>> = vec![MockVec::new_boxed(vec![1, 2, 3])];
             let it = $UnionQuick::new(children);
             assert_eq!(it.type_(), IteratorType::Union);
         }
@@ -1506,9 +1520,9 @@ macro_rules! union_common_tests {
         #[test]
         #[cfg_attr(miri, ignore = "Calls RSYieldableMetric_Concat FFI in push_borrowed")]
         fn full_mode_field_mask_resets_between_reads() {
-            let children: Vec<Box<dyn RQEIterator<'static>>> = vec![
-                Box::new(FieldMaskMock::new(vec![10, 20], 0x1)),
-                Box::new(FieldMaskMock::new(vec![10, 30], 0x2)),
+            let children: Vec<BoxedRQEIterator<'static>> = vec![
+                BoxedRQEIterator::new(Box::new(FieldMaskMock::new(vec![10, 20], 0x1))),
+                BoxedRQEIterator::new(Box::new(FieldMaskMock::new(vec![10, 30], 0x2))),
             ];
             let mut union = $UnionFull::new(children);
 
@@ -1539,7 +1553,7 @@ macro_rules! union_common_tests {
         /// `timeout_idx` to return a timeout error at EOF.
         fn make_timeout_children(
             timeout_idx: usize,
-        ) -> Vec<Box<dyn RQEIterator<'static>>> {
+        ) -> Vec<BoxedRQEIterator<'static>> {
             let mocks = [
                 Mock::new([10, 20, 30, 40, 50]),
                 Mock::new([10, 20, 30, 40, 50]),
@@ -1548,7 +1562,10 @@ macro_rules! union_common_tests {
             mocks[timeout_idx]
                 .data()
                 .set_error_at_done(Some(MockIteratorError::TimeoutError(None)));
-            mocks.into_iter().map(|m| Box::new(m) as _).collect()
+            mocks
+                .into_iter()
+                .map(|m| BoxedRQEIterator::new(Box::new(m)))
+                .collect()
         }
 
         /// Read until we get a non-Ok result and assert it is a timeout.
