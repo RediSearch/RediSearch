@@ -436,6 +436,7 @@ where
             at_eof,
         } = *self;
 
+        let pre_wcii_last_doc_id = RQESuspendedIterator::last_doc_id(&wcii);
         let (wcii, wcii_status) = Box::new(wcii).resume(guard);
         let pre_child_last_doc_id = RQESuspendedIterator::last_doc_id(&child);
         let (child, child_status) = Box::new(child).resume(guard);
@@ -459,7 +460,18 @@ where
         if wcii_status == ValidateStatus_VALIDATE_ABORTED {
             return (active, ValidateStatus_VALIDATE_ABORTED);
         }
-        if wcii_status == ValidateStatus_VALIDATE_MOVED && active.wcii.at_eof() {
+        // Distinguish "wcii moved to a new valid position" from "wcii moved
+        // past all docs (no new current)". The status alone doesn't carry
+        // the {Some, None} distinction that legacy `revalidate` had, so we
+        // recover it by comparing wcii's pre/post `last_doc_id`: a true
+        // "Moved to EOF without a new doc" leaves the cached doc_id
+        // unchanged (the wcii has nothing new to surface). A "Moved to a
+        // new valid doc" advances the cached doc_id even if `at_eof` is
+        // now true (because that new doc is the LAST valid one).
+        if wcii_status == ValidateStatus_VALIDATE_MOVED
+            && active.wcii.at_eof()
+            && active.wcii.last_doc_id() == pre_wcii_last_doc_id
+        {
             active.at_eof = true;
             return (active, ValidateStatus_VALIDATE_MOVED);
         }
