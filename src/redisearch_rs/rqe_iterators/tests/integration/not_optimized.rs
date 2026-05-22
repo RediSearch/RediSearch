@@ -535,10 +535,12 @@ fn read_timeout_via_timeout_ctx() {
 mod revalidate {
     use super::*;
     use crate::utils::MockRevalidateResult;
-    use ffi::IndexFlags_Index_DocIdsOnly;
+    use ffi::{
+        IndexFlags_Index_DocIdsOnly, ValidateStatus_VALIDATE_ABORTED,
+        ValidateStatus_VALIDATE_MOVED, ValidateStatus_VALIDATE_OK,
+    };
     use inverted_index::{InvertedIndex, doc_ids_only::DocIdsOnly, opaque::OpaqueEncoding};
-    use rqe_iterators::RQEValidateStatus;
-    use rqe_iterators_test_utils::{GlobalGuard, TestContext};
+    use rqe_iterators_test_utils::{GlobalGuard, TestContext, revalidate_via_resume};
 
     /// Wildcard doc IDs used by the revalidate tests.
     const WC_IDS: [t_docId; 20] = [
@@ -561,10 +563,12 @@ mod revalidate {
     fn create_not_optimized(
         context: &TestContext,
     ) -> (
-        NotOptimized<
-            '_,
-            rqe_iterators::inverted_index::Wildcard<'_, DocIdsOnly>,
-            Mock<'_, { CHILD_IDS.len() }>,
+        Box<
+            NotOptimized<
+                '_,
+                rqe_iterators::inverted_index::Wildcard<'_, DocIdsOnly>,
+                Mock<'_, { CHILD_IDS.len() }>,
+            >,
         >,
         crate::utils::MockData,
     ) {
@@ -572,7 +576,7 @@ mod revalidate {
         let wcii = rqe_iterators::inverted_index::Wildcard::new(ii.reader(), 1.0);
         let child = Mock::new(CHILD_IDS);
         let child_data = child.data();
-        let it = NotOptimized::new(wcii, child, 100, 1.0, None);
+        let it = Box::new(NotOptimized::new(wcii, child, 100, 1.0, None));
         (it, child_data)
     }
 
@@ -600,8 +604,9 @@ mod revalidate {
         it.read().unwrap().unwrap();
         let original = it.last_doc_id();
 
-        let status = it.revalidate(&*context.spec_read()).unwrap();
-        assert_eq!(status, RQEValidateStatus::Ok);
+        let guard = context.spec_read();
+        let (mut it, status) = revalidate_via_resume(it, &guard);
+        assert_eq!(status, ValidateStatus_VALIDATE_OK);
         assert_eq!(child_data.revalidate_count(), 1);
         assert_eq!(it.last_doc_id(), original);
         it.read().unwrap().unwrap();
@@ -617,8 +622,9 @@ mod revalidate {
         it.read().unwrap().unwrap();
         let original = it.last_doc_id();
 
-        let status = it.revalidate(&*context.spec_read()).unwrap();
-        assert_eq!(status, RQEValidateStatus::Ok);
+        let guard = context.spec_read();
+        let (mut it, status) = revalidate_via_resume(it, &guard);
+        assert_eq!(status, ValidateStatus_VALIDATE_OK);
         assert_eq!(it.last_doc_id(), original);
         it.read().unwrap().unwrap();
     }
@@ -633,8 +639,9 @@ mod revalidate {
         it.read().unwrap().unwrap();
         let original = it.last_doc_id();
 
-        let status = it.revalidate(&*context.spec_read()).unwrap();
-        assert_eq!(status, RQEValidateStatus::Ok);
+        let guard = context.spec_read();
+        let (mut it, status) = revalidate_via_resume(it, &guard);
+        assert_eq!(status, ValidateStatus_VALIDATE_OK);
         assert_eq!(child_data.revalidate_count(), 1);
         assert_eq!(it.last_doc_id(), original);
         it.read().unwrap().unwrap();
@@ -658,8 +665,11 @@ mod revalidate {
 
         context.spec_write().set_existing_docs(new_ii.cast());
 
-        let status = it.revalidate(&*context.spec_read()).unwrap();
-        assert_eq!(status, RQEValidateStatus::Aborted);
+        {
+            let guard = context.spec_read();
+            let (_it, status) = revalidate_via_resume(it, &guard);
+            assert_eq!(status, ValidateStatus_VALIDATE_ABORTED);
+        }
 
         // Restoring the original `existingDocs` pointer and dropping
         // `new_ii` which was created via `Box::into_raw` above.
@@ -685,8 +695,9 @@ mod revalidate {
         // GC doc_id=1 from the wildcard inverted index to trigger Moved.
         gc_document(&context, 1);
 
-        let status = it.revalidate(&*context.spec_read()).unwrap();
-        assert!(matches!(status, RQEValidateStatus::Moved { .. }));
+        let guard = context.spec_read();
+        let (it, status) = revalidate_via_resume(it, &guard);
+        assert_eq!(status, ValidateStatus_VALIDATE_MOVED);
         // Wildcard moved past 1 → iterator advanced.
         assert!(it.last_doc_id() > original);
     }
@@ -704,8 +715,9 @@ mod revalidate {
 
         gc_document(&context, 1);
 
-        let status = it.revalidate(&*context.spec_read()).unwrap();
-        assert!(matches!(status, RQEValidateStatus::Moved { .. }));
+        let guard = context.spec_read();
+        let (it, status) = revalidate_via_resume(it, &guard);
+        assert_eq!(status, ValidateStatus_VALIDATE_MOVED);
         assert!(it.last_doc_id() > original);
     }
 
@@ -722,8 +734,9 @@ mod revalidate {
 
         gc_document(&context, 1);
 
-        let status = it.revalidate(&*context.spec_read()).unwrap();
-        assert!(matches!(status, RQEValidateStatus::Moved { .. }));
+        let guard = context.spec_read();
+        let (mut it, status) = revalidate_via_resume(it, &guard);
+        assert_eq!(status, ValidateStatus_VALIDATE_MOVED);
         assert!(it.last_doc_id() > original);
         it.read().unwrap().unwrap();
     }
@@ -744,8 +757,9 @@ mod revalidate {
         // Since child is also at 10, read_inner should advance past it.
         gc_document(&context, 5);
 
-        let status = it.revalidate(&*context.spec_read()).unwrap();
-        assert!(matches!(status, RQEValidateStatus::Moved { .. }));
+        let guard = context.spec_read();
+        let (mut it, status) = revalidate_via_resume(it, &guard);
+        assert_eq!(status, ValidateStatus_VALIDATE_MOVED);
         assert!(!it.at_eof());
         // Wildcard moved to 10 which matches child → read_inner → 15.
         assert_eq!(it.last_doc_id(), 15);
@@ -765,7 +779,7 @@ mod revalidate {
         let child = Mock::<1>::new([100]); // child won't match
         let mut child_data = child.data();
         child_data.set_revalidate_result(MockRevalidateResult::Ok);
-        let mut it = NotOptimized::new(wcii, child, 200, 1.0, None);
+        let mut it = Box::new(NotOptimized::new(wcii, child, 200, 1.0, None));
 
         // Read the single document.
         let doc = it.read().unwrap().unwrap();
@@ -774,11 +788,9 @@ mod revalidate {
         // GC the only document so wildcard becomes empty on revalidation.
         gc_document(&context, 1);
 
-        let status = it.revalidate(&*context.spec_read()).unwrap();
-        assert!(
-            matches!(status, RQEValidateStatus::Moved { current: None }),
-            "Expected Moved {{ current: None }}, got {status:?}"
-        );
+        let guard = context.spec_read();
+        let (it, status) = revalidate_via_resume(it, &guard);
+        assert_eq!(status, ValidateStatus_VALIDATE_MOVED);
         assert!(it.at_eof());
     }
 }
