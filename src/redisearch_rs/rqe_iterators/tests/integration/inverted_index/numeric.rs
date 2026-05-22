@@ -15,7 +15,7 @@ use inverted_index::{
     FilterNumericReader, IndexReader, InvertedIndex, NumericFilter, NumericReader,
 };
 use rqe_iterators::{
-    IteratorType, NoOpChecker, RQEIterator, RQEValidateStatus, SkipToOutcome,
+    IteratorType, NoOpChecker, RQEIterator, SkipToOutcome,
     inverted_index::Numeric,
 };
 

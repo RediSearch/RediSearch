@@ -15,8 +15,7 @@ use ref_mode::{Active, Ref, Suspended};
 use std::cmp;
 
 use crate::{
-    IteratorType, RQEIterator, RQEIteratorBoxed, RQEIteratorError, RQESuspendedIterator,
-    RQEValidateStatus, SkipToOutcome,
+    IteratorType, RQEIterator, RQEIteratorBoxed, RQEIteratorError, RQESuspendedIterator, SkipToOutcome,
 };
 use index_spec::IndexSpecReadGuard;
 
@@ -92,7 +91,7 @@ pub struct RawOptional<Rf: Ref, I> {
     /// It is used while it can still produce results. Once exhausted,
     /// the iterator yields virtual results until [`Optional::max_doc_id`] is reached.
     ///
-    /// In case child aborts during [`RQEIterator::revalidate`],
+    /// In case child aborts during `RQEIterator::revalidate` (removed),
     /// this child is turned into [`None`], changed from the [`Some`] state it starts
     /// at when creating using [`Optional::new`]. From that point onward all results
     /// will be virtual until `max_doc_id` is reached.
@@ -238,40 +237,6 @@ where
 
         self.result.doc_id = doc_id;
         Ok(Some(SkipToOutcome::Found(&mut self.result)))
-    }
-
-    fn revalidate(
-        &mut self,
-        spec: &IndexSpecReadGuard,
-    ) -> Result<RQEValidateStatus<'_, 'index>, RQEIteratorError> {
-        let Some(ref mut child) = self.child else {
-            return Ok(RQEValidateStatus::Ok);
-        };
-        let last_child_doc_id = child.last_doc_id();
-
-        // Revalidate the child iterator
-        match child.revalidate(spec)? {
-            // Abort: Handle child validation results (but continue processing)
-            status @ (RQEValidateStatus::Aborted | RQEValidateStatus::Moved { .. }) => {
-                if matches!(status, RQEValidateStatus::Aborted) {
-                    self.child = None; // Drop it so we become fully virtual until max is reached
-                }
-
-                Ok(if last_child_doc_id != self.result.doc_id {
-                    // virtual
-                    RQEValidateStatus::Ok
-                } else {
-                    // was real before abort, re-read to
-                    // prevent returning stale data.
-                    RQEValidateStatus::Moved {
-                        current: self.read()?,
-                    }
-                })
-            }
-            // If the current result is virtual,
-            // or if the child was not moved, we can return VALIDATE_OK
-            RQEValidateStatus::Ok => Ok(RQEValidateStatus::Ok),
-        }
     }
 
     #[inline(always)]

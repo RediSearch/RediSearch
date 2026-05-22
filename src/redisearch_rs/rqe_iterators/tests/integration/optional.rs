@@ -11,7 +11,7 @@ use ffi::{
     RS_FIELDMASK_ALL, ValidateStatus_VALIDATE_MOVED, ValidateStatus_VALIDATE_OK, t_docId,
 };
 use rqe_iterators::{
-    IteratorType, RQEIterator, RQEValidateStatus, SkipToOutcome, empty::Empty, optional::Optional,
+    IteratorType, RQEIterator, SkipToOutcome, empty::Empty, optional::Optional,
     wildcard::Wildcard,
 };
 use rqe_iterators_test_utils::revalidate_via_resume;
@@ -971,13 +971,6 @@ mod optional_iterator_non_sequential_reads {
 
         fn at_eof(&self) -> bool {
             self.read_step >= N
-        }
-
-        fn revalidate(
-            &mut self,
-            _spec: &index_spec::IndexSpecReadGuard,
-        ) -> Result<RQEValidateStatus<'_, 'index>, rqe_iterators::RQEIteratorError> {
-            Ok(RQEValidateStatus::Ok)
         }
 
         #[inline(always)]

@@ -14,8 +14,7 @@ use index_result::RSIndexResult;
 use index_spec::IndexSpecReadGuard;
 
 use crate::{
-    IteratorType, RQEIterator, RQEIteratorBoxed, RQEIteratorError, RQESuspendedIterator,
-    RQEValidateStatus, SkipToOutcome, empty::Empty,
+    IteratorType, RQEIterator, RQEIteratorBoxed, RQEIteratorError, RQESuspendedIterator, SkipToOutcome, empty::Empty,
 };
 
 /// An iterator that is either [`Empty`] or the provided [`RQEIterator`].
@@ -124,17 +123,6 @@ where
         match &mut self.0 {
             MaybeEmptyOption::None(empty) => empty.skip_to(doc_id),
             MaybeEmptyOption::Some(it) => it.skip_to(doc_id),
-        }
-    }
-
-    #[inline(always)]
-    fn revalidate(
-        &mut self,
-        spec: &IndexSpecReadGuard,
-    ) -> Result<RQEValidateStatus<'_, 'index>, RQEIteratorError> {
-        match &mut self.0 {
-            MaybeEmptyOption::None(empty) => empty.revalidate(spec),
-            MaybeEmptyOption::Some(it) => it.revalidate(spec),
         }
     }
 

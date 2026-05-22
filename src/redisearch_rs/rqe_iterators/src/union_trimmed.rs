@@ -50,8 +50,7 @@ use index_result::{RSIndexResult, RawIndexResult};
 use ref_mode::{Active, Ref, Suspended};
 
 use crate::{
-    IteratorType, RQEIterator, RQEIteratorBoxed, RQEIteratorError, RQESuspendedIterator,
-    RQEValidateStatus, SkipToOutcome,
+    IteratorType, RQEIterator, RQEIteratorBoxed, RQEIteratorError, RQESuspendedIterator, SkipToOutcome,
 };
 use index_spec::IndexSpecReadGuard;
 
@@ -72,7 +71,7 @@ use index_spec::IndexSpecReadGuard;
 /// - [`skip_to`](RQEIterator::skip_to): children are drained sequentially
 ///   (not in doc-id order), so skipping to a specific doc-id has no
 ///   meaningful semantics.
-/// - [`revalidate`](RQEIterator::revalidate): trimmed unions run in a
+/// - `revalidate` (removed): trimmed unions run in a
 ///   single, short-lived read path that does not interleave with GC cycles,
 ///   so revalidation should never be needed.
 ///
@@ -277,28 +276,6 @@ where
         // immediately rather than silently returning wrong results.
         unreachable!(
             "skip_to is not supported on UnionTrimmed — documents are not yielded in doc-id order"
-        );
-    }
-
-    #[inline(always)]
-    fn revalidate(
-        &mut self,
-        _spec: &IndexSpecReadGuard,
-    ) -> Result<RQEValidateStatus<'_, 'index>, RQEIteratorError> {
-        // Revalidation is unreachable for trimmed unions in practice:
-        //
-        // `TrimUnionIterator` is only called for `Q_OPT_PARTIAL_RANGE`, which
-        // requires SORTBY on a numeric field. SORTBY always inserts an
-        // `RPSorter` into the result-processor pipeline, and `RPSorter` is an
-        // accumulator — it drains *all* upstream results (via `rpQueryItNext`)
-        // before emitting any rows. That drain happens entirely within the
-        // first `sendChunk` call while the spec read-lock is held
-        // (`sctx->flags != RS_CTX_UNSET`), so `handleSpecLockAndRevalidate`
-        // short-circuits and never calls `Revalidate`. Subsequent cursor reads
-        // only pull from the sorter's buffer; `rpQueryItNext` is not called
-        // again.
-        unreachable!(
-            "revalidate is not supported on UnionTrimmed — trimmed unions are not subject to GC"
         );
     }
 

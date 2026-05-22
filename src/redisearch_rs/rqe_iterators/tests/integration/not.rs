@@ -9,10 +9,7 @@
 
 use std::time::Duration;
 
-use ffi::{
-    ValidateStatus_VALIDATE_ABORTED, ValidateStatus_VALIDATE_MOVED, ValidateStatus_VALIDATE_OK,
-    t_docId,
-};
+use ffi::{ValidateStatus_VALIDATE_OK, t_docId};
 use rqe_iterators::{
     IteratorType, RQEIterator, RQEIteratorError, SkipToOutcome, id_list::IdListSorted, not::Not,
 };

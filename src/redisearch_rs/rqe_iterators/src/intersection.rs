@@ -14,8 +14,7 @@
 //! - `in_order`: Require terms to appear in order
 
 use crate::{
-    IteratorType, RQEIterator, RQEIteratorBoxed, RQEIteratorError, RQESuspendedIterator,
-    RQEValidateStatus, SkipToOutcome,
+    IteratorType, RQEIterator, RQEIteratorBoxed, RQEIteratorError, RQESuspendedIterator, SkipToOutcome,
 };
 
 use ffi::{
@@ -533,48 +532,6 @@ where
     #[inline(always)]
     fn at_eof(&self) -> bool {
         self.is_eof
-    }
-
-    fn revalidate(
-        &mut self,
-        spec: &IndexSpecReadGuard,
-    ) -> Result<RQEValidateStatus<'_, 'index>, RQEIteratorError> {
-        let mut any_child_moved = false;
-        let mut max_child_doc_id: t_docId = 0;
-        let mut moved_to_eof = false;
-
-        for child in &mut self.children {
-            match child.revalidate(spec)? {
-                RQEValidateStatus::Aborted => return Ok(RQEValidateStatus::Aborted),
-                RQEValidateStatus::Moved { current } => {
-                    any_child_moved = true;
-                    match current {
-                        Some(result) => {
-                            // Child's last_doc_id is automatically updated by revalidate
-                            max_child_doc_id = max_child_doc_id.max(result.doc_id);
-                        }
-                        None => moved_to_eof = true,
-                    }
-                }
-                RQEValidateStatus::Ok => {}
-            }
-        }
-
-        if !any_child_moved || self.is_eof {
-            return Ok(RQEValidateStatus::Ok);
-        }
-
-        if moved_to_eof {
-            self.is_eof = true;
-            return Ok(RQEValidateStatus::Moved { current: None });
-        }
-
-        match self.skip_to(max_child_doc_id)? {
-            Some(_) => Ok(RQEValidateStatus::Moved {
-                current: Some(&mut self.result),
-            }),
-            None => Ok(RQEValidateStatus::Moved { current: None }),
-        }
     }
 
     #[inline(always)]

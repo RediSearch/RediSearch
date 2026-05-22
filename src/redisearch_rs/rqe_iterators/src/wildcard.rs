@@ -23,8 +23,7 @@ use ref_mode::{Active, Ref, Suspended};
 
 use crate::IteratorType;
 use crate::{
-    Empty, RQEIterator, RQEIteratorBoxed, RQEIteratorError, RQESuspendedIterator,
-    RQEValidateStatus, SEARCH_ENTERPRISE_ITERATORS, SkipToOutcome,
+    Empty, RQEIterator, RQEIteratorBoxed, RQEIteratorError, RQESuspendedIterator, SEARCH_ENTERPRISE_ITERATORS, SkipToOutcome,
 };
 
 /// An iterator that yields all ids within a given range, from 1 to max id
@@ -109,13 +108,6 @@ impl<'index> RQEIterator<'index> for Wildcard<'index> {
 
     fn at_eof(&self) -> bool {
         self.result.doc_id >= self.top_id
-    }
-
-    fn revalidate(
-        &mut self,
-        _spec: &IndexSpecReadGuard,
-    ) -> Result<RQEValidateStatus<'_, 'index>, RQEIteratorError> {
-        Ok(RQEValidateStatus::Ok)
     }
 
     #[inline(always)]
@@ -210,13 +202,6 @@ impl<'index> RQEIterator<'index> for Box<dyn WildcardIterator<'index> + 'index> 
         (**self).skip_to(doc_id)
     }
 
-    fn revalidate(
-        &mut self,
-        spec: &IndexSpecReadGuard,
-    ) -> Result<RQEValidateStatus<'_, 'index>, RQEIteratorError> {
-        (**self).revalidate(spec)
-    }
-
     fn rewind(&mut self) {
         (**self).rewind()
     }
@@ -275,8 +260,7 @@ pub enum NewWildcardIterator<'index> {
 /// `#[repr(C, u8)]` so the layout matches [`OptimizedWildcardSuspended`] —
 /// suspend/resume use whole-`Box` pointer casts that preserve the heap
 /// allocation across the cycle. See
-/// [`crate::inverted_index::wildcard::RawWildcard`] for the same argument
-/// at the leaf level.
+/// [`crate::inverted_index::Wildcard`] for the same argument at the leaf level.
 #[repr(C, u8)]
 pub enum OptimizedWildcard<'index> {
     /// Optimized wildcard with [`DocIdsOnly`] encoding.
@@ -326,13 +310,6 @@ impl<'index> RQEIterator<'index> for OptimizedWildcard<'index> {
 
     fn at_eof(&self) -> bool {
         delegate_rqe_iterator!(self, at_eof)
-    }
-
-    fn revalidate(
-        &mut self,
-        spec: &IndexSpecReadGuard,
-    ) -> Result<RQEValidateStatus<'_, 'index>, RQEIteratorError> {
-        delegate_rqe_iterator!(self, revalidate, spec)
     }
 
     #[inline(always)]
@@ -509,13 +486,6 @@ impl<'index> RQEIterator<'index> for NewWildcardIterator<'index> {
 
     fn at_eof(&self) -> bool {
         delegate_wildcard_iterator!(self, at_eof)
-    }
-
-    fn revalidate(
-        &mut self,
-        spec: &IndexSpecReadGuard,
-    ) -> Result<RQEValidateStatus<'_, 'index>, RQEIteratorError> {
-        delegate_wildcard_iterator!(self, revalidate, spec)
     }
 
     #[inline(always)]
@@ -826,13 +796,6 @@ impl<'index> RQEIterator<'index> for DiskWildcardIterator<'index> {
         self.0.skip_to(doc_id)
     }
 
-    fn revalidate(
-        &mut self,
-        spec: &IndexSpecReadGuard,
-    ) -> Result<RQEValidateStatus<'_, 'index>, RQEIteratorError> {
-        self.0.revalidate(spec)
-    }
-
     fn rewind(&mut self) {
         self.0.rewind()
     }
@@ -869,7 +832,7 @@ impl<'index> WildcardIterator<'index> for DiskWildcardIterator<'index> {}
 /// here is a **lifetime lie**: the actual borrowed lifetime is `'index`,
 /// inherited from the original [`DiskWildcardIterator`]. The lie is
 /// closed by the FFI-side discipline: while a `DiskWildcardSuspended`
-/// exists, no code dereferences the inner iterator. On [`resume`] the
+/// exists, no code dereferences the inner iterator. On resume the
 /// lifetime contracts back to the guard's lifetime `'a` (which the
 /// caller proves is still valid for the underlying index).
 #[repr(transparent)]
@@ -897,23 +860,19 @@ impl RQESuspendedIterator for DiskWildcardSuspended {
 
     fn resume<'a>(
         self: Box<Self>,
-        spec: &'a IndexSpecReadGuard<'a>,
+        _spec: &'a IndexSpecReadGuard<'a>,
     ) -> (Box<Self::Resumed<'a>>, ValidateStatus) {
         let raw = Box::into_raw(self);
         // SAFETY: contract the lifetime back from the suspended `'static`
         // to the caller-provided `'a`. The caller's read lock on `spec`
         // witnesses that the underlying index data is dereferenceable at
         // `'a`. Box::from_raw reuses the same heap allocation.
-        let mut active = unsafe { Box::from_raw(raw as *mut DiskWildcardIterator<'a>) };
-        // Drive validity recovery through the inner trait object's
-        // `revalidate` callback.
-        let status = match active.revalidate(spec) {
-            Ok(RQEValidateStatus::Ok) => ffi::ValidateStatus_VALIDATE_OK,
-            Ok(RQEValidateStatus::Moved { .. }) => ffi::ValidateStatus_VALIDATE_MOVED,
-            Ok(RQEValidateStatus::Aborted) => ffi::ValidateStatus_VALIDATE_ABORTED,
-            Err(_) => ffi::ValidateStatus_VALIDATE_MOVED,
-        };
-        (active, status)
+        let active = unsafe { Box::from_raw(raw as *mut DiskWildcardIterator<'a>) };
+        // The disk crate's iterators are read-only snapshots that aren't
+        // subject to in-memory GC, so revalidation always reports OK. When
+        // the disk crate migrates to `RQEIteratorBoxed` natively, this can
+        // delegate to the inner iterator's `resume` like other composites.
+        (active, ffi::ValidateStatus_VALIDATE_OK)
     }
 
     fn last_doc_id(&self) -> t_docId {

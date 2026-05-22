@@ -37,9 +37,9 @@ use rqe_iterators::{IteratorType, RQEIterator, WildcardIterator};
 /// reference counted cell.  Test code can obtain a handle to this
 /// state through [`Mock::data`] in order to:
 ///
-/// * Inspect how many times [`RQEIterator::revalidate`] was called.
+/// * Inspect how many times `RQEIterator::revalidate` (removed) was called.
 /// * Inspect how many times [`RQEIterator::read`] was called.
-/// * Configure what [`RQEIterator::revalidate`] will return through
+/// * Configure what `RQEIterator::revalidate` (removed) will return through
 ///   [`MockData::set_revalidate_result`].
 /// * Configure an error that will be returned once the iterator
 ///   reaches the end of the document ids through
@@ -395,32 +395,6 @@ impl<'index, const N: usize> RQEIterator<'index> for Mock<'index, N> {
         }))
     }
 
-    fn revalidate(
-        &mut self,
-        _spec: &index_spec::IndexSpecReadGuard,
-    ) -> Result<rqe_iterators::RQEValidateStatus<'_, 'index>, rqe_iterators::RQEIteratorError> {
-        let revalidate_result = {
-            let mut data = self.data.0.borrow_mut();
-            data.validation_count += 1;
-            data.revalidate_result
-        };
-
-        Ok(match revalidate_result {
-            MockRevalidateResult::Ok => rqe_iterators::RQEValidateStatus::Ok,
-            MockRevalidateResult::Abort => rqe_iterators::RQEValidateStatus::Aborted,
-            MockRevalidateResult::Move => {
-                rqe_iterators::RQEValidateStatus::Moved {
-                    current: (self.next_index < N).then(|| {
-                        // Simulate a move by incrementing nextIndex
-                        self.set_result(self.next_index);
-                        self.next_index += 1;
-                        &mut self.result
-                    }),
-                }
-            }
-        })
-    }
-
     fn rewind(&mut self) {
         self.next_index = 0;
         self.result.doc_id = 0;
@@ -641,30 +615,6 @@ impl<'index> RQEIterator<'index> for MockVec<'index> {
                 rqe_iterators::SkipToOutcome::NotFound(result)
             }
         }))
-    }
-
-    fn revalidate(
-        &mut self,
-        _spec: &index_spec::IndexSpecReadGuard,
-    ) -> Result<rqe_iterators::RQEValidateStatus<'_, 'index>, rqe_iterators::RQEIteratorError> {
-        let revalidate_result = {
-            let mut data = self.data.0.borrow_mut();
-            data.validation_count += 1;
-            data.revalidate_result
-        };
-
-        let n = self.doc_ids.len();
-        Ok(match revalidate_result {
-            MockRevalidateResult::Ok => rqe_iterators::RQEValidateStatus::Ok,
-            MockRevalidateResult::Abort => rqe_iterators::RQEValidateStatus::Aborted,
-            MockRevalidateResult::Move => rqe_iterators::RQEValidateStatus::Moved {
-                current: (self.next_index < n).then(|| {
-                    self.result.doc_id = self.doc_ids[self.next_index];
-                    self.next_index += 1;
-                    &mut self.result
-                }),
-            },
-        })
     }
 
     fn rewind(&mut self) {

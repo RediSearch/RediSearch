@@ -1091,7 +1091,7 @@ fn children_sorted_by_estimated() {
 /// - But when we call `skip_to(max_child_doc_id)`, no consensus can be found
 ///   because there's no common document ID >= max_child_doc_id
 ///
-/// The expected result is `RQEValidateStatus::Moved { current: None }`
+/// The expected result is `VALIDATE_MOVED` with no current
 #[test]
 fn revalidate_moved_skip_to_returns_none() {
     let mock_ctx = rqe_iterators_test_utils::MockContext::new(0, 0);

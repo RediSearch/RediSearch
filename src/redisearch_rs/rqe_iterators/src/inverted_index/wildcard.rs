@@ -19,8 +19,7 @@ use inverted_index::{
 use ref_mode::{Active, Ref, Suspended};
 
 use crate::{
-    IteratorType, RQEIterator, RQEIteratorBoxed, RQEIteratorError, RQESuspendedIterator,
-    RQEValidateStatus, SkipToOutcome,
+    IteratorType, RQEIterator, RQEIteratorBoxed, RQEIteratorError, RQESuspendedIterator, SkipToOutcome,
     expiration_checker::NoOpChecker,
 };
 
@@ -61,7 +60,7 @@ where
     /// The garbage collector may either null out `existingDocs` (after
     /// collecting all documents) or replace it with a new allocation. In
     /// both cases the reader's pointer is stale and the iterator must
-    /// [abort](RQEValidateStatus::Aborted).
+    /// abort with `VALIDATE_ABORTED`.
     ///
     /// # Why mode-independent
     ///
@@ -191,20 +190,6 @@ where
     #[inline(always)]
     fn at_eof(&self) -> bool {
         self.it.at_eof()
-    }
-
-    #[inline(always)]
-    fn revalidate(
-        &mut self,
-        spec: &IndexSpecReadGuard,
-    ) -> Result<RQEValidateStatus<'_, 'index>, RQEIteratorError> {
-        // The existingDocs encoding match is a structural invariant: the
-        // encoding is determined at index creation and cannot change.
-        if self.should_abort(spec) {
-            return Ok(RQEValidateStatus::Aborted);
-        }
-
-        self.it.revalidate(spec)
     }
 
     #[inline(always)]

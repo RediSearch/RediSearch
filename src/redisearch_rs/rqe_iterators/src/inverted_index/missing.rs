@@ -26,7 +26,7 @@ use ref_mode::{Active, Ref, Suspended};
 
 use crate::{
     ExpirationChecker, IteratorType, RQEIterator, RQEIteratorBoxed, RQEIteratorError,
-    RQESuspendedIterator, RQEValidateStatus, SkipToOutcome,
+    RQESuspendedIterator, SkipToOutcome,
 };
 
 use super::{InvIndIterator, core::RawInvIndIterator};
@@ -117,7 +117,7 @@ where
     /// The garbage collector may remove all documents from the
     /// missing-field inverted index or replace it with a new allocation.
     /// In both cases the reader's pointer is stale and the iterator
-    /// must [abort](RQEValidateStatus::Aborted).
+    /// must abort with `VALIDATE_ABORTED`.
     ///
     /// # Why mode-independent
     ///
@@ -283,21 +283,6 @@ where
     #[inline(always)]
     fn at_eof(&self) -> bool {
         self.it.at_eof()
-    }
-
-    #[inline(always)]
-    fn revalidate(
-        &mut self,
-        spec: &IndexSpecReadGuard,
-    ) -> Result<RQEValidateStatus<'_, 'index>, RQEIteratorError> {
-        // Conditions (field_index validity, missingFieldDict, encoding
-        // match) are structural invariants guaranteed by the constructor's
-        // pre-conditions.
-        if self.should_abort(spec) {
-            return Ok(RQEValidateStatus::Aborted);
-        }
-
-        self.it.revalidate(spec)
     }
 
     #[inline(always)]

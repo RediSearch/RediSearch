@@ -510,16 +510,6 @@ QueryIterator *NewInvIndIterator_TermQuery(const InvertedIndex *idx, const Redis
 const QueryIterator *GetUnionIteratorChild(const QueryIterator *it, size_t idx);
 
 /**
- * Returns the [`QueryNodeType`] stored in the union iterator.
- *
- * # Safety
- *
- * 1. `it` must be a valid non-null pointer to a non-reduced union iterator
- *    created via [`NewUnionIterator`].
- */
-QueryNodeType GetUnionIteratorQueryNodeType(const QueryIterator *it);
-
-/**
  * Creates a new wildcard inverted index iterator for querying all existing documents.
  *
  * # Parameters
@@ -546,14 +536,14 @@ QueryNodeType GetUnionIteratorQueryNodeType(const QueryIterator *it);
 QueryIterator *NewInvIndIterator_WildcardQuery(const InvertedIndex *idx, const RedisSearchCtx *sctx, double weight);
 
 /**
- * Returns the query string pointer stored in the union iterator, or null.
+ * Returns the [`QueryNodeType`] stored in the union iterator.
  *
  * # Safety
  *
  * 1. `it` must be a valid non-null pointer to a non-reduced union iterator
  *    created via [`NewUnionIterator`].
  */
-const char *GetUnionIteratorQueryString(const QueryIterator *it);
+QueryNodeType GetUnionIteratorQueryNodeType(const QueryIterator *it);
 
 /**
  * Gets the numeric filter from a numeric inverted index iterator.
@@ -567,6 +557,16 @@ const char *GetUnionIteratorQueryString(const QueryIterator *it);
  * A pointer to the numeric filter, or NULL if no filter was provided when creating the iterator.
  */
 const NumericFilter *NumericInvIndIterator_GetNumericFilter(const QueryIterator *it);
+
+/**
+ * Returns the query string pointer stored in the union iterator, or null.
+ *
+ * # Safety
+ *
+ * 1. `it` must be a valid non-null pointer to a non-reduced union iterator
+ *    created via [`NewUnionIterator`].
+ */
+const char *GetUnionIteratorQueryString(const QueryIterator *it);
 
 /**
  * Creates a new missing-field inverted index iterator.
@@ -632,7 +632,7 @@ void TrimUnionIterator(QueryIterator *it, size_t limit, bool asc);
  *
  * 1. `idx` must be a valid pointer to a [`DocIdsOnly`] or [`RawDocIdsOnly`]
  *    [`InvertedIndex`](ffi::InvertedIndex) and cannot be NULL.
- * 2. `idx` must remain valid between [`revalidate()`](rqe_iterators::RQEIterator::revalidate) calls, since the revalidation
+ * 2. `idx` must remain valid between `revalidate` (removed) calls, since the revalidation
  *    mechanism detects when the index has been replaced via [`TagIndex`](ffi::TagIndex) `TrieMap` lookup.
  * 3. `tag_idx` must be a valid pointer to a [`TagIndex`](ffi::TagIndex) and cannot be NULL.
  * 4. `tag_idx` and `tag_idx.values` must remain valid for the lifetime of the returned

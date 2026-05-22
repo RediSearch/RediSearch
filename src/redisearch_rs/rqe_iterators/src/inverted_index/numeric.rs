@@ -11,7 +11,7 @@ use std::{f64, ptr::NonNull};
 
 use crate::{
     FieldExpirationChecker, IteratorType, RQEIterator, RQEIteratorBoxed, RQEIteratorError,
-    RQESuspendedIterator, RQEValidateStatus, SkipToOutcome,
+    RQESuspendedIterator, SkipToOutcome,
     expiration_checker::{ExpirationChecker, NoOpChecker},
 };
 use ffi::{
@@ -89,7 +89,7 @@ impl<Rf: Ref, R, E> RawNumeric<Rf, R, E> {
     /// modified by GC (a node split or removal). The iterator's cached
     /// `revision_id` snapshot is compared against the current value; if
     /// they differ, the cursor is invalidated and the iterator must
-    /// [abort](RQEValidateStatus::Aborted).
+    /// abort with `VALIDATE_ABORTED`.
     ///
     /// # Why mode-independent
     ///
@@ -326,18 +326,6 @@ where
     #[inline(always)]
     fn at_eof(&self) -> bool {
         self.it.at_eof()
-    }
-
-    #[inline(always)]
-    fn revalidate(
-        &mut self,
-        spec: &IndexSpecReadGuard,
-    ) -> Result<RQEValidateStatus<'_, 'index>, RQEIteratorError> {
-        if self.should_abort() {
-            return Ok(RQEValidateStatus::Aborted);
-        }
-
-        self.it.revalidate(spec)
     }
 
     #[inline(always)]
@@ -656,18 +644,6 @@ impl<'index> RQEIterator<'index> for NumericIteratorVariant<'index> {
             Self::Unfiltered(iter) => iter.at_eof(),
             Self::Filtered(iter) => iter.at_eof(),
             Self::Geo(iter) => iter.at_eof(),
-        }
-    }
-
-    #[inline(always)]
-    fn revalidate(
-        &mut self,
-        spec: &IndexSpecReadGuard,
-    ) -> Result<RQEValidateStatus<'_, 'index>, RQEIteratorError> {
-        match self {
-            Self::Unfiltered(iter) => iter.revalidate(spec),
-            Self::Filtered(iter) => iter.revalidate(spec),
-            Self::Geo(iter) => iter.revalidate(spec),
         }
     }
 

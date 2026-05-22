@@ -22,7 +22,7 @@ use index_result::{RSIndexResult, RawIndexResult};
 use ref_mode::{Active, Ref, Suspended};
 
 use crate::{
-    RQEIterator, RQEIteratorBoxed, RQEIteratorError, RQESuspendedIterator, RQEValidateStatus,
+    RQEIterator, RQEIteratorBoxed, RQEIteratorError, RQESuspendedIterator,
     SkipToOutcome, maybe_empty::MaybeEmpty, optional::OptionalIterator,
     wildcard::WildcardIterator,
 };
@@ -48,7 +48,7 @@ pub struct RawOptionalOptimized<Rf: Ref, W, I> {
     wcii: W,
     /// Query child — provides real hits at positions where it has a match.
     /// Wrapped in [`MaybeEmpty`] so it can be replaced with an empty iterator
-    /// when it is aborted during [`RQEIterator::revalidate`].
+    /// when it is aborted during `RQEIterator::revalidate` (removed).
     child: MaybeEmpty<I>,
     /// Virtual result returned when `wcii` has a doc but `child` does not.
     virt: RawIndexResult<Rf>,
@@ -255,96 +255,6 @@ where
                 Ok(Some(SkipToOutcome::Found(&mut self.virt)))
             } else {
                 Ok(Some(SkipToOutcome::NotFound(&mut self.virt)))
-            }
-        }
-    }
-
-    fn revalidate(
-        &mut self,
-        spec: &IndexSpecReadGuard,
-    ) -> Result<RQEValidateStatus<'_, 'index>, RQEIteratorError> {
-        // Simple enum to avoid holding a borrow through the match.
-        enum ValidateOutcome {
-            Ok,
-            Moved,
-        }
-
-        // Step 1: Revalidate wcii. If it aborts or is at EOF, we can return immediately.
-        let wcii_outcome = match self.wcii.revalidate(spec)? {
-            RQEValidateStatus::Ok => ValidateOutcome::Ok,
-            RQEValidateStatus::Moved { current: Some(_) } => ValidateOutcome::Moved,
-            RQEValidateStatus::Moved { current: None } => {
-                self.at_eof = true;
-                return Ok(RQEValidateStatus::Moved { current: None });
-            }
-            RQEValidateStatus::Aborted => return Ok(RQEValidateStatus::Aborted),
-        };
-        self.at_eof = self.wcii.at_eof();
-
-        // `last_doc_id` is `None` in the initial/rewound state, which is always
-        // virtual.
-        let current_was_virtual =
-            self.last_doc_id == 0 || self.child.last_doc_id() != self.last_doc_id;
-
-        // Step 2: Revalidate child. If it aborts, replace with an empty iterator.
-        // Abort is treated as Moved: child's state changed, so we must re-evaluate.
-        let child_outcome = match self.child.revalidate(spec)? {
-            RQEValidateStatus::Ok => ValidateOutcome::Ok,
-            RQEValidateStatus::Moved { .. } => ValidateOutcome::Moved,
-            RQEValidateStatus::Aborted => {
-                let _ = self.child.take_iterator(); // replace with Empty
-                ValidateOutcome::Moved
-            }
-        };
-
-        // Step 3: Determine the outcome based on wcii's and child's status.
-        match wcii_outcome {
-            ValidateOutcome::Ok => {
-                if matches!(child_outcome, ValidateOutcome::Ok) || current_was_virtual {
-                    // Child is still valid, or the current result was virtual — no change.
-                    return Ok(RQEValidateStatus::Ok);
-                }
-                // Child moved or aborted while current was a real result.
-                // Advance to the next valid state.
-                let current = self.read()?;
-                Ok(RQEValidateStatus::Moved { current })
-            }
-            ValidateOutcome::Moved => {
-                // wcii moved to a new valid position; update child accordingly.
-                let wcii_doc_id = self.wcii.last_doc_id();
-
-                // wcii may have moved past max_doc_id.
-                if wcii_doc_id > self.max_doc_id {
-                    self.at_eof = true;
-                    return Ok(RQEValidateStatus::Moved { current: None });
-                }
-
-                if wcii_doc_id > self.child.last_doc_id() {
-                    let _ = self.child.skip_to(wcii_doc_id)?;
-                }
-
-                self.last_doc_id = wcii_doc_id;
-                // Keep at_eof consistent so callers see true immediately after the last result.
-                self.at_eof |= wcii_doc_id >= self.max_doc_id;
-
-                let weight = self.weight;
-                if self.child.last_doc_id() == wcii_doc_id {
-                    // Real hit at the new wcii position.
-                    let result = self
-                        .child
-                        .current()
-                        .expect("child has a result at wcii_doc_id");
-                    result.weight = weight;
-                    Ok(RQEValidateStatus::Moved {
-                        current: Some(result),
-                    })
-                } else {
-                    // Virtual hit at the new wcii position.
-                    self.virt.doc_id = wcii_doc_id;
-                    Ok(RQEValidateStatus::Moved {
-                        current: Some(&mut self.virt),
-                    })
-                }
             }
         }
     }

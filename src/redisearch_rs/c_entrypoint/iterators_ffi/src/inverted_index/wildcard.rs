@@ -208,17 +208,6 @@ impl<'index> rqe_iterators::RQEIterator<'index> for WildcardIterator<'index> {
     }
 
     #[inline(always)]
-    fn revalidate(
-        &mut self,
-        spec: &index_spec::IndexSpecReadGuard,
-    ) -> Result<rqe_iterators::RQEValidateStatus<'_, 'index>, rqe_iterators::RQEIteratorError> {
-        match self {
-            WildcardIterator::Encoded(w) => w.revalidate(spec),
-            WildcardIterator::Raw(w) => w.revalidate(spec),
-        }
-    }
-
-    #[inline(always)]
     fn type_(&self) -> IteratorType {
         IteratorType::InvIdxWildcard
     }

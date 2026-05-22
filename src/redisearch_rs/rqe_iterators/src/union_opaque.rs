@@ -28,8 +28,7 @@ use index_result::RSIndexResult;
 use ref_mode::{Active, Ref, Suspended};
 
 use crate::{
-    IteratorType, RQEIterator, RQEIteratorBoxed, RQEIteratorError, RQESuspendedIterator,
-    RQEValidateStatus, SkipToOutcome, UnionFullFlat, union_flat::RawUnionFlat,
+    IteratorType, RQEIterator, RQEIteratorBoxed, RQEIteratorError, RQESuspendedIterator, SkipToOutcome, UnionFullFlat, union_flat::RawUnionFlat,
     union_heap::RawUnionHeap, union_trimmed::RawUnionTrimmed,
 };
 
@@ -203,14 +202,6 @@ impl<'index, I: RQEIterator<'index>> RQEIterator<'index> for UnionOpaque<'index,
         doc_id: t_docId,
     ) -> Result<Option<SkipToOutcome<'_, 'index>>, RQEIteratorError> {
         delegate_variant_ref_mut!(self, skip_to, doc_id)
-    }
-
-    #[inline(always)]
-    fn revalidate(
-        &mut self,
-        spec: &IndexSpecReadGuard,
-    ) -> Result<RQEValidateStatus<'_, 'index>, RQEIteratorError> {
-        delegate_variant_ref_mut!(self, revalidate, spec)
     }
 
     #[inline(always)]

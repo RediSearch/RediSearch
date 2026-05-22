@@ -8,8 +8,7 @@
 */
 
 use rqe_iterators::{
-    IteratorType, RQEIterator, RQEIteratorBoxed, RQEIteratorError, RQESuspendedIterator,
-    RQEValidateStatus, SkipToOutcome, maybe_empty::MaybeEmpty,
+    IteratorType, RQEIterator, RQEIteratorBoxed, RQEIteratorError, RQESuspendedIterator, SkipToOutcome, maybe_empty::MaybeEmpty,
 };
 use rqe_iterators_test_utils::revalidate_via_resume;
 
@@ -92,13 +91,6 @@ impl<'index> RQEIterator<'index> for Infinite<'index> {
 
     fn at_eof(&self) -> bool {
         false
-    }
-
-    fn revalidate(
-        &mut self,
-        _spec: &index_spec::IndexSpecReadGuard,
-    ) -> Result<RQEValidateStatus<'_, 'index>, RQEIteratorError> {
-        Ok(RQEValidateStatus::Ok)
     }
 
     #[inline(always)]

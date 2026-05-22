@@ -11,7 +11,7 @@
 //!
 //! This module introduces the suspend/resume trait hierarchy that will
 //! supersede the legacy
-//! [`RQEIterator::revalidate`](super::RQEIterator::revalidate) design:
+//! `RQEIterator::revalidate` (removed)(super::RQEIterator::revalidate) design:
 //!
 //! | Concept              | Concrete (type-state preserved)   | Dyn-safe sibling                |
 //! |----------------------|-----------------------------------|---------------------------------|
@@ -32,7 +32,7 @@
 //! # R1 + R2 transitional shape
 //!
 //! During R1 and R2 the new active-iterator trait is a **subtrait** of the
-//! legacy [`RQEIterator`](super::RQEIterator):
+//! legacy [`RQEIterator`]:
 //!
 //! ```text
 //! trait RQEIteratorBoxed<'a>: RQEIterator<'a> + 'a {
@@ -47,7 +47,7 @@
 //! sites that reach for `self.foo()`. The same goes for [`RQEDynIterator`]
 //! against the legacy trait on the dyn-erased side.
 //!
-//! In **R3** the legacy [`RQEIterator`](super::RQEIterator) trait is
+//! In **R3** the legacy [`RQEIterator`] trait is
 //! deleted entirely; its method signatures (sans `revalidate`) are folded
 //! directly into [`RQEIteratorBoxed`] / [`RQEDynIterator`], and
 //! [`RQEIteratorBoxed`] is renamed back to `RQEIterator`. That matches the
@@ -58,11 +58,11 @@ use index_result::RSIndexResult;
 use index_spec::IndexSpecReadGuard;
 
 use crate::{
-    IteratorType, RQEIterator, RQEIteratorError, RQEValidateStatus, SkipToOutcome, c2rust,
+    IteratorType, RQEIterator, RQEIteratorError, SkipToOutcome, c2rust,
 };
 
 /// Concrete-typed active iterator trait — the new shape of
-/// [`RQEIterator`](super::RQEIterator).
+/// [`RQEIterator`].
 ///
 /// Compared with the legacy trait it adds:
 ///
@@ -78,7 +78,7 @@ use crate::{
 /// what lets the [`RQEDynIterator`] sibling exist as a free blanket impl.
 ///
 /// During R1–R2 this trait is a **subtrait** of
-/// [`RQEIterator`](super::RQEIterator) so that the read/skip/rewind surface
+/// [`RQEIterator`] so that the read/skip/rewind surface
 /// is inherited without duplication. R3 folds those method signatures into
 /// this trait directly and renames it back to `RQEIterator`.
 pub trait RQEIteratorBoxed<'a>: RQEIterator<'a> + 'a {
@@ -102,7 +102,7 @@ pub trait RQEIteratorBoxed<'a>: RQEIterator<'a> + 'a {
     ///
     /// Composite iterators must override this to call `cascade_suspend` on each
     /// child (so `CRQEIterator` children invoke their wrapped iterator's
-    /// `Suspend` vtable entry, flipping its typestate). [`CRQEIterator`] itself
+    /// `Suspend` vtable entry, flipping its typestate). [`CRQEIterator`](crate::c2rust::CRQEIterator) itself
     /// overrides this to call its `Suspend` callback. Leaf iterators inherit
     /// the default no-op.
     ///
@@ -164,7 +164,7 @@ pub trait RQESuspendedIterator: 'static {
 /// Dyn-safe sibling of [`RQEIteratorBoxed`].
 ///
 /// During R1–R2 this trait is a **subtrait** of
-/// [`RQEIterator`](super::RQEIterator) — the read/skip/rewind surface is
+/// [`RQEIterator`] — the read/skip/rewind surface is
 /// reached via the supertrait, and only [`suspend`](Self::suspend) is new
 /// on top. R3 folds the legacy iter methods directly into this trait.
 ///
@@ -275,7 +275,7 @@ impl BoxedRQESuspendedIterator {
 /// Bridge concrete active iterators into the dyn-safe sibling.
 ///
 /// Only `suspend` is bridged here — the read/skip surface is inherited from
-/// the legacy [`RQEIterator`](super::RQEIterator) supertrait, which the
+/// the legacy [`RQEIterator`] supertrait, which the
 /// concrete iterator already implements.
 impl<'a, T: RQEIteratorBoxed<'a> + 'a> RQEDynIterator<'a> for T {
     fn suspend(self: Box<Self>) -> BoxedRQESuspendedIterator {
@@ -329,13 +329,6 @@ impl<'a> RQEIterator<'a> for BoxedRQEIterator<'a> {
         doc_id: t_docId,
     ) -> Result<Option<SkipToOutcome<'_, 'a>>, RQEIteratorError> {
         self.0.skip_to(doc_id)
-    }
-
-    fn revalidate(
-        &mut self,
-        spec: &IndexSpecReadGuard,
-    ) -> Result<RQEValidateStatus<'_, 'a>, RQEIteratorError> {
-        self.0.revalidate(spec)
     }
 
     fn rewind(&mut self) {

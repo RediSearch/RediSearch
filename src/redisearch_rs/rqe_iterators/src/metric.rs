@@ -10,8 +10,7 @@
 //! Supporting types for [`Metric`].
 
 use crate::{
-    IteratorType, RQEIterator, RQEIteratorBoxed, RQEIteratorError, RQESuspendedIterator,
-    RQEValidateStatus, SkipToOutcome,
+    IteratorType, RQEIterator, RQEIteratorBoxed, RQEIteratorError, RQESuspendedIterator, SkipToOutcome,
     id_list::{IdList, RawIdList},
     utils::OwnedSlice,
 };
@@ -199,14 +198,6 @@ impl<'index, const SORTED_BY_ID: bool> RQEIterator<'index> for Metric<'index, SO
     #[inline(always)]
     fn at_eof(&self) -> bool {
         self.base.at_eof()
-    }
-
-    #[inline(always)]
-    fn revalidate(
-        &mut self,
-        spec: &IndexSpecReadGuard,
-    ) -> Result<RQEValidateStatus<'_, 'index>, RQEIteratorError> {
-        self.base.revalidate(spec)
     }
 
     #[inline(always)]
