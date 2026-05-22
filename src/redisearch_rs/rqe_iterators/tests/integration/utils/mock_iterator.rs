@@ -355,10 +355,20 @@ impl<'index, const N: usize> RQEIterator<'index> for Mock<'index, N> {
 
         data.read_count += 1;
 
-        assert!(
-            self.result.doc_id < doc_id,
-            "skipTo: requested to skip backwards",
-        );
+        // Already at or past `doc_id` — mirror real iterators
+        // (e.g. [`Term`](rqe_iterators::inverted_index::Term)) whose
+        // `seek_record(doc_id)` returns the current record when it's
+        // already ≥ `doc_id`. Without this, the assert would fire on
+        // resume-driven re-skips that target the iterator's pre-suspend
+        // position.
+        if self.result.doc_id >= doc_id {
+            data.read_count -= 1;
+            return Ok(Some(if self.result.doc_id == doc_id {
+                rqe_iterators::SkipToOutcome::Found(&mut self.result)
+            } else {
+                rqe_iterators::SkipToOutcome::NotFound(&mut self.result)
+            }));
+        }
 
         if self.at_eof() {
             return if let Some(err) = data.error_at_done {
@@ -522,10 +532,16 @@ impl<'index> RQEIterator<'index> for MockVec<'index> {
 
         data.read_count += 1;
 
-        assert!(
-            self.result.doc_id < doc_id,
-            "skipTo: requested to skip backwards",
-        );
+        // See `Mock::skip_to` — already-at-or-past target returns the
+        // current record without advancing, mirroring real iterators.
+        if self.result.doc_id >= doc_id {
+            data.read_count -= 1;
+            return Ok(Some(if self.result.doc_id == doc_id {
+                rqe_iterators::SkipToOutcome::Found(&mut self.result)
+            } else {
+                rqe_iterators::SkipToOutcome::NotFound(&mut self.result)
+            }));
+        }
 
         let n = self.doc_ids.len();
         if self.at_eof() {
