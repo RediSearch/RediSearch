@@ -8,11 +8,13 @@
 */
 
 use crate::id_cases;
+use ffi::ValidateStatus_VALIDATE_OK;
 use index_result::RSResultKind;
 use rqe_iterators::{
-    IteratorType, RQEIterator, RQEValidateStatus, SkipToOutcome,
+    IteratorType, RQEIterator, SkipToOutcome,
     id_list::{IdListSorted, IdListUnsorted},
 };
+use rqe_iterators_test_utils::revalidate_via_resume;
 use rstest_reuse::apply;
 
 #[test]
@@ -232,9 +234,8 @@ fn rewind(#[case] case: &[u64]) {
 #[test]
 fn revalidate() {
     let mock_ctx = rqe_iterators_test_utils::MockContext::new(0, 0);
-    let mut it = IdListSorted::new(vec![1, 2, 3]);
-    let status = it
-        .revalidate(&*mock_ctx.spec_read())
-        .expect("revalidate failed");
-    assert_eq!(status, RQEValidateStatus::Ok);
+    let guard = mock_ctx.spec_read();
+    let it = Box::new(IdListSorted::new(vec![1, 2, 3]));
+    let (_it, status) = revalidate_via_resume(it, &guard);
+    assert_eq!(status, ValidateStatus_VALIDATE_OK);
 }
