@@ -19,8 +19,9 @@ use ref_mode::{Active, Ref, Suspended};
 
 use crate::{
     RQEIterator, RQEIteratorBoxed, RQEIteratorError, RQESuspendedIterator, ResumeOutcome,
-    SkipToOutcome,
+    SkipToOutcome, TypeErasedRQEIterator,
     maybe_empty::MaybeEmpty,
+    optional::OptionalIterator,
     profile_print::{ProfilePrint, ProfilePrintCtx},
     wildcard::WildcardIterator,
 };
@@ -110,6 +111,28 @@ where
             last_doc_id: 0,
             at_eof: false,
         }
+    }
+}
+
+impl<'index, W> OptionalIterator<'index>
+    for OptionalOptimized<'index, W, TypeErasedRQEIterator<'index>>
+where
+    W: WildcardIterator<'index>,
+{
+    fn child(&self) -> Option<&(dyn RQEIterator<'index> + 'index)> {
+        OptionalOptimized::child(self).map(|c| c as &dyn RQEIterator<'index>)
+    }
+
+    fn take_child(&mut self) -> Option<TypeErasedRQEIterator<'index>> {
+        self.child.take_iterator()
+    }
+
+    fn set_child(&mut self, child: TypeErasedRQEIterator<'index>) {
+        self.child = MaybeEmpty::new(child);
+    }
+
+    fn unset_child(&mut self) {
+        panic!("`unset_child` is not supported for this optional iterator variant");
     }
 }
 

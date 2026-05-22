@@ -14,7 +14,7 @@ use ref_mode::{Active, Ref, Suspended};
 
 use crate::{
     IteratorType, RQEIterator, RQEIteratorBoxed, RQEIteratorError, RQESuspendedIterator,
-    ResumeOutcome, SkipToOutcome,
+    ResumeOutcome, SkipToOutcome, TypeErasedRQEIterator,
     maybe_empty::MaybeEmpty,
     profile_print::{ProfilePrint, ProfilePrintCtx},
     utils::TimeoutContext,
@@ -319,6 +319,23 @@ where
 
     fn num_estimated(&self) -> usize {
         self.max_doc_id as usize
+    }
+}
+
+/// Trait for NOT iterators ([`Not`] and [`crate::not_optimized::NotOptimized`]).
+pub trait NotIterator<'index>: RQEIterator<'index> {
+    // Those methods are used by profile.c to wrap the child iterator.
+    // They can be removed once this code is ported to Rust.
+    /// Get a shared reference to the child iterator, or `None` if unset.
+    fn child(&self) -> Option<&dyn RQEIterator<'index>>;
+}
+
+impl<'index, TC> NotIterator<'index> for Not<'index, TypeErasedRQEIterator<'index>, TC>
+where
+    TC: TimeoutContext,
+{
+    fn child(&self) -> Option<&dyn RQEIterator<'index>> {
+        self.child.as_ref().map(|c| c as &dyn RQEIterator<'index>)
     }
 }
 
