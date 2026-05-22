@@ -469,6 +469,17 @@ void AddIntersectionIteratorChild(QueryIterator *header, QueryIterator *child);
 size_t GetUnionIteratorNumChildren(const QueryIterator *it);
 
 /**
+ * Returns a non-owning raw pointer to the child at `idx`.
+ *
+ * # Safety
+ *
+ * 1. `it` must be a valid non-null pointer to a non-reduced union iterator
+ *    created via [`NewUnionIterator`].
+ * 2. `idx` must be less than [`GetUnionIteratorNumChildren`]`(it)`.
+ */
+const QueryIterator *GetUnionIteratorChild(const QueryIterator *it, size_t idx);
+
+/**
  * Creates a new term inverted index iterator for querying term fields.
  *
  * # Parameters
@@ -497,17 +508,6 @@ size_t GetUnionIteratorNumChildren(const QueryIterator *it);
  *    `NewQueryTerm`) and cannot be NULL. Ownership is transferred to the iterator.
  */
 QueryIterator *NewInvIndIterator_TermQuery(const InvertedIndex *idx, const RedisSearchCtx *sctx, union FieldMaskOrIndex field_mask_or_index, struct RSQueryTerm *term, double weight);
-
-/**
- * Returns a non-owning raw pointer to the child at `idx`.
- *
- * # Safety
- *
- * 1. `it` must be a valid non-null pointer to a non-reduced union iterator
- *    created via [`NewUnionIterator`].
- * 2. `idx` must be less than [`GetUnionIteratorNumChildren`]`(it)`.
- */
-const QueryIterator *GetUnionIteratorChild(const QueryIterator *it, size_t idx);
 
 /**
  * Creates a new wildcard inverted index iterator for querying all existing documents.
@@ -715,6 +715,17 @@ const char *InvIndMissingIterator_GetFieldName(const QueryIterator *it, size_t *
 NumericRangeTree *openNumericOrGeoIndex(IndexSpec *spec, FieldSpec *fs, bool create_if_missing);
 
 /**
+ * Get the child pointer of a NOT iterator, or NULL if there is no child.
+ *
+ * # Safety
+ *
+ * 1. `it` must be a valid non-null pointer to a non-reduced NOT iterator
+ *    created via [`NewNotIterator()`]. Must not be called on a reduced
+ *    (wildcard/empty) iterator returned by [`NewNotIterator()`].
+ */
+const QueryIterator *GetNotIteratorChild(const QueryIterator *it);
+
+/**
  * Opens the numeric/geo index and creates an iterator over all matching sub-ranges.
  *
  * # Returns
@@ -738,17 +749,6 @@ NumericRangeTree *openNumericOrGeoIndex(IndexSpec *spec, FieldSpec *fs, bool cre
  *    index (not a field mask).
  */
 QueryIterator *NewNumericFilterIterator(const RedisSearchCtx *ctx, const struct NumericFilter *flt, FieldType _for_type, const IteratorsConfig *config, const struct FieldFilterContext *filter_ctx);
-
-/**
- * Get the child pointer of a NOT iterator, or NULL if there is no child.
- *
- * # Safety
- *
- * 1. `it` must be a valid non-null pointer to a non-reduced NOT iterator
- *    created via [`NewNotIterator()`]. Must not be called on a reduced
- *    (wildcard/empty) iterator returned by [`NewNotIterator()`].
- */
-const QueryIterator *GetNotIteratorChild(const QueryIterator *it);
 
 #ifdef __cplusplus
 }  // extern "C"
