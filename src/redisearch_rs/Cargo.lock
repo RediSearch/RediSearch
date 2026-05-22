@@ -1730,6 +1730,20 @@ dependencies = [
 ]
 
 [[package]]
+name = "query_eval"
+version = "0.0.1"
+dependencies = [
+ "build_utils",
+ "ffi",
+ "proptest",
+ "query_eval",
+ "redis_mock",
+ "redisearch_rs",
+ "thiserror",
+ "workspace_hack",
+]
+
+[[package]]
 name = "query_flags"
 version = "0.0.1"
 dependencies = [

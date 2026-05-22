@@ -51,6 +51,7 @@ members = [
     "rqe_wildcard",
     "workspace_hack",
     "idf",
+    "query_eval",
 ]
 
 resolver = "3"
@@ -119,6 +120,7 @@ numeric_range_tree = { path = "./numeric_range_tree" }
 redis_reply = { path = "./redis_reply" }
 qint = { path = "./qint" }
 query_error = { path = "./query_error" }
+query_eval = { path = "./query_eval" }
 query_flags = { path = "./query_flags" }
 query_term = { path = "./query_term" }
 redis_json_api = { path = "./redis_json_api" }
