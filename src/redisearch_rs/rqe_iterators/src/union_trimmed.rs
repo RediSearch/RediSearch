@@ -50,7 +50,7 @@ use index_result::{RSIndexResult, RawIndexResult};
 use ref_mode::{Active, Ref, Suspended};
 
 use crate::{
-    IteratorType, RQEIterator, RQEIteratorBoxed, RQEIteratorError, RQESuspendedIterator, SkipToOutcome,
+    IteratorType, RQEIterator, RQEIteratorError, RQESuspendedIterator, SkipToOutcome,
 };
 use index_spec::IndexSpecReadGuard;
 
@@ -232,6 +232,29 @@ impl<'index, I> RQEIterator<'index> for UnionTrimmed<'index, I>
 where
     I: RQEIterator<'index>,
 {
+    type Suspended = RawUnionTrimmed<Suspended, I::Suspended>;
+
+    fn suspend(self: Box<Self>) -> Box<Self::Suspended> {
+        let raw = Box::into_raw(self);
+        // Walk children — see [`crate::boxed::suspend_child_slot_in_place`].
+        // SAFETY: `raw` came from `Box::into_raw`, exclusively owned.
+        unsafe {
+            for child in (*raw).children.iter_mut() {
+                crate::boxed::suspend_child_slot_in_place(child);
+            }
+        }
+        // SAFETY: `RawUnionTrimmed` is `#[repr(C)]` over `Vec<I>` (now
+        // byte-rewritten as `Vec<I::Suspended>` contents) and
+        // `result: RawIndexResult<Rf>` (layout-compatible via `SharedPtr`).
+        unsafe { Box::from_raw(raw as *mut RawUnionTrimmed<Suspended, I::Suspended>) }
+    }
+
+    fn cascade_suspend(&mut self) {
+        for child in self.children.iter_mut() {
+            child.cascade_suspend();
+        }
+    }
+
     #[inline(always)]
     fn current(&mut self) -> Option<&mut RSIndexResult<'index>> {
         (!self.at_eof()).then_some(&mut self.result)
@@ -319,33 +342,6 @@ where
     }
 }
 
-impl<'index, I> RQEIteratorBoxed<'index> for UnionTrimmed<'index, I>
-where
-    I: RQEIteratorBoxed<'index>,
-{
-    type Suspended = RawUnionTrimmed<Suspended, I::Suspended>;
-
-    fn suspend(self: Box<Self>) -> Box<Self::Suspended> {
-        let raw = Box::into_raw(self);
-        // Walk children — see [`crate::boxed::suspend_child_slot_in_place`].
-        // SAFETY: `raw` came from `Box::into_raw`, exclusively owned.
-        unsafe {
-            for child in (*raw).children.iter_mut() {
-                crate::boxed::suspend_child_slot_in_place(child);
-            }
-        }
-        // SAFETY: `RawUnionTrimmed` is `#[repr(C)]` over `Vec<I>` (now
-        // byte-rewritten as `Vec<I::Suspended>` contents) and
-        // `result: RawIndexResult<Rf>` (layout-compatible via `SharedPtr`).
-        unsafe { Box::from_raw(raw as *mut RawUnionTrimmed<Suspended, I::Suspended>) }
-    }
-
-    fn cascade_suspend(&mut self) {
-        for child in self.children.iter_mut() {
-            child.cascade_suspend();
-        }
-    }
-}
 
 impl<S> RQESuspendedIterator for RawUnionTrimmed<Suspended, S>
 where

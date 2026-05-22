@@ -16,10 +16,10 @@ use ffi::{
 };
 use index_result::RSIndexResult;
 
-use crate::{RQEIteratorBoxed, RQEIteratorError, RQESuspendedIterator, SkipToOutcome};
+use crate::{RQEIterator, RQEIteratorError, RQESuspendedIterator, SkipToOutcome};
 
 /// A wrapper around a Rust iterator — i.e. an implementer of the
-/// [`RQEIteratorBoxed`] trait.
+/// [`RQEIterator`] trait.
 ///
 /// It allows existing C code to invoke the Rust iterator as if it were a C iterator,
 /// conforming to the existing C iterator conventions.
@@ -61,7 +61,7 @@ use crate::{RQEIteratorBoxed, RQEIteratorError, RQESuspendedIterator, SkipToOutc
 #[repr(C)]
 pub struct RQEIteratorWrapper<'index, I>
 where
-    I: RQEIteratorBoxed<'index> + 'index,
+    I: RQEIterator<'index> + 'index,
 {
     // The iterator header.
     // It *must* appear first for C-Rust interoperability to work as expected.
@@ -97,7 +97,7 @@ pub enum InnerStateMut<'a, A, S> {
 /// body.
 enum WrapperState<'index, I>
 where
-    I: RQEIteratorBoxed<'index> + 'index,
+    I: RQEIterator<'index> + 'index,
 {
     Active(Box<I>),
     Suspended(Box<I::Suspended>),
@@ -109,7 +109,7 @@ where
 
 impl<'index, I> WrapperState<'index, I>
 where
-    I: RQEIteratorBoxed<'index> + 'index,
+    I: RQEIterator<'index> + 'index,
 {
     /// Borrow the active iterator. Panics if the wrapper is not in
     /// [`Active`](Self::Active) state.
@@ -166,7 +166,7 @@ where
 
 impl<'index, I> RQEIteratorWrapper<'index, I>
 where
-    I: RQEIteratorBoxed<'index> + 'index,
+    I: RQEIterator<'index> + 'index,
 {
     /// Borrow the inner active iterator. Panics if the wrapper has been suspended.
     ///
@@ -309,7 +309,7 @@ where
 
 impl<'index, I> RQEIteratorWrapper<'index, I>
 where
-    I: RQEIteratorBoxed<'index> + 'index,
+    I: RQEIterator<'index> + 'index,
 {
     /// Heap-allocate a wrapper with the given `ProfileChildren` callback.
     pub fn boxed_new_inner(
@@ -374,7 +374,7 @@ where
 ///
 /// This trait will be removed when the C code that accesses iterator internals
 /// (profile printing, optimizer, mutation) is ported to Rust.
-pub trait ProfileChildren<'index>: RQEIteratorBoxed<'index> + Sized + 'index {
+pub trait ProfileChildren<'index>: RQEIterator<'index> + Sized + 'index {
     /// Profile all children, preserving the concrete iterator type.
     fn profile_children(self) -> Self;
 }
@@ -401,7 +401,7 @@ where
 
 extern "C" fn read<'index, I>(base: *mut QueryIterator) -> IteratorStatus
 where
-    I: RQEIteratorBoxed<'index> + 'index,
+    I: RQEIterator<'index> + 'index,
 {
     debug_assert!(!base.is_null());
     debug_assert!(base.is_aligned());
@@ -428,7 +428,7 @@ where
 
 extern "C" fn skip_to<'index, I>(base: *mut QueryIterator, doc_id: t_docId) -> IteratorStatus
 where
-    I: RQEIteratorBoxed<'index> + 'index,
+    I: RQEIterator<'index> + 'index,
 {
     debug_assert!(!base.is_null());
     debug_assert!(base.is_aligned());
@@ -472,7 +472,7 @@ where
 /// that may be invalidated during the lock release / re-acquire cycle.
 extern "C" fn suspend<'index, I>(base: *mut QueryIterator)
 where
-    I: RQEIteratorBoxed<'index> + 'index,
+    I: RQEIterator<'index> + 'index,
 {
     debug_assert!(!base.is_null());
     debug_assert!(base.is_aligned());
@@ -492,7 +492,7 @@ where
     // stale across the lock release / re-acquire cycle.
     wrapper.state.active_mut().cascade_suspend();
     let active = wrapper.state.take_active();
-    let suspended = <I as RQEIteratorBoxed>::suspend(active);
+    let suspended = <I as RQEIterator>::suspend(active);
     wrapper.state = WrapperState::Suspended(suspended);
     // Note: `header.current` is intentionally **not** nulled. It points to the
     // iterator's owned `RSIndexResult` struct (stored inside the iterator),
@@ -511,7 +511,7 @@ where
 ///
 /// `resume` returns `Box<<I::Suspended>::Resumed<'guard>>` where `'guard` is the
 /// guard's borrow lifetime. The wrapper's [`WrapperState::Active`] variant holds
-/// `Box<I>` where `I: RQEIteratorBoxed<'index>` — a different lifetime than
+/// `Box<I>` where `I: RQEIterator<'index>` — a different lifetime than
 /// `'guard`. The trait surface does not pin
 /// `<I::Suspended>::Resumed<'a> = I` (we deliberately keep the trait small), so
 /// the assignment requires one localized unsafe cast.
@@ -519,7 +519,7 @@ where
 /// The cast is sound because every iterator pair in this crate satisfies the
 /// round-trip identity *structurally* (the active/suspended counterparts are
 /// `Foo<Active<'a>, …>` / `Foo<Suspended, …>` over a single `#[repr(C)]` struct,
-/// so `<<Foo<Active<'a>, …> as RQEIteratorBoxed<'a>>::Suspended as RQESuspendedIterator>::Resumed<'b>`
+/// so `<<Foo<Active<'a>, …> as RQEIterator<'a>>::Suspended as RQESuspendedIterator>::Resumed<'b>`
 /// is byte-identical to `Foo<Active<'b>, …>`). The lifetime widening from `'guard`
 /// to `'index` is the same `'static`-lie pattern documented on
 /// [`RQEIteratorWrapper`] — all `Rf`-dependent fields are
@@ -527,7 +527,7 @@ where
 /// no real reference is being widened.
 extern "C" fn revalidate<'index, I>(base: *mut QueryIterator, spec: *mut ffi::IndexSpec) -> ValidateStatus
 where
-    I: RQEIteratorBoxed<'index> + 'index,
+    I: RQEIterator<'index> + 'index,
 {
     debug_assert!(!base.is_null());
     debug_assert!(base.is_aligned());
@@ -572,7 +572,7 @@ where
 
 extern "C" fn rewind<'index, I>(base: *mut QueryIterator)
 where
-    I: RQEIteratorBoxed<'index> + 'index,
+    I: RQEIterator<'index> + 'index,
 {
     debug_assert!(!base.is_null());
     debug_assert!(base.is_aligned());
@@ -589,7 +589,7 @@ where
 /// has been suspended at the unlock site.
 extern "C" fn num_estimated<'index, I>(base: *const QueryIterator) -> usize
 where
-    I: RQEIteratorBoxed<'index> + 'index,
+    I: RQEIterator<'index> + 'index,
 {
     debug_assert!(!base.is_null());
     debug_assert!(base.is_aligned());
@@ -641,7 +641,7 @@ where
 
 extern "C" fn free_iterator<'index, I>(base: *mut QueryIterator)
 where
-    I: RQEIteratorBoxed<'index> + 'index,
+    I: RQEIterator<'index> + 'index,
 {
     if !base.is_null() {
         debug_assert!(base.is_aligned());

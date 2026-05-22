@@ -34,7 +34,7 @@ pub use test_context::{GlobalGuard, TestContext};
 ///
 /// The cast `Box<T::Suspended::Resumed<'a>> → Box<T>` relies on the
 /// layout-compatibility guarantee documented on
-/// [`rqe_iterators::RQEIteratorBoxed::suspend`]: active and suspended forms
+/// [`rqe_iterators::RQEIterator::suspend`]: active and suspended forms
 /// of an iterator are `#[repr(C)]` over `SharedPtr` fields, so the heap
 /// allocation can be relabelled between modes without copying or
 /// reallocating. All iterators in `rqe_iterators` honour this contract, and
@@ -45,7 +45,7 @@ pub fn revalidate_via_resume<'borrow, 'spec, T>(
     spec: &'borrow index_spec::IndexSpecReadGuard<'spec>,
 ) -> (Box<T>, ffi::ValidateStatus)
 where
-    T: rqe_iterators::RQEIteratorBoxed<'spec> + 'spec,
+    T: rqe_iterators::RQEIterator<'spec> + 'spec,
 {
     // Cascade-suspend first: this flips the typestate of any nested
     // trait-object children (e.g. `BoxedRQEIterator` wrapping a `Box<dyn
@@ -56,11 +56,11 @@ where
     // UB on subsequent resume calls. Mirrors what the FFI wrapper does
     // via `it->Suspend(it)` before each lock release.
     it.cascade_suspend();
-    let suspended = <T as rqe_iterators::RQEIteratorBoxed<'spec>>::suspend(it);
+    let suspended = <T as rqe_iterators::RQEIterator<'spec>>::suspend(it);
     let (resumed, status) =
         <T::Suspended as rqe_iterators::RQESuspendedIterator>::resume(suspended, spec);
     // SAFETY: `T` and `<T::Suspended as RQESuspendedIterator>::Resumed<'_>`
-    // are layout-identical by the `RQEIteratorBoxed::suspend` contract.
+    // are layout-identical by the `RQEIterator::suspend` contract.
     // The cast also coerces the resumed iterator's lifetime back to the
     // input's `'spec`; that's sound because iterator types are covariant in
     // their lifetime parameter (the lifetime is purely phantom via

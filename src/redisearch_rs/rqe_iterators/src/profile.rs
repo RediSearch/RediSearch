@@ -16,7 +16,7 @@
 use std::time::{Duration, Instant};
 
 use crate::{
-    IteratorType, RQEIterator, RQEIteratorBoxed, RQEIteratorError, RQESuspendedIterator, SkipToOutcome,
+    IteratorType, RQEIterator, RQEIteratorError, RQESuspendedIterator, SkipToOutcome,
 };
 use ffi::{ValidateStatus, t_docId};
 use index_result::RSIndexResult;
@@ -108,6 +108,28 @@ impl<Rf: Ref, I> RawProfile<Rf, I> {
 }
 
 impl<'index, I: RQEIterator<'index>> RQEIterator<'index> for Profile<'index, I> {
+    type Suspended = RawProfile<Suspended, I::Suspended>;
+
+    fn suspend(self: Box<Self>) -> Box<Self::Suspended> {
+        let raw = Box::into_raw(self);
+        // Walk the single child — dispatches via the trait so dyn-erased
+        // `I` correctly transitions its vtable. See
+        // [`crate::boxed::suspend_child_slot_in_place`].
+        //
+        // SAFETY: `raw` came from `Box::into_raw`, exclusively owned.
+        unsafe {
+            crate::boxed::suspend_child_slot_in_place(std::ptr::addr_of_mut!((*raw).child));
+        }
+        // SAFETY: `RawProfile` is `#[repr(C)]` over a (now byte-rewritten)
+        // child, plain counters, and `PhantomData<Rf>`. Layout-identical
+        // between Active and Suspended forms.
+        unsafe { Box::from_raw(raw as *mut RawProfile<Suspended, I::Suspended>) }
+    }
+
+    fn cascade_suspend(&mut self) {
+        self.child.cascade_suspend();
+    }
+
     #[inline(always)]
     fn current(&mut self) -> Option<&mut RSIndexResult<'index>> {
         self.child.current()
@@ -167,32 +189,6 @@ impl<'index, I: RQEIterator<'index>> RQEIterator<'index> for Profile<'index, I> 
     }
 }
 
-impl<'index, I> RQEIteratorBoxed<'index> for Profile<'index, I>
-where
-    I: RQEIteratorBoxed<'index>,
-{
-    type Suspended = RawProfile<Suspended, I::Suspended>;
-
-    fn suspend(self: Box<Self>) -> Box<Self::Suspended> {
-        let raw = Box::into_raw(self);
-        // Walk the single child — dispatches via the trait so dyn-erased
-        // `I` correctly transitions its vtable. See
-        // [`crate::boxed::suspend_child_slot_in_place`].
-        //
-        // SAFETY: `raw` came from `Box::into_raw`, exclusively owned.
-        unsafe {
-            crate::boxed::suspend_child_slot_in_place(std::ptr::addr_of_mut!((*raw).child));
-        }
-        // SAFETY: `RawProfile` is `#[repr(C)]` over a (now byte-rewritten)
-        // child, plain counters, and `PhantomData<Rf>`. Layout-identical
-        // between Active and Suspended forms.
-        unsafe { Box::from_raw(raw as *mut RawProfile<Suspended, I::Suspended>) }
-    }
-
-    fn cascade_suspend(&mut self) {
-        self.child.cascade_suspend();
-    }
-}
 
 impl<S> RQESuspendedIterator for RawProfile<Suspended, S>
 where

@@ -20,7 +20,7 @@ use query_term::RSQueryTerm;
 use ref_mode::{Active, Ref, Suspended};
 
 use crate::{
-    IteratorType, RQEIterator, RQEIteratorBoxed, RQEIteratorError, RQESuspendedIterator, SkipToOutcome,
+    IteratorType, RQEIterator, RQEIteratorError, RQESuspendedIterator, SkipToOutcome,
     expiration_checker::ExpirationChecker,
 };
 
@@ -197,9 +197,23 @@ impl<'index, Enc: inverted_index::DecodedBy, E>
 
 impl<'index, R, E> RQEIterator<'index> for Term<'index, R, E>
 where
-    R: TermReader<'index>,
-    E: ExpirationChecker,
+    R: TermReader<'index> + SuspendableReader + 'index,
+    R::Suspended: ResumableReader + PointsToOpaqueIndex,
+    for<'a> <R::Suspended as ResumableReader>::Resumed<'a>: TermReader<'a>,
+    E: ExpirationChecker + 'static,
 {
+    type Suspended = RawTerm<Suspended, R::Suspended, E>;
+
+    fn suspend(self: Box<Self>) -> Box<Self::Suspended> {
+        let raw = Box::into_raw(self);
+        // SAFETY: `RawTerm` is `#[repr(C)]` containing only a
+        // `RawInvIndIterator<Rf, R, E>` field, whose layout is identical
+        // across `Active`/`Suspended` instantiations (see
+        // `InvIndIterator::suspend`). Box::from_raw reuses the same heap
+        // allocation; the active drop won't run on the moved-out bytes.
+        unsafe { Box::from_raw(raw as *mut RawTerm<Suspended, R::Suspended, E>) }
+    }
+
     #[inline(always)]
     fn current(&mut self) -> Option<&mut RSIndexResult<'index>> {
         self.it.current()
@@ -248,25 +262,6 @@ where
     }
 }
 
-impl<'index, R, E> RQEIteratorBoxed<'index> for Term<'index, R, E>
-where
-    R: TermReader<'index> + SuspendableReader + 'index,
-    R::Suspended: ResumableReader + PointsToOpaqueIndex,
-    for<'a> <R::Suspended as ResumableReader>::Resumed<'a>: TermReader<'a>,
-    E: ExpirationChecker + 'static,
-{
-    type Suspended = RawTerm<Suspended, R::Suspended, E>;
-
-    fn suspend(self: Box<Self>) -> Box<Self::Suspended> {
-        let raw = Box::into_raw(self);
-        // SAFETY: `RawTerm` is `#[repr(C)]` containing only a
-        // `RawInvIndIterator<Rf, R, E>` field, whose layout is identical
-        // across `Active`/`Suspended` instantiations (see
-        // `InvIndIterator::suspend`). Box::from_raw reuses the same heap
-        // allocation; the active drop won't run on the moved-out bytes.
-        unsafe { Box::from_raw(raw as *mut RawTerm<Suspended, R::Suspended, E>) }
-    }
-}
 
 impl<RS, E> RQESuspendedIterator for RawTerm<Suspended, RS, E>
 where

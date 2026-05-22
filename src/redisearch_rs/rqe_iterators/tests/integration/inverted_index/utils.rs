@@ -16,7 +16,7 @@ use field::FieldMaskOrIndex;
 use index_result::{RSIndexResult, RSResultKind};
 use inverted_index::{DecodedBy, Encoder, InvertedIndex, test_utils::TermRecordCompare};
 use numeric_range_tree::NumericIndex;
-use rqe_iterators::{ExpirationChecker, RQEIterator, RQEIteratorBoxed, SkipToOutcome};
+use rqe_iterators::{ExpirationChecker, RQEIterator, SkipToOutcome};
 use rqe_iterators_test_utils::{MockContext, revalidate_via_resume};
 use std::collections::HashSet;
 
@@ -493,7 +493,7 @@ impl RevalidateTest {
     /// test basic revalidation functionality - should return `VALIDATE_OK` when index is valid
     pub fn revalidate_basic<'a, I>(&'a self, it: Box<I>)
     where
-        I: RQEIteratorBoxed<'a> + 'a,
+        I: RQEIterator<'a> + 'a,
     {
         let guard = self.context.spec_read();
         let (mut it, status) = revalidate_via_resume(it, &guard);
@@ -506,7 +506,7 @@ impl RevalidateTest {
     /// test revalidation functionality when iterator is at EOF
     pub fn revalidate_at_eof<'a, I>(&'a self, mut it: Box<I>)
     where
-        I: RQEIteratorBoxed<'a> + 'a,
+        I: RQEIterator<'a> + 'a,
     {
         // Read all documents to reach EOF
         while let Some(_record) = it.read().expect("failed to read") {}
@@ -548,7 +548,7 @@ impl RevalidateTest {
         it: Box<I>,
         ii: &mut NumericIndex,
     ) where
-        I: RQEIteratorBoxed<'a> + 'a,
+        I: RQEIterator<'a> + 'a,
     {
         match ii {
             NumericIndex::Uncompressed(ii) => {
@@ -566,7 +566,7 @@ impl RevalidateTest {
         it: Box<I>,
         ii: &mut InvertedIndex<E>,
     ) where
-        I: RQEIteratorBoxed<'a> + 'a,
+        I: RQEIterator<'a> + 'a,
     {
         let guard = self.context.spec_read();
         let (mut it, status) = revalidate_via_resume(it, &guard);

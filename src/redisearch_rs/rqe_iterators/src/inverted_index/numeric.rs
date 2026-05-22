@@ -10,7 +10,7 @@
 use std::{f64, ptr::NonNull};
 
 use crate::{
-    FieldExpirationChecker, IteratorType, RQEIterator, RQEIteratorBoxed, RQEIteratorError,
+    FieldExpirationChecker, IteratorType, RQEIterator, RQEIteratorError,
     RQESuspendedIterator, SkipToOutcome,
     expiration_checker::{ExpirationChecker, NoOpChecker},
 };
@@ -180,8 +180,9 @@ where
 
 impl<'index, R, E> Numeric<'index, R, E>
 where
-    R: NumericReader<'index>,
-    E: ExpirationChecker,
+    R: NumericReader<'index> + SuspendableReader + 'index,
+    R::Suspended: ResumableReader,
+    E: ExpirationChecker + 'static,
 {
     /// Forwarding shim: re-seek the inner [`RawInvIndIterator`] — used
     /// by enum-level resume bodies (`NumericIteratorVariantSuspended`,
@@ -202,27 +203,6 @@ where
     /// resume bodies.
     pub fn refresh_pointers(&mut self) -> RefreshOutcome {
         self.it.refresh_pointers()
-    }
-}
-
-impl<'index, R, E> RQEIteratorBoxed<'index> for Numeric<'index, R, E>
-where
-    R: NumericReader<'index> + SuspendableReader + 'index,
-    R::Suspended: ResumableReader,
-    for<'a> <R::Suspended as ResumableReader>::Resumed<'a>: NumericReader<'a>,
-    E: ExpirationChecker + 'static,
-{
-    type Suspended = RawNumeric<Suspended, R::Suspended, E>;
-
-    fn suspend(self: Box<Self>) -> Box<Self::Suspended> {
-        let raw = Box::into_raw(self);
-        // SAFETY: `RawNumeric` is `#[repr(C)]`. The `Rf`-dependent field is
-        // the inner `RawInvIndIterator<Rf, R, E>`, whose layout is identical
-        // across modes (see [`InvIndIterator::suspend`]). The remaining
-        // fields (`range_tree_info`, `range_min`, `range_max`) carry no
-        // `Rf` in their type, so they survive the cast unchanged.
-        // Box::from_raw reuses the same heap allocation.
-        unsafe { Box::from_raw(raw as *mut RawNumeric<Suspended, R::Suspended, E>) }
     }
 }
 
@@ -287,9 +267,24 @@ where
 
 impl<'index, R, E> RQEIterator<'index> for Numeric<'index, R, E>
 where
-    R: NumericReader<'index>,
-    E: ExpirationChecker,
+    R: NumericReader<'index> + SuspendableReader + 'index,
+    R::Suspended: ResumableReader,
+    for<'a> <R::Suspended as ResumableReader>::Resumed<'a>: NumericReader<'a>,
+    E: ExpirationChecker + 'static,
 {
+    type Suspended = RawNumeric<Suspended, R::Suspended, E>;
+
+    fn suspend(self: Box<Self>) -> Box<Self::Suspended> {
+        let raw = Box::into_raw(self);
+        // SAFETY: `RawNumeric` is `#[repr(C)]`. The `Rf`-dependent field is
+        // the inner `RawInvIndIterator<Rf, R, E>`, whose layout is identical
+        // across modes (see [`InvIndIterator::suspend`]). The remaining
+        // fields (`range_tree_info`, `range_min`, `range_max`) carry no
+        // `Rf` in their type, so they survive the cast unchanged.
+        // Box::from_raw reuses the same heap allocation.
+        unsafe { Box::from_raw(raw as *mut RawNumeric<Suspended, R::Suspended, E>) }
+    }
+
     #[inline(always)]
     fn current(&mut self) -> Option<&mut RSIndexResult<'index>> {
         self.it.current()
@@ -581,6 +576,20 @@ impl<'index> NumericIteratorVariant<'index> {
 }
 
 impl<'index> RQEIterator<'index> for NumericIteratorVariant<'index> {
+    type Suspended = NumericIteratorVariantSuspended;
+
+    fn suspend(self: Box<Self>) -> Box<Self::Suspended> {
+        let raw = Box::into_raw(self);
+        // SAFETY: `NumericIteratorVariant<'index>` and
+        // `NumericIteratorVariantSuspended` are both `#[repr(C, u8)]`
+        // with the same variant order and layout-compatible payloads.
+        // The underlying `Numeric<'index, R, FieldExpirationChecker>` /
+        // `RawNumeric<Suspended, R::Suspended, FieldExpirationChecker>`
+        // pairs are layout-compatible via `#[repr(C)]` + `SharedPtr`
+        // transparency. `Box::from_raw` reuses the same heap allocation.
+        unsafe { Box::from_raw(raw as *mut NumericIteratorVariantSuspended) }
+    }
+
     #[inline(always)]
     fn current(&mut self) -> Option<&mut RSIndexResult<'index>> {
         match self {
@@ -658,7 +667,7 @@ impl<'index> RQEIterator<'index> for NumericIteratorVariant<'index> {
 }
 
 /// Parallel `'static`-typed counterpart of [`NumericIteratorVariant`] used
-/// as its `RQEIteratorBoxed::Suspended` type. Each variant holds the
+/// as its `RQEIterator::Suspended` type. Each variant holds the
 /// `Suspended` form of the corresponding `Numeric` instantiation.
 ///
 /// `#[repr(C, u8)]` matches the layout of [`NumericIteratorVariant`] —
@@ -727,22 +736,6 @@ enum NumericResumeOutcome {
     Abort,
     Ok,
     NeedsReseek { last_doc_id: t_docId },
-}
-
-impl<'index> RQEIteratorBoxed<'index> for NumericIteratorVariant<'index> {
-    type Suspended = NumericIteratorVariantSuspended;
-
-    fn suspend(self: Box<Self>) -> Box<Self::Suspended> {
-        let raw = Box::into_raw(self);
-        // SAFETY: `NumericIteratorVariant<'index>` and
-        // `NumericIteratorVariantSuspended` are both `#[repr(C, u8)]`
-        // with the same variant order and layout-compatible payloads.
-        // The underlying `Numeric<'index, R, FieldExpirationChecker>` /
-        // `RawNumeric<Suspended, R::Suspended, FieldExpirationChecker>`
-        // pairs are layout-compatible via `#[repr(C)]` + `SharedPtr`
-        // transparency. `Box::from_raw` reuses the same heap allocation.
-        unsafe { Box::from_raw(raw as *mut NumericIteratorVariantSuspended) }
-    }
 }
 
 impl RQESuspendedIterator for NumericIteratorVariantSuspended {

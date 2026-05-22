@@ -19,15 +19,15 @@ use ffi::{
 };
 use inverted_index::RefreshOutcome;
 use rqe_iterators::{
-    FieldExpirationChecker, IteratorType, RQEIteratorBoxed, RQESuspendedIterator,
+    FieldExpirationChecker, IteratorType, RQEIterator, RQESuspendedIterator,
     interop::RQEIteratorWrapper, inverted_index::Tag,
 };
 
 /// Suspended counterpart of [`TagIterator`] — produced by
-/// [`RQEIteratorBoxed::suspend`] and consumed by [`RQESuspendedIterator::resume`].
+/// [`RQEIterator::suspend`] and consumed by [`RQESuspendedIterator::resume`].
 ///
 /// `#[repr(C, u8)]` matches the layout of [`TagIterator`] so that
-/// [`RQEIteratorBoxed::suspend`] and [`RQESuspendedIterator::resume`]
+/// [`RQEIterator::suspend`] and [`RQESuspendedIterator::resume`]
 /// can perform whole-`Box` pointer casts between the two — the heap
 /// allocation is preserved across suspend/resume, which is critical
 /// because the FFI wrapper's `header.current` field on the
@@ -39,8 +39,8 @@ use rqe_iterators::{
 /// for the same argument at the leaf level.
 #[repr(C, u8)]
 pub(super) enum TagIteratorSuspended {
-    Encoded(<Tag<'static, DocIdsOnly, FieldExpirationChecker> as RQEIteratorBoxed<'static>>::Suspended),
-    Raw(<Tag<'static, RawDocIdsOnly, FieldExpirationChecker> as RQEIteratorBoxed<'static>>::Suspended),
+    Encoded(<Tag<'static, DocIdsOnly, FieldExpirationChecker> as RQEIterator<'static>>::Suspended),
+    Raw(<Tag<'static, RawDocIdsOnly, FieldExpirationChecker> as RQEIterator<'static>>::Suspended),
 }
 
 /// Local 3-state outcome carrying the work done while still on the
@@ -50,25 +50,6 @@ enum TagResumeOutcome {
     Abort,
     Ok,
     NeedsReseek { last_doc_id: t_docId },
-}
-
-impl<'index> RQEIteratorBoxed<'index> for TagIterator<'index> {
-    type Suspended = TagIteratorSuspended;
-
-    fn suspend(self: Box<Self>) -> Box<Self::Suspended> {
-        let raw = Box::into_raw(self);
-        // SAFETY: `TagIterator<'index>` and `TagIteratorSuspended` are
-        // both `#[repr(C, u8)]` with the same variant order and
-        // layout-compatible payloads (the underlying `RawTag<Active, E, C>`
-        // / `RawTag<Suspended, E, C>` instantiations are layout-compatible
-        // via `#[repr(C)]` + the `SharedPtr` argument; see
-        // `RawInvIndIterator::suspend`). The discriminant byte is shared
-        // identically. `Box::from_raw` reuses the same heap allocation,
-        // so any external borrowed pointer into the iterator's interior
-        // (e.g. the wrapper's `header.current`) stays valid across the
-        // cast.
-        unsafe { Box::from_raw(raw as *mut TagIteratorSuspended) }
-    }
 }
 
 impl RQESuspendedIterator for TagIteratorSuspended {
@@ -206,6 +187,23 @@ macro_rules! tag_it_dispatch {
 }
 
 impl<'index> rqe_iterators::RQEIterator<'index> for TagIterator<'index> {
+    type Suspended = TagIteratorSuspended;
+
+    fn suspend(self: Box<Self>) -> Box<Self::Suspended> {
+        let raw = Box::into_raw(self);
+        // SAFETY: `TagIterator<'index>` and `TagIteratorSuspended` are
+        // both `#[repr(C, u8)]` with the same variant order and
+        // layout-compatible payloads (the underlying `RawTag<Active, E, C>`
+        // / `RawTag<Suspended, E, C>` instantiations are layout-compatible
+        // via `#[repr(C)]` + the `SharedPtr` argument; see
+        // `RawInvIndIterator::suspend`). The discriminant byte is shared
+        // identically. `Box::from_raw` reuses the same heap allocation,
+        // so any external borrowed pointer into the iterator's interior
+        // (e.g. the wrapper's `header.current`) stays valid across the
+        // cast.
+        unsafe { Box::from_raw(raw as *mut TagIteratorSuspended) }
+    }
+
     #[inline(always)]
     fn current(&mut self) -> Option<&mut RSIndexResult<'index>> {
         tag_it_dispatch!(self, current)

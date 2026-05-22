@@ -28,7 +28,7 @@ use index_result::RSIndexResult;
 use ref_mode::{Active, Ref, Suspended};
 
 use crate::{
-    IteratorType, RQEIterator, RQEIteratorBoxed, RQEIteratorError, RQESuspendedIterator, SkipToOutcome, UnionFullFlat, union_flat::RawUnionFlat,
+    IteratorType, RQEIterator, RQEIteratorError, RQESuspendedIterator, SkipToOutcome, UnionFullFlat, union_flat::RawUnionFlat,
     union_heap::RawUnionHeap, union_trimmed::RawUnionTrimmed,
 };
 
@@ -186,6 +186,57 @@ impl<'index, I: RQEIterator<'index>> UnionOpaque<'index, I> {
 }
 
 impl<'index, I: RQEIterator<'index>> RQEIterator<'index> for UnionOpaque<'index, I> {
+    type Suspended = RawUnionOpaque<Suspended, I::Suspended>;
+
+    fn suspend(self: Box<Self>) -> Box<Self::Suspended> {
+        let raw = Box::into_raw(self);
+        // Per-variant dispatch: each inner Union variant (`UnionFlat`,
+        // `UnionHeap`, `UnionTrimmed`) walks its own children during
+        // `suspend`, correctly transitioning dyn-erased `I` via the vtable.
+        // A whole-box cast at this level alone would skip those per-variant
+        // walks and leave inner children's vtables stale.
+        //
+        // SAFETY: `raw` came from `Box::into_raw`, exclusively owned.
+        // `ptr::read` moves the variant out of the slot; we suspend it
+        // via its `RQEIterator::suspend` impl (which itself walks
+        // children correctly), then `ptr::write` the suspended counterpart
+        // back into the same slot. The outer `RawUnionOpaque`'s heap is
+        // preserved by the whole-box cast at the end.
+        unsafe {
+            let variant_slot = std::ptr::addr_of_mut!((*raw).variant);
+            let active_variant = std::ptr::read(variant_slot);
+            let suspended_variant = match active_variant {
+                UnionVariant::FlatFull(it) => {
+                    RawUnionVariant::FlatFull(*Box::new(it).suspend())
+                }
+                UnionVariant::FlatQuick(it) => {
+                    RawUnionVariant::FlatQuick(*Box::new(it).suspend())
+                }
+                UnionVariant::HeapFull(it) => {
+                    RawUnionVariant::HeapFull(*Box::new(it).suspend())
+                }
+                UnionVariant::HeapQuick(it) => {
+                    RawUnionVariant::HeapQuick(*Box::new(it).suspend())
+                }
+                UnionVariant::Trimmed(it) => {
+                    RawUnionVariant::Trimmed(*Box::new(it).suspend())
+                }
+            };
+            std::ptr::write(
+                variant_slot as *mut RawUnionVariant<Suspended, I::Suspended>,
+                suspended_variant,
+            );
+        }
+        // SAFETY: `RawUnionOpaque` is `#[repr(C)]` over `variant`
+        // (now byte-rewritten as Suspended form via the per-variant
+        // dispatch above), `query_node_type`, and `query_string`.
+        unsafe { Box::from_raw(raw as *mut RawUnionOpaque<Suspended, I::Suspended>) }
+    }
+
+    fn cascade_suspend(&mut self) {
+        delegate_variant_ref_mut!(self, cascade_suspend);
+    }
+
     #[inline(always)]
     fn current(&mut self) -> Option<&mut RSIndexResult<'index>> {
         delegate_variant_ref_mut!(self, current)
@@ -231,61 +282,6 @@ impl<'index, I: RQEIterator<'index>> RQEIterator<'index> for UnionOpaque<'index,
 
     fn intersection_sort_weight(&self, prioritize_union_children: bool) -> f64 {
         delegate_variant_ref!(self, intersection_sort_weight, prioritize_union_children)
-    }
-}
-impl<'index, I> RQEIteratorBoxed<'index> for UnionOpaque<'index, I>
-where
-    I: RQEIteratorBoxed<'index>,
-{
-    type Suspended = RawUnionOpaque<Suspended, I::Suspended>;
-
-    fn suspend(self: Box<Self>) -> Box<Self::Suspended> {
-        let raw = Box::into_raw(self);
-        // Per-variant dispatch: each inner Union variant (`UnionFlat`,
-        // `UnionHeap`, `UnionTrimmed`) walks its own children during
-        // `suspend`, correctly transitioning dyn-erased `I` via the vtable.
-        // A whole-box cast at this level alone would skip those per-variant
-        // walks and leave inner children's vtables stale.
-        //
-        // SAFETY: `raw` came from `Box::into_raw`, exclusively owned.
-        // `ptr::read` moves the variant out of the slot; we suspend it
-        // via its `RQEIteratorBoxed::suspend` impl (which itself walks
-        // children correctly), then `ptr::write` the suspended counterpart
-        // back into the same slot. The outer `RawUnionOpaque`'s heap is
-        // preserved by the whole-box cast at the end.
-        unsafe {
-            let variant_slot = std::ptr::addr_of_mut!((*raw).variant);
-            let active_variant = std::ptr::read(variant_slot);
-            let suspended_variant = match active_variant {
-                UnionVariant::FlatFull(it) => {
-                    RawUnionVariant::FlatFull(*Box::new(it).suspend())
-                }
-                UnionVariant::FlatQuick(it) => {
-                    RawUnionVariant::FlatQuick(*Box::new(it).suspend())
-                }
-                UnionVariant::HeapFull(it) => {
-                    RawUnionVariant::HeapFull(*Box::new(it).suspend())
-                }
-                UnionVariant::HeapQuick(it) => {
-                    RawUnionVariant::HeapQuick(*Box::new(it).suspend())
-                }
-                UnionVariant::Trimmed(it) => {
-                    RawUnionVariant::Trimmed(*Box::new(it).suspend())
-                }
-            };
-            std::ptr::write(
-                variant_slot as *mut RawUnionVariant<Suspended, I::Suspended>,
-                suspended_variant,
-            );
-        }
-        // SAFETY: `RawUnionOpaque` is `#[repr(C)]` over `variant`
-        // (now byte-rewritten as Suspended form via the per-variant
-        // dispatch above), `query_node_type`, and `query_string`.
-        unsafe { Box::from_raw(raw as *mut RawUnionOpaque<Suspended, I::Suspended>) }
-    }
-
-    fn cascade_suspend(&mut self) {
-        delegate_variant_ref_mut!(self, cascade_suspend);
     }
 }
 

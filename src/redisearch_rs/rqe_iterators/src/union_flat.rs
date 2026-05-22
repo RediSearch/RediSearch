@@ -14,7 +14,7 @@ use index_result::{RSIndexResult, RawIndexResult};
 use ref_mode::{Active, Ref, Suspended};
 
 use crate::{
-    IteratorType, RQEIterator, RQEIteratorBoxed, RQEIteratorError, RQESuspendedIterator, SkipToOutcome,
+    IteratorType, RQEIterator, RQEIteratorError, RQESuspendedIterator, SkipToOutcome,
 };
 use index_spec::IndexSpecReadGuard;
 
@@ -458,6 +458,35 @@ impl<'index, I, const QUICK_EXIT: bool> RQEIterator<'index> for UnionFlat<'index
 where
     I: RQEIterator<'index>,
 {
+    type Suspended = RawUnionFlat<Suspended, I::Suspended, QUICK_EXIT>;
+
+    fn suspend(self: Box<Self>) -> Box<Self::Suspended> {
+        let raw = Box::into_raw(self);
+        // Walk children: dispatch each child's `suspend` through the trait
+        // so dyn-erased `I` (e.g. [`BoxedRQEIterator`](crate::BoxedRQEIterator))
+        // correctly transitions its vtable. For concrete-typed `I` this is
+        // the same whole-box cast that would otherwise happen at the outer
+        // level, just per-child. See
+        // [`crate::boxed::suspend_child_slot_in_place`] for the rationale.
+        //
+        // SAFETY: `raw` came from `Box::into_raw` and is exclusively owned.
+        unsafe {
+            for child in (*raw).children.iter_mut() {
+                crate::boxed::suspend_child_slot_in_place(&mut child.inner);
+            }
+        }
+        // SAFETY: `RawUnionFlat` is `#[repr(C)]` over `Vec<IndexedChild<I>>`
+        // (now byte-rewritten with `I::Suspended` payloads) and
+        // `result: RawIndexResult<Rf>` (layout-compatible via `SharedPtr`).
+        unsafe { Box::from_raw(raw as *mut RawUnionFlat<Suspended, I::Suspended, QUICK_EXIT>) }
+    }
+
+    fn cascade_suspend(&mut self) {
+        for child in self.children.iter_mut() {
+            child.inner.cascade_suspend();
+        }
+    }
+
     #[inline]
     fn current(&mut self) -> Option<&mut RSIndexResult<'index>> {
         (!self.is_eof).then_some(&mut self.result)
@@ -531,40 +560,6 @@ where
     }
 }
 
-impl<'index, I, const QUICK_EXIT: bool> RQEIteratorBoxed<'index>
-    for UnionFlat<'index, I, QUICK_EXIT>
-where
-    I: RQEIteratorBoxed<'index>,
-{
-    type Suspended = RawUnionFlat<Suspended, I::Suspended, QUICK_EXIT>;
-
-    fn suspend(self: Box<Self>) -> Box<Self::Suspended> {
-        let raw = Box::into_raw(self);
-        // Walk children: dispatch each child's `suspend` through the trait
-        // so dyn-erased `I` (e.g. [`BoxedRQEIterator`](crate::BoxedRQEIterator))
-        // correctly transitions its vtable. For concrete-typed `I` this is
-        // the same whole-box cast that would otherwise happen at the outer
-        // level, just per-child. See
-        // [`crate::boxed::suspend_child_slot_in_place`] for the rationale.
-        //
-        // SAFETY: `raw` came from `Box::into_raw` and is exclusively owned.
-        unsafe {
-            for child in (*raw).children.iter_mut() {
-                crate::boxed::suspend_child_slot_in_place(&mut child.inner);
-            }
-        }
-        // SAFETY: `RawUnionFlat` is `#[repr(C)]` over `Vec<IndexedChild<I>>`
-        // (now byte-rewritten with `I::Suspended` payloads) and
-        // `result: RawIndexResult<Rf>` (layout-compatible via `SharedPtr`).
-        unsafe { Box::from_raw(raw as *mut RawUnionFlat<Suspended, I::Suspended, QUICK_EXIT>) }
-    }
-
-    fn cascade_suspend(&mut self) {
-        for child in self.children.iter_mut() {
-            child.inner.cascade_suspend();
-        }
-    }
-}
 
 impl<S, const QUICK_EXIT: bool> RQESuspendedIterator for RawUnionFlat<Suspended, S, QUICK_EXIT>
 where

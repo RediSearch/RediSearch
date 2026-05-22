@@ -23,7 +23,7 @@ use ref_mode::{Active, Ref, Suspended};
 
 use crate::IteratorType;
 use crate::{
-    Empty, RQEIterator, RQEIteratorBoxed, RQEIteratorError, RQESuspendedIterator, SEARCH_ENTERPRISE_ITERATORS, SkipToOutcome,
+    Empty, RQEIterator, RQEIteratorError, RQESuspendedIterator, SEARCH_ENTERPRISE_ITERATORS, SkipToOutcome,
 };
 
 /// An iterator that yields all ids within a given range, from 1 to max id
@@ -60,6 +60,17 @@ impl Wildcard<'_> {
 }
 
 impl<'index> RQEIterator<'index> for Wildcard<'index> {
+    type Suspended = RawWildcard<Suspended>;
+
+    fn suspend(self: Box<Self>) -> Box<Self::Suspended> {
+        let raw = Box::into_raw(self);
+        // SAFETY: `RawWildcard` is `#[repr(C)]` with the only `Rf`-dependent
+        // field being `result: RawIndexResult<Rf>`, layout-compatible across
+        // `Rf` (see [`crate::inverted_index::Wildcard::suspend`] for the
+        // same argument). Box::from_raw reuses the same heap allocation.
+        unsafe { Box::from_raw(raw as *mut RawWildcard<Suspended>) }
+    }
+
     #[inline(always)]
     fn current(&mut self) -> Option<&mut RSIndexResult<'index>> {
         Some(&mut self.result)
@@ -120,18 +131,6 @@ impl<'index> RQEIterator<'index> for Wildcard<'index> {
     }
 }
 
-impl<'index> RQEIteratorBoxed<'index> for Wildcard<'index> {
-    type Suspended = RawWildcard<Suspended>;
-
-    fn suspend(self: Box<Self>) -> Box<Self::Suspended> {
-        let raw = Box::into_raw(self);
-        // SAFETY: `RawWildcard` is `#[repr(C)]` with the only `Rf`-dependent
-        // field being `result: RawIndexResult<Rf>`, layout-compatible across
-        // `Rf` (see [`crate::inverted_index::Wildcard::suspend`] for the
-        // same argument). Box::from_raw reuses the same heap allocation.
-        unsafe { Box::from_raw(raw as *mut RawWildcard<Suspended>) }
-    }
-}
 
 impl RQESuspendedIterator for RawWildcard<Suspended> {
     type Resumed<'a> = Wildcard<'a>;
@@ -168,7 +167,7 @@ impl<'index, E> WildcardIterator<'index> for crate::inverted_index::Wildcard<'in
 where
     E: inverted_index::DecodedBy
         + inverted_index::opaque::OpaqueEncoding<Storage = inverted_index::InvertedIndex<E>>
-        + 'index,
+        + 'static,
     <E as inverted_index::DecodedBy>::Decoder: DocIdsDecoder,
 {
 }
@@ -185,54 +184,6 @@ impl<'index, I: WildcardIterator<'index>> WildcardIterator<'index>
 /// iterator is actually a wildcard—mirroring the C code's use of an untyped
 /// `QueryIterator*` for the `wcii` field.
 impl<'index> WildcardIterator<'index> for crate::c2rust::CRQEIterator {}
-
-impl<'index> RQEIterator<'index> for Box<dyn WildcardIterator<'index> + 'index> {
-    fn current(&mut self) -> Option<&mut RSIndexResult<'index>> {
-        (**self).current()
-    }
-
-    fn read(&mut self) -> Result<Option<&mut RSIndexResult<'index>>, RQEIteratorError> {
-        (**self).read()
-    }
-
-    fn skip_to(
-        &mut self,
-        doc_id: t_docId,
-    ) -> Result<Option<SkipToOutcome<'_, 'index>>, RQEIteratorError> {
-        (**self).skip_to(doc_id)
-    }
-
-    fn rewind(&mut self) {
-        (**self).rewind()
-    }
-
-    fn num_estimated(&self) -> usize {
-        (**self).num_estimated()
-    }
-
-    fn last_doc_id(&self) -> t_docId {
-        (**self).last_doc_id()
-    }
-
-    fn at_eof(&self) -> bool {
-        (**self).at_eof()
-    }
-
-    #[inline(always)]
-    fn type_(&self) -> IteratorType {
-        (**self).type_()
-    }
-
-    fn as_c_iterator(&self) -> Option<&crate::c2rust::CRQEIterator> {
-        (**self).as_c_iterator()
-    }
-
-    fn intersection_sort_weight(&self, prioritize_union_children: bool) -> f64 {
-        (**self).intersection_sort_weight(prioritize_union_children)
-    }
-}
-
-impl<'index> WildcardIterator<'index> for Box<dyn WildcardIterator<'index> + 'index> {}
 
 /// The result of [`new_wildcard_iterator`], representing the different kinds of
 /// wildcard iterators that can be created depending on the index configuration.
@@ -280,6 +231,18 @@ macro_rules! delegate_rqe_iterator {
 }
 
 impl<'index> RQEIterator<'index> for OptimizedWildcard<'index> {
+    type Suspended = OptimizedWildcardSuspended;
+
+    fn suspend(self: Box<Self>) -> Box<Self::Suspended> {
+        let raw = Box::into_raw(self);
+        // SAFETY: both enums are `#[repr(C)]`; corresponding variants hold
+        // `RawWildcard<Active<'index>, E>` / `RawWildcard<Suspended, E>`,
+        // which are layout-compatible by the [`RQEIterator`]
+        // contract on `inverted_index::Wildcard`. Box::from_raw reuses the
+        // heap allocation.
+        unsafe { Box::from_raw(raw as *mut OptimizedWildcardSuspended) }
+    }
+
     #[inline(always)]
     fn current(&mut self) -> Option<&mut RSIndexResult<'index>> {
         delegate_rqe_iterator!(self, current)
@@ -325,7 +288,7 @@ impl<'index> RQEIterator<'index> for OptimizedWildcard<'index> {
 impl<'index> WildcardIterator<'index> for OptimizedWildcard<'index> {}
 
 /// Parallel `'static`-typed counterpart of [`OptimizedWildcard`] used as
-/// its `RQEIteratorBoxed::Suspended` type. Each variant holds the
+/// its `RQEIterator::Suspended` type. Each variant holds the
 /// `Suspended` form of the corresponding inverted-index wildcard reader.
 ///
 /// `#[repr(C, u8)]` matches [`OptimizedWildcard`]'s layout.
@@ -337,19 +300,6 @@ pub enum OptimizedWildcardSuspended {
     RawDocIdsOnly(crate::inverted_index::RawWildcard<Suspended, RawDocIdsOnly>),
 }
 
-impl<'index> RQEIteratorBoxed<'index> for OptimizedWildcard<'index> {
-    type Suspended = OptimizedWildcardSuspended;
-
-    fn suspend(self: Box<Self>) -> Box<Self::Suspended> {
-        let raw = Box::into_raw(self);
-        // SAFETY: both enums are `#[repr(C)]`; corresponding variants hold
-        // `RawWildcard<Active<'index>, E>` / `RawWildcard<Suspended, E>`,
-        // which are layout-compatible by the [`RQEIteratorBoxed`]
-        // contract on `inverted_index::Wildcard`. Box::from_raw reuses the
-        // heap allocation.
-        unsafe { Box::from_raw(raw as *mut OptimizedWildcardSuspended) }
-    }
-}
 
 /// Local 3-state outcome carrying the work done while still on the
 /// suspended form into the active form for the optional reseek dispatch.
@@ -442,6 +392,14 @@ macro_rules! delegate_wildcard_iterator {
 }
 
 impl<'index> RQEIterator<'index> for NewWildcardIterator<'index> {
+    type Suspended = NewWildcardSuspended;
+
+    fn suspend(self: Box<Self>) -> Box<Self::Suspended> {
+        let raw = Box::into_raw(self);
+        // SAFETY: layout-compatible enums (`#[repr(C, u8)]`).
+        unsafe { Box::from_raw(raw as *mut NewWildcardSuspended) }
+    }
+
     #[inline(always)]
     fn current(&mut self) -> Option<&mut RSIndexResult<'index>> {
         delegate_wildcard_iterator!(self, current)
@@ -501,7 +459,7 @@ impl<'index> RQEIterator<'index> for NewWildcardIterator<'index> {
 impl<'index> WildcardIterator<'index> for NewWildcardIterator<'index> {}
 
 /// Parallel `'static`-typed counterpart of [`NewWildcardIterator`] used as
-/// its `RQEIteratorBoxed::Suspended` type. Each variant holds the
+/// its `RQEIterator::Suspended` type. Each variant holds the
 /// `Suspended` form of the corresponding active variant.
 ///
 /// `#[repr(C, u8)]` matches [`NewWildcardIterator`]'s layout.
@@ -517,15 +475,6 @@ pub enum NewWildcardSuspended {
     Disk(DiskWildcardSuspended),
 }
 
-impl<'index> RQEIteratorBoxed<'index> for NewWildcardIterator<'index> {
-    type Suspended = NewWildcardSuspended;
-
-    fn suspend(self: Box<Self>) -> Box<Self::Suspended> {
-        let raw = Box::into_raw(self);
-        // SAFETY: layout-compatible enums (`#[repr(C, u8)]`).
-        unsafe { Box::from_raw(raw as *mut NewWildcardSuspended) }
-    }
-}
 
 impl RQESuspendedIterator for NewWildcardSuspended {
     type Resumed<'a> = NewWildcardIterator<'a>;
@@ -781,6 +730,19 @@ pub unsafe fn new_wildcard_iterator<'index>(
 pub struct DiskWildcardIterator<'index>(crate::BoxedRQEIterator<'index>);
 
 impl<'index> RQEIterator<'index> for DiskWildcardIterator<'index> {
+    type Suspended = DiskWildcardSuspended;
+
+    fn suspend(self: Box<Self>) -> Box<Self::Suspended> {
+        // Drive the inner dyn-erased iterator's suspend via the
+        // `RQEDynIterator` vtable, then wrap the resulting
+        // `BoxedRQESuspendedIterator` as `DiskWildcardSuspended`. The
+        // explicit `Box::new` here is a small overhead the disk path
+        // can afford; see `boxed::suspend_child_slot_in_place` for the
+        // no-allocation pattern composites use on their hot children.
+        let inner_suspended = self.0.0.suspend();
+        Box::new(DiskWildcardSuspended(inner_suspended))
+    }
+
     fn current(&mut self) -> Option<&mut RSIndexResult<'index>> {
         self.0.current()
     }
@@ -826,7 +788,7 @@ impl<'index> RQEIterator<'index> for DiskWildcardIterator<'index> {
 impl<'index> WildcardIterator<'index> for DiskWildcardIterator<'index> {}
 
 /// `'static`-typed counterpart of [`DiskWildcardIterator`] used as its
-/// `RQEIteratorBoxed::Suspended` type.
+/// `RQEIterator::Suspended` type.
 ///
 /// A thin wrapper around [`BoxedRQESuspendedIterator`] — the
 /// dyn-erased suspended counterpart of the disk iterator. On resume
@@ -836,20 +798,6 @@ impl<'index> WildcardIterator<'index> for DiskWildcardIterator<'index> {}
 #[repr(transparent)]
 pub struct DiskWildcardSuspended(pub(crate) crate::BoxedRQESuspendedIterator);
 
-impl<'index> RQEIteratorBoxed<'index> for DiskWildcardIterator<'index> {
-    type Suspended = DiskWildcardSuspended;
-
-    fn suspend(self: Box<Self>) -> Box<Self::Suspended> {
-        // Drive the inner dyn-erased iterator's suspend via the
-        // `RQEDynIterator` vtable, then wrap the resulting
-        // `BoxedRQESuspendedIterator` as `DiskWildcardSuspended`. The
-        // explicit `Box::new` here is a small overhead the disk path
-        // can afford; see `boxed::suspend_child_slot_in_place` for the
-        // no-allocation pattern composites use on their hot children.
-        let inner_suspended = self.0.0.suspend();
-        Box::new(DiskWildcardSuspended(inner_suspended))
-    }
-}
 
 impl RQESuspendedIterator for DiskWildcardSuspended {
     type Resumed<'a> = DiskWildcardIterator<'a>;

@@ -35,7 +35,7 @@ pub struct TermBencher<E> {
 
 impl<E> TermBencher<E>
 where
-    E: Encoder + DecodedBy + OpaqueEncoding,
+    E: Encoder + DecodedBy + OpaqueEncoding + 'static,
     E::Decoder: TermDecoder,
     E::Storage: HasInnerIndex<E>,
 {

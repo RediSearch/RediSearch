@@ -19,7 +19,7 @@ use inverted_index::{
 use ref_mode::{Active, Ref, Suspended};
 
 use crate::{
-    IteratorType, RQEIterator, RQEIteratorBoxed, RQEIteratorError, RQESuspendedIterator, SkipToOutcome,
+    IteratorType, RQEIterator, RQEIteratorError, RQESuspendedIterator, SkipToOutcome,
     expiration_checker::NoOpChecker,
 };
 
@@ -93,7 +93,11 @@ where
     }
 }
 
-impl<'index, E: DecodedBy + 'index> Wildcard<'index, E> {
+impl<'index, E> Wildcard<'index, E>
+where
+    E: DecodedBy + inverted_index::opaque::OpaqueEncoding<Storage = inverted_index::InvertedIndex<E>> + 'static,
+    <E as DecodedBy>::Decoder: DocIdsDecoder,
+{
     /// Forwarding shim: re-seek the inner [`RawInvIndIterator`] after a
     /// GC cycle invalidated the cached block offset. Used by enum-level
     /// `RQESuspendedIterator::resume` implementations in
@@ -151,9 +155,21 @@ where
 
 impl<'index, E> RQEIterator<'index> for Wildcard<'index, E>
 where
-    E: DecodedBy + OpaqueEncoding<Storage = inverted_index::InvertedIndex<E>> + 'index,
+    E: DecodedBy + OpaqueEncoding<Storage = inverted_index::InvertedIndex<E>> + 'static,
     <E as DecodedBy>::Decoder: DocIdsDecoder,
 {
+    type Suspended = RawWildcard<Suspended, E>;
+
+    fn suspend(self: Box<Self>) -> Box<Self::Suspended> {
+        let raw = Box::into_raw(self);
+        // SAFETY: `RawWildcard` is `#[repr(C)]` containing only a
+        // `RawInvIndIterator<Rf, RawIndexReaderCore<Rf, E>>` field, whose
+        // layout is identical across modes (see
+        // [`InvIndIterator::suspend`]). Box::from_raw reuses the same heap
+        // allocation.
+        unsafe { Box::from_raw(raw as *mut RawWildcard<Suspended, E>) }
+    }
+
     #[inline(always)]
     fn current(&mut self) -> Option<&mut RSIndexResult<'index>> {
         self.it.current()
@@ -202,23 +218,6 @@ where
     }
 }
 
-impl<'index, E> RQEIteratorBoxed<'index> for Wildcard<'index, E>
-where
-    E: DecodedBy + OpaqueEncoding<Storage = inverted_index::InvertedIndex<E>> + 'static,
-    <E as DecodedBy>::Decoder: DocIdsDecoder,
-{
-    type Suspended = RawWildcard<Suspended, E>;
-
-    fn suspend(self: Box<Self>) -> Box<Self::Suspended> {
-        let raw = Box::into_raw(self);
-        // SAFETY: `RawWildcard` is `#[repr(C)]` containing only a
-        // `RawInvIndIterator<Rf, RawIndexReaderCore<Rf, E>>` field, whose
-        // layout is identical across modes (see
-        // [`InvIndIterator::suspend`]). Box::from_raw reuses the same heap
-        // allocation.
-        unsafe { Box::from_raw(raw as *mut RawWildcard<Suspended, E>) }
-    }
-}
 
 impl<E> RQESuspendedIterator for RawWildcard<Suspended, E>
 where
