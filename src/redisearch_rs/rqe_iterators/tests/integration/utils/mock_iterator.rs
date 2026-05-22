@@ -13,7 +13,7 @@ use index_result::{RSIndexResult, RSOffsetSlice};
 use rqe_core::{DocId, RS_FIELDMASK_ALL};
 
 use super::past_end_cursor;
-use rqe_iterators::{IteratorType, RQEIterator, WildcardIterator};
+use rqe_iterators::{IteratorType, RQEIterator, TypeErasedRQEIterator, WildcardIterator};
 
 /// Test iterator used in unit tests that expect an [`RQEIterator`]
 /// child which produces a fixed sequence of document identifiers.
@@ -796,9 +796,9 @@ impl<'index> MockVec<'index> {
         }
     }
 
-    /// Create a boxed [`MockVec`] as a trait object.
-    pub fn new_boxed(doc_ids: Vec<DocId>) -> Box<dyn RQEIterator<'index> + 'index> {
-        Box::new(Self::new(doc_ids))
+    /// Create a [`MockVec`] wrapped as a [`TypeErasedRQEIterator`].
+    pub fn new_boxed(doc_ids: Vec<DocId>) -> TypeErasedRQEIterator<'index> {
+        TypeErasedRQEIterator::new(Box::new(Self::new(doc_ids)))
     }
 
     /// Whether a `read`/`skip_to` has already run past the last document — the
