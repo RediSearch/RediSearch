@@ -278,20 +278,22 @@ fn current_none_after_exhaustion() {
 
 /// `revalidate` panics — trimmed unions are never expected to revalidate.
 ///
-/// This test still goes through the legacy `RQEIterator::revalidate` trait
-/// method (rather than the canonical suspend/resume path) because
-/// `UnionTrimmed`'s children are `Box<dyn RQEIterator>` and dyn-erased
-/// iterators don't implement [`RQEIteratorBoxed`]. The panic message
-/// matches both the legacy `revalidate` and the suspend/resume `resume`
-/// bodies — both flow into the same `unreachable!`.
+/// Drives the canonical suspend/resume path so we exercise the same
+/// `unreachable!` that the legacy revalidate would have hit, just from
+/// the new entry point.
 #[test]
-#[should_panic(expected = "revalidate is not supported on UnionTrimmed")]
+#[should_panic(expected = "resume is not supported on UnionTrimmed")]
 fn revalidate_panics() {
-    let (children, _data) = create_mock_3([1], [2], [3]);
-    let mut union = UnionTrimmed::new(children, usize::MAX, true);
-
     let mock_ctx = rqe_iterators_test_utils::MockContext::new(0, 0);
-    let _ = union.revalidate(&*mock_ctx.spec_read());
+    let children: Vec<rqe_iterators::BoxedRQEIterator<'_>> = vec![
+        rqe_iterators::BoxedRQEIterator::new(Box::new(crate::utils::Mock::new([1u64]))),
+        rqe_iterators::BoxedRQEIterator::new(Box::new(crate::utils::Mock::new([2u64]))),
+        rqe_iterators::BoxedRQEIterator::new(Box::new(crate::utils::Mock::new([3u64]))),
+    ];
+    let union = Box::new(UnionTrimmed::new(children, usize::MAX, true));
+
+    let guard = mock_ctx.spec_read();
+    let _ = rqe_iterators_test_utils::revalidate_via_resume(union, &guard);
 }
 
 // =============================================================================
