@@ -295,6 +295,15 @@ static void redisearch_thpool_verify_init(struct redisearch_thpool_t *thpool_p) 
     n_new_threads = n_threads;
   }
 
+  /* Publish INITIALIZED before spawning new threads. A freshly spawned thread
+   * can pick up a job already in the queue and re-enter add_work →
+   * verify_init before this call returns; if state were still UNINITIALIZED
+   * at that point, the re-entrant call would take the Case 2 branch (threads
+   * alive, state UNINITIALIZED) and push admin jobs the calling worker
+   * cannot process — deadlocking on barrier_wait_and_destroy. Setting state
+   * first makes the re-entrant call short-circuit at the top of the function. */
+  thpool_p->state = THPOOL_INITIALIZED;
+
   /* Add new threads if needed */
   if (n_new_threads > 0) {
     volatile bool started[n_new_threads];
@@ -314,7 +323,6 @@ static void redisearch_thpool_verify_init(struct redisearch_thpool_t *thpool_p) 
       usleep(1);
     }
   }
-  thpool_p->state = THPOOL_INITIALIZED;
 
   LOG_IF_EXISTS("verbose", "Thread pool of size %zu initialized successfully",
                 thpool_p->n_threads)
