@@ -849,11 +849,127 @@ RedisModuleSlotRangeArray *RMCK_ClusterGetLocalSlotRanges(RedisModuleCtx *ctx) {
   auto *array = reinterpret_cast<RedisModuleSlotRangeArray *>(RMCK_Alloc(sizeof(RedisModuleSlotRangeArray) + sizeof(dummy_ranges)));
   array->num_ranges = 2;
   std::memcpy(array->ranges, dummy_ranges, sizeof(dummy_ranges));
+  if (ctx && ctx->automemory) ctx->alloc_slot_ranges.insert(array);
   return array;
 }
 
 void RMCK_ClusterFreeSlotRanges(RedisModuleCtx *ctx, RedisModuleSlotRangeArray *slots) {
+  if (ctx) ctx->alloc_slot_ranges.erase(slots);
   RMCK_Free(slots);
+}
+
+// ============================================================================
+// Configurable cluster topology mock
+// ----------------------------------------------------------------------------
+// Tests populate `mockClusterNodes` via the RMCK_ClusterMock_* helpers below,
+// and the mocked cluster API entry points answer queries against that state.
+// Slot range arrays returned by the mocked APIs follow the real Redis
+// auto-memory contract: if `ctx->automemory` is on, they are freed by the ctx
+// destructor; otherwise the caller must free them via
+// RedisModule_ClusterFreeSlotRanges.
+// ============================================================================
+namespace {
+struct MockClusterNode {
+  std::string id;
+  std::string ip;
+  int port;
+  int flags;
+  std::vector<RedisModuleSlotRange> slots;
+};
+
+std::vector<MockClusterNode> mockClusterNodes;
+std::mutex mockClusterMutex;
+
+const MockClusterNode *findMockNode(const char *id) {
+  for (auto &n : mockClusterNodes) {
+    if (n.id == id) return &n;
+  }
+  return nullptr;
+}
+}  // namespace
+
+void RMCK_ClusterMock_Reset() {
+  std::lock_guard<std::mutex> lock(mockClusterMutex);
+  mockClusterNodes.clear();
+}
+
+void RMCK_ClusterMock_AddNode(const char *id, const char *ip, int port, int flags,
+                              const std::vector<RedisModuleSlotRange> &slots) {
+  std::lock_guard<std::mutex> lock(mockClusterMutex);
+  MockClusterNode node;
+  node.id = id ? id : "";
+  node.ip = ip ? ip : "";
+  node.port = port;
+  node.flags = flags;
+  node.slots = slots;
+  mockClusterNodes.push_back(std::move(node));
+}
+
+static char **RMCK_GetClusterNodesList(RedisModuleCtx *ctx, size_t *numnodes) {
+  std::lock_guard<std::mutex> lock(mockClusterMutex);
+  *numnodes = mockClusterNodes.size();
+  if (*numnodes == 0) return nullptr;
+  // Real Redis null-terminates the list — mirror that so callers iterating
+  // with `while (ids[i])` still work even if they ignore `numnodes`.
+  auto **list = static_cast<char **>(RMCK_Alloc(sizeof(char *) * (*numnodes + 1)));
+  for (size_t i = 0; i < *numnodes; i++) {
+    list[i] = static_cast<char *>(RMCK_Alloc(REDISMODULE_NODE_ID_LEN + 1));
+    std::strncpy(list[i], mockClusterNodes[i].id.c_str(), REDISMODULE_NODE_ID_LEN);
+    list[i][REDISMODULE_NODE_ID_LEN] = '\0';
+  }
+  list[*numnodes] = nullptr;
+  return list;
+}
+
+static void RMCK_FreeClusterNodesList(char **ids) {
+  if (!ids) return;
+  for (size_t i = 0; ids[i] != nullptr; i++) RMCK_Free(ids[i]);
+  RMCK_Free(ids);
+}
+
+static int RMCK_GetClusterNodeInfo(RedisModuleCtx *ctx, const char *id, char *ip,
+                                   char *master_id, int *port, int *flags) {
+  std::lock_guard<std::mutex> lock(mockClusterMutex);
+  const MockClusterNode *n = findMockNode(id);
+  if (!n) return REDISMODULE_ERR;
+  // The real API expects the caller to pass a buffer of at least
+  // NET_IP_STR_LEN (46) bytes; we copy at most that to match.
+  if (ip) {
+    std::strncpy(ip, n->ip.c_str(), 46 - 1);
+    ip[46 - 1] = '\0';
+  }
+  if (port) *port = n->port;
+  if (flags) *flags = n->flags;
+  return REDISMODULE_OK;
+}
+
+static const char *RMCK_GetMyClusterID(void) {
+  std::lock_guard<std::mutex> lock(mockClusterMutex);
+  for (auto &n : mockClusterNodes) {
+    if (n.flags & REDISMODULE_NODE_MYSELF) return n.id.c_str();
+  }
+  return nullptr;
+}
+
+static size_t RMCK_GetClusterSize(void) {
+  std::lock_guard<std::mutex> lock(mockClusterMutex);
+  return mockClusterNodes.size();
+}
+
+static RedisModuleSlotRangeArray *RMCK_ClusterGetSlotRangesByNodeId(RedisModuleCtx *ctx,
+                                                                    const char *nodeid) {
+  std::lock_guard<std::mutex> lock(mockClusterMutex);
+  const MockClusterNode *n = findMockNode(nodeid);
+  if (!n) return nullptr;
+  size_t buf_size =
+      sizeof(RedisModuleSlotRangeArray) + n->slots.size() * sizeof(RedisModuleSlotRange);
+  auto *arr = static_cast<RedisModuleSlotRangeArray *>(RMCK_Alloc(buf_size));
+  arr->num_ranges = static_cast<int32_t>(n->slots.size());
+  if (!n->slots.empty()) {
+    std::memcpy(arr->ranges, n->slots.data(), n->slots.size() * sizeof(RedisModuleSlotRange));
+  }
+  if (ctx && ctx->automemory) ctx->alloc_slot_ranges.insert(arr);
+  return arr;
 }
 
 // Track contexts associated with IO objects
@@ -1350,6 +1466,9 @@ RedisModuleCtx::~RedisModuleCtx() {
     for (auto it : allocstrs) {
       delete it;
     }
+    for (auto *p : alloc_slot_ranges) {
+      RMCK_Free(p);
+    }
   }
 }
 
@@ -1681,7 +1800,13 @@ static void registerApis() {
   // Cluster
   REGISTER_API(ClusterPropagateForSlotMigration);
   REGISTER_API(ClusterGetLocalSlotRanges);
+  REGISTER_API(ClusterGetSlotRangesByNodeId);
   REGISTER_API(ClusterFreeSlotRanges);
+  REGISTER_API(GetClusterNodesList);
+  REGISTER_API(FreeClusterNodesList);
+  REGISTER_API(GetClusterNodeInfo);
+  REGISTER_API(GetMyClusterID);
+  REGISTER_API(GetClusterSize);
 
   // KeyMeta
   REGISTER_API(CreateKeyMetaClass);
