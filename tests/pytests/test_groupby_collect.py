@@ -1756,6 +1756,18 @@ def test_collect_followed_by_apply_and_filter():
 # ---------------------------------------------------------------------------
 # Tie-breaking on COLLECT + SORTBY.
 # ---------------------------------------------------------------------------
+def _insert_tied_docs(env, names=('a', 'b', 'c', 'd', 'e')):
+    """Insert docs that fully tie on the SORTBY key (color='black',
+    sweetness=1), so order is determined solely by the doc_id tie-break.
+    Returns the list of names in insertion order."""
+    conn = getConnectionByEnv(env)
+    names = list(names)
+    for i, name in enumerate(names):
+        conn.execute_command('HSET', f'doc:{i}', 'name', name,
+                             'color', 'black', 'sweetness', '1')
+    return names
+
+
 @skip(cluster=True)
 def test_collect_sortby_tiebreak_stable_under_asc():
     """Single shard, ASC SORTBY. All rows tie on the sort key, so the order
@@ -1764,12 +1776,7 @@ def test_collect_sortby_tiebreak_stable_under_asc():
     env = Env(protocol=3)
     enable_unstable_features(env)
     _setup_hash(env)
-    conn = getConnectionByEnv(env)
-    # All docs share color='black' and sweetness=1 — the SORTBY key fully ties.
-    names_in_insert_order = ['a', 'b', 'c', 'd', 'e']
-    for i, name in enumerate(names_in_insert_order):
-        conn.execute_command('HSET', f'doc:{i}', 'name', name,
-                             'color', 'black', 'sweetness', '1')
+    names_in_insert_order = _insert_tied_docs(env)
 
     cmd = (
         'FT.AGGREGATE', 'idx', '@color:{black}',
@@ -1794,12 +1801,7 @@ def test_collect_sortby_tiebreak_stable_under_desc():
     env = Env(protocol=3)
     enable_unstable_features(env)
     _setup_hash(env)
-    conn = getConnectionByEnv(env)
-    # All docs share color='black' and sweetness=1 — the SORTBY key fully ties.
-    names_in_insert_order = ['a', 'b', 'c', 'd', 'e']
-    for i, name in enumerate(names_in_insert_order):
-        conn.execute_command('HSET', f'doc:{i}', 'name', name,
-                             'color', 'black', 'sweetness', '1')
+    names_in_insert_order = _insert_tied_docs(env)
 
     cmd = (
         'FT.AGGREGATE', 'idx', '@color:{black}',
@@ -1859,14 +1861,9 @@ def test_collect_sortby_tiebreak_two_collects_same_groupby():
     env = Env(protocol=3)
     enable_unstable_features(env)
     _setup_hash(env)
-    conn = getConnectionByEnv(env)
-    # All docs share color='black' and sweetness=1 — both SORTBY keys fully
-    # tie, so the only thing that can order the rows is the doc_id
-    # tie-break.
-    names_in_insert_order = ['a', 'b', 'c', 'd', 'e']
-    for i, name in enumerate(names_in_insert_order):
-        conn.execute_command('HSET', f'doc:{i}', 'name', name,
-                             'color', 'black', 'sweetness', '1')
+    # Both SORTBY keys fully tie, so the only thing that can order the
+    # rows is the doc_id tie-break.
+    names_in_insert_order = _insert_tied_docs(env)
 
     res = env.cmd(
         'FT.AGGREGATE', 'idx', '@color:{black}',
@@ -1904,13 +1901,9 @@ def test_collect_sortby_tiebreak_two_collects_same_groupby_asc_desc():
     env = Env(protocol=3)
     enable_unstable_features(env)
     _setup_hash(env)
-    conn = getConnectionByEnv(env)
     # All docs share color='black' and sweetness=1 — the SORTBY key fully
     # ties, so ASC/DESC differ only by the doc_id tie-break direction.
-    names_in_insert_order = ['a', 'b', 'c', 'd', 'e']
-    for i, name in enumerate(names_in_insert_order):
-        conn.execute_command('HSET', f'doc:{i}', 'name', name,
-                             'color', 'black', 'sweetness', '1')
+    _insert_tied_docs(env)
 
     res = env.cmd(
         'FT.AGGREGATE', 'idx', '@color:{black}',
