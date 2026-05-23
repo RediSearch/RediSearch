@@ -617,16 +617,6 @@ QueryIterator *NewInvIndIterator_TermQuery(const InvertedIndex *idx, const Redis
 QueryNodeType GetUnionIteratorQueryNodeType(const QueryIterator *it);
 
 /**
- * Returns the query string pointer stored in the union iterator, or null.
- *
- * # Safety
- *
- * 1. `it` must be a valid non-null pointer to a non-reduced union iterator
- *    created via [`NewUnionIterator`].
- */
-const char *GetUnionIteratorQueryString(const QueryIterator *it);
-
-/**
  * Creates a new wildcard inverted index iterator for querying all existing documents.
  *
  * # Parameters
@@ -651,6 +641,16 @@ const char *GetUnionIteratorQueryString(const QueryIterator *it);
  * 4. `sctx` and `sctx.spec` must remain valid for the lifetime of the returned iterator.
  */
 QueryIterator *NewInvIndIterator_WildcardQuery(const InvertedIndex *idx, const RedisSearchCtx *sctx, double weight);
+
+/**
+ * Returns the query string pointer stored in the union iterator, or null.
+ *
+ * # Safety
+ *
+ * 1. `it` must be a valid non-null pointer to a non-reduced union iterator
+ *    created via [`NewUnionIterator`].
+ */
+const char *GetUnionIteratorQueryString(const QueryIterator *it);
 
 /**
  * Gets the numeric filter from a numeric inverted index iterator.
@@ -768,15 +768,6 @@ double NumericInvIndIterator_GetProfileRangeMin(const QueryIterator *it);
 double NumericInvIndIterator_GetProfileRangeMax(const QueryIterator *it);
 
 /**
- *
- * # Safety
- *
- * 1. `spec` must be a valid non-null pointer to an [`ffi::IndexSpec`].
- * 2. `fs` must be a valid non-null pointer to a [`FieldSpec`] for a numeric or geo field.
- */
-NumericRangeTree *openNumericOrGeoIndex(IndexSpec *spec, FieldSpec *fs, bool create_if_missing);
-
-/**
  * Gets the field name used by a missing-field inverted index iterator.
  *
  * # Safety
@@ -786,6 +777,15 @@ NumericRangeTree *openNumericOrGeoIndex(IndexSpec *spec, FieldSpec *fs, bool cre
  * 3. `out_len` must be a valid writable pointer.
  */
 const char *InvIndMissingIterator_GetFieldName(const QueryIterator *it, size_t *out_len);
+
+/**
+ *
+ * # Safety
+ *
+ * 1. `spec` must be a valid non-null pointer to an [`ffi::IndexSpec`].
+ * 2. `fs` must be a valid non-null pointer to a [`FieldSpec`] for a numeric or geo field.
+ */
+NumericRangeTree *openNumericOrGeoIndex(IndexSpec *spec, FieldSpec *fs, bool create_if_missing);
 
 /**
  * Creates a NOT iterator, choosing between non-optimized and optimized based
