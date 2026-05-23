@@ -913,3 +913,71 @@ impl ProfilePrint for NewWildcardIterator<'_> {
         }
     }
 }
+
+/// The [`RQEIteratorBoxed::Suspended`] form of [`DiskWildcardIterator`]: a newtype over the exact
+/// type it aliases, so suspending is a wrap of the same allocation.
+///
+/// This is the one suspended form that breaks the [`RQEIteratorBoxed::Suspended`] invariant: the
+/// backend is opaque and is not told it is suspended, so any reference it keeps into the disk spec
+/// stays live while the lock is released. Until the backend suspends itself, soundness rests on
+/// the contract of [`new_wildcard_on_disk`](crate::SearchEnterpriseIterators::new_wildcard_on_disk).
+///
+/// That borrow is kept as `'query`. Erasing it to `'static` would let safe code drop the disk spec
+/// while the iterator is suspended, then run the backend's destructor against dangling borrows.
+#[repr(transparent)]
+pub struct DiskWildcardSuspended<'query>(pub(crate) Box<dyn RQEIteratorPrintable<'query> + 'query>);
+
+impl<'index> RQEIteratorBoxed<'index> for DiskWildcardIterator<'index> {
+    type Suspended = DiskWildcardSuspended<'index>;
+
+    fn suspend(self: Box<Self>) -> Box<Self::Suspended> {
+        let raw = Box::into_raw(self);
+        // SAFETY: `DiskWildcardSuspended<'index>` is `#[repr(transparent)]` over exactly
+        // `DiskWildcardIterator<'index>`.
+        unsafe { Box::from_raw(raw as *mut DiskWildcardSuspended<'index>) }
+    }
+}
+
+impl<'query> RQESuspendedIterator<'query> for DiskWildcardSuspended<'query> {
+    type Resumed<'a>
+        = DiskWildcardIterator<'a>
+    where
+        'query: 'a;
+
+    fn resume<'a>(
+        self: Box<Self>,
+        spec: &IndexSpecReadGuard<'a>,
+    ) -> Result<ResumeOutcome<Box<Self::Resumed<'a>>>, RQEIteratorError>
+    where
+        'query: 'a,
+    {
+        let raw = Box::into_raw(self);
+        // SAFETY: unwraps the `#[repr(transparent)]` newtype and shortens the trait object's
+        // lifetime from `'query` to `'a`, which variance does not allow because the trait is
+        // invariant in it. `'query: 'a`, so every borrow the iterator holds outlives `'a`.
+        //
+        // This is NOT sound for every `DiskWildcardIterator`: safe code can box any iterator as
+        // one, and an iterator holding a `'query`-typed sink outside the box (e.g. a
+        // `&'query mut Vec<&'query RLookupKey>` it fills on drop) would receive data that only
+        // lives for `'a`, such as a key pushed into `current().metrics`. It holds for the
+        // iterators the disk backend returns, which have no such sink. Known gap, to be closed
+        // by resuming through the backend's own suspended form instead of retyping it.
+        let mut active = unsafe { Box::from_raw(raw as *mut DiskWildcardIterator<'a>) };
+        Ok(match active.revalidate(spec)? {
+            RQEValidateStatus::Ok => ResumeOutcome::Ok(active),
+            RQEValidateStatus::Moved { .. } => ResumeOutcome::Moved(active),
+            RQEValidateStatus::Aborted => ResumeOutcome::Aborted,
+        })
+    }
+
+    fn last_doc_id(&self) -> DocId {
+        // Lock released: relies on the cached-state contract of
+        // `SearchEnterpriseIterators::new_wildcard_on_disk`.
+        RQEIterator::last_doc_id(&*self.0)
+    }
+
+    fn num_estimated(&self) -> usize {
+        // See `last_doc_id`.
+        RQEIterator::num_estimated(&*self.0)
+    }
+}
