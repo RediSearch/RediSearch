@@ -57,3 +57,18 @@ void sparseVector_append(sparseVector **vp, int index, int value) {
 void sparseVector_free(sparseVector *v) {
   rm_free(v);
 }
+
+// sv_equals returns 1 iff sv1 and sv2 have identical (idx, val) entry
+// sequences. The cap field is ignored — it is allocation bookkeeping,
+// not part of the vector's value.
+int sv_equals(sparseVector *sv1, sparseVector *sv2) {
+  if (sv1->len != sv2->len) return 0;
+
+  for (int i = 0; i < sv1->len; i++) {
+    if (sv1->entries[i].idx != sv2->entries[i].idx || sv1->entries[i].val != sv2->entries[i].val) {
+      return 0;
+    }
+  }
+
+  return 1;
+}
