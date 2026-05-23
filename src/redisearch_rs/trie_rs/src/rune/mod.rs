@@ -80,29 +80,6 @@ impl<Data> RuneTrieMap<Data> {
         todo!()
     }
 
-    // pub fn range_iter<F>(&self, min: Option<RuneBound<'_>>, max: Option<RuneBound<'_>>, mut cb: F)
-    // where
-    //     F: FnMut(&[u16], &T),
-    // {
-    //     let min_packed = min.map(|b| (pack_runes(b.value), b.is_included));
-    //     let max_packed = max.map(|b| (pack_runes(b.value), b.is_included));
-    //     let filter = RangeFilter {
-    //         min: min_packed.as_ref().map(|(v, inc)| RangeBoundary {
-    //             value: v.as_slice(),
-    //             is_included: *inc,
-    //         }),
-    //         max: max_packed.as_ref().map(|(v, inc)| RangeBoundary {
-    //             value: v.as_slice(),
-    //             is_included: *inc,
-    //         }),
-    //     };
-    //     for (bytes, data) in self.inner.range_iter(filter) {
-    //         cb(&unpack_bytes(&bytes), data);
-    //     }
-    // }
-
-    //     pub fn range_iter<'a>(&'a self, filter: RangeFilter<'a>) -> RangeIter<'a, Data> {
-
     pub fn iterate_range<'a>(
         &'a self,
         min: Option<&[Rune]>,
