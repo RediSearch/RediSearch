@@ -469,5 +469,14 @@ teardown. Any bespoke in-place transition code must reproduce this.
   first and, in `QUICK_EXIT` mode, finds the backer it reported by address
   (`previous_backer`) — the one place an address is compared, never
   dereferenced.
+- `intersection.rs` — a many-child composite whose aggregate needs **every**
+  child to agree: it walks every slot through the same `composite.rs` helpers
+  but never compacts (any child abort aborts the intersection), offers its
+  children in slot order because its entries are positional, and settles the
+  walk into a `#[must_use]` `SettleVerdict` through `settle_after_walk`, which
+  `revalidate` calls too, so the two paths share one decision. Its substitute
+  check therefore runs *after* the walk rather than on `&self`, so a child's
+  error wins over it, and a spent, unread or ending intersection swaps a
+  substitute for an empty intersection instead of aborting.
 - `numeric.rs`, `term.rs` — newtype-over-inner leaves that cite the inner's
   invariant.

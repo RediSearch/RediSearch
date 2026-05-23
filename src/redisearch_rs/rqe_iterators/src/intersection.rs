@@ -14,21 +14,22 @@
 //! - `in_order`: Require terms to appear in order
 
 use crate::{
-    IteratorType, RQEIterator, RQEIteratorError, RQEValidateStatus, SkipToOutcome,
+    IteratorType, RQEIterator, RQEIteratorBoxed, RQEIteratorError, RQESuspendedIterator,
+    RQEValidateStatus, ResumeOutcome, SkipToOutcome,
+    boxed::{ResumeSlotOutcome, resume_child_slot_in_place, suspend_child_slot_in_place},
+    composite::{FreeSuspendedShell, repush_borrowed_entries},
     profile_print::{ProfilePrint, ProfilePrintCtx},
 };
 
 use index_result::{RSIndexResult, RSResultKind, RawIndexResult};
 use index_spec::IndexSpecReadGuard;
-use ref_mode::{Active, Ref};
+use ref_mode::{Active, Ref, Suspended};
 use rqe_core::DocId;
 
 /// Yields documents appearing in ALL child iterators using a merge (AND) algorithm.
 ///
 /// Parameterised over a [`Ref`] mode — see [`Intersection`] for the
-/// [`Active`] instantiation that implements [`RQEIterator`]. `Vec<I>`'s
-/// representation is independent of `Rf`, so this struct is transmute-
-/// compatible across `Active`/`Suspended` instantiations provided `I` is.
+/// [`Active`] instantiation that implements [`RQEIterator`].
 ///
 /// Children are sorted by estimated result count (smallest first) to minimize iterations,
 /// unless `in_order` is set (which preserves the original child order for positional checks).
@@ -38,6 +39,16 @@ use rqe_core::DocId;
 /// - `max_slop`: Maximum allowed slop (distance) between term positions. `None` disables proximity
 ///   validation entirely.
 /// - `in_order`: When `true`, terms must appear in the same order as the child iterators.
+///
+/// # Invariants
+///
+/// 1. **Layout compatibility across the child swap.** `RawIntersection` is
+///    `#[repr(C)]` over a `Vec` of children and a [`RawIndexResult`], so
+///    `RawIntersection<Active, I>` and `RawIntersection<Suspended, I::Suspended>`
+///    are layout-identical given that each child `I` and its `I::Suspended` are.
+///    This is what lets [`suspend`](RQEIteratorBoxed::suspend) /
+///    [`resume`](RQESuspendedIterator::resume) reuse the intersection's
+///    allocation and its children buffer across the cycle.
 #[repr(C)]
 pub struct RawIntersection<'query, Rf: Ref, I> {
     /// Child iterators, sorted by estimated count (smallest first) unless `in_order` is set.
@@ -59,23 +70,61 @@ pub struct RawIntersection<'query, Rf: Ref, I> {
 /// with an [`RQEIterator`] impl today.
 pub type Intersection<'index, I> = RawIntersection<'index, Active<'index>, I>;
 
-impl<Rf: Ref, I> RawIntersection<'_, Rf, I> {
-    /// Whether [`result`](Self::result) is a borrowed intersection aggregate,
-    /// the only representation
-    /// [`build_aggregate_result`](Self::build_aggregate_result) can rebuild in
-    /// place.
-    ///
-    /// [`current`](RQEIterator::current) hands the result out mutably, so a
-    /// consumer may have replaced it: another kind has no child entries to
-    /// rebuild, and an owned aggregate cannot take borrowed ones. A borrowed
-    /// intersection put there passes, and is rebuilt with its own weight.
-    fn result_is_borrowed_intersection(&self) -> bool {
-        self.result.kind() == RSResultKind::Intersection
-            && self
-                .result
-                .as_aggregate()
-                .is_some_and(|aggregate| aggregate.as_borrowed().is_some())
-    }
+// Compile-time proof of invariant 1 on `RawIntersection`: for a representative
+// concrete child, the `Active` and `Suspended` instantiations are
+// layout-identical. The child elements' own compatibility is their invariant 1
+// (enforced generically by the slot helpers); `result` is layout-compatible
+// across `Rf` (proven in `index_result`); the remaining fields are `Rf`-free.
+const _: () = {
+    use crate::Wildcard;
+    use std::mem::{align_of, offset_of, size_of};
+    type AChild = Wildcard<'static>;
+    type SChild = <Wildcard<'static> as RQEIteratorBoxed<'static>>::Suspended;
+    type A = RawIntersection<'static, Active<'static>, AChild>;
+    type S = RawIntersection<'static, Suspended, SChild>;
+    assert!(offset_of!(A, children) == offset_of!(S, children));
+    assert!(offset_of!(A, last_doc_id) == offset_of!(S, last_doc_id));
+    assert!(offset_of!(A, num_expected) == offset_of!(S, num_expected));
+    assert!(offset_of!(A, is_eof) == offset_of!(S, is_eof));
+    assert!(offset_of!(A, max_slop) == offset_of!(S, max_slop));
+    assert!(offset_of!(A, in_order) == offset_of!(S, in_order));
+    assert!(offset_of!(A, result) == offset_of!(S, result));
+    assert!(size_of::<A>() == size_of::<S>());
+    assert!(align_of::<A>() == align_of::<S>());
+};
+
+/// Whether an intersection is unread or rewound, so its result holds no
+/// document. Children positioned by a failed first read count as read.
+fn is_unread<'a, Rf: Ref, R>(
+    last_doc_id: DocId,
+    result: &RawIndexResult<'_, Rf>,
+    children: &[R],
+) -> bool
+where
+    R: RQEIterator<'a>,
+{
+    last_doc_id == 0
+        && result.doc_id == 0
+        && result
+            .as_aggregate()
+            .is_some_and(|aggregate| aggregate.is_empty())
+        && children.iter().all(|child| child.last_doc_id() == 0)
+}
+
+/// Whether `result` is a borrowed intersection aggregate, the only
+/// representation
+/// [`build_aggregate_result`](RawIntersection::build_aggregate_result) can
+/// rebuild in place.
+///
+/// [`current`](RQEIterator::current) hands the result out mutably, so a
+/// consumer may have replaced it: another kind has no child entries to
+/// rebuild, and an owned aggregate cannot take borrowed ones. A borrowed
+/// intersection put there passes, and is rebuilt with its own weight.
+fn result_is_borrowed_intersection<Rf: Ref>(result: &RawIndexResult<'_, Rf>) -> bool {
+    result.kind() == RSResultKind::Intersection
+        && result
+            .as_aggregate()
+            .is_some_and(|aggregate| aggregate.as_borrowed().is_some())
 }
 
 /// Result of attempting to get all children to agree on a target document ID.
@@ -267,18 +316,6 @@ where
         }
     }
 
-    /// Whether the intersection is unread or rewound, so its result holds no
-    /// document. Children positioned by a failed first read count as read.
-    fn is_unread(&self) -> bool {
-        self.last_doc_id == 0
-            && self.result.doc_id == 0
-            && self
-                .result
-                .as_aggregate()
-                .is_some_and(|aggregate| aggregate.is_empty())
-            && self.children.iter().all(|child| child.last_doc_id() == 0)
-    }
-
     /// The document of the child furthest ahead, from which a re-seek carries
     /// on as a read would.
     ///
@@ -290,18 +327,6 @@ where
             .map(|child| child.last_doc_id())
             .max()
             .unwrap_or(0)
-    }
-
-    /// Whether every child still sits on the document last yielded, which a
-    /// child error mid-consensus can leave some of them past.
-    ///
-    /// The result's `doc_id` is not consulted: a substitute put there through
-    /// [`current`](RQEIterator::current) may carry any.
-    fn children_back_last_doc(&mut self) -> bool {
-        let doc_id = self.last_doc_id;
-        self.children
-            .iter_mut()
-            .all(|child| child.current().is_some_and(|r| r.doc_id == doc_id))
     }
 
     /// Re-seeks to `target` after revalidation, rebuilding the aggregate on the
@@ -316,15 +341,51 @@ where
         }
     }
 
-    /// Re-derives the aggregate's child entries for the document last yielded.
+    /// Settles the intersection after [`revalidate`](RQEIterator::revalidate)
+    /// has walked every child.
     ///
-    /// Revalidating a child borrows it mutably, which invalidates the entries
-    /// the aggregate borrowed from it. The children gave their metrics up when
-    /// the aggregate was first built, so the aggregate keeps its own.
-    fn refresh_aggregate(&mut self) {
-        let metrics = std::mem::take(&mut self.result.metrics);
-        self.build_aggregate_result(self.last_doc_id);
-        self.result.metrics = metrics;
+    /// [`resume`](RQESuspendedIterator::resume) cannot call this: it has to
+    /// settle the result before the cast, so it calls [`settle_after_walk`]
+    /// there and [`apply_verdict`](Self::apply_verdict) after it.
+    fn settle(
+        &mut self,
+        walk: ChildWalk,
+    ) -> Result<RQEValidateStatus<'_, 'index>, RQEIteratorError> {
+        // SAFETY: the two `Ref` modes of `RawIndexResult` are layout-identical
+        // (the const proof in `index_result`'s core), and viewing the result as
+        // suspended only weakens its pointers. The settle derives every entry
+        // afresh from a live borrow of a child this intersection owns for
+        // `'index`, and nothing takes `&mut` to a child before the result is
+        // read back as active, except a re-seek, which rebuilds the aggregate
+        // itself. `self.result` is a field disjoint from `self.children`.
+        let result =
+            unsafe { &mut *(&raw mut self.result).cast::<RawIndexResult<'index, Suspended>>() };
+        match settle_after_walk(
+            result,
+            &mut self.children,
+            self.last_doc_id,
+            self.is_eof,
+            walk,
+        ) {
+            Some(verdict) => self.apply_verdict(verdict),
+            None => Ok(RQEValidateStatus::Aborted),
+        }
+    }
+
+    /// Carries out what [`settle_after_walk`] decided.
+    fn apply_verdict(
+        &mut self,
+        verdict: SettleVerdict,
+    ) -> Result<RQEValidateStatus<'_, 'index>, RQEIteratorError> {
+        match verdict {
+            SettleVerdict::Idle | SettleVerdict::Refreshed => Ok(RQEValidateStatus::Ok),
+            SettleVerdict::Ended => {
+                self.is_eof = true;
+                Ok(RQEValidateStatus::Moved { current: None })
+            }
+            // The re-seek rebuilds the aggregate the settle cleared.
+            SettleVerdict::Reseek => self.reseek(self.furthest_child_doc_id()),
+        }
     }
 
     /// Reads from the first child. Returns the doc_id or None if EOF.
@@ -620,42 +681,15 @@ where
         &mut self,
         spec: &IndexSpecReadGuard,
     ) -> Result<RQEValidateStatus<'_, 'index>, RQEIteratorError> {
-        let mut any_child_moved = false;
-        let mut moved_to_eof = false;
-
+        let mut walk = ChildWalk::Unchanged;
         for child in &mut self.children {
             match child.revalidate(spec)? {
                 RQEValidateStatus::Aborted => return Ok(RQEValidateStatus::Aborted),
-                RQEValidateStatus::Moved { current } => {
-                    any_child_moved = true;
-                    moved_to_eof |= current.is_none();
-                }
+                RQEValidateStatus::Moved { current } => walk = walk.and_moved(current.is_none()),
                 RQEValidateStatus::Ok => {}
             }
         }
-
-        // At EOF, or before the first read, nothing is published.
-        if self.is_eof || (!any_child_moved && self.is_unread()) {
-            return Ok(RQEValidateStatus::Ok);
-        }
-
-        if moved_to_eof {
-            self.is_eof = true;
-            return Ok(RQEValidateStatus::Moved { current: None });
-        }
-
-        // Both the refresh and the re-seek rebuild the aggregate in place.
-        if !self.result_is_borrowed_intersection() {
-            return Ok(RQEValidateStatus::Aborted);
-        }
-
-        // A child may report a move without leaving its position.
-        if self.children_back_last_doc() {
-            self.refresh_aggregate();
-            return Ok(RQEValidateStatus::Ok);
-        }
-
-        self.reseek(self.furthest_child_doc_id())
+        self.settle(walk)
     }
 
     #[inline(always)]
@@ -665,6 +699,288 @@ where
 
     fn intersection_sort_weight(&self, _prioritize_union_children: bool) -> f64 {
         1.0 / self.children.len().max(1) as f64
+    }
+}
+
+impl<'index, I> RQEIteratorBoxed<'index> for Intersection<'index, I>
+where
+    I: RQEIteratorBoxed<'index>,
+{
+    type Suspended = RawIntersection<'index, Suspended, I::Suspended>;
+
+    fn suspend(self: Box<Self>) -> Box<Self::Suspended> {
+        let raw = Box::into_raw(self);
+        // Each child goes through its own `suspend`, so a type-erased child
+        // swaps its vtable; the inner iterator's heap address is preserved
+        // either way. The buffer pointer and length are read up front so no
+        // `&mut Vec<I>` stays live while the slots are retyped.
+        let (base, len) = {
+            // SAFETY: `raw` came from `Box::into_raw` (non-null, aligned,
+            // initialised, exclusively owned); the borrow is used only to reach
+            // the buffer pointer and length.
+            let children: &mut Vec<I> = unsafe { &mut (*raw).children };
+            (children.as_mut_ptr(), children.len())
+        };
+        for i in 0..len {
+            // SAFETY: `i` is in bounds of the children buffer.
+            let slot = unsafe { base.add(i) };
+            // SAFETY: `slot` holds a valid, owned `I`; the helper leaves it in
+            // a valid `I::Suspended` state.
+            unsafe { suspend_child_slot_in_place(slot) };
+        }
+        // SAFETY: every slot now holds its suspended child at its original
+        // address, so the aggregate's entries still point at live results; the
+        // other fields are `Rf`-free. The two forms are layout-identical by
+        // invariant 1 on `RawIntersection`, and `Box::from_raw` reuses the
+        // allocation, so every interior address survives the cycle.
+        unsafe { Box::from_raw(raw as *mut RawIntersection<'index, Suspended, I::Suspended>) }
+    }
+}
+
+/// How an intersection's children came through revalidation or resume.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum ChildWalk {
+    /// Every child stayed where it stood.
+    Unchanged,
+    /// At least one child moved, and none ran past its end.
+    Moved,
+    /// At least one child moved past its end, which ends the intersection.
+    MovedToEof,
+}
+
+impl ChildWalk {
+    /// Folds in one more child that reported a move, `at_eof` saying whether
+    /// the move carried it past its end.
+    const fn and_moved(self, at_eof: bool) -> Self {
+        match self {
+            Self::MovedToEof => Self::MovedToEof,
+            _ if at_eof => Self::MovedToEof,
+            _ => Self::Moved,
+        }
+    }
+}
+
+/// What an intersection does once every child has been revalidated or
+/// resumed, as decided by [`settle_after_walk`].
+#[must_use = "the verdict decides what the intersection publishes"]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum SettleVerdict {
+    /// The intersection publishes nothing: it is spent, or unread with every
+    /// child unchanged.
+    Idle,
+    /// A child ran past its end, so no document can be agreed on again and
+    /// the intersection ends.
+    Ended,
+    /// Every child sits on the document last yielded and has an entry again.
+    Refreshed,
+    /// At least one child no longer sits on the document last yielded, so the
+    /// intersection must re-seek rather than publish the aggregate.
+    Reseek,
+}
+
+/// Decide what an intersection does once every child has been revalidated or
+/// resumed, and leave its result safe to re-narrow.
+///
+/// Shared by [`revalidate`](RQEIterator::revalidate) and
+/// [`resume`](RQESuspendedIterator::resume). Runs after the child walk, so a
+/// child's error or abort wins over a substitute put there through
+/// [`current`](RQEIterator::current). A child may report a move without
+/// leaving its position, so the aggregate is refreshed rather than re-sought
+/// whenever every child still backs the document last yielded.
+///
+/// A substitute is replaced by an empty intersection carrying its weight when
+/// nothing is published or the intersection ends, since its suspended pointers
+/// cannot be re-validated; otherwise it aborts the intersection, and `None` is
+/// returned.
+///
+/// Entries are positional, as
+/// [`build_aggregate_result`](RawIntersection::build_aggregate_result) pushes
+/// them, so [`repush_borrowed_entries`] is offered every child in slot order.
+/// They are rebuilt for `last_doc_id` rather than the result's `doc_id`, which
+/// a substitute may have changed.
+fn settle_after_walk<'a, R>(
+    result: &mut RawIndexResult<'a, Suspended>,
+    children: &mut [R],
+    last_doc_id: DocId,
+    is_eof: bool,
+    walk: ChildWalk,
+) -> Option<SettleVerdict>
+where
+    R: RQEIterator<'a>,
+{
+    let unread = walk == ChildWalk::Unchanged && is_unread(last_doc_id, result, children);
+    let verdict = if is_eof || unread {
+        SettleVerdict::Idle
+    } else if walk == ChildWalk::MovedToEof {
+        SettleVerdict::Ended
+    } else if !result_is_borrowed_intersection(result) {
+        return None;
+    } else {
+        SettleVerdict::Refreshed
+    };
+
+    if !result_is_borrowed_intersection(result) {
+        *result = RawIndexResult::build_intersect(children.len())
+            .weight(result.weight)
+            .build();
+    }
+    // Copied out because the aggregate borrows `result` whole.
+    let (mut freq, mut field_mask) = (result.freq, result.field_mask);
+    let aggregate = result
+        .as_aggregate_mut()
+        .and_then(|aggregate| aggregate.as_borrowed_mut())
+        .expect("a substitute was replaced or refused above");
+    if verdict != SettleVerdict::Refreshed {
+        // Nothing is published until a read rebuilds the aggregate.
+        aggregate.reset();
+        return Some(verdict);
+    }
+
+    let backing = repush_borrowed_entries::<_, false>(
+        aggregate,
+        last_doc_id,
+        &mut freq,
+        &mut field_mask,
+        children.iter_mut(),
+    );
+    let verdict = if backing == children.len() {
+        SettleVerdict::Refreshed
+    } else {
+        // The re-seek moves children before it rebuilds the aggregate, which
+        // would leave these entries stale.
+        aggregate.reset();
+        SettleVerdict::Reseek
+    };
+    result.freq = freq;
+    result.field_mask = field_mask;
+    result.doc_id = last_doc_id;
+    Some(verdict)
+}
+
+impl<'query, S> RQESuspendedIterator<'query> for RawIntersection<'query, Suspended, S>
+where
+    S: RQESuspendedIterator<'query>,
+{
+    type Resumed<'a>
+        = Intersection<'a, S::Resumed<'a>>
+    where
+        'query: 'a;
+
+    fn resume<'a>(
+        self: Box<Self>,
+        guard: &IndexSpecReadGuard<'a>,
+    ) -> Result<ResumeOutcome<Box<Self::Resumed<'a>>>, RQEIteratorError>
+    where
+        'query: 'a,
+    {
+        let last_doc_id = self.last_doc_id;
+        let is_eof = self.is_eof;
+        let raw = Box::into_raw(self);
+
+        // Resume every child in place, walking them as `revalidate` does. Slots
+        // never move, so the entries' addresses stay right, but their
+        // provenance does not survive a child's transition: they are rebuilt or
+        // cleared below, before the cast.
+        let (base, len) = {
+            // SAFETY: `raw` came from `Box::into_raw` (non-null, aligned,
+            // initialised, exclusively owned); the borrow is used only to reach
+            // the buffer pointer and length.
+            let children: &mut Vec<S> = unsafe { &mut (*raw).children };
+            (children.as_mut_ptr(), children.len())
+        };
+        // SAFETY: `raw` is exclusively owned and non-null, so projecting to its
+        // `children` field is in bounds; no reference is created here.
+        let children_ptr = unsafe { &raw mut (*raw).children };
+        // Until the cast, `shell` owns the part-resumed buffer, so every early
+        // return and any panic frees it through the guard's drop.
+        //
+        // SAFETY: `raw` came from `Box::into_raw` and passes to the guard,
+        // `children_ptr` is its children `Vec`, and once that is emptied the
+        // rest drops as a suspended intersection.
+        let mut shell =
+            unsafe { FreeSuspendedShell::<_, S, S::Resumed<'a>>::new(raw, children_ptr) };
+
+        let mut walk = ChildWalk::Unchanged;
+        for _ in 0..len {
+            // Vacated before the call: on `Aborted`/`Err` the helper has
+            // consumed the child, and the guard must not drop it.
+            let i = shell.vacate_next();
+            // SAFETY: `i` is in bounds of the children buffer.
+            let elem = unsafe { base.add(i) };
+            // SAFETY: `elem` holds a valid, owned `S`; the helper rewrites it as
+            // a valid `S::Resumed<'a>` on `Unchanged`/`Moved`, and consumes it
+            // on `Aborted`/`Err`, which return through `shell`'s drop.
+            match unsafe { resume_child_slot_in_place(elem, guard) }? {
+                ResumeSlotOutcome::Unchanged => {}
+                ResumeSlotOutcome::Moved => {
+                    // `revalidate` reads the EOF from its `Moved` payload; here
+                    // it is read off the resumed child.
+                    //
+                    // SAFETY: the helper just rewrote the slot as a valid
+                    // `S::Resumed<'a>`.
+                    let resumed = unsafe { &*elem.cast::<S::Resumed<'a>>().cast_const() };
+                    walk = walk.and_moved(resumed.at_eof());
+                }
+                ResumeSlotOutcome::Aborted => return Ok(ResumeOutcome::Aborted),
+            }
+            // SAFETY: slot `i`, the one last vacated, now holds a valid, owned
+            // resumed child: the helper rewrote it on `Unchanged`/`Moved`, and
+            // `Aborted` returned above. No slot was dropped before it, so it is
+            // kept where it is.
+            unsafe { shell.keep_last_vacated() };
+        }
+
+        let verdict = {
+            // `&mut` is invariant, so narrowing `'query` to `'a` takes a cast;
+            // it ties the rebuilt entries to the children's lifetime.
+            //
+            // SAFETY: `raw` is exclusively owned and non-null, so projecting to
+            // its `result` field is in bounds; no reference is created here.
+            let result_ptr = unsafe { &raw mut (*raw).result };
+            // SAFETY: the projection is valid, aligned and initialised, disjoint
+            // from the children buffer, and borrowed only within this block.
+            // `'query: 'a`, so every pointer the result claims is valid for `'a`.
+            let result: &mut RawIndexResult<'a, Suspended> =
+                unsafe { &mut *result_ptr.cast::<RawIndexResult<'a, Suspended>>() };
+            debug_assert_eq!(shell.kept(), len, "every slot must hold a resumed child");
+            // SAFETY: the loop above rewrote all `len` slots as valid
+            // `S::Resumed<'a>`, laid out as `S` (enforced by
+            // `resume_child_slot_in_place`), and `raw` is exclusively owned,
+            // so the slice is unaliased.
+            let children =
+                unsafe { std::slice::from_raw_parts_mut(base.cast::<S::Resumed<'a>>(), len) };
+            match settle_after_walk(result, children, last_doc_id, is_eof, walk) {
+                Some(verdict) => verdict,
+                // A substitute's suspended pointers would be re-narrowed
+                // unchecked by the cast; `shell` frees the intersection.
+                None => return Ok(ResumeOutcome::Aborted),
+            }
+        };
+
+        // Disarmed only now: an unwind before the cast must go through the guard.
+        shell.disarm();
+
+        // SAFETY: every slot holds its resumed child at its original address,
+        // and the result is an intersection whose entries were rebuilt from
+        // those children or cleared; the other fields are `Rf`-free.
+        // Layout-identical by invariant 1 on `RawIntersection`. Reusing the
+        // allocation keeps the FFI's cached `header.current` and any parent's
+        // pointer into `result` valid.
+        let mut active = unsafe { Box::from_raw(raw.cast::<Intersection<'a, S::Resumed<'a>>>()) };
+
+        match active.apply_verdict(verdict)? {
+            RQEValidateStatus::Ok => Ok(ResumeOutcome::Ok(active)),
+            RQEValidateStatus::Moved { .. } => Ok(ResumeOutcome::Moved(active)),
+            RQEValidateStatus::Aborted => unreachable!("applying a verdict never aborts"),
+        }
+    }
+
+    fn last_doc_id(&self) -> DocId {
+        self.last_doc_id
+    }
+
+    fn num_estimated(&self) -> usize {
+        self.num_expected
     }
 }
 
