@@ -9,8 +9,7 @@
 
 use rqe_iterators::{
     IteratorType, RQEIterator, RQEIteratorBoxed, RQEIteratorError, RQESuspendedIterator,
-    RQEValidateStatus, SkipToOutcome,
-    maybe_empty::MaybeEmpty,
+    SkipToOutcome, maybe_empty::MaybeEmpty,
 };
 
 #[derive(Default)]
@@ -92,13 +91,6 @@ impl<'index> RQEIterator<'index> for Infinite<'index> {
 
     fn at_eof(&self) -> bool {
         false
-    }
-
-    fn revalidate(
-        &mut self,
-        _spec: &index_spec::IndexSpecReadGuard,
-    ) -> Result<RQEValidateStatus<'_, 'index>, RQEIteratorError> {
-        Ok(RQEValidateStatus::Ok)
     }
 
     #[inline(always)]
@@ -238,22 +230,6 @@ fn rewind_not_empty() {
 }
 
 #[test]
-fn revalidate_empty() {
-    let mock_ctx = rqe_iterators_test_utils::MockContext::new(0, 0);
-    let mut it = MaybeEmpty::<Infinite>::new_empty();
-    let status = it.revalidate(&*mock_ctx.spec_read()).unwrap();
-    assert_eq!(status, RQEValidateStatus::Ok);
-}
-
-#[test]
-fn revalidate_not_empty() {
-    let mock_ctx = rqe_iterators_test_utils::MockContext::new(0, 0);
-    let mut it = MaybeEmpty::new(Infinite::default());
-    let status = it.revalidate(&*mock_ctx.spec_read()).unwrap();
-    assert_eq!(status, RQEValidateStatus::Ok);
-}
-
-#[test]
 fn current_empty_returns_none() {
     let mut it = MaybeEmpty::<Infinite>::new_empty();
     assert!(it.current().is_none());
@@ -288,25 +264,22 @@ fn take_iterator_from_empty_returns_none() {
     assert!(matches!(it.read(), Ok(None)));
 }
 
-mod via_resume {
-    use super::*;
-    use rqe_iterators_test_utils::revalidate_via_resume;
+use rqe_iterators_test_utils::revalidate_via_resume;
 
-    #[test]
-    fn revalidate_empty() {
-        let mock_ctx = rqe_iterators_test_utils::MockContext::new(0, 0);
-        let guard = mock_ctx.spec_read();
-        let it = Box::new(MaybeEmpty::<Infinite>::new_empty());
-        let (_it, status) = revalidate_via_resume(it, &guard);
-        assert_eq!(status, ffi::ValidateStatus_VALIDATE_OK);
-    }
+#[test]
+fn revalidate_empty() {
+    let mock_ctx = rqe_iterators_test_utils::MockContext::new(0, 0);
+    let guard = mock_ctx.spec_read();
+    let it = Box::new(MaybeEmpty::<Infinite>::new_empty());
+    let (_it, status) = revalidate_via_resume(it, &guard);
+    assert_eq!(status, ffi::ValidateStatus_VALIDATE_OK);
+}
 
-    #[test]
-    fn revalidate_not_empty() {
-        let mock_ctx = rqe_iterators_test_utils::MockContext::new(0, 0);
-        let guard = mock_ctx.spec_read();
-        let it = Box::new(MaybeEmpty::new(Infinite::default()));
-        let (_it, status) = revalidate_via_resume(it, &guard);
-        assert_eq!(status, ffi::ValidateStatus_VALIDATE_OK);
-    }
+#[test]
+fn revalidate_not_empty() {
+    let mock_ctx = rqe_iterators_test_utils::MockContext::new(0, 0);
+    let guard = mock_ctx.spec_read();
+    let it = Box::new(MaybeEmpty::new(Infinite::default()));
+    let (_it, status) = revalidate_via_resume(it, &guard);
+    assert_eq!(status, ffi::ValidateStatus_VALIDATE_OK);
 }

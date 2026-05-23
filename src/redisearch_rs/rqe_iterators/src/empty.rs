@@ -11,12 +11,12 @@
 
 use ffi::{ValidateStatus, ValidateStatus_VALIDATE_OK, t_docId};
 use index_result::RSIndexResult;
-use index_spec::IndexSpecReadGuard;
 
 use crate::{
     IteratorType, RQEIterator, RQEIteratorBoxed, RQEIteratorError, RQESuspendedIterator,
-    RQEValidateStatus, SkipToOutcome,
+    SkipToOutcome,
 };
+use index_spec::IndexSpecReadGuard;
 
 /// An iterator that yields no results.
 ///
@@ -64,14 +64,6 @@ impl<'index> RQEIterator<'index> for Empty {
     #[inline(always)]
     fn at_eof(&self) -> bool {
         true
-    }
-
-    #[inline(always)]
-    fn revalidate(
-        &mut self,
-        _spec: &IndexSpecReadGuard,
-    ) -> Result<RQEValidateStatus<'_, 'index>, RQEIteratorError> {
-        Ok(RQEValidateStatus::Ok)
     }
 
     #[inline(always)]

@@ -17,7 +17,6 @@ use ffi::{
     t_docId, t_fieldIndex,
 };
 use index_result::RSIndexResult;
-use index_spec::IndexSpecReadGuard;
 use inverted_index::{
     DecodedBy, DocIdsDecoder, IndexReaderCore, RawIndexReaderCore, RefreshOutcome,
     opaque::OpaqueEncoding,
@@ -26,10 +25,11 @@ use ref_mode::{Active, Ref, Suspended};
 
 use crate::{
     ExpirationChecker, IteratorType, RQEIterator, RQEIteratorBoxed, RQEIteratorError,
-    RQESuspendedIterator, RQEValidateStatus, SkipToOutcome,
+    RQESuspendedIterator, SkipToOutcome,
 };
 
 use super::{InvIndIterator, core::RawInvIndIterator};
+use index_spec::IndexSpecReadGuard;
 
 /// An iterator over documents that are missing a specific field, parameterised
 /// over a [`Ref`] mode. See [`Missing`] for the [`Active`] instantiation that
@@ -94,8 +94,7 @@ where
 
 impl<E: DecodedBy + 'static, C: ExpirationChecker + 'static> RawMissing<Suspended, E, C>
 where
-    for<'a> RawIndexReaderCore<ref_mode::Active<'a>, E>:
-        inverted_index::IndexReader<'a>,
+    for<'a> RawIndexReaderCore<ref_mode::Active<'a>, E>: inverted_index::IndexReader<'a>,
 {
     /// Forwarding shim: refresh the inner [`RawInvIndIterator`]'s reader
     /// pointers while still in [`Suspended`] mode. Used by enum-level
@@ -117,7 +116,7 @@ where
     /// The garbage collector may remove all documents from the
     /// missing-field inverted index or replace it with a new allocation.
     /// In both cases the reader's pointer is stale and the iterator
-    /// must [abort](RQEValidateStatus::Aborted).
+    /// must abort.
     ///
     /// # Why mode-independent
     ///
@@ -283,21 +282,6 @@ where
     #[inline(always)]
     fn at_eof(&self) -> bool {
         self.it.at_eof()
-    }
-
-    #[inline(always)]
-    fn revalidate(
-        &mut self,
-        spec: &IndexSpecReadGuard,
-    ) -> Result<RQEValidateStatus<'_, 'index>, RQEIteratorError> {
-        // Conditions (field_index validity, missingFieldDict, encoding
-        // match) are structural invariants guaranteed by the constructor's
-        // pre-conditions.
-        if self.should_abort(spec) {
-            return Ok(RQEValidateStatus::Aborted);
-        }
-
-        self.it.revalidate(spec)
     }
 
     #[inline(always)]

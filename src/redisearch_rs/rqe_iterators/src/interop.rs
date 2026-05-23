@@ -525,7 +525,10 @@ where
 /// [`RQEIteratorWrapper`] — all `Rf`-dependent fields are
 /// [`SharedPtr`](ref_mode::SharedPtr) `=` `#[repr(transparent)] NonNull<T>`, so
 /// no real reference is being widened.
-extern "C" fn revalidate<'index, I>(base: *mut QueryIterator, spec: *mut ffi::IndexSpec) -> ValidateStatus
+extern "C" fn revalidate<'index, I>(
+    base: *mut QueryIterator,
+    spec: *mut ffi::IndexSpec,
+) -> ValidateStatus
 where
     I: RQEIteratorBoxed<'index> + 'index,
 {
@@ -557,8 +560,7 @@ where
     let guard = unsafe { index_spec::IndexSpecReadGuard::from_locked(spec_ref) };
 
     let suspended = wrapper.state.take_suspended();
-    let (resumed, status) =
-        <I::Suspended as RQESuspendedIterator>::resume(suspended, &guard);
+    let (resumed, status) = <I::Suspended as RQESuspendedIterator>::resume(suspended, &guard);
     // SAFETY: see the doc-comment above. `Box<<I::Suspended>::Resumed<'guard>>`
     // is layout-identical to `Box<I>`: both heap-allocate the same `#[repr(C)]`
     // struct; the lifetime parameter is phantom in every `Rf`-dependent field.

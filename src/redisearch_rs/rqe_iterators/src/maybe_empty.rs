@@ -11,12 +11,12 @@
 
 use ffi::{ValidateStatus, ValidateStatus_VALIDATE_OK, t_docId};
 use index_result::RSIndexResult;
-use index_spec::IndexSpecReadGuard;
 
 use crate::{
     IteratorType, RQEIterator, RQEIteratorBoxed, RQEIteratorError, RQESuspendedIterator,
-    RQEValidateStatus, SkipToOutcome, empty::Empty,
+    SkipToOutcome, empty::Empty,
 };
+use index_spec::IndexSpecReadGuard;
 
 /// An iterator that is either [`Empty`] or the provided [`RQEIterator`].
 ///
@@ -124,17 +124,6 @@ where
         match &mut self.0 {
             MaybeEmptyOption::None(empty) => empty.skip_to(doc_id),
             MaybeEmptyOption::Some(it) => it.skip_to(doc_id),
-        }
-    }
-
-    #[inline(always)]
-    fn revalidate(
-        &mut self,
-        spec: &IndexSpecReadGuard,
-    ) -> Result<RQEValidateStatus<'_, 'index>, RQEIteratorError> {
-        match &mut self.0 {
-            MaybeEmptyOption::None(empty) => empty.revalidate(spec),
-            MaybeEmptyOption::Some(it) => it.revalidate(spec),
         }
     }
 
@@ -262,9 +251,7 @@ where
 
     fn num_estimated(&self) -> usize {
         match &self.0 {
-            MaybeEmptyOption::None(empty) => {
-                <Empty as RQESuspendedIterator>::num_estimated(empty)
-            }
+            MaybeEmptyOption::None(empty) => <Empty as RQESuspendedIterator>::num_estimated(empty),
             MaybeEmptyOption::Some(child) => <S as RQESuspendedIterator>::num_estimated(child),
         }
     }

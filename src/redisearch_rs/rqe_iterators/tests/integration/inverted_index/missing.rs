@@ -90,7 +90,6 @@ mod not_miri {
     use super::*;
     use crate::inverted_index::utils::{RevalidateIndexType, RevalidateTest};
     use inverted_index::opaque::OpaqueEncoding;
-    use rqe_iterators::RQEValidateStatus;
     use std::ffi::CStr;
 
     struct MissingRevalidateTest {
@@ -133,112 +132,6 @@ mod not_miri {
         }
     }
 
-    #[test]
-    fn missing_revalidate_basic() {
-        let test = MissingRevalidateTest::new(10);
-        let mut it = test.create_iterator();
-        test.test.revalidate_basic(&mut it);
-    }
-
-    #[test]
-    fn missing_revalidate_at_eof() {
-        let test = MissingRevalidateTest::new(10);
-        let mut it = test.create_iterator();
-        test.test.revalidate_at_eof(&mut it);
-    }
-
-    #[test]
-    fn missing_revalidate_after_index_disappears() {
-        let test = MissingRevalidateTest::new(10);
-        let mut it = test.create_iterator();
-        // Verify the iterator works normally and read at least one document
-        let status = it
-            .revalidate(&*test.test.context.spec_read())
-            .expect("revalidate failed");
-        assert_eq!(status, RQEValidateStatus::Ok);
-        assert!(it.read().expect("failed to read").is_some());
-        let status = it
-            .revalidate(&*test.test.context.spec_read())
-            .expect("revalidate failed");
-        assert_eq!(status, RQEValidateStatus::Ok);
-
-        // Simulate the missing-field inverted index being garbage collected and
-        // recreated by replacing the dict entry with a new inverted index.
-        // We create the replacement via `Box::into_raw(Box::new(...))` using
-        // `inverted_index::opaque::InvertedIndex`, which is the same type that
-        // `InvertedIndex_Free` (the dict's value destructor) expects.
-        let new_ii = Box::into_raw(Box::new(inverted_index::opaque::InvertedIndex::DocIdsOnly(
-            inverted_index::InvertedIndex::<DocIdsOnly>::new(IndexFlags_Index_DocIdsOnly),
-        )));
-        let field_name = test.test.context.field_spec().fieldName;
-
-        // Replace the dict entry. `dictDelete` calls the value destructor
-        // which frees the original inverted index. Then add the new one.
-        // Note: the iterator's reader holds a (now-dangling) pointer to the
-        // original II, but `should_abort` only compares pointers via
-        // `is_index` without dereferencing it, so this is safe.
-        let dict = test.test.context.spec_read().missing_field_dict();
-        unsafe {
-            ffi::RS_dictDelete(dict, field_name as *mut _);
-            let rc = ffi::RS_dictAdd(dict, field_name as *mut _, new_ii as *mut _);
-            assert_eq!(rc, 0, "dictAdd failed");
-        }
-
-        // Revalidate should return Aborted because the missing II no longer
-        // points to the same index the reader was created from.
-        let status = it
-            .revalidate(&*test.test.context.spec_read())
-            .expect("revalidate failed");
-        assert_eq!(status, RQEValidateStatus::Aborted);
-
-        // No restore needed: the new II will be freed by `dictRelease` during
-        // `IndexSpec_RemoveFromGlobals` in `TestContext::drop`.
-    }
-
-    #[test]
-    fn missing_revalidate_after_document_deleted() {
-        let test = MissingRevalidateTest::new(10);
-        let mut it = test.create_iterator();
-        let ii = DocIdsOnly::from_mut_opaque(test.test.context.missing_inverted_index());
-
-        test.test.revalidate_after_document_deleted(&mut it, ii);
-    }
-
-    /// Test that revalidation returns `Aborted` when the missing-field inverted
-    /// index is removed from the dict (entry deleted), simulating the garbage
-    /// collector removing all documents.
-    #[test]
-    fn missing_revalidate_after_dict_entry_removed() {
-        let test = MissingRevalidateTest::new(10);
-        let mut it = test.create_iterator();
-
-        // Read at least one document so the iterator has a position.
-        assert!(it.read().expect("failed to read").is_some());
-        let status = it
-            .revalidate(&*test.test.context.spec_read())
-            .expect("revalidate failed");
-        assert_eq!(status, RQEValidateStatus::Ok);
-
-        // Simulate the garbage collector removing the missing-field index
-        // by deleting the dict entry. `dictDelete` calls the value destructor
-        // which frees the inverted index.
-        let field_name = test.test.context.field_spec().fieldName;
-        let dict = test.test.context.spec_read().missing_field_dict();
-        unsafe {
-            ffi::RS_dictDelete(dict, field_name as *mut _);
-        }
-
-        // `should_abort` sees NULL from `dictFetchValue` and returns true.
-        let status = it
-            .revalidate(&*test.test.context.spec_read())
-            .expect("revalidate failed");
-        assert_eq!(status, RQEValidateStatus::Aborted);
-
-        // No restore needed: the entry was properly freed by `dictDelete`.
-        // `TestContext::drop` calls `dictRelease` which is fine with a
-        // missing entry.
-    }
-
     /// Test that `reader()` returns a reference to the underlying reader.
     #[test]
     fn missing_reader_accessor() {
@@ -263,94 +156,91 @@ mod not_miri {
         assert_eq!(field_name.to_bytes(), b"text_field");
     }
 
-    mod via_resume {
-        use super::*;
-        use crate::inverted_index::utils::via_resume::{
-            revalidate_after_document_deleted, revalidate_at_eof, revalidate_basic,
-        };
-        use ffi::{ValidateStatus_VALIDATE_ABORTED, ValidateStatus_VALIDATE_OK};
-        use rqe_iterators_test_utils::revalidate_via_resume;
+    use crate::inverted_index::utils::{
+        revalidate_after_document_deleted, revalidate_at_eof, revalidate_basic,
+    };
+    use ffi::{ValidateStatus_VALIDATE_ABORTED, ValidateStatus_VALIDATE_OK};
+    use rqe_iterators_test_utils::revalidate_via_resume;
 
-        #[test]
-        fn missing_revalidate_basic() {
-            let test = MissingRevalidateTest::new(10);
-            let it = test.create_iterator();
-            revalidate_basic(&test.test, Box::new(it));
+    #[test]
+    fn missing_revalidate_basic() {
+        let test = MissingRevalidateTest::new(10);
+        let it = test.create_iterator();
+        revalidate_basic(&test.test, Box::new(it));
+    }
+
+    #[test]
+    fn missing_revalidate_at_eof() {
+        let test = MissingRevalidateTest::new(10);
+        let it = test.create_iterator();
+        revalidate_at_eof(&test.test, Box::new(it));
+    }
+
+    #[test]
+    fn missing_revalidate_after_index_disappears() {
+        let test = MissingRevalidateTest::new(10);
+        let it = Box::new(test.create_iterator());
+        // Verify the iterator works normally and read at least one document
+        let guard = test.test.context.spec_read();
+        let (mut it, status) = revalidate_via_resume(it, &guard);
+        assert_eq!(status, ValidateStatus_VALIDATE_OK);
+        assert!(it.read().expect("failed to read").is_some());
+        let (it, status) = revalidate_via_resume(it, &guard);
+        assert_eq!(status, ValidateStatus_VALIDATE_OK);
+
+        // Simulate the missing-field inverted index being garbage collected and
+        // recreated by replacing the dict entry with a new inverted index.
+        let new_ii = Box::into_raw(Box::new(inverted_index::opaque::InvertedIndex::DocIdsOnly(
+            inverted_index::InvertedIndex::<DocIdsOnly>::new(IndexFlags_Index_DocIdsOnly),
+        )));
+        let field_name = test.test.context.field_spec().fieldName;
+
+        let dict = test.test.context.spec_read().missing_field_dict();
+        unsafe {
+            ffi::RS_dictDelete(dict, field_name as *mut _);
+            let rc = ffi::RS_dictAdd(dict, field_name as *mut _, new_ii as *mut _);
+            assert_eq!(rc, 0, "dictAdd failed");
         }
 
-        #[test]
-        fn missing_revalidate_at_eof() {
-            let test = MissingRevalidateTest::new(10);
-            let it = test.create_iterator();
-            revalidate_at_eof(&test.test, Box::new(it));
+        // Revalidate should return Aborted because the missing II no longer
+        // points to the same index the reader was created from.
+        let (_it, status) = revalidate_via_resume(it, &guard);
+        assert_eq!(status, ValidateStatus_VALIDATE_ABORTED);
+    }
+
+    #[test]
+    fn missing_revalidate_after_document_deleted() {
+        let test = MissingRevalidateTest::new(10);
+        let it = test.create_iterator();
+        let ii = DocIdsOnly::from_mut_opaque(test.test.context.missing_inverted_index());
+
+        revalidate_after_document_deleted(&test.test, Box::new(it), ii);
+    }
+
+    /// Test that revalidation returns `Aborted` when the missing-field inverted
+    /// index is removed from the dict (entry deleted), simulating the garbage
+    /// collector removing all documents.
+    #[test]
+    fn missing_revalidate_after_dict_entry_removed() {
+        let test = MissingRevalidateTest::new(10);
+        let mut it = Box::new(test.create_iterator());
+
+        // Read at least one document so the iterator has a position.
+        assert!(it.read().expect("failed to read").is_some());
+        let guard = test.test.context.spec_read();
+        let (it, status) = revalidate_via_resume(it, &guard);
+        assert_eq!(status, ValidateStatus_VALIDATE_OK);
+
+        // Simulate the garbage collector removing the missing-field index
+        // by deleting the dict entry.
+        let field_name = test.test.context.field_spec().fieldName;
+        let dict = test.test.context.spec_read().missing_field_dict();
+        unsafe {
+            ffi::RS_dictDelete(dict, field_name as *mut _);
         }
 
-        #[test]
-        fn missing_revalidate_after_index_disappears() {
-            let test = MissingRevalidateTest::new(10);
-            let it = Box::new(test.create_iterator());
-            // Verify the iterator works normally and read at least one document
-            let guard = test.test.context.spec_read();
-            let (mut it, status) = revalidate_via_resume(it, &guard);
-            assert_eq!(status, ValidateStatus_VALIDATE_OK);
-            assert!(it.read().expect("failed to read").is_some());
-            let (it, status) = revalidate_via_resume(it, &guard);
-            assert_eq!(status, ValidateStatus_VALIDATE_OK);
-
-            // Simulate the missing-field inverted index being garbage collected and
-            // recreated by replacing the dict entry with a new inverted index.
-            let new_ii = Box::into_raw(Box::new(inverted_index::opaque::InvertedIndex::DocIdsOnly(
-                inverted_index::InvertedIndex::<DocIdsOnly>::new(IndexFlags_Index_DocIdsOnly),
-            )));
-            let field_name = test.test.context.field_spec().fieldName;
-
-            let dict = test.test.context.spec_read().missing_field_dict();
-            unsafe {
-                ffi::RS_dictDelete(dict, field_name as *mut _);
-                let rc = ffi::RS_dictAdd(dict, field_name as *mut _, new_ii as *mut _);
-                assert_eq!(rc, 0, "dictAdd failed");
-            }
-
-            // Revalidate should return Aborted because the missing II no longer
-            // points to the same index the reader was created from.
-            let (_it, status) = revalidate_via_resume(it, &guard);
-            assert_eq!(status, ValidateStatus_VALIDATE_ABORTED);
-        }
-
-        #[test]
-        fn missing_revalidate_after_document_deleted() {
-            let test = MissingRevalidateTest::new(10);
-            let it = test.create_iterator();
-            let ii = DocIdsOnly::from_mut_opaque(test.test.context.missing_inverted_index());
-
-            revalidate_after_document_deleted(&test.test, Box::new(it), ii);
-        }
-
-        /// Test that revalidation returns `Aborted` when the missing-field inverted
-        /// index is removed from the dict (entry deleted), simulating the garbage
-        /// collector removing all documents.
-        #[test]
-        fn missing_revalidate_after_dict_entry_removed() {
-            let test = MissingRevalidateTest::new(10);
-            let mut it = Box::new(test.create_iterator());
-
-            // Read at least one document so the iterator has a position.
-            assert!(it.read().expect("failed to read").is_some());
-            let guard = test.test.context.spec_read();
-            let (it, status) = revalidate_via_resume(it, &guard);
-            assert_eq!(status, ValidateStatus_VALIDATE_OK);
-
-            // Simulate the garbage collector removing the missing-field index
-            // by deleting the dict entry.
-            let field_name = test.test.context.field_spec().fieldName;
-            let dict = test.test.context.spec_read().missing_field_dict();
-            unsafe {
-                ffi::RS_dictDelete(dict, field_name as *mut _);
-            }
-
-            // `should_abort` sees NULL from `dictFetchValue` and returns true.
-            let (_it, status) = revalidate_via_resume(it, &guard);
-            assert_eq!(status, ValidateStatus_VALIDATE_ABORTED);
-        }
+        // `should_abort` sees NULL from `dictFetchValue` and returns true.
+        let (_it, status) = revalidate_via_resume(it, &guard);
+        assert_eq!(status, ValidateStatus_VALIDATE_ABORTED);
     }
 }

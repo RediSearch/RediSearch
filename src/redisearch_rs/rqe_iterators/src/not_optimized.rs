@@ -12,16 +12,16 @@
 use std::time::Duration;
 
 use ffi::{
-    RS_FIELDMASK_ALL, ValidateStatus, ValidateStatus_VALIDATE_ABORTED, ValidateStatus_VALIDATE_MOVED,
-    ValidateStatus_VALIDATE_OK, t_docId,
+    RS_FIELDMASK_ALL, ValidateStatus, ValidateStatus_VALIDATE_ABORTED,
+    ValidateStatus_VALIDATE_MOVED, ValidateStatus_VALIDATE_OK, t_docId,
 };
 use index_result::{RSIndexResult, RawIndexResult};
 use ref_mode::{Active, Ref, Suspended};
 
 use crate::{
     IteratorType, RQEIterator, RQEIteratorBoxed, RQEIteratorError, RQESuspendedIterator,
-    RQEValidateStatus, SkipToOutcome,
-    WildcardIterator, maybe_empty::MaybeEmpty, not::NotIterator, utils::TimeoutContext,
+    SkipToOutcome, WildcardIterator, maybe_empty::MaybeEmpty, not::NotIterator,
+    utils::TimeoutContext,
 };
 use index_spec::IndexSpecReadGuard;
 
@@ -282,73 +282,6 @@ where
     }
 
     #[inline(always)]
-    fn revalidate(
-        &mut self,
-        spec: &IndexSpecReadGuard,
-    ) -> Result<RQEValidateStatus<'_, 'index>, RQEIteratorError> {
-        // 1. Revalidate the wildcard iterator first.
-        let wcii_status = self.wcii.revalidate(spec)?;
-        if matches!(wcii_status, RQEValidateStatus::Aborted) {
-            return Ok(RQEValidateStatus::Aborted);
-        }
-
-        // 2. Revalidate the child iterator.
-        let child_aborted = matches!(self.child.revalidate(spec)?, RQEValidateStatus::Aborted);
-        if child_aborted {
-            // When child is aborted, NOT becomes "NOT nothing" = everything
-            // from the wildcard iterator.
-            self.child = MaybeEmpty::new_empty();
-        }
-
-        // 3. If the wildcard moved, sync state.
-        if matches!(wcii_status, RQEValidateStatus::Moved { .. }) {
-            // Sync the EOF flag with the wildcard iterator. This clears a
-            // previously-set forced_eof so the iterator can recover.
-            self.forced_eof = self.wcii.at_eof();
-            // Track whether we land on a valid NOT result. Starts true
-            // when wcii is not at EOF (we have a candidate position).
-            let mut have_valid_pos = !self.forced_eof;
-            if have_valid_pos {
-                self.result.doc_id = self.wcii.last_doc_id();
-
-                // If child is behind, skip it forward.
-                // Errors are intentionally ignored: a timeout here should
-                // not abort the iterator, since we are already committed
-                // to returning Moved.
-                if self.child.last_doc_id() < self.result.doc_id {
-                    let _ = self.child.skip_to(self.result.doc_id);
-                }
-
-                // If child landed on the same position, the current
-                // result is in the child and invalid for NOT. Advance to
-                // the next valid position.
-                if self.child.last_doc_id() == self.result.doc_id {
-                    match self.read_inner() {
-                        Ok(found) => have_valid_pos = found,
-                        Err(_) => {
-                            // A timeout during revalidation should not
-                            // permanently terminate the iterator, but we
-                            // have no valid position to return.
-                            self.forced_eof = false;
-                            have_valid_pos = false;
-                        }
-                    }
-                }
-            }
-
-            Ok(RQEValidateStatus::Moved {
-                current: if have_valid_pos {
-                    Some(&mut self.result)
-                } else {
-                    None
-                },
-            })
-        } else {
-            Ok(RQEValidateStatus::Ok)
-        }
-    }
-
-    #[inline(always)]
     fn type_(&self) -> IteratorType {
         IteratorType::NotOptimized
     }
@@ -375,9 +308,7 @@ where
         // `W::Suspended`/`I::Suspended` by the [`RQEIteratorBoxed`]
         // contract; `MaybeEmpty<I>` likewise (see [`MaybeEmpty::suspend`]).
         // Box::from_raw reuses the same heap allocation.
-        unsafe {
-            Box::from_raw(raw as *mut RawNotOptimized<Suspended, W::Suspended, I::Suspended>)
-        }
+        unsafe { Box::from_raw(raw as *mut RawNotOptimized<Suspended, W::Suspended, I::Suspended>) }
     }
 
     fn cascade_suspend(&mut self) {

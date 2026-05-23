@@ -14,18 +14,19 @@ use ffi::{
     ValidateStatus_VALIDATE_OK, t_docId,
 };
 use index_result::{RSIndexResult, RSOffsetSlice};
-use index_spec::IndexSpecReadGuard;
-use inverted_index::{PointsToOpaqueIndex, RefreshOutcome, ResumableReader, SuspendableReader, TermReader};
+use inverted_index::{
+    PointsToOpaqueIndex, RefreshOutcome, ResumableReader, SuspendableReader, TermReader,
+};
 use query_term::RSQueryTerm;
 use ref_mode::{Active, Ref, Suspended};
 
 use crate::{
     IteratorType, RQEIterator, RQEIteratorBoxed, RQEIteratorError, RQESuspendedIterator,
-    RQEValidateStatus, SkipToOutcome,
-    expiration_checker::ExpirationChecker,
+    SkipToOutcome, expiration_checker::ExpirationChecker,
 };
 
 use super::core::{InvIndIterator, RawInvIndIterator};
+use index_spec::IndexSpecReadGuard;
 
 /// An iterator over term inverted index entries, parameterised over a
 /// [`Ref`] mode. See [`Term`] for the [`Active`] instantiation that
@@ -60,7 +61,7 @@ impl<Rf: Ref, R: PointsToOpaqueIndex, E> RawTerm<Rf, R, E> {
     /// The term's inverted index may have been garbage-collected and
     /// replaced with a new allocation. If the index pointer looked up via
     /// `spec.keysDict` no longer matches the reader's stored index, the
-    /// iterator must [abort](RQEValidateStatus::Aborted).
+    /// iterator must abort.
     ///
     /// # Why mode-independent
     ///
@@ -190,7 +191,7 @@ impl<'index, Enc: inverted_index::DecodedBy, E>
 {
     /// Swap the underlying inverted index of the reader.
     ///
-    /// Used by tests to trigger [revalidation](RQEIterator::revalidate).
+    /// Used by tests to trigger revalidation.
     pub const fn swap_index(&mut self, index: &mut &'index inverted_index::InvertedIndex<Enc>) {
         self.it.reader.swap_index(index);
     }
@@ -237,18 +238,6 @@ where
     #[inline(always)]
     fn at_eof(&self) -> bool {
         self.it.at_eof()
-    }
-
-    #[inline(always)]
-    fn revalidate(
-        &mut self,
-        spec: &IndexSpecReadGuard,
-    ) -> Result<RQEValidateStatus<'_, 'index>, RQEIteratorError> {
-        if self.should_abort(spec) {
-            return Ok(RQEValidateStatus::Aborted);
-        }
-
-        self.it.revalidate(spec)
     }
 
     #[inline(always)]

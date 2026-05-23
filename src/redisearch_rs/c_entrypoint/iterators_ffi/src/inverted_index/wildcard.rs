@@ -9,12 +9,10 @@
 
 use std::fmt::Debug;
 
+use ffi::{ValidateStatus, ValidateStatus_VALIDATE_ABORTED, ValidateStatus_VALIDATE_OK};
 use index_result::RSIndexResult;
-use inverted_index::{doc_ids_only::DocIdsOnly, raw_doc_ids_only::RawDocIdsOnly, t_docId};
-use ffi::{
-    ValidateStatus, ValidateStatus_VALIDATE_ABORTED, ValidateStatus_VALIDATE_OK,
-};
 use inverted_index::RefreshOutcome;
+use inverted_index::{doc_ids_only::DocIdsOnly, raw_doc_ids_only::RawDocIdsOnly, t_docId};
 use rqe_iterators::{
     IteratorType, RQEIteratorBoxed, RQESuspendedIterator, interop::RQEIteratorWrapper,
     inverted_index::Wildcard,
@@ -209,17 +207,6 @@ impl<'index> rqe_iterators::RQEIterator<'index> for WildcardIterator<'index> {
         match self {
             WildcardIterator::Encoded(w) => w.at_eof(),
             WildcardIterator::Raw(w) => w.at_eof(),
-        }
-    }
-
-    #[inline(always)]
-    fn revalidate(
-        &mut self,
-        spec: &index_spec::IndexSpecReadGuard,
-    ) -> Result<rqe_iterators::RQEValidateStatus<'_, 'index>, rqe_iterators::RQEIteratorError> {
-        match self {
-            WildcardIterator::Encoded(w) => w.revalidate(spec),
-            WildcardIterator::Raw(w) => w.revalidate(spec),
         }
     }
 

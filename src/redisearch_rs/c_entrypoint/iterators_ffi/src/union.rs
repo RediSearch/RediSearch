@@ -16,9 +16,11 @@ use ffi::{QueryIterator, QueryNodeType};
 use crate::profile::Profile_AddIters;
 use rqe_iterator_type::IteratorType;
 use rqe_iterators::{
-    IteratorsConfig, RQEIterator, UnionVariant, c2rust::CRQEIterator,
+    IteratorsConfig, RQEIterator, UnionVariant,
+    c2rust::CRQEIterator,
     interop::{InnerState, RQEIteratorWrapper},
-    union_opaque::UnionOpaque, union_reducer::new_union_iterator,
+    union_opaque::UnionOpaque,
+    union_reducer::new_union_iterator,
 };
 
 /// Concrete [`RQEIteratorWrapper`] used to expose a [`UnionOpaque`] to C.

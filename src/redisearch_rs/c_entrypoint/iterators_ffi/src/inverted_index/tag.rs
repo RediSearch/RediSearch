@@ -9,15 +9,13 @@
 
 use std::{fmt::Debug, ptr::NonNull};
 
+use ffi::{ValidateStatus, ValidateStatus_VALIDATE_ABORTED, ValidateStatus_VALIDATE_OK};
 use field::{FieldExpirationPredicate, FieldFilterContext, FieldMaskOrIndex};
 use index_result::{RSIndexResult, RSQueryTerm};
+use inverted_index::RefreshOutcome;
 use inverted_index::{
     IndexReader, doc_ids_only::DocIdsOnly, raw_doc_ids_only::RawDocIdsOnly, t_docId,
 };
-use ffi::{
-    ValidateStatus, ValidateStatus_VALIDATE_ABORTED, ValidateStatus_VALIDATE_OK,
-};
-use inverted_index::RefreshOutcome;
 use rqe_iterators::{
     FieldExpirationChecker, IteratorType, RQEIteratorBoxed, RQESuspendedIterator,
     interop::RQEIteratorWrapper, inverted_index::Tag,
@@ -45,8 +43,7 @@ use rqe_iterators::{
 )]
 pub(super) enum TagIteratorSuspended {
     Encoded(<Tag<'static, DocIdsOnly, FieldExpirationChecker> as RQEIteratorBoxed<'static>>::Suspended),
-    Raw(<Tag<'static, RawDocIdsOnly, FieldExpirationChecker> as RQEIteratorBoxed<'static>>::Suspended),
-}
+    Raw(<Tag<'static, RawDocIdsOnly, FieldExpirationChecker> as RQEIteratorBoxed<'static>>::Suspended)}
 
 /// Local 3-state outcome carrying the work done while still on the
 /// suspended form (`should_abort` + `refresh_pointers`) into the active
@@ -205,8 +202,7 @@ macro_rules! tag_it_dispatch {
     ($self:expr, $method:ident $(, $arg:expr)*) => {
         match $self {
             TagIterator::Encoded(t) => t.$method($($arg),*),
-            TagIterator::Raw(t) => t.$method($($arg),*),
-        }
+            TagIterator::Raw(t) => t.$method($($arg),*)}
     };
 }
 
@@ -250,14 +246,6 @@ impl<'index> rqe_iterators::RQEIterator<'index> for TagIterator<'index> {
     #[inline(always)]
     fn at_eof(&self) -> bool {
         tag_it_dispatch!(self, at_eof)
-    }
-
-    #[inline(always)]
-    fn revalidate(
-        &mut self,
-        spec: &index_spec::IndexSpecReadGuard,
-    ) -> Result<rqe_iterators::RQEValidateStatus<'_, 'index>, rqe_iterators::RQEIteratorError> {
-        tag_it_dispatch!(self, revalidate, spec)
     }
 
     #[inline(always)]

@@ -7,9 +7,7 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 
-use ffi::{
-    ValidateStatus, ValidateStatus_VALIDATE_ABORTED, ValidateStatus_VALIDATE_OK, t_docId,
-};
+use ffi::{ValidateStatus, ValidateStatus_VALIDATE_ABORTED, ValidateStatus_VALIDATE_OK, t_docId};
 use index_result::RSIndexResult;
 use index_spec::IndexSpecReadGuard;
 use inverted_index::{
@@ -20,8 +18,7 @@ use ref_mode::{Active, Ref, Suspended};
 
 use crate::{
     IteratorType, RQEIterator, RQEIteratorBoxed, RQEIteratorError, RQESuspendedIterator,
-    RQEValidateStatus, SkipToOutcome,
-    expiration_checker::NoOpChecker,
+    SkipToOutcome, expiration_checker::NoOpChecker,
 };
 
 use super::core::{InvIndIterator, RawInvIndIterator};
@@ -61,7 +58,7 @@ where
     /// The garbage collector may either null out `existingDocs` (after
     /// collecting all documents) or replace it with a new allocation. In
     /// both cases the reader's pointer is stale and the iterator must
-    /// [abort](RQEValidateStatus::Aborted).
+    /// abort.
     ///
     /// # Why mode-independent
     ///
@@ -107,8 +104,7 @@ impl<'index, E: DecodedBy + 'index> Wildcard<'index, E> {
 
 impl<E: DecodedBy + 'static> RawWildcard<Suspended, E>
 where
-    for<'a> RawIndexReaderCore<ref_mode::Active<'a>, E>:
-        inverted_index::IndexReader<'a>,
+    for<'a> RawIndexReaderCore<ref_mode::Active<'a>, E>: inverted_index::IndexReader<'a>,
 {
     /// Forwarding shim: refresh the inner [`RawInvIndIterator`]'s reader
     /// pointers while still in [`Suspended`] mode. Used by enum-level
@@ -191,20 +187,6 @@ where
     #[inline(always)]
     fn at_eof(&self) -> bool {
         self.it.at_eof()
-    }
-
-    #[inline(always)]
-    fn revalidate(
-        &mut self,
-        spec: &IndexSpecReadGuard,
-    ) -> Result<RQEValidateStatus<'_, 'index>, RQEIteratorError> {
-        // The existingDocs encoding match is a structural invariant: the
-        // encoding is determined at index creation and cannot change.
-        if self.should_abort(spec) {
-            return Ok(RQEValidateStatus::Aborted);
-        }
-
-        self.it.revalidate(spec)
     }
 
     #[inline(always)]

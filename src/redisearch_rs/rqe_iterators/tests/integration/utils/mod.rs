@@ -75,13 +75,6 @@ impl RQEIterator<'static> for FieldMaskMock {
         }
     }
 
-    fn revalidate(
-        &mut self,
-        _spec: &index_spec::IndexSpecReadGuard,
-    ) -> Result<rqe_iterators::RQEValidateStatus<'_, 'static>, RQEIteratorError> {
-        Ok(rqe_iterators::RQEValidateStatus::Ok)
-    }
-
     fn rewind(&mut self) {
         self.result.doc_id = 0;
         self.next = 0;

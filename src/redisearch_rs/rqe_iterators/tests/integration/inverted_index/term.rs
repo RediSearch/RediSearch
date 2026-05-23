@@ -144,7 +144,7 @@ fn term_filter() {
 mod not_miri {
     use super::*;
     use crate::inverted_index::utils::{ExpirationTest, MockExpirationChecker};
-    use rqe_iterators::{RQEIterator, RQEValidateStatus};
+    use rqe_iterators::RQEIterator;
 
     struct TermExpirationTest {
         test: ExpirationTest,
@@ -337,35 +337,38 @@ mod not_miri {
         }
     }
 
+    use crate::inverted_index::utils::{
+        revalidate_after_document_deleted, revalidate_at_eof, revalidate_basic,
+    };
+    use ffi::{ValidateStatus_VALIDATE_ABORTED, ValidateStatus_VALIDATE_OK};
+    use rqe_iterators_test_utils::revalidate_via_resume;
+
     #[test]
     fn term_revalidate_basic() {
         let test = TermRevalidateTest::new(10);
-        let mut it = test.create_iterator();
-        test.test.revalidate_basic(&mut it);
+        let it = test.create_iterator();
+        revalidate_basic(&test.test, Box::new(it));
     }
 
     #[test]
     fn term_revalidate_at_eof() {
         let test = TermRevalidateTest::new(10);
-        let mut it = test.create_iterator();
-        test.test.revalidate_at_eof(&mut it);
+        let it = test.create_iterator();
+        revalidate_at_eof(&test.test, Box::new(it));
     }
 
     #[test]
     fn term_revalidate_after_index_disappears() {
         let test = TermRevalidateTest::new(10);
-        let mut it = test.create_iterator();
+        let it = Box::new(test.create_iterator());
 
         // First, verify the iterator works normally and read at least one document
-        let status = it
-            .revalidate(&*test.test.context.spec_read())
-            .expect("revalidate failed");
-        assert_eq!(status, RQEValidateStatus::Ok);
+        let guard = test.test.context.spec_read();
+        let (mut it, status) = revalidate_via_resume(it, &guard);
+        assert_eq!(status, ValidateStatus_VALIDATE_OK);
         assert!(it.read().expect("failed to read").is_some());
-        let status = it
-            .revalidate(&*test.test.context.spec_read())
-            .expect("revalidate failed");
-        assert_eq!(status, RQEValidateStatus::Ok);
+        let (mut it, status) = revalidate_via_resume(it, &guard);
+        assert_eq!(status, ValidateStatus_VALIDATE_OK);
 
         // Simulate the term's inverted index being garbage collected and
         // replaced by swapping the reader's stored index pointer to a
@@ -379,10 +382,8 @@ mod not_miri {
 
         it.swap_index(&mut dummy_ref);
 
-        let status = it
-            .revalidate(&*test.test.context.spec_read())
-            .expect("revalidate failed");
-        assert_eq!(status, RQEValidateStatus::Aborted);
+        let (mut it, status) = revalidate_via_resume(it, &guard);
+        assert_eq!(status, ValidateStatus_VALIDATE_ABORTED);
 
         // Swap back and free the dummy for proper cleanup.
         it.swap_index(&mut dummy_ref);
@@ -407,7 +408,7 @@ mod not_miri {
         let reader = test.test.context.term_inverted_index().reader(field_mask);
         let gc_collected_term = RSQueryTerm::new("gc_collected", 1, 0);
         // SAFETY: reader and sctx are valid pointers from the test context.
-        let mut it = unsafe {
+        let mut it = Box::new(unsafe {
             Term::new(
                 reader,
                 test.test.context.sctx,
@@ -415,7 +416,7 @@ mod not_miri {
                 1.0,
                 NoOpChecker,
             )
-        };
+        });
 
         // The reader still works because it reads from the actual inverted
         // index — only the query term stored in the result differs.
@@ -424,129 +425,20 @@ mod not_miri {
         // Revalidation calls should_abort which looks up "gc_collected" in
         // keysDict. The term is not there so Redis_OpenInvertedIndex returns
         // null, triggering the abort path.
-        let status = it
-            .revalidate(&*test.test.context.spec_read())
-            .expect("revalidate failed");
-        assert_eq!(status, RQEValidateStatus::Aborted);
+        let guard = test.test.context.spec_read();
+        let (_it, status) = revalidate_via_resume(it, &guard);
+        assert_eq!(status, ValidateStatus_VALIDATE_ABORTED);
     }
 
     #[test]
     fn term_revalidate_after_document_deleted() {
         let test = TermRevalidateTest::new(10);
-        let mut it = test.create_iterator();
+        let it = test.create_iterator();
         let ii = {
             use inverted_index::{full::Full, opaque::OpaqueEncoding};
             Full::from_mut_opaque(test.test.context.term_inverted_index_mut()).inner_mut()
         };
 
-        test.test.revalidate_after_document_deleted(&mut it, ii);
-    }
-
-    mod via_resume {
-        use super::*;
-        use crate::inverted_index::utils::via_resume::{
-            revalidate_after_document_deleted, revalidate_at_eof, revalidate_basic,
-        };
-        use ffi::{ValidateStatus_VALIDATE_ABORTED, ValidateStatus_VALIDATE_OK};
-        use rqe_iterators_test_utils::revalidate_via_resume;
-
-        #[test]
-        fn term_revalidate_basic() {
-            let test = TermRevalidateTest::new(10);
-            let it = test.create_iterator();
-            revalidate_basic(&test.test, Box::new(it));
-        }
-
-        #[test]
-        fn term_revalidate_at_eof() {
-            let test = TermRevalidateTest::new(10);
-            let it = test.create_iterator();
-            revalidate_at_eof(&test.test, Box::new(it));
-        }
-
-        #[test]
-        fn term_revalidate_after_index_disappears() {
-            let test = TermRevalidateTest::new(10);
-            let it = Box::new(test.create_iterator());
-
-            // First, verify the iterator works normally and read at least one document
-            let guard = test.test.context.spec_read();
-            let (mut it, status) = revalidate_via_resume(it, &guard);
-            assert_eq!(status, ValidateStatus_VALIDATE_OK);
-            assert!(it.read().expect("failed to read").is_some());
-            let (mut it, status) = revalidate_via_resume(it, &guard);
-            assert_eq!(status, ValidateStatus_VALIDATE_OK);
-
-            // Simulate the term's inverted index being garbage collected and
-            // replaced by swapping the reader's stored index pointer to a
-            // different (dummy) index. Redis_OpenInvertedIndex will still
-            // return the original, so the pointer comparison will fail.
-            let flags = test.test.context.term_inverted_index().flags();
-            let dummy = Box::leak(Box::new(inverted_index::InvertedIndex::<
-                inverted_index::full::Full,
-            >::new(flags)));
-            let mut dummy_ref: &inverted_index::InvertedIndex<inverted_index::full::Full> = dummy;
-
-            it.swap_index(&mut dummy_ref);
-
-            let (mut it, status) = revalidate_via_resume(it, &guard);
-            assert_eq!(status, ValidateStatus_VALIDATE_ABORTED);
-
-            // Swap back and free the dummy for proper cleanup.
-            it.swap_index(&mut dummy_ref);
-            // SAFETY: `dummy_ref` now points back to the leaked dummy allocation.
-            drop(unsafe {
-                Box::from_raw(
-                    dummy_ref as *const _
-                        as *mut inverted_index::InvertedIndex<inverted_index::full::Full>,
-                )
-            });
-        }
-
-        #[test]
-        fn term_revalidate_after_index_gc_collected() {
-            let test = TermRevalidateTest::new(10);
-
-            // Build the iterator with a query term that does not exist in keysDict.
-            // This simulates the GC having collected the entire inverted index for
-            // that term: Redis_OpenInvertedIndex will return null when should_abort
-            // tries to look it up.
-            let field_mask = test.test.context.text_field_bit();
-            let reader = test.test.context.term_inverted_index().reader(field_mask);
-            let gc_collected_term = RSQueryTerm::new("gc_collected", 1, 0);
-            // SAFETY: reader and sctx are valid pointers from the test context.
-            let mut it = Box::new(unsafe {
-                Term::new(
-                    reader,
-                    test.test.context.sctx,
-                    gc_collected_term,
-                    1.0,
-                    NoOpChecker,
-                )
-            });
-
-            // The reader still works because it reads from the actual inverted
-            // index — only the query term stored in the result differs.
-            assert!(it.read().expect("failed to read").is_some());
-
-            // Revalidation calls should_abort which looks up "gc_collected" in
-            // keysDict. The term is not there so Redis_OpenInvertedIndex returns
-            // null, triggering the abort path.
-            let guard = test.test.context.spec_read();
-            let (_it, status) = revalidate_via_resume(it, &guard);
-            assert_eq!(status, ValidateStatus_VALIDATE_ABORTED);
-        }
-
-        #[test]
-        fn term_revalidate_after_document_deleted() {
-            let test = TermRevalidateTest::new(10);
-            let it = test.create_iterator();
-            let ii = {
-                use inverted_index::{full::Full, opaque::OpaqueEncoding};
-                Full::from_mut_opaque(test.test.context.term_inverted_index_mut()).inner_mut()
-            };
-
-            revalidate_after_document_deleted(&test.test, Box::new(it), ii);
-        }
+        revalidate_after_document_deleted(&test.test, Box::new(it), ii);
     }
 }

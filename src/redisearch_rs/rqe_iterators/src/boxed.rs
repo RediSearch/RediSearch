@@ -11,7 +11,7 @@
 //!
 //! This module introduces the suspend/resume trait hierarchy that will
 //! supersede the legacy
-//! [`RQEIterator::revalidate`] design:
+//! the legacy `revalidate` method design:
 //!
 //! | Concept              | Concrete (type-state preserved)   | Dyn-safe sibling                |
 //! |----------------------|-----------------------------------|---------------------------------|
@@ -55,11 +55,9 @@
 
 use ffi::{ValidateStatus, t_docId};
 use index_result::RSIndexResult;
-use index_spec::IndexSpecReadGuard;
 
-use crate::{
-    IteratorType, RQEIterator, RQEIteratorError, RQEValidateStatus, SkipToOutcome, c2rust,
-};
+use crate::{IteratorType, RQEIterator, RQEIteratorError, SkipToOutcome, c2rust};
+use index_spec::IndexSpecReadGuard;
 
 /// Concrete-typed active iterator trait — the new shape of
 /// [`RQEIterator`].
@@ -334,13 +332,6 @@ impl<'a> RQEIterator<'a> for BoxedRQEIterator<'a> {
         doc_id: t_docId,
     ) -> Result<Option<SkipToOutcome<'_, 'a>>, RQEIteratorError> {
         self.0.skip_to(doc_id)
-    }
-
-    fn revalidate(
-        &mut self,
-        spec: &IndexSpecReadGuard,
-    ) -> Result<RQEValidateStatus<'_, 'a>, RQEIteratorError> {
-        self.0.revalidate(spec)
     }
 
     fn rewind(&mut self) {

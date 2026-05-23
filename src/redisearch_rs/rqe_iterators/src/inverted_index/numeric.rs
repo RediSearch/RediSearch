@@ -11,7 +11,7 @@ use std::{f64, ptr::NonNull};
 
 use crate::{
     FieldExpirationChecker, IteratorType, RQEIterator, RQEIteratorBoxed, RQEIteratorError,
-    RQESuspendedIterator, RQEValidateStatus, SkipToOutcome,
+    RQESuspendedIterator, SkipToOutcome,
     expiration_checker::{ExpirationChecker, NoOpChecker},
 };
 use ffi::{
@@ -19,7 +19,6 @@ use ffi::{
     ValidateStatus_VALIDATE_ABORTED, ValidateStatus_VALIDATE_OK, t_docId,
 };
 use index_result::RSIndexResult;
-use index_spec::IndexSpecReadGuard;
 use inverted_index::{
     FilterGeoReader, FilterNumericReader, IndexReader, NumericFilter, NumericReader,
     RefreshOutcome, ResumableReader, SuspendableReader,
@@ -28,6 +27,7 @@ use numeric_range_tree::{NumericIndexReader, NumericIndexReaderSuspended, Numeri
 use ref_mode::{Active, Ref, Suspended};
 
 use super::core::{InvIndIterator, RawInvIndIterator};
+use index_spec::IndexSpecReadGuard;
 
 /// An iterator over numeric inverted index entries, parameterised over a
 /// [`Ref`] mode. See [`Numeric`] for the [`Active`] instantiation that
@@ -89,7 +89,7 @@ impl<Rf: Ref, R, E> RawNumeric<Rf, R, E> {
     /// modified by GC (a node split or removal). The iterator's cached
     /// `revision_id` snapshot is compared against the current value; if
     /// they differ, the cursor is invalidated and the iterator must
-    /// [abort](RQEValidateStatus::Aborted).
+    /// abort.
     ///
     /// # Why mode-independent
     ///
@@ -299,18 +299,6 @@ where
     #[inline(always)]
     fn at_eof(&self) -> bool {
         self.it.at_eof()
-    }
-
-    #[inline(always)]
-    fn revalidate(
-        &mut self,
-        spec: &IndexSpecReadGuard,
-    ) -> Result<RQEValidateStatus<'_, 'index>, RQEIteratorError> {
-        if self.should_abort() {
-            return Ok(RQEValidateStatus::Aborted);
-        }
-
-        self.it.revalidate(spec)
     }
 
     #[inline(always)]
@@ -617,18 +605,6 @@ impl<'index> RQEIterator<'index> for NumericIteratorVariant<'index> {
     }
 
     #[inline(always)]
-    fn revalidate(
-        &mut self,
-        spec: &IndexSpecReadGuard,
-    ) -> Result<RQEValidateStatus<'_, 'index>, RQEIteratorError> {
-        match self {
-            Self::Unfiltered(iter) => iter.revalidate(spec),
-            Self::Filtered(iter) => iter.revalidate(spec),
-            Self::Geo(iter) => iter.revalidate(spec),
-        }
-    }
-
-    #[inline(always)]
     fn type_(&self) -> IteratorType {
         IteratorType::InvIdxNumeric
     }
@@ -654,11 +630,7 @@ pub enum NumericIteratorVariantSuspended {
     ),
     /// Suspended counterpart of [`NumericIteratorVariant::Geo`].
     Geo(
-        RawNumeric<
-            Suspended,
-            FilterGeoReader<NumericIndexReaderSuspended>,
-            FieldExpirationChecker,
-        >,
+        RawNumeric<Suspended, FilterGeoReader<NumericIndexReaderSuspended>, FieldExpirationChecker>,
     ),
 }
 
@@ -728,7 +700,10 @@ impl RQESuspendedIterator for NumericIteratorVariantSuspended {
         match *self {
             NumericIteratorVariantSuspended::Unfiltered(it) => {
                 let (active, status) = Box::new(it).resume(guard);
-                (Box::new(NumericIteratorVariant::Unfiltered(*active)), status)
+                (
+                    Box::new(NumericIteratorVariant::Unfiltered(*active)),
+                    status,
+                )
             }
             NumericIteratorVariantSuspended::Filtered(it) => {
                 let (active, status) = Box::new(it).resume(guard);

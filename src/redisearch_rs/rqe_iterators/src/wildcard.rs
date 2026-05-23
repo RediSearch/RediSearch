@@ -13,7 +13,6 @@ use std::ptr::NonNull;
 
 use ffi::{RS_FIELDMASK_ALL, ValidateStatus, ValidateStatus_VALIDATE_OK, t_docId};
 use index_result::{RSIndexResult, RawIndexResult};
-use index_spec::IndexSpecReadGuard;
 use inverted_index::codec::{doc_ids_only::DocIdsOnly, raw_doc_ids_only::RawDocIdsOnly};
 use inverted_index::{DocIdsDecoder, opaque};
 use ref_mode::{Active, Ref, Suspended};
@@ -21,8 +20,9 @@ use ref_mode::{Active, Ref, Suspended};
 use crate::IteratorType;
 use crate::{
     Empty, RQEIterator, RQEIteratorBoxed, RQEIteratorError, RQESuspendedIterator,
-    RQEValidateStatus, SEARCH_ENTERPRISE_ITERATORS, SkipToOutcome,
+    SEARCH_ENTERPRISE_ITERATORS, SkipToOutcome,
 };
+use index_spec::IndexSpecReadGuard;
 
 /// An iterator that yields all ids within a given range, from 1 to max id
 /// (inclusive) in an index.
@@ -106,13 +106,6 @@ impl<'index> RQEIterator<'index> for Wildcard<'index> {
 
     fn at_eof(&self) -> bool {
         self.result.doc_id >= self.top_id
-    }
-
-    fn revalidate(
-        &mut self,
-        _spec: &IndexSpecReadGuard,
-    ) -> Result<RQEValidateStatus<'_, 'index>, RQEIteratorError> {
-        Ok(RQEValidateStatus::Ok)
     }
 
     #[inline(always)]
@@ -207,13 +200,6 @@ impl<'index> RQEIterator<'index> for Box<dyn WildcardIterator<'index> + 'index> 
         (**self).skip_to(doc_id)
     }
 
-    fn revalidate(
-        &mut self,
-        spec: &IndexSpecReadGuard,
-    ) -> Result<RQEValidateStatus<'_, 'index>, RQEIteratorError> {
-        (**self).revalidate(spec)
-    }
-
     fn rewind(&mut self) {
         (**self).rewind()
     }
@@ -275,8 +261,7 @@ macro_rules! delegate_rqe_iterator {
     ($self:ident, $method:ident $(, $arg:ident)*) => {
         match $self {
             Self::DocIdsOnly(it) => it.$method($($arg),*),
-            Self::RawDocIdsOnly(it) => it.$method($($arg),*),
-        }
+            Self::RawDocIdsOnly(it) => it.$method($($arg),*)}
     };
 }
 
@@ -311,13 +296,6 @@ impl<'index> RQEIterator<'index> for OptimizedWildcard<'index> {
 
     fn at_eof(&self) -> bool {
         delegate_rqe_iterator!(self, at_eof)
-    }
-
-    fn revalidate(
-        &mut self,
-        spec: &IndexSpecReadGuard,
-    ) -> Result<RQEValidateStatus<'_, 'index>, RQEIteratorError> {
-        delegate_rqe_iterator!(self, revalidate, spec)
     }
 
     #[inline(always)]
@@ -445,8 +423,7 @@ macro_rules! delegate_wildcard_iterator {
             Self::NotOptimized(it) => it.$method($($arg),*),
             Self::Optimized(it) => it.$method($($arg),*),
             Self::Empty(it) => it.$method($($arg),*),
-            Self::Disk(it) => it.$method($($arg),*),
-        }
+            Self::Disk(it) => it.$method($($arg),*)}
     };
 }
 
@@ -495,13 +472,6 @@ impl<'index> RQEIterator<'index> for NewWildcardIterator<'index> {
 
     fn at_eof(&self) -> bool {
         delegate_wildcard_iterator!(self, at_eof)
-    }
-
-    fn revalidate(
-        &mut self,
-        spec: &IndexSpecReadGuard,
-    ) -> Result<RQEValidateStatus<'_, 'index>, RQEIteratorError> {
-        delegate_wildcard_iterator!(self, revalidate, spec)
     }
 
     #[inline(always)]
@@ -790,13 +760,6 @@ impl<'index> RQEIterator<'index> for DiskWildcardIterator<'index> {
         doc_id: t_docId,
     ) -> Result<Option<SkipToOutcome<'_, 'index>>, RQEIteratorError> {
         self.0.skip_to(doc_id)
-    }
-
-    fn revalidate(
-        &mut self,
-        spec: &IndexSpecReadGuard,
-    ) -> Result<RQEValidateStatus<'_, 'index>, RQEIteratorError> {
-        self.0.revalidate(spec)
     }
 
     fn rewind(&mut self) {

@@ -9,9 +9,9 @@
 
 use std::ptr::{self, NonNull};
 
+use ffi::ValidateStatus;
 use ffi::{QueryIterator, t_docId, timespec};
 use rqe_iterator_type::IteratorType;
-use ffi::ValidateStatus;
 use rqe_iterators::{
     BoxedRQEIterator, NewWildcardIterator, RQEIterator, RQEIteratorBoxed, RQESuspendedIterator,
     c2rust::CRQEIterator,
@@ -94,17 +94,6 @@ impl<'index> RQEIterator<'index> for NotIteratorEnum<'index> {
         match self {
             Self::Not(it) => it.skip_to(doc_id),
             Self::NotOptimized(it) => it.skip_to(doc_id),
-        }
-    }
-
-    #[inline(always)]
-    fn revalidate(
-        &mut self,
-        spec: &index_spec::IndexSpecReadGuard,
-    ) -> Result<rqe_iterators::RQEValidateStatus<'_, 'index>, rqe_iterators::RQEIteratorError> {
-        match self {
-            Self::Not(it) => it.revalidate(spec),
-            Self::NotOptimized(it) => it.revalidate(spec),
         }
     }
 
@@ -203,14 +192,15 @@ impl<'index> RQEIteratorBoxed<'index> for NotIteratorEnum<'index> {
         // overwrite via `ptr::write` before reconstituting the Box.
         let active_val = unsafe { ptr::read(raw) };
 
-        let suspended_val = match active_val {
-            Self::Not(it) => NotIteratorEnumSuspended::Not(
-                *<NotFfi<'index> as RQEIteratorBoxed<'index>>::suspend(Box::new(it)),
-            ),
-            Self::NotOptimized(it) => NotIteratorEnumSuspended::NotOptimized(
-                *<NotOptimizedFfi<'index> as RQEIteratorBoxed<'index>>::suspend(Box::new(it)),
-            ),
-        };
+        let suspended_val =
+            match active_val {
+                Self::Not(it) => NotIteratorEnumSuspended::Not(
+                    *<NotFfi<'index> as RQEIteratorBoxed<'index>>::suspend(Box::new(it)),
+                ),
+                Self::NotOptimized(it) => NotIteratorEnumSuspended::NotOptimized(
+                    *<NotOptimizedFfi<'index> as RQEIteratorBoxed<'index>>::suspend(Box::new(it)),
+                ),
+            };
 
         let suspended_raw = raw as *mut NotIteratorEnumSuspended;
         // SAFETY: `suspended_raw` is the same heap allocation as `raw`,
