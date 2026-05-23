@@ -11,14 +11,16 @@
 
 use ffi::{
     IteratorStatus_ITERATOR_EOF, IteratorStatus_ITERATOR_NOTFOUND, IteratorStatus_ITERATOR_OK,
-    IteratorStatus_ITERATOR_TIMEOUT, IteratorType, QueryIterator, ValidateStatus_VALIDATE_ABORTED,
-    ValidateStatus_VALIDATE_MOVED, ValidateStatus_VALIDATE_OK,
+    IteratorStatus_ITERATOR_TIMEOUT, IteratorType, QueryIterator, ValidateStatus,
+    ValidateStatus_VALIDATE_ABORTED, ValidateStatus_VALIDATE_MOVED, ValidateStatus_VALIDATE_OK,
 };
 use rqe_core::DocId;
 
 use crate::{
-    RQEIterator, RQEIteratorError, RQEValidateStatus, SkipToOutcome, interop::RQEIteratorWrapper,
-    intersection::Intersection, profile_print,
+    RQEIterator, RQEIteratorBoxed, RQEIteratorError, RQESuspendedIterator, RQEValidateStatus,
+    SkipToOutcome, interop::RQEIteratorWrapper,
+    intersection::Intersection,
+    profile_print,
 };
 use index_result::RSIndexResult;
 use index_spec::IndexSpecReadGuard;
@@ -483,5 +485,42 @@ impl profile_print::ProfilePrint for CRQEIterator {
         // entry was set at construction time by RQEIteratorWrapper::boxed_new
         // or by the C iterator constructor.
         unsafe { call_print_profile(ptr, map, ctx) };
+    }
+}
+
+impl<'index> RQEIteratorBoxed<'index> for CRQEIterator {
+    /// `CRQEIterator` wraps an opaque C handle that owns its own validity
+    /// state. There is no Rust-side state to flip between modes; the
+    /// suspended counterpart is the same type.
+    type Suspended = CRQEIterator;
+
+    fn suspend(self: Box<Self>) -> Box<Self::Suspended> {
+        self
+    }
+}
+
+impl RQESuspendedIterator for CRQEIterator {
+    type Resumed<'a> = CRQEIterator;
+
+    fn resume<'a>(
+        self: Box<Self>,
+        spec: &'a IndexSpecReadGuard<'a>,
+    ) -> (Box<Self::Resumed<'a>>, ValidateStatus) {
+        // Delegate validity recovery to the C-side `Revalidate` vtable
+        // entry. Whatever convention the C iterator uses to refresh stale
+        // pointers, restart cursors, etc. is its own concern — we just
+        // call its callback under the held read lock.
+        // SAFETY: invariant 3. of [`CRQEIterator::header`] guarantees the
+        // callback is non-null.
+        let callback = unsafe { self.Revalidate.unwrap_unchecked() };
+        // SAFETY: the handle is unique (consumed by value into `self`),
+        // the C-side callback is safe to call per invariant 4., and
+        // `spec.as_mut_ptr()` is valid for the duration of the call.
+        let status = unsafe { callback(self.header.as_ptr(), spec.as_mut_ptr()) };
+        (self, status)
+    }
+
+    fn last_doc_id(&self) -> DocId {
+        self.lastDocId
     }
 }
