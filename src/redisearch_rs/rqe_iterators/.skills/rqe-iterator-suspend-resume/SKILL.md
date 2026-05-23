@@ -454,13 +454,18 @@ teardown. Any bespoke in-place transition code must reproduce this.
 - `maybe_empty.rs` — wrapper with **no result of its own**: `#[repr(C)]`
   `MaybeEmptyOption` newtype, child-abort propagation, delegating suspended
   accessors.
-- `union_flat.rs` — worked example of a **many-child** composite: the walk over
-  every child slot, compaction over aborted ones, and a settle step shared with
-  the legacy `revalidate` so the two paths cannot drift. It uses the helpers in
-  `union.rs`: a `FreeSuspendedShell` RAII guard owning the half-transitioned
-  buffer (the region boundaries live in the guard, so the teardown reads them
-  rather than being handed indices), and a `rebuild_borrowed_entries` that
-  recomputes the contributor set instead of matching entries by address, in an
-  order each union picks.
+- `union_flat.rs` and `union_heap.rs` — worked examples of a **many-child**
+  composite: the walk over every child slot, compaction over aborted ones, and
+  a settle step shared with the legacy `revalidate` so the two paths cannot
+  drift. Both use the helpers in `union.rs`: a `FreeSuspendedShell` RAII guard
+  owning the half-transitioned buffer (the region boundaries live in the
+  guard, so the teardown reads them rather than being handed indices), and a
+  `rebuild_borrowed_entries` that recomputes the contributor set instead of
+  matching entries by address, in an order each union picks. Flat offers its
+  children in slot order, which is how its read path picks them; the heap's
+  read path picks from the heap instead, so it offers the heap's contributors
+  first and, in `QUICK_EXIT` mode, finds the backer it reported by address
+  (`previous_backer`) — the one place an address is compared, never
+  dereferenced.
 - `numeric.rs`, `term.rs` — newtype-over-inner leaves that cite the inner's
   invariant.
