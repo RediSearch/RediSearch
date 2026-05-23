@@ -24,8 +24,8 @@ use inverted_index::RepairContext;
 #[cfg(not(miri))]
 use proptest::prelude::*;
 use rqe_iterators::{
-    IteratorType, RQEIterator, RQEIteratorBoxed, RQESuspendedIterator, RQEValidateStatus,
-    ResumeOutcome, SkipToOutcome, TypeErasedRQEIterator,
+    IteratorType, RQEIterator, RQEIteratorBoxed, RQESuspendedIterator, ResumeOutcome,
+    SkipToOutcome, TypeErasedRQEIterator,
 };
 #[cfg(not(miri))]
 use rqe_iterators_test_utils::assert_suspended_prints_as_active;
@@ -428,118 +428,6 @@ fn gc_ignores_a_delta_for_a_replaced_posting_list() {
     );
 }
 
-/// GC freeing a dimension while a query is parked must not leave the
-/// iterator reading the freed posting list: the dimension's child aborts and
-/// the union carries on with the others.
-#[test]
-fn revalidate_drops_a_dimension_gc_removed() {
-    let ctx = MockContext::new(0, 0);
-    let index_ptr = Box::into_raw(Box::new(SparseVectorIndex::new(
-        DIM,
-        SparseMetric::InnerProduct,
-    )));
-    // SAFETY: `index_ptr` is a fresh, uniquely owned allocation, freed at the
-    // end of the test; this borrow ends before the iterator is built.
-    let index = unsafe { &mut *index_ptr };
-    for (doc_id, entries) in [
-        (1, vec![(1, 1.0)]),
-        (2, vec![(2, 5.0)]),
-        (3, vec![(1, 2.0)]),
-        (4, vec![(2, 7.0)]),
-    ] {
-        index.add(doc_id, &ip(&entries)).unwrap();
-    }
-    let query = ip(&[(1, 1.0), (2, 1.0)]);
-    // SAFETY: the index outlives the iterator, and is only written below while
-    // the iterator is parked, as a GC pass would under the write lock.
-    let mut it =
-        unsafe { SparseVectorIterator::new(NonNull::new(index_ptr).unwrap(), &query, 10) }.unwrap();
-    assert_eq!(it.read().unwrap().unwrap().doc_id, 1);
-
-    // Docs 2 and 4 are deleted and collected: dimension 2 is removed and freed.
-    // SAFETY: as above.
-    assert_eq!(run_gc(unsafe { &mut *index_ptr }, &[2, 4]), 1);
-
-    let status = it.revalidate(&ctx.spec_read()).unwrap();
-    assert!(!matches!(status, RQEValidateStatus::Aborted));
-    let rest: Vec<u64> = std::iter::from_fn(|| it.read().unwrap().map(|r| r.doc_id)).collect();
-    assert_eq!(rest, vec![3]);
-    drop(it);
-    // SAFETY: the iterator is gone and `index_ptr` came from `Box::into_raw`.
-    drop(unsafe { Box::from_raw(index_ptr) });
-}
-
-#[test]
-fn revalidate_aborts_when_every_dimension_is_removed() {
-    let ctx = MockContext::new(0, 0);
-    let index_ptr = Box::into_raw(Box::new(SparseVectorIndex::new(
-        DIM,
-        SparseMetric::InnerProduct,
-    )));
-    // SAFETY: `index_ptr` is a fresh, uniquely owned allocation, freed at the
-    // end of the test; this borrow ends before the iterator is built.
-    let index = unsafe { &mut *index_ptr };
-    index.add(1, &ip(&[(1, 1.0)])).unwrap();
-    index.add(2, &ip(&[(1, 1.0)])).unwrap();
-    // SAFETY: as in `revalidate_drops_a_dimension_gc_removed`.
-    let mut it = unsafe {
-        SparseVectorIterator::new(NonNull::new(index_ptr).unwrap(), &ip(&[(1, 1.0)]), 10)
-    }
-    .unwrap();
-    assert_eq!(it.read().unwrap().unwrap().doc_id, 1);
-
-    // SAFETY: as above.
-    run_gc(unsafe { &mut *index_ptr }, &[1, 2]);
-    assert!(matches!(
-        it.revalidate(&ctx.spec_read()).unwrap(),
-        RQEValidateStatus::Aborted
-    ));
-    drop(it);
-    // SAFETY: as in `revalidate_drops_a_dimension_gc_removed`.
-    drop(unsafe { Box::from_raw(index_ptr) });
-}
-
-/// A GC pass that only shrinks a posting list leaves the parked iterator on
-/// its position, reading the compacted list.
-#[test]
-fn revalidate_follows_a_compacted_posting_list() {
-    let ctx = MockContext::new(0, 0);
-    let index_ptr = Box::into_raw(Box::new(SparseVectorIndex::new(
-        DIM,
-        SparseMetric::InnerProduct,
-    )));
-    // SAFETY: `index_ptr` is a fresh, uniquely owned allocation, freed at the
-    // end of the test; this borrow ends before the iterator is built.
-    let index = unsafe { &mut *index_ptr };
-    for doc_id in 1..=6 {
-        index.add(doc_id, &ip(&[(1, doc_id as f32)])).unwrap();
-    }
-    // SAFETY: as in `revalidate_drops_a_dimension_gc_removed`.
-    let mut it = unsafe {
-        SparseVectorIterator::new(NonNull::new(index_ptr).unwrap(), &ip(&[(1, 1.0)]), 10)
-    }
-    .unwrap();
-    assert_eq!(it.read().unwrap().unwrap().doc_id, 1);
-    assert_eq!(it.read().unwrap().unwrap().doc_id, 2);
-
-    // SAFETY: as above.
-    run_gc(unsafe { &mut *index_ptr }, &[3, 5]);
-    assert!(!matches!(
-        it.revalidate(&ctx.spec_read()).unwrap(),
-        RQEValidateStatus::Aborted
-    ));
-    let rest: Vec<(u64, f64)> = std::iter::from_fn(|| {
-        it.read()
-            .unwrap()
-            .map(|r| (r.doc_id, r.as_numeric().unwrap()))
-    })
-    .collect();
-    assert_eq!(rest, vec![(4, 4.0), (6, 6.0)]);
-    drop(it);
-    // SAFETY: as in `revalidate_drops_a_dimension_gc_removed`.
-    drop(unsafe { Box::from_raw(index_ptr) });
-}
-
 /// A `min_union_iter_heap` that builds a heap union over two dimensions.
 const HEAP_UNION: usize = 1;
 /// A `min_union_iter_heap` that builds a flat union over two dimensions.
@@ -636,7 +524,8 @@ fn resume_aborts_on_a_swapped_in_result() {
     ));
 }
 
-/// The resume twin of [`revalidate_drops_a_dimension_gc_removed`].
+/// GC freeing a dimension while suspended aborts that dimension's child, and
+/// the union carries on with the others.
 #[test]
 fn resume_drops_a_dimension_gc_removed() {
     let ctx = MockContext::new(0, 0);
@@ -680,7 +569,7 @@ fn resume_drops_a_dimension_gc_removed() {
     drop(unsafe { Box::from_raw(index_ptr) });
 }
 
-/// The resume twin of [`revalidate_aborts_when_every_dimension_is_removed`].
+/// GC freeing every dimension while suspended aborts the iterator.
 #[test]
 fn resume_aborts_when_every_dimension_is_removed() {
     let ctx = MockContext::new(0, 0);
@@ -825,8 +714,8 @@ fn a_suspended_dimension_reports_its_position_and_estimate() {
     assert_eq!(RQESuspendedIterator::num_estimated(&*suspended), 2);
 }
 
-/// The resume twin of [`revalidate_follows_a_compacted_posting_list`],
-/// through the type-erased path a composite parent takes.
+/// A GC pass that only shrinks a posting list leaves the suspended iterator at
+/// its position, through the type-erased path a composite parent takes.
 #[test]
 fn resume_follows_a_compacted_posting_list() {
     let ctx = MockContext::new(0, 0);

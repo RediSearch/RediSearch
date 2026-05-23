@@ -27,8 +27,7 @@ use rlookup::{KeyHandleSlot, RLookupKey, RLookupKeyHandle};
 use rqe_core::DocId;
 use rqe_iterators::{
     IteratorType, NoOpChecker, RQEIterator, RQEIteratorBoxed, RQEIteratorError,
-    RQESuspendedIterator, RQEValidateStatus, ResumeOutcome, SkipToOutcome, UnionFullFlat,
-    UnionFullHeap,
+    RQESuspendedIterator, ResumeOutcome, SkipToOutcome, UnionFullFlat, UnionFullHeap,
     boxed::{
         ResumeSlotOutcome, finish_resume_in_place, resume_child_slot_in_place,
         suspend_child_slot_in_place,
@@ -70,9 +69,8 @@ pub struct RawDimensionIterator<P> {
 /// with the query weight `q_i` as its result weight.
 ///
 /// GC frees the posting list of a dimension it empties, so
-/// [`revalidate`](RQEIterator::revalidate) and
-/// [`resume`](RQESuspendedIterator::resume) look the dimension up again and
-/// abort when its list is gone or replaced. The union then drops this child,
+/// [`resume`](RQESuspendedIterator::resume) looks the dimension up again and
+/// aborts when its list is gone or replaced. The union then drops this child,
 /// which contributed nothing to any score.
 pub type DimensionIterator<'index> = RawDimensionIterator<PostingListIterator<'index>>;
 
@@ -106,9 +104,6 @@ impl<'query, Rf: Ref, RRf: Ref, RA>
     /// Look the dimension up again and reseat the reader on its posting list.
     /// Returns `false`, leaving the reader untouched, when GC removed or
     /// replaced the list.
-    ///
-    /// Shared by [`revalidate`](RQEIterator::revalidate) and
-    /// [`resume`](RQESuspendedIterator::resume) so both make the same decision.
     ///
     /// # Safety
     ///
@@ -180,19 +175,6 @@ impl<'index> RQEIterator<'index> for DimensionIterator<'index> {
         doc_id: DocId,
     ) -> Result<Option<SkipToOutcome<'_, 'index>>, RQEIteratorError> {
         self.it.skip_to(doc_id)
-    }
-
-    fn revalidate(
-        &mut self,
-        spec: &IndexSpecReadGuard,
-    ) -> Result<RQEValidateStatus<'_, 'index>, RQEIteratorError> {
-        // SAFETY: 1. `index` came from `SparseVectorIterator::new`, whose
-        // caller keeps it alive. 2. `spec` witnesses the read lock, which the
-        // caller holds until the iterator is parked again.
-        if !unsafe { self.reseat_on_live_list() } {
-            return Ok(RQEValidateStatus::Aborted);
-        }
-        self.it.revalidate(spec)
     }
 
     fn rewind(&mut self) {
@@ -418,7 +400,6 @@ impl<'index> SparseVectorIterator<'index> {
     ///    iterator (`'index`).
     /// 2. The index is written to only while the iterator is parked, that is
     ///    held across a read-lock release, and
-    ///    [`revalidate`](RQEIterator::revalidate) or
     ///    [`resume`](RQESuspendedIterator::resume) is called under the read lock
     ///    before the iterator is used again.
     /// 3. `index` was not derived from a shared reference that such a write
@@ -559,26 +540,6 @@ impl<'index> RQEIterator<'index> for SparseVectorIterator<'index> {
         }))
     }
 
-    fn revalidate(
-        &mut self,
-        spec: &IndexSpecReadGuard,
-    ) -> Result<RQEValidateStatus<'_, 'index>, RQEIteratorError> {
-        let key = self.own_key;
-        let moved = dispatch!(&mut self.union, u => match u.revalidate(spec)? {
-            RQEValidateStatus::Ok => return Ok(RQEValidateStatus::Ok),
-            RQEValidateStatus::Aborted => return Ok(RQEValidateStatus::Aborted),
-            RQEValidateStatus::Moved { current } => current.map(|r| &*r),
-        });
-        let current = match moved {
-            Some(from) => {
-                Self::load(&mut self.result, from, key);
-                Some(&mut self.result)
-            }
-            None => None,
-        };
-        Ok(RQEValidateStatus::Moved { current })
-    }
-
     fn rewind(&mut self) {
         dispatch!(&mut self.union, u => u.rewind());
         self.result.doc_id = 0;
@@ -648,7 +609,7 @@ impl<'query> RQESuspendedIterator<'query> for SuspendedSparseVectorIterator<'que
     {
         // `current()` hands the result out mutably, so a consumer could have
         // swapped in a result that borrows the index, which this iterator cannot
-        // revalidate. Refuse before reinterpreting anything.
+        // resume. Refuse before reinterpreting anything.
         if self.result.kind() != RSResultKind::SparseScore {
             return Ok(ResumeOutcome::Aborted);
         }
@@ -695,7 +656,7 @@ impl<'query> RQESuspendedIterator<'query> for SuspendedSparseVectorIterator<'que
         if !moved {
             return Ok(ResumeOutcome::Ok(active));
         }
-        // As in `revalidate`: reduce the union's new position into the result.
+        // Reduce the union's new position into the result.
         let it = &mut *active;
         let key = it.own_key;
         if let Some(from) = dispatch!(&mut it.union, u => u.current().map(|r| &*r)) {

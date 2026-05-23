@@ -18,8 +18,8 @@ use ref_mode::{Active, Ref, Suspended};
 use rqe_core::DocId;
 use rqe_iterator_type::IteratorType;
 use rqe_iterators::{
-    RQEIterator, RQEIteratorBoxed, RQEIteratorError, RQESuspendedIterator, RQEValidateStatus,
-    ResumeOutcome, SkipToOutcome,
+    RQEIterator, RQEIteratorBoxed, RQEIteratorError, RQESuspendedIterator, ResumeOutcome,
+    SkipToOutcome,
     boxed::{
         ResumeSlotOutcome, assert_layout_compatible, resume_child_slot_in_place,
         suspend_child_slot_in_place,
@@ -174,10 +174,9 @@ enum Phase {
 ///    re-narrows. `carries_no_index_borrow` states the property in code;
 ///    because neither that trait contract nor the `&mut` handout from
 ///    [`current`](RQEIterator::current) can be enforced statically, it is
-///    *checked* — not assumed — by `buffers_carry_no_index_borrows`, at both boundaries
-///    that hand the records back after a lock release
-///    ([`resume`](RQESuspendedIterator::resume) and the legacy
-///    [`revalidate`](RQEIterator::revalidate)), which abort on violation.
+///    *checked* — not assumed — by `buffers_carry_no_index_borrows`, at the boundary
+///    that hands the records back after a lock release
+///    ([`resume`](RQESuspendedIterator::resume)), which aborts on violation.
 ///
 ///    Keeping the buffers [`Active`]-typed, instead of weakening them to the
 ///    `Rf` mode like the rest of the iterator family, is deliberate: the records
@@ -909,32 +908,6 @@ impl<'index, S: ScoreSource + 'index, C: RQEIterator<'index> + 'index, O: ScoreO
     }
 
     #[inline(always)]
-    fn revalidate(
-        &mut self,
-        spec: &IndexSpecReadGuard,
-    ) -> Result<RQEValidateStatus<'_, 'index>, RQEIteratorError> {
-        if !self.buffers_carry_no_index_borrows() {
-            return Ok(RQEValidateStatus::Aborted);
-        }
-        // Results come from our own score-ordered buffer, so a moved child does
-        // not move our cursor. Child aborts and errors still propagate.
-        if let Some(child) = self.child.as_mut() {
-            match child.revalidate(spec)? {
-                RQEValidateStatus::Aborted => return Ok(RQEValidateStatus::Aborted),
-                RQEValidateStatus::Ok | RQEValidateStatus::Moved { .. } => {}
-            }
-        }
-        // Legacy callers have no suspend hook. Discard cached handles before
-        // the source is consulted again, but preserve child errors over a source abort.
-        self.source.release_index_handles();
-        if !self.can_resume_collection() {
-            return Ok(RQEValidateStatus::Aborted);
-        }
-        self.source_stale = true;
-        Ok(RQEValidateStatus::Ok)
-    }
-
-    #[inline(always)]
     fn rewind(&mut self) {
         self.results = Vec::new();
         self.heap.clear();
@@ -1012,8 +985,7 @@ impl<
         // Nothing else is touched: the yield position (`phase`, `results`,
         // `yield_pos`, `direct_batch`) is what `resume` must preserve, and the
         // buffered records carry no index-backed payload (invariant 2), so they
-        // survive the lock release untouched — exactly as they do across the
-        // legacy `revalidate`, which also leaves them alone.
+        // survive the lock release untouched.
         // Weakening a borrow is sound whatever the buffers hold, so this is an
         // early warning, not a guard: the release-mode guarantee is the same
         // check at the resume boundary, which is where the borrows are
@@ -1128,9 +1100,7 @@ impl<
         };
 
         // An aborted child aborts the whole top-k: the filter it applied is
-        // unrecoverable, so the collected set can no longer be trusted. This
-        // mirrors `RQEIterator::revalidate`, which reports `Aborted` for exactly
-        // this case.
+        // unrecoverable, so the collected set can no longer be trusted.
         match step {
             ChildResume::NoChild | ChildResume::Active => {}
             ChildResume::Aborted | ChildResume::Failed(_) => {
@@ -1177,8 +1147,8 @@ impl<
 
         // Always `Ok`, never `Moved`: our position is `yield_pos` into our own
         // score-ordered buffer, which the suspension left untouched, so the
-        // document `current()` reports is still the one the caller last read.
-        // `RQEIterator::revalidate` collapses a moved child the same way.
+        // document `current()` reports is still the one the caller last read,
+        // whether or not the child moved.
         active.source_stale = true;
         Ok(ResumeOutcome::Ok(active))
     }
@@ -1278,7 +1248,7 @@ impl ChildCapture {
 /// The copy shares ownership of the terms rather than borrowing them because
 /// the iterators holding them can go away while the copy is still stored: a
 /// composite child may drop an aborted subtree during
-/// [`RQEIterator::revalidate`] and carry on.
+/// [`resume`](RQESuspendedIterator::resume) and carry on.
 fn capture_child_record<'index>(record: &RSIndexResult<'index>) -> RSIndexResult<'index> {
     record.to_owned()
 }
@@ -1773,24 +1743,6 @@ mod tests {
         // An owned aggregate is only as index-free as its children.
         virt_union.push_boxed(Box::new(leaf_term_record()));
         assert!(!carries_no_index_borrow(&virt_union));
-    }
-
-    /// The legacy path hands the parked records back after the same lock
-    /// release, so it applies the same index-borrow check as `resume`.
-    #[test]
-    fn revalidate_aborts_when_a_parked_record_borrows_index_data() {
-        let mock_ctx = MockContext::new(0, 0);
-        let mut it = TopKIterator::<_, Empty>::new_with_mode(
-            IndexBorrowingSource,
-            None,
-            NonZeroUsize::new(1).unwrap(),
-            Ascending,
-            TopKMode::Unfiltered,
-        );
-        assert_eq!(it.read().unwrap().expect("expected a doc").doc_id, 1);
-
-        let status = it.revalidate(&mock_ctx.spec_read()).unwrap();
-        assert_eq!(status, RQEValidateStatus::Aborted);
     }
 
     #[test]

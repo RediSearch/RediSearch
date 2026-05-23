@@ -22,7 +22,7 @@ use rqe_core::{DocId, RS_FIELDMASK_ALL};
 
 use crate::{
     ExpirationChecker, IteratorType, RQEIterator, RQEIteratorBoxed, RQEIteratorError,
-    RQESuspendedIterator, RQEValidateStatus, ResumeOutcome, SkipToOutcome,
+    RQESuspendedIterator, ResumeOutcome, SkipToOutcome,
     profile_print::{ProfilePrint, ProfilePrintCtx},
 };
 
@@ -79,7 +79,7 @@ where
 {
     /// The inverted index currently stored for this iterator's tag value,
     /// freshly resolved, or `None` when the iterator must
-    /// [`abort`](RQEValidateStatus::Aborted) — the garbage collector removed all
+    /// [`abort`](ResumeOutcome::Aborted) — the garbage collector removed all
     /// the tag's documents, or replaced its inverted index with a new allocation.
     ///
     /// Hands back the resolution so the caller can
@@ -227,25 +227,6 @@ where
     #[inline(always)]
     fn at_eof(&self) -> bool {
         self.it.at_eof()
-    }
-
-    #[inline(always)]
-    fn revalidate(
-        &mut self,
-        spec: &IndexSpecReadGuard,
-    ) -> Result<RQEValidateStatus<'_, 'index>, RQEIteratorError> {
-        let Some(ii) = self.resolve_live_index() else {
-            return Ok(RQEValidateStatus::Aborted);
-        };
-
-        // `revalidate` reads the index's GC marker through the reader's pointer,
-        // which may not have survived a write to the index.
-        // SAFETY: 1. `points_to_ii` held. 2. `ii` was resolved just now, under the
-        // read lock `spec` witnesses. 3. The revalidation protocol only lets the
-        // index be written while the reader is parked across a lock release.
-        unsafe { self.it.reader.reseat_index(ii) };
-
-        self.it.revalidate(spec)
     }
 
     #[inline(always)]

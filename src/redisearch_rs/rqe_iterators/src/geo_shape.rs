@@ -40,7 +40,7 @@ use rqe_core::{DocId, RS_FIELDMASK_ALL};
 
 use crate::{
     IteratorType, RQEIterator, RQEIteratorBoxed, RQEIteratorError, RQESuspendedIterator,
-    RQEValidateStatus, ResumeOutcome, SkipToOutcome,
+    ResumeOutcome, SkipToOutcome,
     boxed::{resume_owned_result_in_place, suspend_owned_result_in_place},
     expiration_checker::ExpirationChecker,
     profile_print::{ProfilePrint, ProfilePrintCtx},
@@ -442,17 +442,6 @@ where
     #[inline(always)]
     fn at_eof(&self) -> bool {
         self.past_end()
-    }
-
-    fn revalidate(
-        &mut self,
-        _spec: &IndexSpecReadGuard,
-    ) -> Result<RQEValidateStatus<'_, 'index>, RQEIteratorError> {
-        // The id buffer is owned, so the iterator's position is never
-        // invalidated by garbage collection; we never move or abort. Field
-        // expiration is re-checked per candidate (the checker self-gates the
-        // no-expiration case), so there is no cached state to refresh here.
-        Ok(RQEValidateStatus::Ok)
     }
 
     #[inline(always)]

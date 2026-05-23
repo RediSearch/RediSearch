@@ -17,7 +17,7 @@ use index_spec::IndexSpecReadGuard;
 use rqe_core::DocId;
 use rqe_iterators::{
     IteratorType, RQEIterator, RQEIteratorBoxed, RQEIteratorError, RQESuspendedIterator,
-    RQEValidateStatus, ResumeOutcome, SkipToOutcome,
+    ResumeOutcome, SkipToOutcome,
     profile_print::{ProfilePrint, ProfilePrintCtx},
     score_bound::{BlockBound, MinCompetitiveScore, can_drop},
 };
@@ -229,13 +229,6 @@ impl<'index> RQEIterator<'index> for Blocked<'index> {
             }
         }
         Ok(self.land(at).map(|_| &mut self.result))
-    }
-
-    fn revalidate(
-        &mut self,
-        _spec: &IndexSpecReadGuard,
-    ) -> Result<RQEValidateStatus<'_, 'index>, RQEIteratorError> {
-        Ok(RQEValidateStatus::Ok)
     }
 
     fn rewind(&mut self) {

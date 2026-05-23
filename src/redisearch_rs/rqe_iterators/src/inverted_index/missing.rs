@@ -26,7 +26,7 @@ use field::{FieldExpirationPredicate, FieldFilterContext, FieldMaskOrIndex};
 
 use crate::{
     ExpirationChecker, FieldExpirationChecker, IteratorType, RQEIterator, RQEIteratorBoxed,
-    RQEIteratorError, RQESuspendedIterator, RQEValidateStatus, ResumeOutcome, SkipToOutcome,
+    RQEIteratorError, RQESuspendedIterator, ResumeOutcome, SkipToOutcome,
     profile_print::{ProfilePrint, ProfilePrintCtx},
 };
 
@@ -93,7 +93,7 @@ where
     <E as DecodedBy>::Decoder: DocIdsDecoder,
 {
     /// The missing-field inverted index, freshly fetched from `spec`, or `None`
-    /// when the iterator must [abort](RQEValidateStatus::Aborted).
+    /// when the iterator must [abort](ResumeOutcome::Aborted).
     ///
     /// The garbage collector may remove all documents from the
     /// missing-field inverted index or replace it with a new allocation.
@@ -260,28 +260,6 @@ where
     #[inline(always)]
     fn at_eof(&self) -> bool {
         self.it.at_eof()
-    }
-
-    #[inline(always)]
-    fn revalidate(
-        &mut self,
-        spec: &IndexSpecReadGuard,
-    ) -> Result<RQEValidateStatus<'_, 'index>, RQEIteratorError> {
-        // Conditions (field_index validity, missing.indexes, encoding
-        // match) are structural invariants guaranteed by the constructor's
-        // pre-conditions.
-        let Some(ii) = self.resolve_live_index(spec) else {
-            return Ok(RQEValidateStatus::Aborted);
-        };
-
-        // `revalidate` reads the index's GC marker through the reader's pointer,
-        // which may not have survived a write to the index.
-        // SAFETY: 1. `points_to_ii` held. 2. `ii` was fetched just now, under the
-        // read lock `spec` witnesses. 3. The revalidation protocol only lets the
-        // index be written while the reader is parked across a lock release.
-        unsafe { self.it.reader.reseat_index(ii) };
-
-        self.it.revalidate(spec)
     }
 
     #[inline(always)]
