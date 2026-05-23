@@ -72,11 +72,11 @@ typedef struct dfaEdge {
 } dfaEdge;
 
 /* Get an edge for a dfa node given the next rune */
-dfaNode *__dfn_getEdge(dfaNode *n, rune r);
+dfaNode *dfaNode_getEdge(dfaNode *n, rune r);
 
 
 /* Create a new DFA node */
-dfaNode *__newDfaNode(int distance, sparseVector *state);
+dfaNode *dfaNode_new(int distance, sparseVector *state);
 
 /* Recursively build the DFA node and all its descendants */
 void dfa_build(dfaNode *parent, SparseAutomaton *a, Vector *cache);
