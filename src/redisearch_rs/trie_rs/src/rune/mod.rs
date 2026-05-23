@@ -158,7 +158,7 @@ impl<Data> RuneTrieMap<Data> {
         .build()
     }
 
-    pub fn iterate_wildcard(&self, _buf: &[u16]) -> RuneTrieMapIter<'_, Data> {
+    pub fn wildcard_iter(&self, _buf: &[u16]) -> RuneTrieMapIter<'_, Data> {
         // self.inner
         //     .wildcard_iter(WildcardPattern::parse(&rune_to_bytes(buf)))
         todo!()

@@ -11,28 +11,18 @@
 //! iteration (`Trie_IterateWildcard`) against the snapshots owned by
 //! `rune_trie_snapshots::wildcard_iteration`.
 //!
-//! Assumed `RuneTrieMap` API (does NOT exist yet — porting target):
+//! Drives [`RuneTrieMap::wildcard_iter`]. Pattern syntax:
 //!
-//! ```ignore
-//! impl<Data> RuneTrieMap<Data> {
-//!     /// Iterate terms matching the wildcard `pattern`. Syntax:
-//!     ///
-//!     ///   - `*` matches zero or more runes.
-//!     ///   - `?` matches exactly one rune.
-//!     ///   - Every other rune is literal — **including `\\`**: the
-//!     ///     matcher itself has no escape handling. `\*` means
-//!     ///     "literal backslash, then star-wildcard".
-//!     ///
-//!     /// Callers must pass a non-empty `pattern`. The C side reads
-//!     /// `str[nstr - 1]` at `src/trie/trie_node.c:1204` to decide its
-//!     /// `prefix` shortcut flag — `nstr=0` is UB on the C side and
-//!     /// undefined-by-contract for the Rust port.
-//!     pub fn iterate_wildcard(
-//!         &self,
-//!         pattern: &[Rune],
-//!     ) -> impl Iterator<Item = (Vec<Rune>, &Data)>;
-//! }
-//! ```
+//!   - `*` matches zero or more runes.
+//!   - `?` matches exactly one rune.
+//!   - Every other rune is literal — **including `\\`**: the matcher itself
+//!     has no escape handling. `\*` means "literal backslash, then
+//!     star-wildcard".
+//!
+//! Callers must pass a non-empty pattern. The C side reads `str[nstr - 1]`
+//! at `src/trie/trie_node.c:1204` to decide its `prefix` shortcut flag —
+//! `nstr=0` is UB on the C side and undefined-by-contract for the Rust
+//! port.
 
 use std::fmt::Write as _;
 
@@ -64,7 +54,7 @@ fn dump_wildcard(trie: &RuneTrieMap<TermEntry>, label: &str, pattern: &str, out:
 
     let buf = term_runes(pattern);
     let mut matches = 0usize;
-    for (k, entry) in trie.iterate_wildcard(&buf) {
+    for (k, entry) in trie.wildcard_iter(&buf) {
         let term = String::from_utf16(&k).expect("trie runes are valid BMP UTF-16");
         writeln!(out, "  {term:10}  numDocs={}", entry.num_docs).unwrap();
         matches += 1;
