@@ -26,4 +26,4 @@ pub use missing::Missing;
 pub use numeric::{Numeric, NumericIteratorVariant, open_numeric_or_geo_index};
 pub use tag::Tag;
 pub use term::Term;
-pub use wildcard::Wildcard;
+pub use wildcard::{RawWildcard, Wildcard};
