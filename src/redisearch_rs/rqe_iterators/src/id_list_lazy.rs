@@ -17,7 +17,7 @@ use std::ptr::NonNull;
 
 use crate::{
     IdList, IteratorType, RQEIterator, RQEIteratorBoxed, RQEIteratorError, RQESuspendedIterator,
-    RQEValidateStatus, ResumeOutcome, SkipToOutcome,
+    ResumeOutcome, SkipToOutcome,
     deferred::{ProducedResults, Producer},
     id_list::{RawIdList, SuspendedIdList},
     profile_print::{ProfilePrint, ProfilePrintCtx},
@@ -155,14 +155,6 @@ impl<'index, const SORTED: bool> RQEIterator<'index> for IdListLazy<'index, SORT
         // unread rather than past its end, so callers still read it and trigger
         // production.
         self.inner.at_eof()
-    }
-
-    #[inline(always)]
-    fn revalidate(
-        &mut self,
-        spec: &IndexSpecReadGuard,
-    ) -> Result<RQEValidateStatus<'_, 'index>, RQEIteratorError> {
-        self.inner.revalidate(spec)
     }
 
     #[inline(always)]

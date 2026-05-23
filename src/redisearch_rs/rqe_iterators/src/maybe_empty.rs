@@ -17,7 +17,7 @@ use rqe_core::DocId;
 
 use crate::{
     IteratorType, RQEIterator, RQEIteratorBoxed, RQEIteratorError, RQESuspendedIterator,
-    RQEValidateStatus, ResumeOutcome, SkipToOutcome,
+    ResumeOutcome, SkipToOutcome,
     boxed::{ResumeSlotOutcome, resume_child_slot_in_place},
     empty::Empty,
 };
@@ -146,17 +146,6 @@ where
         match &mut self.0 {
             MaybeEmptyOption::None(empty) => empty.skip_to(doc_id),
             MaybeEmptyOption::Some(it) => it.skip_to(doc_id),
-        }
-    }
-
-    #[inline(always)]
-    fn revalidate(
-        &mut self,
-        spec: &IndexSpecReadGuard,
-    ) -> Result<RQEValidateStatus<'_, 'index>, RQEIteratorError> {
-        match &mut self.0 {
-            MaybeEmptyOption::None(empty) => empty.revalidate(spec),
-            MaybeEmptyOption::Some(it) => it.revalidate(spec),
         }
     }
 

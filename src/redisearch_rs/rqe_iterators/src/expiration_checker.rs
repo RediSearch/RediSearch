@@ -133,7 +133,7 @@ impl ExpirationChecker for FieldExpirationChecker {
         // last HFE doc is removed via `DocTable_DeleteById` (with the spec lock briefly
         // released around an iterator yield). The InvIndIterator caches its
         // `read_impl`/`skip_to_impl` function pointers at construction based on
-        // `has_expiration()` and does not refresh them in `revalidate()`, so we
+        // `has_expiration()` and does not refresh them on resume, so we
         // can be entered here with a now-NULL `ttl`. Mirror the C-side guard in
         // `DocTable_CheckFieldExpirationPredicate` and treat that as "not
         // expired" — passing NULL into the FFI verifier would deref it.

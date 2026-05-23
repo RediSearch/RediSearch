@@ -33,9 +33,11 @@ use rqe_iterators::inverted_index::build_term_iterator;
 /// The following invariants must be upheld when calling this function:
 ///
 /// 1. `idx` must be a valid pointer to a term `InvertedIndex` and cannot be NULL.
-/// 2. `idx` must remain valid between `revalidate()` calls, since the revalidation
-///    mechanism detects when the index has been replaced via `Redis_OpenInvertedIndex()`
-///    pointer comparison.
+/// 2. `idx` must remain valid while the iterator is active: from construction until
+///    it is suspended, and again after each resume that keeps it. While suspended, the
+///    index may be freed and replaced; the resume detects that by comparing the
+///    pointer `Redis_OpenInvertedIndex()` returns against `idx`, without
+///    dereferencing `idx`.
 /// 3. `sctx` must be a valid pointer to a `RedisSearchCtx` and cannot be NULL.
 /// 4. `sctx` and `sctx.spec` must remain valid for the lifetime of the returned iterator.
 /// 5. `term` must be a valid pointer to a heap-allocated `RSQueryTerm` (e.g. created by

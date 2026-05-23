@@ -18,7 +18,7 @@ use std::ptr::NonNull;
 
 use crate::{
     IteratorType, RQEIterator, RQEIteratorBoxed, RQEIteratorError, RQESuspendedIterator,
-    RQEValidateStatus, ResumeOutcome, SkipToOutcome,
+    ResumeOutcome, SkipToOutcome,
     boxed::{resume_owned_result_in_place, suspend_owned_result_in_place},
     profile_print::{ProfilePrint, ProfilePrintCtx},
     utils::OwnedSlice,
@@ -329,14 +329,6 @@ impl<'index, const SORTED_BY_ID: bool> RQEIterator<'index> for IdList<'index, SO
     #[inline(always)]
     fn at_eof(&self) -> bool {
         self.past_end()
-    }
-
-    #[inline(always)]
-    fn revalidate(
-        &mut self,
-        _spec: &IndexSpecReadGuard,
-    ) -> Result<RQEValidateStatus<'_, 'index>, RQEIteratorError> {
-        Ok(RQEValidateStatus::Ok)
     }
 
     #[inline(always)]

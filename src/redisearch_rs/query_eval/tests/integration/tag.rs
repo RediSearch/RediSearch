@@ -31,9 +31,10 @@ use query_eval::{Config, EvalResult, QueryEvalContext, QueryNodeMut, eval_node};
 use query_flags::{QEFlag, QEFlags};
 use query_types::QueryNodeType;
 use rqe_core::DocId;
-use rqe_iterators::{IteratorsConfig, RQEIterator, RQEValidateStatus};
+use rqe_iterators::{IteratorsConfig, RQEIterator};
 use rqe_iterators_test_utils::{
-    ContractChecker, GlobalGuard, TestContext, assert_current_contract, with_c_globals_locked,
+    ContractChecker, GlobalGuard, ResumeOutcomeExt, TestContext, assert_current_contract,
+    revalidate_via_resume, with_c_globals_locked,
 };
 
 /// A tag value and the documents indexed under it. Owned rather than
@@ -1254,7 +1255,7 @@ fn eval_tag_prefix_expansion_reader_revalidates_against_the_matched_value() {
     // trie-matched value (`apple`), not the query pattern (`ap`): `apple` is
     // the only value in `idx->values`, so a reader bound to the pattern
     // instead would fail to find itself and abort on the very first
-    // revalidate -- no GC-style perturbation needed; draining and rewinding
+    // resume -- no GC-style perturbation needed; draining and rewinding
     // alone (as the other expansion tests do) would never catch it.
     let mut fixture = TagFixture::new(TagOptions {
         values: values(&[(TAG_APPLE, &[1, 2])]),
@@ -1275,14 +1276,12 @@ fn eval_tag_prefix_expansion_reader_revalidates_against_the_matched_value() {
     let node_ref = unsafe { QueryNodeMut::new(fixture.node.as_non_null()) };
     let evaluated =
         eval_node(&mut fixture.ctx, node_ref, Config::default()).expect("apple matches");
-    let mut it = ContractChecker::new(evaluated.into_boxed());
-    let status = it.revalidate(&spec).expect("revalidate must not error");
-    assert_eq!(
-        status,
-        RQEValidateStatus::Ok,
-        "the reader must still find itself under the concrete matched value"
-    );
-    assert_eq!(drain_doc_ids(&mut it), vec![1, 2]);
+    // An `Ok` outcome means the reader still found itself under the concrete
+    // matched value.
+    let it = revalidate_via_resume(evaluated.into_boxed(), &spec)
+        .expect("resume must not error")
+        .expect_ok();
+    assert_eq!(drain_doc_ids(&mut ContractChecker::new(it)), vec![1, 2]);
 }
 
 #[test]
