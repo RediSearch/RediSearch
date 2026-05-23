@@ -10,10 +10,13 @@
 //! Flat array variant of the union iterator with O(n) min-finding.
 
 use index_result::{RSIndexResult, RawIndexResult};
-use ref_mode::{Active, Ref};
+use ref_mode::{Active, Ref, Suspended};
 use rqe_core::DocId;
 
-use crate::{IteratorType, RQEIterator, RQEIteratorError, RQEValidateStatus, SkipToOutcome};
+use crate::{
+    IteratorType, RQEIterator, RQEIteratorBoxed, RQEIteratorError, RQESuspendedIterator,
+    RQEValidateStatus, ResumeOutcome, SkipToOutcome,
+};
 use index_spec::IndexSpecReadGuard;
 
 /// A child iterator paired with its original insertion index.
@@ -624,6 +627,183 @@ where
         } else {
             1.0
         }
+    }
+}
+
+impl<'index, I, const QUICK_EXIT: bool> RQEIteratorBoxed<'index> for UnionFlat<'index, I, QUICK_EXIT>
+where
+    I: RQEIteratorBoxed<'index>,
+{
+    type Suspended = RawUnionFlat<'index, Suspended, I::Suspended, QUICK_EXIT>;
+
+    fn suspend(self: Box<Self>) -> Box<Self::Suspended> {
+        let raw = Box::into_raw(self);
+        // Walk children: dispatch each child's `suspend` through the trait
+        // so dyn-erased `I` (e.g. [`TypeErasedRQEIterator`](crate::TypeErasedRQEIterator))
+        // correctly transitions its vtable. For concrete-typed `I` this is
+        // the same whole-box cast that would otherwise happen at the outer
+        // level, just per-child.
+        //
+        // SAFETY: `raw` came from `Box::into_raw` and is exclusively owned
+        // for the rest of this function, so the children Vec is reachable
+        // and unaliased.
+        let children: &mut Vec<IndexedChild<I>> = unsafe { &mut (*raw).children };
+        for child in children.iter_mut() {
+            // SAFETY: `child.inner` is a valid `I` accessed via a fresh
+            // `&mut`; the function leaves the slot in a valid
+            // `I::Suspended` state.
+            unsafe { crate::boxed::suspend_child_slot_in_place(&mut child.inner) };
+        }
+        // SAFETY: `RawUnionFlat` is `#[repr(C)]` over `Vec<IndexedChild<I>>`
+        // (now byte-rewritten with `I::Suspended` payloads) and
+        // `result: RawIndexResult<Rf>` (layout-compatible via `SharedPtr`).
+        unsafe { Box::from_raw(raw as *mut RawUnionFlat<'index, Suspended, I::Suspended, QUICK_EXIT>) }
+    }
+}
+
+impl<'query, S, const QUICK_EXIT: bool> RQESuspendedIterator<'query>
+    for RawUnionFlat<'query, Suspended, S, QUICK_EXIT>
+where
+    S: RQESuspendedIterator<'query>,
+{
+    type Resumed<'a>
+        = UnionFlat<'a, S::Resumed<'a>, QUICK_EXIT>
+    where
+        'query: 'a;
+
+    fn resume<'a>(
+        self: Box<Self>,
+        guard: &IndexSpecReadGuard<'a>,
+    ) -> Result<ResumeOutcome<Box<Self::Resumed<'a>>>, RQEIteratorError>
+    where
+        'query: 'a,
+    {
+        let RawUnionFlat {
+            children,
+            num_active,
+            num_estimated,
+            is_eof,
+            result,
+        } = *self;
+
+        // Read plain-data fields off the suspended aggregate before
+        // discarding it — the suspended aggregate's borrowed children
+        // pointers would dangle after we consume the children by value.
+        let saved_weight = result.weight;
+        let saved_last_doc_id = result.doc_id;
+        drop(result);
+
+        // `swap_remove_child` keeps EOF children in the Vec at indices
+        // `[num_active..]` so [`rewind`](RQEIterator::rewind) can sort them
+        // back into the active set. Resume must preserve that split: the
+        // tail children stay in their resumed-active form so they survive
+        // a future rewind, but they don't count toward `num_active` (their
+        // last_doc_id would otherwise be picked up as a spurious min and
+        // yielded again after the live children exhaust).
+        //
+        // Track changes the same way as in the non-rewind case: a MOVED or
+        // ABORTED child means the cached aggregate position may no longer
+        // be the union's actual min, so we re-find min below.
+        let mut any_change = false;
+        let mut live: Vec<IndexedChild<S::Resumed<'a>>> = Vec::with_capacity(num_active);
+        let mut dead: Vec<IndexedChild<S::Resumed<'a>>> =
+            Vec::with_capacity(children.len().saturating_sub(num_active));
+        for (i, IndexedChild { original_index, inner }) in children.into_iter().enumerate() {
+            let active_inner = match Box::new(inner).resume(guard)? {
+                ResumeOutcome::Aborted => {
+                    any_change = true;
+                    continue;
+                }
+                ResumeOutcome::Moved(active_inner) => {
+                    any_change = true;
+                    *active_inner
+                }
+                ResumeOutcome::Ok(active_inner) => *active_inner,
+            };
+            let resumed = IndexedChild {
+                original_index,
+                inner: active_inner,
+            };
+            if i < num_active {
+                live.push(resumed);
+            } else {
+                dead.push(resumed);
+            }
+        }
+        let num_children = live.len();
+        let mut active_children = live;
+        active_children.extend(dead);
+        let result = RSIndexResult::build_union(num_children)
+            .weight(saved_weight)
+            .build();
+
+        let mut active: Box<UnionFlat<'a, S::Resumed<'a>, QUICK_EXIT>> =
+            Box::new(UnionFlat {
+                children: active_children,
+                num_active: num_children,
+                num_estimated,
+                is_eof,
+                result,
+            });
+
+        if active.is_eof || saved_last_doc_id == 0 {
+            return Ok(ResumeOutcome::Ok(active));
+        }
+
+        // `num_children == 0` here means every previously-live child
+        // ABORTED during resume (children that reached EOF naturally went
+        // into `dead` and don't count toward `num_children`). The union
+        // has no recoverable state.
+        if num_children == 0 {
+            return Ok(ResumeOutcome::Aborted);
+        }
+
+        if !any_change {
+            // All children resumed Ok with state preserved; rebuild the
+            // aggregate at `saved_last_doc_id` so subsequent reads pick up
+            // from the same logical position. Don't proactively trim
+            // at_eof children — the next read will surface them.
+            active.build_aggregate_result(saved_last_doc_id);
+            return Ok(ResumeOutcome::Ok(active));
+        }
+
+        // Some child moved or aborted: re-discover the new minimum doc_id
+        // among survivors, dropping any that hit EOF.
+        let mut min_doc_id: DocId = DocId::MAX;
+        let mut i = 0;
+        while i < active.num_active {
+            let child = &active.children[i].inner;
+            if child.at_eof() {
+                active.swap_remove_child(i);
+                continue;
+            }
+            let child_doc_id = child.last_doc_id();
+            if child_doc_id < min_doc_id {
+                min_doc_id = child_doc_id;
+            }
+            i += 1;
+        }
+
+        if active.num_active == 0 {
+            active.is_eof = true;
+            return Ok(ResumeOutcome::Moved(active));
+        }
+
+        active.build_aggregate_result(min_doc_id);
+
+        if min_doc_id == saved_last_doc_id {
+            Ok(ResumeOutcome::Ok(active))
+        } else {
+            Ok(ResumeOutcome::Moved(active))
+        }
+    }
+
+    fn last_doc_id(&self) -> DocId {
+        self.result.doc_id
+    }
+
+    fn num_estimated(&self) -> usize {
+        self.num_estimated
     }
 }
 
