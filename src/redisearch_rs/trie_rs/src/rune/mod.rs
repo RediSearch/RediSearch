@@ -76,13 +76,22 @@ impl<Data> RuneTrieMap<Data> {
         _prefix: bool,
         _suffix: bool,
     ) -> RuneTrieMapContainsIter<'a, Data> {
+        // C rune-trie contract: empty pattern yields zero matches (see
+        // `TrieNode_Get(root, str, 0, ...)` returning NULL). The byte-level
+        // ContainsIter would otherwise match every term (memchr semantics).
+        if target.is_empty() {
+            return RuneTrieMapContainsIter(None);
+        }
+
         let target_bytes: Box<[u8]> = rune_to_bytes(target).into_boxed_slice();
 
-        RuneTrieMapContainsIterBuilder {
-            target_bytes,
-            inner_builder: |t| self.inner.contains_iter(t.as_ref()),
-        }
-        .build()
+        RuneTrieMapContainsIter(Some(
+            RuneTrieMapContainsIterInnerBuilder {
+                target_bytes,
+                inner_builder: |t| self.inner.contains_iter(t.as_ref()),
+            }
+            .build(),
+        ))
     }
 
     pub fn iterate_range<'a>(
@@ -132,18 +141,22 @@ impl<'a, Data> Iterator for RuneTrieMapIter<'a, Data> {
 }
 
 #[ouroboros::self_referencing]
-pub struct RuneTrieMapContainsIter<'tm, Data: 'tm> {
+struct RuneTrieMapContainsIterInner<'tm, Data: 'tm> {
     target_bytes: Box<[u8]>,
     #[borrows(target_bytes)]
     #[covariant]
     inner: iter::ContainsIter<'tm, 'this, Data>,
 }
 
+pub struct RuneTrieMapContainsIter<'tm, Data: 'tm>(Option<RuneTrieMapContainsIterInner<'tm, Data>>);
+
 impl<'tm, Data: 'tm> Iterator for RuneTrieMapContainsIter<'tm, Data> {
     type Item = (Vec<Rune>, &'tm Data);
 
     fn next(&mut self) -> Option<Self::Item> {
-        self.with_inner_mut(|inner| inner.next())
+        self.0
+            .as_mut()?
+            .with_inner_mut(|inner| inner.next())
             .map(|(k, v)| (bytes_to_rune(&k), v))
     }
 }
