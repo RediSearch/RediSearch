@@ -595,3 +595,124 @@ fn skip_to_timeout_via_timeout_ctx() {
     // that said... internal timeout context is _not_ reset,
     // so it is bound to timeout once you make the required amount of read/skip_to calls...
 }
+
+mod via_resume {
+    use super::*;
+    use rqe_iterators::TypeErasedRQEIterator;
+    use rqe_iterators_test_utils::{ResumeOutcomeExt, revalidate_via_resume};
+
+    #[test]
+    fn revalidate_child_ok_preserves_exclusions() {
+        let mock_ctx = rqe_iterators_test_utils::MockContext::new(0, 0);
+        let child = Mock::new([2, 4]);
+        let it = Not::new(child, 5, 1.0, NoTimeout);
+
+        let guard = mock_ctx.spec_read();
+        let mut it = revalidate_via_resume(TypeErasedRQEIterator::new(Box::new(it)), &guard)
+            .expect("resume failed")
+            .expect_ok();
+
+        let mut seen = Vec::new();
+        while let Some(doc) = it.read().unwrap() {
+            seen.push(doc.doc_id);
+        }
+        assert_eq!(seen, vec![1, 3, 5]);
+    }
+
+    #[test]
+    fn revalidate_child_aborted_replaces_child_with_empty() {
+        let mock_ctx = rqe_iterators_test_utils::MockContext::new(0, 0);
+        let child = Mock::new([2, 4]);
+        let mut data = child.data();
+        data.set_revalidate_result(MockRevalidateResult::Abort);
+        let it = Not::new(child, 5, 1.0, NoTimeout);
+
+        let guard = mock_ctx.spec_read();
+        let mut it = revalidate_via_resume(TypeErasedRQEIterator::new(Box::new(it)), &guard)
+            .expect("resume failed")
+            .expect_ok();
+
+        let mut seen = Vec::new();
+        while let Some(doc) = it.read().unwrap() {
+            seen.push(doc.doc_id);
+        }
+        assert_eq!(seen, vec![1, 2, 3, 4, 5]);
+    }
+
+    #[test]
+    fn revalidate_child_moved_on_fresh_iterator() {
+        let mock_ctx = rqe_iterators_test_utils::MockContext::new(0, 0);
+        let child = Mock::new([2, 4]);
+        let mut data = child.data();
+        data.set_revalidate_result(MockRevalidateResult::Move);
+        let it = Not::new(child, 5, 1.0, NoTimeout);
+
+        let guard = mock_ctx.spec_read();
+        let mut it = revalidate_via_resume(TypeErasedRQEIterator::new(Box::new(it)), &guard)
+            .expect("resume failed")
+            .expect_ok();
+
+        let mut seen = Vec::new();
+        while let Some(doc) = it.read().unwrap() {
+            seen.push(doc.doc_id);
+        }
+        assert_eq!(seen, vec![1, 3, 5]);
+    }
+
+    #[test]
+    fn revalidate_child_moved_after_read_with_child_ahead() {
+        let mock_ctx = rqe_iterators_test_utils::MockContext::new(0, 0);
+        let child = Mock::new([5, 10]);
+        let mut data = child.data();
+        let mut it = Not::new(child, 15, 1.0, NoTimeout);
+
+        let doc = it.read().expect("read() failed").expect("expected doc");
+        assert_eq!(doc.doc_id, 1);
+        assert_eq!(it.last_doc_id(), 1);
+
+        data.set_revalidate_result(MockRevalidateResult::Move);
+        let guard = mock_ctx.spec_read();
+        let mut it = revalidate_via_resume(TypeErasedRQEIterator::new(Box::new(it)), &guard)
+            .expect("resume failed")
+            .expect_ok();
+
+        let mut seen = vec![1];
+        while let Some(doc) = it.read().unwrap() {
+            seen.push(doc.doc_id);
+        }
+        assert_eq!(seen, vec![1, 2, 3, 4, 5, 6, 7, 8, 9, 11, 12, 13, 14, 15]);
+    }
+
+    #[test]
+    fn revalidate_child_moved_after_skip_to_with_child_ahead() {
+        let mock_ctx = rqe_iterators_test_utils::MockContext::new(0, 0);
+        let child = Mock::new([8, 15]);
+        let mut data = child.data();
+        let mut it = Not::new(child, 20, 1.0, NoTimeout);
+
+        let outcome = it
+            .skip_to(3)
+            .expect("skip_to() failed")
+            .expect("expected outcome");
+        match outcome {
+            SkipToOutcome::Found(doc) => assert_eq!(doc.doc_id, 3),
+            _ => panic!("Expected Found outcome"),
+        }
+        assert_eq!(it.last_doc_id(), 3);
+
+        data.set_revalidate_result(MockRevalidateResult::Move);
+        let guard = mock_ctx.spec_read();
+        let mut it = revalidate_via_resume(TypeErasedRQEIterator::new(Box::new(it)), &guard)
+            .expect("resume failed")
+            .expect_ok();
+
+        let mut seen = vec![3];
+        while let Some(doc) = it.read().unwrap() {
+            seen.push(doc.doc_id);
+        }
+        assert_eq!(
+            seen,
+            vec![3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 16, 17, 18, 19, 20]
+        );
+    }
+}
