@@ -110,7 +110,26 @@ impl<Data> RuneTrieMap<Data> {
         max: Option<&[Rune]>,
         include_max: bool,
     ) -> RuneTrieMapRangeIter<'a, Data> {
-        RuneTrieMapRangeIter::new(&self.inner, min, include_min, max, include_max)
+        let min_bytes: Option<Box<[u8]>> = min.map(|m| rune_to_bytes(m).into_boxed_slice());
+        let max_bytes: Option<Box<[u8]>> = max.map(|m| rune_to_bytes(m).into_boxed_slice());
+
+        RuneTrieMapRangeIterBuilder {
+            bytes: (min_bytes, max_bytes),
+            inner_builder: |(mn, mx)| {
+                let filter = RangeFilter {
+                    min: mn.as_ref().map(|b| RangeBoundary {
+                        value: b.as_ref(),
+                        is_included: include_min,
+                    }),
+                    max: mx.as_ref().map(|b| RangeBoundary {
+                        value: b.as_ref(),
+                        is_included: include_max,
+                    }),
+                };
+                self.inner.range_iter(filter)
+            },
+        }
+        .build()
     }
 
     pub fn iterate_wildcard(&self, _buf: &[u16]) -> RuneTrieMapIter<'_, Data> {
@@ -140,65 +159,20 @@ impl<'a, Data> Iterator for RuneTrieMapContainsIter<'a, Data> {
     }
 }
 
-pub struct RuneTrieMapRangeIter<'a, Data> {
-    // `inner` MUST be declared before `_bytes`. Rust drops struct fields in
-    // declaration order, so this ordering guarantees that `inner` (which holds
-    // `&[u8]` references into the boxes) is dropped strictly before the boxes
-    // are deallocated. Reordering these fields breaks the SAFETY argument in
-    // `new`.
-    inner: iter::RangeIter<'a, Data>,
-    _bytes: (Option<Box<[u8]>>, Option<Box<[u8]>>),
+#[ouroboros::self_referencing]
+pub struct RuneTrieMapRangeIter<'tm, Data: 'tm> {
+    bytes: (Option<Box<[u8]>>, Option<Box<[u8]>>),
+    #[borrows(bytes)]
+    #[covariant]
+    inner: iter::RangeIter<'tm, 'this, Data>,
 }
 
-impl<'a, Data> RuneTrieMapRangeIter<'a, Data> {
-    fn new(
-        trie: &'a TrieMap<Data>,
-        min: Option<&[Rune]>,
-        include_min: bool,
-        max: Option<&[Rune]>,
-        include_max: bool,
-    ) -> Self {
-        let min_bytes: Option<Box<[u8]>> = min.map(|m| rune_to_bytes(m).into_boxed_slice());
-        let max_bytes: Option<Box<[u8]>> = max.map(|m| rune_to_bytes(m).into_boxed_slice());
-
-        // SAFETY:
-        // - `min_bytes` / `max_bytes` are heap-allocated `Box<[u8]>` stored as
-        //   fields of the returned `RuneTrieMapRangeIter`. The heap allocation
-        //   has a stable address that is not invalidated by moves of the
-        //   wrapper struct.
-        // - `inner` is declared before `_bytes`, so Rust drops `inner` strictly
-        //   before the boxes are deallocated.
-        // - `inner` is a private field of a struct whose only public surface is
-        //   `Iterator::next`, so the `&'a [u8]` references inside it never
-        //   escape the wrapper.
-        // - The wrapper lives for at most `'a` (bounded by `trie: &'a TrieMap`),
-        //   so extending the slice lifetime to `'a` does not allow any use that
-        //   outlives the boxes.
-        let extend = |b: &Box<[u8]>| -> &'a [u8] { unsafe { &*(b.as_ref() as *const [u8]) } };
-
-        let filter = RangeFilter {
-            min: min_bytes.as_ref().map(|b| RangeBoundary {
-                value: extend(b),
-                is_included: include_min,
-            }),
-            max: max_bytes.as_ref().map(|b| RangeBoundary {
-                value: extend(b),
-                is_included: include_max,
-            }),
-        };
-
-        Self {
-            inner: trie.range_iter(filter),
-            _bytes: (min_bytes, max_bytes),
-        }
-    }
-}
-
-impl<'a, Data> Iterator for RuneTrieMapRangeIter<'a, Data> {
-    type Item = (Vec<Rune>, &'a Data);
+impl<'tm, Data: 'tm> Iterator for RuneTrieMapRangeIter<'tm, Data> {
+    type Item = (Vec<Rune>, &'tm Data);
 
     fn next(&mut self) -> Option<Self::Item> {
-        self.inner.next().map(|(k, v)| (bytes_to_rune(&k), v))
+        self.with_inner_mut(|inner| inner.next())
+            .map(|(k, v)| (bytes_to_rune(&k), v))
     }
 }
 

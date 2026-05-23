@@ -220,7 +220,10 @@ impl<Data> TrieMap<Data> {
     }
 
     /// Iterates over the entries between the specified `min` and `max`, in lexicographical order.
-    pub fn range_iter<'a>(&'a self, filter: RangeFilter<'a>) -> RangeIter<'a, Data> {
+    pub fn range_iter<'tm, 'f>(
+        &'tm self,
+        filter: RangeFilter<'f>,
+    ) -> RangeIter<'tm, 'f, Data> {
         RangeIter::new(self.root.as_ref(), filter)
     }
 
