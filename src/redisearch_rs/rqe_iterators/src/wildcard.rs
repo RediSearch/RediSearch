@@ -805,8 +805,7 @@ impl RQESuspendedIterator for DiskWildcardSuspended {
         // `'a`. Box::from_raw reuses the same heap allocation.
         let mut active = unsafe { Box::from_raw(raw as *mut DiskWildcardIterator<'a>) };
         // Drive validity recovery through the inner trait object's
-        // `revalidate` callback — the same path the legacy
-        // `Suspendable::resume` used.
+        // `revalidate` callback.
         let status = match active.revalidate(spec) {
             Ok(RQEValidateStatus::Ok) => ValidateStatus_VALIDATE_OK,
             Ok(RQEValidateStatus::Moved { .. }) => ffi::ValidateStatus_VALIDATE_MOVED,
