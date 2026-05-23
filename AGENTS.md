@@ -195,8 +195,14 @@ src/redisearch_rs/
 
 When implementing changes that may become a PR, first check the current checkout. If it is dirty,
 on an unrelated branch, or already tied to another open PR, automatically create a dedicated
-worktree from the target branch and do the work there. Use the existing checkout only when it is
-already the right clean branch for the task.
+worktree and do the work there. Use the existing checkout only when it is already the right clean
+branch for the task.
+
+Always use `-b` when creating a worktree — git forbids two worktrees on the same branch, so checking out `master` directly will fail when master is already the main checkout:
+
+```bash
+git worktree add -b memark-<feature> .claude/worktrees/memark-<feature> origin/master
+```
 
 To remove a worktree, use `git worktree remove --force <path>` (plain `remove` fails on initialized submodules).
 

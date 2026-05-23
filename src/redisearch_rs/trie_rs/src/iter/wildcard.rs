@@ -13,7 +13,7 @@ use super::{
     Iter, LendingIter,
     filter::{FilterOutcome, TraversalFilter},
 };
-use wildcard::{MatchOutcome, WildcardPattern};
+use rqe_wildcard::{MatchOutcome, WildcardPattern};
 
 /// An iterator over all entries that match the given wildcard pattern.
 ///
@@ -27,7 +27,7 @@ impl<'a, Data> WildcardIter<'a, Data> {
                 // If the first portion of the pattern is a literal, we can jumping directly
                 // to the subtree of the trie containing the terms under that prefix
                 // (if there are any).
-                if let Some(wildcard::Token::Literal(lit)) = pattern.tokens().first() {
+                if let Some(rqe_wildcard::Token::Literal(lit)) = pattern.tokens().first() {
                     match root.find_root_for_prefix(lit) {
                         Some((subroot, subroot_prefix)) => Iter::new(Some(subroot), subroot_prefix),
                         None => Iter::empty(),

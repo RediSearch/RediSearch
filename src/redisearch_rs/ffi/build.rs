@@ -254,6 +254,12 @@ const HEADERS: &[HeaderAllowlist] = &[
         vars: &[],
     },
     HeaderAllowlist {
+        path: "src/trie/rune_util.h",
+        fns: &["strToLowerRunes"],
+        types: &[],
+        vars: &[],
+    },
+    HeaderAllowlist {
         path: "src/trie/trie.h",
         fns: &[
             "NewTrie",
@@ -309,6 +315,12 @@ const HEADERS: &[HeaderAllowlist] = &[
     HeaderAllowlist {
         path: "src/util/references.h",
         fns: &["StrongRef_Get"],
+        types: &[],
+        vars: &[],
+    },
+    HeaderAllowlist {
+        path: "src/wildcard/wildcard.h",
+        fns: &["Wildcard_RemoveEscape"],
         types: &[],
         vars: &[],
     },
