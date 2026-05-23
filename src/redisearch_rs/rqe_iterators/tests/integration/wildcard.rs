@@ -578,3 +578,215 @@ mod via_resume {
         assert_eq!(active.read().unwrap().unwrap().doc_id, DOC_IDS[3]);
     }
 }
+
+/// Suspend/resume coverage for [`DiskWildcardIterator`] — the type-erased
+/// wildcard the enterprise disk backend hands back.
+///
+/// Unlike the other wildcards this one is a `Box<dyn RQEIteratorPrintable>`,
+/// so its suspended form cannot weaken anything: the payload is opaque. Two
+/// properties are therefore worth pinning, and neither is visible from a
+/// concrete-child test:
+///
+/// * The cast keeps the **same trait object**. `DiskWildcardSuspended` holds
+///   `dyn RQEIteratorPrintable`, not the `dyn RQEIterator` supertrait — a
+///   `dyn Sub` and a `dyn Super` do not share a vtable, so a wrapper typed at
+///   the supertrait would carry a vtable for the wrong trait. The suspended
+///   accessors below dispatch through that vtable, which is what makes this
+///   observable at all; under miri the mismatch is caught earlier still, at the
+///   point the value is constructed.
+/// * `resume` shortens the suspended type's `'query` to the guard's lifetime
+///   with a cast, so the round trip has to end with a usable iterator at the
+///   guard's lifetime rather than one that merely type-checks.
+mod disk_via_resume {
+    use rqe_iterators::{
+        NewWildcardIterator, RQEIterator, RQEIteratorBoxed, RQEIteratorError, RQESuspendedIterator,
+        ResumeOutcome, wildcard::new_wildcard_iterator_on_disk,
+    };
+    use rqe_iterators_test_utils::MockContext;
+
+    use crate::utils::{
+        MOCK_DISK_WILDCARD_DOC_IDS, MOCK_DISK_WILDCARD_TOP_ID, MockRevalidateResult,
+        init_enterprise_iterators, next_disk_wildcard_revalidates_with,
+    };
+
+    /// A disk wildcard from the mock enterprise backend.
+    ///
+    /// The mock ignores both the disk spec and the snapshot, so a null cell and
+    /// a dangling sentinel are enough — all the production path checks is that
+    /// they are non-null. `disk_spec` is borrowed from the caller's frame
+    /// rather than leaked so that it outlives the iterator, which is what the
+    /// `'index` lifetime claims.
+    fn disk_wildcard<'index>(
+        ctx: &MockContext,
+        disk_spec: &'index mut ffi::RedisSearchDiskIndexSpec,
+    ) -> Box<rqe_iterators::wildcard::DiskWildcardIterator<'index>> {
+        init_enterprise_iterators();
+        ctx.set_dummy_disk_snapshot();
+
+        let snapshot = std::ptr::NonNull::<ffi::RedisSearchDiskSnapshot>::dangling();
+        let status = std::ptr::null_mut();
+
+        // SAFETY: `SEARCH_ENTERPRISE_ITERATORS` is initialised just above;
+        // `disk_spec` and `snapshot` are non-null and never dereferenced by the
+        // mock; `status` is null, which the factory accepts.
+        let it = unsafe { new_wildcard_iterator_on_disk(disk_spec, 1.0, snapshot, status) };
+        let NewWildcardIterator::Disk(disk) = it else {
+            panic!("the mock enterprise backend must produce the Disk variant");
+        };
+        Box::new(disk)
+    }
+
+    /// The round trip, end to end: the box address survives, the suspended
+    /// accessors answer through the preserved vtable, and the resumed iterator
+    /// still reads.
+    #[test]
+    fn resume_round_trip() {
+        let ctx = MockContext::new(0, 0);
+        // Declared before the iterator so it outlives it.
+        let mut disk_spec: ffi::RedisSearchDiskIndexSpec = std::ptr::null();
+        let mut it = disk_wildcard(&ctx, &mut disk_spec);
+
+        assert_eq!(it.read().unwrap().unwrap().doc_id, 1);
+        let box_addr = &*it as *const _ as usize;
+
+        let suspended = it.suspend();
+        assert_eq!(
+            &*suspended as *const _ as usize, box_addr,
+            "suspend must reuse the allocation",
+        );
+        // Dispatched through the inner trait object while suspended. A wrapper
+        // typed at the wrong trait would read these out of the wrong vtable
+        // slots; the mock's sentinel `top_id` makes a wrong answer obvious.
+        assert_eq!(
+            RQESuspendedIterator::num_estimated(&*suspended),
+            MOCK_DISK_WILDCARD_TOP_ID as usize,
+            "the suspended form must answer from the mock's wildcard",
+        );
+        assert_eq!(RQESuspendedIterator::last_doc_id(&*suspended), 1);
+
+        let guard = ctx.spec_read();
+        let mut active = match suspended.resume(&guard).expect("resume failed") {
+            ResumeOutcome::Ok(a) => a,
+            ResumeOutcome::Moved(_) => panic!("expected Ok, got Moved"),
+            ResumeOutcome::Aborted => panic!("expected Ok, got Aborted"),
+        };
+        assert_eq!(
+            &*active as *const _ as usize, box_addr,
+            "resume must reuse the allocation",
+        );
+        assert_eq!(
+            active.read().unwrap().unwrap().doc_id,
+            2,
+            "the resumed iterator continues where it left off",
+        );
+    }
+
+    /// A backend that moved while suspended resumes as `Moved`, positioned on
+    /// the document it moved to.
+    #[test]
+    fn resume_moved() {
+        let ctx = MockContext::new(0, 0);
+        let mut disk_spec: ffi::RedisSearchDiskIndexSpec = std::ptr::null();
+        next_disk_wildcard_revalidates_with(MockRevalidateResult::Move);
+        let mut it = disk_wildcard(&ctx, &mut disk_spec);
+        assert_eq!(
+            it.read().unwrap().unwrap().doc_id,
+            MOCK_DISK_WILDCARD_DOC_IDS[0]
+        );
+
+        let guard = ctx.spec_read();
+        let ResumeOutcome::Moved(mut active) = it.suspend().resume(&guard).unwrap() else {
+            panic!("expected Moved");
+        };
+        assert_eq!(
+            active.current().map(|r| r.doc_id),
+            Some(MOCK_DISK_WILDCARD_DOC_IDS[1]),
+            "`current` must report the position the backend moved to",
+        );
+        assert_eq!(
+            active.read().unwrap().unwrap().doc_id,
+            MOCK_DISK_WILDCARD_DOC_IDS[2]
+        );
+    }
+
+    /// A move that runs off the end resumes as `Moved` with no current
+    /// document.
+    #[test]
+    fn resume_moved_past_end() {
+        let ctx = MockContext::new(0, 0);
+        let mut disk_spec: ffi::RedisSearchDiskIndexSpec = std::ptr::null();
+        next_disk_wildcard_revalidates_with(MockRevalidateResult::Move);
+        let mut it = disk_wildcard(&ctx, &mut disk_spec);
+        for expected in MOCK_DISK_WILDCARD_DOC_IDS {
+            assert_eq!(it.read().unwrap().unwrap().doc_id, expected);
+        }
+
+        let guard = ctx.spec_read();
+        let ResumeOutcome::Moved(mut active) = it.suspend().resume(&guard).unwrap() else {
+            panic!("expected Moved");
+        };
+        assert!(active.current().is_none());
+        assert!(active.at_eof());
+    }
+
+    /// An unrecoverable backend resumes as `Aborted`, dropping the iterator.
+    #[test]
+    fn resume_aborted() {
+        let ctx = MockContext::new(0, 0);
+        let mut disk_spec: ffi::RedisSearchDiskIndexSpec = std::ptr::null();
+        next_disk_wildcard_revalidates_with(MockRevalidateResult::Abort);
+        let mut it = disk_wildcard(&ctx, &mut disk_spec);
+        it.read().unwrap();
+
+        let guard = ctx.spec_read();
+        assert!(matches!(
+            it.suspend().resume(&guard),
+            Ok(ResumeOutcome::Aborted)
+        ));
+    }
+
+    /// A backend failure during resume is propagated as the same error, not
+    /// folded into `Aborted`.
+    #[rstest::rstest]
+    #[case::timed_out(MockRevalidateResult::TimedOut)]
+    #[case::io_error(MockRevalidateResult::IoError)]
+    fn resume_error_propagates(#[case] failure: MockRevalidateResult) {
+        let ctx = MockContext::new(0, 0);
+        let mut disk_spec: ffi::RedisSearchDiskIndexSpec = std::ptr::null();
+        next_disk_wildcard_revalidates_with(failure);
+        let mut it = disk_wildcard(&ctx, &mut disk_spec);
+        it.read().unwrap();
+
+        let guard = ctx.spec_read();
+        let Err(err) = it.suspend().resume(&guard) else {
+            panic!("expected an error");
+        };
+        match failure {
+            MockRevalidateResult::TimedOut => {
+                assert!(matches!(err, RQEIteratorError::TimedOut))
+            }
+            MockRevalidateResult::IoError => {
+                assert!(matches!(err, RQEIteratorError::IoError(_)))
+            }
+            _ => unreachable!("only failing outcomes are tested here"),
+        }
+    }
+
+    /// An iterator suspended at EOF resumes at EOF.
+    #[test]
+    fn resume_keeps_eof() {
+        let ctx = MockContext::new(0, 0);
+        let mut disk_spec: ffi::RedisSearchDiskIndexSpec = std::ptr::null();
+        next_disk_wildcard_revalidates_with(MockRevalidateResult::Ok);
+        let mut it = disk_wildcard(&ctx, &mut disk_spec);
+        while it.read().unwrap().is_some() {}
+        assert!(it.at_eof());
+
+        let guard = ctx.spec_read();
+        let ResumeOutcome::Ok(mut active) = it.suspend().resume(&guard).unwrap() else {
+            panic!("expected Ok");
+        };
+        assert!(active.at_eof());
+        assert!(active.read().unwrap().is_none());
+    }
+}
