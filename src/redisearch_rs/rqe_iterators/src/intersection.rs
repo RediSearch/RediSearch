@@ -13,12 +13,18 @@
 //! - `max_slop`: Maximum allowed slop between term positions (`None` = no constraint)
 //! - `in_order`: Require terms to appear in order
 
-use crate::{IteratorType, RQEIterator, RQEIteratorError, RQEValidateStatus, SkipToOutcome};
+use crate::{
+    IteratorType, RQEIterator, RQEIteratorBoxed, RQEIteratorError, RQESuspendedIterator,
+    RQEValidateStatus, SkipToOutcome,
+};
 
-use ffi::t_docId;
+use ffi::{
+    ValidateStatus, ValidateStatus_VALIDATE_ABORTED, ValidateStatus_VALIDATE_MOVED,
+    ValidateStatus_VALIDATE_OK, t_docId,
+};
 use index_result::{RSIndexResult, RawIndexResult};
 use index_spec::IndexSpecReadGuard;
-use ref_mode::{Active, Ref};
+use ref_mode::{Active, Ref, Suspended};
 
 /// Yields documents appearing in ALL child iterators using a merge (AND) algorithm.
 ///
@@ -576,6 +582,159 @@ where
 
     fn intersection_sort_weight(&self, _prioritize_union_children: bool) -> f64 {
         1.0 / self.children.len().max(1) as f64
+    }
+}
+
+impl<'index, I> RQEIteratorBoxed<'index> for Intersection<'index, I>
+where
+    I: RQEIteratorBoxed<'index>,
+{
+    type Suspended = RawIntersection<Suspended, I::Suspended>;
+
+    fn suspend(self: Box<Self>) -> Box<Self::Suspended> {
+        let raw = Box::into_raw(self);
+        // Walk children: dispatch each child's `suspend` through the trait so
+        // dyn-erased `I` (e.g. [`BoxedRQEIterator`](crate::BoxedRQEIterator),
+        // whose active and suspended forms carry different vtables) correctly
+        // transitions. For concrete-typed `I` this is the same whole-box cast
+        // that the outer composite would otherwise have done, just per-child
+        // instead of per-composite. Either way the inner concrete iterator's
+        // heap address is preserved; only the wrapper bytes (which nothing
+        // external points at) are re-typed.
+        //
+        // SAFETY: `raw` came from `Box::into_raw` and is exclusively owned for
+        // the rest of this function, so the children Vec field is reachable
+        // and not aliased.
+        let children: &mut Vec<I> = unsafe { &mut (*raw).children };
+        for slot in children.iter_mut() {
+            // SAFETY: `slot` is a valid `&mut I`; the function leaves it in
+            // a valid `I::Suspended` state.
+            unsafe { crate::boxed::suspend_child_slot_in_place(slot) };
+        }
+        // SAFETY: `RawIntersection` is `#[repr(C)]` over `Vec<I>` (now byte-
+        // rewritten as `Vec<I::Suspended>` contents — Vec metadata is
+        // identical) and `result: RawIndexResult<Rf>` (layout-compatible
+        // via `SharedPtr` transparency). The active aggregate's borrowed
+        // pointers into children's interiors are still valid because each
+        // child's inner concrete iterator heap was preserved by the
+        // per-child suspend above.
+        unsafe { Box::from_raw(raw as *mut RawIntersection<Suspended, I::Suspended>) }
+    }
+
+    fn cascade_suspend(&mut self) {
+        for child in self.children.iter_mut() {
+            child.cascade_suspend();
+        }
+    }
+}
+
+impl<S> RQESuspendedIterator for RawIntersection<Suspended, S>
+where
+    S: RQESuspendedIterator,
+{
+    type Resumed<'a> = Intersection<'a, S::Resumed<'a>>;
+
+    fn resume<'a>(
+        self: Box<Self>,
+        guard: &'a IndexSpecReadGuard<'a>,
+    ) -> (Box<Self::Resumed<'a>>, ValidateStatus) {
+        let RawIntersection {
+            children,
+            last_doc_id,
+            num_expected,
+            is_eof,
+            max_slop,
+            in_order,
+            result,
+        } = *self;
+
+        // The suspended aggregate `result` holds borrowed pointers into the
+        // children we're about to consume. After the per-child `resume`
+        // calls below, those pointers would dangle: each child is consumed
+        // by value and produces a fresh Active value at a new address. We
+        // therefore extract the `weight` (a plain `f64`, no aliasing
+        // concerns), drop the suspended result, and build a fresh empty
+        // Active aggregate. It's repopulated at the end of this method
+        // from the resumed children's current positions.
+        let weight = result.weight;
+        let num_children = children.len();
+        drop(result);
+
+        // Resume each child, tracking aggregate position-shift signals.
+        // This mirrors what the legacy `Intersection::revalidate` body did
+        // when consuming child statuses: stay at `last_doc_id` when no
+        // child moved; otherwise advance to the new max child position to
+        // find the next common doc.
+        let mut any_aborted = false;
+        let mut any_moved = false;
+        let mut max_child_doc_id: t_docId = 0;
+        let mut moved_to_eof = false;
+        let mut active_children: Vec<S::Resumed<'a>> = Vec::with_capacity(num_children);
+        for child in children {
+            let (active_child, status) = Box::new(child).resume(guard);
+            if status == ValidateStatus_VALIDATE_ABORTED {
+                any_aborted = true;
+            } else if status == ValidateStatus_VALIDATE_MOVED {
+                any_moved = true;
+                if active_child.at_eof() {
+                    moved_to_eof = true;
+                } else {
+                    max_child_doc_id = max_child_doc_id.max(active_child.last_doc_id());
+                }
+            }
+            active_children.push(*active_child);
+        }
+
+        let result = RSIndexResult::build_intersect(num_children)
+            .weight(weight)
+            .build();
+
+        let mut active = Box::new(Intersection {
+            children: active_children,
+            last_doc_id,
+            num_expected,
+            is_eof,
+            max_slop,
+            in_order,
+            result,
+        });
+
+        if any_aborted {
+            return (active, ValidateStatus_VALIDATE_ABORTED);
+        }
+
+        // No child moved (or we're at EOF / before-first-read): the
+        // children are still at the same positions as before suspend, so
+        // the aggregate's `last_doc_id` is still valid. Repopulate the
+        // (now-empty) aggregate from each child's current result.
+        if !any_moved || active.is_eof || active.last_doc_id == 0 {
+            if active.last_doc_id > 0 && !active.is_eof {
+                active.build_aggregate_result(active.last_doc_id);
+            }
+            return (active, ValidateStatus_VALIDATE_OK);
+        }
+
+        // At least one child moved to EOF — the intersection can't continue.
+        if moved_to_eof {
+            active.is_eof = true;
+            return (active, ValidateStatus_VALIDATE_MOVED);
+        }
+
+        // Some children moved forward. Advance the intersection to the new
+        // max child position and find the next common doc from there.
+        // `Intersection::skip_to`'s internal `agree_on_doc_id` skips
+        // children already at the target (no `skip_to` precondition
+        // violation) and advances ones behind via their own `skip_to`.
+        let _ = active.skip_to(max_child_doc_id);
+        (active, ValidateStatus_VALIDATE_MOVED)
+    }
+
+    fn last_doc_id(&self) -> t_docId {
+        self.last_doc_id
+    }
+
+    fn num_estimated(&self) -> usize {
+        self.num_expected
     }
 }
 
