@@ -715,3 +715,88 @@ impl ProfilePrint for NewWildcardIterator<'_> {
         }
     }
 }
+
+/// `'static`-typed counterpart of [`DiskWildcardIterator`] used as its
+/// `RQEIteratorBoxed::Suspended` type.
+///
+/// Wraps a `Box<dyn RQEIterator<'static> + 'static>` — the `'static`
+/// here is a **lifetime lie**: the actual borrowed lifetime is `'index`,
+/// inherited from the original [`DiskWildcardIterator`]. The lie is
+/// closed by the FFI-side discipline: while a `DiskWildcardSuspended`
+/// exists, no code dereferences the inner iterator. On [`resume`](RQESuspendedIterator::resume) the
+/// lifetime contracts back to the guard's lifetime `'a` (which the
+/// caller proves is still valid for the underlying index).
+#[repr(transparent)]
+pub struct DiskWildcardSuspended(pub(crate) Box<dyn RQEIterator<'static> + 'static>);
+
+impl<'index> RQEIteratorBoxed<'index> for DiskWildcardIterator<'index> {
+    type Suspended = DiskWildcardSuspended;
+
+    fn suspend(self: Box<Self>) -> Box<Self::Suspended> {
+        let raw = Box::into_raw(self);
+        // SAFETY: `DiskWildcardIterator<'index>` is `#[repr(transparent)]`
+        // over `Box<dyn RQEIterator<'index> + 'index>`, and
+        // `DiskWildcardSuspended` is `#[repr(transparent)]` over
+        // `Box<dyn RQEIterator<'static> + 'static>`. The two are byte-
+        // identical (a `Box` of a trait object is two pointers regardless
+        // of lifetime). Lifetime-extending the inner trait object from
+        // `'index` to `'static` is a lie that is closed at resume time;
+        // the suspended value is opaque (no read/skip path).
+        unsafe { Box::from_raw(raw as *mut DiskWildcardSuspended) }
+    }
+}
+
+impl<'query> RQESuspendedIterator<'query> for DiskWildcardSuspended {
+    type Resumed<'a>
+        = DiskWildcardIterator<'a>
+    where
+        'query: 'a;
+
+    fn resume<'a>(
+        self: Box<Self>,
+        spec: &IndexSpecReadGuard<'a>,
+    ) -> Result<ResumeOutcome<Box<Self::Resumed<'a>>>, RQEIteratorError>
+    where
+        'query: 'a,
+    {
+        let raw = Box::into_raw(self);
+        // SAFETY: contract the lifetime back from the suspended `'static`
+        // to the caller-provided `'a`. The caller's read lock on `spec`
+        // witnesses that the underlying index data is dereferenceable at
+        // `'a`. Box::from_raw reuses the same heap allocation.
+        let mut active = unsafe { Box::from_raw(raw as *mut DiskWildcardIterator<'a>) };
+        // Drive validity recovery through the inner trait object's
+        // `revalidate` callback — the same path the legacy
+        // `Suspendable::resume` used. Reduce the borrowing `RQEValidateStatus`
+        // to a `Copy` status discriminant first so the mutable borrow of
+        // `active` ends before we move it into the outcome; propagate a
+        // revalidate error (e.g. timeout) rather than masking it.
+        let status = match active.revalidate(spec)? {
+            RQEValidateStatus::Ok => ffi::ValidateStatus_VALIDATE_OK,
+            RQEValidateStatus::Moved { .. } => ffi::ValidateStatus_VALIDATE_MOVED,
+            RQEValidateStatus::Aborted => ffi::ValidateStatus_VALIDATE_ABORTED,
+        };
+        Ok(match status {
+            ffi::ValidateStatus_VALIDATE_OK => ResumeOutcome::Ok(active),
+            ffi::ValidateStatus_VALIDATE_MOVED => ResumeOutcome::Moved(active),
+            // `Aborted`: `active` is not moved into the outcome, so the inner
+            // trait object drops here.
+            _ => ResumeOutcome::Aborted,
+        })
+    }
+
+    fn last_doc_id(&self) -> DocId {
+        // SAFETY: `last_doc_id` reads a cached primitive — it does not
+        // dereference any borrowed index pointer. Forwarding to the inner
+        // dyn's `RQEIterator::last_doc_id` is therefore sound despite the
+        // `'static` lifetime lie.
+        RQEIterator::last_doc_id(&*self.0)
+    }
+
+    fn num_estimated(&self) -> usize {
+        // `num_estimated` reads a cached count — it does not dereference any
+        // borrowed index pointer, so forwarding to the inner dyn is sound
+        // despite the `'static` lifetime lie.
+        RQEIterator::num_estimated(&*self.0)
+    }
+}
