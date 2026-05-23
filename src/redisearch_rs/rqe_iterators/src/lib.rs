@@ -65,7 +65,7 @@ pub mod wildcard;
 
 pub use boxed::{
     RQEDynIterator, RQEDynSuspendedIterator, RQEIteratorBoxed, RQESuspendedIterator,
-    TypeErasedRQEIterator, TypeErasedRQESuspendedIterator,
+    RederiveOutcome, TypeErasedRQEIterator, TypeErasedRQESuspendedIterator,
 };
 pub use config::IteratorsConfig;
 pub use empty::Empty;
@@ -252,10 +252,29 @@ pub trait RQEIterator<'index> {
     /// stale, and so is [`rewind`](Self::rewind). Drop the iterator instead. Composites
     /// propagate the error rather than handling it, and the C boundary reports
     /// `VALIDATE_ABORTED`, on which the result processor frees the whole tree.
+    ///
+    /// # Migration to suspend/resume
+    ///
+    /// This method is being phased out in favour of the
+    /// [`RQEIteratorBoxed::suspend`] +
+    /// [`RQESuspendedIterator::resume`] cycle,
+    /// which is the canonical path used by the FFI wrapper (see
+    /// `rqe_iterators::interop::revalidate`). The default implementation panics
+    /// so that any production call site that still goes through `revalidate`
+    /// surfaces loudly — production code should not be calling this. Tests are
+    /// migrating to `suspend`/`resume` iterator-by-iterator; once no iterator
+    /// overrides this method, it can be removed from the trait entirely.
     fn revalidate(
         &mut self,
-        spec: &IndexSpecReadGuard,
-    ) -> Result<RQEValidateStatus<'_, 'index>, RQEIteratorError>;
+        _spec: &IndexSpecReadGuard,
+    ) -> Result<RQEValidateStatus<'_, 'index>, RQEIteratorError> {
+        unreachable!(
+            "RQEIterator::revalidate is being phased out; the suspend/resume path \
+             (RQEIteratorBoxed::suspend + RQESuspendedIterator::resume) is canonical. \
+             Each iterator's revalidate override is removed in its own revision once \
+             its tests have migrated."
+        )
+    }
 
     /// Rewind the iterator to the beginning and reset its properties.
     fn rewind(&mut self);

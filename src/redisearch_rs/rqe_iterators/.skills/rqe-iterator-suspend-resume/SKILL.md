@@ -222,6 +222,53 @@ The direction asymmetry is the crux:
   re-narrowing. Leaves do exactly this in their `resume_in_place` (refresh the
   reader, promote the result).
 
+### Aggregates: re-derive the entries, never merely re-narrow them
+
+A composite whose result is an **aggregate** (union / intersection / hybrid
+metric) holds one borrowed entry per contributing child, each a pointer derived
+from a borrow of that child's own result. Transitioning a child hands its
+allocation through a by-value `Box<Self>`, and that retag invalidates the borrow
+the entry came from — **even when the child never leaves its slot and nothing is
+dropped, moved, or written**. The address survives; the provenance does not, so
+the whole-box cast alone leaves entries that are well-addressed but unusable, and
+reading one (a scorer walking `current()` after an `Ok` resume does exactly that)
+is UB.
+
+The discharge is `boxed.rs`'s `rederive_aggregate_entries(result, children)`:
+call it **once, unconditionally, after every child slot has been transitioned and
+immediately before the cast**, passing every surviving child — including any
+parked outside the active region. It re-derives each entry from the child it
+points at, provided that child is still live, still publishes a `current()`, and
+that `current()` still sits on the aggregate's document. Do not "fix" this by
+rebuilding the aggregate from the children instead: that path *moves* each
+child's metrics into the result, and the children were drained when the aggregate
+was first built, so a rebuild silently loses them. See
+`index_result::RawAggregateResult::rederive_borrowed` for the full reasoning.
+
+**An address identifies a child only while the children stay put.** A composite
+that **compacts** its child slots can move a survivor into the hole a dropped
+sibling left, and for children stored inline in that buffer the survivor's result
+then sits exactly where the dropped child's did. The stale entry matches a live
+child and no check inside the helper can tell it is the wrong one. Such a
+composite must call `clear_aggregate_entries(result)` instead, for every resume
+in which anything was relocated — the unions do exactly that.
+
+**Act on the outcome.** Both functions return `#[must_use] RederiveOutcome`.
+`Cleared` means the result keeps its position, `freq`, `field_mask` and
+`metrics`, but no longer says which children back it — it is safe to re-narrow
+and unsafe to *publish*. Every resume path that hands the result back as
+`Ok`/`Moved` without rebuilding it first must return `ResumeOutcome::Aborted`
+instead; a path that re-derives its position afterwards (a union's settle, an
+intersection's `skip_to`) republishes the aggregate and needs no special
+handling, and a path gated on `is_eof` publishes no `current` at all. Note what
+`Cleared` must **not** do: `RSIndexResult::reset_aggregate` looks like the tool
+for it and is not — it also zeroes `freq`, `field_mask` and `doc_id` and resets
+`metrics`, which every *other* caller gets away with only because it rebuilds via
+`push_borrowed` immediately afterwards. Here there is no rebuild, and a KNN+text
+union would lose `__vector_score` from its reply.
+
+The legacy `revalidate` is unaffected — it never transitions a child.
+
 **Virtual sentinels are the trap.** An iterator whose result is a virtual
 sentinel (`RSIndexResult::build_virt()`, `kind() == Virtual`) has no `Rf`-borrows
 in `data`, so resume needs to re-validate nothing. But note two things:
@@ -324,6 +371,12 @@ teardown. Any bespoke in-place transition code must reproduce this.
       the resume **refuses to reinterpret** on violation — returning
       `ResumeOutcome::Aborted` (never `Err`: the state is recoverable, and
       `RQEIteratorError` is only for `TimedOut`/`IoError`).
+- [ ] If the iterator owns an **aggregate**, `resume` calls
+      `rederive_aggregate_entries` after transitioning the children and before
+      the cast, with every surviving child — a cast that only re-narrows the
+      entries hands back dead provenance — or `clear_aggregate_entries` when it
+      relocated any child. Its `RederiveOutcome` is acted on: no path publishes a
+      `Cleared` result without rebuilding it.
 - [ ] Panic window is covered (the shared helpers already do; bespoke in-place
       code must arm its own abort guard).
 - [ ] `// SAFETY:` comments cite the invariant; no compiler-enforced fact is

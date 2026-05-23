@@ -22,6 +22,32 @@ pub use crate::union_flat::UnionFlat;
 pub use crate::union_heap::UnionHeap;
 pub use crate::union_trimmed::UnionTrimmed;
 
+/// Where settling left a union, after its children moved underneath it.
+///
+/// Returned by both variants' `settle_after_children_changed`, which is the single
+/// decision point shared by the legacy [`RQEIterator::revalidate`] and the
+/// `Box<Self>` [`resume`](crate::RQESuspendedIterator::resume) path. Each caller maps
+/// these onto its own outcome type, so the two cannot drift apart:
+///
+/// | `SettleOutcome` | `RQEValidateStatus`         | `ResumeOutcome` |
+/// |-----------------|-----------------------------|-----------------|
+/// | `Unchanged`     | `Ok`                        | `Ok`            |
+/// | `Moved`         | `Moved { current: Some(_) }`| `Moved`         |
+/// | `Eof`           | `Moved { current: None }`   | `Moved`         |
+///
+/// [`RQEIterator::revalidate`]: crate::RQEIterator::revalidate
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum SettleOutcome {
+    /// The union is still on the document it was on, and that document is still backed
+    /// by an active child.
+    Unchanged,
+    /// The union advanced, and its result describes the new position.
+    Moved,
+    /// The union ran out of documents while settling; it is now at EOF and has no
+    /// current result.
+    Eof,
+}
+
 // ============================================================================
 // Type aliases for convenient access
 // ============================================================================

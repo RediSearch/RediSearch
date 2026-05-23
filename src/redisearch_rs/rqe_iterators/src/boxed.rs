@@ -52,8 +52,10 @@
 //! directly into [`RQEIteratorBoxed`] / [`RQEDynIterator`], and
 //! [`RQEIteratorBoxed`] will be renamed back to `RQEIterator`.
 
+use std::ptr::NonNull;
+
 use ffi::t_docId;
-use index_result::RSIndexResult;
+use index_result::{RSIndexResult, SuspendedIndexResult};
 use index_spec::IndexSpecReadGuard;
 
 use crate::{
@@ -84,6 +86,16 @@ pub trait RQEIteratorBoxed<'index>: RQEIterator<'index> + 'index {
     type Suspended: RQESuspendedIterator<'index> + 'index;
 
     /// Transition to the suspended state.
+    ///
+    /// # Precondition
+    ///
+    /// The spec read lock must still be held for the duration of the call — suspending is the
+    /// step that *earns* the right to release it, not something to do afterwards. Most
+    /// implementations only re-type Rust-owned state and would not notice, but
+    /// [`CRQEIterator`](c2rust::CRQEIterator) reads its estimate off the C iterator underneath,
+    /// which may deref index-owned memory. A generic caller such as
+    /// [`suspend_child_slot_in_place`] cannot tell from the type whether the subtree it is
+    /// suspending holds such a child, so the obligation is on every caller.
     fn suspend(self: Box<Self>) -> Box<Self::Suspended>;
 }
 
@@ -326,7 +338,7 @@ where
 /// Outcome of [`resume_child_slot_in_place`], mirroring the recoverable
 /// discriminants of [`ResumeOutcome`] but *without* carrying the iterator —
 /// the resumed child is written back into the slot instead.
-pub(crate) enum ResumeSlotOutcome {
+pub enum ResumeSlotOutcome {
     /// The child resumed at the same position; the slot now holds the active child.
     Unchanged,
     /// The child resumed but its position moved forward; the slot now holds the
@@ -373,7 +385,7 @@ pub(crate) enum ResumeSlotOutcome {
 /// implementations and could panic; as in [`suspend_child_slot_in_place`], a
 /// panic is converted into a process abort rather than an unwind through the
 /// uninitialised slot.
-pub(crate) unsafe fn resume_child_slot_in_place<'query, 'a, S>(
+pub unsafe fn resume_child_slot_in_place<'query, 'a, S>(
     slot: *mut S,
     guard: &IndexSpecReadGuard<'a>,
 ) -> Result<ResumeSlotOutcome, RQEIteratorError>
@@ -425,6 +437,165 @@ where
     } else {
         ResumeSlotOutcome::Unchanged
     })
+}
+
+/// What [`rederive_aggregate_entries`] (or [`clear_aggregate_entries`]) left
+/// behind, and the composite's cue for what it may still publish.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum RederiveOutcome {
+    /// Every borrowed entry was re-derived from a live child sitting on the
+    /// result's own document. The result stands exactly as the composite left
+    /// it, and re-narrowing it is sound.
+    Rederived,
+    /// At least one entry had no live, on-document child to be re-derived from,
+    /// so *all* of them were dropped.
+    ///
+    /// The result keeps its position and its accumulated `freq`, `field_mask`
+    /// and `metrics`; only the list of contributing children is gone. It is
+    /// therefore sound to re-narrow — nothing points anywhere any more — but it
+    /// no longer describes a document. The composite must either rebuild it
+    /// before publishing it (which every path that re-derives its position does
+    /// anyway) or, when it has no way to, report
+    /// [`ResumeOutcome::Aborted`] instead of handing it back.
+    Cleared,
+}
+
+/// Drop a suspended composite's borrowed aggregate entries, keeping everything
+/// else about the result.
+///
+/// This is [`rederive_aggregate_entries`]'s shortfall path, exposed on its own
+/// for the callers that already know re-derivation cannot succeed — a composite
+/// that compacted its children's slots, say, where an entry's address no longer
+/// identifies the child it was taken from.
+///
+/// Only the entries go.
+/// [`reset_aggregate`](index_result::RawIndexResult::reset_aggregate) would be
+/// the obvious tool and is the wrong one: it also zeroes `doc_id`, `freq` and `field_mask`
+/// and calls `metrics.reset()`. Every other caller in the composites follows it
+/// immediately with a `push_borrowed` rebuild that puts all of that back; here
+/// there is no rebuild, so a `reset_aggregate` would silently drop the metrics
+/// the aggregate accumulated — `__vector_score` disappearing from a KNN+text
+/// union's reply — and misreport the result to field-mask filtering and
+/// field-weighted scoring as `field_mask == 0`.
+pub fn clear_aggregate_entries(result: &mut SuspendedIndexResult<'_>) -> RederiveOutcome {
+    if let Some(aggregate) = result.as_aggregate_mut() {
+        // Clears the records and the kind mask, which is derived from them.
+        aggregate.reset();
+    }
+    RederiveOutcome::Cleared
+}
+
+/// Give a composite's aggregate entries fresh provenance from its
+/// just-transitioned children — or clear the aggregate, if that cannot be done.
+///
+/// This is the last step before a composite that owns an aggregate reinterprets
+/// its allocation as the resumed form, and it is not optional: the entries are
+/// pointers derived from borrows of the children's results, and transitioning a
+/// child invalidates the borrow its entry came from even though the child never
+/// leaves its slot. See
+/// [`RawAggregateResult::rederive_borrowed`](index_result::RawAggregateResult::rederive_borrowed)
+/// for why, and for why rebuilding the aggregate from the children instead would
+/// lose what it has already accumulated.
+///
+/// Call it once, after every child slot has been transitioned and before the
+/// whole-box cast, passing **every** surviving child — including any parked
+/// outside the composite's active region, since an entry can point at any child
+/// the aggregate was built from. A result that is not an aggregate borrows
+/// nothing, and is left alone.
+///
+/// # What counts as re-derivable
+///
+/// A child answers for an entry when it is still live, still publishes a
+/// `current()`, and that `current()` sits on the aggregate's own document — and
+/// the check is per entry, not a running total: the same child offered twice
+/// would otherwise cover for an entry no child answers for at all. Every entry
+/// must be answered for, or the aggregate is
+/// [`Cleared`](RederiveOutcome::Cleared) as a whole.
+///
+/// The document test is what keeps a re-derived entry *meaningful* rather than
+/// merely live. A child whose own resume moved it forward while a sibling held
+/// the composite in place still occupies its slot, so its address still matches;
+/// re-deriving from it would leave the aggregate describing a document its
+/// entries no longer belong to. The legacy `revalidate` path rebuilds the result
+/// in that situation, and so must this one.
+///
+/// # What this cannot see
+///
+/// An address identifies a child only for as long as the children stay put. A
+/// composite that **compacts** its child slots — moving a survivor into the hole
+/// a dropped sibling left — can hand a survivor whose result now sits exactly
+/// where the dropped child's did, for a child whose results live inline in that
+/// buffer. The stale entry then matches a live child, and no check on this side
+/// can tell that it is the wrong one. Such a composite must call
+/// [`clear_aggregate_entries`] instead of this function whenever anything was
+/// relocated.
+///
+/// # Owned aggregates
+///
+/// The early return on "nothing borrowed" covers an
+/// [`Owned`](index_result::RawAggregateResult::Owned) aggregate, such as a
+/// `HybridMetric` result, by treating it as needing no work. That is true of
+/// its *entries* — they are boxed children in the result's own allocation, which
+/// no transition retags — but not necessarily of what those children hold: a
+/// boxed child's own `data` can be index-backed and suspended, and re-narrowing
+/// it would need the same recursive re-validation a leaf does. No composite
+/// wired to this helper owns such an aggregate today, so the case is unreachable
+/// rather than handled; a composite that acquires one must re-validate its
+/// children itself before the cast.
+#[must_use = "a cleared aggregate no longer describes a document; the caller \
+              must rebuild it or abort the resume"]
+pub fn rederive_aggregate_entries<'query, 'index, 'child, I>(
+    result: &mut SuspendedIndexResult<'query>,
+    children: impl IntoIterator<Item = &'child mut I>,
+) -> RederiveOutcome
+where
+    I: RQEIterator<'index> + 'child,
+{
+    let doc_id = result.doc_id;
+    let Some(aggregate) = result.as_aggregate() else {
+        return RederiveOutcome::Rederived;
+    };
+    if aggregate.num_borrowed() == 0 {
+        // Nothing to re-derive, and so no reason to touch a single child.
+        //
+        // "Nothing borrowed" is not the same as "nothing to validate" — see the
+        // `# Owned aggregates` section above for the boundary this return
+        // draws, and why no caller stands on the wrong side of it today.
+        return RederiveOutcome::Rederived;
+    }
+
+    // A child at EOF hides its result, and one whose own resume carried it onto
+    // a later document no longer backs the entry it was taken for; either way it
+    // cannot answer for one. Each child's borrow ends with its `current()`, so
+    // collecting the references up front is what lets the per-entry check run
+    // before a single entry is overwritten.
+    let live: Vec<&RSIndexResult<'index>> = children
+        .into_iter()
+        .filter_map(|child| child.current().map(|current| &*current))
+        .filter(|current| current.doc_id == doc_id)
+        .collect();
+
+    let every_entry_answered_for = aggregate.borrowed_addresses().all(|entry| {
+        live.iter()
+            .any(|current| NonNull::from_ref(*current).cast::<()>() == entry)
+    });
+    if !every_entry_answered_for {
+        return clear_aggregate_entries(result);
+    }
+
+    let aggregate = result
+        .as_aggregate_mut()
+        .expect("the result was an aggregate a handful of statements ago");
+    let rederived: usize = live
+        .iter()
+        .map(|current| aggregate.rederive_borrowed(current))
+        .sum();
+    debug_assert_eq!(
+        rederived,
+        aggregate.num_borrowed(),
+        "every entry was just shown to have a live child, so every entry was rewritten",
+    );
+    RederiveOutcome::Rederived
 }
 
 // --- Blanket bridges: concrete → dyn-safe -----------------------------------
