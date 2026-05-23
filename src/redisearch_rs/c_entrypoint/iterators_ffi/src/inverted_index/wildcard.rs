@@ -9,11 +9,11 @@
 
 use std::fmt::Debug;
 
-use index_result::RSIndexResult;
 use ffi::{
     ValidateStatus_VALIDATE_ABORTED, ValidateStatus_VALIDATE_MOVED, ValidateStatus_VALIDATE_OK,
     t_docId,
 };
+use index_result::RSIndexResult;
 use inverted_index::{RefreshOutcome, doc_ids_only::DocIdsOnly, raw_doc_ids_only::RawDocIdsOnly};
 use rqe_core::DocId;
 use rqe_iterators::{

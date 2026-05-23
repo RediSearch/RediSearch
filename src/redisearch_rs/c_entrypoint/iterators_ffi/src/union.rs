@@ -212,9 +212,7 @@ pub unsafe extern "C" fn GetUnionIteratorQueryString(it: *const QueryIterator) -
             .query_string
             .map_or(std::ptr::null(), |sp| sp.as_raw() as *const c_char),
     }
-
 }
-
 
 // ============================================================================
 // FFI: Query optimizer support

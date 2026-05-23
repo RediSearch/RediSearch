@@ -390,7 +390,8 @@ where
     }
 }
 
-impl<'query, WS, IS> RQESuspendedIterator<'query> for RawOptionalOptimized<'query, Suspended, WS, IS>
+impl<'query, WS, IS> RQESuspendedIterator<'query>
+    for RawOptionalOptimized<'query, Suspended, WS, IS>
 where
     WS: RQESuspendedIterator<'query>,
     IS: RQESuspendedIterator<'query>,

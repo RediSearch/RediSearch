@@ -103,7 +103,6 @@ where
     fn reset_timeout(&mut self) {
         self.timeout_ctx.reset_counter();
     }
-
 }
 
 impl<'query, Rf: Ref, I, TC> RawNot<'query, Rf, I, TC> {

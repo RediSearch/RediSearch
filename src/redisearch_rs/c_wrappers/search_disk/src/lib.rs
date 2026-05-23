@@ -20,7 +20,7 @@ use std::ptr::NonNull;
 use ffi::RSQueryTerm;
 use inverted_index::NumericFilter;
 use rqe_core::{DocId, FieldIndex, FieldMask};
-use rqe_iterators::{RQEIteratorPrintable, SEARCH_ENTERPRISE_ITERATORS};
+use rqe_iterators::{SEARCH_ENTERPRISE_ITERATORS, TypeErasedRQEIterator};
 
 /// A handle to a search-on-disk index ([`ffi::RedisSearchDiskIndexSpec`]).
 ///
@@ -74,7 +74,7 @@ impl SearchDiskHandle {
         filter: &NumericFilter,
         field_index: FieldIndex,
         snapshot: NonNull<ffi::RedisSearchDiskSnapshot>,
-    ) -> Result<Box<dyn RQEIteratorPrintable<'index> + 'index>, Box<dyn std::error::Error>> {
+    ) -> Result<TypeErasedRQEIterator<'index>, Box<dyn std::error::Error>> {
         // SAFETY: precondition (2) — a disk-backed spec always has the
         // enterprise iterators registered.
         let api = SEARCH_ENTERPRISE_ITERATORS
@@ -116,7 +116,7 @@ impl SearchDiskHandle {
         weight: f64,
         needs_offsets: bool,
         snapshot: NonNull<ffi::RedisSearchDiskSnapshot>,
-    ) -> Result<Box<dyn RQEIteratorPrintable<'index> + 'index>, Box<dyn std::error::Error>> {
+    ) -> Result<TypeErasedRQEIterator<'index>, Box<dyn std::error::Error>> {
         // SAFETY: precondition (2) — a disk-backed spec always has the
         // enterprise iterators registered.
         let api = SEARCH_ENTERPRISE_ITERATORS

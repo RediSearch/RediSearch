@@ -271,14 +271,15 @@ impl<'index> RQEIteratorBoxed<'index> for NotIteratorEnum<'index> {
         // overwrite via `ptr::write` before reconstituting the Box.
         let active_val = unsafe { ptr::read(raw) };
 
-        let suspended_val = match active_val {
-            Self::Not(it) => NotIteratorEnumSuspended::Not(
-                *<NotFfi<'index> as RQEIteratorBoxed<'index>>::suspend(Box::new(it)),
-            ),
-            Self::NotOptimized(it) => NotIteratorEnumSuspended::NotOptimized(
-                *<NotOptimizedFfi<'index> as RQEIteratorBoxed<'index>>::suspend(Box::new(it)),
-            ),
-        };
+        let suspended_val =
+            match active_val {
+                Self::Not(it) => NotIteratorEnumSuspended::Not(
+                    *<NotFfi<'index> as RQEIteratorBoxed<'index>>::suspend(Box::new(it)),
+                ),
+                Self::NotOptimized(it) => NotIteratorEnumSuspended::NotOptimized(
+                    *<NotOptimizedFfi<'index> as RQEIteratorBoxed<'index>>::suspend(Box::new(it)),
+                ),
+            };
 
         let suspended_raw = raw as *mut NotIteratorEnumSuspended<'index>;
         // SAFETY: `suspended_raw` is the same heap allocation as `raw`,

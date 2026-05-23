@@ -529,7 +529,10 @@ where
 /// [`RQEIteratorWrapper`] — all `Rf`-dependent fields are
 /// [`SharedPtr`](ref_mode::SharedPtr) `=` `#[repr(transparent)] NonNull<T>`, so
 /// no real reference is being widened.
-extern "C" fn revalidate<'index, I>(base: *mut QueryIterator, spec: *mut ffi::IndexSpec) -> ValidateStatus
+extern "C" fn revalidate<'index, I>(
+    base: *mut QueryIterator,
+    spec: *mut ffi::IndexSpec,
+) -> ValidateStatus
 where
     I: RQEIteratorBoxed<'index> + 'index,
 {

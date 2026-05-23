@@ -69,18 +69,14 @@ impl<'query> RQESuspendedIterator<'query> for NumericIteratorSuspended<'query> {
         Ok(
             match <_ as RQESuspendedIterator>::resume(Box::new(iterator), guard)? {
                 ResumeOutcome::Aborted => ResumeOutcome::Aborted,
-                ResumeOutcome::Ok(resumed) => {
-                    ResumeOutcome::Ok(Box::new(NumericIterator {
-                        filter,
-                        iterator: *resumed,
-                    }))
-                }
-                ResumeOutcome::Moved(resumed) => {
-                    ResumeOutcome::Moved(Box::new(NumericIterator {
-                        filter,
-                        iterator: *resumed,
-                    }))
-                }
+                ResumeOutcome::Ok(resumed) => ResumeOutcome::Ok(Box::new(NumericIterator {
+                    filter,
+                    iterator: *resumed,
+                })),
+                ResumeOutcome::Moved(resumed) => ResumeOutcome::Moved(Box::new(NumericIterator {
+                    filter,
+                    iterator: *resumed,
+                })),
             },
         )
     }

@@ -703,6 +703,19 @@ void TrimUnionIterator(QueryIterator *it, size_t limit, bool asc);
 const NumericFilter *NumericInvIndIterator_GetNumericFilter(const QueryIterator *it);
 
 /**
+ * Gets the minimum range value for profiling a numeric iterator.
+ *
+ * # Safety
+ *
+ * 1. `it` must be a valid pointer to a `QueryIterator` wrapping a [`NumericIterator`].
+ *
+ * # Returns
+ *
+ * The minimum range value from the filter, or negative infinity if no filter was provided.
+ */
+double NumericInvIndIterator_GetProfileRangeMin(const QueryIterator *it);
+
+/**
  * Creates a new wildcard inverted index iterator for querying all existing documents.
  *
  * # Parameters
@@ -727,19 +740,6 @@ const NumericFilter *NumericInvIndIterator_GetNumericFilter(const QueryIterator 
  * 4. `sctx` and `sctx.spec` must remain valid for the lifetime of the returned iterator.
  */
 QueryIterator *NewInvIndIterator_WildcardQuery(const InvertedIndex *idx, const RedisSearchCtx *sctx, double weight);
-
-/**
- * Gets the minimum range value for profiling a numeric iterator.
- *
- * # Safety
- *
- * 1. `it` must be a valid pointer to a `QueryIterator` wrapping a [`NumericIterator`].
- *
- * # Returns
- *
- * The minimum range value from the filter, or negative infinity if no filter was provided.
- */
-double NumericInvIndIterator_GetProfileRangeMin(const QueryIterator *it);
 
 /**
  * Gets the maximum range value for profiling a numeric iterator.
@@ -829,17 +829,6 @@ QueryIterator *NewInvIndIterator_MissingQuery(const InvertedIndex *idx, const Re
 NumericRangeTree *openNumericOrGeoIndex(IndexSpec *spec, FieldSpec *fs, bool create_if_missing);
 
 /**
- * Gets the field name used by a missing-field inverted index iterator.
- *
- * # Safety
- *
- * 1. `it` must be a valid non-NULL pointer to a `QueryIterator`.
- * 2. `it` must have type [`IteratorType::InvIdxMissing`].
- * 3. `out_len` must be a valid writable pointer.
- */
-const char *InvIndMissingIterator_GetFieldName(const QueryIterator *it, size_t *out_len);
-
-/**
  * Opens the numeric/geo index and creates an iterator over all matching sub-ranges.
  *
  * # Returns
@@ -863,6 +852,17 @@ const char *InvIndMissingIterator_GetFieldName(const QueryIterator *it, size_t *
  *    index (not a field mask).
  */
 QueryIterator *NewNumericFilterIterator(const RedisSearchCtx *ctx, const struct NumericFilter *flt, FieldType _for_type, const struct IteratorsConfig *config, const struct FieldFilterContext *filter_ctx);
+
+/**
+ * Gets the field name used by a missing-field inverted index iterator.
+ *
+ * # Safety
+ *
+ * 1. `it` must be a valid non-NULL pointer to a `QueryIterator`.
+ * 2. `it` must have type [`IteratorType::InvIdxMissing`].
+ * 3. `out_len` must be a valid writable pointer.
+ */
+const char *InvIndMissingIterator_GetFieldName(const QueryIterator *it, size_t *out_len);
 
 /**
  * Creates a NOT iterator, choosing between non-optimized and optimized based

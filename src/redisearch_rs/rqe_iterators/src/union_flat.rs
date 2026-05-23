@@ -630,7 +630,8 @@ where
     }
 }
 
-impl<'index, I, const QUICK_EXIT: bool> RQEIteratorBoxed<'index> for UnionFlat<'index, I, QUICK_EXIT>
+impl<'index, I, const QUICK_EXIT: bool> RQEIteratorBoxed<'index>
+    for UnionFlat<'index, I, QUICK_EXIT>
 where
     I: RQEIteratorBoxed<'index>,
 {
@@ -657,7 +658,9 @@ where
         // SAFETY: `RawUnionFlat` is `#[repr(C)]` over `Vec<IndexedChild<I>>`
         // (now byte-rewritten with `I::Suspended` payloads) and
         // `result: RawIndexResult<Rf>` (layout-compatible via `SharedPtr`).
-        unsafe { Box::from_raw(raw as *mut RawUnionFlat<'index, Suspended, I::Suspended, QUICK_EXIT>) }
+        unsafe {
+            Box::from_raw(raw as *mut RawUnionFlat<'index, Suspended, I::Suspended, QUICK_EXIT>)
+        }
     }
 }
 
@@ -708,7 +711,14 @@ where
         let mut live: Vec<IndexedChild<S::Resumed<'a>>> = Vec::with_capacity(num_active);
         let mut dead: Vec<IndexedChild<S::Resumed<'a>>> =
             Vec::with_capacity(children.len().saturating_sub(num_active));
-        for (i, IndexedChild { original_index, inner }) in children.into_iter().enumerate() {
+        for (
+            i,
+            IndexedChild {
+                original_index,
+                inner,
+            },
+        ) in children.into_iter().enumerate()
+        {
             let active_inner = match Box::new(inner).resume(guard)? {
                 ResumeOutcome::Aborted => {
                     any_change = true;
@@ -737,14 +747,13 @@ where
             .weight(saved_weight)
             .build();
 
-        let mut active: Box<UnionFlat<'a, S::Resumed<'a>, QUICK_EXIT>> =
-            Box::new(UnionFlat {
-                children: active_children,
-                num_active: num_children,
-                num_estimated,
-                is_eof,
-                result,
-            });
+        let mut active: Box<UnionFlat<'a, S::Resumed<'a>, QUICK_EXIT>> = Box::new(UnionFlat {
+            children: active_children,
+            num_active: num_children,
+            num_estimated,
+            is_eof,
+            result,
+        });
 
         if active.is_eof || saved_last_doc_id == 0 {
             return Ok(ResumeOutcome::Ok(active));

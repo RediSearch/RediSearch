@@ -675,7 +675,10 @@ where
         } = *self;
 
         // `suspend` always resets these — assert as an internal invariant.
-        debug_assert!(direct_batch.is_none(), "direct_batch must be dropped on suspend");
+        debug_assert!(
+            direct_batch.is_none(),
+            "direct_batch must be dropped on suspend"
+        );
         debug_assert!(
             matches!(phase, Phase::NotStarted),
             "phase must be NotStarted on suspend"

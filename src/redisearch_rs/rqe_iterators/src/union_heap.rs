@@ -510,7 +510,8 @@ where
     }
 }
 
-impl<'index, I, const QUICK_EXIT: bool> RQEIteratorBoxed<'index> for UnionHeap<'index, I, QUICK_EXIT>
+impl<'index, I, const QUICK_EXIT: bool> RQEIteratorBoxed<'index>
+    for UnionHeap<'index, I, QUICK_EXIT>
 where
     I: RQEIteratorBoxed<'index>,
 {
@@ -535,7 +536,9 @@ where
         // rewritten as `Vec<I::Suspended>` contents), `result:
         // RawIndexResult<Rf>` (layout-compatible via `SharedPtr`), and
         // a heap of plain doc-ids/indices (no `Rf` in its types).
-        unsafe { Box::from_raw(raw as *mut RawUnionHeap<'index, Suspended, I::Suspended, QUICK_EXIT>) }
+        unsafe {
+            Box::from_raw(raw as *mut RawUnionHeap<'index, Suspended, I::Suspended, QUICK_EXIT>)
+        }
     }
 }
 
@@ -605,15 +608,14 @@ where
             .weight(saved_weight)
             .build();
 
-        let mut active: Box<UnionHeap<'a, S::Resumed<'a>, QUICK_EXIT>> =
-            Box::new(UnionHeap {
-                children: active_children,
-                num_estimated,
-                num_active: num_children,
-                is_eof,
-                result,
-                heap: DocIdMinHeap::with_capacity(num_children),
-            });
+        let mut active: Box<UnionHeap<'a, S::Resumed<'a>, QUICK_EXIT>> = Box::new(UnionHeap {
+            children: active_children,
+            num_estimated,
+            num_active: num_children,
+            is_eof,
+            result,
+            heap: DocIdMinHeap::with_capacity(num_children),
+        });
 
         if active.is_eof || saved_last_doc_id == 0 {
             return Ok(ResumeOutcome::Ok(active));

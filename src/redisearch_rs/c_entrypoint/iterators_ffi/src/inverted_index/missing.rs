@@ -21,7 +21,8 @@ use inverted_index::{
 use rqe_core::FieldIndex;
 use rqe_iterator_type::IteratorType;
 use rqe_iterators::{
-    FieldExpirationChecker, RQEIteratorBoxed, RQEIteratorError, RQESuspendedIterator, ResumeOutcome,
+    FieldExpirationChecker, RQEIteratorBoxed, RQEIteratorError, RQESuspendedIterator,
+    ResumeOutcome,
     interop::{InnerState, RQEIteratorWrapper},
     inverted_index::Missing,
 };
