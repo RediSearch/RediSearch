@@ -10,18 +10,18 @@
 #include <stdio.h>
 #include "rmalloc.h"
 
-inline size_t __sv_sizeof(size_t cap) {
+inline size_t sv_sizeof(size_t cap) {
   return sizeof(sparseVector) + cap * sizeof(sparseVectorEntry);
 }
 
-inline sparseVector *__sv_resize(sparseVector *v, size_t cap) {
-  v = rm_realloc(v, __sv_sizeof(cap));
+inline sparseVector *sv_resize(sparseVector *v, size_t cap) {
+  v = rm_realloc(v, sv_sizeof(cap));
   v->cap = cap;
   return v;
 }
 
 inline sparseVector *newSparseVectorCap(size_t cap) {
-  sparseVector *v = rm_malloc(__sv_sizeof(cap));
+  sparseVector *v = rm_malloc(sv_sizeof(cap));
 
   v->cap = cap;
   v->len = 0;
@@ -47,7 +47,7 @@ void sparseVector_append(sparseVector **vp, int index, int value) {
   sparseVector *v = *vp;
   if (v->len == v->cap) {
     v->cap = v->cap ? v->cap * 2 : 1;
-    v = __sv_resize(v, v->cap);
+    v = sv_resize(v, v->cap);
   }
 
   v->entries[v->len++] = (sparseVectorEntry){index, value};
