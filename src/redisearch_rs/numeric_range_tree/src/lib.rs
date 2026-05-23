@@ -77,7 +77,7 @@ mod tree;
 mod unique_id;
 
 pub use arena::NodeIndex;
-pub use index::{NumericIndex, NumericIndexReader};
+pub use index::{NumericIndex, NumericIndexReader, NumericIndexReaderSuspended};
 pub use inverted_index::NumericFilter;
 pub use iter::{IndexedReversePreOrderDfsIterator, ReversePreOrderDfsIterator};
 pub use node::{InternalNode, LeafNode, NumericRangeNode};

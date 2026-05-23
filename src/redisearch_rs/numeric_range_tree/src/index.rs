@@ -159,11 +159,51 @@ impl NumericIndex {
 /// Iterate over the entries stored in a numeric index.
 ///
 /// This abstracts over whether the underlying index is compressed or uncompressed.
+///
+/// `#[repr(C)]` so that the active enum is layout-compatible with its
+/// suspended counterpart [`NumericIndexReaderSuspended`] — required by
+/// the `RQESuspendedIterator` design in `rqe_iterators`.
+#[repr(C)]
 pub enum NumericIndexReader<'a> {
     /// Reader over uncompressed entries.
     Uncompressed(IndexReaderCore<'a, Numeric>),
     /// Reader over compressed entries.
     Compressed(IndexReaderCore<'a, NumericFloatCompression>),
+}
+
+/// Parallel `'static`-typed counterpart of [`NumericIndexReader`], used
+/// as the `SuspendableReader::Suspended` type. Each variant holds the
+/// `Suspended` form of the corresponding [`IndexReaderCore`].
+#[repr(C)]
+pub enum NumericIndexReaderSuspended {
+    /// Suspended counterpart of [`NumericIndexReader::Uncompressed`].
+    Uncompressed(inverted_index::RawIndexReaderCore<ref_mode::Suspended, Numeric>),
+    /// Suspended counterpart of [`NumericIndexReader::Compressed`].
+    Compressed(inverted_index::RawIndexReaderCore<ref_mode::Suspended, NumericFloatCompression>),
+}
+
+// SAFETY: both `NumericIndexReader` and `NumericIndexReaderSuspended` are
+// `#[repr(C)]` with the same variants, whose payloads are pairwise
+// layout-identical (`RawIndexReaderCore<Active>` vs `<Suspended>` differ only in
+// `#[repr(transparent)]`-over-`NonNull` `SharedPtr` fields). The two enums are
+// therefore layout-compatible, as `SuspendableReader` requires.
+unsafe impl<'a> inverted_index::SuspendableReader for NumericIndexReader<'a> {
+    type Suspended = NumericIndexReaderSuspended;
+}
+
+// SAFETY: layout-compatible for the same reason as the `SuspendableReader` impl above.
+unsafe impl inverted_index::ResumableReader for NumericIndexReaderSuspended {
+    type Resumed<'a> = NumericIndexReader<'a>;
+
+    unsafe fn refresh_pointers(&mut self) -> inverted_index::RefreshOutcome {
+        match self {
+            // SAFETY: our caller upholds `ResumableReader::refresh_pointers`'s
+            // read-lock obligation, which we forward unchanged to the inner reader.
+            Self::Uncompressed(r) => unsafe { r.refresh_pointers() },
+            // SAFETY: as above.
+            Self::Compressed(r) => unsafe { r.refresh_pointers() },
+        }
+    }
 }
 
 /// Marker trait for readers producing numeric values.
