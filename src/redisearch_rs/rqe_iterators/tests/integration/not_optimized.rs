@@ -990,6 +990,734 @@ mod revalidate {
         // `revalidate` reaches the C boundary as `VALIDATE_ABORTED`, and an
         // aborted iterator is dropped rather than used.
     }
+
+    /// The transitions covered by the enclosing module, driven through
+    /// `suspend`/`resume` instead of the legacy `revalidate`. These live inside
+    /// the miri gate because they need a real wildcard inverted index to move;
+    /// the mock-only resume coverage is in `resume_over_mocks`.
+    ///
+    /// `ContractChecker` does not implement the suspend/resume surface, so the
+    /// iterator is unwrapped to cross the cycle and re-wrapped on the other
+    /// side. That keeps the reads *after* the resume checked, as their legacy
+    /// twins are — which is where a resume that published a position the
+    /// iterator does not actually hold shows up.
+    mod via_resume {
+        use super::*;
+        use rqe_iterators::{ResumeOutcome, TypeErasedRQEIterator};
+        use rqe_iterators_test_utils::{ResumeOutcomeExt, revalidate_via_resume};
+
+        /// The resume twin of `revalidate_child_skip_error_propagates`.
+        ///
+        /// Catching the child up to the wildcard's new position is what makes
+        /// the membership test that follows it mean anything, and the contract
+        /// keeps a failed skip from parking the child on the probed id. Swallow
+        /// the failure and that test reads "undecided" as "absent", publishing a
+        /// document this iterator exists to exclude.
+        #[test]
+        fn resume_child_skip_error_propagates() {
+            let (_guard, context) = (
+                GlobalGuard::default(),
+                TestContext::wildcard([1, 50].iter().copied()),
+            );
+            let ii = DocIdsOnly::from_opaque(context.wildcard_inverted_index());
+            let wcii = rqe_iterators::inverted_index::Wildcard::new(ii.reader(), 1.0);
+            // The child holds 50 — the id the wildcard lands on below — so the
+            // membership that cannot be decided is one where the answer is
+            // "present".
+            let child = Mock::<2>::new([3, 50]);
+            let mut child_data = child.data();
+            child_data.set_revalidate_result(MockRevalidateResult::Ok);
+            let mut it = NotOptimized::new(wcii, child, 100, 1.0, NoTimeoutChecker);
+
+            // Doc 1. Catching the child up to it stops on 3, behind the
+            // wildcard's remaining document.
+            assert_eq!(it.read().unwrap().unwrap().doc_id, 1);
+
+            // From here the child cannot be caught up.
+            child_data.set_error_on_skip_to(Some(MockIteratorError::TimeoutError(None)));
+
+            // GC doc 1, so the wildcard moves onto 50, past the child at 3.
+            gc_document(&context, 1);
+
+            let guard = context.spec_read();
+            match revalidate_via_resume(TypeErasedRQEIterator::new(Box::new(it)), &guard) {
+                Err(RQEIteratorError::TimedOut) => {}
+                Err(other) => {
+                    panic!("the child's error must be propagated as it stands: {other:?}")
+                }
+                Ok(_) => panic!("a child that cannot be caught up must reach the caller"),
+            }
+        }
+
+        /// The resume twin of `revalidate_scan_error_propagates`.
+        ///
+        /// A failing scan leaves no position to report, and neither outcome the
+        /// resume could return would be true: `Moved` with no position says
+        /// "exhausted", which every composite acts on, so a later `read` finding
+        /// a document would resurrect this iterator behind a parent that has
+        /// already written it off.
+        #[test]
+        fn resume_scan_error_propagates() {
+            let (_guard, context) = make_revalidate_context();
+            let ii = DocIdsOnly::from_opaque(context.wildcard_inverted_index());
+            let wcii = rqe_iterators::inverted_index::Wildcard::new(ii.reader(), 1.0);
+            // A single child document, at the id the wildcard moves onto below —
+            // so the scan that move triggers reads the child past its end, which
+            // is where the failure is injected.
+            let child = Mock::<1>::new([10]);
+            let mut child_data = child.data();
+            child_data.set_revalidate_result(MockRevalidateResult::Ok);
+            let mut it = NotOptimized::new(wcii, child, 100, 1.0, NoTimeoutChecker);
+
+            it.read().unwrap().unwrap(); // doc 1
+            it.read().unwrap().unwrap(); // doc 5, pulling the child forward to 10
+            assert_eq!(it.last_doc_id(), 5);
+
+            child_data.set_error_at_done(Some(MockIteratorError::TimeoutError(None)));
+
+            // GC doc 5, so the wildcard moves onto 10 — which the child holds, so
+            // the iterator scans for the next valid result and the scan fails.
+            gc_document(&context, 5);
+
+            let guard = context.spec_read();
+            match revalidate_via_resume(TypeErasedRQEIterator::new(Box::new(it)), &guard) {
+                Err(RQEIteratorError::TimedOut) => {}
+                Err(other) => {
+                    panic!("the child's error must be propagated as it stands: {other:?}")
+                }
+                Ok(_) => panic!("a failing resume scan must reach the caller"),
+            }
+        }
+
+        #[test]
+        fn revalidate_child_ok_wc_ok() {
+            let (_guard, context) = make_revalidate_context();
+            let (mut it, mut child_data) = create_not_optimized(&context);
+            child_data.set_revalidate_result(MockRevalidateResult::Ok);
+
+            it.read().unwrap().unwrap();
+            it.read().unwrap().unwrap();
+            let original = it.last_doc_id();
+
+            let guard = context.spec_read();
+            let mut it = ContractChecker::new(
+                revalidate_via_resume(
+                    TypeErasedRQEIterator::new(Box::new(it.into_inner())),
+                    &guard,
+                )
+                .expect("resume failed")
+                .expect_ok(),
+            );
+            assert_eq!(child_data.revalidate_count(), 1);
+            assert_eq!(it.last_doc_id(), original);
+            it.read().unwrap().unwrap();
+        }
+
+        #[test]
+        fn revalidate_child_aborted_wc_ok() {
+            let (_guard, context) = make_revalidate_context();
+            let (mut it, mut child_data) = create_not_optimized(&context);
+            child_data.set_revalidate_result(MockRevalidateResult::Abort);
+
+            it.read().unwrap().unwrap();
+            let original = it.last_doc_id();
+
+            let guard = context.spec_read();
+            let mut it = ContractChecker::new(
+                revalidate_via_resume(
+                    TypeErasedRQEIterator::new(Box::new(it.into_inner())),
+                    &guard,
+                )
+                .expect("resume failed")
+                .expect_ok(),
+            );
+            assert_eq!(it.last_doc_id(), original);
+            it.read().unwrap().unwrap();
+        }
+
+        #[test]
+        fn revalidate_child_moved_wc_ok() {
+            let (_guard, context) = make_revalidate_context();
+            let (mut it, mut child_data) = create_not_optimized(&context);
+            child_data.set_revalidate_result(MockRevalidateResult::Move);
+
+            it.read().unwrap().unwrap();
+            let original = it.last_doc_id();
+
+            let guard = context.spec_read();
+            let mut it = ContractChecker::new(
+                revalidate_via_resume(
+                    TypeErasedRQEIterator::new(Box::new(it.into_inner())),
+                    &guard,
+                )
+                .expect("resume failed")
+                .expect_ok(),
+            );
+            assert_eq!(child_data.revalidate_count(), 1);
+            assert_eq!(it.last_doc_id(), original);
+            it.read().unwrap().unwrap();
+        }
+
+        #[test]
+        fn revalidate_wc_aborted() {
+            let (_guard, context) = make_revalidate_context();
+            let (mut it, _child_data) = create_not_optimized(&context);
+
+            it.read().unwrap().unwrap();
+
+            let new_ii =
+                Box::into_raw(Box::new(inverted_index::opaque::InvertedIndex::DocIdsOnly(
+                    InvertedIndex::<DocIdsOnly>::new(IndexFlags_Index_DocIdsOnly),
+                )));
+            let old_existing_docs = context.spec_read().existing_docs_ptr();
+            context.spec_write().set_existing_docs_ptr(new_ii.cast());
+
+            let guard = context.spec_read();
+            let outcome = revalidate_via_resume(
+                TypeErasedRQEIterator::new(Box::new(it.into_inner())),
+                &guard,
+            )
+            .expect("resume failed");
+            assert!(matches!(outcome, ResumeOutcome::Aborted));
+
+            context
+                .spec_write()
+                .set_existing_docs_ptr(old_existing_docs);
+            // SAFETY: Dropping Box from raw pointer.
+            unsafe {
+                drop(Box::from_raw(new_ii));
+            }
+        }
+
+        #[test]
+        fn revalidate_child_ok_wc_moved() {
+            let (_guard, context) = make_revalidate_context();
+            let (mut it, mut child_data) = create_not_optimized(&context);
+            child_data.set_revalidate_result(MockRevalidateResult::Ok);
+
+            it.read().unwrap().unwrap();
+            let original = it.last_doc_id();
+            assert_eq!(original, 1);
+
+            gc_document(&context, 1);
+
+            let guard = context.spec_read();
+            let it = ContractChecker::new(
+                revalidate_via_resume(
+                    TypeErasedRQEIterator::new(Box::new(it.into_inner())),
+                    &guard,
+                )
+                .expect("resume failed")
+                .expect_moved(),
+            );
+            assert!(it.last_doc_id() > original);
+        }
+
+        #[test]
+        fn revalidate_child_aborted_wc_moved() {
+            let (_guard, context) = make_revalidate_context();
+            let (mut it, mut child_data) = create_not_optimized(&context);
+            child_data.set_revalidate_result(MockRevalidateResult::Abort);
+
+            it.read().unwrap().unwrap();
+            let original = it.last_doc_id();
+            assert_eq!(original, 1);
+
+            gc_document(&context, 1);
+
+            let guard = context.spec_read();
+            let it = ContractChecker::new(
+                revalidate_via_resume(
+                    TypeErasedRQEIterator::new(Box::new(it.into_inner())),
+                    &guard,
+                )
+                .expect("resume failed")
+                .expect_moved(),
+            );
+            assert!(it.last_doc_id() > original);
+        }
+
+        #[test]
+        fn revalidate_child_moved_wc_moved() {
+            let (_guard, context) = make_revalidate_context();
+            let (mut it, mut child_data) = create_not_optimized(&context);
+            child_data.set_revalidate_result(MockRevalidateResult::Move);
+
+            it.read().unwrap().unwrap();
+            let original = it.last_doc_id();
+            assert_eq!(original, 1);
+
+            gc_document(&context, 1);
+
+            let guard = context.spec_read();
+            let mut it = ContractChecker::new(
+                revalidate_via_resume(
+                    TypeErasedRQEIterator::new(Box::new(it.into_inner())),
+                    &guard,
+                )
+                .expect("resume failed")
+                .expect_moved(),
+            );
+            assert!(it.last_doc_id() > original);
+            it.read().unwrap().unwrap();
+        }
+
+        #[test]
+        fn revalidate_wc_moves_to_same_id_as_child() {
+            let (_guard, context) = make_revalidate_context();
+            let (mut it, mut child_data) = create_not_optimized(&context);
+            child_data.set_revalidate_result(MockRevalidateResult::Ok);
+
+            it.read().unwrap().unwrap();
+            it.read().unwrap().unwrap();
+            assert_eq!(it.last_doc_id(), 5);
+
+            gc_document(&context, 5);
+
+            let guard = context.spec_read();
+            let mut it = ContractChecker::new(
+                revalidate_via_resume(
+                    TypeErasedRQEIterator::new(Box::new(it.into_inner())),
+                    &guard,
+                )
+                .expect("resume failed")
+                .expect_moved(),
+            );
+            assert!(!it.at_eof());
+            assert_eq!(it.last_doc_id(), 15);
+            it.read().unwrap().unwrap();
+        }
+
+        #[test]
+        fn revalidate_wc_moved_to_eof() {
+            let (_guard, context) = (
+                GlobalGuard::default(),
+                TestContext::wildcard([1].iter().copied()),
+            );
+            let ii = DocIdsOnly::from_opaque(context.wildcard_inverted_index());
+            let wcii = rqe_iterators::inverted_index::Wildcard::new(ii.reader(), 1.0);
+            let child = Mock::<1>::new([100]);
+            let mut child_data = child.data();
+            child_data.set_revalidate_result(MockRevalidateResult::Ok);
+            let mut it = NotOptimized::new(wcii, child, 200, 1.0, NoTimeoutChecker);
+
+            let doc = it.read().unwrap().unwrap();
+            assert_eq!(doc.doc_id, 1);
+
+            gc_document(&context, 1);
+
+            let guard = context.spec_read();
+            let it = ContractChecker::new(
+                revalidate_via_resume(TypeErasedRQEIterator::new(Box::new(it)), &guard)
+                    .expect("resume failed")
+                    .expect_moved(),
+            );
+            assert!(it.at_eof());
+        }
+    }
+}
+
+/// Suspend/resume coverage that needs no real index: both sub-iterators are
+/// mocks and the lock comes from `MockContext`, so — unlike
+/// `revalidate::via_resume` — nothing here calls into FFI and miri runs all of
+/// it. That matters more for this iterator than for its siblings: its resume is
+/// the stack's only bespoke two-slot `ptr::read`/`ptr::write`/`dealloc`
+/// teardown, and miri is what validates it.
+mod resume_over_mocks {
+    use super::*;
+    use crate::utils::MockRevalidateResult;
+    use rqe_iterators::{
+        RQEIteratorBoxed, RQESuspendedIterator, RQEValidateStatus, ResumeOutcome,
+        TypeErasedRQEIterator,
+    };
+
+    /// The lock guard every test here resumes under.
+    fn mock_context() -> rqe_iterators_test_utils::MockContext {
+        rqe_iterators_test_utils::MockContext::new(0, 0)
+    }
+
+    /// The suspend/resume cycle must reuse the allocation: the FFI wrapper
+    /// and delegating parents cache raw pointers into the iterator's
+    /// storage, and a rebuilt box would dangle them.
+    #[test]
+    fn resume_preserves_box_address() {
+        let mock_ctx = mock_context();
+        let guard = mock_ctx.spec_read();
+        let wcii = Mock::new([1u64, 2, 3, 4, 5]);
+        let child = Mock::new([2u64, 4]);
+        let mut it = Box::new(NotOptimized::new(wcii, child, 5, 1.0, NoTimeoutChecker));
+        let doc = it.read().expect("read failed").expect("expected doc");
+        assert_eq!(doc.doc_id, 1);
+        let addr_before = &*it as *const _ as usize;
+
+        let suspended = it.suspend();
+        assert_eq!(
+            &*suspended as *const _ as usize, addr_before,
+            "suspend must reuse the allocation",
+        );
+        let mut active = match suspended.resume(&guard).expect("resume failed") {
+            ResumeOutcome::Ok(a) => a,
+            ResumeOutcome::Moved(_) => panic!("expected Ok, got Moved"),
+            ResumeOutcome::Aborted => panic!("expected Ok, got Aborted"),
+        };
+        assert_eq!(
+            &*active as *const _ as usize, addr_before,
+            "resume must reuse the allocation",
+        );
+
+        let doc = active.read().expect("read failed").expect("expected doc");
+        assert_eq!(doc.doc_id, 3, "the exclusion set survives the cycle");
+    }
+
+    /// Type-erased sub-iterators cross the suspend boundary through vtable
+    /// swaps, not byte casts — the active and suspended erased forms are
+    /// different `dyn` types. Erases both the wildcard base and the child.
+    #[test]
+    fn suspend_resume_with_type_erased_children_survives() {
+        let mock_ctx = mock_context();
+        let guard = mock_ctx.spec_read();
+        let wcii = TypeErasedRQEIterator::new(Box::new(Mock::new([1u64, 2, 3, 4, 5])));
+        let child = TypeErasedRQEIterator::new(Box::new(Mock::new([2u64, 4])));
+        let mut it = Box::new(NotOptimized::new(wcii, child, 5, 1.0, NoTimeoutChecker));
+        let doc = it.read().expect("read failed").expect("expected doc");
+        assert_eq!(doc.doc_id, 1);
+
+        let mut active = match it.suspend().resume(&guard).expect("resume failed") {
+            ResumeOutcome::Ok(a) => a,
+            ResumeOutcome::Moved(_) => panic!("expected Ok, got Moved"),
+            ResumeOutcome::Aborted => panic!("expected Ok, got Aborted"),
+        };
+
+        let mut seen = vec![1];
+        while let Some(doc) = active.read().expect("read failed") {
+            seen.push(doc.doc_id);
+        }
+        assert_eq!(seen, vec![1, 3, 5]);
+    }
+
+    /// If the virtual sentinel is no longer virtual — a consumer replaced it
+    /// via the mutable `current()`/`read()`/`skip_to` handout — resume cannot
+    /// re-validate it, so it aborts the whole iterator (returns `Aborted`,
+    /// not an error), mirroring `Optional::resume`.
+    #[test]
+    fn resume_aborts_when_result_no_longer_virtual() {
+        let mock_ctx = mock_context();
+        let guard = mock_ctx.spec_read();
+        let wcii = Mock::new([1u64, 2, 3]);
+        let child = Mock::new([2u64]);
+        let mut it = Box::new(NotOptimized::new(wcii, child, 3, 1.0, NoTimeoutChecker));
+        let doc = it.read().expect("read failed").expect("expected doc");
+        assert_eq!(doc.doc_id, 1);
+        // Simulate a consumer swapping the sentinel for a real payload.
+        *doc = index_result::RSIndexResult::build_numeric(1.0).build();
+
+        let outcome = it
+            .suspend()
+            .resume(&guard)
+            .expect("resume must not surface an error");
+        assert!(
+            matches!(outcome, ResumeOutcome::Aborted),
+            "a non-virtual sentinel cannot be re-validated, so resume aborts",
+        );
+    }
+
+    /// A wildcard that resumes onto a document past `max_doc_id` is out of this
+    /// iterator's range, so the move carries no position — the same answer the
+    /// read loop, `skip_to` and `revalidate` all give when the wildcard steps
+    /// over the bound. Without the check the resumed iterator would publish that
+    /// out-of-range id as its current result.
+    #[test]
+    fn resume_wc_moved_past_max_doc_id_reports_no_position() {
+        let mock_ctx = mock_context();
+        let guard = mock_ctx.spec_read();
+        // The wildcard holds 1 and 50; `max_doc_id` is 10, so 50 is out of range.
+        let wcii = Mock::new([1u64, 50]);
+        wcii.data()
+            .set_revalidate_result(MockRevalidateResult::Move);
+        let child = Mock::new([100u64]); // never matches
+        let mut it = Box::new(NotOptimized::new(wcii, child, 10, 1.0, NoTimeoutChecker));
+
+        let doc = it.read().expect("read failed").expect("1 is in range");
+        assert_eq!(doc.doc_id, 1);
+
+        let mut active = match it.suspend().resume(&guard).expect("resume failed") {
+            ResumeOutcome::Moved(a) => a,
+            ResumeOutcome::Ok(_) => panic!("the wildcard moved, so the resume must report Moved"),
+            ResumeOutcome::Aborted => panic!("expected Moved, got Aborted"),
+        };
+        assert!(
+            active.at_eof(),
+            "50 is past max_doc_id, so there is nothing left in range",
+        );
+        assert!(active.current().is_none());
+        assert_eq!(
+            active.last_doc_id(),
+            1,
+            "the out-of-range id was never yielded, so it must not become the position",
+        );
+    }
+
+    /// A failing child resume leaves the child slot gone while the wildcard has
+    /// already been resumed into an owned local — the only shape in which
+    /// `FreeSuspendedShell` has to free the allocation with exactly one slot
+    /// live. A teardown that dropped a moved-from slot, or leaked the fields it
+    /// still owns, shows up here and only under miri.
+    #[test]
+    fn resume_propagates_child_error() {
+        let mock_ctx = mock_context();
+        let guard = mock_ctx.spec_read();
+        let wcii = Mock::new([1u64, 2, 3, 4, 5]);
+        let child = Mock::new([2u64, 4]);
+        child
+            .data()
+            .set_error_on_resume(Some(MockIteratorError::TimeoutError(None)));
+        let mut it = Box::new(NotOptimized::new(wcii, child, 5, 1.0, NoTimeoutChecker));
+
+        let doc = it.read().expect("read failed").expect("expected doc");
+        assert_eq!(doc.doc_id, 1);
+
+        assert!(
+            matches!(it.suspend().resume(&guard), Err(RQEIteratorError::TimedOut)),
+            "a child resume error must propagate out of NotOptimized::resume",
+        );
+    }
+
+    /// The mirror image: the wildcard fails first, so the child is still
+    /// suspended when the shell is torn down and has to be dropped in its
+    /// suspended form.
+    #[test]
+    fn resume_propagates_wildcard_error() {
+        let mock_ctx = mock_context();
+        let guard = mock_ctx.spec_read();
+        let wcii = Mock::new([1u64, 2, 3, 4, 5]);
+        wcii.data()
+            .set_error_on_resume(Some(MockIteratorError::TimeoutError(None)));
+        let child = Mock::new([2u64, 4]);
+        let mut it = Box::new(NotOptimized::new(wcii, child, 5, 1.0, NoTimeoutChecker));
+
+        let doc = it.read().expect("read failed").expect("expected doc");
+        assert_eq!(doc.doc_id, 1);
+
+        assert!(
+            matches!(it.suspend().resume(&guard), Err(RQEIteratorError::TimedOut)),
+            "a wildcard resume error must propagate out of NotOptimized::resume",
+        );
+    }
+
+    /// An aborting wildcard is the base going away, so the whole iterator aborts
+    /// — and, as in `revalidate`, that decision is taken before the child is
+    /// touched at all. It is also the abort path through `FreeSuspendedShell`,
+    /// which frees the allocation with both slots gone.
+    #[test]
+    fn resume_aborts_when_wildcard_aborts_without_touching_the_child() {
+        let mock_ctx = mock_context();
+        let guard = mock_ctx.spec_read();
+        let wcii = Mock::new([1u64, 2, 3, 4, 5]);
+        wcii.data()
+            .set_revalidate_result(MockRevalidateResult::Abort);
+        let child = Mock::new([2u64, 4]);
+        let child_data = child.data();
+        let mut it = Box::new(NotOptimized::new(wcii, child, 5, 1.0, NoTimeoutChecker));
+
+        let doc = it.read().expect("read failed").expect("expected doc");
+        assert_eq!(doc.doc_id, 1);
+
+        let outcome = it
+            .suspend()
+            .resume(&guard)
+            .expect("an aborting wildcard is not an error");
+        assert!(matches!(outcome, ResumeOutcome::Aborted));
+        assert_eq!(
+            child_data.revalidate_count(),
+            0,
+            "the wildcard abort must short-circuit before the child is driven, as in revalidate",
+        );
+    }
+
+    /// FFI profile printing reads the suspended form's position and estimate
+    /// without resuming it, so those accessors must report what the active form
+    /// held rather than a default or a sub-iterator's own view.
+    #[test]
+    fn suspended_accessors_report_the_pre_suspend_position_and_estimate() {
+        let mock_ctx = mock_context();
+        let guard = mock_ctx.spec_read();
+        let wcii = Mock::new([1u64, 2, 3, 4, 5]);
+        let child = Mock::new([2u64, 4]);
+        let mut it = Box::new(NotOptimized::new(wcii, child, 5, 1.0, NoTimeoutChecker));
+
+        let doc = it.read().expect("read failed").expect("expected doc");
+        assert_eq!(doc.doc_id, 1);
+        assert_eq!(it.last_doc_id(), 1);
+        assert_eq!(it.num_estimated(), 5);
+
+        let suspended = it.suspend();
+        assert_eq!(
+            RQESuspendedIterator::last_doc_id(&*suspended),
+            1,
+            "the suspended form keeps NOT's own cursor, not a sub-iterator's",
+        );
+        assert_eq!(
+            RQESuspendedIterator::num_estimated(&*suspended),
+            5,
+            "the estimate still comes from the wildcard base",
+        );
+
+        let mut active = match suspended.resume(&guard).expect("resume failed") {
+            ResumeOutcome::Ok(a) => a,
+            ResumeOutcome::Moved(_) => panic!("expected Ok, got Moved"),
+            ResumeOutcome::Aborted => panic!("expected Ok, got Aborted"),
+        };
+        assert_eq!(active.last_doc_id(), 1);
+        let doc = active.read().expect("read failed").expect("expected doc");
+        assert_eq!(doc.doc_id, 3);
+    }
+
+    /// The outcome shape the legacy and resume paths share, for the differential
+    /// tests below.
+    #[derive(Debug, PartialEq, Eq)]
+    enum Outcome {
+        Ok,
+        Moved,
+        Aborted,
+        Failed,
+    }
+
+    /// Read `it` to completion, collecting the doc ids it yields.
+    fn drain<'index>(it: &mut impl RQEIterator<'index>) -> Vec<DocId> {
+        let mut seen = Vec::new();
+        while let Some(doc) = it.read().expect("read failed") {
+            seen.push(doc.doc_id);
+        }
+        seen
+    }
+
+    /// Drive `build()` through the legacy `revalidate` and through
+    /// `suspend`/`resume`, and require both to agree on the outcome *and* on
+    /// everything read afterwards. `what` names the scenario in the failure.
+    fn assert_paths_agree<'index, W, I>(
+        what: &str,
+        guard: &index_spec::IndexSpecReadGuard<'index>,
+        build: impl Fn() -> Box<NotOptimized<'index, W, I, NoTimeoutChecker>>,
+    ) where
+        W: RQEIteratorBoxed<'index>,
+        I: RQEIteratorBoxed<'index>,
+    {
+        let mut legacy = build();
+        let legacy_outcome = match legacy.revalidate(guard) {
+            Ok(RQEValidateStatus::Ok) => Outcome::Ok,
+            Ok(RQEValidateStatus::Moved { .. }) => Outcome::Moved,
+            Ok(RQEValidateStatus::Aborted) => Outcome::Aborted,
+            Err(_) => Outcome::Failed,
+        };
+        // An aborted or failed iterator is dropped rather than used, so there is
+        // nothing left to read on either path.
+        let legacy_tail = match legacy_outcome {
+            Outcome::Ok | Outcome::Moved => drain(&mut *legacy),
+            Outcome::Aborted | Outcome::Failed => Vec::new(),
+        };
+
+        let (resumed_outcome, resumed_tail) = match build().suspend().resume(guard) {
+            Ok(ResumeOutcome::Ok(mut it)) => (Outcome::Ok, drain(&mut *it)),
+            Ok(ResumeOutcome::Moved(mut it)) => (Outcome::Moved, drain(&mut *it)),
+            Ok(ResumeOutcome::Aborted) => (Outcome::Aborted, Vec::new()),
+            Err(_) => (Outcome::Failed, Vec::new()),
+        };
+
+        assert_eq!(
+            legacy_outcome, resumed_outcome,
+            "{what}: the two paths disagree on the outcome",
+        );
+        assert_eq!(
+            legacy_tail, resumed_tail,
+            "{what}: the two paths disagree on what is read afterwards",
+        );
+    }
+
+    /// While the legacy `revalidate` and the new `resume` both exist they are two
+    /// spellings of one transition, and sibling iterators in this stack have
+    /// already drifted between them — a sub-iterator outcome absorbed on one path
+    /// and forwarded on the other, or a re-read done only once. Drive both over
+    /// every wildcard × child outcome pair, error outcomes included.
+    #[test]
+    fn revalidate_and_resume_agree_on_every_outcome_pair() {
+        let outcomes = [
+            MockRevalidateResult::Ok,
+            MockRevalidateResult::Move,
+            MockRevalidateResult::Abort,
+            MockRevalidateResult::TimedOut,
+        ];
+        for wc_outcome in outcomes {
+            for child_outcome in outcomes {
+                let mock_ctx = mock_context();
+                let guard = mock_ctx.spec_read();
+                // NOT sits on doc 1 with the child pulled ahead to 3, so a
+                // wildcard move lands on a document the child already holds —
+                // the shape that exercises the catch-up and the re-scan.
+                let build = || {
+                    let wcii = Mock::new([1u64, 3, 5, 7]);
+                    wcii.data().set_revalidate_result(wc_outcome);
+                    let child = Mock::new([3u64, 7]);
+                    child.data().set_revalidate_result(child_outcome);
+                    let mut it =
+                        Box::new(NotOptimized::new(wcii, child, 10, 1.0, NoTimeoutChecker));
+                    let doc = it.read().expect("read failed").expect("expected doc");
+                    assert_eq!(doc.doc_id, 1);
+                    it
+                };
+                assert_paths_agree(
+                    &format!("wildcard {wc_outcome:?}, child {child_outcome:?}"),
+                    &guard,
+                    build,
+                );
+            }
+        }
+    }
+
+    /// The two ways the post-move sync can fail. Both leave membership
+    /// undecided, and both used to be swallowed on the resume path while
+    /// `revalidate` propagated them — a `NOT` publishing a document it exists to
+    /// exclude, and an "exhausted" report a later read could contradict.
+    #[test]
+    fn revalidate_and_resume_agree_when_the_post_move_sync_fails() {
+        // The wildcard's move jumps to 50, leaving the child behind on 3, so the
+        // catch-up skip runs — and fails.
+        let mock_ctx = mock_context();
+        let guard = mock_ctx.spec_read();
+        assert_paths_agree("catch-up skip fails", &guard, || {
+            let wcii = Mock::new([1u64, 50]);
+            wcii.data()
+                .set_revalidate_result(MockRevalidateResult::Move);
+            // The child holds 50, so the membership that cannot be decided is one
+            // whose true answer is "present".
+            let child = Mock::new([3u64, 50]);
+            child
+                .data()
+                .set_error_on_skip_to(Some(MockIteratorError::TimeoutError(None)));
+            let mut it = Box::new(NotOptimized::new(wcii, child, 100, 1.0, NoTimeoutChecker));
+            let doc = it.read().expect("read failed").expect("expected doc");
+            assert_eq!(doc.doc_id, 1);
+            it
+        });
+
+        // The wildcard's move lands *on* the child's position, so the scan for the
+        // next valid result runs — and reads the child past its end, where the
+        // failure is injected.
+        let mock_ctx = mock_context();
+        let guard = mock_ctx.spec_read();
+        assert_paths_agree("re-scan fails", &guard, || {
+            let wcii = Mock::new([1u64, 5, 10]);
+            wcii.data()
+                .set_revalidate_result(MockRevalidateResult::Move);
+            let child = Mock::new([5u64]);
+            child
+                .data()
+                .set_error_at_done(Some(MockIteratorError::TimeoutError(None)));
+            let mut it = Box::new(NotOptimized::new(wcii, child, 100, 1.0, NoTimeoutChecker));
+            let doc = it.read().expect("read failed").expect("expected doc");
+            assert_eq!(doc.doc_id, 1);
+            it
+        });
+    }
 }
 
 /// `skip_to` bounds its *target* against `max_doc_id`, but the wildcard can land
