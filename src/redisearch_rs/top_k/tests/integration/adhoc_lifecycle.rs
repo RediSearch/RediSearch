@@ -15,7 +15,6 @@
 use std::{marker::PhantomData, num::NonZeroUsize};
 
 use index_result::RSIndexResult;
-use index_spec::IndexSpecReadGuard;
 use rqe_core::DocId;
 use rqe_iterators::{IdList, RQEIterator, RQEIteratorError};
 use rqe_iterators_test_utils::ContractChecker;
@@ -177,13 +176,6 @@ impl<'index> RQEIterator<'index> for ErrOnSecondRead<'index> {
         _: DocId,
     ) -> Result<Option<rqe_iterators::SkipToOutcome<'_, 'index>>, RQEIteratorError> {
         unimplemented!()
-    }
-
-    fn revalidate(
-        &mut self,
-        _: &IndexSpecReadGuard,
-    ) -> Result<rqe_iterators::RQEValidateStatus<'_, 'index>, RQEIteratorError> {
-        Ok(rqe_iterators::RQEValidateStatus::Ok)
     }
 
     fn rewind(&mut self) {

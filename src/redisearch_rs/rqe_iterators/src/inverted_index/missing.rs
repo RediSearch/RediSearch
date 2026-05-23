@@ -26,7 +26,7 @@ use field::{FieldExpirationPredicate, FieldFilterContext, FieldMaskOrIndex};
 
 use crate::{
     ExpirationChecker, FieldExpirationChecker, IteratorType, RQEIterator, RQEIteratorBoxed,
-    RQEIteratorError, RQESuspendedIterator, RQEValidateStatus, ResumeOutcome, SkipToOutcome,
+    RQEIteratorError, RQESuspendedIterator, ResumeOutcome, SkipToOutcome,
     profile_print::{ProfilePrint, ProfilePrintCtx},
 };
 
@@ -97,7 +97,7 @@ where
     /// The garbage collector may remove all documents from the
     /// missing-field inverted index or replace it with a new allocation.
     /// In both cases the reader's pointer is stale and the iterator
-    /// must [abort](RQEValidateStatus::Aborted).
+    /// must [abort](ResumeOutcome::Aborted).
     ///
     /// # Safety
     ///
@@ -252,21 +252,6 @@ where
     #[inline(always)]
     fn at_eof(&self) -> bool {
         self.it.at_eof()
-    }
-
-    #[inline(always)]
-    fn revalidate(
-        &mut self,
-        spec: &IndexSpecReadGuard,
-    ) -> Result<RQEValidateStatus<'_, 'index>, RQEIteratorError> {
-        // Conditions (field_index validity, missing.indexes, encoding
-        // match) are structural invariants guaranteed by the constructor's
-        // pre-conditions.
-        if self.should_abort(spec) {
-            return Ok(RQEValidateStatus::Aborted);
-        }
-
-        self.it.revalidate(spec)
     }
 
     #[inline(always)]

@@ -25,7 +25,7 @@ use rqe_core::{DocId, RS_FIELDMASK_ALL};
 
 use crate::{
     FieldExpirationChecker, IteratorType, RQEIterator, RQEIteratorBoxed, RQEIteratorError,
-    RQESuspendedIterator, RQEValidateStatus, ResumeOutcome, SkipToOutcome,
+    RQESuspendedIterator, ResumeOutcome, SkipToOutcome,
     expiration_checker::ExpirationChecker,
     profile_print::{ProfilePrint, ProfilePrintCtx},
 };
@@ -125,7 +125,7 @@ where
     /// The term's inverted index may have been garbage-collected and
     /// replaced with a new allocation. If the index pointer looked up via
     /// `spec.keysDict` no longer matches the reader's stored index, the
-    /// iterator must [abort](RQEValidateStatus::Aborted).
+    /// iterator must [abort](ResumeOutcome::Aborted).
     ///
     /// # Safety
     ///
@@ -223,18 +223,6 @@ where
     #[inline(always)]
     fn at_eof(&self) -> bool {
         self.it.at_eof()
-    }
-
-    #[inline(always)]
-    fn revalidate(
-        &mut self,
-        spec: &IndexSpecReadGuard,
-    ) -> Result<RQEValidateStatus<'_, 'index>, RQEIteratorError> {
-        if self.should_abort(spec) {
-            return Ok(RQEValidateStatus::Aborted);
-        }
-
-        self.it.revalidate(spec)
     }
 
     #[inline(always)]
@@ -436,8 +424,7 @@ unsafe impl ResumableReader for RawTermIndexReader<Suspended> {
 /// # Safety
 ///
 /// 1. `idx` must be a valid, non-null pointer to a term [`InvertedIndex`],
-///    remaining valid — and stable between [`revalidate`](RQEIterator::revalidate)
-///    calls — for `'index`. (Revalidation detects a GC replacement by comparing
+///    remaining valid — and stable between suspend/resume cycles — for `'index`. (Revalidation detects a GC replacement by comparing
 ///    the index pointer looked up via `Redis_OpenInvertedIndex`.)
 /// 2. `sctx` and `sctx.spec` must be valid and remain valid for `'index`.
 /// 3. `term` is a heap-allocated [`RSQueryTerm`] whose ownership is transferred
