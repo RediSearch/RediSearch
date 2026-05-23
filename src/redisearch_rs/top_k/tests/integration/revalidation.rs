@@ -16,219 +16,15 @@ use index_result::{RSIndexResult, RSOffsetSlice, RSQueryTerm};
 use index_spec::IndexSpecReadGuard;
 use rqe_core::DocId;
 use rqe_iterators::{
-    IdList, RQEIterator, RQEIteratorBoxed, RQEIteratorError, RQESuspendedIterator,
-    RQEValidateStatus, ResumeOutcome, SkipToOutcome, TypeErasedRQEIterator,
+    IdList, RQEIterator, RQEIteratorBoxed, RQEIteratorError, RQESuspendedIterator, ResumeOutcome,
+    SkipToOutcome, TypeErasedRQEIterator,
 };
-use rqe_iterators_test_utils::{ContractChecker, ResumeOutcomeExt, revalidate_via_resume};
+use rqe_iterators_test_utils::{ResumeOutcomeExt, revalidate_via_resume};
 use top_k::{Ascending, BatchStrategy, TopKIterator, TopKMode, mock::MockScoreSource};
-
-/// Child iterator whose `revalidate` unconditionally returns `Aborted`.
-///
-/// The `Ok` delegation path is covered by [`rqe_iterators::Empty`], which
-/// already returns `Ok` from `revalidate`.  This stub only exists for the
-/// case that cannot be expressed with any existing public iterator type.
-struct AbortOnRevalidate;
-
-impl<'index> RQEIterator<'index> for AbortOnRevalidate {
-    fn current(&mut self) -> Option<&mut RSIndexResult<'index>> {
-        None
-    }
-
-    fn read(
-        &mut self,
-    ) -> Result<Option<&mut RSIndexResult<'index>>, rqe_iterators::RQEIteratorError> {
-        Ok(None)
-    }
-
-    fn skip_to(
-        &mut self,
-        _doc_id: DocId,
-    ) -> Result<Option<rqe_iterators::SkipToOutcome<'_, 'index>>, rqe_iterators::RQEIteratorError>
-    {
-        unimplemented!()
-    }
-
-    fn revalidate(
-        &mut self,
-        _spec: &IndexSpecReadGuard,
-    ) -> Result<RQEValidateStatus<'_, 'index>, rqe_iterators::RQEIteratorError> {
-        Ok(RQEValidateStatus::Aborted)
-    }
-
-    fn rewind(&mut self) {}
-
-    fn num_estimated(&self) -> usize {
-        0
-    }
-
-    fn last_doc_id(&self) -> DocId {
-        0
-    }
-
-    fn at_eof(&self) -> bool {
-        true
-    }
-
-    fn type_(&self) -> rqe_iterator_type::IteratorType {
-        rqe_iterator_type::IteratorType::Mock
-    }
-
-    fn intersection_sort_weight(&self, _: bool) -> f64 {
-        1.0
-    }
-}
-
-/// Child iterator whose `revalidate` reports `Moved` to a new current document.
-///
-/// Used to verify the parent collapses a moved child to `Ok` rather than
-/// surfacing the child's reposition as its own.
-struct MovedOnRevalidate<'index> {
-    current: RSIndexResult<'index>,
-    /// Set once [`RQEIterator::read`] reported depletion, after which
-    /// [`RQEIterator::current`] no longer advertises a position.
-    at_eos: bool,
-}
-
-impl<'index> MovedOnRevalidate<'index> {
-    fn new() -> Self {
-        Self {
-            current: RSIndexResult::build_virt().doc_id(7).build(),
-            at_eos: false,
-        }
-    }
-}
-
-impl<'index> RQEIterator<'index> for MovedOnRevalidate<'index> {
-    fn current(&mut self) -> Option<&mut RSIndexResult<'index>> {
-        // Sits on the document its `revalidate` reports as the moved-to position.
-        if self.at_eos {
-            return None;
-        }
-        Some(&mut self.current)
-    }
-
-    fn read(
-        &mut self,
-    ) -> Result<Option<&mut RSIndexResult<'index>>, rqe_iterators::RQEIteratorError> {
-        self.at_eos = true;
-        Ok(None)
-    }
-
-    fn skip_to(
-        &mut self,
-        _doc_id: DocId,
-    ) -> Result<Option<rqe_iterators::SkipToOutcome<'_, 'index>>, rqe_iterators::RQEIteratorError>
-    {
-        unimplemented!()
-    }
-
-    fn revalidate(
-        &mut self,
-        _spec: &IndexSpecReadGuard,
-    ) -> Result<RQEValidateStatus<'_, 'index>, rqe_iterators::RQEIteratorError> {
-        Ok(RQEValidateStatus::Moved {
-            current: Some(&mut self.current),
-        })
-    }
-
-    fn rewind(&mut self) {}
-
-    fn num_estimated(&self) -> usize {
-        0
-    }
-
-    fn last_doc_id(&self) -> DocId {
-        7
-    }
-
-    fn at_eof(&self) -> bool {
-        // The next `read` does report depletion, even while `current` still
-        // reports a position.
-        true
-    }
-
-    fn type_(&self) -> rqe_iterator_type::IteratorType {
-        rqe_iterator_type::IteratorType::Mock
-    }
-
-    fn intersection_sort_weight(&self, _: bool) -> f64 {
-        1.0
-    }
-}
-
-#[test]
-fn without_child_returns_ok() {
-    let mock_ctx = rqe_iterators_test_utils::MockContext::new(0, 0);
-    let source = MockScoreSource::new(vec![vec![(1, 1.0)]], vec![], |_, _| BatchStrategy::Continue);
-    let mut it = ContractChecker::new_unordered(TopKIterator::new_unfiltered(
-        source,
-        NonZeroUsize::new(5).unwrap(),
-        Ascending,
-    ));
-    // Collect first: revalidating before that aborts (invariant 4).
-    it.read().unwrap();
-    let status = it.revalidate(&mock_ctx.spec_read()).unwrap();
-    assert_eq!(status, RQEValidateStatus::Ok);
-}
-
-#[test]
-fn with_child_delegates_ok() {
-    // rqe_iterators::Empty::revalidate returns Ok, so it is the natural stand-in
-    // for any child iterator that leaves the parent in a valid state.
-    let mock_ctx = rqe_iterators_test_utils::MockContext::new(0, 0);
-    let source = MockScoreSource::new(vec![vec![(1, 1.0)]], vec![], |_, _| BatchStrategy::Continue);
-    let child: Box<dyn RQEIterator<'_>> = Box::new(rqe_iterators::Empty::default());
-    let mut it = ContractChecker::new_unordered(TopKIterator::new(
-        source,
-        child,
-        NonZeroUsize::new(5).unwrap(),
-        Ascending,
-    ));
-    // Collect first: revalidating before that aborts (invariant 4).
-    it.read().unwrap();
-    let status = it.revalidate(&mock_ctx.spec_read()).unwrap();
-    assert_eq!(status, RQEValidateStatus::Ok);
-}
-
-#[test]
-fn with_child_delegates_aborted() {
-    let mock_ctx = rqe_iterators_test_utils::MockContext::new(0, 0);
-    let source = MockScoreSource::new(vec![vec![(1, 1.0)]], vec![], |_, _| BatchStrategy::Continue);
-    let child: Box<dyn RQEIterator<'_>> = Box::new(AbortOnRevalidate);
-    let mut it = ContractChecker::new_unordered(TopKIterator::new(
-        source,
-        child,
-        NonZeroUsize::new(5).unwrap(),
-        Ascending,
-    ));
-    // Collect first: revalidating before that aborts (invariant 4).
-    it.read().unwrap();
-    let status = it.revalidate(&mock_ctx.spec_read()).unwrap();
-    assert_eq!(status, RQEValidateStatus::Aborted);
-}
-
-#[test]
-fn moved_child_collapses_to_ok() {
-    // We yield from our own score-ordered buffer, so a child that repositions
-    // does not move our cursor: the parent must report Ok, not Moved.
-    let mock_ctx = rqe_iterators_test_utils::MockContext::new(0, 0);
-    let source = MockScoreSource::new(vec![vec![(1, 1.0)]], vec![], |_, _| BatchStrategy::Continue);
-    let child: Box<dyn RQEIterator<'_>> = Box::new(MovedOnRevalidate::new());
-    let mut it = ContractChecker::new_unordered(TopKIterator::new(
-        source,
-        child,
-        NonZeroUsize::new(5).unwrap(),
-        Ascending,
-    ));
-    // Collect first: revalidating before that aborts (invariant 4).
-    it.read().unwrap();
-    let status = it.revalidate(&mock_ctx.spec_read()).unwrap();
-    assert_eq!(status, RQEValidateStatus::Ok);
-}
 
 // ── suspend / resume ──────────────────────────────────────────────────────────
 
-/// Which outcome [`SteerableChild`] reports from `revalidate` and `resume`.
+/// Which outcome [`SteerableChild`] reports from `resume`.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum ChildOutcome {
     Ok,
@@ -237,12 +33,10 @@ enum ChildOutcome {
     Failed,
 }
 
-/// Child iterator over a fixed doc-id list whose `revalidate` *and* `resume`
-/// both report a caller-chosen [`ChildOutcome`].
+/// Child iterator over a fixed doc-id list whose `resume` reports a
+/// caller-chosen [`ChildOutcome`].
 ///
-/// The public iterators cover neither `Aborted` nor `Failed` on the resume path,
-/// and driving both paths from the *same* knob is what makes the differential
-/// test below meaningful.
+/// The public iterators cover neither `Aborted` nor `Failed` on the resume path.
 struct SteerableChild<'index> {
     docs: Vec<DocId>,
     /// Index of the next doc to yield.
@@ -320,20 +114,6 @@ impl<'index> RQEIterator<'index> for SteerableChild<'index> {
         } else {
             SkipToOutcome::NotFound(found)
         }))
-    }
-
-    fn revalidate(
-        &mut self,
-        _spec: &IndexSpecReadGuard,
-    ) -> Result<RQEValidateStatus<'_, 'index>, RQEIteratorError> {
-        match self.outcome {
-            ChildOutcome::Ok => Ok(RQEValidateStatus::Ok),
-            ChildOutcome::Moved => Ok(RQEValidateStatus::Moved {
-                current: self.current(),
-            }),
-            ChildOutcome::Aborted => Ok(RQEValidateStatus::Aborted),
-            ChildOutcome::Failed => Err(RQEIteratorError::TimedOut),
-        }
     }
 
     fn rewind(&mut self) {
@@ -617,73 +397,6 @@ fn resume_propagates_a_child_error() {
     ));
 }
 
-/// The legacy `revalidate` and the new `resume` must stay behaviourally
-/// identical while both exist: same outcome for the same child outcome, and the
-/// same results read afterwards.
-#[test]
-fn revalidate_and_resume_agree_on_every_child_outcome() {
-    /// The outcome shape the two paths share.
-    #[derive(Debug, PartialEq, Eq)]
-    enum Outcome {
-        Ok,
-        Moved,
-        Aborted,
-        Failed,
-    }
-
-    for child_outcome in [
-        ChildOutcome::Ok,
-        ChildOutcome::Moved,
-        ChildOutcome::Aborted,
-        ChildOutcome::Failed,
-    ] {
-        // Both paths start from the same state: two of the four collected
-        // results already handed out.
-        let build = || {
-            let mut it = Box::new(TopKIterator::new(
-                source_over(&[1, 2, 3, 4]),
-                SteerableChild::new([1, 2, 3, 4], child_outcome),
-                NonZeroUsize::new(4).unwrap(),
-                Ascending,
-            ));
-            assert_eq!(it.read().unwrap().expect("expected doc").doc_id, 1);
-            assert_eq!(it.read().unwrap().expect("expected doc").doc_id, 2);
-            it
-        };
-
-        let mock_ctx = rqe_iterators_test_utils::MockContext::new(0, 0);
-        let guard = mock_ctx.spec_read();
-
-        let mut legacy = build();
-        let legacy_outcome = match legacy.revalidate(&guard) {
-            Ok(RQEValidateStatus::Ok) => Outcome::Ok,
-            Ok(RQEValidateStatus::Moved { .. }) => Outcome::Moved,
-            Ok(RQEValidateStatus::Aborted) => Outcome::Aborted,
-            Err(_) => Outcome::Failed,
-        };
-        let legacy_tail = match legacy_outcome {
-            Outcome::Ok | Outcome::Moved => drain(&mut *legacy),
-            Outcome::Aborted | Outcome::Failed => Vec::new(),
-        };
-
-        let (resumed_outcome, resumed_tail) = match build().suspend().resume(&guard) {
-            Ok(ResumeOutcome::Ok(mut it)) => (Outcome::Ok, drain(&mut *it)),
-            Ok(ResumeOutcome::Moved(mut it)) => (Outcome::Moved, drain(&mut *it)),
-            Ok(ResumeOutcome::Aborted) => (Outcome::Aborted, Vec::new()),
-            Err(_) => (Outcome::Failed, Vec::new()),
-        };
-
-        assert_eq!(
-            legacy_outcome, resumed_outcome,
-            "child {child_outcome:?}: the two paths disagree on the outcome",
-        );
-        assert_eq!(
-            legacy_tail, resumed_tail,
-            "child {child_outcome:?}: the two paths disagree on what is read afterwards",
-        );
-    }
-}
-
 /// A parked record borrows its query term from the leaf that produced it, and
 /// the child's resume may drop that leaf without reporting a move (a union
 /// discards an aborted child and can still settle on the same document). The
@@ -766,22 +479,6 @@ fn suspended_estimate_is_capped_by_the_child() {
     assert_eq!(RQESuspendedIterator::num_estimated(&*suspended), 2);
 }
 
-/// Collecting after a lock release would read the source's stale view of the
-/// index, so the legacy path aborts before the first read just as `resume`
-/// does.
-#[test]
-fn revalidate_before_the_first_read_aborts() {
-    let mock_ctx = rqe_iterators_test_utils::MockContext::new(0, 0);
-    let mut it = TopKIterator::new(
-        source_over(&[1, 2]),
-        IdList::<true>::new(vec![1, 2]),
-        NonZeroUsize::new(2).unwrap(),
-        Ascending,
-    );
-    let status = it.revalidate(&mock_ctx.spec_read()).unwrap();
-    assert_eq!(status, RQEValidateStatus::Aborted);
-}
-
 /// A rewind after crossing a lock release would start a collection over the
 /// source's stale view of the index, so the next read reports EOF instead.
 #[test]
@@ -804,28 +501,6 @@ fn rewind_after_resume_reports_eof() {
     active.rewind();
     assert!(active.read().unwrap().is_none());
     assert!(active.at_eof());
-}
-
-/// The legacy path crosses the same lock release, so it marks the source stale
-/// too.
-#[test]
-fn rewind_after_revalidate_reports_eof() {
-    let mock_ctx = rqe_iterators_test_utils::MockContext::new(0, 0);
-    let mut it = TopKIterator::new(
-        source_over(&[1, 2]),
-        IdList::<true>::new(vec![1, 2]),
-        NonZeroUsize::new(2).unwrap(),
-        Ascending,
-    );
-    assert_eq!(it.read().unwrap().expect("expected doc").doc_id, 1);
-    assert_eq!(
-        it.revalidate(&mock_ctx.spec_read()).unwrap(),
-        RQEValidateStatus::Ok
-    );
-
-    it.rewind();
-    assert!(it.read().unwrap().is_none());
-    assert!(it.at_eof());
 }
 
 /// A rewind without any lock release in between still re-collects.
@@ -885,7 +560,7 @@ fn resume_keeps_a_top_k_whose_source_builds_its_own_results() {
 }
 
 /// A source whose collection survives a lock release lets a top-k that has not
-/// collected yet through both boundaries, and collect afterwards.
+/// collected yet through a resume, and collect afterwards.
 #[test]
 fn source_that_survives_a_lock_release_collects_afterwards() {
     let mock_ctx = rqe_iterators_test_utils::MockContext::new(0, 0);
@@ -898,10 +573,6 @@ fn source_that_survives_a_lock_release_collects_afterwards() {
             Ascending,
         )
     };
-
-    let mut legacy = build();
-    assert_eq!(legacy.revalidate(&guard).unwrap(), RQEValidateStatus::Ok);
-    assert_eq!(drain(&mut legacy), vec![1, 2]);
 
     let mut resumed = revalidate_via_resume(TypeErasedRQEIterator::new(Box::new(build())), &guard)
         .expect("resume failed")

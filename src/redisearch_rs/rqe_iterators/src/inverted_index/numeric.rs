@@ -11,7 +11,7 @@ use std::{f64, ptr::NonNull};
 
 use crate::{
     FieldExpirationChecker, IteratorType, RQEIterator, RQEIteratorBoxed, RQEIteratorError,
-    RQESuspendedIterator, RQEValidateStatus, ResumeOutcome, SkipToOutcome,
+    RQESuspendedIterator, ResumeOutcome, SkipToOutcome,
     c2rust::CRQEIterator,
     expiration_checker::{ExpirationChecker, NoOpChecker},
     profile_print::{ProfilePrint, ProfilePrintCtx, format_g},
@@ -93,7 +93,7 @@ impl<'query, Rf: Ref, R, E, RA> RawNumeric<'query, Rf, R, E, RA> {
     /// modified by GC (a node split or removal). The iterator's cached
     /// `revision_id` snapshot is compared against the current value; if
     /// they differ, the cursor is invalidated and the iterator must
-    /// [abort](RQEValidateStatus::Aborted).
+    /// [abort](ResumeOutcome::Aborted).
     ///
     /// Reads only the range tree's `NonNull` pointer and `revision_id` (owned by
     /// the spec, stable under the read lock); it materializes no `&'a`
@@ -298,18 +298,6 @@ where
     #[inline(always)]
     fn at_eof(&self) -> bool {
         self.it.at_eof()
-    }
-
-    #[inline(always)]
-    fn revalidate(
-        &mut self,
-        spec: &IndexSpecReadGuard,
-    ) -> Result<RQEValidateStatus<'_, 'index>, RQEIteratorError> {
-        if self.should_abort() {
-            return Ok(RQEValidateStatus::Aborted);
-        }
-
-        self.it.revalidate(spec)
     }
 
     #[inline(always)]
@@ -699,18 +687,6 @@ impl<'index> RQEIterator<'index> for NumericIteratorVariant<'index> {
             Self::Unfiltered(iter) => iter.at_eof(),
             Self::Filtered(iter) => iter.at_eof(),
             Self::Geo(iter) => iter.at_eof(),
-        }
-    }
-
-    #[inline(always)]
-    fn revalidate(
-        &mut self,
-        spec: &IndexSpecReadGuard,
-    ) -> Result<RQEValidateStatus<'_, 'index>, RQEIteratorError> {
-        match self {
-            Self::Unfiltered(iter) => iter.revalidate(spec),
-            Self::Filtered(iter) => iter.revalidate(spec),
-            Self::Geo(iter) => iter.revalidate(spec),
         }
     }
 
