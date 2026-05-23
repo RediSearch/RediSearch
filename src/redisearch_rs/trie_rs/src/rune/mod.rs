@@ -21,7 +21,7 @@
 //   └───────────┴───────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────┘
 
 use itertools::Itertools;
-use wildcard::WildcardPattern;
+use rqe_wildcard::WildcardPattern;
 
 use crate::{
     TrieMap,
