@@ -33,8 +33,8 @@ typedef struct Cursor {
 
   /**
    * Request sync context for the query parked on this cursor.
-   * The cursor owns this pointer while parked, except during the temporary
-   * Step 0 blocked-query bridge where `query->blockedNodeOwns` is true.
+   * The cursor owns this pointer while parked. During an in-flight initial
+   * WITHCURSOR cycle, Redis owns it through the blocked client.
    */
   RequestSyncCtx *query;
 

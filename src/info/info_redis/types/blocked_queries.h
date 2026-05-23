@@ -8,46 +8,13 @@
 */
 #pragma once
 
-#include <pthread.h>
-
 #include "util/dllist.h"
-#include "util/references.h"
-#include "query.h"
 
 #ifdef __cplusplus
 extern "C" {
 #endif
 
-// Callback to free privdata when BlockedQueryNode is destroyed
-typedef void (*BlockedQueryNode_FreePrivData)(void *privdata);
-
-/**
- * @brief Represents all the active queries.
- *
- * This structure is used to store information about an active query, including
- * the query itself, and a strong reference to the `IndexSpec`
- * associated with the query. Since we use the StrongRef, we know that we can
- * safely access the `IndexSpec` upon crashing.
- */
-typedef struct {
-  DLLIST_node llnode; // Node in the doubly-linked list
-  StrongRef spec;     // IndexSpec strong ref
-  time_t start;       // Time node was added into list
-  char *query;        // The query
-  void *privdata;     // Non-owning. Must remain valid until UnblockClient is called.
-  BlockedQueryNode_FreePrivData freePrivData; // Optional callback to free privdata
-} BlockedQueryNode;
-
-typedef struct {
-  DLLIST_node llnode; // Node in the doubly-linked list
-  StrongRef spec;     // IndexSpec strong ref
-  uint64_t cursorId;  // cursor id
-  size_t count;       // cursor count
-  time_t start;       // Time node was added into list
-  char *query;        // The query that created the cursor
-  void *privdata;     // Non-owning. Must remain valid until UnblockClient is called.
-  BlockedQueryNode_FreePrivData freePrivData; // Optional callback to free privdata
-} BlockedCursorNode;
+struct RequestSyncCtx;
 
 /**
  * @brief Represents a list of active queries.
@@ -76,12 +43,9 @@ BlockedQueries* BlockedQueries_Init();
  */
 void BlockedQueries_Free(BlockedQueries*);
 
-BlockedQueryNode* BlockedQueries_AddQuery(BlockedQueries* list, StrongRef spec, QueryAST* ast,
-                                          void *privdata, BlockedQueryNode_FreePrivData freePrivData);
-BlockedCursorNode* BlockedQueries_AddCursor(BlockedQueries* list, WeakRef spec, uint64_t cursorId, QueryAST* ast, size_t count,
-                                            void *privdata, BlockedQueryNode_FreePrivData freePrivData);
-void BlockedQueries_RemoveQuery(BlockedQueryNode* node);
-void BlockedQueries_RemoveCursor(BlockedCursorNode* node);
+void BlockedQueries_LinkQuery(BlockedQueries *list, struct RequestSyncCtx *rsc);
+void BlockedQueries_LinkCursor(BlockedQueries *list, struct RequestSyncCtx *rsc);
+void BlockedQueries_Unlink(struct RequestSyncCtx *rsc);
 
 #ifdef __cplusplus
 }

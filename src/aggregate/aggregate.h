@@ -24,8 +24,10 @@
 #include "slot_ranges.h"
 #include "profile/profile.h"
 #include "rs_wall_clock.h"
+#include "util/dllist.h"
 
 #include "rmutil/rm_assert.h"
+#include <time.h>
 
 #ifdef __cplusplus
 #include <atomic>
@@ -204,8 +206,11 @@ typedef struct RequestSyncCtx {
   ChunkReplyState storedReplyState;
   RedisModuleBlockedClient *bc;
   RedisModuleCmdFunc replyCallback;
-  void *blockedNode;
+  DLLIST_node blockedNode;
   RequestCycleKind cycleKind;
+  time_t cycleStart;
+  uint64_t cycleCursorId;
+  size_t cycleCursorCount;
 
   /* Partial-timeout coordination. The CAS claim grants exclusive ownership of
    * the result-production phase: the BG-thread winner runs AggregateResults
@@ -241,8 +246,10 @@ static inline void RequestSyncCtx_Init(RequestSyncCtx *ctx, RequestKind kind, vo
   ctx->storedReplyState.err = QueryError_Default();
   ctx->bc = NULL;
   ctx->replyCallback = NULL;
-  ctx->blockedNode = NULL;
   ctx->cycleKind = REQUEST_CYCLE_NONE;
+  ctx->cycleStart = 0;
+  ctx->cycleCursorId = 0;
+  ctx->cycleCursorCount = 0;
   ctx->requiresAggregateResultsSync = false;
   ctx->aggregatingResults = false;
   ctx->aggregateResultsDone = false;
@@ -257,8 +264,8 @@ RequestSyncCtx *RequestSyncCtx_NewHybrid(HybridRequest *hreq);
 void RequestSyncCtx_Free(RequestSyncCtx *ctx);
 void AREQ_FreeFromRequestSyncCtx(AREQ *req);
 void RSC_BeginCycle(RequestSyncCtx *ctx, RedisModuleBlockedClient *bc,
-                    RedisModuleCmdFunc replyCallback, void *blockedNode,
-                    RequestCycleKind cycleKind);
+                    RedisModuleCmdFunc replyCallback, RequestCycleKind cycleKind,
+                    uint64_t cursorId, size_t cursorCount);
 void RSC_EndCycle(RequestSyncCtx *ctx);
 void RequestSyncCtx_OnFree(RedisModuleCtx *ctx, void *privdata);
 AREQ *RequestSyncCtx_GetAREQ(RequestSyncCtx *ctx);

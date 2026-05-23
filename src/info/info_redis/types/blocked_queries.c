@@ -7,10 +7,35 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 #include "info/info_redis/types/blocked_queries.h"
+#include "aggregate/aggregate.h"
+#include "hybrid/hybrid_request.h"
 #include "rmutil/rm_assert.h"
 #include "redismodule.h"
-#include "rmutil/rm_assert.h"
 #include <inttypes.h>
+
+static RedisSearchCtx *RSC_GetSearchCtx(RequestSyncCtx *rsc) {
+  if (rsc->kind == REQUEST_KIND_AREQ) {
+    AREQ *req = RequestSyncCtx_GetAREQ(rsc);
+    return req ? AREQ_SearchCtx(req) : NULL;
+  }
+  HybridRequest *hreq = RequestSyncCtx_GetHybridRequest(rsc);
+  return hreq ? hreq->sctx : NULL;
+}
+
+static const char *RSC_GetQueryString(RequestSyncCtx *rsc) {
+  AREQ *req = rsc->cycleKind == REQUEST_CYCLE_CURSOR
+      ? RequestSyncCtx_GetCursorAREQ(rsc, rsc->cycleCursorId)
+      : RequestSyncCtx_GetAREQ(rsc);
+  if (req) {
+    return req->query;
+  }
+
+  HybridRequest *hreq = RequestSyncCtx_GetHybridRequest(rsc);
+  if (hreq && hreq->nrequests > 0) {
+    return hreq->requests[0]->query;
+  }
+  return NULL;
+}
 
 BlockedQueries *BlockedQueries_Init() {
   BlockedQueries* blockedQueries = rm_calloc(1, sizeof(BlockedQueries));
@@ -22,12 +47,14 @@ BlockedQueries *BlockedQueries_Init() {
 static size_t PrintActiveQueries(BlockedQueries *blockedQueries) {
   size_t count = 0;
   DLLIST_FOREACH(node, &blockedQueries->queries) {
-    BlockedQueryNode *at = DLLIST_ITEM(node, BlockedQueryNode, llnode);
-    IndexSpec *sp = StrongRef_Get(at->spec);
+    RequestSyncCtx *rsc = DLLIST_ITEM(node, RequestSyncCtx, blockedNode);
+    RedisSearchCtx *sctx = RSC_GetSearchCtx(rsc);
+    IndexSpec *sp = sctx ? sctx->spec : NULL;
     ++count; // increment regardless if sp is valid, the fact we have a valid node is problematic
-    const char *indexName = sp ? IndexSpec_FormatName(sp, RSGlobalConfig.hideUserDataFromLog) : "n/a";
-    const char *query = at->query && !RSGlobalConfig.hideUserDataFromLog ? at->query : "n/a";
-    RedisModule_Log(NULL, "warning", "Active query on index %s, query: %s, started at %ld", indexName, query, at->start);
+    const char *indexName = sp ? IndexSpec_FormatName(sp, RSGlobalConfig.hideUserDataFromLog) : "<DELETED>";
+    const char *query = RSC_GetQueryString(rsc);
+    query = query && !RSGlobalConfig.hideUserDataFromLog ? query : "n/a";
+    RedisModule_Log(NULL, "warning", "Active query on index %s, query: %s, started at %ld", indexName, query, rsc->cycleStart);
   }
   return count;
 }
@@ -35,12 +62,14 @@ static size_t PrintActiveQueries(BlockedQueries *blockedQueries) {
 static size_t PrintActiveCursors(BlockedQueries *blockedQueries) {
   size_t count = 0;
   DLLIST_FOREACH(node, &blockedQueries->cursors) {
-    BlockedCursorNode *at = DLLIST_ITEM(node, BlockedCursorNode, llnode);
-    IndexSpec *sp = StrongRef_Get(at->spec);
+    RequestSyncCtx *rsc = DLLIST_ITEM(node, RequestSyncCtx, blockedNode);
+    RedisSearchCtx *sctx = RSC_GetSearchCtx(rsc);
+    IndexSpec *sp = sctx ? sctx->spec : NULL;
     ++count; // increment regardless if sp is valid, the fact we have a valid node is problematic
-    const char *indexName = sp ? IndexSpec_FormatName(sp, RSGlobalConfig.hideUserDataFromLog) : "n/a";
-    const char *query = at->query && !RSGlobalConfig.hideUserDataFromLog ? at->query : "n/a";
-    RedisModule_Log(NULL, "warning", "Active cursor %" PRIu64 ", on index %s, query: %s, started at %ld", at->cursorId, indexName, query, at->start);
+    const char *indexName = sp ? IndexSpec_FormatName(sp, RSGlobalConfig.hideUserDataFromLog) : "<DELETED>";
+    const char *query = RSC_GetQueryString(rsc);
+    query = query && !RSGlobalConfig.hideUserDataFromLog ? query : "n/a";
+    RedisModule_Log(NULL, "warning", "Active cursor %" PRIu64 ", on index %s, query: %s, started at %ld", rsc->cycleCursorId, indexName, query, rsc->cycleStart);
   }
   return count;
 }
@@ -54,52 +83,14 @@ void BlockedQueries_Free(BlockedQueries *blockedQueries) {
   rm_free(blockedQueries);
 }
 
-BlockedQueryNode* BlockedQueries_AddQuery(BlockedQueries* blockedQueries, StrongRef spec, QueryAST* ast,
-                                          void *privdata, BlockedQueryNode_FreePrivData freePrivData) {
-  BlockedQueryNode* blockedQueryNode = rm_calloc(1, sizeof(BlockedQueryNode));
-  blockedQueryNode->spec = StrongRef_Clone(spec);
-  blockedQueryNode->start = time(NULL);
-  blockedQueryNode->query = QAST_DumpExplain(ast, StrongRef_Get(spec));
-  blockedQueryNode->privdata = privdata;
-  blockedQueryNode->freePrivData = freePrivData;
-  dllist_prepend(&blockedQueries->queries, &blockedQueryNode->llnode);
-  return blockedQueryNode;
+void BlockedQueries_LinkQuery(BlockedQueries *blockedQueries, RequestSyncCtx *rsc) {
+  dllist_prepend(&blockedQueries->queries, &rsc->blockedNode);
 }
 
-BlockedCursorNode* BlockedQueries_AddCursor(BlockedQueries* blockedQueries, WeakRef spec, uint64_t cursorId, QueryAST* ast, size_t count,
-                                            void *privdata, BlockedQueryNode_FreePrivData freePrivData) {
-  BlockedCursorNode* blockedCursorNode = rm_calloc(1, sizeof(BlockedCursorNode));
-  if (spec.rm) {
-    // we don't want cursors to block index deletion, so we don't take a strong ref
-    // not entirely sure we clean cursors on index drop, so better be safe than sorry
-    blockedCursorNode->spec = WeakRef_Promote(spec);
-    IndexSpec *sp = StrongRef_Get(blockedCursorNode->spec);
-    if (sp) {
-      blockedCursorNode->query = QAST_DumpExplain(ast, sp);
-    }
-  }
-  blockedCursorNode->cursorId = cursorId;
-  blockedCursorNode->count = count;
-  blockedCursorNode->start = time(NULL);
-  blockedCursorNode->privdata = privdata;
-  blockedCursorNode->freePrivData = freePrivData;
-  dllist_prepend(&blockedQueries->cursors, &blockedCursorNode->llnode);
-  return blockedCursorNode;
+void BlockedQueries_LinkCursor(BlockedQueries *blockedQueries, RequestSyncCtx *rsc) {
+  dllist_prepend(&blockedQueries->cursors, &rsc->blockedNode);
 }
 
-void BlockedQueries_RemoveQuery(BlockedQueryNode* blockedQueryNode) {
-  // Main thread manages the lifetime of specs, so spec must be valid
-  StrongRef_Release(blockedQueryNode->spec);
-  if (blockedQueryNode->query) {
-    rm_free(blockedQueryNode->query);
-  }
-  dllist_delete(&blockedQueryNode->llnode);
-}
-
-void BlockedQueries_RemoveCursor(BlockedCursorNode* blockedCursorNode) {
-  StrongRef_Release(blockedCursorNode->spec);
-  if (blockedCursorNode->query) {
-    rm_free(blockedCursorNode->query);
-  }
-  dllist_delete(&blockedCursorNode->llnode);
+void BlockedQueries_Unlink(RequestSyncCtx *rsc) {
+  dllist_delete(&rsc->blockedNode);
 }

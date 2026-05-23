@@ -67,12 +67,14 @@ void RequestSyncCtx_Free(RequestSyncCtx *ctx) {
 }
 
 void RSC_BeginCycle(RequestSyncCtx *ctx, RedisModuleBlockedClient *bc,
-                    RedisModuleCmdFunc replyCallback, void *blockedNode,
-                    RequestCycleKind cycleKind) {
+                    RedisModuleCmdFunc replyCallback, RequestCycleKind cycleKind,
+                    uint64_t cursorId, size_t cursorCount) {
   ctx->bc = bc;
   ctx->replyCallback = replyCallback;
-  ctx->blockedNode = blockedNode;
   ctx->cycleKind = cycleKind;
+  ctx->cycleStart = time(NULL);
+  ctx->cycleCursorId = cursorId;
+  ctx->cycleCursorCount = cursorCount;
   ctx->useReplyCallback = replyCallback != NULL;
   ctx->blockedNodeOwns = cycleKind == REQUEST_CYCLE_QUERY;
 }
@@ -82,22 +84,16 @@ void RSC_EndCycle(RequestSyncCtx *ctx) {
     return;
   }
 
-  if (ctx->blockedNode) {
-    if (ctx->cycleKind == REQUEST_CYCLE_CURSOR) {
-      BlockedCursorNode *node = ctx->blockedNode;
-      BlockedQueries_RemoveCursor(node);
-      rm_free(node);
-    } else {
-      BlockedQueryNode *node = ctx->blockedNode;
-      BlockedQueries_RemoveQuery(node);
-      rm_free(node);
-    }
+  if (ctx->cycleKind != REQUEST_CYCLE_NONE) {
+    BlockedQueries_Unlink(ctx);
   }
 
   ctx->bc = NULL;
   ctx->replyCallback = NULL;
-  ctx->blockedNode = NULL;
   ctx->cycleKind = REQUEST_CYCLE_NONE;
+  ctx->cycleStart = 0;
+  ctx->cycleCursorId = 0;
+  ctx->cycleCursorCount = 0;
   ctx->useReplyCallback = false;
 }
 

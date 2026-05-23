@@ -20,6 +20,7 @@
 #include "info/info_redis/threads/main_thread.h"
 #include "search_disk.h"
 #include "spec.h"
+#include "hybrid/hybrid_request.h"
 
 /* ========================== PROTOTYPES ============================ */
 // Fields statistics
@@ -432,6 +433,15 @@ void AddToInfo_CurrentThread(RedisModuleInfoCtx *ctx) {
   }
 }
 
+static RedisSearchCtx *RSC_GetSearchCtx(RequestSyncCtx *rsc) {
+  if (rsc->kind == REQUEST_KIND_AREQ) {
+    AREQ *req = RequestSyncCtx_GetAREQ(rsc);
+    return req ? AREQ_SearchCtx(req) : NULL;
+  }
+  HybridRequest *hreq = RequestSyncCtx_GetHybridRequest(rsc);
+  return hreq ? hreq->sctx : NULL;
+}
+
 static void AddQueriesToInfo(RedisModuleInfoCtx *ctx, BlockedQueries* activeQueries) {
   if (!activeQueries) {
     // we are not the main thread, simply return
@@ -439,14 +449,14 @@ static void AddQueriesToInfo(RedisModuleInfoCtx *ctx, BlockedQueries* activeQuer
   }
   // Assumes no other thread is currently accessing the active-threads container
   DLLIST_FOREACH(node, &(activeQueries->queries)) {
-    BlockedQueryNode *at = DLLIST_ITEM(node, BlockedQueryNode, llnode);
-    IndexSpec *sp = StrongRef_Get(at->spec);
-    // we have a strong ref so having a null pointer is not likely but would prefer not to crash in the signal handler
+    RequestSyncCtx *rsc = DLLIST_ITEM(node, RequestSyncCtx, blockedNode);
+    RedisSearchCtx *sctx = RSC_GetSearchCtx(rsc);
+    IndexSpec *sp = sctx ? sctx->spec : NULL;
     if (!sp) {
       continue;
     }
     RedisModule_InfoBeginDictField(ctx, IndexSpec_FormatName(sp, RSGlobalConfig.hideUserDataFromLog));
-    RedisModule_InfoAddFieldULongLong(ctx, "started_at", (unsigned long long)at->start);
+    RedisModule_InfoAddFieldULongLong(ctx, "started_at", (unsigned long long)rsc->cycleStart);
     RedisModule_InfoEndDictField(ctx);
   }
 }
@@ -457,13 +467,14 @@ static void AddCursorsToInfo(RedisModuleInfoCtx *ctx, BlockedQueries* activeQuer
     return;
   }
   DLLIST_FOREACH(node, &(activeQueries->cursors)) {
-    BlockedCursorNode *at = DLLIST_ITEM(node, BlockedCursorNode, llnode);
-    IndexSpec *spec = StrongRef_Get(at->spec);
+    RequestSyncCtx *rsc = DLLIST_ITEM(node, RequestSyncCtx, blockedNode);
+    RedisSearchCtx *sctx = RSC_GetSearchCtx(rsc);
+    IndexSpec *spec = sctx ? sctx->spec : NULL;
     char buffer[21]; // 20 is the max length of a uint64_t
-    snprintf(buffer, sizeof(buffer), "%" PRIu64, at->cursorId);
+    snprintf(buffer, sizeof(buffer), "%" PRIu64, rsc->cycleCursorId);
     RedisModule_InfoBeginDictField(ctx, buffer);
-    RedisModule_InfoAddFieldCString(ctx, "index", spec ? IndexSpec_FormatName(spec, RSGlobalConfig.hideUserDataFromLog) : "n/a");
-    RedisModule_InfoAddFieldULongLong(ctx, "started_at", at->start);
+    RedisModule_InfoAddFieldCString(ctx, "index", spec ? IndexSpec_FormatName(spec, RSGlobalConfig.hideUserDataFromLog) : "<DELETED>");
+    RedisModule_InfoAddFieldULongLong(ctx, "started_at", rsc->cycleStart);
     RedisModule_InfoEndDictField(ctx);
   }
 }

@@ -1689,7 +1689,7 @@ static int QueryReplyCallback(RedisModuleCtx *ctx, RedisModuleString **argv, int
 }
 
 // Shard FT.CURSOR READ FAIL-path timeout callback. Mirrors
-// QueryTimeoutFailCallback but uses a different privdata type (BlockedCursorNode).
+// QueryTimeoutFailCallback for cursor-read cycles.
 // Can be consolidated with QueryTimeoutFailCallback - See MOD-15038.
 static int CursorReadTimeoutFailCallback(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
   UNUSED(argv);
@@ -1715,7 +1715,7 @@ static int CursorReadTimeoutFailCallback(RedisModuleCtx *ctx, RedisModuleString 
 }
 
 // Shard FT.CURSOR READ FAIL-path reply callback.
-// Mirrors QueryReplyCallbackbut uses a different privdata type (BlockedCursorNode).
+// Mirrors QueryReplyCallback but handles cursor-read cycles.
 // Not invoked if the timeout fired first.
 // Cycle cleanup runs from RequestSyncCtx_OnFree after this callback.
 // Can be consolidated with QueryReplyCallback - See MOD-15038.
