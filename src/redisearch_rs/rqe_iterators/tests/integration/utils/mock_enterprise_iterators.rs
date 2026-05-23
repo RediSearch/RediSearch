@@ -15,7 +15,7 @@
 //! without requiring the actual enterprise implementation.
 
 use rqe_iterators::{
-    RQEIterator, SEARCH_ENTERPRISE_ITERATORS, SearchEnterpriseIterators, wildcard::Wildcard,
+    BoxedRQEIterator, SEARCH_ENTERPRISE_ITERATORS, SearchEnterpriseIterators, wildcard::Wildcard,
 };
 
 /// The `top_id` used by the wildcard returned from
@@ -39,8 +39,11 @@ impl SearchEnterpriseIterators for MockEnterpriseIterators {
         &self,
         _index: &'index mut ffi::RedisSearchDiskIndexSpec,
         weight: f64,
-    ) -> Result<Box<dyn RQEIterator<'index> + 'index>, Box<dyn std::error::Error>> {
-        Ok(Box::new(Wildcard::new(MOCK_DISK_WILDCARD_TOP_ID, weight)))
+    ) -> Result<BoxedRQEIterator<'index>, Box<dyn std::error::Error>> {
+        Ok(BoxedRQEIterator::new(Box::new(Wildcard::new(
+            MOCK_DISK_WILDCARD_TOP_ID,
+            weight,
+        ))))
     }
 
     fn new_term_on_disk_with_offsets<'index>(
@@ -49,7 +52,7 @@ impl SearchEnterpriseIterators for MockEnterpriseIterators {
         _query_term: Box<query_term::RSQueryTerm>,
         _field_mask: inverted_index::t_fieldMask,
         _weight: f64,
-    ) -> Result<Box<dyn RQEIterator<'index> + 'index>, Box<dyn std::error::Error>> {
+    ) -> Result<BoxedRQEIterator<'index>, Box<dyn std::error::Error>> {
         unimplemented!(
             "MockEnterpriseIterators::new_term_on_disk_with_offsets not used in these tests"
         )
@@ -61,7 +64,7 @@ impl SearchEnterpriseIterators for MockEnterpriseIterators {
         _query_term: Box<query_term::RSQueryTerm>,
         _field_mask: inverted_index::t_fieldMask,
         _weight: f64,
-    ) -> Result<Box<dyn RQEIterator<'index> + 'index>, Box<dyn std::error::Error>> {
+    ) -> Result<BoxedRQEIterator<'index>, Box<dyn std::error::Error>> {
         unimplemented!(
             "MockEnterpriseIterators::new_term_on_disk_without_offsets not used in these tests"
         )
@@ -73,7 +76,7 @@ impl SearchEnterpriseIterators for MockEnterpriseIterators {
         _token: &ffi::RSToken,
         _field_index: ffi::t_fieldIndex,
         _weight: f64,
-    ) -> Result<Box<dyn RQEIterator<'index> + 'index>, Box<dyn std::error::Error>> {
+    ) -> Result<BoxedRQEIterator<'index>, Box<dyn std::error::Error>> {
         unimplemented!("MockEnterpriseIterators::new_tag_on_disk not used in these tests")
     }
 }
