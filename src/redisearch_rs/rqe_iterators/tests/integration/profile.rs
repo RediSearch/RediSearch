@@ -154,24 +154,6 @@ fn profile_rewind() {
     assert_eq!(profile.counters().read, 3); // counter keeps incrementing
 }
 
-#[test]
-fn profile_revalidate() {
-    let mock_ctx = rqe_iterators_test_utils::MockContext::new(0, 0);
-    let child = Wildcard::new(10, 1.0);
-    let mut profile = Profile::new(child);
-
-    let _ = profile.read(); // doc 1
-    let _ = profile.read(); // doc 2
-
-    // Revalidate (Wildcard returns OK)
-    let status = profile.revalidate(&*mock_ctx.spec_read());
-    assert!(status.is_ok());
-
-    // Verify delegation still works
-    assert_eq!(profile.last_doc_id(), 2);
-    assert_eq!(profile.current().unwrap().doc_id, 2);
-}
-
 // ── ProfileCounters::num_reading_operations tests ───────────────────────
 
 #[test]

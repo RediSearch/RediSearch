@@ -16,7 +16,7 @@ use rqe_core::DocId;
 use crate::utils::DocIdMinHeap;
 use crate::{
     IteratorType, RQEIterator, RQEIteratorBoxed, RQEIteratorError, RQESuspendedIterator,
-    RQEValidateStatus, ResumeOutcome, SkipToOutcome,
+    ResumeOutcome, SkipToOutcome,
 };
 use index_spec::IndexSpecReadGuard;
 
@@ -129,17 +129,6 @@ where
     pub fn into_trimmed(self, limit: usize, asc: bool) -> Option<super::UnionTrimmed<'index, I>> {
         (self.children.len() >= 3).then(|| super::UnionTrimmed::new(self.children, limit, asc))
     }
-    /// Rebuilds the heap from scratch based on current child positions.
-    /// Used after revalidation when children may have moved arbitrarily.
-    fn rebuild_heap(&mut self) {
-        self.heap.clear();
-        for (idx, child) in self.children.iter().enumerate() {
-            if !child.at_eof() {
-                self.heap.push(child.last_doc_id(), idx);
-            }
-        }
-    }
-
     /// Advances children at the heap root whose `last_doc_id` equals `current_id`.
     fn advance_matching_children(&mut self, current_id: DocId) -> Result<(), RQEIteratorError> {
         if self.heap.is_empty() {
@@ -432,68 +421,6 @@ where
     #[inline(always)]
     fn at_eof(&self) -> bool {
         self.is_eof
-    }
-
-    fn revalidate(
-        &mut self,
-        spec: &IndexSpecReadGuard,
-    ) -> Result<RQEValidateStatus<'_, 'index>, RQEIteratorError> {
-        if self.is_eof {
-            return Ok(RQEValidateStatus::Ok);
-        }
-
-        let original_last_doc_id = self.last_doc_id();
-        let mut any_change = false;
-
-        // Index-based iteration: swap_remove may reorder elements.
-        let mut i = 0;
-        while i < self.children.len() {
-            match self.children[i].revalidate(spec)? {
-                RQEValidateStatus::Aborted => {
-                    self.children.swap_remove(i);
-                    any_change = true;
-                }
-                RQEValidateStatus::Moved { .. } => {
-                    any_change = true;
-                    i += 1;
-                }
-                RQEValidateStatus::Ok => {
-                    i += 1;
-                }
-            }
-        }
-
-        if self.children.is_empty() {
-            self.is_eof = true;
-            self.num_active = 0;
-            return Ok(RQEValidateStatus::Aborted);
-        }
-
-        if !any_change {
-            return Ok(RQEValidateStatus::Ok);
-        }
-
-        self.rebuild_heap();
-        self.num_active = self.heap.len();
-
-        let Some(min) = self.heap.peek() else {
-            self.is_eof = true;
-            return Ok(RQEValidateStatus::Moved { current: None });
-        };
-
-        if QUICK_EXIT {
-            self.quick_set_from_child(min.child_idx);
-        } else {
-            self.build_aggregate_result(min.doc_id);
-        }
-
-        if self.last_doc_id() != original_last_doc_id {
-            Ok(RQEValidateStatus::Moved {
-                current: Some(&mut self.result),
-            })
-        } else {
-            Ok(RQEValidateStatus::Ok)
-        }
     }
 
     #[inline(always)]

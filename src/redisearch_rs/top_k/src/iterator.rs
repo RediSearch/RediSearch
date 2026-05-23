@@ -17,8 +17,8 @@ use ref_mode::{Active, Ref, Suspended};
 use rqe_core::DocId;
 use rqe_iterator_type::IteratorType;
 use rqe_iterators::{
-    RQEIterator, RQEIteratorBoxed, RQEIteratorError, RQESuspendedIterator, RQEValidateStatus,
-    ResumeOutcome, SkipToOutcome,
+    RQEIterator, RQEIteratorBoxed, RQEIteratorError, RQESuspendedIterator, ResumeOutcome,
+    SkipToOutcome,
 };
 
 use crate::{
@@ -469,22 +469,6 @@ where
         // score, not by doc_id.  It cannot be used as a child in a larger
         // iterator tree, so skip_to is unsupported.
         unimplemented!("TopKIterator is a root-only iterator; skip_to is not supported")
-    }
-
-    #[inline(always)]
-    fn revalidate(
-        &mut self,
-        spec: &IndexSpecReadGuard,
-    ) -> Result<RQEValidateStatus<'_, 'index>, RQEIteratorError> {
-        // Only a child abort aborts us. Results come from our own score-ordered
-        // buffer, so a moved child does not move our cursor: collapse it to Ok.
-        if let Some(child) = &mut self.child {
-            match child.revalidate(spec)? {
-                RQEValidateStatus::Aborted => return Ok(RQEValidateStatus::Aborted),
-                RQEValidateStatus::Ok | RQEValidateStatus::Moved { .. } => {}
-            }
-        }
-        Ok(RQEValidateStatus::Ok)
     }
 
     #[inline(always)]

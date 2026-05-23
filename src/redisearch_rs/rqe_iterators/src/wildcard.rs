@@ -13,7 +13,6 @@ use std::ptr::NonNull;
 
 use ffi::t_docId;
 use index_result::{RSIndexResult, RawIndexResult};
-use index_spec::IndexSpecReadGuard;
 use inverted_index::codec::{doc_ids_only::DocIdsOnly, raw_doc_ids_only::RawDocIdsOnly};
 use inverted_index::{DocIdsDecoder, opaque};
 use ref_mode::{Active, Ref, Suspended};
@@ -21,11 +20,12 @@ use ref_mode::{Active, Ref, Suspended};
 use rqe_core::{DocId, RS_FIELDMASK_ALL};
 
 use crate::{
-    Empty, RQEIterator, RQEIteratorBoxed, RQEIteratorError, RQESuspendedIterator,
-    RQEValidateStatus, ResumeOutcome, SEARCH_ENTERPRISE_ITERATORS, SkipToOutcome,
+    Empty, RQEIterator, RQEIteratorBoxed, RQEIteratorError, RQESuspendedIterator, ResumeOutcome,
+    SEARCH_ENTERPRISE_ITERATORS, SkipToOutcome,
     profile_print::{ProfilePrint, ProfilePrintCtx},
 };
 use crate::{IteratorType, QueryError};
+use index_spec::IndexSpecReadGuard;
 
 /// An iterator that yields all ids within a given range, from 1 to max id
 /// (inclusive) in an index.
@@ -109,13 +109,6 @@ impl<'index> RQEIterator<'index> for Wildcard<'index> {
 
     fn at_eof(&self) -> bool {
         self.result.doc_id >= self.top_id
-    }
-
-    fn revalidate(
-        &mut self,
-        _spec: &IndexSpecReadGuard,
-    ) -> Result<RQEValidateStatus<'_, 'index>, RQEIteratorError> {
-        Ok(RQEValidateStatus::Ok)
     }
 
     #[inline(always)]
@@ -231,8 +224,7 @@ macro_rules! delegate_rqe_iterator {
     ($self:ident, $method:ident $(, $arg:ident)*) => {
         match $self {
             Self::DocIdsOnly(it) => it.$method($($arg),*),
-            Self::RawDocIdsOnly(it) => it.$method($($arg),*),
-        }
+            Self::RawDocIdsOnly(it) => it.$method($($arg),*)}
     };
 }
 
@@ -267,13 +259,6 @@ impl<'index> RQEIterator<'index> for OptimizedWildcard<'index> {
 
     fn at_eof(&self) -> bool {
         delegate_rqe_iterator!(self, at_eof)
-    }
-
-    fn revalidate(
-        &mut self,
-        spec: &IndexSpecReadGuard,
-    ) -> Result<RQEValidateStatus<'_, 'index>, RQEIteratorError> {
-        delegate_rqe_iterator!(self, revalidate, spec)
     }
 
     #[inline(always)]
@@ -393,18 +378,20 @@ impl<'query> RQESuspendedIterator<'query> for OptimizedWildcardSuspended<'query>
         // SAFETY: layout-compatible — see `suspend`.
         let mut active = unsafe { Box::from_raw(raw as *mut OptimizedWildcard<'a>) };
 
-        let moved = match outcome {
+        let status = match outcome {
             OptimizedResumeOutcome::Abort => unreachable!("aborted above"),
-            OptimizedResumeOutcome::Ok => false,
-            OptimizedResumeOutcome::NeedsReseek { last_doc_id } => {
-                let status = match &mut *active {
-                    OptimizedWildcard::DocIdsOnly(w) => w.reseek_after_refresh(last_doc_id),
-                    OptimizedWildcard::RawDocIdsOnly(w) => w.reseek_after_refresh(last_doc_id),
-                };
-                status == ffi::ValidateStatus_VALIDATE_MOVED
-            }
+            OptimizedResumeOutcome::Ok => ffi::ValidateStatus_VALIDATE_OK,
+            OptimizedResumeOutcome::NeedsReseek { last_doc_id } => match &mut *active {
+                OptimizedWildcard::DocIdsOnly(w) => w.reseek_after_refresh(last_doc_id),
+                OptimizedWildcard::RawDocIdsOnly(w) => w.reseek_after_refresh(last_doc_id),
+            },
         };
-        Ok(if moved {
+        // A decode error during the re-seek yields `VALIDATE_ABORTED`: the block
+        // is corrupted, so drop the iterator rather than expose a bogus current.
+        Ok(if status == ffi::ValidateStatus_VALIDATE_ABORTED {
+            drop(active);
+            ResumeOutcome::Aborted
+        } else if status == ffi::ValidateStatus_VALIDATE_MOVED {
             ResumeOutcome::Moved(active)
         } else {
             ResumeOutcome::Ok(active)
@@ -435,8 +422,7 @@ macro_rules! delegate_wildcard_iterator {
             Self::NotOptimized(it) => it.$method($($arg),*),
             Self::Optimized(it) => it.$method($($arg),*),
             Self::Empty(it) => it.$method($($arg),*),
-            Self::Disk(it) => it.$method($($arg),*),
-        }
+            Self::Disk(it) => it.$method($($arg),*)}
     };
 }
 
@@ -485,13 +471,6 @@ impl<'index> RQEIterator<'index> for NewWildcardIterator<'index> {
 
     fn at_eof(&self) -> bool {
         delegate_wildcard_iterator!(self, at_eof)
-    }
-
-    fn revalidate(
-        &mut self,
-        spec: &IndexSpecReadGuard,
-    ) -> Result<RQEValidateStatus<'_, 'index>, RQEIteratorError> {
-        delegate_wildcard_iterator!(self, revalidate, spec)
     }
 
     #[inline(always)]
@@ -818,13 +797,6 @@ impl<'index> RQEIterator<'index> for DiskWildcardIterator<'index> {
         doc_id: t_docId,
     ) -> Result<Option<SkipToOutcome<'_, 'index>>, RQEIteratorError> {
         self.0.skip_to(doc_id)
-    }
-
-    fn revalidate(
-        &mut self,
-        spec: &IndexSpecReadGuard,
-    ) -> Result<RQEValidateStatus<'_, 'index>, RQEIteratorError> {
-        self.0.revalidate(spec)
     }
 
     fn rewind(&mut self) {

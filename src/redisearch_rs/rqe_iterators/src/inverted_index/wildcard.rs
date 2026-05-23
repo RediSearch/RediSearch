@@ -7,7 +7,10 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 
-use ffi::{ValidateStatus, ValidateStatus_VALIDATE_MOVED, ValidateStatus_VALIDATE_OK};
+use ffi::{
+    ValidateStatus, ValidateStatus_VALIDATE_ABORTED, ValidateStatus_VALIDATE_MOVED,
+    ValidateStatus_VALIDATE_OK,
+};
 use index_result::RSIndexResult;
 use index_spec::IndexSpecReadGuard;
 use inverted_index::{
@@ -19,7 +22,7 @@ use rqe_core::DocId;
 
 use crate::{
     IteratorType, RQEIterator, RQEIteratorBoxed, RQEIteratorError, RQESuspendedIterator,
-    RQEValidateStatus, ResumeOutcome, SkipToOutcome,
+    ResumeOutcome, SkipToOutcome,
     expiration_checker::NoOpChecker,
     profile_print::{ProfilePrint, ProfilePrintCtx},
 };
@@ -62,7 +65,7 @@ where
     /// The garbage collector may either null out `existingDocs` (after
     /// collecting all documents) or replace it with a new allocation. In
     /// both cases the reader's pointer is stale and the iterator must
-    /// [abort](RQEValidateStatus::Aborted).
+    /// abort.
     ///
     /// # Why mode-independent
     ///
@@ -191,20 +194,6 @@ where
     }
 
     #[inline(always)]
-    fn revalidate(
-        &mut self,
-        spec: &IndexSpecReadGuard,
-    ) -> Result<RQEValidateStatus<'_, 'index>, RQEIteratorError> {
-        // The existingDocs encoding match is a structural invariant: the
-        // encoding is determined at index creation and cannot change.
-        if self.should_abort(spec) {
-            return Ok(RQEValidateStatus::Aborted);
-        }
-
-        self.it.revalidate(spec)
-    }
-
-    #[inline(always)]
     fn type_(&self) -> IteratorType {
         IteratorType::InvIdxWildcard
     }
@@ -286,7 +275,10 @@ where
                 active.it.reseek_after_refresh(last_doc_id)
             }
         };
-        Ok(if status == ValidateStatus_VALIDATE_MOVED {
+        Ok(if status == ValidateStatus_VALIDATE_ABORTED {
+            drop(active);
+            ResumeOutcome::Aborted
+        } else if status == ValidateStatus_VALIDATE_MOVED {
             ResumeOutcome::Moved(active)
         } else {
             ResumeOutcome::Ok(active)

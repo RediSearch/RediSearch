@@ -276,17 +276,6 @@ fn current_none_after_exhaustion() {
 // revalidate()
 // =============================================================================
 
-/// `revalidate` panics.
-#[test]
-#[should_panic(expected = "revalidate is not supported on UnionTrimmed")]
-fn revalidate_panics() {
-    let (children, _data) = create_mock_3([1], [2], [3]);
-    let mut union = UnionTrimmed::new(children, usize::MAX, true);
-
-    let mock_ctx = rqe_iterators_test_utils::MockContext::new(0, 0);
-    let _ = union.revalidate(&*mock_ctx.spec_read());
-}
-
 // =============================================================================
 // type_()
 // =============================================================================
