@@ -913,3 +913,93 @@ impl ProfilePrint for NewWildcardIterator<'_> {
         }
     }
 }
+
+/// Suspended counterpart of [`DiskWildcardIterator`], used as its
+/// [`RQEIteratorBoxed::Suspended`] type.
+///
+/// Must wrap exactly the type [`DiskWildcardIterator`] aliases, trait and
+/// lifetime included, so that [`suspend`](RQEIteratorBoxed::suspend) is a pure
+/// newtype wrap of the same allocation.
+///
+/// The lifetime in particular is kept rather than erased to `'static`. The disk
+/// iterator is opaque: unlike every other suspended type in this crate, there is
+/// no `Rf` mode to weaken its index-derived state to raw pointers, so its borrow
+/// of the disk spec necessarily stays live for the whole suspend/resume cycle.
+/// That is exactly what `'query` denotes here (see [`RQESuspendedIterator`]) —
+/// borrows that survive the cycle rather than being re-derived from the guard on
+/// resume. Erasing it to `'static` would let safe code suspend an iterator, drop
+/// the disk spec it borrows, and then drop the suspended box, running the
+/// backend's destructor against dangling borrows.
+#[repr(transparent)]
+pub struct DiskWildcardSuspended<'query>(pub(crate) Box<dyn RQEIteratorPrintable<'query> + 'query>);
+
+impl<'index> RQEIteratorBoxed<'index> for DiskWildcardIterator<'index> {
+    type Suspended = DiskWildcardSuspended<'index>;
+
+    fn suspend(self: Box<Self>) -> Box<Self::Suspended> {
+        let raw = Box::into_raw(self);
+        // SAFETY: `DiskWildcardIterator<'index>` *is*
+        // `Box<dyn RQEIteratorPrintable<'index> + 'index>` (a type alias), and
+        // `DiskWildcardSuspended<'index>` is a `#[repr(transparent)]` newtype
+        // over that very type — same trait, same lifetime — so this is a
+        // newtype wrap rather than any reinterpretation of the value.
+        // `Box::from_raw` reuses the same heap allocation.
+        unsafe { Box::from_raw(raw as *mut DiskWildcardSuspended<'index>) }
+    }
+}
+
+impl<'query> RQESuspendedIterator<'query> for DiskWildcardSuspended<'query> {
+    type Resumed<'a>
+        = DiskWildcardIterator<'a>
+    where
+        'query: 'a;
+
+    fn resume<'a>(
+        self: Box<Self>,
+        spec: &IndexSpecReadGuard<'a>,
+    ) -> Result<ResumeOutcome<Box<Self::Resumed<'a>>>, RQEIteratorError>
+    where
+        'query: 'a,
+    {
+        let raw = Box::into_raw(self);
+        // SAFETY: unwraps the `#[repr(transparent)]` newtype and shortens the
+        // inner trait object's lifetime from `'query` to the caller's `'a`.
+        // The cast is needed because `'index` appears behind `&mut` in
+        // [`RQEIterator::current`]'s return type, making
+        // `dyn RQEIteratorPrintable<'index>` invariant, so variance alone does
+        // not justify the shortening. It is sound here because:
+        // - The box is moved by value: no alias typed at `'query` remains, and
+        //   nothing ever lengthens the result back (re-suspending yields
+        //   `DiskWildcardSuspended<'a>`). Data at `'a` written into the
+        //   iterator through `current` therefore never outlives `'a`.
+        // - The backend comes from
+        //   [`SearchEnterpriseIterators::new_wildcard_on_disk`], which is
+        //   generic over `'index`, so its concrete type cannot rely on being
+        //   used at one particular lifetime, `'query` included.
+        // - `'query: 'a`, so every borrow the backend holds outlives `'a`.
+        // `Box::from_raw` reuses the same heap allocation.
+        let mut active = unsafe { Box::from_raw(raw as *mut DiskWildcardIterator<'a>) };
+        // Drive validity recovery through the inner trait object's
+        // `revalidate` callback; propagate a revalidate error (e.g. timeout)
+        // rather than masking it.
+        Ok(match active.revalidate(spec)? {
+            RQEValidateStatus::Ok => ResumeOutcome::Ok(active),
+            RQEValidateStatus::Moved { .. } => ResumeOutcome::Moved(active),
+            // `active` is not moved into the outcome, so the inner trait object
+            // drops here.
+            RQEValidateStatus::Aborted => ResumeOutcome::Aborted,
+        })
+    }
+
+    fn last_doc_id(&self) -> DocId {
+        // Called with the index spec lock released; safe only because
+        // `SearchEnterpriseIterators::new_wildcard_on_disk` requires the backend
+        // to answer from cached state.
+        RQEIterator::last_doc_id(&*self.0)
+    }
+
+    fn num_estimated(&self) -> usize {
+        // See `last_doc_id`.
+        RQEIterator::num_estimated(&*self.0)
+    }
+}
