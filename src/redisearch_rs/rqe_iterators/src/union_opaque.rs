@@ -31,7 +31,7 @@ use rqe_core::DocId;
 
 use crate::{
     IteratorType, RQEIterator, RQEIteratorBoxed, RQEIteratorError, RQESuspendedIterator,
-    RQEValidateStatus, ResumeOutcome, SkipToOutcome, UnionFullFlat,
+    ResumeOutcome, SkipToOutcome, UnionFullFlat,
     c2rust::CRQEIterator,
     interop::RQEIteratorWrapper,
     profile_print::{ProfilePrint, ProfilePrintCtx},
@@ -39,7 +39,6 @@ use crate::{
     union_heap::RawUnionHeap,
     union_trimmed::RawUnionTrimmed,
 };
-
 use index_spec::IndexSpecReadGuard;
 
 /// Enum holding all possible union iterator variants, parameterised over a
@@ -93,8 +92,7 @@ macro_rules! delegate_variant_ref {
             UnionVariant::FlatQuick(it) => it.$method($($arg),*),
             UnionVariant::HeapFull(it) => it.$method($($arg),*),
             UnionVariant::HeapQuick(it) => it.$method($($arg),*),
-            UnionVariant::Trimmed(it) => it.$method($($arg),*),
-        }
+            UnionVariant::Trimmed(it) => it.$method($($arg),*)}
     };
 }
 
@@ -106,8 +104,7 @@ macro_rules! delegate_variant_ref_mut {
             UnionVariant::FlatQuick(it) => it.$method($($arg),*),
             UnionVariant::HeapFull(it) => it.$method($($arg),*),
             UnionVariant::HeapQuick(it) => it.$method($($arg),*),
-            UnionVariant::Trimmed(it) => it.$method($($arg),*),
-        }
+            UnionVariant::Trimmed(it) => it.$method($($arg),*)}
     };
 }
 
@@ -211,14 +208,6 @@ impl<'index, I: RQEIterator<'index>> RQEIterator<'index> for UnionOpaque<'index,
         doc_id: DocId,
     ) -> Result<Option<SkipToOutcome<'_, 'index>>, RQEIteratorError> {
         delegate_variant_ref_mut!(self, skip_to, doc_id)
-    }
-
-    #[inline(always)]
-    fn revalidate(
-        &mut self,
-        spec: &IndexSpecReadGuard,
-    ) -> Result<RQEValidateStatus<'_, 'index>, RQEIteratorError> {
-        delegate_variant_ref_mut!(self, revalidate, spec)
     }
 
     #[inline(always)]

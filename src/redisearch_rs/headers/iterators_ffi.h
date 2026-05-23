@@ -779,7 +779,7 @@ double NumericInvIndIterator_GetProfileRangeMax(const QueryIterator *it);
  *
  * 1. `idx` must be a valid pointer to a [`DocIdsOnly`] or [`RawDocIdsOnly`]
  *    [`InvertedIndex`](ffi::InvertedIndex) and cannot be NULL.
- * 2. `idx` must remain valid between [`revalidate()`](rqe_iterators::RQEIterator::revalidate) calls, since the revalidation
+ * 2. `idx` must remain valid between revalidation calls, since the revalidation
  *    mechanism detects when the index has been replaced via [`TagIndex`](ffi::TagIndex) `TrieMap` lookup.
  * 3. `tag_idx` must be a valid pointer to a [`TagIndex`](ffi::TagIndex) and cannot be NULL.
  * 4. `tag_idx` and `tag_idx.values` must remain valid for the lifetime of the returned

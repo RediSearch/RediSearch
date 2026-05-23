@@ -9,7 +9,10 @@
 
 use std::ptr::NonNull;
 
-use ffi::{RedisSearchCtx, ValidateStatus_VALIDATE_MOVED, ValidateStatus_VALIDATE_OK};
+use ffi::{
+    RedisSearchCtx, ValidateStatus_VALIDATE_ABORTED, ValidateStatus_VALIDATE_MOVED,
+    ValidateStatus_VALIDATE_OK,
+};
 use index_result::{RSIndexResult, RSOffsetSlice};
 use index_spec::IndexSpecReadGuard;
 use inverted_index::{
@@ -21,7 +24,7 @@ use rqe_core::{DocId, RS_FIELDMASK_ALL};
 
 use crate::{
     IteratorType, RQEIterator, RQEIteratorBoxed, RQEIteratorError, RQESuspendedIterator,
-    RQEValidateStatus, ResumeOutcome, SkipToOutcome,
+    ResumeOutcome, SkipToOutcome,
     expiration_checker::ExpirationChecker,
     profile_print::{ProfilePrint, ProfilePrintCtx},
 };
@@ -61,7 +64,7 @@ impl<'query, Rf: Ref, R: PointsToOpaqueIndex, E> RawTerm<'query, Rf, R, E> {
     /// The term's inverted index may have been garbage-collected and
     /// replaced with a new allocation. If the index pointer looked up via
     /// `spec.keysDict` no longer matches the reader's stored index, the
-    /// iterator must [abort](RQEValidateStatus::Aborted).
+    /// iterator must abort.
     ///
     /// # Why mode-independent
     ///
@@ -191,7 +194,7 @@ impl<'index, Enc: inverted_index::DecodedBy, E>
 {
     /// Swap the underlying inverted index of the reader.
     ///
-    /// Used by tests to trigger [revalidation](RQEIterator::revalidate).
+    /// Used by tests to trigger revalidation.
     pub const fn swap_index(&mut self, index: &mut &'index inverted_index::InvertedIndex<Enc>) {
         self.it.reader.swap_index(index);
     }
@@ -238,18 +241,6 @@ where
     #[inline(always)]
     fn at_eof(&self) -> bool {
         self.it.at_eof()
-    }
-
-    #[inline(always)]
-    fn revalidate(
-        &mut self,
-        spec: &IndexSpecReadGuard,
-    ) -> Result<RQEValidateStatus<'_, 'index>, RQEIteratorError> {
-        if self.should_abort(spec) {
-            return Ok(RQEValidateStatus::Aborted);
-        }
-
-        self.it.revalidate(spec)
     }
 
     #[inline(always)]
@@ -347,7 +338,10 @@ where
                 active.it.reseek_after_refresh(last_doc_id)
             }
         };
-        Ok(if status == ValidateStatus_VALIDATE_MOVED {
+        Ok(if status == ValidateStatus_VALIDATE_ABORTED {
+            drop(active);
+            ResumeOutcome::Aborted
+        } else if status == ValidateStatus_VALIDATE_MOVED {
             ResumeOutcome::Moved(active)
         } else {
             ResumeOutcome::Ok(active)

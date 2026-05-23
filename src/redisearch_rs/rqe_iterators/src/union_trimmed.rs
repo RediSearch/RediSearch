@@ -51,7 +51,7 @@ use rqe_core::DocId;
 
 use crate::{
     IteratorType, RQEIterator, RQEIteratorBoxed, RQEIteratorError, RQESuspendedIterator,
-    RQEValidateStatus, ResumeOutcome, SkipToOutcome,
+    ResumeOutcome, SkipToOutcome,
 };
 use index_spec::IndexSpecReadGuard;
 
@@ -72,7 +72,7 @@ use index_spec::IndexSpecReadGuard;
 /// - [`skip_to`](RQEIterator::skip_to): children are drained sequentially
 ///   (not in doc-id order), so skipping to a specific doc-id has no
 ///   meaningful semantics.
-/// - [`revalidate`](RQEIterator::revalidate): trimmed unions run in a
+/// - `revalidate`: trimmed unions run in a
 ///   single, short-lived read path that does not interleave with GC cycles,
 ///   so revalidation should never be needed.
 ///
@@ -281,28 +281,6 @@ where
     }
 
     #[inline(always)]
-    fn revalidate(
-        &mut self,
-        _spec: &IndexSpecReadGuard,
-    ) -> Result<RQEValidateStatus<'_, 'index>, RQEIteratorError> {
-        // Revalidation is unreachable for trimmed unions in practice:
-        //
-        // `TrimUnionIterator` is only called for `Q_OPT_PARTIAL_RANGE`, which
-        // requires SORTBY on a numeric field. SORTBY always inserts an
-        // `RPSorter` into the result-processor pipeline, and `RPSorter` is an
-        // accumulator — it drains *all* upstream results (via `rpQueryItNext`)
-        // before emitting any rows. That drain happens entirely within the
-        // first `sendChunk` call while the spec read-lock is held
-        // (`sctx->lock_state != SPEC_LOCK_UNSET`), so `handleSpecLockAndRevalidate`
-        // short-circuits and never calls `Revalidate`. Subsequent cursor reads
-        // only pull from the sorter's buffer; `rpQueryItNext` is not called
-        // again.
-        unreachable!(
-            "revalidate is not supported on UnionTrimmed — trimmed unions are not subject to GC"
-        );
-    }
-
-    #[inline(always)]
     fn rewind(&mut self) {
         self.result.reset_aggregate();
         self.is_eof = false;
@@ -387,7 +365,7 @@ where
         // pipeline drains every upstream result inside a single locked
         // `sendChunk` call, so the FFI `Revalidate` path never reaches a
         // trimmed union. See the parallel `unreachable!` in
-        // `RQEIterator::revalidate` for the full justification.
+        // the legacy `revalidate` method for the full justification.
         unreachable!(
             "resume is not supported on UnionTrimmed — trimmed unions are not subject to GC"
         );

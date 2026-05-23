@@ -15,7 +15,7 @@ use rqe_core::DocId;
 
 use crate::{
     IteratorType, RQEIterator, RQEIteratorBoxed, RQEIteratorError, RQESuspendedIterator,
-    RQEValidateStatus, ResumeOutcome, SkipToOutcome,
+    ResumeOutcome, SkipToOutcome,
 };
 use index_spec::IndexSpecReadGuard;
 
@@ -526,96 +526,6 @@ where
         self.is_eof
     }
 
-    fn revalidate(
-        &mut self,
-        spec: &IndexSpecReadGuard,
-    ) -> Result<RQEValidateStatus<'_, 'index>, RQEIteratorError> {
-        // Already at EOF - nothing to do
-        if self.is_eof {
-            return Ok(RQEValidateStatus::Ok);
-        }
-
-        let original_last_doc_id = self.last_doc_id();
-        let mut any_change = false;
-
-        // Revalidate ALL children (including exhausted ones past num_active) and remove aborted ones.
-        // Exhausted children must be revalidated because they may become active again after revalidation.
-        // We use index-based iteration because we need to remove elements while iterating.
-        let mut i = 0;
-        while i < self.children.len() {
-            match self.children[i].revalidate(spec)? {
-                RQEValidateStatus::Aborted => {
-                    // Remove aborted child using swap_remove for O(1) removal.
-                    // Order doesn't matter for union iteration.
-                    self.children.swap_remove(i);
-                    any_change = true;
-                    // Don't increment i - the swapped element needs to be checked
-                }
-                RQEValidateStatus::Moved { .. } => {
-                    any_change = true;
-                    i += 1;
-                }
-                RQEValidateStatus::Ok => {
-                    i += 1;
-                }
-            }
-        }
-
-        // If all children aborted, we abort too (union of nothing is nothing)
-        if self.children.is_empty() {
-            self.is_eof = true;
-            return Ok(RQEValidateStatus::Aborted);
-        }
-
-        // Early return if nothing changed
-        if !any_change {
-            return Ok(RQEValidateStatus::Ok);
-        }
-
-        // Sync num_active and find minimum doc_id.
-        // Use swap_remove_child to move EOF children out of the active region.
-        self.num_active = self.children.len();
-        let mut min_doc_id: DocId = DocId::MAX;
-        let mut min_child_idx: usize = 0;
-        let mut i = 0;
-        while i < self.num_active {
-            let child = &self.children[i];
-            if child.at_eof() {
-                self.swap_remove_child(i);
-                // Don't increment i - check the swapped-in child
-            } else {
-                let child_doc_id = child.last_doc_id();
-                if child_doc_id < min_doc_id {
-                    min_doc_id = child_doc_id;
-                    min_child_idx = i;
-                }
-                i += 1;
-            }
-        }
-
-        // Check if all remaining children are at EOF
-        if self.num_active == 0 {
-            self.is_eof = true;
-            return Ok(RQEValidateStatus::Moved { current: None });
-        }
-
-        // Rebuild result at the new minimum doc_id
-        if QUICK_EXIT {
-            self.quick_set_from_child(min_child_idx);
-        } else {
-            self.build_aggregate_result(min_doc_id);
-        }
-
-        // Return MOVED only if lastDocId changed
-        if self.last_doc_id() != original_last_doc_id {
-            Ok(RQEValidateStatus::Moved {
-                current: Some(&mut self.result),
-            })
-        } else {
-            Ok(RQEValidateStatus::Ok)
-        }
-    }
-
     #[inline(always)]
     fn type_(&self) -> IteratorType {
         IteratorType::Union
@@ -630,7 +540,8 @@ where
     }
 }
 
-impl<'index, I, const QUICK_EXIT: bool> RQEIteratorBoxed<'index> for UnionFlat<'index, I, QUICK_EXIT>
+impl<'index, I, const QUICK_EXIT: bool> RQEIteratorBoxed<'index>
+    for UnionFlat<'index, I, QUICK_EXIT>
 where
     I: RQEIteratorBoxed<'index>,
 {

@@ -10,7 +10,7 @@
 use rqe_core::DocId;
 use rqe_iterators::{
     IteratorType, RQEIterator, RQEIteratorBoxed, RQEIteratorError, RQESuspendedIterator,
-    RQEValidateStatus, ResumeOutcome, SkipToOutcome, TypeErasedRQEIterator,
+    ResumeOutcome, SkipToOutcome, TypeErasedRQEIterator,
     maybe_empty::MaybeEmpty,
 };
 
@@ -93,13 +93,6 @@ impl<'index> RQEIterator<'index> for Infinite<'index> {
 
     fn at_eof(&self) -> bool {
         false
-    }
-
-    fn revalidate(
-        &mut self,
-        _spec: &index_spec::IndexSpecReadGuard,
-    ) -> Result<RQEValidateStatus<'_, 'index>, RQEIteratorError> {
-        Ok(RQEValidateStatus::Ok)
     }
 
     #[inline(always)]
@@ -236,22 +229,6 @@ fn rewind_not_empty() {
 
     assert_eq!(doc.doc_id, 1);
     assert_eq!(it.last_doc_id(), 1);
-}
-
-#[test]
-fn revalidate_empty() {
-    let mock_ctx = rqe_iterators_test_utils::MockContext::new(0, 0);
-    let mut it = MaybeEmpty::<Infinite>::new_empty();
-    let status = it.revalidate(&*mock_ctx.spec_read()).unwrap();
-    assert_eq!(status, RQEValidateStatus::Ok);
-}
-
-#[test]
-fn revalidate_not_empty() {
-    let mock_ctx = rqe_iterators_test_utils::MockContext::new(0, 0);
-    let mut it = MaybeEmpty::new(Infinite::default());
-    let status = it.revalidate(&*mock_ctx.spec_read()).unwrap();
-    assert_eq!(status, RQEValidateStatus::Ok);
 }
 
 #[test]

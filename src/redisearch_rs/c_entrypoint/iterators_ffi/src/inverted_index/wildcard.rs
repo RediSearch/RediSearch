@@ -9,11 +9,11 @@
 
 use std::fmt::Debug;
 
-use index_result::RSIndexResult;
 use ffi::{
     ValidateStatus_VALIDATE_ABORTED, ValidateStatus_VALIDATE_MOVED, ValidateStatus_VALIDATE_OK,
     t_docId,
 };
+use index_result::RSIndexResult;
 use inverted_index::{RefreshOutcome, doc_ids_only::DocIdsOnly, raw_doc_ids_only::RawDocIdsOnly};
 use rqe_core::DocId;
 use rqe_iterators::{
@@ -225,17 +225,6 @@ impl<'index> rqe_iterators::RQEIterator<'index> for WildcardIterator<'index> {
         match self {
             WildcardIterator::Encoded(w) => w.at_eof(),
             WildcardIterator::Raw(w) => w.at_eof(),
-        }
-    }
-
-    #[inline(always)]
-    fn revalidate(
-        &mut self,
-        spec: &index_spec::IndexSpecReadGuard,
-    ) -> Result<rqe_iterators::RQEValidateStatus<'_, 'index>, rqe_iterators::RQEIteratorError> {
-        match self {
-            WildcardIterator::Encoded(w) => w.revalidate(spec),
-            WildcardIterator::Raw(w) => w.revalidate(spec),
         }
     }
 

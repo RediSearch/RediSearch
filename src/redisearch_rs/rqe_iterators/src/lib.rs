@@ -20,7 +20,6 @@ unsafe extern "C" fn AREQ_CheckTimedOut(_areq: *mut ffi::AREQ) -> bool {
 use std::ptr::NonNull;
 use std::sync::OnceLock;
 
-use index_spec::IndexSpecReadGuard;
 use ref_mode::{Active, Ref};
 use rqe_core::{DocId, FieldIndex};
 use thiserror::Error;
@@ -135,30 +134,16 @@ pub enum RQEIteratorError {
     IoError(#[from] std::io::Error),
 }
 
-#[derive(Debug, PartialEq)]
-/// The status of the iterator after a call to [`revalidate`](RQEIterator::revalidate)
-pub enum RQEValidateStatus<'iterator, 'index> {
-    /// The iterator is still valid and at the same position.
-    Ok,
-    /// The iterator is still valid but its internal state has changed.
-    Moved {
-        /// The new current document the iterator is at, or `None` if the iterator is at EOF.
-        current: Option<&'iterator mut RSIndexResult<'index>>,
-    },
-    /// The iterator is no longer valid, and should not be used or rewound. Should be dropped.
-    Aborted,
-}
-
 /// Trait providing the iterators API.
 pub trait RQEIterator<'index> {
     /// Return the current [`RSIndexResult`] stored within this [`RQEIterator`].
     ///
-    /// Calls to [`read`](Self::read), [`skip_to`](Self::skip_to) and
-    /// [`revalidate`](Self::revalidate) (moved case) also return this reference.
-    /// Sometimes however, especially in the case of wrapper iterators, you might
-    /// not have an immediate use for the actual result, and would instead want to keep it aside
-    /// for later in time. The child iterator already has that result anyway,
-    /// and it is this method which provides the ability to expose it (for later use).
+    /// Calls to [`read`](Self::read) and [`skip_to`](Self::skip_to) also return
+    /// this reference. Sometimes however, especially in the case of wrapper
+    /// iterators, you might not have an immediate use for the actual result,
+    /// and would instead want to keep it aside for later in time. The child
+    /// iterator already has that result anyway, and it is this method which
+    /// provides the ability to expose it (for later use).
     ///
     /// # Usage
     ///
@@ -186,39 +171,6 @@ pub trait RQEIterator<'index> {
         &mut self,
         doc_id: DocId,
     ) -> Result<Option<SkipToOutcome<'_, 'index>>, RQEIteratorError>;
-
-    /// Called when the iterator is being revalidated after a concurrent index change.
-    ///
-    /// The iterator should check if it is still valid by comparing its stored state
-    /// against the current index state.
-    ///
-    /// # Locking
-    ///
-    /// The caller must hold the spec read lock, represented by [`IndexSpecReadGuard`].
-    /// The lock ensures the spec remains valid and unchanged during this call.
-    ///
-    /// # Migration to suspend/resume
-    ///
-    /// This method is being phased out in favour of the
-    /// [`RQEIteratorBoxed::suspend`] +
-    /// [`RQESuspendedIterator::resume`] cycle,
-    /// which is the canonical path used by the FFI wrapper (see
-    /// `rqe_iterators::interop::revalidate`). The default implementation panics
-    /// so that any production call site that still goes through `revalidate`
-    /// surfaces loudly — production code should not be calling this. Tests are
-    /// migrating to `suspend`/`resume` iterator-by-iterator; once no iterator
-    /// overrides this method, it can be removed from the trait entirely.
-    fn revalidate(
-        &mut self,
-        _spec: &IndexSpecReadGuard,
-    ) -> Result<RQEValidateStatus<'_, 'index>, RQEIteratorError> {
-        unreachable!(
-            "RQEIterator::revalidate is being phased out; the suspend/resume path \
-             (RQEIteratorBoxed::suspend + RQESuspendedIterator::resume) is canonical. \
-             Each iterator's revalidate override is removed in its own revision once \
-             its tests have migrated."
-        )
-    }
 
     /// Rewind the iterator to the beginning and reset its properties.
     fn rewind(&mut self);
@@ -276,13 +228,6 @@ impl<'index, I: RQEIterator<'index> + ?Sized + 'index> RQEIterator<'index> for B
         doc_id: DocId,
     ) -> Result<Option<SkipToOutcome<'_, 'index>>, RQEIteratorError> {
         (**self).skip_to(doc_id)
-    }
-
-    fn revalidate(
-        &mut self,
-        spec: &IndexSpecReadGuard,
-    ) -> Result<RQEValidateStatus<'_, 'index>, RQEIteratorError> {
-        (**self).revalidate(spec)
     }
 
     fn rewind(&mut self) {
