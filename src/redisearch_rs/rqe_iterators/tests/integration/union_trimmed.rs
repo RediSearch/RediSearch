@@ -484,3 +484,118 @@ fn into_trimmed_reuses_all_children() {
         "previously trimmed children are now active"
     );
 }
+
+mod via_resume {
+    use crate::utils::Mock;
+    use rqe_core::DocId;
+    use rqe_iterators::{
+        RQEIterator, RQEIteratorBoxed, RQESuspendedIterator, TypeErasedRQEIterator, UnionTrimmed,
+    };
+    use rqe_iterators_test_utils::revalidate_via_resume;
+
+    /// Builds one type-erased single-document child per id. Erased children are
+    /// what production hands the union, and the only shape that can exhibit the
+    /// wrong-vtable bug `suspend_transitions_children_outside_the_active_window`
+    /// guards.
+    fn erased_children(doc_ids: &[DocId]) -> Vec<TypeErasedRQEIterator<'static>> {
+        doc_ids
+            .iter()
+            .map(|&doc_id| {
+                let child: Mock<'_, 1> = Mock::new([doc_id]);
+                TypeErasedRQEIterator::new(Box::new(child))
+            })
+            .collect()
+    }
+
+    /// Resume must panic on UnionTrimmed for the same reason `revalidate`
+    /// does: trimmed unions are constructed for the partial-range
+    /// optimization path which doesn't release the spec lock between reads.
+    #[test]
+    #[should_panic(expected = "resume is not supported on UnionTrimmed")]
+    fn resume_panics() {
+        let mock_ctx = rqe_iterators_test_utils::MockContext::new(0, 0);
+        let child0: Mock<'_, 1> = Mock::new([1]);
+        let child1: Mock<'_, 1> = Mock::new([2]);
+        let child2: Mock<'_, 1> = Mock::new([3]);
+        let children = vec![
+            TypeErasedRQEIterator::new(Box::new(child0)),
+            TypeErasedRQEIterator::new(Box::new(child1)),
+            TypeErasedRQEIterator::new(Box::new(child2)),
+        ];
+        let union = UnionTrimmed::new(children, usize::MAX, true);
+
+        let guard = mock_ctx.spec_read();
+        let _ = revalidate_via_resume(TypeErasedRQEIterator::new(Box::new(union)), &guard);
+    }
+
+    /// Guards a `dyn`-vtable type confusion on drop: `suspend` must transition
+    /// **every** child it owns, not only those inside the active window.
+    ///
+    /// Every other test in this file builds the union with `limit = usize::MAX`,
+    /// where the window spans all children — so none of them can tell the
+    /// correct loop apart from one narrowed to the active window. Under a limit
+    /// that actually trims, the narrowed loop would leave the trimmed-away
+    /// elements holding an active [`TypeErasedRQEIterator`] inside a `Vec` that
+    /// is then dropped as a vector of the suspended sibling: a different `dyn`
+    /// trait, hence a different vtable. Nothing observable happens until the
+    /// drop reads the wrong vtable, which is why this test earns its keep only
+    /// under Miri.
+    #[test]
+    fn suspend_transitions_children_outside_the_active_window() {
+        // Five children estimating one document each; `limit = 1` ascending
+        // keeps `children[0..3)`, leaving the last two owned but inactive.
+        let union = UnionTrimmed::new(erased_children(&[1, 2, 3, 4, 5]), 1, true);
+        assert_eq!(union.num_children_total(), 5);
+        assert_eq!(
+            union.num_children_active(),
+            3,
+            "the limit must actually trim, or this test degenerates into every other one"
+        );
+
+        let suspended = Box::new(union).suspend();
+        assert_eq!(
+            suspended.num_estimated(),
+            3,
+            "the suspended form still reports the active window's estimate"
+        );
+        drop(suspended);
+    }
+
+    /// Guards against `suspend` rebuilding the iterator's storage: the FFI
+    /// wrapper and delegating parents cache raw pointers into it, so a
+    /// `Box::new(RawUnionTrimmed { .. })` would dangle them while passing every
+    /// behavioural test. Only the suspend half is checkable here — see
+    /// [`resume_panics`].
+    #[test]
+    fn suspend_preserves_box_address() {
+        let union = Box::new(UnionTrimmed::new(
+            erased_children(&[1, 2, 3]),
+            usize::MAX,
+            true,
+        ));
+        let addr_before = &*union as *const _ as usize;
+
+        let suspended = union.suspend();
+        assert_eq!(
+            &*suspended as *const _ as usize, addr_before,
+            "suspend must reuse the allocation"
+        );
+    }
+
+    /// Guards the suspended accessors — besides `suspend` itself, the only new
+    /// code that ever executes, and the sole externally visible evidence that
+    /// the cursor and result state survived the whole-box cast. `union_opaque`
+    /// delegates its own suspended accessors straight to these, so a wrong field
+    /// here would surface only there.
+    #[test]
+    #[cfg_attr(miri, ignore = "Calls RSYieldableMetric_Concat FFI in push_borrowed")]
+    fn suspended_last_doc_id_reports_the_pre_suspend_position() {
+        let mut union = UnionTrimmed::new(erased_children(&[1, 2, 3]), usize::MAX, true);
+        // Children are drained last to first, so the first read yields the
+        // last child's document.
+        assert_eq!(union.read().unwrap().unwrap().doc_id, 3);
+
+        let suspended = Box::new(union).suspend();
+        assert_eq!(suspended.last_doc_id(), 3);
+    }
+}

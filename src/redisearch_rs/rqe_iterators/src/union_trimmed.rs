@@ -46,10 +46,13 @@
 //! accessible even though they are inactive.
 
 use index_result::{RSIndexResult, RawIndexResult};
-use ref_mode::{Active, Ref};
+use ref_mode::{Active, Ref, Suspended};
 use rqe_core::DocId;
 
-use crate::{IteratorType, RQEIterator, RQEIteratorError, RQEValidateStatus, SkipToOutcome};
+use crate::{
+    IteratorType, RQEIterator, RQEIteratorBoxed, RQEIteratorError, RQESuspendedIterator,
+    RQEValidateStatus, ResumeOutcome, SkipToOutcome,
+};
 use index_spec::IndexSpecReadGuard;
 
 /// Union iterator that drains children sequentially in reverse order.
@@ -72,6 +75,8 @@ use index_spec::IndexSpecReadGuard;
 /// - [`revalidate`](RQEIterator::revalidate): trimmed unions run in a
 ///   single, short-lived read path that does not interleave with GC cycles,
 ///   so revalidation should never be needed.
+/// - [`resume`](RQESuspendedIterator::resume): the suspend/resume successor
+///   of `revalidate`, unreachable for the same reason.
 ///
 /// # Type Parameters
 ///
@@ -103,6 +108,29 @@ pub struct RawUnionTrimmed<'query, Rf: Ref, I> {
 /// Alias for an [`Active`] [`RawUnionTrimmed`] — the only instantiation
 /// with an [`RQEIterator`] impl today.
 pub type UnionTrimmed<'index, I> = RawUnionTrimmed<'index, Active<'index>, I>;
+
+// Compile-time proof of invariant 1 on `RawUnionTrimmed`: for a representative
+// concrete child, the `Active` and `Suspended` instantiations are
+// layout-identical. The child elements' own compatibility is their invariant 1
+// (enforced generically by the slot helper); `result` is layout-compatible
+// across `Rf` (proven in `index_result`); the remaining fields are `Rf`-free.
+const _: () = {
+    use crate::Wildcard;
+    use std::mem::{align_of, offset_of, size_of};
+    type AChild = Wildcard<'static>;
+    type SChild = <Wildcard<'static> as RQEIteratorBoxed<'static>>::Suspended;
+    type A = RawUnionTrimmed<'static, Active<'static>, AChild>;
+    type S = RawUnionTrimmed<'static, Suspended, SChild>;
+    assert!(offset_of!(A, children) == offset_of!(S, children));
+    assert!(offset_of!(A, trim_start) == offset_of!(S, trim_start));
+    assert!(offset_of!(A, trim_end) == offset_of!(S, trim_end));
+    assert!(offset_of!(A, num_estimated) == offset_of!(S, num_estimated));
+    assert!(offset_of!(A, cursor) == offset_of!(S, cursor));
+    assert!(offset_of!(A, is_eof) == offset_of!(S, is_eof));
+    assert!(offset_of!(A, result) == offset_of!(S, result));
+    assert!(size_of::<A>() == size_of::<S>());
+    assert!(align_of::<A>() == align_of::<S>());
+};
 
 impl<'index, I> UnionTrimmed<'index, I>
 where
@@ -332,5 +360,80 @@ where
         } else {
             1.0
         }
+    }
+}
+
+impl<'index, I> RQEIteratorBoxed<'index> for UnionTrimmed<'index, I>
+where
+    I: RQEIteratorBoxed<'index>,
+{
+    type Suspended = RawUnionTrimmed<'index, Suspended, I::Suspended>;
+
+    fn suspend(self: Box<Self>) -> Box<Self::Suspended> {
+        let raw = Box::into_raw(self);
+        // Walk children — see [`crate::boxed::suspend_child_slot_in_place`].
+        // SAFETY: `raw` came from `Box::into_raw`, exclusively owned and
+        // valid, so the children Vec is reachable and unaliased.
+        let children: &mut Vec<I> = unsafe { &mut (*raw).children };
+        for child in children.iter_mut() {
+            // SAFETY: `child` is a valid `&mut I` aliased to nothing else;
+            // the function leaves the slot in a valid `I::Suspended` state.
+            unsafe { crate::boxed::suspend_child_slot_in_place(child) };
+        }
+        // SAFETY: every child slot now holds its suspended form at its original
+        // address, so the aggregate's entries — pointers into those slots'
+        // result objects — still refer to live objects; the remaining fields
+        // are `Rf`-free. Layout-identical to the active form by invariant 1 on
+        // `RawUnionTrimmed` (const proof above), whose child-slot half — the
+        // `I`/`I::Suspended` size and alignment match — is statically enforced
+        // by `suspend_child_slot_in_place`. `Box::from_raw` reuses the same
+        // allocation, so the box and every interior address survive the cycle.
+        unsafe { Box::from_raw(raw as *mut RawUnionTrimmed<'index, Suspended, I::Suspended>) }
+    }
+}
+
+impl<'query, S> RQESuspendedIterator<'query> for RawUnionTrimmed<'query, Suspended, S>
+where
+    S: RQESuspendedIterator<'query>,
+{
+    type Resumed<'a>
+        = UnionTrimmed<'a, S::Resumed<'a>>
+    where
+        'query: 'a;
+
+    fn resume<'a>(
+        self: Box<Self>,
+        _guard: &IndexSpecReadGuard<'a>,
+    ) -> Result<ResumeOutcome<Box<Self::Resumed<'a>>>, RQEIteratorError>
+    where
+        'query: 'a,
+    {
+        // Trimmed unions are not subject to GC — they're only constructed
+        // for `Q_OPT_PARTIAL_RANGE` (numeric SORTBY), whose result-processor
+        // pipeline drains every upstream result inside a single locked
+        // `sendChunk` call, so the FFI `Revalidate` path never reaches a
+        // trimmed union. See the parallel `unreachable!` in
+        // `RQEIterator::revalidate` for the full justification.
+        //
+        // This is a design constraint, not a gap to be filled later: a trimmed
+        // union yields documents out of doc-id order and its `skip_to` panics,
+        // so there is no way to re-derive a position after the children move.
+        //
+        // Failure mode note: reached directly, this unwinds like the legacy
+        // `revalidate`. Reached as a *child slot* of another composite, it goes
+        // through `crate::boxed::resume_child_slot_in_place`, which arms an
+        // `AbortOnUnwind` across the dispatched `resume` — so the panic
+        // escalates to `std::process::abort()` instead.
+        unreachable!(
+            "resume is not supported on UnionTrimmed — trimmed unions are not subject to GC"
+        );
+    }
+
+    fn last_doc_id(&self) -> DocId {
+        self.result.doc_id
+    }
+
+    fn num_estimated(&self) -> usize {
+        self.num_estimated
     }
 }
