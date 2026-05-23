@@ -755,7 +755,7 @@ mod variant {
     use rqe_iterators::{FieldExpirationChecker, NumericIteratorVariant};
     use rqe_iterators_test_utils::MockContext;
 
-    fn make_expiration_checker(ctx: &MockContext) -> FieldExpirationChecker {
+    pub(super) fn make_expiration_checker(ctx: &MockContext) -> FieldExpirationChecker {
         // SAFETY:
         // - `ctx.sctx()` is a valid `RedisSearchCtx` pointer for the duration of this test.
         // - `ctx.sctx().spec` is set to a valid `IndexSpec` pointer by `MockContext::new`.
@@ -855,6 +855,661 @@ mod variant {
         assert_eq!(variant.range_min(), 1.0);
         assert_eq!(variant.range_max(), 5.0);
         assert_eq!(variant.flags(), IndexFlags_Index_StoreNumeric);
+    }
+}
+
+/// Suspend/resume coverage for `NumericIteratorVariant` — the `RQEIteratorBoxed`
+/// and `RQESuspendedIterator` impls on the variant enum itself, as opposed to the
+/// `Numeric` leaf instantiation that `NumericBuilder` produces.
+///
+/// Every scenario is spelled out once per arm instead of going through a shared
+/// helper: each arm is a distinct payload pair with its own `suspend`/`resume`
+/// instantiation, its own whole-box cast and its own teardown, so a passing
+/// `Unfiltered` test says nothing about `Filtered` or `Geo`. The tests drive the
+/// concrete `suspend`/`resume` pair rather than the type-erased
+/// `revalidate_via_resume` helper, because only the concrete form lets us assert
+/// *which* arm came back — the check that catches a tag/arm confusion.
+///
+/// Two things are deliberately not covered here:
+///
+/// * The `Err` arm of `resume`. It shares its body with `Aborted` (consume the
+///   payload, free the allocation without dropping it), and no numeric reader in
+///   the workspace can fail its pointer refresh, so reaching it would take a
+///   fault-injecting reader built for the purpose.
+/// * Miri execution of the `Aborted` and `Moved` paths. Both need the index
+///   fixture mutated behind the iterator's back — a range-tree revision bump or a
+///   GC pass — while the iterator holds a pointer derived from a `&` to it. That
+///   is the aliasing pattern already documented on
+///   `from_tree::non_null_field_spec_enables_revalidation`: intentional, but
+///   Stacked Borrows cannot model it.
+mod variant_resume {
+    use std::ptr;
+
+    use ffi::{GeoFilter, IndexFlags_Index_StoreNumeric};
+    use index_result::RSIndexResult;
+    use inverted_index::{DecodedBy, Encoder, InvertedIndex, NumericFilter, RepairContext};
+    use numeric_range_tree::{NumericIndex, NumericRangeTree};
+    use rqe_core::DocId;
+    use rqe_iterators::{
+        NumericIteratorVariant, RQEIterator, RQEIteratorBoxed, RQESuspendedIterator, ResumeOutcome,
+    };
+    use rqe_iterators_test_utils::MockContext;
+
+    use super::variant::make_expiration_checker;
+
+    /// Build a numeric index holding one record per `(doc_id, value)` pair.
+    fn make_index(entries: &[(DocId, f64)]) -> NumericIndex {
+        let mut idx = NumericIndex::new(false);
+        for (doc_id, value) in entries {
+            idx.add_record(&RSIndexResult::build_numeric(*value).doc_id(*doc_id).build());
+        }
+        idx
+    }
+
+    /// A numeric (non-geo) filter accepting every value the fixtures use.
+    fn passthrough_numeric_filter() -> NumericFilter {
+        NumericFilter {
+            min: 0.0,
+            max: 100.0,
+            min_inclusive: true,
+            max_inclusive: true,
+            ..Default::default()
+        }
+    }
+
+    /// Encode a WGS-84 point the way the geo indexer does, so `isWithinRadius`
+    /// decodes the stored value back to `(lon, lat)`.
+    fn geo_score(lon: f64, lat: f64) -> f64 {
+        let coords =
+            geo::hash::WGS84Coordinates::from_f64(lon, lat).expect("coordinates must be in bounds");
+        geo::hash::encode_wgs84(coords, geo::hash::GEO_STEP_MAX).bits as f64
+    }
+
+    /// A [`GeoFilter`] centred on the null island with a radius wide enough to
+    /// accept every point [`geo_score`] is called with below. Unlike
+    /// [`super::geo_filter_stub`] this one is meant to be *matched against*, not
+    /// just to select the `Geo` arm.
+    fn wide_geo_filter() -> GeoFilter {
+        GeoFilter {
+            fieldSpec: ptr::null(),
+            lat: 0.0,
+            lon: 0.0,
+            radius: 1_000_000.0,
+            unitType: ffi::GeoDistance_GEO_DISTANCE_M,
+            numericFilters: ptr::null_mut(),
+        }
+    }
+
+    /// Remove `doc_id` from `idx` through a GC scan+apply cycle, the same way
+    /// [`super::super::utils::RevalidateTest`] does. This bumps the index's GC
+    /// marker, which is what makes a suspended reader report `NeedsReseek`.
+    fn remove_document(idx: &mut NumericIndex, doc_id: DocId) {
+        fn remove<E: Encoder + DecodedBy>(ii: &mut InvertedIndex<E>, doc_id: DocId) {
+            let delta = ii
+                .scan_gc(
+                    |d| d != doc_id,
+                    None::<fn(&RSIndexResult, &RepairContext<'_>)>,
+                )
+                .expect("scan GC failed")
+                .expect("no GC scan delta");
+            assert_eq!(ii.apply_gc(delta).entries_removed, 1);
+        }
+
+        match idx {
+            NumericIndex::Uncompressed(ii) => remove(ii.inner_mut(), doc_id),
+            NumericIndex::Compressed(ii) => remove(ii.inner_mut(), doc_id),
+        }
+    }
+
+    // ---- A/B/F/G: round trip, box-address stability, suspended accessors ----
+
+    #[test]
+    /// `Unfiltered` survives a suspend/resume cycle: same arm, same allocation,
+    /// same position, and the suspended form reports the same metadata.
+    fn unfiltered_round_trip() {
+        let ctx = MockContext::new(0, 0);
+        let idx = make_index(&[(1, 1.0), (3, 3.0), (5, 5.0)]);
+
+        let mut variant = NumericIteratorVariant::new(
+            idx.reader(),
+            None,
+            make_expiration_checker(&ctx),
+            None,
+            1.0,
+            5.0,
+        );
+        assert_eq!(
+            variant
+                .read()
+                .expect("read failed")
+                .expect("expected a doc")
+                .doc_id,
+            1
+        );
+
+        let range_min = variant.range_min();
+        let range_max = variant.range_max();
+        let flags = variant.flags();
+        let last_doc_id = variant.last_doc_id();
+        let num_estimated = variant.num_estimated();
+
+        let active = Box::new(variant);
+        let address = ptr::from_ref(&*active).addr();
+
+        let suspended = active.suspend();
+        assert_eq!(
+            ptr::from_ref(&*suspended).addr(),
+            address,
+            "suspend must reuse the allocation"
+        );
+        // The suspended form has no reader, so these must come from the
+        // construction-time snapshots — never called anywhere else today.
+        assert_eq!(RQESuspendedIterator::last_doc_id(&*suspended), last_doc_id);
+        assert_eq!(
+            RQESuspendedIterator::num_estimated(&*suspended),
+            num_estimated
+        );
+        assert_eq!(suspended.range_min(), range_min);
+        assert_eq!(suspended.range_max(), range_max);
+        assert_eq!(suspended.flags(), flags);
+
+        let guard = ctx.spec_read();
+        let mut active = match suspended.resume(&guard).expect("resume failed") {
+            ResumeOutcome::Ok(it) => it,
+            ResumeOutcome::Moved(_) => panic!("an untouched index cannot move the iterator"),
+            ResumeOutcome::Aborted => panic!("an untouched index cannot abort the iterator"),
+        };
+        assert_eq!(
+            ptr::from_ref(&*active).addr(),
+            address,
+            "resume must reuse the allocation"
+        );
+        assert!(
+            matches!(&*active, NumericIteratorVariant::Unfiltered(_)),
+            "the resumed value must be the same arm it was suspended from"
+        );
+        assert_eq!(active.range_min(), range_min);
+        assert_eq!(active.range_max(), range_max);
+        assert_eq!(active.flags(), flags);
+        // Reading continues where the uninterrupted iterator would have.
+        assert_eq!(
+            active
+                .read()
+                .expect("read failed")
+                .expect("expected a doc")
+                .doc_id,
+            3
+        );
+    }
+
+    #[test]
+    /// `Filtered` survives a suspend/resume cycle — see [`unfiltered_round_trip`].
+    fn filtered_round_trip() {
+        let ctx = MockContext::new(0, 0);
+        let filter = passthrough_numeric_filter();
+        let idx = make_index(&[(1, 1.0), (3, 3.0), (5, 5.0)]);
+
+        let mut variant = NumericIteratorVariant::new(
+            idx.reader(),
+            Some(&filter),
+            make_expiration_checker(&ctx),
+            None,
+            1.0,
+            5.0,
+        );
+        assert!(
+            matches!(&variant, NumericIteratorVariant::Filtered(_)),
+            "a numeric filter must select the Filtered arm"
+        );
+        assert_eq!(
+            variant
+                .read()
+                .expect("read failed")
+                .expect("expected a doc")
+                .doc_id,
+            1
+        );
+
+        let flags = variant.flags();
+        let last_doc_id = variant.last_doc_id();
+        let num_estimated = variant.num_estimated();
+
+        let active = Box::new(variant);
+        let address = ptr::from_ref(&*active).addr();
+
+        let suspended = active.suspend();
+        assert_eq!(ptr::from_ref(&*suspended).addr(), address);
+        assert_eq!(RQESuspendedIterator::last_doc_id(&*suspended), last_doc_id);
+        assert_eq!(
+            RQESuspendedIterator::num_estimated(&*suspended),
+            num_estimated
+        );
+        assert_eq!(suspended.range_min(), 1.0);
+        assert_eq!(suspended.range_max(), 5.0);
+        assert_eq!(suspended.flags(), flags);
+
+        let guard = ctx.spec_read();
+        let mut active = match suspended.resume(&guard).expect("resume failed") {
+            ResumeOutcome::Ok(it) => it,
+            ResumeOutcome::Moved(_) => panic!("an untouched index cannot move the iterator"),
+            ResumeOutcome::Aborted => panic!("an untouched index cannot abort the iterator"),
+        };
+        assert_eq!(ptr::from_ref(&*active).addr(), address);
+        assert!(
+            matches!(&*active, NumericIteratorVariant::Filtered(_)),
+            "the resumed value must be the same arm it was suspended from"
+        );
+        assert_eq!(
+            active
+                .read()
+                .expect("read failed")
+                .expect("expected a doc")
+                .doc_id,
+            3
+        );
+    }
+
+    #[test]
+    /// `Geo` survives a suspend/resume cycle.
+    ///
+    /// This one deliberately round-trips *before* the first read, so it can run
+    /// under Miri: `FilterGeoReader`'s radius check calls the C `isWithinRadius`,
+    /// which Miri cannot execute. The post-read continuation is covered by
+    /// [`geo_round_trip_after_read`].
+    fn geo_round_trip() {
+        let ctx = MockContext::new(0, 0);
+        let geo_filter = super::geo_filter_stub();
+        let filter = NumericFilter {
+            geo_filter: ptr::from_ref(&geo_filter).cast(),
+            ..Default::default()
+        };
+        let idx = make_index(&[(1, 1.0), (3, 3.0)]);
+
+        let variant = NumericIteratorVariant::new(
+            idx.reader(),
+            Some(&filter),
+            make_expiration_checker(&ctx),
+            None,
+            1.0,
+            5.0,
+        );
+        assert!(
+            matches!(&variant, NumericIteratorVariant::Geo(_)),
+            "a geo filter must select the Geo arm"
+        );
+
+        let flags = variant.flags();
+        let num_estimated = variant.num_estimated();
+
+        let active = Box::new(variant);
+        let address = ptr::from_ref(&*active).addr();
+
+        let suspended = active.suspend();
+        assert_eq!(ptr::from_ref(&*suspended).addr(), address);
+        // Nothing was read yet, so the position is still the initial one.
+        assert_eq!(RQESuspendedIterator::last_doc_id(&*suspended), 0);
+        assert_eq!(
+            RQESuspendedIterator::num_estimated(&*suspended),
+            num_estimated
+        );
+        assert_eq!(suspended.range_min(), 1.0);
+        assert_eq!(suspended.range_max(), 5.0);
+        assert_eq!(suspended.flags(), flags);
+
+        let guard = ctx.spec_read();
+        let active = match suspended.resume(&guard).expect("resume failed") {
+            ResumeOutcome::Ok(it) => it,
+            ResumeOutcome::Moved(_) => panic!("an untouched index cannot move the iterator"),
+            ResumeOutcome::Aborted => panic!("an untouched index cannot abort the iterator"),
+        };
+        assert_eq!(ptr::from_ref(&*active).addr(), address);
+        assert!(
+            matches!(&*active, NumericIteratorVariant::Geo(_)),
+            "the resumed value must be the same arm it was suspended from"
+        );
+        assert_eq!(active.flags(), flags);
+    }
+
+    #[test]
+    #[cfg_attr(
+        miri,
+        ignore = "FilterGeoReader's radius check calls the C `isWithinRadius`, which Miri cannot \
+                  execute"
+    )]
+    /// A positioned `Geo` iterator resumes onto the same arm and keeps reading
+    /// where an uninterrupted run would have.
+    fn geo_round_trip_after_read() {
+        let ctx = MockContext::new(0, 0);
+        let geo_filter = wide_geo_filter();
+        let filter = NumericFilter {
+            geo_filter: ptr::from_ref(&geo_filter).cast(),
+            ..Default::default()
+        };
+        let idx = make_index(&[
+            (1, geo_score(0.0, 0.0)),
+            (3, geo_score(0.1, 0.1)),
+            (5, geo_score(0.2, 0.2)),
+        ]);
+
+        let mut variant = NumericIteratorVariant::new(
+            idx.reader(),
+            Some(&filter),
+            make_expiration_checker(&ctx),
+            None,
+            1.0,
+            5.0,
+        );
+        assert_eq!(
+            variant
+                .read()
+                .expect("read failed")
+                .expect("expected a doc")
+                .doc_id,
+            1
+        );
+        let last_doc_id = variant.last_doc_id();
+
+        let suspended = Box::new(variant).suspend();
+        assert_eq!(RQESuspendedIterator::last_doc_id(&*suspended), last_doc_id);
+
+        let guard = ctx.spec_read();
+        let mut active = match suspended.resume(&guard).expect("resume failed") {
+            ResumeOutcome::Ok(it) => it,
+            ResumeOutcome::Moved(_) => panic!("an untouched index cannot move the iterator"),
+            ResumeOutcome::Aborted => panic!("an untouched index cannot abort the iterator"),
+        };
+        assert!(matches!(&*active, NumericIteratorVariant::Geo(_)));
+        assert_eq!(
+            active
+                .read()
+                .expect("read failed")
+                .expect("expected a doc")
+                .doc_id,
+            3
+        );
+    }
+
+    // ---- C: the `Aborted` teardown, once per arm ----
+    //
+    // The range tree is heap-allocated by hand in each of these because the
+    // iterator has to keep observing it while we bump its revision; see the
+    // module doc for why that keeps them off Miri.
+
+    #[test]
+    #[cfg_attr(
+        miri,
+        ignore = "bumping the tree revision behind the iterator's stored NonNull is UB under \
+                  Stacked Borrows; see the module doc"
+    )]
+    /// The `Unfiltered` arm aborts — and deallocates — cleanly when the range
+    /// tree it was built over is modified while suspended.
+    fn unfiltered_aborts_after_range_tree_modified() {
+        let ctx = MockContext::new(0, 0);
+        let tree_ptr: *mut NumericRangeTree = Box::into_raw(Box::new(NumericRangeTree::new(false)));
+        let idx = make_index(&[(1, 1.0), (3, 3.0)]);
+
+        let variant = NumericIteratorVariant::new(
+            idx.reader(),
+            None,
+            make_expiration_checker(&ctx),
+            // SAFETY: `tree_ptr` was just created by `Box::into_raw` and stays
+            // allocated until the end of this test.
+            Some(unsafe { &*tree_ptr }),
+            1.0,
+            5.0,
+        );
+        let guard = ctx.spec_read();
+
+        // A clean cycle first: the tree is untouched, so resume reports Ok.
+        let active = match Box::new(variant)
+            .suspend()
+            .resume(&guard)
+            .expect("resume failed")
+        {
+            ResumeOutcome::Ok(it) => it,
+            ResumeOutcome::Moved(_) => panic!("an untouched tree cannot move the iterator"),
+            ResumeOutcome::Aborted => panic!("an untouched tree cannot abort the iterator"),
+        };
+        assert!(matches!(&*active, NumericIteratorVariant::Unfiltered(_)));
+
+        let suspended = active.suspend();
+        // SAFETY: the iterator only ever holds a `NonNull` to the tree, so no
+        // live Rust reference to it exists here.
+        unsafe { (*tree_ptr).increment_revision() };
+
+        match suspended.resume(&guard).expect("resume failed") {
+            ResumeOutcome::Aborted => {}
+            ResumeOutcome::Ok(_) | ResumeOutcome::Moved(_) => {
+                panic!("a bumped revision id must abort the resume")
+            }
+        }
+
+        // SAFETY: `tree_ptr` came from `Box::into_raw`; the aborted resume
+        // consumed the iterator, which never owned the tree.
+        unsafe { drop(Box::from_raw(tree_ptr)) };
+    }
+
+    #[test]
+    #[cfg_attr(
+        miri,
+        ignore = "bumping the tree revision behind the iterator's stored NonNull is UB under \
+                  Stacked Borrows; see the module doc"
+    )]
+    /// The `Filtered` arm aborts — and deallocates — cleanly. Its payload pair is
+    /// separate from `Unfiltered`'s, so it needs its own coverage.
+    fn filtered_aborts_after_range_tree_modified() {
+        let ctx = MockContext::new(0, 0);
+        let tree_ptr: *mut NumericRangeTree = Box::into_raw(Box::new(NumericRangeTree::new(false)));
+        let filter = passthrough_numeric_filter();
+        let idx = make_index(&[(1, 1.0), (3, 3.0)]);
+
+        let variant = NumericIteratorVariant::new(
+            idx.reader(),
+            Some(&filter),
+            make_expiration_checker(&ctx),
+            // SAFETY: as in `unfiltered_aborts_after_range_tree_modified`.
+            Some(unsafe { &*tree_ptr }),
+            1.0,
+            5.0,
+        );
+        let guard = ctx.spec_read();
+
+        let active = match Box::new(variant)
+            .suspend()
+            .resume(&guard)
+            .expect("resume failed")
+        {
+            ResumeOutcome::Ok(it) => it,
+            ResumeOutcome::Moved(_) => panic!("an untouched tree cannot move the iterator"),
+            ResumeOutcome::Aborted => panic!("an untouched tree cannot abort the iterator"),
+        };
+        assert!(matches!(&*active, NumericIteratorVariant::Filtered(_)));
+
+        let suspended = active.suspend();
+        // SAFETY: as in `unfiltered_aborts_after_range_tree_modified`.
+        unsafe { (*tree_ptr).increment_revision() };
+
+        match suspended.resume(&guard).expect("resume failed") {
+            ResumeOutcome::Aborted => {}
+            ResumeOutcome::Ok(_) | ResumeOutcome::Moved(_) => {
+                panic!("a bumped revision id must abort the resume")
+            }
+        }
+
+        // SAFETY: as in `unfiltered_aborts_after_range_tree_modified`.
+        unsafe { drop(Box::from_raw(tree_ptr)) };
+    }
+
+    #[test]
+    #[cfg_attr(
+        miri,
+        ignore = "bumping the tree revision behind the iterator's stored NonNull is UB under \
+                  Stacked Borrows; see the module doc"
+    )]
+    /// The `Geo` arm aborts — and deallocates — cleanly. Its payload is the
+    /// largest of the three, since `FilterGeoReader` owns a boxed `GeoFilter` the
+    /// other two readers do not have, so it is the arm a mis-sized deallocation
+    /// or a leaked `Box` would show up on first.
+    fn geo_aborts_after_range_tree_modified() {
+        let ctx = MockContext::new(0, 0);
+        let tree_ptr: *mut NumericRangeTree = Box::into_raw(Box::new(NumericRangeTree::new(false)));
+        let geo_filter = super::geo_filter_stub();
+        let filter = NumericFilter {
+            geo_filter: ptr::from_ref(&geo_filter).cast(),
+            ..Default::default()
+        };
+        let idx = make_index(&[(1, 1.0), (3, 3.0)]);
+
+        let variant = NumericIteratorVariant::new(
+            idx.reader(),
+            Some(&filter),
+            make_expiration_checker(&ctx),
+            // SAFETY: as in `unfiltered_aborts_after_range_tree_modified`.
+            Some(unsafe { &*tree_ptr }),
+            1.0,
+            5.0,
+        );
+        let guard = ctx.spec_read();
+
+        let active = match Box::new(variant)
+            .suspend()
+            .resume(&guard)
+            .expect("resume failed")
+        {
+            ResumeOutcome::Ok(it) => it,
+            ResumeOutcome::Moved(_) => panic!("an untouched tree cannot move the iterator"),
+            ResumeOutcome::Aborted => panic!("an untouched tree cannot abort the iterator"),
+        };
+        assert!(matches!(&*active, NumericIteratorVariant::Geo(_)));
+
+        let suspended = active.suspend();
+        // SAFETY: as in `unfiltered_aborts_after_range_tree_modified`.
+        unsafe { (*tree_ptr).increment_revision() };
+
+        match suspended.resume(&guard).expect("resume failed") {
+            ResumeOutcome::Aborted => {}
+            ResumeOutcome::Ok(_) | ResumeOutcome::Moved(_) => {
+                panic!("a bumped revision id must abort the resume")
+            }
+        }
+
+        // SAFETY: as in `unfiltered_aborts_after_range_tree_modified`.
+        unsafe { drop(Box::from_raw(tree_ptr)) };
+    }
+
+    // ---- D: the `Moved` path ----
+
+    #[test]
+    #[cfg_attr(
+        miri,
+        ignore = "running GC over the index behind the reader's shared borrow is UB under Stacked \
+                  Borrows; see the module doc"
+    )]
+    /// Deleting the document the iterator is parked on makes the resume land on
+    /// the next document and report `Moved`.
+    fn unfiltered_moved_after_current_document_deleted() {
+        let ctx = MockContext::new(0, 0);
+        // Owned by hand: the iterator must keep reading the index while GC
+        // rewrites it.
+        let idx_ptr: *mut NumericIndex = Box::into_raw(Box::new(make_index(&[
+            (1, 1.0),
+            (3, 3.0),
+            (5, 5.0),
+            (7, 7.0),
+        ])));
+
+        // SAFETY: `idx_ptr` was just created by `Box::into_raw` and outlives the
+        // iterator built from it.
+        let mut variant = NumericIteratorVariant::new(
+            unsafe { &*idx_ptr }.reader(),
+            None,
+            make_expiration_checker(&ctx),
+            None,
+            1.0,
+            7.0,
+        );
+        assert_eq!(
+            variant
+                .read()
+                .expect("read failed")
+                .expect("expected a doc")
+                .doc_id,
+            1
+        );
+        assert_eq!(
+            variant
+                .read()
+                .expect("read failed")
+                .expect("expected a doc")
+                .doc_id,
+            3
+        );
+
+        let suspended = Box::new(variant).suspend();
+        // SAFETY: the suspended iterator holds no live Rust reference into the
+        // index — that is the point of the `Suspended` mode.
+        remove_document(unsafe { &mut *idx_ptr }, 3);
+
+        let guard = ctx.spec_read();
+        let mut active = match suspended.resume(&guard).expect("resume failed") {
+            ResumeOutcome::Moved(it) => it,
+            ResumeOutcome::Ok(_) => panic!("deleting the current document must report Moved"),
+            ResumeOutcome::Aborted => panic!("no range tree was attached, so nothing can abort"),
+        };
+        assert!(matches!(&*active, NumericIteratorVariant::Unfiltered(_)));
+        // `Moved` means "we are no longer where you left us"; the contract is
+        // that `current()` reports where we actually are.
+        assert_eq!(
+            active
+                .current()
+                .expect("a moved iterator is still positioned")
+                .doc_id,
+            5
+        );
+        assert_eq!(active.last_doc_id(), 5);
+        assert_eq!(
+            active
+                .read()
+                .expect("read failed")
+                .expect("expected a doc")
+                .doc_id,
+            7
+        );
+
+        drop(active);
+        // SAFETY: `idx_ptr` came from `Box::into_raw` and every borrow of it is
+        // dead by now.
+        unsafe { drop(Box::from_raw(idx_ptr)) };
+    }
+
+    #[test]
+    /// The variant enum's flags accessor reports the underlying index's flags in
+    /// every arm and every mode — the value FFI introspection reads while the
+    /// iterator is suspended.
+    fn flags_survive_the_cycle() {
+        let ctx = MockContext::new(0, 0);
+        let idx = make_index(&[(1, 1.0)]);
+        let variant = NumericIteratorVariant::new(
+            idx.reader(),
+            None,
+            make_expiration_checker(&ctx),
+            None,
+            1.0,
+            5.0,
+        );
+        assert_eq!(variant.flags(), IndexFlags_Index_StoreNumeric);
+
+        let suspended = Box::new(variant).suspend();
+        assert_eq!(suspended.flags(), IndexFlags_Index_StoreNumeric);
+
+        let guard = ctx.spec_read();
+        let active = match suspended.resume(&guard).expect("resume failed") {
+            ResumeOutcome::Ok(it) => it,
+            ResumeOutcome::Moved(_) | ResumeOutcome::Aborted => {
+                panic!("an untouched index resumes as Ok")
+            }
+        };
+        assert_eq!(active.flags(), IndexFlags_Index_StoreNumeric);
     }
 }
 
