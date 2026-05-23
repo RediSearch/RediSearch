@@ -13,7 +13,7 @@
 
 #include "rmutil/rm_assert.h"
 #include "trie_node.h"
-#include "levenshtein.h"
+#include "dfa_filter.h"
 
 #ifdef __cplusplus
 extern "C" {

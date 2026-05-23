@@ -15,7 +15,7 @@
 #include "util/arr.h"
 #include "util/timeout.h"
 #include "wildcard.h"
-#include "trie/levenshtein.h"
+#include "trie/dfa_filter.h"
 
 static const rune *runenchr(const rune *r, size_t len, rune c) {
   size_t i = 0;
