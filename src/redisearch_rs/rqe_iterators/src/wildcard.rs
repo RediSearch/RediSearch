@@ -913,3 +913,104 @@ impl ProfilePrint for NewWildcardIterator<'_> {
         }
     }
 }
+
+/// Suspended counterpart of [`DiskWildcardIterator`], used as its
+/// [`RQEIteratorBoxed::Suspended`] type.
+///
+/// Wraps the **same trait object** as [`DiskWildcardIterator`] — `dyn
+/// RQEIteratorPrintable`, at the same lifetime. Two things about that are
+/// load-bearing:
+///
+/// * **Same trait.** A `dyn Sub` and a `dyn Super` do *not* share a vtable —
+///   vtable layout is unspecified, and upcasting is a coercion that may load a
+///   different pointer — so a wrapper typed at the [`RQEIterator`] supertrait
+///   would leave the value carrying metadata for the wrong trait.
+/// * **Same lifetime.** The disk iterator is opaque: unlike every other
+///   suspended type in this crate, there is no `Rf` mode to weaken its
+///   index-derived state to raw pointers, so its borrow of the disk spec
+///   necessarily stays live for the whole suspend/resume cycle. That is exactly
+///   what `'query` denotes here (see [`RQESuspendedIterator`]) — borrows that
+///   survive the cycle rather than being re-derived from the guard on resume.
+///   Erasing it to `'static` instead would let safe code suspend an iterator,
+///   drop the disk spec it borrows, and then drop the suspended box, running
+///   the backend's destructor against dangling borrows.
+///
+/// This makes [`suspend`](RQEIteratorBoxed::suspend) a pure newtype wrap with
+/// no lifetime change at all; only [`resume`](RQESuspendedIterator::resume)
+/// adjusts one, shortening `'query` to the guard's lifetime.
+#[repr(transparent)]
+pub struct DiskWildcardSuspended<'query>(pub(crate) Box<dyn RQEIteratorPrintable<'query> + 'query>);
+
+impl<'index> RQEIteratorBoxed<'index> for DiskWildcardIterator<'index> {
+    type Suspended = DiskWildcardSuspended<'index>;
+
+    fn suspend(self: Box<Self>) -> Box<Self::Suspended> {
+        let raw = Box::into_raw(self);
+        // SAFETY: `DiskWildcardIterator<'index>` *is*
+        // `Box<dyn RQEIteratorPrintable<'index> + 'index>` (a type alias), and
+        // `DiskWildcardSuspended<'index>` is a `#[repr(transparent)]` newtype
+        // over that very type — same trait, same lifetime — so this is a
+        // newtype wrap rather than any reinterpretation of the value.
+        // `Box::from_raw` reuses the same heap allocation.
+        unsafe { Box::from_raw(raw as *mut DiskWildcardSuspended<'index>) }
+    }
+}
+
+impl<'query> RQESuspendedIterator<'query> for DiskWildcardSuspended<'query> {
+    type Resumed<'a>
+        = DiskWildcardIterator<'a>
+    where
+        'query: 'a;
+
+    fn resume<'a>(
+        self: Box<Self>,
+        spec: &IndexSpecReadGuard<'a>,
+    ) -> Result<ResumeOutcome<Box<Self::Resumed<'a>>>, RQEIteratorError>
+    where
+        'query: 'a,
+    {
+        let raw = Box::into_raw(self);
+        // SAFETY: unwraps the `#[repr(transparent)]` newtype and shortens the
+        // inner trait object's lifetime from `'query` to the caller's `'a`,
+        // which `'query: 'a` permits. The cast is needed because `'index`
+        // appears behind `&mut` in [`RQEIterator::current`]'s return type, which
+        // makes `dyn RQEIteratorPrintable<'index>` invariant and so blocks the
+        // implicit coercion; shortening is nonetheless sound, since a value
+        // valid for `'query` is valid for any shorter `'a`.
+        // `Box::from_raw` reuses the same heap allocation.
+        let mut active = unsafe { Box::from_raw(raw as *mut DiskWildcardIterator<'a>) };
+        // Drive validity recovery through the inner trait object's
+        // `revalidate` callback — the same path the legacy
+        // `Suspendable::resume` used. Reduce the borrowing `RQEValidateStatus`
+        // to a `Copy` status discriminant first so the mutable borrow of
+        // `active` ends before we move it into the outcome; propagate a
+        // revalidate error (e.g. timeout) rather than masking it.
+        let status = match active.revalidate(spec)? {
+            RQEValidateStatus::Ok => ffi::ValidateStatus_VALIDATE_OK,
+            RQEValidateStatus::Moved { .. } => ffi::ValidateStatus_VALIDATE_MOVED,
+            RQEValidateStatus::Aborted => ffi::ValidateStatus_VALIDATE_ABORTED,
+        };
+        Ok(match status {
+            ffi::ValidateStatus_VALIDATE_OK => ResumeOutcome::Ok(active),
+            ffi::ValidateStatus_VALIDATE_MOVED => ResumeOutcome::Moved(active),
+            // `Aborted`: `active` is not moved into the outcome, so the inner
+            // trait object drops here.
+            _ => ResumeOutcome::Aborted,
+        })
+    }
+
+    fn last_doc_id(&self) -> DocId {
+        // Forwards into the backend iterator, which `'query` keeps borrow-checked
+        // for the whole suspend window, so the dispatch and the receiver are both
+        // sound. What is *not* type-enforced is that the backend answers from
+        // cached state: `RQEIterator` does not require it, and a backend that
+        // recomputed this from the disk spec would be reading it with the index
+        // spec lock released. Every implementation in the workspace caches.
+        RQEIterator::last_doc_id(&*self.0)
+    }
+
+    fn num_estimated(&self) -> usize {
+        // Cached count — see `last_doc_id`, including the caveat.
+        RQEIterator::num_estimated(&*self.0)
+    }
+}
