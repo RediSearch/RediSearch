@@ -235,14 +235,20 @@ pub unsafe extern "C" fn GetMetricType(header: *const QueryIterator) -> MetricTy
             let wrapper = unsafe {
                 RQEIteratorWrapper::<MetricLazySortedById>::ref_from_header_ptr(header)
             };
-            wrapper.inner().metric_type()
+            match wrapper.state() {
+                InnerState::Active(it) => it.metric_type(),
+                InnerState::Suspended(it) => it.metric_type(),
+            }
         }
         IteratorType::MetricLazySortedByScore => {
             // SAFETY: Safe thanks to 1 + 2.
             let wrapper = unsafe {
                 RQEIteratorWrapper::<MetricLazySortedByScore>::ref_from_header_ptr(header)
             };
-            wrapper.inner().metric_type()
+            match wrapper.state() {
+                InnerState::Active(it) => it.metric_type(),
+                InnerState::Suspended(it) => it.metric_type(),
+            }
         }
         _ => unreachable!(
             "expected a metric iterator, either sorted by ID or Score (metric value): unexpected type: {iterator_type}"

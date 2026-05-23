@@ -408,6 +408,23 @@ impl<'index> RQEIterator<'index> for TypeErasedRQEIterator<'index> {
     }
 }
 
+/// Forwarding [`ProfilePrint`](crate::profile_print::ProfilePrint) impl so [`TypeErasedRQEIterator`] satisfies the
+/// `ProfilePrint` bound expected by [`crate::interop::RQEIteratorWrapper::boxed_new`].
+///
+/// Prints a generic "BOXED" leaf — the dyn-erased layer doesn't know the
+/// concrete iterator's profile representation. Composites that wrap children
+/// in [`TypeErasedRQEIterator`] for their hot-path uniformity should print their
+/// own enclosing label and rely on the C side for child enumeration.
+impl crate::profile_print::ProfilePrint for TypeErasedRQEIterator<'_> {
+    fn print_profile(
+        &self,
+        map: &mut redis_reply::MapBuilder<'_>,
+        ctx: &mut crate::profile_print::ProfilePrintCtx<'_>,
+    ) {
+        ctx.print_leaf(c"BOXED", map);
+    }
+}
+
 /// Forwarding [`RQEIteratorBoxed`] impl so [`TypeErasedRQEIterator`] also
 /// participates in the new suspend/resume surface (its `Suspended`
 /// counterpart is [`TypeErasedRQESuspendedIterator`]).

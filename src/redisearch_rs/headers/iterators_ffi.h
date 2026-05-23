@@ -242,7 +242,7 @@ void Hybrid_PrintProfile(const QueryIterator *self_, struct MapBuilder *map, str
  *
  * - If `child` is null or an empty iterator, a wildcard iterator is returned instead (all results will be virtual hits).
  * - If `child` is a wildcard iterator, it is returned as-is with `weight` applied.
- * - Otherwise, an [`Optional`] or [`OptionalOptimized`]
+ * - Otherwise, an [`Optional`] or [`OptionalOptimized`](rqe_iterators::optional_optimized::OptionalOptimized)
  *   iterator is constructed based on whether `q.sctx.spec.rule.index_all` is set.
  *
  * # Safety

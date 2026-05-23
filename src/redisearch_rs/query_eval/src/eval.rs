@@ -20,7 +20,7 @@ use inverted_index::NumericFilter;
 use query_error::QueryErrorCode;
 use rqe_core::DocId;
 use rqe_iterators::{
-    Empty, RQEIteratorPrintable, build_geo_range_iterator, build_numeric_filter_iterator,
+    Empty, build_geo_range_iterator, build_numeric_filter_iterator,
     c2rust::CRQEIterator,
     id_list::IdListSorted,
     interop::RQEIteratorWrapper,
@@ -51,7 +51,7 @@ pub struct Config {
 /// The return type of [`eval_node`]: a boxed Rust iterator that implements
 /// both [`RQEIterator`](rqe_iterators::RQEIterator) and
 /// [`ProfilePrint`](rqe_iterators::profile_print::ProfilePrint).
-pub type EvalResult<'index> = Box<dyn RQEIteratorPrintable<'index> + 'index>;
+pub type EvalResult<'index> = rqe_iterators::TypeErasedRQEIterator<'index>;
 
 /// The outcome of evaluating a query node.
 ///
@@ -150,7 +150,9 @@ impl<'index> Evaluated<'index> {
                 // `ffi::Query_EvalNode`, `Evaluated::RustCompound` from
                 // `RQEIteratorWrapper::boxed_new_compound` — exactly the
                 // preconditions of `CRQEIterator::new`.
-                Box::new(unsafe { CRQEIterator::new(it) })
+                rqe_iterators::TypeErasedRQEIterator::new(Box::new(unsafe {
+                    CRQEIterator::new(it)
+                }))
             }
         }
     }
@@ -165,7 +167,9 @@ pub fn qast_iterate<'index>(
     root: &QueryNodeRef,
     config: Config,
 ) -> Evaluated<'index> {
-    eval_node(ctx, root, config).unwrap_or_else(|| Evaluated::RustLeaf(Box::new(Empty)))
+    eval_node(ctx, root, config).unwrap_or_else(|| {
+        Evaluated::RustLeaf(rqe_iterators::TypeErasedRQEIterator::new(Box::new(Empty)))
+    })
 }
 
 /// Evaluate a single query node, producing the corresponding iterator.
@@ -237,7 +241,7 @@ fn eval_child_iterator(
 
 /// `QN_NULL` — stopword queries produce an empty iterator.
 fn eval_null<'index>() -> Evaluated<'index> {
-    Evaluated::RustLeaf(Box::new(Empty))
+    Evaluated::RustLeaf(rqe_iterators::TypeErasedRQEIterator::new(Box::new(Empty)))
 }
 
 /// `QN_WILDCARD` — the `*` query that matches every document.
@@ -262,7 +266,7 @@ fn eval_wildcard<'index>(
     // 8. `SEARCH_ENTERPRISE_ITERATORS` is initialised when `diskSpec` is
     //    non-null — the enterprise module sets it during `OnLoad`.
     let it = unsafe { rqe_iterators::wildcard::new_wildcard_iterator(ctx.as_non_null(), weight) };
-    Evaluated::RustLeaf(Box::new(it))
+    Evaluated::RustLeaf(rqe_iterators::TypeErasedRQEIterator::new(Box::new(it)))
 }
 
 /// `QN_IDS` — filter by explicit document key names.
@@ -319,9 +323,8 @@ fn eval_ids<'index>(
         ids.dedup();
     }
 
-    Evaluated::RustLeaf(Box::new(IdListSorted::with_result(
-        ids,
-        RSIndexResult::build_virt().weight(1.0).build(),
+    Evaluated::RustLeaf(rqe_iterators::TypeErasedRQEIterator::new(Box::new(
+        IdListSorted::with_result(ids, RSIndexResult::build_virt().weight(1.0).build()),
     )))
 }
 
@@ -405,7 +408,7 @@ fn eval_optional<'index>(
     match outcome {
         // The child was structurally empty: the reducer built a fresh Rust
         // wildcard leaf so every document is returned as a virtual hit.
-        NewOptionalIterator::WildcardFallback(wc) => Evaluated::RustLeaf(Box::new(wc)),
+        NewOptionalIterator::WildcardFallback(wc) => Evaluated::RustLeaf(rqe_iterators::TypeErasedRQEIterator::new(Box::new(wc))),
         // The optional collapsed to its already-lowered wildcard child: hand the
         // child's owning handle straight back, exactly as the former C path did,
         // so the C-side optimizer/profiler keep seeing the original iterator. A
@@ -479,8 +482,10 @@ fn eval_not<'index>(
         )
     };
     match outcome {
-        NewNotIterator::ReducedWildcard(wc) => Evaluated::RustLeaf(Box::new(wc)),
-        NewNotIterator::ReducedEmpty(empty) => Evaluated::RustLeaf(Box::new(empty)),
+        NewNotIterator::ReducedWildcard(wc) => Evaluated::RustLeaf(rqe_iterators::TypeErasedRQEIterator::new(Box::new(wc))),
+        NewNotIterator::ReducedEmpty(empty) => {
+            Evaluated::RustLeaf(rqe_iterators::TypeErasedRQEIterator::new(Box::new(empty)))
+        }
         NewNotIterator::Not(it) => Evaluated::RustCompound(
             NonNull::new(RQEIteratorWrapper::boxed_new_compound(it))
                 .expect("not iterator must not be null"),
@@ -557,7 +562,7 @@ fn eval_phrase<'index>(
     }
 
     let result_ptr = match new_intersection_iterator(children) {
-        NewIntersectionIterator::Empty => return Some(Evaluated::RustLeaf(Box::new(Empty))),
+        NewIntersectionIterator::Empty => return Some(Evaluated::RustLeaf(rqe_iterators::TypeErasedRQEIterator::new(Box::new(Empty)))),
         NewIntersectionIterator::Single(child) => child.into_raw().as_ptr(),
         NewIntersectionIterator::Proceed(cs) => {
             let intersection = Intersection::new_with_slop_order(
