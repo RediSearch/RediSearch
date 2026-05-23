@@ -61,6 +61,7 @@ mod timeout_context;
 mod union_common;
 mod union_flat;
 mod union_heap;
+mod union_opaque;
 mod union_reducer;
 mod union_trimmed;
 mod wildcard;
