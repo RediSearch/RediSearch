@@ -11,12 +11,16 @@
 
 use std::time::Duration;
 
-use ffi::{RS_FIELDMASK_ALL, t_docId};
+use ffi::{
+    RS_FIELDMASK_ALL, ValidateStatus, ValidateStatus_VALIDATE_ABORTED, ValidateStatus_VALIDATE_MOVED,
+    ValidateStatus_VALIDATE_OK, t_docId,
+};
 use index_result::{RSIndexResult, RawIndexResult};
-use ref_mode::{Active, Ref};
+use ref_mode::{Active, Ref, Suspended};
 
 use crate::{
-    IteratorType, RQEIterator, RQEIteratorError, RQEValidateStatus, SkipToOutcome,
+    IteratorType, RQEIterator, RQEIteratorBoxed, RQEIteratorError, RQESuspendedIterator,
+    RQEValidateStatus, SkipToOutcome,
     WildcardIterator, maybe_empty::MaybeEmpty, not::NotIterator, utils::TimeoutContext,
 };
 use index_spec::IndexSpecReadGuard;
@@ -349,6 +353,122 @@ where
 
     fn intersection_sort_weight(&self, _prioritize_union_children: bool) -> f64 {
         1.0
+    }
+}
+
+impl<'index, W, I> RQEIteratorBoxed<'index> for NotOptimized<'index, W, I>
+where
+    W: WildcardIterator<'index> + RQEIteratorBoxed<'index>,
+    for<'a> <W::Suspended as RQESuspendedIterator>::Resumed<'a>:
+        WildcardIterator<'a> + RQEIteratorBoxed<'a, Suspended = W::Suspended>,
+    I: RQEIteratorBoxed<'index>,
+{
+    type Suspended = RawNotOptimized<Suspended, W::Suspended, I::Suspended>;
+
+    fn suspend(self: Box<Self>) -> Box<Self::Suspended> {
+        let raw = Box::into_raw(self);
+        // SAFETY: `RawNotOptimized` is `#[repr(C)]`. The only `Rf`-dependent
+        // field is `result: RawIndexResult<Rf>` (layout-compatible via
+        // `SharedPtr` transparency). `W`/`I` are layout-compatible with
+        // `W::Suspended`/`I::Suspended` by the [`RQEIteratorBoxed`]
+        // contract; `MaybeEmpty<I>` likewise (see [`MaybeEmpty::suspend`]).
+        // Box::from_raw reuses the same heap allocation.
+        unsafe {
+            Box::from_raw(raw as *mut RawNotOptimized<Suspended, W::Suspended, I::Suspended>)
+        }
+    }
+}
+
+impl<WS, IS> RQESuspendedIterator for RawNotOptimized<Suspended, WS, IS>
+where
+    WS: RQESuspendedIterator,
+    for<'a> WS::Resumed<'a>: WildcardIterator<'a> + RQEIteratorBoxed<'a, Suspended = WS>,
+    IS: RQESuspendedIterator,
+{
+    type Resumed<'a> = NotOptimized<'a, WS::Resumed<'a>, IS::Resumed<'a>>;
+
+    fn resume<'a>(
+        self: Box<Self>,
+        guard: &'a IndexSpecReadGuard<'a>,
+    ) -> (Box<Self::Resumed<'a>>, ValidateStatus) {
+        let RawNotOptimized {
+            wcii,
+            child,
+            max_doc_id,
+            forced_eof,
+            result,
+            timeout_ctx,
+        } = *self;
+
+        let (wcii, wcii_status) = Box::new(wcii).resume(guard);
+        let (child, child_status) = Box::new(child).resume(guard);
+
+        let child = if child_status == ValidateStatus_VALIDATE_ABORTED {
+            MaybeEmpty::new_empty()
+        } else {
+            *child
+        };
+
+        if wcii_status == ValidateStatus_VALIDATE_ABORTED {
+            // SAFETY: `NotOptimized`'s `result` is a virtual sentinel built
+            // via `build_virt()` — no aliased pointers to validate. The
+            // `Active<'a>` re-typing is unconditionally sound.
+            let result = unsafe { result.into_active::<'a>() };
+            let active = Box::new(NotOptimized {
+                wcii: *wcii,
+                child,
+                max_doc_id,
+                forced_eof,
+                result,
+                timeout_ctx,
+            });
+            return (active, ValidateStatus_VALIDATE_ABORTED);
+        }
+
+        let _ = child_status;
+
+        // SAFETY: see above.
+        let result = unsafe { result.into_active::<'a>() };
+
+        let mut active = Box::new(NotOptimized {
+            wcii: *wcii,
+            child,
+            max_doc_id,
+            forced_eof,
+            result,
+            timeout_ctx,
+        });
+
+        #[expect(non_upper_case_globals, reason = "bindgen-generated constants")]
+        let status = match wcii_status {
+            ValidateStatus_VALIDATE_MOVED => {
+                active.forced_eof = active.wcii.at_eof();
+                let mut have_valid_pos = !active.forced_eof;
+                if have_valid_pos {
+                    active.result.doc_id = active.wcii.last_doc_id();
+                    if active.child.last_doc_id() < active.result.doc_id {
+                        let _ = active.child.skip_to(active.result.doc_id);
+                    }
+                    if active.child.last_doc_id() == active.result.doc_id {
+                        if let Ok(found) = active.read_inner() {
+                            have_valid_pos = found;
+                        } else {
+                            active.forced_eof = false;
+                            have_valid_pos = false;
+                        }
+                    }
+                }
+                let _ = have_valid_pos;
+                ValidateStatus_VALIDATE_MOVED
+            }
+            _ => ValidateStatus_VALIDATE_OK,
+        };
+
+        (active, status)
+    }
+
+    fn last_doc_id(&self) -> t_docId {
+        self.result.doc_id
     }
 }
 
