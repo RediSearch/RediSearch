@@ -105,21 +105,12 @@ impl<Data> RuneTrieMap<Data> {
 
     pub fn iterate_range<'a>(
         &'a self,
-        _as_deref_1: Option<&[u16]>,
-        _include_min: bool,
-        _as_deref_2: Option<&[u16]>,
-        _include_max: bool,
+        min: Option<&[Rune]>,
+        include_min: bool,
+        max: Option<&[Rune]>,
+        include_max: bool,
     ) -> RuneTrieMapRangeIter<'a, Data> {
-        let rf = RangeFilter {
-            min: Some(RangeBoundary::included(&rune_to_bytes(
-                _as_deref_1.unwrap(),
-            ))),
-            max: Some(RangeBoundary::included(&rune_to_bytes(
-                _as_deref_2.unwrap(),
-            ))),
-        };
-
-        RuneTrieMapRangeIter(self.inner.range_iter(rf))
+        RuneTrieMapRangeIter::new(&self.inner, min, include_min, max, include_max)
     }
 
     pub fn iterate_wildcard(&self, _buf: &[u16]) -> RuneTrieMapIter<'_, Data> {
@@ -149,13 +140,65 @@ impl<'a, Data> Iterator for RuneTrieMapContainsIter<'a, Data> {
     }
 }
 
-pub struct RuneTrieMapRangeIter<'a, Data>(iter::RangeIter<'a, Data>);
+pub struct RuneTrieMapRangeIter<'a, Data> {
+    // `inner` MUST be declared before `_bytes`. Rust drops struct fields in
+    // declaration order, so this ordering guarantees that `inner` (which holds
+    // `&[u8]` references into the boxes) is dropped strictly before the boxes
+    // are deallocated. Reordering these fields breaks the SAFETY argument in
+    // `new`.
+    inner: iter::RangeIter<'a, Data>,
+    _bytes: (Option<Box<[u8]>>, Option<Box<[u8]>>),
+}
+
+impl<'a, Data> RuneTrieMapRangeIter<'a, Data> {
+    fn new(
+        trie: &'a TrieMap<Data>,
+        min: Option<&[Rune]>,
+        include_min: bool,
+        max: Option<&[Rune]>,
+        include_max: bool,
+    ) -> Self {
+        let min_bytes: Option<Box<[u8]>> = min.map(|m| rune_to_bytes(m).into_boxed_slice());
+        let max_bytes: Option<Box<[u8]>> = max.map(|m| rune_to_bytes(m).into_boxed_slice());
+
+        // SAFETY:
+        // - `min_bytes` / `max_bytes` are heap-allocated `Box<[u8]>` stored as
+        //   fields of the returned `RuneTrieMapRangeIter`. The heap allocation
+        //   has a stable address that is not invalidated by moves of the
+        //   wrapper struct.
+        // - `inner` is declared before `_bytes`, so Rust drops `inner` strictly
+        //   before the boxes are deallocated.
+        // - `inner` is a private field of a struct whose only public surface is
+        //   `Iterator::next`, so the `&'a [u8]` references inside it never
+        //   escape the wrapper.
+        // - The wrapper lives for at most `'a` (bounded by `trie: &'a TrieMap`),
+        //   so extending the slice lifetime to `'a` does not allow any use that
+        //   outlives the boxes.
+        let extend = |b: &Box<[u8]>| -> &'a [u8] { unsafe { &*(b.as_ref() as *const [u8]) } };
+
+        let filter = RangeFilter {
+            min: min_bytes.as_ref().map(|b| RangeBoundary {
+                value: extend(b),
+                is_included: include_min,
+            }),
+            max: max_bytes.as_ref().map(|b| RangeBoundary {
+                value: extend(b),
+                is_included: include_max,
+            }),
+        };
+
+        Self {
+            inner: trie.range_iter(filter),
+            _bytes: (min_bytes, max_bytes),
+        }
+    }
+}
 
 impl<'a, Data> Iterator for RuneTrieMapRangeIter<'a, Data> {
     type Item = (Vec<Rune>, &'a Data);
 
     fn next(&mut self) -> Option<Self::Item> {
-        self.0.next().map(|(k, v)| (bytes_to_rune(&k), v))
+        self.inner.next().map(|(k, v)| (bytes_to_rune(&k), v))
     }
 }
 
