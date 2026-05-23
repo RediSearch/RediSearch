@@ -58,7 +58,7 @@ entries:
 Trie_InsertStringBuffer("appl", score=9, numDocs=10, ADD_REPLACE)
 size: 6
 entries:
-  appl        score=9  numDocs=14
+  appl        score=9  numDocs=10
   apple       score=1  numDocs=3
   apply       score=1  numDocs=2
   b           score=1  numDocs=5

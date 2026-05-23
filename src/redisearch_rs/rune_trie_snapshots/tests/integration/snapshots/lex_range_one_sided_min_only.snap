@@ -8,8 +8,5 @@ query: [b, +inf)  min="b" (inc=true)  max="<none>" (inc=true)
   banana      numDocs=1
   band        numDocs=1
   bandana     numDocs=1
-  banana      numDocs=1
-  band        numDocs=1
-  bandana     numDocs=1
   cherry      numDocs=1
   date        numDocs=1
