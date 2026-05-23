@@ -62,7 +62,7 @@ void HREQ_StoreResults(HybridRequest *hreq, SearchResult **results, int rc, cach
 
 /**
  * Helper for error handling in coordinator HREQ execution.
- * For FAIL policy (useReplyCallback=true): stores error for reply_callback to handle.
+ * For deferred-reply mode: stores error for reply_callback to handle.
  * For RETURN policy: replies with error directly.
  */
 void HREQ_ReplyOrStoreError(HybridRequest *hreq, RedisModuleCtx *ctx, QueryError *status);

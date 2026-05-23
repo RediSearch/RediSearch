@@ -81,7 +81,7 @@ typedef struct {
   cachedVars cv;           // Cached lookup variables for result serialization
   /**
    * NON-OWNING cursor handle for reply_callback path.
-   * See ownership model above. This is set in runCursor() when useReplyCallback is true,
+   * See ownership model above. This is set in runCursor() in deferred-reply mode,
    * and cleared by QueryReplyCallback after it handles cursor pause/free.
    * If timeout fires first, ChunkReplyState_Destroy cleans this up.
    */
@@ -200,10 +200,7 @@ typedef struct RequestSyncCtx {
   RS_Atomic(bool) timedOut;
   // Temporary bridge until cursor ownership transfer moves fully into OnFree.
   bool blockedNodeOwns;
-  // Reply mode for the current compatibility cycle. Mirrored to the request until
-  // BeginCycle can derive the mode from the reply callback.
-  bool useReplyCallback;
-  ChunkReplyState storedReplyState;
+  ChunkReplyState reply;
   RedisModuleBlockedClient *bc;
   RedisModuleCmdFunc replyCallback;
   DLLIST_node blockedNode;
@@ -241,9 +238,8 @@ static inline void RequestSyncCtx_Init(RequestSyncCtx *ctx, RequestKind kind, vo
   }
   ctx->timedOut = false;
   ctx->blockedNodeOwns = false;
-  ctx->useReplyCallback = false;
-  ctx->storedReplyState = (ChunkReplyState){0};
-  ctx->storedReplyState.err = QueryError_Default();
+  ctx->reply = (ChunkReplyState){0};
+  ctx->reply.err = QueryError_Default();
   ctx->bc = NULL;
   ctx->replyCallback = NULL;
   ctx->cycleKind = REQUEST_CYCLE_NONE;
@@ -271,8 +267,8 @@ void RequestSyncCtx_OnFree(RedisModuleCtx *ctx, void *privdata);
 AREQ *RequestSyncCtx_GetAREQ(RequestSyncCtx *ctx);
 HybridRequest *RequestSyncCtx_GetHybridRequest(RequestSyncCtx *ctx);
 AREQ *RequestSyncCtx_GetCursorAREQ(RequestSyncCtx *ctx, uint64_t cursorId);
-bool RequestSyncCtx_UseReplyCallback(RequestSyncCtx *ctx);
-void RequestSyncCtx_SetUseReplyCallback(RequestSyncCtx *ctx, bool useReplyCallback);
+bool RequestSyncCtx_HasReplyCallback(RequestSyncCtx *ctx);
+void RequestSyncCtx_SetLegacyDeferredReplyMode(RequestSyncCtx *ctx, bool deferredReply);
 ChunkReplyState *RequestSyncCtx_GetReplyState(RequestSyncCtx *ctx);
 
 // Release resources owned by a RequestSyncCtx. Must be called exactly once

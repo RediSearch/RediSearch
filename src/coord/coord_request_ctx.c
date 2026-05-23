@@ -78,9 +78,9 @@ void CoordRequestCtx_SetRequest(CoordRequestCtx *ctx, void *req) {
 
   // Propagate reply mode to the request sync context.
   if (ctx->type == COMMAND_HYBRID) {
-    RequestSyncCtx_SetUseReplyCallback(((HybridRequest *)req)->syncCtx, ctx->useReplyCallback);
+    RequestSyncCtx_SetLegacyDeferredReplyMode(((HybridRequest *)req)->syncCtx, ctx->useReplyCallback);
   } else if (ctx->type == COMMAND_AGGREGATE) {
-    RequestSyncCtx_SetUseReplyCallback(((AREQ *)req)->syncCtx, ctx->useReplyCallback);
+    RequestSyncCtx_SetLegacyDeferredReplyMode(((AREQ *)req)->syncCtx, ctx->useReplyCallback);
   } else {
     COORD_REQUEST_CTX_UNSUPPORTED_TYPE();
   }

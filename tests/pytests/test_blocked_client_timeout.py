@@ -906,7 +906,7 @@ class TestCoordinatorTimeout:
     def test_no_timeout_cursor(self):
         """
         Test that FAIL policy doesn't break cursor reads when there is no timeout.
-        This verifies that useReplyCallback is properly cleared for cursor reads,
+        This verifies that deferred reply mode does not leak into inline cursor reads,
         since cursor reads use BlockCursorClientWithTimeout which has no reply_callback.
         """
         env = self.env
@@ -2671,7 +2671,7 @@ class TestCoordinatorTimeout:
         blocked_client_id = wait_for_blocked_query_client(env, 'FT.AGGREGATE')
 
         # Wait for BG to park in the "pause after store" loop. At this point
-        # the sorter has fully drained and storedReplyState.results carries
+        # the sorter has fully drained and rsc->reply.results carries
         # the complete, sorted result set.
         wait_for_condition(
             lambda: (getIsStoreResultsPaused(env) == 1, {'paused': getIsStoreResultsPaused(env)}),
@@ -2753,7 +2753,7 @@ class TestCoordinatorTimeout:
         blocked_client_id = wait_for_blocked_query_client(env, 'FT.AGGREGATE')
 
         # Wait for BG to park in the "pause after store" loop. At this point
-        # AREQ_StoreResults has populated storedReplyState.results but
+        # AREQ_StoreResults has populated rsc->reply.results but
         # AREQ_SignalAggregateResultsComplete has not been called yet.
         wait_for_condition(
             lambda: (getIsStoreResultsPaused(env) == 1, {'paused': getIsStoreResultsPaused(env)}),
@@ -4634,7 +4634,7 @@ class TestShardTimeout:
     def test_no_timeout_cursor(self):
         """
         Test that FAIL policy doesn't break cursor reads when there is no timeout.
-        This verifies that useReplyCallback is properly cleared for cursor reads,
+        This verifies that deferred reply mode does not leak into inline cursor reads,
         since cursor reads use BlockCursorClientWithTimeout which has no reply_callback.
         """
         env = self.env
@@ -4835,7 +4835,7 @@ class TestShardTimeout:
 
         Drops the index while the ``cursorRead_ctx`` job is queued in the
         worker pool, so the worker takes the dropped-spec branch in
-        ``cursorRead`` and stores the error on ``storedReplyState.err``.
+        ``cursorRead`` and stores the error on ``rsc->reply.err``.
         ``CursorReadReplyCallback`` then has no stored results and falls
         into the ``QueryError_HasError`` branch, replying with the stored
         error.

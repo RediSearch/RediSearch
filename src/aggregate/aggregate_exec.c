@@ -727,7 +727,7 @@ static void sendChunk_Resp2(AREQ *req, RedisModule_Reply *reply, size_t limit,
 
     startPipeline(req, rp, &state.results, &r, &rc);
 
-    if (RequestSyncCtx_UseReplyCallback(req->syncCtx)) {
+    if (RequestSyncCtx_HasReplyCallback(req->syncCtx)) {
       // Store results for reply_callback (includes cv and limit)
       debugPauseStoreResults(req, true);  // pause before
       AREQ_StoreResults(req, state.results, rc, cv, limit);
@@ -943,7 +943,7 @@ static void sendChunk_Resp3(AREQ *req, RedisModule_Reply *reply, size_t limit,
 
     startPipeline(req, rp, &state.results, &r, &rc);
 
-    if (RequestSyncCtx_UseReplyCallback(req->syncCtx)) {
+    if (RequestSyncCtx_HasReplyCallback(req->syncCtx)) {
       // Store results for reply_callback (includes cv and limit)
       debugPauseStoreResults(req, true);  // pause before
       AREQ_StoreResults(req, state.results, rc, cv, limit);
@@ -1173,10 +1173,10 @@ static void blockedClientReqCtx_destroy(blockedClientReqCtx *BCRctx) {
 }
 
 // Helper for error handling in AREQ_Execute_Callback.
-// For FAIL policy (useReplyCallback=true): stores error for QueryReplyCallback to handle.
+// For deferred-reply mode: stores error for QueryReplyCallback to handle.
 // For RETURN policy: replies with error directly.
 void AREQ_ReplyOrStoreError(AREQ *req, RedisModuleCtx *ctx, QueryError *status) {
-  if (RequestSyncCtx_UseReplyCallback(req->syncCtx)) {
+  if (RequestSyncCtx_HasReplyCallback(req->syncCtx)) {
     ChunkReplyState *stored = RequestSyncCtx_GetReplyState(req->syncCtx);
     // Clear destination before cloning to avoid leaking any existing error strings.
     // Deep copy since QueryError contains heap-allocated strings.
@@ -1929,10 +1929,10 @@ int AREQ_StartCursor(AREQ *r, RedisModule_Reply *reply, StrongRef spec_ref, Quer
 static void runCursor(RedisModule_Reply *reply, Cursor *cursor, size_t num) {
   AREQ *req = Cursor_GetAREQ(cursor);
   AREQ_ProfilePrinterCtx(req)->cursor_reads++;
-  // Skip when useReplyCallback is set (coord+FAIL): the deadline is owned by
+  // Skip in deferred-reply mode (coord+FAIL): the deadline is owned by
   // the blocked-client timer, armed by buildPipelineAndExecute (initial
   // WITHCURSOR) or CursorCommand (subsequent READ).
-  if (!RequestSyncCtx_UseReplyCallback(req->syncCtx)) {
+  if (!RequestSyncCtx_HasReplyCallback(req->syncCtx)) {
     SearchCtx_UpdateTime(AREQ_SearchCtx(req), req->reqConfig.queryTimeoutMS);
   }
 
@@ -1948,13 +1948,13 @@ static void runCursor(RedisModule_Reply *reply, Cursor *cursor, size_t num) {
   // Debug: pin coord+FAIL worker before sendChunk so tests can fire the
   // blocked-client timeout; break out of the wait once the timeout callback
   // has marked the AREQ as timed out.
-  if (RequestSyncCtx_UseReplyCallback(req->syncCtx)) {
+  if (RequestSyncCtx_HasReplyCallback(req->syncCtx)) {
     SyncPoint_WaitUntil(SYNC_POINT_BEFORE_CURSOR_READ_SEND_CHUNK,
                         areq_timed_out, req);
   }
 #endif
 
-  if (RequestSyncCtx_UseReplyCallback(req->syncCtx)) {
+  if (RequestSyncCtx_HasReplyCallback(req->syncCtx)) {
     // Stash the cursor BEFORE sendChunk: sendChunk's signal can wake the
     // timeout_callback, which reads the stored cursor to pause/free it.
     RequestSyncCtx_GetReplyState(req->syncCtx)->cursor = cursor;
@@ -1963,7 +1963,7 @@ static void runCursor(RedisModule_Reply *reply, Cursor *cursor, size_t num) {
   sendChunk(req, reply, num);
   RedisSearchCtx_UnlockSpec(AREQ_SearchCtx(req)); // Verify that we release the spec lock
 
-  if (RequestSyncCtx_UseReplyCallback(req->syncCtx)) {
+  if (RequestSyncCtx_HasReplyCallback(req->syncCtx)) {
     // Disposal of the stashed cursor is owned by AREQ_ReplyWithStoredResults.
     return;
   }
@@ -2047,9 +2047,6 @@ static void cursorRead(RedisModuleCtx *ctx, Cursor *cursor, size_t count, bool b
   }
 
   if (req) {
-    // Reply mode is authoritative from the caller: RSCursorReadCommand either
-    // attaches a CoordRequestCtx (coord + FAIL path) which propagates the flag,
-    // or clears it before invoking cursorRead.
     RedisModule_Reply _reply = RedisModule_NewReply(ctx), *reply = &_reply;
     runCursor(reply, cursor, count);
     RedisModule_EndReply(reply);
@@ -2128,7 +2125,7 @@ int RSCursorReadCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc)
       ? (CoordRequestCtx *)RedisModule_BlockClientGetPrivateData(upstreamBC)
       : NULL;
   // Only the coord+FAIL path meets the precondition for
-  // CoordRequestCtx_ReplyOrStoreError (useReplyCallback == true).
+  // CoordRequestCtx_ReplyOrStoreError (deferred-reply mode).
   RS_ASSERT(!reqCtx || reqCtx->useReplyCallback);
   // Reused across all coord+FAIL early-error sites below.
   QueryError err = QueryError_Default();
@@ -2206,10 +2203,6 @@ int RSCursorReadCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc)
       replyCallback = CursorReadReplyCallback;
       timeoutCallback = CursorReadTimeoutFailCallback;
       timeoutMS = (rs_wall_clock_ms_t)cursor->queryTimeoutMS;
-    } else {
-      // Non-FAIL: reply written inline; clear any stale useReplyCallback
-      // from a prior FAIL FT.AGGREGATE so runCursor doesn't park the cursor.
-      RequestSyncCtx_SetUseReplyCallback(Cursor_GetAREQ(cursor)->syncCtx, false);
     }
     CursorReadCtx *cr_ctx = rm_new(CursorReadCtx);
     cr_ctx->bc = BlockCursorClientWithTimeout(ctx, cursor, count, cursor->query,
@@ -2234,12 +2227,9 @@ int RSCursorReadCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc)
         Cursor_Free(cursor);
         return REDISMODULE_OK;
       }
-      // Attach AREQ to the ctx (IncrRefs, propagates reply mode/timedOut).
+      // Attach AREQ to the ctx (propagates reply mode/timedOut).
       CoordRequestCtx_SetRequest(reqCtx, Cursor_GetAREQ(cursor));
       CoordRequestCtx_UnlockSetRequest(reqCtx);
-    } else if (Cursor_GetAREQ(cursor)) {
-      // Sub-cases (2) and (3): reply inline via ctx; clear stale useReplyCallback.
-      RequestSyncCtx_SetUseReplyCallback(Cursor_GetAREQ(cursor)->syncCtx, false);
     }
     cursorRead(ctx, cursor, count, false);
   }
