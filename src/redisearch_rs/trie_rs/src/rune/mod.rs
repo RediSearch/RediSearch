@@ -94,6 +94,16 @@ impl<Data> RuneTrieMap<Data> {
             ));
         }
 
+        // Pure-prefix mode (`prefix && !suffix`) mirrors the C branch at
+        // src/trie/trie_node.c:1066: locate the subtree root for the prefix
+        // and iterate the whole subtree. `TrieMap::prefixed_iter` already
+        // performs that subtree descent via `find_root_for_prefix`.
+        if prefix && !suffix {
+            return RuneTrieMapContainsIter(RuneTrieMapContainsIterKind::Prefix(
+                self.inner.prefixed_iter(&rune_to_bytes(target)),
+            ));
+        }
+
         let target_bytes: Box<[u8]> = rune_to_bytes(target).into_boxed_slice();
 
         RuneTrieMapContainsIter(RuneTrieMapContainsIterKind::Substring(
@@ -164,6 +174,7 @@ pub struct RuneTrieMapContainsIter<'tm, Data: 'tm>(RuneTrieMapContainsIterKind<'
 enum RuneTrieMapContainsIterKind<'tm, Data: 'tm> {
     Empty,
     Single(Option<(Vec<Rune>, &'tm Data)>),
+    Prefix(iter::Iter<'tm, Data, filter::VisitAll>),
     Substring(RuneTrieMapContainsIterInner<'tm, Data>),
 }
 
@@ -174,6 +185,9 @@ impl<'tm, Data: 'tm> Iterator for RuneTrieMapContainsIter<'tm, Data> {
         match &mut self.0 {
             RuneTrieMapContainsIterKind::Empty => None,
             RuneTrieMapContainsIterKind::Single(slot) => slot.take(),
+            RuneTrieMapContainsIterKind::Prefix(inner) => {
+                inner.next().map(|(k, v)| (bytes_to_rune(&k), v))
+            }
             RuneTrieMapContainsIterKind::Substring(inner) => inner
                 .with_inner_mut(|i| i.next())
                 .map(|(k, v)| (bytes_to_rune(&k), v)),
