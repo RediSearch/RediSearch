@@ -1123,7 +1123,10 @@ where
         // are offered in slot order, the order the read path scans them in, so
         // a full union's entries come back as `build_aggregate_result` pushed
         // them and a `QUICK_EXIT` union keeps the backer it reported: the first
-        // child on the document by slot.
+        // child on the document by slot. Every quick-mode pick — `skip_to_quick`,
+        // and the settle's stay-put and lagger seek — scans slots in order, so
+        // no other record of the backer is needed (`UnionHeap`, whose backer is
+        // the heap root, has to find it by address).
         let rebuilt = {
             // Viewed at `'a` so the rebuilt entries carry the children's
             // lifetime; `&mut` is invariant, so the narrowing needs a cast.
