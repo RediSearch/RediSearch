@@ -72,12 +72,17 @@ impl<Data> RuneTrieMap<Data> {
 
     pub fn iterate_contains<'a>(
         &'a self,
-        _target: &'a [u16],
+        target: &[u16],
         _prefix: bool,
         _suffix: bool,
     ) -> RuneTrieMapContainsIter<'a, Data> {
-        // RuneTrieMapContainsIter(self.inner.contains_iter(&split_key(_target)))
-        todo!()
+        let target_bytes: Box<[u8]> = rune_to_bytes(target).into_boxed_slice();
+
+        RuneTrieMapContainsIterBuilder {
+            target_bytes,
+            inner_builder: |t| self.inner.contains_iter(t.as_ref()),
+        }
+        .build()
     }
 
     pub fn iterate_range<'a>(
@@ -126,13 +131,20 @@ impl<'a, Data> Iterator for RuneTrieMapIter<'a, Data> {
     }
 }
 
-pub struct RuneTrieMapContainsIter<'a, Data>(iter::ContainsIter<'a, Data>);
+#[ouroboros::self_referencing]
+pub struct RuneTrieMapContainsIter<'tm, Data: 'tm> {
+    target_bytes: Box<[u8]>,
+    #[borrows(target_bytes)]
+    #[covariant]
+    inner: iter::ContainsIter<'tm, 'this, Data>,
+}
 
-impl<'a, Data> Iterator for RuneTrieMapContainsIter<'a, Data> {
-    type Item = (Vec<Rune>, &'a Data);
+impl<'tm, Data: 'tm> Iterator for RuneTrieMapContainsIter<'tm, Data> {
+    type Item = (Vec<Rune>, &'tm Data);
 
     fn next(&mut self) -> Option<Self::Item> {
-        self.0.next().map(|(k, v)| (bytes_to_rune(&k), v))
+        self.with_inner_mut(|inner| inner.next())
+            .map(|(k, v)| (bytes_to_rune(&k), v))
     }
 }
 

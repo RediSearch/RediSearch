@@ -9,7 +9,7 @@
 
 mod iter;
 mod rune_boundary_cases;
-// mod rune_contains_iteration;
+mod rune_contains_iteration;
 // mod rune_delete_and_decrement;
 // mod rune_dfa_iteration;
 // mod rune_incr_mode;
