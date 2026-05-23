@@ -455,11 +455,12 @@ teardown. Any bespoke in-place transition code must reproduce this.
   `MaybeEmptyOption` newtype, child-abort propagation, delegating suspended
   accessors.
 - `union_flat.rs` — worked example of a **many-child** composite: the walk over
-  every child slot, compaction over aborted ones, a `FreeSuspendedShell` RAII
-  guard owning the half-transitioned buffer (the region boundaries live in the
-  guard, so the teardown reads them rather than being handed indices), a
-  `rebuild_borrowed_entries` that recomputes the contributor set instead of
-  matching entries by address, and a settle step shared with the legacy
-  `revalidate` so the two paths cannot drift.
+  every child slot, compaction over aborted ones, and a settle step shared with
+  the legacy `revalidate` so the two paths cannot drift. It uses the helpers in
+  `union.rs`: a `FreeSuspendedShell` RAII guard owning the half-transitioned
+  buffer (the region boundaries live in the guard, so the teardown reads them
+  rather than being handed indices), and a `rebuild_borrowed_entries` that
+  recomputes the contributor set instead of matching entries by address, in an
+  order each union picks.
 - `numeric.rs`, `term.rs` — newtype-over-inner leaves that cite the inner's
   invariant.

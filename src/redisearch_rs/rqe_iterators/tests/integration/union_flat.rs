@@ -852,8 +852,8 @@ mod via_resume {
     }
 
     /// A child whose resume *fails* takes the union down the
-    /// `FreeSuspendedShell` teardown, the most delicate unsafe in this
-    /// file: it drops the compacted resumed prefix, leaves the consumed slot
+    /// `FreeSuspendedShell` teardown, the most delicate unsafe in the union
+    /// resume: it drops the compacted resumed prefix, leaves the consumed slot
     /// alone, and drops the still-suspended tail. Get the `kept`/`cursor`
     /// boundary wrong and it is a double free or a leak, both of which miri
     /// sees through the mocks' reference-counted state.
