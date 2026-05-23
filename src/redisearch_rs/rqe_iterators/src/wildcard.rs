@@ -821,7 +821,7 @@ impl<'index> WildcardIterator<'index> for DiskWildcardIterator<'index> {}
 /// here is a **lifetime lie**: the actual borrowed lifetime is `'index`,
 /// inherited from the original [`DiskWildcardIterator`]. The lie is
 /// closed by the FFI-side discipline: while a `DiskWildcardSuspended`
-/// exists, no code dereferences the inner iterator. On [`resume`] the
+/// exists, no code dereferences the inner iterator. On resume the
 /// lifetime contracts back to the guard's lifetime `'a` (which the
 /// caller proves is still valid for the underlying index).
 #[repr(transparent)]

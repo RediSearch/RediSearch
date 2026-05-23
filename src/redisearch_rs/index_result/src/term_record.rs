@@ -94,14 +94,15 @@ impl<R: Ref> RawTermRecord<R> {
     }
 
     /// Mode-independent variant of [`RSTermRecord::query_term`]: returns
-    /// `Some(&term)` for variants that own their term ([`Borrowed`] and
-    /// [`FullyOwned`]), and `None` for [`Owned`].
+    /// `Some(&term)` for variants that own their term
+    /// ([`RawTermRecord::Borrowed`] and [`RawTermRecord::FullyOwned`]),
+    /// and `None` for [`RawTermRecord::Owned`].
     ///
-    /// The [`Owned`] variant stores the term via
+    /// The [`RawTermRecord::Owned`] variant stores the term via
     /// `SharedPtr<R, RSQueryTerm>`, whose `get()` is only available in
-    /// [`Active`] mode. This accessor lets [`Suspended`] callers
-    /// (`Term::should_abort` and friends, which during `resume` only
-    /// have a `RawTermRecord<Suspended>`) read the term without
+    /// [`Active`] mode. This accessor lets [`Suspended`](ref_mode::Suspended)
+    /// callers (`Term::should_abort` and friends, which during `resume`
+    /// only have a `RawTermRecord<Suspended>`) read the term without
     /// upgrading the iterator's type-state.
     pub fn query_term_owned(&self) -> Option<&RSQueryTerm> {
         match self {

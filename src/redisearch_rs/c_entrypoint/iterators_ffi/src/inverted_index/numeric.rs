@@ -47,7 +47,7 @@ impl<'index> NumericIterator<'index> {
     }
 
     /// Get the flags from the underlying reader.
-    pub(super) fn flags(&self) -> ffi::IndexFlags {
+    pub(super) const fn flags(&self) -> ffi::IndexFlags {
         self.iterator.flags()
     }
 

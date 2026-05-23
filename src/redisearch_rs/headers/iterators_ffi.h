@@ -21,15 +21,15 @@ typedef struct timespec timespec;
 
 
 /**
- * Filter details to apply to numeric values
- */
-typedef struct NumericFilter NumericFilter;
-
-/**
  * Smart pointer handle for [`RLookupKey`] that can be
  * invalidated when the iterator that owns the key is freed.
  */
 typedef struct RLookupKeyHandle RLookupKeyHandle;
+
+/**
+ * Filter details to apply to numeric values
+ */
+typedef struct NumericFilter NumericFilter;
 
 /**
  * A single term being evaluated at query time.
