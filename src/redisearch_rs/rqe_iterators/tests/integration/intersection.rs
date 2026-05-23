@@ -558,9 +558,9 @@ fn many_children() {
 fn revalidate_ok() {
     let mock_ctx = rqe_iterators_test_utils::MockContext::new(0, 0);
     // Create mock children with const generic arrays
-    let child0: Mock<'static, 10> = Mock::new([10, 15, 20, 25, 30, 35, 40, 45, 50, 55]);
-    let child1: Mock<'static, 11> = Mock::new([5, 10, 18, 20, 28, 30, 38, 40, 48, 50, 60]);
-    let child2: Mock<'static, 11> = Mock::new([2, 10, 12, 20, 22, 30, 32, 40, 42, 50, 70]);
+    let child0: Mock<'_, 10> = Mock::new([10, 15, 20, 25, 30, 35, 40, 45, 50, 55]);
+    let child1: Mock<'_, 11> = Mock::new([5, 10, 18, 20, 28, 30, 38, 40, 48, 50, 60]);
+    let child2: Mock<'_, 11> = Mock::new([2, 10, 12, 20, 22, 30, 32, 40, 42, 50, 70]);
 
     // Set all children to return OK on revalidate (default, but explicit)
     child0
@@ -601,9 +601,9 @@ fn revalidate_ok() {
 #[test]
 fn revalidate_aborted() {
     let mock_ctx = rqe_iterators_test_utils::MockContext::new(0, 0);
-    let child0: Mock<'static, 10> = Mock::new([10, 15, 20, 25, 30, 35, 40, 45, 50, 55]);
-    let child1: Mock<'static, 11> = Mock::new([5, 10, 18, 20, 28, 30, 38, 40, 48, 50, 60]);
-    let child2: Mock<'static, 11> = Mock::new([2, 10, 12, 20, 22, 30, 32, 40, 42, 50, 70]);
+    let child0: Mock<'_, 10> = Mock::new([10, 15, 20, 25, 30, 35, 40, 45, 50, 55]);
+    let child1: Mock<'_, 11> = Mock::new([5, 10, 18, 20, 28, 30, 38, 40, 48, 50, 60]);
+    let child2: Mock<'_, 11> = Mock::new([2, 10, 12, 20, 22, 30, 32, 40, 42, 50, 70]);
 
     // Child 1 will abort
     child0
@@ -636,9 +636,9 @@ fn revalidate_aborted() {
 #[test]
 fn revalidate_moved() {
     let mock_ctx = rqe_iterators_test_utils::MockContext::new(0, 0);
-    let child0: Mock<'static, 10> = Mock::new([10, 15, 20, 25, 30, 35, 40, 45, 50, 55]);
-    let child1: Mock<'static, 11> = Mock::new([5, 10, 18, 20, 28, 30, 38, 40, 48, 50, 60]);
-    let child2: Mock<'static, 11> = Mock::new([2, 10, 12, 20, 22, 30, 32, 40, 42, 50, 70]);
+    let child0: Mock<'_, 10> = Mock::new([10, 15, 20, 25, 30, 35, 40, 45, 50, 55]);
+    let child1: Mock<'_, 11> = Mock::new([5, 10, 18, 20, 28, 30, 38, 40, 48, 50, 60]);
+    let child2: Mock<'_, 11> = Mock::new([2, 10, 12, 20, 22, 30, 32, 40, 42, 50, 70]);
 
     // All children will move (advance by one document)
     child0
@@ -682,9 +682,9 @@ fn revalidate_moved() {
 #[test]
 fn revalidate_mixed_results() {
     let mock_ctx = rqe_iterators_test_utils::MockContext::new(0, 0);
-    let child0: Mock<'static, 10> = Mock::new([10, 15, 20, 25, 30, 35, 40, 45, 50, 55]);
-    let child1: Mock<'static, 11> = Mock::new([5, 10, 18, 20, 28, 30, 38, 40, 48, 50, 60]);
-    let child2: Mock<'static, 11> = Mock::new([2, 10, 12, 20, 22, 30, 32, 40, 42, 50, 70]);
+    let child0: Mock<'_, 10> = Mock::new([10, 15, 20, 25, 30, 35, 40, 45, 50, 55]);
+    let child1: Mock<'_, 11> = Mock::new([5, 10, 18, 20, 28, 30, 38, 40, 48, 50, 60]);
+    let child2: Mock<'_, 11> = Mock::new([2, 10, 12, 20, 22, 30, 32, 40, 42, 50, 70]);
 
     // Mixed: OK, MOVED, OK
     child0
@@ -719,9 +719,9 @@ fn revalidate_mixed_results() {
 fn revalidate_after_eof() {
     let mock_ctx = rqe_iterators_test_utils::MockContext::new(0, 0);
     // Pre-set children to return MOVE on revalidate
-    let child0: Mock<'static, 10> = Mock::new([10, 15, 20, 25, 30, 35, 40, 45, 50, 55]);
-    let child1: Mock<'static, 11> = Mock::new([5, 10, 18, 20, 28, 30, 38, 40, 48, 50, 60]);
-    let child2: Mock<'static, 11> = Mock::new([2, 10, 12, 20, 22, 30, 32, 40, 42, 50, 70]);
+    let child0: Mock<'_, 10> = Mock::new([10, 15, 20, 25, 30, 35, 40, 45, 50, 55]);
+    let child1: Mock<'_, 11> = Mock::new([5, 10, 18, 20, 28, 30, 38, 40, 48, 50, 60]);
+    let child2: Mock<'_, 11> = Mock::new([2, 10, 12, 20, 22, 30, 32, 40, 42, 50, 70]);
 
     child0
         .data()
@@ -768,10 +768,10 @@ fn revalidate_some_children_moved_to_eof() {
     // Child 0 and 2 have normal data, child 1 is small (only 2 elements: [10, 20])
     // When we read doc 10 and then call Move, child 1 moves to 20 and the next Move
     // would go to EOF
-    let child0: Mock<'static, 10> = Mock::new([10, 15, 20, 25, 30, 35, 40, 45, 50, 55]);
+    let child0: Mock<'_, 10> = Mock::new([10, 15, 20, 25, 30, 35, 40, 45, 50, 55]);
     // Child 1 has only doc 10 - after reading it, Move will result in EOF
-    let child1: Mock<'static, 1> = Mock::new([10]);
-    let child2: Mock<'static, 11> = Mock::new([2, 10, 12, 20, 22, 30, 32, 40, 42, 50, 70]);
+    let child1: Mock<'_, 1> = Mock::new([10]);
+    let child2: Mock<'_, 11> = Mock::new([2, 10, 12, 20, 22, 30, 32, 40, 42, 50, 70]);
 
     // Child 0: OK, Child 1: moves (to EOF since only 1 element), Child 2: OK
     child0
@@ -934,9 +934,9 @@ fn overlapping_children_ids() {
 #[test]
 fn revalidate_before_read() {
     let mock_ctx = rqe_iterators_test_utils::MockContext::new(0, 0);
-    let child0: Mock<'static, 10> = Mock::new([10, 15, 20, 25, 30, 35, 40, 45, 50, 55]);
-    let child1: Mock<'static, 11> = Mock::new([5, 10, 18, 20, 28, 30, 38, 40, 48, 50, 60]);
-    let child2: Mock<'static, 11> = Mock::new([2, 10, 12, 20, 22, 30, 32, 40, 42, 50, 70]);
+    let child0: Mock<'_, 10> = Mock::new([10, 15, 20, 25, 30, 35, 40, 45, 50, 55]);
+    let child1: Mock<'_, 11> = Mock::new([5, 10, 18, 20, 28, 30, 38, 40, 48, 50, 60]);
+    let child2: Mock<'_, 11> = Mock::new([2, 10, 12, 20, 22, 30, 32, 40, 42, 50, 70]);
 
     // All children return OK on revalidate
     child0
@@ -972,9 +972,9 @@ fn revalidate_before_read() {
 #[test]
 fn revalidate_move_before_read() {
     let mock_ctx = rqe_iterators_test_utils::MockContext::new(0, 0);
-    let child0: Mock<'static, 10> = Mock::new([10, 15, 20, 25, 30, 35, 40, 45, 50, 55]);
-    let child1: Mock<'static, 11> = Mock::new([5, 10, 18, 20, 28, 30, 38, 40, 48, 50, 60]);
-    let child2: Mock<'static, 11> = Mock::new([2, 10, 12, 20, 22, 30, 32, 40, 42, 50, 70]);
+    let child0: Mock<'_, 10> = Mock::new([10, 15, 20, 25, 30, 35, 40, 45, 50, 55]);
+    let child1: Mock<'_, 11> = Mock::new([5, 10, 18, 20, 28, 30, 38, 40, 48, 50, 60]);
+    let child2: Mock<'_, 11> = Mock::new([2, 10, 12, 20, 22, 30, 32, 40, 42, 50, 70]);
 
     // All children will move
     child0
@@ -1107,9 +1107,9 @@ fn revalidate_moved_skip_to_returns_none() {
     // - child0 has no doc >= 18, so it goes EOF
     // - Result: None
 
-    let child0: Mock<'static, 2> = Mock::new([10, 15]);
-    let child1: Mock<'static, 2> = Mock::new([10, 18]);
-    let child2: Mock<'static, 2> = Mock::new([10, 22]);
+    let child0: Mock<'_, 2> = Mock::new([10, 15]);
+    let child1: Mock<'_, 2> = Mock::new([10, 18]);
+    let child2: Mock<'_, 2> = Mock::new([10, 22]);
 
     // All children will move
     child0
@@ -1156,6 +1156,772 @@ fn revalidate_moved_skip_to_returns_none() {
     assert!(matches!(ii.read(), Ok(None)));
 }
 
+mod via_resume {
+    use super::*;
+    use rqe_iterators::{ResumeOutcome, TypeErasedRQEIterator};
+    use rqe_iterators_test_utils::{ResumeOutcomeExt, revalidate_via_resume};
+
+    fn boxed_children<'spec, const N0: usize, const N1: usize, const N2: usize>(
+        c0: Mock<'spec, N0>,
+        c1: Mock<'spec, N1>,
+        c2: Mock<'spec, N2>,
+    ) -> Vec<TypeErasedRQEIterator<'spec>> {
+        vec![
+            TypeErasedRQEIterator::new(Box::new(c0)),
+            TypeErasedRQEIterator::new(Box::new(c1)),
+            TypeErasedRQEIterator::new(Box::new(c2)),
+        ]
+    }
+
+    #[test]
+    fn revalidate_ok() {
+        let mock_ctx = rqe_iterators_test_utils::MockContext::new(0, 0);
+        let child0: Mock<'_, 10> = Mock::new([10, 15, 20, 25, 30, 35, 40, 45, 50, 55]);
+        let child1: Mock<'_, 11> = Mock::new([5, 10, 18, 20, 28, 30, 38, 40, 48, 50, 60]);
+        let child2: Mock<'_, 11> = Mock::new([2, 10, 12, 20, 22, 30, 32, 40, 42, 50, 70]);
+        child0
+            .data()
+            .set_revalidate_result(MockRevalidateResult::Ok);
+        child1
+            .data()
+            .set_revalidate_result(MockRevalidateResult::Ok);
+        child2
+            .data()
+            .set_revalidate_result(MockRevalidateResult::Ok);
+
+        let children = boxed_children(child0, child1, child2);
+        let mut ii = Intersection::new(children, 1.0, false);
+
+        let result = ii.read().expect("read").unwrap();
+        assert_eq!(result.doc_id, 10);
+        let result = ii.read().expect("read").unwrap();
+        assert_eq!(result.doc_id, 20);
+
+        let guard = mock_ctx.spec_read();
+        let mut ii = revalidate_via_resume(TypeErasedRQEIterator::new(Box::new(ii)), &guard)
+            .expect("resume failed")
+            .expect_ok();
+
+        let result = ii.read().expect("read").unwrap();
+        assert_eq!(result.doc_id, 30);
+    }
+
+    /// An aborting child tears the reused allocation down through
+    /// `free_after_consumed_child`, whose loop splits at the consumed index:
+    /// slots before it are dropped as *resumed* children, slots after it as
+    /// still-*suspended* ones. Aborting at index 0 leaves the resumed prefix
+    /// empty and at the last index leaves the suspended suffix empty — the two
+    /// off-by-one shapes that a single middle-child case never reaches. The
+    /// mocks' `Rc<RefCell<..>>` state makes a missed or duplicated drop
+    /// observable to miri.
+    #[test]
+    fn revalidate_aborted() {
+        for aborting in 0..3 {
+            let mock_ctx = rqe_iterators_test_utils::MockContext::new(0, 0);
+            let child0: Mock<'_, 10> = Mock::new([10, 15, 20, 25, 30, 35, 40, 45, 50, 55]);
+            let child1: Mock<'_, 11> = Mock::new([5, 10, 18, 20, 28, 30, 38, 40, 48, 50, 60]);
+            let child2: Mock<'_, 11> = Mock::new([2, 10, 12, 20, 22, 30, 32, 40, 42, 50, 70]);
+            for (i, data) in [child0.data(), child1.data(), child2.data()]
+                .iter_mut()
+                .enumerate()
+            {
+                data.set_revalidate_result(if i == aborting {
+                    MockRevalidateResult::Abort
+                } else {
+                    MockRevalidateResult::Ok
+                });
+            }
+
+            let children = boxed_children(child0, child1, child2);
+            let mut ii = Intersection::new(children, 1.0, false);
+
+            let result = ii.read().expect("read").unwrap();
+            assert_eq!(result.doc_id, 10);
+
+            let guard = mock_ctx.spec_read();
+            let outcome = revalidate_via_resume(TypeErasedRQEIterator::new(Box::new(ii)), &guard)
+                .expect("resume failed");
+            assert!(
+                matches!(outcome, ResumeOutcome::Aborted),
+                "child {aborting} aborting must abort the intersection",
+            );
+        }
+    }
+
+    /// `resume` hands the aggregate back across the cycle rather than rebuilding
+    /// it, so every entry must still *reach* its child afterwards. Every other
+    /// `Ok`-path test calls `read()` first, which resets and rebuilds the
+    /// aggregate, so a broken entry would be overwritten before anything read it.
+    /// Dereference every entry here instead, in the window between the resume and
+    /// the next read — the window a scorer walking `current()` occupies in
+    /// production.
+    ///
+    /// Run under miri this is also the regression test for the entries'
+    /// *provenance*, which is the half a plain read cannot see: the addresses
+    /// survive a child's transition on their own, the borrows they were derived
+    /// from do not, and only `resume`'s re-derivation of the entries makes them
+    /// usable rather than merely well-addressed.
+    #[test]
+    fn resume_ok_leaves_the_aggregate_pointing_at_live_children() {
+        let mock_ctx = rqe_iterators_test_utils::MockContext::new(0, 0);
+        let child0: Mock<'_, 10> = Mock::new([10, 15, 20, 25, 30, 35, 40, 45, 50, 55]);
+        let child1: Mock<'_, 11> = Mock::new([5, 10, 18, 20, 28, 30, 38, 40, 48, 50, 60]);
+        let child2: Mock<'_, 11> = Mock::new([2, 10, 12, 20, 22, 30, 32, 40, 42, 50, 70]);
+        // Nothing moves, so `resume` carries the aggregate across untouched —
+        // the case its liveness obligation rests on entirely.
+        for data in [child0.data(), child1.data(), child2.data()].iter_mut() {
+            data.set_revalidate_result(MockRevalidateResult::Ok);
+        }
+
+        let children = boxed_children(child0, child1, child2);
+        let mut ii = Intersection::new(children, 1.0, false);
+        let result = ii.read().expect("read").unwrap();
+        assert_eq!(result.doc_id, 10);
+
+        let guard = mock_ctx.spec_read();
+        let mut ii = revalidate_via_resume(TypeErasedRQEIterator::new(Box::new(ii)), &guard)
+            .expect("resume failed")
+            .expect_ok();
+
+        let current = ii
+            .current()
+            .expect("an unchanged intersection is still positioned");
+        assert_eq!(current.doc_id, 10);
+        let aggregate = current
+            .as_aggregate()
+            .expect("an intersection publishes an aggregate result");
+        assert_eq!(aggregate.len(), 3, "one entry per child");
+        for i in 0..aggregate.len() {
+            let entry = aggregate.get(i).expect("index below len");
+            assert_eq!(
+                entry.doc_id, 10,
+                "entry {i} must still reach its child's live result",
+            );
+        }
+
+        // Only now let a read rebuild the aggregate from scratch.
+        let next = ii.read().expect("read").unwrap();
+        assert_eq!(next.doc_id, 20);
+    }
+
+    /// The suspend/resume cycle must reuse the allocation: the FFI wrapper and
+    /// delegating parents cache raw pointers into the iterator's storage, and a
+    /// rebuilt box would dangle them.
+    #[test]
+    fn resume_preserves_box_address() {
+        use rqe_iterators::{RQEIteratorBoxed, RQESuspendedIterator};
+
+        let mock_ctx = rqe_iterators_test_utils::MockContext::new(0, 0);
+        let guard = mock_ctx.spec_read();
+        let children = vec![Mock::new([1u64, 2, 3]), Mock::new([2u64, 3, 9])];
+        let mut it = Box::new(Intersection::new(children, 1.0, false));
+        let result = it.read().expect("read failed").expect("expected doc");
+        assert_eq!(result.doc_id, 2);
+        let addr_before = &*it as *const _ as usize;
+
+        let suspended = it.suspend();
+        assert_eq!(
+            &*suspended as *const _ as usize, addr_before,
+            "suspend must reuse the allocation",
+        );
+        // Callers inspect a suspended iterator's position and estimate *without*
+        // resuming it, so the suspended accessors must keep reporting the
+        // pre-suspend values rather than defaulting to zero.
+        assert_eq!(
+            RQESuspendedIterator::last_doc_id(&*suspended),
+            2,
+            "the suspended form remembers where the intersection stood",
+        );
+        assert_eq!(
+            RQESuspendedIterator::num_estimated(&*suspended),
+            3,
+            "the estimate is the smallest child's, unchanged by suspending",
+        );
+        let mut active = match suspended.resume(&guard).expect("resume failed") {
+            ResumeOutcome::Ok(a) => a,
+            ResumeOutcome::Moved(_) => panic!("expected Ok, got Moved"),
+            ResumeOutcome::Aborted => panic!("expected Ok, got Aborted"),
+        };
+        assert_eq!(
+            &*active as *const _ as usize, addr_before,
+            "resume must reuse the allocation",
+        );
+
+        let result = active.read().expect("read failed").expect("expected doc");
+        assert_eq!(result.doc_id, 3, "the intersection carries on where it was");
+    }
+
+    /// A child whose resume fails propagates the error, and the reused
+    /// allocation is freed without touching the consumed slot — the mixed-mode
+    /// teardown that only miri can meaningfully vet (resumed children before the
+    /// failed one, still-suspended ones after it).
+    #[test]
+    fn resume_child_error_propagates_and_frees_the_shell() {
+        let mock_ctx = rqe_iterators_test_utils::MockContext::new(0, 0);
+        let guard = mock_ctx.spec_read();
+        let child0: Mock<'_, 3> = Mock::new([10, 20, 30]);
+        let child1: Mock<'_, 3> = Mock::new([10, 20, 40]);
+        let child2: Mock<'_, 3> = Mock::new([10, 20, 50]);
+        child1
+            .data()
+            .set_error_on_resume(Some(crate::utils::MockIteratorError::TimeoutError(None)));
+
+        let children = boxed_children(child0, child1, child2);
+        let mut ii = Intersection::new(children, 1.0, false);
+        let result = ii.read().expect("read").unwrap();
+        assert_eq!(result.doc_id, 10);
+
+        let outcome = revalidate_via_resume(TypeErasedRQEIterator::new(Box::new(ii)), &guard);
+        assert!(
+            outcome.is_err(),
+            "the failing child's error must reach the caller",
+        );
+    }
+
+    #[test]
+    fn revalidate_moved() {
+        let mock_ctx = rqe_iterators_test_utils::MockContext::new(0, 0);
+        let child0: Mock<'_, 10> = Mock::new([10, 15, 20, 25, 30, 35, 40, 45, 50, 55]);
+        let child1: Mock<'_, 11> = Mock::new([5, 10, 18, 20, 28, 30, 38, 40, 48, 50, 60]);
+        let child2: Mock<'_, 11> = Mock::new([2, 10, 12, 20, 22, 30, 32, 40, 42, 50, 70]);
+        child0
+            .data()
+            .set_revalidate_result(MockRevalidateResult::Move);
+        child1
+            .data()
+            .set_revalidate_result(MockRevalidateResult::Move);
+        child2
+            .data()
+            .set_revalidate_result(MockRevalidateResult::Move);
+
+        let children = boxed_children(child0, child1, child2);
+        let mut ii = Intersection::new(children, 1.0, false);
+
+        let result = ii.read().expect("read").unwrap();
+        assert_eq!(result.doc_id, 10);
+
+        let guard = mock_ctx.spec_read();
+        let ii = revalidate_via_resume(TypeErasedRQEIterator::new(Box::new(ii)), &guard)
+            .expect("resume failed")
+            .expect_moved();
+        assert_eq!(ii.last_doc_id(), 20);
+    }
+
+    #[test]
+    fn revalidate_mixed_results() {
+        let mock_ctx = rqe_iterators_test_utils::MockContext::new(0, 0);
+        let child0: Mock<'_, 10> = Mock::new([10, 15, 20, 25, 30, 35, 40, 45, 50, 55]);
+        let child1: Mock<'_, 11> = Mock::new([5, 10, 18, 20, 28, 30, 38, 40, 48, 50, 60]);
+        let child2: Mock<'_, 11> = Mock::new([2, 10, 12, 20, 22, 30, 32, 40, 42, 50, 70]);
+        child0
+            .data()
+            .set_revalidate_result(MockRevalidateResult::Ok);
+        child1
+            .data()
+            .set_revalidate_result(MockRevalidateResult::Move);
+        child2
+            .data()
+            .set_revalidate_result(MockRevalidateResult::Ok);
+
+        let children = boxed_children(child0, child1, child2);
+        let mut ii = Intersection::new(children, 1.0, false);
+
+        let result = ii.read().expect("read").unwrap();
+        assert_eq!(result.doc_id, 10);
+
+        let guard = mock_ctx.spec_read();
+        let ii = revalidate_via_resume(TypeErasedRQEIterator::new(Box::new(ii)), &guard)
+            .expect("resume failed")
+            .expect_moved();
+        assert_eq!(ii.last_doc_id(), 20);
+    }
+
+    #[test]
+    fn revalidate_after_eof() {
+        let mock_ctx = rqe_iterators_test_utils::MockContext::new(0, 0);
+        let child0: Mock<'_, 10> = Mock::new([10, 15, 20, 25, 30, 35, 40, 45, 50, 55]);
+        let child1: Mock<'_, 11> = Mock::new([5, 10, 18, 20, 28, 30, 38, 40, 48, 50, 60]);
+        let child2: Mock<'_, 11> = Mock::new([2, 10, 12, 20, 22, 30, 32, 40, 42, 50, 70]);
+        child0
+            .data()
+            .set_revalidate_result(MockRevalidateResult::Move);
+        child1
+            .data()
+            .set_revalidate_result(MockRevalidateResult::Move);
+        child2
+            .data()
+            .set_revalidate_result(MockRevalidateResult::Move);
+
+        let children = boxed_children(child0, child1, child2);
+        let mut ii = Intersection::new(children, 1.0, false);
+
+        while ii.read().expect("read").is_some() {}
+        assert!(ii.at_eof());
+
+        let guard = mock_ctx.spec_read();
+        let mut ii = revalidate_via_resume(TypeErasedRQEIterator::new(Box::new(ii)), &guard)
+            .expect("resume failed")
+            .expect_ok();
+        assert!(ii.at_eof());
+        assert!(matches!(ii.read(), Ok(None)));
+    }
+
+    #[test]
+    fn revalidate_some_children_moved_to_eof() {
+        let mock_ctx = rqe_iterators_test_utils::MockContext::new(0, 0);
+        let child0: Mock<'_, 10> = Mock::new([10, 15, 20, 25, 30, 35, 40, 45, 50, 55]);
+        let child1: Mock<'_, 1> = Mock::new([10]);
+        let child2: Mock<'_, 11> = Mock::new([2, 10, 12, 20, 22, 30, 32, 40, 42, 50, 70]);
+        child0
+            .data()
+            .set_revalidate_result(MockRevalidateResult::Ok);
+        child1
+            .data()
+            .set_revalidate_result(MockRevalidateResult::Move);
+        child2
+            .data()
+            .set_revalidate_result(MockRevalidateResult::Ok);
+
+        let children = boxed_children(child0, child1, child2);
+        let mut ii = Intersection::new(children, 1.0, false);
+
+        let result = ii.read().expect("read").unwrap();
+        assert_eq!(result.doc_id, 10);
+
+        let guard = mock_ctx.spec_read();
+        let mut ii = revalidate_via_resume(TypeErasedRQEIterator::new(Box::new(ii)), &guard)
+            .expect("resume failed")
+            .expect_moved();
+        assert!(ii.at_eof());
+        assert!(matches!(ii.read(), Ok(None)));
+    }
+
+    #[test]
+    fn revalidate_before_read() {
+        let mock_ctx = rqe_iterators_test_utils::MockContext::new(0, 0);
+        let child0: Mock<'_, 10> = Mock::new([10, 15, 20, 25, 30, 35, 40, 45, 50, 55]);
+        let child1: Mock<'_, 11> = Mock::new([5, 10, 18, 20, 28, 30, 38, 40, 48, 50, 60]);
+        let child2: Mock<'_, 11> = Mock::new([2, 10, 12, 20, 22, 30, 32, 40, 42, 50, 70]);
+        child0
+            .data()
+            .set_revalidate_result(MockRevalidateResult::Ok);
+        child1
+            .data()
+            .set_revalidate_result(MockRevalidateResult::Ok);
+        child2
+            .data()
+            .set_revalidate_result(MockRevalidateResult::Ok);
+
+        let children = boxed_children(child0, child1, child2);
+        let ii = Intersection::new(children, 1.0, false);
+
+        let guard = mock_ctx.spec_read();
+        let mut ii = revalidate_via_resume(TypeErasedRQEIterator::new(Box::new(ii)), &guard)
+            .expect("resume failed")
+            .expect_ok();
+
+        let result = ii.read().expect("read").unwrap();
+        assert_eq!(result.doc_id, 10);
+    }
+
+    #[test]
+    fn revalidate_move_before_read() {
+        let mock_ctx = rqe_iterators_test_utils::MockContext::new(0, 0);
+        let child0: Mock<'_, 10> = Mock::new([10, 15, 20, 25, 30, 35, 40, 45, 50, 55]);
+        let child1: Mock<'_, 11> = Mock::new([5, 10, 18, 20, 28, 30, 38, 40, 48, 50, 60]);
+        let child2: Mock<'_, 11> = Mock::new([2, 10, 12, 20, 22, 30, 32, 40, 42, 50, 70]);
+        child0
+            .data()
+            .set_revalidate_result(MockRevalidateResult::Move);
+        child1
+            .data()
+            .set_revalidate_result(MockRevalidateResult::Move);
+        child2
+            .data()
+            .set_revalidate_result(MockRevalidateResult::Move);
+
+        let children = boxed_children(child0, child1, child2);
+        let ii = Intersection::new(children, 1.0, false);
+
+        let guard = mock_ctx.spec_read();
+        let outcome = revalidate_via_resume(TypeErasedRQEIterator::new(Box::new(ii)), &guard)
+            .expect("resume failed");
+        assert!(
+            matches!(outcome, ResumeOutcome::Ok(_) | ResumeOutcome::Moved(_)),
+            "Revalidate before read with Move should return OK or MOVED"
+        );
+    }
+
+    #[test]
+    fn revalidate_moved_skip_to_returns_none() {
+        let mock_ctx = rqe_iterators_test_utils::MockContext::new(0, 0);
+        let child0: Mock<'_, 2> = Mock::new([10, 15]);
+        let child1: Mock<'_, 2> = Mock::new([10, 18]);
+        let child2: Mock<'_, 2> = Mock::new([10, 22]);
+        child0
+            .data()
+            .set_revalidate_result(MockRevalidateResult::Move);
+        child1
+            .data()
+            .set_revalidate_result(MockRevalidateResult::Move);
+        child2
+            .data()
+            .set_revalidate_result(MockRevalidateResult::Move);
+
+        let children = boxed_children(child0, child1, child2);
+        let mut ii = Intersection::new(children, 1.0, false);
+
+        let result = ii.read().expect("read").unwrap();
+        assert_eq!(result.doc_id, 10);
+        assert!(!ii.at_eof());
+
+        let guard = mock_ctx.spec_read();
+        let mut ii = revalidate_via_resume(TypeErasedRQEIterator::new(Box::new(ii)), &guard)
+            .expect("resume failed")
+            .expect_moved();
+        assert!(
+            ii.at_eof(),
+            "Intersection should be at EOF after no consensus"
+        );
+        assert!(matches!(ii.read(), Ok(None)));
+    }
+
+    /// The proximity configuration has never been resumed: the slop/order tests
+    /// build their children as `Box<dyn RQEIterator>`, which is not
+    /// `RQEIteratorBoxed` and so cannot suspend at all. That leaves `resume`'s
+    /// post-loop `skip_to` untested in the one configuration where it routes
+    /// through the relevancy check and reads term offsets straight out of
+    /// just-resumed children — the case `MockSuspended::resume` rebuilds the
+    /// whole term record for, and which nothing else calls.
+    ///
+    /// `in_order` also suppresses the sort, so `foo` stays the first child.
+    #[test]
+    fn resume_rechecks_relevancy_when_proximity_is_constrained() {
+        let mock_ctx = rqe_iterators_test_utils::MockContext::new(0, 0);
+        // doc 1: foo@1 bar@2 — adjacent and in order, relevant.
+        // doc 5: foo@1 bar@5 — in order but too far apart for slop 1.
+        // doc 9: foo@1 bar@2 — relevant again.
+        let foo: Mock<'_, 3> = Mock::new_with_positions([1, 5, 9], [1, 1, 1]);
+        let bar: Mock<'_, 3> = Mock::new_with_positions([1, 5, 9], [2, 5, 2]);
+        foo.data().set_revalidate_result(MockRevalidateResult::Move);
+        bar.data().set_revalidate_result(MockRevalidateResult::Move);
+
+        let children = vec![
+            TypeErasedRQEIterator::new(Box::new(foo)),
+            TypeErasedRQEIterator::new(Box::new(bar)),
+        ];
+        let mut ii = Intersection::new_with_slop_order(children, 1.0, false, Some(1), true);
+
+        let result = ii.read().expect("read").unwrap();
+        assert_eq!(result.doc_id, 1);
+
+        let guard = mock_ctx.spec_read();
+        let mut ii = revalidate_via_resume(TypeErasedRQEIterator::new(Box::new(ii)), &guard)
+            .expect("resume failed")
+            .expect_moved();
+
+        // Both children moved onto doc 5, whose offsets fail the slop check, so
+        // the post-loop `skip_to` had to carry on to the next relevant document.
+        assert_eq!(ii.last_doc_id(), 9);
+        assert_eq!(ii.current().expect("positioned").doc_id, 9);
+        assert!(matches!(ii.read(), Ok(None)));
+    }
+
+    /// Every child resumes cleanly and it is the *post-loop* consensus read that
+    /// fails. A different teardown from the aborting-child cases: the box has
+    /// already been re-narrowed to its fully-active form and drops as such, so
+    /// `free_after_consumed_child` never runs.
+    #[test]
+    fn resume_post_move_consensus_error_propagates() {
+        let mock_ctx = rqe_iterators_test_utils::MockContext::new(0, 0);
+        // Every child moves, but the laggard has nothing past 20, so the
+        // consensus skip to 30 runs it past its end — where the failure sits.
+        let child0: Mock<'_, 2> = Mock::new([10, 20]);
+        let child1: Mock<'_, 2> = Mock::new([10, 30]);
+        let child2: Mock<'_, 2> = Mock::new([10, 30]);
+        child0
+            .data()
+            .set_revalidate_result(MockRevalidateResult::Move)
+            .set_error_at_done(Some(crate::utils::MockIteratorError::TimeoutError(None)));
+        child1
+            .data()
+            .set_revalidate_result(MockRevalidateResult::Move);
+        child2
+            .data()
+            .set_revalidate_result(MockRevalidateResult::Move);
+
+        let children = boxed_children(child0, child1, child2);
+        let mut ii = Intersection::new(children, 1.0, false);
+        let result = ii.read().expect("read").unwrap();
+        assert_eq!(result.doc_id, 10);
+
+        let guard = mock_ctx.spec_read();
+        let outcome = revalidate_via_resume(TypeErasedRQEIterator::new(Box::new(ii)), &guard);
+        assert!(
+            outcome.is_err(),
+            "a consensus read failing after every child resumed must reach the caller",
+        );
+    }
+
+    /// The address the aggregate's entries depend on is the *child slot's*, not
+    /// the outer box's, and the shipping configuration erases the child — so an
+    /// outer-box assertion over concrete children would miss a slot that moved.
+    /// Pin both, with the erased children the composites actually carry.
+    #[test]
+    fn resume_preserves_erased_child_slot_addresses() {
+        use rqe_iterators::{RQEIteratorBoxed, RQESuspendedIterator};
+
+        let mock_ctx = rqe_iterators_test_utils::MockContext::new(0, 0);
+        let guard = mock_ctx.spec_read();
+        let children = boxed_children(
+            Mock::new([1u64, 2, 3]),
+            Mock::new([2u64, 3, 9]),
+            Mock::new([2u64, 3, 11]),
+        );
+        let mut it = Box::new(Intersection::new(children, 1.0, false));
+        let result = it.read().expect("read failed").expect("expected doc");
+        assert_eq!(result.doc_id, 2);
+
+        let box_before = &*it as *const _ as usize;
+        let slots_before: Vec<usize> = (0..it.num_children())
+            .map(|i| it.child_at(i) as *const _ as usize)
+            .collect();
+
+        let active = match it.suspend().resume(&guard).expect("resume failed") {
+            ResumeOutcome::Ok(a) => a,
+            ResumeOutcome::Moved(_) => panic!("expected Ok, got Moved"),
+            ResumeOutcome::Aborted => panic!("expected Ok, got Aborted"),
+        };
+        assert_eq!(
+            &*active as *const _ as usize, box_before,
+            "the cycle must reuse the allocation",
+        );
+        for (i, &before) in slots_before.iter().enumerate() {
+            assert_eq!(
+                active.child_at(i) as *const _ as usize,
+                before,
+                "child slot {i} moved; the aggregate's entries point into it",
+            );
+        }
+    }
+
+    /// An intersection with no children is born at EOF with a zero estimate, so
+    /// its resume degenerates to an empty loop plus the "nothing moved" return —
+    /// the only shape where the child loop's body never runs.
+    #[test]
+    fn resume_of_a_childless_intersection() {
+        use rqe_iterators::{RQEIteratorBoxed, RQESuspendedIterator};
+
+        let mock_ctx = rqe_iterators_test_utils::MockContext::new(0, 0);
+        let guard = mock_ctx.spec_read();
+        let children: Vec<TypeErasedRQEIterator<'static>> = Vec::new();
+        let it = Box::new(Intersection::new(children, 1.0, false));
+        assert!(it.at_eof());
+
+        let suspended = it.suspend();
+        assert_eq!(RQESuspendedIterator::last_doc_id(&*suspended), 0);
+        assert_eq!(RQESuspendedIterator::num_estimated(&*suspended), 0);
+
+        let mut active = match suspended.resume(&guard).expect("resume failed") {
+            ResumeOutcome::Ok(a) => a,
+            ResumeOutcome::Moved(_) => panic!("expected Ok, got Moved"),
+            ResumeOutcome::Aborted => panic!("expected Ok, got Aborted"),
+        };
+        assert!(active.at_eof());
+        assert_eq!(active.num_estimated(), 0);
+        assert!(matches!(active.read(), Ok(None)));
+    }
+
+    /// The outcome shape the legacy and resume paths share, for the differential
+    /// tests below.
+    #[derive(Debug, PartialEq, Eq)]
+    enum Outcome {
+        Ok,
+        Moved,
+        Aborted,
+        Failed,
+    }
+
+    /// Read `it` to completion, collecting the doc ids it yields.
+    fn drain<'index>(it: &mut impl RQEIterator<'index>) -> Vec<DocId> {
+        let mut seen = Vec::new();
+        while let Some(doc) = it.read().expect("read failed") {
+            seen.push(doc.doc_id);
+        }
+        seen
+    }
+
+    /// Drive `build()` through the legacy `revalidate` and through
+    /// `suspend`/`resume`, and require both to agree on the outcome *and* on
+    /// everything read afterwards. `what` names the scenario in the failure.
+    fn assert_paths_agree<'index>(
+        what: &str,
+        guard: &index_spec::IndexSpecReadGuard<'index>,
+        build: impl Fn() -> Box<Intersection<'index, TypeErasedRQEIterator<'index>>>,
+    ) {
+        use rqe_iterators::{RQEIteratorBoxed, RQESuspendedIterator};
+
+        let mut legacy = build();
+        let legacy_outcome = match legacy.revalidate(guard) {
+            Ok(RQEValidateStatus::Ok) => Outcome::Ok,
+            Ok(RQEValidateStatus::Moved { .. }) => Outcome::Moved,
+            Ok(RQEValidateStatus::Aborted) => Outcome::Aborted,
+            Err(_) => Outcome::Failed,
+        };
+        // An aborted or failed iterator is dropped rather than used, so there is
+        // nothing left to read on either path.
+        let legacy_tail = match legacy_outcome {
+            Outcome::Ok | Outcome::Moved => drain(&mut *legacy),
+            Outcome::Aborted | Outcome::Failed => Vec::new(),
+        };
+
+        let (resumed_outcome, resumed_tail) = match build().suspend().resume(guard) {
+            Ok(ResumeOutcome::Ok(mut it)) => (Outcome::Ok, drain(&mut *it)),
+            Ok(ResumeOutcome::Moved(mut it)) => (Outcome::Moved, drain(&mut *it)),
+            Ok(ResumeOutcome::Aborted) => (Outcome::Aborted, Vec::new()),
+            Err(_) => (Outcome::Failed, Vec::new()),
+        };
+
+        assert_eq!(
+            legacy_outcome, resumed_outcome,
+            "{what}: the two paths disagree on the outcome",
+        );
+        assert_eq!(
+            legacy_tail, resumed_tail,
+            "{what}: the two paths disagree on what is read afterwards",
+        );
+    }
+
+    /// While the legacy `revalidate` and the new `resume` both exist they are
+    /// two spellings of one transition, and sibling iterators in this stack have
+    /// already drifted between them — a child outcome absorbed on one path and
+    /// forwarded on the other, or a re-seek done only once. Drive both over
+    /// every child outcome at every position, error outcomes included; the
+    /// position matters because the abort/error teardown splits the child list
+    /// at the failing index.
+    #[test]
+    fn revalidate_and_resume_agree_on_every_child_outcome() {
+        let outcomes = [
+            MockRevalidateResult::Ok,
+            MockRevalidateResult::Move,
+            MockRevalidateResult::Abort,
+            MockRevalidateResult::TimedOut,
+        ];
+        for position in 0..3 {
+            for outcome in outcomes {
+                let mock_ctx = rqe_iterators_test_utils::MockContext::new(0, 0);
+                let guard = mock_ctx.spec_read();
+                let build = || {
+                    let child0: Mock<'_, 4> = Mock::new([10, 20, 30, 40]);
+                    let child1: Mock<'_, 4> = Mock::new([10, 20, 35, 40]);
+                    let child2: Mock<'_, 4> = Mock::new([10, 20, 38, 40]);
+                    for (i, data) in [child0.data(), child1.data(), child2.data()]
+                        .iter_mut()
+                        .enumerate()
+                    {
+                        data.set_revalidate_result(if i == position {
+                            outcome
+                        } else {
+                            MockRevalidateResult::Ok
+                        });
+                    }
+                    let mut it = Box::new(Intersection::new(
+                        boxed_children(child0, child1, child2),
+                        1.0,
+                        false,
+                    ));
+                    let doc = it.read().expect("read failed").expect("expected doc");
+                    assert_eq!(doc.doc_id, 10);
+                    it
+                };
+                assert_paths_agree(
+                    &format!("child {position} reports {outcome:?}"),
+                    &guard,
+                    build,
+                );
+            }
+        }
+    }
+
+    /// The shapes where the composite's *own* post-loop work runs. `revalidate`
+    /// and `resume` reach it by different routes — the `Moved { current }`
+    /// payload versus the resumed child's `at_eof()`/`last_doc_id()` — so this
+    /// is where the two are likeliest to drift.
+    #[test]
+    fn revalidate_and_resume_agree_on_the_post_move_consensus() {
+        // Every child moves to a different document, so consensus has to be
+        // re-established from the furthest one.
+        let mock_ctx = rqe_iterators_test_utils::MockContext::new(0, 0);
+        let guard = mock_ctx.spec_read();
+        assert_paths_agree("every child moves", &guard, || {
+            let child0: Mock<'_, 3> = Mock::new([10, 20, 50]);
+            let child1: Mock<'_, 3> = Mock::new([10, 30, 50]);
+            let child2: Mock<'_, 3> = Mock::new([10, 40, 50]);
+            for data in [child0.data(), child1.data(), child2.data()].iter_mut() {
+                data.set_revalidate_result(MockRevalidateResult::Move);
+            }
+            let mut it = Box::new(Intersection::new(
+                boxed_children(child0, child1, child2),
+                1.0,
+                false,
+            ));
+            let doc = it.read().expect("read failed").expect("expected doc");
+            assert_eq!(doc.doc_id, 10);
+            it
+        });
+
+        // The same shape, but the laggard has nothing left, so the consensus
+        // skip runs it past its end — where the failure is injected.
+        let mock_ctx = rqe_iterators_test_utils::MockContext::new(0, 0);
+        let guard = mock_ctx.spec_read();
+        assert_paths_agree("the consensus skip fails", &guard, || {
+            let child0: Mock<'_, 2> = Mock::new([10, 20]);
+            let child1: Mock<'_, 2> = Mock::new([10, 30]);
+            let child2: Mock<'_, 2> = Mock::new([10, 30]);
+            child0
+                .data()
+                .set_revalidate_result(MockRevalidateResult::Move)
+                .set_error_at_done(Some(crate::utils::MockIteratorError::TimeoutError(None)));
+            child1
+                .data()
+                .set_revalidate_result(MockRevalidateResult::Move);
+            child2
+                .data()
+                .set_revalidate_result(MockRevalidateResult::Move);
+            let mut it = Box::new(Intersection::new(
+                boxed_children(child0, child1, child2),
+                1.0,
+                false,
+            ));
+            let doc = it.read().expect("read failed").expect("expected doc");
+            assert_eq!(doc.doc_id, 10);
+            it
+        });
+
+        // A child whose move runs off the end ends the intersection outright,
+        // with no consensus skip at all — the branch that only reads correctly
+        // because `at_eof()` is consulted before `last_doc_id()`.
+        let mock_ctx = rqe_iterators_test_utils::MockContext::new(0, 0);
+        let guard = mock_ctx.spec_read();
+        assert_paths_agree("a child moves past its end", &guard, || {
+            let child0: Mock<'_, 3> = Mock::new([10, 20, 30]);
+            let child1: Mock<'_, 1> = Mock::new([10]);
+            let child2: Mock<'_, 3> = Mock::new([10, 20, 30]);
+            child1
+                .data()
+                .set_revalidate_result(MockRevalidateResult::Move);
+            let mut it = Box::new(Intersection::new(
+                boxed_children(child0, child1, child2),
+                1.0,
+                false,
+            ));
+            let doc = it.read().expect("read failed").expect("expected doc");
+            assert_eq!(doc.doc_id, 10);
+            it
+        });
+    }
+}
+
 // =============================================================================
 // Slop and InOrder tests
 // (Slop, InOrder, SlopAndOrder test cases)
@@ -1182,8 +1948,8 @@ mod slop_and_order {
         max_slop: Option<u32>,
         in_order: bool,
     ) -> Intersection<'static, Box<dyn RQEIterator<'static> + 'static>> {
-        let foo: Mock<'static, 4> = Mock::new_with_positions([1, 2, 3, 4], [1, 1, 2, 1]);
-        let bar: Mock<'static, 3> = Mock::new_with_positions([1, 3, 4], [2, 1, 3]);
+        let foo: Mock<'_, 4> = Mock::new_with_positions([1, 2, 3, 4], [1, 1, 2, 1]);
+        let bar: Mock<'_, 3> = Mock::new_with_positions([1, 3, 4], [2, 1, 3]);
         Intersection::new_with_slop_order(
             vec![Box::new(foo), Box::new(bar)],
             1.0,
@@ -1349,8 +2115,8 @@ mod slop_and_order {
     ///   bar@1 comes before foo@3; foo then tries doc 2, but bar has no doc ≥ 2 → EOF.
     #[test]
     fn relevancy_retry_hits_eof_in_second_consensus() {
-        let foo: Mock<'static, 2> = Mock::new_with_positions([1, 2], [3, 1]);
-        let bar: Mock<'static, 1> = Mock::new_with_positions([1], [1]);
+        let foo: Mock<'_, 2> = Mock::new_with_positions([1, 2], [3, 1]);
+        let bar: Mock<'_, 1> = Mock::new_with_positions([1], [1]);
         let mut ii = ContractChecker::new(Intersection::new_with_slop_order(
             vec![
                 Box::new(foo) as Box<dyn RQEIterator<'static> + 'static>,
