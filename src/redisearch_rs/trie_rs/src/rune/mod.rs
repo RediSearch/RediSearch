@@ -73,19 +73,30 @@ impl<Data> RuneTrieMap<Data> {
     pub fn iterate_contains<'a>(
         &'a self,
         target: &[u16],
-        _prefix: bool,
-        _suffix: bool,
+        prefix: bool,
+        suffix: bool,
     ) -> RuneTrieMapContainsIter<'a, Data> {
         // C rune-trie contract: empty pattern yields zero matches (see
         // `TrieNode_Get(root, str, 0, ...)` returning NULL). The byte-level
         // ContainsIter would otherwise match every term (memchr semantics).
         if target.is_empty() {
-            return RuneTrieMapContainsIter(None);
+            return RuneTrieMapContainsIter(RuneTrieMapContainsIterKind::Empty);
+        }
+
+        // Exact mode (`!prefix && !suffix`) mirrors `TrieNode_IterateContains`
+        // at src/trie/trie_node.c:1048: a single `TrieNode_Get(..., exact=true)`
+        // emitting one callback iff the node is terminal. `TrieMap::find`
+        // already returns `None` for non-terminal internal nodes.
+        if !prefix && !suffix {
+            let value = self.inner.find(&rune_to_bytes(target));
+            return RuneTrieMapContainsIter(RuneTrieMapContainsIterKind::Single(
+                value.map(|v| (target.to_vec(), v)),
+            ));
         }
 
         let target_bytes: Box<[u8]> = rune_to_bytes(target).into_boxed_slice();
 
-        RuneTrieMapContainsIter(Some(
+        RuneTrieMapContainsIter(RuneTrieMapContainsIterKind::Substring(
             RuneTrieMapContainsIterInnerBuilder {
                 target_bytes,
                 inner_builder: |t| self.inner.contains_iter(t.as_ref()),
@@ -148,16 +159,25 @@ struct RuneTrieMapContainsIterInner<'tm, Data: 'tm> {
     inner: iter::ContainsIter<'tm, 'this, Data>,
 }
 
-pub struct RuneTrieMapContainsIter<'tm, Data: 'tm>(Option<RuneTrieMapContainsIterInner<'tm, Data>>);
+pub struct RuneTrieMapContainsIter<'tm, Data: 'tm>(RuneTrieMapContainsIterKind<'tm, Data>);
+
+enum RuneTrieMapContainsIterKind<'tm, Data: 'tm> {
+    Empty,
+    Single(Option<(Vec<Rune>, &'tm Data)>),
+    Substring(RuneTrieMapContainsIterInner<'tm, Data>),
+}
 
 impl<'tm, Data: 'tm> Iterator for RuneTrieMapContainsIter<'tm, Data> {
     type Item = (Vec<Rune>, &'tm Data);
 
     fn next(&mut self) -> Option<Self::Item> {
-        self.0
-            .as_mut()?
-            .with_inner_mut(|inner| inner.next())
-            .map(|(k, v)| (bytes_to_rune(&k), v))
+        match &mut self.0 {
+            RuneTrieMapContainsIterKind::Empty => None,
+            RuneTrieMapContainsIterKind::Single(slot) => slot.take(),
+            RuneTrieMapContainsIterKind::Substring(inner) => inner
+                .with_inner_mut(|i| i.next())
+                .map(|(k, v)| (bytes_to_rune(&k), v)),
+        }
     }
 }
 
