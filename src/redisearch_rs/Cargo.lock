@@ -1492,6 +1492,7 @@ dependencies = [
  "redis_mock",
  "redis_reply",
  "redisearch_rs",
+ "ref_mode",
  "rstest",
  "tracing",
  "workspace_hack",
