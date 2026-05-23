@@ -457,11 +457,13 @@ teardown. Any bespoke in-place transition code must reproduce this.
 - `union_flat.rs` and `union_heap.rs` — worked examples of a **many-child**
   composite: the walk over every child slot, compaction over aborted ones, and
   a settle step shared with the legacy `revalidate` so the two paths cannot
-  drift. Both use the helpers in `union.rs`: a `FreeSuspendedShell` RAII guard
-  owning the half-transitioned buffer (the region boundaries live in the
-  guard, so the teardown reads them rather than being handed indices), and a
-  `rebuild_borrowed_entries` that recomputes the contributor set instead of
-  matching entries by address, in an order each union picks. Flat offers its
+  drift. Both use the composite helpers in `composite.rs`: a
+  `FreeSuspendedShell` RAII guard owning the half-transitioned buffer (the
+  region boundaries live in the guard, so the teardown reads them rather than
+  being handed indices), and a `repush_borrowed_entries` that recomputes the
+  contributor set instead of matching entries by address, in an order each
+  caller picks; `union.rs`'s `rebuild_borrowed_entries` wraps it with the
+  union's verdict (one contributor is enough). Flat offers its
   children in slot order, which is how its read path picks them; the heap's
   read path picks from the heap instead, so it offers the heap's contributors
   first and, in `QUICK_EXIT` mode, finds the backer it reported by address
