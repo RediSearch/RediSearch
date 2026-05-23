@@ -13,9 +13,11 @@ mod iter_;
 mod prefixed;
 mod range;
 mod suffixed;
+mod wildcard;
 
 pub use contains::RuneTrieMapContainsIter;
 pub use iter_::RuneTrieMapIter;
 pub use prefixed::RuneTrieMapPrefixedIter;
 pub use range::RuneTrieMapRangeIter;
 pub use suffixed::RuneTrieMapSuffixedIter;
+pub use wildcard::RuneTrieMapWildcardIter;

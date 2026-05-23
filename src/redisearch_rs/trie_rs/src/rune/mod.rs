@@ -113,10 +113,8 @@ impl<Data> RuneTrieMap<Data> {
         iter::RuneTrieMapRangeIter::build_from(&self.inner, min, include_min, max, include_max)
     }
 
-    pub fn wildcard_iter(&self, _buf: &[u16]) -> iter::RuneTrieMapIter<'_, Data> {
-        // self.inner
-        //     .wildcard_iter(WildcardPattern::parse(&rune_to_bytes(buf)))
-        todo!()
+    pub fn wildcard_iter(&self, buf: &[u16]) -> iter::RuneTrieMapWildcardIter<'_, Data> {
+        iter::RuneTrieMapWildcardIter::new(&self.inner, buf)
     }
 }
 
