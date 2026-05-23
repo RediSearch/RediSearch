@@ -1215,11 +1215,10 @@ impl<'index, const QUICK_EXIT: bool> crate::interop::ProfileChildren<'index>
 
 // Union variants are always wrapped by `UnionOpaque`, which prints the real
 // `UNION` profile (including children); this impl exists only to satisfy the
-// `ProfilePrint` supertrait of `RQESuspendedIterator`, and is not reached in
-// practice. It is limited to the suspended form so the active one cannot print a
-// placeholder by mistake.
-impl<I, const QUICK_EXIT: bool> crate::profile_print::ProfilePrint
-    for RawUnionHeap<'_, Suspended, I, QUICK_EXIT>
+// `ProfilePrint` bound every iterator form carries, and is not reached in
+// practice.
+impl<Rf: Ref, I, const QUICK_EXIT: bool> crate::profile_print::ProfilePrint
+    for RawUnionHeap<'_, Rf, I, QUICK_EXIT>
 {
     fn print_profile(
         &self,
