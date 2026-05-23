@@ -27,11 +27,12 @@ use std::ptr::NonNull;
 use ffi::QueryIterator;
 use index_result::RSIndexResult;
 use query_types::QueryNodeType;
-use ref_mode::{Active, Ref, SharedPtr};
+use ref_mode::{Active, Ref, SharedPtr, Suspended};
 use rqe_core::DocId;
 
 use crate::{
-    IteratorType, RQEIterator, RQEIteratorError, RQEValidateStatus, SkipToOutcome, UnionFullFlat,
+    IteratorType, RQEIterator, RQEIteratorBoxed, RQEIteratorError, RQESuspendedIterator,
+    RQEValidateStatus, ResumeOutcome, SkipToOutcome, UnionFullFlat,
     c2rust::CRQEIterator,
     interop::RQEIteratorWrapper,
     profile_print::{ProfilePrint, ProfilePrintCtx},
@@ -44,6 +45,27 @@ use index_spec::IndexSpecReadGuard;
 
 /// Enum holding all possible union iterator variants, parameterised over a
 /// [`Ref`] mode. See [`UnionVariant`] for the [`Active`] instantiation.
+///
+/// # Invariants
+///
+/// 1. **Layout compatibility across the payload swap.** `RawUnionVariant` is a
+///    `#[repr(C)]` enum, so its tag encoding and every payload's offset depend
+///    only on the sizes and alignments of *all* its payloads. Every payload that
+///    transitions is layout-identical across modes, which the slot helpers
+///    that rewrite it ([`suspend_child_slot_in_place`] /
+///    [`resume_child_slot_in_place`]) enforce at compile time.
+///    [`Trimmed`](Self::Trimmed) never transitions, but its payload still
+///    shapes the enum's size, alignment and payload offset; that is covered by
+///    the [`assert_layout_compatible`] guard over the whole enclosing
+///    [`RawUnionOpaque`] in its
+///    [`suspend`](RQEIteratorBoxed::suspend) /
+///    [`resume`](RQESuspendedIterator::resume). Hence
+///    `RawUnionVariant<Active, I>` and `RawUnionVariant<Suspended, I::Suspended>`
+///    are layout-identical, and a payload rewritten in place keeps its tag.
+///
+/// [`suspend_child_slot_in_place`]: crate::boxed::suspend_child_slot_in_place
+/// [`resume_child_slot_in_place`]: crate::boxed::resume_child_slot_in_place
+/// [`assert_layout_compatible`]: crate::boxed::assert_layout_compatible
 #[repr(C)]
 pub enum RawUnionVariant<'query, Rf: Ref, I> {
     FlatFull(RawUnionFlat<'query, Rf, I, false>),
@@ -56,6 +78,22 @@ pub enum RawUnionVariant<'query, Rf: Ref, I> {
 /// Alias for an [`Active`] [`RawUnionVariant`] — the only instantiation
 /// with a callable surface today.
 pub type UnionVariant<'index, I> = RawUnionVariant<'index, Active<'index>, I>;
+
+// Compile-time proof of invariant 1 on `RawUnionVariant`, for a representative
+// concrete child.
+//
+// There is no per-variant `offset_of!`: naming an enum variant's field in
+// `offset_of!` is still unstable.
+const _: () = {
+    use crate::Wildcard;
+    use std::mem::{align_of, size_of};
+    type AChild = Wildcard<'static>;
+    type SChild = <Wildcard<'static> as RQEIteratorBoxed<'static>>::Suspended;
+    type A = RawUnionVariant<'static, Active<'static>, AChild>;
+    type S = RawUnionVariant<'static, Suspended, SChild>;
+    assert!(size_of::<A>() == size_of::<S>());
+    assert!(align_of::<A>() == align_of::<S>());
+};
 
 impl<'index, I: RQEIterator<'index>> UnionVariant<'index, I> {
     /// Converts this variant in place to [`UnionVariant::Trimmed`], switching
@@ -116,6 +154,20 @@ macro_rules! delegate_variant_ref_mut {
 ///
 /// Parameterised over a [`Ref`] mode — see [`UnionOpaque`] for the
 /// [`Active`] instantiation that implements [`RQEIterator`].
+///
+/// # Invariants
+///
+/// 1. **Layout compatibility across the variant swap.** `RawUnionOpaque` is
+///    `#[repr(C)]` over a [`RawUnionVariant`] (layout-identical across modes by
+///    its own invariant 1), an `Rf`-free [`QueryNodeType`], and an
+///    `Option<SharedPtr<Rf, CStr>>` whose niche is the same in both modes. So
+///    `RawUnionOpaque<Active, I>` and `RawUnionOpaque<Suspended, I::Suspended>`
+///    are layout-identical, which is what lets
+///    [`suspend`](RQEIteratorBoxed::suspend) /
+///    [`resume`](RQESuspendedIterator::resume) reuse the allocation.
+/// 2. **No re-validation of `query_string` across the swap.** It borrows the
+///    query AST, not the index (see [`query_string`](Self::query_string)), so
+///    re-typing it between [`Ref`] modes in either direction is sound as is.
 #[repr(C)]
 pub struct RawUnionOpaque<'query, Rf: Ref, I> {
     pub variant: RawUnionVariant<'query, Rf, I>,
@@ -134,6 +186,23 @@ pub struct RawUnionOpaque<'query, Rf: Ref, I> {
 /// Alias for an [`Active`] [`RawUnionOpaque`] — the only instantiation
 /// with an [`RQEIterator`] impl today.
 pub type UnionOpaque<'index, I> = RawUnionOpaque<'index, Active<'index>, I>;
+
+// Compile-time proof of invariant 1 on `RawUnionOpaque`, for a representative
+// concrete child. `SharedPtr` is `#[repr(transparent)]` over `NonNull`, which is
+// why `query_string`'s niche matches across modes.
+const _: () = {
+    use crate::Wildcard;
+    use std::mem::{align_of, offset_of, size_of};
+    type AChild = Wildcard<'static>;
+    type SChild = <Wildcard<'static> as RQEIteratorBoxed<'static>>::Suspended;
+    type A = RawUnionOpaque<'static, Active<'static>, AChild>;
+    type S = RawUnionOpaque<'static, Suspended, SChild>;
+    assert!(offset_of!(A, variant) == offset_of!(S, variant));
+    assert!(offset_of!(A, query_node_type) == offset_of!(S, query_node_type));
+    assert!(offset_of!(A, query_string) == offset_of!(S, query_string));
+    assert!(size_of::<A>() == size_of::<S>());
+    assert!(align_of::<A>() == align_of::<S>());
+};
 
 impl<'index, I: RQEIterator<'index>> UnionOpaque<'index, I> {
     /// Set the weight on the union's aggregate result.
@@ -316,13 +385,12 @@ unsafe extern "C" fn union_profile_children(base: *mut QueryIterator) -> *mut Qu
         // SAFETY: `it` is a valid, uniquely-owned C iterator; it is consumed
         // here and replaced below, so it is neither leaked nor double-freed.
         let profiled = unsafe { CRQEIterator::new(it) }.into_profiled();
-        // `CRQEIterator` is `#[repr(transparent)]` over `NonNull<QueryIterator>`,
-        // so a `&mut CRQEIterator` can be viewed as a `*mut *mut QueryIterator`
-        // slot for in-place replacement.
-        let slot = child as *mut CRQEIterator as *mut *mut QueryIterator;
-        // SAFETY: `slot` is a valid, writable pointer; store the profiled
-        // iterator back in place.
-        unsafe { *slot = profiled.into_raw().as_ptr() };
+        // SAFETY: `child` is a valid, aligned, exclusively borrowed slot. `ptr::write` overwrites
+        // it *without* dropping what was there, which is what this needs: the value still in the
+        // slot names the same `QueryIterator` the profiled wrapper now owns, so running its `Drop`
+        // would `Free` a live iterator. Writing the whole struct rather than its first field also
+        // keeps the replacement independent of `CRQEIterator`'s field layout.
+        unsafe { std::ptr::write(child, profiled) };
     }
     base
 }
@@ -441,4 +509,198 @@ unsafe fn build_union_with_q_str_opt(
     let ptr = RQEIteratorWrapper::boxed_new_inner(dispatch, Some(union_profile_children));
     // SAFETY: `boxed_new_inner` uses `Box::into_raw`, which is guaranteed non-null.
     unsafe { NonNull::new_unchecked(ptr) }
+}
+
+impl<'index, I> RQEIteratorBoxed<'index> for UnionOpaque<'index, I>
+where
+    I: RQEIteratorBoxed<'index>,
+{
+    type Suspended = RawUnionOpaque<'index, Suspended, I::Suspended>;
+
+    fn suspend(self: Box<Self>) -> Box<Self::Suspended> {
+        // The const proof on `RawUnionOpaque` fixes a representative child; the
+        // whole-box cast below is generic over `I`, so check every instantiation.
+        const { crate::boxed::assert_layout_compatible::<Self, Self::Suspended>() };
+
+        // Refused on `&self`, before `Box::into_raw`, so that the panic unwinds
+        // and drops the box normally, as the legacy `revalidate` path does.
+        // Inside the slot helper's abort-on-unwind window, `UnionTrimmed`'s own
+        // `unreachable!` would abort the process instead.
+        if matches!(self.variant, UnionVariant::Trimmed(_)) {
+            unreachable!(
+                "suspend is not supported on UnionTrimmed — trimmed unions are not subject to GC"
+            );
+        }
+
+        let raw = Box::into_raw(self);
+
+        // Each payload goes through the slot helper rather than being covered by
+        // the whole-box cast alone: the inner union's own `suspend` is what
+        // transitions its children. The tag is left untouched, so by invariant 1
+        // on `RawUnionVariant` the cast below lands on the same variant.
+        //
+        // SAFETY: `raw` came from `Box::into_raw` (non-null, aligned,
+        // initialised, exclusively owned); the `&mut` borrow is confined to the
+        // match, and each payload is a valid, exclusively-owned value that the
+        // helper leaves as its suspended counterpart at the same address.
+        match unsafe { &mut (*raw).variant } {
+            UnionVariant::FlatFull(it) => {
+                // SAFETY: `it` is the valid, exclusively-owned payload.
+                unsafe { crate::boxed::suspend_child_slot_in_place(it as *mut _) }
+            }
+            UnionVariant::FlatQuick(it) => {
+                // SAFETY: as above.
+                unsafe { crate::boxed::suspend_child_slot_in_place(it as *mut _) }
+            }
+            UnionVariant::HeapFull(it) => {
+                // SAFETY: as above.
+                unsafe { crate::boxed::suspend_child_slot_in_place(it as *mut _) }
+            }
+            UnionVariant::HeapQuick(it) => {
+                // SAFETY: as above.
+                unsafe { crate::boxed::suspend_child_slot_in_place(it as *mut _) }
+            }
+            UnionVariant::Trimmed(_) => unreachable!("refused before `Box::into_raw` above"),
+        }
+
+        // SAFETY: the variant now holds its suspended form at the same offset
+        // under the same tag; `query_node_type` is `Rf`-free and `query_string`
+        // may be re-typed by invariant 2 on `RawUnionOpaque`. `Self` and
+        // `Self::Suspended` are layout-compatible per the guard above.
+        // `Box::from_raw` reuses the same allocation, so the box and every
+        // interior address survive the cycle.
+        unsafe { Box::from_raw(raw as *mut RawUnionOpaque<'index, Suspended, I::Suspended>) }
+    }
+}
+
+impl<'query, S> RQESuspendedIterator<'query> for RawUnionOpaque<'query, Suspended, S>
+where
+    S: RQESuspendedIterator<'query>,
+{
+    type Resumed<'a>
+        = UnionOpaque<'a, S::Resumed<'a>>
+    where
+        'query: 'a;
+
+    fn resume<'a>(
+        self: Box<Self>,
+        guard: &IndexSpecReadGuard<'a>,
+    ) -> Result<ResumeOutcome<Box<Self::Resumed<'a>>>, RQEIteratorError>
+    where
+        'query: 'a,
+    {
+        // See `suspend` for why the outer cast needs its own guard.
+        const { crate::boxed::assert_layout_compatible::<Self, Self::Resumed<'a>>() };
+
+        // `suspend` never produces a suspended trimmed union; refused before
+        // `Box::into_raw` for the reason given there.
+        if matches!(self.variant, RawUnionVariant::Trimmed(_)) {
+            unreachable!(
+                "resume is not supported on UnionTrimmed — trimmed unions are not subject to GC"
+            );
+        }
+
+        let raw = Box::into_raw(self);
+
+        // The tag is left untouched, so by invariant 1 on `RawUnionVariant` the
+        // cast below lands on the same variant.
+        //
+        // SAFETY: `raw` came from `Box::into_raw` (non-null, aligned,
+        // initialised, exclusively owned); the `&mut` borrow is confined to the
+        // match. On `Unchanged`/`Moved` the helper rewrites the payload as its
+        // resumed form; on `Aborted`/`Err` it consumes the payload, leaving it
+        // uninitialised (handled below).
+        let outcome = match unsafe { &mut (*raw).variant } {
+            RawUnionVariant::FlatFull(it) => {
+                // SAFETY: `it` is the valid, exclusively-owned payload.
+                unsafe { crate::boxed::resume_child_slot_in_place(it as *mut _, guard) }
+            }
+            RawUnionVariant::FlatQuick(it) => {
+                // SAFETY: as above.
+                unsafe { crate::boxed::resume_child_slot_in_place(it as *mut _, guard) }
+            }
+            RawUnionVariant::HeapFull(it) => {
+                // SAFETY: as above.
+                unsafe { crate::boxed::resume_child_slot_in_place(it as *mut _, guard) }
+            }
+            RawUnionVariant::HeapQuick(it) => {
+                // SAFETY: as above.
+                unsafe { crate::boxed::resume_child_slot_in_place(it as *mut _, guard) }
+            }
+            RawUnionVariant::Trimmed(_) => unreachable!("refused before `Box::into_raw` above"),
+        };
+
+        // Only valid once the payload holds its resumed form.
+        let rebox = |raw: *mut Self| {
+            // SAFETY: the payload holds its resumed form at the same offset and
+            // the tag is unchanged; `query_node_type` is `Rf`-free and
+            // `query_string` may be re-typed by invariant 2 on `RawUnionOpaque`.
+            // `Self` and `Self::Resumed<'a>` are layout-compatible per the guard
+            // above. `Box::from_raw` reuses the same allocation, so the box address —
+            // and the FFI's cached `header.current` into the payload's result —
+            // stay valid.
+            unsafe { Box::from_raw(raw.cast::<UnionOpaque<'a, S::Resumed<'a>>>()) }
+        };
+
+        // Free the reused allocation when the payload was consumed: only the tag
+        // and the `Rf`-free/pointer fields remain live, none of which need
+        // dropping (`query_string` is a borrowed `SharedPtr`). Reboxing as
+        // `MaybeUninit` frees through `Box` without running any drop glue.
+        let free_shell = |raw: *mut Self| {
+            // SAFETY: `raw` came from `Box::into_raw` on a box of the active
+            // form, layout-compatible with `Self` per the guard above, so a
+            // `Box<MaybeUninit<Self>>` owns exactly that allocation; dropping it
+            // deallocates without touching the consumed payload.
+            drop(unsafe { Box::from_raw(raw.cast::<std::mem::MaybeUninit<Self>>()) });
+        };
+
+        match outcome {
+            Ok(crate::boxed::ResumeSlotOutcome::Unchanged) => Ok(ResumeOutcome::Ok(rebox(raw))),
+            Ok(crate::boxed::ResumeSlotOutcome::Moved) => Ok(ResumeOutcome::Moved(rebox(raw))),
+            Ok(crate::boxed::ResumeSlotOutcome::Aborted) => {
+                free_shell(raw);
+                Ok(ResumeOutcome::Aborted)
+            }
+            Err(e) => {
+                free_shell(raw);
+                Err(e)
+            }
+        }
+    }
+
+    fn last_doc_id(&self) -> DocId {
+        match &self.variant {
+            RawUnionVariant::FlatFull(it) => {
+                <RawUnionFlat<'query, Suspended, S, false> as RQESuspendedIterator<'query>>::last_doc_id(it)
+            }
+            RawUnionVariant::FlatQuick(it) => {
+                <RawUnionFlat<'query, Suspended, S, true> as RQESuspendedIterator<'query>>::last_doc_id(it)
+            }
+            RawUnionVariant::HeapFull(it) => {
+                <RawUnionHeap<'query, Suspended, S, false> as RQESuspendedIterator<'query>>::last_doc_id(it)
+            }
+            RawUnionVariant::HeapQuick(it) => {
+                <RawUnionHeap<'query, Suspended, S, true> as RQESuspendedIterator<'query>>::last_doc_id(it)
+            }
+            RawUnionVariant::Trimmed(_) => unreachable!("`suspend` refuses trimmed unions"),
+        }
+    }
+
+    fn num_estimated(&self) -> usize {
+        match &self.variant {
+            RawUnionVariant::FlatFull(it) => {
+                <RawUnionFlat<'query, Suspended, S, false> as RQESuspendedIterator<'query>>::num_estimated(it)
+            }
+            RawUnionVariant::FlatQuick(it) => {
+                <RawUnionFlat<'query, Suspended, S, true> as RQESuspendedIterator<'query>>::num_estimated(it)
+            }
+            RawUnionVariant::HeapFull(it) => {
+                <RawUnionHeap<'query, Suspended, S, false> as RQESuspendedIterator<'query>>::num_estimated(it)
+            }
+            RawUnionVariant::HeapQuick(it) => {
+                <RawUnionHeap<'query, Suspended, S, true> as RQESuspendedIterator<'query>>::num_estimated(it)
+            }
+            RawUnionVariant::Trimmed(_) => unreachable!("`suspend` refuses trimmed unions"),
+        }
+    }
 }
