@@ -129,7 +129,7 @@ impl<Data> RuneTrieMap<Data> {
         ))
     }
 
-    pub fn iterate_range<'a>(
+    pub fn range_iter<'a>(
         &'a self,
         min: Option<&[Rune]>,
         include_min: bool,

@@ -11,23 +11,8 @@
 //! iteration (`Trie_IterateRange`) against the snapshots owned by
 //! `rune_trie_snapshots::range_iteration`.
 //!
-//! Assumed `RuneTrieMap` API (does NOT exist yet — porting target):
-//!
-//! ```ignore
-//! impl<Data> RuneTrieMap<Data> {
-//!     /// Yield every terminal whose key lies within the lex range
-//!     /// `[min, max]` (with inclusivity flags), in lex order. `None` on
-//!     /// either side disables that bound — matches the C `(NULL, -1)`
-//!     /// sentinel used by `Trie_IterateRange`.
-//!     pub fn iterate_range(
-//!         &self,
-//!         min: Option<&[Rune]>,
-//!         include_min: bool,
-//!         max: Option<&[Rune]>,
-//!         include_max: bool,
-//!     ) -> impl Iterator<Item = (Vec<Rune>, &Data)>;
-//! }
-//! ```
+//! Drives [`RuneTrieMap::range_iter`]. `None` on either side disables that
+//! bound — matches the C `(NULL, -1)` sentinel used by `Trie_IterateRange`.
 //!
 //! Callback-stop semantics are mirrored via `.take(n)` on the iterator —
 //! that's the most natural Rust shape for "halt after N hits". The C side
@@ -82,7 +67,7 @@ fn dump_range(
     let min_buf = min.map(term_runes);
     let max_buf = max.map(term_runes);
 
-    let iter = trie.iterate_range(
+    let iter = trie.range_iter(
         min_buf.as_deref(),
         include_min,
         max_buf.as_deref(),
@@ -231,7 +216,7 @@ fn lex_range_callback_stops_early() {
     .unwrap();
 
     let mut matches = 0usize;
-    for (k, entry) in trie.iterate_range(None, true, None, true).take(3) {
+    for (k, entry) in trie.range_iter(None, true, None, true).take(3) {
         let term = String::from_utf16(&k).expect("trie runes are valid BMP UTF-16");
         writeln!(&mut out, "  {term:10}  numDocs={}", entry.num_docs).unwrap();
         matches += 1;
