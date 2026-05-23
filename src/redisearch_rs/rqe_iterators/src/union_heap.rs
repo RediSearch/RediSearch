@@ -10,11 +10,14 @@
 //! Heap variant of the union iterator with O(log n) min-finding.
 
 use index_result::{RSIndexResult, RawIndexResult};
-use ref_mode::{Active, Ref};
+use ref_mode::{Active, Ref, Suspended};
 use rqe_core::DocId;
 
 use crate::utils::DocIdMinHeap;
-use crate::{IteratorType, RQEIterator, RQEIteratorError, RQEValidateStatus, SkipToOutcome};
+use crate::{
+    IteratorType, RQEIterator, RQEIteratorBoxed, RQEIteratorError, RQESuspendedIterator,
+    RQEValidateStatus, ResumeOutcome, SkipToOutcome,
+};
 use index_spec::IndexSpecReadGuard;
 
 /// Yields documents appearing in ANY child iterator using a binary heap.
@@ -502,6 +505,178 @@ where
         } else {
             1.0
         }
+    }
+}
+
+impl<'index, I, const QUICK_EXIT: bool> RQEIteratorBoxed<'index> for UnionHeap<'index, I, QUICK_EXIT>
+where
+    I: RQEIteratorBoxed<'index>,
+{
+    type Suspended = RawUnionHeap<'index, Suspended, I::Suspended, QUICK_EXIT>;
+
+    fn suspend(self: Box<Self>) -> Box<Self::Suspended> {
+        let raw = Box::into_raw(self);
+        // Walk children: dispatch each child's `suspend` through the trait
+        // so dyn-erased `I` correctly transitions its vtable. See
+        // [`crate::boxed::suspend_child_slot_in_place`] for the rationale.
+        //
+        // SAFETY: `raw` came from `Box::into_raw` and is exclusively owned
+        // for the rest of this function, so the children Vec is reachable
+        // and unaliased.
+        let children: &mut Vec<I> = unsafe { &mut (*raw).children };
+        for child in children.iter_mut() {
+            // SAFETY: `child` is a valid `&mut I` aliased to nothing else;
+            // the function leaves the slot in a valid `I::Suspended` state.
+            unsafe { crate::boxed::suspend_child_slot_in_place(child) };
+        }
+        // SAFETY: `RawUnionHeap` is `#[repr(C)]` over `Vec<I>` (now byte-
+        // rewritten as `Vec<I::Suspended>` contents), `result:
+        // RawIndexResult<Rf>` (layout-compatible via `SharedPtr`), and
+        // a heap of plain doc-ids/indices (no `Rf` in its types).
+        unsafe { Box::from_raw(raw as *mut RawUnionHeap<'index, Suspended, I::Suspended, QUICK_EXIT>) }
+    }
+}
+
+impl<'query, S, const QUICK_EXIT: bool> RQESuspendedIterator<'query>
+    for RawUnionHeap<'query, Suspended, S, QUICK_EXIT>
+where
+    S: RQESuspendedIterator<'query>,
+{
+    type Resumed<'a>
+        = UnionHeap<'a, S::Resumed<'a>, QUICK_EXIT>
+    where
+        'query: 'a;
+
+    fn resume<'a>(
+        self: Box<Self>,
+        guard: &IndexSpecReadGuard<'a>,
+    ) -> Result<ResumeOutcome<Box<Self::Resumed<'a>>>, RQEIteratorError>
+    where
+        'query: 'a,
+    {
+        let RawUnionHeap {
+            children,
+            num_estimated,
+            num_active,
+            is_eof,
+            result,
+            heap: _,
+        } = *self;
+
+        let saved_weight = result.weight;
+        let saved_last_doc_id = result.doc_id;
+        drop(result);
+
+        // `swap_remove_child` keeps EOF children in the Vec at indices
+        // `[num_active..]` so [`rewind`](RQEIterator::rewind) can restore
+        // them to active. Resume must preserve that split: tail children
+        // stay in their resumed-active form so a future rewind picks them
+        // up, but they don't count toward `num_active` (their last_doc_id
+        // would otherwise be re-inserted into the heap and yielded again
+        // after the live children exhaust).
+        let mut any_change = false;
+        let mut live: Vec<S::Resumed<'a>> = Vec::with_capacity(num_active);
+        let mut dead: Vec<S::Resumed<'a>> =
+            Vec::with_capacity(children.len().saturating_sub(num_active));
+        for (i, inner) in children.into_iter().enumerate() {
+            let active_inner = match Box::new(inner).resume(guard)? {
+                ResumeOutcome::Aborted => {
+                    any_change = true;
+                    continue;
+                }
+                ResumeOutcome::Moved(active_inner) => {
+                    any_change = true;
+                    *active_inner
+                }
+                ResumeOutcome::Ok(active_inner) => *active_inner,
+            };
+            if i < num_active {
+                live.push(active_inner);
+            } else {
+                dead.push(active_inner);
+            }
+        }
+        let num_children = live.len();
+        let mut active_children = live;
+        active_children.extend(dead);
+        let result = RSIndexResult::build_union(num_children)
+            .weight(saved_weight)
+            .build();
+
+        let mut active: Box<UnionHeap<'a, S::Resumed<'a>, QUICK_EXIT>> =
+            Box::new(UnionHeap {
+                children: active_children,
+                num_estimated,
+                num_active: num_children,
+                is_eof,
+                result,
+                heap: DocIdMinHeap::with_capacity(num_children),
+            });
+
+        if active.is_eof || saved_last_doc_id == 0 {
+            return Ok(ResumeOutcome::Ok(active));
+        }
+
+        if num_children == 0 {
+            return Ok(ResumeOutcome::Aborted);
+        }
+
+        if !any_change {
+            // Children's positions are unchanged. Rebuild the heap from
+            // their current positions so subsequent reads have a valid
+            // structure, then build the aggregate at saved_last_doc_id —
+            // exhausted children get discovered naturally on the next
+            // read, matching legacy revalidate's early-return.
+            for (idx, child) in active.children.iter().enumerate() {
+                if !child.at_eof() {
+                    active.heap.push(child.last_doc_id(), idx);
+                }
+            }
+            active.build_aggregate_result(saved_last_doc_id);
+            return Ok(ResumeOutcome::Ok(active));
+        }
+
+        // Some child moved or aborted: rebuild the heap from survivors,
+        // dropping those at EOF. The new minimum is the heap root.
+        let mut num_active = 0usize;
+        for (idx, child) in active.children.iter().enumerate() {
+            if !child.at_eof() {
+                active.heap.push(child.last_doc_id(), idx);
+                num_active += 1;
+            }
+        }
+        active.num_active = num_active;
+
+        if num_active == 0 {
+            active.is_eof = true;
+            return Ok(ResumeOutcome::Moved(active));
+        }
+
+        let min_entry = active
+            .heap
+            .peek()
+            .expect("heap is non-empty after num_active check");
+        let min_doc_id = min_entry.doc_id;
+
+        if QUICK_EXIT {
+            active.quick_set_from_child(min_entry.child_idx);
+        } else {
+            active.build_aggregate_result(min_doc_id);
+        }
+
+        if min_doc_id == saved_last_doc_id {
+            Ok(ResumeOutcome::Ok(active))
+        } else {
+            Ok(ResumeOutcome::Moved(active))
+        }
+    }
+
+    fn last_doc_id(&self) -> DocId {
+        self.result.doc_id
+    }
+
+    fn num_estimated(&self) -> usize {
+        self.num_estimated
     }
 }
 
