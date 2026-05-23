@@ -37,4 +37,6 @@ void sparseVector_append(sparseVector **v, int index, int value);
 sparseVector *newSparseVector(int *values, int len);
 
 void sparseVector_free(sparseVector *v);
+
+int sv_equals(sparseVector *sv1, sparseVector *sv2);
 #endif

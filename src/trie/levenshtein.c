@@ -112,25 +112,13 @@ void __dfaNode_free(dfaNode *d) {
   rm_free(d);
 }
 
-int __sv_equals(sparseVector *sv1, sparseVector *sv2) {
-  if (sv1->len != sv2->len) return 0;
-
-  for (int i = 0; i < sv1->len; i++) {
-    if (sv1->entries[i].idx != sv2->entries[i].idx || sv1->entries[i].val != sv2->entries[i].val) {
-      return 0;
-    }
-  }
-
-  return 1;
-}
-
 dfaNode *__dfn_getCache(Vector *cache, sparseVector *v) {
   size_t n = Vector_Size(cache);
   for (int i = 0; i < n; i++) {
     dfaNode *dfn;
     Vector_Get(cache, i, &dfn);
 
-    if (__sv_equals(v, dfn->v)) {
+    if (sv_equals(v, dfn->v)) {
       return dfn;
     }
   }
