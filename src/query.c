@@ -566,15 +566,24 @@ static sds tagPhraseAppendValue(sds buf, const QueryNode *phrase, const char *em
   return buf;
 }
 
+void QueryParseCtx_Cleanup(QueryParseCtx *q) {
+  array_free_ex(q->unescapedNames, rm_free(*(char **)ptr));
+  q->unescapedNames = NULL;
+}
+
 int QAST_Parse(QueryAST *dst, const RedisSearchCtx *sctx, const RSSearchOptions *sopts,
                const char *qstr, size_t len, unsigned int dialectVersion, QueryError *status) {
-  if (!dst->query) {
-    dst->query = rm_strndup(qstr, len);
-    dst->nquery = len;
+  if (dialectVersion < 2) {
+    if (!dst->query) {
+      dst->query = rm_strndup(qstr, len);
+      dst->nquery = len;
+    }
+    qstr = dst->query;
+    len = dst->nquery;
   }
   QueryParseCtx qpCtx = {// force multiline
-                         .raw = dst->query,
-                         .len = dst->nquery,
+                         .raw = qstr,
+                         .len = len,
                          .sctx = (RedisSearchCtx *)sctx,
                          .opts = sopts,
                          .status = status,
@@ -586,6 +595,7 @@ int QAST_Parse(QueryAST *dst, const RedisSearchCtx *sctx, const RSSearchOptions 
     dst->root = RSQuery_ParseRaw_v2(&qpCtx);
   else
     dst->root = RSQuery_ParseRaw_v1(&qpCtx);
+  QueryParseCtx_Cleanup(&qpCtx);
 
 #ifdef PARSER_DEBUG
   if (qpCtx.trace_log != NULL) {

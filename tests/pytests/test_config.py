@@ -78,7 +78,6 @@ def testGetConfigOptions(env):
     check_config('TIMEOUT')
     check_config('WORKERS')
     check_config('MIN_OPERATION_WORKERS')
-    check_config('MIN_MAINTENANCE_WORKERS')
     check_config('WORKER_THREADS')
     check_config('MT_MODE')
     check_config('TIERED_HNSW_BUFFER_LIMIT')
@@ -132,9 +131,6 @@ def testSetConfigOptions(env):
     env.expect(config_cmd(), 'set', 'TIMEOUT', 1).equal('OK')
     env.expect(config_cmd(), 'set', 'WORKERS', 1).equal('OK')
     env.expect(config_cmd(), 'set', 'MIN_OPERATION_WORKERS', 1).equal('OK')
-    env.expect(config_cmd(), 'set', 'MIN_MAINTENANCE_WORKERS', 2).equal('OK')
-    env.expect(config_cmd(), 'get', 'MIN_MAINTENANCE_WORKERS').equal([['MIN_MAINTENANCE_WORKERS', '2']])
-    env.expect(config_cmd(), 'set', 'MIN_MAINTENANCE_WORKERS', 1).equal('OK')
     env.expect(config_cmd(), 'set', 'DEFAULT_SCORER', 'BM25STD').equal('OK')
     env.expect(config_cmd(), 'set', 'WORKER_THREADS', 1).error().contains(not_modifiable) # deprecated
     env.expect(config_cmd(), 'set', 'MT_MODE', 1).error().contains(not_modifiable) # deprecated
@@ -169,7 +165,6 @@ def testSetConfigOptionsErrors(env):
     env.expect(config_cmd(), 'set', 'FORKGC_SLEEP_BEFORE_EXIT', 'str').error().contains('SEARCH_PARSE_ARGS Could not convert argument to expected type')
     env.expect(config_cmd(), 'set', 'WORKERS',  2 ** 13 + 1).contains('Number of worker threads cannot exceed')
     env.expect(config_cmd(), 'set', 'MIN_OPERATION_WORKERS', 2 ** 13 + 1).contains('Number of worker threads cannot exceed')
-    env.expect(config_cmd(), 'set', 'MIN_MAINTENANCE_WORKERS', 2 ** 13 + 1).contains('Number of worker threads cannot exceed')
     env.expect(config_cmd(), 'set', 'INDEX_CURSOR_LIMIT', -1).contains('Value is outside acceptable bounds')
     env.expect(config_cmd(), 'set', '_BG_INDEX_MEM_PCT_THR', -1).contains('Value is outside acceptable bounds')
     env.expect(config_cmd(), 'set', '_BG_INDEX_MEM_PCT_THR', 101).contains('Memory limit for indexing cannot be greater then 100%')
@@ -212,7 +207,6 @@ def testAllConfig(env):
     env.assertContains(res_dict['TIMEOUT'][0], ['500', '0'])
     env.assertEqual(res_dict['WORKERS'][0], '0')
     env.assertEqual(res_dict['MIN_OPERATION_WORKERS'][0], '4')
-    env.assertEqual(res_dict['MIN_MAINTENANCE_WORKERS'][0], '1')
     env.assertEqual(res_dict['TIERED_HNSW_BUFFER_LIMIT'][0], '1024')
     env.assertEqual(res_dict['PRIVILEGED_THREADS_NUM'][0], '1')
     env.assertEqual(res_dict['WORKERS_PRIORITY_BIAS_THRESHOLD'][0], '1')
@@ -258,7 +252,6 @@ def testInitConfig():
     _test_config_num('MAXPREFIXEXPANSIONS', 5)
     _test_config_num('WORKERS', 3)
     _test_config_num('MIN_OPERATION_WORKERS', 3)
-    _test_config_num('MIN_MAINTENANCE_WORKERS', 3)
     _test_config_num('TIERED_HNSW_BUFFER_LIMIT', 50000)
     _test_config_num('PRIVILEGED_THREADS_NUM', 4)
     _test_config_num('WORKERS_PRIORITY_BIAS_THRESHOLD', 4)
@@ -378,6 +371,9 @@ workers_default = min(MAX_WORKER_THREADS, os.cpu_count())
 min_operation_workers_default = 4
 min_maintenance_workers_default = '1'
 
+def _min_maintenance_workers(env):
+    return env.cmd('CONFIG', 'GET', 'search-min-maintenance-workers')[1]
+
 @skip(cluster=True)
 def testDeprecatedMTConfig_full():
     workers = '3'
@@ -388,7 +384,7 @@ def testDeprecatedMTConfig_full():
     # Check new config values
     env.expect(config_cmd(), 'get', 'WORKERS').equal([['WORKERS', workers]])
     env.expect(config_cmd(), 'get', 'MIN_OPERATION_WORKERS').equal([['MIN_OPERATION_WORKERS', str(min_operation_workers_default)]])
-    env.expect(config_cmd(), 'get', 'MIN_MAINTENANCE_WORKERS').equal([['MIN_MAINTENANCE_WORKERS', min_maintenance_workers_default]])
+    env.assertEqual(_min_maintenance_workers(env), min_maintenance_workers_default)
 
 @skip(cluster=True)
 def testDeprecatedMTConfig_operations():
@@ -405,9 +401,7 @@ def testDeprecatedMTConfig_operations():
     else:
         env.expect(config_cmd(), 'get', 'WORKERS').equal([['WORKERS', str(workers_default)]])
         env.expect(config_cmd(), 'get', 'MIN_OPERATION_WORKERS').equal([['MIN_OPERATION_WORKERS', workers]])
-    # Operations-only query workers keep the maintenance floor, which never runs queries.
-    env.expect(config_cmd(), 'get', 'MIN_MAINTENANCE_WORKERS').equal([['MIN_MAINTENANCE_WORKERS', '1']])
-    _assert_maintenance_workers_disabled_warning(env, 'MT_MODE_ONLY_ON_OPERATIONS', count=0)
+    env.assertEqual(_min_maintenance_workers(env), min_maintenance_workers_default)
 
 @skip(cluster=True)
 def testDeprecatedMTConfig_off():
@@ -419,9 +413,15 @@ def testDeprecatedMTConfig_off():
     # Check new config values. Both are 0 due to explicit configuration
     env.expect(config_cmd(), 'get', 'WORKERS').equal([['WORKERS', '0']])
     env.expect(config_cmd(), 'get', 'MIN_OPERATION_WORKERS').equal([['MIN_OPERATION_WORKERS', '0']])
-    env.expect(config_cmd(), 'get', 'MIN_MAINTENANCE_WORKERS').equal([['MIN_MAINTENANCE_WORKERS', '0']])
-    _assert_maintenance_workers_disabled_warning(env, 'MT_MODE_OFF')
-    # The pool was created with the upgraded values, so vector deletes repair the graph in place.
+    env.assertEqual(_min_maintenance_workers(env), min_maintenance_workers_default)
+    env.assertEqual(getWorkersThpoolNumThreads(env), int(min_maintenance_workers_default))
+
+@skip(cluster=True)
+def testDeprecatedMTConfig_off_without_maintenance_workers():
+    env = Env(moduleArgs='WORKER_THREADS 0 MT_MODE MT_MODE_OFF', noDefaultModuleArgs=True,
+              enableDebugCommand=True, redisConfigFile=min_maintenance_workers_conf(0))
+    env.assertEqual(_min_maintenance_workers(env), '0')
+    # The pool is empty from startup, so vector deletes repair the graph in place.
     env.assertEqual(getWorkersThpoolNumThreads(env), 0)
     env.expect('FT.CREATE', 'idx', 'SCHEMA', 'v', 'VECTOR', 'HNSW', '6', 'TYPE', 'FLOAT32', 'DIM', 2,
                'DISTANCE_METRIC', 'L2').ok()
@@ -434,19 +434,13 @@ def testDeprecatedMTConfig_off():
     env.assertEqual(backend['INDEX_LABEL_COUNT'], 9)
     env.assertEqual(getWorkersThpoolStats(env)['totalJobsDone'], 0)
 
-def _assert_maintenance_workers_disabled_warning(env, mt_mode, count=1):
-    log_path = os.path.join(env.cmd('config', 'get', 'dir')[1], env.cmd('CONFIG', 'GET', 'logfile')[1])
-    expected = f'Setting `MIN_MAINTENANCE_WORKERS` to 0 due to explicit `{mt_mode}`'
-    env.assertEqual(_grep_file_count(log_path, expected), count, depth=1)
-
 @skip(cluster=True)
 def testDeprecatedMTConfig_explicit_min_maintenance_workers():
-    """An explicit MIN_MAINTENANCE_WORKERS wins over the floor the deprecated modes imply."""
-    for mode in ['MT_MODE_OFF', 'MT_MODE_ONLY_ON_OPERATIONS']:
+    for mode in ['MT_MODE_OFF', 'MT_MODE_ONLY_ON_OPERATIONS', 'MT_MODE_FULL']:
         workers = 0 if mode == 'MT_MODE_OFF' else 3
-        env = Env(moduleArgs=f'WORKER_THREADS {workers} MT_MODE {mode} MIN_MAINTENANCE_WORKERS 2',
-                  noDefaultModuleArgs=True)
-        env.expect(config_cmd(), 'get', 'MIN_MAINTENANCE_WORKERS').equal([['MIN_MAINTENANCE_WORKERS', '2']])
+        env = Env(moduleArgs=f'WORKER_THREADS {workers} MT_MODE {mode}', noDefaultModuleArgs=True,
+                  redisConfigFile=min_maintenance_workers_conf(2))
+        env.assertEqual(_min_maintenance_workers(env), '2', message=mode)
         env.stop()
 
 # Check invalid combination
@@ -650,7 +644,6 @@ numericConfigs = [
     ('search-max-doctablesize', 'MAXDOCTABLESIZE', 1_000_000, 1, 100_000_000, True, False),
     ('search-max-prefix-expansions', 'MAXPREFIXEXPANSIONS', 200, 1, UINT32_MAX, False, False),
     ('search-max-search-results', 'MAXSEARCHRESULTS', DEFAULT_MAX_SEARCH_REQUEST_RESULTS, 0, MAX_SEARCH_REQUEST_RESULTS, False, False),
-    ('search-min-maintenance-workers', 'MIN_MAINTENANCE_WORKERS', 1, 0, MAX_WORKER_THREADS, False, False),
     ('search-min-operation-workers', 'MIN_OPERATION_WORKERS', 4, 0, MAX_WORKER_THREADS, False, False),
     ('search-min-phonetic-term-len', 'MIN_PHONETIC_TERM_LEN', 3, 1, LLONG_MAX, False, False),
     ('search-min-prefix', 'MINPREFIX', 2, 1, UINT32_MAX, False, False),
@@ -1799,6 +1792,34 @@ def testConfigAPIConfigOnlyBooleanParams():
         # Invalid values should fail
         env.expect('CONFIG', 'SET', configName, 'invalid_boolean').error()\
             .contains('CONFIG SET failed')
+
+# CONFIG-only numeric parameters (no corresponding FT.CONFIG parameter / module argument)
+configOnlyNumericConfigs = [
+    # configName, defaultValue, minValue, maxValue, legacyName
+    ('search-min-maintenance-workers', 1, 0, MAX_WORKER_THREADS, 'MIN_MAINTENANCE_WORKERS'),
+]
+
+@skip(redis_less_than='7.9.227')
+def testConfigAPIConfigOnlyNumericParams():
+    env = Env(noDefaultModuleArgs=True)
+
+    if env.isCluster():
+        conn = env.getOSSMasterNodesConnectionList()[0]
+        cmd = conn.execute_command
+    else:
+        cmd = env.cmd
+
+    for configName, defaultValue, minValue, maxValue, legacyName in configOnlyNumericConfigs:
+        env.assertEqual(cmd('CONFIG', 'GET', configName), [configName, str(defaultValue)])
+        for val in [minValue, maxValue, defaultValue]:
+            env.assertEqual(cmd('CONFIG', 'SET', configName, val), 'OK')
+            env.assertEqual(cmd('CONFIG', 'GET', configName), [configName, str(val)])
+
+        for val in [minValue - 1, maxValue + 1]:
+            env.expect('CONFIG', 'SET', configName, val).error().contains('CONFIG SET failed')
+
+        env.expect(config_cmd(), 'GET', legacyName).equal([])
+        env.expect(config_cmd(), 'SET', legacyName, defaultValue).error().contains('Invalid option')
 
 def _testModuleLoadexBooleanParam(configName, argName, defaultValue, isFlag):
     """Run the MODULE LOADEX scenarios for a single boolean config."""

@@ -168,7 +168,8 @@ void searchRequestCtx_Free(searchRequestCtx *r);
 
 bool debugCommandsEnabled(RedisModuleCtx *ctx);
 
-specialCaseCtx *prepareOptionalTopKCase(const char *query_string, size_t query_len, RedisModuleString **argv, int argc, uint dialectVersion, QueryError *status);
+// `params` is the request's parsed PARAMS dict (NULL if none); it is only read.
+specialCaseCtx *prepareOptionalTopKCase(const char *query_string, size_t query_len, dict *params, uint dialectVersion, QueryError *status);
 
 void SpecialCaseCtx_Free(specialCaseCtx* ctx);
 

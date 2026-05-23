@@ -69,17 +69,15 @@ int GetJSONAPIs(RedisModuleCtx *ctx, int subscribeToModuleChange) {
     return 0;
 }
 
-RedisJSON JSON_GetJsonFromHandleCompat(RedisModuleKey *key) {
+RedisJSON JSON_GetJsonFromHandle(RedisModuleKey *key) {
   if (!japi || !key) {
     return NULL;
   }
-  // getJsonFromHandle is a V8 addition; only read that vtable slot when the
-  // acquired API is V8+. On V7, fall back to the module value after confirming
-  // the key holds JSON.
-  if (japi_ver >= 8) {
-    return japi->getJsonFromHandle(key);
-  }
-  return japi->isJSON(key) ? RedisModule_ModuleTypeGetValue(key) : NULL;
+  return japi->getJsonFromHandle(key);
+}
+
+JSONResultsIterator JSON_GetWithCompiledPath(RedisJSON root, JSONPath path) {
+  return path ? japi->getWithPath(root, path) : NULL;
 }
 
 ///////////////////////////////////////////////////////////////////////////////////////////////
@@ -1143,13 +1141,13 @@ int JSON_LoadDocumentField(JSONResultsIterator jsonIter, size_t len,
   return rv;
 }
 
-void JSONParse_error(QueryError *status, RedisModuleString *err_msg, const HiddenString *path, const HiddenString *fieldName, const HiddenString *indexName) {
-  QueryError_SetWithUserDataFmt(status, QUERY_ERROR_CODE_INVAL_PATH,
-                         "Invalid JSONPath", " '%s' in attribute '%s' in index '%s'",
-                         HiddenString_GetUnsafe(path, NULL), HiddenString_GetUnsafe(fieldName, NULL), HiddenString_GetUnsafe(indexName, NULL));
-  RedisModule_FreeString(RSDummyContext, err_msg);
+void JSONParse_error(QueryError *status, const HiddenString *path, const HiddenString *fieldName,
+                     const HiddenString *indexName) {
+  QueryError_SetWithUserDataFmt(
+      status, QUERY_ERROR_CODE_INVAL_PATH, "Invalid JSONPath",
+      " '%s' in attribute '%s' in index '%s'", HiddenString_GetUnsafe(path, NULL),
+      HiddenString_GetUnsafe(fieldName, NULL), HiddenString_GetUnsafe(indexName, NULL));
 }
-
 
 #ifdef ENABLE_ASSERT
 #include "json_test_api.h"
