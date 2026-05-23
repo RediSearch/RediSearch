@@ -338,20 +338,43 @@ where
         let num_children = self.num_children_total();
 
         if print_full {
-            let mut arr = map.kv_array(c"Child iterators");
-            for i in 0..num_children {
-                if let Some(child) = self.child_at(i) {
-                    let mut child_map = arr.map();
-                    let mut child_ctx = ctx.child_ctx();
-                    child.print_profile(&mut child_map, &mut child_ctx);
-                }
-            }
+            print_union_children(map, ctx, num_children, |i| self.child_at(i));
         } else {
             let msg = format!("The number of iterators in the union is {num_children}");
             let msg_cstr = std::ffi::CString::new(msg).unwrap();
             map.kv_simple_string(c"Child iterators", &msg_cstr);
         }
     }
+}
+
+/// Print the `Child iterators` array of a union profile: each of the
+/// `num_children` children that `child_at` still holds, in insertion order.
+pub(crate) fn print_union_children<'c, I: ProfilePrint + 'c>(
+    map: &mut redis_reply::MapBuilder<'_>,
+    ctx: &ProfilePrintCtx<'_>,
+    num_children: usize,
+    child_at: impl Fn(usize) -> Option<&'c I>,
+) {
+    let mut arr = map.kv_array(c"Child iterators");
+    for child in (0..num_children).filter_map(child_at) {
+        let mut child_map = arr.map();
+        let mut child_ctx = ctx.child_ctx();
+        child.print_profile(&mut child_map, &mut child_ctx);
+    }
+}
+
+/// Print a bare union variant, for when it is printed outside a
+/// [`UnionOpaque`]. The variant does not know the query node type, so it
+/// prints no `Query type` and always lists its children in full.
+pub(crate) fn print_union_variant<'c, I: ProfilePrint + 'c>(
+    map: &mut redis_reply::MapBuilder<'_>,
+    ctx: &mut ProfilePrintCtx<'_>,
+    num_children: usize,
+    child_at: impl Fn(usize) -> Option<&'c I>,
+) {
+    map.kv_simple_string(c"Type", c"UNION");
+    ctx.print_optional_counters(map);
+    print_union_children(map, ctx, num_children, child_at);
 }
 
 /// Concrete [`RQEIteratorWrapper`] used to expose a [`UnionOpaque`] to C.

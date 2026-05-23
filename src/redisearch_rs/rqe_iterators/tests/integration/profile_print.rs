@@ -373,6 +373,41 @@ fn union_variant_print(
     }
 }
 
+/// A union variant printed outside a `UnionOpaque` still lists its children, active or
+/// suspended, rather than posing as a childless leaf.
+#[test]
+fn bare_union_variant_print() {
+    fn profile<I>(it: I) -> ReplyValue
+    where
+        I: rqe_iterators::RQEIteratorBoxed<'static> + ProfilePrint,
+    {
+        assert_suspended_prints_as_active(Box::new(it))
+    }
+    let children = || {
+        vec![
+            rqe_iterators::Empty,
+            rqe_iterators::Empty,
+            rqe_iterators::Empty,
+        ]
+    };
+
+    let flat_full = profile(UnionFullFlat::new(children()));
+    for other in [
+        profile(rqe_iterators::UnionQuickFlat::new(children())),
+        profile(rqe_iterators::UnionFullHeap::new(children())),
+        profile(rqe_iterators::UnionQuickHeap::new(children())),
+        profile(rqe_iterators::UnionTrimmed::new(children(), 10, true)),
+    ] {
+        assert_eq!(other, flat_full);
+    }
+    insta::assert_debug_snapshot!(flat_full, @r#"
+    {
+      "Type": "UNION",
+      "Child iterators": [{"Type": "EMPTY"}, {"Type": "EMPTY"}, {"Type": "EMPTY"}]
+    }
+    "#);
+}
+
 #[test]
 fn union_limited_non_union_type() {
     use query_types::QueryNodeType;
@@ -743,4 +778,22 @@ fn numeric_variant_geo() {
 
     let reply = assert_suspended_prints_as_active(Box::new(iter));
     insta::assert_debug_snapshot!(reply);
+}
+
+/// A disk wildcard is a shell around the enterprise backend's iterator, so its
+/// profile is the backend's, before and after a suspend.
+#[test]
+fn disk_wildcard_prints_its_backend() {
+    use rqe_iterators::RQEIteratorBoxed;
+
+    let mut replier = init();
+    let backend = rqe_iterators::id_list::IdListSorted::new(vec![1, 2, 3]);
+    let expected = print(&mut replier, &backend, false);
+
+    let disk = Box::new(rqe_iterators::wildcard::DiskWildcardIterator::new(
+        rqe_iterators::TypeErasedRQEIterator::new(Box::new(backend)),
+    ));
+    assert_eq!(print(&mut replier, &*disk, false), expected);
+    let suspended = disk.suspend();
+    assert_eq!(print(&mut replier, &*suspended, false), expected);
 }

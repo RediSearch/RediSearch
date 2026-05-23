@@ -439,17 +439,18 @@ where
     }
 }
 
-// Union variants are always wrapped by `UnionOpaque`, which prints the real
-// `UNION` profile (including children); this impl exists only to satisfy the
-// `ProfilePrint` supertrait of `RQESuspendedIterator`, and is not reached in
-// practice. It is limited to the suspended form so the active one cannot print a
-// placeholder by mistake.
-impl<I> crate::profile_print::ProfilePrint for RawUnionTrimmed<'_, Suspended, I> {
+// Production wraps every variant in a `UnionOpaque`, which adds the query type;
+// printing the children here too keeps a bare variant's profile truthful.
+impl<Rf: Ref, I: crate::profile_print::ProfilePrint> crate::profile_print::ProfilePrint
+    for RawUnionTrimmed<'_, Rf, I>
+{
     fn print_profile(
         &self,
         map: &mut redis_reply::MapBuilder<'_>,
         ctx: &mut crate::profile_print::ProfilePrintCtx<'_>,
     ) {
-        ctx.print_leaf(c"UNION", map);
+        crate::union_opaque::print_union_variant(map, ctx, self.num_children_total(), |i| {
+            self.child_at(i)
+        });
     }
 }
