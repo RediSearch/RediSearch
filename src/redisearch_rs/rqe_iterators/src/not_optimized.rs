@@ -10,11 +10,11 @@
 //! Supporting types for [`NotOptimized`].
 
 use index_result::{RSIndexResult, RawIndexResult};
-use ref_mode::{Active, Ref};
+use ref_mode::{Active, Ref, Suspended};
 
 use crate::{
-    IteratorType, RQEIterator, RQEIteratorError, RQEValidateStatus, SkipToOutcome,
-    WildcardIterator,
+    IteratorType, RQEIterator, RQEIteratorBoxed, RQEIteratorError, RQESuspendedIterator,
+    RQEValidateStatus, ResumeOutcome, SkipToOutcome, WildcardIterator,
     maybe_empty::MaybeEmpty,
     profile_print::{ProfilePrint, ProfilePrintCtx},
     utils::TimeoutContext,
@@ -94,7 +94,16 @@ where
             timeout_ctx,
         }
     }
+}
 
+impl<'index, W, I, TC> NotOptimized<'index, W, I, TC>
+where
+    // Helpers below only call generic `RQEIterator` methods on the wildcard
+    // base, so they don't need the `WildcardIterator` marker (enforced in `new`).
+    W: RQEIterator<'index>,
+    I: RQEIterator<'index>,
+    TC: TimeoutContext,
+{
     /// Wrapper around [`TimeoutContext::check_timeout`].
     #[inline(always)]
     fn check_timeout(&mut self) -> Result<(), RQEIteratorError> {
@@ -183,7 +192,8 @@ where
 
 impl<'index, W, I, TC> RQEIterator<'index> for NotOptimized<'index, W, I, TC>
 where
-    W: WildcardIterator<'index>,
+    // Marker enforced at construction (`new`); only generic methods used here.
+    W: RQEIterator<'index>,
     I: RQEIterator<'index>,
     TC: TimeoutContext,
 {
@@ -345,6 +355,128 @@ where
 
     fn intersection_sort_weight(&self, _prioritize_union_children: bool) -> f64 {
         1.0
+    }
+}
+
+impl<'index, W, I, TC> RQEIteratorBoxed<'index> for NotOptimized<'index, W, I, TC>
+where
+    // Marker enforced at construction (`new`), not on the suspend/resume path.
+    W: RQEIteratorBoxed<'index>,
+    I: RQEIteratorBoxed<'index>,
+    TC: TimeoutContext + 'index + 'static,
+{
+    type Suspended = RawNotOptimized<'index, Suspended, W::Suspended, I::Suspended, TC>;
+
+    fn suspend(self: Box<Self>) -> Box<Self::Suspended> {
+        let raw = Box::into_raw(self);
+        // SAFETY: `RawNotOptimized` is `#[repr(C)]`. The only `Rf`-dependent
+        // field is `result: RawIndexResult<Rf>` (layout-compatible via
+        // `SharedPtr` transparency). `W`/`I` are layout-compatible with
+        // `W::Suspended`/`I::Suspended` by the [`RQEIteratorBoxed`]
+        // contract; `MaybeEmpty<I>` likewise (see [`MaybeEmpty::suspend`]).
+        // Box::from_raw reuses the same heap allocation.
+        unsafe {
+            Box::from_raw(
+                raw as *mut RawNotOptimized<'index, Suspended, W::Suspended, I::Suspended, TC>,
+            )
+        }
+    }
+}
+
+impl<'query, WS, IS, TC> RQESuspendedIterator<'query>
+    for RawNotOptimized<'query, Suspended, WS, IS, TC>
+where
+    WS: RQESuspendedIterator<'query>,
+    IS: RQESuspendedIterator<'query>,
+    TC: TimeoutContext + 'static,
+{
+    type Resumed<'a>
+        = NotOptimized<'a, WS::Resumed<'a>, IS::Resumed<'a>, TC>
+    where
+        'query: 'a;
+
+    fn resume<'a>(
+        self: Box<Self>,
+        guard: &IndexSpecReadGuard<'a>,
+    ) -> Result<ResumeOutcome<Box<Self::Resumed<'a>>>, RQEIteratorError>
+    where
+        'query: 'a,
+    {
+        let RawNotOptimized {
+            wcii,
+            child,
+            max_doc_id,
+            forced_eof,
+            result,
+            timeout_ctx,
+        } = *self;
+
+        // Resume both children unconditionally, mirroring the legacy path.
+        let wcii_outcome = Box::new(wcii).resume(guard)?;
+        let child_outcome = Box::new(child).resume(guard)?;
+
+        // An aborted query child collapses to `Empty` (mirroring the legacy
+        // behaviour); a moved child doesn't shift NOT's cursor.
+        let child: MaybeEmpty<IS::Resumed<'a>> = match child_outcome {
+            ResumeOutcome::Aborted => MaybeEmpty::new_empty(),
+            ResumeOutcome::Ok(c) | ResumeOutcome::Moved(c) => *c,
+        };
+
+        // If `wcii` aborted we cannot rebuild — there is no base to enumerate
+        // the complement over — so the whole iterator aborts. The `wcii` is
+        // genuinely a wildcard; its concrete resumed type `WS::Resumed<'a>` is
+        // statically a `WildcardIterator`.
+        let (wcii, wcii_moved) = match wcii_outcome {
+            ResumeOutcome::Aborted => return Ok(ResumeOutcome::Aborted),
+            ResumeOutcome::Ok(w) => (*w, false),
+            ResumeOutcome::Moved(w) => (*w, true),
+        };
+
+        // SAFETY: `NotOptimized`'s `result` is a virtual sentinel built via
+        // `build_virt()` — no aliased pointers to validate. The `Active<'a>`
+        // re-typing is unconditionally sound.
+        let result = unsafe { result.into_active::<'a>() };
+
+        let mut active = Box::new(NotOptimized {
+            wcii,
+            child,
+            max_doc_id,
+            forced_eof,
+            result,
+            timeout_ctx,
+        });
+
+        if wcii_moved {
+            active.forced_eof = active.wcii.at_eof();
+            let mut have_valid_pos = !active.forced_eof;
+            if have_valid_pos {
+                active.result.doc_id = active.wcii.last_doc_id();
+                if active.child.last_doc_id() < active.result.doc_id {
+                    let _ = active.child.skip_to(active.result.doc_id);
+                }
+                if active.child.last_doc_id() == active.result.doc_id {
+                    if let Ok(found) = active.read_inner() {
+                        have_valid_pos = found;
+                    } else {
+                        active.forced_eof = false;
+                        have_valid_pos = false;
+                    }
+                }
+            }
+            let _ = have_valid_pos;
+            return Ok(ResumeOutcome::Moved(active));
+        }
+
+        Ok(ResumeOutcome::Ok(active))
+    }
+
+    fn last_doc_id(&self) -> DocId {
+        self.result.doc_id
+    }
+
+    fn num_estimated(&self) -> usize {
+        // Mirrors the active `num_estimated`, which delegates to the wildcard base.
+        self.wcii.num_estimated()
     }
 }
 
