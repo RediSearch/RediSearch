@@ -433,18 +433,13 @@ pub trait SearchEnterpriseIterators: Send + Sync {
     ///
     /// On failure, the implementation populates `status` (when present) with the cause before
     /// returning `Err`.
-    ///
-    /// The returned iterator must answer [`RQEIterator::last_doc_id`] and
-    /// [`RQEIterator::num_estimated`] from cached state, without touching `index`: while the
-    /// iterator is suspended (see [`DiskWildcardSuspended`](wildcard::DiskWildcardSuspended)),
-    /// these are called with the index spec lock released.
     fn new_wildcard_on_disk<'index>(
         &self,
         index: &'index mut ffi::RedisSearchDiskIndexSpec,
         weight: f64,
         snapshot: NonNull<ffi::RedisSearchDiskSnapshot>,
         status: Option<&mut QueryError>,
-    ) -> Result<Box<dyn RQEIteratorPrintable<'index> + 'index>, Box<dyn std::error::Error>>;
+    ) -> Result<crate::boxed::TypeErasedRQEIterator<'index>, Box<dyn std::error::Error>>;
 
     /// Iterate over all the terms in the index, loading offset data for each document.
     ///
@@ -459,7 +454,7 @@ pub trait SearchEnterpriseIterators: Send + Sync {
         field_mask: FieldMask,
         weight: f64,
         snapshot: NonNull<ffi::RedisSearchDiskSnapshot>,
-    ) -> Result<Box<dyn RQEIteratorPrintable<'index> + 'index>, Box<dyn std::error::Error>>;
+    ) -> Result<crate::boxed::TypeErasedRQEIterator<'index>, Box<dyn std::error::Error>>;
 
     /// Iterate over all the terms in the index, skipping offset data for efficiency.
     ///
@@ -474,7 +469,7 @@ pub trait SearchEnterpriseIterators: Send + Sync {
         field_mask: FieldMask,
         weight: f64,
         snapshot: NonNull<ffi::RedisSearchDiskSnapshot>,
-    ) -> Result<Box<dyn RQEIteratorPrintable<'index> + 'index>, Box<dyn std::error::Error>>;
+    ) -> Result<crate::boxed::TypeErasedRQEIterator<'index>, Box<dyn std::error::Error>>;
 
     /// Iterate over all the tags (tokens) in the index at the given field index. Each document in
     /// then iterator will have the given weight.
@@ -485,7 +480,7 @@ pub trait SearchEnterpriseIterators: Send + Sync {
         field_index: FieldIndex,
         weight: f64,
         snapshot: NonNull<ffi::RedisSearchDiskSnapshot>,
-    ) -> Result<Box<dyn RQEIteratorPrintable<'index> + 'index>, Box<dyn std::error::Error>>;
+    ) -> Result<crate::boxed::TypeErasedRQEIterator<'index>, Box<dyn std::error::Error>>;
 
     /// Iterate over documents missing the given schema field.
     ///
@@ -495,7 +490,7 @@ pub trait SearchEnterpriseIterators: Send + Sync {
         index: &'index mut ffi::RedisSearchDiskIndexSpec,
         field_index: FieldIndex,
         snapshot: NonNull<ffi::RedisSearchDiskSnapshot>,
-    ) -> Result<Box<dyn RQEIteratorPrintable<'index> + 'index>, Box<dyn std::error::Error>>;
+    ) -> Result<crate::boxed::TypeErasedRQEIterator<'index>, Box<dyn std::error::Error>>;
 
     /// Iterate over the entries of the numeric index at the given field index whose value
     /// matches `filter`.
@@ -505,7 +500,7 @@ pub trait SearchEnterpriseIterators: Send + Sync {
         filter: &NumericFilter,
         field_index: FieldIndex,
         snapshot: NonNull<ffi::RedisSearchDiskSnapshot>,
-    ) -> Result<Box<dyn RQEIteratorPrintable<'index> + 'index>, Box<dyn std::error::Error>>;
+    ) -> Result<crate::boxed::TypeErasedRQEIterator<'index>, Box<dyn std::error::Error>>;
 
     /// Iterate over the entries of the geo (numeric-encoded geohash) index at
     /// the given field index whose `(lon, lat)` falls within the radius
@@ -522,5 +517,5 @@ pub trait SearchEnterpriseIterators: Send + Sync {
         gf: &'index mut ffi::GeoFilter,
         field_index: ffi::t_fieldIndex,
         snapshot: NonNull<ffi::RedisSearchDiskSnapshot>,
-    ) -> Result<Box<dyn RQEIteratorPrintable<'index> + 'index>, Box<dyn std::error::Error>>;
+    ) -> Result<crate::boxed::TypeErasedRQEIterator<'index>, Box<dyn std::error::Error>>;
 }
