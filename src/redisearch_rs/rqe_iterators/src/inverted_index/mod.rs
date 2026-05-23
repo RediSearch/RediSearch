@@ -28,4 +28,4 @@ pub use numeric::{
 };
 pub use tag::Tag;
 pub use term::{Term, TermIndexReader, build_term_iterator};
-pub use wildcard::Wildcard;
+pub use wildcard::{RawWildcard, Wildcard};
