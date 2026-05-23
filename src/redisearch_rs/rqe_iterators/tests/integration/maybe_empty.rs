@@ -504,3 +504,13 @@ impl rqe_iterators::profile_print::ProfilePrint for InfiniteSuspended<'_> {
         map.kv_simple_string(c"Type", c"INFINITE");
     }
 }
+
+impl rqe_iterators::profile_print::ProfilePrint for Infinite<'_> {
+    fn print_profile(
+        &self,
+        map: &mut redis_reply::MapBuilder<'_>,
+        _ctx: &mut rqe_iterators::profile_print::ProfilePrintCtx<'_>,
+    ) {
+        map.kv_simple_string(c"Type", c"INFINITE");
+    }
+}

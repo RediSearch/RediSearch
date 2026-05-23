@@ -14,7 +14,6 @@ use std::ptr::NonNull;
 use query_error::QueryErrorCode;
 use query_term::RSQueryTerm;
 use rqe_core::FieldMask;
-use rqe_iterators::RQEIteratorPrintable;
 use search_disk::SearchDiskHandle;
 
 use crate::QueryEvalContext;
@@ -38,7 +37,7 @@ pub(crate) fn new_term_iterator<'index>(
     field_mask: FieldMask,
     weight: f64,
     needs_offsets: bool,
-) -> Option<Box<dyn RQEIteratorPrintable<'index> + 'index>> {
+) -> Option<rqe_iterators::TypeErasedRQEIterator<'index>> {
     let snapshot = NonNull::new(ctx.sctx().diskSnapshot)
         .expect("query.sctx.diskSnapshot is null for a disk-backed query");
     // SAFETY: `disk` wraps the spec's disk index, valid for `'index`

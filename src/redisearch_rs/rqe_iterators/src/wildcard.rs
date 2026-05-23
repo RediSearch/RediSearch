@@ -11,6 +11,7 @@
 
 use std::ptr::NonNull;
 
+use ffi::t_docId;
 use index_result::{RSIndexResult, RawIndexResult};
 use index_spec::IndexSpecReadGuard;
 use inverted_index::codec::{doc_ids_only::DocIdsOnly, raw_doc_ids_only::RawDocIdsOnly};
@@ -24,7 +25,7 @@ use crate::{
     RQEValidateStatus, ResumeOutcome, SEARCH_ENTERPRISE_ITERATORS, SkipToOutcome,
     profile_print::{ProfilePrint, ProfilePrintCtx},
 };
-use crate::{IteratorType, QueryError, RQEIteratorPrintable};
+use crate::{IteratorType, QueryError};
 
 /// An iterator that yields all ids within a given range, from 1 to max id
 /// (inclusive) in an index.
@@ -930,7 +931,7 @@ pub unsafe fn new_wildcard_iterator_on_disk<'index>(
     // cause; we just fall back to an empty iterator so the query aborts via the
     // existing `QueryError_HasError` check rather than returning empty results.
     match enterprise_iters_api.new_wildcard_on_disk(disk_spec, weight, snapshot, status) {
-        Ok(it) => NewWildcardIterator::Disk(it),
+        Ok(it) => NewWildcardIterator::Disk(DiskWildcardIterator(it)),
         Err(err) => {
             tracing::warn!(
                 "Failed to create a disk wildcard iterator ({err}); falling back to empty iterator."
@@ -1023,11 +1024,75 @@ pub unsafe fn new_wildcard_iterator<'index>(
 
 /// A wildcard iterator backed by an enterprise disk index iterator.
 ///
-/// This is a thin wrapper around a [`Box<dyn RQEIterator>`] provided by
+/// This is a thin wrapper around a [`crate::TypeErasedRQEIterator`] provided by
 /// [`SEARCH_ENTERPRISE_ITERATORS`] that implements [`WildcardIterator`],
 /// allowing disk-based wildcard queries to be used interchangeably with
 /// in-memory ones.
-pub type DiskWildcardIterator<'index> = Box<dyn RQEIteratorPrintable<'index> + 'index>;
+#[repr(transparent)]
+pub struct DiskWildcardIterator<'index>(crate::TypeErasedRQEIterator<'index>);
+
+impl<'index> DiskWildcardIterator<'index> {
+    /// Wrap an iterator from the enterprise backend.
+    pub const fn new(inner: crate::TypeErasedRQEIterator<'index>) -> Self {
+        Self(inner)
+    }
+}
+
+impl<'index> RQEIterator<'index> for DiskWildcardIterator<'index> {
+    fn current(&mut self) -> Option<&mut RSIndexResult<'index>> {
+        self.0.current()
+    }
+
+    fn read(&mut self) -> Result<Option<&mut RSIndexResult<'index>>, RQEIteratorError> {
+        self.0.read()
+    }
+
+    fn skip_to(
+        &mut self,
+        doc_id: t_docId,
+    ) -> Result<Option<SkipToOutcome<'_, 'index>>, RQEIteratorError> {
+        self.0.skip_to(doc_id)
+    }
+
+    fn revalidate(
+        &mut self,
+        spec: &IndexSpecReadGuard,
+    ) -> Result<RQEValidateStatus<'_, 'index>, RQEIteratorError> {
+        self.0.revalidate(spec)
+    }
+
+    fn rewind(&mut self) {
+        self.0.rewind()
+    }
+
+    fn num_estimated(&self) -> usize {
+        self.0.num_estimated()
+    }
+
+    fn last_doc_id(&self) -> t_docId {
+        self.0.last_doc_id()
+    }
+
+    fn at_eof(&self) -> bool {
+        self.0.at_eof()
+    }
+
+    #[inline(always)]
+    fn type_(&self) -> IteratorType {
+        self.0.type_()
+    }
+
+    fn intersection_sort_weight(&self, prioritize_union_children: bool) -> f64 {
+        self.0.intersection_sort_weight(prioritize_union_children)
+    }
+}
+
+/// Prints the enterprise backend iterator's own profile.
+impl ProfilePrint for DiskWildcardIterator<'_> {
+    fn print_profile(&self, map: &mut redis_reply::MapBuilder<'_>, ctx: &mut ProfilePrintCtx<'_>) {
+        self.0.print_profile(map, ctx);
+    }
+}
 
 /// [`DiskWildcardIterator`] matches all documents on the disk index.
 impl<'index> WildcardIterator<'index> for DiskWildcardIterator<'index> {}
@@ -1049,27 +1114,42 @@ impl ProfilePrint for NewWildcardIterator<'_> {
     }
 }
 
-/// The [`RQEIteratorBoxed::Suspended`] form of [`DiskWildcardIterator`]: a newtype over the exact
-/// type it aliases, so suspending is a wrap of the same allocation.
+/// A thin wrapper around [`crate::TypeErasedRQESuspendedIterator`] — the
+/// dyn-erased suspended counterpart of the disk iterator. On resume
+/// the lifetime is taken from the guard, then the inner is unwrapped
+/// and wrapped back into a [`crate::TypeErasedRQEIterator`] to construct
+/// the resumed [`DiskWildcardIterator`].
 ///
-/// This is the one suspended form that breaks the [`RQEIteratorBoxed::Suspended`] invariant: the
-/// backend is opaque and is not told it is suspended, so any reference it keeps into the disk spec
-/// stays live while the lock is released. Until the backend suspends itself, soundness rests on
-/// the contract of [`new_wildcard_on_disk`](crate::SearchEnterpriseIterators::new_wildcard_on_disk).
-///
-/// That borrow is kept as `'query`. Erasing it to `'static` would let safe code drop the disk spec
-/// while the iterator is suspended, then run the backend's destructor against dangling borrows.
+/// The disk iterator is opaque: there is no `Rf` mode to weaken its
+/// index-derived state to raw pointers, so its borrow of the disk spec stays
+/// live for the whole suspend/resume cycle. That is what `'query` denotes here
+/// (see [`RQESuspendedIterator`]); erasing it to `'static` would let safe code
+/// drop the disk spec and then the suspended box, running the backend's
+/// destructor against dangling borrows.
 #[repr(transparent)]
-pub struct DiskWildcardSuspended<'query>(pub(crate) Box<dyn RQEIteratorPrintable<'query> + 'query>);
+pub struct DiskWildcardSuspended<'query>(pub(crate) crate::TypeErasedRQESuspendedIterator<'query>);
 
 impl<'index> RQEIteratorBoxed<'index> for DiskWildcardIterator<'index> {
     type Suspended = DiskWildcardSuspended<'index>;
 
     fn suspend(self: Box<Self>) -> Box<Self::Suspended> {
+        // Drive the inner dyn-erased iterator's suspend via the
+        // `RQEDynIterator` vtable and store the result back into the same
+        // outer allocation, so a pointer the owner holds into this box stays
+        // valid across the cycle.
+        const { crate::boxed::assert_layout_compatible::<Self, Self::Suspended>() };
         let raw = Box::into_raw(self);
-        // SAFETY: `DiskWildcardSuspended<'index>` is `#[repr(transparent)]` over exactly
-        // `DiskWildcardIterator<'index>`.
-        unsafe { Box::from_raw(raw as *mut DiskWildcardSuspended<'index>) }
+        // SAFETY: `raw` came from `Box::into_raw`, so it is valid and uniquely
+        // owned. The value is moved out here and the slot re-initialised below
+        // before the allocation is reboxed.
+        let inner = unsafe { std::ptr::read(raw) }.0.0;
+        let suspended = DiskWildcardSuspended(inner.suspend());
+        let slot = raw.cast::<DiskWildcardSuspended<'index>>();
+        // SAFETY: same allocation as `raw`, whose size and alignment match by
+        // the const assertion above; the slot is uninitialised after the read.
+        unsafe { slot.write(suspended) };
+        // SAFETY: the slot now holds a valid `DiskWildcardSuspended`.
+        unsafe { Box::from_raw(slot) }
     }
 }
 
@@ -1086,34 +1166,57 @@ impl<'query> RQESuspendedIterator<'query> for DiskWildcardSuspended<'query> {
     where
         'query: 'a,
     {
+        // Drive the inner dyn-erased resume and forward its outcome,
+        // re-wrapping the resumed erased iterator back into a
+        // `DiskWildcardIterator`. The disk crate's iterators are read-only
+        // snapshots so the inner currently reports `Ok`; once they implement
+        // `RQESuspendedIterator` natively this will surface their genuine status.
+        // The outer allocation is reused, as on suspend.
+        const { crate::boxed::assert_layout_compatible::<Self, DiskWildcardIterator<'a>>() };
         let raw = Box::into_raw(self);
-        // SAFETY: unwraps the `#[repr(transparent)]` newtype and shortens the trait object's
-        // lifetime from `'query` to `'a`, which variance does not allow because the trait is
-        // invariant in it. `'query: 'a`, so every borrow the iterator holds outlives `'a`.
-        //
-        // This is NOT sound for every `DiskWildcardIterator`: safe code can box any iterator as
-        // one, and an iterator holding a `'query`-typed sink outside the box (e.g. a
-        // `&'query mut Vec<&'query RLookupKey>` it fills on drop) would receive data that only
-        // lives for `'a`, such as a key pushed into `current().metrics`. It holds for the
-        // iterators the disk backend returns, which have no such sink. Known gap, to be closed
-        // by resuming through the backend's own suspended form instead of retyping it.
-        let mut active = unsafe { Box::from_raw(raw as *mut DiskWildcardIterator<'a>) };
-        Ok(match active.revalidate(spec)? {
-            RQEValidateStatus::Ok => ResumeOutcome::Ok(active),
-            RQEValidateStatus::Moved { .. } => ResumeOutcome::Moved(active),
-            RQEValidateStatus::Aborted => ResumeOutcome::Aborted,
+        // SAFETY: `raw` came from `Box::into_raw`, so it is valid and uniquely
+        // owned. The value is moved out here; the slot is either re-initialised
+        // or freed as raw memory below.
+        let inner = unsafe { std::ptr::read(raw) }.0.0;
+        let free_slot = || {
+            // SAFETY: the allocation came from a `Box<Self>` and its contents
+            // were moved out above, so it is freed without dropping anything.
+            unsafe { std::alloc::dealloc(raw.cast(), std::alloc::Layout::new::<Self>()) }
+        };
+        let outcome = match inner.resume(spec) {
+            Ok(outcome) => outcome,
+            Err(err) => {
+                free_slot();
+                return Err(err);
+            }
+        };
+        let (active_inner, moved) = match outcome {
+            ResumeOutcome::Aborted => {
+                free_slot();
+                return Ok(ResumeOutcome::Aborted);
+            }
+            ResumeOutcome::Ok(active_inner) => (active_inner, false),
+            ResumeOutcome::Moved(active_inner) => (active_inner, true),
+        };
+        let slot = raw.cast::<DiskWildcardIterator<'a>>();
+        // SAFETY: same allocation as `raw`, whose size and alignment match by
+        // the const assertion above; the slot is uninitialised after the read.
+        unsafe { slot.write(DiskWildcardIterator(active_inner)) };
+        // SAFETY: the slot now holds a valid `DiskWildcardIterator`.
+        let active = unsafe { Box::from_raw(slot) };
+        Ok(if moved {
+            ResumeOutcome::Moved(active)
+        } else {
+            ResumeOutcome::Ok(active)
         })
     }
 
-    fn last_doc_id(&self) -> DocId {
-        // Lock released: relies on the cached-state contract of
-        // `SearchEnterpriseIterators::new_wildcard_on_disk`.
-        RQEIterator::last_doc_id(&*self.0)
+    fn last_doc_id(&self) -> t_docId {
+        crate::boxed::RQEDynSuspendedIterator::last_doc_id(&*self.0.0)
     }
 
     fn num_estimated(&self) -> usize {
-        // See `last_doc_id`.
-        RQEIterator::num_estimated(&*self.0)
+        crate::boxed::RQEDynSuspendedIterator::num_estimated(&*self.0.0)
     }
 }
 
