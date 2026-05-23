@@ -1030,7 +1030,17 @@ static void rangeIterate(TrieNode *n, const rune *min, int nmin, const rune *max
     endIdx = rsb_lt(arr, arrlen, sizeof(*arr), &h, rsbCompareExact);
   }
 
-  // we need to iterate (without any checking) on all the subtree from beginIdx to endIdx
+  // we need to iterate (without any checking) on all the subtree from beginIdx
+  // to endIdx, excluding the prefix-boundary children that the blocks above
+  // and below recurse on separately. Without these guards, when the min (or
+  // max) is a proper prefix of the boundary child's label, `rsb_gt`/`rsb_lt`
+  // include that child here as well, double-emitting the entire subtree.
+  if (beginEqIdx != -1 && beginIdx <= beginEqIdx) {
+    beginIdx = beginEqIdx + 1;
+  }
+  if (endEqIdx != -1 && endIdx >= endEqIdx) {
+    endIdx = endEqIdx - 1;
+  }
   for (int ii = beginIdx; ii <= endIdx; ++ii) {
     rangeIterateSubTree(arr[ii], r);
   }
