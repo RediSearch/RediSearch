@@ -578,3 +578,104 @@ mod via_resume {
         assert_eq!(active.read().unwrap().unwrap().doc_id, DOC_IDS[3]);
     }
 }
+
+/// Suspend/resume coverage for [`DiskWildcardIterator`] — the type-erased
+/// wildcard the enterprise disk backend hands back.
+///
+/// Unlike the other wildcards this one is a `Box<dyn RQEIteratorPrintable>`,
+/// so its suspended form cannot weaken anything: the payload is opaque. Two
+/// properties are therefore worth pinning, and neither is visible from a
+/// concrete-child test:
+///
+/// * The cast keeps the **same trait object**. `DiskWildcardSuspended` holds
+///   `dyn RQEIteratorPrintable`, not the `dyn RQEIterator` supertrait — a
+///   `dyn Sub` and a `dyn Super` do not share a vtable, so a wrapper typed at
+///   the supertrait would carry a vtable for the wrong trait. The suspended
+///   accessors below dispatch through that vtable, which is what makes this
+///   observable at all; under miri the mismatch is caught earlier still, at the
+///   point the value is constructed.
+/// * The `'static` in the suspended type is a lifetime lie, so the round trip
+///   has to end with a usable iterator at the guard's lifetime rather than one
+///   that merely type-checks.
+mod disk_via_resume {
+    use rqe_iterators::{
+        NewWildcardIterator, RQEIterator, RQEIteratorBoxed, RQESuspendedIterator, ResumeOutcome,
+        wildcard::new_wildcard_iterator_on_disk,
+    };
+    use rqe_iterators_test_utils::MockContext;
+
+    use crate::utils::{MOCK_DISK_WILDCARD_TOP_ID, init_enterprise_iterators};
+
+    /// A disk wildcard from the mock enterprise backend.
+    ///
+    /// The mock ignores both the disk spec and the snapshot, so a null cell and
+    /// a dangling sentinel are enough — all the production path checks is that
+    /// they are non-null. `disk_spec` is borrowed from the caller's frame
+    /// rather than leaked so that it outlives the iterator, which is what the
+    /// `'index` lifetime claims.
+    fn disk_wildcard<'index>(
+        ctx: &MockContext,
+        disk_spec: &'index mut ffi::RedisSearchDiskIndexSpec,
+    ) -> Box<rqe_iterators::wildcard::DiskWildcardIterator<'index>> {
+        init_enterprise_iterators();
+        ctx.set_dummy_disk_snapshot();
+
+        let snapshot = std::ptr::NonNull::<ffi::RedisSearchDiskSnapshot>::dangling();
+
+        // SAFETY: `SEARCH_ENTERPRISE_ITERATORS` is initialised just above;
+        // `disk_spec` and `snapshot` are non-null and never dereferenced by the
+        // mock; `status` is null, which the factory accepts.
+        let it = unsafe {
+            new_wildcard_iterator_on_disk(disk_spec, 1.0, snapshot, std::ptr::null_mut())
+        };
+        let NewWildcardIterator::Disk(disk) = it else {
+            panic!("the mock enterprise backend must produce the Disk variant");
+        };
+        Box::new(disk)
+    }
+
+    /// The round trip, end to end: the box address survives, the suspended
+    /// accessors answer through the preserved vtable, and the resumed iterator
+    /// still reads.
+    #[test]
+    fn resume_round_trip() {
+        let ctx = MockContext::new(0, 0);
+        // Declared before the iterator so it outlives it.
+        let mut disk_spec: ffi::RedisSearchDiskIndexSpec = std::ptr::null();
+        let mut it = disk_wildcard(&ctx, &mut disk_spec);
+
+        assert_eq!(it.read().unwrap().unwrap().doc_id, 1);
+        let box_addr = &*it as *const _ as usize;
+
+        let suspended = it.suspend();
+        assert_eq!(
+            &*suspended as *const _ as usize, box_addr,
+            "suspend must reuse the allocation",
+        );
+        // Dispatched through the inner trait object while suspended. A wrapper
+        // typed at the wrong trait would read these out of the wrong vtable
+        // slots; the mock's sentinel `top_id` makes a wrong answer obvious.
+        assert_eq!(
+            RQESuspendedIterator::num_estimated(&*suspended),
+            MOCK_DISK_WILDCARD_TOP_ID as usize,
+            "the suspended form must answer from the mock's wildcard",
+        );
+        assert_eq!(RQESuspendedIterator::last_doc_id(&*suspended), 1);
+
+        let guard = ctx.spec_read();
+        let mut active = match suspended.resume(&guard).expect("resume failed") {
+            ResumeOutcome::Ok(a) => a,
+            ResumeOutcome::Moved(_) => panic!("expected Ok, got Moved"),
+            ResumeOutcome::Aborted => panic!("expected Ok, got Aborted"),
+        };
+        assert_eq!(
+            &*active as *const _ as usize, box_addr,
+            "resume must reuse the allocation",
+        );
+        assert_eq!(
+            active.read().unwrap().unwrap().doc_id,
+            2,
+            "the resumed iterator continues where it left off",
+        );
+    }
+}
