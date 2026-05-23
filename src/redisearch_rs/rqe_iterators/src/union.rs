@@ -358,10 +358,37 @@ where
         return RebuildOutcome::Backed;
     }
 
+    let contributors =
+        repush_borrowed_entries::<_, QUICK_EXIT>(aggregate, doc_id, freq, field_mask, children);
+    if contributors == 0 {
+        RebuildOutcome::Unbacked
+    } else {
+        RebuildOutcome::Backed
+    }
+}
+
+/// Clear `aggregate` and push back one entry per child sitting on `doc_id`,
+/// returning how many were pushed.
+///
+/// The loop both composites rebuild their entries with; the union's
+/// [`rebuild_borrowed_entries`] owns the contract — what is recomputed, the
+/// order, and why it must be called last — and each composite turns the count
+/// into its own verdict, since a union needs one contributor and an
+/// intersection needs every child.
+pub(crate) fn repush_borrowed_entries<'a, 'child, R, const QUICK_EXIT: bool>(
+    aggregate: &mut RawBorrowedAggregateResult<'a, Suspended>,
+    doc_id: DocId,
+    freq: &mut u32,
+    field_mask: &mut FieldMask,
+    children: impl IntoIterator<Item = &'child mut R>,
+) -> usize
+where
+    R: RQEIterator<'a> + 'child,
+{
     // Drops the records and the kind mask; `push_borrowed_ptr_from_ref` rebuilds
     // both, entry by entry. Deliberately not `reset_aggregate`, which would also
     // take `doc_id` and the metrics, which cannot be put back. See
-    // `# What is recomputed` above.
+    // `# What is recomputed` on `rebuild_borrowed_entries`.
     aggregate.reset();
     *freq = 0;
     *field_mask = 0;
@@ -369,7 +396,7 @@ where
     let mut contributors = 0;
     for child in children {
         // A child at EOF publishes no result, and one whose own resume carried
-        // it past the union's document no longer describes that document.
+        // it past the composite's document no longer describes that document.
         let Some(current) = child.current() else {
             continue;
         };
@@ -378,8 +405,8 @@ where
         }
         // The entry is taken from a shared reborrow, so the tag it carries stays
         // valid for as long as nothing takes `&mut` to this child again. The
-        // loop only ever moves on to a *different* child, and the union takes
-        // none after this call returns.
+        // loop only ever moves on to a *different* child, and the composite
+        // takes none after this call returns.
         let current: &RSIndexResult<'a> = &*current;
 
         *freq += current.freq;
@@ -391,12 +418,7 @@ where
             break;
         }
     }
-
-    if contributors == 0 {
-        RebuildOutcome::Unbacked
-    } else {
-        RebuildOutcome::Backed
-    }
+    contributors
 }
 
 // ============================================================================
