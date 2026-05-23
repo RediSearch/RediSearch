@@ -26,7 +26,7 @@ use inverted_index::{
     FilterGeoReader, FilterNumericReader, IndexReader, NumericFilter, NumericReader,
     ResumableReader, SuspendableReader,
 };
-use numeric_range_tree::{NumericIndexReader, NumericRangeTree};
+use numeric_range_tree::{NumericIndexReader, NumericRangeTree, RawNumericIndexReader};
 use query_types::QueryNodeType;
 use ref_mode::{Active, Ref, Suspended};
 use rqe_core::DocId;
@@ -749,4 +749,165 @@ pub unsafe fn build_numeric_filter_iterator(
     let iter =
         crate::union_opaque::build_union(children, true, min_union_iter_heap, node_type, 1.0);
     Some(iter)
+}
+
+/// [`Suspended`]-mode counterpart of [`NumericIteratorVariant`] used
+/// as its `RQEIteratorBoxed::Suspended` type. Each variant holds the
+/// `Suspended` form of the corresponding `Numeric` instantiation, retaining
+/// the `'query` lifetime so query-attached borrows stay valid across the
+/// suspend/resume cycle.
+pub enum NumericIteratorVariantSuspended<'query> {
+    /// Suspended counterpart of [`NumericIteratorVariant::Unfiltered`].
+    ///
+    /// The trailing `RA` type argument is the frozen **active** reader (see
+    /// [`RawInvIndIterator`]'s `RA`), matching what `Numeric::suspend` produces.
+    Unfiltered(
+        RawNumeric<
+            'query,
+            Suspended,
+            RawNumericIndexReader<Suspended>,
+            FieldExpirationChecker,
+            NumericIndexReader<'query>,
+        >,
+    ),
+    /// Suspended counterpart of [`NumericIteratorVariant::Filtered`].
+    Filtered(
+        RawNumeric<
+            'query,
+            Suspended,
+            FilterNumericReader<RawNumericIndexReader<Suspended>>,
+            FieldExpirationChecker,
+            FilterNumericReader<NumericIndexReader<'query>>,
+        >,
+    ),
+    /// Suspended counterpart of [`NumericIteratorVariant::Geo`].
+    Geo(
+        RawNumeric<
+            'query,
+            Suspended,
+            FilterGeoReader<RawNumericIndexReader<Suspended>>,
+            FieldExpirationChecker,
+            FilterGeoReader<NumericIndexReader<'query>>,
+        >,
+    ),
+}
+
+impl<'query> NumericIteratorVariantSuspended<'query> {
+    /// Mirror of [`NumericIteratorVariant::range_min`] on the suspended side.
+    pub const fn range_min(&self) -> f64 {
+        match self {
+            Self::Unfiltered(iter) => iter.range_min(),
+            Self::Filtered(iter) => iter.range_min(),
+            Self::Geo(iter) => iter.range_min(),
+        }
+    }
+
+    /// Mirror of [`NumericIteratorVariant::range_max`] on the suspended side.
+    pub const fn range_max(&self) -> f64 {
+        match self {
+            Self::Unfiltered(iter) => iter.range_max(),
+            Self::Filtered(iter) => iter.range_max(),
+            Self::Geo(iter) => iter.range_max(),
+        }
+    }
+
+    /// Mirror of [`NumericIteratorVariant::flags`] on the suspended side.
+    pub const fn flags(&self) -> ffi::IndexFlags {
+        match self {
+            Self::Unfiltered(iter) => iter.flags(),
+            Self::Filtered(iter) => iter.flags(),
+            Self::Geo(iter) => iter.flags(),
+        }
+    }
+}
+
+impl<'index> RQEIteratorBoxed<'index> for NumericIteratorVariant<'index> {
+    type Suspended = NumericIteratorVariantSuspended<'index>;
+
+    fn suspend(self: Box<Self>) -> Box<Self::Suspended> {
+        // Field-by-field dispatch: the enum tag's discriminant layout is
+        // unspecified across these two distinct enum types, so we can't
+        // whole-box-cast. Match arms call the inner `RawNumeric`'s
+        // `RQEIteratorBoxed::suspend` (disambiguated via UFCS so it isn't
+        // resolved against an inherent or auto-impl `suspend`) and re-wrap
+        // into the suspended enum.
+        match *self {
+            NumericIteratorVariant::Unfiltered(it) => {
+                let suspended = RQEIteratorBoxed::suspend(Box::new(it));
+                Box::new(NumericIteratorVariantSuspended::Unfiltered(*suspended))
+            }
+            NumericIteratorVariant::Filtered(it) => {
+                let suspended = RQEIteratorBoxed::suspend(Box::new(it));
+                Box::new(NumericIteratorVariantSuspended::Filtered(*suspended))
+            }
+            NumericIteratorVariant::Geo(it) => {
+                let suspended = RQEIteratorBoxed::suspend(Box::new(it));
+                Box::new(NumericIteratorVariantSuspended::Geo(*suspended))
+            }
+        }
+    }
+}
+
+impl<'query> RQESuspendedIterator<'query> for NumericIteratorVariantSuspended<'query> {
+    type Resumed<'a>
+        = NumericIteratorVariant<'a>
+    where
+        'query: 'a;
+
+    fn resume<'a>(
+        self: Box<Self>,
+        guard: &IndexSpecReadGuard<'a>,
+    ) -> Result<ResumeOutcome<Box<Self::Resumed<'a>>>, RQEIteratorError>
+    where
+        'query: 'a,
+    {
+        // Forward the inner variant's outcome: an aborted inner aborts the
+        // whole wrapper; otherwise reconstruct the concrete
+        // `NumericIteratorVariant` and preserve the `Ok`/`Moved` status.
+        let (variant, moved) = match *self {
+            NumericIteratorVariantSuspended::Unfiltered(it) => match Box::new(it).resume(guard)? {
+                ResumeOutcome::Aborted => return Ok(ResumeOutcome::Aborted),
+                ResumeOutcome::Ok(active) => (NumericIteratorVariant::Unfiltered(*active), false),
+                ResumeOutcome::Moved(active) => (NumericIteratorVariant::Unfiltered(*active), true),
+            },
+            NumericIteratorVariantSuspended::Filtered(it) => match Box::new(it).resume(guard)? {
+                ResumeOutcome::Aborted => return Ok(ResumeOutcome::Aborted),
+                ResumeOutcome::Ok(active) => (NumericIteratorVariant::Filtered(*active), false),
+                ResumeOutcome::Moved(active) => (NumericIteratorVariant::Filtered(*active), true),
+            },
+            NumericIteratorVariantSuspended::Geo(it) => match Box::new(it).resume(guard)? {
+                ResumeOutcome::Aborted => return Ok(ResumeOutcome::Aborted),
+                ResumeOutcome::Ok(active) => (NumericIteratorVariant::Geo(*active), false),
+                ResumeOutcome::Moved(active) => (NumericIteratorVariant::Geo(*active), true),
+            },
+        };
+        let active = Box::new(variant);
+        Ok(if moved {
+            ResumeOutcome::Moved(active)
+        } else {
+            ResumeOutcome::Ok(active)
+        })
+    }
+
+    fn last_doc_id(&self) -> DocId {
+        match self {
+            NumericIteratorVariantSuspended::Unfiltered(it) => {
+                RQESuspendedIterator::last_doc_id(it)
+            }
+            NumericIteratorVariantSuspended::Filtered(it) => RQESuspendedIterator::last_doc_id(it),
+            NumericIteratorVariantSuspended::Geo(it) => RQESuspendedIterator::last_doc_id(it),
+        }
+    }
+
+    fn num_estimated(&self) -> usize {
+        match self {
+            NumericIteratorVariantSuspended::Unfiltered(it) => {
+                RQESuspendedIterator::num_estimated(it)
+            }
+            NumericIteratorVariantSuspended::Filtered(it) => {
+                RQESuspendedIterator::num_estimated(it)
+            }
+            NumericIteratorVariantSuspended::Geo(it) => RQESuspendedIterator::num_estimated(it),
+        }
+    }
 }
