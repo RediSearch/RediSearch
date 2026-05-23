@@ -14,7 +14,8 @@ use index_spec::IndexSpecReadGuard;
 use rqe_core::DocId;
 
 use crate::{
-    IteratorType, RQEIterator, RQEIteratorError, RQEValidateStatus, SkipToOutcome, empty::Empty,
+    IteratorType, RQEIterator, RQEIteratorBoxed, RQEIteratorError, RQESuspendedIterator,
+    RQEValidateStatus, ResumeOutcome, SkipToOutcome, empty::Empty,
 };
 
 /// An iterator that is either [`Empty`] or the provided [`RQEIterator`].
@@ -145,7 +146,9 @@ where
     #[inline(always)]
     fn num_estimated(&self) -> usize {
         match &self.0 {
-            MaybeEmptyOption::None(empty) => empty.num_estimated(),
+            // Disambiguated against `RQESuspendedIterator::num_estimated`
+            // (Empty's suspended counterpart is itself).
+            MaybeEmptyOption::None(empty) => RQEIterator::num_estimated(empty),
             MaybeEmptyOption::Some(it) => it.num_estimated(),
         }
     }
@@ -153,7 +156,9 @@ where
     #[inline(always)]
     fn last_doc_id(&self) -> DocId {
         match &self.0 {
-            MaybeEmptyOption::None(empty) => empty.last_doc_id(),
+            // Disambiguated against `RQESuspendedIterator::last_doc_id`
+            // (Empty's suspended counterpart is itself).
+            MaybeEmptyOption::None(empty) => RQEIterator::last_doc_id(empty),
             MaybeEmptyOption::Some(it) => it.last_doc_id(),
         }
     }
@@ -180,6 +185,94 @@ where
                 empty.intersection_sort_weight(prioritize_union_children)
             }
             MaybeEmptyOption::Some(it) => it.intersection_sort_weight(prioritize_union_children),
+        }
+    }
+}
+
+impl<'index, I> RQEIteratorBoxed<'index> for MaybeEmpty<I>
+where
+    I: RQEIteratorBoxed<'index>,
+{
+    type Suspended = MaybeEmpty<I::Suspended>;
+
+    fn suspend(self: Box<Self>) -> Box<Self::Suspended> {
+        let raw = Box::into_raw(self);
+        // Walk the `Some(I)` arm if present — dispatches via the trait so
+        // dyn-erased `I` correctly transitions its vtable. The `None(Empty)`
+        // arm needs no suspend (Empty is a unit struct with no state).
+        //
+        // SAFETY: `raw` came from `Box::into_raw`, exclusively owned and
+        // valid, so the inner enum slot is reachable.
+        let inner: &mut MaybeEmptyOption<I> = unsafe { &mut (*raw).0 };
+        if let MaybeEmptyOption::Some(it) = inner {
+            // SAFETY: `it` is a valid `&mut I` aliased to nothing else;
+            // the function leaves the slot in a valid `I::Suspended` state.
+            unsafe { crate::boxed::suspend_child_slot_in_place(it as *mut I) };
+        }
+        // SAFETY: `MaybeEmpty<I>` is `#[repr(C)]` over a `#[repr(C)]` enum
+        // `MaybeEmptyOption<I>` whose `Some` payload (now byte-rewritten as
+        // `I::Suspended`) is layout-compatible with the suspended form.
+        // `I` and `I::Suspended` share layout by the [`RQEIteratorBoxed`]
+        // contract.
+        unsafe { Box::from_raw(raw as *mut MaybeEmpty<I::Suspended>) }
+    }
+}
+
+impl<'query, S> RQESuspendedIterator<'query> for MaybeEmpty<S>
+where
+    S: RQESuspendedIterator<'query>,
+{
+    type Resumed<'a>
+        = MaybeEmpty<S::Resumed<'a>>
+    where
+        'query: 'a;
+
+    fn resume<'a>(
+        self: Box<Self>,
+        guard: &IndexSpecReadGuard<'a>,
+    ) -> Result<ResumeOutcome<Box<Self::Resumed<'a>>>, RQEIteratorError>
+    where
+        'query: 'a,
+    {
+        match (*self).0 {
+            MaybeEmptyOption::None(empty) => {
+                let active: Box<MaybeEmpty<S::Resumed<'a>>> =
+                    Box::new(MaybeEmpty(MaybeEmptyOption::None(empty)));
+                Ok(ResumeOutcome::Ok(active))
+            }
+            MaybeEmptyOption::Some(child) => {
+                // Forward the child's outcome: an aborted child aborts the
+                // whole wrapper (no active iterator produced); otherwise
+                // re-wrap the resumed child and preserve its `Ok`/`Moved`
+                // status.
+                let (active_child, moved) = match Box::new(child).resume(guard)? {
+                    ResumeOutcome::Aborted => return Ok(ResumeOutcome::Aborted),
+                    ResumeOutcome::Ok(child) => (child, false),
+                    ResumeOutcome::Moved(child) => (child, true),
+                };
+                let active = Box::new(MaybeEmpty(MaybeEmptyOption::Some(*active_child)));
+                Ok(if moved {
+                    ResumeOutcome::Moved(active)
+                } else {
+                    ResumeOutcome::Ok(active)
+                })
+            }
+        }
+    }
+
+    fn last_doc_id(&self) -> DocId {
+        match &self.0 {
+            MaybeEmptyOption::None(_) => 0,
+            MaybeEmptyOption::Some(child) => S::last_doc_id(child),
+        }
+    }
+
+    fn num_estimated(&self) -> usize {
+        match &self.0 {
+            // Empty is its own suspended counterpart; disambiguate against
+            // `RQEIterator::num_estimated`.
+            MaybeEmptyOption::None(empty) => RQESuspendedIterator::num_estimated(empty),
+            MaybeEmptyOption::Some(child) => S::num_estimated(child),
         }
     }
 }
