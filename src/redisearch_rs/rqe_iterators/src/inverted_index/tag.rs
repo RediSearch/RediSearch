@@ -58,7 +58,7 @@ pub struct RawTag<Rf: Ref, E, C = crate::expiration_checker::NoOpChecker> {
 pub type Tag<'index, E, C = crate::expiration_checker::NoOpChecker> = RawTag<Active<'index>, E, C>;
 
 impl<Rf: Ref, E, C> RawTag<Rf, E, C> {
-    /// Cached [`IndexFlags`] of the underlying inverted index — see
+    /// Cached [`ffi::IndexFlags`] of the underlying inverted index — see
     /// [`RawInvIndIterator::flags`]. Mode-independent.
     pub const fn flags(&self) -> ffi::IndexFlags {
         self.it.flags()

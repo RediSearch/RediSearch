@@ -48,7 +48,7 @@ pub type Term<'index, R, E = crate::expiration_checker::NoOpChecker> =
     RawTerm<Active<'index>, R, E>;
 
 impl<Rf: Ref, R, E> RawTerm<Rf, R, E> {
-    /// Cached [`IndexFlags`] of the underlying inverted index — see
+    /// Cached [`ffi::IndexFlags`] of the underlying inverted index — see
     /// [`RawInvIndIterator::flags`]. Mode-independent.
     pub const fn flags(&self) -> ffi::IndexFlags {
         self.it.flags()

@@ -540,7 +540,7 @@ impl RQESuspendedIterator for NewWildcardSuspended {
         }
     }
 
-    fn last_doc_id(&self) -> t_docId {
+    fn last_doc_id(&self) -> DocId {
         match self {
             NewWildcardSuspended::NotOptimized(it) => RQESuspendedIterator::last_doc_id(it),
             NewWildcardSuspended::Optimized(it) => RQESuspendedIterator::last_doc_id(it),
@@ -768,7 +768,7 @@ impl ProfilePrint for NewWildcardIterator<'_> {
 /// here is a **lifetime lie**: the actual borrowed lifetime is `'index`,
 /// inherited from the original [`DiskWildcardIterator`]. The lie is
 /// closed by the FFI-side discipline: while a `DiskWildcardSuspended`
-/// exists, no code dereferences the inner iterator. On [`resume`] the
+/// exists, no code dereferences the inner iterator. On resume the
 /// lifetime contracts back to the guard's lifetime `'a` (which the
 /// caller proves is still valid for the underlying index).
 #[repr(transparent)]
