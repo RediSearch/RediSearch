@@ -331,8 +331,8 @@ mod via_resume {
     /// (like `optional_optimized`'s `WildcardIndex`) can only ever produce
     /// `Aborted`. The index is held behind a raw pointer so the spec's view of
     /// it and the reader's view of it are derived from the same provenance.
-    struct ExistingDocs {
-        ctx: MockContext,
+    pub(super) struct ExistingDocs {
+        pub(super) ctx: MockContext,
         index: *mut opaque::InvertedIndex,
     }
 
@@ -366,7 +366,7 @@ mod via_resume {
             Self { ctx, index }
         }
 
-        fn doc_ids_only() -> Self {
+        pub(super) fn doc_ids_only() -> Self {
             let mut ii = InvertedIndex::<DocIdsOnly>::new(IndexFlags_Index_DocIdsOnly);
             populate(&mut ii);
             Self::new(opaque::InvertedIndex::DocIdsOnly(ii))
@@ -379,7 +379,7 @@ mod via_resume {
         }
 
         /// The typed index the spec's `existingDocs` points at.
-        fn typed<E>(&self) -> &InvertedIndex<E>
+        pub(super) fn typed<E>(&self) -> &InvertedIndex<E>
         where
             E: DecodedBy + OpaqueEncoding<Storage = InvertedIndex<E>>,
         {
@@ -613,7 +613,7 @@ mod disk_via_resume {
     /// they are non-null. `disk_spec` is borrowed from the caller's frame
     /// rather than leaked so that it outlives the iterator, which is what the
     /// `'index` lifetime claims.
-    fn disk_wildcard<'index>(
+    pub(super) fn disk_wildcard<'index>(
         ctx: &MockContext,
         disk_spec: &'index mut ffi::RedisSearchDiskIndexSpec,
     ) -> Box<rqe_iterators::wildcard::DiskWildcardIterator<'index>> {
@@ -677,5 +677,155 @@ mod disk_via_resume {
             2,
             "the resumed iterator continues where it left off",
         );
+    }
+}
+
+/// Suspend/resume coverage for [`NewWildcardIterator`] — the enum
+/// `new_wildcard_iterator` returns, and the type the FFI wrapper actually
+/// boxes and hands to C.
+///
+/// That last point is what these tests are really about. Because
+/// `RQEIteratorWrapper` caches a raw pointer into the boxed iterator
+/// (`header.current`), the cycle has to preserve addresses: not just the
+/// wrapper's allocation but the arm's position inside it. Rebuilding — moving
+/// the arm out and `Box::new`-ing a fresh enum — type-checks and passes a
+/// naive round-trip test while relocating everything, so every case below
+/// asserts the box address explicitly rather than only checking the values
+/// that came back.
+///
+/// The four arms are spelled out separately: each is a distinct payload pair
+/// with its own `suspend`/`resume` instantiation, so one passing says nothing
+/// about the others. Between them they cover every branch of the wrapper's
+/// `suspend` and `resume` — three arms through the `Ok` path and the fourth
+/// through `Aborted`, which is the one that exercises the teardown that frees
+/// the reused allocation without dropping the consumed payload.
+mod new_wildcard_via_resume {
+    use rqe_iterators::{
+        Empty, NewWildcardIterator, RQEIterator, RQEIteratorBoxed, RQESuspendedIterator,
+        ResumeOutcome,
+        inverted_index::Wildcard as InvIdxWildcard,
+        wildcard::{NewWildcardSuspended, OptimizedWildcard, Wildcard},
+    };
+    use rqe_iterators_test_utils::MockContext;
+
+    use super::disk_via_resume::disk_wildcard;
+    use super::via_resume::ExistingDocs;
+    use crate::utils::MOCK_DISK_WILDCARD_TOP_ID;
+
+    /// Round trip through the `NotOptimized` arm: a plain counter wildcard,
+    /// which resumes unconditionally because it borrows nothing from the index.
+    #[test]
+    fn not_optimized_round_trip_preserves_the_allocation() {
+        let ctx = MockContext::new(0, 0);
+        let mut it = Box::new(NewWildcardIterator::NotOptimized(Wildcard::new(10, 1.0)));
+
+        assert_eq!(it.read().unwrap().unwrap().doc_id, 1);
+        let box_addr = &*it as *const _ as usize;
+
+        let suspended = it.suspend();
+        assert_eq!(&*suspended as *const _ as usize, box_addr);
+        assert!(matches!(&*suspended, NewWildcardSuspended::NotOptimized(_)));
+        assert_eq!(RQESuspendedIterator::last_doc_id(&*suspended), 1);
+
+        let guard = ctx.spec_read();
+        let ResumeOutcome::Ok(mut active) = suspended.resume(&guard).expect("resume failed") else {
+            panic!("expected Ok");
+        };
+        assert_eq!(
+            &*active as *const _ as usize, box_addr,
+            "resume must reuse the allocation",
+        );
+        assert!(matches!(&*active, NewWildcardIterator::NotOptimized(_)));
+        assert_eq!(active.read().unwrap().unwrap().doc_id, 2);
+    }
+
+    /// Round trip through the `Empty` arm. The payload is a ZST, so this is the
+    /// case where a tag mix-up would be invisible in the payload bytes and only
+    /// the variant assertions catch it.
+    #[test]
+    fn empty_round_trip_preserves_the_allocation() {
+        let ctx = MockContext::new(0, 0);
+        let it = Box::new(NewWildcardIterator::Empty(Empty));
+        let box_addr = &*it as *const _ as usize;
+
+        let suspended = it.suspend();
+        assert_eq!(&*suspended as *const _ as usize, box_addr);
+        assert!(matches!(&*suspended, NewWildcardSuspended::Empty(_)));
+
+        let guard = ctx.spec_read();
+        let ResumeOutcome::Ok(mut active) = suspended.resume(&guard).expect("resume failed") else {
+            panic!("expected Ok");
+        };
+        assert_eq!(&*active as *const _ as usize, box_addr);
+        assert!(matches!(&*active, NewWildcardIterator::Empty(_)));
+        assert!(active.read().unwrap().is_none());
+    }
+
+    /// Round trip through the `Disk` arm — the only arm whose payload is a
+    /// trait object, so the one where the wrapper's cast has to leave a vtable
+    /// intact as well as a position.
+    #[test]
+    fn disk_round_trip_preserves_the_allocation() {
+        let ctx = MockContext::new(0, 0);
+        // Declared before the iterator so it outlives it.
+        let mut disk_spec: ffi::RedisSearchDiskIndexSpec = std::ptr::null();
+        let mut it = Box::new(NewWildcardIterator::Disk(*disk_wildcard(
+            &ctx,
+            &mut disk_spec,
+        )));
+
+        assert_eq!(it.read().unwrap().unwrap().doc_id, 1);
+        let box_addr = &*it as *const _ as usize;
+
+        let suspended = it.suspend();
+        assert_eq!(&*suspended as *const _ as usize, box_addr);
+        assert!(matches!(&*suspended, NewWildcardSuspended::Disk(_)));
+        assert_eq!(
+            RQESuspendedIterator::num_estimated(&*suspended),
+            MOCK_DISK_WILDCARD_TOP_ID as usize,
+            "the suspended accessor must reach the mock's wildcard through the arm",
+        );
+
+        let guard = ctx.spec_read();
+        let ResumeOutcome::Ok(mut active) = suspended.resume(&guard).expect("resume failed") else {
+            panic!("expected Ok");
+        };
+        assert_eq!(&*active as *const _ as usize, box_addr);
+        assert!(matches!(&*active, NewWildcardIterator::Disk(_)));
+        assert_eq!(active.read().unwrap().unwrap().doc_id, 2);
+    }
+
+    /// The `Optimized` arm, driven to `Aborted`: the GC nulls `existingDocs`
+    /// while the wrapper is suspended, the arm refuses to resume, and the
+    /// wrapper must free the reused allocation *without* dropping the payload
+    /// the arm already consumed. A double drop or a mismatched deallocation
+    /// layout here is exactly what miri is watching for.
+    #[test]
+    fn optimized_arm_abort_tears_down_the_reused_allocation() {
+        let fixture = ExistingDocs::doc_ids_only();
+        let mut it = Box::new(NewWildcardIterator::Optimized(
+            OptimizedWildcard::DocIdsOnly(InvIdxWildcard::new(
+                fixture
+                    .typed::<inverted_index::doc_ids_only::DocIdsOnly>()
+                    .reader(),
+                1.0,
+            )),
+        ));
+        assert!(it.read().unwrap().is_some());
+
+        let suspended = it.suspend();
+        assert!(matches!(&*suspended, NewWildcardSuspended::Optimized(_)));
+
+        fixture
+            .ctx
+            .spec_write()
+            .set_existing_docs_ptr(std::ptr::null_mut());
+
+        // Taken after the write, as the production sequence does.
+        let guard = fixture.ctx.spec_read();
+        assert!(matches!(
+            suspended.resume(&guard).expect("resume failed"),
+            ResumeOutcome::Aborted
+        ));
     }
 }
