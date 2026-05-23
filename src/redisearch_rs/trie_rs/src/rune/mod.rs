@@ -58,7 +58,7 @@ impl<Data> RuneTrieMap<Data> {
         self.inner.remove(&rune_to_bytes(key))
     }
 
-    pub fn get(&mut self, key: &[Rune]) -> Option<&Data> {
+    pub fn get(&self, key: &[Rune]) -> Option<&Data> {
         self.inner.find(&rune_to_bytes(key))
     }
 
