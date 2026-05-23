@@ -104,6 +104,20 @@ impl<Data> RuneTrieMap<Data> {
             ));
         }
 
+        // Pure-suffix mode (`!prefix && suffix`): filter-based — walk the
+        // entire trie and keep terms whose byte representation ends with the
+        // target. Correct but O(N) regardless of selectivity. A future
+        // optimization would port C's `containsIterate` walker
+        // (src/trie/trie_node.c:1077-1082) as a new byte-level iterator on
+        // `TrieMap` and reuse it for both contains and suffix modes via a
+        // flag, matching the C perf characteristics.
+        if !prefix && suffix {
+            return RuneTrieMapContainsIter(RuneTrieMapContainsIterKind::Suffix {
+                target_bytes: rune_to_bytes(target).into_boxed_slice(),
+                iter: self.inner.iter(),
+            });
+        }
+
         let target_bytes: Box<[u8]> = rune_to_bytes(target).into_boxed_slice();
 
         RuneTrieMapContainsIter(RuneTrieMapContainsIterKind::Substring(
@@ -175,6 +189,10 @@ enum RuneTrieMapContainsIterKind<'tm, Data: 'tm> {
     Empty,
     Single(Option<(Vec<Rune>, &'tm Data)>),
     Prefix(iter::Iter<'tm, Data, filter::VisitAll>),
+    Suffix {
+        target_bytes: Box<[u8]>,
+        iter: iter::Iter<'tm, Data, filter::VisitAll>,
+    },
     Substring(RuneTrieMapContainsIterInner<'tm, Data>),
 }
 
@@ -188,6 +206,12 @@ impl<'tm, Data: 'tm> Iterator for RuneTrieMapContainsIter<'tm, Data> {
             RuneTrieMapContainsIterKind::Prefix(inner) => {
                 inner.next().map(|(k, v)| (bytes_to_rune(&k), v))
             }
+            RuneTrieMapContainsIterKind::Suffix { target_bytes, iter } => loop {
+                let (k, v) = iter.next()?;
+                if k.ends_with(target_bytes) {
+                    return Some((bytes_to_rune(&k), v));
+                }
+            },
             RuneTrieMapContainsIterKind::Substring(inner) => inner
                 .with_inner_mut(|i| i.next())
                 .map(|(k, v)| (bytes_to_rune(&k), v)),
