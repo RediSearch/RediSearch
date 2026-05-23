@@ -582,21 +582,17 @@ mod via_resume {
 /// Suspend/resume coverage for [`DiskWildcardIterator`] — the type-erased
 /// wildcard the enterprise disk backend hands back.
 ///
-/// Unlike the other wildcards this one is a `Box<dyn RQEIteratorPrintable>`,
-/// so its suspended form cannot weaken anything: the payload is opaque. Two
-/// properties are therefore worth pinning, and neither is visible from a
-/// concrete-child test:
+/// Unlike the other wildcards this one wraps a type-erased iterator, so its
+/// suspend and resume delegate to the backend's own through the dyn vtable and
+/// rewrite the outer allocation in place. Three properties are therefore worth
+/// pinning, and none is visible from a concrete-child test:
 ///
-/// * The cast keeps the **same trait object**. `DiskWildcardSuspended` holds
-///   `dyn RQEIteratorPrintable`, not the `dyn RQEIterator` supertrait — a
-///   `dyn Sub` and a `dyn Super` do not share a vtable, so a wrapper typed at
-///   the supertrait would carry a vtable for the wrong trait. The suspended
-///   accessors below dispatch through that vtable, which is what makes this
-///   observable at all; under miri the mismatch is caught earlier still, at the
-///   point the value is constructed.
-/// * `resume` shortens the suspended type's `'query` to the guard's lifetime
-///   with a cast, so the round trip has to end with a usable iterator at the
-///   guard's lifetime rather than one that merely type-checks.
+/// * The outer allocation survives both transitions, so a pointer the owner
+///   holds into the box stays valid across the cycle.
+/// * The suspended accessors answer from the backend's suspended form.
+/// * `resume` hands back an iterator at the guard's lifetime, so the round trip
+///   has to end with one that is usable there rather than one that merely
+///   type-checks.
 mod disk_via_resume {
     use rqe_iterators::{
         NewWildcardIterator, RQEIterator, RQEIteratorBoxed, RQEIteratorError, RQESuspendedIterator,
@@ -637,8 +633,7 @@ mod disk_via_resume {
     }
 
     /// The round trip, end to end: the box address survives, the suspended
-    /// accessors answer through the preserved vtable, and the resumed iterator
-    /// still reads.
+    /// accessors answer from the backend, and the resumed iterator still reads.
     #[test]
     fn resume_round_trip() {
         let ctx = MockContext::new(0, 0);
@@ -654,9 +649,8 @@ mod disk_via_resume {
             &*suspended as *const _ as usize, box_addr,
             "suspend must reuse the allocation",
         );
-        // Dispatched through the inner trait object while suspended. A wrapper
-        // typed at the wrong trait would read these out of the wrong vtable
-        // slots; the mock's sentinel `top_id` makes a wrong answer obvious.
+        // Forwarded to the backend's suspended form; the mock's sentinel
+        // `top_id` makes an answer from anywhere else obvious.
         assert_eq!(
             RQESuspendedIterator::num_estimated(&*suspended),
             MOCK_DISK_WILDCARD_TOP_ID as usize,
