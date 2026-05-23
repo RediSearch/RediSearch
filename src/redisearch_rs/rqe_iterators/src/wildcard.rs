@@ -300,6 +300,133 @@ impl crate::profile_print::ProfilePrint for OptimizedWildcard<'_> {
     }
 }
 
+/// [`Suspended`]-mode counterpart of [`OptimizedWildcard`] used as its
+/// `RQEIteratorBoxed::Suspended` type. Each variant holds the `Suspended`
+/// form of the corresponding inverted-index wildcard reader, retaining the
+/// `'query` lifetime so query-attached borrows stay valid across the
+/// suspend/resume cycle.
+///
+/// `#[repr(C, u8)]` matches [`OptimizedWildcard`]'s layout.
+#[repr(C, u8)]
+pub enum OptimizedWildcardSuspended<'query> {
+    /// Suspended counterpart of [`OptimizedWildcard::DocIdsOnly`].
+    DocIdsOnly(crate::inverted_index::RawWildcard<'query, Suspended, DocIdsOnly>),
+    /// Suspended counterpart of [`OptimizedWildcard::RawDocIdsOnly`].
+    RawDocIdsOnly(crate::inverted_index::RawWildcard<'query, Suspended, RawDocIdsOnly>),
+}
+
+/// Local 3-state outcome carrying the work done while still on the
+/// suspended form into the active form for the optional reseek dispatch.
+enum OptimizedResumeOutcome {
+    Abort,
+    Ok,
+    NeedsReseek { last_doc_id: DocId },
+}
+
+impl<'index> RQEIteratorBoxed<'index> for OptimizedWildcard<'index> {
+    type Suspended = OptimizedWildcardSuspended<'index>;
+
+    fn suspend(self: Box<Self>) -> Box<Self::Suspended> {
+        let raw = Box::into_raw(self);
+        // SAFETY: both enums are `#[repr(C, u8)]`; corresponding variants
+        // hold `RawWildcard<'index, Active<'index>, E>` / `RawWildcard<'index,
+        // Suspended, E>`, which are layout-compatible by the [`RQEIteratorBoxed`]
+        // contract on `inverted_index::Wildcard`. Box::from_raw reuses the
+        // heap allocation.
+        unsafe { Box::from_raw(raw as *mut OptimizedWildcardSuspended<'index>) }
+    }
+}
+
+impl<'query> RQESuspendedIterator<'query> for OptimizedWildcardSuspended<'query> {
+    type Resumed<'a>
+        = OptimizedWildcard<'a>
+    where
+        'query: 'a;
+
+    fn resume<'a>(
+        mut self: Box<Self>,
+        spec: &IndexSpecReadGuard<'a>,
+    ) -> Result<ResumeOutcome<Box<Self::Resumed<'a>>>, RQEIteratorError>
+    where
+        'query: 'a,
+    {
+        // Step 1: should_abort + refresh_pointers on the suspended
+        // variant. Preserves the heap allocation across the cycle so
+        // external borrows into the iterator's interior (FFI wrapper's
+        // `header.current`) stay valid.
+        let outcome = match &mut *self {
+            OptimizedWildcardSuspended::DocIdsOnly(w) => {
+                if w.should_abort(spec) {
+                    OptimizedResumeOutcome::Abort
+                } else {
+                    match w.refresh_pointers() {
+                        inverted_index::RefreshOutcome::Ok => OptimizedResumeOutcome::Ok,
+                        inverted_index::RefreshOutcome::NeedsReseek { last_doc_id } => {
+                            OptimizedResumeOutcome::NeedsReseek { last_doc_id }
+                        }
+                    }
+                }
+            }
+            OptimizedWildcardSuspended::RawDocIdsOnly(w) => {
+                if w.should_abort(spec) {
+                    OptimizedResumeOutcome::Abort
+                } else {
+                    match w.refresh_pointers() {
+                        inverted_index::RefreshOutcome::Ok => OptimizedResumeOutcome::Ok,
+                        inverted_index::RefreshOutcome::NeedsReseek { last_doc_id } => {
+                            OptimizedResumeOutcome::NeedsReseek { last_doc_id }
+                        }
+                    }
+                }
+            }
+        };
+
+        // An aborting variant is dropped without promotion to Active —
+        // nothing is materialized.
+        if let OptimizedResumeOutcome::Abort = outcome {
+            return Ok(ResumeOutcome::Aborted);
+        }
+
+        // Step 2: whole-box cast.
+        let raw = Box::into_raw(self);
+        // SAFETY: layout-compatible — see `suspend`.
+        let mut active = unsafe { Box::from_raw(raw as *mut OptimizedWildcard<'a>) };
+
+        let moved = match outcome {
+            OptimizedResumeOutcome::Abort => unreachable!("aborted above"),
+            OptimizedResumeOutcome::Ok => false,
+            OptimizedResumeOutcome::NeedsReseek { last_doc_id } => {
+                let status = match &mut *active {
+                    OptimizedWildcard::DocIdsOnly(w) => w.reseek_after_refresh(last_doc_id),
+                    OptimizedWildcard::RawDocIdsOnly(w) => w.reseek_after_refresh(last_doc_id),
+                };
+                status == ffi::ValidateStatus_VALIDATE_MOVED
+            }
+        };
+        Ok(if moved {
+            ResumeOutcome::Moved(active)
+        } else {
+            ResumeOutcome::Ok(active)
+        })
+    }
+
+    fn last_doc_id(&self) -> DocId {
+        match self {
+            OptimizedWildcardSuspended::DocIdsOnly(it) => RQESuspendedIterator::last_doc_id(it),
+            OptimizedWildcardSuspended::RawDocIdsOnly(it) => RQESuspendedIterator::last_doc_id(it),
+        }
+    }
+
+    fn num_estimated(&self) -> usize {
+        match self {
+            OptimizedWildcardSuspended::DocIdsOnly(it) => RQESuspendedIterator::num_estimated(it),
+            OptimizedWildcardSuspended::RawDocIdsOnly(it) => {
+                RQESuspendedIterator::num_estimated(it)
+            }
+        }
+    }
+}
+
 /// Delegates each [`RQEIterator`] method to the active variant.
 macro_rules! delegate_wildcard_iterator {
     ($self:ident, $method:ident $(, $arg:ident)*) => {
