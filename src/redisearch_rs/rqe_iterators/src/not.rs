@@ -10,10 +10,11 @@
 //! Supporting types for [`Not`].
 
 use index_result::{RSIndexResult, RawIndexResult};
-use ref_mode::{Active, Ref};
+use ref_mode::{Active, Ref, Suspended};
 
 use crate::{
-    IteratorType, RQEIterator, RQEIteratorError, RQEValidateStatus, SkipToOutcome,
+    IteratorType, RQEIterator, RQEIteratorBoxed, RQEIteratorError, RQESuspendedIterator,
+    RQEValidateStatus, ResumeOutcome, SkipToOutcome,
     maybe_empty::MaybeEmpty,
     profile_print::{ProfilePrint, ProfilePrintCtx},
     utils::TimeoutContext,
@@ -266,6 +267,87 @@ where
 
     fn intersection_sort_weight(&self, _prioritize_union_children: bool) -> f64 {
         1.0
+    }
+}
+
+impl<'index, I, TC> RQEIteratorBoxed<'index> for Not<'index, I, TC>
+where
+    I: RQEIteratorBoxed<'index>,
+    TC: TimeoutContext + 'index + 'static,
+{
+    type Suspended = RawNot<'index, Suspended, I::Suspended, TC>;
+
+    fn suspend(self: Box<Self>) -> Box<Self::Suspended> {
+        let raw = Box::into_raw(self);
+        // SAFETY: `RawNot` is `#[repr(C)]`. The only `Rf`-dependent field
+        // is `result: RawIndexResult<Rf>`, layout-compatible across `Rf`
+        // via `SharedPtr` transparency. `MaybeEmpty<I>` and
+        // `MaybeEmpty<I::Suspended>` are layout-compatible by the
+        // [`RQEIteratorBoxed`] contract (see [`MaybeEmpty::suspend`]).
+        // Box::from_raw reuses the same heap allocation.
+        unsafe { Box::from_raw(raw as *mut RawNot<'index, Suspended, I::Suspended, TC>) }
+    }
+}
+
+impl<'query, S, TC> RQESuspendedIterator<'query> for RawNot<'query, Suspended, S, TC>
+where
+    S: RQESuspendedIterator<'query>,
+    TC: TimeoutContext + 'static,
+{
+    type Resumed<'a>
+        = Not<'a, S::Resumed<'a>, TC>
+    where
+        'query: 'a;
+
+    fn resume<'a>(
+        self: Box<Self>,
+        guard: &IndexSpecReadGuard<'a>,
+    ) -> Result<ResumeOutcome<Box<Self::Resumed<'a>>>, RQEIteratorError>
+    where
+        'query: 'a,
+    {
+        let RawNot {
+            child,
+            max_doc_id,
+            forced_eof,
+            result,
+            timeout_ctx,
+        } = *self;
+
+        // Mirror the existing `revalidate` semantics: if the child aborted,
+        // `NOT (aborted)` collapses to "NOT empty" — drop the child. A child
+        // move doesn't shift NOT's position because NOT keeps its own cursor,
+        // so resume always reports `Ok`.
+        let child: MaybeEmpty<S::Resumed<'a>> = match Box::new(child).resume(guard)? {
+            ResumeOutcome::Aborted => MaybeEmpty::new_empty(),
+            ResumeOutcome::Ok(active_child) | ResumeOutcome::Moved(active_child) => *active_child,
+        };
+
+        // SAFETY: `Not`'s `result` is a virtual sentinel built via
+        // `build_virt()` — its `data` is `RawResultData::Virtual` (carries
+        // no pointers), `dmd` is null at this iterator's construction, and
+        // `metrics` is empty. There are therefore no aliased pointers
+        // whose validity could be in question, so the `Active<'a>`
+        // re-typing is unconditionally sound.
+        let result = unsafe { result.into_active::<'a>() };
+
+        let active = Box::new(Not {
+            child,
+            max_doc_id,
+            forced_eof,
+            result,
+            timeout_ctx,
+        });
+        Ok(ResumeOutcome::Ok(active))
+    }
+
+    fn last_doc_id(&self) -> DocId {
+        self.result.doc_id
+    }
+
+    fn num_estimated(&self) -> usize {
+        // Mode-independent — mirrors the active `num_estimated`.
+        self.max_doc_id as usize
     }
 }
 
