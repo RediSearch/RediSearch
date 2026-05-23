@@ -12,7 +12,7 @@ use std::{cell::Cell, rc::Rc, time::Duration};
 use index_result::{RSIndexResult, RSResultKind};
 use rqe_iterators::{
     ExpirationChecker, IteratorType, MemTracker, NoOpChecker, NoTracker, RQEIterator,
-    RQEIteratorError, RQEValidateStatus, SkipToOutcome,
+    RQEIteratorError, SkipToOutcome,
     geo_shape::GeoShape,
     utils::{DeadlineTimeoutChecker, NoTimeoutChecker},
 };
@@ -418,28 +418,6 @@ fn skip_to_onto_expired_target_does_not_leak_at_eof() {
     assert!(it.current().is_none());
     // Nothing valid was ever returned, so `last_doc_id` stays at 0.
     assert_eq!(it.last_doc_id(), 0);
-}
-
-#[test]
-fn revalidate_is_a_noop_and_preserves_position() {
-    // The geoshape iterator keeps no cached expiration state: the checker is
-    // consulted on every candidate, so `revalidate` has nothing to refresh. It
-    // must report `Ok` and leave the iterator's position untouched.
-    let mock_ctx = rqe_iterators_test_utils::MockContext::new(0, 0);
-    let mut it = checked(vec![1, 2, 3]);
-
-    assert_eq!(it.read().unwrap().unwrap().doc_id, 1);
-
-    let status = it
-        .revalidate(&mock_ctx.spec_read())
-        .expect("revalidate failed");
-    assert_eq!(status, RQEValidateStatus::Ok);
-
-    // Position is preserved across revalidate: iteration resumes where it left off.
-    assert_eq!(it.last_doc_id(), 1);
-    assert_eq!(it.read().unwrap().unwrap().doc_id, 2);
-    assert_eq!(it.read().unwrap().unwrap().doc_id, 3);
-    assert!(matches!(it.read(), Ok(None)));
 }
 
 /// An expired candidate must not survive in `result` when the scan's timeout check

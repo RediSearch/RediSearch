@@ -16,7 +16,7 @@ use rqe_core::DocId;
 
 use crate::{
     IteratorType, RQEIterator, RQEIteratorBoxed, RQEIteratorError, RQESuspendedIterator,
-    RQEValidateStatus, ResumeOutcome, SkipToOutcome,
+    ResumeOutcome, SkipToOutcome,
     expiration_checker::{ExpirationChecker, NoOpChecker},
 };
 
@@ -444,95 +444,6 @@ where
 
     fn at_eof(&self) -> bool {
         self.at_eos
-    }
-
-    fn revalidate(
-        &mut self,
-        _spec: &IndexSpecReadGuard,
-    ) -> Result<RQEValidateStatus<'_, 'index>, RQEIteratorError> {
-        if !self.reader.needs_revalidation() {
-            return Ok(RQEValidateStatus::Ok);
-        }
-
-        // Either a GC cycle moved the entries this reader had already passed, or a write
-        // reallocated the block buffer it was reading. Both leave the cached read offset
-        // describing something that is no longer there, so the position has to be found again by
-        // seeking to the last document id we returned.
-        let last_doc_id = self.last_doc_id();
-        let was_at_eos = self.at_eos;
-        let result_doc_id = self.result.doc_id;
-        // Reset the state of the reader
-        self.rewind();
-
-        if was_at_eos {
-            // Restore the past-the-end position rather than re-seek to it. Exhaustion is
-            // terminal (see [`RQEIterator::at_eof`]), and re-seeking would end it silently: the
-            // `rewind` clears `at_eos`, and the seek then *finds* the document we already
-            // yielded, so we would come back live on a result our parent has consumed.
-            //
-            // The `rewind` above still has to run: it is the only thing that refreshes the
-            // reader's `gc_marker` and repoints it at a valid block, which is why
-            // [`ResumableReader::refresh_pointers`] leaves the buffer pointer stale on the GC
-            // path.
-            self.at_eos = true;
-            self.last_doc_id = last_doc_id;
-            // Skipping the re-seek also skips the re-decode that would have rebuilt these
-            // against the live buffer, and [`RefreshOutcome::NeedsReseek`] — the only way here —
-            // says an `RSOffsetSlice` borrowed from the old buffer does not survive GC. Nothing
-            // reads them (`current()` answers `None` while `at_eos`), but they sit behind an
-            // [`Active`] `SharedPtr` whose invariant says the referent is live. Only `Borrowed`
-            // points into the index.
-            if let Some(RawTermRecord::Borrowed { offsets, .. }) = self.result.as_term_mut() {
-                *offsets = RawOffsetSlice::empty();
-            }
-            // Composites cache raw pointers into a child's result, so leave the id the last yield
-            // put there rather than the zero `rewind` wrote. Only reachable through those cached
-            // pointers, so no Rust-side test observes it.
-            self.result.doc_id = result_doc_id;
-            return Ok(RQEValidateStatus::Ok);
-        }
-
-        if last_doc_id == 0 {
-            // No need to skip if we're starting from the very beginning.
-            return Ok(RQEValidateStatus::Ok);
-        }
-
-        /// Which of the three re-seek outcomes we landed on, as a plain tag: the borrow
-        /// [`skip_to`](RQEIterator::skip_to) hands back has to end before `self` can be
-        /// touched again.
-        enum Reseek {
-            Found,
-            Moved,
-            Exhausted,
-        }
-
-        // Try jumping to the last docId
-        let reseek = match self.skip_to(last_doc_id)? {
-            Some(SkipToOutcome::Found(_)) => Reseek::Found,
-            Some(SkipToOutcome::NotFound(_)) => Reseek::Moved,
-            None => Reseek::Exhausted,
-        };
-
-        match reseek {
-            Reseek::Found => Ok(RQEValidateStatus::Ok),
-            Reseek::Moved => {
-                let current = self.current();
-                // The re-seek carried a result, so it left us on a document. Asserted rather
-                // than assumed: a `None` here would quietly downgrade this to
-                // `Moved { current: None }`, which reads as exhausted.
-                debug_assert!(current.is_some());
-                Ok(RQEValidateStatus::Moved { current })
-            }
-            Reseek::Exhausted => {
-                // The document we were sitting on is gone and there is nothing after it, so we
-                // are now past the end. An exhausted iterator still reports the position its
-                // last yield left it at (see [`RQEIterator::last_doc_id`]) — the `rewind` above
-                // zeroed it, and `skip_to` leaves it alone when it carries no result, so restore
-                // it rather than claiming we never read anything.
-                self.last_doc_id = last_doc_id;
-                Ok(RQEValidateStatus::Moved { current: None })
-            }
-        }
     }
 
     #[inline(always)]

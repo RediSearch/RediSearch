@@ -18,7 +18,7 @@ use crate::union::SettleOutcome;
 use crate::utils::DocIdMinHeap;
 use crate::{
     IteratorType, RQEIterator, RQEIteratorBoxed, RQEIteratorError, RQESuspendedIterator,
-    RQEValidateStatus, ResumeOutcome, SkipToOutcome,
+    ResumeOutcome, SkipToOutcome,
     boxed::{ResumeSlotOutcome, resume_child_slot_in_place},
 };
 use index_spec::IndexSpecReadGuard;
@@ -262,12 +262,8 @@ where
     /// Settles the union's position after its children have moved, and reports where
     /// that leaves it.
     ///
-    /// The single place that decides a union's post-change position, shared by
-    /// [`RQEIterator::revalidate`] and
-    /// [`RQESuspendedIterator::resume`] so the two
-    /// cannot drift apart — the legacy and the `Box<Self>` path must make the same
-    /// re-seek and moved-versus-unchanged decisions, and a divergence between them is a
-    /// bug. Each caller rebuilds the heap and sets `num_active` first, because
+    /// The single place that decides a union's post-change position on the
+    /// [`RQESuspendedIterator::resume`] path. The caller rebuilds the heap and sets `num_active` first, because
     /// removing an aborted child invalidates both — not because a child left out of
     /// the heap can come back. `rebuild_heap` leaves out the ones that are still
     /// exhausted.
@@ -773,53 +769,6 @@ where
     #[inline(always)]
     fn at_eof(&self) -> bool {
         self.is_eof
-    }
-
-    fn revalidate(
-        &mut self,
-        spec: &IndexSpecReadGuard,
-    ) -> Result<RQEValidateStatus<'_, 'index>, RQEIteratorError> {
-        if self.is_eof {
-            return Ok(RQEValidateStatus::Ok);
-        }
-
-        let original_last_doc_id = self.last_doc_id();
-        let mut any_change = false;
-
-        // Index-based iteration: swap_remove may reorder elements.
-        let mut i = 0;
-        while i < self.children.len() {
-            match self.children[i].revalidate(spec)? {
-                RQEValidateStatus::Aborted => {
-                    self.children.swap_remove(i);
-                    any_change = true;
-                }
-                RQEValidateStatus::Moved { .. } => {
-                    any_change = true;
-                    i += 1;
-                }
-                RQEValidateStatus::Ok => {
-                    i += 1;
-                }
-            }
-        }
-
-        if self.children.is_empty() {
-            self.is_eof = true;
-            self.num_active = 0;
-            return Ok(RQEValidateStatus::Aborted);
-        }
-
-        if !any_change {
-            return Ok(RQEValidateStatus::Ok);
-        }
-
-        self.rebuild_heap();
-        self.num_active = self.heap.len();
-
-        Ok(self
-            .settle_after_children_changed(original_last_doc_id)?
-            .into_validate_status(&mut self.result))
     }
 
     #[inline(always)]

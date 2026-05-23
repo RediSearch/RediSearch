@@ -17,7 +17,7 @@ use std::marker::PhantomData;
 use crate::union::SettleOutcome;
 use crate::{
     IteratorType, RQEIterator, RQEIteratorBoxed, RQEIteratorError, RQESuspendedIterator,
-    RQEValidateStatus, ResumeOutcome, SkipToOutcome,
+    ResumeOutcome, SkipToOutcome,
     boxed::{ResumeSlotOutcome, resume_child_slot_in_place},
 };
 use index_spec::IndexSpecReadGuard;
@@ -290,12 +290,8 @@ where
     /// Settles the union's position after its children have moved, and reports where
     /// that leaves it.
     ///
-    /// The single place that decides a union's post-change position, shared by
-    /// [`RQEIterator::revalidate`] and
-    /// [`RQESuspendedIterator::resume`] so the two
-    /// cannot drift apart — the legacy and the `Box<Self>` path must make the same
-    /// re-seek and moved-versus-unchanged decisions, and a divergence between them is a
-    /// bug. Each caller re-admits every child first (`num_active = children.len()`),
+    /// The single place that decides a union's post-change position on the
+    /// [`RQESuspendedIterator::resume`] path. The caller re-admits every child first (`num_active = children.len()`),
     /// because removing an aborted child invalidates the active/parked partition —
     /// not because a parked child can come back. The scan below re-parks the ones
     /// that are still exhausted.
@@ -516,9 +512,8 @@ where
     ///
     /// Only [`Self::read_full`] calls this, so no child can be *behind* `current_id`:
     /// full-mode [`read`](RQEIterator::read)/[`skip_to`](RQEIterator::skip_to)
-    /// advance every active child, and neither
-    /// [`revalidate`](RQEIterator::revalidate) nor
-    /// [`resume`](RQESuspendedIterator::resume) can leave one behind the union — a child dropped
+    /// advance every active child, and
+    /// [`resume`](RQESuspendedIterator::resume) cannot leave one behind the union — a child dropped
     /// on EOF stays dropped, since exhaustion is terminal
     /// ([`at_eof`](RQEIterator::at_eof)). A child behind would become the minimum
     /// and hand back a document already delivered, so the invariant is asserted
@@ -897,64 +892,6 @@ where
     #[inline(always)]
     fn at_eof(&self) -> bool {
         self.is_eof
-    }
-
-    fn revalidate(
-        &mut self,
-        spec: &IndexSpecReadGuard,
-    ) -> Result<RQEValidateStatus<'_, 'index>, RQEIteratorError> {
-        // Already at EOF - nothing to do
-        if self.is_eof {
-            return Ok(RQEValidateStatus::Ok);
-        }
-
-        let original_last_doc_id = self.last_doc_id();
-        let mut any_change = false;
-
-        // Revalidate ALL children (including exhausted ones past num_active) and remove aborted ones.
-        // The exhausted ones still hold index references, and an aborted one has to go either way —
-        // but they cannot come back active, since exhaustion is terminal (see
-        // [`RQEIterator::at_eof`]).
-        // We use index-based iteration because we need to remove elements while iterating.
-        let mut i = 0;
-        while i < self.children.len() {
-            match self.children[i].revalidate(spec)? {
-                RQEValidateStatus::Aborted => {
-                    // Remove aborted child using swap_remove for O(1) removal.
-                    // Order doesn't matter for union iteration.
-                    self.children.swap_remove(i);
-                    any_change = true;
-                    // Don't increment i - the swapped element needs to be checked
-                }
-                RQEValidateStatus::Moved { .. } => {
-                    any_change = true;
-                    i += 1;
-                }
-                RQEValidateStatus::Ok => {
-                    i += 1;
-                }
-            }
-        }
-
-        // If all children aborted, we abort too (union of nothing is nothing)
-        if self.children.is_empty() {
-            self.is_eof = true;
-            return Ok(RQEValidateStatus::Aborted);
-        }
-
-        // Early return if nothing changed
-        if !any_change {
-            return Ok(RQEValidateStatus::Ok);
-        }
-
-        // Removing an aborted child pulls an arbitrary other one into its slot, so
-        // the active/parked split no longer describes anything: rebuild it from
-        // scratch and let the settle re-park the children that are still exhausted.
-        self.num_active = self.children.len();
-
-        Ok(self
-            .settle_after_children_changed(original_last_doc_id)?
-            .into_validate_status(&mut self.result))
     }
 
     #[inline(always)]
