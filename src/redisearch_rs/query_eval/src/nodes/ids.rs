@@ -54,8 +54,7 @@ pub(crate) fn eval<'index>(
         ids.dedup();
     }
 
-    Evaluated::RustLeaf(Box::new(IdListSorted::with_result(
-        ids,
-        RSIndexResult::build_virt().weight(1.0).build(),
+    Evaluated::RustLeaf(rqe_iterators::TypeErasedRQEIterator::new(Box::new(
+        IdListSorted::with_result(ids, RSIndexResult::build_virt().weight(1.0).build()),
     )))
 }
