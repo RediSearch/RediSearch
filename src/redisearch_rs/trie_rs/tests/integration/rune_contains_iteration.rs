@@ -11,32 +11,22 @@
 //! iteration (`Trie_IterateContains`) against the snapshots owned by
 //! `rune_trie_snapshots::contains_iteration`.
 //!
-//! Assumed `RuneTrieMap` API (does NOT exist yet — porting target):
+//! The C `Trie_IterateContains(t, str, len, prefix, suffix, ...)` four-way
+//! `(prefix, suffix)` switch is split across four Rust entry points:
 //!
-//! ```ignore
-//! impl<Data> RuneTrieMap<Data> {
-//!     /// Iterate terms matching `pattern` under the `(prefix, suffix)` mode
-//!     /// pair, mirroring the C `Trie_IterateContains` four-way switch:
-//!     ///
-//!     ///   - `(true, false)`  — pure "starts-with"
-//!     ///   - `(false, true)`  — pure "ends-with" (suffix-trie shape)
-//!     ///   - `(true, true)`   — contains/substring (suffix-trie shape)
-//!     ///   - `(false, false)` — exact match (single hit if terminal)
-//!     ///
-//!     /// EMPTY-PATTERN CONTRACT: on a zero-length `pattern`, the iterator
-//!     /// MUST yield zero matches — NOT "every term". This mirrors
-//!     /// `TrieNode_Get(root, str, 0, ...)` returning NULL (loop never enters,
-//!     /// falls through to `return NULL` at `src/trie/trie_node.c:411`),
-//!     /// which short-circuits the C contains walk before it touches the
-//!     /// subtree.
-//!     pub fn iterate_contains(
-//!         &self,
-//!         pattern: &[Rune],
-//!         prefix: bool,
-//!         suffix: bool,
-//!     ) -> impl Iterator<Item = (Vec<Rune>, &Data)>;
-//! }
-//! ```
+//!   - `(true, false)`  → [`RuneTrieMap::prefixed_iter`]
+//!   - `(false, true)`  → [`RuneTrieMap::suffixed_iter`]
+//!   - `(true, true)`   → [`RuneTrieMap::contains_iter`]
+//!   - `(false, false)` → [`RuneTrieMap::get`] (exact lookup is structurally
+//!     a single-element result, not an iteration; the C `(false, false)`
+//!     case is also unreachable from the query parser — see
+//!     `src/query.c:735` + `src/query_parser/v2/parser.y:618-626`).
+//!
+//! EMPTY-PATTERN CONTRACT: on a zero-length pattern, every iterator MUST
+//! yield zero matches — NOT "every term". This mirrors
+//! `TrieNode_Get(root, str, 0, ...)` returning NULL (loop never enters,
+//! falls through to `return NULL` at `src/trie/trie_node.c:411`), which
+//! short-circuits the C contains walk before it touches the subtree.
 
 use std::fmt::Write as _;
 
@@ -59,6 +49,12 @@ fn build_fixture() -> RuneTrieMap<TermEntry> {
     trie
 }
 
+fn emit_match(out: &mut String, matches: &mut usize, k: &[Rune], num_docs: usize) {
+    let term = String::from_utf16(k).expect("trie runes are valid BMP UTF-16");
+    writeln!(out, "  {term:10}  numDocs={num_docs}").unwrap();
+    *matches += 1;
+}
+
 fn dump_contains(
     trie: &RuneTrieMap<TermEntry>,
     label: &str,
@@ -75,10 +71,34 @@ fn dump_contains(
 
     let buf = term_runes(pattern);
     let mut matches = 0usize;
-    for (k, entry) in trie.iterate_contains(&buf, prefix, suffix) {
-        let term = String::from_utf16(&k).expect("trie runes are valid BMP UTF-16");
-        writeln!(out, "  {term:10}  numDocs={}", entry.num_docs).unwrap();
-        matches += 1;
+    match (prefix, suffix) {
+        (true, false) => {
+            for (k, entry) in trie.prefixed_iter(&buf) {
+                emit_match(out, &mut matches, &k, entry.num_docs);
+            }
+        }
+        (false, true) => {
+            for (k, entry) in trie.suffixed_iter(&buf) {
+                emit_match(out, &mut matches, &k, entry.num_docs);
+            }
+        }
+        (true, true) => {
+            for (k, entry) in trie.contains_iter(&buf) {
+                emit_match(out, &mut matches, &k, entry.num_docs);
+            }
+        }
+        (false, false) => {
+            // Exact lookup: the C `(false, false)` mode is unreachable from
+            // the parser; the test harness reroutes through `get()` so the
+            // snapshot can still cross-check the C `Trie_IterateContains`
+            // shape. Empty patterns yield no match (mirrors `TrieNode_Get`
+            // returning NULL for `len == 0`).
+            if !buf.is_empty()
+                && let Some(entry) = trie.get(&buf)
+            {
+                emit_match(out, &mut matches, &buf, entry.num_docs);
+            }
+        }
     }
     if matches == 0 {
         writeln!(out, "  <no matches>").unwrap();
