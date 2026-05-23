@@ -222,6 +222,32 @@ The direction asymmetry is the crux:
   re-narrowing. Leaves do exactly this in their `resume_in_place` (refresh the
   reader, promote the result).
 
+### Aggregates: re-derive the entries, never merely re-narrow them
+
+A composite whose result is an **aggregate** (union / intersection / hybrid
+metric) holds one borrowed entry per contributing child, each a pointer derived
+from a borrow of that child's own result. Transitioning a child hands its
+allocation through a by-value `Box<Self>`, and that retag invalidates the borrow
+the entry came from — **even when the child never leaves its slot and nothing is
+dropped, moved, or written**. The address survives; the provenance does not, so
+the whole-box cast alone leaves entries that are well-addressed but unusable, and
+reading one (a scorer walking `current()` after an `Ok` resume does exactly that)
+is UB.
+
+The discharge is `boxed.rs`'s `rederive_aggregate_entries(result, children)`:
+call it **once, unconditionally, after every child slot has been transitioned and
+immediately before the cast**, passing every surviving child — including any
+parked outside the active region. It re-derives each entry from the child it
+points at, and clears the aggregate (keeping the position) when an entry has no
+live child to be re-derived from, which is also what covers a child that was
+dropped or relocated by compaction. Do not "fix" this by rebuilding the aggregate
+from the children instead: that path *moves* each child's metrics into the
+result, and the children were drained when the aggregate was first built, so a
+rebuild silently loses them. See
+`index_result::RawAggregateResult::rederive_borrowed` for the full reasoning.
+
+The legacy `revalidate` is unaffected — it never transitions a child.
+
 **Virtual sentinels are the trap.** An iterator whose result is a virtual
 sentinel (`RSIndexResult::build_virt()`, `kind() == Virtual`) has no `Rf`-borrows
 in `data`, so resume needs to re-validate nothing. But note two things:
@@ -324,6 +350,10 @@ teardown. Any bespoke in-place transition code must reproduce this.
       the resume **refuses to reinterpret** on violation — returning
       `ResumeOutcome::Aborted` (never `Err`: the state is recoverable, and
       `RQEIteratorError` is only for `TimedOut`/`IoError`).
+- [ ] If the iterator owns an **aggregate**, `resume` calls
+      `rederive_aggregate_entries` after transitioning the children and before
+      the cast, with every surviving child — a cast that only re-narrows the
+      entries hands back dead provenance.
 - [ ] Panic window is covered (the shared helpers already do; bespoke in-place
       code must arm its own abort guard).
 - [ ] `// SAFETY:` comments cite the invariant; no compiler-enforced fact is

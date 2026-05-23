@@ -53,7 +53,7 @@
 //! [`RQEIteratorBoxed`] will be renamed back to `RQEIterator`.
 
 use ffi::t_docId;
-use index_result::RSIndexResult;
+use index_result::{RSIndexResult, SuspendedIndexResult};
 use index_spec::IndexSpecReadGuard;
 
 use crate::{
@@ -425,6 +425,67 @@ where
     } else {
         ResumeSlotOutcome::Unchanged
     })
+}
+
+/// Give a composite's aggregate entries fresh provenance from its
+/// just-transitioned children — or clear the aggregate, if that cannot be done.
+///
+/// This is the last step before a composite that owns an aggregate reinterprets
+/// its allocation as the resumed form, and it is not optional: the entries are
+/// pointers derived from borrows of the children's results, and transitioning a
+/// child invalidates the borrow its entry came from even though the child never
+/// leaves its slot. See
+/// [`RawAggregateResult::rederive_borrowed`](index_result::RawAggregateResult::rederive_borrowed)
+/// for why, and for why rebuilding the aggregate from the children instead would
+/// lose what it has already accumulated.
+///
+/// Call it once, after every child slot has been transitioned and before the
+/// whole-box cast, passing **every** surviving child — including any parked
+/// outside the composite's active region, since an entry can point at any child
+/// the aggregate was built from. A result that is not an aggregate borrows
+/// nothing, and is left alone.
+///
+/// An entry whose child did not survive — or which moved, as a child stored
+/// inline in its parent's buffer does when a sibling is compacted away — cannot
+/// be re-derived. The whole aggregate is then cleared, keeping only the
+/// position: the composite has no way to reconstruct the entries, and handing
+/// back an aggregate whose entries the cast has re-narrowed onto freed or
+/// relocated memory is exactly what must not happen.
+pub(crate) fn rederive_aggregate_entries<'query, 'index, 'child, I>(
+    result: &mut SuspendedIndexResult<'query>,
+    children: impl IntoIterator<Item = &'child mut I>,
+) where
+    I: RQEIterator<'index> + 'child,
+{
+    let Some(aggregate) = result.as_aggregate_mut() else {
+        return;
+    };
+    let borrowed = aggregate.num_borrowed();
+    if borrowed == 0 {
+        // Nothing to re-derive, and so no reason to touch a single child.
+        return;
+    }
+
+    let mut rederived = 0;
+    for child in children {
+        // A child at EOF hides its result, so an entry pointing at it cannot be
+        // re-derived and the shortfall below clears the aggregate. That costs
+        // nothing real: a composite whose child ran out is at EOF too, and
+        // publishes no current.
+        if let Some(current) = child.current() {
+            rederived += aggregate.rederive_borrowed(current);
+        }
+    }
+    if rederived == borrowed {
+        return;
+    }
+
+    // `reset_aggregate` zeroes the position along with the entries, but only the
+    // entries were unusable: a composite that reports no move hands its position
+    // straight back, where a zero would claim it never read anything.
+    let doc_id = result.doc_id;
+    result.reset_aggregate();
+    result.doc_id = doc_id;
 }
 
 // --- Blanket bridges: concrete → dyn-safe -----------------------------------
