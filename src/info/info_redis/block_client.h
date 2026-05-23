@@ -17,25 +17,20 @@ extern "C" {
 struct IndexSpec;
 struct AREQ;
 struct Cursor;
+struct RequestSyncCtx;
 
 typedef RedisModuleCmdFunc BlockedClientTimeoutCB;
 typedef RedisModuleCmdFunc BlockedClientReplyCB;
-typedef void (*BlockedClientFreePrivDataCB) (void *privdata);
-
-/**
- * Context for blocking client
- */
-typedef struct BlockClientCtx{
-  void *privdata;
-  BlockedClientReplyCB replyCallback;
-  BlockedClientTimeoutCB timeoutCallback;
-  BlockedClientFreePrivDataCB freePrivData;
-  rs_wall_clock_ms_t timeoutMS;
-  QueryAST *ast;
-} BlockClientCtx;
-
-RedisModuleBlockedClient* BlockQueryClientWithTimeout(RedisModuleCtx *ctx, StrongRef spec, BlockClientCtx *blockClientCtx);
-RedisModuleBlockedClient* BlockCursorClientWithTimeout(RedisModuleCtx *ctx, Cursor* cursor, size_t count, BlockClientCtx *blockClientCtx);
+RedisModuleBlockedClient *BlockQueryClientWithTimeout(RedisModuleCtx *ctx, StrongRef spec,
+                                                      struct RequestSyncCtx *rsc, QueryAST *ast,
+                                                      BlockedClientReplyCB replyCallback,
+                                                      BlockedClientTimeoutCB timeoutCallback,
+                                                      rs_wall_clock_ms_t timeoutMS);
+RedisModuleBlockedClient *BlockCursorClientWithTimeout(RedisModuleCtx *ctx, Cursor *cursor, size_t count,
+                                                       struct RequestSyncCtx *rsc,
+                                                       BlockedClientReplyCB replyCallback,
+                                                       BlockedClientTimeoutCB timeoutCallback,
+                                                       rs_wall_clock_ms_t timeoutMS);
 
 #ifdef __cplusplus
 }

@@ -55,26 +55,6 @@ static void runCursor(RedisModule_Reply *reply, Cursor *cursor, size_t num);
 static int prepareExecutionPlan(AREQ *req, QueryError *status);
 static int QueryReplyCallback(RedisModuleCtx *ctx, RedisModuleString **argv, int argc);
 
-static void QueryBlockClient_FreeRSC(void *privdata) {
-  RequestSyncCtx *rsc = (RequestSyncCtx *)privdata;
-  AREQ *req = RequestSyncCtx_GetAREQ(rsc);
-  if (req && (AREQ_RequestFlags(req) & QEXEC_F_IS_CURSOR) &&
-      req->cursor_id && !(req->stateflags & QEXEC_S_ITERDONE)) {
-    rsc->blockedNodeOwns = false;
-    return;
-  }
-  RequestSyncCtx_Free(rsc);
-}
-
-// freePrivData for BlockCursorClientWithTimeout on the shard FAIL path. Drains any cursor
-// parked in the request sync context (no-op on the happy path, where
-// CursorReadReplyCallback already cleared it). The cursor owns the RSC.
-static void ShardCursorBlockClient_FreeRSC(void *privdata) {
-  RequestSyncCtx *rsc = (RequestSyncCtx *)privdata;
-  AREQ *req = RequestSyncCtx_GetAREQ(rsc);
-  AREQ_CleanUpStoredCursor(req);
-}
-
 /**
  * Get the sorting key of the result. This will be the sorting key of the last
  * RLookup registry. Returns NULL if there is no sorting key
@@ -1186,8 +1166,7 @@ static void blockedClientReqCtx_setRequest(blockedClientReqCtx *BCRctx, RequestS
 
 static void blockedClientReqCtx_destroy(blockedClientReqCtx *BCRctx) {
   RedisModule_BlockedClientMeasureTimeEnd(BCRctx->blockedClient);
-  void *privdata = RedisModule_BlockClientGetPrivateData(BCRctx->blockedClient);
-  RedisModule_UnblockClient(BCRctx->blockedClient, privdata);
+  RedisModule_UnblockClient(BCRctx->blockedClient, BCRctx->rsc);
 
   WeakRef_Release(BCRctx->spec_ref);
   rm_free(BCRctx);
@@ -1529,16 +1508,16 @@ static int QueryTimeoutFailCallback(RedisModuleCtx *ctx, RedisModuleString **arg
   UNUSED(argv);
   UNUSED(argc);
 
-  BlockedQueryNode *node = RedisModule_GetBlockedClientPrivateData(ctx);
-  if (!node || !node->privdata) {
+  RequestSyncCtx *rsc = RedisModule_GetBlockedClientPrivateData(ctx);
+  if (!rsc) {
     // Shouldn't happen, but handle gracefully
-    RedisModule_Log(ctx, "warning", "QueryTimeoutFailCallback: no node or privdata");
+    RedisModule_Log(ctx, "warning", "QueryTimeoutFailCallback: no request context");
     QueryErrorsGlobalStats_UpdateError(QUERY_ERROR_CODE_TIMED_OUT, 1, true);
     RedisModule_ReplyWithError(ctx, QueryError_Strerror(QUERY_ERROR_CODE_TIMED_OUT));
     return REDISMODULE_OK;
   }
 
-  AREQ *req = RequestSyncCtx_GetAREQ((RequestSyncCtx *)node->privdata);
+  AREQ *req = RequestSyncCtx_GetAREQ(rsc);
   // Signal timeout to background thread (will notice and skip storing results)
   AREQ_SetTimedOut(req);
 
@@ -1579,16 +1558,16 @@ static void drainPartialResultsAfterTimeout(AREQ *req) {
 //   - Otherwise BG owns the buffer; wait for it to finish AREQ_StoreResults,
 //     then drain anything still buffered (RPSorter heap) and reply.
 static int QueryTimeoutReturnStrictCallback(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
-  BlockedQueryNode *node = RedisModule_GetBlockedClientPrivateData(ctx);
-  if (!node || !node->privdata) {
+  RequestSyncCtx *rsc = RedisModule_GetBlockedClientPrivateData(ctx);
+  if (!rsc) {
     // Shouldn't happen, but handle gracefully
-    RedisModule_Log(ctx, "warning", "QueryTimeoutReturnStrictCallback: no node or privdata");
+    RedisModule_Log(ctx, "warning", "QueryTimeoutReturnStrictCallback: no request context");
     QueryErrorsGlobalStats_UpdateError(QUERY_ERROR_CODE_TIMED_OUT, 1, true);
     RedisModule_ReplyWithError(ctx, QueryError_Strerror(QUERY_ERROR_CODE_TIMED_OUT));
     return REDISMODULE_OK;
   }
 
-  AREQ *req = RequestSyncCtx_GetAREQ((RequestSyncCtx *)node->privdata);
+  AREQ *req = RequestSyncCtx_GetAREQ(rsc);
 
   // Signal timeout to background thread
   AREQ_SetTimedOut(req);
@@ -1675,20 +1654,19 @@ void AREQ_ReplyWithStoredResults(RedisModuleCtx *ctx, AREQ *req) {
 // Called on the main thread when the background thread calls UnblockClient.
 // The background thread stored results in the sync context, which we use to build the reply.
 // Note: This callback is NOT called if timeout fired first (bc->client becomes NULL).
-// Reference counting: BlockedQueryNode holds a reference released via FreeQueryNode after this callback.
 static int QueryReplyCallback(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
   UNUSED(argv);
   UNUSED(argc);
 
-  BlockedQueryNode *node = RedisModule_GetBlockedClientPrivateData(ctx);
-  if (!node || !node->privdata) {
+  RequestSyncCtx *rsc = RedisModule_GetBlockedClientPrivateData(ctx);
+  if (!rsc) {
     // Shouldn't happen, but handle gracefully
-    RedisModule_Log(ctx, "warning", "QueryReplyCallback: no node or privdata");
+    RedisModule_Log(ctx, "warning", "QueryReplyCallback: no request context");
     RedisModule_ReplyWithError(ctx, "ERR Internal error: no request context");
     return REDISMODULE_OK;
   }
 
-  AREQ *req = RequestSyncCtx_GetAREQ((RequestSyncCtx *)node->privdata);
+  AREQ *req = RequestSyncCtx_GetAREQ(rsc);
   ChunkReplyState *stored = RequestSyncCtx_GetReplyState(req->syncCtx);
 
   // Check if results were stored (background thread completed successfully)
@@ -1706,7 +1684,7 @@ static int QueryReplyCallback(RedisModuleCtx *ctx, RedisModuleString **argv, int
 
   AREQ_ReplyWithStoredResults(ctx, req);
 
-  // No RequestSyncCtx_Free here - BlockedQueryNode owns the RSC for the cycle.
+  // No RequestSyncCtx_Free here - RequestSyncCtx_OnFree owns final cycle cleanup.
   return REDISMODULE_OK;
 }
 
@@ -1717,16 +1695,16 @@ static int CursorReadTimeoutFailCallback(RedisModuleCtx *ctx, RedisModuleString 
   UNUSED(argv);
   UNUSED(argc);
 
-  BlockedCursorNode *node = RedisModule_GetBlockedClientPrivateData(ctx);
-  if (!node || !node->privdata) {
+  RequestSyncCtx *rsc = RedisModule_GetBlockedClientPrivateData(ctx);
+  if (!rsc) {
     // Shouldn't happen, but handle gracefully
-    RedisModule_Log(ctx, "warning", "CursorReadTimeoutFailCallback: no node or privdata");
+    RedisModule_Log(ctx, "warning", "CursorReadTimeoutFailCallback: no request context");
     QueryErrorsGlobalStats_UpdateError(QUERY_ERROR_CODE_TIMED_OUT, 1, true);
     RedisModule_ReplyWithError(ctx, QueryError_Strerror(QUERY_ERROR_CODE_TIMED_OUT));
     return REDISMODULE_OK;
   }
 
-  AREQ *req = RequestSyncCtx_GetAREQ((RequestSyncCtx *)node->privdata);
+  AREQ *req = RequestSyncCtx_GetAREQ(rsc);
   // Signal timeout to background thread so it skips storing results.
   AREQ_SetTimedOut(req);
 
@@ -1739,21 +1717,21 @@ static int CursorReadTimeoutFailCallback(RedisModuleCtx *ctx, RedisModuleString 
 // Shard FT.CURSOR READ FAIL-path reply callback.
 // Mirrors QueryReplyCallbackbut uses a different privdata type (BlockedCursorNode).
 // Not invoked if the timeout fired first.
-// The BlockedCursorNode reference is released by FreeCursorNode → ShardCursorBlockClient_FreeRSC after this callback.
+// Cycle cleanup runs from RequestSyncCtx_OnFree after this callback.
 // Can be consolidated with QueryReplyCallback - See MOD-15038.
 static int CursorReadReplyCallback(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
   UNUSED(argv);
   UNUSED(argc);
 
-  BlockedCursorNode *node = RedisModule_GetBlockedClientPrivateData(ctx);
-  if (!node || !node->privdata) {
+  RequestSyncCtx *rsc = RedisModule_GetBlockedClientPrivateData(ctx);
+  if (!rsc) {
     // Shouldn't happen, but handle gracefully
-    RedisModule_Log(ctx, "warning", "CursorReadReplyCallback: no node or privdata");
+    RedisModule_Log(ctx, "warning", "CursorReadReplyCallback: no request context");
     RedisModule_ReplyWithError(ctx, "ERR Internal error: no request context");
     return REDISMODULE_OK;
   }
 
-  AREQ *req = RequestSyncCtx_GetAREQ((RequestSyncCtx *)node->privdata);
+  AREQ *req = RequestSyncCtx_GetAREQ(rsc);
   ChunkReplyState *stored = RequestSyncCtx_GetReplyState(req->syncCtx);
 
   if (!stored->hasStoredResults) {
@@ -1777,28 +1755,25 @@ static int buildPipelineAndExecute(AREQ *r, RedisModuleCtx *ctx, QueryError *sta
   if (RunInThread(ctx)) {
     StrongRef spec_ref = IndexSpec_GetStrongRefUnsafe(sctx->spec);
 
-    BlockClientCtx blockClientCtx = {0};
-
-    r->syncCtx->blockedNodeOwns = true;
-    blockClientCtx.freePrivData = QueryBlockClient_FreeRSC;
-    blockClientCtx.privdata = r->syncCtx;
-    blockClientCtx.ast = &r->ast;
+    RedisModuleCmdFunc replyCallback = NULL;
+    RedisModuleCmdFunc timeoutCallback = NULL;
+    rs_wall_clock_ms_t timeoutMS = 0;
     RSTimeoutPolicy policy = r->reqConfig.timeoutPolicy;
 
     // Determine timeout and reply callbacks based on policy.
     if (policy != TimeoutPolicy_Return) {
       if (policy == TimeoutPolicy_Fail) {
-        blockClientCtx.timeoutCallback = QueryTimeoutFailCallback;
+        timeoutCallback = QueryTimeoutFailCallback;
       } else {
         r->syncCtx->requiresAggregateResultsSync = true;
-        blockClientCtx.timeoutCallback = QueryTimeoutReturnStrictCallback;
+        timeoutCallback = QueryTimeoutReturnStrictCallback;
       }
-      blockClientCtx.replyCallback = QueryReplyCallback;
-      blockClientCtx.timeoutMS = r->reqConfig.queryTimeoutMS;
-      RequestSyncCtx_SetUseReplyCallback(r->syncCtx, true);
+      replyCallback = QueryReplyCallback;
+      timeoutMS = r->reqConfig.queryTimeoutMS;
     }
 
-    RedisModuleBlockedClient* blockedClient = BlockQueryClientWithTimeout(ctx, spec_ref, &blockClientCtx);
+    RedisModuleBlockedClient* blockedClient = BlockQueryClientWithTimeout(ctx, spec_ref, r->syncCtx, &r->ast,
+        replyCallback, timeoutCallback, timeoutMS);
     blockedClientReqCtx *BCRctx = blockedClientReqCtx_New(r, blockedClient, spec_ref);
     // Mark the request as thread safe, so that the pipeline will be built in a thread safe manner
     AREQ_AddRequestFlags(r, QEXEC_F_RUN_IN_BACKGROUND);
@@ -2088,6 +2063,7 @@ static void cursorRead(RedisModuleCtx *ctx, Cursor *cursor, size_t count, bool b
 
 typedef struct {
   RedisModuleBlockedClient *bc;
+  RequestSyncCtx *rsc;
   Cursor *cursor;
   size_t count;
 } CursorReadCtx;
@@ -2096,7 +2072,7 @@ static void cursorRead_ctx(CursorReadCtx *cr_ctx) {
   RedisModuleCtx *ctx = RedisModule_GetThreadSafeContext(cr_ctx->bc);
   // Optimization (mirrors AREQ_Execute_Callback): if the timer fired while
   // we were queued, the client already got its timeout reply. Skip the
-  // pipeline and free the cursor; FreeCursorNode will release the AREQ ref.
+  // pipeline and free the cursor; RequestSyncCtx_OnFree handles cycle cleanup.
   AREQ *req = Cursor_GetAREQ(cr_ctx->cursor);
   RS_ASSERT(req);
   if (!AREQ_TimedOut(req)) {
@@ -2106,8 +2082,7 @@ static void cursorRead_ctx(CursorReadCtx *cr_ctx) {
   }
   RedisModule_FreeThreadSafeContext(ctx);
   RedisModule_BlockedClientMeasureTimeEnd(cr_ctx->bc);
-  void *privdata = RedisModule_BlockClientGetPrivateData(cr_ctx->bc);
-  RedisModule_UnblockClient(cr_ctx->bc, privdata);
+  RedisModule_UnblockClient(cr_ctx->bc, cr_ctx->rsc);
   rm_free(cr_ctx);
 }
 
@@ -2220,25 +2195,26 @@ int RSCursorReadCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc)
     // BlockCursorClientWithTimeout requires a cursor AREQ (it dereferences it
     // for the AST).
     RS_ASSERT(Cursor_GetAREQ(cursor) != NULL);
-    BlockClientCtx blockClientCtx = {0};
+    RedisModuleCmdFunc replyCallback = NULL;
+    RedisModuleCmdFunc timeoutCallback = NULL;
+    rs_wall_clock_ms_t timeoutMS = 0;
     if (cursor->queryTimeoutPolicy == TimeoutPolicy_Fail) {
       AREQ *req = Cursor_GetAREQ(cursor);
       // Cursor cache is the snapshot frozen at AREQ_StartCursor; must agree with reqConfig.
       RS_ASSERT(cursor->queryTimeoutMS == (size_t)req->reqConfig.queryTimeoutMS);
       RS_ASSERT(cursor->queryTimeoutPolicy == req->reqConfig.timeoutPolicy);
-      blockClientCtx.privdata        = req->syncCtx;
-      blockClientCtx.freePrivData    = ShardCursorBlockClient_FreeRSC;
-      blockClientCtx.replyCallback   = CursorReadReplyCallback;
-      blockClientCtx.timeoutCallback = CursorReadTimeoutFailCallback;
-      blockClientCtx.timeoutMS       = (rs_wall_clock_ms_t)cursor->queryTimeoutMS;
-      RequestSyncCtx_SetUseReplyCallback(req->syncCtx, true);
+      replyCallback = CursorReadReplyCallback;
+      timeoutCallback = CursorReadTimeoutFailCallback;
+      timeoutMS = (rs_wall_clock_ms_t)cursor->queryTimeoutMS;
     } else {
       // Non-FAIL: reply written inline; clear any stale useReplyCallback
       // from a prior FAIL FT.AGGREGATE so runCursor doesn't park the cursor.
       RequestSyncCtx_SetUseReplyCallback(Cursor_GetAREQ(cursor)->syncCtx, false);
     }
     CursorReadCtx *cr_ctx = rm_new(CursorReadCtx);
-    cr_ctx->bc = BlockCursorClientWithTimeout(ctx, cursor, count, &blockClientCtx);
+    cr_ctx->bc = BlockCursorClientWithTimeout(ctx, cursor, count, cursor->query,
+        replyCallback, timeoutCallback, timeoutMS);
+    cr_ctx->rsc = cursor->query;
     cr_ctx->cursor = cursor;
     cr_ctx->count = count;
     workersThreadPool_AddWork((redisearch_thpool_proc)cursorRead_ctx, cr_ctx);

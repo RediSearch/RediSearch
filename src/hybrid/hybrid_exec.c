@@ -39,20 +39,6 @@
 
 #include <time.h>
 
-static void HybridBlockClient_FreeRSC(void *privdata) {
-  RequestSyncCtx *rsc = (RequestSyncCtx *)privdata;
-  HybridRequest *hreq = RequestSyncCtx_GetHybridRequest(rsc);
-  if (hreq) {
-    for (size_t i = 0; i < hreq->nrequests; i++) {
-      if (hreq->requests[i]->cursor_id != 0) {
-        rsc->blockedNodeOwns = false;
-        return;
-      }
-    }
-  }
-  RequestSyncCtx_Free(rsc);
-}
-
 // Send a warning message to the client, optionally appending a suffix to identify the source
 static inline void ReplyWarning(RedisModule_Reply *reply, const char *message, const char *suffix) {
   if (suffix) {
@@ -846,16 +832,16 @@ static int HybridQueryTimeoutFailCallback(RedisModuleCtx *ctx, RedisModuleString
   UNUSED(argv);
   UNUSED(argc);
 
-  BlockedQueryNode *node = RedisModule_GetBlockedClientPrivateData(ctx);
-  if (!node || !node->privdata) {
+  RequestSyncCtx *rsc = RedisModule_GetBlockedClientPrivateData(ctx);
+  if (!rsc) {
     // Shouldn't happen, but handle gracefully
-    RedisModule_Log(ctx, "warning", "HybridQueryTimeoutFailCallback: no node or privdata");
+    RedisModule_Log(ctx, "warning", "HybridQueryTimeoutFailCallback: no request context");
     QueryErrorsGlobalStats_UpdateError(QUERY_ERROR_CODE_TIMED_OUT, 1, COORD_ERR_WARN);
     RedisModule_ReplyWithError(ctx, QueryError_Strerror(QUERY_ERROR_CODE_TIMED_OUT));
     return REDISMODULE_OK;
   }
 
-  HybridRequest *hreq = RequestSyncCtx_GetHybridRequest((RequestSyncCtx *)node->privdata);
+  HybridRequest *hreq = RequestSyncCtx_GetHybridRequest(rsc);
 
   // Lock to synchronize with cursor creation in HybridRequest_StartCursors.
   // After setting timedOut, any subsequent cursor creation attempt will be skipped.
@@ -887,15 +873,15 @@ static int HybridQueryCursorReplyCallback(RedisModuleCtx *ctx, RedisModuleString
   UNUSED(argv);
   UNUSED(argc);
 
-  BlockedQueryNode *node = RedisModule_GetBlockedClientPrivateData(ctx);
-  if (!node || !node->privdata) {
+  RequestSyncCtx *rsc = RedisModule_GetBlockedClientPrivateData(ctx);
+  if (!rsc) {
     // Shouldn't happen, but handle gracefully
-    RedisModule_Log(ctx, "warning", "HybridQueryReplyCallback: no node or privdata");
+    RedisModule_Log(ctx, "warning", "HybridQueryReplyCallback: no request context");
     RedisModule_ReplyWithError(ctx, "Internal error: no request context");
     return REDISMODULE_OK;
   }
 
-  HybridRequest *req = RequestSyncCtx_GetHybridRequest((RequestSyncCtx *)node->privdata);
+  HybridRequest *req = RequestSyncCtx_GetHybridRequest(rsc);
   ChunkReplyState *stored = RequestSyncCtx_GetReplyState(req->syncCtx);
 
   if (QueryError_HasError(&stored->err)) {
@@ -918,15 +904,15 @@ static int HybridQueryReplyCallback(RedisModuleCtx *ctx, RedisModuleString **arg
   UNUSED(argv);
   UNUSED(argc);
 
-  BlockedQueryNode *node = RedisModule_GetBlockedClientPrivateData(ctx);
-  if (!node || !node->privdata) {
+  RequestSyncCtx *rsc = RedisModule_GetBlockedClientPrivateData(ctx);
+  if (!rsc) {
     // Shouldn't happen, but handle gracefully
-    RedisModule_Log(ctx, "warning", "HybridQueryReplyCallback: no node or privdata");
+    RedisModule_Log(ctx, "warning", "HybridQueryReplyCallback: no request context");
     RedisModule_ReplyWithError(ctx, "Internal error: no request context");
     return REDISMODULE_OK;
   }
 
-  HybridRequest *req = RequestSyncCtx_GetHybridRequest((RequestSyncCtx *)node->privdata);
+  HybridRequest *req = RequestSyncCtx_GetHybridRequest(rsc);
   ChunkReplyState *stored = RequestSyncCtx_GetReplyState(req->syncCtx);
 
   // Check if results were stored (background thread completed successfully)
@@ -973,21 +959,18 @@ static int HybridRequest_BuildPipelineAndExecute(HybridRequest *hreq, HybridPipe
     // Multi-threaded execution path
     StrongRef spec_ref = IndexSpec_GetStrongRefUnsafe(sctx->spec);
 
-    BlockClientCtx blockClientCtx = {0};
-
-    blockClientCtx.ast = &hreq->requests[0]->ast;
-    blockClientCtx.privdata = hreq->syncCtx;
-    hreq->syncCtx->blockedNodeOwns = true;
-    blockClientCtx.freePrivData = HybridBlockClient_FreeRSC;
+    RedisModuleCmdFunc replyCallback = NULL;
+    RedisModuleCmdFunc timeoutCallback = NULL;
+    rs_wall_clock_ms_t timeoutMS = 0;
 
     if (hreq->reqConfig.timeoutPolicy == TimeoutPolicy_Fail) {
-      blockClientCtx.timeoutCallback = HybridQueryTimeoutFailCallback;
-      blockClientCtx.replyCallback = internal ? HybridQueryCursorReplyCallback : HybridQueryReplyCallback;
-      blockClientCtx.timeoutMS = hreq->reqConfig.queryTimeoutMS;
-      RequestSyncCtx_SetUseReplyCallback(hreq->syncCtx, true);
+      timeoutCallback = HybridQueryTimeoutFailCallback;
+      replyCallback = internal ? HybridQueryCursorReplyCallback : HybridQueryReplyCallback;
+      timeoutMS = hreq->reqConfig.queryTimeoutMS;
     }
 
-    RedisModuleBlockedClient* blockedClient = BlockQueryClientWithTimeout(ctx, spec_ref, &blockClientCtx);
+    RedisModuleBlockedClient* blockedClient = BlockQueryClientWithTimeout(ctx, spec_ref, hreq->syncCtx,
+        &hreq->requests[0]->ast, replyCallback, timeoutCallback, timeoutMS);
 
     blockedClientHybridCtx *BCHCtx = blockedClientHybridCtx_New(hreq, hybridParams, blockedClient, spec_ref, internal);
 
@@ -1194,8 +1177,7 @@ int hybridCommandHandler(RedisModuleCtx *ctx, RedisModuleString **argv, int argc
 static void blockedClientHybridCtx_destroy(blockedClientHybridCtx *BCHCtx) {
   freeHybridParams(BCHCtx->hybridParams);
   RedisModule_BlockedClientMeasureTimeEnd(BCHCtx->blockedClient);
-  void *privdata = RedisModule_BlockClientGetPrivateData(BCHCtx->blockedClient);
-  RedisModule_UnblockClient(BCHCtx->blockedClient, privdata);
+  RedisModule_UnblockClient(BCHCtx->blockedClient, BCHCtx->rsc);
   WeakRef_Release(BCHCtx->spec_ref);
   rm_free(BCHCtx);
 }

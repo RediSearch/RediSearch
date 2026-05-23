@@ -17,71 +17,53 @@
 #include "cursor.h"
 #include "info/info_redis/block_client.h"
 
-static void FreeQueryNode(RedisModuleCtx* ctx, void *node) {
-  BlockedQueryNode *queryNode = node;
-  // Call the callback to free privdata if provided
-  if (queryNode->freePrivData && queryNode->privdata) {
-    queryNode->freePrivData(queryNode->privdata);
-  }
-  BlockedQueries_RemoveQuery(queryNode);
-  rm_free(queryNode);
-}
-
-static void FreeCursorNode(RedisModuleCtx* ctx, void *node) {
-  BlockedCursorNode *cursorNode = node;
-  if (cursorNode->freePrivData && cursorNode->privdata) {
-    cursorNode->freePrivData(cursorNode->privdata);
-  }
-  BlockedQueries_RemoveCursor(cursorNode);
-  rm_free(cursorNode);
-}
-
-RedisModuleBlockedClient *BlockQueryClientWithTimeout(RedisModuleCtx *ctx, StrongRef spec_ref, BlockClientCtx *blockClientCtx) {
+RedisModuleBlockedClient *BlockQueryClientWithTimeout(RedisModuleCtx *ctx, StrongRef spec_ref,
+                                                      RequestSyncCtx *rsc, QueryAST *ast,
+                                                      BlockedClientReplyCB replyCallback,
+                                                      BlockedClientTimeoutCB timeoutCallback,
+                                                      rs_wall_clock_ms_t timeoutMS) {
   // Assert that if timeoutMS is provided, then both callbacks must be provided.
-  RS_ASSERT(blockClientCtx->timeoutMS == 0 || (blockClientCtx->timeoutCallback != NULL && blockClientCtx->replyCallback != NULL));
+  RS_ASSERT(timeoutMS == 0 || (timeoutCallback != NULL && replyCallback != NULL));
 
   BlockedQueries *blockedQueries = MainThread_GetBlockedQueries();
   RS_LOG_ASSERT(blockedQueries, "MainThread_InitBlockedQueries was not called, or function not called from main thread");
-  // privdata ownership: BlockedQueryNode owns the query context for callback
-  // visibility until Redis runs FreeQueryNode.
-  BlockedQueryNode *node = BlockedQueries_AddQuery(blockedQueries, spec_ref, blockClientCtx->ast, blockClientCtx->privdata,
-                                                    blockClientCtx->freePrivData);
+  BlockedQueryNode *node = BlockedQueries_AddQuery(blockedQueries, spec_ref, ast, rsc, NULL);
 
   // Prepare context for the worker thread
   // Since we are still in the main thread, and we already validated the
   // spec's existence, it is safe to directly get the strong reference from the spec
   // found in buildRequest.
-  RedisModuleBlockedClient *blockedClient = RedisModule_BlockClient(ctx, blockClientCtx->replyCallback, blockClientCtx->timeoutCallback, FreeQueryNode, blockClientCtx->timeoutMS);
-  RedisModule_BlockClientSetPrivateData(blockedClient, node);
+  RedisModuleBlockedClient *blockedClient = RedisModule_BlockClient(ctx, replyCallback, timeoutCallback, RequestSyncCtx_OnFree, timeoutMS);
+  RedisModule_BlockClientSetPrivateData(blockedClient, rsc);
+  RSC_BeginCycle(rsc, blockedClient, replyCallback, node, REQUEST_CYCLE_QUERY);
   // report block client start time
   RedisModule_BlockedClientMeasureTimeStart(blockedClient);
   return blockedClient;
 }
 
-RedisModuleBlockedClient *BlockCursorClientWithTimeout(RedisModuleCtx *ctx, Cursor *cursor, size_t count, BlockClientCtx *blockClientCtx) {
-  RS_ASSERT(blockClientCtx != NULL);
+RedisModuleBlockedClient *BlockCursorClientWithTimeout(RedisModuleCtx *ctx, Cursor *cursor, size_t count,
+                                                       RequestSyncCtx *rsc,
+                                                       BlockedClientReplyCB replyCallback,
+                                                       BlockedClientTimeoutCB timeoutCallback,
+                                                       rs_wall_clock_ms_t timeoutMS) {
   AREQ *req = Cursor_GetAREQ(cursor);
   RS_ASSERT(req != NULL);
-  RS_ASSERT(blockClientCtx->timeoutMS == 0 ||
-            (blockClientCtx->timeoutCallback != NULL && blockClientCtx->replyCallback != NULL));
+  RS_ASSERT(timeoutMS == 0 || (timeoutCallback != NULL && replyCallback != NULL));
 
   BlockedQueries *blockedQueries = MainThread_GetBlockedQueries();
   RS_LOG_ASSERT(blockedQueries, "MainThread_InitBlockedQueries was not called, or function not called from main thread");
 
-  // privdata is observed by BlockedCursorNode for timeout/reply callbacks.
-  // The parked cursor owns the query context.
   BlockedCursorNode *node = BlockedQueries_AddCursor(blockedQueries, cursor->spec_ref, cursor->id,
-                                                     &req->ast, count,
-                                                     blockClientCtx->privdata,
-                                                     blockClientCtx->freePrivData);
+                                                     &req->ast, count, rsc, NULL);
 
   // Prepare context for the worker thread
   // Since we are still in the main thread, and we already validated the
   // spec's existence, it is safe to directly get the strong reference from the spec
   // found in buildRequest.
-  RedisModuleBlockedClient *blockedClient = RedisModule_BlockClient(ctx, blockClientCtx->replyCallback,
-      blockClientCtx->timeoutCallback, FreeCursorNode, blockClientCtx->timeoutMS);
-  RedisModule_BlockClientSetPrivateData(blockedClient, node);
+  RedisModuleBlockedClient *blockedClient = RedisModule_BlockClient(ctx, replyCallback, timeoutCallback,
+      RequestSyncCtx_OnFree, timeoutMS);
+  RedisModule_BlockClientSetPrivateData(blockedClient, rsc);
+  RSC_BeginCycle(rsc, blockedClient, replyCallback, node, REQUEST_CYCLE_CURSOR);
   // report block client start time
   RedisModule_BlockedClientMeasureTimeStart(blockedClient);
   return blockedClient;

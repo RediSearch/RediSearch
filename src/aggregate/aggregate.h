@@ -177,6 +177,12 @@ typedef enum {
   REQUEST_KIND_HYBRID,
 } RequestKind;
 
+typedef enum {
+  REQUEST_CYCLE_NONE,
+  REQUEST_CYCLE_QUERY,
+  REQUEST_CYCLE_CURSOR,
+} RequestCycleKind;
+
 /**
  * Common synchronization context for request types (AREQ, HybridRequest).
  * This context is used for timeout handling and synchronization between the main thread and the background thread.
@@ -190,13 +196,16 @@ typedef struct RequestSyncCtx {
 
   // Timeout signaling flag set by timeout callback on main thread
   RS_Atomic(bool) timedOut;
-  // Temporary Step 0 bridge: true while a blocked-query node owns this RSC
-  // for callback visibility. Removed when BeginCycle/OnFree owns the cycle.
+  // Temporary bridge until cursor ownership transfer moves fully into OnFree.
   bool blockedNodeOwns;
   // Reply mode for the current compatibility cycle. Mirrored to the request until
   // BeginCycle can derive the mode from the reply callback.
   bool useReplyCallback;
   ChunkReplyState storedReplyState;
+  RedisModuleBlockedClient *bc;
+  RedisModuleCmdFunc replyCallback;
+  void *blockedNode;
+  RequestCycleKind cycleKind;
 
   /* Partial-timeout coordination. The CAS claim grants exclusive ownership of
    * the result-production phase: the BG-thread winner runs AggregateResults
@@ -230,6 +239,10 @@ static inline void RequestSyncCtx_Init(RequestSyncCtx *ctx, RequestKind kind, vo
   ctx->useReplyCallback = false;
   ctx->storedReplyState = (ChunkReplyState){0};
   ctx->storedReplyState.err = QueryError_Default();
+  ctx->bc = NULL;
+  ctx->replyCallback = NULL;
+  ctx->blockedNode = NULL;
+  ctx->cycleKind = REQUEST_CYCLE_NONE;
   ctx->requiresAggregateResultsSync = false;
   ctx->aggregatingResults = false;
   ctx->aggregateResultsDone = false;
@@ -243,6 +256,11 @@ RequestSyncCtx *RequestSyncCtx_NewAREQ(AREQ *areq);
 RequestSyncCtx *RequestSyncCtx_NewHybrid(HybridRequest *hreq);
 void RequestSyncCtx_Free(RequestSyncCtx *ctx);
 void AREQ_FreeFromRequestSyncCtx(AREQ *req);
+void RSC_BeginCycle(RequestSyncCtx *ctx, RedisModuleBlockedClient *bc,
+                    RedisModuleCmdFunc replyCallback, void *blockedNode,
+                    RequestCycleKind cycleKind);
+void RSC_EndCycle(RequestSyncCtx *ctx);
+void RequestSyncCtx_OnFree(RedisModuleCtx *ctx, void *privdata);
 AREQ *RequestSyncCtx_GetAREQ(RequestSyncCtx *ctx);
 HybridRequest *RequestSyncCtx_GetHybridRequest(RequestSyncCtx *ctx);
 AREQ *RequestSyncCtx_GetCursorAREQ(RequestSyncCtx *ctx, uint64_t cursorId);

@@ -11,6 +11,7 @@
 #include "coord/rmr/chan.h"
 #include "cursor.h"
 #include "hybrid/hybrid_request.h"
+#include "info/info_redis/types/blocked_queries.h"
 #include "search_result_ffi.h"
 
 void ChunkReplyState_Destroy(ChunkReplyState *state) {
@@ -63,6 +64,78 @@ void RequestSyncCtx_Free(RequestSyncCtx *ctx) {
   }
   RequestSyncCtx_Destroy(ctx);
   rm_free(ctx);
+}
+
+void RSC_BeginCycle(RequestSyncCtx *ctx, RedisModuleBlockedClient *bc,
+                    RedisModuleCmdFunc replyCallback, void *blockedNode,
+                    RequestCycleKind cycleKind) {
+  ctx->bc = bc;
+  ctx->replyCallback = replyCallback;
+  ctx->blockedNode = blockedNode;
+  ctx->cycleKind = cycleKind;
+  ctx->useReplyCallback = replyCallback != NULL;
+  ctx->blockedNodeOwns = cycleKind == REQUEST_CYCLE_QUERY;
+}
+
+void RSC_EndCycle(RequestSyncCtx *ctx) {
+  if (!ctx) {
+    return;
+  }
+
+  if (ctx->blockedNode) {
+    if (ctx->cycleKind == REQUEST_CYCLE_CURSOR) {
+      BlockedCursorNode *node = ctx->blockedNode;
+      BlockedQueries_RemoveCursor(node);
+      rm_free(node);
+    } else {
+      BlockedQueryNode *node = ctx->blockedNode;
+      BlockedQueries_RemoveQuery(node);
+      rm_free(node);
+    }
+  }
+
+  ctx->bc = NULL;
+  ctx->replyCallback = NULL;
+  ctx->blockedNode = NULL;
+  ctx->cycleKind = REQUEST_CYCLE_NONE;
+  ctx->useReplyCallback = false;
+}
+
+void RequestSyncCtx_OnFree(RedisModuleCtx *ctx, void *privdata) {
+  UNUSED(ctx);
+  RequestSyncCtx *rsc = privdata;
+  RequestCycleKind cycleKind = rsc->cycleKind;
+
+  if (cycleKind == REQUEST_CYCLE_CURSOR) {
+    AREQ *req = RequestSyncCtx_GetAREQ(rsc);
+    AREQ_CleanUpStoredCursor(req);
+    RSC_EndCycle(rsc);
+    return;
+  }
+
+  bool keepQuery = false;
+  if (rsc->kind == REQUEST_KIND_AREQ) {
+    AREQ *req = RequestSyncCtx_GetAREQ(rsc);
+    keepQuery = req && (AREQ_RequestFlags(req) & QEXEC_F_IS_CURSOR) &&
+        req->cursor_id && !(req->stateflags & QEXEC_S_ITERDONE);
+  } else {
+    HybridRequest *hreq = RequestSyncCtx_GetHybridRequest(rsc);
+    if (hreq) {
+      for (size_t i = 0; i < hreq->nrequests; i++) {
+        if (hreq->requests[i]->cursor_id != 0) {
+          keepQuery = true;
+          break;
+        }
+      }
+    }
+  }
+
+  RSC_EndCycle(rsc);
+  if (keepQuery) {
+    rsc->blockedNodeOwns = false;
+    return;
+  }
+  RequestSyncCtx_Free(rsc);
 }
 
 AREQ *RequestSyncCtx_GetAREQ(RequestSyncCtx *ctx) {
