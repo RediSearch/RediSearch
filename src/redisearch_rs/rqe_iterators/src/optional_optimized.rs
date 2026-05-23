@@ -15,10 +15,11 @@
 //! results accordingly.
 
 use index_result::{RSIndexResult, RawIndexResult};
-use ref_mode::{Active, Ref};
+use ref_mode::{Active, Ref, Suspended};
 
 use crate::{
-    RQEIterator, RQEIteratorError, RQEValidateStatus, SkipToOutcome,
+    RQEIterator, RQEIteratorBoxed, RQEIteratorError, RQESuspendedIterator, RQEValidateStatus,
+    ResumeOutcome, SkipToOutcome,
     maybe_empty::MaybeEmpty,
     profile_print::{ProfilePrint, ProfilePrintCtx},
     wildcard::WildcardIterator,
@@ -107,7 +108,9 @@ where
 
 impl<'index, W, I> RQEIterator<'index> for OptionalOptimized<'index, W, I>
 where
-    W: WildcardIterator<'index>,
+    // Only generic `RQEIterator` methods are called on the wildcard base here;
+    // the `WildcardIterator` marker is enforced at construction (see `new`).
+    W: RQEIterator<'index>,
     I: RQEIterator<'index>,
 {
     #[inline(always)]
@@ -348,6 +351,162 @@ where
 
     fn intersection_sort_weight(&self, _prioritize_union_children: bool) -> f64 {
         1.0
+    }
+}
+
+impl<'index, W, I> RQEIteratorBoxed<'index> for OptionalOptimized<'index, W, I>
+where
+    // Marker enforced at construction (`new`), not on the suspend/resume path —
+    // the suspend/resume impls only move the wildcard child through the box
+    // cast, so `W: RQEIteratorBoxed` suffices. This drops the recursive
+    // `for<'a> …: WildcardIterator + RQEIteratorBoxed<Suspended = …>` HRTB,
+    // which is otherwise unsatisfiable once `'query` narrows on resume.
+    W: RQEIteratorBoxed<'index>,
+    I: RQEIteratorBoxed<'index>,
+{
+    type Suspended = RawOptionalOptimized<'index, Suspended, W::Suspended, I::Suspended>;
+
+    fn suspend(self: Box<Self>) -> Box<Self::Suspended> {
+        let raw = Box::into_raw(self);
+        // SAFETY: `RawOptionalOptimized` is `#[repr(C)]`. The only
+        // `Rf`-dependent field is `virt: RawIndexResult<Rf>`, layout-
+        // compatible across `Rf` via `SharedPtr` transparency. `W`/`I` are
+        // layout-compatible with `W::Suspended`/`I::Suspended` by the
+        // [`RQEIteratorBoxed`] contract, and `MaybeEmpty<I>` likewise
+        // (see [`MaybeEmpty::suspend`]). Box::from_raw reuses the same
+        // heap allocation.
+        unsafe {
+            Box::from_raw(
+                raw as *mut RawOptionalOptimized<'index, Suspended, W::Suspended, I::Suspended>,
+            )
+        }
+    }
+}
+
+impl<'query, WS, IS> RQESuspendedIterator<'query> for RawOptionalOptimized<'query, Suspended, WS, IS>
+where
+    WS: RQESuspendedIterator<'query>,
+    IS: RQESuspendedIterator<'query>,
+{
+    type Resumed<'a>
+        = OptionalOptimized<'a, WS::Resumed<'a>, IS::Resumed<'a>>
+    where
+        'query: 'a;
+
+    fn resume<'a>(
+        self: Box<Self>,
+        guard: &IndexSpecReadGuard<'a>,
+    ) -> Result<ResumeOutcome<Box<Self::Resumed<'a>>>, RQEIteratorError>
+    where
+        'query: 'a,
+    {
+        let RawOptionalOptimized {
+            wcii,
+            child,
+            virt,
+            max_doc_id,
+            weight,
+            last_doc_id,
+            at_eof,
+        } = *self;
+
+        // Resume both children unconditionally, mirroring the legacy path
+        // (which drove `resume` on both before inspecting either outcome).
+        // The `wcii` (base) child is genuinely a wildcard; its concrete
+        // resumed type `WS::Resumed<'a>` is statically a `WildcardIterator`.
+        let pre_wcii_last_doc_id = RQESuspendedIterator::last_doc_id(&wcii);
+        let wcii_outcome = Box::new(wcii).resume(guard)?;
+        let pre_child_last_doc_id = RQESuspendedIterator::last_doc_id(&child);
+        let child_outcome = Box::new(child).resume(guard)?;
+
+        // If `wcii` aborted we cannot rebuild — there is no base to enumerate
+        // doc ids — so the whole iterator aborts, dropping the just-resumed
+        // child.
+        let (wcii, wcii_moved) = match wcii_outcome {
+            ResumeOutcome::Aborted => return Ok(ResumeOutcome::Aborted),
+            ResumeOutcome::Ok(w) => (*w, false),
+            ResumeOutcome::Moved(w) => (*w, true),
+        };
+
+        // An aborted query child is replaced by `Empty` (mirroring
+        // `revalidate`'s `take_iterator`) and treated as "moved": its state
+        // changed, so downstream must re-evaluate.
+        let (child, child_moved_or_aborted): (MaybeEmpty<IS::Resumed<'a>>, bool) =
+            match child_outcome {
+                ResumeOutcome::Aborted => (MaybeEmpty::new_empty(), true),
+                ResumeOutcome::Ok(c) => (*c, false),
+                ResumeOutcome::Moved(c) => (*c, true),
+            };
+
+        // SAFETY: `OptionalOptimized`'s `virt` is a virtual sentinel built
+        // via `build_virt()` — no aliased pointers to validate. The
+        // `Active<'a>` re-typing is unconditionally sound. See the same
+        // SAFETY note in `Not::resume`.
+        let virt = unsafe { virt.into_active::<'a>() };
+
+        let mut active = Box::new(OptionalOptimized {
+            wcii,
+            child,
+            virt,
+            max_doc_id,
+            weight,
+            last_doc_id,
+            at_eof,
+        });
+
+        // Distinguish "wcii moved to a new valid position" from "wcii moved
+        // past all docs (no new current)". `ResumeOutcome::Moved` doesn't
+        // carry the {Some, None} distinction that legacy `revalidate` had, so
+        // we recover it by comparing wcii's pre/post `last_doc_id`: a true
+        // "Moved to EOF without a new doc" leaves the cached doc_id unchanged
+        // (the wcii has nothing new to surface). A "Moved to a new valid doc"
+        // advances the cached doc_id even if `at_eof` is now true (because
+        // that new doc is the LAST valid one).
+        if wcii_moved && active.wcii.at_eof() && active.wcii.last_doc_id() == pre_wcii_last_doc_id {
+            active.at_eof = true;
+            return Ok(ResumeOutcome::Moved(active));
+        }
+        active.at_eof = active.wcii.at_eof();
+
+        let current_was_virtual =
+            active.last_doc_id == 0 || pre_child_last_doc_id != active.last_doc_id;
+
+        if !wcii_moved {
+            // wcii stayed at the same position.
+            if !child_moved_or_aborted || current_was_virtual {
+                // Child is still valid, or the current result was virtual — no change.
+                return Ok(ResumeOutcome::Ok(active));
+            }
+            // Child moved or aborted while the current was a real result:
+            // advance to the next valid state.
+            active.read()?;
+            return Ok(ResumeOutcome::Moved(active));
+        }
+
+        // wcii moved to a new valid position; update the child accordingly.
+        let wcii_doc_id = active.wcii.last_doc_id();
+        if wcii_doc_id > active.max_doc_id {
+            active.at_eof = true;
+            return Ok(ResumeOutcome::Moved(active));
+        }
+        if wcii_doc_id > active.child.last_doc_id() {
+            active.child.skip_to(wcii_doc_id)?;
+        }
+        active.last_doc_id = wcii_doc_id;
+        active.at_eof |= wcii_doc_id >= active.max_doc_id;
+        if active.child.last_doc_id() != wcii_doc_id {
+            active.virt.doc_id = wcii_doc_id;
+        }
+        Ok(ResumeOutcome::Moved(active))
+    }
+
+    fn last_doc_id(&self) -> DocId {
+        self.last_doc_id
+    }
+
+    fn num_estimated(&self) -> usize {
+        // Mirrors the active `num_estimated`, which delegates to the wildcard base.
+        self.wcii.num_estimated()
     }
 }
 
