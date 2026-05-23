@@ -106,11 +106,6 @@ impl<'index, const SORTED_BY_ID: bool> MetricLazy<'index, SORTED_BY_ID> {
         unsafe { self.inner.set_handle(key_handle) };
     }
 
-    /// Get the metric type used by this iterator.
-    pub const fn metric_type(&self) -> MetricType {
-        self.inner.metric_type()
-    }
-
     /// Run the producer on the first call, populating the inner iterator; a no-op afterwards. The
     /// producer is retained either way. On timeout the error is propagated and the inner iterator
     /// stays empty (so the next read reports EOF).
@@ -133,6 +128,11 @@ impl<'query, Rf: Ref, const SORTED_BY_ID: bool> RawMetricLazy<'query, Rf, SORTED
         } else {
             self.num_estimated_hint
         }
+    }
+
+    /// Get the metric type used by this iterator. Mode-independent.
+    pub const fn metric_type(&self) -> MetricType {
+        self.inner.metric_type()
     }
 }
 

@@ -57,7 +57,9 @@ pub(crate) fn eval<'index>(
     match outcome {
         // The child was structurally empty: the reducer built a fresh Rust
         // wildcard leaf so every document is returned as a virtual hit.
-        NewOptionalIterator::WildcardFallback(wc) => Evaluated::RustLeaf(Box::new(wc)),
+        NewOptionalIterator::WildcardFallback(wc) => {
+            Evaluated::RustLeaf(rqe_iterators::TypeErasedRQEIterator::new(Box::new(wc)))
+        }
         // The optional collapsed to its already-lowered wildcard child: hand the
         // child's owning handle straight back, exactly as the former C path did,
         // so the C-side optimizer/profiler keep seeing the original iterator. A
