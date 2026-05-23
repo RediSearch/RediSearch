@@ -783,7 +783,6 @@ static int HybridRequest_executePlan(HybridRequest *hreq, struct ConcurrentCmdCt
             .lastAstp = AGPLN_GetArrangeStep(plan)
         };
         sendChunk_hybrid(hreq, reply, UINT64_MAX, cv);
-        HybridRequest_DecrRef(hreq);
     }
     return REDISMODULE_OK;
 }
@@ -814,8 +813,8 @@ static void DistHybridCleanups(RedisModuleCtx *ctx,
     if (sp) {
       IndexSpecRef_Release(*strong_ref);
     }
-    if (hreq) {
-      HybridRequest_DecrRef(hreq);
+    if (hreq && !CoordRequestCtx_HasRequest(reqCtx)) {
+      RequestSyncCtx_Free(hreq->syncCtx);
     }
 
     RedisModule_EndReply(reply);
@@ -1048,6 +1047,6 @@ int DistHybridReplyCallback(RedisModuleCtx *ctx, RedisModuleString **argv, int a
   serializeStoredResults_hybrid(hreq, reply);
   RedisModule_EndReply(reply);
 
-  // Note: No HybridRequest_DecrRef here - CoordRequestCtx_Free releases the context's reference.
+  // Note: no RequestSyncCtx_Free here - CoordRequestCtx_Free owns the request context.
   return REDISMODULE_OK;
 }

@@ -41,9 +41,8 @@ struct HybridRequest {
     profiler_func profile;
     ProfilePrinterCtx profileCtx;
 
-    // Synchronization context for timeout/reply callbacks
-    // Temporary compatibility shim while RequestSyncCtx ownership is being inverted.
-    // Subsequent refactor slices remove this refcount and transfer the wrapper directly.
+    // Synchronization context for timeout/reply callbacks.
+    // Owned by the active request/cursor lifecycle.
     RequestSyncCtx *syncCtx;
 
     // Flag to indicate whether to skip timeout checks using clock checks
@@ -211,20 +210,6 @@ int HybridRequest_BuildMergePipeline(HybridRequest *req, const RLookupKey *score
  * @return REDISMODULE_OK on success, REDISMODULE_ERR on failure
  */
 int HybridRequest_BuildPipeline(HybridRequest *req, HybridPipelineParams *params, bool depleteInBackground, QueryError *status);
-
-/**
- * Increment the reference count of the HybridRequest.
- * @param req the request to increment
- * @return the request (for chaining)
- */
-HybridRequest *HybridRequest_IncrRef(HybridRequest *req);
-
-/**
- * Decrement the reference count of the HybridRequest.
- * If the reference count reaches 0, the request is freed.
- * @param req the request to decrement
- */
-void HybridRequest_DecrRef(HybridRequest *req);
 
 int HybridRequest_GetError(HybridRequest *req, QueryError *status);
 

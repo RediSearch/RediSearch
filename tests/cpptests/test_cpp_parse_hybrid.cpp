@@ -90,7 +90,7 @@ class ParseHybridTest : public ::testing::Test {
 
   void TearDown() override {
     if (hybridRequest) {
-      HybridRequest_DecrRef(hybridRequest);
+      RequestSyncCtx_Free(hybridRequest->syncCtx);
     }
     if (hybridParams.scoringCtx) {
       HybridScoringContext_Free(hybridParams.scoringCtx);

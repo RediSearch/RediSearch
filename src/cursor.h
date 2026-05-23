@@ -33,8 +33,8 @@ typedef struct Cursor {
 
   /**
    * Request sync context for the query parked on this cursor.
-   * Temporarily uses the underlying AREQ/HybridRequest refcount while
-   * RequestSyncCtx ownership is being inverted.
+   * The cursor owns this pointer while parked, except during the temporary
+   * Step 0 blocked-query bridge where `query->blockedNodeOwns` is true.
    */
   RequestSyncCtx *query;
 

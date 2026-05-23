@@ -38,6 +38,8 @@
 
 extern RSConfig RSGlobalConfig;
 
+static void AREQ_Free(AREQ *req);
+
 /**
  * Ensures that the user has not requested one of the 'extended' features. Extended
  * in this case refers to reducers which re-create the search results.
@@ -1585,7 +1587,7 @@ int AREQ_ApplyContext(AREQ *req, RedisSearchCtx *sctx, QueryError *status) {
   return REDISMODULE_OK;
 }
 
-void AREQ_Free(AREQ *req) {
+static void AREQ_Free(AREQ *req) {
   // Check if rootiter exists but pipeline was never built (no result processors)
   // In this case, we need to free the rootiter manually since no RPQueryIterator
   // was created to take ownership of it.
@@ -1667,15 +1669,8 @@ void AREQ_Free(AREQ *req) {
   rm_free(req);
 }
 
-AREQ *AREQ_IncrRef(AREQ *req) {
-  RequestSyncCtx_IncrRef(req->syncCtx);
-  return req;
-}
-
-void AREQ_DecrRef(AREQ *req) {
-  if (req) {
-    RequestSyncCtx_DecrRef(req->syncCtx);
-  }
+void AREQ_FreeFromRequestSyncCtx(AREQ *req) {
+  AREQ_Free(req);
 }
 
 void AREQ_CleanUpStoredCursor(AREQ *req) {

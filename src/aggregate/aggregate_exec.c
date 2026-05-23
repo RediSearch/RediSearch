@@ -43,9 +43,10 @@
 
 // Multi threading data structure for background query execution.
 // This context is created on the main thread and passed to the background worker.
-// Ownership: The main thread transfers its AREQ reference (from AREQ_New) to this context.
+// The worker borrows the RSC; the blocked-query node owns it until Redis runs
+// the node free callback.
 typedef struct {
-  RequestSyncCtx *rsc;  // Owns transferred query reference from main thread.
+  RequestSyncCtx *rsc;
   RedisModuleBlockedClient *blockedClient;
   WeakRef spec_ref;
 } blockedClientReqCtx;
@@ -54,14 +55,24 @@ static void runCursor(RedisModule_Reply *reply, Cursor *cursor, size_t num);
 static int prepareExecutionPlan(AREQ *req, QueryError *status);
 static int QueryReplyCallback(RedisModuleCtx *ctx, RedisModuleString **argv, int argc);
 
+static void QueryBlockClient_FreeRSC(void *privdata) {
+  RequestSyncCtx *rsc = (RequestSyncCtx *)privdata;
+  AREQ *req = RequestSyncCtx_GetAREQ(rsc);
+  if (req && (AREQ_RequestFlags(req) & QEXEC_F_IS_CURSOR) &&
+      req->cursor_id && !(req->stateflags & QEXEC_S_ITERDONE)) {
+    rsc->blockedNodeOwns = false;
+    return;
+  }
+  RequestSyncCtx_Free(rsc);
+}
+
 // freePrivData for BlockCursorClientWithTimeout on the shard FAIL path. Drains any cursor
-// parked in the request sync context before releasing our AREQ ref (no-op on the happy
-// path, where CursorReadReplyCallback already cleared it).
+// parked in the request sync context (no-op on the happy path, where
+// CursorReadReplyCallback already cleared it). The cursor owns the RSC.
 static void ShardCursorBlockClient_FreeRSC(void *privdata) {
   RequestSyncCtx *rsc = (RequestSyncCtx *)privdata;
   AREQ *req = RequestSyncCtx_GetAREQ(rsc);
   AREQ_CleanUpStoredCursor(req);
-  RequestSyncCtx_ReleaseQueryRef(rsc);
 }
 
 /**
@@ -1152,11 +1163,10 @@ void AREQ_Execute(AREQ *req, RedisModuleCtx *ctx) {
   RedisSearchCtx *sctx = AREQ_SearchCtx(req);
   RedisSearchCtx_UnlockSpec(sctx);
   runRequestCycleExit(sctx);
-  AREQ_DecrRef(req);
 }
 
-// Creates a new blockedClientReqCtx, taking ownership of the AREQ reference from the main thread.
-// Note: No AREQ_IncrRef here - ownership is transferred, not shared.
+// Creates a new blockedClientReqCtx. The worker borrows the RSC; the
+// blocked-query node owns it for this cycle.
 static blockedClientReqCtx *blockedClientReqCtx_New(AREQ *req,
                                                     RedisModuleBlockedClient *blockedClient, StrongRef spec) {
   blockedClientReqCtx *ret = rm_new(blockedClientReqCtx);
@@ -1178,16 +1188,6 @@ static void blockedClientReqCtx_destroy(blockedClientReqCtx *BCRctx) {
   RedisModule_BlockedClientMeasureTimeEnd(BCRctx->blockedClient);
   void *privdata = RedisModule_BlockClientGetPrivateData(BCRctx->blockedClient);
   RedisModule_UnblockClient(BCRctx->blockedClient, privdata);
-
-  // Release the owned AREQ reference if it has not already been released.
-  // On the normal success path, AREQ_Execute() releases the reference and
-  // the owner clears it via blockedClientReqCtx_setRequest(BCRctx, NULL),
-  // so this conditional avoids a double-decr while still handling error paths
-  // where AREQ_Execute() is never called.
-  if (BCRctx->rsc) {
-    RequestSyncCtx_ReleaseQueryRef(BCRctx->rsc);
-    BCRctx->rsc = NULL;
-  }
 
   WeakRef_Release(BCRctx->spec_ref);
   rm_free(BCRctx);
@@ -1483,7 +1483,7 @@ static int buildRequest(RedisModuleCtx *ctx, RedisModuleString **argv, int argc,
 
 done:
   if (rc != REDISMODULE_OK && *r) {
-    AREQ_DecrRef(*r);
+    RequestSyncCtx_Free((*r)->syncCtx);
     *r = NULL;
     if (thctx) {
       RedisModule_FreeThreadSafeContext(thctx);
@@ -1706,7 +1706,7 @@ static int QueryReplyCallback(RedisModuleCtx *ctx, RedisModuleString **argv, int
 
   AREQ_ReplyWithStoredResults(ctx, req);
 
-  // No AREQ_DecrRef here - BlockedQueryNode holds the reference, released via FreeQueryNode.
+  // No RequestSyncCtx_Free here - BlockedQueryNode owns the RSC for the cycle.
   return REDISMODULE_OK;
 }
 
@@ -1779,9 +1779,8 @@ static int buildPipelineAndExecute(AREQ *r, RedisModuleCtx *ctx, QueryError *sta
 
     BlockClientCtx blockClientCtx = {0};
 
-    // Take a reference for BlockedQueryNode to access in timeout/reply callbacks.
-    AREQ_IncrRef(r);
-    blockClientCtx.freePrivData = RequestSyncCtx_ReleaseQueryRefCB;
+    r->syncCtx->blockedNodeOwns = true;
+    blockClientCtx.freePrivData = QueryBlockClient_FreeRSC;
     blockClientCtx.privdata = r->syncCtx;
     blockClientCtx.ast = &r->ast;
     RSTimeoutPolicy policy = r->reqConfig.timeoutPolicy;
@@ -1843,6 +1842,7 @@ static int buildPipelineAndExecute(AREQ *r, RedisModuleCtx *ctx, QueryError *sta
       }
     } else {
       AREQ_Execute(r, ctx);
+      RequestSyncCtx_Free(r->syncCtx);
     }
   }
 
@@ -1899,7 +1899,7 @@ error:
   QueryErrorsGlobalStats_UpdateError(QueryError_GetCode(&status), 1, GetNumShards_UnSafe() == 1);
 
   if (r) {
-    AREQ_DecrRef(r);
+    RequestSyncCtx_Free(r->syncCtx);
   }
 
   return QueryError_ReplyAndClear(ctx, &status);
@@ -1921,13 +1921,13 @@ char *RS_GetExplainOutput(RedisModuleCtx *ctx, RedisModuleString **argv, int arg
   RedisSearchCtx_LockSpecRead(sctx);
   if (prepareExecutionPlan(r, status) != REDISMODULE_OK) {
     RedisSearchCtx_UnlockSpec(sctx);
-    AREQ_DecrRef(r);
+    RequestSyncCtx_Free(r->syncCtx);
     CurrentThread_ClearIndexSpec();
     return NULL;
   }
   char *ret = QAST_DumpExplain(&r->ast, sctx->spec);
   RedisSearchCtx_UnlockSpec(sctx);
-  AREQ_DecrRef(r);
+  RequestSyncCtx_Free(r->syncCtx);
   CurrentThread_ClearIndexSpec();
   return ret;
 }
@@ -2226,8 +2226,6 @@ int RSCursorReadCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc)
       // Cursor cache is the snapshot frozen at AREQ_StartCursor; must agree with reqConfig.
       RS_ASSERT(cursor->queryTimeoutMS == (size_t)req->reqConfig.queryTimeoutMS);
       RS_ASSERT(cursor->queryTimeoutPolicy == req->reqConfig.timeoutPolicy);
-      // Extra ref owned by the BlockedCursorNode, released in FreeCursorNode.
-      AREQ_IncrRef(req);
       blockClientCtx.privdata        = req->syncCtx;
       blockClientCtx.freePrivData    = ShardCursorBlockClient_FreeRSC;
       blockClientCtx.replyCallback   = CursorReadReplyCallback;
@@ -2420,7 +2418,7 @@ int DEBUG_execCommandCommon(RedisModuleCtx *ctx, RedisModuleString **argv, int a
 
 error:
   if (r) {
-    AREQ_DecrRef(r);
+    RequestSyncCtx_Free(r->syncCtx);
   }
   return QueryError_ReplyAndClear(ctx, &status);
 }

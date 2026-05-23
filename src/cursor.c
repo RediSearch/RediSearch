@@ -89,7 +89,27 @@ static void Cursor_FreeInternal(Cursor *cur) {
   RS_LOG_ASSERT(kh_get(cursors, cl->lookup, cur->id) == kh_end(cl->lookup),
                                                     "Failed to delete cursor");
   if (cur->query) {
-    RequestSyncCtx_ReleaseQueryRef(cur->query);
+    HybridRequest *hreq = RequestSyncCtx_GetHybridRequest(cur->query);
+    if (hreq) {
+      for (size_t i = 0; i < hreq->nrequests; i++) {
+        if (hreq->requests[i]->cursor_id == cur->id) {
+          hreq->requests[i]->cursor_id = 0;
+        }
+      }
+    }
+    if (!cur->query->blockedNodeOwns) {
+      bool freeQuery = true;
+      if (hreq) {
+        for (size_t i = 0; i < hreq->nrequests; i++) {
+          if (hreq->requests[i]->cursor_id != 0) {
+            freeQuery = false;
+          }
+        }
+      }
+      if (freeQuery) {
+        RequestSyncCtx_Free(cur->query);
+      }
+    }
     cur->query = NULL;
   }
   // if There's a spec associated with the cursor
@@ -270,7 +290,7 @@ static void Cursors_RequestRescheduleSweep(CursorList *cl) {
   // `g_CursorsListCoord` are global variables with process lifetime, and
   // `CursorList_Empty` only clears their contents (it never destroys the
   // struct, its mutex, its lookup, or its idle array). If this ever changes
-  // (e.g. heap-allocated per-index lists), this call site needs a refcount
+  // (e.g. heap-allocated per-index lists), this call site needs a lifetime pin
   // or in-flight counter to keep `cl` alive until the one-shot drains.
   RedisModule_EventLoopAddOneShot(cursorRescheduleSweepOneShotCb, cl);
 }

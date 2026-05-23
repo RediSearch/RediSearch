@@ -193,7 +193,7 @@ static HybridRequest_Debug* HybridRequest_Debug_New(RedisModuleCtx *ctx, RedisMo
     if (hybridParams.scoringCtx) {
       HybridScoringContext_Free(hybridParams.scoringCtx);
     }
-    HybridRequest_DecrRef(hreq);
+    RequestSyncCtx_Free(hreq->syncCtx);
     return NULL;
   }
 
@@ -209,7 +209,7 @@ static HybridRequest_Debug* HybridRequest_Debug_New(RedisModuleCtx *ctx, RedisMo
     if (hybridParams.scoringCtx) {
       HybridScoringContext_Free(hybridParams.scoringCtx);
     }
-    HybridRequest_DecrRef(hreq);
+    RequestSyncCtx_Free(hreq->syncCtx);
     QueryError_SetError(status, QUERY_ERROR_CODE_GENERIC, "Failed to build hybrid pipeline");
     return NULL;
   }
@@ -227,7 +227,7 @@ static void HybridRequest_Debug_Free(HybridRequest_Debug *debug_req) {
   }
 
   if (debug_req->hreq) {
-    HybridRequest_DecrRef(debug_req->hreq);
+    RequestSyncCtx_Free(debug_req->hreq->syncCtx);
   }
 
   rm_free(debug_req);

@@ -5401,7 +5401,7 @@ class TestNoDeadlockQueryWithConcurrentWriter:
     """MOD-15364: BG query holds the spec read lock; a concurrent writer
     parks on the spec write lock and blocks the main thread. With the fix,
     the BG worker releases the read lock on the BG thread (inside
-    `AREQ_Execute`, before `AREQ_DecrRef`) prior to `RedisModule_UnblockClient`,
+    `AREQ_Execute`, before request cleanup) prior to `RedisModule_UnblockClient`,
     so the writer can acquire the write lock and the main thread later runs
     the unblock callback. Without the fix, the unblock callback never runs
     (main thread is parked on wrlock), the read lock is never released, and

@@ -37,9 +37,8 @@ void CoordRequestCtx_Free(CoordRequestCtx *ctx) {
   // Clear pre-request error if set
   QueryError_ClearError(&ctx->preRequestError);
 
-  // Decrement refcount on the request (if set)
   if (ctx->type == COMMAND_HYBRID) {
-    if (ctx->hreq) HybridRequest_DecrRef(ctx->hreq);
+    if (ctx->hreq) RequestSyncCtx_Free(ctx->hreq->syncCtx);
   } else if (ctx->type == COMMAND_AGGREGATE) {
     if (ctx->areq) {
       // Dispose any cursor stashed in the request sync context by runCursor.
@@ -50,7 +49,7 @@ void CoordRequestCtx_Free(CoordRequestCtx *ctx) {
       if (ctx->areq->reqConfig.timeoutPolicy != TimeoutPolicy_ReturnStrict) {
         AREQ_CleanUpStoredCursor(ctx->areq);
       }
-      AREQ_DecrRef(ctx->areq);
+      RequestSyncCtx_Free(ctx->areq->syncCtx);
     }
   } else {
     COORD_REQUEST_CTX_UNSUPPORTED_TYPE();
@@ -70,9 +69,9 @@ void CoordRequestCtx_UnlockSetRequest(CoordRequestCtx *ctx) {
 
 void CoordRequestCtx_SetRequest(CoordRequestCtx *ctx, void *req) {
   if (ctx->type == COMMAND_HYBRID) {
-    ctx->hreq = HybridRequest_IncrRef((HybridRequest *)req);
+    ctx->hreq = (HybridRequest *)req;
   } else if (ctx->type == COMMAND_AGGREGATE) {
-    ctx->areq = AREQ_IncrRef((AREQ *)req);
+    ctx->areq = (AREQ *)req;
   } else {
     COORD_REQUEST_CTX_UNSUPPORTED_TYPE();
   }

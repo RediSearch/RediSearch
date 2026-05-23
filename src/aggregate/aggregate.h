@@ -190,8 +190,9 @@ typedef struct RequestSyncCtx {
 
   // Timeout signaling flag set by timeout callback on main thread
   RS_Atomic(bool) timedOut;
-  // Reference count for shared ownership between timeout callback (main thread) and background thread
-  uint8_t refcount;
+  // Temporary Step 0 bridge: true while a blocked-query node owns this RSC
+  // for callback visibility. Removed when BeginCycle/OnFree owns the cycle.
+  bool blockedNodeOwns;
   // Reply mode for the current compatibility cycle. Mirrored to the request until
   // BeginCycle can derive the mode from the reply callback.
   bool useReplyCallback;
@@ -225,8 +226,9 @@ static inline void RequestSyncCtx_Init(RequestSyncCtx *ctx, RequestKind kind, vo
     ctx->query.hreq = (HybridRequest *)query;
   }
   ctx->timedOut = false;
-  ctx->refcount = 1;
+  ctx->blockedNodeOwns = false;
   ctx->useReplyCallback = false;
+  ctx->storedReplyState = (ChunkReplyState){0};
   ctx->storedReplyState.err = QueryError_Default();
   ctx->requiresAggregateResultsSync = false;
   ctx->aggregatingResults = false;
@@ -240,13 +242,10 @@ static inline void RequestSyncCtx_Init(RequestSyncCtx *ctx, RequestKind kind, vo
 RequestSyncCtx *RequestSyncCtx_NewAREQ(AREQ *areq);
 RequestSyncCtx *RequestSyncCtx_NewHybrid(HybridRequest *hreq);
 void RequestSyncCtx_Free(RequestSyncCtx *ctx);
-RequestSyncCtx *RequestSyncCtx_IncrRef(RequestSyncCtx *ctx);
-void RequestSyncCtx_DecrRef(RequestSyncCtx *ctx);
+void AREQ_FreeFromRequestSyncCtx(AREQ *req);
 AREQ *RequestSyncCtx_GetAREQ(RequestSyncCtx *ctx);
 HybridRequest *RequestSyncCtx_GetHybridRequest(RequestSyncCtx *ctx);
 AREQ *RequestSyncCtx_GetCursorAREQ(RequestSyncCtx *ctx, uint64_t cursorId);
-void RequestSyncCtx_ReleaseQueryRef(RequestSyncCtx *ctx);
-void RequestSyncCtx_ReleaseQueryRefCB(void *ctx);
 bool RequestSyncCtx_UseReplyCallback(RequestSyncCtx *ctx);
 void RequestSyncCtx_SetUseReplyCallback(RequestSyncCtx *ctx, bool useReplyCallback);
 ChunkReplyState *RequestSyncCtx_GetReplyState(RequestSyncCtx *ctx);
@@ -405,9 +404,7 @@ void initializeAREQ(AREQ *req);
  *
  * Can be called from the main thread or from a background thread. (Note: access RSGlobalConfig which is not thread safe)
  *
- * This consumes a refcount of the context used.
- *
- * Note that this function consumes a refcount even if it fails!
+ * On success, the request owns the applied search context.
  */
 int AREQ_ApplyContext(AREQ *req, RedisSearchCtx *sctx, QueryError *status);
 
@@ -519,20 +516,6 @@ void Grouper_AddReducer(Grouper *g, Reducer *r, RLookupKey *dst);
 void AREQ_Execute(AREQ *req, RedisModuleCtx *outctx);
 void sendChunk(AREQ *req, RedisModule_Reply *reply, size_t limit);
 void sendChunk_ReplyOnly_EmptyResults(RedisModuleCtx *ctx, AREQ *req);
-
-/**
- * Increment the reference count of the AREQ.
- * @param req the request to increment
- * @return the request (for chaining)
- */
-AREQ *AREQ_IncrRef(AREQ *req);
-
-/**
- * Decrement the reference count of the AREQ.
- * If the reference count reaches 0, the request is freed.
- * @param req the request to decrement
- */
-void AREQ_DecrRef(AREQ *req);
 
 /**
  * Free a cursor parked in the request sync context's stored reply state, if any.

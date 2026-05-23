@@ -114,7 +114,7 @@ protected:
             if (hybridParams.scoringCtx) {
                 HybridScoringContext_Free(hybridParams.scoringCtx);
             }
-            HybridRequest_DecrRef(hreq);
+            RequestSyncCtx_Free(hreq->syncCtx);
             NumShards = originalNumShards;
             FAIL() << "Failed to parse hybrid command";
         }
@@ -143,7 +143,7 @@ protected:
         if (hybridParams.scoringCtx) {
             HybridScoringContext_Free(hybridParams.scoringCtx);
         }
-        HybridRequest_DecrRef(hreq);
+        RequestSyncCtx_Free(hreq->syncCtx);
         NumShards = originalNumShards;
     }
 

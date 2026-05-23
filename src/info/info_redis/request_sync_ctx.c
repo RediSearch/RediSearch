@@ -13,8 +13,6 @@
 #include "hybrid/hybrid_request.h"
 #include "search_result_ffi.h"
 
-void AREQ_Free(AREQ *req);
-
 void ChunkReplyState_Destroy(ChunkReplyState *state) {
   // Free any stored results that weren't consumed
   // (e.g., if timeout occurred before reply_callback ran)
@@ -29,7 +27,8 @@ void ChunkReplyState_Destroy(ChunkReplyState *state) {
 
   // Timeout edge case: cursor wasn't handled by reply_callback.
   // See ChunkReplyState ownership model in aggregate.h for full explanation.
-  // We must clear query before Cursor_Free to prevent the AREQ_DecrRef loop.
+  // The RSC free path owns the query, so clear cursor->query before freeing
+  // the cursor to avoid re-entering RequestSyncCtx_Free from Cursor_Free.
   if (state->cursor) {
     state->cursor->query = NULL;
     Cursor_Free(state->cursor);
@@ -58,25 +57,12 @@ void RequestSyncCtx_Free(RequestSyncCtx *ctx) {
   }
   ChunkReplyState_Destroy(&ctx->storedReplyState);
   if (ctx->kind == REQUEST_KIND_AREQ) {
-    AREQ_Free(ctx->query.areq);
+    AREQ_FreeFromRequestSyncCtx(ctx->query.areq);
   } else {
     HybridRequest_Free(ctx->query.hreq);
   }
   RequestSyncCtx_Destroy(ctx);
   rm_free(ctx);
-}
-
-RequestSyncCtx *RequestSyncCtx_IncrRef(RequestSyncCtx *ctx) {
-  if (ctx) {
-    __atomic_fetch_add(&ctx->refcount, 1, __ATOMIC_RELAXED);
-  }
-  return ctx;
-}
-
-void RequestSyncCtx_DecrRef(RequestSyncCtx *ctx) {
-  if (ctx && !__atomic_sub_fetch(&ctx->refcount, 1, __ATOMIC_ACQ_REL)) {
-    RequestSyncCtx_Free(ctx);
-  }
 }
 
 AREQ *RequestSyncCtx_GetAREQ(RequestSyncCtx *ctx) {
@@ -105,14 +91,6 @@ AREQ *RequestSyncCtx_GetCursorAREQ(RequestSyncCtx *ctx, uint64_t cursorId) {
     }
   }
   return NULL;
-}
-
-void RequestSyncCtx_ReleaseQueryRef(RequestSyncCtx *ctx) {
-  RequestSyncCtx_DecrRef(ctx);
-}
-
-void RequestSyncCtx_ReleaseQueryRefCB(void *ctx) {
-  RequestSyncCtx_ReleaseQueryRef((RequestSyncCtx *)ctx);
 }
 
 bool RequestSyncCtx_UseReplyCallback(RequestSyncCtx *ctx) {

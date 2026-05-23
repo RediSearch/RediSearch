@@ -446,7 +446,6 @@ static int executePlan(AREQ *r, struct ConcurrentCmdCtx *cmdCtx, RedisModule_Rep
     }
   } else {
     sendChunk(r, reply, UINT64_MAX);
-    AREQ_DecrRef(r);
   }
   return REDISMODULE_OK;
 }
@@ -479,7 +478,9 @@ cleanup:
     IndexSpecRef_Release(*strong_ref);
   }
   SpecialCaseCtx_Free(knnCtx);
-  if (r) AREQ_DecrRef(r);
+  if (r && !CoordRequestCtx_HasRequest(reqCtx)) {
+    RequestSyncCtx_Free(r->syncCtx);
+  }
   RedisModule_EndReply(reply);
   return;
 }
@@ -697,7 +698,7 @@ int DistAggregateReplyCallback(RedisModuleCtx *ctx, RedisModuleString **argv, in
   // and the early-error branch above replies with it.
   AREQ_ReplyWithStoredResults(ctx, req);
 
-  // Note: No AREQ_DecrRef here - CoordRequestCtx_Free releases the context's reference.
+  // Note: no RequestSyncCtx_Free here - CoordRequestCtx_Free owns the request context.
   return REDISMODULE_OK;
 }
 

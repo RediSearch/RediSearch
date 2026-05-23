@@ -117,7 +117,7 @@ IndexSpec* CreateStandardTestIndexSpec(RedisModuleCtx *ctx, const char* indexNam
  * 3. Build pipeline
  * 4. Return the built HybridRequest
  *
- * Note: The caller is responsible for calling HybridRequest_DecrRef() and IndexSpec cleanup.
+ * Note: The caller is responsible for freeing the request sync context and IndexSpec cleanup.
  */
 HybridRequest* ParseAndBuildHybridRequest(RedisModuleCtx *ctx, const char* indexName,
                                           RMCK::ArgvList& args, QueryError *status, IndexSpec **outSpec = nullptr) {
@@ -163,14 +163,14 @@ HybridRequest* ParseAndBuildHybridRequest(RedisModuleCtx *ctx, const char* index
   // Parse the hybrid command - this fills out hybridParams
   int rc = parseHybridCommand(ctx, &ac, test_sctx, &cmd, status, false, EXEC_NO_FLAGS);
   if (rc != REDISMODULE_OK) {
-    HybridRequest_DecrRef(hybridReq);
+    RequestSyncCtx_Free(hybridReq->syncCtx);
     return nullptr;
   }
 
   // Build the pipeline using the parsed hybrid parameters
   rc = HybridRequest_BuildPipeline(hybridReq, cmd.hybridParams, true, status);
   if (rc != REDISMODULE_OK) {
-    HybridRequest_DecrRef(hybridReq);
+    RequestSyncCtx_Free(hybridReq->syncCtx);
     return nullptr;
   }
   return hybridReq;
@@ -194,7 +194,7 @@ HybridRequest* ParseAndBuildHybridRequest(RedisModuleCtx *ctx, const char* index
     HybridRequest* req; \
     IndexSpec* sp; \
     ~HybridTestCleanup() { \
-      if (req) HybridRequest_DecrRef(req); \
+      if (req) RequestSyncCtx_Free(req->syncCtx); \
       if (sp) IndexSpec_RemoveFromGlobals(sp->own_ref, false); \
     } \
   } cleanup{hybridReq, spec};

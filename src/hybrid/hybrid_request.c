@@ -308,7 +308,7 @@ void HybridRequest_Free(HybridRequest *req) {
         areq->sctx = NULL;
       }
 
-      AREQ_DecrRef(req->requests[i]);
+      RequestSyncCtx_Free(req->requests[i]->syncCtx);
     }
     array_free(req->requests);
 
@@ -345,17 +345,6 @@ void HybridRequest_Free(HybridRequest *req) {
     }
 
     rm_free(req);
-}
-
-HybridRequest *HybridRequest_IncrRef(HybridRequest *req) {
-  RequestSyncCtx_IncrRef(req->syncCtx);
-  return req;
-}
-
-void HybridRequest_DecrRef(HybridRequest *req) {
-  if (req) {
-    RequestSyncCtx_DecrRef(req->syncCtx);
-  }
 }
 
 /**

@@ -39,6 +39,20 @@
 
 #include <time.h>
 
+static void HybridBlockClient_FreeRSC(void *privdata) {
+  RequestSyncCtx *rsc = (RequestSyncCtx *)privdata;
+  HybridRequest *hreq = RequestSyncCtx_GetHybridRequest(rsc);
+  if (hreq) {
+    for (size_t i = 0; i < hreq->nrequests; i++) {
+      if (hreq->requests[i]->cursor_id != 0) {
+        rsc->blockedNodeOwns = false;
+        return;
+      }
+    }
+  }
+  RequestSyncCtx_Free(rsc);
+}
+
 // Send a warning message to the client, optionally appending a suffix to identify the source
 static inline void ReplyWarning(RedisModule_Reply *reply, const char *message, const char *suffix) {
   if (suffix) {
@@ -614,7 +628,6 @@ int HybridRequest_StartSingleCursor(HybridRequest *hreq, RedisModule_Reply *repl
     if (!cursor) {
       return REDISMODULE_ERR;
     }
-    HybridRequest_IncrRef(hreq);
     cursor->query = hreq->syncCtx;
     RedisModule_Reply_LongLong(reply, cursor->id);;
     return REDISMODULE_OK;
@@ -706,7 +719,6 @@ int HybridRequest_StartCursors(HybridRequest *hreq, RedisModuleCtx *replyCtx, Qu
       }
       // The cursor lifetime will determine the hybrid request lifetime
       cursor->query = hreq->syncCtx;
-      HybridRequest_IncrRef(hreq);
       areq->cursor_id = cursor->id;
       array_ensure_append_1(req->cursors, cursor);
     }
@@ -965,8 +977,8 @@ static int HybridRequest_BuildPipelineAndExecute(HybridRequest *hreq, HybridPipe
 
     blockClientCtx.ast = &hreq->requests[0]->ast;
     blockClientCtx.privdata = hreq->syncCtx;
-    HybridRequest_IncrRef(hreq);
-    blockClientCtx.freePrivData = RequestSyncCtx_ReleaseQueryRefCB;
+    hreq->syncCtx->blockedNodeOwns = true;
+    blockClientCtx.freePrivData = HybridBlockClient_FreeRSC;
 
     if (hreq->reqConfig.timeoutPolicy == TimeoutPolicy_Fail) {
       blockClientCtx.timeoutCallback = HybridQueryTimeoutFailCallback;
@@ -977,7 +989,7 @@ static int HybridRequest_BuildPipelineAndExecute(HybridRequest *hreq, HybridPipe
 
     RedisModuleBlockedClient* blockedClient = BlockQueryClientWithTimeout(ctx, spec_ref, &blockClientCtx);
 
-    blockedClientHybridCtx *BCHCtx = blockedClientHybridCtx_New(HybridRequest_IncrRef(hreq), hybridParams, blockedClient, spec_ref, internal);
+    blockedClientHybridCtx *BCHCtx = blockedClientHybridCtx_New(hreq, hybridParams, blockedClient, spec_ref, internal);
 
     // Mark the hreq as running in the background
     hreq->reqflags |= QEXEC_F_RUN_IN_BACKGROUND;
@@ -1001,7 +1013,9 @@ static int HybridRequest_BuildPipelineAndExecute(HybridRequest *hreq, HybridPipe
 }
 
 static inline void DefaultCleanup(HybridRequest *hreq) {
-  HybridRequest_DecrRef(hreq);
+  if (!hreq->syncCtx->blockedNodeOwns) {
+    RequestSyncCtx_Free(hreq->syncCtx);
+  }
   CurrentThread_ClearIndexSpec();
 }
 
@@ -1178,7 +1192,6 @@ int hybridCommandHandler(RedisModuleCtx *ctx, RedisModuleString **argv, int argc
  * @param BCHCtx The blocked client context to destroy
  */
 static void blockedClientHybridCtx_destroy(blockedClientHybridCtx *BCHCtx) {
-  RequestSyncCtx_ReleaseQueryRef(BCHCtx->rsc);
   freeHybridParams(BCHCtx->hybridParams);
   RedisModule_BlockedClientMeasureTimeEnd(BCHCtx->blockedClient);
   void *privdata = RedisModule_BlockClientGetPrivateData(BCHCtx->blockedClient);
