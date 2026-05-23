@@ -162,6 +162,75 @@ TEST_F(TrieTest, testBasicRangeWithScore) {
   TrieType_Free(t);
 }
 
+// Regression test for `rangeIterate` double-emission when the boundary value
+// is a proper prefix of a child's collapsed label. The fixture uses textual
+// terms (rather than testBasicRange's numeric ones) so that root children
+// like "ban" have multi-character labels — only those expose the bug, because
+// `rsb_gt`/`rsb_lt` treat e.g. "b" < "ban" and thus include the boundary
+// child in the for-loop alongside the dedicated boundary recursion above it.
+struct DupTrackingCtx {
+  ElemSet seen;
+  int duplicates = 0;
+};
+
+static int dupTrackingFunc(const rune *u16, size_t nrune, void *ctx, void *payload, size_t numDocsInTerm) {
+  size_t n;
+  char *s = runesToStr(u16, nrune, &n);
+  std::string xs(s, n);
+  free(s);
+  DupTrackingCtx *dc = (DupTrackingCtx *)ctx;
+  if (!dc->seen.insert(xs).second) {
+    dc->duplicates++;
+  }
+  return REDISEARCH_OK;
+}
+
+static DupTrackingCtx trieIterRangeTracked(Trie *t, const char *begin, const char *end) {
+  rune r1[256] = {0}, r2[256] = {0};
+  size_t nr1 = 0, nr2 = 0;
+  rune *r1Ptr = nullptr, *r2Ptr = nullptr;
+  int n1 = -1, n2 = -1;
+  if (begin) {
+    nr1 = strToRunesN(begin, strlen(begin), r1);
+    r1Ptr = r1;
+    n1 = nr1;
+  }
+  if (end) {
+    nr2 = strToRunesN(end, strlen(end), r2);
+    r2Ptr = r2;
+    n2 = nr2;
+  }
+  DupTrackingCtx ctx;
+  Trie_IterateRange(t, r1Ptr, n1, true, r2Ptr, n2, true, dupTrackingFunc, &ctx);
+  return ctx;
+}
+
+TEST_F(TrieTest, testRangeBoundaryPrefix) {
+  Trie *t = NewTrie(NULL, Trie_Sort_Lex);
+  for (const char *term : {"apple", "banana", "band", "bandana", "cherry", "date"}) {
+    ASSERT_TRUE(trieInsert(t, term));
+  }
+
+  // Min-only: [b, +inf). "b" is a proper prefix of the collapsed "ban" label.
+  // Pre-fix: ban-subtree fires once via the boundary recursion and again
+  // via the for-loop (`rsb_gt("b")` returns the same index as `beginEqIdx`).
+  auto retMin = trieIterRangeTracked(t, "b", NULL);
+  EXPECT_EQ(0, retMin.duplicates);
+  ElemSet expectedMin{"banana", "band", "bandana", "cherry", "date"};
+  EXPECT_EQ(expectedMin, retMin.seen);
+
+  // Max-only: (-inf, banb]. "ban" is a proper prefix of "banb", so
+  // `rsb_lt("banb")` includes the "ban" subtree alongside the boundary
+  // recursion. After the fix only entries strictly less than "banb" surface
+  // ("band"/"bandana" are lex-greater than "banb").
+  auto retMax = trieIterRangeTracked(t, NULL, "banb");
+  EXPECT_EQ(0, retMax.duplicates);
+  ElemSet expectedMax{"apple", "banana"};
+  EXPECT_EQ(expectedMax, retMax.seen);
+
+  TrieType_Free(t);
+}
+
 /**
  * This test ensures that the stack isn't overflown from all the frames.
  * The maximum trie depth cannot be greater than the maximum length of the
