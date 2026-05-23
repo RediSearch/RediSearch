@@ -474,6 +474,82 @@ impl<'index> RQEIterator<'index> for NewWildcardIterator<'index> {
 
 impl<'index> WildcardIterator<'index> for NewWildcardIterator<'index> {}
 
+/// Parallel `'static`-typed counterpart of [`NewWildcardIterator`] used as
+/// its `RQEIteratorBoxed::Suspended` type. Each variant holds the
+/// `Suspended` form of the corresponding active variant.
+pub enum NewWildcardSuspended {
+    /// Suspended counterpart of [`NewWildcardIterator::NotOptimized`].
+    NotOptimized(RawWildcard<Suspended>),
+    /// Suspended counterpart of [`NewWildcardIterator::Optimized`].
+    Optimized(OptimizedWildcardSuspended),
+    /// Suspended counterpart of [`NewWildcardIterator::Empty`].
+    Empty(Empty),
+    /// Suspended counterpart of [`NewWildcardIterator::Disk`].
+    Disk(DiskWildcardSuspended),
+}
+
+impl<'index> RQEIteratorBoxed<'index> for NewWildcardIterator<'index> {
+    type Suspended = NewWildcardSuspended;
+
+    fn suspend(self: Box<Self>) -> Box<Self::Suspended> {
+        match *self {
+            NewWildcardIterator::NotOptimized(it) => {
+                let suspended = RQEIteratorBoxed::suspend(Box::new(it));
+                Box::new(NewWildcardSuspended::NotOptimized(*suspended))
+            }
+            NewWildcardIterator::Optimized(it) => {
+                let suspended = RQEIteratorBoxed::suspend(Box::new(it));
+                Box::new(NewWildcardSuspended::Optimized(*suspended))
+            }
+            NewWildcardIterator::Empty(it) => {
+                let suspended = RQEIteratorBoxed::suspend(Box::new(it));
+                Box::new(NewWildcardSuspended::Empty(*suspended))
+            }
+            NewWildcardIterator::Disk(it) => {
+                let suspended = RQEIteratorBoxed::suspend(Box::new(it));
+                Box::new(NewWildcardSuspended::Disk(*suspended))
+            }
+        }
+    }
+}
+
+impl RQESuspendedIterator for NewWildcardSuspended {
+    type Resumed<'a> = NewWildcardIterator<'a>;
+
+    fn resume<'a>(
+        self: Box<Self>,
+        guard: &'a IndexSpecReadGuard<'a>,
+    ) -> (Box<Self::Resumed<'a>>, ValidateStatus) {
+        match *self {
+            NewWildcardSuspended::NotOptimized(it) => {
+                let (active, status) = Box::new(it).resume(guard);
+                (Box::new(NewWildcardIterator::NotOptimized(*active)), status)
+            }
+            NewWildcardSuspended::Optimized(it) => {
+                let (active, status) = Box::new(it).resume(guard);
+                (Box::new(NewWildcardIterator::Optimized(*active)), status)
+            }
+            NewWildcardSuspended::Empty(it) => {
+                let (active, status) = Box::new(it).resume(guard);
+                (Box::new(NewWildcardIterator::Empty(*active)), status)
+            }
+            NewWildcardSuspended::Disk(it) => {
+                let (active, status) = Box::new(it).resume(guard);
+                (Box::new(NewWildcardIterator::Disk(*active)), status)
+            }
+        }
+    }
+
+    fn last_doc_id(&self) -> t_docId {
+        match self {
+            NewWildcardSuspended::NotOptimized(it) => RQESuspendedIterator::last_doc_id(it),
+            NewWildcardSuspended::Optimized(it) => RQESuspendedIterator::last_doc_id(it),
+            NewWildcardSuspended::Empty(it) => RQESuspendedIterator::last_doc_id(it),
+            NewWildcardSuspended::Disk(it) => RQESuspendedIterator::last_doc_id(it),
+        }
+    }
+}
+
 /// Create a [`WildcardIterator`] for an index whose spec has
 /// [`SchemaRule`](ffi::SchemaRule)`.index_all` set.
 ///
