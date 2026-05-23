@@ -11,13 +11,11 @@
 
 /// Outcome of resuming a suspended iterator.
 ///
-/// Mirrors the status returned by the legacy `RQEIterator::revalidate`, but
-/// *owns* the resumed iterator in its recoverable variants: resuming produces a
-/// brand-new active value (suspended and active are distinct types), so — unlike
-/// `revalidate`, which keeps the iterator in place — the outcome carries the
-/// resumed iterator rather than borrowing `current` from `self`. Callers query
-/// `current` on the returned iterator for the [`Moved`](ResumeOutcome::Moved)
-/// case.
+/// *Owns* the resumed iterator in its recoverable variants: resuming produces a
+/// brand-new active value (suspended and active are distinct types), so the
+/// outcome carries the resumed iterator rather than borrowing its `current`.
+/// Callers query `current` on the returned iterator for the
+/// [`Moved`](ResumeOutcome::Moved) case.
 ///
 /// Generic over the carried iterator `I` so the same shape serves both the
 /// concrete resume path (which carries `Box<Resumed>`) and the dyn-safe resume

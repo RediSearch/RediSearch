@@ -818,7 +818,7 @@ fn ii_apply_gc_entries_tracking_index() {
 /// A write that moves a block's buffer must be reported by
 /// [`needs_revalidation`](crate::IndexReader::needs_revalidation), even though no GC ran.
 ///
-/// The repair itself is the reader's re-seek on `revalidate`; this test only checks that a
+/// The repair itself is the iterator's re-seek on resume; this test only checks that a
 /// caller is told to revalidate in the first place. A reader that is not told holds a pointer
 /// into freed memory.
 #[test]

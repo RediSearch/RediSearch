@@ -18,7 +18,7 @@ use std::ptr::NonNull;
 
 use crate::{
     IteratorType, RQEIterator, RQEIteratorBoxed, RQEIteratorError, RQESuspendedIterator,
-    RQEValidateStatus, ResumeOutcome, SkipToOutcome,
+    ResumeOutcome, SkipToOutcome,
     expiration_checker::NoOpChecker,
     profile_print::{ProfilePrint, ProfilePrintCtx},
 };
@@ -64,7 +64,7 @@ where
     <E as DecodedBy>::Decoder: DocIdsDecoder,
 {
     /// The `existingDocs` inverted index, freshly resolved from `spec`, or `None`
-    /// when the iterator must [abort](RQEValidateStatus::Aborted) — the garbage
+    /// when the iterator must [abort](ResumeOutcome::Aborted) — the garbage
     /// collector nulled it out after collecting all documents, or replaced it with
     /// a new allocation.
     ///
@@ -160,27 +160,6 @@ where
     #[inline(always)]
     fn at_eof(&self) -> bool {
         self.it.at_eof()
-    }
-
-    #[inline(always)]
-    fn revalidate(
-        &mut self,
-        spec: &IndexSpecReadGuard,
-    ) -> Result<RQEValidateStatus<'_, 'index>, RQEIteratorError> {
-        // The existingDocs encoding match is a structural invariant: the
-        // encoding is determined at index creation and cannot change.
-        let Some(ii) = self.resolve_live_index(spec) else {
-            return Ok(RQEValidateStatus::Aborted);
-        };
-
-        // `revalidate` reads the index's GC marker through the reader's pointer,
-        // which may not have survived a write to the index.
-        // SAFETY: 1. `points_to_ii` held. 2. `ii` was resolved just now, under the
-        // read lock `spec` witnesses. 3. The revalidation protocol only lets the
-        // index be written while the reader is parked across a lock release.
-        unsafe { self.it.reader.reseat_index(ii) };
-
-        self.it.revalidate(spec)
     }
 
     #[inline(always)]

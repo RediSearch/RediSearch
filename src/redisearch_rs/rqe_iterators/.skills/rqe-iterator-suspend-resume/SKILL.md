@@ -1,24 +1,21 @@
 ---
 name: rqe-iterator-suspend-resume
-description: Implementation & review guide for suspend/resume (revalidation) on query-engine iterators in src/redisearch_rs/rqe_iterators/. Use this when adding the Box<Self> suspend/resume mechanism to an RQE iterator that currently only implements the legacy revalidate, when modifying an existing suspend/resume implementation, or when reviewing a PR that touches this machinery (boxed.rs, ref_mode markers, child-slot helpers, layout-invariant proofs).
+description: Implementation & review guide for suspend/resume (revalidation) on query-engine iterators in src/redisearch_rs/rqe_iterators/. Use this when implementing suspend/resume for a new RQE iterator, when modifying an existing suspend/resume implementation, or when reviewing a PR that touches this machinery (boxed.rs, ref_mode markers, child-slot helpers, layout-invariant proofs).
 ---
 
 # RQE iterator suspend/resume — implementation & review guide
 
 A reference for **adding or reviewing** `suspend`/`resume` (a.k.a. revalidation)
 implementations for query-engine iterators in `src/redisearch_rs/rqe_iterators/`.
-This is **not** about porting an iterator from C to Rust. It is about **adding the
-`Box<Self>` suspend/resume mechanism to an iterator that today only implements the
-legacy `revalidate`**, or working safely on an **existing** `suspend`/`resume`
-implementation. Use it as a checklist when doing either, or when reviewing a PR
-that touches this machinery.
+This is **not** about porting an iterator from C to Rust. It is about
+**implementing the `Box<Self>` suspend/resume mechanism for a new iterator**, or
+working safely on an **existing** `suspend`/`resume` implementation. Use it as a
+checklist when doing either, or when reviewing a PR that touches this machinery.
 
-> Scope: the `Box<Self>`-based suspend/resume design in `boxed.rs`, which
-> supersedes the legacy `RQEIterator::revalidate`. During the transition
-> `RQEIteratorBoxed` is a **subtrait** of `RQEIterator` (adds `type Suspended` +
-> `fn suspend`); a later phase folds the read/skip surface in and renames it
-> back to `RQEIterator`. Legacy `revalidate` returns `RQEValidateStatus`; the new
-> `resume` mirrors it with `ResumeOutcome`.
+> Scope: the `Box<Self>`-based suspend/resume design in `boxed.rs`, the only
+> revalidation path. During the transition `RQEIteratorBoxed` is a **subtrait**
+> of `RQEIterator` (adds `type Suspended` + `fn suspend`); a later phase folds
+> the read/skip surface in and renames it back to `RQEIterator`.
 
 ## Mental model
 
@@ -144,7 +141,7 @@ opportunity; skipping the inactive ones is wrong twice over:
 
 The only child that leaves the collection is one whose `resume` reported
 `Aborted` or `Err`: the helper consumed it, so the composite removes or compacts
-over its slot, exactly as `revalidate` drops an aborted child. Whatever it does
+over its slot: an aborted child's state is unrecoverable. Whatever it does
 there, the buffer must stay in a shape the teardown path can describe — for a
 `Vec` of children, compacting survivors down keeps it a resumed prefix followed
 by a suspended suffix, which is the split a teardown after a mid-walk `Err` needs.
@@ -159,7 +156,7 @@ rebuild that touches children mutably undoes the entries' provenance. See
 ### Exhaustion is terminal: assume it, don't compensate for it
 
 `RQEIterator::at_eof` owns the rule: once it is `true` it stays `true` until
-`rewind`, across `revalidate` and `resume` alike. A composite relies on it:
+`rewind`, across a suspend/resume cycle too. A composite relies on it:
 
 - a child suspended at `at_eof` resumes at `at_eof`;
 - a child dropped from the active set *because* it hit EOF cannot re-enter it
@@ -220,27 +217,23 @@ allocation **without dropping the moved-from child**. Two approved shapes:
   drop the moved-from payload — then `drop(Box::from_raw(raw))` to reclaim the
   reused box normally. This is what `Optional` and `MaybeEmpty` do.
 
-### Align `resume` with the existing `revalidate`
+### What each outcome means
 
-An iterator you are adding `suspend`/`resume` to almost always **already
-implements the legacy `RQEIterator::revalidate`** (returning `RQEValidateStatus`)
-that `resume` supersedes. Keep the two **behaviourally identical**: the same
-re-seek/re-read decisions, the same conditions for reporting moved vs. unchanged
-vs. aborted, and the same handling of any owned result. The outcomes correspond
-one-to-one:
+`resume` reports one of these outcomes, and the C ABI maps each to a
+`ValidateStatus` the owner acts on:
 
-| `revalidate` (`RQEValidateStatus`) | `resume` (`ResumeOutcome`)       |
-|------------------------------------|----------------------------------|
-| `Ok`                               | `ResumeOutcome::Ok`              |
-| `Moved { .. }`                     | `ResumeOutcome::Moved`           |
-| `Aborted`                          | `ResumeOutcome::Aborted`         |
-| *(real failure)*                   | `Err(RQEIteratorError)`          |
+| `resume`                 | C status           | Meaning                                                                 |
+|--------------------------|--------------------|-------------------------------------------------------------------------|
+| `ResumeOutcome::Ok`      | `VALIDATE_OK`      | Same position, same published result; the next `read` carries on.       |
+| `ResumeOutcome::Moved`   | `VALIDATE_MOVED`   | Position moved *forward*; `current()` is the new result, or `None` at EOF. |
+| `ResumeOutcome::Aborted` | `VALIDATE_ABORTED` | Unrecoverable; the owner replaces the iterator with an empty one.       |
+| `Err(TimedOut)`          | `VALIDATE_TIMEOUT` | Partial results; the error must reach the client.                       |
+| `Err(IoError(_))`        | `VALIDATE_ABORTED` | This subtree is dead, the query may continue.                           |
 
-Derive `resume`'s decisions from the existing `revalidate` rather than inventing
-new ones; during the transition both paths can run, so any divergence is a bug.
-If you change one, change the other (or delete `revalidate` once the iterator is
-fully cut over). Reviewers: diff the two side by side and flag any behavioural
-difference.
+`Aborted` is never a failure: use `Err` only for `TimedOut`/`IoError`. A composite
+derives its own outcome from its children's — decide each combination
+deliberately and pin it with a test (every child outcome at every position is
+the usual sweep).
 
 ### Wrapper invariant proof
 
@@ -410,11 +403,10 @@ teardown. Any bespoke in-place transition code must reproduce this.
 - [ ] Teardown on `Aborted`/`Err` frees the allocation **without** dropping the
       moved-from child slot.
 - [ ] `last_doc_id()` and `num_estimated()` are implemented on the suspended form.
-- [ ] `resume`'s behaviour is **compared against the existing `revalidate`** (if
-      the iterator has one) and matches it — same re-seek/re-read/abort decisions,
-      with `RQEValidateStatus::{Ok, Moved, Aborted}` ↔ `ResumeOutcome::{Ok, Moved,
-      Aborted}` and real failures (`IoError`/`TimedOut`) → `Err`. No divergence
-      between the two paths.
+- [ ] Each outcome means what the table under "What each outcome means" says:
+      `Moved` only ever moves forward, `Aborted` is never reported as `Err`, and
+      real failures (`IoError`/`TimedOut`) → `Err`. Every child-outcome
+      combination of a composite is pinned by a test.
 - [ ] If the iterator owns an `RSIndexResult`, resume re-validates its
       `Rf`-parametrized `data` payload before re-narrowing (`dmd`/`metrics` are
       not `Rf`-parametrized and need no handling); a virtual sentinel is
@@ -456,8 +448,8 @@ teardown. Any bespoke in-place transition code must reproduce this.
   accessors.
 - `union_flat.rs` and `union_heap.rs` — worked examples of a **many-child**
   composite: the walk over every child slot, compaction over aborted ones, and
-  a settle step shared with the legacy `revalidate` so the two paths cannot
-  drift. Both use the composite helpers in `composite.rs`: a
+  a settle step that re-derives the union's position after children moved or
+  dropped out. Both use the composite helpers in `composite.rs`: a
   `FreeSuspendedShell` RAII guard owning the half-transitioned buffer (the
   region boundaries live in the guard, so the teardown reads them rather than
   being handed indices), and a `repush_borrowed_entries` that recomputes the
@@ -473,8 +465,7 @@ teardown. Any bespoke in-place transition code must reproduce this.
   child to agree: it walks every slot through the same `composite.rs` helpers
   but never compacts (any child abort aborts the intersection), offers its
   children in slot order because its entries are positional, and settles the
-  walk into a `#[must_use]` `SettleVerdict` through `settle_after_walk`, which
-  `revalidate` calls too, so the two paths share one decision. Its substitute
+  walk into a `#[must_use]` `SettleVerdict` through `settle_after_walk`. Its substitute
   check therefore runs *after* the walk rather than on `&self`, so a child's
   error wins over it, and a spent, unread or ending intersection swaps a
   substitute for an empty intersection instead of aborting.

@@ -307,7 +307,7 @@ fn wildcard_upholds_current_contract() {
 /// arm's own. What it adds is the per-arm in-place transition plus a whole-box
 /// reinterpretation between itself and [`OptimizedWildcardSuspended`], so these
 /// tests are about the enum's *layout* surviving the round trip, per variant.
-mod via_resume {
+mod optimized_wildcard_via_resume {
     use ffi::IndexFlags_Index_DocIdsOnly;
     use index_result::RSIndexResult;
     use inverted_index::{
@@ -814,7 +814,7 @@ mod new_wildcard_via_resume {
     use rqe_iterators_test_utils::MockContext;
 
     use super::disk_via_resume::{MOCK_DOC_IDS, disk_wildcard, mock_disk_wildcard};
-    use super::via_resume::{DOC_IDS, ExistingDocs};
+    use super::optimized_wildcard_via_resume::{DOC_IDS, ExistingDocs};
     use crate::utils::{MOCK_DISK_WILDCARD_TOP_ID, MockRevalidateResult};
 
     /// Round trip through the `NotOptimized` arm: a plain counter wildcard,

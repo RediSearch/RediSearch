@@ -20,8 +20,8 @@ use ffi::{
 };
 use rqe_core::DocId;
 use rqe_iterators::{
-    RQEIterator, RQEIteratorBoxed, RQEIteratorError, RQESuspendedIterator, RQEValidateStatus,
-    ResumeOutcome, TypeErasedRQEIterator, c2rust::CRQEIterator, interop::RQEIteratorWrapper,
+    RQEIterator, RQEIteratorBoxed, RQEIteratorError, RQESuspendedIterator, ResumeOutcome,
+    TypeErasedRQEIterator, c2rust::CRQEIterator, interop::RQEIteratorWrapper,
     intersection::Intersection,
 };
 use rqe_iterators_test_utils::{MockContext, ResumeOutcomeExt, revalidate_via_resume};
@@ -97,47 +97,6 @@ fn resume_through_c_abi(
     (report, data)
 }
 
-/// [`resume_through_c_abi`], through the legacy [`RQEIterator::revalidate`] instead.
-fn revalidate_c_iterator(
-    outcome: MockRevalidateResult,
-) -> (Result<ResumeReport, RQEIteratorError>, MockData) {
-    let ctx = MockContext::new(100, 10);
-    let guard = ctx.spec_read();
-
-    let mock = Mock::new([1, 2, 3]);
-    let data = mock.data();
-    mock.data().set_revalidate_result(outcome);
-
-    let mut it = CRQEIterator::from_rust_leaf(mock);
-    let report = it.revalidate(&guard).map(|status| match status {
-        RQEValidateStatus::Ok => ResumeReport::Ok,
-        RQEValidateStatus::Moved { current } => ResumeReport::Moved(current.map(|r| r.doc_id)),
-        RQEValidateStatus::Aborted => ResumeReport::Aborted,
-    });
-
-    (report, data)
-}
-
-/// A comparable [`ResumeReport`]: [`RQEIteratorError`] is not [`PartialEq`].
-#[derive(Debug, PartialEq, Eq)]
-enum FlatReport {
-    Ok,
-    Moved(Option<DocId>),
-    Aborted,
-    TimedOut,
-    IoError,
-}
-
-fn flatten(report: Result<ResumeReport, RQEIteratorError>) -> FlatReport {
-    match report {
-        Ok(ResumeReport::Ok) => FlatReport::Ok,
-        Ok(ResumeReport::Moved(position)) => FlatReport::Moved(position),
-        Ok(ResumeReport::Aborted) => FlatReport::Aborted,
-        Err(RQEIteratorError::TimedOut) => FlatReport::TimedOut,
-        Err(RQEIteratorError::IoError(_)) => FlatReport::IoError,
-    }
-}
-
 #[test]
 fn a_resume_that_times_out_is_reported_as_an_error() {
     let (report, data) = resume_through_c_abi(MockRevalidateResult::TimedOut);
@@ -145,8 +104,7 @@ fn a_resume_that_times_out_is_reported_as_an_error() {
     let err = report.expect_err(
         "`VALIDATE_TIMEOUT` is a first-class status of the C `Revalidate` contract, which every \
          Rust iterator lowered to the C ABI reports and `FT.DEBUG MOCK_REVALIDATE_TIMEOUT` can \
-         force: `resume` must map it to an error like `revalidate` does, not treat it as \
-         unreachable",
+         force: `resume` must map it to an error, not treat it as unreachable",
     );
     assert!(
         matches!(err, RQEIteratorError::TimedOut),
@@ -409,27 +367,24 @@ fn a_timed_out_resume_through_the_type_erased_bridge_stays_a_timeout() {
     );
 }
 
-#[rstest]
-fn revalidate_and_resume_report_the_same_outcome(
-    #[values(
-        MockRevalidateResult::Ok,
-        MockRevalidateResult::Move,
-        MockRevalidateResult::Abort,
-        MockRevalidateResult::TimedOut,
-        MockRevalidateResult::IoError
-    )]
-    outcome: MockRevalidateResult,
-) {
-    let (legacy, _) = revalidate_c_iterator(outcome);
-    let (resumed, _) = resume_through_c_abi(outcome);
+/// A comparable [`ResumeReport`]: [`RQEIteratorError`] is not [`PartialEq`].
+#[derive(Debug, PartialEq, Eq)]
+enum FlatReport {
+    Ok,
+    Moved(Option<DocId>),
+    Aborted,
+    TimedOut,
+    IoError,
+}
 
-    assert_eq!(
-        flatten(resumed),
-        flatten(legacy),
-        "`resume` supersedes `revalidate` on the same C `Revalidate` callback, so the two have to \
-         agree: while both paths are live, any divergence is a bug in whichever one the caller \
-         happens to take",
-    );
+fn flatten(report: Result<ResumeReport, RQEIteratorError>) -> FlatReport {
+    match report {
+        Ok(ResumeReport::Ok) => FlatReport::Ok,
+        Ok(ResumeReport::Moved(position)) => FlatReport::Moved(position),
+        Ok(ResumeReport::Aborted) => FlatReport::Aborted,
+        Err(RQEIteratorError::TimedOut) => FlatReport::TimedOut,
+        Err(RQEIteratorError::IoError(_)) => FlatReport::IoError,
+    }
 }
 
 /// Drive a `suspend` → `resume` cycle over an [`Intersection`] of two lowered mocks, with the
@@ -570,28 +525,6 @@ fn successful_revalidation_is_reported_as_ok() {
     assert_eq!(
         revalidate_through_c_abi(MockRevalidateResult::Ok),
         ValidateStatus_VALIDATE_OK,
-    );
-}
-
-#[test]
-fn a_c_child_that_times_out_hands_its_rust_parent_an_error() {
-    let ctx = MockContext::new(100, 10);
-    let guard = ctx.spec_read();
-
-    let mock = Mock::new([1, 2, 3]);
-    mock.data()
-        .set_revalidate_result(MockRevalidateResult::TimedOut);
-    // Lowering the mock to the C ABI and adopting it back puts both mappings in the path, so this
-    // covers the round trip: `Err(TimedOut)` -> `VALIDATE_TIMEOUT` -> `Err(TimedOut)`.
-    let mut child = CRQEIterator::from_rust_leaf(mock);
-
-    let err = child
-        .revalidate(&guard)
-        .expect_err("a timed-out child must surface as an error, not as a status");
-    assert!(
-        matches!(err, RQEIteratorError::TimedOut),
-        "expected a timeout, got {err:?}: a Rust composite propagates this to the root of the \
-         tree, exactly as it does for a child that times out during a read or a skip",
     );
 }
 

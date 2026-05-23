@@ -16,8 +16,8 @@ use index_result::{RSIndexResult, RSResultKind};
 use inverted_index::{DecodedBy, Encoder, InvertedIndex, test_utils::TermRecordCompare};
 use numeric_range_tree::NumericIndex;
 use rqe_core::{DocId, FieldMask};
-use rqe_iterators::{RQEIterator, RQEValidateStatus, SkipToOutcome};
-use rqe_iterators_test_utils::MockContext;
+use rqe_iterators::{RQEIterator, RQEIteratorBoxed, SkipToOutcome, TypeErasedRQEIterator};
+use rqe_iterators_test_utils::{MockContext, ResumeOutcomeExt, revalidate_via_resume};
 use std::collections::HashSet;
 
 // Re-export TestContext and GlobalGuard from the main library's test_utils module
@@ -470,210 +470,6 @@ impl RevalidateTest {
         }
     }
 
-    /// test basic revalidation functionality - should return `RQEValidateStatus::Ok`` when index is valid
-    pub fn revalidate_basic<'index, I>(&self, it: &mut I)
-    where
-        I: for<'iterator> RQEIterator<'index>,
-    {
-        let status = it
-            .revalidate(&*self.context.spec_read())
-            .expect("revalidate failed");
-        assert_eq!(status, RQEValidateStatus::Ok);
-        assert!(matches!(it.read(), Ok(Some(_))));
-        let status = it
-            .revalidate(&*self.context.spec_read())
-            .expect("revalidate failed");
-        assert_eq!(status, RQEValidateStatus::Ok);
-    }
-
-    /// test revalidation functionality when iterator is at EOF
-    pub fn revalidate_at_eof<'index, I>(&self, it: &mut I)
-    where
-        I: for<'iterator> RQEIterator<'index>,
-    {
-        // Read all documents to reach EOF
-        while let Some(_record) = it.read().expect("failed to read") {}
-        assert!(it.at_eof());
-        let status = it
-            .revalidate(&*self.context.spec_read())
-            .expect("revalidate failed");
-        assert_eq!(status, RQEValidateStatus::Ok);
-    }
-
-    /// test that exhaustion survives a revalidation which has to re-seek.
-    ///
-    /// [`revalidate_at_eof`](Self::revalidate_at_eof) leaves the index untouched, so
-    /// `needs_revalidation()` is false and `revalidate` returns before it restores the
-    /// position at all. Removing a document first bumps the GC marker and forces the
-    /// rewind-and-re-seek path — the one that has to keep the past-the-end state rather
-    /// than handing a parent back a child it had already written off.
-    pub fn revalidate_at_eof_after_gc<'index, I, E: Encoder + DecodedBy>(
-        &self,
-        it: &mut I,
-        ii: &mut InvertedIndex<E>,
-    ) where
-        I: for<'iterator> RQEIterator<'index>,
-    {
-        // Read all documents to reach EOF
-        while let Some(_record) = it.read().expect("failed to read") {}
-        assert!(it.at_eof());
-        let last_doc_id = it.last_doc_id();
-
-        // Remove a document the iterator has already passed, so the re-seek to
-        // `last_doc_id` still finds its target. That is what makes a resurrection
-        // observable: removing the *last* document instead would leave the re-seek
-        // empty-handed and land on the past-the-end state by accident.
-        self.remove_document(ii, self.doc_ids[0]);
-
-        let status = it
-            .revalidate(&*self.context.spec_read())
-            .expect("revalidate failed");
-        assert_eq!(status, RQEValidateStatus::Ok);
-        assert!(
-            it.at_eof(),
-            "exhaustion must survive a revalidation that re-seeks"
-        );
-        assert_eq!(it.last_doc_id(), last_doc_id);
-        // The flags say exhausted; the reader was rewound to the head of the index. Only
-        // a read proves the two agree.
-        assert!(
-            it.read().expect("failed to read").is_none(),
-            "an exhausted iterator must stay exhausted until it is rewound"
-        );
-    }
-
-    /// [`revalidate_at_eof_after_gc`](Self::revalidate_at_eof_after_gc) for a numeric index.
-    pub fn revalidate_numeric_at_eof_after_gc<'index, I>(&self, it: &mut I, ii: &mut NumericIndex)
-    where
-        I: for<'iterator> RQEIterator<'index>,
-    {
-        match ii {
-            NumericIndex::Uncompressed(ii) => self.revalidate_at_eof_after_gc(it, ii.inner_mut()),
-            NumericIndex::Compressed(ii) => self.revalidate_at_eof_after_gc(it, ii.inner_mut()),
-        }
-    }
-
-    /// A write that moves a block's buffer must cost the iterator nothing.
-    ///
-    /// A suspended iterator whose block buffer moved holds a pointer into freed memory, while the
-    /// GC marker still says the index is untouched. Reading on decodes recycled bytes — a short
-    /// read that silently drops documents, or a decode error — so the complete document set is
-    /// asserted rather than merely the absence of a crash.
-    pub fn revalidate_after_block_buffer_moved<'index, I, E, F>(
-        &self,
-        it: &mut I,
-        ii: &mut InvertedIndex<E>,
-        make_record: F,
-    ) where
-        I: for<'iterator> RQEIterator<'index>,
-        E: Encoder + DecodedBy,
-        F: Fn(DocId) -> RSIndexResult<'static>,
-    {
-        self.block_buffer_moved(it, ii, make_record, false);
-    }
-
-    /// [`revalidate_after_block_buffer_moved`](Self::revalidate_after_block_buffer_moved) with a GC
-    /// cycle interleaved: both invalidate the iterator, and a repair that handles only one of them
-    /// fails here.
-    pub fn revalidate_after_block_buffer_moved_and_gc<'index, I, E, F>(
-        &self,
-        it: &mut I,
-        ii: &mut InvertedIndex<E>,
-        make_record: F,
-    ) where
-        I: for<'iterator> RQEIterator<'index>,
-        E: Encoder + DecodedBy,
-        F: Fn(DocId) -> RSIndexResult<'static>,
-    {
-        self.block_buffer_moved(it, ii, make_record, true);
-    }
-
-    fn block_buffer_moved<'index, I, E, F>(
-        &self,
-        it: &mut I,
-        ii: &mut InvertedIndex<E>,
-        make_record: F,
-        interleave_gc: bool,
-    ) where
-        I: for<'iterator> RQEIterator<'index>,
-        E: Encoder + DecodedBy,
-        F: Fn(DocId) -> RSIndexResult<'static>,
-    {
-        // Appends land in the last block, so the iterator has to be parked in that same block for
-        // this to exercise anything; the assertion catches a codec whose block size changes.
-        assert_eq!(
-            ii.number_of_blocks(),
-            1,
-            "the fixture must fit in a single block"
-        );
-
-        // Park the iterator mid-block.
-        for expected in &self.doc_ids[..2] {
-            let doc = it
-                .read()
-                .expect("failed to read")
-                .expect("should not be at EOF");
-            assert_eq!(doc.doc_id, *expected);
-        }
-
-        // The address the iterator cached. Callers reserve headroom before creating it, so nothing
-        // moves the buffer until the relocation below does.
-        let base_before = ii.block_ref(0).unwrap().data().as_ptr();
-        let appended: Vec<DocId> = (1..=3)
-            .map(|i| self.doc_ids.last().unwrap() + 2 * i)
-            .collect();
-        for doc_id in &appended {
-            ii.add_record(&make_record(*doc_id)).expect("append failed");
-        }
-        assert_eq!(
-            ii.number_of_blocks(),
-            1,
-            "the appends must stay in the block the iterator is parked in"
-        );
-
-        assert_eq!(
-            ii.block_ref(0).unwrap().data().as_ptr(),
-            base_before,
-            "the appends moved the buffer; reserve headroom before creating the iterator"
-        );
-
-        let base_after = inverted_index::test_utils::relocate_block_buffer(ii, 0);
-        assert_ne!(base_before, base_after, "the buffer did not move");
-        let gc_marker_before = ii.gc_marker();
-
-        // Removing a document the iterator already passed leaves the expected set below
-        // untouched, and bumps the GC marker on top of the moved buffer.
-        if interleave_gc {
-            self.remove_document(ii, self.doc_ids[0]);
-            assert_ne!(ii.gc_marker(), gc_marker_before, "GC did not run");
-        } else {
-            assert_eq!(
-                ii.gc_marker(),
-                gc_marker_before,
-                "a plain append must not touch the GC marker — that is what makes it undetected"
-            );
-        }
-
-        let status = it
-            .revalidate(&*self.context.spec_read())
-            .expect("revalidate failed");
-        assert_eq!(
-            status,
-            RQEValidateStatus::Ok,
-            "the iterator's position still exists, so revalidation must preserve it"
-        );
-
-        // Everything the iterator had not yielded yet, still in order and without repeats.
-        let mut expected = self.doc_ids[2..].to_vec();
-        expected.extend_from_slice(&appended);
-
-        let mut read = Vec::new();
-        while let Some(doc) = it.read().expect("failed to read") {
-            read.push(doc.doc_id);
-        }
-        assert_eq!(read, expected);
-    }
-
     /// Remove the document with the given id from the inverted index.
     pub fn remove_document<E: Encoder + DecodedBy>(
         &self,
@@ -690,361 +486,321 @@ impl RevalidateTest {
         let info = ii.apply_gc(scan_delta);
         assert_eq!(info.entries_removed, 1);
     }
+}
 
-    /// Remove the document with the given id from a numeric inverted index.
-    pub fn remove_document_numeric(&self, ii: &mut NumericIndex, doc_id: DocId) {
-        match ii {
-            NumericIndex::Uncompressed(ii) => self.remove_document(ii.inner_mut(), doc_id),
-            NumericIndex::Compressed(ii) => self.remove_document(ii.inner_mut(), doc_id),
-        }
-    }
+/// test basic revalidation functionality - the resume reports `Ok` when the index is valid
+pub fn revalidate_basic<'a, I>(test: &'a RevalidateTest, it: Box<I>)
+where
+    I: RQEIteratorBoxed<'a> + rqe_iterators::profile_print::ProfilePrint + 'a,
+{
+    let guard = test.context.spec_read();
+    let mut it = revalidate_via_resume(TypeErasedRQEIterator::new(it), &guard)
+        .expect("resume should not fail in this test")
+        .expect_ok();
+    assert!(matches!(it.read(), Ok(Some(_))));
+    revalidate_via_resume(it, &guard)
+        .expect("resume should not fail in this test")
+        .expect_ok();
+}
 
-    /// test revalidate returns `Moved` when the document at the iterator position is deleted from the index.
-    pub fn revalidate_numeric_after_document_deleted<'index, I>(
-        &self,
-        it: &mut I,
-        ii: &mut NumericIndex,
-    ) where
-        I: for<'iterator> RQEIterator<'index>,
-    {
-        match ii {
-            NumericIndex::Uncompressed(ii) => {
-                self.revalidate_after_document_deleted(it, ii.inner_mut())
-            }
-            NumericIndex::Compressed(ii) => {
-                self.revalidate_after_document_deleted(it, ii.inner_mut())
-            }
-        }
-    }
+/// test revalidation functionality when iterator is at EOF
+pub fn revalidate_at_eof<'a, I>(test: &'a RevalidateTest, mut it: Box<I>)
+where
+    I: RQEIteratorBoxed<'a> + rqe_iterators::profile_print::ProfilePrint + 'a,
+{
+    // Read all documents to reach EOF
+    while let Some(_record) = it.read().expect("failed to read") {}
+    assert!(it.at_eof());
+    let guard = test.context.spec_read();
+    let it = revalidate_via_resume(TypeErasedRQEIterator::new(it), &guard)
+        .expect("resume should not fail in this test")
+        .expect_ok();
+    assert!(it.at_eof());
+}
 
-    /// test revalidate returns `Moved` when the document at the iterator position is deleted from the index.
-    pub fn revalidate_after_document_deleted<'index, I, E: Encoder + DecodedBy>(
-        &self,
-        it: &mut I,
-        ii: &mut InvertedIndex<E>,
-    ) where
-        I: for<'iterator> RQEIterator<'index>,
-    {
-        let status = it
-            .revalidate(&*self.context.spec_read())
-            .expect("revalidate failed");
-        assert_eq!(status, RQEValidateStatus::Ok);
+/// test that exhaustion survives a resume which has to re-seek.
+///
+/// [`revalidate_at_eof`] leaves the index untouched, so `refresh_pointers` reports
+/// [`RefreshOutcome::Ok`](inverted_index::RefreshOutcome::Ok) and `resume_in_place`
+/// never restores the position at all. Removing a document first bumps the GC marker
+/// and forces the rewind-and-re-seek path — the one that has to keep the past-the-end
+/// state rather than handing a parent back a child it had already written off.
+pub fn revalidate_at_eof_after_gc<'a, I, E: Encoder + DecodedBy>(
+    test: &'a RevalidateTest,
+    mut it: Box<I>,
+    ii: &mut InvertedIndex<E>,
+) where
+    I: RQEIteratorBoxed<'a> + rqe_iterators::profile_print::ProfilePrint + 'a,
+{
+    // Read all documents to reach EOF
+    while let Some(_record) = it.read().expect("failed to read") {}
+    assert!(it.at_eof());
+    let last_doc_id = it.last_doc_id();
 
-        // First, read a few documents to establish a position
-        let doc = it
-            .read()
-            .expect("failed to read")
-            .expect("should not be at EOF");
-        assert_eq!(doc.doc_id, self.doc_ids[0]);
+    // Remove a document the iterator has already passed, so the re-seek to
+    // `last_doc_id` still finds its target. That is what makes a resurrection
+    // observable: removing the *last* document instead would leave the re-seek
+    // empty-handed and land on the past-the-end state by accident.
+    test.remove_document(ii, test.doc_ids[0]);
 
-        let doc = it
-            .read()
-            .expect("failed to read")
-            .expect("should not be at EOF");
-        assert_eq!(doc.doc_id, self.doc_ids[1]);
+    let guard = test.context.spec_read();
+    let mut it = revalidate_via_resume(TypeErasedRQEIterator::new(it), &guard)
+        .expect("resume should not fail in this test")
+        .expect_ok();
+    assert!(
+        it.at_eof(),
+        "exhaustion must survive a resume that re-seeks"
+    );
+    assert_eq!(it.last_doc_id(), last_doc_id);
+    // The flags say exhausted; the reader was rewound to the head of the index.
+    // Only a read proves the two agree.
+    assert!(
+        it.read().expect("failed to read").is_none(),
+        "an exhausted iterator must stay exhausted until it is rewound"
+    );
+}
 
-        let doc = it
-            .read()
-            .expect("failed to read")
-            .expect("should not be at EOF");
-        assert_eq!(doc.doc_id, self.doc_ids[2]);
-
-        assert_eq!(it.last_doc_id(), self.doc_ids[2]);
-        assert_eq!(it.current().unwrap().doc_id, self.doc_ids[2]);
-
-        // Nothing changed in the index so revalidate does nothing
-        let status = it
-            .revalidate(&*self.context.spec_read())
-            .expect("revalidate failed");
-        assert_eq!(status, RQEValidateStatus::Ok);
-
-        // Remove an element before the current iteration position.
-        self.remove_document(ii, self.doc_ids[0]);
-        let status = it
-            .revalidate(&*self.context.spec_read())
-            .expect("revalidate failed");
-        assert_eq!(status, RQEValidateStatus::Ok);
-        assert_eq!(it.last_doc_id(), self.doc_ids[2]);
-        assert_eq!(it.current().unwrap().doc_id, self.doc_ids[2]);
-
-        // Remove an element after the current iteration position.
-        self.remove_document(ii, self.doc_ids[4]);
-        let status = it
-            .revalidate(&*self.context.spec_read())
-            .expect("revalidate failed");
-        assert_eq!(status, RQEValidateStatus::Ok);
-        assert_eq!(it.last_doc_id(), self.doc_ids[2]);
-        assert_eq!(it.current().unwrap().doc_id, self.doc_ids[2]);
-
-        // Remove the element at the current position of the iterator.
-        // When validating we won't be able to skip to this element, so we should get RQEValidateStatus::Moved.
-        self.remove_document(ii, self.doc_ids[2]);
-        let res = it
-            .revalidate(&*self.context.spec_read())
-            .expect("revalidate failed");
-        let current_doc = match res {
-            RQEValidateStatus::Moved {
-                current: Some(current),
-            } => current,
-            _ => panic!("wrong revalidate result: {:?}", res),
-        };
-        assert_eq!(current_doc.doc_id, self.doc_ids[3]);
-        // iterator advanced to the next element
-        assert_eq!(it.last_doc_id(), self.doc_ids[3]);
-        assert_eq!(it.current().unwrap().doc_id, self.doc_ids[3]);
-
-        // read the next element, docs_ids[4] has been removed so iterator should return the one after.
-        let doc = it
-            .read()
-            .expect("failed to read")
-            .expect("should not be at EOF");
-        assert_eq!(doc.doc_id, self.doc_ids[5]);
-        assert_eq!(it.last_doc_id(), self.doc_ids[5]);
-        assert_eq!(it.current().unwrap().doc_id, self.doc_ids[5]);
-
-        // edge case: iterator is at the last document which is then removed.
-        assert!(!it.at_eof());
-        let last_doc_id = *self.doc_ids.last().unwrap();
-        let doc = match it.skip_to(last_doc_id) {
-            Ok(Some(SkipToOutcome::Found(doc))) => doc,
-            _ => panic!("skip_to {last_doc_id} should succeed"),
-        };
-        assert_eq!(doc.doc_id, last_doc_id);
-        assert_eq!(it.last_doc_id(), last_doc_id);
-        assert_eq!(it.current().unwrap().doc_id, last_doc_id);
-
-        self.remove_document(ii, last_doc_id);
-        // revalidate should return Moved without current doc and be at EOF.
-        let res = it
-            .revalidate(&*self.context.spec_read())
-            .expect("revalidate failed");
-        assert!(matches!(res, RQEValidateStatus::Moved { current: None }));
-        assert!(it.at_eof());
-        // Running past the end does not erase where the last yield left the position, even
-        // when the document it named is the one that was just removed.
-        assert_eq!(it.last_doc_id(), last_doc_id);
+/// [`revalidate_at_eof_after_gc`] for a numeric index.
+pub fn revalidate_numeric_at_eof_after_gc<'a, I>(
+    test: &'a RevalidateTest,
+    it: Box<I>,
+    ii: &mut NumericIndex,
+) where
+    I: RQEIteratorBoxed<'a> + rqe_iterators::profile_print::ProfilePrint + 'a,
+{
+    match ii {
+        NumericIndex::Uncompressed(ii) => revalidate_at_eof_after_gc(test, it, ii.inner_mut()),
+        NumericIndex::Compressed(ii) => revalidate_at_eof_after_gc(test, it, ii.inner_mut()),
     }
 }
 
-/// Resume-flavored counterpart of [`RevalidateTest`]. Each method mirrors
-/// the corresponding [`RevalidateTest`] method by name and semantics, but
-/// drives the new `suspend`/`resume` path via
-/// [`revalidate_via_resume`](rqe_iterators_test_utils::revalidate_via_resume)
-/// instead of the legacy [`RQEIterator::revalidate`] call.
+/// test the resume reports `Moved` when the document at the iterator position is deleted from the index.
+pub fn revalidate_numeric_after_document_deleted<'a, I>(
+    test: &'a RevalidateTest,
+    it: Box<I>,
+    ii: &mut NumericIndex,
+) where
+    I: RQEIteratorBoxed<'a> + rqe_iterators::profile_print::ProfilePrint + 'a,
+{
+    match ii {
+        NumericIndex::Uncompressed(ii) => {
+            revalidate_after_document_deleted(test, it, ii.inner_mut())
+        }
+        NumericIndex::Compressed(ii) => revalidate_after_document_deleted(test, it, ii.inner_mut()),
+    }
+}
+
+/// test the resume reports `Moved` when the document at the iterator position is deleted from the index.
+pub fn revalidate_after_document_deleted<'a, I, E: Encoder + DecodedBy>(
+    test: &'a RevalidateTest,
+    it: Box<I>,
+    ii: &mut InvertedIndex<E>,
+) where
+    I: RQEIteratorBoxed<'a> + rqe_iterators::profile_print::ProfilePrint + 'a,
+{
+    let guard = test.context.spec_read();
+    let mut it = revalidate_via_resume(TypeErasedRQEIterator::new(it), &guard)
+        .expect("resume should not fail in this test")
+        .expect_ok();
+
+    // First, read a few documents to establish a position
+    let doc = it
+        .read()
+        .expect("failed to read")
+        .expect("should not be at EOF");
+    assert_eq!(doc.doc_id, test.doc_ids[0]);
+
+    let doc = it
+        .read()
+        .expect("failed to read")
+        .expect("should not be at EOF");
+    assert_eq!(doc.doc_id, test.doc_ids[1]);
+
+    let doc = it
+        .read()
+        .expect("failed to read")
+        .expect("should not be at EOF");
+    assert_eq!(doc.doc_id, test.doc_ids[2]);
+
+    assert_eq!(it.last_doc_id(), test.doc_ids[2]);
+    assert_eq!(it.current().unwrap().doc_id, test.doc_ids[2]);
+
+    // Nothing changed in the index, so the resume leaves the position alone
+    let it = revalidate_via_resume(it, &guard)
+        .expect("resume should not fail in this test")
+        .expect_ok();
+
+    // Remove an element before the current iteration position.
+    test.remove_document(ii, test.doc_ids[0]);
+    let mut it = revalidate_via_resume(it, &guard)
+        .expect("resume should not fail in this test")
+        .expect_ok();
+    assert_eq!(it.last_doc_id(), test.doc_ids[2]);
+    assert_eq!(it.current().unwrap().doc_id, test.doc_ids[2]);
+
+    // Remove an element after the current iteration position.
+    test.remove_document(ii, test.doc_ids[4]);
+    let mut it = revalidate_via_resume(it, &guard)
+        .expect("resume should not fail in this test")
+        .expect_ok();
+    assert_eq!(it.last_doc_id(), test.doc_ids[2]);
+    assert_eq!(it.current().unwrap().doc_id, test.doc_ids[2]);
+
+    // Remove the element at the current position of the iterator.
+    // When validating we won't be able to skip to this element, so we should get MOVED.
+    test.remove_document(ii, test.doc_ids[2]);
+    let mut it = revalidate_via_resume(it, &guard)
+        .expect("resume should not fail in this test")
+        .expect_moved();
+    let current_doc = it
+        .current()
+        .expect("iterator should be positioned after resume");
+    assert_eq!(current_doc.doc_id, test.doc_ids[3]);
+    // iterator advanced to the next element
+    assert_eq!(it.last_doc_id(), test.doc_ids[3]);
+    assert_eq!(it.current().unwrap().doc_id, test.doc_ids[3]);
+
+    // read the next element, docs_ids[4] has been removed so iterator should return the one after.
+    let doc = it
+        .read()
+        .expect("failed to read")
+        .expect("should not be at EOF");
+    assert_eq!(doc.doc_id, test.doc_ids[5]);
+    assert_eq!(it.last_doc_id(), test.doc_ids[5]);
+    assert_eq!(it.current().unwrap().doc_id, test.doc_ids[5]);
+
+    // edge case: iterator is at the last document which is then removed.
+    assert!(!it.at_eof());
+    let last_doc_id = *test.doc_ids.last().unwrap();
+    let doc = match it.skip_to(last_doc_id) {
+        Ok(Some(SkipToOutcome::Found(doc))) => doc,
+        _ => panic!("skip_to {last_doc_id} should succeed"),
+    };
+    assert_eq!(doc.doc_id, last_doc_id);
+    assert_eq!(it.last_doc_id(), last_doc_id);
+    assert_eq!(it.current().unwrap().doc_id, last_doc_id);
+
+    test.remove_document(ii, last_doc_id);
+    // The move runs off the end, which `current()` reports on its own — no
+    // `at_eof()` pre-check needed to interpret it.
+    let mut it = revalidate_via_resume(it, &guard)
+        .expect("resume should not fail in this test")
+        .expect_moved();
+    assert!(it.current().is_none());
+    assert!(it.at_eof());
+    assert!(it.read().expect("read should not fail").is_none());
+}
+
+/// test that a resume repairs an iterator whose block buffer moved while it was suspended.
 ///
-/// When revalidation starts going through the new suspend/resume code path,
-/// we will delete [`RevalidateTest`] and replace
-/// it by hoisting this module's contents up to the file level. Tests
-/// can then drop the `mod via_resume` wrapper.
-#[allow(
-    dead_code,
-    reason = "callers land in per-iterator resume/suspend commits that follow this one"
-)]
-pub mod via_resume {
-    use super::{DecodedBy, Encoder, InvertedIndex, NumericIndex, RevalidateTest, SkipToOutcome};
-    use rqe_iterators::{RQEIterator, RQEIteratorBoxed, TypeErasedRQEIterator};
-    use rqe_iterators_test_utils::{ResumeOutcomeExt, revalidate_via_resume};
+/// Appends that reallocate the block the iterator is parked in leave the GC marker untouched,
+/// so nothing but the buffer address tells the resume that the cached cursor is stale.
+pub fn revalidate_after_block_buffer_moved<'a, I, E, F>(
+    test: &'a RevalidateTest,
+    it: Box<I>,
+    ii: &mut InvertedIndex<E>,
+    make_record: F,
+) where
+    I: RQEIteratorBoxed<'a> + rqe_iterators::profile_print::ProfilePrint + 'a,
+    E: Encoder + DecodedBy,
+    F: Fn(DocId) -> RSIndexResult<'static>,
+{
+    block_buffer_moved(test, it, ii, make_record, false);
+}
 
-    /// test basic revalidation functionality - should return `VALIDATE_OK` when index is valid
-    pub fn revalidate_basic<'a, I>(test: &'a RevalidateTest, it: Box<I>)
-    where
-        I: RQEIteratorBoxed<'a> + rqe_iterators::profile_print::ProfilePrint + 'a,
-    {
-        let guard = test.context.spec_read();
-        let mut it = revalidate_via_resume(TypeErasedRQEIterator::new(it), &guard)
-            .expect("resume should not fail in this test")
-            .expect_ok();
-        assert!(matches!(it.read(), Ok(Some(_))));
-        revalidate_via_resume(it, &guard)
-            .expect("resume should not fail in this test")
-            .expect_ok();
+/// [`revalidate_after_block_buffer_moved`] with a GC cycle interleaved: both invalidate the
+/// iterator, and a repair that handles only one of them fails here.
+pub fn revalidate_after_block_buffer_moved_and_gc<'a, I, E, F>(
+    test: &'a RevalidateTest,
+    it: Box<I>,
+    ii: &mut InvertedIndex<E>,
+    make_record: F,
+) where
+    I: RQEIteratorBoxed<'a> + rqe_iterators::profile_print::ProfilePrint + 'a,
+    E: Encoder + DecodedBy,
+    F: Fn(DocId) -> RSIndexResult<'static>,
+{
+    block_buffer_moved(test, it, ii, make_record, true);
+}
+
+fn block_buffer_moved<'a, I, E, F>(
+    test: &'a RevalidateTest,
+    mut it: Box<I>,
+    ii: &mut InvertedIndex<E>,
+    make_record: F,
+    interleave_gc: bool,
+) where
+    I: RQEIteratorBoxed<'a> + rqe_iterators::profile_print::ProfilePrint + 'a,
+    E: Encoder + DecodedBy,
+    F: Fn(DocId) -> RSIndexResult<'static>,
+{
+    // Appends land in the last block, so the iterator has to be parked in that same block for
+    // this to exercise anything; the assertion catches a codec whose block size changes.
+    assert_eq!(
+        ii.number_of_blocks(),
+        1,
+        "the fixture must fit in a single block"
+    );
+
+    // Park the iterator mid-block.
+    for expected in &test.doc_ids[..2] {
+        let doc = it
+            .read()
+            .expect("failed to read")
+            .expect("should not be at EOF");
+        assert_eq!(doc.doc_id, *expected);
     }
 
-    /// test revalidation functionality when iterator is at EOF
-    pub fn revalidate_at_eof<'a, I>(test: &'a RevalidateTest, mut it: Box<I>)
-    where
-        I: RQEIteratorBoxed<'a> + rqe_iterators::profile_print::ProfilePrint + 'a,
-    {
-        // Read all documents to reach EOF
-        while let Some(_record) = it.read().expect("failed to read") {}
-        assert!(it.at_eof());
-        let guard = test.context.spec_read();
-        let it = revalidate_via_resume(TypeErasedRQEIterator::new(it), &guard)
-            .expect("resume should not fail in this test")
-            .expect_ok();
-        assert!(it.at_eof());
+    // The address the iterator cached. Callers reserve headroom before creating it, so nothing
+    // moves the buffer until the relocation below does.
+    let base_before = ii.block_ref(0).unwrap().data().as_ptr();
+    let appended: Vec<DocId> = (1..=3)
+        .map(|i| test.doc_ids.last().unwrap() + 2 * i)
+        .collect();
+    for doc_id in &appended {
+        ii.add_record(&make_record(*doc_id)).expect("append failed");
     }
+    assert_eq!(
+        ii.number_of_blocks(),
+        1,
+        "the appends must stay in the block the iterator is parked in"
+    );
+    assert_eq!(
+        ii.block_ref(0).unwrap().data().as_ptr(),
+        base_before,
+        "the appends moved the buffer; reserve headroom before creating the iterator"
+    );
 
-    /// test that exhaustion survives a resume which has to re-seek.
-    ///
-    /// The resume-path twin of
-    /// [`RevalidateTest::revalidate_at_eof_after_gc`], and the same reasoning applies:
-    /// without the GC step `refresh_pointers` reports
-    /// [`RefreshOutcome::Ok`](inverted_index::RefreshOutcome::Ok) and `resume_in_place`
-    /// never reaches the rewind-and-re-seek path this covers.
-    pub fn revalidate_at_eof_after_gc<'a, I, E: Encoder + DecodedBy>(
-        test: &'a RevalidateTest,
-        mut it: Box<I>,
-        ii: &mut InvertedIndex<E>,
-    ) where
-        I: RQEIteratorBoxed<'a> + rqe_iterators::profile_print::ProfilePrint + 'a,
-    {
-        // Read all documents to reach EOF
-        while let Some(_record) = it.read().expect("failed to read") {}
-        assert!(it.at_eof());
-        let last_doc_id = it.last_doc_id();
+    let base_after = inverted_index::test_utils::relocate_block_buffer(ii, 0);
+    assert_ne!(base_before, base_after, "the buffer did not move");
+    let gc_marker_before = ii.gc_marker();
 
-        // See `RevalidateTest::revalidate_at_eof_after_gc` for why this is the first
-        // document rather than the last one.
+    // Removing a document the iterator already passed leaves the expected set below
+    // untouched, and bumps the GC marker on top of the moved buffer.
+    if interleave_gc {
         test.remove_document(ii, test.doc_ids[0]);
-
-        let guard = test.context.spec_read();
-        let mut it = revalidate_via_resume(TypeErasedRQEIterator::new(it), &guard)
-            .expect("resume should not fail in this test")
-            .expect_ok();
-        assert!(
-            it.at_eof(),
-            "exhaustion must survive a resume that re-seeks"
-        );
-        assert_eq!(it.last_doc_id(), last_doc_id);
-        // See the `revalidate` twin: only a read proves the restored flags and the
-        // rewound reader agree.
-        assert!(
-            it.read().expect("failed to read").is_none(),
-            "an exhausted iterator must stay exhausted until it is rewound"
+        assert_ne!(ii.gc_marker(), gc_marker_before, "GC did not run");
+    } else {
+        assert_eq!(
+            ii.gc_marker(),
+            gc_marker_before,
+            "a plain append must not touch the GC marker — that is what makes it undetected"
         );
     }
 
-    /// [`revalidate_at_eof_after_gc`] for a numeric index.
-    pub fn revalidate_numeric_at_eof_after_gc<'a, I>(
-        test: &'a RevalidateTest,
-        it: Box<I>,
-        ii: &mut NumericIndex,
-    ) where
-        I: RQEIteratorBoxed<'a> + rqe_iterators::profile_print::ProfilePrint + 'a,
-    {
-        match ii {
-            NumericIndex::Uncompressed(ii) => revalidate_at_eof_after_gc(test, it, ii.inner_mut()),
-            NumericIndex::Compressed(ii) => revalidate_at_eof_after_gc(test, it, ii.inner_mut()),
-        }
+    let guard = test.context.spec_read();
+    // The iterator's position still exists, so the resume must preserve it.
+    let mut it = revalidate_via_resume(TypeErasedRQEIterator::new(it), &guard)
+        .expect("resume should not fail in this test")
+        .expect_ok();
+
+    // Everything the iterator had not yielded yet, still in order and without repeats.
+    let mut expected = test.doc_ids[2..].to_vec();
+    expected.extend_from_slice(&appended);
+
+    let mut read = Vec::new();
+    while let Some(doc) = it.read().expect("failed to read") {
+        read.push(doc.doc_id);
     }
-
-    /// test revalidate returns `Moved` when the document at the iterator position is deleted from the index.
-    pub fn revalidate_numeric_after_document_deleted<'a, I>(
-        test: &'a RevalidateTest,
-        it: Box<I>,
-        ii: &mut NumericIndex,
-    ) where
-        I: RQEIteratorBoxed<'a> + rqe_iterators::profile_print::ProfilePrint + 'a,
-    {
-        match ii {
-            NumericIndex::Uncompressed(ii) => {
-                revalidate_after_document_deleted(test, it, ii.inner_mut())
-            }
-            NumericIndex::Compressed(ii) => {
-                revalidate_after_document_deleted(test, it, ii.inner_mut())
-            }
-        }
-    }
-
-    /// test revalidate returns `Moved` when the document at the iterator position is deleted from the index.
-    pub fn revalidate_after_document_deleted<'a, I, E: Encoder + DecodedBy>(
-        test: &'a RevalidateTest,
-        it: Box<I>,
-        ii: &mut InvertedIndex<E>,
-    ) where
-        I: RQEIteratorBoxed<'a> + rqe_iterators::profile_print::ProfilePrint + 'a,
-    {
-        let guard = test.context.spec_read();
-        let mut it = revalidate_via_resume(TypeErasedRQEIterator::new(it), &guard)
-            .expect("resume should not fail in this test")
-            .expect_ok();
-
-        // First, read a few documents to establish a position
-        let doc = it
-            .read()
-            .expect("failed to read")
-            .expect("should not be at EOF");
-        assert_eq!(doc.doc_id, test.doc_ids[0]);
-
-        let doc = it
-            .read()
-            .expect("failed to read")
-            .expect("should not be at EOF");
-        assert_eq!(doc.doc_id, test.doc_ids[1]);
-
-        let doc = it
-            .read()
-            .expect("failed to read")
-            .expect("should not be at EOF");
-        assert_eq!(doc.doc_id, test.doc_ids[2]);
-
-        assert_eq!(it.last_doc_id(), test.doc_ids[2]);
-        assert_eq!(it.current().unwrap().doc_id, test.doc_ids[2]);
-
-        // Nothing changed in the index so revalidate does nothing
-        let it = revalidate_via_resume(it, &guard)
-            .expect("resume should not fail in this test")
-            .expect_ok();
-
-        // Remove an element before the current iteration position.
-        test.remove_document(ii, test.doc_ids[0]);
-        let mut it = revalidate_via_resume(it, &guard)
-            .expect("resume should not fail in this test")
-            .expect_ok();
-        assert_eq!(it.last_doc_id(), test.doc_ids[2]);
-        assert_eq!(it.current().unwrap().doc_id, test.doc_ids[2]);
-
-        // Remove an element after the current iteration position.
-        test.remove_document(ii, test.doc_ids[4]);
-        let mut it = revalidate_via_resume(it, &guard)
-            .expect("resume should not fail in this test")
-            .expect_ok();
-        assert_eq!(it.last_doc_id(), test.doc_ids[2]);
-        assert_eq!(it.current().unwrap().doc_id, test.doc_ids[2]);
-
-        // Remove the element at the current position of the iterator.
-        // When validating we won't be able to skip to this element, so we should get MOVED.
-        test.remove_document(ii, test.doc_ids[2]);
-        let mut it = revalidate_via_resume(it, &guard)
-            .expect("resume should not fail in this test")
-            .expect_moved();
-        let current_doc = it
-            .current()
-            .expect("iterator should be positioned after resume");
-        assert_eq!(current_doc.doc_id, test.doc_ids[3]);
-        // iterator advanced to the next element
-        assert_eq!(it.last_doc_id(), test.doc_ids[3]);
-        assert_eq!(it.current().unwrap().doc_id, test.doc_ids[3]);
-
-        // read the next element, docs_ids[4] has been removed so iterator should return the one after.
-        let doc = it
-            .read()
-            .expect("failed to read")
-            .expect("should not be at EOF");
-        assert_eq!(doc.doc_id, test.doc_ids[5]);
-        assert_eq!(it.last_doc_id(), test.doc_ids[5]);
-        assert_eq!(it.current().unwrap().doc_id, test.doc_ids[5]);
-
-        // edge case: iterator is at the last document which is then removed.
-        assert!(!it.at_eof());
-        let last_doc_id = *test.doc_ids.last().unwrap();
-        let doc = match it.skip_to(last_doc_id) {
-            Ok(Some(SkipToOutcome::Found(doc))) => doc,
-            _ => panic!("skip_to {last_doc_id} should succeed"),
-        };
-        assert_eq!(doc.doc_id, last_doc_id);
-        assert_eq!(it.last_doc_id(), last_doc_id);
-        assert_eq!(it.current().unwrap().doc_id, last_doc_id);
-
-        test.remove_document(ii, last_doc_id);
-        // The move runs off the end, which `current()` reports on its own — no
-        // `at_eof()` pre-check needed to interpret it.
-        let mut it = revalidate_via_resume(it, &guard)
-            .expect("resume should not fail in this test")
-            .expect_moved();
-        assert!(it.current().is_none());
-        assert!(it.at_eof());
-        assert!(it.read().expect("read should not fail").is_none());
-    }
+    assert_eq!(read, expected);
 }

@@ -14,7 +14,7 @@ use ref_mode::{Active, Ref, Suspended};
 
 use crate::{
     IteratorType, RQEIterator, RQEIteratorBoxed, RQEIteratorError, RQESuspendedIterator,
-    RQEValidateStatus, ResumeOutcome, SkipToOutcome,
+    ResumeOutcome, SkipToOutcome,
     boxed::{ResumeSlotOutcome, resume_child_slot_in_place, suspend_child_slot_in_place},
     maybe_empty::MaybeEmpty,
     profile_print::{ProfilePrint, ProfilePrintCtx},
@@ -315,35 +315,6 @@ where
     }
 
     #[inline(always)]
-    fn revalidate(
-        &mut self,
-        spec: &IndexSpecReadGuard,
-    ) -> Result<RQEValidateStatus<'_, 'index>, RQEIteratorError> {
-        // Get child status
-        match self.child.revalidate(spec)? {
-            RQEValidateStatus::Aborted => {
-                self.child = MaybeEmpty::new_empty();
-                Ok(RQEValidateStatus::Ok)
-            }
-            RQEValidateStatus::Moved { .. } => {
-                // Invariant: after read/skip_to, child is always ahead of NOT's position (or at EOF).
-                // Moved means child moved forward (can't move backward), so our doc remains valid.
-                // Special case: both at initial state (doc_id = 0) is also valid.
-                debug_assert!(
-                    self.child.at_eof()
-                        || self.child.last_doc_id() > self.last_doc_id()
-                        || (self.child.last_doc_id() == 0 && self.last_doc_id() == 0)
-                );
-                Ok(RQEValidateStatus::Ok)
-            }
-            RQEValidateStatus::Ok => {
-                // Child did not move - we did not move
-                Ok(RQEValidateStatus::Ok)
-            }
-        }
-    }
-
-    #[inline(always)]
     fn type_(&self) -> IteratorType {
         IteratorType::Not
     }
@@ -435,7 +406,7 @@ where
             Ok(ResumeSlotOutcome::Unchanged) => false,
             Ok(ResumeSlotOutcome::Moved) => true,
             Ok(ResumeSlotOutcome::Aborted) => {
-                // Mirror `revalidate`: `NOT (aborted)` collapses to "NOT empty".
+                // `NOT (aborted)` collapses to "NOT empty": every document matches.
                 // The consumed slot is reinitialised with the `I`-free empty arm,
                 // typed as the *resumed* slot the reinterpretation below expects.
                 // SAFETY: the slot is uninitialised and exclusively owned;
@@ -490,7 +461,7 @@ where
             // valid: read/skip_to always leave the child ahead of us or at EOF, and
             // both still sitting at 0 is the fresh-iterator case. Asserted after the
             // reinterpretation because only there is the child slot typed as an
-            // active iterator; the same check guards `revalidate`'s `Moved` arm.
+            // active iterator.
             debug_assert!(
                 active.child.at_eof()
                     || RQEIterator::last_doc_id(&active.child) > active.last_doc_id()
@@ -498,9 +469,9 @@ where
             );
         }
 
-        // Mirror `revalidate`, which reports `Ok` in all three child outcomes: a
-        // child move doesn't shift NOT's position (NOT keeps its own cursor), and
-        // an aborted child was absorbed above.
+        // `Ok` in all three child outcomes: a child move doesn't shift NOT's
+        // position (NOT keeps its own cursor), and an aborted child was absorbed
+        // above.
         Ok(ResumeOutcome::Ok(active))
     }
 

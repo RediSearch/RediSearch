@@ -200,9 +200,8 @@ fn assert_eof_agrees_with_current<'index, I: RQEIterator<'index>>(
 /// Drive a suspend/resume cycle on `it` under the given lock guard.
 ///
 /// Mirrors the production FFI `revalidate` callback (see
-/// `rqe_iterators::interop::revalidate`): box-suspend → resume. Tests use this
-/// to exercise the canonical suspend/resume path during the in-progress
-/// migration away from `RQEIterator::revalidate`.
+/// `rqe_iterators::interop::revalidate`): box-suspend → resume, so tests
+/// exercise revalidation the way the query pipeline drives it.
 ///
 /// See [`ResumeOutcomeExt`] for `expect_ok` / `expect_moved`.
 ///
@@ -217,19 +216,36 @@ fn assert_eof_agrees_with_current<'index, I: RQEIterator<'index>>(
 ///   [`at_eof`](RQEIterator::at_eof) is still at it afterwards. A composite drops
 ///   children that report EOF, so one that comes back live re-enters a parent
 ///   that has already moved on without it;
-/// - the position did not move backwards, which would replay documents; and
-/// - [`ResumeOutcome::Ok`] means exactly that — same position, same EOF answer —
-///   matching the promise its [`RQEValidateStatus::Ok`] counterpart makes on the
-///   `revalidate` side.
+/// - the position did not move backwards, which would replay documents;
+/// - [`ResumeOutcome::Ok`] means exactly that — same position, same EOF answer,
+///   and [`current`](RQEIterator::current) still on that position; and
+/// - after [`ResumeOutcome::Moved`], [`current`](RQEIterator::current) agrees
+///   with the new position, since a parent reads it in place of a fresh
+///   [`read`](RQEIterator::read).
 ///
 /// [`ContractChecker`]: crate::contract_checker::ContractChecker
-/// [`RQEValidateStatus::Ok`]: rqe_iterators::RQEValidateStatus::Ok
-pub fn revalidate_via_resume<'borrow, 'index>(
+pub fn revalidate_via_resume<'index>(
     it: TypeErasedRQEIterator<'index>,
-    spec: &'borrow IndexSpecReadGuard<'index>,
+    spec: &IndexSpecReadGuard<'index>,
+) -> Result<ResumeOutcome<TypeErasedRQEIterator<'index>>, rqe_iterators::RQEIteratorError> {
+    revalidate_via_resume_across(it, spec, || {})
+}
+
+/// As [`revalidate_via_resume`], running `while_suspended` between the suspend
+/// and the resume.
+///
+/// That is where production releases the spec lock, so it is the only point a
+/// test may write to the index the iterator reads: `suspend` may still read the
+/// index, so a write before it invalidates the reader's borrow while the
+/// iterator still uses it.
+pub fn revalidate_via_resume_across<'index>(
+    mut it: TypeErasedRQEIterator<'index>,
+    spec: &IndexSpecReadGuard<'index>,
+    while_suspended: impl FnOnce(),
 ) -> Result<ResumeOutcome<TypeErasedRQEIterator<'index>>, rqe_iterators::RQEIteratorError> {
     let was_at_eof = it.at_eof();
     let previous_last_doc_id = it.last_doc_id();
+    let was_positioned = it.current().is_some();
 
     let suspended =
         <TypeErasedRQEIterator<'index> as rqe_iterators::RQEIteratorBoxed<'index>>::suspend(
@@ -240,11 +256,13 @@ pub fn revalidate_via_resume<'borrow, 'index>(
     // suspended type would double-box. `resume` re-reads/seeks the index to
     // restore position and can fail with an `RQEIteratorError` (e.g. timeout);
     // propagate it like the production path.
+    while_suspended();
     let TypeErasedRQESuspendedIterator(inner) = *suspended;
-    let outcome = inner.resume(spec)?;
+    let mut outcome = inner.resume(spec)?;
 
     // `Aborted` yields no iterator to inspect; every other outcome does.
-    if let ResumeOutcome::Ok(it) | ResumeOutcome::Moved(it) = &outcome {
+    let is_ok = matches!(outcome, ResumeOutcome::Ok(_));
+    if let ResumeOutcome::Ok(it) | ResumeOutcome::Moved(it) = &mut outcome {
         if was_at_eof {
             assert!(
                 it.at_eof(),
@@ -258,7 +276,7 @@ pub fn revalidate_via_resume<'borrow, 'index>(
             it.last_doc_id(),
             previous_last_doc_id,
         );
-        if matches!(outcome, ResumeOutcome::Ok(_)) {
+        if is_ok {
             assert_eq!(
                 it.last_doc_id(),
                 previous_last_doc_id,
@@ -268,6 +286,41 @@ pub fn revalidate_via_resume<'borrow, 'index>(
                 it.at_eof(),
                 was_at_eof,
                 "resume: Ok promises the same position, but at_eof() changed",
+            );
+            // Checked against the position rather than the result `current()` held before the
+            // suspend: a resume may rebuild that result, but not move it.
+            let last_doc_id = it.last_doc_id();
+            match it.current() {
+                Some(current) => {
+                    assert!(
+                        was_positioned,
+                        "resume: Ok promises the same position, but an unread iterator came back \
+                         with a current result",
+                    );
+                    assert_eq!(
+                        current.doc_id, last_doc_id,
+                        "resume: Ok promises the same position, but current() is not on \
+                         last_doc_id()",
+                    );
+                }
+                None => assert!(
+                    !was_positioned,
+                    "resume: Ok promises the same position, but current() lost its result",
+                ),
+            }
+        } else if it.at_eof() {
+            assert!(
+                it.current().is_none(),
+                "resume: Moved past the last result, but current() still returns a result",
+            );
+        } else {
+            let last_doc_id = it.last_doc_id();
+            let current = it.current().unwrap_or_else(|| {
+                panic!("resume: Moved onto doc {last_doc_id}, but current() is None")
+            });
+            assert_eq!(
+                current.doc_id, last_doc_id,
+                "resume: Moved, but current() and last_doc_id() disagree on the position",
             );
         }
     }

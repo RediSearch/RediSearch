@@ -7,12 +7,9 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 
-use rqe_iterators::{
-    IteratorType,
-    empty::Empty,
-    {RQEIterator, RQEValidateStatus},
-};
-use rqe_iterators_test_utils::ContractChecker;
+use rqe_iterators::TypeErasedRQEIterator;
+use rqe_iterators::{IteratorType, RQEIterator, empty::Empty};
+use rqe_iterators_test_utils::{ContractChecker, ResumeOutcomeExt, revalidate_via_resume};
 
 #[test]
 fn current() {
@@ -67,26 +64,10 @@ fn type_() {
 #[test]
 fn revalidate() {
     let mock_ctx = rqe_iterators_test_utils::MockContext::new(0, 0);
-    let mut it = ContractChecker::new(Empty::default());
-    let status = it
-        .revalidate(&*mock_ctx.spec_read())
-        .expect("revalidate failed");
-    assert_eq!(status, RQEValidateStatus::Ok);
-}
-
-mod via_resume {
-    use super::*;
-    use rqe_iterators::TypeErasedRQEIterator;
-    use rqe_iterators_test_utils::{ResumeOutcomeExt, revalidate_via_resume};
-
-    #[test]
-    fn revalidate() {
-        let mock_ctx = rqe_iterators_test_utils::MockContext::new(0, 0);
-        let it: Box<Empty> = Box::new(Empty::default());
-        revalidate_via_resume(TypeErasedRQEIterator::new(it), &mock_ctx.spec_read())
-            .expect("resume should not fail")
-            .expect_ok();
-    }
+    let it: Box<Empty> = Box::new(Empty::default());
+    revalidate_via_resume(TypeErasedRQEIterator::new(it), &mock_ctx.spec_read())
+        .expect("resume should not fail")
+        .expect_ok();
 }
 
 #[test]
