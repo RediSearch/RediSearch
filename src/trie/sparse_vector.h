@@ -22,9 +22,9 @@ typedef struct {
     sparseVectorEntry entries[];
 } sparseVector;
 
-size_t __sv_sizeof(size_t cap);
+size_t sv_sizeof(size_t cap);
 
-sparseVector *__sv_resize(sparseVector *v, size_t cap);
+sparseVector *sv_resize(sparseVector *v, size_t cap);
 sparseVector *newSparseVectorCap(size_t cap);
 
 // append appends another sparse vector entry with the given index and value.
