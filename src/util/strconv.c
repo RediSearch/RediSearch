@@ -7,6 +7,8 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 
-mod str_to_lower_runes;
-mod tag_strtolower;
-mod unicode_tolower;
+#include "strconv.h"
+
+char *unicode_tolower_fn(char *encoded, size_t *inout_len) {
+  return unicode_tolower(encoded, inout_len);
+}
