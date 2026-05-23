@@ -836,8 +836,7 @@ impl<'query> RQESuspendedIterator<'query> for DiskWildcardSuspended {
         // `'a`. Box::from_raw reuses the same heap allocation.
         let mut active = unsafe { Box::from_raw(raw as *mut DiskWildcardIterator<'a>) };
         // Drive validity recovery through the inner trait object's
-        // `revalidate` callback — the same path the legacy
-        // `Suspendable::resume` used. Reduce the borrowing `RQEValidateStatus`
+        // `revalidate` callback. Reduce the borrowing `RQEValidateStatus`
         // to a `Copy` status discriminant first so the mutable borrow of
         // `active` ends before we move it into the outcome; propagate a
         // revalidate error (e.g. timeout) rather than masking it.
