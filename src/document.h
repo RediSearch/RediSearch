@@ -321,7 +321,7 @@ typedef struct RSAddDocumentCtx {
   SearchDiskWriteBatchHandle *diskBatch;
 
   // Length of the document this one replaces on disk (0 if it's a new doc).
-  // Used by `commitDocTable` for the REPLACE stats adjustment. Disk mode only.
+  // Used by `applyDocTable` for the REPLACE stats adjustment. Disk mode only.
   uint32_t oldDocLen;
 } RSAddDocumentCtx;
 
