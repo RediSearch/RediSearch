@@ -218,6 +218,11 @@ typedef struct {
   bool monitorExpiration;
   // Percentage of available memory to use for disk write buffer (0-100).
   uint8_t diskBufferPercentage;
+  // Controls SpeedB OS page-cache behaviour for disk indexes (MOD-15866).
+  // NOTE: The intended Flex bigredis-driver fallback is not yet active: bigredis-driver-allow_os_buffer
+  // and bigredis-driver-use-direct-reads are module-argument passthroughs in bs_rocksdb.c and are not
+  // registered via RegisterNumericConfig, so RedisModule_ConfigGetBool cannot read them.
+  // Until the bigredis driver exposes them via the module config API, these default to false (SpeedB default).
   bool diskDropReadCache;
   bool diskUseDirectReads;
   // If true, fallback to main thread when BlockClient is unavailable.
