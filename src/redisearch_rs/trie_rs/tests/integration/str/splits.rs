@@ -20,7 +20,7 @@
 
 use std::fmt::Write as _;
 
-use trie_rs::term_dict::TermDictionary;
+use trie_rs::str::term_dict::TermDictionary;
 
 fn dump_all(trie: &TermDictionary) -> String {
     let mut out = String::new();

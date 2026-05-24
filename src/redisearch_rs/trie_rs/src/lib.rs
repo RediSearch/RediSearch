@@ -15,7 +15,6 @@ pub mod iter;
 mod node;
 pub mod opaque;
 pub mod str;
-pub mod term_dict;
 mod trie;
 mod trie_count;
 mod utils;

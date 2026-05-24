@@ -34,7 +34,7 @@
 
 use std::fmt::Write as _;
 
-use trie_rs::term_dict::TermDictionary;
+use trie_rs::str::term_dict::TermDictionary;
 
 /// Sentinel score value carried into every seed entry. The dump format
 /// for this suite is `numDocs`-only, so the score is never observed.

@@ -1,6 +1,7 @@
 use crate::TrieMap;
 
 pub mod iter;
+pub mod term_dict;
 
 pub struct StrTrieMap<Data> {
     inner: TrieMap<Data>,

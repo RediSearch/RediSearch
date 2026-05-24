@@ -43,7 +43,7 @@
 
 use std::fmt::Write as _;
 
-use trie_rs::term_dict::{InsertOutcome, TermDictionary};
+use trie_rs::str::term_dict::{InsertOutcome, TermDictionary};
 
 /// Mirror C `TRIE_OK_*` rendering (`trie_node.h:29-32`).
 const fn rc_name(rc: i32) -> &'static str {

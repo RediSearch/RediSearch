@@ -16,7 +16,7 @@
 
 use std::fmt::Write as _;
 
-use trie_rs::term_dict::{DecrResult, TermDictionary, TermEntry};
+use trie_rs::str::term_dict::{DecrResult, TermDictionary, TermEntry};
 
 fn dump_all(trie: &TermDictionary) -> String {
     let mut out = String::new();

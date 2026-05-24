@@ -40,7 +40,7 @@
 
 use std::fmt::Write as _;
 
-use trie_rs::term_dict::TermDictionary;
+use trie_rs::str::term_dict::TermDictionary;
 
 fn build_fixture() -> TermDictionary {
     let mut trie = TermDictionary::new();
