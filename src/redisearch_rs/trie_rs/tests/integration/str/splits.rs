@@ -7,35 +7,22 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 
-//! Assert `StrTrieMap` reproduces the C trie's Lex-mode behavior over a
+//! Assert `TermDictionary` reproduces the C trie's Lex-mode behavior over a
 //! sequence of inserts that exercise every `TrieNode_Add` structural path.
 //!
 //! See `rune_trie_snapshots/tests/integration/splits.rs` for the C oracle
 //! that owns the shared `.snap` file.
 //!
-//! The C trie's `ADD_REPLACE` path on an existing terminal *replaces* score
-//! but *accumulates* numDocs (`trie_node.c:318-325`). The Rust trie is
-//! value-agnostic — that merge belongs to the caller. This test mirrors it
-//! at the call site via `get` + `insert`, which works against the existing
-//! `StrTrieMap` API without requiring an `insert_with`/`entry` extension.
-//!
-//! Assumed `StrTrieMap` API:
-//!   - `StrTrieMap::<V>::new() -> Self`
-//!   - `get(&mut self, key: &str) -> Option<&V>`
-//!   - `insert(&mut self, key: &str, value: V)` — replace semantics
-//!   - `len(&self) -> usize`
-//!   - `iter(&self) -> impl Iterator<Item = (String, &V)>` in lex order
+//! The C trie's `ADD_REPLACE` path on an existing terminal *replaces*
+//! score but *accumulates* numDocs (`trie_node.c:318-325`). That merge is
+//! encapsulated in [`TermDictionary::replace_term`], so each step here is
+//! one call rather than a hand-rolled `get` + `insert` round-trip.
 
 use std::fmt::Write as _;
 
-use trie_rs::str::StrTrieMap;
+use trie_rs::term_dict::TermDictionary;
 
-struct TermEntry {
-    score: f32,
-    num_docs: usize,
-}
-
-fn dump_all(trie: &StrTrieMap<TermEntry>) -> String {
+fn dump_all(trie: &TermDictionary) -> String {
     let mut out = String::new();
     writeln!(&mut out, "size: {}", trie.len()).unwrap();
     writeln!(&mut out, "entries:").unwrap();
@@ -54,7 +41,7 @@ fn dump_all(trie: &StrTrieMap<TermEntry>) -> String {
 
 #[test]
 fn lex_insert_sequence_splits() {
-    let mut trie = StrTrieMap::<TermEntry>::new();
+    let mut trie = TermDictionary::new();
 
     let steps: &[(&str, &str, f32, usize)] = &[
         ("first insert into empty trie", "apple", 1.0, 1),
@@ -67,17 +54,7 @@ fn lex_insert_sequence_splits() {
 
     let mut out = String::new();
     for (label, term, score, num_docs) in steps {
-        // Mirror the C trie's existing-terminal merge: score is replaced,
-        // numDocs accumulates. `.map(|e| e.num_docs)` drops the borrow on
-        // `trie` before the subsequent `insert` call.
-        let merged_num_docs = trie.get(term).map(|e| e.num_docs).unwrap_or(0) + *num_docs;
-        trie.insert(
-            term,
-            TermEntry {
-                score: *score,
-                num_docs: merged_num_docs,
-            },
-        );
+        trie.replace_term(term, *score, *num_docs);
         writeln!(
             &mut out,
             "--- after insert({term:?}, score={score}, numDocs={num_docs}) — {label} ---"

@@ -7,8 +7,8 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 
-//! Assert `StrTrieMap` reproduces the C trie's Lex iteration order over a
-//! mix of ASCII, Latin-1, and CJK BMP terms.
+//! Assert `TermDictionary` reproduces the C trie's Lex iteration order
+//! over a mix of ASCII, Latin-1, and CJK BMP terms.
 //!
 //! See `rune_trie_snapshots/tests/integration/unicode.rs` for the C oracle
 //! and the rationale (in short: any byte-wise sort after a little-endian
@@ -16,14 +16,9 @@
 
 use std::fmt::Write as _;
 
-use trie_rs::str::StrTrieMap;
+use trie_rs::term_dict::TermDictionary;
 
-struct TermEntry {
-    score: f32,
-    num_docs: usize,
-}
-
-fn dump_all(trie: &StrTrieMap<TermEntry>) -> String {
+fn dump_all(trie: &TermDictionary) -> String {
     let mut out = String::new();
     writeln!(&mut out, "size: {}", trie.len()).unwrap();
     writeln!(&mut out, "entries:").unwrap();
@@ -43,7 +38,7 @@ fn dump_all(trie: &StrTrieMap<TermEntry>) -> String {
 
 #[test]
 fn lex_unicode_bmp_iteration_order() {
-    let mut trie = StrTrieMap::<TermEntry>::new();
+    let mut trie = TermDictionary::new();
 
     // Same fixture as `rune_trie_snapshots::unicode`; inserts deliberately
     // out of lex order.
@@ -57,13 +52,7 @@ fn lex_unicode_bmp_iteration_order() {
         ("Z", 7.0, 1),
     ];
     for (term, score, num_docs) in terms {
-        trie.insert(
-            term,
-            TermEntry {
-                score: *score,
-                num_docs: *num_docs,
-            },
-        );
+        trie.replace_term(term, *score, *num_docs);
     }
 
     let dump = dump_all(&trie);

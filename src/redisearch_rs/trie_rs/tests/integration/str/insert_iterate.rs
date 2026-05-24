@@ -7,29 +7,14 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 
-//! Assert the Rust `StrTrieMap` reproduces the C rune-trie's Lex-mode
-//! behavior against the shared snapshot owned by `rune_trie_snapshots`.
-//!
-//! Assumed `StrTrieMap` API (adjust as the impl evolves):
-//!   - `StrTrieMap::<V>::new() -> Self`
-//!   - `insert(&mut self, key: &str, value: V) -> Option<V>`
-//!   - `len(&self) -> usize`
-//!   - `iter(&self) -> impl Iterator<Item = (String, &V)>` in lex order
-//!
-//! Per-caller payload shape (score, num_docs, payload, ...) lives in `V`;
-//! the trie itself is value-agnostic, mirroring the byte-keyed `TrieMap<Data>`.
+//! Assert `TermDictionary` reproduces the C rune-trie's Lex-mode behavior
+//! against the shared snapshot owned by `rune_trie_snapshots`.
 
 use std::fmt::Write as _;
 
-use trie_rs::str::StrTrieMap;
+use trie_rs::term_dict::TermDictionary;
 
-/// Mirror of the terms-trie payload: score counter + per-term doc count.
-struct TermEntry {
-    score: f32,
-    num_docs: usize,
-}
-
-fn dump_all(trie: &StrTrieMap<TermEntry>) -> String {
+fn dump_all(trie: &TermDictionary) -> String {
     let mut out = String::new();
     writeln!(&mut out, "size: {}", trie.len()).unwrap();
     writeln!(&mut out, "entries:").unwrap();
@@ -48,7 +33,7 @@ fn dump_all(trie: &StrTrieMap<TermEntry>) -> String {
 
 #[test]
 fn lex_basic_insert_iterate_all() {
-    let mut trie = StrTrieMap::<TermEntry>::new();
+    let mut trie = TermDictionary::new();
 
     // Same input fixture as `rune_trie_snapshots::insert_iterate` so the two
     // implementations share the snapshot file.
@@ -62,13 +47,7 @@ fn lex_basic_insert_iterate_all() {
         ("bandana", 1.0, 1),
     ];
     for (term, score, num_docs) in terms {
-        trie.insert(
-            term,
-            TermEntry {
-                score: *score,
-                num_docs: *num_docs,
-            },
-        );
+        trie.replace_term(term, *score, *num_docs);
     }
 
     let dump = dump_all(&trie);
