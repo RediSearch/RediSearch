@@ -11,6 +11,7 @@ jobs:
       id-token: write # OIDC role assumption for sccache S3
       actions: read   # dawidd6/action-download-artifact (cross-workflow)
     env:
+      IS_FORK_PR: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository }}
       RUST_BACKTRACE: full
     steps:
       - name: Checkout
@@ -21,6 +22,7 @@ jobs:
         working-directory: .install
         run: ./install_script.sh sudo
       - name: Setup sccache
+        if: ${{ env.IS_FORK_PR != 'true' }}
         uses: ./.github/actions/setup-sccache
         with:
           aws-role: ${{ vars.SCCACHE_AWS_ROLE_TO_ASSUME }}
@@ -62,7 +64,7 @@ jobs:
         working-directory: src/redisearch_rs
 
       - name: Show sccache stats
-        run: ${SCCACHE_PATH:-sccache} --show-stats
+        run: ${SCCACHE_PATH:-sccache} --show-stats || true
 
       - name: Upload rust baseline benchmarks for master
         if: github.ref == 'refs/heads/master' && github.event_name == 'push'
