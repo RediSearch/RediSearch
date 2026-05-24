@@ -103,25 +103,14 @@ impl TermDictionary {
     /// `src/trie/trie.c`, whose `__trieNode_Add` ADD_INCR branch runs
     /// `n->score += score; n->numDocs += numDocs`
     /// (`src/trie/trie_node.c:296`).
-    //
-    // TODO: use a `find_mut` on `StrTrieMap` once available, to avoid the
-    // remove + reinsert round-trip on the still-alive path.
     pub fn add_term(&mut self, term: &str, score: f32, num_docs: usize) -> InsertOutcome {
-        match self.inner.remove(term) {
-            Some(prev) => {
-                self.inner.insert(
-                    term,
-                    TermEntry {
-                        score: prev.score + score,
-                        num_docs: prev.num_docs + num_docs,
-                    },
-                );
-                InsertOutcome::Updated
-            }
-            None => {
-                self.inner.insert(term, TermEntry { score, num_docs });
-                InsertOutcome::New
-            }
+        if let Some(entry) = self.inner.get_mut(term) {
+            entry.score += score;
+            entry.num_docs += num_docs;
+            InsertOutcome::Updated
+        } else {
+            self.inner.insert(term, TermEntry { score, num_docs });
+            InsertOutcome::New
         }
     }
 
@@ -133,25 +122,14 @@ impl TermDictionary {
     /// `__trieNode_Add` overwrites `n->score = score` but does
     /// `n->numDocs += numDocs` regardless of mode
     /// (`src/trie/trie_node.c:296`). The mode only gates the score path.
-    //
-    // TODO: use a `find_mut` on `StrTrieMap` once available, to avoid the
-    // remove + reinsert round-trip on the still-alive path.
     pub fn replace_term(&mut self, term: &str, score: f32, num_docs: usize) -> InsertOutcome {
-        match self.inner.remove(term) {
-            Some(prev) => {
-                self.inner.insert(
-                    term,
-                    TermEntry {
-                        score,
-                        num_docs: prev.num_docs + num_docs,
-                    },
-                );
-                InsertOutcome::Updated
-            }
-            None => {
-                self.inner.insert(term, TermEntry { score, num_docs });
-                InsertOutcome::New
-            }
+        if let Some(entry) = self.inner.get_mut(term) {
+            entry.score = score;
+            entry.num_docs += num_docs;
+            InsertOutcome::Updated
+        } else {
+            self.inner.insert(term, TermEntry { score, num_docs });
+            InsertOutcome::New
         }
     }
 
@@ -227,18 +205,16 @@ impl TermDictionary {
     /// subtract, and remove the entry when `num_docs` reaches zero.
     /// Returns [`DecrResult::NotFound`] if no terminal entry exists for
     /// `term`.
-    //
-    // TODO: use a `find_mut` on `StrTrieMap` once available, to avoid the
-    // remove + reinsert round-trip on the still-alive path.
     pub fn decrement_num_docs(&mut self, term: &str, delta: usize) -> DecrResult {
-        match self.inner.remove(term) {
-            None => DecrResult::NotFound,
-            Some(mut entry) if delta < entry.num_docs => {
-                entry.num_docs -= delta;
-                self.inner.insert(term, entry);
-                DecrResult::Updated
-            }
-            Some(_) => DecrResult::Deleted,
+        let Some(entry) = self.inner.get_mut(term) else {
+            return DecrResult::NotFound;
+        };
+        if delta < entry.num_docs {
+            entry.num_docs -= delta;
+            DecrResult::Updated
+        } else {
+            self.inner.remove(term);
+            DecrResult::Deleted
         }
     }
 }

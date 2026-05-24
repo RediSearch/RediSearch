@@ -206,6 +206,20 @@ impl<Data> Node<Data> {
         }
     }
 
+    /// Get a mutable reference to the value associated with a key.
+    /// Returns `None` if the key is not present.
+    pub fn find_mut(&mut self, mut key: &[u8]) -> Option<&mut Data> {
+        let mut current = self;
+        loop {
+            key = strip_prefix(key, current.label())?;
+            let Some(first_byte) = key.first().copied() else {
+                // The suffix is empty, so the key and the label are equal.
+                return current.data_mut().as_mut();
+            };
+            current = current.child_starting_with_mut(first_byte)?;
+        }
+    }
+
     /// Find the root of the subtree associated with a the given prefix—i.e. the root of the subtree
     /// containing all keys that start with the given prefix.
     ///
@@ -245,6 +259,15 @@ impl<Data> Node<Data> {
         // SAFETY:
         // Guaranteed by invariant 1. in [`Self::child_index_starting_with`].
         Some(unsafe { self.children().get_unchecked(i) })
+    }
+
+    /// Get a mutable reference to the child node whose label starts with the
+    /// given byte. Returns `None` if there is no such child.
+    pub fn child_starting_with_mut(&mut self, c: u8) -> Option<&mut Node<Data>> {
+        let i = self.child_index_starting_with(c)?;
+        // SAFETY:
+        // Guaranteed by invariant 1. in [`Self::child_index_starting_with`].
+        Some(unsafe { self.children_mut().get_unchecked_mut(i) })
     }
 
     /// Get the index of the child node whose label starts with the given byte.

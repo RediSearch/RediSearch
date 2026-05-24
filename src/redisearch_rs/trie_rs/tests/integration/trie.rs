@@ -254,6 +254,27 @@ fn test_trie_merge() {
     "#);
 }
 
+#[test]
+fn test_trie_find_mut() {
+    let mut trie = TrieMap::new();
+    assert!(trie.find_mut(b"missing").is_none());
+
+    trie.insert(b"bike", 0);
+    trie.insert(b"biker", 1);
+    trie.insert(b"bis", 2);
+
+    // Mutate through `find_mut`, verify with `find`.
+    *trie.find_mut(b"bike").unwrap() = 10;
+    *trie.find_mut(b"biker").unwrap() += 100;
+    assert_eq!(trie.find(b"bike"), Some(&10));
+    assert_eq!(trie.find(b"biker"), Some(&101));
+    assert_eq!(trie.find(b"bis"), Some(&2));
+
+    // Absent keys, including a label-prefix non-terminal ("bi"), return None.
+    assert!(trie.find_mut(b"bi").is_none());
+    assert!(trie.find_mut(b"missing").is_none());
+}
+
 #[derive(proptest_derive::Arbitrary, Debug)]
 #[cfg(not(miri))]
 /// Enum representing operations that can be performed on a trie.

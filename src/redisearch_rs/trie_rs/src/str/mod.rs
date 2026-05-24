@@ -32,6 +32,10 @@ impl<Data> StrTrieMap<Data> {
         self.inner.find(key.as_bytes())
     }
 
+    pub fn get_mut(&mut self, key: &str) -> Option<&mut Data> {
+        self.inner.find_mut(key.as_bytes())
+    }
+
     pub fn len(&self) -> usize {
         self.inner.iter().count()
     }
