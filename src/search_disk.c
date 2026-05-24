@@ -67,8 +67,29 @@ bool SearchDisk_Initialize(RedisModuleCtx *ctx) {
   RS_ASSERT(disk->basic.setThrottleCallbacks);
   disk->basic.setThrottleCallbacks(VecSim_EnableThrottle, VecSim_DisableThrottle);
 
+  // Resolve drop_read_cache: use RSE config if true; otherwise fall back to Flex's
+  // bigredis-driver-allow_os_buffer (readable via CONFIG GET even though it is not a
+  // module-registered config).  allow_os_buffer=0 means "drop the read cache" (inverted).
+  // NOTE: "RSE explicit false" and "RSE unset" are indistinguishable with a plain bool, so
+  // an explicit 'no' will still defer to Flex when Flex has allow_os_buffer=0.
+  bool drop_read_cache = RSGlobalConfig.diskDropReadCache;
+  if (!drop_read_cache) {
+    RedisModuleCallReply *reply =
+        RedisModule_Call(ctx, "CONFIG", "cc", "GET", "bigredis-driver-allow_os_buffer");
+    if (reply && RedisModule_CallReplyType(reply) == REDISMODULE_REPLY_ARRAY &&
+        RedisModule_CallReplyLength(reply) == 2) {
+      RedisModuleCallReply *val = RedisModule_CallReplyArrayElement(reply, 1);
+      if (RedisModule_CallReplyType(val) == REDISMODULE_REPLY_STRING) {
+        size_t len;
+        const char *str = RedisModule_CallReplyStringPtr(val, &len);
+        if (len > 0) drop_read_cache = (str[0] == '0');
+      }
+    }
+    if (reply) RedisModule_FreeCallReply(reply);
+  }
+
   disk_db = disk->basic.open(ctx, (int)RSGlobalConfig.diskBufferPercentage, RSGlobalConfig.hideUserDataFromLog,
-                             RSGlobalConfig.diskDropReadCache, RSGlobalConfig.diskUseDirectReads);
+                             drop_read_cache, RSGlobalConfig.diskUseDirectReads);
   bool disk_initialized = disk_db != NULL;
 
   if (!disk_initialized) {
