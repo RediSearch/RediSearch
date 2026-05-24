@@ -43,6 +43,18 @@ on:
         type: string
         default: x86_64
         description: "CPU arch the built .so targets. Passed to `redisbench-admin run-remote --architecture <arch>` so terraform picks the matching oss-standalone-redisearch-m7[-aarch64] dir. Valid: `x86_64` | `aarch64`."
+      github_sha_override:
+        type: string
+        default: ""
+        description: "Optional: override the SHA tagged on RTS / Polar Signals labels. Used when building a historical ref so results are queryable by the actual commit hash. Empty = use PR head sha or github.sha."
+      github_branch_override:
+        type: string
+        default: ""
+        description: "Optional: override the branch label tagged on RTS. Useful for historical-ref runs to keep them out of master's regular series. Empty = use github.head_ref or github.ref_name."
+      test_regex:
+        type: string
+        default: ""
+        description: "Optional regex passed to `redisbench-admin run-remote --test-regex` to narrow which test names inside selected YAMLs run. Filters in addition to benchmark_glob/filter (filename-level). Empty = no test-name filter."
 
 jobs:
   benchmark-steps:
@@ -63,6 +75,13 @@ jobs:
           BENCHMARK_GLOB: ${{ inputs.benchmark_glob }}
           BENCHMARK_FILTER: ${{ inputs.benchmark_filter }}
         run: |
+          # Don't early-exit from this script: a mid-script `exit 0` inside
+          # `bash -l -eo pipefail {0}` was observed to surface as exit code 1
+          # on the GHA runner (only when the empty-intersection branch fires;
+          # local repro of the same script exits 0 cleanly). Use a flag and
+          # route every $GITHUB_OUTPUT write through one tail at the bottom.
+          skip="false"
+          effective_glob="${BENCHMARK_GLOB}"
           if [ -n "${BENCHMARK_FILTER}" ]; then
             effective_files=""
             echo "Filtering benchmarks: glob='${BENCHMARK_GLOB}' filter='${BENCHMARK_FILTER}'"
@@ -77,16 +96,18 @@ jobs:
             done
             if [ -z "$effective_files" ]; then
               echo "::notice::No benchmarks match both '${BENCHMARK_GLOB}' and '${BENCHMARK_FILTER}'. Skipping."
-              echo "skip=true" >> "$GITHUB_OUTPUT"
-              exit 0
+              skip="true"
+            else
+              echo "Selected $(echo ${effective_files} | wc -w | tr -d ' ') benchmark(s)"
+              effective_glob="${BENCHMARK_FILTER}"
             fi
-            echo "Selected $(echo ${effective_files} | wc -w | tr -d ' ') benchmark(s)"
-            echo "effective_glob=${BENCHMARK_FILTER}" >> "$GITHUB_OUTPUT"
           else
             echo "No filter applied, using glob: ${BENCHMARK_GLOB}"
-            echo "effective_glob=${BENCHMARK_GLOB}" >> "$GITHUB_OUTPUT"
           fi
-          echo "skip=false" >> "$GITHUB_OUTPUT"
+          {
+            echo "skip=${skip}"
+            echo "effective_glob=${effective_glob}"
+          } >> "$GITHUB_OUTPUT"
       - name: Setup specific
         if: steps.benchmark-filter.outputs.skip != 'true'
         working-directory: .install
@@ -174,10 +195,22 @@ jobs:
           # github.sha on push events (where it already is the head).
           GITHUB_SHA_RESOLVED: ${{ github.event.pull_request.head.sha || github.sha }}
           GITHUB_BRANCH_NAME: ${{ github.head_ref || github.ref_name }}
+          # Overrides used when building a historical ref via workflow_dispatch.
+          # Empty when not set, in which case the shell falls back to the
+          # PR head sha / dispatch branch above.
+          GITHUB_SHA_OVERRIDE: ${{ inputs.github_sha_override }}
+          GITHUB_BRANCH_OVERRIDE: ${{ inputs.github_branch_override }}
+          TEST_REGEX: ${{ inputs.test_regex }}
           PERFORMANCE_RTS_HOST: ${{ secrets.PERFORMANCE_RTS_HOST }}
           PERFORMANCE_RTS_PORT: ${{ secrets.PERFORMANCE_RTS_PORT }}
           PERFORMANCE_RTS_AUTH: ${{ secrets.PERFORMANCE_RTS_AUTH }}
         run: |
+          gh_sha="${GITHUB_SHA_OVERRIDE:-$GITHUB_SHA_RESOLVED}"
+          gh_branch="${GITHUB_BRANCH_OVERRIDE:-$GITHUB_BRANCH_NAME}"
+          extra_args=()
+          if [ -n "${TEST_REGEX}" ]; then
+            extra_args+=(--test-regex "${TEST_REGEX}")
+          fi
           redisbench-admin run-remote \
               --module_path "../../$MODULE_PATH" \
               --required-module search \
@@ -186,8 +219,8 @@ jobs:
               --github_org "$GITHUB_ORG_NAME" \
               --module_path "../../$REJSON_MODULE_PATH" \
               --required-module ReJSON \
-              --github_sha "$GITHUB_SHA_RESOLVED" \
-              --github_branch "$GITHUB_BRANCH_NAME" \
+              --github_sha "$gh_sha" \
+              --github_branch "$gh_branch" \
               --architecture "$ARCH" \
               --upload_results_s3 \
               --triggering_env "$TRIGGERING_ENV" \
@@ -197,7 +230,8 @@ jobs:
               --redistimeseries_host "$PERFORMANCE_RTS_HOST" \
               --redistimeseries_port "$PERFORMANCE_RTS_PORT" \
               --redistimeseries_pass "$PERFORMANCE_RTS_AUTH" \
-              --collect_search_memory True
+              --collect_search_memory True \
+              "${extra_args[@]}"
       - name: Generate Pull Request Performance info
         if: github.event.number && steps.benchmark-filter.outputs.skip != 'true'
         env:

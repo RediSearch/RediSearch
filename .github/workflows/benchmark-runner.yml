@@ -11,11 +11,23 @@ on:
         default: false
       allowed_setup:
         type: string
-        description: "if empty allows all setups. if not, will only trigger for a specific setup"
+        description: "if empty allows all setups. if not, will only trigger for a specific setup. tip: pass any non-existent value (e.g. 'build-only') to skip every benchmark job and exercise just the build step — useful when iterating on the workflow."
         default: ""
       benchmark_filter:
         type: string
-        description: "Glob to narrow benchmark selection (e.g. 'search-json*.yml'). Intersected with per-job defaults. Empty = no filtering."
+        description: "Glob to narrow benchmark selection by FILENAME (e.g. 'search-json*.yml'). Intersected with per-job defaults. Empty = no filtering."
+        default: ""
+      test_regex:
+        type: string
+        description: "Optional regex passed to `redisbench-admin run-remote --test-regex` to narrow test names INSIDE selected YAMLs. Combine with benchmark_filter for tight scoping. Empty = no test-name filter."
+        default: ""
+      git_ref:
+        type: string
+        description: "Optional: build RediSearch at this git ref instead of the dispatch ref. Accepts a branch name, a tag name, or a FULL 40-char commit SHA (actions/checkout rejects short SHAs). Benchmark specs and orchestration still come from the dispatch ref. Results get tagged with the resolved historical SHA and labeled `historical-<short-sha>` so they don't collide with master's series. Empty = today's behavior."
+        default: ""
+      benchmark_groups:
+        type: string
+        description: "Optional comma-list to gate which benchmark groups run. Valid tokens: `search`, `vecsim`, `hybrid`, `msmarco`. Example: `search,vecsim` skips hybrid and msmarco even if their setup gate would otherwise match. Empty = all groups allowed (today's behavior). Skipped jobs still appear in the run UI as gray 'Skipped' but consume no compute."
         default: ""
       rejson_branch:
         type: string
@@ -33,6 +45,18 @@ on:
       benchmark_filter:
         type: string
         default: ""
+      test_regex:
+        type: string
+        default: ""
+        description: "Regex on test names (passed to redisbench-admin --test-regex). Empty = no test-name filter."
+      git_ref:
+        type: string
+        default: ""
+        description: "Optional historical git ref to build instead of the dispatch ref."
+      benchmark_groups:
+        type: string
+        default: ""
+        description: "Comma list of benchmark groups to allow (search,vecsim,hybrid,msmarco). Empty = all."
       notify_failure:
         type: boolean
         default: false
@@ -49,6 +73,7 @@ jobs:
     with:
       arch: x86_64
       artifact_name: redisearch-bin-${{ github.run_id }}-${{ github.run_attempt }}
+      git_ref: ${{ inputs.git_ref }}
 
   build-redisearch-aarch64:
     permissions:
@@ -58,9 +83,10 @@ jobs:
     with:
       arch: aarch64
       artifact_name: redisearch-bin-aarch64-${{ github.run_id }}-${{ github.run_attempt }}
+      git_ref: ${{ inputs.git_ref }}
 
   benchmark-search-oss-standalone:
-    if: ${{ inputs.allowed_setup == '' || inputs.allowed_setup == 'oss-standalone' }}
+    if: ${{ (inputs.benchmark_groups == '' || contains(format(',{0},', inputs.benchmark_groups), ',search,')) && (inputs.allowed_setup == '' || inputs.allowed_setup == 'oss-standalone') }}
     needs: build-redisearch
     strategy:
       fail-fast: false
@@ -77,12 +103,15 @@ jobs:
       benchmark_runner_group_member_id: ${{ matrix.member_id }}
       benchmark_runner_group_total: ${{ strategy.job-total }}
       binary_artifact_name: redisearch-bin-${{ github.run_id }}-${{ github.run_attempt }}
+      github_sha_override: ${{ inputs.git_ref != '' && needs.build-redisearch.outputs.resolved_sha || '' }}
+      github_branch_override: ${{ inputs.git_ref != '' && needs.build-redisearch.outputs.branch_label || '' }}
+      test_regex: ${{ inputs.test_regex }}
 
   # aarch64 sibling of benchmark-search-oss-standalone. Targets the
   # oss-standalone-redisearch-m7-aarch64 terraform dir (m7g.8xlarge DB +
   # m7g.4xlarge client, matched AMI/installer scripts to the x86 m7 pair).
   benchmark-search-oss-standalone-aarch64:
-    if: ${{ inputs.allowed_setup == '' || inputs.allowed_setup == 'oss-standalone' }}
+    if: ${{ (inputs.benchmark_groups == '' || contains(format(',{0},', inputs.benchmark_groups), ',search,')) && (inputs.allowed_setup == '' || inputs.allowed_setup == 'oss-standalone') }}
     needs: build-redisearch-aarch64
     strategy:
       fail-fast: false
@@ -101,6 +130,9 @@ jobs:
       benchmark_runner_group_member_id: ${{ matrix.member_id }}
       benchmark_runner_group_total: ${{ strategy.job-total }}
       binary_artifact_name: redisearch-bin-aarch64-${{ github.run_id }}-${{ github.run_attempt }}
+      github_sha_override: ${{ inputs.git_ref != '' && needs.build-redisearch-aarch64.outputs.resolved_sha || '' }}
+      github_branch_override: ${{ inputs.git_ref != '' && needs.build-redisearch-aarch64.outputs.branch_label || '' }}
+      test_regex: ${{ inputs.test_regex }}
 
   benchmark-search-oss-standalone-threads-6:
     # TODO: Temporarily disabled - Redis becomes unavailable after ~3 hours of data loading.
@@ -120,9 +152,12 @@ jobs:
       benchmark_runner_group_member_id: ${{ matrix.member_id }}
       benchmark_runner_group_total: ${{ strategy.job-total }}
       binary_artifact_name: redisearch-bin-${{ github.run_id }}-${{ github.run_attempt }}
+      github_sha_override: ${{ inputs.git_ref != '' && needs.build-redisearch.outputs.resolved_sha || '' }}
+      github_branch_override: ${{ inputs.git_ref != '' && needs.build-redisearch.outputs.branch_label || '' }}
+      test_regex: ${{ inputs.test_regex }}
 
   benchmark-vecsim-oss-standalone:
-    if: ${{ inputs.allowed_setup == '' || inputs.allowed_setup == 'oss-standalone' }}
+    if: ${{ (inputs.benchmark_groups == '' || contains(format(',{0},', inputs.benchmark_groups), ',vecsim,')) && (inputs.allowed_setup == '' || inputs.allowed_setup == 'oss-standalone') }}
     needs: build-redisearch
     strategy:
       fail-fast: false
@@ -138,9 +173,12 @@ jobs:
       benchmark_runner_group_member_id: ${{ matrix.member_id }}
       benchmark_runner_group_total: ${{ strategy.job-total }}
       binary_artifact_name: redisearch-bin-${{ github.run_id }}-${{ github.run_attempt }}
+      github_sha_override: ${{ inputs.git_ref != '' && needs.build-redisearch.outputs.resolved_sha || '' }}
+      github_branch_override: ${{ inputs.git_ref != '' && needs.build-redisearch.outputs.branch_label || '' }}
+      test_regex: ${{ inputs.test_regex }}
 
   benchmark-vecsim-oss-standalone-threads-6:
-    if: ${{ inputs.allowed_setup == '' || inputs.allowed_setup == 'oss-standalone-threads-6' }}
+    if: ${{ (inputs.benchmark_groups == '' || contains(format(',{0},', inputs.benchmark_groups), ',vecsim,')) && (inputs.allowed_setup == '' || inputs.allowed_setup == 'oss-standalone-threads-6') }}
     needs: build-redisearch
     strategy:
       fail-fast: false
@@ -156,9 +194,12 @@ jobs:
       benchmark_runner_group_member_id: ${{ matrix.member_id }}
       benchmark_runner_group_total: ${{ strategy.job-total }}
       binary_artifact_name: redisearch-bin-${{ github.run_id }}-${{ github.run_attempt }}
+      github_sha_override: ${{ inputs.git_ref != '' && needs.build-redisearch.outputs.resolved_sha || '' }}
+      github_branch_override: ${{ inputs.git_ref != '' && needs.build-redisearch.outputs.branch_label || '' }}
+      test_regex: ${{ inputs.test_regex }}
 
   benchmark-search-oss-cluster-02-primaries:
-    if: ${{ inputs.allowed_setup == '' || inputs.allowed_setup == 'oss-cluster-02-primaries' }}
+    if: ${{ (inputs.benchmark_groups == '' || contains(format(',{0},', inputs.benchmark_groups), ',search,')) && (inputs.allowed_setup == '' || inputs.allowed_setup == 'oss-cluster-02-primaries') }}
     needs: build-redisearch
     strategy:
       fail-fast: false
@@ -174,9 +215,12 @@ jobs:
       benchmark_runner_group_member_id: ${{ matrix.member_id }}
       benchmark_runner_group_total: ${{ strategy.job-total }}
       binary_artifact_name: redisearch-bin-${{ github.run_id }}-${{ github.run_attempt }}
+      github_sha_override: ${{ inputs.git_ref != '' && needs.build-redisearch.outputs.resolved_sha || '' }}
+      github_branch_override: ${{ inputs.git_ref != '' && needs.build-redisearch.outputs.branch_label || '' }}
+      test_regex: ${{ inputs.test_regex }}
 
   benchmark-search-oss-cluster-04-primaries:
-    if: ${{ inputs.extended && (inputs.allowed_setup == '' || inputs.allowed_setup == 'oss-cluster-04-primaries') }}
+    if: ${{ (inputs.benchmark_groups == '' || contains(format(',{0},', inputs.benchmark_groups), ',search,')) && (inputs.extended && (inputs.allowed_setup == '' || inputs.allowed_setup == 'oss-cluster-04-primaries')) }}
     needs: build-redisearch
     strategy:
       fail-fast: false
@@ -192,6 +236,9 @@ jobs:
       benchmark_runner_group_member_id: ${{ matrix.member_id }}
       benchmark_runner_group_total: ${{ strategy.job-total }}
       binary_artifact_name: redisearch-bin-${{ github.run_id }}-${{ github.run_attempt }}
+      github_sha_override: ${{ inputs.git_ref != '' && needs.build-redisearch.outputs.resolved_sha || '' }}
+      github_branch_override: ${{ inputs.git_ref != '' && needs.build-redisearch.outputs.branch_label || '' }}
+      test_regex: ${{ inputs.test_regex }}
 
   benchmark-search-oss-cluster-04-primaries-threads-6:
     # TODO: Temporarily disabled - Redis becomes unavailable after ~3 hours of data loading.
@@ -211,9 +258,12 @@ jobs:
       benchmark_runner_group_member_id: ${{ matrix.member_id }}
       benchmark_runner_group_total: ${{ strategy.job-total }}
       binary_artifact_name: redisearch-bin-${{ github.run_id }}-${{ github.run_attempt }}
+      github_sha_override: ${{ inputs.git_ref != '' && needs.build-redisearch.outputs.resolved_sha || '' }}
+      github_branch_override: ${{ inputs.git_ref != '' && needs.build-redisearch.outputs.branch_label || '' }}
+      test_regex: ${{ inputs.test_regex }}
 
   benchmark-search-oss-cluster-08-primaries:
-    if: ${{ inputs.extended && (inputs.allowed_setup == '' || inputs.allowed_setup == 'oss-cluster-08-primaries') }}
+    if: ${{ (inputs.benchmark_groups == '' || contains(format(',{0},', inputs.benchmark_groups), ',search,')) && (inputs.extended && (inputs.allowed_setup == '' || inputs.allowed_setup == 'oss-cluster-08-primaries')) }}
     needs: build-redisearch
     strategy:
       fail-fast: false
@@ -229,9 +279,12 @@ jobs:
       benchmark_runner_group_member_id: ${{ matrix.member_id }}
       benchmark_runner_group_total: ${{ strategy.job-total }}
       binary_artifact_name: redisearch-bin-${{ github.run_id }}-${{ github.run_attempt }}
+      github_sha_override: ${{ inputs.git_ref != '' && needs.build-redisearch.outputs.resolved_sha || '' }}
+      github_branch_override: ${{ inputs.git_ref != '' && needs.build-redisearch.outputs.branch_label || '' }}
+      test_regex: ${{ inputs.test_regex }}
 
   benchmark-msmarco-oss-cluster-08-primaries-250gb-threads-8:
-    if: ${{ inputs.allowed_setup == 'oss-cluster-08-primaries-250gb-threads-8' }}
+    if: ${{ (inputs.benchmark_groups == '' || contains(format(',{0},', inputs.benchmark_groups), ',msmarco,')) && (inputs.allowed_setup == 'oss-cluster-08-primaries-250gb-threads-8') }}
     needs: build-redisearch
     uses: ./.github/workflows/benchmark-flow.yml
     secrets: inherit
@@ -241,9 +294,12 @@ jobs:
       allowed_envs: oss-cluster
       allowed_setups: oss-cluster-08-primaries-250gb-threads-8
       binary_artifact_name: redisearch-bin-${{ github.run_id }}-${{ github.run_attempt }}
+      github_sha_override: ${{ inputs.git_ref != '' && needs.build-redisearch.outputs.resolved_sha || '' }}
+      github_branch_override: ${{ inputs.git_ref != '' && needs.build-redisearch.outputs.branch_label || '' }}
+      test_regex: ${{ inputs.test_regex }}
 
   benchmark-search-oss-cluster-16-primaries:
-    if: ${{ inputs.extended && (inputs.allowed_setup == '' || inputs.allowed_setup == 'oss-cluster-16-primaries') }}
+    if: ${{ (inputs.benchmark_groups == '' || contains(format(',{0},', inputs.benchmark_groups), ',search,')) && (inputs.extended && (inputs.allowed_setup == '' || inputs.allowed_setup == 'oss-cluster-16-primaries')) }}
     needs: build-redisearch
     strategy:
       fail-fast: false
@@ -259,9 +315,12 @@ jobs:
       benchmark_runner_group_member_id: ${{ matrix.member_id }}
       benchmark_runner_group_total: ${{ strategy.job-total }}
       binary_artifact_name: redisearch-bin-${{ github.run_id }}-${{ github.run_attempt }}
+      github_sha_override: ${{ inputs.git_ref != '' && needs.build-redisearch.outputs.resolved_sha || '' }}
+      github_branch_override: ${{ inputs.git_ref != '' && needs.build-redisearch.outputs.branch_label || '' }}
+      test_regex: ${{ inputs.test_regex }}
 
   benchmark-search-oss-cluster-20-primaries:
-    if: ${{ inputs.extended && (inputs.allowed_setup == '' || inputs.allowed_setup == 'oss-cluster-20-primaries') }}
+    if: ${{ (inputs.benchmark_groups == '' || contains(format(',{0},', inputs.benchmark_groups), ',search,')) && (inputs.extended && (inputs.allowed_setup == '' || inputs.allowed_setup == 'oss-cluster-20-primaries')) }}
     needs: build-redisearch
     strategy:
       fail-fast: false
@@ -277,9 +336,12 @@ jobs:
       benchmark_runner_group_member_id: ${{ matrix.member_id }}
       benchmark_runner_group_total: ${{ strategy.job-total }}
       binary_artifact_name: redisearch-bin-${{ github.run_id }}-${{ github.run_attempt }}
+      github_sha_override: ${{ inputs.git_ref != '' && needs.build-redisearch.outputs.resolved_sha || '' }}
+      github_branch_override: ${{ inputs.git_ref != '' && needs.build-redisearch.outputs.branch_label || '' }}
+      test_regex: ${{ inputs.test_regex }}
 
   benchmark-search-oss-cluster-24-primaries:
-    if: ${{ inputs.extended && (inputs.allowed_setup == '' || inputs.allowed_setup == 'oss-cluster-24-primaries') }}
+    if: ${{ (inputs.benchmark_groups == '' || contains(format(',{0},', inputs.benchmark_groups), ',search,')) && (inputs.extended && (inputs.allowed_setup == '' || inputs.allowed_setup == 'oss-cluster-24-primaries')) }}
     needs: build-redisearch
     strategy:
       fail-fast: false
@@ -295,9 +357,12 @@ jobs:
       benchmark_runner_group_member_id: ${{ matrix.member_id }}
       benchmark_runner_group_total: ${{ strategy.job-total }}
       binary_artifact_name: redisearch-bin-${{ github.run_id }}-${{ github.run_attempt }}
+      github_sha_override: ${{ inputs.git_ref != '' && needs.build-redisearch.outputs.resolved_sha || '' }}
+      github_branch_override: ${{ inputs.git_ref != '' && needs.build-redisearch.outputs.branch_label || '' }}
+      test_regex: ${{ inputs.test_regex }}
 
   benchmark-hybrid-oss-standalone:
-    if: ${{ inputs.allowed_setup == '' || inputs.allowed_setup == 'oss-standalone' }}
+    if: ${{ (inputs.benchmark_groups == '' || contains(format(',{0},', inputs.benchmark_groups), ',hybrid,')) && (inputs.allowed_setup == '' || inputs.allowed_setup == 'oss-standalone') }}
     needs: build-redisearch
     strategy:
       fail-fast: false
@@ -313,6 +378,9 @@ jobs:
       benchmark_runner_group_member_id: ${{ matrix.member_id }}
       benchmark_runner_group_total: ${{ strategy.job-total }}
       binary_artifact_name: redisearch-bin-${{ github.run_id }}-${{ github.run_attempt }}
+      github_sha_override: ${{ inputs.git_ref != '' && needs.build-redisearch.outputs.resolved_sha || '' }}
+      github_branch_override: ${{ inputs.git_ref != '' && needs.build-redisearch.outputs.branch_label || '' }}
+      test_regex: ${{ inputs.test_regex }}
 
   notify-failure:
     needs:
