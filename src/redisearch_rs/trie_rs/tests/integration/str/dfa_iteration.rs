@@ -7,14 +7,14 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 
-//! Assert the Rust `StrTrieMap` reproduces the C rune-trie's DFA-filtered
+//! Assert `TermDictionary` reproduces the C rune-trie's DFA-filtered
 //! iteration (`Trie_Iterate`) against the snapshots owned by
 //! `rune_trie_snapshots::dfa_iteration`.
 //!
-//! Assumed `StrTrieMap` API (does NOT exist yet — porting target):
+//! Assumed `TermDictionary` API (does NOT exist yet — porting target):
 //!
 //! ```ignore
-//! impl<Data> StrTrieMap<Data> {
+//! impl TermDictionary {
 //!     /// Iterate every terminal whose key lies within Levenshtein edit
 //!     /// distance `max_dist` of `prefix`. With `prefix_mode = true`, any
 //!     /// suffix beneath a matched-prefix node is also yielded.
@@ -24,12 +24,12 @@
 //!     /// `src/trie/levenshtein.c:258-278`), NOT a Levenshtein-from-yielded-
 //!     /// term-to-prefix recompute. Reproducing that exactly is the whole
 //!     /// point of asserting against the C snapshots.
-//!     pub fn iterate_dfa(
-//!         &self,
-//!         prefix: &[Rune],
+//!     pub fn iterate_dfa<'tm, 'p>(
+//!         &'tm self,
+//!         prefix: &'p str,
 //!         max_dist: u32,
 //!         prefix_mode: bool,
-//!     ) -> impl Iterator<Item = (Vec<Rune>, &Data, u32)>;
+//!     ) -> impl Iterator<Item = (String, &'tm TermEntry, u32)> + 'tm;
 //! }
 //! ```
 //!
@@ -40,21 +40,10 @@
 
 use std::fmt::Write as _;
 
-use trie_rs::str::StrTrieMap;
+use trie_rs::term_dict::TermDictionary;
 
-/// Mirror of the per-term payload the C trie carries (`score`, `numDocs`).
-/// The dump format includes both, so `Data` has to expose them.
-struct TermEntry {
-    score: f32,
-    num_docs: usize,
-}
-
-fn term_runes(s: &str) -> Vec<Rune> {
-    s.encode_utf16().collect()
-}
-
-fn build_fixture() -> StrTrieMap<TermEntry> {
-    let mut trie = StrTrieMap::<TermEntry>::new();
+fn build_fixture() -> TermDictionary {
+    let mut trie = TermDictionary::new();
     // Same insertion order as `rune_trie_snapshots::dfa_iteration::build_fixture`.
     // Order doesn't affect the iterator's lex traversal, but keeping it
     // identical makes any structural divergence (e.g. node-split bugs that
@@ -62,13 +51,7 @@ fn build_fixture() -> StrTrieMap<TermEntry> {
     for term in [
         "apple", "apply", "appl", "ape", "banana", "band", "bandana", "b", "cat", "category",
     ] {
-        trie.insert(
-            &term_runes(term),
-            TermEntry {
-                score: 1.0,
-                num_docs: 1,
-            },
-        );
+        trie.replace_term(term, 1.0, 1);
     }
     trie
 }
@@ -78,7 +61,7 @@ fn build_fixture() -> StrTrieMap<TermEntry> {
 /// (including the column alignment + the `<no matches>` placeholder) so the
 /// `.snap` bytes match.
 fn dump_filtered(
-    trie: &StrTrieMap<TermEntry>,
+    trie: &TermDictionary,
     prefix: &str,
     max_dist: u32,
     prefix_mode: bool,
@@ -93,10 +76,8 @@ fn dump_filtered(
     )
     .unwrap();
 
-    let key = term_runes(prefix);
     let mut matches = 0usize;
-    for (k, entry, dist) in trie.iterate_dfa(&key, max_dist, prefix_mode) {
-        let term = String::from_utf16(&k).expect("trie runes are valid BMP UTF-16");
+    for (term, entry, dist) in trie.iterate_dfa(prefix, max_dist, prefix_mode) {
         writeln!(
             out,
             "  {term:10}  dist={dist}  score={score}  numDocs={num_docs}",
@@ -112,7 +93,7 @@ fn dump_filtered(
 }
 
 /// Header line: only the fixture size, matching the C scenario's `header()`.
-fn header(trie: &StrTrieMap<TermEntry>) -> String {
+fn header(trie: &TermDictionary) -> String {
     format!("size: {}\n\n", trie.len())
 }
 
