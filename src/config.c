@@ -214,6 +214,23 @@ static long long get_uint8_numeric_config(const char *name, void *privdata) {
   return (long long)(*(uint8_t *)privdata);
 }
 
+// Setter for disk bool tristate configs (int8_t: -1=inherit, 0=false, 1=true).
+// The setter is only called when the user explicitly provides the config, so -1 (inherit) is
+// preserved as the default until an explicit value is set.
+static int set_disk_bool_tristate_config(const char *name, int val, void *privdata,
+                                         RedisModuleString **err) {
+  REDISMODULE_NOT_USED(name);
+  REDISMODULE_NOT_USED(err);
+  *(int8_t *)privdata = (int8_t)val;
+  return REDISMODULE_OK;
+}
+
+static int get_disk_bool_tristate_config(const char *name, void *privdata) {
+  REDISMODULE_NOT_USED(name);
+  int8_t v = *(int8_t *)privdata;
+  return v > 0 ? 1 : 0;
+}
+
 static int set_bool_config(const char *name, int val, void *privdata,
                     RedisModuleString **err) {
   REDISMODULE_NOT_USED(name);
@@ -2386,6 +2403,27 @@ int RegisterModuleConfig_Local(RedisModuleCtx *ctx) {
       REDISMODULE_CONFIG_UNPREFIXED, 0,
       100, get_uint8_numeric_config, set_search_disk_buffer_percentage_config, NULL,
       (void *)&(RSGlobalConfig.diskBufferPercentage)
+    )
+  )
+
+  // Immutable disk read-cache options. Default (-1) inherits the corresponding
+  // Flex bigredis-driver config; explicit 0/1 overrides it. Resolution happens
+  // in SearchDisk_Initialize where the Flex fallback can be queried.
+  RM_TRY(
+    RedisModule_RegisterBoolConfig(
+      ctx, "search-disk-drop-read-cache", 0,
+      REDISMODULE_CONFIG_IMMUTABLE | REDISMODULE_CONFIG_UNPREFIXED,
+      get_disk_bool_tristate_config, set_disk_bool_tristate_config, NULL,
+      (void *)&(RSGlobalConfig.diskDropReadCacheConfig)
+    )
+  )
+
+  RM_TRY(
+    RedisModule_RegisterBoolConfig(
+      ctx, "search-disk-use-direct-reads", 0,
+      REDISMODULE_CONFIG_IMMUTABLE | REDISMODULE_CONFIG_UNPREFIXED,
+      get_disk_bool_tristate_config, set_disk_bool_tristate_config, NULL,
+      (void *)&(RSGlobalConfig.diskUseDirectReadsConfig)
     )
   )
 

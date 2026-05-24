@@ -216,6 +216,12 @@ typedef struct {
   bool monitorExpiration;
   // Percentage of available memory to use for disk write buffer (0-100).
   uint8_t diskBufferPercentage;
+  // Tristate disk read-cache option: -1=inherit from Flex bigredis-driver-allow_os_buffer,
+  // 0=force false, 1=force true. Set to -1 (inherit) by default.
+  int8_t diskDropReadCacheConfig;
+  // Tristate direct-reads option: -1=inherit from Flex bigredis-driver-use-direct-reads,
+  // 0=force false, 1=force true. Set to -1 (inherit) by default.
+  int8_t diskUseDirectReadsConfig;
   // If true, fallback to main thread when BlockClient is unavailable.
   bool fallbackToMainThreadWhenBlockClientUnavailable;
 } RSConfig;
@@ -431,6 +437,8 @@ long long getRedisConfigNumeric(RedisModuleCtx *ctx, const char *confName, long 
     .simulateInFlex = false,                                                   \
     .monitorExpiration = true,                                                 \
     .diskBufferPercentage = DEFAULT_DISK_BUFFER_PERCENTAGE,                    \
+    .diskDropReadCacheConfig = -1,                                             \
+    .diskUseDirectReadsConfig = -1,                                            \
     .fallbackToMainThreadWhenBlockClientUnavailable = true,                    \
   }
 
