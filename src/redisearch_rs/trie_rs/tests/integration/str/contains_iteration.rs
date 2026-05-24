@@ -27,20 +27,24 @@
 //! `TrieNode_Get(root, str, 0, ...)` returning NULL (loop never enters,
 //! falls through to `return NULL` at `src/trie/trie_node.c:411`), which
 //! short-circuits the C contains walk before it touches the subtree.
+//!
+//! `TermDictionary` carries a `score` per entry; this test never reads it
+//! (the snapshot column is `numDocs={n}` only, to match the C rune oracle).
+//! [`UNUSED_SCORE`] makes the dead field's value explicit at the call site.
 
 use std::fmt::Write as _;
 
-use trie_rs::str::StrTrieMap;
+use trie_rs::term_dict::TermDictionary;
 
-struct TermEntry {
-    num_docs: usize,
-}
+/// Sentinel score value carried into every seed entry. The dump format
+/// for this suite is `numDocs`-only, so the score is never observed.
+const UNUSED_SCORE: f32 = 1.0;
 
-fn build_fixture() -> StrTrieMap<TermEntry> {
-    let mut trie = StrTrieMap::<TermEntry>::new();
+fn build_fixture() -> TermDictionary {
+    let mut trie = TermDictionary::new();
     // Same insertion order as `rune_trie_snapshots::contains_iteration::build_fixture`.
     for term in ["cat", "catalog", "category", "concat", "scat", "scatter"] {
-        trie.insert(term, TermEntry { num_docs: 1 });
+        trie.replace_term(term, UNUSED_SCORE, 1);
     }
     trie
 }
@@ -51,7 +55,7 @@ fn emit_match(out: &mut String, matches: &mut usize, term: &str, num_docs: usize
 }
 
 fn dump_contains(
-    trie: &StrTrieMap<TermEntry>,
+    trie: &TermDictionary,
     label: &str,
     pattern: &str,
     prefix: bool,
@@ -99,7 +103,7 @@ fn dump_contains(
     }
 }
 
-fn header(trie: &StrTrieMap<TermEntry>) -> String {
+fn header(trie: &TermDictionary) -> String {
     format!("size: {}\n\n", trie.len())
 }
 

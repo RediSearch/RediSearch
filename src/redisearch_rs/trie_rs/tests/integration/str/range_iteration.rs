@@ -19,23 +19,26 @@
 //! halts after exactly 3 callback fires by returning non-zero from the
 //! callback; the iterator port just truncates. If the user prefers a
 //! callback-bearing `try_for_each` adapter, that's a redesign call.
+//!
+//! `TermDictionary` carries a `score` per entry; this test never reads it
+//! (the snapshot column is `numDocs={n}` only, to match the C rune oracle).
+//! [`UNUSED_SCORE`] makes the dead field's value explicit at the call site.
 
 use std::fmt::Write as _;
 
-use trie_rs::str::StrTrieMap;
+use trie_rs::term_dict::TermDictionary;
 
-/// Per-term payload. The dump format only needs `num_docs` — no score column.
-struct TermEntry {
-    num_docs: usize,
-}
+/// Sentinel score value carried into every seed entry. The dump format
+/// for this suite is `numDocs`-only, so the score is never observed.
+const UNUSED_SCORE: f32 = 1.0;
 
-fn build_fixture() -> StrTrieMap<TermEntry> {
-    let mut trie = StrTrieMap::<TermEntry>::new();
+fn build_fixture() -> TermDictionary {
+    let mut trie = TermDictionary::new();
     // Same insertion order as `rune_trie_snapshots::range_iteration::build_fixture`.
     for term in [
         "apple", "apricot", "banana", "band", "bandana", "cherry", "date",
     ] {
-        trie.insert(term, TermEntry { num_docs: 1 });
+        trie.replace_term(term, UNUSED_SCORE, 1);
     }
     trie
 }
@@ -44,7 +47,7 @@ fn build_fixture() -> StrTrieMap<TermEntry> {
 /// the "unbounded on that side" sentinel — same role as the C `(NULL, -1)`
 /// pair.
 fn dump_range(
-    trie: &StrTrieMap<TermEntry>,
+    trie: &TermDictionary,
     label: &str,
     min: Option<&str>,
     include_min: bool,
@@ -72,7 +75,7 @@ fn dump_range(
     }
 }
 
-fn header(trie: &StrTrieMap<TermEntry>) -> String {
+fn header(trie: &TermDictionary) -> String {
     format!("size: {}\n\n", trie.len())
 }
 

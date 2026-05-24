@@ -23,25 +23,29 @@
 //! at `src/trie/trie_node.c:1204` to decide its `prefix` shortcut flag —
 //! `nstr=0` is UB on the C side and undefined-by-contract for the Rust
 //! port.
+//!
+//! `TermDictionary` carries a `score` per entry; this test never reads it
+//! (the snapshot column is `numDocs={n}` only, to match the C rune oracle).
+//! [`UNUSED_SCORE`] makes the dead field's value explicit at the call site.
 
 use std::fmt::Write as _;
 
-use trie_rs::str::StrTrieMap;
+use trie_rs::term_dict::TermDictionary;
 
-struct TermEntry {
-    num_docs: usize,
-}
+/// Sentinel score value carried into every seed entry. The dump format
+/// for this suite is `numDocs`-only, so the score is never observed.
+const UNUSED_SCORE: f32 = 1.0;
 
-fn build_fixture() -> StrTrieMap<TermEntry> {
-    let mut trie = StrTrieMap::<TermEntry>::new();
+fn build_fixture() -> TermDictionary {
+    let mut trie = TermDictionary::new();
     // Same insertion order as `rune_trie_snapshots::wildcard_iteration::build_fixture`.
     for term in ["cat", "car", "cab", "bat", "rat", "category", "concat"] {
-        trie.insert(term, TermEntry { num_docs: 1 });
+        trie.replace_term(term, UNUSED_SCORE, 1);
     }
     trie
 }
 
-fn dump_wildcard(trie: &StrTrieMap<TermEntry>, label: &str, pattern: &str, out: &mut String) {
+fn dump_wildcard(trie: &TermDictionary, label: &str, pattern: &str, out: &mut String) {
     assert!(
         !pattern.is_empty(),
         "wildcard pattern must be non-empty (str[-1] read)"
@@ -58,7 +62,7 @@ fn dump_wildcard(trie: &StrTrieMap<TermEntry>, label: &str, pattern: &str, out: 
     }
 }
 
-fn header(trie: &StrTrieMap<TermEntry>) -> String {
+fn header(trie: &TermDictionary) -> String {
     format!("size: {}\n\n", trie.len())
 }
 
