@@ -7,7 +7,14 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 
-mod iter;
-mod rune;
-mod str;
-mod trie;
+mod boundary_cases;
+mod contains_iteration;
+mod delete_and_decrement;
+// mod dfa_iteration;
+mod incr_mode;
+mod insert_iterate;
+mod payloads;
+mod range_iteration;
+mod splits;
+mod unicode;
+mod wildcard_iteration;
