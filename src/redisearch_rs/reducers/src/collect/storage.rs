@@ -17,6 +17,8 @@
 //!   primitive defined in [`super::heap`] and draining best→worst.
 //!   Suitable when a ranked top-K is needed.
 
+use std::cmp::Ordering;
+
 use itertools::Either;
 use min_max_heap::MinMaxHeap;
 use rlookup::RLookupRow;
@@ -78,19 +80,13 @@ impl Storage {
 
     /// Insert an entry, honouring the `offset + count` cap.
     ///
-    /// Both closures defer their cost: the array path ignores `sort_view`,
-    /// and `project` runs only when the entry will be retained. On the
-    /// heap-at-cap branch, `sort_view` is consulted via
-    /// [`EntryKey::cmp_candidate`] for a borrow-only compare against the
-    /// worst survivor; the owned snapshot is built only when the
-    /// candidate wins.
+    /// `project` is called only when the entry will be retained.
+    /// `sort_view` is [`Fn`] (not [`FnOnce`]) because it may be called twice
+    /// on a winner — once to borrow-compare via [`EntryKey::cmp_candidate`],
+    /// once to materialise the owned snapshot. Callers must ensure it is an
+    /// idempotent projection over a stable borrowed source.
     ///
-    /// `sort_view` is [`Fn`] (not [`FnOnce`]) because it may be invoked
-    /// twice on a winner — compare, then materialize. Callers must shape
-    /// it as an idempotent projection over a stable borrowed source.
-    ///
-    /// Returns `true` if the entry was buffered, `false` if it was
-    /// dropped.
+    /// Returns `true` if the entry was buffered, `false` if it was dropped.
     pub fn insert_entry<'r, F, I, P>(&mut self, sort_view: F, project: P) -> bool
     where
         F: Fn() -> I,
@@ -129,7 +125,7 @@ impl Storage {
                 } else {
                     // At cap: borrow-compare first; materialize only on win.
                     let worst = heap.peek_min().expect("heap at cap is non-empty");
-                    if worst.key().cmp_candidate(sort_view()) == std::cmp::Ordering::Greater {
+                    if worst.key().cmp_candidate(sort_view()) == Ordering::Greater {
                         let owned: Box<[Option<SharedValue>]> =
                             sort_view().into_iter().map(|v| v.cloned()).collect();
                         let key = EntryKey::new(owned, *sort_asc_map);

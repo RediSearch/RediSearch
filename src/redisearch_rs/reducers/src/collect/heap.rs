@@ -11,16 +11,12 @@
 //! top-K path.
 //!
 //! Wraps an `Ord`-driven [`MinMaxHeap`][min_max_heap::MinMaxHeap] over
-//! [`HeapEntry<T>`], where the comparator only reads the [`EntryKey`] half. The
-//! split lets the heap defer payload projection until a candidate's survival is
-//! confirmed.
-//!
-//! ## Deferred projection
-//!
+//! [`HeapEntry<T>`], where the comparator only reads the [`EntryKey`] half,
+//! deferring payload projection until a candidate's survival is confirmed.
 //! [`EntryKey`] owns a *snapshot* of the sort-key values, severed from the
-//! reused upstream [`RLookupRow`][rlookup::RLookupRow] buffer. The payload
-//! `T` is materialised by the caller only after the candidate has beaten the
-//! current worst — see [`super::storage`].
+//! reused upstream [`RLookupRow`][rlookup::RLookupRow] buffer; the payload
+//! `T` is materialised only after the candidate beats the current worst —
+//! see [`super::storage`].
 //!
 
 use std::cmp::Ordering;
@@ -31,7 +27,7 @@ use value::comparison::cmp_fields;
 /// comparator is allowed to read.
 ///
 /// Bit `i` of `sort_asc_map` (LSB-first) selects ASC for the `i`-th key
-/// (set) or DESC (clear), matching `SORTASCMAP_GETASC` / `cmp_fields`.
+/// (set) or DESC (clear), matching `SORTASCMAP_GETASC` / [`cmp_fields`].
 pub struct EntryKey {
     sort_vals: Box<[Option<SharedValue>]>,
     sort_asc_map: u64,
@@ -54,14 +50,32 @@ impl EntryKey {
     ///
     /// `candidate` yields one value per sort key, in the same order as
     /// `self`'s. Missing-worst handling is delegated to [`cmp_fields`].
+    /// `Ordering::Equal` means the candidate ties the worst entry; callers
+    /// treat ties as losses and drop the candidate.
+    ///
+    /// # Panics (debug only)
+    ///
+    /// Asserts that `candidate` yields exactly as many items as
+    /// `self.sort_vals` contains. A mismatch causes [`std::iter::zip`] to
+    /// silently truncate, producing a wrong ordering.
     ///
     /// [`Storage::insert_entry`]: super::storage::Storage::insert_entry
     pub fn cmp_candidate<'a, I>(&self, candidate: I) -> Ordering
     where
         I: IntoIterator<Item = Option<&'a SharedValue>>,
     {
-        let pairs = candidate
-            .into_iter()
+        let iter = candidate.into_iter();
+        #[cfg(debug_assertions)]
+        let iter = {
+            let v: Vec<_> = iter.collect();
+            debug_assert_eq!(
+                v.len(),
+                self.sort_vals.len(),
+                "cmp_candidate: candidate key count must match sort_vals"
+            );
+            v.into_iter()
+        };
+        let pairs = iter
             .map(|v| v.map(|s| &**s))
             .zip(self.sort_vals.iter().map(|v| v.as_deref()));
         cmp_fields(pairs, self.sort_asc_map, None)
@@ -94,19 +108,19 @@ impl Ord for EntryKey {
             .iter()
             .zip(other.sort_vals.iter())
             .map(|(a, b)| (a.as_deref(), b.as_deref()));
-        // Direct delegation: `cmp_fields` already returns
-        // `Ordering::Greater` for the "better" side, matching the
-        // "best = max" convention in `SearchResult_CmpByFields` and the
-        // C `RPSorter`'s `mmh_pop_max` consumer.
+        // cmp_fields returns Greater for the "better" side — matching the
+        // "best = max" convention used by the C RPSorter.
         cmp_fields(pairs, self.sort_asc_map, None)
     }
 }
 
 /// Heap slot: the comparator key alongside the projected payload.
 ///
-/// `T` is the per-row payload the consumer (`Storage::Heap`) yields at
-/// finalize. Comparing only reads `key`, so the choice of `T` does not
+/// `T` is the per-row payload the consumer ([`Storage::Heap`]) yields when
+/// draining. Comparing only reads `key`, so the choice of `T` does not
 /// affect ranking.
+///
+/// [`Storage::Heap`]: super::storage::Storage::Heap
 pub struct HeapEntry<T> {
     key: EntryKey,
     projected: T,
@@ -125,7 +139,6 @@ impl<T> HeapEntry<T> {
         &self.projected
     }
 
-    /// Return the projected payload.
     pub fn into_projected(self) -> T {
         self.projected
     }
