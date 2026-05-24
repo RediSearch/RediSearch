@@ -4491,6 +4491,69 @@ class TestShardTimeout:
 
         env.expect('CONFIG', 'SET', ON_TIMEOUT_CONFIG, prev_on_timeout_policy).ok()
 
+    def test_shard_timeout_qi_not_iterator(self):
+        """MOD-15397: the Rust NOT iterator's per-iterator timeout callback
+        receives the blocked-client timeout signal under FAIL + WORKERS.
+
+        Arms ``BeforeQITimeoutCheck``, runs ``FT.SEARCH idx -hello1`` so the
+        Rust ``NotIterator``'s ``check_timeout`` parks at the sync point, then
+        fires ``CLIENT UNBLOCK ... TIMEOUT`` to flip the AREQ timed-out flag.
+        The sync-point predicate (``AREQ_TimedOut``) releases the wait, the
+        iterator returns ``Timeout``, and the query reports the timeout error.
+        """
+        env = self.env
+        skipIfNoEnableAssert(env)
+        sync_point = 'BeforeQITimeoutCheck'
+
+        prev_on_timeout_policy = env.cmd('CONFIG', 'GET', ON_TIMEOUT_CONFIG)[ON_TIMEOUT_CONFIG]
+        env.expect('CONFIG', 'SET', ON_TIMEOUT_CONFIG, 'fail').ok()
+
+        before_info = info_modules_to_dict(env)
+        base_err_coord = int(before_info[COORD_WARN_ERR_SECTION][TIMEOUT_ERROR_COORD_METRIC])
+
+        env.expect(debug_cmd(), 'SYNC_POINT', 'CLEAR').ok()
+        env.expect(debug_cmd(), 'SYNC_POINT', 'ARM', sync_point).ok()
+
+        try:
+            query_args = ['FT.SEARCH', 'idx', '-hello1']
+            t_query = threading.Thread(
+                target=run_cmd_expect_timeout,
+                args=(env, query_args),
+                daemon=True
+            )
+            t_query.start()
+
+            blocked_client_id = wait_for_blocked_query_client(env, 'FT.SEARCH')
+
+            # Worker must reach the QI timeout check (proves the callback was
+            # installed and the iterator's check_timeout was called).
+            wait_for_condition(
+                lambda: (env.cmd(debug_cmd(), 'SYNC_POINT', 'IS_WAITING', sync_point) == 1, {}),
+                f'Worker never reached {sync_point}'
+            )
+
+            # Fire blocked-client timeout: main-thread callback sets
+            # AREQ.timedOut; the sync-point predicate releases the wait and
+            # the iterator's check_timeout returns Timeout.
+            env.expect('CLIENT', 'UNBLOCK', blocked_client_id, 'TIMEOUT').equal(1)
+            wait_for_client_unblocked(env, blocked_client_id)
+        finally:
+            # Disarm the sync point. The predicate may have already released
+            # the worker, but the point itself stays armed until signalled
+            # or cleared, which would block subsequent tests.
+            env.expect(debug_cmd(), 'SYNC_POINT', 'SIGNAL', sync_point).ok()
+
+        t_query.join(timeout=10)
+        env.assertFalse(t_query.is_alive(), message="Query thread should have finished")
+
+        # Standalone uses coord metrics for shard-side timeouts.
+        after_info = info_modules_to_dict(env)
+        env.assertEqual(after_info[COORD_WARN_ERR_SECTION][TIMEOUT_ERROR_COORD_METRIC],
+                        str(base_err_coord + 1),
+                        message="Coord timeout error should be +1 after QI sync-point timeout")
+
+        env.expect('CONFIG', 'SET', ON_TIMEOUT_CONFIG, prev_on_timeout_policy).ok()
+
     def _test_fail_timeout_before_store_impl(self, query_args, cmd_name=None):
         """Test timeout occurring before storing results (reply_callback path) in standalone."""
         env = self.env

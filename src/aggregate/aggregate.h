@@ -562,6 +562,11 @@ static inline void AREQ_SetTimedOut(AREQ *req) {
 bool areq_timed_out(void *arg);
 #endif
 
+/* Non-inline named bridge over AREQ_TimedOut, invoked by Rust query
+ * iterators on the Blocked Client Timeout path. The named extern is a
+ * stable symbol that LTO can inline through. */
+bool AREQ_CheckTimedOut(AREQ *areq);
+
 /* True when this AREQ uses the BG-thread / timeout-callback claim handshake
  * around AggregateResults (TryClaim/Signal/Wait). Currently set only on the
  * coordinator AREQ under RETURN-STRICT; all other paths skip the protocol. */

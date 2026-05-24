@@ -149,6 +149,7 @@ void StoreResultsDebugCtx_SetPause(bool pause);
 #define SYNC_POINT_AFTER_ITERATOR_START                 "AfterIteratorStart"
 #define SYNC_POINT_RPNET_REPLY_ADMITTED                 "RpnetReplyAdmitted"
 #define SYNC_POINT_RPNET_WAITING_FOR_REPLY              "RpnetWaitingForReply"
+#define SYNC_POINT_BEFORE_QI_TIMEOUT_CHECK              "BeforeQITimeoutCheck"
 
 // SyncPoint API function declarations
 // Arm a sync point - subsequent calls to SyncPoint_Wait will block

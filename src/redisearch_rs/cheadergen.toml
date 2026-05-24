@@ -75,6 +75,10 @@ after_includes = """
 // In C, timespec is a struct tag, not a typedef. Rust's libc::timespec maps to
 // the bare name, so we introduce a typedef to make it valid C.
 typedef struct timespec timespec;
+// `AREQ` is forward-declared as a struct tag in `query.h` (above) but its
+// typedef lives in `aggregate/aggregate.h`. cheadergen emits `*mut ffi::AREQ`
+// as the bare `AREQ *`, so we surface the typedef here for the C compiler.
+typedef struct AREQ AREQ;
 """
 
 [header.module_init_ffi]
