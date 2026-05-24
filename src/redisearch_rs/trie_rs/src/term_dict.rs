@@ -18,7 +18,10 @@
 //! confined to this module so the underlying [`StrTrieMap`] remains a pure
 //! data structure.
 
-use crate::str::{StrTrieMap, iter::Iter};
+use crate::str::{
+    StrTrieMap,
+    iter::{ContainsIter, Iter, PrefixedIter, RangeIter, SuffixedIter, WildcardIter},
+};
 
 /// Per-term metadata stored at each terminal in the term dictionary.
 ///
@@ -163,6 +166,59 @@ impl TermDictionary {
 
     pub fn iter(&self) -> Iter<'_, TermEntry> {
         self.inner.iter()
+    }
+
+    /// Yield every term whose key starts with `prefix`.
+    ///
+    /// Proxies [`StrTrieMap::prefixed_iter`]; see that method for the
+    /// underlying C contract (`Trie_IterateContains`, prefix branch).
+    pub fn prefixed_iter<'tm>(&'tm self, prefix: &str) -> PrefixedIter<'tm, TermEntry> {
+        self.inner.prefixed_iter(prefix)
+    }
+
+    /// Yield every term whose key ends with `suffix`.
+    ///
+    /// Proxies [`StrTrieMap::suffixed_iter`].
+    pub fn suffixed_iter<'tm>(&'tm self, suffix: &str) -> SuffixedIter<'tm, TermEntry> {
+        self.inner.suffixed_iter(suffix)
+    }
+
+    /// Yield every term whose key contains `target` as a substring.
+    ///
+    /// Proxies [`StrTrieMap::contains_iter`].
+    pub fn contains_iter<'tm, 'p>(
+        &'tm self,
+        target: &'p str,
+    ) -> ContainsIter<'tm, 'p, TermEntry> {
+        self.inner.contains_iter(target)
+    }
+
+    /// Yield every term whose key falls within the lex range
+    /// `[min, max]` (inclusivity controlled per-end).
+    ///
+    /// Proxies [`StrTrieMap::range_iter`]; `None` on either side disables
+    /// that bound (matches the C `(NULL, -1)` sentinel for
+    /// `Trie_IterateRange`).
+    pub fn range_iter<'tm, 'p>(
+        &'tm self,
+        min: Option<&'p str>,
+        include_min: bool,
+        max: Option<&'p str>,
+        include_max: bool,
+    ) -> RangeIter<'tm, 'p, TermEntry> {
+        self.inner.range_iter(min, include_min, max, include_max)
+    }
+
+    /// Yield every term matching the wildcard `pattern` (`?` = one byte,
+    /// `*` = zero or more bytes).
+    ///
+    /// Proxies [`StrTrieMap::wildcard_iter`]; see that method for the
+    /// byte-vs-codepoint caveat on non-ASCII patterns.
+    pub fn wildcard_iter<'tm, 'p>(
+        &'tm self,
+        pattern: &'p str,
+    ) -> WildcardIter<'tm, 'p, TermEntry> {
+        self.inner.wildcard_iter(pattern)
     }
 
     /// Decrement the `num_docs` count for `term` by `delta`.
