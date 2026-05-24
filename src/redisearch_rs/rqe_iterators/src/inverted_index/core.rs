@@ -8,8 +8,9 @@
 */
 
 use ffi::t_docId;
+use index_result::RSIndexResult;
 use index_spec::IndexSpecReadGuard;
-use inverted_index::{IndexReader, RSIndexResult};
+use inverted_index::IndexReader;
 
 use crate::{
     IteratorType, RQEIterator, RQEIteratorError, RQEValidateStatus, SkipToOutcome,

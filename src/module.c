@@ -9,6 +9,7 @@
 #define REDISMODULE_MAIN
 
 #include <assert.h>
+#include "triemap_ffi.h"
 #include <stdio.h>
 #include <string.h>
 #include <sys/param.h>
@@ -39,16 +40,14 @@
 #include "query_param.h"
 #include "dictionary.h"
 #include "suggest.h"
-#include "redisearch_api.h"
 #include "alias.h"
 #include "module.h"
-#include "rwlock.h"
 #include "info/info_command.h"
 #include "rejson_api.h"
 #include "geometry/geometry_api.h"
 #include "reply.h"
 #include "resp3.h"
-#include "query_error.h"
+#include "query_error_ffi.h"
 #include "coord/rmr/rmr.h"
 #include "shard_window_ratio.h"
 
@@ -81,7 +80,7 @@
 #include "util/redis_mem_info.h"
 #include "notifications.h"
 #include "aggregate/reply_empty.h"
-#include "module_init.h"
+#include "module_init_ffi.h"
 #include "asm_state_machine.h"
 #include "config.h"
 #ifdef ENABLE_ASSERT
@@ -717,7 +716,7 @@ int DropIndexCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
   char *indexName = rm_strdup(IndexSpec_FormatName(sp, RSGlobalConfig.hideUserDataFromLog));
 
   if (sp->diskSpec) {
-    SearchDisk_UnregisterIndex(ctx, sp->diskSpec);
+    SearchDisk_UnregisterIndex(ctx, sp);
     SearchDisk_MarkIndexForDeletion(sp->diskSpec);
   }
 
@@ -1142,7 +1141,7 @@ static int AliasUpdateCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int
   }
   int rc = 0;
   if (aliasAddCommon(ctx, argv, argc, &status, false) != REDISMODULE_OK) {
-    // Add back the previous index. this shouldn't fail
+    // Add back the previous index. This shouldn't fail
     if (spOrig) {
       QueryError e2 = QueryError_Default();
       IndexAlias_Add(alias, Orig_ref, 0, &e2);
@@ -1155,6 +1154,41 @@ static int AliasUpdateCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int
   }
   HiddenString_Free(alias, false);
   return rc;
+}
+
+// FT.ALIASLIST <index>
+// Returns all aliases for the given index.
+// Only accepts index names, not aliases (INDEXSPEC_LOAD_NOALIAS).
+int AliasListCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
+  if (argc != 2) {
+    return RedisModule_WrongArity(ctx);
+  }
+
+  IndexLoadOptions lOpts = {.nameR = argv[1],
+                            .flags = INDEXSPEC_LOAD_NOALIAS | INDEXSPEC_LOAD_KEY_RSTRING};
+  StrongRef ref = IndexSpec_LoadUnsafeEx(&lOpts);
+  IndexSpec *sp = StrongRef_Get(ref);
+  if (!sp) {
+    const char *idx = RedisModule_StringPtrLen(argv[1], NULL);
+    return RedisModule_ReplyWithErrorFormat(ctx, "%s: %s", QueryError_Strerror(QUERY_ERROR_CODE_NO_INDEX), idx);
+  }
+
+  if (!ACLUserMayAccessIndex(ctx, sp)) {
+    return RedisModule_ReplyWithError(ctx, NOPERM_ERR);
+  }
+
+  CurrentThread_SetIndexSpec(sp->own_ref);
+
+  size_t count = array_len(sp->aliases);
+  RedisModule_ReplyWithSet(ctx, count);
+  for (size_t i = 0; i < count; i++) {
+    size_t len;
+    const char *alias = HiddenString_GetUnsafe(sp->aliases[i], &len);
+    RedisModule_ReplyWithStringBuffer(ctx, alias, len);
+  }
+
+  CurrentThread_ClearIndexSpec();
+  return REDISMODULE_OK;
 }
 
 int ConfigCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
@@ -1718,7 +1752,7 @@ int RediSearch_InitModuleInternal(RedisModuleCtx *ctx) {
     }
   }
 
-  if (RediSearch_Init(ctx, REDISEARCH_INIT_MODULE) != REDISMODULE_OK) {
+  if (RediSearch_Init(ctx) != REDISMODULE_OK) {
     return REDISMODULE_ERR;
   }
 
@@ -1775,6 +1809,7 @@ int RediSearch_InitModuleInternal(RedisModuleCtx *ctx) {
     DEFINE_COMMAND(CMD_FOR_ENV(RS_ALIASUPDATE),        AliasUpdateCommand,            "write deny-oom",   SetFtAliasupdateInfo,         SET_COMMAND_INFO,       "",  true, indexOnlyCmdArgs, !enterprise),
     DEFINE_COMMAND(CMD_FOR_ENV(RS_ALIASDEL),           AliasDelCommand,               "write",            SetFtAliasdelInfo,            SET_COMMAND_INFO,       "",  true, indexOnlyCmdArgs, !enterprise),
     DEFINE_COMMAND(CMD_FOR_ENV(RS_ALIASDEL_IF_X),      AliasDelIfExCommand,           "write",            SetFtAliasdelInfo,            SET_COMMAND_INFO,       "",  true, indexOnlyCmdArgs, !enterprise),
+    DEFINE_COMMAND(RS_ALIASLIST_CMD,                   AliasListCommand,              "readonly",         SetFtAliaslistInfo,           SET_COMMAND_INFO,       "",  true, indexOnlyCmdArgs, false),
 
     // Suggestion commands key specs should be 1, 1, 1
     DEFINE_COMMAND(RS_SUGADD_CMD,     DiskDisabledCmd(RSSuggestAddCommand), "write deny-oom", SetFtSugaddInfo, SET_COMMAND_INFO, "write", true, indexSugCmdArgs, false),
@@ -1870,7 +1905,6 @@ void RediSearch_CleanupModule(RedisModuleCtx *ctx) {
   // GeometryApi_Free();
 
   Dictionary_Free();
-  RediSearch_LockDestory();
 
   IndexError_GlobalCleanup();
 }
@@ -3997,7 +4031,6 @@ int TagValsCommandHandler(RedisModuleCtx *ctx, RedisModuleString **argv, int arg
   if (argc < 3) {
     return RedisModule_WrongArity(ctx);
   } else if (!SearchCluster_Ready()) {
-    // Check that the cluster state is valid
     return RedisModule_ReplyWithError(ctx, CLUSTERDOWN_ERR);
   }
   RS_AutoMemory(ctx);
@@ -4012,12 +4045,12 @@ int TagValsCommandHandler(RedisModuleCtx *ctx, RedisModuleString **argv, int arg
 
   MRCommand cmd = MR_NewCommandFromRedisStrings(argc, argv);
   MRCommand_SetProtocol(&cmd, ctx);
-  /* Replace our own FT command with _FT. command */
   MRCommand_SetPrefix(&cmd, "_FT");
 
   MR_Fanout(MR_CreateCtx(ctx, 0, NULL, NumShards), uniqueStringsReducer, cmd, true);
   return REDISMODULE_OK;
 }
+
 
 int InfoCommandHandler(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
   if (argc != 2) {

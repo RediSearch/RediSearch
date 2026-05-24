@@ -8,21 +8,25 @@
 */
 
 #include "commands.h"
+#include "types_ffi.h"
 #include "debug_commands.h"
 #include "coord/debug_command_names.h"
 #include "VecSim/vec_sim_debug.h"
 #include "inverted_index.h"
 #include "redis_index.h"
-#include "redisearch_rs/headers/numeric_range_tree.h"
+#include "numeric_range_tree.h"
+#include "inverted_index_ffi.h"
 #include "tag_index.h"
-#include "redisearch_rs/headers/iterators_rs.h"
+#include "iterators_ffi.h"
+#include "numeric_range_tree_ffi.h"
+#include "sorting_vector_ffi.h"
 #include "geometry/geometry_api.h"
 #include "geometry_index.h"
 #include "phonetic_manager.h"
 #include "gc.h"
 #include "module.h"
 #include "suffix.h"
-#include "triemap.h"
+#include "triemap_ffi.h"
 #include "util/workers.h"
 #include "cursor.h"
 #include "module.h"
@@ -36,7 +40,7 @@
 #include "info/info_command.h"
 #include "search_disk.h"
 #include "ext/debug_scorers.h"
-#include "query_error.h"
+#include "query_error_ffi.h"
 #include "doc_id_meta.h"
 #include "coord/rmr/rmr.h"
 
@@ -93,6 +97,35 @@ int CoordReduceDebugCtx_GetReduceCount(void) {
   return atomic_load(&globalCoordReduceDebugCtx.reduceCount);
 }
 
+// Global AggregateResults debug context (separate from DebugCTX since it uses atomics)
+static AggregateResultsDebugCtx globalAggregateResultsDebugCtx = {0};
+
+bool AggregateResultsDebugCtx_IsPaused(void) {
+  return atomic_load(&globalAggregateResultsDebugCtx.pause);
+}
+
+void AggregateResultsDebugCtx_SetPause(bool pause) {
+  atomic_store(&globalAggregateResultsDebugCtx.pause, pause);
+}
+
+int AggregateResultsDebugCtx_GetPauseAfterN(void) {
+  return atomic_load(&globalAggregateResultsDebugCtx.pauseAfterN);
+}
+
+void AggregateResultsDebugCtx_SetPauseAfterN(int n) {
+  atomic_store(&globalAggregateResultsDebugCtx.pauseAfterN, n);
+  // Reset results count when setting a new pause point
+  atomic_store(&globalAggregateResultsDebugCtx.resultsCount, 0);
+}
+
+void AggregateResultsDebugCtx_IncrementResultsCount(void) {
+  atomic_fetch_add(&globalAggregateResultsDebugCtx.resultsCount, 1);
+}
+
+int AggregateResultsDebugCtx_GetResultsCount(void) {
+  return atomic_load(&globalAggregateResultsDebugCtx.resultsCount);
+}
+
 // Global store results debug context
 static StoreResultsDebugCtx globalStoreResultsDebugCtx = {0};
 
@@ -100,7 +133,8 @@ bool StoreResultsDebugCtx_IsPauseBeforeEnabled(void) {
   return atomic_load(&globalStoreResultsDebugCtx.pauseBeforeEnabled);
 }
 
-void StoreResultsDebugCtx_SetPauseBeforeEnabled(bool enabled) {
+void StoreResultsDebugCtx_SetPauseBeforeEnabled(bool enabled, StoreResultsScope scope) {
+  atomic_store(&globalStoreResultsDebugCtx.scope, (int)scope);
   atomic_store(&globalStoreResultsDebugCtx.pauseBeforeEnabled, enabled);
   atomic_store(&globalStoreResultsDebugCtx.pause, false);
 }
@@ -109,9 +143,14 @@ bool StoreResultsDebugCtx_IsPauseAfterEnabled(void) {
   return atomic_load(&globalStoreResultsDebugCtx.pauseAfterEnabled);
 }
 
-void StoreResultsDebugCtx_SetPauseAfterEnabled(bool enabled) {
+void StoreResultsDebugCtx_SetPauseAfterEnabled(bool enabled, StoreResultsScope scope) {
+  atomic_store(&globalStoreResultsDebugCtx.scope, (int)scope);
   atomic_store(&globalStoreResultsDebugCtx.pauseAfterEnabled, enabled);
   atomic_store(&globalStoreResultsDebugCtx.pause, false);
+}
+
+StoreResultsScope StoreResultsDebugCtx_GetScope(void) {
+  return (StoreResultsScope)atomic_load(&globalStoreResultsDebugCtx.scope);
 }
 
 bool StoreResultsDebugCtx_IsPaused(void) {
@@ -520,7 +559,7 @@ DEBUG_COMMAND(DumpInvertedIndex) {
     RedisModule_ReplyWithError(sctx->redisCtx, "Can not find the inverted index");
     goto end;
   }
-  decoderCtx = (IndexDecoderCtx){.field_mask_tag = IndexDecoderCtx_FieldMask, .field_mask = RS_FIELDMASK_ALL};
+  decoderCtx = (IndexDecoderCtx){.fieldmask_tag = IndexDecoderCtx_FieldMask, .fieldmask = RS_FIELDMASK_ALL};
   reader = NewIndexReader(invidx, decoderCtx);
   res = NewTokenRecord(NULL, 1);
   res->freq = 1;
@@ -719,7 +758,7 @@ DEBUG_COMMAND(DumpTagIndex) {
   while (TrieMapIterator_Next(iter, &tag, &len, (void **)&iv)) {
     RedisModule_ReplyWithArray(sctx->redisCtx, 2);
     RedisModule_ReplyWithStringBuffer(sctx->redisCtx, tag, len);
-    IndexDecoderCtx decoderCtx = {.field_mask_tag = IndexDecoderCtx_FieldMask, .field_mask = RS_FIELDMASK_ALL};
+    IndexDecoderCtx decoderCtx = {.fieldmask_tag = IndexDecoderCtx_FieldMask, .fieldmask = RS_FIELDMASK_ALL};
     IndexReader *reader = NewIndexReader(iv, decoderCtx);
     RSIndexResult *res = NewTokenRecord(NULL, 1);
     res->freq = 1;
@@ -1210,6 +1249,11 @@ DEBUG_COMMAND(setMonitorExpiration) {
     return RedisModule_ReplyWithError(ctx, "Can't set both fields and not-fields");
   }
 
+  // Note: enabling these per-spec flags only takes effect when
+  // RSGlobalConfig.monitorExpiration is also true. The keyspace-notification
+  // fast path (Indexes_UpdateMatchingDocExpiration) early-returns on the
+  // global flag, so a spec-level override to "on" is a no-op while the
+  // global config is "off".
   if (options.docs || options.notDocs) {
     sp->monitorDocumentExpiration = options.docs && !options.notDocs;
   }
@@ -1359,7 +1403,7 @@ DEBUG_COMMAND(InfoTagIndex) {
 
     if (options.dumpIdEntries) {
       RedisModule_ReplyWithLiteral(ctx, "entries");
-      IndexDecoderCtx decoderCtx = {.field_mask_tag = IndexDecoderCtx_FieldMask, .field_mask = RS_FIELDMASK_ALL};
+      IndexDecoderCtx decoderCtx = {.fieldmask_tag = IndexDecoderCtx_FieldMask, .fieldmask = RS_FIELDMASK_ALL};
       IndexReader *reader = NewIndexReader(iv, decoderCtx);
       RSIndexResult *res = NewTokenRecord(NULL, 1);
       res->freq = 1;
@@ -2417,22 +2461,119 @@ DEBUG_COMMAND(getCoordReqCtxFreeCount) {
 }
 
 /**
- * FT.DEBUG QUERY_CONTROLLER SET_PAUSE_BEFORE_STORE_RESULTS <true/false>
- * Enable/disable pausing before AREQ_StoreResults/HREQ_StoreResults.
+ * FT.DEBUG QUERY_CONTROLLER SET_PAUSE_AFTER_AGGREGATE_RESULT <N>
+ * AGGREGATE_RESULTS_NO_PAUSE (0): no pause
+ * N>0: pause after the Nth result is extracted from the AggregateResults loop
  */
-DEBUG_COMMAND(setPauseBeforeStoreResults) {
+DEBUG_COMMAND(setPauseAfterAggregateResult) {
   if (!debugCommandsEnabled(ctx)) {
     return RedisModule_ReplyWithError(ctx, NODEBUG_ERR);
   }
   if (argc != 3) {
     return RedisModule_WrongArity(ctx);
   }
+
+  long long n;
+  if (RedisModule_StringToLongLong(argv[2], &n) != REDISMODULE_OK || n < 0) {
+    return RedisModule_ReplyWithError(ctx, "Invalid argument for 'SET_PAUSE_AFTER_AGGREGATE_RESULT'");
+  }
+
+  AggregateResultsDebugCtx_SetPauseAfterN((int)n);
+
+  return RedisModule_ReplyWithSimpleString(ctx, "OK");
+}
+
+/**
+ * FT.DEBUG QUERY_CONTROLLER GET_IS_AGGREGATE_RESULTS_PAUSED
+ */
+DEBUG_COMMAND(getIsAggregateResultsPaused) {
+  if (!debugCommandsEnabled(ctx)) {
+    return RedisModule_ReplyWithError(ctx, NODEBUG_ERR);
+  }
+  if (argc != 2) {
+    return RedisModule_WrongArity(ctx);
+  }
+
+  return RedisModule_ReplyWithBool(ctx, AggregateResultsDebugCtx_IsPaused());
+}
+
+/**
+ * FT.DEBUG QUERY_CONTROLLER SET_AGGREGATE_RESULTS_RESUME
+ */
+DEBUG_COMMAND(setAggregateResultsResume) {
+  if (!debugCommandsEnabled(ctx)) {
+    return RedisModule_ReplyWithError(ctx, NODEBUG_ERR);
+  }
+  if (argc != 2) {
+    return RedisModule_WrongArity(ctx);
+  }
+
+  if (!AggregateResultsDebugCtx_IsPaused()) {
+    return RedisModule_ReplyWithError(ctx, "Aggregate results is not paused");
+  }
+
+  AggregateResultsDebugCtx_SetPause(false);
+
+  return RedisModule_ReplyWithSimpleString(ctx, "OK");
+}
+
+/**
+ * FT.DEBUG QUERY_CONTROLLER GET_AGGREGATE_RESULTS_COUNT
+ */
+DEBUG_COMMAND(getAggregateResultsCount) {
+  if (!debugCommandsEnabled(ctx)) {
+    return RedisModule_ReplyWithError(ctx, NODEBUG_ERR);
+  }
+  if (argc != 2) {
+    return RedisModule_WrongArity(ctx);
+  }
+
+  return RedisModule_ReplyWithLongLong(ctx, AggregateResultsDebugCtx_GetResultsCount());
+}
+
+// Parse the optional StoreResults scope token (argv[3], when present).
+// Mirrors the INTERNAL_ONLY token convention used in src/aggregate/aggregate_debug.c.
+// Returns REDISMODULE_OK on success (scope written via *out), REDISMODULE_ERR on
+// unknown token (caller is responsible for replying with the error).
+static int parseStoreResultsScope(RedisModuleString **argv, int argc, StoreResultsScope *out) {
+  if (argc < 4) {
+    *out = STORE_RESULTS_SCOPE_BOTH;
+    return REDISMODULE_OK;
+  }
+  const char *tok = RedisModule_StringPtrLen(argv[3], NULL);
+  if (!strcasecmp(tok, "INTERNAL_ONLY")) {
+    *out = STORE_RESULTS_SCOPE_INTERNAL_ONLY;
+  } else if (!strcasecmp(tok, "NON_INTERNAL_ONLY")) {
+    *out = STORE_RESULTS_SCOPE_NON_INTERNAL_ONLY;
+  } else {
+    return REDISMODULE_ERR;
+  }
+  return REDISMODULE_OK;
+}
+
+/**
+ * FT.DEBUG QUERY_CONTROLLER SET_PAUSE_BEFORE_STORE_RESULTS <true/false> [INTERNAL_ONLY|NON_INTERNAL_ONLY]
+ * Enable/disable pausing before AREQ_StoreResults/HREQ_StoreResults.
+ * The optional scope token restricts the pause to internal (coordinator-dispatched)
+ * or non-internal (user-facing) requests; omitting it applies to both.
+ */
+DEBUG_COMMAND(setPauseBeforeStoreResults) {
+  if (!debugCommandsEnabled(ctx)) {
+    return RedisModule_ReplyWithError(ctx, NODEBUG_ERR);
+  }
+  if (argc != 3 && argc != 4) {
+    return RedisModule_WrongArity(ctx);
+  }
+  StoreResultsScope scope;
+  if (parseStoreResultsScope(argv, argc, &scope) != REDISMODULE_OK) {
+    return RedisModule_ReplyWithError(ctx, "Invalid scope for 'SET_PAUSE_BEFORE_STORE_RESULTS', expected INTERNAL_ONLY or NON_INTERNAL_ONLY");
+  }
   const char *op = RedisModule_StringPtrLen(argv[2], NULL);
 
   if (!strcasecmp(op, "true")) {
-    StoreResultsDebugCtx_SetPauseBeforeEnabled(true);
+    StoreResultsDebugCtx_SetPauseBeforeEnabled(true, scope);
   } else if (!strcasecmp(op, "false")) {
-    StoreResultsDebugCtx_SetPauseBeforeEnabled(false);
+    StoreResultsDebugCtx_SetPauseBeforeEnabled(false, scope);
   } else {
     return RedisModule_ReplyWithError(ctx, "Invalid argument for 'SET_PAUSE_BEFORE_STORE_RESULTS'");
   }
@@ -2441,22 +2582,28 @@ DEBUG_COMMAND(setPauseBeforeStoreResults) {
 }
 
 /**
- * FT.DEBUG QUERY_CONTROLLER SET_PAUSE_AFTER_STORE_RESULTS <true/false>
+ * FT.DEBUG QUERY_CONTROLLER SET_PAUSE_AFTER_STORE_RESULTS <true/false> [INTERNAL_ONLY|NON_INTERNAL_ONLY]
  * Enable/disable pausing after AREQ_StoreResults/HREQ_StoreResults.
+ * The optional scope token restricts the pause to internal (coordinator-dispatched)
+ * or non-internal (user-facing) requests; omitting it applies to both.
  */
 DEBUG_COMMAND(setPauseAfterStoreResults) {
   if (!debugCommandsEnabled(ctx)) {
     return RedisModule_ReplyWithError(ctx, NODEBUG_ERR);
   }
-  if (argc != 3) {
+  if (argc != 3 && argc != 4) {
     return RedisModule_WrongArity(ctx);
+  }
+  StoreResultsScope scope;
+  if (parseStoreResultsScope(argv, argc, &scope) != REDISMODULE_OK) {
+    return RedisModule_ReplyWithError(ctx, "Invalid scope for 'SET_PAUSE_AFTER_STORE_RESULTS', expected INTERNAL_ONLY or NON_INTERNAL_ONLY");
   }
   const char *op = RedisModule_StringPtrLen(argv[2], NULL);
 
   if (!strcasecmp(op, "true")) {
-    StoreResultsDebugCtx_SetPauseAfterEnabled(true);
+    StoreResultsDebugCtx_SetPauseAfterEnabled(true, scope);
   } else if (!strcasecmp(op, "false")) {
-    StoreResultsDebugCtx_SetPauseAfterEnabled(false);
+    StoreResultsDebugCtx_SetPauseAfterEnabled(false, scope);
   } else {
     return RedisModule_ReplyWithError(ctx, "Invalid argument for 'SET_PAUSE_AFTER_STORE_RESULTS'");
   }
@@ -2754,6 +2901,19 @@ DEBUG_COMMAND(queryController) {
   }
   if (!strcmp("GET_COORD_REQ_CTX_FREE_COUNT", op)) {
     return getCoordReqCtxFreeCount(ctx, argv + 1, argc - 1);
+  }
+  // AggregateResults loop pause commands
+  if (!strcmp("SET_PAUSE_AFTER_AGGREGATE_RESULT", op)) {
+    return setPauseAfterAggregateResult(ctx, argv + 1, argc - 1);
+  }
+  if (!strcmp("GET_IS_AGGREGATE_RESULTS_PAUSED", op)) {
+    return getIsAggregateResultsPaused(ctx, argv + 1, argc - 1);
+  }
+  if (!strcmp("SET_AGGREGATE_RESULTS_RESUME", op)) {
+    return setAggregateResultsResume(ctx, argv + 1, argc - 1);
+  }
+  if (!strcmp("GET_AGGREGATE_RESULTS_COUNT", op)) {
+    return getAggregateResultsCount(ctx, argv + 1, argc - 1);
   }
   // Store results pause commands
   if (!strcmp("SET_PAUSE_BEFORE_STORE_RESULTS", op)) {

@@ -4,6 +4,7 @@
 !.install
 !.install/**
 !.rust-nightly
+!.cheadergen-version
 !rust-toolchain.toml
 !.github/workflows/task-get-config.yml
 

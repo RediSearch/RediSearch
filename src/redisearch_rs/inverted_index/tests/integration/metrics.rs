@@ -16,7 +16,7 @@
 //! irrelevant — only their addresses matter.
 
 use ffi::RLookupKey;
-use inverted_index::{MetricEntry, MetricsVec};
+use index_result::{MetricEntry, MetricsVec};
 use std::ptr;
 
 /// Builds a zero-initialized `RLookupKey` suitable for pointer-identity tests.

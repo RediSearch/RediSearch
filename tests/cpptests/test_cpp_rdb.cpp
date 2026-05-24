@@ -12,12 +12,12 @@
 #include "common.h"
 #include "redismock/redismock.h"
 #include "synonym_map.h"
-#include "trie/trie_type.h"
+#include "trie/trie.h"
 #include <cstdint>  // For SIZE_MAX, UINT32_MAX
 
 extern "C" {
 #include "spec.h"
-#include "query_error.h"
+#include "query_error_ffi.h"
 #include "rules.h"
 #include "stopwords.h"
 #include "doc_table.h"

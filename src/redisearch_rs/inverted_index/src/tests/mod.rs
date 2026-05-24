@@ -9,7 +9,9 @@
 
 use std::io::{Cursor, Read};
 
-use crate::{Encoder, RSIndexResult};
+use ::index_result::RSIndexResult;
+
+use crate::Encoder;
 
 mod gc;
 mod index;

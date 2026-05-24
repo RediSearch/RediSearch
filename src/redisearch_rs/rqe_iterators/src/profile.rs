@@ -17,12 +17,13 @@ use std::time::{Duration, Instant};
 
 use crate::{IteratorType, RQEIterator, RQEIteratorError, RQEValidateStatus, SkipToOutcome};
 use ffi::t_docId;
+use index_result::RSIndexResult;
 use index_spec::IndexSpecReadGuard;
-use inverted_index::RSIndexResult;
 
 /// Profile counters collected during query execution.
 ///
 /// This struct is `#[repr(C)]` so that C code can access its fields directly.
+#[cheadergen::config(export)]
 #[derive(Debug, Default, Clone)]
 #[repr(C)]
 pub struct ProfileCounters {

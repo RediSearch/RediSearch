@@ -16,11 +16,12 @@ use thin_vec::ThinVec;
 
 use super::unique_id::IndexUniqueId;
 use crate::{
-    BlockCapacity, Encoder, IdDelta, RSIndexResult,
+    BlockCapacity, Encoder, IdDelta,
     controlled_cursor::ControlledCursor,
     debug::{BlockSummary, Summary},
 };
 use ffi::{IndexFlags, IndexFlags_Index_HasMultiValue, t_docId};
+use index_result::RSIndexResult;
 
 /// An inverted index is a data structure that maps terms to their occurrences in documents. It is
 /// used to efficiently search for documents that contain specific terms.

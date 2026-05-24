@@ -16,8 +16,9 @@
 #include "concurrent_ctx.h"
 #include "byte_offsets.h"
 #include "rmutil/args.h"
-#include "query_error.h"
 #include "json.h"
+
+typedef struct QueryError QueryError;
 
 #ifdef __cplusplus
 extern "C" {
@@ -148,6 +149,11 @@ typedef struct {
 // We don't allow any lazy expiration to happen here
 #define DOCUMENT_OPEN_KEY_QUERY_FLAGS REDISMODULE_READ | REDISMODULE_OPEN_KEY_NOEFFECTS | REDISMODULE_OPEN_KEY_NOEXPIRE | REDISMODULE_OPEN_KEY_ACCESS_EXPIRED | REDISMODULE_OPEN_KEY_ACCESS_TRIMMED
 
+// Returns the absolute expiration time of an already-opened key as a
+// t_expirationTimePoint, or {0,0} if the key has no TTL. Wraps
+// RedisModule_GetAbsExpire so callers share a single ms->timespec conversion.
+t_expirationTimePoint GetKeyExpirationTime(RedisModuleKey *openedKey);
+
 void Document_AddField(Document *d, const char *fieldname, RedisModuleString *fieldval,
                        uint32_t typemask);
 
@@ -205,6 +211,15 @@ void Document_Clear(Document *doc);
  */
 int Document_LoadSchemaFieldHash(Document *doc, RedisSearchCtx *sctx, QueryError* status);
 int Document_LoadSchemaFieldJson(Document *doc, RedisSearchCtx *sctx, QueryError* status);
+
+/**
+ * Append a `FieldExpiration` entry for `field` (at position `ii` in
+ * `spec->fields`) to `*out` when the hash key has a TTL on that field; no-op
+ * otherwise. Calling this in `spec->fields` order keeps `*out` sorted by
+ * `t_fieldIndex`, which is the invariant the TTL table relies on.
+ */
+void Document_LoadHashFieldExpiration(RedisModuleKey *k, const FieldSpec *field,
+                                      size_t ii, arrayof(FieldExpiration) *out);
 
 /**
  * Load all the fields into the document.

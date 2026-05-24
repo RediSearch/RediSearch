@@ -7,7 +7,8 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 #include "index_result.h"
-#include "types_rs.h"
+#include "types_ffi.h"
+#include "query_term_ffi.h"
 #include "rmalloc.h"
 #include <math.h>
 #include <sys/param.h>

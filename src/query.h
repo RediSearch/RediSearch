@@ -20,25 +20,13 @@
 #include "hiredis/sds.h"
 #include "concurrent_ctx.h"
 #include "search_options.h"
-#include "query_error.h"
 #include "query_internal.h"
+
+typedef struct QueryError QueryError;
 
 #ifdef __cplusplus
 extern "C" {
 #endif
-
-// Smart pointer handle for RLookupKey that can be invalidated when iterator is freed
-typedef struct RLookupKeyHandle {
-  RLookupKey **key_ptr;  // Pointer to the actual RLookupKey* field in the iterator
-  bool is_valid;         // Whether the iterator is still alive
-} RLookupKeyHandle;
-
-// Holds a yieldable field name, and the address to write the RLookupKey pointer later.
-typedef struct MetricRequest{
-  const char *metric_name;
-  RLookupKeyHandle *key_handle; // Handle that can be invalidated when iterator is freed
-  bool isInternal; // Indicates if this metric should be excluded from the response
-} MetricRequest;
 
 // Flags indicating which syntax features are enabled for this query
 typedef enum {
@@ -135,6 +123,14 @@ void SetFilterNode(QueryAST *q, QueryNode *filterNode);
  */
 QueryIterator *QAST_Iterate(QueryAST *ast, const RSSearchOptions *options,
                             RedisSearchCtx *sctx, uint32_t reqflags, QueryError *status);
+
+/**
+ * Remove tag escape sequences and optionally lowercase a string.
+ * @param pstr pointer to the string (may be reallocated if lowercasing produces a longer result)
+ * @param len pointer to the string length (updated on output)
+ * @param caseSensitive if non-zero, skip lowercasing
+ */
+void tag_strtolower(char **pstr, size_t *len, int caseSensitive);
 
 /**
  * Expand the query using a pre-registered expander. Query expansion possibly

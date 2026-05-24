@@ -17,7 +17,7 @@
 #include "aggregate/aggregate.h"
 #include "vector_query_utils.h"
 #include "vector_index.h"
-#include "query_error.h"
+#include "query_error_ffi.h"
 #include "spec.h"
 #include "param.h"
 #include "rmalloc.h"

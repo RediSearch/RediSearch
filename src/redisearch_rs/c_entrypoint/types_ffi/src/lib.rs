@@ -11,10 +11,10 @@
 
 use std::{ffi::c_char, mem, ptr};
 
-use inverted_index::{
-    NumericFilter, RSAggregateResult, RSIndexResult, RSOffsetSlice, RSOffsetVector, RSQueryTerm,
-    RSTermRecord, t_fieldMask,
+use index_result::{
+    RSAggregateResult, RSIndexResult, RSOffsetSlice, RSOffsetVector, RSQueryTerm, RSTermRecord,
 };
+use inverted_index::{NumericFilter, t_fieldMask};
 
 pub use inverted_index::{
     ReadFilter,

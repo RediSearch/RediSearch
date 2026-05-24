@@ -29,8 +29,7 @@ pub const fn query_error_code_max_value() -> u8 {
 /// `error_code_full_msg_equals_prefix_plus_default_msg` validates this by iterating
 /// all codes and will panic if gaps are introduced.
 ///
-/// cbindgen:prefix-with-name
-/// cbindgen:rename-all=ScreamingSnakeCase
+#[cheadergen::config(export, prefix_with_name, rename_all = "SCREAMING_SNAKE_CASE")]
 #[derive(Clone, Copy, Default, EnumCount, FromRepr, PartialEq, Eq)]
 #[repr(u8)]
 pub enum QueryErrorCode {
@@ -565,6 +564,26 @@ impl QueryError {
         self.private_message = message;
     }
 
+    /// Sets the error code and message, automatically prefixing the
+    /// private message with the error code's prefix string.
+    ///
+    /// The `message` is used as the public message verbatim. The private
+    /// message is formed by prepending [`QueryErrorCode::prefix_c_str`]
+    /// to `message`.
+    pub fn set_error(&mut self, code: QueryErrorCode, message: &str) {
+        if !self.is_ok() {
+            return;
+        }
+
+        let public_message = CString::new(message.to_owned());
+        let prefix = code.prefix_c_str().to_str().unwrap_or("");
+        let private_message = CString::new(format!("{prefix}{message}"));
+
+        self.code = code;
+        self.public_message = public_message.ok();
+        self.private_message = private_message.ok().or(self.public_message.clone());
+    }
+
     /// Sets code, public message, and private message independently.
     /// The public message is for obfuscated display; the private message
     /// (typically prefix + detail) is what gets sent to the client and
@@ -604,8 +623,7 @@ impl QueryError {
 // Unlike QueryErrorCode, this enum is not tied to any API or string mapping.
 // Its current purpose is only to serve as a lightweight identifier that can
 // be passed to functions and easily handled via switch/case logic.
-/// cbindgen:prefix-with-name
-/// cbindgen:rename-all=ScreamingSnakeCase
+#[cheadergen::config(export, prefix_with_name, rename_all = "SCREAMING_SNAKE_CASE")]
 #[derive(Clone, Copy, Debug, Default, FromRepr, PartialEq, Eq)]
 #[repr(u8)]
 pub enum QueryWarningCode {
@@ -674,6 +692,7 @@ pub mod opaque {
     ///
     /// The size and alignment of this struct must match the Rust `QueryError`
     /// structure exactly.
+    #[cheadergen::config(rename = "QueryError")]
     #[repr(C, align(8))]
     pub struct OpaqueQueryError(Size<38>);
 

@@ -14,7 +14,8 @@
 
 #include "redisearch.h"
 #include "spec.h"
-#include "types_rs.h"
+#include "types_ffi.h"
+#include "query_term_ffi.h"
 #include "query.h"
 #include "synonym_map.h"
 #include "snowball/include/libstemmer.h"
@@ -537,7 +538,7 @@ int StemmerExpander(RSQueryExpanderCtx *ctx, RSToken *token) {
     } else {
       dd = ctx->privdata = rm_calloc(1, sizeof(*dd));
       dd->isCn = 0;
-      sb = dd->data.latin = sb_stemmer_new(RSLanguage_ToString(ctx->language), NULL);
+      sb = dd->data.latin = sb_stemmer_new(RSLanguage_ToSnowballStemmer(ctx->language), NULL);
     }
   }
 

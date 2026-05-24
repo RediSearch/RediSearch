@@ -26,7 +26,7 @@ type NotOptimizedFfi<'index> = NotOptimized<'index, NewWildcardIterator<'index>,
 /// Enum holding both NOT iterator variants with concrete [`CRQEIterator`] child.
 ///
 /// The `NotOptimized` variant is intentionally large because it inlines a
-/// [`WildcardIterator`] to avoid heap allocation. Both variants are
+/// `WildcardIterator` to avoid heap allocation. Both variants are
 /// long-lived (query lifetime), and the size difference is acceptable.
 #[expect(
     clippy::large_enum_variant,
@@ -49,7 +49,7 @@ impl<'index> NotIteratorEnum<'index> {
 // Delegate `RQEIterator` to the inner variant.
 impl<'index> RQEIterator<'index> for NotIteratorEnum<'index> {
     #[inline(always)]
-    fn current(&mut self) -> Option<&mut inverted_index::RSIndexResult<'index>> {
+    fn current(&mut self) -> Option<&mut index_result::RSIndexResult<'index>> {
         match self {
             Self::Not(it) => it.current(),
             Self::NotOptimized(it) => it.current(),
@@ -59,7 +59,7 @@ impl<'index> RQEIterator<'index> for NotIteratorEnum<'index> {
     #[inline(always)]
     fn read(
         &mut self,
-    ) -> Result<Option<&mut inverted_index::RSIndexResult<'index>>, rqe_iterators::RQEIteratorError>
+    ) -> Result<Option<&mut index_result::RSIndexResult<'index>>, rqe_iterators::RQEIteratorError>
     {
         match self {
             Self::Not(it) => it.read(),
@@ -256,8 +256,8 @@ pub unsafe extern "C" fn NewNotIterator(
 /// # Safety
 ///
 /// 1. `it` must be a valid non-null pointer to a non-reduced NOT iterator
-///    created via [`NewNotIterator`]. Must not be called on a reduced
-///    (wildcard/empty) iterator returned by [`NewNotIterator`].
+///    created via [`NewNotIterator()`]. Must not be called on a reduced
+///    (wildcard/empty) iterator returned by [`NewNotIterator()`].
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn GetNotIteratorChild(it: *const QueryIterator) -> *const QueryIterator {
     debug_assert!(!it.is_null());

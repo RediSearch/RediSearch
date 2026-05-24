@@ -14,6 +14,7 @@
 #define FORK_GC_PIPE_H_
 
 #include "fork_gc.h"
+#include "fork_gc_ffi.h"
 #include "search_ctx.h"
 #include "inverted_index.h"
 #include <stddef.h>
@@ -40,17 +41,7 @@ extern void *RECV_BUFFER_EMPTY;
 // Pipe I/O primitives
 //------------------------------------------------------------------------------
 
-// Buff shouldn't be NULL.
-void FGC_sendFixed(ForkGC *fgc, const void *buff, size_t len);
-
 #define FGC_SEND_VAR(fgc, v) FGC_sendFixed(fgc, &v, sizeof v)
-
-void FGC_sendBuffer(ForkGC *fgc, const void *buff, size_t len);
-
-// Send instead of a string to indicate that no more buffers are to be received.
-void FGC_sendTerminator(ForkGC *fgc);
-
-int __attribute__((warn_unused_result)) FGC_recvFixed(ForkGC *fgc, void *buf, size_t len);
 
 int __attribute__((warn_unused_result)) FGC_recvBuffer(ForkGC *fgc, void **buf, size_t *len);
 

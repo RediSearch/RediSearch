@@ -7,20 +7,23 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 #include "spec.h"
+#include "document.h"
+#include "inverted_index_ffi.h"
+#include "numeric_range_tree_ffi.h"
 #include "rlookup_load_document.h"
 
 #include <math.h>
 #include <ctype.h>
 #include <limits.h>
 
-#include "triemap.h"
+#include "triemap_ffi.h"
 #include "util/logging.h"
 #include "util/likely.h"
 #include "util/misc.h"
 #include "rmutil/vector.h"
 #include "rmutil/util.h"
 #include "rmutil/rm_assert.h"
-#include "trie/trie_type.h"
+#include "trie/trie.h"
 #include "rmalloc.h"
 #include "config.h"
 #include "cursor.h"
@@ -51,7 +54,7 @@
 #include "util/redis_mem_info.h"
 #include "search_disk.h"
 #include "search_disk_utils.h"
-#include "iterators_rs.h"
+#include "iterators_ffi.h"
 
 #define INITIAL_DOC_TABLE_SIZE 1000
 
@@ -1765,6 +1768,18 @@ static void IndexSpec_PopulateVectorDiskParams(IndexSpec *sp) {
   }
 }
 
+// Initialize spec->tagOpts.tagIndex for every TAG field after the disk index
+// is opened.
+static void IndexSpec_EnsureTagDiskIndexes(IndexSpec *sp) {
+  if (!sp->diskSpec) return;
+
+  for (int i = 0; i < sp->numFields; i++) {
+    FieldSpec *fs = &sp->fields[i];
+    if (!FIELD_IS(fs, INDEXFLD_T_TAG)) continue;
+    TagIndex_Ensure(fs, sp->diskSpec);
+  }
+}
+
 void handleBadArguments(IndexSpec *spec, const char *badarg, QueryError *status, ACArgSpec *non_flex_argopts) {
   if (isSpecOnDiskForValidation(spec)) {
     bool isKnownArg = false;
@@ -1858,13 +1873,6 @@ static StrongRef IndexSpec_ParseFromArgCursor(RedisModuleCtx *ctx, const HiddenS
   spec->timeout = timeout * 1000;  // convert to ms
 
   if (rule_prefixes.argc > 0) {
-    if (rule_prefixes.argc > MAX_SCHEMA_PREFIXES) {
-      QueryError_SetWithoutUserDataFmt(
-          status, QUERY_ERROR_CODE_LIMIT,
-          "Number of prefixes (%zu) exceeds maximum allowed (%d)",
-          rule_prefixes.argc, MAX_SCHEMA_PREFIXES);
-      goto failure;
-    }
     spec->rule = SchemaRule_CreateWithPrefixesAC(&rule_args, &rule_prefixes, spec_ref, status);
   } else {
     rule_args.nprefixes = 1;
@@ -1889,7 +1897,7 @@ static StrongRef IndexSpec_ParseFromArgCursor(RedisModuleCtx *ctx, const HiddenS
       QueryError_SetError(status, QUERY_ERROR_CODE_DISK_CREATION, "Could not open disk index");
       goto failure;
     }
-    SearchDisk_RegisterIndex(ctx, spec->diskSpec);
+    SearchDisk_RegisterIndex(ctx, spec);
   }
 
   if (AC_IsInitialized(&acStopwords)) {
@@ -1928,7 +1936,7 @@ static StrongRef IndexSpec_ParseFromArgCursor(RedisModuleCtx *ctx, const HiddenS
 failure:  // on failure free the spec fields array and return an error
   spec->flags &= ~Index_Temporary;
   if (spec->diskSpec) {
-    SearchDisk_UnregisterIndex(ctx, spec->diskSpec);
+    SearchDisk_UnregisterIndex(ctx, spec);
   }
   IndexSpec_RemoveFromGlobals(spec_ref, false);
   return INVALID_STRONG_REF;
@@ -2112,8 +2120,13 @@ static void IndexSpec_FreeUnlinkedData(IndexSpec *spec) {
 
   // Destroy the spec's lock
   pthread_rwlock_destroy(&spec->rwlock);
+  pthread_rwlock_destroy(&spec->disk_fork_rwlock);
 
   if (spec->diskSpec) SearchDisk_CloseIndex(spec->diskSpec);
+  if (spec->pendingDiskRdbState) {
+    SearchDisk_FreeRdbState(spec->pendingDiskRdbState);
+    spec->pendingDiskRdbState = NULL;
+  }
 
   // Free spec struct
   rm_free(spec);
@@ -2245,7 +2258,7 @@ void Indexes_Free(RedisModuleCtx *ctx, dict *d, bool deleteDiskData) {
     IndexSpec *spec = StrongRef_Get(specs[i]);
     if (spec && spec->diskSpec) {
       // Unregister must always precede close (triggered by IndexSpec_RemoveFromGlobals)
-      SearchDisk_UnregisterIndex(ctx, spec->diskSpec);
+      SearchDisk_UnregisterIndex(ctx, spec);
       if (deleteDiskData) {
         SearchDisk_MarkIndexForDeletion(spec->diskSpec);
       }
@@ -2357,12 +2370,18 @@ static void IndexSpec_InitLock(IndexSpec *sp) {
   res = pthread_rwlockattr_init(&attr);
   RS_ASSERT(res == 0);
 #if !defined(__APPLE__) && !defined(__FreeBSD__) && defined(__GLIBC__)
+  // Writer-preferring: avoids fork-writer starvation when blockers (rdlock
+  // holders such as compaction) arrive in a steady stream. Same rationale
+  // applies to both rwlocks below.
   int pref = PTHREAD_RWLOCK_PREFER_WRITER_NONRECURSIVE_NP;
   res = pthread_rwlockattr_setkind_np(&attr, pref);
   RS_ASSERT(res == 0);
 #endif
 
   pthread_rwlock_init(&sp->rwlock, &attr);
+  pthread_rwlock_init(&sp->disk_fork_rwlock, &attr);
+
+  sp->repl_flags = REPL_LOCK_NONE;
 }
 
 // Helper function for initializing a field spec
@@ -2389,14 +2408,15 @@ static void initializeIndexSpec(IndexSpec *sp, const HiddenString *name, IndexFl
   sp->suffix = NULL;
   sp->suffixMask = (t_fieldMask)0;
   sp->keysDict = NULL;
-  sp->getValue = NULL;
-  sp->getValueCtx = NULL;
   sp->timeout = 0;
   sp->isTimerSet = false;
   sp->timerId = 0;
 
   sp->scanner = NULL;
   sp->scan_in_progress = false;
+  sp->diskSpec = NULL;
+  sp->pendingDiskRdbState = NULL;
+  sp->diskRegistered = false;
   sp->monitorDocumentExpiration = RSGlobalConfig.monitorExpiration;
   sp->monitorFieldExpiration = RSGlobalConfig.monitorExpiration &&
                                RedisModule_HashFieldMinExpire != NULL;
@@ -2418,6 +2438,8 @@ static void initializeIndexSpec(IndexSpec *sp, const HiddenString *name, IndexFl
 
 IndexSpec *NewIndexSpec(const HiddenString *name) {
   IndexSpec *sp = rm_calloc(1, sizeof(IndexSpec));
+  // Explicit init for SST replication state on top of rm_calloc's zero-init.
+  sp->repl_flags = REPL_LOCK_NONE;
   initializeIndexSpec(sp, name, INDEX_DEFAULT_FLAGS, 0);
   sp->stopwords = DefaultStopWordList();
   return sp;
@@ -2439,17 +2461,15 @@ FieldSpec *IndexSpec_CreateField(IndexSpec *sp, const char *name, const char *pa
   fs->ftWeight = 1.0;
   fs->sortIdx = -1;
   fs->tagOpts.tagFlags = TAG_FIELD_DEFAULT_FLAGS;
-  if (!(sp->flags & Index_FromLLAPI)) {
-    RS_LOG_ASSERT((sp->rule), "index w/o a rule?");
-    switch (sp->rule->type) {
-      case DocumentType_Hash:
-        fs->tagOpts.tagSep = TAG_FIELD_DEFAULT_HASH_SEP; break;
-      case DocumentType_Json:
-        fs->tagOpts.tagSep = TAG_FIELD_DEFAULT_JSON_SEP; break;
-      case DocumentType_Unsupported:
-        RS_ABORT("shouldn't get here");
-        break;
-    }
+  RS_LOG_ASSERT((sp->rule), "index w/o a rule?");
+  switch (sp->rule->type) {
+    case DocumentType_Hash:
+      fs->tagOpts.tagSep = TAG_FIELD_DEFAULT_HASH_SEP; break;
+    case DocumentType_Json:
+      fs->tagOpts.tagSep = TAG_FIELD_DEFAULT_JSON_SEP; break;
+    case DocumentType_Unsupported:
+      RS_ABORT("shouldn't get here");
+      break;
   }
   return fs;
 }
@@ -2510,12 +2530,6 @@ static dictType missingFieldDictType = {
 void IndexSpec_MakeKeyless(IndexSpec *sp) {
   sp->keysDict = dictCreate(&invIdxDictType, NULL);
   sp->missingFieldDict = dictCreate(&missingFieldDictType, NULL);
-}
-
-// Only used on new specs so it's thread safe
-void IndexSpec_StartGCFromSpec(StrongRef global, IndexSpec *sp, uint32_t gcPolicy) {
-  sp->gc = GCContext_CreateGC(global, gcPolicy);
-  GCContext_Start(sp->gc);
 }
 
 /* Start the garbage collection loop on the index spec. The GC removes garbage data left on the
@@ -2620,11 +2634,19 @@ static int FieldSpec_RdbLoad(RedisModuleIO *rdb, FieldSpec *f, StrongRef sp_ref,
   char* name = NULL;
   size_t len = 0;
   LoadStringBufferAlloc_IOErrors(rdb, name, &len, true, goto fail);
+  if (memchr(name, '\0', len)) {
+    rm_free(name);
+    goto fail;
+  }
   f->fieldName = NewHiddenString(name, len, false);
   f->fieldPath = f->fieldName;
   if (encver >= INDEX_JSON_VERSION) {
     if (LoadUnsigned_IOError(rdb, goto fail) == 1) {
       LoadStringBufferAlloc_IOErrors(rdb, name, &len, true, goto fail);
+      if (memchr(name, '\0', len)) {
+        rm_free(name);
+        goto fail;
+      }
       f->fieldPath = NewHiddenString(name, len, false);
     }
   }
@@ -2976,10 +2998,10 @@ static void Indexes_ScanAndReindexTask(IndexesScanner *scanner) {
     if (scanner->cancelled) {
 
       if (scanner->global) {
-        RedisModule_Log(ctx, "notice", "Scanning indexes in background: cancelled (scanned=%ld)",
+        RedisModule_Log(ctx, "notice", "Scanning indexes in background: cancelled (scanned=%zu)",
                         scanner->scannedKeys);
       } else {
-        RedisModule_Log(ctx, "notice", "Scanning index %s in background: cancelled (scanned=%ld)",
+        RedisModule_Log(ctx, "notice", "Scanning index %s in background: cancelled (scanned=%zu)",
                     scanner->spec_name_for_logs, scanner->scannedKeys);
         goto end;
       }
@@ -2992,10 +3014,10 @@ static void Indexes_ScanAndReindexTask(IndexesScanner *scanner) {
   }
 
   if (scanner->global) {
-    RedisModule_Log(ctx, "notice", "Scanning indexes in background: done (scanned=%ld)",
+    RedisModule_Log(ctx, "notice", "Scanning indexes in background: done (scanned=%zu)",
                     scanner->scannedKeys);
   } else {
-    RedisModule_Log(ctx, "notice", "Scanning index %s in background: done (scanned=%ld)",
+    RedisModule_Log(ctx, "notice", "Scanning index %s in background: done (scanned=%zu)",
                     scanner->spec_name_for_logs, scanner->scannedKeys);
   }
 
@@ -3388,8 +3410,6 @@ static void IndexSpec_NormalizeStorageFlagsOnLoad(IndexFlags *flags) {
 
 IndexSpec *IndexSpec_RdbLoad(RedisModuleIO *rdb, int encver, bool useSst, QueryError *status) {
   IndexSpec *sp = NULL;
-  RedisSearchDiskRdbState *diskRdbState = NULL;
-  bool indexRegistered = false;
   StrongRef spec_ref = {0};
   IndexFlags flags = 0;
   int16_t numFields = 0;
@@ -3406,6 +3426,10 @@ IndexSpec *IndexSpec_RdbLoad(RedisModuleIO *rdb, int encver, bool useSst, QueryE
   RedisModule_Free(rawName);
 
   sp = rm_calloc(1, sizeof(IndexSpec));
+  // Explicit init for SST replication state: defense-in-depth on top of
+  // rm_calloc's zero-init, since the abort handler may run before
+  // initializeIndexSpec / IndexSpec_InitLock if an RDB read fails below.
+  sp->repl_flags = REPL_LOCK_NONE;
   spec_ref = StrongRef_New(sp, (RefManager_Free)IndexSpec_Free);
   sp->own_ref = spec_ref;
 
@@ -3488,12 +3512,13 @@ IndexSpec *IndexSpec_RdbLoad(RedisModuleIO *rdb, int encver, bool useSst, QueryE
     }
   }
 
-  // Load the disk-related index data if we are on disk and the save flow used
-  // sst-files. We load it into a temporary in-memory object first, then use it
-  // to open the index with the RDB state applied.
-  // We must always consume the RDB data to avoid corrupting the stream,
-  // even for duplicates. We just won't use it in the duplicate case.
-  if (isSpecOnDisk(sp) && encver >= INDEX_DISK_VERSION && useSst) {
+  if (isSpecOnDisk(sp) && useSst) {
+    // Load the disk-related index data if we are on disk and the save flow used
+    // sst-files. We load it into a temporary in-memory object first, then use it
+    // to open the index with the RDB state applied.
+    // We must always consume the RDB data to avoid corrupting the stream,
+    // even for duplicates. We just won't use it in the duplicate case.
+    RS_ASSERT(encver >= INDEX_DISK_VERSION);
     RS_ASSERT(disk_db);
     IndexScoringStats_RdbLoad(rdb, &sp->stats.scoring, encver);
     if (sp->terms) {
@@ -3502,46 +3527,31 @@ IndexSpec *IndexSpec_RdbLoad(RedisModuleIO *rdb, int encver, bool useSst, QueryE
     sp->terms = TrieType_GenericLoad(rdb, false, true);
     RS_LOG_ASSERT(sp->terms, "Failed to load terms trie");
 
-    // Load disk metadata (max_doc_id, deleted_ids) into temporary object
-    diskRdbState = SearchDisk_LoadRdbToTempObject(rdb);
-    if (!diskRdbState) {
+    // Load disk metadata (max_doc_id, deleted_ids) into the spec. Stashed
+    // here directly; consumed at LOADING_SST_ENDED (SST flow) or freed by
+    // the spec destructor (duplicate / cleanup / abort).
+    sp->pendingDiskRdbState = SearchDisk_LoadRdbToTempObject(rdb);
+    if (!sp->pendingDiskRdbState) {
       goto cleanup;
     }
-  }
-
-  // Open the index on disk only if we are on Flex, and this is not a duplicate.
-  if (isSpecOnDisk(sp) && !sp->isDuplicate) {
-    RS_ASSERT(disk_db);
-    if (diskRdbState) {
-      // Use the new API that applies the RDB state during index opening
-      sp->diskSpec = SearchDisk_OpenIndexWithRdbState(ctx, sp->specName, sp->obfuscatedName, sp->rule->type, diskRdbState);
-      diskRdbState = NULL; // Ownership transferred
-    } else {
-      // No RDB state (non-SST flow), just open the index normally
-      sp->diskSpec = SearchDisk_OpenIndex(ctx, sp->specName, sp->obfuscatedName, sp->rule->type, false);
-    }
-
-    IndexSpec_PopulateVectorDiskParams(sp);
+  } else if (isSpecOnDisk(sp) && !sp->isDuplicate) {
+    // If the regular RDB method is used, just open an Index without any populated data.
+    RS_ASSERT(!useSst);
+    sp->diskSpec = SearchDisk_OpenIndex(ctx, sp->specName, sp->obfuscatedName, sp->rule->type, false);
     if (!sp->diskSpec) {
       goto cleanup;
     }
-    SearchDisk_RegisterIndex(ctx, sp->diskSpec);
-    indexRegistered = true;
-  } else if (diskRdbState) {
-    // Duplicate case: we loaded the RDB state but won't create diskSpec
-    // Free the RDB state since it won't be used
-    SearchDisk_FreeRdbState(diskRdbState);
-    diskRdbState = NULL;
+    IndexSpec_PopulateVectorDiskParams(sp);
+    IndexSpec_EnsureTagDiskIndexes(sp);
+    SearchDisk_RegisterIndex(ctx, sp);
   }
 
   return sp;
 
 cleanup:
-  if (diskRdbState) {
-    SearchDisk_FreeRdbState(diskRdbState);
-  }
-  if (indexRegistered) {
-    SearchDisk_UnregisterIndex(ctx, sp->diskSpec);
+  if (sp && sp->diskSpec) {
+    // Idempotent — no-op if registration never happened on this path.
+    SearchDisk_UnregisterIndex(ctx, sp);
   }
   StrongRef_Release(spec_ref);
 cleanup_no_index:
@@ -3577,7 +3587,17 @@ static int IndexSpec_StoreAfterRdbLoad(IndexSpec *sp) {
     addPendingIndexDrop();
     StrongRef_Release(spec_ref);
   } else {
-    IndexSpec_StartGC(spec_ref, sp, sp->diskSpec ? GCPolicy_Disk : GCPolicy_Fork);
+    // In the SST replication path diskSpec is still NULL here — it's opened
+    // later by Indexes_FinishSSTReplication, which also starts the Disk GC.
+    // Start GC eagerly only when the spec is fully ready: memory mode, or a
+    // disk spec whose diskSpec was opened during IndexSpec_RdbLoad (non-SST
+    // RDB path).
+    if (!SearchDisk_IsEnabled()) {
+      IndexSpec_StartGC(spec_ref, sp, GCPolicy_Fork);
+    } else if (sp->diskSpec) {
+      RS_ASSERT(!IS_SST_RDB_IN_PROCESS(RSDummyContext));
+      IndexSpec_StartGC(spec_ref, sp, GCPolicy_Disk);
+    }
     dictAdd(specDict_g, (void*)sp->specName, spec_ref.rm);
     dictAdd(specIdDict_g, (void*)(uintptr_t)sp->specId, spec_ref.rm);
 
@@ -3603,6 +3623,8 @@ void *IndexSpec_LegacyRdbLoad(RedisModuleIO *rdb, int encver) {
 
   RedisModuleCtx *ctx = RedisModule_GetContextFromIO(rdb);
   IndexSpec *sp = rm_calloc(1, sizeof(IndexSpec));
+  // Explicit init for SST replication state on top of rm_calloc's zero-init.
+  sp->repl_flags = REPL_LOCK_NONE;
   IndexSpec_InitLock(sp);
   StrongRef spec_ref = StrongRef_New(sp, (RefManager_Free)IndexSpec_Free);
   sp->own_ref = spec_ref;
@@ -4260,6 +4282,76 @@ void Indexes_UpdateMatchingWithSchemaRules(RedisModuleCtx *ctx, RedisModuleStrin
   Indexes_SpecOpsIndexingCtxFree(specs);
 }
 
+void Indexes_UpdateMatchingDocExpiration(RedisModuleCtx *ctx, RedisModuleString *key, DocumentType type) {
+  if (type == DocumentType_Unsupported || !RSGlobalConfig.monitorExpiration) {
+    return;
+  }
+
+  // Find all indexes that match the key's name prefix. runFilters=false:
+  // EXPIRE/PERSIST do not change field values, so a doc's schema-rule FILTER
+  // outcome cannot have flipped since the last write. The DocTable lookup
+  // below (DocTable_BorrowByKeyR) is the only discriminator we need — it
+  // returns the existing DMD when the doc is currently indexed, and NULL
+  // otherwise. Re-evaluating the filter here would re-read hash/JSON fields
+  // on the main thread for a result the loop would ignore.
+  SpecOpIndexingCtx *specs = Indexes_FindMatchingSchemaRules(ctx, key, type, false, NULL);
+
+  // EXPIRE/PERSIST notifications fire for every key in the keyspace. When no
+  // spec prefix matches we have nothing to update, so skip the OpenKey/TTL
+  // read entirely — that overhead would otherwise be paid on every event.
+  if (array_len(specs->specsOps) == 0) {
+    Indexes_SpecOpsIndexingCtxFree(specs);
+    return;
+  }
+
+  RedisModuleKey *kp = RedisModule_OpenKey(ctx, key, DOCUMENT_OPEN_KEY_INDEXING_FLAGS);
+  RS_ASSERT(kp);
+  t_expirationTimePoint ttl = GetKeyExpirationTime(kp);
+  RedisModule_CloseKey(kp);
+
+  for (size_t i = 0; i < array_len(specs->specsOps); ++i) {
+    SpecOpCtx *specOp = &specs->specsOps[i];
+    IndexSpec *spec = specOp->spec;
+    // Skip TTL update for specs that opted out of doc-level TTL tracking,
+    // matching the gate in Document_LoadSchemaFieldHash/Json. Otherwise
+    // DocTable_IsDocExpired could drop rows for an index that doesn't
+    // monitor TTLs.
+    //
+    // No spec lock needed: monitorDocumentExpiration is only written from
+    // main-thread callbacks (spec init, FT.CONFIG SET, FT.DEBUG
+    // MONITOR_EXPIRATION), and this keyspace-notification callback also
+    // runs on the main thread, so the Redis event loop serializes them.
+    // The spec write lock guards index data against background workers,
+    // not main-thread config flags (same pattern as the load path).
+    if (!spec->monitorDocumentExpiration) {
+      continue;
+    }
+    RedisSearchCtx sctx = SEARCH_CTX_STATIC(ctx, spec);
+    // Read lock is sufficient: the only mutation is the relaxed atomic store on
+    // `dmd->expirationTimeNs` inside DocTable_SetDocExpiration (paired with a
+    // relaxed atomic load in DocTable_IsDocExpired). The DMD chain traversal
+    // and refcount manipulation in DocTable_BorrowByKeyR / DMD_Return are
+    // explicitly documented as safe under either lock mode (doc_table.c, near
+    // DocTable_GetOwn). Concurrent writers cannot race here because keyspace
+    // notifications all dispatch on the Redis main thread, so this callback is
+    // serialized against itself and against other notification-driven writers
+    // by the event loop, not by the spec lock.
+    RedisSearchCtx_LockSpecRead(&sctx);
+    const RSDocumentMetadata *cdmd = DocTable_BorrowByKeyR(&spec->docs, key);
+    if (cdmd) {
+      // Only the doc-level TTL changes here. EXPIRE/PERSIST do not affect
+      // HEXPIRE state, and the per-field TTL table must be left untouched —
+      // mutating it would also require the spec write lock, which we do not
+      // hold on this fast path.
+      DocTable_SetDocExpiration((RSDocumentMetadata *)cdmd, ttl);
+      DMD_Return(cdmd);
+    }
+    RedisSearchCtx_UnlockSpec(&sctx);
+  }
+
+  Indexes_SpecOpsIndexingCtxFree(specs);
+}
+
 void Indexes_DeleteMatchingWithSchemaRules(RedisModuleCtx *ctx, RedisModuleString *key,
                                            DocumentType type,
                                            RedisModuleString **hashFields) {
@@ -4272,6 +4364,123 @@ void Indexes_DeleteMatchingWithSchemaRules(RedisModuleCtx *ctx, RedisModuleStrin
     }
   }
 
+  Indexes_SpecOpsIndexingCtxFree(specs);
+}
+
+// True iff the spec has any field with INDEXMISSING. Linear scan over the
+// schema's fields[] array; called from the HEXPIRE fast path on the main
+// thread without the spec lock, which is safe because the schema descriptors
+// read here are only mutated by FT.CREATE / FT.ALTER / RDB load on the same
+// thread.
+static bool specHasIndexMissing(const IndexSpec *spec) {
+  for (size_t i = 0; i < spec->numFields; ++i) {
+    if (FieldSpec_IndexesMissing(&spec->fields[i])) {
+      return true;
+    }
+  }
+  return false;
+}
+
+void Indexes_UpdateMatchingHashFieldExpiration(RedisModuleCtx *ctx, RedisModuleString *key,
+                                               DocumentType type) {
+
+  if (type == DocumentType_Unsupported) {
+    return;
+  }
+  RS_ASSERT(type == DocumentType_Hash);
+
+  SpecOpIndexingCtx *specs = Indexes_FindMatchingSchemaRules(ctx, key, DocumentType_Hash, false, NULL);
+
+  // HEXPIRE/HPERSIST notifications fire for every hash in the keyspace. When
+  // no spec prefix matches we have nothing to update, so skip the OpenKey /
+  // HashFieldMinExpire read entirely — that overhead would otherwise be paid
+  // on every event on non-indexed hashes.
+  if (array_len(specs->specsOps) == 0) {
+    Indexes_SpecOpsIndexingCtxFree(specs);
+    return;
+  }
+
+  RedisModuleKey *k = RedisModule_OpenKey(ctx, key, DOCUMENT_OPEN_KEY_INDEXING_FLAGS);
+  RS_ASSERT(k);
+
+  // Hash-level gate: if no field on this hash has a TTL, every per-spec
+  // FieldExpiration array is empty, so we can skip the per-field HashGet
+  // pass entirely. The Redis hash is owned by the main thread, so this read
+  // is safe without the spec lock.
+  const bool hashHasAnyFieldExpire =
+      (RedisModule_HashFieldMinExpire(k) != REDISMODULE_NO_EXPIRE);
+
+  for (size_t i = 0; i < array_len(specs->specsOps); ++i) {
+    SpecOpCtx *specOp = &specs->specsOps[i];
+    IndexSpec *spec = specOp->spec;
+    // Specs that opted out of HFE tracking have no TTL table state to refresh
+    // and HEXPIRE cannot otherwise affect their indexed view of the doc.
+    //
+    // No spec lock needed for the read: monitorFieldExpiration is only
+    // written from main-thread callbacks, and this keyspace-notification
+    // callback also runs on the main thread, so the Redis event loop
+    // serializes them. The spec write lock guards index data against
+    // background workers, not main-thread config flags.
+    if (!spec->monitorFieldExpiration) {
+      continue;
+    }
+
+    // INDEXMISSING relies on reindexing: the missing-docs iterator walks
+    // an inverted index that requires monotonically increasing docIds, so
+    // we cannot patch it from the fast path. Fall back to full reindex.
+    //
+    // Indexes_FindMatchingSchemaRules was called with runFilters=false, so
+    // the schema FILTER was not evaluated. Re-evaluate it here via
+    // SchemaRule_ShouldIndex so an HEXPIRE on a hash whose PREFIX matches
+    // but whose FILTER rejects it does not incorrectly add the doc to the
+    // index. Matches the SpecOp_Add / SpecOp_Del split the slow path
+    // produces in Indexes_UpdateMatchingWithSchemaRules.
+    if (specHasIndexMissing(spec)) {
+      if (SchemaRule_ShouldIndex(spec, key, type)) {
+        IndexSpec_UpdateDoc(spec, ctx, key, type);
+      } else {
+        IndexSpec_DeleteDoc(spec, ctx, key);
+      }
+      continue;
+    }
+
+    // Build the FieldExpiration array lock-free. Two reads happen outside
+    // the spec write lock here:
+    //   1. spec->fields / spec->numFields — only mutated by FT.CREATE,
+    //      FT.ALTER, and RDB load, all of which run on the main thread.
+    //      This keyspace-notification callback also runs on the main
+    //      thread, so the Redis event loop serializes them; the schema
+    //      cannot change between iterations here. (Same invariant as
+    //      specHasIndexMissing above.)
+    //   2. The Redis hash — owned by the main thread and not guarded by
+    //      the spec lock at all; the spec rwlock protects index state,
+    //      not the Redis keyspace.
+    arrayof(FieldExpiration) sorted = NULL;
+    if (hashHasAnyFieldExpire) {
+      for (size_t ii = 0; ii < spec->numFields; ++ii) {
+        Document_LoadHashFieldExpiration(k, &spec->fields[ii], ii, &sorted);
+      }
+    }
+
+    RedisSearchCtx sctx = SEARCH_CTX_STATIC(ctx, spec);
+    RedisSearchCtx_LockSpecWrite(&sctx);
+
+    const RSDocumentMetadata *cdmd = DocTable_BorrowByKeyR(&spec->docs, key);
+    if (cdmd) {
+      // Hands ownership of `sorted` to the doc table (or frees it if empty).
+      DocTable_UpdateFieldExpiration(&spec->docs, (RSDocumentMetadata *)cdmd, sorted);
+      sorted = NULL;
+      DMD_Return(cdmd);
+    }
+
+    RedisSearchCtx_UnlockSpec(&sctx);
+
+    // Doc not in this index (filter failed or never indexed): free the array
+    // we built speculatively. `array_free` is NULL-safe.
+    array_free(sorted);
+  }
+
+  RedisModule_CloseKey(k);
   Indexes_SpecOpsIndexingCtxFree(specs);
 }
 
@@ -4464,10 +4673,12 @@ static inline void DebugIndexesScanner_pauseCheck(DebugIndexesScanner* dScanner,
 
 void Indexes_StartRDBLoadingEvent(RedisModuleCtx* ctx) {
   Indexes_Free(ctx, specDict_g, false);
-  if (legacySpecDict) {
-    dictEmpty(legacySpecDict, NULL);
-  } else {
-    legacySpecDict = dictCreate(&dictTypeHeapHiddenStrings, NULL);
+  if (!SearchDisk_IsEnabled()) {
+    if (legacySpecDict) {
+      dictEmpty(legacySpecDict, NULL);
+    } else {
+      legacySpecDict = dictCreate(&dictTypeHeapHiddenStrings, NULL);
+    }
   }
   g_isLoading = true;
 }
@@ -4491,6 +4702,106 @@ void Indexes_EndLoading() {
   g_isLoading = false;
 }
 
+// Replica-side SST replication: Open with the pending RDB State every spec
+// that was staged in this round.
+void Indexes_FinishSSTReplication(RedisModuleCtx *ctx) {
+  RS_ASSERT(SearchDisk_IsEnabled());
+
+  // Specs whose disk open failed are collected here and dropped after the
+  // iterator is released, since IndexSpec_RemoveFromGlobals mutates specDict_g.
+  // Leaving a failed spec in specDict_g would be visible to subsequent
+  // operations (e.g. IndexSpec_DeleteDocById) while diskSpec is NULL, tripping
+  // the disk-path assertions.
+  arrayof(StrongRef) failed = NULL;
+
+  dictIterator *iter = dictGetIterator(specDict_g);
+  dictEntry *entry = NULL;
+  while ((entry = dictNext(iter))) {
+    StrongRef spec_ref = dictGetRef(entry);
+    IndexSpec *sp = StrongRef_Get(spec_ref);
+    RS_ASSERT(sp);
+    RS_ASSERT(sp->pendingDiskRdbState);
+    RS_ASSERT(sp->diskSpec == NULL);
+    RS_ASSERT(!sp->diskRegistered);
+
+    sp->diskSpec = SearchDisk_OpenIndexWithRdbState(ctx, sp->specName, sp->obfuscatedName,
+                                                    sp->rule->type, sp->pendingDiskRdbState);
+    // SearchDisk_OpenIndexWithRdbState takes ownership of the RDB state; clear our pointer
+    // regardless of success so we don't double-free.
+    sp->pendingDiskRdbState = NULL;
+
+    if (!sp->diskSpec) {
+      RedisModule_Log(ctx, "warning",
+                      "SST replication: failed to open disk index for spec during LOADING_ENDED");
+      if (!failed) failed = array_new(StrongRef, 1);
+      array_append(failed, spec_ref);
+      continue;
+    }
+    IndexSpec_PopulateVectorDiskParams(sp);
+    // Make sure TagDiskIndex is created for every TAG field. In regular FT.CREATE the TagIndex is ensured lazily
+    // in the first document insertion
+    IndexSpec_EnsureTagDiskIndexes(sp);
+    SearchDisk_RegisterIndex(ctx, sp);
+    // GC start was deferred by IndexSpec_StoreAfterRdbLoad for the SST path
+    // (diskSpec was NULL there); start it now that the disk handle exists.
+    IndexSpec_StartGC(spec_ref, sp, GCPolicy_Disk);
+  }
+  dictReleaseIterator(iter);
+
+  if (failed) {
+    // diskRegistered is false and diskSpec is NULL on these specs, so
+    // SearchDisk_UnregisterIndex is not needed; IndexSpec_FreeUnlinkedData
+    // performs final cleanup when the last StrongRef is dropped.
+    for (size_t i = 0; i < array_len(failed); ++i) {
+      IndexSpec_RemoveFromGlobals(failed[i], false);
+    }
+    array_free(failed);
+  }
+}
+
+// Replica-side SST replication: abort the in-progress replication round.
+//
+// Drops every spec that was built or staged in this round, freeing any
+// pending disk RDB state and closing or unregistering+closing the disk index
+// as appropriate. Specs at every replication phase are torn down — the
+// replica is left as if replication had never started, and Flex will retry
+// from scratch on the next attempt.
+void Indexes_AbortSSTReplicationLoading(RedisModuleCtx *ctx) {
+  RS_ASSERT(SearchDisk_IsEnabled());
+  if (dictSize(specDict_g) == 0) return;
+
+  RedisModule_Log(ctx, "warning",
+                  "SST replication aborted; tearing down %lu staged index(es)",
+                  (unsigned long)dictSize(specDict_g));
+
+  // Snapshot the refs first since IndexSpec_RemoveFromGlobals mutates specDict_g.
+  arrayof(StrongRef) specs = array_new(StrongRef, dictSize(specDict_g));
+  dictIterator *iter = dictGetIterator(specDict_g);
+  dictEntry *entry = NULL;
+  while ((entry = dictNext(iter))) {
+    array_append(specs, (StrongRef)dictGetRef(entry));
+  }
+  dictReleaseIterator(iter);
+
+  for (size_t i = 0; i < array_len(specs); ++i) {
+    IndexSpec *spec = StrongRef_Get(specs[i]);
+    if (!spec) continue;
+    // Unregister here (not in the destructor) because the destructor may run
+    // on a background thread when the last StrongRef drops, and unregister
+    // needs the main-thread RedisModuleCtx. Must precede the close that
+    // IndexSpec_FreeUnlinkedData performs. SearchDisk_UnregisterIndex is
+    // idempotent, so it safely handles specs aborted before LOADING_SST_ENDED
+    // registered them.
+    if (spec->diskSpec) {
+      SearchDisk_UnregisterIndex(ctx, spec);
+    }
+    // pendingDiskRdbState and diskSpec are freed by IndexSpec_FreeUnlinkedData
+    // once the last StrongRef is dropped below.
+    IndexSpec_RemoveFromGlobals(specs[i], false);
+  }
+  array_free(specs);
+}
+
 // =============================================================================
 // Compaction FFI Functions (called by Rust during GC)
 // =============================================================================
@@ -4503,6 +4814,32 @@ void IndexSpec_AcquireWriteLock(IndexSpec* sp) {
 // Release IndexSpec write lock
 void IndexSpec_ReleaseWriteLock(IndexSpec* sp) {
   pthread_rwlock_unlock(&sp->rwlock);
+}
+
+// Block the snapshot fork from starting (shared/read side of the fork rwlock).
+void IndexSpec_BlockDiskFork(IndexSpec *sp) {
+  pthread_rwlock_rdlock(&sp->disk_fork_rwlock);
+}
+
+// Release a prior IndexSpec_BlockDiskFork. The fork becomes eligible only
+// after the last blocker releases.
+void IndexSpec_EnableDiskForkIfPossible(IndexSpec *sp) {
+  pthread_rwlock_unlock(&sp->disk_fork_rwlock);
+}
+
+// Enter the exclusive fork window (write side of the fork rwlock). Blocks
+// until every IndexSpec_BlockDiskFork blocker has released.
+void IndexSpec_ProtectDiskFork(IndexSpec *sp) {
+  RS_ASSERT(!(sp->repl_flags & REPL_LOCK_DISK_FORK_PROTECTED));
+  pthread_rwlock_wrlock(&sp->disk_fork_rwlock);
+  sp->repl_flags |= REPL_LOCK_DISK_FORK_PROTECTED;
+}
+
+// Leave the exclusive fork window.
+void IndexSpec_UnProtectDiskFork(IndexSpec *sp) {
+  RS_ASSERT(sp->repl_flags & REPL_LOCK_DISK_FORK_PROTECTED);
+  pthread_rwlock_unlock(&sp->disk_fork_rwlock);
+  sp->repl_flags &= ~REPL_LOCK_DISK_FORK_PROTECTED;
 }
 
 // Update a term's document count in the Serving Trie

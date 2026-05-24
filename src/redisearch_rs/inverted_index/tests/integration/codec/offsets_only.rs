@@ -9,8 +9,9 @@
 
 use std::io::Cursor;
 
+use index_result::RSIndexResult;
 use inverted_index::{
-    Decoder, Encoder, RSIndexResult,
+    Decoder, Encoder,
     offsets_only::OffsetsOnly,
     test_utils::{TermRecordCompare, TestTermRecord},
 };
@@ -69,7 +70,7 @@ fn test_encode_offsets_only_output_too_small() {
     // Not enough space in the buffer to write the encoded data.
     let buf = [0u8; 1];
     let mut cursor = Cursor::new(buf);
-    let record = inverted_index::RSIndexResult::build_term().build();
+    let record = index_result::RSIndexResult::build_term().build();
 
     let res = OffsetsOnly::encode(&mut cursor, 0, &record);
     assert_eq!(res.is_err(), true);

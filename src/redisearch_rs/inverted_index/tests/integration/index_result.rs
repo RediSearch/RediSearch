@@ -8,7 +8,7 @@
 */
 
 use ffi::RS_FIELDMASK_ALL;
-use inverted_index::{
+use index_result::{
     MetricsVec, RSAggregateResult, RSIndexResult, RSOffsetSlice, RSOffsetVector, RSResultKind,
     RSResultKindMask,
 };

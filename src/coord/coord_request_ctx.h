@@ -13,8 +13,9 @@
 #include "hybrid/hybrid_request.h"
 #include <stdatomic.h>
 #include <pthread.h>
-#include "query_error.h"
 #include "cursor.h"
+
+typedef struct QueryError QueryError;
 
 #ifdef __cplusplus
 extern "C" {
@@ -92,7 +93,9 @@ void *CoordRequestCtx_GetRequest(CoordRequestCtx *ctx);
 /**
  * Check if the coordinator request has timed out.
  */
-bool CoordRequestCtx_TimedOut(CoordRequestCtx *ctx);
+static inline bool CoordRequestCtx_TimedOut(CoordRequestCtx *ctx) {
+  return RS_AtomicLoadRelaxed(&ctx->timedOut);
+}
 
 /**
  * Set the timeout flag on the coordinator request context.

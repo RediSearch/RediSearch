@@ -65,7 +65,7 @@ static int sbstemmer_Reset(Stemmer *stemmer, StemmerType type, RSLanguage langua
 }
 
 Stemmer *__newSnowballStemmer(RSLanguage language) {
-  struct sb_stemmer *sb = sb_stemmer_new(RSLanguage_ToString(language), NULL);
+  struct sb_stemmer *sb = sb_stemmer_new(RSLanguage_ToSnowballStemmer(language), NULL);
   // No stemmer available for this language
   if (!sb) {
     return NULL;

@@ -10,8 +10,9 @@
 use std::ptr::{self, NonNull};
 
 use ffi::{GeoDistance_GEO_DISTANCE_M, GeoFilter, IndexFlags_Index_StoreNumeric, t_docId};
+use index_result::RSIndexResult;
 use inverted_index::{
-    FilterNumericReader, IndexReader, InvertedIndex, NumericFilter, NumericReader, RSIndexResult,
+    FilterNumericReader, IndexReader, InvertedIndex, NumericFilter, NumericReader,
 };
 use rqe_iterators::{
     IteratorType, NoOpChecker, RQEIterator, RQEValidateStatus, SkipToOutcome,
@@ -167,7 +168,7 @@ fn numeric_read() {
     let test = NumericBaseTest::new(100);
     let filter = NumericFilter::default();
     let reader = test.test.ii.reader();
-    let reader = FilterNumericReader::new(&filter, reader);
+    let reader = FilterNumericReader::new(filter, reader);
     let mut it = NumericBuilder::new(reader)
         .range_tree(test.test.mock_ctx.numeric_range_tree())
         .build();
@@ -191,7 +192,7 @@ fn numeric_filter() {
         max: 75.0,
         ..Default::default()
     };
-    let reader = FilterNumericReader::new(&filter, test.test.ii.reader());
+    let reader = FilterNumericReader::new(filter, test.test.ii.reader());
     let mut it = NumericBuilder::new(reader)
         .range_tree(test.test.mock_ctx.numeric_range_tree())
         .build();
@@ -276,7 +277,7 @@ fn get_correct_value() {
         max: 3.0,
         ..Default::default()
     };
-    let reader = FilterNumericReader::new(&filter, ii.reader());
+    let reader = FilterNumericReader::new(filter, ii.reader());
 
     let context = MockContext::new(0, 0);
     let mut it = NumericBuilder::new(reader)
@@ -314,7 +315,7 @@ fn eof_after_filtering() {
         max: 2.0,
         ..Default::default()
     };
-    let reader = FilterNumericReader::new(&filter, ii.reader());
+    let reader = FilterNumericReader::new(filter, ii.reader());
     let context = MockContext::new(0, 0);
     let mut it = NumericBuilder::new(reader)
         .range_tree(context.numeric_range_tree())
@@ -703,7 +704,8 @@ mod from_tree {
 mod variant {
     use ffi::IndexFlags_Index_StoreNumeric;
     use field::{FieldExpirationPredicate, FieldFilterContext, FieldMaskOrIndex};
-    use inverted_index::{NumericFilter, RSIndexResult};
+    use index_result::RSIndexResult;
+    use inverted_index::NumericFilter;
     use numeric_range_tree::NumericIndex;
     use rqe_iterators::{FieldExpirationChecker, NumericIteratorVariant};
     use rqe_iterators_test_utils::MockContext;

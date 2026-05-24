@@ -9,8 +9,8 @@
 
 
 #include "gtest/gtest.h"
+#include "trie/trie_node.h"
 #include "trie/trie.h"
-#include "trie/trie_type.h"
 #include "redismock/redismock.h"
 
 #include <set>

@@ -10,6 +10,8 @@
 #include "search_disk.h"
 #include "config.h"
 #include "spec.h"
+#include "query_term_ffi.h"
+#include "sorting_vector_ffi.h"
 #include "redismodule.h"
 
 RedisSearchDiskAPI *disk = NULL;
@@ -40,6 +42,12 @@ void SearchDisk_SetAPI() {
   // the iterators to access the enterprise iterator implementations.
   return;
 }
+
+__attribute__((weak))
+void VecSimDisk_AcquireConsistencyLock(void) {}
+
+__attribute__((weak))
+void VecSimDisk_ReleaseConsistencyLock(void) {}
 
 bool SearchDisk_Initialize(RedisModuleCtx *ctx) {
   if (!SearchDisk_HasAPI()) {
@@ -144,14 +152,20 @@ void SearchDisk_MarkIndexForDeletion(RedisSearchDiskIndexSpec *index) {
     disk->index.markToBeDeleted(index);
 }
 
-void SearchDisk_RegisterIndex(RedisModuleCtx *ctx, RedisSearchDiskIndexSpec *index) {
-    RS_ASSERT(disk_db && index && ctx);
-    disk->basic.registerIndex(ctx, index);
+void SearchDisk_RegisterIndex(RedisModuleCtx *ctx, IndexSpec *spec) {
+    RS_ASSERT(disk_db && spec && spec->diskSpec && ctx);
+    RS_ASSERT(!spec->diskRegistered);
+    disk->basic.registerIndex(ctx, spec->diskSpec);
+    spec->diskRegistered = true;
 }
 
-void SearchDisk_UnregisterIndex(RedisModuleCtx *ctx, RedisSearchDiskIndexSpec *index) {
-    RS_ASSERT(disk_db && index && ctx);
-    disk->basic.unregisterIndex(ctx, index);
+void SearchDisk_UnregisterIndex(RedisModuleCtx *ctx, IndexSpec *spec) {
+    RS_ASSERT(disk_db && spec && spec->diskSpec && ctx);
+    if (!spec->diskRegistered) {
+        return;
+    }
+    disk->basic.unregisterIndex(ctx, spec->diskSpec);
+    spec->diskRegistered = false;
 }
 
 void SearchDisk_CloseIndex(RedisSearchDiskIndexSpec *index) {
@@ -210,6 +224,10 @@ QueryIterator* SearchDisk_NewTagIterator(RedisSearchDiskIndexSpec *index, const 
 static void* Compaction_BeginUpdate(void *private_data) {
     IndexSpec *sp = private_data;
     RS_ASSERT(sp);
+    // Lock order: block-fork then wrlock - must match the order in
+    // SearchDisk_PreFork (protect-fork then rdlock).
+    // TODO: move the block-fork acquisition to a start callback once the Job-ID based compaction is there.
+    IndexSpec_BlockDiskFork(sp);
     IndexSpec_AcquireWriteLock(sp);
     return sp;
 }
@@ -235,7 +253,9 @@ static void Compaction_EndUpdate(void *update_ctx) {
     IndexSpec *sp = update_ctx;
     RS_ASSERT(sp);
 
+    // Release in reverse order of acquisition (wrlock first, then fork gate).
     IndexSpec_ReleaseWriteLock(sp);
+    IndexSpec_EnableDiskForkIfPossible(sp);
 }
 size_t SearchDisk_RunGC(RedisSearchDiskIndexSpec *index, IndexSpec *spec) {
     RS_ASSERT(disk && index && spec);
@@ -425,6 +445,37 @@ uint64_t SearchDisk_GetDiskUsage(RedisSearchDiskIndexSpec* index) {
 void SearchDisk_Flush(RedisSearchDiskIndexSpec* index) {
   RS_ASSERT(disk && index);
   disk->index.flush(index);
+}
+
+void SearchDisk_PreCheckpoint(IndexSpec *sp) {
+  RS_ASSERT(disk && sp && sp->diskSpec);
+  // No read/write lock taken from spec. Disabling compaction and calling SearchDisk_PreCheckpoint from main thread
+  // ensures no writes while checkpoint taken.
+  disk->index.preCheckpoint(sp->diskSpec);
+}
+
+void SearchDisk_PreFork(IndexSpec *sp) {
+  RS_ASSERT(disk && sp && sp->diskSpec);
+  // Lock order: protect-fork then rdlock. The disk side must use the same
+  // ordering for any critical section that gates the fork to avoid deadlock
+  // with this handler.
+  IndexSpec_ProtectDiskFork(sp);
+  disk->index.preFork(sp->diskSpec);
+}
+
+void SearchDisk_PostFork(IndexSpec *sp) {
+  RS_ASSERT(disk && sp && sp->diskSpec);
+  RS_ASSERT(sp->repl_flags & REPL_LOCK_DISK_FORK_PROTECTED);
+  disk->index.postFork(sp->diskSpec);
+  IndexSpec_UnProtectDiskFork(sp);
+}
+
+void SearchDisk_ReplicationAbort(IndexSpec *sp) {
+  RS_ASSERT(disk && sp && sp->diskSpec);
+  disk->index.replicationAbort(sp->diskSpec);
+  if (sp->repl_flags & REPL_LOCK_DISK_FORK_PROTECTED) {
+    IndexSpec_UnProtectDiskFork(sp);
+  }
 }
 
 void SearchDisk_UpdateBufferBudget(RedisModuleCtx *ctx, int percentage) {

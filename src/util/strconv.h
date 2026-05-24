@@ -80,15 +80,6 @@ static int ParseBoolean(const char *arg, int *res) {
   return 0;
 }
 
-static char *strtolower(char *str) {
-  char *p = str;
-  while (*p) {
-    *p = tolower(*p);
-    p++;
-  }
-  return str;
-}
-
 static char *rm_strndup_unescape(const char *s, size_t len) {
   char *ret = rm_strndup(s, len);
   char *dst = ret;
@@ -225,5 +216,8 @@ static char *rm_normalize(const char *s, size_t len) {
 
   return ret;
 }
+
+// Non-static wrapper around unicode_tolower for FFI testing.
+char *unicode_tolower_fn(char *encoded, size_t *inout_len);
 
 #endif

@@ -13,13 +13,15 @@
 //! compressed and uncompressed numeric storage in inverted indexes.
 
 use ffi::IndexFlags_Index_StoreNumeric;
+use index_result::RSIndexResult;
 use inverted_index::{
-    EntriesTrackingIndex, IndexBlock, IndexReader, IndexReaderCore, NumericReader, RSIndexResult,
+    EntriesTrackingIndex, IndexBlock, IndexReader, IndexReaderCore, NumericReader,
     debug::Summary,
     numeric::{Numeric, NumericFloatCompression},
 };
 
 /// Enum to hold either compressed or uncompressed numeric index.
+#[cheadergen::config(rename = "InvertedIndexNumeric")]
 #[derive(Debug)]
 pub enum NumericIndex {
     /// Uncompressed: stores f64 values at full precision (8 bytes).

@@ -16,11 +16,11 @@
 #include "query.h"
 #include "config.h"
 #include "iterators/iterator_api.h"
-#include "query_error.h"
+#include "query_error_ffi.h"
 #include "redis_index.h"
-#include "iterators_rs.h"
+#include "iterators_ffi.h"
 #include "tokenize.h"
-#include "triemap.h"
+#include "triemap_ffi.h"
 #include "util/logging.h"
 #include "extension.h"
 #include "ext/default.h"
@@ -38,12 +38,11 @@
 #include "suffix.h"
 #include "wildcard.h"
 #include "geometry/geometry_api.h"
-#include "iterators_rs.h"
 #include "iterators/hybrid_reader.h"
 #include "iterators/optimizer_reader.h"
 #include "search_disk.h"
 #include "shard_window_ratio.h"
-#include "idf.h"
+#include "idf_ffi.h"
 #include "doc_id_meta.h"
 #define EFFECTIVE_FIELDMASK(q_, qn_) ((qn_)->opts.fieldMask & (q)->opts->fieldmask)
 
@@ -1181,7 +1180,7 @@ static QueryIterator *Query_EvalUnionNode(QueryEvalCtx *q, QueryNode *qn) {
  * @param caseSensitive A flag indicating whether the conversion to lowercase
  * should be performed. If true, the string remains case-sensitive.
  */
-static void tag_strtolower(char **pstr, size_t *len, int caseSensitive) {
+void tag_strtolower(char **pstr, size_t *len, int caseSensitive) {
   size_t length = *len;
   char *str = *pstr;
   char *origStr = str;
@@ -2084,7 +2083,7 @@ static sds QueryNode_DumpSds(sds s, const IndexSpec *spec, const QueryNode *qs, 
             did = DocTable_GetId(&spec->docs, qs->fn.keys[i], sdslen(qs->fn.keys[i]));
           }
           if (did != 0) {
-            s = sdscatprintf(s, "%lu,", did);
+            s = sdscatprintf(s, "%" PRIu64 ",", did);
           }
         }
       }

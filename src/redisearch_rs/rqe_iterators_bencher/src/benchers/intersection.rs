@@ -22,7 +22,8 @@ use ffi::{
     IndexFlags, IndexFlags_Index_StoreByteOffsets, IndexFlags_Index_StoreFieldFlags,
     IndexFlags_Index_StoreFreqs, IndexFlags_Index_StoreTermOffsets, IteratorStatus_ITERATOR_OK,
 };
-use inverted_index::{InvertedIndex, RSIndexResult, RSOffsetSlice, full::Full};
+use index_result::{RSIndexResult, RSOffsetSlice};
+use inverted_index::{InvertedIndex, full::Full};
 use query_term::RSQueryTerm;
 use rqe_iterators::{
     Intersection, NoOpChecker, RQEIterator, id_list::IdListSorted, inverted_index::Term,

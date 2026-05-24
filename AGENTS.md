@@ -18,7 +18,8 @@ The codebase is primarily C, with an ongoing effort to port modules to Rust in `
 ./build.sh RUN_UNIT_TESTS TEST=unit_test_name # Specific C/C++ unit tests
 ./build.sh RUN_UNIT_TESTS SAN=address         # C/C++ unit tests with AddressSanitizer
 ./build.sh RUN_PYTEST                         # Python behavioral tests
-./build.sh RUN_PYTEST TEST=test_name          # Specific Python test
+./build.sh RUN_PYTEST TEST=<file>             # Whole Python test file
+./build.sh RUN_PYTEST TEST=<file>:<function>  # Specific Python test function
 cargo nextest run                             # Rust tests, from `src/redisearch_rs/`
 cargo +nightly miri test                      # Rust tests under `miri`, from `src/redisearch_rs/`
 ```
@@ -192,6 +193,19 @@ src/redisearch_rs/
 
 ## Common Workflows
 
+When implementing changes that may become a PR, first check the current checkout. If it is dirty,
+on an unrelated branch, or already tied to another open PR, automatically create a dedicated
+worktree and do the work there. Use the existing checkout only when it is already the right clean
+branch for the task.
+
+Always use `-b` when creating a worktree — git forbids two worktrees on the same branch, so checking out `master` directly will fail when master is already the main checkout:
+
+```bash
+git worktree add -b memark-<feature> .claude/worktrees/memark-<feature> origin/master
+```
+
+To remove a worktree, use `git worktree remove --force <path>` (plain `remove` fails on initialized submodules).
+
 ### C Code
 Invoke [/code-review](.skills/code-review/SKILL.md) to review C code changes or PRs.
 Invoke [/run-c-unit-tests](.skills/run-c-unit-tests/SKILL.md) to run C/C++ unit tests.
@@ -205,6 +219,8 @@ Invoke [/write-rust-tests](.skills/write-rust-tests/SKILL.md) to add tests to Ru
 Invoke [/rust-review](.skills/rust-review/SKILL.md) to review Rust code changes.
 
 ### General
+Invoke [/report-flaky-test](.skills/report-flaky-test/SKILL.md) to report a flaky CI test to Jira or update an existing flaky-test ticket.
+Invoke [/investigate-flaky-test](.skills/investigate-flaky-test/SKILL.md) to investigate a flaky-test report and propose an evidence-backed fix.
 Invoke [/verify](.skills/verify/SKILL.md) to verify the correctness of your work before wrapping up.
 Invoke [/build](.skills/build/SKILL.md) to compile and verify the build.
 Invoke [/lint](.skills/lint/SKILL.md) to check code quality and formatting.

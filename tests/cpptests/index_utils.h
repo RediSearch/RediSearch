@@ -11,7 +11,9 @@
 
 #include "query_ctx.h"
 #include "inverted_index.h"
+#include "inverted_index_ffi.h"
 #include "ttl_table.h"
+#include "llapi_test_helpers.h"
 #include <string>
 #include <vector>
 #include <algorithm>

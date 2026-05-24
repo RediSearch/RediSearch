@@ -9,6 +9,8 @@
 #include "indexer.h"
 #include "forward_index.h"
 #include "inverted_index.h"
+#include "inverted_index_ffi.h"
+#include "sorting_vector_ffi.h"
 #include "geo_index.h"
 #include "vector_index.h"
 #include "redis_index.h"
@@ -23,7 +25,7 @@
 #include "info/global_stats.h"
 #include "gc.h"
 #include "doc_id_meta.h"
-#include "metrics.h"
+#include "metrics_ffi.h"
 
 extern RedisModuleCtx *RSDummyContext;
 

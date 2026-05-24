@@ -15,7 +15,7 @@ use std::ptr::NonNull;
 
 use ffi::{IndexFlags_Index_WideSchema, RS_INVALID_FIELD_INDEX, RedisSearchCtx};
 use field::{FieldFilterContext, FieldMaskOrIndex};
-use inverted_index::RSIndexResult;
+use index_result::RSIndexResult;
 
 /// Trait for checking if a document has expired.
 ///

@@ -7,7 +7,9 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 #include "iterators/optimizer_reader.h"
-#include "iterators_rs.h"
+#include "iterators_ffi.h"
+#include "rqe_iterator_type.h"
+#include "types_ffi.h"
 
 int cmpAsc(const void *v1, const void *v2, const void *udata) {
   RSIndexResult *res1 = (RSIndexResult *)v1;
@@ -212,7 +214,7 @@ IteratorStatus OPT_Read(QueryIterator *self) {
         }
       } else {
         RedisModule_Log(RSDummyContext, "verbose", "Not enough results collected, but success ratio is %f", getSuccessRatio(it));
-        RedisModule_Log(RSDummyContext, "debug", "Heap size: %d, heap count: %d, offset: %ld, childEstimate: %ld",
+        RedisModule_Log(RSDummyContext, "debug", "Heap size: %d, heap count: %d, offset: %zu, childEstimate: %zu",
                                         heap_size(it->heap), heap_count(it->heap), it->offset, it->childEstimate);
       }
     }

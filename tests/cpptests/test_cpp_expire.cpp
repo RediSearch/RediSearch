@@ -8,6 +8,7 @@
 */
 
 
+#include <inttypes.h>
 #include "gtest/gtest.h"
 #include "aggregate/aggregate.h"
 #include "redismock/redismock.h"
@@ -51,7 +52,7 @@ TEST_F(ExpireTest, testSkipTo) {
   // Add 1000 documents to the index and expire the fields
   for (t_docId doc = 1; doc <= maxDocId; ++doc) {
     char buf[1024];
-    snprintf(buf, sizeof(buf), "doc:%ld", doc);
+    snprintf(buf, sizeof(buf), "doc:%" PRIu64, doc);
     hset_args[0] = RedisModule_CreateString(ctx, buf, strlen(buf));
     RedisModuleCallReply *hset = RedisModule_Call(ctx, "HSET", "!v", hset_args, sizeof(hset_args) / sizeof(hset_args[0]));
     RedisModule_FreeCallReply(hset);

@@ -11,7 +11,6 @@
 
 #include "score_explain.h"
 #include "redisearch.h"
-#include "types_rs.h"
 #include "rlookup.h"
 #include "index_result.h"
 #include "search_result_rs.h"

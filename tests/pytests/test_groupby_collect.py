@@ -1309,6 +1309,34 @@ def test_collect_sortby_limit_merges_global_topk_across_shards():
 
 
 # ---------------------------------------------------------------------------
+# Heap path (SORTBY without LIMIT) default-caps at 10 by design.
+# ---------------------------------------------------------------------------
+def test_collect_sortby_without_limit_caps_at_default_10():
+    """COLLECT + SORTBY without an explicit LIMIT runs the heap path with its
+    default capacity of 10, even when the group has more matching docs."""
+    env = Env(protocol=3)
+    enable_unstable_features(env)
+    _setup_priced_hash(env)
+
+    # PRICED has 12 docs in the 'red' group; ASC top-10 by price drops the
+    # two highest-priced names (charlie=15, dave=15).
+    res = env.cmd(
+        'FT.AGGREGATE', 'idx', '*',
+        'GROUPBY', '1', '@color',
+        'REDUCE', 'COLLECT', '7',
+            'FIELDS', '1', '@name',
+            'SORTBY', '2', '@price', 'ASC',
+        'AS', 'names')
+
+    entries = res['results'][0]['extra_attributes']['names']
+    env.assertEqual(len(entries), 10)
+    names = {e['name'] for e in entries}
+    # The two highest-priced docs must be the ones dropped.
+    env.assertNotContains('charlie', names)
+    env.assertNotContains('dave', names)
+
+
+# ---------------------------------------------------------------------------
 # Array path (no SORTBY, no LIMIT) capped by MAXAGGREGATERESULTS
 # ---------------------------------------------------------------------------
 @skip(no_json=True)
@@ -1335,3 +1363,415 @@ def test_collect_array_path_capped_by_max_aggregate_results():
             env.assertContains(e['name'], known)
     finally:
         env.expect(config_cmd(), 'SET', 'MAXAGGREGATERESULTS', '-1').ok()
+
+
+# ---------------------------------------------------------------------------
+# Multiple COLLECT reducers in one GROUPBY: independent fields / LIMIT / SORTBY
+# ---------------------------------------------------------------------------
+def test_two_collect_reducers_different_fields():
+    """Two COLLECTs in the same GROUPBY emit independent arrays with their own
+    field sets."""
+    env = Env(protocol=3)
+    enable_unstable_features(env)
+    _setup_hash(env)
+
+    res = env.cmd(
+        'FT.AGGREGATE', 'idx', '*',
+        'GROUPBY', '1', '@color',
+            'REDUCE', 'COLLECT', '7',
+                'FIELDS', '1', '@name',
+                'SORTBY', '2', '@name', 'ASC',
+            'AS', 'names',
+            'REDUCE', 'COLLECT', '7',
+                'FIELDS', '1', '@sweetness',
+                'SORTBY', '2', '@sweetness', 'ASC',
+            'AS', 'sweets')
+
+    expected_names = {
+        'green':  [{'name': 'kiwi'},   {'name': 'lime'}],
+        'red':    [{'name': 'apple'},  {'name': 'strawberry'}],
+        'yellow': [{'name': 'banana'}, {'name': 'lemon'}],
+    }
+    expected_sweets = {
+        'green':  [{'sweetness': '2'}, {'sweetness': '3'}],
+        'red':    [{'sweetness': '3'}, {'sweetness': '4'}],
+        'yellow': [{'sweetness': '2'}, {'sweetness': '4'}],
+    }
+    for g in res['results']:
+        attrs = g['extra_attributes']
+        env.assertEqual(attrs['names'],  expected_names[attrs['color']])
+        env.assertEqual(attrs['sweets'], expected_sweets[attrs['color']])
+
+
+def test_two_collect_reducers_one_with_limit():
+    """LIMIT on one COLLECT must not bound the sibling COLLECT in the same group."""
+    env = Env(protocol=3)
+    enable_unstable_features(env)
+    _setup_hash(env)
+
+    res = env.cmd(
+        'FT.AGGREGATE', 'idx', '*',
+        'GROUPBY', '1', '@color',
+            'REDUCE', 'COLLECT', '7',
+                'FIELDS', '1', '@name',
+                'SORTBY', '2', '@name', 'ASC',
+            'AS', 'all_names',
+            'REDUCE', 'COLLECT', '10',
+                'FIELDS', '1', '@name',
+                'SORTBY', '2', '@name', 'ASC',
+                'LIMIT', '0', '1',
+            'AS', 'one_name')
+
+    expected_all = {
+        'green':  [{'name': 'kiwi'},   {'name': 'lime'}],
+        'red':    [{'name': 'apple'},  {'name': 'strawberry'}],
+        'yellow': [{'name': 'banana'}, {'name': 'lemon'}],
+    }
+    for g in res['results']:
+        attrs = g['extra_attributes']
+        env.assertEqual(attrs['all_names'], expected_all[attrs['color']])
+        # LIMIT 0,1 after SORTBY @name ASC picks the first of the full set.
+        env.assertEqual(attrs['one_name'], [expected_all[attrs['color']][0]])
+
+
+def test_two_collect_reducers_sortby_different_keys():
+    """Two COLLECTs with different SORTBY keys keep independent heap state."""
+    env = Env(protocol=3)
+    enable_unstable_features(env)
+    _setup_hash(env)
+
+    res = env.cmd(
+        'FT.AGGREGATE', 'idx', '*',
+        'GROUPBY', '1', '@color',
+            'REDUCE', 'COLLECT', '10',
+                'FIELDS', '1', '@name',
+                'SORTBY', '2', '@name', 'ASC',
+                'LIMIT', '0', '1',
+            'AS', 'first_by_name',
+            'REDUCE', 'COLLECT', '10',
+                'FIELDS', '1', '@name',
+                'SORTBY', '2', '@sweetness', 'DESC',
+                'LIMIT', '0', '1',
+            'AS', 'top_sweet',
+        'SORTBY', '2', '@color', 'ASC')
+
+    # name ASC firsts: 'apple' < 'strawberry'; 'banana' < 'lemon'; 'kiwi' < 'lime'.
+    expected_first_by_name = {
+        'green':  [{'name': 'kiwi'}],
+        'red':    [{'name': 'apple'}],
+        'yellow': [{'name': 'banana'}],
+    }
+    # sweetness DESC: red -> apple(4); yellow -> banana(4); green tie -> kiwi(3).
+    expected_top_sweet = {
+        'green':  [{'name': 'kiwi'}],
+        'red':    [{'name': 'apple'}],
+        'yellow': [{'name': 'banana'}],
+    }
+    for g in res['results']:
+        attrs = g['extra_attributes']
+        env.assertEqual(attrs['first_by_name'], expected_first_by_name[attrs['color']])
+        env.assertEqual(attrs['top_sweet'],     expected_top_sweet[attrs['color']])
+
+
+@skip(cluster=False)
+def test_two_collect_reducers_overlapping_fields_cluster():
+    """Two COLLECTs over @name with divergent SORTBY/LIMIT keep independent
+    state across shards."""
+    env = Env(shardsCount=3, protocol=3)
+    enable_unstable_features(env)
+
+    env.expect('FT.CREATE', 'idx', 'ON', 'HASH',
+               'SCHEMA',
+               'name', 'TEXT', 'SORTABLE',
+               'color', 'TAG', 'SORTABLE').ok()
+
+    shard_tags = ['shard:0', 'shard:1', 'shard:3']
+    conn = getConnectionByEnv(env)
+    for i, f in enumerate(FRUITS):
+        conn.execute_command('HSET', f'doc:{i}{{{shard_tags[i % 3]}}}',
+                             'name', f['name'], 'color', f['color'])
+
+    res = env.cmd(
+        'FT.AGGREGATE', 'idx', '*',
+        'GROUPBY', '1', '@color',
+            'REDUCE', 'COLLECT', '7',
+                'FIELDS', '1', '@name',
+                'SORTBY', '2', '@name', 'ASC',
+            'AS', 'all_asc',
+            'REDUCE', 'COLLECT', '10',
+                'FIELDS', '1', '@name',
+                'SORTBY', '2', '@name', 'DESC',
+                'LIMIT', '0', '1',
+            'AS', 'last_desc')
+
+    # Full ASC list — pins that both shards' rows are merged.
+    expected_all = {
+        'green':  [{'name': 'kiwi'},   {'name': 'lime'}],
+        'red':    [{'name': 'apple'},  {'name': 'strawberry'}],
+        'yellow': [{'name': 'banana'}, {'name': 'lemon'}],
+    }
+    # Top-1 DESC after global shard merge: must be the last name in the ASC list.
+    expected_last = {
+        'green':  [{'name': 'lime'}],
+        'red':    [{'name': 'strawberry'}],
+        'yellow': [{'name': 'lemon'}],
+    }
+    for g in res['results']:
+        attrs = g['extra_attributes']
+        env.assertEqual(attrs['all_asc'],   expected_all[attrs['color']])
+        env.assertEqual(attrs['last_desc'], expected_last[attrs['color']])
+
+
+def test_two_identical_collect_reducers():
+    # MOD-15816: two REDUCE COLLECT calls over identical (name, args) inside one GROUPBY
+    # should work.
+    env = Env(protocol=3)
+    enable_unstable_features(env)
+    _setup_hash(env)
+
+    res = env.cmd(
+        'FT.AGGREGATE', 'idx', '*',
+        'GROUPBY', '1', '@color',
+            'REDUCE', 'COLLECT', '3', 'FIELDS', '1', '@name', 'AS', 'names_a',
+            'REDUCE', 'COLLECT', '3', 'FIELDS', '1', '@name', 'AS', 'names_b')
+
+    expected = {
+        'green':  [{'name': 'kiwi'},   {'name': 'lime'}],
+        'red':    [{'name': 'apple'},  {'name': 'strawberry'}],
+        'yellow': [{'name': 'banana'}, {'name': 'lemon'}],
+    }
+    for g in res['results']:
+        attrs = g['extra_attributes']
+        env.assertEqual(_sort_collected(attrs['names_a'], 'name'), expected[attrs['color']])
+        env.assertEqual(_sort_collected(attrs['names_b'], 'name'), expected[attrs['color']])
+
+
+# ---------------------------------------------------------------------------
+# COLLECT across multiple GROUPBY stages
+# ---------------------------------------------------------------------------
+def test_collect_in_first_groupby_survives_second_groupby():
+    """A COLLECT array produced in stage 1 must round-trip as a payload through
+    a stage-2 GROUPBY."""
+    env = Env(protocol=3)
+    enable_unstable_features(env)
+    _setup_hash(env)
+
+    res = env.cmd(
+        'FT.AGGREGATE', 'idx', '*',
+        'GROUPBY', '1', '@color',
+            'REDUCE', 'COUNT', '0', 'AS', 'cnt',
+            'REDUCE', 'COLLECT', '7',
+                'FIELDS', '1', '@name',
+                'SORTBY', '2', '@name', 'ASC',
+            'AS', 'items',
+        'APPLY', 'to_str(@cnt)', 'AS', 'cnt_str',
+        'GROUPBY', '1', '@cnt_str',
+            'REDUCE', 'COLLECT', '8',
+                'FIELDS', '2', '@color', '@items',
+                'SORTBY', '2', '@color', 'ASC',
+            'AS', 'rolled')
+
+    # All three colors have cnt=2, so they roll up under a single cnt_str group.
+    env.assertEqual(len(res['results']), 1)
+    rolled = res['results'][0]['extra_attributes']['rolled']
+    env.assertEqual([e['color'] for e in rolled], ['green', 'red', 'yellow'])
+    for entry in rolled:
+        # The nested COLLECT array survived the regroup.
+        env.assertEqual(len(entry['items']), 2)
+
+
+def test_three_stage_groupby_with_collect_at_end():
+    """Three-stage pipeline: GROUPBY @color → APPLY derives @is_sweet →
+    GROUPBY @is_sweet with COLLECT."""
+    env = Env(protocol=3)
+    enable_unstable_features(env)
+    _setup_hash(env)
+
+    res = env.cmd(
+        'FT.AGGREGATE', 'idx', '*',
+        'GROUPBY', '1', '@color',
+            'REDUCE', 'AVG', '1', '@sweetness', 'AS', 'avg_sweet',
+        'APPLY', '@avg_sweet >= 3', 'AS', 'is_sweet',
+        'GROUPBY', '1', '@is_sweet',
+            'REDUCE', 'COLLECT', '8',
+                'FIELDS', '2', '@color', '@avg_sweet',
+                'SORTBY', '2', '@color', 'ASC',
+            'AS', 'colors',
+        'SORTBY', '2', '@is_sweet', 'ASC')
+
+    # avg_sweet: green=2.5, red=3.5, yellow=3.0 → green is the only @is_sweet=0 group.
+    env.assertEqual(res['results'][0]['extra_attributes']['colors'],
+                    [{'color': 'green', 'avg_sweet': '2.5'}])
+    env.assertEqual(res['results'][1]['extra_attributes']['colors'], [
+        {'color': 'red',    'avg_sweet': '3.5'},
+        {'color': 'yellow', 'avg_sweet': '3'},
+    ])
+
+
+def test_chained_groupby_collect_of_collect_alias():
+    """A COLLECT alias from stage 1 can be re-collected in stage 2 as a nested
+    payload."""
+    env = Env(protocol=3)
+    enable_unstable_features(env)
+    _setup_hash(env)
+
+    res = env.cmd(
+        'FT.AGGREGATE', 'idx', '*',
+        'GROUPBY', '1', '@color',
+            'REDUCE', 'COLLECT', '7',
+                'FIELDS', '1', '@name',
+                'SORTBY', '2', '@name', 'ASC',
+            'AS', 'names',
+        'GROUPBY', '0',
+            'REDUCE', 'COLLECT', '8',
+                'FIELDS', '2', '@color', '@names',
+                'SORTBY', '2', '@color', 'ASC',
+            'AS', 'all')
+
+    env.assertEqual(len(res['results']), 1)
+    env.assertEqual(res['results'][0]['extra_attributes']['all'], [
+        {'color': 'green',  'names': [{'name': 'kiwi'},   {'name': 'lime'}]},
+        {'color': 'red',    'names': [{'name': 'apple'},  {'name': 'strawberry'}]},
+        {'color': 'yellow', 'names': [{'name': 'banana'}, {'name': 'lemon'}]},
+    ])
+
+
+# ---------------------------------------------------------------------------
+# COLLECT combined with COUNT / AVG / MIN / MAX / TOLIST in one GROUPBY
+# ---------------------------------------------------------------------------
+def test_collect_with_count_and_avg():
+    """COLLECT alongside COUNT and AVG: per-group counts/averages must match
+    collected rows."""
+    env = Env(protocol=3)
+    enable_unstable_features(env)
+    _setup_hash(env)
+
+    res = env.cmd(
+        'FT.AGGREGATE', 'idx', '*',
+        'GROUPBY', '1', '@color',
+            'REDUCE', 'COUNT', '0', 'AS', 'cnt',
+            'REDUCE', 'AVG', '1', '@sweetness', 'AS', 'avg_sweet',
+            'REDUCE', 'COLLECT', '7',
+                'FIELDS', '1', '@name',
+                'SORTBY', '2', '@name', 'ASC',
+            'AS', 'names',
+        'SORTBY', '2', '@color', 'ASC')
+
+    expected = {
+        'green':  ('2', '2.5', [{'name': 'kiwi'},   {'name': 'lime'}]),
+        'red':    ('2', '3.5', [{'name': 'apple'},  {'name': 'strawberry'}]),
+        'yellow': ('2', '3',   [{'name': 'banana'}, {'name': 'lemon'}]),
+    }
+    for g in res['results']:
+        attrs = g['extra_attributes']
+        exp_cnt, exp_avg, exp_names = expected[attrs['color']]
+        env.assertEqual(attrs['cnt'], exp_cnt)
+        env.assertEqual(attrs['avg_sweet'], exp_avg)
+        env.assertEqual(attrs['names'], exp_names)
+        env.assertEqual(int(attrs['cnt']), len(attrs['names']))
+
+
+def test_collect_with_tolist_same_field():
+    """TOLIST (flat list) and COLLECT (Array<Map>) over the same field have
+    different wire shapes."""
+    env = Env(protocol=3)
+    enable_unstable_features(env)
+    _setup_hash(env)
+
+    res = env.cmd(
+        'FT.AGGREGATE', 'idx', '*',
+        'GROUPBY', '1', '@color',
+            'REDUCE', 'TOLIST', '1', '@name', 'AS', 'tolist_names',
+            'REDUCE', 'COLLECT', '7',
+                'FIELDS', '1', '@name',
+                'SORTBY', '2', '@name', 'ASC',
+            'AS', 'collect_names')
+
+    for g in res['results']:
+        attrs = g['extra_attributes']
+        # COLLECT is server-sorted; TOLIST has no SORTBY, so sort Python-side.
+        collect_flat = [e['name'] for e in attrs['collect_names']]
+        env.assertEqual(sorted(attrs['tolist_names']), collect_flat)
+        # TOLIST returns plain strings; COLLECT returns maps.
+        for v in attrs['tolist_names']:
+            env.assertEqual(type(v), str)
+        for v in attrs['collect_names']:
+            env.assertEqual(type(v), dict)
+
+
+def test_collect_with_min_max_sortby():
+    """SORTBY+LIMIT inside COLLECT must agree with MIN/MAX over the same key."""
+    env = Env(protocol=3)
+    enable_unstable_features(env)
+    _setup_priced_hash(env)
+
+    res = env.cmd(
+        'FT.AGGREGATE', 'idx', '*',
+        'GROUPBY', '1', '@color',
+            'REDUCE', 'MIN', '1', '@price', 'AS', 'min_price',
+            'REDUCE', 'MAX', '1', '@price', 'AS', 'max_price',
+            'REDUCE', 'COLLECT', '11',
+                'FIELDS', '2', '@name', '@price',
+                'SORTBY', '2', '@price', 'DESC',
+                'LIMIT', '0', '3',
+            'AS', 'top3')
+
+    attrs = res['results'][0]['extra_attributes']
+    env.assertEqual(attrs['min_price'], '1')
+    env.assertEqual(attrs['max_price'], '15')
+    top3 = attrs['top3']
+    env.assertEqual(len(top3), 3)
+    # MAX must equal the first (DESC-sorted) collected price.
+    env.assertEqual(top3[0]['price'], attrs['max_price'])
+    # Collected prices are sorted DESC: 15, 15, 10 (charlie/dave tie, then alice).
+    env.assertEqual([e['price'] for e in top3], ['15', '15', '10'])
+
+
+def test_collect_with_quantile_and_stddev():
+    """QUANTILE and STDDEV coexist with COLLECT without state interference."""
+    env = Env(protocol=3)
+    enable_unstable_features(env)
+    _setup_priced_hash(env)
+
+    res = env.cmd(
+        'FT.AGGREGATE', 'idx', '*',
+        'GROUPBY', '1', '@color',
+            'REDUCE', 'QUANTILE', '2', '@price', '0.5', 'AS', 'q50',
+            'REDUCE', 'STDDEV', '1', '@price',          'AS', 'stddev_price',
+            'REDUCE', 'COLLECT', '3', 'FIELDS', '1', '@price', 'AS', 'prices')
+
+    attrs = res['results'][0]['extra_attributes']
+    # All 12 prices are collected; reducers see the same 12 inputs.
+    env.assertEqual(len(attrs['prices']), 12)
+    # Sorted prices (0-indexed): [1, 2, 3, 4, 5, 6, 7, 8, 10, 10, 15, 15].
+    # QUANTILE picks rank = ceil(quantile * n) - 1 in the sorted input.
+    # For the median (quantile=0.5) over n=12 → index 5 → '6'.
+    env.assertEqual(attrs['q50'], '6')
+    # Sample STDDEV (n-1 denominator) over the 12 prices ≈ 4.6478.
+    env.assertAlmostEqual(float(attrs['stddev_price']), 4.6478, delta=1e-3)
+
+
+def test_collect_followed_by_apply_and_filter():
+    """COLLECT coexists with a post-GROUPBY APPLY and FILTER on sibling reducer
+    output."""
+    env = Env(protocol=3)
+    enable_unstable_features(env)
+    _setup_hash(env)
+
+    res = env.cmd(
+        'FT.AGGREGATE', 'idx', '*',
+        'GROUPBY', '1', '@color',
+            'REDUCE', 'COUNT', '0', 'AS', 'cnt',
+            'REDUCE', 'COLLECT', '7',
+                'FIELDS', '1', '@name',
+                'SORTBY', '2', '@name', 'ASC',
+            'AS', 'names',
+        'APPLY', 'upper(@color)', 'AS', 'color_upper',
+        'FILTER', '@color == "red"')
+
+    env.assertEqual(len(res['results']), 1)
+    attrs = res['results'][0]['extra_attributes']
+    env.assertEqual(attrs['color'], 'red')
+    env.assertEqual(attrs['color_upper'], 'RED')
+    env.assertEqual(int(attrs['cnt']), 2)
+    env.assertEqual(attrs['names'], [{'name': 'apple'}, {'name': 'strawberry'}])

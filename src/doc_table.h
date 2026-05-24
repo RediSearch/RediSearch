@@ -11,13 +11,14 @@
 #include <stdlib.h>
 #include <string.h>
 #include "redismodule.h"
-#include "triemap.h"
 #include "redisearch.h"
 #include "sortable.h"
 #include "byte_offsets.h"
 #include "hiredis/sds.h"
 #include "rmutil/rm_assert.h"
 #include "ttl_table.h"
+
+typedef struct TrieMap TrieMap;
 
 #ifdef __cplusplus
 extern "C" {
@@ -132,6 +133,22 @@ int DocTable_SetSortingVector(DocTable *t, RSDocumentMetadata *dmd, RSSortingVec
 void DocTable_SetByteOffsets(RSDocumentMetadata *dmd, RSByteOffsets *offsets);
 
 void DocTable_UpdateExpiration(DocTable *t, RSDocumentMetadata* dmd, t_expirationTimePoint ttl, arrayof(FieldExpiration) allFieldSorted);
+
+// Sets only the doc-level TTL on `dmd` (relaxed atomic store on
+// `expirationTimeNs`) without touching the per-field TTL table. Safe to call
+// under the spec read lock: the only mutation is the atomic store, paired
+// with the relaxed atomic load in DocTable_IsDocExpired. Used by the
+// EXPIRE/PERSIST keyspace-notification fast path, which must leave HFE
+// state intact.
+void DocTable_SetDocExpiration(RSDocumentMetadata *dmd, t_expirationTimePoint ttl);
+
+// Replaces the per-field expiration entry for `dmd` without touching
+// `dmd->expirationTimeNs`. Takes ownership of `sortedFieldWithExpiration`:
+// a NULL or empty array clears the entry and destroys the TTL table when
+// no other doc still has an entry; otherwise it replaces the entry. Caller
+// must hold the spec write lock.
+void DocTable_UpdateFieldExpiration(DocTable *t, RSDocumentMetadata *dmd,
+                                    arrayof(FieldExpiration) sortedFieldWithExpiration);
 
 bool DocTable_IsDocExpired(DocTable* t, const RSDocumentMetadata* dmd, struct timespec* expirationPoint);
 

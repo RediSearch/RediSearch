@@ -10,12 +10,11 @@
 use std::io::{Cursor, Read};
 use std::sync::atomic;
 
-use crate::{
-    Decoder, Encoder, IndexBlock, IndexReader, InvertedIndex, NumericReader, RSIndexResult,
-};
+use crate::{Decoder, Encoder, IndexBlock, IndexReader, InvertedIndex, NumericReader};
 use ffi::{
     IndexFlags_Index_DocIdsOnly, IndexFlags_Index_StoreTermOffsets, IndexFlags_Index_WideSchema,
 };
+use index_result::RSIndexResult;
 use pretty_assertions::assert_eq;
 use thin_vec::medium_thin_vec;
 

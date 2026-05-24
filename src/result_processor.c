@@ -7,18 +7,22 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 #include "aggregate/aggregate.h"
+#include "types_ffi.h"
+#include "value_ffi.h"
 #include "result_processor.h"
 #include "query.h"
 #include "extension.h"
 #include <util/minmax_heap.h>
 #include "ext/default.h"
-#include "result_processor_rs.h"
+#include "result_processor_ffi.h"
+#include "sorting_vector_ffi.h"
 #include "rlookup.h"
 #include "rlookup_load_document.h"
 #include "rmutil/rm_assert.h"
 #include "util/timeout.h"
 #include "util/arr.h"
-#include "iterators_rs.h"
+#include "iterators_ffi.h"
+#include "metrics_ffi.h"
 #include "rs_wall_clock.h"
 #include <stdatomic.h>
 #include <pthread.h>
@@ -32,6 +36,7 @@
 #include "search_disk.h"
 #include "debug_commands.h"
 #include "search_result.h"
+#include "search_result_ffi.h"
 #include "redisearch.h"
 #include "asm_state_machine.h"
 #include "index_result.h"
@@ -260,14 +265,19 @@ static int rpQueryItNext(ResultProcessor *base, SearchResult *res) {
 
 #ifdef ENABLE_ASSERT
   // Make sure MT is enabled and `workers > 0` - deadlock otherwise.
+  // Interruptible wait: existing tests ARM/SIGNAL this point, while
+  // RETURN-STRICT shard-timeout tests rely on the predicate to break out as
+  // soon as the main-thread callback flips sctx->time.timedOutFlag (mirrors
+  // the coordinator's BeforeRPNetStart).
   if (self->firstRead) {
     self->firstRead = false;
-    SyncPoint_Wait(SYNC_POINT_BEFORE_FIRST_READ);
+    SyncPoint_WaitUntil(SYNC_POINT_BEFORE_FIRST_READ, SearchTime_IsTimedOut, &sctx->time);
   }
 #endif
 
   while (1) {
-    if (TimedOut_WithCounter(&sctx->time.timeout, &self->timeoutLimiter) == TIMED_OUT) {
+    if ((TimedOut_WithCounter(&sctx->time.timeout, &self->timeoutLimiter) == TIMED_OUT) ||
+        SearchTime_IsTimedOut(&sctx->time)) {
       return UnlockSpec_and_ReturnRPResult(sctx, RS_RESULT_TIMEDOUT);
     }
 
@@ -315,9 +325,10 @@ static int rpQueryItNext_AsyncDisk(ResultProcessor *base, SearchResult *res) {
   it = self->iterator;
 
 #ifdef ENABLE_ASSERT
+  // See rpQueryItNext: same interruptible park for the async-disk variant.
   if (self->firstRead) {
     self->firstRead = false;
-    SyncPoint_Wait(SYNC_POINT_BEFORE_FIRST_READ);
+    SyncPoint_WaitUntil(SYNC_POINT_BEFORE_FIRST_READ, SearchTime_IsTimedOut, &sctx->time);
   }
 #endif
 
@@ -549,7 +560,7 @@ static int rpMetricsNext(ResultProcessor *base, SearchResult *res) {
     return rc;
   }
 
-  RSYieldableMetricSlice slice = MetricsVec_AsSlice(&SearchResult_GetIndexResult(res)->metrics);
+  MetricsSlice slice = MetricsVec_AsSlice(&SearchResult_GetIndexResult(res)->metrics);
   for (size_t i = 0; i < slice.len; i++) {
     RLookup_WriteOwnKey(slice.data[i].key, SearchResult_GetRowDataMut(res), RSValue_NewNumber(slice.data[i].value));
   }

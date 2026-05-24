@@ -9,11 +9,11 @@
 
 use crate::{
     DecodedBy, Encoder, FilterMaskReader, GcApplyInfo, GcScanDelta, IndexBlock, InvertedIndex,
-    RSIndexResult,
     debug::{BlockSummary, Summary},
     reader::IndexReaderCore,
 };
 use ffi::{IndexFlags, IndexFlags_Index_StoreFieldFlags, t_docId, t_fieldMask};
+use index_result::RSIndexResult;
 
 /// A wrapper around the inverted index which tracks the fields for all the records in the index
 /// using a mask. This makes is easy to know if the index has any records for a specific field.
