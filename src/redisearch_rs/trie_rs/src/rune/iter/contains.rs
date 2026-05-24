@@ -14,23 +14,23 @@ use crate::{
 };
 
 #[ouroboros::self_referencing]
-struct RuneTrieMapContainsIterInner<'tm, Data: 'tm> {
+struct ContainsIterInner<'tm, Data: 'tm> {
     target_bytes: Box<[u8]>,
     #[borrows(target_bytes)]
     #[covariant]
     inner: iter::ContainsIter<'tm, 'this, Data>,
 }
 
-pub struct RuneTrieMapContainsIter<'tm, Data: 'tm>(Option<RuneTrieMapContainsIterInner<'tm, Data>>);
+pub struct ContainsIter<'tm, Data: 'tm>(Option<ContainsIterInner<'tm, Data>>);
 
-impl<'tm, Data: 'tm> RuneTrieMapContainsIter<'tm, Data> {
+impl<'tm, Data: 'tm> ContainsIter<'tm, Data> {
     pub(crate) fn new(trie: &'tm TrieMap<Data>, target: &[Rune]) -> Self {
         if target.is_empty() {
             return Self(None);
         }
         let target_bytes: Box<[u8]> = rune_to_bytes(target).into_boxed_slice();
         Self(Some(
-            RuneTrieMapContainsIterInnerBuilder {
+            ContainsIterInnerBuilder {
                 target_bytes,
                 inner_builder: |t| trie.contains_iter(t.as_ref()),
             }
@@ -39,7 +39,7 @@ impl<'tm, Data: 'tm> RuneTrieMapContainsIter<'tm, Data> {
     }
 }
 
-impl<'tm, Data: 'tm> Iterator for RuneTrieMapContainsIter<'tm, Data> {
+impl<'tm, Data: 'tm> Iterator for ContainsIter<'tm, Data> {
     type Item = (Vec<Rune>, &'tm Data);
 
     fn next(&mut self) -> Option<Self::Item> {

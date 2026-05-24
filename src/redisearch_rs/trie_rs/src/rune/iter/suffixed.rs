@@ -13,12 +13,12 @@ use crate::{
     rune::{Rune, bytes_to_rune, rune_to_bytes},
 };
 
-pub struct RuneTrieMapSuffixedIter<'tm, Data: 'tm> {
+pub struct SuffixedIter<'tm, Data: 'tm> {
     target_bytes: Box<[u8]>,
     iter: Option<iter::Iter<'tm, Data, filter::VisitAll>>,
 }
 
-impl<'tm, Data: 'tm> RuneTrieMapSuffixedIter<'tm, Data> {
+impl<'tm, Data: 'tm> SuffixedIter<'tm, Data> {
     pub(crate) fn new(trie: &'tm TrieMap<Data>, suffix: &[Rune]) -> Self {
         if suffix.is_empty() {
             return Self {
@@ -33,7 +33,7 @@ impl<'tm, Data: 'tm> RuneTrieMapSuffixedIter<'tm, Data> {
     }
 }
 
-impl<'tm, Data: 'tm> Iterator for RuneTrieMapSuffixedIter<'tm, Data> {
+impl<'tm, Data: 'tm> Iterator for SuffixedIter<'tm, Data> {
     type Item = (Vec<Rune>, &'tm Data);
 
     fn next(&mut self) -> Option<Self::Item> {

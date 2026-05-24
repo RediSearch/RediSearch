@@ -13,9 +13,9 @@ use crate::{
     rune::{Rune, bytes_to_rune, rune_to_bytes},
 };
 
-pub struct RuneTrieMapPrefixedIter<'tm, Data: 'tm>(Option<iter::Iter<'tm, Data, filter::VisitAll>>);
+pub struct PrefixedIter<'tm, Data: 'tm>(Option<iter::Iter<'tm, Data, filter::VisitAll>>);
 
-impl<'tm, Data: 'tm> RuneTrieMapPrefixedIter<'tm, Data> {
+impl<'tm, Data: 'tm> PrefixedIter<'tm, Data> {
     pub(crate) fn new(trie: &'tm TrieMap<Data>, prefix: &[Rune]) -> Self {
         if prefix.is_empty() {
             return Self(None);
@@ -24,7 +24,7 @@ impl<'tm, Data: 'tm> RuneTrieMapPrefixedIter<'tm, Data> {
     }
 }
 
-impl<'tm, Data: 'tm> Iterator for RuneTrieMapPrefixedIter<'tm, Data> {
+impl<'tm, Data: 'tm> Iterator for PrefixedIter<'tm, Data> {
     type Item = (Vec<Rune>, &'tm Data);
 
     fn next(&mut self) -> Option<Self::Item> {

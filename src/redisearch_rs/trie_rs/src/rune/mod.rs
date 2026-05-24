@@ -64,8 +64,8 @@ impl<Data> RuneTrieMap<Data> {
         self.inner.iter().count()
     }
 
-    pub fn iter(&self) -> iter::RuneTrieMapIter<'_, Data> {
-        iter::RuneTrieMapIter::new(&self.inner)
+    pub fn iter(&self) -> iter::Iter<'_, Data> {
+        iter::Iter::new(&self.inner)
     }
 
     /// Yield every terminal whose key starts with `prefix`.
@@ -75,8 +75,8 @@ impl<Data> RuneTrieMap<Data> {
     /// the prefix and walk the whole subtree. Empty `prefix` yields zero
     /// matches — matches the C contract (`TrieNode_Get(root, _, 0, ...)`
     /// returns NULL at `src/trie/trie_node.c:411`).
-    pub fn prefixed_iter(&self, prefix: &[Rune]) -> iter::RuneTrieMapPrefixedIter<'_, Data> {
-        iter::RuneTrieMapPrefixedIter::new(&self.inner, prefix)
+    pub fn prefixed_iter(&self, prefix: &[Rune]) -> iter::PrefixedIter<'_, Data> {
+        iter::PrefixedIter::new(&self.inner, prefix)
     }
 
     /// Yield every terminal whose key ends with `suffix`.
@@ -87,8 +87,8 @@ impl<Data> RuneTrieMap<Data> {
     /// optimization would port C's `containsIterate` walker
     /// (`src/trie/trie_node.c:1077-1082`) as a byte-level `suffixed_iter`
     /// on `TrieMap`. Empty `suffix` yields zero matches (C contract).
-    pub fn suffixed_iter(&self, suffix: &[Rune]) -> iter::RuneTrieMapSuffixedIter<'_, Data> {
-        iter::RuneTrieMapSuffixedIter::new(&self.inner, suffix)
+    pub fn suffixed_iter(&self, suffix: &[Rune]) -> iter::SuffixedIter<'_, Data> {
+        iter::SuffixedIter::new(&self.inner, suffix)
     }
 
     /// Yield every terminal whose key contains `target` as a substring.
@@ -98,8 +98,8 @@ impl<Data> RuneTrieMap<Data> {
     /// yields zero matches — without this short-circuit the byte-level
     /// `contains_iter` would match every term (memchr semantics on an
     /// empty needle).
-    pub fn contains_iter(&self, target: &[Rune]) -> iter::RuneTrieMapContainsIter<'_, Data> {
-        iter::RuneTrieMapContainsIter::new(&self.inner, target)
+    pub fn contains_iter(&self, target: &[Rune]) -> iter::ContainsIter<'_, Data> {
+        iter::ContainsIter::new(&self.inner, target)
     }
 
     pub fn range_iter<'a>(
@@ -108,12 +108,12 @@ impl<Data> RuneTrieMap<Data> {
         include_min: bool,
         max: Option<&[Rune]>,
         include_max: bool,
-    ) -> iter::RuneTrieMapRangeIter<'a, Data> {
-        iter::RuneTrieMapRangeIter::build_from(&self.inner, min, include_min, max, include_max)
+    ) -> iter::RangeIter<'a, Data> {
+        iter::RangeIter::build_from(&self.inner, min, include_min, max, include_max)
     }
 
-    pub fn wildcard_iter(&self, buf: &[u16]) -> iter::RuneTrieMapWildcardIter<'_, Data> {
-        iter::RuneTrieMapWildcardIter::new(&self.inner, buf)
+    pub fn wildcard_iter(&self, buf: &[u16]) -> iter::WildcardIter<'_, Data> {
+        iter::WildcardIter::new(&self.inner, buf)
     }
 }
 

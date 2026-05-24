@@ -13,15 +13,15 @@ use crate::{
     rune::{Rune, bytes_to_rune},
 };
 
-pub struct RuneTrieMapIter<'a, Data>(iter::Iter<'a, Data, filter::VisitAll>);
+pub struct Iter<'a, Data>(iter::Iter<'a, Data, filter::VisitAll>);
 
-impl<'a, Data> RuneTrieMapIter<'a, Data> {
+impl<'a, Data> Iter<'a, Data> {
     pub(crate) fn new(trie: &'a TrieMap<Data>) -> Self {
         Self(trie.iter())
     }
 }
 
-impl<'a, Data> Iterator for RuneTrieMapIter<'a, Data> {
+impl<'a, Data> Iterator for Iter<'a, Data> {
     type Item = (Vec<Rune>, &'a Data);
 
     fn next(&mut self) -> Option<Self::Item> {

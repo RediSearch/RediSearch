@@ -14,14 +14,14 @@ use crate::{
 };
 
 #[ouroboros::self_referencing]
-pub struct RuneTrieMapRangeIter<'tm, Data: 'tm> {
+pub struct RangeIter<'tm, Data: 'tm> {
     bytes: (Option<Box<[u8]>>, Option<Box<[u8]>>),
     #[borrows(bytes)]
     #[covariant]
     inner: iter::RangeIter<'tm, 'this, Data>,
 }
 
-impl<'tm, Data: 'tm> RuneTrieMapRangeIter<'tm, Data> {
+impl<'tm, Data: 'tm> RangeIter<'tm, Data> {
     pub(crate) fn build_from(
         trie: &'tm TrieMap<Data>,
         min: Option<&[Rune]>,
@@ -32,7 +32,7 @@ impl<'tm, Data: 'tm> RuneTrieMapRangeIter<'tm, Data> {
         let min_bytes: Option<Box<[u8]>> = min.map(|m| rune_to_bytes(m).into_boxed_slice());
         let max_bytes: Option<Box<[u8]>> = max.map(|m| rune_to_bytes(m).into_boxed_slice());
 
-        RuneTrieMapRangeIterBuilder {
+        RangeIterBuilder {
             bytes: (min_bytes, max_bytes),
             inner_builder: |(mn, mx)| {
                 let filter = RangeFilter {
@@ -52,7 +52,7 @@ impl<'tm, Data: 'tm> RuneTrieMapRangeIter<'tm, Data> {
     }
 }
 
-impl<'tm, Data: 'tm> Iterator for RuneTrieMapRangeIter<'tm, Data> {
+impl<'tm, Data: 'tm> Iterator for RangeIter<'tm, Data> {
     type Item = (Vec<Rune>, &'tm Data);
 
     fn next(&mut self) -> Option<Self::Item> {
