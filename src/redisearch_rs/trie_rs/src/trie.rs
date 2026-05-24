@@ -122,6 +122,14 @@ impl<Data> TrieMap<Data> {
         self.root.as_ref().and_then(|n| n.find_root_for_prefix(key))
     }
 
+    /// Crate-internal access to the root node, for traversal layers built on
+    /// top of [`TrieMap`] (e.g. the DFA-filtered iterator under `str/`).
+    /// Exposes a `&Node`, not any byte/char interpretation — the byte-keyed
+    /// trie stays unaware of how callers decode its labels.
+    pub(crate) const fn root(&self) -> Option<&Node<Data>> {
+        self.root.as_ref()
+    }
+
     /// Insert an entry into the trie.
     ///
     /// The value is obtained by calling the provided callback function.
@@ -230,18 +238,12 @@ impl<Data> TrieMap<Data> {
     }
 
     /// Iterates over the entries between the specified `min` and `max`, in lexicographical order.
-    pub fn range_iter<'tm, 'f>(
-        &'tm self,
-        filter: RangeFilter<'f>,
-    ) -> RangeIter<'tm, 'f, Data> {
+    pub fn range_iter<'tm, 'f>(&'tm self, filter: RangeFilter<'f>) -> RangeIter<'tm, 'f, Data> {
         RangeIter::new(self.root.as_ref(), filter)
     }
 
     /// Iterate over the entries that contain the target fragment, in lexicographical key order.
-    pub fn contains_iter<'tm, 't>(
-        &'tm self,
-        target: &'t [u8],
-    ) -> ContainsIter<'tm, 't, Data> {
+    pub fn contains_iter<'tm, 't>(&'tm self, target: &'t [u8]) -> ContainsIter<'tm, 't, Data> {
         ContainsIter::new(self.root.as_ref(), target)
     }
 

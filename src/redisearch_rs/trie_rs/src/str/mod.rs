@@ -1,5 +1,6 @@
 use crate::TrieMap;
 
+pub mod dfa;
 pub mod iter;
 pub mod term_dict;
 
@@ -96,7 +97,10 @@ impl<Data> StrTrieMap<Data> {
     /// but for multibyte codepoints `?` matches one byte of a UTF-8 sequence,
     /// not one logical character. Test snapshots that exercise non-ASCII
     /// wildcards are expected to diverge from the rune-keyed oracle.
-    pub fn wildcard_iter<'tm, 'p>(&'tm self, pattern: &'p str) -> iter::WildcardIter<'tm, 'p, Data> {
+    pub fn wildcard_iter<'tm, 'p>(
+        &'tm self,
+        pattern: &'p str,
+    ) -> iter::WildcardIter<'tm, 'p, Data> {
         iter::WildcardIter::new(&self.inner, pattern)
     }
 }

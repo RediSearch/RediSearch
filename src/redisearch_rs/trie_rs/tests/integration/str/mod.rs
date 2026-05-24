@@ -10,7 +10,7 @@
 mod boundary_cases;
 mod contains_iteration;
 mod delete_and_decrement;
-// mod dfa_iteration;
+mod dfa_iteration;
 mod incr_mode;
 mod insert_iterate;
 mod range_iteration;

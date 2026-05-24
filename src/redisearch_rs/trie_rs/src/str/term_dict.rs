@@ -164,10 +164,7 @@ impl TermDictionary {
     /// Yield every term whose key contains `target` as a substring.
     ///
     /// Proxies [`StrTrieMap::contains_iter`].
-    pub fn contains_iter<'tm, 'p>(
-        &'tm self,
-        target: &'p str,
-    ) -> ContainsIter<'tm, 'p, TermEntry> {
+    pub fn contains_iter<'tm, 'p>(&'tm self, target: &'p str) -> ContainsIter<'tm, 'p, TermEntry> {
         self.inner.contains_iter(target)
     }
 
@@ -192,11 +189,24 @@ impl TermDictionary {
     ///
     /// Proxies [`StrTrieMap::wildcard_iter`]; see that method for the
     /// byte-vs-codepoint caveat on non-ASCII patterns.
-    pub fn wildcard_iter<'tm, 'p>(
-        &'tm self,
-        pattern: &'p str,
-    ) -> WildcardIter<'tm, 'p, TermEntry> {
+    pub fn wildcard_iter<'tm, 'p>(&'tm self, pattern: &'p str) -> WildcardIter<'tm, 'p, TermEntry> {
         self.inner.wildcard_iter(pattern)
+    }
+
+    /// Yield every term whose key lies within Levenshtein edit distance
+    /// `max_dist` of `prefix`, optionally followed by any suffix when
+    /// `prefix_mode` is true.
+    ///
+    /// Proxies [`StrTrieMap::iterate_dfa`]; see that method (and the
+    /// `crate::str::dfa` module doc) for the running-min distance and
+    /// prefix-mode-freeze semantics that the underlying DFA pins.
+    pub fn iterate_dfa<'tm>(
+        &'tm self,
+        prefix: &str,
+        max_dist: u32,
+        prefix_mode: bool,
+    ) -> impl Iterator<Item = (String, &'tm TermEntry, u32)> + 'tm {
+        self.inner.iterate_dfa(prefix, max_dist, prefix_mode)
     }
 
     /// Decrement the `num_docs` count for `term` by `delta`.
