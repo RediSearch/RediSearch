@@ -33,9 +33,11 @@ typedef struct ForwardIndexEntry {
   uint32_t len;
   uint32_t hash;
   VarintVectorWriter *vw;
-  // Disk-mode staging flag. Set by `stageTextIndex` to the return value of
-  // `SearchDisk_IndexTerm`; read by `commitTextIndex` to decide whether to
-  // apply the matching in-memory trie / stats updates. Unused in memory mode.
+  // Per-term staging flag, set during Phase 1 and read by `applyTextIndex` to
+  // decide whether to apply the matching in-memory trie / stats updates.
+  // Disk mode: set by `stageText` to the return value of `SearchDisk_IndexTerm`.
+  // Memory mode: set by `indexText` to `isNew && strlen(entry->term) != 0`
+  // (preserves the MOD-4140 ingest perf gate).
   bool staged;
 } ForwardIndexEntry;
 

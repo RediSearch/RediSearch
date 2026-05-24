@@ -383,12 +383,12 @@ static void writeByteOffsets(ForwardIndexTokenizerCtx *tokCtx, const Token *tokI
   static int name(RSAddDocumentCtx *aCtx, RedisSearchCtx *ctx, const DocumentField *field,  \
                   const FieldSpec *fs, FieldIndexerData *fdata, QueryError *status)
 
-/* Phase 3 (apply) hook for a single field of a given type. Mirrors
- * `FIELD_BULK_INDEXER`. Appliers run in `applyMemoryChanges` after Phase 1
- * indexing (and, in disk mode, after a successful batch commit). They are
- * infallible — they only perform RAM bookkeeping (trie inserts, stats
- * counters, global-stats bumps) that pairs with the durable writes from
- * Phase 1/2. */
+/* Apply hook for a single field of a given type. Mirrors `FIELD_BULK_INDEXER`.
+ * Appliers run inline from `bulkIndexFields` (memory mode) or from
+ * `bulkApplyFields` (disk-mode Phase 3, after a successful batch commit).
+ * They are infallible — they only perform RAM bookkeeping (trie inserts,
+ * stats counters, global-stats bumps) that pairs with the durable writes
+ * from the indexer. */
 #define FIELD_BULK_APPLIER(name)                                                            \
   static void name(RSAddDocumentCtx *aCtx, RedisSearchCtx *ctx, const DocumentField *field, \
                    const FieldSpec *fs, FieldIndexerData *fdata)
@@ -822,7 +822,7 @@ FIELD_BULK_INDEXER(tagIndexer) {
   // `TagIndex_Index` branches internally: disk mode stages onto the per-document
   // batch; memory mode writes the per-tag postings inline. In both modes the
   // matching trie / suffix-trie / `numRecords` updates run in `tagApplier`
-  // from `applyMemoryChanges` (after the batch commits in disk mode).
+  // (inline in memory mode, from disk-mode Phase 3 after the batch commits).
   if (!TagIndex_Index(ctx->redisCtx, tidx, aCtx->diskBatch,
                       (const char **)fdata->tags, array_len(fdata->tags),
                       aCtx->doc->docId, &ctx->spec->stats)) {

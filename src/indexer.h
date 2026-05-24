@@ -78,9 +78,10 @@ int IndexerBulkAdd(RSAddDocumentCtx *cur, RedisSearchCtx *sctx,
                    const DocumentField *field, const FieldSpec *fs, FieldIndexerData *fdata,
                    QueryError *status);
 
-/* Phase 3 dispatcher: apply the per-field-type RAM bookkeeping for a single
- * (doc, field) pair. Called from `applyMemoryChanges` after Phase 1 indexing
- * (and a successful batch commit in disk mode). Infallible. */
+/* Per-field-type apply dispatcher: run the RAM bookkeeping for a single
+ * (doc, field) pair. Called inline from `bulkIndexFields` in memory mode, and
+ * from `bulkApplyFields` in disk-mode Phase 3 after a successful batch commit.
+ * Infallible. */
 void IndexerBulkApply(RSAddDocumentCtx *aCtx, RedisSearchCtx *sctx,
                       const DocumentField *field, const FieldSpec *fs,
                       FieldIndexerData *fdata);
