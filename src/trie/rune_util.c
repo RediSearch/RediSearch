@@ -72,15 +72,6 @@ rune *strToLowerRunes(const char *str, size_t utf8_len, size_t *unicode_len) {
     return NULL;
   }
 
-  uint32_t u_stack_buffer[SSO_MAX_LENGTH];
-  uint32_t *u_buffer = u_stack_buffer;
-  if (rlen > SSO_MAX_LENGTH - 1) {
-    u_buffer = rm_malloc((rlen + 1) * sizeof(*u_buffer));
-  }
-
-  u_buffer[rlen] = 0;
-  nu_readstr(str, u_buffer, nu_utf8_read);
-
   rune *ret = rm_calloc(rlen + 1, sizeof(rune));
   const char *encoded_char = str;
   uint32_t codepoint;
@@ -107,9 +98,6 @@ rune *strToLowerRunes(const char *str, size_t utf8_len, size_t *unicode_len) {
   }
   *unicode_len = rlen;
 
-  if (u_buffer != u_stack_buffer) {
-    rm_free(u_buffer);
-  }
   return ret;
 }
 
