@@ -67,13 +67,14 @@ bool SearchDisk_Initialize(RedisModuleCtx *ctx) {
   RS_ASSERT(disk->basic.setThrottleCallbacks);
   disk->basic.setThrottleCallbacks(VecSim_EnableThrottle, VecSim_DisableThrottle);
 
-  // Resolve drop_read_cache: use RSE config if true; otherwise fall back to Flex's
-  // bigredis-driver-allow_os_buffer (readable via CONFIG GET even though it is not a
-  // module-registered config).  allow_os_buffer=0 means "drop the read cache" (inverted).
-  // NOTE: "RSE explicit false" and "RSE unset" are indistinguishable with a plain bool, so
-  // an explicit 'no' will still defer to Flex when Flex has allow_os_buffer=0.
+  // Resolve drop_read_cache using three-tier hierarchy (MOD-15866):
+  //   1. Explicit RSE config (search-disk-drop-read-cache was set by the user).
+  //   2. Flex fallback: bigredis-driver-allow_os_buffer via CONFIG GET.
+  //      allow_os_buffer=0 → drop_read_cache=true (inverted semantics).
+  //      Silently falls back to false in non-Flex environments.
+  //   3. SpeedB default: false (OS caching enabled).
   bool drop_read_cache = RSGlobalConfig.diskDropReadCache;
-  if (!drop_read_cache) {
+  if (!RSGlobalConfig.diskDropReadCacheExplicit) {
     RedisModuleCallReply *reply =
         RedisModule_Call(ctx, "CONFIG", "cc", "GET", "bigredis-driver-allow_os_buffer");
     if (reply && RedisModule_CallReplyType(reply) == REDISMODULE_REPLY_ARRAY &&
