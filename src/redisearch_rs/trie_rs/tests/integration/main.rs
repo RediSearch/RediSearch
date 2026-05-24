@@ -8,6 +8,5 @@
 */
 
 mod iter;
-mod rune;
 mod str;
 mod trie;
