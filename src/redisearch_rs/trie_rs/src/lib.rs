@@ -16,6 +16,7 @@ mod node;
 pub mod opaque;
 pub mod rune;
 pub mod str;
+pub mod term_dict;
 mod trie;
 mod trie_count;
 mod utils;

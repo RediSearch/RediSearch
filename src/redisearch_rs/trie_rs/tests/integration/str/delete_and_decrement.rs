@@ -7,51 +7,18 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 
-//! Assert `StrTrieMap` reproduces the C trie's Lex-mode delete and
+//! Assert `TermDictionary` reproduces the C trie's Lex-mode delete and
 //! decrement-numDocs behavior against the snapshots owned by
 //! `rune_trie_snapshots::delete_and_decrement`.
 //!
 //! See that crate's docs for the structural diagram of the shared base
 //! fixture and the per-op rationale.
-//!
-//! # Expected API surface (not all present yet — see compile errors)
-//!
-//! This test calls the API as the port plans to expose it once delete /
-//! decrement support lands. Items the compiler will currently flag:
-//!
-//! - `trie_rs::str::TermEntry` — a `{score: f32, num_docs: usize}` value
-//!   type with public fields. The terms-trie payload, hoisted out of this
-//!   test so a `StrTrieMap<TermEntry>`-specific impl can attach methods
-//!   to it (next item). Could equivalently be a newtype wrapper around
-//!   the trie if a constrained `impl` block is preferred.
-//!
-//! - `trie_rs::str::DecrResult` — three-arm enum mirroring `TrieDecrResult`
-//!   in `src/trie/trie.h`: `NotFound`, `Updated`, `Deleted`.
-//!
-//! - `StrTrieMap::<Data>::remove(&mut self, key: &str) -> Option<Data>` —
-//!   returns the removed value (or `None` if absent). Two things the current
-//!   `remove(&mut self, key)` -> () signature doesn't give us:
-//!   1. Found/not-found signal needed to print `Trie_Delete -> 1/0`.
-//!   2. The removed `num_docs` value, which the delete-then-reinsert step
-//!      adds back into the next insert to mirror the C trie's "deleted
-//!      slot keeps numDocs" quirk (4 + 10 = 14, not 10).
-//!
-//! - `impl StrTrieMap<TermEntry> { fn decrement_num_docs(&mut self, key,
-//!   delta) -> DecrResult }` — encapsulates the C
-//!   `Trie_DecrementNumDocs` policy (saturating subtract, delete on zero,
-//!   reject keys that don't resolve to a terminal). Lives on the
-//!   `TermEntry`-specialized impl because the trie itself is value-agnostic.
 
 use std::fmt::Write as _;
 
-use trie_rs::str::StrTrieMap;
+use trie_rs::term_dict::{DecrResult, TermDictionary, TermEntry};
 
-struct TermEntry {
-    score: f32,
-    num_docs: usize,
-}
-
-fn dump_all(trie: &StrTrieMap<TermEntry>) -> String {
+fn dump_all(trie: &TermDictionary) -> String {
     let mut out = String::new();
     writeln!(&mut out, "size: {}", trie.len()).unwrap();
     writeln!(&mut out, "entries:").unwrap();
@@ -79,7 +46,7 @@ const fn decr_name(r: DecrResult) -> &'static str {
 }
 
 /// Same 7-term fixture as `rune_trie_snapshots::delete_and_decrement::build_base`.
-fn build_base(trie: &mut StrTrieMap<TermEntry>) {
+fn build_base(trie: &mut TermDictionary) {
     let terms: &[(&str, f32, usize)] = &[
         ("apple", 1.0, 3),
         ("apply", 1.0, 2),
@@ -102,7 +69,7 @@ fn build_base(trie: &mut StrTrieMap<TermEntry>) {
 
 #[test]
 fn lex_delete_sequence_structural_events() {
-    let mut trie = StrTrieMap::<TermEntry>::new();
+    let mut trie = TermDictionary::new();
     build_base(&mut trie);
 
     let mut out = String::new();
@@ -188,7 +155,7 @@ fn lex_delete_sequence_structural_events() {
 
 #[test]
 fn lex_decrement_numdocs_return_codes() {
-    let mut trie = StrTrieMap::<TermEntry>::new();
+    let mut trie = TermDictionary::new();
     build_base(&mut trie);
 
     let mut out = String::new();
@@ -235,7 +202,7 @@ fn lex_decrement_numdocs_return_codes() {
     ];
 
     for (label, term, delta, note) in steps {
-        let r = decrement_num_docs(&mut trie, term, *delta);
+        let r = trie.decrement_num_docs(term, *delta);
         writeln!(&mut out, "\n--- {label} ---").unwrap();
         writeln!(
             &mut out,
@@ -255,21 +222,3 @@ fn lex_decrement_numdocs_return_codes() {
     );
 }
 
-fn decrement_num_docs(trie: &mut StrTrieMap<TermEntry>, key: &str, delta: usize) -> DecrResult {
-    // TODO: Add find_mut().
-    match trie.remove(key) {
-        Some(mut data) if delta < data.num_docs => {
-            data.num_docs -= delta;
-            trie.insert(key, data);
-            DecrResult::Updated
-        }
-        Some(_) => DecrResult::Deleted,
-        None => DecrResult::NotFound,
-    }
-}
-
-enum DecrResult {
-    NotFound,
-    Updated,
-    Deleted,
-}
