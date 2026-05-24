@@ -44,12 +44,25 @@ pub enum DecrResult {
     Deleted,
 }
 
+/// Outcome of [`TermDictionary::add_term`] / [`TermDictionary::replace_term`].
+///
+/// Mirrors the `TRIE_OK_NEW` / `TRIE_OK_UPDATED` return codes from
+/// `src/trie/trie_node.h`.
+pub enum InsertOutcome {
+    /// No prior entry existed; a new terminal was created.
+    New,
+    /// An existing entry was modified in place.
+    Updated,
+}
+
 /// Term dictionary used by the FT.SEARCH index (`sp->terms`).
 ///
-/// Maps each indexed term to its [`TermEntry`]. Insertion overwrites the
-/// existing entry (ADD_REPLACE semantics); the ADD_INCR accumulation used
-/// by `spec.c:1971` will land as a separate method once the relevant call
-/// site is ported.
+/// Maps each indexed term to its [`TermEntry`]. Two production insert
+/// modes are exposed: [`Self::add_term`] (ADD_INCR — accumulate `score`
+/// and `num_docs`) and [`Self::replace_term`] (ADD_REPLACE — overwrite
+/// `score`, still accumulate `num_docs`). The primitive [`Self::insert`]
+/// stays available for bulk-seeding scenarios where neither accumulation
+/// mode applies.
 pub struct TermDictionary {
     inner: StrTrieMap<TermEntry>,
 }
@@ -69,12 +82,74 @@ impl TermDictionary {
         self.inner.len() == 0
     }
 
-    /// Insert or overwrite the entry for `term`.
+    /// Insert or overwrite the entry for `term`, returning the previous
+    /// entry if one existed.
     ///
-    /// Returns the previous entry if one existed. Equivalent to the C
-    /// `Trie_InsertStringBuffer(..., incr=0, ADD_REPLACE)` path.
+    /// Primitive overwrite — distinct from [`Self::replace_term`] in that
+    /// it does NOT accumulate `num_docs`. Useful for bulk seeding and for
+    /// re-installing a fully formed entry; production indexing paths
+    /// should use [`Self::add_term`] / [`Self::replace_term`].
     pub fn insert(&mut self, term: &str, entry: TermEntry) -> Option<TermEntry> {
         self.inner.insert(term, entry)
+    }
+
+    /// ADD_INCR insert: accumulate both `score` and `num_docs` onto the
+    /// existing entry, or create a fresh terminal if absent.
+    ///
+    /// Mirrors `Trie_InsertStringBuffer(..., incr=1)` in
+    /// `src/trie/trie.c`, whose `__trieNode_Add` ADD_INCR branch runs
+    /// `n->score += score; n->numDocs += numDocs`
+    /// (`src/trie/trie_node.c:296`).
+    //
+    // TODO: use a `find_mut` on `StrTrieMap` once available, to avoid the
+    // remove + reinsert round-trip on the still-alive path.
+    pub fn add_term(&mut self, term: &str, score: f32, num_docs: usize) -> InsertOutcome {
+        match self.inner.remove(term) {
+            Some(prev) => {
+                self.inner.insert(
+                    term,
+                    TermEntry {
+                        score: prev.score + score,
+                        num_docs: prev.num_docs + num_docs,
+                    },
+                );
+                InsertOutcome::Updated
+            }
+            None => {
+                self.inner.insert(term, TermEntry { score, num_docs });
+                InsertOutcome::New
+            }
+        }
+    }
+
+    /// ADD_REPLACE insert: overwrite `score`, but still accumulate
+    /// `num_docs` onto the existing count. Creates a fresh terminal if
+    /// absent.
+    ///
+    /// Mirrors `Trie_InsertStringBuffer(..., incr=0)`: the C
+    /// `__trieNode_Add` overwrites `n->score = score` but does
+    /// `n->numDocs += numDocs` regardless of mode
+    /// (`src/trie/trie_node.c:296`). The mode only gates the score path.
+    //
+    // TODO: use a `find_mut` on `StrTrieMap` once available, to avoid the
+    // remove + reinsert round-trip on the still-alive path.
+    pub fn replace_term(&mut self, term: &str, score: f32, num_docs: usize) -> InsertOutcome {
+        match self.inner.remove(term) {
+            Some(prev) => {
+                self.inner.insert(
+                    term,
+                    TermEntry {
+                        score,
+                        num_docs: prev.num_docs + num_docs,
+                    },
+                );
+                InsertOutcome::Updated
+            }
+            None => {
+                self.inner.insert(term, TermEntry { score, num_docs });
+                InsertOutcome::New
+            }
+        }
     }
 
     /// Remove the entry for `term`, returning it if present.

@@ -7,40 +7,29 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 
-//! Assert `StrTrieMap` reproduces the C trie's `ADD_INCR` insert-mode
+//! Assert `TermDictionary` reproduces the C trie's `ADD_INCR` insert-mode
 //! behavior against the snapshots owned by `rune_trie_snapshots::incr_mode`.
 //!
 //! The C trie's `ADD_INCR` path lives inside `__trieNode_Add`
 //! (`src/trie/trie_node.c:282-310`); see the C-side test's docstring for the
-//! per-field arithmetic the snapshots pin. This file maps each scenario onto
-//! the Rust port's primitives.
-//!
-//! # How the Rust port models score/numDocs/payload
-//!
-//! `StrTrieMap` is value-agnostic — score, numDocs and payload bytes are
-//! NOT stored on the node. Instead, this test (and others in the crate)
-//! defines a local `TermEntry` and instantiates `StrTrieMap<TermEntry>`.
-//! The terms-trie production path will hoist this struct out and impl
-//! `Trie_InsertStringBuffer`-style entry points on a constrained
-//! `StrTrieMap<TermEntry>` (or a newtype around it); the mode-aware
-//! score/numDocs arithmetic lives ON THE CALLER, not inside the trie.
-//!
-//! That's why `insert_incr` / `insert_replace` below do
-//! `remove → modify → insert`: the C trie's `n->score += score` happens
-//! atomically inside `__trieNode_Add`; the Rust port externalises it. The
-//! observable result is identical, which is what the shared snapshot pins.
+//! per-field arithmetic the snapshots pin. The no-payload scenarios in this
+//! file exercise [`TermDictionary::add_term`] / [`TermDictionary::replace_term`]
+//! directly; the payload-bearing scenario keeps a local emulation because
+//! `TermDictionary` deliberately omits the payload field (that belongs to a
+//! future `SuggestionTrie`).
 //!
 //! # Mapping per scenario
 //!
-//! - **score/numDocs accumulation** — `insert_incr` / `insert_replace` do
-//!   the per-mode arithmetic at the call site. `Option<V>` from `remove`
-//!   distinguishes "no prior value" (rc=OK_NEW) from "existing terminal"
+//! - **score/numDocs accumulation** — `add_term` and `replace_term`
+//!   encapsulate the per-mode arithmetic; the [`InsertOutcome`] return
+//!   distinguishes new terminals (rc=OK_NEW) from updated ones
 //!   (rc=OK_UPDATED).
 //!
 //! - **INCR over deleted node** — Rust has no mark-deleted slot; `remove`
-//!   physically drops the entry, and the subsequent `insert` is from-fresh.
-//!   The observable score=5/numDocs=10 (vs C's preserved-then-zeroed slot)
-//!   matches because in both cases the addition baseline is 0.
+//!   physically drops the entry, and the subsequent `add_term` is
+//!   from-fresh. The observable score=5/numDocs=10 (vs C's
+//!   preserved-then-zeroed slot) matches because in both cases the
+//!   addition baseline is 0.
 //!
 //! - **INCR over non-terminal split** — Rust has no non-terminal nodes.
 //!   Inserting "apple" + "apply" gives a 2-entry map; inserting "appl"
@@ -50,28 +39,20 @@
 //! - **INCR with payload** — `LoggingPayload`'s `Drop` records the freecb
 //!   moment. The C trie's payload-replace runs `triePayload_Free` on the
 //!   old bytes inside `__trieNode_Add` regardless of `op`; the Rust mirror
-//!   replaces the entire `TermEntry`, so the old payload drops at the end
-//!   of the `match` arm — before the next `insert` and before the log is
-//!   drained for the snapshot.
+//!   replaces the entire entry, so the old payload drops at the end of
+//!   the `match` arm — before the next `insert` and before the log is
+//!   drained for the snapshot. This scenario stays on `StrTrieMap`
+//!   directly until a payload-aware wrapper lands.
 //!
-//! - **Mixed INCR + REPLACE** — alternating calls to `insert_incr` /
-//!   `insert_replace` on the same key. Pins that REPLACE overwrites score
-//!   while numDocs always accumulates.
-//!
-//! # Expected API surface
-//!
-//! - `StrTrieMap::<V>::insert(&mut self, key, value) -> Option<V>` —
-//!   needed so the test can tell NEW from UPDATED on payload-less
-//!   scenarios that don't go through the `remove → modify → insert`
-//!   round-trip.
-//! - `StrTrieMap::<V>::remove(&mut self, key) -> Option<V>` — same;
-//!   plus the returned `Some(prev)` drops at the call site so
-//!   `LoggingPayload::drop` records the freecb moment in payload scenarios.
+//! - **Mixed INCR + REPLACE** — alternating `add_term` / `replace_term`
+//!   on the same key. Pins that REPLACE overwrites score while numDocs
+//!   always accumulates.
 
 use std::cell::RefCell;
 use std::fmt::Write as _;
 
 use trie_rs::str::StrTrieMap;
+use trie_rs::term_dict::{InsertOutcome, TermDictionary};
 
 thread_local! {
     /// Rust analog of the C-side `FREECB_LOG`. Each `LoggingPayload::drop`
@@ -80,14 +61,8 @@ thread_local! {
     static FREECB_LOG: RefCell<Vec<String>> = const { RefCell::new(Vec::new()) };
 }
 
-struct TermEntry {
-    score: f32,
-    num_docs: usize,
-}
-
-/// Payload-carrying variant of `TermEntry`, used only by the payload
-/// scenario. `LoggingPayload::drop` records when the C trie's freecb
-/// would have fired.
+/// Payload-carrying entry used only by the payload scenario.
+/// `LoggingPayload::drop` records when the C trie's freecb would have fired.
 struct TermEntryWithPayload {
     score: f32,
     num_docs: usize,
@@ -114,51 +89,18 @@ const fn rc_name(rc: i32) -> &'static str {
     }
 }
 
-/// ADD_INCR emulation: `n->score += score`, `n->numDocs += numDocs`.
-/// Returns the C rc (OK_NEW=1 if the key wasn't present, OK_UPDATED=0
-/// otherwise).
-fn insert_incr(
-    trie: &mut StrTrieMap<TermEntry>,
-    term: &str,
-    score: f32,
-    num_docs: usize,
-) -> i32 {
-    let prev = trie.remove(term);
-    let was_present = prev.is_some();
-    let new_entry = match prev {
-        Some(p) => TermEntry {
-            score: p.score + score,
-            num_docs: p.num_docs + num_docs,
-        },
-        None => TermEntry { score, num_docs },
-    };
-    trie.insert(term, new_entry);
-    if was_present { 0 } else { 1 }
+/// Bridge [`InsertOutcome`] back to the C `TRIE_OK_*` integer rc so the
+/// payload-bearing helpers (still returning `i32`) and the new
+/// `TermDictionary`-backed scenarios both feed the same [`rc_name`]
+/// formatter.
+const fn outcome_rc(o: InsertOutcome) -> i32 {
+    match o {
+        InsertOutcome::New => 1,
+        InsertOutcome::Updated => 0,
+    }
 }
 
-/// ADD_REPLACE emulation: `n->score = score` (overwrite), `n->numDocs +=
-/// numDocs` (accumulates regardless of mode — verified against
-/// `trie_node.c:296`).
-fn insert_replace(
-    trie: &mut StrTrieMap<TermEntry>,
-    term: &str,
-    score: f32,
-    num_docs: usize,
-) -> i32 {
-    let prev = trie.remove(term);
-    let was_present = prev.is_some();
-    let new_entry = match prev {
-        Some(p) => TermEntry {
-            score,
-            num_docs: p.num_docs + num_docs,
-        },
-        None => TermEntry { score, num_docs },
-    };
-    trie.insert(term, new_entry);
-    if was_present { 0 } else { 1 }
-}
-
-/// As `insert_incr` but carries a payload. The old `LoggingPayload` drops
+/// As `TermDictionary::add_term` but carries a payload. The old `LoggingPayload` drops
 /// at the end of the `Some` arm — before `trie.insert` runs — mirroring
 /// the C trie's "free old payload, install new one" order inside
 /// `__trieNode_Add`.
@@ -224,7 +166,7 @@ fn insert_replace_with_payload(
 
 /// Field widths chosen to byte-match the C-side `dump_all` so the shared
 /// snapshot aligns column-for-column.
-fn dump_all(trie: &StrTrieMap<TermEntry>) -> String {
+fn dump_all(trie: &TermDictionary) -> String {
     let mut out = String::new();
     writeln!(&mut out, "size: {}", trie.len()).unwrap();
     writeln!(&mut out, "entries:").unwrap();
@@ -279,7 +221,7 @@ const fn mode_name(incr: i32) -> &'static str {
 
 #[test]
 fn lex_incr_score_and_numdocs_accumulation() {
-    let mut trie = StrTrieMap::<TermEntry>::new();
+    let mut trie = TermDictionary::new();
 
     // Parallel pair — same triples on "foo" with INCR and "bar" with REPLACE.
     // INCR: score accumulates 1.0 + 0.5 + 2.0 = 3.5.
@@ -297,11 +239,11 @@ fn lex_incr_score_and_numdocs_accumulation() {
 
     let mut out = String::new();
     for (term, incr, score, num_docs, note) in steps {
-        let rc = if *incr == ADD_INCR {
-            insert_incr(&mut trie, term, *score, *num_docs)
+        let rc = outcome_rc(if *incr == ADD_INCR {
+            trie.add_term(term, *score, *num_docs)
         } else {
-            insert_replace(&mut trie, term, *score, *num_docs)
-        };
+            trie.replace_term(term, *score, *num_docs)
+        });
         writeln!(
             &mut out,
             "--- insert({term:?}, mode={}, score={score}, numDocs={num_docs}) -> {} — {note} ---",
@@ -323,7 +265,7 @@ fn lex_incr_score_and_numdocs_accumulation() {
 
 #[test]
 fn lex_incr_over_deleted_node() {
-    let mut trie = StrTrieMap::<TermEntry>::new();
+    let mut trie = TermDictionary::new();
 
     let mut out = String::new();
 
@@ -337,14 +279,14 @@ fn lex_incr_over_deleted_node() {
         "=== step 1: build internal-terminal \"foo\" via \"foo\" + \"foobar\" ==="
     )
     .unwrap();
-    let rc = insert_replace(&mut trie, "foo", 1.0, 2);
+    let rc = outcome_rc(trie.replace_term("foo", 1.0, 2));
     writeln!(
         &mut out,
         "insert(\"foo\", REPLACE, score=1, numDocs=2) -> {}",
         rc_name(rc)
     )
     .unwrap();
-    let rc = insert_replace(&mut trie, "foobar", 1.0, 1);
+    let rc = outcome_rc(trie.replace_term("foobar", 1.0, 1));
     writeln!(
         &mut out,
         "insert(\"foobar\", REPLACE, score=1, numDocs=1) -> {}",
@@ -375,7 +317,7 @@ fn lex_incr_over_deleted_node() {
         "\n=== step 3: INCR over deleted node — score/numDocs reset to new values ==="
     )
     .unwrap();
-    let rc = insert_incr(&mut trie, "foo", 5.0, 10);
+    let rc = outcome_rc(trie.add_term("foo", 5.0, 10));
     writeln!(
         &mut out,
         "insert(\"foo\", INCR, score=5, numDocs=10) -> {}",
@@ -395,7 +337,7 @@ fn lex_incr_over_deleted_node() {
 
 #[test]
 fn lex_incr_over_non_terminal_split() {
-    let mut trie = StrTrieMap::<TermEntry>::new();
+    let mut trie = TermDictionary::new();
 
     let mut out = String::new();
 
@@ -408,14 +350,14 @@ fn lex_incr_over_non_terminal_split() {
         "=== step 1: \"apple\" + \"apply\" — creates non-terminal \"appl\" ==="
     )
     .unwrap();
-    let rc = insert_replace(&mut trie, "apple", 1.0, 1);
+    let rc = outcome_rc(trie.replace_term("apple", 1.0, 1));
     writeln!(
         &mut out,
         "insert(\"apple\", REPLACE, score=1, numDocs=1) -> {}",
         rc_name(rc)
     )
     .unwrap();
-    let rc = insert_replace(&mut trie, "apply", 2.0, 1);
+    let rc = outcome_rc(trie.replace_term("apply", 2.0, 1));
     writeln!(
         &mut out,
         "insert(\"apply\", REPLACE, score=2, numDocs=1) -> {}",
@@ -433,7 +375,7 @@ fn lex_incr_over_non_terminal_split() {
         "\n=== step 2: INCR-insert \"appl\" — non-terminal becomes terminal ==="
     )
     .unwrap();
-    let rc = insert_incr(&mut trie, "appl", 7.0, 3);
+    let rc = outcome_rc(trie.add_term("appl", 7.0, 3));
     writeln!(
         &mut out,
         "insert(\"appl\", INCR, score=7, numDocs=3) -> {}",
@@ -532,7 +474,7 @@ fn lex_incr_with_payload_vs_replace_with_payload() {
 
 #[test]
 fn lex_incr_mixed_with_replace() {
-    let mut trie = StrTrieMap::<TermEntry>::new();
+    let mut trie = TermDictionary::new();
 
     let mut out = String::new();
 
@@ -556,11 +498,11 @@ fn lex_incr_mixed_with_replace() {
     ];
 
     for (incr, score, num_docs, note) in steps {
-        let rc = if *incr == ADD_INCR {
-            insert_incr(&mut trie, "foo", *score, *num_docs)
+        let rc = outcome_rc(if *incr == ADD_INCR {
+            trie.add_term("foo", *score, *num_docs)
         } else {
-            insert_replace(&mut trie, "foo", *score, *num_docs)
-        };
+            trie.replace_term("foo", *score, *num_docs)
+        });
         writeln!(
             &mut out,
             "--- insert(\"foo\", mode={}, score={score}, numDocs={num_docs}) -> {} — {note} ---",
