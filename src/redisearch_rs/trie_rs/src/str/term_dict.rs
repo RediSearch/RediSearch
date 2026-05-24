@@ -77,12 +77,12 @@ impl TermDictionary {
         }
     }
 
-    pub fn len(&self) -> usize {
+    pub const fn len(&self) -> usize {
         self.inner.len()
     }
 
-    pub fn is_empty(&self) -> bool {
-        self.inner.len() == 0
+    pub const fn is_empty(&self) -> bool {
+        self.inner.is_empty()
     }
 
     /// Insert or overwrite the entry for `term`, returning the previous

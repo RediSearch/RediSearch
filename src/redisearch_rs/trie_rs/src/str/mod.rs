@@ -8,6 +8,12 @@ pub struct StrTrieMap<Data> {
     inner: TrieMap<Data>,
 }
 
+impl<Data> Default for StrTrieMap<Data> {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl<Data> StrTrieMap<Data> {
     pub fn new() -> Self {
         Self {
@@ -38,8 +44,12 @@ impl<Data> StrTrieMap<Data> {
         self.inner.find_mut(key.as_bytes())
     }
 
-    pub fn len(&self) -> usize {
-        self.inner.iter().count()
+    pub const fn len(&self) -> usize {
+        self.inner.n_unique_keys()
+    }
+
+    pub const fn is_empty(&self) -> bool {
+        self.inner.n_unique_keys() == 0
     }
 
     pub fn iter(&self) -> iter::Iter<'_, Data> {

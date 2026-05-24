@@ -79,7 +79,9 @@ fn header(trie: &TermDictionary) -> String {
     format!("size: {}\n\n", trie.len())
 }
 
-fn run(queries: &[(&str, Option<&str>, bool, Option<&str>, bool)]) -> String {
+type Query<'a> = (&'a str, Option<&'a str>, bool, Option<&'a str>, bool);
+
+fn run(queries: &[Query<'_>]) -> String {
     let trie = build_fixture();
     let mut out = header(&trie);
     for (i, (label, min, inc_min, max, inc_max)) in queries.iter().enumerate() {
@@ -200,8 +202,8 @@ fn lex_range_callback_stops_early() {
     let mut out = header(&trie);
     writeln!(
         &mut out,
-        "query: (-inf, +inf) stop after 3rd  min={:?} (inc={})  max={:?} (inc={})",
-        "<none>", true, "<none>", true,
+        "query: (-inf, +inf) stop after 3rd  min={:?} (inc=true)  max={:?} (inc=true)",
+        "<none>", "<none>",
     )
     .unwrap();
 
