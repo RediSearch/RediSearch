@@ -59,17 +59,8 @@ bool SearchDisk_Initialize(RedisModuleCtx *ctx) {
   RS_ASSERT(disk->basic.setThrottleCallbacks);
   disk->basic.setThrottleCallbacks(VecSim_EnableThrottle, VecSim_DisableThrottle);
 
-  // Resolve read-cache options: RSE config takes priority; -1 means inherit from Flex.
-  bool drop_read_cache = (RSGlobalConfig.diskDropReadCacheConfig >= 0)
-      ? (bool)RSGlobalConfig.diskDropReadCacheConfig
-      : getRedisConfigBool(ctx, "bigredis-driver-allow_os_buffer", false);
-  bool use_direct_reads = (RSGlobalConfig.diskUseDirectReadsConfig >= 0)
-      ? (bool)RSGlobalConfig.diskUseDirectReadsConfig
-      : getRedisConfigBool(ctx, "bigredis-driver-use-direct-reads", false);
-
-  // Pass the disk buffer percentage and read-cache options from config
   disk_db = disk->basic.open(ctx, (int)RSGlobalConfig.diskBufferPercentage, RSGlobalConfig.hideUserDataFromLog,
-                             drop_read_cache, use_direct_reads);
+                             RSGlobalConfig.diskDropReadCache, RSGlobalConfig.diskUseDirectReads);
   bool disk_initialized = disk_db != NULL;
 
   if (!disk_initialized) {
