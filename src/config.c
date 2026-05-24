@@ -98,6 +98,7 @@ configPair_t __configPairs[] = {
   {"_TRIMMING_STATE_CHECK_DELAY_MS",   "search-_trimming-state-check-delay-ms"},
   {"_SIMULATE_IN_FLEX",                "search-_simulate-in-flex"},
   {"search-disk-drop-read-cache",      "search-disk-drop-read-cache"},
+  {"search-disk-use-direct-reads",     "search-disk-use-direct-reads"},
 };
 
 static const char* FTConfigNameToConfigName(const char *name) {
@@ -248,9 +249,8 @@ static int get_inverted_bool_config(const char *name, void *privdata) {
 static int set_disk_drop_read_cache_config(const char *name, int val, void *privdata,
                                            RedisModuleString **err) {
   REDISMODULE_NOT_USED(name);
-  REDISMODULE_NOT_USED(privdata);
   REDISMODULE_NOT_USED(err);
-  RSGlobalConfig.diskDropReadCache = val;
+  *(bool *)privdata = val;
   RSGlobalConfig.diskDropReadCacheExplicit = true;
   return REDISMODULE_OK;
 }
@@ -1333,6 +1333,24 @@ CONFIG_SETTER(setDiskDropReadCache) {
 
 CONFIG_BOOLEAN_GETTER(getDiskDropReadCache, diskDropReadCache, 0)
 
+// Legacy module-ARGS setter for search-disk-use-direct-reads.
+// Handles yes/no/true/false (case-insensitive).
+CONFIG_SETTER(setDiskUseDirectReads) {
+  const char *tf;
+  int acrc = AC_GetString(ac, &tf, NULL, 0);
+  CHECK_RETURN_PARSE_ERROR(acrc);
+  if (!strcasecmp(tf, "yes") || !strcasecmp(tf, "true")) {
+    config->diskUseDirectReads = true;
+  } else if (!strcasecmp(tf, "no") || !strcasecmp(tf, "false")) {
+    config->diskUseDirectReads = false;
+  } else {
+    acrc = AC_ERR_PARSE;
+  }
+  RETURN_STATUS(acrc);
+}
+
+CONFIG_BOOLEAN_GETTER(getDiskUseDirectReads, diskUseDirectReads, 0)
+
 RSConfig RSGlobalConfig = RS_DEFAULT_CONFIG;
 
 static RSConfigVar *findConfigVar(const RSConfigOptions *config, const char *name) {
@@ -1693,6 +1711,11 @@ RSConfigOptions RSGlobalConfigOptions = {
          .helpText = "Drop OS read cache after each SpeedB read (yes/no, default no)",
          .setValue = setDiskDropReadCache,
          .getValue = getDiskDropReadCache,
+         .flags = RSCONFIGVAR_F_IMMUTABLE},
+        {.name = "search-disk-use-direct-reads",
+         .helpText = "Use O_DIRECT for SpeedB reads (yes/no, default no)",
+         .setValue = setDiskUseDirectReads,
+         .getValue = getDiskUseDirectReads,
          .flags = RSCONFIGVAR_F_IMMUTABLE},
         {.name = NULL}}};
 
