@@ -3,6 +3,8 @@
 RediSearch is a Redis module providing full-text search, secondary indexing, and vector similarity search.
 The codebase is primarily C, with an ongoing effort to port modules to Rust in `src/redisearch_rs/`.
 
+For human contributor instructions, see `CONTRIBUTING.md`. This file is optimized for coding agents and internal automation workflows.
+
 ## Build Commands
 
 ```bash
@@ -190,6 +192,20 @@ src/redisearch_rs/
 └── c_entrypoint/
     └── triemap_ffi/      # C-callable wrapper
 ```
+
+## Review guidelines
+
+When reviewing pull requests:
+
+- Invoke [/code-review](.skills/code-review/SKILL.md) for C code changes.
+- Invoke [/rust-review](.skills/rust-review/SKILL.md) for Rust code changes.
+- Before posting any review comment, inspect existing PR comments, review threads, and prior bot comments when available.
+- Do not post a duplicate comment if the same issue has already been raised, even if the code still contains the issue.
+- If an earlier comment is still relevant, avoid restating it. Only add a new comment when there is materially new information, a changed code location, or a distinct issue.
+- Prefer one comment per root cause. If the same pattern appears in several places, comment on the clearest instance and mention the pattern briefly.
+- Keep automated review comments high-signal: prioritize correctness, crashes, memory safety, undefined behavior, data loss, security, and clear test/CI failures.
+- Do not comment on minor style, formatting, naming, or preference issues by default unless they violate an explicit project rule and would block maintainability.
+- If the review explicitly requests nits, style comments, or `--include-nits`, minor findings may be reported as non-blocking suggestions, but must still avoid duplicates and should be grouped by root cause.
 
 ## Common Workflows
 

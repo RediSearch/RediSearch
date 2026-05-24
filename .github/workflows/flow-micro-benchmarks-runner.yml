@@ -65,6 +65,8 @@ jobs:
     permissions:
       contents: read  # actions/checkout
       id-token: write # OIDC role assumption for sccache S3
+    env:
+      IS_FORK_PR: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository }}
     steps:
       - name: Pre checkout deps
         run:  sudo apt-get update && sudo apt-get -y --no-install-recommends install git
@@ -84,6 +86,7 @@ jobs:
         with:
           python-version: 3.11
       - name: Setup sccache
+        if: ${{ env.IS_FORK_PR != 'true' }}
         uses: ./.github/actions/setup-sccache
         with:
           aws-role: ${{ vars.SCCACHE_AWS_ROLE_TO_ASSUME }}
@@ -113,7 +116,7 @@ jobs:
           export PATH="$HOME/.cargo/bin:$PATH"
           make micro-benchmarks
       - name: Show sccache stats
-        run: ${SCCACHE_PATH:-sccache} --show-stats
+        run: ${SCCACHE_PATH:-sccache} --show-stats || true
       - name: Collect results
         env:
           INPUT_ARCHITECTURE: ${{ inputs.architecture }}
