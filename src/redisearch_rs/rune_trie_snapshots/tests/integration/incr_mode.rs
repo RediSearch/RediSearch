@@ -24,11 +24,6 @@
 //! - **numDocs** is `n->numDocs += numDocs` in BOTH modes (line 296). The
 //!   "REPLACE overwrites numDocs" intuition is wrong — verified against the C
 //!   source — the field always accumulates per call.
-//! - **Payload** replacement is mode-agnostic too (line 297-303): if the new
-//!   payload is non-null with non-zero length, BOTH modes free the existing
-//!   payload via freecb and install the new one. INCR does NOT keep the old
-//!   payload — it just leaves the score additive while still replacing the
-//!   payload bytes.
 //! - **Previously-deleted node**: `TrieNode_Delete` zeroes both `score` and
 //!   `numDocs` on the mark-deleted node (line 488-489), so an INCR resurrect
 //!   yields `score=new` and `numDocs=new` (the addition baseline is 0), with
@@ -44,10 +39,9 @@
 //! These snapshots pin the per-mode arithmetic for the production terms-trie
 //! path. A Rust port that conflates the two modes — e.g. forgets the score
 //! addition, or accidentally makes numDocs mode-dependent — will surface as a
-//! snapshot diff against any of the five scenarios below.
+//! snapshot diff against any of the four scenarios below.
 
-use std::cell::RefCell;
-use std::ffi::{CStr, c_void};
+use std::ffi::c_void;
 use std::fmt::Write as _;
 use std::ptr;
 
@@ -59,27 +53,6 @@ use libc::c_char;
 
 const ADD_REPLACE: i32 = 0;
 const ADD_INCR: i32 = 1;
-
-thread_local! {
-    /// Mirrors the freecb log used by `payloads.rs` — each payload free
-    /// pushes its decoded label here so the test can render the sequence of
-    /// freecb invocations between operations.
-    static FREECB_LOG: RefCell<Vec<String>> = const { RefCell::new(Vec::new()) };
-}
-
-unsafe extern "C" fn capture_freecb(data: *mut c_void) {
-    if data.is_null() {
-        FREECB_LOG.with(|log| log.borrow_mut().push("<null>".into()));
-        return;
-    }
-    // SAFETY: callers always insert null-terminated payload bytes via
-    // `insert_with_payload` below, so the trie's internal copy is also
-    // null-terminated. The pointer is live for the duration of the call.
-    let label = unsafe { CStr::from_ptr(data as *const c_char) }
-        .to_string_lossy()
-        .into_owned();
-    FREECB_LOG.with(|log| log.borrow_mut().push(label));
-}
 
 unsafe fn runes_to_string(ptr: *const rune, len: usize) -> String {
     // SAFETY: caller passes a valid rune buffer of length `len`.
@@ -118,39 +91,6 @@ const fn rc_name(rc: i32) -> &'static str {
 
 const fn mode_name(incr: i32) -> &'static str {
     if incr == ADD_INCR { "INCR" } else { "REPLACE" }
-}
-
-unsafe fn insert_with_payload(
-    trie: *mut Trie,
-    term: &str,
-    score: f64,
-    incr: i32,
-    num_docs: usize,
-    label: &str,
-) -> i32 {
-    let mut bytes: Vec<u8> = label.as_bytes().to_vec();
-    bytes.push(0); // NUL terminator so `capture_freecb`'s CStr decode is safe.
-
-    let mut payload = RSPayload {
-        data: bytes.as_mut_ptr() as *mut c_char,
-        // `TriePayload::len` excludes the NUL — matching how `Trie_Insert`
-        // paths in the suffix/suggest code set `payload.len`.
-        len: label.len(),
-    };
-
-    // SAFETY: `term` and `bytes` are valid for the duration of the call; the
-    // C trie copies both before returning.
-    unsafe {
-        Trie_InsertStringBuffer(
-            trie,
-            term.as_ptr() as *const c_char,
-            term.len(),
-            score,
-            incr,
-            &mut payload,
-            num_docs,
-        )
-    }
 }
 
 unsafe fn delete(trie: *mut Trie, term: &str) -> i32 {
@@ -202,79 +142,6 @@ fn dump_all(trie: *mut Trie) -> String {
 
     // SAFETY: `it` was produced by `Trie_IterateAll` above and not freed yet.
     unsafe { TrieIterator_Free(it) };
-    out
-}
-
-/// As `dump_all`, but also renders each entry's payload bytes — used by the
-/// payload-interaction scenario where the freecb log needs to be cross-
-/// referenced against the surviving payload to interpret each step.
-fn dump_with_payloads(trie: *mut Trie) -> String {
-    // SAFETY: `trie` is live for the duration of this function.
-    let size = unsafe { Trie_Size(trie) };
-    // SAFETY: `trie` is live; the iterator is freed below.
-    let it = unsafe { Trie_IterateAll(trie) };
-
-    let mut runes_ptr: *mut rune = ptr::null_mut();
-    let mut rune_len: t_len = 0;
-    let mut payload = RSPayload {
-        data: ptr::null_mut(),
-        len: 0,
-    };
-    let mut score: f32 = 0.0;
-    let mut num_docs: usize = 0;
-
-    let mut out = String::new();
-    writeln!(&mut out, "size: {size}").unwrap();
-    writeln!(&mut out, "entries:").unwrap();
-
-    // SAFETY: all out-pointers are valid for writes; the iterator owns the
-    // returned `runes_ptr` buffer and the `payload.data` slice.
-    while unsafe {
-        TrieIterator_Next(
-            it,
-            &mut runes_ptr,
-            &mut rune_len,
-            &mut payload,
-            &mut score,
-            &mut num_docs,
-            ptr::null_mut(),
-        )
-    } != 0
-    {
-        // SAFETY: iterator hands us a valid rune buffer of length `rune_len`.
-        let term = unsafe { runes_to_string(runes_ptr, rune_len as usize) };
-        let payload_repr = if payload.data.is_null() {
-            "<none>".to_string()
-        } else {
-            // SAFETY: `payload.data` points into the trie's owned buffer for
-            // exactly `payload.len` bytes (excluding our NUL terminator).
-            let bytes = unsafe {
-                std::slice::from_raw_parts(payload.data as *const u8, payload.len as usize)
-            };
-            String::from_utf8(bytes.to_vec()).expect("test payloads are ASCII")
-        };
-        writeln!(
-            &mut out,
-            "  {term:6}  score={score}  numDocs={num_docs}  payload={payload_repr:?}"
-        )
-        .unwrap();
-    }
-
-    // SAFETY: `it` was just produced by `Trie_IterateAll` and not freed yet.
-    unsafe { TrieIterator_Free(it) };
-    out
-}
-
-fn drain_freecb_log() -> String {
-    let entries: Vec<String> = FREECB_LOG.with(|log| std::mem::take(&mut *log.borrow_mut()));
-    if entries.is_empty() {
-        return "freecb fired: <none>\n".into();
-    }
-    let mut out = String::new();
-    writeln!(&mut out, "freecb fired ({}x):", entries.len()).unwrap();
-    for label in entries {
-        writeln!(&mut out, "  {label:?}").unwrap();
-    }
     out
 }
 
@@ -427,65 +294,6 @@ fn lex_incr_over_non_terminal_split() {
     insta::with_settings!(
         { prepend_module_to_snapshot => false },
         { insta::assert_snapshot!("lex_incr_over_non_terminal_split", out); }
-    );
-}
-
-#[test]
-fn lex_incr_with_payload_vs_replace_with_payload() {
-    // Clear any leftover state (cheap insurance — each #[test] runs on a
-    // fresh thread, but the freecb log is thread-local).
-    FREECB_LOG.with(|log| log.borrow_mut().clear());
-
-    // SAFETY: `NewTrie` accepts a non-NULL freecb; the trie invokes it on
-    // every physical payload free.
-    let trie = unsafe { NewTrie(Some(capture_freecb), TrieSortMode_Trie_Sort_Lex) };
-
-    let mut out = String::new();
-
-    // Step 1: install payload "v1" via ADD_REPLACE. No prior payload to free,
-    // so freecb does NOT fire here.
-    writeln!(&mut out, "=== step 1: REPLACE-insert \"foo\" with payload \"v1\" ===").unwrap();
-    // SAFETY: `trie` is live; term + label bytes valid for the call.
-    let rc = unsafe { insert_with_payload(trie, "foo", 1.0, ADD_REPLACE, 1, "v1") };
-    writeln!(&mut out, "insert(\"foo\", REPLACE, score=1, numDocs=1, payload=\"v1\") -> {}", rc_name(rc)).unwrap();
-    out.push_str(&dump_with_payloads(trie));
-    out.push_str(&drain_freecb_log());
-
-    // Step 2: INCR-insert "foo" with payload "v2".
-    //
-    // The C source (`__trieNode_Add` line 297-303) handles payloads the SAME
-    // way regardless of `op` (INCR vs REPLACE): if the new payload is
-    // non-null with non-zero length, free the old via freecb and install the
-    // new. So freecb fires once on "v1" and the surviving payload is "v2".
-    //
-    // The score arithmetic is the only thing INCR changes here: 1.0 + 1.0 = 2.0
-    // (vs REPLACE which would yield 1.0).
-    writeln!(&mut out, "\n=== step 2: INCR-insert \"foo\" with payload \"v2\" — old payload still replaced ===").unwrap();
-    // SAFETY: `trie` is live; term + label bytes valid for the call.
-    let rc = unsafe { insert_with_payload(trie, "foo", 1.0, ADD_INCR, 1, "v2") };
-    writeln!(&mut out, "insert(\"foo\", INCR, score=1, numDocs=1, payload=\"v2\") -> {}", rc_name(rc)).unwrap();
-    out.push_str(&dump_with_payloads(trie));
-    out.push_str(&drain_freecb_log());
-
-    // Step 3: REPLACE-insert "foo" with payload "v3". Same mode-agnostic
-    // payload replacement — freecb fires on whatever payload survived step 2.
-    writeln!(&mut out, "\n=== step 3: REPLACE-insert \"foo\" with payload \"v3\" — freecb fires on survivor ===").unwrap();
-    // SAFETY: `trie` is live; term + label bytes valid for the call.
-    let rc = unsafe { insert_with_payload(trie, "foo", 3.0, ADD_REPLACE, 1, "v3") };
-    writeln!(&mut out, "insert(\"foo\", REPLACE, score=3, numDocs=1, payload=\"v3\") -> {}", rc_name(rc)).unwrap();
-    out.push_str(&dump_with_payloads(trie));
-    out.push_str(&drain_freecb_log());
-
-    // Step 4: tear down the trie. `TrieType_Free -> TrieNode_Free` cascades
-    // through every surviving payload — here, just the v3 bytes on "foo".
-    writeln!(&mut out, "\n=== step 4: TrieType_Free — surviving payload freed ===").unwrap();
-    // SAFETY: `trie` was created by `NewTrie` above; never freed elsewhere.
-    unsafe { TrieType_Free(trie as *mut c_void) };
-    out.push_str(&drain_freecb_log());
-
-    insta::with_settings!(
-        { prepend_module_to_snapshot => false },
-        { insta::assert_snapshot!("lex_incr_with_payload_vs_replace_with_payload", out); }
     );
 }
 

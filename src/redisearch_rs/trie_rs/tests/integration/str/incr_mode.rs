@@ -12,11 +12,12 @@
 //!
 //! The C trie's `ADD_INCR` path lives inside `__trieNode_Add`
 //! (`src/trie/trie_node.c:282-310`); see the C-side test's docstring for the
-//! per-field arithmetic the snapshots pin. The no-payload scenarios in this
-//! file exercise [`TermDictionary::add_term`] / [`TermDictionary::replace_term`]
-//! directly; the payload-bearing scenario keeps a local emulation because
-//! `TermDictionary` deliberately omits the payload field (that belongs to a
-//! future `SuggestionTrie`).
+//! per-field arithmetic the snapshots pin. The scenarios in this file
+//! exercise [`TermDictionary::add_term`] / [`TermDictionary::replace_term`]
+//! directly. The C oracle's payload-bearing scenario is intentionally not
+//! mirrored here: `sp->terms` never carries a payload, so the Rust port
+//! has no consumer for that behavior (the future `SuggestionDictionary`
+//! that would is out of scope for this port).
 //!
 //! # Mapping per scenario
 //!
@@ -36,48 +37,13 @@
 //!   adds a third entry. The C trie's invisible non-terminal "appl" is a
 //!   non-issue here because `Trie_IterateAll` skips non-terminals too.
 //!
-//! - **INCR with payload** — `LoggingPayload`'s `Drop` records the freecb
-//!   moment. The C trie's payload-replace runs `triePayload_Free` on the
-//!   old bytes inside `__trieNode_Add` regardless of `op`; the Rust mirror
-//!   replaces the entire entry, so the old payload drops at the end of
-//!   the `match` arm — before the next `insert` and before the log is
-//!   drained for the snapshot. This scenario stays on `StrTrieMap`
-//!   directly until a payload-aware wrapper lands.
-//!
 //! - **Mixed INCR + REPLACE** — alternating `add_term` / `replace_term`
 //!   on the same key. Pins that REPLACE overwrites score while numDocs
 //!   always accumulates.
 
-use std::cell::RefCell;
 use std::fmt::Write as _;
 
-use trie_rs::str::StrTrieMap;
 use trie_rs::term_dict::{InsertOutcome, TermDictionary};
-
-thread_local! {
-    /// Rust analog of the C-side `FREECB_LOG`. Each `LoggingPayload::drop`
-    /// pushes its label here; the test drains the log between steps and
-    /// renders it into the snapshot trace.
-    static FREECB_LOG: RefCell<Vec<String>> = const { RefCell::new(Vec::new()) };
-}
-
-/// Payload-carrying entry used only by the payload scenario.
-/// `LoggingPayload::drop` records when the C trie's freecb would have fired.
-struct TermEntryWithPayload {
-    score: f32,
-    num_docs: usize,
-    payload: LoggingPayload,
-}
-
-struct LoggingPayload {
-    label: String,
-}
-
-impl Drop for LoggingPayload {
-    fn drop(&mut self) {
-        FREECB_LOG.with(|log| log.borrow_mut().push(self.label.clone()));
-    }
-}
 
 /// Mirror C `TRIE_OK_*` rendering (`trie_node.h:29-32`).
 const fn rc_name(rc: i32) -> &'static str {
@@ -90,78 +56,13 @@ const fn rc_name(rc: i32) -> &'static str {
 }
 
 /// Bridge [`InsertOutcome`] back to the C `TRIE_OK_*` integer rc so the
-/// payload-bearing helpers (still returning `i32`) and the new
-/// `TermDictionary`-backed scenarios both feed the same [`rc_name`]
-/// formatter.
+/// `TermDictionary`-backed scenarios feed the same [`rc_name`] formatter
+/// the C-side snapshots were captured against.
 const fn outcome_rc(o: InsertOutcome) -> i32 {
     match o {
         InsertOutcome::New => 1,
         InsertOutcome::Updated => 0,
     }
-}
-
-/// As `TermDictionary::add_term` but carries a payload. The old `LoggingPayload` drops
-/// at the end of the `Some` arm — before `trie.insert` runs — mirroring
-/// the C trie's "free old payload, install new one" order inside
-/// `__trieNode_Add`.
-fn insert_incr_with_payload(
-    trie: &mut StrTrieMap<TermEntryWithPayload>,
-    term: &str,
-    score: f32,
-    num_docs: usize,
-    label: &str,
-) -> i32 {
-    let prev = trie.remove(term);
-    let was_present = prev.is_some();
-    let new_entry = match prev {
-        Some(p) => TermEntryWithPayload {
-            score: p.score + score,
-            num_docs: p.num_docs + num_docs,
-            payload: LoggingPayload {
-                label: label.to_string(),
-            },
-        },
-        None => TermEntryWithPayload {
-            score,
-            num_docs,
-            payload: LoggingPayload {
-                label: label.to_string(),
-            },
-        },
-    };
-    trie.insert(term, new_entry);
-    if was_present { 0 } else { 1 }
-}
-
-/// ADD_REPLACE with payload — same as `insert_incr_with_payload` but
-/// score is overwritten rather than added.
-fn insert_replace_with_payload(
-    trie: &mut StrTrieMap<TermEntryWithPayload>,
-    term: &str,
-    score: f32,
-    num_docs: usize,
-    label: &str,
-) -> i32 {
-    let prev = trie.remove(term);
-    let was_present = prev.is_some();
-    let new_entry = match prev {
-        Some(p) => TermEntryWithPayload {
-            score,
-            num_docs: p.num_docs + num_docs,
-            payload: LoggingPayload {
-                label: label.to_string(),
-            },
-        },
-        None => TermEntryWithPayload {
-            score,
-            num_docs,
-            payload: LoggingPayload {
-                label: label.to_string(),
-            },
-        },
-    };
-    trie.insert(term, new_entry);
-    if was_present { 0 } else { 1 }
 }
 
 /// Field widths chosen to byte-match the C-side `dump_all` so the shared
@@ -178,36 +79,6 @@ fn dump_all(trie: &TermDictionary) -> String {
             num_docs = entry.num_docs,
         )
         .unwrap();
-    }
-    out
-}
-
-fn dump_with_payloads(trie: &StrTrieMap<TermEntryWithPayload>) -> String {
-    let mut out = String::new();
-    writeln!(&mut out, "size: {}", trie.len()).unwrap();
-    writeln!(&mut out, "entries:").unwrap();
-    for (term, entry) in trie.iter() {
-        writeln!(
-            &mut out,
-            "  {term:6}  score={score}  numDocs={num_docs}  payload={payload:?}",
-            score = entry.score,
-            num_docs = entry.num_docs,
-            payload = entry.payload.label,
-        )
-        .unwrap();
-    }
-    out
-}
-
-fn drain_freecb_log() -> String {
-    let entries: Vec<String> = FREECB_LOG.with(|log| std::mem::take(&mut *log.borrow_mut()));
-    if entries.is_empty() {
-        return "freecb fired: <none>\n".into();
-    }
-    let mut out = String::new();
-    writeln!(&mut out, "freecb fired ({}x):", entries.len()).unwrap();
-    for label in entries {
-        writeln!(&mut out, "  {label:?}").unwrap();
     }
     out
 }
@@ -390,85 +261,6 @@ fn lex_incr_over_non_terminal_split() {
             prepend_module_to_snapshot => false,
         },
         { insta::assert_snapshot!("lex_incr_over_non_terminal_split", out); }
-    );
-}
-
-#[test]
-fn lex_incr_with_payload_vs_replace_with_payload() {
-    FREECB_LOG.with(|log| log.borrow_mut().clear());
-
-    let mut trie = StrTrieMap::<TermEntryWithPayload>::new();
-    let mut out = String::new();
-
-    // Step 1: install "v1". No prior payload, no Drop fires.
-    writeln!(
-        &mut out,
-        "=== step 1: REPLACE-insert \"foo\" with payload \"v1\" ==="
-    )
-    .unwrap();
-    let rc = insert_replace_with_payload(&mut trie, "foo", 1.0, 1, "v1");
-    writeln!(
-        &mut out,
-        "insert(\"foo\", REPLACE, score=1, numDocs=1, payload=\"v1\") -> {}",
-        rc_name(rc)
-    )
-    .unwrap();
-    out.push_str(&dump_with_payloads(&trie));
-    out.push_str(&drain_freecb_log());
-
-    // Step 2: INCR with new payload "v2". The old `TermEntryWithPayload`
-    // moves out via `remove`, gets destructured inside the `Some` arm, and
-    // its `LoggingPayload` field drops at end of arm — firing the log push
-    // on "v1" BEFORE the next `trie.insert` runs. Mirrors C's
-    // `triePayload_Free(n->payload, freecb)` followed by `triePayload_New`.
-    writeln!(
-        &mut out,
-        "\n=== step 2: INCR-insert \"foo\" with payload \"v2\" — old payload still replaced ==="
-    )
-    .unwrap();
-    let rc = insert_incr_with_payload(&mut trie, "foo", 1.0, 1, "v2");
-    writeln!(
-        &mut out,
-        "insert(\"foo\", INCR, score=1, numDocs=1, payload=\"v2\") -> {}",
-        rc_name(rc)
-    )
-    .unwrap();
-    out.push_str(&dump_with_payloads(&trie));
-    out.push_str(&drain_freecb_log());
-
-    // Step 3: REPLACE with "v3". Same mechanism — old payload "v2" drops
-    // before the new entry is inserted.
-    writeln!(
-        &mut out,
-        "\n=== step 3: REPLACE-insert \"foo\" with payload \"v3\" — freecb fires on survivor ==="
-    )
-    .unwrap();
-    let rc = insert_replace_with_payload(&mut trie, "foo", 3.0, 1, "v3");
-    writeln!(
-        &mut out,
-        "insert(\"foo\", REPLACE, score=3, numDocs=1, payload=\"v3\") -> {}",
-        rc_name(rc)
-    )
-    .unwrap();
-    out.push_str(&dump_with_payloads(&trie));
-    out.push_str(&drain_freecb_log());
-
-    // Step 4: drop the trie. Only one entry survives ("foo" with "v3"); its
-    // payload's Drop pushes to the log.
-    writeln!(
-        &mut out,
-        "\n=== step 4: TrieType_Free — surviving payload freed ==="
-    )
-    .unwrap();
-    drop(trie);
-    out.push_str(&drain_freecb_log());
-
-    insta::with_settings!(
-        {
-            snapshot_path => "../../../../rune_trie_snapshots/tests/integration/snapshots",
-            prepend_module_to_snapshot => false,
-        },
-        { insta::assert_snapshot!("lex_incr_with_payload_vs_replace_with_payload", out); }
     );
 }
 
