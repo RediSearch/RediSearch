@@ -156,7 +156,7 @@ fn lex_input_length_boundaries() {
 
     insta::with_settings!(
         {
-            snapshot_path => "../../../rune_trie_snapshots/tests/integration/snapshots",
+            snapshot_path => "../../../../rune_trie_snapshots/tests/integration/snapshots",
             prepend_module_to_snapshot => false,
         },
         { insta::assert_snapshot!("lex_input_length_boundaries", out); }
@@ -207,7 +207,7 @@ fn lex_non_bmp_codepoint_truncation_and_aliasing() {
 
     insta::with_settings!(
         {
-            snapshot_path => "../../../rune_trie_snapshots/tests/integration/snapshots",
+            snapshot_path => "../../../../rune_trie_snapshots/tests/integration/snapshots",
             prepend_module_to_snapshot => false,
         },
         { insta::assert_snapshot!("lex_non_bmp_codepoint_truncation_and_aliasing", out); }

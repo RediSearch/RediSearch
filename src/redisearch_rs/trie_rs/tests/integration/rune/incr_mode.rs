@@ -324,7 +324,7 @@ fn lex_incr_score_and_numdocs_accumulation() {
 
     insta::with_settings!(
         {
-            snapshot_path => "../../../rune_trie_snapshots/tests/integration/snapshots",
+            snapshot_path => "../../../../rune_trie_snapshots/tests/integration/snapshots",
             prepend_module_to_snapshot => false,
         },
         { insta::assert_snapshot!("lex_incr_score_and_numdocs_accumulation", out); }
@@ -396,7 +396,7 @@ fn lex_incr_over_deleted_node() {
 
     insta::with_settings!(
         {
-            snapshot_path => "../../../rune_trie_snapshots/tests/integration/snapshots",
+            snapshot_path => "../../../../rune_trie_snapshots/tests/integration/snapshots",
             prepend_module_to_snapshot => false,
         },
         { insta::assert_snapshot!("lex_incr_over_deleted_node", out); }
@@ -454,7 +454,7 @@ fn lex_incr_over_non_terminal_split() {
 
     insta::with_settings!(
         {
-            snapshot_path => "../../../rune_trie_snapshots/tests/integration/snapshots",
+            snapshot_path => "../../../../rune_trie_snapshots/tests/integration/snapshots",
             prepend_module_to_snapshot => false,
         },
         { insta::assert_snapshot!("lex_incr_over_non_terminal_split", out); }
@@ -533,7 +533,7 @@ fn lex_incr_with_payload_vs_replace_with_payload() {
 
     insta::with_settings!(
         {
-            snapshot_path => "../../../rune_trie_snapshots/tests/integration/snapshots",
+            snapshot_path => "../../../../rune_trie_snapshots/tests/integration/snapshots",
             prepend_module_to_snapshot => false,
         },
         { insta::assert_snapshot!("lex_incr_with_payload_vs_replace_with_payload", out); }
@@ -583,7 +583,7 @@ fn lex_incr_mixed_with_replace() {
 
     insta::with_settings!(
         {
-            snapshot_path => "../../../rune_trie_snapshots/tests/integration/snapshots",
+            snapshot_path => "../../../../rune_trie_snapshots/tests/integration/snapshots",
             prepend_module_to_snapshot => false,
         },
         { insta::assert_snapshot!("lex_incr_mixed_with_replace", out); }

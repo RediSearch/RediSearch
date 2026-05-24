@@ -75,7 +75,7 @@ fn lex_unicode_bmp_iteration_order() {
 
     insta::with_settings!(
         {
-            snapshot_path => "../../../rune_trie_snapshots/tests/integration/snapshots",
+            snapshot_path => "../../../../rune_trie_snapshots/tests/integration/snapshots",
             prepend_module_to_snapshot => false,
         },
         { insta::assert_snapshot!("lex_unicode_bmp_iteration_order", dump); }
