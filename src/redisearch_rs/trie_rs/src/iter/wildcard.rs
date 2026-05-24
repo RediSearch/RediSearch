@@ -18,10 +18,10 @@ use rqe_wildcard::{MatchOutcome, WildcardPattern};
 /// An iterator over all entries that match the given wildcard pattern.
 ///
 /// It can be instantiated by calling [`TrieMap::wildcard_iter`](crate::TrieMap::wildcard_iter).
-pub struct WildcardIter<'a, Data>(Iter<'a, Data, WildcardFilter<'a>>);
+pub struct WildcardIter<'tm, 'p, Data>(Iter<'tm, Data, WildcardFilter<'p>>);
 
-impl<'a, Data> WildcardIter<'a, Data> {
-    pub(crate) fn new(root: Option<&'a Node<Data>>, pattern: WildcardPattern<'a>) -> Self {
+impl<'tm, 'p, Data> WildcardIter<'tm, 'p, Data> {
+    pub(crate) fn new(root: Option<&'tm Node<Data>>, pattern: WildcardPattern<'p>) -> Self {
         let iter = match root {
             Some(root) => {
                 // If the first portion of the pattern is a literal, we can jumping directly
@@ -43,16 +43,16 @@ impl<'a, Data> WildcardIter<'a, Data> {
     }
 }
 
-impl<'a, Data> Iterator for WildcardIter<'a, Data> {
-    type Item = (Vec<u8>, &'a Data);
+impl<'tm, 'p, Data> Iterator for WildcardIter<'tm, 'p, Data> {
+    type Item = (Vec<u8>, &'tm Data);
 
     fn next(&mut self) -> Option<Self::Item> {
         self.0.next()
     }
 }
 
-impl<'tm, Data> From<WildcardIter<'tm, Data>> for LendingIter<'tm, Data, WildcardFilter<'tm>> {
-    fn from(iter: WildcardIter<'tm, Data>) -> Self {
+impl<'tm, 'p, Data> From<WildcardIter<'tm, 'p, Data>> for LendingIter<'tm, Data, WildcardFilter<'p>> {
+    fn from(iter: WildcardIter<'tm, 'p, Data>) -> Self {
         iter.0.into()
     }
 }

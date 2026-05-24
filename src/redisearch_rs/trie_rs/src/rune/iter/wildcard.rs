@@ -11,23 +11,39 @@ use rqe_wildcard::WildcardPattern;
 
 use crate::{
     TrieMap,
-    iter::{self},
+    iter,
     rune::{Rune, bytes_to_rune, rune_to_bytes},
 };
 
-pub struct RuneTrieMapWildcardIter<'a, Data>(iter::WildcardIter<'a, Data>);
+#[ouroboros::self_referencing]
+struct RuneTrieMapWildcardIterInner<'tm, Data: 'tm> {
+    pattern_bytes: Box<[u8]>,
+    #[borrows(pattern_bytes)]
+    #[covariant]
+    inner: iter::WildcardIter<'tm, 'this, Data>,
+}
 
-impl<'a, Data> RuneTrieMapWildcardIter<'a, Data> {
-    pub(crate) fn new(trie: &'a TrieMap<Data>, buf: &[u16]) -> Self {
-        let pattern = WildcardPattern::parse(&rune_to_bytes(buf));
-        Self(trie.wildcard_iter(pattern))
+pub struct RuneTrieMapWildcardIter<'tm, Data: 'tm>(RuneTrieMapWildcardIterInner<'tm, Data>);
+
+impl<'tm, Data: 'tm> RuneTrieMapWildcardIter<'tm, Data> {
+    pub(crate) fn new(trie: &'tm TrieMap<Data>, buf: &[u16]) -> Self {
+        let pattern_bytes: Box<[u8]> = rune_to_bytes(buf).into_boxed_slice();
+        Self(
+            RuneTrieMapWildcardIterInnerBuilder {
+                pattern_bytes,
+                inner_builder: |p| trie.wildcard_iter(WildcardPattern::parse(p.as_ref())),
+            }
+            .build(),
+        )
     }
 }
 
-impl<'a, Data> Iterator for RuneTrieMapWildcardIter<'a, Data> {
-    type Item = (Vec<Rune>, &'a Data);
+impl<'tm, Data: 'tm> Iterator for RuneTrieMapWildcardIter<'tm, Data> {
+    type Item = (Vec<Rune>, &'tm Data);
 
     fn next(&mut self) -> Option<Self::Item> {
-        self.0.next().map(|(k, v)| (bytes_to_rune(&k), v))
+        self.0
+            .with_inner_mut(|i| i.next())
+            .map(|(k, v)| (bytes_to_rune(&k), v))
     }
 }

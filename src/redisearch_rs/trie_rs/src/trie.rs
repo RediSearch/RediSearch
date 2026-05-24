@@ -202,7 +202,10 @@ impl<Data> TrieMap<Data> {
     }
 
     /// Iterate over all trie entries whose key matches the specified pattern.
-    pub fn wildcard_iter<'a>(&'a self, pattern: WildcardPattern<'a>) -> WildcardIter<'a, Data> {
+    pub fn wildcard_iter<'tm, 'p>(
+        &'tm self,
+        pattern: WildcardPattern<'p>,
+    ) -> WildcardIter<'tm, 'p, Data> {
         WildcardIter::new(self.root.as_ref(), pattern)
     }
 
