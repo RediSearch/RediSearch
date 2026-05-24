@@ -159,7 +159,7 @@ FGCError FGC_parentHandleTags(ForkGC *gc) {
       goto loop_cleanup;
     }
 
-    InvertedIndex_ApplyGcDelta(idx, delta, &info);
+    InvertedIndex_ApplyGCDelta(idx, delta, &info);
     delta = NULL;
     IndexStats_BlockCountAdd(&sctx->spec->stats, info.block_count_delta);
 

@@ -64,8 +64,7 @@ pub struct AddResult {
     /// The net change in the number of inverted-index blocks across all leaves touched by
     /// this add. Block growth (writes spilling into a new block, new leaves created by a
     /// split) contributes positively; range removals during rebalancing (`remove_range`,
-    /// rotations dropping an internal node's retained range) contribute negatively. C callers
-    /// maintaining per-spec `total_inverted_index_blocks` should add this to their counter.
+    /// rotations dropping an internal node's retained range) contribute negatively.
     pub block_count_delta: i32,
 }
 
@@ -88,9 +87,8 @@ pub struct TrimEmptyLeavesResult {
     pub num_ranges_delta: i32,
     /// The net change in the number of leaf nodes.
     pub num_leaves_delta: i32,
-    /// The net change in the number of inverted-index blocks across all dropped leaves. Always
-    /// non-positive (trimming only removes blocks). C callers maintaining per-spec
-    /// `total_inverted_index_blocks` should add this to their counter.
+    /// Net change in inverted-index block count across all dropped leaves. Always non-positive
+    /// (trimming only removes blocks).
     pub block_count_delta: i32,
 }
 

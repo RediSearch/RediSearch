@@ -94,10 +94,11 @@ impl NumericRange {
 
     /// Add a (docId, value) entry to this range.
     ///
-    /// Updates min/max bounds and cardinality estimation.
-    /// Returns `(memory_growth, blocks_added)` — the number of bytes the inverted index grew by
-    /// and the number of new index blocks the write created (0 in the common case, 1 when a new
-    /// block had to be allocated).
+    /// Updates min/max bounds and cardinality estimation. Returns an [`AddRecordOutcome`]
+    /// reporting how many bytes the inverted index grew by and how many new index blocks the
+    /// write created.
+    ///
+    /// [`AddRecordOutcome`]: inverted_index::AddRecordOutcome
     pub fn add(&mut self, doc_id: t_docId, value: f64) -> inverted_index::AddRecordOutcome {
         self.hll.add(&value.into());
         self.add_without_cardinality(doc_id, value)

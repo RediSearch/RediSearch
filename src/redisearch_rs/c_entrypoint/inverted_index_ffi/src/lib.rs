@@ -225,10 +225,8 @@ pub unsafe extern "C" fn InvertedIndex_MemUsage(ii: *const InvertedIndex) -> usi
 }
 
 /// Write a new numeric entry to the inverted index. This is only valid for numeric indexes
-/// created with the `StoreNumeric` flag. Returns an [`AddRecordOutcome`] reporting both the
-/// memory growth and the number of new index blocks created. The 8-byte struct returns by
-/// value in a single register (x86_64 SysV ABI), so this is no more expensive than a plain
-/// `size_t` return.
+/// created with the `StoreNumeric` flag. Returns an [`AddRecordOutcome`] reporting the memory
+/// growth and the number of new index blocks created.
 ///
 /// # Safety
 /// - `ii` must be a valid pointer to an `InvertedIndex` instance and cannot be NULL.
@@ -247,9 +245,8 @@ pub unsafe extern "C" fn InvertedIndex_WriteNumericEntry(
     ii_dispatch!(ii, add_record, &record).unwrap()
 }
 
-/// Write a new entry to the inverted index. Returns an [`AddRecordOutcome`] reporting both
-/// the memory growth and the number of new index blocks created. The 8-byte struct returns
-/// by value in a single register (x86_64 SysV ABI).
+/// Write a new entry to the inverted index. Returns an [`AddRecordOutcome`] reporting the
+/// memory growth and the number of new index blocks created.
 ///
 /// # Safety
 /// - `ii` must be a valid pointer to an `InvertedIndex` instance and cannot be NULL.
@@ -591,7 +588,7 @@ pub unsafe extern "C" fn InvertedIndex_GcDelta_Scan(
 }
 
 /// Read a GC delta from the provided reader. The returned pointer must be freed using
-/// [`InvertedIndex_GcDelta_Free`] or should be passed to [`InvertedIndex_ApplyGcDelta`].
+/// [`InvertedIndex_GcDelta_Free`] or should be passed to [`InvertedIndex_ApplyGCDelta`].
 ///
 /// # Safety
 ///
@@ -646,7 +643,7 @@ pub unsafe extern "C" fn InvertedIndex_GcDelta_Free(deltas: *mut GcScanDelta) {
 ///   [`InvertedIndex_GcDelta_Read`].
 /// - `apply_info` must be a valid, non NULL, pointer to a `GcApplyInfo` instance.
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn InvertedIndex_ApplyGcDelta(
+pub unsafe extern "C" fn InvertedIndex_ApplyGCDelta(
     ii: *mut InvertedIndex,
     deltas: *mut GcScanDelta,
     apply_info: *mut GcApplyInfo,

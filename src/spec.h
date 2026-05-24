@@ -166,8 +166,8 @@ typedef struct {
   size_t offsetVecRecords;
   size_t termsSize;
   // Number of inverted-index blocks currently owned by this spec; reported by FT.INFO as
-  // `total_inverted_index_blocks`. Update via `IndexStats_BlockCountAdd` (handles +/- deltas)
-  // or the explicit `__atomic_sub_fetch` for mid-life destruction. Reads should be atomic.
+  // `total_inverted_index_blocks`. Writes must go through `IndexStats_BlockCountAdd` (signed
+  // delta, atomic). Reads must use `__atomic_load_n`.
   size_t totalInvertedIndexBlocks;
   rs_wall_clock_ns_t totalIndexTime;
   IndexError indexError;
@@ -177,7 +177,7 @@ typedef struct {
 
 // Atomically apply `delta` to `stats->totalInvertedIndexBlocks`. Accepts signed deltas:
 // negative values wrap via size_t two's-complement, producing the correct unsigned
-// subtraction. Zero is a no-op (skips the atomic in the common no-new-blocks path).
+// subtraction.
 static inline void IndexStats_BlockCountAdd(IndexStats *stats, int64_t delta) {
   if (delta) {
     __atomic_add_fetch(&stats->totalInvertedIndexBlocks,

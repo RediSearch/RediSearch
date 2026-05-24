@@ -55,11 +55,7 @@ pub struct InvertedIndex<E> {
     pub(crate) _encoder: PhantomData<E>,
 }
 
-/// Outcome of [`InvertedIndex::add_record`]: the memory the index grew by and how many new
-/// blocks the write created. `u32` is plenty for both — `mem_growth` per call is bounded by the
-/// block size plus a doubling of its buffer capacity, and `blocks_added` is at most 2 (a new
-/// block when the previous one was full, plus another when the encoded delta overflowed). Kept
-/// `#[repr(C)]` so callers (including the FFI) can read it as a flat struct.
+/// Outcome of [`InvertedIndex::add_record`]: how the index grew during the write.
 #[derive(Debug, Default, Clone, Copy, Eq, PartialEq)]
 #[repr(C)]
 pub struct AddRecordOutcome {

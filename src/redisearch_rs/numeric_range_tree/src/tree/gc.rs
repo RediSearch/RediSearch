@@ -63,8 +63,7 @@ pub struct CompactIfSparseResult {
     /// Positive values indicate growth, negative values indicate shrinkage.
     pub node_size_delta: i64,
     /// Net change in inverted-index block count across all dropped leaves. Always non-positive
-    /// (trimming only removes blocks). Callers maintaining per-spec
-    /// `total_inverted_index_blocks` should add this signed value to their counter.
+    /// (trimming only removes blocks).
     pub block_count_delta: i32,
 }
 

@@ -74,7 +74,7 @@ FGCError FGC_parentHandleExistingDocs(ForkGC *gc) {
 
   idx = sp->existingDocs;
 
-  InvertedIndex_ApplyGcDelta(idx, delta, &info);
+  InvertedIndex_ApplyGCDelta(idx, delta, &info);
   delta = NULL;
   IndexStats_BlockCountAdd(&sp->stats, info.block_count_delta);
 
