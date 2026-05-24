@@ -124,15 +124,9 @@ fn lex_delete_sequence_structural_events() {
         out.push_str(&dump_all(&trie));
     }
 
-    // Step 2: internal-terminal delete. Capture the removed `num_docs` so
-    // step 5 can mirror the C trie's "deleted slot keeps numDocs" quirk on
-    // re-insert. Rust has no deleted-slot concept; the policy moves to the
-    // call site (this test).
-    let appl_preserved_num_docs;
+    // Step 2: internal-terminal delete.
     {
-        let removed = trie.remove(&term_runes("appl"));
-        appl_preserved_num_docs = removed.as_ref().map(|e| e.num_docs).unwrap_or(0);
-        let r = i32::from(removed.is_some());
+        let r = i32::from(trie.remove(&term_runes("appl")).is_some());
         writeln!(&mut out, "\n--- delete internal-terminal \"appl\" — children survive (mark-deleted, not physical) ---").unwrap();
         writeln!(&mut out, "Trie_Delete(\"appl\") -> {r}").unwrap();
         out.push_str(&dump_all(&trie));
@@ -163,15 +157,17 @@ fn lex_delete_sequence_structural_events() {
         out.push_str(&dump_all(&trie));
     }
 
-    // Step 5: re-insert. Mirror C's `n->numDocs += numDocs` over the deleted
-    // node's preserved-numDocs (=4) plus the new numDocs (=10) -> 14.
+    // Step 5: re-insert. C zeroes `numDocs` on delete (trie_node.c:489) and
+    // then ADD_REPLACE does `n->numDocs += numDocs` — so the post-delete
+    // re-insert resolves to `0 + 10 = 10`, not `4 + 10`. The Rust port
+    // physically removes on delete, so it never sees the old value either.
     {
         let key = term_runes("appl");
         trie.insert(
             &key,
             TermEntry {
                 score: 9.0,
-                num_docs: appl_preserved_num_docs + 10,
+                num_docs: 10,
             },
         );
         writeln!(
