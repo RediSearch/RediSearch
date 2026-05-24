@@ -25,7 +25,22 @@ If a path points to a directory, review all `.c` and `.h` files in that director
 
 **No argument:** default to reviewing uncommitted working-tree changes (`git diff`).
 
+**Optional flags:**
+- `--include-nits`: include minor style, formatting, naming, and preference comments
+  as non-blocking suggestions. Nits must still be actionable, non-duplicate, and grouped
+  by root cause when the same pattern appears in multiple places.
+
 ## Instructions
+
+### 0. Avoid duplicate PR comments
+
+When reviewing a GitHub PR:
+
+- First inspect existing PR comments, review threads, and prior bot comments when available.
+- Treat an issue as already reported if an existing comment identifies the same root cause, even if it points to a different line.
+- Do not post or include duplicate findings for issues that were already raised.
+- If a previous comment is still accurate, do not restate it. Only mention it again if the new diff changes the issue, invalidates the previous fix, or introduces materially new evidence.
+- If the same issue appears in multiple places, report it once on the clearest example and state that the same pattern may apply elsewhere.
 
 ### 1. Collect the code to review
 
@@ -129,6 +144,10 @@ Only applies when changes touch `src/rdb.c` or serialization logic:
 
 #### 2h. Style and conventions
 
+- By default, only report style and convention issues when they violate an explicit
+  project rule and would block maintainability. If `--include-nits` is requested,
+  minor style, formatting, naming, or preference issues may be reported as
+  non-blocking suggestions.
 - Code follows `.clang-format` conventions (2-space indent, 100-col limit, attached braces).
 - Public functions use `ModuleName_FunctionName` naming.
 - License header is present on new files.
@@ -146,12 +165,18 @@ Only applies when reviewing a PR (not files or commits directly):
 
 ### 3. Emit the report
 
-Present findings grouped by check (2a through 2i). For each group, list the
-violations or state "No issues found."
+Report only actionable, non-duplicate findings.
 
-At the end, provide a summary:
-- Total number of violations by severity (blocking vs. suggestion).
-- Whether the change is **ready to merge** or **needs revision**.
+For each finding include:
+- Severity: blocking or suggestion
+- File and line/range
+- Rule violated
+- Why it matters
+- Suggested fix
 
-Blocking violations: any issue in 2a, 2b, 2c, 2d, 2e, or 2f.
-Suggestions: issues in 2g (null safety), 2h (style), and 2i (PR description).
+Omit checklist sections with no findings. Do not include "No issues found" for every section.
+
+At the end, provide a short summary:
+- Total blocking findings
+- Total suggestions
+- Whether the change is **ready to merge** or **needs revision**
