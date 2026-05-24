@@ -15,8 +15,6 @@
 
 #include <arpa/inet.h>
 
-extern RedisModuleCtx *RSDummyContext;
-
 MRClusterShard MR_NewClusterShard(MRClusterNode *node, RedisModuleSlotRangeArray *slotRanges) {
   MRClusterShard ret = (MRClusterShard){
       .node = *node,
@@ -60,9 +58,6 @@ MRClusterTopology *MRClusterTopology_Clone(MRClusterTopology *t) {
 }
 
 MRClusterTopology *MRClusterTopology_FromAPI(RedisModuleCtx *ctx, const char *auth, size_t auth_len, uint32_t *my_shard_idx) {
-  RS_ASSERT(ctx != RSDummyContext);
-  RedisModule_AutoMemory(ctx);
-
   *my_shard_idx = UINT32_MAX;
 
   size_t numNodes = 0;
@@ -98,8 +93,10 @@ MRClusterTopology *MRClusterTopology_FromAPI(RedisModuleCtx *ctx, const char *au
 
     // Fetch the slot ranges owned by this master node. Slot-less masters
     // (e.g. fresh nodes not yet assigned slots) are excluded from the topology.
-    const RedisModuleSlotRangeArray *node_slots = RedisModule_GetClusterNodeSlotRanges(ctx, node_id);
+    // The module API hands us ownership; we must explicitly free.
+    RedisModuleSlotRangeArray *node_slots = RedisModule_GetClusterNodeSlotRanges(ctx, node_id);
     if (!node_slots || node_slots->num_ranges <= 0) {
+      if (node_slots) RedisModule_ClusterFreeSlotRanges(ctx, node_slots);
       continue;
     }
 
@@ -114,8 +111,9 @@ MRClusterTopology *MRClusterTopology_FromAPI(RedisModuleCtx *ctx, const char *au
     };
 
     // The topology owns its slot range arrays and frees them with rm_free,
-    // so we must clone (auto memory will free the original after this call).
+    // so we must clone the module-owned array before freeing it.
     RedisModuleSlotRangeArray *cloned_slots = SlotRangeArray_Clone(node_slots);
+    RedisModule_ClusterFreeSlotRanges(ctx, node_slots);
 
     if (flags & REDISMODULE_NODE_MYSELF) *my_shard_idx = topo->numShards;
     MRClusterShard shard = MR_NewClusterShard(&node, cloned_slots);

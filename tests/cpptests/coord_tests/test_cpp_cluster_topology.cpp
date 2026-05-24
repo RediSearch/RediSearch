@@ -269,8 +269,9 @@ TEST_F(ClusterTopologyFromAPITest, MultipleSlotRangesPerShard) {
 }
 
 // ============================================================================
-// Topology should keep itself usable after the API-returned slot range arrays
-// are freed — i.e. the topology must have cloned them rather than borrowed.
+// FromAPI frees each module-owned slot-range array right after cloning it for
+// the topology, so the topology's data must come from the clone — not from a
+// borrowed pointer that's already invalid by the time FromAPI returns.
 // ============================================================================
 TEST_F(ClusterTopologyFromAPITest, SlotRangesAreOwned) {
   addNode(NODE_A, "127.0.0.1", 6379, REDISMODULE_NODE_MASTER | REDISMODULE_NODE_MYSELF,
@@ -280,10 +281,9 @@ TEST_F(ClusterTopologyFromAPITest, SlotRangesAreOwned) {
   MRClusterTopology *topo = MRClusterTopology_FromAPI(ctx, nullptr, 0, &my_shard_idx);
   ASSERT_NE(topo, nullptr);
 
-  // Tear down everything the API borrowed from: the ctx (auto-memory frees the
-  // slot ranges the mock returned) and the mock node table.
-  RedisModule_FreeThreadSafeContext(ctx);
-  ctx = nullptr;
+  // Drop the mock node table — the topology's slot ranges must survive
+  // because they were cloned out of the module-owned arrays (already freed
+  // inside FromAPI), not borrowed from the mock's source state.
   RMCK_ClusterMock_Reset();
 
   ASSERT_EQ(topo->numShards, 1u);
