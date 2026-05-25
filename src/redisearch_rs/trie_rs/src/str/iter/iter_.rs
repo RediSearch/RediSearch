@@ -28,7 +28,7 @@ impl<'a, Data> Iterator for Iter<'a, Data> {
     }
 }
 
-/// Decode a trie byte key back to a `String`. Keys enter the [`super::StrTrieMap`]
+/// Decode a trie byte key back to a `String`. Keys enter the [`crate::str::StrTrieMap`]
 /// exclusively via `&str` so they are UTF-8 by construction; the validating
 /// `from_utf8` call here is cheap and protects against any future raw-byte
 /// insertion at the lower layer.

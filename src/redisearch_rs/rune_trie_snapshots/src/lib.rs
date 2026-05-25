@@ -21,7 +21,7 @@
 //! purely as scaffolding for the `libredisearch_all.a` link plumbing:
 //!
 //! - `build.rs` emits `cargo::rustc-link-lib=static:-bundle=redisearch_all`
-//!   (gated on the `unittest` feature, via [`build_utils::bind_foreign_c_symbols`]).
+//!   (gated on the `unittest` feature, via `build_utils::bind_foreign_c_symbols`).
 //!   That directive can only be carried into the dependency graph through a
 //!   Rust artifact's rmeta — i.e. this crate's rlib.
 //! - The dev-dep self-loop in `Cargo.toml`
