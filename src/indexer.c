@@ -33,12 +33,13 @@ extern RedisModuleCtx *RSDummyContext;
 #include <unistd.h>
 
 static void writeIndexEntry(IndexSpec *spec, InvertedIndex *idx, ForwardIndexEntry *entry) {
-  size_t sz = InvertedIndex_WriteForwardIndexEntry(idx, entry);
+  AddRecordOutcome r = InvertedIndex_WriteForwardIndexEntry(idx, entry);
 
   // Update index statistics:
 
   // Number of additional bytes
-  spec->stats.invertedSize += sz;
+  spec->stats.invertedSize += r.mem_growth;
+  IndexStats_BlockCountAdd(&spec->stats, r.blocks_added);
   // Number of records
   spec->stats.numRecords++;
 
@@ -567,7 +568,9 @@ static void writeMissingFieldDocs(RSAddDocumentCtx *aCtx, RedisSearchCtx *sctx, 
     t_docId docId = aCtx->doc->docId;
     RSIndexResult rec = {.data.tag = RSResultData_Virtual, .docId = docId, .freq = 0,
                          .metrics = MetricsVec_New()};
-    aCtx->spec->stats.invertedSize += InvertedIndex_WriteEntryGeneric(iiMissingDocs, &rec);
+    AddRecordOutcome r = InvertedIndex_WriteEntryGeneric(iiMissingDocs, &rec);
+    aCtx->spec->stats.invertedSize += r.mem_growth;
+    IndexStats_BlockCountAdd(&aCtx->spec->stats, r.blocks_added);
   }
   dictReleaseIterator(iter);
   dictRelease(df_fields_dict);
@@ -588,7 +591,9 @@ static void writeExistingDocs(RSAddDocumentCtx *aCtx, RedisSearchCtx *sctx) {
   t_docId docId = aCtx->doc->docId;
   RSIndexResult rec = {.data.tag = RSResultData_Virtual, .docId = docId, .freq = 0,
                        .metrics = MetricsVec_New()};
-  aCtx->spec->stats.invertedSize += InvertedIndex_WriteEntryGeneric(sctx->spec->existingDocs, &rec);
+  AddRecordOutcome r = InvertedIndex_WriteEntryGeneric(sctx->spec->existingDocs, &rec);
+  aCtx->spec->stats.invertedSize += r.mem_growth;
+  IndexStats_BlockCountAdd(&aCtx->spec->stats, r.blocks_added);
 }
 
 /**

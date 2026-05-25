@@ -207,12 +207,15 @@ struct InvertedIndex *TagIndex_OpenIndex(const TagIndex *idx, const char *value,
 // Encode a single docId into a specific tag value
 // Returns the number of bytes occupied by the encoded entry plus the size of
 // the inverted index (if a new inverted index was created)
-static inline size_t tagIndex_Put(TagIndex *idx, const char *value, size_t len, t_docId docId) {
+static inline size_t tagIndex_Put(TagIndex *idx, const char *value, size_t len, t_docId docId,
+                                  IndexStats *stats) {
   size_t sz;
   RSIndexResult rec = {.data.tag = RSResultData_Virtual, .docId = docId, .freq = 0,
                        .metrics = MetricsVec_New()};
   InvertedIndex *iv = TagIndex_OpenIndex(idx, value, len, CREATE_INDEX, &sz);
-  return InvertedIndex_WriteEntryGeneric(iv, &rec) + sz;
+  AddRecordOutcome r = InvertedIndex_WriteEntryGeneric(iv, &rec);
+  IndexStats_BlockCountAdd(stats, r.blocks_added);
+  return r.mem_growth + sz;
 }
 
 /* Memory-mode helper: write the per-tag inverted-index postings for `docId`.
@@ -224,7 +227,7 @@ static void tag_index_write_postings(TagIndex *idx, const char **values, size_t 
   for (size_t ii = 0; ii < n; ++ii) {
     const char *tok = values[ii];
     if (tok) {
-      stats->invertedSize += tagIndex_Put(idx, tok, strlen(tok), docId);
+      stats->invertedSize += tagIndex_Put(idx, tok, strlen(tok), docId, stats);
     }
   }
 }

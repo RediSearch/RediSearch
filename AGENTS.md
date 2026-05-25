@@ -3,6 +3,8 @@
 RediSearch is a Redis module providing full-text search, secondary indexing, and vector similarity search.
 The codebase is primarily C, with an ongoing effort to port modules to Rust in `src/redisearch_rs/`.
 
+For human contributor instructions, see `CONTRIBUTING.md`. This file is optimized for coding agents and internal automation workflows.
+
 ## Build Commands
 
 ```bash
@@ -29,6 +31,15 @@ Run Rust tests from workspace root (`src/redisearch_rs/`):
 cd src/redisearch_rs && cargo nextest run
 cd src/redisearch_rs && cargo nextest run -p <crate_name>
 ```
+
+## Header Generation
+
+```bash
+make generate-rust-headers                # Regenerate Rust → C FFI headers via cheadergen
+```
+
+Run this after changing `#[cheadergen::config(...)]` attributes or exported Rust types
+that produce C headers. Output goes to `src/redisearch_rs/headers/`.
 
 ## Linting & Formatting
 
@@ -191,12 +202,32 @@ src/redisearch_rs/
     └── triemap_ffi/      # C-callable wrapper
 ```
 
+## Review guidelines
+
+When reviewing pull requests:
+
+- Invoke [/code-review](.skills/code-review/SKILL.md) for C code changes.
+- Invoke [/rust-review](.skills/rust-review/SKILL.md) for Rust code changes.
+- Before posting any review comment, inspect existing PR comments, review threads, and prior bot comments when available.
+- Do not post a duplicate comment if the same issue has already been raised, even if the code still contains the issue.
+- If an earlier comment is still relevant, avoid restating it. Only add a new comment when there is materially new information, a changed code location, or a distinct issue.
+- Prefer one comment per root cause. If the same pattern appears in several places, comment on the clearest instance and mention the pattern briefly.
+- Keep automated review comments high-signal: prioritize correctness, crashes, memory safety, undefined behavior, data loss, security, and clear test/CI failures.
+- Do not comment on minor style, formatting, naming, or preference issues by default unless they violate an explicit project rule and would block maintainability.
+- If the review explicitly requests nits, style comments, or `--include-nits`, minor findings may be reported as non-blocking suggestions, but must still avoid duplicates and should be grouped by root cause.
+
 ## Common Workflows
 
 When implementing changes that may become a PR, first check the current checkout. If it is dirty,
 on an unrelated branch, or already tied to another open PR, automatically create a dedicated
-worktree from the target branch and do the work there. Use the existing checkout only when it is
-already the right clean branch for the task.
+worktree and do the work there. Use the existing checkout only when it is already the right clean
+branch for the task.
+
+Always use `-b` when creating a worktree — git forbids two worktrees on the same branch, so checking out `master` directly will fail when master is already the main checkout:
+
+```bash
+git worktree add -b memark-<feature> .claude/worktrees/memark-<feature> origin/master
+```
 
 To remove a worktree, use `git worktree remove --force <path>` (plain `remove` fails on initialized submodules).
 
@@ -215,6 +246,8 @@ Invoke [/rust-review](.skills/rust-review/SKILL.md) to review Rust code changes.
 ### General
 Invoke [/report-flaky-test](.skills/report-flaky-test/SKILL.md) to report a flaky CI test to Jira or update an existing flaky-test ticket.
 Invoke [/investigate-flaky-test](.skills/investigate-flaky-test/SKILL.md) to investigate a flaky-test report and propose an evidence-backed fix.
+Invoke [/check-flow-coverage](.skills/check-flow-coverage/SKILL.md) to check which source lines are not covered by Python flow tests.
+Invoke [/improve-flow-coverage](.skills/improve-flow-coverage/SKILL.md) to find and close flow test coverage gaps for C source files.
 Invoke [/verify](.skills/verify/SKILL.md) to verify the correctness of your work before wrapping up.
 Invoke [/build](.skills/build/SKILL.md) to compile and verify the build.
 Invoke [/lint](.skills/lint/SKILL.md) to check code quality and formatting.

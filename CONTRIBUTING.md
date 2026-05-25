@@ -1,6 +1,128 @@
+# Contributing to RediSearch
+
+Thank you for your interest in contributing to RediSearch. This guide explains how to set up the project, follow the repository conventions, submit a pull request, and work through review.
+
+By contributing code to this Redis project in any form, you agree to the Redis Software Grant and Contributor License Agreement in the [Legal](#legal) section below. Contributions are subject to the Redis tri-license under RSALv2, SSPLv1, or AGPLv3 as described in `LICENSE.txt`.
+
+## Before You Start
+
+- Use GitHub issues for bugs and detailed feature requests.
+- Ask general usage questions on the [Redis Discord](https://discord.com/invite/redis) or [Stack Overflow](https://stackoverflow.com/questions/tagged/redis).
+- Report security bugs and vulnerabilities through `SECURITY.md`.
+- For major features or semantic changes, open an issue and discuss the design before investing heavily in code.
+- Documentation-only changes for redis.io documentation usually belong in the [redis-doc](https://github.com/redis/redis-doc) repository.
+
+## Set Up Locally
+
+1. Fork the repository on GitHub.
+2. Clone your fork with submodules:
+
+   ```bash
+   git clone --recursive git@github.com:<your-user>/RediSearch.git
+   cd RediSearch
+   ```
+
+   If you cloned without submodules, initialize them later:
+
+   ```bash
+   git submodule update --init --recursive
+   ```
+
+3. Install platform dependencies. Use the scripts in `.install/`; see `.install/README.md` for platform-specific details. For example:
+
+   ```bash
+   cd .install
+   ./install_script.sh sudo
+   cd ..
+   ```
+
+4. Build RediSearch:
+
+   ```bash
+   ./build.sh
+   ./build.sh DEBUG=1
+   ```
+
+   `DEBUG=1` is recommended while developing. Use `./build.sh FORCE` to rebuild from a clean build state.
+
+5. Rust code lives in `src/redisearch_rs/`. Run Rust workspace commands from that directory unless a command says otherwise.
+
+## Coding Standards
+
+### C and C++
+
+- `.clang-format` at the repository root is the formatting source of truth.
+- Use 2-space indentation, no tabs, and no trailing whitespace.
+- Use `rm_malloc`, `rm_free`, `rm_calloc`, and `rm_realloc` in module code. Do not use raw `malloc` or `free`.
+- Return `REDISMODULE_OK` or `REDISMODULE_ERR` for status-code APIs.
+- Use a `goto cleanup` pattern when a function needs shared cleanup on error paths.
+- Add the required Redis license header to new source files.
+
+### Rust
+
+- Rust code uses edition 2024.
+- Document every `unsafe` block with a `// SAFETY:` comment.
+- Prefer `#[expect(...)]` over `#[allow(...)]` for lint suppressions.
+- Use `tracing` macros such as `debug!`, `info!`, `warn!`, and `error!` for logging.
+- If Rust/C FFI headers or generated files change, commit the generated outputs with the source change.
+
+## Branch and Pull Request Workflow
+
+1. Create a topic branch in your fork:
+
+   ```bash
+   git checkout -b fix-short-description
+   ```
+
+2. Keep pull requests focused on one bug fix, feature, or cleanup.
+3. Push your branch to your fork and open a pull request against `RediSearch/RediSearch:master`.
+4. Fill out the pull request template. Include:
+   - the current behavior or problem,
+   - the change you made,
+   - the expected outcome,
+   - the main files or subsystems changed.
+5. Exactly one release-notes checkbox must be checked. CI enforces this.
+6. After review begins, address comments with follow-up commits. Do not force-push or rewrite history unless a maintainer asks you to.
+
+## Testing Requirements
+
+Run the tests that match the area you changed. Useful commands include:
+
+```bash
+./build.sh RUN_UNIT_TESTS
+./build.sh RUN_UNIT_TESTS TEST=unit_test_name
+./build.sh RUN_UNIT_TESTS SAN=address
+./build.sh RUN_PYTEST
+./build.sh RUN_PYTEST TEST=<file>
+./build.sh RUN_PYTEST TEST=<file>:<function>
+```
+
+For Rust tests:
+
+```bash
+cd src/redisearch_rs
+cargo nextest run
+cargo nextest run -p <crate_name>
+```
+
+Coverage runs in CI when selected by the pull request matrix. Contributors usually do not need to upload coverage locally.
+
+## CI for Fork Pull Requests
+
+Fork pull requests run on the regular `pull_request` event. They do not use Redis-owned sccache credentials or cache storage. Codecov upload is non-blocking for fork pull requests, but build, test, sanitizer, and coverage job failures still matter and may need to be fixed before merge.
+
+## Review Process
+
+Maintainers review pull requests for correctness, tests, documentation, compatibility, and release-note needs. CI must pass before merge. Reviews and merges may take time because maintainers prioritize work across bugs, releases, and community contributions.
+
+If a maintainer asks for changes, push follow-up commits to the same branch. GitHub will update the pull request automatically.
+
+## Legal
+
 By contributing code to the Redis project in any form you agree to the Redis Software Grant and Contributor License Agreement attached below. Only contributions made under the Redis Software Grant and Contributor License Agreement may be accepted by Redis, and any contribution is subject to the terms of the Redis tri-license under RSALv2/SSPLv1/AGPLv3 as described in the LICENSE.txt file included in the Redis source distribution.
 
 REDIS SOFTWARE GRANT AND CONTRIBUTOR LICENSE AGREEMENT
+
 To specify the intellectual property license granted in any Contribution, Redis Ltd., ("Redis") requires a Software Grant and Contributor License Agreement ("Agreement"). This Agreement is for your protection as a contributor as well as the protection of Redis and its users; it does not change your rights to use your own Contribution for any other purpose permitted by this Agreement.
 
 By making any Contribution, You accept and agree to the following terms and conditions for the Contribution. Except for the license granted in this Agreement to Redis and the recipients of the software distributed by Redis, You reserve all right, title, and interest in and to Your Contribution.
@@ -23,37 +145,4 @@ Disclaimer. You are not expected to provide support for Your Contribution, excep
 
 Enforceability. Nothing in this Agreement will be construed as creating any joint venture, employment relationship, or partnership between You and Redis. If any provision of this Agreement is held to be unenforceable, the remaining provisions of this Agreement will not be affected. This represents the entire agreement between You and Redis relating to the Contribution.
 
-IMPORTANT: HOW TO USE REDIS GITHUB ISSUES
-GitHub issues SHOULD ONLY BE USED to report bugs and for DETAILED feature requests. Everything else should be asked on Discord:
-
-https://discord.com/invite/redis
-PLEASE DO NOT POST GENERAL QUESTIONS that are not about bugs or suspected bugs in the GitHub issues system. We'll be delighted to help you and provide all the support on Discord.
-
-There is also an active community of Redis users at Stack Overflow:
-
-https://stackoverflow.com/questions/tagged/redis
-Issues and pull requests for documentation belong on the redis-doc repo:
-
-https://github.com/redis/redis-doc
-If you are reporting a security bug or vulnerability, see SECURITY.md.
-
-How to provide a patch for a new feature
-If it is a major feature or a semantical change, please don't start coding straight away: if your feature is not a conceptual fit you'll lose a lot of time writing the code without any reason. Start by posting in the mailing list and creating an issue at Github with the description of, exactly, what you want to accomplish and why. Use cases are important for features to be accepted. Here you can see if there is consensus about your idea.
-
-If in step 1 you get an acknowledgment from the project leaders, use the following procedure to submit a patch:
-
-a. Fork Redis on GitHub ( https://docs.github.com/en/github/getting-started-with-github/fork-a-repo ) 
-
-b. Create a topic branch (git checkout -b my_branch) 
-
-c. Push to your branch (git push origin my_branch)
-
-d. Initiate a pull request on GitHub ( https://docs.github.com/en/github/collaborating-with-issues-and-pull-requests/creating-a-pull-request ) 
-
-e. Done :)
-
-Keep in mind that we are very overloaded, so issues and PRs sometimes wait for a very long time. However this is not a lack of interest, as the project gets more and more users, we find ourselves in a constant need to prioritize certain issues/PRs over others. If you think your issue/PR is very important, try to popularize it, have other users commenting and sharing their point of view, and so forth. This helps.
-
-For minor fixes - open a pull request on GitHub.
-
-Additional information on the RSALv2/SSPLv1/AGPLv3 tri-license is also found in the LICENSE.txt file.
+Additional information on the RSALv2, SSPLv1, and AGPLv3 tri-license is in `LICENSE.txt`.

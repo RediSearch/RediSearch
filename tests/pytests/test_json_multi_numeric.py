@@ -567,8 +567,10 @@ def testInfoStatsAndSearchAsSingle(env):
         json_val = {k:v for (k,v) in zip([f'val{i + 1}' for i in range(val_count)], val_list)}
         conn.execute_command('JSON.SET', f'doc:single:{{{doc}}}', '$', json.dumps(json_val))
 
-    # Compare INFO stats
-    interesting_attr = ['num_docs', 'max_doc_id', 'num_records', 'total_inverted_index_blocks']
+    # Compare INFO stats. `total_inverted_index_blocks` is per-spec (MOD-15781) and
+    # legitimately differs here: idx:single has 5 numeric trees (one per attribute),
+    # idx:multi has a single tree — same total records, different number of blocks.
+    interesting_attr = ['num_docs', 'max_doc_id', 'num_records']
     info_single = keep_dict_keys(index_info(env, 'idx:single'), interesting_attr)
     info_multi = keep_dict_keys(index_info(env, 'idx:multi'), interesting_attr)
     env.assertEqual(info_single, info_multi)

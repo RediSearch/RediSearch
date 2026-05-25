@@ -10,7 +10,7 @@
 use std::hint::black_box;
 
 use criterion::{Criterion, criterion_group, criterion_main};
-use wildcard::WildcardPattern;
+use rqe_wildcard::WildcardPattern;
 
 fn criterion_benchmark_matching(c: &mut Criterion) {
     let cases = vec![

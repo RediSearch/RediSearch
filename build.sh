@@ -54,7 +54,7 @@ RUST_TOOLCHAIN_MODIFIER="" # Rust toolchain to use (e.g., +nightly)
 
 # Rust code is built first, so exclude benchmarking crates that link C code,
 # since the static libraries they depend on haven't been built yet.
-EXCLUDE_RUST_BENCHING_CRATES_LINKING_C="--exclude inverted_index_bencher --exclude rqe_iterators_bencher --exclude iterators_ffi --exclude top_k_bencher"
+EXCLUDE_RUST_BENCHING_CRATES_LINKING_C="--exclude inverted_index_bencher --exclude rqe_iterators_bencher --exclude iterators_ffi --exclude top_k_bencher --exclude trie_bencher --exclude triemap_ffi"
 
 # Retrieve our pinned nightly version.
 NIGHTLY_VERSION=$(cat ${ROOT}/.rust-nightly)
@@ -837,10 +837,9 @@ run_unit_tests() {
 
   # Call the unit-tests script from the sbin directory
   echo "Calling $ROOT/sbin/unit-tests"
-  "$ROOT/sbin/unit-tests"
+  # Capture exit code without triggering set -e, so capture_coverage runs even on failure.
+  "$ROOT/sbin/unit-tests" && UNIT_TEST_RESULT=0 || UNIT_TEST_RESULT=$?
 
-  # Check test results
-  UNIT_TEST_RESULT=$?
   if [[ $UNIT_TEST_RESULT -eq 0 ]]; then
     echo "All unit tests passed!"
   else
@@ -1030,10 +1029,9 @@ run_python_tests() {
 
   # Run the tests from the ROOT directory with the requested params
   cd "$ROOT"
-  $TESTS_SCRIPT
+  # Capture exit code without triggering set -e, so capture_coverage runs even on failure.
+  $TESTS_SCRIPT && PYTHON_TEST_RESULT=0 || PYTHON_TEST_RESULT=$?
 
-  # Check test results
-  PYTHON_TEST_RESULT=$?
   if [[ $PYTHON_TEST_RESULT -eq 0 ]]; then
     echo "All Python tests passed!"
   else

@@ -7,7 +7,7 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 
-use wildcard::{Token, WildcardPattern};
+use rqe_wildcard::{Token, WildcardPattern};
 
 /// Helper macro that parses the passed pattern and compares it with the expected tokens,
 /// forwarding to [`assert_eq!`].
