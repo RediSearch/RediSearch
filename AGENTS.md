@@ -32,6 +32,15 @@ cd src/redisearch_rs && cargo nextest run
 cd src/redisearch_rs && cargo nextest run -p <crate_name>
 ```
 
+## Header Generation
+
+```bash
+make generate-rust-headers                # Regenerate Rust → C FFI headers via cheadergen
+```
+
+Run this after changing `#[cheadergen::config(...)]` attributes or exported Rust types
+that produce C headers. Output goes to `src/redisearch_rs/headers/`.
+
 ## Linting & Formatting
 
 ```bash
