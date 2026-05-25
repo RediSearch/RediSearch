@@ -85,6 +85,16 @@ impl TermDictionary {
         self.inner.is_empty()
     }
 
+    /// Estimated heap bytes held by the dictionary's internal trie.
+    ///
+    /// Backs `IndexSpec_TotalMemUsage` (`src/spec.c`) which feeds
+    /// `FT.INFO`'s per-spec terms-memory line. Counts trie node and key
+    /// storage; the [`TermEntry`] payload is included only insofar as the
+    /// underlying [`StrTrieMap`] already accounts for it.
+    pub const fn mem_usage(&self) -> usize {
+        self.inner.mem_usage()
+    }
+
     /// Insert or overwrite the entry for `term`, returning the previous
     /// entry if one existed.
     ///

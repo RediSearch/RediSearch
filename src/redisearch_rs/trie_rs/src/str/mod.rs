@@ -52,6 +52,12 @@ impl<Data> StrTrieMap<Data> {
         self.inner.n_unique_keys() == 0
     }
 
+    /// Estimated heap memory currently held by this map. Mirrors the cached
+    /// counter on the underlying [`TrieMap`] — O(1).
+    pub const fn mem_usage(&self) -> usize {
+        self.inner.mem_usage()
+    }
+
     pub fn iter(&self) -> iter::Iter<'_, Data> {
         iter::Iter::new(&self.inner)
     }
