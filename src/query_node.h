@@ -109,10 +109,6 @@ typedef struct {
   size_t vallen;
 } QueryAttribute;
 
-#define PHONETIC_ENABLED 1
-#define PHONETIC_DISABLED 2
-#define PHONETIC_DEFAULT 0
-
 /* Define the attributes' names */
 #define YIELD_DISTANCE_ATTR "yield_distance_as"
 #define SLOP_ATTR "slop"

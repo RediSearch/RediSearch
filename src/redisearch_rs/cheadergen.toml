@@ -250,6 +250,11 @@ after_includes = """
 
 /* Backward-compatible typedef for C code that uses the old enum name. */
 typedef uint32_t QAST_ValidationFlags;
+
+/* Backward-compatible aliases for C code that uses the old PHONETIC_* macros. */
+#define PHONETIC_DEFAULT  PhoneticMode_Default
+#define PHONETIC_ENABLED  PhoneticMode_Enabled
+#define PHONETIC_DISABLED PhoneticMode_Disabled
 """
 
 [header.rqe_iterator_type]
