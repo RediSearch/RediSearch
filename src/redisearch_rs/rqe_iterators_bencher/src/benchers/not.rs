@@ -12,9 +12,7 @@
 use std::{hint::black_box, time::Duration};
 
 use criterion::{BenchmarkGroup, Criterion, measurement::WallTime};
-use rqe_iterators::{
-    RQEIterator, empty::Empty, id_list::IdListSorted, not::Not, utils::NoTimeout,
-};
+use rqe_iterators::{RQEIterator, empty::Empty, id_list::IdListSorted, not::Not, utils::NoTimeout};
 
 #[derive(Default)]
 pub struct Bencher;

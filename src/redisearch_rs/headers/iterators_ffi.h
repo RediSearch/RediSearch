@@ -676,12 +676,13 @@ const QueryIterator *GetUnionIteratorChild(const QueryIterator *it, size_t idx);
  * If the child is trivially reducible (empty or wildcard), a simplified
  * iterator is returned directly.
  *
- * `areq` selects the timeout source. When non-null, the Blocked Client
- * Timeout path is used: every iterator timeout probe forwards to
+ * `bc_timeout_areq` selects the timeout source. When non-null, the Blocked
+ * Client Timeout path is used: every iterator timeout probe forwards to
  * `AREQ_CheckTimedOut` and `timeout` / `skipTimeoutChecks` are ignored.
  * When null, the Clock Based Timeout path is used: `timeout` is the
  * deadline and `skipTimeoutChecks` (read from `q.sctx.time`) disables the
- * check entirely.
+ * check entirely. The C caller is expected to pre-filter the owning
+ * request via `AREQ_TimeoutAreqOrNull` before passing it here.
  *
  * # Safety
  *
@@ -697,11 +698,11 @@ const QueryIterator *GetUnionIteratorChild(const QueryIterator *it, size_t idx);
  *    [`SchemaRule`](ffi::SchemaRule).
  * 7. When the optimized path is taken, the preconditions of
  *    [`crate::wildcard::NewWildcardIterator_Optimized`] must hold.
- * 8. When `areq` is non-null, it must satisfy the
+ * 8. When `bc_timeout_areq` is non-null, it must satisfy the
  *    [`TimeoutContextBlockedClient::new`] safety contract and remain
  *    valid for the lifetime of the returned iterator.
  */
-QueryIterator *NewNotIterator(QueryIterator *child, t_docId max_doc_id, double weight, timespec timeout, AREQ *areq, QueryEvalCtx *q);
+QueryIterator *NewNotIterator(QueryIterator *child, t_docId max_doc_id, double weight, timespec timeout, AREQ *bc_timeout_areq, QueryEvalCtx *q);
 
 /**
  * Returns the [`QueryNodeType`] stored in the union iterator.

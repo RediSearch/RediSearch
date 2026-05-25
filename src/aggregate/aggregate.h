@@ -612,6 +612,14 @@ static inline void AREQ_SetSkipTimeoutChecks(AREQ *req, bool skipTimeoutChecks) 
   }
 }
 
+// Returns the AREQ that iterator constructors should use to wire the
+// Blocked Client Timeout, or NULL if iterators should fall back to the
+// in-pipeline clock-based timeout. `skipTimeoutChecks` is set by
+// `AREQ_ApplyContext` exactly when the BC callback is the active source.
+static inline AREQ *AREQ_TimeoutAreqOrNull(AREQ *req) {
+  return (req && req->skipTimeoutChecks) ? req : NULL;
+}
+
 static inline bool RequestConfig_ApplyCoordinatorElapsedTime(RequestConfig *reqConfig,
                                                              rs_wall_clock_ns_t coordinatorElapsedTime) {
   // Only adjust the timeout for 'fail' and 'return-strict' policies.

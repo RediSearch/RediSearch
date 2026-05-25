@@ -12,7 +12,8 @@ use std::time::Duration;
 use ffi::t_docId;
 use index_result::RSIndexResult;
 use rqe_iterators::{
-    RQEIterator, RQEIteratorError, SkipToOutcome, not_optimized::NotOptimized,
+    RQEIterator, RQEIteratorError, SkipToOutcome,
+    not_optimized::NotOptimized,
     utils::{NoTimeout, TimeoutContextClock},
 };
 

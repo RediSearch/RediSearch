@@ -989,7 +989,7 @@ static QueryIterator *Query_EvalNotNode(QueryEvalCtx *q, QueryNode *qn) {
 
   t_docId maxDocId = q->sctx->spec->diskSpec ? SearchDisk_GetMaxDocId(q->sctx->spec->diskSpec) : q->docTable->maxDocId;
   return NewNotIterator(child, maxDocId, qn->opts.weight, q->sctx->time.timeout,
-                        q->areq, q);
+                        q->bcTimeoutAreq, q);
 }
 
 static QueryIterator *Query_EvalOptionalNode(QueryEvalCtx *q, QueryNode *qn) {
@@ -1614,12 +1614,6 @@ int QAST_Parse(QueryAST *dst, const RedisSearchCtx *sctx, const RSSearchOptions 
 
 QueryIterator *QAST_Iterate(QueryAST *qast, const RSSearchOptions *opts, RedisSearchCtx *sctx,
                             uint32_t reqflags, struct AREQ *areq, QueryError *status) {
-  // Only wire BlockedClient timeout when it is actually active; otherwise
-  // fall back to the clock-based pipeline timeout
-  if (areq && !areq->skipTimeoutChecks) {
-    areq = NULL;
-  }
-
   QueryEvalCtx qectx = {
       .opts = opts,
       .numTokens = qast->numTokens,
@@ -1630,7 +1624,7 @@ QueryIterator *QAST_Iterate(QueryAST *qast, const RSSearchOptions *opts, RedisSe
       .reqFlags = reqflags,
       .config = &qast->config,
       .notSubtree = false,
-      .areq = areq,
+      .bcTimeoutAreq = AREQ_TimeoutAreqOrNull(areq),
   };
   QueryIterator *root = Query_EvalNode(&qectx, qast->root);
   if (!root) {

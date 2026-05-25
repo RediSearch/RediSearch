@@ -214,8 +214,7 @@ fn weight_is_propagated() {
     let weight = 0.42;
 
     // SAFETY: MockContext guarantees valid FFI structures.
-    let result =
-        unsafe { new_not_iterator(child, 5, weight, NoTimeout, ctx.qctx()) };
+    let result = unsafe { new_not_iterator(child, 5, weight, NoTimeout, ctx.qctx()) };
 
     let NewNotIterator::Not(mut it) = result else {
         panic!("Expected Not variant");
