@@ -20,12 +20,14 @@ unittest = []
 build_utils = {path = "../build_utils"}
 
 [dependencies]
+ffi.workspace = true
 index_result.workspace = true
 index_spec.workspace = true
 inverted_index.workspace = true
 rqe_core.workspace = true
 rqe_iterator_type.workspace = true
 rqe_iterators.workspace = true
+ref_mode.workspace = true
 workspace_hack.workspace = true
 
 [dev-dependencies]
