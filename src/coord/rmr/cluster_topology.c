@@ -81,6 +81,7 @@ MRClusterTopology *MRClusterTopology_FromAPI(RedisModuleCtx *ctx, const char *au
     int port = 0;
     int flags = 0;
     if (RedisModule_GetClusterNodeInfo(ctx, node_id, ip, NULL, &port, &flags) != REDISMODULE_OK) {
+      RedisModule_Log(ctx, "notice", "Failed to get info for cluster node `%.*s`", REDISMODULE_NODE_ID_LEN, node_id);
       continue;
     }
 

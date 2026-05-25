@@ -194,10 +194,10 @@ TEST_F(ClusterTopologyFromAPITest, LocalIsReplica_NotAnError) {
   MRClusterTopology_Free(topo);
 }
 
-// ============================================================================
+// ========================================================================================
 // Local node is a slot-less master → my_shard_idx stays UINT32_MAX (the node
-// is "known" so it's not an error), matching RedisEnterprise_ParseTopology.
-// ============================================================================
+// is "known" so it's not an error), matching the standard RedisEnterprise_ParseTopology.
+// ========================================================================================
 TEST_F(ClusterTopologyFromAPITest, LocalIsSlotlessMaster_NotAnError) {
   addNode(NODE_A, "127.0.0.1", 6379, REDISMODULE_NODE_MASTER, {{0, 16383}});
   addNode(NODE_B, "127.0.0.2", 6380, REDISMODULE_NODE_MASTER | REDISMODULE_NODE_MYSELF,

@@ -72,15 +72,17 @@ static void MRTopology_AddRLShard(MRClusterTopology *t, RLShard *sh) {
     }                                               \
   })
 
-#define VERIFY_ARG(arg)                                   \
+#define VERIFY_ARG_OR(arg, or_blk)                        \
   ({                                                      \
     if (!AC_AdvanceIfMatch(&ac, arg)) {                   \
       const char *val = NULL;                             \
       AC_GetString(&ac, &val, NULL, AC_F_NOADVANCE);      \
       ERROR_EXPECTED("`" arg "`", (val ?: "(nil)"));      \
-      goto error;                                         \
+      or_blk;                                             \
     }                                                     \
   })
+
+#define VERIFY_ARG(arg) VERIFY_ARG_OR(arg, goto error)
 
 #define STR_MATCH(str, len, lit) (sizeof(lit) - 1 == len && strcasecmp(str, lit) == 0)
 
@@ -91,21 +93,19 @@ static MRClusterTopology *parse_topology_short_form(RedisModuleCtx *ctx, RedisMo
   AC_Advance(&ac); // Skip command name
   const char *auth;
   size_t auth_len;
-  MRClusterTopology *topo = NULL;
 
-  VERIFY_ARG("AUTH");
+  VERIFY_ARG_OR("AUTH", return NULL);
   if (AC_GetString(&ac, &auth, &auth_len, 0) != AC_OK) {
     ERROR_MISSING("AUTH");
-    goto error;
+    return NULL;
   }
 
-  topo = MRClusterTopology_FromAPI(ctx, auth, auth_len, my_shard_idx);
+  MRClusterTopology *topo = MRClusterTopology_FromAPI(ctx, auth, auth_len, my_shard_idx);
   if (!topo) {
     ERROR_FMT("%s", "Failed to parse topology using module API");
-    goto error;
+    return NULL;
   }
 
-error:
   return topo;
 }
 
