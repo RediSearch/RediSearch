@@ -33,7 +33,7 @@ fn memory_usage() {
     assert_eq!(ii.memory_usage(), empty_size);
 
     let record = RSIndexResult::build_virt().doc_id(10).build();
-    let mem_growth = ii.add_record(&record).unwrap();
+    let mem_growth = ii.add_record(&record).unwrap().mem_growth as usize;
 
     assert_eq!(ii.memory_usage(), empty_size + mem_growth);
 }
@@ -43,7 +43,7 @@ fn adding_records() {
     let mut ii = InvertedIndex::<Dummy>::new(IndexFlags_Index_DocIdsOnly);
     let record = RSIndexResult::build_virt().doc_id(10).build();
 
-    let mem_growth = ii.add_record(&record).unwrap();
+    let mem_growth = ii.add_record(&record).unwrap().mem_growth as usize;
 
     assert_eq!(
         mem_growth,
@@ -59,7 +59,7 @@ fn adding_records() {
 
     let record = RSIndexResult::build_virt().doc_id(11).build();
 
-    let mem_growth = ii.add_record(&record).unwrap();
+    let mem_growth = ii.add_record(&record).unwrap().mem_growth as usize;
 
     assert_eq!(
         mem_growth, 5,
@@ -84,7 +84,7 @@ fn adding_same_record_twice() {
     assert_eq!(ii.blocks[0].num_entries, 1);
     assert_eq!(ii.flags(), IndexFlags_Index_DocIdsOnly);
 
-    let mem_growth = ii.add_record(&record).unwrap();
+    let mem_growth = ii.add_record(&record).unwrap().mem_growth as usize;
 
     assert_eq!(
         mem_growth, 0,
@@ -129,7 +129,7 @@ fn adding_same_record_twice() {
     assert_eq!(ii.blocks[0].buffer, [255]);
     assert_eq!(ii.flags(), IndexFlags_Index_DocIdsOnly);
 
-    let _mem_growth = ii.add_record(&record).unwrap();
+    ii.add_record(&record).unwrap();
 
     assert_eq!(ii.blocks.len(), 1);
     assert_eq!(
@@ -178,7 +178,8 @@ fn adding_creates_new_blocks_when_entries_is_reached() {
 
     let mem_growth = ii
         .add_record(&RSIndexResult::build_virt().doc_id(10).build())
-        .unwrap();
+        .unwrap()
+        .mem_growth as usize;
     assert_eq!(
         mem_growth,
         8 + IndexBlock::STACK_SIZE + 1,
@@ -187,14 +188,16 @@ fn adding_creates_new_blocks_when_entries_is_reached() {
     assert_eq!(ii.blocks.len(), 1);
     let mem_growth = ii
         .add_record(&RSIndexResult::build_virt().doc_id(11).build())
-        .unwrap();
+        .unwrap()
+        .mem_growth as usize;
     assert_eq!(mem_growth, 1, "buffer needs to grow for the new byte");
     assert_eq!(ii.blocks.len(), 1);
 
     // 3 entry should create a new block
     let mem_growth = ii
         .add_record(&RSIndexResult::build_virt().doc_id(12).build())
-        .unwrap();
+        .unwrap()
+        .mem_growth as usize;
     assert_eq!(
         mem_growth,
         IndexBlock::STACK_SIZE + 1,
@@ -207,14 +210,16 @@ fn adding_creates_new_blocks_when_entries_is_reached() {
     );
     let mem_growth = ii
         .add_record(&RSIndexResult::build_virt().doc_id(13).build())
-        .unwrap();
+        .unwrap()
+        .mem_growth as usize;
     assert_eq!(mem_growth, 1, "buffer needs to grow for the new byte");
     assert_eq!(ii.blocks.len(), 2);
 
     // But duplicate entry does not go in new block even if the current block is full
     let mem_growth = ii
         .add_record(&RSIndexResult::build_virt().doc_id(13).build())
-        .unwrap();
+        .unwrap()
+        .mem_growth as usize;
     assert_eq!(mem_growth, 1, "buffer needs to grow again");
     assert_eq!(
         ii.blocks.len(),
@@ -232,7 +237,7 @@ fn adding_big_delta_makes_new_block() {
     let mut ii = InvertedIndex::<Dummy>::new(IndexFlags_Index_DocIdsOnly);
     let record = RSIndexResult::build_virt().doc_id(10).build();
 
-    let mem_growth = ii.add_record(&record).unwrap();
+    let mem_growth = ii.add_record(&record).unwrap().mem_growth as usize;
 
     assert_eq!(
         mem_growth,
@@ -250,7 +255,7 @@ fn adding_big_delta_makes_new_block() {
     let doc_id = (u32::MAX as u64) + 11;
     let record = RSIndexResult::build_virt().doc_id(doc_id).build();
 
-    let mem_growth = ii.add_record(&record).unwrap();
+    let mem_growth = ii.add_record(&record).unwrap().mem_growth as usize;
 
     assert_eq!(
         mem_growth,
@@ -381,13 +386,13 @@ fn adding_tracks_entries() {
     assert_eq!(ii.number_of_entries(), 0);
 
     let record = RSIndexResult::build_virt().doc_id(10).build();
-    let mem_growth = ii.add_record(&record).unwrap();
+    let mem_growth = ii.add_record(&record).unwrap().mem_growth as usize;
 
     assert_eq!(ii.memory_usage(), empty_size + mem_growth);
     assert_eq!(ii.number_of_entries(), 1);
 
     let record = RSIndexResult::build_virt().doc_id(10).build();
-    let _mem_growth = ii.add_record(&record).unwrap();
+    let _mem_growth = ii.add_record(&record).unwrap().mem_growth as usize;
 
     assert_eq!(ii.number_of_entries(), 2);
 }
@@ -403,7 +408,7 @@ fn adding_track_field_mask() {
         .doc_id(10)
         .field_mask(0b101)
         .build();
-    let mem_growth = ii.add_record(&record).unwrap();
+    let mem_growth = ii.add_record(&record).unwrap().mem_growth as usize;
 
     assert_eq!(
         mem_growth,
@@ -416,7 +421,7 @@ fn adding_track_field_mask() {
         .doc_id(11)
         .field_mask(0b101)
         .build();
-    let mem_growth = ii.add_record(&record).unwrap();
+    let mem_growth = ii.add_record(&record).unwrap().mem_growth as usize;
 
     assert_eq!(mem_growth, 5);
     assert_eq!(ii.field_mask(), 0b101);
@@ -425,7 +430,7 @@ fn adding_track_field_mask() {
         .doc_id(12)
         .field_mask(0b011)
         .build();
-    let mem_growth = ii.add_record(&record).unwrap();
+    let mem_growth = ii.add_record(&record).unwrap().mem_growth as usize;
 
     assert_eq!(mem_growth, 5);
     assert_eq!(ii.field_mask(), 0b111);
@@ -459,10 +464,10 @@ fn summary() {
     );
 
     let record = RSIndexResult::build_virt().doc_id(10).build();
-    let _mem_growth = ii.add_record(&record).unwrap();
+    let _mem_growth = ii.add_record(&record).unwrap().mem_growth as usize;
 
     let record = RSIndexResult::build_virt().doc_id(11).build();
-    let _mem_growth = ii.add_record(&record).unwrap();
+    let _mem_growth = ii.add_record(&record).unwrap().mem_growth as usize;
 
     assert_eq!(
         ii.summary(),
@@ -496,10 +501,10 @@ fn summary_store_numeric() {
     );
 
     let record = RSIndexResult::build_virt().doc_id(10).build();
-    let _mem_growth = ii.add_record(&record).unwrap();
+    let _mem_growth = ii.add_record(&record).unwrap().mem_growth as usize;
 
     let record = RSIndexResult::build_virt().doc_id(10).build();
-    let _mem_growth = ii.add_record(&record).unwrap();
+    let _mem_growth = ii.add_record(&record).unwrap().mem_growth as usize;
 
     assert_eq!(
         ii.summary(),
@@ -543,13 +548,13 @@ fn blocks_summary() {
     assert_eq!(ii.blocks_summary().len(), 0);
 
     let record = RSIndexResult::build_virt().doc_id(10).build();
-    let _mem_growth = ii.add_record(&record).unwrap();
+    let _mem_growth = ii.add_record(&record).unwrap().mem_growth as usize;
 
     let record = RSIndexResult::build_virt().doc_id(11).build();
-    let _mem_growth = ii.add_record(&record).unwrap();
+    let _mem_growth = ii.add_record(&record).unwrap().mem_growth as usize;
 
     let record = RSIndexResult::build_virt().doc_id(12).build();
-    let _mem_growth = ii.add_record(&record).unwrap();
+    let _mem_growth = ii.add_record(&record).unwrap().mem_growth as usize;
 
     let summaries = ii.blocks_summary();
     assert_eq!(
@@ -597,13 +602,13 @@ fn blocks_summary_store_numeric() {
     assert_eq!(ii.blocks_summary().len(), 0);
 
     let record = RSIndexResult::build_virt().doc_id(10).build();
-    let _mem_growth = ii.add_record(&record).unwrap();
+    let _mem_growth = ii.add_record(&record).unwrap().mem_growth as usize;
 
     let record = RSIndexResult::build_virt().doc_id(11).build();
-    let _mem_growth = ii.add_record(&record).unwrap();
+    let _mem_growth = ii.add_record(&record).unwrap().mem_growth as usize;
 
     let record = RSIndexResult::build_virt().doc_id(12).build();
-    let _mem_growth = ii.add_record(&record).unwrap();
+    let _mem_growth = ii.add_record(&record).unwrap().mem_growth as usize;
 
     let summaries = ii.blocks_summary();
     assert_eq!(
