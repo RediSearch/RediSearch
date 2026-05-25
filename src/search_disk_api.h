@@ -50,9 +50,11 @@ typedef struct BasicDiskAPI {
    * @brief Open the disk storage context
    * @param ctx Redis module context
    * @param buffer_percentage Percentage of available memory to use for write buffer (0-100)
+   * @param dropReadCache When true, hints the OS to evict pages after reading
+   * @param useDirectReads When true, opens files with O_DIRECT to bypass the OS page cache
    * @return Pointer to the disk context, or NULL on error
    */
-  RedisSearchDisk *(*open)(RedisModuleCtx *ctx, int buffer_percentage);
+  RedisSearchDisk *(*open)(RedisModuleCtx *ctx, int buffer_percentage, bool dropReadCache, bool useDirectReads);
   void (*close)(RedisModuleCtx *ctx, RedisSearchDisk *disk);
   /**
    * @brief Open an index spec
