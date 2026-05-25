@@ -53,6 +53,40 @@ typedef struct TermDict TermDict;
  */
 typedef struct TermDictIter TermDictIter;
 
+/**
+ * Per-match callback for the lex-range / contains / wildcard iterators.
+ *
+ * Mirrors the slim shape of `TrieRangeCallback` in
+ * `src/trie/trie_node.h:233` — the `payload` parameter is dropped because
+ * `sp->terms` never carries one. Receives the term as UTF-8 bytes
+ * (`term` / `term_len`), the caller-supplied `ctx`, and the entry's
+ * `num_docs`.
+ *
+ * Return `0` to continue iteration, non-zero to break early. Mirrors the
+ * `REDISEARCH_OK` / `REDISEARCH_ERR` convention the C callers already use
+ * to honour `maxPrefixExpansions` caps.
+ *
+ * `None` means "no callback supplied" — the iterate call short-circuits
+ * without traversal. Matches the `cb: TrieMapReplaceFunc` pattern.
+ */
+typedef int (*TermDictRangeCallback)(const char *term, size_t term_len, void *ctx, size_t num_docs);
+
+/**
+ * Per-match callback for the DFA (fuzzy / prefix-fuzzy) iterator.
+ *
+ * Mirrors the columns `TrieIterator_Next` writes out at
+ * `src/trie/trie.c` — `(term, term_len, score, num_docs, dist)` — minus
+ * the always-NULL payload pointer. Receives the term as UTF-8 bytes.
+ *
+ * `score` is widened from the stored `f32` to `f64` to match the C-side
+ * `float score` slot at the `iterateExpandedTerms` call site in
+ * `src/query.c:633`, where the value is consumed as a double for IDF
+ * math.
+ *
+ * Return `0` to continue, non-zero to break early.
+ */
+typedef int (*TermDictDfaCallback)(const char *term, size_t term_len, void *ctx, double score, size_t num_docs, uint32_t dist);
+
 #ifdef __cplusplus
 extern "C" {
 #endif // __cplusplus
@@ -259,6 +293,102 @@ size_t TermDict_GetNumDocs(const struct TermDict *d, const char *term, size_t te
  *   It may only be NULL when `term_len == 0`.
  */
 bool TermDict_Delete(struct TermDict *d, const char *term, size_t term_len);
+
+/**
+ * Iterate every term whose key begins with, ends with, or contains
+ * `pattern`. The `prefix` and `suffix` flags select the variant, matching
+ * the C `Trie_IterateContains(t, str, nstr, prefix, suffix, …)` shape at
+ * `src/trie/trie.c`:
+ *
+ * | prefix | suffix | semantic                          |
+ * | ------ | ------ | --------------------------------- |
+ * | true   | false  | prefix match (term starts with X) |
+ * | false  | true   | suffix match (term ends with X)   |
+ * | true   | true   | contains match (substring)        |
+ * | false  | false  | contains match (same as true,true)|
+ *
+ * The last row is reachable from the C side but never used in practice —
+ * query.c always sets at least one flag. Treating `(false, false)` as
+ * "contains" keeps the FFI total without an error path.
+ *
+ * NULL `d`, NULL `cb`, or non-UTF-8 `pattern` collapse to a no-op — the
+ * same outcome the C path produces when `runeBufFill` fails or the trie
+ * is missing.
+ *
+ * Case-folding happens inside `TermDictionary`'s iter constructors;
+ * callers must not pre-fold. (Production paths receive already-lowercased
+ * ASCII, so the fold is a no-op for them; the contract is pinned for
+ * future non-ASCII work — see [`TermDictionary`].)
+ *
+ * # Safety
+ * - `d` must either be NULL or point to a valid [`TermDict`] obtained
+ *   from [`TermDict_New`].
+ * - `pattern` must point to a readable byte sequence of length
+ *   `pattern_len`. NULL is accepted only when `pattern_len == 0`.
+ * - `cb`, when `Some`, must have the documented signature and must not
+ *   capture pointers handed to it past the call (the `term` pointer is
+ *   invalidated after the callback returns).
+ * - `ctx` is opaque — passed through to `cb` unchanged.
+ */
+void TermDict_IterateContains(const struct TermDict *d, const char *pattern, size_t pattern_len, bool prefix, bool suffix, TermDictRangeCallback cb, void *ctx);
+
+/**
+ * Iterate every term matching the wildcard `pattern` (`?` = one byte,
+ * `*` = zero or more bytes). Backs `Trie_IterateWildcard` at
+ * `src/trie/trie.c`.
+ *
+ * NULL `d`, NULL `cb`, or non-UTF-8 `pattern` collapse to a no-op.
+ *
+ * Note on non-ASCII patterns: the underlying [`TermDictionary::wildcard_iter`]
+ * operates byte-wise. `?` matches exactly one byte, not one codepoint —
+ * so a multi-byte codepoint matched by `?` will surface a partial-codepoint
+ * mismatch later in the search. Production patterns are ASCII; the caveat
+ * is documented for future work.
+ *
+ * # Safety
+ * Same contract as [`TermDict_IterateContains`].
+ */
+void TermDict_IterateWildcard(const struct TermDict *d, const char *pattern, size_t pattern_len, TermDictRangeCallback cb, void *ctx);
+
+/**
+ * Iterate every term within the lex range `[min, max]`. Backs
+ * `Trie_IterateRange` at `src/trie/trie.c`.
+ *
+ * NULL `min` (or NULL `max`) means "unbounded on that side", matching
+ * the C `(NULL, -1)` sentinel. The inclusivity flags control whether
+ * the endpoints themselves are admitted.
+ *
+ * NULL `d`, NULL `cb`, or non-UTF-8 bound collapse to a no-op.
+ *
+ * # Safety
+ * - `d` must either be NULL or point to a valid [`TermDict`] obtained
+ *   from [`TermDict_New`].
+ * - `min` may be NULL (unbounded) or must point to a readable byte
+ *   sequence of length `min_len`. Same for `max` / `max_len`.
+ * - `cb` and `ctx`: same contract as [`TermDict_IterateContains`].
+ */
+void TermDict_IterateRange(const struct TermDict *d, const char *min, size_t min_len, bool min_inclusive, const char *max, size_t max_len, bool max_inclusive, TermDictRangeCallback cb, void *ctx);
+
+/**
+ * Iterate every term within Levenshtein distance `max_dist` of `prefix`.
+ * When `prefix_mode` is true, matched terms may have any suffix beyond
+ * the prefix-anchored match — backs the fuzzy and prefix-fuzzy paths at
+ * `src/query.c:617` (`iterateExpandedTerms`).
+ *
+ * Yields `(term, score, num_docs, dist)` per match — the same columns
+ * the C `TrieIterator_Next` writes (minus the always-NULL payload).
+ * `score` is widened to `f64` at the FFI boundary.
+ *
+ * NULL `d`, NULL `cb`, or non-UTF-8 `prefix` collapse to a no-op.
+ *
+ * # Safety
+ * - `d` must either be NULL or point to a valid [`TermDict`] obtained
+ *   from [`TermDict_New`].
+ * - `prefix` must point to a readable byte sequence of length
+ *   `prefix_len`. NULL is accepted only when `prefix_len == 0`.
+ * - `cb` and `ctx`: same contract as [`TermDict_IterateContains`].
+ */
+void TermDict_IterateDfa(const struct TermDict *d, const char *prefix, size_t prefix_len, uint32_t max_dist, bool prefix_mode, TermDictDfaCallback cb, void *ctx);
 
 #ifdef __cplusplus
 }  // extern "C"
