@@ -116,7 +116,11 @@ impl NumericRange {
     ///   node, cardinality is already tracked at the leaf level.
     /// - **Splitting**: When redistributing entries during a split, the caller
     ///   explicitly updates cardinality for each destination range.
-    pub fn add_without_cardinality(&mut self, doc_id: t_docId, value: f64) -> inverted_index::AddRecordOutcome {
+    pub fn add_without_cardinality(
+        &mut self,
+        doc_id: t_docId,
+        value: f64,
+    ) -> inverted_index::AddRecordOutcome {
         // Update bounds
         if value < self.min_val {
             self.min_val = value;
