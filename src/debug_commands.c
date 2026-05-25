@@ -44,6 +44,10 @@
 #include "doc_id_meta.h"
 #include "coord/rmr/rmr.h"
 
+#ifdef USE_RUST_TERM_DICT
+#include "term_dict_ffi.h"
+#endif
+
 DebugCTX globalDebugCtx = {0};
 
 // QueryDebugCtx API implementations
@@ -441,6 +445,74 @@ typedef struct {
   double blocks_efficiency;
 } InvertedIndexStats;
 
+// --- sp->terms backend wrappers (mirrors the spec.c + fork_gc/terms.c
+// pattern) ----------------------------------------------------------------
+//
+// DUMP_TERMS needs two operations against `sp->terms`: count and walk
+// every term. The dispatch happens here locally — single-file containment,
+// per the project ADR.
+
+typedef struct {
+#ifdef USE_RUST_TERM_DICT
+  TermDictIter *inner;
+#else
+  TrieIterator *inner;
+#endif
+} dbg_terms_iter;
+
+static size_t dbg_terms_size(const void *terms) {
+#ifdef USE_RUST_TERM_DICT
+  return TermDict_Len(terms);
+#else
+  return Trie_Size((Trie *)terms);
+#endif
+}
+
+static dbg_terms_iter dbg_terms_iter_new(void *terms) {
+#ifdef USE_RUST_TERM_DICT
+  return (dbg_terms_iter){.inner = TermDict_IterNew(terms)};
+#else
+  return (dbg_terms_iter){.inner = Trie_Iterate(terms, "", 0, 0, 1)};
+#endif
+}
+
+// Yields the next term as a freshly heap-allocated buffer the caller must
+// `rm_free`. Returns false on exhaustion.
+static bool dbg_terms_iter_next(dbg_terms_iter *it, char **term, size_t *term_len) {
+#ifdef USE_RUST_TERM_DICT
+  const char *p = NULL;
+  size_t plen = 0;
+  double score = 0;     // unused here, the iterator yields them regardless
+  size_t num_docs = 0;
+  if (!TermDict_IterNext(it->inner, &p, &plen, &score, &num_docs)) {
+    return false;
+  }
+  char *buf = rm_malloc(plen);
+  memcpy(buf, p, plen);
+  *term = buf;
+  *term_len = plen;
+  return true;
+#else
+  rune *rstr = NULL;
+  t_len slen = 0;
+  float score = 0;
+  int dist = 0;
+  if (!TrieIterator_Next(it->inner, &rstr, &slen, NULL, &score, NULL, &dist)) {
+    return false;
+  }
+  *term = runesToStr(rstr, slen, term_len);
+  return true;
+#endif
+}
+
+static void dbg_terms_iter_free(dbg_terms_iter *it) {
+#ifdef USE_RUST_TERM_DICT
+  TermDict_IterFree(it->inner);
+#else
+  TrieIterator_Free(it->inner);
+#endif
+}
+
 DEBUG_COMMAND(DumpTerms) {
   if (!debugCommandsEnabled(ctx)) {
     return RedisModule_ReplyWithError(ctx, NODEBUG_ERR);
@@ -450,21 +522,16 @@ DEBUG_COMMAND(DumpTerms) {
   }
   GET_SEARCH_CTX(argv[2])
 
-  rune *rstr = NULL;
-  t_len slen = 0;
-  float score = 0;
-  int dist = 0;
-  size_t termLen;
+  RedisModule_ReplyWithArray(ctx, dbg_terms_size(sctx->spec->terms));
 
-  RedisModule_ReplyWithArray(ctx, Trie_Size(sctx->spec->terms));
-
-  TrieIterator *it = Trie_Iterate(sctx->spec->terms, "", 0, 0, 1);
-  while (TrieIterator_Next(it, &rstr, &slen, NULL, &score, NULL, &dist)) {
-    char *res = runesToStr(rstr, slen, &termLen);
-    RedisModule_ReplyWithStringBuffer(ctx, res, termLen);
-    rm_free(res);
+  dbg_terms_iter it = dbg_terms_iter_new(sctx->spec->terms);
+  char *term = NULL;
+  size_t termLen = 0;
+  while (dbg_terms_iter_next(&it, &term, &termLen)) {
+    RedisModule_ReplyWithStringBuffer(ctx, term, termLen);
+    rm_free(term);
   }
-  TrieIterator_Free(it);
+  dbg_terms_iter_free(&it);
 
   SearchCtx_Free(sctx);
   return REDISMODULE_OK;
