@@ -1,0 +1,238 @@
+name: Common Flow for MIRI
+
+# Documentation: https://redislabs.atlassian.net/wiki/spaces/DX/pages/3967844669/RediSearch+CI+refactor
+#
+# Reusable workflow that runs the Rust workspace's tests under MIRI.
+# MIRI compiles to MIR rather than native code, so the nextest-archive workflow
+# doesn't apply — every run is a fresh cargo compile. Decoupled from the
+# build/artifact pipeline entirely so it doesn't gate any other test job.
+
+on:
+  workflow_call:
+    inputs:
+      platform:
+        description: 'Platform name (e.g., ubuntu:noble)'
+        type: string
+        required: true
+      architecture:
+        description: 'Architecture (x86_64, aarch64)'
+        type: string
+        required: true
+      test-timeout:
+        type: number
+        default: 120
+      fail-fast:
+        type: boolean
+        default: false
+        description: "If true, the workflow will terminate as soon as the MIRI step fails."
+      partition:
+        description: 'Optional nextest partition for sharding, e.g. "count:1/3". Empty runs all tests.'
+        type: string
+        default: ''
+
+env:
+  RUST_BACKTRACE: "full"
+  RUSTFLAGS: "-Dwarnings"
+  SETUP_RETRY_LOOP: |
+    SUCCESS=0
+    for i in 1 2 3 4 5; do
+      echo "Attempt $i of 5"
+      if {0}; then
+        echo "Setup succeeded"
+        SUCCESS=1
+        break
+      fi
+      if [ $i -lt 5 ]; then
+        echo "Setup failed, retrying in 30 seconds..."
+        sleep 30
+      fi
+    done
+    [ $SUCCESS -eq 1 ] || exit 1
+
+jobs:
+  get-config:
+    name: Get build configurations for platform
+    uses: ./.github/workflows/task-get-config.yml
+    with:
+      platform: ${{ inputs.platform }}
+      architecture: ${{ inputs.architecture }}
+
+  build-image:
+    needs: get-config
+    if: ${{ needs.get-config.outputs.container }}
+    name: Build container for platform
+    uses: ./.github/workflows/task-build-cached-container.yml
+    with:
+      container: ${{ needs.get-config.outputs.container }}
+      runner-env: ${{ needs.get-config.outputs.env }}
+      san: 'none'
+
+  common-flow:
+    needs: [get-config, build-image]
+    name: MIRI${{ inputs.partition && format(' [{0}]', inputs.partition) || '' }} on ${{ needs.get-config.outputs.name }}
+    if: |
+      !cancelled() &&
+      needs.get-config.result == 'success'
+    runs-on: ${{ needs.get-config.outputs.env || vars.RUNS_ON || 'ubuntu-latest' }}
+    container: ${{
+      needs.get-config.outputs.container
+        && fromJSON(
+          format('{{"image":"{0}","options":"--user root -v /usr/share/dotnet:/host_usr/dotnet -v /usr/local/lib/android:/host_usr/android -v /opt/ghc:/host_opt/ghc -v /opt/hostedtoolcache:/host_opt/hostedtoolcache {1}"}}',
+            needs.build-image.outputs.succeeded == 'true' && needs.build-image.outputs.image || needs.get-config.outputs.container,
+            startsWith(needs.get-config.outputs.container, 'alpine:') && '-v /opt:/opt:rw,rshared -v /opt:/__e/node20:ro,rshared -v /opt:/__e/node24:ro,rshared' || '')
+        )
+      || null }}
+
+    permissions:
+      contents: read
+      id-token: write
+      packages: read
+      actions: write   # Swatinem/rust-cache read/write of GH cache
+
+    env:
+      IS_FORK_PR: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository }}
+
+    defaults:
+      run:
+        shell: bash -l -eo pipefail {0}
+    steps:
+      - name: Install bash
+        if: startsWith(needs.get-config.outputs.container, 'alpine:')
+        shell: sh -l -eo pipefail {0}
+        run: ${{ format(env.SETUP_RETRY_LOOP, 'apk add bash') }}
+
+      - name: Free up disk space (container)
+        if: ${{ needs.get-config.outputs.container }}
+        run: |
+          echo "Before cleanup:"
+          df -h
+          rm -rf /host_usr/dotnet/* 2>/dev/null || true
+          rm -rf /host_usr/android/* 2>/dev/null || true
+          rm -rf /host_opt/ghc/* 2>/dev/null || true
+          rm -rf /host_opt/hostedtoolcache/CodeQL/* 2>/dev/null || true
+          echo "After cleanup:"
+          df -h
+      - name: Free up disk space (non-container)
+        if: ${{ !needs.get-config.outputs.container && !contains(needs.get-config.outputs.env, 'macos') }}
+        run: |
+          sudo rm -rf /usr/share/dotnet || true
+          sudo rm -rf /usr/local/lib/android || true
+          sudo rm -rf /opt/ghc || true
+          sudo rm -rf /opt/hostedtoolcache/CodeQL || true
+          sudo rm -rf /usr/local/share/boost || true
+          docker system prune -af 2>/dev/null || true
+      - name: Fix HOME Directory
+        if: ${{ needs.build-image.outputs.succeeded == 'true' && needs.get-config.outputs.container }}
+        shell: bash
+        run: |
+          h=$(getent passwd "$(id -un)" | cut -d: -f6)
+          if [ "$h" = "$HOME" ]; then
+            echo "HOME fine: $HOME"
+            exit 0
+          fi
+          echo "HOME=$h" >> "$GITHUB_ENV"
+
+      - name: Setup Dependencies
+        if: needs.build-image.outputs.succeeded != 'true' && needs.get-config.outputs.setup_script
+        env:
+          SETUP_SCRIPT: ${{ needs.get-config.outputs.setup_script }}
+        run: ${{ format(env.SETUP_RETRY_LOOP, 'eval "$SETUP_SCRIPT"') }}
+
+      - name: Post-setup
+        if: needs.get-config.outputs.post_setup_script
+        env:
+          POST_SETUP_SCRIPT: ${{ needs.get-config.outputs.post_setup_script }}
+        run: eval "$POST_SETUP_SCRIPT"
+
+      - name: Full checkout
+        uses: actions/checkout@v6
+        with:
+          submodules: recursive
+
+      # MIRI runs `make rust-tests` which goes through build.sh's full flow,
+      # including the C build that produces libredisearch_all.a. Sccache keeps
+      # the C compile fast across runs.
+      - name: Setup sccache
+        if: ${{ env.IS_FORK_PR != 'true' }}
+        uses: ./.github/actions/setup-sccache
+        with:
+          aws-role: ${{ vars.SCCACHE_AWS_ROLE_TO_ASSUME }}
+          s3-bucket: ${{ vars.SCCACHE_S3_BUCKET }}
+          s3-region: ${{ vars.SCCACHE_S3_REGION }}
+          s3-key-prefix: ${{ vars.SCCACHE_S3_KEY_PREFIX }}
+
+      - name: Setup
+        if: needs.build-image.outputs.succeeded != 'true'
+        env:
+          INSTALL_MODE: ${{ needs.get-config.outputs.install_mode }}
+        uses: ./.github/actions/retry-command
+        with:
+          command: ./install_script.sh $INSTALL_MODE
+          working_directory: .install
+
+      # MIRI needs cargo-nextest (cargo miri nextest run) — install_rust_deps.sh
+      # provides the cargo-binstall'd binary.
+      - name: Setup Rust test dependencies
+        if: needs.build-image.outputs.succeeded != 'true'
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+          INSTALL_MODE: ${{ needs.get-config.outputs.install_mode }}
+        run: .install/test_deps/install_rust_deps.sh "$INSTALL_MODE"
+
+      # Swatinem rust-cache so repeated MIRI runs reuse compiled MIR.
+      - uses: Swatinem/rust-cache@v2
+        with:
+          prefix-key: "v2-rust-miri"
+          key: ${{ inputs.platform }}-${{ inputs.architecture }}
+          workspaces: "src/redisearch_rs -> ../../bin/redisearch_rs"
+          cache-on-failure: true
+
+      - name: Set log artifact name
+        # Artifact names can't contain : / etc. (platform is e.g. "ubuntu:latest")
+        # and must be unique per shard, or actions/upload-artifact@v4 errors on
+        # the second shard. Fold the partition (e.g. count:1/3) into the name and
+        # sanitise invalid characters.
+        id: log-artifact
+        env:
+          PLATFORM: ${{ inputs.platform }}
+          ARCH: ${{ inputs.architecture }}
+          PARTITION: ${{ inputs.partition }}
+          RUN_ID: ${{ github.run_id }}
+          RUN_ATTEMPT: ${{ github.run_attempt }}
+        run: |
+          NAME="MIRI Logs ${PLATFORM} ${ARCH} ${PARTITION} ${RUN_ID}-${RUN_ATTEMPT}"
+          NAME=$(echo "$NAME" | sed -e 's#[":/\\<>|*?]#_#g' -e 's/__*/_/g' -e 's/^_//' -e 's/_$//')
+          echo "name=$NAME" >> "$GITHUB_OUTPUT"
+
+      - name: Rust tests (MIRI)
+        # `make rust-tests` runs the full build.sh flow: build the C side
+        # first (producing libredisearch_all.a, which miri's FFI test crates
+        # link against), then cargo +nightly miri nextest run.
+        timeout-minutes: ${{ fromJSON(inputs.test-timeout) }}
+        id: rust_unit_tests_miri
+        continue-on-error: ${{ !inputs.fail-fast }}
+        env:
+          RUN_MIRI: 1
+          LOG: 1
+          CLEAR_LOGS: 0
+          ENABLE_ASSERT: 1
+          # Header freshness is enforced only in the lint job; don't regenerate here.
+          REDISEARCH_GENERATE_HEADERS: "0"
+          # Empty when unsharded; build.sh ignores an empty RUST_PARTITION.
+          RUST_PARTITION: ${{ inputs.partition }}
+        run: make rust-tests
+
+      - name: Upload Test Logs (failure)
+        if: failure() || steps.rust_unit_tests_miri.outcome == 'failure'
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ steps.log-artifact.outputs.name }}
+          path: tests/**/logs/*.log*
+          if-no-files-found: ignore
+
+      - name: Fail flow if MIRI failed
+        if: failure() || steps.rust_unit_tests_miri.outcome == 'failure'
+        run: |
+          echo "Rust tests (MIRI): ${{ steps.rust_unit_tests_miri.outcome }}"
+          exit 1
+
