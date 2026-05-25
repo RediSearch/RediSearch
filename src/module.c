@@ -184,8 +184,8 @@ static inline bool checkEnterpriseACL(RedisModuleCtx *ctx, IndexSpec *sp) {
 // OOM check with heuristics
 // TODO: add heuristics
 // Assumes the GIL is held by the caller
-static inline bool estimateOOM(RedisModuleCtx *ctx) {
-  return RedisMemory_GetUsedMemoryRatioUnified(ctx) > 1;
+static inline bool estimateOOM(void) {
+  return RedisMemory_isOutOfMemory();
 }
 
 // OOM guardrail for queries function
@@ -196,7 +196,7 @@ bool QueryMemoryGuard(RedisModuleCtx *ctx) {
   // Check OOM if OOM policy is not ignore
   if (RSGlobalConfig.requestConfigParams.oomPolicy != OomPolicy_Ignore) {
     // No need to hold the GIL since we are not in a background thread
-    return estimateOOM(ctx);
+    return estimateOOM();
   }
   return false;
 }
