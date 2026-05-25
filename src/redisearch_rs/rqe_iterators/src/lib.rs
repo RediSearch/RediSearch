@@ -7,19 +7,15 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 
-// Pull in the `redisearch_rs` aggregator crate (and its transitive `*_ffi`
-// crates) when building the lib test binary, so that C symbols implemented in
-// Rust (e.g. `NewNotIterator`, `QueryError_SetError`) are available to the
-// linker. This is required because `rqe_iterators` calls
-// `ffi::AREQ_CheckTimedOut` (defined in `query.c.o`), which transitively
-// references symbols provided by those Rust-implemented C wrappers.
-// The companion `mock_or_stub_missing_redis_c_symbols!()` invocation provides
-// the OpenSSL/DocIdMeta stubs that the coord/hiredis objects also drag in.
-// Integration tests apply the same pattern in `tests/integration/main.rs`.
+// Stub `AREQ_CheckTimedOut` for lib unit tests so the linker doesn't pull
+// `query.c.o` (and its C/coord/SSL transitive closure) from
+// `libredisearch_all.a`. The flag is only ever set by Redis on the main
+// thread, which doesn't exist here. Integration tests use the real symbol.
 #[cfg(test)]
-extern crate redisearch_rs;
-#[cfg(test)]
-redis_mock::mock_or_stub_missing_redis_c_symbols!();
+#[unsafe(no_mangle)]
+unsafe extern "C" fn AREQ_CheckTimedOut(_areq: *mut ffi::AREQ) -> bool {
+    false
+}
 
 use std::sync::OnceLock;
 
