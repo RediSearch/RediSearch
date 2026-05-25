@@ -59,9 +59,12 @@ static void AREQ_DecrRefWrapper(void *privdata) {
   AREQ_DecrRef((AREQ *)privdata);
 }
 
-// freePrivData for BlockCursorClientWithTimeout on the shard FAIL path. Drains any cursor
-// parked in storedReplyState before releasing our AREQ ref (no-op on the happy
-// path, where CursorReadReplyCallback already cleared it).
+// freePrivData for shard/local BlockCursorClientWithTimeout. For FAIL, any cursor
+// parked in storedReplyState is owned by this read and can be drained before
+// dropping the AREQ ref. For RETURN_STRICT, the AREQ is reused across cursor
+// reads and storedReplyState.cursor is not tied to this BlockedCursorNode; a
+// delayed free callback from an older read must not free a cursor parked by a
+// later strict read.
 static void ShardCursorBlockClient_FreeAREQ(void *privdata) {
   AREQ *req = (AREQ *)privdata;
   if (req->reqConfig.timeoutPolicy != TimeoutPolicy_ReturnStrict) {
@@ -1733,6 +1736,9 @@ static int CursorReadTimeoutReturnStrictCallback(RedisModuleCtx *ctx, RedisModul
   AREQ *req = (AREQ *)node->privdata;
   AREQ_SetTimedOut(req);
 
+  // If the timeout fires before the worker enters sendChunk/startPipeline, no
+  // stored cursor-read result exists. Reply with the shard cursor-read empty
+  // shape and cursor id 0 so the coordinator stops polling this shard cursor.
   if (AREQ_TryClaimAggregateResults(req)) {
     return shard_cursor_read_empty_reply_timeout(ctx);
   }
@@ -1985,6 +1991,9 @@ static void runCursor(RedisModule_Reply *reply, Cursor *cursor, size_t num) {
 
   if (IsInternal(req) && req->useReplyCallback && AREQ_RequiresThreadsSyncResults(req) &&
       AREQ_TimedOut(req)) {
+    // The strict timeout callback already won and replied with cursor id 0
+    // before this worker reached sendChunk. Close the internal shard cursor
+    // instead of parking it for a coordinator that will not poll it again.
     RedisSearchCtx_UnlockSpec(AREQ_SearchCtx(req));
     Cursor_Free(cursor);
     return;
@@ -2239,6 +2248,9 @@ int RSCursorReadCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc)
       RS_ASSERT(cursor->queryTimeoutMS == (size_t)req->reqConfig.queryTimeoutMS);
       RS_ASSERT(cursor->queryTimeoutPolicy == req->reqConfig.timeoutPolicy);
       if (cursor->queryTimeoutPolicy == TimeoutPolicy_ReturnStrict) {
+        // Public coordinator cursor reads reset this state in
+        // coordCursorReadReturnStrict. Shard/local cursor reads do not pass
+        // through that coordinator path, so reset the per-read sync state here.
         req->syncCtx.requiresAggregateResultsSync = true;
         AREQ_ResetForCursorReadReturnStrict(req);
       }
