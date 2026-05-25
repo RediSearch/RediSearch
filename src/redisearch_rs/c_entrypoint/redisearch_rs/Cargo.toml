@@ -23,9 +23,6 @@ bench = false
 [features]
 default = []
 mock_allocator = []
-# Work-in-progress features (Rust side). Off by default. Currently empty —
-# CMake forwards `--features wip_features` to cargo when the build toggle is
-# on, so this declaration must exist even when no crate opts in.
 wip_features = []
 
 [build-dependencies]

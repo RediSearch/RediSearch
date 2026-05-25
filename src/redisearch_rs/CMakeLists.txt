@@ -24,7 +24,7 @@ endif()
 set(RUST_FLAGS "$ENV{RUSTFLAGS}")
 
 # Forward the WIP-features toggle as a cargo feature. Declare `wip_features` on
-# the crates that actually need it; unrelated crates ignore the flag.
+# the crates that actually need it.
 if(RS_WIP_FEATURES_ENABLED)
     set(CARGO_WIP_FEATURES_ARGS "--features" "wip_features")
 else()

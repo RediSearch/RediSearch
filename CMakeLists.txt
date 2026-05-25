@@ -129,11 +129,6 @@ option(BUILD_TESTING "Enable testing for cpu-features dep" OFF)
 option(INLINE_LSE_ATOMICS "Inline LSE atomics on Linux AArch64 (Armv8.1-a+)" ON)
 
 # Work-in-progress features. On by default for direct CMake/development builds.
-# build.sh maps WIP_FEATURES=0/1 to this option; CI sets WIP_FEATURES=0 for
-# release/version-branch builds to keep unreleased entry points out.
-# When ON: defines RS_WIP_FEATURES for C/C++ and forwards `--features wip_features`
-# to the cargo build of the Rust workspace. Gate WIP entry points at registration
-# boundaries so they are disabled when OFF while implementation code can still compile.
 option(RS_WIP_FEATURES_ENABLED "Compile in work-in-progress features" ON)
 
 # Regenerate Rust→C FFI headers via cheadergen during the build.
