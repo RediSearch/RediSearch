@@ -15,6 +15,7 @@ mod range;
 mod unfiltered;
 mod values;
 mod wildcard;
+mod wildcard_automaton;
 
 use trie_rs::TrieMap;
 
