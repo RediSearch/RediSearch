@@ -4938,6 +4938,62 @@ class TestShardTimeout:
 
         env.expect('CONFIG', 'SET', ON_TIMEOUT_CONFIG, prev_policy).ok()
 
+    def test_return_strict_timeout_shard_cursor_read_preserves_local_cursor(self):
+        """Standalone RETURN_STRICT cursor-read timeout preserves cid for retry."""
+        env = self.env
+        skipIfNoEnableAssert(env)
+        sync_point = 'BeforeCursorReadSendChunk'
+
+        prev_policy, cursor_id, baseline, before_info, base_warn_coord, _ = \
+            _setup_return_strict_cursor_state(env)
+
+        try:
+            env.expect(debug_cmd(), 'SYNC_POINT', 'CLEAR').ok()
+            env.expect(debug_cmd(), 'SYNC_POINT', 'ARM', sync_point).ok()
+
+            result = []
+            try:
+                t_query = threading.Thread(
+                    target=call_and_store,
+                    args=(env.cmd, ['FT.CURSOR', 'READ', 'idx', str(cursor_id)], result),
+                    daemon=True,
+                )
+                t_query.start()
+                blocked_client_id = wait_for_blocked_query_client(
+                    env, 'FT.CURSOR|READ', 'Client for FT.CURSOR|READ not found')
+                wait_for_condition(
+                    lambda: (env.cmd(debug_cmd(), 'SYNC_POINT', 'IS_WAITING', sync_point) == 1, {}),
+                    f'worker never reached {sync_point}'
+                )
+                env.expect('CLIENT', 'UNBLOCK', blocked_client_id, 'TIMEOUT').equal(1)
+                wait_for_client_unblocked(env, blocked_client_id)
+            finally:
+                env.expect(debug_cmd(), 'SYNC_POINT', 'SIGNAL', sync_point).ok()
+                env.expect(debug_cmd(), 'SYNC_POINT', 'CLEAR').ok()
+
+            t_query.join(timeout=10)
+            env.assertFalse(t_query.is_alive(), message="Cursor read thread should have finished")
+            env.assertEqual(len(result), 1, message="Expected one cursor-read reply")
+            _assert_return_strict_cursor_timeout_reply(
+                env, result[0], cursor_id, expected_results=0,
+                message_prefix='standalone RETURN_STRICT cursor-read timeout')
+
+            after_info = info_modules_to_dict(env)
+            env.assertEqual(after_info[COORD_WARN_ERR_SECTION][TIMEOUT_WARNING_COORD_METRIC],
+                            str(base_warn_coord + 1),
+                            message="Coordinator timeout warning should be +1 after standalone cursor-read timeout")
+            _verify_metrics_not_changed(env, env, before_info, [TIMEOUT_WARNING_COORD_METRIC])
+
+            _assert_cursor_read_happy_path(
+                env, cursor_id,
+                message_prefix='standalone RETURN_STRICT cursor-read followup')
+
+            env.expect('FT.CURSOR', 'DEL', 'idx', cursor_id).ok()
+            _wait_for_cursor_cleanup(env, baseline, 'standalone RETURN_STRICT cursor-read timeout')
+        finally:
+            env.expect(debug_cmd(), 'SYNC_POINT', 'CLEAR').ok()
+            env.expect('CONFIG', 'SET', ON_TIMEOUT_CONFIG, prev_policy).ok()
+
     def test_fail_dropped_index_during_queued_cursor_read(self):
         """FAIL cursor-read replies the stored error when the index is dropped while queued.
 

@@ -1112,9 +1112,21 @@ bool SearchTime_IsTimedOut(void *arg) {
 }
 
 bool AREQ_TryClaimAggregateResults(AREQ *req) {
-  bool expected = false;
-  return atomic_compare_exchange_strong_explicit(&req->syncCtx.aggregatingResults, &expected, true,
+  int expected = AggregateResultsOwner_None;
+  return atomic_compare_exchange_strong_explicit(&req->syncCtx.aggregateResultsOwner,
+                                                 &expected, AggregateResultsOwner_Worker,
                                                  memory_order_relaxed, memory_order_relaxed);
+}
+
+bool AREQ_TryClaimAggregateResultsForTimeout(AREQ *req) {
+  int expected = AggregateResultsOwner_None;
+  return atomic_compare_exchange_strong_explicit(&req->syncCtx.aggregateResultsOwner,
+                                                 &expected, AggregateResultsOwner_Timeout,
+                                                 memory_order_relaxed, memory_order_relaxed);
+}
+
+bool AREQ_AggregateResultsClaimedByTimeout(AREQ *req) {
+  return RS_AtomicLoadRelaxed(&req->syncCtx.aggregateResultsOwner) == AggregateResultsOwner_Timeout;
 }
 
 void AREQ_SignalAggregateResultsComplete(AREQ *req) {
@@ -1133,7 +1145,7 @@ void AREQ_WaitForAggregateResultsComplete(AREQ *req) {
 }
 
 void AREQ_ResetForCursorReadReturnStrict(AREQ *req) {
-  RS_AtomicStoreRelaxed(&req->syncCtx.aggregatingResults, false);
+  RS_AtomicStoreRelaxed(&req->syncCtx.aggregateResultsOwner, AggregateResultsOwner_None);
   pthread_mutex_lock(&req->syncCtx.aggregateResultsLock);
   req->syncCtx.aggregateResultsDone = false;
   pthread_mutex_unlock(&req->syncCtx.aggregateResultsLock);

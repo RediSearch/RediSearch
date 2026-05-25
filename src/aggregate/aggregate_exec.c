@@ -61,10 +61,10 @@ static void AREQ_DecrRefWrapper(void *privdata) {
 
 // freePrivData for shard/local BlockCursorClientWithTimeout. For FAIL, any cursor
 // parked in storedReplyState is owned by this read and can be drained before
-// dropping the AREQ ref. For RETURN_STRICT, the AREQ is reused across cursor
-// reads and storedReplyState.cursor is not tied to this BlockedCursorNode; a
-// delayed free callback from an older read must not free a cursor parked by a
-// later strict read.
+// dropping the AREQ ref. For RETURN_STRICT, cursor cleanup is owned by either
+// AREQ_ReplyWithStoredResults (worker won) or runCursor (timeout callback won);
+// freePrivData can run before or after the worker observes that race, and the
+// AREQ is reused across cursor reads, so it must not clean storedReplyState.
 static void ShardCursorBlockClient_FreeAREQ(void *privdata) {
   AREQ *req = (AREQ *)privdata;
   if (req->reqConfig.timeoutPolicy != TimeoutPolicy_ReturnStrict) {
@@ -1555,6 +1555,19 @@ static void drainPartialResultsAfterTimeout(AREQ *req) {
   AREQ_DrainStoredResultsAfterTimeout(req);
 }
 
+static void clearStoredCursorReadResults(ChunkReplyState *stored) {
+  if (stored->results) {
+    for (size_t i = 0; i < array_len(stored->results); i++) {
+      SearchResult_Destroy(stored->results[i]);
+      rm_free(stored->results[i]);
+    }
+    array_free(stored->results);
+    stored->results = NULL;
+  }
+  stored->hasStoredResults = false;
+  QueryError_ClearError(&stored->err);
+}
+
 // Timeout callback for AREQ execution in Run in Threads mode.
 // Called on the main thread when the blocking client times out (RETURN-STRICT
 // policy only). Coordinates with the BG worker via the AREQ aggregate-results
@@ -1579,7 +1592,7 @@ static int QueryTimeoutReturnStrictCallback(RedisModuleCtx *ctx, RedisModuleStri
   // Signal timeout to background thread
   AREQ_SetTimedOut(req);
 
-  if (AREQ_TryClaimAggregateResults(req)) {
+  if (AREQ_TryClaimAggregateResultsForTimeout(req)) {
     // We were able to claim the aggregation results.
     // That means that the background thread didn't reach the aggregation phase (startPipelineCommon) yet.
     // Reply with empty results
@@ -1729,7 +1742,6 @@ static int CursorReadTimeoutReturnStrictCallback(RedisModuleCtx *ctx, RedisModul
   BlockedCursorNode *node = RedisModule_GetBlockedClientPrivateData(ctx);
   if (!node || !node->privdata) {
     RedisModule_Log(ctx, "warning", "CursorReadTimeoutReturnStrictCallback: no node or privdata");
-    QueryWarningsGlobalStats_UpdateWarning(QUERY_WARNING_CODE_TIMED_OUT, 1, SHARD_ERR_WARN);
     return shard_cursor_read_empty_reply_timeout(ctx);
   }
 
@@ -1737,10 +1749,12 @@ static int CursorReadTimeoutReturnStrictCallback(RedisModuleCtx *ctx, RedisModul
   AREQ_SetTimedOut(req);
 
   // If the timeout fires before the worker enters sendChunk/startPipeline, no
-  // stored cursor-read result exists. Reply with the shard cursor-read empty
-  // shape and cursor id 0 so the coordinator stops polling this shard cursor.
-  if (AREQ_TryClaimAggregateResults(req)) {
-    return shard_cursor_read_empty_reply_timeout(ctx);
+  // stored cursor-read result exists. Internal shard cursor reads return cursor
+  // id 0 so the coordinator stops polling this shard; local cursor reads keep
+  // the requested cursor id so the user can retry the same cursor.
+  if (AREQ_TryClaimAggregateResultsForTimeout(req)) {
+    return IsInternal(req) ? shard_cursor_read_empty_reply_timeout(ctx)
+                           : coord_cursor_read_empty_reply_timeout(ctx, (long long)node->cursorId);
   }
 
   AREQ_WaitForAggregateResultsComplete(req);
@@ -2009,6 +2023,19 @@ static void runCursor(RedisModule_Reply *reply, Cursor *cursor, size_t num) {
   RedisSearchCtx_UnlockSpec(AREQ_SearchCtx(req)); // Verify that we release the spec lock
 
   if (req->useReplyCallback) {
+    if (AREQ_RequiresThreadsSyncResults(req) && AREQ_AggregateResultsClaimedByTimeout(req)) {
+      // The timeout callback won after we passed the pre-sendChunk timeout
+      // check, so it already replied from the empty fast path. No reply
+      // callback will consume the stored state from this worker.
+      req->storedReplyState.cursor = NULL;
+      clearStoredCursorReadResults(&req->storedReplyState);
+      if (IsInternal(req)) {
+        Cursor_Free(cursor);
+      } else {
+        Cursor_Pause(cursor);
+      }
+      return;
+    }
     // Disposal of the stashed cursor is owned by AREQ_ReplyWithStoredResults.
     return;
   }
