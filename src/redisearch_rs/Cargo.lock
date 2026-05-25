@@ -2052,6 +2052,7 @@ dependencies = [
  "slots_tracker_ffi",
  "sorting_vector_ffi",
  "syn 2.0.117",
+ "term_dict_ffi",
  "toml",
  "triemap_ffi",
  "types_ffi",
@@ -2834,6 +2835,16 @@ dependencies = [
  "once_cell",
  "rustix",
  "windows-sys 0.61.2",
+]
+
+[[package]]
+name = "term_dict_ffi"
+version = "0.0.1"
+dependencies = [
+ "cheadergen",
+ "libc",
+ "trie_rs",
+ "workspace_hack",
 ]
 
 [[package]]

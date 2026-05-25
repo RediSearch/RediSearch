@@ -128,6 +128,16 @@ option(BUILD_TESTING "Enable testing for cpu-features dep" OFF)
 # cores (Cortex-A72, AWS Graviton1, Raspberry Pi 4) to avoid SIGILL on load.
 option(INLINE_LSE_ATOMICS "Inline LSE atomics on Linux AArch64 (Armv8.1-a+)" ON)
 
+# Route `sp->terms` RDB save/load through the Rust `TermDictionary` backend
+# instead of the C `Trie *` backend. Default OFF — the option exists so a
+# follow-up PR or CI lane can flip it once round-trip parity is proven.
+# The C trie backend stays compiled in either way (FT.SUGADD/SUGGET keys
+# still use it via `src/suggest.c`).
+option(USE_RUST_TERM_DICT "Use Rust TermDictionary backend for sp->terms RDB" OFF)
+if(USE_RUST_TERM_DICT)
+    add_compile_definitions(USE_RUST_TERM_DICT)
+endif()
+
 # Regenerate Rust→C FFI headers via cheadergen during the build.
 # Default: ON when RediSearch is the top-level project, OFF when consumed as a
 # subdirectory. Downstream consumers pulling a master commit don't need to
