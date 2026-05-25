@@ -959,14 +959,16 @@ static size_t RMCK_GetClusterSize(void) {
 static RedisModuleSlotRangeArray *RMCK_GetClusterNodeSlotRanges(RedisModuleCtx *ctx,
                                                                 const char *nodeid) {
   std::scoped_lock lock(mockClusterMutex);
+  // Upstream contract (RM_GetClusterNodeSlotRanges): always returns a valid
+  // array — possibly empty — never NULL. An unknown nodeid yields an empty
+  // array, same as a known node with no assigned slots.
   const MockClusterNode *n = findMockNode(nodeid);
-  if (!n) return nullptr;
-  size_t buf_size =
-      sizeof(RedisModuleSlotRangeArray) + n->slots.size() * sizeof(RedisModuleSlotRange);
+  size_t num_slots = n ? n->slots.size() : 0;
+  size_t buf_size = sizeof(RedisModuleSlotRangeArray) + num_slots * sizeof(RedisModuleSlotRange);
   auto *arr = static_cast<RedisModuleSlotRangeArray *>(RMCK_Alloc(buf_size));
-  arr->num_ranges = static_cast<int32_t>(n->slots.size());
-  if (!n->slots.empty()) {
-    std::memcpy(arr->ranges, n->slots.data(), n->slots.size() * sizeof(RedisModuleSlotRange));
+  arr->num_ranges = static_cast<int32_t>(num_slots);
+  if (n && !n->slots.empty()) {
+    std::memcpy(arr->ranges, n->slots.data(), num_slots * sizeof(RedisModuleSlotRange));
   }
   if (ctx && ctx->automemory) ctx->alloc_slot_ranges.insert(arr);
   return arr;

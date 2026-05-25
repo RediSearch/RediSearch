@@ -98,8 +98,8 @@ MRClusterTopology *MRClusterTopology_FromAPI(RedisModuleCtx *ctx, const char *au
     // (e.g. fresh nodes not yet assigned slots) are excluded from the topology.
     // The module API hands us ownership; we must explicitly free.
     RedisModuleSlotRangeArray *node_slots = RedisModule_GetClusterNodeSlotRanges(ctx, node_id);
-    if (!node_slots || node_slots->num_ranges <= 0) {
-      if (node_slots) RedisModule_ClusterFreeSlotRanges(ctx, node_slots);
+    if (node_slots->num_ranges <= 0) {
+      RedisModule_ClusterFreeSlotRanges(ctx, node_slots);
       continue;
     }
 
