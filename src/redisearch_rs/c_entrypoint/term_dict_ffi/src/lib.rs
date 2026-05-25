@@ -347,10 +347,7 @@ pub unsafe extern "C" fn TermDict_AddTerm(
 
     // SAFETY: Caller guarantees `d` points to a valid `TermDict`.
     let TermDict(dict) = unsafe { &mut *d };
-    matches!(
-        dict.add_term(s, score as f32, num_docs),
-        InsertOutcome::New
-    )
+    matches!(dict.add_term(s, score as f32, num_docs), InsertOutcome::New)
 }
 
 /// Decrement the `num_docs` count for `term` by `delta`. Mirrors
