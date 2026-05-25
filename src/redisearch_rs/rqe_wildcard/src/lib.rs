@@ -68,6 +68,11 @@ pub struct WildcardPattern<'pattern> {
     /// This can be used as an optimization to short-circuit the matching process
     /// early on if the input is longer than the expected length.
     expected_length: Option<usize>,
+    /// Number of "atoms" in the pattern, where one atom is the smallest matchable
+    /// unit produced by [`Self::parse`]: either a single byte from a `Literal`
+    /// token or a `?` / `*` token. Maintained on the fly by `parse` so callers
+    /// (e.g. NFA-size dispatchers) don't have to re-walk `tokens`.
+    atom_count: usize,
 }
 
 impl<'pattern> WildcardPattern<'pattern> {
@@ -121,6 +126,11 @@ impl<'pattern> WildcardPattern<'pattern> {
         let mut tokens: Vec<Token<'pattern>> = Vec::new();
 
         let mut expected_length = Some(pattern.len());
+        // Maintained alongside `tokens`: every branch below that contributes
+        // one matchable unit (`?`, `*`, or a single literal byte — whether
+        // it starts a fresh `Literal` or extends an existing one) bumps this
+        // by one. `\` and `**` simplifications add nothing.
+        let mut atom_count: usize = 0;
         let mut pattern_iter = pattern.iter().copied().enumerate().peekable();
 
         let mut escape_next = false;
@@ -139,7 +149,10 @@ impl<'pattern> WildcardPattern<'pattern> {
                     // e.g. `*??` becomes `??*`, `*?*?*` becomes `??*`.
                     loop {
                         match pattern_iter.peek().map(|(_, c)| c) {
-                            Some(b'?') => tokens.push(Token::One),
+                            Some(b'?') => {
+                                tokens.push(Token::One);
+                                atom_count += 1;
+                            }
                             Some(b'*') => {}
                             _ => break,
                         }
@@ -147,33 +160,63 @@ impl<'pattern> WildcardPattern<'pattern> {
                     }
 
                     tokens.push(Token::Any);
+                    atom_count += 1;
                     expected_length = None;
                 }
                 (b'*', _, false) => {
                     tokens.push(Token::Any);
+                    atom_count += 1;
                     expected_length = None;
                 }
-                (b'?', _, false) => tokens.push(Token::One),
+                (b'?', _, false) => {
+                    tokens.push(Token::One);
+                    atom_count += 1;
+                }
                 (_, _, true) => {
                     // Handle escaped characters by starting a new `Literal` token
                     tokens.push(Token::Literal(&pattern[i..i + 1]));
+                    atom_count += 1;
                 }
-                _ => match tokens.last_mut() {
-                    // Literal encountered. Either start a new `Literal` token or extend the last one.
-                    Some(Token::Literal(chunk)) => {
-                        let chunk_len = chunk.len();
-                        let chunk_start = i - chunk_len;
-                        *chunk = &pattern[chunk_start..chunk_start + chunk_len + 1];
+                _ => {
+                    match tokens.last_mut() {
+                        // Literal encountered. Either start a new `Literal` token or extend the last one.
+                        Some(Token::Literal(chunk)) => {
+                            let chunk_len = chunk.len();
+                            let chunk_start = i - chunk_len;
+                            *chunk = &pattern[chunk_start..chunk_start + chunk_len + 1];
+                        }
+                        _ => tokens.push(Token::Literal(&pattern[i..i + 1])),
                     }
-                    _ => tokens.push(Token::Literal(&pattern[i..i + 1])),
-                },
+                    atom_count += 1;
+                }
             }
             escape_next = false;
+        }
+
+        // With debug assertions on, recompute the count from the final
+        // `tokens` and check it against the inline-maintained value.
+        // Guards against future edits to the match arms above that
+        // forget to bump `atom_count` alongside a push. Stripped in
+        // release.
+        #[cfg(debug_assertions)]
+        {
+            let recomputed: usize = tokens
+                .iter()
+                .map(|t| match t {
+                    Token::Literal(bytes) => bytes.len(),
+                    Token::One | Token::Any => 1,
+                })
+                .sum();
+            debug_assert_eq!(
+                atom_count, recomputed,
+                "WildcardPattern::atom_count is out of sync with `tokens`",
+            );
         }
 
         Self {
             tokens,
             expected_length,
+            atom_count,
         }
     }
 
@@ -297,6 +340,17 @@ impl<'pattern> WildcardPattern<'pattern> {
     /// it contains at least one wildcard).
     pub const fn expected_length(&self) -> Option<usize> {
         self.expected_length
+    }
+
+    /// The number of "atoms" in the pattern: every `?`, every `*`, and one
+    /// per byte inside any `Literal` token. Cached during [`Self::parse`],
+    /// so this is O(1).
+    ///
+    /// Useful for downstream consumers that need to size data structures
+    /// proportionally to the pattern (e.g. picking the right bitset width
+    /// for a wildcard NFA).
+    pub const fn atom_count(&self) -> usize {
+        self.atom_count
     }
 }
 
