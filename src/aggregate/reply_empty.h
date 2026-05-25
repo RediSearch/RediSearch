@@ -41,3 +41,8 @@ int single_shard_common_query_reply_empty(RedisModuleCtx *ctx, RedisModuleString
 // so the client can retry, and bumps the timeout warning stats counter for
 // parity with `AREQ_ReplyWithStoredResults`.
 int coord_cursor_read_empty_reply_timeout(RedisModuleCtx *ctx, long long cid);
+
+// Shard empty cursor-shaped reply for an internal _FT.CURSOR READ under the
+// RETURN_STRICT timeout fast-path. Uses cursor id 0 so the coordinator stops
+// reading this shard cursor.
+int shard_cursor_read_empty_reply_timeout(RedisModuleCtx *ctx);

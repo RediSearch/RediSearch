@@ -64,7 +64,9 @@ static void AREQ_DecrRefWrapper(void *privdata) {
 // path, where CursorReadReplyCallback already cleared it).
 static void ShardCursorBlockClient_FreeAREQ(void *privdata) {
   AREQ *req = (AREQ *)privdata;
-  AREQ_CleanUpStoredCursor(req);
+  if (req->reqConfig.timeoutPolicy != TimeoutPolicy_ReturnStrict) {
+    AREQ_CleanUpStoredCursor(req);
+  }
   AREQ_DecrRef(req);
 }
 
@@ -1716,6 +1718,33 @@ static int CursorReadTimeoutFailCallback(RedisModuleCtx *ctx, RedisModuleString 
   return REDISMODULE_OK;
 }
 
+static int CursorReadTimeoutReturnStrictCallback(RedisModuleCtx *ctx, RedisModuleString **argv,
+                                                 int argc) {
+  UNUSED(argv);
+  UNUSED(argc);
+
+  BlockedCursorNode *node = RedisModule_GetBlockedClientPrivateData(ctx);
+  if (!node || !node->privdata) {
+    RedisModule_Log(ctx, "warning", "CursorReadTimeoutReturnStrictCallback: no node or privdata");
+    QueryWarningsGlobalStats_UpdateWarning(QUERY_WARNING_CODE_TIMED_OUT, 1, SHARD_ERR_WARN);
+    return shard_cursor_read_empty_reply_timeout(ctx);
+  }
+
+  AREQ *req = (AREQ *)node->privdata;
+  AREQ_SetTimedOut(req);
+
+  if (AREQ_TryClaimAggregateResults(req)) {
+    return shard_cursor_read_empty_reply_timeout(ctx);
+  }
+
+  AREQ_WaitForAggregateResultsComplete(req);
+  RS_ASSERT(req->storedReplyState.hasStoredResults);
+
+  drainPartialResultsAfterTimeout(req);
+  AREQ_ReplyWithStoredResults(ctx, req);
+  return REDISMODULE_OK;
+}
+
 // Shard FT.CURSOR READ FAIL-path reply callback.
 // Mirrors QueryReplyCallbackbut uses a different privdata type (BlockedCursorNode).
 // Not invoked if the timeout fired first.
@@ -1954,6 +1983,13 @@ static void runCursor(RedisModule_Reply *reply, Cursor *cursor, size_t num) {
   }
 #endif
 
+  if (IsInternal(req) && req->useReplyCallback && AREQ_RequiresThreadsSyncResults(req) &&
+      AREQ_TimedOut(req)) {
+    RedisSearchCtx_UnlockSpec(AREQ_SearchCtx(req));
+    Cursor_Free(cursor);
+    return;
+  }
+
   if (req->useReplyCallback) {
     // Stash the cursor BEFORE sendChunk: sendChunk's signal can wake the
     // timeout_callback, which reads storedReplyState.cursor to pause/free it.
@@ -2191,28 +2227,34 @@ int RSCursorReadCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc)
   }
 
   if (RunInThread(ctx) && !upstreamBC) {
-    // Shard/local path: block and dispatch to worker. FAIL arms the
-    // blocked-client timer with reply/timeout callbacks;
+    // Shard/local path: block and dispatch to worker. Non-RETURN policies arm
+    // the blocked-client timer with reply/timeout callbacks;
     // BlockCursorClientWithTimeout requires cursor->execState != NULL (it dereferences it
     // for the AST).
     RS_ASSERT(cursor->execState != NULL);
     BlockClientCtx blockClientCtx = {0};
-    if (cursor->queryTimeoutPolicy == TimeoutPolicy_Fail) {
+    if (cursor->queryTimeoutPolicy != TimeoutPolicy_Return) {
       AREQ *req = cursor->execState;
       // Cursor cache is the snapshot frozen at AREQ_StartCursor; must agree with reqConfig.
       RS_ASSERT(cursor->queryTimeoutMS == (size_t)req->reqConfig.queryTimeoutMS);
       RS_ASSERT(cursor->queryTimeoutPolicy == req->reqConfig.timeoutPolicy);
+      if (cursor->queryTimeoutPolicy == TimeoutPolicy_ReturnStrict) {
+        req->syncCtx.requiresAggregateResultsSync = true;
+        AREQ_ResetForCursorReadReturnStrict(req);
+      }
       // Extra ref owned by the BlockedCursorNode, released in FreeCursorNode.
       AREQ_IncrRef(req);
       blockClientCtx.privdata        = req;
       blockClientCtx.freePrivData    = ShardCursorBlockClient_FreeAREQ;
       blockClientCtx.replyCallback   = CursorReadReplyCallback;
-      blockClientCtx.timeoutCallback = CursorReadTimeoutFailCallback;
+      blockClientCtx.timeoutCallback =
+          cursor->queryTimeoutPolicy == TimeoutPolicy_Fail ? CursorReadTimeoutFailCallback
+                                                           : CursorReadTimeoutReturnStrictCallback;
       blockClientCtx.timeoutMS       = (rs_wall_clock_ms_t)cursor->queryTimeoutMS;
       req->useReplyCallback = true;
     } else {
-      // Non-FAIL: reply written inline; clear any stale useReplyCallback
-      // from a prior FAIL FT.AGGREGATE so runCursor doesn't park the cursor.
+      // RETURN: reply written inline; clear any stale useReplyCallback
+      // from a prior callback-based cursor read so runCursor doesn't park the cursor.
       cursor->execState->useReplyCallback = false;
     }
     CursorReadCtx *cr_ctx = rm_new(CursorReadCtx);

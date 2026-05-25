@@ -330,6 +330,17 @@ def _wait_shard_paused_after_aggregate_result(shard_conn, cmd_name, timeout=30):
             time.sleep(0.1)
 
 
+def _internal_hybrid_cursor_map(result):
+    if isinstance(result, dict):
+        result = dict(result)
+        result.pop('warnings', None)
+        return result
+
+    if 'warnings' in result:
+        result = result[:result.index('warnings')]
+    return to_dict(result)
+
+
 class TestCoordinatorTimeout:
     """Tests for the blocked client timeout mechanism for the coordinator."""
 
@@ -1214,6 +1225,103 @@ class TestCoordinatorTimeout:
             for c, prev in zip(all_shards, prev_sizes):
                 c.execute_command(debug_cmd(), 'QUERY_CONTROLLER',
                                   'SET_CURSOR_READ_SIZE', prev)
+
+    def test_return_strict_internal_hybrid_vsim_cursor_read_timeout_uses_cached_policy(self):
+        """_FT.HYBRID-created VSIM cursors keep RETURN_STRICT for _FT.CURSOR READ.
+
+        The shard cursor is created while ON_TIMEOUT is return-strict, then the
+        live shard config is changed back to return before reading. The
+        subsequent _FT.CURSOR READ must still use the cursor's cached policy,
+        arm the RETURN_STRICT blocked-client timeout callback, and reply with a
+        cursor-shaped timeout warning instead of a hard timeout error.
+        """
+        env = self.env
+        skipIfNoEnableAssert(env)
+
+        non_coord_shards = _non_coord_shard_conns(env)
+        env.assertGreater(len(non_coord_shards), 0,
+                          message="Test requires a non-coordinator shard")
+        target_shard = non_coord_shards[0]
+        target_pid = pid_cmd(target_shard)
+        target_shard_id = next(
+            shard_id for shard_id in range(1, env.shardsCount + 1)
+            if pid_cmd(env.getConnection(shard_id)) == target_pid)
+        slots_by_shard = dict(get_shard_slot_ranges(env))
+        slots_data = slots_by_shard[target_shard_id]
+
+        prev_policy = target_shard.execute_command('CONFIG', 'GET', ON_TIMEOUT_CONFIG)[ON_TIMEOUT_CONFIG]
+        before_info = info_modules_to_dict(target_shard)
+        base_warn_shard = int(before_info[WARN_ERR_SECTION][TIMEOUT_WARNING_SHARD_METRIC])
+
+        try:
+            target_shard.execute_command('CONFIG', 'SET', ON_TIMEOUT_CONFIG, 'return-strict')
+            target_shard.execute_command('DEBUG', 'MARK-INTERNAL-CLIENT')
+            cursor_reply = target_shard.execute_command(
+                '_FT.HYBRID', 'hybrid_idx',
+                'SEARCH', '*',
+                'VSIM', '@embedding', '$BLOB',
+                'WITHCURSOR', 'COUNT', '1',
+                '_SLOTS_INFO', slots_data,
+                'PARAMS', '2', 'BLOB', self.hybrid_query_vec,
+                '_COORD_DISPATCH_TIME', '1000000')
+            cursors = _internal_hybrid_cursor_map(cursor_reply)
+            env.assertIn('VSIM', cursors)
+            env.assertIn('SEARCH', cursors)
+            vsim_cursor = cursors['VSIM']
+            search_cursor = cursors['SEARCH']
+            env.assertNotEqual(vsim_cursor, 0, message="VSIM cursor should be active")
+
+            # Prove _FT.CURSOR READ uses the cursor snapshot rather than the
+            # current config value.
+            target_shard.execute_command('CONFIG', 'SET', ON_TIMEOUT_CONFIG, 'return')
+            target_shard.execute_command(debug_cmd(), 'WORKERS', 'pause')
+
+            result = []
+            try:
+                t_query = threading.Thread(
+                    target=call_and_store,
+                    args=(target_shard.execute_command,
+                          ['_FT.CURSOR', 'READ', 'hybrid_idx', str(vsim_cursor)],
+                          result),
+                    daemon=True)
+                t_query.start()
+                blocked_client_id = wait_for_blocked_query_client(
+                    target_shard, '_FT.CURSOR|READ',
+                    f'Client for _FT.CURSOR|READ not found on shard pid={pid_cmd(target_shard)}')
+                env.assertEqual(
+                    target_shard.execute_command('CLIENT', 'UNBLOCK', blocked_client_id, 'TIMEOUT'),
+                    1,
+                    message="CLIENT UNBLOCK on shard's _FT.CURSOR|READ should report 1")
+                wait_for_client_unblocked(target_shard, blocked_client_id)
+            finally:
+                target_shard.execute_command(debug_cmd(), 'WORKERS', 'resume')
+                target_shard.execute_command(debug_cmd(), 'WORKERS', 'drain')
+
+            t_query.join(timeout=10)
+            env.assertFalse(t_query.is_alive(),
+                            message="VSIM cursor read thread should have finished")
+            env.assertEqual(len(result), 1, message="Expected one cursor read reply")
+
+            read_reply, next_cursor = result[0]
+            env.assertEqual(next_cursor, 0,
+                            message=f"Timed-out shard cursor should close, got {result[0]}")
+            env.assertEqual(read_reply.get('warning', []), [TIMEOUT_WARNING],
+                            message=f"Expected timeout warning, got {read_reply}")
+
+            wait_for_info_metric(
+                target_shard, [WARN_ERR_SECTION, TIMEOUT_WARNING_SHARD_METRIC],
+                str(base_warn_shard + 1),
+                msg="VSIM _FT.CURSOR READ RETURN_STRICT timeout warning should bump shard metric")
+
+            if search_cursor:
+                target_shard.execute_command('_FT.CURSOR', 'DEL', 'hybrid_idx', str(search_cursor))
+        finally:
+            try:
+                target_shard.execute_command(debug_cmd(), 'WORKERS', 'resume')
+                target_shard.execute_command(debug_cmd(), 'WORKERS', 'drain')
+            except Exception:
+                pass
+            target_shard.execute_command('CONFIG', 'SET', ON_TIMEOUT_CONFIG, prev_policy)
 
     def test_shard_timeout_fail(self):
         """Test shard timeout with FAIL policy."""
