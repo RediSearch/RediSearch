@@ -3203,6 +3203,7 @@ dependencies = [
  "redis_mock",
  "redis_reply",
  "redisearch_rs",
+ "ref_mode",
  "rqe_core",
  "rqe_iterator_type",
  "rqe_iterators",
