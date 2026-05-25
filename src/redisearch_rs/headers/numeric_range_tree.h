@@ -133,13 +133,6 @@ typedef struct AddResult {
    * Splitting a leaf adds one new leaf. Trimming decreases this.
    */
   int32_t num_leaves_delta;
-  /**
-   * The net change in the number of inverted-index blocks across all leaves touched by
-   * this add. Block growth (writes spilling into a new block, new leaves created by a
-   * split) contributes positively; range removals during rebalancing (`remove_range`,
-   * rotations dropping an internal node's retained range) contribute negatively.
-   */
-  int32_t block_count_delta;
 } AddResult;
 
 /**
@@ -174,11 +167,6 @@ typedef struct CompactIfSparseResult {
    * Positive values indicate growth, negative values indicate shrinkage.
    */
   int64_t node_size_delta;
-  /**
-   * Net change in inverted-index block count across all dropped leaves. Always non-positive
-   * (trimming only removes blocks).
-   */
-  int32_t block_count_delta;
 } CompactIfSparseResult;
 
 /**
@@ -208,9 +196,4 @@ typedef struct TrimEmptyLeavesResult {
    * The net change in the number of leaf nodes.
    */
   int32_t num_leaves_delta;
-  /**
-   * Net change in inverted-index block count across all dropped leaves. Always non-positive
-   * (trimming only removes blocks).
-   */
-  int32_t block_count_delta;
 } TrimEmptyLeavesResult;

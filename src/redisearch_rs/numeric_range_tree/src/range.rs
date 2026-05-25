@@ -94,12 +94,9 @@ impl NumericRange {
 
     /// Add a (docId, value) entry to this range.
     ///
-    /// Updates min/max bounds and cardinality estimation. Returns an [`AddRecordOutcome`]
-    /// reporting how many bytes the inverted index grew by and how many new index blocks the
-    /// write created.
-    ///
-    /// [`AddRecordOutcome`]: inverted_index::AddRecordOutcome
-    pub fn add(&mut self, doc_id: t_docId, value: f64) -> inverted_index::AddRecordOutcome {
+    /// Updates min/max bounds and cardinality estimation.
+    /// Returns the number of bytes the inverted index grew by.
+    pub fn add(&mut self, doc_id: t_docId, value: f64) -> usize {
         self.hll.add(&value.into());
         self.add_without_cardinality(doc_id, value)
     }
@@ -108,7 +105,6 @@ impl NumericRange {
     ///
     /// This function DOES NOT update the cardinality of the range.
     /// Use [`add`][Self::add] to add an entry _and_ update cardinality of the range.
-    /// Returns `(memory_growth, blocks_added)` — see [`Self::add`].
     ///
     /// # Use Cases
     ///
@@ -116,11 +112,7 @@ impl NumericRange {
     ///   node, cardinality is already tracked at the leaf level.
     /// - **Splitting**: When redistributing entries during a split, the caller
     ///   explicitly updates cardinality for each destination range.
-    pub fn add_without_cardinality(
-        &mut self,
-        doc_id: t_docId,
-        value: f64,
-    ) -> inverted_index::AddRecordOutcome {
+    pub fn add_without_cardinality(&mut self, doc_id: t_docId, value: f64) -> usize {
         // Update bounds
         if value < self.min_val {
             self.min_val = value;

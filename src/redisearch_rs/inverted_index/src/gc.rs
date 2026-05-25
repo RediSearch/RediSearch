@@ -85,11 +85,6 @@ pub struct GcApplyInfo {
     /// The number of entries that were removed from the index including duplicates
     pub entries_removed: usize,
 
-    /// Net change in the index's block count for this apply. Positive when blocks were added
-    /// (e.g. a `Replace` repair adding more blocks than it removed), negative when removed.
-    /// Callers maintaining per-spec totals should add this signed value to their counter.
-    pub block_count_delta: i64,
-
     /// Whether or not we ignored the last block in the index, since it changed
     /// compared to the time we performed the scan
     pub ignored_last_block: bool,
@@ -203,11 +198,8 @@ impl<E: Encoder + DecodedBy> InvertedIndex<E> {
             bytes_freed: 0,
             bytes_allocated: 0,
             entries_removed: 0,
-            block_count_delta: 0,
             ignored_last_block: false,
         };
-
-        let blocks_before = self.blocks.len();
 
         // Check if the last block has changed since the scan was performed
         let last_block_changed = self
@@ -289,7 +281,6 @@ impl<E: Encoder + DecodedBy> InvertedIndex<E> {
             }
         }
 
-        info.block_count_delta = self.blocks.len() as i64 - blocks_before as i64;
         self.gc_marker_inc();
 
         info

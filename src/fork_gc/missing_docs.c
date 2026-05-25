@@ -91,15 +91,12 @@ FGCError FGC_parentHandleMissingDocs(ForkGC *gc) {
     goto cleanup;
   }
 
-  InvertedIndex_ApplyGCDelta(idx, delta, &info);
+  InvertedIndex_ApplyGcDelta(idx, delta, &info);
   delta = NULL;
-  IndexStats_BlockCountAdd(&sctx->spec->stats, info.block_count_delta);
 
   if (InvertedIndex_NumDocs(idx) == 0) {
-    // Sample memory and block count before the destructor callback (InvIndFreeCb) frees
-    // the index without spec context.
+    // inverted index was cleaned entirely lets free it
     info.bytes_freed += InvertedIndex_MemUsage(idx);
-    IndexStats_BlockCountAdd(&sctx->spec->stats, -(int64_t)InvertedIndex_NumBlocks(idx));
     dictDelete(sctx->spec->missingFieldDict, fieldName);
   }
   FGC_updateStats(gc, sctx, info.entries_removed, info.bytes_freed, info.bytes_allocated, info.ignored_last_block);

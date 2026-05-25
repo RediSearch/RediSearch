@@ -8,8 +8,7 @@
 */
 
 use crate::{
-    AddRecordOutcome, DecodedBy, Encoder, FilterMaskReader, GcApplyInfo, GcScanDelta, IndexBlock,
-    InvertedIndex,
+    DecodedBy, Encoder, FilterMaskReader, GcApplyInfo, GcScanDelta, IndexBlock, InvertedIndex,
     debug::{BlockSummary, Summary},
     reader::IndexReaderCore,
 };
@@ -42,14 +41,14 @@ impl<E: Encoder> FieldMaskTrackingIndex<E> {
         }
     }
 
-    /// Add a new record to the index. See [`InvertedIndex::add_record`] for the meaning of the
-    /// returned `(memory_growth, blocks_added)` pair.
-    pub fn add_record(&mut self, record: &RSIndexResult) -> std::io::Result<AddRecordOutcome> {
-        let result = self.index.add_record(record)?;
+    /// Add a new record to the index and return by how much memory grew. It is expected that
+    /// the document ID of the record is greater than or equal the last document ID in the index.
+    pub fn add_record(&mut self, record: &RSIndexResult) -> std::io::Result<usize> {
+        let mem_growth = self.index.add_record(record)?;
 
         self.field_mask |= record.field_mask;
 
-        Ok(result)
+        Ok(mem_growth)
     }
 
     /// The memory size of the index in bytes.
