@@ -32,6 +32,29 @@ typedef struct CommonPipelineParams {
   const char* scoreAlias;
 } CommonPipelineParams;
 
+typedef struct AggregateGroupLimits {
+  /** Effective maximum number of GROUPBY groups this pipeline may materialize. */
+  size_t maxGroups;
+
+  /** Configured base limit, used for row expansion checks and error reporting. */
+  size_t baseMaxGroups;
+
+  /** Number of shards used to derive maxGroups for coordinator aggregation. */
+  size_t shardCount;
+
+  /** True when maxGroups is a coordinator-side effective limit. */
+  bool isCoordinator;
+} AggregateGroupLimits;
+
+static inline AggregateGroupLimits AggregateGroupLimits_Default(size_t maxGroups) {
+  AggregateGroupLimits limits = {0};
+  limits.maxGroups = maxGroups;
+  limits.baseMaxGroups = maxGroups;
+  limits.shardCount = 1;
+  limits.isCoordinator = false;
+  return limits;
+}
+
 /**
  * Parameters specific to result processing and output formatting pipeline construction.
  * This struct extends CommonPipelineParams with additional configuration needed for
@@ -54,17 +77,8 @@ typedef struct AggregationPipelineParams {
    *  over individual step limits when smaller. */
   size_t maxResultsLimit;
 
-  /** Maximum number of GROUPBY groups that can be materialized. */
-  size_t maxAggregateGroups;
-
-  /** Configured base GROUPBY group limit, used for row expansion checks and errors. */
-  size_t maxAggregateGroupsBase;
-
-  /** Number of shards used to derive the effective coordinator GROUPBY group limit. */
-  size_t maxAggregateGroupsShardCount;
-
-  /** True when maxAggregateGroups is a coordinator-side effective limit. */
-  bool maxAggregateGroupsIsCoordinator;
+  /** GROUPBY materialization limits for this pipeline. */
+  AggregateGroupLimits aggregateGroupLimits;
 
   /** Language setting for text highlighting and language-specific processing.
    *  Used by highlighting result processors to apply proper stemming,

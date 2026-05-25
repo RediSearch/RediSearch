@@ -1095,9 +1095,6 @@ AREQ *AREQ_New(void) {
   req->maxSearchResults = RSGlobalConfig.maxSearchResults;
   req->maxAggregateResults = RSGlobalConfig.maxAggregateResults;
   req->maxAggregateGroups = RSGlobalConfig.maxAggregateGroups;
-  req->maxAggregateGroupsBase = req->maxAggregateGroups;
-  req->maxAggregateGroupsShardCount = 1;
-  req->maxAggregateGroupsIsCoordinator = false;
   req->optimizer = QOptimizer_New();
   req->profile = Profile_PrintDefault;
   req->prefixesOffset = 0;
@@ -1741,7 +1738,8 @@ void AREQ_CleanUpStoredCursor(AREQ *req) {
   }
 }
 
-int AREQ_BuildPipeline(AREQ *req, QueryError *status) {
+int AREQ_BuildPipelineWithAggregateGroupLimits(AREQ *req, QueryError *status,
+                                               AggregateGroupLimits aggregateGroupLimits) {
   Pipeline_Initialize(&req->pipeline, req->reqConfig.timeoutPolicy, status);
   if (!(AREQ_RequestFlags(req) & QEXEC_F_BUILDPIPELINE_NO_ROOT)) {
     QueryPipelineParams params = {
@@ -1775,10 +1773,7 @@ int AREQ_BuildPipeline(AREQ *req, QueryError *status) {
     },
     .outFields = &req->outFields,
     .maxResultsLimit = IsSearch(req) ? req->maxSearchResults : req->maxAggregateResults,
-    .maxAggregateGroups = req->maxAggregateGroups,
-    .maxAggregateGroupsBase = req->maxAggregateGroupsBase,
-    .maxAggregateGroupsShardCount = req->maxAggregateGroupsShardCount,
-    .maxAggregateGroupsIsCoordinator = req->maxAggregateGroupsIsCoordinator,
+    .aggregateGroupLimits = aggregateGroupLimits,
     .language = req->searchopts.language,
   };
   int rc = Pipeline_BuildAggregationPart(&req->pipeline, &params, &req->stateflags, status);
@@ -1786,4 +1781,9 @@ int AREQ_BuildPipeline(AREQ *req, QueryError *status) {
     AREQ_SetCanYieldPartialResults(req);
   }
   return rc;
+}
+
+int AREQ_BuildPipeline(AREQ *req, QueryError *status) {
+  return AREQ_BuildPipelineWithAggregateGroupLimits(
+      req, status, AggregateGroupLimits_Default(req->maxAggregateGroups));
 }

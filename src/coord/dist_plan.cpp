@@ -642,11 +642,13 @@ int AREQ_BuildDistributedPipeline(AREQ *r, AREQDIST_UpstreamInfo *us, QueryError
   if (shardCount == 0) {
     shardCount = 1;
   }
-  r->maxAggregateGroups = saturatingMulSize(r->maxAggregateGroupsBase, shardCount);
-  r->maxAggregateGroupsShardCount = shardCount;
-  r->maxAggregateGroupsIsCoordinator = true;
+  AggregateGroupLimits aggregateGroupLimits = AggregateGroupLimits_Default(r->maxAggregateGroups);
+  aggregateGroupLimits.maxGroups =
+      saturatingMulSize(aggregateGroupLimits.baseMaxGroups, shardCount);
+  aggregateGroupLimits.shardCount = shardCount;
+  aggregateGroupLimits.isCoordinator = true;
 
-  int rc = AREQ_BuildPipeline(r, status);
+  int rc = AREQ_BuildPipelineWithAggregateGroupLimits(r, status, aggregateGroupLimits);
   RLookup_DisableOptions(&dstp->lk, RLOOKUP_OPT_ALLOWUNRESOLVED);
 
   if (rc != REDISMODULE_OK) {

@@ -170,8 +170,7 @@ TEST_F(AggTest, testGroupBy) {
   RLookupKey *count_out = RLookup_GetKey_Write(&rk_out, "COUNT", RLOOKUP_F_NOFLAGS);
 
   Grouper *gr = Grouper_New((const RLookupKey **)&ctx.rkvalue, (const RLookupKey **)&v_out, 1,
-                            DEFAULT_MAX_AGGREGATE_GROUPS, DEFAULT_MAX_AGGREGATE_GROUPS, 1,
-                            false);
+                            AggregateGroupLimits_Default(DEFAULT_MAX_AGGREGATE_GROUPS));
   ASSERT_TRUE(gr != NULL);
 
   ArgsCursor args = {0};
@@ -216,8 +215,7 @@ TEST_F(AggTest, testGroupSplit) {
   RLookupKey *val_out = RLookup_GetKey_Write(&lk_out, "value", RLOOKUP_F_NOFLAGS);
   RLookupKey *count_out = RLookup_GetKey_Write(&lk_out, "COUNT", RLOOKUP_F_NOFLAGS);
   Grouper *gr = Grouper_New((const RLookupKey **)&gen.kvalue, (const RLookupKey **)&val_out, 1,
-                            DEFAULT_MAX_AGGREGATE_GROUPS, DEFAULT_MAX_AGGREGATE_GROUPS, 1,
-                            false);
+                            AggregateGroupLimits_Default(DEFAULT_MAX_AGGREGATE_GROUPS));
   ArgsCursor args = {0};
   ReducerOptions opt = {0};
   opt.args = &args;

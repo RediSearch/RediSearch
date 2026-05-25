@@ -291,9 +291,6 @@ typedef struct AREQ {
   size_t maxSearchResults;
   size_t maxAggregateResults;
   size_t maxAggregateGroups;
-  size_t maxAggregateGroupsBase;
-  size_t maxAggregateGroupsShardCount;
-  bool maxAggregateGroupsIsCoordinator;
 
   // Cursor id, if this is a cursor
   uint64_t cursor_id;
@@ -386,6 +383,8 @@ int AREQ_ApplyContext(AREQ *req, RedisSearchCtx *sctx, QueryError *status);
  * the requests. This does not yet start iterating over the objects
  */
 int AREQ_BuildPipeline(AREQ *req, QueryError *status);
+int AREQ_BuildPipelineWithAggregateGroupLimits(AREQ *req, QueryError *status,
+                                               AggregateGroupLimits aggregateGroupLimits);
 
 /**
  * Classify the request's (already-built) pipeline as yielding a valid partial
@@ -471,8 +470,7 @@ static inline AGGPlan *AREQ_AGGPlan(AREQ *req) {
  * should write their data using `lksrc` as a reference point.
  */
 Grouper *Grouper_New(const RLookupKey **srckeys, const RLookupKey **dstkeys, size_t n,
-                     size_t maxAggregateGroups, size_t maxAggregateGroupsBase,
-                     size_t maxAggregateGroupsShardCount, bool maxAggregateGroupsIsCoordinator);
+                     AggregateGroupLimits aggregateGroupLimits);
 
 void Grouper_Free(Grouper *g);
 

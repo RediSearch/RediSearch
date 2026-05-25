@@ -10,6 +10,7 @@
 #include "value_ffi.h"
 #include "search_result_ffi.h"
 #include <result_processor.h>
+#include "pipeline/pipeline.h"
 #include <util/block_alloc.h>
 #include <util/khash.h>
 #include "reducer.h"
@@ -74,27 +75,25 @@ typedef struct Grouper {
   Reducer **reducers;
 
   // GROUPBY materialization limit.
-  size_t maxAggregateGroups;
-  size_t maxAggregateGroupsBase;
-  size_t maxAggregateGroupsShardCount;
-  bool maxAggregateGroupsIsCoordinator;
+  AggregateGroupLimits aggregateGroupLimits;
 
   // Used for maintaining state when yielding groups
   khiter_t iter;
 } Grouper;
 
 static void setAggregateGroupLimitError(const Grouper *g) {
-  if (g->maxAggregateGroupsIsCoordinator) {
+  if (g->aggregateGroupLimits.isCoordinator) {
     QueryError_SetWithoutUserDataFmt(
         g->base.parent->err, QUERY_ERROR_CODE_LIMIT,
         "Aggregate GROUPBY exceeded MAX_AGGREGATE_GROUPS coordinator limit of %zu groups "
         "(%zu * %zu shards)",
-        g->maxAggregateGroups, g->maxAggregateGroupsBase, g->maxAggregateGroupsShardCount);
+        g->aggregateGroupLimits.maxGroups, g->aggregateGroupLimits.baseMaxGroups,
+        g->aggregateGroupLimits.shardCount);
   } else {
     QueryError_SetWithoutUserDataFmt(
         g->base.parent->err, QUERY_ERROR_CODE_LIMIT,
         "Aggregate GROUPBY exceeded MAX_AGGREGATE_GROUPS limit of %zu groups",
-        g->maxAggregateGroups);
+        g->aggregateGroupLimits.maxGroups);
   }
 }
 
@@ -102,7 +101,7 @@ static void setAggregateGroupExpansionLimitError(const Grouper *g) {
   QueryError_SetWithoutUserDataFmt(
       g->base.parent->err, QUERY_ERROR_CODE_LIMIT,
       "Aggregate GROUPBY row expansion exceeded MAX_AGGREGATE_GROUPS limit of %zu combinations",
-      g->maxAggregateGroupsBase);
+      g->aggregateGroupLimits.baseMaxGroups);
 }
 
 /**
@@ -194,7 +193,7 @@ static int extractGroups(Grouper *g, const RSValue **xarr, size_t xpos, size_t x
     // Get or create the group
     khiter_t k = kh_get(khid, g->groups, hval);  // first have to get ieter
     if (k == kh_end(g->groups)) {                // k will be equal to kh_end if key not present
-      if (kh_size(g->groups) >= g->maxAggregateGroups) {
+      if (kh_size(g->groups) >= g->aggregateGroupLimits.maxGroups) {
         setAggregateGroupLimitError(g);
         return RS_RESULT_ERROR;
       }
@@ -261,7 +260,7 @@ static int invokeGroupReducers(Grouper *g, RLookupRow *srcrow) {
     if (RSValue_IsArray(expanded)) {
       size_t len = RSValue_ArrayLen(expanded);
       if (len > 1) {
-        if (rowExpansion > g->maxAggregateGroupsBase / len) {
+        if (rowExpansion > g->aggregateGroupLimits.baseMaxGroups / len) {
           setAggregateGroupExpansionLimitError(g);
           return RS_RESULT_ERROR;
         }
@@ -336,17 +335,13 @@ void Grouper_Free(Grouper *g) {
 }
 
 Grouper *Grouper_New(const RLookupKey **srckeys, const RLookupKey **dstkeys, size_t nkeys,
-                     size_t maxAggregateGroups, size_t maxAggregateGroupsBase,
-                     size_t maxAggregateGroupsShardCount, bool maxAggregateGroupsIsCoordinator) {
+                     AggregateGroupLimits aggregateGroupLimits) {
   Grouper *g = rm_calloc(1, sizeof(*g));
   BlkAlloc_Init(&g->groupsAlloc);
   g->groups = kh_init(khid);
 
   g->nkeys = nkeys;
-  g->maxAggregateGroups = maxAggregateGroups;
-  g->maxAggregateGroupsBase = maxAggregateGroupsBase;
-  g->maxAggregateGroupsShardCount = maxAggregateGroupsShardCount;
-  g->maxAggregateGroupsIsCoordinator = maxAggregateGroupsIsCoordinator;
+  g->aggregateGroupLimits = aggregateGroupLimits;
   if (nkeys) {
     g->srckeys = rm_malloc(nkeys * sizeof(*g->srckeys));
     g->dstkeys = rm_malloc(nkeys * sizeof(*g->dstkeys));
