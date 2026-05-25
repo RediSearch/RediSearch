@@ -109,7 +109,7 @@ impl ScoreSource for TimingOutSource {
 #[test]
 fn read_triggers_collection_on_first_call() {
     let source = MockScoreSource::new(vec![vec![(1, 1.0), (2, 2.0)]]);
-    let mut it = TopKIterator::new(source, None, NonZeroUsize::new(5).unwrap());
+    let mut it = TopKIterator::<_, rqe_iterators::Empty>::new(source, None, NonZeroUsize::new(5).unwrap());
     assert!(!it.at_eof());
     let result = it.read().unwrap().expect("should have a result");
     assert_eq!(result.doc_id, 1);
@@ -118,7 +118,7 @@ fn read_triggers_collection_on_first_call() {
 #[test]
 fn rewind_resets_to_not_started() {
     let source = MockScoreSource::new(vec![vec![(1, 1.0), (2, 2.0)]]);
-    let mut it = TopKIterator::new(source, None, NonZeroUsize::new(5).unwrap());
+    let mut it = TopKIterator::<_, rqe_iterators::Empty>::new(source, None, NonZeroUsize::new(5).unwrap());
     it.read().unwrap();
     it.read().unwrap();
     let eof = it.read().unwrap();
@@ -138,7 +138,7 @@ fn rewind_resets_to_not_started() {
 #[test]
 fn eof_set_after_results_exhausted() {
     let source = MockScoreSource::new(vec![vec![(1, 1.0)]]);
-    let mut it = TopKIterator::new(source, None, NonZeroUsize::new(5).unwrap());
+    let mut it = TopKIterator::<_, rqe_iterators::Empty>::new(source, None, NonZeroUsize::new(5).unwrap());
     it.read().unwrap();
     let eof = it.read().unwrap();
     assert!(eof.is_none());
@@ -148,7 +148,7 @@ fn eof_set_after_results_exhausted() {
 #[test]
 fn last_doc_id_starts_at_zero_tracks_reads_and_resets_on_rewind() {
     let source = MockScoreSource::new(vec![vec![(1, 1.0), (2, 2.0)]]);
-    let mut it = TopKIterator::new(source, None, NonZeroUsize::new(5).unwrap());
+    let mut it = TopKIterator::<_, rqe_iterators::Empty>::new(source, None, NonZeroUsize::new(5).unwrap());
 
     assert_eq!(it.last_doc_id(), 0);
 
@@ -165,7 +165,11 @@ fn last_doc_id_starts_at_zero_tracks_reads_and_resets_on_rewind() {
 fn num_estimated_capped_at_k() {
     let source =
         MockScoreSource::new(vec![vec![(1, 1.0), (2, 2.0), (3, 3.0)]]).with_num_estimated(100);
-    let it = TopKIterator::new(source, None, NonZeroUsize::new(3).unwrap());
+    let it = TopKIterator::<_, rqe_iterators::Empty>::new(
+        source,
+        None,
+        NonZeroUsize::new(3).unwrap(),
+    );
     assert_eq!(it.num_estimated(), 3);
 }
 
@@ -174,7 +178,11 @@ fn num_estimated_capped_at_k() {
 #[test]
 fn unfiltered_yields_batch_in_source_order() {
     let source = MockScoreSource::new(vec![vec![(1, 0.9), (2, 0.5), (3, 0.1)]]);
-    let mut it = TopKIterator::new(source, None, NonZeroUsize::new(10).unwrap());
+    let mut it = TopKIterator::<_, rqe_iterators::Empty>::new(
+        source,
+        None,
+        NonZeroUsize::new(10).unwrap(),
+    );
     let ids: Vec<_> = std::iter::from_fn(|| it.read().unwrap().map(|r| r.doc_id)).collect();
     assert_eq!(ids, vec![1, 2, 3]);
 }
@@ -182,7 +190,7 @@ fn unfiltered_yields_batch_in_source_order() {
 #[test]
 fn unfiltered_empty_source_is_immediate_eof() {
     let source = MockScoreSource::new(vec![]);
-    let mut it = TopKIterator::new(source, None, NonZeroUsize::new(5).unwrap());
+    let mut it = TopKIterator::<_, rqe_iterators::Empty>::new(source, None, NonZeroUsize::new(5).unwrap());
     assert!(it.read().unwrap().is_none());
     assert!(it.at_eof());
 }
@@ -193,7 +201,7 @@ fn unfiltered_empty_source_is_immediate_eof() {
 fn revalidate_without_child_returns_ok() {
     let mock_ctx = rqe_iterators_test_utils::MockContext::new(0, 0);
     let source = MockScoreSource::new(vec![vec![(1, 1.0)]]);
-    let mut it = TopKIterator::new(source, None, NonZeroUsize::new(5).unwrap());
+    let mut it = TopKIterator::<_, rqe_iterators::Empty>::new(source, None, NonZeroUsize::new(5).unwrap());
     let status = it.revalidate(&mock_ctx.spec_read()).unwrap();
     assert_eq!(status, rqe_iterators::RQEValidateStatus::Ok);
 }
@@ -204,8 +212,11 @@ fn revalidate_with_child_delegates_ok() {
     // for any child iterator that leaves the parent in a valid state.
     let mock_ctx = rqe_iterators_test_utils::MockContext::new(0, 0);
     let source = MockScoreSource::new(vec![vec![(1, 1.0)]]);
-    let child: Box<dyn rqe_iterators::RQEIterator<'_>> = Box::new(rqe_iterators::Empty::default());
-    let mut it = TopKIterator::new(source, Some(child), NonZeroUsize::new(5).unwrap());
+    let mut it = TopKIterator::new(
+        source,
+        Some(rqe_iterators::Empty::default()),
+        NonZeroUsize::new(5).unwrap(),
+    );
     let status = it.revalidate(&mock_ctx.spec_read()).unwrap();
     assert_eq!(status, rqe_iterators::RQEValidateStatus::Ok);
 }
@@ -214,15 +225,18 @@ fn revalidate_with_child_delegates_ok() {
 fn revalidate_with_child_delegates_aborted() {
     let mock_ctx = rqe_iterators_test_utils::MockContext::new(0, 0);
     let source = MockScoreSource::new(vec![vec![(1, 1.0)]]);
-    let child: Box<dyn rqe_iterators::RQEIterator<'_>> = Box::new(AbortOnRevalidate);
-    let mut it = TopKIterator::new(source, Some(child), NonZeroUsize::new(5).unwrap());
+    let mut it = TopKIterator::new(source, Some(AbortOnRevalidate), NonZeroUsize::new(5).unwrap());
     let status = it.revalidate(&mock_ctx.spec_read()).unwrap();
     assert_eq!(status, rqe_iterators::RQEValidateStatus::Aborted);
 }
 
 #[test]
 fn unfiltered_timeout_propagated() {
-    let mut it = TopKIterator::new(TimingOutSource, None, NonZeroUsize::new(5).unwrap());
+    let mut it = TopKIterator::<_, rqe_iterators::Empty>::new(
+        TimingOutSource,
+        None,
+        NonZeroUsize::new(5).unwrap(),
+    );
     assert!(matches!(
         it.read().unwrap_err(),
         rqe_iterators::RQEIteratorError::TimedOut

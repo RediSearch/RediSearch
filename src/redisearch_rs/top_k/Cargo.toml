@@ -27,6 +27,7 @@ rqe_iterators.workspace = true
 workspace_hack.workspace = true
 index_result.workspace = true
 index_spec.workspace = true
+ref_mode.workspace = true
 
 [dev-dependencies]
 top_k = { path = ".", features = ["unittest", "test-utils"] }
