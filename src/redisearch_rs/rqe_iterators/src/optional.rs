@@ -180,12 +180,6 @@ where
         unsafe { Box::from_raw(raw as *mut RawOptional<Suspended, I::Suspended>) }
     }
 
-    fn cascade_suspend(&mut self) {
-        if let Some(child) = self.child.as_mut() {
-            child.cascade_suspend();
-        }
-    }
-
     #[inline(always)]
     fn current(&mut self) -> Option<&mut RSIndexResult<'index>> {
         if let Some(child) = self.child.as_mut()

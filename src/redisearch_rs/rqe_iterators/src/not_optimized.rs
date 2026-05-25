@@ -227,11 +227,6 @@ where
         }
     }
 
-    fn cascade_suspend(&mut self) {
-        self.wcii.cascade_suspend();
-        self.child.cascade_suspend();
-    }
-
     #[inline(always)]
     fn current(&mut self) -> Option<&mut RSIndexResult<'index>> {
         Some(&mut self.result)

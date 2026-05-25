@@ -131,21 +131,6 @@ pub trait RQEIterator<'index>: 'index {
     /// cycle.
     fn suspend(self: Box<Self>) -> Box<Self::Suspended>;
 
-    /// Cascade the suspend signal to child iterators' C-side wrappers.
-    ///
-    /// Composite iterators must override this to call `cascade_suspend` on each
-    /// child (so `CRQEIterator` children invoke their wrapped iterator's
-    /// `Suspend` vtable entry, flipping its typestate). [`CRQEIterator`](crate::c2rust::CRQEIterator) itself
-    /// overrides this to call its `Suspend` callback. Leaf iterators inherit
-    /// the default no-op.
-    ///
-    /// Called by the FFI wrapper's `Suspend` callback **before**
-    /// [`suspend`](Self::suspend) does its `Box<Self>` type-cast — without
-    /// this, child wrappers stay Active across the parent's suspend/resume
-    /// cycle, and the parent's resume cascade no-ops on them, leaving their
-    /// internal state stale.
-    fn cascade_suspend(&mut self) {}
-
     /// Return the current [`RSIndexResult`] stored within this [`RQEIterator`].
     ///
     /// Calls to [`read`](Self::read) and [`skip_to`](Self::skip_to) also return
@@ -232,10 +217,6 @@ impl<'index, I: RQEIterator<'index> + 'index> RQEIterator<'index> for Box<I> {
         // inner `Box<I>` by value, then dispatched through the underlying
         // iterator's `suspend` method.
         <I as RQEIterator<'index>>::suspend(*self)
-    }
-
-    fn cascade_suspend(&mut self) {
-        (**self).cascade_suspend()
     }
 
     fn current(&mut self) -> Option<&mut RSIndexResult<'index>> {

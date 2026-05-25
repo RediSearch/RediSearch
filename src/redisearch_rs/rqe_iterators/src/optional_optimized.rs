@@ -169,11 +169,6 @@ where
         }
     }
 
-    fn cascade_suspend(&mut self) {
-        self.wcii.cascade_suspend();
-        self.child.cascade_suspend();
-    }
-
     #[inline(always)]
     fn current(&mut self) -> Option<&mut RSIndexResult<'index>> {
         if self.last_doc_id != 0

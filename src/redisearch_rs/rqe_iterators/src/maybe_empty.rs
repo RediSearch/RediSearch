@@ -121,13 +121,6 @@ where
         unsafe { Box::from_raw(raw as *mut MaybeEmpty<I::Suspended>) }
     }
 
-    fn cascade_suspend(&mut self) {
-        match &mut self.0 {
-            MaybeEmptyOption::Some(it) => it.cascade_suspend(),
-            MaybeEmptyOption::None(_) => {} // Empty iterator — nothing to cascade
-        }
-    }
-
     #[inline(always)]
     fn current(&mut self) -> Option<&mut RSIndexResult<'index>> {
         match &mut self.0 {

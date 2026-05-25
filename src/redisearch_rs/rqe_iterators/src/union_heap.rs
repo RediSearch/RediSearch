@@ -369,12 +369,6 @@ where
         unsafe { Box::from_raw(raw as *mut RawUnionHeap<Suspended, I::Suspended, QUICK_EXIT>) }
     }
 
-    fn cascade_suspend(&mut self) {
-        for child in self.children.iter_mut() {
-            child.cascade_suspend();
-        }
-    }
-
     #[inline]
     fn current(&mut self) -> Option<&mut RSIndexResult<'index>> {
         (!self.is_eof).then_some(&mut self.result)

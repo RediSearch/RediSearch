@@ -251,12 +251,6 @@ where
         unsafe { Box::from_raw(raw as *mut RawUnionTrimmed<Suspended, I::Suspended>) }
     }
 
-    fn cascade_suspend(&mut self) {
-        for child in self.children.iter_mut() {
-            child.cascade_suspend();
-        }
-    }
-
     #[inline(always)]
     fn current(&mut self) -> Option<&mut RSIndexResult<'index>> {
         (!self.at_eof()).then_some(&mut self.result)

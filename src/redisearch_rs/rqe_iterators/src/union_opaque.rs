@@ -229,10 +229,6 @@ impl<'index, I: RQEIterator<'index>> RQEIterator<'index> for UnionOpaque<'index,
         unsafe { Box::from_raw(raw as *mut RawUnionOpaque<Suspended, I::Suspended>) }
     }
 
-    fn cascade_suspend(&mut self) {
-        delegate_variant_ref_mut!(self, cascade_suspend);
-    }
-
     #[inline(always)]
     fn current(&mut self) -> Option<&mut RSIndexResult<'index>> {
         delegate_variant_ref_mut!(self, current)

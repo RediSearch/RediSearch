@@ -41,21 +41,18 @@ pub use test_context::{GlobalGuard, TestContext};
 /// the FFI wrapper uses the same cast (see
 /// `rqe_iterators::interop::revalidate`).
 pub fn revalidate_via_resume<'borrow, 'spec, T>(
-    mut it: Box<T>,
+    it: Box<T>,
     spec: &'borrow index_spec::IndexSpecReadGuard<'spec>,
 ) -> (Box<T>, ffi::ValidateStatus)
 where
     T: rqe_iterators::RQEIterator<'spec> + 'spec,
 {
-    // Cascade-suspend first: this flips the typestate of any nested
-    // trait-object children (e.g. `BoxedRQEIterator` wrapping a `Box<dyn
-    // RQEDynIterator>`) by going through their vtable. Without this,
-    // `suspend`'s whole-box cast would relabel composite bytes as
-    // `Suspended` without actually transitioning the dyn-erased children,
-    // causing the suspended children to keep active vtables and produce
-    // UB on subsequent resume calls. Mirrors what the FFI wrapper does
-    // via `it->Suspend(it)` before each lock release.
-    it.cascade_suspend();
+    // Suspend walks children via `suspend_child_slot_in_place`, which
+    // dispatches each child's `suspend` through the trait. For
+    // `BoxedRQEIterator` children that goes through the dyn vtable,
+    // correctly transitioning the inner concrete iterator; for `CRQEIterator`
+    // children it fires their `Suspend` vtable entry. Mirrors what the FFI
+    // wrapper does before each lock release.
     let suspended = <T as rqe_iterators::RQEIterator<'spec>>::suspend(it);
     let (resumed, status) =
         <T::Suspended as rqe_iterators::RQESuspendedIterator>::resume(suspended, spec);

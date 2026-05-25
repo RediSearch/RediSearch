@@ -103,13 +103,6 @@ impl<'index> RQEIterator<'index> for NotIteratorEnum<'index> {
         unsafe { Box::from_raw(suspended_raw) }
     }
 
-    fn cascade_suspend(&mut self) {
-        match self {
-            Self::Not(it) => it.cascade_suspend(),
-            Self::NotOptimized(it) => it.cascade_suspend(),
-        }
-    }
-
     #[inline(always)]
     fn current(&mut self) -> Option<&mut index_result::RSIndexResult<'index>> {
         match self {

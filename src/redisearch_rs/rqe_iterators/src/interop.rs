@@ -484,14 +484,14 @@ where
         // original Active→Suspended transition.
         return;
     }
-    // Cascade Suspend to child wrappers before the type-cast. Composite
-    // iterators (Union, Intersection, ...) iterate their children here so each
-    // `CRQEIterator` child invokes its wrapped C iterator's `Suspend` vtable
-    // entry, flipping that wrapper's typestate too. Without this, the parent's
-    // resume cascade no-ops on Active children and their internal state stays
-    // stale across the lock release / re-acquire cycle.
-    wrapper.state.active_mut().cascade_suspend();
     let active = wrapper.state.take_active();
+    // The relabel walks children via `suspend_child_slot_in_place`, which calls
+    // each child's `suspend` through the trait — for `CRQEIterator` children
+    // that fires their `Suspend` vtable entry, flipping their wrapper's
+    // typestate; for `BoxedRQEIterator` children it dispatches via the dyn
+    // vtable. The C-side callbacks are idempotent, so this single pass is
+    // sufficient to drop lock-dependent state across the entire subtree before
+    // the spec read lock is released.
     let suspended = <I as RQEIterator>::suspend(active);
     wrapper.state = WrapperState::Suspended(suspended);
     // Note: `header.current` is intentionally **not** nulled. It points to the

@@ -206,21 +206,6 @@ impl<'index> RQEIterator<'index> for CRQEIterator {
         self
     }
 
-    /// Cascade suspend: call the C-side `Suspend` callback on the wrapped
-    /// iterator's vtable. For Rust-wrapped iterators this flips the wrapper's
-    /// typestate Active → Suspended; for native C iterators it dispatches to
-    /// their own `Suspend` (typically `HR_Suspend`, `OPT_Suspend`, or
-    /// `Default_Suspend`).
-    fn cascade_suspend(&mut self) {
-        // SAFETY: invariant 3. of [`CRQEIterator::header`] guarantees the
-        // callback is non-null.
-        let callback = unsafe { self.Suspend.unwrap_unchecked() };
-        // SAFETY: the C-side callback is safe to call per invariant 4. We're
-        // not consuming the iterator — the callback just transitions internal
-        // state.
-        unsafe { callback(self.header.as_ptr()) };
-    }
-
     fn read(&mut self) -> Result<Option<&mut RSIndexResult<'index>>, RQEIteratorError> {
         // SAFETY: Safe thanks to invariant 3. of [`CRQEIterator::header`].
         let callback = unsafe { self.Read.unwrap_unchecked() };

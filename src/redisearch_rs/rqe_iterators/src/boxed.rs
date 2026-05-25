@@ -98,8 +98,6 @@ pub trait RQESuspendedIterator: 'static {
 pub trait RQEDynIterator<'a>: 'a {
     /// Type-erased counterpart of [`RQEIterator::suspend`].
     fn suspend(self: Box<Self>) -> BoxedRQESuspendedIterator;
-    /// Type-erased counterpart of [`RQEIterator::cascade_suspend`].
-    fn cascade_suspend(&mut self);
 
     fn current(&mut self) -> Option<&mut RSIndexResult<'a>>;
     fn read(&mut self) -> Result<Option<&mut RSIndexResult<'a>>, RQEIteratorError>;
@@ -219,10 +217,6 @@ impl<'a, T: RQEIterator<'a> + 'a> RQEDynIterator<'a> for T {
         BoxedRQESuspendedIterator(suspended as Box<dyn RQEDynSuspendedIterator>)
     }
 
-    fn cascade_suspend(&mut self) {
-        <T as RQEIterator<'a>>::cascade_suspend(self);
-    }
-
     fn current(&mut self) -> Option<&mut RSIndexResult<'a>> {
         <T as RQEIterator<'a>>::current(self)
     }
@@ -302,10 +296,6 @@ impl<'a> RQEIterator<'a> for BoxedRQEIterator<'a> {
         Box::new(<dyn RQEDynIterator<'a> as RQEDynIterator<'a>>::suspend(
             inner,
         ))
-    }
-
-    fn cascade_suspend(&mut self) {
-        self.0.cascade_suspend();
     }
 
     fn current(&mut self) -> Option<&mut RSIndexResult<'a>> {

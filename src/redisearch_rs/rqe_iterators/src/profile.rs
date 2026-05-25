@@ -128,10 +128,6 @@ impl<'index, I: RQEIterator<'index>> RQEIterator<'index> for Profile<'index, I> 
         unsafe { Box::from_raw(raw as *mut RawProfile<Suspended, I::Suspended>) }
     }
 
-    fn cascade_suspend(&mut self) {
-        self.child.cascade_suspend();
-    }
-
     #[inline(always)]
     fn current(&mut self) -> Option<&mut RSIndexResult<'index>> {
         self.child.current()
