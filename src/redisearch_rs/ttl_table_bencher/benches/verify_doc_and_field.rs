@@ -15,10 +15,7 @@ use std::num::NonZeroUsize;
 use criterion::{BatchSize, BenchmarkId, Criterion, Throughput, criterion_group, criterion_main};
 use ffi::t_docId;
 use ttl_table::{FieldExpirationPredicate, test_utils::NOW};
-use ttl_table_bencher::{
-    DocsInput, FieldExpirationInput, convert_into_ffi_docs, create_and_populate,
-    create_and_populate_c, create_docs,
-};
+use ttl_table_bencher::{DocsInput, FieldExpirationInput, create_and_populate, create_docs};
 
 fn doc_inputs() -> Vec<DocsInput> {
     let mut doc_inputs = Vec::new();
@@ -51,7 +48,6 @@ fn verify_doc_and_field_doc_default(c: &mut Criterion) {
 
         for doc_input in &doc_inputs {
             let inputs = create_docs(*doc_input, rand::rng());
-            let c_inputs = convert_into_ffi_docs(&inputs);
             let table = create_and_populate(max_size, inputs);
 
             group.throughput(Throughput::Elements(doc_input.count as u64));
@@ -80,30 +76,6 @@ fn verify_doc_and_field_doc_default(c: &mut Criterion) {
                     );
                 },
             );
-
-            // SAFETY: bench data is always created with those guarantees.
-            let table = unsafe { create_and_populate_c(max_size, c_inputs) };
-
-            group.bench_function(BenchmarkId::from_parameter(format!("slot_size={}/pop_count={}/doc_filled_at={}/lang=C", max_size, doc_input.count, doc_input.fill_probability)), |b| {
-                b.iter_batched(
-                    || {
-                        (0..(doc_input.count as u64)).collect::<Vec<_>>()
-                    },
-                    |doc_ids| {
-                        let mut acc = 0u64;
-                        for doc_id in doc_ids {
-                            // SAFETY: caller's invariant — `fields` is non-empty, sorted by
-                            // index, and unique per `doc_id`. Ownership transfers to the table.
-                            let ok = unsafe {
-                                ffi::TimeToLiveTable_VerifyDocAndField(table.0, black_box(doc_id), 0, ffi::FieldExpirationPredicate_FIELD_EXPIRATION_PREDICATE_DEFAULT, &NOW)
-                            };
-                            acc += ok as u64;
-                        }
-                        black_box(acc)
-                    },
-                    BatchSize::LargeInput,
-                )
-            });
         }
     }
 

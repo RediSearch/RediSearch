@@ -66,10 +66,6 @@ add_subdirectory(util/mempool)
 add_subdirectory(util/dict)
 add_subdirectory(util/hash)
 add_subdirectory(coord)
-# Note: the C `ttl_table` library is now provided by the Rust crate
-# `ttl_table_ffi` (linked transitively via `redisearch_rs`). The legacy C
-# implementation under `src/ttl_table/` is kept on disk for benchmarking
-# but no longer built.
 
 #----------------------------------------------------------------------------------------------
 # Source files for the core library
