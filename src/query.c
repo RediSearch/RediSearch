@@ -1614,6 +1614,12 @@ int QAST_Parse(QueryAST *dst, const RedisSearchCtx *sctx, const RSSearchOptions 
 
 QueryIterator *QAST_Iterate(QueryAST *qast, const RSSearchOptions *opts, RedisSearchCtx *sctx,
                             uint32_t reqflags, struct AREQ *areq, QueryError *status) {
+  // Only wire BlockedClient timeout when it is actually active; otherwise
+  // fall back to the clock-based pipeline timeout
+  if (areq && !areq->skipTimeoutChecks) {
+    areq = NULL;
+  }
+
   QueryEvalCtx qectx = {
       .opts = opts,
       .numTokens = qast->numTokens,
