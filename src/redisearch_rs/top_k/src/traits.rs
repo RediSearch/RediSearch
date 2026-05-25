@@ -211,7 +211,26 @@ pub trait ScoreSource {
     /// [`attach_score_metric`](Self::attach_score_metric) instead — unless the
     /// source opts out via [`yields_child_record`](Self::yields_child_record).
     ///
+    /// # Obligation: no index-backed payload
+    ///
+    /// The returned record must carry **no index-backed payload**: no borrowed
+    /// term-offset slice and no borrowed aggregate entries. Build them owned
+    /// instead (a metric-only result, or a term record whose offsets were copied
+    /// — see [`RSIndexResult::to_owned`]).
+    ///
+    /// [`TopKIterator`] parks the record it yields in a buffer that survives a
+    /// suspend/resume cycle, across which the index lock is released and any
+    /// index-backed bytes may be freed underneath it. This obligation is what
+    /// makes those buffers safe to keep (invariant 2 on
+    /// [`RawTopK`](crate::iterator::RawTopK)).
+    ///
+    /// It cannot be enforced statically, so it is checked at the resume
+    /// boundary: a violating record makes the whole iterator abort
+    /// ([`ResumeOutcome::Aborted`]) rather than re-narrow pointers into freed
+    /// index memory — the query loses its results, but stays sound.
+    ///
     /// [`TopKIterator`]: crate::TopKIterator
+    /// [`ResumeOutcome::Aborted`]: rqe_iterators::ResumeOutcome::Aborted
     fn build_result<'r>(&self, doc_id: DocId, score: f64) -> RSIndexResult<'r>
     where
         Self: 'r;
