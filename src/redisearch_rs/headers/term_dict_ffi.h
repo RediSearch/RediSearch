@@ -9,6 +9,34 @@
 #include <stdlib.h>
 
 /**
+ * ABI-mirror of `TrieDecrResult` in `src/trie/trie.h:103-107`.
+ *
+ * Variants must keep their explicit discriminants in sync with the C
+ * enum: [`TermDict_DecrementNumDocs`]'s return value is cast directly to
+ * `TrieDecrResult` at the `spec.c` call site. Reordering or renumbering
+ * any variant here is an ABI break.
+ *
+ * `prefix_with_name` keeps the C-side variant names namespaced
+ * (`TermDictDecrResult_NotFound` etc.) so they don't collide with
+ * arbitrary `NotFound` / `Updated` / `Deleted` identifiers elsewhere in
+ * the C codebase.
+ */
+typedef enum TermDictDecrResult {
+  /**
+   * Term not present — no entry to decrement.
+   */
+  TermDictDecrResult_NotFound = 0,
+  /**
+   * `num_docs` was decremented and is still `> 0`.
+   */
+  TermDictDecrResult_Updated = 1,
+  /**
+   * `num_docs` reached `0`; the entry was removed.
+   */
+  TermDictDecrResult_Deleted = 2,
+} TermDictDecrResult;
+
+/**
  * Opaque C handle wrapping a [`TermDictionary`].
  *
  * Allocated with [`TermDict_New`] and freed with [`TermDict_Free`]. The
@@ -124,6 +152,69 @@ void TermDict_IterFree(struct TermDictIter *it);
  *   It may only be NULL when `term_len == 0`.
  */
 bool TermDict_InsertRaw(struct TermDict *d, const char *term, size_t term_len, double score, size_t num_docs);
+
+/**
+ * Estimated heap bytes held by the dictionary.
+ *
+ * Backs `TrieType_MemUsage(sp->terms)` at `src/spec.c:504`, reached
+ * unconditionally from `IndexSpec_collect_text_overhead` — including on
+ * freshly-constructed or torn-down specs where `sp->terms` may be NULL.
+ * Returns `0` on NULL to match `TrieType_MemUsage`'s NULL-tolerance.
+ *
+ * # Safety
+ * - `d` must either be NULL or point to a valid [`TermDict`] obtained
+ *   from [`TermDict_New`].
+ */
+size_t TermDict_MemUsage(const struct TermDict *d);
+
+/**
+ * ADD_INCR insert — production indexing primitive backing
+ * `Trie_InsertStringBuffer(sp->terms, term, len, score=1, incr=1,
+ * payload=NULL, numDocs=1)` at `src/spec.c:1971`.
+ *
+ * Returns `true` if a new terminal was created (mirrors `TRIE_OK_NEW`),
+ * `false` if an existing entry was updated in place (mirrors
+ * `TRIE_OK_UPDATED`). `spec.c:1972` only branches on the NEW case, so
+ * the full `InsertOutcome` enum is not exposed across FFI. A `false`
+ * return is **not** an error signal.
+ *
+ * `term` bytes must be valid UTF-8; on failure the function returns
+ * `false` *without* inserting, matching [`TermDict_InsertRaw`]'s shape.
+ * Callers that need to distinguish UTF-8 failure from "updated existing"
+ * must validate upstream — production indexing already lowercases via
+ * `runeBufFill`, so the failure mode is unreachable in practice.
+ *
+ * Case-folding happens inside [`TermDictionary::add_term`]; callers must
+ * not pre-fold.
+ *
+ * # Safety
+ * - `d` must point to a valid [`TermDict`] obtained from [`TermDict_New`]
+ *   and cannot be NULL.
+ * - `term` must point to a readable byte sequence of length `term_len`.
+ *   It may only be NULL when `term_len == 0`.
+ */
+bool TermDict_AddTerm(struct TermDict *d, const char *term, size_t term_len, double score, size_t num_docs);
+
+/**
+ * Decrement the `num_docs` count for `term` by `delta`. Mirrors
+ * `Trie_DecrementNumDocs` at `src/trie/trie.c:130` and backs
+ * `IndexSpec_DecrementTrieTermCount` at `src/spec.c:4862`.
+ *
+ * NULL `d` returns [`TermDictDecrResult::NotFound`], matching the C
+ * `Trie_DecrementNumDocs(NULL, …)` branch at `src/trie/trie.c:132-135`.
+ * Non-UTF-8 `term` also returns [`TermDictDecrResult::NotFound`] —
+ * the same outcome the C path produces when `runeBufFill` fails.
+ *
+ * Case-folding happens inside [`TermDictionary::decrement_num_docs`];
+ * callers must not pre-fold.
+ *
+ * # Safety
+ * - `d` must either be NULL or point to a valid [`TermDict`] obtained
+ *   from [`TermDict_New`].
+ * - `term` must point to a readable byte sequence of length `term_len`.
+ *   It may only be NULL when `term_len == 0`.
+ */
+enum TermDictDecrResult TermDict_DecrementNumDocs(struct TermDict *d, const char *term, size_t term_len, size_t delta);
 
 #ifdef __cplusplus
 }  // extern "C"
