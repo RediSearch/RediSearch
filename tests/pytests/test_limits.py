@@ -108,22 +108,84 @@ def testMaxSynonymGroupIdsLimit(env):
 
 def testMaxSynonymTermsLimit(env):
     """Test that adding more than MAX_SYNONYM_TERMS (1,000,000) unique terms
-    to a synonym map fails (regardless of how many groups they belong to)"""
+    to a synonym map fails (regardless of how many groups they belong to),
+    and that a rejected batch is applied atomically (no partial insertion)."""
     MAX_SYNONYM_TERMS = 1_000_000
     BATCH_SIZE = 1000  # Add 1000 terms per FT.SYNUPDATE call for efficiency
 
     # Create an index
     env.expect('FT.CREATE', 'idx', 'ON', 'HASH', 'SCHEMA', 'name', 'text').ok()
 
-    # Add terms in batches until we reach the limit
+    # Fill to MAX_SYNONYM_TERMS - 1 so the overflow batch below has one term
+    # that would succeed and one that would trip the limit -- this is what
+    # exercises atomicity.
     num_batches = MAX_SYNONYM_TERMS // BATCH_SIZE
     for batch in range(num_batches):
         terms = [f'term{batch * BATCH_SIZE + i}' for i in range(BATCH_SIZE)]
+        if batch == num_batches - 1:
+            terms = terms[:-1]  # leave exactly one free slot
         env.expect('FT.SYNUPDATE', 'idx', f'group{batch}', *terms).ok()
 
-    # Adding one more term should fail
-    env.expect('FT.SYNUPDATE', 'idx', 'overflow_group', 'overflow_term') \
+    # Verify we have MAX_SYNONYM_TERMS - 1 unique terms in the map.
+    dump = env.cmd('FT.SYNDUMP', 'idx')
+    dumped_terms = set(dump[::2])
+    env.assertEqual(len(dumped_terms), MAX_SYNONYM_TERMS - 1)
+
+    # A 2-term batch must fail AND leave neither term inserted.
+    env.expect('FT.SYNUPDATE', 'idx', 'overflow_group',
+               'overflow_a', 'overflow_b') \
         .error().contains('Maximum synonym terms limit reached')
+
+    # FT.SYNDUMP returns a flat [term, [ids...], term, [ids...], ...] list.
+    dump = env.cmd('FT.SYNDUMP', 'idx')
+    dumped_terms = set(dump[::2])
+    env.assertEqual(len(dumped_terms), MAX_SYNONYM_TERMS - 1)
+    env.assertNotIn('overflow_a', dumped_terms)
+    env.assertNotIn('overflow_b', dumped_terms)
+
+    # Fill the last remaining slot so the map sits at exactly MAX_SYNONYM_TERMS.
+    # Duplicated fresh terms count as one distinct pending term.
+    env.expect('FT.SYNUPDATE', 'idx', 'last_slot_group',
+            'fresh_term', 'fresh_term').ok()
+
+    dump = env.cmd('FT.SYNDUMP', 'idx')
+    pairs = dict(zip(dump[::2], dump[1::2]))
+    env.assertIn('fresh_term', pairs)
+    env.assertEqual(len(pairs), MAX_SYNONYM_TERMS)
+    env.assertEqual(pairs['fresh_term'], ['last_slot_group'])
+
+    # Any further new term must now fail with the limit error.
+    env.expect('FT.SYNUPDATE', 'idx', 'overflow_group2', 'overflow_c') \
+        .error().contains('Maximum synonym terms limit reached')
+
+    # An *existing* term can still be added to a new group even when the map
+    # is at MAX_SYNONYM_TERMS (no insertion happens, so the limit check
+    # must not trip).
+    env.expect('FT.SYNUPDATE', 'idx', 'reuse_group', 'term0').ok()
+
+
+def testMaxSynonymGroupIdsLimitAtomic(env):
+    """A batch that would push an existing term over MAX_SYNONYM_GROUP_IDS
+    must be rejected without applying any of its updates (atomicity)."""
+    MAX_SYNONYM_GROUP_IDS = 4096
+
+    env.expect('FT.CREATE', 'idx', 'ON', 'HASH', 'SCHEMA', 'name', 'text').ok()
+
+    # Saturate `crowded` with MAX_SYNONYM_GROUP_IDS distinct groups.
+    crowded = 'crowded'
+    for i in range(MAX_SYNONYM_GROUP_IDS):
+        env.expect('FT.SYNUPDATE', 'idx', f'g{i}', crowded).ok()
+
+    # FT.SYNUPDATE with a new term plus `crowded` (at the group-ID limit)
+    # must be rejected as a whole.
+    env.expect('FT.SYNUPDATE', 'idx', 'new_group', 'fresh_term', crowded) \
+        .error().contains('Maximum group IDs per term limit reached')
+
+    dump = env.cmd('FT.SYNDUMP', 'idx')
+    pairs = dict(zip(dump[::2], dump[1::2]))
+    env.assertNotIn('fresh_term', pairs)
+    # crowded must NOT have gained 'new_group'.
+    env.assertNotIn('new_group', pairs[crowded])
 
 
 def testMaxFieldsLimit(env):
