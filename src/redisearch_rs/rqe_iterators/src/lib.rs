@@ -7,6 +7,20 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 
+// Pull in the `redisearch_rs` aggregator crate (and its transitive `*_ffi`
+// crates) when building the lib test binary, so that C symbols implemented in
+// Rust (e.g. `NewNotIterator`, `QueryError_SetError`) are available to the
+// linker. This is required because `rqe_iterators` calls
+// `ffi::AREQ_CheckTimedOut` (defined in `query.c.o`), which transitively
+// references symbols provided by those Rust-implemented C wrappers.
+// The companion `mock_or_stub_missing_redis_c_symbols!()` invocation provides
+// the OpenSSL/DocIdMeta stubs that the coord/hiredis objects also drag in.
+// Integration tests apply the same pattern in `tests/integration/main.rs`.
+#[cfg(test)]
+extern crate redisearch_rs;
+#[cfg(test)]
+redis_mock::mock_or_stub_missing_redis_c_symbols!();
+
 use std::sync::OnceLock;
 
 use ffi::t_docId;
