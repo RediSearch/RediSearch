@@ -7,7 +7,10 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 
-use std::time::{Duration, Instant};
+use std::{
+    ptr::NonNull,
+    time::{Duration, Instant},
+};
 
 use ffi::{AREQ, AREQ_CheckTimedOut};
 
@@ -115,7 +118,7 @@ impl TimeoutContext for TimeoutContextClock {
 /// counter keeps the hot path branch-free.
 pub struct TimeoutContextBlockedClient {
     /// [`AREQ`] pointer forwarded verbatim to [`AREQ_CheckTimedOut`].
-    areq: *mut AREQ,
+    areq: NonNull<AREQ>,
 }
 
 impl TimeoutContextBlockedClient {
@@ -123,13 +126,13 @@ impl TimeoutContextBlockedClient {
     ///
     /// # Safety
     ///
-    /// * `areq` must be a non-null pointer to a valid [`AREQ`] (as defined in
+    /// * `areq` must point to a valid [`AREQ`] (as defined in
     ///   `src/aggregate/aggregate.h`).
     /// * The pointee must outlive every iterator that holds this context.
     /// * The `RequestSyncCtx::timedOut` flag inside the [`AREQ`] must be safe
     ///   to read with relaxed semantics from any thread.
     #[inline(always)]
-    pub unsafe fn new(areq: *mut AREQ) -> Self {
+    pub const unsafe fn new(areq: NonNull<AREQ>) -> Self {
         Self { areq }
     }
 }
@@ -142,7 +145,7 @@ impl TimeoutContext for TimeoutContextBlockedClient {
         // SAFETY: constructor contract guarantees `self.areq` is valid and
         // thread-safe to probe; `AREQ_CheckTimedOut` performs a relaxed
         // atomic load and does not unwind.
-        let timed_out = unsafe { AREQ_CheckTimedOut(self.areq) };
+        let timed_out = unsafe { AREQ_CheckTimedOut(self.areq.as_ptr()) };
         if timed_out {
             Err(RQEIteratorError::TimedOut)
         } else {

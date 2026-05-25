@@ -174,27 +174,30 @@ unsafe fn build_timeout_context(
     areq: *mut AREQ,
     q: NonNull<ffi::QueryEvalCtx>,
 ) -> AnyTimeoutContext {
-    if !areq.is_null() {
-        // SAFETY: caller guarantees `areq` upholds the
-        // `TimeoutContextBlockedClient::new` contract.
-        let inner = unsafe { TimeoutContextBlockedClient::new(areq) };
-        return AnyTimeoutContext::BlockedClient(inner);
+    match NonNull::new(areq) {
+        Some(areq) => {
+            // SAFETY: caller guarantees `areq` upholds the
+            // `TimeoutContextBlockedClient::new` contract.
+            let inner = unsafe { TimeoutContextBlockedClient::new(areq) };
+            AnyTimeoutContext::BlockedClient(inner)
+        }
+        None => {
+            // SAFETY: caller guarantees q is valid (3).
+            let q_ref = unsafe { q.as_ref() };
+            // SAFETY: caller guarantees q.sctx is valid (4).
+            let sctx = unsafe { &*q_ref.sctx };
+            if sctx.time.skipTimeoutChecks {
+                return AnyTimeoutContext::NoTimeout(NoTimeout);
+            }
+            match crate::timespec::duration_from_redis_timespec(timeout) {
+                Some(duration) => AnyTimeoutContext::Clock(TimeoutContextClock::new(
+                    duration,
+                    TIMEOUT_CHECK_GRANULARITY,
+                )),
+                None => AnyTimeoutContext::NoTimeout(NoTimeout),
+            }
+        }
     }
-
-    // SAFETY: caller guarantees q is valid (3).
-    let q_ref = unsafe { q.as_ref() };
-    // SAFETY: caller guarantees q.sctx is valid (4).
-    let sctx = unsafe { &*q_ref.sctx };
-    if sctx.time.skipTimeoutChecks {
-        return AnyTimeoutContext::NoTimeout(NoTimeout);
-    }
-    let Some(duration) = crate::timespec::duration_from_redis_timespec(timeout) else {
-        return AnyTimeoutContext::NoTimeout(NoTimeout);
-    };
-    AnyTimeoutContext::Clock(TimeoutContextClock::new(
-        duration,
-        TIMEOUT_CHECK_GRANULARITY,
-    ))
 }
 
 /// Creates a NOT iterator, choosing between non-optimized and optimized based
