@@ -4792,10 +4792,6 @@ static int RediSearch_InitModuleConfig(RedisModuleCtx *ctx, RedisModuleString **
 
   // Load default values
   RM_TRY_F(RedisModule_LoadDefaultConfigs, ctx);
-  // LoadDefaultConfigs fires the setter for every registered config with its default value.
-  // That would spuriously set diskDropReadCacheExplicit=true (because our setter always marks
-  // explicit=true).  Reset it now so that only a genuine user-provided value counts as explicit.
-  RSGlobalConfig.diskDropReadCacheExplicit = false;
 
   char *err = NULL;
   // Read module configuration from module ARGS

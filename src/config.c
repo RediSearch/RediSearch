@@ -243,18 +243,6 @@ static int get_inverted_bool_config(const char *name, void *privdata) {
   return !*(bool *)privdata;
 }
 
-// Setter for search-disk-drop-read-cache (module config API path): records the value AND marks it
-// as explicitly set.  The explicit flag enables three-tier resolution in SearchDisk_Initialize
-// (MOD-15866).
-static int set_disk_drop_read_cache_config(const char *name, int val, void *privdata,
-                                           RedisModuleString **err) {
-  REDISMODULE_NOT_USED(name);
-  REDISMODULE_NOT_USED(err);
-  *(bool *)privdata = val;
-  RSGlobalConfig.diskDropReadCacheExplicit = true;
-  return REDISMODULE_OK;
-}
-
 // When changing expiration monitoring, update all existing indexes.
 // Disabling: clean up TTL tables. Enabling: set monitor flags (TTL table created lazily).
 // This must be done with the per-spec write lock to avoid race conditions with query threads.
@@ -1313,18 +1301,16 @@ static int get_on_oom(const char *name, void *privdata){
 }
 // Legacy module-ARGS setter for search-disk-drop-read-cache.
 // Handles yes/no/true/false (case-insensitive).
-// Sets both diskDropReadCache and diskDropReadCacheExplicit so that SearchDisk_Initialize
-// can distinguish an explicit 'no' from an unset value (MOD-15866).
+// TODO: remove once RLTest can emit `--<config-name> <value>` directly (see RLTest
+// moduleConfigs follow-up); new immutable configs should not need a legacy ARGS entry.
 CONFIG_SETTER(setDiskDropReadCache) {
   const char *tf;
   int acrc = AC_GetString(ac, &tf, NULL, 0);
   CHECK_RETURN_PARSE_ERROR(acrc);
   if (!strcasecmp(tf, "yes") || !strcasecmp(tf, "true")) {
     config->diskDropReadCache = true;
-    config->diskDropReadCacheExplicit = true;
   } else if (!strcasecmp(tf, "no") || !strcasecmp(tf, "false")) {
     config->diskDropReadCache = false;
-    config->diskDropReadCacheExplicit = true;
   } else {
     acrc = AC_ERR_PARSE;
   }
@@ -2458,7 +2444,7 @@ int RegisterModuleConfig_Local(RedisModuleCtx *ctx) {
     RedisModule_RegisterBoolConfig(
       ctx, "search-disk-drop-read-cache", 0,
       REDISMODULE_CONFIG_IMMUTABLE | REDISMODULE_CONFIG_UNPREFIXED,
-      get_bool_config, set_disk_drop_read_cache_config, NULL,
+      get_bool_config, set_bool_config, NULL,
       (void *)&(RSGlobalConfig.diskDropReadCache)
     )
   )

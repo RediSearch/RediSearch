@@ -219,22 +219,10 @@ typedef struct {
   // Percentage of available memory to use for disk write buffer (0-100).
   uint8_t diskBufferPercentage;
   // Controls SpeedB OS page-cache behaviour for disk indexes (MOD-15866).
-  //
-  // Config hierarchy for diskDropReadCache (resolved once in SearchDisk_Initialize):
-  //   1. Explicit RSE config: if diskDropReadCacheExplicit=true, use diskDropReadCache directly.
-  //   2. Flex fallback: read bigredis-driver-allow_os_buffer via CONFIG GET;
-  //      allow_os_buffer=0 → drop_read_cache=true.  Falls back silently to false in non-Flex.
-  //   3. SpeedB default: false (OS caching enabled).
-  //
-  // diskDropReadCacheExplicit tracks whether the user explicitly set search-disk-drop-read-cache.
-  // It is reset to false after LoadDefaultConfigs (which spuriously fires the setter for all
-  // registered configs) and before LoadConfigs (which only fires the setter for user-provided
-  // values).  After LoadConfigs, explicit=true iff the user actually provided the option.
-  //
-  // diskUseDirectReads has no Flex fallback (bigredis-driver-use_direct_reads does not exist
-  // in bs_rocksdb.c) and only supports tiers 1 and 3.
+  // Both default to false; users opt in via search-disk-drop-read-cache and
+  // search-disk-use-direct-reads at load time.  These are RSE-only knobs and
+  // are intentionally not coupled to any Flex bigredis-driver settings.
   bool diskDropReadCache;
-  bool diskDropReadCacheExplicit;
   bool diskUseDirectReads;
   // If true, fallback to main thread when BlockClient is unavailable.
   bool fallbackToMainThreadWhenBlockClientUnavailable;
@@ -452,7 +440,6 @@ long long getRedisConfigNumeric(RedisModuleCtx *ctx, const char *confName, long 
     .monitorExpiration = true,                                                 \
     .diskBufferPercentage = DEFAULT_DISK_BUFFER_PERCENTAGE,                    \
     .diskDropReadCache = false,                                                \
-    .diskDropReadCacheExplicit = false,                                        \
     .diskUseDirectReads = false,                                               \
     .fallbackToMainThreadWhenBlockClientUnavailable = true,                    \
   }

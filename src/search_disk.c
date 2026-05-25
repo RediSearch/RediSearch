@@ -67,30 +67,8 @@ bool SearchDisk_Initialize(RedisModuleCtx *ctx) {
   RS_ASSERT(disk->basic.setThrottleCallbacks);
   disk->basic.setThrottleCallbacks(VecSim_EnableThrottle, VecSim_DisableThrottle);
 
-  // Resolve drop_read_cache using three-tier hierarchy (MOD-15866):
-  //   1. Explicit RSE config (search-disk-drop-read-cache was set by the user).
-  //   2. Flex fallback: bigredis-driver-allow_os_buffer via CONFIG GET.
-  //      allow_os_buffer=0 → drop_read_cache=true (inverted semantics).
-  //      Silently falls back to false in non-Flex environments.
-  //   3. SpeedB default: false (OS caching enabled).
-  bool drop_read_cache = RSGlobalConfig.diskDropReadCache;
-  if (!RSGlobalConfig.diskDropReadCacheExplicit) {
-    RedisModuleCallReply *reply =
-        RedisModule_Call(ctx, "CONFIG", "cc", "GET", "bigredis-driver-allow_os_buffer");
-    if (reply && RedisModule_CallReplyType(reply) == REDISMODULE_REPLY_ARRAY &&
-        RedisModule_CallReplyLength(reply) == 2) {
-      RedisModuleCallReply *val = RedisModule_CallReplyArrayElement(reply, 1);
-      if (RedisModule_CallReplyType(val) == REDISMODULE_REPLY_STRING) {
-        size_t len;
-        const char *str = RedisModule_CallReplyStringPtr(val, &len);
-        if (len > 0) drop_read_cache = (str[0] == '0');
-      }
-    }
-    if (reply) RedisModule_FreeCallReply(reply);
-  }
-
   disk_db = disk->basic.open(ctx, (int)RSGlobalConfig.diskBufferPercentage, RSGlobalConfig.hideUserDataFromLog,
-                             drop_read_cache, RSGlobalConfig.diskUseDirectReads);
+                             RSGlobalConfig.diskDropReadCache, RSGlobalConfig.diskUseDirectReads);
   bool disk_initialized = disk_db != NULL;
 
   if (!disk_initialized) {
