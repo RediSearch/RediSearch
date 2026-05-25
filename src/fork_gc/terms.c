@@ -16,15 +16,86 @@
 #include "obfuscation/obfuscation_api.h"
 #include "obfuscation/hidden.h"
 
-void FGC_childCollectTerms(ForkGC *gc, RedisSearchCtx *sctx) {
-  TrieIterator *iter = Trie_Iterate(sctx->spec->terms, "", 0, 0, 1);
+#ifdef USE_RUST_TERM_DICT
+#include "term_dict_ffi.h"
+#endif
+
+// --- sp->terms backend wrappers (mirrors the spec.c pattern) ------------
+//
+// The fork-GC child needs two operations against `sp->terms`: walk every
+// term, and (in the parent) delete an empty term. C2 already routes
+// spec.c through `terms_*` static helpers; the same dispatch happens here
+// locally — single-file containment, per the project ADR.
+
+typedef struct {
+#ifdef USE_RUST_TERM_DICT
+  TermDictIter *inner;
+#else
+  TrieIterator *inner;
+#endif
+} fgc_terms_iter;
+
+static fgc_terms_iter fgc_terms_iter_new(void *terms) {
+#ifdef USE_RUST_TERM_DICT
+  return (fgc_terms_iter){.inner = TermDict_IterNew(terms)};
+#else
+  return (fgc_terms_iter){.inner = Trie_Iterate(terms, "", 0, 0, 1)};
+#endif
+}
+
+// Yields the next term as a freshly heap-allocated buffer the caller must
+// `rm_free`. Returns false on exhaustion. The OFF path goes through
+// `runesToStr` (which already returns an `rm_malloc`'d buffer); the ON
+// path copies the iterator's borrowed bytes so ownership is uniform.
+static bool fgc_terms_iter_next(fgc_terms_iter *it, char **term, size_t *term_len) {
+#ifdef USE_RUST_TERM_DICT
+  const char *p = NULL;
+  size_t plen = 0;
+  double score = 0;     // unused here, the iterator yields them regardless
+  size_t num_docs = 0;
+  if (!TermDict_IterNext(it->inner, &p, &plen, &score, &num_docs)) {
+    return false;
+  }
+  char *buf = rm_malloc(plen);
+  memcpy(buf, p, plen);
+  *term = buf;
+  *term_len = plen;
+  return true;
+#else
   rune *rstr = NULL;
   t_len slen = 0;
   float score = 0;
   int dist = 0;
-  while (TrieIterator_Next(iter, &rstr, &slen, NULL, &score, NULL, &dist)) {
-    size_t termLen;
-    char *term = runesToStr(rstr, slen, &termLen);
+  if (!TrieIterator_Next(it->inner, &rstr, &slen, NULL, &score, NULL, &dist)) {
+    return false;
+  }
+  *term = runesToStr(rstr, slen, term_len);
+  return true;
+#endif
+}
+
+static void fgc_terms_iter_free(fgc_terms_iter *it) {
+#ifdef USE_RUST_TERM_DICT
+  TermDict_IterFree(it->inner);
+#else
+  TrieIterator_Free(it->inner);
+#endif
+}
+
+// Returns true if `term` was removed from the dictionary.
+static bool fgc_terms_delete(void *terms, const char *term, size_t len) {
+#ifdef USE_RUST_TERM_DICT
+  return TermDict_Delete(terms, term, len);
+#else
+  return Trie_Delete(terms, term, len);
+#endif
+}
+
+void FGC_childCollectTerms(ForkGC *gc, RedisSearchCtx *sctx) {
+  fgc_terms_iter iter = fgc_terms_iter_new(sctx->spec->terms);
+  char *term = NULL;
+  size_t termLen = 0;
+  while (fgc_terms_iter_next(&iter, &term, &termLen)) {
     InvertedIndex *idx = Redis_OpenInvertedIndex(sctx->spec, term, termLen, DONT_CREATE_INDEX, NULL);
     if (idx) {
       struct iovec iov = {.iov_base = (void *)term, termLen};
@@ -41,7 +112,7 @@ void FGC_childCollectTerms(ForkGC *gc, RedisSearchCtx *sctx) {
     }
     rm_free(term);
   }
-  TrieIterator_Free(iter);
+  fgc_terms_iter_free(&iter);
 
   // we are done with terms
   FGC_sendTerminator(gc);
@@ -115,7 +186,7 @@ FGCError FGC_parentHandleTerms(ForkGC *gc) {
       }
     }
 
-    if (!Trie_Delete(sctx->spec->terms, term, len)) {
+    if (!fgc_terms_delete(sctx->spec->terms, term, len)) {
       const char* name = IndexSpec_FormatName(sctx->spec, RSGlobalConfig.hideUserDataFromLog);
       RedisModule_Log(sctx->redisCtx, "warning", "RedisSearch fork GC: deleting a term '%s' from"
                       " trie in index '%s' failed", RSGlobalConfig.hideUserDataFromLog ? Obfuscate_Text(term) : term, name);
