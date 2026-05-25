@@ -399,3 +399,48 @@ pub unsafe extern "C" fn TermDict_DecrementNumDocs(
         DecrResult::Deleted => TermDictDecrResult::Deleted,
     }
 }
+
+/// Remove the entry for `term`. Mirrors `Trie_Delete` at
+/// `src/trie/trie.c:89`. Backs the fork-GC delete site at
+/// `src/fork_gc/terms.c`.
+///
+/// Returns `true` if an entry was removed, `false` otherwise (term absent
+/// or `d` NULL or `term` not valid UTF-8). The two false-modes are not
+/// distinguished — matching the C path, which folds an oversized rune
+/// buffer into the same `0` return as a genuine miss.
+///
+/// Case-folding happens inside [`TermDictionary::remove`]; callers must
+/// not pre-fold.
+///
+/// # Safety
+/// - `d` must either be NULL or point to a valid [`TermDict`] obtained
+///   from [`TermDict_New`].
+/// - `term` must point to a readable byte sequence of length `term_len`.
+///   It may only be NULL when `term_len == 0`.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn TermDict_Delete(
+    d: *mut TermDict,
+    term: *const c_char,
+    term_len: size_t,
+) -> bool {
+    if d.is_null() {
+        return false;
+    }
+
+    let bytes: &[u8] = if term_len > 0 {
+        debug_assert!(!term.is_null(), "term cannot be NULL when term_len > 0");
+        // SAFETY: Caller guarantees `term` points to a readable byte
+        // sequence of length `term_len`.
+        unsafe { std::slice::from_raw_parts(term.cast::<u8>(), term_len) }
+    } else {
+        &[]
+    };
+
+    let Ok(s) = std::str::from_utf8(bytes) else {
+        return false;
+    };
+
+    // SAFETY: Caller guarantees `d` points to a valid `TermDict`.
+    let TermDict(dict) = unsafe { &mut *d };
+    dict.remove(s).is_some()
+}

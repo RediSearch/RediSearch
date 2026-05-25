@@ -216,6 +216,27 @@ bool TermDict_AddTerm(struct TermDict *d, const char *term, size_t term_len, dou
  */
 enum TermDictDecrResult TermDict_DecrementNumDocs(struct TermDict *d, const char *term, size_t term_len, size_t delta);
 
+/**
+ * Remove the entry for `term`. Mirrors `Trie_Delete` at
+ * `src/trie/trie.c:89`. Backs the fork-GC delete site at
+ * `src/fork_gc/terms.c`.
+ *
+ * Returns `true` if an entry was removed, `false` otherwise (term absent
+ * or `d` NULL or `term` not valid UTF-8). The two false-modes are not
+ * distinguished — matching the C path, which folds an oversized rune
+ * buffer into the same `0` return as a genuine miss.
+ *
+ * Case-folding happens inside [`TermDictionary::remove`]; callers must
+ * not pre-fold.
+ *
+ * # Safety
+ * - `d` must either be NULL or point to a valid [`TermDict`] obtained
+ *   from [`TermDict_New`].
+ * - `term` must point to a readable byte sequence of length `term_len`.
+ *   It may only be NULL when `term_len == 0`.
+ */
+bool TermDict_Delete(struct TermDict *d, const char *term, size_t term_len);
+
 #ifdef __cplusplus
 }  // extern "C"
 #endif  // __cplusplus
