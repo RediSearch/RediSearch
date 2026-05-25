@@ -24,9 +24,9 @@ use fork_gc::{InvertedIndexGCCallback, InvertedIndexGCReader, InvertedIndexGCWri
 use index_result::RSIndexResult;
 pub use inverted_index::opaque::InvertedIndex;
 use inverted_index::{
-    EntriesTrackingIndex, FieldMaskTrackingIndex, FilterGeoReader, FilterMaskReader,
-    FilterNumericReader, GcApplyInfo, GcScanDelta, IndexBlock, IndexReader as _, NumericFilter,
-    ReadFilter,
+    AddRecordOutcome, EntriesTrackingIndex, FieldMaskTrackingIndex, FilterGeoReader,
+    FilterMaskReader, FilterNumericReader, GcApplyInfo, GcScanDelta, IndexBlock, IndexReader as _,
+    NumericFilter, ReadFilter,
     debug::{BlockSummary, Summary},
     doc_ids_only::DocIdsOnly,
     fields_offsets::{FieldsOffsets, FieldsOffsetsWide},
@@ -224,19 +224,18 @@ pub unsafe extern "C" fn InvertedIndex_MemUsage(ii: *const InvertedIndex) -> usi
     ii_dispatch!(ii, memory_usage)
 }
 
-/// Write a new numeric entry to the inverted index. This is only valid for numeric indexes created
-/// with the `StoreNumeric` flag. The function returns the number of bytes the memory usage of the
-/// index grew by.
+/// Write a new numeric entry to the inverted index. This is only valid for numeric indexes
+/// created with the `StoreNumeric` flag. Returns an [`AddRecordOutcome`] reporting the memory
+/// growth and the number of new index blocks created.
 ///
 /// # Safety
-/// The following invariant must be upheld when calling this function:
 /// - `ii` must be a valid pointer to an `InvertedIndex` instance and cannot be NULL.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn InvertedIndex_WriteNumericEntry(
     ii: *mut InvertedIndex,
     doc_id: t_docId,
     value: f64,
-) -> usize {
+) -> AddRecordOutcome {
     debug_assert!(!ii.is_null(), "ii must not be null");
 
     let record = RSIndexResult::build_numeric(value).doc_id(doc_id).build();
@@ -246,18 +245,17 @@ pub unsafe extern "C" fn InvertedIndex_WriteNumericEntry(
     ii_dispatch!(ii, add_record, &record).unwrap()
 }
 
-/// Write a new entry to the inverted index. The function returns the number of bytes the memory
-/// usage of the index grew by.
+/// Write a new entry to the inverted index. Returns an [`AddRecordOutcome`] reporting the
+/// memory growth and the number of new index blocks created.
 ///
 /// # Safety
-/// The following invariants must be upheld when calling this function:
 /// - `ii` must be a valid pointer to an `InvertedIndex` instance and cannot be NULL.
 /// - `record` must be a valid pointer to an `RSIndexResult` instance and cannot be NULL.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn InvertedIndex_WriteEntryGeneric(
     ii: *mut InvertedIndex,
     record: *const RSIndexResult,
-) -> usize {
+) -> AddRecordOutcome {
     debug_assert!(!ii.is_null(), "ii must not be null");
     debug_assert!(!record.is_null(), "record must not be null");
 
@@ -590,7 +588,7 @@ pub unsafe extern "C" fn InvertedIndex_GcDelta_Scan(
 }
 
 /// Read a GC delta from the provided reader. The returned pointer must be freed using
-/// [`InvertedIndex_GcDelta_Free`] or should be passed to [`InvertedIndex_ApplyGcDelta`].
+/// [`InvertedIndex_GcDelta_Free`] or should be passed to [`InvertedIndex_ApplyGCDelta`].
 ///
 /// # Safety
 ///
@@ -630,7 +628,9 @@ pub unsafe extern "C" fn InvertedIndex_GcDelta_Free(deltas: *mut GcScanDelta) {
 }
 
 /// Apply a GC delta to the inverted index. The output parameter `apply_info` will be set to
-/// information about the applied delta.
+/// information about the applied delta — in particular, `apply_info.block_count_delta` carries
+/// the signed change in block count, which callers maintaining per-spec totals should add to
+/// their counter.
 ///
 /// This will take ownership of the `deltas` pointer and free it. Therefore, it should not be
 /// used or freed after calling this function.
@@ -643,7 +643,7 @@ pub unsafe extern "C" fn InvertedIndex_GcDelta_Free(deltas: *mut GcScanDelta) {
 ///   [`InvertedIndex_GcDelta_Read`].
 /// - `apply_info` must be a valid, non NULL, pointer to a `GcApplyInfo` instance.
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn InvertedIndex_ApplyGcDelta(
+pub unsafe extern "C" fn InvertedIndex_ApplyGCDelta(
     ii: *mut InvertedIndex,
     deltas: *mut GcScanDelta,
     apply_info: *mut GcApplyInfo,

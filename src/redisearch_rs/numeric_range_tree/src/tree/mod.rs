@@ -61,6 +61,11 @@ pub struct AddResult {
     /// The net change in the number of leaf nodes.
     /// Splitting a leaf adds one new leaf. Trimming decreases this.
     pub num_leaves_delta: i32,
+    /// The net change in the number of inverted-index blocks across all leaves touched by
+    /// this add. Block growth (writes spilling into a new block, new leaves created by a
+    /// split) contributes positively; range removals during rebalancing (`remove_range`,
+    /// rotations dropping an internal node's retained range) contribute negatively.
+    pub block_count_delta: i32,
 }
 
 /// Result of trimming empty leaves from the tree.
@@ -82,6 +87,9 @@ pub struct TrimEmptyLeavesResult {
     pub num_ranges_delta: i32,
     /// The net change in the number of leaf nodes.
     pub num_leaves_delta: i32,
+    /// Net change in inverted-index block count across all dropped leaves. Always non-positive
+    /// (trimming only removes blocks).
+    pub block_count_delta: i32,
 }
 
 /// Aggregate statistics for a [`NumericRangeTree`].

@@ -102,6 +102,20 @@ typedef struct IIBlockSummary {
 } IIBlockSummary;
 
 /**
+ * Outcome of [`InvertedIndex::add_record`]: how the index grew during the write.
+ */
+typedef struct AddRecordOutcome {
+  /**
+   * Number of bytes the inverted index's memory usage grew by.
+   */
+  uint32_t mem_growth;
+  /**
+   * Number of new index blocks this write created.
+   */
+  uint32_t blocks_added;
+} AddRecordOutcome;
+
+/**
  * Filter to apply when reading from an index. Entries which don't match the filter will not be
  * returned by the reader.
  */
@@ -155,6 +169,12 @@ typedef struct II_GCScanStats {
    * The number of entries that were removed from the index including duplicates
    */
   size_t entries_removed;
+  /**
+   * Net change in the index's block count for this apply. Positive when blocks were added
+   * (e.g. a `Replace` repair adding more blocks than it removed), negative when removed.
+   * Callers maintaining per-spec totals should add this signed value to their counter.
+   */
+  int64_t block_count_delta;
   /**
    * Whether or not we ignored the last block in the index, since it changed
    * compared to the time we performed the scan
