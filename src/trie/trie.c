@@ -16,6 +16,7 @@
 #include "trie.h"
 #include "rmalloc.h"
 #include "rdb.h"
+#include "term_stream_codec.h"
 
 #include <math.h>
 #include <sys/param.h>
@@ -383,6 +384,74 @@ int Trie_RandomKey(Trie *t, char **str, t_len *len, double *score) {
 /* declaration of the type for redis registration. */
 RedisModuleType *TrieType;
 
+/* Enumerator state for saving a C `Trie *` through the term-stream codec.
+ * Owns the active TrieIterator and the per-step `runesToStr` scratch
+ * buffer; the enum function frees the previous scratch on each advance
+ * (matches the original inline save loop's `rm_free(s)` at end of step). */
+typedef struct {
+  Trie *tree;
+  TrieIterator *it;
+  char *scratch;
+  RSPayload payload;
+  size_t count;
+} CTrieEnumCtx;
+
+static bool c_trie_enum(void *ctx, const char **term, size_t *term_len, double *score,
+                        const char **payload, size_t *payload_len, size_t *num_docs) {
+  CTrieEnumCtx *s = ctx;
+  if (s->scratch) {
+    rm_free(s->scratch);
+    s->scratch = NULL;
+  }
+  if (!s->it) {
+    return false;
+  }
+  rune *rstr;
+  t_len rlen;
+  float fscore;
+  s->payload.data = NULL;
+  s->payload.len = 0;
+  size_t numDocs = 0;
+  if (!TrieIterator_Next(s->it, &rstr, &rlen, &s->payload, &fscore, &numDocs, NULL)) {
+    return false;
+  }
+  size_t slen = 0;
+  s->scratch = runesToStr(rstr, rlen, &slen);
+  *term = s->scratch;
+  *term_len = slen;
+  *score = (double)fscore;
+  *payload = s->payload.data;
+  *payload_len = s->payload.len;
+  *num_docs = numDocs;
+  s->count++;
+  return true;
+}
+
+static void c_trie_enum_dispose(CTrieEnumCtx *s) {
+  if (s->scratch) {
+    rm_free(s->scratch);
+    s->scratch = NULL;
+  }
+  if (s->it) {
+    TrieIterator_Free(s->it);
+    s->it = NULL;
+  }
+}
+
+/* Sink state for loading a C `Trie *` through the term-stream codec. */
+typedef struct {
+  Trie *tree;
+} CTrieSinkCtx;
+
+static int c_trie_sink(void *ctx, const char *term, size_t term_len, double score,
+                       const char *payload, size_t payload_len, size_t num_docs) {
+  CTrieSinkCtx *s = ctx;
+  RSPayload p = {.data = (char *)payload, .len = payload_len};
+  int rc =
+      Trie_InsertStringBuffer(s->tree, term, term_len, score, 0, payload_len ? &p : NULL, num_docs);
+  return (rc == TRIE_ERR_PAYLOAD_OVERFLOW) ? -1 : 0;
+}
+
 void *TrieType_RdbLoad(RedisModuleIO *rdb, int encver) {
   if (encver > TRIE_ENCVER_CURRENT) {
     return NULL;
@@ -391,51 +460,13 @@ void *TrieType_RdbLoad(RedisModuleIO *rdb, int encver) {
 }
 
 void *TrieType_GenericLoad(RedisModuleIO *rdb, bool loadPayloads, bool loadNumDocs) {
-
-  Trie *tree = NULL;
-  char *str = NULL;
-  uint64_t elements = LoadUnsigned_IOError(rdb, goto cleanup);
-
-  tree = NewTrie(NULL, Trie_Sort_Score);
-
-  while (elements--) {
-    size_t len;
-    RSPayload payload = {.data = NULL, .len = 0};
-    str = LoadStringBuffer_IOError(rdb, &len, goto cleanup);
-    double score = LoadDouble_IOError(rdb, goto cleanup);
-    if (loadPayloads) {
-      payload.data = LoadStringBuffer_IOError(rdb, &payload.len, goto cleanup);
-      // load an extra space for the null terminator
-      payload.len--;
-    }
-    size_t numDocs = 0;
-    if (loadNumDocs) {
-      numDocs = LoadUnsigned_IOError(rdb, goto cleanup);
-    }
-    int rc = Trie_InsertStringBuffer(tree, str, len - 1, score, 0, payload.len ? &payload : NULL, numDocs);
-    RedisModule_Free(str);
-    str = NULL;
-    if (payload.data != NULL) {
-      RedisModule_Free(payload.data);
-      payload.data = NULL;
-    }
-    if (rc == TRIE_ERR_PAYLOAD_OVERFLOW) {
-      RedisModule_LogIOError(
-          rdb, "warning",
-          "RDB Load: Failed to insert trie entry (payload overflow)");
-      goto cleanup;
-    }
+  CTrieSinkCtx ctx = {.tree = NewTrie(NULL, Trie_Sort_Score)};
+  int rc = TermStream_RdbLoad(rdb, c_trie_sink, &ctx, loadPayloads, loadNumDocs);
+  if (rc != 0) {
+    TrieType_Free(ctx.tree);
+    return NULL;
   }
-  return tree;
-
-cleanup:
-  if (str) {
-    RedisModule_Free(str);
-  }
-  if (tree) {
-    TrieType_Free(tree);
-  }
-  return NULL;
+  return ctx.tree;
 }
 
 void TrieType_RdbSave(RedisModuleIO *rdb, void *value) {
@@ -443,45 +474,17 @@ void TrieType_RdbSave(RedisModuleIO *rdb, void *value) {
 }
 
 void TrieType_GenericSave(RedisModuleIO *rdb, Trie *tree, bool savePayloads, bool saveNumDocs) {
-  RedisModule_SaveUnsigned(rdb, tree->size);
-  RedisModuleCtx *ctx = RedisModule_GetContextFromIO(rdb);
-  //  RedisModule_Log(ctx, "notice", "Trie: saving %zd nodes.", tree->size);
-  int count = 0;
+  CTrieEnumCtx ctx = {.tree = tree, .it = NULL, .scratch = NULL, .count = 0};
   if (tree->root) {
-    TrieIterator *it = TrieNode_Iterate(tree->root, NULL, NULL, NULL);
-    rune *rstr;
-    t_len len;
-    float score;
-    RSPayload payload = {.data = NULL, .len = 0};
-    size_t numDocs = 0;
-
-    while (TrieIterator_Next(it, &rstr, &len, &payload, &score, &numDocs, NULL)) {
-      size_t slen = 0;
-      char *s = runesToStr(rstr, len, &slen);
-      RedisModule_SaveStringBuffer(rdb, s, slen + 1);
-      RedisModule_SaveDouble(rdb, (double)score);
-
-      if (savePayloads) {
-        // save an extra space for the null terminator to make the payload null terminated on load
-        if (payload.data != NULL && payload.len > 0) {
-          RedisModule_SaveStringBuffer(rdb, payload.data, payload.len + 1);
-        } else {
-          // If there's no payload - we save an empty string
-          RedisModule_SaveStringBuffer(rdb, "", 1);
-        }
-      }
-      if (saveNumDocs) {
-        RedisModule_SaveUnsigned(rdb, numDocs);
-      }
-      rm_free(s);
-      count++;
-    }
-    if (count != tree->size) {
-      RedisModule_Log(ctx, "warning", "Trie: saving %zd nodes actually iterated only %d nodes",
-                      tree->size, count);
-    }
-    TrieIterator_Free(it);
+    ctx.it = TrieNode_Iterate(tree->root, NULL, NULL, NULL);
   }
+  TermStream_RdbSave(rdb, tree->size, c_trie_enum, &ctx, savePayloads, saveNumDocs);
+  if (tree->root && ctx.count != tree->size) {
+    RedisModuleCtx *rctx = RedisModule_GetContextFromIO(rdb);
+    RedisModule_Log(rctx, "warning", "Trie: saving %zd nodes actually iterated only %zd nodes",
+                    tree->size, ctx.count);
+  }
+  c_trie_enum_dispose(&ctx);
 }
 
 void TrieType_Free(void *value) {
