@@ -54,6 +54,10 @@ on:
         type: boolean
         default: false
         description: "If true, build the module for this platform but skip all test steps."
+      use-rust-term-dict:
+        type: boolean
+        default: false
+        description: "If true, build with -DUSE_RUST_TERM_DICT=ON to exercise the Rust TermDictionary backend for sp->terms."
 
 env:
   REJSON: ${{ inputs.rejson && 1 || 0 }} # convert the boolean input to numeric
@@ -64,6 +68,10 @@ env:
   # Fail on warnings
   RUSTFLAGS: "-Dwarnings"
   BUILD_INTEL_SVS_OPT: "yes"
+  # When `use-rust-term-dict` is true, the Makefile's BUILD_ARGS picks
+  # this up and forwards `-DUSE_RUST_TERM_DICT=ON` to cmake; empty string
+  # leaves the default-OFF build intact.
+  USE_RUST_TERM_DICT: ${{ inputs.use-rust-term-dict && 'ON' || '' }}
   SETUP_RETRY_LOOP: |
     SUCCESS=0
     for i in 1 2 3 4 5; do

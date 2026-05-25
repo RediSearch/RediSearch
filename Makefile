@@ -93,6 +93,10 @@ ifeq ($(RUST_DENY_WARNS),1)
 	BUILD_ARGS += RUST_DENY_WARNS=1
 endif
 
+ifeq ($(USE_RUST_TERM_DICT),ON)
+	BUILD_ARGS += USE_RUST_TERM_DICT=ON
+endif
+
 # Test arguments
 ifneq ($(TEST),)
 	BUILD_ARGS += TEST=$(TEST)

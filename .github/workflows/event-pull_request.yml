@@ -78,6 +78,34 @@ jobs:
       san: ${{ (matrix.job-type || 'test') == 'sanitize' && 'address' || '' }}
       rejson-branch: master
 
+  # Non-blocking lane that exercises the Rust TermDictionary backend for
+  # sp->terms (USE_RUST_TERM_DICT=ON). Not listed in `pr-validation.needs`
+  # so a failure here surfaces on the PR check list without gating merge,
+  # per the C3 plan. Promote to required-status after a week of greens.
+  rust-term-dict-test:
+    needs:
+      - check-what-changed
+      - get-latest-redis-tag
+      - spellcheck
+    if: ${{ needs.check-what-changed.outputs.CODE_CHANGED == 'true' && !contains(needs.*.result, 'failure') && !contains(needs.*.result, 'cancelled') }}
+    permissions:
+      contents: read
+      packages: write
+      id-token: write
+      actions: write
+    uses: ./.github/workflows/task-test.yml
+    secrets: inherit
+    with:
+      platform: ubuntu:latest
+      architecture: x86_64
+      redis-ref: ${{ needs.get-latest-redis-tag.outputs.tag }}
+      test-config: QUICK=1
+      coordinator: false
+      standalone: true
+      unit-tests: true
+      rejson-branch: master
+      use-rust-term-dict: true
+
   pr-validation:
     needs:
       - get-latest-redis-tag
