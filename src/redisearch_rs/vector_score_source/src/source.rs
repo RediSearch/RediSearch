@@ -565,6 +565,37 @@ impl<'index, E: ExpirationChecker> ScoreSource for VectorScoreSource<'index, E> 
             BatchStrategy::Continue
         }
     }
+    fn can_collect_after_lock_release(&self) -> bool {
+        // `release_index_handles` dropped the batch iterator, which the next
+        // collection rebuilds lazily; the VecSim index itself lives as long
+        // as the index spec, and the query vector is owned by the query.
+        true
+    }
+
+    fn release_index_handles(&mut self) {
+        // The batch iterator is the one thing here that outlives its guarantee:
+        // it stores a raw VecSim index pointer and dereferences it on `next`
+        // *and* on `Drop`, so carrying it across a lock release makes even
+        // discarding the suspended top-k a use-after-free if the index went
+        // away. Dropping it costs nothing at this point — a suspend can only
+        // happen with collection finished or not yet started, so there is no
+        // batch sequence left to continue, and `rewind` would clear it anyway.
+        self.batch_iter = None;
+
+        // The adhoc paths hold index state too — tiered-index shared locks, or a
+        // one-shot disk context — but only between `begin_adhoc` and
+        // `end_adhoc`, both of which run inside a single collection call. If one
+        // is live here, collection did not finish and the caller suspended from
+        // a state that should not exist.
+        debug_assert!(
+            match &self.adhoc_state {
+                AdhocPathState::Ram { guard } => guard.is_none(),
+                AdhocPathState::Disk { ctx } => ctx.is_none(),
+            },
+            "adhoc index state is live at a suspend boundary: collection left it \
+             un-ended",
+        );
+    }
 }
 
 /// Smoothed update of the child-results estimate, averaging the previous
@@ -643,6 +674,30 @@ mod tests {
             "begin_adhoc must drop the batch iterator before taking adhoc locks"
         );
         source.end_adhoc();
+    }
+
+    /// A suspended top-k must not keep the batch iterator: it dereferences its
+    /// index on drop, and the index may be gone by then. A later collection
+    /// rebuilds it lazily.
+    #[test]
+    #[cfg_attr(miri, ignore = "requires C FFI (VecSim)")]
+    fn release_index_handles_drops_batch_iterator() {
+        let index = TestIndex::flat(3, 1);
+        let mut source = flat_source(&index, 3, 3);
+
+        source.next_batch().unwrap();
+        assert!(source.batch_iter.is_some(), "batch iterator should be live");
+
+        source.release_index_handles();
+        assert!(
+            source.batch_iter.is_none(),
+            "release_index_handles must drop the batch iterator"
+        );
+
+        source.rewind();
+        let batch = source.next_batch().unwrap();
+        assert!(batch.is_some(), "a new collection rebuilds the iterator");
+        assert!(source.batch_iter.is_some());
     }
 
     /// `NumEstimated(child)` is an upper bound that can exceed the index size;
