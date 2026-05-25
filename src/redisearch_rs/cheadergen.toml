@@ -242,6 +242,14 @@ after_includes = """
 #define QueryNode_IsTag                      QueryNodeFlags_IsTag
 #define QueryNode_HybridVectorSubqueryNode   QueryNodeFlags_HybridVectorSubqueryNode
 #define QueryNode_HideVectorDistanceField    QueryNodeFlags_HideVectorDistanceField
+
+/* Backward-compatible aliases for C code that uses the old enum constant names. */
+#define QAST_SYNTAX_DEFAULT  0
+#define QAST_NO_WEIGHT       QASTValidationFlags_NoWeight
+#define QAST_NO_VECTOR       QASTValidationFlags_NoVector
+
+/* Backward-compatible typedef for C code that uses the old enum name. */
+typedef uint32_t QAST_ValidationFlags;
 """
 
 [header.rqe_iterator_type]
