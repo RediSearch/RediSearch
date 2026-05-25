@@ -110,20 +110,27 @@ fn lex_unicode_bmp_iteration_order() {
     // happened to be correct.
     //
     // Codepoints (first rune of each term):
-    //   'Z'  = U+005A     'a'  = U+0061     'c'  = U+0063
-    //   'n'  = U+006E     '日' = U+65E5     '中' = U+4E2D
+    //   'a'  = U+0061     'c'  = U+0063     'n'  = U+006E
+    //   'z'  = U+007A     '中' = U+4E2D     '日' = U+65E5
     //
     // Expected lex output order (by first-rune codepoint, ties broken on the
     // next differing rune):
-    //   Z, Zoé, apple, café, naïve, 中文, 日本
+    //   apple, café, naïve, z, zoé, 中文, 日本
+    //
+    // Keys are pre-lowercased to match the production C tokenizer's contract
+    // and the Rust `TermDictionary`'s internal case-folding. This test's
+    // signal — that BMP runes sort by codepoint, not by little-endian byte
+    // split — is preserved by `z` (0x007A) vs `中` (0x4E2D, LE bytes
+    // `[0x2D, 0x4E]`): a byte-trie with LE confusion would still place `中`
+    // before `z`, which the snapshot would catch.
     let terms: &[(&str, f64, usize)] = &[
-        ("中文", 1.0, 1), // U+4E2D U+6587 — sits between 'n' and '日' by codepoint
-        ("Zoé", 2.0, 1),  // shares 'Z' prefix with bare "Z"
+        ("中文", 1.0, 1), // U+4E2D U+6587
+        ("zoé", 2.0, 1),  // shares 'z' prefix with bare "z"
         ("apple", 3.0, 1),
         ("naïve", 4.0, 1), // contains U+00EF (still < 0x100)
         ("日本", 5.0, 1),  // U+65E5 U+672C — last in codepoint order
         ("café", 6.0, 1),  // contains U+00E9
-        ("Z", 7.0, 1),     // single-rune term, exact prefix of "Zoé"
+        ("z", 7.0, 1),     // single-rune term, exact prefix of "zoé"
     ];
     for (term, score, num_docs) in terms {
         unsafe { insert(trie, term, *score, *num_docs) };

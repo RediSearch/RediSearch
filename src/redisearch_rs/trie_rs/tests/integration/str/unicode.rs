@@ -41,15 +41,17 @@ fn lex_unicode_bmp_iteration_order() {
     let mut trie = TermDictionary::new();
 
     // Same fixture as `rune_trie_snapshots::unicode`; inserts deliberately
-    // out of lex order.
+    // out of lex order. Keys are pre-lowercased: see the C oracle for the
+    // rationale (matches production tokenizer + `TermDictionary`'s internal
+    // case-fold).
     let terms: &[(&str, f32, usize)] = &[
         ("中文", 1.0, 1),
-        ("Zoé", 2.0, 1),
+        ("zoé", 2.0, 1),
         ("apple", 3.0, 1),
         ("naïve", 4.0, 1),
         ("日本", 5.0, 1),
         ("café", 6.0, 1),
-        ("Z", 7.0, 1),
+        ("z", 7.0, 1),
     ];
     for (term, score, num_docs) in terms {
         trie.replace_term(term, *score, *num_docs);
