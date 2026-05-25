@@ -15,11 +15,13 @@
 #include "util/stringify.h"
 #include "dist_plan.h"
 #include "dist_plan_utils.h"
+#include "module.h"
 
 #include <vector>
 #include <string>
 #include <sstream>
 #include <algorithm>
+#include <limits>
 
 static char *getLastAlias(const PLN_GroupStep *gstp) {
   return gstp->reducers[array_len(gstp->reducers) - 1].alias;
@@ -30,6 +32,13 @@ static const char *stripAtPrefix(const char *s) {
     s++;
   }
   return s;
+}
+
+static size_t saturatingMulSize(size_t a, size_t b) {
+  if (a != 0 && b > std::numeric_limits<size_t>::max() / a) {
+    return std::numeric_limits<size_t>::max();
+  }
+  return a * b;
 }
 
 struct ReducerDistCtx {
@@ -628,6 +637,15 @@ int AREQ_BuildDistributedPipeline(AREQ *r, AREQDIST_UpstreamInfo *us, QueryError
   RS_ASSERT(dstp);
 
   RLookup_EnableOptions(&dstp->lk, RLOOKUP_OPT_ALLOWUNRESOLVED);
+
+  size_t shardCount = GetNumShards_UnSafe();
+  if (shardCount == 0) {
+    shardCount = 1;
+  }
+  r->maxAggregateGroups = saturatingMulSize(r->maxAggregateGroupsBase, shardCount);
+  r->maxAggregateGroupsShardCount = shardCount;
+  r->maxAggregateGroupsIsCoordinator = true;
+
   int rc = AREQ_BuildPipeline(r, status);
   RLookup_DisableOptions(&dstp->lk, RLOOKUP_OPT_ALLOWUNRESOLVED);
 

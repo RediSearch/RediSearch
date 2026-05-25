@@ -290,6 +290,10 @@ typedef struct AREQ {
   // FT.AGGREGATE execution.
   size_t maxSearchResults;
   size_t maxAggregateResults;
+  size_t maxAggregateGroups;
+  size_t maxAggregateGroupsBase;
+  size_t maxAggregateGroupsShardCount;
+  bool maxAggregateGroupsIsCoordinator;
 
   // Cursor id, if this is a cursor
   uint64_t cursor_id;
@@ -466,7 +470,9 @@ static inline AGGPlan *AREQ_AGGPlan(AREQ *req) {
  * ResultProcessors (and a grouper is a ResultProcessor) before the grouper
  * should write their data using `lksrc` as a reference point.
  */
-Grouper *Grouper_New(const RLookupKey **srckeys, const RLookupKey **dstkeys, size_t n);
+Grouper *Grouper_New(const RLookupKey **srckeys, const RLookupKey **dstkeys, size_t n,
+                     size_t maxAggregateGroups, size_t maxAggregateGroupsBase,
+                     size_t maxAggregateGroupsShardCount, bool maxAggregateGroupsIsCoordinator);
 
 void Grouper_Free(Grouper *g);
 

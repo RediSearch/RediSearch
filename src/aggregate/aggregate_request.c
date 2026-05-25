@@ -1094,6 +1094,10 @@ AREQ *AREQ_New(void) {
   // once query offset is bounded by both.
   req->maxSearchResults = RSGlobalConfig.maxSearchResults;
   req->maxAggregateResults = RSGlobalConfig.maxAggregateResults;
+  req->maxAggregateGroups = RSGlobalConfig.maxAggregateGroups;
+  req->maxAggregateGroupsBase = req->maxAggregateGroups;
+  req->maxAggregateGroupsShardCount = 1;
+  req->maxAggregateGroupsIsCoordinator = false;
   req->optimizer = QOptimizer_New();
   req->profile = Profile_PrintDefault;
   req->prefixesOffset = 0;
@@ -1771,6 +1775,10 @@ int AREQ_BuildPipeline(AREQ *req, QueryError *status) {
     },
     .outFields = &req->outFields,
     .maxResultsLimit = IsSearch(req) ? req->maxSearchResults : req->maxAggregateResults,
+    .maxAggregateGroups = req->maxAggregateGroups,
+    .maxAggregateGroupsBase = req->maxAggregateGroupsBase,
+    .maxAggregateGroupsShardCount = req->maxAggregateGroupsShardCount,
+    .maxAggregateGroupsIsCoordinator = req->maxAggregateGroupsIsCoordinator,
     .language = req->searchopts.language,
   };
   int rc = Pipeline_BuildAggregationPart(&req->pipeline, &params, &req->stateflags, status);

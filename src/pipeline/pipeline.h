@@ -54,6 +54,18 @@ typedef struct AggregationPipelineParams {
    *  over individual step limits when smaller. */
   size_t maxResultsLimit;
 
+  /** Maximum number of GROUPBY groups that can be materialized. */
+  size_t maxAggregateGroups;
+
+  /** Configured base GROUPBY group limit, used for row expansion checks and errors. */
+  size_t maxAggregateGroupsBase;
+
+  /** Number of shards used to derive the effective coordinator GROUPBY group limit. */
+  size_t maxAggregateGroupsShardCount;
+
+  /** True when maxAggregateGroups is a coordinator-side effective limit. */
+  bool maxAggregateGroupsIsCoordinator;
+
   /** Language setting for text highlighting and language-specific processing.
    *  Used by highlighting result processors to apply proper stemming,
    *  tokenization, and markup for the specified language. */
