@@ -56,6 +56,11 @@
 #include "search_disk_utils.h"
 #include "iterators_ffi.h"
 
+#ifdef USE_RUST_TERM_DICT
+#include "term_dict_ffi.h"
+#include "trie/term_stream_codec_rust_backend.h"
+#endif
+
 #define INITIAL_DOC_TABLE_SIZE 1000
 
 ///////////////////////////////////////////////////////////////////////////////////////////////
@@ -118,6 +123,128 @@ static void DebugIndexesScanner_pauseCheck(DebugIndexesScanner* dScanner, RedisM
 
 // Forward declaration for disk validation
 inline static bool isSpecOnDiskForValidation(const IndexSpec *sp);
+
+// --- sp->terms backend wrappers ---------------------------------------------
+//
+// `sp->terms` holds either a C `Trie *` (default, OFF) or a Rust
+// `TermDict *` (USE_RUST_TERM_DICT=ON). The struct field's declared type
+// flips with the cmake option (see src/spec.h) so that OFF builds keep
+// the strong `Trie *` typing every consumer outside this file already
+// uses; under ON the field is `void *` and the helpers below absorb the
+// backend split.
+//
+// All `#ifdef USE_RUST_TERM_DICT` in this file lives inside these
+// helpers. Callers within spec.c must go through them — never deref
+// `sp->terms` directly. Consumers outside spec.c that still treat the
+// field as `Trie *` are deliberately left for follow-up commits; under
+// ON they will fail to compile and signal exactly where forks are
+// needed.
+
+static void *terms_new(void) {
+#ifdef USE_RUST_TERM_DICT
+  return TermDict_New();
+#else
+  return NewTrie(NULL, Trie_Sort_Lex);
+#endif
+}
+
+static void terms_free(void *terms) {
+#ifdef USE_RUST_TERM_DICT
+  TermDict_Free(terms);
+#else
+  TrieType_Free(terms);
+#endif
+}
+
+static size_t terms_mem_usage(const void *terms) {
+#ifdef USE_RUST_TERM_DICT
+  return TermDict_MemUsage(terms);
+#else
+  return TrieType_MemUsage(terms);
+#endif
+}
+
+// ADD_INCR insert with score=1, num_docs=1 — mirrors the
+// `Trie_InsertStringBuffer(sp->terms, term, len, 1, 1, NULL, 1)` call this
+// helper replaces. Returns `true` on new-terminal, `false` on
+// update-existing (matches TRIE_OK_NEW vs TRIE_OK_UPDATED). For any other
+// insert shape, write a new helper rather than parameterising this one.
+static bool terms_add(void *terms, const char *term, size_t len) {
+#ifdef USE_RUST_TERM_DICT
+  return TermDict_AddTerm(terms, term, len, 1.0, 1);
+#else
+  return Trie_InsertStringBuffer(terms, (char *)term, len, 1, 1, NULL, 1) == TRIE_OK_NEW;
+#endif
+}
+
+static TrieDecrResult terms_decrement(void *terms, const char *term, size_t term_len,
+                                      size_t delta) {
+#ifdef USE_RUST_TERM_DICT
+  // TermDictDecrResult is an ABI-mirror of TrieDecrResult — the static
+  // asserts below catch discriminant drift at compile time. The matching
+  // Rust-side `assert_eq!` lives in term_dict_ffi/tests/decrement.rs.
+  _Static_assert((int)TermDictDecrResult_NotFound == TRIE_DECR_NOT_FOUND,
+                 "TermDictDecrResult::NotFound must match TRIE_DECR_NOT_FOUND");
+  _Static_assert((int)TermDictDecrResult_Updated == TRIE_DECR_UPDATED,
+                 "TermDictDecrResult::Updated must match TRIE_DECR_UPDATED");
+  _Static_assert((int)TermDictDecrResult_Deleted == TRIE_DECR_DELETED,
+                 "TermDictDecrResult::Deleted must match TRIE_DECR_DELETED");
+  return (TrieDecrResult)TermDict_DecrementNumDocs(terms, term, term_len, delta);
+#else
+  return Trie_DecrementNumDocs(terms, term, term_len, delta);
+#endif
+}
+
+static void terms_rdb_save(RedisModuleIO *rdb, void *terms, bool save_payloads,
+                           bool save_num_docs) {
+#ifdef USE_RUST_TERM_DICT
+  TrieType_GenericSave_TermDict(rdb, terms, save_payloads, save_num_docs);
+#else
+  TrieType_GenericSave(rdb, terms, save_payloads, save_num_docs);
+#endif
+}
+
+static void *terms_rdb_load(RedisModuleIO *rdb, bool load_payloads, bool load_num_docs) {
+#ifdef USE_RUST_TERM_DICT
+  return TrieType_GenericLoad_TermDict(rdb, load_payloads, load_num_docs);
+#else
+  return TrieType_GenericLoad(rdb, load_payloads, load_num_docs);
+#endif
+}
+
+// Iterate every term in `terms`, invoking `cb(term, term_len, udata)` for
+// each. Backend-agnostic. The byte slice handed to `cb` is borrowed and
+// only valid for the duration of that single call — copy if you need to
+// retain it. `cb` returning `false` stops iteration.
+typedef bool (*terms_iter_cb)(const char *term, size_t term_len, void *udata);
+
+static void terms_for_each(void *terms, terms_iter_cb cb, void *udata) {
+#ifdef USE_RUST_TERM_DICT
+  TermDictIter *it = TermDict_IterNew(terms);
+  const char *term = NULL;
+  size_t term_len = 0;
+  double score = 0;     // unused here, the Rust iterator yields it regardless
+  size_t num_docs = 0;  // ditto
+  while (TermDict_IterNext(it, &term, &term_len, &score, &num_docs)) {
+    if (!cb(term, term_len, udata)) break;
+  }
+  TermDict_IterFree(it);
+#else
+  TrieIterator *it = Trie_Iterate(terms, "", 0, 0, 1);
+  rune *rstr = NULL;
+  t_len slen = 0;
+  float score = 0;
+  int dist = 0;
+  while (TrieIterator_Next(it, &rstr, &slen, NULL, &score, NULL, &dist)) {
+    size_t term_len = 0;
+    char *term = runesToStr(rstr, slen, &term_len);
+    bool cont = cb(term, term_len, udata);
+    rm_free(term);
+    if (!cont) break;
+  }
+  TrieIterator_Free(it);
+#endif
+}
 
 /**
  * Checks if SST persistence is enabled for the given RDB context.
@@ -501,7 +628,7 @@ size_t IndexSpec_collect_text_overhead(const IndexSpec *sp) {
   // Traverse the fields and calculates the overhead of the text suffixes
   size_t overhead = 0;
   // Collect overhead from sp->terms
-  overhead += TrieType_MemUsage(sp->terms);
+  overhead += terms_mem_usage(sp->terms);
   // Collect overhead from sp->suffix
   if (sp->suffix) {
     // TODO: Count the values' memory as well
@@ -1968,8 +2095,8 @@ size_t IndexSpec_GetIndexErrorCount(const IndexSpec *sp) {
 // Assuming the spec is properly locked for writing before calling this function.
 void IndexSpec_AddTerm(IndexSpec *sp, const char *term, size_t len) {
   // Payload is NULL so TRIE_ERR_PAYLOAD_OVERFLOW cannot occur
-  int isNew = Trie_InsertStringBuffer(sp->terms, (char *)term, len, 1, 1, NULL, 1);
-  if (isNew == TRIE_OK_NEW) {
+  bool isNew = terms_add(sp->terms, term, len);
+  if (isNew) {
     sp->stats.scoring.numTerms++;
     sp->stats.termsSize += len;
   }
@@ -2072,7 +2199,7 @@ static void IndexSpec_FreeUnlinkedData(IndexSpec *spec) {
   DocTable_Free(&spec->docs);
   // Free TEXT field trie and inverted indexes
   if (spec->terms) {
-    TrieType_Free(spec->terms);
+    terms_free(spec->terms);
   }
   // Free TEXT TAG NUMERIC VECTOR and GEOSHAPE fields trie and inverted indexes
   if (spec->keysDict) {
@@ -2426,7 +2553,7 @@ static void initializeIndexSpec(IndexSpec *sp, const HiddenString *name, IndexFl
   sp->stats.indexError = IndexError_Init();
 
   sp->fieldIdToIndex = array_new(t_fieldIndex, 0);
-  sp->terms = NewTrie(NULL, Trie_Sort_Lex);
+  sp->terms = terms_new();
 
   IndexSpec_InitLock(sp);
   // First, initialise fields IndexError for every field
@@ -3261,26 +3388,20 @@ void IndexSpec_ScanAndReindex(RedisModuleCtx *ctx, StrongRef spec_ref) {
   }
 }
 
+static bool drop_legacy_term_key(const char *term, size_t term_len, void *udata) {
+  RedisSearchCtx *ctx = udata;
+  RedisModuleString *keyName = Legacy_fmtRedisTermKey(ctx, term, term_len);
+  Redis_LegacyDropScanHandler(ctx->redisCtx, keyName, ctx);
+  RedisModule_FreeString(ctx->redisCtx, keyName);
+  return true;
+}
+
 // only used on "RDB load finished" event (before the server is ready to accept commands)
 // so it threadsafe
 void IndexSpec_DropLegacyIndexFromKeySpace(IndexSpec *sp) {
   RedisSearchCtx ctx = SEARCH_CTX_STATIC(RSDummyContext, sp);
 
-  rune *rstr = NULL;
-  t_len slen = 0;
-  float score = 0;
-  int dist = 0;
-  size_t termLen;
-
-  TrieIterator *it = Trie_Iterate(ctx.spec->terms, "", 0, 0, 1);
-  while (TrieIterator_Next(it, &rstr, &slen, NULL, &score, NULL, &dist)) {
-    char *res = runesToStr(rstr, slen, &termLen);
-    RedisModuleString *keyName = Legacy_fmtRedisTermKey(&ctx, res, strlen(res));
-    Redis_LegacyDropScanHandler(ctx.redisCtx, keyName, &ctx);
-    RedisModule_FreeString(ctx.redisCtx, keyName);
-    rm_free(res);
-  }
-  TrieIterator_Free(it);
+  terms_for_each(ctx.spec->terms, drop_legacy_term_key, &ctx);
 
   // Delete the numeric, tag, and geo indexes which reside on separate keys
   for (size_t i = 0; i < ctx.spec->numFields; i++) {
@@ -3390,7 +3511,7 @@ void IndexSpec_RdbSave(RedisModuleIO *rdb, IndexSpec *sp, int contextFlags) {
       RedisSearchCtx_LockSpecRead(&sctx);
     }
     IndexScoringStats_RdbSave(rdb, &sp->stats.scoring);
-    TrieType_GenericSave(rdb, sp->terms, false, true);
+    terms_rdb_save(rdb, sp->terms, false, true);
     // Save disk metadata via IndexSpecRdbState (loaded via SearchDisk_LoadRdbToTempObject)
     SearchDisk_IndexSpecRdbSave(rdb, sp->diskSpec);
     if (inMainProcess) {
@@ -3522,9 +3643,9 @@ IndexSpec *IndexSpec_RdbLoad(RedisModuleIO *rdb, int encver, bool useSst, QueryE
     RS_ASSERT(disk_db);
     IndexScoringStats_RdbLoad(rdb, &sp->stats.scoring, encver);
     if (sp->terms) {
-      TrieType_Free(sp->terms);
+      terms_free(sp->terms);
     }
-    sp->terms = TrieType_GenericLoad(rdb, false, true);
+    sp->terms = terms_rdb_load(rdb, false, true);
     RS_LOG_ASSERT(sp->terms, "Failed to load terms trie");
 
     // Load disk metadata (max_doc_id, deleted_ids) into the spec. Stashed
@@ -3675,13 +3796,13 @@ void *IndexSpec_LegacyRdbLoad(RedisModuleIO *rdb, int encver) {
   }
   /* For version 3 or up - load the generic trie */
   if (encver >= 3) {
-    sp->terms = TrieType_GenericLoad(rdb, false, false);
+    sp->terms = terms_rdb_load(rdb, false, false);
     if (sp->terms == NULL) {
       StrongRef_Release(spec_ref);
       return NULL;
     }
   } else {
-    sp->terms = NewTrie(NULL, Trie_Sort_Lex);
+    sp->terms = terms_new();
   }
 
   if (sp->flags & Index_HasCustomStopwords) {
@@ -4859,7 +4980,7 @@ bool IndexSpec_DecrementTrieTermCount(IndexSpec* sp, const char* term, size_t te
   }
   // Decrement the numDocs count for this term in the trie
   // If numDocs reaches 0, the node will be deleted
-  TrieDecrResult result = Trie_DecrementNumDocs(sp->terms, term, term_len, doc_count_decrement);
+  TrieDecrResult result = terms_decrement(sp->terms, term, term_len, doc_count_decrement);
   RS_ASSERT(result != TRIE_DECR_NOT_FOUND);
   return result == TRIE_DECR_DELETED;
 }

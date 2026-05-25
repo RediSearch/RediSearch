@@ -328,7 +328,23 @@ typedef struct IndexSpec {
   IndexFlags flags;               // Flags
   IndexStats stats;               // Statistics of memory used and quantities
 
-  Trie *terms;                    // Trie of all TEXT terms. Used for GC and fuzzy queries
+  // Trie of all TEXT terms. Used for GC and fuzzy queries.
+  //
+  // The declared type depends on the USE_RUST_TERM_DICT cmake option:
+  //   - OFF (default): `Trie *` from src/trie/trie.c — every consumer
+  //     compiles with its existing `Trie *` typing.
+  //   - ON:            `void *`, opaque to consumers; the concrete type
+  //     is a Rust `TermDict *` from src/redisearch_rs/c_entrypoint/term_dict_ffi.
+  //     Consumers outside src/spec.c that still treat the field as `Trie *`
+  //     will fail to compile under ON — that is intentional, it surfaces
+  //     every site that needs forking before the flag can flip.
+  // In all cases, use the `terms_*` helpers in src/spec.c rather than
+  // dereferencing the field directly.
+#ifdef USE_RUST_TERM_DICT
+  void *terms;
+#else
+  Trie *terms;
+#endif
   Trie *suffix;                   // Trie of TEXT suffix tokens of terms. Used for contains queries
   t_fieldMask suffixMask;         // Mask of all fields that support contains query
   dict *keysDict;                 // Inverted indexes dictionary of all TEXT terms
