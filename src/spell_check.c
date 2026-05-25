@@ -15,8 +15,66 @@
 #include "inverted_index_ffi.h"
 #include <stdbool.h>
 
+#ifdef USE_RUST_TERM_DICT
+#include "term_dict_ffi.h"
+#endif
+
 /** Forward declaration **/
 static bool SpellCheck_IsTermExistsInTrie(Trie *t, const char *term, size_t len, double *outScore);
+static void SpellCheck_FindSuggestions(SpellCheckCtx *scCtx, Trie *t, const char *term, size_t len,
+                                       t_fieldMask fieldMask, RS_Suggestions *s, int incr);
+static double SpellCheck_GetScore(SpellCheckCtx *scCtx, char *suggestion, size_t len,
+                                  t_fieldMask fieldMask);
+
+#ifdef USE_RUST_TERM_DICT
+typedef struct {
+  SpellCheckCtx *scCtx;
+  RS_Suggestions *s;
+  t_fieldMask fieldMask;
+  int incr;
+} SpellCheckTermsDfaCtx;
+
+static int spellcheck_terms_dfa_cb(const char *term, size_t term_len, void *ctx_,
+                                   double score, size_t num_docs, uint32_t dist) {
+  (void)score;
+  (void)num_docs;
+  (void)dist;
+  SpellCheckTermsDfaCtx *ctx = ctx_;
+  double s_score = SpellCheck_GetScore(ctx->scCtx, (char *)term, term_len, ctx->fieldMask);
+  if (s_score != -1) {
+    RS_SuggestionsAdd(ctx->s, (char *)term, term_len, s_score, ctx->incr);
+  }
+  return 0;
+}
+#endif
+
+// Existence check against the indexed-term backend (`sp->terms`). Wraps
+// SpellCheck_IsTermExistsInTrie under OFF and routes through
+// `TermDict_GetNumDocs > 0` under ON — the latter case-folds inside the
+// dictionary, matching the DFA-dist=0 semantics the C path relied on.
+static inline bool spellcheck_terms_exists(void *terms, const char *term, size_t len) {
+#ifdef USE_RUST_TERM_DICT
+  return TermDict_GetNumDocs(terms, term, len) > 0;
+#else
+  return SpellCheck_IsTermExistsInTrie((Trie *)terms, term, len, NULL);
+#endif
+}
+
+// Fuzzy-suggestion search against `sp->terms`. Under OFF passes straight to
+// SpellCheck_FindSuggestions; under ON drives the same per-hit logic
+// (score-gate + RS_SuggestionsAdd) via TermDict_IterateDfa.
+static inline void spellcheck_terms_find_suggestions(SpellCheckCtx *scCtx, void *terms,
+                                                     const char *term, size_t len,
+                                                     t_fieldMask fieldMask, RS_Suggestions *s,
+                                                     int incr) {
+#ifdef USE_RUST_TERM_DICT
+  SpellCheckTermsDfaCtx ctx = {.scCtx = scCtx, .s = s, .fieldMask = fieldMask, .incr = incr};
+  TermDict_IterateDfa(terms, term, len, (uint32_t)scCtx->distance, false,
+                      spellcheck_terms_dfa_cb, &ctx);
+#else
+  SpellCheck_FindSuggestions(scCtx, (Trie *)terms, term, len, fieldMask, s, incr);
+#endif
+}
 
 
 int RS_SuggestionCompare(const void *val1, const void *val2) {
@@ -240,7 +298,7 @@ static bool SpellCheck_ReplyTermSuggestions(SpellCheckCtx *scCtx, char *term, si
 
   // searching the term on the term trie, if its there we just return false
   // because there is no need to return suggestions on it.
-  if (SpellCheck_IsTermExistsInTrie(scCtx->sctx->spec->terms, term, len, NULL)) {
+  if (spellcheck_terms_exists(scCtx->sctx->spec->terms, term, len)) {
     if (!scCtx->fullScoreInfo) {
       return false;
     }
@@ -275,7 +333,7 @@ static bool SpellCheck_ReplyTermSuggestions(SpellCheckCtx *scCtx, char *term, si
 
   RS_Suggestions *s = RS_SuggestionsCreate();
 
-  SpellCheck_FindSuggestions(scCtx, scCtx->sctx->spec->terms, term, len, fieldMask, s, 1);
+  spellcheck_terms_find_suggestions(scCtx, scCtx->sctx->spec->terms, term, len, fieldMask, s, 1);
 
   // sorting results by score
 
