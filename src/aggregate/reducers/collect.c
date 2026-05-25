@@ -328,7 +328,7 @@ Reducer *RDCRCollect_New(const ReducerOptions *options) {
   Reducer *rbase = NULL;
 
   if (options->is_local) {
-    RS_ASSERT_ALWAYS(options->input_key);
+    RS_ASSERT(options->input_key);
     rbase = CollectReducer_CreateLocal(
       options->input_key,
       (const char *const *)args.field_names,
