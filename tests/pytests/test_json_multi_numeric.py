@@ -529,10 +529,13 @@ def testInfoStats(env):
             conn.execute_command('JSON.SET', f'doc:single:{{{doc_created + i}}}', '$', json.dumps({'top': val_list[i]}))
         doc_created += val_count - 1
 
-    interesting_attr = ['num_records', 'total_inverted_index_blocks']
-    info_single = keep_dict_keys(index_info(env, 'idx:single'), interesting_attr)
-    info_multi = keep_dict_keys(index_info(env, 'idx:multi'), interesting_attr)
-    env.assertEqual(info_single, info_multi)
+    # Excludes `total_inverted_index_blocks`: per-spec since MOD-15781, and the
+    # two indexes scatter the same values across shards differently, so block
+    # counts legitimately diverge in cluster mode.
+    env.assertEqual(
+        index_info(env, 'idx:single')['num_records'],
+        index_info(env, 'idx:multi')['num_records'],
+    )
 
 @skip(no_json=True)
 def testInfoStatsAndSearchAsSingle(env):
