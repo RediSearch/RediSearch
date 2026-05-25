@@ -1602,7 +1602,6 @@ QueryIterator *QAST_Iterate(QueryAST *qast, const RSSearchOptions *opts, RedisSe
                             uint32_t reqflags, QueryError *status) {
   QueryEvalCtx qectx = {
       .opts = opts,
-      .numTokens = qast->numTokens,
       .docTable = &sctx->spec->docs,
       .sctx = sctx,
       .status = status,
