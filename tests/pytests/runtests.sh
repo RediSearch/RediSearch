@@ -8,6 +8,12 @@ ROOT=$(cd $HERE/../.. && pwd)
 
 export PYTHONUNBUFFERED=1
 
+# Returns success if $1 is an absolute path. Used to decide whether TESTFILE /
+# FAILEDFILE need to be resolved relative to $ROOT.
+is_abspath() {
+	[[ "$1" == /* ]]
+}
+
 VG_REDIS_VER=7.4
 VG_REDIS_SUFFIX=7.4
 SAN_REDIS_VER=7.4

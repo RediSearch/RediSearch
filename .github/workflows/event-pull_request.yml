@@ -1,6 +1,12 @@
 name: Pull Request Flow
 
 # Documentation: https://redislabs.atlassian.net/wiki/spaces/DX/pages/3967844669/RediSearch+CI+refactor
+#
+# Each PR fans out into independent per-job-type pipelines (basic-test,
+# coverage, sanitize). Each pipeline runs its own build and its own test jobs
+# (unit + standalone flow + coordinator flow), so e.g. basic-test's tests
+# never wait on the sanitize build. MIRI runs as its own top-level job —
+# untethered from the build artifact since it can't reuse the nextest archive.
 
 on:
   pull_request:
@@ -25,8 +31,8 @@ jobs:
     permissions:
       contents: read
       packages: write
-      id-token: write # OIDC role assumption for sccache S3 (used inside task-lint.yml)
-      actions: write  # Swatinem/rust-cache read/write of GH cache (used inside task-lint.yml)
+      id-token: write
+      actions: write
     uses: ./.github/workflows/task-lint.yml
     secrets: inherit
     with:
@@ -36,47 +42,92 @@ jobs:
   spellcheck:
     uses: ./.github/workflows/task-spellcheck.yml
 
-  generate-basic-matrix:
-    needs: [check-what-changed]
-    uses: ./.github/workflows/generate-basic-matrix.yml
-    with:
-      include-basic-test: ${{ needs.check-what-changed.outputs.CODE_CHANGED == 'true' || needs.check-what-changed.outputs.TESTS_CHANGED == 'true' || contains(github.event.pull_request.labels.*.name, 'enforce:test') }}
-      include-coverage: ${{ vars.ENABLE_CODE_COVERAGE != 'false' && ((!github.event.pull_request.draft && needs.check-what-changed.outputs.CODE_CHANGED == 'true') || (!github.event.pull_request.draft && needs.check-what-changed.outputs.TESTS_CHANGED == 'true') || contains(github.event.pull_request.labels.*.name, 'enforce:coverage')) }}
-      include-sanitize: ${{ (!github.event.pull_request.draft && needs.check-what-changed.outputs.CODE_CHANGED == 'true') || (!github.event.pull_request.draft && needs.check-what-changed.outputs.TESTS_CHANGED == 'true') || contains(github.event.pull_request.labels.*.name, 'enforce:sanitize') }}
-      separate-coordinator-job: true
+  # ------------------------------------------------------------------
+  # Per-job-type pipelines. Each runs its own build → test fan-out
+  # independently of the others.
+  # ------------------------------------------------------------------
 
-  test-matrix:
-    name: ${{ matrix.job-type }}${{ matrix.test-mode == 'standalone' && ' (Standalone)' || (matrix.test-mode == 'coordinator' && ' (Coordinator-only)' || '') }}
-    needs:
-      - check-what-changed
-      - get-latest-redis-tag
-      - generate-basic-matrix
-      - spellcheck
-    # Run if there are jobs AND (spellcheck succeeded or was skipped)
-    if: ${{ needs.generate-basic-matrix.outputs.has-jobs == 'true' && !contains(needs.*.result, 'failure') && !contains(needs.*.result, 'cancelled') }}
-    strategy:
-      matrix: ${{ fromJson(needs.generate-basic-matrix.outputs.matrix) }}
-      # in the case of pull requests we want to run all jobs, even if one fails
-      # we aren't blocking anybody from merging, and we want to see all failures
-      fail-fast: false
+  basic-test:
+    needs: [check-what-changed, get-latest-redis-tag, spellcheck]
+    if: ${{ (needs.check-what-changed.outputs.CODE_CHANGED == 'true' || needs.check-what-changed.outputs.TESTS_CHANGED == 'true' || contains(github.event.pull_request.labels.*.name, 'enforce:test')) && !contains(needs.*.result, 'failure') && !contains(needs.*.result, 'cancelled') }}
     permissions:
       contents: read
       packages: write
-      id-token: write # OIDC role assumption for sccache S3 (used inside task-test.yml)
-      actions: write  # Swatinem/rust-cache read/write of GH cache (used inside task-test.yml)
-    uses: ./.github/workflows/task-test.yml
+      id-token: write
+      actions: write
+    uses: ./.github/workflows/flow-pr-pipeline.yml
     secrets: inherit
     with:
+      job-type: basic-test
       platform: ubuntu:latest
       architecture: x86_64
       redis-ref: ${{ needs.get-latest-redis-tag.outputs.tag }}
       test-config: QUICK=1
-      coordinator: ${{ matrix.test-mode != 'standalone' }}
-      standalone: ${{ matrix.test-mode != 'coordinator' }}
-      unit-tests: ${{ matrix.test-mode != 'coordinator' }}
-      coverage: ${{ (matrix.job-type || 'test') == 'coverage' }}
-      san: ${{ (matrix.job-type || 'test') == 'sanitize' && 'address' || '' }}
       rejson-branch: master
+
+  coverage:
+    needs: [check-what-changed, get-latest-redis-tag, spellcheck]
+    if: ${{ vars.ENABLE_CODE_COVERAGE != 'false' && ((!github.event.pull_request.draft && needs.check-what-changed.outputs.CODE_CHANGED == 'true') || (!github.event.pull_request.draft && needs.check-what-changed.outputs.TESTS_CHANGED == 'true') || contains(github.event.pull_request.labels.*.name, 'enforce:coverage')) && !contains(needs.*.result, 'failure') && !contains(needs.*.result, 'cancelled') }}
+    permissions:
+      contents: read
+      packages: write
+      id-token: write
+      actions: write
+    uses: ./.github/workflows/flow-pr-pipeline.yml
+    secrets: inherit
+    with:
+      job-type: coverage
+      platform: ubuntu:latest
+      architecture: x86_64
+      redis-ref: ${{ needs.get-latest-redis-tag.outputs.tag }}
+      test-config: QUICK=1
+      rejson-branch: master
+
+  sanitize:
+    needs: [check-what-changed, get-latest-redis-tag, spellcheck]
+    if: ${{ ((!github.event.pull_request.draft && needs.check-what-changed.outputs.CODE_CHANGED == 'true') || (!github.event.pull_request.draft && needs.check-what-changed.outputs.TESTS_CHANGED == 'true') || contains(github.event.pull_request.labels.*.name, 'enforce:sanitize')) && !contains(needs.*.result, 'failure') && !contains(needs.*.result, 'cancelled') }}
+    permissions:
+      contents: read
+      packages: write
+      id-token: write
+      actions: write
+    uses: ./.github/workflows/flow-pr-pipeline.yml
+    secrets: inherit
+    with:
+      job-type: sanitize
+      platform: ubuntu:latest
+      architecture: x86_64
+      redis-ref: ${{ needs.get-latest-redis-tag.outputs.tag }}
+      test-config: QUICK=1
+      rejson-branch: master
+
+  # ------------------------------------------------------------------
+  # MIRI runs independently — no build artifact reuse possible, and we
+  # don't want it gating the other test jobs.
+  # ------------------------------------------------------------------
+
+  miri:
+    name: miri (${{ matrix.shard }}/3)
+    needs: [check-what-changed, spellcheck]
+    if: ${{ ((!github.event.pull_request.draft && needs.check-what-changed.outputs.CODE_CHANGED == 'true') || (!github.event.pull_request.draft && needs.check-what-changed.outputs.TESTS_CHANGED == 'true') || contains(github.event.pull_request.labels.*.name, 'enforce:sanitize')) && !contains(needs.*.result, 'failure') && !contains(needs.*.result, 'cancelled') }}
+    # Split MIRI across 3 nextest partitions. Each shard is self-contained
+    # (builds the C side + compiles miri) since miri can't reuse the nextest
+    # archive; the slow part — miri interpretation — is split 3 ways.
+    strategy:
+      matrix:
+        shard: [1, 2, 3]
+      fail-fast: false
+    permissions:
+      contents: read
+      packages: write
+      id-token: write
+      actions: write
+    uses: ./.github/workflows/task-miri.yml
+    secrets: inherit
+    with:
+      platform: ubuntu:latest
+      architecture: x86_64
+      partition: count:${{ matrix.shard }}/3
 
   pr-validation:
     needs:
@@ -84,7 +135,10 @@ jobs:
       - check-what-changed
       - spellcheck
       - lint
-      - test-matrix
+      - basic-test
+      - coverage
+      - sanitize
+      - miri
     runs-on: ubuntu-slim
     if: ${{ !cancelled() }}
     steps:

@@ -244,9 +244,9 @@ debug = true
 [profile.optimised_test]
 # Like `release`, but:
 inherits = "release"
-# - Less aggressive link-time optimization, to recover
-#   parallelism in the build.
-lto = "thin"
+# - Skip lint-time optimization, to avoid a large compile-time
+#   penalty.
+lto = false
 codegen-units = 16
 # - Enable debug assertions
 debug-assertions = true

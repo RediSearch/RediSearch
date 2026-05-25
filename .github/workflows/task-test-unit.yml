@@ -1,0 +1,349 @@
+name: Common Flow for Unit Tests
+
+# Documentation: https://redislabs.atlassian.net/wiki/spaces/DX/pages/3967844669/RediSearch+CI+refactor
+#
+# Reusable workflow that runs the C/C++ unit tests, the Rust unit tests, and
+# (under sanitizer builds) the MIRI tests against a pre-built RediSearch tree
+# produced by `task-build.yml`. The build artifact is downloaded into `bin/`;
+# no C/C++ or Rust compilation happens here unless cargo decides something is
+# out of date.
+
+on:
+  workflow_call:
+    inputs:
+      platform:
+        description: 'Platform name (e.g., ubuntu:noble, macos-15)'
+        type: string
+        required: true
+      architecture:
+        description: 'Architecture (x86_64, aarch64)'
+        type: string
+        required: true
+      san:
+        type: string
+      coverage:
+        type: boolean
+        default: false
+      redis-ref:
+        description: 'Redis version to use (only consumed by setup steps that key caches on it).'
+        type: string
+        default: 3cd464263b03b425ffae2e23db24df3dc9346871
+      test-timeout:
+        type: number
+        default: 120
+      fail-fast:
+        type: boolean
+        default: false
+        description: "If true, the workflow will terminate as soon as one test step fails."
+      artifact-name:
+        description: 'Workflow artifact name to download (produced by task-build.yml).'
+        type: string
+        required: true
+      # Resolved platform config — produced by task-get-config.yml at the
+      # pipeline level so this workflow doesn't redo it. Caller must supply.
+      name:
+        type: string
+        default: ''
+      container:
+        type: string
+        default: ''
+      env:
+        type: string
+        default: ''
+      install-mode:
+        type: string
+        default: ''
+      setup-script:
+        type: string
+        default: ''
+      post-setup-script:
+        type: string
+        default: ''
+      # Prebuilt container image (task-build-cached-container.yml outputs).
+      image:
+        type: string
+        default: ''
+      image-built:
+        description: "'true' when the prebuilt image is available; falls back to inputs.container otherwise."
+        type: string
+        default: 'false'
+
+env:
+  COV: ${{ inputs.coverage && 1 || 0 }}
+  RUST_BACKTRACE: "full"
+  RUSTFLAGS: "-Dwarnings"
+  SETUP_RETRY_LOOP: |
+    SUCCESS=0
+    for i in 1 2 3 4 5; do
+      echo "Attempt $i of 5"
+      if {0}; then
+        echo "Setup succeeded"
+        SUCCESS=1
+        break
+      fi
+      if [ $i -lt 5 ]; then
+        echo "Setup failed, retrying in 30 seconds..."
+        sleep 30
+      fi
+    done
+    [ $SUCCESS -eq 1 ] || exit 1
+
+jobs:
+  common-flow:
+    name: Unit tests on ${{ inputs.name }}
+    runs-on: ${{ inputs.env || vars.RUNS_ON || 'ubuntu-latest' }}
+    container: ${{
+      inputs.container
+        && fromJSON(
+          format('{{"image":"{0}","options":"--user root -v /usr/share/dotnet:/host_usr/dotnet -v /usr/local/lib/android:/host_usr/android -v /opt/ghc:/host_opt/ghc -v /opt/hostedtoolcache:/host_opt/hostedtoolcache {1}"}}',
+            inputs.image-built == 'true' && inputs.image || inputs.container,
+            startsWith(inputs.container, 'alpine:') && '-v /opt:/opt:rw,rshared -v /opt:/__e/node20:ro,rshared -v /opt:/__e/node24:ro,rshared' || '')
+        )
+      || null }}
+
+    permissions:
+      contents: read
+      id-token: write
+      packages: read
+      actions: read   # download artifact from the build job
+
+    env:
+      IS_FORK_PR: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository }}
+
+    defaults:
+      run:
+        shell: bash -l -eo pipefail {0}
+    steps:
+      - name: Install bash
+        if: startsWith(inputs.container, 'alpine:')
+        shell: sh -l -eo pipefail {0}
+        run: ${{ format(env.SETUP_RETRY_LOOP, 'apk add bash') }}
+
+      - name: Free up disk space (container)
+        if: ${{ inputs.container }}
+        run: |
+          echo "Before cleanup:"
+          df -h
+          rm -rf /host_usr/dotnet/* 2>/dev/null || true
+          rm -rf /host_usr/android/* 2>/dev/null || true
+          rm -rf /host_opt/ghc/* 2>/dev/null || true
+          rm -rf /host_opt/hostedtoolcache/CodeQL/* 2>/dev/null || true
+          echo "After cleanup:"
+          df -h
+      - name: Free up disk space (non-container)
+        if: ${{ !inputs.container && !contains(inputs.env, 'macos') }}
+        run: |
+          echo "Before cleanup:"
+          df -h
+          sudo rm -rf /usr/share/dotnet || true
+          sudo rm -rf /usr/local/lib/android || true
+          sudo rm -rf /opt/ghc || true
+          sudo rm -rf /opt/hostedtoolcache/CodeQL || true
+          sudo rm -rf /usr/local/share/boost || true
+          docker system prune -af 2>/dev/null || true
+          echo "After cleanup:"
+          df -h
+      - name: Fix HOME Directory
+        if: ${{ inputs.image-built == 'true' && inputs.container }}
+        shell: bash
+        run: |
+          h=$(getent passwd "$(id -un)" | cut -d: -f6)
+          if [ "$h" = "$HOME" ]; then
+            echo "HOME fine: $HOME"
+            exit 0
+          fi
+          echo "HOME=$HOME was broken. Setting it to $h"
+          ls -ld "$HOME"
+          ls -ld "$h"
+          echo "USER: $USER"
+          echo "id: $(id)"
+          echo "HOME=$h" >> "$GITHUB_ENV"
+
+      - name: Setup Dependencies
+        if: inputs.image-built != 'true' && inputs.setup-script
+        env:
+          SETUP_SCRIPT: ${{ inputs.setup-script }}
+        run: ${{ format(env.SETUP_RETRY_LOOP, 'eval "$SETUP_SCRIPT"') }}
+
+      - name: Post-setup
+        if: inputs.post-setup-script
+        env:
+          POST_SETUP_SCRIPT: ${{ inputs.post-setup-script }}
+        run: eval "$POST_SETUP_SCRIPT"
+      - name: Free up disk space
+        env:
+          INSTALL_MODE: ${{ inputs.install-mode }}
+        run: |
+          df -h
+          $INSTALL_MODE rm -rf /usr/share/dotnet || true
+          $INSTALL_MODE rm -rf /usr/local/lib/android || true
+          $INSTALL_MODE rm -rf /opt/ghc || true
+          $INSTALL_MODE rm -rf /opt/hostedtoolcache/CodeQL || true
+          df -h
+      - name: Full checkout
+        uses: actions/checkout@v6
+        with:
+          submodules: recursive
+      - name: Setup
+        if: inputs.image-built != 'true'
+        env:
+          INSTALL_MODE: ${{ inputs.install-mode }}
+        uses: ./.github/actions/retry-command
+        with:
+          command: ./install_script.sh $INSTALL_MODE
+          working_directory: .install
+      - name: Setup Rust test dependencies
+        if: inputs.image-built != 'true'
+        # GITHUB_TOKEN lets cargo-binstall use authenticated GitHub API calls
+        # (5000 req/hr vs 60/hr unauthenticated), avoiding 403 rate-limit errors
+        # that force ~18 min source compilations on macOS Intel runners.
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+          INSTALL_MODE: ${{ inputs.install-mode }}
+        run: .install/test_deps/install_rust_deps.sh "$INSTALL_MODE"
+      - name: Install LLVM for sanitizer
+        if: inputs.san == 'address' && inputs.image-built != 'true'
+        env:
+          INSTALL_MODE: ${{ inputs.install-mode }}
+        uses: ./.github/actions/retry-command
+        with:
+          command: ./install_llvm.sh $INSTALL_MODE
+          working_directory: .install
+      - name: Configure LLVM for sanitizer
+        if: inputs.san == 'address'
+        run: |
+          CLANG_BIN=$(find /usr/bin /usr/local/bin -name "clang-[0-9]*" 2>/dev/null | sort -V | tail -1)
+          if [[ -z "$CLANG_BIN" ]]; then
+            echo "Failed to locate clang after sanitizer setup"
+            exit 1
+          fi
+          CLANG_VERSION=$(basename $CLANG_BIN | sed 's/clang-//')
+          echo "Using LLVM version: $CLANG_VERSION"
+          echo "CC=$CLANG_BIN" >> $GITHUB_ENV
+          echo "CXX=$(dirname $CLANG_BIN)/clang++-$CLANG_VERSION" >> $GITHUB_ENV
+          echo "LD=$CLANG_BIN" >> $GITHUB_ENV
+          echo "ASAN_SYMBOLIZER_PATH=/usr/lib/llvm-$CLANG_VERSION/bin/llvm-symbolizer" >> $GITHUB_ENV
+
+      - name: Download build artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: ${{ inputs.artifact-name }}
+          # bin.tar.gz + nextest-archive.tar.zst land in the working directory.
+
+      - name: Unpack build artifact
+        # Untar instead of relying on the artifact's zip layout so executable
+        # bits are preserved (the C/C++ test binaries need to run). The Rust
+        # nextest archive is left as-is — `cargo nextest run --archive-file`
+        # reads it directly. gzip rather than zstd so we don't need the zstd
+        # CLI to be present in the runner image.
+        run: |
+          set -euo pipefail
+          tar -xzf bin.tar.gz
+          rm bin.tar.gz
+          echo "Restored bin/ size:"
+          du -sh bin
+          echo "Top-level test binaries:"
+          find bin -maxdepth 4 -type f -perm -u+x | grep -E '(rstest|test_|bench_)' | head -20 || true
+          test -s nextest-archive.tar.zst || { echo "nextest-archive.tar.zst missing"; exit 1; }
+          ls -lh nextest-archive.tar.zst
+
+      - name: Set Artifact Names
+        # Used by failure-path log upload below.
+        id: artifact-names
+        env:
+          SAN_LABEL: ${{ inputs.san == 'address' && 'sanitizer' || '' }}
+          COV_LABEL: ${{ inputs.coverage && 'coverage test' || '' }}
+          PLATFORM: ${{ inputs.container || inputs.env }}
+          ARCH: ${{ runner.arch }}
+          REDIS_VERSION: ${{ inputs.redis-ref }}
+        run: |
+          UNIQUE_ID="$RANDOM$RANDOM"
+          ARTIFACT_NAME=$(echo "${SAN_LABEL} ${COV_LABEL} ${PLATFORM} ${ARCH} unit - Redis ${REDIS_VERSION} - ${UNIQUE_ID}" | \
+                       sed -e 's/[":\/\\<>\|*?]/_/g' -e 's/__*/_/g' -e 's/^_//' -e 's/_$//')
+          echo "Artifact name: ${ARTIFACT_NAME}"
+          echo "name=${ARTIFACT_NAME}" >> $GITHUB_OUTPUT
+
+      - name: "C/C++ tests"
+        timeout-minutes: ${{ fromJSON(inputs.test-timeout) }}
+        id: c_unit_tests
+        continue-on-error: ${{ !inputs.fail-fast }}
+        env:
+          SAN: ${{ inputs.san }}
+          LOG: 1
+          CLEAR_LOGS: 0
+          ENABLE_ASSERT: 1
+          # bin/ was restored from the build artifact; skip build.sh's CMake/make step.
+          SKIP_BUILD: 1
+        run: make unit-tests
+
+      - name: Rust tests
+        # Runs the Rust tests from the nextest archive uploaded by task-build.
+        # No cargo compilation happens here. MIRI runs in task-build (sanitize
+        # variant only) since miri can't archive.
+        timeout-minutes: ${{ fromJSON(inputs.test-timeout) }}
+        id: rust_unit_tests
+        continue-on-error: ${{ !inputs.fail-fast }}
+        env:
+          SAN: ${{ inputs.san }}
+          COV: ${{ inputs.coverage && 1 || 0 }}
+          LOG: 1
+          CLEAR_LOGS: 0
+          ENABLE_ASSERT: 1
+          SKIP_BUILD: 1
+          RUST_TEST_ARCHIVE_PATH: ${{ github.workspace }}/nextest-archive.tar.zst
+        run: make rust-tests-from-archive
+
+      - name: Decode C++ crash stack traces
+        if: failure() || steps.c_unit_tests.outcome == 'failure'
+        run: |
+          chmod +x tests/cpptests/scripts/decode_stacktrace.sh 2>/dev/null || true
+          if [[ -x tests/cpptests/scripts/decode_stacktrace.sh ]]; then
+            # Find all log files containing stack trace markers and decode them separately
+            # Processing each file separately avoids test name cross-contamination between binaries
+            find tests -name "*.log" -exec grep -l "=== Caught fatal signal in C++ test" {} \; 2>/dev/null | \
+              while read -r logfile; do
+                tests/cpptests/scripts/decode_stacktrace.sh "$logfile" || true
+              done
+          else
+            echo "Decode script not found or not executable"
+          fi
+
+      - name: Upload Test Logs (failure)
+        if: >
+          failure() || (
+            steps.rust_unit_tests.outcome == 'failure' ||
+            steps.c_unit_tests.outcome == 'failure'
+          )
+        uses: actions/upload-artifact@v4
+        with:
+          name: Unit Test Logs ${{ steps.artifact-names.outputs.name }}
+          path: |
+            tests/**/logs/*.log*
+            bin/**/redisearch.so
+            bin/**/redisearch.so.debug
+          if-no-files-found: ignore
+
+      - name: Fail flow if tests failed
+        if: |
+          failure() || (
+            steps.rust_unit_tests.outcome == 'failure' ||
+            steps.c_unit_tests.outcome == 'failure'
+          )
+        run: |
+          echo "C/C++ tests: ${{ steps.c_unit_tests.outcome }}"
+          echo "Rust tests: ${{ steps.rust_unit_tests.outcome }}"
+          exit 1
+
+      - name: Import Codecov GPG public key
+        if: inputs.coverage
+        run: gpg --import .github/codecov_gpg.pub
+      - name: Upload unit coverage
+        if: inputs.coverage
+        uses: codecov/codecov-action@v6 # NOSONAR
+        with:
+          files: bin/unit.info,bin/rust_cov.info
+          disable_search: true
+          flags: unit
+          fail_ci_if_error: ${{ env.IS_FORK_PR != 'true' }}
+          token: ${{ secrets.CODECOV_TOKEN }}
+
