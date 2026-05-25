@@ -144,7 +144,15 @@ def testMaxSynonymTermsLimit(env):
     env.assertNotIn('overflow_b', dumped_terms)
 
     # Fill the last remaining slot so the map sits at exactly MAX_SYNONYM_TERMS.
-    env.expect('FT.SYNUPDATE', 'idx', 'fill_group', 'fill_term').ok()
+    # Duplicated fresh terms count as one distinct pending term.
+    env.expect('FT.SYNUPDATE', 'idx', 'last_slot_group',
+            'fresh_term', 'fresh_term').ok()
+
+    dump = env.cmd('FT.SYNDUMP', 'idx')
+    pairs = dict(zip(dump[::2], dump[1::2]))
+    env.assertIn('fresh_term', pairs)
+    env.assertEqual(len(pairs), MAX_SYNONYM_TERMS)
+    env.assertEqual(pairs['fresh_term'], ['last_slot_group'])
 
     # Any further new term must now fail with the limit error.
     env.expect('FT.SYNUPDATE', 'idx', 'overflow_group2', 'overflow_c') \
