@@ -221,4 +221,3 @@ fn lex_decrement_numdocs_return_codes() {
         { insta::assert_snapshot!("lex_decrement_numdocs_return_codes", out); }
     );
 }
-

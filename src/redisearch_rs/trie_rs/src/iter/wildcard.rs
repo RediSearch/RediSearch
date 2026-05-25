@@ -51,7 +51,9 @@ impl<'tm, 'p, Data> Iterator for WildcardIter<'tm, 'p, Data> {
     }
 }
 
-impl<'tm, 'p, Data> From<WildcardIter<'tm, 'p, Data>> for LendingIter<'tm, Data, WildcardFilter<'p>> {
+impl<'tm, 'p, Data> From<WildcardIter<'tm, 'p, Data>>
+    for LendingIter<'tm, Data, WildcardFilter<'p>>
+{
     fn from(iter: WildcardIter<'tm, 'p, Data>) -> Self {
         iter.0.into()
     }

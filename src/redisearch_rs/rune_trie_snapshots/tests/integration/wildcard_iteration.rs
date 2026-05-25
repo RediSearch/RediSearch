@@ -36,8 +36,8 @@ use std::fmt::Write as _;
 use std::ptr;
 
 use ffi::{
-    NewTrie, Trie, TrieSortMode_Trie_Sort_Lex, TrieType_Free, Trie_InsertStringBuffer,
-    Trie_IterateWildcard, Trie_Size, rune,
+    NewTrie, Trie, Trie_InsertStringBuffer, Trie_IterateWildcard, Trie_Size,
+    TrieSortMode_Trie_Sort_Lex, TrieType_Free, rune,
 };
 use libc::{c_char, c_int};
 
@@ -122,7 +122,10 @@ fn encode_runes(s: &str) -> Vec<rune> {
 /// 1204 of `src/trie/trie_node.c` to decide its `prefix` flag, so a zero-length
 /// pattern would read `str[-1]` (UB).
 fn run_wildcard_query(trie: *mut Trie, label: &str, pattern: &str, out: &mut String) {
-    assert!(!pattern.is_empty(), "wildcard pattern must be non-empty (str[-1] read)");
+    assert!(
+        !pattern.is_empty(),
+        "wildcard pattern must be non-empty (str[-1] read)"
+    );
 
     writeln!(out, "query: {label}  pattern={pattern:?}").unwrap();
 

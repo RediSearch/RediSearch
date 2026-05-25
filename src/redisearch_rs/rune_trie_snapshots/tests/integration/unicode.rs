@@ -24,8 +24,8 @@ use std::fmt::Write as _;
 use std::ptr;
 
 use ffi::{
-    NewTrie, RSPayload, Trie, TrieIterator_Free, TrieIterator_Next, TrieSortMode_Trie_Sort_Lex,
-    TrieType_Free, Trie_InsertStringBuffer, Trie_IterateAll, Trie_Size, rune, t_len,
+    NewTrie, RSPayload, Trie, Trie_InsertStringBuffer, Trie_IterateAll, Trie_Size,
+    TrieIterator_Free, TrieIterator_Next, TrieSortMode_Trie_Sort_Lex, TrieType_Free, rune, t_len,
 };
 use libc::c_char;
 
@@ -117,13 +117,13 @@ fn lex_unicode_bmp_iteration_order() {
     // next differing rune):
     //   Z, Zoé, apple, café, naïve, 中文, 日本
     let terms: &[(&str, f64, usize)] = &[
-        ("中文", 1.0, 1),    // U+4E2D U+6587 — sits between 'n' and '日' by codepoint
-        ("Zoé", 2.0, 1),     // shares 'Z' prefix with bare "Z"
+        ("中文", 1.0, 1), // U+4E2D U+6587 — sits between 'n' and '日' by codepoint
+        ("Zoé", 2.0, 1),  // shares 'Z' prefix with bare "Z"
         ("apple", 3.0, 1),
-        ("naïve", 4.0, 1),   // contains U+00EF (still < 0x100)
-        ("日本", 5.0, 1),    // U+65E5 U+672C — last in codepoint order
-        ("café", 6.0, 1),    // contains U+00E9
-        ("Z", 7.0, 1),       // single-rune term, exact prefix of "Zoé"
+        ("naïve", 4.0, 1), // contains U+00EF (still < 0x100)
+        ("日本", 5.0, 1),  // U+65E5 U+672C — last in codepoint order
+        ("café", 6.0, 1),  // contains U+00E9
+        ("Z", 7.0, 1),     // single-rune term, exact prefix of "Zoé"
     ];
     for (term, score, num_docs) in terms {
         unsafe { insert(trie, term, *score, *num_docs) };

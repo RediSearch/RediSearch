@@ -27,8 +27,8 @@ use std::fmt::Write as _;
 use std::ptr;
 
 use ffi::{
-    NewTrie, RSPayload, Trie, TrieIterator_Free, TrieIterator_Next, TrieSortMode_Trie_Sort_Lex,
-    TrieType_Free, Trie_InsertStringBuffer, Trie_IterateAll, Trie_Size, rune, t_len,
+    NewTrie, RSPayload, Trie, Trie_InsertStringBuffer, Trie_IterateAll, Trie_Size,
+    TrieIterator_Free, TrieIterator_Next, TrieSortMode_Trie_Sort_Lex, TrieType_Free, rune, t_len,
 };
 use libc::c_char;
 
@@ -87,11 +87,7 @@ fn dump_all(trie: *mut Trie) -> String {
         // SAFETY: iterator hands us a valid rune buffer of length `rune_len`.
         let term = unsafe { runes_to_string(runes_ptr, rune_len as usize) };
 
-        writeln!(
-            &mut out,
-            "  {term:12}  score={score}  numDocs={num_docs}"
-        )
-        .unwrap();
+        writeln!(&mut out, "  {term:12}  score={score}  numDocs={num_docs}").unwrap();
     }
 
     // SAFETY: `it` was just produced by `Trie_IterateAll` and not freed yet.
@@ -109,7 +105,12 @@ fn lex_insert_sequence_splits() {
     let steps: &[(&str, &str, f64, usize)] = &[
         ("first insert into empty trie", "apple", 1.0, 1),
         ("split leaf at shared prefix 'appl'", "apply", 2.0, 1),
-        ("exact-prefix insert -> terminal at internal", "appl", 3.0, 1),
+        (
+            "exact-prefix insert -> terminal at internal",
+            "appl",
+            3.0,
+            1,
+        ),
         ("deep split below internal 'appl'", "ape", 4.0, 1),
         ("disjoint first rune -> new root child", "b", 5.0, 1),
         ("re-insert existing terminal (REPLACE)", "b", 6.0, 2),

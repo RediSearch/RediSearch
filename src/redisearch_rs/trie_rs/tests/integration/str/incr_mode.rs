@@ -100,12 +100,48 @@ fn lex_incr_score_and_numdocs_accumulation() {
     // Both: numDocs accumulates 1 + 1 + 1 = 3 (mode-independent per
     // trie_node.c:296).
     let steps: &[(&str, i32, f32, usize, &str)] = &[
-        ("foo", ADD_INCR, 1.0, 1, "first insert — creates leaf (rc=OK_NEW)"),
-        ("foo", ADD_INCR, 0.5, 1, "score += 0.5 -> 1.5; numDocs += 1 -> 2"),
-        ("foo", ADD_INCR, 2.0, 1, "score += 2.0 -> 3.5; numDocs += 1 -> 3"),
-        ("bar", ADD_REPLACE, 1.0, 1, "first insert — creates leaf (rc=OK_NEW)"),
-        ("bar", ADD_REPLACE, 0.5, 1, "score = 0.5 (overwrite); numDocs += 1 -> 2"),
-        ("bar", ADD_REPLACE, 2.0, 1, "score = 2.0 (overwrite); numDocs += 1 -> 3"),
+        (
+            "foo",
+            ADD_INCR,
+            1.0,
+            1,
+            "first insert — creates leaf (rc=OK_NEW)",
+        ),
+        (
+            "foo",
+            ADD_INCR,
+            0.5,
+            1,
+            "score += 0.5 -> 1.5; numDocs += 1 -> 2",
+        ),
+        (
+            "foo",
+            ADD_INCR,
+            2.0,
+            1,
+            "score += 2.0 -> 3.5; numDocs += 1 -> 3",
+        ),
+        (
+            "bar",
+            ADD_REPLACE,
+            1.0,
+            1,
+            "first insert — creates leaf (rc=OK_NEW)",
+        ),
+        (
+            "bar",
+            ADD_REPLACE,
+            0.5,
+            1,
+            "score = 0.5 (overwrite); numDocs += 1 -> 2",
+        ),
+        (
+            "bar",
+            ADD_REPLACE,
+            2.0,
+            1,
+            "score = 2.0 (overwrite); numDocs += 1 -> 3",
+        ),
     ];
 
     let mut out = String::new();
@@ -281,12 +317,7 @@ fn lex_incr_mixed_with_replace() {
             5,
             "score overwritten to 10; numDocs += 5 -> 6 (always additive)",
         ),
-        (
-            ADD_INCR,
-            2.0,
-            1,
-            "score += 2 -> 12; numDocs += 1 -> 7",
-        ),
+        (ADD_INCR, 2.0, 1, "score += 2 -> 12; numDocs += 1 -> 7"),
     ];
 
     for (incr, score, num_docs, note) in steps {

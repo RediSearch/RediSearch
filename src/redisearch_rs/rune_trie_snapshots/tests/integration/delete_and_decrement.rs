@@ -35,10 +35,10 @@ use std::fmt::Write as _;
 use std::ptr;
 
 use ffi::{
-    NewTrie, RSPayload, Trie, TrieDecrResult, TrieDecrResult_TRIE_DECR_DELETED,
+    NewTrie, RSPayload, Trie, Trie_DecrementNumDocs, Trie_Delete, Trie_InsertStringBuffer,
+    Trie_IterateAll, Trie_Size, TrieDecrResult, TrieDecrResult_TRIE_DECR_DELETED,
     TrieDecrResult_TRIE_DECR_NOT_FOUND, TrieDecrResult_TRIE_DECR_UPDATED, TrieIterator_Free,
-    TrieIterator_Next, TrieSortMode_Trie_Sort_Lex, TrieType_Free, Trie_DecrementNumDocs,
-    Trie_Delete, Trie_InsertStringBuffer, Trie_IterateAll, Trie_Size, rune, t_len,
+    TrieIterator_Next, TrieSortMode_Trie_Sort_Lex, TrieType_Free, rune, t_len,
 };
 use libc::c_char;
 
@@ -125,11 +125,7 @@ fn dump_all(trie: *mut Trie) -> String {
     {
         // SAFETY: iterator hands us a valid rune buffer of length `rune_len`.
         let term = unsafe { runes_to_string(runes_ptr, rune_len as usize) };
-        writeln!(
-            &mut out,
-            "  {term:10}  score={score}  numDocs={num_docs}"
-        )
-        .unwrap();
+        writeln!(&mut out, "  {term:10}  score={score}  numDocs={num_docs}").unwrap();
     }
 
     // SAFETY: `it` was just produced by `Trie_IterateAll` and not freed yet.
@@ -219,8 +215,11 @@ fn lex_delete_sequence_structural_events() {
     {
         // SAFETY: `trie` is live.
         let r = unsafe { delete(trie, "zzz") };
-        writeln!(&mut out, "\n--- delete non-existent \"zzz\" — returns 0, size unchanged ---")
-            .unwrap();
+        writeln!(
+            &mut out,
+            "\n--- delete non-existent \"zzz\" — returns 0, size unchanged ---"
+        )
+        .unwrap();
         writeln!(&mut out, "Trie_Delete(\"zzz\") -> {r}").unwrap();
         out.push_str(&dump_all(trie));
     }
@@ -232,8 +231,11 @@ fn lex_delete_sequence_structural_events() {
     {
         // SAFETY: `trie` is live.
         let r = unsafe { delete(trie, "appl") };
-        writeln!(&mut out, "\n--- delete already-deleted \"appl\" — second delete is a no-op ---")
-            .unwrap();
+        writeln!(
+            &mut out,
+            "\n--- delete already-deleted \"appl\" — second delete is a no-op ---"
+        )
+        .unwrap();
         writeln!(&mut out, "Trie_Delete(\"appl\") -> {r}").unwrap();
         out.push_str(&dump_all(trie));
     }
@@ -247,7 +249,11 @@ fn lex_delete_sequence_structural_events() {
     {
         // SAFETY: `trie` is live.
         unsafe { insert(trie, "appl", 9.0, 10) };
-        writeln!(&mut out, "\n--- re-insert \"appl\" with new score/numDocs — un-deletes the existing slot ---").unwrap();
+        writeln!(
+            &mut out,
+            "\n--- re-insert \"appl\" with new score/numDocs — un-deletes the existing slot ---"
+        )
+        .unwrap();
         writeln!(
             &mut out,
             "Trie_InsertStringBuffer(\"appl\", score=9, numDocs=10, ADD_REPLACE)"

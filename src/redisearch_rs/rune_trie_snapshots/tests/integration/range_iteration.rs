@@ -33,8 +33,8 @@ use std::fmt::Write as _;
 use std::ptr;
 
 use ffi::{
-    NewTrie, Trie, TrieSortMode_Trie_Sort_Lex, TrieType_Free, Trie_InsertStringBuffer,
-    Trie_IterateRange, Trie_Size, rune,
+    NewTrie, Trie, Trie_InsertStringBuffer, Trie_IterateRange, Trie_Size,
+    TrieSortMode_Trie_Sort_Lex, TrieType_Free, rune,
 };
 use libc::{c_char, c_int};
 
@@ -343,7 +343,13 @@ fn lex_range_min_greater_than_max() {
     // Inverted range. `Trie_IterateRange` returns immediately when `runecmp(min,
     // max) > 0` (line 1000-1003) — we snapshot to confirm "silent empty"
     // rather than a panic or garbage callback fire.
-    let dump = run(&[("[cherry, apple] inverted", Some("cherry"), true, Some("apple"), true)]);
+    let dump = run(&[(
+        "[cherry, apple] inverted",
+        Some("cherry"),
+        true,
+        Some("apple"),
+        true,
+    )]);
 
     insta::with_settings!(
         { prepend_module_to_snapshot => false },

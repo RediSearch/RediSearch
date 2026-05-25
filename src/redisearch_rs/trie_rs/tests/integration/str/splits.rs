@@ -46,7 +46,12 @@ fn lex_insert_sequence_splits() {
     let steps: &[(&str, &str, f32, usize)] = &[
         ("first insert into empty trie", "apple", 1.0, 1),
         ("split leaf at shared prefix 'appl'", "apply", 2.0, 1),
-        ("exact-prefix insert -> terminal at internal", "appl", 3.0, 1),
+        (
+            "exact-prefix insert -> terminal at internal",
+            "appl",
+            3.0,
+            1,
+        ),
         ("deep split below internal 'appl'", "ape", 4.0, 1),
         ("disjoint first rune -> new root child", "b", 5.0, 1),
         ("re-insert existing terminal (REPLACE)", "b", 6.0, 2),

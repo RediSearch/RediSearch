@@ -137,7 +137,11 @@ fn lex_iterate_pure_prefix() {
 
 #[test]
 fn lex_iterate_exact_match() {
-    let dump = run(&[("apple", 0, false), ("appl", 0, false), ("apples", 0, false)]);
+    let dump = run(&[
+        ("apple", 0, false),
+        ("appl", 0, false),
+        ("apples", 0, false),
+    ]);
     assert_against_shared_snapshot("lex_iterate_exact_match", dump);
 }
 

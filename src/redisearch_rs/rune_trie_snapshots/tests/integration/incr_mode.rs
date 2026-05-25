@@ -46,8 +46,8 @@ use std::fmt::Write as _;
 use std::ptr;
 
 use ffi::{
-    NewTrie, RSPayload, Trie, TrieIterator_Free, TrieIterator_Next, TrieSortMode_Trie_Sort_Lex,
-    TrieType_Free, Trie_Delete, Trie_InsertStringBuffer, Trie_IterateAll, Trie_Size, rune, t_len,
+    NewTrie, RSPayload, Trie, Trie_Delete, Trie_InsertStringBuffer, Trie_IterateAll, Trie_Size,
+    TrieIterator_Free, TrieIterator_Next, TrieSortMode_Trie_Sort_Lex, TrieType_Free, rune, t_len,
 };
 use libc::c_char;
 
@@ -133,11 +133,7 @@ fn dump_all(trie: *mut Trie) -> String {
     {
         // SAFETY: iterator hands us a valid rune buffer of length `rune_len`.
         let term = unsafe { runes_to_string(runes_ptr, rune_len as usize) };
-        writeln!(
-            &mut out,
-            "  {term:10}  score={score}  numDocs={num_docs}"
-        )
-        .unwrap();
+        writeln!(&mut out, "  {term:10}  score={score}  numDocs={num_docs}").unwrap();
     }
 
     // SAFETY: `it` was produced by `Trie_IterateAll` above and not freed yet.
@@ -161,12 +157,48 @@ fn lex_incr_score_and_numdocs_accumulation() {
     // A Rust port that handles numDocs mode-dependently would diverge on
     // "bar"'s numDocs.
     let steps: &[(&str, i32, f64, usize, &str)] = &[
-        ("foo", ADD_INCR, 1.0, 1, "first insert — creates leaf (rc=OK_NEW)"),
-        ("foo", ADD_INCR, 0.5, 1, "score += 0.5 -> 1.5; numDocs += 1 -> 2"),
-        ("foo", ADD_INCR, 2.0, 1, "score += 2.0 -> 3.5; numDocs += 1 -> 3"),
-        ("bar", ADD_REPLACE, 1.0, 1, "first insert — creates leaf (rc=OK_NEW)"),
-        ("bar", ADD_REPLACE, 0.5, 1, "score = 0.5 (overwrite); numDocs += 1 -> 2"),
-        ("bar", ADD_REPLACE, 2.0, 1, "score = 2.0 (overwrite); numDocs += 1 -> 3"),
+        (
+            "foo",
+            ADD_INCR,
+            1.0,
+            1,
+            "first insert — creates leaf (rc=OK_NEW)",
+        ),
+        (
+            "foo",
+            ADD_INCR,
+            0.5,
+            1,
+            "score += 0.5 -> 1.5; numDocs += 1 -> 2",
+        ),
+        (
+            "foo",
+            ADD_INCR,
+            2.0,
+            1,
+            "score += 2.0 -> 3.5; numDocs += 1 -> 3",
+        ),
+        (
+            "bar",
+            ADD_REPLACE,
+            1.0,
+            1,
+            "first insert — creates leaf (rc=OK_NEW)",
+        ),
+        (
+            "bar",
+            ADD_REPLACE,
+            0.5,
+            1,
+            "score = 0.5 (overwrite); numDocs += 1 -> 2",
+        ),
+        (
+            "bar",
+            ADD_REPLACE,
+            2.0,
+            1,
+            "score = 2.0 (overwrite); numDocs += 1 -> 3",
+        ),
     ];
 
     let mut out = String::new();
@@ -208,20 +240,38 @@ fn lex_incr_over_deleted_node() {
     // optimize-sweep at the end of `TrieNode_Delete`, and the subsequent
     // re-insert would create a brand-new node — which would only test the
     // "first insert" path, not the un-delete path.
-    writeln!(&mut out, "=== step 1: build internal-terminal \"foo\" via \"foo\" + \"foobar\" ===").unwrap();
+    writeln!(
+        &mut out,
+        "=== step 1: build internal-terminal \"foo\" via \"foo\" + \"foobar\" ==="
+    )
+    .unwrap();
     // SAFETY: `trie` is live; term bytes valid for the call.
     let rc = unsafe { insert(trie, "foo", 1.0, ADD_REPLACE, 2) };
-    writeln!(&mut out, "insert(\"foo\", REPLACE, score=1, numDocs=2) -> {}", rc_name(rc)).unwrap();
+    writeln!(
+        &mut out,
+        "insert(\"foo\", REPLACE, score=1, numDocs=2) -> {}",
+        rc_name(rc)
+    )
+    .unwrap();
     // SAFETY: `trie` is live.
     let rc = unsafe { insert(trie, "foobar", 1.0, ADD_REPLACE, 1) };
-    writeln!(&mut out, "insert(\"foobar\", REPLACE, score=1, numDocs=1) -> {}", rc_name(rc)).unwrap();
+    writeln!(
+        &mut out,
+        "insert(\"foobar\", REPLACE, score=1, numDocs=1) -> {}",
+        rc_name(rc)
+    )
+    .unwrap();
     out.push_str(&dump_all(trie));
 
     // Step 2: mark-delete the internal terminal. `TrieNode_Delete` flips
     // TRIENODE_TERMINAL off, sets TRIENODE_DELETED, and zeroes
     // `score`/`numDocs` (trie_node.c:486-489). The child "foobar" survives —
     // the node itself is NOT physically freed.
-    writeln!(&mut out, "\n=== step 2: Trie_Delete(\"foo\") — mark-delete internal terminal ===").unwrap();
+    writeln!(
+        &mut out,
+        "\n=== step 2: Trie_Delete(\"foo\") — mark-delete internal terminal ==="
+    )
+    .unwrap();
     // SAFETY: `trie` is live; term bytes valid for the call.
     let r = unsafe { delete(trie, "foo") };
     writeln!(&mut out, "Trie_Delete(\"foo\") -> {r}").unwrap();
@@ -234,10 +284,19 @@ fn lex_incr_over_deleted_node() {
     //   - `n->numDocs += 10`. Was zeroed -> 10.
     //   - TRIENODE_TERMINAL re-set, TRIENODE_DELETED cleared.
     //   - rc returns OK_NEW because the pre-call state was `!term || deleted`.
-    writeln!(&mut out, "\n=== step 3: INCR over deleted node — score/numDocs reset to new values ===").unwrap();
+    writeln!(
+        &mut out,
+        "\n=== step 3: INCR over deleted node — score/numDocs reset to new values ==="
+    )
+    .unwrap();
     // SAFETY: `trie` is live; term bytes valid for the call.
     let rc = unsafe { insert(trie, "foo", 5.0, ADD_INCR, 10) };
-    writeln!(&mut out, "insert(\"foo\", INCR, score=5, numDocs=10) -> {}", rc_name(rc)).unwrap();
+    writeln!(
+        &mut out,
+        "insert(\"foo\", INCR, score=5, numDocs=10) -> {}",
+        rc_name(rc)
+    )
+    .unwrap();
     out.push_str(&dump_all(trie));
 
     // SAFETY: `trie` was created by `NewTrie` above; never freed elsewhere.
@@ -261,13 +320,27 @@ fn lex_incr_over_non_terminal_split() {
     // `__trie_SplitNode` (trie_node.c:166-193), the freshly-created parent
     // gets `score=0`, `numDocs=0` (line 182-183), TERMINAL/DELETED flags
     // cleared. The children inherit their original scores/numDocs.
-    writeln!(&mut out, "=== step 1: \"apple\" + \"apply\" — creates non-terminal \"appl\" ===").unwrap();
+    writeln!(
+        &mut out,
+        "=== step 1: \"apple\" + \"apply\" — creates non-terminal \"appl\" ==="
+    )
+    .unwrap();
     // SAFETY: `trie` is live; term bytes valid for the call.
     let rc = unsafe { insert(trie, "apple", 1.0, ADD_REPLACE, 1) };
-    writeln!(&mut out, "insert(\"apple\", REPLACE, score=1, numDocs=1) -> {}", rc_name(rc)).unwrap();
+    writeln!(
+        &mut out,
+        "insert(\"apple\", REPLACE, score=1, numDocs=1) -> {}",
+        rc_name(rc)
+    )
+    .unwrap();
     // SAFETY: `trie` is live.
     let rc = unsafe { insert(trie, "apply", 2.0, ADD_REPLACE, 1) };
-    writeln!(&mut out, "insert(\"apply\", REPLACE, score=2, numDocs=1) -> {}", rc_name(rc)).unwrap();
+    writeln!(
+        &mut out,
+        "insert(\"apply\", REPLACE, score=2, numDocs=1) -> {}",
+        rc_name(rc)
+    )
+    .unwrap();
     // The non-terminal "appl" exists in the tree but is NOT visible in
     // `Trie_IterateAll` output (the iterator only emits terminals).
     out.push_str(&dump_all(trie));
@@ -282,10 +355,19 @@ fn lex_incr_over_non_terminal_split() {
     //   - `n->numDocs += 3`. Pre-state: 0. Result = 3.
     //   - TRIENODE_TERMINAL set; node now appears in `Trie_IterateAll`.
     //   - rc=OK_NEW because pre-state was `!term`.
-    writeln!(&mut out, "\n=== step 2: INCR-insert \"appl\" — non-terminal becomes terminal ===").unwrap();
+    writeln!(
+        &mut out,
+        "\n=== step 2: INCR-insert \"appl\" — non-terminal becomes terminal ==="
+    )
+    .unwrap();
     // SAFETY: `trie` is live; term bytes valid for the call.
     let rc = unsafe { insert(trie, "appl", 7.0, ADD_INCR, 3) };
-    writeln!(&mut out, "insert(\"appl\", INCR, score=7, numDocs=3) -> {}", rc_name(rc)).unwrap();
+    writeln!(
+        &mut out,
+        "insert(\"appl\", INCR, score=7, numDocs=3) -> {}",
+        rc_name(rc)
+    )
+    .unwrap();
     out.push_str(&dump_all(trie));
 
     // SAFETY: `trie` was created by `NewTrie` above.
@@ -330,12 +412,7 @@ fn lex_incr_mixed_with_replace() {
             5,
             "score overwritten to 10; numDocs += 5 -> 6 (always additive)",
         ),
-        (
-            ADD_INCR,
-            2.0,
-            1,
-            "score += 2 -> 12; numDocs += 1 -> 7",
-        ),
+        (ADD_INCR, 2.0, 1, "score += 2 -> 12; numDocs += 1 -> 7"),
     ];
 
     for (incr, score, num_docs, note) in steps {

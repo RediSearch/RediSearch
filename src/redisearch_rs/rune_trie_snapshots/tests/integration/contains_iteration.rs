@@ -34,8 +34,8 @@ use std::fmt::Write as _;
 use std::ptr;
 
 use ffi::{
-    NewTrie, Trie, TrieSortMode_Trie_Sort_Lex, TrieType_Free, Trie_InsertStringBuffer,
-    Trie_IterateContains, Trie_Size, rune,
+    NewTrie, Trie, Trie_InsertStringBuffer, Trie_IterateContains, Trie_Size,
+    TrieSortMode_Trie_Sort_Lex, TrieType_Free, rune,
 };
 use libc::{c_char, c_int};
 

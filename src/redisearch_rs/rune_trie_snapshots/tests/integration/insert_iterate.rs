@@ -15,8 +15,8 @@ use std::fmt::Write as _;
 use std::ptr;
 
 use ffi::{
-    NewTrie, RSPayload, Trie, TrieIterator_Free, TrieIterator_Next, TrieSortMode_Trie_Sort_Lex,
-    TrieType_Free, Trie_InsertStringBuffer, Trie_IterateAll, Trie_Size, rune, t_len,
+    NewTrie, RSPayload, Trie, Trie_InsertStringBuffer, Trie_IterateAll, Trie_Size,
+    TrieIterator_Free, TrieIterator_Next, TrieSortMode_Trie_Sort_Lex, TrieType_Free, rune, t_len,
 };
 use libc::c_char;
 
@@ -81,11 +81,7 @@ fn dump_all(trie: *mut Trie) -> String {
         // SAFETY: iterator hands us a valid rune buffer of length `rune_len`.
         let term = unsafe { runes_to_string(runes_ptr, rune_len as usize) };
 
-        writeln!(
-            &mut out,
-            "  {term:10}  score={score}  numDocs={num_docs}"
-        )
-        .unwrap();
+        writeln!(&mut out, "  {term:10}  score={score}  numDocs={num_docs}").unwrap();
     }
 
     // SAFETY: `it` was just produced by `Trie_IterateAll` and not freed yet.
