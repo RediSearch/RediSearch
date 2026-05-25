@@ -80,15 +80,17 @@ MRClusterTopology *MRClusterTopology_FromAPI(RedisModuleCtx *ctx, const char *au
     char ip[INET6_ADDRSTRLEN] = {0};
     int port = 0;
     int flags = 0;
-    if (RedisModule_GetClusterNodeInfo(ctx, node_id, ip, NULL, &port, &flags) != REDISMODULE_OK) {
+    int rc = RedisModule_GetClusterNodeInfo(ctx, node_id, ip, NULL, &port, &flags);
+    // Skip unreachable nodes and nodes with no valid endpoint
+    if (rc != REDISMODULE_OK || port <= 0 || ip[0] == '\0') {
       RedisModule_Log(ctx, "notice", "Failed to get info for cluster node `%.*s`", REDISMODULE_NODE_ID_LEN, node_id);
       continue;
     }
 
     if (flags & REDISMODULE_NODE_MYSELF) saw_myself = true;
 
-    // Skip replicas, unreachable nodes, and nodes with no valid endpoint
-    if (!(flags & REDISMODULE_NODE_MASTER) || port <= 0 || ip[0] == '\0') {
+    // Skip replicas
+    if (!(flags & REDISMODULE_NODE_MASTER)) {
       continue;
     }
 
