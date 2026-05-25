@@ -99,17 +99,6 @@ typedef struct {
   const struct FieldSpec *field;
 } QueryMissingNode;
 
-typedef enum {
-  QueryNode_Verbatim = 0x01,
-  QueryNode_OverriddenInOrder = 0x02,
-  QueryNode_YieldsDistance = 0x04,
-  QueryNode_IndexesEmpty = 0x08,
-  QueryNode_IsTag = 0x10,
-  // Marks this as the main vector node in a hybrid vector subquery
-  QueryNode_HybridVectorSubqueryNode = 0x20,
-  QueryNode_HideVectorDistanceField = 0x40,
-} QueryNodeFlags;
-
 /* Query attribute is a dynamic attribute that can be applied to any query node.
  * Currently supported are `weight`, `slop`, and `inorder`.
  */
