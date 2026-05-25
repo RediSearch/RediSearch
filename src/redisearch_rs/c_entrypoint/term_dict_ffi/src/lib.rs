@@ -400,6 +400,53 @@ pub unsafe extern "C" fn TermDict_DecrementNumDocs(
     }
 }
 
+/// Return the document count for `term`, or `0` if the term is absent.
+/// Backs the `Trie_GetNode(...)->numDocs` reads in `src/query.c` (the
+/// fuzzy / lex-range / suffix-trie sites at q-c:568, q-c:651, q-c:871),
+/// which all collapse "node not found" into "zero docs" via the
+/// `trienode ? trienode->numDocs : 0` idiom.
+///
+/// NULL `d` returns `0`. Non-UTF-8 `term` also returns `0` — matching
+/// the C path's outcome when `runeBufFill` fails on the lookup.
+///
+/// Case-folding happens inside [`TermDictionary::get`]; callers must not
+/// pre-fold. (Production query paths already lowercase via `runeBufFill`,
+/// so the fold is effectively a no-op for ASCII — see the case-folding
+/// hazard note on [`TermDictionary`].)
+///
+/// # Safety
+/// - `d` must either be NULL or point to a valid [`TermDict`] obtained
+///   from [`TermDict_New`].
+/// - `term` must point to a readable byte sequence of length `term_len`.
+///   It may only be NULL when `term_len == 0`.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn TermDict_GetNumDocs(
+    d: *const TermDict,
+    term: *const c_char,
+    term_len: size_t,
+) -> size_t {
+    if d.is_null() {
+        return 0;
+    }
+
+    let bytes: &[u8] = if term_len > 0 {
+        debug_assert!(!term.is_null(), "term cannot be NULL when term_len > 0");
+        // SAFETY: Caller guarantees `term` points to a readable byte
+        // sequence of length `term_len`.
+        unsafe { std::slice::from_raw_parts(term.cast::<u8>(), term_len) }
+    } else {
+        &[]
+    };
+
+    let Ok(s) = std::str::from_utf8(bytes) else {
+        return 0;
+    };
+
+    // SAFETY: Caller guarantees `d` points to a valid `TermDict`.
+    let TermDict(dict) = unsafe { &*d };
+    dict.get(s).map_or(0, |e| e.num_docs as size_t)
+}
+
 /// Remove the entry for `term`. Mirrors `Trie_Delete` at
 /// `src/trie/trie.c:89`. Backs the fork-GC delete site at
 /// `src/fork_gc/terms.c`.
