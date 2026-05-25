@@ -13,6 +13,7 @@ use std::{
     alloc::{Layout, alloc_zeroed, dealloc},
     cell::OnceCell,
     ffi::CString,
+    num::NonZeroUsize,
     ptr::{self, NonNull},
     sync::{
         Mutex, Once,
@@ -46,6 +47,7 @@ use index_result::RSIndexResult;
 use numeric_range_tree::{NumericIndex, NumericRangeTree};
 use query_error::QueryError;
 use rqe_iterators::IteratorsConfig;
+use ttl_table::FieldExpirations;
 
 /// Wrapper around RedisModuleCtx ensuring its resources are properly cleaned up.
 struct ModuleCtx {
@@ -860,12 +862,17 @@ impl TestContext {
         // which keeps the guard as the sole mutable path to the spec.
         let docs = guard.doc_table_mut();
 
-        // SAFETY: `&mut docs.ttl` is a valid, writable `*mut *mut TimeToLiveTable`,
-        // and `maxSize` is initialized. The guard holds exclusive access to the
-        // spec, so the initialization does not race.
-        unsafe {
-            ffi::TimeToLiveTable_VerifyInit(&mut docs.ttl, docs.maxSize as usize);
+        // Already initialized
+        if !docs.ttl.is_null() {
+            return;
         }
+
+        let ttl = &mut docs.ttl;
+
+        let max_size = NonZeroUsize::new(docs.maxSize as usize)
+            .expect("doc table maxSize must be non-zero to initialize the TTL table");
+        let time_to_live_table = Box::into_raw(Box::new(ttl_table::TimeToLiveTable::new(max_size)));
+        *ttl = time_to_live_table as *mut ffi::TimeToLiveTable;
     }
 
     /// Add a TTL entry for the given field in the given document.
@@ -875,56 +882,46 @@ impl TestContext {
         field: FieldMaskOrIndex,
         expiration: ffi::t_expirationTimePoint,
     ) {
-        use ffi::FieldExpiration;
+        use ttl_table::FieldExpiration;
 
         self.verify_ttl_init();
 
         let fe = match field {
             FieldMaskOrIndex::Index(index) => {
                 // Single field by index
-                let fe = unsafe {
-                    ffi::array_new_sz(std::mem::size_of::<FieldExpiration>() as u16, 0, 1)
-                };
-                let fe = fe.cast::<FieldExpiration>();
-                unsafe {
-                    *fe = FieldExpiration {
-                        index,
-                        point: expiration,
-                    };
-                }
+                let mut fe = FieldExpirations::new();
+                fe.push(FieldExpiration {
+                    index,
+                    point: expiration,
+                });
                 fe
             }
             FieldMaskOrIndex::Mask(mask) => {
                 // Multiple fields by mask - count bits to determine array size
                 let count = mask.count_ones();
-                let fe = unsafe {
-                    ffi::array_new_sz(std::mem::size_of::<FieldExpiration>() as u16, 0, count)
-                };
-                let fe = fe.cast::<FieldExpiration>();
+                let mut fe = FieldExpirations::with_capacity(count as usize);
 
                 // Add a FieldExpiration for each bit set in the mask
                 let mut value = mask;
-                let mut i = 0isize;
                 while value != 0 {
                     let index = value.trailing_zeros();
-                    unsafe {
-                        *fe.offset(i) = FieldExpiration {
-                            index: index as u16,
-                            point: expiration,
-                        };
-                    }
+                    fe.push(FieldExpiration {
+                        index: index as u16,
+                        point: expiration,
+                    });
                     value &= value - 1;
-                    i += 1;
                 }
                 fe
             }
         };
 
-        // SAFETY: self.spec is valid, TTL table is initialized, fe is a valid array
-        let guard = self.spec_read();
-        unsafe {
-            ffi::TimeToLiveTable_Add(guard.doc_table().ttl, doc_id, fe as _);
-        }
+        let mut guard = self.spec_write();
+        let ttl = guard.doc_table_mut().ttl as *mut ttl_table::TimeToLiveTable;
+
+        // Safety: we initialized it above
+        let ttl = unsafe { &mut *ttl };
+
+        ttl.add(doc_id, fe);
     }
 
     /// Mark the given field of the given documents as expired.

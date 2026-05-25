@@ -59,6 +59,7 @@ search_result_ffi = { path = "../c_entrypoint/search_result_ffi" }
 slots_tracker_ffi = { path = "../c_entrypoint/slots_tracker_ffi" }
 sorting_vector_ffi = { path = "../c_entrypoint/sorting_vector_ffi" }
 triemap_ffi = { path = "../c_entrypoint/triemap_ffi" }
+ttl_table_ffi = { path = "../c_entrypoint/ttl_table_ffi" }
 types_ffi = { path = "../c_entrypoint/types_ffi" }
 value_ffi = { path = "../c_entrypoint/value_ffi" }
 varint_ffi = { path = "../c_entrypoint/varint_ffi" }

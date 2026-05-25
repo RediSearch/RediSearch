@@ -7,9 +7,15 @@
 #include <stddef.h>
 #include <stdint.h>
 #include <stdlib.h>
+#include "redisearch_types.h"
+#include "redisearch.h"
 #include "field.h"
 #include "rqe_core.h"
 #include "ttl_table_rs.h"
+ 
+// `TimeToLiveTable` is opaque on the C side — only passed by pointer.
+typedef struct TimeToLiveTable TimeToLiveTable;
+
 
 /**
  * Borrowed view of a contiguous run of [`FieldExpiration`] entries.

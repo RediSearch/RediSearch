@@ -31,6 +31,10 @@ header_name = "search_result_rs"
 # Avoid a name conflict with the pre-existing `ttl_table.h` header file.
 header_name = "ttl_table_rs"
 
+[package.ttl_table_ffi]
+# Avoid a name conflict with the pre-existing `ttl_table.h` header file.
+header_name = "ttl_table"
+
 [c]
 cpp_compat = true
 
@@ -400,3 +404,11 @@ includes = ["redismodule.h", "hiredis/sds.h"]
 
 [header.varint_ffi]
 includes = ["buffer.h", "redisearch.h"]
+ 
+[header.ttl_table]
+includes = ["redisearch_types.h", "redisearch.h"]
+after_includes = """
+ 
+// `TimeToLiveTable` is opaque on the C side — only passed by pointer.
+typedef struct TimeToLiveTable TimeToLiveTable;
+"""

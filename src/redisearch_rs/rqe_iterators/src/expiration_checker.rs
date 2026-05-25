@@ -129,50 +129,50 @@ impl ExpirationChecker for FieldExpirationChecker {
             return false;
         }
 
-        let current_time = &sctx.time.current as *const _;
+        let current_time = &sctx.time.current;
         let doc_id = result.doc_id;
 
+        let ttl = spec.docs.ttl as *const ttl_table::TimeToLiveTable;
+        // SAFETY:
+        // - The safety contract of `new` guarantees that the ttl pointer is valid.
+        // - We just allocated `current_time` on the stack so its pointer is valid.
+        let ttl = unsafe { &*ttl };
+
         match self.filter_ctx.field {
-            // SAFETY:
-            // - The safety contract of `new` guarantees that the ttl pointer is valid.
-            // - We just allocated `current_time` on the stack so its pointer is valid.
-            FieldMaskOrIndex::Index(index) => unsafe {
-                !ffi::TimeToLiveTable_VerifyDocAndField(
-                    spec.docs.ttl,
-                    doc_id,
-                    index,
-                    self.filter_ctx.predicate.as_u32(),
-                    current_time,
-                )
-            },
-            FieldMaskOrIndex::Mask(mask) if !self.is_wide_schema => {
-                // SAFETY:
-                // - The safety contract of `new` guarantees that the ttl pointer is valid.
-                // - We just allocated `current_time` on the stack so its pointer is valid.
-                unsafe {
-                    !ffi::TimeToLiveTable_VerifyDocAndFieldMask(
-                        spec.docs.ttl,
-                        doc_id,
-                        (result.field_mask & mask) as u32,
-                        self.filter_ctx.predicate.as_u32(),
-                        current_time,
-                        spec.fieldIdToIndex,
-                    )
-                }
+            FieldMaskOrIndex::Index(index) => {
+                !ttl.verify_doc_and_field(doc_id, index, self.filter_ctx.predicate, current_time)
             }
             FieldMaskOrIndex::Mask(mask) => {
-                // wide mask
+                let field_mask = result.field_mask & mask;
+
+                let ft_id_to_field_index = spec.fieldIdToIndex;
+                // SAFETY: `fieldIdToIndex` is always initialized with `array_new()` at spec creation
+                let len = unsafe { ffi::array_len_func(ft_id_to_field_index as ffi::array_t) };
+
                 // SAFETY:
-                // - The safety contract of `new` guarantees that the ttl pointer is valid.
-                // - We just allocated `current_time` on the stack so its pointer is valid.
-                unsafe {
-                    !ffi::TimeToLiveTable_VerifyDocAndWideFieldMask(
-                        spec.docs.ttl,
+                // - `ft_id_to_field_index` is a valid, heap-allocated pointer to `len` contiguous `u16`
+                //   elements;
+                // - The pointer is properly aligned for `u16`.
+                // - The field schema is not modified during query execution.
+                // - The slice does not outlive.
+                let ft_id_to_field_index =
+                    unsafe { std::slice::from_raw_parts(ft_id_to_field_index, len as usize) };
+
+                if !self.is_wide_schema {
+                    !ttl.verify_doc_and_field_mask(
                         doc_id,
-                        result.field_mask & mask,
-                        self.filter_ctx.predicate.as_u32(),
+                        field_mask as u32,
+                        self.filter_ctx.predicate,
                         current_time,
-                        spec.fieldIdToIndex,
+                        ft_id_to_field_index,
+                    )
+                } else {
+                    !ttl.verify_doc_and_wide_field_mask(
+                        doc_id,
+                        field_mask,
+                        self.filter_ctx.predicate,
+                        current_time,
+                        ft_id_to_field_index,
                     )
                 }
             }
