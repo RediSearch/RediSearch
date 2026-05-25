@@ -18,6 +18,9 @@
 extern "C" {
 #endif
 
+extern RedisModuleSlotRangeArray *(*RedisModule_GetClusterNodeSlotRanges)(RedisModuleCtx *ctx,
+                                                                          const char *nodeid);
+
 /* A "shard" represents a slot set of the cluster, with its associated node (we keep a single node per shard) */
 typedef struct {
   MRClusterNode node;
@@ -57,6 +60,8 @@ void MRClusterNode_Free(MRClusterNode *n);
 void MRClusterTopology_Free(MRClusterTopology *t);
 
 MRClusterTopology *MRClusterTopology_Clone(MRClusterTopology *t);
+
+MRClusterTopology *MRClusterTopology_FromAPI(RedisModuleCtx *ctx, const char *auth, size_t auth_len, uint32_t *my_shard_idx);
 
 #ifdef __cplusplus
 }
