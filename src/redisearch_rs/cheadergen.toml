@@ -29,7 +29,7 @@ header_name = "search_result_rs"
 
 [package.ttl_table]
 # Avoid a name conflict with the pre-existing `ttl_table.h` header file.
-header_name = "_ttl_table"
+header_name = "ttl_table_rs"
 
 [c]
 cpp_compat = true

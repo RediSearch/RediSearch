@@ -7,6 +7,7 @@
 #include <stddef.h>
 #include <stdint.h>
 #include <stdlib.h>
+#include "rqe_core.h"
 
 /**
  * Direct-modulo bucket array with contiguous-vec collision chains.
@@ -15,6 +16,11 @@
  * length (`buckets.len()`) always satisfies `buckets.len() <= max_size`.
  */
 typedef struct TimeToLiveTable TimeToLiveTable;
+
+typedef struct FieldExpiration {
+  t_fieldIndex index;
+  t_expirationTimePoint point;
+} FieldExpiration;
 
 #ifndef THINVEC_FIELDEXPIRATION__U64_DEFINED
 #define THINVEC_FIELDEXPIRATION__U64_DEFINED

@@ -31,12 +31,18 @@ pub mod test_utils;
 
 use std::{iter::Chain, num::NonZeroUsize, ops::Deref};
 
-pub use ffi::FieldExpiration;
-use ffi::{FieldMask, t_expirationTimePoint as timespec};
+use ffi::{FieldMask, t_expirationTimePoint as timespec, t_fieldIndex};
 pub use field::FieldExpirationPredicate;
 use thin_vec::ThinVec;
 
 use ffi::t_docId;
+
+#[repr(C)]
+#[derive(Debug, Clone)]
+pub struct FieldExpiration {
+    pub index: t_fieldIndex,
+    pub point: timespec,
+}
 
 /// An ascending-by-`index`, duplicate-free list of [`FieldExpiration`] entries.
 #[repr(transparent)]

@@ -9,8 +9,8 @@
 
 use std::num::NonZeroUsize;
 
-use crate::FieldExpirations;
-use ffi::{FieldExpiration, t_docId, t_expirationTimePoint as timespec};
+use crate::{FieldExpiration, FieldExpirations};
+use ffi::{t_docId, t_expirationTimePoint as timespec};
 
 pub const fn ts(sec: i64, nsec: i64) -> timespec {
     // `libc::time_t` is deprecated on musl (musl 1.2 changed it to 64-bit,

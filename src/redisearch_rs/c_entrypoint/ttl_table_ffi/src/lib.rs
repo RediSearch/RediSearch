@@ -11,10 +11,10 @@
 
 use std::{marker::PhantomData, num::NonZeroUsize, ptr, slice};
 
-use ffi::{FieldExpiration, t_docId, t_expirationTimePoint, t_fieldMask};
+use ffi::{t_docId, t_expirationTimePoint, t_fieldMask};
 use field::FieldExpirationPredicate;
-use ttl_table::FieldExpirations;
 pub use ttl_table::TimeToLiveTable;
+use ttl_table::{FieldExpiration, FieldExpirations};
 
 /// Borrowed view of a contiguous run of [`FieldExpiration`] entries.
 ///
