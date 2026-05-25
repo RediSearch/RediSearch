@@ -1812,8 +1812,7 @@ static int QueryNode_CheckIsValid(QueryNode *n, IndexSpec *spec, RSSearchOptions
         if (fs && FieldSpec_IndexesEmpty(fs)) {
           opts->flags |= QueryNode_IndexesEmpty;
         }
-        // Block multi-term TAG queries in disk mode (MVP1 limitation)
-        // These query types require TrieMap iteration which doesn't work with disk storage
+        // Block multi-term TAG queries in disk mode - unsupported.
         for (size_t ii = 0; ii < QueryNode_NumChildren(n); ++ii) {
           QueryNode *child = n->children[ii];
           if (child->type == QN_PREFIX) {
@@ -1822,7 +1821,6 @@ static int QueryNode_CheckIsValid(QueryNode *n, IndexSpec *spec, RSSearchOptions
             res = validateQueryNotDisk("TAG wildcard", status);
           } else if (child->type == QN_LEXRANGE) {
             res = validateQueryNotDisk("TAG lexrange", status);
-          }
           if (res == REDISMODULE_ERR) {
             return res;
           }
@@ -1854,17 +1852,9 @@ static int QueryNode_CheckIsValid(QueryNode *n, IndexSpec *spec, RSSearchOptions
       }
       break;
     case QN_PREFIX:
-      res = validateQueryNotDisk("Prefix", status);
-      break;
     case QN_WILDCARD_QUERY:
-      res = validateQueryNotDisk("Wildcard pattern", status);
-      break;
     case QN_FUZZY:
-      res = validateQueryNotDisk("Fuzzy", status);
-      break;
     case QN_LEXRANGE:
-      res = validateQueryNotDisk("Lexrange", status);
-      break;
     case QN_NOT:
     case QN_OPTIONAL:
     case QN_GEO:
