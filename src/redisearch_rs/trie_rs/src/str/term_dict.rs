@@ -7,16 +7,30 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 
-//! Term dictionary keyed by UTF-8 strings.
+//! Term dictionary keyed by case-folded UTF-8 strings.
 //!
 //! Wraps a [`StrTrieMap<TermEntry>`] with the per-term bookkeeping used by
 //! the FT.SEARCH terms trie (`sp->terms` in `src/spec.c`). The wrapper owns
 //! the `numDocs` accounting and the "delete when the last doc disappears"
 //! policy that lives in `Trie_DecrementNumDocs` (`src/trie/trie.c`).
 //!
-//! The trie itself stays value-agnostic; anything score/`numDocs`-shaped is
-//! confined to this module so the underlying [`StrTrieMap`] remains a pure
-//! data structure.
+//! ## Case-folding contract
+//!
+//! All keys and patterns are lowercased on the way in via
+//! [`str::to_lowercase`] before reaching the underlying [`StrTrieMap`].
+//! This matches the C terms-trie behaviour: every caller of `sp->terms`
+//! pre-folds via `runeBufFill` (`src/trie/trie.c`) before insert or
+//! lookup, so the trie itself only ever holds lowercased keys. Moving the
+//! fold inside `TermDictionary` lets future C-to-Rust call sites stop
+//! repeating the obligation.
+//!
+//! Iteration outputs are already lowercased by construction — the keys
+//! were folded at insert — and are returned as-is.
+//!
+//! The underlying [`StrTrieMap`] stays byte-exact; case-folding is a
+//! property of `TermDictionary` alone.
+
+use std::borrow::Cow;
 
 use crate::str::{
     StrTrieMap,
@@ -66,8 +80,26 @@ pub enum InsertOutcome {
 /// `score`, still accumulate `num_docs`). The primitive [`Self::insert`]
 /// stays available for bulk-seeding scenarios where neither accumulation
 /// mode applies.
+///
+/// All terms and lookup patterns are lowercased internally via
+/// [`str::to_lowercase`] — see the module docs for the case-folding
+/// contract.
 pub struct TermDictionary {
     inner: StrTrieMap<TermEntry>,
+}
+
+/// Case-fold a term to lowercase, borrowing when no fold is needed.
+///
+/// Production inputs are pre-lowercased by the tokenizer
+/// (`src/tokenize.c`), so the fast-path borrow covers the common case
+/// without allocating. The expensive [`str::to_lowercase`] path only
+/// fires when at least one uppercase codepoint is present.
+fn fold(term: &str) -> Cow<'_, str> {
+    if term.chars().any(|c| c.is_uppercase()) {
+        Cow::Owned(term.to_lowercase())
+    } else {
+        Cow::Borrowed(term)
+    }
 }
 
 impl TermDictionary {
@@ -96,90 +128,101 @@ impl TermDictionary {
     }
 
     /// Insert or overwrite the entry for `term`, returning the previous
-    /// entry if one existed.
+    /// entry if one existed. `term` is case-folded before insertion.
     ///
     /// Primitive overwrite — distinct from [`Self::replace_term`] in that
     /// it does NOT accumulate `num_docs`. Useful for bulk seeding and for
     /// re-installing a fully formed entry; production indexing paths
     /// should use [`Self::add_term`] / [`Self::replace_term`].
     pub fn insert(&mut self, term: &str, entry: TermEntry) -> Option<TermEntry> {
-        self.inner.insert(term, entry)
+        self.inner.insert(&fold(term), entry)
     }
 
     /// ADD_INCR insert: accumulate both `score` and `num_docs` onto the
-    /// existing entry, or create a fresh terminal if absent.
+    /// existing entry, or create a fresh terminal if absent. `term` is
+    /// case-folded before lookup.
     ///
     /// Mirrors `Trie_InsertStringBuffer(..., incr=1)` in
     /// `src/trie/trie.c`, whose `__trieNode_Add` ADD_INCR branch runs
     /// `n->score += score; n->numDocs += numDocs`
     /// (`src/trie/trie_node.c:296`).
     pub fn add_term(&mut self, term: &str, score: f32, num_docs: usize) -> InsertOutcome {
-        if let Some(entry) = self.inner.get_mut(term) {
+        let term = fold(term);
+        if let Some(entry) = self.inner.get_mut(&term) {
             entry.score += score;
             entry.num_docs += num_docs;
             InsertOutcome::Updated
         } else {
-            self.inner.insert(term, TermEntry { score, num_docs });
+            self.inner.insert(&term, TermEntry { score, num_docs });
             InsertOutcome::New
         }
     }
 
     /// ADD_REPLACE insert: overwrite `score`, but still accumulate
     /// `num_docs` onto the existing count. Creates a fresh terminal if
-    /// absent.
+    /// absent. `term` is case-folded before lookup.
     ///
     /// Mirrors `Trie_InsertStringBuffer(..., incr=0)`: the C
     /// `__trieNode_Add` overwrites `n->score = score` but does
     /// `n->numDocs += numDocs` regardless of mode
     /// (`src/trie/trie_node.c:296`). The mode only gates the score path.
     pub fn replace_term(&mut self, term: &str, score: f32, num_docs: usize) -> InsertOutcome {
-        if let Some(entry) = self.inner.get_mut(term) {
+        let term = fold(term);
+        if let Some(entry) = self.inner.get_mut(&term) {
             entry.score = score;
             entry.num_docs += num_docs;
             InsertOutcome::Updated
         } else {
-            self.inner.insert(term, TermEntry { score, num_docs });
+            self.inner.insert(&term, TermEntry { score, num_docs });
             InsertOutcome::New
         }
     }
 
-    /// Remove the entry for `term`, returning it if present.
+    /// Remove the entry for `term`, returning it if present. `term` is
+    /// case-folded before lookup.
     pub fn remove(&mut self, term: &str) -> Option<TermEntry> {
-        self.inner.remove(term)
+        self.inner.remove(&fold(term))
     }
 
+    /// Look up an entry by `term`. `term` is case-folded before lookup.
     pub fn get(&self, term: &str) -> Option<&TermEntry> {
-        self.inner.get(term)
+        self.inner.get(&fold(term))
     }
 
     pub fn iter(&self) -> Iter<'_, TermEntry> {
         self.inner.iter()
     }
 
-    /// Yield every term whose key starts with `prefix`.
+    /// Yield every term whose key starts with `prefix`. `prefix` is
+    /// case-folded before traversal.
     ///
     /// Proxies [`StrTrieMap::prefixed_iter`]; see that method for the
     /// underlying C contract (`Trie_IterateContains`, prefix branch).
-    pub fn prefixed_iter<'tm>(&'tm self, prefix: &str) -> PrefixedIter<'tm, TermEntry> {
-        self.inner.prefixed_iter(prefix)
+    pub fn prefixed_iter(&self, prefix: &str) -> PrefixedIter<'_, TermEntry> {
+        self.inner.prefixed_iter(&fold(prefix))
     }
 
-    /// Yield every term whose key ends with `suffix`.
+    /// Yield every term whose key ends with `suffix`. `suffix` is
+    /// case-folded before traversal.
     ///
     /// Proxies [`StrTrieMap::suffixed_iter`].
-    pub fn suffixed_iter<'tm>(&'tm self, suffix: &str) -> SuffixedIter<'tm, TermEntry> {
-        self.inner.suffixed_iter(suffix)
+    pub fn suffixed_iter(&self, suffix: &str) -> SuffixedIter<'_, TermEntry> {
+        self.inner.suffixed_iter(&fold(suffix))
     }
 
     /// Yield every term whose key contains `target` as a substring.
+    /// `target` is case-folded before traversal; when folding allocates,
+    /// the iterator owns the folded buffer internally.
     ///
     /// Proxies [`StrTrieMap::contains_iter`].
     pub fn contains_iter<'tm, 'p>(&'tm self, target: &'p str) -> ContainsIter<'tm, 'p, TermEntry> {
-        self.inner.contains_iter(target)
+        ContainsIter::new_cow(self.inner.byte_trie(), fold(target))
     }
 
     /// Yield every term whose key falls within the lex range
-    /// `[min, max]` (inclusivity controlled per-end).
+    /// `[min, max]` (inclusivity controlled per-end). Bounds are
+    /// case-folded before traversal; when folding allocates, the iterator
+    /// owns the folded buffers internally.
     ///
     /// Proxies [`StrTrieMap::range_iter`]; `None` on either side disables
     /// that bound (matches the C `(NULL, -1)` sentinel for
@@ -191,21 +234,31 @@ impl TermDictionary {
         max: Option<&'p str>,
         include_max: bool,
     ) -> RangeIter<'tm, 'p, TermEntry> {
-        self.inner.range_iter(min, include_min, max, include_max)
+        RangeIter::build_from_cow(
+            self.inner.byte_trie(),
+            min.map(fold),
+            include_min,
+            max.map(fold),
+            include_max,
+        )
     }
 
     /// Yield every term matching the wildcard `pattern` (`?` = one byte,
-    /// `*` = zero or more bytes).
+    /// `*` = zero or more bytes). `pattern` is case-folded before
+    /// traversal; `?` and `*` are ASCII so the wildcard semantics are
+    /// preserved. When folding allocates, the iterator owns the folded
+    /// buffer internally.
     ///
     /// Proxies [`StrTrieMap::wildcard_iter`]; see that method for the
     /// byte-vs-codepoint caveat on non-ASCII patterns.
     pub fn wildcard_iter<'tm, 'p>(&'tm self, pattern: &'p str) -> WildcardIter<'tm, 'p, TermEntry> {
-        self.inner.wildcard_iter(pattern)
+        WildcardIter::new_cow(self.inner.byte_trie(), fold(pattern))
     }
 
     /// Yield every term whose key lies within Levenshtein edit distance
     /// `max_dist` of `prefix`, optionally followed by any suffix when
-    /// `prefix_mode` is true.
+    /// `prefix_mode` is true. `prefix` is case-folded before the DFA is
+    /// built.
     ///
     /// Proxies [`StrTrieMap::iterate_dfa`]; see that method (and the
     /// `crate::str::dfa` module doc) for the running-min distance and
@@ -216,24 +269,26 @@ impl TermDictionary {
         max_dist: u32,
         prefix_mode: bool,
     ) -> impl Iterator<Item = (String, &'tm TermEntry, u32)> + 'tm {
-        self.inner.iterate_dfa(prefix, max_dist, prefix_mode)
+        self.inner.iterate_dfa(&fold(prefix), max_dist, prefix_mode)
     }
 
-    /// Decrement the `num_docs` count for `term` by `delta`.
+    /// Decrement the `num_docs` count for `term` by `delta`. `term` is
+    /// case-folded before lookup.
     ///
     /// Mirrors `Trie_DecrementNumDocs` in `src/trie/trie.c`: saturating
     /// subtract, and remove the entry when `num_docs` reaches zero.
     /// Returns [`DecrResult::NotFound`] if no terminal entry exists for
     /// `term`.
     pub fn decrement_num_docs(&mut self, term: &str, delta: usize) -> DecrResult {
-        let Some(entry) = self.inner.get_mut(term) else {
+        let term = fold(term);
+        let Some(entry) = self.inner.get_mut(&term) else {
             return DecrResult::NotFound;
         };
         if delta < entry.num_docs {
             entry.num_docs -= delta;
             DecrResult::Updated
         } else {
-            self.inner.remove(term);
+            self.inner.remove(&term);
             DecrResult::Deleted
         }
     }

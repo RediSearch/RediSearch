@@ -7,15 +7,53 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 
+use std::borrow::Cow;
+
 use rqe_wildcard::WildcardPattern;
 
 use crate::{TrieMap, iter, str::iter::iter_::key_to_string};
 
-pub struct WildcardIter<'tm, 'p, Data: 'tm>(iter::WildcardIter<'tm, 'p, Data>);
+/// Wildcard iterator over a [`StrTrieMap`](crate::str::StrTrieMap).
+///
+/// Two-variant dispatch:
+///
+/// - [`WildcardIter::Borrowed`] wraps a lazy inner iterator that borrows
+///   the caller's pattern directly. Used for the common case (e.g. a
+///   pre-lowercased pattern from
+///   [`TermDictionary::wildcard_iter`](crate::str::term_dict::TermDictionary::wildcard_iter)).
+/// - [`WildcardIter::Drained`] returns an iterator over a pre-collected
+///   `Vec`. Used when the caller passes a [`Cow::Owned`] pattern: the
+///   inner iterator is built and drained inside [`Self::new_cow`] under
+///   the owned buffer's stack frame, so the pattern bytes never need to
+///   outlive the call. Items yield `String` keys and `&'tm Data`
+///   references — both survive the drain because they borrow the trie's
+///   value storage, not the (now-dropped) pattern bytes.
+///
+/// The drained path eagerly walks the entire match set, sacrificing
+/// laziness on the fold-required code path. Tokenized production inputs
+/// (`src/tokenize.c`) are already lowercased, so the lazy
+/// [`Self::Borrowed`] arm covers them.
+pub enum WildcardIter<'tm, 'p, Data: 'tm> {
+    Borrowed(iter::WildcardIter<'tm, 'p, Data>),
+    Drained(std::vec::IntoIter<(String, &'tm Data)>),
+}
 
 impl<'tm, 'p, Data: 'tm> WildcardIter<'tm, 'p, Data> {
     pub(crate) fn new(trie: &'tm TrieMap<Data>, pattern: &'p str) -> Self {
-        Self(trie.wildcard_iter(WildcardPattern::parse(pattern.as_bytes())))
+        Self::Borrowed(trie.wildcard_iter(WildcardPattern::parse(pattern.as_bytes())))
+    }
+
+    pub(crate) fn new_cow(trie: &'tm TrieMap<Data>, pattern: Cow<'p, str>) -> Self {
+        match pattern {
+            Cow::Borrowed(s) => Self::new(trie, s),
+            Cow::Owned(s) => {
+                let drained: Vec<(String, &'tm Data)> = trie
+                    .wildcard_iter(WildcardPattern::parse(s.as_bytes()))
+                    .map(|(k, v)| (key_to_string(k), v))
+                    .collect();
+                Self::Drained(drained.into_iter())
+            }
+        }
     }
 }
 
@@ -23,6 +61,9 @@ impl<'tm, 'p, Data: 'tm> Iterator for WildcardIter<'tm, 'p, Data> {
     type Item = (String, &'tm Data);
 
     fn next(&mut self) -> Option<Self::Item> {
-        self.0.next().map(|(k, v)| (key_to_string(k), v))
+        match self {
+            Self::Borrowed(inner) => inner.next().map(|(k, v)| (key_to_string(k), v)),
+            Self::Drained(iter) => iter.next(),
+        }
     }
 }

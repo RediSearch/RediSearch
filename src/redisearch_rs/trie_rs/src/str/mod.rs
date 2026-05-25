@@ -58,6 +58,18 @@ impl<Data> StrTrieMap<Data> {
         self.inner.mem_usage()
     }
 
+    /// Reach the inner byte-keyed [`TrieMap`].
+    ///
+    /// Crate-internal — exists so the [`term_dict`] wrapper can hand a
+    /// folded `Cow<'_, str>` to the `*_cow` / `build_from_cow` iterator
+    /// constructors without re-routing the owned-buffer ownership
+    /// through the public `StrTrieMap` API.
+    ///
+    /// [`term_dict`]: crate::str::term_dict
+    pub(crate) const fn byte_trie(&self) -> &TrieMap<Data> {
+        &self.inner
+    }
+
     pub fn iter(&self) -> iter::Iter<'_, Data> {
         iter::Iter::new(&self.inner)
     }
