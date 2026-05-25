@@ -390,6 +390,7 @@ const PERMITTED_GENERATED_HEADERS: &[&str] = &[
 const BLOCKLIST_TYPES: &[&str] = &[
     "IteratorType",
     "QueryNodeType",
+    "QueryNodeOptions",
     "QueryProcessingCtx", // defined directly in `ffi/src/lib.rs`
     "RSQueryTerm",
     "RSTokenFlags",

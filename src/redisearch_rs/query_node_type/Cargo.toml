@@ -11,4 +11,5 @@ workspace = true
 [dependencies]
 cheadergen.workspace = true
 enumflags2.workspace = true
+rqe_core.workspace = true
 workspace_hack.workspace = true

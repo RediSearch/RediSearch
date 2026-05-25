@@ -122,19 +122,6 @@ typedef struct {
 #define SHARD_K_RATIO_ATTR "shard_k_ratio"
 
 
-/* Various modifiers and options that can apply to the entire query or any sub-query of it */
-typedef struct {
-  QueryNodeFlags flags;
-  t_fieldMask fieldMask;
-  t_fieldIndex fieldIndex;
-  int maxSlop;
-  int inOrder;
-  double weight;
-  int phonetic;
-  char *distField;
-  bool explicitWeight; // Whether the weight was explicitly set by the user in the query.
-} QueryNodeOptions;
-
 typedef QueryNullNode QueryUnionNode, QueryNotNode, QueryOptionalNode;
 
 /* QueryNode represents any query node in the query tree. It has a type to resolve which node it
