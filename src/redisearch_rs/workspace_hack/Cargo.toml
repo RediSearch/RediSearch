@@ -22,7 +22,7 @@ insta = { version = "1", features = ["filters"] }
 itertools = { version = "0.13" }
 libc = { version = "0.2", features = ["extra_traits"] }
 memchr = { version = "2" }
-nix = { version = "0.26" }
+nix = { version = "0.26", default-features = false, features = ["poll"] }
 num-traits = { version = "0.2" }
 ppv-lite86 = { version = "0.2", default-features = false, features = ["simd", "std"] }
 proc-macro2 = { version = "1", features = ["span-locations"] }
@@ -48,7 +48,7 @@ insta = { version = "1", features = ["filters"] }
 itertools = { version = "0.13" }
 libc = { version = "0.2", features = ["extra_traits"] }
 memchr = { version = "2" }
-nix = { version = "0.26" }
+nix = { version = "0.26", default-features = false, features = ["poll"] }
 num-traits = { version = "0.2" }
 ppv-lite86 = { version = "0.2", default-features = false, features = ["simd", "std"] }
 proc-macro2 = { version = "1", features = ["span-locations"] }
