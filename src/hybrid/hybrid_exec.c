@@ -1144,12 +1144,17 @@ int hybridCommandHandler(RedisModuleCtx *ctx, RedisModuleString **argv, int argc
     hybridRequest->profileClocks.profileParseTime = rs_wall_clock_elapsed_ns(&hybridRequest->profileClocks.initClock);
   }
 
-  // Initialize timeout for all subqueries BEFORE building pipelines
-  for (int i = 0; i < hybridRequest->nrequests; i++) {
-    AREQ *subquery = hybridRequest->requests[i];
-    SearchCtx_UpdateTime(AREQ_SearchCtx(subquery), hybridRequest->reqConfig.queryTimeoutMS);
+  // Initialize timeout for all subqueries BEFORE building pipelines.
+  // Skip the clock_gettime syscalls when timeout checks are disabled: result processors
+  // and iterators initialize their timeout counters to REDISEARCH_UNINITIALIZED based on
+  // sctx->time.skipTimeoutChecks and never read sctx->time.timeout in that mode.
+  if (HybridRequest_ShouldCheckTimeout(hybridRequest)) {
+    for (int i = 0; i < hybridRequest->nrequests; i++) {
+      AREQ *subquery = hybridRequest->requests[i];
+      SearchCtx_UpdateTime(AREQ_SearchCtx(subquery), hybridRequest->reqConfig.queryTimeoutMS);
+    }
+    SearchCtx_UpdateTime(hybridRequest->sctx, hybridRequest->reqConfig.queryTimeoutMS);
   }
-  SearchCtx_UpdateTime(hybridRequest->sctx, hybridRequest->reqConfig.queryTimeoutMS);
 
   if (HybridRequest_BuildPipelineAndExecute(hybrid_ref, cmd.hybridParams, ctx, hybridRequest->sctx, &status, internal) != REDISMODULE_OK) {
     HybridRequest_GetError(hybridRequest, &status);

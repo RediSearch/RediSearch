@@ -422,11 +422,12 @@ static int prepareForExecution(AREQ *r, RedisModuleCtx *ctx, RedisModuleString *
   r->sctx = rm_new(RedisSearchCtx);
   *r->sctx = SEARCH_CTX_STATIC(ctx, NULL);
   r->sctx->apiVersion = dialect;
-  SearchCtx_UpdateTime(r->sctx, r->reqConfig.queryTimeoutMS);
-  // Propagate skipTimeoutChecks from request to sctx.
-  // AREQ_Compile set req->skipTimeoutChecks before sctx existed, so the flag
-  // was not propagated. RPNet and startPipeline read from sctx->time.skipTimeoutChecks.
-  r->sctx->time.skipTimeoutChecks = r->skipTimeoutChecks;
+  // Skip the clock_gettime syscalls when timeout checks are disabled. RPNet and other
+  // pipeline stages gate their TimedOut checks on sctx->time.skipTimeoutChecks (set by
+  // AREQ_SetSkipTimeoutChecks below), so sctx->time.timeout is unused in that mode.
+  if (AREQ_ShouldCheckTimeout(r)) {
+    SearchCtx_UpdateTime(r->sctx, r->reqConfig.queryTimeoutMS);
+  }
   // r->sctx->expanded should be received from shards
 
   AREQ_SetSkipTimeoutChecks(r, !shouldCheckInPipelineTimeoutCoord(r));

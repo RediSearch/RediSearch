@@ -1361,7 +1361,12 @@ int prepareExecutionPlan(AREQ *req, QueryError *status) {
   // TODO: this should be done in `AREQ_execute`, but some of the iterators needs the timeout's
   // value and some of the execution begins in `QAST_Iterate`.
   // Setting the timeout context should be done in the same thread that executes the query.
-  SearchCtx_UpdateTime(sctx, req->reqConfig.queryTimeoutMS);
+  // Skip the clock_gettime syscalls when timeout checks are disabled: result processors and
+  // iterators initialize their timeout counters to REDISEARCH_UNINITIALIZED based on
+  // sctx->time.skipTimeoutChecks and never read sctx->time.timeout in that mode.
+  if (AREQ_ShouldCheckTimeout(req)) {
+    SearchCtx_UpdateTime(sctx, req->reqConfig.queryTimeoutMS);
+  }
 
   req->rootiter = QAST_Iterate(ast, opts, sctx, AREQ_RequestFlags(req), status);
 
@@ -1932,7 +1937,9 @@ static void runCursor(RedisModule_Reply *reply, Cursor *cursor, size_t num) {
   // Skip when useReplyCallback is set (coord+FAIL): the deadline is owned by
   // the blocked-client timer, armed by buildPipelineAndExecute (initial
   // WITHCURSOR) or CursorCommand (subsequent READ).
-  if (!req->useReplyCallback) {
+  // Also skip when timeout checks are disabled: the timeout value is unused by
+  // the result-processor pipeline in that mode (counters are REDISEARCH_UNINITIALIZED).
+  if (!req->useReplyCallback && AREQ_ShouldCheckTimeout(req)) {
     SearchCtx_UpdateTime(AREQ_SearchCtx(req), req->reqConfig.queryTimeoutMS);
   }
 

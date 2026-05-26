@@ -630,12 +630,17 @@ static int HybridRequest_prepareForExecution(HybridRequest *hreq,
     }
 
     // Initialize timeout for all subqueries BEFORE building pipelines
-    // but after the parsing to know the timeout values
-    for (int i = 0; i < hreq->nrequests; i++) {
-        AREQ *subquery = hreq->requests[i];
-        SearchCtx_UpdateTime(AREQ_SearchCtx(subquery), hreq->reqConfig.queryTimeoutMS);
+    // but after the parsing to know the timeout values.
+    // Skip the clock_gettime syscalls when timeout checks are disabled: RPNet and other
+    // pipeline stages gate their TimedOut checks on sctx->time.skipTimeoutChecks, so
+    // sctx->time.timeout is unused in that mode.
+    if (HybridRequest_ShouldCheckTimeout(hreq)) {
+      for (int i = 0; i < hreq->nrequests; i++) {
+          AREQ *subquery = hreq->requests[i];
+          SearchCtx_UpdateTime(AREQ_SearchCtx(subquery), hreq->reqConfig.queryTimeoutMS);
+      }
+      SearchCtx_UpdateTime(hreq->sctx, hreq->reqConfig.queryTimeoutMS);
     }
-    SearchCtx_UpdateTime(hreq->sctx, hreq->reqConfig.queryTimeoutMS);
 
     // Set request flags from hybridParams
     hreq->reqflags = (QEFlags)hybridParams.aggregationParams.common.reqflags;
