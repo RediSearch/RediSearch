@@ -66,7 +66,7 @@ jobs:
         run: REJSON_BRANCH=${{ inputs.rejson_branch }} ./tests/deps/setup_rejson.sh
       # it is best to install terraform last because it may cause issues with env.PATH
       - name: install terraform
-        uses: hashicorp/setup-terraform@v2
+        uses: hashicorp/setup-terraform@v4.0.1
         with:
           terraform_version: 1.11.1
           terraform_wrapper: false
