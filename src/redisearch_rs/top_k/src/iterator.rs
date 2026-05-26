@@ -346,8 +346,7 @@ impl<'index, S: ScoreSource + 'index> RQEIterator<'index> for TopKIterator<'inde
 /// Intersect one score-ordered batch with a child filter iterator,
 /// pushing matches into `heap`.
 ///
-/// Uses a merge-join (alternating `skip_to` calls) to find matching doc IDs
-/// in O((n + m) log k) time where n = batch size, m = child size, k = heap capacity.
+/// Uses a merge-join (alternating `skip_to` calls) to find matching doc IDs.
 ///
 /// The child is **rewound** at the start of each call.
 fn intersect_batch_with_child<'index>(

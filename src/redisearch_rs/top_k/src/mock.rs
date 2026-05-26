@@ -49,9 +49,7 @@ impl ScoreBatch for MockScoreBatch {
     }
 
     fn skip_to(&mut self, target: t_docId) -> Option<(t_docId, f64)> {
-        while self.pos < self.items.len() && self.items[self.pos].0 < target {
-            self.pos += 1;
-        }
+        self.pos += self.items[self.pos..].partition_point(|(id, _)| *id < target);
         self.next()
     }
 }

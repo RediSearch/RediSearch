@@ -35,8 +35,6 @@ pub trait ScoreBatch {
     fn skip_to(&mut self, target: t_docId) -> Option<(t_docId, f64)>;
 }
 
-// ── CollectionStrategy ────────────────────────────────────────────────────────
-
 /// Decision returned by [`ScoreSource::collection_strategy`] after each batch,
 /// telling [`TopKIterator`] how to proceed.
 ///
@@ -118,6 +116,8 @@ pub trait ScoreSource {
         Self: 'r;
 
     /// Called after each batch to decide how collection should proceed.
+    ///
+    /// # Arguments
     ///
     /// - `heap_count` — number of results currently in the heap.
     /// - `k` — the target number of results.

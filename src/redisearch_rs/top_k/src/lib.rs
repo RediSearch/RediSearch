@@ -13,11 +13,10 @@
 //! # Architecture
 //!
 //! The core abstraction is [`TopKIterator<S>`], a state machine that drives
-//! top-k collection in three modes:
+//! top-k collection in the following modes:
 //!
 //! - **Unfiltered** — no child filter; stream results directly from the source's batch.
 //! - **Batches** — intersect score-ordered batches with a child filter (merge-join).
-//!   for each document.
 //!
 //! The score-producing logic is abstracted behind the [`ScoreSource`] / [`ScoreBatch`]
 //! traits.

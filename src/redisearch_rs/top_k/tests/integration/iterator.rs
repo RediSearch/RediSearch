@@ -13,7 +13,7 @@ use std::{cmp::Ordering, num::NonZeroUsize};
 
 use rqe_iterators::{IdList, RQEIterator, RQEIteratorError};
 use top_k::{
-    mock::MockScoreBatch, mock::MockScoreSource, CollectionStrategy, ScoreSource, TopKIterator,
+    CollectionStrategy, ScoreSource, TopKIterator, mock::MockScoreBatch, mock::MockScoreSource,
 };
 
 // ── Error path stubs ─────────────────────────────────────────────────────────────
@@ -352,7 +352,7 @@ fn strategy_stop_stops_after_first_batch() {
 #[test]
 fn rewind_after_mid_collect_error_does_not_retain_stale_heap() {
     use rqe_iterators::RQEIteratorError;
-    use top_k::{mock::MockScoreBatch, CollectionStrategy, ScoreSource};
+    use top_k::{CollectionStrategy, ScoreSource, mock::MockScoreBatch};
 
     struct OnceErrorSource {
         batch_call: u32,
