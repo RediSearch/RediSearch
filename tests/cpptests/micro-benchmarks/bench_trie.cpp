@@ -100,6 +100,11 @@ bool BM_Trie<SortMode>::initialized = false;
 // 100K (large term dictionary). Same shape as the Rust trie_bencher corpora.
 #define TRIE_SCENARIOS() RangeMultiplier(10)->Range(1'000, 100'000)
 
+// Per-op write cost (insert / delete) walks O(word_length) nodes; trie depth
+// grows ~log(N), so 1K/10K/100K curves flatten fast. One mid-size point gives
+// regression-detection signal without paying the fixture setup cost of three.
+#define TRIE_WRITE_SCENARIO() Arg(10'000)
+
 // Insert: synthesize fresh strings each iteration so we always hit the
 // "new node" path instead of degenerating into score-bumping on existing keys.
 // Uppercase 'Z' prefix keeps inserts disjoint from the lowercase corpus.
@@ -313,10 +318,10 @@ BENCHMARK_TEMPLATE1_DEFINE_F(BM_Trie, InsertIncr, Trie_Sort_Score)(benchmark::St
     }
 }
 
-BENCHMARK_REGISTER_F(BM_Trie, InsertLex)->TRIE_SCENARIOS();
-BENCHMARK_REGISTER_F(BM_Trie, InsertScore)->TRIE_SCENARIOS();
-BENCHMARK_REGISTER_F(BM_Trie, InsertIncr)->TRIE_SCENARIOS();
-BENCHMARK_REGISTER_F(BM_Trie, DeleteHit)->TRIE_SCENARIOS();
+BENCHMARK_REGISTER_F(BM_Trie, InsertLex)->TRIE_WRITE_SCENARIO();
+BENCHMARK_REGISTER_F(BM_Trie, InsertScore)->TRIE_WRITE_SCENARIO();
+BENCHMARK_REGISTER_F(BM_Trie, InsertIncr)->TRIE_WRITE_SCENARIO();
+BENCHMARK_REGISTER_F(BM_Trie, DeleteHit)->TRIE_WRITE_SCENARIO();
 BENCHMARK_REGISTER_F(BM_Trie, FindHit)->TRIE_SCENARIOS();
 BENCHMARK_REGISTER_F(BM_Trie, FindMiss)->TRIE_SCENARIOS();
 BENCHMARK_REGISTER_F(BM_Trie, RangeAll)->TRIE_SCENARIOS();
