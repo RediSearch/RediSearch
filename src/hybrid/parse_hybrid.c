@@ -936,7 +936,7 @@ int parseHybridCommand(RedisModuleCtx *ctx, ArgsCursor *ac,
               .reqflags = *mergeReqflags | QEXEC_F_IS_HYBRID_TAIL,
               .optimizer = NULL,  // is it?
               .scoreAlias = mergeSearchopts.scoreAlias,
-      },
+          },
       .outFields = NULL,
       .maxResultsLimit = maxHybridResults,
       .groupByLimits = GroupByLimits_Default(RSGlobalConfig.maxAggregateGroups),

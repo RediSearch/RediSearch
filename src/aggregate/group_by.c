@@ -14,7 +14,6 @@
 #include <util/block_alloc.h>
 #include <util/khash.h>
 #include "reducer.h"
-#include <stdint.h>
 
 /**
  * A group represents the allocated context of all reducers in a group, and the
