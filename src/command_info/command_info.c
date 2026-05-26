@@ -957,7 +957,7 @@ int SetFtConfigSetInfo(RedisModuleCommand *cmd) {
       },
       {0}
     },
-    .arity = 4,
+    .arity = -4,
     .since = "1.0.0",
   };
   return RedisModule_SetCommandInfo(cmd, &info);
@@ -976,7 +976,7 @@ int SetFtConfigGetInfo(RedisModuleCommand *cmd) {
       },
       {0}
     },
-    .arity = 3,
+    .arity = -3,
     .since = "1.0.0",
   };
   return RedisModule_SetCommandInfo(cmd, &info);
@@ -995,7 +995,7 @@ int SetFtConfigHelpInfo(RedisModuleCommand *cmd) {
       },
       {0}
     },
-    .arity = 3,
+    .arity = -3,
     .since = "1.0.0",
   };
   return RedisModule_SetCommandInfo(cmd, &info);
@@ -2407,7 +2407,7 @@ int SetFtCursorDelInfo(RedisModuleCommand *cmd) {
       },
       {0}
     },
-    .arity = 4,
+    .arity = -4,
     .tips = "request_policy:special",
     .since = "1.1.0",
   };

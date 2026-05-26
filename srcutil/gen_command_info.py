@@ -42,6 +42,14 @@ class Scope:
 
 Scope.indent = 0
 
+COMMANDS_WITH_MINIMUM_ARITY = {
+    # These handlers intentionally process or ignore extra arguments instead of returning WrongArity.
+    'FT.CONFIG GET',
+    'FT.CONFIG SET',
+    'FT.CONFIG HELP',
+    'FT.CURSOR DEL',
+}
+
 def get_function_signature(name):
     tokens = [token.title() for token in name.replace('.', ' ').split(' ')]
     value = ''.join(tokens)
@@ -155,7 +163,7 @@ def generate_redis_module_command_info(name, cmd_info, file):
                 min_arity, is_exact_arity = generate_arguments(file, 'args', value)
                 # arity includes the command name itself, including subcommand tokens.
                 arity = min_arity + len(name.split())
-                if not is_exact_arity:
+                if not is_exact_arity or name in COMMANDS_WITH_MINIMUM_ARITY:
                     arity = -arity
                 info.write(f'.arity = {arity},\n')
 
