@@ -189,6 +189,33 @@ static void stageText(RSAddDocumentCtx *aCtx, RedisSearchCtx *ctx) {
   }
 }
 
+/**
+ * Drop the old document's VecSim and Geometry entries on REPLACE. These
+ * auxiliary indexes live in memory regardless of disk mode, so both flows
+ * need the same cleanup. Memory mode calls this inline from `makeDocumentId`
+ * before the new DMD is allocated; disk mode calls it from `applyDocTable`
+ * after the disk batch commits.
+ *
+ * `VecSimIndex_DeleteVector` and `GeometryIndex_RemoveId` no-op on unknown
+ * doc-ids, so this is safe even if the old doc had no vector/geometry data.
+ */
+static void removeOldDocAuxIndexes(IndexSpec *spec, t_docId oldDocId) {
+  if (spec->flags & Index_HasVecSim) {
+    for (int i = 0; i < spec->numFields; ++i) {
+      if (spec->fields[i].types == INDEXFLD_T_VECTOR) {
+        // ctx is NULL because we don't create the index here
+        VecSimIndex *vecsim = openVectorIndex(NULL, &spec->fields[i], DONT_CREATE_INDEX);
+        if (!vecsim) continue;
+        VecSimIndex_DeleteVector(vecsim, oldDocId);
+        // TODO: use VecSimReplace instead and if successful, do not insert and remove from doc
+      }
+    }
+  }
+  if (spec->flags & Index_HasGeometry) {
+    GeometryIndex_RemoveId(spec, oldDocId);
+  }
+}
+
 /** Assigns a document ID to a single document. Handles only RAM index */
 static RSDocumentMetadata *makeDocumentId(RedisModuleCtx *ctx, RSAddDocumentCtx *aCtx, IndexSpec *spec,
                                           int replace, bool *updated) {
@@ -203,22 +230,7 @@ static RSDocumentMetadata *makeDocumentId(RedisModuleCtx *ctx, RSAddDocumentCtx 
       RS_LOG_ASSERT(spec->stats.scoring.totalDocsLen >= dmd->docLen, "totalDocsLen is smaller than dmd->docLen");
       spec->stats.scoring.totalDocsLen -= dmd->docLen;
       *updated = true;
-      if (spec->flags & Index_HasVecSim) {
-        for (int i = 0; i < spec->numFields; ++i) {
-          if (spec->fields[i].types == INDEXFLD_T_VECTOR) {
-            // ctx is NULL because we don't create the index here
-            VecSimIndex *vecsim = openVectorIndex(NULL, &spec->fields[i], DONT_CREATE_INDEX);
-            if(!vecsim)
-              continue;
-            VecSimIndex_DeleteVector(vecsim, dmd->id);
-            // TODO: use VecSimReplace instead and if successful, do not insert and remove from doc
-          }
-        }
-      }
-      if (spec->flags & Index_HasGeometry) {
-        GeometryIndex_RemoveId(spec, dmd->id);
-      }
-
+      removeOldDocAuxIndexes(spec, dmd->id);
       DMD_Return(dmd);
     }
   }
@@ -269,10 +281,13 @@ static void doAssignIds(RSAddDocumentCtx *cur, RedisSearchCtx *ctx) {
         cur->docFlags |= Document_HasExpiration;
       }
 
-      // Get old docId from key metadata (if document already exists)
+      // Get old docId from key metadata (if document already exists). Stashed
+      // on `cur` so `applyDocTable` (Phase 3) can drop the old VecSim /
+      // geometry entries post-commit.
       // TODO: Consider calling this from SearchDisk_PutDocument
       uint64_t oldDocId = 0;
       DocIdMeta_Get(ctx->redisCtx, cur->doc->docKey, spec->specId, &oldDocId);
+      cur->oldDocId = oldDocId;
 
       // Open a per-document write batch that doc-table / inverted-index / tag-index writes
       // will be staged into. The batch is committed (or aborted on error) by
@@ -373,14 +388,15 @@ static void applyDocTable(RSAddDocumentCtx *aCtx, RedisSearchCtx *ctx) {
   int rc = DocIdMeta_Set(ctx->redisCtx, aCtx->doc->docKey, spec->specId, aCtx->doc->docId);
   RS_LOG_ASSERT_ALWAYS(rc == REDISMODULE_OK, "DocIdMeta_Set failed after a successful disk commit");
 
-  bool updated = false;
-  if (aCtx->oldDocLen > 0) {
-    // The committed batch replaced an existing document — fold the stats deltas.
+  const bool updated = aCtx->oldDocId != 0;
+  if (updated) {
+    // The committed batch replaced an existing document — fold the stats
+    // deltas and drop the old VecSim / geometry entries.
     RS_ASSERT(spec->stats.scoring.numDocuments > 0);
     spec->stats.scoring.numDocuments--;
     RS_ASSERT(spec->stats.scoring.totalDocsLen >= aCtx->oldDocLen);
     spec->stats.scoring.totalDocsLen -= aCtx->oldDocLen;
-    updated = true;
+    removeOldDocAuxIndexes(spec, aCtx->oldDocId);
   }
   spec->stats.scoring.totalDocsLen += aCtx->fwIdx->totalFreq;
   ++spec->stats.scoring.numDocuments;
