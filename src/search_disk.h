@@ -474,36 +474,56 @@ void* SearchDisk_CreateVectorIndex(RedisModuleCtx *ctx, RedisSearchDiskIndexSpec
 void SearchDisk_FreeVectorIndex(void *vecIndex);
 
 /**
- * @brief Serialize a VecSimIndex* into an allocated buffer.
+ * @brief Stream the in-memory state of a quiesced VecSimIndex* directly into
+ *        the field's RedisModuleIO RDB stream.
  *
- * Caller MUST release the buffer via SearchDisk_FreeSerializedVectorBlob.
- *
- * @param vecIndex VecSimIndex* handle
- * @param outBlob Out-param: blob byte pointer
- * @param outBlobLen Out-param: blob length in bytes
- * @return true on success, false otherwise (out-params set to NULL/0)
- */
-bool SearchDisk_SerializeVectorIndexToBlob(void *vecIndex, unsigned char **outBlob,
-                                            size_t *outBlobLen);
-
-/**
- * @brief Free a buffer returned by SearchDisk_SerializeVectorIndexToBlob.
- *
- * @param blob Pointer returned by SearchDisk_SerializeVectorIndexToBlob (may be NULL)
- * @param blobLen Length returned by SearchDisk_SerializeVectorIndexToBlob
- */
-void SearchDisk_FreeSerializedVectorBlob(unsigned char *blob, size_t blobLen);
-
-/**
- * @brief Apply a previously-serialized blob to a VecSimIndex*.
+ * Drives the vecsim_disk serialization callbacks straight against
+ * RedisModuleIO without buffering the payload in a heap-allocated blob.
  *
  * @param vecIndex VecSimIndex* handle
- * @param blob Pointer to the blob bytes (may be NULL when blobLen == 0)
- * @param blobLen Length of the blob in bytes; pass 0 to leave the index empty
- * @return true on successful application; false otherwise
+ * @param rdb RedisModuleIO stream to write into
+ * @return true on success, false otherwise
  */
-bool SearchDisk_ApplyBlobToVectorIndex(void *vecIndex, const unsigned char *blob,
-                                        size_t blobLen);
+bool SearchDisk_SaveVectorIndexToRDB(void *vecIndex, RedisModuleIO *rdb);
+
+/**
+ * @brief Create a VecSimIndex with no SpeedB storage bound.
+ *
+ * The returned handle holds in-memory graph state only and is NOT connected
+ * to a column family. It can accept SearchDisk_LoadVectorIndexFromRDB but
+ * MUST NOT be queried or have vectors added until
+ * SearchDisk_BindVectorIndexStorage has been called on it.
+ *
+ * @param params Vector index parameters
+ * @return VecSimIndex* handle, or NULL on error
+ */
+void* SearchDisk_CreateUnboundVectorIndex(const VecSimParamsDisk *params);
+
+/**
+ * @brief Stream the in-memory state for a VecSimIndex* directly from a
+ *        RedisModuleIO RDB stream into a previously unbound index.
+ *
+ * @param vecIndex Unbound VecSimIndex* from SearchDisk_CreateUnboundVectorIndex
+ * @param rdb RedisModuleIO stream to read from
+ * @return true on success, false otherwise
+ */
+bool SearchDisk_LoadVectorIndexFromRDB(void *vecIndex, RedisModuleIO *rdb);
+
+/**
+ * @brief Attach SpeedB storage to a previously unbound VecSimIndex.
+ *
+ * Creates and registers the field's column family if needed, then binds the
+ * resulting storage handles to `vecIndex`. After a successful return the
+ * index can be queried and mutated.
+ *
+ * @param ctx Redis module context for BigModule APIs
+ * @param index Pointer to the index spec (provides storage context)
+ * @param vecIndex Handle returned by SearchDisk_CreateUnboundVectorIndex
+ * @param params Vector index parameters (used to look up the field name)
+ * @return true on success, false on storage setup failure
+ */
+bool SearchDisk_BindVectorIndexStorage(RedisModuleCtx *ctx, RedisSearchDiskIndexSpec *index,
+                                       void *vecIndex, const VecSimParamsDisk *params);
 
 // Metrics API wrappers
 

@@ -374,9 +374,11 @@ typedef struct IndexSpec {
   // replication ending. Consumed by SearchDisk_OpenIndexWithRdbState on both
   // success and failure paths — null this pointer after the call.
   //
-  // Per-field vector blobs are NOT carried here — each one is stashed on
-  // fs->vectorOpts.pendingRdbBlob by FieldSpec_RdbLoad and drained at
-  // LOADING_SST_ENDED via SearchDisk_ApplyBlobToVectorIndex.
+  // Per-field vector in-memory state is NOT carried here — each one is
+  // deserialized directly into an unbound VecSimIndex stored on
+  // fs->vectorOpts.vecSimIndex by FieldSpec_RdbLoad, then bound to its
+  // storage in place at LOADING_SST_ENDED via
+  // SearchDisk_BindVectorIndexStorage.
   RedisSearchDiskRdbState *pendingDiskRdbState;
   bool diskRegistered;
   pthread_rwlock_t disk_fork_rwlock;

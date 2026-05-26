@@ -2080,7 +2080,8 @@ static void IndexSpec_FreeUnlinkedData(IndexSpec *spec) {
     SearchDisk_FreeRdbState(spec->pendingDiskRdbState);
     spec->pendingDiskRdbState = NULL;
   }
-  // Per-field vector blobs (fs->vectorOpts.pendingRdbBlob) are released by
+  // Per-field unbound vector indexes (fs->vectorOpts.vecSimIndex created by
+  // FieldSpec_RdbLoad but not yet bound to storage) are released by
   // FieldSpec_Cleanup, which runs in the field-iterating destructor section
   // above.
 
@@ -2568,17 +2569,18 @@ static void FieldSpec_RdbSave(RedisModuleIO *rdb, FieldSpec *f, int contextFlags
     RedisModule_SaveUnsigned(rdb, f->vectorOpts.expBlobSize);
     VecSim_RdbSave(rdb, &f->vectorOpts.vecSimParams);
     // Disk-backed vector fields ride their in-memory state (HNSW graph
-    // metadata, SQ8 vectors) inside the field's RDB encoding so the load
-    // path can stash it on fs->vectorOpts.pendingRdbBlob and replay it once
-    // the matching VecSimIndex is created. Only emit the blob during SST
+    // metadata, SQ8 vectors) inline with the field's RDB encoding so the
+    // load path can deserialize it directly into an unbound VecSimIndex and
+    // bind storage later (eliminating the temporary blob that used to
+    // double peak memory at this point). Only emit the payload during SST
     // replication saves — regular RDB save does not include disk state.
     //
     // An "empty" flag is emitted unconditionally so the load side knows
-    // whether to expect a blob. The VecSim is empty when it was never
+    // whether to expect a payload. The VecSim is empty when it was never
     // materialized (vecSimIndex == NULL — no documents ever exercised the
     // field) or when it currently holds zero vectors. In both cases there
     // is no in-memory state worth shipping; the replica creates a fresh
-    // empty VecSimIndex on its own and we skip the blob entirely.
+    // empty VecSimIndex on its own and we skip the payload entirely.
     const bool storeDiskRdbData = contextFlags & REDISMODULE_CTX_FLAGS_SST_RDB;
     if (storeDiskRdbData) {
       RS_ASSERT(SearchDisk_IsEnabled());
@@ -2588,12 +2590,8 @@ static void FieldSpec_RdbSave(RedisModuleIO *rdb, FieldSpec *f, int contextFlags
                                VecSimIndex_IndexSize(f->vectorOpts.vecSimIndex) > 0;
       RedisModule_SaveUnsigned(rdb, vecSimWithData ? 1 : 0);
       if (vecSimWithData) {
-        unsigned char *blob = NULL;
-        size_t blobLen = 0;
-        bool ok = SearchDisk_SerializeVectorIndexToBlob(f->vectorOpts.vecSimIndex, &blob, &blobLen);
-        RS_LOG_ASSERT_ALWAYS(ok, "Failed to serialize vector index to blob");
-        RedisModule_SaveStringBuffer(rdb, (const char *)blob, blobLen);
-        SearchDisk_FreeSerializedVectorBlob(blob, blobLen);
+        bool ok = SearchDisk_SaveVectorIndexToRDB(f->vectorOpts.vecSimIndex, rdb);
+        RS_LOG_ASSERT_ALWAYS(ok, "Failed to stream vector index to RDB");
       }
     }
   }
@@ -2717,31 +2715,48 @@ static int FieldSpec_RdbLoad(RedisModuleIO *rdb, FieldSpec *f, StrongRef sp_ref,
         goto fail;  // svs is not supported in old encvers
       }
     }
-    // Disk-backed vector field's in-memory state (HNSW graph, SQ8 vectors)
-    // rides inline with the field's RDB encoding so it can be stashed here
-    // and applied by IndexSpec_SSTRdbOpenAndApply once the matching
-    // VecSimIndex* is created. The blob is written by FieldSpec_RdbSave
-    // only for SST-replication saves; regular saves emit nothing here.
+    // Disk-backed vector field's in-memory state rides inline with the
+    // field's RDB encoding. We deserialize directly into a freshly-created
+    // unbound VecSimIndex. The resulting handle is stored on
+    // vectorOpts.vecSimIndex immediately; IndexSpec_SSTRdbOpenAndApply
+    // binds storage to it.
     //
     // The save side emits an "empty" flag first: when set, the VecSim held
-    // no vectors at save time and no blob follows. We leave pendingRdbBlob
-    // NULL in that case so the apply loop is a no-op and the freshly
-    // created VecSimIndex stays empty.
-    //
-    // Ownership: the loader's buffer is `RedisModule_Alloc`'d, and `rm_free`
-    // (called both by the SST apply loop on the happy path and by
-    // FieldSpec_Cleanup on abort) resolves to `RedisModule_Free`. So we
-    // hand the loader's pointer straight to pendingRdbBlob — no copy, no
-    // immediate free — and let one of those two callers release it.
+    // no vectors at save time and nothing further follows. We leave
+    // vecSimIndex NULL in that case and let the apply loop construct a
+    // fresh empty index via the eager path. Same as in the RDB case, first document
+    // indexed will lazily create the index
     if (useSst) {
       RS_ASSERT(SearchDisk_IsEnabled());
       RS_ASSERT(encver >= INDEX_DISK_VERSION);
       const bool vecSimWithData = LoadUnsigned_IOError(rdb, goto fail) != 0;
       if (vecSimWithData) {
-        size_t blobLen = 0;
-        char *raw = LoadStringBuffer_IOError(rdb, &blobLen, goto fail);
-        f->vectorOpts.pendingRdbBlob = (unsigned char *)raw;
-        f->vectorOpts.pendingRdbBlobLen = blobLen;
+        // Populate diskCtx.indexName early so cleanup uses the disk free
+        // path. storage is NULL until IndexSpec_SSTRdbOpenAndApply runs
+        // PopulateVectorDiskParams (which frees and reallocates indexName
+        // before binding storage).
+        size_t nameLen = 0;
+        const char *namePtr = HiddenString_GetUnsafe(f->fieldName, &nameLen);
+        f->vectorOpts.diskCtx.storage = NULL;
+        f->vectorOpts.diskCtx.indexName = rm_strndup(namePtr, nameLen);
+        f->vectorOpts.diskCtx.indexNameLen = nameLen;
+        f->vectorOpts.diskCtx.rerank = true;
+
+        VecSimParamsDisk paramsDisk = {
+            .indexParams = &f->vectorOpts.vecSimParams,
+            .diskContext = &f->vectorOpts.diskCtx,
+        };
+        f->vectorOpts.vecSimIndex = (VecSimIndex *)SearchDisk_CreateUnboundVectorIndex(&paramsDisk);
+        if (!f->vectorOpts.vecSimIndex) {
+          RedisModule_Log(RSDummyContext, "warning",
+                          "Failed to create unbound vector index for RDB load");
+          goto fail;
+        }
+        if (!SearchDisk_LoadVectorIndexFromRDB(f->vectorOpts.vecSimIndex , rdb)) {
+          // vecSimIndex (with diskCtx.indexName set) will be torn down by
+          // FieldSpec_Cleanup via the disk free path on the abort flow.
+          goto fail;
+        }
       }
     }
   }
@@ -3425,58 +3440,54 @@ static void IndexSpec_SSTRdbSave(RedisModuleIO *rdb, IndexSpec *sp) {
 // vecSimIndexes are released by FieldSpec_Cleanup when the spec is freed.
 static bool IndexSpec_SSTRdbOpenAndApply(RedisModuleCtx *ctx, IndexSpec *sp) {
   // The disk layer consumes pendingDiskRdbState by ownership: max_doc_id and
-  // deleted_ids are moved into the spec. Per-field vector blobs are stashed
-  // on fs->vectorOpts.pendingRdbBlob and drained below.
+  // deleted_ids are moved into the spec. Per-field vector in-memory state was
+  // already deserialized into an unbound VecSimIndex by FieldSpec_RdbLoad and
+  // written directly to fs->vectorOpts.vecSimIndex; the loop below either
+  // binds SpeedB storage to those handles or, for fields that were empty at
+  // save time, falls back to the eager construction path.
   sp->diskSpec = SearchDisk_OpenIndexWithRdbState(ctx, sp->specName, sp->obfuscatedName, sp->rule->type, sp->pendingDiskRdbState);
   sp->pendingDiskRdbState = NULL;  // consumed regardless of result
   if (!sp->diskSpec) {
     return false;
   }
 
-  // Populate diskCtx for every HNSW-disk-backed vector field so the eager
-  // creation loop below has the storage context it needs.
+  // Populate diskCtx for every HNSW-disk-backed vector field so we have the
+  // storage context needed for both eager creation (cold fields) and the
+  // bind-storage step on pending indexes (loaded inline from RDB).
   IndexSpec_PopulateVectorDiskParams(sp);
 
-  // Eagerly create each disk-backed VecSimIndex and replay its in-memory
-  // state. We do this up front (rather than relying on lazy creation via
-  // openVectorIndex on the query path) so the HNSW graph metadata + SQ8
-  // vectors are available to readers immediately after RDB load completes.
-  // This is the only replay point for fs->vectorOpts.pendingRdbBlob, so if
-  // the disk-backed VecSimIndex cannot be created the staged blob would be
-  // silently dropped and the spec would finish loading with an empty vector
-  // index — we treat that as fatal and let the caller drop the spec.
+  // Materialize each disk-backed VecSimIndex up front so the HNSW graph
+  // metadata + SQ8 vectors are available to readers immediately after RDB
+  // load completes. Two paths:
+  //   - vecSimIndex already set: FieldSpec_RdbLoad deserialized the
+  //     in-memory state into an unbound index; bind storage in place.
+  //   - vecSimIndex NULL: the save side flagged the VecSim as empty;
+  //     fall back to today's eager construction.
   for (int i = 0; i < sp->numFields; i++) {
     FieldSpec *fs = &sp->fields[i];
     if (!FIELD_IS(fs, INDEXFLD_T_VECTOR)) continue;
     RS_ASSERT(fs->vectorOpts.diskCtx.storage);
-    VecSimIndex *vecsim = openVectorIndex(ctx, fs, CREATE_INDEX);
-    if (!vecsim) {
+
+    if (fs->vectorOpts.vecSimIndex) {
+      VecSimParamsDisk paramsDisk = {
+          .indexParams = &fs->vectorOpts.vecSimParams,
+          .diskContext = &fs->vectorOpts.diskCtx,
+      };
+      if (!SearchDisk_BindVectorIndexStorage(ctx, sp->diskSpec,
+                                             fs->vectorOpts.vecSimIndex,
+                                             &paramsDisk)) {
+        RedisModule_Log(RSDummyContext, "warning",
+                        "Failed to bind storage to vector index for field %u; aborting spec load",
+                        fs->index);
+        return false;
+      }
+    } else if (!openVectorIndex(ctx, fs, CREATE_INDEX)) {
+      // openVectorIndex assigns the result to fs->vectorOpts.vecSimIndex; we
+      // only need to check for failure here.
       RedisModule_Log(RSDummyContext, "warning",
                       "Failed to eagerly create disk vector index for field %u during RDB load; aborting spec load",
                       fs->index);
       return false;
-    }
-    // Drain the per-field blob stashed by FieldSpec_RdbLoad and replay it
-    // into the freshly-created VecSimIndex. pendingRdbBlob is NULL when the
-    // save side flagged the VecSim as empty (no in-memory state to ship);
-    // in that case the freshly created VecSimIndex is already in the
-    // correct state and we leave it untouched.
-    if (fs->vectorOpts.pendingRdbBlob) {
-      bool applied = SearchDisk_ApplyBlobToVectorIndex(vecsim, fs->vectorOpts.pendingRdbBlob,
-                                                       fs->vectorOpts.pendingRdbBlobLen);
-      RedisModule_Free(fs->vectorOpts.pendingRdbBlob);
-      fs->vectorOpts.pendingRdbBlob = NULL;
-      fs->vectorOpts.pendingRdbBlobLen = 0;
-      if (!applied) {
-        // The VecSimIndex was created but its in-memory state from the RDB
-        // (HNSW graph metadata + SQ8 vectors) could not be restored. Serving
-        // queries against this spec would silently return wrong KNN results
-        // — treat as fatal so the caller drops the spec.
-        RedisModule_Log(RSDummyContext, "warning",
-                        "Failed to apply vector RDB blob for field %u; aborting spec load",
-                        fs->index);
-        return false;
-      }
     }
   }
 

@@ -389,24 +389,29 @@ void SearchDisk_FreeVectorIndex(void *vecIndex) {
     disk->vector.freeVectorIndex(vecIndex);
 }
 
-bool SearchDisk_SerializeVectorIndexToBlob(void *vecIndex, unsigned char **outBlob,
-                                            size_t *outBlobLen) {
-    RS_ASSERT(disk && vecIndex && outBlob && outBlobLen);
-    RS_ASSERT(disk->vector.serializeVectorIndexToBlob);
-    return disk->vector.serializeVectorIndexToBlob(vecIndex, outBlob, outBlobLen);
+bool SearchDisk_SaveVectorIndexToRDB(void *vecIndex, RedisModuleIO *rdb) {
+    RS_ASSERT(disk && vecIndex && rdb);
+    RS_ASSERT(disk->vector.saveVectorIndexToRDB);
+    return disk->vector.saveVectorIndexToRDB(vecIndex, rdb);
 }
 
-void SearchDisk_FreeSerializedVectorBlob(unsigned char *blob, size_t blobLen) {
-    RS_ASSERT(disk);
-    RS_ASSERT(disk->vector.freeSerializedVectorBlob);
-    disk->vector.freeSerializedVectorBlob(blob, blobLen);
+void* SearchDisk_CreateUnboundVectorIndex(const VecSimParamsDisk *params) {
+    RS_ASSERT(disk && params);
+    RS_ASSERT(disk->vector.createUnboundVectorIndex);
+    return disk->vector.createUnboundVectorIndex(params);
 }
 
-bool SearchDisk_ApplyBlobToVectorIndex(void *vecIndex, const unsigned char *blob,
-                                        size_t blobLen) {
-    RS_ASSERT(disk && vecIndex);
-    RS_ASSERT(disk->vector.applyBlobToVectorIndex);
-    return disk->vector.applyBlobToVectorIndex(vecIndex, blob, blobLen);
+bool SearchDisk_LoadVectorIndexFromRDB(void *vecIndex, RedisModuleIO *rdb) {
+    RS_ASSERT(disk && vecIndex && rdb);
+    RS_ASSERT(disk->vector.loadVectorIndexFromRDB);
+    return disk->vector.loadVectorIndexFromRDB(vecIndex, rdb);
+}
+
+bool SearchDisk_BindVectorIndexStorage(RedisModuleCtx *ctx, RedisSearchDiskIndexSpec *index,
+                                       void *vecIndex, const VecSimParamsDisk *params) {
+    RS_ASSERT(disk && ctx && index && vecIndex && params);
+    RS_ASSERT(disk->vector.bindVectorIndexStorage);
+    return disk->vector.bindVectorIndexStorage(ctx, index, vecIndex, params);
 }
 
 // Throttle callback wrappers for VecSim
