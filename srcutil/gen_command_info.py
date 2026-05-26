@@ -83,8 +83,8 @@ def get_arg_arity(arg):
 
         min_subarg_arity = min(subarg_arity for subarg_arity, _ in subarg_arities)
         subargs_exact_arity = all(subarg_exact_arity for _, subarg_exact_arity in subarg_arities)
-        subargs_same_arity = all(subarg_arity == min_subarg_arity
-                                  for subarg_arity, _ in subarg_arities)
+        subargs_same_arity = all(subarg_arity == min_subarg_arity for subarg_arity, _ in subarg_arities)
+
         return token_arity + min_subarg_arity, is_exact_arity and subargs_exact_arity and subargs_same_arity
 
     if 'arguments' in arg:
