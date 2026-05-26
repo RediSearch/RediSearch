@@ -3115,6 +3115,7 @@ name = "triemap_ffi"
 version = "0.0.1"
 dependencies = [
  "cheadergen",
+ "ffi",
  "lending-iterator",
  "libc",
  "redis-module",

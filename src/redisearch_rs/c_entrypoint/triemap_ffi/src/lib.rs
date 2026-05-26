@@ -19,10 +19,12 @@ mod find_prefixes;
 mod iter;
 mod iter_types;
 mod range;
+mod rdb;
 
 pub use find_prefixes::*;
 pub use iter::*;
 pub use range::*;
+pub use rdb::*;
 
 /// The length of a key string in the trie.
 pub type tm_len_t = u16;
