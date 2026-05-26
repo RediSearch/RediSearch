@@ -10,7 +10,8 @@
 use std::num::NonZeroUsize;
 
 use crate::{FieldExpiration, FieldExpirations};
-use ffi::{t_docId, t_expirationTimePoint as timespec};
+use ffi::t_expirationTimePoint as timespec;
+use rqe_core::DocId;
 
 pub const fn ts(sec: i64, nsec: i64) -> timespec {
     // `libc::time_t` is deprecated on musl (musl 1.2 changed it to 64-bit,
@@ -23,8 +24,8 @@ pub const fn ts(sec: i64, nsec: i64) -> timespec {
     }
 }
 
-pub const DOC_ID_1: t_docId = 1;
-pub const DOC_ID_2: t_docId = 4;
+pub const DOC_ID_1: DocId = 1;
+pub const DOC_ID_2: DocId = 4;
 pub const FIELD_INDEX_1: u16 = 3;
 pub const FIELD_INDEX_2: u16 = 5;
 pub const FIELD_INDEX_3: u16 = 6;

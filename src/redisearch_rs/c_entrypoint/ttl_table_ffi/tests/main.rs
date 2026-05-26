@@ -20,8 +20,8 @@ use std::ptr;
 
 use field::FieldExpirationPredicate;
 use redis_mock::mock_or_stub_missing_redis_c_symbols;
-use ttl_table::{FieldExpiration, FieldExpirations};
 use ttl_table::test_utils::{FUTURE, NOW, PAST, fe};
+use ttl_table::{FieldExpiration, FieldExpirations};
 use ttl_table_ffi::*;
 
 mock_or_stub_missing_redis_c_symbols!();

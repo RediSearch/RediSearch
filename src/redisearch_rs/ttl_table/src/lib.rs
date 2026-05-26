@@ -31,11 +31,10 @@ pub mod test_utils;
 
 use std::{iter::Chain, num::NonZeroUsize, ops::Deref};
 
-use ffi::{FieldMask, t_expirationTimePoint as timespec, t_fieldIndex};
+use ffi::t_expirationTimePoint as timespec;
 pub use field::FieldExpirationPredicate;
+use rqe_core::{DocId, FieldIndex, FieldMask};
 use thin_vec::ThinVec;
-
-use ffi::t_docId;
 
 /// A single field's expiration record.
 ///
@@ -45,7 +44,7 @@ use ffi::t_docId;
 #[derive(Debug, Clone)]
 pub struct FieldExpiration {
     /// The zero-based field index identifying which field carries this expiration.
-    pub index: t_fieldIndex,
+    pub index: FieldIndex,
     /// The absolute wall-clock instant at which the field expires.
     ///
     /// When both `tv_sec` and `tv_nsec` are `0` the entry is treated as
@@ -180,7 +179,7 @@ const TTL_BUCKET_MAX_GROW_STEP: usize = 1 << 20;
 #[derive(Debug)]
 pub struct TimeToLiveEntry {
     /// The document id
-    pub doc_id: t_docId,
+    pub doc_id: DocId,
     /// Owned, sorted by field index, never empty.
     pub field_expirations: FieldExpirations,
 }
@@ -224,7 +223,7 @@ impl TimeToLiveTable {
     ///
     /// Panics if `field_expirations` is empty or if `doc_id` is already present
     /// in the table.
-    pub fn add(&mut self, doc_id: t_docId, field_expirations: FieldExpirations) {
+    pub fn add(&mut self, doc_id: DocId, field_expirations: FieldExpirations) {
         assert!(
             !field_expirations.is_empty(),
             "TTL table add requires at least one field expiration"
@@ -252,7 +251,7 @@ impl TimeToLiveTable {
     /// [`verify_doc_and_wide_field_mask`](Self::verify_doc_and_wide_field_mask)),
     /// which assume them when scanning the per-bucket chain and the
     /// per-entry field-expiration list.
-    pub unsafe fn add_unchecked(&mut self, doc_id: t_docId, field_expirations: FieldExpirations) {
+    pub unsafe fn add_unchecked(&mut self, doc_id: DocId, field_expirations: FieldExpirations) {
         debug_assert!(
             !field_expirations.is_empty(),
             "TTL table add requires at least one field expiration"
@@ -277,7 +276,7 @@ impl TimeToLiveTable {
     ///
     /// Uses swap-last deletion (O(1)) and does not shrink the bucket — the
     /// allocation is kept at its high-water mark to avoid realloc churn.
-    pub fn remove(&mut self, doc_id: t_docId) -> Option<TimeToLiveEntry> {
+    pub fn remove(&mut self, doc_id: DocId) -> Option<TimeToLiveEntry> {
         let slot = self.slot(doc_id);
         if slot >= self.buckets.len() {
             return None;
@@ -304,7 +303,7 @@ impl TimeToLiveTable {
     /// The slice aliases storage owned by the table and is invalidated by any
     /// subsequent [`add`](Self::add) / [`add_unchecked`](Self::add_unchecked) /
     /// [`remove`](Self::remove) on this table.
-    pub fn field_expirations(&self, doc_id: t_docId) -> Option<&FieldExpirations> {
+    pub fn field_expirations(&self, doc_id: DocId) -> Option<&FieldExpirations> {
         self.find_entry(doc_id).map(|e| &e.field_expirations)
     }
 
@@ -328,7 +327,7 @@ impl TimeToLiveTable {
     /// under either predicate.
     pub fn verify_doc_and_field(
         &self,
-        doc_id: t_docId,
+        doc_id: DocId,
         field: u16,
         predicate: FieldExpirationPredicate,
         expiration_point: &timespec,
@@ -384,7 +383,7 @@ impl TimeToLiveTable {
     /// violating the bound is undefined behavior in release builds.
     pub fn verify_doc_and_field_mask(
         &self,
-        doc_id: t_docId,
+        doc_id: DocId,
         field_mask: u32,
         predicate: FieldExpirationPredicate,
         expiration_point: &timespec,
@@ -414,7 +413,7 @@ impl TimeToLiveTable {
     /// See [`TimeToLiveTable::verify_doc_and_field_mask`].
     pub fn verify_doc_and_wide_field_mask(
         &self,
-        doc_id: t_docId,
+        doc_id: DocId,
         field_mask: FieldMask,
         predicate: FieldExpirationPredicate,
         expiration_point: &timespec,
@@ -430,7 +429,7 @@ impl TimeToLiveTable {
     }
 
     /// Direct-modulo slot formula
-    const fn slot(&self, doc_id: t_docId) -> usize {
+    const fn slot(&self, doc_id: DocId) -> usize {
         if doc_id < self.max_size as u64 {
             doc_id as usize
         } else {
@@ -466,7 +465,7 @@ impl TimeToLiveTable {
         self.buckets.resize_with(newcap, ThinVec::new);
     }
 
-    fn find_entry(&self, doc_id: t_docId) -> Option<&TimeToLiveEntry> {
+    fn find_entry(&self, doc_id: DocId) -> Option<&TimeToLiveEntry> {
         let slot = self.slot(doc_id);
         let bucket = self.buckets.get(slot)?;
         bucket.iter().find(|e| e.doc_id == doc_id)
