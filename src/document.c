@@ -385,9 +385,10 @@ static void writeByteOffsets(ForwardIndexTokenizerCtx *tokCtx, const Token *tokI
  * `bulkApplyFields` (disk-mode Phase 3, after a successful batch commit).
  * They are infallible — they only perform RAM bookkeeping (trie inserts,
  * stats counters, global-stats bumps) that pairs with the durable writes
- * from the indexer. */
-#define FIELD_BULK_APPLIER(name)                                                            \
-  static void name(RSAddDocumentCtx *aCtx, RedisSearchCtx *ctx, const DocumentField *field, \
+ * from the indexer. The spec is reachable via `aCtx->spec`; Redis API access
+ * via `aCtx->sctx->redisCtx`. */
+#define FIELD_BULK_APPLIER(name)                                              \
+  static void name(RSAddDocumentCtx *aCtx, const DocumentField *field,        \
                    const FieldSpec *fs, FieldIndexerData *fdata)
 
 #define FIELD_BULK_CTOR(name) \
@@ -831,10 +832,10 @@ FIELD_BULK_APPLIER(tagApplier) {
   // The TagIndex is lazily allocated by `tagIndexer` via `TagIndex_Ensure` on
   // the live spec field, so the copy's `tagOpts.tagIndex` may still be NULL
   // here. Look up the live spec field directly.
-  TagIndex *tidx = TagIndex_Open(&ctx->spec->fields[fs->index]);
+  TagIndex *tidx = TagIndex_Open(&aCtx->spec->fields[fs->index]);
   if (!tidx) return;
   TagIndex_Commit(tidx, (const char **)fdata->tags, array_len(fdata->tags),
-                  &ctx->spec->stats);
+                  &aCtx->spec->stats);
   FieldsGlobalStats_UpdateFieldDocsIndexed(INDEXFLD_T_TAG, 1);
 }
 
@@ -850,7 +851,7 @@ FIELD_BULK_APPLIER(numericApplier) {
   // `spec->stats.invertedSize` / `numRecords` deltas and the `NumericRangeTree`
   // mutation here. Today both are done inline in `numericIndexer`, which
   // asserts disk-mode is disabled.
-  (void)aCtx; (void)ctx; (void)field; (void)fs; (void)fdata;
+  (void)aCtx; (void)field; (void)fs; (void)fdata;
   FieldsGlobalStats_UpdateFieldDocsIndexed(INDEXFLD_T_NUMERIC, 1);
 }
 
@@ -859,7 +860,7 @@ FIELD_BULK_APPLIER(geoApplier) {
   // numeric-tree mutation + stats deltas here. Today `numericIndexer` (which
   // handles both numeric and geo) does the work inline and asserts disk-mode
   // is disabled.
-  (void)aCtx; (void)ctx; (void)field; (void)fs; (void)fdata;
+  (void)aCtx; (void)field; (void)fs; (void)fdata;
   FieldsGlobalStats_UpdateFieldDocsIndexed(INDEXFLD_T_GEO, 1);
 }
 
@@ -867,7 +868,7 @@ FIELD_BULK_APPLIER(geometryApplier) {
   // TODO: when geometry lands on the per-document disk write batch, move the
   // R-tree mutation here. Today `geometryIndexer` does the insert inline and
   // asserts disk-mode is disabled.
-  (void)aCtx; (void)ctx; (void)field; (void)fs; (void)fdata;
+  (void)aCtx; (void)field; (void)fs; (void)fdata;
   FieldsGlobalStats_UpdateFieldDocsIndexed(INDEXFLD_T_GEOMETRY, 1);
 }
 
@@ -921,17 +922,16 @@ int IndexerBulkAdd(RSAddDocumentCtx *cur, RedisSearchCtx *sctx,
   return rc;
 }
 
-void IndexerBulkApply(RSAddDocumentCtx *aCtx, RedisSearchCtx *sctx,
-                      const DocumentField *field, const FieldSpec *fs,
-                      FieldIndexerData *fdata) {
+void IndexerBulkApply(RSAddDocumentCtx *aCtx, const DocumentField *field,
+                      const FieldSpec *fs, FieldIndexerData *fdata) {
   for (size_t ii = 0; ii < INDEXFLD_NUM_TYPES; ++ii) {
     if (!(field->indexAs & INDEXTYPE_FROM_POS(ii))) continue;
     switch (ii) {
-      case IXFLDPOS_TAG:      tagApplier(aCtx, sctx, field, fs, fdata);      break;
-      case IXFLDPOS_NUMERIC:  numericApplier(aCtx, sctx, field, fs, fdata);  break;
-      case IXFLDPOS_GEO:      geoApplier(aCtx, sctx, field, fs, fdata);      break;
-      case IXFLDPOS_VECTOR:   vectorApplier(aCtx, sctx, field, fs, fdata);   break;
-      case IXFLDPOS_GEOMETRY: geometryApplier(aCtx, sctx, field, fs, fdata); break;
+      case IXFLDPOS_TAG:      tagApplier(aCtx, field, fs, fdata);      break;
+      case IXFLDPOS_NUMERIC:  numericApplier(aCtx, field, fs, fdata);  break;
+      case IXFLDPOS_GEO:      geoApplier(aCtx, field, fs, fdata);      break;
+      case IXFLDPOS_VECTOR:   vectorApplier(aCtx, field, fs, fdata);   break;
+      case IXFLDPOS_GEOMETRY: geometryApplier(aCtx, field, fs, fdata); break;
       case IXFLDPOS_FULLTEXT: break;
     }
   }

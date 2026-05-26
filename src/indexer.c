@@ -420,7 +420,7 @@ static void bulkIndexFields(RSAddDocumentCtx *aCtx, RedisSearchCtx *sctx) {
       aCtx->stateFlags |= ACTX_F_ERRORED;
       return;
     }
-    IndexerBulkApply(aCtx, sctx, doc->fields + ii, fs, fdata);
+    IndexerBulkApply(aCtx, doc->fields + ii, fs, fdata);
   }
   aCtx->stateFlags |= ACTX_F_OTHERINDEXED;
 }
@@ -461,7 +461,7 @@ static void bulkStageFields(RSAddDocumentCtx *aCtx, RedisSearchCtx *sctx) {
  * [document.c](document.c) once per indexed field. Called from
  * `indexDocumentDisk` after `commitDocument` reports success. Infallible.
  */
-static void bulkApplyFields(RSAddDocumentCtx *aCtx, RedisSearchCtx *sctx) {
+static void bulkApplyFields(RSAddDocumentCtx *aCtx) {
   const Document *doc = aCtx->doc;
   for (size_t ii = 0; ii < doc->numFields; ++ii) {
     const FieldSpec *fs = aCtx->fspecs + ii;
@@ -469,7 +469,7 @@ static void bulkApplyFields(RSAddDocumentCtx *aCtx, RedisSearchCtx *sctx) {
     if (fs->types == INDEXFLD_T_FULLTEXT || !FieldSpec_IsIndexable(fs) || fdata->isNull) {
       continue;
     }
-    IndexerBulkApply(aCtx, sctx, doc->fields + ii, fs, fdata);
+    IndexerBulkApply(aCtx, doc->fields + ii, fs, fdata);
   }
 }
 
@@ -674,7 +674,7 @@ static void indexDocumentDisk(RSAddDocumentCtx *aCtx, RedisSearchCtx *ctx) {
   // Phase 3 — apply RAM bookkeeping for the durably-committed writes.
   applyDocTable(aCtx, ctx);
   if (aCtx->fwIdx) applyTextIndex(aCtx, ctx);
-  bulkApplyFields(aCtx, ctx);
+  bulkApplyFields(aCtx);
   applyVectorInserts(aCtx, ctx);
 }
 
