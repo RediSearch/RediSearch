@@ -443,6 +443,11 @@ static TrieNode *__trieNode_findChild_score(TrieNode *n, rune key) {
 }
 
 TrieNode *TrieNode_Get(TrieNode *n, const rune *str, t_len len, bool exact, int *offsetOut) {
+  if (!n) return NULL;
+  // sortMode is uniform across all nodes in a trie (set once per __newTrieNode
+  // and never mutated), and `n->sortMode` is a 1-bit bitfield — the compiler
+  // can't hoist it past the `n = ...` reassignment below, so cache it once.
+  const TrieSortMode mode = n->sortMode;
   t_len offset = 0;
   while (n && offset < len) {
     t_len localOffset = 0;
@@ -465,8 +470,8 @@ TrieNode *TrieNode_Get(TrieNode *n, const rune *str, t_len len, bool exact, int 
     } else if (localOffset == n->len) {
       // we've reached the end of the node's string but not the search string
       // let's find a child to continue to
-      n = (n->sortMode == Trie_Sort_Lex) ? __trieNode_findChild_lex(n, str[offset])
-                                         : __trieNode_findChild_score(n, str[offset]);
+      n = (mode == Trie_Sort_Lex) ? __trieNode_findChild_lex(n, str[offset])
+                                  : __trieNode_findChild_score(n, str[offset]);
 
     } else {
       return NULL;
