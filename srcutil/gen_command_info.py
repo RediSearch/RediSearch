@@ -48,6 +48,8 @@ COMMANDS_WITH_MINIMUM_ARITY = {
     'FT.CONFIG SET',
     'FT.CONFIG HELP',
     'FT.CURSOR DEL',
+    # _FT.INFO reuses the FT.INFO command info and accepts WITH_INDEX_ERROR_TIME from the coordinator.
+    'FT.INFO',
 }
 
 def get_function_signature(name):
@@ -82,6 +84,11 @@ def get_arg_arity(arg):
     arg_type = arg.get('type')
     token_arity = len(arg['token'].split()) if 'token' in arg else 0
     is_exact_arity = 'multiple' not in arg and 'multiple-token' not in arg
+
+    if arg_type == 'function':
+        # Keep arity calculation aligned with generate_arguments(): functions with
+        # arguments are emitted as blocks, functions without arguments as pure tokens.
+        arg_type = 'block' if arg.get('arguments') else 'pure-token'
 
     if arg_type == 'oneof':
         subargs = arg.get('arguments', [])

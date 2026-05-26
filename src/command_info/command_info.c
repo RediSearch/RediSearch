@@ -324,7 +324,7 @@ int SetFtInfoInfo(RedisModuleCommand *cmd) {
       },
       {0}
     },
-    .arity = 2,
+    .arity = -2,
     .since = "1.0.0",
   };
   return RedisModule_SetCommandInfo(cmd, &info);
