@@ -14,6 +14,7 @@
 pub mod iter;
 mod node;
 pub mod opaque;
+pub mod rdb;
 pub mod str;
 mod trie;
 mod trie_count;
