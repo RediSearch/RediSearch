@@ -45,17 +45,14 @@ Scope.indent = 0
 COMMANDS_WITH_MINIMUM_ARITY = {
     # These handlers intentionally process or ignore extra arguments instead of returning WrongArity.
     'FT.CONFIG GET',
+    'FT.CONFIG SET',
     'FT.CONFIG HELP',
     'FT.CURSOR DEL',
-    # _FT.INFO reuses the FT.INFO command info and accepts WITH_INDEX_ERROR_TIME from the coordinator.
-    'FT.INFO',
 }
 
 COMMAND_ARITY_OVERRIDES = {
-    # The internal _FT.CONFIG|SET command accepts missing values for validation-only paths.
+    # FT.CONFIG SET accepts SET <name> for deprecated flag-style configs.
     'FT.CONFIG SET': -3,
-    # Preserve ACL behavior for malformed FT.CREATE calls: Redis should reach module ACL checks first.
-    'FT.CREATE': -1,
 }
 
 def get_function_signature(name):
