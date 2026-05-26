@@ -294,6 +294,11 @@ void RSConfig_PostLoadNormalize(RedisModuleCtx *ctx);
  * CONFIG SET (validation enforced). */
 bool RSConfig_IsModuleConfigLoaded(void);
 
+/* Caps `*timeoutMS` to RSGlobalConfig.maxQueryTimeoutMS when the limit is
+ * active (workers disabled and limit > 0) and the current value exceeds it.
+ * Returns true iff capping occurred, in which case `*timeoutMS` was updated. */
+bool RSConfig_CapQueryTimeoutToMaxLimit(long long *timeoutMS);
+
 /**
  * Writes the retrieval of the configuration value to the network.
  * isHelp will use a more dict-like pattern, which should be a bit friendlier

@@ -42,6 +42,19 @@ bool RSConfig_IsModuleConfigLoaded(void) {
   return s_moduleConfigLoaded;
 }
 
+bool RSConfig_CapQueryTimeoutToMaxLimit(long long *timeoutMS) {
+  if (!timeoutMS) return false;
+  const long long limit = RSGlobalConfig.maxQueryTimeoutMS;
+  if (limit <= 0 || RSGlobalConfig.numWorkerThreads != 0) {
+    return false;
+  }
+  if (*timeoutMS <= 0 || *timeoutMS <= limit) {
+    return false;
+  }
+  *timeoutMS = limit;
+  return true;
+}
+
 typedef struct {
   const char *FTConfigName;
   const char *ConfigName;

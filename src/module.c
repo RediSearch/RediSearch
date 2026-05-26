@@ -4343,6 +4343,9 @@ typedef void (*BlockedClientFreePrivDataCB) (RedisModuleCtx *ctx, void *privdata
 
 // Initialize query timeout from command args or global config.
 // Always assigns a non-negative timeout value to *timeout.
+// The value is also silently capped to search-max-query-timeout-ms when the
+// limit is active; AREQ_Compile sets the QEXEC_S_MAX_TIMEOUT_CAPPED flag on
+// its own request, which is what surfaces the warning to the user.
 static int initQueryTimeout(size_t *timeout, RedisModuleString **argv, int argc, QueryError *status) {
   RS_ASSERT(timeout != NULL);
 
@@ -4354,7 +4357,13 @@ static int initQueryTimeout(size_t *timeout, RedisModuleString **argv, int argc,
     ArgsCursor ac;
     ArgsCursor_InitRString(&ac, argv + timeoutArgIdx, argc - timeoutArgIdx);
     // parseTimeout validates non-negative timeout and returns error if no argument is provided
-    return parseTimeout(timeout, &ac, status);
+    if (parseTimeout(timeout, &ac, status) != REDISMODULE_OK) {
+      return REDISMODULE_ERR;
+    }
+  }
+  long long capped = (long long)*timeout;
+  if (RSConfig_CapQueryTimeoutToMaxLimit(&capped)) {
+    *timeout = (size_t)capped;
   }
   return REDISMODULE_OK;
 }
