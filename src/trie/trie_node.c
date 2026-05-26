@@ -235,12 +235,76 @@ typedef struct {
   int rc;
 } TrieAddChildResult;
 
+static int __trieNode_Add(TrieNode **np, const rune *str, t_len len, RSPayload *payload, float score,
+                          TrieAddOp op, TrieFreeCallback freecb, size_t numDocs);
+
+// Lex-mode child placement. Children are kept sorted by their first rune; the
+// scan can early-exit at the first key that exceeds the inserted rune. A recursed
+// update never changes a child's first rune, so no resort is required.
 static TrieAddChildResult __trieNode_addChild_lex(
     TrieNode *n, const rune *str, t_len len, t_len offset, RSPayload *payload, float score,
-    TrieAddOp op, TrieFreeCallback freecb, size_t numDocs);
+    TrieAddOp op, TrieFreeCallback freecb, size_t numDocs) {
+  int idx = 0;
+  for (; idx < n->numChildren; idx++) {
+    const rune *childKey = __trieNode_childKey(n, idx);
+    TrieNode *child = TrieNode_Children(n)[idx];
+    if (str[offset] == *childKey) {
+      // Payload is validated at the entry point (TrieNode_Add), so
+      // TRIE_ERR_PAYLOAD_OVERFLOW cannot occur here.
+      int rc = __trieNode_Add(&child, str + offset, len - offset, payload, score, op, freecb,
+                              numDocs);
+      *__trieNode_childKey(n, idx) = str[offset];
+      TrieNode_Children(n)[idx] = child;
+      return (TrieAddChildResult){.node = n, .rc = rc};
+    }
+    // break if new node has lex value higher than current child
+    if (str[offset] < *childKey) {
+      break;
+    }
+  }
+  n = __trie_AddChildIdx(n, str, offset, len, payload, score, idx, numDocs);
+  return (TrieAddChildResult){.node = n, .rc = TRIE_OK_NEW};
+}
+
+// Score-mode child placement. Children are kept sorted by descending
+// maxChildScore; a recursed update may invalidate that order, so we check the
+// two neighbours and re-sort if needed.
 static TrieAddChildResult __trieNode_addChild_score(
     TrieNode *n, const rune *str, t_len len, t_len offset, RSPayload *payload, float score,
-    TrieAddOp op, TrieFreeCallback freecb, size_t numDocs);
+    TrieAddOp op, TrieFreeCallback freecb, size_t numDocs) {
+  int idx = 0;
+  int scoreIdx = REDISEARCH_UNINITIALIZED;
+  for (; idx < n->numChildren; idx++) {
+    const rune *childKey = __trieNode_childKey(n, idx);
+    TrieNode *child = TrieNode_Children(n)[idx];
+    if (str[offset] == *childKey) {
+      // Payload is validated at the entry point (TrieNode_Add), so
+      // TRIE_ERR_PAYLOAD_OVERFLOW cannot occur here.
+      int rc = __trieNode_Add(&child, str + offset, len - offset, payload, score, op, freecb,
+                              numDocs);
+      *__trieNode_childKey(n, idx) = str[offset];
+      TrieNode_Children(n)[idx] = child;
+      // check if the order was kept and fix as necessary
+      if (n->numChildren > 1) {
+        if ((idx > 0 && child->maxChildScore > TrieNode_Children(n)[idx - 1]->maxChildScore) ||
+            (idx < n->numChildren - 2 && child->maxChildScore < TrieNode_Children(n)[idx + 1]->maxChildScore)) {
+          __trieNode_sortChildren(n);
+        }
+      }
+      return (TrieAddChildResult){.node = n, .rc = rc};
+    }
+    // keep the index that fits the score
+    if (child->maxChildScore < score && scoreIdx == REDISEARCH_UNINITIALIZED) {
+      scoreIdx = idx;
+    }
+  }
+  // if there is an index that fit the score, use it, else, place at the end
+  if (scoreIdx != REDISEARCH_UNINITIALIZED) {
+    idx = scoreIdx;
+  }
+  n = __trie_AddChildIdx(n, str, offset, len, payload, score, idx, numDocs);
+  return (TrieAddChildResult){.node = n, .rc = TRIE_OK_NEW};
+}
 
 static int __trieNode_Add(TrieNode **np, const rune *str, t_len len, RSPayload *payload, float score,
                    TrieAddOp op, TrieFreeCallback freecb, size_t numDocs) {
@@ -331,74 +395,6 @@ static int __trieNode_Add(TrieNode **np, const rune *str, t_len len, RSPayload *
       : __trieNode_addChild_score(n, str, len, offset, payload, score, op, freecb, numDocs);
   *np = r.node;
   return r.rc;
-}
-
-// Lex-mode child placement. Children are kept sorted by their first rune; the
-// scan can early-exit at the first key that exceeds the inserted rune. A recursed
-// update never changes a child's first rune, so no resort is required.
-static TrieAddChildResult __trieNode_addChild_lex(
-    TrieNode *n, const rune *str, t_len len, t_len offset, RSPayload *payload, float score,
-    TrieAddOp op, TrieFreeCallback freecb, size_t numDocs) {
-  int idx = 0;
-  for (; idx < n->numChildren; idx++) {
-    const rune *childKey = __trieNode_childKey(n, idx);
-    TrieNode *child = TrieNode_Children(n)[idx];
-    if (str[offset] == *childKey) {
-      // Payload is validated at the entry point (TrieNode_Add), so
-      // TRIE_ERR_PAYLOAD_OVERFLOW cannot occur here.
-      int rc = __trieNode_Add(&child, str + offset, len - offset, payload, score, op, freecb,
-                              numDocs);
-      *__trieNode_childKey(n, idx) = str[offset];
-      TrieNode_Children(n)[idx] = child;
-      return (TrieAddChildResult){.node = n, .rc = rc};
-    }
-    // break if new node has lex value higher than current child
-    if (str[offset] < *childKey) {
-      break;
-    }
-  }
-  n = __trie_AddChildIdx(n, str, offset, len, payload, score, idx, numDocs);
-  return (TrieAddChildResult){.node = n, .rc = TRIE_OK_NEW};
-}
-
-// Score-mode child placement. Children are kept sorted by descending
-// maxChildScore; a recursed update may invalidate that order, so we check the
-// two neighbours and re-sort if needed.
-static TrieAddChildResult __trieNode_addChild_score(
-    TrieNode *n, const rune *str, t_len len, t_len offset, RSPayload *payload, float score,
-    TrieAddOp op, TrieFreeCallback freecb, size_t numDocs) {
-  int idx = 0;
-  int scoreIdx = REDISEARCH_UNINITIALIZED;
-  for (; idx < n->numChildren; idx++) {
-    const rune *childKey = __trieNode_childKey(n, idx);
-    TrieNode *child = TrieNode_Children(n)[idx];
-    if (str[offset] == *childKey) {
-      // Payload is validated at the entry point (TrieNode_Add), so
-      // TRIE_ERR_PAYLOAD_OVERFLOW cannot occur here.
-      int rc = __trieNode_Add(&child, str + offset, len - offset, payload, score, op, freecb,
-                              numDocs);
-      *__trieNode_childKey(n, idx) = str[offset];
-      TrieNode_Children(n)[idx] = child;
-      // check if the order was kept and fix as necessary
-      if (n->numChildren > 1) {
-        if ((idx > 0 && child->maxChildScore > TrieNode_Children(n)[idx - 1]->maxChildScore) ||
-            (idx < n->numChildren - 2 && child->maxChildScore < TrieNode_Children(n)[idx + 1]->maxChildScore)) {
-          __trieNode_sortChildren(n);
-        }
-      }
-      return (TrieAddChildResult){.node = n, .rc = rc};
-    }
-    // keep the index that fits the score
-    if (child->maxChildScore < score && scoreIdx == REDISEARCH_UNINITIALIZED) {
-      scoreIdx = idx;
-    }
-  }
-  // if there is an index that fit the score, use it, else, place at the end
-  if (scoreIdx != REDISEARCH_UNINITIALIZED) {
-    idx = scoreIdx;
-  }
-  n = __trie_AddChildIdx(n, str, offset, len, payload, score, idx, numDocs);
-  return (TrieAddChildResult){.node = n, .rc = TRIE_OK_NEW};
 }
 
 int TrieNode_Add(TrieNode **np, const rune *str, t_len len, RSPayload *payload, float score,
