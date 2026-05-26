@@ -17,8 +17,23 @@
  */
 typedef struct TimeToLiveTable TimeToLiveTable;
 
+/**
+ * A single field's expiration record.
+ *
+ * Pairs a field identifier ([`index`](Self::index)) with the
+ * wall-clock instant ([`point`](Self::point)) at which that field expires.
+ */
 typedef struct FieldExpiration {
+  /**
+   * The zero-based field index identifying which field carries this expiration.
+   */
   t_fieldIndex index;
+  /**
+   * The absolute wall-clock instant at which the field expires.
+   *
+   * When both `tv_sec` and `tv_nsec` are `0` the entry is treated as
+   * "never expires".
+   */
   t_expirationTimePoint point;
 } FieldExpiration;
 

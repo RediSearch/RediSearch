@@ -37,10 +37,19 @@ use thin_vec::ThinVec;
 
 use ffi::t_docId;
 
+/// A single field's expiration record.
+///
+/// Pairs a field identifier ([`index`](Self::index)) with the
+/// wall-clock instant ([`point`](Self::point)) at which that field expires.
 #[repr(C)]
 #[derive(Debug, Clone)]
 pub struct FieldExpiration {
+    /// The zero-based field index identifying which field carries this expiration.
     pub index: t_fieldIndex,
+    /// The absolute wall-clock instant at which the field expires.
+    ///
+    /// When both `tv_sec` and `tv_nsec` are `0` the entry is treated as
+    /// "never expires".
     pub point: timespec,
 }
 
