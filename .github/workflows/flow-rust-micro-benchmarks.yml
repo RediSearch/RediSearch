@@ -34,7 +34,7 @@ jobs:
       - name: Download Latest Baseline Artifact from master
         id: get-artifact
         if: github.event_name == 'pull_request'
-        uses: dawidd6/action-download-artifact@4c1e823582f43b179e2cbb49c3eade4e41f992e2 # refs @v10
+        uses: dawidd6/action-download-artifact@b6e2e70617bc3265edd6dab6c906732b2f1ae151 # refs @v21
         with:
           github_token: ${{ secrets.GITHUB_TOKEN }}
           branch: master
