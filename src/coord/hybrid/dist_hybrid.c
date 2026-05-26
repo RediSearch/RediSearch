@@ -651,11 +651,8 @@ static int HybridRequest_prepareForExecution(HybridRequest *hreq,
 
     // Construct the command string
     MRCommand xcmd;
-    // Track K argument index for SHARD_K_RATIO optimization (set during command building)
-    int kArgIndex = -1;
     HybridRequest_buildMRCommand(argv, argc, profileOptions, &xcmd, serialized,
-                                 sp, &kArgIndex);
-    hreq->kArgIndex = kArgIndex;
+                                 sp, &hreq->kArgIndex);
 
     xcmd.protocol = HYBRID_RESP_PROTOCOL_VERSION;
     xcmd.forCursor = hreq->reqflags & QEXEC_F_IS_CURSOR;
