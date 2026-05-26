@@ -282,8 +282,11 @@ int forwardIndexTokenFunc(ForwardIndexTokenizerCtx *tokCtx, const Token *tokInfo
   return 0;
 }
 
-/** Write a forward-index entry to the index */
-size_t InvertedIndex_WriteForwardIndexEntry(InvertedIndex *idx, ForwardIndexEntry *ent) {
+/** Write a forward-index entry to the index. Returns an `AddRecordOutcome` carrying the memory
+ * growth and the number of new blocks the write created — callers maintaining per-spec
+ * `total_inverted_index_blocks` should add `.blocks_added` to their counter.
+ */
+AddRecordOutcome InvertedIndex_WriteForwardIndexEntry(InvertedIndex *idx, ForwardIndexEntry *ent) {
   RSIndexResult rec = {.data.term_tag = RSResultData_Term,
                        .data.term.borrowed.tag = RSTermRecord_Borrowed,
                        .docId = ent->docId,

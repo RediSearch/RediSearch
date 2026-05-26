@@ -1535,160 +1535,109 @@ int SetFtAggregateInfo(RedisModuleCommand *cmd) {
           },
           {
             .name = "reduce",
-            .type = REDISMODULE_ARG_TYPE_ONEOF,
+            .type = REDISMODULE_ARG_TYPE_BLOCK,
             .flags = REDISMODULE_CMD_ARG_OPTIONAL | REDISMODULE_CMD_ARG_MULTIPLE,
             .subargs = (RedisModuleCommandArg[]){
               {
-                .name = "generic_reduce",
-                .summary = "Applies a reducer function, like `SUM` or `COUNT`, on grouped results.",
-                .type = REDISMODULE_ARG_TYPE_BLOCK,
-                .subargs = (RedisModuleCommandArg[]){
-                  {
-                    .name = "reduce",
-                    .token = "REDUCE",
-                    .type = REDISMODULE_ARG_TYPE_PURE_TOKEN,
-                  },
-                  {
-                    .name = "function",
-                    .type = REDISMODULE_ARG_TYPE_ONEOF,
-                    .subargs = (RedisModuleCommandArg[]){
-                      {
-                        .name = "count",
-                        .token = "COUNT",
-                        .type = REDISMODULE_ARG_TYPE_PURE_TOKEN,
-                      },
-                      {
-                        .name = "count_distinct",
-                        .token = "COUNT_DISTINCT",
-                        .type = REDISMODULE_ARG_TYPE_PURE_TOKEN,
-                      },
-                      {
-                        .name = "count_distinctish",
-                        .token = "COUNT_DISTINCTISH",
-                        .type = REDISMODULE_ARG_TYPE_PURE_TOKEN,
-                      },
-                      {
-                        .name = "sum",
-                        .token = "SUM",
-                        .type = REDISMODULE_ARG_TYPE_PURE_TOKEN,
-                      },
-                      {
-                        .name = "min",
-                        .token = "MIN",
-                        .type = REDISMODULE_ARG_TYPE_PURE_TOKEN,
-                      },
-                      {
-                        .name = "max",
-                        .token = "MAX",
-                        .type = REDISMODULE_ARG_TYPE_PURE_TOKEN,
-                      },
-                      {
-                        .name = "avg",
-                        .token = "AVG",
-                        .type = REDISMODULE_ARG_TYPE_PURE_TOKEN,
-                      },
-                      {
-                        .name = "stddev",
-                        .token = "STDDEV",
-                        .type = REDISMODULE_ARG_TYPE_PURE_TOKEN,
-                      },
-                      {
-                        .name = "quantile",
-                        .token = "QUANTILE",
-                        .type = REDISMODULE_ARG_TYPE_PURE_TOKEN,
-                      },
-                      {
-                        .name = "tolist",
-                        .token = "TOLIST",
-                        .type = REDISMODULE_ARG_TYPE_PURE_TOKEN,
-                      },
-                      {
-                        .name = "first_value",
-                        .token = "FIRST_VALUE",
-                        .type = REDISMODULE_ARG_TYPE_PURE_TOKEN,
-                      },
-                      {
-                        .name = "random_sample",
-                        .token = "RANDOM_SAMPLE",
-                        .type = REDISMODULE_ARG_TYPE_PURE_TOKEN,
-                      },
-                      {0}
-                    },
-                  },
-                  {
-                    .name = "nargs",
-                    .type = REDISMODULE_ARG_TYPE_INTEGER,
-                  },
-                  {
-                    .name = "arg",
-                    .type = REDISMODULE_ARG_TYPE_STRING,
-                    .flags = REDISMODULE_CMD_ARG_MULTIPLE,
-                  },
-                  {
-                    .name = "name",
-                    .token = "AS",
-                    .type = REDISMODULE_ARG_TYPE_STRING,
-                    .flags = REDISMODULE_CMD_ARG_OPTIONAL,
-                  },
-                  {0}
-                },
+                .name = "reduce_token",
+                .token = "REDUCE",
+                .type = REDISMODULE_ARG_TYPE_PURE_TOKEN,
               },
               {
-                .name = "collect_reduce",
-                .since = "8.8.0",
-                .type = REDISMODULE_ARG_TYPE_BLOCK,
+                .name = "reducer_body",
+                .type = REDISMODULE_ARG_TYPE_ONEOF,
                 .subargs = (RedisModuleCommandArg[]){
                   {
-                    .name = "reduce",
-                    .token = "REDUCE",
-                    .type = REDISMODULE_ARG_TYPE_PURE_TOKEN,
-                  },
-                  {
-                    .name = "collect_token",
-                    .token = "COLLECT",
-                    .type = REDISMODULE_ARG_TYPE_PURE_TOKEN,
-                  },
-                  {
-                    .name = "nargs",
-                    .type = REDISMODULE_ARG_TYPE_INTEGER,
-                  },
-                  {
-                    .name = "fields_clause",
-                    .type = REDISMODULE_ARG_TYPE_ONEOF,
+                    .name = "generic_body",
+                    .type = REDISMODULE_ARG_TYPE_BLOCK,
                     .subargs = (RedisModuleCommandArg[]){
                       {
-                        .name = "fields",
-                        .type = REDISMODULE_ARG_TYPE_BLOCK,
+                        .name = "function",
+                        .type = REDISMODULE_ARG_TYPE_ONEOF,
                         .subargs = (RedisModuleCommandArg[]){
                           {
-                            .name = "num_fields",
-                            .token = "FIELDS",
-                            .type = REDISMODULE_ARG_TYPE_INTEGER,
+                            .name = "count",
+                            .token = "COUNT",
+                            .type = REDISMODULE_ARG_TYPE_PURE_TOKEN,
                           },
                           {
-                            .name = "field",
-                            .type = REDISMODULE_ARG_TYPE_STRING,
-                            .flags = REDISMODULE_CMD_ARG_MULTIPLE,
+                            .name = "count_distinct",
+                            .token = "COUNT_DISTINCT",
+                            .type = REDISMODULE_ARG_TYPE_PURE_TOKEN,
+                          },
+                          {
+                            .name = "count_distinctish",
+                            .token = "COUNT_DISTINCTISH",
+                            .type = REDISMODULE_ARG_TYPE_PURE_TOKEN,
+                          },
+                          {
+                            .name = "sum",
+                            .token = "SUM",
+                            .type = REDISMODULE_ARG_TYPE_PURE_TOKEN,
+                          },
+                          {
+                            .name = "min",
+                            .token = "MIN",
+                            .type = REDISMODULE_ARG_TYPE_PURE_TOKEN,
+                          },
+                          {
+                            .name = "max",
+                            .token = "MAX",
+                            .type = REDISMODULE_ARG_TYPE_PURE_TOKEN,
+                          },
+                          {
+                            .name = "avg",
+                            .token = "AVG",
+                            .type = REDISMODULE_ARG_TYPE_PURE_TOKEN,
+                          },
+                          {
+                            .name = "stddev",
+                            .token = "STDDEV",
+                            .type = REDISMODULE_ARG_TYPE_PURE_TOKEN,
+                          },
+                          {
+                            .name = "quantile",
+                            .token = "QUANTILE",
+                            .type = REDISMODULE_ARG_TYPE_PURE_TOKEN,
+                          },
+                          {
+                            .name = "tolist",
+                            .token = "TOLIST",
+                            .type = REDISMODULE_ARG_TYPE_PURE_TOKEN,
+                          },
+                          {
+                            .name = "first_value",
+                            .token = "FIRST_VALUE",
+                            .type = REDISMODULE_ARG_TYPE_PURE_TOKEN,
+                          },
+                          {
+                            .name = "random_sample",
+                            .token = "RANDOM_SAMPLE",
+                            .type = REDISMODULE_ARG_TYPE_PURE_TOKEN,
                           },
                           {0}
                         },
                       },
                       {
-                        .name = "fieldsall",
-                        .token = "FIELDS *",
-                        .type = REDISMODULE_ARG_TYPE_PURE_TOKEN,
+                        .name = "nargs",
+                        .type = REDISMODULE_ARG_TYPE_INTEGER,
+                      },
+                      {
+                        .name = "arg",
+                        .type = REDISMODULE_ARG_TYPE_STRING,
+                        .flags = REDISMODULE_CMD_ARG_MULTIPLE,
                       },
                       {0}
                     },
                   },
                   {
-                    .name = "sortby",
+                    .name = "collect_body",
+                    .since = "8.8.0",
                     .type = REDISMODULE_ARG_TYPE_BLOCK,
-                    .flags = REDISMODULE_CMD_ARG_OPTIONAL,
                     .subargs = (RedisModuleCommandArg[]){
                       {
-                        .name = "sortby_token",
-                        .token = "SORTBY",
+                        .name = "collect_token",
+                        .token = "COLLECT",
                         .type = REDISMODULE_ARG_TYPE_PURE_TOKEN,
                       },
                       {
@@ -1696,28 +1645,74 @@ int SetFtAggregateInfo(RedisModuleCommand *cmd) {
                         .type = REDISMODULE_ARG_TYPE_INTEGER,
                       },
                       {
-                        .name = "key",
-                        .type = REDISMODULE_ARG_TYPE_BLOCK,
-                        .flags = REDISMODULE_CMD_ARG_MULTIPLE,
+                        .name = "fields_clause",
+                        .type = REDISMODULE_ARG_TYPE_ONEOF,
                         .subargs = (RedisModuleCommandArg[]){
                           {
-                            .name = "field",
-                            .type = REDISMODULE_ARG_TYPE_STRING,
-                          },
-                          {
-                            .name = "order",
-                            .type = REDISMODULE_ARG_TYPE_ONEOF,
-                            .flags = REDISMODULE_CMD_ARG_OPTIONAL,
+                            .name = "fields",
+                            .type = REDISMODULE_ARG_TYPE_BLOCK,
                             .subargs = (RedisModuleCommandArg[]){
                               {
-                                .name = "asc",
-                                .token = "ASC",
-                                .type = REDISMODULE_ARG_TYPE_PURE_TOKEN,
+                                .name = "num_fields",
+                                .token = "FIELDS",
+                                .type = REDISMODULE_ARG_TYPE_INTEGER,
                               },
                               {
-                                .name = "desc",
-                                .token = "DESC",
-                                .type = REDISMODULE_ARG_TYPE_PURE_TOKEN,
+                                .name = "field",
+                                .type = REDISMODULE_ARG_TYPE_STRING,
+                                .flags = REDISMODULE_CMD_ARG_MULTIPLE,
+                              },
+                              {0}
+                            },
+                          },
+                          {
+                            .name = "fieldsall",
+                            .token = "FIELDS *",
+                            .type = REDISMODULE_ARG_TYPE_PURE_TOKEN,
+                          },
+                          {0}
+                        },
+                      },
+                      {
+                        .name = "sortby",
+                        .type = REDISMODULE_ARG_TYPE_BLOCK,
+                        .flags = REDISMODULE_CMD_ARG_OPTIONAL,
+                        .subargs = (RedisModuleCommandArg[]){
+                          {
+                            .name = "sortby_token",
+                            .token = "SORTBY",
+                            .type = REDISMODULE_ARG_TYPE_PURE_TOKEN,
+                          },
+                          {
+                            .name = "nargs",
+                            .type = REDISMODULE_ARG_TYPE_INTEGER,
+                          },
+                          {
+                            .name = "key",
+                            .type = REDISMODULE_ARG_TYPE_BLOCK,
+                            .flags = REDISMODULE_CMD_ARG_MULTIPLE,
+                            .subargs = (RedisModuleCommandArg[]){
+                              {
+                                .name = "field",
+                                .type = REDISMODULE_ARG_TYPE_STRING,
+                              },
+                              {
+                                .name = "order",
+                                .type = REDISMODULE_ARG_TYPE_ONEOF,
+                                .flags = REDISMODULE_CMD_ARG_OPTIONAL,
+                                .subargs = (RedisModuleCommandArg[]){
+                                  {
+                                    .name = "asc",
+                                    .token = "ASC",
+                                    .type = REDISMODULE_ARG_TYPE_PURE_TOKEN,
+                                  },
+                                  {
+                                    .name = "desc",
+                                    .token = "DESC",
+                                    .type = REDISMODULE_ARG_TYPE_PURE_TOKEN,
+                                  },
+                                  {0}
+                                },
                               },
                               {0}
                             },
@@ -1725,38 +1720,38 @@ int SetFtAggregateInfo(RedisModuleCommand *cmd) {
                           {0}
                         },
                       },
+                      {
+                        .name = "limit",
+                        .type = REDISMODULE_ARG_TYPE_BLOCK,
+                        .flags = REDISMODULE_CMD_ARG_OPTIONAL,
+                        .subargs = (RedisModuleCommandArg[]){
+                          {
+                            .name = "limit_token",
+                            .token = "LIMIT",
+                            .type = REDISMODULE_ARG_TYPE_PURE_TOKEN,
+                          },
+                          {
+                            .name = "offset",
+                            .type = REDISMODULE_ARG_TYPE_INTEGER,
+                          },
+                          {
+                            .name = "count",
+                            .type = REDISMODULE_ARG_TYPE_INTEGER,
+                          },
+                          {0}
+                        },
+                      },
                       {0}
                     },
-                  },
-                  {
-                    .name = "limit",
-                    .type = REDISMODULE_ARG_TYPE_BLOCK,
-                    .flags = REDISMODULE_CMD_ARG_OPTIONAL,
-                    .subargs = (RedisModuleCommandArg[]){
-                      {
-                        .name = "limit_token",
-                        .token = "LIMIT",
-                        .type = REDISMODULE_ARG_TYPE_PURE_TOKEN,
-                      },
-                      {
-                        .name = "offset",
-                        .type = REDISMODULE_ARG_TYPE_INTEGER,
-                      },
-                      {
-                        .name = "count",
-                        .type = REDISMODULE_ARG_TYPE_INTEGER,
-                      },
-                      {0}
-                    },
-                  },
-                  {
-                    .name = "name",
-                    .token = "AS",
-                    .type = REDISMODULE_ARG_TYPE_STRING,
-                    .flags = REDISMODULE_CMD_ARG_OPTIONAL,
                   },
                   {0}
                 },
+              },
+              {
+                .name = "name",
+                .token = "AS",
+                .type = REDISMODULE_ARG_TYPE_STRING,
+                .flags = REDISMODULE_CMD_ARG_OPTIONAL,
               },
               {0}
             },
@@ -2819,159 +2814,109 @@ int SetFtHybridInfo(RedisModuleCommand *cmd) {
           },
           {
             .name = "reduce",
-            .type = REDISMODULE_ARG_TYPE_ONEOF,
+            .type = REDISMODULE_ARG_TYPE_BLOCK,
             .flags = REDISMODULE_CMD_ARG_OPTIONAL | REDISMODULE_CMD_ARG_MULTIPLE,
             .subargs = (RedisModuleCommandArg[]){
               {
-                .name = "generic_reduce",
-                .type = REDISMODULE_ARG_TYPE_BLOCK,
-                .subargs = (RedisModuleCommandArg[]){
-                  {
-                    .name = "reduce",
-                    .token = "REDUCE",
-                    .type = REDISMODULE_ARG_TYPE_PURE_TOKEN,
-                  },
-                  {
-                    .name = "function",
-                    .type = REDISMODULE_ARG_TYPE_ONEOF,
-                    .subargs = (RedisModuleCommandArg[]){
-                      {
-                        .name = "count",
-                        .token = "COUNT",
-                        .type = REDISMODULE_ARG_TYPE_PURE_TOKEN,
-                      },
-                      {
-                        .name = "count_distinct",
-                        .token = "COUNT_DISTINCT",
-                        .type = REDISMODULE_ARG_TYPE_PURE_TOKEN,
-                      },
-                      {
-                        .name = "count_distinctish",
-                        .token = "COUNT_DISTINCTISH",
-                        .type = REDISMODULE_ARG_TYPE_PURE_TOKEN,
-                      },
-                      {
-                        .name = "sum",
-                        .token = "SUM",
-                        .type = REDISMODULE_ARG_TYPE_PURE_TOKEN,
-                      },
-                      {
-                        .name = "min",
-                        .token = "MIN",
-                        .type = REDISMODULE_ARG_TYPE_PURE_TOKEN,
-                      },
-                      {
-                        .name = "max",
-                        .token = "MAX",
-                        .type = REDISMODULE_ARG_TYPE_PURE_TOKEN,
-                      },
-                      {
-                        .name = "avg",
-                        .token = "AVG",
-                        .type = REDISMODULE_ARG_TYPE_PURE_TOKEN,
-                      },
-                      {
-                        .name = "stddev",
-                        .token = "STDDEV",
-                        .type = REDISMODULE_ARG_TYPE_PURE_TOKEN,
-                      },
-                      {
-                        .name = "quantile",
-                        .token = "QUANTILE",
-                        .type = REDISMODULE_ARG_TYPE_PURE_TOKEN,
-                      },
-                      {
-                        .name = "tolist",
-                        .token = "TOLIST",
-                        .type = REDISMODULE_ARG_TYPE_PURE_TOKEN,
-                      },
-                      {
-                        .name = "first_value",
-                        .token = "FIRST_VALUE",
-                        .type = REDISMODULE_ARG_TYPE_PURE_TOKEN,
-                      },
-                      {
-                        .name = "random_sample",
-                        .token = "RANDOM_SAMPLE",
-                        .type = REDISMODULE_ARG_TYPE_PURE_TOKEN,
-                      },
-                      {0}
-                    },
-                  },
-                  {
-                    .name = "nargs",
-                    .type = REDISMODULE_ARG_TYPE_INTEGER,
-                  },
-                  {
-                    .name = "arg",
-                    .type = REDISMODULE_ARG_TYPE_STRING,
-                    .flags = REDISMODULE_CMD_ARG_MULTIPLE,
-                  },
-                  {
-                    .name = "name",
-                    .token = "AS",
-                    .type = REDISMODULE_ARG_TYPE_STRING,
-                    .flags = REDISMODULE_CMD_ARG_OPTIONAL,
-                  },
-                  {0}
-                },
+                .name = "reduce_token",
+                .token = "REDUCE",
+                .type = REDISMODULE_ARG_TYPE_PURE_TOKEN,
               },
               {
-                .name = "collect_reduce",
-                .since = "8.8.0",
-                .type = REDISMODULE_ARG_TYPE_BLOCK,
+                .name = "reducer_body",
+                .type = REDISMODULE_ARG_TYPE_ONEOF,
                 .subargs = (RedisModuleCommandArg[]){
                   {
-                    .name = "reduce",
-                    .token = "REDUCE",
-                    .type = REDISMODULE_ARG_TYPE_PURE_TOKEN,
-                  },
-                  {
-                    .name = "collect_token",
-                    .token = "COLLECT",
-                    .type = REDISMODULE_ARG_TYPE_PURE_TOKEN,
-                  },
-                  {
-                    .name = "nargs",
-                    .type = REDISMODULE_ARG_TYPE_INTEGER,
-                  },
-                  {
-                    .name = "fields_clause",
-                    .type = REDISMODULE_ARG_TYPE_ONEOF,
+                    .name = "generic_body",
+                    .type = REDISMODULE_ARG_TYPE_BLOCK,
                     .subargs = (RedisModuleCommandArg[]){
                       {
-                        .name = "fields",
-                        .type = REDISMODULE_ARG_TYPE_BLOCK,
+                        .name = "function",
+                        .type = REDISMODULE_ARG_TYPE_ONEOF,
                         .subargs = (RedisModuleCommandArg[]){
                           {
-                            .name = "num_fields",
-                            .token = "FIELDS",
-                            .type = REDISMODULE_ARG_TYPE_INTEGER,
+                            .name = "count",
+                            .token = "COUNT",
+                            .type = REDISMODULE_ARG_TYPE_PURE_TOKEN,
                           },
                           {
-                            .name = "field",
-                            .type = REDISMODULE_ARG_TYPE_STRING,
-                            .flags = REDISMODULE_CMD_ARG_MULTIPLE,
+                            .name = "count_distinct",
+                            .token = "COUNT_DISTINCT",
+                            .type = REDISMODULE_ARG_TYPE_PURE_TOKEN,
+                          },
+                          {
+                            .name = "count_distinctish",
+                            .token = "COUNT_DISTINCTISH",
+                            .type = REDISMODULE_ARG_TYPE_PURE_TOKEN,
+                          },
+                          {
+                            .name = "sum",
+                            .token = "SUM",
+                            .type = REDISMODULE_ARG_TYPE_PURE_TOKEN,
+                          },
+                          {
+                            .name = "min",
+                            .token = "MIN",
+                            .type = REDISMODULE_ARG_TYPE_PURE_TOKEN,
+                          },
+                          {
+                            .name = "max",
+                            .token = "MAX",
+                            .type = REDISMODULE_ARG_TYPE_PURE_TOKEN,
+                          },
+                          {
+                            .name = "avg",
+                            .token = "AVG",
+                            .type = REDISMODULE_ARG_TYPE_PURE_TOKEN,
+                          },
+                          {
+                            .name = "stddev",
+                            .token = "STDDEV",
+                            .type = REDISMODULE_ARG_TYPE_PURE_TOKEN,
+                          },
+                          {
+                            .name = "quantile",
+                            .token = "QUANTILE",
+                            .type = REDISMODULE_ARG_TYPE_PURE_TOKEN,
+                          },
+                          {
+                            .name = "tolist",
+                            .token = "TOLIST",
+                            .type = REDISMODULE_ARG_TYPE_PURE_TOKEN,
+                          },
+                          {
+                            .name = "first_value",
+                            .token = "FIRST_VALUE",
+                            .type = REDISMODULE_ARG_TYPE_PURE_TOKEN,
+                          },
+                          {
+                            .name = "random_sample",
+                            .token = "RANDOM_SAMPLE",
+                            .type = REDISMODULE_ARG_TYPE_PURE_TOKEN,
                           },
                           {0}
                         },
                       },
                       {
-                        .name = "fieldsall",
-                        .token = "FIELDS *",
-                        .type = REDISMODULE_ARG_TYPE_PURE_TOKEN,
+                        .name = "nargs",
+                        .type = REDISMODULE_ARG_TYPE_INTEGER,
+                      },
+                      {
+                        .name = "arg",
+                        .type = REDISMODULE_ARG_TYPE_STRING,
+                        .flags = REDISMODULE_CMD_ARG_MULTIPLE,
                       },
                       {0}
                     },
                   },
                   {
-                    .name = "sortby",
+                    .name = "collect_body",
+                    .since = "8.8.0",
                     .type = REDISMODULE_ARG_TYPE_BLOCK,
-                    .flags = REDISMODULE_CMD_ARG_OPTIONAL,
                     .subargs = (RedisModuleCommandArg[]){
                       {
-                        .name = "sortby_token",
-                        .token = "SORTBY",
+                        .name = "collect_token",
+                        .token = "COLLECT",
                         .type = REDISMODULE_ARG_TYPE_PURE_TOKEN,
                       },
                       {
@@ -2979,28 +2924,74 @@ int SetFtHybridInfo(RedisModuleCommand *cmd) {
                         .type = REDISMODULE_ARG_TYPE_INTEGER,
                       },
                       {
-                        .name = "key",
-                        .type = REDISMODULE_ARG_TYPE_BLOCK,
-                        .flags = REDISMODULE_CMD_ARG_MULTIPLE,
+                        .name = "fields_clause",
+                        .type = REDISMODULE_ARG_TYPE_ONEOF,
                         .subargs = (RedisModuleCommandArg[]){
                           {
-                            .name = "field",
-                            .type = REDISMODULE_ARG_TYPE_STRING,
-                          },
-                          {
-                            .name = "order",
-                            .type = REDISMODULE_ARG_TYPE_ONEOF,
-                            .flags = REDISMODULE_CMD_ARG_OPTIONAL,
+                            .name = "fields",
+                            .type = REDISMODULE_ARG_TYPE_BLOCK,
                             .subargs = (RedisModuleCommandArg[]){
                               {
-                                .name = "asc",
-                                .token = "ASC",
-                                .type = REDISMODULE_ARG_TYPE_PURE_TOKEN,
+                                .name = "num_fields",
+                                .token = "FIELDS",
+                                .type = REDISMODULE_ARG_TYPE_INTEGER,
                               },
                               {
-                                .name = "desc",
-                                .token = "DESC",
-                                .type = REDISMODULE_ARG_TYPE_PURE_TOKEN,
+                                .name = "field",
+                                .type = REDISMODULE_ARG_TYPE_STRING,
+                                .flags = REDISMODULE_CMD_ARG_MULTIPLE,
+                              },
+                              {0}
+                            },
+                          },
+                          {
+                            .name = "fieldsall",
+                            .token = "FIELDS *",
+                            .type = REDISMODULE_ARG_TYPE_PURE_TOKEN,
+                          },
+                          {0}
+                        },
+                      },
+                      {
+                        .name = "sortby",
+                        .type = REDISMODULE_ARG_TYPE_BLOCK,
+                        .flags = REDISMODULE_CMD_ARG_OPTIONAL,
+                        .subargs = (RedisModuleCommandArg[]){
+                          {
+                            .name = "sortby_token",
+                            .token = "SORTBY",
+                            .type = REDISMODULE_ARG_TYPE_PURE_TOKEN,
+                          },
+                          {
+                            .name = "nargs",
+                            .type = REDISMODULE_ARG_TYPE_INTEGER,
+                          },
+                          {
+                            .name = "key",
+                            .type = REDISMODULE_ARG_TYPE_BLOCK,
+                            .flags = REDISMODULE_CMD_ARG_MULTIPLE,
+                            .subargs = (RedisModuleCommandArg[]){
+                              {
+                                .name = "field",
+                                .type = REDISMODULE_ARG_TYPE_STRING,
+                              },
+                              {
+                                .name = "order",
+                                .type = REDISMODULE_ARG_TYPE_ONEOF,
+                                .flags = REDISMODULE_CMD_ARG_OPTIONAL,
+                                .subargs = (RedisModuleCommandArg[]){
+                                  {
+                                    .name = "asc",
+                                    .token = "ASC",
+                                    .type = REDISMODULE_ARG_TYPE_PURE_TOKEN,
+                                  },
+                                  {
+                                    .name = "desc",
+                                    .token = "DESC",
+                                    .type = REDISMODULE_ARG_TYPE_PURE_TOKEN,
+                                  },
+                                  {0}
+                                },
                               },
                               {0}
                             },
@@ -3008,38 +2999,38 @@ int SetFtHybridInfo(RedisModuleCommand *cmd) {
                           {0}
                         },
                       },
+                      {
+                        .name = "limit",
+                        .type = REDISMODULE_ARG_TYPE_BLOCK,
+                        .flags = REDISMODULE_CMD_ARG_OPTIONAL,
+                        .subargs = (RedisModuleCommandArg[]){
+                          {
+                            .name = "limit_token",
+                            .token = "LIMIT",
+                            .type = REDISMODULE_ARG_TYPE_PURE_TOKEN,
+                          },
+                          {
+                            .name = "offset",
+                            .type = REDISMODULE_ARG_TYPE_INTEGER,
+                          },
+                          {
+                            .name = "count",
+                            .type = REDISMODULE_ARG_TYPE_INTEGER,
+                          },
+                          {0}
+                        },
+                      },
                       {0}
                     },
-                  },
-                  {
-                    .name = "limit",
-                    .type = REDISMODULE_ARG_TYPE_BLOCK,
-                    .flags = REDISMODULE_CMD_ARG_OPTIONAL,
-                    .subargs = (RedisModuleCommandArg[]){
-                      {
-                        .name = "limit_token",
-                        .token = "LIMIT",
-                        .type = REDISMODULE_ARG_TYPE_PURE_TOKEN,
-                      },
-                      {
-                        .name = "offset",
-                        .type = REDISMODULE_ARG_TYPE_INTEGER,
-                      },
-                      {
-                        .name = "count",
-                        .type = REDISMODULE_ARG_TYPE_INTEGER,
-                      },
-                      {0}
-                    },
-                  },
-                  {
-                    .name = "name",
-                    .token = "AS",
-                    .type = REDISMODULE_ARG_TYPE_STRING,
-                    .flags = REDISMODULE_CMD_ARG_OPTIONAL,
                   },
                   {0}
                 },
+              },
+              {
+                .name = "name",
+                .token = "AS",
+                .type = REDISMODULE_ARG_TYPE_STRING,
+                .flags = REDISMODULE_CMD_ARG_OPTIONAL,
               },
               {0}
             },
