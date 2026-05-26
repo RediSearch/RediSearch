@@ -9,7 +9,7 @@ General guidelines for writing code documentation. Language-specific skills (e.g
 
 ## Guidelines
 
-- **Document every function, struct, field of structs, enum.** Make sure your code additions are well commented, with concise explanations for a new reader.
+- **Document every added component (e.g., struct, function, enum).** Make sure your code additions are well commented, with concise explanations for a new reader.
 - **Prefer code-enforced invariants over prose.** If an assertion, type, enum, or test can express the constraint, add it. Add a comment where a non-trivial statement that can help the reader is needed on top of the above. Comments can drift; code mostly doesn't.
 - **State each fact in exactly one place.** The owner is the definition, the interface, or the implementation — whichever is canonical. Other locations reference it by name, not by restating it.
 - **Focus on why, not how.** Don't restate what the code plainly does. Document non-obvious choices, invariants that are hard to infer, and constraints a maintainer would otherwise miss.
