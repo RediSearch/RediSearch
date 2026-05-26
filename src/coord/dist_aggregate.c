@@ -44,11 +44,14 @@ static const RLookupKey *keyForField(RPNet *nc, const char *s) {
   return NULL;
 }
 
-// Context for SHARD_K_RATIO optimization in FT.AGGREGATE
+// Context for SHARD_K_RATIO optimization in FT.AGGREGATE.
 // Stores information needed to modify the KNN K value in the command
 typedef struct {
-  VectorQuery *vq;        // VectorQuery containing K position info (NOT owned)
-  size_t queryArgIndex;   // Index of the query argument in the MRCommand
+  size_t queryArgIndex;    // Index of the query argument in the MRCommand
+  size_t originalK;        // K value from the parsed query
+  double shardWindowRatio; // SHARD_K_RATIO
+  size_t kTokenPos;        // Byte offset of K within the query string
+  size_t kTokenLen;        // Length of K token in bytes
 } AggregateKnnContext;
 
 // Combined context for MR_IterateWithPrivateData in FT.AGGREGATE
@@ -56,8 +59,8 @@ typedef struct {
 //
 // Ownership: once MR_IterateWithPrivateData succeeds the MRIterator owns this
 // struct and is responsible for freeing it via aggregateIteratorContext_Free.
-// The struct in turn owns its `barrier` and `knnCtx` allocations (but not
-// knnCtx->vq, which is borrowed from the parsed query).
+// The struct in turn owns its `barrier` and `knnCtx` allocations. knnCtx is
+// a self-contained scalar snapshot (no borrowed pointers).
 typedef struct {
   ShardResponseBarrier *barrier;  // May be NULL if WITHCOUNT not enabled
   AggregateKnnContext *knnCtx;    // May be NULL if no KNN optimization needed
@@ -70,7 +73,7 @@ static void aggregateIteratorContext_Free(void *ptr) {
     if (ctx->barrier) {
       shardResponseBarrier_Free(ctx->barrier);
     }
-    rm_free(ctx->knnCtx);  // knnCtx->vq is not owned, so just free the struct
+    rm_free(ctx->knnCtx);
     rm_free(ctx);
   }
 }
@@ -84,24 +87,24 @@ static void aggregateIteratorContext_Init(void *ptr, const MRIterator *it) {
 }
 
 // Command modifier callback for SHARD_K_RATIO optimization in FT.AGGREGATE
-// Called from iterStartCb on IO thread before commands are sent to shards
+// Called from iterStartCb on IO thread before commands are sent to shards.
 static void aggregateKnnCommandModifier(MRCommand *cmd, size_t numShards, void *privateData) {
   RS_ASSERT(privateData && cmd);
   AggregateIteratorContext *ctx = (AggregateIteratorContext *)privateData;
   AggregateKnnContext *knnCtx = ctx->knnCtx;
-  RS_ASSERT(knnCtx && knnCtx->vq);
-  const KNNVectorQuery *knn_query = &knnCtx->vq->knn;
+  RS_ASSERT(knnCtx);
   // Only apply optimization for multi-shard deployments with valid ratio
-  if (numShards <= 1 || knn_query->shardWindowRatio >= MAX_SHARD_WINDOW_RATIO) {
+  if (numShards <= 1 || knnCtx->shardWindowRatio >= MAX_SHARD_WINDOW_RATIO) {
     return;
   }
-  size_t effectiveK = calculateEffectiveK(knn_query->k, knn_query->shardWindowRatio, numShards);
-  if (effectiveK == knn_query->k) {
+  size_t effectiveK = calculateEffectiveK(knnCtx->originalK, knnCtx->shardWindowRatio, numShards);
+  if (effectiveK == knnCtx->originalK) {
     return;
   }
 
   // Modify the command to replace KNN k
-  modifyKNNCommand(cmd, knnCtx->queryArgIndex, effectiveK, knnCtx->vq);
+  modifyKNNCommand(cmd, knnCtx->queryArgIndex, knnCtx->originalK, effectiveK,
+                   knnCtx->kTokenPos, knnCtx->kTokenLen);
 }
 
 // Aggregate-specific cursor callback that extracts ShardResponseBarrier from
@@ -157,11 +160,14 @@ static int rpnetNext_Start(ResultProcessor *rp, SearchResult *r) {
     nc->shardResponseBarrier = barrier;  // non-owning alias for getNextReply
   }
 
-  // Initialize KNN context if SHARD_K_RATIO optimization is needed
-  if (nc->knnVectorQuery) {
+  // Initialize KNN context if SHARD_K_RATIO optimization is needed.
+  if (nc->hasKnnContext) {
     AggregateKnnContext *knnCtx = rm_calloc(1, sizeof(AggregateKnnContext));
-    knnCtx->vq = nc->knnVectorQuery;
-    knnCtx->queryArgIndex = nc->knnQueryArgIndex;
+    knnCtx->queryArgIndex    = nc->knnQueryArgIndex;
+    knnCtx->originalK        = nc->knnOriginalK;
+    knnCtx->shardWindowRatio = nc->knnShardWindowRatio;
+    knnCtx->kTokenPos        = nc->knnKTokenPos;
+    knnCtx->kTokenLen        = nc->knnKTokenLen;
     iterCtx->knnCtx = knnCtx;
   }
 
@@ -212,22 +218,28 @@ static inline int getProfileArgs(ProfileOptions profileOptions) {
   return profileArgs;
 }
 
-// Extract KNN context for SHARD_K_RATIO optimization if applicable
-// Outputs VectorQuery and query arg index for command modifier
-static void extractKnnOptimizationContext(specialCaseCtx *knnCtx, ProfileOptions profileOptions,
-                                          VectorQuery **outKnnVq, size_t *outQueryArgIndex) {
-  RS_ASSERT(outKnnVq != NULL);
-  RS_ASSERT(outQueryArgIndex != NULL);
+// Extract a scalar KNN snapshot for SHARD_K_RATIO optimization if applicable.
+// Reads the parsed VectorQuery on the main thread (while specialCaseCtx is
+// still alive) and copies the fields the IO-thread command modifier needs
+// into outSnapshot. Returns true if the snapshot is populated.
+static bool extractKnnOptimizationContext(specialCaseCtx *knnCtx, ProfileOptions profileOptions,
+                                          AggregateKnnContext *outSnapshot) {
+  RS_ASSERT(outSnapshot != NULL);
 
   const KNNVectorQuery *knn_query = &knnCtx->knn.queryNode->vn.vq->knn;
   double ratio = knn_query->shardWindowRatio;
 
-  if (ratio < MAX_SHARD_WINDOW_RATIO) {
-    int profileArgs = getProfileArgs(profileOptions);
-    // Store the VectorQuery and query arg index for the command modifier
-    *outKnnVq = knnCtx->knn.queryNode->vn.vq;
-    *outQueryArgIndex = 2 + profileArgs;  // Query is at index 2 + profileArgs
+  if (ratio >= MAX_SHARD_WINDOW_RATIO) {
+    return false;
   }
+
+  int profileArgs = getProfileArgs(profileOptions);
+  outSnapshot->queryArgIndex    = 2 + profileArgs;  // Query is at index 2 + profileArgs
+  outSnapshot->originalK        = knn_query->k;
+  outSnapshot->shardWindowRatio = ratio;
+  outSnapshot->kTokenPos        = knn_query->k_token_pos;
+  outSnapshot->kTokenLen        = knn_query->k_token_len;
+  return true;
 }
 
 // Build the distributed MR command for FT.AGGREGATE
@@ -352,7 +364,7 @@ static void buildMRCommand(RedisModuleString **argv, int argc, ProfileOptions pr
 
 static void buildDistRPChain(AREQ *r, MRCommand *xcmd, AREQDIST_UpstreamInfo *us,
                              int (*nextFunc)(ResultProcessor *, SearchResult *),
-                             VectorQuery *knnVq, size_t knnQueryArgIndex) {
+                             const AggregateKnnContext *knnSnapshot) {
   // Establish our root processor, which is the distributed processor
   RPNet *rpRoot = RPNet_New(xcmd, nextFunc); // This will take ownership of the command
   QueryProcessingCtx *qctx = AREQ_QueryProcessingCtx(r);
@@ -360,9 +372,16 @@ static void buildDistRPChain(AREQ *r, MRCommand *xcmd, AREQDIST_UpstreamInfo *us
   rpRoot->lookup = us->lookup;
   rpRoot->areq = r;
 
-  // Store KNN context for SHARD_K_RATIO optimization (used by rpnetNext_Start)
-  rpRoot->knnVectorQuery = knnVq;
-  rpRoot->knnQueryArgIndex = knnQueryArgIndex;
+  // Store KNN scalar snapshot for SHARD_K_RATIO optimization (used by
+  // rpnetNext_Start to build the iterator-owned AggregateKnnContext)
+  if (knnSnapshot) {
+    rpRoot->hasKnnContext      = true;
+    rpRoot->knnQueryArgIndex   = knnSnapshot->queryArgIndex;
+    rpRoot->knnOriginalK       = knnSnapshot->originalK;
+    rpRoot->knnShardWindowRatio = knnSnapshot->shardWindowRatio;
+    rpRoot->knnKTokenPos       = knnSnapshot->kTokenPos;
+    rpRoot->knnKTokenLen       = knnSnapshot->kTokenLen;
+  }
 
   ResultProcessor *rpProfile = NULL;
   if (IsProfile(r)) {
@@ -515,12 +534,12 @@ static int prepareForExecution(AREQ *r, RedisModuleCtx *ctx, RedisModuleString *
 
   // Construct the command string
   MRCommand xcmd;
-  VectorQuery *knnVq = NULL;
-  size_t knnQueryArgIndex = 0;
+  AggregateKnnContext knnSnapshot;
+  bool hasKnnSnapshot = false;
   buildMRCommand(argv, argc, profileOptions, &us, &xcmd, sp);
 
   if (knnCtx) {
-    extractKnnOptimizationContext(knnCtx, profileOptions, &knnVq, &knnQueryArgIndex);
+    hasKnnSnapshot = extractKnnOptimizationContext(knnCtx, profileOptions, &knnSnapshot);
   }
 
   xcmd.protocol = is_resp3(ctx) ? 3 : 2;
@@ -529,8 +548,8 @@ static int prepareForExecution(AREQ *r, RedisModuleCtx *ctx, RedisModuleString *
   xcmd.rootCommand = C_AGG;  // Response is equivalent to a `CURSOR READ` response
   xcmd.coordStartTime = r->profileClocks.coordStartTime;
 
-  // Build the result processor chain (pass KNN context for SHARD_K_RATIO optimization)
-  buildDistRPChain(r, &xcmd, &us, rpnetNext_Start, knnVq, knnQueryArgIndex);
+  // Build the result processor chain (pass KNN snapshot for SHARD_K_RATIO optimization)
+  buildDistRPChain(r, &xcmd, &us, rpnetNext_Start, hasKnnSnapshot ? &knnSnapshot : NULL);
 
   if (IsProfile(r)) r->profileClocks.profileParseTime = rs_wall_clock_elapsed_ns(&r->profileClocks.initClock);
 
@@ -949,7 +968,7 @@ void DEBUG_RSExecDistAggregate(RedisModuleCtx *ctx, RedisModuleString **argv, in
   // The _FT.DEBUG prefix shifts every existing argument by one; adjust the
   // saved KNN query argument index so the SHARD_K_RATIO modifier rewrites the
   // right slot.
-  if (rpnet->knnVectorQuery) rpnet->knnQueryArgIndex += 1;
+  if (rpnet->hasKnnContext) rpnet->knnQueryArgIndex += 1;
   // insert also debug params at the end
   for (size_t i = 0; i < debug_argv_count; i++) {
     size_t n;

@@ -53,10 +53,15 @@ typedef struct {
   // BG has exited the pipeline, so no concurrent reader - plain bool is safe.
   bool drainOnly;
 
-  // KNN context for SHARD_K_RATIO optimization in FT.AGGREGATE
-  // Set by buildDistRPChain, used by rpnetNext_Start command modifier callback
-  struct VectorQuery *knnVectorQuery;  // NOT owned, may be NULL
-  size_t knnQueryArgIndex;             // Index of query argument in MRCommand
+  // KNN snapshot for SHARD_K_RATIO optimization in FT.AGGREGATE.
+  // Populated by buildDistRPChain from the parsed VectorQuery on the main thread,
+  // then used to initialize the iterator-owned AggregateKnnContext if needed.
+  bool hasKnnContext;
+  size_t knnQueryArgIndex;     // Index of query argument in MRCommand
+  size_t knnOriginalK;         // K value from the parsed query
+  double knnShardWindowRatio;  // SHARD_K_RATIO
+  size_t knnKTokenPos;         // Byte offset of K within the query string
+  size_t knnKTokenLen;         // Length of K token in bytes
 } RPNet;
 
 
