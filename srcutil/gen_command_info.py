@@ -67,8 +67,43 @@ def generate_history(file, changes):
             history.write(f'{{"{escape_c_string(version)}", "{escape_c_string(what)}"}},\n')
         history.write('{0}\n')
 
-def generate_arguments(file, member, arguments):
+def get_arg_arity(arg):
+    if 'optional' in arg:
+        return 0, False
+
+    arg_type = arg.get('type')
+    token_arity = 1 if 'token' in arg else 0
+    is_exact_arity = 'multiple' not in arg and 'multiple-token' not in arg
+
+    if arg_type == 'oneof':
+        subargs = arg.get('arguments', [])
+        subarg_arities = [get_arg_arity(subarg) for subarg in subargs]
+        if not subarg_arities:
+            return token_arity, is_exact_arity
+
+        min_subarg_arity = min(subarg_arity for subarg_arity, _ in subarg_arities)
+        subargs_exact_arity = all(subarg_exact_arity for _, subarg_exact_arity in subarg_arities)
+        subargs_same_arity = all(subarg_arity == min_subarg_arity
+                                  for subarg_arity, _ in subarg_arities)
+        return token_arity + min_subarg_arity, is_exact_arity and subargs_exact_arity and subargs_same_arity
+
+    if 'arguments' in arg:
+        subargs_arity, subargs_exact_arity = get_arguments_arity(arg['arguments'])
+        return token_arity + subargs_arity, is_exact_arity and subargs_exact_arity
+
+    value_arity = 0 if arg_type == 'pure-token' else 1
+    return token_arity + value_arity, is_exact_arity
+
+def get_arguments_arity(arguments):
     min_arity = 0
+    is_exact_arity = True
+    for arg in arguments:
+        arg_arity, arg_exact_arity = get_arg_arity(arg)
+        min_arity += arg_arity
+        is_exact_arity = is_exact_arity and arg_exact_arity
+    return min_arity, is_exact_arity
+
+def generate_arguments(file, member, arguments):
     with Scope(f'.{member} = (RedisModuleCommandArg[])', ',', file) as args_scope:
         for arg in arguments:
             with Scope('', ',', file) as arg_scope:
@@ -87,8 +122,6 @@ def generate_arguments(file, member, arguments):
                     type_text = type_text.replace('-', '_').upper()
                     arg_scope.write(f'.type = REDISMODULE_ARG_TYPE_{type_text},\n')
                 flags = []
-                if 'optional' not in arg:
-                    min_arity += 1
                 for flag in ['optional', 'multiple', 'multiple-token']:
                     if flag in arg:
                         flag_text = flag.replace('-', '_').upper()
@@ -99,9 +132,9 @@ def generate_arguments(file, member, arguments):
                 if 'arguments' in arg:
                     generate_arguments(file, 'subargs', arg['arguments'])
         args_scope.write('{0}\n')
-    return min_arity
+    return get_arguments_arity(arguments)
 
-def generate_redis_module_command_info(cmd_info, file):
+def generate_redis_module_command_info(name, cmd_info, file):
     with Scope('const RedisModuleCommandInfo info = ', ';', file) as info:
         info.write('.version = REDISMODULE_COMMAND_INFO_VERSION,\n')
         for key, value in cmd_info.items():
@@ -119,15 +152,18 @@ def generate_redis_module_command_info(cmd_info, file):
             elif key == 'history':
                 generate_history(file, value)
             elif key == 'arguments':
-                min_arity = generate_arguments(file, 'args', value)
-                # arity includes the command name itself, so we add 1
-                info.write(f'.arity = -{min_arity + 1},\n')
+                min_arity, is_exact_arity = generate_arguments(file, 'args', value)
+                # arity includes the command name itself, including subcommand tokens.
+                arity = min_arity + len(name.split())
+                if not is_exact_arity:
+                    arity = -arity
+                info.write(f'.arity = {arity},\n')
 
 def generate_command_info_definition(name, info, file):
     signature = get_function_signature(name)
     file.write(f'// Info for {name}\n')
     with Scope(signature + ' ', '\n', file) as function:
-        generate_redis_module_command_info(info, file)
+        generate_redis_module_command_info(name, info, file)
         function.write('return RedisModule_SetCommandInfo(cmd, &info);\n')
 
 
