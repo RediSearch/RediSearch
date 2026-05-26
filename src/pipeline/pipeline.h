@@ -2,6 +2,7 @@
 
 #include "aggregate/aggregate_plan.h"
 #include "query.h"
+#include <stdint.h>
 
 #ifdef __cplusplus
 extern "C" {
@@ -45,6 +46,21 @@ static inline GroupByLimits GroupByLimits_Default(size_t maxGroups) {
   limits.maxGroups = maxGroups;
   limits.maxRowExpansion = maxGroups;
   return limits;
+}
+
+static inline GroupByLimits GroupByLimits_ScaleForCoordinator(GroupByLimits limits,
+                                                              size_t shardCount) {
+  if (shardCount == 0) {
+    shardCount = 1;
+  }
+  size_t maxGroups = limits.maxGroups;
+  limits.maxGroups =
+      maxGroups && shardCount > SIZE_MAX / maxGroups ? SIZE_MAX : maxGroups * shardCount;
+  return limits;
+}
+
+static inline GroupByLimits GroupByLimits_ForCoordinator(size_t maxGroups, size_t shardCount) {
+  return GroupByLimits_ScaleForCoordinator(GroupByLimits_Default(maxGroups), shardCount);
 }
 
 /**

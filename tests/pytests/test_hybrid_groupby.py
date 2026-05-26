@@ -84,6 +84,45 @@ def l2_from_bytes(a_bytes, b_bytes) -> float:
     b = np.frombuffer(b_bytes, dtype=np.float32)
     return np.linalg.norm(a - b)
 
+@skip(cluster=False)
+def test_hybrid_groupby_coordinator_group_limit_uses_shard_count():
+    env = Env(shardsCount=3, protocol=3)
+    env.expect(config_cmd(), 'SET', 'MAX_AGGREGATE_GROUPS', '2').ok()
+    verify_command_OK_on_all_shards(env, 'CONFIG', 'SET', 'search-max-aggregate-groups', '2')
+
+    try:
+        env.expect('FT.CREATE', 'idx',
+                   'SCHEMA',
+                   'description', 'TEXT',
+                   'embedding', 'VECTOR', 'FLAT', '6',
+                   'TYPE', 'FLOAT32', 'DIM', '2', 'DISTANCE_METRIC', 'L2').ok()
+
+        conn = getConnectionByEnv(env)
+        shard_tags = ['shard:0', 'shard:1', 'shard:3']
+        for i, shard_tag in enumerate(shard_tags):
+            vector = np.array([float(i + 1), 0.0], dtype=np.float32).tobytes()
+            conn.execute_command('HSET', f'doc:{i}{{{shard_tag}}}',
+                                 'description', 'red',
+                                 'embedding', vector)
+        waitForIndex(env, 'idx')
+
+        query_vector = np.array([0.0, 0.0], dtype=np.float32).tobytes()
+        res = env.cmd('FT.HYBRID', 'idx',
+                      'SEARCH', 'nomatch',
+                      'VSIM', '@embedding', '$BLOB',
+                          'RANGE', '2', 'RADIUS', '16',
+                      'GROUPBY', '1', '@__key',
+                          'REDUCE', 'COUNT', '0', 'AS', 'count',
+                      'PARAMS', '2', 'BLOB', query_vector)
+
+        env.assertEqual(len(res['results']), 3)
+        for row in res['results']:
+            env.assertEqual(row['count'], '1')
+    finally:
+        env.expect(config_cmd(), 'SET', 'MAX_AGGREGATE_GROUPS', '500000').ok()
+        verify_command_OK_on_all_shards(env, 'CONFIG', 'SET',
+                                        'search-max-aggregate-groups', '500000')
+
 def test_hybrid_groupby_small():
     """Test hybrid search with small result set (3 docs) + groupby"""
     env = Env()

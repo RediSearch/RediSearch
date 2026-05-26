@@ -21,7 +21,6 @@
 #include <string>
 #include <sstream>
 #include <algorithm>
-#include <limits>
 
 static char *getLastAlias(const PLN_GroupStep *gstp) {
   return gstp->reducers[array_len(gstp->reducers) - 1].alias;
@@ -632,13 +631,7 @@ int AREQ_BuildDistributedPipeline(AREQ *r, AREQDIST_UpstreamInfo *us, QueryError
   RLookup_EnableOptions(&dstp->lk, RLOOKUP_OPT_ALLOWUNRESOLVED);
 
   size_t shardCount = GetNumShards_UnSafe();
-  if (shardCount == 0) {
-    shardCount = 1;
-  }
-  GroupByLimits groupByLimits = GroupByLimits_Default(r->maxAggregateGroups);
-  if (__builtin_mul_overflow(r->maxAggregateGroups, shardCount, &groupByLimits.maxGroups)) {
-    groupByLimits.maxGroups = std::numeric_limits<size_t>::max();
-  }
+  GroupByLimits groupByLimits = GroupByLimits_ForCoordinator(r->maxAggregateGroups, shardCount);
 
   int rc = AREQ_BuildPipelineWithGroupByLimits(r, status, groupByLimits);
   RLookup_DisableOptions(&dstp->lk, RLOOKUP_OPT_ALLOWUNRESOLVED);

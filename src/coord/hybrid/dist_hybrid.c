@@ -617,6 +617,8 @@ static int HybridRequest_prepareForExecution(HybridRequest *hreq,
     if (rc != REDISMODULE_OK) {
       return REDISMODULE_ERR;
     }
+    hybridParams.aggregationParams.groupByLimits =
+        GroupByLimits_ScaleForCoordinator(hybridParams.aggregationParams.groupByLimits, numShards);
 
     // Set skip timeout
     HybridRequest_SetSkipTimeoutChecks(hreq, !shouldCheckInPipelineTimeoutCoord(hreq));
