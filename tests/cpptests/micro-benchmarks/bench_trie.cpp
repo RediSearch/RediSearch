@@ -229,8 +229,62 @@ BENCHMARK_TEMPLATE1_DEFINE_F(BM_Trie, FuzzyDist1, Trie_Sort_Score)(benchmark::St
     }
 }
 
+// Fuzzy at edit-distance 2: DFA size and branching grow non-linearly with maxDist,
+// so refactors to __ti_step or the DFAFilter matchCtx tend to show up here, not at dist=1.
+BENCHMARK_TEMPLATE1_DEFINE_F(BM_Trie, FuzzyDist2, Trie_Sort_Score)(benchmark::State &state) {
+    size_t i = 0;
+    for (auto _ : state) {
+        const auto &w = corpus[i];
+        TrieIterator *it = Trie_Iterate(trie, w.c_str(), w.size(), /*maxDist=*/2,
+                                        /*prefixMode=*/0);
+        rune *rstr;
+        t_len rlen;
+        float score;
+        RSPayload payload;
+        size_t cnt = 0;
+        while (TrieIterator_Next(it, &rstr, &rlen, &payload, &score, NULL, NULL)) {
+            ++cnt;
+        }
+        benchmark::DoNotOptimize(cnt);
+        TrieIterator_Free(it);
+        if (++i == corpus.size()) i = 0;
+    }
+}
+
+// Delete: walks the same recursion as __trieNode_Add and exercises the
+// child-collapse path. Re-insert under PauseTiming so the trie stays at
+// state.range(0) during measurement. Pause/resume costs a few hundred ns, but
+// Delete itself walks O(word_length) nodes and is microsecond-scale at these
+// corpus sizes, so signal dominates.
+BENCHMARK_TEMPLATE1_DEFINE_F(BM_Trie, DeleteHit, Trie_Sort_Lex)(benchmark::State &state) {
+    size_t i = 0;
+    for (auto _ : state) {
+        const auto &w = corpus[i];
+        Trie_Delete(trie, w.c_str(), w.size());
+        state.PauseTiming();
+        Trie_InsertStringBuffer(trie, w.c_str(), w.size(), 1.0f, 1, NULL, 0);
+        state.ResumeTiming();
+        if (++i == corpus.size()) i = 0;
+    }
+}
+
+// Insert with incr=1 on an existing key: hits the score-bump branch inside
+// __trieNode_Add and the maxChildScore bubble-up. The InsertLex/InsertScore
+// benches above synthesize fresh 'Z'-prefixed keys, which only exercises the
+// "new node" path.
+BENCHMARK_TEMPLATE1_DEFINE_F(BM_Trie, InsertIncr, Trie_Sort_Score)(benchmark::State &state) {
+    size_t i = 0;
+    for (auto _ : state) {
+        const auto &w = corpus[i];
+        Trie_InsertStringBuffer(trie, w.c_str(), w.size(), 1.0f, /*incr=*/1, NULL, 0);
+        if (++i == corpus.size()) i = 0;
+    }
+}
+
 BENCHMARK_REGISTER_F(BM_Trie, InsertLex)->TRIE_SCENARIOS();
 BENCHMARK_REGISTER_F(BM_Trie, InsertScore)->TRIE_SCENARIOS();
+BENCHMARK_REGISTER_F(BM_Trie, InsertIncr)->TRIE_SCENARIOS();
+BENCHMARK_REGISTER_F(BM_Trie, DeleteHit)->TRIE_SCENARIOS();
 BENCHMARK_REGISTER_F(BM_Trie, FindHit)->TRIE_SCENARIOS();
 BENCHMARK_REGISTER_F(BM_Trie, FindMiss)->TRIE_SCENARIOS();
 BENCHMARK_REGISTER_F(BM_Trie, RangeAll)->TRIE_SCENARIOS();
@@ -240,5 +294,6 @@ BENCHMARK_REGISTER_F(BM_Trie, ContainsSuffix)->TRIE_SCENARIOS();
 BENCHMARK_REGISTER_F(BM_Trie, Wildcard)->TRIE_SCENARIOS();
 BENCHMARK_REGISTER_F(BM_Trie, IterateAll)->TRIE_SCENARIOS();
 BENCHMARK_REGISTER_F(BM_Trie, FuzzyDist1)->TRIE_SCENARIOS();
+BENCHMARK_REGISTER_F(BM_Trie, FuzzyDist2)->TRIE_SCENARIOS();
 
 BENCHMARK_MAIN();
