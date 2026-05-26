@@ -13,7 +13,7 @@ use ffi::t_docId;
 use index_spec::IndexSpecReadGuard;
 use thiserror::Error;
 
-use ::inverted_index::t_fieldMask;
+use ::inverted_index::FieldMask;
 use index_result::RSIndexResult;
 use query_term::RSQueryTerm;
 
@@ -328,7 +328,7 @@ pub trait SearchEnterpriseIterators: Send + Sync {
         &self,
         index: &'index mut ffi::RedisSearchDiskIndexSpec,
         query_term: Box<RSQueryTerm>,
-        field_mask: t_fieldMask,
+        field_mask: FieldMask,
         weight: f64,
     ) -> Result<Box<dyn RQEIterator<'index> + 'index>, Box<dyn std::error::Error>>;
 
@@ -342,7 +342,7 @@ pub trait SearchEnterpriseIterators: Send + Sync {
         &self,
         index: &'index mut ffi::RedisSearchDiskIndexSpec,
         query_term: Box<RSQueryTerm>,
-        field_mask: t_fieldMask,
+        field_mask: FieldMask,
         weight: f64,
     ) -> Result<Box<dyn RQEIterator<'index> + 'index>, Box<dyn std::error::Error>>;
 

@@ -114,7 +114,4 @@ impl QueryProcessingCtx {
     }
 }
 
-/// Rust implementation of [`t_fieldMask`] from `rqe_core.h`
-pub type FieldMask = t_fieldMask;
-
-pub use rqe_core::{RS_FIELDMASK_ALL, RS_INVALID_FIELD_INDEX};
+pub use rqe_core::{FieldMask, RS_FIELDMASK_ALL, RS_INVALID_FIELD_INDEX};

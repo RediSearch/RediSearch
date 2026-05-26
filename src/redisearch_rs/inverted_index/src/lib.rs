@@ -32,7 +32,7 @@ pub use reader::{IndexReader, IndexReaderCore, NumericFilter, NumericReader, Ter
 pub use reader::{FilterGeoReader, FilterMaskReader, FilterNumericReader, ReadFilter};
 
 // Re-export core types.
-pub use rqe_core::{t_docId, t_fieldMask};
+pub use rqe_core::{DocId, FieldMask};
 
 #[cfg(test)]
 mod tests;

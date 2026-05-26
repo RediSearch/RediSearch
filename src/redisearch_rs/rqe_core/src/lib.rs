@@ -9,26 +9,24 @@
 
 //! Fundamental type aliases shared across Rust and C code.
 
-#![expect(non_camel_case_types, reason = "FFI types must match their C names")]
+#[cheadergen::config(export, rename = "t_docId")]
+pub type DocId = u64;
 
-#[cheadergen::config(export)]
-pub type t_docId = u64;
-
-#[cheadergen::config(export)]
-pub type t_fieldIndex = u16;
+#[cheadergen::config(export, rename = "t_fieldIndex")]
+pub type FieldIndex = u16;
 
 #[cfg(target_pointer_width = "64")]
-#[cheadergen::config(skip)] // architecture specific
-pub type t_fieldMask = u128;
+#[cheadergen::config(skip, rename = "t_fieldMask")] // architecture specific
+pub type FieldMask = u128;
 
 #[cfg(target_pointer_width = "32")]
-#[cheadergen::config(skip)] // architecture specific
-pub type t_fieldMask = u64;
+#[cheadergen::config(skip, rename = "t_fieldMask")] // architecture specific
+pub type FieldMask = u64;
 
 #[cfg(target_pointer_width = "64")]
-pub const RS_FIELDMASK_ALL: t_fieldMask = u128::MAX;
+pub const RS_FIELDMASK_ALL: FieldMask = u128::MAX;
 
 #[cfg(target_pointer_width = "32")]
-pub const RS_FIELDMASK_ALL: t_fieldMask = u64::MAX;
+pub const RS_FIELDMASK_ALL: FieldMask = u64::MAX;
 
-pub const RS_INVALID_FIELD_INDEX: t_fieldIndex = 0xFFFF;
+pub const RS_INVALID_FIELD_INDEX: FieldIndex = 0xFFFF;

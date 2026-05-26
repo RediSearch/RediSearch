@@ -14,7 +14,7 @@ use std::{ffi::c_char, mem, ptr};
 use index_result::{
     RSAggregateResult, RSIndexResult, RSOffsetSlice, RSOffsetVector, RSQueryTerm, RSTermRecord,
 };
-use inverted_index::{NumericFilter, t_fieldMask};
+use inverted_index::{FieldMask, NumericFilter};
 
 pub use inverted_index::{
     ReadFilter,
@@ -62,7 +62,7 @@ pub extern "C" fn NewUnionResult<'result>(cap: usize, weight: f64) -> *mut RSInd
 #[unsafe(no_mangle)]
 pub extern "C" fn NewVirtualResult<'result>(
     weight: f64,
-    field_mask: t_fieldMask,
+    field_mask: FieldMask,
 ) -> *mut RSIndexResult<'result> {
     let result = RSIndexResult::build_virt()
         .field_mask(field_mask)
