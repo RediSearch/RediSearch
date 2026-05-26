@@ -10,6 +10,7 @@
 #include "redisearch.h"
 #include "redismodule.h"
 #include "numeric_range_tree.h"
+#include "rqe_core.h"
 
 /**
  * Status of a [`NumericRangeTree_ApplyGcEntry`] call.

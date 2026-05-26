@@ -12,9 +12,9 @@ use std::ptr::NonNull;
 use field::{FieldExpirationPredicate, FieldFilterContext, FieldMaskOrIndex};
 use index_result::{RSIndexResult, RSQueryTerm};
 use inverted_index::{
-    FilterMaskReader, IndexReader, IndexReaderCore, TermReader, doc_ids_only::DocIdsOnly,
+    DocId, FilterMaskReader, IndexReader, IndexReaderCore, TermReader, doc_ids_only::DocIdsOnly,
     fields_offsets, fields_only, freqs_fields, freqs_offsets, freqs_only, full, offsets_only,
-    raw_doc_ids_only::RawDocIdsOnly, t_docId,
+    raw_doc_ids_only::RawDocIdsOnly,
 };
 use rqe_iterators::interop::RQEIteratorWrapper;
 use rqe_iterators::{FieldExpirationChecker, inverted_index::Term};
@@ -71,14 +71,14 @@ impl<'index> IndexReader<'index> for TermIndexReader<'index> {
     #[inline(always)]
     fn seek_record(
         &mut self,
-        doc_id: t_docId,
+        doc_id: DocId,
         result: &mut RSIndexResult<'index>,
     ) -> std::io::Result<bool> {
         term_ir_dispatch!(self, seek_record, doc_id, result)
     }
 
     #[inline(always)]
-    fn skip_to(&mut self, doc_id: t_docId) -> bool {
+    fn skip_to(&mut self, doc_id: DocId) -> bool {
         term_ir_dispatch!(self, skip_to, doc_id)
     }
 
