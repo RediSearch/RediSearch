@@ -216,6 +216,30 @@ static void removeOldDocAuxIndexes(IndexSpec *spec, t_docId oldDocId) {
   }
 }
 
+/**
+ * Remove the old document's contributions from the spec's scoring stats on
+ * REPLACE. Paired with `addNewDocStats`. Memory mode passes `dmd->docLen`
+ * from the popped DMD; disk mode passes `aCtx->oldDocLen` captured by
+ * `SearchDisk_PutDocument`.
+ */
+static void removeOldDocStats(IndexSpec *spec, uint32_t oldDocLen) {
+  RS_LOG_ASSERT(spec->stats.scoring.numDocuments > 0, "numDocuments cannot be negative");
+  --spec->stats.scoring.numDocuments;
+  RS_LOG_ASSERT(spec->stats.scoring.totalDocsLen >= oldDocLen,
+                "totalDocsLen is smaller than oldDocLen");
+  spec->stats.scoring.totalDocsLen -= oldDocLen;
+}
+
+/**
+ * Add the new document's contributions to the spec's scoring stats. Paired
+ * with `removeOldDocStats`. Both flows pass `fwIdx->totalFreq` as the new
+ * doc's length.
+ */
+static void addNewDocStats(IndexSpec *spec, uint32_t newDocLen) {
+  ++spec->stats.scoring.numDocuments;
+  spec->stats.scoring.totalDocsLen += newDocLen;
+}
+
 /** Assigns a document ID to a single document. Handles only RAM index */
 static RSDocumentMetadata *makeDocumentId(RedisModuleCtx *ctx, RSAddDocumentCtx *aCtx, IndexSpec *spec,
                                           int replace, bool *updated) {
@@ -224,13 +248,11 @@ static RSDocumentMetadata *makeDocumentId(RedisModuleCtx *ctx, RSAddDocumentCtx 
   if (replace) {
     RSDocumentMetadata *dmd = DocTable_PopR(table, doc->docKey);
     if (dmd) {
-      // Update stats of the index only if the document was there
-      RS_LOG_ASSERT(spec->stats.scoring.numDocuments > 0, "numDocuments cannot be negative");
-      --spec->stats.scoring.numDocuments;
-      RS_LOG_ASSERT(spec->stats.scoring.totalDocsLen >= dmd->docLen, "totalDocsLen is smaller than dmd->docLen");
-      spec->stats.scoring.totalDocsLen -= dmd->docLen;
-      *updated = true;
+      // Drop the old doc's stats + auxiliary in-memory indexes. The new doc's
+      // stats are folded in by the caller via `addNewDocStats`.
+      removeOldDocStats(spec, dmd->docLen);
       removeOldDocAuxIndexes(spec, dmd->id);
+      *updated = true;
       DMD_Return(dmd);
     }
   }
@@ -241,7 +263,6 @@ static RSDocumentMetadata *makeDocumentId(RedisModuleCtx *ctx, RSAddDocumentCtx 
       DocTable_Put(table, s, n, doc->score, aCtx->docFlags, doc->payload, doc->payloadSize, doc->type);
   if (dmd) {
     doc->docId = dmd->id;
-    ++spec->stats.scoring.numDocuments;
   }
 
   return dmd;
@@ -330,7 +351,7 @@ static void doAssignIds(RSAddDocumentCtx *cur, RedisSearchCtx *ctx) {
 
       md->maxTermFreq = cur->fwIdx->maxTermFreq;
       md->docLen = cur->fwIdx->totalFreq;
-      spec->stats.scoring.totalDocsLen += md->docLen;
+      addNewDocStats(spec, md->docLen);
 
       if (RSSortingVector_Length(&cur->sv)) {
         DocTable_SetSortingVector(&spec->docs, md, cur->sv);
@@ -390,16 +411,10 @@ static void applyDocTable(RSAddDocumentCtx *aCtx, RedisSearchCtx *ctx) {
 
   const bool updated = aCtx->oldDocId != 0;
   if (updated) {
-    // The committed batch replaced an existing document — fold the stats
-    // deltas and drop the old VecSim / geometry entries.
-    RS_ASSERT(spec->stats.scoring.numDocuments > 0);
-    spec->stats.scoring.numDocuments--;
-    RS_ASSERT(spec->stats.scoring.totalDocsLen >= aCtx->oldDocLen);
-    spec->stats.scoring.totalDocsLen -= aCtx->oldDocLen;
+    removeOldDocStats(spec, aCtx->oldDocLen);
     removeOldDocAuxIndexes(spec, aCtx->oldDocId);
   }
-  spec->stats.scoring.totalDocsLen += aCtx->fwIdx->totalFreq;
-  ++spec->stats.scoring.numDocuments;
+  addNewDocStats(spec, aCtx->fwIdx->totalFreq);
 
   if (spec->gc) {
     if (updated) {
