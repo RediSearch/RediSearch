@@ -1821,6 +1821,7 @@ static int QueryNode_CheckIsValid(QueryNode *n, IndexSpec *spec, RSSearchOptions
             res = validateQueryNotDisk("TAG wildcard", status);
           } else if (child->type == QN_LEXRANGE) {
             res = validateQueryNotDisk("TAG lexrange", status);
+          }
           if (res == REDISMODULE_ERR) {
             return res;
           }
