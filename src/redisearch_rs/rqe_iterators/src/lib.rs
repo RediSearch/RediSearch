@@ -7,6 +7,16 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 
+// Stub `AREQ_CheckTimedOut` for lib unit tests so the linker doesn't pull
+// `query.c.o` (and its C/coord/SSL transitive closure) from
+// `libredisearch_all.a`. The flag is only ever set by Redis on the main
+// thread, which doesn't exist here. Integration tests use the real symbol.
+#[cfg(test)]
+#[unsafe(no_mangle)]
+unsafe extern "C" fn AREQ_CheckTimedOut(_areq: *mut ffi::AREQ) -> bool {
+    false
+}
+
 use std::sync::OnceLock;
 
 use ffi::t_docId;
