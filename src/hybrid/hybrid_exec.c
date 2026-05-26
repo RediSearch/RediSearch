@@ -1405,6 +1405,10 @@ static void HREQ_Execute_Callback(blockedClientHybridCtx *BCHCtx) {
 
     int sched_rc = workersThreadPool_AddWork((redisearch_thpool_proc)HREQ_Tail_Callback, tail);
     RS_ASSERT(sched_rc == 0);
+    // execution_ref ownership transferred to the tail; clear only the TLS on
+    // this thread (the tail re-sets it on its own). The StrongRef stays alive
+    // so the depleter workers and tail can safely dereference the spec.
+    CurrentThread_ClearIndexSpec();
     return;
   }
 
@@ -1442,6 +1446,13 @@ static void HREQ_Tail_Callback(HybridTailCtx *tail) {
   arrayof(ResultProcessor*) depleters = tail->depleters;
   bool isCursor = tail->isCursor;
   HybridRequest *hreq = StrongRef_Get(BCHCtx->hybrid_ref);
+
+  // Bracket the tail's TLS on its own worker thread: the dispatcher cleared
+  // its TLS after scheduling, so this thread starts with no SpecInfo. Pair
+  // SetIndexSpec here with IndexSpecRef_Release below — that keeps thread
+  // introspection (slow-query logs, threaddumps) accurate and avoids leaking
+  // the SpecInfo TLS allocation across queries on this worker.
+  CurrentThread_SetIndexSpec(execution_ref);
 
   QueryError status = QueryError_Default();
   int dep_rc = RPSafeDepleter_WaitForDepletionAll(depleters, &status);
