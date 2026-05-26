@@ -23,6 +23,7 @@ fn test_wildcard_pattern_debug() {
         Token::Literal(br"baz"),
     ],
     expected_length: None,
+    atom_count: 11,
 }"#
     );
 }
