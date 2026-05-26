@@ -45,11 +45,17 @@ Scope.indent = 0
 COMMANDS_WITH_MINIMUM_ARITY = {
     # These handlers intentionally process or ignore extra arguments instead of returning WrongArity.
     'FT.CONFIG GET',
-    'FT.CONFIG SET',
     'FT.CONFIG HELP',
     'FT.CURSOR DEL',
     # _FT.INFO reuses the FT.INFO command info and accepts WITH_INDEX_ERROR_TIME from the coordinator.
     'FT.INFO',
+}
+
+COMMAND_ARITY_OVERRIDES = {
+    # The internal _FT.CONFIG|SET command accepts missing values for validation-only paths.
+    'FT.CONFIG SET': -3,
+    # Preserve ACL behavior for malformed FT.CREATE calls: Redis should reach module ACL checks first.
+    'FT.CREATE': -1,
 }
 
 def get_function_signature(name):
@@ -172,6 +178,7 @@ def generate_redis_module_command_info(name, cmd_info, file):
                 arity += len(name.split())
                 if not is_exact_arity or name in COMMANDS_WITH_MINIMUM_ARITY:
                     arity = -arity
+                arity = COMMAND_ARITY_OVERRIDES.get(name, arity)
                 info.write(f'.arity = {arity},\n')
 
 def generate_command_info_definition(name, info, file):
