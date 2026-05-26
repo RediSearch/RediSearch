@@ -12,6 +12,7 @@
 #include "trie/trie_node.h"
 #include "trie/trie.h"
 #include "redismock/redismock.h"
+#include "triemap_ffi.h"
 
 #include <set>
 #include <string>
@@ -1014,4 +1015,79 @@ TEST_F(TrieTest, testRdbSaveLoadWithNumDocs) {
   }
   EXPECT_EQ(6, count);
   TrieIterator_Free(it);
+}
+
+// Round-trips the production opt combo `save_payloads=false, save_num_docs=true`
+// (the combination used by `sp->terms`, see src/spec.c:3393) through both the
+// C trie and the Rust `LexTrieRs`. Step 1 of the Rust port exposes only
+// save/load on the Rust side, so the test funnels both parsers off a single
+// C-emitted byte buffer:
+//   C save -> Rust load -> Rust save (must be byte-identical to original)
+//   Rust save -> C load  (must round-trip into a structurally equal C trie)
+// Uses an unordered comparison (containment + numDocs per entry) because
+// `TrieType_GenericLoad` hardcodes `Trie_Sort_Score` (trie.c:399) regardless
+// of source sort mode, so iteration order differs from the Lex-mode original.
+TEST_F(TrieTest, testCRustRdbInterop) {
+  Trie *originalTrie = NewTrie(NULL, Trie_Sort_Lex);
+  std::unique_ptr<Trie, std::function<void(Trie *)>> originalTriePtr(originalTrie, [](Trie *trie) {
+    TrieType_Free(trie);
+  });
+
+  struct Entry { const char *term; size_t len; float score; size_t numDocs; };
+  const Entry entries[] = {
+    {"alpha", 5, 1.5f, 3},
+    {"beta", 4, 2.5f, 7},
+    {"gamma", 5, 0.5f, 1},
+    {"app", 3, 5.0f, 10},
+    {"apple", 5, 3.0f, 20},
+    {"application", 11, 7.0f, 30},
+  };
+  for (const auto &e : entries) {
+    Trie_InsertStringBuffer(originalTrie, e.term, e.len, e.score, 0, NULL, e.numDocs);
+  }
+  ASSERT_EQ(sizeof(entries) / sizeof(entries[0]), Trie_Size(originalTrie));
+
+  RedisModuleIO *ioC = RMCK_CreateRdbIO();
+  std::unique_ptr<RedisModuleIO, std::function<void(RedisModuleIO *)>> ioCPtr(ioC, [](RedisModuleIO *io) {
+    RMCK_FreeRdbIO(io);
+  });
+  ASSERT_TRUE(ioC != nullptr);
+
+  TrieType_GenericSave(ioC, originalTrie, /*savePayloads=*/false, /*saveNumDocs=*/true);
+  EXPECT_EQ(0, RMCK_IsIOError(ioC));
+  ASSERT_GT(ioC->buffer.size(), 0u);
+
+  // C bytes -> Rust load. Reset the cursor; the buffer itself is unchanged.
+  ioC->read_pos = 0;
+  LexTrieRs *rustMap = LexTrieRs_RdbLoad(ioC, /*load_payloads=*/false, /*load_num_docs=*/true);
+  std::unique_ptr<LexTrieRs, std::function<void(LexTrieRs *)>> rustMapPtr(rustMap, [](LexTrieRs *m) {
+    LexTrieRs_Free(m);
+  });
+  ASSERT_TRUE(rustMap != nullptr);
+  EXPECT_EQ(0, RMCK_IsIOError(ioC));
+
+  // Rust save -> compare bytes against the original C-emitted buffer.
+  RedisModuleIO *ioRust = RMCK_CreateRdbIO();
+  std::unique_ptr<RedisModuleIO, std::function<void(RedisModuleIO *)>> ioRustPtr(ioRust, [](RedisModuleIO *io) {
+    RMCK_FreeRdbIO(io);
+  });
+  ASSERT_TRUE(ioRust != nullptr);
+
+  LexTrieRs_RdbSave(ioRust, rustMap, /*save_payloads=*/false, /*save_num_docs=*/true);
+  EXPECT_EQ(0, RMCK_IsIOError(ioRust));
+  EXPECT_EQ(ioC->buffer, ioRust->buffer);
+
+  // Rust bytes -> C load. Must rehydrate into a trie holding the same entries.
+  ioRust->read_pos = 0;
+  Trie *recoveredTrie = (Trie *)TrieType_GenericLoad(ioRust, /*loadPayloads=*/false, /*loadNumDocs=*/true);
+  std::unique_ptr<Trie, std::function<void(Trie *)>> recoveredTriePtr(recoveredTrie, [](Trie *trie) {
+    TrieType_Free(trie);
+  });
+  ASSERT_TRUE(recoveredTrie != nullptr);
+  EXPECT_EQ(0, RMCK_IsIOError(ioRust));
+  EXPECT_EQ(Trie_Size(originalTrie), Trie_Size(recoveredTrie));
+  for (const auto &e : entries) {
+    EXPECT_TRUE(trieContains(recoveredTrie, e.term)) << "missing term: " << e.term;
+    EXPECT_EQ(e.numDocs, trieGetNumDocs(recoveredTrie, e.term)) << "numDocs mismatch for: " << e.term;
+  }
 }
