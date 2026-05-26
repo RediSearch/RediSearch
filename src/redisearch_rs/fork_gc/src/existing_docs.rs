@@ -9,15 +9,15 @@
 
 //! Child-side GC collection for the `existingDocs` inverted index.
 
-use std::io;
+use std::io::{self, Write};
 
 use index_spec::IndexSpecReadGuard;
 use serde::Serialize as _;
 
-use crate::{ForkGC, Frame};
+use crate::Frame;
 
 /// Collect the GC delta for the spec's `existingDocs` inverted index and write
-/// it to the parent process.
+/// it to `writer`.
 ///
 /// If the spec has no existing-docs index, or the scan produces no delta, only
 /// the terminator is written. Otherwise an empty header followed by the
@@ -28,18 +28,17 @@ use crate::{ForkGC, Frame};
 /// child process.
 ///
 /// [`GcScanDelta`]: inverted_index::GcScanDelta
-pub fn collect_existing_docs(fgc: &mut ForkGC, spec: &IndexSpecReadGuard) -> io::Result<()> {
+pub fn collect_existing_docs(writer: &mut impl Write, spec: &IndexSpecReadGuard) -> io::Result<()> {
     let doc_exists = |id| spec.doc_exists(id);
-    let mut writer = fgc.writer();
 
     if let Some(ii) = spec.existing_docs()
         && let Ok(Some(deltas)) = ii.scan_gc(doc_exists)
     {
-        Frame::Empty.write(&mut writer)?;
+        Frame::Empty.write(writer)?;
         deltas
-            .serialize(&mut rmp_serde::Serializer::new(&mut writer))
+            .serialize(&mut rmp_serde::Serializer::new(&mut *writer))
             .map_err(io::Error::other)?;
     }
 
-    Frame::Terminator.write(&mut writer)
+    Frame::Terminator.write(writer)
 }

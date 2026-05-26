@@ -37,5 +37,5 @@ pub unsafe extern "C" fn FGC_childCollectExistingDocs(
     // only one thread with exclusive access to the index spec.
     let guard = unsafe { IndexSpecReadGuard::from_locked(&*(*sctx).spec) };
 
-    collect_existing_docs(fgc, &*guard).unwrap_or_exit();
+    collect_existing_docs(&mut fgc.writer(), &*guard).unwrap_or_exit();
 }
