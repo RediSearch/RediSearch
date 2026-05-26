@@ -202,6 +202,30 @@ static int set_min_trim_delay_numeric_config(const char *name, long long val,
   return REDISMODULE_OK;
 }
 
+// Custom setter for search-timeout. Rejects values that exceed
+// search-max-query-timeout-ms when search-workers is 0 (and a limit is
+// configured). Validation is skipped during the initial config load: callback
+// order between dependent configs is not deterministic, so the cross-knob
+// invariant is enforced once by RSConfig_PostLoadNormalize after every config
+// has been applied.
+static int set_query_timeout_config(const char *name, long long val,
+                                    void *privdata, RedisModuleString **err) {
+  REDISMODULE_NOT_USED(name);
+  if (RSConfig_IsModuleConfigLoaded() &&
+      RSGlobalConfig.maxQueryTimeoutMS > 0 &&
+      RSGlobalConfig.numWorkerThreads == 0 &&
+      val > RSGlobalConfig.maxQueryTimeoutMS) {
+    RS_ASSERT(err);
+    *err = RedisModule_CreateStringPrintf(NULL,
+      "search-timeout (%lld) exceeds search-max-query-timeout-ms (%lld) and "
+      "search-workers is 0; raise search-workers or lower search-max-query-timeout-ms first",
+      val, RSGlobalConfig.maxQueryTimeoutMS);
+    return REDISMODULE_ERR;
+  }
+  *(long long *)privdata = val;
+  return REDISMODULE_OK;
+}
+
 // Custom setter for _MAX_TRIM_DELAY with validation
 static int set_max_trim_delay_numeric_config(const char *name, long long val,
                                      void *privdata, RedisModuleString **err) {
@@ -541,8 +565,20 @@ CONFIG_GETTER(getMaxExpansions) {
 
 // TIMEOUT
 CONFIG_SETTER(setTimeout) {
-  int acrc = AC_GetLongLong(ac, &config->requestConfigParams.queryTimeoutMS, AC_F_GE0);
-  RETURN_STATUS(acrc);
+  long long newTimeoutMS;
+  int acrc = AC_GetLongLong(ac, &newTimeoutMS, AC_F_GE0);
+  CHECK_RETURN_PARSE_ERROR(acrc);
+  if (config->maxQueryTimeoutMS > 0 &&
+      config->numWorkerThreads == 0 &&
+      newTimeoutMS > config->maxQueryTimeoutMS) {
+    QueryError_SetWithoutUserDataFmt(status, QUERY_ERROR_CODE_LIMIT,
+      "TIMEOUT (%lld) exceeds MAX_TIMEOUT_LIMIT (%lld) and WORKERS is 0; "
+      "raise WORKERS or lower MAX_TIMEOUT_LIMIT first",
+      newTimeoutMS, config->maxQueryTimeoutMS);
+    return REDISMODULE_ERR;
+  }
+  config->requestConfigParams.queryTimeoutMS = newTimeoutMS;
+  return REDISMODULE_OK;
 }
 
 CONFIG_GETTER(getTimeout) {
@@ -2224,7 +2260,7 @@ int RegisterModuleConfig_Local(RedisModuleCtx *ctx) {
     RedisModule_RegisterNumericConfig(
       ctx, "search-timeout", DEFAULT_QUERY_TIMEOUT_MS,
       REDISMODULE_CONFIG_UNPREFIXED, 1,
-      LLONG_MAX, get_long_numeric_config, set_long_numeric_config, NULL,
+      LLONG_MAX, get_long_numeric_config, set_query_timeout_config, NULL,
       (void *)&(RSGlobalConfig.requestConfigParams.queryTimeoutMS)
     )
   )
