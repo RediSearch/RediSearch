@@ -73,7 +73,7 @@ FGCError FGC_parentHandleTerms(ForkGC *gc) {
   delta = InvertedIndex_GcDelta_Read(&rd);
 
   if (delta == NULL) {
-    rm_free(term);
+    FGC_freeBuffer(term, len);
     return FGC_CHILD_ERROR;
   }
 
@@ -117,8 +117,10 @@ FGCError FGC_parentHandleTerms(ForkGC *gc) {
 
     if (!Trie_Delete(sctx->spec->terms, term, len)) {
       const char* name = IndexSpec_FormatName(sctx->spec, RSGlobalConfig.hideUserDataFromLog);
-      RedisModule_Log(sctx->redisCtx, "warning", "RedisSearch fork GC: deleting a term '%s' from"
-                      " trie in index '%s' failed", RSGlobalConfig.hideUserDataFromLog ? Obfuscate_Text(term) : term, name);
+      const char* term_str = RSGlobalConfig.hideUserDataFromLog ? Obfuscate_Text(term) : term;
+      int term_display_len = RSGlobalConfig.hideUserDataFromLog ? (int)strlen(term_str) : (int)len;
+      RedisModule_Log(sctx->redisCtx, "warning", "RedisSearch fork GC: deleting a term '%.*s' from"
+                      " trie in index '%s' failed", term_display_len, term_str, name);
     }
     sctx->spec->stats.scoring.numTerms--;
     sctx->spec->stats.termsSize -= len;
@@ -135,7 +137,7 @@ cleanup:
     RedisSearchCtx_UnlockSpec(sctx);
     IndexSpecRef_Release(spec_ref);
   }
-  rm_free(term);
+  FGC_freeBuffer(term, len);
 
   InvertedIndex_GcDelta_Free(delta);
   return status;
