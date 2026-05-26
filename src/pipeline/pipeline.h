@@ -2,7 +2,6 @@
 
 #include "aggregate/aggregate_plan.h"
 #include "query.h"
-#include <stdint.h>
 
 #ifdef __cplusplus
 extern "C" {
@@ -53,9 +52,7 @@ static inline GroupByLimits GroupByLimits_ScaleForCoordinator(GroupByLimits limi
   if (shardCount == 0) {
     shardCount = 1;
   }
-  size_t maxGroups = limits.maxGroups;
-  limits.maxGroups =
-      maxGroups && shardCount > SIZE_MAX / maxGroups ? SIZE_MAX : maxGroups * shardCount;
+  limits.maxGroups *= shardCount;
   return limits;
 }
 
