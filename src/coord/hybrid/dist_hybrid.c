@@ -870,12 +870,15 @@ static void HybridDispatchCtx_Tail(void *arg) {
     HybridRequest *hreq = dispatch->hreq;
     CoordRequestCtx *reqCtx = RedisModule_BlockClientGetPrivateData(dispatch->bc);
 
+    CurrentThread_SetIndexSpec(dispatch->indexSpecRef);
+
     // If timeout fired between dispatch and tail pickup, the timeout callback
     // already replied. We still must drain depleters before teardown — they
     // were submitted by scheduleDepleters and are running on coord-pool workers
     // that touch hreq's pipeline.
     if (CoordRequestCtx_TimedOut(reqCtx)) {
         waitForDepleters(hreq);
+        CurrentThread_ClearIndexSpec();
         HybridDispatchCtx_Free(dispatch);
         return;
     }
@@ -905,6 +908,7 @@ static void HybridDispatchCtx_Tail(void *arg) {
     // down hreq.
     waitForDepleters(hreq);
 
+    CurrentThread_ClearIndexSpec();
     HybridDispatchCtx_Free(dispatch);
 }
 
