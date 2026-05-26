@@ -32,6 +32,16 @@
 #define RS_MAX_CONFIG_TRIGGERS 1 // Increase this if you need more triggers
 RSConfigExternalTrigger RSGlobalConfigTriggers[RS_MAX_CONFIG_TRIGGERS];
 
+// Flipped to true by RSConfig_PostLoadNormalize, which is called once after
+// RedisModule_LoadConfigs returns. Used by setters to skip validation during
+// the initial load phase (when callback order between dependent configs is
+// not guaranteed) and enforce it for subsequent CONFIG SET calls.
+static bool s_moduleConfigLoaded = false;
+
+bool RSConfig_IsModuleConfigLoaded(void) {
+  return s_moduleConfigLoaded;
+}
+
 typedef struct {
   const char *FTConfigName;
   const char *ConfigName;
@@ -2541,4 +2551,25 @@ int RegisterModuleConfig_Local(RedisModuleCtx *ctx) {
   )
 
   return REDISMODULE_OK;
+}
+
+void RSConfig_PostLoadNormalize(RedisModuleCtx *ctx) {
+  // Cap a persisted search-timeout that exceeds the configured maximum when
+  // search-workers is disabled. The callback-order between search-timeout,
+  // search-workers, and search-max-query-timeout-ms during LoadConfigs is not
+  // guaranteed, so this final pass enforces the cross-knob invariant once all
+  // three values are settled.
+  // maxQueryTimeoutMS == 0 means "no limit" and disables the check entirely.
+  if (RSGlobalConfig.maxQueryTimeoutMS > 0 &&
+      RSGlobalConfig.numWorkerThreads == 0 &&
+      RSGlobalConfig.requestConfigParams.queryTimeoutMS > RSGlobalConfig.maxQueryTimeoutMS) {
+    long long original = RSGlobalConfig.requestConfigParams.queryTimeoutMS;
+    RSGlobalConfig.requestConfigParams.queryTimeoutMS = RSGlobalConfig.maxQueryTimeoutMS;
+    RedisModule_Log(ctx, "warning",
+      "search-timeout (%lld) exceeds search-max-query-timeout-ms (%lld) and "
+      "search-workers is 0; capping in-memory value to %lld",
+      original, RSGlobalConfig.maxQueryTimeoutMS, RSGlobalConfig.maxQueryTimeoutMS);
+  }
+
+  s_moduleConfigLoaded = true;
 }

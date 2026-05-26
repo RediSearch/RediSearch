@@ -4786,6 +4786,9 @@ static int RediSearch_InitModuleConfig(RedisModuleCtx *ctx, RedisModuleString **
   }
   // Apply configuration redis has loaded from the configuration file
   RM_TRY_F(RedisModule_LoadConfigs, ctx);
+  // Apply cross-knob invariants once all configs have been loaded, and arm
+  // setter-side validation for subsequent runtime CONFIG SET calls.
+  RSConfig_PostLoadNormalize(ctx);
   return REDISMODULE_OK;
 }
 

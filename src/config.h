@@ -281,6 +281,19 @@ size_t GetDefaultWorkerThreads(void);
 /* Register module configuration parameters using Module Configuration API */
 int RegisterModuleConfig_Local(RedisModuleCtx *ctx);
 
+/* Post-load normalization for RSConfig. Must be called once, immediately after
+ * RedisModule_LoadConfigs returns, to apply invariants that depend on multiple
+ * config values whose load order is not deterministic (e.g. capping
+ * search-timeout to search-max-query-timeout-ms when search-workers is 0).
+ * Also flips the internal "module config loaded" flag, after which runtime
+ * CONFIG SET callbacks may enforce the corresponding invariants. */
+void RSConfig_PostLoadNormalize(RedisModuleCtx *ctx);
+
+/* Returns true once RSConfig_PostLoadNormalize has been called.
+ * Setters use this to distinguish initial load (no validation) from runtime
+ * CONFIG SET (validation enforced). */
+bool RSConfig_IsModuleConfigLoaded(void);
+
 /**
  * Writes the retrieval of the configuration value to the network.
  * isHelp will use a more dict-like pattern, which should be a bit friendlier
