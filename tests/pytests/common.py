@@ -497,34 +497,102 @@ def skipTestUntil(date_str, reason=None):
     """
     skip_until(date_str, reason)(lambda: None)()
 
+def _any_skip_condition_set(*, cluster, macos, asan, msan, redis_less_than,
+                            redis_greater_equal, min_shards, arch, gc_no_fork,
+                            no_json):
+    """True if the caller provided at least one skip condition.
+
+    With no conditions, @skip's legacy behaviour is to always skip — used as a
+    "temporarily disable this test" marker.
+    """
+    return ((cluster is not None) or macos or asan or msan or redis_less_than
+            or redis_greater_equal or min_shards or (arch is not None)
+            or gc_no_fork or no_json)
+
+
+def _skip_fires_statically(*, cluster, macos, asan, msan, min_shards, arch,
+                            no_json):
+    """Evaluate the subset of @skip predicates that don't need a live Redis.
+
+    Excludes redis_less_than/redis_greater_equal/gc_no_fork — those genuinely
+    need a running env, so they can't decide at module-load time.
+    """
+    if cluster is not None and cluster == CLUSTER:
+        return True
+    if macos and OS == 'macos':
+        return True
+    if arch == platform.machine():
+        return True
+    if asan and SANITIZER == 'address':
+        return True
+    if msan and SANITIZER == 'memory':
+        return True
+    if min_shards and Defaults.num_shards < min_shards:
+        return True
+    if no_json and not REJSON:
+        return True
+    return False
+
+
+def _skip_fires_at_runtime(*, redis_less_than, redis_greater_equal, gc_no_fork):
+    """Evaluate the @skip predicates that need a live Redis.
+
+    Spawns a transient Env for gc_no_fork; the version helpers maintain their
+    own connection.
+    """
+    if redis_less_than and server_version_is_less_than(redis_less_than):
+        return True
+    if redis_greater_equal and server_version_is_at_least(redis_greater_equal):
+        return True
+    if gc_no_fork and Env().cmd(config_cmd(), 'GET', 'GC_POLICY')[0][1] != 'fork':
+        return True
+    return False
+
+
 def skip(cluster=None, macos=False, asan=False, msan=False, redis_less_than=None, redis_greater_equal=None, min_shards=None, arch=None, gc_no_fork=None, no_json=False):
-    def decorate(f):
-        # functools.wraps propagates the wrapped function's __dict__ onto the
-        # wrapper. That's how @env_spec metadata survives the @skip wrap when
-        # the two decorators are stacked.
-        @wraps(f)
+    static_kwargs = dict(cluster=cluster, macos=macos, asan=asan, msan=msan,
+                         min_shards=min_shards, arch=arch, no_json=no_json)
+    runtime_kwargs = dict(redis_less_than=redis_less_than,
+                          redis_greater_equal=redis_greater_equal,
+                          gc_no_fork=gc_no_fork)
+    any_condition = _any_skip_condition_set(
+        **static_kwargs, **runtime_kwargs,
+    )
+
+    def decorate(target):
+        if isinstance(target, type):
+            # Class decoration. We must decide whether to skip BEFORE RLTest
+            # provisions a class's @env_spec env — otherwise a cluster-only
+            # test class would spin up a 3-shard env on standalone runs just
+            # to be thrown away. Evaluate the static predicates now; if any
+            # fires, strip the @env_spec marker (so no env is built) and
+            # replace __init__ with one that raises SkipTest the moment
+            # RLTest tries to instantiate the class.
+            if redis_less_than or redis_greater_equal or gc_no_fork:
+                raise TypeError(
+                    "@skip on a class cannot use redis_less_than, "
+                    "redis_greater_equal, or gc_no_fork because those need a "
+                    "live Redis and would defeat the purpose of skipping "
+                    "before env provisioning. Use skipTest() inside a method "
+                    "instead, or apply @skip to individual functions."
+                )
+            # No conditions = legacy "always skip" marker.
+            fires = (not any_condition) or _skip_fires_statically(**static_kwargs)
+            if fires:
+                if hasattr(target, '_rltest_env_spec'):
+                    delattr(target, '_rltest_env_spec')
+                def _skipping_init(self, *args, **kwargs):
+                    raise SkipTest()
+                target.__init__ = _skipping_init
+            return target
+
+        f = target
         def wrapper():
-            if not ((cluster is not None) or macos or asan or msan or redis_less_than or redis_greater_equal or min_shards or no_json):
+            if not any_condition:
                 raise SkipTest()
-            if cluster == CLUSTER:
+            if _skip_fires_statically(**static_kwargs):
                 raise SkipTest()
-            if macos and OS == 'macos':
-                raise SkipTest()
-            if arch == platform.machine():
-                raise SkipTest()
-            if asan and SANITIZER == 'address':
-                raise SkipTest()
-            if msan and SANITIZER == 'memory':
-                raise SkipTest()
-            if redis_less_than and server_version_is_less_than(redis_less_than):
-                raise SkipTest()
-            if redis_greater_equal and server_version_is_at_least(redis_greater_equal):
-                raise SkipTest()
-            if min_shards and Defaults.num_shards < min_shards:
-                raise SkipTest()
-            if gc_no_fork and Env().cmd(config_cmd(), 'GET', 'GC_POLICY')[0][1] != 'fork':
-                raise SkipTest()
-            if no_json and not REJSON:
+            if _skip_fires_at_runtime(**runtime_kwargs):
                 raise SkipTest()
             if len(inspect.signature(f).parameters) > 0:
                 # Honor a declared @env_spec when constructing the env so the
@@ -534,6 +602,19 @@ def skip(cluster=None, macos=False, asan=False, msan=False, redis_less_than=None
                 return f(env)
             else:
                 return f()
+        # Propagate identifying metadata + the env_spec marker. Deliberately
+        # NOT functools.wraps: that would set wrapper.__wrapped__ = f, which
+        # exposes f's signature to inspect.signature(follow_wrapped=True) and
+        # could trick callers into passing an env arg to this zero-arg
+        # wrapper. We only need __name__/__qualname__ for debugging and
+        # _rltest_env_spec so RLTest's loader can read the declared spec off
+        # the wrapper.
+        wrapper.__name__ = f.__name__
+        wrapper.__qualname__ = f.__qualname__
+        wrapper.__doc__ = f.__doc__
+        spec = getattr(f, '_rltest_env_spec', None)
+        if spec is not None:
+            wrapper._rltest_env_spec = spec
         return wrapper
     return decorate
 

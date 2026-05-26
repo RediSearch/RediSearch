@@ -45,15 +45,11 @@ def _common_cluster_test_scenario(env):
 
     return n_docs
 
-# An empty @env_spec() opts the class into RLTest building an Env at
-# construction time (with defaults) and passing it to __init__. Methods then
-# access it via self.env. The skipTest still runs inside __init__ — for
-# skipped runs the env is built and immediately torn down, which is cheap.
+@skip(cluster=True)
 @env_spec()
 class testOomStandaloneBehavior:
 
     def __init__(self, env):
-        skipTest(cluster=True)
         self.env = env
         _common_test_scenario(self.env)
         # Init all shards
@@ -117,10 +113,10 @@ def test_oom_verbosity_cluster_hybrid_profile(env):
     env.assertContains('Profile', res)
 
 
+@skip(cluster=False)
 @env_spec(shardsCount=3)
 class testOomClusterBehavior:
     def __init__(self, env):
-        skipTest(cluster=False)
         self.env = env
         self.n_docs = _common_cluster_test_scenario(self.env)
         allShards_change_maxmemory_low(self.env)
@@ -265,11 +261,11 @@ def _common_hybrid_cluster_test_scenario(env):
 
     return n_docs
 
+@skip(cluster=True)
 @env_spec()
 class testOomHybridStandaloneBehavior:
 
     def __init__(self, env):
-        skipTest(cluster=True)
         self.env = env
         _common_hybrid_test_scenario(self.env)
         verify_shard_init(self.env.getConnection())
@@ -293,10 +289,10 @@ class testOomHybridStandaloneBehavior:
         res = self.env.cmd('FT.HYBRID', 'idx', 'SEARCH', 'shoes', 'VSIM', '@embedding', '$BLOB', 'PARAMS', '2', 'BLOB', query_vector)
         self.env.assertEqual(res[1], 0)
 
+@skip(cluster=False)
 @env_spec(shardsCount=3)
 class testOomHybridClusterBehavior:
     def __init__(self, env):
-        skipTest(cluster=False)
         self.env = env
         self.n_docs = _common_hybrid_cluster_test_scenario(self.env)
         allShards_change_maxmemory_low(self.env)
