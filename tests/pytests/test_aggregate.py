@@ -841,6 +841,7 @@ def test_groupby_array_group_limit_boundary(env: Env):
   finally:
     env.expect(config_cmd(), 'SET', 'MAX_AGGREGATE_GROUPS', '500000').ok()
 
+@skip(cluster=True)
 def test_groupby_array_row_expansion_limit(env: Env):
   env.expect(config_cmd(), 'SET', 'MAX_AGGREGATE_GROUPS', '3').ok()
   try:
@@ -859,6 +860,7 @@ def test_groupby_array_row_expansion_limit(env: Env):
   finally:
     env.expect(config_cmd(), 'SET', 'MAX_AGGREGATE_GROUPS', '500000').ok()
 
+@skip(cluster=True)
 def test_groupby_total_group_limit(env: Env):
   env.expect(config_cmd(), 'SET', 'MAX_AGGREGATE_GROUPS', '3').ok()
   try:
@@ -878,6 +880,7 @@ def test_groupby_total_group_limit(env: Env):
 @skip(cluster=False)
 def test_groupby_coordinator_group_limit_uses_shard_count():
   env = Env(shardsCount=3, protocol=3)
+  env.expect(config_cmd(), 'SET', 'MAX_AGGREGATE_GROUPS', '2').ok()
   verify_command_OK_on_all_shards(env, 'CONFIG', 'SET', 'search-max-aggregate-groups', '2')
 
   env.expect('FT.CREATE', 'idx', 'ON', 'HASH', 'SCHEMA', 'g', 'TAG', 'SORTABLE').ok()
