@@ -243,7 +243,7 @@ jobs:
         if: >
           steps.node20.outputs.supported == 'true' &&
           (steps.unit_tests.outcome == 'failure' || steps.standalone_tests.outcome == 'failure' || steps.coordinator_tests.outcome == 'failure')
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: Test Logs ${{ steps.artifact-names.outputs.name }}
           path: tests/**/logs/*.log*
