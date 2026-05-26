@@ -2080,11 +2080,6 @@ static void IndexSpec_FreeUnlinkedData(IndexSpec *spec) {
     SearchDisk_FreeRdbState(spec->pendingDiskRdbState);
     spec->pendingDiskRdbState = NULL;
   }
-  // Per-field unbound vector indexes (fs->vectorOpts.vecSimIndex created by
-  // FieldSpec_RdbLoad but not yet bound to storage) are released by
-  // FieldSpec_Cleanup, which runs in the field-iterating destructor section
-  // above.
-
   // Free spec struct
   rm_free(spec);
 
@@ -2568,19 +2563,10 @@ static void FieldSpec_RdbSave(RedisModuleIO *rdb, FieldSpec *f, int contextFlags
   if (FIELD_IS(f, INDEXFLD_T_VECTOR)) {
     RedisModule_SaveUnsigned(rdb, f->vectorOpts.expBlobSize);
     VecSim_RdbSave(rdb, &f->vectorOpts.vecSimParams);
-    // Disk-backed vector fields ride their in-memory state (HNSW graph
-    // metadata, SQ8 vectors) inline with the field's RDB encoding so the
+    // Disk-backed vector fields ride their in-memory state inline with the field's RDB encoding so the
     // load path can deserialize it directly into an unbound VecSimIndex and
-    // bind storage later (eliminating the temporary blob that used to
-    // double peak memory at this point). Only emit the payload during SST
+    // bind storage later. Only emit the payload during SST
     // replication saves — regular RDB save does not include disk state.
-    //
-    // An "empty" flag is emitted unconditionally so the load side knows
-    // whether to expect a payload. The VecSim is empty when it was never
-    // materialized (vecSimIndex == NULL — no documents ever exercised the
-    // field) or when it currently holds zero vectors. In both cases there
-    // is no in-memory state worth shipping; the replica creates a fresh
-    // empty VecSimIndex on its own and we skip the payload entirely.
     const bool storeDiskRdbData = contextFlags & REDISMODULE_CTX_FLAGS_SST_RDB;
     if (storeDiskRdbData) {
       RS_ASSERT(SearchDisk_IsEnabled());
@@ -2721,11 +2707,6 @@ static int FieldSpec_RdbLoad(RedisModuleIO *rdb, FieldSpec *f, StrongRef sp_ref,
     // vectorOpts.vecSimIndex immediately; IndexSpec_SSTRdbOpenAndApply
     // binds storage to it.
     //
-    // The save side emits an "empty" flag first: when set, the VecSim held
-    // no vectors at save time and nothing further follows. We leave
-    // vecSimIndex NULL in that case and let the apply loop construct a
-    // fresh empty index via the eager path. Same as in the RDB case, first document
-    // indexed will lazily create the index
     if (useSst) {
       RS_ASSERT(SearchDisk_IsEnabled());
       RS_ASSERT(encver >= INDEX_DISK_VERSION);
@@ -3414,19 +3395,7 @@ static void IndexSpec_EnsureTagDiskIndexes(IndexSpec *sp) {
   }
 }
 
-// Save the disk layer's portion of an RDB snapshot when SST replication is
-// in use: writes the IndexSpec's partial RDB state
-//
-// Caller must hold an appropriate lock on `sp` (or be running inside the
-// forked save child)
-static void IndexSpec_SSTRdbSave(RedisModuleIO *rdb, IndexSpec *sp) {
-  // Per-field vector blob serialization is handled inline by FieldSpec_RdbSave
-  // (gated by REDISMODULE_CTX_FLAGS_SST_RDB). Here we only need the spec-level
-  // disk metadata.
-  SearchDisk_IndexSpecRdbSave(rdb, sp->diskSpec);
-}
-
-// Mirror of IndexSpec_SstRdbSave on the load side: opens sp->diskSpec from
+// Opens sp->diskSpec from
 // the pending RDB state, eagerly materializes each disk-backed VecSimIndex,
 // and replays the in-memory blob stashed on the matching FieldSpec.
 //
@@ -3556,7 +3525,7 @@ void IndexSpec_RdbSave(RedisModuleIO *rdb, IndexSpec *sp, int contextFlags) {
   if (sp->diskSpec && storeDiskRdbData) {
     IndexScoringStats_RdbSave(rdb, &sp->stats.scoring);
     TrieType_GenericSave(rdb, sp->terms, false, true);
-    IndexSpec_SSTRdbSave(rdb, sp);
+    SearchDisk_IndexSpecRdbSave(rdb, sp->diskSpec);
   }
 
   if (needLock) {
@@ -3691,10 +3660,9 @@ IndexSpec *IndexSpec_RdbLoad(RedisModuleIO *rdb, int encver, bool useSst, QueryE
     sp->terms = TrieType_GenericLoad(rdb, false, true);
     RS_LOG_ASSERT(sp->terms, "Failed to load terms trie");
 
-    // Load disk metadata (max_doc_id, deleted_ids and vector info) into the
-    // spec as two independent halves. Stashed here directly; consumed at
-    // LOADING_SST_ENDED (SST flow) or freed by the spec destructor
-    // (duplicate / cleanup / abort).
+    // Load disk metadata (max_doc_id, deleted_ids) into the spec. Stashed
+    // here directly; consumed at LOADING_SST_ENDED (SST flow) or freed by
+    // the spec destructor (duplicate / cleanup / abort).
     sp->pendingDiskRdbState = SearchDisk_LoadRdbToTempObject(rdb);
     if (!sp->pendingDiskRdbState) {
       goto cleanup;
@@ -4933,8 +4901,7 @@ void Indexes_AbortSSTReplicationLoading(RedisModuleCtx *ctx) {
       SearchDisk_UnregisterIndex(ctx, spec);
     }
     // pendingDiskRdbState and diskSpec are freed by IndexSpec_FreeUnlinkedData
-    // once the last StrongRef is dropped below; per-field pending vector
-    // blobs are released by FieldSpec_Cleanup in the same path.
+    // once the last StrongRef is dropped below.
     IndexSpec_RemoveFromGlobals(specs[i], false);
   }
   array_free(specs);
