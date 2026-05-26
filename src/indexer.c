@@ -287,21 +287,15 @@ static void doAssignIds(RSAddDocumentCtx *cur, RedisSearchCtx *ctx) {
             cur->fwIdx->totalFreq, &oldLen, cur->doc->docExpirationTime, oldDocId)
         : 0;
 
-      if (docId == 0) {
-        // Either `SearchDisk_CreateWriteBatch` returned NULL or `SearchDisk_PutDocument`
-        // itself failed (typically OOM / disk-init failure). Surface the failure
-        // via `cur->status` and let `AddDocumentCtx_Free` abort the batch (if
-        // any) as a safety net.
-        const char *reason = cur->diskBatch
-                                 ? "Failed to stage document on disk"
-                                 : "Failed to open disk write batch";
-        if (!QueryError_HasError(&cur->status)) {
-          QueryError_SetError(&cur->status, QUERY_ERROR_CODE_GENERIC, reason);
-        }
-        cur->stateFlags |= ACTX_F_ERRORED;
-        RS_LOG_ASSERT_FMT(false, "Unexpected: %s", reason);
-        continue;
-      }
+      // `SearchDisk_CreateWriteBatch` / `SearchDisk_PutDocument` failure
+      // (typically OOM / disk-init failure) is treated as fatal: by the time
+      // we are here the disk module is in an unrecoverable state, and the
+      // alternative — best-effort cleanup of a partially-staged batch — can
+      // itself fail and leave permanent in-memory / on-disk divergence.
+      // Crash so the server restarts from a well-defined state.
+      RS_LOG_ASSERT_FMT_ALWAYS(docId != 0, "Disk staging failed: %s",
+                               cur->diskBatch ? "SearchDisk_PutDocument returned 0"
+                                              : "SearchDisk_CreateWriteBatch returned NULL");
 
       cur->doc->docId = docId;
       cur->oldDocLen = oldLen;
@@ -605,14 +599,10 @@ static void writeExistingDocs(RSAddDocumentCtx *aCtx, RedisSearchCtx *sctx) {
  */
 static bool commitDocument(RSAddDocumentCtx *aCtx, RedisSearchCtx *ctx) {
   if (aCtx->stateFlags & ACTX_F_ERRORED) {
-    // `aCtx->diskBatch` can be NULL here if `SearchDisk_CreateWriteBatch`
-    // failed in `doAssignIds` — that path sets `ACTX_F_ERRORED` and leaves
-    // `diskBatch` unset. `SearchDisk_AbortWriteBatch` asserts non-NULL, so
-    // skip the abort when there is nothing to abort.
-    if (aCtx->diskBatch) {
-      SearchDisk_AbortWriteBatch(aCtx->diskBatch);
-      aCtx->diskBatch = NULL;
-    }
+    // `doAssignIds` crashes via `RS_LOG_ASSERT_FMT_ALWAYS` on batch-open /
+    // staging failure, so reaching here implies the batch is non-NULL.
+    SearchDisk_AbortWriteBatch(aCtx->diskBatch);
+    aCtx->diskBatch = NULL;
     // `bulkStageFields` records the originating field error in stats and then
     // clears `aCtx->status`, so by the time we get here `aCtx->status` may be
     // empty. Ensure the reply path sees an error.
@@ -661,14 +651,16 @@ static void indexDocumentMemory(RSAddDocumentCtx *aCtx, RedisSearchCtx *ctx,
  *   2. `commitDocument` aborts on error or commits the batch; returns false
  *      iff the batch did not become durable.
  *   3. Apply RAM bookkeeping that paired with the now-durable disk writes
- *      (`applyDocTable`, side-indexes, `applyTextIndex`, `bulkApplyFields`,
- *      `applyVectorInserts`).
+ *      (`applyDocTable`, `applyTextIndex`, `bulkApplyFields`, `applyVectorInserts`).
  *
  * On Phase 2 failure, Phase 3 is skipped — no Phase-3 RAM state was mutated
  * yet, so there is nothing to roll back.
+ *
+ * Wildcard (`index_all`) and `INDEXMISSING` indexes are not supported on disk
+ * specs, so the matching memory-mode hooks (`writeExistingDocs`,
+ * `writeMissingFieldDocs`) are not called here.
  */
-static void indexDocumentDisk(RSAddDocumentCtx *aCtx, RedisSearchCtx *ctx,
-                              arrayof(FieldExpiration) fes) {
+static void indexDocumentDisk(RSAddDocumentCtx *aCtx, RedisSearchCtx *ctx) {
   // Phase 1 — stage onto the per-document write batch.
   if (aCtx->fwIdx && !(aCtx->stateFlags & ACTX_F_ERRORED)) {
     stageText(aCtx, ctx);
@@ -681,8 +673,6 @@ static void indexDocumentDisk(RSAddDocumentCtx *aCtx, RedisSearchCtx *ctx,
 
   // Phase 3 — apply RAM bookkeeping for the durably-committed writes.
   applyDocTable(aCtx, ctx);
-  writeExistingDocs(aCtx, ctx);
-  writeMissingFieldDocs(aCtx, ctx, fes);
   if (aCtx->fwIdx) applyTextIndex(aCtx, ctx);
   bulkApplyFields(aCtx, ctx);
   applyVectorInserts(aCtx, ctx);
@@ -731,20 +721,15 @@ static void Indexer_Process(RSAddDocumentCtx *aCtx) {
     doAssignIds(firstZeroId, &ctx);
   }
 
-  // On the non-disk path, `doc->fieldExpirations` ownership has already been
-  // moved into the TTL table by `doAssignIds` on success. On failure (e.g.
-  // `makeDocumentId` returned NULL), the array stays attached to `doc` so
-  // `Document_Free` can release it.
-  arrayof(FieldExpiration) fes;
   if (SearchDisk_IsEnabled()) {
-    fes = doc->fieldExpirations;
+    indexDocumentDisk(aCtx, &ctx);
   } else {
-    fes = (arrayof(FieldExpiration))DocTable_GetFieldExpirations(&ctx.spec->docs, doc->docId);
-  }
-
-  if (SearchDisk_IsEnabled()) {
-    indexDocumentDisk(aCtx, &ctx, fes);
-  } else {
+    // `doc->fieldExpirations` ownership has already been moved into the TTL
+    // table by `doAssignIds` on success. On failure (e.g. `makeDocumentId`
+    // returned NULL), the array stays attached to `doc` so `Document_Free`
+    // can release it.
+    arrayof(FieldExpiration) fes =
+        (arrayof(FieldExpiration))DocTable_GetFieldExpirations(&ctx.spec->docs, doc->docId);
     indexDocumentMemory(aCtx, &ctx, fes);
   }
 }

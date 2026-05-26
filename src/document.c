@@ -353,15 +353,12 @@ void AddDocumentCtx_Free(RSAddDocumentCtx *aCtx) {
   ByteOffsetWriter_Cleanup(&aCtx->offsetsWriter);
   QueryError_ClearError(&aCtx->status);
 
-  // Safety net: if the indexing flow bailed out before reaching the
-  // commit/abort logic in `Indexer_Process`, discard the staged writes rather
-  // than leaking the batch. No in-memory state needs reverting — disk-mode
-  // RAM updates are only applied in the post-commit phase, which we never
-  // reached on this path.
-  if (aCtx->diskBatch) {
-    SearchDisk_AbortWriteBatch(aCtx->diskBatch);
-    aCtx->diskBatch = NULL;
-  }
+  // `commitDocument` is the single owner of `aCtx->diskBatch` once it has been
+  // opened by `doAssignIds`. Reaching `AddDocumentCtx_Free` with the batch
+  // still set means the indexing pipeline bailed out between staging and
+  // commit — there is no such path today, and adding one in the future
+  // requires a paired abort.
+  RS_ASSERT(!aCtx->diskBatch);
 
   mempool_release(actxPool_g, aCtx);
 }
@@ -683,14 +680,6 @@ FIELD_BULK_INDEXER(vectorIndexer) {
     QueryError_SetError(status, QUERY_ERROR_CODE_GENERIC, "Could not open vector for indexing");
     return -1;
   }
-  // Disk mode: defer the actual `VecSimIndex_AddVector` to `commitVectorFields`
-  // so a failed batch commit never leaves the vector index referencing a
-  // doc-id that was not persisted. The vector blob in `fdata->vector` is
-  // borrowed (not copied) and lives until `AddDocumentCtx_Free`, so it is
-  // safe for the post-commit phase to read.
-  if (aCtx->diskBatch) {
-    return 0;
-  }
   char *curr_vec = (char *)fdata->vector;
   for (size_t i = 0; i < fdata->numVec; i++) {
     VecSimIndex_AddVector(vecsim, curr_vec, aCtx->doc->docId);
@@ -908,6 +897,13 @@ int IndexerBulkAdd(RSAddDocumentCtx *cur, RedisSearchCtx *sctx,
           rc = numericIndexer(cur, sctx, field, fs, fdata, status);
           break;
         case IXFLDPOS_VECTOR:
+          // Disk mode: defer the actual `VecSimIndex_AddVector` to
+          // `applyVectorInserts` in Phase 3 so a failed batch commit never
+          // leaves the vector index referencing a doc-id that was not
+          // persisted. The vector blob in `fdata->vector` is borrowed (not
+          // copied) and lives until `AddDocumentCtx_Free`, so it is safe for
+          // the post-commit phase to read.
+          if (cur->diskBatch) break;
           rc = vectorIndexer(cur, sctx, field, fs, fdata, status);
           break;
         case IXFLDPOS_GEOMETRY:
