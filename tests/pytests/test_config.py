@@ -548,6 +548,7 @@ UINT64_MAX = (1 << 64) - 1
 UINT32_MAX = (1 << 32) - 1
 MAX_AGGREGATE_REQUEST_RESULTS = (1 << 31)
 DEFAULT_MAX_AGGREGATE_REQUEST_RESULTS = MAX_AGGREGATE_REQUEST_RESULTS
+MAX_AGGREGATE_GROUPS = MAX_AGGREGATE_REQUEST_RESULTS
 DEFAULT_MAX_AGGREGATE_GROUPS = 500_000
 
 MAX_SEARCH_REQUEST_RESULTS = (1 << 31)
@@ -566,7 +567,7 @@ numericConfigs = [
     ('search-fork-gc-sleep-before-exit', 'FORKGC_SLEEP_BEFORE_EXIT', 0, 0, LLONG_MAX, False, False),
     ('search-gc-scan-size', 'GCSCANSIZE', 100, 1, LLONG_MAX, True, False),
     ('search-index-cursor-limit', 'INDEX_CURSOR_LIMIT', 128, 0, LLONG_MAX, False, False),
-    ('search-max-aggregate-groups', 'MAX_AGGREGATE_GROUPS', DEFAULT_MAX_AGGREGATE_GROUPS, 1, LLONG_MAX, False, False),
+    ('search-max-aggregate-groups', 'MAX_AGGREGATE_GROUPS', DEFAULT_MAX_AGGREGATE_GROUPS, 1, MAX_AGGREGATE_GROUPS, False, False),
     ('search-max-aggregate-results', 'MAXAGGREGATERESULTS', DEFAULT_MAX_AGGREGATE_REQUEST_RESULTS, 0, MAX_AGGREGATE_REQUEST_RESULTS, False, False),
     ('search-max-doctablesize', 'MAXDOCTABLESIZE', 1_000_000, 1, 100_000_000, True, False),
     ('search-max-prefix-expansions', 'MAXPREFIXEXPANSIONS', 200, 1, UINT32_MAX, False, False),

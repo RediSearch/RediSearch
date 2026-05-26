@@ -34,13 +34,6 @@ static const char *stripAtPrefix(const char *s) {
   return s;
 }
 
-static size_t saturatingMulSize(size_t a, size_t b) {
-  if (a != 0 && b > std::numeric_limits<size_t>::max() / a) {
-    return std::numeric_limits<size_t>::max();
-  }
-  return a * b;
-}
-
 struct ReducerDistCtx {
   AGGPlan *localPlan;
   AGGPlan *remotePlan;
@@ -642,13 +635,12 @@ int AREQ_BuildDistributedPipeline(AREQ *r, AREQDIST_UpstreamInfo *us, QueryError
   if (shardCount == 0) {
     shardCount = 1;
   }
-  AggregateGroupLimits aggregateGroupLimits = AggregateGroupLimits_Default(r->maxAggregateGroups);
-  aggregateGroupLimits.maxGroups =
-      saturatingMulSize(aggregateGroupLimits.baseMaxGroups, shardCount);
-  aggregateGroupLimits.shardCount = shardCount;
-  aggregateGroupLimits.isCoordinator = true;
+  GroupByLimits groupByLimits = GroupByLimits_Default(r->maxAggregateGroups);
+  if (__builtin_mul_overflow(r->maxAggregateGroups, shardCount, &groupByLimits.maxGroups)) {
+    groupByLimits.maxGroups = std::numeric_limits<size_t>::max();
+  }
 
-  int rc = AREQ_BuildPipelineWithAggregateGroupLimits(r, status, aggregateGroupLimits);
+  int rc = AREQ_BuildPipelineWithGroupByLimits(r, status, groupByLimits);
   RLookup_DisableOptions(&dstp->lk, RLOOKUP_OPT_ALLOWUNRESOLVED);
 
   if (rc != REDISMODULE_OK) {

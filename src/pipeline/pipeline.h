@@ -32,26 +32,18 @@ typedef struct CommonPipelineParams {
   const char* scoreAlias;
 } CommonPipelineParams;
 
-typedef struct AggregateGroupLimits {
+typedef struct GroupByLimits {
   /** Effective maximum number of GROUPBY groups this pipeline may materialize. */
   size_t maxGroups;
 
-  /** Configured base limit, used for row expansion checks and error reporting. */
-  size_t baseMaxGroups;
+  /** Maximum number of group combinations one input row may expand into. */
+  size_t maxRowExpansion;
+} GroupByLimits;
 
-  /** Number of shards used to derive maxGroups for coordinator aggregation. */
-  size_t shardCount;
-
-  /** True when maxGroups is a coordinator-side effective limit. */
-  bool isCoordinator;
-} AggregateGroupLimits;
-
-static inline AggregateGroupLimits AggregateGroupLimits_Default(size_t maxGroups) {
-  AggregateGroupLimits limits = {0};
+static inline GroupByLimits GroupByLimits_Default(size_t maxGroups) {
+  GroupByLimits limits = {0};
   limits.maxGroups = maxGroups;
-  limits.baseMaxGroups = maxGroups;
-  limits.shardCount = 1;
-  limits.isCoordinator = false;
+  limits.maxRowExpansion = maxGroups;
   return limits;
 }
 
@@ -78,7 +70,7 @@ typedef struct AggregationPipelineParams {
   size_t maxResultsLimit;
 
   /** GROUPBY materialization limits for this pipeline. */
-  AggregateGroupLimits aggregateGroupLimits;
+  GroupByLimits groupByLimits;
 
   /** Language setting for text highlighting and language-specific processing.
    *  Used by highlighting result processors to apply proper stemming,

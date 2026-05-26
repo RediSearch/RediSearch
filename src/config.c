@@ -512,6 +512,11 @@ CONFIG_SETTER(setMaxAggregateGroups) {
   long long newSize = 0;
   int acrc = AC_GetLongLong(ac, &newSize, AC_F_GE1);
   CHECK_RETURN_PARSE_ERROR(acrc)
+  if (newSize > MAX_AGGREGATE_GROUPS) {
+    QueryError_SetError(status, QUERY_ERROR_CODE_LIMIT,
+                        "Value exceeds maximum possible aggregate groups");
+    return REDISMODULE_ERR;
+  }
   config->maxAggregateGroups = newSize;
   return REDISMODULE_OK;
 }
@@ -2126,7 +2131,7 @@ int RegisterModuleConfig_Local(RedisModuleCtx *ctx) {
     RedisModule_RegisterNumericConfig(
       ctx, "search-max-aggregate-groups", DEFAULT_MAX_AGGREGATE_GROUPS,
       REDISMODULE_CONFIG_UNPREFIXED, 1,
-      LLONG_MAX, get_size_t_numeric_config, set_size_t_numeric_config,
+      MAX_AGGREGATE_GROUPS, get_size_t_numeric_config, set_size_t_numeric_config,
       NULL, (void *)&(RSGlobalConfig.maxAggregateGroups)
     )
   )

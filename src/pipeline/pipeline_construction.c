@@ -42,7 +42,7 @@ static ResultProcessor *buildGroupRP(PLN_GroupStep *gstp, RLookup *srclookup,
     }
   }
 
-  Grouper *grp = Grouper_New(srckeys, dstkeys, nproperties, params->aggregateGroupLimits);
+  Grouper *grp = Grouper_New(srckeys, dstkeys, nproperties, params->groupByLimits);
 
   size_t nreducers = array_len(gstp->reducers);
   for (size_t ii = 0; ii < nreducers; ++ii) {
