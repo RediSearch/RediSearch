@@ -7,7 +7,7 @@
 #include <stddef.h>
 #include <stdint.h>
 #include <stdlib.h>
-#include "redisearch_types.h"
+#include "rqe_core.h"
 // Forward declaration of `RSDocumentMetadata`, defined in `redisearch.h`.
 // We can't include redisearch.h directly: it transitively includes this header.
 typedef struct RSDocumentMetadata_s RSDocumentMetadata;

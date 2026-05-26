@@ -9,6 +9,7 @@
 #include <stdlib.h>
 #include "_ttl_table.h"
 #include "field.h"
+#include "rqe_core.h"
 
 /**
  * Borrowed view of a contiguous run of [`FieldExpiration`] entries.

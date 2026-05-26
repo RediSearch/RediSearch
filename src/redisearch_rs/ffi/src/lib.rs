@@ -114,13 +114,7 @@ impl QueryProcessingCtx {
     }
 }
 
-/// Rust implementation of `t_fieldMask` from `redisearch.h`
+/// Rust implementation of [`t_fieldMask`] from `rqe_core.h`
 pub type FieldMask = t_fieldMask;
 
-#[cfg(target_pointer_width = "64")]
-pub const RS_FIELDMASK_ALL: FieldMask = u128::MAX;
-
-#[cfg(target_pointer_width = "32")]
-pub const RS_FIELDMASK_ALL: FieldMask = u64::MAX;
-
-pub const RS_INVALID_FIELD_INDEX: t_fieldIndex = 0xFFFF;
+pub use rqe_core::{RS_FIELDMASK_ALL, RS_INVALID_FIELD_INDEX};

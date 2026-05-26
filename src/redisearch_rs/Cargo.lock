@@ -632,6 +632,7 @@ dependencies = [
  "enumflags2",
  "query_node_type",
  "query_term",
+ "rqe_core",
  "rqe_iterator_type",
  "workspace_hack",
 ]
@@ -1122,6 +1123,7 @@ dependencies = [
  "qint",
  "query_term",
  "redis_reply",
+ "rqe_core",
  "serde",
  "smallvec",
  "thin_vec",
@@ -2193,6 +2195,14 @@ checksum = "72f81bee8c8ef9b577d1681a70ebbc962c232461e397b22c208c43c04b67a155"
 dependencies = [
  "rmp",
  "serde",
+]
+
+[[package]]
+name = "rqe_core"
+version = "0.0.1"
+dependencies = [
+ "cheadergen",
+ "workspace_hack",
 ]
 
 [[package]]

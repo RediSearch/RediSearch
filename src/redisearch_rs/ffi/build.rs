@@ -321,6 +321,9 @@ const HEADERS: &[HeaderAllowlist] = &[
 /// Prefer adding a forward declaration in the C header instead — see e.g.
 /// `src/redis_index.h` for `InvertedIndex` or `src/spec.h` for `QueryError`.
 const PERMITTED_GENERATED_HEADERS: &[&str] = &[
+    // Fundamental type aliases (t_docId, t_fieldIndex, t_fieldMask) used
+    // across both C code and Rust-generated headers.
+    "rqe_core.h",
     // `DocumentType` is used as a bitfield in `RSDocumentMetadata`
     // (src/redisearch.h) — the full enum definition is required.
     "document_rs.h",
