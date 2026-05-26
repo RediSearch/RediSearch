@@ -140,7 +140,6 @@ def generate_arguments(file, member, arguments):
                 if 'arguments' in arg:
                     generate_arguments(file, 'subargs', arg['arguments'])
         args_scope.write('{0}\n')
-    return get_arguments_arity(arguments)
 
 def generate_redis_module_command_info(name, cmd_info, file):
     with Scope('const RedisModuleCommandInfo info = ', ';', file) as info:
@@ -160,9 +159,10 @@ def generate_redis_module_command_info(name, cmd_info, file):
             elif key == 'history':
                 generate_history(file, value)
             elif key == 'arguments':
-                min_arity, is_exact_arity = generate_arguments(file, 'args', value)
+                generate_arguments(file, 'args', value)
+                arity, is_exact_arity = get_arguments_arity(value)
                 # arity includes the command name itself, including subcommand tokens.
-                arity = min_arity + len(name.split())
+                arity += len(name.split())
                 if not is_exact_arity or name in COMMANDS_WITH_MINIMUM_ARITY:
                     arity = -arity
                 info.write(f'.arity = {arity},\n')
