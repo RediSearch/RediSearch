@@ -1180,7 +1180,7 @@ static QueryIterator *Query_EvalUnionNode(QueryEvalCtx *q, QueryNode *qn) {
  * @param caseSensitive A flag indicating whether the conversion to lowercase
  * should be performed. If true, the string remains case-sensitive.
  */
-static void tag_strtolower(char **pstr, size_t *len, int caseSensitive) {
+void tag_strtolower(char **pstr, size_t *len, int caseSensitive) {
   size_t length = *len;
   char *str = *pstr;
   char *origStr = str;
@@ -1602,7 +1602,6 @@ QueryIterator *QAST_Iterate(QueryAST *qast, const RSSearchOptions *opts, RedisSe
                             uint32_t reqflags, QueryError *status) {
   QueryEvalCtx qectx = {
       .opts = opts,
-      .numTokens = qast->numTokens,
       .docTable = &sctx->spec->docs,
       .sctx = sctx,
       .status = status,
@@ -2083,7 +2082,7 @@ static sds QueryNode_DumpSds(sds s, const IndexSpec *spec, const QueryNode *qs, 
             did = DocTable_GetId(&spec->docs, qs->fn.keys[i], sdslen(qs->fn.keys[i]));
           }
           if (did != 0) {
-            s = sdscatprintf(s, "%lu,", did);
+            s = sdscatprintf(s, "%" PRIu64 ",", did);
           }
         }
       }

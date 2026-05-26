@@ -30,6 +30,7 @@ jobs:
       run:
         shell: bash -l -eo pipefail {0}
     env:
+      IS_FORK_PR: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository }}
       # build.sh maps `uname -m == x86_64` -> `x64` and `uname -m == aarch64` -> `aarch64`;
       # BUILD_DIR mirrors that so the upload step finds the .so.
       BUILD_DIR: ${{ format('bin/linux-{0}-release/search-community', inputs.arch == 'aarch64' && 'aarch64' || 'x64') }}
@@ -47,6 +48,7 @@ jobs:
         working-directory: .install
         run: ./install_boost.sh
       - name: Setup sccache
+        if: ${{ env.IS_FORK_PR != 'true' }}
         uses: ./.github/actions/setup-sccache
         with:
           aws-role: ${{ vars.SCCACHE_AWS_ROLE_TO_ASSUME }}
@@ -56,7 +58,7 @@ jobs:
       - name: Build RediSearch
         run: make build LTO=1
       - name: Show sccache stats
-        run: ${SCCACHE_PATH:-sccache} --show-stats
+        run: ${SCCACHE_PATH:-sccache} --show-stats || true
       - name: Upload redisearch.so artifact
         uses: actions/upload-artifact@v4
         with:

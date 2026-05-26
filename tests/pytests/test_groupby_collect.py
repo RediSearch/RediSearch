@@ -1522,6 +1522,30 @@ def test_two_collect_reducers_overlapping_fields_cluster():
         env.assertEqual(attrs['last_desc'], expected_last[attrs['color']])
 
 
+def test_two_identical_collect_reducers():
+    # MOD-15816: two REDUCE COLLECT calls over identical (name, args) inside one GROUPBY
+    # should work.
+    env = Env(protocol=3)
+    enable_unstable_features(env)
+    _setup_hash(env)
+
+    res = env.cmd(
+        'FT.AGGREGATE', 'idx', '*',
+        'GROUPBY', '1', '@color',
+            'REDUCE', 'COLLECT', '3', 'FIELDS', '1', '@name', 'AS', 'names_a',
+            'REDUCE', 'COLLECT', '3', 'FIELDS', '1', '@name', 'AS', 'names_b')
+
+    expected = {
+        'green':  [{'name': 'kiwi'},   {'name': 'lime'}],
+        'red':    [{'name': 'apple'},  {'name': 'strawberry'}],
+        'yellow': [{'name': 'banana'}, {'name': 'lemon'}],
+    }
+    for g in res['results']:
+        attrs = g['extra_attributes']
+        env.assertEqual(_sort_collected(attrs['names_a'], 'name'), expected[attrs['color']])
+        env.assertEqual(_sort_collected(attrs['names_b'], 'name'), expected[attrs['color']])
+
+
 # ---------------------------------------------------------------------------
 # COLLECT across multiple GROUPBY stages
 # ---------------------------------------------------------------------------

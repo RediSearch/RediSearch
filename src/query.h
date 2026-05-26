@@ -125,6 +125,14 @@ QueryIterator *QAST_Iterate(QueryAST *ast, const RSSearchOptions *options,
                             RedisSearchCtx *sctx, uint32_t reqflags, QueryError *status);
 
 /**
+ * Remove tag escape sequences and optionally lowercase a string.
+ * @param pstr pointer to the string (may be reallocated if lowercasing produces a longer result)
+ * @param len pointer to the string length (updated on output)
+ * @param caseSensitive if non-zero, skip lowercasing
+ */
+void tag_strtolower(char **pstr, size_t *len, int caseSensitive);
+
+/**
  * Expand the query using a pre-registered expander. Query expansion possibly
  * modifies or adds additional search terms to the query.
  * @param q the query

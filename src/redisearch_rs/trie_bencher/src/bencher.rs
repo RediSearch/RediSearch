@@ -12,10 +12,10 @@ use criterion::{
     measurement::{Measurement, WallTime},
 };
 use lending_iterator::LendingIterator;
+use rqe_wildcard::WildcardPattern;
 use std::{ffi::c_void, hint::black_box, ptr::NonNull, time::Duration};
 use trie_rs::iter::{ContainsLendingIter, LendingIter};
 use trie_rs::iter::{RangeFilter, RangeLendingIter};
-use wildcard::WildcardPattern;
 
 use crate::RustTrieMap;
 

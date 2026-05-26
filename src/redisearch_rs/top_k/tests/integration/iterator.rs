@@ -79,7 +79,7 @@ impl<'index> rqe_iterators::RQEIterator<'index> for AbortOnRevalidate {
 /// Used to verify that timeout errors propagate correctly through [`TopKIterator`].
 struct TimingOutSource;
 
-impl<'index> ScoreSource<'index> for TimingOutSource {
+impl ScoreSource for TimingOutSource {
     type Batch = MockScoreBatch;
 
     fn next_batch(&mut self) -> Result<Option<Self::Batch>, RQEIteratorError> {
@@ -92,7 +92,10 @@ impl<'index> ScoreSource<'index> for TimingOutSource {
 
     fn rewind(&mut self) {}
 
-    fn build_result(&self, doc_id: ffi::t_docId, _: f64) -> RSIndexResult<'index> {
+    fn build_result<'r>(&self, doc_id: ffi::t_docId, _: f64) -> RSIndexResult<'r>
+    where
+        Self: 'r,
+    {
         RSIndexResult::build_virt().doc_id(doc_id).build()
     }
 

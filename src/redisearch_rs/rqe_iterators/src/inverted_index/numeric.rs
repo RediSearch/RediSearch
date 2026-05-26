@@ -263,20 +263,10 @@ pub enum NumericIteratorVariant<'index> {
     Unfiltered(Numeric<'index, NumericIndexReader<'index>, FieldExpirationChecker>),
     /// Numeric filter: skips entries outside the filter's value range.
     Filtered(
-        Numeric<
-            'index,
-            FilterNumericReader<'index, NumericIndexReader<'index>>,
-            FieldExpirationChecker,
-        >,
+        Numeric<'index, FilterNumericReader<NumericIndexReader<'index>>, FieldExpirationChecker>,
     ),
     /// Geo filter: skips entries that do not pass the geo predicate.
-    Geo(
-        Numeric<
-            'index,
-            FilterGeoReader<'index, NumericIndexReader<'index>>,
-            FieldExpirationChecker,
-        >,
-    ),
+    Geo(Numeric<'index, FilterGeoReader<NumericIndexReader<'index>>, FieldExpirationChecker>),
 }
 
 impl<'index> NumericIteratorVariant<'index> {
@@ -387,7 +377,7 @@ impl<'index> NumericIteratorVariant<'index> {
                 // SAFETY: `range_tree` lifetime is enforced by `'index`.
                 let iter = unsafe {
                     Numeric::new(
-                        FilterNumericReader::new(f, reader),
+                        FilterNumericReader::new(*f, reader),
                         expiration_checker,
                         range_tree,
                         Some(range_min),
@@ -400,7 +390,7 @@ impl<'index> NumericIteratorVariant<'index> {
                 // SAFETY: `range_tree` lifetime is enforced by `'index`.
                 let iter = unsafe {
                     Numeric::new(
-                        FilterGeoReader::new(f, reader),
+                        FilterGeoReader::new(*f, reader),
                         expiration_checker,
                         range_tree,
                         Some(range_min),

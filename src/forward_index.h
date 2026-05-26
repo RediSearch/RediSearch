@@ -87,9 +87,11 @@ ForwardIndexEntry *ForwardIndexIterator_Next(ForwardIndexIterator *iter);
 // Find an existing entry within the index
 ForwardIndexEntry *ForwardIndex_Find(ForwardIndex *i, const char *s, size_t n, uint32_t hash);
 
-/* Write a ForwardIndexEntry into an indexWriter. Returns the number of bytes written to the index
+/* Write a ForwardIndexEntry into an indexWriter. Returns an `AddRecordOutcome` carrying the
+ * memory growth and the number of new blocks created — callers maintaining per-spec
+ * `total_inverted_index_blocks` should add `.blocks_added` to their counter.
  */
-size_t InvertedIndex_WriteForwardIndexEntry(InvertedIndex *idx, ForwardIndexEntry *ent);
+AddRecordOutcome InvertedIndex_WriteForwardIndexEntry(InvertedIndex *idx, ForwardIndexEntry *ent);
 
 #ifdef __cplusplus
 }

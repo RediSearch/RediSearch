@@ -2998,10 +2998,10 @@ static void Indexes_ScanAndReindexTask(IndexesScanner *scanner) {
     if (scanner->cancelled) {
 
       if (scanner->global) {
-        RedisModule_Log(ctx, "notice", "Scanning indexes in background: cancelled (scanned=%ld)",
+        RedisModule_Log(ctx, "notice", "Scanning indexes in background: cancelled (scanned=%zu)",
                         scanner->scannedKeys);
       } else {
-        RedisModule_Log(ctx, "notice", "Scanning index %s in background: cancelled (scanned=%ld)",
+        RedisModule_Log(ctx, "notice", "Scanning index %s in background: cancelled (scanned=%zu)",
                     scanner->spec_name_for_logs, scanner->scannedKeys);
         goto end;
       }
@@ -3014,10 +3014,10 @@ static void Indexes_ScanAndReindexTask(IndexesScanner *scanner) {
   }
 
   if (scanner->global) {
-    RedisModule_Log(ctx, "notice", "Scanning indexes in background: done (scanned=%ld)",
+    RedisModule_Log(ctx, "notice", "Scanning indexes in background: done (scanned=%zu)",
                     scanner->scannedKeys);
   } else {
-    RedisModule_Log(ctx, "notice", "Scanning index %s in background: done (scanned=%ld)",
+    RedisModule_Log(ctx, "notice", "Scanning index %s in background: done (scanned=%zu)",
                     scanner->spec_name_for_logs, scanner->scannedKeys);
   }
 
@@ -3821,15 +3821,22 @@ void Indexes_RdbSave2(RedisModuleIO *rdb, int when) {
   }
 }
 
+
 void *IndexSpec_RdbLoad_Logic(RedisModuleIO *rdb, int encver) {
   const bool useSst = CheckRdbSstPersistence(RedisModule_GetContextFromIO(rdb), "RDB Load Logic");
-  if (encver < INDEX_VECSIM_SVS_VAMANA_VERSION) {
+  if (encver <= LEGACY_INDEX_MAX_VERSION) {
     // Legacy index, loaded in order to upgrade from an old version
     return IndexSpec_LegacyRdbLoad(rdb, encver);
   } else {
     // New index, loaded normally.
     // Even though we don't actually load or save the index spec in the key space, this implementation is useful
     // because it allows us to serialize and deserialize the index spec in a clean way.
+    // Required to support loading during ASM migration.
+    RS_ASSERT(encver >= INDEX_ASM_PROPAGATE_DEFINITIONS_VERSION);
+    if (encver < INDEX_ASM_PROPAGATE_DEFINITIONS_VERSION) {
+      RedisModule_LogIOError(rdb, "warning", "RDB Load: Unexpected encver %d found in RDB_Load, encver not expected to be lower than %d", encver, INDEX_ASM_PROPAGATE_DEFINITIONS_VERSION);
+      return NULL;
+    }
     QueryError status = QueryError_Default();
     IndexSpec *sp = IndexSpec_RdbLoad(rdb, encver, useSst, &status);
     if (!sp) {

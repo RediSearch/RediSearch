@@ -10,6 +10,7 @@
 #include "rmutil/rm_assert.h"
 #include "redismodule.h"
 #include "rmutil/rm_assert.h"
+#include <inttypes.h>
 
 BlockedQueries *BlockedQueries_Init() {
   BlockedQueries* blockedQueries = rm_calloc(1, sizeof(BlockedQueries));
@@ -39,7 +40,7 @@ static size_t PrintActiveCursors(BlockedQueries *blockedQueries) {
     ++count; // increment regardless if sp is valid, the fact we have a valid node is problematic
     const char *indexName = sp ? IndexSpec_FormatName(sp, RSGlobalConfig.hideUserDataFromLog) : "n/a";
     const char *query = at->query && !RSGlobalConfig.hideUserDataFromLog ? at->query : "n/a";
-    RedisModule_Log(NULL, "warning", "Active cursor %zu, on index %s, query: %s, started at %ld", at->cursorId, indexName, query, at->start);
+    RedisModule_Log(NULL, "warning", "Active cursor %" PRIu64 ", on index %s, query: %s, started at %ld", at->cursorId, indexName, query, at->start);
   }
   return count;
 }
