@@ -138,13 +138,7 @@ void Document_LoadHashFieldExpiration(RedisModuleKey *k, const FieldSpec *field,
     return;
   }
   FieldExpiration fx = {.index = (t_fieldIndex)ii, .point = timespecFromMilliseconds(expireAt)};
-  // `out` may be the C-zero sentinel (e.g. a freshly calloc'd Document, ptr ==
-  // NULL); FieldExpirations_Push requires a real ThinVec, so promote it to an
-  // empty one first. Fields are visited in ascending order, so a plain push
-  // (no insertion search) keeps the list sorted by index.
-  if (!out->ptr) {
-    *out = FieldExpirations_Empty();
-  }
+
   FieldExpirations_Push(out, fx);
 }
 

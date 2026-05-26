@@ -367,8 +367,7 @@ static void doAssignIds(RSAddDocumentCtx *cur, RedisSearchCtx *ctx) {
         cur->byteOffsets = NULL;
       }
       Document* doc = cur->doc;
-      const size_t fieldExpLen = FieldExpirations_Len(&doc->fieldExpirations);
-      const bool hasExpiration = doc->docExpirationTime.tv_sec || doc->docExpirationTime.tv_nsec || fieldExpLen > 0;
+      const bool hasExpiration = doc->docExpirationTime.tv_sec || doc->docExpirationTime.tv_nsec || FieldExpirations_Len(&doc->fieldExpirations) > 0;
       if (hasExpiration) {
         DocTable_UpdateExpiration(&ctx->spec->docs, md, doc->docExpirationTime,
                                   DocTable_TakeFieldExpirations(&doc->fieldExpirations));
@@ -766,16 +765,14 @@ static void Indexer_Process(RSAddDocumentCtx *aCtx) {
     doAssignIds(firstZeroId, &ctx);
   }
 
-  struct FieldExpirationSlice fes;
   if (SearchDisk_IsEnabled()) {
     indexDocumentDisk(aCtx, &ctx);
-    fes = FieldExpirations_AsSlice(&doc->fieldExpirations);
   } else {
     // `doc->fieldExpirations` ownership has already been moved into the TTL
     // table by `doAssignIds` on success. On failure (e.g. `makeDocumentId`
     // returned NULL), the array stays attached to `doc` so `Document_Free`
     // can release it.
-    fes = DocTable_GetFieldExpirations(&ctx.spec->docs, doc->docId);
+    struct FieldExpirationSlice fes = DocTable_GetFieldExpirations(&ctx.spec->docs, doc->docId);
     indexDocumentMemory(aCtx, &ctx, fes);
   }
 }

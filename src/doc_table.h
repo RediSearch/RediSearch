@@ -192,7 +192,7 @@ static inline bool DocTable_CheckWideFieldMaskExpirationPredicate(const DocTable
 // TTLs (`t->ttl == NULL`) or if `docId` has no field-level entry. See
 // TimeToLiveTable_GetFieldExpirations for lifetime / aliasing rules.
 static inline struct FieldExpirationSlice DocTable_GetFieldExpirations(const DocTable *t, t_docId docId) {
-  if (!t->ttl) return (struct FieldExpirationSlice){ .ptr = NULL, .len = 0 };
+  if (!t->ttl) return FieldExpirationsSlice_Empty();
   return TimeToLiveTable_GetFieldExpirations(t->ttl, docId);
 }
 

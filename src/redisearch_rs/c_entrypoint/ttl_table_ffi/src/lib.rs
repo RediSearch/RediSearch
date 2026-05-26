@@ -356,27 +356,6 @@ pub unsafe extern "C" fn FieldExpirations_Len(v: *const FieldExpirations) -> usi
     v.len()
 }
 
-/// Borrow the contents of `*v` as a [`FieldExpirationSlice`].
-///
-/// The returned pointer aliases storage owned by `*v`.
-///
-/// # Safety
-///  - `v` must be non-null.
-///  - `*v` must be either an initialized [`FieldExpirations`] (returned by a
-///    constructor in this module).
-#[unsafe(no_mangle)]
-pub unsafe extern "C" fn FieldExpirations_AsSlice<'a>(
-    v: *const FieldExpirations,
-) -> FieldExpirationSlice<'a> {
-    debug_assert!(!v.is_null(), "v cannot be NULL");
-
-    // SAFETY: not uninitialized, so `*v` is a properly constructed
-    // `FieldExpirations` per the caller's contract.
-    let v = unsafe { &*v };
-
-    FieldExpirationSlice::from_fields(v)
-}
-
 /// Drop the [`FieldExpirations`] at `*v` and leave it in an empty,
 /// reusable state.
 ///
@@ -407,6 +386,12 @@ pub unsafe extern "C" fn FieldExpirations_Free(v: *mut FieldExpirations) {
     // empty wrapper that doesn't allocate) and drops the old value,
     // releasing its `ThinVec` heap allocation.
     let _ = std::mem::take(v);
+}
+
+/// Return empty FieldExpirationSlice
+#[unsafe(no_mangle)]
+pub const extern "C" fn FieldExpirationsSlice_Empty() -> FieldExpirationSlice<'static> {
+    FieldExpirationSlice::EMPTY
 }
 
 #[inline]

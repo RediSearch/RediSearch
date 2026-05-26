@@ -404,13 +404,9 @@ includes = ["redismodule.h", "hiredis/sds.h"]
 includes = ["buffer.h", "redisearch.h"]
 
 [header.ttl_table]
-includes = ["redisearch_types.h", "redisearch.h"]
+includes = ["redisearch.h"]
 after_includes = """
-
 
 // `TimeToLiveTable` is opaque on the C side — only passed by pointer.
 typedef struct TimeToLiveTable TimeToLiveTable;
-
-
-
 """
