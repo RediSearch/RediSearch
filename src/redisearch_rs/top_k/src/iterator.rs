@@ -45,6 +45,8 @@ pub enum TopKMode {
     Batches,
     /// Walk the child iterator and call [`ScoreSource::lookup_score`] for
     /// each document it yields.
+    ///
+    /// `BF` stands for "Brute Force": for the lookup, opposed to score-ordered batches.
     AdhocBF,
 }
 
@@ -92,8 +94,6 @@ impl<'index, S: ScoreSource + 'index> TopKIterator<'index, S> {
     /// The execution mode is inferred from `child`:
     /// - `None` → [`TopKMode::Unfiltered`]
     /// - `Some(_)` → [`TopKMode::Batches`]
-    ///
-    /// Use [`new_with_mode`](Self::new_with_mode) to override the initial mode.
     pub fn new(
         source: S,
         child: Option<Box<dyn RQEIterator<'index> + 'index>>,
@@ -105,14 +105,26 @@ impl<'index, S: ScoreSource + 'index> TopKIterator<'index, S> {
         } else {
             TopKMode::Unfiltered
         };
-        Self::new_with_mode(source, child, k, compare, mode)
+        Self::_new_with_mode(source, child, k, compare, mode)
     }
 
     /// Create a new [`TopKIterator`] with an explicit initial mode.
     ///
     /// Useful for tests and for constructors that want to start in
     /// [`AdhocBF`](TopKMode::AdhocBF) immediately.
+    #[cfg(feature = "test-utils")]
     pub fn new_with_mode(
+        source: S,
+        child: Option<Box<dyn RQEIterator<'index> + 'index>>,
+        k: NonZeroUsize,
+        compare: fn(f64, f64) -> Ordering,
+        mode: TopKMode,
+    ) -> Self {
+        Self::_new_with_mode(source, child, k, compare, mode)
+    }
+
+    /// Create a new [`TopKIterator`] with an explicit initial mode.
+    fn _new_with_mode(
         source: S,
         child: Option<Box<dyn RQEIterator<'index> + 'index>>,
         k: NonZeroUsize,
@@ -149,6 +161,7 @@ impl<'index, S: ScoreSource + 'index> TopKIterator<'index, S> {
             // Reset so a retry via read() works: Phase::Collecting has no handler there.
             // TODO: MOD-14209: bubble up errors
             self.phase = Phase::NotStarted;
+            self.mode = self.initial_mode;
         }
         result
     }
@@ -231,7 +244,6 @@ impl<'index, S: ScoreSource + 'index> TopKIterator<'index, S> {
             };
             let doc_id = result.doc_id;
 
-            // `self.child` is now free (we only needed `doc_id`).
             if let Some(score) = self.source.lookup_score(doc_id) {
                 self.heap.push(doc_id, score);
             }
