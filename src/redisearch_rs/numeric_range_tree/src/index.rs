@@ -43,13 +43,14 @@ impl NumericIndex {
         }
     }
 
-    /// Add a record to the index, returning bytes written.
+    /// Add a record to the index. Returns `(memory_growth, blocks_added)` — see
+    /// [`InvertedIndex::add_record`][inverted_index::InvertedIndex::add_record].
     ///
     /// # Panics
     ///
     /// Panics if the underlying write fails. This should never happen with
     /// in-memory inverted indexes, so a panic indicates a bug.
-    pub fn add_record(&mut self, record: &RSIndexResult<'_>) -> usize {
+    pub fn add_record(&mut self, record: &RSIndexResult<'_>) -> inverted_index::AddRecordOutcome {
         let result = match self {
             NumericIndex::Uncompressed(idx) => idx.add_record(record),
             NumericIndex::Compressed(idx) => idx.add_record(record),

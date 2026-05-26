@@ -392,7 +392,7 @@ TEST_F(IndexTest, testNumericInverted) {
     }
 
     // Check if the write matches the simulation
-    sz = InvertedIndex_WriteNumericEntry(idx, i + 1, (double)(i + 1));
+    sz = InvertedIndex_WriteNumericEntry(idx, i + 1, (double)(i + 1)).mem_growth;
     ASSERT_EQ(sz, expected_sz) << " at i=" << i;
   }
   ASSERT_EQ(75, InvertedIndex_LastId(idx));
@@ -429,7 +429,7 @@ TEST_F(IndexTest, testNumericVaried) {
   static const size_t numCount = sizeof(nums) / sizeof(double);
 
   for (size_t i = 0; i < numCount; i++) {
-    size_t sz = InvertedIndex_WriteNumericEntry(idx, i + 1, nums[i]);
+    size_t sz = InvertedIndex_WriteNumericEntry(idx, i + 1, nums[i]).mem_growth;
     // printf("[%lu]: Stored %lf\n", i, nums[i]);
   }
 
@@ -490,10 +490,10 @@ void testNumericEncodingHelper(bool isMulti) {
 
   for (size_t ii = 0; ii < numInfos; ii++) {
     // printf("\n[%lu]: Expecting Val=%lf, Sz=%lu\n", ii, infos[ii].value, infos[ii].size);
-    size_t sz = InvertedIndex_WriteNumericEntry(idx, ii + 1, infos[ii].value);
+    size_t sz = InvertedIndex_WriteNumericEntry(idx, ii + 1, infos[ii].value).mem_growth;
 
     if (isMulti) {
-      size_t sz = InvertedIndex_WriteNumericEntry(idx, ii + 1, infos[ii].value);
+      size_t sz = InvertedIndex_WriteNumericEntry(idx, ii + 1, infos[ii].value).mem_growth;
     }
   }
 
@@ -1146,7 +1146,7 @@ TEST_F(IndexTest, testHugeSpec) {
   s = (IndexSpec *)StrongRef_Get(ref);
   ASSERT_TRUE(s == NULL);
   ASSERT_TRUE(QueryError_HasError(&err));
-#if (defined(__x86_64__) || defined(__aarch64__) || defined(__arm64__)) && !defined(RS_NO_U128)
+#if (defined(__x86_64__) || defined(__aarch64__) || defined(__arm64__))
   ASSERT_STREQ("SEARCH_LIMIT_OVER Schema is limited to 128 TEXT fields", QueryError_GetUserError(&err));
 #else
   ASSERT_STREQ("SEARCH_LIMIT_OVER Schema is limited to 64 TEXT fields", QueryError_GetUserError(&err));
@@ -1177,7 +1177,7 @@ TEST_F(IndexTest, testIndexFlags) {
   // storing fieldmask on idx             16
   ASSERT_EQ(40, index_memsize);
   ASSERT_TRUE(InvertedIndex_Flags(w) == flags);
-  size_t sz = InvertedIndex_WriteForwardIndexEntry(w, &h);
+  size_t sz = InvertedIndex_WriteForwardIndexEntry(w, &h).mem_growth;
   ASSERT_EQ(73, sz);
   InvertedIndex_Free(w);
 
@@ -1185,7 +1185,7 @@ TEST_F(IndexTest, testIndexFlags) {
   w = NewInvertedIndex(IndexFlags(flags), &index_memsize);
   ASSERT_EQ(40, index_memsize);
   ASSERT_TRUE(!(InvertedIndex_Flags(w) & Index_StoreTermOffsets));
-  size_t sz2 = InvertedIndex_WriteForwardIndexEntry(w, &h);
+  size_t sz2 = InvertedIndex_WriteForwardIndexEntry(w, &h).mem_growth;
   ASSERT_EQ(sz2, 60);
   InvertedIndex_Free(w);
 
@@ -1194,7 +1194,7 @@ TEST_F(IndexTest, testIndexFlags) {
   ASSERT_EQ(40, index_memsize);
   ASSERT_TRUE((InvertedIndex_Flags(w) & Index_WideSchema));
   h.fieldMask = 0xffffffffffff;
-  ASSERT_EQ(77, InvertedIndex_WriteForwardIndexEntry(w, &h));
+  ASSERT_EQ(77, InvertedIndex_WriteForwardIndexEntry(w, &h).mem_growth);
   InvertedIndex_Free(w);
 
   flags &= Index_StoreFreqs;
@@ -1206,7 +1206,7 @@ TEST_F(IndexTest, testIndexFlags) {
   ASSERT_EQ(24, index_memsize);
   ASSERT_TRUE(!(InvertedIndex_Flags(w) & Index_StoreTermOffsets));
   ASSERT_TRUE(!(InvertedIndex_Flags(w) & Index_StoreFieldFlags));
-  sz = InvertedIndex_WriteForwardIndexEntry(w, &h);
+  sz = InvertedIndex_WriteForwardIndexEntry(w, &h).mem_growth;
   ASSERT_EQ(59, sz);
   InvertedIndex_Free(w);
 
@@ -1216,7 +1216,7 @@ TEST_F(IndexTest, testIndexFlags) {
   ASSERT_TRUE((InvertedIndex_Flags(w) & Index_WideSchema));
   ASSERT_TRUE((InvertedIndex_Flags(w) & Index_StoreFieldFlags));
   h.fieldMask = 0xffffffffffff;
-  sz = InvertedIndex_WriteForwardIndexEntry(w, &h);
+  sz = InvertedIndex_WriteForwardIndexEntry(w, &h).mem_growth;
   ASSERT_EQ(67, sz);
   InvertedIndex_Free(w);
 
