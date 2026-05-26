@@ -9,8 +9,11 @@
 
 use std::num::NonZeroUsize;
 
-use crate::FieldExpirations;
-use ffi::{FieldExpiration, t_docId, t_expirationTimePoint as timespec};
+use ffi::t_docId;
+use libc::timespec;
+use thin_vec::ThinVec;
+
+use crate::FieldExpiration;
 
 pub const fn ts(sec: i64, nsec: i64) -> timespec {
     // `libc::time_t` is deprecated on musl (musl 1.2 changed it to 64-bit,
@@ -40,25 +43,12 @@ pub const NEVER: timespec = ts(0, 0);
 
 pub const TEST_MAX_SIZE: NonZeroUsize = NonZeroUsize::new(1024).unwrap();
 
-pub const fn empty_fields() -> FieldExpirations {
-    FieldExpirations::new()
+pub const fn empty_fields() -> ThinVec<FieldExpiration> {
+    ThinVec::new()
 }
 
 pub const fn fe(index: u16, point: timespec) -> FieldExpiration {
     FieldExpiration { index, point }
-}
-
-/// Builds a [`FieldExpirations`] from a `[FieldExpiration; N]` literal.
-///
-/// Entries are appended via [`FieldExpirations::push`], so a misordered or
-/// duplicate-index literal panics loudly instead of silently violating the
-/// container's invariant.
-pub fn fes<const N: usize>(arr: [FieldExpiration; N]) -> FieldExpirations {
-    let mut fields = FieldExpirations::new();
-    for fe in arr {
-        fields.push(fe);
-    }
-    fields
 }
 
 /// Identity mapping from bit position → field index (bit `i` ↔ field `i`).
@@ -72,8 +62,4 @@ pub fn mask_bit(indexes: &[u16]) -> u32 {
 
 pub fn mask_bit_u128(indexes: &[u16]) -> u128 {
     indexes.iter().map(|index| 1 << index).sum()
-}
-
-pub fn mask_bit_u64(indexes: &[u16]) -> u64 {
-    indexes.iter().map(|index| 1u64 << index).sum()
 }

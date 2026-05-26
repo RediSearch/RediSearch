@@ -217,7 +217,4 @@ static char *rm_normalize(const char *s, size_t len) {
   return ret;
 }
 
-// Non-static wrapper around unicode_tolower for FFI testing.
-char *unicode_tolower_fn(char *encoded, size_t *inout_len);
-
 #endif

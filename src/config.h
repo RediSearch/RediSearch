@@ -12,7 +12,6 @@
 #include "hiredis/sds.h"
 #include "rmutil/args.h"
 #include "reply.h"
-#include "rqe_iterators.h"
 #include "util/config_macros.h"
 #include "ext/default.h"
 
@@ -107,6 +106,17 @@ typedef struct {
   // OOM policy
   RSOomPolicy oomPolicy;
 } RequestConfig;
+
+// Configuration parameters related to the query execution.
+typedef struct {
+  // The maximal number of expansions we allow for a prefix. Default: 200
+  long long maxPrefixExpansions;
+  // The minimal number of characters we allow expansion for in a prefix search. Default: 2
+  long long minTermPrefix;
+  // The minimal word length to stem. Default 4
+  unsigned int minStemLength;
+  long long minUnionIterHeap;
+} IteratorsConfig;
 
 /* RSConfig is a global configuration struct for the module, it can be included from each file,
  * and is initialized with user config options during module startup */
@@ -208,12 +218,6 @@ typedef struct {
   bool monitorExpiration;
   // Percentage of available memory to use for disk write buffer (0-100).
   uint8_t diskBufferPercentage;
-  // Controls SpeedB OS page-cache behaviour for disk indexes (MOD-15866).
-  // Both default to false; users opt in via search-disk-drop-read-cache and
-  // search-disk-use-direct-reads at load time.  These are RSE-only knobs and
-  // are intentionally not coupled to any Flex bigredis-driver settings.
-  bool diskDropReadCache;
-  bool diskUseDirectReads;
   // If true, fallback to main thread when BlockClient is unavailable.
   bool fallbackToMainThreadWhenBlockClientUnavailable;
 } RSConfig;
@@ -429,8 +433,6 @@ long long getRedisConfigNumeric(RedisModuleCtx *ctx, const char *confName, long 
     .simulateInFlex = false,                                                   \
     .monitorExpiration = true,                                                 \
     .diskBufferPercentage = DEFAULT_DISK_BUFFER_PERCENTAGE,                    \
-    .diskDropReadCache = false,                                                \
-    .diskUseDirectReads = false,                                               \
     .fallbackToMainThreadWhenBlockClientUnavailable = true,                    \
   }
 

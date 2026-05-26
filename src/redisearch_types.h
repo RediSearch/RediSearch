@@ -20,7 +20,7 @@ typedef uint64_t t_docId;
 // Used to identify any field index within the spec, not just textual fields
 typedef uint16_t t_fieldIndex;
 
-#if (defined(__x86_64__) || defined(__aarch64__) || defined(__arm64__))
+#if (defined(__x86_64__) || defined(__aarch64__) || defined(__arm64__)) && !defined(RS_NO_U128)
 /* 64 bit architectures use 128 bit field masks and up to 128 fields */
 typedef __uint128_t t_fieldMask;
 #define RS_FIELDMASK_ALL (((__uint128_t)1 << 127) - (__uint128_t)1 + ((__uint128_t)1 << 127))

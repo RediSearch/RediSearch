@@ -97,8 +97,6 @@ configPair_t __configPairs[] = {
   {"_MAX_TRIM_DELAY_MS",               "search-_max-trim-delay-ms"},
   {"_TRIMMING_STATE_CHECK_DELAY_MS",   "search-_trimming-state-check-delay-ms"},
   {"_SIMULATE_IN_FLEX",                "search-_simulate-in-flex"},
-  {"search-disk-drop-read-cache",      "search-disk-drop-read-cache"},
-  {"search-disk-use-direct-reads",     "search-disk-use-direct-reads"},
 };
 
 static const char* FTConfigNameToConfigName(const char *name) {
@@ -151,21 +149,6 @@ static int set_uint_numeric_config(const char *name, long long val,
                            void *privdata, RedisModuleString **err) {
   REDISMODULE_NOT_USED(name);
   REDISMODULE_NOT_USED(err);
-  *(unsigned int *)privdata = (unsigned int) val;
-  return REDISMODULE_OK;
-}
-
-// Like set_uint_numeric_config but accepts values above UINT32_MAX (clamping with a warning).
-// Used for fields that were previously long long and may have larger values persisted in RDB.
-static int set_uint_clamped_numeric_config(const char *name, long long val,
-                                           void *privdata, RedisModuleString **err) {
-  REDISMODULE_NOT_USED(err);
-  if (val > UINT32_MAX) {
-    RedisModule_Log(RSDummyContext, "warning",
-                    "%s value %lld exceeds maximum (%u), clamping",
-                    name, val, UINT32_MAX);
-    val = UINT32_MAX;
-  }
   *(unsigned int *)privdata = (unsigned int) val;
   return REDISMODULE_OK;
 }
@@ -230,7 +213,6 @@ static long long get_uint8_numeric_config(const char *name, void *privdata) {
   REDISMODULE_NOT_USED(name);
   return (long long)(*(uint8_t *)privdata);
 }
-
 
 static int set_bool_config(const char *name, int val, void *privdata,
                     RedisModuleString **err) {
@@ -396,24 +378,13 @@ CONFIG_BOOLEAN_GETTER(getNoMemPools, noMemPool, 0)
 
 // MINPREFIX
 CONFIG_SETTER(setMinPrefix) {
-  long long val;
-  int acrc = AC_GetLongLong(ac, &val, AC_F_GE1);
-  if (acrc != AC_OK) {
-    RETURN_STATUS(acrc);
-  }
-  if (val > UINT32_MAX) {
-    RedisModule_Log(RSDummyContext, "warning",
-                    "MINPREFIX value %lld exceeds maximum (%u), clamping",
-                    val, UINT32_MAX);
-    val = UINT32_MAX;
-  }
-  config->iteratorsConfigParams.minTermPrefix = (uint32_t) val;
-  return REDISMODULE_OK;
+  int acrc = AC_GetLongLong(ac, &config->iteratorsConfigParams.minTermPrefix, AC_F_GE1);
+  RETURN_STATUS(acrc);
 }
 
 CONFIG_GETTER(getMinPrefix) {
   sds ss = sdsempty();
-  return sdscatprintf(ss, "%u", config->iteratorsConfigParams.minTermPrefix);
+  return sdscatprintf(ss, "%lld", config->iteratorsConfigParams.minTermPrefix);
 }
 
 // MINSTEMLEN
@@ -508,24 +479,13 @@ CONFIG_GETTER(getMaxAggregateResults) {
 
 // MAXEXPANSIONS MAXPREFIXEXPANSIONS
 CONFIG_SETTER(setMaxExpansions) {
-  long long val;
-  int acrc = AC_GetLongLong(ac, &val, AC_F_GE1);
-  if (acrc != AC_OK) {
-    RETURN_STATUS(acrc);
-  }
-  if (val > UINT32_MAX) {
-    RedisModule_Log(RSDummyContext, "warning",
-                    "MAXPREFIXEXPANSIONS value %lld exceeds maximum (%u), clamping",
-                    val, UINT32_MAX);
-    val = UINT32_MAX;
-  }
-  config->iteratorsConfigParams.maxPrefixExpansions = (uint32_t) val;
-  return REDISMODULE_OK;
+  int acrc = AC_GetLongLong(ac, &config->iteratorsConfigParams.maxPrefixExpansions, AC_F_GE1);
+  RETURN_STATUS(acrc);
 }
 
 CONFIG_GETTER(getMaxExpansions) {
   sds ss = sdsempty();
-  return sdscatprintf(ss, "%u", config->iteratorsConfigParams.maxPrefixExpansions);
+  return sdscatprintf(ss, "%llu", config->iteratorsConfigParams.maxPrefixExpansions);
 }
 
 // TIMEOUT
@@ -947,24 +907,13 @@ CONFIG_GETTER(getForkGcRetryInterval) {
 
 // UNION_ITERATOR_HEAP
 CONFIG_SETTER(setMinUnionIteratorHeap) {
-  long long val;
-  int acrc = AC_GetLongLong(ac, &val, AC_F_GE1);
-  if (acrc != AC_OK) {
-    RETURN_STATUS(acrc);
-  }
-  if (val > UINT32_MAX) {
-    RedisModule_Log(RSDummyContext, "warning",
-                    "UNION_ITERATOR_HEAP value %lld exceeds maximum (%u), clamping",
-                    val, UINT32_MAX);
-    val = UINT32_MAX;
-  }
-  config->iteratorsConfigParams.minUnionIterHeap = (uint32_t) val;
-  return REDISMODULE_OK;
+  int acrc = AC_GetLongLong(ac, &config->iteratorsConfigParams.minUnionIterHeap, AC_F_GE1);
+  RETURN_STATUS(acrc);
 }
 
 CONFIG_GETTER(getMinUnionIteratorHeap) {
   sds ss = sdsempty();
-  return sdscatprintf(ss, "%u", config->iteratorsConfigParams.minUnionIterHeap);
+  return sdscatprintf(ss, "%lld", config->iteratorsConfigParams.minUnionIterHeap);
 }
 
 // CURSOR_MAX_IDLE
@@ -1347,44 +1296,6 @@ static int get_on_oom(const char *name, void *privdata){
   REDISMODULE_NOT_USED(name);
   return *((RSOomPolicy *)privdata);
 }
-// Legacy module-ARGS setter for search-disk-drop-read-cache.
-// Handles yes/no/true/false (case-insensitive).
-// TODO: remove once RLTest can emit `--<config-name> <value>` directly (see RLTest
-// moduleConfigs follow-up); new immutable configs should not need a legacy ARGS entry.
-CONFIG_SETTER(setDiskDropReadCache) {
-  const char *tf;
-  int acrc = AC_GetString(ac, &tf, NULL, 0);
-  CHECK_RETURN_PARSE_ERROR(acrc);
-  if (!strcasecmp(tf, "yes") || !strcasecmp(tf, "true")) {
-    config->diskDropReadCache = true;
-  } else if (!strcasecmp(tf, "no") || !strcasecmp(tf, "false")) {
-    config->diskDropReadCache = false;
-  } else {
-    acrc = AC_ERR_PARSE;
-  }
-  RETURN_STATUS(acrc);
-}
-
-CONFIG_BOOLEAN_GETTER(getDiskDropReadCache, diskDropReadCache, 0)
-
-// Legacy module-ARGS setter for search-disk-use-direct-reads.
-// Handles yes/no/true/false (case-insensitive).
-CONFIG_SETTER(setDiskUseDirectReads) {
-  const char *tf;
-  int acrc = AC_GetString(ac, &tf, NULL, 0);
-  CHECK_RETURN_PARSE_ERROR(acrc);
-  if (!strcasecmp(tf, "yes") || !strcasecmp(tf, "true")) {
-    config->diskUseDirectReads = true;
-  } else if (!strcasecmp(tf, "no") || !strcasecmp(tf, "false")) {
-    config->diskUseDirectReads = false;
-  } else {
-    acrc = AC_ERR_PARSE;
-  }
-  RETURN_STATUS(acrc);
-}
-
-CONFIG_BOOLEAN_GETTER(getDiskUseDirectReads, diskUseDirectReads, 0)
-
 RSConfig RSGlobalConfig = RS_DEFAULT_CONFIG;
 
 static RSConfigVar *findConfigVar(const RSConfigOptions *config, const char *name) {
@@ -1741,16 +1652,6 @@ RSConfigOptions RSGlobalConfigOptions = {
          .setValue = setDebugSimulateInFlex,
          .getValue = getDebugSimulateInFlex,
          .flags = RSCONFIGVAR_F_IMMUTABLE},
-        {.name = "search-disk-drop-read-cache",
-         .helpText = "Drop OS read cache after each SpeedB read (yes/no, default no)",
-         .setValue = setDiskDropReadCache,
-         .getValue = getDiskDropReadCache,
-         .flags = RSCONFIGVAR_F_IMMUTABLE},
-        {.name = "search-disk-use-direct-reads",
-         .helpText = "Use O_DIRECT for SpeedB reads (yes/no, default no)",
-         .setValue = setDiskUseDirectReads,
-         .getValue = getDiskUseDirectReads,
-         .flags = RSCONFIGVAR_F_IMMUTABLE},
         {.name = NULL}}};
 
 void RSConfigOptions_AddConfigs(RSConfigOptions *src, RSConfigOptions *dst) {
@@ -1849,9 +1750,9 @@ sds RSConfig_GetInfoString(const RSConfig *config) {
   sds ss = sdsempty();
 
   ss = sdscatprintf(ss, "gc: %s, ", config->gcConfigParams.enableGC ? "ON" : "OFF");
-  ss = sdscatprintf(ss, "prefix min length: %u, ", config->iteratorsConfigParams.minTermPrefix);
+  ss = sdscatprintf(ss, "prefix min length: %lld, ", config->iteratorsConfigParams.minTermPrefix);
   ss = sdscatprintf(ss, "min word length to stem: %u, ", config->iteratorsConfigParams.minStemLength);
-  ss = sdscatprintf(ss, "prefix max expansions: %u, ", config->iteratorsConfigParams.maxPrefixExpansions);
+  ss = sdscatprintf(ss, "prefix max expansions: %lld, ", config->iteratorsConfigParams.maxPrefixExpansions);
   ss = sdscatprintf(ss, "query timeout (ms): %lld, ", config->requestConfigParams.queryTimeoutMS);
   ss = sdscatprintf(ss, "timeout policy: %s, ", TimeoutPolicy_ToString(config->requestConfigParams.timeoutPolicy));
   ss = sdscatprintf(ss, "oom policy: %s, ", OomPolicy_ToString(config->requestConfigParams.oomPolicy));
@@ -2106,8 +2007,8 @@ int RegisterModuleConfig_Local(RedisModuleCtx *ctx) {
   RM_TRY(
     RedisModule_RegisterNumericConfig(
       ctx, "search-max-prefix-expansions", DEFAULT_MAX_PREFIX_EXPANSIONS,
-      REDISMODULE_CONFIG_UNPREFIXED, 1,
-      LLONG_MAX, get_uint_numeric_config, set_uint_clamped_numeric_config, NULL,
+      REDISMODULE_CONFIG_UNPREFIXED, 1, LLONG_MAX,
+      get_long_numeric_config, set_long_numeric_config, NULL,
       (void *)&(RSGlobalConfig.iteratorsConfigParams.maxPrefixExpansions)
     )
   )
@@ -2162,7 +2063,7 @@ int RegisterModuleConfig_Local(RedisModuleCtx *ctx) {
     RedisModule_RegisterNumericConfig(
       ctx, "search-min-prefix", DEFAULT_MIN_TERM_PREFIX,
       REDISMODULE_CONFIG_UNPREFIXED, 1,
-      LLONG_MAX, get_uint_numeric_config, set_uint_clamped_numeric_config, NULL,
+      LLONG_MAX, get_long_numeric_config, set_long_numeric_config, NULL,
       (void *)&(RSGlobalConfig.iteratorsConfigParams.minTermPrefix)
     )
   )
@@ -2207,7 +2108,7 @@ int RegisterModuleConfig_Local(RedisModuleCtx *ctx) {
     RedisModule_RegisterNumericConfig(
       ctx, "search-union-iterator-heap", DEFAULT_UNION_ITERATOR_HEAP,
       REDISMODULE_CONFIG_UNPREFIXED, 1,
-      LLONG_MAX, get_uint_numeric_config, set_uint_clamped_numeric_config, NULL,
+      LLONG_MAX, get_long_numeric_config, set_long_numeric_config, NULL,
       (void *)&(RSGlobalConfig.iteratorsConfigParams.minUnionIterHeap)
     )
   )
@@ -2485,24 +2386,6 @@ int RegisterModuleConfig_Local(RedisModuleCtx *ctx) {
       REDISMODULE_CONFIG_UNPREFIXED, 0,
       100, get_uint8_numeric_config, set_search_disk_buffer_percentage_config, NULL,
       (void *)&(RSGlobalConfig.diskBufferPercentage)
-    )
-  )
-
-  RM_TRY(
-    RedisModule_RegisterBoolConfig(
-      ctx, "search-disk-drop-read-cache", 0,
-      REDISMODULE_CONFIG_IMMUTABLE | REDISMODULE_CONFIG_UNPREFIXED,
-      get_bool_config, set_bool_config, NULL,
-      (void *)&(RSGlobalConfig.diskDropReadCache)
-    )
-  )
-
-  RM_TRY(
-    RedisModule_RegisterBoolConfig(
-      ctx, "search-disk-use-direct-reads", 0,
-      REDISMODULE_CONFIG_IMMUTABLE | REDISMODULE_CONFIG_UNPREFIXED,
-      get_bool_config, set_bool_config, NULL,
-      (void *)&(RSGlobalConfig.diskUseDirectReads)
     )
   )
 

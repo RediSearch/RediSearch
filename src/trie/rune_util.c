@@ -72,6 +72,15 @@ rune *strToLowerRunes(const char *str, size_t utf8_len, size_t *unicode_len) {
     return NULL;
   }
 
+  uint32_t u_stack_buffer[SSO_MAX_LENGTH];
+  uint32_t *u_buffer = u_stack_buffer;
+  if (rlen > SSO_MAX_LENGTH - 1) {
+    u_buffer = rm_malloc((rlen + 1) * sizeof(*u_buffer));
+  }
+
+  u_buffer[rlen] = 0;
+  nu_readstr(str, u_buffer, nu_utf8_read);
+
   rune *ret = rm_calloc(rlen + 1, sizeof(rune));
   const char *encoded_char = str;
   uint32_t codepoint;
@@ -98,6 +107,9 @@ rune *strToLowerRunes(const char *str, size_t utf8_len, size_t *unicode_len) {
   }
   *unicode_len = rlen;
 
+  if (u_buffer != u_stack_buffer) {
+    rm_free(u_buffer);
+  }
   return ret;
 }
 
@@ -105,9 +117,9 @@ rune *strToLowerRunes(const char *str, size_t utf8_len, size_t *unicode_len) {
  * __fold is called.
  * If the folded rune occupies more than 1 codepoint, only the first
  * is used, the rest are ignored. */
-rune *strToSingleCodepointFoldedRunes(const char *str, size_t utf8_len, size_t *len) {
+rune *strToSingleCodepointFoldedRunes(const char *str, size_t *len) {
 
-  ssize_t rlen = nu_strnlen(str, utf8_len, nu_utf8_read);
+  ssize_t rlen = nu_strlen(str, nu_utf8_read);
   if (rlen > MAX_RUNESTR_LEN) {
     if (len) *len = 0;
     return NULL;
@@ -115,7 +127,7 @@ rune *strToSingleCodepointFoldedRunes(const char *str, size_t utf8_len, size_t *
 
   uint32_t decoded[rlen + 1];
   decoded[rlen] = 0;
-  nu_readnstr(str, utf8_len, decoded, nu_utf8_read);
+  nu_readstr(str, decoded, nu_utf8_read);
 
   rune *ret = rm_calloc(rlen + 1, sizeof(rune));
   for (int i = 0; i < rlen; i++) {

@@ -3379,10 +3379,10 @@ static void IndexSpec_PopulateVectorDiskParams(IndexSpec *sp) {
 
     // Only HNSW indexes support disk mode (tiered with HNSW primary)
     VecSimParams *params = &fs->vectorOpts.vecSimParams;
-    RS_ASSERT(params->algo == VecSimAlgo_TIERED);
+    if (params->algo != VecSimAlgo_TIERED) continue;
 
     VecSimParams *primaryParams = params->algoParams.tieredParams.primaryIndexParams;
-    RS_ASSERT(primaryParams && primaryParams->algo == VecSimAlgo_HNSWLIB);
+    if (!primaryParams || primaryParams->algo != VecSimAlgo_HNSWLIB) continue;
 
     size_t nameLen;
     const char *namePtr = HiddenString_GetUnsafe(fs->fieldName, &nameLen);
@@ -3986,22 +3986,15 @@ void Indexes_RdbSave2(RedisModuleIO *rdb, int when) {
   }
 }
 
-
 void *IndexSpec_RdbLoad_Logic(RedisModuleIO *rdb, int encver) {
   const bool useSst = CheckRdbSstPersistence(RedisModule_GetContextFromIO(rdb), "RDB Load Logic");
-  if (encver <= LEGACY_INDEX_MAX_VERSION) {
+  if (encver < INDEX_VECSIM_SVS_VAMANA_VERSION) {
     // Legacy index, loaded in order to upgrade from an old version
     return IndexSpec_LegacyRdbLoad(rdb, encver);
   } else {
     // New index, loaded normally.
     // Even though we don't actually load or save the index spec in the key space, this implementation is useful
     // because it allows us to serialize and deserialize the index spec in a clean way.
-    // Required to support loading during ASM migration.
-    RS_ASSERT(encver >= INDEX_ASM_PROPAGATE_DEFINITIONS_VERSION);
-    if (encver < INDEX_ASM_PROPAGATE_DEFINITIONS_VERSION) {
-      RedisModule_LogIOError(rdb, "warning", "RDB Load: Unexpected encver %d found in RDB_Load, encver not expected to be lower than %d", encver, INDEX_ASM_PROPAGATE_DEFINITIONS_VERSION);
-      return NULL;
-    }
     QueryError status = QueryError_Default();
     IndexSpec *sp = IndexSpec_RdbLoad(rdb, encver, useSst, &status);
     if (!sp) {
@@ -4887,8 +4880,7 @@ void Indexes_FinishSSTReplication(RedisModuleCtx *ctx) {
     RS_ASSERT(sp->pendingDiskRdbState);
     RS_ASSERT(sp->diskSpec == NULL);
     RS_ASSERT(!sp->diskRegistered);
-    bool ok = IndexSpec_SSTRdbOpenAndApply(ctx, sp);
-    RS_LOG_ASSERT_ALWAYS(ok, "SST replication: failed to open disk index for spec during LOADING_ENDED");
+    RS_LOG_ASSERT_ALWAYS(IndexSpec_SSTRdbOpenAndApply(ctx, sp), "SST replication: failed to open disk index for spec during LOADING_ENDED");
     // GC start was deferred by IndexSpec_StoreAfterRdbLoad for the SST path
     // (diskSpec was NULL there); start it now that the disk handle exists.
     IndexSpec_StartGC(spec_ref, sp, GCPolicy_Disk);

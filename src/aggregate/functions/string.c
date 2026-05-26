@@ -19,11 +19,11 @@
 #include "query_term_ffi.h"
 
 #include <ctype.h>
-#include <sys/param.h>
 
 #define STRING_BLOCK_SIZE 512
 #define FMT_OUT_STR_MIN_PREALLOC 8
 #define FMT_OUT_STR_MAX_PREALLOC (1024 * 1024)
+#define MAX(i, j) (((i) > (j)) ? (i) : (j))
 
 static int func_matchedTerms(ExprEval *ctx, RSValue **argv, size_t argc, RSValue *result) {
   int maxTerms = 100;

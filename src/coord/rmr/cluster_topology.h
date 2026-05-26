@@ -58,8 +58,6 @@ void MRClusterTopology_Free(MRClusterTopology *t);
 
 MRClusterTopology *MRClusterTopology_Clone(MRClusterTopology *t);
 
-MRClusterTopology *MRClusterTopology_FromAPI(RedisModuleCtx *ctx, const char *auth, size_t auth_len, uint32_t *my_shard_idx);
-
 #ifdef __cplusplus
 }
 #endif

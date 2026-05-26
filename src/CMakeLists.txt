@@ -70,7 +70,7 @@ add_subdirectory(ttl_table)
 
 #----------------------------------------------------------------------------------------------
 # Source files for the core library
-file(GLOB SOURCES CONFIGURE_DEPENDS
+file(GLOB SOURCES
     "${CMAKE_CURRENT_SOURCE_DIR}/*.c"
     "${CMAKE_CURRENT_SOURCE_DIR}/pipeline/*.c"
     "${CMAKE_CURRENT_SOURCE_DIR}/aggregate/*.c"

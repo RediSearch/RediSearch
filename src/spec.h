@@ -165,25 +165,11 @@ typedef struct {
   size_t offsetVecsSize;
   size_t offsetVecRecords;
   size_t termsSize;
-  // Number of inverted-index blocks currently owned by this spec; reported by FT.INFO as
-  // `total_inverted_index_blocks`. Writes must go through `IndexStats_BlockCountAdd` (signed
-  // delta, atomic). Reads must use `__atomic_load_n`.
-  size_t totalInvertedIndexBlocks;
   rs_wall_clock_ns_t totalIndexTime;
   IndexError indexError;
   uint32_t activeQueries;
   uint32_t activeWrites;
 } IndexStats;
-
-// Atomically apply `delta` to `stats->totalInvertedIndexBlocks`. Accepts signed deltas:
-// negative values wrap via size_t two's-complement, producing the correct unsigned
-// subtraction.
-static inline void IndexStats_BlockCountAdd(IndexStats *stats, int64_t delta) {
-  if (delta) {
-    __atomic_add_fetch(&stats->totalInvertedIndexBlocks,
-                       (size_t)delta, __ATOMIC_RELAXED);
-  }
-}
 
 typedef enum {
   Index_StoreTermOffsets = 0x01,
@@ -250,7 +236,6 @@ typedef uint16_t FieldSpecDedupeArray[SPEC_MAX_FIELDS];
 #define INDEX_CURRENT_VERSION 26
 #define INDEX_DISK_VERSION 26
 #define INDEX_VECSIM_SVS_VAMANA_VERSION 25
-#define INDEX_ASM_PROPAGATE_DEFINITIONS_VERSION INDEX_VECSIM_SVS_VAMANA_VERSION
 #define INDEX_INDEXALL_VERSION 24
 #define INDEX_GEOMETRY_VERSION 23
 #define INDEX_VECSIM_TIERED_VERSION 22

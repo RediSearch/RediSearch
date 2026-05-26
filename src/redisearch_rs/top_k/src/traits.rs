@@ -35,20 +35,10 @@ pub trait ScoreBatch {
 /// 1. Produce score-ordered batches ([`next_batch`]).
 /// 2. Build the final [`RSIndexResult`] for a `(doc_id, score)` pair ([`build_result`]).
 ///
-/// # Result lifetime
-///
-/// The trait is intentionally unparameterized. [`build_result`] uses an
-/// HRTB-on-method with `where Self: 'r` so the caller picks the result
-/// lifetime, bounded by the source's own lifetime: a `'static` source admits
-/// any `'r`, while a hypothetical source borrowing into the index (e.g.
-/// `VectorScoreSource<'index>`) constrains `'r ⊆ 'index`. That source would
-/// declare its own lifetime parameter on the concrete type and handle refresh
-/// internally — none of that leaks into this trait.
-///
 /// [`TopKIterator`]: crate::TopKIterator
 /// [`next_batch`]: ScoreSource::next_batch
 /// [`build_result`]: ScoreSource::build_result
-pub trait ScoreSource {
+pub trait ScoreSource<'index> {
     /// The type of batch cursor this source produces.
     type Batch: ScoreBatch;
 
@@ -80,15 +70,8 @@ pub trait ScoreSource {
     /// Build the [`RSIndexResult`] that the [`TopKIterator`] will yield for a
     /// given `(doc_id, score)` pair.
     ///
-    /// `'r` is the caller-chosen lifetime of the returned result. The
-    /// `where Self: 'r` bound forces `'r` to be no longer than the source
-    /// itself, so any borrows the source might embed in the result stay
-    /// valid. For `'static` sources, `'r` is unconstrained.
-    ///
     /// [`TopKIterator`]: crate::TopKIterator
-    fn build_result<'r>(&self, doc_id: t_docId, score: f64) -> RSIndexResult<'r>
-    where
-        Self: 'r;
+    fn build_result(&self, doc_id: t_docId, score: f64) -> RSIndexResult<'index>;
 
     /// The [`IteratorType`] that the wrapping [`TopKIterator`] should report.
     ///

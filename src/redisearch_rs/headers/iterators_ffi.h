@@ -181,7 +181,7 @@ QueryIterator *NewOptionalIterator(QueryIterator *child, QueryEvalCtx *q, t_docI
  *      freed by `GeoFilter_Free`.
  * 4. `config` must be a valid non-NULL pointer to an `IteratorsConfig`.
  */
-QueryIterator *NewGeoRangeIterator(const RedisSearchCtx *ctx, GeoFilter *gf, const struct IteratorsConfig *config);
+QueryIterator *NewGeoRangeIterator(const RedisSearchCtx *ctx, GeoFilter *gf, const IteratorsConfig *config);
 
 /**
  * Creates a new iterator over a list of unsorted document IDs.
@@ -474,7 +474,7 @@ const QueryIterator *GetIntersectionIteratorChild(const QueryIterator *header, s
  * 3. Null entries in `its` are treated as empty iterators.
  * 4. `config` must be a valid non-null pointer to an [`IteratorsConfig`].
  */
-QueryIterator *NewUnionIterator(QueryIterator * *its, int32_t num, bool quick_exit, double weight, QueryNodeType type_, const char *q_str, const struct IteratorsConfig *config);
+QueryIterator *NewUnionIterator(QueryIterator * *its, int32_t num, bool quick_exit, double weight, QueryNodeType type_, const char *q_str, const IteratorsConfig *config);
 
 /**
  * Creates a new missing-field inverted index iterator.
@@ -718,11 +718,11 @@ QueryNodeType GetUnionIteratorQueryNodeType(const QueryIterator *it);
  * 3. `flt` must be a valid non-NULL pointer to a [`NumericFilter`] whose `field_spec` field
  *    is a valid non-NULL pointer to a [`FieldSpec`], remaining valid for the lifetime of the
  *    returned iterator.
- * 4. `config` must be a valid non-NULL pointer to an [`IteratorsConfig`].
+ * 4. `config` must be a valid non-NULL pointer to an [`ffi::IteratorsConfig`].
  * 5. `filter_ctx` must be a valid non-NULL pointer to a [`FieldFilterContext`] with a field
  *    index (not a field mask).
  */
-QueryIterator *NewNumericFilterIterator(const RedisSearchCtx *ctx, const struct NumericFilter *flt, FieldType _for_type, const struct IteratorsConfig *config, const struct FieldFilterContext *filter_ctx);
+QueryIterator *NewNumericFilterIterator(const RedisSearchCtx *ctx, const struct NumericFilter *flt, FieldType _for_type, const IteratorsConfig *config, const struct FieldFilterContext *filter_ctx);
 
 /**
  * Returns the query string pointer stored in the union iterator, or null.

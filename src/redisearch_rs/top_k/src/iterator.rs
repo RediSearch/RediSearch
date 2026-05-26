@@ -59,7 +59,7 @@ enum Phase {
 /// A generic top-k iterator parameterized over a [`ScoreSource`].
 ///
 /// Implements [`Unfiltered`](TopKMode::Unfiltered).
-pub struct TopKIterator<'index, S: ScoreSource> {
+pub struct TopKIterator<'index, S: ScoreSource<'index>> {
     source: S,
     child: Option<Box<dyn RQEIterator<'index> + 'index>>,
     mode: TopKMode,
@@ -74,7 +74,7 @@ pub struct TopKIterator<'index, S: ScoreSource> {
     at_eof: bool,
 }
 
-impl<'index, S: ScoreSource + 'index> TopKIterator<'index, S> {
+impl<'index, S: ScoreSource<'index>> TopKIterator<'index, S> {
     /// Create a new [`TopKIterator`].
     ///
     /// The execution mode is always Unfiltered.
@@ -171,7 +171,7 @@ impl<'index, S: ScoreSource + 'index> TopKIterator<'index, S> {
     }
 }
 
-impl<'index, S: ScoreSource + 'index> RQEIterator<'index> for TopKIterator<'index, S> {
+impl<'index, S: ScoreSource<'index>> RQEIterator<'index> for TopKIterator<'index, S> {
     #[inline(always)]
     fn current(&mut self) -> Option<&mut RSIndexResult<'index>> {
         self.current.as_mut()

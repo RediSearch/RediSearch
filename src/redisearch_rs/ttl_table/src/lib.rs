@@ -29,124 +29,13 @@
 #[cfg(feature = "test-utils")]
 pub mod test_utils;
 
-use std::{iter::Chain, num::NonZeroUsize, ops::Deref};
+use std::{iter::Chain, num::NonZeroUsize};
 
-pub use ffi::FieldExpiration;
-use ffi::{FieldMask, t_expirationTimePoint as timespec};
 pub use field::FieldExpirationPredicate;
+use libc::timespec;
 use thin_vec::ThinVec;
 
 use ffi::t_docId;
-
-/// An ascending-by-`index`, duplicate-free list of [`FieldExpiration`] entries.
-#[repr(transparent)]
-#[derive(Debug, Clone)]
-pub struct FieldExpirations {
-    inner: ThinVec<FieldExpiration>,
-}
-
-impl FieldExpirations {
-    /// Creates an empty `FieldExpirations`.
-    ///
-    /// No heap allocation is performed until the first insertion.
-    pub const fn new() -> Self {
-        Self {
-            inner: ThinVec::new(),
-        }
-    }
-
-    /// Creates an empty `FieldExpirations` with backing storage pre-sized for
-    /// at least `cap` entries.
-    pub fn with_capacity(cap: usize) -> Self {
-        Self {
-            inner: ThinVec::with_capacity(cap),
-        }
-    }
-
-    /// Inserts `fe` into its sorted-by-`index` position.
-    ///
-    /// # Returns
-    ///
-    /// `Ok(&fe)` — a reference to the newly inserted entry inside the list.
-    ///
-    /// # Errors
-    ///
-    /// Returns `Err(fe)` if an entry with `fe.index` already exists; the list
-    /// is left unchanged and `fe` is handed back to the caller untouched.
-    pub fn add(&mut self, fe: FieldExpiration) -> Result<&FieldExpiration, FieldExpiration> {
-        let result = self.inner.binary_search_by_key(&fe.index, |a| a.index);
-
-        match result {
-            Ok(_) => Err(fe),
-            Err(index) => {
-                self.inner.insert(index, fe);
-                Ok(&self.inner[index])
-            }
-        }
-    }
-
-    /// Appends `fe` to the end of the list without searching for the
-    /// insertion point.
-    ///
-    /// # Panics
-    ///
-    /// `fe.index` must be **strictly greater** than the `index` of every
-    /// entry already present in `self`.
-    pub fn push(&mut self, fe: FieldExpiration) {
-        if let Some(last) = self.last() {
-            assert!(
-                last.index < fe.index,
-                "pushed index {} must be strictly greater than the last index {}",
-                fe.index,
-                last.index
-            );
-        }
-        // Safety: checked above
-        unsafe {
-            self.push_unchecked(fe);
-        }
-    }
-
-    /// Appends `fe` to the end of the list without searching for the
-    /// insertion point.
-    ///
-    /// Use when the caller already knows that `fe.index` is strictly greater
-    /// than every index currently in `self`.
-    ///
-    /// # Safety
-    ///
-    /// `fe.index` must be **strictly greater** than the `index` of every
-    /// entry already present in `self`.
-    pub unsafe fn push_unchecked(&mut self, fe: FieldExpiration) {
-        #[cfg(debug_assertions)]
-        {
-            if let Some(last) = self.last() {
-                assert!(
-                    last.index < fe.index,
-                    "pushed index {} must be strictly greater than the last index {}",
-                    fe.index,
-                    last.index
-                );
-            }
-        }
-        self.inner.push(fe);
-    }
-}
-
-impl Default for FieldExpirations {
-    fn default() -> Self {
-        Self::new()
-    }
-}
-
-/// Read-only access to the underlying `ThinVec`.
-impl Deref for FieldExpirations {
-    type Target = ThinVec<FieldExpiration>;
-
-    fn deref(&self) -> &Self::Target {
-        &self.inner
-    }
-}
 
 /// Initial bucket-array length the first time we grow from zero.
 ///
@@ -161,13 +50,22 @@ const TTL_BUCKET_INITIAL_CAP: usize = 64;
 /// multi-MiB realloc hit and so the two allocators scale in lockstep.
 const TTL_BUCKET_MAX_GROW_STEP: usize = 1 << 20;
 
+/// The expiration time recorded for a single field of a document.
+#[derive(Debug, Clone, Copy)]
+pub struct FieldExpiration {
+    /// The field index this expiration applies to.
+    pub index: u16,
+    /// The point in time at which the field expires.
+    pub point: timespec,
+}
+
 /// A document's record in a [`TimeToLiveTable`] bucket's collision chain.
 #[derive(Debug)]
 pub struct TimeToLiveEntry {
     /// The document id
     pub doc_id: t_docId,
     /// Owned, sorted by field index, never empty.
-    pub field_expirations: FieldExpirations,
+    pub field_expirations: ThinVec<FieldExpiration>,
 }
 
 /// Direct-modulo bucket array with contiguous-vec collision chains.
@@ -205,30 +103,13 @@ impl TimeToLiveTable {
 
     /// Inserts a document's per-field expirations.
     ///
-    /// # Panics
-    ///
-    /// Panics if `field_expirations` is empty or if `doc_id` is already present
-    /// in the table.
-    pub fn add(&mut self, doc_id: t_docId, field_expirations: FieldExpirations) {
-        assert!(
-            !field_expirations.is_empty(),
-            "TTL table add requires at least one field expiration"
-        );
-        assert!(
-            self.find_entry(doc_id).is_none(),
-            "duplicate docId in TTL table"
-        );
-        // SAFETY: both preconditions of `add_unchecked` were just verified —
-        // `field_expirations` is non-empty and `doc_id` is absent from the table.
-        unsafe { self.add_unchecked(doc_id, field_expirations) };
-    }
-
-    /// Inserts a document's per-field expirations.
+    /// Ownership of `sorted_by_id` transfers to the table.
     ///
     /// # Safety
     ///
     /// The caller must guarantee:
-    /// - `field_expirations` is non-empty.
+    /// - `sorted_by_id` is non-empty.
+    /// - `sorted_by_id` is sorted in ascending order by `index`.
     /// - `doc_id` is not already present in the table.
     ///
     /// These invariants are load-bearing for the lookup hot paths
@@ -237,10 +118,18 @@ impl TimeToLiveTable {
     /// [`verify_doc_and_wide_field_mask`](Self::verify_doc_and_wide_field_mask)),
     /// which assume them when scanning the per-bucket chain and the
     /// per-entry field-expiration list.
-    pub unsafe fn add_unchecked(&mut self, doc_id: t_docId, field_expirations: FieldExpirations) {
+    ///
+    /// In debug builds these preconditions are checked via `debug_assert!`
+    /// and will panic on violation; in release builds the checks are
+    /// elided.
+    pub unsafe fn add(&mut self, doc_id: t_docId, sorted_by_id: ThinVec<FieldExpiration>) {
         debug_assert!(
-            !field_expirations.is_empty(),
+            !sorted_by_id.is_empty(),
             "TTL table add requires at least one field expiration"
+        );
+        debug_assert!(
+            sorted_by_id.is_sorted_by_key(|f| f.index),
+            "sorted_by_id is not sorted by index"
         );
 
         let slot = self.slot(doc_id);
@@ -253,7 +142,7 @@ impl TimeToLiveTable {
 
         self.buckets[slot].push(TimeToLiveEntry {
             doc_id,
-            field_expirations,
+            field_expirations: sorted_by_id,
         });
         self.count += 1;
     }
@@ -278,7 +167,8 @@ impl TimeToLiveTable {
         }
     }
 
-    /// Return the number of buckets currently allocated.
+    /// Return the number of buckets currently allocated
+    #[cfg(feature = "test-utils")]
     pub const fn n_allocated_buckets(&self) -> usize {
         self.buckets.len()
     }
@@ -287,10 +177,10 @@ impl TimeToLiveTable {
     /// if no entry exists.
     ///
     /// The slice aliases storage owned by the table and is invalidated by any
-    /// subsequent [`add`](Self::add) / [`add_unchecked`](Self::add_unchecked) /
-    /// [`remove`](Self::remove) on this table.
-    pub fn field_expirations(&self, doc_id: t_docId) -> Option<&FieldExpirations> {
-        self.find_entry(doc_id).map(|e| &e.field_expirations)
+    /// subsequent [`add`](Self::add) / [`remove`](Self::remove) on this table.
+    pub fn field_expirations(&self, doc_id: t_docId) -> Option<&[FieldExpiration]> {
+        self.find_entry(doc_id)
+            .map(|e| e.field_expirations.as_slice())
     }
 
     /// Checks the expiration state of a single field of a document under
@@ -384,14 +274,8 @@ impl TimeToLiveTable {
         )
     }
 
-    /// Checks the expiration state of a set of fields described by a wide
-    /// [`FieldMask`] (the wide-schema variant).
-    ///
-    /// `FieldMask` is a compile-time alias chosen by the C build: it can be
-    /// either a 64-bit or a 128-bit unsigned integer. This function
-    /// dispatches to the matching bit-walk at compile time, based on the
-    /// target pointer width.
-    ///
+    /// Checks the expiration state of a set of fields described by a
+    /// 128-bit `field_mask` (the wide-schema variant).
     /// See also [`TimeToLiveTable::verify_doc_and_field_mask`].
     ///
     /// # Panics
@@ -400,12 +284,12 @@ impl TimeToLiveTable {
     pub fn verify_doc_and_wide_field_mask(
         &self,
         doc_id: t_docId,
-        field_mask: FieldMask,
+        field_mask: u128,
         predicate: FieldExpirationPredicate,
         expiration_point: &timespec,
         ft_id_to_field_index: &[u16],
     ) -> bool {
-        verify_mask::<FieldMask>(
+        verify_mask::<u128>(
             self.find_entry(doc_id),
             field_mask,
             predicate,
@@ -486,22 +370,6 @@ impl BitMask for u32 {
 
     fn count_ones(self) -> usize {
         u32::count_ones(self) as usize
-    }
-
-    fn higher_bit_position(self) -> usize {
-        (Self::BITS - self.leading_zeros()) as usize
-    }
-}
-
-impl BitMask for u64 {
-    type Iter = BitU64Iter;
-
-    fn iter(self) -> Self::Iter {
-        BitU64Iter::new(self)
-    }
-
-    fn count_ones(self) -> usize {
-        u64::count_ones(self) as usize
     }
 
     fn higher_bit_position(self) -> usize {
@@ -748,6 +616,8 @@ mod tests {
     use super::test_utils::*;
     use super::*;
 
+    use thin_vec::thin_vec;
+
     #[test]
     fn verify_field_returns_true_for_doc_colliding_with_a_known_doc() {
         // doc_id 1 is in the table; doc_id 9 also hashes to slot 1 but is
@@ -755,7 +625,9 @@ mod tests {
         // return true.
         const MAX: usize = 8;
         let mut t = TimeToLiveTable::new(NonZeroUsize::new(MAX).unwrap());
-        t.add(DOC_ID_1, fes([fe(FIELD_INDEX_1, PAST)]));
+        // SAFETY: `DOC_ID_1` is fresh; `[fe(FIELD_INDEX_1, PAST)]` is non-empty
+        // and trivially sorted (single element).
+        unsafe { t.add(DOC_ID_1, thin_vec![fe(FIELD_INDEX_1, PAST)]) };
 
         let unknown_collider: u64 = DOC_ID_1 + MAX as u64;
         // Be sure it is a collider
@@ -788,9 +660,11 @@ mod tests {
         assert_eq!(t.slot(DOC_ID_1), t.slot(DOC_ID_1_COLLIDER_1));
         assert_eq!(t.slot(DOC_ID_1), t.slot(DOC_ID_1_COLLIDER_2));
 
-        t.add(DOC_ID_1, fes([fe(FIELD_INDEX_1, FUTURE)]));
-        t.add(DOC_ID_1_COLLIDER_1, fes([fe(FIELD_INDEX_1, PAST)]));
-        t.add(DOC_ID_1_COLLIDER_2, fes([fe(FIELD_INDEX_1, FUTURE)]));
+        // SAFETY (each call below): the `doc_id` is unique across this test
+        // and each single-element vec is non-empty and trivially sorted.
+        unsafe { t.add(DOC_ID_1, thin_vec![fe(FIELD_INDEX_1, FUTURE)]) };
+        unsafe { t.add(DOC_ID_1_COLLIDER_1, thin_vec![fe(FIELD_INDEX_1, PAST)]) };
+        unsafe { t.add(DOC_ID_1_COLLIDER_2, thin_vec![fe(FIELD_INDEX_1, FUTURE)]) };
         t.remove(DOC_ID_1);
         // Doc 9: PAST ⇒ Default false.
         assert!(!t.verify_doc_and_field(
@@ -824,7 +698,9 @@ mod tests {
         const DOC_ID_1_COLLIDER: u64 = DOC_ID_1 + MAX as u64;
 
         let mut t = TimeToLiveTable::new(NonZeroUsize::new(MAX).unwrap());
-        t.add(DOC_ID_1, fes([fe(FIELD_INDEX_1, FUTURE)]));
+        // SAFETY: `DOC_ID_1` is fresh; the single-element vec is non-empty
+        // and trivially sorted.
+        unsafe { t.add(DOC_ID_1, thin_vec![fe(FIELD_INDEX_1, FUTURE)]) };
 
         // Slot collider
         assert_eq!(t.slot(DOC_ID_1), t.slot(DOC_ID_1_COLLIDER));
@@ -843,9 +719,11 @@ mod tests {
     fn max_size_one_collapses_every_doc_to_slot_zero() {
         const MAX: usize = 1;
         let mut t = TimeToLiveTable::new(NonZeroUsize::new(MAX).unwrap());
-        t.add(0, fes([fe(FIELD_INDEX_1, FUTURE)]));
-        t.add(1, fes([fe(FIELD_INDEX_1, PAST)]));
-        t.add(2, fes([fe(FIELD_INDEX_1, FUTURE)]));
+        // SAFETY (each call below): doc_ids 0, 1, 2 are distinct; each
+        // single-element vec is non-empty and trivially sorted.
+        unsafe { t.add(0, thin_vec![fe(FIELD_INDEX_1, FUTURE)]) };
+        unsafe { t.add(1, thin_vec![fe(FIELD_INDEX_1, PAST)]) };
+        unsafe { t.add(2, thin_vec![fe(FIELD_INDEX_1, FUTURE)]) };
         assert_eq!(t.n_allocated_buckets(), 1);
         assert!(t.verify_doc_and_field(0, FIELD_INDEX_1, FieldExpirationPredicate::Default, &NOW,));
         assert!(
@@ -887,9 +765,12 @@ mod tests {
         for x in 1u64..8 {
             assert_eq!(t.slot(x), t.slot(x + CAP));
             assert_eq!(t.slot(x), t.slot(x + 2 * CAP));
-            t.add(x, fes([fe(0, PAST)]));
-            t.add(x + CAP, fes([fe(0, FUTURE)]));
-            t.add(x + 2 * CAP, fes([fe(0, PAST)]));
+            // SAFETY (each call below): `x`, `x + CAP`, `x + 2 * CAP` are
+            // distinct and never repeat across loop iterations; each
+            // single-element vec is non-empty and trivially sorted.
+            unsafe { t.add(x, thin_vec![fe(0, PAST)]) };
+            unsafe { t.add(x + CAP, thin_vec![fe(0, FUTURE)]) };
+            unsafe { t.add(x + 2 * CAP, thin_vec![fe(0, PAST)]) };
         }
         for x in 1u64..8 {
             assert!(!t.verify_doc_and_field(x, 0, FieldExpirationPredicate::Default, &NOW));
@@ -923,74 +804,5 @@ mod tests {
                 &NOW,
             ));
         }
-    }
-
-    #[test]
-    fn verify_mask_u64_walks_bits_above_31() {
-        // High-bit field (bit 40) is the only one tracked, and it is
-        // expired. Under Default this must report `false` (no valid
-        // field); under Missing it must report `true`.
-        const HIGH_BIT: u16 = 40;
-        let entry = TimeToLiveEntry {
-            doc_id: DOC_ID_1,
-            field_expirations: fes([fe(HIGH_BIT, PAST)]),
-        };
-        let map = identity_ft_id();
-        let mask = mask_bit_u64(&[HIGH_BIT]);
-
-        assert!(!verify_mask::<u64>(
-            Some(&entry),
-            mask,
-            FieldExpirationPredicate::Default,
-            &NOW,
-            &map,
-        ));
-        assert!(verify_mask::<u64>(
-            Some(&entry),
-            mask,
-            FieldExpirationPredicate::Missing,
-            &NOW,
-            &map,
-        ));
-    }
-
-    #[test]
-    fn verify_mask_u64_default_returns_true_when_any_selected_field_is_valid() {
-        // Bit 2 → PAST, bit 35 → FUTURE. Default must return `true`.
-        let entry = TimeToLiveEntry {
-            doc_id: DOC_ID_1,
-            field_expirations: fes([fe(2, PAST), fe(35, FUTURE)]),
-        };
-        let map = identity_ft_id();
-        let mask = mask_bit_u64(&[2, 35]);
-
-        assert!(verify_mask::<u64>(
-            Some(&entry),
-            mask,
-            FieldExpirationPredicate::Default,
-            &NOW,
-            &map,
-        ));
-    }
-
-    #[test]
-    fn push_appends_entries_with_strictly_increasing_index() {
-        let mut list = FieldExpirations::new();
-        list.push(fe(1, PAST));
-        list.push(fe(2, NOW));
-        list.push(fe(3, FUTURE));
-
-        let indices: Vec<u16> = list.iter().map(|fe| fe.index).collect();
-        assert_eq!(indices, [1, 2, 3]);
-    }
-
-    #[test]
-    #[should_panic(expected = "must be strictly greater than the last index")]
-    fn push_panics_when_index_not_greater_than_last() {
-        let mut list = FieldExpirations::new();
-        list.push(fe(5, PAST));
-        // Deliberately violates the precondition (3 < 5) to exercise the panic
-        // branch; the call is expected to abort the test via panic.
-        list.push(fe(3, FUTURE));
     }
 }
