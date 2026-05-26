@@ -226,6 +226,30 @@ static int set_query_timeout_config(const char *name, long long val,
   return REDISMODULE_OK;
 }
 
+// Custom setter for search-max-query-timeout-ms. Rejects tightening the limit
+// below the current search-timeout while search-workers is 0; a limit of 0
+// ("unlimited") is always accepted. The check is gated on
+// RSConfig_IsModuleConfigLoaded() so callback ordering during the initial
+// config load does not cause spurious rejections.
+static int set_max_query_timeout_limit_config(const char *name, long long val,
+                                              void *privdata, RedisModuleString **err) {
+  REDISMODULE_NOT_USED(name);
+  if (RSConfig_IsModuleConfigLoaded() &&
+      val > 0 &&
+      RSGlobalConfig.numWorkerThreads == 0 &&
+      RSGlobalConfig.requestConfigParams.queryTimeoutMS > val) {
+    RS_ASSERT(err);
+    *err = RedisModule_CreateStringPrintf(NULL,
+      "Cannot set search-max-query-timeout-ms to %lld while search-timeout (%lld) "
+      "exceeds it and search-workers is 0; lower search-timeout or raise "
+      "search-workers first",
+      val, RSGlobalConfig.requestConfigParams.queryTimeoutMS);
+    return REDISMODULE_ERR;
+  }
+  *(long long *)privdata = val;
+  return REDISMODULE_OK;
+}
+
 // Custom setter for _MAX_TRIM_DELAY with validation
 static int set_max_trim_delay_numeric_config(const char *name, long long val,
                                      void *privdata, RedisModuleString **err) {
@@ -588,8 +612,22 @@ CONFIG_GETTER(getTimeout) {
 
 // MAX_TIMEOUT_LIMIT
 CONFIG_SETTER(setMaxTimeoutLimit) {
-  int acrc = AC_GetLongLong(ac, &config->maxQueryTimeoutMS, AC_F_GE0);
-  RETURN_STATUS(acrc);
+  long long newLimit;
+  int acrc = AC_GetLongLong(ac, &newLimit, AC_F_GE0);
+  CHECK_RETURN_PARSE_ERROR(acrc);
+  // Tightening the limit must not strand an existing search-timeout above it
+  // while workers are disabled. A limit of 0 means "unlimited" and is always safe.
+  if (newLimit > 0 &&
+      config->numWorkerThreads == 0 &&
+      config->requestConfigParams.queryTimeoutMS > newLimit) {
+    QueryError_SetWithoutUserDataFmt(status, QUERY_ERROR_CODE_LIMIT,
+      "Cannot set MAX_TIMEOUT_LIMIT to %lld while TIMEOUT (%lld) exceeds it and "
+      "WORKERS is 0; lower TIMEOUT or raise WORKERS first",
+      newLimit, config->requestConfigParams.queryTimeoutMS);
+    return REDISMODULE_ERR;
+  }
+  config->maxQueryTimeoutMS = newLimit;
+  return REDISMODULE_OK;
 }
 
 CONFIG_GETTER(getMaxTimeoutLimit) {
@@ -614,6 +652,15 @@ CONFIG_SETTER(setWorkThreads) {
     RedisModule_Log(RSDummyContext, "warning", "WORKERS must be at least %d in Flex mode, setting to %d", MIN_WORKER_THREADS_FLEX, MIN_WORKER_THREADS_FLEX);
     newNumThreads = MIN_WORKER_THREADS_FLEX;
   }
+  if (newNumThreads == 0 &&
+      config->maxQueryTimeoutMS > 0 &&
+      config->requestConfigParams.queryTimeoutMS > config->maxQueryTimeoutMS) {
+    QueryError_SetWithoutUserDataFmt(status, QUERY_ERROR_CODE_LIMIT,
+      "Cannot set WORKERS to 0 while TIMEOUT (%lld) exceeds MAX_TIMEOUT_LIMIT (%lld); "
+      "lower TIMEOUT or raise MAX_TIMEOUT_LIMIT first",
+      config->requestConfigParams.queryTimeoutMS, config->maxQueryTimeoutMS);
+    return REDISMODULE_ERR;
+  }
   config->numWorkerThreads = newNumThreads;
 
   workersThreadPool_SetNumWorkers();
@@ -631,13 +678,27 @@ CONFIG_GETTER(getWorkThreads) {
 // workers
 static int set_workers(const char *name, long long val, void *privdata, RedisModuleString **err) {
   REDISMODULE_NOT_USED(name);
-  REDISMODULE_NOT_USED(err);
   if (val < MIN_WORKER_THREADS_FLEX && SearchDisk_IsEnabledForValidation()) {
     RedisModule_Log(RSDummyContext, "warning", "WORKERS must be at least %d in Flex mode, setting to %d", MIN_WORKER_THREADS_FLEX, MIN_WORKER_THREADS_FLEX);
     val = MIN_WORKER_THREADS_FLEX;
   }
   uint32_t externalTriggerId = 0;
   RSConfig *config = (RSConfig *)privdata;
+  // Cross-knob invariant: when workers are disabled, search-timeout must not
+  // exceed search-max-query-timeout-ms. Only enforced after the initial config
+  // load completes (RSConfig_PostLoadNormalize handles bootstrap).
+  if (RSConfig_IsModuleConfigLoaded() &&
+      val == 0 &&
+      config->maxQueryTimeoutMS > 0 &&
+      config->requestConfigParams.queryTimeoutMS > config->maxQueryTimeoutMS) {
+    RS_ASSERT(err);
+    *err = RedisModule_CreateStringPrintf(NULL,
+      "Cannot set search-workers to 0 while search-timeout (%lld) exceeds "
+      "search-max-query-timeout-ms (%lld); lower search-timeout or raise "
+      "search-max-query-timeout-ms first",
+      config->requestConfigParams.queryTimeoutMS, config->maxQueryTimeoutMS);
+    return REDISMODULE_ERR;
+  }
   config->numWorkerThreads = val;
   workersThreadPool_SetNumWorkers();
   // Trigger the connection per shard to be updated (only if we are in coordinator mode)
@@ -2269,7 +2330,7 @@ int RegisterModuleConfig_Local(RedisModuleCtx *ctx) {
     RedisModule_RegisterNumericConfig(
       ctx, "search-max-query-timeout-ms", DEFAULT_MAX_QUERY_TIMEOUT_MS,
       REDISMODULE_CONFIG_UNPREFIXED, 0,
-      LLONG_MAX, get_long_numeric_config, set_long_numeric_config, NULL,
+      LLONG_MAX, get_long_numeric_config, set_max_query_timeout_limit_config, NULL,
       (void *)&(RSGlobalConfig.maxQueryTimeoutMS)
     )
   )
