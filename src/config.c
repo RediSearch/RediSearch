@@ -67,6 +67,7 @@ configPair_t __configPairs[] = {
   {"MAXDOCTABLESIZE",                 "search-max-doctablesize"},
   {"MAXPREFIXEXPANSIONS",             "search-max-prefix-expansions"},
   {"MAXSEARCHRESULTS",                "search-max-search-results"},
+  {"MAX_TIMEOUT_LIMIT",               "search-max-query-timeout-ms"},
   {"MIN_OPERATION_WORKERS",           "search-min-operation-workers"},
   {"MIN_PHONETIC_TERM_LEN",           "search-min-phonetic-term-len"},
   {"MINPREFIX",                       "search-min-prefix"},
@@ -537,6 +538,17 @@ CONFIG_SETTER(setTimeout) {
 CONFIG_GETTER(getTimeout) {
   sds ss = sdsempty();
   return sdscatprintf(ss, "%lld", config->requestConfigParams.queryTimeoutMS);
+}
+
+// MAX_TIMEOUT_LIMIT
+CONFIG_SETTER(setMaxTimeoutLimit) {
+  int acrc = AC_GetLongLong(ac, &config->maxQueryTimeoutMS, AC_F_GE0);
+  RETURN_STATUS(acrc);
+}
+
+CONFIG_GETTER(getMaxTimeoutLimit) {
+  sds ss = sdsempty();
+  return sdscatprintf(ss, "%lld", config->maxQueryTimeoutMS);
 }
 
 static inline int errorTooManyThreads(QueryError *status) {
@@ -1511,6 +1523,10 @@ RSConfigOptions RSGlobalConfigOptions = {
          .helpText = "Query (search) timeout",
          .setValue = setTimeout,
          .getValue = getTimeout},
+        {.name = "MAX_TIMEOUT_LIMIT",
+         .helpText = "Maximum allowed value (ms) for search-timeout and per-query TIMEOUT when workers are disabled (0 = unlimited)",
+         .setValue = setMaxTimeoutLimit,
+         .getValue = getMaxTimeoutLimit},
         {.name = "WORKERS",
          .helpText = "Number of worker threads to use for query processing and background tasks. Default is 0."
                      " This configuration also affects the number of connections per shard. See CONN_PER_SHARD."
@@ -2200,6 +2216,15 @@ int RegisterModuleConfig_Local(RedisModuleCtx *ctx) {
       REDISMODULE_CONFIG_UNPREFIXED, 1,
       LLONG_MAX, get_long_numeric_config, set_long_numeric_config, NULL,
       (void *)&(RSGlobalConfig.requestConfigParams.queryTimeoutMS)
+    )
+  )
+
+  RM_TRY(
+    RedisModule_RegisterNumericConfig(
+      ctx, "search-max-query-timeout-ms", DEFAULT_MAX_QUERY_TIMEOUT_MS,
+      REDISMODULE_CONFIG_UNPREFIXED, 0,
+      LLONG_MAX, get_long_numeric_config, set_long_numeric_config, NULL,
+      (void *)&(RSGlobalConfig.maxQueryTimeoutMS)
     )
   )
 

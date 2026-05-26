@@ -135,6 +135,11 @@ typedef struct {
   size_t maxSearchResults;
   size_t maxAggregateResults;
 
+  // Maximum allowed value (in ms) for the global search-timeout and per-query
+  // TIMEOUT argument when numWorkerThreads == 0. When workers are enabled this
+  // limit is not enforced. 0 means unlimited.
+  long long maxQueryTimeoutMS;
+
   // MT configuration
   size_t numWorkerThreads;
   size_t minOperationWorkers;
@@ -346,6 +351,7 @@ long long getRedisConfigNumeric(RedisModuleCtx *ctx, const char *confName, long 
 #define DEFAULT_MIN_STEM_LENGTH 4
 #define DEFAULT_MULTI_TEXT_SLOP 100
 #define DEFAULT_QUERY_TIMEOUT_MS 500
+#define DEFAULT_MAX_QUERY_TIMEOUT_MS 60000
 #define DEFAULT_UNION_ITERATOR_HEAP 20
 #define DEFAULT_VSS_MAX_RESIZE 0
 
@@ -383,6 +389,7 @@ long long getRedisConfigNumeric(RedisModuleCtx *ctx, const char *confName, long 
     .iteratorsConfigParams.maxPrefixExpansions = DEFAULT_MAX_PREFIX_EXPANSIONS,\
     .requestConfigParams.queryTimeoutMS = DEFAULT_QUERY_TIMEOUT_MS,            \
     .requestConfigParams.timeoutPolicy = TimeoutPolicy_Return,                 \
+    .maxQueryTimeoutMS = DEFAULT_MAX_QUERY_TIMEOUT_MS,                         \
     .cursorReadSize = 1000,                                                    \
     .cursorMaxIdle = DEFAULT_MAX_CURSOR_IDLE,                                  \
     .maxDocTableSize = DEFAULT_DOC_TABLE_SIZE,                                 \
