@@ -8,6 +8,7 @@
 #include <stdint.h>
 #include <stdlib.h>
 #include <time.h>
+#include "redismodule.h"
 // In C, timespec is a struct tag, not a typedef. Rust's libc::timespec maps to
 // the bare name, so we introduce a typedef to make it valid C.
 typedef struct timespec timespec;
