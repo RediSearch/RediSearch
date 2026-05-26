@@ -774,12 +774,9 @@ static int HybridRequest_prepareCursors(HybridRequest *hreq, QueryError *status)
     return REDISMODULE_OK;
 }
 
-// Heap context handed off from the dispatcher coord-pool worker to the tail
-// continuation. The dispatcher fans out to shards and waits for cursor IDs;
-// once mappings are configured, it submits the depleter jobs and then this
-// tail to the coord pool. The tail runs the hybrid merger, writes the reply,
-// and unblocks the client. Submitting depleters before the tail (FIFO on the
-// shared pool) guarantees the merger's cv-wait can always make progress.
+// Heap context for HybridDispatchCtx_Tail. Handed off from the dispatcher
+// coord-pool worker to the tail continuation, which runs after depleter jobs
+// are submitted so the merger can make progress.
 
 typedef struct {
     HybridRequest *hreq;
