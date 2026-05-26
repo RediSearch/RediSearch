@@ -619,7 +619,7 @@ static int HybridRequest_prepareForExecution(HybridRequest *hreq,
     }
 
     // Set skip timeout
-    HybridRequest_SetSkipTimeoutChecks(hreq, !shouldCheckInPipelineTimeoutCoord(hreq));
+    HybridRequest_SetSkipClockTimeoutChecks(hreq, !shouldCheckInPipelineTimeoutCoord(hreq));
 
     rs_wall_clock parseClock;
     if (profileOptions != EXEC_NO_FLAGS) {
@@ -631,10 +631,7 @@ static int HybridRequest_prepareForExecution(HybridRequest *hreq,
 
     // Initialize timeout for all subqueries BEFORE building pipelines
     // but after the parsing to know the timeout values.
-    // Skip the clock_gettime syscalls when timeout checks are disabled: RPNet and other
-    // pipeline stages gate their TimedOut checks on sctx->time.skipTimeoutChecks, so
-    // sctx->time.timeout is unused in that mode.
-    if (HybridRequest_ShouldCheckTimeout(hreq)) {
+    if (HybridRequest_ShouldCheckClockTimeout(hreq)) {
       for (int i = 0; i < hreq->nrequests; i++) {
           AREQ *subquery = hreq->requests[i];
           SearchCtx_UpdateTime(AREQ_SearchCtx(subquery), hreq->reqConfig.queryTimeoutMS);

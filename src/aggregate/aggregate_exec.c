@@ -401,7 +401,7 @@ static void startPipeline(AREQ *req, ResultProcessor *rp, SearchResult ***result
     .timeoutPolicy = req->reqConfig.timeoutPolicy,
     .timeout = &req->sctx->time.timeout,
     .oomPolicy = req->reqConfig.oomPolicy,
-    .skipTimeoutChecks = req->sctx->time.skipTimeoutChecks,
+    .skipClockTimeoutChecks = req->sctx->time.skipClockTimeoutChecks,
     .areq = req,
   };
 
@@ -1361,10 +1361,7 @@ int prepareExecutionPlan(AREQ *req, QueryError *status) {
   // TODO: this should be done in `AREQ_execute`, but some of the iterators needs the timeout's
   // value and some of the execution begins in `QAST_Iterate`.
   // Setting the timeout context should be done in the same thread that executes the query.
-  // Skip the clock_gettime syscalls when timeout checks are disabled: result processors and
-  // iterators initialize their timeout counters to REDISEARCH_UNINITIALIZED based on
-  // sctx->time.skipTimeoutChecks and never read sctx->time.timeout in that mode.
-  if (AREQ_ShouldCheckTimeout(req)) {
+  if (AREQ_ShouldCheckClockTimeout(req)) {
     SearchCtx_UpdateTime(sctx, req->reqConfig.queryTimeoutMS);
   }
 
@@ -1377,7 +1374,7 @@ int prepareExecutionPlan(AREQ *req, QueryError *status) {
     }
   }
 
-  if (AREQ_ShouldCheckTimeout(req) && req->reqConfig.timeoutPolicy == TimeoutPolicy_Fail) {
+  if (AREQ_ShouldCheckClockTimeout(req) && req->reqConfig.timeoutPolicy == TimeoutPolicy_Fail) {
     TimedOut_WithStatus(&sctx->time.timeout, status);
   }
 
@@ -1934,12 +1931,7 @@ int AREQ_StartCursor(AREQ *r, RedisModule_Reply *reply, StrongRef spec_ref, Quer
 static void runCursor(RedisModule_Reply *reply, Cursor *cursor, size_t num) {
   AREQ *req = cursor->execState;
   AREQ_ProfilePrinterCtx(req)->cursor_reads++;
-  // Skip when useReplyCallback is set (coord+FAIL): the deadline is owned by
-  // the blocked-client timer, armed by buildPipelineAndExecute (initial
-  // WITHCURSOR) or CursorCommand (subsequent READ).
-  // Also skip when timeout checks are disabled: the timeout value is unused by
-  // the result-processor pipeline in that mode (counters are REDISEARCH_UNINITIALIZED).
-  if (!req->useReplyCallback && AREQ_ShouldCheckTimeout(req)) {
+  if (AREQ_ShouldCheckClockTimeout(req)) {
     SearchCtx_UpdateTime(AREQ_SearchCtx(req), req->reqConfig.queryTimeoutMS);
   }
 

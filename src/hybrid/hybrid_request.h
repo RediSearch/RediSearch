@@ -52,7 +52,7 @@ typedef struct HybridRequest {
     RequestSyncCtx syncCtx;
 
     // Flag to indicate whether to skip timeout checks using clock checks
-    bool skipTimeoutChecks;
+    bool skipClockTimeoutChecks;
 
     bool useReplyCallback;
 
@@ -96,20 +96,20 @@ static inline void HybridRequest_UnlockCursors(HybridRequest *req) {
   pthread_mutex_unlock(&req->cursorMutex);
 }
 
-static inline bool HybridRequest_ShouldCheckTimeout(HybridRequest *req) {
-  return !req->skipTimeoutChecks;
+static inline bool HybridRequest_ShouldCheckClockTimeout(HybridRequest *req) {
+  return !req->skipClockTimeoutChecks;
 }
 
-static inline void HybridRequest_SetSkipTimeoutChecks(HybridRequest *req, bool skipTimeoutChecks) {
-  req->skipTimeoutChecks = skipTimeoutChecks;
+static inline void HybridRequest_SetSkipClockTimeoutChecks(HybridRequest *req, bool skipClockTimeoutChecks) {
+  req->skipClockTimeoutChecks = skipClockTimeoutChecks;
   // Propagate to the SearchCtx's SearchTime for timeout functions that access it directly
   if (req->sctx) {
-    req->sctx->time.skipTimeoutChecks = skipTimeoutChecks;
+    req->sctx->time.skipClockTimeoutChecks = skipClockTimeoutChecks;
   }
   // Propagate to all AREQ subqueries
   for (size_t i = 0; i < req->nrequests; i++) {
     if (req->requests[i]) {
-      AREQ_SetSkipTimeoutChecks(req->requests[i], skipTimeoutChecks);
+      AREQ_SetSkipClockTimeoutChecks(req->requests[i], skipClockTimeoutChecks);
     }
   }
 }

@@ -199,10 +199,8 @@ QueryIterator *NewVectorIterator(QueryEvalCtx *q, VectorQuery *vq, QueryIterator
                                     &qParams, QUERY_TYPE_RANGE, q->status) != VecSim_OK)  {
         return NULL;
       }
-      // Use REDISEARCH_UNINITIALIZED counter to skip timeout checks when the request
-      // has them disabled (mirrors the pattern in hybrid_reader / result processor init).
       qParams.timeoutCtx = &(TimeoutCtx){ .timeout = q->sctx->time.timeout,
-                                          .counter = q->sctx->time.skipTimeoutChecks ? REDISEARCH_UNINITIALIZED : 0 };
+                                          .counter = q->sctx->time.skipClockTimeoutChecks ? REDISEARCH_UNINITIALIZED : 0 };
       VecSimQueryReply *results =
           VecSimIndex_RangeQuery(vecsim, vq->range.vector, vq->range.radius,
                                  &qParams, vq->range.order);

@@ -38,7 +38,7 @@ typedef struct SuffixCtx {
     TrieSuffixCallback *callback;
     void *cbCtx;
     struct timespec *timeout;
-    bool skipTimeoutChecks;  // flag to skip timeout checks in trie iteration
+    bool skipClockTimeoutChecks;  // flag to skip timeout checks in trie iteration
 } SuffixCtx;
 
 typedef struct suffixData {
@@ -76,12 +76,12 @@ void suffixTrieMap_freeCallback(void *payload);
 
 /* Return a list of list of terms which match the suffix or contains term */
 arrayof(char**) GetList_SuffixTrieMap(TrieMap *trie, const char *str, uint32_t len,
-                                        bool prefix, struct timespec timeout, bool skipTimeoutChecks);
+                                        bool prefix, struct timespec timeout, bool skipClockTimeoutChecks);
 
 /* Return a list of terms which match the wildcard pattern
  * If pattern does not match using suffix trie, return 0xBAAAAAAD */
 arrayof(char*) GetList_SuffixTrieMap_Wildcard(TrieMap *trie, const char *pattern, uint32_t len,
-                                               struct timespec timeout, long long maxPrefixExpansions, bool skipTimeoutChecks);
+                                               struct timespec timeout, long long maxPrefixExpansions, bool skipClockTimeoutChecks);
 
 /* Breaks wildcard at '*'s and finds the best token to get iterate the suffix trie.
  * tokenIdx and tokenLen arrays should sufficient space for all tokens. Max (len / 2) + 1.

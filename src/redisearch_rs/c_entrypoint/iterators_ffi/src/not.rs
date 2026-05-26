@@ -185,7 +185,7 @@ pub unsafe extern "C" fn NewNotIterator(
         let q_ref = unsafe { query.as_ref() };
         // SAFETY: caller guarantees q.sctx is valid (4).
         let sctx = unsafe { &*q_ref.sctx };
-        if sctx.time.skipTimeoutChecks {
+        if sctx.time.skipClockTimeoutChecks {
             (std::time::Duration::ZERO, true)
         } else {
             match crate::timespec::duration_from_redis_timespec(timeout) {

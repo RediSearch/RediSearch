@@ -734,7 +734,7 @@ static QueryIterator *Query_EvalPrefixNode(QueryEvalCtx *q, QueryNode *qn) {
   } else {
     Trie_IterateContains(t, str, nstr, qn->pfx.prefix, qn->pfx.suffix,
                          runeIterCb, &ctx, &q->sctx->time.timeout,
-                         q->sctx->time.skipTimeoutChecks);
+                         q->sctx->time.skipClockTimeoutChecks);
   }
 
   rm_free(str);
@@ -785,7 +785,7 @@ static QueryIterator *Query_EvalWildcardQueryNode(QueryEvalCtx *q, QueryNode *qn
         .callback = charIterCb, // the difference is weather the function receives char or rune
         .cbCtx = &ctx,
         .timeout = &q->sctx->time.timeout,
-        .skipTimeoutChecks = q->sctx->time.skipTimeoutChecks,
+        .skipClockTimeoutChecks = q->sctx->time.skipClockTimeoutChecks,
       };
       if (Suffix_IterateWildcard(&sufCtx) == 0) {
         // if suffix trie cannot be used, use brute force
@@ -798,7 +798,7 @@ static QueryIterator *Query_EvalWildcardQueryNode(QueryEvalCtx *q, QueryNode *qn
 
   if (!spec->suffix || fallbackBruteForce) {
     Trie_IterateWildcard(t, str, nstr, runeIterCb, &ctx, &q->sctx->time.timeout,
-                         q->sctx->time.skipTimeoutChecks);
+                         q->sctx->time.skipClockTimeoutChecks);
   }
 
   rm_free(str);
@@ -1270,7 +1270,7 @@ static QueryIterator *Query_EvalTagPrefixNode(QueryEvalCtx *q, TagIndex *idx, Qu
     TrieMapIterator *it = TrieMap_IterateWithFilter(idx->values, tok->str, tok->len, iter_mode);
     // TrieMap_IterateWithFilter only returns NULL on allocation failure
     RS_ASSERT(it);
-    if (!q->sctx->time.skipTimeoutChecks) {
+    if (!q->sctx->time.skipClockTimeoutChecks) {
       TrieMapIterator_SetTimeout(it, q->sctx->time.timeout);
     }
 
@@ -1301,7 +1301,7 @@ static QueryIterator *Query_EvalTagPrefixNode(QueryEvalCtx *q, TagIndex *idx, Qu
     TrieMapIterator_Free(it);
   } else {    // TAG field has suffix triemap
     arrayof(char**) arr = GetList_SuffixTrieMap(idx->suffix, tok->str, tok->len,
-                                                qn->pfx.prefix, q->sctx->time.timeout, q->sctx->time.skipTimeoutChecks);
+                                                qn->pfx.prefix, q->sctx->time.timeout, q->sctx->time.skipClockTimeoutChecks);
     if (!arr) {
       rm_free(its);
       return NULL;
@@ -1351,7 +1351,7 @@ static QueryIterator *Query_EvalTagWildcardNode(QueryEvalCtx *q, TagIndex *idx,
   if (idx->suffix) {
     // with suffix
     arrayof(char*) arr = GetList_SuffixTrieMap_Wildcard(idx->suffix, tok->str, tok->len,
-                                                        q->sctx->time.timeout, q->config->maxPrefixExpansions, q->sctx->time.skipTimeoutChecks);
+                                                        q->sctx->time.timeout, q->config->maxPrefixExpansions, q->sctx->time.skipClockTimeoutChecks);
     if (!arr) {
       // No matching terms
       rm_free(its);
@@ -1382,7 +1382,7 @@ static QueryIterator *Query_EvalTagWildcardNode(QueryEvalCtx *q, TagIndex *idx,
   if (!idx->suffix || fallbackBruteForce) {
     // brute force wildcard query
     TrieMapIterator *it = TrieMap_IterateWithFilter(idx->values, tok->str, tok->len, TM_WILDCARD_MODE);
-    if (!q->sctx->time.skipTimeoutChecks) {
+    if (!q->sctx->time.skipClockTimeoutChecks) {
       TrieMapIterator_SetTimeout(it, q->sctx->time.timeout);
     }
 

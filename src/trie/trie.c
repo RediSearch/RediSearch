@@ -114,15 +114,15 @@ void Trie_IterateRange(Trie *t, const rune *min, int minlen, bool includeMin,
 
 void Trie_IterateContains(Trie *t, const rune *str, int nstr, bool prefix, bool suffix,
                           TrieRangeCallback callback, void *ctx, struct timespec *timeout,
-                          bool skipTimeoutChecks) {
+                          bool skipClockTimeoutChecks) {
   TrieNode_IterateContains(t->root, str, nstr, prefix, suffix, callback, ctx, timeout,
-                           skipTimeoutChecks);
+                           skipClockTimeoutChecks);
 }
 
 void Trie_IterateWildcard(Trie *t, const rune *str, int nstr,
                           TrieRangeCallback callback, void *ctx, struct timespec *timeout,
-                          bool skipTimeoutChecks) {
-  TrieNode_IterateWildcard(t->root, str, nstr, callback, ctx, timeout, skipTimeoutChecks);
+                          bool skipClockTimeoutChecks) {
+  TrieNode_IterateWildcard(t->root, str, nstr, callback, ctx, timeout, skipClockTimeoutChecks);
 }
 
 // Forward declaration for the internal rune-based function

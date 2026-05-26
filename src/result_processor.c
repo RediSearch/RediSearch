@@ -404,7 +404,7 @@ ResultProcessor *RPQueryIterator_New(QueryIterator *root, const RedisModuleSlotR
   ret->sctx = sctx;
   ret->base.type = RP_INDEX;
   // Use REDISEARCH_UNINITIALIZED counter to skip timeout checks
-  ret->timeoutLimiter = sctx->time.skipTimeoutChecks ? REDISEARCH_UNINITIALIZED : 0;
+  ret->timeoutLimiter = sctx->time.skipClockTimeoutChecks ? REDISEARCH_UNINITIALIZED : 0;
 #ifdef ENABLE_ASSERT
   ret->firstRead = true;
 #endif
@@ -1784,8 +1784,8 @@ static void RPSafeDepleter_Deplete(void *arg) {
   rs_wall_clock depletionStart;
   rs_wall_clock_init(&depletionStart);
 
-  // Check if timeout was exceeded before starting execution (respecting skipTimeoutChecks flag)
-  if (self->depletingThreadCtx->time.skipTimeoutChecks || TimedOut(&self->depletingThreadCtx->time.timeout) == NOT_TIMED_OUT) {
+  // Check if timeout was exceeded before starting execution (respecting skipClockTimeoutChecks flag)
+  if (self->depletingThreadCtx->time.skipClockTimeoutChecks || TimedOut(&self->depletingThreadCtx->time.timeout) == NOT_TIMED_OUT) {
     RPSafeDepleter_DepleteFromUpstream(self, sync);
   } else {
     // Timeout before starting - no need to acquire lock or do any work
@@ -1909,8 +1909,8 @@ static int RPSafeDepleter_Next_Dispatch(ResultProcessor *base, SearchResult *r) 
   if (self->first_call) {
     self->first_call = false;
 
-    // Check timeout before attempting to start thread (respecting skipTimeoutChecks flag)
-    if (!self->nextThreadCtx->time.skipTimeoutChecks && TimedOut(&self->nextThreadCtx->time.timeout) == TIMED_OUT) {
+    // Check timeout before attempting to start thread (respecting skipClockTimeoutChecks flag)
+    if (!self->nextThreadCtx->time.skipClockTimeoutChecks && TimedOut(&self->nextThreadCtx->time.timeout) == TIMED_OUT) {
       base->Next = RPSafeDepleter_Next_Yield;
       self->last_rc = RS_RESULT_TIMEDOUT;
       return base->Next(base, r);
@@ -2333,7 +2333,7 @@ ResultProcessor *RPHybridMerger_New(RedisSearchCtx *sctx,
   ret->sctx = sctx;
   // Use REDISEARCH_UNINITIALIZED counter to skip timeout checks
   RS_ASSERT(sctx);
-  ret->timeoutCounter = sctx->time.skipTimeoutChecks ? REDISEARCH_UNINITIALIZED : 0;
+  ret->timeoutCounter = sctx->time.skipClockTimeoutChecks ? REDISEARCH_UNINITIALIZED : 0;
   RS_ASSERT(numUpstreams > 0);
   ret->numUpstreams = numUpstreams;
 

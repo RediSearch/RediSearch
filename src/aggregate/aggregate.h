@@ -306,7 +306,7 @@ typedef struct AREQ {
   RequestSyncCtx syncCtx;
 
   // Flag to indicate whether to skip timeout checks using clock checks
-  bool skipTimeoutChecks;
+  bool skipClockTimeoutChecks;
 
   bool useReplyCallback;
 
@@ -595,15 +595,15 @@ void RequestSyncCtx_RegisterAbortWakeChannel(RequestSyncCtx *ctx, struct MRChann
 void RequestSyncCtx_UnregisterAbortWakeChannel(RequestSyncCtx *ctx);
 void RequestSyncCtx_WakeAbortChannel(RequestSyncCtx *ctx);
 
-static inline bool AREQ_ShouldCheckTimeout(AREQ *req) {
-  return !req->skipTimeoutChecks;
+static inline bool AREQ_ShouldCheckClockTimeout(AREQ *req) {
+  return !req->skipClockTimeoutChecks;
 }
 
-static inline void AREQ_SetSkipTimeoutChecks(AREQ *req, bool skipTimeoutChecks) {
-  req->skipTimeoutChecks = skipTimeoutChecks;
+static inline void AREQ_SetSkipClockTimeoutChecks(AREQ *req, bool skipClockTimeoutChecks) {
+  req->skipClockTimeoutChecks = skipClockTimeoutChecks;
   // Also propagate to the SearchCtx's SearchTime for timeout functions that access it directly
   if (req->sctx) {
-    req->sctx->time.skipTimeoutChecks = skipTimeoutChecks;
+    req->sctx->time.skipClockTimeoutChecks = skipClockTimeoutChecks;
   }
 }
 

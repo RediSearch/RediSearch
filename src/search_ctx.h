@@ -37,7 +37,7 @@ typedef struct SearchTime {
   // when the query should timeout - monotonic raw clock, unrelated to real clock
   struct timespec timeout;
   // Flag to skip timeout checks (used in background thread mode with FAIL policy)
-  bool skipTimeoutChecks;
+  bool skipClockTimeoutChecks;
   // Borrowed RS_Atomic(bool) timed-out flag, wired in AREQ_ApplyContext.
   // Read via SearchTime_IsTimedOut. NULL on contexts without an owning AREQ.
   // TODO: move to QueryProcessingCtx.
@@ -75,7 +75,7 @@ static inline RedisSearchCtx SEARCH_CTX_STATIC(RedisModuleCtx *ctx, IndexSpec *s
                           .redisCtx = ctx,
                           .key_ = NULL,
                           .spec = sp,
-                          .time = {.current = { 0, 0 }, .timeout = { 0, 0 }, .skipTimeoutChecks = false, .timedOutFlag = NULL},
+                          .time = {.current = { 0, 0 }, .timeout = { 0, 0 }, .skipClockTimeoutChecks = false, .timedOutFlag = NULL},
                           .flags = RS_CTX_UNSET,};
   return sctx;
 }

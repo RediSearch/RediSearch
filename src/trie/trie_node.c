@@ -1033,7 +1033,7 @@ static void containsIterate(TrieNode *n, t_len localOffset, t_len globalOffset, 
 // Contains iteration.
 void TrieNode_IterateContains(TrieNode *n, const rune *str, int nstr, bool prefix, bool suffix,
                               TrieRangeCallback callback, void *ctx, struct timespec *timeout,
-                              bool skipTimeoutChecks) {
+                              bool skipClockTimeoutChecks) {
   // exact match - should not be used. change to assert
   if (!prefix && !suffix) {
     TrieNode *node = TrieNode_Get(n, (rune *)str, nstr, true, NULL);
@@ -1048,7 +1048,7 @@ void TrieNode_IterateContains(TrieNode *n, const rune *str, int nstr, bool prefi
       .callback = callback,
       .cbctx = ctx,
       .timeout = timeout ? *timeout : (struct timespec){0},
-      .timeoutCounter = skipTimeoutChecks ? REDISEARCH_UNINITIALIZED : 0,
+      .timeoutCounter = skipClockTimeoutChecks ? REDISEARCH_UNINITIALIZED : 0,
   };
   r.buf = array_new(rune, TRIE_INITIAL_STRING_LEN);
 
@@ -1190,13 +1190,13 @@ static void wildcardIterate(TrieNode *n, RangeCtx *r) {
 
 void TrieNode_IterateWildcard(TrieNode *n, const rune *str, int nstr,
                               TrieRangeCallback callback, void *ctx, struct timespec *timeout,
-                              bool skipTimeoutChecks) {
+                              bool skipClockTimeoutChecks) {
   // Use REDISEARCH_UNINITIALIZED counter to skip timeout checks
   RangeCtx r = {
       .callback = callback,
       .cbctx = ctx,
       .timeout = timeout ? *timeout : (struct timespec){0},
-      .timeoutCounter = skipTimeoutChecks ? REDISEARCH_UNINITIALIZED : 0,
+      .timeoutCounter = skipClockTimeoutChecks ? REDISEARCH_UNINITIALIZED : 0,
       .origStr = str,
       .lenOrigStr = nstr,
       .buf = array_new(rune, TRIE_INITIAL_STRING_LEN),

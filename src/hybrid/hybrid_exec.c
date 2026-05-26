@@ -193,7 +193,7 @@ static void startPipelineHybrid(HybridRequest *hreq, ResultProcessor *rp, Search
     .timeoutPolicy = hreq->reqConfig.timeoutPolicy,
     .timeout = &hreq->sctx->time.timeout,
     .oomPolicy = hreq->reqConfig.oomPolicy,
-    .skipTimeoutChecks = !HybridRequest_ShouldCheckTimeout(hreq),
+    .skipClockTimeoutChecks = !HybridRequest_ShouldCheckClockTimeout(hreq),
     .areq = NULL,
   };
   startPipelineCommon(&ctx, rp, results, r, rc);
@@ -1133,7 +1133,7 @@ int hybridCommandHandler(RedisModuleCtx *ctx, RedisModuleString **argv, int argc
   }
 
   // Check if we should check for timeout in pipeline
-  HybridRequest_SetSkipTimeoutChecks(hybridRequest, !shouldCheckInPipelineTimeoutHybrid(ctx, hybridRequest));
+  HybridRequest_SetSkipClockTimeoutChecks(hybridRequest, !shouldCheckInPipelineTimeoutHybrid(ctx, hybridRequest));
 
   // Copy dispatch time to each subquery AREQ for profile printing
   for (size_t i = 0; i < hybridRequest->nrequests; i++) {
@@ -1145,10 +1145,7 @@ int hybridCommandHandler(RedisModuleCtx *ctx, RedisModuleString **argv, int argc
   }
 
   // Initialize timeout for all subqueries BEFORE building pipelines.
-  // Skip the clock_gettime syscalls when timeout checks are disabled: result processors
-  // and iterators initialize their timeout counters to REDISEARCH_UNINITIALIZED based on
-  // sctx->time.skipTimeoutChecks and never read sctx->time.timeout in that mode.
-  if (HybridRequest_ShouldCheckTimeout(hybridRequest)) {
+  if (HybridRequest_ShouldCheckClockTimeout(hybridRequest)) {
     for (int i = 0; i < hybridRequest->nrequests; i++) {
       AREQ *subquery = hybridRequest->requests[i];
       SearchCtx_UpdateTime(AREQ_SearchCtx(subquery), hybridRequest->reqConfig.queryTimeoutMS);

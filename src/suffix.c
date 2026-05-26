@@ -362,7 +362,7 @@ int Suffix_IterateWildcard(SuffixCtx *sufCtx) {
   token[toklen] = (rune)'\0';
 
   Trie_IterateWildcard(sufCtx->trie, token, toklen, Suffix_CB_Wildcard, sufCtx, sufCtx->timeout,
-                       sufCtx->skipTimeoutChecks);
+                       sufCtx->skipClockTimeoutChecks);
   return 1;
 }
 
@@ -439,7 +439,7 @@ void deleteSuffixTrieMap(TrieMap *trie, const char *str, uint32_t len) {
 }
 
 arrayof(char**) GetList_SuffixTrieMap(TrieMap *trie, const char *str, uint32_t len,
-                                          bool prefix, struct timespec timeout, bool skipTimeoutChecks) {
+                                          bool prefix, struct timespec timeout, bool skipClockTimeoutChecks) {
   arrayof(char**) arr = NULL;
   suffixData *data = NULL;
   if (!prefix) {
@@ -452,7 +452,7 @@ arrayof(char**) GetList_SuffixTrieMap(TrieMap *trie, const char *str, uint32_t l
     }
   } else {
     TrieMapIterator *it = TrieMap_IterateWithFilter(trie, str, len, TM_PREFIX_MODE);
-    if (!skipTimeoutChecks) {
+    if (!skipClockTimeoutChecks) {
       TrieMapIterator_SetTimeout(it, timeout);
     }
     if (!it) {
@@ -500,7 +500,7 @@ end:
 }
 
 arrayof(char*) GetList_SuffixTrieMap_Wildcard(TrieMap *trie, const char *pattern, uint32_t len,
-                                              struct timespec timeout, long long maxPrefixExpansions, bool skipTimeoutChecks) {
+                                              struct timespec timeout, long long maxPrefixExpansions, bool skipClockTimeoutChecks) {
   size_t idx[len];
   size_t lens[len];
   // find best token
@@ -516,7 +516,7 @@ arrayof(char*) GetList_SuffixTrieMap_Wildcard(TrieMap *trie, const char *pattern
 
   TrieMapIterator *it = TrieMap_IterateWithFilter(trie, pattern + tokenidx, tokenlen + prefix, TM_WILDCARD_MODE);
   if (!it) return NULL;
-  if (!skipTimeoutChecks) {
+  if (!skipClockTimeoutChecks) {
     TrieMapIterator_SetTimeout(it, timeout);
   }
 

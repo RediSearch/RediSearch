@@ -1295,7 +1295,7 @@ int AREQ_Compile(AREQ *req, RedisModuleCtx *ctx, RedisModuleString **argv, int a
   }
 
   // Check if we should check for timeout in pipeline
-  AREQ_SetSkipTimeoutChecks(req, !shouldCheckInPipelineTimeout(ctx, req));
+  AREQ_SetSkipClockTimeoutChecks(req, !shouldCheckInPipelineTimeout(ctx, req));
 
   return REDISMODULE_OK;
 
@@ -1484,11 +1484,11 @@ int AREQ_ApplyContext(AREQ *req, RedisSearchCtx *sctx, QueryError *status) {
   IndexSpec *index = sctx->spec;
   RSSearchOptions *opts = &req->searchopts;
   req->sctx = sctx;
-  // Propagate skipTimeoutChecks from the request to the sctx. AREQ_Compile set
-  // req->skipTimeoutChecks before sctx existed, so the flag never reached the
-  // sctx. Pipeline stages (startPipelineCommon, result processor counters)
-  // read sctx->time.skipTimeoutChecks directly.
-  sctx->time.skipTimeoutChecks = req->skipTimeoutChecks;
+  // Propagate skipClockTimeoutChecks from the request to the sctx. AREQ_Compile
+  // set req->skipClockTimeoutChecks before sctx existed, so the flag never
+  // reached the sctx. Pipeline stages (startPipelineCommon, result processor
+  // counters) read sctx->time.skipClockTimeoutChecks directly.
+  sctx->time.skipClockTimeoutChecks = req->skipClockTimeoutChecks;
   // Borrow the request's timed-out flag onto the sctx so pipeline RPs can
   // observe a RETURN-STRICT main-thread timeout without holding an AREQ
   // back-pointer (read via SearchTime_IsTimedOut).

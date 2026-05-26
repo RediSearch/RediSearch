@@ -623,7 +623,7 @@ QueryIterator *NewHybridVectorIterator(HybridIteratorParams hParams, QueryError 
   hi->maxBatchIteration = 0;
   hi->canTrimDeepResults = hParams.canTrimDeepResults;
   // Use REDISEARCH_UNINITIALIZED counter to skip timeout checks
-  hi->timeoutCtx = (TimeoutCtx){ .timeout = hParams.timeout, .counter = hParams.sctx->time.skipTimeoutChecks ? REDISEARCH_UNINITIALIZED : 0 };
+  hi->timeoutCtx = (TimeoutCtx){ .timeout = hParams.timeout, .counter = hParams.sctx->time.skipClockTimeoutChecks ? REDISEARCH_UNINITIALIZED : 0 };
   hi->runtimeParams.timeoutCtx = &hi->timeoutCtx;
   hi->sctx = hParams.sctx;
   hi->filterCtx = *hParams.filterCtx;

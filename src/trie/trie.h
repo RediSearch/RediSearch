@@ -82,13 +82,13 @@ void Trie_IterateRange(Trie *t, const rune *min, int minlen, bool includeMin,
  * parameter semantics. */
 void Trie_IterateContains(Trie *t, const rune *str, int nstr, bool prefix, bool suffix,
                           TrieRangeCallback callback, void *ctx, struct timespec *timeout,
-                          bool skipTimeoutChecks);
+                          bool skipClockTimeoutChecks);
 
 /* Iterate all nodes matching a wildcard pattern. Wraps TrieNode_IterateWildcard on the
  * trie's root. See TrieNode_IterateWildcard for parameter semantics. */
 void Trie_IterateWildcard(Trie *t, const rune *str, int nstr,
                           TrieRangeCallback callback, void *ctx, struct timespec *timeout,
-                          bool skipTimeoutChecks);
+                          bool skipClockTimeoutChecks);
 
 /* Number of terminal entries in the trie. Wraps the internal size counter. */
 size_t Trie_Size(const Trie *t);

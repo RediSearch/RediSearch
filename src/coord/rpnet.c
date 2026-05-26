@@ -176,9 +176,9 @@ static void shardResponseBarrier_PendingReplies_Free(RPNet *nc) {
 }
 
 // Wall-clock deadline pointer for MRIterator_NextWithTimeout. NULL when
-// AREQ_ShouldCheckTimeout is false (e.g. RETURN-STRICT uses the abort flag).
+// AREQ_ShouldCheckClockTimeout is false (e.g. RETURN-STRICT uses the abort flag).
 static struct timespec *getAbsTimeout(RPNet *nc) {
-  if (!nc->areq || !nc->areq->sctx || !AREQ_ShouldCheckTimeout(nc->areq)) {
+  if (!nc->areq || !nc->areq->sctx || !AREQ_ShouldCheckClockTimeout(nc->areq)) {
     return NULL;
   }
   return (struct timespec *)&nc->areq->sctx->time.timeout;
@@ -291,8 +291,8 @@ int getNextReply(RPNet *nc) {
     while ((numShards = atomic_load(&nc->shardResponseBarrier->numShards)) == 0 ||
            atomic_load(&nc->shardResponseBarrier->numResponded) < numShards) {
 
-      // Check for timeout to avoid blocking indefinitely (respecting skipTimeoutChecks flag)
-      if (nc->areq && AREQ_ShouldCheckTimeout(nc->areq) && TimedOut(&nc->areq->sctx->time.timeout)) {
+      // Check for timeout to avoid blocking indefinitely (respecting skipClockTimeoutChecks flag)
+      if (nc->areq && AREQ_ShouldCheckClockTimeout(nc->areq) && TimedOut(&nc->areq->sctx->time.timeout)) {
         break;
       // Check for blocked client timeout
       } else if (nc->areq && AREQ_TimedOut(nc->areq)) {
@@ -603,11 +603,11 @@ int rpnetNext(ResultProcessor *self, SearchResult *r) {
 
   // get the next reply from the channel
   while (!root) {
-    // Check for timeout (respecting skipTimeoutChecks flag). Under RETURN-STRICT
+    // Check for timeout (respecting skipClockTimeoutChecks flag). Under RETURN-STRICT
     // (the only policy that sets drainOnly) shouldCheckInPipelineTimeoutCoord
-    // already forces skipTimeoutChecks=true, so this branch is naturally bypassed
+    // already forces skipClockTimeoutChecks=true, so this branch is naturally bypassed
     // during a drain.
-    if (!nc->areq->sctx->time.skipTimeoutChecks && TimedOut(&nc->areq->sctx->time.timeout)) {
+    if (!nc->areq->sctx->time.skipClockTimeoutChecks && TimedOut(&nc->areq->sctx->time.timeout)) {
       // Set the `timedOut` flag in the MRIteratorCtx, later to be read by the
       // callback so that a `CURSOR DEL` command will be dispatched instead of
       // a `CURSOR READ` command.
