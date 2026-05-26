@@ -713,8 +713,6 @@ static void FreeCursorMappings(void *mappings) {
 
 // Sets up RPNet cursor mappings on the coordinator. Blocks the calling thread
 // until all shards have replied with their cursor IDs.
-//
-// This does not run the hybrid merger part of the pipeline - see submitHybridTail.
 static int HybridRequest_prepareCursors(HybridRequest *hreq, QueryError *status) {
 
     // Get RPNet structures from query context
