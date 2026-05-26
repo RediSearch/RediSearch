@@ -171,6 +171,12 @@ int HybridRequest_BuildMergePipeline(HybridRequest *req, const RLookupKey *score
 int HybridRequest_BuildPipeline(HybridRequest *req, HybridPipelineParams *params, bool depleteInBackground, QueryError *status) {
     // Build the depletion pipeline for extracting results from individual search requests
     if (HybridRequest_BuildDepletionPipeline(req, params, depleteInBackground) != REDISMODULE_OK) {
+      for (size_t i = 0; i < req->nrequests; i++) {
+        if (QueryError_HasError(&req->errors[i])) {
+          QueryError_CloneFrom(&req->errors[i], status);
+          break;
+        }
+      }
       return REDISMODULE_ERR;
     }
     RLookup *tailLookup = AGPLN_GetLookup(&req->tailPipeline->ap, NULL, AGPLN_GETLOOKUP_FIRST);
