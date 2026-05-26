@@ -44,12 +44,6 @@ pub enum CollectionStrategy {
     /// Keep iterating — fetch the next batch.
     Continue,
 
-    /// Restart batch collection (e.g. after the source has expanded its range).
-    ///
-    /// The iterator rewinds both the source and the child, then re-enters
-    /// Batches mode from the beginning.
-    SwitchToBatches,
-
     /// Collection is complete — stop and yield whatever is in the heap.
     Stop,
 }

@@ -11,6 +11,8 @@
 
 use std::{cmp::Ordering, num::NonZeroUsize};
 
+use index_result::RSIndexResult;
+use index_spec::IndexSpecReadGuard;
 use rqe_iterators::{IdList, RQEIterator, RQEIteratorError};
 use top_k::{
     CollectionStrategy, ScoreSource, TopKIterator, mock::MockScoreBatch, mock::MockScoreSource,
@@ -359,7 +361,7 @@ fn rewind_after_mid_collect_error_does_not_retain_stale_heap() {
         rewind_count: u32,
     }
 
-    impl<'index> ScoreSource<'index> for OnceErrorSource {
+    impl<'index> ScoreSource for OnceErrorSource {
         type Batch = MockScoreBatch;
 
         fn next_batch(&mut self) -> Result<Option<Self::Batch>, RQEIteratorError> {
@@ -389,14 +391,11 @@ fn rewind_after_mid_collect_error_does_not_retain_stale_heap() {
             self.rewind_count += 1;
         }
 
-        fn build_result(
-            &self,
-            doc_id: ffi::t_docId,
-            _: f64,
-        ) -> inverted_index::RSIndexResult<'index> {
-            inverted_index::RSIndexResult::build_virt()
-                .doc_id(doc_id)
-                .build()
+        fn build_result<'r>(&self, doc_id: ffi::t_docId, _: f64) -> RSIndexResult<'r>
+        where
+            Self: 'r,
+        {
+            RSIndexResult::build_virt().doc_id(doc_id).build()
         }
 
         fn collection_strategy(&mut self, _: usize, _: usize) -> CollectionStrategy {
@@ -429,29 +428,4 @@ fn rewind_after_mid_collect_error_does_not_retain_stale_heap() {
     // by rewind(), doc 1 and doc 3 are added a second time and appear twice.
     let doc_ids: Vec<_> = std::iter::from_fn(|| it.read().unwrap().map(|r| r.doc_id)).collect();
     assert_eq!(doc_ids, vec![1, 3]);
-}
-
-#[test]
-fn strategy_switch_to_batches_rewinds() {
-    // Call 0 → SwitchToBatches (rewinds source+child, restarts loop).
-    // Call 1 → Stop (to exit on the second pass).
-    let call_count = std::cell::Cell::new(0u32);
-    let strategy = move |_: usize, _: usize| {
-        let n = call_count.get();
-        call_count.set(n + 1);
-        if n == 0 {
-            CollectionStrategy::SwitchToBatches
-        } else {
-            CollectionStrategy::Stop
-        }
-    };
-    let source = MockScoreSource::new(vec![vec![(1, 1.0), (2, 2.0)]], strategy);
-    let mut it = TopKIterator::new(
-        source,
-        Some(make_child(vec![1, 2])),
-        NonZeroUsize::new(10).unwrap(),
-        asc,
-    );
-    let doc_ids: Vec<_> = std::iter::from_fn(|| it.read().unwrap().map(|r| r.doc_id)).collect();
-    assert_eq!(doc_ids, vec![1, 2]);
 }

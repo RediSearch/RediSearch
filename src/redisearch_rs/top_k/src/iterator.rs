@@ -189,17 +189,6 @@ impl<'index, S: ScoreSource + 'index> TopKIterator<'index, S> {
             {
                 CollectionStrategy::Continue => continue,
                 CollectionStrategy::Stop => break,
-                CollectionStrategy::SwitchToBatches => {
-                    // Clear the heap: the source restarts with new parameters
-                    // (e.g. expanded numeric range) and will re-emit previously
-                    // collected docs. Keeping stale entries would cause duplicates.
-                    self.heap = TopKHeap::new(self.k, self.compare);
-                    self.source.rewind();
-                    if let Some(child) = &mut self.child {
-                        child.rewind();
-                    }
-                    continue;
-                }
             }
         }
         self.finalize_collection();
