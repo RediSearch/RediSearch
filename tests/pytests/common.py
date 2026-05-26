@@ -529,7 +529,7 @@ def skip(cluster=None, macos=False, asan=False, msan=False, redis_less_than=None
             if len(inspect.signature(f).parameters) > 0:
                 # Honor a declared @env_spec when constructing the env so the
                 # spec stays load-bearing even when @skip is stacked on top.
-                spec = getattr(f, '_rltest_env_spec', None) or {}
+                spec = getattr(f, '_rltest_env_spec', {})
                 env = Env(**spec)
                 return f(env)
             else:
