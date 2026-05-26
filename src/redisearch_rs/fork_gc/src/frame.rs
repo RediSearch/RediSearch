@@ -22,8 +22,8 @@ pub(crate) const TERMINATOR: usize = usize::MAX;
 /// length.
 ///
 /// `D` is the data container for the [`Frame::Data`] variant. Use `Box<[u8]>`
-/// on the read path (as returned by [`Frame::read`]) or `&[u8]` on the write
-/// path (passed to [`Frame::write`]) to avoid copying.
+/// on the read path (as returned by [`Frame::decode`]) or `&[u8]` on the write
+/// path (passed to [`Frame::encode`]) to avoid copying.
 #[derive(Debug, Clone)]
 pub enum Frame<D> {
     /// End-of-stream sentinel; no payload follows.
@@ -57,7 +57,7 @@ impl Frame<Box<[u8]>> {
     /// Propagates any [`io::Error`] from `reader`, including
     /// [`io::ErrorKind::UnexpectedEof`] if the stream ends before the length
     /// prefix or payload are fully read.
-    pub fn read(reader: &mut impl Read) -> io::Result<Self> {
+    pub fn decode(reader: &mut impl Read) -> io::Result<Self> {
         let mut len_bytes = [0u8; size_of::<usize>()];
         reader.read_exact(&mut len_bytes)?;
         let len = usize::from_ne_bytes(len_bytes);
@@ -108,7 +108,7 @@ impl<'a> Frame<&'a [u8]> {
     /// # Errors
     ///
     /// Propagates any [`io::Error`] from `writer`.
-    pub fn write(self, writer: &mut impl Write) -> io::Result<()> {
+    pub fn encode(self, writer: &mut impl Write) -> io::Result<()> {
         match self {
             Frame::Terminator => writer.write_all(&TERMINATOR.to_ne_bytes()),
             Frame::Empty => writer.write_all(&EMPTY.to_ne_bytes()),
