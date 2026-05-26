@@ -1,26 +1,30 @@
 name: Setup sccache
 description: |
-  Assume the sccache AWS role via OIDC, install the sccache binary, and export
-  sccache S3 env vars. Calling job MUST grant `id-token: write`.
+  Install the sccache binary and optionally configure S3 remote cache via AWS
+  OIDC. Remote cache setup is best-effort; jobs that can use it MUST grant
+  `id-token: write`.
 
 inputs:
   aws-role:
     description: 'AWS IAM role ARN for sccache S3 access (pass vars.SCCACHE_AWS_ROLE_TO_ASSUME)'
-    required: true
+    required: false
   s3-bucket:
     description: 'S3 bucket name for sccache (pass vars.SCCACHE_S3_BUCKET)'
-    required: true
+    required: false
   s3-region:
     description: 'AWS region of the sccache S3 bucket (pass vars.SCCACHE_S3_REGION)'
-    required: true
+    required: false
   s3-key-prefix:
     description: 'S3 key prefix for sccache objects (pass vars.SCCACHE_S3_KEY_PREFIX)'
-    required: true
+    required: false
 
 runs:
   using: composite
   steps:
     - name: Configure AWS Credentials for sccache
+      id: aws-credentials
+      if: ${{ inputs.aws-role != '' && inputs.s3-bucket != '' && inputs.s3-region != '' && inputs.s3-key-prefix != '' }}
+      continue-on-error: true
       uses: aws-actions/configure-aws-credentials@v6
       with:
         role-to-assume: ${{ inputs.aws-role }}
@@ -33,7 +37,8 @@ runs:
         # container and reports nothing. We show stats ourselves.
         disable_annotations: true
 
-    - name: Configure sccache environment
+    - name: Configure sccache S3 environment
+      if: ${{ steps.aws-credentials.outcome == 'success' }}
       # Use --noprofile --norc to avoid Alpine's /etc/profile resetting PATH,
       # which would hide the sccache binary installed by the previous step.
       # Input values are passed via env (not interpolated into the script)

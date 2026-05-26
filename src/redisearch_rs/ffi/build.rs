@@ -115,7 +115,7 @@ const HEADERS: &[HeaderAllowlist] = &[
     },
     HeaderAllowlist {
         path: "src/query.h",
-        fns: &[],
+        fns: &["tag_strtolower"],
         types: &["QueryEvalCtx"],
         vars: &[],
     },
@@ -300,6 +300,18 @@ const HEADERS: &[HeaderAllowlist] = &[
         types: &[],
         vars: &[],
     },
+    HeaderAllowlist {
+        path: "src/util/strconv.h",
+        fns: &["unicode_tolower_fn"],
+        types: &[],
+        vars: &[],
+    },
+    HeaderAllowlist {
+        path: "src/wildcard/wildcard.h",
+        fns: &["Wildcard_RemoveEscape"],
+        types: &[],
+        vars: &[],
+    },
 ];
 
 /// Generated headers (from `src/redisearch_rs/headers/`) that bindgen is allowed
@@ -339,6 +351,8 @@ const PERMITTED_GENERATED_HEADERS: &[&str] = &[
     "result_processor_ffi.h",
     // `enum IteratorType` is used by value in `src/iterators/iterator_api.h`.
     "rqe_iterator_type.h",
+    // `IteratorsConfig` is embedded by value in `RSGlobalConfig` (src/config.h).
+    "rqe_iterators.h",
     // `src/rlookup.h` has `static inline` accessors that dereference
     // `RLookupKey` / `RLookupIterator` fields, so the full struct bodies in
     // these three are required. (`rlookup_ffi.h` includes `search_result_rs.h`
@@ -375,7 +389,6 @@ const BLOCKLIST_FILES: &[&str] = &[
     ".*/query_term.h",
     ".*/query_term_ffi.h",
     ".*/rqe_iterator_type.h",
-    ".*/rqe_iterators.h",
 ];
 
 fn main() {

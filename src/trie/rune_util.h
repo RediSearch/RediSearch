@@ -57,10 +57,15 @@ char *runesToStr(const rune *in, size_t len, size_t *utflen);
  */
 rune *strToLowerRunes(const char *str, size_t utf8_len, size_t *unicode_len);
 
-/* Convert a string to runes, fold them and return the folded runes.
- * If a folded runes contains more than one codepoint, only the first
- * codepoint is taken, the rest are ignored. */
-rune *strToSingleCodepointFoldedRunes(const char *str, size_t *len);
+/* Convert a UTF-8 byte buffer to runes, fold them and return the folded
+ * runes. If a folded rune contains more than one codepoint, only the
+ * first codepoint is taken, the rest are ignored.
+ * Parameters:
+ * - str: The input UTF-8 encoded buffer (need not be NUL-terminated).
+ * - utf8_len: The length of the input buffer in bytes.
+ * - len: A pointer to a size_t where the rune-count is written.
+ *   May be NULL. */
+rune *strToSingleCodepointFoldedRunes(const char *str, size_t utf8_len, size_t *len);
 
 /* Convert a utf-8 string to constant width runes */
 rune *strToRunes(const char *str, size_t *len);

@@ -18,6 +18,7 @@ use index_result::RSIndexResult;
 use query_term::RSQueryTerm;
 
 pub mod c2rust;
+pub mod config;
 pub mod empty;
 pub mod expiration_checker;
 pub mod id_list;
@@ -42,6 +43,7 @@ mod union_trimmed;
 pub mod utils;
 pub mod wildcard;
 
+pub use config::IteratorsConfig;
 pub use empty::Empty;
 pub use expiration_checker::{ExpirationChecker, FieldExpirationChecker, NoOpChecker};
 pub use id_list::IdList;
