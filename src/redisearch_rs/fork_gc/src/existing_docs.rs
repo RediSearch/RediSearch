@@ -34,11 +34,11 @@ pub fn collect_existing_docs(writer: &mut impl Write, spec: &IndexSpecReadGuard)
     if let Some(ii) = spec.existing_docs()
         && let Ok(Some(deltas)) = ii.scan_gc(doc_exists)
     {
-        Frame::Empty.write(writer)?;
+        Frame::Empty.encode(writer)?;
         deltas
             .serialize(&mut rmp_serde::Serializer::new(&mut *writer))
             .map_err(io::Error::other)?;
     }
 
-    Frame::Terminator.write(writer)
+    Frame::Terminator.encode(writer)
 }

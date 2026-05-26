@@ -45,7 +45,7 @@ fn no_existing_docs_writes_only_terminator() {
 
     let mut cursor = Cursor::new(&buf);
     assert!(matches!(
-        Frame::read(&mut cursor).unwrap(),
+        Frame::decode(&mut cursor).unwrap(),
         Frame::Terminator
     ));
 }
@@ -67,7 +67,7 @@ fn empty_existing_docs_writes_only_terminator() {
 
     let mut cursor = Cursor::new(&buf);
     assert!(matches!(
-        Frame::read(&mut cursor).unwrap(),
+        Frame::decode(&mut cursor).unwrap(),
         Frame::Terminator
     ));
 
@@ -95,11 +95,11 @@ fn existing_docs_with_deleted_entries_writes_delta() {
     collect_existing_docs(&mut buf, &*guard).unwrap();
 
     let mut cursor = Cursor::new(&buf);
-    assert!(matches!(Frame::read(&mut cursor).unwrap(), Frame::Empty));
+    assert!(matches!(Frame::decode(&mut cursor).unwrap(), Frame::Empty));
     let delta: GcScanDelta = rmp_serde::from_read(&mut cursor).unwrap();
     assert_eq!(delta.last_block_idx(), 0);
     assert!(matches!(
-        Frame::read(&mut cursor).unwrap(),
+        Frame::decode(&mut cursor).unwrap(),
         Frame::Terminator
     ));
 
