@@ -168,11 +168,10 @@ HybridRequest* ParseAndBuildHybridRequest(RedisModuleCtx *ctx, const char* index
     return nullptr;
   }
 
-  // Build the pipeline using the parsed hybrid parameters. The depleters are
-  // submitted to the workers thread pool so the test exercises the same pool
-  // used in production. The test never actually runs the depleters, but the
-  // pool handle must be valid because RPSafeDepleter_New asserts non-NULL.
-  rc = HybridRequest_BuildPipeline(hybridReq, cmd.hybridParams, true, workersThreadPool_GetPool(), status);
+  // Build the pipeline using the parsed hybrid parameters. The thread pool is
+  // supplied at scheduling time (StartDepletion[All]) rather than here; this
+  // test never actually runs the depleters.
+  rc = HybridRequest_BuildPipeline(hybridReq, cmd.hybridParams, true, status);
   if (rc != REDISMODULE_OK) {
     HybridRequest_DecrRef(hybridReq);
     return nullptr;

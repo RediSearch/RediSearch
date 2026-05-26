@@ -243,22 +243,36 @@ ResultProcessor *RPVectorNormalizer_New(VectorNormFunction normFunc, const RLook
 
 /**
 * Constructs a new RPSafeDepleter processor that offloads result consumption to a background thread.
-* The returned processor takes ownership of result depleting and yielding.
+* The returned processor takes ownership of result depleting and yielding. The
+* thread pool is supplied later — via RPSafeDepleter_StartDepletion[All] for
+* the standard flows, or via RPSafeDepleter_SetPool for callers that rely on
+* the lazy `Next()` start branch.
 * @param sync_ref Reference to shared synchronization object for coordinating multiple safe depleters
 * @param depletingThreadCtx Search context for the upstream processor being wrapped
 * @param nextThreadCtx Search context for the downstream processor that will receive results
-* @param pool Thread pool the background depletion job is submitted to (must be non-NULL)
 */
 ResultProcessor *RPSafeDepleter_New(StrongRef sync_ref, RedisSearchCtx *depletingThreadCtx,
-                                    RedisSearchCtx *nextThreadCtx, redisearch_thpool_t *pool);
+                                    RedisSearchCtx *nextThreadCtx);
 
 /**
-* Pre-submit a safe depleter to its thread pool (single-depleter variant used by
-* the coordinator hybrid dispatcher). After this call the depleter's lazy-start
+* Pre-submit a safe depleter to a thread pool (single-depleter variant used by
+* the coordinator hybrid dispatcher). Records `pool` on the depleter and
+* schedules its background job. After this call the depleter's lazy-start
 * branch is skipped and Next() proceeds directly to wait-for-completion. Used
 * to enqueue a depleter ahead of a tail continuation on the same pool.
+* @param base The safe depleter to schedule.
+* @param pool Thread pool the background depletion job is submitted to (must be non-NULL).
 */
-void RPSafeDepleter_StartDepletion(ResultProcessor *base);
+void RPSafeDepleter_StartDepletion(ResultProcessor *base, redisearch_thpool_t *pool);
+
+/**
+* Assign a thread pool to a safe depleter without scheduling it. The pool is
+* used by the lazy-start branch of `RPSafeDepleter_Next_Dispatch`. Callers
+* that always reach the depleter through StartDepletion[All] don't need this.
+* @param base The safe depleter to configure.
+* @param pool Thread pool used by lazy-start (must be non-NULL).
+*/
+void RPSafeDepleter_SetPool(ResultProcessor *base, redisearch_thpool_t *pool);
 
 /**
 * Block until this depleter's background depletion job (if any) has completed.
@@ -318,11 +332,14 @@ int RPDepleter_DepleteAll(arrayof(ResultProcessor*) depleters);
  * hand-off.
  *
  * @param safeDepleters Array of safe depleter processors sharing a sync object
+ * @param pool Thread pool the background depletion jobs are submitted to (must be non-NULL).
+ *             Recorded on each depleter before scheduling so the lazy-start
+ *             branch can use it too.
  * @param status Query error to populate on validation failure
  * @return RS_RESULT_OK on success (jobs submitted; lock release is in flight),
  *         RS_RESULT_ERROR if the array is in an invalid state (no jobs submitted)
  */
-int RPSafeDepleter_StartDepletionAll(arrayof(ResultProcessor*) safeDepleters, QueryError *status);
+int RPSafeDepleter_StartDepletionAll(arrayof(ResultProcessor*) safeDepleters, redisearch_thpool_t *pool, QueryError *status);
 
 /**
  * Blocks until every depleter in the array has finished its background job.
@@ -341,10 +358,11 @@ int RPSafeDepleter_WaitForDepletionAll(arrayof(ResultProcessor*) safeDepleters, 
  * Triggers depletion and blocks until everything is drained. Intended for callers
  * (e.g. WORKERS=0 foreground path) that don't want to yield between phases.
  * @param safeDepleters Array of safe depleter processors
+ * @param pool Thread pool the background depletion jobs are submitted to (must be non-NULL)
  * @param status Query error object to populate in case of error
  * @return RS_RESULT_OK if all safe depleters completed successfully, otherwise an error code
  */
-int RPSafeDepleter_DepleteAll(arrayof(ResultProcessor*) safeDepleters, QueryError *status);
+int RPSafeDepleter_DepleteAll(arrayof(ResultProcessor*) safeDepleters, redisearch_thpool_t *pool, QueryError *status);
 
 /**
 * Creates a new shared synchronization object for coordinating multiple RPSafeDepleter processors.

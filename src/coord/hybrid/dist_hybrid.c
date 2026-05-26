@@ -847,8 +847,9 @@ static ResultProcessor *findSafeDepleter(const HybridRequest *hreq, size_t i) {
 // the tail hybrid merger job that cv-waits on their completion or this will
 // deadlock (see submitHybridTail).
 static void scheduleDepleters(HybridRequest *hreq) {
+    redisearch_thpool_t *pool = ConcurrentSearch_GetPool(hreq->poolId);
     for (size_t i = 0; i < hreq->nrequests; i++) {
-        RPSafeDepleter_StartDepletion(findSafeDepleter(hreq, i));
+        RPSafeDepleter_StartDepletion(findSafeDepleter(hreq, i), pool);
     }
 }
 

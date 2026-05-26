@@ -702,7 +702,7 @@ int HybridRequest_StartCursors(StrongRef hybrid_ref, RedisModuleCtx *replyCtx, Q
 
     int rc;
     if (backgroundDepletion) {
-      rc = RPSafeDepleter_DepleteAll(depleters, status);
+      rc = RPSafeDepleter_DepleteAll(depleters, workersThreadPool_GetPool(), status);
     } else {
       // Foreground depletion for WORKERS == 0
       // Trigger synchronous depletion to read and buffer all results while the spec lock is held.
@@ -775,14 +775,15 @@ static int buildPipelineAndExecute(StrongRef hybrid_ref, HybridPipelineParams *h
   }
 
   // Internal commands do not have a hybrid merger and only have a depletion pipeline.
-  // Foreground (WORKERS=0) caller: depleteInBackground=false, so no thread pool is needed.
+  // Foreground (WORKERS=0) caller: depleteInBackground=false, so no thread pool
+  // is involved at all. Background paths supply the pool to StartDepletionAll.
   if (internal) {
     RS_LOG_ASSERT(isCursor, "Internal hybrid command must be a cursor request from a coordinator");
     isCursor = true;
-    if (HybridRequest_BuildDepletionPipeline(hreq, hybridParams, depleteInBackground, NULL) != REDISMODULE_OK) {
+    if (HybridRequest_BuildDepletionPipeline(hreq, hybridParams, depleteInBackground) != REDISMODULE_OK) {
       return REDISMODULE_ERR;
     }
-  } else if (HybridRequest_BuildPipeline(hreq, hybridParams, depleteInBackground, NULL, status) != REDISMODULE_OK) {
+  } else if (HybridRequest_BuildPipeline(hreq, hybridParams, depleteInBackground, status) != REDISMODULE_OK) {
     return REDISMODULE_ERR;
   }
 
@@ -1335,19 +1336,18 @@ static void HREQ_Execute_Callback(blockedClientHybridCtx *BCHCtx) {
   // Build the pipeline. Internal hybrid commands only build the per-subquery
   // depletion pipeline (the merger runs on the coordinator); user-facing
   // commands build the full pipeline including the merger and tail.
-  // Background depletion jobs are submitted to the same _workers_thpool that
-  // runs this dispatcher and will run the tail; the dispatcher does not
-  // busy-wait, so a small WORKERS setting will serialize the depletion+tail
-  // rather than deadlock.
-  redisearch_thpool_t *workers_pool = workersThreadPool_GetPool();
+  // The thread pool is supplied at scheduling time (StartDepletionAll below),
+  // not at build time, so construction stays free of runtime concerns.
   if (BCHCtx->internal) {
     RS_LOG_ASSERT(isCursor, "Internal hybrid command must be a cursor request from a coordinator");
     isCursor = true;
-    build_rc = HybridRequest_BuildDepletionPipeline(hreq, hybridParams, true, workers_pool);
+    build_rc = HybridRequest_BuildDepletionPipeline(hreq, hybridParams, true);
   } else {
-    build_rc = HybridRequest_BuildPipeline(hreq, hybridParams, true, workers_pool, &hreq->tailPipelineError);
+    build_rc = HybridRequest_BuildPipeline(hreq, hybridParams, true, &hreq->tailPipelineError);
   }
   if (build_rc != REDISMODULE_OK) {
+    // The build error is in hreq->tailPipelineError or hreq->errors[i];
+    // dispatch_error pulls it out via HybridRequest_GetError.
     goto dispatch_error;
   }
 
@@ -1373,8 +1373,11 @@ static void HREQ_Execute_Callback(blockedClientHybridCtx *BCHCtx) {
     goto dispatch_error;
   }
 
-  // Submit the depleter jobs.
-  if (RPSafeDepleter_StartDepletionAll(depleters, &status) != RS_RESULT_OK) {
+  // Submit the depleter jobs. Background depletion runs on the same
+  // _workers_thpool that runs this dispatcher and the tail; the dispatcher
+  // does not busy-wait, so a small WORKERS setting will serialize the
+  // depletion+tail rather than deadlock.
+  if (RPSafeDepleter_StartDepletionAll(depleters, workersThreadPool_GetPool(), &status) != RS_RESULT_OK) {
     array_free(depleters);
     if (isCursor) {
       HybridRequest_LockCursors(hreq);
@@ -1456,6 +1459,12 @@ static void HREQ_Tail_Callback(HybridTailCtx *tail) {
   } else if (dep_rc == RS_RESULT_TIMEDOUT) {
     if (hreq->reqConfig.timeoutPolicy == TimeoutPolicy_Fail) {
       depletionFatal = true;
+      // WaitForDepletionAll returns RS_RESULT_TIMEDOUT without populating
+      // status, and the depleters didn't either — surface it here so the
+      // reply is shaped as a timeout error instead of a successful cursor.
+      if (!QueryError_HasError(&status)) {
+        QueryError_SetWithoutUserDataFmt(&status, QUERY_ERROR_CODE_TIMED_OUT, "Depleting timed out");
+      }
     } else {
       depletionTimedOut = true;
     }
