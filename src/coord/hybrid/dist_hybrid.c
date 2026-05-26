@@ -740,8 +740,7 @@ static int HybridRequest_prepareCursors(HybridRequest *hreq, QueryError *status)
     bool maxPrefixSearch = false;
     bool maxPrefixVsim = false;
     // Errors from cursor establishment go into the dispatcher's `status` so
-    // DistHybridCleanups can reply with them. The tail-pipeline qctx->err is
-    // reserved for errors observed during merger/reply on the tail thread.
+    // DistHybridCleanups can reply with them. 
     if (!ProcessHybridCursorMappings(cmd, searchMappingsRef, vsimMappingsRef, status, oomPolicy, timeoutPolicy, &maxPrefixSearch, &maxPrefixVsim)) {
         // Handle error
         StrongRef_Release(searchMappingsRef);
