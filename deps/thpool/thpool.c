@@ -228,6 +228,17 @@ static void redisearch_thpool_verify_init(struct redisearch_thpool_t *thpool_p) 
   if (thpool_p->state == THPOOL_INITIALIZED)
     return; // Already initialized and all threads are active.
 
+  /* Pool has been disabled (e.g. WORKERS 0) — n_threads was decremented to 0
+   * and state set to UNINITIALIZED by schedule_config_reduce_threads_job.
+   * There is nothing to revive or spawn; any still-alive workers are in
+   * TERMINATE_WHEN_EMPTY state and will drain the just-pushed job before
+   * exiting. Falling into the case-2 branch below with n_threads == 0
+   * pushes `curr_num_threads_alive` TERMINATE_ASAP admin jobs and waits on
+   * a barrier that includes the calling worker if add_work was re-entered
+   * from inside a worker job — deadlocking on barrier_wait_and_destroy. */
+  if (thpool_p->n_threads == 0)
+    return;
+
   /** Else, either:
    * case 1: There are no threads alive, just add n_threads threads.
    * case 2: There are threads alive in terminate_when_empty state.
