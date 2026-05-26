@@ -11,6 +11,7 @@ workspace = true
 
 [dependencies]
 cheadergen.workspace = true
+ffi.workspace = true
 lending-iterator.workspace = true
 libc.workspace = true
 thin_vec.workspace = true

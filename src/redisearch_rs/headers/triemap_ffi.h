@@ -39,6 +39,15 @@ typedef struct TrieMap TrieMap;
 typedef struct TrieMapIterator TrieMapIterator;
 
 /**
+ * Opaque FFI handle for a [`TrieMap<TrieEntry>`].
+ *
+ * Distinct from [`crate::TrieMap`] (the legacy void-payload triemap) so
+ * the two C symbol sets do not collide. Construct via [`LexTrieRs_New`]
+ * or [`LexTrieRs_RdbLoad`]; free via [`LexTrieRs_Free`].
+ */
+typedef struct LexTrieRs LexTrieRs;
+
+/**
  * Callback type for passing to [`TrieMap_IterateRange`].
  */
 typedef void (*TrieMapRangeCallback)(const char *, size_t, void *, void *);
@@ -217,6 +226,14 @@ void *TrieMapResultBuf_GetByIndex(TrieMapResultBuf *buf, size_t index);
 struct TrieMapIterator *TrieMap_IterateWithFilter(struct TrieMap *t, const char *prefix, tm_len_t prefix_len, enum tm_iter_mode iter_mode);
 
 /**
+ * Allocate an empty [`LexTrieRs`] on the Rust heap.
+ *
+ * The returned pointer owns its allocation and must be released through
+ * [`LexTrieRs_Free`].
+ */
+struct LexTrieRs *LexTrieRs_New(void);
+
+/**
  * Get the length of the TrieMapResultBuf.
  *
  * # Safety
@@ -225,6 +242,35 @@ struct TrieMapIterator *TrieMap_IterateWithFilter(struct TrieMap *t, const char 
  * - `buf` must point to a valid TrieMapResultBuf initialized by [`TrieMap_FindPrefixes`] and cannot be NULL.
  */
 size_t TrieMapResultBuf_Len(TrieMapResultBuf *buf);
+
+/**
+ * Free a [`LexTrieRs`] previously produced by [`LexTrieRs_New`] or
+ * [`LexTrieRs_RdbLoad`]. A NULL pointer is a no-op.
+ *
+ * # Safety
+ *
+ * - `t` must be either NULL or a pointer previously returned by
+ *   [`LexTrieRs_New`] / [`LexTrieRs_RdbLoad`] and not yet freed.
+ */
+void LexTrieRs_Free(struct LexTrieRs *t);
+
+/**
+ * Serialize a [`LexTrieRs`] to `io` in the lex-mode RDB wire format.
+ *
+ * Mirrors the C function `TrieType_GenericSave` for a Rust-side trie.
+ * Save is infallible at this layer; any underlying RDB IO error surfaces
+ * later via `RedisModule_IsIOError` on the load side.
+ *
+ * # Safety
+ *
+ * - `io` must be a valid `*mut RedisModuleIO` supplied by the calling
+ *   Redis module command and remain valid for the duration of the call.
+ * - `map` must be a valid pointer to a [`LexTrieRs`] (typically obtained
+ *   from [`LexTrieRs_New`] / [`LexTrieRs_RdbLoad`]). It is borrowed
+ *   immutably for the duration of the call; no aliasing mutable
+ *   references must exist.
+ */
+void LexTrieRs_RdbSave(RedisModuleIO *io, const struct LexTrieRs *map, bool save_payloads, bool save_num_docs);
 
 /**
  * Set timeout limit used for affix queries. This timeout is checked in
@@ -261,6 +307,24 @@ void TrieMapIterator_SetTimeout(struct TrieMapIterator *it, timespec timeout);
  *   and the pointer must not be dereferenced.
  */
 void *TrieMap_Find(const struct TrieMap *t, const char *str, tm_len_t len);
+
+/**
+ * Deserialize a [`LexTrieRs`] from `io` in the lex-mode RDB wire format.
+ *
+ * Mirrors the C function `TrieType_GenericLoad` for a Rust-side trie.
+ * Returns NULL on any RDB IO or framing error, matching the C contract
+ * for `TrieType_GenericLoad` at `src/trie/trie.c:431-438`.
+ *
+ * On success, the caller owns the returned pointer and must release it
+ * via [`LexTrieRs_Free`].
+ *
+ * # Safety
+ *
+ * - `io` must be a valid `*mut RedisModuleIO` supplied by the calling
+ *   Redis module type loader and remain valid for the duration of the
+ *   call.
+ */
+struct LexTrieRs *LexTrieRs_RdbLoad(RedisModuleIO *io, bool load_payloads, bool load_num_docs);
 
 /**
  * Free a trie iterator
