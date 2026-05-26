@@ -11,6 +11,7 @@
 #include "redismock/util.h"
 
 #include "trie/trie.h"
+#include "rmutil/vector.h"
 
 #include <cstdio>
 #include <random>
@@ -251,6 +252,37 @@ BENCHMARK_TEMPLATE1_DEFINE_F(BM_Trie, FuzzyDist2, Trie_Sort_Score)(benchmark::St
     }
 }
 
+// Trie_Search: the FT.SUGGEST production path. Wraps Trie_Iterate + top-N heap.
+// Distinct from FuzzyDist1/FuzzyDist2 because the heap tightens it->minScore
+// dynamically as it fills, pruning the DFA walk earlier than a raw iterate
+// would. Query terms come from the corpus, so the heap reliably fills and the
+// early-prune branch fires.
+//
+// trim=0 is deliberate: trim=1 hits a latent abort in trie.c's trim post-pass
+// (the "// TODO: Fix trimming the vector" branch) — `ret->top = i; break;`
+// truncates the vector below entries the subsequent free loop tries to
+// Vector_Get, which then frees uninitialized stack. Independent of the trie,
+// so excluding it does not weaken regression coverage of trie internals.
+BENCHMARK_TEMPLATE1_DEFINE_F(BM_Trie, Search, Trie_Sort_Score)(benchmark::State &state) {
+    size_t i = 0;
+    for (auto _ : state) {
+        const auto &w = corpus[i];
+        Vector *res = Trie_Search(trie, w.c_str(), w.size(),
+                                  /*num=*/10, /*maxDist=*/1,
+                                  /*prefixMode=*/1, /*trim=*/0, /*optimize=*/1);
+        benchmark::DoNotOptimize(res);
+        if (res) {
+            for (size_t j = 0; j < Vector_Size(res); ++j) {
+                TrieSearchResult *e;
+                Vector_Get(res, j, &e);
+                TrieSearchResult_Free(e);
+            }
+            Vector_Free(res);
+        }
+        if (++i == corpus.size()) i = 0;
+    }
+}
+
 // Delete: walks the same recursion as __trieNode_Add and exercises the
 // child-collapse path. Re-insert under PauseTiming so the trie stays at
 // state.range(0) during measurement. Pause/resume costs a few hundred ns, but
@@ -295,5 +327,6 @@ BENCHMARK_REGISTER_F(BM_Trie, Wildcard)->TRIE_SCENARIOS();
 BENCHMARK_REGISTER_F(BM_Trie, IterateAll)->TRIE_SCENARIOS();
 BENCHMARK_REGISTER_F(BM_Trie, FuzzyDist1)->TRIE_SCENARIOS();
 BENCHMARK_REGISTER_F(BM_Trie, FuzzyDist2)->TRIE_SCENARIOS();
+BENCHMARK_REGISTER_F(BM_Trie, Search)->TRIE_SCENARIOS();
 
 BENCHMARK_MAIN();
