@@ -383,11 +383,11 @@ static void writeByteOffsets(ForwardIndexTokenizerCtx *tokCtx, const Token *tokI
 
 /* Apply hook for a single field of a given type. Mirrors `FIELD_BULK_INDEXER`.
  * Appliers run inline from `bulkIndexFields` (memory mode) or from
- * `bulkApplyFields` (disk-mode Phase 3, after a successful batch commit).
- * They are infallible — they only perform RAM bookkeeping (trie inserts,
- * stats counters, global-stats bumps) that pairs with the durable writes
- * from the indexer. The spec is reachable via `aCtx->spec`; Redis API access
- * via `aCtx->sctx->redisCtx`. */
+ * `bulkApplyFields` (disk mode, after a successful batch commit). They are
+ * infallible — they only perform RAM bookkeeping (trie inserts, stats
+ * counters, global-stats bumps) that pairs with the durable writes from the
+ * indexer. The spec is reachable via `aCtx->spec`; Redis API access via
+ * `aCtx->sctx->redisCtx`. */
 #define FIELD_BULK_APPLIER(name)                                              \
   static void name(RSAddDocumentCtx *aCtx, const DocumentField *field,        \
                    const FieldSpec *fs, FieldIndexerData *fdata)
@@ -815,7 +815,8 @@ FIELD_BULK_INDEXER(tagIndexer) {
   // `TagIndex_Index` branches internally: disk mode stages onto the per-document
   // batch; memory mode writes the per-tag postings inline. In both modes the
   // matching trie / suffix-trie / `numRecords` updates run in `tagApplier`
-  // (inline in memory mode, from disk-mode Phase 3 after the batch commits).
+  // (inline in memory mode, from `bulkApplyFields` once the batch commits in
+  // disk mode).
   if (!TagIndex_Index(ctx->redisCtx, tidx, aCtx->diskBatch,
                       (const char **)fdata->tags, array_len(fdata->tags),
                       aCtx->doc->docId, &ctx->spec->stats)) {
@@ -825,7 +826,7 @@ FIELD_BULK_INDEXER(tagIndexer) {
   return 0;
 }
 
-/* Phase 3 (apply) hooks. Each runs once per (doc, indexed field) pair from
+/* Apply hooks. Each runs once per (doc, indexed field) pair from
  * `IndexerBulkApply`. See `FIELD_BULK_APPLIER` for the contract. */
 
 FIELD_BULK_APPLIER(tagApplier) {
@@ -841,9 +842,9 @@ FIELD_BULK_APPLIER(tagApplier) {
 }
 
 FIELD_BULK_APPLIER(vectorApplier) {
-  // The VecSim insert itself runs in Phase 2 (`commitDocument`) for disk mode
-  // and inline in `vectorIndexer` for memory mode. Phase 3 only handles the
-  // global-stats bump, which is mode-independent.
+  // The VecSim insert itself runs in `applyVectorInserts` for disk mode
+  // (after the batch commits) and inline in `vectorIndexer` for memory mode.
+  // The applier only handles the global-stats bump, which is mode-independent.
   FieldsGlobalStats_UpdateFieldDocsIndexed(INDEXFLD_T_VECTOR, 1);
 }
 
@@ -900,11 +901,11 @@ int IndexerBulkAdd(RSAddDocumentCtx *cur, RedisSearchCtx *sctx,
           break;
         case IXFLDPOS_VECTOR:
           // Disk mode: defer the actual `VecSimIndex_AddVector` to
-          // `applyVectorInserts` in Phase 3 so a failed batch commit never
-          // leaves the vector index referencing a doc-id that was not
-          // persisted. The vector blob in `fdata->vector` is borrowed (not
-          // copied) and lives until `AddDocumentCtx_Free`, so it is safe for
-          // the post-commit phase to read.
+          // `applyVectorInserts` (called after the batch commits) so a
+          // failed commit never leaves the vector index referencing a
+          // doc-id that was not persisted. The vector blob in
+          // `fdata->vector` is borrowed (not copied) and lives until
+          // `AddDocumentCtx_Free`, so it is safe to read post-commit.
           if (cur->diskBatch) break;
           rc = vectorIndexer(cur, sctx, field, fs, fdata, status);
           break;

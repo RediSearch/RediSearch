@@ -33,10 +33,9 @@ typedef struct ForwardIndexEntry {
   uint32_t len;
   uint32_t hash;
   VarintVectorWriter *vw;
-  // Disk-mode-only: per-term staging flag set by `stageText` to the return
-  // value of `SearchDisk_IndexTerm`, read by `applyTextIndex` (Phase 3) to
-  // decide whether to bump the in-memory term trie. Unused in memory mode
-  // (the equivalent gate is computed and consumed inline within `indexText`).
+  // Disk-mode-only: per-term flag set when staging the term on a disk write
+  // batch succeeded, consumed by the matching apply step to decide whether
+  // to bump the in-memory term trie. Unused in memory mode.
   bool staged;
 } ForwardIndexEntry;
 
