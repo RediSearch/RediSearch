@@ -3379,10 +3379,10 @@ static void IndexSpec_PopulateVectorDiskParams(IndexSpec *sp) {
 
     // Only HNSW indexes support disk mode (tiered with HNSW primary)
     VecSimParams *params = &fs->vectorOpts.vecSimParams;
-    if (params->algo != VecSimAlgo_TIERED) continue;
+    RS_ASSERT(params->algo == VecSimAlgo_TIERED);
 
     VecSimParams *primaryParams = params->algoParams.tieredParams.primaryIndexParams;
-    if (!primaryParams || primaryParams->algo != VecSimAlgo_HNSWLIB) continue;
+    RS_ASSERT(primaryParams && primaryParams->algo == VecSimAlgo_HNSWLIB);
 
     size_t nameLen;
     const char *namePtr = HiddenString_GetUnsafe(fs->fieldName, &nameLen);
@@ -4887,7 +4887,8 @@ void Indexes_FinishSSTReplication(RedisModuleCtx *ctx) {
     RS_ASSERT(sp->pendingDiskRdbState);
     RS_ASSERT(sp->diskSpec == NULL);
     RS_ASSERT(!sp->diskRegistered);
-    RS_LOG_ASSERT_ALWAYS(IndexSpec_SSTRdbOpenAndApply(ctx, sp), "SST replication: failed to open disk index for spec during LOADING_ENDED");
+    bool ok = IndexSpec_SSTRdbOpenAndApply(ctx, sp);
+    RS_LOG_ASSERT_ALWAYS(ok, "SST replication: failed to open disk index for spec during LOADING_ENDED");
     // GC start was deferred by IndexSpec_StoreAfterRdbLoad for the SST path
     // (diskSpec was NULL there); start it now that the disk handle exists.
     IndexSpec_StartGC(spec_ref, sp, GCPolicy_Disk);
