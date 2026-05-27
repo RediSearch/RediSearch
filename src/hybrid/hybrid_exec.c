@@ -286,6 +286,15 @@ static void finishSendChunkReply_hybrid(HybridRequest *hreq, RedisModule_Reply *
     QueryWarningsGlobalStats_UpdateWarning(QUERY_WARNING_CODE_TIMED_OUT, 1, COORD_ERR_WARN);
     RedisModule_Reply_SimpleString(reply, QueryWarning_Strwarning(QUERY_WARNING_CODE_TIMED_OUT));
   }
+  // The cap flag is mirrored on both subqueries by parseHybridCommand; checking
+  // the search subquery is sufficient. Use !IsInternal so a shard reply does
+  // not double-count the warning in global stats when the coord re-emits it.
+  AREQ *searchReq = hreq->requests[SEARCH_INDEX];
+  if (searchReq->stateflags & QEXEC_S_MAX_TIMEOUT_CAPPED) {
+    QueryWarningsGlobalStats_UpdateWarning(QUERY_WARNING_CODE_MAX_TIMEOUT_CAPPED, 1,
+                                           !IsInternal(searchReq));
+    RedisModule_Reply_SimpleString(reply, QueryWarning_Strwarning(QUERY_WARNING_CODE_MAX_TIMEOUT_CAPPED));
+  }
 
   replyWarningsWithSuffixes(reply, hreq, qctx, rc);
 

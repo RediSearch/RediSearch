@@ -833,6 +833,17 @@ int parseHybridCommand(RedisModuleCtx *ctx, ArgsCursor *ac,
     goto error;
   }
 
+  // Cap the effective query timeout to search-max-query-timeout-ms when the
+  // limit is active (search-workers == 0 && limit > 0). The hybrid request
+  // shares a single reqConfig that is later copied into each subquery, so
+  // capping here propagates the value to both subqueries through
+  // copyHybridConfigToSubquery. The cap flag is mirrored on each subquery's
+  // stateflags so finishSendChunkReply_hybrid can surface the RESP3 warning.
+  if (RSConfig_CapQueryTimeoutToMaxLimit(&parsedCmdCtx->reqConfig->queryTimeoutMS)) {
+    searchRequest->stateflags |= QEXEC_S_MAX_TIMEOUT_CAPPED;
+    vectorRequest->stateflags |= QEXEC_S_MAX_TIMEOUT_CAPPED;
+  }
+
   // Set slots info in both subqueries
   if (internal) {
     RS_ASSERT(requestSlotRanges != NULL);
