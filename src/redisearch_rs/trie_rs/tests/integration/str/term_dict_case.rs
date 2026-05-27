@@ -255,9 +255,6 @@ fn dfa_iter_folds_prefix() {
 
 #[test]
 fn fold_expands_sharp_s_to_ss() {
-    // ICU `fold_string` expands `ß` to `ss`. Plain `str::to_lowercase`
-    // would leave `ß` unchanged. Pins the divergence so a future revert
-    // to stdlib lowercasing breaks loudly.
     let mut dict = TermDictionary::new();
     dict.insert(
         "Straße",
@@ -266,22 +263,14 @@ fn fold_expands_sharp_s_to_ss() {
             num_docs: 1,
         },
     );
-    assert!(
-        dict.get("strasse").is_some(),
-        "fold must rewrite ß to ss on insert"
-    );
-    assert!(
-        dict.get("STRASSE").is_some(),
-        "fold must rewrite ß to ss on lookup too"
-    );
+    assert!(dict.get("strasse").is_some());
+    assert!(dict.get("STRASSE").is_some());
     let keys: Vec<String> = dict.iter().map(|(k, _)| k).collect();
     assert_eq!(keys, vec!["strasse".to_string()]);
 }
 
 #[test]
 fn fold_collapses_final_sigma_to_lowercase_sigma() {
-    // ICU `fold_string` maps final-position sigma `ς` to `σ`. Plain
-    // `str::to_lowercase` would leave the final sigma form alone.
     let mut dict = TermDictionary::new();
     dict.insert(
         "ΟΔΥΣΣΕΥΣ",
@@ -290,20 +279,11 @@ fn fold_collapses_final_sigma_to_lowercase_sigma() {
             num_docs: 1,
         },
     );
-    assert!(
-        dict.get("οδυσσευσ").is_some(),
-        "fold must use medial sigma σ, never final sigma ς"
-    );
+    assert!(dict.get("οδυσσευσ").is_some());
 }
 
 #[test]
 fn dfa_iter_round_trips_sharp_s_through_fold() {
-    // End-to-end check that the DFA path sees a self-consistent picture
-    // after the ICU fold swap and the removal of the per-char lowering
-    // inside `dfa.rs`. Inserting "Straße" stores "strasse" (ICU fold of
-    // ß → ss); a fuzzy DFA query of "Strasse" (also folds to "strasse")
-    // must find it at distance 0, and a one-edit typo "Strasze" must
-    // find it at distance 1.
     let mut dict = TermDictionary::new();
     dict.insert(
         "Straße",
@@ -326,12 +306,8 @@ fn dfa_iter_round_trips_sharp_s_through_fold() {
 
 #[test]
 fn dfa_iter_handles_multibyte_lowercase_expansion() {
-    // Turkish capital dotted I lowercases to `i` + combining dot above
-    // (two codepoints). The pre-swap dfa.rs did `.to_lowercase().next()`
-    // and silently dropped the combining mark, which would make a query
-    // for the lowered form fail to find the inserted key. ICU `fold_string`
-    // is string-level so it preserves the full expansion; the new char-
-    // exact DFA then walks both sides symmetrically.
+    // `İ` folds to `i` + combining dot above (two codepoints) — pin the
+    // round-trip so a regression to per-char folding fails.
     let mut dict = TermDictionary::new();
     dict.insert(
         "İstanbul",

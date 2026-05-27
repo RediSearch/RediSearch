@@ -33,24 +33,10 @@
 //!
 //! The DFA alphabet is `char`: each node's label bytes are decoded as UTF-8
 //! once when the trie frame is pushed, and chars are fed through the DFA
-//! exactly as found — no case-lowering, no folding inside this module.
-//!
-//! Case-insensitivity is a property of the caller, not of the iterator.
-//! [`TermDictionary`](crate::str::term_dict::TermDictionary) pre-folds both
-//! inserted terms and lookup queries via ICU case-folding before they reach
-//! the underlying [`StrTrieMap`], so by the time the DFA filter sees a
-//! label char it is already in folded form. Direct
-//! [`StrTrieMap::iterate_dfa`] users who want case-insensitive matching
-//! must pre-fold both sides themselves.
-//!
-//! A previous version of this module did a per-char
-//! `c.to_lowercase().next()` on both the query (at DFA build) and each
-//! label char (at filter step). That was a query-time veneer rather than
-//! a real case contract — it never lowered insertion-time bytes, and the
-//! `.next()` truncation silently dropped trailing codepoints of
-//! multi-codepoint lowerings (e.g. `İ` → `i` + combining dot). Folding
-//! the right level (whole string) lives in `TermDictionary`; this module
-//! stays char-exact.
+//! exactly as found. Case-insensitivity is the caller's responsibility —
+//! [`TermDictionary`](crate::str::term_dict::TermDictionary) pre-folds
+//! inserted terms and lookup queries via ICU case-folding before they
+//! reach the underlying [`StrTrieMap`].
 
 use crate::node::Node;
 use crate::str::StrTrieMap;
