@@ -1094,7 +1094,7 @@ AREQ *AREQ_New(void) {
   // once query offset is bounded by both.
   req->maxSearchResults = RSGlobalConfig.maxSearchResults;
   req->maxAggregateResults = RSGlobalConfig.maxAggregateResults;
-  req->maxAggregateGroups = RSGlobalConfig.maxAggregateGroups;
+  req->groupByLimits = GroupByLimits_Default(RSGlobalConfig.maxAggregateGroups);
   req->optimizer = QOptimizer_New();
   req->profile = Profile_PrintDefault;
   req->prefixesOffset = 0;
@@ -1738,8 +1738,7 @@ void AREQ_CleanUpStoredCursor(AREQ *req) {
   }
 }
 
-int AREQ_BuildPipelineWithGroupByLimits(AREQ *req, QueryError *status,
-                                        GroupByLimits groupByLimits) {
+int AREQ_BuildPipeline(AREQ *req, QueryError *status) {
   Pipeline_Initialize(&req->pipeline, req->reqConfig.timeoutPolicy, status);
   if (!(AREQ_RequestFlags(req) & QEXEC_F_BUILDPIPELINE_NO_ROOT)) {
     QueryPipelineParams params = {
@@ -1773,7 +1772,7 @@ int AREQ_BuildPipelineWithGroupByLimits(AREQ *req, QueryError *status,
     },
     .outFields = &req->outFields,
     .maxResultsLimit = IsSearch(req) ? req->maxSearchResults : req->maxAggregateResults,
-    .groupByLimits = groupByLimits,
+    .groupByLimits = req->groupByLimits,
     .language = req->searchopts.language,
   };
   int rc = Pipeline_BuildAggregationPart(&req->pipeline, &params, &req->stateflags, status);
@@ -1781,9 +1780,4 @@ int AREQ_BuildPipelineWithGroupByLimits(AREQ *req, QueryError *status,
     AREQ_SetCanYieldPartialResults(req);
   }
   return rc;
-}
-
-int AREQ_BuildPipeline(AREQ *req, QueryError *status) {
-  return AREQ_BuildPipelineWithGroupByLimits(
-      req, status, GroupByLimits_Default(req->maxAggregateGroups));
 }

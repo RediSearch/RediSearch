@@ -290,7 +290,7 @@ typedef struct AREQ {
   // FT.AGGREGATE execution.
   size_t maxSearchResults;
   size_t maxAggregateResults;
-  size_t maxAggregateGroups;
+  GroupByLimits groupByLimits;
 
   // Cursor id, if this is a cursor
   uint64_t cursor_id;
@@ -383,8 +383,6 @@ int AREQ_ApplyContext(AREQ *req, RedisSearchCtx *sctx, QueryError *status);
  * the requests. This does not yet start iterating over the objects
  */
 int AREQ_BuildPipeline(AREQ *req, QueryError *status);
-int AREQ_BuildPipelineWithGroupByLimits(AREQ *req, QueryError *status,
-                                        GroupByLimits groupByLimits);
 
 /**
  * Classify the request's (already-built) pipeline as yielding a valid partial

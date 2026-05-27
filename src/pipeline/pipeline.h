@@ -35,15 +35,11 @@ typedef struct CommonPipelineParams {
 typedef struct GroupByLimits {
   /** Effective maximum number of GROUPBY groups this pipeline may materialize. */
   size_t maxGroups;
-
-  /** Maximum number of group combinations one input row may expand into. */
-  size_t maxRowExpansion;
 } GroupByLimits;
 
 static inline GroupByLimits GroupByLimits_Default(size_t maxGroups) {
   GroupByLimits limits = {0};
   limits.maxGroups = maxGroups;
-  limits.maxRowExpansion = maxGroups;
   return limits;
 }
 
@@ -54,10 +50,6 @@ static inline GroupByLimits GroupByLimits_ScaleForCoordinator(GroupByLimits limi
   }
   limits.maxGroups *= shardCount;
   return limits;
-}
-
-static inline GroupByLimits GroupByLimits_ForCoordinator(size_t maxGroups, size_t shardCount) {
-  return GroupByLimits_ScaleForCoordinator(GroupByLimits_Default(maxGroups), shardCount);
 }
 
 /**

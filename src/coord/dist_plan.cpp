@@ -630,10 +630,7 @@ int AREQ_BuildDistributedPipeline(AREQ *r, AREQDIST_UpstreamInfo *us, QueryError
 
   RLookup_EnableOptions(&dstp->lk, RLOOKUP_OPT_ALLOWUNRESOLVED);
 
-  size_t shardCount = GetNumShards_UnSafe();
-  GroupByLimits groupByLimits = GroupByLimits_ForCoordinator(r->maxAggregateGroups, shardCount);
-
-  int rc = AREQ_BuildPipelineWithGroupByLimits(r, status, groupByLimits);
+  int rc = AREQ_BuildPipeline(r, status);
   RLookup_DisableOptions(&dstp->lk, RLOOKUP_OPT_ALLOWUNRESOLVED);
 
   if (rc != REDISMODULE_OK) {

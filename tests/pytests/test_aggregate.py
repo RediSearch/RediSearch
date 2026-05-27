@@ -839,7 +839,24 @@ def test_groupby_array_group_limit_boundary(env: Env):
     env.assertEqual(res[0], 4)
     env.assertEqual(len(res), 5)
   finally:
-    env.expect(config_cmd(), 'SET', 'MAX_AGGREGATE_GROUPS', '500000').ok()
+    env.expect(config_cmd(), 'SET', 'MAX_AGGREGATE_GROUPS', '1000000').ok()
+
+def test_groupby_tag_group_limit_boundary(env: Env):
+  env.expect(config_cmd(), 'SET', 'MAX_AGGREGATE_GROUPS', '4').ok()
+  try:
+    env.expect('FT.CREATE', 'idx', 'SCHEMA', 'g', 'TAG', 'SORTABLE').ok()
+    with env.getClusterConnectionIfNeeded() as con:
+      for i in range(4):
+        con.execute_command('HSET', f'doc{i}', 'g', f'g{i}')
+
+    res = env.cmd('FT.AGGREGATE', 'idx', '*',
+                  'GROUPBY', '1', '@g',
+                  'REDUCE', 'COUNT', '0', 'AS', 'count')
+
+    env.assertEqual(res[0], 4)
+    env.assertEqual(len(res), 5)
+  finally:
+    env.expect(config_cmd(), 'SET', 'MAX_AGGREGATE_GROUPS', '1000000').ok()
 
 @skip(cluster=True)
 def test_groupby_array_row_expansion_limit(env: Env):
@@ -855,10 +872,9 @@ def test_groupby_array_row_expansion_limit(env: Env):
                'GROUPBY', '2', '@t1', '@t2',
                'REDUCE', 'COUNT', '0', 'AS', 'count').error() \
         .contains('MAX_AGGREGATE_GROUPS') \
-        .contains('3') \
-        .contains('row expansion')
+        .contains('3')
   finally:
-    env.expect(config_cmd(), 'SET', 'MAX_AGGREGATE_GROUPS', '500000').ok()
+    env.expect(config_cmd(), 'SET', 'MAX_AGGREGATE_GROUPS', '1000000').ok()
 
 @skip(cluster=True)
 def test_groupby_total_group_limit(env: Env):
@@ -875,7 +891,7 @@ def test_groupby_total_group_limit(env: Env):
         .contains('MAX_AGGREGATE_GROUPS') \
         .contains('3')
   finally:
-    env.expect(config_cmd(), 'SET', 'MAX_AGGREGATE_GROUPS', '500000').ok()
+    env.expect(config_cmd(), 'SET', 'MAX_AGGREGATE_GROUPS', '1000000').ok()
 
 @skip(cluster=False)
 def test_groupby_coordinator_group_limit_uses_shard_count():
@@ -888,7 +904,6 @@ def test_groupby_coordinator_group_limit_uses_shard_count():
   conn = getConnectionByEnv(env)
   for i, shard_tag in enumerate(shard_tags):
     conn.execute_command('HSET', f'doc:{i}{{{shard_tag}}}', 'g', f'g{i}')
-  waitForIndex(env, 'idx')
 
   res = env.cmd('FT.AGGREGATE', 'idx', '*',
                 'GROUPBY', '1', '@g',

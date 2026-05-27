@@ -87,13 +87,6 @@ static void setAggregateGroupLimitError(const Grouper *g) {
       g->groupByLimits.maxGroups);
 }
 
-static void setAggregateGroupExpansionLimitError(const Grouper *g) {
-  QueryError_SetWithoutUserDataFmt(
-      g->base.parent->err, QUERY_ERROR_CODE_LIMIT,
-      "Aggregate GROUPBY row expansion exceeded MAX_AGGREGATE_GROUPS limit of %zu combinations",
-      g->groupByLimits.maxRowExpansion);
-}
-
 /**
  * Create a new group. groupvals is the key of the group. This will be the
  * number of field arguments passed to GROUPBY, e.g.
@@ -250,8 +243,8 @@ static int invokeGroupReducers(Grouper *g, RLookupRow *srcrow) {
     if (RSValue_IsArray(expanded)) {
       size_t len = RSValue_ArrayLen(expanded);
       if (len > 1) {
-        if (rowExpansion > g->groupByLimits.maxRowExpansion / len) {
-          setAggregateGroupExpansionLimitError(g);
+        if (rowExpansion > g->groupByLimits.maxGroups / len) {
+          setAggregateGroupLimitError(g);
           return RS_RESULT_ERROR;
         }
         rowExpansion *= len;
