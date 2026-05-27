@@ -855,9 +855,26 @@ def test_groupby_tag_group_limit_boundary():
 @skip(cluster=True)
 def test_groupby_array_row_expansion_limit():
   env = Env(moduleArgs='MAX_AGGREGATE_GROUPS 3')
-  env.expect('FT.CREATE', 'idx', 'SCHEMA', 't1', 'TEXT', 'SORTABLE', 't2', 'TEXT', 'SORTABLE').ok()
+  env.expect('FT.CREATE', 'idx', 'SCHEMA',
+             't1', 'TEXT', 'SORTABLE',
+             't2', 'TEXT', 'SORTABLE',
+             'tag1', 'TAG',
+             'tag2', 'TAG').ok()
   with env.getClusterConnectionIfNeeded() as con:
-    con.execute_command('HSET', 'doc1', 't1', 'foo,bar', 't2', 'baz,qux')
+    con.execute_command('HSET', 'doc1',
+                        't1', 'foo,bar',
+                        't2', 'baz,qux',
+                        'tag1', 'red,blue',
+                        'tag2', 'circle,square')
+
+  env.expect('FT.AGGREGATE', 'idx', '*',
+             'LOAD', '2', '@tag1', '@tag2',
+             'APPLY', 'split(@tag1, ",")', 'AS', 'tag1_values',
+             'APPLY', 'split(@tag2, ",")', 'AS', 'tag2_values',
+             'GROUPBY', '2', '@tag1_values', '@tag2_values',
+             'REDUCE', 'COUNT', '0', 'AS', 'count').error() \
+      .contains('MAX_AGGREGATE_GROUPS') \
+      .contains('3')
 
   env.expect('FT.AGGREGATE', 'idx', '*',
              'APPLY', 'split(@t1, ",")', 'AS', 't1',
