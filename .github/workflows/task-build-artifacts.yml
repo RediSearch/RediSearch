@@ -182,8 +182,10 @@ jobs:
       # build pins LLVM 21 and would mask regressions like #9845 / MOD-15871.
       - name: Verify FFI bindgen parses under distro libclang
         if: inputs.platform == 'ubuntu:jammy' || inputs.platform == 'ubuntu:noble'
+        env:
+          PLATFORM: ${{ inputs.platform }}
         run: |
-          case "${{ inputs.platform }}" in
+          case "$PLATFORM" in
             ubuntu:jammy) LLVM_VER=14 ;;
             ubuntu:noble) LLVM_VER=18 ;;
           esac
