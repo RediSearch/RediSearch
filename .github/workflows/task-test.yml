@@ -110,7 +110,7 @@ jobs:
           aws-region: ${{ secrets.PERFORMANCE_EC2_AWS_REGION }}
       - name: Start EC2 runner
         id: start-ec2-runner
-        uses: machulav/ec2-github-runner@v2.4.2
+        uses: machulav/ec2-github-runner@v2.6.1
         with:
           mode: start
           github-token: ${{ secrets.CI_GH_P_TOKEN }}
@@ -453,7 +453,7 @@ jobs:
         if: >
           steps.node20.outputs.supported == 'true' &&
           (failure() || steps.rust_unit_tests.outcome == 'failure' || steps.c_unit_tests.outcome == 'failure' || steps.standalone_tests.outcome == 'failure' || steps.coordinator_tests.outcome == 'failure')
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: Test Logs ${{ steps.artifact-names.outputs.name }}
           path: |
@@ -516,7 +516,7 @@ jobs:
           aws-secret-access-key: ${{ secrets.PERFORMANCE_EC2_SECRET_KEY }}
           aws-region: ${{ secrets.PERFORMANCE_EC2_AWS_REGION }}
       - name: Stop EC2 runner
-        uses: machulav/ec2-github-runner@v2.4.2
+        uses: machulav/ec2-github-runner@v2.6.1
         with:
           mode: stop
           github-token: ${{ secrets.CI_GH_P_TOKEN }}
