@@ -38,6 +38,27 @@ outputs:
 runs:
   using: composite
   steps:
+    - name: Resolve target branch
+      # Merge-queue runs have empty github.base_ref and a synthetic ref_name
+      # (gh-readonly-queue/<target>/pr-...). The real target lives at
+      # github.event.merge_group.base_ref as `refs/heads/<branch>`.
+      # GH Actions expressions can't slice strings, so we strip the prefix in bash.
+      shell: bash -l -eo pipefail {0}
+      env:
+        MERGE_GROUP_BASE: ${{ github.event.merge_group.base_ref }}
+        BASE_REF: ${{ github.base_ref }}
+        REF_NAME: ${{ github.ref_name }}
+      run: |
+        if [ -n "$MERGE_GROUP_BASE" ]; then
+          branch="${MERGE_GROUP_BASE#refs/heads/}"
+        elif [ -n "$BASE_REF" ]; then
+          branch="$BASE_REF"
+        else
+          branch="$REF_NAME"
+        fi
+        echo "Resolved flaky target branch: $branch"
+        echo "FLAKY_BRANCH=$branch" >> "$GITHUB_ENV"
+
     - uses: actions/setup-python@v6
       with:
         python-version: "3.x"
@@ -50,7 +71,7 @@ runs:
       env:
         REDIS_URL: ${{ inputs.redis-url }}
         REPO: ${{ github.repository }}
-        BRANCH: ${{ github.base_ref != '' && github.base_ref || github.ref_name }}
+        BRANCH: ${{ env.FLAKY_BRANCH }}
       run: |
         python3 ${{ github.action_path }}/../../scripts/flaky_db.py fetch \
           --output-json .flaky_skip.json \

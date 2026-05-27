@@ -9,7 +9,7 @@ on:
         default: 'master'
         type: string
       test_id:
-        description: 'Test identifier (e.g. tests/pytests/test_foo.py::test_bar)'
+        description: "Test identifier in RLTest format: <test_file>:<test_name> (e.g. test_wildcard:testBasic — no .py, no [variant])"
         required: true
         type: string
       reason:
@@ -55,15 +55,27 @@ jobs:
 
       - name: Summary
         if: success()
+        env:
+          # Pass inputs through env so they're treated as data, not interpolated
+          # into the shell script by GitHub Actions before bash evaluates it.
+          REPO: ${{ github.repository }}
+          BRANCH: ${{ inputs.branch }}
+          TEST_ID: ${{ inputs.test_id }}
+          JIRA_KEY: ${{ inputs.jira_key }}
+          REASON: ${{ inputs.reason }}
+          DAYS: ${{ inputs.expires_in_days }}
+          ACTOR: ${{ github.actor }}
         run: |
-          echo "### Flaky mark recorded :white_check_mark:" >> "$GITHUB_STEP_SUMMARY"
-          echo "" >> "$GITHUB_STEP_SUMMARY"
-          echo "| Field | Value |" >> "$GITHUB_STEP_SUMMARY"
-          echo "|---|---|" >> "$GITHUB_STEP_SUMMARY"
-          echo "| Repo | \`${{ github.repository }}\` |" >> "$GITHUB_STEP_SUMMARY"
-          echo "| Branch | \`${{ inputs.branch }}\` |" >> "$GITHUB_STEP_SUMMARY"
-          echo "| Test | \`${{ inputs.test_id }}\` |" >> "$GITHUB_STEP_SUMMARY"
-          echo "| Jira | ${{ inputs.jira_key }} |" >> "$GITHUB_STEP_SUMMARY"
-          echo "| Reason | ${{ inputs.reason }} |" >> "$GITHUB_STEP_SUMMARY"
-          echo "| Expires in | ${{ inputs.expires_in_days }} days |" >> "$GITHUB_STEP_SUMMARY"
-          echo "| Marked by | @${{ github.actor }} |" >> "$GITHUB_STEP_SUMMARY"
+          {
+            echo "### Flaky mark recorded :white_check_mark:"
+            echo
+            echo "| Field | Value |"
+            echo "|---|---|"
+            echo "| Repo | \`$REPO\` |"
+            echo "| Branch | \`$BRANCH\` |"
+            echo "| Test | \`$TEST_ID\` |"
+            echo "| Jira | $JIRA_KEY |"
+            echo "| Reason | $REASON |"
+            echo "| Expires in | $DAYS days |"
+            echo "| Marked by | @$ACTOR |"
+          } >> "$GITHUB_STEP_SUMMARY"

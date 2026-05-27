@@ -9,7 +9,7 @@ on:
         default: 'master'
         type: string
       test_id:
-        description: 'Test identifier (must match exactly)'
+        description: "Test identifier in RLTest format: <test_file>:<test_name> (must match the original mark)"
         required: true
         type: string
       reason:
@@ -44,13 +44,23 @@ jobs:
 
       - name: Summary
         if: success()
+        env:
+          # Pass inputs through env so they're treated as data, not interpolated
+          # into the shell script by GitHub Actions before bash evaluates it.
+          REPO: ${{ github.repository }}
+          BRANCH: ${{ inputs.branch }}
+          TEST_ID: ${{ inputs.test_id }}
+          REASON: ${{ inputs.reason }}
+          ACTOR: ${{ github.actor }}
         run: |
-          echo "### Flaky mark removed :white_check_mark:" >> "$GITHUB_STEP_SUMMARY"
-          echo "" >> "$GITHUB_STEP_SUMMARY"
-          echo "| Field | Value |" >> "$GITHUB_STEP_SUMMARY"
-          echo "|---|---|" >> "$GITHUB_STEP_SUMMARY"
-          echo "| Repo | \`${{ github.repository }}\` |" >> "$GITHUB_STEP_SUMMARY"
-          echo "| Branch | \`${{ inputs.branch }}\` |" >> "$GITHUB_STEP_SUMMARY"
-          echo "| Test | \`${{ inputs.test_id }}\` |" >> "$GITHUB_STEP_SUMMARY"
-          echo "| Reason | ${{ inputs.reason }} |" >> "$GITHUB_STEP_SUMMARY"
-          echo "| Unmarked by | @${{ github.actor }} |" >> "$GITHUB_STEP_SUMMARY"
+          {
+            echo "### Flaky mark removed :white_check_mark:"
+            echo
+            echo "| Field | Value |"
+            echo "|---|---|"
+            echo "| Repo | \`$REPO\` |"
+            echo "| Branch | \`$BRANCH\` |"
+            echo "| Test | \`$TEST_ID\` |"
+            echo "| Reason | $REASON |"
+            echo "| Unmarked by | @$ACTOR |"
+          } >> "$GITHUB_STEP_SUMMARY"
