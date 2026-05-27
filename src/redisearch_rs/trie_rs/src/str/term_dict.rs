@@ -36,8 +36,7 @@
 //! differ on a handful — e.g. `ß` lowercases to `ß` but folds to `ss`,
 //! and final sigma `ς` lowercases to `ς` but folds to `σ`. Until the C
 //! tokenizer is updated to match, the two paths will produce different
-//! stored keys for those codepoints; see `dfa.rs` for a related
-//! per-character gap on the DFA iteration path.
+//! stored keys for those codepoints.
 
 use std::borrow::Cow;
 

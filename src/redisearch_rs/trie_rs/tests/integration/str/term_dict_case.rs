@@ -297,6 +297,57 @@ fn fold_collapses_final_sigma_to_lowercase_sigma() {
 }
 
 #[test]
+fn dfa_iter_round_trips_sharp_s_through_fold() {
+    // End-to-end check that the DFA path sees a self-consistent picture
+    // after the ICU fold swap and the removal of the per-char lowering
+    // inside `dfa.rs`. Inserting "Straße" stores "strasse" (ICU fold of
+    // ß → ss); a fuzzy DFA query of "Strasse" (also folds to "strasse")
+    // must find it at distance 0, and a one-edit typo "Strasze" must
+    // find it at distance 1.
+    let mut dict = TermDictionary::new();
+    dict.insert(
+        "Straße",
+        TermEntry {
+            score: 1.0,
+            num_docs: 1,
+        },
+    );
+    let exact: Vec<(String, u32)> = dict
+        .iterate_dfa("Strasse", 0, false)
+        .map(|(k, _, d)| (k, d))
+        .collect();
+    assert_eq!(exact, vec![("strasse".to_string(), 0)]);
+    let fuzzy: Vec<(String, u32)> = dict
+        .iterate_dfa("Strasze", 1, false)
+        .map(|(k, _, d)| (k, d))
+        .collect();
+    assert_eq!(fuzzy, vec![("strasse".to_string(), 1)]);
+}
+
+#[test]
+fn dfa_iter_handles_multibyte_lowercase_expansion() {
+    // Turkish capital dotted I lowercases to `i` + combining dot above
+    // (two codepoints). The pre-swap dfa.rs did `.to_lowercase().next()`
+    // and silently dropped the combining mark, which would make a query
+    // for the lowered form fail to find the inserted key. ICU `fold_string`
+    // is string-level so it preserves the full expansion; the new char-
+    // exact DFA then walks both sides symmetrically.
+    let mut dict = TermDictionary::new();
+    dict.insert(
+        "İstanbul",
+        TermEntry {
+            score: 1.0,
+            num_docs: 1,
+        },
+    );
+    let hits: Vec<String> = dict
+        .iterate_dfa("İstanbul", 0, false)
+        .map(|(k, _, _)| k)
+        .collect();
+    assert_eq!(hits.len(), 1, "DFA must round-trip the multi-codepoint fold");
+}
+
+#[test]
 fn ascii_lowercase_input_does_not_allocate() {
     // Smoke check the fast-path branch: we don't observe the Cow directly
     // from outside the module, but exercising every entry point with a

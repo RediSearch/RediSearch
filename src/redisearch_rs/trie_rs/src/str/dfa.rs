@@ -32,13 +32,25 @@
 //! ## Char model
 //!
 //! The DFA alphabet is `char`: each node's label bytes are decoded as UTF-8
-//! once when the trie frame is pushed, and case-lowering is performed via
-//! `char::to_lowercase` (taking the first codepoint of the lowering). This
-//! matches the C path (`Trie_Iterate` lowers via `nu_tolower`) for the ASCII
-//! fixtures the snapshots pin; multi-codepoint lowerings (e.g. `ß` → `ss`)
-//! and chars outside the BMP would diverge from the C rune-keyed oracle, but
-//! those cases are not exercised here and the C path itself doesn't faithfully
-//! handle them either (runes are `u16`).
+//! once when the trie frame is pushed, and chars are fed through the DFA
+//! exactly as found — no case-lowering, no folding inside this module.
+//!
+//! Case-insensitivity is a property of the caller, not of the iterator.
+//! [`TermDictionary`](crate::str::term_dict::TermDictionary) pre-folds both
+//! inserted terms and lookup queries via ICU case-folding before they reach
+//! the underlying [`StrTrieMap`], so by the time the DFA filter sees a
+//! label char it is already in folded form. Direct
+//! [`StrTrieMap::iterate_dfa`] users who want case-insensitive matching
+//! must pre-fold both sides themselves.
+//!
+//! A previous version of this module did a per-char
+//! `c.to_lowercase().next()` on both the query (at DFA build) and each
+//! label char (at filter step). That was a query-time veneer rather than
+//! a real case contract — it never lowered insertion-time bytes, and the
+//! `.next()` truncation silently dropped trailing codepoints of
+//! multi-codepoint lowerings (e.g. `İ` → `i` + combining dot). Folding
+//! the right level (whole string) lives in `TermDictionary`; this module
+//! stays char-exact.
 
 use crate::node::Node;
 use crate::str::StrTrieMap;
@@ -140,12 +152,8 @@ struct Dfa {
 
 impl Dfa {
     fn build(query: &str, max_dist: u32) -> Self {
-        let lowered_query: Vec<char> = query
-            .chars()
-            .map(|c| c.to_lowercase().next().unwrap_or(c))
-            .collect();
         let auto = SparseAutomaton {
-            query: lowered_query,
+            query: query.chars().collect(),
             max: max_dist,
         };
 
@@ -371,8 +379,7 @@ impl<'tm, Data> IterateDfaIter<'tm, Data> {
             *last_dist = dfa.nodes[dn_idx].distance.min(min_dist);
         }
 
-        let transformed = c.to_lowercase().next().unwrap_or(c);
-        let next = dfa.step_edge(dn_idx, transformed);
+        let next = dfa.step_edge(dn_idx, c);
 
         if let Some(next_idx) = next {
             let next_node = &dfa.nodes[next_idx];
