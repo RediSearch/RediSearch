@@ -34,8 +34,20 @@ header_name = "_ttl_table"
 [c]
 cpp_compat = true
 
+[header.rqe_core]
+trailer = """
+#if UINTPTR_MAX == UINT64_MAX
+/* 64 bit architectures use 128 bit field masks and up to 128 fields */
+typedef __uint128_t t_fieldMask;
+#define RS_FIELDMASK_ALL (((__uint128_t)1 << 127) - (__uint128_t)1 + ((__uint128_t)1 << 127))
+#elif UINTPTR_MAX == UINT32_MAX
+/* 32 bit architectures use 64 bits and 64 fields only */
+typedef uint64_t t_fieldMask;
+#define RS_FIELDMASK_ALL 0xFFFFFFFFFFFFFFFF
+#endif
+"""
+
 [header.field]
-includes = ["redisearch_types.h"]
 
 [header.fork_gc_ffi]
 includes = ["fork_gc.h"]
@@ -44,7 +56,7 @@ includes = ["fork_gc.h"]
 # `index_result_rs.h` carries the types historically defined in this header
 # (RSIndexResult and friends, now in their own crate). Pull it in so C
 # consumers of `inverted_index.h` keep getting the full set.
-includes = ["redisearch_types.h", "index_result_rs.h"]
+includes = ["index_result_rs.h"]
 after_includes = """
 // Forward declarations of C types defined in redisearch.h and elsewhere.
 // We can't include redisearch.h directly: it transitively includes inverted_index.h.
@@ -53,7 +65,6 @@ typedef struct FieldSpec FieldSpec;
 """
 
 [header.index_result_rs]
-includes = ["redisearch_types.h"]
 after_includes = """
 // Forward declaration of `RSDocumentMetadata`, defined in `redisearch.h`.
 // We can't include redisearch.h directly: it transitively includes this header.
@@ -61,7 +72,7 @@ typedef struct RSDocumentMetadata_s RSDocumentMetadata;
 """
 
 [header.inverted_index_ffi]
-includes = ["redisearch_types.h", "config.h", "search_ctx.h", "spec.h"]
+includes = ["config.h", "search_ctx.h", "spec.h"]
 trailer = """
 // Create a new inverted index object, with the given flag.
 // The out parameter memsize must be not NULL, the total of allocated memory
@@ -79,6 +90,10 @@ after_includes = """
 // In C, timespec is a struct tag, not a typedef. Rust's libc::timespec maps to
 // the bare name, so we introduce a typedef to make it valid C.
 typedef struct timespec timespec;
+// `AREQ` is forward-declared as a struct tag in `query.h` (above) but its
+// typedef lives in `aggregate/aggregate.h`. cheadergen emits `*mut ffi::AREQ`
+// as the bare `AREQ *`, so we surface the typedef here for the C compiler.
+typedef struct AREQ AREQ;
 """
 
 [header.module_init_ffi]
@@ -218,6 +233,28 @@ after_includes = """
 #define QN_NULL            QueryNodeType_Null
 #define QN_MISSING         QueryNodeType_Missing
 #define QN_MAX             QueryNodeType_Max
+
+/* Backward-compatible aliases for C code that uses the old enum constant names. */
+#define QueryNode_Verbatim                   QueryNodeFlags_Verbatim
+#define QueryNode_OverriddenInOrder          QueryNodeFlags_OverriddenInOrder
+#define QueryNode_YieldsDistance              QueryNodeFlags_YieldsDistance
+#define QueryNode_IndexesEmpty               QueryNodeFlags_IndexesEmpty
+#define QueryNode_IsTag                      QueryNodeFlags_IsTag
+#define QueryNode_HybridVectorSubqueryNode   QueryNodeFlags_HybridVectorSubqueryNode
+#define QueryNode_HideVectorDistanceField    QueryNodeFlags_HideVectorDistanceField
+
+/* Backward-compatible aliases for C code that uses the old enum constant names. */
+#define QAST_SYNTAX_DEFAULT  0
+#define QAST_NO_WEIGHT       QASTValidationFlags_NoWeight
+#define QAST_NO_VECTOR       QASTValidationFlags_NoVector
+
+/* Backward-compatible typedef for C code that uses the old enum name. */
+typedef uint32_t QAST_ValidationFlags;
+
+/* Backward-compatible aliases for C code that uses the old PHONETIC_* macros. */
+#define PHONETIC_DEFAULT  PhoneticMode_Default
+#define PHONETIC_ENABLED  PhoneticMode_Enabled
+#define PHONETIC_DISABLED PhoneticMode_Disabled
 """
 
 [header.rqe_iterator_type]
@@ -275,7 +312,7 @@ typedef struct QueryProcessingCtx {
 """
 
 [header.search_result_rs]
-includes = ["redisearch_types.h", "score_explain.h"]
+includes = ["score_explain.h"]
 after_includes = """
 /* SearchResult flags */
 static const uint8_t Result_ExpiredDoc = 1 << 0;
@@ -299,7 +336,7 @@ typedef struct timespec timespec;
 # Pull in `inverted_index.h` so consumers see the full `NumericFilter`
 # body (embedded by value in `LegacyNumericFilter` and friends on the C
 # side).
-includes = ["redisearch_types.h", "inverted_index.h"]
+includes = ["inverted_index.h"]
 
 [header.numeric_range_tree_ffi]
 includes = ["redisearch.h", "redismodule.h"]

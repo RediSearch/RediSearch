@@ -29,34 +29,6 @@ void FGC_updateStats(ForkGC *gc, RedisSearchCtx *sctx,
   gc->stats.gcBlocksDenied += ignoredLastBlock ? 1 : 0;
 }
 
-int __attribute__((warn_unused_result))
-FGC_recvBuffer(ForkGC *fgc, void **buf, size_t *len) {
-  size_t temp_len;
-  if (FGC_recvFixed(fgc, &temp_len, sizeof temp_len) != REDISMODULE_OK) {
-    return REDISMODULE_ERR;
-  }
-  if (temp_len == SIZE_MAX) {
-    *len = temp_len;
-    *buf = RECV_BUFFER_EMPTY;
-    return REDISMODULE_OK;
-  }
-  if (temp_len == 0) {
-    *len = temp_len;
-    *buf = NULL;
-    return REDISMODULE_OK;
-  }
-
-  char *buf_data = rm_malloc(temp_len + 1);
-  buf_data[temp_len] = 0;
-  if (FGC_recvFixed(fgc, buf_data, temp_len) != REDISMODULE_OK) {
-    rm_free(buf_data);
-    return REDISMODULE_ERR;
-  }
-  *len = temp_len;
-  *buf = buf_data;
-  return REDISMODULE_OK;
-}
-
 // glue to use process pipe as writer for II GC delta info
 void pipe_write_cb(void *ctx, const void *buf, size_t len) {
   ForkGC *gc = ctx;
@@ -75,21 +47,3 @@ void sendHeaderString(void* ptrCtx) {
   FGC_sendBuffer(ctx->gc, iov->iov_base, iov->iov_len);
 }
 
-// If anything other than FGC_COLLECTED is returned, it is an error or done
-FGCError recvFieldHeader(ForkGC *fgc, char **fieldName, size_t *fieldNameLen,
-                         uint64_t *id) {
-  if (FGC_recvBuffer(fgc, (void **)fieldName, fieldNameLen) != REDISMODULE_OK) {
-    return FGC_PARENT_ERROR;
-  }
-  if (*fieldName == RECV_BUFFER_EMPTY) {
-    *fieldName = NULL;
-    return FGC_DONE;
-  }
-
-  if (FGC_recvFixed(fgc, id, sizeof(*id)) != REDISMODULE_OK) {
-    rm_free(*fieldName);
-    *fieldName = NULL;
-    return FGC_PARENT_ERROR;
-  }
-  return FGC_COLLECTED;
-}

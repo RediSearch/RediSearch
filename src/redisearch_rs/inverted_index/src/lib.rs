@@ -31,8 +31,8 @@ pub use reader::{IndexReader, IndexReaderCore, NumericFilter, NumericReader, Ter
 // Re-export filter types.
 pub use reader::{FilterGeoReader, FilterMaskReader, FilterNumericReader, ReadFilter};
 
-// Re-export FFI types.
-pub use ffi::{t_docId, t_fieldMask};
+// Re-export core types.
+pub use rqe_core::{DocId, FieldMask};
 
 #[cfg(test)]
 mod tests;

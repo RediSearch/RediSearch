@@ -77,6 +77,7 @@ exec env -u CARGO_BUILD_TARGET RUSTFLAGS="${rustflags}" cheadergen generate \
     --package=query_term \
     --package=inverted_index \
     --package=rlookup \
+    --package=rqe_core \
     --package=rqe_iterator_type \
     --package=rqe_iterators \
     --package=search_result \

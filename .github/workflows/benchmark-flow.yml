@@ -96,7 +96,7 @@ jobs:
         run: .install/test_deps/common_installations.sh sudo
       - name: Download prebuilt redisearch.so
         if: steps.benchmark-filter.outputs.skip != 'true'
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v7
         with:
           name: ${{ inputs.binary_artifact_name }}
           # Place the .so where `inputs.module_path` expects it, e.g.
@@ -116,7 +116,7 @@ jobs:
           python3 -m pip install -r tests/benchmarks/requirements.txt
       - name: install terraform
         if: steps.benchmark-filter.outputs.skip != 'true'
-        uses: hashicorp/setup-terraform@v2
+        uses: hashicorp/setup-terraform@v4.0.1
         with:
           terraform_version: 1.11.1
           terraform_wrapper: false
