@@ -61,6 +61,8 @@ env:
   COV: ${{ inputs.coverage && 1 || 0 }} # convert the boolean input to numeric
   # Setting RUST_BACKTRACE here to ensure that we get a full report if something goes wrong.
   RUST_BACKTRACE: "full"
+  # Header freshness is checked in the lint job. No need to regenerate here.
+  REDISEARCH_GENERATE_HEADERS: "0"
   # Fail on warnings
   RUSTFLAGS: "-Dwarnings"
   BUILD_INTEL_SVS_OPT: "yes"
