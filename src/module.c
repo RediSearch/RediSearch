@@ -74,8 +74,9 @@
 #include "search_disk_utils.h"
 #include "rs_wall_clock.h"
 #include "hybrid/hybrid_exec.h"
+#include "hybrid/hybrid_request.h"
 #include "hybrid/hybrid_debug.h"
-#include "coord/coord_request_ctx.h"
+#include "coord/coord_bg.h"
 #include "coord/hybrid/dist_hybrid.h"
 #include "util/redis_mem_info.h"
 #include "notifications.h"
@@ -3672,7 +3673,7 @@ static int FanoutCommandHandlerIndexless(RedisModuleCtx *ctx,
 }
 
 void RSExecDistAggregate(RedisModuleCtx *ctx, RedisModuleString **argv, int argc,
-                         struct ConcurrentCmdCtx *cmdCtx);
+                         CoordBgJob *job);
 int RSAggregateCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc);
 
 int DistAggregateReplyCallback(RedisModuleCtx *ctx, RedisModuleString **argv, int argc);
@@ -3685,7 +3686,7 @@ static int initQueryTimeout(size_t *timeout, RedisModuleString **argv, int argc,
 
 /** Debug */
 void DEBUG_RSExecDistAggregate(RedisModuleCtx *ctx, RedisModuleString **argv, int argc,
-                         struct ConcurrentCmdCtx *cmdCtx);
+                         CoordBgJob *job);
 
 int DistAggregateCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
   return DistAggregateCommandImp(ctx, argv, argc, false);
@@ -3724,7 +3725,7 @@ int DistAggregateCommandImp(RedisModuleCtx *ctx, RedisModuleString **argv, int a
   }
 
   // Coord callback
-  ConcurrentCmdHandler dist_callback = RSExecDistAggregate;
+  CoordBgJobHandler dist_callback = RSExecDistAggregate;
 
   if (isDebug) {
     dist_callback = DEBUG_RSExecDistAggregate;
@@ -3767,32 +3768,41 @@ int DistAggregateCommandImp(RedisModuleCtx *ctx, RedisModuleString **argv, int a
     return QueryError_ReplyAndClear(ctx, &status);
   }
 
-  RequestSyncCtx *rsc = RequestSyncCtx_NewPending(REQUEST_KIND_AREQ);
-  CoordRequestCtx *reqCtx = CoordRequestCtx_New(COMMAND_AGGREGATE);
-  reqCtx->syncCtx = rsc;
-  RequestSyncCtx_SetCoordCtx(rsc, reqCtx, CoordRequestCtx_FreeShallow);
+  AREQ *areq = NULL;
+  if (isDebug) {
+    AREQ_Debug *debug_req = AREQ_Debug_New(argv, argc, &status);
+    if (!debug_req) {
+      if (!QueryError_HasError(&status)) {
+        QueryError_SetError(&status, QUERY_ERROR_CODE_PARSE_ARGS, "Missing debug parameters");
+      }
+      QueryErrorsGlobalStats_UpdateError(QueryError_GetCode(&status), 1, COORD_ERR_WARN);
+      return QueryError_ReplyAndClear(ctx, &status);
+    }
+    areq = &debug_req->r;
+  } else {
+    areq = AREQ_New();
+  }
 
-  ConcurrentSearchHandlerCtx handlerCtx;
-  ConcurrentSearchHandlerCtx_Init(&handlerCtx);
-
-  handlerCtx.coordStartTime = coordInitialTime;
-  handlerCtx.spec_ref = StrongRef_Demote(spec_ref);
-
-  handlerCtx.bcCtx.privdata = rsc;
-  handlerCtx.bcCtx.free_privdata = RequestSyncCtx_OnFree;
+  RequestSyncCtx *rsc = areq->syncCtx;
+  RedisModuleCmdFunc replyCallback = NULL;
+  RedisModuleCmdFunc timeoutCallback = NULL;
+  rs_wall_clock_ms_t timeoutMS = 0;
 
   RSTimeoutPolicy policy = RSGlobalConfig.requestConfigParams.timeoutPolicy;
   if (policy == TimeoutPolicy_Fail || policy == TimeoutPolicy_ReturnStrict) {
-    handlerCtx.bcCtx.reply_callback = DistAggregateReplyCallback;
-    handlerCtx.bcCtx.timeout_callback = (policy == TimeoutPolicy_Fail)
+    replyCallback = DistAggregateReplyCallback;
+    timeoutCallback = (policy == TimeoutPolicy_Fail)
         ? DistAggregateTimeoutFailClient
         : DistAggregateTimeoutReturnStrictClient;
-    handlerCtx.bcCtx.timeoutMS = queryTimeoutMS;
-    CoordRequestCtx_SetUseReplyCallback(reqCtx, true);
+    timeoutMS = queryTimeoutMS;
+    RequestSyncCtx_SetUseReplyCallback(rsc, true);
   }
 
-  return ConcurrentSearch_HandleRedisCommandEx(DIST_THREADPOOL, dist_callback, ctx, argv, argc,
-                                               &handlerCtx);
+  CoordBgJob *job = CoordBgJob_New(ctx, argv, argc, dist_callback, rsc, replyCallback,
+                                   timeoutCallback, timeoutMS, StrongRef_Demote(spec_ref),
+                                   coordInitialTime, 0);
+  ConcurrentSearch_ThreadPoolRun(CoordBgJob_Run, job, DIST_THREADPOOL);
+  return REDISMODULE_OK;
 }
 
 int DistHybridCommandInternal(RedisModuleCtx *ctx, RedisModuleString **argv, int argc,
@@ -3823,7 +3833,7 @@ int DistHybridCommandInternal(RedisModuleCtx *ctx, RedisModuleString **argv, int
   }
 
   // Coord callback
-  ConcurrentCmdHandler dist_callback = RSExecDistHybrid;
+  CoordBgJobHandler dist_callback = RSExecDistHybrid;
   if (isDebug) {
     dist_callback = DEBUG_RSExecDistHybrid;
   }
@@ -3860,31 +3870,30 @@ int DistHybridCommandInternal(RedisModuleCtx *ctx, RedisModuleString **argv, int
     return QueryError_ReplyAndClear(ctx, &status);
   }
 
-  RequestSyncCtx *rsc = RequestSyncCtx_NewPending(REQUEST_KIND_HYBRID);
-  CoordRequestCtx *reqCtx = CoordRequestCtx_New(COMMAND_HYBRID);
-  reqCtx->syncCtx = rsc;
-  RequestSyncCtx_SetCoordCtx(rsc, reqCtx, CoordRequestCtx_FreeShallow);
-
-
-  ConcurrentSearchHandlerCtx handlerCtx;
-  ConcurrentSearchHandlerCtx_Init(&handlerCtx);
-
-  handlerCtx.coordStartTime = coordInitialTime;
-  handlerCtx.spec_ref = StrongRef_Demote(spec_ref);
-  handlerCtx.numShards = NumShards;  // Capture NumShards from main thread for thread-safe access
-
-  handlerCtx.bcCtx.privdata = rsc;
-  handlerCtx.bcCtx.free_privdata = RequestSyncCtx_OnFree;
+  RedisSearchCtx *sctx = NewSearchCtxC(ctx, idx, true);
+  if (!sctx) {
+    QueryError_SetWithUserDataFmt(&status, QUERY_ERROR_CODE_NO_INDEX, "Index not found", ": %s", idx);
+    QueryErrorsGlobalStats_UpdateError(QueryError_GetCode(&status), 1, COORD_ERR_WARN);
+    return QueryError_ReplyAndClear(ctx, &status);
+  }
+  HybridRequest *hreq = MakeDefaultHybridRequest(sctx);
+  RequestSyncCtx *rsc = hreq->syncCtx;
+  RedisModuleCmdFunc replyCallback = NULL;
+  RedisModuleCmdFunc timeoutCallback = NULL;
+  rs_wall_clock_ms_t timeoutMS = 0;
 
   if (RSGlobalConfig.requestConfigParams.timeoutPolicy == TimeoutPolicy_Fail) {
-    handlerCtx.bcCtx.reply_callback = DistHybridReplyCallback;
-    handlerCtx.bcCtx.timeout_callback = DistHybridTimeoutFailClient;
-    handlerCtx.bcCtx.timeoutMS = queryTimeoutMS;
-    CoordRequestCtx_SetUseReplyCallback(reqCtx, true);
+    replyCallback = DistHybridReplyCallback;
+    timeoutCallback = DistHybridTimeoutFailClient;
+    timeoutMS = queryTimeoutMS;
+    RequestSyncCtx_SetUseReplyCallback(rsc, true);
   }
 
-  return ConcurrentSearch_HandleRedisCommandEx(DIST_THREADPOOL, dist_callback, ctx, argv, argc,
-                                               &handlerCtx);
+  CoordBgJob *job = CoordBgJob_New(ctx, argv, argc, dist_callback, rsc, replyCallback,
+                                   timeoutCallback, timeoutMS, StrongRef_Demote(spec_ref),
+                                   coordInitialTime, NumShards);
+  ConcurrentSearch_ThreadPoolRun(CoordBgJob_Run, job, DIST_THREADPOOL);
+  return REDISMODULE_OK;
 }
 
 int DistHybridCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
@@ -3909,7 +3918,7 @@ static_assert(sizeof(kCursorSubNames) / sizeof(kCursorSubNames[0]) == CURSOR_SUB
 #endif
 
 static inline int CursorCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc,
-                                RedisModuleCmdFunc subcmd, ConcurrentCmdHandler dist_callback,
+                                RedisModuleCmdFunc subcmd, CoordBgJobHandler dist_callback,
                                 CursorSubcommand sub) {
   if (argc < 4) {
     return RedisModule_WrongArity(ctx);
@@ -3931,10 +3940,10 @@ static inline int CursorCommand(RedisModuleCtx *ctx, RedisModuleString **argv, i
     return ReplyBlockDeny(ctx, argv[0]);
   }
 
-  ConcurrentSearchHandlerCtx handlerCtx;
-  ConcurrentSearchHandlerCtx_Init(&handlerCtx);
-
-  handlerCtx.spec_ref = (WeakRef){0};
+  RequestSyncCtx *rsc = NULL;
+  RedisModuleCmdFunc replyCallback = NULL;
+  RedisModuleCmdFunc timeoutCallback = NULL;
+  rs_wall_clock_ms_t timeoutMS = 0;
 
   // On coord+READ, peek the cursor's cached timeout config so coord and shard
   // stay aligned across changes to the `search-on-timeout` config. Reject
@@ -3955,31 +3964,32 @@ static inline int CursorCommand(RedisModuleCtx *ctx, RedisModuleString **argv, i
       // _FT.HYBRID WITHCURSOR is read via _FT.CURSOR READ, bypassing CursorCommand.
       RS_ASSERT(!info.isHybrid);
 #endif
-      RequestSyncCtx *rsc = RequestSyncCtx_NewPending(REQUEST_KIND_AREQ);
-      CoordRequestCtx *reqCtx = CoordRequestCtx_New(COMMAND_AGGREGATE);
-      reqCtx->syncCtx = rsc;
-      RequestSyncCtx_SetCoordCtx(rsc, reqCtx, CoordRequestCtx_FreeShallow);
-      handlerCtx.bcCtx.privdata = rsc;
-      handlerCtx.bcCtx.free_privdata = RequestSyncCtx_OnFree;
-      handlerCtx.bcCtx.reply_callback = DistAggregateReplyCallback;
-      handlerCtx.bcCtx.timeoutMS = info.queryTimeoutMS;
-      CoordRequestCtx_SetUseReplyCallback(reqCtx, true);
+      rsc = RequestSyncCtx_NewPending(REQUEST_KIND_AREQ);
+      replyCallback = DistAggregateReplyCallback;
+      timeoutMS = info.queryTimeoutMS;
+      RequestSyncCtx_SetUseReplyCallback(rsc, true);
       if (info.queryTimeoutPolicy == TimeoutPolicy_Fail) {
-        handlerCtx.bcCtx.timeout_callback = DistAggregateTimeoutFailClient;
+        timeoutCallback = DistAggregateTimeoutFailClient;
       } else {
-        handlerCtx.bcCtx.timeout_callback = DistCursorReadTimeoutReturnStrictClient;
-        CoordRequestCtx_SetCursorReadReturnStrict(reqCtx, true);
+        timeoutCallback = DistCursorReadTimeoutReturnStrictClient;
+        RequestSyncCtx_SetCursorReadReturnStrict(rsc, true);
       }
     }
   }
 
-  return ConcurrentSearch_HandleRedisCommandEx(DIST_THREADPOOL, dist_callback, ctx, argv, argc,
-                                               &handlerCtx);
+  if (!rsc) {
+    rsc = RequestSyncCtx_NewPending(REQUEST_KIND_AREQ);
+  }
+  CoordBgJob *job = CoordBgJob_New(ctx, argv, argc, dist_callback, rsc, replyCallback,
+                                   timeoutCallback, timeoutMS, (WeakRef){0}, 0, 0);
+  ConcurrentSearch_ThreadPoolRun(CoordBgJob_Run, job, DIST_THREADPOOL);
+  return REDISMODULE_OK;
 }
 
 
 #define CURSOR_SUBCOMMAND(name, sub_enum) \
-static void Cursor##name##CommandInternal(RedisModuleCtx *ctx, RedisModuleString **argv, int argc, struct ConcurrentCmdCtx *cmdCtx) { \
+static void Cursor##name##CommandInternal(RedisModuleCtx *ctx, RedisModuleString **argv, int argc, CoordBgJob *job) { \
+  UNUSED(job);                                                                                                                        \
   RSCursor##name##Command(ctx, argv, argc);                                                                                           \
 }                                                                                                                                     \
 int Cursor##name##Command(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {                                                  \

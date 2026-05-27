@@ -199,7 +199,7 @@ void HybridStoreCursorsDebugCtx_SetPauseAfterEnabled(bool enabled);
 bool HybridStoreCursorsDebugCtx_IsPaused(void);
 void HybridStoreCursorsDebugCtx_SetPause(bool pause);
 
-// Coord request ctx free counter. Bumped on every CoordRequestCtx_Free so
+// Coord request sync free counter. Bumped on every RequestSyncCtx_OnFree so
 // tests can deterministically observe that free_privdata has fired without
 // blocking the main thread inside the callback.
 void CoordReqCtxFreeDebug_Increment(void);

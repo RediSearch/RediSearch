@@ -11,8 +11,12 @@
 #include "coord/rmr/chan.h"
 #include "cursor.h"
 #include "hybrid/hybrid_request.h"
+#include "info/global_stats.h"
 #include "info/info_redis/types/blocked_queries.h"
 #include "search_result_ffi.h"
+#ifdef ENABLE_ASSERT
+#include "debug_commands.h"
+#endif
 
 void ChunkReplyState_Destroy(ChunkReplyState *state) {
   // Free any stored results that weren't consumed
@@ -99,9 +103,6 @@ void RequestSyncCtx_Free(RequestSyncCtx *ctx) {
       HybridRequest_Free(ctx->query.hreq);
     }
   }
-  if (ctx->coordCtxFree) {
-    ctx->coordCtxFree(ctx->coordCtx);
-  }
   RequestSyncCtx_Destroy(ctx);
   rm_free(ctx);
 }
@@ -141,6 +142,9 @@ void RSC_EndCycle(RequestSyncCtx *ctx) {
 void RequestSyncCtx_OnFree(RedisModuleCtx *ctx, void *privdata) {
   UNUSED(ctx);
   RequestSyncCtx *rsc = privdata;
+#ifdef ENABLE_ASSERT
+  CoordReqCtxFreeDebug_Increment();
+#endif
   RequestCycleKind cycleKind = rsc->cycleKind;
 
   if (cycleKind == REQUEST_CYCLE_CURSOR) {
@@ -211,13 +215,53 @@ ChunkReplyState *RequestSyncCtx_GetReplyState(RequestSyncCtx *ctx) {
   return ctx ? &ctx->reply : NULL;
 }
 
-void RequestSyncCtx_SetCoordCtx(RequestSyncCtx *ctx, void *coordCtx, void (*freeCoordCtx)(void *)) {
-  ctx->coordCtx = coordCtx;
-  ctx->coordCtxFree = freeCoordCtx;
+void RequestSyncCtx_LockSetRequest(RequestSyncCtx *ctx) {
+  pthread_mutex_lock(&ctx->coordSetReqLock);
 }
 
-void *RequestSyncCtx_GetCoordCtx(RequestSyncCtx *ctx) {
-  return ctx ? ctx->coordCtx : NULL;
+void RequestSyncCtx_UnlockSetRequest(RequestSyncCtx *ctx) {
+  pthread_mutex_unlock(&ctx->coordSetReqLock);
+}
+
+bool RequestSyncCtx_HasRequest(RequestSyncCtx *ctx) {
+  if (ctx->kind == REQUEST_KIND_AREQ) {
+    return ctx->query.areq != NULL;
+  }
+  return ctx->query.hreq != NULL;
+}
+
+void RequestSyncCtx_SetTimedOut(RequestSyncCtx *ctx) {
+  RS_AtomicStoreRelaxed(&ctx->timedOut, true);
+  if (ctx->kind == REQUEST_KIND_AREQ) {
+    if (ctx->query.areq) {
+      AREQ_SetTimedOut(ctx->query.areq);
+    }
+  } else if (ctx->query.hreq) {
+    HybridRequest_SetTimedOut(ctx->query.hreq);
+  }
+}
+
+void RequestSyncCtx_SetUseReplyCallback(RequestSyncCtx *ctx, bool useReplyCallback) {
+  ctx->coordUseReplyCallback = useReplyCallback;
+}
+
+void RequestSyncCtx_SetCursorReadReturnStrict(RequestSyncCtx *ctx, bool value) {
+  ctx->coordCursorReadReturnStrict = value;
+}
+
+bool RequestSyncCtx_IsCursorReadReturnStrict(RequestSyncCtx *ctx) {
+  return ctx->coordCursorReadReturnStrict;
+}
+
+void RequestSyncCtx_ReplyOrStoreError(RequestSyncCtx *rsc, RedisModuleCtx *ctx, QueryError *status) {
+  if (rsc->coordUseReplyCallback) {
+    RS_ASSERT(!QueryError_HasError(&rsc->coordPreRequestError));
+    QueryError_CloneFrom(status, &rsc->coordPreRequestError);
+    QueryError_ClearError(status);
+  } else {
+    QueryErrorsGlobalStats_UpdateError(QueryError_GetCode(status), 1, COORD_ERR_WARN);
+    QueryError_ReplyAndClear(ctx, status);
+  }
 }
 
 void RequestSyncCtx_RegisterAbortWakeChannel(RequestSyncCtx *ctx, struct MRChannel *chan) {

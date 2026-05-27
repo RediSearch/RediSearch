@@ -123,7 +123,7 @@ HybridRequest *HybridRequest_New(RedisSearchCtx *sctx, AREQ **requests, size_t n
 
 /**
  * Initialize an already-allocated (zeroed) HybridRequest.
- * Used when the HybridRequest is embedded in another struct (e.g., CoordRequestCtx).
+ * Used when the HybridRequest is embedded in another struct.
  *
  * @param hybridReq Pointer to zeroed HybridRequest to initialize
  * @param sctx The search context for the hybrid request

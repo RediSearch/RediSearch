@@ -209,8 +209,10 @@ typedef struct RequestSyncCtx {
   time_t cycleStart;
   uint64_t cycleCursorId;
   size_t cycleCursorCount;
-  void *coordCtx;
-  void (*coordCtxFree)(void *);
+  pthread_mutex_t coordSetReqLock;
+  QueryError coordPreRequestError;
+  bool coordUseReplyCallback;
+  bool coordCursorReadReturnStrict;
 
   /* Partial-timeout coordination. The CAS claim grants exclusive ownership of
    * the result-production phase: the BG-thread winner runs AggregateResults
@@ -250,8 +252,10 @@ static inline void RequestSyncCtx_Init(RequestSyncCtx *ctx, RequestKind kind, vo
   ctx->cycleStart = 0;
   ctx->cycleCursorId = 0;
   ctx->cycleCursorCount = 0;
-  ctx->coordCtx = NULL;
-  ctx->coordCtxFree = NULL;
+  pthread_mutex_init(&ctx->coordSetReqLock, NULL);
+  ctx->coordPreRequestError = QueryError_Default();
+  ctx->coordUseReplyCallback = false;
+  ctx->coordCursorReadReturnStrict = false;
   ctx->requiresAggregateResultsSync = false;
   ctx->aggregatingResults = false;
   ctx->aggregateResultsDone = false;
@@ -278,12 +282,21 @@ HybridRequest *RequestSyncCtx_GetHybridRequest(RequestSyncCtx *ctx);
 AREQ *RequestSyncCtx_GetCursorAREQ(RequestSyncCtx *ctx, uint64_t cursorId);
 bool RequestSyncCtx_HasReplyCallback(RequestSyncCtx *ctx);
 ChunkReplyState *RequestSyncCtx_GetReplyState(RequestSyncCtx *ctx);
-void RequestSyncCtx_SetCoordCtx(RequestSyncCtx *ctx, void *coordCtx, void (*freeCoordCtx)(void *));
-void *RequestSyncCtx_GetCoordCtx(RequestSyncCtx *ctx);
+void RequestSyncCtx_LockSetRequest(RequestSyncCtx *ctx);
+void RequestSyncCtx_UnlockSetRequest(RequestSyncCtx *ctx);
+bool RequestSyncCtx_HasRequest(RequestSyncCtx *ctx);
+void RequestSyncCtx_SetTimedOut(RequestSyncCtx *ctx);
+void RequestSyncCtx_SetUseReplyCallback(RequestSyncCtx *ctx, bool useReplyCallback);
+void RequestSyncCtx_SetCursorReadReturnStrict(RequestSyncCtx *ctx, bool value);
+bool RequestSyncCtx_IsCursorReadReturnStrict(RequestSyncCtx *ctx);
+void RequestSyncCtx_ReplyOrStoreError(RequestSyncCtx *ctx, RedisModuleCtx *redisCtx,
+                                      QueryError *status);
 
 // Release resources owned by a RequestSyncCtx. Must be called exactly once
 // per successful Init, from the request's free path.
 static inline void RequestSyncCtx_Destroy(RequestSyncCtx *ctx) {
+  QueryError_ClearError(&ctx->coordPreRequestError);
+  pthread_mutex_destroy(&ctx->coordSetReqLock);
   pthread_mutex_destroy(&ctx->aggregateResultsLock);
   pthread_cond_destroy(&ctx->aggregateResultsCond);
   pthread_mutex_destroy(&ctx->abortWakeLock);

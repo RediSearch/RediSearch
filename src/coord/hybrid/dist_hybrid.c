@@ -24,7 +24,7 @@
 #include "dist_profile.h"
 #include "shard_window_ratio.h"
 #include "config.h"
-#include "coord/coord_request_ctx.h"
+#include "coord/coord_bg.h"
 #include "debug_commands.h"
 
 // We mainly need the resp protocol to be three in order to easily extract the "score" key from the response
@@ -710,7 +710,7 @@ static void FreeCursorMappings(void *mappings) {
   rm_free(mappings);
 }
 
-static int HybridRequest_executePlan(HybridRequest *hreq, struct ConcurrentCmdCtx *cmdCtx,
+static int HybridRequest_executePlan(HybridRequest *hreq, CoordBgJob *job,
                         RedisModule_Reply *reply, QueryError *status) {
 
     // Get RPNet structures from query context
@@ -767,8 +767,8 @@ static int HybridRequest_executePlan(HybridRequest *hreq, struct ConcurrentCmdCt
     bool isCursor = hreq->reqflags & QEXEC_F_IS_CURSOR;
     if (isCursor) {
         // // TODO:
-        // // Keep the original concurrent context
-        // ConcurrentCmdCtx_KeepRedisCtx(cmdCtx);
+        // // Keep the worker Redis context alive after the job returns.
+        // CoordBgJob_KeepRedisCtx(job);
 
         // StrongRef dummy_spec_ref = {.rm = NULL};
 
@@ -788,14 +788,14 @@ static int HybridRequest_executePlan(HybridRequest *hreq, struct ConcurrentCmdCt
 }
 
 static void DistHybridCleanups(RedisModuleCtx *ctx,
-    struct ConcurrentCmdCtx *cmdCtx, IndexSpec *sp, StrongRef *strong_ref,
+    CoordBgJob *job, IndexSpec *sp, StrongRef *strong_ref,
     HybridRequest *hreq, RedisModule_Reply *reply,
     QueryError *status) {
 
-    CoordRequestCtx *reqCtx = CoordRequestCtx_FromBlockedClient(ConcurrentCmdCtx_GetBlockedClient(cmdCtx));
+    RequestSyncCtx *reqCtx = CoordBgJob_GetRequestSyncCtx(job);
 
     // If timeout already occurred, the timeout callback already replied - don't reply again
-    if (CoordRequestCtx_TimedOut(reqCtx)) {
+    if (RS_AtomicLoadRelaxed(&reqCtx->timedOut)) {
       if (QueryError_HasError(status)) {
         QueryError_ClearError(status);
       }
@@ -803,17 +803,17 @@ static void DistHybridCleanups(RedisModuleCtx *ctx,
     }
 
     if (!hreq) {
-      CoordRequestCtx_ReplyOrStoreError(reqCtx, ctx, status);
+      RequestSyncCtx_ReplyOrStoreError(reqCtx, ctx, status);
     } else {
       HREQ_ReplyOrStoreError(hreq, ctx, status);
     }
 
     cleanup:
-    WeakRef_Release(ConcurrentCmdCtx_GetWeakRef(cmdCtx));
+    WeakRef_Release(CoordBgJob_GetWeakRef(job));
     if (sp) {
       IndexSpecRef_Release(*strong_ref);
     }
-    if (hreq && !CoordRequestCtx_HasRequest(reqCtx)) {
+    if (hreq && !RequestSyncCtx_HasRequest(reqCtx)) {
       RequestSyncCtx_Free(hreq->syncCtx);
     }
 
@@ -821,151 +821,122 @@ static void DistHybridCleanups(RedisModuleCtx *ctx,
 }
 
 void RSExecDistHybrid(RedisModuleCtx *ctx, RedisModuleString **argv, int argc,
-                        struct ConcurrentCmdCtx *cmdCtx) {
+                        CoordBgJob *job) {
 
-    CoordRequestCtx *reqCtx = CoordRequestCtx_FromBlockedClient(ConcurrentCmdCtx_GetBlockedClient(cmdCtx));
+    RequestSyncCtx *reqCtx = CoordBgJob_GetRequestSyncCtx(job);
 
-    if(CoordRequestCtx_TimedOut(reqCtx)) {
-      // Query timed out before request creation
+    if(RS_AtomicLoadRelaxed(&reqCtx->timedOut)) {
+      // Query timed out before the worker started execution.
+      WeakRef_Release(CoordBgJob_GetWeakRef(job));
       return;
     }
 
     RedisModule_Reply _reply = RedisModule_NewReply(ctx), *reply = &_reply;
     QueryError status = QueryError_Default();
-
-    // CMD, index, expr, args...
-    const char *indexname = RedisModule_StringPtrLen(argv[1], NULL);
-    RedisSearchCtx *sctx = NewSearchCtxC(ctx, indexname, true);
-    if (!sctx) {
-        QueryError_SetWithUserDataFmt(&status, QUERY_ERROR_CODE_NO_INDEX, "Index not found", ": %s", indexname);
-        // return QueryError_ReplyAndClear(ctx, &status);
-        DistHybridCleanups(ctx, cmdCtx, NULL, NULL, NULL, reply, &status);
-        return;
-    }
+    HybridRequest *hreq = RequestSyncCtx_GetHybridRequest(reqCtx);
+    RS_ASSERT(hreq);
+    RedisModuleCtx *requestRedisCtx = hreq->sctx->redisCtx;
+    hreq->sctx->redisCtx = ctx;
 
 #ifdef ENABLE_ASSERT
     SyncPoint_Wait(SYNC_POINT_BEFORE_DIST_HYBRID_PROMOTE);
 #endif
 
     // Check if the index still exists, and promote the ref accordingly
-    StrongRef strong_ref = IndexSpecRef_Promote(ConcurrentCmdCtx_GetWeakRef(cmdCtx));
+    StrongRef strong_ref = IndexSpecRef_Promote(CoordBgJob_GetWeakRef(job));
     IndexSpec *sp = StrongRef_Get(strong_ref);
     if (!sp) {
-        SearchCtx_Free(sctx);
         QueryError_SetCode(&status, QUERY_ERROR_CODE_DROPPED_BACKGROUND);
-        DistHybridCleanups(ctx, cmdCtx, sp, &strong_ref, NULL, reply, &status);
+        hreq->sctx->redisCtx = requestRedisCtx;
+        DistHybridCleanups(ctx, job, sp, &strong_ref, hreq, reply, &status);
         return;
     }
-
-    // Lock before creating request to prevent race with timeout callback
-    CoordRequestCtx_LockSetRequest(reqCtx);
-
-    // Check if already timed out
-    if (CoordRequestCtx_TimedOut(reqCtx)) {
-        // Timeout callback will handle reply - just unlock and cleanup
-        CoordRequestCtx_UnlockSetRequest(reqCtx);
-        SearchCtx_Free(sctx);
-        DistHybridCleanups(ctx, cmdCtx, sp, &strong_ref, NULL, reply, &status);
-        return;
-    }
-
-    // Create and set request atomically while holding lock
-    HybridRequest *hreq = MakeDefaultHybridRequest(sctx);
-    CoordRequestCtx_SetRequest(reqCtx, hreq);
-    CoordRequestCtx_UnlockSetRequest(reqCtx);
 
     // Store coordinator start time for dispatch time tracking
-    hreq->profileClocks.coordStartTime = ConcurrentCmdCtx_GetCoordStartTime(cmdCtx);
+    hreq->profileClocks.coordStartTime = CoordBgJob_GetCoordStartTime(job);
 
     // Get numShards captured from main thread for thread-safe access and to compute effective K
-    size_t numShards = ConcurrentCmdCtx_GetNumShards(cmdCtx);
+    size_t numShards = CoordBgJob_GetNumShards(job);
 
     if (HybridRequest_prepareForExecution(hreq, ctx, argv, argc, sp, numShards, &status, NULL) != REDISMODULE_OK) {
-      DistHybridCleanups(ctx, cmdCtx, sp, &strong_ref, hreq, reply, &status);
+      hreq->sctx->redisCtx = requestRedisCtx;
+      DistHybridCleanups(ctx, job, sp, &strong_ref, hreq, reply, &status);
       return;
     }
 
-    if (HybridRequest_executePlan(hreq, cmdCtx, reply, &status) != REDISMODULE_OK) {
-        DistHybridCleanups(ctx, cmdCtx, sp, &strong_ref, hreq, reply, &status);
+    if (HybridRequest_executePlan(hreq, job, reply, &status) != REDISMODULE_OK) {
+        hreq->sctx->redisCtx = requestRedisCtx;
+        DistHybridCleanups(ctx, job, sp, &strong_ref, hreq, reply, &status);
         return;
     }
-    WeakRef_Release(ConcurrentCmdCtx_GetWeakRef(cmdCtx));
+    hreq->sctx->redisCtx = requestRedisCtx;
+    WeakRef_Release(CoordBgJob_GetWeakRef(job));
     IndexSpecRef_Release(strong_ref);
     RedisModule_EndReply(reply);
 }
 
 void DEBUG_RSExecDistHybrid(RedisModuleCtx *ctx, RedisModuleString **argv, int argc,
-                            struct ConcurrentCmdCtx *cmdCtx) {
+                            CoordBgJob *job) {
 
-    CoordRequestCtx *reqCtx = CoordRequestCtx_FromBlockedClient(ConcurrentCmdCtx_GetBlockedClient(cmdCtx));
+    RequestSyncCtx *reqCtx = CoordBgJob_GetRequestSyncCtx(job);
 
-    if(CoordRequestCtx_TimedOut(reqCtx)) {
+    if(RS_AtomicLoadRelaxed(&reqCtx->timedOut)) {
+      WeakRef_Release(CoordBgJob_GetWeakRef(job));
       return;
     }
 
     RedisModule_Reply _reply = RedisModule_NewReply(ctx);
     RedisModule_Reply *reply = &_reply;
     QueryError status = QueryError_Default();
+    HybridRequest *hreq = RequestSyncCtx_GetHybridRequest(reqCtx);
+    RS_ASSERT(hreq);
+    RedisModuleCtx *requestRedisCtx = hreq->sctx->redisCtx;
+    hreq->sctx->redisCtx = ctx;
 
     // Parse debug params from the end of argv
     HybridDebugParams debugParams = parseHybridDebugParamsCount(argv, argc, &status);
     if (QueryError_HasError(&status)) {
-      DistHybridCleanups(ctx, cmdCtx, NULL, NULL, NULL, reply, &status);
+      hreq->sctx->redisCtx = requestRedisCtx;
+      DistHybridCleanups(ctx, job, NULL, NULL, hreq, reply, &status);
       return;
     }
     if (parseHybridDebugParams(&debugParams, &status) != REDISMODULE_OK) {
-      DistHybridCleanups(ctx, cmdCtx, NULL, NULL, NULL, reply, &status);
+      hreq->sctx->redisCtx = requestRedisCtx;
+      DistHybridCleanups(ctx, job, NULL, NULL, hreq, reply, &status);
       return;
     }
 
     // Strip debug params from argc for parsing
     int stripped_argc = argc - (int)debugParams.debug_params_count - 2;
 
-    const char *indexname = RedisModule_StringPtrLen(argv[1], NULL);
-    RedisSearchCtx *sctx = NewSearchCtxC(ctx, indexname, true);
-    if (!sctx) {
-        QueryError_SetWithUserDataFmt(&status, QUERY_ERROR_CODE_NO_INDEX, "Index not found", ": %s", indexname);
-        DistHybridCleanups(ctx, cmdCtx, NULL, NULL, NULL, reply, &status);
-        return;
-    }
-
-    StrongRef strong_ref = IndexSpecRef_Promote(ConcurrentCmdCtx_GetWeakRef(cmdCtx));
+    StrongRef strong_ref = IndexSpecRef_Promote(CoordBgJob_GetWeakRef(job));
     IndexSpec *sp = StrongRef_Get(strong_ref);
     if (!sp) {
-        SearchCtx_Free(sctx);
         QueryError_SetCode(&status, QUERY_ERROR_CODE_DROPPED_BACKGROUND);
-        DistHybridCleanups(ctx, cmdCtx, sp, &strong_ref, NULL, reply, &status);
+        hreq->sctx->redisCtx = requestRedisCtx;
+        DistHybridCleanups(ctx, job, sp, &strong_ref, hreq, reply, &status);
         return;
     }
 
-    CoordRequestCtx_LockSetRequest(reqCtx);
-    if (CoordRequestCtx_TimedOut(reqCtx)) {
-        CoordRequestCtx_UnlockSetRequest(reqCtx);
-        SearchCtx_Free(sctx);
-        DistHybridCleanups(ctx, cmdCtx, sp, &strong_ref, NULL, reply, &status);
-        return;
-    }
-
-    HybridRequest *hreq = MakeDefaultHybridRequest(sctx);
-    CoordRequestCtx_SetRequest(reqCtx, hreq);
-    CoordRequestCtx_UnlockSetRequest(reqCtx);
-
-    hreq->profileClocks.coordStartTime = ConcurrentCmdCtx_GetCoordStartTime(cmdCtx);
-    size_t numShards = ConcurrentCmdCtx_GetNumShards(cmdCtx);
+    hreq->profileClocks.coordStartTime = CoordBgJob_GetCoordStartTime(job);
+    size_t numShards = CoordBgJob_GetNumShards(job);
 
     // Use stripped_argc so parsing doesn't see debug params;
     // pass debugParams so the MR command gets _FT.DEBUG prefix + debug args.
     if (HybridRequest_prepareForExecution(hreq, ctx, argv, stripped_argc, sp, numShards,
                                           &status, &debugParams) != REDISMODULE_OK) {
-      DistHybridCleanups(ctx, cmdCtx, sp, &strong_ref, hreq, reply, &status);
+      hreq->sctx->redisCtx = requestRedisCtx;
+      DistHybridCleanups(ctx, job, sp, &strong_ref, hreq, reply, &status);
       return;
     }
 
-    if (HybridRequest_executePlan(hreq, cmdCtx, reply, &status) != REDISMODULE_OK) {
-        DistHybridCleanups(ctx, cmdCtx, sp, &strong_ref, hreq, reply, &status);
+    if (HybridRequest_executePlan(hreq, job, reply, &status) != REDISMODULE_OK) {
+        hreq->sctx->redisCtx = requestRedisCtx;
+        DistHybridCleanups(ctx, job, sp, &strong_ref, hreq, reply, &status);
         return;
     }
-    WeakRef_Release(ConcurrentCmdCtx_GetWeakRef(cmdCtx));
+    hreq->sctx->redisCtx = requestRedisCtx;
+    WeakRef_Release(CoordBgJob_GetWeakRef(job));
     IndexSpecRef_Release(strong_ref);
     RedisModule_EndReply(reply);
 }
@@ -976,21 +947,14 @@ int DistHybridTimeoutFailClient(RedisModuleCtx *ctx, RedisModuleString **argv, i
   UNUSED(argv);
   UNUSED(argc);
 
-  CoordRequestCtx *CoordReqCtx = CoordRequestCtx_FromRedisCtx(ctx);
+  RequestSyncCtx *CoordReqCtx = RedisModule_GetBlockedClientPrivateData(ctx);
   if (!CoordReqCtx) {
     // This shouldn't happen but handle gracefully
     return RedisModule_ReplyWithError(ctx, "Internal error: timeout with no context");
   }
 
-  RS_ASSERT(CoordReqCtx->type == COMMAND_HYBRID);
-
-  // Lock to coordinate with request creation in background thread
-  CoordRequestCtx_LockSetRequest(CoordReqCtx);
-
   // Signal timeout to the background thread
-  CoordRequestCtx_SetTimedOut(CoordReqCtx);
-
-  CoordRequestCtx_UnlockSetRequest(CoordReqCtx);
+  RequestSyncCtx_SetTimedOut(CoordReqCtx);
 
   // Reply with timeout error
   QueryErrorsGlobalStats_UpdateError(QUERY_ERROR_CODE_TIMED_OUT, 1, COORD_ERR_WARN);
@@ -1007,20 +971,18 @@ int DistHybridReplyCallback(RedisModuleCtx *ctx, RedisModuleString **argv, int a
   UNUSED(argv);
   UNUSED(argc);
 
-  CoordRequestCtx *CoordReqCtx = CoordRequestCtx_FromRedisCtx(ctx);
+  RequestSyncCtx *CoordReqCtx = RedisModule_GetBlockedClientPrivateData(ctx);
   if (!CoordReqCtx) {
     RedisModule_Log(ctx, "warning", "DistHybridReplyCallback: no context");
     return RedisModule_ReplyWithError(ctx, "Internal error: no request context");
   }
 
-  RS_ASSERT(CoordReqCtx->type == COMMAND_HYBRID);
-
-  HybridRequest *hreq = (HybridRequest *)CoordRequestCtx_GetRequest(CoordReqCtx);
+  HybridRequest *hreq = (HybridRequest *)RequestSyncCtx_GetHybridRequest(CoordReqCtx);
   if (!hreq) {
     // We expect CoordReqCtx to hold the error if hreq is NULL
-    if (QueryError_HasError(&CoordReqCtx->preRequestError)) {
-      QueryErrorsGlobalStats_UpdateError(QueryError_GetCode(&CoordReqCtx->preRequestError), 1, COORD_ERR_WARN);
-      QueryError_ReplyAndClear(ctx, &CoordReqCtx->preRequestError);
+    if (QueryError_HasError(&CoordReqCtx->coordPreRequestError)) {
+      QueryErrorsGlobalStats_UpdateError(QueryError_GetCode(&CoordReqCtx->coordPreRequestError), 1, COORD_ERR_WARN);
+      QueryError_ReplyAndClear(ctx, &CoordReqCtx->coordPreRequestError);
       return REDISMODULE_OK;
     }
     // This should not happen, but handle gracefully
@@ -1047,6 +1009,6 @@ int DistHybridReplyCallback(RedisModuleCtx *ctx, RedisModuleString **argv, int a
   serializeStoredResults_hybrid(hreq, reply);
   RedisModule_EndReply(reply);
 
-  // Note: no RequestSyncCtx_Free here - CoordRequestCtx_Free owns the request context.
+  // Note: no RequestSyncCtx_Free here - RequestSyncCtx_OnFree owns the request context.
   return REDISMODULE_OK;
 }

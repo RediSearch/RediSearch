@@ -18,11 +18,12 @@ extern "C" {
 #include "dist_plan.h"
 #include "profile/options.h"
 #include "vector_index.h"
+#include "coord/coord_bg.h"
 
 void RSExecDistHybrid(RedisModuleCtx *ctx, RedisModuleString **argv, int argc,
-                        struct ConcurrentCmdCtx *cmdCtx);
+                      CoordBgJob *job);
 void DEBUG_RSExecDistHybrid(RedisModuleCtx *ctx, RedisModuleString **argv, int argc,
-                            struct ConcurrentCmdCtx *cmdCtx);
+                            CoordBgJob *job);
 
 int DistHybridTimeoutFailClient(RedisModuleCtx *ctx, RedisModuleString **argv, int argc);
 int DistHybridReplyCallback(RedisModuleCtx *ctx, RedisModuleString **argv, int argc);
