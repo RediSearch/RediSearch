@@ -99,17 +99,6 @@ typedef struct {
   const struct FieldSpec *field;
 } QueryMissingNode;
 
-typedef enum {
-  QueryNode_Verbatim = 0x01,
-  QueryNode_OverriddenInOrder = 0x02,
-  QueryNode_YieldsDistance = 0x04,
-  QueryNode_IndexesEmpty = 0x08,
-  QueryNode_IsTag = 0x10,
-  // Marks this as the main vector node in a hybrid vector subquery
-  QueryNode_HybridVectorSubqueryNode = 0x20,
-  QueryNode_HideVectorDistanceField = 0x40,
-} QueryNodeFlags;
-
 /* Query attribute is a dynamic attribute that can be applied to any query node.
  * Currently supported are `weight`, `slop`, and `inorder`.
  */
@@ -120,10 +109,6 @@ typedef struct {
   size_t vallen;
 } QueryAttribute;
 
-#define PHONETIC_ENABLED 1
-#define PHONETIC_DISABLED 2
-#define PHONETIC_DEFAULT 0
-
 /* Define the attributes' names */
 #define YIELD_DISTANCE_ATTR "yield_distance_as"
 #define SLOP_ATTR "slop"
@@ -132,19 +117,6 @@ typedef struct {
 #define PHONETIC_ATTR "phonetic"
 #define SHARD_K_RATIO_ATTR "shard_k_ratio"
 
-
-/* Various modifiers and options that can apply to the entire query or any sub-query of it */
-typedef struct {
-  QueryNodeFlags flags;
-  t_fieldMask fieldMask;
-  t_fieldIndex fieldIndex;
-  int maxSlop;
-  int inOrder;
-  double weight;
-  int phonetic;
-  char *distField;
-  bool explicitWeight; // Whether the weight was explicitly set by the user in the query.
-} QueryNodeOptions;
 
 typedef QueryNullNode QueryUnionNode, QueryNotNode, QueryOptionalNode;
 

@@ -1742,6 +1742,8 @@ name = "query_node_type"
 version = "0.0.1"
 dependencies = [
  "cheadergen",
+ "enumflags2",
+ "rqe_core",
  "workspace_hack",
 ]
 

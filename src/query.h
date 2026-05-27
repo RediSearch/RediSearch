@@ -28,16 +28,6 @@ typedef struct QueryError QueryError;
 extern "C" {
 #endif
 
-// Flags indicating which syntax features are enabled for this query
-typedef enum {
-  // All syntax features are enabled
-  QAST_SYNTAX_DEFAULT = 0,
-  // weight attribute is not allowed
-  QAST_NO_WEIGHT = 0x01,
-  // vector queries are not allowed
-  QAST_NO_VECTOR = 0x02,
-} QAST_ValidationFlags;
-
 /**
  * Query AST structure.
  *
@@ -67,7 +57,7 @@ typedef struct QueryAST {
   IteratorsConfig config;
 
   // Flags indicating which syntax features are enabled for this query
-  QAST_ValidationFlags validationFlags;
+  QASTValidationFlagsSet validationFlags;
 } QueryAST;
 
 /**

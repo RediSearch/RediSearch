@@ -233,6 +233,28 @@ after_includes = """
 #define QN_NULL            QueryNodeType_Null
 #define QN_MISSING         QueryNodeType_Missing
 #define QN_MAX             QueryNodeType_Max
+
+/* Backward-compatible aliases for C code that uses the old enum constant names. */
+#define QueryNode_Verbatim                   QueryNodeFlags_Verbatim
+#define QueryNode_OverriddenInOrder          QueryNodeFlags_OverriddenInOrder
+#define QueryNode_YieldsDistance              QueryNodeFlags_YieldsDistance
+#define QueryNode_IndexesEmpty               QueryNodeFlags_IndexesEmpty
+#define QueryNode_IsTag                      QueryNodeFlags_IsTag
+#define QueryNode_HybridVectorSubqueryNode   QueryNodeFlags_HybridVectorSubqueryNode
+#define QueryNode_HideVectorDistanceField    QueryNodeFlags_HideVectorDistanceField
+
+/* Backward-compatible aliases for C code that uses the old enum constant names. */
+#define QAST_SYNTAX_DEFAULT  0
+#define QAST_NO_WEIGHT       QASTValidationFlags_NoWeight
+#define QAST_NO_VECTOR       QASTValidationFlags_NoVector
+
+/* Backward-compatible typedef for C code that uses the old enum name. */
+typedef uint32_t QAST_ValidationFlags;
+
+/* Backward-compatible aliases for C code that uses the old PHONETIC_* macros. */
+#define PHONETIC_DEFAULT  PhoneticMode_Default
+#define PHONETIC_ENABLED  PhoneticMode_Enabled
+#define PHONETIC_DISABLED PhoneticMode_Disabled
 """
 
 [header.rqe_iterator_type]
