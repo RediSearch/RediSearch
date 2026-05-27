@@ -180,20 +180,23 @@ jobs:
       # Packaging parity: re-run bindgen against the distro libclang the
       # redis-debian sbuild chroot uses (jammy→14, noble→18); our normal
       # build pins LLVM 21 and would mask regressions like #9845 / MOD-15871.
-      - name: Verify FFI bindgen parses under distro libclang
-        if: inputs.platform == 'ubuntu:jammy' || inputs.platform == 'ubuntu:noble'
-        env:
-          PLATFORM: ${{ inputs.platform }}
+      - name: Verify FFI bindgen parses under distro libclang-14 (jammy)
+        if: inputs.platform == 'ubuntu:jammy'
         run: |
-          case "$PLATFORM" in
-            ubuntu:jammy) LLVM_VER=14 ;;
-            ubuntu:noble) LLVM_VER=18 ;;
-          esac
           apt-get update -qq
-          apt-get install -y --no-install-recommends "libclang-${LLVM_VER}-dev"
+          apt-get install -y --no-install-recommends libclang-14-dev
           cd src/redisearch_rs
           cargo clean -p ffi
-          LIBCLANG_PATH="/usr/lib/llvm-${LLVM_VER}/lib" cargo build -p ffi
+          LIBCLANG_PATH=/usr/lib/llvm-14/lib cargo build -p ffi
+
+      - name: Verify FFI bindgen parses under distro libclang-18 (noble)
+        if: inputs.platform == 'ubuntu:noble'
+        run: |
+          apt-get update -qq
+          apt-get install -y --no-install-recommends libclang-18-dev
+          cd src/redisearch_rs
+          cargo clean -p ffi
+          LIBCLANG_PATH=/usr/lib/llvm-18/lib cargo build -p ffi
 
       - name: Validate glibc version
         if: runner.os == 'Linux' && inputs.platform != 'ubuntu:focal'
