@@ -235,7 +235,7 @@ Vector *Trie_Search(Trie *tree, const char *s, size_t len, size_t num, int maxDi
   size_t rlen;
   rune *runes = strToSingleCodepointFoldedRunes(s, len, &rlen);
   // make sure query length does not overflow
-  if (!runes || rlen >= TRIE_MAX_PREFIX) {
+  if (!runes || rlen > TRIE_MAX_PREFIX) {
     rm_free(runes);
     return NULL;
   }
