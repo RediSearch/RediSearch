@@ -76,4 +76,4 @@ groups, summarize the long tail in one line.
 - Do not invent test ids, file paths, or error messages. If unsure, say so.
 - Do not propose code fixes — the Slack message is for triage, not patching.
 - Do not include the raw failure report content; only your analysis.
-- If the failure report is empty or unparseable, output one line saying so.
+- If the failure report is empty or unparsable, output one line saying so.

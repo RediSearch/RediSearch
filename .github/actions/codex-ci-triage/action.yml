@@ -57,9 +57,13 @@ runs:
     - name: Read triage output
       id: read
       shell: bash
+      env:
+        TRIAGE_WORKING_DIRECTORY: ${{ inputs.working-directory }}
+        TRIAGE_OUTPUT_FILE: ${{ inputs.output-file }}
+        TRIAGE_CODEX_OUTCOME: ${{ steps.codex.outcome }}
       run: |
-        OUTFILE="${{ inputs.working-directory }}/${{ inputs.output-file }}"
-        if [ -f "$OUTFILE" ] && [ -s "$OUTFILE" ] && [ "${{ steps.codex.outcome }}" = "success" ]; then
+        OUTFILE="${TRIAGE_WORKING_DIRECTORY}/${TRIAGE_OUTPUT_FILE}"
+        if [ -f "$OUTFILE" ] && [ -s "$OUTFILE" ] && [ "$TRIAGE_CODEX_OUTCOME" = "success" ]; then
           echo "triage_exists=true" >> "$GITHUB_OUTPUT"
           {
             echo "triage_content<<__EOF__"
@@ -73,5 +77,5 @@ runs:
           } >> "$GITHUB_OUTPUT"
         else
           echo "triage_exists=false" >> "$GITHUB_OUTPUT"
-          echo "⚠️ Codex triage did not produce output (codex outcome=${{ steps.codex.outcome }}, file=$OUTFILE)"
+          echo "⚠️ Codex triage did not produce output (codex outcome=${TRIAGE_CODEX_OUTCOME}, file=${OUTFILE})"
         fi

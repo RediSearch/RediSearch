@@ -234,29 +234,35 @@ jobs:
           # Prefer the focused "Failed Test Logs *" artifacts produced by
           # task-test.yml — they contain only logs for tests that actually
           # failed, which is much higher signal than the full job stdout.
-          # Fall back to `gh run view --log-failed` when no such artifacts
-          # exist (e.g. build-only failures, non-pytest steps).
+          # Always also include `gh run view --log-failed` so non-pytest
+          # failures (build, sanitizer, Rust, etc.) still have context in
+          # mixed-failure runs.
           mkdir -p downloaded-failed-logs
           gh run download "$GITHUB_RUN_ID" \
             --repo "$GITHUB_REPOSITORY" \
             --pattern "Failed Test Logs *" \
             --dir downloaded-failed-logs 2>/dev/null
 
+          : > failed-logs.txt
           if [ -n "$(find downloaded-failed-logs -type f 2>/dev/null)" ]; then
-            echo "Using focused Failed Test Logs artifacts."
-            {
-              find downloaded-failed-logs -type f \
-                \( -name '*.log' -o -name '*.txt' \) -print0 |
-              while IFS= read -r -d '' f; do
-                printf '\n##[group]%s\n' "${f#downloaded-failed-logs/}"
-                cat "$f"
-                printf '\n##[endgroup]\n'
-              done
-            } > failed-logs.txt
+            echo "Including focused Failed Test Logs artifacts."
+            find downloaded-failed-logs -type f \
+              \( -name '*.log' -o -name '*.txt' \) -print0 |
+            while IFS= read -r -d '' f; do
+              printf '\n##[group]%s\n' "${f#downloaded-failed-logs/}"
+              cat "$f"
+              printf '\n##[endgroup]\n'
+            done >> failed-logs.txt
           else
-            echo "No Failed Test Logs artifacts found; falling back to gh run --log-failed."
-            gh run view "$GITHUB_RUN_ID" --repo "$GITHUB_REPOSITORY" --log-failed > failed-logs.txt 2>&1
+            echo "No Failed Test Logs artifacts found."
           fi
+
+          # Also append job-level failed logs to cover non-pytest failures.
+          {
+            printf '\n##[group]gh run view --log-failed\n'
+            gh run view "$GITHUB_RUN_ID" --repo "$GITHUB_REPOSITORY" --log-failed 2>&1
+            printf '\n##[endgroup]\n'
+          } >> failed-logs.txt
 
           # Cap at 200KB to bound Codex token spend
           if [ "$(wc -c < failed-logs.txt 2>/dev/null || echo 0)" -gt 204800 ]; then
@@ -275,6 +281,7 @@ jobs:
           prompt-file: .github/codex/prompts/post-merge-triage.md
 
       - name: Notify CIE failure triage
+        if: always()
         uses: slackapi/slack-github-action@v3
         with:
           webhook: ${{ secrets.SLACK_WEBHOOK_URL_POST_MERGE_VALIDATION_FAILED }}
