@@ -73,7 +73,11 @@ fn insert_entry_array_drops_excess_without_calling_project() {
     let mut counter = 0;
     let mut s = Storage::new(false, Some((0, 2)), 0);
     for v in [1.0_f64, 2.0, 3.0, 4.0] {
-        s.insert_entry(|| sort_vals(v), None, counting_project(&mut counter, &key, v));
+        s.insert_entry(
+            || sort_vals(v),
+            None,
+            counting_project(&mut counter, &key, v),
+        );
     }
     assert_eq!(
         counter, 2,
@@ -112,12 +116,20 @@ fn insert_entry_heap_skips_project_for_doomed_candidates() {
     let mut s = Storage::new(true, Some((0, 2)), SORT_ASC);
     // Fill with the two best candidates first.
     for v in [0.0_f64, 1.0] {
-        s.insert_entry(|| sort_vals(v), None, counting_project(&mut counter, &key, v));
+        s.insert_entry(
+            || sort_vals(v),
+            None,
+            counting_project(&mut counter, &key, v),
+        );
     }
     // Each subsequent candidate is worse than the worst survivor (1.0)
     // under ASC, so `project` must not run.
     for v in [2.0_f64, 3.0, 4.0] {
-        s.insert_entry(|| sort_vals(v), None, counting_project(&mut counter, &key, v));
+        s.insert_entry(
+            || sort_vals(v),
+            None,
+            counting_project(&mut counter, &key, v),
+        );
     }
     assert_eq!(
         counter, 2,
@@ -133,7 +145,11 @@ fn insert_entry_heap_invokes_project_on_eviction() {
     // Each insert is strictly better than the current worst, so every
     // candidate must be projected.
     for v in [5.0_f64, 3.0, 1.0] {
-        s.insert_entry(|| sort_vals(v), None, counting_project(&mut counter, &key, v));
+        s.insert_entry(
+            || sort_vals(v),
+            None,
+            counting_project(&mut counter, &key, v),
+        );
     }
     assert_eq!(counter, 3);
 }

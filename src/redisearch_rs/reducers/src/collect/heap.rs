@@ -89,7 +89,9 @@ impl Ord for EntryKey {
 
         match (self.doc_id, other.doc_id) {
             (Some(left), Some(right)) => right.cmp(&left),
-            _ => Ordering::Equal,
+            (Some(_), None) => Ordering::Greater,
+            (None, Some(_)) => Ordering::Less,
+            (None, None) => Ordering::Equal,
         }
     }
 }

@@ -174,9 +174,27 @@ fn entry_key_compares_doc_id_only_after_sort_values_tie() {
 }
 
 #[test]
+fn entry_key_orders_mixed_doc_id_presence_deterministically() {
+    let primary = Some(SharedValue::new_num(1.0));
+    let with_doc_id = EntryKey::new(Box::new([primary.clone()]), asc(0), Some(10));
+    let without_doc_id = EntryKey::new(Box::new([primary]), asc(0), None);
+
+    assert_eq!(with_doc_id.cmp(&without_doc_id), Ordering::Greater);
+    assert_eq!(without_doc_id.cmp(&with_doc_id), Ordering::Less);
+}
+
+#[test]
 fn entry_key_sort_values_take_precedence_over_doc_id() {
-    let a = EntryKey::new(Box::new([Some(SharedValue::new_num(1.0))]), asc(0), Some(20));
-    let b = EntryKey::new(Box::new([Some(SharedValue::new_num(2.0))]), asc(0), Some(10));
+    let a = EntryKey::new(
+        Box::new([Some(SharedValue::new_num(1.0))]),
+        asc(0),
+        Some(20),
+    );
+    let b = EntryKey::new(
+        Box::new([Some(SharedValue::new_num(2.0))]),
+        asc(0),
+        Some(10),
+    );
     // Sort value wins first; doc id is only a tie-breaker.
     assert_eq!(a.cmp(&b), Ordering::Greater);
     assert_eq!(b.cmp(&a), Ordering::Less);
