@@ -92,14 +92,9 @@ runs:
           echo "No active flaky marks — running the full suite"
           exit 0
         fi
-        # runtests.sh has a pre-existing bug: it calls `is_abspath` which is
-        # never defined, so every TESTFILE is treated as relative and gets
-        # $ROOT prepended. We therefore write the TESTFILE inside the workspace
-        # and pass a path relative to it. FAILEDFILE is unaffected because a
-        # separate typo in the same block (TESTFILE=… instead of FAILEDFILE=…)
-        # cancels the prepend out.
-        LIST_OUT=".flaky_list_${VARIANT}.raw"
-        TESTFILE_OUT=".flaky_testfile_${VARIANT}.txt"
+        mkdir -p /tmp/flaky
+        LIST_OUT="/tmp/flaky/list_${VARIANT}.raw"
+        TESTFILE_OUT="/tmp/flaky/run_${VARIANT}.txt"
         LIST=1 make pytest $TEST_CONFIG > "$LIST_OUT" 2>&1 || {
           echo "::warning::LIST=1 enumeration failed — running full suite as fallback"
           exit 0
