@@ -87,6 +87,10 @@ runs:
         REJSON_BRANCH: ${{ inputs.rejson-branch }}
         TEST_CONFIG: ${{ inputs.test-config }}
         VARIANT: ${{ inputs.variant }}
+        # Don't wipe tests/pytests/logs while listing — the coordinator
+        # listing runs after standalone tests, and otherwise the prior
+        # variant's failure logs would be deleted before artifact upload.
+        CLEAR_LOGS: "0"
       run: |
         if [ ! -s .flaky_skip.txt ]; then
           echo "No active flaky marks — running the full suite"

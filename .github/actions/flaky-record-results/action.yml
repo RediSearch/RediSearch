@@ -78,4 +78,4 @@ runs:
         JOB_NAME: ${{ inputs.job-name != '' && inputs.job-name || github.job }}
         FAILED_FILE: ${{ inputs.failed-file }}
         PASSED_FILE: ${{ inputs.passed-file }}
-      run: python ${{ github.action_path }}/../../scripts/flaky_db.py record
+      run: python3 ${{ github.action_path }}/../../scripts/flaky_db.py record

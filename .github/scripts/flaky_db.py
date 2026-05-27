@@ -46,9 +46,11 @@ FAILURES_MAXLEN = 50_000
 
 _TAG_ESCAPE_CHARS = set(',.<>{}[]"\':;!@#$%^&*()-+=~ \\/?')
 # RLTest LIST=1 emits "<test_file>:<test_name>" (no .py suffix, no variant
-# suffix). The variant bracket is left in the regex in case a future RLTest
-# version starts emitting them — prefix matching handles both shapes.
-_TEST_ID_RE = re.compile(r"^[A-Za-z0-9_-]+:[A-Za-z_]\w*(?:\[[^\]]+\])?\s*$")
+# suffix). Class-based tests appear as "<test_file>:<Class>.<method>" — RLTest
+# joins them with a dot — so the name half must accept `.`. The variant bracket
+# is left in the regex in case a future RLTest version starts emitting them;
+# prefix matching handles both shapes.
+_TEST_ID_RE = re.compile(r"^[A-Za-z0-9_-]+:[A-Za-z_][\w.]*(?:\[[^\]]+\])?\s*$")
 
 
 def _connect() -> redis.Redis | None:
