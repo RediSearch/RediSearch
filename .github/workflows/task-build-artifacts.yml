@@ -177,6 +177,20 @@ jobs:
       - name: Show sccache stats
         run: ${SCCACHE_PATH:-sccache} --show-stats || true
 
+      # Packaging parity: ubuntu:jammy ships libclang-14, which is what the
+      # redis-debian sbuild chroot uses for the FFI bindgen step. Our normal
+      # build installs LLVM 21 (.install/install_llvm.sh), so we explicitly
+      # re-run bindgen against the distro libclang-14 to catch regressions
+      # like the one fixed in #9845 / MOD-15871.
+      - name: Verify FFI bindgen parses under distro libclang-14
+        if: inputs.platform == 'ubuntu:jammy'
+        run: |
+          apt-get update -qq
+          apt-get install -y --no-install-recommends libclang-14-dev
+          cd src/redisearch_rs
+          cargo clean -p ffi
+          LIBCLANG_PATH=/usr/lib/llvm-14/lib cargo build -p ffi
+
       - name: Validate glibc version
         if: runner.os == 'Linux' && inputs.platform != 'ubuntu:focal'
         uses: ./.github/actions/validate-glibc-version
