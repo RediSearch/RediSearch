@@ -166,7 +166,7 @@ type NotIteratorWrapper<'index> = RQEIteratorWrapper<NotIteratorEnum<'index>>;
 /// # Safety
 ///
 /// Caller must guarantee `q` and `q.sctx` are valid (FFI preconditions
-/// 3 and 4 of [`NewNotIterator`]). When `bc_timeout_areq` is non-null, it
+/// 3 and 4 of [`NewNotIterator()`]). When `bc_timeout_areq` is non-null, it
 /// must uphold the [`TimeoutContextBlockedClient::new`] safety contract for
 /// the lifetime of the returned context.
 unsafe fn build_timeout_context(
