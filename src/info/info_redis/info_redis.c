@@ -449,14 +449,14 @@ static void AddQueriesToInfo(RedisModuleInfoCtx *ctx, BlockedQueries* activeQuer
   }
   // Assumes no other thread is currently accessing the active-threads container
   DLLIST_FOREACH(node, &(activeQueries->queries)) {
-    RequestSyncCtx *rsc = DLLIST_ITEM(node, RequestSyncCtx, blockedNode);
+    RequestSyncCtx *rsc = DLLIST_ITEM(node, RequestSyncCtx, cycle.node);
     RedisSearchCtx *sctx = RSC_GetSearchCtx(rsc);
     IndexSpec *sp = sctx ? sctx->spec : NULL;
     if (!sp) {
       continue;
     }
     RedisModule_InfoBeginDictField(ctx, IndexSpec_FormatName(sp, RSGlobalConfig.hideUserDataFromLog));
-    RedisModule_InfoAddFieldULongLong(ctx, "started_at", (unsigned long long)rsc->cycleStart);
+    RedisModule_InfoAddFieldULongLong(ctx, "started_at", (unsigned long long)rsc->cycle.start);
     RedisModule_InfoEndDictField(ctx);
   }
 }
@@ -467,14 +467,14 @@ static void AddCursorsToInfo(RedisModuleInfoCtx *ctx, BlockedQueries* activeQuer
     return;
   }
   DLLIST_FOREACH(node, &(activeQueries->cursors)) {
-    RequestSyncCtx *rsc = DLLIST_ITEM(node, RequestSyncCtx, blockedNode);
+    RequestSyncCtx *rsc = DLLIST_ITEM(node, RequestSyncCtx, cycle.node);
     RedisSearchCtx *sctx = RSC_GetSearchCtx(rsc);
     IndexSpec *spec = sctx ? sctx->spec : NULL;
     char buffer[21]; // 20 is the max length of a uint64_t
-    snprintf(buffer, sizeof(buffer), "%" PRIu64, rsc->cycleCursorId);
+    snprintf(buffer, sizeof(buffer), "%" PRIu64, rsc->cycle.cursorId);
     RedisModule_InfoBeginDictField(ctx, buffer);
     RedisModule_InfoAddFieldCString(ctx, "index", spec ? IndexSpec_FormatName(spec, RSGlobalConfig.hideUserDataFromLog) : "<DELETED>");
-    RedisModule_InfoAddFieldULongLong(ctx, "started_at", rsc->cycleStart);
+    RedisModule_InfoAddFieldULongLong(ctx, "started_at", rsc->cycle.start);
     RedisModule_InfoEndDictField(ctx);
   }
 }

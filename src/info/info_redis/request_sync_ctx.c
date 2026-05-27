@@ -107,16 +107,13 @@ void RequestSyncCtx_Free(RequestSyncCtx *ctx) {
   rm_free(ctx);
 }
 
-void RSC_BeginCycle(RequestSyncCtx *ctx, RedisModuleBlockedClient *bc,
-                    RedisModuleCmdFunc replyCallback, RequestCycleKind cycleKind,
+void RSC_BeginCycle(RequestSyncCtx *ctx, RequestReplyMode replyMode, RequestCycleKind cycleKind,
                     uint64_t cursorId, size_t cursorCount) {
-  ctx->bc = bc;
-  ctx->replyCallback = replyCallback;
-  ctx->cycleKind = cycleKind;
-  ctx->cycleStart = time(NULL);
-  ctx->cycleCursorId = cursorId;
-  ctx->cycleCursorCount = cursorCount;
-  ctx->blockedNodeOwns = cycleKind == REQUEST_CYCLE_QUERY;
+  ctx->cycle.replyMode = replyMode;
+  ctx->cycle.kind = cycleKind;
+  ctx->cycle.start = time(NULL);
+  ctx->cycle.cursorId = cursorId;
+  ctx->cycle.cursorCount = cursorCount;
 }
 
 void RSC_EndCycle(RequestSyncCtx *ctx) {
@@ -124,19 +121,18 @@ void RSC_EndCycle(RequestSyncCtx *ctx) {
     return;
   }
 
-  if (ctx->cycleKind != REQUEST_CYCLE_NONE) {
+  if (ctx->cycle.kind != REQUEST_CYCLE_NONE) {
     BlockedQueries_Unlink(ctx);
   }
   ChunkReplyState_Destroy(&ctx->reply);
   ctx->reply = (ChunkReplyState){0};
   ctx->reply.err = QueryError_Default();
 
-  ctx->bc = NULL;
-  ctx->replyCallback = NULL;
-  ctx->cycleKind = REQUEST_CYCLE_NONE;
-  ctx->cycleStart = 0;
-  ctx->cycleCursorId = 0;
-  ctx->cycleCursorCount = 0;
+  ctx->cycle.replyMode = REQUEST_REPLY_INLINE;
+  ctx->cycle.kind = REQUEST_CYCLE_NONE;
+  ctx->cycle.start = 0;
+  ctx->cycle.cursorId = 0;
+  ctx->cycle.cursorCount = 0;
 }
 
 void RequestSyncCtx_OnFree(RedisModuleCtx *ctx, void *privdata) {
@@ -145,7 +141,7 @@ void RequestSyncCtx_OnFree(RedisModuleCtx *ctx, void *privdata) {
 #ifdef ENABLE_ASSERT
   CoordReqCtxFreeDebug_Increment();
 #endif
-  RequestCycleKind cycleKind = rsc->cycleKind;
+  RequestCycleKind cycleKind = rsc->cycle.kind;
 
   if (cycleKind == REQUEST_CYCLE_CURSOR) {
     AREQ *req = RequestSyncCtx_GetAREQ(rsc);
@@ -173,7 +169,6 @@ void RequestSyncCtx_OnFree(RedisModuleCtx *ctx, void *privdata) {
 
   RSC_EndCycle(rsc);
   if (keepQuery) {
-    rsc->blockedNodeOwns = false;
     return;
   }
   RequestSyncCtx_Free(rsc);
@@ -207,8 +202,12 @@ AREQ *RequestSyncCtx_GetCursorAREQ(RequestSyncCtx *ctx, uint64_t cursorId) {
   return NULL;
 }
 
-bool RequestSyncCtx_HasReplyCallback(RequestSyncCtx *ctx) {
-  return ctx && ctx->replyCallback != NULL;
+bool RequestSyncCtx_UsesDeferredReply(RequestSyncCtx *ctx) {
+  return ctx && ctx->cycle.replyMode == REQUEST_REPLY_DEFERRED;
+}
+
+bool RequestSyncCtx_HasActiveQueryCycle(RequestSyncCtx *ctx) {
+  return ctx && ctx->cycle.kind == REQUEST_CYCLE_QUERY;
 }
 
 ChunkReplyState *RequestSyncCtx_GetReplyState(RequestSyncCtx *ctx) {
@@ -250,9 +249,9 @@ bool RequestSyncCtx_IsCursorReadReturnStrict(RequestSyncCtx *ctx) {
 }
 
 void RequestSyncCtx_ReplyOrStoreError(RequestSyncCtx *rsc, RedisModuleCtx *ctx, QueryError *status) {
-  if (RequestSyncCtx_HasReplyCallback(rsc)) {
-    RS_ASSERT(!QueryError_HasError(&rsc->coordPreRequestError));
-    QueryError_CloneFrom(status, &rsc->coordPreRequestError);
+  if (RequestSyncCtx_UsesDeferredReply(rsc)) {
+    RS_ASSERT(!QueryError_HasError(&rsc->reply.err));
+    QueryError_CloneFrom(status, &rsc->reply.err);
     QueryError_ClearError(status);
   } else {
     QueryErrorsGlobalStats_UpdateError(QueryError_GetCode(status), 1, COORD_ERR_WARN);

@@ -726,7 +726,7 @@ static void sendChunk_Resp2(AREQ *req, RedisModule_Reply *reply, size_t limit,
 
     startPipeline(req, rp, &state.results, &r, &rc);
 
-    if (RequestSyncCtx_HasReplyCallback(req->syncCtx)) {
+    if (RequestSyncCtx_UsesDeferredReply(req->syncCtx)) {
       // Store results for reply_callback (includes cv and limit)
       debugPauseStoreResults(req, true);  // pause before
       AREQ_StoreResults(req, state.results, rc, cv, limit);
@@ -942,7 +942,7 @@ static void sendChunk_Resp3(AREQ *req, RedisModule_Reply *reply, size_t limit,
 
     startPipeline(req, rp, &state.results, &r, &rc);
 
-    if (RequestSyncCtx_HasReplyCallback(req->syncCtx)) {
+    if (RequestSyncCtx_UsesDeferredReply(req->syncCtx)) {
       // Store results for reply_callback (includes cv and limit)
       debugPauseStoreResults(req, true);  // pause before
       AREQ_StoreResults(req, state.results, rc, cv, limit);
@@ -1175,7 +1175,7 @@ static void AREQWorkerJob_destroy(AREQWorkerJob *job) {
 // For deferred-reply mode: stores error for QueryReplyCallback to handle.
 // For RETURN policy: replies with error directly.
 void AREQ_ReplyOrStoreError(AREQ *req, RedisModuleCtx *ctx, QueryError *status) {
-  if (RequestSyncCtx_HasReplyCallback(req->syncCtx)) {
+  if (RequestSyncCtx_UsesDeferredReply(req->syncCtx)) {
     ChunkReplyState *stored = RequestSyncCtx_GetReplyState(req->syncCtx);
     // Clear destination before cloning to avoid leaking any existing error strings.
     // Deep copy since QueryError contains heap-allocated strings.
@@ -1930,7 +1930,7 @@ static void runCursor(RedisModule_Reply *reply, Cursor *cursor, size_t num) {
   // Skip in deferred-reply mode (coord+FAIL): the deadline is owned by
   // the blocked-client timer, armed by buildPipelineAndExecute (initial
   // WITHCURSOR) or CursorCommand (subsequent READ).
-  if (!RequestSyncCtx_HasReplyCallback(req->syncCtx)) {
+  if (!RequestSyncCtx_UsesDeferredReply(req->syncCtx)) {
     SearchCtx_UpdateTime(AREQ_SearchCtx(req), req->reqConfig.queryTimeoutMS);
   }
 
@@ -1946,13 +1946,13 @@ static void runCursor(RedisModule_Reply *reply, Cursor *cursor, size_t num) {
   // Debug: pin coord+FAIL worker before sendChunk so tests can fire the
   // blocked-client timeout; break out of the wait once the timeout callback
   // has marked the AREQ as timed out.
-  if (RequestSyncCtx_HasReplyCallback(req->syncCtx)) {
+  if (RequestSyncCtx_UsesDeferredReply(req->syncCtx)) {
     SyncPoint_WaitUntil(SYNC_POINT_BEFORE_CURSOR_READ_SEND_CHUNK,
                         areq_timed_out, req);
   }
 #endif
 
-  if (RequestSyncCtx_HasReplyCallback(req->syncCtx)) {
+  if (RequestSyncCtx_UsesDeferredReply(req->syncCtx)) {
     // Stash the cursor BEFORE sendChunk: sendChunk's signal can wake the
     // timeout_callback, which reads the stored cursor to pause/free it.
     RequestSyncCtx_GetReplyState(req->syncCtx)->cursor = cursor;
@@ -1961,7 +1961,7 @@ static void runCursor(RedisModule_Reply *reply, Cursor *cursor, size_t num) {
   sendChunk(req, reply, num);
   RedisSearchCtx_UnlockSpec(AREQ_SearchCtx(req)); // Verify that we release the spec lock
 
-  if (RequestSyncCtx_HasReplyCallback(req->syncCtx)) {
+  if (RequestSyncCtx_UsesDeferredReply(req->syncCtx)) {
     // Disposal of the stashed cursor is owned by AREQ_ReplyWithStoredResults.
     return;
   }
@@ -2123,7 +2123,7 @@ int RSCursorReadCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc)
   RequestSyncCtx *reqCtx = upstreamBC ? RedisModule_BlockClientGetPrivateData(upstreamBC) : NULL;
   // Only the coord+FAIL path meets the precondition for
   // RequestSyncCtx_ReplyOrStoreError (deferred-reply mode).
-  RS_ASSERT(!reqCtx || RequestSyncCtx_HasReplyCallback(reqCtx));
+  RS_ASSERT(!reqCtx || RequestSyncCtx_UsesDeferredReply(reqCtx));
   // Reused across all coord+FAIL early-error sites below.
   QueryError err = QueryError_Default();
 

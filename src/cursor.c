@@ -97,7 +97,7 @@ static void Cursor_FreeInternal(Cursor *cur) {
         }
       }
     }
-    if (!cur->query->blockedNodeOwns) {
+    if (!RequestSyncCtx_HasActiveQueryCycle(cur->query)) {
       bool freeQuery = true;
       if (hreq) {
         for (size_t i = 0; i < hreq->nrequests; i++) {

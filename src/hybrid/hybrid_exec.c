@@ -360,7 +360,7 @@ static bool serializeAndReplyResults_hybrid(HybridRequest *hreq, RedisModule_Rep
 // (coordinator-dispatched) HybridRequests, and the default (BOTH) applies to all.
 static inline void debugPauseStoreResultsHybrid(HybridRequest *hreq, bool before) {
   // Only pause if we are using reply callback (otherwise we don't store results)
-  if (!RequestSyncCtx_HasReplyCallback(hreq->syncCtx)) {
+  if (!RequestSyncCtx_UsesDeferredReply(hreq->syncCtx)) {
     return;
   }
   bool enabled = before ? StoreResultsDebugCtx_IsPauseBeforeEnabled()
@@ -432,7 +432,7 @@ void HREQ_StoreResults(HybridRequest *hreq, SearchResult **results, int rc, cach
 // For deferred-reply mode: stores error for reply_callback to handle.
 // For RETURN policy: replies with error directly.
 void HREQ_ReplyOrStoreError(HybridRequest *hreq, RedisModuleCtx *ctx, QueryError *status) {
-  if (RequestSyncCtx_HasReplyCallback(hreq->syncCtx)) {
+  if (RequestSyncCtx_UsesDeferredReply(hreq->syncCtx)) {
     ChunkReplyState *stored = RequestSyncCtx_GetReplyState(hreq->syncCtx);
     // Deep copy since QueryError contains heap-allocated strings.
     // reply_callback will clear the stored error after replying.
@@ -486,7 +486,7 @@ void sendChunk_hybrid(HybridRequest *hreq, RedisModule_Reply *reply, size_t limi
       goto done_err;
     }
 
-    if (RequestSyncCtx_HasReplyCallback(hreq->syncCtx)) {
+    if (RequestSyncCtx_UsesDeferredReply(hreq->syncCtx)) {
       // Store results for reply_callback (includes cv)
       debugPauseStoreResultsHybrid(hreq, true);  // pause before
       HREQ_StoreResults(hreq, results, rc, cv);
@@ -756,7 +756,7 @@ int HybridRequest_StartCursors(HybridRequest *hreq, RedisModuleCtx *replyCtx, Qu
     // Pause after store cursors (hybrid cursors only)
     debugPauseHybridStoreCursors(req, false);
 
-    if (!RequestSyncCtx_HasReplyCallback(req->syncCtx)) {
+    if (!RequestSyncCtx_UsesDeferredReply(req->syncCtx)) {
       // If we are not using reply callback, we should reply with the cursors here
       replyWithCursors(replyCtx, req->cursors, req, depletionTimedOut);
       array_free(req->cursors);
@@ -996,7 +996,7 @@ static int HybridRequest_BuildPipelineAndExecute(HybridRequest *hreq, HybridPipe
 }
 
 static inline void DefaultCleanup(HybridRequest *hreq) {
-  if (!hreq->syncCtx->blockedNodeOwns) {
+  if (!RequestSyncCtx_HasActiveQueryCycle(hreq->syncCtx)) {
     RequestSyncCtx_Free(hreq->syncCtx);
   }
   CurrentThread_ClearIndexSpec();

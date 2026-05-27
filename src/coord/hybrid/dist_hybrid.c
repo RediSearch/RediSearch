@@ -980,9 +980,10 @@ int DistHybridReplyCallback(RedisModuleCtx *ctx, RedisModuleString **argv, int a
   HybridRequest *hreq = (HybridRequest *)RequestSyncCtx_GetHybridRequest(CoordReqCtx);
   if (!hreq) {
     // We expect CoordReqCtx to hold the error if hreq is NULL
-    if (QueryError_HasError(&CoordReqCtx->coordPreRequestError)) {
-      QueryErrorsGlobalStats_UpdateError(QueryError_GetCode(&CoordReqCtx->coordPreRequestError), 1, COORD_ERR_WARN);
-      QueryError_ReplyAndClear(ctx, &CoordReqCtx->coordPreRequestError);
+    ChunkReplyState *stored = RequestSyncCtx_GetReplyState(CoordReqCtx);
+    if (QueryError_HasError(&stored->err)) {
+      QueryErrorsGlobalStats_UpdateError(QueryError_GetCode(&stored->err), 1, COORD_ERR_WARN);
+      QueryError_ReplyAndClear(ctx, &stored->err);
       return REDISMODULE_OK;
     }
     // This should not happen, but handle gracefully

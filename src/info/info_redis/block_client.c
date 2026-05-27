@@ -35,7 +35,8 @@ RedisModuleBlockedClient *BlockQueryClientWithTimeout(RedisModuleCtx *ctx, Stron
   // found in buildRequest.
   RedisModuleBlockedClient *blockedClient = RedisModule_BlockClient(ctx, replyCallback, timeoutCallback, RequestSyncCtx_OnFree, timeoutMS);
   RedisModule_BlockClientSetPrivateData(blockedClient, rsc);
-  RSC_BeginCycle(rsc, blockedClient, replyCallback, REQUEST_CYCLE_QUERY, 0, 0);
+  RSC_BeginCycle(rsc, replyCallback ? REQUEST_REPLY_DEFERRED : REQUEST_REPLY_INLINE,
+                 REQUEST_CYCLE_QUERY, 0, 0);
   BlockedQueries_LinkQuery(blockedQueries, rsc);
   // report block client start time
   RedisModule_BlockedClientMeasureTimeStart(blockedClient);
@@ -61,7 +62,8 @@ RedisModuleBlockedClient *BlockCursorClientWithTimeout(RedisModuleCtx *ctx, Curs
   RedisModuleBlockedClient *blockedClient = RedisModule_BlockClient(ctx, replyCallback, timeoutCallback,
       RequestSyncCtx_OnFree, timeoutMS);
   RedisModule_BlockClientSetPrivateData(blockedClient, rsc);
-  RSC_BeginCycle(rsc, blockedClient, replyCallback, REQUEST_CYCLE_CURSOR, cursor->id, count);
+  RSC_BeginCycle(rsc, replyCallback ? REQUEST_REPLY_DEFERRED : REQUEST_REPLY_INLINE,
+                 REQUEST_CYCLE_CURSOR, cursor->id, count);
   BlockedQueries_LinkCursor(blockedQueries, rsc);
   // report block client start time
   RedisModule_BlockedClientMeasureTimeStart(blockedClient);

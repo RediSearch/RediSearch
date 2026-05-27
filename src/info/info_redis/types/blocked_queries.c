@@ -23,8 +23,8 @@ static RedisSearchCtx *RSC_GetSearchCtx(RequestSyncCtx *rsc) {
 }
 
 static const char *RSC_GetQueryString(RequestSyncCtx *rsc) {
-  AREQ *req = rsc->cycleKind == REQUEST_CYCLE_CURSOR
-      ? RequestSyncCtx_GetCursorAREQ(rsc, rsc->cycleCursorId)
+  AREQ *req = rsc->cycle.kind == REQUEST_CYCLE_CURSOR
+      ? RequestSyncCtx_GetCursorAREQ(rsc, rsc->cycle.cursorId)
       : RequestSyncCtx_GetAREQ(rsc);
   if (req) {
     return req->query;
@@ -47,14 +47,14 @@ BlockedQueries *BlockedQueries_Init() {
 static size_t PrintActiveQueries(BlockedQueries *blockedQueries) {
   size_t count = 0;
   DLLIST_FOREACH(node, &blockedQueries->queries) {
-    RequestSyncCtx *rsc = DLLIST_ITEM(node, RequestSyncCtx, blockedNode);
+    RequestSyncCtx *rsc = DLLIST_ITEM(node, RequestSyncCtx, cycle.node);
     RedisSearchCtx *sctx = RSC_GetSearchCtx(rsc);
     IndexSpec *sp = sctx ? sctx->spec : NULL;
     ++count; // increment regardless if sp is valid, the fact we have a valid node is problematic
     const char *indexName = sp ? IndexSpec_FormatName(sp, RSGlobalConfig.hideUserDataFromLog) : "<DELETED>";
     const char *query = RSC_GetQueryString(rsc);
     query = query && !RSGlobalConfig.hideUserDataFromLog ? query : "n/a";
-    RedisModule_Log(NULL, "warning", "Active query on index %s, query: %s, started at %ld", indexName, query, rsc->cycleStart);
+    RedisModule_Log(NULL, "warning", "Active query on index %s, query: %s, started at %ld", indexName, query, rsc->cycle.start);
   }
   return count;
 }
@@ -62,14 +62,14 @@ static size_t PrintActiveQueries(BlockedQueries *blockedQueries) {
 static size_t PrintActiveCursors(BlockedQueries *blockedQueries) {
   size_t count = 0;
   DLLIST_FOREACH(node, &blockedQueries->cursors) {
-    RequestSyncCtx *rsc = DLLIST_ITEM(node, RequestSyncCtx, blockedNode);
+    RequestSyncCtx *rsc = DLLIST_ITEM(node, RequestSyncCtx, cycle.node);
     RedisSearchCtx *sctx = RSC_GetSearchCtx(rsc);
     IndexSpec *sp = sctx ? sctx->spec : NULL;
     ++count; // increment regardless if sp is valid, the fact we have a valid node is problematic
     const char *indexName = sp ? IndexSpec_FormatName(sp, RSGlobalConfig.hideUserDataFromLog) : "<DELETED>";
     const char *query = RSC_GetQueryString(rsc);
     query = query && !RSGlobalConfig.hideUserDataFromLog ? query : "n/a";
-    RedisModule_Log(NULL, "warning", "Active cursor %" PRIu64 ", on index %s, query: %s, started at %ld", rsc->cycleCursorId, indexName, query, rsc->cycleStart);
+    RedisModule_Log(NULL, "warning", "Active cursor %" PRIu64 ", on index %s, query: %s, started at %ld", rsc->cycle.cursorId, indexName, query, rsc->cycle.start);
   }
   return count;
 }
@@ -84,19 +84,19 @@ void BlockedQueries_Free(BlockedQueries *blockedQueries) {
 }
 
 void BlockedQueries_LinkQuery(BlockedQueries *blockedQueries, RequestSyncCtx *rsc) {
-  dllist_prepend(&blockedQueries->queries, &rsc->blockedNode);
-  rsc->blockedNodeLinked = true;
+  dllist_prepend(&blockedQueries->queries, &rsc->cycle.node);
+  rsc->cycle.linked = true;
 }
 
 void BlockedQueries_LinkCursor(BlockedQueries *blockedQueries, RequestSyncCtx *rsc) {
-  dllist_prepend(&blockedQueries->cursors, &rsc->blockedNode);
-  rsc->blockedNodeLinked = true;
+  dllist_prepend(&blockedQueries->cursors, &rsc->cycle.node);
+  rsc->cycle.linked = true;
 }
 
 void BlockedQueries_Unlink(RequestSyncCtx *rsc) {
-  if (!rsc->blockedNodeLinked) {
+  if (!rsc->cycle.linked) {
     return;
   }
-  dllist_delete(&rsc->blockedNode);
-  rsc->blockedNodeLinked = false;
+  dllist_delete(&rsc->cycle.node);
+  rsc->cycle.linked = false;
 }

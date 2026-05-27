@@ -185,6 +185,21 @@ typedef enum {
   REQUEST_CYCLE_CURSOR,
 } RequestCycleKind;
 
+typedef enum {
+  REQUEST_REPLY_INLINE,
+  REQUEST_REPLY_DEFERRED,
+} RequestReplyMode;
+
+typedef struct RequestCycleState {
+  RequestReplyMode replyMode;
+  DLLIST_node node;
+  bool linked;
+  RequestCycleKind kind;
+  time_t start;
+  uint64_t cursorId;
+  size_t cursorCount;
+} RequestCycleState;
+
 /**
  * Common synchronization context for request types (AREQ, HybridRequest).
  * This context is used for timeout handling and synchronization between the main thread and the background thread.
@@ -198,19 +213,9 @@ typedef struct RequestSyncCtx {
 
   // Timeout signaling flag set by timeout callback on main thread
   RS_Atomic(bool) timedOut;
-  // Temporary bridge until cursor ownership transfer moves fully into OnFree.
-  bool blockedNodeOwns;
   ChunkReplyState reply;
-  RedisModuleBlockedClient *bc;
-  RedisModuleCmdFunc replyCallback;
-  DLLIST_node blockedNode;
-  bool blockedNodeLinked;
-  RequestCycleKind cycleKind;
-  time_t cycleStart;
-  uint64_t cycleCursorId;
-  size_t cycleCursorCount;
+  RequestCycleState cycle;
   pthread_mutex_t coordSetReqLock;
-  QueryError coordPreRequestError;
   bool coordCursorReadReturnStrict;
 
   /* Partial-timeout coordination. The CAS claim grants exclusive ownership of
@@ -241,18 +246,15 @@ static inline void RequestSyncCtx_Init(RequestSyncCtx *ctx, RequestKind kind, vo
     ctx->query.hreq = (HybridRequest *)query;
   }
   ctx->timedOut = false;
-  ctx->blockedNodeOwns = false;
   ctx->reply = (ChunkReplyState){0};
   ctx->reply.err = QueryError_Default();
-  ctx->bc = NULL;
-  ctx->replyCallback = NULL;
-  ctx->blockedNodeLinked = false;
-  ctx->cycleKind = REQUEST_CYCLE_NONE;
-  ctx->cycleStart = 0;
-  ctx->cycleCursorId = 0;
-  ctx->cycleCursorCount = 0;
+  ctx->cycle.replyMode = REQUEST_REPLY_INLINE;
+  ctx->cycle.linked = false;
+  ctx->cycle.kind = REQUEST_CYCLE_NONE;
+  ctx->cycle.start = 0;
+  ctx->cycle.cursorId = 0;
+  ctx->cycle.cursorCount = 0;
   pthread_mutex_init(&ctx->coordSetReqLock, NULL);
-  ctx->coordPreRequestError = QueryError_Default();
   ctx->coordCursorReadReturnStrict = false;
   ctx->requiresAggregateResultsSync = false;
   ctx->aggregatingResults = false;
@@ -270,15 +272,15 @@ void RequestSyncCtx_Free(RequestSyncCtx *ctx);
 void AREQ_FreeFromRequestSyncCtx(AREQ *req);
 void RequestSyncCtx_BindAREQ(RequestSyncCtx *ctx, AREQ *areq);
 void RequestSyncCtx_BindHybridRequest(RequestSyncCtx *ctx, HybridRequest *hreq);
-void RSC_BeginCycle(RequestSyncCtx *ctx, RedisModuleBlockedClient *bc,
-                    RedisModuleCmdFunc replyCallback, RequestCycleKind cycleKind,
+void RSC_BeginCycle(RequestSyncCtx *ctx, RequestReplyMode replyMode, RequestCycleKind cycleKind,
                     uint64_t cursorId, size_t cursorCount);
 void RSC_EndCycle(RequestSyncCtx *ctx);
 void RequestSyncCtx_OnFree(RedisModuleCtx *ctx, void *privdata);
 AREQ *RequestSyncCtx_GetAREQ(RequestSyncCtx *ctx);
 HybridRequest *RequestSyncCtx_GetHybridRequest(RequestSyncCtx *ctx);
 AREQ *RequestSyncCtx_GetCursorAREQ(RequestSyncCtx *ctx, uint64_t cursorId);
-bool RequestSyncCtx_HasReplyCallback(RequestSyncCtx *ctx);
+bool RequestSyncCtx_UsesDeferredReply(RequestSyncCtx *ctx);
+bool RequestSyncCtx_HasActiveQueryCycle(RequestSyncCtx *ctx);
 ChunkReplyState *RequestSyncCtx_GetReplyState(RequestSyncCtx *ctx);
 void RequestSyncCtx_LockSetRequest(RequestSyncCtx *ctx);
 void RequestSyncCtx_UnlockSetRequest(RequestSyncCtx *ctx);
@@ -292,7 +294,6 @@ void RequestSyncCtx_ReplyOrStoreError(RequestSyncCtx *ctx, RedisModuleCtx *redis
 // Release resources owned by a RequestSyncCtx. Must be called exactly once
 // per successful Init, from the request's free path.
 static inline void RequestSyncCtx_Destroy(RequestSyncCtx *ctx) {
-  QueryError_ClearError(&ctx->coordPreRequestError);
   pthread_mutex_destroy(&ctx->coordSetReqLock);
   pthread_mutex_destroy(&ctx->aggregateResultsLock);
   pthread_cond_destroy(&ctx->aggregateResultsCond);

@@ -39,7 +39,8 @@ CoordBgJob *CoordBgJob_New(RedisModuleCtx *ctx, RedisModuleString **argv, int ar
   job->bc = RedisModule_BlockClient(ctx, replyCallback, timeoutCallback, RequestSyncCtx_OnFree,
                                     timeoutMS);
   RedisModule_BlockClientSetPrivateData(job->bc, rsc);
-  RSC_BeginCycle(rsc, job->bc, replyCallback, REQUEST_CYCLE_QUERY, 0, 0);
+  RSC_BeginCycle(rsc, replyCallback ? REQUEST_REPLY_DEFERRED : REQUEST_REPLY_INLINE,
+                 REQUEST_CYCLE_QUERY, 0, 0);
   BlockedQueries *blockedQueries = MainThread_GetBlockedQueries();
   if (blockedQueries) {
     BlockedQueries_LinkQuery(blockedQueries, rsc);
