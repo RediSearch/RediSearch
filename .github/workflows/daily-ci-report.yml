@@ -65,7 +65,7 @@ jobs:
 
       - name: Handle collect failure
         if: steps.collect.outcome == 'failure'
-        uses: slackapi/slack-github-action@v3
+        uses: slackapi/slack-github-action@af78098f536edbc4de71162a307590698245be95 # refs @v3.0.1
         with:
           webhook: ${{ secrets.SLACK_WEBHOOK_URL_RQE_CI_RESULT }}
           webhook-type: incoming-webhook
@@ -108,7 +108,7 @@ jobs:
 
       - name: Send reports to Slack
         if: steps.summary.outputs.summary_exists == 'true' || steps.failure_report.outputs.failure_exists == 'true'
-        uses: slackapi/slack-github-action@v3
+        uses: slackapi/slack-github-action@af78098f536edbc4de71162a307590698245be95 # refs @v3.0.1
         with:
           webhook: ${{ secrets.SLACK_WEBHOOK_URL_RQE_CI_RESULT }}
           webhook-type: incoming-webhook
