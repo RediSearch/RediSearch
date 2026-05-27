@@ -539,7 +539,7 @@ TEST_F(TrieTest, testRdbSaveLoadWithPayloads) {
   io->read_pos = 0;
 
   // Load the trie from RDB (with payloads)
-  Trie *loadedTrie = (Trie *)TrieType_GenericLoad(io, true, true);
+  Trie *loadedTrie = (Trie *)TrieType_GenericLoad(io, true, true, Trie_Sort_Score);
   std::unique_ptr<Trie, std::function<void(Trie *)>> loadedTriePtr(loadedTrie, [](Trie *trie) {
     TrieType_Free(trie);
   });
@@ -605,7 +605,7 @@ TEST_F(TrieTest, testRdbSaveLoadPayloadsNotSerialized) {
   io->read_pos = 0;
 
   // Load the trie from RDB WITHOUT payloads (loadPayloads = false) and numDocs (loadNumDocs = false)
-  Trie *loadedTrie = (Trie *)TrieType_GenericLoad(io, false, false);
+  Trie *loadedTrie = (Trie *)TrieType_GenericLoad(io, false, false, Trie_Sort_Score);
   std::unique_ptr<Trie, std::function<void(Trie *)>> loadedTriePtr(loadedTrie, [](Trie *trie) {
     TrieType_Free(trie);
   });
@@ -666,7 +666,7 @@ TEST_F(TrieTest, testRdbSaveLoadWithoutPayloads) {
   io->read_pos = 0;
 
   // Load the trie from RDB WITHOUT payloads (loadPayloads = false) and numDocs (loadNumDocs = false) to match the save operation
-  Trie *loadedTrie = (Trie *)TrieType_GenericLoad(io, false, false);
+  Trie *loadedTrie = (Trie *)TrieType_GenericLoad(io, false, false, Trie_Sort_Score);
   std::unique_ptr<Trie, std::function<void(Trie *)>> loadedTriePtr(loadedTrie, [](Trie *trie) {
     TrieType_Free(trie);
   });
@@ -797,8 +797,9 @@ TEST_F(TrieTest, testRdbSaveLoadLexSortedTrie) {
   // Compare the original and loaded tries
   EXPECT_EQ(Trie_Size(originalTrie), Trie_Size(loadedTrie));
 
-  // Note: The loaded trie will have Trie_Sort_Score (default from TrieType_GenericLoad)
-  // but all the entries should still be present, even though the sorting mode changed
+  // Note: TrieType_RdbLoad (the registered TrieType callback) always reconstructs
+  // with Trie_Sort_Score because the only producer of the registered type is FT.SUGADD.
+  // All entries should still be present, even though the sorting mode changed.
 
   // Verify all entries are present in the loaded trie
   EXPECT_TRUE(trieContains(loadedTrie, "test"));
@@ -876,7 +877,7 @@ TEST_F(TrieTest, testRdbSaveLoadLexRangePreservesQueries) {
   TrieType_GenericSave(io, original, false, false);
   ASSERT_EQ(0, RMCK_IsIOError(io));
   io->read_pos = 0;
-  Trie *loaded = (Trie *)TrieType_GenericLoad(io, false, false);
+  Trie *loaded = (Trie *)TrieType_GenericLoad(io, false, false, Trie_Sort_Lex);
   std::unique_ptr<Trie, std::function<void(Trie *)>> loadedPtr(
       loaded, [](Trie *t) { TrieType_Free(t); });
   ASSERT_TRUE(loaded != nullptr);
