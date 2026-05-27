@@ -190,16 +190,20 @@ static void stageText(RSAddDocumentCtx *aCtx, RedisSearchCtx *ctx) {
 }
 
 /**
- * Drop the old document's VecSim and Geometry entries on REPLACE. These
- * auxiliary indexes live in memory regardless of disk mode, so both flows
- * need the same cleanup. Memory mode calls this inline from `makeDocumentId`
- * before the new DMD is allocated; disk mode calls it from `applyDocTable`
- * after the disk batch commits.
+ * Drop the replaced document's VecSim and Geometry entries.
+ *
+ * These two index types live in memory in both memory mode and disk mode (the
+ * inverted-index / tag / doc-table cleanup is handled by `SearchDisk_PutDocument`
+ * in disk mode and by `DocTable_PopR` in memory mode — neither covers VecSim or
+ * Geometry, hence this dedicated step). Memory mode calls this inline from
+ * `makeDocumentId` before the new DMD is allocated; disk mode calls it from
+ * `applyDocTable` after the disk batch commits.
  *
  * `VecSimIndex_DeleteVector` and `GeometryIndex_RemoveId` no-op on unknown
- * doc-ids, so this is safe even if the old doc had no vector/geometry data.
+ * doc-ids, so this is safe even if the replaced doc had no vector / geometry
+ * data, and safe to call defensively on stale key-meta in disk mode.
  */
-static void removeOldDocAuxIndexes(IndexSpec *spec, t_docId oldDocId) {
+static void removeReplacedDocVectorAndGeometry(IndexSpec *spec, t_docId oldDocId) {
   if (spec->flags & Index_HasVecSim) {
     for (int i = 0; i < spec->numFields; ++i) {
       if (spec->fields[i].types == INDEXFLD_T_VECTOR) {
@@ -251,7 +255,7 @@ static RSDocumentMetadata *makeDocumentId(RedisModuleCtx *ctx, RSAddDocumentCtx 
       // Drop the old doc's stats + auxiliary in-memory indexes. The new doc's
       // stats are folded in by the caller via `addNewDocStats`.
       removeOldDocStats(spec, dmd->docLen);
-      removeOldDocAuxIndexes(spec, dmd->id);
+      removeReplacedDocVectorAndGeometry(spec, dmd->id);
       *updated = true;
       DMD_Return(dmd);
     }
@@ -415,7 +419,7 @@ static void applyDocTable(RSAddDocumentCtx *aCtx, RedisSearchCtx *ctx) {
   // (no-op safe on unknown ids), but only treat this as a REPLACE for stats
   // and GC purposes when an on-disk row was really overwritten.
   if (aCtx->disk.oldDocId != 0) {
-    removeOldDocAuxIndexes(spec, aCtx->disk.oldDocId);
+    removeReplacedDocVectorAndGeometry(spec, aCtx->disk.oldDocId);
   }
   const bool replaced = aCtx->disk.oldDocLen != 0;
   if (replaced) {
