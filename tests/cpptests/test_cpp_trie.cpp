@@ -839,6 +839,54 @@ static size_t trieGetNumDocs(Trie *t, const char *s) {
   return node->numDocs;
 }
 
+// Regression: TrieType_GenericLoad hardcodes the reloaded trie to Trie_Sort_Score,
+// so a Lex-sorted source trie comes back with score-ordered children. Trie_IterateRange
+// does binary search on children (trie_node.c:868) which is only sound on a Lex-ordered
+// trie, so range queries on the reloaded trie silently return the wrong subset.
+// Reachable in production via spec.c:3527 (disk-spec SST load) and spec.c:3678
+// (legacy encver>=3 load) where the source trie is built Lex (spec.c:2429).
+TEST_F(TrieTest, testRdbSaveLoadLexRangePreservesQueries) {
+  Trie *original = NewTrie(NULL, Trie_Sort_Lex);
+  std::unique_ptr<Trie, std::function<void(Trie *)>> originalPtr(
+      original, [](Trie *t) { TrieType_Free(t); });
+
+  // Single-char top-level entries so they become direct children of root.
+  // Scores scrambled so score-descending order != lex-ascending order.
+  struct E { const char *term; float score; };
+  E entries[] = {
+      {"a", 5},  {"b", 11}, {"c", 2},  {"d", 8},  {"e", 13},
+      {"f", 1},  {"g", 7},  {"h", 4},  {"i", 10}, {"j", 6},
+      {"k", 12}, {"l", 3},  {"m", 9},
+  };
+  for (auto &e : entries) {
+    ASSERT_TRUE(Trie_InsertStringBuffer(original, e.term, 1, e.score, 1, NULL, 0));
+  }
+  ASSERT_EQ(13, Trie_Size(original));
+
+  // Ground truth: lex range [d, j) on the original Lex trie.
+  ElemSet expected = trieIterRange(original, "d", "j");
+  ASSERT_EQ((ElemSet{"d", "e", "f", "g", "h", "i"}), expected);
+
+  RedisModuleIO *io = RMCK_CreateRdbIO();
+  std::unique_ptr<RedisModuleIO, std::function<void(RedisModuleIO *)>> ioPtr(
+      io, [](RedisModuleIO *p) { RMCK_FreeRdbIO(p); });
+  ASSERT_TRUE(io != nullptr);
+
+  // Round-trip via the generic loader (same path as disk-spec / legacy RDB load).
+  TrieType_GenericSave(io, original, false, false);
+  ASSERT_EQ(0, RMCK_IsIOError(io));
+  io->read_pos = 0;
+  Trie *loaded = (Trie *)TrieType_GenericLoad(io, false, false);
+  std::unique_ptr<Trie, std::function<void(Trie *)>> loadedPtr(
+      loaded, [](Trie *t) { TrieType_Free(t); });
+  ASSERT_TRUE(loaded != nullptr);
+  ASSERT_EQ(Trie_Size(original), Trie_Size(loaded));
+
+  // Same range query on the same data must produce the same result set.
+  ElemSet actual = trieIterRange(loaded, "d", "j");
+  EXPECT_EQ(expected, actual);
+}
+
 TEST_F(TrieTest, testRdbSaveLoadWithNumDocs) {
   // Create a trie with numDocs values
   Trie *originalTrie = NewTrie(NULL, Trie_Sort_Score);
