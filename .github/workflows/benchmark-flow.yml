@@ -77,7 +77,7 @@ jobs:
           pip3 install --upgrade pip
           python3 -m pip install -r tests/benchmarks/requirements.txt
       - name: install terraform
-        uses: hashicorp/setup-terraform@v2
+        uses: hashicorp/setup-terraform@v4.0.1
         with:
           terraform_version: 1.11.1
           terraform_wrapper: false
