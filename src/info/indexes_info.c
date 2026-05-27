@@ -66,6 +66,8 @@ TotalIndexesInfo IndexesInfo_TotalInfo() {
     info.total_active_write_threads += activeWrites;
     BGIndexerInProgress |= sp->scan_in_progress;
     info.total_num_docs_in_indexes += sp->stats.scoring.numDocuments;
+    info.total_inverted_index_blocks +=
+        __atomic_load_n(&sp->stats.totalInvertedIndexBlocks, __ATOMIC_RELAXED);
 
     // Index errors metrics
     size_t index_error_count = IndexSpec_GetIndexErrorCount(sp);

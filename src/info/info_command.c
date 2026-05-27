@@ -266,8 +266,8 @@ void fillReplyWithIndexInfo(RedisSearchCtx* sctx, RedisModule_Reply *reply, bool
   // Vector indexes (e.g. HNSW) remain in memory even when the rest of the
   // index is stored on disk, so their memory must always be reported.
   size_t vector_indexes_size = IndexSpec_VectorIndexesSize(specForOpeningIndexes);
-  // FT.INFO reports per-spec block counts, not the process-global TotalIIBlocks (the latter
-  // is still exposed via Redis `INFO modules` for cluster-wide aggregation in spec.c).
+  // FT.INFO reports the per-spec block count. `INFO modules` aggregates the same per-spec
+  // counter across all specs in `IndexesInfo_TotalInfo`.
   size_t total_ii_blocks = isDisk ? 0
       : __atomic_load_n(&sp->stats.totalInvertedIndexBlocks, __ATOMIC_RELAXED);
   size_t offset_vecs_size = isDisk ? 0 : sp->stats.offsetVecsSize;
