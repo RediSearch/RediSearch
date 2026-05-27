@@ -1124,7 +1124,7 @@ void AREQ_WaitForAggregateResultsComplete(AREQ *req) {
 }
 
 void AREQ_ResetAggregateResultsClaim(AREQ *req) {
-  RS_AtomicStoreRelaxed(&req->syncCtx.aggregatingResults, false);
+  RS_AtomicBoolStoreRelaxed(&req->syncCtx.aggregatingResults, false);
   pthread_mutex_lock(&req->syncCtx.aggregateResultsLock);
   req->syncCtx.aggregateResultsDone = false;
   pthread_mutex_unlock(&req->syncCtx.aggregateResultsLock);
