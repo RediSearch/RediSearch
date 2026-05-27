@@ -34,13 +34,13 @@ use crate::{TrieMap, iter, str::iter::iter_::key_to_string};
 /// (`src/tokenize.c`) are already lowercased, so the lazy
 /// [`Self::Borrowed`] arm covers them.
 pub enum WildcardIter<'tm, 'p, Data: 'tm> {
-    Borrowed(iter::WildcardIter<'tm, 'p, Data>),
+    Borrowed(iter::Utf8WildcardIter<'tm, 'p, Data>),
     Drained(std::vec::IntoIter<(String, &'tm Data)>),
 }
 
 impl<'tm, 'p, Data: 'tm> WildcardIter<'tm, 'p, Data> {
     pub(crate) fn new(trie: &'tm TrieMap<Data>, pattern: &'p str) -> Self {
-        Self::Borrowed(trie.wildcard_iter(WildcardPattern::parse(pattern.as_bytes())))
+        Self::Borrowed(trie.wildcard_iter_utf8(WildcardPattern::parse(pattern.as_bytes())))
     }
 
     pub(crate) fn new_cow(trie: &'tm TrieMap<Data>, pattern: Cow<'p, str>) -> Self {
@@ -48,7 +48,7 @@ impl<'tm, 'p, Data: 'tm> WildcardIter<'tm, 'p, Data> {
             Cow::Borrowed(s) => Self::new(trie, s),
             Cow::Owned(s) => {
                 let drained: Vec<(String, &'tm Data)> = trie
-                    .wildcard_iter(WildcardPattern::parse(s.as_bytes()))
+                    .wildcard_iter_utf8(WildcardPattern::parse(s.as_bytes()))
                     .map(|(k, v)| (key_to_string(k), v))
                     .collect();
                 Self::Drained(drained.into_iter())

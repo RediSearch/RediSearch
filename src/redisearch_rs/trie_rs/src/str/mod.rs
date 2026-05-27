@@ -117,14 +117,14 @@ impl<Data> StrTrieMap<Data> {
         iter::RangeIter::build_from(&self.inner, min, include_min, max, include_max)
     }
 
-    /// Wildcard iteration over UTF-8 keys.
+    /// Wildcard iteration over UTF-8 keys with codepoint-aware semantics.
     ///
-    /// Pattern syntax is byte-level (delegated to `rqe_wildcard`): `?`
-    /// matches a single byte and `*` matches zero or more bytes. For ASCII
-    /// patterns over ASCII keys this is identical to "one char / any chars",
-    /// but for multibyte codepoints `?` matches one byte of a UTF-8 sequence,
-    /// not one logical character. Test snapshots that exercise non-ASCII
-    /// wildcards are expected to diverge from the rune-keyed oracle.
+    /// Routes through [`TrieMap::wildcard_iter_utf8`]: `?` matches exactly
+    /// one Unicode codepoint (1 to 4 bytes), `*` matches zero or more
+    /// codepoints. Literal pattern bytes are matched verbatim against the
+    /// key bytes — safe because UTF-8 is self-synchronizing, so a literal
+    /// like `é` (`0xC3 0xA9`) byte-prefix-matches every key whose leading
+    /// codepoint is `é`.
     pub fn wildcard_iter<'tm, 'p>(
         &'tm self,
         pattern: &'p str,
