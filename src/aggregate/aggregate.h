@@ -35,9 +35,8 @@
 extern "C" {
 #else
 #define RS_Atomic(T) _Atomic(T)
-#include <stdatomic.h>
-#define RS_AtomicLoadRelaxed(p)     atomic_load_explicit((p), memory_order_relaxed)
-#define RS_AtomicStoreRelaxed(p, v) atomic_store_explicit((p), (v), memory_order_relaxed)
+#define RS_AtomicLoadRelaxed(p)     __atomic_load_n((bool *)(p), __ATOMIC_RELAXED)
+#define RS_AtomicStoreRelaxed(p, v) __atomic_store_n((bool *)(p), (v), __ATOMIC_RELAXED)
 #endif
 
 #define DEFAULT_LIMIT 10
