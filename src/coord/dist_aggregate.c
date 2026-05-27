@@ -618,7 +618,7 @@ int DistAggregateTimeoutReturnStrictClient(RedisModuleCtx *ctx, RedisModuleStrin
 
   AREQ *req = (AREQ *)CoordRequestCtx_GetRequest(CoordReqCtx);
 
-  if (!req || AREQ_TryClaimAggregateResults(req)) {
+  if (!req || AREQ_TryClaimAggregateResultsForTimeout(req)) {
     // Either the request is NULL or We were able to claim the aggregation results.
     // That means that the background thread didn't reach the aggregation phase (startPipelineCommon) yet.
     // Reply with empty results
