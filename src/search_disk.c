@@ -432,6 +432,11 @@ uint64_t SearchDisk_GetNumRecords(RedisSearchDiskIndexSpec* index) {
   return disk->metrics.getNumRecords(index);
 }
 
+uint64_t SearchDisk_GetInvertedIndexTotalBlocks(RedisSearchDiskIndexSpec* index) {
+  RS_ASSERT(disk && index);
+  return disk->metrics.getInvertedIndexTotalBlocks(index);
+}
+
 void SearchDisk_OutputInfoMetrics(RedisModuleInfoCtx* ctx) {
   RS_ASSERT(disk && disk_db && ctx);
   disk->metrics.outputInfoMetrics(disk_db, ctx);

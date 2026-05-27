@@ -534,6 +534,19 @@ uint64_t SearchDisk_GetVectorIndexTotalMemory(RedisSearchDiskIndexSpec* index);
 uint64_t SearchDisk_GetNumRecords(RedisSearchDiskIndexSpec* index);
 
 /**
+ * @brief Get the absolute total number of inverted-index blocks for a disk index
+ *
+ * Returns the current absolute block count across the index's inverted-index storage
+ * (text + tag), reported by FT.INFO as `total_inverted_index_blocks`. The value is
+ * read on demand and does not require a prior SearchDisk_CollectIndexMetrics call.
+ * Requires initialized SearchDisk and non-null index (RS_ASSERT).
+ *
+ * @param index Pointer to the disk index spec
+ * @return Total number of inverted-index blocks owned by the index
+ */
+uint64_t SearchDisk_GetInvertedIndexTotalBlocks(RedisSearchDiskIndexSpec* index);
+
+/**
  * @brief Output aggregated disk metrics to Redis INFO
  *
  * Iterates over all collected index metrics, aggregates them, and outputs
