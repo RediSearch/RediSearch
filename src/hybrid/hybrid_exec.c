@@ -107,7 +107,7 @@ static void replyWarningsWithSuffixes(RedisModule_Reply *reply, HybridRequest *h
   handleAndReplyWarning(reply, qctx->err, postProcessingRC, POST_PROCESSING_SUFFIX, timeoutInSubquery);
 }
 
-static void HREQ_Execute_Callback(blockedClientHybridCtx *BCHCtx);
+static void HREQ_Execute_Callback(HybridWorkerJob *job);
 
 static inline void runHybridRequestCycleEnter(RedisSearchCtx *sctx) {
   (void)sctx;
@@ -937,11 +937,11 @@ static int HybridQueryReplyCallback(RedisModuleCtx *ctx, RedisModuleString **arg
 }
 
 // Background execution functions implementation
-static blockedClientHybridCtx *blockedClientHybridCtx_New(HybridRequest *hreq,
+static HybridWorkerJob *HybridWorkerJob_New(HybridRequest *hreq,
                                                    HybridPipelineParams *hybridParams,
                                                    RedisModuleBlockedClient *blockedClient,
                                                    StrongRef spec, bool internal) {
-  blockedClientHybridCtx *ret = rm_new(blockedClientHybridCtx);
+  HybridWorkerJob *ret = rm_new(HybridWorkerJob);
   ret->rsc = hreq->syncCtx;
   ret->blockedClient = blockedClient;
   ret->spec_ref = StrongRef_Demote(spec);
@@ -972,7 +972,7 @@ static int HybridRequest_BuildPipelineAndExecute(HybridRequest *hreq, HybridPipe
     RedisModuleBlockedClient* blockedClient = BlockQueryClientWithTimeout(ctx, spec_ref, hreq->syncCtx,
         &hreq->requests[0]->ast, replyCallback, timeoutCallback, timeoutMS);
 
-    blockedClientHybridCtx *BCHCtx = blockedClientHybridCtx_New(hreq, hybridParams, blockedClient, spec_ref, internal);
+    HybridWorkerJob *job = HybridWorkerJob_New(hreq, hybridParams, blockedClient, spec_ref, internal);
 
     // Mark the hreq as running in the background
     hreq->reqflags |= QEXEC_F_RUN_IN_BACKGROUND;
@@ -985,7 +985,7 @@ static int HybridRequest_BuildPipelineAndExecute(HybridRequest *hreq, HybridPipe
       AREQ_QueryProcessingCtx(hreq->requests[i])->queryGILTime = hreq->tailPipeline->qctx.queryGILTime;
     }
 
-    const int rc = workersThreadPool_AddWork((redisearch_thpool_proc)HREQ_Execute_Callback, BCHCtx);
+    const int rc = workersThreadPool_AddWork((redisearch_thpool_proc)HREQ_Execute_Callback, job);
     RS_ASSERT(rc == 0);
 
     return REDISMODULE_OK;
@@ -1170,38 +1170,38 @@ int hybridCommandHandler(RedisModuleCtx *ctx, RedisModuleString **argv, int argc
 }
 
 /**
- * Destroy a blocked client hybrid context and clean up resources.
+ * Destroy a hybrid worker job and clean up resources.
  *
- * @param BCHCtx The blocked client context to destroy
+ * @param job The worker job to destroy
  */
-static void blockedClientHybridCtx_destroy(blockedClientHybridCtx *BCHCtx) {
-  freeHybridParams(BCHCtx->hybridParams);
-  RedisModule_BlockedClientMeasureTimeEnd(BCHCtx->blockedClient);
-  RedisModule_UnblockClient(BCHCtx->blockedClient, BCHCtx->rsc);
-  WeakRef_Release(BCHCtx->spec_ref);
-  rm_free(BCHCtx);
+static void HybridWorkerJob_destroy(HybridWorkerJob *job) {
+  freeHybridParams(job->hybridParams);
+  RedisModule_BlockedClientMeasureTimeEnd(job->blockedClient);
+  RedisModule_UnblockClient(job->blockedClient, job->rsc);
+  WeakRef_Release(job->spec_ref);
+  rm_free(job);
 }
 
 /**
  * Background execution callback for hybrid requests.
  * This function is called by the worker thread to execute hybrid requests.
  *
- * @param BCHCtx The blocked client context containing the request
+ * @param job The worker job containing the request
  */
-static void HREQ_Execute_Callback(blockedClientHybridCtx *BCHCtx) {
-  HybridRequest *hreq = RequestSyncCtx_GetHybridRequest(BCHCtx->rsc);
-  HybridPipelineParams *hybridParams = BCHCtx->hybridParams;
-  RedisModuleCtx *outctx = RedisModule_GetThreadSafeContext(BCHCtx->blockedClient);
+static void HREQ_Execute_Callback(HybridWorkerJob *job) {
+  HybridRequest *hreq = RequestSyncCtx_GetHybridRequest(job->rsc);
+  HybridPipelineParams *hybridParams = job->hybridParams;
+  RedisModuleCtx *outctx = RedisModule_GetThreadSafeContext(job->blockedClient);
   QueryError status = QueryError_Default();
 
-  StrongRef execution_ref = IndexSpecRef_Promote(BCHCtx->spec_ref);
+  StrongRef execution_ref = IndexSpecRef_Promote(job->spec_ref);
   if (!StrongRef_Get(execution_ref)) {
     // The index was dropped while the query was in the job queue.
     // Notify the client that the query was aborted
     QueryError_SetCode(&status, QUERY_ERROR_CODE_DROPPED_BACKGROUND);
     HREQ_ReplyOrStoreError(hreq, outctx, &status);
     RedisModule_FreeThreadSafeContext(outctx);
-    blockedClientHybridCtx_destroy(BCHCtx);
+    HybridWorkerJob_destroy(job);
     return;
   }
 
@@ -1215,9 +1215,9 @@ static void HREQ_Execute_Callback(blockedClientHybridCtx *BCHCtx) {
   runHybridRequestCycleEnter(sctx);
   RedisSearchCtx_LockSpecRead(sctx);
 
-  if (buildPipelineAndExecute(hreq, hybridParams, outctx, sctx, &status, BCHCtx->internal, true) == REDISMODULE_OK) {
+  if (buildPipelineAndExecute(hreq, hybridParams, outctx, sctx, &status, job->internal, true) == REDISMODULE_OK) {
     // Set hybridParams to NULL so they won't be freed in destroy
-    BCHCtx->hybridParams = NULL;
+    job->hybridParams = NULL;
     RedisSearchCtx_UnlockSpec(sctx);
   } else {
     // buildPipelineAndExecute failed - release the lock if still held.
@@ -1240,5 +1240,5 @@ static void HREQ_Execute_Callback(blockedClientHybridCtx *BCHCtx) {
   }
   RedisModule_FreeThreadSafeContext(outctx);
   IndexSpecRef_Release(execution_ref);
-  blockedClientHybridCtx_destroy(BCHCtx);
+  HybridWorkerJob_destroy(job);
 }

@@ -11,7 +11,7 @@
 #include "common.h"
 #include "util/workers.h"
 #include "info/global_stats.h"
-#include "concurrent_ctx.h"
+#include "coord_pool.h"
 #include "config.h"
 #include <unistd.h>
 #include <atomic>
@@ -41,12 +41,12 @@ auto busyJobWithFlag= [](void *arg) {
 class WorkersAdminJobsMetricTest : public ::testing::Test {
 protected:
     void SetUp() override {
-        // Create ConcurrentSearch required to call GlobalStats_GetMultiThreadingStats
-        ConcurrentSearch_CreatePool(1);
+        // Create CoordPool required to call GlobalStats_GetMultiThreadingStats
+        CoordPool_CreatePool(1);
     }
 
     void TearDown() override {
-        ConcurrentSearch_ThreadPoolDestroy();
+        CoordPool_ThreadPoolDestroy();
         // Tell any remaining jobs to finish in case test failed before telling them to finish
         for (size_t i = 0; i < initial_worker_count; i++) {
             flags[i].should_finish.store(true);

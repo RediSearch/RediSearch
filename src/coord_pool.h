@@ -6,8 +6,8 @@
  * (RSALv2); or (b) the Server Side Public License v1 (SSPLv1); or (c) the
  * GNU Affero General Public License v3 (AGPLv3).
 */
-#ifndef RS_CONCERRNT_CTX_
-#define RS_CONCERRNT_CTX_
+#ifndef RS_COORD_POOL_H_
+#define RS_COORD_POOL_H_
 
 #include "redisearch.h"
 #include "redismodule.h"
@@ -20,50 +20,49 @@
 extern "C" {
 #endif
 
-/** Concurrent Search Execution Context.
- */
+/** Coordinator thread-pool helpers. */
 
-typedef void (*ConcurrentReopenCallback)(void *ctx);
+typedef void (*CoordReopenCallback)(void *ctx);
 
-/* Destroys all thread pools created with `ConcurrentSearch_CreatePool` */
-void ConcurrentSearch_ThreadPoolDestroy(void);
+/* Destroy the coordinator thread pool created with `CoordPool_CreatePool` */
+void CoordPool_ThreadPoolDestroy(void);
 
-/* Create a new thread pool, and return its identifying id */
-int ConcurrentSearch_CreatePool(int numThreads);
+/* Create the coordinator thread pool. */
+void CoordPool_CreatePool(int numThreads);
 
-/* Run a function on the concurrent thread pool */
-void ConcurrentSearch_ThreadPoolRun(void (*func)(void *), void *arg, int type);
+/* Run a function on the coordinator thread pool */
+void CoordPool_ThreadPoolRun(void (*func)(void *), void *arg);
 
 /* return number of currently working threads */
-size_t ConcurrentSearchPool_WorkingThreadCount();
+size_t CoordPool_WorkingThreadCount();
 
 /* return number of pending high priority jobs */
-size_t ConcurrentSearchPool_HighPriorityPendingJobsCount();
+size_t CoordPool_HighPriorityPendingJobsCount();
 
-typedef struct ConcurrentSearchHandlerCtx {
+typedef struct CoordPoolHandlerCtx {
   rs_wall_clock_ns_t coordStartTime;  // Time when command was received on coordinator
   rs_wall_clock_ns_t coordQueueTime;  // Time spent waiting in coordinator thread pool queue
   WeakRef spec_ref;                   // Weak reference to the index spec
   bool isProfile;                     // Whether this is an FT.PROFILE command
   size_t numShards;                   // Number of shards in the cluster (captured from main thread)
-} ConcurrentSearchHandlerCtx;
+} CoordPoolHandlerCtx;
 
-// Initialize a ConcurrentSearchHandlerCtx to zero
-static inline void ConcurrentSearchHandlerCtx_Init(ConcurrentSearchHandlerCtx *ctx) {
+// Initialize a CoordPoolHandlerCtx to zero
+static inline void CoordPoolHandlerCtx_Init(CoordPoolHandlerCtx *ctx) {
   memset(ctx, 0, sizeof(*ctx));
 }
 
 /********************************************* for debugging **********************************/
 
-int ConcurrentSearch_isPaused();
+int CoordPool_isPaused();
 
-int ConcurrentSearch_pause();
+int CoordPool_pause();
 
-int ConcurrentSearch_resume();
+int CoordPool_resume();
 
-thpool_stats ConcurrentSearch_getStats();
+thpool_stats CoordPool_getStats();
 
 #ifdef __cplusplus
 }
 #endif
-#endif // RS_CONCERRNT_CTX_
+#endif // RS_COORD_POOL_H_

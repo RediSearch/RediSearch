@@ -3097,7 +3097,7 @@ class TestCoordinatorTimeout:
         thread and arms the BC; the coord threadpool is paused so the BG
         worker is queued. ``FT.DEBUG DELETE_LOCAL_COORD_CURSORS`` is fanned
         out per-shard to empty ``g_CursorsListCoord`` synchronously on each
-        shard's main thread (it does not use ``DIST_THREADPOOL``), purging
+        shard's main thread (it does not use the coordinator pool), purging
         the still-idle coord cursor (odd cid -> ``g_CursorsListCoord``).
         When the coord threadpool resumes, ``coordCursorReadReturnStrict``
         enters under ``LockSetRequest``, observes ``!TimedOut``, then
@@ -3136,7 +3136,7 @@ class TestCoordinatorTimeout:
                 env, 'FT.CURSOR|READ', 'Client for FT.CURSOR|READ not found')
             # Cursor is still idle on the coord (BG hasn't taken it). Purge
             # it via the wholesale debug command rather than `FT.CURSOR DEL
-            # idx <cid>`: DEL routes through the same paused DIST_THREADPOOL
+            # idx <cid>`: DEL routes through the same paused coordinator pool
             # via the coordinator background job in `CursorCommand`,
             # so the DEL would itself block forever waiting for the pool.
             # `DELETE_LOCAL_COORD_CURSORS` calls `CursorList_Empty` on
@@ -3172,7 +3172,7 @@ class TestCoordinatorTimeout:
           1. Coord threadpool is paused; BG worker is queued.
           2. ``FT.DEBUG DELETE_LOCAL_COORD_CURSORS`` is fanned out per-shard
              and synchronously empties ``g_CursorsListCoord``, freeing the
-             still-idle coord cursor without touching ``DIST_THREADPOOL``.
+             still-idle coord cursor without touching the coordinator pool.
           3. ``CLIENT UNBLOCK ... TIMEOUT`` fires the BC timeout callback.
              The timer holds ``LockSetRequest``, observes ``req == NULL``
              (BG never called ``SetRequest``) and replies via
@@ -3207,7 +3207,7 @@ class TestCoordinatorTimeout:
             # Purge the cursor while it is still idle on the coord and the BG
             # worker is queued. Wholesale `DELETE_LOCAL_COORD_CURSORS` rather
             # than `FT.CURSOR DEL idx <cid>` because DEL also routes through
-            # the paused DIST_THREADPOOL (the coordinator background job
+            # the paused coordinator pool (the coordinator background job
             # in `CursorCommand`) and would block forever; the debug command
             # runs synchronously on the main thread.
             run_command_on_all_shards(env, debug_cmd(), 'DELETE_LOCAL_COORD_CURSORS')

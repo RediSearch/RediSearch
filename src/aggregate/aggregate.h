@@ -211,7 +211,6 @@ typedef struct RequestSyncCtx {
   size_t cycleCursorCount;
   pthread_mutex_t coordSetReqLock;
   QueryError coordPreRequestError;
-  bool coordUseReplyCallback;
   bool coordCursorReadReturnStrict;
 
   /* Partial-timeout coordination. The CAS claim grants exclusive ownership of
@@ -254,7 +253,6 @@ static inline void RequestSyncCtx_Init(RequestSyncCtx *ctx, RequestKind kind, vo
   ctx->cycleCursorCount = 0;
   pthread_mutex_init(&ctx->coordSetReqLock, NULL);
   ctx->coordPreRequestError = QueryError_Default();
-  ctx->coordUseReplyCallback = false;
   ctx->coordCursorReadReturnStrict = false;
   ctx->requiresAggregateResultsSync = false;
   ctx->aggregatingResults = false;
@@ -286,7 +284,6 @@ void RequestSyncCtx_LockSetRequest(RequestSyncCtx *ctx);
 void RequestSyncCtx_UnlockSetRequest(RequestSyncCtx *ctx);
 bool RequestSyncCtx_HasRequest(RequestSyncCtx *ctx);
 void RequestSyncCtx_SetTimedOut(RequestSyncCtx *ctx);
-void RequestSyncCtx_SetUseReplyCallback(RequestSyncCtx *ctx, bool useReplyCallback);
 void RequestSyncCtx_SetCursorReadReturnStrict(RequestSyncCtx *ctx, bool value);
 bool RequestSyncCtx_IsCursorReadReturnStrict(RequestSyncCtx *ctx);
 void RequestSyncCtx_ReplyOrStoreError(RequestSyncCtx *ctx, RedisModuleCtx *redisCtx,

@@ -13,7 +13,7 @@
 #include "search_ctx.h"
 #include "redisearch.h"
 #include "tokenize.h"
-#include "concurrent_ctx.h"
+#include "coord_pool.h"
 #include "byte_offsets.h"
 #include "rmutil/args.h"
 #include "json.h"
@@ -343,7 +343,7 @@ void AddDocumentCtx_Finish(RSAddDocumentCtx *aCtx);
 /**
  * This function will tokenize the document and add the resultant tokens to
  * the relevant inverted indexes. This function should be called from a
- * worker thread (see ConcurrentSearch functions).
+ * worker thread (see CoordPool functions).
  *
  *
  * When this function completes, it will send the reply to the client and

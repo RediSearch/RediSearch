@@ -10,7 +10,7 @@
 #define INDEXER_H
 
 #include "document.h"
-#include "concurrent_ctx.h"
+#include "coord_pool.h"
 #include "util/arr.h"
 #include "geometry_index.h"
 

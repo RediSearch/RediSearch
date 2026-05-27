@@ -13,7 +13,7 @@
 #include "config.h"
 #include <assert.h>
 #include <dlfcn.h>
-#include "concurrent_ctx.h"
+#include "coord_pool.h"
 #include "cursor.h"
 #include "extension.h"
 #include "alias.h"

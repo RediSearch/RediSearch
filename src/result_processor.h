@@ -11,7 +11,7 @@
 
 #include "redisearch.h"
 #include "sortable.h"
-#include "concurrent_ctx.h"
+#include "coord_pool.h"
 #include "search_ctx.h"
 #include "iterators/iterator_api.h"
 #include "search_options.h"

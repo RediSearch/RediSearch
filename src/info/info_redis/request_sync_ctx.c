@@ -241,10 +241,6 @@ void RequestSyncCtx_SetTimedOut(RequestSyncCtx *ctx) {
   }
 }
 
-void RequestSyncCtx_SetUseReplyCallback(RequestSyncCtx *ctx, bool useReplyCallback) {
-  ctx->coordUseReplyCallback = useReplyCallback;
-}
-
 void RequestSyncCtx_SetCursorReadReturnStrict(RequestSyncCtx *ctx, bool value) {
   ctx->coordCursorReadReturnStrict = value;
 }
@@ -254,7 +250,7 @@ bool RequestSyncCtx_IsCursorReadReturnStrict(RequestSyncCtx *ctx) {
 }
 
 void RequestSyncCtx_ReplyOrStoreError(RequestSyncCtx *rsc, RedisModuleCtx *ctx, QueryError *status) {
-  if (rsc->coordUseReplyCallback) {
+  if (RequestSyncCtx_HasReplyCallback(rsc)) {
     RS_ASSERT(!QueryError_HasError(&rsc->coordPreRequestError));
     QueryError_CloneFrom(status, &rsc->coordPreRequestError);
     QueryError_ClearError(status);

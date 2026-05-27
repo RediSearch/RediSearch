@@ -120,7 +120,6 @@ arrayof(int*) asm_sanitizer_allocs;
 
 redisearch_thpool_t *depleterPool = NULL;
 
-static int DIST_THREADPOOL = -1;
 
 // Number of shards in the cluster. Hint we can read and modify from the main thread
 size_t NumShards = 0;
@@ -1891,7 +1890,7 @@ void RediSearch_CleanupModule(RedisModuleCtx *ctx) {
   GC_ThreadPoolDestroy();
   CleanPool_ThreadPoolDestroy();
   ReindexPool_ThreadPoolDestroy();
-  ConcurrentSearch_ThreadPoolDestroy();
+  CoordPool_ThreadPoolDestroy();
   MR_FreeCluster();
 
   // free global structures
@@ -3318,7 +3317,7 @@ static void searchResultReducer_wrapper(void *mc_v) {
 
 static int searchResultReducer_background(struct MRCtx *mc, int count, MRReply **replies) {
   MRCtx_IncrRef(mc);
-  ConcurrentSearch_ThreadPoolRun(searchResultReducer_wrapper, mc, DIST_THREADPOOL);
+  CoordPool_ThreadPoolRun(searchResultReducer_wrapper, mc);
   return REDISMODULE_OK;
 }
 
@@ -3795,13 +3794,12 @@ int DistAggregateCommandImp(RedisModuleCtx *ctx, RedisModuleString **argv, int a
         ? DistAggregateTimeoutFailClient
         : DistAggregateTimeoutReturnStrictClient;
     timeoutMS = queryTimeoutMS;
-    RequestSyncCtx_SetUseReplyCallback(rsc, true);
   }
 
   CoordBgJob *job = CoordBgJob_New(ctx, argv, argc, dist_callback, rsc, replyCallback,
                                    timeoutCallback, timeoutMS, StrongRef_Demote(spec_ref),
                                    coordInitialTime, 0);
-  ConcurrentSearch_ThreadPoolRun(CoordBgJob_Run, job, DIST_THREADPOOL);
+  CoordPool_ThreadPoolRun(CoordBgJob_Run, job);
   return REDISMODULE_OK;
 }
 
@@ -3886,13 +3884,12 @@ int DistHybridCommandInternal(RedisModuleCtx *ctx, RedisModuleString **argv, int
     replyCallback = DistHybridReplyCallback;
     timeoutCallback = DistHybridTimeoutFailClient;
     timeoutMS = queryTimeoutMS;
-    RequestSyncCtx_SetUseReplyCallback(rsc, true);
   }
 
   CoordBgJob *job = CoordBgJob_New(ctx, argv, argc, dist_callback, rsc, replyCallback,
                                    timeoutCallback, timeoutMS, StrongRef_Demote(spec_ref),
                                    coordInitialTime, NumShards);
-  ConcurrentSearch_ThreadPoolRun(CoordBgJob_Run, job, DIST_THREADPOOL);
+  CoordPool_ThreadPoolRun(CoordBgJob_Run, job);
   return REDISMODULE_OK;
 }
 
@@ -3967,7 +3964,6 @@ static inline int CursorCommand(RedisModuleCtx *ctx, RedisModuleString **argv, i
       rsc = RequestSyncCtx_NewPending(REQUEST_KIND_AREQ);
       replyCallback = DistAggregateReplyCallback;
       timeoutMS = info.queryTimeoutMS;
-      RequestSyncCtx_SetUseReplyCallback(rsc, true);
       if (info.queryTimeoutPolicy == TimeoutPolicy_Fail) {
         timeoutCallback = DistAggregateTimeoutFailClient;
       } else {
@@ -3982,7 +3978,7 @@ static inline int CursorCommand(RedisModuleCtx *ctx, RedisModuleString **argv, i
   }
   CoordBgJob *job = CoordBgJob_New(ctx, argv, argc, dist_callback, rsc, replyCallback,
                                    timeoutCallback, timeoutMS, (WeakRef){0}, 0, 0);
-  ConcurrentSearch_ThreadPoolRun(CoordBgJob_Run, job, DIST_THREADPOOL);
+  CoordPool_ThreadPoolRun(CoordBgJob_Run, job);
   return REDISMODULE_OK;
 }
 
@@ -4220,7 +4216,7 @@ static int prepareCommand(MRCommand *cmd, const searchRequestCtx *req, int proto
 }
 
 int FlatSearchCommandHandler(struct MRCtx *mrctx, RedisModuleBlockedClient *bc, int protocol,
-  RedisModuleString **argv, int argc, ConcurrentSearchHandlerCtx *handlerCtx) {
+  RedisModuleString **argv, int argc, CoordPoolHandlerCtx *handlerCtx) {
   QueryError status = QueryError_Default();
 
   // If timeout already fired, its callback owns the reply path.
@@ -4255,7 +4251,7 @@ typedef struct SearchCmdCtx {
   RedisModuleBlockedClient* bc;
   struct MRCtx *mrctx;
   int protocol;
-  ConcurrentSearchHandlerCtx handlerCtx;
+  CoordPoolHandlerCtx handlerCtx;
 } SearchCmdCtx;
 
 static void DistSearchCommandHandler(void* pd) {
@@ -4350,9 +4346,6 @@ static void DistSearchFreePrivData(RedisModuleCtx *ctx, void *privdata) {
     MRCtx_DecrRef(mrctx);
   }
 }
-
-typedef RedisModuleCmdFunc BlockedClientTimeoutCB;
-typedef void (*BlockedClientFreePrivDataCB) (RedisModuleCtx *ctx, void *privdata);
 
 // Initialize query timeout from command args or global config.
 // Always assigns a non-negative timeout value to *timeout.
@@ -4466,8 +4459,7 @@ static RedisModuleBlockedClient* DistSearchBlockClientWithTimeout(RedisModuleCtx
   // Block client with timeout callback - timeout is in milliseconds from query arg or global config
   // DistSearchFreePrivData will be called to free the MRCtx after reply/timeout callback completes
 
-  BlockedClientTimeoutCB timeoutCallback = NULL;
-  BlockedClientFreePrivDataCB freePrivDataCallback = DistSearchFreePrivData;
+  RedisModuleCmdFunc timeoutCallback = NULL;
 
   if (RSGlobalConfig.requestConfigParams.timeoutPolicy == TimeoutPolicy_Fail) {
     timeoutCallback = DistSearchTimeoutFailClient;
@@ -4477,7 +4469,7 @@ static RedisModuleBlockedClient* DistSearchBlockClientWithTimeout(RedisModuleCtx
     queryTimeout = 0;
   }
 
-  return RedisModule_BlockClient(ctx, DistSearchUnblockClient, timeoutCallback, freePrivDataCallback, queryTimeout);
+  return RedisModule_BlockClient(ctx, DistSearchUnblockClient, timeoutCallback, DistSearchFreePrivData, queryTimeout);
 }
 
 int RSSearchCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc);
@@ -4612,7 +4604,7 @@ int DistSearchCommandImp(RedisModuleCtx *ctx, RedisModuleString **argv, int argc
   RedisModule_BlockedClientMeasureTimeStart(bc);
 
   MRCtx_IncrRef(mrctx);
-  ConcurrentSearch_ThreadPoolRun(dist_callback, sCmdCtx, DIST_THREADPOOL);
+  CoordPool_ThreadPoolRun(dist_callback, sCmdCtx);
 
   return REDISMODULE_OK;
 }
@@ -4877,7 +4869,7 @@ RedisModule_OnLoad(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
   }
 
   // Init the aggregation thread pool
-  DIST_THREADPOOL = ConcurrentSearch_CreatePool(clusterConfig.coordinatorPoolSize);
+  CoordPool_CreatePool(clusterConfig.coordinatorPoolSize);
 
   Initialize_CoordKeyspaceNotifications(ctx);
 
@@ -4988,7 +4980,7 @@ int RedisModule_OnUnload(RedisModuleCtx *ctx) {
 /* ======================= DEBUG ONLY ======================= */
 
 static int DEBUG_FlatSearchCommandHandler(struct MRCtx *mrctx, RedisModuleBlockedClient *bc, int protocol,
-  RedisModuleString **argv, int argc, ConcurrentSearchHandlerCtx *handlerCtx) {
+  RedisModuleString **argv, int argc, CoordPoolHandlerCtx *handlerCtx) {
   QueryError status = QueryError_Default();
 
   // If timeout already fired, its callback owns the reply path.
@@ -5077,5 +5069,5 @@ void ScheduleContextCleanup(RedisModuleCtx *thctx, struct RedisSearchCtx *sctx) 
   cleanup->thctx = thctx;
   cleanup->sctx = sctx;
 
-  ConcurrentSearch_ThreadPoolRun(freeContextsCallback, cleanup, DIST_THREADPOOL);
+  CoordPool_ThreadPoolRun(freeContextsCallback, cleanup);
 }

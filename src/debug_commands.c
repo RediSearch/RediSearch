@@ -1786,19 +1786,19 @@ DEBUG_COMMAND(CoordThreadsSwitch) {
   }
   const char* op = RedisModule_StringPtrLen(argv[2], NULL);
   if (!strcasecmp(op, "pause")) {
-    if (ConcurrentSearch_pause() != REDISMODULE_OK) {
+    if (CoordPool_pause() != REDISMODULE_OK) {
       return RedisModule_ReplyWithError(ctx, "Operation failed: coordinator thread pool doesn't exists"
                                       " or is not running");
     }
   } else if (!strcasecmp(op, "resume")) {
-    if (ConcurrentSearch_resume() != REDISMODULE_OK) {
+    if (CoordPool_resume() != REDISMODULE_OK) {
       return RedisModule_ReplyWithError(ctx, "Operation failed: coordinator thread pool doesn't exists"
                                         " or is already running");
     }
   } else if (!strcasecmp(op, "is_paused")) {
-    return RedisModule_ReplyWithLongLong(ctx, ConcurrentSearch_isPaused());
+    return RedisModule_ReplyWithLongLong(ctx, CoordPool_isPaused());
   } else if (!strcasecmp(op, "stats")) {
-    thpool_stats stats = ConcurrentSearch_getStats();
+    thpool_stats stats = CoordPool_getStats();
     START_POSTPONED_LEN_ARRAY(num_stats_fields);
     REPLY_WITH_LONG_LONG("totalJobsDone", stats.total_jobs_done, ARRAY_LEN_VAR(num_stats_fields));
     REPLY_WITH_LONG_LONG("totalPendingJobs", stats.total_pending_jobs, ARRAY_LEN_VAR(num_stats_fields));

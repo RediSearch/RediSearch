@@ -101,15 +101,15 @@ static inline void HybridRequest_SetSkipTimeoutChecks(HybridRequest *req, bool s
   }
 }
 
-// Blocked client context for HybridRequest background execution
-typedef struct blockedClientHybridCtx {
+// Worker job for HybridRequest background execution.
+typedef struct HybridWorkerJob {
   RequestSyncCtx *rsc;
   HybridPipelineParams *hybridParams;
   RedisModuleBlockedClient *blockedClient;
   WeakRef spec_ref;
   // We need to know what kind of cursor to open, either multiple cursors if it is an internal command(shard) or single if it is a user command(coordinator)
   bool internal;
-} blockedClientHybridCtx;
+} HybridWorkerJob;
 
 /*
  * Create a new HybridRequest that manages multiple search requests for hybrid search.

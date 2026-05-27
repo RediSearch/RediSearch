@@ -18,7 +18,7 @@
 #include "spec.h"
 #include "redisearch.h"
 #include "hiredis/sds.h"
-#include "concurrent_ctx.h"
+#include "coord_pool.h"
 #include "search_options.h"
 #include "query_internal.h"
 

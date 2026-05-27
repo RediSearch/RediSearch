@@ -14,7 +14,7 @@
 #include "rmutil/rm_assert.h"
 #include "redismodule.h"
 #include "info/global_stats.h"
-#include "concurrent_ctx.h"
+#include "coord_pool.h"
 #include "common.h"
 #include <unistd.h>
 #include <atomic>
@@ -324,8 +324,8 @@ TEST_F(IORuntimeCtxCommonTest, ShutdownWithPendingRequests) {
 TEST_F(IORuntimeCtxCommonTest, ActiveIoThreadsMetric) {
   // Test that the uv_threads_running_queries metric is tracked correctly
 
-  // Create ConcurrentSearch required to call GlobalStats_GetMultiThreadingStats
-  ConcurrentSearch_CreatePool(1);
+  // Create CoordPool required to call GlobalStats_GetMultiThreadingStats
+  CoordPool_CreatePool(1);
 
   // Phase 1: Verify metric starts at 0
   MultiThreadingStats stats = GlobalStats_GetMultiThreadingStats();
@@ -376,15 +376,15 @@ TEST_F(IORuntimeCtxCommonTest, ActiveIoThreadsMetric) {
 
   ASSERT_TRUE(success) << "Timeout waiting for uv_threads_running_queries to return to 0, current value: " << stats.uv_threads_running_queries;
 
-  // Free ConcurrentSearch
-  ConcurrentSearch_ThreadPoolDestroy();
+  // Free CoordPool
+  CoordPool_ThreadPoolDestroy();
 }
 
 TEST_F(IORuntimeCtxCommonTest, ActiveTopologyUpdateThreadsMetric) {
   // Test that uv_threads_running_topology_update metric is tracked correctly
 
   // Setup
-  ConcurrentSearch_CreatePool(1);
+  CoordPool_CreatePool(1);
 
   // Phase 1: Verify metric starts at 0
   MultiThreadingStats stats = GlobalStats_GetMultiThreadingStats();
@@ -446,7 +446,7 @@ TEST_F(IORuntimeCtxCommonTest, ActiveTopologyUpdateThreadsMetric) {
   ASSERT_TRUE(success) << "Timeout waiting for testCallback to complete";
 
   // Cleanup
-  ConcurrentSearch_ThreadPoolDestroy();
+  CoordPool_ThreadPoolDestroy();
 }
 
 TEST_F(IORuntimeCtxCommonTest, UpdateNodesAddRemove) {

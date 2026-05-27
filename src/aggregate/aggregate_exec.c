@@ -48,7 +48,7 @@ typedef struct {
   RequestSyncCtx *rsc;
   RedisModuleBlockedClient *blockedClient;
   WeakRef spec_ref;
-} blockedClientReqCtx;
+} AREQWorkerJob;
 
 static void runCursor(RedisModule_Reply *reply, Cursor *cursor, size_t num);
 static int prepareExecutionPlan(AREQ *req, QueryError *status);
@@ -1144,31 +1144,31 @@ void AREQ_Execute(AREQ *req, RedisModuleCtx *ctx) {
   runRequestCycleExit(sctx);
 }
 
-// Creates a new blockedClientReqCtx. The worker borrows the RSC; the
+// Creates a new AREQWorkerJob. The worker borrows the RSC; the
 // blocked-query node owns it for this cycle.
-static blockedClientReqCtx *blockedClientReqCtx_New(AREQ *req,
+static AREQWorkerJob *AREQWorkerJob_New(AREQ *req,
                                                     RedisModuleBlockedClient *blockedClient, StrongRef spec) {
-  blockedClientReqCtx *ret = rm_new(blockedClientReqCtx);
+  AREQWorkerJob *ret = rm_new(AREQWorkerJob);
   ret->rsc = req->syncCtx;
   ret->blockedClient = blockedClient;
   ret->spec_ref = StrongRef_Demote(spec);
   return ret;
 }
 
-static AREQ *blockedClientReqCtx_getRequest(const blockedClientReqCtx *BCRctx) {
-  return RequestSyncCtx_GetAREQ(BCRctx->rsc);
+static AREQ *AREQWorkerJob_getRequest(const AREQWorkerJob *job) {
+  return RequestSyncCtx_GetAREQ(job->rsc);
 }
 
-static void blockedClientReqCtx_setRequest(blockedClientReqCtx *BCRctx, RequestSyncCtx *rsc) {
-  BCRctx->rsc = rsc;
+static void AREQWorkerJob_setRequest(AREQWorkerJob *job, RequestSyncCtx *rsc) {
+  job->rsc = rsc;
 }
 
-static void blockedClientReqCtx_destroy(blockedClientReqCtx *BCRctx) {
-  RedisModule_BlockedClientMeasureTimeEnd(BCRctx->blockedClient);
-  RedisModule_UnblockClient(BCRctx->blockedClient, BCRctx->rsc);
+static void AREQWorkerJob_destroy(AREQWorkerJob *job) {
+  RedisModule_BlockedClientMeasureTimeEnd(job->blockedClient);
+  RedisModule_UnblockClient(job->blockedClient, job->rsc);
 
-  WeakRef_Release(BCRctx->spec_ref);
-  rm_free(BCRctx);
+  WeakRef_Release(job->spec_ref);
+  rm_free(job);
 }
 
 // Helper for error handling in AREQ_Execute_Callback.
@@ -1196,14 +1196,13 @@ void AREQ_ReplyOrStoreError(AREQ *req, RedisModuleCtx *ctx, QueryError *status) 
   }
 }
 
-void AREQ_Execute_Callback(blockedClientReqCtx *BCRctx) {
-  AREQ *req = blockedClientReqCtx_getRequest(BCRctx);
+void AREQ_Execute_Callback(AREQWorkerJob *job) {
+  AREQ *req = AREQWorkerJob_getRequest(job);
 
   // Check if timed out while in the job queue.
   if (AREQ_TimedOut(req)) {
     // Timeout callback already replied.
-    // blockedClientReqCtx_destroy will release the AREQ ref.
-    blockedClientReqCtx_destroy(BCRctx);
+    AREQWorkerJob_destroy(job);
     return;
   }
 
@@ -1211,16 +1210,16 @@ void AREQ_Execute_Callback(blockedClientReqCtx *BCRctx) {
     req->profileClocks.profileQueueTime = rs_wall_clock_elapsed_ns(&req->profileClocks.initClock);
   }
 
-  RedisModuleCtx *outctx = RedisModule_GetThreadSafeContext(BCRctx->blockedClient);
+  RedisModuleCtx *outctx = RedisModule_GetThreadSafeContext(job->blockedClient);
   QueryError status = QueryError_Default();
 
-  StrongRef execution_ref = IndexSpecRef_Promote(BCRctx->spec_ref);
+  StrongRef execution_ref = IndexSpecRef_Promote(job->spec_ref);
   if (!StrongRef_Get(execution_ref)) {
     // The index was dropped while the query was in the job queue.
     QueryError_SetCode(&status, QUERY_ERROR_CODE_DROPPED_BACKGROUND);
     AREQ_ReplyOrStoreError(req, outctx, &status);
     RedisModule_FreeThreadSafeContext(outctx);
-    blockedClientReqCtx_destroy(BCRctx);
+    AREQWorkerJob_destroy(job);
     return;
   }
 
@@ -1279,7 +1278,7 @@ void AREQ_Execute_Callback(blockedClientReqCtx *BCRctx) {
   // 1. Freed the request (if it was a regular query)
   // 2. Kept it as the cursor's state (if it was a cursor query)
   // Either way, we don't want to free `req` here. we set it to NULL so that it won't be freed with the context.
-  blockedClientReqCtx_setRequest(BCRctx, NULL);
+  AREQWorkerJob_setRequest(job, NULL);
   goto cleanup;
 
 error:
@@ -1291,7 +1290,7 @@ cleanup:
   }
   RedisModule_FreeThreadSafeContext(outctx);
   IndexSpecRef_Release(execution_ref);
-  blockedClientReqCtx_destroy(BCRctx);
+  AREQWorkerJob_destroy(job);
 }
 
 /**
@@ -1773,14 +1772,14 @@ static int buildPipelineAndExecute(AREQ *r, RedisModuleCtx *ctx, QueryError *sta
 
     RedisModuleBlockedClient* blockedClient = BlockQueryClientWithTimeout(ctx, spec_ref, r->syncCtx, &r->ast,
         replyCallback, timeoutCallback, timeoutMS);
-    blockedClientReqCtx *BCRctx = blockedClientReqCtx_New(r, blockedClient, spec_ref);
+    AREQWorkerJob *job = AREQWorkerJob_New(r, blockedClient, spec_ref);
     // Mark the request as thread safe, so that the pipeline will be built in a thread safe manner
     AREQ_AddRequestFlags(r, QEXEC_F_RUN_IN_BACKGROUND);
     if (AREQ_QueryProcessingCtx(r)->isProfile ){
       // Add 1ns as epsilon value so we can verify that the GIL time is greater than 0.
       AREQ_QueryProcessingCtx(r)->queryGILTime += rs_wall_clock_elapsed_ns(&(AREQ_QueryProcessingCtx(r)->initTime)) + 1;
     }
-    const int rc = workersThreadPool_AddWork((redisearch_thpool_proc)AREQ_Execute_Callback, BCRctx);
+    const int rc = workersThreadPool_AddWork((redisearch_thpool_proc)AREQ_Execute_Callback, job);
     RS_ASSERT(rc == 0);
   } else {
     // Take a read lock on the spec (to avoid conflicts with the GC).
@@ -2124,7 +2123,7 @@ int RSCursorReadCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc)
   RequestSyncCtx *reqCtx = upstreamBC ? RedisModule_BlockClientGetPrivateData(upstreamBC) : NULL;
   // Only the coord+FAIL path meets the precondition for
   // RequestSyncCtx_ReplyOrStoreError (deferred-reply mode).
-  RS_ASSERT(!reqCtx || reqCtx->coordUseReplyCallback);
+  RS_ASSERT(!reqCtx || RequestSyncCtx_HasReplyCallback(reqCtx));
   // Reused across all coord+FAIL early-error sites below.
   QueryError err = QueryError_Default();
 

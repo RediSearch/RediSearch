@@ -11,7 +11,7 @@
 #include "util/units.h"
 #include "rs_wall_clock.h"
 #include "util/workers.h"
-#include "concurrent_ctx.h"
+#include "coord_pool.h"
 
 #define INCR_BY(x,y) __atomic_add_fetch(&(x), (y), __ATOMIC_RELAXED)
 #define DECR_BY(x,y) __atomic_sub_fetch(&(x), (y), __ATOMIC_RELAXED)
@@ -225,8 +225,8 @@ MultiThreadingStats GlobalStats_GetMultiThreadingStats() {
   stats.workers_admin_priority_pending_jobs = workersThreadPool_AdminPriorityPendingJobsCount();
 
   // Coordinator stats
-  stats.active_coord_threads = ConcurrentSearchPool_WorkingThreadCount();
-  stats.coord_high_priority_pending_jobs = ConcurrentSearchPool_HighPriorityPendingJobsCount();
+  stats.active_coord_threads = CoordPool_WorkingThreadCount();
+  stats.coord_high_priority_pending_jobs = CoordPool_HighPriorityPendingJobsCount();
   return stats;
 }
 

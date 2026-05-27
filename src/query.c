@@ -27,7 +27,7 @@
 #include "hiredis/sds.h"
 #include "tag_index.h"
 #include "err.h"
-#include "concurrent_ctx.h"
+#include "coord_pool.h"
 #include "numeric_filter.h"
 #include "util/strconv.h"
 #include "util/arr.h"

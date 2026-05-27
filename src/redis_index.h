@@ -11,7 +11,7 @@
 
 #include "document.h"
 #include "search_ctx.h"
-#include "concurrent_ctx.h"
+#include "coord_pool.h"
 #include "spec.h"
 #include "iterators/iterator_api.h"
 
