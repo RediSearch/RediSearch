@@ -1,0 +1,76 @@
+name: FFI bindgen on distro libclang
+
+# Validates that the headers consumed by the `ffi` crate's `build.rs`
+# (via bindgen / libclang) parse cleanly under the stock libclang each
+# supported distro ships with. Our normal CI installs a pinned LLVM via
+# `.install/install_llvm.sh`, so it hides version-specific bindgen
+# failures that only surface in the ce-testing packaging pipeline.
+#
+# This job intentionally does NOT source `.install/install_llvm.sh`,
+# does NOT build the C module, and does NOT run tests. It only runs
+# `cargo build -p ffi`, which is sufficient to invoke bindgen against
+# every header listed in `src/redisearch_rs/ffi/build.rs`.
+
+on:
+  pull_request:
+    paths:
+      - 'src/**'
+      - 'deps/**'
+      - 'src/redisearch_rs/ffi/**'
+      - '.github/workflows/ffi-bindgen-distro.yml'
+  push:
+    branches:
+      - master
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  bindgen-parse:
+    name: bindgen (${{ matrix.distro }}, libclang-${{ matrix.libclang }})
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - distro: jammy
+            libclang: 14
+            image: ubuntu:22.04
+          - distro: noble
+            libclang: 18
+            image: ubuntu:24.04
+    container:
+      image: ${{ matrix.image }}
+    steps:
+      - name: Install distro toolchain
+        run: |
+          set -euxo pipefail
+          export DEBIAN_FRONTEND=noninteractive
+          apt-get update
+          apt-get install -y --no-install-recommends \
+            ca-certificates curl git build-essential pkg-config \
+            libclang-${{ matrix.libclang }}-dev clang-${{ matrix.libclang }} \
+            python3 cmake
+          # Make this libclang version the one bindgen picks up.
+          echo "LIBCLANG_PATH=/usr/lib/llvm-${{ matrix.libclang }}/lib" >> "$GITHUB_ENV"
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
+      - name: Install Rust
+        run: |
+          set -euxo pipefail
+          curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | \
+            sh -s -- -y --default-toolchain stable --profile minimal
+          echo "$HOME/.cargo/bin" >> "$GITHUB_PATH"
+      - name: Show toolchain
+        run: |
+          clang-${{ matrix.libclang }} --version
+          echo "LIBCLANG_PATH=$LIBCLANG_PATH"
+          ls "$LIBCLANG_PATH" | grep -i clang | head -5 || true
+          "$HOME/.cargo/bin/rustc" --version
+          "$HOME/.cargo/bin/cargo" --version
+      - name: cargo build -p ffi (bindgen only)
+        working-directory: src/redisearch_rs
+        run: cargo build -p ffi
