@@ -1,0 +1,9 @@
+# Build worktrees, module artifacts, data slices and run-time logs.
+# Everything created by build-tag.sh / fetch-data.sh / run-bisect.sh
+# lives under mod-15505-work/ by default.
+mod-15505-work/
+
+# Stray top-level log/csv outputs (the curated investigation history is
+# kept under results/ and is committed explicitly).
+/*.log
+/results-*.csv
