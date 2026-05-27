@@ -600,15 +600,29 @@ static int HybridRequest_prepareForExecution(HybridRequest *hreq,
     cmd.reqConfig = &hreq->reqConfig;
     cmd.coordDispatchTime = &hreq->profileClocks.coordDispatchTime;
 
-    ArgsCursor ac = {0};
-    ArgsCursor_InitRString(&ac, argv, argc);
+    // Parse the FT.PROFILE prefix (if any) from the dispatcher's RString argv.
+    // This cursor is used only to detect the profile flag and to count how many
+    // tokens ParseProfile consumed; we do NOT pass it to parseHybridCommand,
+    // because AC_GetString on an RString cursor returns pointers into the
+    // dispatcher ctx's auto-memory, which is freed when the handler returns.
+    ArgsCursor profileAc = {0};
+    ArgsCursor_InitRString(&profileAc, argv, argc);
     ProfileOptions profileOptions = EXEC_NO_FLAGS;
-    int rc = ParseProfile(&ac, status, &profileOptions);
+    int rc = ParseProfile(&profileAc, status, &profileOptions);
     if (rc == REDISMODULE_ERR) return REDISMODULE_ERR;
 
-    if (profileOptions == EXEC_NO_FLAGS) {
-      // No profile args, we can use the original args cursor to skip past the command name and index
-      HybridRequest_InitArgsCursor(hreq, &ac, argv, argc);
+    // Build an SDS-backed cursor covering argv[2:] (skips command + index).
+    // parseHybridCommand and the plan/RLookup machinery it feeds borrow string
+    // pointers from this cursor; backing them with hreq-owned sds copies (whose
+    // lifetime matches hreq) frees us from keeping the dispatcher ctx alive.
+    ArgsCursor ac = {0};
+    HybridRequest_InitArgsCursor(hreq, &ac, argv, argc);
+
+    if (profileOptions != EXEC_NO_FLAGS) {
+        // ParseProfile advanced profileAc past "FT.PROFILE <index> <cmd> [LIMITED] QUERY".
+        // The SDS cursor starts at argv[2:] (post command + index), so advance it
+        // by the remainder ParseProfile consumed: <cmd> [LIMITED] QUERY.
+        AC_AdvanceBy(&ac, profileAc.offset - 2);
     }
 
     hreq->tailPipeline->qctx.isProfile = profileOptions != EXEC_NO_FLAGS;
@@ -779,58 +793,21 @@ typedef struct {
     HybridRequest *hreq;
     StrongRef indexSpecRef;
     RedisModuleBlockedClient *bc;
-    // The dispatcher's thread-safe ctx. Must outlive the entire tail execution
-    // because two invariants tie it to live memory:
-    //
-    // 1. ConcurrentSearch_HandleRedisCommandEx allocates argv copies as
-    //    RedisModuleString objects in this ctx's auto-memory (concurrent_ctx.c:162).
-    //    RLookup keys built during pipeline construction store Cow::Borrowed
-    //    pointers into those strings' embedded data. Depleter threads walk the
-    //    KeyList while these pointers are live. Freeing dispatcherCtx before the
-    //    pipeline is torn down leaves the key-name pointers dangling.
-    //
-    // 2. A thread-safe ctx created from a BC must be freed before the BC is
-    //    unblocked. dispatcherCtx is freed in HybridDispatchCtx_Free after
-    //    HybridRequest_DecrRef (which tears down the pipeline and the RLookup)
-    //    and before UnblockClient.
-    //
-    // The tail does NOT issue Redis API calls through dispatcherCtx — it
-    // creates its own replyCtx for the reply path.
-    RedisModuleCtx *dispatcherCtx;
-    // Storage for hreq->tailPipeline->qctx.err during tail execution.
-    // Kept separate from hreq->tailPipelineError so that non-fatal error codes
-    // written into qctx->err by tail result-processors (e.g. QUERY_ERROR_CODE_NO_PROP_VAL
-    // from an APPLY step referencing a property absent from the merged result set)
-    // are emitted as warnings by finishSendChunkReply_hybrid rather than surfaced
-    // as fatal replies by HybridRequest_GetError. This matches the intended
-    // "soft-error" semantics of NoPropVal: the default message for that code is
-    // "Value not found in result (not a hard error)".
-    QueryError qctxErr;
 } HybridDispatchCtx;
 
 static void HybridDispatchCtx_Free(HybridDispatchCtx *dispatch) {
     HybridRequest *hreq = dispatch->hreq;
     StrongRef indexSpecRef = dispatch->indexSpecRef;
     RedisModuleBlockedClient *bc = dispatch->bc;
-    RedisModuleCtx *dispatcherCtx = dispatch->dispatcherCtx;
 
-    // DecrRef may run Pipeline_Clean → QITR_FreeChain on the tail pipeline,
-    // whose qctx->err still points into dispatch->qctxErr. Tear down hreq
-    // first so any RP Free that reads or writes through err sees live storage,
-    // then clear any error contents it may have left behind, then free dispatch.
     if (hreq) {
         HybridRequest_DecrRef(hreq);
     }
-    QueryError_ClearError(&dispatch->qctxErr);
     rm_free(dispatch);
     // The dispatcher thread already called CurrentThread_ClearIndexSpec() after
     // transferring strong_ref ownership here, so only release the strong ref.
     StrongRef_Release(indexSpecRef);
 
-    // Free the dispatcher ctx after tearing down the pipeline (which holds
-    // Cow::Borrowed pointers into the ctx's auto-memory) and before unblocking
-    // the client (a BC-derived ctx must be released before UnblockClient).
-    RedisModule_FreeThreadSafeContext(dispatcherCtx);
     RedisModule_BlockedClientMeasureTimeEnd(bc);
     void *privdata = RedisModule_BlockClientGetPrivateData(bc);
     RedisModule_UnblockClient(bc, privdata);
@@ -890,12 +867,15 @@ static void HybridDispatchCtx_Tail(void *arg) {
         return;
     }
 
-    // Dedicated thread-safe ctx for this worker's reply. The dispatcher's ctx
-    // is retained in dispatch->dispatcherCtx to keep argv-backed RLookup key
-    // name pointers alive (see struct comment), but Redis API calls in the tail
-    // go through `replyCtx` so the dispatcher and tail workers never call APIs
-    // on the same RedisModuleCtx.
+    // Dedicated thread-safe ctx for this worker's reply path. Also installed
+    // as hreq->sctx->redisCtx for the duration of the tail so any pipeline RP
+    // that uses sctx->redisCtx (e.g. document loading in a tail LOAD step) has
+    // a live ctx on this thread. This mirrors the shard background worker
+    // pattern (hybrid_exec.c:1200-1203). The dispatcher's original ctx was
+    // freed by threadHandleCommand when the handler returned; scheduleHybridTail
+    // already cleared sctx->redisCtx to NULL before submitting this job.
     RedisModuleCtx *replyCtx = RedisModule_GetThreadSafeContext(dispatch->bc);
+    hreq->sctx->redisCtx = replyCtx;
     RedisModule_Reply _reply = RedisModule_NewReply(replyCtx);
     RedisModule_Reply *reply = &_reply;
 
@@ -906,6 +886,12 @@ static void HybridDispatchCtx_Tail(void *arg) {
     };
     sendChunk_hybrid(hreq, reply, UINT64_MAX, cv);
     RedisModule_EndReply(reply);
+    // Clear the alias before freeing replyCtx so HybridDispatchCtx_Free's
+    // teardown of hreq (which calls SearchCtx_Free) never sees a dangling
+    // ctx pointer. SearchCtx_CleanUp doesn't currently read sctx->redisCtx
+    // unless sctx->key_ is set, but defensively NULLing it removes the
+    // footgun if either of those invariants changes.
+    hreq->sctx->redisCtx = NULL;
     RedisModule_FreeThreadSafeContext(replyCtx);
 
     // Belt-and-braces: sendChunk_hybrid normally drains depleters via the
@@ -920,21 +906,15 @@ static void HybridDispatchCtx_Tail(void *arg) {
 }
 
 // Hand off ownership of dispatcher-owned state (hreq pin, spec indexSpecRef,
-// BC, dispatcher ctx) to a heap dispatch context, mark cmdCtx so
-// threadHandleCommand stops auto-freeing the Redis ctx and auto-unblocking the
-// client, and submit the tail continuation to the coord pool. Caller must not
-// touch any of the moved resources after this returns.
+// BC) to a heap dispatch context, mark cmdCtx so threadHandleCommand stops
+// auto-unblocking the client, and submit the tail continuation to the coord
+// pool. Caller must not touch any of the moved resources after this returns.
 //
-// `ctx` (the dispatcher's thread-safe ctx) is stored in the dispatch context
-// and freed in HybridDispatchCtx_Free, after the pipeline is torn down but
-// before UnblockClient. This ordering satisfies two invariants:
-//
-//   1. argv copies created in ConcurrentSearch_HandleRedisCommandEx live in
-//      ctx's auto-memory. The RLookup key list holds Cow::Borrowed pointers
-//      into those strings' embedded data; freeing ctx while a depleter is
-//      walking the key list causes a use-after-free.
-//
-//   2. A BC-derived thread-safe ctx must be freed before UnblockClient.
+// The dispatcher's RedisModuleCtx is NOT carried forward: parsing copied argv
+// into hreq-owned sds strings (see HybridRequest_prepareForExecution), so
+// nothing in hreq references that ctx's auto-memory after parsing completes.
+// threadHandleCommand frees the ctx normally when the handler returns; the
+// tail installs its own replyCtx into hreq->sctx->redisCtx before running.
 //
 // The cmdCtx's inherited spec WeakRef is released here: the indexSpecRef
 // transferred to the tail keeps both the spec and its RefManager alive,
@@ -942,37 +922,33 @@ static void HybridDispatchCtx_Tail(void *arg) {
 //
 // `dispatcherStatus` is the dispatcher-thread QueryError that ProcessHybridCursorMappings
 // may have stamped non-fatal warnings onto (e.g. COORD OOM under OomPolicy_Return).
-// We forward those warning bits into the tail's qctxErr so finishSendChunkReply_hybrid
-// can emit them.
+// We forward those warning bits onto hreq->tailPipelineError so
+// finishSendChunkReply_hybrid (which reads qctx->err, aliased to that field) can
+// emit them. Warning bits are independent of the error code, so this does not
+// trip HybridRequest_GetError into a fatal reply.
 static void scheduleHybridTail(HybridRequest *hreq, StrongRef indexSpecRef,
-                             struct ConcurrentCmdCtx *cmdCtx, RedisModuleCtx *ctx,
+                             struct ConcurrentCmdCtx *cmdCtx,
                              const QueryError *dispatcherStatus) {
     HybridDispatchCtx *dispatch = rm_calloc(1, sizeof(*dispatch));
     dispatch->hreq = hreq;
     dispatch->indexSpecRef = indexSpecRef;
     dispatch->bc = ConcurrentCmdCtx_GetBlockedClient(cmdCtx);
-    dispatch->dispatcherCtx = ctx;
-    dispatch->qctxErr = QueryError_Default();
 
     // Carry forward any non-fatal warnings the dispatcher recorded during cursor
     // establishment. Without this, the warning is lost when `dispatcherStatus`
     // (a stack QueryError on RSExecDistHybrid) goes out of scope.
     if (QueryError_HasQueryOOMWarning(dispatcherStatus)) {
-        QueryError_SetQueryOOMWarning(&dispatch->qctxErr);
+        QueryError_SetQueryOOMWarning(&hreq->tailPipelineError);
     }
 
-    // Re-point qctx->err at the dispatch context's own QueryError so the tail
-    // pipeline's soft errors (e.g. QUERY_ERROR_CODE_NO_PROP_VAL from APPLY on a
-    // property absent from the merged result) are emitted as warnings by
-    // finishSendChunkReply_hybrid rather than picked up by HybridRequest_GetError
-    // as fatal errors. See the qctxErr field comment in HybridDispatchCtx.
-    hreq->tailPipeline->qctx.err = &dispatch->qctxErr;
+    // The dispatcher's ctx is about to be freed by threadHandleCommand when the
+    // handler returns. Clear the alias so the tail never sees a dangling pointer
+    // before it installs its own replyCtx (or the timeout early-exit path tears
+    // down hreq without touching redisCtx).
+    hreq->sctx->redisCtx = NULL;
 
-    // Keep ctx alive past the handler return (CMDCTX_KEEP_RCTX prevents
-    // threadHandleCommand from calling RedisModule_FreeThreadSafeContext).
-    // Ownership is transferred to dispatch->dispatcherCtx; freed in
-    // HybridDispatchCtx_Free after the pipeline is torn down.
-    ConcurrentCmdCtx_KeepRedisCtx(cmdCtx);
+    // Defer the BC unblock to HybridDispatchCtx_Free so the tail (which still
+    // needs the BC for its replyCtx and the reply) outlives the handler return.
     ConcurrentCmdCtx_KeepBlockedClient(cmdCtx);
 
     ConcurrentSearch_ThreadPoolRun(HybridDispatchCtx_Tail, dispatch, hreq->poolId);
@@ -1089,7 +1065,7 @@ void RSExecDistHybrid(RedisModuleCtx *ctx, RedisModuleString **argv, int argc,
     // ordering ensures depleters are picked up first; the tail's cv-wait on
     // their completion can therefore always make progress.
     scheduleDepleters(hreq);
-    scheduleHybridTail(hreq, strong_ref, cmdCtx, ctx, &status);
+    scheduleHybridTail(hreq, strong_ref, cmdCtx, &status);
 
     // IndexSpecRef_Promote set the TLS on this (dispatcher) thread.
     // scheduleHybridTail transferred strong_ref ownership to the tail, so we
@@ -1169,7 +1145,7 @@ void DEBUG_RSExecDistHybrid(RedisModuleCtx *ctx, RedisModuleString **argv, int a
     }
 
     scheduleDepleters(hreq);
-    scheduleHybridTail(hreq, strong_ref, cmdCtx, ctx, &status);
+    scheduleHybridTail(hreq, strong_ref, cmdCtx, &status);
     CurrentThread_ClearIndexSpec();
 }
 

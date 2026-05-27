@@ -383,10 +383,24 @@ void HybridRequest_DecrRef(HybridRequest *req) {
   }
 }
 
+// Codes that the tail pipeline may write to qctx->err but which should be
+// surfaced as warnings on the reply path rather than as a fatal error. The
+// canonical example is QUERY_ERROR_CODE_NO_PROP_VAL ("Value not found in
+// result (not a hard error)"), emitted by APPLY when a referenced property
+// is absent from the merged result set. On standalone the same code is
+// reported as a fatal error; on the coordinator the test suite documents
+// the "warning" behavior (see test_tail_property_not_loaded_warning_coordinator).
+static bool isSoftTailPipelineErrorCode(QueryErrorCode code) {
+    return code == QUERY_ERROR_CODE_NO_PROP_VAL;
+}
+
 /**
  * Get error information from a HybridRequest.
  * This function checks for errors in priority order:
- * 1. Tail pipeline errors (affects final result processing)
+ * 1. Tail pipeline errors (affects final result processing) — soft codes
+ *    (see isSoftTailPipelineErrorCode) are intentionally skipped so they
+ *    can be emitted as warnings by finishSendChunkReply_hybrid instead
+ *    of forcing a fatal reply.
  * 2. Individual AREQ errors (sub-query failures)
  *
  * @param hreq The HybridRequest to check for errors
@@ -398,8 +412,10 @@ int HybridRequest_GetError(HybridRequest *hreq, QueryError *status) {
         return REDISMODULE_ERR;
     }
 
-    // Priority 1: Tail pipeline error (affects final result processing)
-    if (QueryError_HasError(&hreq->tailPipelineError)) {
+    // Priority 1: Tail pipeline error (affects final result processing).
+    // Skip soft codes so the reply path can render them as warnings.
+    if (QueryError_HasError(&hreq->tailPipelineError) &&
+        !isSoftTailPipelineErrorCode(QueryError_GetCode(&hreq->tailPipelineError))) {
         QueryError_CloneFrom(&hreq->tailPipelineError, status);
         return REDISMODULE_ERR;
     }
