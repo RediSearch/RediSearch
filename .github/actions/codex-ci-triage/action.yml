@@ -1,0 +1,77 @@
+name: Codex CI Triage
+description: >
+  Run Codex CLI to analyze CI failures and expose the result as outputs that can
+  be embedded into notifications (Slack, PR comments). Codex failures never fail
+  the calling job.
+
+inputs:
+  openai-api-key:
+    description: OpenAI API key for Codex.
+    required: true
+  prompt-file:
+    description: Path to the Codex prompt file (markdown).
+    required: true
+  output-file:
+    description: File where Codex writes its final message.
+    required: false
+    default: ai-triage.txt
+  working-directory:
+    description: Working directory for Codex execution.
+    required: false
+    default: .
+  sandbox:
+    description: Codex sandbox mode (read-only, workspace-write, danger-full-access).
+    required: false
+    default: read-only
+  safety-strategy:
+    description: Codex privilege restriction (drop-sudo, unprivileged-user, read-only, unsafe).
+    required: false
+    default: drop-sudo
+
+outputs:
+  triage-exists:
+    description: "true if Codex produced a non-empty triage output, false otherwise."
+    value: ${{ steps.read.outputs.triage_exists }}
+  triage-content:
+    description: Raw triage text (multiline). Empty when triage-exists is false.
+    value: ${{ steps.read.outputs.triage_content }}
+  triage-content-json:
+    description: JSON-escaped triage text suitable for direct embedding into a JSON payload.
+    value: ${{ steps.read.outputs.triage_content_json }}
+
+runs:
+  using: composite
+  steps:
+    - name: Run Codex
+      id: codex
+      continue-on-error: true
+      uses: openai/codex-action@v1
+      with:
+        openai-api-key: ${{ inputs.openai-api-key }}
+        prompt-file: ${{ inputs.prompt-file }}
+        output-file: ${{ inputs.output-file }}
+        working-directory: ${{ inputs.working-directory }}
+        sandbox: ${{ inputs.sandbox }}
+        safety-strategy: ${{ inputs.safety-strategy }}
+
+    - name: Read triage output
+      id: read
+      shell: bash
+      run: |
+        OUTFILE="${{ inputs.working-directory }}/${{ inputs.output-file }}"
+        if [ -f "$OUTFILE" ] && [ -s "$OUTFILE" ] && [ "${{ steps.codex.outcome }}" = "success" ]; then
+          echo "triage_exists=true" >> "$GITHUB_OUTPUT"
+          {
+            echo "triage_content<<__EOF__"
+            cat "$OUTFILE"
+            echo "__EOF__"
+          } >> "$GITHUB_OUTPUT"
+          {
+            echo "triage_content_json<<__EOF__"
+            jq -Rs . < "$OUTFILE"
+            echo "__EOF__"
+          } >> "$GITHUB_OUTPUT"
+        else
+          echo "triage_exists=false" >> "$GITHUB_OUTPUT"
+          echo "⚠️ Codex triage did not produce output (codex outcome=${{ steps.codex.outcome }}, file=$OUTFILE)"
+        fi

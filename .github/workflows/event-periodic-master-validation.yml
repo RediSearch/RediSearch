@@ -223,6 +223,57 @@ jobs:
           append_output("failed_jobs", failed_jobs_text)
           append_output("covered_prs", covered_prs_text)
 
+      - name: Checkout repository
+        uses: actions/checkout@v6
+
+      - name: Fetch failed-job logs
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set +e
+          # Prefer the focused "Failed Test Logs *" artifacts produced by
+          # task-test.yml — they contain only logs for tests that actually
+          # failed, which is much higher signal than the full job stdout.
+          # Fall back to `gh run view --log-failed` when no such artifacts
+          # exist (e.g. build-only failures, non-pytest steps).
+          mkdir -p downloaded-failed-logs
+          gh run download "$GITHUB_RUN_ID" \
+            --repo "$GITHUB_REPOSITORY" \
+            --pattern "Failed Test Logs *" \
+            --dir downloaded-failed-logs 2>/dev/null
+
+          if [ -n "$(find downloaded-failed-logs -type f 2>/dev/null)" ]; then
+            echo "Using focused Failed Test Logs artifacts."
+            {
+              find downloaded-failed-logs -type f \
+                \( -name '*.log' -o -name '*.txt' \) -print0 |
+              while IFS= read -r -d '' f; do
+                printf '\n##[group]%s\n' "${f#downloaded-failed-logs/}"
+                cat "$f"
+                printf '\n##[endgroup]\n'
+              done
+            } > failed-logs.txt
+          else
+            echo "No Failed Test Logs artifacts found; falling back to gh run --log-failed."
+            gh run view "$GITHUB_RUN_ID" --repo "$GITHUB_REPOSITORY" --log-failed > failed-logs.txt 2>&1
+          fi
+
+          # Cap at 200KB to bound Codex token spend
+          if [ "$(wc -c < failed-logs.txt 2>/dev/null || echo 0)" -gt 204800 ]; then
+            tail -c 204800 failed-logs.txt > failed-logs.txt.tmp
+            printf '[truncated to last 200KB]\n' > failed-logs.txt
+            cat failed-logs.txt.tmp >> failed-logs.txt
+            rm failed-logs.txt.tmp
+          fi
+          exit 0
+
+      - name: Run Codex triage
+        id: ai_triage
+        uses: ./.github/actions/codex-ci-triage
+        with:
+          openai-api-key: ${{ secrets.CI_TRIAGE_OPENAI_API_KEY }}
+          prompt-file: .github/codex/prompts/post-merge-triage.md
+
       - name: Notify CIE failure triage
         uses: slackapi/slack-github-action@v3
         with:
@@ -234,6 +285,7 @@ jobs:
               "repository": "${{ github.repository }}",
               "covered_prs": ${{ toJson(steps.failure-details.outputs.covered_prs) }},
               "failed_jobs": ${{ toJson(steps.failure-details.outputs.failed_jobs) }},
+              "ai_triage": ${{ steps.ai_triage.outputs.triage-exists == 'true' && steps.ai_triage.outputs.triage-content-json || '""' }},
               "owner": "CIE",
               "expectation": "Post-merge selected-platform validation failure requires CIE triage"
             }

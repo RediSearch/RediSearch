@@ -419,6 +419,7 @@ jobs:
           REJSON_BRANCH: ${{ inputs.rejson-branch }}
           ENABLE_ASSERT: 1
           TEST_CONFIG: ${{ inputs.test-config }}
+          FAILEDFILE: ${{ github.workspace }}/failed-tests-standalone.txt
         run: make pytest $TEST_CONFIG
 
       - name: Flow tests (coordinator)
@@ -435,6 +436,7 @@ jobs:
           REJSON_BRANCH: ${{ inputs.rejson-branch }}
           ENABLE_ASSERT: 1
           TEST_CONFIG: ${{ inputs.test-config }}
+          FAILEDFILE: ${{ github.workspace }}/failed-tests-coordinator.txt
         run: make pytest $TEST_CONFIG
 
       - name: Rust tests (MIRI)
@@ -524,6 +526,70 @@ jobs:
             bin/**/redisearch.so
             bin/**/redisearch.so.debug
 
+          if-no-files-found: ignore
+
+      - name: Collect failed-test-only logs
+        # Build a focused log bundle containing only logs for tests that actually
+        # failed, so downstream tools (e.g. Codex triage) get high-signal input.
+        # Driven by RLTest's FAILEDFILE output (test ids in `test_file.py:test_name`
+        # form). RLTest log filenames embed the test id as `..._<file>_<test>_...`,
+        # so we convert each failed id to a glob and copy matching files.
+        if: >
+          failure() || (
+            steps.standalone_tests.outcome == 'failure' ||
+            steps.coordinator_tests.outcome == 'failure'
+          )
+        run: |
+          set +e
+          DEST="failed-test-logs"
+          mkdir -p "$DEST"
+
+          copy_for_failed_list() {
+            local listfile="$1"
+            [ -f "$listfile" ] || return 0
+            while IFS= read -r test_id; do
+              [ -z "$test_id" ] && continue
+              local file_part="${test_id%%:*}"
+              local test_part="${test_id#*:}"
+              local file_no_py="${file_part%.py}"
+              local pattern="*-${file_no_py}_${test_part}-*.log*"
+              find tests -path '*/logs/*' -name "$pattern" -type f 2>/dev/null | \
+                while read -r log; do
+                  mkdir -p "$DEST/$(dirname "$log")"
+                  cp "$log" "$DEST/$log"
+                done
+            done < "$listfile"
+          }
+
+          copy_for_failed_list "${{ github.workspace }}/failed-tests-standalone.txt"
+          copy_for_failed_list "${{ github.workspace }}/failed-tests-coordinator.txt"
+
+          # Always include the run-level RLTest summary log if present — it gives
+          # session-level context that complements per-test logs.
+          find tests -path '*/logs/rstest*.log' -type f 2>/dev/null | while read -r log; do
+            mkdir -p "$DEST/$(dirname "$log")"
+            cp "$log" "$DEST/$log"
+          done
+
+          # Stash the failed-test lists alongside the logs for downstream consumers.
+          for f in failed-tests-standalone.txt failed-tests-coordinator.txt; do
+            [ -f "${{ github.workspace }}/$f" ] && cp "${{ github.workspace }}/$f" "$DEST/$f"
+          done
+
+          echo "Failed-test logs bundled:"
+          find "$DEST" -type f | wc -l
+          exit 0
+
+      - name: Upload Failed-Only Test Logs
+        if: >
+          failure() || (
+            steps.standalone_tests.outcome == 'failure' ||
+            steps.coordinator_tests.outcome == 'failure'
+          )
+        uses: actions/upload-artifact@v7
+        with:
+          name: Failed Test Logs ${{ steps.artifact-names.outputs.name }}
+          path: failed-test-logs/
           if-no-files-found: ignore
 
       - name: Fail flow if tests failed
