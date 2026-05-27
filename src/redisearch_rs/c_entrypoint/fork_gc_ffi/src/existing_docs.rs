@@ -31,11 +31,15 @@ pub unsafe extern "C" fn FGC_childCollectExistingDocs(
     // SAFETY: caller guarantees (1).
     let fgc = unsafe { ForkGC::from_ptr_mut(gc) };
 
+    // SAFETY: caller guarantees (2); sctx is a valid non-null pointer.
+    let spec_ptr = unsafe { (*sctx).spec };
     // SAFETY: caller guarantees (2); sctx.spec is a valid non-null IndexSpec.
-    // We don't actually hold a read lock, but when the Fork GC code runs it holds the Redis GIL
+    let spec = unsafe { &*spec_ptr };
+
+    // SAFETY: We don't actually hold a read lock, but when the Fork GC code runs it holds the Redis GIL
     // (so no other thread would be touching any shared Redis state), then forks and the child has
     // only one thread with exclusive access to the index spec.
-    let guard = unsafe { IndexSpecReadGuard::from_locked(&*(*sctx).spec) };
+    let guard = unsafe { IndexSpecReadGuard::from_locked(spec) };
 
-    collect_existing_docs(&mut fgc.writer(), &*guard).unwrap_or_exit();
+    collect_existing_docs(&mut fgc.writer(), &guard).unwrap_or_exit();
 }
