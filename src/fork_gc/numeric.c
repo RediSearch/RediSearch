@@ -63,7 +63,7 @@ FGCError FGC_parentHandleNumeric(ForkGC *gc) {
     return FGC_DONE;
   }
   if (status != FGC_COLLECTED) {
-    rm_free(fieldName);
+    FGC_freeBuffer(fieldName, fieldNameLen);
     return status;
   }
 
@@ -167,7 +167,7 @@ FGCError FGC_parentHandleNumeric(ForkGC *gc) {
     StrongRef spec_ref = IndexSpecRef_Promote(gc->index);
     IndexSpec *sp = StrongRef_Get(spec_ref);
     if (!sp) {
-      rm_free(fieldName);
+      FGC_freeBuffer(fieldName, fieldNameLen);
       return FGC_SPEC_DELETED;
     }
     RedisSearchCtx sctx2 = SEARCH_CTX_STATIC(gc->ctx, sp);
@@ -181,6 +181,6 @@ FGCError FGC_parentHandleNumeric(ForkGC *gc) {
     IndexSpecRef_Release(spec_ref);
   }
 
-  rm_free(fieldName);
+  FGC_freeBuffer(fieldName, fieldNameLen);
   return status;
 }

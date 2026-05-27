@@ -7,11 +7,11 @@
 #include <stddef.h>
 #include <stdint.h>
 #include <stdlib.h>
-#include "redisearch_types.h"
 #include "config.h"
 #include "search_ctx.h"
 #include "spec.h"
 #include "inverted_index.h"
+#include "rqe_core.h"
 
 /**
  * The result of an inverted index

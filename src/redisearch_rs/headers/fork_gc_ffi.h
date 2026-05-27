@@ -9,6 +9,32 @@
 #include <stdlib.h>
 #include "fork_gc.h"
 
+/**
+ * Status code returned by Fork GC parent-side pipe-receive operations.
+ */
+typedef enum FGCError {
+  /**
+   * Data has been collected; more may follow.
+   */
+  FGC_COLLECTED = 0,
+  /**
+   * No more data remains; iteration is complete.
+   */
+  FGC_DONE = 1,
+  /**
+   * Pipe error — the child process likely crashed.
+   */
+  FGC_CHILD_ERROR = 2,
+  /**
+   * Error on the parent side.
+   */
+  FGC_PARENT_ERROR = 3,
+  /**
+   * The index spec was deleted.
+   */
+  FGC_SPEC_DELETED = 4,
+} FGCError;
+
 #ifdef __cplusplus
 extern "C" {
 #endif // __cplusplus
@@ -73,6 +99,55 @@ void FGC_sendTerminator(ForkGC *fgc);
  * 2. `buf` must point to a writable region of at least `len` bytes.
  */
 int FGC_recvFixed(ForkGC *fgc, void *buf, size_t len);
+
+/**
+ * Read a length-prefixed buffer frame from the FGC pipe.
+ *
+ * On receipt of a `SIZE_MAX` length prefix, writes `SIZE_MAX` to
+ * `*len` and the `RECV_BUFFER_EMPTY` sentinel pointer to `*buf`. On a
+ * zero-length prefix, writes `0` and a null pointer. Otherwise leaks a
+ * boxed payload slice, writing its pointer and length to `*buf` / `*len`;
+ * the caller is responsible for releasing it with [`FGC_freeBuffer`].
+ *
+ * On read error (timeout, short stream, ...), returns `REDISMODULE_ERR`
+ * and leaves `*buf` / `*len` unchanged.
+ *
+ * # Safety
+ *
+ * 1. `fgc` must point to a valid `ForkGC` whose `pipe_read_fd` is an
+ *    open, readable file descriptor.
+ * 2. `buf` and `len` must point to writable `void*` and `size_t`
+ *    locations respectively.
+ */
+int FGC_recvBuffer(ForkGC *fgc, void * *buf, size_t *len);
+
+/**
+ * Receive a field header (field name + unique id).
+ *
+ * Returns `FGC_COLLECTED` on success, `FGC_DONE` when no more fields remain,
+ * or an error variant on pipe failure.
+ *
+ * # Safety
+ *
+ * 1. `fgc` must point to a valid `ForkGC` whose `pipe_read_fd` is an open,
+ *    readable file descriptor.
+ * 2. `field_name` and `field_name_len` must point to writable `char*` and
+ *    `size_t` locations respectively.
+ * 3. `id_ptr` must point to a writable `uint64_t` location.
+ */
+enum FGCError recvFieldHeader(ForkGC *fgc, char * *field_name, size_t *field_name_len, uint64_t *id_ptr);
+
+/**
+ * Free a buffer previously returned by [`FGC_recvBuffer`] or [`recvFieldHeader`].
+ *
+ * No-ops for the `RECV_BUFFER_EMPTY` sentinel and null pointers.
+ *
+ * # Safety
+ *
+ * 1. `buf` and `len` must be the pointer and length returned by a prior call to
+ *    [`FGC_recvBuffer`] or [`recvFieldHeader`], and must not have been freed before.
+ */
+void FGC_freeBuffer(void *buf, size_t len);
 
 #ifdef __cplusplus
 }  // extern "C"
