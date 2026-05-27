@@ -254,6 +254,49 @@ fn dfa_iter_folds_prefix() {
 }
 
 #[test]
+fn fold_expands_sharp_s_to_ss() {
+    // ICU `fold_string` expands `ß` to `ss`. Plain `str::to_lowercase`
+    // would leave `ß` unchanged. Pins the divergence so a future revert
+    // to stdlib lowercasing breaks loudly.
+    let mut dict = TermDictionary::new();
+    dict.insert(
+        "Straße",
+        TermEntry {
+            score: 1.0,
+            num_docs: 1,
+        },
+    );
+    assert!(
+        dict.get("strasse").is_some(),
+        "fold must rewrite ß to ss on insert"
+    );
+    assert!(
+        dict.get("STRASSE").is_some(),
+        "fold must rewrite ß to ss on lookup too"
+    );
+    let keys: Vec<String> = dict.iter().map(|(k, _)| k).collect();
+    assert_eq!(keys, vec!["strasse".to_string()]);
+}
+
+#[test]
+fn fold_collapses_final_sigma_to_lowercase_sigma() {
+    // ICU `fold_string` maps final-position sigma `ς` to `σ`. Plain
+    // `str::to_lowercase` would leave the final sigma form alone.
+    let mut dict = TermDictionary::new();
+    dict.insert(
+        "ΟΔΥΣΣΕΥΣ",
+        TermEntry {
+            score: 1.0,
+            num_docs: 1,
+        },
+    );
+    assert!(
+        dict.get("οδυσσευσ").is_some(),
+        "fold must use medial sigma σ, never final sigma ς"
+    );
+}
+
+#[test]
 fn ascii_lowercase_input_does_not_allocate() {
     // Smoke check the fast-path branch: we don't observe the Cow directly
     // from outside the module, but exercising every entry point with a

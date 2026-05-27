@@ -16,21 +16,32 @@
 //!
 //! ## Case-folding contract
 //!
-//! All keys and patterns are lowercased on the way in via
-//! [`str::to_lowercase`] before reaching the underlying [`StrTrieMap`].
-//! This matches the C terms-trie behaviour: every caller of `sp->terms`
-//! pre-folds via `runeBufFill` (`src/trie/trie.c`) before insert or
-//! lookup, so the trie itself only ever holds lowercased keys. Moving the
-//! fold inside `TermDictionary` lets future C-to-Rust call sites stop
+//! All keys and patterns are case-folded on the way in via
+//! [`icu_casemap::CaseMapper::fold_string`] before reaching the underlying
+//! [`StrTrieMap`], so the trie itself only ever holds folded keys. Moving
+//! the fold inside `TermDictionary` lets future C-to-Rust call sites stop
 //! repeating the obligation.
 //!
-//! Iteration outputs are already lowercased by construction — the keys
-//! were folded at insert — and are returned as-is.
+//! Iteration outputs are already folded by construction — the keys were
+//! folded at insert — and are returned as-is.
 //!
 //! The underlying [`StrTrieMap`] stays byte-exact; case-folding is a
 //! property of `TermDictionary` alone.
+//!
+//! ### Divergence from the C terms-trie
+//!
+//! The C side (`runeBufFill` in `src/trie/trie.c`, via libnu's
+//! `nu_tolower`) does Unicode **lowercase**, not case-folding. Folding
+//! and lowercasing agree on ASCII and on most non-ASCII codepoints, but
+//! differ on a handful — e.g. `ß` lowercases to `ß` but folds to `ss`,
+//! and final sigma `ς` lowercases to `ς` but folds to `σ`. Until the C
+//! tokenizer is updated to match, the two paths will produce different
+//! stored keys for those codepoints; see `dfa.rs` for a related
+//! per-character gap on the DFA iteration path.
 
 use std::borrow::Cow;
+
+use icu_casemap::CaseMapper;
 
 use crate::str::{
     StrTrieMap,
@@ -81,25 +92,21 @@ pub enum InsertOutcome {
 /// stays available for bulk-seeding scenarios where neither accumulation
 /// mode applies.
 ///
-/// All terms and lookup patterns are lowercased internally via
-/// [`str::to_lowercase`] — see the module docs for the case-folding
+/// All terms and lookup patterns are case-folded internally via
+/// [`icu_casemap::CaseMapper`] — see the module docs for the case-folding
 /// contract.
 pub struct TermDictionary {
     inner: StrTrieMap<TermEntry>,
 }
 
-/// Case-fold a term to lowercase, borrowing when no fold is needed.
+/// Case-fold a term using Unicode default case folding.
 ///
-/// Production inputs are pre-lowercased by the tokenizer
-/// (`src/tokenize.c`), so the fast-path borrow covers the common case
-/// without allocating. The expensive [`str::to_lowercase`] path only
-/// fires when at least one uppercase codepoint is present.
+/// Returns a borrowed `Cow` when the input is already in folded form
+/// (the common case — production tokenizer output in `src/tokenize.c` is
+/// pre-lowercased ASCII), and an owned `Cow` otherwise. The
+/// borrow/allocate split is decided inside [`CaseMapper::fold_string`].
 fn fold(term: &str) -> Cow<'_, str> {
-    if term.chars().any(|c| c.is_uppercase()) {
-        Cow::Owned(term.to_lowercase())
-    } else {
-        Cow::Borrowed(term)
-    }
+    CaseMapper::new().fold_string(term)
 }
 
 impl TermDictionary {

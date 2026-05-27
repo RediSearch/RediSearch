@@ -3057,6 +3057,7 @@ name = "trie_rs"
 version = "0.0.1"
 dependencies = [
  "fs-err",
+ "icu_casemap",
  "insta",
  "itertools 0.14.0",
  "lending-iterator",

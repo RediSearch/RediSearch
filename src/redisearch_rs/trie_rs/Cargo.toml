@@ -16,6 +16,7 @@ workspace = true
 test_utils = []
 
 [dependencies]
+icu_casemap.workspace = true
 itertools.workspace = true
 lending-iterator.workspace = true
 libc.workspace = true
