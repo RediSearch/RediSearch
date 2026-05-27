@@ -409,6 +409,10 @@ Reducer *RDCRCollect_New(const ReducerOptions *options) {
       data.limit_count
     );
   } else {
+    if (options->docid_key && data.sort_keys && array_len(data.sort_keys) > 0) {
+      array_append(data.sort_keys, options->docid_key);
+      SORTASCMAP_SETASC(data.sortAscMap, array_len(data.sort_keys) - 1);
+    }
     rbase = CollectReducer_CreateRemote(
       data.field_keys,
       data.field_keys ? array_len(data.field_keys) : 0,

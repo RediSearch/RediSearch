@@ -136,6 +136,10 @@ typedef struct {
   // of their public argument syntax.
   const RLookupKey *input_key;
 
+  // Optional pre-reserved hidden slot in `srclookup` that the grouper plants
+  // with the upstream `doc_id` before invoking reducers.
+  const RLookupKey *docid_key;
+
   // Full request flag bitmask forwarded from `AREQ->reqflags` (semantically a
   // `QEFlags`, stored as `uint32_t` to avoid a circular include with
   // `aggregate.h`). Canonical source of truth for request-level state such as
@@ -149,8 +153,9 @@ typedef struct {
  * Macro to ensure that we don't skip important initialization steps
  */
 #define REDUCEROPTS_INIT(name_, args_, lk_, lkl_, statusp_, strict_, is_local_, \
-                         input_key_, reqflags_)                                 \
-  { name_, args_, lk_, lkl_, statusp_, strict_, is_local_, input_key_, reqflags_ }
+                         input_key_, docid_key_, reqflags_)                     \
+  { name_, args_, lk_, lkl_, statusp_, strict_, is_local_, input_key_,          \
+    docid_key_, reqflags_ }
 
 /**
  * Utility function to read the next argument as a lookup key.

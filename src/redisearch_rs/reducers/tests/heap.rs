@@ -162,3 +162,19 @@ fn min_max_heap_top_k_under_asc() {
     let drained: Vec<u64> = heap.drain_desc().map(HeapEntry::into_projected).collect();
     assert_eq!(drained, vec![1, 2, 3]);
 }
+
+#[test]
+fn ord_appended_be_byte_key_breaks_tie_lex() {
+    // The C grouper plants doc ids as big-endian bytes into a hidden source
+    // key that the COLLECT factory appends to `sort_keys` (ASC). Under
+    // lex-compare, BE bytes order identically to the underlying u64.
+    fn be(v: u64) -> Option<SharedValue> {
+        Some(SharedValue::new_string(v.to_be_bytes().to_vec()))
+    }
+    let primary = Some(SharedValue::new_num(1.0));
+    let a = EntryKey::new(Box::new([primary.clone(), be(10)]), asc(0) | asc(1));
+    let b = EntryKey::new(Box::new([primary, be(20)]), asc(0) | asc(1));
+    // Primary ties → secondary (ASC) decides → smaller is "better".
+    assert_eq!(a.cmp(&b), Ordering::Greater);
+    assert_eq!(b.cmp(&a), Ordering::Less);
+}

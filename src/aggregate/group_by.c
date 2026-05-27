@@ -76,6 +76,11 @@ typedef struct Grouper {
   // GROUPBY materialization limit.
   GroupByLimits groupByLimits;
 
+  // Hidden source-lookup slot the pipeline asked us to populate with the
+  // upstream `doc_id` before invoking reducers. NULL when no consumer
+  // needs it.
+  const RLookupKey *docIdKey;
+
   // Used for maintaining state when yielding groups
   khiter_t iter;
 } Grouper;
@@ -257,7 +262,14 @@ static int Grouper_rpAccum(ResultProcessor *base, SearchResult *res) {
   int rc;
 
   while ((rc = base->upstream->Next(base->upstream, res)) == RS_RESULT_OK) {
-    rc = invokeGroupReducers(g, SearchResult_GetRowDataMut(res));
+    RLookupRow *row = SearchResult_GetRowDataMut(res);
+    if (g->docIdKey) {
+      t_docId docId = SearchResult_GetDocId(res);
+      uint64_t be = __builtin_bswap64(docId);
+      RLookup_WriteOwnKey(g->docIdKey, row,
+                          RSValue_NewCopiedString((const char *)&be, sizeof(be)));
+    }
+    rc = invokeGroupReducers(g, row);
     SearchResult_Clear(res);
     if (rc != RS_RESULT_OK) {
       break;
@@ -338,6 +350,10 @@ void Grouper_AddReducer(Grouper *g, Reducer *r, RLookupKey *dstkey) {
   Reducer **rpp = array_ensure_tail(&g->reducers, Reducer *);
   *rpp = r;
   r->dstkey = dstkey;
+}
+
+void Grouper_SetDocIdKey(Grouper *g, const RLookupKey *key) {
+  g->docIdKey = key;
 }
 
 ResultProcessor *Grouper_GetRP(Grouper *g) {

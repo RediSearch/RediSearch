@@ -489,6 +489,12 @@ ResultProcessor *Grouper_GetRP(Grouper *gr);
  */
 void Grouper_AddReducer(Grouper *g, Reducer *r, RLookupKey *dst);
 
+/**
+ * Register a hidden source-lookup slot the grouper should populate with the
+ * upstream document id before invoking reducers.
+ */
+void Grouper_SetDocIdKey(Grouper *g, const RLookupKey *key);
+
 void AREQ_Execute(AREQ *req, RedisModuleCtx *outctx);
 void sendChunk(AREQ *req, RedisModule_Reply *reply, size_t limit);
 void sendChunk_ReplyOnly_EmptyResults(RedisModuleCtx *ctx, AREQ *req);

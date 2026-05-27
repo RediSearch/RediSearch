@@ -52,6 +52,15 @@ impl<'a> Fields<'a> {
         }
     }
 
+    /// Sort keys excluding the reserved doc-id tie-breaker trailer that
+    /// the C `COLLECT` factory appends for shard-mode `COLLECT ... SORTBY`.
+    /// These are the keys safe to surface in the emitted payload.
+    fn user_sort_keys(&self) -> impl Iterator<Item = &&'a RLookupKey<'a>> + '_ {
+        self.sort_keys()
+            .iter()
+            .filter(|k| k.name().to_bytes() != RESERVED_DOC_ID_SLOT_NAME)
+    }
+
     /// Keys to project per row in [`RemoteCollectCtx::add`].
     fn get_keys_add(&self) -> impl Iterator<Item = &'a RLookupKey<'a>> + '_ {
         match self {
@@ -60,10 +69,12 @@ impl<'a> Fields<'a> {
                     .iter()
                     .filter(|k| !k.flags.contains(RLookupKeyFlag::Hidden)),
             ),
-            Self::Specific {
-                field_keys,
-                sort_keys,
-            } => Either::Right(field_keys.iter().copied().chain(sort_keys.iter().copied())),
+            Self::Specific { field_keys, .. } => Either::Right(
+                field_keys
+                    .iter()
+                    .copied()
+                    .chain(self.user_sort_keys().copied()),
+            ),
         }
     }
 
@@ -77,11 +88,13 @@ impl<'a> Fields<'a> {
                 .iter()
                 .filter(|k| !k.flags.contains(RLookupKeyFlag::Hidden))
                 .collect(),
-            Self::Specific {
-                field_keys,
-                sort_keys,
-            } => {
-                let extras: &[&RLookupKey<'a>] = if include_sort_extras { sort_keys } else { &[] };
+            Self::Specific { field_keys, .. } => {
+                let user_sort: Vec<&RLookupKey<'a>> = self.user_sort_keys().copied().collect();
+                let extras: &[&RLookupKey<'a>] = if include_sort_extras {
+                    &user_sort
+                } else {
+                    &[]
+                };
                 dedup_by_dstidx(field_keys, extras)
             }
         };
@@ -90,6 +103,9 @@ impl<'a> Fields<'a> {
             .collect()
     }
 }
+
+/// Reserved key name registered by the C pipeline.
+const RESERVED_DOC_ID_SLOT_NAME: &[u8] = b"__rs_reserved:collect_docid";
 
 /// Remote COLLECT reducer.
 ///

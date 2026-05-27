@@ -11,6 +11,24 @@
 extern "C" {
 #endif
 
+// Reserves the hidden source-lookup slot the grouper uses to plant the
+// upstream `doc_id` for shard-mode `COLLECT ... SORTBY` tie-breaking. Returns
+// NULL when no shard-mode COLLECT reducer is attached, in which case the
+// grouper skips the per-row write. The reserved prefix is not a valid user
+// field name, so collisions are not expected.
+static const RLookupKey *reserveCollectDocIdSlot(const PLN_GroupStep *gstp,
+                                                 RLookup *srclookup) {
+  size_t nreducers = array_len(gstp->reducers);
+  for (size_t ii = 0; ii < nreducers; ++ii) {
+    const PLN_Reducer *pr = gstp->reducers + ii;
+    if (!pr->isLocal && !strcasecmp(pr->name, "COLLECT")) {
+      return RLookup_GetKey_Write(srclookup, "__rs_reserved:collect_docid",
+                                  RLOOKUP_F_HIDDEN);
+    }
+  }
+  return NULL;
+}
+
 static ResultProcessor *buildGroupRP(PLN_GroupStep *gstp, RLookup *srclookup,
                                      const RLookupKey ***loadKeys, uint32_t reqflags,
                                      GroupByLimits groupByLimits,
@@ -45,6 +63,10 @@ static ResultProcessor *buildGroupRP(PLN_GroupStep *gstp, RLookup *srclookup,
   Grouper *grp = Grouper_New(srckeys, dstkeys, nproperties, groupByLimits);
 
   size_t nreducers = array_len(gstp->reducers);
+
+  const RLookupKey *docid_key = reserveCollectDocIdSlot(gstp, srclookup);
+  Grouper_SetDocIdKey(grp, docid_key);
+
   for (size_t ii = 0; ii < nreducers; ++ii) {
     // Build the actual reducer
     PLN_Reducer *pr = gstp->reducers + ii;
@@ -61,7 +83,7 @@ static ResultProcessor *buildGroupRP(PLN_GroupStep *gstp, RLookup *srclookup,
     }
     ReducerOptions options = REDUCEROPTS_INIT(pr->name, &pr->args, srclookup, loadKeys, err,
                                               gstp->strictPrefix, pr->isLocal, input_key,
-                                              reqflags);
+                                              docid_key, reqflags);
     ReducerFactory ff = RDCR_GetFactory(pr->name);
     if (!ff) {
       // No such reducer!
