@@ -83,6 +83,11 @@ typedef struct AggregationPipelineParams {
   RSLanguage language;
 } AggregationPipelineParams;
 
+static inline void AggregationPipelineParams_ScaleGroupByLimitsForCoordinator(
+    AggregationPipelineParams *params, size_t shardCount) {
+  params->groupByLimits = GroupByLimits_ScaleForCoordinator(params->groupByLimits, shardCount);
+}
+
 
 /**
  * Parameters specific to the document retrieval and scoring pipeline construction.

@@ -1094,7 +1094,6 @@ AREQ *AREQ_New(void) {
   // once query offset is bounded by both.
   req->maxSearchResults = RSGlobalConfig.maxSearchResults;
   req->maxAggregateResults = RSGlobalConfig.maxAggregateResults;
-  req->groupByLimits = GroupByLimits_Default(RSGlobalConfig.maxAggregateGroups);
   req->optimizer = QOptimizer_New();
   req->profile = Profile_PrintDefault;
   req->prefixesOffset = 0;
@@ -1738,7 +1737,25 @@ void AREQ_CleanUpStoredCursor(AREQ *req) {
   }
 }
 
-int AREQ_BuildPipeline(AREQ *req, QueryError *status) {
+void AREQ_BuildAggregationPipelineParams(AREQ *req, AggregationPipelineParams *params) {
+  *params = (AggregationPipelineParams){
+    .common = {
+      .sctx = req->sctx,
+      .reqflags = req->reqflags,
+      .optimizer = req->optimizer,
+      // Right now score alias is not supposed to be used in the aggregation pipeline
+      .scoreAlias = NULL,
+    },
+    .outFields = &req->outFields,
+    .maxResultsLimit = IsSearch(req) ? req->maxSearchResults : req->maxAggregateResults,
+    .groupByLimits = GroupByLimits_Default(RSGlobalConfig.maxAggregateGroups),
+    .language = req->searchopts.language,
+  };
+}
+
+int AREQ_BuildPipelineWithAggregationParams(AREQ *req,
+                                            const AggregationPipelineParams *aggregationParams,
+                                            QueryError *status) {
   Pipeline_Initialize(&req->pipeline, req->reqConfig.timeoutPolicy, status);
   if (!(AREQ_RequestFlags(req) & QEXEC_F_BUILDPIPELINE_NO_ROOT)) {
     QueryPipelineParams params = {
@@ -1762,22 +1779,15 @@ int AREQ_BuildPipeline(AREQ *req, QueryError *status) {
       return REDISMODULE_ERR;
     }
   }
-  AggregationPipelineParams params = {
-    .common = {
-      .sctx = req->sctx,
-      .reqflags = req->reqflags,
-      .optimizer = req->optimizer,
-      // Right now score alias is not supposed to be used in the aggregation pipeline
-      .scoreAlias = NULL,
-    },
-    .outFields = &req->outFields,
-    .maxResultsLimit = IsSearch(req) ? req->maxSearchResults : req->maxAggregateResults,
-    .groupByLimits = req->groupByLimits,
-    .language = req->searchopts.language,
-  };
-  int rc = Pipeline_BuildAggregationPart(&req->pipeline, &params, &req->stateflags, status);
+  int rc = Pipeline_BuildAggregationPart(&req->pipeline, aggregationParams, &req->stateflags, status);
   if (rc == REDISMODULE_OK) {
     AREQ_SetCanYieldPartialResults(req);
   }
   return rc;
+}
+
+int AREQ_BuildPipeline(AREQ *req, QueryError *status) {
+  AggregationPipelineParams aggregationParams = {0};
+  AREQ_BuildAggregationPipelineParams(req, &aggregationParams);
+  return AREQ_BuildPipelineWithAggregationParams(req, &aggregationParams, status);
 }
