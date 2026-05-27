@@ -23,6 +23,7 @@ fn test_wildcard_pattern_debug() {
         Token::Literal(br"baz"),
     ],
     expected_length: None,
+    atom_count: 11,
 }"#
     );
 }
@@ -38,6 +39,6 @@ fn test_wildcard_pattern_display() {
     assert_eq!(format!("{pattern_with_escapes}"), "foo*bar?baz");
 
     // Ensure invalid UTF-8 is replaced with the Unicode replacement character
-    let invalid_utf8 = WildcardPattern::parse(&[0x66, 0x6F, 0x80, b'*', b'b', b'a', b'z']);
-    assert_eq!(format!("{invalid_utf8}"), "fo�*baz");
+    let invalid_utf8 = WildcardPattern::parse(&[b'f', b'o', b'o', 0x80, b'*', b'b', b'a', b'z']);
+    assert_eq!(format!("{invalid_utf8}"), "foo�*baz");
 }

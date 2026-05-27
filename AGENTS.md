@@ -32,6 +32,15 @@ cd src/redisearch_rs && cargo nextest run
 cd src/redisearch_rs && cargo nextest run -p <crate_name>
 ```
 
+## Header Generation
+
+```bash
+make generate-rust-headers                # Regenerate Rust → C FFI headers via cheadergen
+```
+
+Run this after changing `#[cheadergen::config(...)]` attributes or exported Rust types
+that produce C headers. Output goes to `src/redisearch_rs/headers/`.
+
 ## Linting & Formatting
 
 ```bash
@@ -42,6 +51,38 @@ cd src/redisearch_rs && cargo license-fix # Add missing license headers
 ```
 
 C code formatting is governed by `.clang-format` at the repo root (LLVM-derived, 100-column limit, 2-space indent). Apply with `clang-format -i <file>`.
+
+## Running Expensive Commands
+
+Builds, full test runs, benchmarks, and `make lint` here take minutes. Two failure modes waste the most time, and both are easy to avoid:
+
+### Capture output to a log file; do not re-run to see more
+
+For anything that takes longer than ~30s, pipe through `tee` to a temp log file and only show a tail for live feedback. If you need to inspect a specific failure later, `grep`/`rg` the saved log — **do not re-execute the command with a different filter** to "see more output". Each rerun also wastes warm caches.
+
+```bash
+set -o pipefail
+LOG=$(mktemp /tmp/pytest.XXXXXX.log)
+echo "Log: $LOG"
+./build.sh RUN_PYTEST ENABLE_ASSERT=1 2>&1 | tee "$LOG" | tail -80
+# Later, from a separate Bash call:
+grep -n 'FAILED\|Error\|assert' /tmp/pytest.abc123.log
+```
+
+Notes:
+- **Always enable `set -o pipefail`** (or check `${PIPESTATUS[0]}` after the pipeline). Without it, the pipeline's exit code is `tail`'s, so a failing build/test will look like success. Each Bash tool call runs in a fresh shell, so re-set it per call (or use `bash -o pipefail -c '...'`).
+- Shell variables do **not** persist between Bash tool calls. Capture the `Log: …` path from the first call's output and substitute it literally into later calls.
+- Avoid `| head` on long runs: it can cause SIGPIPE to abort the producer before it finishes. Use `| tee LOG | tail -N` instead.
+- `.skills/check-flow-coverage/SKILL.md` (lines 60-105) is the canonical worked example of this pattern, including a freshness marker for log files.
+
+### Do not run build/test/lint commands in parallel
+
+`./build.sh`, `make` (lint/fmt/build), and `cargo` (build/test/clippy/nextest/bench) all share `src/redisearch_rs/target/` and the Cargo build-directory lock. Concurrent invocations either block on the lock or fail with `Blocking waiting for file lock on build directory`. Running benchmarks concurrently with anything else also skews timings.
+
+Rules:
+- Run these sequentially in a single Bash call chained with `&&`, or wait for one to finish before starting the next.
+- Do not use `run_in_background: true` to fire a second cargo/make/`./build.sh` while another is still running.
+- Safe to run alongside an in-flight build: reading files, `git status`/`git log`, `rg`/`grep`, analysing already-captured logs. Only the cargo/make/`./build.sh` family contends.
 
 ## Code Style
 

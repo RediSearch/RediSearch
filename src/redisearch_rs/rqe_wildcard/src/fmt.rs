@@ -46,6 +46,7 @@ impl std::fmt::Debug for WildcardPattern<'_> {
         f.debug_struct("WildcardPattern")
             .field("tokens", &self.tokens)
             .field("expected_length", &self.expected_length)
+            .field("atom_count", &self.atom_count())
             .finish()
     }
 }

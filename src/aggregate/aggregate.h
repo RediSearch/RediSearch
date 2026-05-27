@@ -562,6 +562,11 @@ static inline void AREQ_SetTimedOut(AREQ *req) {
 bool areq_timed_out(void *arg);
 #endif
 
+/* Non-inline named bridge over AREQ_TimedOut, invoked by Rust query
+ * iterators on the Blocked Client Timeout path. The named extern is a
+ * stable symbol that LTO can inline through. */
+bool AREQ_CheckTimedOut(AREQ *areq);
+
 /* True when this AREQ uses the BG-thread / timeout-callback claim handshake
  * around AggregateResults (TryClaim/Signal/Wait). Currently set only on the
  * coordinator AREQ under RETURN-STRICT; all other paths skip the protocol. */
@@ -605,6 +610,14 @@ static inline void AREQ_SetSkipTimeoutChecks(AREQ *req, bool skipTimeoutChecks) 
   if (req->sctx) {
     req->sctx->time.skipTimeoutChecks = skipTimeoutChecks;
   }
+}
+
+// Returns the AREQ that iterator constructors should use to wire the
+// Blocked Client Timeout, or NULL if iterators should fall back to the
+// in-pipeline clock-based timeout. `skipTimeoutChecks` is set by
+// `AREQ_ApplyContext` exactly when the BC callback is the active source.
+static inline AREQ *AREQ_TimeoutAreqOrNull(AREQ *req) {
+  return (req && req->skipTimeoutChecks) ? req : NULL;
 }
 
 static inline bool RequestConfig_ApplyCoordinatorElapsedTime(RequestConfig *reqConfig,

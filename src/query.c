@@ -39,6 +39,7 @@
 #include "wildcard.h"
 #include "geometry/geometry_api.h"
 #include "iterators/hybrid_reader.h"
+#include "debug_commands.h"
 #include "iterators/optimizer_reader.h"
 #include "search_disk.h"
 #include "shard_window_ratio.h"
@@ -966,6 +967,18 @@ static QueryIterator *Query_EvalWildcardNode(QueryEvalCtx *q, QueryNode *qn) {
   return NewWildcardIterator(q, qn->opts.weight);
 }
 
+// Probe the Blocked Client Timeout flag for a query iterator. Called from
+// Rust via a direct `extern "C"` declaration when a NOT iterator is wired
+// to an AREQ; the sync point makes the check deterministically pauseable
+// in assert builds for race tests.
+bool AREQ_CheckTimedOut(AREQ *areq) {
+  RS_LOG_ASSERT(areq, "AREQ_CheckTimedOut called with NULL areq");
+#ifdef ENABLE_ASSERT
+  SyncPoint_WaitUntil(SYNC_POINT_BEFORE_QI_TIMEOUT_CHECK, areq_timed_out, areq);
+#endif
+  return AREQ_TimedOut(areq);
+}
+
 static QueryIterator *Query_EvalNotNode(QueryEvalCtx *q, QueryNode *qn) {
   RS_LOG_ASSERT(qn->type == QN_NOT, "query node type should be not")
   QueryIterator *child = NULL;
@@ -975,7 +988,8 @@ static QueryIterator *Query_EvalNotNode(QueryEvalCtx *q, QueryNode *qn) {
   q->notSubtree = currently_notSubtree;
 
   t_docId maxDocId = q->sctx->spec->diskSpec ? SearchDisk_GetMaxDocId(q->sctx->spec->diskSpec) : q->docTable->maxDocId;
-  return NewNotIterator(child, maxDocId, qn->opts.weight, q->sctx->time.timeout, q);
+  return NewNotIterator(child, maxDocId, qn->opts.weight, q->sctx->time.timeout,
+                        q->bcTimeoutAreq, q);
 }
 
 static QueryIterator *Query_EvalOptionalNode(QueryEvalCtx *q, QueryNode *qn) {
@@ -1599,10 +1613,9 @@ int QAST_Parse(QueryAST *dst, const RedisSearchCtx *sctx, const RSSearchOptions 
 }
 
 QueryIterator *QAST_Iterate(QueryAST *qast, const RSSearchOptions *opts, RedisSearchCtx *sctx,
-                            uint32_t reqflags, QueryError *status) {
+                            uint32_t reqflags, struct AREQ *areq, QueryError *status) {
   QueryEvalCtx qectx = {
       .opts = opts,
-      .numTokens = qast->numTokens,
       .docTable = &sctx->spec->docs,
       .sctx = sctx,
       .status = status,
@@ -1610,6 +1623,7 @@ QueryIterator *QAST_Iterate(QueryAST *qast, const RSSearchOptions *opts, RedisSe
       .reqFlags = reqflags,
       .config = &qast->config,
       .notSubtree = false,
+      .bcTimeoutAreq = AREQ_TimeoutAreqOrNull(areq),
   };
   QueryIterator *root = Query_EvalNode(&qectx, qast->root);
   if (!root) {
@@ -1812,8 +1826,7 @@ static int QueryNode_CheckIsValid(QueryNode *n, IndexSpec *spec, RSSearchOptions
         if (fs && FieldSpec_IndexesEmpty(fs)) {
           opts->flags |= QueryNode_IndexesEmpty;
         }
-        // Block multi-term TAG queries in disk mode (MVP1 limitation)
-        // These query types require TrieMap iteration which doesn't work with disk storage
+        // Block multi-term TAG queries in disk mode - unsupported.
         for (size_t ii = 0; ii < QueryNode_NumChildren(n); ++ii) {
           QueryNode *child = n->children[ii];
           if (child->type == QN_PREFIX) {
@@ -1854,17 +1867,9 @@ static int QueryNode_CheckIsValid(QueryNode *n, IndexSpec *spec, RSSearchOptions
       }
       break;
     case QN_PREFIX:
-      res = validateQueryNotDisk("Prefix", status);
-      break;
     case QN_WILDCARD_QUERY:
-      res = validateQueryNotDisk("Wildcard pattern", status);
-      break;
     case QN_FUZZY:
-      res = validateQueryNotDisk("Fuzzy", status);
-      break;
     case QN_LEXRANGE:
-      res = validateQueryNotDisk("Lexrange", status);
-      break;
     case QN_NOT:
     case QN_OPTIONAL:
     case QN_GEO:

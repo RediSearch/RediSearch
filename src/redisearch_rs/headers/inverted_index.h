@@ -7,8 +7,8 @@
 #include <stddef.h>
 #include <stdint.h>
 #include <stdlib.h>
-#include "redisearch_types.h"
 #include "index_result_rs.h"
+#include "rqe_core.h"
 // Forward declarations of C types defined in redisearch.h and elsewhere.
 // We can't include redisearch.h directly: it transitively includes inverted_index.h.
 typedef struct RSDocumentMetadata_s RSDocumentMetadata;

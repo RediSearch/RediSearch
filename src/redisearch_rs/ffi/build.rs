@@ -43,6 +43,12 @@ const HEADERS: &[HeaderAllowlist] = &[
         vars: &[],
     },
     HeaderAllowlist {
+        path: "src/aggregate/aggregate.h",
+        fns: &["AREQ_CheckTimedOut"],
+        types: &[],
+        vars: &[],
+    },
+    HeaderAllowlist {
         path: "src/aggregate/reducer.h",
         fns: &[],
         types: &["Reducer", "ReducerOptions"],
@@ -339,6 +345,9 @@ const HEADERS: &[HeaderAllowlist] = &[
 /// Prefer adding a forward declaration in the C header instead — see e.g.
 /// `src/redis_index.h` for `InvertedIndex` or `src/spec.h` for `QueryError`.
 const PERMITTED_GENERATED_HEADERS: &[&str] = &[
+    // Fundamental type aliases (t_docId, t_fieldIndex, t_fieldMask) used
+    // across both C code and Rust-generated headers.
+    "rqe_core.h",
     // `DocumentType` is used as a bitfield in `RSDocumentMetadata`
     // (src/redisearch.h) — the full enum definition is required.
     "document_rs.h",
@@ -362,11 +371,17 @@ const PERMITTED_GENERATED_HEADERS: &[&str] = &[
     // contain `static inline` functions calling `QueryError_GetDisplayableError`
     // / `QueryError_SetCode` etc., so they need the function declarations.
     "query_error_ffi.h",
+    // `QEFlags` and the `QEFlag_*` named constants are required by
+    // `src/aggregate/aggregate.h` (pulled in for `AREQ_CheckTimedOut`).
+    "query_flags.h",
     // `QueryProcessingCtx` is embedded by value in `src/pipeline/pipeline.h`
     // and `src/aggregate/aggregate.h`. Brings `rs_wall_clock.h` into bindgen's
     // closure too, which is needed by `ffi::QueryProcessingCtx` (defined in
     // `ffi/src/lib.rs`).
     "result_processor_ffi.h",
+    // `RSValueType` and friends are required by `src/aggregate/aggregate.h`
+    // (pulled in transitively for `AREQ_CheckTimedOut`).
+    "value_ffi.h",
     // `enum IteratorType` is used by value in `src/iterators/iterator_api.h`.
     "rqe_iterator_type.h",
     // `IteratorsConfig` is embedded by value in `RSGlobalConfig` (src/config.h).

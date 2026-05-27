@@ -17,7 +17,7 @@ pub(crate) use wildcard_helper::WildcardHelper;
 use index_result::RSIndexResult;
 use rqe_iterators::{IteratorType, RQEIterator, RQEIteratorError, SkipToOutcome};
 
-/// A mock iterator that produces results with a specific `t_fieldMask`.
+/// A mock iterator that produces results with a specific [`FieldMask`](inverted_index::FieldMask).
 ///
 /// Each [`read`](RQEIterator::read) yields the next doc_id from the
 /// pre-configured list with the fixed `mask` written into
@@ -26,11 +26,11 @@ pub(crate) struct FieldMaskMock {
     doc_ids: Vec<u64>,
     next: usize,
     result: RSIndexResult<'static>,
-    mask: inverted_index::t_fieldMask,
+    mask: inverted_index::FieldMask,
 }
 
 impl FieldMaskMock {
-    pub(crate) fn new(doc_ids: Vec<u64>, mask: inverted_index::t_fieldMask) -> Self {
+    pub(crate) fn new(doc_ids: Vec<u64>, mask: inverted_index::FieldMask) -> Self {
         Self {
             doc_ids,
             next: 0,

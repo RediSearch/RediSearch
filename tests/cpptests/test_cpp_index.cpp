@@ -292,7 +292,7 @@ TEST_F(IndexTest, testNot) {
   MockQueryEvalCtx mockQctx(16, 16);
   irs[0] = NewInvIndIterator_TermQuery(w, &mockQctx.sctx, f, makeTestQueryTerm(), 1);
   MockQueryEvalCtx mockQctx2(10, 10);
-  irs[1] = NewNotIterator(NewInvIndIterator_TermQuery(w2, &mockQctx2.sctx, f, makeTestQueryTerm(), 1), InvertedIndex_LastId(w2), 1, {0}, &ctx->qctx);
+  irs[1] = NewNotIterator(NewInvIndIterator_TermQuery(w2, &mockQctx2.sctx, f, makeTestQueryTerm(), 1), InvertedIndex_LastId(w2), 1, {0}, NULL, &ctx->qctx);
 
   QueryIterator *ui = NewIntersectionIterator(irs, 2, -1, 0, 1);
   int expected[] = {1, 2, 4, 5, 7, 8, 10, 11, 13, 14, 16};
@@ -314,7 +314,7 @@ TEST_F(IndexTest, testPureNot) {
   auto ctx = std::make_unique<MockQueryEvalCtx>();
   FieldMaskOrIndex f = {.mask_tag = FieldMaskOrIndex_Mask, .mask = RS_FIELDMASK_ALL};
   MockQueryEvalCtx mockQctx(10, 10);
-  QueryIterator *ir = NewNotIterator(NewInvIndIterator_TermQuery(w, &mockQctx.sctx, f, makeTestQueryTerm(), 1), InvertedIndex_LastId(w) + 5, 1, {0}, &ctx->qctx);
+  QueryIterator *ir = NewNotIterator(NewInvIndIterator_TermQuery(w, &mockQctx.sctx, f, makeTestQueryTerm(), 1), InvertedIndex_LastId(w) + 5, 1, {0}, NULL, &ctx->qctx);
 
   RSIndexResult *h = NULL;
   int expected[] = {1,  2,  4,  5,  7,  8,  10, 11, 13, 14, 16, 17, 19,
@@ -1146,7 +1146,7 @@ TEST_F(IndexTest, testHugeSpec) {
   s = (IndexSpec *)StrongRef_Get(ref);
   ASSERT_TRUE(s == NULL);
   ASSERT_TRUE(QueryError_HasError(&err));
-#if (defined(__x86_64__) || defined(__aarch64__) || defined(__arm64__)) && !defined(RS_NO_U128)
+#if (defined(__x86_64__) || defined(__aarch64__) || defined(__arm64__))
   ASSERT_STREQ("SEARCH_LIMIT_OVER Schema is limited to 128 TEXT fields", QueryError_GetUserError(&err));
 #else
   ASSERT_STREQ("SEARCH_LIMIT_OVER Schema is limited to 64 TEXT fields", QueryError_GetUserError(&err));
