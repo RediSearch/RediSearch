@@ -153,6 +153,15 @@ void DocTable_SetDocExpiration(RSDocumentMetadata *dmd, t_expirationTimePoint tt
 void DocTable_UpdateFieldExpiration(DocTable *t, RSDocumentMetadata *dmd,
                                     FieldExpirations sortedFieldWithExpiration);
 
+// Takes ownership of the FieldExpirations at `*src`, resets `*src` to the
+// empty sentinel, and returns the moved value. Safe to call on an already-empty
+// sentinel.
+static inline FieldExpirations DocTable_TakeFieldExpirations(FieldExpirations *src) {
+  FieldExpirations result = *src;
+  *src = FieldExpirations_Empty();
+  return result;
+}
+
 bool DocTable_IsDocExpired(DocTable* t, const RSDocumentMetadata* dmd, struct timespec* expirationPoint);
 
 // Clear all expiration data from this doc table.

@@ -370,11 +370,8 @@ static void doAssignIds(RSAddDocumentCtx *cur, RedisSearchCtx *ctx) {
       const size_t fieldExpLen = FieldExpirations_Len(&doc->fieldExpirations);
       const bool hasExpiration = doc->docExpirationTime.tv_sec || doc->docExpirationTime.tv_nsec || fieldExpLen > 0;
       if (hasExpiration) {
-        DocTable_UpdateExpiration(&ctx->spec->docs, md, doc->docExpirationTime, doc->fieldExpirations);
-
-        // Ownership of the ThinVec was passed by value; reset our slot to the
-        // NULL sentinel so `Document_Free` doesn't double-drop it.
-        doc->fieldExpirations = FieldExpirations_Empty();
+        DocTable_UpdateExpiration(&ctx->spec->docs, md, doc->docExpirationTime,
+                                  DocTable_TakeFieldExpirations(&doc->fieldExpirations));
       }
       DMD_Return(md);
 
