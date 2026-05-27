@@ -19,3 +19,4 @@ mod splits;
 mod term_dict_case;
 mod unicode;
 mod wildcard_iteration;
+mod wildcard_unicode;
