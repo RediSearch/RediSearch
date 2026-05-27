@@ -1,0 +1,60 @@
+name: Record test results to flaky DB
+description: |
+  Record test results from the current CI run to the flaky-test Redis DB.
+
+  Accepts two simple file inputs — one test id per line:
+    - failed-file: required for the failure side of the dataset
+    - passed-file: optional; only useful if your runner produces it (RLTest's
+      FAILEDFILE only gives failures, which is fine — pass counts can be added
+      later if needed)
+
+  This action never fails the job: it warns on connection errors so a flaky-DB
+  outage cannot break the test pipeline. The calling step should set
+  `if: always()` so failures are recorded even when tests fail.
+
+inputs:
+  redis-url:
+    description: "Redis connection URL (rediss://...)"
+    required: true
+  failed-file:
+    description: "Path to a file listing failing test ids, one per line"
+    required: false
+    default: ""
+  passed-file:
+    description: "Path to a file listing passing test ids, one per line"
+    required: false
+    default: ""
+  branch:
+    description: "Branch the run is associated with. Defaults to base_ref or ref_name."
+    required: false
+    default: ""
+  job-name:
+    description: "Short label for this job/shard, recorded with each result"
+    required: false
+    default: ""
+
+runs:
+  using: composite
+  steps:
+    - name: Set up Python
+      uses: actions/setup-python@v6
+      with:
+        python-version: "3.x"
+
+    - name: Install dependencies
+      shell: bash -l -eo pipefail {0}
+      run: pip install 'redis>=6,<7'
+
+    - name: Record results
+      shell: bash -l -eo pipefail {0}
+      env:
+        REDIS_URL: ${{ inputs.redis-url }}
+        REPO: ${{ github.repository }}
+        BRANCH: ${{ inputs.branch != '' && inputs.branch || (github.base_ref != '' && github.base_ref || github.ref_name) }}
+        COMMIT: ${{ github.sha }}
+        WORKFLOW_RUN_ID: ${{ github.run_id }}
+        RUN_ATTEMPT: ${{ github.run_attempt }}
+        JOB_NAME: ${{ inputs.job-name != '' && inputs.job-name || github.job }}
+        FAILED_FILE: ${{ inputs.failed-file }}
+        PASSED_FILE: ${{ inputs.passed-file }}
+      run: python ${{ github.action_path }}/../../scripts/flaky_db.py record

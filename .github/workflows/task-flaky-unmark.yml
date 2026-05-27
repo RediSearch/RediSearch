@@ -1,0 +1,56 @@
+name: Flaky tests — unmark
+
+on:
+  workflow_dispatch:
+    inputs:
+      branch:
+        description: 'Branch the mark applies to (must match the original mark — use * if it was a wildcard)'
+        required: true
+        default: 'master'
+        type: string
+      test_id:
+        description: 'Test identifier (must match exactly)'
+        required: true
+        type: string
+      reason:
+        description: 'Why are we unmarking? (e.g. "fixed in #1234")'
+        required: true
+        type: string
+
+jobs:
+  unmark:
+    runs-on: ubuntu-slim
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Set up Python
+        uses: actions/setup-python@v6
+        with:
+          python-version: '3.x'
+
+      - name: Install dependencies
+        run: pip install 'redis>=6,<7'
+
+      - name: Unmark flaky test
+        env:
+          REDIS_URL: ${{ secrets.FLAKY_TESTS_REDIS_URL }}
+          REPO: ${{ github.repository }}
+          BRANCH: ${{ inputs.branch }}
+          TEST_ID: ${{ inputs.test_id }}
+          REASON: ${{ inputs.reason }}
+          ACTOR: ${{ github.actor }}
+        run: python .github/scripts/flaky_db.py unmark
+
+      - name: Summary
+        if: success()
+        run: |
+          echo "### Flaky mark removed :white_check_mark:" >> "$GITHUB_STEP_SUMMARY"
+          echo "" >> "$GITHUB_STEP_SUMMARY"
+          echo "| Field | Value |" >> "$GITHUB_STEP_SUMMARY"
+          echo "|---|---|" >> "$GITHUB_STEP_SUMMARY"
+          echo "| Repo | \`${{ github.repository }}\` |" >> "$GITHUB_STEP_SUMMARY"
+          echo "| Branch | \`${{ inputs.branch }}\` |" >> "$GITHUB_STEP_SUMMARY"
+          echo "| Test | \`${{ inputs.test_id }}\` |" >> "$GITHUB_STEP_SUMMARY"
+          echo "| Reason | ${{ inputs.reason }} |" >> "$GITHUB_STEP_SUMMARY"
+          echo "| Unmarked by | @${{ github.actor }} |" >> "$GITHUB_STEP_SUMMARY"

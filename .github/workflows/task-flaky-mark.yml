@@ -1,0 +1,69 @@
+name: Flaky tests — mark
+
+on:
+  workflow_dispatch:
+    inputs:
+      branch:
+        description: 'Branch the mark applies to (e.g. master, 2.10, or * for all branches)'
+        required: true
+        default: 'master'
+        type: string
+      test_id:
+        description: 'Test identifier (e.g. tests/pytests/test_foo.py::test_bar)'
+        required: true
+        type: string
+      reason:
+        description: 'Why is this being skipped?'
+        required: true
+        type: string
+      jira_key:
+        description: 'Jira ticket tracking the flake (e.g. MOD-12345)'
+        required: true
+        type: string
+      expires_in_days:
+        description: 'Days until the mark expires (1-365)'
+        required: true
+        default: '30'
+        type: string
+
+jobs:
+  mark:
+    runs-on: ubuntu-slim
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Set up Python
+        uses: actions/setup-python@v6
+        with:
+          python-version: '3.x'
+
+      - name: Install dependencies
+        run: pip install 'redis>=6,<7'
+
+      - name: Mark test as flaky
+        env:
+          REDIS_URL: ${{ secrets.FLAKY_TESTS_REDIS_URL }}
+          REPO: ${{ github.repository }}
+          BRANCH: ${{ inputs.branch }}
+          TEST_ID: ${{ inputs.test_id }}
+          REASON: ${{ inputs.reason }}
+          JIRA_KEY: ${{ inputs.jira_key }}
+          DAYS: ${{ inputs.expires_in_days }}
+          ACTOR: ${{ github.actor }}
+        run: python .github/scripts/flaky_db.py mark
+
+      - name: Summary
+        if: success()
+        run: |
+          echo "### Flaky mark recorded :white_check_mark:" >> "$GITHUB_STEP_SUMMARY"
+          echo "" >> "$GITHUB_STEP_SUMMARY"
+          echo "| Field | Value |" >> "$GITHUB_STEP_SUMMARY"
+          echo "|---|---|" >> "$GITHUB_STEP_SUMMARY"
+          echo "| Repo | \`${{ github.repository }}\` |" >> "$GITHUB_STEP_SUMMARY"
+          echo "| Branch | \`${{ inputs.branch }}\` |" >> "$GITHUB_STEP_SUMMARY"
+          echo "| Test | \`${{ inputs.test_id }}\` |" >> "$GITHUB_STEP_SUMMARY"
+          echo "| Jira | ${{ inputs.jira_key }} |" >> "$GITHUB_STEP_SUMMARY"
+          echo "| Reason | ${{ inputs.reason }} |" >> "$GITHUB_STEP_SUMMARY"
+          echo "| Expires in | ${{ inputs.expires_in_days }} days |" >> "$GITHUB_STEP_SUMMARY"
+          echo "| Marked by | @${{ github.actor }} |" >> "$GITHUB_STEP_SUMMARY"
