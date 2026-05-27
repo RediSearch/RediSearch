@@ -1,22 +1,28 @@
-name: FFI bindgen on distro libclang
+name: Build under distro toolchain (ce-testing parity)
 
-# Validates that the headers consumed by the `ffi` crate's `build.rs`
-# (via bindgen / libclang) parse cleanly under the stock libclang each
-# supported distro ships with. Our normal CI installs a pinned LLVM via
-# `.install/install_llvm.sh`, so it hides version-specific bindgen
-# failures that only surface in the ce-testing packaging pipeline.
+# Mirrors the environment ce-testing's Debian packaging pipeline (sbuild +
+# dpkg-buildpackage) exercises:
+#   * CC=gcc (not clang)
+#   * distro `libclang-N-dev` for bindgen, but NOT the `clang-N` binary
+#     (sbuild chroots only install Build-Depends; redis-debian's debian/control
+#     pulls libclang for bindgen and uses gcc to compile)
+#   * CFLAGS/CPPFLAGS/LDFLAGS from `dpkg-buildflags` with hardening=+all,
+#     matching redis-debian's debian/rules
+# and runs the full `./build.sh` so we surface any failure ce-testing would —
+# bindgen parse errors, hardening-flag breakage, missing distro packages, etc.
 #
-# This job intentionally does NOT source `.install/install_llvm.sh`,
-# does NOT build the C module, and does NOT run tests. It only runs
-# `cargo build -p ffi`, which is sufficient to invoke bindgen against
-# every header listed in `src/redisearch_rs/ffi/build.rs`.
+# Our regular CI installs a pinned LLVM via `.install/install_llvm.sh`, which
+# hides this class of failure. This workflow intentionally shims that script
+# out so we exercise the stock distro toolchain.
 
 on:
   pull_request:
     paths:
       - 'src/**'
       - 'deps/**'
-      - 'src/redisearch_rs/ffi/**'
+      - 'CMakeLists.txt'
+      - 'build.sh'
+      - '.install/**'
       - '.github/workflows/ffi-bindgen-distro.yml'
   push:
     branches:
@@ -27,8 +33,8 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  bindgen-parse:
-    name: bindgen (${{ matrix.distro }}, libclang-${{ matrix.libclang }})
+  distro-build:
+    name: build (${{ matrix.distro }}, libclang-${{ matrix.libclang }})
     runs-on: ubuntu-latest
     strategy:
       fail-fast: false
@@ -49,34 +55,61 @@ jobs:
         # it so the standard `set -euxo pipefail` below behaves as expected.
         shell: bash
     steps:
-      - name: Install distro toolchain
+      - name: Bootstrap container
         run: |
           set -euxo pipefail
           export DEBIAN_FRONTEND=noninteractive
           apt-get update
           apt-get install -y --no-install-recommends \
-            ca-certificates curl git build-essential pkg-config \
-            libclang-${{ matrix.libclang }}-dev clang-${{ matrix.libclang }} \
-            python3 cmake
-          # Make this libclang version the one bindgen picks up.
-          echo "LIBCLANG_PATH=/usr/lib/llvm-${{ matrix.libclang }}/lib" >> "$GITHUB_ENV"
+            ca-certificates git curl dpkg-dev sudo
       - name: Checkout
         uses: actions/checkout@v4
         with:
           submodules: recursive
-      - name: Install Rust
+      - name: Shim install_llvm.sh to use distro libclang only
+        # Replace the pinned-LLVM installer with a stub that pulls just the
+        # distro `libclang-N-dev` package — no `clang-N` binary, no apt.llvm.org.
+        # This is what ce-testing's sbuild chroot has: bindgen finds libclang
+        # but the C compiler is gcc.
         run: |
           set -euxo pipefail
-          curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | \
-            sh -s -- -y --default-toolchain stable --profile minimal
-          echo "$HOME/.cargo/bin" >> "$GITHUB_PATH"
+          cat > .install/install_llvm.sh <<EOF
+          #!/usr/bin/env bash
+          # Shimmed by .github/workflows/ffi-bindgen-distro.yml — install only
+          # the distro libclang dev package, matching ce-testing's chroot.
+          set -euxo pipefail
+          export DEBIAN_FRONTEND=noninteractive
+          MODE="\${1:-}"
+          \$MODE apt-get install -y --no-install-recommends libclang-${{ matrix.libclang }}-dev
+          EOF
+          chmod +x .install/install_llvm.sh
+      - name: Install dependencies (distro toolchain only)
+        working-directory: .install
+        run: ./install_script.sh
+      - name: Configure environment (gcc + dpkg-buildflags hardening)
+        run: |
+          set -euxo pipefail
+          # Mirror redis-debian/debian/rules: CC=gcc, hardening=+all.
+          export DEB_BUILD_MAINT_OPTIONS="hardening=+all"
+          {
+            echo "CC=gcc"
+            echo "CFLAGS=$(dpkg-buildflags --get CFLAGS)"
+            echo "CPPFLAGS=$(dpkg-buildflags --get CPPFLAGS)"
+            echo "LDFLAGS=$(dpkg-buildflags --get LDFLAGS) -ldl -latomic"
+            echo "LIBCLANG_PATH=/usr/lib/llvm-${{ matrix.libclang }}/lib"
+          } >> "$GITHUB_ENV"
       - name: Show toolchain
         run: |
-          clang-${{ matrix.libclang }} --version
-          echo "LIBCLANG_PATH=$LIBCLANG_PATH"
-          ls "$LIBCLANG_PATH" | grep -i clang | head -5 || true
+          set -euxo pipefail
+          gcc --version
+          ls "$LIBCLANG_PATH" 2>/dev/null | grep -i clang | head -5 || true
+          which clang && echo "WARNING: clang binary present (chroot parity broken)" || \
+            echo "no clang binary (expected — ce-testing parity)"
           "$HOME/.cargo/bin/rustc" --version
           "$HOME/.cargo/bin/cargo" --version
-      - name: cargo build -p ffi (bindgen only)
-        working-directory: src/redisearch_rs
-        run: cargo build -p ffi
+          echo "CC=$CC"
+          echo "CFLAGS=$CFLAGS"
+          echo "CPPFLAGS=$CPPFLAGS"
+          echo "LDFLAGS=$LDFLAGS"
+      - name: Build (./build.sh)
+        run: ./build.sh
