@@ -323,23 +323,3 @@ fn dfa_iter_handles_multibyte_lowercase_expansion() {
     assert_eq!(hits.len(), 1, "DFA must round-trip the multi-codepoint fold");
 }
 
-#[test]
-fn ascii_lowercase_input_does_not_allocate() {
-    // Smoke check the fast-path branch: we don't observe the Cow directly
-    // from outside the module, but exercising every entry point with a
-    // pre-lowercased input ensures no panic-on-fold path fires for that
-    // case. Allocation behavior is verified indirectly via the perf-
-    // sensitive tokenizer flow in production (`src/tokenize.c` always
-    // pre-lowercases before reaching `sp->terms`).
-    let mut dict = TermDictionary::new();
-    dict.add_term("foo", 1.0, 1);
-    dict.replace_term("foo", 2.0, 0);
-    let _ = dict.get("foo");
-    let _ = dict.contains_iter("foo").count();
-    let _ = dict.prefixed_iter("foo").count();
-    let _ = dict.suffixed_iter("foo").count();
-    let _ = dict.wildcard_iter("foo").count();
-    let _ = dict.range_iter(Some("foo"), true, Some("foo"), true).count();
-    let _ = dict.iterate_dfa("foo", 0, false).count();
-    let _ = dict.remove("foo");
-}

@@ -101,9 +101,10 @@ pub struct TermDictionary {
 /// Case-fold a term using Unicode default case folding.
 ///
 /// Returns a borrowed `Cow` when the input is already in folded form
-/// (the common case — production tokenizer output in `src/tokenize.c` is
-/// pre-lowercased ASCII), and an owned `Cow` otherwise. The
-/// borrow/allocate split is decided inside [`CaseMapper::fold_string`].
+/// and an owned `Cow` otherwise; the split is decided inside
+/// [`CaseMapper::fold_string`]. Production tokenizer output
+/// (`src/tokenize.c`) is already lowercased, so the borrow arm covers
+/// the hot path.
 fn fold(term: &str) -> Cow<'_, str> {
     CaseMapper::new().fold_string(term)
 }

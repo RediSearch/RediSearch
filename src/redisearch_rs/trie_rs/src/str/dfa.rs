@@ -47,11 +47,11 @@ use crate::str::StrTrieMap;
 #[derive(Clone, PartialEq, Eq)]
 struct SparseVector(Vec<(u32, u32)>);
 
-/// Sparse Levenshtein NFA over the lowered query string. The DFA build
+/// Sparse Levenshtein NFA over the query string. The DFA build
 /// determinizes this NFA via subset construction (subsets are the sparse
 /// vectors themselves; equal vectors collapse to the same DFA node).
 struct SparseAutomaton {
-    /// Query string, pre-lowered char-by-char.
+    /// Query string as a sequence of `char`s.
     query: Vec<char>,
     /// Maximum allowed edit distance.
     max: u32,
