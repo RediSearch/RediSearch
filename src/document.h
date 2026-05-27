@@ -317,18 +317,13 @@ typedef struct RSAddDocumentCtx {
   DocumentAddCompleted donecb;
   void *donecbData;
 
-  // Per-document disk write batch (disk mode only; NULL otherwise).
-  SearchDiskWriteBatchHandle *diskBatch;
-
-  // Doc-id of the document this one replaces (0 if it's a new doc). Disk mode
-  // only — memory mode tracks this through the popped DMD inside `makeDocumentId`.
-  // Used by `applyDocTable` to clean up the old doc's auxiliary in-memory
-  // indexes (VecSim, geometry) post-commit.
-  t_docId oldDocId;
-
-  // Length of the document this one replaces on disk (0 if it's a new doc).
-  // Used by `applyDocTable` for the REPLACE stats adjustment. Disk mode only.
-  uint32_t oldDocLen;
+  // Disk-mode-only state. `batch` is NULL outside disk mode; the other fields
+  // are unused there.
+  struct {
+    SearchDiskWriteBatchHandle *batch;
+    t_docId oldDocId;
+    uint32_t oldDocLen;
+  } disk;
 } RSAddDocumentCtx;
 
 /**

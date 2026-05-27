@@ -221,7 +221,7 @@ static inline size_t tagIndex_Put(TagIndex *idx, const char *value, size_t len, 
 /* Memory-mode helper: write the per-tag inverted-index postings for `docId`.
  * `tagIndex_Put` also inserts the matching `InvertedIndex*` into `idx->values`
  * if it is not already there. */
-static void tag_index_write_postings(TagIndex *idx, const char **values, size_t n,
+static void TagIndex_WritePostings(TagIndex *idx, const char **values, size_t n,
                                      t_docId docId, IndexStats *stats) {
   if (!values) return;
   for (size_t ii = 0; ii < n; ++ii) {
@@ -238,7 +238,7 @@ static void tag_index_write_postings(TagIndex *idx, const char **values, size_t 
  *   - Disk mode: runs after a successful batch commit. Inserts NULL sentinels
  *     into `idx->values` (postings live on disk).
  *   - Memory mode: the trie already holds `InvertedIndex*` pointers from
- *     `tag_index_write_postings`, so the trie insert is skipped to preserve
+ *     `TagIndex_WritePostings`, so the trie insert is skipped to preserve
  *     them.
  *
  * Both modes populate `idx->suffix` and bump `stats->numRecords`. Infallible. */
@@ -271,7 +271,7 @@ bool TagIndex_Index(RedisModuleCtx *ctx, TagIndex *idx, SearchDiskWriteBatchHand
     if (!values) return true;
     return SearchDisk_IndexTags(ctx, idx->diskSpec, batch, values, n, docId, idx->fieldIndex);
   }
-  tag_index_write_postings(idx, values, n, docId, stats);
+  TagIndex_WritePostings(idx, values, n, docId, stats);
   return true;
 }
 

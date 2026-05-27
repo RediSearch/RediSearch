@@ -17,13 +17,6 @@
 
 #include <stdbool.h>
 
-// The opaque write-batch handle (declared in `search_disk_api.h`) is the only
-// type the OSS-side write path exposes. Indexing stages writes onto a handle
-// via `indexTerm` / `indexTags` / `putDocument`, then either commits (durable)
-// or aborts (discards). The matching in-memory updates run only after a
-// successful commit; on abort no in-memory state was mutated, so there is
-// nothing to roll back.
-
 __attribute__((weak))
 bool SearchDisk_HasAPI();
 

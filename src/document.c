@@ -195,9 +195,9 @@ RSAddDocumentCtx *NewAddDocumentCtx(IndexSpec *sp, Document *doc, QueryError *st
   aCtx->next = NULL;
   aCtx->specFlags = sp->flags;
   aCtx->spec = sp;
-  aCtx->diskBatch = NULL;
-  aCtx->oldDocId = 0;
-  aCtx->oldDocLen = 0;
+  aCtx->disk.batch = NULL;
+  aCtx->disk.oldDocId = 0;
+  aCtx->disk.oldDocLen = 0;
   if (aCtx->specFlags & Index_Async) {
     HiddenString_Clone(sp->specName, &aCtx->specName);
   }
@@ -354,12 +354,12 @@ void AddDocumentCtx_Free(RSAddDocumentCtx *aCtx) {
   ByteOffsetWriter_Cleanup(&aCtx->offsetsWriter);
   QueryError_ClearError(&aCtx->status);
 
-  // `commitDocument` is the single owner of `aCtx->diskBatch` once it has been
+  // `commitDocument` is the single owner of `aCtx->disk.batch` once it has been
   // opened by `doAssignIds`. Reaching `AddDocumentCtx_Free` with the batch
   // still set means the indexing pipeline bailed out between staging and
   // commit — there is no such path today, and adding one in the future
   // requires a paired abort.
-  RS_ASSERT(!aCtx->diskBatch);
+  RS_ASSERT(!aCtx->disk.batch);
 
   mempool_release(actxPool_g, aCtx);
 }
@@ -582,10 +582,6 @@ FIELD_PREPROCESSOR(geometryPreprocessor) {
 }
 
 FIELD_BULK_INDEXER(geometryIndexer) {
-  // Geometry indexes are not yet plumbed through the per-document disk write
-  // batch — the write below goes to the in-memory R-tree eagerly. In disk mode
-  // an aborted commit would leave the geometry index referencing a doc that
-  // never reached disk; assert until geometry indexing is staged on the batch.
   RS_LOG_ASSERT_ALWAYS(!SearchDisk_IsEnabled(),
                        "geometryIndexer is not commit-batched; disk-mode geometry is not supported");
 
@@ -617,10 +613,6 @@ FIELD_BULK_INDEXER(geometryIndexer) {
   _NumericRangeTree_Add((t), (docId), (value), (isMulti), RSGlobalConfig.numericTreeMaxDepthRange)
 
 FIELD_BULK_INDEXER(numericIndexer) {
-  // Numeric and geo (geohash-as-numeric) indexes are not yet plumbed through
-  // the per-document disk write batch — writes go to the in-memory range tree
-  // eagerly. Same caveat as `geometryIndexer`: in disk mode an aborted commit
-  // would leak entries. Assert until numeric/geo land on the batch.
   RS_LOG_ASSERT_ALWAYS(!SearchDisk_IsEnabled(),
                        "numericIndexer is not commit-batched; disk-mode numeric/geo is not supported");
 
@@ -812,12 +804,7 @@ FIELD_BULK_INDEXER(tagIndexer) {
     tidx->suffix = NewTrieMap();
   }
 
-  // `TagIndex_Index` branches internally: disk mode stages onto the per-document
-  // batch; memory mode writes the per-tag postings inline. In both modes the
-  // matching trie / suffix-trie / `numRecords` updates run in `tagApplier`
-  // (inline in memory mode, from `bulkApplyFields` once the batch commits in
-  // disk mode).
-  if (!TagIndex_Index(ctx->redisCtx, tidx, aCtx->diskBatch,
+  if (!TagIndex_Index(ctx->redisCtx, tidx, aCtx->disk.batch,
                       (const char **)fdata->tags, array_len(fdata->tags),
                       aCtx->doc->docId, &ctx->spec->stats)) {
     QueryError_SetError(status, QUERY_ERROR_CODE_GENERIC, "Tag indexing failed");
@@ -906,7 +893,7 @@ int IndexerBulkAdd(RSAddDocumentCtx *cur, RedisSearchCtx *sctx,
           // doc-id that was not persisted. The vector blob in
           // `fdata->vector` is borrowed (not copied) and lives until
           // `AddDocumentCtx_Free`, so it is safe to read post-commit.
-          if (cur->diskBatch) break;
+          if (cur->disk.batch) break;
           rc = vectorIndexer(cur, sctx, field, fs, fdata, status);
           break;
         case IXFLDPOS_GEOMETRY:
