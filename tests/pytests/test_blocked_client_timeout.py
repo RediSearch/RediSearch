@@ -1303,8 +1303,8 @@ class TestCoordinatorTimeout:
             env.assertEqual(len(result), 1, message="Expected one cursor read reply")
 
             read_reply, next_cursor = result[0]
-            env.assertEqual(next_cursor, 0,
-                            message=f"Timed-out shard cursor should close, got {result[0]}")
+            env.assertEqual(next_cursor, vsim_cursor,
+                            message=f"Timed-out shard cursor should stay retryable, got {result[0]}")
             env.assertEqual(read_reply.get('warning', []), [TIMEOUT_WARNING],
                             message=f"Expected timeout warning, got {read_reply}")
 
@@ -1313,6 +1313,12 @@ class TestCoordinatorTimeout:
                 str(base_warn_shard + 1),
                 msg="VSIM _FT.CURSOR READ RETURN_STRICT timeout warning should bump shard metric")
 
+            followup_reply, followup_cursor = target_shard.execute_command(
+                '_FT.CURSOR', 'READ', 'hybrid_idx', str(vsim_cursor))
+            env.assertEqual(followup_reply.get('warning', []), [],
+                            message=f"Expected follow-up read without timeout warning, got {followup_reply}")
+            if followup_cursor:
+                target_shard.execute_command('_FT.CURSOR', 'DEL', 'hybrid_idx', str(followup_cursor))
             if search_cursor:
                 target_shard.execute_command('_FT.CURSOR', 'DEL', 'hybrid_idx', str(search_cursor))
         finally:

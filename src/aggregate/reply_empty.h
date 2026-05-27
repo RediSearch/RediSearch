@@ -44,6 +44,6 @@ int coord_cursor_read_empty_reply_timeout(RedisModuleCtx *ctx, long long cid);
 
 // Shard empty cursor-shaped reply for an internal _FT.CURSOR READ under the
 // RETURN_STRICT timeout fast-path. This is used only when the timeout callback
-// wins before the worker has a stored cursor-read result; cursor id 0 tells the
-// coordinator the shard cursor is complete.
-int shard_cursor_read_empty_reply_timeout(RedisModuleCtx *ctx);
+// wins before the worker has a stored cursor-read result; preserves `cid` so
+// the coordinator can retry this shard cursor on the next read.
+int shard_cursor_read_empty_reply_timeout(RedisModuleCtx *ctx, long long cid);

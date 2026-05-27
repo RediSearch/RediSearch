@@ -211,7 +211,7 @@ int single_shard_common_query_reply_empty(RedisModuleCtx *ctx, RedisModuleString
     return ret;
 }
 
-int coord_cursor_read_empty_reply_timeout(RedisModuleCtx *ctx, long long cid) {
+static int cursor_read_empty_reply_timeout(RedisModuleCtx *ctx, long long cid, bool internal) {
     AREQ *req = AREQ_New();
     QueryError status = QueryError_Default();
     AREQ_QueryProcessingCtx(req)->err = &status;
@@ -219,6 +219,9 @@ int coord_cursor_read_empty_reply_timeout(RedisModuleCtx *ctx, long long cid) {
     QueryError_SetError(&status, QUERY_ERROR_CODE_TIMED_OUT, NULL);
     QueryError_SetCode(&status, QUERY_ERROR_CODE_TIMED_OUT);
     AREQ_AddRequestFlags(req, QEXEC_F_IS_CURSOR);
+    if (internal) {
+        AREQ_AddRequestFlags(req, QEXEC_F_INTERNAL);
+    }
     req->cursor_id = (uint64_t)cid;
 
     int ret = empty_sendChunk_common(ctx, req);
@@ -226,17 +229,10 @@ int coord_cursor_read_empty_reply_timeout(RedisModuleCtx *ctx, long long cid) {
     return ret;
 }
 
-int shard_cursor_read_empty_reply_timeout(RedisModuleCtx *ctx) {
-    AREQ *req = AREQ_New();
-    QueryError status = QueryError_Default();
-    AREQ_QueryProcessingCtx(req)->err = &status;
+int coord_cursor_read_empty_reply_timeout(RedisModuleCtx *ctx, long long cid) {
+    return cursor_read_empty_reply_timeout(ctx, cid, false);
+}
 
-    QueryError_SetError(&status, QUERY_ERROR_CODE_TIMED_OUT, NULL);
-    QueryError_SetCode(&status, QUERY_ERROR_CODE_TIMED_OUT);
-    AREQ_AddRequestFlags(req, QEXEC_F_IS_CURSOR | QEXEC_F_INTERNAL);
-    req->cursor_id = 0;
-
-    int ret = empty_sendChunk_common(ctx, req);
-    QueryError_ClearError(&status);
-    return ret;
+int shard_cursor_read_empty_reply_timeout(RedisModuleCtx *ctx, long long cid) {
+    return cursor_read_empty_reply_timeout(ctx, cid, true);
 }

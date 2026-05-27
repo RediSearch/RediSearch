@@ -1626,16 +1626,14 @@ void AREQ_ReplyWithStoredResults(RedisModuleCtx *ctx, AREQ *req) {
   // This is the end of the request lifecycle, so no need to restore.
   qctx->err = &stored->err;
 
-  // Build ChunkSerializeState from stored results
-  // On a shard-side timeout (RETURN_STRICT), force cursor_done so the reply
-  // carries cursor=0, freeing the shard cursor and stopping the coord from
-  // issuing further _FT.CURSOR READs to this shard.
+  // Build ChunkSerializeState from stored results. Stored strict-timeout cursor reads must keep
+  // the cursor id in the reply so the caller can retry the paused cursor.
   ChunkSerializeState state = {
     .results = stored->results,
     .r = NULL,
     .nelem = 0,
     .resultsLen = REDISMODULE_POSTPONED_ARRAY_LEN,
-    .cursor_done = (AREQ_RequestFlags(req) & QEXEC_F_INTERNAL) && AREQ_TimedOut(req)
+    .cursor_done = false
   };
   int rc = stored->rc;
 
@@ -1742,18 +1740,17 @@ static int CursorReadTimeoutReturnStrictCallback(RedisModuleCtx *ctx, RedisModul
   BlockedCursorNode *node = RedisModule_GetBlockedClientPrivateData(ctx);
   if (!node || !node->privdata) {
     RedisModule_Log(ctx, "warning", "CursorReadTimeoutReturnStrictCallback: no node or privdata");
-    return shard_cursor_read_empty_reply_timeout(ctx);
+    return shard_cursor_read_empty_reply_timeout(ctx, 0);
   }
 
   AREQ *req = (AREQ *)node->privdata;
   AREQ_SetTimedOut(req);
 
   // If the timeout fires before the worker enters sendChunk/startPipeline, no
-  // stored cursor-read result exists. Internal shard cursor reads return cursor
-  // id 0 so the coordinator stops polling this shard; local cursor reads keep
-  // the requested cursor id so the user can retry the same cursor.
+  // stored cursor-read result exists. Preserve the requested cursor id so the
+  // caller can retry the same cursor on the next read.
   if (AREQ_TryClaimAggregateResultsForTimeout(req)) {
-    return IsInternal(req) ? shard_cursor_read_empty_reply_timeout(ctx)
+    return IsInternal(req) ? shard_cursor_read_empty_reply_timeout(ctx, (long long)node->cursorId)
                            : coord_cursor_read_empty_reply_timeout(ctx, (long long)node->cursorId);
   }
 
@@ -2003,13 +2000,13 @@ static void runCursor(RedisModule_Reply *reply, Cursor *cursor, size_t num) {
   }
 #endif
 
-  if (IsInternal(req) && req->useReplyCallback && AREQ_RequiresThreadsSyncResults(req) &&
-      AREQ_TimedOut(req)) {
-    // The strict timeout callback already won and replied with cursor id 0
-    // before this worker reached sendChunk. Close the internal shard cursor
-    // instead of parking it for a coordinator that will not poll it again.
+  if (req->useReplyCallback && AREQ_RequiresThreadsSyncResults(req) &&
+      AREQ_AggregateResultsClaimedByTimeout(req)) {
+    // The strict timeout callback already won and replied with this cursor id
+    // before this worker reached sendChunk. Keep the cursor paused so the
+    // caller can retry it.
     RedisSearchCtx_UnlockSpec(AREQ_SearchCtx(req));
-    Cursor_Free(cursor);
+    Cursor_Pause(cursor);
     return;
   }
 
@@ -2029,11 +2026,7 @@ static void runCursor(RedisModule_Reply *reply, Cursor *cursor, size_t num) {
       // callback will consume the stored state from this worker.
       req->storedReplyState.cursor = NULL;
       clearStoredCursorReadResults(&req->storedReplyState);
-      if (IsInternal(req)) {
-        Cursor_Free(cursor);
-      } else {
-        Cursor_Pause(cursor);
-      }
+      Cursor_Pause(cursor);
       return;
     }
     // Disposal of the stashed cursor is owned by AREQ_ReplyWithStoredResults.
@@ -2275,9 +2268,8 @@ int RSCursorReadCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc)
       RS_ASSERT(cursor->queryTimeoutMS == (size_t)req->reqConfig.queryTimeoutMS);
       RS_ASSERT(cursor->queryTimeoutPolicy == req->reqConfig.timeoutPolicy);
       if (cursor->queryTimeoutPolicy == TimeoutPolicy_ReturnStrict) {
-        // Public coordinator cursor reads reset this state in
-        // coordCursorReadReturnStrict. Shard/local cursor reads do not pass
-        // through that coordinator path, so reset the per-read sync state here.
+        // Shard/local RETURN_STRICT cursor reads bypass coordCursorReadReturnStrict,
+        // so opt into the same per-read worker/timeout claim handshake here.
         req->syncCtx.requiresAggregateResultsSync = true;
         AREQ_ResetForCursorReadReturnStrict(req);
       }
