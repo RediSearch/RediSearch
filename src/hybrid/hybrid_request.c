@@ -177,6 +177,9 @@ int HybridRequest_BuildPipeline(HybridRequest *req, HybridPipelineParams *params
           break;
         }
       }
+      if (!QueryError_HasError(status)) {
+        QueryError_SetError(status, QUERY_ERROR_CODE_GENERIC, "Failed to build hybrid pipeline");
+      }
       return REDISMODULE_ERR;
     }
     RLookup *tailLookup = AGPLN_GetLookup(&req->tailPipeline->ap, NULL, AGPLN_GETLOOKUP_FIRST);
