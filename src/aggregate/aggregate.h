@@ -204,10 +204,13 @@ typedef struct RequestSyncCtx {
   RedisModuleBlockedClient *bc;
   RedisModuleCmdFunc replyCallback;
   DLLIST_node blockedNode;
+  bool blockedNodeLinked;
   RequestCycleKind cycleKind;
   time_t cycleStart;
   uint64_t cycleCursorId;
   size_t cycleCursorCount;
+  void *coordCtx;
+  void (*coordCtxFree)(void *);
 
   /* Partial-timeout coordination. The CAS claim grants exclusive ownership of
    * the result-production phase: the BG-thread winner runs AggregateResults
@@ -242,10 +245,13 @@ static inline void RequestSyncCtx_Init(RequestSyncCtx *ctx, RequestKind kind, vo
   ctx->reply.err = QueryError_Default();
   ctx->bc = NULL;
   ctx->replyCallback = NULL;
+  ctx->blockedNodeLinked = false;
   ctx->cycleKind = REQUEST_CYCLE_NONE;
   ctx->cycleStart = 0;
   ctx->cycleCursorId = 0;
   ctx->cycleCursorCount = 0;
+  ctx->coordCtx = NULL;
+  ctx->coordCtxFree = NULL;
   ctx->requiresAggregateResultsSync = false;
   ctx->aggregatingResults = false;
   ctx->aggregateResultsDone = false;
@@ -257,8 +263,11 @@ static inline void RequestSyncCtx_Init(RequestSyncCtx *ctx, RequestKind kind, vo
 
 RequestSyncCtx *RequestSyncCtx_NewAREQ(AREQ *areq);
 RequestSyncCtx *RequestSyncCtx_NewHybrid(HybridRequest *hreq);
+RequestSyncCtx *RequestSyncCtx_NewPending(RequestKind kind);
 void RequestSyncCtx_Free(RequestSyncCtx *ctx);
 void AREQ_FreeFromRequestSyncCtx(AREQ *req);
+void RequestSyncCtx_BindAREQ(RequestSyncCtx *ctx, AREQ *areq);
+void RequestSyncCtx_BindHybridRequest(RequestSyncCtx *ctx, HybridRequest *hreq);
 void RSC_BeginCycle(RequestSyncCtx *ctx, RedisModuleBlockedClient *bc,
                     RedisModuleCmdFunc replyCallback, RequestCycleKind cycleKind,
                     uint64_t cursorId, size_t cursorCount);
@@ -268,8 +277,9 @@ AREQ *RequestSyncCtx_GetAREQ(RequestSyncCtx *ctx);
 HybridRequest *RequestSyncCtx_GetHybridRequest(RequestSyncCtx *ctx);
 AREQ *RequestSyncCtx_GetCursorAREQ(RequestSyncCtx *ctx, uint64_t cursorId);
 bool RequestSyncCtx_HasReplyCallback(RequestSyncCtx *ctx);
-void RequestSyncCtx_SetLegacyDeferredReplyMode(RequestSyncCtx *ctx, bool deferredReply);
 ChunkReplyState *RequestSyncCtx_GetReplyState(RequestSyncCtx *ctx);
+void RequestSyncCtx_SetCoordCtx(RequestSyncCtx *ctx, void *coordCtx, void (*freeCoordCtx)(void *));
+void *RequestSyncCtx_GetCoordCtx(RequestSyncCtx *ctx);
 
 // Release resources owned by a RequestSyncCtx. Must be called exactly once
 // per successful Init, from the request's free path.

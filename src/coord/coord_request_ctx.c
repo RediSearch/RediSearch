@@ -27,12 +27,21 @@ CoordRequestCtx *CoordRequestCtx_New(CommandType type) {
   return ctx;
 }
 
-void CoordRequestCtx_Free(CoordRequestCtx *ctx) {
+void CoordRequestCtx_FreeShallow(void *ctx_) {
+  CoordRequestCtx *ctx = ctx_;
   if (!ctx) return;
 
 #ifdef ENABLE_ASSERT
   CoordReqCtxFreeDebug_Increment();
 #endif
+
+  QueryError_ClearError(&ctx->preRequestError);
+  pthread_mutex_destroy(&ctx->setReqLock);
+  rm_free(ctx);
+}
+
+void CoordRequestCtx_Free(CoordRequestCtx *ctx) {
+  if (!ctx) return;
 
   // Clear pre-request error if set
   QueryError_ClearError(&ctx->preRequestError);
@@ -78,9 +87,9 @@ void CoordRequestCtx_SetRequest(CoordRequestCtx *ctx, void *req) {
 
   // Propagate reply mode to the request sync context.
   if (ctx->type == COMMAND_HYBRID) {
-    RequestSyncCtx_SetLegacyDeferredReplyMode(((HybridRequest *)req)->syncCtx, ctx->useReplyCallback);
+    RequestSyncCtx_BindHybridRequest(ctx->syncCtx, (HybridRequest *)req);
   } else if (ctx->type == COMMAND_AGGREGATE) {
-    RequestSyncCtx_SetLegacyDeferredReplyMode(((AREQ *)req)->syncCtx, ctx->useReplyCallback);
+    RequestSyncCtx_BindAREQ(ctx->syncCtx, (AREQ *)req);
   } else {
     COORD_REQUEST_CTX_UNSUPPORTED_TYPE();
   }
@@ -115,6 +124,9 @@ void *CoordRequestCtx_GetRequest(CoordRequestCtx *ctx) {
 
 void CoordRequestCtx_SetTimedOut(CoordRequestCtx *ctx) {
   RS_AtomicStoreRelaxed(&ctx->timedOut, true);
+  if (ctx->syncCtx) {
+    RS_AtomicStoreRelaxed(&ctx->syncCtx->timedOut, true);
+  }
   // Also propagate to the underlying request if set
   if (ctx->type == COMMAND_HYBRID) {
     if (ctx->hreq) HybridRequest_SetTimedOut(ctx->hreq);

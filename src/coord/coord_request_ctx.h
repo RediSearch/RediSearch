@@ -33,6 +33,7 @@ extern "C" {
  */
 typedef struct CoordRequestCtx {
   CommandType type;
+  RequestSyncCtx *syncCtx;
   union {
     AREQ *areq;
     HybridRequest *hreq;
@@ -60,6 +61,19 @@ CoordRequestCtx *CoordRequestCtx_New(CommandType type);
  * Takes void* to be compatible with free_privdata callback signature.
  */
 void CoordRequestCtx_Free(CoordRequestCtx *ctx);
+void CoordRequestCtx_FreeShallow(void *ctx);
+
+static inline CoordRequestCtx *CoordRequestCtx_FromRequestSyncCtx(RequestSyncCtx *rsc) {
+  return (CoordRequestCtx *)RequestSyncCtx_GetCoordCtx(rsc);
+}
+
+static inline CoordRequestCtx *CoordRequestCtx_FromBlockedClient(RedisModuleBlockedClient *bc) {
+  return CoordRequestCtx_FromRequestSyncCtx(RedisModule_BlockClientGetPrivateData(bc));
+}
+
+static inline CoordRequestCtx *CoordRequestCtx_FromRedisCtx(RedisModuleCtx *ctx) {
+  return CoordRequestCtx_FromRequestSyncCtx(RedisModule_GetBlockedClientPrivateData(ctx));
+}
 
 /**
  * Lock for request creation. Must be held while creating and setting the request.

@@ -2122,7 +2122,7 @@ int RSCursorReadCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc)
   // see reqCtx == NULL and fall back to the inline Reply API.
   RedisModuleBlockedClient *upstreamBC = RedisModule_GetBlockedClientHandle(ctx);
   CoordRequestCtx *reqCtx = upstreamBC
-      ? (CoordRequestCtx *)RedisModule_BlockClientGetPrivateData(upstreamBC)
+      ? CoordRequestCtx_FromBlockedClient(upstreamBC)
       : NULL;
   // Only the coord+FAIL path meets the precondition for
   // CoordRequestCtx_ReplyOrStoreError (deferred-reply mode).

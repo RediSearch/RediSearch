@@ -13,6 +13,8 @@
 #include "module.h"
 #include "util/logging.h"
 #include "coord/config.h"
+#include "aggregate/aggregate.h"
+#include "info/info_redis/threads/main_thread.h"
 
 static arrayof(redisearch_thpool_t *) threadpools_g = NULL;
 
@@ -121,8 +123,14 @@ int ConcurrentSearch_HandleRedisCommandEx(int poolType, ConcurrentCmdHandler han
 
   cmdCtx->bc = RedisModule_BlockClient(ctx, handlerCtx->bcCtx.reply_callback, handlerCtx->bcCtx.timeout_callback, handlerCtx->bcCtx.free_privdata, handlerCtx->bcCtx.timeoutMS);
 
-  if (handlerCtx->bcCtx.privdata) {
-    RedisModule_BlockClientSetPrivateData(cmdCtx->bc, handlerCtx->bcCtx.privdata);
+  RequestSyncCtx *rsc = handlerCtx->bcCtx.privdata;
+  if (rsc) {
+    RedisModule_BlockClientSetPrivateData(cmdCtx->bc, rsc);
+    RSC_BeginCycle(rsc, cmdCtx->bc, handlerCtx->bcCtx.reply_callback, REQUEST_CYCLE_QUERY, 0, 0);
+    BlockedQueries *blockedQueries = MainThread_GetBlockedQueries();
+    if (blockedQueries) {
+      BlockedQueries_LinkQuery(blockedQueries, rsc);
+    }
   }
 
   cmdCtx->argc = argc;

@@ -792,7 +792,7 @@ static void DistHybridCleanups(RedisModuleCtx *ctx,
     HybridRequest *hreq, RedisModule_Reply *reply,
     QueryError *status) {
 
-    CoordRequestCtx *reqCtx = RedisModule_BlockClientGetPrivateData(ConcurrentCmdCtx_GetBlockedClient(cmdCtx));
+    CoordRequestCtx *reqCtx = CoordRequestCtx_FromBlockedClient(ConcurrentCmdCtx_GetBlockedClient(cmdCtx));
 
     // If timeout already occurred, the timeout callback already replied - don't reply again
     if (CoordRequestCtx_TimedOut(reqCtx)) {
@@ -823,7 +823,7 @@ static void DistHybridCleanups(RedisModuleCtx *ctx,
 void RSExecDistHybrid(RedisModuleCtx *ctx, RedisModuleString **argv, int argc,
                         struct ConcurrentCmdCtx *cmdCtx) {
 
-    CoordRequestCtx *reqCtx = RedisModule_BlockClientGetPrivateData(ConcurrentCmdCtx_GetBlockedClient(cmdCtx));
+    CoordRequestCtx *reqCtx = CoordRequestCtx_FromBlockedClient(ConcurrentCmdCtx_GetBlockedClient(cmdCtx));
 
     if(CoordRequestCtx_TimedOut(reqCtx)) {
       // Query timed out before request creation
@@ -897,7 +897,7 @@ void RSExecDistHybrid(RedisModuleCtx *ctx, RedisModuleString **argv, int argc,
 void DEBUG_RSExecDistHybrid(RedisModuleCtx *ctx, RedisModuleString **argv, int argc,
                             struct ConcurrentCmdCtx *cmdCtx) {
 
-    CoordRequestCtx *reqCtx = RedisModule_BlockClientGetPrivateData(ConcurrentCmdCtx_GetBlockedClient(cmdCtx));
+    CoordRequestCtx *reqCtx = CoordRequestCtx_FromBlockedClient(ConcurrentCmdCtx_GetBlockedClient(cmdCtx));
 
     if(CoordRequestCtx_TimedOut(reqCtx)) {
       return;
@@ -976,7 +976,7 @@ int DistHybridTimeoutFailClient(RedisModuleCtx *ctx, RedisModuleString **argv, i
   UNUSED(argv);
   UNUSED(argc);
 
-  CoordRequestCtx *CoordReqCtx = RedisModule_GetBlockedClientPrivateData(ctx);
+  CoordRequestCtx *CoordReqCtx = CoordRequestCtx_FromRedisCtx(ctx);
   if (!CoordReqCtx) {
     // This shouldn't happen but handle gracefully
     return RedisModule_ReplyWithError(ctx, "Internal error: timeout with no context");
@@ -1007,7 +1007,7 @@ int DistHybridReplyCallback(RedisModuleCtx *ctx, RedisModuleString **argv, int a
   UNUSED(argv);
   UNUSED(argc);
 
-  CoordRequestCtx *CoordReqCtx = RedisModule_GetBlockedClientPrivateData(ctx);
+  CoordRequestCtx *CoordReqCtx = CoordRequestCtx_FromRedisCtx(ctx);
   if (!CoordReqCtx) {
     RedisModule_Log(ctx, "warning", "DistHybridReplyCallback: no context");
     return RedisModule_ReplyWithError(ctx, "Internal error: no request context");

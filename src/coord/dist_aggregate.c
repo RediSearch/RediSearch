@@ -453,7 +453,7 @@ static int executePlan(AREQ *r, struct ConcurrentCmdCtx *cmdCtx, RedisModule_Rep
 static void DistAggregateCleanups(RedisModuleCtx *ctx, struct ConcurrentCmdCtx *cmdCtx, IndexSpec *sp,
                           StrongRef *strong_ref, specialCaseCtx *knnCtx, AREQ *r, RedisModule_Reply *reply, QueryError *status) {
 
-  CoordRequestCtx *reqCtx = RedisModule_BlockClientGetPrivateData(ConcurrentCmdCtx_GetBlockedClient(cmdCtx));
+  CoordRequestCtx *reqCtx = CoordRequestCtx_FromBlockedClient(ConcurrentCmdCtx_GetBlockedClient(cmdCtx));
 
   // If timeout already occurred, the timeout callback already replied - don't reply again
   if (CoordRequestCtx_TimedOut(reqCtx)) {
@@ -488,7 +488,7 @@ cleanup:
 void RSExecDistAggregate(RedisModuleCtx *ctx, RedisModuleString **argv, int argc,
                          struct ConcurrentCmdCtx *cmdCtx) {
 
-  CoordRequestCtx *reqCtx = RedisModule_BlockClientGetPrivateData(ConcurrentCmdCtx_GetBlockedClient(cmdCtx));
+  CoordRequestCtx *reqCtx = CoordRequestCtx_FromBlockedClient(ConcurrentCmdCtx_GetBlockedClient(cmdCtx));
   if(CoordRequestCtx_TimedOut(reqCtx)) {
     // Query timed out before request creation
     WeakRef_Release(ConcurrentCmdCtx_GetWeakRef(cmdCtx));
@@ -512,10 +512,10 @@ void RSExecDistAggregate(RedisModuleCtx *ctx, RedisModuleString **argv, int argc
   // CMD, index, expr, args...
   AREQ *r = AREQ_New();
 
+  CoordRequestCtx_SetRequest(reqCtx, r);
   if (r->reqConfig.timeoutPolicy == TimeoutPolicy_ReturnStrict) {
     r->syncCtx->requiresAggregateResultsSync = true;
   }
-  CoordRequestCtx_SetRequest(reqCtx, r);
   CoordRequestCtx_UnlockSetRequest(reqCtx);
 
   QueryError status = QueryError_Default();
@@ -558,7 +558,7 @@ int DistAggregateTimeoutFailClient(RedisModuleCtx *ctx, RedisModuleString **argv
   UNUSED(argv);
   UNUSED(argc);
 
-  CoordRequestCtx *CoordReqCtx = RedisModule_GetBlockedClientPrivateData(ctx);
+  CoordRequestCtx *CoordReqCtx = CoordRequestCtx_FromRedisCtx(ctx);
   if (!CoordReqCtx) {
     // This shouldn't happen but handle gracefully
     return RedisModule_ReplyWithError(ctx, "Internal error: timeout with no context");
@@ -601,7 +601,7 @@ static void drainPartialResultsAfterTimeout(AREQ *req) {
 // Called on the main thread when the blocking client times out (RETURN-STRICT policy only).
 int DistAggregateTimeoutReturnStrictClient(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
 
-  CoordRequestCtx *CoordReqCtx = RedisModule_GetBlockedClientPrivateData(ctx);
+  CoordRequestCtx *CoordReqCtx = CoordRequestCtx_FromRedisCtx(ctx);
   if (!CoordReqCtx) {
     // This shouldn't happen but handle gracefully
     return RedisModule_ReplyWithError(ctx, "Internal error: timeout with no context");
@@ -652,7 +652,7 @@ int DistAggregateReplyCallback(RedisModuleCtx *ctx, RedisModuleString **argv, in
   UNUSED(argv);
   UNUSED(argc);
 
-  CoordRequestCtx *CoordReqCtx = RedisModule_GetBlockedClientPrivateData(ctx);
+  CoordRequestCtx *CoordReqCtx = CoordRequestCtx_FromRedisCtx(ctx);
   if (!CoordReqCtx) {
     RedisModule_Log(ctx, "warning", "DistAggregateReplyCallback: no context");
     return RedisModule_ReplyWithError(ctx, "ERR Internal error: no request context");
@@ -709,7 +709,7 @@ int DistAggregateReplyCallback(RedisModuleCtx *ctx, RedisModuleString **argv, in
 // bails are signaled via AREQ_ReplyOrStoreError. The timer waits and branches
 // on `hasStoredResults`.
 int DistCursorReadTimeoutReturnStrictClient(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
-  CoordRequestCtx *reqCtx = RedisModule_GetBlockedClientPrivateData(ctx);
+  CoordRequestCtx *reqCtx = CoordRequestCtx_FromRedisCtx(ctx);
   if (!reqCtx) {
     return RedisModule_ReplyWithError(ctx, "Internal error: timeout with no context");
   }
@@ -764,7 +764,7 @@ int DistCursorReadTimeoutReturnStrictClient(RedisModuleCtx *ctx, RedisModuleStri
 void DEBUG_RSExecDistAggregate(RedisModuleCtx *ctx, RedisModuleString **argv, int argc,
                          struct ConcurrentCmdCtx *cmdCtx) {
 
-  CoordRequestCtx *reqCtx = RedisModule_BlockClientGetPrivateData(ConcurrentCmdCtx_GetBlockedClient(cmdCtx));
+  CoordRequestCtx *reqCtx = CoordRequestCtx_FromBlockedClient(ConcurrentCmdCtx_GetBlockedClient(cmdCtx));
   if(CoordRequestCtx_TimedOut(reqCtx)) {
     // Query timed out before request creation
     WeakRef_Release(ConcurrentCmdCtx_GetWeakRef(cmdCtx));
@@ -805,10 +805,10 @@ void DEBUG_RSExecDistAggregate(RedisModuleCtx *ctx, RedisModuleString **argv, in
   // CMD, index, expr, args...
   r = &debug_req->r;
 
+  CoordRequestCtx_SetRequest(reqCtx, r);
   if (r->reqConfig.timeoutPolicy == TimeoutPolicy_ReturnStrict) {
     r->syncCtx->requiresAggregateResultsSync = true;
   }
-  CoordRequestCtx_SetRequest(reqCtx, r);
   CoordRequestCtx_UnlockSetRequest(reqCtx);
 
   // Store coordinator start time for dispatch time tracking

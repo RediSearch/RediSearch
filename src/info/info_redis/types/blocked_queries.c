@@ -85,12 +85,18 @@ void BlockedQueries_Free(BlockedQueries *blockedQueries) {
 
 void BlockedQueries_LinkQuery(BlockedQueries *blockedQueries, RequestSyncCtx *rsc) {
   dllist_prepend(&blockedQueries->queries, &rsc->blockedNode);
+  rsc->blockedNodeLinked = true;
 }
 
 void BlockedQueries_LinkCursor(BlockedQueries *blockedQueries, RequestSyncCtx *rsc) {
   dllist_prepend(&blockedQueries->cursors, &rsc->blockedNode);
+  rsc->blockedNodeLinked = true;
 }
 
 void BlockedQueries_Unlink(RequestSyncCtx *rsc) {
+  if (!rsc->blockedNodeLinked) {
+    return;
+  }
   dllist_delete(&rsc->blockedNode);
+  rsc->blockedNodeLinked = false;
 }

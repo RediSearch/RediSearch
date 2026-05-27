@@ -3680,12 +3680,6 @@ int DistAggregateTimeoutFailClient(RedisModuleCtx *ctx, RedisModuleString **argv
 int DistAggregateTimeoutReturnStrictClient(RedisModuleCtx *ctx, RedisModuleString **argv, int argc);
 int DistCursorReadTimeoutReturnStrictClient(RedisModuleCtx *ctx, RedisModuleString **argv, int argc);
 
-// Free privdata callback for distributed aggregate and hybrid query
-static void DistCoordReqFreePrivData(RedisModuleCtx *ctx, void *privdata) {
-  UNUSED(ctx);
-  CoordRequestCtx_Free((CoordRequestCtx *)privdata);
-}
-
 // Forward declaration for initQueryTimeout (defined later in file)
 static int initQueryTimeout(size_t *timeout, RedisModuleString **argv, int argc, QueryError *status);
 
@@ -3773,7 +3767,10 @@ int DistAggregateCommandImp(RedisModuleCtx *ctx, RedisModuleString **argv, int a
     return QueryError_ReplyAndClear(ctx, &status);
   }
 
+  RequestSyncCtx *rsc = RequestSyncCtx_NewPending(REQUEST_KIND_AREQ);
   CoordRequestCtx *reqCtx = CoordRequestCtx_New(COMMAND_AGGREGATE);
+  reqCtx->syncCtx = rsc;
+  RequestSyncCtx_SetCoordCtx(rsc, reqCtx, CoordRequestCtx_FreeShallow);
 
   ConcurrentSearchHandlerCtx handlerCtx;
   ConcurrentSearchHandlerCtx_Init(&handlerCtx);
@@ -3781,8 +3778,8 @@ int DistAggregateCommandImp(RedisModuleCtx *ctx, RedisModuleString **argv, int a
   handlerCtx.coordStartTime = coordInitialTime;
   handlerCtx.spec_ref = StrongRef_Demote(spec_ref);
 
-  handlerCtx.bcCtx.privdata = reqCtx;
-  handlerCtx.bcCtx.free_privdata = DistCoordReqFreePrivData;
+  handlerCtx.bcCtx.privdata = rsc;
+  handlerCtx.bcCtx.free_privdata = RequestSyncCtx_OnFree;
 
   RSTimeoutPolicy policy = RSGlobalConfig.requestConfigParams.timeoutPolicy;
   if (policy == TimeoutPolicy_Fail || policy == TimeoutPolicy_ReturnStrict) {
@@ -3863,7 +3860,10 @@ int DistHybridCommandInternal(RedisModuleCtx *ctx, RedisModuleString **argv, int
     return QueryError_ReplyAndClear(ctx, &status);
   }
 
+  RequestSyncCtx *rsc = RequestSyncCtx_NewPending(REQUEST_KIND_HYBRID);
   CoordRequestCtx *reqCtx = CoordRequestCtx_New(COMMAND_HYBRID);
+  reqCtx->syncCtx = rsc;
+  RequestSyncCtx_SetCoordCtx(rsc, reqCtx, CoordRequestCtx_FreeShallow);
 
 
   ConcurrentSearchHandlerCtx handlerCtx;
@@ -3873,8 +3873,8 @@ int DistHybridCommandInternal(RedisModuleCtx *ctx, RedisModuleString **argv, int
   handlerCtx.spec_ref = StrongRef_Demote(spec_ref);
   handlerCtx.numShards = NumShards;  // Capture NumShards from main thread for thread-safe access
 
-  handlerCtx.bcCtx.privdata = reqCtx;
-  handlerCtx.bcCtx.free_privdata = DistCoordReqFreePrivData;
+  handlerCtx.bcCtx.privdata = rsc;
+  handlerCtx.bcCtx.free_privdata = RequestSyncCtx_OnFree;
 
   if (RSGlobalConfig.requestConfigParams.timeoutPolicy == TimeoutPolicy_Fail) {
     handlerCtx.bcCtx.reply_callback = DistHybridReplyCallback;
@@ -3955,9 +3955,12 @@ static inline int CursorCommand(RedisModuleCtx *ctx, RedisModuleString **argv, i
       // _FT.HYBRID WITHCURSOR is read via _FT.CURSOR READ, bypassing CursorCommand.
       RS_ASSERT(!info.isHybrid);
 #endif
+      RequestSyncCtx *rsc = RequestSyncCtx_NewPending(REQUEST_KIND_AREQ);
       CoordRequestCtx *reqCtx = CoordRequestCtx_New(COMMAND_AGGREGATE);
-      handlerCtx.bcCtx.privdata = reqCtx;
-      handlerCtx.bcCtx.free_privdata = DistCoordReqFreePrivData;
+      reqCtx->syncCtx = rsc;
+      RequestSyncCtx_SetCoordCtx(rsc, reqCtx, CoordRequestCtx_FreeShallow);
+      handlerCtx.bcCtx.privdata = rsc;
+      handlerCtx.bcCtx.free_privdata = RequestSyncCtx_OnFree;
       handlerCtx.bcCtx.reply_callback = DistAggregateReplyCallback;
       handlerCtx.bcCtx.timeoutMS = info.queryTimeoutMS;
       CoordRequestCtx_SetUseReplyCallback(reqCtx, true);

@@ -52,15 +52,55 @@ RequestSyncCtx *RequestSyncCtx_NewHybrid(HybridRequest *hreq) {
   return ctx;
 }
 
+RequestSyncCtx *RequestSyncCtx_NewPending(RequestKind kind) {
+  RequestSyncCtx *ctx = rm_new(RequestSyncCtx);
+  RequestSyncCtx_Init(ctx, kind, NULL);
+  return ctx;
+}
+
+static void RequestSyncCtx_FreeShell(RequestSyncCtx *ctx) {
+  if (!ctx) {
+    return;
+  }
+  ChunkReplyState_Destroy(&ctx->reply);
+  RequestSyncCtx_Destroy(ctx);
+  rm_free(ctx);
+}
+
+void RequestSyncCtx_BindAREQ(RequestSyncCtx *ctx, AREQ *areq) {
+  RS_ASSERT(ctx && ctx->kind == REQUEST_KIND_AREQ);
+  if (areq->syncCtx != ctx) {
+    RequestSyncCtx_FreeShell(areq->syncCtx);
+    areq->syncCtx = ctx;
+  }
+  ctx->query.areq = areq;
+}
+
+void RequestSyncCtx_BindHybridRequest(RequestSyncCtx *ctx, HybridRequest *hreq) {
+  RS_ASSERT(ctx && ctx->kind == REQUEST_KIND_HYBRID);
+  if (hreq->syncCtx != ctx) {
+    RequestSyncCtx_FreeShell(hreq->syncCtx);
+    hreq->syncCtx = ctx;
+  }
+  ctx->query.hreq = hreq;
+}
+
 void RequestSyncCtx_Free(RequestSyncCtx *ctx) {
   if (!ctx) {
     return;
   }
   ChunkReplyState_Destroy(&ctx->reply);
   if (ctx->kind == REQUEST_KIND_AREQ) {
-    AREQ_FreeFromRequestSyncCtx(ctx->query.areq);
+    if (ctx->query.areq) {
+      AREQ_FreeFromRequestSyncCtx(ctx->query.areq);
+    }
   } else {
-    HybridRequest_Free(ctx->query.hreq);
+    if (ctx->query.hreq) {
+      HybridRequest_Free(ctx->query.hreq);
+    }
+  }
+  if (ctx->coordCtxFree) {
+    ctx->coordCtxFree(ctx->coordCtx);
   }
   RequestSyncCtx_Destroy(ctx);
   rm_free(ctx);
@@ -167,26 +207,17 @@ bool RequestSyncCtx_HasReplyCallback(RequestSyncCtx *ctx) {
   return ctx && ctx->replyCallback != NULL;
 }
 
-static int RequestSyncCtx_LegacyDeferredReplyMarker(RedisModuleCtx *ctx,
-                                                      RedisModuleString **argv, int argc) {
-  UNUSED(ctx);
-  UNUSED(argv);
-  UNUSED(argc);
-  RS_LOG_ASSERT(false, "legacy reply callback sentinel must never be invoked");
-  return REDISMODULE_OK;
-}
-
-void RequestSyncCtx_SetLegacyDeferredReplyMode(RequestSyncCtx *ctx, bool deferredReply) {
-  if (!ctx) {
-    return;
-  }
-  // Temporary coordinator bridge until Step 5 routes coord blocked clients
-  // through RSC_BeginCycle with the real reply callback.
-  ctx->replyCallback = deferredReply ? RequestSyncCtx_LegacyDeferredReplyMarker : NULL;
-}
-
 ChunkReplyState *RequestSyncCtx_GetReplyState(RequestSyncCtx *ctx) {
   return ctx ? &ctx->reply : NULL;
+}
+
+void RequestSyncCtx_SetCoordCtx(RequestSyncCtx *ctx, void *coordCtx, void (*freeCoordCtx)(void *)) {
+  ctx->coordCtx = coordCtx;
+  ctx->coordCtxFree = freeCoordCtx;
+}
+
+void *RequestSyncCtx_GetCoordCtx(RequestSyncCtx *ctx) {
+  return ctx ? ctx->coordCtx : NULL;
 }
 
 void RequestSyncCtx_RegisterAbortWakeChannel(RequestSyncCtx *ctx, struct MRChannel *chan) {
