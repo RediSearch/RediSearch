@@ -161,6 +161,42 @@ fn lex_input_length_boundaries() {
     );
 }
 
+/// Regression: iteration must not overflow the stack on a chain of
+/// nested terminals up to the maximum supported depth.
+///
+/// Mirrors `testDeepEntry` in `tests/cpptests/test_cpp_trie.cpp`. The C
+/// test inserts every prefix of a 255-char `"1...1"` string (lengths 1
+/// through `TRIE_INITIAL_STRING_LEN - 1 = 255`), then runs the range
+/// `["1", "1Z")` and asserts the trie yields all 255 entries. The point
+/// is that nothing in the recursion path explodes on the maximum-depth
+/// trie shape.
+///
+/// Not a shared-snapshot test: the C oracle test asserts a count, so we
+/// do the same here.
+#[test]
+fn lex_deep_entry_chain_iterates_without_stack_overflow() {
+    let mut trie = StrTrieMap::<()>::new();
+
+    // 255 = TRIE_INITIAL_STRING_LEN - 1, the highest depth the C trie
+    // accepts (`Trie_InsertRune` rejects 256 via strict `<`).
+    const MAX_LEN: usize = 255;
+
+    for len in 1..=MAX_LEN {
+        let term = "1".repeat(len);
+        let rc = insert(&mut trie, &term);
+        assert_eq!(rc, 1, "expected NEW insert for len={len}");
+    }
+    assert_eq!(trie.len(), MAX_LEN);
+
+    // include_max=false matches the C `Trie_IterateRange(..., false)`.
+    // Every key is "1...1" — strictly less than "1Z" since '1' < 'Z'.
+    let hits: Vec<String> = trie
+        .range_iter(Some("1"), true, Some("1Z"), false)
+        .map(|(k, _)| k)
+        .collect();
+    assert_eq!(hits.len(), MAX_LEN);
+}
+
 #[test]
 #[ignore = "UTF-8 keys preserve distinct codepoints; the C `(rune)cp` u16 truncation that aliases U+1F980 onto U+F980 has no structural analog here, so the shared rune snapshot will never match."]
 fn lex_non_bmp_codepoint_truncation_and_aliasing() {

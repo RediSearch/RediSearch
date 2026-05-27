@@ -194,6 +194,65 @@ fn lex_range_min_greater_than_max() {
     assert_against_shared_snapshot("lex_range_min_greater_than_max", dump);
 }
 
+/// Regression: range iteration must not double-emit a subtree when the
+/// boundary value is a proper prefix of a collapsed child label.
+///
+/// Mirrors `testRangeBoundaryPrefix` in `tests/cpptests/test_cpp_trie.cpp`.
+/// The fixture uses textual terms (rather than the numeric `0..1000` in
+/// the C `testBasicRange`) so that root children like `"ban"` have
+/// multi-character labels — only those expose the bug, because
+/// `rsb_gt`/`rsb_lt` treat e.g. `"b" < "ban"` and would include the
+/// boundary child in the for-loop alongside the dedicated boundary
+/// recursion above it.
+///
+/// Not a shared-snapshot test: this asserts a structural invariant
+/// (no duplicate emission), not a byte-exact match against the C oracle.
+#[test]
+fn lex_range_boundary_prefix_no_double_emission() {
+    let mut trie = TermDictionary::new();
+    for term in ["apple", "banana", "band", "bandana", "cherry", "date"] {
+        trie.replace_term(term, UNUSED_SCORE, 1);
+    }
+
+    // Min-only: [b, +inf). "b" is a proper prefix of the collapsed "ban"
+    // label. Pre-fix C trie would fire the "ban" subtree once via the
+    // boundary recursion and again via the for-loop.
+    let min_only: Vec<String> = trie
+        .range_iter(Some("b"), true, None, true)
+        .map(|(k, _)| k)
+        .collect();
+    let min_only_unique: std::collections::HashSet<&String> = min_only.iter().collect();
+    assert_eq!(
+        min_only.len(),
+        min_only_unique.len(),
+        "min-only range emitted a duplicate: {min_only:?}",
+    );
+    let mut min_only_sorted = min_only;
+    min_only_sorted.sort();
+    assert_eq!(
+        min_only_sorted,
+        vec!["banana", "band", "bandana", "cherry", "date"],
+    );
+
+    // Max-only: (-inf, banb]. "ban" is a proper prefix of "banb", so
+    // `rsb_lt("banb")` would include the "ban" subtree alongside the
+    // boundary recursion. Only entries strictly less than "banb" should
+    // surface — "band"/"bandana" are lex-greater than "banb".
+    let max_only: Vec<String> = trie
+        .range_iter(None, true, Some("banb"), true)
+        .map(|(k, _)| k)
+        .collect();
+    let max_only_unique: std::collections::HashSet<&String> = max_only.iter().collect();
+    assert_eq!(
+        max_only.len(),
+        max_only_unique.len(),
+        "max-only range emitted a duplicate: {max_only:?}",
+    );
+    let mut max_only_sorted = max_only;
+    max_only_sorted.sort();
+    assert_eq!(max_only_sorted, vec!["apple", "banana"]);
+}
+
 #[test]
 fn lex_range_callback_stops_early() {
     // C side halts on the 3rd non-zero callback return. Rust-side equivalent
