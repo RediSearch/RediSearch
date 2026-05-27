@@ -23,4 +23,3 @@ workspace_hack.workspace = true
 [dev-dependencies]
 ffi = { workspace = true }
 index_result = { workspace = true }
-inverted_index = { workspace = true }
