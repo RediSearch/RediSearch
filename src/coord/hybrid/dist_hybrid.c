@@ -797,13 +797,6 @@ typedef struct {
     // The tail does NOT issue Redis API calls through dispatcherCtx — it
     // creates its own replyCtx for the reply path.
     RedisModuleCtx *dispatcherCtx;
-    // `qctxErr` is the storage that `hreq->tailPipeline->qctx.err` points to during
-    // tail execution. We deliberately keep this distinct from
-    // `hreq->tailPipelineError`: the merger writes runtime conditions (e.g.
-    // VALUE_NOT_FOUND in an APPLY) into qctx->err so finishSendChunkReply_hybrid
-    // can emit them as warnings, but those should NOT be treated as fatal pipeline
-    // errors by HybridRequest_GetError (which would force a hard error reply).
-    QueryError qctxErr;
 } HybridDispatchCtx;
 
 static void HybridDispatchCtx_Free(HybridDispatchCtx *dispatch) {
@@ -812,14 +805,9 @@ static void HybridDispatchCtx_Free(HybridDispatchCtx *dispatch) {
     RedisModuleBlockedClient *bc = dispatch->bc;
     RedisModuleCtx *dispatcherCtx = dispatch->dispatcherCtx;
 
-    // DecrRef may run Pipeline_Clean → QITR_FreeChain on the tail pipeline,
-    // whose qctx->err still points into dispatch->qctxErr. Tear down hreq
-    // first so any RP Free that reads or writes through err sees live storage,
-    // then clear any error contents it may have left behind, then free dispatch.
     if (hreq) {
         HybridRequest_DecrRef(hreq);
     }
-    QueryError_ClearError(&dispatch->qctxErr);
     rm_free(dispatch);
     // The dispatcher thread already called CurrentThread_ClearIndexSpec() after
     // transferring strong_ref ownership here, so only release the strong ref.
@@ -940,8 +928,9 @@ static void HybridDispatchCtx_Tail(void *arg) {
 //
 // `dispatcherStatus` is the dispatcher-thread QueryError that ProcessHybridCursorMappings
 // may have stamped non-fatal warnings onto (e.g. COORD OOM under OomPolicy_Return).
-// We forward those warning bits into the tail's qctxErr so finishSendChunkReply_hybrid
-// can emit them.
+// We forward those warning bits into tailPipelineError so finishSendChunkReply_hybrid
+// can emit them. OOM warning bits do not trigger QueryError_HasError, so this does
+// not cause HybridRequest_GetError to treat the reply as a fatal error.
 static void scheduleHybridTail(HybridRequest *hreq, StrongRef indexSpecRef,
                              struct ConcurrentCmdCtx *cmdCtx, RedisModuleCtx *ctx,
                              const QueryError *dispatcherStatus) {
@@ -950,19 +939,13 @@ static void scheduleHybridTail(HybridRequest *hreq, StrongRef indexSpecRef,
     dispatch->indexSpecRef = indexSpecRef;
     dispatch->bc = ConcurrentCmdCtx_GetBlockedClient(cmdCtx);
     dispatch->dispatcherCtx = ctx;
-    dispatch->qctxErr = QueryError_Default();
 
     // Carry forward any non-fatal warnings the dispatcher recorded during cursor
     // establishment. Without this, the warning is lost when `dispatcherStatus`
     // (a stack QueryError on RSExecDistHybrid) goes out of scope.
     if (QueryError_HasQueryOOMWarning(dispatcherStatus)) {
-        QueryError_SetQueryOOMWarning(&dispatch->qctxErr);
+        QueryError_SetQueryOOMWarning(&hreq->tailPipelineError);
     }
-
-    // Re-point qctx->err at the dispatch context's own QueryError so the tail
-    // pipeline can write runtime warnings (e.g. APPLY missing-field) without
-    // those being picked up by HybridRequest_GetError as fatal errors.
-    hreq->tailPipeline->qctx.err = &dispatch->qctxErr;
 
     // Keep ctx alive past the handler return (CMDCTX_KEEP_RCTX prevents
     // threadHandleCommand from calling RedisModule_FreeThreadSafeContext).
