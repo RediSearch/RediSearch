@@ -106,7 +106,7 @@ fn remote_sortby_mixed_directions() {
         row.write_key(&v, SharedValue::new_num(*vv));
         row.write_key(&s0, SharedValue::new_num(*s0v));
         row.write_key(&s1, SharedValue::new_num(*s1v));
-        ctx.add(&r, &row);
+        ctx.add(&r, &row, None);
     }
     let out = ctx.finalize(&r);
     // Expected best→worst: (s0=0,s1=1), (s0=1,s1=9), (s0=1,s1=5).
@@ -133,7 +133,7 @@ fn remote_sortby_internal_emits_sort_snapshot() {
             &[SharedValue::new_num(n * 10.0)],
             &[SharedValue::new_num(n)],
         );
-        ctx.add(&r, &row);
+        ctx.add(&r, &row, None);
     }
     let out = ctx.finalize(&r);
     let rows = array_entries(&out);

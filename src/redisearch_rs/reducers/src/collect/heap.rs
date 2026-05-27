@@ -35,13 +35,19 @@ use value::comparison::cmp_fields;
 pub struct EntryKey {
     sort_vals: Box<[Option<SharedValue>]>,
     sort_asc_map: u64,
+    doc_id: Option<ffi::t_docId>,
 }
 
 impl EntryKey {
-    pub const fn new(sort_vals: Box<[Option<SharedValue>]>, sort_asc_map: u64) -> Self {
+    pub const fn new(
+        sort_vals: Box<[Option<SharedValue>]>,
+        sort_asc_map: u64,
+        doc_id: Option<ffi::t_docId>,
+    ) -> Self {
         Self {
             sort_vals,
             sort_asc_map,
+            doc_id,
         }
     }
 }
@@ -76,7 +82,15 @@ impl Ord for EntryKey {
         // `Ordering::Greater` for the "better" side, matching the
         // "best = max" convention in `SearchResult_CmpByFields` and the
         // C `RPSorter`'s `mmh_pop_max` consumer.
-        cmp_fields(pairs, self.sort_asc_map, None)
+        match cmp_fields(pairs, self.sort_asc_map, None) {
+            Ordering::Equal => {}
+            ord => return ord,
+        }
+
+        match (self.doc_id, other.doc_id) {
+            (Some(left), Some(right)) => right.cmp(&left),
+            _ => Ordering::Equal,
+        }
     }
 }
 

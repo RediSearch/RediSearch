@@ -32,7 +32,7 @@ fn key(vals: &[f64], asc: u64) -> EntryKey {
             }
         })
         .collect();
-    EntryKey::new(snapshot, asc)
+    EntryKey::new(snapshot, asc, None)
 }
 
 /// Bit `i` ASC.
@@ -164,17 +164,20 @@ fn min_max_heap_top_k_under_asc() {
 }
 
 #[test]
-fn ord_appended_be_byte_key_breaks_tie_lex() {
-    // The C grouper plants doc ids as big-endian bytes into a hidden source
-    // key that the COLLECT factory appends to `sort_keys` (ASC). Under
-    // lex-compare, BE bytes order identically to the underlying u64.
-    fn be(v: u64) -> Option<SharedValue> {
-        Some(SharedValue::new_string(v.to_be_bytes().to_vec()))
-    }
+fn entry_key_compares_doc_id_only_after_sort_values_tie() {
     let primary = Some(SharedValue::new_num(1.0));
-    let a = EntryKey::new(Box::new([primary.clone(), be(10)]), asc(0) | asc(1));
-    let b = EntryKey::new(Box::new([primary, be(20)]), asc(0) | asc(1));
-    // Primary ties → secondary (ASC) decides → smaller is "better".
+    let a = EntryKey::new(Box::new([primary.clone()]), asc(0), Some(10));
+    let b = EntryKey::new(Box::new([primary]), asc(0), Some(20));
+    // Sort values tie -> smaller doc id is "better".
+    assert_eq!(a.cmp(&b), Ordering::Greater);
+    assert_eq!(b.cmp(&a), Ordering::Less);
+}
+
+#[test]
+fn entry_key_sort_values_take_precedence_over_doc_id() {
+    let a = EntryKey::new(Box::new([Some(SharedValue::new_num(1.0))]), asc(0), Some(20));
+    let b = EntryKey::new(Box::new([Some(SharedValue::new_num(2.0))]), asc(0), Some(10));
+    // Sort value wins first; doc id is only a tie-breaker.
     assert_eq!(a.cmp(&b), Ordering::Greater);
     assert_eq!(b.cmp(&a), Ordering::Less);
 }

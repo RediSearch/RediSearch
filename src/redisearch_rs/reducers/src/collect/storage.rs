@@ -86,7 +86,16 @@ impl Storage {
     ///   the current worst).
     ///
     /// Returns `true` if the entry was buffered, `false` if it was dropped.
-    pub fn insert_entry<S, P>(&mut self, sort_vals: S, project: P) -> bool
+    ///
+    /// `doc_id` is only consulted on the heap path, where it acts as a
+    /// deterministic tie-breaker when sort keys compare equal. Callers that
+    /// don't need tie-breaking (or use the array path) pass `None`.
+    pub fn insert_entry<S, P>(
+        &mut self,
+        sort_vals: S,
+        doc_id: Option<ffi::t_docId>,
+        project: P,
+    ) -> bool
     where
         S: FnOnce() -> Box<[Option<SharedValue>]>,
         P: FnOnce() -> RLookupRow<'static>,
@@ -110,15 +119,16 @@ impl Storage {
                 count,
             } => {
                 let max_size = offset.saturating_add(*count);
+                let make_key = |sort_vals: S| EntryKey::new(sort_vals(), *sort_asc_map, doc_id);
                 if max_size == 0 {
                     return false;
                 }
                 if heap.len() < max_size {
-                    let key = EntryKey::new(sort_vals(), *sort_asc_map);
+                    let key = make_key(sort_vals);
                     heap.push(HeapEntry::new(key, project()));
                     true
                 } else {
-                    let cand_key = EntryKey::new(sort_vals(), *sort_asc_map);
+                    let cand_key = make_key(sort_vals);
                     // `peek_min` returns the worst surviving candidate
                     // under the "best = max" convention (see `heap`).
                     // The unwrap is sound: `cap > 0` implies the heap is

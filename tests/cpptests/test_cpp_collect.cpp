@@ -54,7 +54,7 @@ protected:
     ArgsCursor ac;
     ArgsCursor_InitCString(&ac, args.data(), args.size());
     ReducerOptions opts = REDUCEROPTS_INIT("COLLECT", &ac, &lk, NULL, status, true, isLocal,
-                                           inputKey, NULL, 0);
+                                           inputKey, 0);
     return RDCRCollect_New(&opts);
   }
 

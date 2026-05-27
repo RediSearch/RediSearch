@@ -250,6 +250,7 @@ impl LocalCollectCtx {
             }
             self.storage.insert_entry(
                 || snapshot_sort_keys(r.fields.sort_key_names(), item),
+                None,
                 || r.fields.prepare_row(item, &mut self.lookup),
             );
         }
