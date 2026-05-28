@@ -73,7 +73,12 @@ runs:
         REPO: ${{ github.repository }}
         BRANCH: ${{ env.FLAKY_BRANCH }}
       run: |
-        python3 ${{ github.action_path }}/../../scripts/flaky_db.py fetch \
+        # Use a workspace-relative path: `${{ github.action_path }}` expands to
+        # the runner host path, which doesn't exist when the step runs inside a
+        # Docker container (workspace is mounted at /__w/...). The composite
+        # action's working directory is $GITHUB_WORKSPACE, which is mapped
+        # correctly in both runner and container jobs.
+        python3 .github/scripts/flaky_db.py fetch \
           --output-json .flaky_skip.json \
           --output-list .flaky_skip.txt
 
@@ -103,7 +108,7 @@ runs:
           echo "::warning::LIST=1 enumeration failed — running full suite as fallback"
           exit 0
         }
-        python3 ${{ github.action_path }}/../../scripts/flaky_db.py filter \
+        python3 .github/scripts/flaky_db.py filter \
           --tests "$LIST_OUT" \
           --marks .flaky_skip.txt \
           --output "$TESTFILE_OUT"

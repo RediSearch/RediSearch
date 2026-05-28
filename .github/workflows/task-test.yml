@@ -435,7 +435,10 @@ jobs:
           REJSON_BRANCH: ${{ inputs.rejson-branch }}
           ENABLE_ASSERT: 1
           TEST_CONFIG: ${{ inputs.test-config }}
-          FAILEDFILE: ${{ github.workspace }}/.failed_standalone.txt
+          # Relative path: ${{ github.workspace }} resolves to the runner host
+          # path, which is unreachable when the step runs in a container.
+          # runtests.sh prepends $ROOT for non-absolute FAILEDFILE values.
+          FAILEDFILE: .failed_standalone.txt
           TESTFILE: ${{ steps.standalone_testfile.outputs.testfile }}
         run: make pytest $TEST_CONFIG
 
@@ -445,7 +448,7 @@ jobs:
         uses: ./.github/actions/flaky-record-results
         with:
           redis-url: ${{ secrets.FLAKY_TESTS_REDIS_URL }}
-          failed-file: ${{ github.workspace }}/.failed_standalone.txt
+          failed-file: .failed_standalone.txt
           job-name: ${{ needs.get-config.outputs.name }} standalone
 
       - name: Build TESTFILE excluding flaky tests (coordinator)
@@ -476,7 +479,7 @@ jobs:
           REJSON_BRANCH: ${{ inputs.rejson-branch }}
           ENABLE_ASSERT: 1
           TEST_CONFIG: ${{ inputs.test-config }}
-          FAILEDFILE: ${{ github.workspace }}/.failed_coordinator.txt
+          FAILEDFILE: .failed_coordinator.txt
           TESTFILE: ${{ steps.coordinator_testfile.outputs.testfile }}
         run: make pytest $TEST_CONFIG
 
@@ -486,7 +489,7 @@ jobs:
         uses: ./.github/actions/flaky-record-results
         with:
           redis-url: ${{ secrets.FLAKY_TESTS_REDIS_URL }}
-          failed-file: ${{ github.workspace }}/.failed_coordinator.txt
+          failed-file: .failed_coordinator.txt
           job-name: ${{ needs.get-config.outputs.name }} coordinator
 
       - name: Rust tests (MIRI)
@@ -611,8 +614,8 @@ jobs:
             done < "$listfile"
           }
 
-          copy_for_failed_list "${{ github.workspace }}/.failed_standalone.txt"
-          copy_for_failed_list "${{ github.workspace }}/.failed_coordinator.txt"
+          copy_for_failed_list ".failed_standalone.txt"
+          copy_for_failed_list ".failed_coordinator.txt"
 
           # Always include the run-level RLTest summary log if present — it gives
           # session-level context that complements per-test logs.
@@ -623,7 +626,7 @@ jobs:
 
           # Stash the failed-test lists alongside the logs for downstream consumers.
           for f in .failed_standalone.txt .failed_coordinator.txt; do
-            [ -f "${{ github.workspace }}/$f" ] && cp "${{ github.workspace }}/$f" "$DEST/$f"
+            [ -f "$f" ] && cp "$f" "$DEST/$f"
           done
 
           echo "Failed-test logs bundled:"
