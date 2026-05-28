@@ -7,10 +7,7 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 
-// Provide stubs for C symbols
-// that rqe_iterators and inverted_index reference at link time.
-redis_mock::mock_or_stub_missing_redis_c_symbols!();
-extern crate redisearch_rs;
-
-mod adhoc_lifecycle;
-mod iterator;
+fn main() {
+    #[cfg(feature = "unittest")]
+    build_utils::bind_foreign_c_symbols();
+}
