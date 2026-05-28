@@ -400,9 +400,9 @@ void addSuffixTrieMap(TrieMap *trie, const char *str, uint32_t len) {
     data->array = array_ensure_append_1(data->array, copyStr);
   }
 
-  // Save string copy to all suffixes of it
-  // If it exists, move to the next field
-  for (int j = 1; j < len - MIN_SUFFIX + 1; ++j) {
+  // Save string copy to all suffixes of it.
+  // `j + MIN_SUFFIX <= len` avoids unsigned underflow when len < MIN_SUFFIX.
+  for (size_t j = 1; j + MIN_SUFFIX <= (size_t)len; ++j) {
     data = TrieMap_Find(trie, copyStr + j, len - j);
 
     if (data == TRIEMAP_NOTFOUND) {
@@ -418,18 +418,33 @@ void addSuffixTrieMap(TrieMap *trie, const char *str, uint32_t len) {
 void deleteSuffixTrieMap(TrieMap *trie, const char *str, uint32_t len) {
   char *oldTerm = NULL;
 
-  // iterate all matching terms and remove word
-  for (int j = 0; j < len - MIN_SUFFIX + 1; ++j) {
-    suffixData *data = TrieMap_Find(trie, str + j, len - j);
-    RS_LOG_ASSERT(data != TRIEMAP_NOTFOUND, "all suffixes must exist");
-    if (j == 0) {
-      // keep pointer to word string to free after it was found in all sub tokens.
+  // Full-term entry (always inserted by addSuffixTrieMap).
+  if (len > 0) {
+    suffixData *data = TrieMap_Find(trie, str, len);
+    if (data == TRIEMAP_NOTFOUND) {
+      // values and suffix TrieMaps should mirror each other. A miss here means
+      // a value reached TagIndex->values without going through addSuffixTrieMap
+      // (e.g. the empty-string regression fixed in MOD-15720). Log and keep
+      // going so a single inconsistency doesn't crash the fork GC thread.
+      RedisModule_Log(RSDummyContext, "warning",
+                      "deleteSuffixTrieMap: tag value missing from suffix trie "
+                      "(values/suffix out of sync)");
+    } else {
       oldTerm = data->term;
       data->term = NULL;
+      removeSuffix(str, len, data->array);
+      if (array_len(data->array) == 0) {
+        RS_LOG_ASSERT(!data->term, "array should contain a pointer to the string");
+        TrieMap_Delete(trie, str, len, (freeCB)freeSuffixNode);
+      }
     }
-    // remove from array
+  }
+
+  // Sub-suffix entries. Same underflow-safe bound as addSuffixTrieMap above.
+  for (size_t j = 1; j + MIN_SUFFIX <= (size_t)len; ++j) {
+    suffixData *data = TrieMap_Find(trie, str + j, len - j);
+    if (data == TRIEMAP_NOTFOUND) continue;
     removeSuffix(str, len, data->array);
-    // if array is empty, remove the node
     if (array_len(data->array) == 0) {
       RS_LOG_ASSERT(!data->term, "array should contain a pointer to the string");
       TrieMap_Delete(trie, str + j, len - j, (freeCB)freeSuffixNode);

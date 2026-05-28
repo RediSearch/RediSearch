@@ -234,7 +234,9 @@ bool TagIndex_Index(RedisModuleCtx *ctx, TagIndex *idx, const char **values, siz
       if (tok) {
         TrieMap_Add(idx->values, tok, strlen(tok), NULL, NULL);
 
-        if (idx->suffix && (*tok != '\0')) {
+        // MOD-15720: idx->values and idx->suffix must stay coherent so that
+        // fork-GC cleanup of an emptied tag value finds the matching entry.
+        if (idx->suffix) {
           addSuffixTrieMap(idx->suffix, tok, strlen(tok));
         }
       }
@@ -246,7 +248,8 @@ bool TagIndex_Index(RedisModuleCtx *ctx, TagIndex *idx, const char **values, siz
       if (tok) {
         stats->invertedSize += tagIndex_Put(idx, tok, strlen(tok), docId, stats);
 
-        if (idx->suffix && (*tok != '\0')) { // add to suffix TrieMap
+        // MOD-15720: see comment in the disk branch above.
+        if (idx->suffix) {
           addSuffixTrieMap(idx->suffix, tok, strlen(tok));
         }
       }

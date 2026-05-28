@@ -654,3 +654,112 @@ def testForceGCBypassesThreshold(env):
     forceInvokeGC(env, 'idx')
     env.expect(debug_cmd(), 'DUMP_INVIDX', 'idx', 'hello').equal([10])
 
+
+# MOD-15720: TAG `INDEXEMPTY WITHSUFFIXTRIE` adds "" to TagIndex->values but
+# skips TagIndex->suffix because TagIndex_Index gates `addSuffixTrieMap` on
+# `*tok != '\0'`. When the last doc holding "" is deleted and fork GC runs,
+# FGC_parentHandleTags calls deleteSuffixTrieMap(tagIdx->suffix, "", 0); the
+# TrieMap_Find misses, returns TRIEMAP_NOTFOUND (the .rodata string
+# "NOT FOUND"), and the next statement writes through it -> SIGSEGV
+# (SEGV_ACCERR). The crash is triggered by any code path that delivers an
+# empty token to TagIndex_Index. The tests below cover each distinct path.
+
+def _gcCrashCheckHash(env, hset_value):
+    env.expect('FT.CREATE', 'idx', 'SCHEMA',
+               't', 'TAG', 'INDEXEMPTY', 'WITHSUFFIXTRIE').ok()
+    waitForIndex(env, 'idx')
+    env.cmd('HSET', 'doc1', 't', hset_value)
+    env.expect('DEL', 'doc1').equal(1)
+    forceInvokeGC(env, 'idx')
+    env.expect('PING').equal(True)
+    env.flush()
+
+@skip(cluster=True)
+def testForkGCEmptyTagSuffixTrie_emptyValue_MOD_15720():
+    # FLD_VAR_T_CSTR + tokenizeTagString empty-input branch:
+    #   "" -> array contains ""
+    env = Env(moduleArgs='FORK_GC_CLEAN_THRESHOLD 0')
+    _gcCrashCheckHash(env, '')
+
+@skip(cluster=True)
+def testForkGCEmptyTagSuffixTrie_consecutiveSeparators_MOD_15720():
+    # tokenizeTagString separator-split branch produces an empty middle token:
+    #   "a,,b" -> ["a", "", "b"]
+    env = Env(moduleArgs='FORK_GC_CLEAN_THRESHOLD 0')
+    _gcCrashCheckHash(env, 'a,,b')
+
+@skip(cluster=True)
+def testForkGCEmptyTagSuffixTrie_trailingSeparator_MOD_15720():
+    # tokenizeTagString last_is_sep branch:
+    #   "x," -> ["x", ""]
+    env = Env(moduleArgs='FORK_GC_CLEAN_THRESHOLD 0')
+    _gcCrashCheckHash(env, 'x,')
+
+@skip(cluster=True)
+def testForkGCEmptyTagSuffixTrie_leadingSeparator_MOD_15720():
+    # tokenizeTagString first-char-is-sep branch:
+    #   ",y" -> ["", "y"]
+    env = Env(moduleArgs='FORK_GC_CLEAN_THRESHOLD 0')
+    _gcCrashCheckHash(env, ',y')
+
+@skip(cluster=True)
+def testForkGCEmptyTagSuffixTrie_whitespaceOnly_MOD_15720():
+    # tokenizeTagString whitespace-then-NUL branch:
+    #   "   " -> [""]
+    env = Env(moduleArgs='FORK_GC_CLEAN_THRESHOLD 0')
+    _gcCrashCheckHash(env, '   ')
+
+@skip(cluster=True)
+def testForkGCEmptyTagSuffixTrie_multiDoc_MOD_15720():
+    # Multiple docs share the empty value; crash triggers only when the inv
+    # index for "" hits numDocs==0. Exercises the FGC accumulation path.
+    env = Env(moduleArgs='FORK_GC_CLEAN_THRESHOLD 0')
+    env.expect('FT.CREATE', 'idx', 'SCHEMA',
+               't', 'TAG', 'INDEXEMPTY', 'WITHSUFFIXTRIE').ok()
+    waitForIndex(env, 'idx')
+    for i in range(5):
+        env.cmd('HSET', f'doc{i}', 't', '')
+    for i in range(5):
+        env.expect('DEL', f'doc{i}').equal(1)
+    forceInvokeGC(env, 'idx')
+    env.expect('PING').equal(True)
+
+@skip(cluster=True)
+def testForkGCEmptyTagSuffixTrie_sortable_MOD_15720():
+    # SORTABLE attaches a separate sortable-vector path but TagIndex_Index is
+    # unchanged. Same crash signature.
+    env = Env(moduleArgs='FORK_GC_CLEAN_THRESHOLD 0')
+    env.expect('FT.CREATE', 'idx', 'SCHEMA',
+               't', 'TAG', 'INDEXEMPTY', 'WITHSUFFIXTRIE', 'SORTABLE').ok()
+    waitForIndex(env, 'idx')
+    env.cmd('HSET', 'doc1', 't', '')
+    env.expect('DEL', 'doc1').equal(1)
+    forceInvokeGC(env, 'idx')
+    env.expect('PING').equal(True)
+
+@skip(cluster=True, no_json=True)
+def testForkGCEmptyTagSuffixTrie_jsonScalar_MOD_15720():
+    # FLD_VAR_T_CSTR via JSON scalar path. JSON default separator skips
+    # tokenizeTagString's separator loop and rm_strdup's the value directly,
+    # so "" arrives at TagIndex_Index unchanged.
+    env = Env(moduleArgs='FORK_GC_CLEAN_THRESHOLD 0')
+    env.expect('FT.CREATE', 'jidx', 'ON', 'JSON', 'SCHEMA',
+               '$t', 'AS', 't', 'TAG', 'INDEXEMPTY', 'WITHSUFFIXTRIE').ok()
+    waitForIndex(env, 'jidx')
+    env.expect('JSON.SET', 'j1', '$', '{"t":""}').ok()
+    env.expect('DEL', 'j1').equal(1)
+    forceInvokeGC(env, 'jidx')
+    env.expect('PING').equal(True)
+
+@skip(cluster=True, no_json=True)
+def testForkGCEmptyTagSuffixTrie_jsonArrayWithEmpty_MOD_15720():
+    # FLD_VAR_T_ARRAY: tokenizeTagString runs per element, an "" element
+    # propagates through.
+    env = Env(moduleArgs='FORK_GC_CLEAN_THRESHOLD 0')
+    env.expect('FT.CREATE', 'jidx', 'ON', 'JSON', 'SCHEMA',
+               '$arr[*]', 'AS', 'arr', 'TAG', 'INDEXEMPTY', 'WITHSUFFIXTRIE').ok()
+    waitForIndex(env, 'jidx')
+    env.expect('JSON.SET', 'j1', '$', '{"arr":["a","","b"]}').ok()
+    env.expect('DEL', 'j1').equal(1)
+    forceInvokeGC(env, 'jidx')
+    env.expect('PING').equal(True)
