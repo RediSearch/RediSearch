@@ -49,12 +49,27 @@ jobs:
           import os
           import re
           import subprocess
+          import sys
+          import time
 
           WORKFLOW_FILE = "event-periodic-master-validation.yml"
           VALIDATION_JOB_PREFIX = "test-selected-platforms"
 
-          def gh_api(path):
-              return json.loads(subprocess.check_output(["gh", "api", path], text=True))
+          def gh_api(path, attempts=5):
+              # The Actions REST API (esp. /actions/runs/{id}/jobs) occasionally
+              # returns transient HTTP 404 / 5xx for resources that exist; retry
+              # with short backoff before giving up.
+              for attempt in range(1, attempts + 1):
+                  result = subprocess.run(
+                      ["gh", "api", path],
+                      capture_output=True, text=True, check=False,
+                  )
+                  if result.returncode == 0:
+                      return json.loads(result.stdout)
+                  if attempt == attempts:
+                      sys.stderr.write(result.stderr)
+                      result.check_returncode()
+                  time.sleep(2 * attempt)
 
           def validation_passed(run):
               jobs = gh_api(
@@ -182,6 +197,8 @@ jobs:
           import os
           import re
           import subprocess
+          import sys
+          import time
           import uuid
 
           FAILED_CONCLUSIONS = {"failure", "cancelled", "timed_out", "action_required"}
@@ -191,8 +208,21 @@ jobs:
               with open(os.environ["GITHUB_OUTPUT"], "a", encoding="utf-8") as output:
                   output.write(f"{name}<<{delimiter}\n{value}\n{delimiter}\n")
 
-          def gh_api(path):
-              return json.loads(subprocess.check_output(["gh", "api", path], text=True))
+          def gh_api(path, attempts=5):
+              # The Actions REST API (esp. /actions/runs/{id}/jobs) occasionally
+              # returns transient HTTP 404 / 5xx for resources that exist; retry
+              # with short backoff before giving up.
+              for attempt in range(1, attempts + 1):
+                  result = subprocess.run(
+                      ["gh", "api", path],
+                      capture_output=True, text=True, check=False,
+                  )
+                  if result.returncode == 0:
+                      return json.loads(result.stdout)
+                  if attempt == attempts:
+                      sys.stderr.write(result.stderr)
+                      result.check_returncode()
+                  time.sleep(2 * attempt)
 
           repository = os.environ["REPOSITORY"]
           run_id = os.environ["RUN_ID"]
