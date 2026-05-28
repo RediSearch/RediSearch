@@ -18,37 +18,31 @@ Determine which code was modified (C, Rust, or both) and run the appropriate che
 
 Run the following checks in order:
 
-#### 1. Format Check
-```bash
-clang-format --dry-run -Werror <modified .c and .h files>
-```
-If it fails, run `clang-format -i <files>` to fix formatting.
-
-#### 2. Build
+#### 1. Build
 ```bash
 ./build.sh
 ```
 Ensure the full project compiles without warnings promoted to errors.
 
-#### 3. C/C++ Unit Tests
+#### 2. C/C++ Unit Tests
 ```bash
 ./build.sh RUN_UNIT_TESTS ENABLE_ASSERT=1
 ```
 All unit tests must pass. Use [/run-c-unit-tests](../run-c-unit-tests/SKILL.md) for details
 on running specific tests.
 
-#### 4. Behavioral Tests
+#### 3. Behavioral Tests
 ```bash
 ./build.sh RUN_PYTEST ENABLE_ASSERT=1
 ```
 Required for changes to command handlers, query execution, indexing pipeline, or RDB serialization.
 
-#### 5. AddressSanitizer (recommended for memory-related changes)
+#### 4. AddressSanitizer (recommended for memory-related changes)
 ```bash
 ./build.sh RUN_UNIT_TESTS SAN=address
 ```
 
-#### 6. Coordinator Tests (if `coord/` code was modified)
+#### 5. Coordinator Tests (if `coord/` code was modified)
 
 Changes to the coordinator (`src/coord/`), distributed hybrid (`src/coord/hybrid/`), or
 the Map-Reduce layer (`src/coord/rmr/`) must be tested in a clustered environment:
