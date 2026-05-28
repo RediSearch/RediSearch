@@ -79,15 +79,25 @@ TEST_F(TimeoutCapTest, CapAppliedWhenAboveLimit) {
   ASSERT_EQ(t, 1000);
 }
 
-TEST_F(TimeoutCapTest, UnlimitedQueryTimeoutNotCapped) {
-  // TIMEOUT 0 (unlimited) bypasses the cap: the cap helper treats *timeoutMS <= 0
-  // as "no per-query budget" and leaves it alone. This is a known loophole that
-  // will be addressed separately.
+TEST_F(TimeoutCapTest, UnlimitedQueryTimeoutCappedToLimit) {
+  // TIMEOUT 0 (unlimited) is semantically above any configured maximum, so
+  // when the cap is active the helper clamps it to the configured limit.
   RSGlobalConfig.maxQueryTimeoutMS = 1000;
   RSGlobalConfig.numWorkerThreads = 0;
   long long t = 0;
-  ASSERT_FALSE(RSConfig_CapQueryTimeoutToMaxLimit(&t));
-  ASSERT_EQ(t, 0);
+  ASSERT_TRUE(RSConfig_CapQueryTimeoutToMaxLimit(&t));
+  ASSERT_EQ(t, 1000);
+}
+
+TEST_F(TimeoutCapTest, NegativeTimeoutCappedToLimit) {
+  // A negative value (e.g. from a size_t that wrapped to a negative long long)
+  // is also semantically above the limit and must be capped, not silently
+  // treated as "unlimited".
+  RSGlobalConfig.maxQueryTimeoutMS = 1000;
+  RSGlobalConfig.numWorkerThreads = 0;
+  long long t = -1;
+  ASSERT_TRUE(RSConfig_CapQueryTimeoutToMaxLimit(&t));
+  ASSERT_EQ(t, 1000);
 }
 
 TEST_F(TimeoutCapTest, MaxTimeoutCappedWarningString) {

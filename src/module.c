@@ -10,6 +10,7 @@
 
 #include <assert.h>
 #include "triemap_ffi.h"
+#include <limits.h>
 #include <stdio.h>
 #include <string.h>
 #include <sys/param.h>
@@ -4361,7 +4362,11 @@ static int initQueryTimeout(size_t *timeout, RedisModuleString **argv, int argc,
       return REDISMODULE_ERR;
     }
   }
-  long long capped = (long long)*timeout;
+  // Saturate the size_t to LLONG_MAX before casting so values >= 2^63 do not
+  // wrap to a negative long long. Without this clamp, an oversized timeout
+  // would be treated by the cap helper as "unlimited" (<= 0) and silently
+  // capped anyway, but the saturation here is defensive and self-documenting.
+  long long capped = (*timeout > (size_t)LLONG_MAX) ? LLONG_MAX : (long long)*timeout;
   if (RSConfig_CapQueryTimeoutToMaxLimit(&capped)) {
     *timeout = (size_t)capped;
   }
@@ -4795,9 +4800,12 @@ static int RediSearch_InitModuleConfig(RedisModuleCtx *ctx, RedisModuleString **
   }
   // Apply configuration redis has loaded from the configuration file
   RM_TRY_F(RedisModule_LoadConfigs, ctx);
-  // Apply cross-knob invariants once all configs have been loaded, and arm
-  // setter-side validation for subsequent runtime CONFIG SET calls.
-  RSConfig_PostLoadNormalize(ctx);
+  // Cross-knob invariants and the s_moduleConfigLoaded flag are armed later,
+  // after UpgradeDeprecatedMTConfigs has had a chance to apply deprecated
+  // MT_MODE / WORKER_THREADS overrides to numWorkerThreads (see
+  // RediSearch_InitModuleInternal). Doing it here would let a deprecated
+  // MT_MODE_OFF flip numWorkerThreads to 0 after PostLoadNormalize, leaving
+  // the timeout invariant unenforced.
   return REDISMODULE_OK;
 }
 

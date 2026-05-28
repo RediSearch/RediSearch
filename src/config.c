@@ -48,7 +48,9 @@ bool RSConfig_CapQueryTimeoutToMaxLimit(long long *timeoutMS) {
   if (limit <= 0 || RSGlobalConfig.numWorkerThreads != 0) {
     return false;
   }
-  if (*timeoutMS <= 0 || *timeoutMS <= limit) {
+  // *timeoutMS <= 0 represents "unlimited" (TIMEOUT 0) or a wrapped oversized
+  // value; both are semantically above the configured maximum, so cap them.
+  if (*timeoutMS > 0 && *timeoutMS <= limit) {
     return false;
   }
   *timeoutMS = limit;
@@ -231,7 +233,8 @@ static int set_query_timeout_config(const char *name, long long val,
     RS_ASSERT(err);
     *err = RedisModule_CreateStringPrintf(NULL,
       "search-timeout (%lld) exceeds search-max-query-timeout-ms (%lld) and "
-      "search-workers is 0; raise search-workers or lower search-max-query-timeout-ms first",
+      "search-workers is 0; lower search-timeout, raise search-max-query-timeout-ms, "
+      "or enable search-workers",
       val, RSGlobalConfig.maxQueryTimeoutMS);
     return REDISMODULE_ERR;
   }
@@ -605,12 +608,17 @@ CONFIG_SETTER(setTimeout) {
   long long newTimeoutMS;
   int acrc = AC_GetLongLong(ac, &newTimeoutMS, AC_F_GE0);
   CHECK_RETURN_PARSE_ERROR(acrc);
-  if (config->maxQueryTimeoutMS > 0 &&
+  // Cross-knob invariant enforcement is gated on RSConfig_IsModuleConfigLoaded()
+  // so module-arg parsing (which walks args left-to-right) does not reject
+  // intermediate states where dependent knobs have not been applied yet.
+  // RSConfig_PostLoadNormalize handles bootstrap.
+  if (RSConfig_IsModuleConfigLoaded() &&
+      config->maxQueryTimeoutMS > 0 &&
       config->numWorkerThreads == 0 &&
       newTimeoutMS > config->maxQueryTimeoutMS) {
     QueryError_SetWithoutUserDataFmt(status, QUERY_ERROR_CODE_LIMIT,
       "TIMEOUT (%lld) exceeds MAX_TIMEOUT_LIMIT (%lld) and WORKERS is 0; "
-      "raise WORKERS or lower MAX_TIMEOUT_LIMIT first",
+      "lower TIMEOUT, raise MAX_TIMEOUT_LIMIT, or enable WORKERS",
       newTimeoutMS, config->maxQueryTimeoutMS);
     return REDISMODULE_ERR;
   }
@@ -630,12 +638,16 @@ CONFIG_SETTER(setMaxTimeoutLimit) {
   CHECK_RETURN_PARSE_ERROR(acrc);
   // Tightening the limit must not strand an existing search-timeout above it
   // while workers are disabled. A limit of 0 means "unlimited" and is always safe.
-  if (newLimit > 0 &&
+  // Gated on RSConfig_IsModuleConfigLoaded() so module-arg parsing order does
+  // not cause spurious rejections; PostLoadNormalize enforces the invariant
+  // after every knob has been applied.
+  if (RSConfig_IsModuleConfigLoaded() &&
+      newLimit > 0 &&
       config->numWorkerThreads == 0 &&
       config->requestConfigParams.queryTimeoutMS > newLimit) {
     QueryError_SetWithoutUserDataFmt(status, QUERY_ERROR_CODE_LIMIT,
       "Cannot set MAX_TIMEOUT_LIMIT to %lld while TIMEOUT (%lld) exceeds it and "
-      "WORKERS is 0; lower TIMEOUT or raise WORKERS first",
+      "WORKERS is 0; lower TIMEOUT or enable WORKERS first",
       newLimit, config->requestConfigParams.queryTimeoutMS);
     return REDISMODULE_ERR;
   }
@@ -665,7 +677,11 @@ CONFIG_SETTER(setWorkThreads) {
     RedisModule_Log(RSDummyContext, "warning", "WORKERS must be at least %d in Flex mode, setting to %d", MIN_WORKER_THREADS_FLEX, MIN_WORKER_THREADS_FLEX);
     newNumThreads = MIN_WORKER_THREADS_FLEX;
   }
-  if (newNumThreads == 0 &&
+  // Gated on RSConfig_IsModuleConfigLoaded() so module-arg parsing order does
+  // not cause spurious rejections; PostLoadNormalize enforces the invariant
+  // after every knob has been applied.
+  if (RSConfig_IsModuleConfigLoaded() &&
+      newNumThreads == 0 &&
       config->maxQueryTimeoutMS > 0 &&
       config->requestConfigParams.queryTimeoutMS > config->maxQueryTimeoutMS) {
     QueryError_SetWithoutUserDataFmt(status, QUERY_ERROR_CODE_LIMIT,

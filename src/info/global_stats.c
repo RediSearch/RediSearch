@@ -187,6 +187,10 @@ void QueryWarningsGlobalStats_UpdateWarning(QueryWarningCode code, int toAdd, bo
     case QUERY_WARNING_CODE_ASM_INACCURATE_RESULTS:
       INCR_BY(queries_warnings->asm_inaccuracy, toAdd);
       break;
+    case QUERY_WARNING_CODE_MAX_TIMEOUT_CAPPED:
+      // Per-query cap event is signalled to the client via the RESP3 warning
+      // string; we intentionally do not aggregate it in global stats.
+      break;
   }
 }
 

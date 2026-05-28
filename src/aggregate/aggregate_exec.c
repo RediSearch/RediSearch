@@ -613,9 +613,6 @@ static void trackWarnings_Resp2(AREQ *req, QueryProcessingCtx *qctx, int rc) {
     QueryWarningsGlobalStats_UpdateWarning(QUERY_WARNING_CODE_ASM_INACCURATE_RESULTS, 1, !IsInternal(req));
     ProfileWarnings_Add(&req->profileCtx.warnings, PROFILE_WARNING_TYPE_ASM_INACCURATE_RESULTS);
   }
-  if (req->stateflags & QEXEC_S_MAX_TIMEOUT_CAPPED) {
-    QueryWarningsGlobalStats_UpdateWarning(QUERY_WARNING_CODE_MAX_TIMEOUT_CAPPED, 1, !IsInternal(req));
-  }
 
   RedisSearchCtx *sctx = AREQ_SearchCtx(req);
   if (sctx->spec && sctx->spec->scan_failed_OOM) {
@@ -796,7 +793,6 @@ static void _replyWarnings(AREQ *req, RedisModule_Reply *reply, int rc) {
     ProfileWarnings_Add(&profileCtx->warnings, PROFILE_WARNING_TYPE_ASM_INACCURATE_RESULTS);
   }
   if (req->stateflags & QEXEC_S_MAX_TIMEOUT_CAPPED) {
-    QueryWarningsGlobalStats_UpdateWarning(QUERY_WARNING_CODE_MAX_TIMEOUT_CAPPED, 1, !IsInternal(req));
     RedisModule_Reply_SimpleString(reply, QueryWarning_Strwarning(QUERY_WARNING_CODE_MAX_TIMEOUT_CAPPED));
   }
   RedisModule_Reply_ArrayEnd(reply); // >warnings
