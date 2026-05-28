@@ -1155,7 +1155,8 @@ int AREQ_ApplyContext(AREQ *req, RedisSearchCtx *sctx, QueryError *status) {
 }
 
 static ResultProcessor *buildGroupRP(PLN_GroupStep *gstp, RLookup *srclookup,
-                                     const RLookupKey ***loadKeys, QueryError *err) {
+                                     const RLookupKey ***loadKeys, GroupByLimits groupByLimits,
+                                     QueryError *err) {
   const RLookupKey *srckeys[gstp->nproperties], *dstkeys[gstp->nproperties];
   for (size_t ii = 0; ii < gstp->nproperties; ++ii) {
     const char *fldname = gstp->properties[ii] + 1;  // account for the @-
@@ -1181,7 +1182,7 @@ static ResultProcessor *buildGroupRP(PLN_GroupStep *gstp, RLookup *srclookup,
     }
   }
 
-  Grouper *grp = Grouper_New(srckeys, dstkeys, gstp->nproperties);
+  Grouper *grp = Grouper_New(srckeys, dstkeys, gstp->nproperties, groupByLimits);
 
   size_t nreducers = array_len(gstp->reducers);
   for (size_t ii = 0; ii < nreducers; ++ii) {
@@ -1230,12 +1231,15 @@ static ResultProcessor *pushRP(AREQ *req, ResultProcessor *rp, ResultProcessor *
 }
 
 static ResultProcessor *getGroupRP(AREQ *req, PLN_GroupStep *gstp, ResultProcessor *rpUpstream,
-                                   QueryError *status, bool forceLoad) {
+                                   GroupByLimits groupByLimits, QueryError *status,
+                                   bool forceLoad) {
   AGGPlan *pln = &req->ap;
   RLookup *lookup = AGPLN_GetLookup(pln, &gstp->base, AGPLN_GETLOOKUP_PREV);
   RLookup *firstLk = AGPLN_GetLookup(pln, &gstp->base, AGPLN_GETLOOKUP_FIRST); // first lookup can load fields from redis
   const RLookupKey **loadKeys = NULL;
-  ResultProcessor *groupRP = buildGroupRP(gstp, lookup, (firstLk == lookup && firstLk->spcache) ? &loadKeys : NULL, status);
+  ResultProcessor *groupRP = buildGroupRP(
+      gstp, lookup, (firstLk == lookup && firstLk->spcache) ? &loadKeys : NULL, groupByLimits,
+      status);
 
   if (!groupRP) {
     array_free(loadKeys);
@@ -1554,7 +1558,8 @@ error:
   return REDISMODULE_ERR;
 }
 
-int AREQ_BuildPipeline(AREQ *req, QueryError *status) {
+int AREQ_BuildPipelineWithGroupByLimits(AREQ *req, GroupByLimits groupByLimits,
+                                        QueryError *status) {
   if (!(req->reqflags & QEXEC_F_BUILDPIPELINE_NO_ROOT)) {
     buildImplicitPipeline(req, status);
     if (status->code != QUERY_OK) {
@@ -1579,7 +1584,8 @@ int AREQ_BuildPipeline(AREQ *req, QueryError *status) {
     switch (stp->type) {
       case PLN_T_GROUP: {
         // Adds group result processor and loader if needed.
-        rpUpstream = getGroupRP(req, (PLN_GroupStep *)stp, rpUpstream, status, forceLoad);
+        rpUpstream =
+            getGroupRP(req, (PLN_GroupStep *)stp, rpUpstream, groupByLimits, status, forceLoad);
         if (!rpUpstream) {
           goto error;
         }
@@ -1720,6 +1726,11 @@ int AREQ_BuildPipeline(AREQ *req, QueryError *status) {
   return REDISMODULE_OK;
 error:
   return REDISMODULE_ERR;
+}
+
+int AREQ_BuildPipeline(AREQ *req, QueryError *status) {
+  return AREQ_BuildPipelineWithGroupByLimits(
+      req, GroupByLimits_Default(RSGlobalConfig.maxAggregateGroups), status);
 }
 
 void AREQ_Free(AREQ *req) {

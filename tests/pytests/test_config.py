@@ -20,6 +20,8 @@ def testConfigErrors(env):
         .equal('Max depth for range cannot be higher than max depth for balance')
     env.expect('ft.config', 'set', 'MINSTEMLEN', 1).error()\
         .contains('Minimum stem length cannot be lower than')
+    env.expect(config_cmd(), 'set', 'MAX_AGGREGATE_GROUPS', 0).error()\
+        .contains('Value is outside acceptable bounds')
     if MT_BUILD:
         env.expect('ft.config', 'set', 'WORKERS', 1_000_000).error()\
             .contains('Number of worker threads cannot exceed')
@@ -48,6 +50,7 @@ def testGetConfigOptions(env):
     check_config('FRISOINI')
     check_config('MAXSEARCHRESULTS')
     check_config('MAXAGGREGATERESULTS')
+    check_config('MAX_AGGREGATE_GROUPS')
     check_config('ON_TIMEOUT')
     check_config('GCSCANSIZE')
     check_config('MIN_PHONETIC_TERM_LEN')
@@ -139,6 +142,7 @@ def testAllConfig(env):
     env.assertEqual(res_dict['MAXDOCTABLESIZE'][0], '1000000')
     env.assertEqual(res_dict['MAXSEARCHRESULTS'][0], '1000000')
     env.assertEqual(res_dict['MAXAGGREGATERESULTS'][0], 'unlimited')
+    env.assertEqual(res_dict['MAX_AGGREGATE_GROUPS'][0], '1000000')
     env.assertEqual(res_dict['MAXEXPANSIONS'][0], '200')
     env.assertEqual(res_dict['MAXPREFIXEXPANSIONS'][0], '200')
     env.assertEqual(res_dict['DEFAULT_SCORER'][0], 'TFIDF')
@@ -187,6 +191,7 @@ def testInitConfig():
         env.stop()
 
     test_arg_num('MAXDOCTABLESIZE', 123456)
+    test_arg_num('MAX_AGGREGATE_GROUPS', 100)
     test_arg_num('TIMEOUT', 0)
     test_arg_num('MINPREFIX', 3)
     test_arg_num('FORKGC_SLEEP_BEFORE_EXIT', 5)

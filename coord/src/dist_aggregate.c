@@ -296,7 +296,8 @@ static int parseProfile(RedisModuleString **argv, int argc, AREQ *r) {
 }
 
 static int prepareForExecution(AREQ *r, RedisModuleCtx *ctx, RedisModuleString **argv, int argc,
-                         specialCaseCtx **knnCtx_ptr, QueryError *status) {
+                         specialCaseCtx **knnCtx_ptr, QueryError *status,
+                         struct ConcurrentCmdCtx *cmdCtx) {
   r->qiter.err = status;
   r->reqflags |= QEXEC_F_IS_AGGREGATE | QEXEC_F_BUILDPIPELINE_NO_ROOT;
   rs_wall_clock_init(&r->initClock);
@@ -335,7 +336,10 @@ static int prepareForExecution(AREQ *r, RedisModuleCtx *ctx, RedisModuleString *
   if (rc != REDISMODULE_OK) return REDISMODULE_ERR;
 
   AREQDIST_UpstreamInfo us = {NULL};
-  rc = AREQ_BuildDistributedPipeline(r, &us, status);
+  size_t numShards = ConcurrentCmdCtx_GetNumShards(cmdCtx);
+  GroupByLimits groupByLimits =
+      GroupByLimits_ForCoordinator(RSGlobalConfig.maxAggregateGroups, numShards);
+  rc = AREQ_BuildDistributedPipeline(r, &us, &groupByLimits, status);
   if (rc != REDISMODULE_OK) return REDISMODULE_ERR;
 
   // Construct the command string
@@ -400,7 +404,7 @@ void RSExecDistAggregate(RedisModuleCtx *ctx, RedisModuleString **argv, int argc
   QueryError status = {0};
   specialCaseCtx *knnCtx = NULL;
 
-  if (prepareForExecution(r, ctx, argv, argc, &knnCtx, &status) != REDISMODULE_OK) {
+  if (prepareForExecution(r, ctx, argv, argc, &knnCtx, &status, cmdCtx) != REDISMODULE_OK) {
     goto err;
   }
 
@@ -440,7 +444,8 @@ void DEBUG_RSExecDistAggregate(RedisModuleCtx *ctx, RedisModuleString **argv, in
   AREQ_Debug_params debug_params = debug_req->debug_params;
 
   int debug_argv_count = debug_params.debug_params_count + 2;  // account for `DEBUG_PARAMS_COUNT` `<count>` strings
-  if (prepareForExecution(r, ctx, argv, argc - debug_argv_count, &knnCtx, &status) != REDISMODULE_OK) {
+  if (prepareForExecution(r, ctx, argv, argc - debug_argv_count, &knnCtx, &status, cmdCtx) !=
+      REDISMODULE_OK) {
     goto err;
   }
 

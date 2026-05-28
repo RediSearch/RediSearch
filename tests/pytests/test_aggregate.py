@@ -755,6 +755,99 @@ def test_groupby_array(env: Env):
     env.assertContains(row, exp)
   env.assertEqual(len(res), len(exp), message=f'{res} != {exp}')
 
+def test_groupby_array_group_limit_boundary():
+  env = Env(moduleArgs='MAX_AGGREGATE_GROUPS 4')
+  env.expect('FT.CREATE', 'idx', 'SCHEMA', 't1', 'TEXT', 'SORTABLE', 't2', 'TEXT', 'SORTABLE').ok()
+  with env.getClusterConnectionIfNeeded() as con:
+    con.execute_command('HSET', 'doc1', 't1', 'foo,bar', 't2', 'baz,qux')
+
+  res = env.cmd('FT.AGGREGATE', 'idx', '*',
+                'APPLY', 'split(@t1, ",")', 'AS', 't1',
+                'APPLY', 'split(@t2, ",")', 'AS', 't2',
+                'GROUPBY', '2', '@t1', '@t2',
+                'REDUCE', 'COUNT', '0', 'AS', 'count')
+
+  env.assertEqual(res[0], 4)
+  env.assertEqual(len(res), 5)
+
+def test_groupby_tag_group_limit_boundary():
+  env = Env(moduleArgs='MAX_AGGREGATE_GROUPS 4')
+  env.expect('FT.CREATE', 'idx', 'SCHEMA', 'g', 'TAG', 'SORTABLE').ok()
+  with env.getClusterConnectionIfNeeded() as con:
+    for i in range(4):
+      con.execute_command('HSET', f'doc{i}', 'g', f'g{i}')
+
+  res = env.cmd('FT.AGGREGATE', 'idx', '*',
+                'GROUPBY', '1', '@g',
+                'REDUCE', 'COUNT', '0', 'AS', 'count')
+
+  env.assertEqual(res[0], 4)
+  env.assertEqual(len(res), 5)
+
+@skip(cluster=True)
+def test_groupby_array_row_expansion_limit():
+  env = Env(moduleArgs='MAX_AGGREGATE_GROUPS 3')
+  env.expect('FT.CREATE', 'idx', 'SCHEMA',
+             't1', 'TEXT', 'SORTABLE',
+             't2', 'TEXT', 'SORTABLE',
+             'tag1', 'TAG',
+             'tag2', 'TAG').ok()
+  with env.getClusterConnectionIfNeeded() as con:
+    con.execute_command('HSET', 'doc1',
+                        't1', 'foo,bar',
+                        't2', 'baz,qux',
+                        'tag1', 'red,blue',
+                        'tag2', 'circle,square')
+
+  env.expect('FT.AGGREGATE', 'idx', '*',
+             'LOAD', '2', '@tag1', '@tag2',
+             'APPLY', 'split(@tag1, ",")', 'AS', 'tag1_values',
+             'APPLY', 'split(@tag2, ",")', 'AS', 'tag2_values',
+             'GROUPBY', '2', '@tag1_values', '@tag2_values',
+             'REDUCE', 'COUNT', '0', 'AS', 'count').error() \
+      .contains('MAX_AGGREGATE_GROUPS') \
+      .contains('3')
+
+  env.expect('FT.AGGREGATE', 'idx', '*',
+             'APPLY', 'split(@t1, ",")', 'AS', 't1',
+             'APPLY', 'split(@t2, ",")', 'AS', 't2',
+             'GROUPBY', '2', '@t1', '@t2',
+             'REDUCE', 'COUNT', '0', 'AS', 'count').error() \
+      .contains('MAX_AGGREGATE_GROUPS') \
+      .contains('3')
+
+@skip(cluster=True)
+def test_groupby_total_group_limit():
+  env = Env(moduleArgs='MAX_AGGREGATE_GROUPS 3')
+  env.expect('FT.CREATE', 'idx', 'SCHEMA', 'g', 'TAG', 'SORTABLE').ok()
+  with env.getClusterConnectionIfNeeded() as con:
+    for i in range(4):
+      con.execute_command('HSET', f'doc{i}', 'g', f'g{i}')
+
+  env.expect('FT.AGGREGATE', 'idx', '*',
+             'GROUPBY', '1', '@g',
+             'REDUCE', 'COUNT', '0', 'AS', 'count').error() \
+      .contains('MAX_AGGREGATE_GROUPS') \
+      .contains('3')
+
+@skip(cluster=False)
+def test_groupby_coordinator_group_limit_uses_shard_count():
+  env = Env(shardsCount=3, protocol=3, moduleArgs='MAX_AGGREGATE_GROUPS 2')
+
+  env.expect('FT.CREATE', 'idx', 'ON', 'HASH', 'SCHEMA', 'g', 'TAG', 'SORTABLE').ok()
+  shard_tags = ['shard:0', 'shard:1', 'shard:3']
+  conn = getConnectionByEnv(env)
+  for i, shard_tag in enumerate(shard_tags):
+    conn.execute_command('HSET', f'doc:{i}{{{shard_tag}}}', 'g', f'g{i}')
+
+  res = env.cmd('FT.AGGREGATE', 'idx', '*',
+                'GROUPBY', '1', '@g',
+                'REDUCE', 'COUNT', '0', 'AS', 'count')
+
+  env.assertEqual(len(res['results']), 3)
+  env.assertEqual(sorted(row['extra_attributes']['g'] for row in res['results']),
+                  ['g0', 'g1', 'g2'])
+
 def testMultiSortBy(env):
     enable_unstable_features(env)
     conn = getConnectionByEnv(env)

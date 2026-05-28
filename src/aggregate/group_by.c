@@ -8,6 +8,7 @@
 #include <result_processor.h>
 #include <util/block_alloc.h>
 #include <util/khash.h>
+#include "aggregate.h"
 #include "reducer.h"
 
 /**
@@ -68,9 +69,19 @@ typedef struct Grouper {
   // array of reducers
   Reducer **reducers;
 
+  // GROUPBY materialization limit.
+  GroupByLimits groupByLimits;
+
   // Used for maintaining state when yielding groups
   khiter_t iter;
 } Grouper;
+
+static void setAggregateGroupLimitError(const Grouper *g) {
+  QueryError_SetWithoutUserDataFmt(
+      g->base.parent->err, QUERY_ERROR_CODE_LIMIT,
+      "Aggregate GROUPBY exceeded MAX_AGGREGATE_GROUPS limit of %zu groups",
+      g->groupByLimits.maxGroups);
+}
 
 /**
  * Create a new group. groupvals is the key of the group. This will be the
@@ -150,8 +161,10 @@ static void invokeReducers(Grouper *g, Group *gr, RLookupRow *srcrow) {
  * @param hval current X-wise hash value. Note that members of the same Y array
  *  are not hashed together.
  * @param res the row is passed to each reducer
+ * @param rowExpansion the cartesian product size accumulated for the current row
  */
-static void extractGroups(Grouper *g, const RSValue **xarr, size_t xpos, size_t xlen, uint64_t hval, RLookupRow *res) {
+static int extractGroups(Grouper *g, const RSValue **xarr, size_t xpos, size_t xlen,
+                         uint64_t hval, RLookupRow *res, size_t rowExpansion) {
   // end of the line - create/add to group
   if (xpos == xlen) {
     Group *group = NULL;
@@ -159,6 +172,10 @@ static void extractGroups(Grouper *g, const RSValue **xarr, size_t xpos, size_t 
     // Get or create the group
     khiter_t k = kh_get(khid, g->groups, hval);  // first have to get ieter
     if (k == kh_end(g->groups)) {                // k will be equal to kh_end if key not present
+      if (kh_size(g->groups) >= g->groupByLimits.maxGroups) {
+        setAggregateGroupLimitError(g);
+        return RS_RESULT_ERROR;
+      }
       group = createGroup(g, xarr, xlen);
       kh_set(khid, g->groups, hval, group);
     } else {
@@ -167,7 +184,7 @@ static void extractGroups(Grouper *g, const RSValue **xarr, size_t xpos, size_t 
 
     // send the result to the group and its reducers
     invokeReducers(g, group, res);
-    return;
+    return RS_RESULT_OK;
   }
 
   // get the value
@@ -175,30 +192,44 @@ static void extractGroups(Grouper *g, const RSValue **xarr, size_t xpos, size_t 
   // regular value - just move one step -- increment XPOS
   if (v->t != RSValue_Array) {
     hval = RSValue_Hash(v, hval);
-    extractGroups(g, xarr, xpos + 1, xlen, hval, res);
+    return extractGroups(g, xarr, xpos + 1, xlen, hval, res, rowExpansion);
   } else if (RSValue_ArrayLen(v) == 0) {
     // Empty array - hash as null
     hval = RSValue_Hash(RS_NullVal(), hval);
     const RSValue *array = xarr[xpos];
     xarr[xpos] = RS_NullVal();
-    extractGroups(g, xarr, xpos + 1, xlen, hval, res);
+    int rc = extractGroups(g, xarr, xpos + 1, xlen, hval, res, rowExpansion);
     xarr[xpos] = array;
+    return rc;
   } else {
     // Array value. Replace current XPOS with child temporarily.
     // Each value in the array will be a separate group
     const RSValue *array = xarr[xpos];
-    for (size_t i = 0; i < RSValue_ArrayLen(v); i++) {
+    size_t len = RSValue_ArrayLen(v);
+    if (len > 1) {
+      if (rowExpansion > g->groupByLimits.maxGroups / len) {
+        setAggregateGroupLimitError(g);
+        return RS_RESULT_ERROR;
+      }
+      rowExpansion *= len;
+    }
+    for (size_t i = 0; i < len; i++) {
       const RSValue *elem = RSValue_ArrayItem(v, i);
       // hash the element, even if it's an array
       uint64_t hh = RSValue_Hash(elem, hval);
       xarr[xpos] = elem;
-      extractGroups(g, xarr, xpos + 1, xlen, hh, res);
+      int rc = extractGroups(g, xarr, xpos + 1, xlen, hh, res, rowExpansion);
+      if (rc != RS_RESULT_OK) {
+        xarr[xpos] = array;
+        return rc;
+      }
     }
     xarr[xpos] = array;
+    return RS_RESULT_OK;
   }
 }
 
-static void invokeGroupReducers(Grouper *g, RLookupRow *srcrow) {
+static int invokeGroupReducers(Grouper *g, RLookupRow *srcrow) {
   uint64_t hval = 0;
   size_t nkeys = GROUPER_NSRCKEYS(g);
   const RSValue *groupvals[nkeys];
@@ -211,7 +242,7 @@ static void invokeGroupReducers(Grouper *g, RLookupRow *srcrow) {
     }
     groupvals[ii] = v;
   }
-  extractGroups(g, groupvals, 0, nkeys, 0, srcrow);
+  return extractGroups(g, groupvals, 0, nkeys, hval, srcrow, 1);
 }
 
 static int Grouper_rpAccum(ResultProcessor *base, SearchResult *res) {
@@ -221,8 +252,11 @@ static int Grouper_rpAccum(ResultProcessor *base, SearchResult *res) {
   int rc;
 
   while ((rc = base->upstream->Next(base->upstream, res)) == RS_RESULT_OK) {
-    invokeGroupReducers(g, &res->rowdata);
+    rc = invokeGroupReducers(g, &res->rowdata);
     SearchResult_Clear(res);
+    if (rc != RS_RESULT_OK) {
+      break;
+    }
   }
   base->parent->resultLimit = chunkLimit; // restore the limit
   if (rc == RS_RESULT_EOF) {
@@ -274,12 +308,14 @@ void Grouper_Free(Grouper *g) {
   g->base.Free(&g->base);
 }
 
-Grouper *Grouper_New(const RLookupKey **srckeys, const RLookupKey **dstkeys, size_t nkeys) {
+Grouper *Grouper_New(const RLookupKey **srckeys, const RLookupKey **dstkeys, size_t nkeys,
+                     GroupByLimits groupByLimits) {
   Grouper *g = rm_calloc(1, sizeof(*g));
   BlkAlloc_Init(&g->groupsAlloc);
   g->groups = kh_init(khid);
 
   g->nkeys = nkeys;
+  g->groupByLimits = groupByLimits;
   if (nkeys) {
     g->srckeys = rm_malloc(nkeys * sizeof(*g->srckeys));
     g->dstkeys = rm_malloc(nkeys * sizeof(*g->dstkeys));
