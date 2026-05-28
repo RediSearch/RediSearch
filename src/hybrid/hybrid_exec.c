@@ -196,6 +196,16 @@ static void startPipelineHybrid(HybridRequest *hreq, ResultProcessor *rp, Search
     .skipTimeoutChecks = !HybridRequest_ShouldCheckTimeout(hreq),
     .areq = NULL,
   };
+
+  // Bail if the RETURN-STRICT timeout callback already claimed (it replies)
+  // or if it signaled timeout in parallel after we won (it will reply with
+  // our stored zero-result state).
+  if (HybridRequest_RequiresThreadsSyncResults(hreq) &&
+      (!HybridRequest_TryClaimAggregateResults(hreq) || HybridRequest_TimedOut(hreq))) {
+    *rc = RS_RESULT_TIMEDOUT;
+    return;
+  }
+
   startPipelineCommon(&ctx, rp, results, r, rc);
 }
 
@@ -464,17 +474,17 @@ void sendChunk_hybrid(HybridRequest *hreq, RedisModule_Reply *reply, size_t limi
 
     startPipelineHybrid(hreq, rp, &results, &r, &rc);
 
-    // Check if timed out during pipeline execution
-    if (HybridRequest_TimedOut(hreq)) {
-      // Timeout callback already replied - skip to cleanup without replying
-      goto done_err;
-    }
-
     if (hreq->useReplyCallback) {
       // Store results for reply_callback (includes cv)
       debugPauseStoreResultsHybrid(hreq, true);  // pause before
       HREQ_StoreResults(hreq, results, rc, cv);
       debugPauseStoreResultsHybrid(hreq, false); // pause after
+
+      // Signal completion for main-thread timeout
+      if (HybridRequest_RequiresThreadsSyncResults(hreq)) {
+        HybridRequest_SignalAggregateResultsComplete(hreq);
+      }
+
       return;
     }
 

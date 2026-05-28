@@ -119,6 +119,16 @@ static inline void HybridRequest_SetSkipTimeoutChecks(HybridRequest *req, bool s
   }
 }
 
+static inline bool HybridRequest_RequiresThreadsSyncResults(HybridRequest *req) {
+  return req->syncCtx.requiresAggregateResultsSync;
+}
+
+bool HybridRequest_TryClaimAggregateResults(HybridRequest *req);
+
+void HybridRequest_SignalAggregateResultsComplete(HybridRequest *req);
+
+void HybridRequest_WaitForAggregateResultsComplete(HybridRequest *req);
+
 // Blocked client context for HybridRequest background execution
 typedef struct blockedClientHybridCtx {
   // We keep a strong ref mainly for the sake of cursors amd life time management
