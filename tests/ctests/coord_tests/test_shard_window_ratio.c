@@ -87,7 +87,8 @@ static void runModifyKNNTest(const char** args, int argCount,
     node->vn.vq->knn.k_token_len = strlen(kTokenInQuery);
 
     // Test modifyKNNCommand with provided K values
-    modifyKNNCommand(&cmd, 2, effectiveK, node->vn.vq);
+    modifyKNNCommand(&cmd, 2, node->vn.vq->knn.k, effectiveK,
+                     node->vn.vq->knn.k_token_pos, node->vn.vq->knn.k_token_len);
 
     // Verify command modifications using dynamic validation
     char expectedK_str[32];

@@ -18,30 +18,16 @@
 
 use std::ptr;
 
-use ffi::{FieldExpiration, t_expirationTimePoint};
+use ffi::FieldExpiration;
 use field::FieldExpirationPredicate;
 use redis_mock::mock_or_stub_missing_redis_c_symbols;
 use ttl_table::FieldExpirations;
+use ttl_table::test_utils::{FUTURE, NOW, PAST, fe};
 use ttl_table_ffi::*;
 
 mock_or_stub_missing_redis_c_symbols!();
 
 const MAX_SIZE: usize = 1024;
-
-const fn ts(sec: i64, nsec: i64) -> t_expirationTimePoint {
-    t_expirationTimePoint {
-        tv_sec: sec as libc::time_t,
-        tv_nsec: nsec as libc::c_long,
-    }
-}
-
-const PAST: t_expirationTimePoint = ts(999, 0);
-const NOW: t_expirationTimePoint = ts(1000, 0);
-const FUTURE: t_expirationTimePoint = ts(1001, 0);
-
-const fn fe(index: u16, point: t_expirationTimePoint) -> FieldExpiration {
-    FieldExpiration { index, point }
-}
 
 /// Run `f` against a freshly initialized, automatically-destroyed table.
 fn with_table<F>(f: F)
