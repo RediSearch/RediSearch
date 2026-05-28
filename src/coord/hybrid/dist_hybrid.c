@@ -600,28 +600,24 @@ static int HybridRequest_prepareForExecution(HybridRequest *hreq,
     cmd.reqConfig = &hreq->reqConfig;
     cmd.coordDispatchTime = &hreq->profileClocks.coordDispatchTime;
 
-    // Parse the FT.PROFILE prefix (if any) from the dispatcher's RString argv.
-    // This cursor is used only to detect the profile flag and to count how many
-    // tokens ParseProfile consumed; we do NOT pass it to parseHybridCommand,
-    // because AC_GetString on an RString cursor returns pointers into the
-    // dispatcher ctx's auto-memory, which is freed when the handler returns.
+    // RString cursor used only to detect the profile prefix and count tokens
+    // consumed. We don't feed it to parseHybridCommand because AC_GetString on
+    // an RString cursor returns pointers into auto-memory that dies with the
+    // dispatcher ctx.
     ArgsCursor profileAc = {0};
     ArgsCursor_InitRString(&profileAc, argv, argc);
     ProfileOptions profileOptions = EXEC_NO_FLAGS;
     int rc = ParseProfile(&profileAc, status, &profileOptions);
     if (rc == REDISMODULE_ERR) return REDISMODULE_ERR;
 
-    // Build an SDS-backed cursor covering argv[2:] (skips command + index).
-    // parseHybridCommand and the plan/RLookup machinery it feeds borrow string
-    // pointers from this cursor; backing them with hreq-owned sds copies (whose
-    // lifetime matches hreq) frees us from keeping the dispatcher ctx alive.
+    // Hreq-owned sds copies of argv[2:] (skips command + index). parseHybridCommand
+    // and the RLookup machinery borrow pointers into this cursor's strings, so they
+    // must outlive the dispatcher ctx.
     ArgsCursor ac = {0};
     HybridRequest_InitArgsCursor(hreq, &ac, argv, argc);
 
     if (profileOptions != EXEC_NO_FLAGS) {
-        // ParseProfile advanced profileAc past "FT.PROFILE <index> <cmd> [LIMITED] QUERY".
-        // The SDS cursor starts at argv[2:] (post command + index), so advance it
-        // by the remainder ParseProfile consumed: <cmd> [LIMITED] QUERY.
+        // Skip the tokens ParseProfile consumed beyond command + index.
         AC_AdvanceBy(&ac, profileAc.offset - 2);
     }
 
@@ -867,13 +863,10 @@ static void HybridDispatchCtx_Tail(void *arg) {
         return;
     }
 
-    // Dedicated thread-safe ctx for this worker's reply path. Also installed
-    // as hreq->sctx->redisCtx for the duration of the tail so any pipeline RP
-    // that uses sctx->redisCtx (e.g. document loading in a tail LOAD step) has
-    // a live ctx on this thread. This mirrors the shard background worker
-    // pattern (hybrid_exec.c:1200-1203). The dispatcher's original ctx was
-    // freed by threadHandleCommand when the handler returned; scheduleHybridTail
-    // already cleared sctx->redisCtx to NULL before submitting this job.
+    // Dedicated thread-safe ctx for this worker. Aliased into sctx->redisCtx
+    // so pipeline RPs that read it (e.g. document loading in a tail LOAD step)
+    // see a live ctx on this thread — mirrors the shard background worker
+    // pattern in hybrid_exec.c.
     RedisModuleCtx *replyCtx = RedisModule_GetThreadSafeContext(dispatch->bc);
     hreq->sctx->redisCtx = replyCtx;
     RedisModule_Reply _reply = RedisModule_NewReply(replyCtx);
@@ -886,11 +879,8 @@ static void HybridDispatchCtx_Tail(void *arg) {
     };
     sendChunk_hybrid(hreq, reply, UINT64_MAX, cv);
     RedisModule_EndReply(reply);
-    // Clear the alias before freeing replyCtx so HybridDispatchCtx_Free's
-    // teardown of hreq (which calls SearchCtx_Free) never sees a dangling
-    // ctx pointer. SearchCtx_CleanUp doesn't currently read sctx->redisCtx
-    // unless sctx->key_ is set, but defensively NULLing it removes the
-    // footgun if either of those invariants changes.
+    // Drop the alias before freeing replyCtx so the hreq teardown below can't
+    // see a dangling pointer if SearchCtx ever starts reading sctx->redisCtx.
     hreq->sctx->redisCtx = NULL;
     RedisModule_FreeThreadSafeContext(replyCtx);
 
@@ -905,27 +895,19 @@ static void HybridDispatchCtx_Tail(void *arg) {
     HybridDispatchCtx_Free(dispatch);
 }
 
-// Hand off ownership of dispatcher-owned state (hreq pin, spec indexSpecRef,
-// BC) to a heap dispatch context, mark cmdCtx so threadHandleCommand stops
-// auto-unblocking the client, and submit the tail continuation to the coord
-// pool. Caller must not touch any of the moved resources after this returns.
+// Hand off dispatcher-owned state (hreq, indexSpecRef, BC) to a heap dispatch
+// ctx and submit the tail to the coord pool. Caller must not touch the moved
+// resources after this returns.
 //
 // The dispatcher's RedisModuleCtx is NOT carried forward: parsing copied argv
-// into hreq-owned sds strings (see HybridRequest_prepareForExecution), so
-// nothing in hreq references that ctx's auto-memory after parsing completes.
-// threadHandleCommand frees the ctx normally when the handler returns; the
-// tail installs its own replyCtx into hreq->sctx->redisCtx before running.
+// into hreq-owned sds (see HybridRequest_prepareForExecution), so the ctx can
+// be freed normally when the handler returns. The tail installs its own
+// replyCtx into hreq->sctx->redisCtx.
 //
-// The cmdCtx's inherited spec WeakRef is released here: the indexSpecRef
-// transferred to the tail keeps both the spec and its RefManager alive,
-// so the standalone weak ref no longer needs to be carried forward.
-//
-// `dispatcherStatus` is the dispatcher-thread QueryError that ProcessHybridCursorMappings
-// may have stamped non-fatal warnings onto (e.g. COORD OOM under OomPolicy_Return).
-// We forward those warning bits onto hreq->tailPipelineError so
-// finishSendChunkReply_hybrid (which reads qctx->err, aliased to that field) can
-// emit them. Warning bits are independent of the error code, so this does not
-// trip HybridRequest_GetError into a fatal reply.
+// `dispatcherStatus` carries any non-fatal warnings ProcessHybridCursorMappings
+// stamped (e.g. COORD OOM under OomPolicy_Return). We forward the warning bits
+// onto hreq->tailPipelineError so finishSendChunkReply_hybrid emits them; bits
+// are independent of the error code, so HybridRequest_GetError stays non-fatal.
 static void scheduleHybridTail(HybridRequest *hreq, StrongRef indexSpecRef,
                              struct ConcurrentCmdCtx *cmdCtx,
                              const QueryError *dispatcherStatus) {
@@ -934,31 +916,22 @@ static void scheduleHybridTail(HybridRequest *hreq, StrongRef indexSpecRef,
     dispatch->indexSpecRef = indexSpecRef;
     dispatch->bc = ConcurrentCmdCtx_GetBlockedClient(cmdCtx);
 
-    // Carry forward any non-fatal warnings the dispatcher recorded during cursor
-    // establishment. Without this, the warning is lost when `dispatcherStatus`
-    // (a stack QueryError on RSExecDistHybrid) goes out of scope.
+    // Forward warnings out of the dispatcher's stack QueryError before it dies.
     if (QueryError_HasQueryOOMWarning(dispatcherStatus)) {
         QueryError_SetQueryOOMWarning(&hreq->tailPipelineError);
     }
 
-    // The dispatcher's ctx is about to be freed by threadHandleCommand when the
-    // handler returns. Clear the alias so the tail never sees a dangling pointer
-    // before it installs its own replyCtx (or the timeout early-exit path tears
-    // down hreq without touching redisCtx).
+    // Drop the alias to the dispatcher's ctx before threadHandleCommand frees it.
     hreq->sctx->redisCtx = NULL;
 
-    // Defer the BC unblock to HybridDispatchCtx_Free so the tail (which still
-    // needs the BC for its replyCtx and the reply) outlives the handler return.
+    // Tail needs the BC for replyCtx; defer unblock to HybridDispatchCtx_Free.
     ConcurrentCmdCtx_KeepBlockedClient(cmdCtx);
 
     ConcurrentSearch_ThreadPoolRun(HybridDispatchCtx_Tail, dispatch, hreq->poolId);
 
-    // Drop the cmdCtx's inherited weak ref. The indexSpecRef transferred to
-    // the tail keeps the RefManager alive via its internal weak count, so
-    // this release does not free anything. Use Take rather than Get so the
-    // cmdCtx->spec_ref field is also cleared: it has been logically returned,
-    // and any subsequent accessor would otherwise see a weak ref whose count
-    // has already been decremented (risking a double-release).
+    // Drop the cmdCtx's inherited weak ref (the tail's indexSpecRef keeps the
+    // RefManager alive). Take rather than Get clears cmdCtx->spec_ref so a
+    // later accessor can't see an already-decremented weak ref.
     WeakRef_Release(ConcurrentCmdCtx_TakeWeakRef(cmdCtx));
 }
 
