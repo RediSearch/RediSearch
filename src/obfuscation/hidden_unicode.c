@@ -13,6 +13,10 @@ HiddenUnicodeString *NewHiddenUnicodeString(const char *name) {
   return (HiddenUnicodeString*)sdsnew(name);
 }
 
+HiddenUnicodeString *NewHiddenUnicodeStringWithLen(const char *name, size_t len) {
+  return (HiddenUnicodeString*)sdsnewlen(name, len);
+}
+
 void HiddenUnicodeString_Free(const HiddenUnicodeString *hn) {
   sds value = (sds)hn;
   sdsfree(value);

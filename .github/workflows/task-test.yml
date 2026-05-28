@@ -89,7 +89,7 @@ jobs:
     needs: get-config
     name: Start self-hosted EC2 runner
     if: ${{ needs.get-config.outputs.ec2_image_id }}
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-slim
     env:
       TAGS: | # Make sure there is no trailing comma!
         [
@@ -105,7 +105,7 @@ jobs:
       ec2-instance-id: ${{ steps.start-ec2-runner.outputs.ec2-instance-id }}
     steps:
       - name: Configure AWS credentials
-        uses: aws-actions/configure-aws-credentials@v4
+        uses: aws-actions/configure-aws-credentials@v6
         with:
           aws-access-key-id: ${{ secrets.PERFORMANCE_EC2_ACCESS_KEY }}
           aws-secret-access-key: ${{ secrets.PERFORMANCE_EC2_SECRET_KEY }}
@@ -141,7 +141,7 @@ jobs:
       needs.get-config.result == 'success' &&
       (!needs.get-config.outputs.ec2_image_id || needs.start-runner.result == 'success') &&
       (inputs.standalone || inputs.coordinator || inputs.unit-tests)
-    runs-on: ${{ needs.get-config.outputs.ec2_image_id && needs.start-runner.outputs.label || needs.get-config.outputs.env || vars.RUNS_ON || 'ubuntu-latest' }}
+    runs-on: ${{ needs.get-config.outputs.ec2_image_id && needs.start-runner.outputs.label || needs.get-config.outputs.env || vars.RUNS_ON || 'ubuntu-24.04' }}
     container: ${{
       needs.get-config.outputs.container
         && fromJSON(
@@ -243,7 +243,7 @@ jobs:
           df -h
       - name: Full checkout (node20)
         if: steps.node20.outputs.supported == 'true'
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
         with:
           submodules: recursive
       - name: Full checkout (node20 not supported)
@@ -260,9 +260,9 @@ jobs:
             amazonlinux:2)
 
               # Configure the safe directory
-              git config --global --add safe.directory "$GITHUB_WORKSPACE"
+              git config --global --add safe.directory "/__w/$GITHUB_REPO"
 
-              # Checkout with authentication
+              # Checkout with authentication for private repositories.
               REPO_URL="https://x-access-token:${GITHUB_TOKEN}@github.com/$GITHUB_REPO.git"
 
               # Initialize a Git repository
@@ -350,7 +350,7 @@ jobs:
           echo "ASAN_SYMBOLIZER_PATH=/usr/lib/llvm-$CLANG_VERSION/bin/llvm-symbolizer" >> $GITHUB_ENV
       - name: Get Redis (node20)
         if: ${{ steps.node20.outputs.supported == 'true' }}
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
         with:
           repository: redis/redis
           ref: ${{ inputs.redis-ref }}
@@ -574,7 +574,7 @@ jobs:
         run: gpg --import .github/codecov_gpg.pub
       - name: Upload flow coverage
         if: inputs.coverage
-        uses: codecov/codecov-action@v5
+        uses: codecov/codecov-action@v6 # NOSONAR
         with:
           files: bin/flow_standalone.info,bin/flow_coordinator.info
           disable_search: true
@@ -583,7 +583,7 @@ jobs:
           token: ${{ secrets.CODECOV_TOKEN }}
       - name: Upload unit coverage
         if: inputs.coverage
-        uses: codecov/codecov-action@v5
+        uses: codecov/codecov-action@v6 # NOSONAR
         with:
           files: bin/unit.info,bin/rust_cov.info
           disable_search: true
@@ -596,10 +596,10 @@ jobs:
     name: Stop self-hosted EC2 runner
     needs: [start-runner, common-flow]
     if: ${{ always() && needs.start-runner.outputs.ec2-instance-id != '' }}
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-slim
     steps:
       - name: Configure AWS credentials
-        uses: aws-actions/configure-aws-credentials@v4
+        uses: aws-actions/configure-aws-credentials@v6
         with:
           aws-access-key-id: ${{ secrets.PERFORMANCE_EC2_ACCESS_KEY }}
           aws-secret-access-key: ${{ secrets.PERFORMANCE_EC2_SECRET_KEY }}

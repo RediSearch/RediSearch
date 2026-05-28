@@ -50,11 +50,13 @@ def _coordinator_reached_rq_limit(env, coord_initial_jobs_done, coord_initial_pe
     stats = getCoordThpoolStats(env)
     jobs_done_delta = stats['totalJobsDone'] - coord_initial_jobs_done
     pending_jobs_delta = stats['totalPendingJobs'] - coord_initial_pending_jobs
-    done = jobs_done_delta >= RQ_CAPACITY or pending_jobs_delta >= RQ_CAPACITY
+    jobs_seen_delta = jobs_done_delta + pending_jobs_delta
+    done = jobs_seen_delta >= RQ_CAPACITY
     return done, {
         'coord_stats': stats,
         'jobs_done_delta': jobs_done_delta,
         'pending_jobs_delta': pending_jobs_delta,
+        'jobs_seen_delta': jobs_seen_delta,
         'completed': completed[0],
     }
 

@@ -164,6 +164,11 @@ int HashNotificationCallback(RedisModuleCtx *ctx, int type, const char *event,
  ********************************************************/
     case expire_cmd:
     case persist_cmd:
+      // EXPIRE/PERSIST only change the key's TTL; only refresh the doc-level
+      // expiration on the matching DMDs, skipping full reindexing.
+      Indexes_UpdateMatchingDocExpiration(ctx, key, getDocTypeFromString(key));
+      break;
+
     case hexpire_cmd:
     case hpersist_cmd:
     case restore_cmd:
