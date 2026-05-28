@@ -407,6 +407,20 @@ jobs:
           CLEAR_LOGS: 0
           ENABLE_ASSERT: 1
         run: make rust-tests
+      - name: Build TESTFILE excluding flaky tests (standalone)
+        id: standalone_testfile
+        if: ${{ inputs.standalone && env.IS_FORK_PR != 'true' }}
+        continue-on-error: true
+        uses: ./.github/actions/flaky-build-testfile
+        with:
+          redis-url: ${{ secrets.FLAKY_TESTS_REDIS_URL }}
+          variant: standalone
+          redis-standalone: "1"
+          test-config: ${{ inputs.test-config }}
+          rejson: ${{ env.REJSON }}
+          rejson-branch: ${{ inputs.rejson-branch }}
+          san: ${{ inputs.san }}
+
       - name: Flow tests (standalone)
         timeout-minutes: ${{ fromJSON(inputs.test-timeout) }}
         id: standalone_tests
@@ -421,8 +435,35 @@ jobs:
           REJSON_BRANCH: ${{ inputs.rejson-branch }}
           ENABLE_ASSERT: 1
           TEST_CONFIG: ${{ inputs.test-config }}
-          FAILEDFILE: ${{ github.workspace }}/failed-tests-standalone.txt
+          # Relative path: ${{ github.workspace }} resolves to the runner host
+          # path, which is unreachable when the step runs in a container.
+          # runtests.sh prepends $ROOT for non-absolute FAILEDFILE values.
+          FAILEDFILE: .failed_standalone.txt
+          TESTFILE: ${{ steps.standalone_testfile.outputs.testfile }}
         run: make pytest $TEST_CONFIG
+
+      - name: Record standalone failures to flaky DB
+        if: ${{ always() && inputs.standalone && env.IS_FORK_PR != 'true' }}
+        continue-on-error: true
+        uses: ./.github/actions/flaky-record-results
+        with:
+          redis-url: ${{ secrets.FLAKY_TESTS_REDIS_URL }}
+          failed-file: .failed_standalone.txt
+          job-name: ${{ needs.get-config.outputs.name }} standalone
+
+      - name: Build TESTFILE excluding flaky tests (coordinator)
+        id: coordinator_testfile
+        if: ${{ inputs.coordinator && env.IS_FORK_PR != 'true' }}
+        continue-on-error: true
+        uses: ./.github/actions/flaky-build-testfile
+        with:
+          redis-url: ${{ secrets.FLAKY_TESTS_REDIS_URL }}
+          variant: coordinator
+          redis-standalone: "0"
+          test-config: ${{ inputs.test-config }}
+          rejson: ${{ env.REJSON }}
+          rejson-branch: ${{ inputs.rejson-branch }}
+          san: ${{ inputs.san }}
 
       - name: Flow tests (coordinator)
         timeout-minutes: ${{ fromJSON(inputs.test-timeout) }}
@@ -438,8 +479,18 @@ jobs:
           REJSON_BRANCH: ${{ inputs.rejson-branch }}
           ENABLE_ASSERT: 1
           TEST_CONFIG: ${{ inputs.test-config }}
-          FAILEDFILE: ${{ github.workspace }}/failed-tests-coordinator.txt
+          FAILEDFILE: .failed_coordinator.txt
+          TESTFILE: ${{ steps.coordinator_testfile.outputs.testfile }}
         run: make pytest $TEST_CONFIG
+
+      - name: Record coordinator failures to flaky DB
+        if: ${{ always() && inputs.coordinator && env.IS_FORK_PR != 'true' }}
+        continue-on-error: true
+        uses: ./.github/actions/flaky-record-results
+        with:
+          redis-url: ${{ secrets.FLAKY_TESTS_REDIS_URL }}
+          failed-file: .failed_coordinator.txt
+          job-name: ${{ needs.get-config.outputs.name }} coordinator
 
       - name: Rust tests (MIRI)
         if: inputs.san == 'address' && inputs.unit-tests
@@ -563,8 +614,8 @@ jobs:
             done < "$listfile"
           }
 
-          copy_for_failed_list "${{ github.workspace }}/failed-tests-standalone.txt"
-          copy_for_failed_list "${{ github.workspace }}/failed-tests-coordinator.txt"
+          copy_for_failed_list ".failed_standalone.txt"
+          copy_for_failed_list ".failed_coordinator.txt"
 
           # Always include the run-level RLTest summary log if present — it gives
           # session-level context that complements per-test logs.
@@ -574,8 +625,8 @@ jobs:
           done
 
           # Stash the failed-test lists alongside the logs for downstream consumers.
-          for f in failed-tests-standalone.txt failed-tests-coordinator.txt; do
-            [ -f "${{ github.workspace }}/$f" ] && cp "${{ github.workspace }}/$f" "$DEST/$f"
+          for f in .failed_standalone.txt .failed_coordinator.txt; do
+            [ -f "$f" ] && cp "$f" "$DEST/$f"
           done
 
           echo "Failed-test logs bundled:"
