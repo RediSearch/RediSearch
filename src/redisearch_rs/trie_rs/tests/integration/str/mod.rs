@@ -16,6 +16,8 @@ mod insert_iterate;
 mod mem_usage;
 mod range_iteration;
 mod splits;
+mod suffix;
+mod tag_suffix;
 mod term_dict_case;
 mod unicode;
 mod wildcard_iteration;
