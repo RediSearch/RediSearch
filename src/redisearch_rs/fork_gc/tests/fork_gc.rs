@@ -12,7 +12,12 @@
 #![cfg(not(miri))]
 
 use fork_gc::ForkGC;
-use std::{io, mem, os::fd::AsRawFd, time::Duration};
+use std::{
+    io::{self, Read, Write},
+    mem,
+    os::fd::AsRawFd,
+    time::Duration,
+};
 
 /// Construct a zeroed [`ffi::ForkGC`] backed by a real pipe pair.
 ///
@@ -36,10 +41,10 @@ fn roundtrip_through_fork_gc() {
     // SAFETY: raw is a valid ffi::ForkGC for the duration of the test.
     let fgc = unsafe { ForkGC::from_ptr_mut(&mut raw) };
 
-    fgc.writer().send_fixed(b"hello").unwrap();
+    fgc.writer().write_all(b"hello").unwrap();
 
     let mut buf = [0u8; 5];
-    fgc.reader().recv_fixed(&mut buf).unwrap();
+    fgc.reader().read_exact(&mut buf).unwrap();
     assert_eq!(&buf, b"hello");
 }
 
@@ -52,7 +57,7 @@ fn times_out_when_no_data_available() {
     let mut buf = [0u8; 5];
     let err = fgc
         .reader_with_timeout(Duration::from_millis(1))
-        .recv_fixed(&mut buf)
+        .read_exact(&mut buf)
         .unwrap_err();
     assert_eq!(err.kind(), io::ErrorKind::TimedOut);
 }

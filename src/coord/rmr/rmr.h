@@ -10,7 +10,15 @@
 #pragma once
 
 #include <stdbool.h>
+
+#ifdef __cplusplus
+#include <atomic>
+#define RS_Atomic(T) std::atomic<T>
+extern "C" {
+#else
+#define RS_Atomic(T) _Atomic(T)
 #include <stdatomic.h>
+#endif
 
 #include "reply.h"
 #include "cluster.h"
@@ -123,6 +131,18 @@ typedef struct MRIterator MRIterator;
 
 typedef void (*MRIteratorCallback)(MRIteratorCallbackCtx *ctx, MRReply *rep);
 
+/**
+ * Callback type for modifying commands before they are sent to shards.
+ * Called from iterStartCb on the IO thread after numShards is known but before
+ * commands are sent.
+ * This allows calculating values like effectiveK based on the actual topology.
+ *
+ * @param cmd The command to modify (will be copied for each shard after this callback)
+ * @param numShards The actual number of shards from the IO thread's topology
+ * @param privateData The private data passed to MR_IterateWithPrivateData
+ */
+typedef void (*MRCommandModifier)(MRCommand *cmd, size_t numShards, void *privateData);
+
 // Trigger all the commands in the iterator to be sent.
 // Returns true if there may be more replies to come, false if we are done.
 bool MR_ManuallyTriggerNextIfNeeded(MRIterator *it, size_t channelThreshold);
@@ -134,17 +154,16 @@ MRReply *MRIterator_Next(MRIterator *it);
  * At least one of `abstime` / `abortFlag` must be non-NULL; for an indefinite
  * blocking next, use MRIterator_Next. */
 MRReply *MRIterator_NextWithTimeout(MRIterator *it, const struct timespec *abstime,
-                                    atomic_bool *abortFlag, bool *timedOut);
+                                    RS_Atomic(bool) *abortFlag, bool *timedOut);
 
 /* Return the underlying channel used by the iterator. Intended for callers that need to
  * invoke MRChannel_WakeAbort directly (e.g. from a timeout callback on another thread). */
 struct MRChannel *MRIterator_GetChannel(MRIterator *it);
 
-MRIterator *MR_Iterate(const MRCommand *cmd, MRIteratorCallback cb);
-
 MRIterator *MR_IterateWithPrivateData(const MRCommand *cmd, MRIteratorCallback cb, void *cbPrivateData,
                                       void (*cbPrivateDataDestructor)(void *),
-                                      void (*cbPrivateDataInit)(void *, MRIterator *),
+                                      void (*cbPrivateDataInit)(void *, const MRIterator *),
+                                      MRCommandModifier commandModifier,
                                       void (*iterStartCb)(void *), StrongRef *iterStartCbPrivateData);
 
 MRCommand *MRIteratorCallback_GetCommand(MRIteratorCallbackCtx *ctx);
@@ -178,3 +197,9 @@ short MRIterator_GetPending(MRIterator *it);
 void MRIterator_Release(MRIterator *it);
 
 sds MRCommand_SafeToString(const MRCommand *cmd);
+
+#undef RS_Atomic
+
+#ifdef __cplusplus
+}
+#endif

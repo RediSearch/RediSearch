@@ -14,7 +14,7 @@
 #include <limits.h>
 #include <stdbool.h>
 #include <time.h>
-#include "redisearch_types.h"
+#include "rqe_core.h"
 #include "document_rs.h"
 #include "util/dllist.h"
 #include "stemmer.h"
