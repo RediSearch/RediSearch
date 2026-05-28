@@ -9,6 +9,13 @@ on:
 # TODO: Use RedisJSON's `master` branch when testing on nightly
 
 jobs:
+  lint:
+    permissions:
+      contents: read
+      packages: write
+    uses: ./.github/workflows/task-lint.yml
+    secrets: inherit
+
   test-all-platforms:
     permissions:
       contents: read
@@ -28,16 +35,16 @@ jobs:
 
 
   notify-failure:
-    needs: [test-all-platforms, micro-benchmarks]
+    needs: [lint, test-all-platforms, micro-benchmarks]
     if: failure()
-    runs-on: ${{ vars.RUNS_ON || 'ubuntu-latest' }}
+    runs-on: ubuntu-slim
     steps:
       - name: Notify Failure
-        uses: slackapi/slack-github-action@v1
+        uses: slackapi/slack-github-action@v3
         with:
+          webhook: ${{ secrets.SLACK_WEBHOOK_URL_NIGHTLY_FAILED }}
+          webhook-type: incoming-webhook
           payload: |
             {
               "failed_workflow": "${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}/attempts/${{ github.run_attempt }}"
             }
-        env:
-          SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL_NIGHTLY_FAILED }}

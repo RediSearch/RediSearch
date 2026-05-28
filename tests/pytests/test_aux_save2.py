@@ -137,7 +137,7 @@ def testLoadRdbWithEmptySpellcheckDict(env):
     dbFileName = env.cmd('config', 'get', 'dbfilename')[1]
     dbDir = env.cmd('config', 'get', 'dir')[1]
     rdbFilePath = os.path.join(dbDir, dbFileName)
-    if not downloadFiles(env, RDBS):
+    if not getRDBFiles(env, RDBS):
         return
 
     for fileName in RDBS:

@@ -118,15 +118,13 @@ static inline timespec timespecFromMilliseconds(int64_t totalMilliseconds) {
   return result;
 }
 
-static inline t_expirationTimePoint getDocExpirationTime(RedisModuleCtx* ctx, RedisModuleKey *openedKey) {
-  t_expirationTimePoint zero = {.tv_sec = 0, .tv_nsec = 0};
+t_expirationTimePoint GetKeyExpirationTime(RedisModuleKey *openedKey) {
   mstime_t totalMilliseconds = RedisModule_GetAbsExpire(openedKey);
   if (totalMilliseconds == REDISMODULE_NO_EXPIRE) {
+    t_expirationTimePoint zero = {.tv_sec = 0, .tv_nsec = 0};
     return zero;
   }
-
-  t_expirationTimePoint result = timespecFromMilliseconds(totalMilliseconds);
-  return result;
+  return timespecFromMilliseconds(totalMilliseconds);
 }
 
 int Document_LoadSchemaFieldHash(Document *doc, RedisSearchCtx *sctx, QueryError *status) {
@@ -186,7 +184,7 @@ int Document_LoadSchemaFieldHash(Document *doc, RedisSearchCtx *sctx, QueryError
   }
 
   if (spec->monitorDocumentExpiration) {
-    doc->docExpirationTime = getDocExpirationTime(sctx->redisCtx, k);
+    doc->docExpirationTime = GetKeyExpirationTime(k);
   }
   rv = REDISMODULE_OK;
 done:
@@ -216,7 +214,7 @@ int Document_LoadSchemaFieldJson(Document *doc, RedisSearchCtx *sctx, QueryError
   }
 
   if (spec->monitorDocumentExpiration) {
-    doc->docExpirationTime = getDocExpirationTime(sctx->redisCtx, k);
+    doc->docExpirationTime = GetKeyExpirationTime(k);
   }
 
   RedisModule_CloseKey(k);

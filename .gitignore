@@ -8,6 +8,7 @@
 *.log
 *.aof
 *.rdb
+!/tests/pytests/test_rdbs/**/*.rdb.zip
 *.DS_Store
 *.dSYM
 /bin/

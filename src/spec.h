@@ -115,7 +115,6 @@ struct IndexesScanner;
 
 #define SPEC_MAX_FIELDS 1024
 #define SPEC_MAX_FIELD_ID (sizeof(t_fieldMask) * 8)
-#define MAX_SCHEMA_PREFIXES 1000000
 #define MAX_SYNONYM_TERMS 1000000     // reasonable limit for synonym map terms
 #define MAX_SYNONYM_GROUP_IDS 4096    // reasonable limit for group IDs per term
 
@@ -510,9 +509,7 @@ IndexSpec *IndexSpec_CreateNew(RedisModuleCtx *ctx, RedisModuleString **argv, in
 void IndexSpec_StartGC(RedisModuleCtx *ctx, StrongRef spec_ref, IndexSpec *sp);
 void IndexSpec_StartGCFromSpec(StrongRef spec_ref, IndexSpec *sp, uint32_t gcPolicy);
 
-/* Same as above but with ordinary strings, to allow unit testing */
-StrongRef IndexSpec_Parse(const HiddenString *name, const char **argv, int argc, QueryError *status);
-// Calls IndexSpec_Parse after wrapping name with a hidden string
+/* Parse index spec from ordinary C strings. Intended for unit tests only. */
 StrongRef IndexSpec_ParseC(const char *name, const char **argv, int argc, QueryError *status);
 
 FieldSpec *IndexSpec_CreateField(IndexSpec *sp, const char *name, const char *path);
@@ -704,6 +701,12 @@ void Indexes_Free(dict *d);
 size_t Indexes_Count();
 void Indexes_UpdateMatchingWithSchemaRules(RedisModuleCtx *ctx, RedisModuleString *key, DocumentType type,
                                            RedisModuleString **hashFields);
+// Fast path for keyspace events that only change the document-level TTL
+// (EXPIRE/PERSIST): re-reads the key's absolute expiration and writes it
+// directly onto the matching DMDs, without re-running schema-rule filters or
+// re-indexing the document. In-memory flow only; callers must fall back to
+// Indexes_UpdateMatchingWithSchemaRules for disk-backed indexes.
+void Indexes_UpdateMatchingDocExpiration(RedisModuleCtx *ctx, RedisModuleString *key, DocumentType type);
 void Indexes_DeleteMatchingWithSchemaRules(RedisModuleCtx *ctx, RedisModuleString *key,
                                            DocumentType type,
                                            RedisModuleString **hashFields);
