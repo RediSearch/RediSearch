@@ -2423,6 +2423,7 @@ dependencies = [
  "redis_mock",
  "redisearch_rs",
  "rune_trie_snapshots",
+ "trie_rs",
  "workspace_hack",
 ]
 

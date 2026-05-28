@@ -30,3 +30,4 @@ libc.workspace = true
 redis_mock.workspace = true
 redisearch_rs = { path = "../c_entrypoint/redisearch_rs", features = ["mock_allocator"] }
 rune_trie_snapshots = { path = ".", features = ["unittest"] }
+trie_rs = { path = "../trie_rs" }

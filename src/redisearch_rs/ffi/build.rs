@@ -253,6 +253,28 @@ const HEADERS: &[HeaderAllowlist] = &[
         types: &[],
         vars: &[],
     },
+    // RSE: surfaced for `rune_trie_snapshots`' suffix-index oracle, which
+    // drives the C `src/suffix.c` implementation from Rust and compares it
+    // to the pure-Rust port at `trie_rs::str::suffix` /
+    // `trie_rs::str::tag_suffix`. None of these symbols are consumed by
+    // production Rust code.
+    HeaderAllowlist {
+        path: "src/suffix.h",
+        fns: &[
+            "addSuffixTrie",
+            "deleteSuffixTrie",
+            "Suffix_IterateContains",
+            "Suffix_IterateWildcard",
+            "addSuffixTrieMap",
+            "deleteSuffixTrieMap",
+            "GetList_SuffixTrieMap",
+            "GetList_SuffixTrieMap_Wildcard",
+            "suffixTrieMap_freeCallback",
+            "suffixTrie_freeCallback",
+        ],
+        types: &["SuffixCtx", "suffixData", "SuffixType"],
+        vars: &[],
+    },
     HeaderAllowlist {
         path: "src/tag_index.h",
         fns: &["TagIndex_Ensure", "TagIndex_OpenIndex"],
@@ -286,7 +308,13 @@ const HEADERS: &[HeaderAllowlist] = &[
     HeaderAllowlist {
         path: "src/trie/trie_node.h",
         fns: &["TrieIterator_Free", "TrieIterator_Next"],
-        types: &["TrieRangeCallback", "TrieSortMode", "rune", "t_len"],
+        types: &[
+            "TrieRangeCallback",
+            "TrieSortMode",
+            "TrieSuffixCallback",
+            "rune",
+            "t_len",
+        ],
         vars: &[],
     },
     HeaderAllowlist {

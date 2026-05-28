@@ -17,6 +17,8 @@ mod incr_mode;
 mod insert_iterate;
 mod range_iteration;
 mod splits;
+mod suffix_oracle;
+mod tag_suffix_oracle;
 mod unicode;
 mod wildcard_iteration;
 

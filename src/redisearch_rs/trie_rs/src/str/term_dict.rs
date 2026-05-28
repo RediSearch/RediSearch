@@ -17,7 +17,7 @@
 //! ## Case-folding contract
 //!
 //! All keys and patterns are case-folded on the way in via
-//! [`icu_casemap::CaseMapper::fold_string`] before reaching the underlying
+//! `icu_casemap::CaseMapper::fold_string` before reaching the underlying
 //! [`StrTrieMap`], so the trie itself only ever holds folded keys. Moving
 //! the fold inside `TermDictionary` lets future C-to-Rust call sites stop
 //! repeating the obligation.
@@ -102,7 +102,7 @@ pub struct TermDictionary {
 ///
 /// Returns a borrowed `Cow` when the input is already in folded form
 /// and an owned `Cow` otherwise; the split is decided inside
-/// [`CaseMapper::fold_string`]. Production tokenizer output
+/// `CaseMapper::fold_string`. Production tokenizer output
 /// (`src/tokenize.c`) is already lowercased, so the borrow arm covers
 /// the hot path.
 fn fold(term: &str) -> Cow<'_, str> {
