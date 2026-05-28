@@ -8,7 +8,7 @@ jobs:
         pull-requests: write
         contents: read
         issues: write
-      runs-on: ubuntu-latest
+      runs-on: ubuntu-24.04
       name: Label the PR size
       steps:
         - uses: codelytv/pr-size-labeler@v1
@@ -30,4 +30,3 @@ jobs:
             github_api_url: 'https://api.github.com'
             files_to_ignore: '*.md .gitignore'
             GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-

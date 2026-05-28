@@ -22,15 +22,26 @@ jobs:
       repo: redis/redis
       prefix: '8.2'
 
+  check-what-changed:
+    uses: ./.github/workflows/task-check-changes.yml
+
   lint:
+    needs: check-what-changed
+    if: ${{ needs.check-what-changed.outputs.CODE_CHANGED == 'true' }}
     permissions:
       contents: read
       packages: write
     uses: ./.github/workflows/task-lint.yml
     secrets: inherit
+    with:
+      compare-advisories-to-base: true
+      advisories-base-ref: ${{ github.event.merge_group.base_sha }}
 
   test-matrix:
-    needs: [get-latest-redis-tag, lint]
+    # Wait for lint so we do not spend MQ test capacity when CI is already going to fail.
+    # Use explicit status checks so test-only changes still run even when lint is skipped.
+    needs: [get-latest-redis-tag, check-what-changed, lint]
+    if: ${{ !cancelled() && !failure() && (needs.check-what-changed.outputs.CODE_CHANGED == 'true' || needs.check-what-changed.outputs.TESTS_CHANGED == 'true') }}
     permissions:
       contents: read
       packages: write
@@ -47,9 +58,10 @@ jobs:
   pr-validation:
     needs:
       - get-latest-redis-tag
+      - check-what-changed
       - lint
       - test-matrix
-    runs-on: ${{ vars.RUNS_ON || 'ubuntu-latest' }}
+    runs-on: ubuntu-slim
     if: ${{ !cancelled() }}
     steps:
       - if: contains(needs.*.result, 'failure') || contains(needs.*.result, 'cancelled')

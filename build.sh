@@ -23,6 +23,9 @@ VERBOSE=0        # Verbose output flag
 QUICK=${QUICK:-0} # Quick test mode (subset of tests)
 COV=${COV:-0}    # Coverage mode (for building and testing)
 BUILD_INTEL_SVS_OPT=${BUILD_INTEL_SVS_OPT:-0} # Use SVS pre-compiled library
+# Inline LSE atomics on Linux AArch64 (Armv8.1-a+). Set to 0 on pre-Armv8.1-a
+# cores (Cortex-A72, AWS Graviton1, Raspberry Pi 4) to avoid SIGILL on load.
+INLINE_LSE_ATOMICS=${INLINE_LSE_ATOMICS:-1}
 
 # Test configuration (0=disabled, 1=enabled)
 BUILD_TESTS=0    # Build test binaries
@@ -111,6 +114,9 @@ parse_arguments() {
         ;;
       BUILD_INTEL_SVS_OPT=*)
         BUILD_INTEL_SVS_OPT="${arg#*=}"
+        ;;
+      INLINE_LSE_ATOMICS=*)
+        INLINE_LSE_ATOMICS="${arg#*=}"
         ;;
       *)
         # Pass all other arguments directly to CMake
@@ -318,6 +324,13 @@ prepare_cmake_arguments() {
   else
     CMAKE_BASIC_ARGS="$CMAKE_BASIC_ARGS -DSVS_SHARED_LIB=OFF"
   fi
+
+  # Forward INLINE_LSE_ATOMICS to CMake (controls the C/C++ side).
+  if [[ "$INLINE_LSE_ATOMICS" == "1" ]]; then
+    CMAKE_BASIC_ARGS="$CMAKE_BASIC_ARGS -DINLINE_LSE_ATOMICS=ON"
+  else
+    CMAKE_BASIC_ARGS="$CMAKE_BASIC_ARGS -DINLINE_LSE_ATOMICS=OFF"
+  fi
 }
 
 #-----------------------------------------------------------------------------
@@ -390,8 +403,9 @@ build_redisearch_rs() {
   # implies +lse so rustc emits LDADDH/LDADD instead of an ldxrh/stxrh LL/SC loop.
   # macOS is excluded to match the CMake NOT APPLE gate: Apple Silicon's default
   # target-cpu (apple-m1) is already ≥Armv8.5-a with inline LSE, so overriding it
-  # with neoverse-n1 would only downgrade scheduling.
-  if [[ "$ARCH" == "aarch64" && "$OS_NAME" != "macos" ]]; then
+  # with neoverse-n1 would only downgrade scheduling. Gated by INLINE_LSE_ATOMICS
+  # so users on pre-Armv8.1-a cores (Cortex-A72, Graviton1, RPi4) can opt out.
+  if [[ "$ARCH" == "aarch64" && "$OS_NAME" != "macos" && "$INLINE_LSE_ATOMICS" == "1" ]]; then
     export RUSTFLAGS="${RUSTFLAGS:+${RUSTFLAGS} }-C target-cpu=neoverse-n1"
   fi
   # Build using cargo

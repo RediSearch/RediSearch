@@ -23,11 +23,11 @@ from deepdiff import DeepDiff
 from unittest.mock import ANY, _ANY
 from unittest import SkipTest
 import inspect
-import subprocess
 import math
+import tempfile
 
-BASE_RDBS_URL = 'https://dev.cto.redis.s3.amazonaws.com/RediSearch/rdbs/'
-REDISEARCH_CACHE_DIR = '/tmp/redisearch-rdbs/'
+TEST_RDBS_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'test_rdbs')
+REDISEARCH_CACHE_DIR = os.path.join(tempfile.gettempdir(), 'redisearch-rdbs')
 VECSIM_DATA_TYPES = ['FLOAT32', 'FLOAT64', 'FLOAT16', 'BFLOAT16']
 VECSIM_ALGOS = ['FLAT', 'HNSW', 'SVS-VAMANA']
 
@@ -466,6 +466,58 @@ def unstable(f):
 def skipTest(**kwargs):
     skip(**kwargs)(lambda: None)()
 
+def skip_until(date_str, reason=None):
+    """
+    Decorator to skip a test until a specific date.
+    After the date passes, the test will run normally.
+
+    This is useful for temporarily skipping flaky tests while ensuring
+    they are not forgotten - the test will automatically start running
+    again after the specified date.
+
+    Args:
+        date_str: A date string in ISO format "YYYY-MM-DD" (e.g., "2024-06-15")
+        reason: Optional reason for skipping the test
+
+    Usage:
+        @skip_until("2024-06-15", reason="Flaky test, investigating MOD-1234")
+        def testSomething(env):
+            ...
+    """
+    from datetime import datetime
+
+    def decorate(f):
+        @wraps(f)
+        def wrapper(*args, **kwargs):
+            skip_date = datetime.strptime(date_str, "%Y-%m-%d").date()
+            today = datetime.now().date()
+            if today < skip_date:
+                reason_msg = f" ({reason})" if reason else ""
+                print(f"Skipping {f.__name__} until {date_str}{reason_msg}")
+                raise SkipTest(f"Skipped until {date_str}{reason_msg}")
+            # Date has passed, run the test
+            return f(*args, **kwargs)
+        return wrapper
+    return decorate
+
+# Wraps the decorator `skip_until` for calling from within a test function
+def skipTestUntil(date_str, reason=None):
+    """
+    Skip the current test until a specific date.
+    Call this from within a test function.
+
+    Args:
+        date_str: A date string in ISO format "YYYY-MM-DD" (e.g., "2024-06-15")
+        reason: Optional reason for skipping the test
+
+    Usage:
+        def testSomething(env):
+            if some_condition:
+                skipTestUntil("2024-06-15", reason="Flaky under certain conditions")
+            ...
+    """
+    skip_until(date_str, reason)(lambda: None)()
+
 def skip(cluster=None, macos=False, asan=False, msan=False, redis_less_than=None, redis_greater_equal=None, min_shards=None, arch=None, gc_no_fork=None, no_json=False):
     def decorate(f):
         def wrapper():
@@ -883,54 +935,40 @@ def access_nested_list(lst, index):
         result = result[entry]
     return result
 
-def downloadFile(env, file_name, depth=0, max_retries=3):
-    path = os.path.join(REDISEARCH_CACHE_DIR, file_name)
-    path_dir = os.path.dirname(path)
-    os.makedirs(path_dir, exist_ok=True)  # create dir if not exists
-    if not os.path.exists(path):
-        env.debugPrint(f"downloading {file_name}", force=True)
-        try:
-            subprocess.run(
-                [
-                "wget",
-                "--no-check-certificate",
-                "--tries", str(max_retries + 1),  # wget tries
-                "--waitretry", "2",  # wait 2 seconds between retries
-                "--retry-connrefused",  # retry on connection refused
-                BASE_RDBS_URL + file_name,
-                "-O",
-                path,
-                "-v"  # verbose to get better error info
-            ], check=True, capture_output=True, text=True)
-
-        except subprocess.CalledProcessError as e:
-            env.debugPrint(f"Failed to download {file_name} after {max_retries + 1} attempts. "
-                           f"Return code: {e.returncode}, stdout: {e.stdout}, stderr: {e.stderr}", force=True)
-
-            # Clean up partial download
-            try:
-                if os.path.exists(path):
-                    os.remove(path)
-                    env.debugPrint(f"Removed partially downloaded file {path}", force=True)
-            except OSError:
-                env.debugPrint(f"Failed to remove {path}", force=True)
-                pass
-            return False
-    if not os.path.exists(path):
+def getRDBFile(env, file_name, depth=0):
+    # Materialise a bundled RDB fixture from tests/pytests/test_rdbs/<file_name>.zip
+    # into REDISEARCH_CACHE_DIR/<file_name>. Extraction is idempotent: if the
+    # target file already exists with non-zero size we skip re-extracting.
+    src = os.path.join(TEST_RDBS_DIR, file_name + '.zip')
+    dst = os.path.join(REDISEARCH_CACHE_DIR, file_name)
+    if os.path.exists(dst) and os.path.getsize(dst) > 0:
+        return True
+    if not os.path.exists(src):
         env.assertTrue(
             False,
-            message=f"{path} does not exist after download",
+            message=f"bundled RDB fixture {src} is missing",
+            depth=depth + 1,
+        )
+        return False
+    import zipfile
+    os.makedirs(os.path.dirname(dst), exist_ok=True)
+    try:
+        with zipfile.ZipFile(src, 'r') as z:
+            z.extract(os.path.basename(file_name), os.path.dirname(dst))
+    except (zipfile.BadZipFile, KeyError, OSError) as e:
+        env.assertTrue(
+            False,
+            message=f"failed to extract bundled RDB fixture {src}: {e}",
             depth=depth + 1,
         )
         return False
     return True
 
-def downloadFiles(env, rdbs=None, depth=0):
+def getRDBFiles(env, rdbs=None, depth=0):
     if rdbs is None:
         return False
-
     for f in rdbs:
-        if not downloadFile(env, f, depth=depth + 1):
+        if not getRDBFile(env, f, depth=depth + 1):
             return False
     return True
 
@@ -1141,7 +1179,10 @@ def launch_cmds_in_bg_with_exception_check(env, command, num_triggers, exception
         exception_timeout: Seconds to wait for exception detection (default: 1).
 
     Returns:
-        list[Thread]: Started thread objects if no exceptions occur, None if any thread fails.
+        tuple[list[Thread] | None, list[Exception]]: (threads, exceptions). `threads` is the
+        list of started thread objects, or None if any thread raised within `exception_timeout`.
+        `exceptions` is the live list that background threads append to on failure; callers may
+        re-inspect it after a later wait to surface errors that arrive past the fast-fail window.
     """
     threads = []
     exceptions = []
@@ -1163,9 +1204,9 @@ def launch_cmds_in_bg_with_exception_check(env, command, num_triggers, exception
     if exception_event.wait(timeout=exception_timeout):
         error_msg = f"Background command {command} failed with {len(exceptions)} error(s): {exceptions}"
         env.assertTrue(False, message=error_msg)
-        return None
+        return None, exceptions
 
-    return threads
+    return threads, exceptions
 
 def get_shards_profile(env, res):
   """Extract shard profiles from FT.PROFILE AGGREGATE response."""
