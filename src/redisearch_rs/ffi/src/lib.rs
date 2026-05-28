@@ -40,7 +40,10 @@ pub mod context;
 
 /// Use the Rust definitions directly
 pub use document::DocumentType;
-pub use query_node_type::QueryNodeType;
+pub use query_node_type::{
+    QASTValidationFlagsSet, QueryNodeFlags, QueryNodeOptions, QueryNodeType,
+};
+
 pub use query_term::{RSQueryTerm, RSTokenFlags};
 pub use rqe_iterator_type::IteratorType;
 

@@ -33,17 +33,13 @@ bool validateShardKRatio(const char *value, double *ratio, QueryError *status) {
   return true;
 }
 
-void modifyKNNCommand(MRCommand *cmd, size_t query_arg_index, size_t effectiveK, VectorQuery *vq) {
-    // Get original K value from the VectorQuery
-    size_t originalK = vq->knn.k;
-
+void modifyKNNCommand(MRCommand *cmd, size_t query_arg_index,
+                      size_t originalK, size_t effectiveK,
+                      size_t k_pos, size_t k_len) {
     // Fast path: No modification needed if K values are the same
     if (originalK == effectiveK) {
         return;
     }
-    // Get saved position information
-    size_t k_pos = vq->knn.k_token_pos;
-    size_t k_len = vq->knn.k_token_len;
 
     char effectiveK_str[32];
     size_t newK_len = snprintf(effectiveK_str, sizeof(effectiveK_str), "%zu", effectiveK);
