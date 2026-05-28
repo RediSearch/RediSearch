@@ -2,7 +2,7 @@
 
 Subcommands:
   fetch    Pull active marks for $REPO/$BRANCH into local files.
-  filter   Filter a test list against a marks file (prefix match).
+  filter   Filter a test list against a marks file (exact or variant-suffix match).
   mark     Add a flaky mark.
   unmark   Remove a flaky mark.
   record   Record failed/passed test ids for the current run.
@@ -227,6 +227,11 @@ def cmd_mark(args: argparse.Namespace) -> int:
             print(f"::error::{name} is empty")
             return 1
 
+    if not _TEST_ID_RE.match(test_id):
+        print(f"::error::test_id {test_id!r} doesn't match the RLTest format "
+              "'<test_file>:<test_name>' (no .py, no [variant])")
+        return 1
+
     try:
         days = int(os.environ["DAYS"])
     except ValueError:
@@ -240,6 +245,8 @@ def cmd_mark(args: argparse.Namespace) -> int:
     if client is None:
         print("::error::REDIS_URL is required for mark")
         return 1
+
+    _ensure_index(client)
 
     now = int(time.time())
     expires = now + days * 86400
@@ -272,6 +279,11 @@ def cmd_unmark(args: argparse.Namespace) -> int:
 
     if not test_id or not reason:
         print("::error::test_id and reason are required")
+        return 1
+
+    if not _TEST_ID_RE.match(test_id):
+        print(f"::error::test_id {test_id!r} doesn't match the RLTest format "
+              "'<test_file>:<test_name>' (no .py, no [variant])")
         return 1
 
     client = _connect()
@@ -349,14 +361,14 @@ def cmd_record(args: argparse.Namespace) -> int:
                     pipe.hset(key, mapping={
                         "repo": repo, "branch": branch, "test_id": test_id, "status": status,
                         "commit": commit, "workflow_run_id": workflow_run_id,
-                        "run_attempt": run_attempt, "job": job, "started_at": now,
+                        "run_attempt": run_attempt, "job": job, "recorded_at": now,
                     })
                     pipe.expireat(key, expires_at)
                     if status == "failed":
                         pipe.xadd(f"failures:{repo}:{branch}", {
                             "test_id": test_id, "commit": commit,
                             "workflow_run_id": workflow_run_id, "run_attempt": run_attempt,
-                            "job": job, "started_at": str(now),
+                            "job": job, "recorded_at": str(now),
                         }, maxlen=FAILURES_MAXLEN, approximate=True)
             pipe.execute()
     except Exception as exc:  # noqa: BLE001
@@ -398,7 +410,7 @@ def main() -> int:
     p.add_argument("--output-list", default=".flaky_skip.txt")
     p.set_defaults(func=cmd_fetch)
 
-    p = sub.add_parser("filter", help="Filter a test list against marks (prefix match)")
+    p = sub.add_parser("filter", help="Filter a test list against marks (exact or variant-suffix match)")
     p.add_argument("--tests", required=True)
     p.add_argument("--marks", required=True)
     p.add_argument("--output", required=True)
