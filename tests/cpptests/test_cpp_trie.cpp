@@ -840,12 +840,8 @@ static size_t trieGetNumDocs(Trie *t, const char *s) {
   return node->numDocs;
 }
 
-// Regression: TrieType_GenericLoad hardcodes the reloaded trie to Trie_Sort_Score,
-// so a Lex-sorted source trie comes back with score-ordered children. Trie_IterateRange
-// does binary search on children (trie_node.c:868) which is only sound on a Lex-ordered
-// trie, so range queries on the reloaded trie silently return the wrong subset.
-// Reachable in production via spec.c:3527 (disk-spec SST load) and spec.c:3678
-// (legacy encver>=3 load) where the source trie is built Lex (spec.c:2429).
+// Regression: TrieType_GenericLoad must preserve sort mode across reload,
+// or Trie_IterateRange's binary search breaks on Lex-sourced tries.
 TEST_F(TrieTest, testRdbSaveLoadLexRangePreservesQueries) {
   Trie *original = NewTrie(NULL, Trie_Sort_Lex);
   std::unique_ptr<Trie, std::function<void(Trie *)>> originalPtr(
