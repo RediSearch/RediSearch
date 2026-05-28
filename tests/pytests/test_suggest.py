@@ -310,3 +310,31 @@ def testSuggestZeroScoreSortsLast(env):
     conn.execute_command('ft.sugadd', 'ac', 'foo two', 2)
     res = conn.execute_command('ft.sugget', 'ac', 'foo')
     env.assertEqual(['foo two', 'foo one', 'foo zero'], res)
+
+# TRIE_MAX_PREFIX (src/trie/trie_node.h) is the maximum rune length accepted by
+# the trie search path behind FT.SUGGET. The boundary is inclusive: a query of
+# exactly TRIE_MAX_PREFIX runes is accepted; one rune more is rejected.
+TRIE_MAX_PREFIX = 100
+
+def testSuggestGetAtMaxPrefixLength(env):
+    skipOnCrdtEnv(env)
+    conn = env.getClusterConnectionIfNeeded()
+
+    term = 'a' * TRIE_MAX_PREFIX
+    env.assertEqual(conn.execute_command('FT.SUGADD', 'ac', term, 1), 1)
+
+    res = conn.execute_command('FT.SUGGET', 'ac', term)
+    env.assertEqual(res, [term])
+
+def testSuggestGetOverMaxPrefixLength(env):
+    skipOnCrdtEnv(env)
+    conn = env.getClusterConnectionIfNeeded()
+
+    term = 'a' * (TRIE_MAX_PREFIX + 1)
+    env.assertEqual(conn.execute_command('FT.SUGADD', 'ac', term, 1), 1)
+
+    try:
+        conn.execute_command('FT.SUGGET', 'ac', term)
+        env.assertTrue(False)
+    except Exception as e:
+        env.assertContains('Invalid query', str(e))
