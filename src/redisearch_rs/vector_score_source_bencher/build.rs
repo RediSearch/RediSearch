@@ -9,10 +9,10 @@
 
 fn main() {
     build_utils::bind_foreign_c_symbols();
-    compile_bench_shim();
+    compile_hybrid_shim();
 }
 
-fn compile_bench_shim() {
+fn compile_hybrid_shim() {
     use build_utils::repository_root;
 
     let root = repository_root().expect("Could not find repository root");
@@ -20,8 +20,14 @@ fn compile_bench_shim() {
     let deps = root.join("deps");
 
     cc::Build::new()
-        .file("benches/bench_shim.c")
+        // Drives the real C HybridIterator from libredisearch_all.a, as a
+        // faithful counterpart to the Rust VectorTopKIterator.
+        .file("benches/hybrid_shim.c")
         .include(&src)
+        // `deps` (rmutil/*) and RedisModulesSDK (redismodule.h) are pulled in
+        // transitively by spec.h / search_ctx.h for the hybrid shim.
+        .include(&deps)
+        .include(deps.join("RedisModulesSDK"))
         .include(src.join("iterators"))
         .include(deps.join("VectorSimilarity").join("src"))
         .include(deps.join("rmalloc"))
@@ -29,7 +35,7 @@ fn compile_bench_shim() {
         .include(src.join("buffer"))
         .include(src.join("ttl_table"))
         .include(src.join("trie"))
-        .compile("bench_shim");
+        .compile("hybrid_shim");
 
-    println!("cargo:rerun-if-changed=benches/bench_shim.c");
+    println!("cargo:rerun-if-changed=benches/hybrid_shim.c");
 }

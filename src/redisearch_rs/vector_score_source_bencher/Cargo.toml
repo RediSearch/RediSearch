@@ -12,8 +12,9 @@ workspace = true
 # See https://bheisler.github.io/criterion.rs/book/faq.html#cargo-bench-gives-unrecognized-option-errors-for-valid-command-line-options
 bench = false
 
+# Rust VectorTopKIterator vs the real C HybridIterator (apples-to-apples).
 [[bench]]
-name = "vector_top_k"
+name = "vector_top_k_hybrid"
 harness = false
 
 [build-dependencies]
@@ -25,6 +26,7 @@ criterion.workspace = true
 ffi.workspace = true
 redis_mock.workspace = true
 rqe_iterators = { workspace = true }
+top_k = { path = "../top_k" }
 vector_score_source = { path = "../vector_score_source" }
 workspace_hack.workspace = true
 # Crate required to invoke C symbols and keep Rust-defined FFI symbols alive.
