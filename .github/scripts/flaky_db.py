@@ -48,9 +48,13 @@ _TAG_ESCAPE_CHARS = set(',.<>{}[]"\':;!@#$%^&*()-+=~ \\/?')
 # RLTest LIST=1 emits "<test_file>:<test_name>" (no .py suffix, no variant
 # suffix). Class-based tests appear as "<test_file>:<Class>.<method>" — RLTest
 # joins them with a dot — so the name half must accept `.`. The variant bracket
-# is left in the regex in case a future RLTest version starts emitting them;
-# prefix matching handles both shapes.
+# is left in the parse regex in case a future RLTest version starts emitting
+# them; prefix matching handles both shapes.
 _TEST_ID_RE = re.compile(r"^[A-Za-z0-9_-]+:[A-Za-z_][\w.]*(?:\[[^\]]+\])?\s*$")
+# Marks must be variant-less: cmd_filter matches `test == mark` or
+# `test.startswith(mark + "[")`, so a mark with a `[variant]` suffix could
+# never match anything in current LIST=1 output and would silently no-op.
+_MARK_TEST_ID_RE = re.compile(r"^[A-Za-z0-9_-]+:[A-Za-z_][\w.]*\s*$")
 
 
 def _connect() -> redis.Redis | None:
@@ -227,7 +231,7 @@ def cmd_mark(args: argparse.Namespace) -> int:
             print(f"::error::{name} is empty")
             return 1
 
-    if not _TEST_ID_RE.match(test_id):
+    if not _MARK_TEST_ID_RE.match(test_id):
         print(f"::error::test_id {test_id!r} doesn't match the RLTest format "
               "'<test_file>:<test_name>' (no .py, no [variant])")
         return 1
@@ -281,7 +285,7 @@ def cmd_unmark(args: argparse.Namespace) -> int:
         print("::error::test_id and reason are required")
         return 1
 
-    if not _TEST_ID_RE.match(test_id):
+    if not _MARK_TEST_ID_RE.match(test_id):
         print(f"::error::test_id {test_id!r} doesn't match the RLTest format "
               "'<test_file>:<test_name>' (no .py, no [variant])")
         return 1
