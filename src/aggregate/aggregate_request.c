@@ -936,7 +936,8 @@ int AREQ_ApplyContext(AREQ *req, RedisSearchCtx *sctx, QueryError *status) {
   return REDISMODULE_OK;
 }
 
-static ResultProcessor *buildGroupRP(PLN_GroupStep *gstp, RLookup *srclookup, QueryError *err) {
+static ResultProcessor *buildGroupRP(PLN_GroupStep *gstp, RLookup *srclookup,
+                                     GroupByLimits groupByLimits, QueryError *err) {
   const RLookupKey *srckeys[gstp->nproperties], *dstkeys[gstp->nproperties];
   for (size_t ii = 0; ii < gstp->nproperties; ++ii) {
     const char *fldname = gstp->properties[ii] + 1;  // account for the @-
@@ -948,7 +949,7 @@ static ResultProcessor *buildGroupRP(PLN_GroupStep *gstp, RLookup *srclookup, Qu
     dstkeys[ii] = RLookup_GetKey(&gstp->lookup, fldname, RLOOKUP_F_OCREAT | RLOOKUP_F_NOINCREF);
   }
 
-  Grouper *grp = Grouper_New(srckeys, dstkeys, gstp->nproperties);
+  Grouper *grp = Grouper_New(srckeys, dstkeys, gstp->nproperties, groupByLimits);
 
   size_t nreducers = array_len(gstp->reducers);
   for (size_t ii = 0; ii < nreducers; ++ii) {
@@ -991,10 +992,10 @@ static ResultProcessor *pushRP(AREQ *req, ResultProcessor *rp, ResultProcessor *
 }
 
 static ResultProcessor *getGroupRP(AREQ *req, PLN_GroupStep *gstp, ResultProcessor *rpUpstream,
-                                   QueryError *status) {
+                                   GroupByLimits groupByLimits, QueryError *status) {
   AGGPlan *pln = &req->ap;
   RLookup *lookup = AGPLN_GetLookup(pln, &gstp->base, AGPLN_GETLOOKUP_PREV);
-  ResultProcessor *groupRP = buildGroupRP(gstp, lookup, status);
+  ResultProcessor *groupRP = buildGroupRP(gstp, lookup, groupByLimits, status);
 
   if (!groupRP) {
     return NULL;
@@ -1247,7 +1248,8 @@ error:
   return REDISMODULE_ERR;
 }
 
-int AREQ_BuildPipeline(AREQ *req, int options, QueryError *status) {
+int AREQ_BuildPipelineWithGroupByLimits(AREQ *req, int options, GroupByLimits groupByLimits,
+                                        QueryError *status) {
   if (!(options & AREQ_BUILDPIPELINE_NO_ROOT)) {
     buildImplicitPipeline(req, status);
     if (status->code != QUERY_OK) {
@@ -1266,7 +1268,7 @@ int AREQ_BuildPipeline(AREQ *req, int options, QueryError *status) {
 
     switch (stp->type) {
       case PLN_T_GROUP: {
-        rpUpstream = getGroupRP(req, (PLN_GroupStep *)stp, rpUpstream, status);
+        rpUpstream = getGroupRP(req, (PLN_GroupStep *)stp, rpUpstream, groupByLimits, status);
         if (!rpUpstream) {
           goto error;
         }
@@ -1394,6 +1396,11 @@ int AREQ_BuildPipeline(AREQ *req, int options, QueryError *status) {
   return REDISMODULE_OK;
 error:
   return REDISMODULE_ERR;
+}
+
+int AREQ_BuildPipeline(AREQ *req, int options, QueryError *status) {
+  return AREQ_BuildPipelineWithGroupByLimits(
+      req, options, GroupByLimits_Default(RSGlobalConfig.maxAggregateGroups), status);
 }
 
 void AREQ_Free(AREQ *req) {

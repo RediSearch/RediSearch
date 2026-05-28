@@ -434,7 +434,10 @@ void RSExecDistAggregate(RedisModuleCtx *ctx, RedisModuleString **argv, int argc
   if (rc != REDISMODULE_OK) goto err;
 
   AREQDIST_UpstreamInfo us = {NULL};
-  rc = AREQ_BuildDistributedPipeline(r, &us, &status);
+  size_t numShards = ConcurrentCmdCtx_GetNumShards(cmdCtx);
+  GroupByLimits groupByLimits =
+      GroupByLimits_ForCoordinator(RSGlobalConfig.maxAggregateGroups, numShards);
+  rc = AREQ_BuildDistributedPipeline(r, &us, &groupByLimits, &status);
   if (rc != REDISMODULE_OK) goto err;
 
   SearchCluster *sc = GetSearchCluster();

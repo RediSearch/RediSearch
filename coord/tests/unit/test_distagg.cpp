@@ -89,7 +89,7 @@ static void testCountDistinct() {
   assert(dstp);
 
   AREQDIST_UpstreamInfo us = {0};
-  rc = AREQ_BuildDistributedPipeline(r, &us, &status);
+  rc = AREQ_BuildDistributedPipeline(r, &us, NULL, &status);
   if (rc != REDISMODULE_OK) {
     printf("Couldn't build distributed pipeline: %s\n", QueryError_GetError(&status));
   }
@@ -120,7 +120,7 @@ static void testSplit() {
   assert(dstp);
 
   AREQDIST_UpstreamInfo us = {0};
-  rc = AREQ_BuildDistributedPipeline(r, &us, &status);
+  rc = AREQ_BuildDistributedPipeline(r, &us, NULL, &status);
   if (rc != REDISMODULE_OK) {
     printf("Couldn't build distributed pipeline: %s\n", QueryError_GetError(&status));
   }

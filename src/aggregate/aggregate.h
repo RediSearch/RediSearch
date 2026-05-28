@@ -23,6 +23,26 @@ extern "C" {
 
 typedef struct Grouper Grouper;
 
+typedef struct GroupByLimits {
+  /** Effective maximum number of GROUPBY groups this pipeline may materialize. */
+  size_t maxGroups;
+} GroupByLimits;
+
+static inline GroupByLimits GroupByLimits_Default(size_t maxGroups) {
+  GroupByLimits limits = {0};
+  limits.maxGroups = maxGroups;
+  return limits;
+}
+
+static inline GroupByLimits GroupByLimits_ForCoordinator(size_t maxGroups, size_t shardCount) {
+  GroupByLimits limits = GroupByLimits_Default(maxGroups);
+  if (shardCount == 0) {
+    shardCount = 1;
+  }
+  limits.maxGroups *= shardCount;
+  return limits;
+}
+
 typedef enum {
   QEXEC_F_IS_AGGREGATE = 0x01,    // Is an aggregate command
   QEXEC_F_SEND_SCORES = 0x02,     // Output: Send scores with each result
@@ -191,6 +211,8 @@ int AREQ_ApplyContext(AREQ *req, RedisSearchCtx *sctx, QueryError *status);
  * Constructs the pipeline objects needed to actually start processing
  * the requests. This does not yet start iterating over the objects
  */
+int AREQ_BuildPipelineWithGroupByLimits(AREQ *req, int options, GroupByLimits groupByLimits,
+                                        QueryError *status);
 int AREQ_BuildPipeline(AREQ *req, int options, QueryError *status);
 
 /******************************************************************************
@@ -231,7 +253,8 @@ int AREQ_BuildPipeline(AREQ *req, int options, QueryError *status);
  * ResultProcessors (and a grouper is a ResultProcessor) before the grouper
  * should write their data using `lksrc` as a reference point.
  */
-Grouper *Grouper_New(const RLookupKey **srckeys, const RLookupKey **dstkeys, size_t n);
+Grouper *Grouper_New(const RLookupKey **srckeys, const RLookupKey **dstkeys, size_t n,
+                     GroupByLimits groupByLimits);
 
 void Grouper_Free(Grouper *g);
 

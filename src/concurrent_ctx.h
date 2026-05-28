@@ -169,12 +169,20 @@ typedef void (*ConcurrentCmdHandler)(RedisModuleCtx *, RedisModuleString **, int
  */
 void ConcurrentCmdCtx_KeepRedisCtx(struct ConcurrentCmdCtx *ctx);
 
+size_t ConcurrentCmdCtx_GetNumShards(const struct ConcurrentCmdCtx *ctx);
+
 int ConcurrentSearch_HandleRedisCommand(int poolType, ConcurrentCmdHandler handler,
                                         RedisModuleCtx *ctx, RedisModuleString **argv, int argc);
 
 /* Same as handleRedis command, but set flags for the concurrent context */
 int ConcurrentSearch_HandleRedisCommandEx(int poolType, int options, ConcurrentCmdHandler handler,
                                           RedisModuleCtx *ctx, RedisModuleString **argv, int argc);
+
+int ConcurrentSearch_HandleRedisCommandExWithNumShards(int poolType, int options,
+                                                       ConcurrentCmdHandler handler,
+                                                       RedisModuleCtx *ctx,
+                                                       RedisModuleString **argv, int argc,
+                                                       size_t numShards);
 
 /** This macro is called by concurrent executors (currently the query only).
  * It checks if enough time has passed and releases the global lock if that is the case.
