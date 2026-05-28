@@ -142,6 +142,7 @@ typedef struct {
   size_t maxDocTableSize;
   size_t maxSearchResults;
   size_t maxAggregateResults;
+  size_t maxAggregateGroups;
 
   // MT configuration
   size_t numWorkerThreads;
@@ -317,6 +318,8 @@ char *getRedisConfigValue(RedisModuleCtx *ctx, const char* confName);
 #define DEFAULT_INDEX_CURSOR_LIMIT 128
 #define MAX_AGGREGATE_REQUEST_RESULTS (1ULL << 31)
 #define DEFAULT_MAX_AGGREGATE_REQUEST_RESULTS MAX_AGGREGATE_REQUEST_RESULTS
+#define MAX_AGGREGATE_GROUPS (1ULL << 26)
+#define DEFAULT_MAX_AGGREGATE_GROUPS 1000000
 #define DEFAULT_MAX_CURSOR_IDLE 300000
 #define DEFAULT_MAX_PREFIX_EXPANSIONS 200
 #define DEFAULT_MAX_SEARCH_REQUEST_RESULTS 1000000
@@ -381,6 +384,7 @@ char *getRedisConfigValue(RedisModuleCtx *ctx, const char* confName);
     .filterCommands = 0,                                                       \
     .maxSearchResults = DEFAULT_MAX_SEARCH_REQUEST_RESULTS,                    \
     .maxAggregateResults = DEFAULT_MAX_AGGREGATE_REQUEST_RESULTS,              \
+    .maxAggregateGroups = DEFAULT_MAX_AGGREGATE_GROUPS,                        \
     .iteratorsConfigParams.minUnionIterHeap = DEFAULT_UNION_ITERATOR_HEAP,     \
     .numericCompress = false,                                                  \
     .numericTreeMaxDepthRange = 0,                                             \
