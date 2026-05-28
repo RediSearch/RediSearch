@@ -51,7 +51,7 @@ jobs:
           JIRA_KEY: ${{ inputs.jira_key }}
           DAYS: ${{ inputs.expires_in_days }}
           ACTOR: ${{ github.actor }}
-        run: python .github/scripts/flaky_db.py mark
+        run: python3 .github/scripts/flaky_db.py mark
 
       - name: Summary
         if: success()

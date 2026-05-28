@@ -40,7 +40,7 @@ jobs:
           TEST_ID: ${{ inputs.test_id }}
           REASON: ${{ inputs.reason }}
           ACTOR: ${{ github.actor }}
-        run: python .github/scripts/flaky_db.py unmark
+        run: python3 .github/scripts/flaky_db.py unmark
 
       - name: Summary
         if: success()
