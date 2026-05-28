@@ -25,7 +25,7 @@ pub fn unicode_tolower(s: &str) -> String {
 }
 
 /// Maximum number of runes (lowercased codepoints) allowed in a single
-/// conversion, matching the C `MAX_RUNESTR_LEN` constant.
+/// conversion, matching the C `MAX_RUNE_STR_LEN` constant.
 pub const MAX_RUNE_STR_LEN: usize = 1024;
 
 /// Error returned when the lowercased rune sequence exceeds
