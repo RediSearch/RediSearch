@@ -122,6 +122,11 @@ impl<'de> Deserialize<'de> for IndexBlock {
 impl IndexBlock {
     pub(crate) const STACK_SIZE: usize = std::mem::size_of::<Self>();
 
+    /// Initial capacity, in bytes, reserved for a block's encoded entry buffer when the block is
+    /// first created. Sized to absorb a handful of typical encoded entries before the first
+    /// reallocation, while staying small enough to keep memory overhead negligible for rare terms.
+    pub(crate) const INITIAL_BUFFER_CAPACITY: usize = 256;
+
     /// Make a new index block with primed with the initial doc ID. The next entry written into
     /// the block should be for this doc ID else the block will contain incoherent data.
     pub(crate) fn new(doc_id: t_docId) -> Self {
@@ -129,7 +134,7 @@ impl IndexBlock {
             first_doc_id: doc_id,
             last_doc_id: doc_id,
             num_entries: 0,
-            buffer: Vec::new(),
+            buffer: Vec::with_capacity(Self::INITIAL_BUFFER_CAPACITY),
         };
         TOTAL_BLOCKS.fetch_add(1, atomic::Ordering::Relaxed);
 

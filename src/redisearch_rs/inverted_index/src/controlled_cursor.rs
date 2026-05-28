@@ -1,13 +1,15 @@
-//! Custom implementation of [`std::io::Cursor`] which uses a conservative growth strategy
-//! when writing to the underlying vec. This is needed because the default Cursor uses a
-//! [`Vec::reserve`] call which uses a doubling strategy. This can lead to excessive memory usage
-//! for inverted index leafs with a small number of documents and therefore a small buffer inside
-//! [`crate::IndexBlock`]s. This is common for text indexes where many terms are rare and only appear in a
-//! few documents.
+//! Custom implementation of [`std::io::Cursor`] which controls the growth strategy used when
+//! writing to the underlying vec. The default [`std::io::Cursor`] calls [`Vec::reserve`] directly,
+//! which uses an amortised doubling strategy. Earlier revisions of this file replaced that with
+//! [`Vec::reserve_exact`] to minimise per-block memory overhead for rare-term inverted-index
+//! leaves, but that turned out to be a hot-path regression during bulk indexing because every
+//! write triggers a fresh reallocation.
 //!
-//! This implementation uses a [`Vec::reserve_exact`] call to only allocate the exact amount of memory
-//! needed to write the data. This can lead to more frequent allocations, but avoids the excessive
-//! memory usage caused by the doubling strategy. There is a `CHANGED` comment to mark this section.
+//! The current implementation calls [`Vec::reserve`] on the write path so that the underlying
+//! allocator can amortise growth. The initial buffer capacity of [`crate::IndexBlock`] is
+//! pre-sized to absorb a handful of typical entries before the first reallocation, which keeps
+//! the overhead for rare-term blocks bounded while still benefiting from amortised growth for
+//! common-term blocks. There is a `CHANGED` comment to mark this section.
 //!
 //! The rest of this code is a verbatim copy of the [`std::io::Cursor`] implementation.
 //!
@@ -146,19 +148,12 @@ fn reserve_and_pad(pos_mut: &mut u64, vec: &mut Vec<u8>, buf_len: usize) -> std:
     // otherwise our allocation won't be enough
     let desired_cap = pos.saturating_add(buf_len);
     if desired_cap > vec.capacity() {
-        // CHANGED: only the code in this code branch is different from the standard library
-        // implementation.
-        let mut new_cap = vec.capacity();
-
-        while new_cap < desired_cap {
-            new_cap += (1 + new_cap / 5).min(1_024 * 1_024);
-        }
-
-        // We want our vec's total capacity
-        // to have room for (pos+buf_len) bytes. Reserve exact allocates
-        // based on additional elements from the length, so we need to
-        // reserve the difference
-        vec.reserve_exact(new_cap - vec.len());
+        // CHANGED: the standard library calls `reserve` directly with the additional element
+        // count needed from the current length. We compute the same delta here. `reserve` uses
+        // amortised-doubling growth, which keeps per-entry write costs O(1) for blocks that
+        // receive many entries. Rare-term blocks are kept bounded by pre-sizing the block buffer
+        // at construction (see `IndexBlock::INITIAL_BUFFER_CAPACITY`).
+        vec.reserve(desired_cap - vec.len());
     }
 
     // Pad if pos is above the current len.
@@ -178,7 +173,7 @@ fn reserve_and_pad(pos_mut: &mut u64, vec: &mut Vec<u8>, buf_len: usize) -> std:
         }
 
         // Safety: we meet the following safety conditions
-        // - `new_len` is equal or less than `capacity()` because of the `reserve_exact` code block
+        // - `new_len` is equal or less than `capacity()` because of the `reserve` code block
         // - All the elements from `old_len..new_len` was just initialized with 0s
         unsafe {
             vec.set_len(pos);
