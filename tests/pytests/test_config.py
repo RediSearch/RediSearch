@@ -37,6 +37,7 @@ def testGetConfigOptions(env):
     assert env.expect('ft.config', 'get', 'FRISOINI').res[0][0] == 'FRISOINI'
     assert env.expect('ft.config', 'get', 'MAXSEARCHRESULTS').res[0][0] == 'MAXSEARCHRESULTS'
     assert env.expect('ft.config', 'get', 'MAXAGGREGATERESULTS').res[0][0] == 'MAXAGGREGATERESULTS'
+    assert env.expect('ft.config', 'get', 'MAX_AGGREGATE_GROUPS').res[0][0] == 'MAX_AGGREGATE_GROUPS'
     assert env.expect('ft.config', 'get', 'ON_TIMEOUT').res[0][0] == 'ON_TIMEOUT'
     assert env.expect('ft.config', 'get', 'GCSCANSIZE').res[0][0] =='GCSCANSIZE'
     assert env.expect('ft.config', 'get', 'MIN_PHONETIC_TERM_LEN').res[0][0] == 'MIN_PHONETIC_TERM_LEN'
@@ -119,6 +120,7 @@ def testAllConfig(env):
     env.assertEqual(res_dict['MAXDOCTABLESIZE'][0], '1000000')
     env.assertEqual(res_dict['MAXSEARCHRESULTS'][0], '1000000')
     env.assertEqual(res_dict['MAXAGGREGATERESULTS'][0], 'unlimited')
+    env.assertEqual(res_dict['MAX_AGGREGATE_GROUPS'][0], '1000000')
     env.assertEqual(res_dict['MAXEXPANSIONS'][0], '200')
     env.assertEqual(res_dict['MAXPREFIXEXPANSIONS'][0], '200')
     env.assertIn(res_dict['TIMEOUT'][0], ['500', '0'])
@@ -230,6 +232,7 @@ def testInitConfig(env):
     test_arg_str('MAXSEARCHRESULTS', '-1', 'unlimited')
     test_arg_str('MAXAGGREGATERESULTS', '100', '100')
     test_arg_str('MAXAGGREGATERESULTS', '-1', 'unlimited')
+    test_arg_str('MAX_AGGREGATE_GROUPS', '100', '100')
     test_arg_str('RAW_DOCID_ENCODING', 'false', 'false')
     test_arg_str('RAW_DOCID_ENCODING', 'true', 'true')
     test_arg_str('_FORK_GC_CLEAN_NUMERIC_EMPTY_NODES', 'false', 'false')

@@ -192,6 +192,24 @@ CONFIG_GETTER(getMaxAggregateResults) {
   return sdscatprintf(ss, "%lu", config->maxAggregateResults);
 }
 
+// MAX_AGGREGATE_GROUPS
+CONFIG_SETTER(setMaxAggregateGroups) {
+  long long newSize = 0;
+  int acrc = AC_GetLongLong(ac, &newSize, AC_F_GE1);
+  CHECK_RETURN_PARSE_ERROR(acrc)
+  if (newSize > MAX_AGGREGATE_GROUPS) {
+    QueryError_SetError(status, QUERY_ELIMIT, "Value exceeds maximum possible aggregate groups");
+    return REDISMODULE_ERR;
+  }
+  config->maxAggregateGroups = newSize;
+  return REDISMODULE_OK;
+}
+
+CONFIG_GETTER(getMaxAggregateGroups) {
+  sds ss = sdsempty();
+  return sdscatprintf(ss, "%lu", config->maxAggregateGroups);
+}
+
 // MAXEXPANSIONS MAXPREFIXEXPANSIONS
 CONFIG_SETTER(setMaxExpansions) {
   int acrc = AC_GetLongLong(ac, &config->iteratorsConfigParams.maxPrefixExpansions, AC_F_GE1);
@@ -822,6 +840,10 @@ RSConfigOptions RSGlobalConfigOptions = {
          .helpText = "Maximum number of results from ft.aggregate command",
          .setValue = setMaxAggregateResults,
          .getValue = getMaxAggregateResults},
+        {.name = "MAX_AGGREGATE_GROUPS",
+         .helpText = "Maximum number of GROUPBY groups materialized by ft.aggregate command",
+         .setValue = setMaxAggregateGroups,
+         .getValue = getMaxAggregateGroups},
         {.name = "MAXEXPANSIONS",
          .helpText = "Maximum prefix expansions to be used in a query",
          .setValue = setMaxExpansions,

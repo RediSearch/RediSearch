@@ -4,6 +4,7 @@
 #include "aggregate/reducer.h"
 #include "util/arr.h"
 #include "dist_plan.h"
+#include "config.h"
 
 #include <vector>
 #include <string>
@@ -504,14 +505,23 @@ int AGGPLN_Distribute(AGGPlan *src, QueryError *status) {
   return REDISMODULE_OK;
 }
 
-int AREQ_BuildDistributedPipeline(AREQ *r, AREQDIST_UpstreamInfo *us, QueryError *status) {
+int AREQ_BuildDistributedPipeline(AREQ *r, AREQDIST_UpstreamInfo *us,
+                                  const GroupByLimits *groupByLimits, QueryError *status) {
 
   auto dstp = (PLN_DistributeStep *)AGPLN_FindStep(&r->ap, NULL, NULL, PLN_T_DISTRIBUTE);
   RS_ASSERT(dstp);
 
   dstp->lk.options |= RLOOKUP_OPT_UNRESOLVED_OK;
-  int rc = AREQ_BuildPipeline(r, status);
+
+  GroupByLimits defaultGroupByLimits = {};
+  if (!groupByLimits) {
+    defaultGroupByLimits = GroupByLimits_Default(RSGlobalConfig.maxAggregateGroups);
+    groupByLimits = &defaultGroupByLimits;
+  }
+
+  int rc = AREQ_BuildPipelineWithGroupByLimits(r, *groupByLimits, status);
   dstp->lk.options &= ~RLOOKUP_OPT_UNRESOLVED_OK;
+
   if (rc != REDISMODULE_OK) {
     return REDISMODULE_ERR;
   }

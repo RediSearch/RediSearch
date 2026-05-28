@@ -750,6 +750,7 @@ void RSExecDistAggregate(RedisModuleCtx *ctx, RedisModuleString **argv, int argc
   AREQ *r = AREQ_New();
   QueryError status = {0};
   specialCaseCtx *knnCtx = NULL;
+  size_t numShards = ConcurrentCmdCtx_GetNumShards(cmdCtx);
 
   r->qiter.err = &status;
   r->reqflags |= QEXEC_F_IS_AGGREGATE | QEXEC_F_BUILDPIPELINE_NO_ROOT;
@@ -784,8 +785,12 @@ void RSExecDistAggregate(RedisModuleCtx *ctx, RedisModuleString **argv, int argc
   rc = AGGPLN_Distribute(&r->ap, &status);
   if (rc != REDISMODULE_OK) goto err;
 
+  // The coordinator merges shard-local groups, so allow one configured cap per shard.
+  GroupByLimits groupByLimits =
+      GroupByLimits_ForCoordinator(RSGlobalConfig.maxAggregateGroups, numShards);
+
   AREQDIST_UpstreamInfo us = {NULL};
-  rc = AREQ_BuildDistributedPipeline(r, &us, &status);
+  rc = AREQ_BuildDistributedPipeline(r, &us, &groupByLimits, &status);
   if (rc != REDISMODULE_OK) goto err;
 
   SearchCluster *sc = GetSearchCluster();
