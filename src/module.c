@@ -4136,7 +4136,8 @@ static int prepareCommand(MRCommand *cmd, const searchRequestCtx *req, int proto
           // No modification needed if K values are the same
           if (knn_query->k == effectiveK) break;
           // Modify the command to replace KNN k (shards will ignore $SHARD_K_RATIO)
-          modifyKNNCommand(cmd, 2 + req->profileArgs, effectiveK, knnCtx->knn.queryNode->vn.vq);
+          modifyKNNCommand(cmd, 2 + req->profileArgs, knn_query->k, effectiveK,
+                           knn_query->k_token_pos, knn_query->k_token_len);
         }
         break; // Only handle KNN context
       }
@@ -4659,26 +4660,10 @@ int SetClusterCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
   // this means a parsing error, the parser already sent the explicit error to the client
   if (!topo) {
     RedisModule_Log(ctx, "warning", "Received invalid cluster topology");
-    for (int i = 1; i < argc; i++) {
-      size_t len;
-      const char *arg = RedisModule_StringPtrLen(argv[i], &len);
-      RedisModule_Log(ctx, "warning", " Arg %d: %.*s", i, (int)len, arg);
-    }
     return REDISMODULE_ERR;
   }
-  // Build a comma-separated list of ranges per shard
-  char ranges_info[256];
-  ranges_info[0] = '\0';
-  size_t offset = 0;
-  for (uint32_t i = 0; i < topo->numShards && offset < sizeof(ranges_info) - 2; i++) {
-    if (i > 0) {
-      offset += snprintf(ranges_info + offset, sizeof(ranges_info) - offset, ", ");
-    }
-    offset += snprintf(ranges_info + offset, sizeof(ranges_info) - offset, "%d",
-                      topo->shards[i].slotRanges ? topo->shards[i].slotRanges->num_ranges : 0);
-  }
 
-  RedisModule_Log(ctx, "notice", "Received new cluster topology with %u shards (%s)", topo->numShards, ranges_info);
+  RedisModule_Log(ctx, "notice", "Received new cluster topology with %u shards", topo->numShards);
 
   if (my_shard_idx != UINT32_MAX) {
     // Take a reference to our own shard slot ranges (MR_UpdateTopology won't consume it)

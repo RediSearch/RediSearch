@@ -95,7 +95,7 @@ jobs:
 
       - name: Send reports to Slack
         if: always()
-        uses: slackapi/slack-github-action@v2
+        uses: slackapi/slack-github-action@v3
         with:
           webhook: ${{ secrets.SLACK_WEBHOOK_URL_RQE_CI_RESULT }}
           webhook-type: incoming-webhook
@@ -110,7 +110,7 @@ jobs:
 
       - name: Upload artifacts
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: ci-reports-${{ steps.date.outputs.date }}
           path: merge-to-queue_${{ steps.date.outputs.date }}/

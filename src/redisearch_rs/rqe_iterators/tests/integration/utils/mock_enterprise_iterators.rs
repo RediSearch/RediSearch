@@ -47,7 +47,7 @@ impl SearchEnterpriseIterators for MockEnterpriseIterators {
         &self,
         _index: &'index mut ffi::RedisSearchDiskIndexSpec,
         _query_term: Box<query_term::RSQueryTerm>,
-        _field_mask: inverted_index::t_fieldMask,
+        _field_mask: inverted_index::FieldMask,
         _weight: f64,
     ) -> Result<Box<dyn RQEIterator<'index> + 'index>, Box<dyn std::error::Error>> {
         unimplemented!(
@@ -59,7 +59,7 @@ impl SearchEnterpriseIterators for MockEnterpriseIterators {
         &self,
         _index: &'index mut ffi::RedisSearchDiskIndexSpec,
         _query_term: Box<query_term::RSQueryTerm>,
-        _field_mask: inverted_index::t_fieldMask,
+        _field_mask: inverted_index::FieldMask,
         _weight: f64,
     ) -> Result<Box<dyn RQEIterator<'index> + 'index>, Box<dyn std::error::Error>> {
         unimplemented!(
