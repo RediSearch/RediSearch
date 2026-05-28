@@ -44,12 +44,15 @@ code fences, or bold.
 
 Structure:
 
-1. **One-line verdict** — what failed and at what stage.
-   Example: `MS MARCO benchmark crashed during indexing; cluster-08-primaries setup OK`
+1. **One-line verdict** — name the specific benchmark that failed (from the job
+   name or logs) and at what stage.
+   Example: `search-ftsb-10K-enwiki_abstract-hashes-fulltext-search-sortby crashed during query phase; oss-standalone setup OK`
 2. **Per-failure bullets** — group failures that share a root cause; one bullet per
    group. Each bullet has:
    - category in brackets, e.g. `[benchmark-crash]`
-   - short identifier (benchmark name / job name)
+   - the actual benchmark identifier from the logs (config name + topology, e.g.
+     `search-ftsb-10K-enwiki_abstract-...-oss-standalone`). If only a job name is
+     available, use that and say so.
    - one-line root-cause hypothesis with hedging where needed
    - recommended next step from: `investigate-now`, `rerun-and-watch`,
      `file-regression`, `ignore-infra`, `needs-more-evidence`
@@ -60,12 +63,12 @@ summarize the long tail in one line.
 ### Example output
 
 ```
-1 failure: MS MARCO benchmark crashed during result collection phase.
+1 failure: search-ftsb-10K-enwiki_abstract-hashes-fulltext-search-sortby crashed during the query phase.
 
-- [benchmark-crash] benchmark-msmarco-oss-cluster-08-primaries-250gb-threads-8 —
-  logs show the benchmark client exited with SIGSEGV after writing partial
-  results; likely a client-side parsing bug, not a Redis-side regression.
-  Next: investigate-now
+- [benchmark-crash] search-ftsb-10K-enwiki_abstract-hashes-fulltext-search-sortby-limit-0-100
+  on oss-standalone — logs show the benchmark client exited with SIGSEGV after
+  writing partial results; likely a client-side parsing bug, not a Redis-side
+  regression. Next: investigate-now
 ```
 
 ## Guardrails

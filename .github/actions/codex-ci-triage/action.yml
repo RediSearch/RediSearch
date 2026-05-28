@@ -19,14 +19,6 @@ inputs:
     description: Working directory for Codex execution.
     required: false
     default: .
-  sandbox:
-    description: Codex sandbox mode (read-only, workspace-write, danger-full-access).
-    required: false
-    default: read-only
-  safety-strategy:
-    description: Codex privilege restriction (drop-sudo, unprivileged-user, read-only, unsafe).
-    required: false
-    default: drop-sudo
 
 outputs:
   triage-exists:
@@ -51,8 +43,8 @@ runs:
         prompt-file: ${{ inputs.prompt-file }}
         output-file: ${{ inputs.output-file }}
         working-directory: ${{ inputs.working-directory }}
-        sandbox: ${{ inputs.sandbox }}
-        safety-strategy: ${{ inputs.safety-strategy }}
+        sandbox: read-only
+        safety-strategy: read-only
 
     - name: Read triage output
       id: read
