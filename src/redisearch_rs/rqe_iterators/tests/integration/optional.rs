@@ -905,7 +905,7 @@ mod optional_iterator_non_sequential_reads {
     struct ReadStepIterator<'index, const N: usize> {
         read_steps: [t_docId; N],
         read_step: usize,
-        result: inverted_index::RSIndexResult<'index>,
+        result: index_result::RSIndexResult<'index>,
     }
 
     impl<'index, const N: usize> ReadStepIterator<'index, N> {
@@ -913,22 +913,20 @@ mod optional_iterator_non_sequential_reads {
             Self {
                 read_steps,
                 read_step: 0,
-                result: inverted_index::RSIndexResult::build_numeric(42.).build(),
+                result: index_result::RSIndexResult::build_numeric(42.).build(),
             }
         }
     }
 
     impl<'index, const N: usize> RQEIterator<'index> for ReadStepIterator<'index, N> {
-        fn current(&mut self) -> Option<&mut inverted_index::RSIndexResult<'index>> {
+        fn current(&mut self) -> Option<&mut index_result::RSIndexResult<'index>> {
             Some(&mut self.result)
         }
 
         fn read(
             &mut self,
-        ) -> Result<
-            Option<&mut inverted_index::RSIndexResult<'index>>,
-            rqe_iterators::RQEIteratorError,
-        > {
+        ) -> Result<Option<&mut index_result::RSIndexResult<'index>>, rqe_iterators::RQEIteratorError>
+        {
             if self.at_eof() {
                 return Ok(None);
             }

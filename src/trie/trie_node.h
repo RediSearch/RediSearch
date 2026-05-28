@@ -79,7 +79,7 @@ typedef struct {
   // the string of the current node
   rune str[];
   // ... here come the first letters of each child childRunes[]
-  // ... now come the children, to be accessed with __trieNode_children
+  // ... now come the children, to be accessed with TrieNode_Children
 } TrieNode;
 #pragma pack()
 
@@ -90,12 +90,34 @@ TrieNode *__newTrieNode(const rune *str, t_len offset, t_len len, const char *pa
                         t_len numChildren, float score, int terminal, TrieSortMode sortMode,
                         size_t numDocs);
 
-/* Get a pointer to the children array of a node. This is not an actual member
- * of the node for memory saving reasons */
-#define __trieNode_children(n) \
-  ((TrieNode **)((void *)n + sizeof(TrieNode) + ((n->len + 1) + (n->numChildren)) * sizeof(rune)))
+/* Opaque accessors over TrieNode struct internals. Prefer these over direct
+ * field/macro access so callers stay decoupled from layout changes. */
+static inline t_len TrieNode_NumChildren(const TrieNode *n) {
+  return n->numChildren;
+}
 
-#define __trieNode_isTerminal(n) (n->flags & TRIENODE_TERMINAL)
+static inline bool TrieNode_IsTerminal(const TrieNode *n) {
+  return (n->flags & TRIENODE_TERMINAL) != 0;
+}
+
+/* Get a pointer to the children array of a node. The children are not an
+ * actual member of the node for memory saving reasons. char* arithmetic is
+ * used so this stays valid when included in C++ TUs (void* arithmetic is a
+ * GCC C extension). */
+static inline TrieNode **TrieNode_Children(const TrieNode *n) {
+  return (TrieNode **)((char *)n + sizeof(TrieNode) +
+                       ((n->len + 1) + n->numChildren) * sizeof(rune));
+}
+
+static inline TrieNode *TrieNode_ChildAt(const TrieNode *n, t_len i) {
+  return TrieNode_Children(n)[i];
+}
+
+/* Return the node's payload data pointer, or NULL if the node has no payload
+ * (or n is NULL). */
+static inline char *TrieNode_GetPayloadData(const TrieNode *n) {
+  return (n && n->payload) ? n->payload->data : NULL;
+}
 
 typedef enum {
   ADD_REPLACE,

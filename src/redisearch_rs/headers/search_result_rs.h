@@ -7,9 +7,9 @@
 #include <stddef.h>
 #include <stdint.h>
 #include <stdlib.h>
-#include "redisearch_types.h"
 #include "score_explain.h"
 #include "rlookup.h"
+#include "rqe_core.h"
 /* SearchResult flags */
 static const uint8_t Result_ExpiredDoc = 1 << 0;
 
@@ -17,7 +17,7 @@ static const uint8_t Result_ExpiredDoc = 1 << 0;
  * Declared directly here (rather than auto-generated from the document_metadata
  * crate) to preserve the `const` qualifier that C callers rely on. */
 typedef struct RSDocumentMetadata_s RSDocumentMetadata;
-typedef const RSDocumentMetadata *DocumentMetadata;
+typedef const RSDocumentMetadata *OwnedDocumentMetadata;
 
 
 /**
@@ -164,7 +164,7 @@ typedef struct SearchResult {
    * [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
    */
   RSScoreExplain *_score_explain;
-  DocumentMetadata _document_metadata;
+  OwnedDocumentMetadata _document_metadata;
   const struct RSIndexResult *_index_result;
   struct RLookupRow _row_data;
   SearchResultFlags _flags;

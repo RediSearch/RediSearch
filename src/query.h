@@ -28,29 +28,6 @@ typedef struct QueryError QueryError;
 extern "C" {
 #endif
 
-// Smart pointer handle for RLookupKey that can be invalidated when iterator is freed
-typedef struct RLookupKeyHandle {
-  RLookupKey **key_ptr;  // Pointer to the actual RLookupKey* field in the iterator
-  bool is_valid;         // Whether the iterator is still alive
-} RLookupKeyHandle;
-
-// Holds a yieldable field name, and the address to write the RLookupKey pointer later.
-typedef struct MetricRequest{
-  const char *metric_name;
-  RLookupKeyHandle *key_handle; // Handle that can be invalidated when iterator is freed
-  bool isInternal; // Indicates if this metric should be excluded from the response
-} MetricRequest;
-
-// Flags indicating which syntax features are enabled for this query
-typedef enum {
-  // All syntax features are enabled
-  QAST_SYNTAX_DEFAULT = 0,
-  // weight attribute is not allowed
-  QAST_NO_WEIGHT = 0x01,
-  // vector queries are not allowed
-  QAST_NO_VECTOR = 0x02,
-} QAST_ValidationFlags;
-
 /**
  * Query AST structure.
  *
@@ -80,7 +57,7 @@ typedef struct QueryAST {
   IteratorsConfig config;
 
   // Flags indicating which syntax features are enabled for this query
-  QAST_ValidationFlags validationFlags;
+  QASTValidationFlagsSet validationFlags;
 } QueryAST;
 
 /**
@@ -131,11 +108,24 @@ void SetFilterNode(QueryAST *q, QueryNode *filterNode);
  * @param sctx the search context. Note that this may be retained by the iterators
  *  for the remainder of the query.
  * @param reqflags Request (AGG/SEARCH) flags
+ * @param areq optional borrowed pointer to the owning request. Filtered
+ *  through `AREQ_TimeoutAreqOrNull`: when the request has `skipTimeoutChecks`
+ *  set, iterators wire the Blocked Client Timeout callback against it;
+ *  otherwise (including NULL `areq`) the Clock Based Timeout is used.
  * @param status error detail
  * @return an iterator.
  */
 QueryIterator *QAST_Iterate(QueryAST *ast, const RSSearchOptions *options,
-                            RedisSearchCtx *sctx, uint32_t reqflags, QueryError *status);
+                            RedisSearchCtx *sctx, uint32_t reqflags,
+                            struct AREQ *areq, QueryError *status);
+
+/**
+ * Remove tag escape sequences and optionally lowercase a string.
+ * @param pstr pointer to the string (may be reallocated if lowercasing produces a longer result)
+ * @param len pointer to the string length (updated on output)
+ * @param caseSensitive if non-zero, skip lowercasing
+ */
+void tag_strtolower(char **pstr, size_t *len, int caseSensitive);
 
 /**
  * Expand the query using a pre-registered expander. Query expansion possibly

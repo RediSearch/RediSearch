@@ -9,7 +9,8 @@
 
 use std::ptr;
 
-use crate::{FilterNumericReader, IndexReader, NumericFilter, RSIndexResult};
+use crate::{FilterNumericReader, IndexReader, NumericFilter};
+use index_result::RSIndexResult;
 use pretty_assertions::assert_eq;
 
 #[test]
@@ -34,7 +35,7 @@ fn reading_filter_based_on_numeric_filter() {
         offset: 0,
     };
 
-    let mut reader = FilterNumericReader::new(&filter, iter.into_iter());
+    let mut reader = FilterNumericReader::new(filter, iter.into_iter());
     let mut result = RSIndexResult::build_numeric(0.0).build();
 
     let found = reader.next_record(&mut result).unwrap();

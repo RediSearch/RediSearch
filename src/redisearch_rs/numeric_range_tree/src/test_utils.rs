@@ -12,7 +12,8 @@
 //! Gated behind the `test_utils` feature so that production builds do not
 //! include these utilities.
 
-use inverted_index::{Encoder, IndexBlock, RSIndexResult, numeric::Numeric};
+use index_result::RSIndexResult;
+use inverted_index::{Encoder, IndexBlock, numeric::Numeric};
 
 use crate::{NodeGcDelta, NodeIndex, NumericRangeNode, NumericRangeTree};
 

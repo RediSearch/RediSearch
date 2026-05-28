@@ -10,8 +10,9 @@
 use std::ptr::NonNull;
 
 use ffi::{RS_FIELDMASK_ALL, RedisSearchCtx, t_docId};
+use index_result::{RSIndexResult, RSOffsetSlice};
 use index_spec::IndexSpecReadGuard;
-use inverted_index::{RSIndexResult, RSOffsetSlice, TermReader};
+use inverted_index::TermReader;
 use query_term::RSQueryTerm;
 
 use crate::{

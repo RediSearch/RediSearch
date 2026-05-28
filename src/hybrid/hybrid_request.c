@@ -43,7 +43,7 @@ int HybridRequest_BuildDepletionPipeline(HybridRequest *req, const HybridPipelin
         }
 
         // Parse subquery: Convert AST to iterator tree
-        areq->rootiter = QAST_Iterate(&areq->ast, &areq->searchopts, AREQ_SearchCtx(areq), areq->reqflags, &req->errors[i]);
+        areq->rootiter = QAST_Iterate(&areq->ast, &areq->searchopts, AREQ_SearchCtx(areq), areq->reqflags, areq, &req->errors[i]);
 
         rs_wall_clock parseClock;
         if (isProfile) {
@@ -226,6 +226,7 @@ void HybridRequest_Init(HybridRequest *hybridReq, RedisSearchCtx *sctx, AREQ **r
     hybridReq->requests = requests;
     hybridReq->nrequests = nrequests;
     hybridReq->sctx = sctx;
+    hybridReq->kArgIndex = -1;
 
     rs_wall_clock now = {0};
     rs_wall_clock_init(&now);
@@ -255,20 +256,14 @@ void HybridRequest_Init(HybridRequest *hybridReq, RedisSearchCtx *sctx, AREQ **r
     RequestSyncCtx_Init(&hybridReq->syncCtx);
     pthread_mutex_init(&hybridReq->cursorMutex, NULL);
     hybridReq->storedReplyState.err = QueryError_Default();
+
+
 }
 
 HybridRequest *HybridRequest_New(RedisSearchCtx *sctx, AREQ **requests, size_t nrequests) {
     HybridRequest *hybridReq = rm_calloc(1, sizeof(*hybridReq));
     HybridRequest_Init(hybridReq, sctx, requests, nrequests);
     return hybridReq;
-}
-
-bool HybridRequest_TimedOut(HybridRequest *req) {
-  return atomic_load_explicit(&req->syncCtx.timedOut, memory_order_acquire);
-}
-
-void HybridRequest_SetTimedOut(HybridRequest *req) {
-  atomic_store_explicit(&req->syncCtx.timedOut, true, memory_order_release);
 }
 
 void HybridRequest_InitArgsCursor(HybridRequest *req, ArgsCursor *ac, RedisModuleString **argv, int argc) {

@@ -367,20 +367,26 @@ static bool areq_timeout_or_pending_spec_writers(void *arg) {
 }
 
 
-// Helper function to pause before/after store results (for testing timeout during store)
+// Helper function to pause before/after store results (for testing timeout during store).
+// The pause is gated by the global StoreResultsDebugCtx scope: INTERNAL_ONLY skips
+// non-internal (user-facing) AREQs, NON_INTERNAL_ONLY skips internal (coordinator-
+// dispatched) AREQs, and the default (BOTH) applies to all.
 static inline void debugPauseStoreResults(AREQ *req, bool before) {
   bool enabled = before ? StoreResultsDebugCtx_IsPauseBeforeEnabled()
                         : StoreResultsDebugCtx_IsPauseAfterEnabled();
-  if (enabled) {
-    StoreResultsDebugCtx_SetPause(true);
-    while (StoreResultsDebugCtx_IsPaused()) {
-      // Check if timed out - break to avoid deadlock with timeout callback
-      if (AREQ_TimedOut(req)) {
-        StoreResultsDebugCtx_SetPause(false);
-        break;
-      }
-      usleep(1000);  // Spin-wait with 1ms sleep
+  if (!enabled) return;
+  StoreResultsScope scope = StoreResultsDebugCtx_GetScope();
+  bool is_internal = IsInternal(req);
+  if (scope == STORE_RESULTS_SCOPE_INTERNAL_ONLY     && !is_internal) return;
+  if (scope == STORE_RESULTS_SCOPE_NON_INTERNAL_ONLY &&  is_internal) return;
+  StoreResultsDebugCtx_SetPause(true);
+  while (StoreResultsDebugCtx_IsPaused()) {
+    // Check if timed out - break to avoid deadlock with timeout callback
+    if (AREQ_TimedOut(req)) {
+      StoreResultsDebugCtx_SetPause(false);
+      break;
     }
+    usleep(1000);  // Spin-wait with 1ms sleep
   }
 }
 #else
@@ -396,6 +402,7 @@ static void startPipeline(AREQ *req, ResultProcessor *rp, SearchResult ***result
     .timeout = &req->sctx->time.timeout,
     .oomPolicy = req->reqConfig.oomPolicy,
     .skipTimeoutChecks = req->sctx->time.skipTimeoutChecks,
+    .areq = req,
   };
 
 #ifdef ENABLE_ASSERT
@@ -584,7 +591,12 @@ static long prepareSendChunkReply_Resp2(AREQ *req, RedisModule_Reply *reply,
  * Tracks warnings in global statistics and profile context.
  */
 static void trackWarnings_Resp2(AREQ *req, QueryProcessingCtx *qctx, int rc) {
-  bool has_timedout = (rc == RS_RESULT_TIMEDOUT) || hasTimeoutError(qctx->err);
+  // The shard-timed-out flag is set by the coord-side RPNet when a shard reply
+  // carries a TIMEDOUT warning; the coord pipeline keeps draining other shards
+  // and rc stays !=TIMEDOUT, so the flag is the only path through which the
+  // user-visible TIMEOUT warning is surfaced in that case.
+  bool has_timedout = (rc == RS_RESULT_TIMEDOUT) || hasTimeoutError(qctx->err)
+                      || (req->stateflags & QEXEC_S_SHARD_TIMED_OUT_WARNING);
   if (has_timedout) {
     QueryWarningsGlobalStats_UpdateWarning(QUERY_WARNING_CODE_TIMED_OUT, 1, !IsInternal(req));
     ProfileWarnings_Add(&req->profileCtx.warnings, PROFILE_WARNING_TYPE_TIMEOUT);
@@ -680,9 +692,12 @@ static int serializeAndReplyResults_Resp2(AREQ *req, RedisModule_Reply *reply, R
 done_2:
     RedisModule_Reply_ArrayEnd(reply);    // </results>
 
-    state->cursor_done = (rc != RS_RESULT_OK
-                          && !(rc == RS_RESULT_TIMEDOUT
-                               && req->reqConfig.timeoutPolicy != TimeoutPolicy_Fail));
+    // Preserve a pre-set cursor_done (forced by AREQ_ReplyWithStoredResults on
+    // shard timeout under RETURN_STRICT); otherwise derive it from rc.
+    state->cursor_done = state->cursor_done
+                         || (rc != RS_RESULT_OK
+                             && !(rc == RS_RESULT_TIMEDOUT
+                                  && req->reqConfig.timeoutPolicy != TimeoutPolicy_Fail));
 
     trackWarnings_Resp2(req, qctx, rc);
     finishSendChunkReply_Resp2(req, reply, state->cursor_done);
@@ -753,7 +768,12 @@ static void _replyWarnings(AREQ *req, RedisModule_Reply *reply, int rc) {
     RedisModule_Reply_SimpleString(reply, QUERY_WOOM_COORD);
     ProfileWarnings_Add(&profileCtx->warnings, PROFILE_WARNING_TYPE_QUERY_OOM);
   }
-  if (rc == RS_RESULT_TIMEDOUT) {
+  // The shard-timed-out flag is set by the coord-side RPNet when a shard reply
+  // carries a TIMEDOUT warning; the coord pipeline keeps draining other shards
+  // and rc stays !=TIMEDOUT, so the flag is the only path through which the
+  // user-visible TIMEOUT warning is surfaced in that case.
+  if (rc == RS_RESULT_TIMEDOUT
+      || (req->stateflags & QEXEC_S_SHARD_TIMED_OUT_WARNING)) {
     // Track warnings in global statistics
     QueryWarningsGlobalStats_UpdateWarning(QUERY_WARNING_CODE_TIMED_OUT, 1, !IsInternal(req));
     RedisModule_Reply_SimpleString(reply, QueryWarning_Strwarning(QUERY_WARNING_CODE_TIMED_OUT));
@@ -821,7 +841,8 @@ static void finishSendChunkReply_Resp3(AREQ *req, RedisModule_Reply *reply,
   // <error>
   _replyWarnings(req, reply, rc);
 
-  bool has_timedout = (rc == RS_RESULT_TIMEDOUT) || hasTimeoutError(qctx->err);
+  bool has_timedout = (rc == RS_RESULT_TIMEDOUT) || hasTimeoutError(qctx->err)
+                      || (req->stateflags & QEXEC_S_SHARD_TIMED_OUT_WARNING);
 
   if (IsProfile(req)) {
     if (has_timedout) {
@@ -889,9 +910,12 @@ static int serializeAndReplyResults_Resp3(AREQ *req, RedisModule_Reply *reply, R
     }
 
 done_3:
-    state->cursor_done = (rc != RS_RESULT_OK
-                          && !(rc == RS_RESULT_TIMEDOUT
-                               && req->reqConfig.timeoutPolicy != TimeoutPolicy_Fail));
+    // Preserve a pre-set cursor_done (forced by AREQ_ReplyWithStoredResults on
+    // shard timeout under RETURN_STRICT); otherwise derive it from rc.
+    state->cursor_done = state->cursor_done
+                         || (rc != RS_RESULT_OK
+                             && !(rc == RS_RESULT_TIMEDOUT
+                                  && req->reqConfig.timeoutPolicy != TimeoutPolicy_Fail));
 
     finishSendChunkReply_Resp3(req, reply, qctx, rc, state->cursor_done);
 
@@ -1339,7 +1363,7 @@ int prepareExecutionPlan(AREQ *req, QueryError *status) {
   // Setting the timeout context should be done in the same thread that executes the query.
   SearchCtx_UpdateTime(sctx, req->reqConfig.queryTimeoutMS);
 
-  req->rootiter = QAST_Iterate(ast, opts, sctx, AREQ_RequestFlags(req), status);
+  req->rootiter = QAST_Iterate(ast, opts, sctx, AREQ_RequestFlags(req), req, status);
 
   // check possible optimization after creation of QueryIterator tree
   if (IsOptimized(req)) {
@@ -1479,7 +1503,7 @@ static int prepareRequest(AREQ **r_ptr, RedisModuleCtx *ctx, RedisModuleString *
 }
 
 // Timeout callback for AREQ execution in Run in Threads mode.
-// Called on the main thread when the blocking client times out (FAIL policy only).
+// Called on the main thread when the blocking client times out (for FAIL policy only).
 // Simply sets the timeout flag and replies with error - no synchronization needed
 // because AREQ uses reply_callback pattern (background thread does not reply directly).
 static int QueryTimeoutFailCallback(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
@@ -1506,6 +1530,73 @@ static int QueryTimeoutFailCallback(RedisModuleCtx *ctx, RedisModuleString **arg
   return REDISMODULE_OK;
 }
 
+void AREQ_SetCanYieldPartialResults(AREQ *req) {
+  AREQ_QueryProcessingCtx(req)->canYieldPartialResults =
+      pipelineCanYieldPartialResults(req);
+}
+
+// Drain any queued partial results into `storedReplyState.results` on the main
+// thread after the background pipeline has aborted. Shard pipelines need no
+// root-specific pre-drain setup (unlike the coordinator's RPNet drainOnly
+// flip), so this just gates and delegates the actual loop to the shared helper.
+static void drainPartialResultsAfterTimeout(AREQ *req) {
+  QueryProcessingCtx *qctx = AREQ_QueryProcessingCtx(req);
+  if (!qctx->canYieldPartialResults) {
+    return;
+  }
+
+  RS_ASSERT(qctx->rootProc->type == RP_INDEX);
+
+  AREQ_DrainStoredResultsAfterTimeout(req);
+}
+
+// Timeout callback for AREQ execution in Run in Threads mode.
+// Called on the main thread when the blocking client times out (RETURN-STRICT
+// policy only). Coordinates with the BG worker via the AREQ aggregate-results
+// claim/signal handshake:
+//   - SetTimedOut so any RP polling AREQ_TimedOut bails on its next read.
+//   - TryClaim wins iff BG has not yet entered the aggregation phase (it
+//     bails in startPipeline). In that case we own the reply and emit empty.
+//   - Otherwise BG owns the buffer; wait for it to finish AREQ_StoreResults,
+//     then drain anything still buffered (RPSorter heap) and reply.
+static int QueryTimeoutReturnStrictCallback(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
+  BlockedQueryNode *node = RedisModule_GetBlockedClientPrivateData(ctx);
+  if (!node || !node->privdata) {
+    // Shouldn't happen, but handle gracefully
+    RedisModule_Log(ctx, "warning", "QueryTimeoutReturnStrictCallback: no node or privdata");
+    QueryErrorsGlobalStats_UpdateError(QUERY_ERROR_CODE_TIMED_OUT, 1, true);
+    RedisModule_ReplyWithError(ctx, QueryError_Strerror(QUERY_ERROR_CODE_TIMED_OUT));
+    return REDISMODULE_OK;
+  }
+
+  AREQ *req = (AREQ *)node->privdata;
+
+  // Signal timeout to background thread
+  AREQ_SetTimedOut(req);
+
+  if (AREQ_TryClaimAggregateResults(req)) {
+    // We were able to claim the aggregation results.
+    // That means that the background thread didn't reach the aggregation phase (startPipelineCommon) yet.
+    // Reply with empty results
+    single_shard_common_query_reply_empty(ctx, argv, argc, 0, QUERY_ERROR_CODE_TIMED_OUT);
+    return REDISMODULE_OK;
+  }
+
+  // Sync with the background thread
+  AREQ_WaitForAggregateResultsComplete(req);
+
+  // BG signals only after AREQ_StoreResults
+  RS_ASSERT(req->storedReplyState.hasStoredResults);
+
+  // Drain any results buffered post-timeout (e.g. RPSorter heap).
+  // No-op for shapes that already accumulated their rows in state.results.
+  drainPartialResultsAfterTimeout(req);
+
+  AREQ_ReplyWithStoredResults(ctx, req);
+
+  return REDISMODULE_OK;
+}
+
 // Reply with stored results from Coord/Shard reply callback (called on main thread).
 void AREQ_ReplyWithStoredResults(RedisModuleCtx *ctx, AREQ *req) {
   // Use stored state directly - no need to recompute cv, it was stored by AREQ_StoreResults
@@ -1518,12 +1609,15 @@ void AREQ_ReplyWithStoredResults(RedisModuleCtx *ctx, AREQ *req) {
   qctx->err = &stored->err;
 
   // Build ChunkSerializeState from stored results
+  // On a shard-side timeout (RETURN_STRICT), force cursor_done so the reply
+  // carries cursor=0, freeing the shard cursor and stopping the coord from
+  // issuing further _FT.CURSOR READs to this shard.
   ChunkSerializeState state = {
     .results = stored->results,
     .r = NULL,
     .nelem = 0,
     .resultsLen = REDISMODULE_POSTPONED_ARRAY_LEN,
-    .cursor_done = false
+    .cursor_done = (AREQ_RequestFlags(req) & QEXEC_F_INTERNAL) && AREQ_TimedOut(req)
   };
   int rc = stored->rc;
 
@@ -1669,10 +1763,16 @@ static int buildPipelineAndExecute(AREQ *r, RedisModuleCtx *ctx, QueryError *sta
     blockClientCtx.freePrivData = AREQ_DecrRefWrapper;
     blockClientCtx.privdata = r;
     blockClientCtx.ast = &r->ast;
+    RSTimeoutPolicy policy = r->reqConfig.timeoutPolicy;
 
     // Determine timeout and reply callbacks based on policy.
-    if (r->reqConfig.timeoutPolicy == TimeoutPolicy_Fail) {
-      blockClientCtx.timeoutCallback = QueryTimeoutFailCallback;
+    if (policy != TimeoutPolicy_Return) {
+      if (policy == TimeoutPolicy_Fail) {
+        blockClientCtx.timeoutCallback = QueryTimeoutFailCallback;
+      } else {
+        r->syncCtx.requiresAggregateResultsSync = true;
+        blockClientCtx.timeoutCallback = QueryTimeoutReturnStrictCallback;
+      }
       blockClientCtx.replyCallback = QueryReplyCallback;
       blockClientCtx.timeoutMS = r->reqConfig.queryTimeoutMS;
       r->useReplyCallback = true;

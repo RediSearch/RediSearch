@@ -12,8 +12,8 @@ mod field_mask;
 mod geo;
 mod numeric;
 
-use crate::RSIndexResult;
 use ffi::{IndexFlags, t_docId, t_fieldMask};
+use index_result::RSIndexResult;
 
 pub use self::core::*;
 pub use field_mask::FilterMaskReader;

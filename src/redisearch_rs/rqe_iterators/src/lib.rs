@@ -7,16 +7,28 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 
+// Stub `AREQ_CheckTimedOut` for lib unit tests so the linker doesn't pull
+// `query.c.o` (and its C/coord/SSL transitive closure) from
+// `libredisearch_all.a`. The flag is only ever set by Redis on the main
+// thread, which doesn't exist here. Integration tests use the real symbol.
+#[cfg(test)]
+#[unsafe(no_mangle)]
+unsafe extern "C" fn AREQ_CheckTimedOut(_areq: *mut ffi::AREQ) -> bool {
+    false
+}
+
 use std::sync::OnceLock;
 
 use ffi::t_docId;
 use index_spec::IndexSpecReadGuard;
 use thiserror::Error;
 
-use ::inverted_index::{RSIndexResult, t_fieldMask};
+use ::inverted_index::FieldMask;
+use index_result::RSIndexResult;
 use query_term::RSQueryTerm;
 
 pub mod c2rust;
+pub mod config;
 pub mod empty;
 pub mod expiration_checker;
 pub mod id_list;
@@ -41,6 +53,7 @@ mod union_trimmed;
 pub mod utils;
 pub mod wildcard;
 
+pub use config::IteratorsConfig;
 pub use empty::Empty;
 pub use expiration_checker::{ExpirationChecker, FieldExpirationChecker, NoOpChecker};
 pub use id_list::IdList;
@@ -325,7 +338,7 @@ pub trait SearchEnterpriseIterators: Send + Sync {
         &self,
         index: &'index mut ffi::RedisSearchDiskIndexSpec,
         query_term: Box<RSQueryTerm>,
-        field_mask: t_fieldMask,
+        field_mask: FieldMask,
         weight: f64,
     ) -> Result<Box<dyn RQEIterator<'index> + 'index>, Box<dyn std::error::Error>>;
 
@@ -339,7 +352,7 @@ pub trait SearchEnterpriseIterators: Send + Sync {
         &self,
         index: &'index mut ffi::RedisSearchDiskIndexSpec,
         query_term: Box<RSQueryTerm>,
-        field_mask: t_fieldMask,
+        field_mask: FieldMask,
         weight: f64,
     ) -> Result<Box<dyn RQEIterator<'index> + 'index>, Box<dyn std::error::Error>>;
 

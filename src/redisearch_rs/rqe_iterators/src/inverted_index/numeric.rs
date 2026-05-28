@@ -15,9 +15,10 @@ use crate::{
     expiration_checker::{ExpirationChecker, NoOpChecker},
 };
 use ffi::{FieldType_INDEXFLD_T_GEO, FieldType_INDEXFLD_T_NUMERIC, IndexFlags, t_docId};
+use index_result::RSIndexResult;
 use index_spec::IndexSpecReadGuard;
 use inverted_index::{
-    FilterGeoReader, FilterNumericReader, IndexReader, NumericFilter, NumericReader, RSIndexResult,
+    FilterGeoReader, FilterNumericReader, IndexReader, NumericFilter, NumericReader,
 };
 use numeric_range_tree::{NumericIndexReader, NumericRangeTree};
 
@@ -262,20 +263,10 @@ pub enum NumericIteratorVariant<'index> {
     Unfiltered(Numeric<'index, NumericIndexReader<'index>, FieldExpirationChecker>),
     /// Numeric filter: skips entries outside the filter's value range.
     Filtered(
-        Numeric<
-            'index,
-            FilterNumericReader<'index, NumericIndexReader<'index>>,
-            FieldExpirationChecker,
-        >,
+        Numeric<'index, FilterNumericReader<NumericIndexReader<'index>>, FieldExpirationChecker>,
     ),
     /// Geo filter: skips entries that do not pass the geo predicate.
-    Geo(
-        Numeric<
-            'index,
-            FilterGeoReader<'index, NumericIndexReader<'index>>,
-            FieldExpirationChecker,
-        >,
-    ),
+    Geo(Numeric<'index, FilterGeoReader<NumericIndexReader<'index>>, FieldExpirationChecker>),
 }
 
 impl<'index> NumericIteratorVariant<'index> {
@@ -386,7 +377,7 @@ impl<'index> NumericIteratorVariant<'index> {
                 // SAFETY: `range_tree` lifetime is enforced by `'index`.
                 let iter = unsafe {
                     Numeric::new(
-                        FilterNumericReader::new(f, reader),
+                        FilterNumericReader::new(*f, reader),
                         expiration_checker,
                         range_tree,
                         Some(range_min),
@@ -399,7 +390,7 @@ impl<'index> NumericIteratorVariant<'index> {
                 // SAFETY: `range_tree` lifetime is enforced by `'index`.
                 let iter = unsafe {
                     Numeric::new(
-                        FilterGeoReader::new(f, reader),
+                        FilterGeoReader::new(*f, reader),
                         expiration_checker,
                         range_tree,
                         Some(range_min),

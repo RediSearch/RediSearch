@@ -14,9 +14,10 @@ use std::{
 
 use crate::{
     Decoder, Encoder, EntriesTrackingIndex, GcApplyInfo, GcScanDelta, IdDelta, IndexBlock,
-    InvertedIndex, RSIndexResult, gc::BlockGcScanResult, gc::RepairType,
+    InvertedIndex, gc::BlockGcScanResult, gc::RepairType,
 };
 use ffi::{IndexFlags_Index_DocIdsOnly, t_docId};
+use index_result::RSIndexResult;
 use pretty_assertions::assert_eq;
 use smallvec::smallvec;
 use thin_vec::medium_thin_vec;
@@ -504,7 +505,9 @@ fn ii_apply_gc() {
             // The third and fifth block was split making 168 new bytes
             bytes_allocated: 168,
             entries_removed: 5,
-            ignored_last_block: false
+            // Removed 3, added back (split blocks) — see `apply_gc` for the exact net delta
+            block_count_delta: 0,
+            ignored_last_block: false,
         }
     );
 }
@@ -599,8 +602,10 @@ fn ii_apply_gc_last_block_updated() {
             // Nothing new was made in the end
             bytes_allocated: 0,
             entries_removed: 2,
+            // Removed one block
+            block_count_delta: -1,
             // Ignored the last block
-            ignored_last_block: true
+            ignored_last_block: true,
         }
     );
 }
@@ -652,6 +657,7 @@ fn ii_apply_gc_last_block_updated_no_delta() {
             bytes_freed: 56,
             bytes_allocated: 0,
             entries_removed: 2,
+            block_count_delta: -1,
             // The key assertion: ignored_last_block must be true even without
             // a delta for the last block.
             ignored_last_block: true,
@@ -782,7 +788,8 @@ fn ii_apply_gc_entries_tracking_index() {
             bytes_freed: 65,
             bytes_allocated: 56,
             entries_removed: 2,
-            ignored_last_block: false
+            block_count_delta: 0,
+            ignored_last_block: false,
         }
     );
 }

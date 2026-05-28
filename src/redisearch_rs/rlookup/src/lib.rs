@@ -8,7 +8,9 @@
 */
 
 mod bindings;
+mod load_document;
 mod lookup;
+mod metric_request;
 mod row;
 
 // Link both Rust-provided and C-provided symbols
@@ -19,9 +21,11 @@ extern crate redisearch_rs;
 redis_mock::mock_or_stub_missing_redis_c_symbols!();
 
 pub use bindings::{IndexSpec, IndexSpecCache, SchemaRule};
+pub use load_document::{DocumentFormat, DocumentLoader, LoadAllError, LoadFieldError};
 pub use lookup::{
     Cursor, CursorMut, Iter, IterMut, RLookup, RLookupKey, RLookupKeyFlag, RLookupKeyFlags,
     RLookupOption, RLookupOptions, opaque::OpaqueRLookup,
 };
+pub use metric_request::{MetricRequest, RLookupKeyHandle};
 pub use row::RLookupRow;
 pub use row::opaque::OpaqueRLookupRow;

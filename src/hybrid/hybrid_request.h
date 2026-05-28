@@ -82,11 +82,20 @@ typedef struct HybridRequest {
     // Set once before pipeline construction; read by BuildDistributedDepletionPipeline
     // and scheduleHybridTail.
     int poolId;
+    // Index of the K value argument in the MRCommand for SHARD_K_RATIO
+    // optimization.
+    // Set during command building, used by command modifier callback. -1 if
+    // not applicable.
+    int kArgIndex;
 } HybridRequest;
 
 // Timeout helper functions for HybridRequest (mirrors AREQ pattern)
-bool HybridRequest_TimedOut(HybridRequest *req);
-void HybridRequest_SetTimedOut(HybridRequest *req);
+static inline bool HybridRequest_TimedOut(HybridRequest *req) {
+  return RS_AtomicBoolLoadRelaxed(&req->syncCtx.timedOut);
+}
+static inline void HybridRequest_SetTimedOut(HybridRequest *req) {
+  RS_AtomicBoolStoreRelaxed(&req->syncCtx.timedOut, true);
+}
 
 // Cursor mutex wrappers for synchronizing cursor creation with timeout callback
 static inline void HybridRequest_LockCursors(HybridRequest *req) {

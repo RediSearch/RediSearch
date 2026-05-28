@@ -19,7 +19,7 @@ test_utils = []
 lending-iterator.workspace = true
 libc.workspace = true
 memchr.workspace = true
-wildcard.workspace = true
+rqe_wildcard.workspace = true
 workspace_hack.workspace = true
 
 [dev-dependencies]

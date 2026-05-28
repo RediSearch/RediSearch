@@ -21,19 +21,6 @@
 #include <stdbool.h>
 #include <sys/uio.h>
 
-typedef enum {
-  // Terms have been collected
-  FGC_COLLECTED,
-  // No more terms remain
-  FGC_DONE,
-  // Pipe error, child probably crashed
-  FGC_CHILD_ERROR,
-  // Error on the parent
-  FGC_PARENT_ERROR,
-  // The spec was deleted
-  FGC_SPEC_DELETED,
-} FGCError;
-
 // Sentinel value indicating an empty/terminator buffer was received.
 extern void *RECV_BUFFER_EMPTY;
 
@@ -42,10 +29,6 @@ extern void *RECV_BUFFER_EMPTY;
 //------------------------------------------------------------------------------
 
 #define FGC_SEND_VAR(fgc, v) FGC_sendFixed(fgc, &v, sizeof v)
-
-int __attribute__((warn_unused_result)) FGC_recvFixed(ForkGC *fgc, void *buf, size_t len);
-
-int __attribute__((warn_unused_result)) FGC_recvBuffer(ForkGC *fgc, void **buf, size_t *len);
 
 //------------------------------------------------------------------------------
 // Pipe read/write callbacks for II GC
@@ -69,10 +52,6 @@ typedef struct {
 
 // Send an iovec-based header string over the pipe. Used by terms, missing_docs, existing_docs.
 void sendHeaderString(void *ptrCtx);
-
-// Receive a field header (field name + unique id). Used by numeric and tags.
-// Returns FGC_COLLECTED on success, FGC_DONE when no more fields, or an error.
-FGCError recvFieldHeader(ForkGC *fgc, char **fieldName, size_t *fieldNameLen, uint64_t *id);
 
 // Update index and GC stats after applying a delta.
 void FGC_updateStats(ForkGC *gc, RedisSearchCtx *sctx,

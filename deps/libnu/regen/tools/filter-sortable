@@ -1,0 +1,48 @@
+#!/usr/bin/env python3
+#-*- coding: UTF-8
+
+import sys
+from unidata import *
+
+
+def usage():
+	print('%s [SORTABLE]' % (sys.argv[0]))
+	print()
+	print('[SORTABLE] - file with a list of acceptable codepoints')
+
+
+def pass_codepoint(codepoint, acceptable):
+	return codepoint in acceptable
+
+
+def load_acceptable(filename):
+	return [codepoint.strip() for codepoint in open(filename, 'rt')]
+
+
+def format_weight(weight):
+	weights = [ w.strip('[]*.') for w in weight.split('][') ]
+	return '.'.join(weights)
+
+
+if __name__ == '__main__':
+	if len(sys.argv) < 2:
+		usage()
+		sys.exit(1)
+
+	sortable = sys.argv[1]
+	acceptable = load_acceptable(sortable)
+
+	for line in sys.stdin:
+		if unidata_comment(line):
+			continue
+
+		tokens = line.split(';')
+		codepoints = tokens[0].strip().split(' ')
+		weight = tokens[1].strip().strip(';').split('#')[0].strip()
+		codepoint = codepoints[0] # if it's contraction - check first codepoint
+
+		if not pass_codepoint(codepoint, acceptable):
+			continue
+
+		sink = len(codepoints) > 1 and sys.stderr or sys.stdout
+		print(' '.join(codepoints), format_weight(weight), file=sink)

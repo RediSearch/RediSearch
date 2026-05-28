@@ -159,13 +159,16 @@ FGCError FGC_parentHandleTags(ForkGC *gc) {
       goto loop_cleanup;
     }
 
-    InvertedIndex_ApplyGcDelta(idx, delta, &info);
+    InvertedIndex_ApplyGCDelta(idx, delta, &info);
     delta = NULL;
+    IndexStats_BlockCountAdd(&sctx->spec->stats, info.block_count_delta);
 
     // if tag value is empty, let's remove it.
     if (InvertedIndex_NumDocs(idx) == 0) {
-      // get memory before deleting the inverted index
+      // Sample memory and block count before the TrieMap destructor callback frees the
+      // index without spec context.
       info.bytes_freed += InvertedIndex_MemUsage(idx);
+      IndexStats_BlockCountAdd(&sctx->spec->stats, -(int64_t)InvertedIndex_NumBlocks(idx));
       TrieMap_Delete(tagIdx->values, tagVal, tagValLen, (void (*)(void *))InvertedIndex_Free);
 
       if (tagIdx->suffix) {
@@ -181,10 +184,10 @@ FGCError FGC_parentHandleTags(ForkGC *gc) {
     InvertedIndex_GcDelta_Free(delta);
 
     if (tagVal) {
-      rm_free(tagVal);
+      FGC_freeBuffer(tagVal, tagValLen);
     }
   }
 
-  rm_free(fieldName);
+  FGC_freeBuffer(fieldName, fieldNameLen);
   return status;
 }

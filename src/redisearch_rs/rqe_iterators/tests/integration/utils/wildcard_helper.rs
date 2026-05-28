@@ -8,7 +8,8 @@
 */
 
 use ffi::{IndexFlags_Index_DocIdsOnly, t_docId};
-use inverted_index::{InvertedIndex, RSIndexResult, doc_ids_only::DocIdsOnly};
+use index_result::RSIndexResult;
+use inverted_index::{InvertedIndex, doc_ids_only::DocIdsOnly};
 
 /// Holds an [`InvertedIndex`] so a
 /// [`Wildcard`](rqe_iterators::inverted_index::Wildcard) iterator can be

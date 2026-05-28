@@ -8,11 +8,12 @@
 */
 
 use crate::{
-    DecodedBy, Encoder, GcApplyInfo, GcScanDelta, IndexBlock, InvertedIndex, RSIndexResult,
+    AddRecordOutcome, DecodedBy, Encoder, GcApplyInfo, GcScanDelta, IndexBlock, InvertedIndex,
     debug::{BlockSummary, Summary},
     reader::IndexReaderCore,
 };
 use ffi::{IndexFlags, t_docId};
+use index_result::RSIndexResult;
 
 /// A wrapper around the inverted index to track the total number of entries in the index.
 /// Unlike [`InvertedIndex::unique_docs()`], this counts all entries, including duplicates.
@@ -35,16 +36,16 @@ impl<E: Encoder> EntriesTrackingIndex<E> {
         }
     }
 
-    /// Add a new record to the index and return by how much memory grew. It is expected that
-    /// the document ID of the record is greater than or equal the last document ID in the index.
+    /// Add a new record to the index. See [`InvertedIndex::add_record`] for the meaning of the
+    /// returned `(memory_growth, blocks_added)` pair.
     ///
     /// The total number of entries in the index is incremented by one.
-    pub fn add_record(&mut self, record: &RSIndexResult) -> std::io::Result<usize> {
-        let mem_growth = self.index.add_record(record)?;
+    pub fn add_record(&mut self, record: &RSIndexResult) -> std::io::Result<AddRecordOutcome> {
+        let result = self.index.add_record(record)?;
 
         self.number_of_entries += 1;
 
-        Ok(mem_growth)
+        Ok(result)
     }
 
     /// The memory size of the index in bytes.

@@ -61,6 +61,8 @@ env:
   COV: ${{ inputs.coverage && 1 || 0 }} # convert the boolean input to numeric
   # Setting RUST_BACKTRACE here to ensure that we get a full report if something goes wrong.
   RUST_BACKTRACE: "full"
+  # Header freshness is checked in the lint job. No need to regenerate here.
+  REDISEARCH_GENERATE_HEADERS: "0"
   # Fail on warnings
   RUSTFLAGS: "-Dwarnings"
   BUILD_INTEL_SVS_OPT: "yes"
@@ -126,7 +128,7 @@ jobs:
           permission-administration: write
       - name: Start EC2 runner
         id: start-ec2-runner
-        uses: machulav/ec2-github-runner@v2.4.2
+        uses: machulav/ec2-github-runner@v2.6.1
         with:
           mode: start
           github-token: ${{ steps.generate-app-token.outputs.token }}
@@ -172,6 +174,7 @@ jobs:
       actions: write  # Swatinem/rust-cache read/write of GH cache
 
     env:
+      IS_FORK_PR: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository }}
       # LTO is disabled on coverage and sanitizer tasks
       LTO: ${{ needs.get-config.outputs.enable_lto == '1' && inputs.san == '' && !inputs.coverage && 1 || 0 }}
 
@@ -280,6 +283,7 @@ jobs:
           echo "Runner Architecture: $RUNNER_ARCH"
           echo "========================"
       - name: Setup sccache
+        if: ${{ env.IS_FORK_PR != 'true' }}
         uses: ./.github/actions/setup-sccache
         with:
           aws-role: ${{ vars.SCCACHE_AWS_ROLE_TO_ASSUME }}
@@ -448,7 +452,7 @@ jobs:
         run: make rust-tests
 
       - name: Show sccache stats
-        run: ${SCCACHE_PATH:-sccache} --show-stats
+        run: ${SCCACHE_PATH:-sccache} --show-stats || true
 
       - name: Check test logs folder size
         if: always()
@@ -514,7 +518,7 @@ jobs:
             steps.standalone_tests.outcome == 'failure' ||
             steps.coordinator_tests.outcome == 'failure'
           )
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: Test Logs ${{ steps.artifact-names.outputs.name }}
           path: |
@@ -552,7 +556,7 @@ jobs:
           files: bin/flow_standalone.info,bin/flow_coordinator.info
           disable_search: true
           flags: flow
-          fail_ci_if_error: true # Fail on upload errors
+          fail_ci_if_error: ${{ env.IS_FORK_PR != 'true' }}
           token: ${{ secrets.CODECOV_TOKEN }}
       - name: Upload flow coverage (standalone)
         if: inputs.coverage && inputs.standalone && !inputs.coordinator
@@ -561,7 +565,7 @@ jobs:
           files: bin/flow_standalone.info
           disable_search: true
           flags: flow
-          fail_ci_if_error: true # Fail on upload errors
+          fail_ci_if_error: ${{ env.IS_FORK_PR != 'true' }}
           token: ${{ secrets.CODECOV_TOKEN }}
       - name: Upload flow coverage (coordinator)
         if: inputs.coverage && !inputs.standalone && inputs.coordinator
@@ -570,7 +574,7 @@ jobs:
           files: bin/flow_coordinator.info
           disable_search: true
           flags: flow
-          fail_ci_if_error: true # Fail on upload errors
+          fail_ci_if_error: ${{ env.IS_FORK_PR != 'true' }}
           token: ${{ secrets.CODECOV_TOKEN }}
       - name: Upload unit coverage
         if: inputs.coverage && inputs.unit-tests
@@ -579,7 +583,7 @@ jobs:
           files: bin/unit.info,bin/rust_cov.info
           disable_search: true
           flags: unit
-          fail_ci_if_error: true # Fail on upload errors
+          fail_ci_if_error: ${{ env.IS_FORK_PR != 'true' }}
           token: ${{ secrets.CODECOV_TOKEN }}
 
   # Stop EC2 runner for self-hosted platforms (always runs if `start-runner` succeeds, to ensure cleanup)
@@ -605,7 +609,7 @@ jobs:
           repositories: ${{ github.event.repository.name }}
           permission-administration: write
       - name: Stop EC2 runner
-        uses: machulav/ec2-github-runner@v2.4.2
+        uses: machulav/ec2-github-runner@v2.6.1
         with:
           mode: stop
           github-token: ${{ steps.generate-app-token.outputs.token }}

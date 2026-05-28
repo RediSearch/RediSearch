@@ -73,7 +73,7 @@ FGCError FGC_parentHandleTerms(ForkGC *gc) {
   delta = InvertedIndex_GcDelta_Read(&rd);
 
   if (delta == NULL) {
-    rm_free(term);
+    FGC_freeBuffer(term, len);
     return FGC_CHILD_ERROR;
   }
 
@@ -96,25 +96,31 @@ FGCError FGC_parentHandleTerms(ForkGC *gc) {
     goto cleanup;
   }
 
-  InvertedIndex_ApplyGcDelta(idx, delta, &info);
+  InvertedIndex_ApplyGCDelta(idx, delta, &info);
   delta = NULL;
+  IndexStats_BlockCountAdd(&sctx->spec->stats, info.block_count_delta);
 
   if (InvertedIndex_NumDocs(idx) == 0) {
 
     // inverted index was cleaned entirely lets free it
     if (sctx->spec->keysDict) {
       CharBuf termKey = {.buf = term, .len = len};
-      // get memory before deleting the inverted index
+      // Sample memory and block count before the destructor callback (InvIndFreeCb) frees
+      // the index without spec context.
       size_t inv_idx_size = InvertedIndex_MemUsage(idx);
+      size_t remaining_blocks = InvertedIndex_NumBlocks(idx);
       if (dictDelete(sctx->spec->keysDict, &termKey) == DICT_OK) {
         info.bytes_freed += inv_idx_size;
+        IndexStats_BlockCountAdd(&sctx->spec->stats, -(int64_t)remaining_blocks);
       }
     }
 
     if (!Trie_Delete(sctx->spec->terms, term, len)) {
       const char* name = IndexSpec_FormatName(sctx->spec, RSGlobalConfig.hideUserDataFromLog);
-      RedisModule_Log(sctx->redisCtx, "warning", "RedisSearch fork GC: deleting a term '%s' from"
-                      " trie in index '%s' failed", RSGlobalConfig.hideUserDataFromLog ? Obfuscate_Text(term) : term, name);
+      const char* term_str = RSGlobalConfig.hideUserDataFromLog ? Obfuscate_Text(term) : term;
+      int term_display_len = RSGlobalConfig.hideUserDataFromLog ? (int)strlen(term_str) : (int)len;
+      RedisModule_Log(sctx->redisCtx, "warning", "RedisSearch fork GC: deleting a term '%.*s' from"
+                      " trie in index '%s' failed", term_display_len, term_str, name);
     }
     sctx->spec->stats.scoring.numTerms--;
     sctx->spec->stats.termsSize -= len;
@@ -131,7 +137,7 @@ cleanup:
     RedisSearchCtx_UnlockSpec(sctx);
     IndexSpecRef_Release(spec_ref);
   }
-  rm_free(term);
+  FGC_freeBuffer(term, len);
 
   InvertedIndex_GcDelta_Free(delta);
   return status;

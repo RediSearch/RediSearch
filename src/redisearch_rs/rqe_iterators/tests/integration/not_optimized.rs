@@ -10,8 +10,15 @@
 use std::time::Duration;
 
 use ffi::t_docId;
-use inverted_index::RSIndexResult;
-use rqe_iterators::{RQEIterator, RQEIteratorError, SkipToOutcome, not_optimized::NotOptimized};
+use index_result::RSIndexResult;
+use rqe_iterators::{
+    RQEIterator, RQEIteratorError, SkipToOutcome,
+    not_optimized::NotOptimized,
+    utils::{NoTimeout, TimeoutContextClock},
+};
+
+/// Granularity used by the production reducer; tests reuse it for parity.
+const CLOCK_CHECK_GRANULARITY: u32 = 5_000;
 
 use crate::utils::{Mock, MockIteratorError, MockVec, WildcardHelper};
 
@@ -38,7 +45,7 @@ fn read_test(wc_ids: Vec<t_docId>, child_ids: Vec<t_docId>, max_doc_id: t_docId)
     let wc_helper = WildcardHelper::new(&wc_ids);
     let wcii = wc_helper.create_wildcard();
     let child = MockVec::new(child_ids);
-    let mut it = NotOptimized::new(wcii, child, max_doc_id, 1.0, None);
+    let mut it = NotOptimized::new(wcii, child, max_doc_id, 1.0, NoTimeout);
 
     let mut actual = Vec::new();
     while let Ok(Some(doc)) = it.read() {
@@ -80,7 +87,7 @@ fn read_continuous_child_empty_wc() {
     let wc_helper = WildcardHelper::new(&[]);
     let wcii = wc_helper.create_wildcard();
     let child = MockVec::new(vec![1, 2, 3]);
-    let mut it = NotOptimized::new(wcii, child, 10, 1.0, None);
+    let mut it = NotOptimized::new(wcii, child, 10, 1.0, NoTimeout);
     assert!(it.read().unwrap().is_none());
     assert!(it.at_eof());
 }
@@ -141,7 +148,7 @@ fn skip_to_beyond_max_returns_eof() {
     let wc_helper = WildcardHelper::new(&[1, 2, 3, 4, 5]);
     let wcii = wc_helper.create_wildcard();
     let child = MockVec::new(vec![2, 4]);
-    let mut it = NotOptimized::new(wcii, child, 10, 1.0, None);
+    let mut it = NotOptimized::new(wcii, child, 10, 1.0, NoTimeout);
 
     assert!(it.skip_to(11).unwrap().is_none());
     assert!(it.at_eof());
@@ -155,7 +162,7 @@ fn skip_to_found_in_wc_not_in_child() {
     let wc_helper = WildcardHelper::new(&[1, 2, 3, 4, 5, 6, 7, 8, 9, 10]);
     let wcii = wc_helper.create_wildcard();
     let child = MockVec::new(vec![2, 4, 6, 8, 10]);
-    let mut it = NotOptimized::new(wcii, child, 15, 1.0, None);
+    let mut it = NotOptimized::new(wcii, child, 15, 1.0, NoTimeout);
 
     let outcome = it.skip_to(3).unwrap();
     match outcome {
@@ -173,7 +180,7 @@ fn skip_to_in_child_returns_not_found() {
     let wc_helper = WildcardHelper::new(&[1, 2, 3, 4, 5, 6, 7, 8, 9, 10]);
     let wcii = wc_helper.create_wildcard();
     let child = MockVec::new(vec![2, 4, 6, 8, 10]);
-    let mut it = NotOptimized::new(wcii, child, 15, 1.0, None);
+    let mut it = NotOptimized::new(wcii, child, 15, 1.0, NoTimeout);
 
     let outcome = it.skip_to(2).unwrap();
     match outcome {
@@ -191,7 +198,7 @@ fn skip_to_not_in_wc_returns_not_found() {
     let wc_helper = WildcardHelper::new(&[5, 10, 15, 20]);
     let wcii = wc_helper.create_wildcard();
     let child = MockVec::new(vec![10]);
-    let mut it = NotOptimized::new(wcii, child, 25, 1.0, None);
+    let mut it = NotOptimized::new(wcii, child, 25, 1.0, NoTimeout);
 
     // Skip to 7: not in wcii, wcii advances to 10. 10 is in child, so advance
     // further to 15 which is valid.
@@ -213,7 +220,7 @@ fn skip_to_all_test(wc_ids: Vec<t_docId>, child_ids: Vec<t_docId>, max_doc_id: t
         let wc_helper = WildcardHelper::new(&wc_ids);
         let wcii = wc_helper.create_wildcard();
         let child = MockVec::new(child_ids.clone());
-        let mut it = NotOptimized::new(wcii, child, max_doc_id, 1.0, None);
+        let mut it = NotOptimized::new(wcii, child, max_doc_id, 1.0, NoTimeout);
 
         let expected_id = expected.iter().find(|&&eid| eid >= id);
         let is_exact = expected.contains(&id);
@@ -269,7 +276,7 @@ fn skip_to_sequential() {
     let wc_helper = WildcardHelper::new(&wc_ids);
     let wcii = wc_helper.create_wildcard();
     let child = MockVec::new(child_ids);
-    let mut it = NotOptimized::new(wcii, child, 15, 1.0, None);
+    let mut it = NotOptimized::new(wcii, child, 15, 1.0, NoTimeout);
 
     // Skip to each expected result sequentially.
     for &eid in &expected {
@@ -291,7 +298,7 @@ fn num_estimated_returns_wcii_estimate() {
     let wc_helper = WildcardHelper::new(&[1, 2, 3, 4, 5]);
     let wcii = wc_helper.create_wildcard();
     let child = MockVec::new(vec![2, 4]);
-    let it = NotOptimized::new(wcii, child, 10, 1.0, None);
+    let it = NotOptimized::new(wcii, child, 10, 1.0, NoTimeout);
     assert_eq!(it.num_estimated(), 5);
 }
 
@@ -304,7 +311,7 @@ fn rewind_resets_state() {
     let wc_helper = WildcardHelper::new(&wc_ids);
     let wcii = wc_helper.create_wildcard();
     let child = MockVec::new(child_ids);
-    let mut it = NotOptimized::new(wcii, child, 15, 1.0, None);
+    let mut it = NotOptimized::new(wcii, child, 15, 1.0, NoTimeout);
 
     for pass in 0..5 {
         for j in 0..=pass.min(expected.len() - 1) {
@@ -322,7 +329,7 @@ fn initial_state() {
     let wc_helper = WildcardHelper::new(&[1, 2, 3, 4, 5]);
     let wcii = wc_helper.create_wildcard();
     let child = MockVec::new(vec![2, 4]);
-    let it = NotOptimized::new(wcii, child, 10, 1.0, None);
+    let it = NotOptimized::new(wcii, child, 10, 1.0, NoTimeout);
 
     assert_eq!(it.last_doc_id(), 0);
     assert!(!it.at_eof());
@@ -334,7 +341,7 @@ fn current_always_returns_some() {
     let wc_helper = WildcardHelper::new(&[1, 2, 3]);
     let wcii = wc_helper.create_wildcard();
     let child = MockVec::new(vec![2]);
-    let mut it = NotOptimized::new(wcii, child, 10, 1.0, None);
+    let mut it = NotOptimized::new(wcii, child, 10, 1.0, NoTimeout);
 
     // Before any read.
     assert!(it.current().is_some());
@@ -355,7 +362,7 @@ fn skip_to_case2_eof() {
     let wc_helper = WildcardHelper::new(&[1, 2, 3]);
     let wcii = wc_helper.create_wildcard();
     let child = MockVec::new(vec![1, 2, 3]);
-    let mut it = NotOptimized::new(wcii, child, 10, 1.0, None);
+    let mut it = NotOptimized::new(wcii, child, 10, 1.0, NoTimeout);
 
     let outcome = it.skip_to(1).unwrap();
     assert!(outcome.is_none());
@@ -372,7 +379,7 @@ fn skip_to_case2_not_found() {
     let wc_helper = WildcardHelper::new(&[1, 3, 5, 7]);
     let wcii = wc_helper.create_wildcard();
     let child = MockVec::new(vec![3, 5]);
-    let mut it = NotOptimized::new(wcii, child, 10, 1.0, None);
+    let mut it = NotOptimized::new(wcii, child, 10, 1.0, NoTimeout);
 
     let doc = it.read().unwrap().unwrap();
     assert_eq!(doc.doc_id, 1);
@@ -396,7 +403,7 @@ fn skip_to_case2_exhausted() {
     let wc_helper = WildcardHelper::new(&[1, 3, 5]);
     let wcii = wc_helper.create_wildcard();
     let child = MockVec::new(vec![3, 5]);
-    let mut it = NotOptimized::new(wcii, child, 10, 1.0, None);
+    let mut it = NotOptimized::new(wcii, child, 10, 1.0, NoTimeout);
 
     let doc = it.read().unwrap().unwrap();
     assert_eq!(doc.doc_id, 1);
@@ -416,7 +423,7 @@ fn skip_to_case1_child_exhausted() {
     let wc_helper = WildcardHelper::new(&[1, 3, 5]);
     let wcii = wc_helper.create_wildcard();
     let child = MockVec::new(vec![2, 4]);
-    let mut it = NotOptimized::new(wcii, child, 10, 1.0, None);
+    let mut it = NotOptimized::new(wcii, child, 10, 1.0, NoTimeout);
 
     // Consume docs to exhaust the child iterator.
     let doc = it.read().unwrap().unwrap();
@@ -451,7 +458,7 @@ fn child_timeout_on_first_read() {
     let mut child_data = child.data();
     child_data.set_error_at_done(Some(MockIteratorError::TimeoutError(None)));
 
-    let mut it = NotOptimized::new(wcii, child, 10, 1.0, None);
+    let mut it = NotOptimized::new(wcii, child, 10, 1.0, NoTimeout);
     let rc = it.read();
     assert!(
         matches!(rc, Err(RQEIteratorError::TimedOut)),
@@ -467,7 +474,7 @@ fn child_timeout_on_subsequent_read() {
     let wcii = wc_helper.create_wildcard();
     let child = Mock::new([2, 4, 6]);
     let mut child_data = child.data();
-    let mut it = NotOptimized::new(wcii, child, 10, 1.0, None);
+    let mut it = NotOptimized::new(wcii, child, 10, 1.0, NoTimeout);
 
     // Read first result: 1 (not in child).
     let doc = it.read().unwrap().unwrap();
@@ -499,7 +506,7 @@ fn child_timeout_on_skip_to() {
     let mut child_data = child.data();
     child_data.set_error_at_done(Some(MockIteratorError::TimeoutError(None)));
 
-    let mut it = NotOptimized::new(wcii, child, 15, 1.0, None);
+    let mut it = NotOptimized::new(wcii, child, 15, 1.0, NoTimeout);
 
     let rc = it.skip_to(1);
     assert!(
@@ -522,7 +529,13 @@ fn read_timeout_via_timeout_ctx() {
     let mut child_data = child.data();
     child_data.add_delay_since_index(1, Duration::from_micros(100));
 
-    let mut it = NotOptimized::new(wcii, child, 10_000, 1.0, Some(Duration::from_micros(50)));
+    let mut it = NotOptimized::new(
+        wcii,
+        child,
+        10_000,
+        1.0,
+        TimeoutContextClock::new(Duration::from_micros(50), CLOCK_CHECK_GRANULARITY),
+    );
 
     let result = it.read();
     assert!(
@@ -565,6 +578,7 @@ mod revalidate {
             '_,
             rqe_iterators::inverted_index::Wildcard<'_, DocIdsOnly>,
             Mock<'_, { CHILD_IDS.len() }>,
+            NoTimeout,
         >,
         crate::utils::MockData,
     ) {
@@ -572,7 +586,7 @@ mod revalidate {
         let wcii = rqe_iterators::inverted_index::Wildcard::new(ii.reader(), 1.0);
         let child = Mock::new(CHILD_IDS);
         let child_data = child.data();
-        let it = NotOptimized::new(wcii, child, 100, 1.0, None);
+        let it = NotOptimized::new(wcii, child, 100, 1.0, NoTimeout);
         (it, child_data)
     }
 
@@ -765,7 +779,7 @@ mod revalidate {
         let child = Mock::<1>::new([100]); // child won't match
         let mut child_data = child.data();
         child_data.set_revalidate_result(MockRevalidateResult::Ok);
-        let mut it = NotOptimized::new(wcii, child, 200, 1.0, None);
+        let mut it = NotOptimized::new(wcii, child, 200, 1.0, NoTimeout);
 
         // Read the single document.
         let doc = it.read().unwrap().unwrap();

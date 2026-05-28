@@ -223,20 +223,16 @@ def parse_client_list(client_list_output):
         clients.append(client)
     return clients
 
-def is_client_blocked(env, client_id):
+def is_client_blocked(target, client_id):
     """Check if a client is blocked based on its flags.
 
     A client is blocked when it has the 'b' flag set, which indicates
     the client is waiting in a blocking operation.
 
-    Args:
-        env: The test environment.
-        client_id: The client ID to check.
-
-    Returns:
-        True if the client is blocked, False otherwise.
+    `target` may be an Env (uses ``getConnectionByEnv``) or a raw connection
+    (used directly), so per-shard tests can poll a specific shard's process.
     """
-    conn = getConnectionByEnv(env)
+    conn = getConnectionByEnv(target) if hasattr(target, 'getConnection') else target
     output = conn.execute_command('CLIENT', 'LIST', 'ID', client_id)
     clients = parse_client_list(output)
     if not clients:
@@ -319,6 +315,19 @@ def _wait_pinned_shard_with_blocked_cmd(shard_conn, sync_point, cmd_name, timeou
         time.sleep(0.1)
     raise TimeoutError(
         f'Shard not pinned at {sync_point} with a blocked {cmd_name} client within {timeout}s')
+
+
+def _wait_shard_paused_after_aggregate_result(shard_conn, cmd_name, timeout=30):
+    """Wait for `shard_conn` to be parked in the AggregateResults spin loop
+    (i.e. mid-pipeline, with N rows already appended) while a client is
+    blocked running `cmd_name`. Returns the blocked client id."""
+    with TimeLimit(timeout, f'Shard not paused at AggregateResults with a blocked {cmd_name} client'):
+        while True:
+            if getIsAggregateResultsPaused(shard_conn) == 1:
+                cid = get_query_client(shard_conn, cmd_name)
+                if cid:
+                    return cid
+            time.sleep(0.1)
 
 
 class TestCoordinatorTimeout:
@@ -1294,7 +1303,7 @@ class TestCoordinatorTimeout:
         base_err_coord = int(before_info[COORD_WARN_ERR_SECTION][TIMEOUT_ERROR_COORD_METRIC])
 
         # Enable pause before store results
-        setPauseBeforeStoreResults(env, True)
+        setPauseBeforeStoreResults(env, True, internal=False)
 
         t_query = threading.Thread(
             target=run_cmd_expect_timeout,
@@ -1351,7 +1360,7 @@ class TestCoordinatorTimeout:
         base_err_coord = int(before_info[COORD_WARN_ERR_SECTION][TIMEOUT_ERROR_COORD_METRIC])
 
         # Enable pause after store results
-        setPauseAfterStoreResults(env, True)
+        setPauseAfterStoreResults(env, True, internal=False)
 
         t_query = threading.Thread(
             target=run_cmd_expect_timeout,
@@ -1421,9 +1430,9 @@ class TestCoordinatorTimeout:
         prev_policy, cursor_id, baseline, before_info, base_err_coord = _setup_fail_cursor_state(env)
 
         if before:
-            setPauseBeforeStoreResults(env, True)
+            setPauseBeforeStoreResults(env, True, internal=False)
         else:
-            setPauseAfterStoreResults(env, True)
+            setPauseAfterStoreResults(env, True, internal=False)
 
         try:
             t_query, blocked_client_id = self._start_blocked_cursor_read(cursor_id)
@@ -2372,9 +2381,6 @@ class TestCoordinatorTimeout:
         env = self.env
 
         def assert_reply(result, responsive_count):
-            env.assertEqual(result['total_results'], responsive_count,
-                            message=f"Expected {responsive_count} docs from responsive shards, "
-                                    f"got {result['total_results']}")
             env.assertEqual(len(result.get('results', [])), responsive_count,
                             message=f"Expected {responsive_count} sorted rows from responsive "
                                     f"shards in reply, got {len(result.get('results', []))}")
@@ -2489,7 +2495,7 @@ class TestCoordinatorTimeout:
             assert_reply=assert_reply)
 
     def _run_return_strict_timeout_no_partial_rows_one_shard_paused_aggregate(
-            self, agg_steps, expected_total_is_responsive_count=False):
+            self, agg_steps):
         """RETURN_STRICT one-shard-paused helper for FT.AGGREGATE shapes that must NOT yield partial rows.
 
         Mirrors ``_run_return_strict_timeout_sortby_one_shard_paused_aggregate``
@@ -2497,31 +2503,10 @@ class TestCoordinatorTimeout:
         reply contains no rows and a single coord-side TIMEOUT warning.
 
         ``agg_steps`` is the argument list following the query expression.
-
-        ``expected_total_is_responsive_count`` selects the
-        ``total_results`` expectation:
-
-        * ``False`` (default): the discard path zeros total_results, used
-          when ``pipelineCanYieldPartialResults`` rejects the coord
-          pipeline (e.g. an RP other than RPSorter / RPPager_Limiter at
-          the end). The post-drain branch in
-          ``DistAggregateTimeoutReturnStrictClient`` zeroes out the
-          counter for consistency with the empty rows.
-        * ``True``: total_results stays at the count of docs RPNet
-          admitted from responsive shards, used when the classifier
-          accepts the shape (so the discard branch is skipped) but the
-          harvest still pops zero rows because an intermediate RP
-          between RPSorter and RPNet buffers everything until EOF and
-          therefore never flushes into the sorter under TIMEDOUT (e.g.
-          RPGrouper).
         """
         env = self.env
 
         def assert_reply(result, responsive_count):
-            expected_total = responsive_count if expected_total_is_responsive_count else 0
-            env.assertEqual(result['total_results'], expected_total,
-                            message=f"Expected {expected_total} total_results on the no-rows path, "
-                                    f"got {result['total_results']}")
             env.assertEqual(result.get('results', []), [],
                             message=f"Expected no rows, got {result.get('results')}")
 
@@ -2540,9 +2525,9 @@ class TestCoordinatorTimeout:
         pipelineCanYieldPartialResults sees RPFilter as the end (not
         RPPager_Limiter, so the pager-peeling branch is not taken) and
         falls through to the final RPSorter check, which fails. The
-        coordinator must therefore take the discard path: total_results=0,
-        no rows, and a TIMEOUT warning, even though the sorter's heap was
-        populated from the responsive shards.
+        coordinator must therefore take the discard path: no rows and a
+        TIMEOUT warning, even though the sorter's heap was populated
+        from the responsive shards.
         """
         self._run_return_strict_timeout_no_partial_rows_one_shard_paused_aggregate(
             agg_steps=['SORTBY', '1', '@name',
@@ -2569,33 +2554,11 @@ class TestCoordinatorTimeout:
         post-timeout drain then finds nothing to pop, yet the harvest
         path still runs end-to-end without crashing -- which is the
         safety property the classifier promises for shape 3.
-
-        Reply-shape note (intentional, documents an existing quirk):
-        ``total_results`` ends up at the count RPNet accumulated from
-        the admitted shard replies (responsive_count) even though
-        ``results`` is empty. That happens because:
-
-        * RPNet bumps ``qctx->totalResults`` as each shard reply is
-          admitted, regardless of whether those rows ever survive the
-          local pipeline.
-        * The post-drain zero-out branch in
-          ``DistAggregateTimeoutReturnStrictClient`` only fires when
-          the classifier rejected the shape (``!canYieldPartialResults``).
-          Shape 3 is accepted, so the branch is skipped and the
-          pre-deadline RPNet count remains.
-
-        This matches what the legacy ``return`` policy has always done
-        for the same query (BG runs the full pipeline; sorter pops the
-        empty heap as EOF; reply uses ``qctx->totalResults`` as-is), so
-        ``return-strict`` is now policy-symmetric on this shape rather
-        than zeroing the counter the way the pre-classifier-expansion
-        discard path did.
         """
         self._run_return_strict_timeout_no_partial_rows_one_shard_paused_aggregate(
             agg_steps=['GROUPBY', '1', '@name',
                        'SORTBY', '1', '@name',
-                       'LIMIT', '0', str(self.n_docs)],
-            expected_total_is_responsive_count=True)
+                       'LIMIT', '0', str(self.n_docs)])
 
     def test_return_strict_timeout_sortby_all_shards_paused_aggregate(self):
         """RETURN_STRICT timeout on FT.AGGREGATE SORTBY with every shard paused.
@@ -2692,7 +2655,7 @@ class TestCoordinatorTimeout:
 
         before_info = info_modules_to_dict(env)
 
-        setPauseAfterStoreResults(env, True)
+        setPauseAfterStoreResults(env, True, internal=False)
 
         query_result = []
         t_query = threading.Thread(
@@ -2777,7 +2740,7 @@ class TestCoordinatorTimeout:
 
         before_info = info_modules_to_dict(env)
 
-        setPauseAfterStoreResults(env, True)
+        setPauseAfterStoreResults(env, True, internal=False)
 
         query_result = []
         t_query = threading.Thread(
@@ -3297,6 +3260,539 @@ class TestCoordinatorTimeout:
 
         run_command_on_all_shards(env, 'CONFIG', 'SET', ON_TIMEOUT_CONFIG, prev_policy)
 
+    # ------------------------------------------------------------------
+    # Shard-level RETURN_STRICT timeout: a single shard's blocked-client
+    # timer (CLIENT UNBLOCK ... TIMEOUT) fires while the user query
+    # carries TIMEOUT 0, so the coord deadline never arms.
+    # ------------------------------------------------------------------
+    def _cleanup_strict_pause_state(self, all_shard_conns, prev_on_timeout_policy):
+        """Clear AggregateResults pause state on every shard and restore the
+        global on-timeout policy."""
+        for c in all_shard_conns:
+            resetAggregateResultsDebug(c)
+        try:
+            run_command_on_all_shards(self.env, 'CONFIG', 'SET',
+                                      ON_TIMEOUT_CONFIG, prev_on_timeout_policy)
+        except Exception:
+            pass
+
+    def _assert_unsorted_partial_reply(self, env, result, expected_rows,
+                                       pause_after_n, other_docs):
+        env.assertEqual(len(result.get('results', [])), expected_rows,
+                        message="rows in reply")
+
+    def _run_one_shard_timesout(self, *, coord_cmd, shard_cmd, query_args,
+                                assert_reply, coord_cmd_prefix=None,
+                                expected_warning=None):
+        """Drive a one-shard-timesout query under RETURN_STRICT.
+
+        Parks one non-coord shard at ``AggregateResults`` result
+        #pause_after_n, then unblocks it via ``CLIENT UNBLOCK ... TIMEOUT``.
+        The query carries ``TIMEOUT 0`` so only the manual unblock can fire.
+
+        ``coord_cmd`` / ``shard_cmd`` are the user-facing and internal
+        command names (e.g. ``FT.AGGREGATE`` / ``_FT.AGGREGATE``).
+        ``coord_cmd_prefix`` overrides the default ``[coord_cmd, 'idx', '*']``
+        for shapes like ``FT.PROFILE idx AGGREGATE QUERY *``.
+        ``expected_warning`` defaults to ``[TIMEOUT_WARNING]``; pass ``[]``
+        when the warning is nested inside a wrapper (e.g. ``FT.PROFILE``).
+
+        ``assert_reply(env, result, expected_rows, pause_after_n, other_docs)``
+        validates the coord reply; this helper only asserts the warning and
+        the coord warning metric.
+        """
+        env = self.env
+
+        prev_on_timeout_policy = env.cmd('CONFIG', 'GET', ON_TIMEOUT_CONFIG)[ON_TIMEOUT_CONFIG]
+        run_command_on_all_shards(env, 'CONFIG', 'SET',
+                                  ON_TIMEOUT_CONFIG, 'return-strict')
+
+        before_info = info_modules_to_dict(env)
+        base_warn_coord = int(before_info[COORD_WARN_ERR_SECTION][TIMEOUT_WARNING_COORD_METRIC])
+
+        all_shard_conns, target_conn, _target_pid, other_conns = \
+            _split_shards_pick_one_paused(env)
+
+        # Target contributes pause_after_n; other shards contribute their
+        # full per-shard share.
+        pause_after_n = 2
+        other_docs = sum(len(c.execute_command('KEYS', 'doc*')) for c in other_conns)
+        expected_rows = pause_after_n + other_docs
+
+        try:
+            setPauseAfterAggregateResult(target_conn, pause_after_n)
+
+            prefix = (list(coord_cmd_prefix)
+                      if coord_cmd_prefix is not None
+                      else [coord_cmd, 'idx', '*'])
+            full_cmd = prefix + list(query_args) + ['TIMEOUT', '0']
+            query_result = []
+            t_query = threading.Thread(
+                target=call_and_store,
+                args=(env.cmd, full_cmd, query_result),
+                daemon=True
+            )
+            t_query.start()
+
+            blocked_client_id = _wait_shard_paused_after_aggregate_result(
+                target_conn, shard_cmd)
+
+            target_conn.execute_command('CLIENT', 'UNBLOCK',
+                                        blocked_client_id, 'TIMEOUT')
+
+            # Wait for the timeout callback to actually run (it sets
+            # AREQ_TimedOut, which the pause loop polls) before disarming
+            # the pause counter, else BG could resume on rc=EOF.
+            wait_for_client_unblocked(target_conn, blocked_client_id)
+
+            resetAggregateResultsDebug(target_conn)
+
+            t_query.join(timeout=10)
+            env.assertFalse(t_query.is_alive(), message="query thread alive")
+
+            env.assertEqual(len(query_result), 1, message="query result count")
+            result = query_result[0]
+
+            assert_reply(env, result, expected_rows, pause_after_n, other_docs)
+
+            warn_expected = ([TIMEOUT_WARNING]
+                             if expected_warning is None
+                             else expected_warning)
+            env.assertEqual(result.get('warning', []), warn_expected,
+                            message="reply warning")
+
+            after_info = info_modules_to_dict(env)
+            env.assertEqual(after_info[COORD_WARN_ERR_SECTION][TIMEOUT_WARNING_COORD_METRIC],
+                            str(base_warn_coord + 1),
+                            message="coord timeout-warning metric +1")
+            _verify_metrics_not_changed(env, env, before_info,
+                                        [TIMEOUT_WARNING_COORD_METRIC])
+        finally:
+            self._cleanup_strict_pause_state(all_shard_conns, prev_on_timeout_policy)
+
+    def test_return_strict_one_shard_timesout_flat_aggregate(self):
+        """Flat aggregate, one shard times out mid-pipeline.
+
+        Expect ``pause_after_n + other_docs`` rows: the timed-out shard
+        ships its buffered prefix; the rest reply in full.
+        """
+        skipIfNoEnableAssert(self.env)
+        self._run_one_shard_timesout(
+            coord_cmd='FT.AGGREGATE', shard_cmd='_FT.AGGREGATE',
+            query_args=['LOAD', '1', '@name',
+                        'LIMIT', '0', str(self.n_docs)],
+            assert_reply=self._assert_unsorted_partial_reply)
+
+    def test_return_strict_one_shard_timesout_sortby_aggregate(self):
+        """SORTBY one-shard timeout.
+
+        Expect ``self.n_docs`` rows globally sorted: the shard-side
+        RPSorter is a buffering stage, so its heap already holds the full
+        per-shard set when the pause fires and the strict drain pops all
+        of it.
+        """
+        skipIfNoEnableAssert(self.env)
+
+        def assert_sorted_reply(env, result, expected_rows, pause_after_n, other_docs):
+            full_rows = self.n_docs
+            env.assertEqual(len(result.get('results', [])), full_rows,
+                            message="rows in reply")
+            values = [row['extra_attributes']['name'] for row in result['results']]
+            env.assertEqual(values, sorted(values),
+                            message="global sort order")
+
+        self._run_one_shard_timesout(
+            coord_cmd='FT.AGGREGATE', shard_cmd='_FT.AGGREGATE',
+            query_args=['LOAD', '1', '@name',
+                        'SORTBY', '1', '@name',
+                        'LIMIT', '0', str(self.n_docs)],
+            assert_reply=assert_sorted_reply)
+
+    def test_return_strict_one_shard_timesout_groupby_aggregate(self):
+        """GROUPBY one-shard timeout.
+
+        Expect ``pause_after_n + other_docs`` groups: doc names are
+        unique, so re-grouping at the coord neither merges nor drops
+        any group key.
+        """
+        skipIfNoEnableAssert(self.env)
+
+        def assert_groupby_reply(env, result, expected_rows, pause_after_n, other_docs):
+            env.assertEqual(len(result.get('results', [])), expected_rows,
+                            message="rows in reply")
+
+        self._run_one_shard_timesout(
+            coord_cmd='FT.AGGREGATE', shard_cmd='_FT.AGGREGATE',
+            query_args=['LOAD', '1', '@name',
+                        'GROUPBY', '1', '@name',
+                        'LIMIT', '0', str(self.n_docs)],
+            assert_reply=assert_groupby_reply)
+
+    def test_return_strict_one_shard_timesout_search(self):
+        """FT.SEARCH (with content) one-shard timeout.
+
+        Expect ``pause_after_n + other_docs`` rows. The shard pipeline
+        ends in RPLoader (after RPPager), which is rejected by
+        ``pipelineCanYieldPartialResults``, so only the rows already
+        buffered by the time the timeout fires are shipped.
+        """
+        skipIfNoEnableAssert(self.env)
+
+        def assert_search_partial_reply(env, result, expected_rows,
+                                        pause_after_n, other_docs):
+            env.assertEqual(len(result.get('results', [])), expected_rows,
+                            message="rows in reply")
+
+        self._run_one_shard_timesout(
+            coord_cmd='FT.SEARCH', shard_cmd='_FT.SEARCH',
+            query_args=['LIMIT', '0', str(self.n_docs)],
+            assert_reply=assert_search_partial_reply)
+
+    def test_return_strict_one_shard_timesout_search_nocontent(self):
+        """FT.SEARCH NOCONTENT one-shard timeout.
+
+        Expect ``self.n_docs`` rows. NOCONTENT skips RPLoader, so the
+        shard pipeline ends in ``RPPager -> RPSorter`` -- the shape
+        ``pipelineCanYieldPartialResults`` accepts -- and the strict
+        drain pops the full per-shard heap.
+        """
+        skipIfNoEnableAssert(self.env)
+
+        def assert_search_full_reply(env, result, expected_rows,
+                                     pause_after_n, other_docs):
+            env.assertEqual(result['total_results'], self.n_docs,
+                            message="merged total_results")
+            env.assertEqual(len(result.get('results', [])), self.n_docs,
+                            message="rows in reply")
+
+        self._run_one_shard_timesout(
+            coord_cmd='FT.SEARCH', shard_cmd='_FT.SEARCH',
+            query_args=['NOCONTENT', 'LIMIT', '0', str(self.n_docs)],
+            assert_reply=assert_search_full_reply)
+
+    def test_return_strict_one_shard_timesout_profile_aggregate(self):
+        """FT.PROFILE AGGREGATE wrapper around the flat one-shard case.
+
+        Same inner ``Results`` shape as the flat aggregate test, plus
+        the ``Profile`` envelope must survive the timeout fast path.
+        Profiling moves the warning under ``result['Results']``, so the
+        outer dict has no top-level ``warning`` key.
+        """
+        skipIfNoEnableAssert(self.env)
+
+        def assert_profile_partial_reply(env, result, expected_rows,
+                                         pause_after_n, other_docs):
+            env.assertContains('Results', result, message="Results key")
+            env.assertContains('Profile', result, message="Profile key")
+            inner = result['Results']
+            self._assert_unsorted_partial_reply(env, inner, expected_rows,
+                                                pause_after_n, other_docs)
+            env.assertEqual(inner.get('warning', []), [TIMEOUT_WARNING],
+                            message="inner Results warning")
+
+        self._run_one_shard_timesout(
+            coord_cmd='FT.PROFILE', shard_cmd='_FT.PROFILE',
+            coord_cmd_prefix=['FT.PROFILE', 'idx', 'AGGREGATE',
+                              'QUERY', '*'],
+            query_args=['LOAD', '1', '@name',
+                        'LIMIT', '0', str(self.n_docs)],
+            assert_reply=assert_profile_partial_reply,
+            expected_warning=[])
+
+    # ------------------------------------------------------------------
+    # Every shard times out: same RETURN_STRICT plumbing, but every
+    # shard is parked and individually unblocked. With no coord deadline
+    # armed, RPNet drains every shard's buffered prefix.
+    # ------------------------------------------------------------------
+    def _run_all_shards_timesout(self, *, coord_cmd, shard_cmd, query_args,
+                                 assert_reply, pause_after_n=2,
+                                 pause_per_shard=None):
+        """Drive an all-shards-timeout query under RETURN_STRICT.
+
+        Pauses every shard at ``AggregateResults`` result
+        #pause_after_n (or per-shard via ``pause_per_shard``), then
+        unblocks each parked client. ``assert_reply(env, result, pauses,
+        shards_count)`` validates the coord reply; this helper only
+        asserts the warning, the coord metric, and the per-shard metrics.
+        """
+        env = self.env
+
+        prev_on_timeout_policy = env.cmd('CONFIG', 'GET', ON_TIMEOUT_CONFIG)[ON_TIMEOUT_CONFIG]
+        run_command_on_all_shards(env, 'CONFIG', 'SET',
+                                  ON_TIMEOUT_CONFIG, 'return-strict')
+
+        shard_conns = [env.getConnection(i)
+                       for i in range(1, env.shardsCount + 1)]
+
+        if pause_per_shard is None:
+            pauses = [pause_after_n] * len(shard_conns)
+        else:
+            env.assertEqual(len(pause_per_shard), len(shard_conns),
+                            message="pause_per_shard length must match shardsCount")
+            pauses = list(pause_per_shard)
+
+        before_coord_info = info_modules_to_dict(env)
+        base_warn_coord = int(
+            before_coord_info[COORD_WARN_ERR_SECTION][TIMEOUT_WARNING_COORD_METRIC])
+        before_shard_warns = [
+            int(info_modules_to_dict(c)[WARN_ERR_SECTION][TIMEOUT_WARNING_SHARD_METRIC])
+            for c in shard_conns
+        ]
+
+        try:
+            for c, p in zip(shard_conns, pauses):
+                setPauseAfterAggregateResult(c, p)
+
+            full_cmd = ([coord_cmd, 'idx', '*']
+                        + list(query_args)
+                        + ['TIMEOUT', '0'])
+            query_result = []
+            t_query = threading.Thread(
+                target=call_and_store,
+                args=(env.cmd, full_cmd, query_result),
+                daemon=True
+            )
+            t_query.start()
+
+            blocked_ids = [
+                (c, _wait_shard_paused_after_aggregate_result(c, shard_cmd))
+                for c in shard_conns
+            ]
+
+            for c, cid in blocked_ids:
+                c.execute_command('CLIENT', 'UNBLOCK', cid, 'TIMEOUT')
+
+            # Wait for each shard's pause loop to self-release on
+            # AREQ_TimedOut before disarming the counter, else BG could
+            # resume on rc=EOF and bypass the TIMEDOUT path.
+            for c, cid in blocked_ids:
+                wait_for_client_unblocked(c, cid)
+                resetAggregateResultsDebug(c)
+
+            t_query.join(timeout=10)
+            env.assertFalse(t_query.is_alive(), message="query thread alive")
+            env.assertEqual(len(query_result), 1, message="query result count")
+            result = query_result[0]
+
+            assert_reply(env, result, pauses, env.shardsCount)
+
+            env.assertEqual(result.get('warning', []), [TIMEOUT_WARNING],
+                            message="reply warning")
+
+            after_coord_info = info_modules_to_dict(env)
+            env.assertEqual(after_coord_info[COORD_WARN_ERR_SECTION][TIMEOUT_WARNING_COORD_METRIC],
+                            str(base_warn_coord + 1),
+                            message="coord timeout-warning metric +1")
+            # The coord's local shard also replied with TIMEDOUT, so its
+            # shard metric increments on the same connection; verify
+            # per-shard counts explicitly below instead.
+            _verify_metrics_not_changed(env, env, before_coord_info,
+                                        [TIMEOUT_WARNING_COORD_METRIC,
+                                         TIMEOUT_WARNING_SHARD_METRIC])
+
+            for i, c in enumerate(shard_conns):
+                after = info_modules_to_dict(c)
+                env.assertEqual(after[WARN_ERR_SECTION][TIMEOUT_WARNING_SHARD_METRIC],
+                                str(before_shard_warns[i] + 1),
+                                message=f"shard {i + 1} timeout-warning metric +1")
+        finally:
+            self._cleanup_strict_pause_state(shard_conns, prev_on_timeout_policy)
+
+    def test_return_strict_all_shards_timesout_flat_aggregate(self):
+        """Flat aggregate, every shard times out.
+
+        Expect ``sum(pauses)`` rows: the coord pipeline ``RPNet -> RPPager``
+        is yield-able, so every admitted shard row survives the drain.
+        """
+        skipIfNoEnableAssert(self.env)
+
+        def assert_flat_reply(env, result, pauses, shards_count):
+            expected = sum(pauses)
+            env.assertEqual(len(result.get('results', [])), expected,
+                            message="rows in reply")
+
+        self._run_all_shards_timesout(
+            coord_cmd='FT.AGGREGATE', shard_cmd='_FT.AGGREGATE',
+            query_args=['LOAD', '1', '@name',
+                        'LIMIT', '0', str(self.n_docs)],
+            assert_reply=assert_flat_reply)
+
+    def test_return_strict_all_shards_timesout_withcount_aggregate(self):
+        """WITHCOUNT all-shards-timeout (barrier + RPDepleter).
+
+        Expect ``sum(pauses)`` rows: every shard replies, so the
+        shardResponseBarrier completes and RPDepleter switches to its
+        yield path (last_rc == EOF, not TIMEDOUT, so the strict-discard
+        fast path is skipped).
+        """
+        skipIfNoEnableAssert(self.env)
+
+        def assert_withcount_reply(env, result, pauses, shards_count):
+            expected = sum(pauses)
+            env.assertEqual(len(result.get('results', [])), expected,
+                            message="rows in reply")
+
+        # WITHCOUNT must precede pipeline steps (LOAD/GROUPBY/...).
+        self._run_all_shards_timesout(
+            coord_cmd='FT.AGGREGATE', shard_cmd='_FT.AGGREGATE',
+            query_args=['WITHCOUNT', 'LOAD', '1', '@name'],
+            assert_reply=assert_withcount_reply)
+
+    def test_return_strict_all_shards_timesout_sortby_aggregate(self):
+        """SORTBY all-shards-timeout.
+
+        Expect ``self.n_docs`` rows globally sorted: every shard's
+        RPSorter heap holds its full per-shard set, and the coord's
+        RPSorter merges them all into one globally-sorted stream.
+        """
+        skipIfNoEnableAssert(self.env)
+
+        def assert_sortby_all_timesout_reply(env, result, pauses, shards_count):
+            n_rows = len(result.get('results', []))
+            env.assertEqual(n_rows, self.n_docs, message="merged row count")
+            values = [row['extra_attributes']['name']
+                      for row in result['results']]
+            env.assertEqual(values, sorted(values),
+                            message="global sort order")
+
+        self._run_all_shards_timesout(
+            coord_cmd='FT.AGGREGATE', shard_cmd='_FT.AGGREGATE',
+            query_args=['LOAD', '1', '@name',
+                        'SORTBY', '1', '@name',
+                        'LIMIT', '0', str(self.n_docs)],
+            assert_reply=assert_sortby_all_timesout_reply)
+
+    def test_return_strict_all_shards_timesout_partial_each_aggregate(self):
+        """All-shards-timeout with distinct per-shard pause counts.
+
+        Expect ``sum(pauses)`` rows. The distinct pause values reject
+        regressions where the drain locks in one per-shard count
+        (``min * shards`` or ``max * shards``).
+        """
+        skipIfNoEnableAssert(self.env)
+
+        # One distinct pause count per shard; pad/truncate to shardsCount.
+        base_pauses = [1, 3, 5]
+        n_shards = self.env.shardsCount
+        if n_shards <= len(base_pauses):
+            pauses = base_pauses[:n_shards]
+        else:
+            pauses = base_pauses + [2] * (n_shards - len(base_pauses))
+
+        def assert_partial_each_reply(env, result, pauses, shards_count):
+            expected = sum(pauses)
+            env.assertEqual(len(result.get('results', [])), expected,
+                            message="rows in reply")
+
+        self._run_all_shards_timesout(
+            coord_cmd='FT.AGGREGATE', shard_cmd='_FT.AGGREGATE',
+            query_args=['LOAD', '1', '@name',
+                        'LIMIT', '0', str(self.n_docs)],
+            assert_reply=assert_partial_each_reply,
+            pause_per_shard=pauses)
+
+
+class TestCoordinatorTimeoutReturnStrictResp2:
+    """RESP2 counterpart of the one-shard-timesout flat aggregate test.
+
+    RESP2 has no warnings slot in the shard reply, so the per-shard
+    TIMEDOUT warning is not propagated to the coord and the coord
+    warning metric stays unchanged. The merged reply is still well
+    formed: a flat list whose head is ``total_results`` and whose tail
+    is the merged shard rows.
+
+    Expect ``pause_after_n + other_docs`` trailing rows: only the rows
+    buffered by the time the timeout fires are shipped.
+    """
+
+    def __init__(self):
+        skipTest(cluster=False)
+        self.env = Env(moduleArgs='WORKERS 1', protocol=2)
+        self.n_docs = 100
+
+        for i in range(1, self.env.shardsCount + 1):
+            verify_shard_init(self.env.getConnection(i))
+
+        conn = getConnectionByEnv(self.env)
+        self.env.expect('FT.CREATE', 'idx', 'PREFIX', '1', 'doc',
+                        'SCHEMA', 'name', 'TEXT').ok()
+        for i in range(self.n_docs):
+            conn.execute_command('HSET', f'doc{i}', 'name', f'hello{i}')
+
+    def test_return_strict_one_shard_timesout_flat_aggregate_resp2(self):
+        """RESP2 variant of test_return_strict_one_shard_timesout_flat_aggregate."""
+        env = self.env
+        skipIfNoEnableAssert(env)
+
+        # CONFIG GET in RESP2 returns a flat [key, value] list, not a map.
+        prev_on_timeout_policy = env.cmd('CONFIG', 'GET',
+                                         ON_TIMEOUT_CONFIG)[1]
+        run_command_on_all_shards(env, 'CONFIG', 'SET',
+                                  ON_TIMEOUT_CONFIG, 'return-strict')
+
+        before_info = info_modules_to_dict(env)
+        base_warn_coord = int(
+            before_info[COORD_WARN_ERR_SECTION][TIMEOUT_WARNING_COORD_METRIC])
+
+        all_shard_conns, target_conn, _target_pid, other_conns = \
+            _split_shards_pick_one_paused(env)
+
+        pause_after_n = 2
+        other_docs = sum(len(c.execute_command('KEYS', 'doc*'))
+                         for c in other_conns)
+        expected_rows = pause_after_n + other_docs
+
+        try:
+            setPauseAfterAggregateResult(target_conn, pause_after_n)
+
+            full_cmd = ['FT.AGGREGATE', 'idx', '*',
+                        'LOAD', '1', '@name',
+                        'LIMIT', '0', str(self.n_docs),
+                        'TIMEOUT', '0']
+            query_result = []
+            t_query = threading.Thread(
+                target=call_and_store,
+                args=(env.cmd, full_cmd, query_result),
+                daemon=True
+            )
+            t_query.start()
+
+            blocked_client_id = _wait_shard_paused_after_aggregate_result(
+                target_conn, '_FT.AGGREGATE')
+            target_conn.execute_command('CLIENT', 'UNBLOCK',
+                                        blocked_client_id, 'TIMEOUT')
+            wait_for_client_unblocked(target_conn, blocked_client_id)
+            resetAggregateResultsDebug(target_conn)
+
+            t_query.join(timeout=10)
+            env.assertFalse(t_query.is_alive(), message="query thread alive")
+            env.assertEqual(len(query_result), 1, message="query result count")
+            result = query_result[0]
+
+            # RESP2 FT.AGGREGATE: [total_results, doc1_fields, ...].
+            env.assertTrue(isinstance(result, list),
+                           message=f"RESP2 reply type ({type(result).__name__})")
+            row_count = len(result) - 1
+            env.assertEqual(row_count, expected_rows,
+                            message="trailing row count")
+
+            # RESP2 has no warnings slot, so the coord warning metric
+            # must NOT increment despite the shard timing out.
+            after_info = info_modules_to_dict(env)
+            env.assertEqual(after_info[COORD_WARN_ERR_SECTION][TIMEOUT_WARNING_COORD_METRIC],
+                            str(base_warn_coord),
+                            message="coord warning metric unchanged (RESP2)")
+            _verify_metrics_not_changed(env, env, before_info,
+                                        [TIMEOUT_WARNING_COORD_METRIC])
+        finally:
+            for c in all_shard_conns:
+                resetAggregateResultsDebug(c)
+            try:
+                run_command_on_all_shards(env, 'CONFIG', 'SET',
+                                          ON_TIMEOUT_CONFIG,
+                                          prev_on_timeout_policy)
+            except Exception:
+                pass
 
 class TestCoordinatorTimeoutCursorReadResp2:
     """RESP2 coverage for RETURN_STRICT FT.CURSOR READ timeout reply shape.
@@ -3995,6 +4491,69 @@ class TestShardTimeout:
 
         env.expect('CONFIG', 'SET', ON_TIMEOUT_CONFIG, prev_on_timeout_policy).ok()
 
+    def test_shard_timeout_qi_not_iterator(self):
+        """MOD-15397: the Rust NOT iterator's per-iterator timeout callback
+        receives the blocked-client timeout signal under FAIL + WORKERS.
+
+        Arms ``BeforeQITimeoutCheck``, runs ``FT.SEARCH idx -hello1`` so the
+        Rust ``NotIterator``'s ``check_timeout`` parks at the sync point, then
+        fires ``CLIENT UNBLOCK ... TIMEOUT`` to flip the AREQ timed-out flag.
+        The sync-point predicate (``AREQ_TimedOut``) releases the wait, the
+        iterator returns ``Timeout``, and the query reports the timeout error.
+        """
+        env = self.env
+        skipIfNoEnableAssert(env)
+        sync_point = 'BeforeQITimeoutCheck'
+
+        prev_on_timeout_policy = env.cmd('CONFIG', 'GET', ON_TIMEOUT_CONFIG)[ON_TIMEOUT_CONFIG]
+        env.expect('CONFIG', 'SET', ON_TIMEOUT_CONFIG, 'fail').ok()
+
+        before_info = info_modules_to_dict(env)
+        base_err_coord = int(before_info[COORD_WARN_ERR_SECTION][TIMEOUT_ERROR_COORD_METRIC])
+
+        env.expect(debug_cmd(), 'SYNC_POINT', 'CLEAR').ok()
+        env.expect(debug_cmd(), 'SYNC_POINT', 'ARM', sync_point).ok()
+
+        try:
+            query_args = ['FT.SEARCH', 'idx', '-hello1']
+            t_query = threading.Thread(
+                target=run_cmd_expect_timeout,
+                args=(env, query_args),
+                daemon=True
+            )
+            t_query.start()
+
+            blocked_client_id = wait_for_blocked_query_client(env, 'FT.SEARCH')
+
+            # Worker must reach the QI timeout check (proves the callback was
+            # installed and the iterator's check_timeout was called).
+            wait_for_condition(
+                lambda: (env.cmd(debug_cmd(), 'SYNC_POINT', 'IS_WAITING', sync_point) == 1, {}),
+                f'Worker never reached {sync_point}'
+            )
+
+            # Fire blocked-client timeout: main-thread callback sets
+            # AREQ.timedOut; the sync-point predicate releases the wait and
+            # the iterator's check_timeout returns Timeout.
+            env.expect('CLIENT', 'UNBLOCK', blocked_client_id, 'TIMEOUT').equal(1)
+            wait_for_client_unblocked(env, blocked_client_id)
+        finally:
+            # Disarm the sync point. The predicate may have already released
+            # the worker, but the point itself stays armed until signalled
+            # or cleared, which would block subsequent tests.
+            env.expect(debug_cmd(), 'SYNC_POINT', 'SIGNAL', sync_point).ok()
+
+        t_query.join(timeout=10)
+        env.assertFalse(t_query.is_alive(), message="Query thread should have finished")
+
+        # Standalone uses coord metrics for shard-side timeouts.
+        after_info = info_modules_to_dict(env)
+        env.assertEqual(after_info[COORD_WARN_ERR_SECTION][TIMEOUT_ERROR_COORD_METRIC],
+                        str(base_err_coord + 1),
+                        message="Coord timeout error should be +1 after QI sync-point timeout")
+
+        env.expect('CONFIG', 'SET', ON_TIMEOUT_CONFIG, prev_on_timeout_policy).ok()
+
     def _test_fail_timeout_before_store_impl(self, query_args, cmd_name=None):
         """Test timeout occurring before storing results (reply_callback path) in standalone."""
         env = self.env
@@ -4012,7 +4571,7 @@ class TestShardTimeout:
         base_err_coord = int(before_info[COORD_WARN_ERR_SECTION][TIMEOUT_ERROR_COORD_METRIC])
 
         # Enable pause before store results
-        setPauseBeforeStoreResults(env, True)
+        setPauseBeforeStoreResults(env, True, internal=False)
 
         t_query = threading.Thread(
             target=run_cmd_expect_timeout,
@@ -4065,7 +4624,7 @@ class TestShardTimeout:
         base_err_coord = int(before_info[COORD_WARN_ERR_SECTION][TIMEOUT_ERROR_COORD_METRIC])
 
         # Enable pause after store results
-        setPauseAfterStoreResults(env, True)
+        setPauseAfterStoreResults(env, True, internal=False)
 
         t_query = threading.Thread(
             target=run_cmd_expect_timeout,
@@ -4321,7 +4880,8 @@ class TestShardTimeout:
             env.expect(debug_cmd(), 'WORKERS', 'drain').ok()
 
         # After drain, the queued cursorRead_ctx ran, observed AREQ_TimedOut(req)
-        # and freed the cursor on the early-exit branch (aggregate_exec.c:1922-1924).
+        # and freed the cursor on the early-exit branch in cursorRead_ctx
+        # (src/aggregate/aggregate_exec.c).
         _wait_for_cursor_cleanup(env, baseline,
                                  'FAIL queued cursor-read timeout (standalone)')
         env.expect('FT.CURSOR', 'READ', 'idx', str(cursor_id)).error().contains('Cursor not found')
@@ -4548,6 +5108,309 @@ class TestShardTimeout:
             verify_return_result=verify_return,
         )
 
+    def _run_return_strict_timeout_basic(self, query_args, cmd_name,
+                                         arm, wait_for_park, teardown):
+        """Driver for the three RETURN_STRICT shard scenarios that all
+        produce the same observable reply: empty results + TIMEOUT warning,
+        coord warning metric +1, no other metric movement.
+
+        ``arm(env)`` is called before the query thread is launched: install
+        any pause (sync-point ARM, WORKERS pause, ...) that BG must hit on
+        its way to the target point.
+
+        ``wait_for_park(env)`` is called after the query thread is launched
+        and the client is registered as blocked: block until BG has actually
+        reached the pause installed by ``arm``. Pass ``None`` for pauses
+        that take effect implicitly (e.g. WORKERS pause).
+
+        ``teardown(env, blocked_client_id)`` runs after CLIENT UNBLOCK and
+        wait_for_client_unblocked: release any pause installed by ``arm`` so
+        BG can finish cleanly.
+        """
+        env = self.env
+        skipIfNoEnableAssert(env)
+
+        prev_on_timeout_policy = env.cmd('CONFIG', 'GET', ON_TIMEOUT_CONFIG)[ON_TIMEOUT_CONFIG]
+        env.cmd('CONFIG', 'SET', ON_TIMEOUT_CONFIG, 'return-strict')
+
+        before_info = info_modules_to_dict(env)
+        base_warn_coord = int(before_info[COORD_WARN_ERR_SECTION][TIMEOUT_WARNING_COORD_METRIC])
+
+        arm(env)
+
+        query_result = []
+        t_query = threading.Thread(
+            target=call_and_store,
+            args=(env.cmd, list(query_args), query_result),
+            daemon=True,
+        )
+        t_query.start()
+
+        blocked_client_id = wait_for_blocked_query_client(env, cmd_name)
+
+        if wait_for_park is not None:
+            wait_for_park(env)
+
+        # Fire the blocked-client timeout. Depending on where BG is parked,
+        # the callback either wins TryClaim (replies empty directly) or
+        # loses TryClaim and waits for BG to finish + drain.
+        env.cmd('CLIENT', 'UNBLOCK', blocked_client_id, 'TIMEOUT')
+        wait_for_client_unblocked(env, blocked_client_id)
+
+        teardown(env, blocked_client_id)
+
+        t_query.join(timeout=10)
+        env.assertFalse(t_query.is_alive(), message="Query thread should have finished")
+
+        env.assertEqual(len(query_result), 1, message="Expected 1 result from query thread")
+        result = query_result[0]
+        env.assertEqual(result['total_results'], 0,
+                        message=f"Expected 0 total_results, got {result['total_results']}")
+        env.assertEqual(result.get('results', []), [],
+                        message=f"Expected no rows, got {result.get('results')}")
+        env.assertEqual(result.get('warning', []), [TIMEOUT_WARNING],
+                        message=f"Expected TIMEOUT warning, got {result.get('warning', [])}")
+
+        after_info = info_modules_to_dict(env)
+        env.assertEqual(after_info[COORD_WARN_ERR_SECTION][TIMEOUT_WARNING_COORD_METRIC],
+                        str(base_warn_coord + 1),
+                        message=f"Coordinator timeout warning should be +1 after {cmd_name}")
+        _verify_metrics_not_changed(env, env, before_info, [TIMEOUT_WARNING_COORD_METRIC])
+
+        env.cmd('CONFIG', 'SET', ON_TIMEOUT_CONFIG, prev_on_timeout_policy)
+
+    # --- Scenario 1: timeout fires before the worker thread picks up the job ---
+    # WORKERS pause holds the job in the threadpool queue, so BG never reaches
+    # AREQ_TryClaimAggregateResults. Main-thread callback wins TryClaim and
+    # replies empty + warning; BG runs to completion after WORKERS resume,
+    # observes the lost claim in startPipeline, and exits cleanly.
+
+    def _run_return_strict_timeout_before_worker_pickup(self, query_args, cmd_name):
+        def arm(env):
+            env.expect(debug_cmd(), 'WORKERS', 'pause').ok()
+
+        def teardown(env, blocked_client_id):
+            env.expect(debug_cmd(), 'WORKERS', 'resume').ok()
+            env.expect(debug_cmd(), 'WORKERS', 'drain').ok()
+
+        self._run_return_strict_timeout_basic(query_args, cmd_name,
+                                              arm, None, teardown)
+
+    def test_return_strict_timeout_before_worker_pickup_search(self):
+        """RETURN_STRICT shard timeout while the worker thread is paused.
+
+        Pre-claim race: BG never enters startPipeline, the main-thread
+        callback wins AREQ_TryClaimAggregateResults and emits an empty
+        FT.SEARCH reply with the TIMEOUT warning.
+        """
+        self._run_return_strict_timeout_before_worker_pickup(
+            ['FT.SEARCH', 'idx', '*'], 'FT.SEARCH')
+
+    def test_return_strict_timeout_before_worker_pickup_aggregate(self):
+        """RETURN_STRICT shard timeout while the worker thread is paused (FT.AGGREGATE).
+
+        Same pre-claim race as the FT.SEARCH variant; covered separately
+        because FT.AGGREGATE wires a different sorter / pager pipeline on
+        top of RPIndex even for the bare ``*`` case.
+        """
+        self._run_return_strict_timeout_before_worker_pickup(
+            ['FT.AGGREGATE', 'idx', '*'], 'FT.AGGREGATE')
+
+    # --- Scenario 2: timeout fires before AREQ_TryClaimAggregateResults ---
+    # BG is parked at the BeforeAggregateResultsClaim sync point (inside
+    # startPipeline, before the TryClaim race). Main-thread callback wins
+    # TryClaim and replies empty + warning. After CLIENT UNBLOCK we signal
+    # the sync point so BG observes the lost claim and exits startPipeline.
+
+    def _run_return_strict_timeout_at_claim(self, query_args, cmd_name):
+        sync_point = 'BeforeAggregateResultsClaim'
+
+        def arm(env):
+            env.cmd(debug_cmd(), 'SYNC_POINT', 'CLEAR')
+            env.cmd(debug_cmd(), 'SYNC_POINT', 'ARM', sync_point)
+
+        def wait_for_park(env):
+            wait_for_condition(
+                lambda: (env.cmd(debug_cmd(), 'SYNC_POINT', 'IS_WAITING', sync_point) == 1, {}),
+                f'Timeout waiting for {sync_point} sync point',
+            )
+
+        def teardown(env, blocked_client_id):
+            env.cmd(debug_cmd(), 'SYNC_POINT', 'SIGNAL', sync_point)
+            env.cmd(debug_cmd(), 'SYNC_POINT', 'CLEAR')
+
+        self._run_return_strict_timeout_basic(query_args, cmd_name,
+                                              arm, wait_for_park, teardown)
+
+    def test_return_strict_timeout_at_claim_sync_point_search(self):
+        """RETURN_STRICT shard timeout at BeforeAggregateResultsClaim (FT.SEARCH).
+
+        BG parks at the sync point just before AREQ_TryClaimAggregateResults;
+        the main-thread callback always wins the claim and replies empty +
+        TIMEOUT warning. BG observes the lost claim after the sync point is
+        signalled and exits startPipeline cleanly.
+        """
+        self._run_return_strict_timeout_at_claim(
+            ['FT.SEARCH', 'idx', '*'], 'FT.SEARCH')
+
+    def test_return_strict_timeout_at_claim_sync_point_aggregate(self):
+        """RETURN_STRICT shard timeout at BeforeAggregateResultsClaim (FT.AGGREGATE)."""
+        self._run_return_strict_timeout_at_claim(
+            ['FT.AGGREGATE', 'idx', '*'], 'FT.AGGREGATE')
+
+    # --- Scenario 3: timeout fires after BG won TryClaim, before RPIndex's first read ---
+    # BG is parked at the BeforeFirstRead sync point (interruptible via
+    # areq_timed_out). The main-thread callback loses TryClaim and waits for
+    # completion; BG breaks out of the WaitUntil as soon as the timedOut
+    # flag is flipped, returns RS_RESULT_TIMEDOUT from rpQueryItNext without
+    # producing any rows, signals completion, and the callback drains the
+    # (empty) buffer and replies empty + warning.
+
+    def _run_return_strict_timeout_at_first_read(self, query_args, cmd_name):
+        sync_point = 'BeforeFirstRead'
+
+        def arm(env):
+            env.cmd(debug_cmd(), 'SYNC_POINT', 'CLEAR')
+            env.cmd(debug_cmd(), 'SYNC_POINT', 'ARM', sync_point)
+
+        def wait_for_park(env):
+            wait_for_condition(
+                lambda: (env.cmd(debug_cmd(), 'SYNC_POINT', 'IS_WAITING', sync_point) == 1, {}),
+                f'Timeout waiting for {sync_point} sync point',
+            )
+
+        def teardown(env, blocked_client_id):
+            # WaitUntil already auto-released when AREQ_TimedOut flipped, but
+            # disarm + clear so the next test starts from a clean slate.
+            env.cmd(debug_cmd(), 'SYNC_POINT', 'CLEAR')
+
+        self._run_return_strict_timeout_basic(query_args, cmd_name,
+                                              arm, wait_for_park, teardown)
+
+    def test_return_strict_timeout_at_first_read_sync_point_search(self):
+        """RETURN_STRICT shard timeout at BeforeFirstRead (FT.SEARCH).
+
+        BG has already won AREQ_TryClaimAggregateResults and entered
+        rpQueryItNext, but parks at BeforeFirstRead before the first
+        iterator read. Main-thread callback loses the claim and waits;
+        BG breaks out of the interruptible wait when timedOut flips,
+        returns TIMEDOUT from RPIndex without producing rows, and the
+        callback replies empty + TIMEOUT warning.
+        """
+        self._run_return_strict_timeout_at_first_read(
+            ['FT.SEARCH', 'idx', '*'], 'FT.SEARCH')
+
+    def test_return_strict_timeout_at_first_read_sync_point_aggregate(self):
+        """RETURN_STRICT shard timeout at BeforeFirstRead (FT.AGGREGATE)."""
+        self._run_return_strict_timeout_at_first_read(
+            ['FT.AGGREGATE', 'idx', '*'], 'FT.AGGREGATE')
+
+    # --- Scenario 4: timeout fires mid-iteration on a trivial pipeline ---
+    # Uses AggregateResultsDebugCtx (FT.DEBUG QUERY_CONTROLLER
+    # SET_PAUSE_AFTER_AGGREGATE_RESULT) to park the worker after exactly N
+    # rows have been appended to `state.results`. The driver then fires
+    # CLIENT UNBLOCK ... TIMEOUT (flips AREQ_TimedOut, callback runs and
+    # loses TryClaim) and resumes the loop. The next rp->Next short-circuits
+    # to RS_RESULT_TIMEDOUT in rpQueryItNext (the AREQ_TimedOut check at the
+    # top of the while(1) loop), so AggregateResults exits with N buffered
+    # rows. The callback (loser of TryClaim) waits for completion, skips the
+    # post-timeout drain (canYieldPartialResults == false for the trivial
+    # RPIndex -> RPPager shape), and replies with N harvested rows + the
+    # TIMEOUT warning.
+    #
+    # Trivial shape (RPIndex -> RPPager) is reachable only via FT.AGGREGATE
+    # without SORTBY/GROUPBY/APPLY/FILTER (FT.SEARCH always inserts an
+    # implicit RPSorter, so it lands on shape (3) instead).
+
+    def _run_return_strict_timeout_after_aggregate_result(
+            self, query_args, cmd_name, pause_after_n, expected_rows):
+        env = self.env
+        skipIfNoEnableAssert(env)
+
+        prev_on_timeout_policy = env.cmd('CONFIG', 'GET', ON_TIMEOUT_CONFIG)[ON_TIMEOUT_CONFIG]
+        env.cmd('CONFIG', 'SET', ON_TIMEOUT_CONFIG, 'return-strict')
+
+        before_info = info_modules_to_dict(env)
+        base_warn_coord = int(before_info[COORD_WARN_ERR_SECTION][TIMEOUT_WARNING_COORD_METRIC])
+
+        resetAggregateResultsDebug(env)
+        setPauseAfterAggregateResult(env, pause_after_n)
+
+        query_result = []
+        t_query = threading.Thread(
+            target=call_and_store,
+            args=(env.cmd, list(query_args), query_result),
+            daemon=True,
+        )
+        t_query.start()
+
+        blocked_client_id = wait_for_blocked_query_client(env, cmd_name)
+
+        # Wait for the worker to park after the Nth appended row.
+        wait_for_condition(
+            lambda: (getIsAggregateResultsPaused(env) == 1,
+                     {'count': getAggregateResultsCount(env)}),
+            f'Timeout waiting for AggregateResults to pause after {pause_after_n} rows',
+        )
+
+        # Fire the blocked-client timeout. The callback flips AREQ_TimedOut,
+        # loses TryClaim (BG already won), and blocks on
+        # AREQ_WaitForAggregateResultsComplete. The pause loop in
+        # debugCheckAndPauseAfterAggregateResult self-releases when it
+        # observes AREQ_TimedOut, so BG resumes, exits AggregateResults with
+        # N buffered rows, and signals completion -- unblocking the callback
+        # which then replies with the partial results.
+        env.cmd('CLIENT', 'UNBLOCK', blocked_client_id, 'TIMEOUT')
+
+        wait_for_client_unblocked(env, blocked_client_id)
+
+        resetAggregateResultsDebug(env)
+
+        t_query.join(timeout=10)
+        env.assertFalse(t_query.is_alive(), message="Query thread should have finished")
+
+        env.assertEqual(len(query_result), 1, message="Expected 1 result from query thread")
+        result = query_result[0]
+        env.assertEqual(len(result.get('results', [])), expected_rows,
+                        message=f"Expected {expected_rows} harvested row(s), got {result.get('results')}")
+        env.assertEqual(result.get('warning', []), [TIMEOUT_WARNING],
+                        message=f"Expected TIMEOUT warning, got {result.get('warning', [])}")
+
+        after_info = info_modules_to_dict(env)
+        env.assertEqual(after_info[COORD_WARN_ERR_SECTION][TIMEOUT_WARNING_COORD_METRIC],
+                        str(base_warn_coord + 1),
+                        message="Coordinator timeout warning should be +1 after mid-iter harvest")
+        _verify_metrics_not_changed(env, env, before_info, [TIMEOUT_WARNING_COORD_METRIC])
+
+        env.cmd('CONFIG', 'SET', ON_TIMEOUT_CONFIG, prev_on_timeout_policy)
+
+    def test_return_strict_timeout_after_first_result_aggregate(self):
+        """Mid-iteration timeout right after the first appended row.
+
+        LIMIT well above 1 so the pager doesn't EOF before the pause point.
+        Verifies that rows BG accumulated in state.results before the
+        timeout fired are emitted via the buffered-results path
+        (independent of the canYieldPartialResults drain classifier).
+        """
+        self._run_return_strict_timeout_after_aggregate_result(
+            ['FT.AGGREGATE', 'idx', '*', 'LIMIT', '0', '50'], 'FT.AGGREGATE',
+            pause_after_n=1, expected_rows=1)
+
+    def test_return_strict_timeout_after_last_result_aggregate(self):
+        """Mid-iteration timeout right before the last row would be read.
+
+        Pauses after LIMIT-1 buffered rows, then fires the timeout. The
+        next rp->Next sees AREQ_TimedOut and returns RS_RESULT_TIMEDOUT
+        instead of producing the LIMIT-th row, so the reply contains
+        exactly LIMIT-1 rows. Boundary case: confirms the loop exits via
+        the timeout path (not via the pager's EOF) when the timeout fires
+        on the would-be-final iteration.
+        """
+        limit = 5
+        self._run_return_strict_timeout_after_aggregate_result(
+            ['FT.AGGREGATE', 'idx', '*', 'LIMIT', '0', str(limit)], 'FT.AGGREGATE',
+            pause_after_n=limit - 1, expected_rows=limit - 1)
+
 class TestShardTimeoutResp2:
     """Tests for shard timeout behavior with RESP2 protocol.
 
@@ -4596,7 +5459,6 @@ class TestShardTimeoutResp2:
                                         message=f"Expected 0 total results in RESP2 {cmd_type}, got: {res}")
                 finally:
                     env.cmd('CONFIG', 'SET', ON_TIMEOUT_CONFIG, 'return')
-
 
 class TestNoDeadlockQueryWithConcurrentWriter:
     """MOD-15364: BG query holds the spec read lock; a concurrent writer

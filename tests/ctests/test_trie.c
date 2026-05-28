@@ -105,7 +105,7 @@ int testRuneUtil() {
   free(backUnicodeStr);
 
   size_t foldedLen;
-  rune *foldedRunes = strToSingleCodepointFoldedRunes("yY", &foldedLen);
+  rune *foldedRunes = strToSingleCodepointFoldedRunes("yY", strlen("yY"), &foldedLen);
   ASSERT_EQUAL(foldedLen, 2);
   ASSERT_EQUAL(foldedRunes[0], 121);
   ASSERT_EQUAL(foldedRunes[1], 121);
@@ -113,7 +113,8 @@ int testRuneUtil() {
 
   // TESTING ∏ and Å because ∏ doesn't have a lowercase form, but Å does
   size_t foldedUnicodeLen;
-  rune *foldedUnicodeRunes = strToSingleCodepointFoldedRunes("Ø∏πåÅ", &foldedUnicodeLen);
+  rune *foldedUnicodeRunes =
+      strToSingleCodepointFoldedRunes("Ø∏πåÅ", strlen("Ø∏πåÅ"), &foldedUnicodeLen);
   ASSERT_EQUAL(runeFold(foldedUnicodeRunes[1]), foldedUnicodeRunes[1]);
   ASSERT_EQUAL(foldedUnicodeLen, 5);
   ASSERT_EQUAL(foldedUnicodeRunes[0], 248);
@@ -280,7 +281,7 @@ int testDFAFilter() {
   clock_gettime(CLOCK_REALTIME, &start_time);
 
   for (i = 0; terms[i] != NULL; i++) {
-    runes = strToSingleCodepointFoldedRunes(terms[i], &rlen);
+    runes = strToSingleCodepointFoldedRunes(terms[i], strlen(terms[i]), &rlen);
     DFAFilter *fc = NewDFAFilter(runes, rlen, 2, 0);
 
     TrieIterator *it = TrieNode_Iterate(root, FoldingFilterFunc, StackPop, fc);
@@ -475,6 +476,49 @@ int testNumDocs() {
   free(aRunes);
   free(abRunes);
   free(abcRunes);
+  TrieType_Free(t);
+  return 0;
+}
+
+// Regression: TrieNode_Delete is a soft delete (tombstone). It must zero both
+// numDocs and score so that re-inserting the same term doesn't accumulate the
+// pre-delete values via __trieNode_Add's `n->numDocs += numDocs` (always
+// accumulates) and `n->score += score` (accumulates in ADD_INCR mode). Use
+// ADD_INCR (incr=1) so the score half is also exercised — ADD_REPLACE would
+// mask a missing score reset.
+int testDeleteThenReinsertResetsState() {
+  Trie *t = NewTrie(NULL, Trie_Sort_Score);
+  ASSERT(t != NULL);
+
+  size_t helloLen;
+  rune *helloRunes = strToRunes("hello", &helloLen);
+
+  // Insert "hello" with score = 2.5 and numDocs = 7 in ADD_INCR mode.
+  int rc = Trie_InsertStringBuffer(t, "hello", 5, 2.5, 1, NULL, 7);
+  ASSERT_EQUAL(1, rc);
+  TrieNode *node = Trie_GetNode(t, helloRunes, helloLen, true, NULL);
+  ASSERT(node != NULL);
+  ASSERT(node->score == 2.5f);
+  ASSERT_EQUAL(7, node->numDocs);
+
+  // Soft-delete the term; tombstone must zero both fields.
+  int delRc = Trie_Delete(t, "hello", 5);
+  ASSERT_EQUAL(1, delRc);
+  // Trie_GetNode filters deleted nodes.
+  node = Trie_GetNode(t, helloRunes, helloLen, true, NULL);
+  ASSERT(node == NULL);
+
+  // Re-insert with score = 1.0 and numDocs = 3 in ADD_INCR mode.
+  // Without the reset, score would accumulate to 3.5 and numDocs to 10.
+  rc = Trie_InsertStringBuffer(t, "hello", 5, 1.0, 1, NULL, 3);
+  // Re-inserting a deleted node returns TRIE_OK_NEW (rc == 1), not UPDATED.
+  ASSERT_EQUAL(1, rc);
+  node = Trie_GetNode(t, helloRunes, helloLen, true, NULL);
+  ASSERT(node != NULL);
+  ASSERT(node->score == 1.0f);
+  ASSERT_EQUAL(3, node->numDocs);
+
+  free(helloRunes);
   TrieType_Free(t);
   return 0;
 }
@@ -922,7 +966,7 @@ int testDecrementNumDocsNonTerminal() {
   runes = strToRunes("helloworld", &runeLen);
   node = Trie_GetNode(t, runes, runeLen, true, NULL);
   ASSERT(node != NULL);
-  ASSERT(__trieNode_isTerminal(node));
+  ASSERT(TrieNode_IsTerminal(node));
   ASSERT_EQUAL(100, node->numDocs);
   free(runes);
 
@@ -953,7 +997,7 @@ int testDecrementNumDocsNonTerminal() {
   runes = strToRunes("hello", &runeLen);
   node = Trie_GetNode(t, runes, runeLen, true, NULL);
   ASSERT(node != NULL);
-  ASSERT(__trieNode_isTerminal(node));
+  ASSERT(TrieNode_IsTerminal(node));
   ASSERT_EQUAL(50, node->numDocs);
   free(runes);
 
@@ -1101,6 +1145,7 @@ TEST_MAIN({
   TESTFUNC(testPayload);
   TESTFUNC(testUnicode);
   TESTFUNC(testNumDocs);
+  TESTFUNC(testDeleteThenReinsertResetsState);
   TESTFUNC(testDecrementNumDocs);
   TESTFUNC(testDecrementNumDocsComplex);
   TESTFUNC(testDecrementNumDocsNonTerminal);

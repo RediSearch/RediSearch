@@ -11,6 +11,7 @@ jobs:
       id-token: write # OIDC role assumption for sccache S3
       actions: read   # dawidd6/action-download-artifact (cross-workflow)
     env:
+      IS_FORK_PR: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository }}
       RUST_BACKTRACE: full
     steps:
       - name: Checkout
@@ -21,6 +22,7 @@ jobs:
         working-directory: .install
         run: ./install_script.sh sudo
       - name: Setup sccache
+        if: ${{ env.IS_FORK_PR != 'true' }}
         uses: ./.github/actions/setup-sccache
         with:
           aws-role: ${{ vars.SCCACHE_AWS_ROLE_TO_ASSUME }}
@@ -32,7 +34,7 @@ jobs:
       - name: Download Latest Baseline Artifact from master
         id: get-artifact
         if: github.event_name == 'pull_request'
-        uses: dawidd6/action-download-artifact@4c1e823582f43b179e2cbb49c3eade4e41f992e2 # refs @v10
+        uses: dawidd6/action-download-artifact@b6e2e70617bc3265edd6dab6c906732b2f1ae151 # refs @v21
         with:
           github_token: ${{ secrets.GITHUB_TOKEN }}
           branch: master
@@ -62,17 +64,17 @@ jobs:
         working-directory: src/redisearch_rs
 
       - name: Show sccache stats
-        run: ${SCCACHE_PATH:-sccache} --show-stats
+        run: ${SCCACHE_PATH:-sccache} --show-stats || true
 
       - name: Upload rust baseline benchmarks for master
         if: github.ref == 'refs/heads/master' && github.event_name == 'push'
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: "rust-benchmark-results-master"
           path: bin/redisearch_rs/criterion
       - name: Upload benchmarks for PR comparison
         if: github.event_name == 'pull_request'
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: "rust-benchmark-results-pr-${{ github.event.pull_request.number }}"
           path: bin/redisearch_rs/criterion

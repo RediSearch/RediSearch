@@ -40,10 +40,8 @@
 #include "query_param.h"
 #include "dictionary.h"
 #include "suggest.h"
-#include "redisearch_api.h"
 #include "alias.h"
 #include "module.h"
-#include "rwlock.h"
 #include "info/info_command.h"
 #include "rejson_api.h"
 #include "geometry/geometry_api.h"
@@ -193,8 +191,8 @@ static inline bool checkEnterpriseACL(RedisModuleCtx *ctx, IndexSpec *sp) {
 // OOM check with heuristics
 // TODO: add heuristics
 // Assumes the GIL is held by the caller
-static inline bool estimateOOM(RedisModuleCtx *ctx) {
-  return RedisMemory_GetUsedMemoryRatioUnified(ctx) > 1;
+static inline bool estimateOOM(void) {
+  return RedisMemory_isOutOfMemory();
 }
 
 // OOM guardrail for queries function
@@ -205,7 +203,7 @@ bool QueryMemoryGuard(RedisModuleCtx *ctx) {
   // Check OOM if OOM policy is not ignore
   if (RSGlobalConfig.requestConfigParams.oomPolicy != OomPolicy_Ignore) {
     // No need to hold the GIL since we are not in a background thread
-    return estimateOOM(ctx);
+    return estimateOOM();
   }
   return false;
 }
@@ -718,7 +716,7 @@ int DropIndexCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
   char *indexName = rm_strdup(IndexSpec_FormatName(sp, RSGlobalConfig.hideUserDataFromLog));
 
   if (sp->diskSpec) {
-    SearchDisk_UnregisterIndex(ctx, sp->diskSpec);
+    SearchDisk_UnregisterIndex(ctx, sp);
     SearchDisk_MarkIndexForDeletion(sp->diskSpec);
   }
 
@@ -1754,7 +1752,7 @@ int RediSearch_InitModuleInternal(RedisModuleCtx *ctx) {
     }
   }
 
-  if (RediSearch_Init(ctx, REDISEARCH_INIT_MODULE) != REDISMODULE_OK) {
+  if (RediSearch_Init(ctx) != REDISMODULE_OK) {
     return REDISMODULE_ERR;
   }
 
@@ -1907,7 +1905,6 @@ void RediSearch_CleanupModule(RedisModuleCtx *ctx) {
   // GeometryApi_Free();
 
   Dictionary_Free();
-  RediSearch_LockDestory();
 
   IndexError_GlobalCleanup();
 }
@@ -4139,7 +4136,8 @@ static int prepareCommand(MRCommand *cmd, const searchRequestCtx *req, int proto
           // No modification needed if K values are the same
           if (knn_query->k == effectiveK) break;
           // Modify the command to replace KNN k (shards will ignore $SHARD_K_RATIO)
-          modifyKNNCommand(cmd, 2 + req->profileArgs, effectiveK, knnCtx->knn.queryNode->vn.vq);
+          modifyKNNCommand(cmd, 2 + req->profileArgs, knn_query->k, effectiveK,
+                           knn_query->k_token_pos, knn_query->k_token_len);
         }
         break; // Only handle KNN context
       }
@@ -4662,26 +4660,10 @@ int SetClusterCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
   // this means a parsing error, the parser already sent the explicit error to the client
   if (!topo) {
     RedisModule_Log(ctx, "warning", "Received invalid cluster topology");
-    for (int i = 1; i < argc; i++) {
-      size_t len;
-      const char *arg = RedisModule_StringPtrLen(argv[i], &len);
-      RedisModule_Log(ctx, "warning", " Arg %d: %.*s", i, (int)len, arg);
-    }
     return REDISMODULE_ERR;
   }
-  // Build a comma-separated list of ranges per shard
-  char ranges_info[256];
-  ranges_info[0] = '\0';
-  size_t offset = 0;
-  for (uint32_t i = 0; i < topo->numShards && offset < sizeof(ranges_info) - 2; i++) {
-    if (i > 0) {
-      offset += snprintf(ranges_info + offset, sizeof(ranges_info) - offset, ", ");
-    }
-    offset += snprintf(ranges_info + offset, sizeof(ranges_info) - offset, "%d",
-                      topo->shards[i].slotRanges ? topo->shards[i].slotRanges->num_ranges : 0);
-  }
 
-  RedisModule_Log(ctx, "notice", "Received new cluster topology with %u shards (%s)", topo->numShards, ranges_info);
+  RedisModule_Log(ctx, "notice", "Received new cluster topology with %u shards", topo->numShards);
 
   if (my_shard_idx != UINT32_MAX) {
     // Take a reference to our own shard slot ranges (MR_UpdateTopology won't consume it)

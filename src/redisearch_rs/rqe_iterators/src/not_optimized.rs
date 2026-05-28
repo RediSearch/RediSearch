@@ -9,19 +9,14 @@
 
 //! Supporting types for [`NotOptimized`].
 
-use std::time::Duration;
-
 use ffi::{RS_FIELDMASK_ALL, t_docId};
-use inverted_index::RSIndexResult;
+use index_result::RSIndexResult;
 
 use crate::{
     IteratorType, RQEIterator, RQEIteratorError, RQEValidateStatus, SkipToOutcome,
     WildcardIterator, maybe_empty::MaybeEmpty, not::NotIterator, utils::TimeoutContext,
 };
 use index_spec::IndexSpecReadGuard;
-
-/// Check the clock every this many loop iterations to amortize syscall cost.
-const TIMEOUT_CHECK_GRANULARITY: u32 = 5_000;
 
 /// An optimized NOT iterator that uses a wildcard inverted index iterator.
 ///
@@ -40,7 +35,9 @@ const TIMEOUT_CHECK_GRANULARITY: u32 = 5_000;
 /// * `'index` - The lifetime of the index being iterated over.
 /// * `W` - The wildcard iterator type, must implement [`WildcardIterator`].
 /// * `I` - The child iterator type whose results are negated.
-pub struct NotOptimized<'index, W, I> {
+/// * `TC` - The [`TimeoutContext`] implementation. Chosen at construction
+///   time and monomorphized into the hot path.
+pub struct NotOptimized<'index, W, I, TC> {
     /// The wildcard iterator over all existing documents.
     wcii: W,
     /// The child iterator whose results are negated.
@@ -51,14 +48,17 @@ pub struct NotOptimized<'index, W, I> {
     forced_eof: bool,
     /// A reusable result object to avoid allocations on each [`read`](RQEIterator::read) call.
     result: RSIndexResult<'index>,
-    /// Tracks the execution deadline for this iterator.
-    timeout_ctx: Option<TimeoutContext>,
+    /// Tracks the execution deadline for this iterator. Pass
+    /// [`NoTimeout`](crate::utils::NoTimeout) to opt out of timeout checks
+    /// entirely; monomorphization collapses the no-op context to dead code.
+    timeout_ctx: TC,
 }
 
-impl<'index, W, I> NotOptimized<'index, W, I>
+impl<'index, W, I, TC> NotOptimized<'index, W, I, TC>
 where
     W: WildcardIterator<'index>,
     I: RQEIterator<'index>,
+    TC: TimeoutContext,
 {
     /// Create a new optimized NOT iterator.
     ///
@@ -66,14 +66,10 @@ where
     /// `child` is the iterator whose documents will be excluded.
     /// `max_doc_id` is the upper bound for document IDs.
     /// `weight` is the score weight applied to every returned result.
-    /// `timeout` controls the amortized timeout. Pass [`None`] to skip timeout checks.
-    pub fn new(
-        wcii: W,
-        child: I,
-        max_doc_id: t_docId,
-        weight: f64,
-        timeout: Option<Duration>,
-    ) -> Self {
+    /// `timeout_ctx` is the [`TimeoutContext`] implementation to use; pass
+    /// [`NoTimeout`](crate::utils::NoTimeout) to disable timeout checks
+    /// entirely.
+    pub fn new(wcii: W, child: I, max_doc_id: t_docId, weight: f64, timeout_ctx: TC) -> Self {
         Self {
             wcii,
             child: MaybeEmpty::new(child),
@@ -83,18 +79,14 @@ where
                 .weight(weight)
                 .field_mask(RS_FIELDMASK_ALL)
                 .build(),
-            timeout_ctx: timeout.map(|t| TimeoutContext::new(t, TIMEOUT_CHECK_GRANULARITY, false)),
+            timeout_ctx,
         }
     }
 
     /// Wrapper around [`TimeoutContext::check_timeout`].
     #[inline(always)]
     fn check_timeout(&mut self) -> Result<(), RQEIteratorError> {
-        if let Some(ctx) = self.timeout_ctx.as_mut() {
-            ctx.check_timeout()
-        } else {
-            Ok(())
-        }
+        self.timeout_ctx.check_timeout()
     }
 
     /// Advance the wildcard iterator and set [`forced_eof`](Self::forced_eof)
@@ -177,10 +169,11 @@ where
     }
 }
 
-impl<'index, W, I> RQEIterator<'index> for NotOptimized<'index, W, I>
+impl<'index, W, I, TC> RQEIterator<'index> for NotOptimized<'index, W, I, TC>
 where
     W: WildcardIterator<'index>,
     I: RQEIterator<'index>,
+    TC: TimeoutContext,
 {
     #[inline(always)]
     fn current(&mut self) -> Option<&mut RSIndexResult<'index>> {
@@ -343,18 +336,22 @@ where
     }
 }
 
-impl<'index, W> NotIterator<'index>
-    for NotOptimized<'index, W, Box<dyn RQEIterator<'index> + 'index>>
+impl<'index, W, TC> NotIterator<'index>
+    for NotOptimized<'index, W, Box<dyn RQEIterator<'index> + 'index>, TC>
 where
     W: crate::WildcardIterator<'index>,
+    TC: TimeoutContext,
 {
     fn child(&self) -> Option<&dyn RQEIterator<'index>> {
         NotOptimized::child(self).map(|c| &**c as &dyn RQEIterator<'index>)
     }
 }
 
-impl<'index, W: crate::WildcardIterator<'index> + 'index> crate::interop::ProfileChildren<'index>
-    for NotOptimized<'index, W, crate::c2rust::CRQEIterator>
+impl<'index, W, TC> crate::interop::ProfileChildren<'index>
+    for NotOptimized<'index, W, crate::c2rust::CRQEIterator, TC>
+where
+    W: crate::WildcardIterator<'index> + 'index,
+    TC: TimeoutContext + 'index,
 {
     fn profile_children(self) -> Self {
         NotOptimized {

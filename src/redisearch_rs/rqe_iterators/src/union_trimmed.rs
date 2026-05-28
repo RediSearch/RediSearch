@@ -46,7 +46,7 @@
 //! accessible even though they are inactive.
 
 use ffi::t_docId;
-use inverted_index::RSIndexResult;
+use index_result::RSIndexResult;
 
 use crate::{IteratorType, RQEIterator, RQEIteratorError, RQEValidateStatus, SkipToOutcome};
 use index_spec::IndexSpecReadGuard;
@@ -259,7 +259,7 @@ where
         // UnionTrimmed drains children sequentially, not in doc-id order,
         // so skip_to has no meaningful semantics. Panic to surface misuse
         // immediately rather than silently returning wrong results.
-        panic!(
+        unreachable!(
             "skip_to is not supported on UnionTrimmed — documents are not yielded in doc-id order"
         );
     }
@@ -269,9 +269,19 @@ where
         &mut self,
         _spec: &IndexSpecReadGuard,
     ) -> Result<RQEValidateStatus<'_, 'index>, RQEIteratorError> {
-        // Trimmed unions run in a single, short-lived read path that does not
-        // interleave with GC cycles, so revalidation should never be called.
-        panic!(
+        // Revalidation is unreachable for trimmed unions in practice:
+        //
+        // `TrimUnionIterator` is only called for `Q_OPT_PARTIAL_RANGE`, which
+        // requires SORTBY on a numeric field. SORTBY always inserts an
+        // `RPSorter` into the result-processor pipeline, and `RPSorter` is an
+        // accumulator — it drains *all* upstream results (via `rpQueryItNext`)
+        // before emitting any rows. That drain happens entirely within the
+        // first `sendChunk` call while the spec read-lock is held
+        // (`sctx->flags != RS_CTX_UNSET`), so `handleSpecLockAndRevalidate`
+        // short-circuits and never calls `Revalidate`. Subsequent cursor reads
+        // only pull from the sorter's buffer; `rpQueryItNext` is not called
+        // again.
+        unreachable!(
             "revalidate is not supported on UnionTrimmed — trimmed unions are not subject to GC"
         );
     }

@@ -10,8 +10,9 @@
 use std::io::Cursor;
 
 use ffi::t_fieldMask;
+use index_result::RSIndexResult;
 use inverted_index::{
-    Decoder, Encoder, RSIndexResult,
+    Decoder, Encoder,
     fields_only::{FieldsOnly, FieldsOnlyWide},
 };
 
@@ -62,7 +63,7 @@ fn test_encode_fields_only() {
 
     for (delta, field_mask, expected_encoding) in tests {
         let mut buf = Cursor::new(Vec::new());
-        let record = inverted_index::RSIndexResult::build_term()
+        let record = index_result::RSIndexResult::build_term()
             .doc_id(doc_id)
             .field_mask(field_mask)
             .build();
@@ -126,7 +127,7 @@ fn test_encode_fields_only_wide() {
 
     for (delta, field_mask, expected_encoding) in tests {
         let mut buf = Cursor::new(Vec::new());
-        let record = inverted_index::RSIndexResult::build_term()
+        let record = index_result::RSIndexResult::build_term()
             .doc_id(doc_id)
             .field_mask(field_mask)
             .build();

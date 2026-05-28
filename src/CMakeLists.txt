@@ -70,7 +70,7 @@ add_subdirectory(ttl_table)
 
 #----------------------------------------------------------------------------------------------
 # Source files for the core library
-file(GLOB SOURCES
+file(GLOB SOURCES CONFIGURE_DEPENDS
     "${CMAKE_CURRENT_SOURCE_DIR}/*.c"
     "${CMAKE_CURRENT_SOURCE_DIR}/pipeline/*.c"
     "${CMAKE_CURRENT_SOURCE_DIR}/aggregate/*.c"
@@ -101,8 +101,7 @@ file(GLOB SOURCES
     "${root}/deps/libnu/*.c"
     "${root}/deps/miniz/*.c"
     "${root}/deps/fast_float/*.c"
-    "${root}/deps/thpool/*.c"
-    "${root}/deps/geohash/*.c")
+    "${root}/deps/thpool/*.c")
 
 #----------------------------------------------------------------------------------------------
 # Create the rscore object library

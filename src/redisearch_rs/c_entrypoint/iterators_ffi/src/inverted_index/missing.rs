@@ -10,8 +10,9 @@
 use std::{fmt::Debug, ptr::NonNull};
 
 use field::{FieldExpirationPredicate, FieldFilterContext, FieldMaskOrIndex};
+use index_result::RSIndexResult;
 use inverted_index::{
-    IndexReader, RSIndexResult, doc_ids_only::DocIdsOnly, raw_doc_ids_only::RawDocIdsOnly, t_docId,
+    DocId, IndexReader, doc_ids_only::DocIdsOnly, raw_doc_ids_only::RawDocIdsOnly,
 };
 use rqe_iterators::{
     FieldExpirationChecker, IteratorType, interop::RQEIteratorWrapper, inverted_index::Missing,
@@ -79,7 +80,7 @@ impl<'index> rqe_iterators::RQEIterator<'index> for MissingIterator<'index> {
     #[inline(always)]
     fn skip_to(
         &mut self,
-        doc_id: t_docId,
+        doc_id: DocId,
     ) -> Result<Option<rqe_iterators::SkipToOutcome<'_, 'index>>, rqe_iterators::RQEIteratorError>
     {
         dispatch!(self, skip_to, doc_id)
@@ -96,7 +97,7 @@ impl<'index> rqe_iterators::RQEIterator<'index> for MissingIterator<'index> {
     }
 
     #[inline(always)]
-    fn last_doc_id(&self) -> t_docId {
+    fn last_doc_id(&self) -> DocId {
         dispatch!(self, last_doc_id)
     }
 

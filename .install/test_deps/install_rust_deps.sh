@@ -4,8 +4,12 @@ OS_TYPE=$(uname -s)
 processor=$(uname -m)
 MODE=$1 # whether to install using sudo or not
 
+REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
+
 # retrieve nightly version
-NIGHTLY_VERSION=$(cat "$(dirname "${BASH_SOURCE[0]}")/../../.rust-nightly")
+NIGHTLY_VERSION=$(cat "$REPO_ROOT/.rust-nightly")
+# retrieve pinned cheadergen version (shared with regen_headers.sh)
+CHEADERGEN_VERSION=$(cat "$REPO_ROOT/.cheadergen-version")
 # --allow-downgrade:
 #   Allow `rustup` to install an older `nightly` if the latest one
 #   is missing one of the components we need.
@@ -95,8 +99,8 @@ binstall --no-host-prebuilt cargo-nextest@0.9.130
 # thus improving the cacheability of our builds
 # See https://docs.rs/cargo-hakari/latest/cargo_hakari/about/
 binstall cargo-hakari@0.9.37
-# A CLI to generate C headers from Rust code
-binstall cheadergen_cli@0.2.1
+# A CLI to generate C headers from Rust code.
+binstall cheadergen_cli@$CHEADERGEN_VERSION
 # Make sure `miri` is fully operational before running tests with it.
 # See https://github.com/rust-lang/miri/blob/master/README.md#running-miri-on-ci
 # for more details.

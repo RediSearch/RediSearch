@@ -7,8 +7,9 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 
+use index_result::RSIndexResult;
 use inverted_index::{
-    Decoder, Encoder, IdDelta, RSIndexResult,
+    Decoder, Encoder, IdDelta,
     numeric::{Numeric, NumericDelta, NumericFloatCompression},
 };
 use pretty_assertions::assert_eq;

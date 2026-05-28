@@ -9,6 +9,7 @@
 #ifndef RS_AGGREGATE_H__
 #define RS_AGGREGATE_H__
 
+#include "query_flags.h"
 #include "value_ffi.h"
 #include "query.h"
 #include "reducer.h"
@@ -29,10 +30,13 @@
 #ifdef __cplusplus
 #include <atomic>
 #define RS_Atomic(T) std::atomic<T>
+#define RS_AtomicBoolLoadRelaxed(p)     (((std::atomic<bool> *)(p))->load(std::memory_order_relaxed))
+#define RS_AtomicBoolStoreRelaxed(p, v) (((std::atomic<bool> *)(p))->store((v), std::memory_order_relaxed))
 extern "C" {
 #else
 #define RS_Atomic(T) _Atomic(T)
-#include <stdatomic.h>
+#define RS_AtomicBoolLoadRelaxed(p)     __atomic_load_n((bool *)(p), __ATOMIC_RELAXED)
+#define RS_AtomicBoolStoreRelaxed(p, v) __atomic_store_n((bool *)(p), (v), __ATOMIC_RELAXED)
 #endif
 
 #define DEFAULT_LIMIT 10
@@ -95,97 +99,6 @@ struct QOptimizer;
  * A query can be of one type. So QEXEC_F_IS_AGGREGATE, QEXEC_F_IS_SEARCH, QEXEC_F_IS_HYBRID_TAIL,
  * QEXEC_F_IS_HYBRID_SEARCH_SUBQUERY, QEXEC_F_IS_HYBRID_VECTOR_AGGREGATE_SUBQUERY are mutually exclusive (Only one can be set).
  */
-typedef enum {
-  QEXEC_F_IS_AGGREGATE = 0x01,    // Is an aggregate command
-  QEXEC_F_SEND_SCORES = 0x02,     // Output: Send scores with each result
-  QEXEC_F_SEND_SORTKEYS = 0x04,   // Sent the key used for sorting, for each result
-  QEXEC_F_SEND_NOFIELDS = 0x08,   // Don't send the contents of the fields
-  QEXEC_F_SEND_PAYLOADS = 0x10,   // Sent the payload set with ADD
-  QEXEC_F_IS_CURSOR = 0x20,       // Is a cursor-type query
-  QEXEC_F_REQUIRED_FIELDS = 0x40, // Send multiple required fields
-
-  /**
-   * Do not create the root result processor. Only process those components
-   * which process fully-formed, fully-scored results. This also means
-   * that a scorer is not created. It will also not initialize the
-   * first step or the initial lookup table
-   */
-  QEXEC_F_BUILDPIPELINE_NO_ROOT = 0x80,
-
-  /**
-   * Add the ability to run the query in a multi threaded environment
-   */
-  QEXEC_F_RUN_IN_BACKGROUND = 0x100,
-
-  /* The query is a search command */
-  QEXEC_F_IS_SEARCH = 0x200,
-
-  /* Highlight/summarize options are active */
-  QEXEC_F_SEND_HIGHLIGHT = 0x400,
-
-  /* Do not emit any rows, only the number of query results */
-  QEXEC_F_NOROWS = 0x800,
-
-  /* Do not stringify result values. Send them in their proper types */
-  QEXEC_F_TYPED = 0x1000,
-
-  /* Send raw document IDs alongside key names. Used for debugging */
-  QEXEC_F_SENDRAWIDS = 0x2000,
-
-  /* Flag for scorer function to create explanation strings */
-  QEXEC_F_SEND_SCOREEXPLAIN = 0x4000,
-
-  /* Profile command */
-  QEXEC_F_PROFILE = 0x8000,
-  QEXEC_F_PROFILE_LIMITED = 0x10000,
-
-  /* FT.AGGREGATE load all fields */
-  QEXEC_AGG_LOAD_ALL = 0x20000,
-
-  /* Optimize query */
-  QEXEC_OPTIMIZE = 0x40000,
-
-  // Compound values are expanded (RESP3 w/JSON)
-  QEXEC_FORMAT_EXPAND = 0x80000,
-
-  // Compound values are returned serialized (RESP2 or HASH) or expanded (RESP3 w/JSON)
-  QEXEC_FORMAT_DEFAULT = 0x100000,
-
-  // Set the score of the doc to an RLookupKey in the result
-  QEXEC_F_SEND_SCORES_AS_FIELD = 0x200000,
-
-  // The query is internal (responding to a command from the coordinator)
-  QEXEC_F_INTERNAL = 0x400000,
-
-  // The query is a Hybrid Request
-  QEXEC_F_IS_HYBRID_TAIL = 0x800000,
-
-  // The query is a Search Subquery of a Hybrid Request
-  QEXEC_F_IS_HYBRID_SEARCH_SUBQUERY = 0x1000000,
-
-  // The query is a Vector Subquery of a Hybrid Request (aggregate equivalent)
-  QEXEC_F_IS_HYBRID_VECTOR_AGGREGATE_SUBQUERY = 0x2000000,
-
-  // The query has an explicit SORT BY 0 step - no sorting at all
-  // Currently only used in when QEXEC_F_IS_HYBRID_TAIL is set - i.e this is the tail part
-  QEXEC_F_NO_SORT = 0x4000000,
-
-  // The query has an explicit SORTBY x - sort by a field
-  QEXEC_F_HAS_SORTBY = 0x8000000,
-
-  // The query should use a depleter in the pipeline (for FT.AGGREGATE)
-  QEXEC_F_HAS_DEPLETER = 0x10000000,
-
-  // The query has an explicit WITHCOUNT (for FT.AGGREGATE)
-  QEXEC_F_HAS_WITHCOUNT = 0x20000000,
-
-  // The query has an explicit GROUPBY (for FT.AGGREGATE)
-  QEXEC_F_HAS_GROUPBY = 0x40000000,
-
-  // The query is for debugging. Note that this is the last bit of uint32_t
-  QEXEC_F_DEBUG = 0x80000000,
-
-} QEFlags;
 
 // Configuration parameters for cursor behavior
 typedef struct {
@@ -245,6 +158,11 @@ typedef enum {
   QEXEC_S_ITERDONE = 0x02,
   /* ASM trimming delay timeout */
   QEXEC_S_ASM_TRIMMING_DELAY_TIMEOUT = 0x04,
+  /* A shard reply carried a TIMEDOUT warning. Set by the coord-side RPNet
+   * when it observes a shard's TIMEDOUT warning meta entry; the coord pipeline
+   * keeps draining other shards (the coord has its own deadline check) and the
+   * reply emitters surface the TIMEOUT warning to the user via this flag. */
+  QEXEC_S_SHARD_TIMED_OUT_WARNING = 0x08,
 } QEStateFlags;
 
 
@@ -464,6 +382,14 @@ int AREQ_ApplyContext(AREQ *req, RedisSearchCtx *sctx, QueryError *status);
  */
 int AREQ_BuildPipeline(AREQ *req, QueryError *status);
 
+/**
+ * Classify the request's (already-built) pipeline as yielding a valid partial
+ * answer on RETURN-STRICT timeout and store the result on the request's
+ * QueryProcessingCtx. Writes `false` if the pipeline has no end/root processor
+ * yet (e.g. called before the pipeline is built).
+ */
+void AREQ_SetCanYieldPartialResults(AREQ *req);
+
 static inline QEFlags AREQ_RequestFlags(const AREQ *req) {
   return (QEFlags)req->reqflags;
 }
@@ -623,18 +549,29 @@ void SetSearchCtx(RedisSearchCtx *sctx, const AREQ *req);
 // Allows calling parseProfileArgs from reply_empty.c
 int parseProfileArgs(RedisModuleString **argv, int argc, AREQ *r);
 
-bool AREQ_TimedOut(AREQ *req);
-void AREQ_SetTimedOut(AREQ *req);
+static inline bool AREQ_TimedOut(AREQ *req) {
+  return RS_AtomicBoolLoadRelaxed(&req->syncCtx.timedOut);
+}
+static inline void AREQ_SetTimedOut(AREQ *req) {
+  RS_AtomicBoolStoreRelaxed(&req->syncCtx.timedOut, true);
+}
 #ifdef ENABLE_ASSERT
 // SyncPointStopFn predicate adapter for AREQ_TimedOut. Pass the AREQ as `arg`
 // to SyncPoint_WaitUntil to release the wait when the request is timed out.
 bool areq_timed_out(void *arg);
 #endif
 
+/* Non-inline named bridge over AREQ_TimedOut, invoked by Rust query
+ * iterators on the Blocked Client Timeout path. The named extern is a
+ * stable symbol that LTO can inline through. */
+bool AREQ_CheckTimedOut(AREQ *areq);
+
 /* True when this AREQ uses the BG-thread / timeout-callback claim handshake
  * around AggregateResults (TryClaim/Signal/Wait). Currently set only on the
  * coordinator AREQ under RETURN-STRICT; all other paths skip the protocol. */
-bool AREQ_RequiresThreadsSyncResults(const AREQ *req);
+static inline bool AREQ_RequiresThreadsSyncResults(const AREQ *req) {
+  return req->syncCtx.requiresAggregateResultsSync;
+}
 
 /* TryClaim: atomic CAS on `aggregatingResults`; winner runs AggregateResults.
  * Signal: called by winner at completion. Wait: called by loser, blocks until Signal.
@@ -672,6 +609,14 @@ static inline void AREQ_SetSkipTimeoutChecks(AREQ *req, bool skipTimeoutChecks) 
   if (req->sctx) {
     req->sctx->time.skipTimeoutChecks = skipTimeoutChecks;
   }
+}
+
+// Returns the AREQ that iterator constructors should use to wire the
+// Blocked Client Timeout, or NULL if iterators should fall back to the
+// in-pipeline clock-based timeout. `skipTimeoutChecks` is set by
+// `AREQ_ApplyContext` exactly when the BC callback is the active source.
+static inline AREQ *AREQ_TimeoutAreqOrNull(AREQ *req) {
+  return (req && req->skipTimeoutChecks) ? req : NULL;
 }
 
 static inline bool RequestConfig_ApplyCoordinatorElapsedTime(RequestConfig *reqConfig,
