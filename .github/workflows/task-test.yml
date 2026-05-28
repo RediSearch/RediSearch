@@ -122,7 +122,7 @@ jobs:
           permission-administration: write
       - name: Start EC2 runner
         id: start-ec2-runner
-        uses: machulav/ec2-github-runner@v2.4.2
+        uses: machulav/ec2-github-runner@v2.6.1
         with:
           mode: start
           github-token: ${{ steps.generate-app-token.outputs.token }}
@@ -537,7 +537,7 @@ jobs:
             steps.standalone_tests.outcome == 'failure' ||
             steps.coordinator_tests.outcome == 'failure'
           )
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: Test Logs ${{ steps.artifact-names.outputs.name }}
           path: |
@@ -641,7 +641,7 @@ jobs:
           repositories: ${{ github.event.repository.name }}
           permission-administration: write
       - name: Stop EC2 runner
-        uses: machulav/ec2-github-runner@v2.4.2
+        uses: machulav/ec2-github-runner@v2.6.1
         with:
           mode: stop
           github-token: ${{ steps.generate-app-token.outputs.token }}

@@ -109,7 +109,7 @@ jobs:
           python3 -m pip install -r tests/benchmarks/requirements.txt
       - name: install terraform
         if: steps.benchmark-filter.outputs.skip != 'true'
-        uses: hashicorp/setup-terraform@v2
+        uses: hashicorp/setup-terraform@v4.0.1
         with:
           terraform_version: 1.11.1
           terraform_wrapper: false
