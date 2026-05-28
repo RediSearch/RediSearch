@@ -1891,7 +1891,7 @@ static StrongRef IndexSpec_ParseFromArgCursor(RedisModuleCtx *ctx, const HiddenS
   spec->diskSpec = NULL;
   if (isSpecOnDisk(spec)) {
     RS_ASSERT(disk_db);
-    spec->diskSpec = SearchDisk_OpenIndex(ctx, spec->specName, spec->obfuscatedName, spec->rule->type, false);
+    spec->diskSpec = SearchDisk_OpenIndex(ctx, spec->specName, spec->obfuscatedName, spec->rule->type, false, spec);
     RS_LOG_ASSERT(spec->diskSpec, "Failed to open disk spec")
     if (!spec->diskSpec) {
       QueryError_SetError(status, QUERY_ERROR_CODE_DISK_CREATION, "Could not open disk index");
@@ -3537,7 +3537,7 @@ IndexSpec *IndexSpec_RdbLoad(RedisModuleIO *rdb, int encver, bool useSst, QueryE
   } else if (isSpecOnDisk(sp) && !sp->isDuplicate) {
     // If the regular RDB method is used, just open an Index without any populated data.
     RS_ASSERT(!useSst);
-    sp->diskSpec = SearchDisk_OpenIndex(ctx, sp->specName, sp->obfuscatedName, sp->rule->type, false);
+    sp->diskSpec = SearchDisk_OpenIndex(ctx, sp->specName, sp->obfuscatedName, sp->rule->type, false, sp);
     if (!sp->diskSpec) {
       goto cleanup;
     }
@@ -4732,7 +4732,7 @@ void Indexes_FinishSSTReplication(RedisModuleCtx *ctx) {
     RS_ASSERT(!sp->diskRegistered);
 
     sp->diskSpec = SearchDisk_OpenIndexWithRdbState(ctx, sp->specName, sp->obfuscatedName,
-                                                    sp->rule->type, sp->pendingDiskRdbState);
+                                                    sp->rule->type, sp->pendingDiskRdbState, sp);
     // SearchDisk_OpenIndexWithRdbState takes ownership of the RDB state; clear our pointer
     // regardless of success so we don't double-free.
     sp->pendingDiskRdbState = NULL;
