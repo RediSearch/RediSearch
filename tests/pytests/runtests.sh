@@ -17,6 +17,14 @@ cd $HERE
 
 #----------------------------------------------------------------------------------------------
 
+# Returns 0 (success) if $1 is an absolute path, non-zero otherwise.
+# Used to decide whether to prepend $ROOT to user-supplied file arguments.
+is_abspath() {
+	[[ "$1" == /* ]]
+}
+
+#----------------------------------------------------------------------------------------------
+
 help() {
 	cat <<-'END'
 		Run Python tests using RLTest
@@ -449,7 +457,7 @@ fi
 
 if [[ -n $FAILEDFILE ]]; then
 	if ! is_abspath "$FAILEDFILE"; then
-		TESTFILE="$ROOT/$FAILEDFILE"
+		FAILEDFILE="$ROOT/$FAILEDFILE"
 	fi
 	RLTEST_TEST_ARGS+=" -F $FAILEDFILE"
 fi
