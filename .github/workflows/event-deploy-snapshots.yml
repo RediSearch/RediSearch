@@ -31,7 +31,7 @@ jobs:
         with:
           webhook: ${{ secrets.SLACK_WEBHOOK_URL_SNAPSHOT_FAILED }}
           webhook-type: webhook-trigger
-          errors: true
+          errors: true  # fail step on Slack delivery errors; v3 default silently retries
           payload: |
             {
               "repository": "${{ github.repository }}",
