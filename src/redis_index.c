@@ -13,6 +13,7 @@
 #include "iterators_ffi.h"
 #include "inverted_index_ffi.h"
 #include "query_term_ffi.h"
+#include "search_disk.h"
 #include "rmutil/strings.h"
 #include "rmutil/util.h"
 #include "util/logging.h"
@@ -136,6 +137,13 @@ RedisSearchCtx *NewSearchCtxC(RedisModuleCtx *ctx, const char *indexName, bool r
 
   RedisSearchCtx *sctx = rm_new(RedisSearchCtx);
   *sctx = SEARCH_CTX_STATIC(ctx, sp);
+  // Take one disk snapshot per search context so every iterator built from this sctx
+  // observes the same point-in-time view of the on-disk index. Snapshots are only
+  // meaningful for indexes that have a disk component; for in-memory-only indexes the
+  // field stays NULL and the iterators read the live structures as before.
+  if (sp->diskSpec && SearchDisk_IsInitialized()) {
+    sctx->diskSnapshot = SearchDisk_CreateSnapshot(sp->diskSpec);
+  }
   return sctx;
 }
 
@@ -165,6 +173,13 @@ void SearchCtx_CleanUp(RedisSearchCtx * sctx) {
   if (sctx->key_) {
     RedisModule_CloseKey(sctx->key_);
     sctx->key_ = NULL;
+  }
+  // Release the per-query disk snapshot (no-op when NULL). Must happen after every
+  // iterator built from `sctx` has been freed; the OSS query pipeline tears down
+  // iterators before reaching SearchCtx_CleanUp/SearchCtx_Free.
+  if (sctx->diskSnapshot) {
+    SearchDisk_FreeSnapshot(sctx->diskSnapshot);
+    sctx->diskSnapshot = NULL;
   }
   RedisSearchCtx_UnlockSpec(sctx);
 }
