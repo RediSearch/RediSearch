@@ -383,10 +383,18 @@ void HybridRequest_DecrRef(HybridRequest *req) {
   }
 }
 
+// Tail pipeline error codes that the coordinator should emit as warnings
+// rather than fatal errors. NO_PROP_VAL is the canonical case: standalone
+// treats it as fatal, but on the coordinator
+// test_tail_property_not_loaded_warning_coordinator pins it to "warning".
+static bool isSoftTailPipelineErrorCode(QueryErrorCode code) {
+    return code == QUERY_ERROR_CODE_NO_PROP_VAL;
+}
+
 /**
  * Get error information from a HybridRequest.
  * This function checks for errors in priority order:
- * 1. Tail pipeline errors (affects final result processing)
+ * 1. Tail pipeline errors (soft codes skipped — emitted as warnings instead)
  * 2. Individual AREQ errors (sub-query failures)
  *
  * @param hreq The HybridRequest to check for errors
@@ -398,8 +406,9 @@ int HybridRequest_GetError(HybridRequest *hreq, QueryError *status) {
         return REDISMODULE_ERR;
     }
 
-    // Priority 1: Tail pipeline error (affects final result processing)
-    if (QueryError_HasError(&hreq->tailPipelineError)) {
+    // Skip soft codes so the reply path can render them as warnings.
+    if (QueryError_HasError(&hreq->tailPipelineError) &&
+        !isSoftTailPipelineErrorCode(QueryError_GetCode(&hreq->tailPipelineError))) {
         QueryError_CloneFrom(&hreq->tailPipelineError, status);
         return REDISMODULE_ERR;
     }
