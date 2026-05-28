@@ -14,10 +14,15 @@
 #include "query.h"
 #include "field.h"
 #include "query_node_type.h"
+#include "rqe_core.h"
 #include "rqe_iterators.h"
 // In C, timespec is a struct tag, not a typedef. Rust's libc::timespec maps to
 // the bare name, so we introduce a typedef to make it valid C.
 typedef struct timespec timespec;
+// `AREQ` is forward-declared as a struct tag in `query.h` (above) but its
+// typedef lives in `aggregate/aggregate.h`. cheadergen emits `*mut ffi::AREQ`
+// as the bare `AREQ *`, so we surface the typedef here for the C compiler.
+typedef struct AREQ AREQ;
 
 
 /**
@@ -181,7 +186,7 @@ QueryIterator *NewOptionalIterator(QueryIterator *child, QueryEvalCtx *q, t_docI
  *      freed by `GeoFilter_Free`.
  * 4. `config` must be a valid non-NULL pointer to an `IteratorsConfig`.
  */
-QueryIterator *NewGeoRangeIterator(const RedisSearchCtx *ctx, GeoFilter *gf, const IteratorsConfig *config);
+QueryIterator *NewGeoRangeIterator(const RedisSearchCtx *ctx, GeoFilter *gf, const struct IteratorsConfig *config);
 
 /**
  * Creates a new iterator over a list of unsorted document IDs.
@@ -474,7 +479,7 @@ const QueryIterator *GetIntersectionIteratorChild(const QueryIterator *header, s
  * 3. Null entries in `its` are treated as empty iterators.
  * 4. `config` must be a valid non-null pointer to an [`IteratorsConfig`].
  */
-QueryIterator *NewUnionIterator(QueryIterator * *its, int32_t num, bool quick_exit, double weight, QueryNodeType type_, const char *q_str, const IteratorsConfig *config);
+QueryIterator *NewUnionIterator(QueryIterator * *its, int32_t num, bool quick_exit, double weight, QueryNodeType type_, const char *q_str, const struct IteratorsConfig *config);
 
 /**
  * Creates a new missing-field inverted index iterator.
@@ -585,30 +590,6 @@ QueryIterator *NewInvIndIterator_TermQuery(const InvertedIndex *idx, const Redis
 double NumericInvIndIterator_GetProfileRangeMin(const QueryIterator *it);
 
 /**
- * Creates a NOT iterator, choosing between non-optimized and optimized based
- * on the query evaluation context.
- *
- * If the child is trivially reducible (empty or wildcard), a simplified
- * iterator is returned directly.
- *
- * # Safety
- *
- * 1. `child` must be null or a valid pointer to a [`QueryIterator`].
- *    A null `child` is treated as empty.
- * 2. When non-null, `child` must not be aliased.
- * 3. `q` must be a valid non-null pointer to a [`QueryEvalCtx`](ffi::QueryEvalCtx).
- * 4. `q.sctx` must be a non-null pointer to a valid
- *    [`RedisSearchCtx`](ffi::RedisSearchCtx).
- * 5. `q.sctx.spec` must be a non-null pointer to a valid
- *    [`IndexSpec`](ffi::IndexSpec).
- * 6. `q.sctx.spec.rule`, when non-null, must point to a valid
- *    [`SchemaRule`](ffi::SchemaRule).
- * 7. When the optimized path is taken, the preconditions of
- *    [`crate::wildcard::NewWildcardIterator_Optimized`] must hold.
- */
-QueryIterator *NewNotIterator(QueryIterator *child, t_docId max_doc_id, double weight, timespec timeout, QueryEvalCtx *q);
-
-/**
  * Get the metric type used by this metric iterator.
  *
  * # Safety
@@ -690,6 +671,41 @@ NumericRangeTree *openNumericOrGeoIndex(IndexSpec *spec, FieldSpec *fs, bool cre
 const QueryIterator *GetUnionIteratorChild(const QueryIterator *it, size_t idx);
 
 /**
+ * Creates a NOT iterator, choosing between non-optimized and optimized based
+ * on the query evaluation context.
+ *
+ * If the child is trivially reducible (empty or wildcard), a simplified
+ * iterator is returned directly.
+ *
+ * `bc_timeout_areq` selects the timeout source. When non-null, the Blocked
+ * Client Timeout path is used: every iterator timeout probe forwards to
+ * `AREQ_CheckTimedOut` and `timeout` / `skipTimeoutChecks` are ignored.
+ * When null, the Clock Based Timeout path is used: `timeout` is the
+ * deadline and `skipTimeoutChecks` (read from `q.sctx.time`) disables the
+ * check entirely. The C caller is expected to pre-filter the owning
+ * request via `AREQ_TimeoutAreqOrNull` before passing it here.
+ *
+ * # Safety
+ *
+ * 1. `child` must be null or a valid pointer to a [`QueryIterator`].
+ *    A null `child` is treated as empty.
+ * 2. When non-null, `child` must not be aliased.
+ * 3. `q` must be a valid non-null pointer to a [`QueryEvalCtx`](ffi::QueryEvalCtx).
+ * 4. `q.sctx` must be a non-null pointer to a valid
+ *    [`RedisSearchCtx`](ffi::RedisSearchCtx).
+ * 5. `q.sctx.spec` must be a non-null pointer to a valid
+ *    [`IndexSpec`](ffi::IndexSpec).
+ * 6. `q.sctx.spec.rule`, when non-null, must point to a valid
+ *    [`SchemaRule`](ffi::SchemaRule).
+ * 7. When the optimized path is taken, the preconditions of
+ *    [`crate::wildcard::NewWildcardIterator_Optimized`] must hold.
+ * 8. When `bc_timeout_areq` is non-null, it must satisfy the
+ *    [`TimeoutContextBlockedClient::new`] safety contract and remain
+ *    valid for the lifetime of the returned iterator.
+ */
+QueryIterator *NewNotIterator(QueryIterator *child, t_docId max_doc_id, double weight, timespec timeout, AREQ *bc_timeout_areq, QueryEvalCtx *q);
+
+/**
  * Returns the [`QueryNodeType`] stored in the union iterator.
  *
  * # Safety
@@ -718,11 +734,11 @@ QueryNodeType GetUnionIteratorQueryNodeType(const QueryIterator *it);
  * 3. `flt` must be a valid non-NULL pointer to a [`NumericFilter`] whose `field_spec` field
  *    is a valid non-NULL pointer to a [`FieldSpec`], remaining valid for the lifetime of the
  *    returned iterator.
- * 4. `config` must be a valid non-NULL pointer to an [`ffi::IteratorsConfig`].
+ * 4. `config` must be a valid non-NULL pointer to an [`IteratorsConfig`].
  * 5. `filter_ctx` must be a valid non-NULL pointer to a [`FieldFilterContext`] with a field
  *    index (not a field mask).
  */
-QueryIterator *NewNumericFilterIterator(const RedisSearchCtx *ctx, const struct NumericFilter *flt, FieldType _for_type, const IteratorsConfig *config, const struct FieldFilterContext *filter_ctx);
+QueryIterator *NewNumericFilterIterator(const RedisSearchCtx *ctx, const struct NumericFilter *flt, FieldType _for_type, const struct IteratorsConfig *config, const struct FieldFilterContext *filter_ctx);
 
 /**
  * Returns the query string pointer stored in the union iterator, or null.
@@ -735,17 +751,6 @@ QueryIterator *NewNumericFilterIterator(const RedisSearchCtx *ctx, const struct 
 const char *GetUnionIteratorQueryString(const QueryIterator *it);
 
 /**
- * Get the child pointer of a NOT iterator, or NULL if there is no child.
- *
- * # Safety
- *
- * 1. `it` must be a valid non-null pointer to a non-reduced NOT iterator
- *    created via [`NewNotIterator()`]. Must not be called on a reduced
- *    (wildcard/empty) iterator returned by [`NewNotIterator()`].
- */
-const QueryIterator *GetNotIteratorChild(const QueryIterator *it);
-
-/**
  * Trims a union iterator for the LIMIT optimizer, then switches to unsorted
  * sequential read mode.
  *
@@ -755,6 +760,17 @@ const QueryIterator *GetNotIteratorChild(const QueryIterator *it);
  *    created via [`NewUnionIterator`].
  */
 void TrimUnionIterator(QueryIterator *it, size_t limit, bool asc);
+
+/**
+ * Get the child pointer of a NOT iterator, or NULL if there is no child.
+ *
+ * # Safety
+ *
+ * 1. `it` must be a valid non-null pointer to a non-reduced NOT iterator
+ *    created via [`NewNotIterator()`]. Must not be called on a reduced
+ *    (wildcard/empty) iterator returned by [`NewNotIterator()`].
+ */
+const QueryIterator *GetNotIteratorChild(const QueryIterator *it);
 
 #ifdef __cplusplus
 }  // extern "C"

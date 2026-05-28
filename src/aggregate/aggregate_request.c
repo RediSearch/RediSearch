@@ -1145,11 +1145,11 @@ void AREQ_WaitForAggregateResultsComplete(AREQ *req) {
 }
 
 void AREQ_ResetForCursorReadReturnStrict(AREQ *req) {
-  RS_AtomicStoreRelaxed(&req->syncCtx.aggregateResultsOwner, AggregateResultsOwner_None);
+  RS_AtomicBoolStoreRelaxed(&req->syncCtx.aggregatingResults, false);
   pthread_mutex_lock(&req->syncCtx.aggregateResultsLock);
   req->syncCtx.aggregateResultsDone = false;
   pthread_mutex_unlock(&req->syncCtx.aggregateResultsLock);
-  RS_AtomicStoreRelaxed(&req->syncCtx.timedOut, false);
+  RS_AtomicBoolStoreRelaxed(&req->syncCtx.timedOut, false);
   ResultProcessor *root = AREQ_QueryProcessingCtx(req)->rootProc;
   if (root && root->type == RP_NETWORK) {
     ((RPNet *)root)->drainOnly = false;

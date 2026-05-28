@@ -29,6 +29,7 @@ members = [
     "reducers",
     "ref_mode",
     "rqe_iterator_type",
+    "rqe_core",
     "rqe_iterators",
     "rqe_iterators_bencher",
     "rqe_iterators_test_utils",
@@ -132,6 +133,7 @@ result_processor = { path = "./result_processor" }
 rlookup = { path = "./rlookup" }
 rm_array = { path = "./c_wrappers/rm_array" }
 query_node_type = { path = "./query_node_type" }
+rqe_core = { path = "./rqe_core" }
 rqe_iterator_type = { path = "./rqe_iterator_type" }
 rqe_iterators = { path = "./rqe_iterators" }
 rqe_iterators_test_utils = { path = "./rqe_iterators_test_utils" }
@@ -172,7 +174,7 @@ insta = "1.46.1"
 itertools = "0.14.0"
 lending-iterator = "0.1.7"
 libc = "0.2.180"
-nix = { version = "0.26", features = ["poll"] }
+nix = { version = "0.26", default-features = false, features = ["poll"] }
 memchr = "2.7.6"
 pin-project = "1.1.10"
 pretty_assertions = "1.4.1"

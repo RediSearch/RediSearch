@@ -15,9 +15,7 @@ use std::{
     time::Duration,
 };
 
-use crate::reader::Reader;
 use crate::util::read_with_timeout;
-use crate::writer::Writer;
 
 /// Poll timeout used by the parent-side pipe reader.
 const POLL_TIMEOUT: Duration = Duration::from_mins(3);
@@ -43,40 +41,37 @@ impl ForkGC {
 
     /// Return a writable handle to the GC pipe.
     ///
-    /// The returned [`Writer`] wraps a [`ForkGCPipeWriter`] that holds a
-    /// `PhantomData<&'a mut ForkGC>`, so it statically borrows `self` —
-    /// preventing two concurrent writers and ensuring the writer cannot
-    /// outlive the `ForkGC` it came from. The concrete inner writer type is
-    /// hidden behind `impl Write + '_`.
-    pub fn writer(&mut self) -> Writer<impl Write + '_> {
-        Writer::from_writer(ForkGCPipeWriter {
+    /// The returned [`ForkGCPipeWriter`] holds a `PhantomData<&'a mut ForkGC>`,
+    /// so it statically borrows `self` — preventing two concurrent writers and
+    /// ensuring the writer cannot outlive the `ForkGC` it came from.
+    pub fn writer(&mut self) -> ForkGCPipeWriter<'_> {
+        ForkGCPipeWriter {
             // SAFETY: `pipe_write_fd` is an open writable fd maintained by
             // the C side's Fork GC state machine.
             pipe_writer: ManuallyDrop::new(unsafe {
                 io::PipeWriter::from_raw_fd(self.0.pipe_write_fd)
             }),
             _borrow: PhantomData,
-        })
+        }
     }
 
     /// Return a readable handle to the GC pipe.
     ///
-    /// Each call to [`Reader::recv_fixed`] delegates to
-    /// [`read_with_timeout`] with `POLL_TIMEOUT` and retries on
-    /// `EINTR`. On timeout or pipe error the error is surfaced.
+    /// Each read delegates to [`read_with_timeout`] with [`POLL_TIMEOUT`] and
+    /// retries on `EINTR`. On timeout or pipe error the error is surfaced.
     ///
     /// When `pipe_read_fd` is negative — tests deliberately set it to
     /// `-1` to simulate pipe failure — the returned reader yields
     /// `EBADF` on every read instead of constructing an `io::PipeReader`,
     /// which would otherwise trip a std-internal `fd != -1` precondition.
-    pub fn reader(&mut self) -> Reader<impl Read + '_> {
+    pub fn reader(&mut self) -> ForkGCPipeReader<'_> {
         self.reader_with_timeout(POLL_TIMEOUT)
     }
 
     /// Like [`Self::reader`] but with a caller-supplied poll timeout.
     ///
     /// Intended for tests where the 3-minute default would be impractical.
-    pub fn reader_with_timeout(&mut self, timeout: Duration) -> Reader<impl Read + '_> {
+    pub fn reader_with_timeout(&mut self, timeout: Duration) -> ForkGCPipeReader<'_> {
         // Existing C++ unit tests (`FGCTestTag.testPipeErrorDuringGC` and
         // `FGCTestTag.testPipeErrorDuringApply`) set `pipe_read_fd` to `-1`
         // to simulate pipe failure. `io::PipeReader` doesn't allow an fd of
@@ -91,11 +86,11 @@ impl ForkGC {
             ManuallyDrop::new(unsafe { io::PipeReader::from_raw_fd(fd) })
         });
 
-        Reader::from_reader(ForkGCPipeReader {
+        ForkGCPipeReader {
             pipe_reader,
             timeout,
             _borrow: PhantomData,
-        })
+        }
     }
 }
 
@@ -103,7 +98,7 @@ impl ForkGC {
 /// `ManuallyDrop<io::PipeWriter>` so dropping the writer does not close
 /// the caller's fd, and a `PhantomData<&'a mut ForkGC>` makes the type
 /// system behave as if the writer borrows the `ForkGC` for its entire lifetime.
-struct ForkGCPipeWriter<'a> {
+pub struct ForkGCPipeWriter<'a> {
     pipe_writer: ManuallyDrop<io::PipeWriter>,
     _borrow: PhantomData<&'a mut ForkGC>,
 }
@@ -124,7 +119,7 @@ impl Write for ForkGCPipeWriter<'_> {
 /// surface `EBADF` on each read. The `PhantomData<&'a mut ForkGC>` makes
 /// the type system behave as if the reader borrows `ForkGC` for its entire
 /// lifetime.
-struct ForkGCPipeReader<'a> {
+pub struct ForkGCPipeReader<'a> {
     pipe_reader: Option<ManuallyDrop<io::PipeReader>>,
     timeout: Duration,
     _borrow: PhantomData<&'a mut ForkGC>,

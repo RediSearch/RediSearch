@@ -7,9 +7,9 @@
 #include <stddef.h>
 #include <stdint.h>
 #include <stdlib.h>
-#include "redisearch_types.h"
 #include "score_explain.h"
 #include "rlookup.h"
+#include "rqe_core.h"
 /* SearchResult flags */
 static const uint8_t Result_ExpiredDoc = 1 << 0;
 

@@ -40,7 +40,10 @@ pub mod context;
 
 /// Use the Rust definitions directly
 pub use document::DocumentType;
-pub use query_node_type::QueryNodeType;
+pub use query_node_type::{
+    QASTValidationFlagsSet, QueryNodeFlags, QueryNodeOptions, QueryNodeType,
+};
+
 pub use query_term::{RSQueryTerm, RSTokenFlags};
 pub use rqe_iterator_type::IteratorType;
 
@@ -114,13 +117,4 @@ impl QueryProcessingCtx {
     }
 }
 
-/// Rust implementation of `t_fieldMask` from `redisearch.h`
-pub type FieldMask = t_fieldMask;
-
-#[cfg(target_pointer_width = "64")]
-pub const RS_FIELDMASK_ALL: FieldMask = u128::MAX;
-
-#[cfg(target_pointer_width = "32")]
-pub const RS_FIELDMASK_ALL: FieldMask = u64::MAX;
-
-pub const RS_INVALID_FIELD_INDEX: t_fieldIndex = 0xFFFF;
+pub use rqe_core::{FieldMask, RS_FIELDMASK_ALL, RS_INVALID_FIELD_INDEX};

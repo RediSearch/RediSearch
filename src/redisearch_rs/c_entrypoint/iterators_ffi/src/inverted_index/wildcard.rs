@@ -10,7 +10,7 @@
 use std::fmt::Debug;
 
 use index_result::RSIndexResult;
-use inverted_index::{doc_ids_only::DocIdsOnly, raw_doc_ids_only::RawDocIdsOnly, t_docId};
+use inverted_index::{DocId, doc_ids_only::DocIdsOnly, raw_doc_ids_only::RawDocIdsOnly};
 use rqe_iterators::{IteratorType, interop::RQEIteratorWrapper, inverted_index::Wildcard};
 
 /// Wrapper around different II wildcard iterator encoding types to avoid generics in FFI code.
@@ -54,7 +54,7 @@ impl<'index> rqe_iterators::RQEIterator<'index> for WildcardIterator<'index> {
     #[inline(always)]
     fn skip_to(
         &mut self,
-        doc_id: t_docId,
+        doc_id: DocId,
     ) -> Result<Option<rqe_iterators::SkipToOutcome<'_, 'index>>, rqe_iterators::RQEIteratorError>
     {
         match self {
@@ -80,7 +80,7 @@ impl<'index> rqe_iterators::RQEIterator<'index> for WildcardIterator<'index> {
     }
 
     #[inline(always)]
-    fn last_doc_id(&self) -> t_docId {
+    fn last_doc_id(&self) -> DocId {
         match self {
             WildcardIterator::Encoded(w) => w.last_doc_id(),
             WildcardIterator::Raw(w) => w.last_doc_id(),

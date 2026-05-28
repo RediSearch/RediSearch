@@ -78,17 +78,19 @@ static inline size_t calculateEffectiveK(size_t originalK, double ratio, size_t 
 /**
  * Modify KNN command for shard distribution by replacing K value.
  *
- * This function handles two cases:
- * 1. Literal K (e.g., "KNN 50") - uses saved position for exact replacement
- * 2. Parameter K (e.g., "KNN $k") - replaces parameter reference in query string
+ * Replaces the K token in the query argument at query_arg_index with
+ * effectiveK, using the recorded byte offset/length of the K token.
  *
  * @param cmd The MRCommand to modify
  * @param query_arg_index Index of the query string argument in cmd
+ * @param originalK Original K value (no-op if equal to effectiveK)
  * @param effectiveK The calculated effective K value for shards
- * @param vq The VectorQuery containing K position information
-
+ * @param k_pos Byte offset where the K token starts in the query string
+ * @param k_len Length of the K token in bytes
  */
-void modifyKNNCommand(MRCommand *cmd, size_t query_arg_index, size_t effectiveK, VectorQuery *vq);
+void modifyKNNCommand(MRCommand *cmd, size_t query_arg_index,
+                      size_t originalK, size_t effectiveK,
+                      size_t k_pos, size_t k_len);
 
 /**
  * Modify VSIM KNN K value in a built command.

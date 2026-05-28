@@ -92,7 +92,7 @@ impl MockScoreSource {
     }
 }
 
-impl<'index> ScoreSource<'index> for MockScoreSource {
+impl ScoreSource for MockScoreSource {
     type Batch = MockScoreBatch;
 
     fn next_batch(&mut self) -> Result<Option<Self::Batch>, RQEIteratorError> {
@@ -115,7 +115,10 @@ impl<'index> ScoreSource<'index> for MockScoreSource {
         self.batch_pos = 0;
     }
 
-    fn build_result(&self, doc_id: t_docId, _score: f64) -> RSIndexResult<'index> {
+    fn build_result<'r>(&self, doc_id: t_docId, _score: f64) -> RSIndexResult<'r>
+    where
+        Self: 'r,
+    {
         RSIndexResult::build_virt().doc_id(doc_id).build()
     }
 

@@ -7,7 +7,7 @@
 #include <stddef.h>
 #include <stdint.h>
 #include <stdlib.h>
-#include "redisearch_types.h"
+#include "rqe_core.h"
 
 /**
  * Field expiration predicate used when checking fields.

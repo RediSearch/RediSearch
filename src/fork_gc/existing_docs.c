@@ -52,7 +52,7 @@ FGCError FGC_parentHandleExistingDocs(ForkGC *gc) {
   InvertedIndexGcDelta *delta = InvertedIndex_GcDelta_Read(&rd);
 
   if (delta == NULL) {
-    rm_free(empty_indicator);
+    FGC_freeBuffer(empty_indicator, ei_len);
     return FGC_CHILD_ERROR;
   }
 
@@ -74,22 +74,25 @@ FGCError FGC_parentHandleExistingDocs(ForkGC *gc) {
 
   idx = sp->existingDocs;
 
-  InvertedIndex_ApplyGcDelta(idx, delta, &info);
+  InvertedIndex_ApplyGCDelta(idx, delta, &info);
   delta = NULL;
+  IndexStats_BlockCountAdd(&sp->stats, info.block_count_delta);
 
   // We don't count the records that we removed, because we also don't count
   // their addition (they are duplications so we have no such desire).
 
   if (InvertedIndex_NumDocs(idx) == 0) {
-    // inverted index was cleaned entirely, let's free it
+    // Sample memory and block count before freeing the index — `InvertedIndex_Free`
+    // doesn't know about the owning spec.
     info.bytes_freed += InvertedIndex_MemUsage(idx);
+    IndexStats_BlockCountAdd(&sp->stats, -(int64_t)InvertedIndex_NumBlocks(idx));
     InvertedIndex_Free(idx);
     sp->existingDocs = NULL;
   }
   FGC_updateStats(gc, sctx, 0, info.bytes_freed, info.bytes_allocated, info.ignored_last_block);
 
 cleanup:
-  rm_free(empty_indicator);
+  FGC_freeBuffer(empty_indicator, ei_len);
   if (sp) {
     RedisSearchCtx_UnlockSpec(sctx);
     IndexSpecRef_Release(spec_ref);
