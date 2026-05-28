@@ -168,12 +168,6 @@ typedef enum {
 
 typedef enum { COMMAND_AGGREGATE, COMMAND_SEARCH, COMMAND_EXPLAIN, COMMAND_HYBRID } CommandType;
 
-typedef enum {
-  AggregateResultsOwner_None = 0,
-  AggregateResultsOwner_Worker,
-  AggregateResultsOwner_Timeout,
-} AggregateResultsOwner;
-
 /**
  * Common synchronization context for request types (AREQ, HybridRequest).
  * This context is used for timeout handling and synchronization between the main thread and the background thread.
@@ -184,13 +178,15 @@ typedef struct RequestSyncCtx {
   // Reference count for shared ownership between timeout callback (main thread) and background thread
   uint8_t refcount;
 
-  /* Partial-timeout coordination. The owner tag is a small extension of the
-   * current CAS claim so cursor reads can tell whether the worker or timeout
-   * callback owns cursor cleanup. Keep access behind AREQ_* helpers; the sync
-   * refactor should be able to replace this field with its claim primitive. */
-  bool requiresAggregateResultsSync;    // Enable CAS/Signal/Wait around AggregateResults
-  RS_Atomic(int) aggregateResultsOwner; // AggregateResultsOwner CAS winner
-  bool aggregateResultsDone;            // Set at completion; guarded by aggregateResultsLock
+  /* Partial-timeout coordination. The CAS claim grants exclusive ownership of
+   * the result-production phase: the BG-thread winner runs AggregateResults
+   * and stores results, while the timeout-callback winner preempts BG before it
+   * runs the pipeline. If BG already won, the timeout callback waits for BG's
+   * completion signal before replying.
+   * Gated by `requiresAggregateResultsSync`. */
+  bool requiresAggregateResultsSync;     // Enable CAS/Signal/Wait around AggregateResults
+  RS_Atomic(bool) aggregatingResults;    // CAS claim: BG winner runs the pipeline
+  bool aggregateResultsDone;             // Set at completion; guarded by aggregateResultsLock
   pthread_mutex_t aggregateResultsLock;
   pthread_cond_t aggregateResultsCond;
 
@@ -206,7 +202,7 @@ static inline void RequestSyncCtx_Init(RequestSyncCtx *ctx) {
   ctx->timedOut = false;
   ctx->refcount = 1;
   ctx->requiresAggregateResultsSync = false;
-  ctx->aggregateResultsOwner = AggregateResultsOwner_None;
+  ctx->aggregatingResults = false;
   ctx->aggregateResultsDone = false;
   pthread_mutex_init(&ctx->aggregateResultsLock, NULL);
   pthread_cond_init(&ctx->aggregateResultsCond, NULL);
@@ -486,7 +482,7 @@ ResultProcessor *Grouper_GetRP(Grouper *gr);
 void Grouper_AddReducer(Grouper *g, Reducer *r, RLookupKey *dst);
 
 void AREQ_Execute(AREQ *req, RedisModuleCtx *outctx);
-void sendChunk(AREQ *req, RedisModule_Reply *reply, size_t limit);
+bool sendChunk(AREQ *req, RedisModule_Reply *reply, size_t limit);
 void sendChunk_ReplyOnly_EmptyResults(RedisModuleCtx *ctx, AREQ *req);
 
 /**
@@ -576,18 +572,16 @@ static inline bool AREQ_RequiresThreadsSyncResults(const AREQ *req) {
   return req->syncCtx.requiresAggregateResultsSync;
 }
 
-/* Existing BG-thread / timeout-callback claim handshake. The owner tag only
- * records who won the current CAS so cursor-read cleanup can stay local to the
- * winning path until the planned sync refactor replaces this handshake. */
+/* TryClaim: atomic CAS on `aggregatingResults`; winner runs AggregateResults.
+ * Signal: called by winner at completion. Wait: called by loser, blocks until Signal.
+ * Exactly one of {BG thread, timeout callback} wins. */
 bool AREQ_TryClaimAggregateResults(AREQ *req);
-bool AREQ_TryClaimAggregateResultsForTimeout(AREQ *req);
-bool AREQ_AggregateResultsClaimedByTimeout(AREQ *req);
 void AREQ_SignalAggregateResultsComplete(AREQ *req);
 void AREQ_WaitForAggregateResultsComplete(AREQ *req);
 
 /* Reset the per-cursor-read sync state on a coordinator RETURN_STRICT cursor
  * read so the next chunk starts from a clean slate. Resets:
- *   - syncCtx.aggregateResultsOwner (CAS claim)
+ *   - syncCtx.aggregatingResults (CAS claim)
  *   - syncCtx.aggregateResultsDone (signal latch)
  *   - syncCtx.timedOut (timer latch from the previous chunk's timer)
  *   - RPNet::drainOnly on the root proc when it is RP_NETWORK (so the next

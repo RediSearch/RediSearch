@@ -59,17 +59,12 @@ static void AREQ_DecrRefWrapper(void *privdata) {
   AREQ_DecrRef((AREQ *)privdata);
 }
 
-// freePrivData for shard/local BlockCursorClientWithTimeout. For FAIL, any cursor
-// parked in storedReplyState is owned by this read and can be drained before
-// dropping the AREQ ref. For RETURN_STRICT, cursor cleanup is owned by either
-// AREQ_ReplyWithStoredResults (worker won) or runCursor (timeout callback won);
-// freePrivData can run before or after the worker observes that race, and the
-// AREQ is reused across cursor reads, so it must not clean storedReplyState.
+// freePrivData for shard/local BlockCursorClientWithTimeout. Drains any cursor
+// parked in storedReplyState before releasing our AREQ ref (no-op on the happy
+// path, where CursorReadReplyCallback already cleared it).
 static void ShardCursorBlockClient_FreeAREQ(void *privdata) {
   AREQ *req = (AREQ *)privdata;
-  if (req->reqConfig.timeoutPolicy != TimeoutPolicy_ReturnStrict) {
-    AREQ_CleanUpStoredCursor(req);
-  }
+  AREQ_CleanUpStoredCursor(req);
   AREQ_DecrRef(req);
 }
 
@@ -401,7 +396,8 @@ static inline void debugPauseStoreResults(AREQ *req, bool before) {
   UNUSED(before);
 }
 #endif
-static void startPipeline(AREQ *req, ResultProcessor *rp, SearchResult ***results, SearchResult *r, int *rc) {
+static bool startPipeline(AREQ *req, ResultProcessor *rp, SearchResult ***results, SearchResult *r,
+                          int *rc) {
   CommonPipelineCtx ctx = {
     .timeoutPolicy = req->reqConfig.timeoutPolicy,
     .timeout = &req->sctx->time.timeout,
@@ -415,16 +411,24 @@ static void startPipeline(AREQ *req, ResultProcessor *rp, SearchResult ***result
   SyncPoint_WaitUntil(SYNC_POINT_BEFORE_AGGREGATE_RESULTS_CLAIM, areq_timeout_or_pending_spec_writers, req);
 #endif
 
-  // Bail if the RETURN-STRICT timeout callback already claimed (it replies)
-  // or if it signaled timeout in parallel after we won (it will reply with
-  // our stored zero-result state).
-  if (AREQ_RequiresThreadsSyncResults(req) &&
-      (!AREQ_TryClaimAggregateResults(req) || AREQ_TimedOut(req))) {
-    *rc = RS_RESULT_TIMEDOUT;
-    return;
+  if (AREQ_RequiresThreadsSyncResults(req)) {
+    if (!AREQ_TryClaimAggregateResults(req)) {
+      // The RETURN_STRICT timeout callback claimed the sync phase first and
+      // already owns the reply. The caller must skip stored-result handling and
+      // clean up the cursor locally.
+      *rc = RS_RESULT_TIMEDOUT;
+      return false;
+    }
+    if (AREQ_TimedOut(req)) {
+      // We claimed the sync phase, but timeout was already signaled. Store a
+      // timed-out cursor-shaped reply and wake the timeout callback.
+      *rc = RS_RESULT_TIMEDOUT;
+      return true;
+    }
   }
 
   startPipelineCommon(&ctx, rp, results, r, rc);
+  return true;
 }
 
 
@@ -713,7 +717,7 @@ done_2:
 /**
  * Sends a chunk of <n> rows in the resp2 format
  */
-static void sendChunk_Resp2(AREQ *req, RedisModule_Reply *reply, size_t limit,
+static bool sendChunk_Resp2(AREQ *req, RedisModule_Reply *reply, size_t limit,
   cachedVars cv) {
     SearchResult r = SearchResult_New();
     int rc = RS_RESULT_EOF;
@@ -728,9 +732,14 @@ static void sendChunk_Resp2(AREQ *req, RedisModule_Reply *reply, size_t limit,
       .cursor_done = false
     };
 
-    startPipeline(req, rp, &state.results, &r, &rc);
+    bool workerOwnsResults = startPipeline(req, rp, &state.results, &r, &rc);
 
     if (req->useReplyCallback) {
+      if (!workerOwnsResults) {
+        SearchResult_Destroy(&r);
+        return false;
+      }
+
       // Store results for reply_callback (includes cv and limit)
       debugPauseStoreResults(req, true);  // pause before
       AREQ_StoreResults(req, state.results, rc, cv, limit);
@@ -743,7 +752,7 @@ static void sendChunk_Resp2(AREQ *req, RedisModule_Reply *reply, size_t limit,
 
       // Destroy unused SearchResult
       SearchResult_Destroy(&r);
-      return;
+      return true;
     }
 
     state.r = &r;
@@ -755,6 +764,7 @@ static void sendChunk_Resp2(AREQ *req, RedisModule_Reply *reply, size_t limit,
     if (state.resultsLen != REDISMODULE_POSTPONED_ARRAY_LEN && rc == RS_RESULT_OK && state.resultsLen != state.nelem) {
       RS_LOG_ASSERT_FMT(false, "Failed to predict the number of replied results. Prediction=%ld, actual_number=%ld.", state.resultsLen, state.nelem);
     }
+    return true;
 }
 
 static void _replyWarnings(AREQ *req, RedisModule_Reply *reply, int rc) {
@@ -930,7 +940,7 @@ done_3:
 /**
  * Sends a chunk of <n> rows in the resp3 format
  */
-static void sendChunk_Resp3(AREQ *req, RedisModule_Reply *reply, size_t limit,
+static bool sendChunk_Resp3(AREQ *req, RedisModule_Reply *reply, size_t limit,
   cachedVars cv) {
     SearchResult r = SearchResult_New();
     int rc = RS_RESULT_EOF;
@@ -944,9 +954,14 @@ static void sendChunk_Resp3(AREQ *req, RedisModule_Reply *reply, size_t limit,
       .resultsLen = 0,         // Unused in RESP3
     };
 
-    startPipeline(req, rp, &state.results, &r, &rc);
+    bool workerOwnsResults = startPipeline(req, rp, &state.results, &r, &rc);
 
     if (req->useReplyCallback) {
+      if (!workerOwnsResults) {
+        SearchResult_Destroy(&r);
+        return false;
+      }
+
       // Store results for reply_callback (includes cv and limit)
       debugPauseStoreResults(req, true);  // pause before
       AREQ_StoreResults(req, state.results, rc, cv, limit);
@@ -959,7 +974,7 @@ static void sendChunk_Resp3(AREQ *req, RedisModule_Reply *reply, size_t limit,
 
       // Destroy unused SearchResult
       SearchResult_Destroy(&r);
-      return;
+      return true;
     }
 
     state.r = &r;
@@ -967,12 +982,13 @@ static void sendChunk_Resp3(AREQ *req, RedisModule_Reply *reply, size_t limit,
     rc = serializeAndReplyResults_Resp3(req, reply, rp, qctx, rc, &cv, &state);
 
     finishSendChunk(req, state.results, &r, state.cursor_done);
+    return true;
 }
 
 /**
  * Sends a chunk of <n> rows, optionally also sending the preamble
  */
-void sendChunk(AREQ *req, RedisModule_Reply *reply, size_t limit) {
+bool sendChunk(AREQ *req, RedisModule_Reply *reply, size_t limit) {
   QEFlags reqFlags = AREQ_RequestFlags(req);
   if (!(reqFlags & QEXEC_F_IS_CURSOR) && !(reqFlags & QEXEC_F_IS_SEARCH)) {
     limit = req->maxAggregateResults;
@@ -992,15 +1008,13 @@ void sendChunk(AREQ *req, RedisModule_Reply *reply, size_t limit) {
   QueryProcessingCtx *qctx = AREQ_QueryProcessingCtx(req);
   qctx->resultLimit = limit;
 
-  if (reply->resp3) {
-    sendChunk_Resp3(req, reply, limit, cv);
-  } else {
-    sendChunk_Resp2(req, reply, limit, cv);
-  }
+  bool storedResults = reply->resp3 ? sendChunk_Resp3(req, reply, limit, cv)
+                                    : sendChunk_Resp2(req, reply, limit, cv);
 
   if (sctx->spec) {
     IndexSpec_DecrActiveQueries(sctx->spec);
   }
+  return storedResults;
 }
 
 // Simple version of sendChunk that returns empty results for aggregate queries.
@@ -1555,19 +1569,6 @@ static void drainPartialResultsAfterTimeout(AREQ *req) {
   AREQ_DrainStoredResultsAfterTimeout(req);
 }
 
-static void clearStoredCursorReadResults(ChunkReplyState *stored) {
-  if (stored->results) {
-    for (size_t i = 0; i < array_len(stored->results); i++) {
-      SearchResult_Destroy(stored->results[i]);
-      rm_free(stored->results[i]);
-    }
-    array_free(stored->results);
-    stored->results = NULL;
-  }
-  stored->hasStoredResults = false;
-  QueryError_ClearError(&stored->err);
-}
-
 // Timeout callback for AREQ execution in Run in Threads mode.
 // Called on the main thread when the blocking client times out (RETURN-STRICT
 // policy only). Coordinates with the BG worker via the AREQ aggregate-results
@@ -1592,7 +1593,7 @@ static int QueryTimeoutReturnStrictCallback(RedisModuleCtx *ctx, RedisModuleStri
   // Signal timeout to background thread
   AREQ_SetTimedOut(req);
 
-  if (AREQ_TryClaimAggregateResultsForTimeout(req)) {
+  if (AREQ_TryClaimAggregateResults(req)) {
     // We were able to claim the aggregation results.
     // That means that the background thread didn't reach the aggregation phase (startPipelineCommon) yet.
     // Reply with empty results
@@ -1746,19 +1747,30 @@ static int CursorReadTimeoutReturnStrictCallback(RedisModuleCtx *ctx, RedisModul
   AREQ *req = (AREQ *)node->privdata;
   AREQ_SetTimedOut(req);
 
-  // If the timeout fires before the worker enters sendChunk/startPipeline, no
-  // stored cursor-read result exists. Preserve the requested cursor id so the
-  // caller can retry the same cursor on the next read.
-  if (AREQ_TryClaimAggregateResultsForTimeout(req)) {
-    return IsInternal(req) ? shard_cursor_read_empty_reply_timeout(ctx, (long long)node->cursorId)
-                           : coord_cursor_read_empty_reply_timeout(ctx, (long long)node->cursorId);
+  if (AREQ_TryClaimAggregateResults(req)) {
+    // The worker has not entered the stored-results phase yet. Reply without
+    // waiting; the worker will observe the failed claim and free the already
+    // taken cursor locally. This avoids blocking the Redis main thread on a
+    // worker that may still be paused at a debug sync point or queued.
+    QueryErrorsGlobalStats_UpdateError(QUERY_ERROR_CODE_TIMED_OUT, 1, !IsInternal(req));
+    RedisModule_ReplyWithError(ctx, QueryError_Strerror(QUERY_ERROR_CODE_TIMED_OUT));
+    return REDISMODULE_OK;
   }
 
+  // The worker owns the stored-results phase. Wait for it to store a
+  // cursor-shaped reply and park/free the cursor before replying.
   AREQ_WaitForAggregateResultsComplete(req);
-  RS_ASSERT(req->storedReplyState.hasStoredResults);
 
-  drainPartialResultsAfterTimeout(req);
-  AREQ_ReplyWithStoredResults(ctx, req);
+  if (req->storedReplyState.hasStoredResults) {
+    drainPartialResultsAfterTimeout(req);
+    AREQ_ReplyWithStoredResults(ctx, req);
+  } else if (QueryError_HasError(&req->storedReplyState.err)) {
+    QueryErrorsGlobalStats_UpdateError(QueryError_GetCode(&req->storedReplyState.err), 1,
+                                       !IsInternal(req));
+    QueryError_ReplyAndClear(ctx, &req->storedReplyState.err);
+  } else {
+    RedisModule_ReplyWithError(ctx, "ERR Internal error: no results stored");
+  }
   return REDISMODULE_OK;
 }
 
@@ -2000,33 +2012,22 @@ static void runCursor(RedisModule_Reply *reply, Cursor *cursor, size_t num) {
   }
 #endif
 
-  if (req->useReplyCallback && AREQ_RequiresThreadsSyncResults(req) &&
-      AREQ_AggregateResultsClaimedByTimeout(req)) {
-    // The strict timeout callback already won and replied with this cursor id
-    // before this worker reached sendChunk. Keep the cursor paused so the
-    // caller can retry it.
-    RedisSearchCtx_UnlockSpec(AREQ_SearchCtx(req));
-    Cursor_Pause(cursor);
-    return;
-  }
-
   if (req->useReplyCallback) {
     // Stash the cursor BEFORE sendChunk: sendChunk's signal can wake the
     // timeout_callback, which reads storedReplyState.cursor to pause/free it.
     req->storedReplyState.cursor = cursor;
   }
 
-  sendChunk(req, reply, num);
+  bool storedReply = sendChunk(req, reply, num);
   RedisSearchCtx_UnlockSpec(AREQ_SearchCtx(req)); // Verify that we release the spec lock
 
   if (req->useReplyCallback) {
-    if (AREQ_RequiresThreadsSyncResults(req) && AREQ_AggregateResultsClaimedByTimeout(req)) {
-      // The timeout callback won after we passed the pre-sendChunk timeout
-      // check, so it already replied from the empty fast path. No reply
-      // callback will consume the stored state from this worker.
+    if (!storedReply) {
+      // The strict timeout callback won the sync claim and already replied with
+      // a hard timeout. This read cannot be retried through the same cursor id,
+      // so close the cursor that was already taken for execution.
       req->storedReplyState.cursor = NULL;
-      clearStoredCursorReadResults(&req->storedReplyState);
-      Cursor_Pause(cursor);
+      Cursor_Free(cursor);
       return;
     }
     // Disposal of the stashed cursor is owned by AREQ_ReplyWithStoredResults.
@@ -2137,15 +2138,13 @@ typedef struct {
 static void cursorRead_ctx(CursorReadCtx *cr_ctx) {
   RedisModuleCtx *ctx = RedisModule_GetThreadSafeContext(cr_ctx->bc);
   // Optimization (mirrors AREQ_Execute_Callback): if the timer fired while
-  // we were queued, the client already got its timeout reply. Strict cursor
-  // reads that replied with the cursor id keep it retryable; other timeout
-  // policies can close the cursor immediately.
+  // we were queued, FAIL already replied and can close the cursor immediately.
+  // RETURN_STRICT still runs the read so it can store a cursor-shaped timeout
+  // reply and park/free the cursor before the timeout callback replies.
   AREQ *req = cr_ctx->cursor->execState;
   RS_ASSERT(req);
-  if (!AREQ_TimedOut(req)) {
+  if (!AREQ_TimedOut(req) || AREQ_RequiresThreadsSyncResults(req)) {
     cursorRead(ctx, cr_ctx->cursor, cr_ctx->count, true);
-  } else if (AREQ_RequiresThreadsSyncResults(req) && AREQ_AggregateResultsClaimedByTimeout(req)) {
-    Cursor_Pause(cr_ctx->cursor);
   } else {
     Cursor_Free(cr_ctx->cursor);
   }

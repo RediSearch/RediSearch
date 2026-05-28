@@ -1251,7 +1251,7 @@ class TestCoordinatorTimeout:
 
         prev_policy = target_shard.execute_command('CONFIG', 'GET', ON_TIMEOUT_CONFIG)[ON_TIMEOUT_CONFIG]
         before_info = info_modules_to_dict(target_shard)
-        base_warn_shard = int(before_info[WARN_ERR_SECTION][TIMEOUT_WARNING_SHARD_METRIC])
+        base_err_shard = int(before_info[WARN_ERR_SECTION][TIMEOUT_ERROR_SHARD_METRIC])
 
         try:
             target_shard.execute_command('CONFIG', 'SET', ON_TIMEOUT_CONFIG, 'return-strict')
@@ -1276,13 +1276,17 @@ class TestCoordinatorTimeout:
             target_shard.execute_command('CONFIG', 'SET', ON_TIMEOUT_CONFIG, 'return')
             target_shard.execute_command(debug_cmd(), 'WORKERS', 'pause')
 
-            result = []
+            error_result = []
+            def read_vsim_cursor():
+                try:
+                    target_shard.execute_command('_FT.CURSOR', 'READ', 'hybrid_idx', str(vsim_cursor))
+                    error_result.append(None)
+                except redis_exceptions.ResponseError as e:
+                    error_result.append(str(e))
+
             try:
                 t_query = threading.Thread(
-                    target=call_and_store,
-                    args=(target_shard.execute_command,
-                          ['_FT.CURSOR', 'READ', 'hybrid_idx', str(vsim_cursor)],
-                          result),
+                    target=read_vsim_cursor,
                     daemon=True)
                 t_query.start()
                 blocked_client_id = wait_for_blocked_query_client(
@@ -1300,25 +1304,19 @@ class TestCoordinatorTimeout:
             t_query.join(timeout=10)
             env.assertFalse(t_query.is_alive(),
                             message="VSIM cursor read thread should have finished")
-            env.assertEqual(len(result), 1, message="Expected one cursor read reply")
-
-            read_reply, next_cursor = result[0]
-            env.assertEqual(next_cursor, vsim_cursor,
-                            message=f"Timed-out shard cursor should stay retryable, got {result[0]}")
-            env.assertEqual(read_reply.get('warning', []), [TIMEOUT_WARNING],
-                            message=f"Expected timeout warning, got {read_reply}")
+            env.assertEqual(len(error_result), 1, message="Expected one cursor read result")
+            env.assertContains(TIMEOUT_ERROR, error_result[0])
 
             wait_for_info_metric(
-                target_shard, [WARN_ERR_SECTION, TIMEOUT_WARNING_SHARD_METRIC],
-                str(base_warn_shard + 1),
-                msg="VSIM _FT.CURSOR READ RETURN_STRICT timeout warning should bump shard metric")
+                target_shard, [WARN_ERR_SECTION, TIMEOUT_ERROR_SHARD_METRIC],
+                str(base_err_shard + 1),
+                msg="VSIM _FT.CURSOR READ RETURN_STRICT timeout error should bump shard metric")
 
-            followup_reply, followup_cursor = target_shard.execute_command(
-                '_FT.CURSOR', 'READ', 'hybrid_idx', str(vsim_cursor))
-            env.assertEqual(followup_reply.get('warning', []), [],
-                            message=f"Expected follow-up read without timeout warning, got {followup_reply}")
-            if followup_cursor:
-                target_shard.execute_command('_FT.CURSOR', 'DEL', 'hybrid_idx', str(followup_cursor))
+            try:
+                target_shard.execute_command('_FT.CURSOR', 'READ', 'hybrid_idx', str(vsim_cursor))
+                env.assertFalse(True, message="Expected VSIM cursor to be closed after timeout")
+            except redis_exceptions.ResponseError as e:
+                env.assertContains('Cursor not found', str(e))
             if search_cursor:
                 target_shard.execute_command('_FT.CURSOR', 'DEL', 'hybrid_idx', str(search_cursor))
         finally:
@@ -5007,24 +5005,25 @@ class TestShardTimeout:
 
         env.expect('CONFIG', 'SET', ON_TIMEOUT_CONFIG, prev_policy).ok()
 
-    def test_return_strict_timeout_shard_cursor_read_preserves_local_cursor(self):
-        """Standalone RETURN_STRICT cursor-read timeout preserves cid for retry."""
+    def test_return_strict_timeout_shard_cursor_read_does_not_hang(self):
+        """Standalone RETURN_STRICT cursor-read timeout does not hang."""
         env = self.env
         skipIfNoEnableAssert(env)
         sync_point = 'BeforeCursorReadSendChunk'
 
-        prev_policy, cursor_id, baseline, before_info, base_warn_coord, _ = \
+        prev_policy, cursor_id, baseline, before_info, _, _ = \
             _setup_return_strict_cursor_state(env)
+        base_err_coord = int(before_info[COORD_WARN_ERR_SECTION][TIMEOUT_ERROR_COORD_METRIC])
 
         try:
             env.expect(debug_cmd(), 'SYNC_POINT', 'CLEAR').ok()
             env.expect(debug_cmd(), 'SYNC_POINT', 'ARM', sync_point).ok()
 
-            result = []
             try:
                 t_query = threading.Thread(
-                    target=call_and_store,
-                    args=(env.cmd, ['FT.CURSOR', 'READ', 'idx', str(cursor_id)], result),
+                    target=lambda: env.expect(
+                        'FT.CURSOR', 'READ', 'idx', str(cursor_id)
+                    ).error().contains(TIMEOUT_ERROR),
                     daemon=True,
                 )
                 t_query.start()
@@ -5042,23 +5041,15 @@ class TestShardTimeout:
 
             t_query.join(timeout=10)
             env.assertFalse(t_query.is_alive(), message="Cursor read thread should have finished")
-            env.assertEqual(len(result), 1, message="Expected one cursor-read reply")
-            _assert_return_strict_cursor_timeout_reply(
-                env, result[0], cursor_id, expected_results=0,
-                message_prefix='standalone RETURN_STRICT cursor-read timeout')
 
             after_info = info_modules_to_dict(env)
-            env.assertEqual(after_info[COORD_WARN_ERR_SECTION][TIMEOUT_WARNING_COORD_METRIC],
-                            str(base_warn_coord + 1),
-                            message="Coordinator timeout warning should be +1 after standalone cursor-read timeout")
-            _verify_metrics_not_changed(env, env, before_info, [TIMEOUT_WARNING_COORD_METRIC])
+            env.assertEqual(after_info[COORD_WARN_ERR_SECTION][TIMEOUT_ERROR_COORD_METRIC],
+                            str(base_err_coord + 1),
+                            message="Coordinator timeout error should be +1 after standalone cursor-read timeout")
+            _verify_metrics_not_changed(env, env, before_info, [TIMEOUT_ERROR_COORD_METRIC])
 
-            _assert_cursor_read_happy_path(
-                env, cursor_id,
-                message_prefix='standalone RETURN_STRICT cursor-read followup')
-
-            env.expect('FT.CURSOR', 'DEL', 'idx', cursor_id).ok()
             _wait_for_cursor_cleanup(env, baseline, 'standalone RETURN_STRICT cursor-read timeout')
+            env.expect('FT.CURSOR', 'READ', 'idx', str(cursor_id)).error().contains('Cursor not found')
         finally:
             env.expect(debug_cmd(), 'SYNC_POINT', 'CLEAR').ok()
             env.expect('CONFIG', 'SET', ON_TIMEOUT_CONFIG, prev_policy).ok()
