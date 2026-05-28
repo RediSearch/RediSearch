@@ -479,7 +479,8 @@ static bool shouldCheckInPipelineTimeoutCoord(AREQ *req) {
 }
 
 static int prepareForExecution(AREQ *r, RedisModuleCtx *ctx, RedisModuleString **argv, int argc,
-                         IndexSpec *sp, specialCaseCtx **knnCtx_ptr, QueryError *status) {
+                               IndexSpec *sp, specialCaseCtx **knnCtx_ptr, size_t numShards,
+                               QueryError *status) {
   AREQ_QueryProcessingCtx(r)->err = status;
   AREQ_AddRequestFlags(r, QEXEC_F_IS_AGGREGATE | QEXEC_F_BUILDPIPELINE_NO_ROOT);
   rs_wall_clock_init(&r->profileClocks.initClock);
@@ -528,8 +529,12 @@ static int prepareForExecution(AREQ *r, RedisModuleCtx *ctx, RedisModuleString *
   rc = AGGPLN_Distribute(AREQ_AGGPlan(r), status);
   if (rc != REDISMODULE_OK) return REDISMODULE_ERR;
 
+  // The coordinator merges shard-local groups, so allow one configured cap per shard.
+  AggregationPipelineParams aggregationParams = AREQ_MakeAggregationPipelineParams(
+      r, GroupByLimits_ForCoordinator(RSGlobalConfig.maxAggregateGroups, numShards));
+
   AREQDIST_UpstreamInfo us = {NULL};
-  rc = AREQ_BuildDistributedPipeline(r, &us, status);
+  rc = AREQ_BuildDistributedPipeline(r, &us, &aggregationParams, status);
   if (rc != REDISMODULE_OK) return REDISMODULE_ERR;
 
   // Construct the command string
@@ -658,6 +663,7 @@ void RSExecDistAggregate(RedisModuleCtx *ctx, RedisModuleString **argv, int argc
 
   // Store coordinator start time for dispatch time tracking
   r->profileClocks.coordStartTime = ConcurrentCmdCtx_GetCoordStartTime(cmdCtx);
+  size_t numShards = ConcurrentCmdCtx_GetNumShards(cmdCtx);
 
   // Check if the index still exists, and promote the ref accordingly
   StrongRef strong_ref = IndexSpecRef_Promote(ConcurrentCmdCtx_GetWeakRef(cmdCtx));
@@ -667,7 +673,7 @@ void RSExecDistAggregate(RedisModuleCtx *ctx, RedisModuleString **argv, int argc
     goto err;
   }
 
-  if (prepareForExecution(r, ctx, argv, argc, sp, &knnCtx, &status) != REDISMODULE_OK) {
+  if (prepareForExecution(r, ctx, argv, argc, sp, &knnCtx, numShards, &status) != REDISMODULE_OK) {
     goto err;
   }
 
@@ -912,6 +918,7 @@ void DEBUG_RSExecDistAggregate(RedisModuleCtx *ctx, RedisModuleString **argv, in
   StrongRef strong_ref = {0};
   int debug_argv_count = 0;
   MRCommand *cmd = NULL;
+  size_t numShards = 0;
   RPNet *rpnet = NULL;
 
   // debug_req and &debug_req->r are allocated in the same memory block, so it will be freed
@@ -946,6 +953,7 @@ void DEBUG_RSExecDistAggregate(RedisModuleCtx *ctx, RedisModuleString **argv, in
 
   // Store coordinator start time for dispatch time tracking
   r->profileClocks.coordStartTime = ConcurrentCmdCtx_GetCoordStartTime(cmdCtx);
+  numShards = ConcurrentCmdCtx_GetNumShards(cmdCtx);
   debug_params = debug_req->debug_params;
   // Check if the index still exists, and promote the ref accordingly
   strong_ref = IndexSpecRef_Promote(ConcurrentCmdCtx_GetWeakRef(cmdCtx));
@@ -956,7 +964,8 @@ void DEBUG_RSExecDistAggregate(RedisModuleCtx *ctx, RedisModuleString **argv, in
   }
 
   debug_argv_count = debug_params.debug_params_count + 2;  // account for `DEBUG_PARAMS_COUNT` `<count>` strings
-  if (prepareForExecution(r, ctx, argv, argc - debug_argv_count, sp, &knnCtx, &status) != REDISMODULE_OK) {
+  if (prepareForExecution(r, ctx, argv, argc - debug_argv_count, sp, &knnCtx, numShards,
+                          &status) != REDISMODULE_OK) {
     goto err;
   }
 
