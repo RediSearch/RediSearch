@@ -3024,6 +3024,127 @@ class TestCoordinatorTimeout:
         resetStoreResultsDebug(env)
         env.cmd('CONFIG', 'SET', ON_TIMEOUT_CONFIG, prev_on_timeout_policy)
 
+    def test_return_strict_timeout_all_shards_paused_hybrid(self):
+        """RETURN_STRICT timeout while every shard's cursor-read worker is
+        parked before sendChunk.
+
+        Hybrid analogue of test_return_strict_timeout_all_shards_paused_aggregate
+        targeting the channel-wake path in the hybrid pipeline. FT.HYBRID runs
+        in two phases: shards first execute the initial _FT.HYBRID job that
+        stores the per-subquery cursors and replies with their ids, then the
+        coordinator drives the result pipeline by issuing _FT.CURSOR READ to
+        each shard. To exercise the WakeAbort path we need the coordinator BG
+        worker to actually block in MRChannel_PopWithTimeout waiting on cursor
+        reads, which means every shard must have replied with cursor ids
+        (otherwise BG would block on the initial _FT.HYBRID reply, a different
+        scenario) and then never serve any cursor read.
+
+        We arrange that by arming BeforeCursorReadSendChunk on every shard.
+        The initial _FT.HYBRID runs to completion (cursors stored, ids sent
+        back to the coord). The coord receives the ids and dispatches
+        _FT.CURSOR READ per shard; each shard's worker enters runCursor,
+        hits the sync point, and parks before sendChunk. Once every shard's
+        worker is parked, the coord BG is guaranteed to be sleeping in
+        MRChannel_PopWithTimeout.
+
+        Firing the blocked-client timeout flips syncCtx.timedOut on every
+        subquery AREQ and broadcasts on each registered abort channel; BG
+        observes the abort, returns RS_RESULT_TIMEDOUT, signals completion,
+        and the main-thread callback replies via serializeStoredResults_hybrid
+        with 0 rows and a per-subquery TIMEOUT warning ((SEARCH) + (VSIM)).
+        Because replyWarningsWithSuffixes iterates per subquery and each
+        subquery's MRIterator independently returned RS_RESULT_TIMEDOUT from
+        the channel wake-up, the coord timeout warning metric increments by
+        the number of subqueries (2) - mirroring the per-subquery warning
+        strings that land in the client reply.
+
+        After verifying the reply we signal the sync point on every shard so
+        the parked workers complete sendChunk (their replies land on the now-
+        freed coord cursors and are dropped, matching the existing FAIL
+        cursor-read tests' teardown).
+        """
+        env = self.env
+        skipIfNoEnableAssert(env)
+
+        prev_on_timeout_policy = env.cmd('CONFIG', 'GET', ON_TIMEOUT_CONFIG)[ON_TIMEOUT_CONFIG]
+        env.cmd('CONFIG', 'SET', ON_TIMEOUT_CONFIG, 'return-strict')
+
+        before_info = info_modules_to_dict(env)
+        base_warn_coord = int(before_info[COORD_WARN_ERR_SECTION][TIMEOUT_WARNING_COORD_METRIC])
+
+        sync_point = 'BeforeCursorReadSendChunk'
+        all_shard_conns = [env.getConnection(i) for i in range(1, env.shardsCount + 1)]
+        for c in all_shard_conns:
+            c.execute_command(debug_cmd(), 'SYNC_POINT', 'CLEAR')
+            c.execute_command(debug_cmd(), 'SYNC_POINT', 'ARM', sync_point)
+
+        query_args = [
+            'FT.HYBRID', 'hybrid_idx',
+            'SEARCH', '*',
+            'VSIM', '@embedding', '$BLOB',
+            'PARAMS', '2', 'BLOB', self.hybrid_query_vec
+        ]
+        query_result = []
+        t_query = threading.Thread(
+            target=call_and_store,
+            args=(env.cmd, query_args, query_result),
+            daemon=True
+        )
+        t_query.start()
+
+        # Wait until every shard's cursor-read worker is parked at the sync
+        # point. Once all are parked, the coord BG is guaranteed to be
+        # sleeping in MRChannel_PopWithTimeout waiting for cursor-read replies
+        # that will never arrive.
+        for c in all_shard_conns:
+            wait_for_condition(
+                lambda c=c: (c.execute_command(debug_cmd(), 'SYNC_POINT',
+                                               'IS_WAITING', sync_point) == 1, {}),
+                f'Timeout waiting for shard to park at {sync_point}'
+            )
+
+        blocked_client_id = wait_for_blocked_query_client(env, 'FT.HYBRID')
+        env.cmd('CLIENT', 'UNBLOCK', blocked_client_id, 'TIMEOUT')
+        wait_for_client_unblocked(env, blocked_client_id)
+
+        # Release the parked workers so they complete sendChunk and clean up
+        # their cursors. The coord cursors were freed by the timeout reply
+        # path, so the eventual cursor-read replies are dropped.
+        for c in all_shard_conns:
+            c.execute_command(debug_cmd(), 'SYNC_POINT', 'SIGNAL', sync_point)
+
+        t_query.join(timeout=10)
+        env.assertFalse(t_query.is_alive(), message="Query thread should have finished")
+
+        env.assertEqual(len(query_result), 1, message="Expected 1 result from query thread")
+        result = query_result[0]
+        env.assertEqual(result['total_results'], 0, message=f"Expected 0 results, got: {result}")
+        env.assertEqual(result.get('results', []), [],
+                        message=f"Expected no rows, got {result.get('results')}")
+        # Both subqueries (SEARCH and VSIM) were woken by WakeAbortChannel
+        # broadcast, each returning RS_RESULT_TIMEDOUT, so the reply carries
+        # one timeout warning per subquery (suffixed (SEARCH) / (VSIM)).
+        warnings = result.get('warnings', [])
+        env.assertEqual(len(warnings), 2,
+                        message=f"Expected one TIMEOUT warning per subquery, got: {warnings}")
+        env.assertContains('Timeout', warnings[0],
+                           message=f"Expected SEARCH TIMEOUT warning, got: {warnings}")
+        env.assertContains('Timeout', warnings[1],
+                           message=f"Expected VSIM TIMEOUT warning, got: {warnings}")
+
+        # finishSendChunkReply_hybrid -> replyWarningsWithSuffixes bumps the
+        # coord timeout-warning metric once per subquery that returned
+        # RS_RESULT_TIMEDOUT, so the metric grows by the number of subqueries.
+        after_info = info_modules_to_dict(env)
+        env.assertEqual(after_info[COORD_WARN_ERR_SECTION][TIMEOUT_WARNING_COORD_METRIC],
+                        str(base_warn_coord + 2),
+                        message="Coordinator timeout warning should be +2 (one per subquery)")
+        _verify_metrics_not_changed(env, env, before_info, [TIMEOUT_WARNING_COORD_METRIC])
+
+        for c in all_shard_conns:
+            c.execute_command(debug_cmd(), 'SYNC_POINT', 'CLEAR')
+        env.cmd('CONFIG', 'SET', ON_TIMEOUT_CONFIG, prev_on_timeout_policy)
+
     # ----- RETURN_STRICT FT.CURSOR READ timeout tests -----
 
     def _assert_warn_metric_bumped(self, before_info, base_warn_coord, context):

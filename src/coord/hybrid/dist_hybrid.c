@@ -1043,6 +1043,17 @@ int DistHybridTimeoutReturnStrictClient(RedisModuleCtx *ctx, RedisModuleString *
     return REDISMODULE_OK;
   }
 
+  // Losing TryClaim means BG owns the claim, it may be blocked in
+  // MRIterator_NextWithTimeout on one of the subquery RPNet channels.
+  // Wake every subquery so it observes the propagated timedOut and exits
+  // the pipeline promptly. Mirrors RequestSyncCtx_WakeAbortChannel call
+  // in DistAggregateTimeoutReturnStrictClient.
+  for (size_t i = 0; i < hreq->nrequests; i++) {
+    if (hreq->requests[i]) {
+      RequestSyncCtx_WakeAbortChannel(&hreq->requests[i]->syncCtx);
+    }
+  }
+
   HybridRequest_WaitForAggregateResultsComplete(hreq);
 
   // Call serializeStoredResults_hybrid to build reply from stored results
