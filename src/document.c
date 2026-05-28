@@ -354,12 +354,13 @@ void AddDocumentCtx_Free(RSAddDocumentCtx *aCtx) {
   ByteOffsetWriter_Cleanup(&aCtx->offsetsWriter);
   QueryError_ClearError(&aCtx->status);
 
-  // `commitDocument` is the single owner of `aCtx->disk.batch` once it has been
-  // opened by `doAssignIds`. Reaching `AddDocumentCtx_Free` with the batch
-  // still set means the indexing pipeline bailed out between staging and
-  // commit — there is no such path today, and adding one in the future
-  // requires a paired abort.
-  RS_ASSERT(!aCtx->disk.batch);
+  // Disk-mode: the batch handle stays alive across commit/abort and is owned
+  // by `aCtx`. Free it unconditionally here so we don't leak on any teardown
+  // path — including ones that bail out before `commitDocument` ran.
+  // `SearchDisk_FreeWriteBatch` is null-safe, so memory-mode contexts (where
+  // the batch was never created) are a no-op.
+  SearchDisk_FreeWriteBatch(aCtx->disk.batch);
+  aCtx->disk.batch = NULL;
 
   mempool_release(actxPool_g, aCtx);
 }

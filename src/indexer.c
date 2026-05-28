@@ -646,7 +646,6 @@ static bool commitDocument(RSAddDocumentCtx *aCtx, RedisSearchCtx *ctx) {
     // `doAssignIds` crashes via `RS_LOG_ASSERT_FMT_ALWAYS` on batch-open /
     // staging failure, so reaching here implies the batch is non-NULL.
     SearchDisk_AbortWriteBatch(aCtx->disk.batch);
-    aCtx->disk.batch = NULL;
     // `bulkStageFields` records the originating field error in stats and then
     // clears `aCtx->status`, so by the time we get here `aCtx->status` may be
     // empty. Ensure the reply path sees an error.
@@ -658,7 +657,6 @@ static bool commitDocument(RSAddDocumentCtx *aCtx, RedisSearchCtx *ctx) {
   }
 
   if (!SearchDisk_CommitWriteBatch(aCtx->disk.batch)) {
-    aCtx->disk.batch = NULL;
     if (!QueryError_HasError(&aCtx->status)) {
       QueryError_SetError(&aCtx->status, QUERY_ERROR_CODE_GENERIC,
                           "Failed to commit disk write batch");
@@ -666,7 +664,6 @@ static bool commitDocument(RSAddDocumentCtx *aCtx, RedisSearchCtx *ctx) {
     aCtx->stateFlags |= ACTX_F_ERRORED;
     return false;
   }
-  aCtx->disk.batch = NULL;
   return true;
 }
 
