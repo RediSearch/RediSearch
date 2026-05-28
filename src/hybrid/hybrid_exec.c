@@ -188,6 +188,16 @@ static void serializeResult_hybrid(HybridRequest *hreq, RedisModule_Reply *reply
   RedisModule_Reply_MapEnd(reply); // >result
 }
 
+#ifdef ENABLE_ASSERT
+// SyncPoint stop predicate: break out of a sync-point wait when the request
+// has timed out (so BG can release as soon as the main-thread timeout callback
+// fires) or when a writer is parked on a spec rwlock (mirrors the AGG-side
+// predicate at aggregate_exec.c:areq_timeout_or_pending_spec_writers).
+static bool hreq_timeout_or_pending_spec_writers(void *arg) {
+  return HybridRequest_TimedOut((HybridRequest *)arg) || PendingSpecWriters_Get() > 0;
+}
+#endif
+
 static void startPipelineHybrid(HybridRequest *hreq, ResultProcessor *rp, SearchResult ***results, SearchResult *r, int *rc) {
   CommonPipelineCtx ctx = {
     .timeoutPolicy = hreq->reqConfig.timeoutPolicy,
@@ -196,6 +206,11 @@ static void startPipelineHybrid(HybridRequest *hreq, ResultProcessor *rp, Search
     .skipTimeoutChecks = !HybridRequest_ShouldCheckTimeout(hreq),
     .areq = NULL,
   };
+
+#ifdef ENABLE_ASSERT
+  // Sync point (debug): pause before the TryClaim race
+  SyncPoint_WaitUntil(SYNC_POINT_BEFORE_HYBRID_RESULTS_CLAIM, hreq_timeout_or_pending_spec_writers, hreq);
+#endif
 
   // Bail if the RETURN-STRICT timeout callback already claimed (it replies)
   // or if it signaled timeout in parallel after we won (it will reply with

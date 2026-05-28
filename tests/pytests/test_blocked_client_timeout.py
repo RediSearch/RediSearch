@@ -2790,6 +2790,240 @@ class TestCoordinatorTimeout:
         resetStoreResultsDebug(env)
         env.cmd('CONFIG', 'SET', ON_TIMEOUT_CONFIG, prev_on_timeout_policy)
 
+    # ----- RETURN_STRICT FT.HYBRID timeout tests -----
+
+    def test_return_strict_timeout_before_coord_pickup_hybrid(self):
+        """RETURN_STRICT timeout while an FT.HYBRID job is still queued in COORD_THREADS.
+
+        Mirrors test_fail_timeout_before_coord_pickup_hybrid but with the
+        return-strict policy: pauses the coordinator thread pool so the
+        dispatched FT.HYBRID is never picked up, fires the blocked-client
+        timeout, and asserts the callback replies empty + TIMEOUT warning
+        (no error). Because the BG worker never ran, the claim/signal
+        handshake is irrelevant: the timeout callback observes hreq == NULL
+        (or wins TryClaim trivially) and uses common_hybrid_query_reply_empty.
+        """
+        env = self.env
+
+        prev_on_timeout_policy = env.cmd('CONFIG', 'GET', ON_TIMEOUT_CONFIG)[ON_TIMEOUT_CONFIG]
+        env.cmd('CONFIG', 'SET', ON_TIMEOUT_CONFIG, 'return-strict')
+
+        before_info = info_modules_to_dict(env)
+        base_warn_coord = int(before_info[COORD_WARN_ERR_SECTION][TIMEOUT_WARNING_COORD_METRIC])
+
+        env.expect(debug_cmd(), 'COORD_THREADS', 'PAUSE').ok()
+        wait_for_condition(
+            lambda: (env.cmd(debug_cmd(), 'COORD_THREADS', 'is_paused') == 1, {}),
+            'Timeout while waiting for coordinator threads to pause', timeout=30)
+
+        query_args = [
+            'FT.HYBRID', 'hybrid_idx',
+            'SEARCH', '*',
+            'VSIM', '@embedding', '$BLOB',
+            'PARAMS', '2', 'BLOB', self.hybrid_query_vec
+        ]
+        query_result = []
+        t_query = threading.Thread(
+            target=call_and_store,
+            args=(env.cmd, query_args, query_result),
+            daemon=True
+        )
+        t_query.start()
+
+        blocked_client_id = wait_for_blocked_query_client(env, 'FT.HYBRID')
+
+        env.expect('CLIENT', 'UNBLOCK', blocked_client_id, 'TIMEOUT').equal(1)
+        wait_for_client_unblocked(env, blocked_client_id)
+
+        env.expect(debug_cmd(), 'COORD_THREADS', 'RESUME').ok()
+        wait_for_condition(
+            lambda: (env.cmd(debug_cmd(), 'COORD_THREADS', 'is_paused') == 0, {}),
+            'Timeout while waiting for coordinator threads to resume', timeout=30)
+
+        t_query.join(timeout=10)
+        env.assertFalse(t_query.is_alive(), message="Query thread should have finished")
+
+        env.assertEqual(len(query_result), 1, message="Expected 1 result from query thread")
+        result = query_result[0]
+        env.assertEqual(result['total_results'], 0, message=f"Expected 0 results, got: {result}")
+        env.assertEqual(result.get('results', []), [],
+                        message=f"Expected no rows, got {result.get('results')}")
+        assert_timeout_warning(env, result, message=f"FT.HYBRID return-strict before coord pickup, got: {result}")
+
+        after_info = info_modules_to_dict(env)
+        env.assertEqual(after_info[COORD_WARN_ERR_SECTION][TIMEOUT_WARNING_COORD_METRIC],
+                        str(base_warn_coord + 1),
+                        message="Coordinator timeout warning should be +1")
+        _verify_metrics_not_changed(env, env, before_info, [TIMEOUT_WARNING_COORD_METRIC])
+
+        env.cmd('CONFIG', 'SET', ON_TIMEOUT_CONFIG, prev_on_timeout_policy)
+
+    def test_return_strict_timeout_at_claim_sync_point_hybrid(self):
+        """RETURN_STRICT timeout while BG is parked before HybridRequest_TryClaimAggregateResults.
+
+        Mirrors test_return_strict_timeout_at_claim_sync_point_aggregate for
+        FT.HYBRID. Uses the BeforeHybridResultsClaim sync point to
+        deterministically race the main-thread timeout callback against the
+        BG worker's TryClaim. BG is held before the claim so the main-thread
+        callback always wins TryClaim and replies empty + timeout warning.
+        After unblocking the client, the sync point is signalled so BG
+        observes the lost claim and exits startPipelineHybrid cleanly.
+        """
+        env = self.env
+        skipIfNoEnableAssert(env)
+
+        prev_on_timeout_policy = env.cmd('CONFIG', 'GET', ON_TIMEOUT_CONFIG)[ON_TIMEOUT_CONFIG]
+        env.cmd('CONFIG', 'SET', ON_TIMEOUT_CONFIG, 'return-strict')
+
+        before_info = info_modules_to_dict(env)
+        base_warn_coord = int(before_info[COORD_WARN_ERR_SECTION][TIMEOUT_WARNING_COORD_METRIC])
+
+        sync_point = 'BeforeHybridResultsClaim'
+        env.cmd(debug_cmd(), 'SYNC_POINT', 'CLEAR')
+        env.cmd(debug_cmd(), 'SYNC_POINT', 'ARM', sync_point)
+
+        query_args = [
+            'FT.HYBRID', 'hybrid_idx',
+            'SEARCH', '*',
+            'VSIM', '@embedding', '$BLOB',
+            'PARAMS', '2', 'BLOB', self.hybrid_query_vec
+        ]
+        query_result = []
+        t_query = threading.Thread(
+            target=call_and_store,
+            args=(env.cmd, query_args, query_result),
+            daemon=True
+        )
+        t_query.start()
+
+        # Wait for BG to park at the sync point (before TryClaim).
+        wait_for_condition(
+            lambda: (env.cmd(debug_cmd(), 'SYNC_POINT', 'IS_WAITING', sync_point) == 1, {}),
+            f'Timeout waiting for {sync_point} sync point'
+        )
+
+        # Fire the blocked-client timeout on the main thread while BG is parked.
+        # Main-thread callback wins TryClaim (BG hasn't reached it yet) and
+        # replies empty + TIMEOUT warning directly.
+        blocked_client_id = wait_for_blocked_query_client(env, 'FT.HYBRID')
+        env.cmd('CLIENT', 'UNBLOCK', blocked_client_id, 'TIMEOUT')
+        wait_for_client_unblocked(env, blocked_client_id)
+
+        # Release BG so it can observe the lost claim and return from startPipelineHybrid.
+        env.cmd(debug_cmd(), 'SYNC_POINT', 'SIGNAL', sync_point)
+
+        t_query.join(timeout=10)
+        env.assertFalse(t_query.is_alive(), message="Query thread should have finished")
+
+        env.assertEqual(len(query_result), 1, message="Expected 1 result from query thread")
+        result = query_result[0]
+        env.assertEqual(result['total_results'], 0, message=f"Expected 0 results, got: {result}")
+        env.assertEqual(result.get('results', []), [],
+                        message=f"Expected no rows, got {result.get('results')}")
+        assert_timeout_warning(env, result, message=f"FT.HYBRID return-strict at claim sync point, got: {result}")
+
+        after_info = info_modules_to_dict(env)
+        env.assertEqual(after_info[COORD_WARN_ERR_SECTION][TIMEOUT_WARNING_COORD_METRIC],
+                        str(base_warn_coord + 1),
+                        message="Coordinator timeout warning should be +1")
+        _verify_metrics_not_changed(env, env, before_info, [TIMEOUT_WARNING_COORD_METRIC])
+
+        env.cmd(debug_cmd(), 'SYNC_POINT', 'CLEAR')
+        env.cmd('CONFIG', 'SET', ON_TIMEOUT_CONFIG, prev_on_timeout_policy)
+
+    def test_return_strict_timeout_after_store_hybrid(self):
+        """RETURN_STRICT timeout race after the BG hybrid pipeline has stored results.
+
+        Mirrors test_return_strict_timeout_after_store_aggregate for FT.HYBRID.
+        BG runs the pipeline to completion and stores its results via
+        HREQ_StoreResults, then parks in debugPauseStoreResultsHybrid's "after
+        store" loop before calling HybridRequest_SignalAggregateResultsComplete.
+        The blocked-client timeout callback fires on the main thread:
+          - sets timedOut on the HybridRequest
+          - loses TryClaim (BG owns it)
+          - blocks in HybridRequest_WaitForAggregateResultsComplete
+
+        debugPauseStoreResultsHybrid's loop polls HybridRequest_TimedOut and
+        breaks out, so BG proceeds to HybridRequest_SignalAggregateResultsComplete.
+        The main-thread callback wakes and replies from the stored state with
+        the full set of rows.
+
+        Because the pipeline finished before the timeout had any chance to
+        abort it, the reply carries the complete result set with no TIMEOUT
+        warning and no coordinator timeout metric increment - the timeout
+        callback was effectively a no-op race that we just need to handle
+        gracefully (no deadlock, no double-reply, no leak).
+        """
+        env = self.env
+        skipIfNoEnableAssert(env)
+
+        prev_on_timeout_policy = env.cmd('CONFIG', 'GET', ON_TIMEOUT_CONFIG)[ON_TIMEOUT_CONFIG]
+        env.cmd('CONFIG', 'SET', ON_TIMEOUT_CONFIG, 'return-strict')
+
+        before_info = info_modules_to_dict(env)
+
+        setPauseAfterStoreResults(env, True, internal=False)
+
+        # K=10000, WINDOW=10000, LIMIT=10000 (mirrors the FT.HYBRID full-set
+        # query used elsewhere in this file) so the BG pipeline produces the
+        # complete n_docs result set instead of the default KNN K=10 per shard.
+        query_args = [
+            'FT.HYBRID', 'hybrid_idx',
+            'SEARCH', '*',
+            'VSIM', '@embedding', '$BLOB',
+            'KNN', '2', 'K', '10000',
+            'COMBINE', 'RRF', '2', 'WINDOW', '10000',
+            'PARAMS', '2', 'BLOB', self.hybrid_query_vec,
+            'LIMIT', '0', '10000'
+        ]
+        query_result = []
+        t_query = threading.Thread(
+            target=call_and_store,
+            args=(env.cmd, query_args, query_result),
+            daemon=True
+        )
+        t_query.start()
+
+        blocked_client_id = wait_for_blocked_query_client(env, 'FT.HYBRID')
+
+        # Wait for BG to park in the "pause after store" loop. At this point
+        # HREQ_StoreResults has populated storedReplyState but
+        # HybridRequest_SignalAggregateResultsComplete has not been called yet.
+        wait_for_condition(
+            lambda: (getIsStoreResultsPaused(env) == 1, {'paused': getIsStoreResultsPaused(env)}),
+            'Timeout while waiting for hybrid query to pause after store results'
+        )
+
+        # Fire the timeout. Callback sets timedOut, loses TryClaim, and blocks
+        # on HybridRequest_WaitForAggregateResultsComplete. BG's pause loop
+        # observes HybridRequest_TimedOut and breaks, then signals completion.
+        # Callback wakes and replies with the stored results.
+        env.cmd('CLIENT', 'UNBLOCK', blocked_client_id, 'TIMEOUT')
+        wait_for_client_unblocked(env, blocked_client_id)
+
+        t_query.join(timeout=10)
+        env.assertFalse(t_query.is_alive(), message="Query thread should have finished")
+
+        env.assertEqual(len(query_result), 1, message="Expected 1 result from query thread")
+        result = query_result[0]
+        # The pipeline finished before the timeout could abort it: all shards
+        # responded and BG stored a complete result set. The reply carries
+        # the full row count, no TIMEOUT warning, and no metric increment.
+        env.assertEqual(result['total_results'], self.n_docs,
+                        message=f"Expected {self.n_docs} stored results, got {result['total_results']}")
+        env.assertEqual(len(result.get('results', [])), self.n_docs,
+                        message=f"Expected {self.n_docs} rows, got {len(result.get('results', []))}")
+        env.assertEqual(result.get('warnings', []), [],
+                        message=f"Expected no warnings (pipeline completed before timeout took effect), "
+                                f"got {result.get('warnings', [])}")
+
+        # Coordinator timeout warning metric must not increment because the
+        # timeout callback found stored results and replied with them.
+        _verify_metrics_not_changed(env, env, before_info, [])
+
+        resetStoreResultsDebug(env)
+        env.cmd('CONFIG', 'SET', ON_TIMEOUT_CONFIG, prev_on_timeout_policy)
+
     # ----- RETURN_STRICT FT.CURSOR READ timeout tests -----
 
     def _assert_warn_metric_bumped(self, before_info, base_warn_coord, context):
