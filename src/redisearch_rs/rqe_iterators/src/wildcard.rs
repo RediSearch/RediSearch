@@ -418,16 +418,19 @@ pub unsafe fn new_wildcard_iterator_optimized<'index>(
 /// 1. `disk_spec` must reference a valid [`RedisSearchDiskIndexSpec`](ffi::RedisSearchDiskIndexSpec)
 ///    that remains valid for `'index`.
 /// 2. [`SEARCH_ENTERPRISE_ITERATORS`] must be initialized before calling this function.
+/// 3. `snapshot`, when non-null, must be a [`RedisSearchDiskSnapshot`](ffi::RedisSearchDiskSnapshot)
+///    handle for `disk_spec` and must remain valid for `'index`.
 pub unsafe fn new_wildcard_iterator_on_disk<'index>(
     disk_spec: &'index mut ffi::RedisSearchDiskIndexSpec,
     weight: f64,
+    snapshot: *mut ffi::RedisSearchDiskSnapshot,
 ) -> NewWildcardIterator<'index> {
     // SAFETY: Caller guarantees `SEARCH_ENTERPRISE_ITERATORS` is
     // initialized when `spec.diskSpec` is non-null (8).
     let enterprise_iters_api = SEARCH_ENTERPRISE_ITERATORS
         .get()
         .expect("SEARCH_ENTERPRISE_ITERATORS not initialized");
-    match enterprise_iters_api.new_wildcard_on_disk(disk_spec, weight) {
+    match enterprise_iters_api.new_wildcard_on_disk(disk_spec, weight, snapshot) {
         Ok(it) => NewWildcardIterator::Disk(DiskWildcardIterator(it)),
         Err(err) => {
             tracing::warn!(
@@ -469,6 +472,8 @@ pub unsafe fn new_wildcard_iterator_on_disk<'index>(
 ///    [`RedisSearchDiskIndexSpec`](ffi::RedisSearchDiskIndexSpec) that remains valid for `'index`.
 /// 8. When `query.sctx.spec.diskSpec` is non-null, [`SEARCH_ENTERPRISE_ITERATORS`] must be
 ///    initialized.
+/// 9. `query.sctx.diskSnapshot`, when non-null, must be a [`RedisSearchDiskSnapshot`](ffi::RedisSearchDiskSnapshot)
+///    handle for `query.sctx.spec.diskSpec` and must remain valid for `'index`.
 pub unsafe fn new_wildcard_iterator<'index>(
     query: NonNull<ffi::QueryEvalCtx>,
     weight: f64,
@@ -486,9 +491,10 @@ pub unsafe fn new_wildcard_iterator<'index>(
         // pointer to a `RedisSearchDiskIndexSpec` that remains valid for
         // `'index` (7).
         let disk_spec = unsafe { &mut *spec.diskSpec };
+        let snapshot = sctx_ref.diskSnapshot;
         // SAFETY: Caller guarantees all preconditions of
-        // `new_wildcard_iterator_on_disk` hold (7, 8).
-        return unsafe { new_wildcard_iterator_on_disk(disk_spec, weight) };
+        // `new_wildcard_iterator_on_disk` hold (7, 8, 9).
+        return unsafe { new_wildcard_iterator_on_disk(disk_spec, weight, snapshot) };
     }
 
     let index_all = NonNull::new(spec.rule)

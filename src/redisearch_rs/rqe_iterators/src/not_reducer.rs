@@ -179,7 +179,9 @@ where
             // remains valid for `'index` (5).
             let disk_spec = unsafe { &mut *spec.diskSpec };
             // SAFETY: Caller guarantees all preconditions of `new_wildcard_iterator_on_disk` hold (5).
-            unsafe { new_wildcard_iterator_on_disk(disk_spec, weight) }
+            // The snapshot (if any) is read from `query.sctx.diskSnapshot` so the NOT-optimized
+            // path observes the same view as the rest of the query.
+            unsafe { new_wildcard_iterator_on_disk(disk_spec, weight, sctx_ref.diskSnapshot) }
         } else {
             // SAFETY: Caller guarantees `query.sctx` is a valid, non-null pointer (2)
             // and all preconditions of `new_wildcard_iterator_optimized` hold (5).

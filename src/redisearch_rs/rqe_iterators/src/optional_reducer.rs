@@ -69,7 +69,9 @@ where
         // Shortcircuit 1: child is structurally empty — drop it and return a wildcard.
         IteratorType::Empty => {
             drop(child);
-            // SAFETY: 5.
+            // SAFETY: 5. `new_wildcard_iterator` pulls the snapshot (if any) from
+            // `query.sctx.diskSnapshot` itself, so this short-circuit observes the same
+            // view as the rest of the query.
             let wc = unsafe { new_wildcard_iterator(query, 0.0) };
             NewOptionalIterator::WildcardFallback(wc)
         }
@@ -85,9 +87,9 @@ where
             // SAFETY: 1, 2.
             let query_ref = unsafe { query.as_ref() };
             // SAFETY: 2.
-            let sctx = unsafe { &*query_ref.sctx };
+            let sctx_ref = unsafe { &*query_ref.sctx };
             // SAFETY: 3.
-            let spec = unsafe { &*sctx.spec };
+            let spec = unsafe { &*sctx_ref.spec };
             let index_all = NonNull::new(spec.rule)
                 // SAFETY: 4.
                 .map(|r| unsafe { r.as_ref() }.index_all)
@@ -100,8 +102,12 @@ where
                     // SAFETY: We checked `disk_index_available` (i.e. `!spec.diskSpec.is_null()`)
                     // above, and (6) guarantees the pointer is valid for `'index`.
                     let disk_spec = unsafe { &mut *spec.diskSpec };
-                    // SAFETY: (6).
-                    unsafe { new_wildcard_iterator_on_disk(disk_spec, weight) }
+                    // SAFETY: (6). The snapshot (if any) is read from `sctx_ref.diskSnapshot`
+                    // so the optional-optimized path observes the same view as the rest of
+                    // the query.
+                    unsafe {
+                        new_wildcard_iterator_on_disk(disk_spec, weight, sctx_ref.diskSnapshot)
+                    }
                 } else {
                     // SAFETY: (2) guarantees `sctx` is valid; (7) covers all remaining
                     // preconditions of `new_wildcard_iterator_optimized`.

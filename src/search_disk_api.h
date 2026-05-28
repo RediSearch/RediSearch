@@ -29,6 +29,13 @@ typedef const void* RedisSearchDiskInvertedIndex;
 typedef const void* RedisSearchDiskIterator;
 typedef void* RedisSearchDiskAsyncReadPool;
 typedef const void* RedisSearchDiskRdbState;
+// Opaque handle for a consistent point-in-time view of the disk database.
+//
+// Created via `IndexDiskAPI.createSnapshot`, released via `IndexDiskAPI.freeSnapshot`.
+// Pass the same snapshot to `newTermIterator` / `newTagIterator` / `newWildcardIterator`
+// so all iterators in a query observe the same database state. The snapshot must outlive
+// every iterator created from it, and must not outlive the originating index spec.
+typedef const void* RedisSearchDiskSnapshot;
 
 // Opaque handle for the underlying storage-layer write batch.
 //
@@ -328,9 +335,12 @@ typedef struct IndexDiskAPI {
    * @param fieldMask Field mask indicating which fields are present in the document
    * @param weight Weight for the iterator (used in scoring)
    * @param needsOffsets Whether the query needs term offset data (for scoring or phrase matching)
+   * @param snapshot Optional snapshot for a consistent read view, or NULL to read the live database.
+   *                 When non-NULL, must have been returned by `createSnapshot(index)` and must remain
+   *                 valid until the returned iterator is freed.
    * @return Pointer to the created iterator, or NULL if creation failed
    */
-  QueryIterator *(*newTermIterator)(RedisSearchDiskIndexSpec* index, RSQueryTerm* term, t_fieldMask fieldMask, double weight, bool needsOffsets);
+  QueryIterator *(*newTermIterator)(RedisSearchDiskIndexSpec* index, RSQueryTerm* term, t_fieldMask fieldMask, double weight, bool needsOffsets, RedisSearchDiskSnapshot *snapshot);
 
   /**
    * @brief Creates a new iterator for a tag index
@@ -339,9 +349,34 @@ typedef struct IndexDiskAPI {
    * @param tok Pointer to the token (contains tag string and length)
    * @param fieldIndex Field index for the tag field
    * @param weight Weight for the iterator (used in scoring)
+   * @param snapshot Optional snapshot for a consistent read view, or NULL to read the live database.
+   *                 When non-NULL, must have been returned by `createSnapshot(index)` and must remain
+   *                 valid until the returned iterator is freed.
    * @return Pointer to the created iterator, or NULL if creation failed
    */
-  QueryIterator *(*newTagIterator)(RedisSearchDiskIndexSpec* index, const RSToken* tok, t_fieldIndex fieldIndex, double weight);
+  QueryIterator *(*newTagIterator)(RedisSearchDiskIndexSpec* index, const RSToken* tok, t_fieldIndex fieldIndex, double weight, RedisSearchDiskSnapshot *snapshot);
+
+  /**
+   * @brief Take a point-in-time snapshot of the disk database for this index.
+   *
+   * The returned snapshot can be passed to `newTermIterator`, `newTagIterator`, and the
+   * Rust-side wildcard iterator entry point so that every iterator created for one query
+   * observes the same database state. Must be released by `freeSnapshot` when no iterator
+   * is still using it.
+   *
+   * @param index Pointer to the index spec
+   * @return Snapshot handle, or NULL on error (e.g. index is NULL)
+   */
+  RedisSearchDiskSnapshot *(*createSnapshot)(RedisSearchDiskIndexSpec *index);
+
+  /**
+   * @brief Release a snapshot previously returned by `createSnapshot`.
+   *
+   * Safe to call with NULL (no-op). After this call, the snapshot pointer must not be used.
+   *
+   * @param snapshot Snapshot handle returned by `createSnapshot`
+   */
+  void (*freeSnapshot)(RedisSearchDiskSnapshot *snapshot);
 
   /**
    * @brief Run a GC compaction cycle on the disk index.

@@ -12,6 +12,7 @@
 #include <sched.h>
 
 #include "redismodule.h"
+#include "search_disk_api.h"
 #include "spec.h"
 #include <time.h>
 
@@ -60,6 +61,11 @@ typedef struct RedisSearchCtx {
   unsigned int apiVersion; // API Version to allow for backward compatibility / alternative functionality
   unsigned int expanded; // Reply format
   RSContextFlags flags;
+  // Per-query disk snapshot (optional, NULL when no snapshot has been taken or when the
+  // backing index has no disk component). Used by the disk-iterator construction paths
+  // so all iterators created during one query observe a consistent on-disk view.
+  // Owned by the query setup that took the snapshot; iterators borrow it.
+  RedisSearchDiskSnapshot *diskSnapshot;
 } RedisSearchCtx;
 
 #define SEARCH_CTX_SORTABLES(ctx) ((ctx && ctx->spec) ? ctx->spec->sortables : NULL)
@@ -76,7 +82,8 @@ static inline RedisSearchCtx SEARCH_CTX_STATIC(RedisModuleCtx *ctx, IndexSpec *s
                           .key_ = NULL,
                           .spec = sp,
                           .time = {.current = { 0, 0 }, .timeout = { 0, 0 }, .skipTimeoutChecks = false, .timedOutFlag = NULL},
-                          .flags = RS_CTX_UNSET,};
+                          .flags = RS_CTX_UNSET,
+                          .diskSnapshot = NULL,};
   return sctx;
 }
 

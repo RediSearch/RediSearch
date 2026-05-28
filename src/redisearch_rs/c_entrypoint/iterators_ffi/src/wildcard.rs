@@ -95,6 +95,8 @@ pub unsafe extern "C" fn NewWildcardIterator_Optimized(
 /// 7. `q.sctx.spec.diskSpec`, when non-null, must point to a valid
 ///    [`RedisSearchDiskIndexSpec`](ffi::RedisSearchDiskIndexSpec). `SearchDisk_NewWildcardIterator` must return
 ///    a valid, owning `QueryIterator` pointer with all required callbacks set.
+/// 8. `q.sctx.diskSnapshot`, when non-null, must be a [`RedisSearchDiskSnapshot`](ffi::RedisSearchDiskSnapshot)
+///    handle for `q.sctx.spec.diskSpec` and must remain valid for the lifetime of the returned iterator.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn NewWildcardIterator(
     q: *const ffi::QueryEvalCtx,

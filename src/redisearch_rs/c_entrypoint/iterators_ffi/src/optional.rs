@@ -41,7 +41,8 @@ pub unsafe extern "C" fn NewOptionalIterator(
 
     // Handle NULL child: equivalent to an empty iterator — return a wildcard fallback.
     let Some(child_nn) = NonNull::new(child) else {
-        // SAFETY: thanks to 2.
+        // SAFETY: thanks to 2. `new_wildcard_iterator` pulls the disk snapshot
+        // (if any) from `query.sctx.diskSnapshot` itself.
         let wc = unsafe { rqe_iterators::wildcard::new_wildcard_iterator(query, 0.0) };
         return RQEIteratorWrapper::boxed_new(wc);
     };
@@ -105,7 +106,7 @@ unsafe fn get_optional_non_optimized_iterator_child(
         .inner
         .child()
         .map(|p| p.as_ref() as *const _)
-        .unwrap_or(std::ptr::null())
+        .unwrap_or(std::ptr::null_mut())
 }
 
 /// Get the child pointer of the optimized optional iterator, or NULL if there is no child.
@@ -135,5 +136,5 @@ unsafe fn get_optional_optimized_iterator_child(
         .inner
         .child()
         .map(|p| p.as_ref() as *const _)
-        .unwrap_or(std::ptr::null())
+        .unwrap_or(std::ptr::null_mut())
 }

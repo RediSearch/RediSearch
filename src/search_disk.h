@@ -265,9 +265,12 @@ size_t SearchDisk_RunGC(RedisSearchDiskIndexSpec *index, IndexSpec *c_index_spec
  *
  * This function creates a full IndexIterator that wraps the disk API and can be used
  * in RediSearch query execution pipelines. It allocates the RSQueryTerm internally
- * and handles cleanup on failure.
+ * and handles cleanup on failure. The disk snapshot (if any) is taken from
+ * `sctx->diskSnapshot`, so the same snapshot is shared by every iterator created during
+ * one query without having to thread it through each call site.
  *
  * @param index Pointer to the index
+ * @param sctx Search context whose `diskSnapshot` field selects the read view (may be NULL on `diskSnapshot`)
  * @param tok Pointer to the token (contains term string) (token information is copied into the term, caller keeps ownership of the token)
  * @param tokenId Token ID for the term
  * @param fieldMask Field mask indicating which fields are present
@@ -277,21 +280,44 @@ size_t SearchDisk_RunGC(RedisSearchDiskIndexSpec *index, IndexSpec *c_index_spec
  * @param needsOffsets Whether the query needs term offset data (for scoring or phrase matching)
  * @return Pointer to the IndexIterator, or NULL on error
  */
-QueryIterator* SearchDisk_NewTermIterator(RedisSearchDiskIndexSpec *index, RSToken *tok, int tokenId, t_fieldMask fieldMask, double weight, double idf, double bm25_idf, bool needsOffsets);
+QueryIterator* SearchDisk_NewTermIterator(RedisSearchDiskIndexSpec *index, const RedisSearchCtx *sctx, RSToken *tok, int tokenId, t_fieldMask fieldMask, double weight, double idf, double bm25_idf, bool needsOffsets);
 
 /**
  * @brief Create a tag IndexIterator for a specific tag value
  *
  * This function creates a tag IndexIterator that wraps the disk API and can be used
- * in RediSearch query execution pipelines.
+ * in RediSearch query execution pipelines. The disk snapshot (if any) is taken from
+ * `sctx->diskSnapshot`.
  *
  * @param index Pointer to the index
+ * @param sctx Search context whose `diskSnapshot` field selects the read view
  * @param tok Pointer to the token (contains tag value string)
  * @param fieldIndex Field index for the tag field
  * @param weight Weight for the term (used in scoring)
  * @return Pointer to the IndexIterator, or NULL on error
  */
-QueryIterator* SearchDisk_NewTagIterator(RedisSearchDiskIndexSpec *index, const RSToken *tok, t_fieldIndex fieldIndex, double weight);
+QueryIterator* SearchDisk_NewTagIterator(RedisSearchDiskIndexSpec *index, const RedisSearchCtx *sctx, const RSToken *tok, t_fieldIndex fieldIndex, double weight);
+
+/**
+ * @brief Take a point-in-time snapshot of the disk database for this index.
+ *
+ * The returned snapshot can be passed to the iterator-creation wrappers so that all
+ * iterators created during one query observe the same database state. Must be released
+ * by `SearchDisk_FreeSnapshot` after every iterator created from it has been freed.
+ *
+ * @param index Pointer to the index spec
+ * @return Snapshot handle, or NULL on error
+ */
+RedisSearchDiskSnapshot* SearchDisk_CreateSnapshot(RedisSearchDiskIndexSpec *index);
+
+/**
+ * @brief Release a snapshot previously returned by `SearchDisk_CreateSnapshot`.
+ *
+ * Safe to call with NULL (no-op). After this call, the snapshot pointer must not be used.
+ *
+ * @param snapshot Snapshot handle returned by `SearchDisk_CreateSnapshot`
+ */
+void SearchDisk_FreeSnapshot(RedisSearchDiskSnapshot *snapshot);
 
 // DocTable API wrappers
 
