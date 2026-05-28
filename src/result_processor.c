@@ -2478,6 +2478,15 @@ static int RPDepleter_Next_Accumulate(ResultProcessor *base, SearchResult *r) {
   // Call the sync depletion function directly
   RPDepleter_Deplete(self);
 
+  // Only TimeoutPolicy_Return yields buffered results on timeout; FAIL
+  // propagates TIMEDOUT immediately since the buffer will be discarded by
+  // the serializer anyway.
+  if (self->last_rc == RS_RESULT_TIMEDOUT &&
+      base->parent->timeoutPolicy != TimeoutPolicy_Return) {
+    self->base.Next = RPDepleter_Next_Yield;
+    return RS_RESULT_TIMEDOUT;
+  }
+
   // Switch to yield mode
   self->base.Next = RPDepleter_Next_Yield;
 

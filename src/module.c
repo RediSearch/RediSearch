@@ -21,6 +21,7 @@
 #include "query.h"
 #include "redis_index.h"
 #include "redismodule.h"
+
 #include "rmutil/strings.h"
 #include "rmutil/util.h"
 #include "rmutil/args.h"
@@ -183,8 +184,8 @@ static inline bool checkEnterpriseACL(RedisModuleCtx *ctx, IndexSpec *sp) {
 // OOM check with heuristics
 // TODO: add heuristics
 // Assumes the GIL is held by the caller
-static inline bool estimateOOM(RedisModuleCtx *ctx) {
-  return RedisMemory_GetUsedMemoryRatioUnified(ctx) > 1;
+static inline bool estimateOOM(void) {
+  return RedisMemory_isOutOfMemory();
 }
 
 // OOM guardrail for queries function
@@ -195,7 +196,7 @@ bool QueryMemoryGuard(RedisModuleCtx *ctx) {
   // Check OOM if OOM policy is not ignore
   if (RSGlobalConfig.requestConfigParams.oomPolicy != OomPolicy_Ignore) {
     // No need to hold the GIL since we are not in a background thread
-    return estimateOOM(ctx);
+    return estimateOOM();
   }
   return false;
 }
@@ -3121,11 +3122,9 @@ void sendSearchResults_EmptyResults(RedisModule_Reply *reply, searchRequestCtx *
 static void searchResultReducer_wrapper(void *mc_v) {
   struct MRCtx *mc = mc_v;
   searchResultReducer(mc, MRCtx_GetNumReplied(mc), MRCtx_GetReplies(mc));
-  MRCtx_DecrRef(mc);
 }
 
 static int searchResultReducer_background(struct MRCtx *mc, int count, MRReply **replies) {
-  MRCtx_IncrRef(mc);
   ConcurrentSearch_ThreadPoolRun(searchResultReducer_wrapper, mc, DIST_THREADPOOL);
   return REDISMODULE_OK;
 }
@@ -3284,12 +3283,13 @@ cleanup:
   }
 
   RedisModule_BlockedClientMeasureTimeEnd(bc);
-  // Reducer already replied — unblock with NULL to prevent
-  // DistSearchUnblockClient from double-replying.
+  // The reducer already replied, so unblock with NULL to prevent
+  // DistSearchUnblockClient from double-replying. The RQ slot is released
+  // from fanoutCallback when the shard fanout finishes.
   RedisModule_UnblockClient(bc, NULL);
   RedisModule_FreeThreadSafeContext(ctx);
-  // Compensate for DistSearchFreePrivData not receiving mc.
-  MRCtx_DecrRef(mc);
+  searchRequestCtx_Free(req);
+  MRCtx_Free(mc);
   return res;
 }
 
@@ -3705,23 +3705,16 @@ void sendRequiredFields(searchRequestCtx *req, MRCommand *cmd) {
 }
 
 static void bailOut(RedisModuleBlockedClient *bc, QueryError *status) {
-  struct MRCtx *mrctx = RedisModule_BlockClientGetPrivateData(bc);
   RedisModuleCtx* clientCtx = RedisModule_GetThreadSafeContext(bc);
   QueryErrorsGlobalStats_UpdateError(QueryError_GetCode(status), 1, COORD_ERR_WARN);
   QueryError_ReplyAndClear(clientCtx, status);
   RedisModule_BlockedClientMeasureTimeEnd(bc);
-  // Unblock with NULL since we already replied. DistSearchUnblockClient will
-  // see NULL privdata and skip replying, avoiding a double-reply.
-  // Manually DecrRef mrctx to compensate for DistSearchFreePrivData not
-  // receiving it (it gets NULL and does nothing).
   RedisModule_UnblockClient(bc, NULL);
   RedisModule_FreeThreadSafeContext(clientCtx);
-  MRCtx_DecrRef(mrctx);
 }
 
-static int prepareCommand(MRCommand *cmd, searchRequestCtx *req, struct MRCtx *mrctx, int protocol,
+static int prepareCommand(MRCommand *cmd, searchRequestCtx *req, RedisModuleBlockedClient *bc, int protocol,
   RedisModuleString **argv, int argc, WeakRef spec_ref, QueryError *status) {
-  RedisModuleBlockedClient *bc = MRCtx_GetBlockedClient(mrctx);
 
   cmd->protocol = protocol;
 
@@ -3778,7 +3771,7 @@ static int prepareCommand(MRCommand *cmd, searchRequestCtx *req, struct MRCtx *m
   IndexSpec *sp = StrongRef_Get(strong_ref);
   if (!sp) {
     MRCommand_Free(cmd);
-    // Don't free req here - DistSearchMRCtxFreePrivData will handle it via MRCtx cleanup
+    searchRequestCtx_Free(req);
     QueryError_SetCode(status, QUERY_EDROPPEDBACKGROUND);
     bailOut(bc, status);
     return REDISMODULE_ERR;
@@ -3810,22 +3803,38 @@ static int prepareCommand(MRCommand *cmd, searchRequestCtx *req, struct MRCtx *m
   return REDISMODULE_OK;
 }
 
-int FlatSearchCommandHandler(struct MRCtx *mrctx, RedisModuleBlockedClient *bc, int protocol,
+static searchRequestCtx *createReq(RedisModuleString **argv, int argc, RedisModuleBlockedClient *bc, QueryError *status) {
+  searchRequestCtx *req = rscParseRequest(argv, argc, status);
+
+  if (!req) {
+    bailOut(bc, status);
+    return NULL;
+  }
+  return req;
+}
+
+int FlatSearchCommandHandler(RedisModuleBlockedClient *bc, int protocol,
   RedisModuleString **argv, int argc, ConcurrentSearchHandlerCtx *handlerCtx) {
   QueryError status = QueryError_Default();
 
-  // req was created on the main thread and set as mrctx privdata
-  searchRequestCtx *req = MRCtx_GetPrivData(mrctx);
-  RS_ASSERT(req);
+  searchRequestCtx *req = createReq(argv, argc, bc, &status);
+
+  if (!req) {
+    return REDISMODULE_OK;
+  }
 
   // Copy coordinator queue time for profile output
   req->coordQueueTime = handlerCtx->coordQueueTime;
 
   MRCommand cmd = MR_NewCommandFromRedisStrings(argc, argv);
-  int rc = prepareCommand(&cmd, req, mrctx, protocol, argv, argc, handlerCtx->spec_ref, &status);
+
+  int rc = prepareCommand(&cmd, req, bc, protocol, argv, argc, handlerCtx->spec_ref, &status);
   if (!(rc == REDISMODULE_OK)) {
     return REDISMODULE_OK;
   }
+  // Here we have an unsafe read of `NumShards`. This is fine because its just a hint.
+  struct MRCtx *mrctx = MR_CreateCtx(0, bc, req, NumShards);
+
   // FT.SEARCH coordinator should validate connections before sending the command to the cluster
   MRCtx_SetValidateConnections(mrctx, true);
 
@@ -3834,30 +3843,10 @@ int FlatSearchCommandHandler(struct MRCtx *mrctx, RedisModuleBlockedClient *bc, 
   return REDISMODULE_OK;
 }
 
-static void DistSearchMRCtxFreePrivData(struct MRCtx *mrctx) {
-  searchRequestCtx *req = MRCtx_GetPrivData(mrctx);
-  if (!req) {
-    return;
-  }
-  searchRequestCtx_Free(req);
-}
-
-// Free privdata callback for distributed search.
-// Called after the reply callback (or timeout callback) completes.
-// Releases only the blocked-client reference; MRCtx cleanup runs on the final release.
-static void DistSearchFreePrivData(RedisModuleCtx *ctx, void *privdata) {
-  UNUSED(ctx);
-  if (privdata) {
-    struct MRCtx *mrctx = privdata;
-    MRCtx_DecrRef(mrctx);
-  }
-}
-
 typedef struct SearchCmdCtx {
   RedisModuleString **argv;
   int argc;
   RedisModuleBlockedClient* bc;
-  struct MRCtx *mrctx;
   int protocol;
   ConcurrentSearchHandlerCtx handlerCtx;
 } SearchCmdCtx;
@@ -3867,25 +3856,33 @@ static void DistSearchCommandHandler(void* pd) {
   if (sCmdCtx->handlerCtx.isProfile) {
     sCmdCtx->handlerCtx.coordQueueTime = rs_wall_clock_now_ns() - sCmdCtx->handlerCtx.coordStartTime;
   }
-  FlatSearchCommandHandler(sCmdCtx->mrctx, sCmdCtx->bc, sCmdCtx->protocol, sCmdCtx->argv, sCmdCtx->argc, &sCmdCtx->handlerCtx);
+  FlatSearchCommandHandler(sCmdCtx->bc, sCmdCtx->protocol, sCmdCtx->argv, sCmdCtx->argc, &sCmdCtx->handlerCtx);
   for (size_t i = 0 ; i < sCmdCtx->argc ; ++i) {
     RedisModule_FreeString(NULL, sCmdCtx->argv[i]);
   }
   rm_free(sCmdCtx->argv);
-  MRCtx_DecrRef(sCmdCtx->mrctx);
   rm_free(sCmdCtx);
 }
 
-// Reply callback for the blocked client. Called when the client is unblocked.
-// The privdata passed to UnblockClient is the MRCtx. Cleanup is handled by
-// DistSearchFreePrivData (the free_privdata callback).
+// If the client is unblocked with a private data, we have to free it.
+// This currently happens only when the client is unblocked without calling its reduce function,
+// because we expect 0 replies. This function handles this case as well.
+static void DistSearchFreePrivData(RedisModuleCtx *ctx, void *privdata) {
+  UNUSED(ctx);
+  if (privdata) {
+    struct MRCtx *mrctx = privdata;
+    searchRequestCtx_Free(MRCtx_GetPrivData(mrctx));
+    MRCtx_Free(mrctx);
+  }
+}
+
 static int DistSearchUnblockClient(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
-  // Nothing to do here - the reducer already replied to the client.
-  // If no reducer ran (0 replies), we need to reply with an error.
   struct MRCtx *mrctx = RedisModule_GetBlockedClientPrivateData(ctx);
-  if (mrctx && MRCtx_GetNumReplied(mrctx) == 0) {
+  if (mrctx) {
+    if (MRCtx_GetNumReplied(mrctx) == 0) {
       // Can happen in a topology error, before or after we sent the command to the cluster
-    RedisModule_ReplyWithError(ctx, "Could not send query to cluster");
+      RedisModule_ReplyWithError(ctx, "Could not send query to cluster");
+    }
   }
   return REDISMODULE_OK;
 }
@@ -3953,42 +3950,12 @@ int DistSearchCommandImp(RedisModuleCtx *ctx, RedisModuleString **argv, int argc
     return ReplyBlockDeny(ctx, argv[0]);
   }
 
-  QueryError parseStatus = QueryError_Default();
-  int parse_argc = argc;
-  if (isDebug) {
-    AREQ_Debug_params debug_params = parseDebugParamsCount(argv, argc, &parseStatus);
-    if (QueryError_HasError(&parseStatus)) {
-      QueryErrorsGlobalStats_UpdateError(QueryError_GetCode(&parseStatus), 1, COORD_ERR_WARN);
-      return QueryError_ReplyAndClear(ctx, &parseStatus);
-    }
-    parse_argc = argc - (debug_params.debug_params_count + 2);
-  }
-
-  // Parse the search request on the main thread so both the standard and debug
-  // paths attach req to mrctx before dispatching to the worker thread.
-  searchRequestCtx *req = rscParseRequest(argv, parse_argc, &parseStatus);
-  if (!req) {
-    QueryErrorsGlobalStats_UpdateError(QueryError_GetCode(&parseStatus), 1, COORD_ERR_WARN);
-    return QueryError_ReplyAndClear(ctx, &parseStatus);
-  }
-
-  // Create MRCtx on main thread with searchRequestCtx as privdata.
-  // NumShards is used as a hint for reply capacity - unsafe read is fine.
-  struct MRCtx *mrctx = MR_CreateCtx(ctx, NULL, req, NumShards);
-  MRCtx_SetFreePrivDataCB(mrctx, DistSearchMRCtxFreePrivData);
-
-  // Block client - MRCtx is set as privdata so unblock/free callbacks can access it
-  RedisModuleBlockedClient* bc = RedisModule_BlockClient(ctx, DistSearchUnblockClient, NULL, DistSearchFreePrivData, 0);
-  MRCtx_SetBlockedClient(mrctx, bc);
-
-  // Set MRCtx as privdata for the blocked client
-  RedisModule_BlockClientSetPrivateData(bc, mrctx);
-
   SearchCmdCtx* sCmdCtx = rm_malloc(sizeof(*sCmdCtx));
   sCmdCtx->handlerCtx.spec_ref = StrongRef_Demote(spec_ref);
   sCmdCtx->handlerCtx.coordStartTime = coordInitialTime;
   sCmdCtx->handlerCtx.coordQueueTime = 0;
   sCmdCtx->handlerCtx.isProfile = isProfile;
+  RedisModuleBlockedClient* bc = RedisModule_BlockClient(ctx, DistSearchUnblockClient, NULL, DistSearchFreePrivData, 0);
   sCmdCtx->argv = rm_malloc(sizeof(RedisModuleString*) * argc);
   for (size_t i = 0 ; i < argc ; ++i) {
     // We need to copy the argv because it will be freed in the callback (from another thread).
@@ -3996,11 +3963,9 @@ int DistSearchCommandImp(RedisModuleCtx *ctx, RedisModuleString **argv, int argc
   }
   sCmdCtx->argc = argc;
   sCmdCtx->bc = bc;
-  sCmdCtx->mrctx = mrctx;
   sCmdCtx->protocol = is_resp3(ctx) ? 3 : 2;
   RedisModule_BlockedClientMeasureTimeStart(bc);
 
-  MRCtx_IncrRef(mrctx);
   ConcurrentSearch_ThreadPoolRun(dist_callback, sCmdCtx, DIST_THREADPOOL);
 
   return REDISMODULE_OK;
@@ -4055,26 +4020,10 @@ int SetClusterCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
   // this means a parsing error, the parser already sent the explicit error to the client
   if (!topo) {
     RedisModule_Log(ctx, "warning", "Received invalid cluster topology");
-    for (int i = 1; i < argc; i++) {
-      size_t len;
-      const char *arg = RedisModule_StringPtrLen(argv[i], &len);
-      RedisModule_Log(ctx, "warning", " Arg %d: %.*s", i, (int)len, arg);
-    }
     return REDISMODULE_ERR;
   }
-  // Build a comma-separated list of ranges per shard
-  char ranges_info[256];
-  ranges_info[0] = '\0';
-  size_t offset = 0;
-  for (uint32_t i = 0; i < topo->numShards && offset < sizeof(ranges_info) - 2; i++) {
-    if (i > 0) {
-      offset += snprintf(ranges_info + offset, sizeof(ranges_info) - offset, ", ");
-    }
-    offset += snprintf(ranges_info + offset, sizeof(ranges_info) - offset, "%d",
-                      topo->shards[i].slotRanges ? topo->shards[i].slotRanges->num_ranges : 0);
-  }
 
-  RedisModule_Log(ctx, "notice", "Received new cluster topology with %u shards (%s)", topo->numShards, ranges_info);
+  RedisModule_Log(ctx, "notice", "Received new cluster topology with %u shards", topo->numShards);
 
   if (my_shard_idx != UINT32_MAX) {
     // Take a reference to our own shard slot ranges (MR_UpdateTopology won't consume it)
@@ -4215,7 +4164,6 @@ RedisModule_OnLoad(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
                        REDISMODULE_APIVER_1) == REDISMODULE_ERR) {
     return REDISMODULE_ERR;
   }
-
   TracingRedisModule_Init(ctx);
   RustPanicHook_Init();
 
@@ -4365,7 +4313,7 @@ int RedisModule_OnUnload(RedisModuleCtx *ctx) {
 }
 /* ======================= DEBUG ONLY ======================= */
 
-static int DEBUG_FlatSearchCommandHandler(struct MRCtx *mrctx, RedisModuleBlockedClient *bc, int protocol,
+static int DEBUG_FlatSearchCommandHandler(RedisModuleBlockedClient *bc, int protocol,
   RedisModuleString **argv, int argc, ConcurrentSearchHandlerCtx *handlerCtx) {
   QueryError status = QueryError_Default();
   AREQ_Debug_params debug_params = parseDebugParamsCount(argv, argc, &status);
@@ -4377,15 +4325,17 @@ static int DEBUG_FlatSearchCommandHandler(struct MRCtx *mrctx, RedisModuleBlocke
 
   int debug_argv_count = debug_params.debug_params_count + 2;
   int base_argc = argc - debug_argv_count;
-  // req was created on the main thread and set as mrctx privdata before dispatch.
-  searchRequestCtx *req = MRCtx_GetPrivData(mrctx);
-  RS_ASSERT(req);
+  searchRequestCtx *req = createReq(argv, base_argc, bc, &status);
+
+  if (!req) {
+    return REDISMODULE_OK;
+  }
 
   // Copy coordinator queue time for profile output
   req->coordQueueTime = handlerCtx->coordQueueTime;
 
   MRCommand cmd = MR_NewCommandFromRedisStrings(base_argc, argv);
-  int rc = prepareCommand(&cmd, req, mrctx, protocol, argv, argc, handlerCtx->spec_ref, &status);
+  int rc = prepareCommand(&cmd, req, bc, protocol, argv, argc, handlerCtx->spec_ref, &status);
   if (!(rc == REDISMODULE_OK)) {
     return REDISMODULE_OK;
   }
@@ -4397,6 +4347,9 @@ static int DEBUG_FlatSearchCommandHandler(struct MRCtx *mrctx, RedisModuleBlocke
     const char *arg = RedisModule_StringPtrLen(debug_params.debug_argv[i], &n);
     MRCommand_Append(&cmd, arg, n);
   }
+
+  struct MRCtx *mrctx = MR_CreateCtx(0, bc, req, NumShards);
+
   // FT.SEARCH coordinator should validate connections before sending the command to the cluster
   MRCtx_SetValidateConnections(mrctx, true);
 
@@ -4411,12 +4364,11 @@ static void DEBUG_DistSearchCommandHandler(void* pd) {
     sCmdCtx->handlerCtx.coordQueueTime = rs_wall_clock_now_ns() - sCmdCtx->handlerCtx.coordStartTime;
   }
   // send argv not including the _FT.DEBUG
-  DEBUG_FlatSearchCommandHandler(sCmdCtx->mrctx, sCmdCtx->bc, sCmdCtx->protocol, sCmdCtx->argv, sCmdCtx->argc, &sCmdCtx->handlerCtx);
+  DEBUG_FlatSearchCommandHandler(sCmdCtx->bc, sCmdCtx->protocol, sCmdCtx->argv, sCmdCtx->argc, &sCmdCtx->handlerCtx);
   for (size_t i = 0 ; i < sCmdCtx->argc ; ++i) {
     RedisModule_FreeString(NULL, sCmdCtx->argv[i]);
   }
   rm_free(sCmdCtx->argv);
-  MRCtx_DecrRef(sCmdCtx->mrctx);
   rm_free(sCmdCtx);
 }
 

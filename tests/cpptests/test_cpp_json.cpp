@@ -35,6 +35,7 @@ TEST_F(JSONTest, testStoreTextOverflow) {
 
   QueryError_ClearError(&status);
 }
+
 TEST_F(JSONTest, testStoreMultiVectorOverflow) {
   // Test that JSON_StoreMultiVectorInDocField returns an error when len would
   // cause an overflow in the allocation size calculation (expBlobSize * len).
@@ -69,3 +70,4 @@ TEST_F(JSONTest, testStoreMultiVectorOverflow) {
 
   QueryError_ClearError(&status);
 }
+
