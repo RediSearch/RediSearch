@@ -572,8 +572,16 @@ static int prepareForExecution(AREQ *r, RedisModuleCtx *ctx, RedisModuleString *
 
 static int executePlan(AREQ *r, struct ConcurrentCmdCtx *cmdCtx, RedisModule_Reply *reply, QueryError *status) {
   if (AREQ_RequestFlags(r) & QEXEC_F_IS_CURSOR) {
-    // Keep the original concurrent context
-    ConcurrentCmdCtx_KeepRedisCtx(cmdCtx);
+    // The AREQ persists across FT.CURSOR READ commands; the dispatcher's
+    // RedisModuleCtx (currently aliased in r->sctx->redisCtx) won't.
+    // Swap in a detached thread-safe ctx that AREQ owns — AREQ_Free's cursor
+    // branch already releases it via RedisModule_FreeThreadSafeContext.
+    // Mirrors the pattern used for hybrid subqueries (createThreadSafeSearchContext).
+    RedisSearchCtx *sctx = AREQ_SearchCtx(r);
+    RedisModuleCtx *dispatcherCtx = sctx->redisCtx;
+    RedisModuleCtx *detachedCtx = RedisModule_GetDetachedThreadSafeContext(dispatcherCtx);
+    RedisModule_SelectDb(detachedCtx, RedisModule_GetSelectedDb(dispatcherCtx));
+    sctx->redisCtx = detachedCtx;
 
     StrongRef dummy_spec_ref = {.rm = NULL};
 

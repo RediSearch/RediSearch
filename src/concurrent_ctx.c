@@ -84,9 +84,7 @@ static void threadHandleCommand(void *p) {
 
   ctx->handler(ctx->ctx, ctx->argv, ctx->argc, ctx);
 
-  if (!(ctx->options & CMDCTX_KEEP_RCTX)) {
-    RedisModule_FreeThreadSafeContext(ctx->ctx);
-  }
+  RedisModule_FreeThreadSafeContext(ctx->ctx);
 
   if (!(ctx->options & CMDCTX_KEEP_BC)) {
     RedisModule_BlockedClientMeasureTimeEnd(ctx->bc);
@@ -96,10 +94,6 @@ static void threadHandleCommand(void *p) {
 
   rm_free(ctx->argv);
   rm_free(p);
-}
-
-void ConcurrentCmdCtx_KeepRedisCtx(ConcurrentCmdCtx *cctx) {
-  cctx->options |= CMDCTX_KEEP_RCTX;
 }
 
 void ConcurrentCmdCtx_KeepBlockedClient(ConcurrentCmdCtx *cctx) {
