@@ -43,8 +43,8 @@ static inline GroupByLimits GroupByLimits_Default(size_t maxGroups) {
   return limits;
 }
 
-static inline GroupByLimits GroupByLimits_ScaleForCoordinator(GroupByLimits limits,
-                                                              size_t shardCount) {
+static inline GroupByLimits GroupByLimits_ForCoordinator(size_t maxGroups, size_t shardCount) {
+  GroupByLimits limits = GroupByLimits_Default(maxGroups);
   if (shardCount == 0) {
     shardCount = 1;
   }
@@ -82,12 +82,6 @@ typedef struct AggregationPipelineParams {
    *  tokenization, and markup for the specified language. */
   RSLanguage language;
 } AggregationPipelineParams;
-
-static inline void AggregationPipelineParams_ScaleGroupByLimitsForCoordinator(
-    AggregationPipelineParams *params, size_t shardCount) {
-  params->groupByLimits = GroupByLimits_ScaleForCoordinator(params->groupByLimits, shardCount);
-}
-
 
 /**
  * Parameters specific to the document retrieval and scoring pipeline construction.

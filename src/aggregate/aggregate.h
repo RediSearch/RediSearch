@@ -376,11 +376,14 @@ void initializeAREQ(AREQ *req);
  */
 int AREQ_ApplyContext(AREQ *req, RedisSearchCtx *sctx, QueryError *status);
 
+/** Creates the aggregation pipeline parameters derived from the request. */
+AggregationPipelineParams AREQ_MakeAggregationPipelineParams(AREQ *req,
+                                                             GroupByLimits groupByLimits);
+
 /**
  * Constructs the pipeline objects needed to actually start processing
  * the requests. This does not yet start iterating over the objects
  */
-void AREQ_BuildAggregationPipelineParams(AREQ *req, AggregationPipelineParams *params);
 int AREQ_BuildPipelineWithAggregationParams(AREQ *req,
                                             const AggregationPipelineParams *aggregationParams,
                                             QueryError *status);

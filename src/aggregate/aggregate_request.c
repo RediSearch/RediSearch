@@ -1737,18 +1737,19 @@ void AREQ_CleanUpStoredCursor(AREQ *req) {
   }
 }
 
-void AREQ_BuildAggregationPipelineParams(AREQ *req, AggregationPipelineParams *params) {
-  *params = (AggregationPipelineParams){
+AggregationPipelineParams AREQ_MakeAggregationPipelineParams(AREQ *req,
+                                                             GroupByLimits groupByLimits) {
+  return (AggregationPipelineParams){
     .common = {
       .sctx = req->sctx,
       .reqflags = req->reqflags,
       .optimizer = req->optimizer,
-      // Right now score alias is not supposed to be used in the aggregation pipeline
+      // Score alias is not supposed to be used in the aggregation pipeline
       .scoreAlias = NULL,
     },
     .outFields = &req->outFields,
     .maxResultsLimit = IsSearch(req) ? req->maxSearchResults : req->maxAggregateResults,
-    .groupByLimits = GroupByLimits_Default(RSGlobalConfig.maxAggregateGroups),
+    .groupByLimits = groupByLimits,
     .language = req->searchopts.language,
   };
 }
@@ -1787,7 +1788,8 @@ int AREQ_BuildPipelineWithAggregationParams(AREQ *req,
 }
 
 int AREQ_BuildPipeline(AREQ *req, QueryError *status) {
-  AggregationPipelineParams aggregationParams = {0};
-  AREQ_BuildAggregationPipelineParams(req, &aggregationParams);
+  AggregationPipelineParams aggregationParams =
+      AREQ_MakeAggregationPipelineParams(
+          req, GroupByLimits_Default(RSGlobalConfig.maxAggregateGroups));
   return AREQ_BuildPipelineWithAggregationParams(req, &aggregationParams, status);
 }

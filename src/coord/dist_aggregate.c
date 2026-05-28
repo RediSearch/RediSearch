@@ -529,10 +529,9 @@ static int prepareForExecution(AREQ *r, RedisModuleCtx *ctx, RedisModuleString *
   rc = AGGPLN_Distribute(AREQ_AGGPlan(r), status);
   if (rc != REDISMODULE_OK) return REDISMODULE_ERR;
 
-  AggregationPipelineParams aggregationParams = {0};
-  AREQ_BuildAggregationPipelineParams(r, &aggregationParams);
   // The coordinator merges shard-local groups, so allow one configured cap per shard.
-  AggregationPipelineParams_ScaleGroupByLimitsForCoordinator(&aggregationParams, numShards);
+  AggregationPipelineParams aggregationParams = AREQ_MakeAggregationPipelineParams(
+      r, GroupByLimits_ForCoordinator(RSGlobalConfig.maxAggregateGroups, numShards));
 
   AREQDIST_UpstreamInfo us = {NULL};
   rc = AREQ_BuildDistributedPipeline(r, &us, &aggregationParams, status);

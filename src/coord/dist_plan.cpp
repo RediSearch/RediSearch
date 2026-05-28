@@ -15,6 +15,7 @@
 #include "util/stringify.h"
 #include "dist_plan.h"
 #include "dist_plan_utils.h"
+#include "config.h"
 
 #include <vector>
 #include <string>
@@ -633,7 +634,8 @@ int AREQ_BuildDistributedPipeline(AREQ *r, AREQDIST_UpstreamInfo *us,
 
   AggregationPipelineParams defaultAggregationParams = {};
   if (!aggregationParams) {
-    AREQ_BuildAggregationPipelineParams(r, &defaultAggregationParams);
+    defaultAggregationParams = AREQ_MakeAggregationPipelineParams(
+        r, GroupByLimits_Default(RSGlobalConfig.maxAggregateGroups));
     aggregationParams = &defaultAggregationParams;
   }
 
