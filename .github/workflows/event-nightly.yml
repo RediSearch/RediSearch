@@ -48,10 +48,11 @@ jobs:
     runs-on: ubuntu-slim
     steps:
       - name: Notify Failure
-        uses: slackapi/slack-github-action@af78098f536edbc4de71162a307590698245be95 # refs @v3.0.1
+        uses: slackapi/slack-github-action@v3 # NOSONAR
         with:
           webhook: ${{ secrets.SLACK_WEBHOOK_URL_NIGHTLY_FAILED }}
-          webhook-type: incoming-webhook
+          webhook-type: webhook-trigger
+          errors: true  # fail step on Slack delivery errors; v3 default silently retries
           payload: |
             {
               "failed_workflow": "${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}/attempts/${{ github.run_attempt }}",
