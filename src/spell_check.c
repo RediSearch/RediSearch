@@ -196,8 +196,7 @@ void SpellCheck_SendReplyOnTerm(RedisModule_Reply *reply, char *term, size_t len
       for (int i = 0; i < n; ++i) {
         RedisModule_Reply_Map(reply);
           RedisModule_Reply_StringBuffer(reply, suggestions[i]->suggestion, suggestions[i]->len);
-          RedisModule_Reply_Double(reply, suggestions[i]->score == -1 ? 0 :
-                                        suggestions[i]->score / totalDocNumber);
+          RedisModule_Reply_Double(reply, suggestions[i]->score / totalDocNumber);
         RedisModule_Reply_MapEnd(reply);
       }
 
@@ -215,8 +214,7 @@ void SpellCheck_SendReplyOnTerm(RedisModule_Reply *reply, char *term, size_t len
         int n = array_len(suggestions);
         for (int i = 0; i < n; ++i) {
           RedisModule_Reply_Array(reply);
-            RedisModule_Reply_Double(reply, suggestions[i]->score == -1 ? 0 :
-                                            suggestions[i]->score / totalDocNumber);
+            RedisModule_Reply_Double(reply, suggestions[i]->score / totalDocNumber);
             RedisModule_Reply_StringBuffer(reply, suggestions[i]->suggestion, suggestions[i]->len);
           RedisModule_Reply_ArrayEnd(reply);
         }
