@@ -293,7 +293,7 @@ int RSSuggestGetCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc)
   // get the string to search for
   size_t len = 0;
   const char *s = RedisModule_StringPtrLen(argv[2], &len);
-  if (len >= TRIE_MAX_PREFIX * sizeof(rune)) {
+  if (len > TRIE_MAX_PREFIX * sizeof(rune)) {
     return RedisModule_ReplyWithError(ctx, "Invalid query length");
   }
 
