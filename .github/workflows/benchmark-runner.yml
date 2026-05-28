@@ -216,7 +216,8 @@ jobs:
         uses: slackapi/slack-github-action@v3
         with:
           webhook: ${{ secrets.SLACK_WEBHOOK_URL_BENCHMARK_FAILED }}
-          webhook-type: incoming-webhook
+          webhook-type: webhook-trigger
+          errors: true  # fail step on Slack delivery errors; v3 default silently retries
           payload: |
             {
               "failed_workflow": "${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}/attempts/${{ github.run_attempt }}"
