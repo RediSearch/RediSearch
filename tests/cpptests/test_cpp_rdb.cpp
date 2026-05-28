@@ -591,7 +591,7 @@ TEST_F(RdbMockTest, testTrieRdbLoadMoreThan65535Elements) {
     io->read_pos = 0;
 
     // Load the trie from RDB
-    Trie *loadedTrie = (Trie *)TrieType_GenericLoad(io, 0, false);
+    Trie *loadedTrie = (Trie *)TrieType_GenericLoad(io, 0, false, Trie_Sort_Lex);
     ASSERT_TRUE(loadedTrie != nullptr) << "Failed to load trie with more than 65535 elements";
     std::unique_ptr<Trie, std::function<void(Trie *)>> loadedTriePtr(loadedTrie, [](Trie *t) {
         TrieType_Free(t);
@@ -625,7 +625,7 @@ TEST_F(RdbMockTest, testTriePayloadNoOverflow) {
         RMCK_SaveStringBuffer(io, normal_payload, normal_len + 1);  // payload with null terminator
 
         io->read_pos = 0;
-        Trie *trie = (Trie *)TrieType_GenericLoad(io, 1, false);  // loadPayloads = 1
+        Trie *trie = (Trie *)TrieType_GenericLoad(io, 1, false, Trie_Sort_Lex);  // loadPayloads = 1
         ASSERT_TRUE(trie != nullptr) << "Failed to load trie with normal payload";
         EXPECT_EQ(1, Trie_Size(trie));
         TrieType_Free(trie);
@@ -645,7 +645,7 @@ TEST_F(RdbMockTest, testTriePayloadNoOverflow) {
         RMCK_SaveStringBuffer(io, large_payload.data(), large_size);  // payload with null terminator
 
         io->read_pos = 0;
-        Trie *trie = (Trie *)TrieType_GenericLoad(io, 1, false);  // loadPayloads = 1
+        Trie *trie = (Trie *)TrieType_GenericLoad(io, 1, false, Trie_Sort_Lex);  // loadPayloads = 1
         ASSERT_TRUE(trie != nullptr) << "Failed to load trie with 1MB payload";
         EXPECT_EQ(1, Trie_Size(trie));
         TrieType_Free(trie);
@@ -666,7 +666,7 @@ TEST_F(RdbMockTest, testTriePayloadNoOverflow) {
         RMCK_SaveUnsigned(io, UINT32_MAX);
 
         io->read_pos = 0;
-        Trie *trie = (Trie *)TrieType_GenericLoad(io, 1, false);  // loadPayloads = 1
+        Trie *trie = (Trie *)TrieType_GenericLoad(io, 1, false, Trie_Sort_Lex);  // loadPayloads = 1
 
         // The load should fail gracefully (return NULL) rather than crash
         // due to integer overflow in the allocation
