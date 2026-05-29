@@ -28,11 +28,6 @@ use crate::{TrieMap, iter, str::iter::iter_::key_to_string};
 ///   outlive the call. Items yield `String` keys and `&'tm Data`
 ///   references — both survive the drain because they borrow the trie's
 ///   value storage, not the (now-dropped) pattern bytes.
-///
-/// The drained path eagerly walks the entire match set, sacrificing
-/// laziness on the fold-required code path. Tokenized production inputs
-/// (`src/tokenize.c`) are already lowercased, so the lazy
-/// [`Self::Borrowed`] arm covers them.
 pub enum WildcardIter<'tm, 'p, Data: 'tm> {
     Borrowed(iter::Utf8WildcardIter<'tm, 'p, Data>),
     Drained(std::vec::IntoIter<(String, &'tm Data)>),

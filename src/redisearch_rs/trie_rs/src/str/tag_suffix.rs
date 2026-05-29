@@ -29,12 +29,6 @@
 //! doesn't care, so the lookup still works (and the lookup at query time
 //! does the same byte arithmetic, so it stays consistent with itself).
 //!
-//! This Rust port intentionally mirrors that behavior — the rotation
-//! loop walks bytes, not codepoints. Tag values containing non-ASCII
-//! codepoints therefore inherit C's latent indexing irregularity. A
-//! follow-up may want to fix this on both sides; doing so silently here
-//! would diverge from C and mask the smell.
-//!
 //! ## Term ownership: `Rc<str>`
 //!
 //! Shared ownership via [`Rc<str>`]; see [`crate::str::suffix`] for the
@@ -185,11 +179,8 @@ impl TagSuffixIndex {
             return;
         }
 
-        // Drop the strong reference held by the full-word entry only at
-        // the end of the function, so every rotation visit still sees a
-        // live `Rc<str>` for its back-ref. (Each rotation back-ref is a
-        // clone of the same `Rc`, so any one of them dropping last is
-        // fine for memory safety; we preserve C ordering for clarity.)
+        // Hold the full-word strong ref to end-of-fn — mirrors C drop
+        // order; not load-bearing for safety.
         let mut full_word_strong: Option<Rc<str>> = None;
 
         let last_j = match len.checked_sub(MIN_SUFFIX) {

@@ -97,11 +97,7 @@ impl SuffixData {
 
     /// Promote a rotation-only node to full-word status because the term
     /// it carries as a rotation back-ref is now being inserted as a
-    /// full-word entry of its own.
-    ///
-    /// Matches the C branch at `suffix.c:77-80`: the `term` pointer
-    /// transitions from `NULL` to the freshly-allocated copy, and the
-    /// back-ref array gains one additional entry pointing at that copy.
+    /// full-word entry of its own. (`suffix.c:77-80`.)
     fn promote_to_full_word(&mut self, term: Rc<str>) {
         debug_assert!(
             self.term.is_none(),
@@ -218,11 +214,8 @@ impl SuffixIndex {
 
         let total_chars = term.chars().count();
 
-        // Full-word entry. Take ownership of the strong reference held in
-        // `term` so the rotation back-refs can be safely dropped (each
-        // back-ref is a clone of the same `Rc<str>`; the final
-        // `Rc::drop` doesn't need to be the full-word one specifically,
-        // but matching C ordering keeps reasoning simple).
+        // Hold the full-word strong ref to end-of-fn — mirrors C drop
+        // order; not load-bearing for safety.
         let mut full_word_strong: Option<Rc<str>> = None;
         let mut drop_full_word_node = false;
         if let Some(data) = self.inner.get_mut(term) {
