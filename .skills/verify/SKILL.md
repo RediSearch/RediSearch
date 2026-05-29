@@ -81,7 +81,7 @@ Ensure the full project compiles.
 
 #### 4. Rust Tests
 ```bash
-cd src/redisearch_rs && cargo nextest run
+cargo nextest run --manifest-path src/redisearch_rs/Cargo.toml
 ```
 All Rust tests must pass.
 
@@ -96,9 +96,9 @@ Run all checks from both sections above.
 
 ## Quick Verification
 
-For minor Rust-only changes:
+For minor Rust-only changes (subshell keeps the chain readable — one cwd hop, three commands):
 ```bash
-cd src/redisearch_rs && cargo fmt --check && cargo clippy --all-targets && cargo nextest run
+(cd src/redisearch_rs && cargo fmt --check && cargo clippy --all-targets && cargo nextest run)
 ```
 
 For minor C-only changes:
