@@ -76,35 +76,24 @@ impl<Data> StrTrieMap<Data> {
         iter::Iter::new(&self.inner)
     }
 
-    /// Yield every terminal whose key starts with `prefix`.
-    ///
-    /// Mirrors the C `Trie_IterateContains(..., prefix=true, suffix=false)`
-    /// branch at `src/trie/trie_node.c:1066`: locate the subtree root for
-    /// the prefix and walk the whole subtree. Empty `prefix` yields zero
-    /// matches — matches the C contract (`TrieNode_Get(root, _, 0, ...)`
-    /// returns NULL at `src/trie/trie_node.c:411`).
+    /// Yield every terminal whose key starts with `prefix`. Empty
+    /// `prefix` yields zero matches. (`src/trie/trie_node.c:1066`,
+    /// `Trie_IterateContains` prefix branch.)
     pub fn prefixed_iter(&self, prefix: &str) -> iter::PrefixedIter<'_, Data> {
         iter::PrefixedIter::new(&self.inner, prefix)
     }
 
-    /// Yield every terminal whose key ends with `suffix`.
-    ///
-    /// Mirrors the C `Trie_IterateContains(..., prefix=false, suffix=true)`
-    /// branch. Current implementation walks the entire trie and filters by
-    /// byte `ends_with` — correct because UTF-8 is self-synchronizing
-    /// (a multibyte sequence cannot be a suffix of another codepoint).
-    /// Empty `suffix` yields zero matches (C contract).
+    /// Yield every terminal whose key ends with `suffix`. Filters by byte
+    /// `ends_with` — correct because UTF-8 is self-synchronizing (a
+    /// multibyte sequence cannot be a suffix of another codepoint). Empty
+    /// `suffix` yields zero matches.
     pub fn suffixed_iter(&self, suffix: &str) -> iter::SuffixedIter<'_, Data> {
         iter::SuffixedIter::new(&self.inner, suffix)
     }
 
     /// Yield every terminal whose key contains `target` as a substring.
-    ///
-    /// Mirrors the C `Trie_IterateContains(..., prefix=true, suffix=true)`
-    /// branch and delegates to [`TrieMap::contains_iter`]. Empty `target`
-    /// yields zero matches — without this short-circuit the byte-level
-    /// `contains_iter` would match every term (memchr semantics on an
-    /// empty needle).
+    /// Empty `target` yields zero matches — without this short-circuit
+    /// memchr semantics would match every term.
     pub fn contains_iter<'tm, 'p>(&'tm self, target: &'p str) -> iter::ContainsIter<'tm, 'p, Data> {
         iter::ContainsIter::new(&self.inner, target)
     }

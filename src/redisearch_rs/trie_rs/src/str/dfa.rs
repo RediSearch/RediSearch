@@ -286,10 +286,7 @@ pub struct IterateDfaIter<'tm, Data> {
     dist_stack: Vec<u32>,
     key: Vec<char>,
     /// Last distance the filter wrote on a match. Seeded to `max_dist + 1`
-    /// (same sentinel `Trie_Search` uses, `src/trie/trie.c:256`) so a yield
-    /// that somehow fires without the filter writing first would be
-    /// detectable. In practice every yield path is preceded by a filter
-    /// write that records the matched-path distance.
+    /// as a sentinel (`src/trie/trie.c:256`).
     last_dist: u32,
 }
 

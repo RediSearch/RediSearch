@@ -48,15 +48,6 @@
 //! decrements the refcount at every visited rotation in turn, and the
 //! final drop happens when the full-word entry's `term` is taken last.
 //!
-//! ## Iteration return type
-//!
-//! Iterators yield `Rc<str>` clones rather than `&str` borrows. The
-//! alternative — borrowing into the [`StrTrieMap`]'s internal node storage
-//! — would forbid concurrent mutation of the index even while a query is
-//! draining, which is heavier than the actual C contract requires. Cloning
-//! the `Rc` is cheap (one atomic increment per yielded back-ref in a
-//! single-threaded `Rc`, which is what this port uses).
-
 use std::rc::Rc;
 
 use rqe_wildcard::{MatchOutcome, WildcardPattern};

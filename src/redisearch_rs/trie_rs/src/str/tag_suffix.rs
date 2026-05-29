@@ -37,10 +37,8 @@
 //!
 //! ## Term ownership: `Rc<str>`
 //!
-//! Same rationale as [`crate::str::suffix::SuffixIndex`]: shared ownership via [`Rc<str>`]
-//! translates the C single-owning-pointer-plus-weak-refs idiom to safe
-//! Rust without burdening the iteration return type with a borrow into
-//! [`TrieMap`]'s internal node storage.
+//! Shared ownership via [`Rc<str>`]; see [`crate::str::suffix`] for the
+//! rationale.
 
 use std::rc::Rc;
 

@@ -92,13 +92,8 @@ pub struct TermDictionary {
     inner: StrTrieMap<TermEntry>,
 }
 
-/// Case-fold a term using Unicode default case folding.
-///
-/// Returns a borrowed `Cow` when the input is already in folded form
-/// and an owned `Cow` otherwise; the split is decided inside
-/// `CaseMapper::fold_string`. Production tokenizer output
-/// (`src/tokenize.c`) is already lowercased, so the borrow arm covers
-/// the hot path.
+/// Case-fold a term using Unicode default case folding. Borrows when
+/// the input is already folded.
 fn fold(term: &str) -> Cow<'_, str> {
     CaseMapper::new().fold_string(term)
 }
