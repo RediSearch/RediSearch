@@ -1,0 +1,14 @@
+---
+source: rune_trie_snapshots/tests/integration/range_iteration.rs
+expression: dump
+---
+size: 7
+
+query: [band, band]  min="band" (inc=true)  max="band" (inc=true)
+  band        numDocs=1
+
+query: (band, band)  min="band" (inc=false)  max="band" (inc=false)
+  <no matches>
+
+query: [nope, nope]  min="nope" (inc=true)  max="nope" (inc=true)
+  <no matches>

@@ -33,6 +33,7 @@ members = [
     "rqe_iterators",
     "rqe_iterators_bencher",
     "rqe_iterators_test_utils",
+    "rune_trie_snapshots",
     "search_result",
     "slots_tracker",
     "sorting_vector",
@@ -187,6 +188,7 @@ quote = "1"
 rand = "0.10.1"
 rmp-serde = "1.3.1"
 rustc-hash = "2.1.1"
+ouroboros = "0.18"
 serde = { version = "1.0.228", features = ["derive"] }
 smallvec = "1.15.1"
 strum = { version = "0.27.2", features = ["derive"] }

@@ -1,0 +1,9 @@
+---
+source: rune_trie_snapshots/tests/integration/range_iteration.rs
+expression: dump
+---
+size: 7
+
+query: (-inf, b]  min="<none>" (inc=true)  max="b" (inc=true)
+  apple       numDocs=1
+  apricot     numDocs=1

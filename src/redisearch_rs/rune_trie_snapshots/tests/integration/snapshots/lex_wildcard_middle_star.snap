@@ -1,0 +1,9 @@
+---
+source: rune_trie_snapshots/tests/integration/wildcard_iteration.rs
+expression: dump
+---
+size: 7
+
+query: c*t  pattern="c*t"
+  cat         numDocs=1
+  concat      numDocs=1

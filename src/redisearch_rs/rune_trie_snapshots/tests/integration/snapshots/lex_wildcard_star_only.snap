@@ -1,0 +1,14 @@
+---
+source: rune_trie_snapshots/tests/integration/wildcard_iteration.rs
+expression: dump
+---
+size: 7
+
+query: *  pattern="*"
+  bat         numDocs=1
+  cab         numDocs=1
+  car         numDocs=1
+  cat         numDocs=1
+  category    numDocs=1
+  concat      numDocs=1
+  rat         numDocs=1

@@ -8,4 +8,5 @@
 */
 
 mod iter;
+mod str;
 mod trie;

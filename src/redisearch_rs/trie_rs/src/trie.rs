@@ -11,8 +11,8 @@ use rqe_wildcard::WildcardPattern;
 
 use crate::{
     iter::{
-        ContainsIter, IntoValues, Iter, LendingIter, PrefixesIter, RangeFilter, RangeIter, Values,
-        WildcardIter, filter::VisitAll,
+        ContainsIter, IntoValues, Iter, LendingIter, PrefixesIter, RangeFilter, RangeIter,
+        Utf8WildcardIter, Values, WildcardIter, filter::VisitAll,
     },
     node::Node,
     utils::strip_prefix,
@@ -122,6 +122,14 @@ impl<Data> TrieMap<Data> {
         self.root.as_ref().and_then(|n| n.find_root_for_prefix(key))
     }
 
+    /// Crate-internal access to the root node, for traversal layers built on
+    /// top of [`TrieMap`] (e.g. the DFA-filtered iterator under `str/`).
+    /// Exposes a `&Node`, not any byte/char interpretation — the byte-keyed
+    /// trie stays unaware of how callers decode its labels.
+    pub(crate) const fn root(&self) -> Option<&Node<Data>> {
+        self.root.as_ref()
+    }
+
     /// Insert an entry into the trie.
     ///
     /// The value is obtained by calling the provided callback function.
@@ -217,6 +225,20 @@ impl<Data> TrieMap<Data> {
         pattern: WildcardPattern<'p>,
     ) -> WildcardIter<'tm, 'p, Data> {
         WildcardIter::new(self.root.as_ref(), pattern)
+    }
+
+    /// Iterate over all trie entries whose UTF-8 key matches the pattern
+    /// with codepoint-aware semantics (`?` = one codepoint).
+    ///
+    /// Mirrors [`Self::wildcard_iter`] but routes through
+    /// [`Utf8WildcardIter`]. The caller is responsible for the keys (and
+    /// pattern literals) being valid UTF-8; the str-keyed wrapper enforces
+    /// this at its boundary.
+    pub fn wildcard_iter_utf8<'tm, 'p>(
+        &'tm self,
+        pattern: WildcardPattern<'p>,
+    ) -> Utf8WildcardIter<'tm, 'p, Data> {
+        Utf8WildcardIter::new(self.root.as_ref(), pattern)
     }
 
     /// Iterate over the entries that start with the given prefix, in lexicographical key order.

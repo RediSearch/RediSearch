@@ -1,0 +1,18 @@
+---
+source: rune_trie_snapshots/tests/integration/boundary_cases.rs
+expression: out
+---
+--- inserts ---
+insert("🦀")  utf8bytes=4  rustUtf16Runes=2  rc=1  (non-BMP — codepoint U+1F980 truncated to rune 0xF980)
+insert("a")  utf8bytes=1  rustUtf16Runes=1  rc=1  (ASCII baseline)
+insert("呂")  utf8bytes=3  rustUtf16Runes=1  rc=0  (BMP U+F980 directly — collides with truncated 🦀)
+insert("ab")  utf8bytes=2  rustUtf16Runes=2  rc=1  (ASCII baseline 2)
+insert("a🦀")  utf8bytes=5  rustUtf16Runes=3  rc=1  (BMP + non-BMP — second rune truncated to 0xF980)
+
+--- iteration (entries are by raw u16; 🦀 and U+F980 collapse) ---
+size: 4
+entries:
+  runeLen=  1  "a"
+  runeLen=  2  "ab"
+  runeLen=  2  "a呂"
+  runeLen=  1  "呂"

@@ -1,0 +1,10 @@
+---
+source: rune_trie_snapshots/tests/integration/wildcard_iteration.rs
+expression: dump
+---
+size: 7
+
+query: ??t  pattern="??t"
+  bat         numDocs=1
+  cat         numDocs=1
+  rat         numDocs=1
