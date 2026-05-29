@@ -1946,3 +1946,87 @@ def test_collect_sortby_tiebreak_two_collects_same_groupby_asc_desc():
     desc_names = [r['name'] for r in attrs['desc_names']]
 
     env.assertEqual(asc_names, desc_names)
+
+
+# ---------------------------------------------------------------------------
+# Chained GROUPBY with COLLECT SORTBY in the outer reducer
+# ---------------------------------------------------------------------------
+def test_chained_groupby_outer_collect_sortby():
+    """Chained GROUPBY with COLLECT SORTBY in the outer reducer"""
+    env = Env(protocol=3)
+    enable_unstable_features(env)
+    _setup_priced_hash(env)
+
+    # Inner GROUPBY aggregates per-price (multiple groups since prices repeat),
+    # producing synthetic rows with no underlying docId. Outer GROUPBY COLLECTs
+    # them sorted by the aggregated count.
+    res = env.cmd(
+        'FT.AGGREGATE', 'idx', '*',
+        'GROUPBY', '1', '@price',
+            'REDUCE', 'COUNT', '0', 'AS', 'n',
+        'GROUPBY', '0',
+            'REDUCE', 'COLLECT', '8',
+                'FIELDS', '2', '@price', '@n',
+                'SORTBY', '2', '@n', 'DESC',
+            'AS', 'rows')
+
+    env.assertEqual(len(res['results']), 1)
+    rows = res['results'][0]['extra_attributes']['rows']
+    # 12 docs, prices 10 and 15 each appear twice, others once -> 10 groups.
+    env.assertEqual(len(rows), 10)
+    counts = [int(r['n']) for r in rows]
+    env.assertEqual(counts, sorted(counts, reverse=True))
+
+
+def test_chained_groupby_outer_collect_sortby_limit():
+    """Chained GROUPBY with COLLECT SORTBY in the outer reducer but with a LIMIT
+    on the outer COLLECT, forcing the bounded top-K heap path on synthetic rows."""
+    env = Env(protocol=3)
+    enable_unstable_features(env)
+    _setup_priced_hash(env)
+
+    res = env.cmd(
+        'FT.AGGREGATE', 'idx', '*',
+        'GROUPBY', '1', '@price',
+            'REDUCE', 'COUNT', '0', 'AS', 'n',
+        'GROUPBY', '0',
+            'REDUCE', 'COLLECT', '11',
+                'FIELDS', '2', '@price', '@n',
+                'SORTBY', '2', '@n', 'DESC',
+                'LIMIT', '0', '3',
+            'AS', 'rows')
+
+    env.assertEqual(len(res['results']), 1)
+    rows = res['results'][0]['extra_attributes']['rows']
+    env.assertEqual(len(rows), 3)
+    counts = [int(r['n']) for r in rows]
+    env.assertEqual(counts, sorted(counts, reverse=True))
+
+
+
+def test_chained_groupby_outer_collect_sortby_partial_ties():
+    """Outer SORTBY has both non-tied and tied groups"""
+    env = Env(protocol=3)
+    enable_unstable_features(env)
+    _setup_priced_hash(env)
+
+    # Inner GROUPBY by @price: prices 10 and 15 each have 2 docs, the rest 1.
+    # Counts -> {2, 2, 1, 1, 1, 1, 1, 1, 1, 1}. LIMIT 0 4 forces the heap to
+    # cover both sides of the tie between the two n=2 winners and two of the
+    # eight n=1 candidates.
+    res = env.cmd(
+        'FT.AGGREGATE', 'idx', '*',
+        'GROUPBY', '1', '@price',
+            'REDUCE', 'COUNT', '0', 'AS', 'n',
+        'GROUPBY', '0',
+            'REDUCE', 'COLLECT', '11',
+                'FIELDS', '2', '@price', '@n',
+                'SORTBY', '2', '@n', 'DESC',
+                'LIMIT', '0', '4',
+            'AS', 'rows')
+
+    env.assertEqual(len(res['results']), 1)
+    rows = res['results'][0]['extra_attributes']['rows']
+    env.assertEqual(len(rows), 4)
+    counts = [int(r['n']) for r in rows]
+    env.assertEqual(counts, [2, 2, 1, 1])
