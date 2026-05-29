@@ -14,10 +14,10 @@ use lending_iterator::prelude::*;
 /// in lexicographical order.
 ///
 /// Unlike [`RangeIter`], this iterator lets you borrow the current key, rather than having to clone it.
-pub struct RangeLendingIter<'tm, Data>(RangeIter<'tm, Data>);
+pub struct RangeLendingIter<'tm, 'f, Data>(RangeIter<'tm, 'f, Data>);
 
-impl<'tm, Data> From<RangeIter<'tm, Data>> for RangeLendingIter<'tm, Data> {
-    fn from(iter: RangeIter<'tm, Data>) -> Self {
+impl<'tm, 'f, Data> From<RangeIter<'tm, 'f, Data>> for RangeLendingIter<'tm, 'f, Data> {
+    fn from(iter: RangeIter<'tm, 'f, Data>) -> Self {
         RangeLendingIter(iter)
     }
 }
@@ -29,7 +29,7 @@ impl<'tm, Data> From<RangeIter<'tm, Data>> for RangeLendingIter<'tm, Data> {
 //
 // Why do we need a crate? Well: <https://sabrinajewson.org/blog/the-better-alternative-to-lifetime-gats>
 #[gat]
-impl<'tm, Data> LendingIterator for RangeLendingIter<'tm, Data> {
+impl<'tm, 'f, Data> LendingIterator for RangeLendingIter<'tm, 'f, Data> {
     type Item<'next>
     where
         Self: 'next,

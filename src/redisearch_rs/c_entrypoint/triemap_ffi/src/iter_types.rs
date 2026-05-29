@@ -19,7 +19,7 @@ pub enum TrieMapIteratorImpl<'tm> {
     // Boxing to reduce the size of overall enum, since the contains variant
     // is much larger than the others due to how much space `memchr::memmem::Finder`
     // takes on the stack.
-    Contains(Box<trie_rs::iter::ContainsLendingIter<'tm, *mut c_void>>),
+    Contains(Box<trie_rs::iter::ContainsLendingIter<'tm, 'tm, *mut c_void>>),
     Wildcard(trie_rs::iter::LendingIter<'tm, *mut c_void, WildcardFilter<'tm>>),
 }
 

@@ -202,7 +202,10 @@ impl<Data> TrieMap<Data> {
     }
 
     /// Iterate over all trie entries whose key matches the specified pattern.
-    pub fn wildcard_iter<'a>(&'a self, pattern: WildcardPattern<'a>) -> WildcardIter<'a, Data> {
+    pub fn wildcard_iter<'tm, 'p>(
+        &'tm self,
+        pattern: WildcardPattern<'p>,
+    ) -> WildcardIter<'tm, 'p, Data> {
         WildcardIter::new(self.root.as_ref(), pattern)
     }
 
@@ -220,12 +223,12 @@ impl<Data> TrieMap<Data> {
     }
 
     /// Iterates over the entries between the specified `min` and `max`, in lexicographical order.
-    pub fn range_iter<'a>(&'a self, filter: RangeFilter<'a>) -> RangeIter<'a, Data> {
+    pub fn range_iter<'tm, 'f>(&'tm self, filter: RangeFilter<'f>) -> RangeIter<'tm, 'f, Data> {
         RangeIter::new(self.root.as_ref(), filter)
     }
 
     /// Iterate over the entries that contain the target fragment, in lexicographical key order.
-    pub fn contains_iter<'a>(&'a self, target: &'a [u8]) -> ContainsIter<'a, Data> {
+    pub fn contains_iter<'tm, 't>(&'tm self, target: &'t [u8]) -> ContainsIter<'tm, 't, Data> {
         ContainsIter::new(self.root.as_ref(), target)
     }
 
