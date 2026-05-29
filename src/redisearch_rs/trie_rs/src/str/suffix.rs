@@ -161,9 +161,9 @@ impl SuffixIndex {
     /// Insert `term` and all of its proper suffixes of length at least
     /// [`MIN_SUFFIX`]. No-op if `term` is already indexed as a full word.
     ///
-    /// Mirrors `addSuffixTrie` in `src/suffix.c`. Rotation offsets walk
-    /// codepoint boundaries via [`str::char_indices`] so multibyte UTF-8
-    /// sequences are never split.
+    /// Rotation offsets walk codepoint boundaries via
+    /// [`str::char_indices`] so multibyte UTF-8 sequences are never
+    /// split. (`suffix.c:46-91`.)
     pub fn add(&mut self, term: &str) {
         if term.is_empty() {
             return;
@@ -217,9 +217,9 @@ impl SuffixIndex {
     }
 
     /// Remove `term` and every rotation back-ref it owns. Silently ignores
-    /// terms that aren't currently indexed — mirrors the "shared trie"
-    /// tolerance at `suffix.c:147` (the same trie may back several text
-    /// fields, only some of which actually inserted the term).
+    /// terms that aren't currently indexed — the trie may back several
+    /// text fields, only some of which inserted the term.
+    /// (`suffix.c:147`.)
     pub fn remove(&mut self, term: &str) {
         if term.is_empty() {
             return;
@@ -267,12 +267,9 @@ impl SuffixIndex {
         drop(full_word_strong);
     }
 
-    /// Yield every source term whose suffix is exactly `needle`.
-    ///
-    /// Mirrors the `SUFFIX_TYPE_SUFFIX` branch of
-    /// `Suffix_IterateContains` (`suffix.c:198-205`): reads one node's
-    /// `array` and emits its back-refs in insertion order. Empty `needle`
-    /// yields zero matches.
+    /// Yield every source term whose suffix is exactly `needle`, in
+    /// insertion order. Empty `needle` yields zero matches.
+    /// (`suffix.c:198-205`, `SUFFIX_TYPE_SUFFIX` branch.)
     pub fn iter_suffix(&self, needle: &str) -> SuffixHits<'_> {
         if needle.is_empty() {
             return SuffixHits::empty();
@@ -284,16 +281,10 @@ impl SuffixIndex {
     }
 
     /// Yield every source term that contains `needle` as a substring.
-    ///
-    /// Mirrors the `SUFFIX_TYPE_CONTAINS` branch of
-    /// `Suffix_IterateContains` (`suffix.c:191-197`): walks the subtree
-    /// rooted at `needle` and concatenates the back-ref arrays of every
-    /// visited terminal. Source terms with multiple suffix rotations
-    /// rooted under `needle` are yielded once per matching rotation,
-    /// matching C — no deduplication.
-    ///
-    /// Empty `needle` yields zero matches (C contract:
-    /// `Trie_GetNode(.., len=0, ..)` returns NULL).
+    /// No deduplication — a source term with multiple rotations under
+    /// `needle` is yielded once per rotation. Empty `needle` yields zero
+    /// matches.
+    /// (`suffix.c:191-197`, `SUFFIX_TYPE_CONTAINS` branch.)
     pub fn iter_contains(&self, needle: &str) -> SuffixHits<'_> {
         if needle.is_empty() {
             return SuffixHits::empty();
@@ -306,18 +297,13 @@ impl SuffixIndex {
         SuffixHits::from_vec(collected)
     }
 
-    /// Yield every source term matching the wildcard `pattern`.
+    /// Yield every source term matching the wildcard `pattern`. Returns
+    /// `None` if no literal token clears [`MIN_SUFFIX`] codepoints —
+    /// caller should fall back to a generic trie iteration.
     ///
-    /// Returns `None` if the pattern has no literal token of at least
-    /// [`MIN_SUFFIX`] codepoints — mirrors the C contract where
-    /// `Suffix_ChooseToken_rune` returns `REDISEARCH_UNINITIALIZED` and
-    /// `Suffix_IterateWildcard` returns `0`, instructing the caller to
-    /// fall back to a generic trie iteration.
-    ///
-    /// When a token is chosen, the routine prefix-iterates the suffix
-    /// trie at that token and filters each candidate against the full
-    /// pattern using [`WildcardPattern::matches`]. Matches the
-    /// `Suffix_CB_Wildcard` filter (`suffix.c:328-345`).
+    /// Picks the best literal token, sub-iterates the trie at that token,
+    /// then filters each candidate against the full pattern with
+    /// [`WildcardPattern::matches`]. (`suffix.c:328-345`.)
     pub fn iter_wildcard(&self, pattern: &str) -> Option<SuffixHits<'_>> {
         let chosen = choose_token(pattern)?;
 
@@ -507,18 +493,12 @@ mod tests {
 
     #[test]
     fn add_then_remove_returns_to_empty_view() {
-        // After every term is removed, every previously inserted node
-        // should be gone — checked indirectly via empty `iter_contains`
-        // and the back-references no longer being yielded.
         let mut idx = SuffixIndex::new();
         idx.add("banana");
         idx.add("anaconda");
         idx.remove("banana");
         idx.remove("anaconda");
 
-        // The non-MIN_SUFFIX rotations of "anaconda" include "anaconda",
-        // "naconda", "aconda", ... "da" (each ≥ MIN_SUFFIX). All must be
-        // gone.
         for needle in [
             "banana", "anana", "nana", "ana", "na", "anaconda", "naconda", "aconda", "conda",
             "onda", "nda", "da", "an",
@@ -530,9 +510,6 @@ mod tests {
 
     #[test]
     fn add_same_term_twice_is_noop() {
-        // suffix.c:54 short-circuits when the full-word entry already
-        // exists with `term != NULL`; the second insert must not
-        // duplicate any back-ref.
         let mut idx = SuffixIndex::new();
         idx.add("apple");
         idx.add("apple");
@@ -543,13 +520,8 @@ mod tests {
 
     #[test]
     fn rotation_then_promote_to_full_word() {
-        // First insert "longer" which makes "ger" a rotation-only entry.
-        // Then insert "ger" — its full-word node already exists as a
-        // rotation, and the promotion path (suffix.c:77-80) must:
-        //   1. set term = Some(...),
-        //   2. push exactly one new back-ref for "ger".
-        //
-        // Net: iter_suffix("ger") yields both "longer" and "ger".
+        // "longer" leaves "ger" as a rotation-only node; inserting "ger"
+        // must promote it (`suffix.c:77-80`).
         let mut idx = SuffixIndex::new();
         idx.add("longer");
         idx.add("ger");
@@ -561,15 +533,10 @@ mod tests {
 
     #[test]
     fn min_suffix_boundary_two_chars_no_rotation() {
-        // A two-codepoint term should produce exactly one entry — the
-        // full-word entry. Any proper suffix has length 1 < MIN_SUFFIX
-        // and is excluded.
         let mut idx = SuffixIndex::new();
         idx.add("ab");
-        // Exact lookup on full word works.
         let exact = to_set(idx.iter_suffix("ab"));
         assert_eq!(exact, HashSet::from(["ab".to_string()]));
-        // The single-character suffix isn't indexed.
         assert_eq!(idx.iter_suffix("b").count(), 0);
     }
 
@@ -600,22 +567,14 @@ mod tests {
 
     #[test]
     fn delete_unknown_term_is_noop() {
-        // suffix.c:147 (`if (!data) continue`) — the suffix trie is
-        // shared across fields; a delete for a term that never landed in
-        // this index must not panic, must not corrupt state.
         let mut idx = SuffixIndex::new();
         idx.add("present");
-        idx.remove("absent"); // must not panic / corrupt
+        idx.remove("absent");
         assert!(to_set(idx.iter_suffix("present")).contains("present"));
     }
 
     #[test]
     fn iter_contains_substring_yields_per_rotation() {
-        // Both "abc" and "xabc" share the suffix "abc" (rotation of
-        // "xabc"). The full-word entry for "abc" is a single node; the
-        // rotation entry under "abc" inside "xabc" is the same key, so
-        // both back-refs land on one node — iter_contains("abc") yields
-        // both, plus the rotation entry "abc" inside "abcdef" if any.
         let mut idx = SuffixIndex::new();
         idx.add("abc");
         idx.add("xabc");
@@ -627,7 +586,6 @@ mod tests {
 
     #[test]
     fn iter_wildcard_returns_none_for_short_pattern() {
-        // No literal token of MIN_SUFFIX codepoints → fallback signal.
         let mut idx = SuffixIndex::new();
         idx.add("apple");
         assert!(idx.iter_wildcard("*a*").is_none());

@@ -28,15 +28,9 @@
 //! The underlying [`StrTrieMap`] stays byte-exact; case-folding is a
 //! property of `TermDictionary` alone.
 //!
-//! ### Divergence from the C terms-trie
-//!
-//! The C side (`runeBufFill` in `src/trie/trie.c`, via libnu's
-//! `nu_tolower`) does Unicode **lowercase**, not case-folding. Folding
-//! and lowercasing agree on ASCII and on most non-ASCII codepoints, but
-//! differ on a handful — e.g. `ß` lowercases to `ß` but folds to `ss`,
-//! and final sigma `ς` lowercases to `ς` but folds to `σ`. Until the C
-//! tokenizer is updated to match, the two paths will produce different
-//! stored keys for those codepoints.
+//! ICU folding differs from C's `nu_tolower` on a few codepoints (e.g.
+//! `ß` folds to `ss`, `ς` folds to `σ`), so the two paths can store
+//! different keys for the same input.
 
 use std::borrow::Cow;
 

@@ -122,11 +122,8 @@ impl TagSuffixIndex {
 
     /// Insert `term` and all of its byte-suffix rotations of length at
     /// least [`MIN_SUFFIX`]. No-op if `term` is already indexed as a
-    /// full word.
-    ///
-    /// Mirrors `addSuffixTrieMap` (`src/suffix.c:383-416`). Rotation
-    /// offsets walk byte indices — see module docs for the C-parity
-    /// rationale.
+    /// full word. Rotation offsets walk bytes, not codepoints — see
+    /// module docs. (`suffix.c:383-416`.)
     pub fn add(&mut self, term: &str) {
         let bytes = term.as_bytes();
         let len = bytes.len();
@@ -178,15 +175,11 @@ impl TagSuffixIndex {
 
     /// Remove `term` and every rotation back-ref it owns.
     ///
-    /// Mirrors `deleteSuffixTrieMap` (`src/suffix.c:418-439`). Unlike the
-    /// text variant, the C tag variant **asserts** that every rotation
-    /// is present at deletion time — the tag trie is per-field, not
-    /// shared, so a missing rotation indicates state corruption rather
-    /// than a benign cross-field interaction. This port mirrors that:
-    /// rotations missing at delete-time are silently skipped (debug
-    /// assertion off) so a buggy caller doesn't bring the index down,
-    /// but the assertion would fire in the C oracle and the snapshot
-    /// would diverge.
+    /// The C tag variant asserts every rotation is present at delete time
+    /// (the tag trie is per-field, not shared). This port silently skips
+    /// missing rotations so a buggy caller doesn't bring the index down,
+    /// but the C oracle would abort and the snapshot would diverge.
+    /// (`suffix.c:418-439`.)
     pub fn remove(&mut self, term: &str) {
         let bytes = term.as_bytes();
         let len = bytes.len();
@@ -241,10 +234,8 @@ impl TagSuffixIndex {
     }
 
     /// Yield every source term whose byte-suffix is exactly `needle`.
-    ///
-    /// Mirrors the `prefix=false` branch of `GetList_SuffixTrieMap`
-    /// (`suffix.c:444-453`): a single lookup, return the array of that
-    /// node verbatim. Empty `needle` yields zero matches.
+    /// Empty `needle` yields zero matches.
+    /// (`suffix.c:444-453`, `prefix=false` branch.)
     pub fn iter_suffix(&self, needle: &str) -> TagSuffixHits<'_> {
         if needle.is_empty() {
             return TagSuffixHits::empty();
@@ -256,17 +247,9 @@ impl TagSuffixIndex {
     }
 
     /// Yield every source term that contains `needle` as a byte-substring.
-    ///
-    /// Mirrors the `prefix=true` branch of `GetList_SuffixTrieMap`
-    /// (`suffix.c:453-472`): prefix-iterate the trie with `needle` as
-    /// prefix and concatenate each visited node's back-ref array. No
-    /// dedup — C doesn't dedup, and a source term can show up under
-    /// several rotations.
-    ///
-    /// Empty `needle` yields zero matches (mirroring the C semantics:
-    /// `TrieMap_IterateWithFilter(.., len=0, TM_PREFIX_MODE)` would walk
-    /// the whole trie, but every production caller passes a non-empty
-    /// pattern via the query parser; we short-circuit defensively).
+    /// No dedup — a source term may appear under several rotations. Empty
+    /// `needle` yields zero matches (defensive short-circuit; C would
+    /// walk the whole trie). (`suffix.c:453-472`.)
     pub fn iter_contains(&self, needle: &str) -> TagSuffixHits<'_> {
         if needle.is_empty() {
             return TagSuffixHits::empty();
@@ -279,15 +262,9 @@ impl TagSuffixIndex {
         TagSuffixHits::from_vec(collected)
     }
 
-    /// Yield every source term matching the wildcard `pattern`.
-    ///
-    /// Returns `None` if no literal token clears [`MIN_SUFFIX`] — same
-    /// fallback signal as the text variant.
-    ///
-    /// Mirrors `GetList_SuffixTrieMap_Wildcard` (`suffix.c:502-532`):
-    /// pick the best literal token, iterate the trie (prefix if the
-    /// token is followed by `*`, exact otherwise), filter each back-ref
-    /// against the full wildcard pattern.
+    /// Yield every source term matching the wildcard `pattern`. Returns
+    /// `None` if no literal token clears [`MIN_SUFFIX`] — same fallback
+    /// signal as the text variant. (`suffix.c:502-532`.)
     pub fn iter_wildcard(&self, pattern: &str) -> Option<TagSuffixHits<'_>> {
         let chosen = choose_token_bytes(pattern.as_bytes())?;
 
@@ -459,8 +436,6 @@ mod tests {
 
     #[test]
     fn min_suffix_byte_boundary() {
-        // Two-byte term: full-word entry only, no rotation (a single
-        // byte would be below MIN_SUFFIX).
         let mut idx = TagSuffixIndex::new();
         idx.add("ab");
         assert_eq!(to_set(idx.iter_suffix("ab")), HashSet::from(["ab".into()]));
@@ -469,8 +444,6 @@ mod tests {
 
     #[test]
     fn promotion_from_rotation_to_full_word() {
-        // "longer" inserts "ger" as a rotation; later inserting "ger"
-        // promotes that node.
         let mut idx = TagSuffixIndex::new();
         idx.add("longer");
         idx.add("ger");
@@ -482,9 +455,6 @@ mod tests {
 
     #[test]
     fn delete_unknown_is_noop_in_practice() {
-        // Mirrors the per-rotation tolerance: even though the C variant
-        // asserts in debug, this Rust port doesn't abort on a missing
-        // rotation. The state must stay coherent.
         let mut idx = TagSuffixIndex::new();
         idx.add("present");
         idx.remove("absent");
