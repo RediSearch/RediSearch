@@ -2159,6 +2159,237 @@ DEBUG_COMMAND(debugScannerUpdateConfig) {
 }
 
 
+// ----------------------------------------------------------------------------
+// FT.DEBUG COMPACTION_CONTROLLER ...
+//
+// Test harness for the SpeedB compaction × replication interaction. The
+// pause-points themselves live in `redisearch_disk` (Rust) and are
+// reached via the symbols declared in `search_disk.h`. Both
+// SET_PAUSE_* subcommands are single-shot: the next compaction event
+// consumes the arm flag.
+// ----------------------------------------------------------------------------
+
+/**
+ * FT.DEBUG COMPACTION_CONTROLLER SET_PAUSE_IN_COMPACTION <true/false>
+ *
+ * Arms a pause inside `on_compaction_begin` after the fork rwlock has
+ * been taken in `Compaction_Started`.
+ */
+DEBUG_COMMAND(setPauseInCompaction) {
+  if (!debugCommandsEnabled(ctx)) {
+    return RedisModule_ReplyWithError(ctx, NODEBUG_ERR);
+  }
+  if (argc != 3) {
+    return RedisModule_WrongArity(ctx);
+  }
+  const char* op = RedisModule_StringPtrLen(argv[2], NULL);
+  bool armed;
+  if (!strcasecmp(op, "true")) {
+    armed = true;
+  } else if (!strcasecmp(op, "false")) {
+    armed = false;
+  } else {
+    return RedisModule_ReplyWithError(ctx, "Invalid argument for 'SET_PAUSE_IN_COMPACTION'");
+  }
+  globalDebugCtx.debugMode = true;
+  SearchDisk_DebugSetPauseInCompaction(armed);
+  validateDebugMode(&globalDebugCtx);
+  return RedisModule_ReplyWithSimpleString(ctx, "OK");
+}
+
+/**
+ * FT.DEBUG COMPACTION_CONTROLLER SET_PAUSE_AFTER_COMMIT <true/false>
+ *
+ * Arms a pause inside `on_compaction_completed` after `apply_delta` has
+ * run but before the listener's compaction-completed guard drops.
+ */
+DEBUG_COMMAND(setPauseAfterCommit) {
+  if (!debugCommandsEnabled(ctx)) {
+    return RedisModule_ReplyWithError(ctx, NODEBUG_ERR);
+  }
+  if (argc != 3) {
+    return RedisModule_WrongArity(ctx);
+  }
+  const char* op = RedisModule_StringPtrLen(argv[2], NULL);
+  bool armed;
+  if (!strcasecmp(op, "true")) {
+    armed = true;
+  } else if (!strcasecmp(op, "false")) {
+    armed = false;
+  } else {
+    return RedisModule_ReplyWithError(ctx, "Invalid argument for 'SET_PAUSE_AFTER_COMMIT'");
+  }
+  globalDebugCtx.debugMode = true;
+  SearchDisk_DebugSetPauseAfterCommit(armed);
+  validateDebugMode(&globalDebugCtx);
+  return RedisModule_ReplyWithSimpleString(ctx, "OK");
+}
+
+/**
+ * FT.DEBUG COMPACTION_CONTROLLER SET_RESUME true
+ *
+ * Releases the BG thread parked on either of the two pause-points
+ * above. The argument is required for symmetry with the BG_SCAN
+ * controller but only "true" is accepted (resume has no "false").
+ */
+DEBUG_COMMAND(setResumeCompaction) {
+  if (!debugCommandsEnabled(ctx)) {
+    return RedisModule_ReplyWithError(ctx, NODEBUG_ERR);
+  }
+  if (argc != 3) {
+    return RedisModule_WrongArity(ctx);
+  }
+  const char* op = RedisModule_StringPtrLen(argv[2], NULL);
+  if (strcasecmp(op, "true") != 0) {
+    return RedisModule_ReplyWithError(ctx, "Invalid argument for 'SET_RESUME' (only 'true' is accepted)");
+  }
+  SearchDisk_DebugResumeCompaction();
+  return RedisModule_ReplyWithSimpleString(ctx, "OK");
+}
+
+/**
+ * FT.DEBUG COMPACTION_CONTROLLER GET_STATE
+ *
+ * Returns the current compaction debug state:
+ *   "running" | "paused_in_compaction" | "paused_before_fork_release" | "done"
+ */
+DEBUG_COMMAND(getCompactionState) {
+  if (!debugCommandsEnabled(ctx)) {
+    return RedisModule_ReplyWithError(ctx, NODEBUG_ERR);
+  }
+  if (argc != 2) {
+    return RedisModule_WrongArity(ctx);
+  }
+  static const char *names[] = {
+    "running",
+    "paused_in_compaction",
+    "paused_before_fork_release",
+    "done",
+  };
+  int state = SearchDisk_DebugGetCompactionState();
+  if (state < 0 || state >= (int)(sizeof(names) / sizeof(names[0]))) {
+    return RedisModule_ReplyWithError(ctx, "Invalid compaction debug state from Rust");
+  }
+  return RedisModule_ReplyWithSimpleString(ctx, names[state]);
+}
+
+/**
+ * FT.DEBUG COMPACTION_CONTROLLER RESET
+ *
+ * Clears any armed flags and releases parked waiters. Test teardown
+ * should call this so an unresumed pause from one scenario can't
+ * deadlock the next.
+ */
+DEBUG_COMMAND(resetCompactionController) {
+  if (!debugCommandsEnabled(ctx)) {
+    return RedisModule_ReplyWithError(ctx, NODEBUG_ERR);
+  }
+  if (argc != 2) {
+    return RedisModule_WrongArity(ctx);
+  }
+  SearchDisk_DebugResetCompactionController();
+  SearchDisk_DebugSetPausePreFork(false);
+  return RedisModule_ReplyWithSimpleString(ctx, "OK");
+}
+
+/**
+ * FT.DEBUG COMPACTION_CONTROLLER <command> [options]
+ */
+DEBUG_COMMAND(compactionController) {
+  if (!debugCommandsEnabled(ctx)) {
+    return RedisModule_ReplyWithError(ctx, NODEBUG_ERR);
+  }
+  if (argc < 3) {
+    return RedisModule_WrongArity(ctx);
+  }
+  const char* op = RedisModule_StringPtrLen(argv[2], NULL);
+  if (!strcasecmp("SET_PAUSE_IN_COMPACTION", op)) {
+    return setPauseInCompaction(ctx, argv + 1, argc - 1);
+  }
+  if (!strcasecmp("SET_PAUSE_AFTER_COMMIT", op)) {
+    return setPauseAfterCommit(ctx, argv + 1, argc - 1);
+  }
+  if (!strcasecmp("SET_RESUME", op)) {
+    return setResumeCompaction(ctx, argv + 1, argc - 1);
+  }
+  if (!strcasecmp("GET_STATE", op)) {
+    return getCompactionState(ctx, argv + 1, argc - 1);
+  }
+  if (!strcasecmp("RESET", op)) {
+    return resetCompactionController(ctx, argv + 1, argc - 1);
+  }
+  return RedisModule_ReplyWithError(ctx, "Invalid command for 'COMPACTION_CONTROLLER'");
+}
+
+// ----------------------------------------------------------------------------
+// FT.DEBUG SST_REPL_CONTROLLER ...
+// ----------------------------------------------------------------------------
+
+/**
+ * FT.DEBUG SST_REPL_CONTROLLER PAUSE_PRE_FORK <true/false>
+ *
+ * When set, `SearchDisk_PreFork` busy-waits (after taking the per-spec
+ * fork lock) until this flag is cleared. NOT single-shot.
+ */
+DEBUG_COMMAND(setPausePreFork) {
+  if (!debugCommandsEnabled(ctx)) {
+    return RedisModule_ReplyWithError(ctx, NODEBUG_ERR);
+  }
+  if (argc != 3) {
+    return RedisModule_WrongArity(ctx);
+  }
+  const char* op = RedisModule_StringPtrLen(argv[2], NULL);
+  bool armed;
+  if (!strcasecmp(op, "true")) {
+    armed = true;
+  } else if (!strcasecmp(op, "false")) {
+    armed = false;
+  } else {
+    return RedisModule_ReplyWithError(ctx, "Invalid argument for 'PAUSE_PRE_FORK'");
+  }
+  globalDebugCtx.debugMode = true;
+  SearchDisk_DebugSetPausePreFork(armed);
+  validateDebugMode(&globalDebugCtx);
+  return RedisModule_ReplyWithSimpleString(ctx, "OK");
+}
+
+/**
+ * FT.DEBUG SST_REPL_CONTROLLER GET_STATE
+ *
+ * Returns "waiting_for_fork_lock" if `SearchDisk_PreFork` is parked on
+ * the debug pre-fork pause, "idle" otherwise.
+ */
+DEBUG_COMMAND(getSstReplState) {
+  if (!debugCommandsEnabled(ctx)) {
+    return RedisModule_ReplyWithError(ctx, NODEBUG_ERR);
+  }
+  if (argc != 2) {
+    return RedisModule_WrongArity(ctx);
+  }
+  const char *state = SearchDisk_DebugIsPausedPreFork() ? "waiting_for_fork_lock" : "idle";
+  return RedisModule_ReplyWithSimpleString(ctx, state);
+}
+
+/**
+ * FT.DEBUG SST_REPL_CONTROLLER <command> [options]
+ */
+DEBUG_COMMAND(sstReplController) {
+  if (!debugCommandsEnabled(ctx)) {
+    return RedisModule_ReplyWithError(ctx, NODEBUG_ERR);
+  }
+  if (argc < 3) {
+    return RedisModule_WrongArity(ctx);
+  }
+  const char* op = RedisModule_StringPtrLen(argv[2], NULL);
+  if (!strcasecmp("PAUSE_PRE_FORK", op)) {
+    return setPausePreFork(ctx, argv + 1, argc - 1);
+  }
+  if (!strcasecmp("GET_STATE", op)) {
+    return getSstReplState(ctx, argv + 1, argc - 1);
+  }
+  return RedisModule_ReplyWithError(ctx, "Invalid command for 'SST_REPL_CONTROLLER'");
+}
+
 /**
  * FT.DEBUG BG_SCAN_CONTROLLER <command> [options]
  */
@@ -3214,6 +3445,8 @@ DebugCommandType commands[] = {{"DUMP_INVIDX", DumpInvertedIndex}, // Print all 
                                {"WORKERS", WorkerThreadsSwitch},
                                {"COORD_THREADS", CoordThreadsSwitch},
                                {"BG_SCAN_CONTROLLER", bgScanController},
+                               {"COMPACTION_CONTROLLER", compactionController},
+                               {"SST_REPL_CONTROLLER", sstReplController},
                                {"INDEXES", ListIndexesSwitch},
                                {"INFO", IndexObfuscatedInfo},
                                {"GET_HIDE_USER_DATA_FROM_LOGS", getHideUserDataFromLogs},

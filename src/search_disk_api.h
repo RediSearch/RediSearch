@@ -662,6 +662,32 @@ typedef struct RedisSearchDiskAPI {
 extern void VecSimDisk_AcquireConsistencyLock(void);
 extern void VecSimDisk_ReleaseConsistencyLock(void);
 
+// ---------------------------------------------------------------------------
+// Compaction debug pause-points (FT.DEBUG COMPACTION_CONTROLLER ...)
+//
+// Implemented on the Rust side in `redisearch_disk::compaction::debug`. Two
+// single-shot pause-points are exposed:
+//   - `SetPauseInCompaction(true)` arms a pause inside
+//     `on_compaction_begin` *after* the fork rwlock has been taken.
+//   - `SetPauseAfterCommit(true)`  arms a pause inside
+//     `on_compaction_completed` *after* `apply_delta` has run but before
+//     the listener's guard drops (i.e. while the fork rwlock is still
+//     held).
+// `Resume()` releases whichever pause is currently parked.
+// `GetCompactionState()` returns one of:
+//     0 = running, 1 = paused_in_compaction,
+//     2 = paused_before_fork_release, 3 = done
+// `ResetCompactionController()` clears any armed flags and releases any
+// parked waiters; intended for test teardown.
+// All entry points are no-ops if no flag is armed and are safe to call
+// from arbitrary threads.
+// ---------------------------------------------------------------------------
+extern void SearchDisk_DebugSetPauseInCompaction(bool armed);
+extern void SearchDisk_DebugSetPauseAfterCommit(bool armed);
+extern void SearchDisk_DebugResumeCompaction(void);
+extern int  SearchDisk_DebugGetCompactionState(void);
+extern void SearchDisk_DebugResetCompactionController(void);
+
 #ifdef __cplusplus
 }
 #endif
