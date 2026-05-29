@@ -125,7 +125,7 @@ fn remote_internal_mode_does_not_apply_limit_offset_locally() {
                 &[SharedValue::new_num(i as f64)],
                 &[SharedValue::new_num(i as f64)],
             );
-            ctx.add(&r, &row, None);
+            ctx.add(&r, &row, 0);
         }
         let out = ctx.finalize(&r);
         extract_num_field(&out, b"v")

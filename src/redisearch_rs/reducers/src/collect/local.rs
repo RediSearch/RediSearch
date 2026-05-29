@@ -171,7 +171,7 @@ const _: () = assert!(core::mem::offset_of!(LocalCollectReducer<'_>, reducer) ==
 /// [`SharedValue`] refcounts.
 pub struct LocalCollectCtx {
     lookup: RLookup<'static>,
-    storage: Storage,
+    storage: Storage<()>,
 }
 
 impl<'a> LocalCollectReducer<'a> {
@@ -250,7 +250,7 @@ impl LocalCollectCtx {
             }
             self.storage.insert_entry(
                 || snapshot_sort_keys(r.fields.sort_key_names(), item),
-                None,
+                (),
                 || r.fields.prepare_row(item, &mut self.lookup),
             );
         }

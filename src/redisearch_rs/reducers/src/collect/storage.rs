@@ -17,6 +17,8 @@
 //!   primitive defined in [`super::heap`] and draining best→worst.
 //!   Suitable when a ranked top-K is needed.
 
+use std::marker::PhantomData;
+
 use itertools::Either;
 use min_max_heap::MinMaxHeap;
 use rlookup::RLookupRow;
@@ -34,21 +36,22 @@ pub const DEFAULT_LIMIT: u64 = 10;
 /// number of rows we will retain.
 const INITIAL_CAPACITY_CAP: usize = 16_384;
 
-pub enum Storage {
+pub enum Storage<D: Ord> {
     Array {
         buf: Vec<RLookupRow<'static>>,
         offset: usize,
         count: usize,
+        _marker: PhantomData<D>,
     },
     Heap {
-        heap: MinMaxHeap<HeapEntry<RLookupRow<'static>>>,
+        heap: MinMaxHeap<HeapEntry<D, RLookupRow<'static>>>,
         sort_asc_map: u64,
         offset: usize,
         count: usize,
     },
 }
 
-impl Storage {
+impl<D: Ord> Storage<D> {
     /// Resolve `(offset, count)` and pre-size the buffer/heap.
     pub fn new(sortby: bool, limit: Option<(u64, u64)>, sort_asc_map: u64) -> Self {
         let (offset, count) = match (sortby, limit) {
@@ -72,6 +75,7 @@ impl Storage {
                 buf: Vec::with_capacity(initial_capacity),
                 offset,
                 count,
+                _marker: PhantomData,
             }
         }
     }
@@ -88,14 +92,10 @@ impl Storage {
     /// Returns `true` if the entry was buffered, `false` if it was dropped.
     ///
     /// `doc_id` is only consulted on the heap path, where it acts as a
-    /// deterministic tie-breaker when sort keys compare equal. Callers that
-    /// don't need tie-breaking (or use the array path) pass `None`.
-    pub fn insert_entry<S, P>(
-        &mut self,
-        sort_vals: S,
-        doc_id: Option<ffi::t_docId>,
-        project: P,
-    ) -> bool
+    /// deterministic tie-breaker when sort keys compare equal. Callers
+    /// that don't need tie-breaking instantiate `Storage<()>` and pass
+    /// `()` here — `()`'s `Ord` impl makes the fallback a no-op.
+    pub fn insert_entry<S, P>(&mut self, sort_vals: S, doc_id: D, project: P) -> bool
     where
         S: FnOnce() -> Box<[Option<SharedValue>]>,
         P: FnOnce() -> RLookupRow<'static>,
@@ -166,6 +166,7 @@ impl Storage {
                 buf: Vec::new(),
                 offset: 0,
                 count: 0,
+                _marker: PhantomData,
             },
         );
         match taken {

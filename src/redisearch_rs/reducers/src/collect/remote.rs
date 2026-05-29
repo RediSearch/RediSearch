@@ -117,7 +117,7 @@ const _: () = assert!(core::mem::offset_of!(RemoteCollectReducer<'_>, reducer) =
 /// [`ptr::drop_in_place`][std::ptr::drop_in_place] must be called to release
 /// the stored [`RLookupRow`]s and decrement [`SharedValue`] refcounts.
 pub struct RemoteCollectCtx {
-    storage: Storage,
+    storage: Storage<ffi::t_docId>,
 }
 
 impl<'a> RemoteCollectReducer<'a> {
@@ -236,7 +236,7 @@ impl RemoteCollectCtx {
         &mut self,
         r: &RemoteCollectReducer<'_>,
         row: &RLookupRow<'_>,
-        doc_id: Option<ffi::t_docId>,
+        doc_id: ffi::t_docId,
     ) {
         let sort_vals = || -> Box<[Option<SharedValue>]> {
             r.fields

@@ -21,7 +21,7 @@ redis_mock::mock_or_stub_missing_redis_c_symbols!();
 
 /// Builds an [`EntryKey`] from `f64`s — `f64::NAN` projects to `None` so tests
 /// can exercise the missing-worst policy.
-fn key(vals: &[f64], asc: u64) -> EntryKey {
+fn key(vals: &[f64], asc: u64) -> EntryKey<()> {
     let snapshot: Box<[Option<SharedValue>]> = vals
         .iter()
         .map(|v| {
@@ -32,7 +32,7 @@ fn key(vals: &[f64], asc: u64) -> EntryKey {
             }
         })
         .collect();
-    EntryKey::new(snapshot, asc, None)
+    EntryKey::new(snapshot, asc, ())
 }
 
 /// Bit `i` ASC.
@@ -131,9 +131,9 @@ fn heap_entry_into_projected_returns_payload() {
 
 #[test]
 fn min_max_heap_top_k_under_asc() {
-    let mut heap: MinMaxHeap<HeapEntry<u64>> = MinMaxHeap::with_capacity(3);
+    let mut heap: MinMaxHeap<HeapEntry<(), u64>> = MinMaxHeap::with_capacity(3);
     // ASC bit 0 set → smaller is better. Top-3 of {5,1,4,2,3} = {1,2,3}.
-    let push = |heap: &mut MinMaxHeap<HeapEntry<u64>>, v: f64| {
+    let push = |heap: &mut MinMaxHeap<HeapEntry<(), u64>>, v: f64| {
         heap.push(HeapEntry::new(key(&[v], asc(0)), v as u64));
     };
     push(&mut heap, 5.0);
@@ -166,35 +166,17 @@ fn min_max_heap_top_k_under_asc() {
 #[test]
 fn entry_key_compares_doc_id_only_after_sort_values_tie() {
     let primary = Some(SharedValue::new_num(1.0));
-    let a = EntryKey::new(Box::new([primary.clone()]), asc(0), Some(10));
-    let b = EntryKey::new(Box::new([primary]), asc(0), Some(20));
+    let a = EntryKey::new(Box::new([primary.clone()]), asc(0), 10u64);
+    let b = EntryKey::new(Box::new([primary]), asc(0), 20u64);
     // Sort values tie -> smaller doc id is "better".
     assert_eq!(a.cmp(&b), Ordering::Greater);
     assert_eq!(b.cmp(&a), Ordering::Less);
 }
 
 #[test]
-fn entry_key_orders_mixed_doc_id_presence_deterministically() {
-    let primary = Some(SharedValue::new_num(1.0));
-    let with_doc_id = EntryKey::new(Box::new([primary.clone()]), asc(0), Some(10));
-    let without_doc_id = EntryKey::new(Box::new([primary]), asc(0), None);
-
-    assert_eq!(with_doc_id.cmp(&without_doc_id), Ordering::Greater);
-    assert_eq!(without_doc_id.cmp(&with_doc_id), Ordering::Less);
-}
-
-#[test]
 fn entry_key_sort_values_take_precedence_over_doc_id() {
-    let a = EntryKey::new(
-        Box::new([Some(SharedValue::new_num(1.0))]),
-        asc(0),
-        Some(20),
-    );
-    let b = EntryKey::new(
-        Box::new([Some(SharedValue::new_num(2.0))]),
-        asc(0),
-        Some(10),
-    );
+    let a = EntryKey::new(Box::new([Some(SharedValue::new_num(1.0))]), asc(0), 20u64);
+    let b = EntryKey::new(Box::new([Some(SharedValue::new_num(2.0))]), asc(0), 10u64);
     // Sort value wins first; doc id is only a tie-breaker.
     assert_eq!(a.cmp(&b), Ordering::Greater);
     assert_eq!(b.cmp(&a), Ordering::Less);

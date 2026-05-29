@@ -140,7 +140,7 @@ pub unsafe extern "C" fn collectRemoteAddWithDocId(
     // SAFETY: ensured by caller (3.)
     let srcrow = unsafe { srcrow.cast::<RLookupRow>().as_ref().unwrap() };
 
-    collect.add(r, srcrow, Some(doc_id));
+    collect.add(r, srcrow, doc_id);
 
     1 // C reducer->Add convention: always returns 1
 }
