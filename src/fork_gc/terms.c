@@ -64,7 +64,7 @@ FGCError FGC_parentHandleTerms(ForkGC *gc) {
     return FGC_CHILD_ERROR;
   }
 
-  if (term == RECV_BUFFER_EMPTY) {
+  if (len == SIZE_MAX) {
     return FGC_DONE;
   }
 

@@ -18,11 +18,9 @@
 #include "search_ctx.h"
 #include "inverted_index.h"
 #include <stddef.h>
+#include <stdint.h>
 #include <stdbool.h>
 #include <sys/uio.h>
-
-// Sentinel value indicating an empty/terminator buffer was received.
-extern void *RECV_BUFFER_EMPTY;
 
 //------------------------------------------------------------------------------
 // Pipe I/O primitives

@@ -60,7 +60,7 @@ FGCError FGC_parentHandleMissingDocs(ForkGC *gc) {
     return FGC_CHILD_ERROR;
   }
 
-  if (rawFieldName == RECV_BUFFER_EMPTY) {
+  if (fieldNameLen == SIZE_MAX) {
     return FGC_DONE;
   }
 

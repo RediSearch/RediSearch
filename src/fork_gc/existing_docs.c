@@ -43,7 +43,7 @@ FGCError FGC_parentHandleExistingDocs(ForkGC *gc) {
     return FGC_CHILD_ERROR;
   }
 
-  if (empty_indicator == RECV_BUFFER_EMPTY) {
+  if (ei_len == SIZE_MAX) {
     return FGC_DONE;
   }
 
