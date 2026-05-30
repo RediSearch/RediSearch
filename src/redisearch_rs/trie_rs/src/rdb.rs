@@ -105,7 +105,7 @@ pub trait RdbRead {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum RdbError {
     /// The underlying RDB read failed (EOF, corrupted stream, etc.).
-    Io(String),
+    Io,
     /// A bytes buffer expected to end with a NUL terminator did not.
     MissingTrailingNul,
 }
@@ -113,7 +113,7 @@ pub enum RdbError {
 impl std::fmt::Display for RdbError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            Self::Io(msg) => write!(f, "rdb io error: {msg}"),
+            Self::Io => f.write_str("rdb io error"),
             Self::MissingTrailingNul => f.write_str("rdb bytes buffer missing trailing NUL"),
         }
     }
@@ -244,10 +244,10 @@ mod tests {
             if let Some(n) = self.fail_after
                 && self.calls >= n
             {
-                return Err(RdbError::Io("injected".into()));
+                return Err(RdbError::Io);
             }
             self.calls += 1;
-            self.ops.next().ok_or_else(|| RdbError::Io("eof".into()))
+            self.ops.next().ok_or(RdbError::Io)
         }
     }
 
@@ -480,7 +480,7 @@ mod tests {
         // Ops: U64(1), Bytes("a\0"), F64(1.0). Inject an error after the count read.
         let mut rep = Replayer::fail_after(rec.0, 1);
         let err = load(&mut rep, RdbOpts::default()).unwrap_err();
-        assert_eq!(err, RdbError::Io("injected".into()));
+        assert_eq!(err, RdbError::Io);
     }
 
     #[test]
