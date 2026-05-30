@@ -1047,7 +1047,8 @@ TEST_F(TrieTest, testCRustRdbInterop) {
 
   // Rust bytes -> C load. Must rehydrate into a trie holding the same entries.
   ioRust->read_pos = 0;
-  Trie *recoveredTrie = (Trie *)TrieType_GenericLoad(ioRust, /*loadPayloads=*/false, /*loadNumDocs=*/true);
+  Trie *recoveredTrie =
+      (Trie *)TrieType_GenericLoad(ioRust, /*loadPayloads=*/false, /*loadNumDocs=*/true, Trie_Sort_Score);
   std::unique_ptr<Trie, std::function<void(Trie *)>> recoveredTriePtr(recoveredTrie, [](Trie *trie) {
     TrieType_Free(trie);
   });
