@@ -191,18 +191,18 @@ impl<Data> Node<Data> {
     {
         /// A guard that prevents the content of `target` from
         /// being dropped when active.
-        struct DropGuard<'a, Data> {
-            target: &'a mut Node<Data>,
+        struct DropGuard<'node, Data> {
+            target: &'node mut Node<Data>,
             active: bool,
         }
 
-        impl<'a, Data> DropGuard<'a, Data> {
+        impl<'node, Data> DropGuard<'node, Data> {
             /// Create a new active guard, returning the value of `target`
             /// alongside the guard.
             ///
             /// `target` will be populated with a placeholder node,
             /// which relies on a dangling pointer.
-            const fn new(target: &'a mut Node<Data>) -> (Self, Node<Data>) {
+            const fn new(target: &'node mut Node<Data>) -> (Self, Node<Data>) {
                 let node = std::mem::replace(
                     target,
                     Node {
