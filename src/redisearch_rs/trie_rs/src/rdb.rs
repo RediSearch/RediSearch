@@ -24,15 +24,28 @@
 //! ] * count
 //! ```
 //!
+//! # Architecture
+//!
+//! The wire format is dictated by C interop (parity with `RedisModule_Save*`
+//! typed frames), so a general-purpose binary format like bincode/postcard
+//! cannot drive it directly. Instead, the algorithm is expressed via
+//! `serde::{Serialize, Deserialize}` impls on internal wrapper types
+//! ([`MapSer`], [`EntrySer`] and their seeded counterparts), driven by a
+//! bespoke [`RdbSerializer`]/[`RdbDeserializer`] pair that funnels the
+//! serde primitives onto the [`RdbWrite`]/[`RdbRead`] IO seam. The IO seam
+//! stays small (three typed methods each side); the schema lives in the
+//! wrapper Serialize/Deserialize impls.
+//!
 //! # Trailing-NUL framing
 //!
 //! Both keys and payloads are written with a trailing NUL byte (so the wire
 //! bytes are `key.len() + 1` long, matching C's `SaveStringBuffer(..., len + 1)`)
-//! and the loader strips one byte. Streams whose buffers do not end in NUL
-//! are rejected with [`RdbError::MissingTrailingNul`]. The NUL accounting is
-//! delegated to the [`RdbWrite::save_bytes_nul_terminated`] /
-//! [`RdbRead::load_bytes_strip_nul`] trait methods, so the algorithm body
-//! just passes raw key and payload slices.
+//! and the loader strips one byte. The NUL accounting is delegated to the
+//! [`RdbWrite::save_bytes_nul_terminated`] / [`RdbRead::load_bytes_strip_nul`]
+//! trait methods, which are the only paths bound by
+//! [`Serializer::serialize_bytes`](serde::Serializer::serialize_bytes) and
+//! [`Deserializer::deserialize_byte_buf`](serde::Deserializer::deserialize_byte_buf)
+//! in the adapter.
 //!
 //! # Empty-payload normalization
 //!
@@ -43,9 +56,18 @@
 //!
 //! # IO model
 //!
-//! Save is infallible at the Rust API level, matching the void-returning C
-//! `RedisModule_Save*` primitives. Errors only surface on load through
+//! Save is infallible at the Rust API level (the serde chain only ever
+//! returns [`RdbError::Unsupported`] on a programmer error in the wrapper
+//! schemas, never on IO). Errors only surface on load, through
 //! [`RdbError`].
+
+use std::fmt;
+use std::fmt::Display;
+
+use serde::de::{DeserializeSeed, Deserializer, Error as DeError, SeqAccess, Visitor};
+use serde::ser::{
+    Error as SerError, Impossible, Serialize, SerializeSeq, SerializeTuple, Serializer,
+};
 
 use crate::TrieMap;
 
@@ -113,43 +135,481 @@ pub trait RdbRead {
     fn load_bytes_strip_nul(&mut self) -> Result<Vec<u8>, RdbError>;
 }
 
-/// Errors that can occur while reading a trie RDB payload.
+/// Errors that can occur while reading a trie RDB payload, or that the
+/// serde adapter surfaces when the schema is misused.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum RdbError {
     /// The underlying RDB read failed (EOF, corrupted stream, etc.).
     Io,
     /// A bytes buffer expected to end with a NUL terminator did not.
     MissingTrailingNul,
+    /// A serde primitive outside the supported set was requested. Always a
+    /// bug in the schema wrappers — never a runtime stream condition.
+    Unsupported,
+    /// Schema-level error message produced by serde itself
+    /// (via [`SerError::custom`] / [`DeError::custom`]).
+    Custom(String),
 }
 
-impl std::fmt::Display for RdbError {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+impl Display for RdbError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             Self::Io => f.write_str("rdb io error"),
             Self::MissingTrailingNul => f.write_str("rdb bytes buffer missing trailing NUL"),
+            Self::Unsupported => f.write_str("rdb serde adapter: unsupported primitive"),
+            Self::Custom(s) => f.write_str(s),
         }
     }
 }
 
 impl std::error::Error for RdbError {}
 
+impl SerError for RdbError {
+    fn custom<T: Display>(msg: T) -> Self {
+        Self::Custom(msg.to_string())
+    }
+}
+
+impl DeError for RdbError {
+    fn custom<T: Display>(msg: T) -> Self {
+        Self::Custom(msg.to_string())
+    }
+}
+
+// ---------------------------------------------------------------------------
+// serde Serializer adapter over RdbWrite
+// ---------------------------------------------------------------------------
+
+/// serde [`Serializer`] that emits onto an [`RdbWrite`] sink.
+///
+/// Only the primitives used by the trie schema are supported
+/// (`u64`, `f64`, `bytes`, `seq`, `tuple`); every other serde primitive
+/// returns [`RdbError::Unsupported`]. The compound `seq` and `tuple` types
+/// reuse `Self` so that re-entrant element serialization just reborrows
+/// the underlying writer.
+pub struct RdbSerializer<'w, W>(pub &'w mut W);
+
+impl<'w, W: RdbWrite> Serializer for &mut RdbSerializer<'w, W> {
+    type Ok = ();
+    type Error = RdbError;
+    type SerializeSeq = Self;
+    type SerializeTuple = Self;
+    type SerializeTupleStruct = Impossible<(), RdbError>;
+    type SerializeTupleVariant = Impossible<(), RdbError>;
+    type SerializeMap = Impossible<(), RdbError>;
+    type SerializeStruct = Impossible<(), RdbError>;
+    type SerializeStructVariant = Impossible<(), RdbError>;
+
+    fn serialize_u64(self, v: u64) -> Result<(), RdbError> {
+        self.0.save_u64(v);
+        Ok(())
+    }
+
+    fn serialize_f64(self, v: f64) -> Result<(), RdbError> {
+        self.0.save_f64(v);
+        Ok(())
+    }
+
+    fn serialize_bytes(self, v: &[u8]) -> Result<(), RdbError> {
+        self.0.save_bytes_nul_terminated(v);
+        Ok(())
+    }
+
+    fn serialize_seq(self, len: Option<usize>) -> Result<Self::SerializeSeq, RdbError> {
+        let n = len.ok_or_else(|| <RdbError as SerError>::custom("seq must have known length"))?;
+        self.0.save_u64(n as u64);
+        Ok(self)
+    }
+
+    fn serialize_tuple(self, _len: usize) -> Result<Self::SerializeTuple, RdbError> {
+        Ok(self)
+    }
+
+    fn serialize_bool(self, _: bool) -> Result<(), RdbError> {
+        Err(RdbError::Unsupported)
+    }
+    fn serialize_i8(self, _: i8) -> Result<(), RdbError> {
+        Err(RdbError::Unsupported)
+    }
+    fn serialize_i16(self, _: i16) -> Result<(), RdbError> {
+        Err(RdbError::Unsupported)
+    }
+    fn serialize_i32(self, _: i32) -> Result<(), RdbError> {
+        Err(RdbError::Unsupported)
+    }
+    fn serialize_i64(self, _: i64) -> Result<(), RdbError> {
+        Err(RdbError::Unsupported)
+    }
+    fn serialize_u8(self, _: u8) -> Result<(), RdbError> {
+        Err(RdbError::Unsupported)
+    }
+    fn serialize_u16(self, _: u16) -> Result<(), RdbError> {
+        Err(RdbError::Unsupported)
+    }
+    fn serialize_u32(self, _: u32) -> Result<(), RdbError> {
+        Err(RdbError::Unsupported)
+    }
+    fn serialize_f32(self, _: f32) -> Result<(), RdbError> {
+        Err(RdbError::Unsupported)
+    }
+    fn serialize_char(self, _: char) -> Result<(), RdbError> {
+        Err(RdbError::Unsupported)
+    }
+    fn serialize_str(self, _: &str) -> Result<(), RdbError> {
+        Err(RdbError::Unsupported)
+    }
+    fn serialize_none(self) -> Result<(), RdbError> {
+        Err(RdbError::Unsupported)
+    }
+    fn serialize_some<T: ?Sized + Serialize>(self, _: &T) -> Result<(), RdbError> {
+        Err(RdbError::Unsupported)
+    }
+    fn serialize_unit(self) -> Result<(), RdbError> {
+        Err(RdbError::Unsupported)
+    }
+    fn serialize_unit_struct(self, _: &'static str) -> Result<(), RdbError> {
+        Err(RdbError::Unsupported)
+    }
+    fn serialize_unit_variant(
+        self,
+        _: &'static str,
+        _: u32,
+        _: &'static str,
+    ) -> Result<(), RdbError> {
+        Err(RdbError::Unsupported)
+    }
+    fn serialize_newtype_struct<T: ?Sized + Serialize>(
+        self,
+        _: &'static str,
+        _: &T,
+    ) -> Result<(), RdbError> {
+        Err(RdbError::Unsupported)
+    }
+    fn serialize_newtype_variant<T: ?Sized + Serialize>(
+        self,
+        _: &'static str,
+        _: u32,
+        _: &'static str,
+        _: &T,
+    ) -> Result<(), RdbError> {
+        Err(RdbError::Unsupported)
+    }
+    fn serialize_tuple_struct(
+        self,
+        _: &'static str,
+        _: usize,
+    ) -> Result<Self::SerializeTupleStruct, RdbError> {
+        Err(RdbError::Unsupported)
+    }
+    fn serialize_tuple_variant(
+        self,
+        _: &'static str,
+        _: u32,
+        _: &'static str,
+        _: usize,
+    ) -> Result<Self::SerializeTupleVariant, RdbError> {
+        Err(RdbError::Unsupported)
+    }
+    fn serialize_map(self, _: Option<usize>) -> Result<Self::SerializeMap, RdbError> {
+        Err(RdbError::Unsupported)
+    }
+    fn serialize_struct(
+        self,
+        _: &'static str,
+        _: usize,
+    ) -> Result<Self::SerializeStruct, RdbError> {
+        Err(RdbError::Unsupported)
+    }
+    fn serialize_struct_variant(
+        self,
+        _: &'static str,
+        _: u32,
+        _: &'static str,
+        _: usize,
+    ) -> Result<Self::SerializeStructVariant, RdbError> {
+        Err(RdbError::Unsupported)
+    }
+}
+
+impl<'w, W: RdbWrite> SerializeSeq for &mut RdbSerializer<'w, W> {
+    type Ok = ();
+    type Error = RdbError;
+    fn serialize_element<T: ?Sized + Serialize>(&mut self, value: &T) -> Result<(), RdbError> {
+        value.serialize(&mut **self)
+    }
+    fn end(self) -> Result<(), RdbError> {
+        Ok(())
+    }
+}
+
+impl<'w, W: RdbWrite> SerializeTuple for &mut RdbSerializer<'w, W> {
+    type Ok = ();
+    type Error = RdbError;
+    fn serialize_element<T: ?Sized + Serialize>(&mut self, value: &T) -> Result<(), RdbError> {
+        value.serialize(&mut **self)
+    }
+    fn end(self) -> Result<(), RdbError> {
+        Ok(())
+    }
+}
+
+// ---------------------------------------------------------------------------
+// serde Deserializer adapter over RdbRead
+// ---------------------------------------------------------------------------
+
+/// serde [`Deserializer`] that pulls from an [`RdbRead`] source.
+///
+/// Symmetric to [`RdbSerializer`]: only the primitives the schema uses are
+/// supported; everything else routes to `deserialize_any` and returns
+/// [`RdbError::Unsupported`] via the [`serde::forward_to_deserialize_any!`]
+/// fallback.
+pub struct RdbDeserializer<'r, R>(pub &'r mut R);
+
+impl<'de, 'r, R: RdbRead> Deserializer<'de> for &mut RdbDeserializer<'r, R> {
+    type Error = RdbError;
+
+    fn deserialize_u64<V: Visitor<'de>>(self, visitor: V) -> Result<V::Value, RdbError> {
+        visitor.visit_u64(self.0.load_u64()?)
+    }
+
+    fn deserialize_f64<V: Visitor<'de>>(self, visitor: V) -> Result<V::Value, RdbError> {
+        visitor.visit_f64(self.0.load_f64()?)
+    }
+
+    fn deserialize_byte_buf<V: Visitor<'de>>(self, visitor: V) -> Result<V::Value, RdbError> {
+        visitor.visit_byte_buf(self.0.load_bytes_strip_nul()?)
+    }
+
+    fn deserialize_seq<V: Visitor<'de>>(self, visitor: V) -> Result<V::Value, RdbError> {
+        let n = self.0.load_u64()? as usize;
+        visitor.visit_seq(SeqReader {
+            de: self,
+            remaining: n,
+        })
+    }
+
+    fn deserialize_tuple<V: Visitor<'de>>(
+        self,
+        len: usize,
+        visitor: V,
+    ) -> Result<V::Value, RdbError> {
+        visitor.visit_seq(SeqReader {
+            de: self,
+            remaining: len,
+        })
+    }
+
+    fn deserialize_any<V: Visitor<'de>>(self, _: V) -> Result<V::Value, RdbError> {
+        Err(RdbError::Unsupported)
+    }
+
+    serde::forward_to_deserialize_any! {
+        bool i8 i16 i32 i64 i128 u8 u16 u32 u128 f32 char str string
+        bytes option unit unit_struct newtype_struct tuple_struct map struct
+        enum identifier ignored_any
+    }
+}
+
+struct SeqReader<'a, 'r, R> {
+    de: &'a mut RdbDeserializer<'r, R>,
+    remaining: usize,
+}
+
+impl<'de, 'r, R: RdbRead> SeqAccess<'de> for SeqReader<'_, 'r, R> {
+    type Error = RdbError;
+    fn next_element_seed<T: DeserializeSeed<'de>>(
+        &mut self,
+        seed: T,
+    ) -> Result<Option<T::Value>, RdbError> {
+        if self.remaining == 0 {
+            return Ok(None);
+        }
+        self.remaining -= 1;
+        seed.deserialize(&mut *self.de).map(Some)
+    }
+    fn size_hint(&self) -> Option<usize> {
+        Some(self.remaining)
+    }
+}
+
+// ---------------------------------------------------------------------------
+// schema wrappers
+// ---------------------------------------------------------------------------
+
+/// Forces a byte slice through `Serializer::serialize_bytes` (rather than
+/// the default `Vec<u8>` → seq-of-u8 path) so the RdbSerializer hits the
+/// NUL-framing primitive.
+struct BytesField<'a>(&'a [u8]);
+
+impl Serialize for BytesField<'_> {
+    fn serialize<S: Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
+        serializer.serialize_bytes(self.0)
+    }
+}
+
+/// Counterpart to [`BytesField`]: forces `deserialize_byte_buf` so the
+/// RdbDeserializer hits the NUL-stripping primitive and yields owned bytes.
+struct OwnedBytes(Vec<u8>);
+
+impl<'de> serde::Deserialize<'de> for OwnedBytes {
+    fn deserialize<D: Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
+        struct V;
+        impl<'de> Visitor<'de> for V {
+            type Value = Vec<u8>;
+            fn expecting(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+                f.write_str("a NUL-terminated byte buffer")
+            }
+            fn visit_byte_buf<E: DeError>(self, v: Vec<u8>) -> Result<Vec<u8>, E> {
+                Ok(v)
+            }
+            fn visit_bytes<E: DeError>(self, v: &[u8]) -> Result<Vec<u8>, E> {
+                Ok(v.to_vec())
+            }
+        }
+        deserializer.deserialize_byte_buf(V).map(OwnedBytes)
+    }
+}
+
+struct MapSer<'a> {
+    map: &'a TrieMap<TrieEntry>,
+    opts: RdbOpts,
+}
+
+impl Serialize for MapSer<'_> {
+    fn serialize<S: Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
+        let n = self.map.n_unique_keys();
+        let mut seq = serializer.serialize_seq(Some(n))?;
+        for (key, entry) in self.map.iter() {
+            seq.serialize_element(&EntrySer {
+                key: &key,
+                entry,
+                opts: self.opts,
+            })?;
+        }
+        seq.end()
+    }
+}
+
+struct EntrySer<'a> {
+    key: &'a [u8],
+    entry: &'a TrieEntry,
+    opts: RdbOpts,
+}
+
+impl Serialize for EntrySer<'_> {
+    fn serialize<S: Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
+        let len = 2 + (self.opts.payloads as usize) + (self.opts.num_docs as usize);
+        let mut tup = serializer.serialize_tuple(len)?;
+        tup.serialize_element(&BytesField(self.key))?;
+        tup.serialize_element(&self.entry.score)?;
+        if self.opts.payloads {
+            tup.serialize_element(&BytesField(
+                self.entry.payload.as_deref().unwrap_or(&[]),
+            ))?;
+        }
+        if self.opts.num_docs {
+            tup.serialize_element(&self.entry.num_docs)?;
+        }
+        tup.end()
+    }
+}
+
+struct EntrySeed {
+    opts: RdbOpts,
+}
+
+impl<'de> DeserializeSeed<'de> for EntrySeed {
+    type Value = (Vec<u8>, TrieEntry);
+    fn deserialize<D: Deserializer<'de>>(self, deserializer: D) -> Result<Self::Value, D::Error> {
+        let len = 2 + (self.opts.payloads as usize) + (self.opts.num_docs as usize);
+        deserializer.deserialize_tuple(len, EntryVisitor { opts: self.opts })
+    }
+}
+
+struct EntryVisitor {
+    opts: RdbOpts,
+}
+
+impl<'de> Visitor<'de> for EntryVisitor {
+    type Value = (Vec<u8>, TrieEntry);
+    fn expecting(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.write_str("trie entry tuple")
+    }
+    fn visit_seq<A: SeqAccess<'de>>(self, mut seq: A) -> Result<Self::Value, A::Error> {
+        let key: OwnedBytes = seq
+            .next_element()?
+            .ok_or_else(|| A::Error::custom("missing key"))?;
+        let score: f64 = seq
+            .next_element()?
+            .ok_or_else(|| A::Error::custom("missing score"))?;
+        let payload = if self.opts.payloads {
+            let buf: OwnedBytes = seq
+                .next_element()?
+                .ok_or_else(|| A::Error::custom("missing payload"))?;
+            (!buf.0.is_empty()).then_some(buf.0)
+        } else {
+            None
+        };
+        let num_docs = if self.opts.num_docs {
+            seq.next_element()?
+                .ok_or_else(|| A::Error::custom("missing num_docs"))?
+        } else {
+            0
+        };
+        Ok((
+            key.0,
+            TrieEntry {
+                score,
+                payload,
+                num_docs,
+            },
+        ))
+    }
+}
+
+struct MapSeed {
+    opts: RdbOpts,
+}
+
+impl<'de> DeserializeSeed<'de> for MapSeed {
+    type Value = TrieMap<TrieEntry>;
+    fn deserialize<D: Deserializer<'de>>(self, deserializer: D) -> Result<Self::Value, D::Error> {
+        deserializer.deserialize_seq(MapVisitor { opts: self.opts })
+    }
+}
+
+struct MapVisitor {
+    opts: RdbOpts,
+}
+
+impl<'de> Visitor<'de> for MapVisitor {
+    type Value = TrieMap<TrieEntry>;
+    fn expecting(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.write_str("trie map (length-prefixed sequence of entries)")
+    }
+    fn visit_seq<A: SeqAccess<'de>>(self, mut seq: A) -> Result<Self::Value, A::Error> {
+        let mut map = TrieMap::new();
+        while let Some((key, entry)) = seq.next_element_seed(EntrySeed { opts: self.opts })? {
+            map.insert(&key, entry);
+        }
+        Ok(map)
+    }
+}
+
+// ---------------------------------------------------------------------------
+// public entry points
+// ---------------------------------------------------------------------------
+
 /// Serialize a [`TrieMap<TrieEntry>`] to `writer` in the lex-mode RDB format.
 ///
 /// Iterates entries in lexicographic key order. Keys, and payloads when
-/// [`RdbOpts::payloads`] is set, are written with a trailing NUL
-/// byte to match the C wire format (the loader strips it back off).
+/// [`RdbOpts::payloads`] is set, are written with a trailing NUL byte to
+/// match the C wire format (the loader strips it back off).
 pub fn save<W: RdbWrite>(map: &TrieMap<TrieEntry>, writer: &mut W, opts: RdbOpts) {
-    writer.save_u64(map.n_unique_keys() as u64);
-    for (key, entry) in map.iter() {
-        writer.save_bytes_nul_terminated(&key);
-        writer.save_f64(entry.score);
-        if opts.payloads {
-            writer.save_bytes_nul_terminated(entry.payload.as_deref().unwrap_or(&[]));
-        }
-        if opts.num_docs {
-            writer.save_u64(entry.num_docs);
-        }
-    }
+    let mut ser = RdbSerializer(writer);
+    MapSer { map, opts }
+        .serialize(&mut ser)
+        .expect("RDB save only invokes supported serde primitives");
 }
 
 /// Deserialize a [`TrieMap<TrieEntry>`] from `reader`.
@@ -157,34 +617,11 @@ pub fn save<W: RdbWrite>(map: &TrieMap<TrieEntry>, writer: &mut W, opts: RdbOpts
 /// `opts` must match the [`RdbOpts`] used at save time.
 ///
 /// The trailing NUL byte is stripped from every key (and every payload
-/// when [`RdbOpts::payloads`] is set). An empty payload (i.e. the
-/// wire bytes `"\0"`) is normalized to `payload: None`.
+/// when [`RdbOpts::payloads`] is set). An empty payload (i.e. the wire
+/// bytes `"\0"`) is normalized to `payload: None`.
 pub fn load<R: RdbRead>(reader: &mut R, opts: RdbOpts) -> Result<TrieMap<TrieEntry>, RdbError> {
-    let count = reader.load_u64()?;
-    let mut map = TrieMap::new();
-    for _ in 0..count {
-        let key = reader.load_bytes_strip_nul()?;
-        let score = reader.load_f64()?;
-        let payload = opts
-            .payloads
-            .then(|| reader.load_bytes_strip_nul())
-            .transpose()?
-            .filter(|b| !b.is_empty());
-        let num_docs = if opts.num_docs {
-            reader.load_u64()?
-        } else {
-            0
-        };
-        map.insert(
-            &key,
-            TrieEntry {
-                score,
-                payload,
-                num_docs,
-            },
-        );
-    }
-    Ok(map)
+    let mut de = RdbDeserializer(reader);
+    MapSeed { opts }.deserialize(&mut de)
 }
 
 #[cfg(test)]
@@ -508,5 +945,4 @@ mod tests {
         let err = load(&mut Replayer::new(ops), RdbOpts::default()).unwrap_err();
         assert_eq!(err, RdbError::MissingTrailingNul);
     }
-
 }

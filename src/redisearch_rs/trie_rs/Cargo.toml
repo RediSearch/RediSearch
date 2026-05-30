@@ -20,6 +20,7 @@ lending-iterator.workspace = true
 libc.workspace = true
 memchr.workspace = true
 rqe_wildcard.workspace = true
+serde.workspace = true
 workspace_hack.workspace = true
 
 [dev-dependencies]
