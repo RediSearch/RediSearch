@@ -187,18 +187,15 @@ static int dupTrackingFunc(const rune *u16, size_t nrune, void *ctx, void *paylo
 
 static DupTrackingCtx trieIterRangeTracked(Trie *t, const char *begin, const char *end) {
   rune r1[256] = {0}, r2[256] = {0};
-  size_t nr1 = 0, nr2 = 0;
   rune *r1Ptr = nullptr, *r2Ptr = nullptr;
-  int n1 = -1, n2 = -1;
+  int nr1 = -1, nr2 = -1;
   if (begin) {
     nr1 = strToRunesN(begin, strlen(begin), r1);
     r1Ptr = r1;
-    n1 = nr1;
   }
   if (end) {
     nr2 = strToRunesN(end, strlen(end), r2);
     r2Ptr = r2;
-    n2 = nr2;
   }
   DupTrackingCtx ctx;
   Trie_IterateRange(t, r1Ptr, n1, true, r2Ptr, n2, true, dupTrackingFunc, &ctx);
