@@ -197,7 +197,10 @@ impl<Data> TrieMap<Data> {
     }
 
     /// Iterate over all trie entries whose key is a prefix of `target`.
-    pub const fn prefixes_iter<'a>(&'a self, target: &'a [u8]) -> PrefixesIter<'a, Data> {
+    pub const fn prefixes_iter<'tm, 't>(
+        &'tm self,
+        target: &'t [u8],
+    ) -> PrefixesIter<'tm, 't, Data> {
         PrefixesIter::new(self.root.as_ref(), target)
     }
 
