@@ -19,8 +19,8 @@
 //! u64  count                            // map.n_unique_keys()
 //! [ bytes(key + '\0')
 //!   f64  score
-//!   bytes(payload + '\0')               // only if SaveOpts::save_payloads
-//!   u64  num_docs                       // only if SaveOpts::save_num_docs
+//!   bytes(payload + '\0')               // only if RdbOpts::payloads
+//!   u64  num_docs                       // only if RdbOpts::num_docs
 //! ] * count
 //! ```
 //!
@@ -33,7 +33,7 @@
 //!
 //! # Empty-payload normalization
 //!
-//! When `SaveOpts::save_payloads` is `true`, both `payload: None` and
+//! When `RdbOpts::payloads` is `true`, both `payload: None` and
 //! `payload: Some(vec![])` emit the wire bytes `"\0"` and load back as
 //! `None`. This mirrors the C-side collapse `payload.len ? &payload : NULL`
 //! at `src/trie/trie.c:415`.
@@ -51,7 +51,7 @@ use crate::TrieMap;
 ///
 /// `payload: None` and `payload: Some(vec![])` are wire-indistinguishable
 /// when payloads are persisted — both round-trip as `None`. See
-/// [`SaveOpts::save_payloads`].
+/// [`RdbOpts::payloads`].
 #[derive(Clone, Debug, PartialEq)]
 pub struct TrieEntry {
     /// Insertion score. The C trie stores this as `float`; the RDB wire
@@ -63,25 +63,16 @@ pub struct TrieEntry {
     pub num_docs: u64,
 }
 
-/// Controls which optional fields are written by [`save`].
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
-pub struct SaveOpts {
-    /// Write each entry's payload (with trailing NUL) to the stream.
-    pub save_payloads: bool,
-    /// Write each entry's `num_docs` to the stream.
-    pub save_num_docs: bool,
-}
-
-/// Controls which optional fields are read by [`load`].
+/// Controls which optional fields are present on the wire.
 ///
-/// Must match the [`SaveOpts`] used at save time. Mismatches produce
+/// The same value must be used at save and load time; mismatches produce
 /// [`RdbError`]s or silently parse following bytes as the wrong field.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
-pub struct LoadOpts {
-    /// Read each entry's payload (with trailing NUL) from the stream.
-    pub load_payloads: bool,
-    /// Read each entry's `num_docs` from the stream.
-    pub load_num_docs: bool,
+pub struct RdbOpts {
+    /// Persist each entry's payload (with trailing NUL).
+    pub payloads: bool,
+    /// Persist each entry's `num_docs`.
+    pub num_docs: bool,
 }
 
 /// Sink for the typed RDB save primitives.
@@ -143,18 +134,18 @@ impl std::error::Error for RdbError {}
 /// Serialize a [`TrieMap<TrieEntry>`] to `writer` in the lex-mode RDB format.
 ///
 /// Iterates entries in lexicographic key order. Keys, and payloads when
-/// [`SaveOpts::save_payloads`] is set, are written with a trailing NUL
+/// [`RdbOpts::payloads`] is set, are written with a trailing NUL
 /// byte to match the C wire format (the loader strips it back off).
-pub fn save<W: RdbWrite>(map: &TrieMap<TrieEntry>, writer: &mut W, opts: SaveOpts) {
+pub fn save<W: RdbWrite>(map: &TrieMap<TrieEntry>, writer: &mut W, opts: RdbOpts) {
     writer.save_u64(map.n_unique_keys() as u64);
     for (key, entry) in map.iter() {
         write_bytes_with_nul(writer, &key);
         writer.save_f64(entry.score);
-        if opts.save_payloads {
+        if opts.payloads {
             let bytes = entry.payload.as_deref().unwrap_or(&[]);
             write_bytes_with_nul(writer, bytes);
         }
-        if opts.save_num_docs {
+        if opts.num_docs {
             writer.save_u64(entry.num_docs);
         }
     }
@@ -162,24 +153,24 @@ pub fn save<W: RdbWrite>(map: &TrieMap<TrieEntry>, writer: &mut W, opts: SaveOpt
 
 /// Deserialize a [`TrieMap<TrieEntry>`] from `reader`.
 ///
-/// `opts` must match the [`SaveOpts`] used at save time.
+/// `opts` must match the [`RdbOpts`] used at save time.
 ///
 /// The trailing NUL byte is stripped from every key (and every payload
-/// when [`LoadOpts::load_payloads`] is set). An empty payload (i.e. the
+/// when [`RdbOpts::payloads`] is set). An empty payload (i.e. the
 /// wire bytes `"\0"`) is normalized to `payload: None`.
-pub fn load<R: RdbRead>(reader: &mut R, opts: LoadOpts) -> Result<TrieMap<TrieEntry>, RdbError> {
+pub fn load<R: RdbRead>(reader: &mut R, opts: RdbOpts) -> Result<TrieMap<TrieEntry>, RdbError> {
     let count = reader.load_u64()?;
     let mut map = TrieMap::new();
     for _ in 0..count {
         let key = read_bytes_strip_nul(reader)?;
         let score = reader.load_f64()?;
-        let payload = if opts.load_payloads {
+        let payload = if opts.payloads {
             let bytes = read_bytes_strip_nul(reader)?;
             if bytes.is_empty() { None } else { Some(bytes) }
         } else {
             None
         };
-        let num_docs = if opts.load_num_docs {
+        let num_docs = if opts.num_docs {
             reader.load_u64()?
         } else {
             0
@@ -319,22 +310,18 @@ mod tests {
         }
     }
 
-    fn round_trip(
-        map: &TrieMap<TrieEntry>,
-        save_opts: SaveOpts,
-        load_opts: LoadOpts,
-    ) -> TrieMap<TrieEntry> {
+    fn round_trip(map: &TrieMap<TrieEntry>, opts: RdbOpts) -> TrieMap<TrieEntry> {
         let mut rec = Recorder::default();
-        save(map, &mut rec, save_opts);
+        save(map, &mut rec, opts);
         let mut rep = Replayer::new(rec.0);
-        load(&mut rep, load_opts).expect("load should succeed")
+        load(&mut rep, opts).expect("load should succeed")
     }
 
     #[test]
     fn save_empty_map() {
         let map: TrieMap<TrieEntry> = TrieMap::new();
         let mut rec = Recorder::default();
-        save(&map, &mut rec, SaveOpts::default());
+        save(&map, &mut rec, RdbOpts::default());
         assert_eq!(rec.0, vec![Op::U64(0)]);
     }
 
@@ -344,7 +331,7 @@ mod tests {
         map.insert(b"alpha", entry(1.0, None, 0));
         map.insert(b"beta", entry(2.5, None, 0));
         let mut rec = Recorder::default();
-        save(&map, &mut rec, SaveOpts::default());
+        save(&map, &mut rec, RdbOpts::default());
         assert_eq!(
             rec.0,
             vec![
@@ -365,9 +352,9 @@ mod tests {
         save(
             &map,
             &mut rec,
-            SaveOpts {
-                save_payloads: true,
-                save_num_docs: true,
+            RdbOpts {
+                payloads: true,
+                num_docs: true,
             },
         );
         assert_eq!(
@@ -387,7 +374,7 @@ mod tests {
         let mut map = TrieMap::new();
         map.insert(b"a", entry(1.0, None, 0));
         map.insert(b"b", entry(2.0, None, 0));
-        let loaded = round_trip(&map, SaveOpts::default(), LoadOpts::default());
+        let loaded = round_trip(&map, RdbOpts::default());
         assert_eq!(loaded.n_unique_keys(), 2);
         assert_eq!(loaded.find(b"a"), Some(&entry(1.0, None, 0)));
         assert_eq!(loaded.find(b"b"), Some(&entry(2.0, None, 0)));
@@ -398,15 +385,11 @@ mod tests {
         let mut map = TrieMap::new();
         // num_docs is set but not persisted by the opts; it must come back as 0.
         map.insert(b"foo", entry(1.0, Some(b"payload"), 99));
-        let save_opts = SaveOpts {
-            save_payloads: true,
-            save_num_docs: false,
+        let opts = RdbOpts {
+            payloads: true,
+            num_docs: false,
         };
-        let load_opts = LoadOpts {
-            load_payloads: true,
-            load_num_docs: false,
-        };
-        let loaded = round_trip(&map, save_opts, load_opts);
+        let loaded = round_trip(&map, opts);
         assert_eq!(loaded.find(b"foo"), Some(&entry(1.0, Some(b"payload"), 0)));
     }
 
@@ -415,15 +398,11 @@ mod tests {
         let mut map = TrieMap::new();
         // Payload is set but not persisted; it must come back as None.
         map.insert(b"foo", entry(1.0, Some(b"ignored"), 42));
-        let save_opts = SaveOpts {
-            save_payloads: false,
-            save_num_docs: true,
+        let opts = RdbOpts {
+            payloads: false,
+            num_docs: true,
         };
-        let load_opts = LoadOpts {
-            load_payloads: false,
-            load_num_docs: true,
-        };
-        let loaded = round_trip(&map, save_opts, load_opts);
+        let loaded = round_trip(&map, opts);
         assert_eq!(loaded.find(b"foo"), Some(&entry(1.0, None, 42)));
     }
 
@@ -432,15 +411,11 @@ mod tests {
         let mut map = TrieMap::new();
         map.insert(b"foo", entry(3.5, Some(b"pay"), 11));
         map.insert(b"bar", entry(0.5, Some(b"x"), 1));
-        let save_opts = SaveOpts {
-            save_payloads: true,
-            save_num_docs: true,
+        let opts = RdbOpts {
+            payloads: true,
+            num_docs: true,
         };
-        let load_opts = LoadOpts {
-            load_payloads: true,
-            load_num_docs: true,
-        };
-        let loaded = round_trip(&map, save_opts, load_opts);
+        let loaded = round_trip(&map, opts);
         assert_eq!(loaded.find(b"foo"), Some(&entry(3.5, Some(b"pay"), 11)));
         assert_eq!(loaded.find(b"bar"), Some(&entry(0.5, Some(b"x"), 1)));
     }
@@ -448,7 +423,7 @@ mod tests {
     #[test]
     fn empty_trie_roundtrip() {
         let map: TrieMap<TrieEntry> = TrieMap::new();
-        let loaded = round_trip(&map, SaveOpts::default(), LoadOpts::default());
+        let loaded = round_trip(&map, RdbOpts::default());
         assert_eq!(loaded.n_unique_keys(), 0);
     }
 
@@ -459,7 +434,7 @@ mod tests {
             map.insert(key, entry(1.0, None, 0));
         }
         let mut rec = Recorder::default();
-        save(&map, &mut rec, SaveOpts::default());
+        save(&map, &mut rec, RdbOpts::default());
         let keys: Vec<Vec<u8>> = rec
             .0
             .into_iter()
@@ -489,9 +464,9 @@ mod tests {
         let mut from_none = TrieMap::new();
         from_none.insert(b"k", entry(1.0, None, 0));
 
-        let opts = SaveOpts {
-            save_payloads: true,
-            save_num_docs: false,
+        let opts = RdbOpts {
+            payloads: true,
+            num_docs: false,
         };
         let mut rec_empty = Recorder::default();
         let mut rec_none = Recorder::default();
@@ -502,11 +477,7 @@ mod tests {
             "empty Vec and None must match on the wire"
         );
 
-        let load_opts = LoadOpts {
-            load_payloads: true,
-            load_num_docs: false,
-        };
-        let loaded = load(&mut Replayer::new(rec_empty.0), load_opts).unwrap();
+        let loaded = load(&mut Replayer::new(rec_empty.0), opts).unwrap();
         assert_eq!(loaded.find(b"k").unwrap().payload, None);
     }
 
@@ -518,9 +489,9 @@ mod tests {
         save(
             &map,
             &mut rec,
-            SaveOpts {
-                save_payloads: true,
-                save_num_docs: true,
+            RdbOpts {
+                payloads: true,
+                num_docs: true,
             },
         );
         for op in &rec.0 {
@@ -535,10 +506,10 @@ mod tests {
         let mut map = TrieMap::new();
         map.insert(b"a", entry(1.0, None, 0));
         let mut rec = Recorder::default();
-        save(&map, &mut rec, SaveOpts::default());
+        save(&map, &mut rec, RdbOpts::default());
         // Ops: U64(1), Bytes("a\0"), F64(1.0). Inject an error after the count read.
         let mut rep = Replayer::fail_after(rec.0, 1);
-        let err = load(&mut rep, LoadOpts::default()).unwrap_err();
+        let err = load(&mut rep, RdbOpts::default()).unwrap_err();
         assert_eq!(err, RdbError::Io("injected".into()));
     }
 
@@ -549,7 +520,7 @@ mod tests {
         let k2 = "日本語".as_bytes();
         map.insert(k1, entry(1.0, None, 0));
         map.insert(k2, entry(2.0, None, 0));
-        let loaded = round_trip(&map, SaveOpts::default(), LoadOpts::default());
+        let loaded = round_trip(&map, RdbOpts::default());
         assert_eq!(loaded.find(k1), Some(&entry(1.0, None, 0)));
         assert_eq!(loaded.find(k2), Some(&entry(2.0, None, 0)));
     }
@@ -561,7 +532,7 @@ mod tests {
             Op::Bytes(b"abc".to_vec()), // missing trailing NUL
             Op::F64(1.0),
         ];
-        let err = load(&mut Replayer::new(ops), LoadOpts::default()).unwrap_err();
+        let err = load(&mut Replayer::new(ops), RdbOpts::default()).unwrap_err();
         assert_eq!(err, RdbError::MissingTrailingNul);
     }
 
@@ -569,7 +540,7 @@ mod tests {
     fn type_mismatch_surfaces() {
         // Loader expects U64 for the count, but the stream begins with Bytes.
         let ops = vec![Op::Bytes(b"\0".to_vec())];
-        let err = load(&mut Replayer::new(ops), LoadOpts::default()).unwrap_err();
+        let err = load(&mut Replayer::new(ops), RdbOpts::default()).unwrap_err();
         assert_eq!(
             err,
             RdbError::TypeMismatch {
