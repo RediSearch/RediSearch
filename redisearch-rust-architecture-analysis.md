@@ -4,6 +4,14 @@
 
 The Rust layer (`src/redisearch_rs/`) provides safe wrappers around C types using pinning, lifetimes, and RAII to prevent memory safety issues while maintaining C interoperability.
 
+### C-side reference
+
+The C headers remain authoritative for struct layout — Rust mirrors them via `#[repr(C)]` with offset assertions. When you need the canonical C definition of a type or the C-callable API surface, read the header directly:
+
+- **SearchResult** — `src/search_result.h` (implementation now in `src/redisearch_rs/search_result/`; no `.c` file)
+- **RLookup / RLookupKey / RLookupRow** — `src/rlookup.h` (implementation now in `src/redisearch_rs/rlookup/`; no `.c` file). Document loading still lives in C at `src/rlookup_load_document.c`.
+- **ResultProcessor** — `src/result_processor.h` + `src/result_processor.c` (C still implements the concrete processors: `RP_INDEX`, `RP_LOADER`, `RP_SCORER`, `RP_SORTER`, `RP_PAGER_LIMITER`, `RP_HYBRID_MERGER`, `RP_PROJECTOR`, `RP_FILTER`, `RP_GROUP`, `RP_HIGHLIGHTER`, …). The Rust `ResultProcessorWrapper` lets Rust-implemented processors slot into this C chain.
+
 ---
 
 ## 1. RLookup (`src/redisearch_rs/rlookup/`)
