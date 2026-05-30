@@ -60,7 +60,7 @@ impl<'tm, 'p, Data> From<WildcardIter<'tm, 'p, Data>>
 }
 
 /// Returns all trie entries that match the given wildcard pattern.
-pub struct WildcardFilter<'a>(WildcardPattern<'a>);
+pub struct WildcardFilter<'p>(WildcardPattern<'p>);
 
 impl TraversalFilter for WildcardFilter<'_> {
     fn filter(&self, key: &[u8]) -> FilterOutcome {

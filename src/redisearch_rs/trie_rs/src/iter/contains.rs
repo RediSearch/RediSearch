@@ -24,8 +24,8 @@ pub struct ContainsIter<'tm, 't, Data> {
     finder: Finder<'t>,
 }
 
-struct StackItem<'a, Data> {
-    node: &'a Node<Data>,
+struct StackItem<'tm, Data> {
+    node: &'tm Node<Data>,
     was_visited: bool,
     /// Set to `true` if we can skip checking if the current key contains the target fragment.
     ///

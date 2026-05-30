@@ -33,14 +33,14 @@ pub struct RangeIter<'tm, 'f, Data> {
 
 #[derive(Clone, Copy, Debug)]
 /// One of the bounds for a [`RangeFilter`].
-pub struct RangeBoundary<'a> {
-    pub value: &'a [u8],
+pub struct RangeBoundary<'f> {
+    pub value: &'f [u8],
     pub is_included: bool,
 }
 
-impl<'a> RangeBoundary<'a> {
+impl<'f> RangeBoundary<'f> {
     /// Create a new range boundary that includes its boundary value.
-    pub const fn included(value: &'a [u8]) -> Self {
+    pub const fn included(value: &'f [u8]) -> Self {
         Self {
             value,
             is_included: true,
@@ -48,7 +48,7 @@ impl<'a> RangeBoundary<'a> {
     }
 
     /// Create a new range boundary that doesn't include its boundary value.
-    pub const fn excluded(value: &'a [u8]) -> Self {
+    pub const fn excluded(value: &'f [u8]) -> Self {
         Self {
             value,
             is_included: false,
@@ -57,9 +57,9 @@ impl<'a> RangeBoundary<'a> {
 }
 
 #[derive(Clone, Copy, Debug)]
-pub struct RangeFilter<'a> {
-    pub min: Option<RangeBoundary<'a>>,
-    pub max: Option<RangeBoundary<'a>>,
+pub struct RangeFilter<'f> {
+    pub min: Option<RangeBoundary<'f>>,
+    pub max: Option<RangeBoundary<'f>>,
 }
 
 impl RangeFilter<'_> {
