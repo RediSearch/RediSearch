@@ -106,13 +106,6 @@ pub trait RdbRead {
 pub enum RdbError {
     /// The underlying RDB read failed (EOF, corrupted stream, etc.).
     Io(String),
-    /// The next primitive in the stream had a different type than expected.
-    TypeMismatch {
-        /// Expected primitive type.
-        expected: &'static str,
-        /// Actual primitive type encountered.
-        got: &'static str,
-    },
     /// A bytes buffer expected to end with a NUL terminator did not.
     MissingTrailingNul,
 }
@@ -121,9 +114,6 @@ impl std::fmt::Display for RdbError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             Self::Io(msg) => write!(f, "rdb io error: {msg}"),
-            Self::TypeMismatch { expected, got } => {
-                write!(f, "rdb type mismatch: expected {expected}, got {got}")
-            }
             Self::MissingTrailingNul => f.write_str("rdb bytes buffer missing trailing NUL"),
         }
     }
@@ -213,16 +203,6 @@ mod tests {
         Bytes(Vec<u8>),
     }
 
-    impl Op {
-        const fn kind(&self) -> &'static str {
-            match self {
-                Self::U64(_) => "u64",
-                Self::F64(_) => "f64",
-                Self::Bytes(_) => "bytes",
-            }
-        }
-    }
-
     #[derive(Default)]
     struct Recorder(Vec<Op>);
     impl RdbWrite for Recorder {
@@ -269,35 +249,25 @@ mod tests {
             self.calls += 1;
             self.ops.next().ok_or_else(|| RdbError::Io("eof".into()))
         }
-
-        fn mismatch<T>(expected: &'static str, op: &Op) -> Result<T, RdbError> {
-            Err(RdbError::TypeMismatch {
-                expected,
-                got: op.kind(),
-            })
-        }
     }
 
     impl RdbRead for Replayer {
         fn load_u64(&mut self) -> Result<u64, RdbError> {
-            let op = self.step()?;
-            match op {
+            match self.step()? {
                 Op::U64(v) => Ok(v),
-                _ => Self::mismatch("u64", &op),
+                op => panic!("mock: expected U64, got {op:?}"),
             }
         }
         fn load_f64(&mut self) -> Result<f64, RdbError> {
-            let op = self.step()?;
-            match op {
+            match self.step()? {
                 Op::F64(v) => Ok(v),
-                _ => Self::mismatch("f64", &op),
+                op => panic!("mock: expected F64, got {op:?}"),
             }
         }
         fn load_bytes(&mut self) -> Result<Vec<u8>, RdbError> {
-            let op = self.step()?;
-            match op {
+            match self.step()? {
                 Op::Bytes(v) => Ok(v),
-                _ => Self::mismatch("bytes", &op),
+                op => panic!("mock: expected Bytes, got {op:?}"),
             }
         }
     }
@@ -536,17 +506,4 @@ mod tests {
         assert_eq!(err, RdbError::MissingTrailingNul);
     }
 
-    #[test]
-    fn type_mismatch_surfaces() {
-        // Loader expects U64 for the count, but the stream begins with Bytes.
-        let ops = vec![Op::Bytes(b"\0".to_vec())];
-        let err = load(&mut Replayer::new(ops), RdbOpts::default()).unwrap_err();
-        assert_eq!(
-            err,
-            RdbError::TypeMismatch {
-                expected: "u64",
-                got: "bytes",
-            }
-        );
-    }
 }
