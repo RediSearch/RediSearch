@@ -22,7 +22,7 @@
 use ffi::RedisModuleIO;
 use redis_module::raw;
 use trie_rs::TrieMap;
-use trie_rs::rdb::{self, LoadOpts, RdbError, RdbRead, RdbWrite, SaveOpts, TrieEntry};
+use trie_rs::rdb::{self, RdbError, RdbOpts, RdbRead, RdbWrite, TrieEntry};
 
 /// Opaque FFI handle for a [`TrieMap<TrieEntry>`].
 ///
@@ -137,9 +137,9 @@ pub unsafe extern "C" fn LexTrieRs_RdbSave(
     let mut w = RmIoWriter {
         io: io.cast::<raw::RedisModuleIO>(),
     };
-    let opts = SaveOpts {
-        save_payloads,
-        save_num_docs,
+    let opts = RdbOpts {
+        payloads: save_payloads,
+        num_docs: save_num_docs,
     };
     rdb::save(&map.0, &mut w, opts);
 }
@@ -169,9 +169,9 @@ pub unsafe extern "C" fn LexTrieRs_RdbLoad(
     let mut r = RmIoReader {
         io: io.cast::<raw::RedisModuleIO>(),
     };
-    let opts = LoadOpts {
-        load_payloads,
-        load_num_docs,
+    let opts = RdbOpts {
+        payloads: load_payloads,
+        num_docs: load_num_docs,
     };
     match rdb::load(&mut r, opts) {
         Ok(map) => Box::into_raw(Box::new(LexTrieRs(map))),
