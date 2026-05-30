@@ -435,40 +435,11 @@ impl<'de, 'r, R: RdbRead> SeqAccess<'de> for SeqReader<'_, 'r, R> {
 // ---------------------------------------------------------------------------
 // schema wrappers
 // ---------------------------------------------------------------------------
-
-/// Forces a byte slice through `Serializer::serialize_bytes` (rather than
-/// the default `Vec<u8>` → seq-of-u8 path) so the RdbSerializer hits the
-/// NUL-framing primitive.
-struct BytesField<'a>(&'a [u8]);
-
-impl Serialize for BytesField<'_> {
-    fn serialize<S: Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
-        serializer.serialize_bytes(self.0)
-    }
-}
-
-/// Counterpart to [`BytesField`]: forces `deserialize_byte_buf` so the
-/// RdbDeserializer hits the NUL-stripping primitive and yields owned bytes.
-struct OwnedBytes(Vec<u8>);
-
-impl<'de> serde::Deserialize<'de> for OwnedBytes {
-    fn deserialize<D: Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
-        struct V;
-        impl<'de> Visitor<'de> for V {
-            type Value = Vec<u8>;
-            fn expecting(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-                f.write_str("a NUL-terminated byte buffer")
-            }
-            fn visit_byte_buf<E: DeError>(self, v: Vec<u8>) -> Result<Vec<u8>, E> {
-                Ok(v)
-            }
-            fn visit_bytes<E: DeError>(self, v: &[u8]) -> Result<Vec<u8>, E> {
-                Ok(v.to_vec())
-            }
-        }
-        deserializer.deserialize_byte_buf(V).map(OwnedBytes)
-    }
-}
+//
+// Byte slices and owned byte buffers go through `serde_bytes::{Bytes, ByteBuf}`,
+// which force `Serializer::serialize_bytes` / `Deserializer::deserialize_byte_buf`
+// (rather than the default `Vec<u8>` → seq-of-u8 path) so the RdbSerializer
+// and RdbDeserializer hit the NUL-framing primitives.
 
 struct MapSer<'a> {
     map: &'a TrieMap<TrieEntry>,
@@ -500,10 +471,10 @@ impl Serialize for EntrySer<'_> {
     fn serialize<S: Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
         let len = 2 + (self.opts.payloads as usize) + (self.opts.num_docs as usize);
         let mut tup = serializer.serialize_tuple(len)?;
-        tup.serialize_element(&BytesField(self.key))?;
+        tup.serialize_element(serde_bytes::Bytes::new(self.key))?;
         tup.serialize_element(&self.entry.score)?;
         if self.opts.payloads {
-            tup.serialize_element(&BytesField(
+            tup.serialize_element(serde_bytes::Bytes::new(
                 self.entry.payload.as_deref().unwrap_or(&[]),
             ))?;
         }
@@ -536,17 +507,18 @@ impl<'de> Visitor<'de> for EntryVisitor {
         f.write_str("trie entry tuple")
     }
     fn visit_seq<A: SeqAccess<'de>>(self, mut seq: A) -> Result<Self::Value, A::Error> {
-        let key: OwnedBytes = seq
+        let key: serde_bytes::ByteBuf = seq
             .next_element()?
             .ok_or_else(|| A::Error::custom("missing key"))?;
         let score: f64 = seq
             .next_element()?
             .ok_or_else(|| A::Error::custom("missing score"))?;
         let payload = if self.opts.payloads {
-            let buf: OwnedBytes = seq
+            let buf: serde_bytes::ByteBuf = seq
                 .next_element()?
                 .ok_or_else(|| A::Error::custom("missing payload"))?;
-            (!buf.0.is_empty()).then_some(buf.0)
+            let v = buf.into_vec();
+            (!v.is_empty()).then_some(v)
         } else {
             None
         };
@@ -557,7 +529,7 @@ impl<'de> Visitor<'de> for EntryVisitor {
             0
         };
         Ok((
-            key.0,
+            key.into_vec(),
             TrieEntry {
                 score,
                 payload,
