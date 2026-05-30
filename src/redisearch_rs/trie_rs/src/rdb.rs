@@ -189,6 +189,35 @@ impl DeError for RdbError {
 /// the underlying writer.
 pub struct RdbSerializer<'w, W>(pub &'w mut W);
 
+/// Expand each signature into a stub that returns [`RdbError::Unsupported`].
+///
+/// Companion [`ser_unsupported_t!`] handles the methods whose signature
+/// carries a `<T: ?Sized + Serialize>` parameter (`serialize_some`,
+/// `serialize_newtype_struct`, `serialize_newtype_variant`). The split is
+/// because a single arm that tried to match an optional `<…>` generic group
+/// with `tt`-repetition is locally ambiguous (`tt` itself matches `>`).
+/// Local to this module; the only analogue on the deserialize side is
+/// upstream's [`serde::forward_to_deserialize_any!`].
+macro_rules! ser_unsupported {
+    ($(fn $name:ident($($arg:tt)*) -> $ret:ty;)*) => {
+        $(
+            fn $name($($arg)*) -> $ret {
+                Err(RdbError::Unsupported)
+            }
+        )*
+    };
+}
+
+macro_rules! ser_unsupported_t {
+    ($(fn $name:ident($($arg:tt)*) -> $ret:ty;)*) => {
+        $(
+            fn $name<T: ?Sized + Serialize>($($arg)*) -> $ret {
+                Err(RdbError::Unsupported)
+            }
+        )*
+    };
+}
+
 impl<'w, W: RdbWrite> Serializer for &mut RdbSerializer<'w, W> {
     type Ok = ();
     type Error = RdbError;
@@ -225,109 +254,33 @@ impl<'w, W: RdbWrite> Serializer for &mut RdbSerializer<'w, W> {
         Ok(self)
     }
 
-    fn serialize_bool(self, _: bool) -> Result<(), RdbError> {
-        Err(RdbError::Unsupported)
+    ser_unsupported! {
+        fn serialize_bool(self, _: bool) -> Result<(), RdbError>;
+        fn serialize_i8(self, _: i8) -> Result<(), RdbError>;
+        fn serialize_i16(self, _: i16) -> Result<(), RdbError>;
+        fn serialize_i32(self, _: i32) -> Result<(), RdbError>;
+        fn serialize_i64(self, _: i64) -> Result<(), RdbError>;
+        fn serialize_u8(self, _: u8) -> Result<(), RdbError>;
+        fn serialize_u16(self, _: u16) -> Result<(), RdbError>;
+        fn serialize_u32(self, _: u32) -> Result<(), RdbError>;
+        fn serialize_f32(self, _: f32) -> Result<(), RdbError>;
+        fn serialize_char(self, _: char) -> Result<(), RdbError>;
+        fn serialize_str(self, _: &str) -> Result<(), RdbError>;
+        fn serialize_none(self) -> Result<(), RdbError>;
+        fn serialize_unit(self) -> Result<(), RdbError>;
+        fn serialize_unit_struct(self, _: &'static str) -> Result<(), RdbError>;
+        fn serialize_unit_variant(self, _: &'static str, _: u32, _: &'static str) -> Result<(), RdbError>;
+        fn serialize_tuple_struct(self, _: &'static str, _: usize) -> Result<Self::SerializeTupleStruct, RdbError>;
+        fn serialize_tuple_variant(self, _: &'static str, _: u32, _: &'static str, _: usize) -> Result<Self::SerializeTupleVariant, RdbError>;
+        fn serialize_map(self, _: Option<usize>) -> Result<Self::SerializeMap, RdbError>;
+        fn serialize_struct(self, _: &'static str, _: usize) -> Result<Self::SerializeStruct, RdbError>;
+        fn serialize_struct_variant(self, _: &'static str, _: u32, _: &'static str, _: usize) -> Result<Self::SerializeStructVariant, RdbError>;
     }
-    fn serialize_i8(self, _: i8) -> Result<(), RdbError> {
-        Err(RdbError::Unsupported)
-    }
-    fn serialize_i16(self, _: i16) -> Result<(), RdbError> {
-        Err(RdbError::Unsupported)
-    }
-    fn serialize_i32(self, _: i32) -> Result<(), RdbError> {
-        Err(RdbError::Unsupported)
-    }
-    fn serialize_i64(self, _: i64) -> Result<(), RdbError> {
-        Err(RdbError::Unsupported)
-    }
-    fn serialize_u8(self, _: u8) -> Result<(), RdbError> {
-        Err(RdbError::Unsupported)
-    }
-    fn serialize_u16(self, _: u16) -> Result<(), RdbError> {
-        Err(RdbError::Unsupported)
-    }
-    fn serialize_u32(self, _: u32) -> Result<(), RdbError> {
-        Err(RdbError::Unsupported)
-    }
-    fn serialize_f32(self, _: f32) -> Result<(), RdbError> {
-        Err(RdbError::Unsupported)
-    }
-    fn serialize_char(self, _: char) -> Result<(), RdbError> {
-        Err(RdbError::Unsupported)
-    }
-    fn serialize_str(self, _: &str) -> Result<(), RdbError> {
-        Err(RdbError::Unsupported)
-    }
-    fn serialize_none(self) -> Result<(), RdbError> {
-        Err(RdbError::Unsupported)
-    }
-    fn serialize_some<T: ?Sized + Serialize>(self, _: &T) -> Result<(), RdbError> {
-        Err(RdbError::Unsupported)
-    }
-    fn serialize_unit(self) -> Result<(), RdbError> {
-        Err(RdbError::Unsupported)
-    }
-    fn serialize_unit_struct(self, _: &'static str) -> Result<(), RdbError> {
-        Err(RdbError::Unsupported)
-    }
-    fn serialize_unit_variant(
-        self,
-        _: &'static str,
-        _: u32,
-        _: &'static str,
-    ) -> Result<(), RdbError> {
-        Err(RdbError::Unsupported)
-    }
-    fn serialize_newtype_struct<T: ?Sized + Serialize>(
-        self,
-        _: &'static str,
-        _: &T,
-    ) -> Result<(), RdbError> {
-        Err(RdbError::Unsupported)
-    }
-    fn serialize_newtype_variant<T: ?Sized + Serialize>(
-        self,
-        _: &'static str,
-        _: u32,
-        _: &'static str,
-        _: &T,
-    ) -> Result<(), RdbError> {
-        Err(RdbError::Unsupported)
-    }
-    fn serialize_tuple_struct(
-        self,
-        _: &'static str,
-        _: usize,
-    ) -> Result<Self::SerializeTupleStruct, RdbError> {
-        Err(RdbError::Unsupported)
-    }
-    fn serialize_tuple_variant(
-        self,
-        _: &'static str,
-        _: u32,
-        _: &'static str,
-        _: usize,
-    ) -> Result<Self::SerializeTupleVariant, RdbError> {
-        Err(RdbError::Unsupported)
-    }
-    fn serialize_map(self, _: Option<usize>) -> Result<Self::SerializeMap, RdbError> {
-        Err(RdbError::Unsupported)
-    }
-    fn serialize_struct(
-        self,
-        _: &'static str,
-        _: usize,
-    ) -> Result<Self::SerializeStruct, RdbError> {
-        Err(RdbError::Unsupported)
-    }
-    fn serialize_struct_variant(
-        self,
-        _: &'static str,
-        _: u32,
-        _: &'static str,
-        _: usize,
-    ) -> Result<Self::SerializeStructVariant, RdbError> {
-        Err(RdbError::Unsupported)
+
+    ser_unsupported_t! {
+        fn serialize_some(self, _: &T) -> Result<(), RdbError>;
+        fn serialize_newtype_struct(self, _: &'static str, _: &T) -> Result<(), RdbError>;
+        fn serialize_newtype_variant(self, _: &'static str, _: u32, _: &'static str, _: &T) -> Result<(), RdbError>;
     }
 }
 
