@@ -154,12 +154,11 @@ pub fn load<R: RdbRead>(reader: &mut R, opts: RdbOpts) -> Result<TrieMap<TrieEnt
     for _ in 0..count {
         let key = read_bytes_strip_nul(reader)?;
         let score = reader.load_f64()?;
-        let payload = if opts.payloads {
-            let bytes = read_bytes_strip_nul(reader)?;
-            if bytes.is_empty() { None } else { Some(bytes) }
-        } else {
-            None
-        };
+        let payload = opts
+            .payloads
+            .then(|| read_bytes_strip_nul(reader))
+            .transpose()?
+            .filter(|b| !b.is_empty());
         let num_docs = if opts.num_docs {
             reader.load_u64()?
         } else {
