@@ -66,17 +66,17 @@ struct RmIoReader {
 
 impl RdbRead for RmIoReader {
     fn load_u64(&mut self) -> Result<u64, RdbError> {
-        raw::load_unsigned(self.io).map_err(|e| RdbError::Io(e.to_string()))
+        raw::load_unsigned(self.io).map_err(|_| RdbError::Io)
     }
 
     fn load_f64(&mut self) -> Result<f64, RdbError> {
-        raw::load_double(self.io).map_err(|e| RdbError::Io(e.to_string()))
+        raw::load_double(self.io).map_err(|_| RdbError::Io)
     }
 
     fn load_bytes(&mut self) -> Result<Vec<u8>, RdbError> {
         raw::load_string_buffer(self.io)
             .map(|buf| buf.as_ref().to_vec())
-            .map_err(|e| RdbError::Io(e.to_string()))
+            .map_err(|_| RdbError::Io)
     }
 }
 
