@@ -36,8 +36,14 @@ pub struct LexTrieRs(pub TrieMap<TrieEntry>);
 /// The pointer is captured at construction and never stored anywhere else.
 /// Validity is the caller's responsibility (see the `Safety` blocks on the
 /// `extern "C"` entry points below).
+///
+/// `scratch` is a reusable buffer for the per-entry NUL-terminated byte
+/// blobs: `RedisModule_SaveStringBuffer` is single-shot length-prefixed, so
+/// the trailing NUL must already be present in a contiguous slice. Reusing
+/// the buffer avoids one allocation per key (and per payload, when present).
 struct RmIoWriter {
     io: *mut raw::RedisModuleIO,
+    scratch: Vec<u8>,
 }
 
 impl RdbWrite for RmIoWriter {
@@ -49,8 +55,12 @@ impl RdbWrite for RmIoWriter {
         raw::save_double(self.io, v);
     }
 
-    fn save_bytes(&mut self, b: &[u8]) {
-        raw::save_slice(self.io, b);
+    fn save_bytes_nul_terminated(&mut self, b: &[u8]) {
+        self.scratch.clear();
+        self.scratch.reserve(b.len() + 1);
+        self.scratch.extend_from_slice(b);
+        self.scratch.push(0);
+        raw::save_slice(self.io, &self.scratch);
     }
 }
 
@@ -73,10 +83,14 @@ impl RdbRead for RmIoReader {
         raw::load_double(self.io).map_err(|_| RdbError::Io)
     }
 
-    fn load_bytes(&mut self) -> Result<Vec<u8>, RdbError> {
-        raw::load_string_buffer(self.io)
+    fn load_bytes_strip_nul(&mut self) -> Result<Vec<u8>, RdbError> {
+        let mut buf = raw::load_string_buffer(self.io)
             .map(|buf| buf.as_ref().to_vec())
-            .map_err(|_| RdbError::Io)
+            .map_err(|_| RdbError::Io)?;
+        if buf.pop() != Some(0) {
+            return Err(RdbError::MissingTrailingNul);
+        }
+        Ok(buf)
     }
 }
 
@@ -136,6 +150,7 @@ pub unsafe extern "C" fn LexTrieRs_RdbSave(
     let map = unsafe { &*map };
     let mut w = RmIoWriter {
         io: io.cast::<raw::RedisModuleIO>(),
+        scratch: Vec::new(),
     };
     let opts = RdbOpts {
         payloads: save_payloads,
