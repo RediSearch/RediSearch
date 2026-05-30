@@ -189,13 +189,13 @@ static void setMemoryInfo(RedisModuleCtx *ctx) {
 }
 
 // Return true if used_memory exceeds (indexingMemoryLimit % × memoryLimit); false if within bounds or limit is 0.
-static inline bool isBgIndexingMemoryOverLimit(RedisModuleCtx *ctx) {
+static inline bool isBgIndexingMemoryOverLimit(void) {
   // if memory limit is set to 0, we don't need to check for memory usage
   if(RSGlobalConfig.indexingMemoryLimit == 0) {
     return false;
   }
 
-  float used_memory_ratio = RedisMemory_GetUsedMemoryRatioUnified(ctx);
+  float used_memory_ratio = RedisMemory_GetUsedMemoryRatio();
   float memory_limit_ratio = (float)RSGlobalConfig.indexingMemoryLimit / 100;
 
   return (used_memory_ratio > memory_limit_ratio) ;
@@ -2867,7 +2867,7 @@ static void Indexes_ScanProc(RedisModuleCtx *ctx, RedisModuleString *keyname, Re
     return;
   }
 
-  if (isBgIndexingMemoryOverLimit(ctx)){
+  if (isBgIndexingMemoryOverLimit()){
     scanner->scanFailedOnOOM = true;
     if (scanner->OOMkey) {
       RedisModule_FreeString(RSDummyContext, scanner->OOMkey);
@@ -2980,7 +2980,7 @@ static void Indexes_ScanAndReindexTask(IndexesScanner *scanner) {
         IF_DEBUG_PAUSE_CHECK_BEFORE_OOM_RETRY(scanner, ctx);
         // Call the wait function
         threadSleepByConfigTime(ctx, scanner);
-        if (!isBgIndexingMemoryOverLimit(ctx)) {
+        if (!isBgIndexingMemoryOverLimit()) {
           // We can continue the scan
           RedisModule_Log(ctx, "notice", "Scanning index %s in background: resuming after OOM due to memory limit increase",
                           scanner->spec_name_for_logs);
