@@ -655,12 +655,7 @@ def testForceGCBypassesThreshold(env):
     env.expect(debug_cmd(), 'DUMP_INVIDX', 'idx', 'hello').equal([10])
 
 
-# MOD-15996: Fork-GC crash on TAG `INDEXEMPTY WITHSUFFIXTRIE`. TagIndex_Index
-# adds "" to TagIndex->values but skips TagIndex->suffix (gate on `*tok != '\0'`).
-# When the last doc holding "" is deleted and fork GC runs, deleteSuffixTrieMap
-# is called with len=0; the loop bound underflows (B2) and an unconditional
-# write through TRIEMAP_NOTFOUND crashes the server (B1). This regression
-# exercises the four-command repro from the ticket.
+# Regression for https://redislabs.atlassian.net/browse/MOD-15940
 @skip(cluster=True)
 def testForkGCEmptyTagSuffixTrie_emptyValue_MOD_15996():
     env = Env(moduleArgs='FORK_GC_CLEAN_THRESHOLD 0')
