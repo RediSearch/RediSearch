@@ -402,7 +402,7 @@ void addSuffixTrieMap(TrieMap *trie, const char *str, uint32_t len) {
 
   // Save string copy to all suffixes of it
   // If it exists, move to the next field
-  for (size_t j = 1; j + MIN_SUFFIX <= len; ++j) {
+  for (uint32_t j = 1; j + MIN_SUFFIX <= len; ++j) {
     data = TrieMap_Find(trie, copyStr + j, len - j);
 
     if (data == TRIEMAP_NOTFOUND) {
@@ -419,7 +419,7 @@ void deleteSuffixTrieMap(TrieMap *trie, const char *str, uint32_t len) {
   char *oldTerm = NULL;
 
   // iterate all matching terms and remove word
-  for (size_t j = 0; j + MIN_SUFFIX <= len; ++j) {
+  for (uint32_t j = 0; j + MIN_SUFFIX <= len; ++j) {
     suffixData *data = TrieMap_Find(trie, str + j, len - j);
     RS_LOG_ASSERT(data != TRIEMAP_NOTFOUND, "all suffixes must exist");
     if (j == 0) {
