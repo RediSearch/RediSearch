@@ -26,9 +26,9 @@ use trie_rs::rdb::{self, RdbError, RdbOpts, RdbRead, RdbWrite, TrieEntry};
 
 /// Opaque FFI handle for a [`TrieMap<TrieEntry>`].
 ///
-/// Distinct from [`crate::TrieMap`] (the legacy void-payload triemap) so
-/// the two C symbol sets do not collide. Construct via [`LexTrieRs_New`]
-/// or [`LexTrieRs_RdbLoad`]; free via [`LexTrieRs_Free`].
+/// Distinct from [`crate::TrieMap`] (the void-payload triemap exposed by
+/// this crate) so the two C symbol sets do not collide. Construct via
+/// [`LexTrieRs_New`] or [`LexTrieRs_RdbLoad`]; free via [`LexTrieRs_Free`].
 pub struct LexTrieRs(pub TrieMap<TrieEntry>);
 
 /// [`RdbWrite`] backed by a raw `RedisModuleIO*`.
