@@ -2,6 +2,7 @@ use crate::TrieMap;
 
 pub mod dfa;
 pub mod iter;
+pub mod rdb;
 pub mod suffix;
 pub mod tag_suffix;
 pub mod term_dict;

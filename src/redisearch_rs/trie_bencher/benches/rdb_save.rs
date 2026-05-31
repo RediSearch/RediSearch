@@ -20,8 +20,9 @@ use std::hint::black_box;
 
 use criterion::{BenchmarkId, Criterion, Throughput, criterion_group, criterion_main};
 use trie_bencher::corpus::CorpusType;
-use trie_rs::TrieMap;
-use trie_rs::rdb::{self, RdbOpts, RdbWrite, TrieEntry};
+use trie_rs::rdb::{RdbOpts, RdbWrite, TrieEntry};
+use trie_rs::str::StrTrieMap;
+use trie_rs::str::rdb as str_rdb;
 
 /// Writer that reuses a single scratch buffer for every NUL-terminated record.
 /// Matches the production `RmIoWriter` in `triemap_ffi/src/rdb.rs`.
@@ -95,16 +96,16 @@ impl RdbWrite for FreshWriter<'_> {
 ///
 /// `payload_size` controls the optional payload length (when payloads are
 /// persisted at save time). `0` yields `payload: None`.
-fn build_map(keys: &[String], payload_size: usize) -> TrieMap<TrieEntry> {
+fn build_map(keys: &[String], payload_size: usize) -> StrTrieMap<TrieEntry> {
     let payload = if payload_size == 0 {
         None
     } else {
         Some(vec![b'p'; payload_size])
     };
-    let mut map = TrieMap::new();
+    let mut map = StrTrieMap::new();
     for (i, k) in keys.iter().enumerate() {
         map.insert(
-            k.as_bytes(),
+            k,
             TrieEntry {
                 score: i as f64,
                 payload: payload.clone(),
@@ -115,11 +116,15 @@ fn build_map(keys: &[String], payload_size: usize) -> TrieMap<TrieEntry> {
     map
 }
 
-/// Conservative upper bound on the bytes emitted by `rdb::save` for `map`.
+/// Conservative upper bound on the bytes emitted by `str_rdb::save` for `map`.
 ///
 /// Used to pre-size the sink so allocator growth doesn't dominate either arm.
-fn estimate_sink_capacity(map: &TrieMap<TrieEntry>, opts: RdbOpts, payload_size: usize) -> usize {
-    let n = map.n_unique_keys();
+fn estimate_sink_capacity(
+    map: &StrTrieMap<TrieEntry>,
+    opts: RdbOpts,
+    payload_size: usize,
+) -> usize {
+    let n = map.len();
     // Rough per-entry size: 8 (length prefix) + key + 1 (NUL) + 8 (score)
     //                    + [8 + payload + 1] when payloads
     //                    + [8] when num_docs
@@ -145,14 +150,14 @@ fn bench_save(c: &mut Criterion, label: &str, opts: RdbOpts, payload_size: usize
 
     // Throughput in number of trie entries serialized per iteration. Lets
     // Criterion report a per-entry rate that's comparable across configs.
-    group.throughput(Throughput::Elements(map.n_unique_keys() as u64));
+    group.throughput(Throughput::Elements(map.len() as u64));
 
     group.bench_function(BenchmarkId::new("scratch", "reused"), |b| {
         b.iter_batched(
             || Vec::with_capacity(cap),
             |mut sink| {
                 let mut w = ScratchWriter::new(&mut sink);
-                rdb::save(black_box(&map), &mut w, opts);
+                str_rdb::save(black_box(&map), &mut w, opts);
                 black_box(sink);
             },
             criterion::BatchSize::SmallInput,
@@ -164,7 +169,7 @@ fn bench_save(c: &mut Criterion, label: &str, opts: RdbOpts, payload_size: usize
             || Vec::with_capacity(cap),
             |mut sink| {
                 let mut w = FreshWriter::new(&mut sink);
-                rdb::save(black_box(&map), &mut w, opts);
+                str_rdb::save(black_box(&map), &mut w, opts);
                 black_box(sink);
             },
             criterion::BatchSize::SmallInput,

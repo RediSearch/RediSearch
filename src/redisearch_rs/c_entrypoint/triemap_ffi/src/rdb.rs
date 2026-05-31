@@ -21,15 +21,18 @@
 
 use ffi::RedisModuleIO;
 use redis_module::raw;
-use trie_rs::TrieMap;
-use trie_rs::rdb::{self, RdbError, RdbOpts, RdbRead, RdbWrite, TrieEntry};
+use trie_rs::rdb::{RdbError, RdbOpts, RdbRead, RdbWrite, TrieEntry};
+use trie_rs::str::StrTrieMap;
+use trie_rs::str::rdb as str_rdb;
 
-/// Opaque FFI handle for a [`TrieMap<TrieEntry>`].
+/// Opaque FFI handle for a [`StrTrieMap<TrieEntry>`].
 ///
 /// Distinct from [`crate::TrieMap`] (the void-payload triemap exposed by
-/// this crate) so the two C symbol sets do not collide. Construct via
+/// this crate) so the two C symbol sets do not collide. Keys flow through
+/// the UTF-8-validating [`str_rdb`] loader, so non-UTF-8 RDB payloads
+/// surface as `NULL` from [`LexTrieRs_RdbLoad`]. Construct via
 /// [`LexTrieRs_New`] or [`LexTrieRs_RdbLoad`]; free via [`LexTrieRs_Free`].
-pub struct LexTrieRs(pub TrieMap<TrieEntry>);
+pub struct LexTrieRs(pub StrTrieMap<TrieEntry>);
 
 /// [`RdbWrite`] backed by a raw `RedisModuleIO*`.
 ///
@@ -103,7 +106,7 @@ impl RdbRead for RmIoReader {
 /// [`LexTrieRs_Free`].
 #[unsafe(no_mangle)]
 pub extern "C" fn LexTrieRs_New() -> *mut LexTrieRs {
-    Box::into_raw(Box::new(LexTrieRs(TrieMap::new())))
+    Box::into_raw(Box::new(LexTrieRs(StrTrieMap::new())))
 }
 
 /// Free a [`LexTrieRs`] previously produced by [`LexTrieRs_New`] or
@@ -159,7 +162,7 @@ pub unsafe extern "C" fn LexTrieRs_RdbSave(
         payloads: save_payloads,
         num_docs: save_num_docs,
     };
-    rdb::save(&map.0, &mut w, opts);
+    str_rdb::save(&map.0, &mut w, opts);
 }
 
 /// Deserialize a [`LexTrieRs`] from `io` in the lex-mode RDB wire format.
@@ -191,7 +194,7 @@ pub unsafe extern "C" fn LexTrieRs_RdbLoad(
         payloads: load_payloads,
         num_docs: load_num_docs,
     };
-    match rdb::load(&mut r, opts) {
+    match str_rdb::load(&mut r, opts) {
         Ok(map) => Box::into_raw(Box::new(LexTrieRs(map))),
         Err(_) => std::ptr::null_mut(),
     }

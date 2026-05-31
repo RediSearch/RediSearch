@@ -184,6 +184,10 @@ pub enum RdbError {
     /// A bytes buffer expected to end with a NUL terminator did not.
     #[error("rdb bytes buffer missing trailing NUL")]
     MissingTrailingNul,
+    /// A key buffer was not valid UTF-8 when loaded through the
+    /// [`crate::str::rdb`] wrapper that requires UTF-8 keys.
+    #[error("rdb key bytes not valid UTF-8")]
+    InvalidUtf8,
 }
 
 #[cfg(test)]
