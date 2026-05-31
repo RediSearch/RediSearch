@@ -30,6 +30,15 @@ typedef const void* RedisSearchDiskIterator;
 typedef void* RedisSearchDiskAsyncReadPool;
 typedef const void* RedisSearchDiskRdbState;
 
+// Opaque handle for the underlying storage-layer write batch.
+//
+// Allocated and freed by the storage implementation behind this API; the only
+// C-visible operations are the create / commit / abort / stage entry points on
+// `IndexDiskAPI` and `DocTableDiskAPI`. C-side callers pass the handle through
+// the thin wrappers in `search_disk.h` (`SearchDisk_CreateWriteBatch`,
+// `SearchDisk_CommitWriteBatch`, `SearchDisk_AbortWriteBatch`, etc.).
+typedef struct SearchDiskWriteBatchHandle SearchDiskWriteBatchHandle;
+
 // Callback function to allocate memory for the key in the scope of the search module memory
 typedef char* (*AllocateKeyCallback)(const void*, size_t len);
 
@@ -217,12 +226,63 @@ typedef struct IndexDiskAPI {
   void (*markToBeDeleted)(RedisSearchDiskIndexSpec *index);
 
   /**
+   * @brief Opens a new write batch bound to the given index.
+   *
+   * The returned batch accumulates `indexTerm` / `indexTags` / `putDocument` writes
+   * until the caller commits it (via `commitWriteBatch`) or aborts it (via
+   * `abortWriteBatch`). The handle remains valid after commit/abort and must
+   * eventually be released via `freeWriteBatch`. The batch must not outlive `index`.
+   *
+   * @param index Pointer to the index this batch will write to
+   * @return Pointer to the new batch, or NULL if the index pointer is invalid
+   */
+  SearchDiskWriteBatchHandle *(*createWriteBatch)(RedisSearchDiskIndexSpec *index);
+
+  /**
+   * @brief Atomically commits all writes staged on `batch` to the database.
+   *
+   * Leaves `batch` valid and empty; a subsequent commit/abort is a no-op. The
+   * caller still owns the handle and must release it via `freeWriteBatch`.
+   *
+   * @param batch Pointer to the batch returned by `createWriteBatch`
+   * @return true if the commit succeeded, false otherwise
+   */
+  bool (*commitWriteBatch)(SearchDiskWriteBatchHandle *batch);
+
+  /**
+   * @brief Discards all writes staged on `batch` without touching the database.
+   *
+   * Leaves `batch` valid and empty. The caller still owns the handle and must
+   * release it via `freeWriteBatch`.
+   *
+   * @param batch Pointer to the batch returned by `createWriteBatch`
+   */
+  void (*abortWriteBatch)(SearchDiskWriteBatchHandle *batch);
+
+  /**
+   * @brief Releases the heap allocation backing `batch`.
+   *
+   * Null-safe: passing NULL is a no-op so callers can invoke this
+   * unconditionally from cleanup paths. Staged writes that were never committed
+   * are discarded.
+   *
+   * @param batch Pointer to the batch returned by `createWriteBatch`, or NULL
+   */
+  void (*freeWriteBatch)(SearchDiskWriteBatchHandle *batch);
+
+  /**
    * @brief Indexes a term for fulltext search
    *
-   * Adds a document to the inverted index for the specified term.
-   * Used for fulltext field indexing.
+   * Stages an inverted-index write for the specified term into `batch`. The
+   * write is not visible to the database until the batch is committed via
+   * `commitWriteBatch`. Used for fulltext field indexing.
+   *
+   * Callers must check the return value — a `false` indicates the implementation
+   * rejected this particular term (e.g. invalid UTF-8) and skipped staging it.
+   * Other staged writes on the same batch are unaffected.
    *
    * @param index Pointer to the index
+   * @param batch Open write batch to append the write to (must have been returned by `createWriteBatch(index)`)
    * @param term Term to associate the document with
    * @param termLen Length of the term
    * @param docId Document ID to index
@@ -230,28 +290,35 @@ typedef struct IndexDiskAPI {
    * @param freq Frequency of the term in the document
    * @param offsets Pointer to varint-encoded term offset data (can be NULL)
    * @param offsetsLen Length of the offsets data in bytes
-   * @return true if the write was successful, false otherwise
+   * @return true if the write was staged successfully, false if the input was rejected
    */
-  bool (*indexTerm)(RedisSearchDiskIndexSpec *index, const char *term, size_t termLen, t_docId docId, t_fieldMask fieldMask, uint32_t freq, const uint8_t *offsets, size_t offsetsLen);
+  bool (*indexTerm)(RedisSearchDiskIndexSpec *index, SearchDiskWriteBatchHandle *batch, const char *term, size_t termLen, t_docId docId, t_fieldMask fieldMask, uint32_t freq, const uint8_t *offsets, size_t offsetsLen);
 
   /**
    * @brief Indexes multiple tag values for a document
    *
-   * Adds a document to the inverted index for each specified tag value.
-   * Used for tag field indexing. Creates a new column family if this is the
-   * first time indexing this tag field, and registers it with Redis BigModule.
+   * Stages inverted-index writes for each tag value into `batch`. The writes are
+   * not visible to the database until the batch is committed via `commitWriteBatch`.
+   * Used for tag field indexing. Creates a new column family if this is the first
+   * time indexing this tag field, and registers it with Redis BigModule.
+   *
+   * On a partial failure (e.g. a rejected tag value), the call short-circuits
+   * and returns `false`. Tags already staged in this call remain on the batch;
+   * the caller is expected to surface the failure to its add-document context
+   * so the batch is later aborted by the OSS indexing flow.
    *
    * @param ctx Redis module context for BigModule APIs (used to register new CFs)
    * @param index Pointer to the index
+   * @param batch Open write batch to append the writes to (must have been returned by `createWriteBatch(index)`)
    * @param values Array of tag values to associate the document with.
    *               NOTE: The array may contain NULL entries (e.g., from tokenization).
    *               Implementations must check for NULL before dereferencing each entry.
    * @param numValues Number of tag values in the array
    * @param docId Document ID to index
    * @param fieldIndex Field index for the tag field
-   * @return true if the write was successful, false otherwise
+   * @return true if all writes were staged successfully, false if any value was rejected
    */
-  bool (*indexTags)(RedisModuleCtx *ctx, RedisSearchDiskIndexSpec *index, const char **values, size_t numValues, t_docId docId, t_fieldIndex fieldIndex);
+  bool (*indexTags)(RedisModuleCtx *ctx, RedisSearchDiskIndexSpec *index, SearchDiskWriteBatchHandle *batch, const char **values, size_t numValues, t_docId docId, t_fieldIndex fieldIndex);
 
   /**
    * @brief Deletes a document by its doc ID directly, removing it from the doc table and marking its ID as deleted
@@ -383,12 +450,22 @@ typedef struct IndexDiskAPI {
 
 typedef struct DocTableDiskAPI {
   /**
-   * @brief Adds a new document to the table
+   * @brief Stages a new document insert into `batch`.
    *
-   * Assigns a new document ID and stores the document metadata.
-   * If oldDocId is provided (non-zero), the old document is marked as deleted.
+   * Assigns a new document ID and stages the document metadata write on `batch`. If
+   * `oldDocId` is provided (non-zero), staging also queues the deletion of the old
+   * doc-table entry, and the old doc is marked deleted in the in-memory bitmap only
+   * once the batch commits successfully.
+   *
+   * The new document ID is assigned synchronously and returned; even if the batch is
+   * later aborted, the ID is not reused.
+   *
+   * Returns 0 on failure (input rejected, internal staging error). The caller
+   * is expected to mark the add-document context errored so the batch is later
+   * aborted by the OSS indexing flow.
    *
    * @param handle Handle to the document table
+   * @param batch Open write batch to append the write to (must have been returned by `createWriteBatch(handle)`)
    * @param key Document key
    * @param keyLen Length of the document key
    * @param score Document score (for ranking)
@@ -400,7 +477,7 @@ typedef struct DocTableDiskAPI {
    * @param oldDocId Old document ID from DocIdMeta (0 if new document)
    * @return New document ID, or 0 on error
    */
-  t_docId (*putDocument)(RedisSearchDiskIndexSpec* handle, const char* key, size_t keyLen, float score, uint32_t flags, uint32_t maxTermFreq, uint32_t docLen, uint32_t *oldLen, t_expirationTimePoint documentTtl, t_docId oldDocId);
+  t_docId (*putDocument)(RedisSearchDiskIndexSpec* handle, SearchDiskWriteBatchHandle *batch, const char* key, size_t keyLen, float score, uint32_t flags, uint32_t maxTermFreq, uint32_t docLen, uint32_t *oldLen, t_expirationTimePoint documentTtl, t_docId oldDocId);
 
   /**
    * @brief Returns whether the docId is in the deleted set

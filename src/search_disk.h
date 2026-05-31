@@ -186,20 +186,68 @@ void SearchDisk_FreeRdbState(RedisSearchDiskRdbState *rdbState);
  * @param offsetsLen Length of the offsets data in bytes
  * @return true if successful, false otherwise
  */
-bool SearchDisk_IndexTerm(RedisSearchDiskIndexSpec *index, const char *term, size_t termLen, t_docId docId, t_fieldMask fieldMask, uint32_t freq, const uint8_t *offsets, size_t offsetsLen);
+bool SearchDisk_IndexTerm(RedisSearchDiskIndexSpec *index, SearchDiskWriteBatchHandle *batch, const char *term, size_t termLen, t_docId docId, t_fieldMask fieldMask, uint32_t freq, const uint8_t *offsets, size_t offsetsLen);
 
 /**
  * @brief Index multiple tag values for a document
  *
  * @param ctx Redis module context for BigModule APIs
  * @param index Pointer to the index
+ * @param batch Open write batch the tag writes are staged into
  * @param values Array of tag values to associate the document with
  * @param numValues Number of tag values in the array
  * @param docId Document ID to index
  * @param fieldIndex Field index for the tag field
  * @return true if successful, false otherwise
  */
-bool SearchDisk_IndexTags(RedisModuleCtx *ctx, RedisSearchDiskIndexSpec *index, const char **values, size_t numValues, t_docId docId, t_fieldIndex fieldIndex);
+bool SearchDisk_IndexTags(RedisModuleCtx *ctx, RedisSearchDiskIndexSpec *index, SearchDiskWriteBatchHandle *batch, const char **values, size_t numValues, t_docId docId, t_fieldIndex fieldIndex);
+
+/**
+ * @brief Open a new write batch bound to the given disk index.
+ *
+ * The returned batch accumulates `SearchDisk_IndexTerm` / `SearchDisk_IndexTags` /
+ * `SearchDisk_PutDocument` writes until the caller commits it (via
+ * `SearchDisk_CommitWriteBatch`) or aborts it (via `SearchDisk_AbortWriteBatch`).
+ * The handle remains valid after commit/abort and must eventually be released
+ * via `SearchDisk_FreeWriteBatch`. The batch must not outlive `index` and must
+ * not be used from multiple threads.
+ *
+ * @param index Pointer to the disk index this batch will write to
+ * @return Pointer to the new batch, or NULL on error
+ */
+SearchDiskWriteBatchHandle *SearchDisk_CreateWriteBatch(RedisSearchDiskIndexSpec *index);
+
+/**
+ * @brief Atomically commit all writes staged on `batch`.
+ *
+ * Leaves `batch` valid and empty. The caller still owns the handle and must
+ * release it via `SearchDisk_FreeWriteBatch`.
+ *
+ * @param batch Pointer returned by `SearchDisk_CreateWriteBatch`
+ * @return true on success, false on error
+ */
+bool SearchDisk_CommitWriteBatch(SearchDiskWriteBatchHandle *batch);
+
+/**
+ * @brief Discard all writes staged on `batch` without touching the database.
+ *
+ * Leaves `batch` valid and empty. The caller still owns the handle and must
+ * release it via `SearchDisk_FreeWriteBatch`.
+ *
+ * @param batch Pointer returned by `SearchDisk_CreateWriteBatch`
+ */
+void SearchDisk_AbortWriteBatch(SearchDiskWriteBatchHandle *batch);
+
+/**
+ * @brief Release the heap allocation backing `batch`.
+ *
+ * Null-safe: passing NULL is a no-op so callers can invoke this unconditionally
+ * from cleanup paths (e.g. `AddDocumentCtx_Free`). Any writes staged on `batch`
+ * that were not previously committed are discarded.
+ *
+ * @param batch Pointer returned by `SearchDisk_CreateWriteBatch`, or NULL
+ */
+void SearchDisk_FreeWriteBatch(SearchDiskWriteBatchHandle *batch);
 
 /**
  * @brief Delete a document by its doc ID directly, removing it from the doc table and marking its ID as deleted
@@ -278,7 +326,7 @@ QueryIterator* SearchDisk_NewTagIterator(RedisSearchDiskIndexSpec *index, const 
  * @param oldDocId Old document ID from DocIdMeta (0 if new document)
  * @return New document ID, or 0 on error
  */
-t_docId SearchDisk_PutDocument(RedisSearchDiskIndexSpec *handle, const char *key, size_t keyLen, float score, uint32_t flags, uint32_t maxTermFreq, uint32_t totalFreq, uint32_t *oldLen, t_expirationTimePoint documentTtl, t_docId oldDocId);
+t_docId SearchDisk_PutDocument(RedisSearchDiskIndexSpec *handle, SearchDiskWriteBatchHandle *batch, const char *key, size_t keyLen, float score, uint32_t flags, uint32_t maxTermFreq, uint32_t totalFreq, uint32_t *oldLen, t_expirationTimePoint documentTtl, t_docId oldDocId);
 
 /**
  * @brief Get document metadata by document ID
