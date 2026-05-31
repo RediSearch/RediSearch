@@ -517,15 +517,15 @@ typedef struct DocTableDiskAPI {
   /**
    * @brief Returns whether the docId is in the deleted set
    *
+   * Deletions live in the storage layer's in-memory deleted-id bitmap, not in
+   * SpeedB, so this check always reads the live bitmap — there is no snapshot
+   * parameter to pin it to a point-in-time view.
+   *
    * @param handle Handle to the document table
    * @param docId Document ID to check
-   * @param snapshot Optional snapshot for a consistent read view, or NULL to read the live state.
-   *                 When non-NULL, must have been returned by `IndexDiskAPI.createSnapshot(index)`
-   *                 (where `index` is the same index this `handle` belongs to) and must remain
-   *                 valid for the duration of this call.
    * @return true if deleted, false if not deleted or on error
    */
-  bool (*isDocIdDeleted)(RedisSearchDiskIndexSpec* handle, t_docId docId, RedisSearchDiskSnapshot *snapshot);
+  bool (*isDocIdDeleted)(RedisSearchDiskIndexSpec* handle, t_docId docId);
 
   /**
    * @brief Gets document metadata by document ID

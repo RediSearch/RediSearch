@@ -321,10 +321,9 @@ bool SearchDisk_GetDocumentMetadata(RedisSearchDiskIndexSpec *handle, const Redi
     return disk->docTable.getDocumentMetadata(handle, docId, dmd, &sdsnewlen, current_time, snapshot);
 }
 
-bool SearchDisk_DocIdDeleted(RedisSearchDiskIndexSpec *handle, const RedisSearchCtx *sctx, t_docId docId) {
+bool SearchDisk_DocIdDeleted(RedisSearchDiskIndexSpec *handle, t_docId docId) {
     RS_ASSERT(disk && handle);
-    RedisSearchDiskSnapshot *snapshot = sctx ? sctx->diskSnapshot : NULL;
-    return disk->docTable.isDocIdDeleted(handle, docId, snapshot);
+    return disk->docTable.isDocIdDeleted(handle, docId);
 }
 
 t_docId SearchDisk_GetMaxDocId(RedisSearchDiskIndexSpec *handle) {

@@ -374,16 +374,15 @@ bool SearchDisk_GetDocumentMetadata(RedisSearchDiskIndexSpec *handle, const Redi
 /**
  * @brief Check if a document ID is deleted
  *
- * Reads through the snapshot stored on `sctx` (if any), so the deletion check matches
- * the on-disk view the iterators built from the same `sctx` are reading. Pass
- * `sctx == NULL` to read the live deleted set.
+ * Deletions live in the storage layer's in-memory deleted-id bitmap, not in
+ * SpeedB, so this check always reads the live bitmap — it cannot be pinned to
+ * a query's `sctx->diskSnapshot`.
  *
  * @param handle Handle to the document table
- * @param sctx Search context whose `diskSnapshot` selects the read view (may be NULL).
  * @param docId Document ID
  * @return true if deleted, false if not deleted or on error
  */
-bool SearchDisk_DocIdDeleted(RedisSearchDiskIndexSpec *handle, const RedisSearchCtx *sctx, t_docId docId);
+bool SearchDisk_DocIdDeleted(RedisSearchDiskIndexSpec *handle, t_docId docId);
 
 /**
  * @brief Get the maximum document ID of the index (next to be assigned)
