@@ -1,0 +1,187 @@
+name: Backport merged pull request (Codex agent)
+
+# Agent-driven counterpart of `task-backport_pr.yml`. The two flows are decoupled
+# by label namespace so you can roll the agent flow forward or back without
+# touching the existing `korthout/backport-action` path.
+#
+#   `backport <branch>`           -> handled by task-backport_pr.yml (korthout action)
+#   `backport-<branch>-agent`     -> handled by this workflow (Codex agent)
+#
+# Trigger ways:
+#   - PR is closed and merged with at least one `backport-<branch>-agent` label.
+#   - A `backport-<branch>-agent` label is added to an already-merged PR.
+#   - Someone with write access comments `/backport-agent` on a merged PR.
+#       Optional args: `/backport-agent 8.6 8.2` overrides the labels for this run.
+#
+# Behavior is defined by .github/codex/prompts/pr-backport-auto.md. This workflow
+# only resolves inputs, writes a small context file, and invokes Codex.
+
+on:
+  pull_request_target:
+    types: [closed, labeled]
+  issue_comment:
+    types: [created]
+
+permissions:
+  contents: write
+  pull-requests: write
+
+jobs:
+  backport-agent:
+    name: Auto-backport via Codex
+    runs-on: ubuntu-slim
+    timeout-minutes: 60
+
+    # Fire when:
+    #   * PR is closed and merged, OR
+    #   * A `backport-<branch>-agent`-style label is added to a merged PR, OR
+    #   * `/backport-agent` is commented on a PR by someone with write access.
+    #
+    # The label-shape check below is coarse (startsWith/endsWith); the script
+    # step revalidates against the precise `^backport-(.+)-agent$` regex.
+    if: >
+      (
+        github.event_name == 'pull_request_target' &&
+        github.event.action == 'closed' &&
+        github.event.pull_request.merged
+      ) || (
+        github.event_name == 'pull_request_target' &&
+        github.event.action == 'labeled' &&
+        github.event.pull_request.merged &&
+        startsWith(github.event.label.name, 'backport-') &&
+        endsWith(github.event.label.name, '-agent')
+      ) || (
+        github.event_name == 'issue_comment' &&
+        github.event.issue.pull_request &&
+        github.event.comment.author_association != 'NONE' &&
+        startsWith(github.event.comment.body, '/backport-agent')
+      )
+
+    steps:
+      - name: 🔑 Generate GitHub App Token
+        id: generate-app-token
+        uses: actions/create-github-app-token@v3
+        with:
+          client-id: ${{ vars.GH_PR_APP_ID }}
+          private-key: ${{ secrets.GH_PR_APP_PRIVATE_KEY }}
+          owner: RediSearch
+
+      - name: Checkout master (with full history)
+        uses: actions/checkout@v6
+        with:
+          token: ${{ steps.generate-app-token.outputs.token }}
+          # The agent cherry-picks from master onto release branches, so it
+          # needs full history and access to all remote branches.
+          fetch-depth: 0
+
+      - name: Configure git identity
+        run: |
+          git config user.name "redis-pr-app[bot]"
+          git config user.email "redis-pr-app[bot]@users.noreply.github.com"
+
+      - name: Resolve PR context and target branches
+        id: ctx
+        env:
+          GH_TOKEN: ${{ steps.generate-app-token.outputs.token }}
+          EVENT_NAME: ${{ github.event_name }}
+          EVENT_ACTION: ${{ github.event.action }}
+          PR_NUMBER_FROM_PR: ${{ github.event.pull_request.number }}
+          PR_NUMBER_FROM_ISSUE: ${{ github.event.issue.number }}
+          LABEL_NAME: ${{ github.event.label.name }}
+          COMMENT_BODY: ${{ github.event.comment.body }}
+        run: |
+          set -euo pipefail
+
+          # 1) Resolve PR number from whichever event we're handling.
+          case "$EVENT_NAME" in
+            pull_request_target) pr="$PR_NUMBER_FROM_PR" ;;
+            issue_comment)       pr="$PR_NUMBER_FROM_ISSUE" ;;
+            *) echo "Unhandled event: $EVENT_NAME"; exit 1 ;;
+          esac
+
+          # 2) Pull PR details and confirm it was actually merged. The label
+          #    and comment triggers can fire on closed-but-not-merged PRs.
+          pr_data=$(gh pr view "$pr" --json title,mergeCommit,labels,merged,url)
+          merged=$(jq -r '.merged' <<<"$pr_data")
+          if [ "$merged" != "true" ]; then
+            echo "PR #$pr is not merged; skipping."
+            echo "skip=true" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          sha=$(jq -r '.mergeCommit.oid' <<<"$pr_data")
+          title=$(jq -r '.title' <<<"$pr_data")
+          url=$(jq -r '.url' <<<"$pr_data")
+
+          # 3) Determine target branches.
+          #    - issue_comment with args:   parse args from the comment first line
+          #    - issue_comment, no args:    fall back to labels
+          #    - pull_request_target labeled: just the one label that fired
+          #    - pull_request_target closed:  all matching labels on the PR
+          targets_json="[]"
+          if [ "$EVENT_NAME" = "issue_comment" ]; then
+            args=$(printf '%s\n' "$COMMENT_BODY" | head -n1 | sed -E 's|^/backport-agent[[:space:]]*||')
+            if [ -n "$args" ]; then
+              targets_json=$(printf '%s\n' "$args" \
+                | tr ' \t,' '\n' \
+                | grep -v '^$' \
+                | jq -R . | jq -sc 'unique')
+            fi
+          elif [ "$EVENT_NAME" = "pull_request_target" ] && [ "$EVENT_ACTION" = "labeled" ]; then
+            if [[ "$LABEL_NAME" =~ ^backport-(.+)-agent$ ]]; then
+              targets_json=$(jq -nc --arg t "${BASH_REMATCH[1]}" '[$t]')
+            fi
+          fi
+
+          if [ "$targets_json" = "[]" ]; then
+            targets_json=$(jq -r '.labels[].name' <<<"$pr_data" \
+              | grep -E '^backport-.+-agent$' \
+              | sed -E 's/^backport-(.+)-agent$/\1/' \
+              | jq -R . | jq -sc 'unique')
+          fi
+
+          if [ "$targets_json" = "[]" ]; then
+            echo "No backport-<branch>-agent targets resolved for PR #$pr; nothing to do."
+            echo "skip=true" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          # 4) Persist context for the Codex agent to read.
+          mkdir -p .github/codex
+          jq -nc \
+            --argjson pr "$pr" \
+            --arg sha "$sha" \
+            --arg title "$title" \
+            --arg url "$url" \
+            --argjson targets "$targets_json" \
+            '{pr: $pr, sha: $sha, title: $title, url: $url, targets: $targets}' \
+            > .github/codex/backport-context.json
+
+          echo "Resolved context:"
+          cat .github/codex/backport-context.json
+          echo "skip=false" >> "$GITHUB_OUTPUT"
+
+      # TODO: Add BACKPORT_OPENAI_API_KEY as a repo secret (Settings -> Secrets and
+      # variables -> Actions) before enabling this workflow. It is kept separate
+      # from CI_TRIAGE_OPENAI_API_KEY so backport agent usage can be budgeted and
+      # revoked independently from the read-only triage flows.
+      - name: Run /pr-backport-auto via Codex
+        if: steps.ctx.outputs.skip != 'true'
+        uses: openai/codex-action@v1
+        env:
+          # The agent uses `gh` and `git push` — both need the App token. `gh`
+          # picks it up from GH_TOKEN; the checkout step has already wired the
+          # remote to use it for git operations.
+          GH_TOKEN: ${{ steps.generate-app-token.outputs.token }}
+        with:
+          openai-api-key: ${{ secrets.BACKPORT_OPENAI_API_KEY }}
+          prompt-file: .github/codex/prompts/pr-backport-auto.md
+          # The agent needs to edit files (conflict resolution), run git/gh, and
+          # push to origin. Read-only and workspace-write sandboxes block network
+          # writes that `git push` and `gh` need, so this writer-mode flow uses
+          # full access. Constrained by:
+          #   - the App token's scope (only this repo, only contents+PRs)
+          #   - the prompt's guardrails (do not force-push, do not skip targets
+          #     it can't resolve, etc.)
+          sandbox: danger-full-access
+          safety-strategy: danger-full-access
