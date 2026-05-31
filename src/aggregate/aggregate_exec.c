@@ -1357,6 +1357,11 @@ int prepareExecutionPlan(AREQ *req, QueryError *status) {
   RSSearchOptions *opts = &req->searchopts;
   QueryAST *ast = &req->ast;
 
+  // Open the per-query disk snapshot here, under the spec read lock the caller is holding.
+  // This pins the on-disk view to the same point in time as the in-memory trie/stats that
+  // QAST_Iterate is about to consult for term expansion and IDF/doc-count lookups.
+  SearchCtx_TakeDiskSnapshot(sctx);
+
   // Set timeout for the query execution
   // TODO: this should be done in `AREQ_execute`, but some of the iterators needs the timeout's
   // value and some of the execution begins in `QAST_Iterate`.

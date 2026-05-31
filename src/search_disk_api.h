@@ -46,15 +46,6 @@ typedef const void* RedisSearchDiskSnapshot;
 // `SearchDisk_CommitWriteBatch`, `SearchDisk_AbortWriteBatch`, etc.).
 typedef struct SearchDiskWriteBatchHandle SearchDiskWriteBatchHandle;
 
-// Opaque handle for the underlying storage-layer write batch.
-//
-// Allocated and freed by the storage implementation behind this API; the only
-// C-visible operations are the create / commit / abort / stage entry points on
-// `IndexDiskAPI` and `DocTableDiskAPI`. C-side callers pass the handle through
-// the thin wrappers in `search_disk.h` (`SearchDisk_CreateWriteBatch`,
-// `SearchDisk_CommitWriteBatch`, `SearchDisk_AbortWriteBatch`, etc.).
-typedef struct SearchDiskWriteBatchHandle SearchDiskWriteBatchHandle;
-
 // Callback function to allocate memory for the key in the scope of the search module memory
 typedef char* (*AllocateKeyCallback)(const void*, size_t len);
 
@@ -528,9 +519,13 @@ typedef struct DocTableDiskAPI {
    *
    * @param handle Handle to the document table
    * @param docId Document ID to check
+   * @param snapshot Optional snapshot for a consistent read view, or NULL to read the live state.
+   *                 When non-NULL, must have been returned by `IndexDiskAPI.createSnapshot(index)`
+   *                 (where `index` is the same index this `handle` belongs to) and must remain
+   *                 valid for the duration of this call.
    * @return true if deleted, false if not deleted or on error
    */
-  bool (*isDocIdDeleted)(RedisSearchDiskIndexSpec* handle, t_docId docId);
+  bool (*isDocIdDeleted)(RedisSearchDiskIndexSpec* handle, t_docId docId, RedisSearchDiskSnapshot *snapshot);
 
   /**
    * @brief Gets document metadata by document ID
@@ -540,9 +535,13 @@ typedef struct DocTableDiskAPI {
    * @param dmd Pointer to the document metadata structure to populate
    * @param allocate_key Callback to allocate memory for the key
    * @param expiration_point Current time for expiration check, or NULL to skip expiration check.
+   * @param snapshot Optional snapshot for a consistent read view, or NULL to read the live state.
+   *                 When non-NULL, must have been returned by `IndexDiskAPI.createSnapshot(index)`
+   *                 (where `index` is the same index this `handle` belongs to) and must remain
+   *                 valid for the duration of this call.
    * @return true if found and not expired, false if not found, expired, or on error
    */
-  bool (*getDocumentMetadata)(RedisSearchDiskIndexSpec* handle, t_docId docId, RSDocumentMetadata* dmd, AllocateKeyCallback allocate_key, const t_expirationTimePoint* expiration_point);
+  bool (*getDocumentMetadata)(RedisSearchDiskIndexSpec* handle, t_docId docId, RSDocumentMetadata* dmd, AllocateKeyCallback allocate_key, const t_expirationTimePoint* expiration_point, RedisSearchDiskSnapshot *snapshot);
 
   /**
    * @brief Gets the maximum document ID assigned in the index
@@ -579,11 +578,20 @@ typedef struct DocTableDiskAPI {
    * The pool allows adding async read requests up to a maximum concurrency limit,
    * and polling for completed results. This enables I/O parallelism for query processing.
    *
+   * The optional `snapshot` pins the pool to a consistent read view: every read issued
+   * through this pool (via `addAsyncRead` / `pollAsyncReads`) observes that snapshot,
+   * matching the on-disk view the iterators built from the same snapshot are reading.
+   * The snapshot must outlive the pool.
+   *
    * @param handle Handle to the index
    * @param max_concurrent Maximum number of concurrent pending reads
+   * @param snapshot Optional snapshot for a consistent read view, or NULL to read the live state.
+   *                 When non-NULL, must have been returned by `IndexDiskAPI.createSnapshot(index)`
+   *                 (where `index` is the same index this `handle` belongs to) and must remain
+   *                 valid until the pool is freed.
    * @return Opaque handle to the pool, or NULL on error. Must be freed with freeAsyncReadPool.
    */
-  RedisSearchDiskAsyncReadPool (*createAsyncReadPool)(RedisSearchDiskIndexSpec* handle, uint16_t max_concurrent);
+  RedisSearchDiskAsyncReadPool (*createAsyncReadPool)(RedisSearchDiskIndexSpec* handle, uint16_t max_concurrent, RedisSearchDiskSnapshot *snapshot);
 
   /**
    * @brief Adds an async read request to the pool for the given document ID

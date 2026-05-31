@@ -357,22 +357,33 @@ t_docId SearchDisk_PutDocument(RedisSearchDiskIndexSpec *handle, SearchDiskWrite
 /**
  * @brief Get document metadata by document ID
  *
+ * Reads through the snapshot stored on `sctx` (if any), so the metadata observed
+ * here matches the on-disk view the iterators built from the same `sctx` are reading.
+ * Pass `sctx == NULL` to read the live state (used by debug commands and other
+ * out-of-query paths).
+ *
  * @param handle Handle to the document table
+ * @param sctx Search context whose `diskSnapshot` selects the read view (may be NULL).
  * @param docId Document ID
  * @param dmd Pointer to the document metadata structure to populate
  * @param current_time Current time for expiration check.
  * @return true if found and not expired, false if not found, expired, or on error
  */
-bool SearchDisk_GetDocumentMetadata(RedisSearchDiskIndexSpec *handle, t_docId docId, RSDocumentMetadata *dmd, struct timespec *current_time);
+bool SearchDisk_GetDocumentMetadata(RedisSearchDiskIndexSpec *handle, const RedisSearchCtx *sctx, t_docId docId, RSDocumentMetadata *dmd, struct timespec *current_time);
 
 /**
  * @brief Check if a document ID is deleted
  *
+ * Reads through the snapshot stored on `sctx` (if any), so the deletion check matches
+ * the on-disk view the iterators built from the same `sctx` are reading. Pass
+ * `sctx == NULL` to read the live deleted set.
+ *
  * @param handle Handle to the document table
+ * @param sctx Search context whose `diskSnapshot` selects the read view (may be NULL).
  * @param docId Document ID
  * @return true if deleted, false if not deleted or on error
  */
-bool SearchDisk_DocIdDeleted(RedisSearchDiskIndexSpec *handle, t_docId docId);
+bool SearchDisk_DocIdDeleted(RedisSearchDiskIndexSpec *handle, const RedisSearchCtx *sctx, t_docId docId);
 
 /**
  * @brief Get the maximum document ID of the index (next to be assigned)
@@ -423,11 +434,17 @@ bool SearchDisk_ReplaceKey(RedisSearchDiskIndexSpec *handle, t_docId docId, cons
 /**
  * @brief Create an async read pool for batched document metadata reads
  *
+ * Pins the pool to the snapshot stored on `sctx` (if any), so every read issued
+ * through this pool matches the on-disk view the iterators built from the same
+ * `sctx` are reading. Pass `sctx == NULL` to read the live state.
+ *
  * @param handle Handle to the index
+ * @param sctx Search context whose `diskSnapshot` pins the pool's read view (may be NULL).
+ *             The snapshot must outlive the pool.
  * @param max_concurrent Maximum number of concurrent pending reads
  * @return Opaque handle to the pool, or NULL on error
  */
-RedisSearchDiskAsyncReadPool SearchDisk_CreateAsyncReadPool(RedisSearchDiskIndexSpec *handle, uint16_t max_concurrent);
+RedisSearchDiskAsyncReadPool SearchDisk_CreateAsyncReadPool(RedisSearchDiskIndexSpec *handle, const RedisSearchCtx *sctx, uint16_t max_concurrent);
 
 /**
  * @brief Add an async read request to the pool

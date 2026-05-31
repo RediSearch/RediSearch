@@ -137,14 +137,19 @@ RedisSearchCtx *NewSearchCtxC(RedisModuleCtx *ctx, const char *indexName, bool r
 
   RedisSearchCtx *sctx = rm_new(RedisSearchCtx);
   *sctx = SEARCH_CTX_STATIC(ctx, sp);
-  // Take one disk snapshot per search context so every iterator built from this sctx
-  // observes the same point-in-time view of the on-disk index. Snapshots are only
-  // meaningful for indexes that have a disk component; for in-memory-only indexes the
-  // field stays NULL and the iterators read the live structures as before.
-  if (sp->diskSpec && SearchDisk_IsInitialized()) {
+  return sctx;
+}
+
+void SearchCtx_TakeDiskSnapshot(RedisSearchCtx *sctx) {
+  // Idempotent: callers funnel through this at iterator-construction time, which
+  // can be reached via more than one entry point on the same sctx.
+  if (!sctx || sctx->diskSnapshot) {
+    return;
+  }
+  IndexSpec *sp = sctx->spec;
+  if (sp && sp->diskSpec && SearchDisk_IsInitialized()) {
     sctx->diskSnapshot = SearchDisk_CreateSnapshot(sp->diskSpec);
   }
-  return sctx;
 }
 
 RedisSearchCtx *NewSearchCtx(RedisModuleCtx *ctx, RedisModuleString *indexName, bool resetTTL) {

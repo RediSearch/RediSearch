@@ -315,14 +315,16 @@ t_docId SearchDisk_PutDocument(RedisSearchDiskIndexSpec *handle, SearchDiskWrite
     return disk->docTable.putDocument(handle, batch, key, keyLen, score, flags, maxTermFreq, docLen, oldLen, documentTtl, oldDocId);
 }
 
-bool SearchDisk_GetDocumentMetadata(RedisSearchDiskIndexSpec *handle, t_docId docId, RSDocumentMetadata *dmd, struct timespec *current_time) {
+bool SearchDisk_GetDocumentMetadata(RedisSearchDiskIndexSpec *handle, const RedisSearchCtx *sctx, t_docId docId, RSDocumentMetadata *dmd, struct timespec *current_time) {
     RS_ASSERT(disk && handle);
-    return disk->docTable.getDocumentMetadata(handle, docId, dmd, &sdsnewlen, current_time);
+    RedisSearchDiskSnapshot *snapshot = sctx ? sctx->diskSnapshot : NULL;
+    return disk->docTable.getDocumentMetadata(handle, docId, dmd, &sdsnewlen, current_time, snapshot);
 }
 
-bool SearchDisk_DocIdDeleted(RedisSearchDiskIndexSpec *handle, t_docId docId) {
+bool SearchDisk_DocIdDeleted(RedisSearchDiskIndexSpec *handle, const RedisSearchCtx *sctx, t_docId docId) {
     RS_ASSERT(disk && handle);
-    return disk->docTable.isDocIdDeleted(handle, docId);
+    RedisSearchDiskSnapshot *snapshot = sctx ? sctx->diskSnapshot : NULL;
+    return disk->docTable.isDocIdDeleted(handle, docId, snapshot);
 }
 
 t_docId SearchDisk_GetMaxDocId(RedisSearchDiskIndexSpec *handle) {
@@ -345,9 +347,10 @@ bool SearchDisk_ReplaceKey(RedisSearchDiskIndexSpec *handle, t_docId docId, cons
     return disk->docTable.replaceKey(handle, docId, newKey, newKeyLen);
 }
 
-RedisSearchDiskAsyncReadPool SearchDisk_CreateAsyncReadPool(RedisSearchDiskIndexSpec *handle, uint16_t max_concurrent) {
+RedisSearchDiskAsyncReadPool SearchDisk_CreateAsyncReadPool(RedisSearchDiskIndexSpec *handle, const RedisSearchCtx *sctx, uint16_t max_concurrent) {
     RS_ASSERT(disk && handle);
-    return disk->docTable.createAsyncReadPool(handle, max_concurrent);
+    RedisSearchDiskSnapshot *snapshot = sctx ? sctx->diskSnapshot : NULL;
+    return disk->docTable.createAsyncReadPool(handle, max_concurrent, snapshot);
 }
 
 bool SearchDisk_AddAsyncRead(RedisSearchDiskAsyncReadPool pool, t_docId docId, uint64_t user_data) {
