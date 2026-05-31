@@ -6,7 +6,7 @@ on:
       branch:
         description: 'Branch the mark applies to (must match the original mark — use * if it was a wildcard)'
         required: true
-        default: 'master'
+        default: '8.2'
         type: string
       test_id:
         description: "Test identifier in RLTest format: <test_file>:<test_name> (must match the original mark)"
