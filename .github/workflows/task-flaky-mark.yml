@@ -6,7 +6,7 @@ on:
       branch:
         description: 'Branch the mark applies to (e.g. master, 2.10, or * for all branches)'
         required: true
-        default: 'master'
+        default: '2.8'
         type: string
       test_id:
         description: "Test identifier in RLTest format: <test_file>:<test_name> (e.g. test_wildcard:testBasic — no .py, no [variant])"

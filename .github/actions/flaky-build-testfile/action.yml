@@ -88,6 +88,11 @@ runs:
       env:
         SAN: ${{ inputs.san }}
         REDIS_STANDALONE: ${{ inputs.redis-standalone }}
+        # 2.8's runtests.sh selects coordinator mode via COORD, not
+        # REDIS_STANDALONE. Without this, the coordinator listing would
+        # enumerate standalone tests and the filtered TESTFILE would
+        # mismatch the variant the Flow tests step actually runs.
+        COORD: ${{ inputs.redis-standalone == '0' && '1' || '' }}
         REJSON: ${{ inputs.rejson }}
         REJSON_BRANCH: ${{ inputs.rejson-branch }}
         TEST_CONFIG: ${{ inputs.test-config }}
