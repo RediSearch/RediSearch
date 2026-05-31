@@ -1,0 +1,66 @@
+name: Flaky tests — unmark
+
+on:
+  workflow_dispatch:
+    inputs:
+      branch:
+        description: 'Branch the mark applies to (must match the original mark — use * if it was a wildcard)'
+        required: true
+        default: '8.0'
+        type: string
+      test_id:
+        description: "Test identifier in RLTest format: <test_file>:<test_name> (must match the original mark)"
+        required: true
+        type: string
+      reason:
+        description: 'Why are we unmarking? (e.g. "fixed in #1234")'
+        required: true
+        type: string
+
+jobs:
+  unmark:
+    runs-on: ubuntu-slim
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Set up Python
+        uses: actions/setup-python@v6
+        with:
+          python-version: '3.x'
+
+      - name: Install dependencies
+        run: pip install 'redis>=6,<7'
+
+      - name: Unmark flaky test
+        env:
+          REDIS_URL: ${{ secrets.FLAKY_TESTS_REDIS_URL }}
+          REPO: ${{ github.repository }}
+          BRANCH: ${{ inputs.branch }}
+          TEST_ID: ${{ inputs.test_id }}
+          REASON: ${{ inputs.reason }}
+          ACTOR: ${{ github.actor }}
+        run: python3 .github/scripts/flaky_db.py unmark
+
+      - name: Summary
+        if: success()
+        env:
+          # Pass inputs through env so they're treated as data, not interpolated
+          # into the shell script by GitHub Actions before bash evaluates it.
+          REPO: ${{ github.repository }}
+          BRANCH: ${{ inputs.branch }}
+          TEST_ID: ${{ inputs.test_id }}
+          REASON: ${{ inputs.reason }}
+          ACTOR: ${{ github.actor }}
+        run: |
+          {
+            echo "### Flaky mark removed :white_check_mark:"
+            echo
+            echo "| Field | Value |"
+            echo "|---|---|"
+            echo "| Repo | \`$REPO\` |"
+            echo "| Branch | \`$BRANCH\` |"
+            echo "| Test | \`$TEST_ID\` |"
+            echo "| Reason | $REASON |"
+            echo "| Unmarked by | @$ACTOR |"
+          } >> "$GITHUB_STEP_SUMMARY"
