@@ -18,6 +18,7 @@ extern "C" {
 
 // Forward declarations to avoid circular dependencies
 typedef struct QueryIterator QueryIterator;
+typedef struct NumericFilter NumericFilter;
 
 // Forward declaration for HiddenString
 typedef struct HiddenString HiddenString;
@@ -321,6 +322,26 @@ typedef struct IndexDiskAPI {
   bool (*indexTags)(RedisModuleCtx *ctx, RedisSearchDiskIndexSpec *index, SearchDiskWriteBatchHandle *batch, const char **values, size_t numValues, t_docId docId, t_fieldIndex fieldIndex);
 
   /**
+   * @brief Stages a numeric value for a document on a write batch.
+   *
+   * Routes the value to the tightest-upper-bound bucket in the field's in-memory
+   * ordered map and appends a single-entry Merge operand to `batch` at the
+   * corresponding key. The write is not durable until the batch is committed
+   * via `commitWriteBatch`.
+   *
+   * Called once per `(doc, value)` — the OSS bulk indexer loops over multi-value
+   * numeric fields.
+   *
+   * @param index Pointer to the index
+   * @param batch Open write batch to append the write to (must have been returned by `createWriteBatch(index)`)
+   * @param docId Document ID to index
+   * @param value Numeric value to associate with the document
+   * @param fieldIndex Field index for the numeric field
+   * @return true if the write was staged successfully, false if the input was rejected
+   */
+  bool (*indexNumeric)(RedisSearchDiskIndexSpec *index, SearchDiskWriteBatchHandle *batch, t_docId docId, double value, t_fieldIndex fieldIndex);
+
+  /**
    * @brief Deletes a document by its doc ID directly, removing it from the doc table and marking its ID as deleted
    *
    * Used by the metadata unlink callback where the docId is already known
@@ -355,6 +376,24 @@ typedef struct IndexDiskAPI {
    * @return Pointer to the created iterator, or NULL if creation failed
    */
   QueryIterator *(*newTagIterator)(RedisSearchDiskIndexSpec* index, const RSToken* tok, t_fieldIndex fieldIndex, double weight);
+
+  /**
+   * @brief Creates a new iterator over a numeric range on the disk-backed index
+   *
+   * Enumerates the in-memory ordered map's buckets that overlap `filter`'s range
+   * and opens one Speedb-snapshot-backed iterator per candidate bucket, with a
+   * per-yielded-entry value filter of `effective_range ∩ filter_range`. The
+   * candidate iterators are heap-merged by `doc_id` via a union iterator, which
+   * also collapses any transient duplicates that the in-flight split protocol
+   * may produce.
+   *
+   * @param index Pointer to the index
+   * @param filter Pointer to the numeric filter (min, max, inclusivity flags, field spec)
+   * @param fieldIndex Field index for the numeric field
+   * @param weight Weight for the iterator (used in scoring)
+   * @return Pointer to the created iterator, or NULL if no buckets overlap the filter
+   */
+  QueryIterator *(*newNumericIterator)(RedisSearchDiskIndexSpec *index, const NumericFilter *filter, t_fieldIndex fieldIndex, double weight);
 
   /**
    * @brief Run a GC compaction cycle on the disk index.

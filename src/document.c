@@ -614,8 +614,31 @@ FIELD_BULK_INDEXER(geometryIndexer) {
   _NumericRangeTree_Add((t), (docId), (value), (isMulti), RSGlobalConfig.numericTreeMaxDepthRange)
 
 FIELD_BULK_INDEXER(numericIndexer) {
-  RS_LOG_ASSERT_ALWAYS(!SearchDisk_IsEnabled(),
-                       "numericIndexer is not commit-batched; disk-mode numeric/geo is not supported");
+  if (aCtx->disk.batch) {
+    // Disk-mode geo is out of scope for the current numeric-on-disk work;
+    // the dispatcher in `IndexerBulkAdd` routes both IXFLDPOS_NUMERIC and
+    // IXFLDPOS_GEO through this indexer, so keep geo asserting while numeric
+    // rides the disk batch.
+    RS_LOG_ASSERT_ALWAYS(!(fs->types & INDEXFLD_T_GEO),
+                         "disk-mode geo is not supported yet");
+
+    if (!fdata->isMulti) {
+      if (!SearchDisk_IndexNumeric(ctx->spec->diskSpec, aCtx->disk.batch,
+                                   aCtx->doc->docId, fdata->numeric, fs->index)) {
+        QueryError_SetError(status, QUERY_ERROR_CODE_GENERIC, "Numeric indexing failed");
+        return -1;
+      }
+    } else {
+      for (uint32_t i = 0; i < array_len(fdata->arrNumeric); ++i) {
+        if (!SearchDisk_IndexNumeric(ctx->spec->diskSpec, aCtx->disk.batch,
+                                     aCtx->doc->docId, fdata->arrNumeric[i], fs->index)) {
+          QueryError_SetError(status, QUERY_ERROR_CODE_GENERIC, "Numeric indexing failed");
+          return -1;
+        }
+      }
+    }
+    return 0;
+  }
 
   NumericRangeTree *rt = openNumericOrGeoIndex(ctx->spec, &ctx->spec->fields[fs->index], CREATE_INDEX);
   if (!rt) {
@@ -837,10 +860,9 @@ FIELD_BULK_APPLIER(vectorApplier) {
 }
 
 FIELD_BULK_APPLIER(numericApplier) {
-  // TODO: when numeric lands on the per-document disk write batch, move the
-  // `spec->stats.invertedSize` / `numRecords` deltas and the `NumericRangeTree`
-  // mutation here. Today both are done inline in `numericIndexer`, which
-  // asserts disk-mode is disabled.
+  // Disk-mode numeric accounting (in-memory BTreeMap's num_entries and HLL)
+  // lives on the disk side; memory-mode stats are bumped inline in
+  // `numericIndexer`. Only the global field-docs counter needs an apply hook.
   (void)aCtx; (void)field; (void)fs; (void)fdata;
   FieldsGlobalStats_UpdateFieldDocsIndexed(INDEXFLD_T_NUMERIC, 1);
 }

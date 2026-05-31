@@ -365,4 +365,14 @@ pub trait SearchEnterpriseIterators: Send + Sync {
         field_index: ffi::t_fieldIndex,
         weight: f64,
     ) -> Result<Box<dyn RQEIterator<'index> + 'index>, Box<dyn std::error::Error>>;
+
+    /// Iterate over the entries of the numeric index at the given field index whose value
+    /// matches `filter`. Each document in the iterator will have the given weight.
+    fn new_numeric_on_disk<'index>(
+        &self,
+        index: &'index mut ffi::RedisSearchDiskIndexSpec,
+        filter: &ffi::NumericFilter,
+        field_index: ffi::t_fieldIndex,
+        weight: f64,
+    ) -> Result<Box<dyn RQEIterator<'index> + 'index>, Box<dyn std::error::Error>>;
 }
