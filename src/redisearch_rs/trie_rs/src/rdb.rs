@@ -7,11 +7,10 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 
-//! RDB serialization for the lex-mode trie.
+//! RDB serialization for [`TrieMap<TrieEntry>`].
 //!
 //! Mirrors the wire format produced by the C functions `TrieType_GenericSave`
-//! and `TrieType_GenericLoad` in `src/trie/trie.c`, but for a Rust
-//! [`TrieMap<TrieEntry>`].
+//! and `TrieType_GenericLoad`, but for a Rust [`TrieMap<TrieEntry>`].
 //!
 //! # Wire format
 //!
@@ -24,22 +23,25 @@
 //! ] * count
 //! ```
 //!
+//! The diagram lists the framed primitives passed to [`RdbWrite`]; the actual
+//! on-wire bytes include length prefixes added by `RedisModule_Save*`, which
+//! are opaque to this layer.
+//!
 //! # Trailing-NUL framing
 //!
-//! Both keys and payloads are written with a trailing NUL byte (so the wire
-//! bytes are `key.len() + 1` long, matching C's `SaveStringBuffer(..., len + 1)`)
-//! and the loader strips one byte. Streams whose buffers do not end in NUL
-//! are rejected with [`RdbError::MissingTrailingNul`]. The NUL accounting is
-//! delegated to the [`RdbWrite::save_bytes_nul_terminated`] /
-//! [`RdbRead::load_bytes_strip_nul`] trait methods, so the algorithm body
-//! just passes raw key and payload slices.
+//! Both keys and payloads are written with a trailing NUL byte (so the saved
+//! buffer is `key.len() + 1` bytes long, matching C's
+//! `SaveStringBuffer(..., len + 1)`) and the loader strips one byte. Buffers
+//! that do not end in NUL are rejected with [`RdbError::MissingTrailingNul`].
+//! The NUL accounting is delegated to the
+//! [`RdbWrite::save_bytes_nul_terminated`] / [`RdbRead::load_bytes_strip_nul`]
+//! trait methods, so the algorithm body just passes raw key and payload slices.
 //!
 //! # Empty-payload normalization
 //!
 //! When `RdbOpts::payloads` is `true`, both `payload: None` and
-//! `payload: Some(vec![])` emit the wire bytes `"\0"` and load back as
-//! `None`. This mirrors the C-side collapse `payload.len ? &payload : NULL`
-//! at `src/trie/trie.c:415`.
+//! `payload: Some(vec![])` emit a single-NUL buffer (`"\0"`) and load back as
+//! `None`. This mirrors the C-side collapse `payload.len ? &payload : NULL`.
 //!
 //! # IO model
 //!
@@ -49,27 +51,33 @@
 
 use crate::TrieMap;
 
-/// One trie entry: insertion score, optional opaque payload, and number of
-/// documents indexed under the key.
+/// One trie entry: score, optional opaque payload, and a per-entry counter.
 ///
 /// `payload: None` and `payload: Some(vec![])` are wire-indistinguishable
 /// when payloads are persisted — both round-trip as `None`. See
 /// [`RdbOpts::payloads`].
 #[derive(Clone, Debug, PartialEq)]
 pub struct TrieEntry {
-    /// Insertion score. The C trie stores this as `float`; the RDB wire
-    /// format widens it to `f64` (via `RedisModule_SaveDouble`).
+    /// Score associated with the entry. Semantics are caller-defined (e.g.
+    /// suggestion weight, or a constant for index-term tries) and may be
+    /// mutated by callers after the initial insert. The C trie stores this
+    /// as `float`; the RDB wire format widens it to `f64` (via
+    /// `RedisModule_SaveDouble`).
     pub score: f64,
     /// Optional opaque payload bytes.
     pub payload: Option<Vec<u8>>,
-    /// Number of documents currently indexed under this key.
+    /// Per-entry counter, persisted only when [`RdbOpts::num_docs`] is set.
+    /// Semantics are caller-defined (e.g. document frequency for an index's
+    /// term trie); this type does not enforce a meaning. Loads with
+    /// `num_docs = false` materialize this as `0`.
     pub num_docs: u64,
 }
 
 /// Controls which optional fields are present on the wire.
 ///
-/// The same value must be used at save and load time; mismatches produce
-/// [`RdbError`]s or silently parse following bytes as the wrong field.
+/// The same value must be used at save and load time. Mismatches misalign
+/// the wire layout, so subsequent reads either fail with an [`RdbError`] or
+/// silently parse the wrong bytes as the next field.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub struct RdbOpts {
     /// Persist each entry's payload (with trailing NUL).
@@ -89,11 +97,11 @@ pub trait RdbWrite {
     /// Write a 64-bit IEEE-754 double.
     fn save_f64(&mut self, v: f64);
     /// Write `b` followed by one trailing NUL byte as a single length-prefixed
-    /// buffer (total `b.len() + 1` bytes on the wire).
+    /// buffer (the saved buffer is `b.len() + 1` bytes long).
     ///
     /// The trailing NUL is the wire format expected by the C trie loader
-    /// (`SaveStringBuffer(s, len + 1)` in `src/trie/trie.c`); centralizing
-    /// it here keeps the algorithm body free of NUL-padding bookkeeping.
+    /// (`SaveStringBuffer(s, len + 1)`); centralizing it here keeps the
+    /// algorithm body free of NUL-padding bookkeeping.
     fn save_bytes_nul_terminated(&mut self, b: &[u8]);
 }
 
@@ -133,7 +141,7 @@ impl std::fmt::Display for RdbError {
 
 impl std::error::Error for RdbError {}
 
-/// Serialize a [`TrieMap<TrieEntry>`] to `writer` in the lex-mode RDB format.
+/// Serialize a [`TrieMap<TrieEntry>`] to `writer` in the trie RDB wire format.
 ///
 /// Iterates entries in lexicographic key order. Keys, and payloads when
 /// [`RdbOpts::payloads`] is set, are written with a trailing NUL
@@ -157,8 +165,8 @@ pub fn save<W: RdbWrite>(map: &TrieMap<TrieEntry>, writer: &mut W, opts: RdbOpts
 /// `opts` must match the [`RdbOpts`] used at save time.
 ///
 /// The trailing NUL byte is stripped from every key (and every payload
-/// when [`RdbOpts::payloads`] is set). An empty payload (i.e. the
-/// wire bytes `"\0"`) is normalized to `payload: None`.
+/// when [`RdbOpts::payloads`] is set). An empty payload (i.e. a single-NUL
+/// buffer, `"\0"`) is normalized to `payload: None`.
 pub fn load<R: RdbRead>(reader: &mut R, opts: RdbOpts) -> Result<TrieMap<TrieEntry>, RdbError> {
     let count = reader.load_u64()?;
     let mut map = TrieMap::new();
