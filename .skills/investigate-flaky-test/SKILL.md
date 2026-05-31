@@ -115,7 +115,7 @@ Choose verification based on the proposed fix:
   ```
 - Rust test:
   ```bash
-  cd src/redisearch_rs && cargo nextest run -p <crate_name> <test_filter>
+  cargo nextest run --manifest-path src/redisearch_rs/Cargo.toml -p <crate_name> <test_filter>
   ```
 
 If the failure is timing-sensitive, recommend repeating the focused test enough times to gain

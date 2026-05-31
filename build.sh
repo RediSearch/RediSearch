@@ -685,6 +685,13 @@ prepare_cmake_arguments() {
 # Run CMake to configure the build
 #-----------------------------------------------------------------------------
 run_cmake() {
+  # Full wipe: nested CMakeFiles/*.dir/*.o under subdirectories aren't reached
+  # by removing only the top-level CMakeCache.txt and CMakeFiles/.
+  if [[ "$FORCE" == "1" ]]; then
+    echo "Cleaning build directory: $BINDIR"
+    rm -rf "$BINDIR"
+  fi
+
   # Create build directory and ensure any parent directories exist
   mkdir -p "$BINDIR"
   cd "$BINDIR"
@@ -695,13 +702,6 @@ run_cmake() {
       echo "Creating compatibility symlink: $ARM64V8_BINROOT -> ${BINROOT}/${FULL_VARIANT}"
       ln -sf "${FULL_VARIANT}" "$ARM64V8_BINROOT"
     fi
-  fi
-
-  # Clean up any cached CMake configuration if force is enabled
-  if [[ "$FORCE" == "1" ]]; then
-    echo "Cleaning CMake cache..."
-    rm -f CMakeCache.txt
-    rm -rf CMakeFiles
   fi
 
   echo "Configuring CMake..."

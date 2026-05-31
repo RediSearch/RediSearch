@@ -387,16 +387,20 @@ void *TrieType_RdbLoad(RedisModuleIO *rdb, int encver) {
   if (encver > TRIE_ENCVER_CURRENT) {
     return NULL;
   }
-  return TrieType_GenericLoad(rdb, encver >= TRIE_ENCVER_PAYLOADS, encver >= TRIE_ENCVER_NUMDOCS);
+  // The registered TrieType is used only by FT.SUGADD (suggest.c builds with Trie_Sort_Score),
+  // so the score-ordered children expected by SUGGET ranking are restored here.
+  return TrieType_GenericLoad(rdb, encver >= TRIE_ENCVER_PAYLOADS, encver >= TRIE_ENCVER_NUMDOCS,
+                              Trie_Sort_Score);
 }
 
-void *TrieType_GenericLoad(RedisModuleIO *rdb, bool loadPayloads, bool loadNumDocs) {
+void *TrieType_GenericLoad(RedisModuleIO *rdb, bool loadPayloads, bool loadNumDocs,
+                           TrieSortMode sortMode) {
 
   Trie *tree = NULL;
   char *str = NULL;
   uint64_t elements = LoadUnsigned_IOError(rdb, goto cleanup);
 
-  tree = NewTrie(NULL, Trie_Sort_Score);
+  tree = NewTrie(NULL, sortMode);
 
   while (elements--) {
     size_t len;

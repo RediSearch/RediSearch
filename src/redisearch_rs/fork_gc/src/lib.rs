@@ -16,9 +16,9 @@
 //! one.
 
 pub mod fork_gc;
+pub mod frame;
 pub mod io_result_ext;
-pub mod reader;
 pub mod util;
-pub mod writer;
 
 pub use fork_gc::ForkGC;
+pub use frame::Frame;
