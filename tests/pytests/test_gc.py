@@ -655,7 +655,7 @@ def testForceGCBypassesThreshold(env):
     env.expect(debug_cmd(), 'DUMP_INVIDX', 'idx', 'hello').equal([10])
 
 
-# Regression for https://redislabs.atlassian.net/browse/MOD-15940
+# Regression for [MOD-15940](https://redislabs.atlassian.net/browse/MOD-15940)
 @skip(cluster=True)
 def testForkGCEmptyTagSuffixTrie_emptyValue_MOD_15996():
     env = Env(moduleArgs='FORK_GC_CLEAN_THRESHOLD 0')
