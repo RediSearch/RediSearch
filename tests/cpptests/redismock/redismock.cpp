@@ -1533,6 +1533,10 @@ static unsigned long long RMCK_ServerInfoGetFieldUnsigned(RedisModuleServerInfoD
   return 0;
 }
 
+static float RMCK_GetUsedMemoryRatio(void) {
+  return 0;
+}
+
 static unsigned long long RMCK_DbSize(RedisModuleCtx *ctx) {
   return ctx->db->size();
 }
@@ -1759,6 +1763,7 @@ static void registerApis() {
   REGISTER_API(GetServerInfo);
   REGISTER_API(FreeServerInfo);
   REGISTER_API(ServerInfoGetFieldUnsigned);
+  REGISTER_API(GetUsedMemoryRatio);
   REGISTER_API(ScanCursorCreate);
   REGISTER_API(ScanCursorDestroy);
   REGISTER_API(ScanKey);
