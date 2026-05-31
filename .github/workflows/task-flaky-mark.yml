@@ -1,0 +1,81 @@
+name: Flaky tests — mark
+
+on:
+  workflow_dispatch:
+    inputs:
+      branch:
+        description: 'Branch the mark applies to (e.g. master, 2.10, or * for all branches)'
+        required: true
+        default: '8.6'
+        type: string
+      test_id:
+        description: "Test identifier in RLTest format: <test_file>:<test_name> (e.g. test_wildcard:testBasic — no .py, no [variant])"
+        required: true
+        type: string
+      reason:
+        description: 'Why is this being skipped?'
+        required: true
+        type: string
+      jira_key:
+        description: 'Jira ticket tracking the flake (e.g. MOD-12345)'
+        required: true
+        type: string
+      expires_in_days:
+        description: 'Days until the mark expires (1-365)'
+        required: true
+        default: '30'
+        type: string
+
+jobs:
+  mark:
+    runs-on: ubuntu-slim
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Set up Python
+        uses: actions/setup-python@v6
+        with:
+          python-version: '3.x'
+
+      - name: Install dependencies
+        run: pip install 'redis>=6,<7'
+
+      - name: Mark test as flaky
+        env:
+          REDIS_URL: ${{ secrets.FLAKY_TESTS_REDIS_URL }}
+          REPO: ${{ github.repository }}
+          BRANCH: ${{ inputs.branch }}
+          TEST_ID: ${{ inputs.test_id }}
+          REASON: ${{ inputs.reason }}
+          JIRA_KEY: ${{ inputs.jira_key }}
+          DAYS: ${{ inputs.expires_in_days }}
+          ACTOR: ${{ github.actor }}
+        run: python3 .github/scripts/flaky_db.py mark
+
+      - name: Summary
+        if: success()
+        env:
+          # Pass inputs through env so they're treated as data, not interpolated
+          # into the shell script by GitHub Actions before bash evaluates it.
+          REPO: ${{ github.repository }}
+          BRANCH: ${{ inputs.branch }}
+          TEST_ID: ${{ inputs.test_id }}
+          JIRA_KEY: ${{ inputs.jira_key }}
+          REASON: ${{ inputs.reason }}
+          DAYS: ${{ inputs.expires_in_days }}
+          ACTOR: ${{ github.actor }}
+        run: |
+          {
+            echo "### Flaky mark recorded :white_check_mark:"
+            echo
+            echo "| Field | Value |"
+            echo "|---|---|"
+            echo "| Repo | \`$REPO\` |"
+            echo "| Branch | \`$BRANCH\` |"
+            echo "| Test | \`$TEST_ID\` |"
+            echo "| Jira | $JIRA_KEY |"
+            echo "| Reason | $REASON |"
+            echo "| Expires in | $DAYS days |"
+            echo "| Marked by | @$ACTOR |"
+          } >> "$GITHUB_STEP_SUMMARY"
