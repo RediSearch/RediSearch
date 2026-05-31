@@ -939,6 +939,7 @@ int parseHybridCommand(RedisModuleCtx *ctx, ArgsCursor *ac,
           },
       .outFields = NULL,
       .maxResultsLimit = maxHybridResults,
+      .groupByLimits = GroupByLimits_Default(RSGlobalConfig.maxAggregateGroups),
       .language = searchRequest->searchopts.language,
   };
 

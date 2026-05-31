@@ -216,6 +216,15 @@ void SearchDisk_AbortWriteBatch(SearchDiskWriteBatchHandle *batch) {
     disk->index.abortWriteBatch(batch);
 }
 
+void SearchDisk_FreeWriteBatch(SearchDiskWriteBatchHandle *batch) {
+    // Null-safe so AddDocumentCtx_Free can call unconditionally — including
+    // in memory-mode contexts where the disk module isn't loaded and no batch
+    // was ever created.
+    if (!batch) return;
+    RS_ASSERT(disk);
+    disk->index.freeWriteBatch(batch);
+}
+
 bool SearchDisk_IndexTerm(RedisSearchDiskIndexSpec *index, SearchDiskWriteBatchHandle *batch, const char *term, size_t termLen, t_docId docId, t_fieldMask fieldMask, uint32_t freq, const uint8_t *offsets, size_t offsetsLen) {
     RS_ASSERT(disk && index && batch);
     return disk->index.indexTerm(index, batch, term, termLen, docId, fieldMask, freq, offsets, offsetsLen);

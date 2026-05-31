@@ -46,6 +46,15 @@ typedef const void* RedisSearchDiskSnapshot;
 // `SearchDisk_CommitWriteBatch`, `SearchDisk_AbortWriteBatch`, etc.).
 typedef struct SearchDiskWriteBatchHandle SearchDiskWriteBatchHandle;
 
+// Opaque handle for the underlying storage-layer write batch.
+//
+// Allocated and freed by the storage implementation behind this API; the only
+// C-visible operations are the create / commit / abort / stage entry points on
+// `IndexDiskAPI` and `DocTableDiskAPI`. C-side callers pass the handle through
+// the thin wrappers in `search_disk.h` (`SearchDisk_CreateWriteBatch`,
+// `SearchDisk_CommitWriteBatch`, `SearchDisk_AbortWriteBatch`, etc.).
+typedef struct SearchDiskWriteBatchHandle SearchDiskWriteBatchHandle;
+
 // Callback function to allocate memory for the key in the scope of the search module memory
 typedef char* (*AllocateKeyCallback)(const void*, size_t len);
 
@@ -236,8 +245,9 @@ typedef struct IndexDiskAPI {
    * @brief Opens a new write batch bound to the given index.
    *
    * The returned batch accumulates `indexTerm` / `indexTags` / `putDocument` writes
-   * until the caller either commits it (via `commitWriteBatch`) or aborts it (via
-   * `abortWriteBatch`). The batch must not outlive `index`.
+   * until the caller commits it (via `commitWriteBatch`) or aborts it (via
+   * `abortWriteBatch`). The handle remains valid after commit/abort and must
+   * eventually be released via `freeWriteBatch`. The batch must not outlive `index`.
    *
    * @param index Pointer to the index this batch will write to
    * @return Pointer to the new batch, or NULL if the index pointer is invalid
@@ -247,8 +257,8 @@ typedef struct IndexDiskAPI {
   /**
    * @brief Atomically commits all writes staged on `batch` to the database.
    *
-   * Consumes `batch` — the pointer must not be used after this call regardless of the
-   * return value.
+   * Leaves `batch` valid and empty; a subsequent commit/abort is a no-op. The
+   * caller still owns the handle and must release it via `freeWriteBatch`.
    *
    * @param batch Pointer to the batch returned by `createWriteBatch`
    * @return true if the commit succeeded, false otherwise
@@ -258,11 +268,23 @@ typedef struct IndexDiskAPI {
   /**
    * @brief Discards all writes staged on `batch` without touching the database.
    *
-   * Consumes `batch` — the pointer must not be used after this call.
+   * Leaves `batch` valid and empty. The caller still owns the handle and must
+   * release it via `freeWriteBatch`.
    *
    * @param batch Pointer to the batch returned by `createWriteBatch`
    */
   void (*abortWriteBatch)(SearchDiskWriteBatchHandle *batch);
+
+  /**
+   * @brief Releases the heap allocation backing `batch`.
+   *
+   * Null-safe: passing NULL is a no-op so callers can invoke this
+   * unconditionally from cleanup paths. Staged writes that were never committed
+   * are discarded.
+   *
+   * @param batch Pointer to the batch returned by `createWriteBatch`, or NULL
+   */
+  void (*freeWriteBatch)(SearchDiskWriteBatchHandle *batch);
 
   /**
    * @brief Indexes a term for fulltext search

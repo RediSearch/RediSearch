@@ -208,7 +208,9 @@ bool SearchDisk_IndexTags(RedisModuleCtx *ctx, RedisSearchDiskIndexSpec *index, 
  * The returned batch accumulates `SearchDisk_IndexTerm` / `SearchDisk_IndexTags` /
  * `SearchDisk_PutDocument` writes until the caller commits it (via
  * `SearchDisk_CommitWriteBatch`) or aborts it (via `SearchDisk_AbortWriteBatch`).
- * The batch must not outlive `index` and must not be used from multiple threads.
+ * The handle remains valid after commit/abort and must eventually be released
+ * via `SearchDisk_FreeWriteBatch`. The batch must not outlive `index` and must
+ * not be used from multiple threads.
  *
  * @param index Pointer to the disk index this batch will write to
  * @return Pointer to the new batch, or NULL on error
@@ -218,7 +220,8 @@ SearchDiskWriteBatchHandle *SearchDisk_CreateWriteBatch(RedisSearchDiskIndexSpec
 /**
  * @brief Atomically commit all writes staged on `batch`.
  *
- * Consumes `batch` regardless of the return value.
+ * Leaves `batch` valid and empty. The caller still owns the handle and must
+ * release it via `SearchDisk_FreeWriteBatch`.
  *
  * @param batch Pointer returned by `SearchDisk_CreateWriteBatch`
  * @return true on success, false on error
@@ -228,11 +231,23 @@ bool SearchDisk_CommitWriteBatch(SearchDiskWriteBatchHandle *batch);
 /**
  * @brief Discard all writes staged on `batch` without touching the database.
  *
- * Consumes `batch`.
+ * Leaves `batch` valid and empty. The caller still owns the handle and must
+ * release it via `SearchDisk_FreeWriteBatch`.
  *
  * @param batch Pointer returned by `SearchDisk_CreateWriteBatch`
  */
 void SearchDisk_AbortWriteBatch(SearchDiskWriteBatchHandle *batch);
+
+/**
+ * @brief Release the heap allocation backing `batch`.
+ *
+ * Null-safe: passing NULL is a no-op so callers can invoke this unconditionally
+ * from cleanup paths (e.g. `AddDocumentCtx_Free`). Any writes staged on `batch`
+ * that were not previously committed are discarded.
+ *
+ * @param batch Pointer returned by `SearchDisk_CreateWriteBatch`, or NULL
+ */
+void SearchDisk_FreeWriteBatch(SearchDiskWriteBatchHandle *batch);
 
 /**
  * @brief Delete a document by its doc ID directly, removing it from the doc table and marking its ID as deleted
