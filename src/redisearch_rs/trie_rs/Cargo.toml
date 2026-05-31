@@ -23,6 +23,7 @@ libc.workspace = true
 memchr.workspace = true
 ouroboros.workspace = true
 rqe_wildcard.workspace = true
+thiserror.workspace = true
 workspace_hack.workspace = true
 
 [dev-dependencies]

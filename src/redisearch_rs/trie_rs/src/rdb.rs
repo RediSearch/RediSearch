@@ -176,24 +176,15 @@ pub trait RdbRead {
 }
 
 /// Errors that can occur while reading a trie RDB payload.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
 pub enum RdbError {
     /// The underlying RDB read failed (EOF, corrupted stream, etc.).
+    #[error("rdb io error")]
     Io,
     /// A bytes buffer expected to end with a NUL terminator did not.
+    #[error("rdb bytes buffer missing trailing NUL")]
     MissingTrailingNul,
 }
-
-impl std::fmt::Display for RdbError {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match self {
-            Self::Io => f.write_str("rdb io error"),
-            Self::MissingTrailingNul => f.write_str("rdb bytes buffer missing trailing NUL"),
-        }
-    }
-}
-
-impl std::error::Error for RdbError {}
 
 #[cfg(test)]
 mod tests {
