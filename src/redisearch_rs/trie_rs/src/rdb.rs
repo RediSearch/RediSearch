@@ -51,6 +51,73 @@
 
 use crate::TrieMap;
 
+/// Serialize a [`TrieMap<TrieEntry>`] to `writer` in the trie RDB wire format.
+///
+/// Iterates entries in lexicographic key order. Keys, and payloads when
+/// [`RdbOpts::payloads`] is set, are written with a trailing NUL
+/// byte to match the C wire format (the loader strips it back off).
+pub fn save<W: RdbWrite>(map: &TrieMap<TrieEntry>, writer: &mut W, opts: RdbOpts) {
+    writer.save_u64(map.n_unique_keys() as u64);
+    for (key, entry) in map.iter() {
+        writer.save_bytes_nul_terminated(&key);
+        writer.save_f64(entry.score);
+        if opts.payloads {
+            writer.save_bytes_nul_terminated(entry.payload.as_deref().unwrap_or(&[]));
+        }
+        if opts.num_docs {
+            writer.save_u64(entry.num_docs);
+        }
+    }
+}
+
+/// Deserialize a [`TrieMap<TrieEntry>`] from `reader`.
+///
+/// `opts` must match the [`RdbOpts`] used at save time.
+///
+/// The trailing NUL byte is stripped from every key (and every payload
+/// when [`RdbOpts::payloads`] is set). An empty payload (i.e. a single-NUL
+/// buffer, `"\0"`) is normalized to `payload: None`.
+pub fn load<R: RdbRead>(reader: &mut R, opts: RdbOpts) -> Result<TrieMap<TrieEntry>, RdbError> {
+    let count = reader.load_u64()?;
+    let mut map = TrieMap::new();
+    for _ in 0..count {
+        let key = reader.load_bytes_strip_nul()?;
+        let score = reader.load_f64()?;
+        let payload = opts
+            .payloads
+            .then(|| reader.load_bytes_strip_nul())
+            .transpose()?
+            .filter(|b| !b.is_empty());
+        let num_docs = if opts.num_docs {
+            reader.load_u64()?
+        } else {
+            0
+        };
+        map.insert(
+            &key,
+            TrieEntry {
+                score,
+                payload,
+                num_docs,
+            },
+        );
+    }
+    Ok(map)
+}
+
+/// Controls which optional fields are present on the wire.
+///
+/// The same value must be used at save and load time. Mismatches misalign
+/// the wire layout, so subsequent reads either fail with an [`RdbError`] or
+/// silently parse the wrong bytes as the next field.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct RdbOpts {
+    /// Persist each entry's payload (with trailing NUL).
+    pub payloads: bool,
+    /// Persist each entry's `num_docs`.
+    pub num_docs: bool,
+}
+
 /// One trie entry: score, optional opaque payload, and a per-entry counter.
 ///
 /// `payload: None` and `payload: Some(vec![])` are wire-indistinguishable
@@ -71,19 +138,6 @@ pub struct TrieEntry {
     /// term trie); this type does not enforce a meaning. Loads with
     /// `num_docs = false` materialize this as `0`.
     pub num_docs: u64,
-}
-
-/// Controls which optional fields are present on the wire.
-///
-/// The same value must be used at save and load time. Mismatches misalign
-/// the wire layout, so subsequent reads either fail with an [`RdbError`] or
-/// silently parse the wrong bytes as the next field.
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
-pub struct RdbOpts {
-    /// Persist each entry's payload (with trailing NUL).
-    pub payloads: bool,
-    /// Persist each entry's `num_docs`.
-    pub num_docs: bool,
 }
 
 /// Sink for the typed RDB save primitives.
@@ -140,60 +194,6 @@ impl std::fmt::Display for RdbError {
 }
 
 impl std::error::Error for RdbError {}
-
-/// Serialize a [`TrieMap<TrieEntry>`] to `writer` in the trie RDB wire format.
-///
-/// Iterates entries in lexicographic key order. Keys, and payloads when
-/// [`RdbOpts::payloads`] is set, are written with a trailing NUL
-/// byte to match the C wire format (the loader strips it back off).
-pub fn save<W: RdbWrite>(map: &TrieMap<TrieEntry>, writer: &mut W, opts: RdbOpts) {
-    writer.save_u64(map.n_unique_keys() as u64);
-    for (key, entry) in map.iter() {
-        writer.save_bytes_nul_terminated(&key);
-        writer.save_f64(entry.score);
-        if opts.payloads {
-            writer.save_bytes_nul_terminated(entry.payload.as_deref().unwrap_or(&[]));
-        }
-        if opts.num_docs {
-            writer.save_u64(entry.num_docs);
-        }
-    }
-}
-
-/// Deserialize a [`TrieMap<TrieEntry>`] from `reader`.
-///
-/// `opts` must match the [`RdbOpts`] used at save time.
-///
-/// The trailing NUL byte is stripped from every key (and every payload
-/// when [`RdbOpts::payloads`] is set). An empty payload (i.e. a single-NUL
-/// buffer, `"\0"`) is normalized to `payload: None`.
-pub fn load<R: RdbRead>(reader: &mut R, opts: RdbOpts) -> Result<TrieMap<TrieEntry>, RdbError> {
-    let count = reader.load_u64()?;
-    let mut map = TrieMap::new();
-    for _ in 0..count {
-        let key = reader.load_bytes_strip_nul()?;
-        let score = reader.load_f64()?;
-        let payload = opts
-            .payloads
-            .then(|| reader.load_bytes_strip_nul())
-            .transpose()?
-            .filter(|b| !b.is_empty());
-        let num_docs = if opts.num_docs {
-            reader.load_u64()?
-        } else {
-            0
-        };
-        map.insert(
-            &key,
-            TrieEntry {
-                score,
-                payload,
-                num_docs,
-            },
-        );
-    }
-    Ok(map)
-}
 
 #[cfg(test)]
 mod tests {
