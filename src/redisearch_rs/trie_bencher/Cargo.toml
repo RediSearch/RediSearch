@@ -23,6 +23,10 @@ harness = false
 name = "iter"
 harness = false
 
+[[bench]]
+name = "rdb_save"
+harness = false
+
 [dependencies]
 crc32fast.workspace = true
 criterion.workspace = true
