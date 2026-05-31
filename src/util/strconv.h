@@ -120,21 +120,26 @@ static char* unicode_tolower(char *encoded, size_t *inout_len) {
   // single-codepoint ASCII character. Standard ASCII case folding (A-Z -> a-z)
   // is byte-length preserving and matches what the nunicode pipeline would
   // produce for codepoints < 0x80, so we can lowercase in place and skip the
-  // multi-pass transform entirely. This is the common case for English /
-  // MS MARCO-style corpora; multibyte inputs fall through to the slow path
-  // at the first byte with bit 7 set, so the scan cost on multibyte inputs
-  // is bounded by the position of the first non-ASCII byte (often 0).
+  // multi-pass transform entirely. The scan also stops at an embedded NUL,
+  // because nu_utf8_read treats codepoint 0 as end-of-string and truncates
+  // the output there. Multibyte inputs fall through to the slow path at the
+  // first byte with bit 7 set.
   {
     size_t j = 0;
-    while (j < in_len && (unsigned char)encoded[j] < 0x80) {
+    while (j < in_len) {
+      unsigned char c = (unsigned char)encoded[j];
+      if (c == 0 || c >= 0x80) break;
       j++;
     }
-    if (j == in_len) {
-      for (size_t k = 0; k < in_len; k++) {
+    if (j == in_len || (unsigned char)encoded[j] == 0) {
+      for (size_t k = 0; k < j; k++) {
         unsigned char c = (unsigned char)encoded[k];
         if (c >= 'A' && c <= 'Z') {
           encoded[k] = (char)(c + ('a' - 'A'));
         }
+      }
+      if (j < in_len && j > 0) {
+        *inout_len = j;
       }
       return NULL;
     }
