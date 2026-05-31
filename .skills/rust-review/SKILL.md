@@ -141,6 +141,17 @@ unauthorized access, or denial of service.
 Check especially for:
 - `unsafe` and FFI soundness bugs, including invalid pointer, NULL, lifetime, aliasing,
   initialization, and ownership assumptions.
+- Allocator mismatches across the FFI boundary: RediSearch C code uses `rm_malloc` /
+  `rm_free`, while Rust values must be released through the allocator and ownership
+  path that created them.
+- Rust-owned allocations passed to C, such as values exposed with `Box::into_raw`,
+  must have a clear path back to Rust and be converted with `Box::from_raw` exactly
+  once so they are cleaned up correctly.
+- FFI string handling must account for Redis strings being binary-safe and often
+  NUL-terminated; do not assume they map directly to Rust `String` / `str` or
+  `CString` / `CStr`.
+- Unsafe conversions such as `mem::transmute` and `from_raw_parts` must validate size,
+  alignment, initialized memory, lifetime, and valid-value requirements.
 - Panics on user-controlled input, unchecked indexing, unchecked `unwrap` / `expect`,
   unsafe conversions, and unchecked UTF-8 or slice assumptions.
 - Allocation-size arithmetic overflow, integer truncation or sign bugs, and unchecked
