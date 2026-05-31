@@ -1748,13 +1748,10 @@ static int CursorReadTimeoutReturnStrictCallback(RedisModuleCtx *ctx, RedisModul
   AREQ_SetTimedOut(req);
 
   if (AREQ_TryClaimAggregateResults(req)) {
-    // The worker has not entered the stored-results phase yet. Reply without
-    // waiting; the worker will observe the failed claim and free the already
-    // taken cursor locally. This avoids blocking the Redis main thread on a
-    // worker that may still be paused at a debug sync point or queued.
-    QueryErrorsGlobalStats_UpdateError(QUERY_ERROR_CODE_TIMED_OUT, 1, !IsInternal(req));
-    RedisModule_ReplyWithError(ctx, QueryError_Strerror(QUERY_ERROR_CODE_TIMED_OUT));
-    return REDISMODULE_OK;
+    // The worker has not entered the stored-results phase yet. Reply in the
+    // normal RETURN_STRICT cursor shape; when the worker observes the failed
+    // claim, it parks the already-taken cursor for the advertised id.
+    return shard_cursor_read_empty_reply_timeout(ctx, node->cursorId);
   }
 
   // The worker owns the stored-results phase. Wait for it to store a
@@ -2024,10 +2021,10 @@ static void runCursor(RedisModule_Reply *reply, Cursor *cursor, size_t num) {
   if (req->useReplyCallback) {
     if (!storedReply) {
       // The strict timeout callback won the sync claim and already replied with
-      // a hard timeout. This read cannot be retried through the same cursor id,
-      // so close the cursor that was already taken for execution.
+      // this cursor id. Make the already-taken cursor available for follow-up
+      // reads.
       req->storedReplyState.cursor = NULL;
-      Cursor_Free(cursor);
+      Cursor_Pause(cursor);
       return;
     }
     // Disposal of the stashed cursor is owned by AREQ_ReplyWithStoredResults.
