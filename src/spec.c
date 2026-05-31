@@ -1314,18 +1314,16 @@ static int parseVectorField(IndexSpec *sp, StrongRef sp_ref, FieldSpec *fs, Args
     params->logCtx = logCtx;
     bool rerank = false;
     result = parseVectorField_hnsw(sp, fs, params, ac, status, &rerank);
-    if (result) {
-      // Always store rerank — it's config data that must survive RDB
-      // save/load even when the disk subsystem is not running.
-      fs->vectorOpts.diskCtx.rerank = rerank;
-    }
     // Build disk params if disk mode is enabled
     if (result && sp->diskSpec) {
       size_t nameLen;
       const char *namePtr = HiddenString_GetUnsafe(fs->fieldName, &nameLen);
-      fs->vectorOpts.diskCtx.storage = sp->diskSpec;
-      fs->vectorOpts.diskCtx.indexName = rm_strndup(namePtr, nameLen);
-      fs->vectorOpts.diskCtx.indexNameLen = nameLen;
+      fs->vectorOpts.diskCtx = (VecSimDiskContext){
+        .storage = sp->diskSpec,
+        .indexName = rm_strndup(namePtr, nameLen),
+        .indexNameLen = nameLen,
+        .rerank = rerank,
+      };
     }
   } else if (STR_EQCASE(algStr, len, VECSIM_ALGORITHM_SVS)) {
     // Disk mode does not support SVS algorithm
@@ -1764,11 +1762,15 @@ static void IndexSpec_PopulateVectorDiskParams(IndexSpec *sp) {
       rm_free((void*)fs->vectorOpts.diskCtx.indexName);
     }
 
-    // Only populate runtime fields; rerank was set by the parser (FT.CREATE)
-    // or loaded from RDB and must be preserved.
-    fs->vectorOpts.diskCtx.storage = sp->diskSpec;
-    fs->vectorOpts.diskCtx.indexName = rm_strndup(namePtr, nameLen);
-    fs->vectorOpts.diskCtx.indexNameLen = nameLen;
+    // Preserve rerank loaded by FieldSpec_RdbLoad — runtime fields below
+    // are repopulated from the freshly opened disk handle.
+    const bool rerank = fs->vectorOpts.diskCtx.rerank;
+    fs->vectorOpts.diskCtx = (VecSimDiskContext){
+      .storage = sp->diskSpec,
+      .indexName = rm_strndup(namePtr, nameLen),
+      .indexNameLen = nameLen,
+      .rerank = rerank,
+    };
   }
 }
 
