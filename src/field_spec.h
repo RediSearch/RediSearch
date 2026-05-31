@@ -119,7 +119,10 @@ typedef struct FieldSpec {
       // expected size of vector blob.
       size_t expBlobSize;
       VecSimIndex *vecSimIndex;
-      // Disk index params (diskCtx.storage is non-NULL for disk-based indexes)
+      // Disk index params (diskCtx.storage is non-NULL for disk-based indexes).
+      // diskCtx.rerank is the canonical store of the RERANK config, populated
+      // by the parser even when the disk subsystem is not running (simulated
+      // disk mode), and preserved across RDB save/load.
       VecSimDiskContext diskCtx;
     } vectorOpts;
     struct {

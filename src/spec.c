@@ -808,7 +808,7 @@ static int parseVectorField_hnsw(IndexSpec *sp, FieldSpec *fs, VecSimParams *par
   bool mandM = false;
   bool mandEfConstruction = false;
   bool mandEfRuntime = false;
-  *rerank = false;
+  bool rerank_seen = false;
 
   // Get number of parameters and create a sub-cursor for them
   size_t expNumParam;
@@ -871,7 +871,7 @@ static int parseVectorField_hnsw(IndexSpec *sp, FieldSpec *fs, VecSimParams *par
         return 0;
       }
     } else if (AC_AdvanceIfMatch(&subAc, VECSIM_RERANK)) {
-      if (*rerank) {
+      if (rerank_seen) {
         QueryError_SetWithoutUserDataFmt(status, QUERY_ERROR_CODE_INVAL,
           "Duplicate RERANK parameter");
         return 0;
@@ -882,12 +882,16 @@ static int parseVectorField_hnsw(IndexSpec *sp, FieldSpec *fs, VecSimParams *par
       }
       size_t rerank_len;
       const char *rerank_value = AC_GetStringNC(&subAc, &rerank_len);
-      if (!STR_EQCASE(rerank_value, rerank_len, "TRUE")) {
+      if (STR_EQCASE(rerank_value, rerank_len, "TRUE")) {
+        *rerank = true;
+      } else if (STR_EQCASE(rerank_value, rerank_len, "FALSE")) {
+        *rerank = false;
+      } else {
         QueryError_SetError(status, QUERY_ERROR_CODE_PARSE_ARGS,
-          "Syntax error: RERANK only supports TRUE currently");
+          "Syntax error: RERANK value must be TRUE or FALSE");
         return 0;
       }
-      *rerank = true;
+      rerank_seen = true;
     } else {
       QueryError_SetWithUserDataFmt(status, QUERY_ERROR_CODE_PARSE_ARGS, "Bad arguments for algorithm", " %s: %s", VECSIM_ALGORITHM_HNSW, AC_GetStringNC(&subAc, NULL));
       return 0;
@@ -934,7 +938,7 @@ static int parseVectorField_hnsw(IndexSpec *sp, FieldSpec *fs, VecSimParams *par
         "Disk HNSW index requires EF_RUNTIME parameter");
       return 0;
     }
-    if (!*rerank) {
+    if (!rerank_seen) {
       QueryError_SetWithoutUserDataFmt(status, QUERY_ERROR_CODE_INVAL,
         "Disk HNSW index requires RERANK parameter");
       return 0;
@@ -1310,16 +1314,18 @@ static int parseVectorField(IndexSpec *sp, StrongRef sp_ref, FieldSpec *fs, Args
     params->logCtx = logCtx;
     bool rerank = false;
     result = parseVectorField_hnsw(sp, fs, params, ac, status, &rerank);
+    if (result) {
+      // Always store rerank — it's config data that must survive RDB
+      // save/load even when the disk subsystem is not running.
+      fs->vectorOpts.diskCtx.rerank = rerank;
+    }
     // Build disk params if disk mode is enabled
     if (result && sp->diskSpec) {
       size_t nameLen;
       const char *namePtr = HiddenString_GetUnsafe(fs->fieldName, &nameLen);
-      fs->vectorOpts.diskCtx = (VecSimDiskContext){
-        .storage = sp->diskSpec,
-        .indexName = rm_strndup(namePtr, nameLen),
-        .indexNameLen = nameLen,
-        .rerank = rerank,
-      };
+      fs->vectorOpts.diskCtx.storage = sp->diskSpec;
+      fs->vectorOpts.diskCtx.indexName = rm_strndup(namePtr, nameLen);
+      fs->vectorOpts.diskCtx.indexNameLen = nameLen;
     }
   } else if (STR_EQCASE(algStr, len, VECSIM_ALGORITHM_SVS)) {
     // Disk mode does not support SVS algorithm
@@ -1758,13 +1764,11 @@ static void IndexSpec_PopulateVectorDiskParams(IndexSpec *sp) {
       rm_free((void*)fs->vectorOpts.diskCtx.indexName);
     }
 
-    // TODO: rerank is not persisted in RDB, defaulting to true on load.
-    fs->vectorOpts.diskCtx = (VecSimDiskContext){
-      .storage = sp->diskSpec,
-      .indexName = rm_strndup(namePtr, nameLen),
-      .indexNameLen = nameLen,
-      .rerank = true,
-    };
+    // Only populate runtime fields; rerank was set by the parser (FT.CREATE)
+    // or loaded from RDB and must be preserved.
+    fs->vectorOpts.diskCtx.storage = sp->diskSpec;
+    fs->vectorOpts.diskCtx.indexName = rm_strndup(namePtr, nameLen);
+    fs->vectorOpts.diskCtx.indexNameLen = nameLen;
   }
 }
 
@@ -2611,6 +2615,9 @@ static void FieldSpec_RdbSave(RedisModuleIO *rdb, FieldSpec *f) {
   if (FIELD_IS(f, INDEXFLD_T_VECTOR)) {
     RedisModule_SaveUnsigned(rdb, f->vectorOpts.expBlobSize);
     VecSim_RdbSave(rdb, &f->vectorOpts.vecSimParams);
+    // RERANK is only meaningful for tiered HNSW (disk-mode HNSW), but always
+    // save a byte so the format is uniform across vector fields.
+    RedisModule_SaveUnsigned(rdb, f->vectorOpts.diskCtx.rerank ? 1 : 0);
   }
   if (FIELD_IS(f, INDEXFLD_T_GEOMETRY) || (f->options & FieldSpec_Dynamic)) {
     RedisModule_SaveUnsigned(rdb, f->geometryOpts.geometryCoords);
@@ -2731,6 +2738,12 @@ static int FieldSpec_RdbLoad(RedisModuleIO *rdb, FieldSpec *f, StrongRef sp_ref,
       case VecSimAlgo_SVS:
         goto fail;  // svs is not supported in old encvers
       }
+    }
+    // RERANK byte was added in INDEX_VECTOR_RERANK_VERSION; older RDBs assume TRUE.
+    if (encver >= INDEX_VECTOR_RERANK_VERSION) {
+      f->vectorOpts.diskCtx.rerank = LoadUnsigned_IOError(rdb, goto fail) != 0;
+    } else {
+      f->vectorOpts.diskCtx.rerank = true;
     }
   }
 

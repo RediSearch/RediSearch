@@ -375,7 +375,7 @@ def test_flex_blocks_dict_commands(env):
 
 @skip(cluster=True)
 @with_simulate_in_flex(True)
-def test_flex_disk_hnsw_rerank_requires_true_value(env):
+def test_flex_disk_hnsw_rerank_value(env):
     env.expect(
         'FT.CREATE', 'idx_ok', 'ON', 'HASH', 'SKIPINITIALSCAN', 'SCHEMA',
         'v', 'VECTOR', 'HNSW', '14',
@@ -386,6 +386,18 @@ def test_flex_disk_hnsw_rerank_requires_true_value(env):
         'EF_CONSTRUCTION', '200',
         'EF_RUNTIME', '10',
         'RERANK', 'TRUE',
+    ).ok()
+
+    env.expect(
+        'FT.CREATE', 'idx_ok_false', 'ON', 'HASH', 'SKIPINITIALSCAN', 'SCHEMA',
+        'v', 'VECTOR', 'HNSW', '14',
+        'TYPE', 'FLOAT32',
+        'DIM', '2',
+        'DISTANCE_METRIC', 'L2',
+        'M', '16',
+        'EF_CONSTRUCTION', '200',
+        'EF_RUNTIME', '10',
+        'RERANK', 'FALSE',
     ).ok()
 
     env.expect(
@@ -412,7 +424,7 @@ def test_flex_disk_hnsw_rerank_requires_true_value(env):
     ).error().contains('RERANK requires an argument')
 
     env.expect(
-        'FT.CREATE', 'idx_false', 'ON', 'HASH', 'SKIPINITIALSCAN', 'SCHEMA',
+        'FT.CREATE', 'idx_bad_value', 'ON', 'HASH', 'SKIPINITIALSCAN', 'SCHEMA',
         'v', 'VECTOR', 'HNSW', '14',
         'TYPE', 'FLOAT32',
         'DIM', '2',
@@ -420,8 +432,8 @@ def test_flex_disk_hnsw_rerank_requires_true_value(env):
         'M', '16',
         'EF_CONSTRUCTION', '200',
         'EF_RUNTIME', '10',
-        'RERANK', 'FALSE',
-    ).error().contains('Syntax error: RERANK only supports TRUE currently')
+        'RERANK', 'MAYBE',
+    ).error().contains('Syntax error: RERANK value must be TRUE or FALSE')
 
     env.expect(
         'FT.CREATE', 'idx_dup', 'ON', 'HASH', 'SKIPINITIALSCAN', 'SCHEMA',
@@ -435,6 +447,28 @@ def test_flex_disk_hnsw_rerank_requires_true_value(env):
         'RERANK', 'TRUE',
         'RERANK', 'TRUE',
     ).error().contains('Duplicate RERANK parameter')
+
+
+@skip(cluster=True)
+@with_simulate_in_flex(True)
+def test_flex_disk_hnsw_rerank_rdb_roundtrip(env):
+    for idx, rerank_value in [('idx_rerank_true', 'TRUE'), ('idx_rerank_false', 'FALSE')]:
+        env.expect(
+            'FT.CREATE', idx, 'ON', 'HASH', 'SKIPINITIALSCAN', 'SCHEMA',
+            'v', 'VECTOR', 'HNSW', '14',
+            'TYPE', 'FLOAT32',
+            'DIM', '2',
+            'DISTANCE_METRIC', 'L2',
+            'M', '16',
+            'EF_CONSTRUCTION', '100',
+            'EF_RUNTIME', '10',
+            'RERANK', rerank_value,
+        ).ok()
+
+    env.dumpAndReload()
+
+    for idx in ('idx_rerank_true', 'idx_rerank_false'):
+        env.expect('FT.INFO', idx).noError()
 
 
 @skip(cluster=True)
