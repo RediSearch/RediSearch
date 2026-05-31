@@ -418,10 +418,14 @@ void addSuffixTrieMap(TrieMap *trie, const char *str, uint32_t len) {
 void deleteSuffixTrieMap(TrieMap *trie, const char *str, uint32_t len) {
   char *oldTerm = NULL;
 
-  // iterate all matching terms and remove word
-  for (int j = 0; j < len - MIN_SUFFIX + 1; ++j) {
+  // iterate all matching terms and remove word.
+  // `j + MIN_SUFFIX <= len` avoids uint32 underflow when len < MIN_SUFFIX (MOD-15996 B2).
+  for (size_t j = 0; j + MIN_SUFFIX <= len; ++j) {
     suffixData *data = TrieMap_Find(trie, str + j, len - j);
-    RS_LOG_ASSERT(data != TRIEMAP_NOTFOUND, "all suffixes must exist");
+    // Restored pre-#4554 guard: values/suffix can diverge (e.g. empty TAG with
+    // INDEXEMPTY WITHSUFFIXTRIE). Skipping a missing entry is safe and prevents
+    // dereferencing the TRIEMAP_NOTFOUND .rodata sentinel (MOD-15996 B1).
+    if (data == TRIEMAP_NOTFOUND) continue;
     if (j == 0) {
       // keep pointer to word string to free after it was found in all sub tokens.
       oldTerm = data->term;
