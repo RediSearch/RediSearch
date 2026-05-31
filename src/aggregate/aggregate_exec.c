@@ -1984,10 +1984,10 @@ int AREQ_StartCursor(AREQ *r, RedisModule_Reply *reply, StrongRef spec_ref, Quer
 static void runCursor(RedisModule_Reply *reply, Cursor *cursor, size_t num) {
   AREQ *req = cursor->execState;
   AREQ_ProfilePrinterCtx(req)->cursor_reads++;
-  // Skip when useReplyCallback is set (coord+FAIL): the deadline is owned by
-  // the blocked-client timer, armed by buildPipelineAndExecute (initial
-  // WITHCURSOR) or CursorCommand (subsequent READ).
-  if (!req->useReplyCallback) {
+  // FAIL callback reads rely only on the blocked-client timer. RETURN_STRICT
+  // still runs the pipeline to store a cursor-shaped reply, so refresh its
+  // deadline per read and avoid inheriting the cursor-creating query deadline.
+  if (!req->useReplyCallback || req->reqConfig.timeoutPolicy == TimeoutPolicy_ReturnStrict) {
     SearchCtx_UpdateTime(AREQ_SearchCtx(req), req->reqConfig.queryTimeoutMS);
   }
 
