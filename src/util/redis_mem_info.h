@@ -40,9 +40,3 @@ static inline float RedisMemory_GetUsedMemoryRatio(void) {
   return RedisModule_GetUsedMemoryRatio();
 }
 
-// Get the used memory ratio from Redis server info.
-// Same function as before
-// GIL must be held before calling this function
-// Returns 0 if maxmemory is 0
-// TODO: remove this function and use RedisMemory_GetUsedMemoryRatio instead after benchmarking
-float RedisMemory_GetUsedMemoryRatioUnified(RedisModuleCtx *ctx);

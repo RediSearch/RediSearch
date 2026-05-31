@@ -78,8 +78,8 @@ static inline bool isOutOfMemory(RedisModuleCtx *ctx) {
   bool isSlave = RedisModule_GetContextFlags(ctx) & REDISMODULE_CTX_FLAGS_SLAVE;
   float used_memory_ratio = 0;
   if (!isSlave) {
-    // On master, use the original unified logic
-    used_memory_ratio = RedisMemory_GetUsedMemoryRatioUnified(ctx);
+    // On master, use the direct SDK ratio API (avoids parsing INFO memory each call).
+    used_memory_ratio = RedisMemory_GetUsedMemoryRatio();
   } else {
     // On slaves, only consider max_process_mem
     RedisModuleServerInfoData *info = RedisModule_GetServerInfo(ctx, "memory");
