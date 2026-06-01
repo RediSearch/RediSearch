@@ -1275,6 +1275,16 @@ int AREQ_Compile(AREQ *req, RedisModuleCtx *ctx, RedisModuleString **argv, int a
     goto error;
   }
 
+  // Cap the per-query TIMEOUT (or the inherited global default) against
+  // search-max-query-timeout-ms when workers are disabled. Setting the
+  // QEXEC_S_MAX_TIMEOUT_CAPPED state flag causes the reply emitters to surface
+  // a RESP3 warning to the user. Apply the cap before subtracting the
+  // coordinator dispatch time so the shard budget is measured against the
+  // capped ceiling rather than the original (possibly larger) value.
+  if (RSConfig_CapQueryTimeoutToMaxLimit(&req->reqConfig.queryTimeoutMS)) {
+    req->stateflags |= QEXEC_S_MAX_TIMEOUT_CAPPED;
+  }
+
   if (IsInternal(req) &&
       RequestConfig_ApplyCoordinatorElapsedTime(&req->reqConfig, req->profileClocks.coordDispatchTime)) {
     QueryError_SetCode(status, QUERY_ERROR_CODE_TIMED_OUT);
@@ -1292,14 +1302,6 @@ int AREQ_Compile(AREQ *req, RedisModuleCtx *ctx, RedisModuleString **argv, int a
     if (IsNeededDepleter(req)) {
       AREQ_AddRequestFlags(req, QEXEC_F_HAS_DEPLETER);
     }
-  }
-
-  // Cap the per-query TIMEOUT (or the inherited global default) against
-  // search-max-query-timeout-ms when workers are disabled. Setting the
-  // QEXEC_S_MAX_TIMEOUT_CAPPED state flag causes the reply emitters to surface
-  // a RESP3 warning to the user.
-  if (RSConfig_CapQueryTimeoutToMaxLimit(&req->reqConfig.queryTimeoutMS)) {
-    req->stateflags |= QEXEC_S_MAX_TIMEOUT_CAPPED;
   }
 
   // Check if we should check for timeout in pipeline

@@ -442,8 +442,8 @@ pub unsafe extern "C" fn QueryError_SetQueryOOMWarning(query_error: *mut OpaqueQ
 /// Returns a [`QueryWarningCode`] given an warnings message.
 ///
 /// This only supports the query error codes [`QueryWarningCode::TimedOut`], [`QueryWarningCode::ReachedMaxPrefixExpansions`],
-/// [`QueryWarningCode::OutOfMemoryShard`] and [`QueryWarningCode::OutOfMemoryCoord`]. If another message is provided,
-/// [`QueryWarningCode::Ok`] is returned.
+/// [`QueryWarningCode::OutOfMemoryShard`], [`QueryWarningCode::OutOfMemoryCoord`] and [`QueryWarningCode::MaxTimeoutCapped`].
+/// If another message is provided, [`QueryWarningCode::Ok`] is returned.
 ///
 /// If the message is a null pointer, returns [`QueryWarningCode::Ok`].
 ///
@@ -463,6 +463,7 @@ pub unsafe extern "C" fn QueryWarningCode_GetCodeFromMessage(
         QueryWarningCode::ReachedMaxPrefixExpansions.to_c_str();
     const OUT_OF_MEMORY_COORD_WARNING_CSTR: &CStr = QueryWarningCode::OutOfMemoryCoord.to_c_str();
     const OUT_OF_MEMORY_SHARD_WARNING_CSTR: &CStr = QueryWarningCode::OutOfMemoryShard.to_c_str();
+    const MAX_TIMEOUT_CAPPED_WARNING_CSTR: &CStr = QueryWarningCode::MaxTimeoutCapped.to_c_str();
 
     // Safety: see safety requirement above and the handling of null pointer at the start.
     let message = unsafe { CStr::from_ptr(message) };
@@ -475,6 +476,8 @@ pub unsafe extern "C" fn QueryWarningCode_GetCodeFromMessage(
         QueryWarningCode::OutOfMemoryCoord
     } else if message == OUT_OF_MEMORY_SHARD_WARNING_CSTR {
         QueryWarningCode::OutOfMemoryShard
+    } else if message == MAX_TIMEOUT_CAPPED_WARNING_CSTR {
+        QueryWarningCode::MaxTimeoutCapped
     } else {
         QueryWarningCode::Ok
     }
