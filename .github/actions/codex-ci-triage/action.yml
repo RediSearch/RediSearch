@@ -45,6 +45,10 @@ runs:
         working-directory: ${{ inputs.working-directory }}
         sandbox: read-only
         safety-strategy: read-only
+        # Triage runs on post-merge/scheduled events whose actor is a bot
+        # (github-merge-queue, github-actions[bot]); allow them past the
+        # action's collaborator gate. Sandbox + safety remain read-only.
+        allow-bots: true
 
     - name: Read triage output
       id: read
