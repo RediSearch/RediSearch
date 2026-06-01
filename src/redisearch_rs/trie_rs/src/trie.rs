@@ -109,6 +109,13 @@ impl<Data> TrieMap<Data> {
         self.root.as_ref().and_then(|n| n.find(key))
     }
 
+    /// Get a mutable reference to the value associated with a key.
+    ///
+    /// Returns `None` if there is no entry for the key.
+    pub fn find_mut(&mut self, key: &[u8]) -> Option<&mut Data> {
+        self.root.as_mut().and_then(|n| n.find_mut(key))
+    }
+
     /// Get a reference to the subtree associated with a key prefix.
     /// Returns `None` if the key prefix is not present.
     fn find_root_for_prefix(&self, key: &[u8]) -> Option<(&Node<Data>, Vec<u8>)> {
