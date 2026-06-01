@@ -475,7 +475,7 @@ CONFIG_SETTER(setMaxAggregateGroups) {
   int acrc = AC_GetLongLong(ac, &newSize, AC_F_GE1);
   CHECK_RETURN_PARSE_ERROR(acrc)
   if (newSize > MAX_AGGREGATE_GROUPS) {
-    QueryError_SetError(status, QUERY_ERROR_CODE_LIMIT,
+    QueryError_SetError(status, QUERY_ELIMIT,
                         "Value exceeds maximum possible aggregate groups");
     return REDISMODULE_ERR;
   }

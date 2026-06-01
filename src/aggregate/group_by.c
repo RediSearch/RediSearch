@@ -80,7 +80,7 @@ typedef struct Grouper {
 
 static void setAggregateGroupLimitError(const Grouper *g) {
   QueryError_SetWithoutUserDataFmt(
-      g->base.parent->err, QUERY_ERROR_CODE_LIMIT,
+      g->base.parent->err, QUERY_ELIMIT,
       "Aggregate GROUPBY exceeded MAX_AGGREGATE_GROUPS limit of %zu groups",
       g->groupByLimits.maxGroups);
 }
