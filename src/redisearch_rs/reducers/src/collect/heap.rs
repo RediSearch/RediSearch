@@ -78,11 +78,11 @@ impl<D: Ord> Ord for EntryKey<D> {
         // `Ordering::Greater` for the "better" side, matching the
         // "best = max" convention in `SearchResult_CmpByFields` and the
         // C `RPSorter`'s `mmh_pop_max` consumer.
-        match cmp_fields(pairs, self.sort_asc_map, None) {
-            Ordering::Equal => {}
-            ord => return ord,
-        }
-        other.doc_id.cmp(&self.doc_id)
+        //
+        // On a tie, break by doc id. Reversing the comparison makes a
+        // smaller doc id "stronger" (greater), so the heap prefers it.
+        cmp_fields(pairs, self.sort_asc_map, None)
+            .then_with(|| self.doc_id.cmp(&other.doc_id).reverse())
     }
 }
 
