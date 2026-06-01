@@ -27,6 +27,7 @@
 #include "coord/coord_request_ctx.h"
 #include "debug_commands.h"
 #include "aggregate/reply_empty.h"
+#include "aggregate/aggregate_exec_common.h"
 
 // We mainly need the resp protocol to be three in order to easily extract the "score" key from the response
 #define HYBRID_RESP_PROTOCOL_VERSION 3
@@ -882,9 +883,18 @@ void RSExecDistHybrid(RedisModuleCtx *ctx, RedisModuleString **argv, int argc,
     // Create and set request atomically while holding lock
     HybridRequest *hreq = MakeDefaultHybridRequest(sctx);
 
-    // Req config is not populated yet at this point, so we need to use the global config
-    if (RSGlobalConfig.requestConfigParams.timeoutPolicy == TimeoutPolicy_ReturnStrict) {
-      hreq->syncCtx.requiresAggregateResultsSync = true;
+    // Req config is not populated yet at this point, so we need to use the global config.
+    // For FAIL and RETURN_STRICT the coord registers DistHybridReplyCallback /
+    // DistHybridTimeout*Client at module.c, so BG must store results in
+    // storedReplyState (via sendChunk_hybrid's useReplyCallback branch) rather
+    // than serialize them inline. RETURN_STRICT also needs the aggregate-results
+    // sync so the timeout callback can wait for BG before harvesting the buffered rows.
+    RSTimeoutPolicy policy = RSGlobalConfig.requestConfigParams.timeoutPolicy;
+    if (policy != TimeoutPolicy_Return) {
+      hreq->useReplyCallback = true;
+      if (policy == TimeoutPolicy_ReturnStrict) {
+        hreq->syncCtx.requiresAggregateResultsSync = true;
+      }
     }
 
     CoordRequestCtx_SetRequest(reqCtx, hreq);
@@ -1011,6 +1021,27 @@ int DistHybridTimeoutFailClient(RedisModuleCtx *ctx, RedisModuleString **argv, i
   return REDISMODULE_OK;
 }
 
+// Drain any queued partial results into `hreq->storedReplyState.results` on
+// the main thread after the background hybrid pipeline has aborted.
+//
+// Only sorter-terminated tail pipelines are drainable (see
+// `hybridTailPipelineCanYieldPartialResults` in `hybrid_request.c`): the
+// merger itself cannot be drained after the deadline, but a downstream
+// RPSorter buffers rows that were yielded before the deadline and pops them
+// from its heap in Yield mode without re-entering its upstream. As a result
+// the drain never reaches the merger or the per-subquery RPNets, so unlike
+// the aggregate equivalent there is no `drainOnly` flag to flip here.
+static void drainPartialResultsAfterTimeout_hybrid(HybridRequest *hreq) {
+  QueryProcessingCtx *qctx = &hreq->tailPipeline->qctx;
+  if (!qctx->canYieldPartialResults) {
+    return;
+  }
+
+  RS_ASSERT(qctx->rootProc->type == RP_HYBRID_MERGER);
+
+  Pipeline_DrainStoredResultsAfterTimeout(qctx, &hreq->storedReplyState);
+}
+
 // Timeout callback for Coordinator HybridRequest execution
 // Called on the main thread when the blocking client times out (RETURN-STRICT policy only).
 int DistHybridTimeoutReturnStrictClient(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
@@ -1055,6 +1086,13 @@ int DistHybridTimeoutReturnStrictClient(RedisModuleCtx *ctx, RedisModuleString *
   }
 
   HybridRequest_WaitForAggregateResultsComplete(hreq);
+
+  // Harvest any rows the tail pipeline buffered before the deadline (only
+  // sorter-terminated tail pipelines are drainable; see
+  // `hybridTailPipelineCanYieldPartialResults`). No-op for trivial /
+  // grouper / loader tails -- their `storedReplyState.results` already
+  // holds whatever BG accumulated before the deadline fired.
+  drainPartialResultsAfterTimeout_hybrid(hreq);
 
   // Call serializeStoredResults_hybrid to build reply from stored results
   RedisModule_Reply _reply = RedisModule_NewReply(ctx), *reply = &_reply;

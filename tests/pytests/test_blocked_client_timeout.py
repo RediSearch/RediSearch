@@ -3024,44 +3024,37 @@ class TestCoordinatorTimeout:
         resetStoreResultsDebug(env)
         env.cmd('CONFIG', 'SET', ON_TIMEOUT_CONFIG, prev_on_timeout_policy)
 
-    def test_return_strict_timeout_all_shards_paused_hybrid(self):
-        """RETURN_STRICT timeout while every shard's cursor-read worker is
-        parked before sendChunk.
+    def _drive_all_shards_paused_hybrid_return_strict(self, agg_steps_suffix, assert_reply):
+        """Shared driver for all-shards-paused RETURN_STRICT FT.HYBRID timeout tests.
 
-        Hybrid analogue of test_return_strict_timeout_all_shards_paused_aggregate
-        targeting the channel-wake path in the hybrid pipeline. FT.HYBRID runs
-        in two phases: shards first execute the initial _FT.HYBRID job that
-        stores the per-subquery cursors and replies with their ids, then the
-        coordinator drives the result pipeline by issuing _FT.CURSOR READ to
-        each shard. To exercise the WakeAbort path we need the coordinator BG
-        worker to actually block in MRChannel_PopWithTimeout waiting on cursor
-        reads, which means every shard must have replied with cursor ids
-        (otherwise BG would block on the initial _FT.HYBRID reply, a different
-        scenario) and then never serve any cursor read.
+        Arms ``BeforeCursorReadSendChunk`` on every shard so the initial
+        ``_FT.HYBRID`` job runs to completion (cursors stored, ids sent back
+        to the coord) but every shard's cursor-read worker then parks at the
+        sync point before sending its first chunk. Once every shard is
+        parked, the coord BG is guaranteed to be sleeping in
+        ``MRChannel_PopWithTimeout`` waiting for cursor-read replies that
+        never arrive.
 
-        We arrange that by arming BeforeCursorReadSendChunk on every shard.
-        The initial _FT.HYBRID runs to completion (cursors stored, ids sent
-        back to the coord). The coord receives the ids and dispatches
-        _FT.CURSOR READ per shard; each shard's worker enters runCursor,
-        hits the sync point, and parks before sendChunk. Once every shard's
-        worker is parked, the coord BG is guaranteed to be sleeping in
-        MRChannel_PopWithTimeout.
+        Fires ``CLIENT UNBLOCK ... TIMEOUT`` to flip ``syncCtx.timedOut`` on
+        every subquery AREQ and broadcast on each registered abort channel;
+        BG observes the abort, returns ``RS_RESULT_TIMEDOUT`` from each
+        depleter, the merger switches to Yield with an empty dict, the tail
+        pipeline returns ``TIMEDOUT``, and the main-thread callback runs
+        ``drainPartialResultsAfterTimeout_hybrid`` followed by
+        ``serializeStoredResults_hybrid``.
 
-        Firing the blocked-client timeout flips syncCtx.timedOut on every
-        subquery AREQ and broadcasts on each registered abort channel; BG
-        observes the abort, returns RS_RESULT_TIMEDOUT, signals completion,
-        and the main-thread callback replies via serializeStoredResults_hybrid
-        with 0 rows and a per-subquery TIMEOUT warning ((SEARCH) + (VSIM)).
-        Because replyWarningsWithSuffixes iterates per subquery and each
-        subquery's MRIterator independently returned RS_RESULT_TIMEDOUT from
-        the channel wake-up, the coord timeout warning metric increments by
-        the number of subqueries (2) - mirroring the per-subquery warning
-        strings that land in the client reply.
+        ``agg_steps_suffix`` is appended after the standard
+        ``SEARCH * VSIM @embedding $BLOB PARAMS 2 BLOB <vec>`` prefix so
+        callers can vary the tail pipeline shape (trivial / sorter / grouper)
+        and exercise the corresponding branch of
+        ``hybridTailPipelineCanYieldPartialResults``.
+        ``assert_reply(result)`` is invoked after the reply has been parsed;
+        callers assert their tail-shape-specific reply expectations.
 
-        After verifying the reply we signal the sync point on every shard so
-        the parked workers complete sendChunk (their replies land on the now-
-        freed coord cursors and are dropped, matching the existing FAIL
-        cursor-read tests' teardown).
+        Shared assertions (single reply, two per-subquery TIMEOUT warnings,
+        coord warning counter ``+2``, other metrics unchanged) and full
+        cleanup (signal sync point on every shard, restore previous
+        on-timeout policy) are performed by this driver.
         """
         env = self.env
         skipIfNoEnableAssert(env)
@@ -3082,8 +3075,8 @@ class TestCoordinatorTimeout:
             'FT.HYBRID', 'hybrid_idx',
             'SEARCH', '*',
             'VSIM', '@embedding', '$BLOB',
-            'PARAMS', '2', 'BLOB', self.hybrid_query_vec
-        ]
+            'PARAMS', '2', 'BLOB', self.hybrid_query_vec,
+        ] + list(agg_steps_suffix)
         query_result = []
         t_query = threading.Thread(
             target=call_and_store,
@@ -3104,46 +3097,402 @@ class TestCoordinatorTimeout:
             )
 
         blocked_client_id = wait_for_blocked_query_client(env, 'FT.HYBRID')
-        env.cmd('CLIENT', 'UNBLOCK', blocked_client_id, 'TIMEOUT')
-        wait_for_client_unblocked(env, blocked_client_id)
+        try:
+            env.cmd('CLIENT', 'UNBLOCK', blocked_client_id, 'TIMEOUT')
+            wait_for_client_unblocked(env, blocked_client_id)
 
-        # Release the parked workers so they complete sendChunk and clean up
-        # their cursors. The coord cursors were freed by the timeout reply
-        # path, so the eventual cursor-read replies are dropped.
-        for c in all_shard_conns:
-            c.execute_command(debug_cmd(), 'SYNC_POINT', 'SIGNAL', sync_point)
+            # Release the parked workers so they complete sendChunk and clean
+            # up their cursors. The coord cursors were freed by the timeout
+            # reply path, so the eventual cursor-read replies are dropped.
+            for c in all_shard_conns:
+                c.execute_command(debug_cmd(), 'SYNC_POINT', 'SIGNAL', sync_point)
 
-        t_query.join(timeout=10)
-        env.assertFalse(t_query.is_alive(), message="Query thread should have finished")
+            t_query.join(timeout=10)
+            env.assertFalse(t_query.is_alive(), message="Query thread should have finished")
 
-        env.assertEqual(len(query_result), 1, message="Expected 1 result from query thread")
-        result = query_result[0]
-        env.assertEqual(result['total_results'], 0, message=f"Expected 0 results, got: {result}")
-        env.assertEqual(result.get('results', []), [],
-                        message=f"Expected no rows, got {result.get('results')}")
-        # Both subqueries (SEARCH and VSIM) were woken by WakeAbortChannel
-        # broadcast, each returning RS_RESULT_TIMEDOUT, so the reply carries
-        # one timeout warning per subquery (suffixed (SEARCH) / (VSIM)).
-        warnings = result.get('warnings', [])
-        env.assertEqual(len(warnings), 2,
-                        message=f"Expected one TIMEOUT warning per subquery, got: {warnings}")
-        env.assertContains('Timeout', warnings[0],
-                           message=f"Expected SEARCH TIMEOUT warning, got: {warnings}")
-        env.assertContains('Timeout', warnings[1],
-                           message=f"Expected VSIM TIMEOUT warning, got: {warnings}")
+            env.assertEqual(len(query_result), 1, message="Expected 1 result from query thread")
+            result = query_result[0]
 
-        # finishSendChunkReply_hybrid -> replyWarningsWithSuffixes bumps the
-        # coord timeout-warning metric once per subquery that returned
-        # RS_RESULT_TIMEDOUT, so the metric grows by the number of subqueries.
-        after_info = info_modules_to_dict(env)
-        env.assertEqual(after_info[COORD_WARN_ERR_SECTION][TIMEOUT_WARNING_COORD_METRIC],
-                        str(base_warn_coord + 2),
-                        message="Coordinator timeout warning should be +2 (one per subquery)")
-        _verify_metrics_not_changed(env, env, before_info, [TIMEOUT_WARNING_COORD_METRIC])
+            assert_reply(result)
 
-        for c in all_shard_conns:
-            c.execute_command(debug_cmd(), 'SYNC_POINT', 'CLEAR')
-        env.cmd('CONFIG', 'SET', ON_TIMEOUT_CONFIG, prev_on_timeout_policy)
+            # Both subqueries (SEARCH and VSIM) were woken by WakeAbortChannel
+            # broadcast, each returning RS_RESULT_TIMEDOUT, so the reply
+            # carries one timeout warning per subquery (suffixed (SEARCH) /
+            # (VSIM)).
+            warnings = result.get('warnings', [])
+            env.assertEqual(len(warnings), 2,
+                            message=f"Expected one TIMEOUT warning per subquery, got: {warnings}")
+            env.assertContains('Timeout', warnings[0],
+                               message=f"Expected SEARCH TIMEOUT warning, got: {warnings}")
+            env.assertContains('Timeout', warnings[1],
+                               message=f"Expected VSIM TIMEOUT warning, got: {warnings}")
+
+            # finishSendChunkReply_hybrid -> replyWarningsWithSuffixes bumps
+            # the coord timeout-warning metric once per subquery that returned
+            # RS_RESULT_TIMEDOUT, so the metric grows by the number of
+            # subqueries.
+            after_info = info_modules_to_dict(env)
+            env.assertEqual(after_info[COORD_WARN_ERR_SECTION][TIMEOUT_WARNING_COORD_METRIC],
+                            str(base_warn_coord + 2),
+                            message="Coordinator timeout warning should be +2 (one per subquery)")
+            _verify_metrics_not_changed(env, env, before_info, [TIMEOUT_WARNING_COORD_METRIC])
+        finally:
+            for c in all_shard_conns:
+                try:
+                    c.execute_command(debug_cmd(), 'SYNC_POINT', 'CLEAR')
+                except Exception:
+                    pass
+            env.cmd('CONFIG', 'SET', ON_TIMEOUT_CONFIG, prev_on_timeout_policy)
+
+    def test_return_strict_timeout_all_shards_paused_hybrid(self):
+        """RETURN_STRICT timeout on a trivial FT.HYBRID tail pipeline with
+        every shard's cursor-read worker parked before sendChunk.
+
+        Trivial tail = no SORTBY / GROUPBY: the coord pipeline is
+        ``RPHybridMerger -> ... -> RPPager_Limiter`` with no RPSorter
+        between them. ``hybridTailPipelineCanYieldPartialResults`` peels
+        the pager and sees a non-sorter (the merger or a loader above it),
+        so it returns false and ``drainPartialResultsAfterTimeout_hybrid``
+        no-ops: the merger is itself an aggregator and cannot be drained
+        after the deadline (it has no buffered ready-to-emit rows -- its
+        accumulation dict is dropped on the abort path), so the only
+        partial rows that could possibly land in the reply are those BG
+        already moved into ``hreq->storedReplyState.results`` before the
+        deadline fired.
+
+        With every shard parked at ``BeforeCursorReadSendChunk`` BG never
+        receives any cursor-read reply, so ``storedReplyState.results`` is
+        empty when the timeout fires and the reply carries 0 rows + two
+        per-subquery TIMEOUT warnings. This is the channel-wake analogue
+        of ``test_return_strict_timeout_all_shards_paused_aggregate``
+        (which bumps the warning counter +1; hybrid bumps +2, one per
+        subquery, see MOD-15973).
+        """
+        def assert_reply(result):
+            env = self.env
+            env.assertEqual(result['total_results'], 0,
+                            message=f"Expected 0 results, got: {result}")
+            env.assertEqual(result.get('results', []), [],
+                            message=f"Expected no rows, got {result.get('results')}")
+
+        self._drive_all_shards_paused_hybrid_return_strict(
+            agg_steps_suffix=[], assert_reply=assert_reply)
+
+    def test_return_strict_timeout_sortby_all_shards_paused_hybrid(self):
+        """RETURN_STRICT timeout on an FT.HYBRID SORTBY tail pipeline with
+        every shard's cursor-read worker parked before sendChunk.
+
+        SORTBY pushes an ``RPSorter`` onto the tail pipeline above the
+        merger: ``RPHybridMerger -> ... -> RPSorter -> RPPager_Limiter``.
+        ``hybridTailPipelineCanYieldPartialResults`` peels the pager and
+        accepts (end is ``RP_SORTER``), so the main-thread callback runs
+        ``drainPartialResultsAfterTimeout_hybrid`` after BG has unwound,
+        invoking the shared ``Pipeline_DrainStoredResultsAfterTimeout``
+        to pop from the sorter in Yield mode (which doesn't re-enter the
+        merger or the per-subquery RPNets).
+
+        With every shard parked at ``BeforeCursorReadSendChunk`` the
+        merger's accumulation dict was empty at abort time, so it yielded
+        nothing into the sorter -- the sorter heap is empty when the
+        drain runs and the reply carries 0 rows + two per-subquery
+        TIMEOUT warnings. The point of the test is to exercise the
+        classifier's accept branch and the sorter-Yield-on-empty-heap
+        drain path end-to-end without crashing; the partial-harvest
+        analogue (sorter heap non-empty at abort time) is the hybrid
+        counterpart of
+        ``test_return_strict_timeout_sortby_one_shard_paused_aggregate``
+        and is out of scope for this all-shards-paused setup.
+        """
+        def assert_reply(result):
+            env = self.env
+            env.assertEqual(result['total_results'], 0,
+                            message=f"Expected 0 results, got: {result}")
+            env.assertEqual(result.get('results', []), [],
+                            message=f"Expected no rows, got {result.get('results')}")
+
+        self._drive_all_shards_paused_hybrid_return_strict(
+            agg_steps_suffix=['LOAD', '1', '@name',
+                              'SORTBY', '1', '@name',
+                              'LIMIT', '0', str(self.n_docs)],
+            assert_reply=assert_reply)
+
+    def test_return_strict_timeout_groupby_all_shards_paused_hybrid(self):
+        """RETURN_STRICT timeout on an FT.HYBRID GROUPBY tail pipeline with
+        every shard's cursor-read worker parked before sendChunk.
+
+        GROUPBY breaks ``HybridPlan_Distribute``'s loop and forces every
+        subsequent step to remain on the coordinator: the tail pipeline is
+        ``RPHybridMerger -> ... -> RPGrouper`` with no RPSorter.
+        ``hybridTailPipelineCanYieldPartialResults`` peels the (absent)
+        pager and sees ``RP_GROUPER`` at the end, which is not the
+        accepted ``RP_SORTER`` shape, so the classifier returns false and
+        ``drainPartialResultsAfterTimeout_hybrid`` no-ops -- the grouper
+        is fully buffering and only flushes on EOF, so there is nothing
+        safe to harvest after a TIMEDOUT abort.
+
+        With every shard parked at ``BeforeCursorReadSendChunk`` BG never
+        admits any reply, the grouper buffer stays empty, and the reply
+        carries 0 rows + two per-subquery TIMEOUT warnings. Hybrid
+        counterpart of
+        ``test_return_strict_timeout_groupby_sortby_one_shard_paused_aggregate``
+        for the classifier's reject branch on grouper tails.
+        """
+        def assert_reply(result):
+            env = self.env
+            env.assertEqual(result['total_results'], 0,
+                            message=f"Expected 0 results, got: {result}")
+            env.assertEqual(result.get('results', []), [],
+                            message=f"Expected no rows, got {result.get('results')}")
+
+        self._drive_all_shards_paused_hybrid_return_strict(
+            agg_steps_suffix=['LOAD', '1', '@name',
+                              'GROUPBY', '1', '@name',
+                              'REDUCE', 'COUNT', '0', 'AS', 'cnt'],
+            assert_reply=assert_reply)
+
+    def _drive_one_shard_paused_hybrid_return_strict(self, agg_steps_suffix, assert_reply):
+        """Shared driver for one-shard-paused RETURN_STRICT FT.HYBRID timeout tests.
+
+        Hybrid's two-phase protocol (``_FT.HYBRID`` -> cursor mappings ->
+        ``_FT.CURSOR READ``) requires the paused shard to complete Phase 1
+        before being suspended -- otherwise the coordinator's cursor
+        mapping wait blocks forever and Phase 2 never starts. The
+        coord-side ``BeforeRPNetStart`` sync point in
+        ``rpnetNext_StartWithMappings`` (mirroring the aggregate
+        ``rpnetNext_Start`` site) fires after every shard has delivered
+        its Phase 1 cursor mapping and just before BG dispatches the
+        Phase 2 cursor reads, giving us a deterministic window to
+        ``SIGSTOP`` the chosen shard.
+
+        Protocol:
+          1. ARM ``BeforeRPNetStart`` on the coord.
+          2. Issue FT.HYBRID. Phase 1 runs on every shard (none are
+             suspended yet) and BG parks at ``BeforeRPNetStart`` once
+             every cursor mapping has been admitted -- i.e. just before
+             subquery 0's Phase 2 cursor-read dispatch.
+          3. ``SIGSTOP`` the chosen shard's redis process; its already-
+             created subquery cursors stay alive but the kernel queues
+             any incoming Phase 2 command without delivering it.
+          4. SIGNAL ``BeforeRPNetStart``. BG dispatches subquery 0's
+             Phase 2 to every shard; responsive shards reply, the
+             paused shard's command sits in its receive queue. BG
+             accumulates the responsive replies into the merger dict.
+          5. Poll ``BG_PENDING_REPLIES`` until it equals 1 -- only the
+             paused shard's final reply is outstanding. This guarantees
+             the merger dict has absorbed every responsive shard's rows
+             before we trip the deadline.
+          6. ``CLIENT UNBLOCK ... TIMEOUT``: ``HybridRequest_SetTimedOut``
+             flips ``syncCtx.timedOut`` on both subquery AREQs and
+             ``WakeAbortChannel`` broadcasts on every registered abort
+             channel. BG's pending subquery-0 pop returns NULL with the
+             abort flag set; ``rpnetNext`` returns TIMEDOUT. The merger
+             advances to subquery 1 whose ``rpnetNext_StartWithMappings``
+             passes through ``BeforeRPNetStart`` (now disarmed and
+             ``areq_timed_out`` true), dispatches subquery 1's Phase 2,
+             then inline ``rpnetNext`` short-circuits on
+             ``AREQ_TimedOut`` and also returns TIMEDOUT. The merger
+             exits Accum, switches to Yield (RETURN_STRICT skips the
+             FAIL-only early-return), and yields its accumulated
+             entries through the tail pipeline.
+          7. ``SIGCONT`` the shard so its queued cursor reads complete
+             and the shard's cursors are released before subsequent
+             tests run.
+
+        ``agg_steps_suffix`` is appended after the standard
+        ``SEARCH * VSIM @embedding $BLOB KNN ... COMBINE RRF ...``
+        prefix. ``assert_reply(result, expected_rows)`` is invoked
+        after the reply has been parsed; callers assert their
+        tail-shape-specific reply expectations. ``expected_rows`` is
+        the number of subquery-0 rows the merger accumulated across
+        responsive shards, which the driver counts deterministically.
+
+        Shared assertions (single reply, two per-subquery TIMEOUT
+        warnings, coord warning counter ``+2``, other metrics
+        unchanged) and best-effort cleanup (SIGCONT the shard, clear
+        coord sync, restore previous on-timeout policy) are performed
+        by this driver.
+        """
+        env = self.env
+        skipIfNoEnableAssert(env)
+
+        prev_on_timeout_policy = env.cmd('CONFIG', 'GET', ON_TIMEOUT_CONFIG)[ON_TIMEOUT_CONFIG]
+        env.cmd('CONFIG', 'SET', ON_TIMEOUT_CONFIG, 'return-strict')
+
+        before_info = info_modules_to_dict(env)
+        base_warn_coord = int(before_info[COORD_WARN_ERR_SECTION][TIMEOUT_WARNING_COORD_METRIC])
+
+        _, _, paused_pid, responsive_conns = _split_shards_pick_one_paused(env)
+
+        # Each responsive shard contributes one subquery-0 (SEARCH *)
+        # reply to the merger's accumulation dict. SEARCH * matches every
+        # local doc and one cursor chunk per shard exhausts the cursor at
+        # this dataset size. The merger keys its dict by doc id (shards
+        # have disjoint key spaces), so accumulated subquery-0 rows =
+        # sum of `hybrid_doc*` keys on responsive shards.
+        expected_rows = sum(len(c.execute_command('KEYS', 'hybrid_doc*'))
+                            for c in responsive_conns)
+
+        # Coord-side gate: parks BG at the top of
+        # rpnetNext_StartWithMappings, just before Phase 2 cursor-read
+        # dispatch. Fires once per subquery's first Next call; after we
+        # SIGNAL it for subquery 0 it is disarmed, so subquery 1's
+        # Start passes through immediately (areq_timed_out will be
+        # true by then so dispatch is a no-op as well).
+        sync_point = 'BeforeRPNetStart'
+        env.cmd(debug_cmd(), 'SYNC_POINT', 'CLEAR')
+        env.cmd(debug_cmd(), 'SYNC_POINT', 'ARM', sync_point)
+
+        # K=10000, WINDOW=10000 so the merger never caps subquery 0's
+        # accumulation at the default window=20 (which would let the
+        # merger complete subquery 0 from a single responsive shard's
+        # reply alone, never blocking on the paused shard and never
+        # reaching the timeout path).
+        query_args = [
+            'FT.HYBRID', 'hybrid_idx',
+            'SEARCH', '*',
+            'VSIM', '@embedding', '$BLOB',
+            'KNN', '2', 'K', '10000',
+            'COMBINE', 'RRF', '2', 'WINDOW', '10000',
+            'PARAMS', '2', 'BLOB', self.hybrid_query_vec,
+        ] + list(agg_steps_suffix)
+
+        query_result = []
+        t_query = threading.Thread(
+            target=call_and_store,
+            args=(env.cmd, query_args, query_result),
+            daemon=True
+        )
+        t_query.start()
+
+        blocked_client_id = wait_for_blocked_query_client(env, 'FT.HYBRID')
+
+        shard_resumed = False
+        shard_to_pause_p = psutil.Process(paused_pid)
+        try:
+            # BG has received every shard's Phase 1 cursor mapping and
+            # is now parked at BeforeRPNetStart, about to dispatch
+            # subquery 0's Phase 2 cursor reads.
+            wait_for_condition(
+                lambda: (env.cmd(debug_cmd(), 'SYNC_POINT',
+                                 'IS_WAITING', sync_point) == 1, {}),
+                f'Timeout waiting for BG to park at {sync_point}'
+            )
+
+            # Suspend the chosen shard now: its Phase 1 reply has
+            # already arrived, but the upcoming `_FT.CURSOR READ` will
+            # sit in its receive queue and never be processed.
+            shard_to_pause_p.suspend()
+            wait_for_condition(
+                lambda: (shard_to_pause_p.status() == psutil.STATUS_STOPPED,
+                         {'status': shard_to_pause_p.status()}),
+                'Timeout waiting for shard to suspend'
+            )
+
+            # Release BG. It dispatches subquery 0's Phase 2 to every
+            # shard; responsive shards reply normally, the suspended
+            # shard's command is queued in its TCP buffer. BG
+            # accumulates the responsive replies into the merger dict
+            # for subquery 0, then blocks in the channel pop waiting
+            # for the paused shard's reply.
+            env.cmd(debug_cmd(), 'SYNC_POINT', 'SIGNAL', sync_point)
+
+            # Wait until only the paused shard's reply remains
+            # outstanding (every responsive reply has been admitted
+            # and drained into the merger dict).
+            wait_for_condition(
+                lambda: (env.cmd(debug_cmd(), 'BG_PENDING_REPLIES') == 1, {}),
+                'Timeout waiting for responsive shards to admit subquery-0 replies'
+            )
+
+            # Trip the deadline. The merger sees TIMEDOUT from both
+            # subquery RPNets, switches to Yield, and pushes its
+            # accumulated entries through the tail pipeline.
+            env.cmd('CLIENT', 'UNBLOCK', blocked_client_id, 'TIMEOUT')
+            wait_for_client_unblocked(env, blocked_client_id)
+
+            # Resume the paused shard so its queued cursor reads can
+            # complete and free their cursors before the test exits.
+            shard_to_pause_p.resume()
+            shard_resumed = True
+
+            t_query.join(timeout=10)
+            env.assertFalse(t_query.is_alive(), message="Query thread should have finished")
+            env.assertEqual(len(query_result), 1, message="Expected 1 result from query thread")
+            result = query_result[0]
+
+            assert_reply(result, expected_rows)
+
+            # Both subqueries (SEARCH and VSIM) saw their RPNet return
+            # TIMEDOUT, so the reply carries one timeout warning per
+            # subquery (suffixed with (SEARCH) / (VSIM)).
+            warnings = result.get('warnings', [])
+            env.assertEqual(len(warnings), 2,
+                            message=f"Expected one TIMEOUT warning per subquery, got: {warnings}")
+            env.assertContains('Timeout', warnings[0],
+                               message=f"Expected SEARCH TIMEOUT warning, got: {warnings}")
+            env.assertContains('Timeout', warnings[1],
+                               message=f"Expected VSIM TIMEOUT warning, got: {warnings}")
+
+            after_info = info_modules_to_dict(env)
+            env.assertEqual(after_info[COORD_WARN_ERR_SECTION][TIMEOUT_WARNING_COORD_METRIC],
+                            str(base_warn_coord + 2),
+                            message="Coordinator timeout warning should be +2 (one per subquery)")
+            _verify_metrics_not_changed(env, env, before_info, [TIMEOUT_WARNING_COORD_METRIC])
+
+        finally:
+            # Best-effort: resume the shard if we suspended it but
+            # didn't get to the happy-path resume, then clear coord
+            # sync state.
+            if not shard_resumed:
+                try:
+                    shard_to_pause_p.resume()
+                except Exception:
+                    pass
+            try:
+                env.cmd(debug_cmd(), 'SYNC_POINT', 'CLEAR')
+            except Exception:
+                pass
+            env.cmd('CONFIG', 'SET', ON_TIMEOUT_CONFIG, prev_on_timeout_policy)
+
+    def test_return_strict_timeout_sortby_one_shard_paused_hybrid(self):
+        """RETURN_STRICT timeout on FT.HYBRID SORTBY with one shard suspended.
+
+        Coord tail-pipeline shape:
+        ``RPHybridMerger -> ... -> RPSorter -> RPPager_Limiter``.
+        ``hybridTailPipelineCanYieldPartialResults`` peels the pager and
+        accepts (end is ``RP_SORTER``), so the main-thread callback runs
+        ``drainPartialResultsAfterTimeout_hybrid`` after BG has unwound.
+
+        With one shard paused before Phase 2 dispatch, the merger's
+        Accum loop blocks on the paused shard's subquery-0 reply and
+        never transitions to Yield in BG before the deadline fires.
+        When the deadline trips, BG's pending pop returns TIMEDOUT and
+        BG unwinds without pushing the merger's accumulated entries
+        downstream -- the sorter heap is therefore empty, and the
+        main-thread drain has nothing to harvest.
+
+        Asserts that the reply carries an empty ``results`` array
+        (drain is a no-op in this scenario) together with one TIMEOUT
+        warning per subquery.
+
+        TODO: a follow-up should add a hook that fires the deadline
+        after the merger has flipped to Yield so this scenario can
+        exercise a non-empty partial harvest.
+        """
+        env = self.env
+
+        def assert_reply(result, expected_rows):
+            rows = result.get('results', [])
+            env.assertEqual(len(rows), 0,
+                            message=f"Expected empty partial-harvest (merger "
+                                    f"never reached Yield before deadline), "
+                                    f"got: {result}")
+
+        self._drive_one_shard_paused_hybrid_return_strict(
+            agg_steps_suffix=['LOAD', '1', '@name',
+                              'SORTBY', '1', '@name',
+                              'LIMIT', '0', str(self.n_docs)],
+            assert_reply=assert_reply)
 
     # ----- RETURN_STRICT FT.CURSOR READ timeout tests -----
 
