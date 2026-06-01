@@ -197,15 +197,42 @@ void SearchDisk_FreeRdbState(RedisSearchDiskRdbState *rdbState) {
   disk->basic.freeRdbState(rdbState);
 }
 
-// Index API wrappers
-bool SearchDisk_IndexTerm(RedisSearchDiskIndexSpec *index, const char *term, size_t termLen, t_docId docId, t_fieldMask fieldMask, uint32_t freq, const uint8_t *offsets, size_t offsetsLen) {
+// Index API wrappers — thin pass-throughs over the disk-API vtable. The
+// `SearchDiskWriteBatchHandle` is the storage-layer batch handle itself; no
+// C-side wrapping is needed.
+
+SearchDiskWriteBatchHandle *SearchDisk_CreateWriteBatch(RedisSearchDiskIndexSpec *index) {
     RS_ASSERT(disk && index);
-    return disk->index.indexTerm(index, term, termLen, docId, fieldMask, freq, offsets, offsetsLen);
+    return disk->index.createWriteBatch(index);
 }
 
-bool SearchDisk_IndexTags(RedisModuleCtx *ctx, RedisSearchDiskIndexSpec *index, const char **values, size_t numValues, t_docId docId, t_fieldIndex fieldIndex) {
-    RS_ASSERT(disk && index);
-    return disk->index.indexTags(ctx, index, values, numValues, docId, fieldIndex);
+bool SearchDisk_CommitWriteBatch(SearchDiskWriteBatchHandle *batch) {
+    RS_ASSERT(disk && batch);
+    return disk->index.commitWriteBatch(batch);
+}
+
+void SearchDisk_AbortWriteBatch(SearchDiskWriteBatchHandle *batch) {
+    RS_ASSERT(disk && batch);
+    disk->index.abortWriteBatch(batch);
+}
+
+void SearchDisk_FreeWriteBatch(SearchDiskWriteBatchHandle *batch) {
+    // Null-safe so AddDocumentCtx_Free can call unconditionally — including
+    // in memory-mode contexts where the disk module isn't loaded and no batch
+    // was ever created.
+    if (!batch) return;
+    RS_ASSERT(disk);
+    disk->index.freeWriteBatch(batch);
+}
+
+bool SearchDisk_IndexTerm(RedisSearchDiskIndexSpec *index, SearchDiskWriteBatchHandle *batch, const char *term, size_t termLen, t_docId docId, t_fieldMask fieldMask, uint32_t freq, const uint8_t *offsets, size_t offsetsLen) {
+    RS_ASSERT(disk && index && batch);
+    return disk->index.indexTerm(index, batch, term, termLen, docId, fieldMask, freq, offsets, offsetsLen);
+}
+
+bool SearchDisk_IndexTags(RedisModuleCtx *ctx, RedisSearchDiskIndexSpec *index, SearchDiskWriteBatchHandle *batch, const char **values, size_t numValues, t_docId docId, t_fieldIndex fieldIndex) {
+    RS_ASSERT(disk && index && batch);
+    return disk->index.indexTags(ctx, index, batch, values, numValues, docId, fieldIndex);
 }
 
 QueryIterator* SearchDisk_NewTermIterator(RedisSearchDiskIndexSpec *index, RSToken *tok, int tokenId, t_fieldMask fieldMask, double weight, double idf, double bm25_idf, bool needsOffsets) {
@@ -270,9 +297,9 @@ size_t SearchDisk_RunGC(RedisSearchDiskIndexSpec *index, IndexSpec *spec) {
     return disk->index.runGC(index, &callbacks, spec);
 }
 
-t_docId SearchDisk_PutDocument(RedisSearchDiskIndexSpec *handle, const char *key, size_t keyLen, float score, uint32_t flags, uint32_t maxTermFreq, uint32_t docLen, uint32_t *oldLen, t_expirationTimePoint documentTtl, t_docId oldDocId) {
-    RS_ASSERT(disk && handle);
-    return disk->docTable.putDocument(handle, key, keyLen, score, flags, maxTermFreq, docLen, oldLen, documentTtl, oldDocId);
+t_docId SearchDisk_PutDocument(RedisSearchDiskIndexSpec *handle, SearchDiskWriteBatchHandle *batch, const char *key, size_t keyLen, float score, uint32_t flags, uint32_t maxTermFreq, uint32_t docLen, uint32_t *oldLen, t_expirationTimePoint documentTtl, t_docId oldDocId) {
+    RS_ASSERT(disk && handle && batch);
+    return disk->docTable.putDocument(handle, batch, key, keyLen, score, flags, maxTermFreq, docLen, oldLen, documentTtl, oldDocId);
 }
 
 bool SearchDisk_GetDocumentMetadata(RedisSearchDiskIndexSpec *handle, t_docId docId, RSDocumentMetadata *dmd, struct timespec *current_time) {
@@ -455,6 +482,11 @@ uint64_t SearchDisk_GetVectorIndexTotalMemory(RedisSearchDiskIndexSpec* index) {
 uint64_t SearchDisk_GetNumRecords(RedisSearchDiskIndexSpec* index) {
   RS_ASSERT(disk && index);
   return disk->metrics.getNumRecords(index);
+}
+
+uint64_t SearchDisk_GetInvertedIndexTotalBlocks(RedisSearchDiskIndexSpec* index) {
+  RS_ASSERT(disk && index);
+  return disk->metrics.getInvertedIndexTotalBlocks(index);
 }
 
 void SearchDisk_OutputInfoMetrics(RedisModuleInfoCtx* ctx) {

@@ -26,10 +26,10 @@ cargo nextest run                             # Rust tests, from `src/redisearch
 cargo +nightly miri test                      # Rust tests under `miri`, from `src/redisearch_rs/`
 ```
 
-Run Rust tests from workspace root (`src/redisearch_rs/`):
+Run Rust tests by pointing cargo at the workspace manifest:
 ```bash
-cd src/redisearch_rs && cargo nextest run
-cd src/redisearch_rs && cargo nextest run -p <crate_name>
+cargo nextest run --manifest-path src/redisearch_rs/Cargo.toml
+cargo nextest run --manifest-path src/redisearch_rs/Cargo.toml -p <crate_name>
 ```
 
 ## Header Generation
@@ -47,7 +47,7 @@ that produce C headers. Output goes to `src/redisearch_rs/headers/`.
 make lint                                 # Run clippy and cargo doc checks
 make fmt                                  # Format all code
 make fmt CHECK=1                          # Check formatting without changes
-cd src/redisearch_rs && cargo license-fix # Add missing license headers
+(cd src/redisearch_rs && cargo license-fix) # Add missing license headers (subshell: custom subcommand, no --manifest-path)
 ```
 
 C code formatting is governed by `.clang-format` at the repo root (LLVM-derived, 100-column limit, 2-space indent). Apply with `clang-format -i <file>`.

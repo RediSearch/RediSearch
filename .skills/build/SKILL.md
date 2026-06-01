@@ -26,7 +26,7 @@ Enables debug symbols and additional assertions. Use this when developing or deb
 
 ### Rust-Only Build (faster iteration)
 ```bash
-cd src/redisearch_rs && cargo build
+cargo build --manifest-path src/redisearch_rs/Cargo.toml
 ```
 Only use after the C code has been built at least **once** with `./build.sh`.
 If you update C code, run `./build.sh` again before the Rust-only build.
@@ -55,5 +55,5 @@ If you encounter strange build errors (stale artifacts, CMake cache issues):
 
 For Rust only:
 ```bash
-cd src/redisearch_rs && cargo clean && cargo build
+(cd src/redisearch_rs && cargo clean && cargo build)   # subshell keeps clean+build co-located
 ```
