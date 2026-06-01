@@ -219,10 +219,14 @@ static int set_min_trim_delay_numeric_config(const char *name, long long val,
 
 // Custom setter for search-timeout. Rejects values that exceed
 // search-max-query-timeout-ms when search-workers is 0 (and a limit is
-// configured). Validation is skipped during the initial config load: callback
-// order between dependent configs is not deterministic, so the cross-knob
-// invariant is enforced once by RSConfig_PostLoadNormalize after every config
-// has been applied.
+// configured). The "unlimited" case (val == 0) is gated by the framework
+// (search-timeout is registered with min=1); the matching unlimited case for
+// the legacy _FT.CONFIG SET TIMEOUT setter and load-time module args is
+// handled by setTimeout and RSConfig_PostLoadNormalize respectively.
+// Validation is skipped during the initial config load: callback order between
+// dependent configs is not deterministic, so the cross-knob invariant is
+// enforced once by RSConfig_PostLoadNormalize after every config has been
+// applied.
 static int set_query_timeout_config(const char *name, long long val,
                                     void *privdata, RedisModuleString **err) {
   REDISMODULE_NOT_USED(name);
@@ -242,24 +246,34 @@ static int set_query_timeout_config(const char *name, long long val,
   return REDISMODULE_OK;
 }
 
-// Custom setter for search-max-query-timeout-ms. Rejects tightening the limit
-// below the current search-timeout while search-workers is 0; a limit of 0
-// ("unlimited") is always accepted. The check is gated on
-// RSConfig_IsModuleConfigLoaded() so callback ordering during the initial
-// config load does not cause spurious rejections.
+// Custom setter for search-max-query-timeout-ms. Rejects activating the limit
+// while search-timeout is unlimited (0) or above the requested new value when
+// search-workers is 0; a new limit of 0 ("unlimited") is always accepted because
+// it disables the cap. The check is gated on RSConfig_IsModuleConfigLoaded() so
+// callback ordering during the initial config load does not cause spurious
+// rejections.
 static int set_max_query_timeout_limit_config(const char *name, long long val,
                                               void *privdata, RedisModuleString **err) {
   REDISMODULE_NOT_USED(name);
+  const long long curTimeout = RSGlobalConfig.requestConfigParams.queryTimeoutMS;
   if (RSConfig_IsModuleConfigLoaded() &&
       val > 0 &&
       RSGlobalConfig.numWorkerThreads == 0 &&
-      RSGlobalConfig.requestConfigParams.queryTimeoutMS > val) {
+      (curTimeout == 0 || curTimeout > val)) {
     RS_ASSERT(err);
-    *err = RedisModule_CreateStringPrintf(NULL,
-      "Cannot set search-max-query-timeout-ms to %lld while search-timeout (%lld) "
-      "exceeds it and search-workers is 0; lower search-timeout or raise "
-      "search-workers first",
-      val, RSGlobalConfig.requestConfigParams.queryTimeoutMS);
+    if (curTimeout == 0) {
+      *err = RedisModule_CreateStringPrintf(NULL,
+        "Cannot set search-max-query-timeout-ms to %lld while search-timeout is "
+        "0 (unlimited) and search-workers is 0; set a positive search-timeout or "
+        "enable search-workers first",
+        val);
+    } else {
+      *err = RedisModule_CreateStringPrintf(NULL,
+        "Cannot set search-max-query-timeout-ms to %lld while search-timeout (%lld) "
+        "exceeds it and search-workers is 0; lower search-timeout or enable "
+        "search-workers first",
+        val, curTimeout);
+    }
     return REDISMODULE_ERR;
   }
   *(long long *)privdata = val;
@@ -611,15 +625,25 @@ CONFIG_SETTER(setTimeout) {
   // Cross-knob invariant enforcement is gated on RSConfig_IsModuleConfigLoaded()
   // so module-arg parsing (which walks args left-to-right) does not reject
   // intermediate states where dependent knobs have not been applied yet.
-  // RSConfig_PostLoadNormalize handles bootstrap.
+  // RSConfig_PostLoadNormalize handles bootstrap. TIMEOUT 0 (unlimited) is
+  // rejected for the same reason val > limit is: at runtime every query would
+  // inherit the unlimited global and get silently capped to the limit.
   if (RSConfig_IsModuleConfigLoaded() &&
       config->maxQueryTimeoutMS > 0 &&
       config->numWorkerThreads == 0 &&
-      newTimeoutMS > config->maxQueryTimeoutMS) {
-    QueryError_SetWithoutUserDataFmt(status, QUERY_ERROR_CODE_LIMIT,
-      "TIMEOUT (%lld) exceeds MAX_TIMEOUT_LIMIT (%lld) and WORKERS is 0; "
-      "lower TIMEOUT, raise MAX_TIMEOUT_LIMIT, or enable WORKERS",
-      newTimeoutMS, config->maxQueryTimeoutMS);
+      (newTimeoutMS == 0 || newTimeoutMS > config->maxQueryTimeoutMS)) {
+    if (newTimeoutMS == 0) {
+      QueryError_SetWithoutUserDataFmt(status, QUERY_ERROR_CODE_LIMIT,
+        "TIMEOUT 0 (unlimited) is not allowed while MAX_TIMEOUT_LIMIT (%lld) "
+        "is active and WORKERS is 0; set a positive TIMEOUT, set MAX_TIMEOUT_LIMIT "
+        "to 0 to disable the cap, or enable WORKERS",
+        config->maxQueryTimeoutMS);
+    } else {
+      QueryError_SetWithoutUserDataFmt(status, QUERY_ERROR_CODE_LIMIT,
+        "TIMEOUT (%lld) exceeds MAX_TIMEOUT_LIMIT (%lld) and WORKERS is 0; "
+        "lower TIMEOUT, raise MAX_TIMEOUT_LIMIT, or enable WORKERS",
+        newTimeoutMS, config->maxQueryTimeoutMS);
+    }
     return REDISMODULE_ERR;
   }
   config->requestConfigParams.queryTimeoutMS = newTimeoutMS;
@@ -636,19 +660,28 @@ CONFIG_SETTER(setMaxTimeoutLimit) {
   long long newLimit;
   int acrc = AC_GetLongLong(ac, &newLimit, AC_F_GE0);
   CHECK_RETURN_PARSE_ERROR(acrc);
-  // Tightening the limit must not strand an existing search-timeout above it
-  // while workers are disabled. A limit of 0 means "unlimited" and is always safe.
-  // Gated on RSConfig_IsModuleConfigLoaded() so module-arg parsing order does
-  // not cause spurious rejections; PostLoadNormalize enforces the invariant
-  // after every knob has been applied.
+  // Activating the limit must not leave an existing TIMEOUT in an inconsistent
+  // state when workers are disabled: both TIMEOUT > newLimit and TIMEOUT 0
+  // (unlimited) would be silently capped at runtime. A new limit of 0 means
+  // "unlimited" and is always safe. Gated on RSConfig_IsModuleConfigLoaded() so
+  // module-arg parsing order does not cause spurious rejections;
+  // PostLoadNormalize enforces the invariant after every knob has been applied.
+  const long long curTimeout = config->requestConfigParams.queryTimeoutMS;
   if (RSConfig_IsModuleConfigLoaded() &&
       newLimit > 0 &&
       config->numWorkerThreads == 0 &&
-      config->requestConfigParams.queryTimeoutMS > newLimit) {
-    QueryError_SetWithoutUserDataFmt(status, QUERY_ERROR_CODE_LIMIT,
-      "Cannot set MAX_TIMEOUT_LIMIT to %lld while TIMEOUT (%lld) exceeds it and "
-      "WORKERS is 0; lower TIMEOUT or enable WORKERS first",
-      newLimit, config->requestConfigParams.queryTimeoutMS);
+      (curTimeout == 0 || curTimeout > newLimit)) {
+    if (curTimeout == 0) {
+      QueryError_SetWithoutUserDataFmt(status, QUERY_ERROR_CODE_LIMIT,
+        "Cannot set MAX_TIMEOUT_LIMIT to %lld while TIMEOUT is 0 (unlimited) and "
+        "WORKERS is 0; set a positive TIMEOUT or enable WORKERS first",
+        newLimit);
+    } else {
+      QueryError_SetWithoutUserDataFmt(status, QUERY_ERROR_CODE_LIMIT,
+        "Cannot set MAX_TIMEOUT_LIMIT to %lld while TIMEOUT (%lld) exceeds it and "
+        "WORKERS is 0; lower TIMEOUT or enable WORKERS first",
+        newLimit, curTimeout);
+    }
     return REDISMODULE_ERR;
   }
   config->maxQueryTimeoutMS = newLimit;
@@ -679,15 +712,26 @@ CONFIG_SETTER(setWorkThreads) {
   }
   // Gated on RSConfig_IsModuleConfigLoaded() so module-arg parsing order does
   // not cause spurious rejections; PostLoadNormalize enforces the invariant
-  // after every knob has been applied.
+  // after every knob has been applied. TIMEOUT 0 (unlimited) is rejected here
+  // for the same reason TIMEOUT > limit is: disabling workers would activate
+  // the cap and silently clamp every query's effective timeout.
+  const long long curTimeoutWT = config->requestConfigParams.queryTimeoutMS;
   if (RSConfig_IsModuleConfigLoaded() &&
       newNumThreads == 0 &&
       config->maxQueryTimeoutMS > 0 &&
-      config->requestConfigParams.queryTimeoutMS > config->maxQueryTimeoutMS) {
-    QueryError_SetWithoutUserDataFmt(status, QUERY_ERROR_CODE_LIMIT,
-      "Cannot set WORKERS to 0 while TIMEOUT (%lld) exceeds MAX_TIMEOUT_LIMIT (%lld); "
-      "lower TIMEOUT or raise MAX_TIMEOUT_LIMIT first",
-      config->requestConfigParams.queryTimeoutMS, config->maxQueryTimeoutMS);
+      (curTimeoutWT == 0 || curTimeoutWT > config->maxQueryTimeoutMS)) {
+    if (curTimeoutWT == 0) {
+      QueryError_SetWithoutUserDataFmt(status, QUERY_ERROR_CODE_LIMIT,
+        "Cannot set WORKERS to 0 while TIMEOUT is 0 (unlimited) and "
+        "MAX_TIMEOUT_LIMIT (%lld) is active; set a positive TIMEOUT or raise "
+        "MAX_TIMEOUT_LIMIT to 0 to disable the cap first",
+        config->maxQueryTimeoutMS);
+    } else {
+      QueryError_SetWithoutUserDataFmt(status, QUERY_ERROR_CODE_LIMIT,
+        "Cannot set WORKERS to 0 while TIMEOUT (%lld) exceeds MAX_TIMEOUT_LIMIT (%lld); "
+        "lower TIMEOUT or raise MAX_TIMEOUT_LIMIT first",
+        curTimeoutWT, config->maxQueryTimeoutMS);
+    }
     return REDISMODULE_ERR;
   }
   config->numWorkerThreads = newNumThreads;
@@ -713,19 +757,32 @@ static int set_workers(const char *name, long long val, void *privdata, RedisMod
   }
   uint32_t externalTriggerId = 0;
   RSConfig *config = (RSConfig *)privdata;
-  // Cross-knob invariant: when workers are disabled, search-timeout must not
-  // exceed search-max-query-timeout-ms. Only enforced after the initial config
+  // Cross-knob invariant: when workers are disabled, search-timeout must be
+  // positive and within search-max-query-timeout-ms. search-timeout 0
+  // (unlimited) is rejected for the same reason an out-of-range value is:
+  // every subsequent query would inherit the unlimited global and be silently
+  // capped to the limit at runtime. Only enforced after the initial config
   // load completes (RSConfig_PostLoadNormalize handles bootstrap).
+  const long long curTimeoutSW = config->requestConfigParams.queryTimeoutMS;
   if (RSConfig_IsModuleConfigLoaded() &&
       val == 0 &&
       config->maxQueryTimeoutMS > 0 &&
-      config->requestConfigParams.queryTimeoutMS > config->maxQueryTimeoutMS) {
+      (curTimeoutSW == 0 || curTimeoutSW > config->maxQueryTimeoutMS)) {
     RS_ASSERT(err);
-    *err = RedisModule_CreateStringPrintf(NULL,
-      "Cannot set search-workers to 0 while search-timeout (%lld) exceeds "
-      "search-max-query-timeout-ms (%lld); lower search-timeout or raise "
-      "search-max-query-timeout-ms first",
-      config->requestConfigParams.queryTimeoutMS, config->maxQueryTimeoutMS);
+    if (curTimeoutSW == 0) {
+      *err = RedisModule_CreateStringPrintf(NULL,
+        "Cannot set search-workers to 0 while search-timeout is 0 (unlimited) "
+        "and search-max-query-timeout-ms (%lld) is active; set a positive "
+        "search-timeout or raise search-max-query-timeout-ms to 0 to disable "
+        "the cap first",
+        config->maxQueryTimeoutMS);
+    } else {
+      *err = RedisModule_CreateStringPrintf(NULL,
+        "Cannot set search-workers to 0 while search-timeout (%lld) exceeds "
+        "search-max-query-timeout-ms (%lld); lower search-timeout or raise "
+        "search-max-query-timeout-ms first",
+        curTimeoutSW, config->maxQueryTimeoutMS);
+    }
     return REDISMODULE_ERR;
   }
   config->numWorkerThreads = val;
@@ -2680,21 +2737,31 @@ int RegisterModuleConfig_Local(RedisModuleCtx *ctx) {
 }
 
 void RSConfig_PostLoadNormalize(RedisModuleCtx *ctx) {
-  // Cap a persisted search-timeout that exceeds the configured maximum when
+  // Cap a persisted search-timeout that violates the cap invariant when
   // search-workers is disabled. The callback-order between search-timeout,
   // search-workers, and search-max-query-timeout-ms during LoadConfigs is not
   // guaranteed, so this final pass enforces the cross-knob invariant once all
   // three values are settled.
   // maxQueryTimeoutMS == 0 means "no limit" and disables the check entirely.
+  // queryTimeoutMS == 0 (unlimited) is treated as exceeding any positive limit:
+  // at runtime every query would inherit the unlimited global and be silently
+  // capped, so collapse it to the configured limit here for consistency.
+  const long long curTimeout = RSGlobalConfig.requestConfigParams.queryTimeoutMS;
   if (RSGlobalConfig.maxQueryTimeoutMS > 0 &&
       RSGlobalConfig.numWorkerThreads == 0 &&
-      RSGlobalConfig.requestConfigParams.queryTimeoutMS > RSGlobalConfig.maxQueryTimeoutMS) {
-    long long original = RSGlobalConfig.requestConfigParams.queryTimeoutMS;
+      (curTimeout == 0 || curTimeout > RSGlobalConfig.maxQueryTimeoutMS)) {
     RSGlobalConfig.requestConfigParams.queryTimeoutMS = RSGlobalConfig.maxQueryTimeoutMS;
-    RedisModule_Log(ctx, "warning",
-      "search-timeout (%lld) exceeds search-max-query-timeout-ms (%lld) and "
-      "search-workers is 0; capping in-memory value to %lld",
-      original, RSGlobalConfig.maxQueryTimeoutMS, RSGlobalConfig.maxQueryTimeoutMS);
+    if (curTimeout == 0) {
+      RedisModule_Log(ctx, "warning",
+        "search-timeout is 0 (unlimited) and search-max-query-timeout-ms (%lld) "
+        "is active and search-workers is 0; capping in-memory value to %lld",
+        RSGlobalConfig.maxQueryTimeoutMS, RSGlobalConfig.maxQueryTimeoutMS);
+    } else {
+      RedisModule_Log(ctx, "warning",
+        "search-timeout (%lld) exceeds search-max-query-timeout-ms (%lld) and "
+        "search-workers is 0; capping in-memory value to %lld",
+        curTimeout, RSGlobalConfig.maxQueryTimeoutMS, RSGlobalConfig.maxQueryTimeoutMS);
+    }
   }
 
   s_moduleConfigLoaded = true;

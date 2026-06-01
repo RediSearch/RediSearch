@@ -85,6 +85,37 @@ def test_runtime_allowed_when_limit_disabled():
     env.expect('CONFIG', 'SET', 'search-timeout', str(2**31)).ok()
     env.expect(config_cmd(), 'SET', 'TIMEOUT', '500').ok()
 
+def test_runtime_reject_unlimited_timeout_when_limit_active_legacy():
+    # TIMEOUT 0 (unlimited) would be silently capped on every query at runtime
+    # when WORKERS == 0 and the limit is active, so the legacy _FT.CONFIG SET
+    # setter must reject it. The native search-timeout config is gated by the
+    # Redis framework at the registered min (1), so there is no equivalent
+    # path through `CONFIG SET search-timeout 0` to exercise here.
+    env = Env(moduleArgs='WORKERS 0 TIMEOUT 100 MAX_TIMEOUT_LIMIT 1000')
+    env.expect(config_cmd(), 'SET', 'TIMEOUT', '0').error()\
+        .contains('TIMEOUT 0 (unlimited)')
+    env.expect(config_cmd(), 'GET', 'TIMEOUT').equal([['TIMEOUT', '100']])
+
+def test_runtime_reject_activating_limit_with_unlimited_timeout():
+    # Symmetric to the above: with TIMEOUT 0 (unlimited) already active and
+    # WORKERS == 0, activating a positive limit would leave every query capped.
+    env = Env(moduleArgs='WORKERS 0 TIMEOUT 0 MAX_TIMEOUT_LIMIT 0')
+    env.expect('CONFIG', 'SET', 'search-max-query-timeout-ms', '1000').error()\
+        .contains('search-timeout is 0 (unlimited)')
+    env.expect(config_cmd(), 'SET', 'MAX_TIMEOUT_LIMIT', '1000').error()\
+        .contains('TIMEOUT is 0 (unlimited)')
+    env.expect(config_cmd(), 'GET', 'MAX_TIMEOUT_LIMIT').equal([['MAX_TIMEOUT_LIMIT', '0']])
+
+def test_runtime_reject_workers_zero_with_unlimited_timeout():
+    # Disabling workers while TIMEOUT is unlimited and a limit is active must
+    # be rejected for the same reason TIMEOUT > limit is rejected.
+    env = Env(moduleArgs='WORKERS 2 TIMEOUT 0 MAX_TIMEOUT_LIMIT 1000')
+    env.expect('CONFIG', 'SET', 'search-workers', '0').error()\
+        .contains('search-timeout is 0 (unlimited)')
+    env.expect(config_cmd(), 'SET', 'WORKERS', '0').error()\
+        .contains('TIMEOUT is 0 (unlimited)')
+    env.expect(config_cmd(), 'GET', 'WORKERS').equal([['WORKERS', '2']])
+
 
 # ---------------------------- Per-query TIMEOUT capping --------------------------
 
