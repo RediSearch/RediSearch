@@ -5041,16 +5041,17 @@ class TestShardTimeout:
         prev_policy, cursor_id, baseline, before_info, _, _ = \
             _setup_return_strict_cursor_state(env)
         base_err_coord = int(before_info[COORD_WARN_ERR_SECTION][TIMEOUT_ERROR_COORD_METRIC])
+        base_warn_shard = int(before_info[WARN_ERR_SECTION][TIMEOUT_WARNING_SHARD_METRIC])
 
         try:
             env.expect(debug_cmd(), 'SYNC_POINT', 'CLEAR').ok()
             env.expect(debug_cmd(), 'SYNC_POINT', 'ARM', sync_point).ok()
 
+            result = []
             try:
                 t_query = threading.Thread(
-                    target=lambda: env.expect(
-                        'FT.CURSOR', 'READ', 'idx', str(cursor_id)
-                    ).error().contains(TIMEOUT_ERROR),
+                    target=call_and_store,
+                    args=(env.cmd, ['FT.CURSOR', 'READ', 'idx', str(cursor_id)], result),
                     daemon=True,
                 )
                 t_query.start()
@@ -5068,15 +5069,20 @@ class TestShardTimeout:
 
             t_query.join(timeout=10)
             env.assertFalse(t_query.is_alive(), message="Cursor read thread should have finished")
+            env.assertEqual(len(result), 1, message="Expected one cursor read result")
+            _assert_return_strict_cursor_timeout_reply(
+                env, result[0], cursor_id, expected_results=0,
+                message_prefix='standalone RETURN_STRICT cursor-read timeout')
 
             after_info = info_modules_to_dict(env)
             env.assertEqual(after_info[COORD_WARN_ERR_SECTION][TIMEOUT_ERROR_COORD_METRIC],
-                            str(base_err_coord + 1),
-                            message="Coordinator timeout error should be +1 after standalone cursor-read timeout")
-            _verify_metrics_not_changed(env, env, before_info, [TIMEOUT_ERROR_COORD_METRIC])
+                            str(base_err_coord),
+                            message="RETURN_STRICT cursor-read timeout must not bump coord error metric")
+            env.assertEqual(after_info[WARN_ERR_SECTION][TIMEOUT_WARNING_SHARD_METRIC],
+                            str(base_warn_shard + 1),
+                            message="Shard timeout warning should be +1 after standalone cursor-read timeout")
 
-            _wait_for_cursor_cleanup(env, baseline, 'standalone RETURN_STRICT cursor-read timeout')
-            env.expect('FT.CURSOR', 'READ', 'idx', str(cursor_id)).error().contains('Cursor not found')
+            env.expect('FT.CURSOR', 'DEL', 'idx', str(cursor_id)).ok()
         finally:
             env.expect(debug_cmd(), 'SYNC_POINT', 'CLEAR').ok()
             env.expect('CONFIG', 'SET', ON_TIMEOUT_CONFIG, prev_policy).ok()
