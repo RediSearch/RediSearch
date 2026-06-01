@@ -422,10 +422,6 @@ void deleteSuffixTrieMap(TrieMap *trie, const char *str, uint32_t len) {
 
   char *oldTerm = NULL;
 
-  // Iterate the full word and every sub-suffix, removing this term from each
-  // entry's array. An entry may legitimately be missing for sub-suffixes from
-  // values inserted by older builds (which gated entries shorter than 2);
-  // skip those rather than asserting.
   for (uint32_t j = 0; j < len; ++j) {
     suffixData *data = TrieMap_Find(trie, str + j, len - j);
     if (data == TRIEMAP_NOTFOUND) continue;
