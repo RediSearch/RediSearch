@@ -34,7 +34,7 @@ typedef void* RedisSearchDiskAsyncReadPool;
 // with each field's own RDB encoding (FieldSpec_RdbSave / FieldSpec_RdbLoad)
 // and is deserialized directly into an unbound VecSimIndex written to
 // fs->vectorOpts.vecSimIndex; storage is bound to that handle in place at
-// LOADING_SST_ENDED.
+// LOADING_ENDED.
 typedef const void* RedisSearchDiskRdbState;
 
 // Opaque handle for the underlying storage-layer write batch.

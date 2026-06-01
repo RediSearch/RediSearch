@@ -3661,7 +3661,7 @@ IndexSpec *IndexSpec_RdbLoad(RedisModuleIO *rdb, int encver, bool useSst, QueryE
     RS_LOG_ASSERT(sp->terms, "Failed to load terms trie");
 
     // Load disk metadata (max_doc_id, deleted_ids) into the spec. Stashed
-    // here directly; consumed at LOADING_SST_ENDED (SST flow) or freed by
+    // here directly; consumed at LOADING_ENDED (SST flow) or freed by
     // the spec destructor (duplicate / cleanup / abort).
     sp->pendingDiskRdbState = SearchDisk_LoadRdbToTempObject(rdb);
     if (!sp->pendingDiskRdbState) {
@@ -4895,7 +4895,7 @@ void Indexes_AbortSSTReplicationLoading(RedisModuleCtx *ctx) {
     // on a background thread when the last StrongRef drops, and unregister
     // needs the main-thread RedisModuleCtx. Must precede the close that
     // IndexSpec_FreeUnlinkedData performs. SearchDisk_UnregisterIndex is
-    // idempotent, so it safely handles specs aborted before LOADING_SST_ENDED
+    // idempotent, so it safely handles specs aborted before LOADING_ENDED
     // registered them.
     if (spec->diskSpec) {
       SearchDisk_UnregisterIndex(ctx, spec);
