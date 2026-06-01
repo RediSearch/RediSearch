@@ -23,6 +23,14 @@ fn compile_hybrid_shim() {
         // Drives the real C HybridIterator from libredisearch_all.a, as a
         // faithful counterpart to the Rust VectorTopKIterator.
         .file("benches/hybrid_shim.c")
+        // Silence warnings originating from transitively-included RediSearch
+        // headers (static helpers, sign-compare in inline funcs, etc.) — they
+        // are not actionable from this shim and the main CMake build already
+        // suppresses them.
+        .flag_if_supported("-Wno-unused-function")
+        .flag_if_supported("-Wno-unused-variable")
+        .flag_if_supported("-Wno-unused-parameter")
+        .flag_if_supported("-Wno-sign-compare")
         .include(&src)
         // `deps` (rmutil/*) and RedisModulesSDK (redismodule.h) are pulled in
         // transitively by spec.h / search_ctx.h for the hybrid shim.
