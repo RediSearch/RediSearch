@@ -714,10 +714,17 @@ static QueryIterator *Query_EvalPrefixNode(QueryEvalCtx *q, QueryNode *qn) {
   ctx.its = rm_malloc(sizeof(*ctx.its) * ctx.cap);
   ctx.nits = 0;
 
-  if (spec->suffix && qn->pfx.suffix && nstr >= SUFFIX_DS_MIN_LEN) {
-    // all modifier fields are supported
-    if (qn->opts.fieldMask == RS_FIELDMASK_ALL ||
-       (spec->suffixMask & qn->opts.fieldMask) == qn->opts.fieldMask) {
+  if (spec->suffix && qn->pfx.suffix) {
+    // Field-mask validation is independent of token length: if any queried
+    // field lacks WITHSUFFIXTRIE in a mixed schema, error regardless of
+    // whether we'd have used the suffix DS or brute-force.
+    const bool fields_have_suffix =
+        qn->opts.fieldMask == RS_FIELDMASK_ALL ||
+        (spec->suffixMask & qn->opts.fieldMask) == qn->opts.fieldMask;
+
+    if (!fields_have_suffix) {
+      QueryError_SetError(q->status, QUERY_ERROR_CODE_GENERIC, "Contains query on fields without WITHSUFFIXTRIE support");
+    } else if (nstr >= SUFFIX_DS_MIN_LEN) {
       SuffixCtx sufCtx = {
         .trie = spec->suffix,
         .rune = str,
@@ -725,11 +732,12 @@ static QueryIterator *Query_EvalPrefixNode(QueryEvalCtx *q, QueryNode *qn) {
         .type = qn->pfx.prefix ? SUFFIX_TYPE_CONTAINS : SUFFIX_TYPE_SUFFIX,
         .callback = charIterCb,
         .cbCtx = &ctx,
-
       };
       Suffix_IterateContains(&sufCtx);
     } else {
-      QueryError_SetError(q->status, QUERY_ERROR_CODE_GENERIC, "Contains query on fields without WITHSUFFIXTRIE support");
+      Trie_IterateContains(t, str, nstr, qn->pfx.prefix, qn->pfx.suffix,
+                           runeIterCb, &ctx, &q->sctx->time.timeout,
+                           q->sctx->time.skipTimeoutChecks);
     }
   } else {
     Trie_IterateContains(t, str, nstr, qn->pfx.prefix, qn->pfx.suffix,

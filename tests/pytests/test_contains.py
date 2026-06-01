@@ -411,6 +411,13 @@ def testContainsMixedWithSuffix(env):
   env.expect('ft.search', 'idx', '@t2:*ell*', 'NOCONTENT').error()  \
     .contains('Contains query on fields without WITHSUFFIXTRIE support')
 
+  # Same field-mask error applies for short tokens — the validation is
+  # independent of whether the dispatch would use the suffix DS or
+  # brute-force on spec->terms.
+  env.expect(config_cmd(), 'set', 'MINPREFIX', 1).ok()
+  env.expect('ft.search', 'idx', '@t2:*a*', 'NOCONTENT').error() \
+    .contains('Contains query on fields without WITHSUFFIXTRIE support')
+
 def test_params(env):
   env = Env(moduleArgs = 'DEFAULT_DIALECT 2')
   # this test check that `\*` is escaped correctly on contains queries
