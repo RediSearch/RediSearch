@@ -135,10 +135,71 @@ void SearchDisk_Close(RedisModuleCtx *ctx) {
   }
 }
 
+// Called once at the start of a parent compaction. Blocks the snapshot fork
+// for the full duration of compaction (released in Compaction_Completed).
+static void Compaction_Started(void *private_data) {
+    IndexSpec *sp = private_data;
+    RS_ASSERT(sp);
+    IndexSpec_BlockDiskFork(sp);
+}
+
+static void* Compaction_BeginUpdate(void *private_data) {
+    IndexSpec *sp = private_data;
+    RS_ASSERT(sp);
+    IndexSpec_AcquireWriteLock(sp);
+    return sp;
+}
+
+static bool Compaction_DecrementTrieTermCount(void *update_ctx,
+                                              const char *term,
+                                              size_t term_len,
+                                              size_t doc_count_decrement) {
+    IndexSpec *sp = update_ctx;
+    RS_ASSERT(sp);
+
+    return IndexSpec_DecrementTrieTermCount(sp, term, term_len, doc_count_decrement);
+}
+
+static void Compaction_DecrementNumTerms(void *update_ctx, uint64_t num_terms_removed) {
+    IndexSpec *sp = update_ctx;
+    RS_ASSERT(sp);
+
+    IndexSpec_DecrementNumTerms(sp, num_terms_removed);
+}
+
+static void Compaction_EndUpdate(void *update_ctx) {
+    IndexSpec *sp = update_ctx;
+    RS_ASSERT(sp);
+
+    IndexSpec_ReleaseWriteLock(sp);
+}
+
+// Called once at the end of a parent compaction. Pairs with Compaction_Started.
+static void Compaction_Completed(void *private_data) {
+    IndexSpec *sp = private_data;
+    RS_ASSERT(sp);
+    IndexSpec_EnableDiskForkIfPossible(sp);
+}
+
+// Built once per IndexSpec at openIndexSpec time and copied into the Rust
+// IndexSpec's compaction listener; the C-side struct itself does not need to
+// outlive the openIndexSpec call.
+static SearchDiskCompactionCallbacks SearchDisk_CompactionCallbacks(void) {
+    return (SearchDiskCompactionCallbacks) {
+        .compactionStarted = Compaction_Started,
+        .beginUpdate = Compaction_BeginUpdate,
+        .decrementTrieTermCount = Compaction_DecrementTrieTermCount,
+        .decrementNumTerms = Compaction_DecrementNumTerms,
+        .endUpdate = Compaction_EndUpdate,
+        .compactionCompleted = Compaction_Completed,
+    };
+}
+
 // Basic API wrappers
-RedisSearchDiskIndexSpec* SearchDisk_OpenIndex(RedisModuleCtx *ctx, const HiddenString *indexName, const char *obfuscatedName, DocumentType type, bool deleteBeforeOpen) {
-    RS_ASSERT(disk_db);
-    return disk->basic.openIndexSpec(ctx, disk_db, indexName, obfuscatedName, strlen(obfuscatedName), type, deleteBeforeOpen);
+RedisSearchDiskIndexSpec* SearchDisk_OpenIndex(RedisModuleCtx *ctx, const HiddenString *indexName, const char *obfuscatedName, DocumentType type, bool deleteBeforeOpen, IndexSpec *c_index_spec) {
+    RS_ASSERT(disk_db && c_index_spec);
+    SearchDiskCompactionCallbacks callbacks = SearchDisk_CompactionCallbacks();
+    return disk->basic.openIndexSpec(ctx, disk_db, indexName, obfuscatedName, strlen(obfuscatedName), type, deleteBeforeOpen, &callbacks, c_index_spec);
 }
 
 void SearchDisk_UpdateLogObfuscation() {
@@ -187,9 +248,11 @@ RedisSearchDiskIndexSpec* SearchDisk_OpenIndexWithRdbState(RedisModuleCtx *ctx,
                                                             const HiddenString *indexName,
                                                             const char *obfuscatedName,
                                                             DocumentType type,
-                                                            RedisSearchDiskRdbState *rdbState) {
-  RS_ASSERT(disk && disk_db && indexName && rdbState);
-  return disk->basic.openIndexSpecWithRdbState(ctx, disk_db, indexName, obfuscatedName, strlen(obfuscatedName), type, rdbState);
+                                                            RedisSearchDiskRdbState *rdbState,
+                                                            IndexSpec *c_index_spec) {
+  RS_ASSERT(disk && disk_db && indexName && rdbState && c_index_spec);
+  SearchDiskCompactionCallbacks callbacks = SearchDisk_CompactionCallbacks();
+  return disk->basic.openIndexSpecWithRdbState(ctx, disk_db, indexName, obfuscatedName, strlen(obfuscatedName), type, rdbState, &callbacks, c_index_spec);
 }
 
 void SearchDisk_FreeRdbState(RedisSearchDiskRdbState *rdbState) {
@@ -248,65 +311,9 @@ QueryIterator* SearchDisk_NewTagIterator(RedisSearchDiskIndexSpec *index, const 
     return disk->index.newTagIterator(index, tok, fieldIndex, weight);
 }
 
-// Called once at the start of a parent compaction. Blocks the snapshot fork
-// for the full duration of compaction (released in Compaction_Completed).
-static void Compaction_Started(void *private_data) {
-    IndexSpec *sp = private_data;
-    RS_ASSERT(sp);
-    IndexSpec_BlockDiskFork(sp);
-}
-
-static void* Compaction_BeginUpdate(void *private_data) {
-    IndexSpec *sp = private_data;
-    RS_ASSERT(sp);
-    IndexSpec_AcquireWriteLock(sp);
-    return sp;
-}
-
-static bool Compaction_DecrementTrieTermCount(void *update_ctx,
-                                              const char *term,
-                                              size_t term_len,
-                                              size_t doc_count_decrement) {
-    IndexSpec *sp = update_ctx;
-    RS_ASSERT(sp);
-
-    return IndexSpec_DecrementTrieTermCount(sp, term, term_len, doc_count_decrement);
-}
-
-static void Compaction_DecrementNumTerms(void *update_ctx, uint64_t num_terms_removed) {
-    IndexSpec *sp = update_ctx;
-    RS_ASSERT(sp);
-
-    IndexSpec_DecrementNumTerms(sp, num_terms_removed);
-}
-
-static void Compaction_EndUpdate(void *update_ctx) {
-    IndexSpec *sp = update_ctx;
-    RS_ASSERT(sp);
-
-    IndexSpec_ReleaseWriteLock(sp);
-}
-
-// Called once at the end of a parent compaction. Pairs with Compaction_Started.
-static void Compaction_Completed(void *private_data) {
-    IndexSpec *sp = private_data;
-    RS_ASSERT(sp);
-    IndexSpec_EnableDiskForkIfPossible(sp);
-}
-
-size_t SearchDisk_RunGC(RedisSearchDiskIndexSpec *index, IndexSpec *spec) {
-    RS_ASSERT(disk && index && spec);
-
-    SearchDiskCompactionCallbacks callbacks = {
-        .compactionStarted = Compaction_Started,
-        .beginUpdate = Compaction_BeginUpdate,
-        .decrementTrieTermCount = Compaction_DecrementTrieTermCount,
-        .decrementNumTerms = Compaction_DecrementNumTerms,
-        .endUpdate = Compaction_EndUpdate,
-        .compactionCompleted = Compaction_Completed,
-    };
-
-    return disk->index.runGC(index, &callbacks, spec);
+size_t SearchDisk_RunGC(RedisSearchDiskIndexSpec *index) {
+    RS_ASSERT(disk && index);
+    return disk->index.runGC(index);
 }
 
 t_docId SearchDisk_PutDocument(RedisSearchDiskIndexSpec *handle, SearchDiskWriteBatchHandle *batch, const char *key, size_t keyLen, float score, uint32_t flags, uint32_t maxTermFreq, uint32_t docLen, uint32_t *oldLen, t_expirationTimePoint documentTtl, t_docId oldDocId) {

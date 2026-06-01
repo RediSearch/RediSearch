@@ -140,12 +140,16 @@ typedef struct BasicDiskAPI {
    * @param obfuscatedNameLen Length of the obfuscated name
    * @param type Document type
    * @param deleteBeforeOpen If true, delete any existing data before opening
+   * @param callbacks Callback table for applying compaction delta updates during GC.
+   *                  Bound to the IndexSpec for its lifetime; must outlive the IndexSpec.
+   * @param private_data Opaque pointer passed back into every callback. Bound to the
+   *                     IndexSpec for its lifetime.
    * @return Pointer to the index spec, or NULL on error
    *
    * @note This opens the database but does NOT register it with Redis. Call registerIndex after this
    *       to register with BigModule APIs.
    */
-  RedisSearchDiskIndexSpec *(*openIndexSpec)(RedisModuleCtx *ctx, RedisSearchDisk *disk, const HiddenString *indexName, const char *obfuscatedName, size_t obfuscatedNameLen, DocumentType type, bool deleteBeforeOpen);
+  RedisSearchDiskIndexSpec *(*openIndexSpec)(RedisModuleCtx *ctx, RedisSearchDisk *disk, const HiddenString *indexName, const char *obfuscatedName, size_t obfuscatedNameLen, DocumentType type, bool deleteBeforeOpen, const SearchDiskCompactionCallbacks *callbacks, void *private_data);
   /**
    * @brief Close an index spec
    * @param disk Pointer to the disk context (for cleanup of index metrics)
@@ -230,7 +234,11 @@ typedef struct BasicDiskAPI {
    * @param obfuscatedName Obfuscated name of the index (for logging)
    * @param obfuscatedNameLen Length of the obfuscated name
    * @param type Document type for this index
-   * @param rdbState The RDB state (consumed)
+   * @param rdbState Temporary RDB state from loadRdbToTempObject (will be consumed)
+   * @param callbacks Callback table for applying compaction delta updates during GC.
+   *                  Bound to the IndexSpec for its lifetime; must outlive the IndexSpec.
+   * @param private_data Opaque pointer passed back into every callback. Bound to the
+   *                     IndexSpec for its lifetime.
    * @return Pointer to the created IndexSpec, or NULL on error
    */
   RedisSearchDiskIndexSpec *(*openIndexSpecWithRdbState)(RedisModuleCtx *ctx,
@@ -239,7 +247,9 @@ typedef struct BasicDiskAPI {
                                                           const char *obfuscatedName,
                                                           size_t obfuscatedNameLen,
                                                           DocumentType type,
-                                                          RedisSearchDiskRdbState *rdbState);
+                                                          RedisSearchDiskRdbState *rdbState,
+                                                          const SearchDiskCompactionCallbacks *callbacks,
+                                                          void *private_data);
 
   /**
    * @brief Free a temporary RDB state object.
@@ -410,18 +420,15 @@ typedef struct IndexDiskAPI {
    * @brief Run a GC compaction cycle on the disk index.
    *
    * Synchronously runs a full compaction on the inverted index column family,
-   * removing entries for deleted documents. Also applies the compaction delta
-   * to update in-memory structures via the provided callback table.
+   * removing entries for deleted documents. The in-memory delta is applied via
+   * the `SearchDiskCompactionCallbacks` table bound to the IndexSpec at
+   * openIndexSpec time.
    *
    * @param index Pointer to the disk index
-   * @param callbacks Callback table for applying compaction delta updates
-   * @param private_data Opaque pointer owned by caller and passed into beginUpdate
    *
    * @return Number of deletedIDs removed from the disk index
    */
-  size_t (*runGC)(RedisSearchDiskIndexSpec *index,
-                  const SearchDiskCompactionCallbacks *callbacks,
-                  void *private_data);
+  size_t (*runGC)(RedisSearchDiskIndexSpec *index);
 
   /**
    * @brief Get the total disk usage for this index.
