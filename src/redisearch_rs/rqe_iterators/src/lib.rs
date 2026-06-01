@@ -198,10 +198,10 @@ pub trait RQEIterator<'index> {
     fn intersection_sort_weight(&self, prioritize_union_children: bool) -> f64;
 }
 
-/// Blanket [`RQEIterator`] impl for `Box<I>` where `I` is a concrete iterator type.
+/// [`RQEIterator`] impl for boxed iterators, including type-erased `dyn` variants.
 ///
-/// All core methods delegate to the inner iterator.
-impl<'index, I: RQEIterator<'index> + 'index> RQEIterator<'index> for Box<I> {
+/// All methods delegate through the vtable to the concrete type's implementation.
+impl<'index, I: RQEIterator<'index> + ?Sized + 'index> RQEIterator<'index> for Box<I> {
     fn current(&mut self) -> Option<&mut RSIndexResult<'index>> {
         (**self).current()
     }
@@ -254,61 +254,13 @@ impl<'index, I: RQEIterator<'index> + 'index> RQEIterator<'index> for Box<I> {
     }
 }
 
-/// [`RQEIterator`] impl for type-erased iterators.
-///
-/// All methods — including profiling — delegate through the vtable to the
-/// concrete type's implementation.
-impl<'index> RQEIterator<'index> for Box<dyn RQEIterator<'index> + 'index> {
-    fn current(&mut self) -> Option<&mut RSIndexResult<'index>> {
-        (**self).current()
-    }
+/// Combined trait for iterators that implement both [`RQEIterator`] and
+/// [`ProfilePrint`](profile_print::ProfilePrint).
+pub trait RQEIteratorPrintable<'index>: RQEIterator<'index> + profile_print::ProfilePrint {}
 
-    fn read(&mut self) -> Result<Option<&mut RSIndexResult<'index>>, RQEIteratorError> {
-        (**self).read()
-    }
-
-    fn skip_to(
-        &mut self,
-        doc_id: DocId,
-    ) -> Result<Option<SkipToOutcome<'_, 'index>>, RQEIteratorError> {
-        (**self).skip_to(doc_id)
-    }
-
-    fn revalidate(
-        &mut self,
-        spec: &IndexSpecReadGuard,
-    ) -> Result<RQEValidateStatus<'_, 'index>, RQEIteratorError> {
-        (**self).revalidate(spec)
-    }
-
-    fn rewind(&mut self) {
-        (**self).rewind()
-    }
-
-    fn num_estimated(&self) -> usize {
-        (**self).num_estimated()
-    }
-
-    fn last_doc_id(&self) -> DocId {
-        (**self).last_doc_id()
-    }
-
-    fn at_eof(&self) -> bool {
-        (**self).at_eof()
-    }
-
-    #[inline(always)]
-    fn type_(&self) -> IteratorType {
-        (**self).type_()
-    }
-
-    fn as_c_iterator(&self) -> Option<&c2rust::CRQEIterator> {
-        (**self).as_c_iterator()
-    }
-
-    fn intersection_sort_weight(&self, prioritize_union_children: bool) -> f64 {
-        (**self).intersection_sort_weight(prioritize_union_children)
-    }
+impl<'index, T> RQEIteratorPrintable<'index> for T where
+    T: RQEIterator<'index> + profile_print::ProfilePrint
+{
 }
 
 /// Global holder for APIs to get iterators for SearchEnterprise. This allows `rqe_iterators`
@@ -339,7 +291,7 @@ pub trait SearchEnterpriseIterators: Send + Sync {
         query_term: Box<RSQueryTerm>,
         field_mask: FieldMask,
         weight: f64,
-    ) -> Result<Box<dyn RQEIterator<'index> + 'index>, Box<dyn std::error::Error>>;
+    ) -> Result<Box<dyn RQEIteratorPrintable<'index> + 'index>, Box<dyn std::error::Error>>;
 
     /// Iterate over all the terms in the index, skipping offset data for efficiency.
     ///
@@ -353,7 +305,7 @@ pub trait SearchEnterpriseIterators: Send + Sync {
         query_term: Box<RSQueryTerm>,
         field_mask: FieldMask,
         weight: f64,
-    ) -> Result<Box<dyn RQEIterator<'index> + 'index>, Box<dyn std::error::Error>>;
+    ) -> Result<Box<dyn RQEIteratorPrintable<'index> + 'index>, Box<dyn std::error::Error>>;
 
     /// Iterate over all the tags (tokens) in the index at the given field index. Each document in
     /// then iterator will have the given weight.
@@ -363,5 +315,5 @@ pub trait SearchEnterpriseIterators: Send + Sync {
         token: &ffi::RSToken,
         field_index: FieldIndex,
         weight: f64,
-    ) -> Result<Box<dyn RQEIterator<'index> + 'index>, Box<dyn std::error::Error>>;
+    ) -> Result<Box<dyn RQEIteratorPrintable<'index> + 'index>, Box<dyn std::error::Error>>;
 }
