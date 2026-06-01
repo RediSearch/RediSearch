@@ -1,0 +1,9 @@
+---
+source: rqe_iterators/tests/integration/profile_print.rs
+expression: reply
+---
+{
+  "Type": "GEO",
+  "Term": "34,31 - 35,32",
+  "Estimated number of matches": 1
+}

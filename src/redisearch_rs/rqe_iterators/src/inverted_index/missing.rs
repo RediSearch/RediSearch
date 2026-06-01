@@ -20,6 +20,7 @@ use inverted_index::{DecodedBy, DocIdsDecoder, IndexReaderCore, opaque::OpaqueEn
 use crate::{
     ExpirationChecker, IteratorType, RQEIterator, RQEIteratorError, RQEValidateStatus,
     SkipToOutcome,
+    profile_print::{ProfilePrint, ProfilePrintCtx},
 };
 
 use super::InvIndIterator;
@@ -236,5 +237,22 @@ where
 
     fn intersection_sort_weight(&self, _prioritize_union_children: bool) -> f64 {
         1.0
+    }
+}
+
+impl<'index, E, C> ProfilePrint for Missing<'index, E, C>
+where
+    E: DecodedBy + OpaqueEncoding<Storage = inverted_index::InvertedIndex<E>>,
+    <E as DecodedBy>::Decoder: DocIdsDecoder,
+    C: ExpirationChecker,
+{
+    fn print_profile(&self, map: &mut redis_reply::MapBuilder<'_>, ctx: &mut ProfilePrintCtx<'_>) {
+        map.kv_simple_string(c"Type", c"MISSING");
+        let field_bytes = self.field_name.as_bytes();
+        if !field_bytes.is_empty() {
+            map.kv_string_buffer(c"Field", field_bytes);
+        }
+        ctx.print_optional_counters(map);
+        map.kv_long_long(c"Estimated number of matches", self.num_estimated() as i64);
     }
 }

@@ -3524,7 +3524,7 @@ IndexSpec *IndexSpec_RdbLoad(RedisModuleIO *rdb, int encver, bool useSst, QueryE
     if (sp->terms) {
       TrieType_Free(sp->terms);
     }
-    sp->terms = TrieType_GenericLoad(rdb, false, true);
+    sp->terms = TrieType_GenericLoad(rdb, false, true, Trie_Sort_Lex);
     RS_LOG_ASSERT(sp->terms, "Failed to load terms trie");
 
     // Load disk metadata (max_doc_id, deleted_ids) into the spec. Stashed
@@ -3675,7 +3675,7 @@ void *IndexSpec_LegacyRdbLoad(RedisModuleIO *rdb, int encver) {
   }
   /* For version 3 or up - load the generic trie */
   if (encver >= 3) {
-    sp->terms = TrieType_GenericLoad(rdb, false, false);
+    sp->terms = TrieType_GenericLoad(rdb, false, false, Trie_Sort_Lex);
     if (sp->terms == NULL) {
       StrongRef_Release(spec_ref);
       return NULL;

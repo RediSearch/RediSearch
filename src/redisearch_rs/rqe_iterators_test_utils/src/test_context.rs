@@ -548,6 +548,7 @@ impl TestContext {
             len: term.as_bytes().len() as u32,
             hash: 0,
             vw: vw.cast(), // Cast varint::VectorWriter* to ffi::VarintVectorWriter*
+            staged: false,
         };
 
         // Write the entry to the inverted index

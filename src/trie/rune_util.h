@@ -30,7 +30,7 @@ typedef struct {
 } runeBuf;
 
 // The maximum size we allow converting to at once
-#define MAX_RUNESTR_LEN 1024
+#define MAX_RUNE_STR_LEN 1024
 
 // Threshold for Small String Optimization (SSO)
 #define SSO_MAX_LENGTH 128

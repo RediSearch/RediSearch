@@ -165,35 +165,3 @@ pub unsafe extern "C" fn GetMetricOwnKeyRef(header: *mut QueryIterator) -> *mut 
         ),
     }
 }
-
-/// Get the metric type used by this metric iterator.
-///
-/// # Safety
-///
-/// 1. `header` is a valid non-null pointer to a [`QueryIterator`].
-/// 2. `header` was built via [`NewMetricIteratorSortedByScore`] or [`NewMetricIteratorSortedById`].
-#[unsafe(no_mangle)]
-pub unsafe extern "C" fn GetMetricType(header: *const QueryIterator) -> MetricType {
-    debug_assert!(!header.is_null());
-
-    // SAFETY: Safe thanks to 1.
-    let iterator_type = unsafe { (*header).type_ };
-
-    match iterator_type {
-        IteratorType::MetricSortedById => {
-            // SAFETY: Safe thanks to 1 + 2.
-            let wrapper =
-                unsafe { RQEIteratorWrapper::<MetricSortedById>::ref_from_header_ptr(header) };
-            wrapper.inner.metric_type()
-        }
-        IteratorType::MetricSortedByScore => {
-            // SAFETY: Safe thanks to 1 + 2.
-            let wrapper =
-                unsafe { RQEIteratorWrapper::<MetricSortedByScore>::ref_from_header_ptr(header) };
-            wrapper.inner.metric_type()
-        }
-        _ => unreachable!(
-            "expected a metric iterator, either sorted by ID or Score (metric value): unexpected type: {iterator_type}"
-        ),
-    }
-}

@@ -671,6 +671,7 @@ QueryIterator *NewHybridVectorIterator(HybridIteratorParams hParams, QueryError 
   ri->Rewind = HR_Rewind;
   ri->Revalidate = HR_Revalidate;
   ri->ProfileChildren = HR_ProfileChildren;
+  ri->PrintProfile = Hybrid_PrintProfile;
   ri->SkipTo = NULL; // As long as this iterator is always at the root, this is not needed.
   if (hi->searchMode == VECSIM_STANDARD_KNN) {
     ri->Read = HR_ReadKnnUnsorted;

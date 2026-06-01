@@ -10,7 +10,9 @@
 //! Supporting types for [`Metric`].
 
 use crate::{
-    IteratorType, RQEIterator, RQEIteratorError, RQEValidateStatus, SkipToOutcome, id_list::IdList,
+    IteratorType, RQEIterator, RQEIteratorError, RQEValidateStatus, SkipToOutcome,
+    id_list::IdList,
+    profile_print::{ProfilePrint, ProfilePrintCtx},
     utils::OwnedSlice,
 };
 use ffi::{RLookupKey, RLookupKeyHandle, t_docId};
@@ -204,5 +206,30 @@ impl<'index, const SORTED_BY_ID: bool> RQEIterator<'index> for Metric<'index, SO
 
     fn intersection_sort_weight(&self, _prioritize_union_children: bool) -> f64 {
         1.0
+    }
+}
+
+impl<const SORTED_BY_ID: bool> ProfilePrint for Metric<'_, SORTED_BY_ID> {
+    fn print_profile(&self, map: &mut redis_reply::MapBuilder<'_>, ctx: &mut ProfilePrintCtx<'_>) {
+        let metric_type = self.metric_type();
+
+        let type_prefix = if SORTED_BY_ID {
+            "METRIC SORTED BY ID"
+        } else {
+            "METRIC SORTED BY SCORE"
+        };
+        let type_str = match metric_type {
+            MetricType::VectorDistance => {
+                format!("{type_prefix} - VECTOR DISTANCE")
+            }
+        };
+        let type_cstr = std::ffi::CString::new(type_str).unwrap();
+        map.kv_simple_string(c"Type", &type_cstr);
+
+        ctx.print_optional_counters(map);
+
+        if matches!(metric_type, MetricType::VectorDistance) {
+            map.kv_simple_string(c"Vector search mode", c"RANGE_QUERY");
+        }
     }
 }

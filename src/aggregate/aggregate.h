@@ -30,14 +30,13 @@
 #ifdef __cplusplus
 #include <atomic>
 #define RS_Atomic(T) std::atomic<T>
-#define RS_AtomicLoadRelaxed(p)     ((p)->load(std::memory_order_relaxed))
-#define RS_AtomicStoreRelaxed(p, v) ((p)->store((v), std::memory_order_relaxed))
+#define RS_AtomicBoolLoadRelaxed(p)     (((std::atomic<bool> *)(p))->load(std::memory_order_relaxed))
+#define RS_AtomicBoolStoreRelaxed(p, v) (((std::atomic<bool> *)(p))->store((v), std::memory_order_relaxed))
 extern "C" {
 #else
 #define RS_Atomic(T) _Atomic(T)
-#include <stdatomic.h>
-#define RS_AtomicLoadRelaxed(p)     atomic_load_explicit((p), memory_order_relaxed)
-#define RS_AtomicStoreRelaxed(p, v) atomic_store_explicit((p), (v), memory_order_relaxed)
+#define RS_AtomicBoolLoadRelaxed(p)     __atomic_load_n((bool *)(p), __ATOMIC_RELAXED)
+#define RS_AtomicBoolStoreRelaxed(p, v) __atomic_store_n((bool *)(p), (v), __ATOMIC_RELAXED)
 #endif
 
 #define DEFAULT_LIMIT 10
@@ -377,10 +376,17 @@ void initializeAREQ(AREQ *req);
  */
 int AREQ_ApplyContext(AREQ *req, RedisSearchCtx *sctx, QueryError *status);
 
+/** Creates the aggregation pipeline parameters derived from the request. */
+AggregationPipelineParams AREQ_MakeAggregationPipelineParams(AREQ *req,
+                                                             GroupByLimits groupByLimits);
+
 /**
  * Constructs the pipeline objects needed to actually start processing
  * the requests. This does not yet start iterating over the objects
  */
+int AREQ_BuildPipelineWithAggregationParams(AREQ *req,
+                                            const AggregationPipelineParams *aggregationParams,
+                                            QueryError *status);
 int AREQ_BuildPipeline(AREQ *req, QueryError *status);
 
 /**
@@ -466,7 +472,8 @@ static inline AGGPlan *AREQ_AGGPlan(AREQ *req) {
  * ResultProcessors (and a grouper is a ResultProcessor) before the grouper
  * should write their data using `lksrc` as a reference point.
  */
-Grouper *Grouper_New(const RLookupKey **srckeys, const RLookupKey **dstkeys, size_t n);
+Grouper *Grouper_New(const RLookupKey **srckeys, const RLookupKey **dstkeys, size_t n,
+                     GroupByLimits groupByLimits);
 
 void Grouper_Free(Grouper *g);
 
@@ -551,10 +558,10 @@ void SetSearchCtx(RedisSearchCtx *sctx, const AREQ *req);
 int parseProfileArgs(RedisModuleString **argv, int argc, AREQ *r);
 
 static inline bool AREQ_TimedOut(AREQ *req) {
-  return RS_AtomicLoadRelaxed(&req->syncCtx.timedOut);
+  return RS_AtomicBoolLoadRelaxed(&req->syncCtx.timedOut);
 }
 static inline void AREQ_SetTimedOut(AREQ *req) {
-  RS_AtomicStoreRelaxed(&req->syncCtx.timedOut, true);
+  RS_AtomicBoolStoreRelaxed(&req->syncCtx.timedOut, true);
 }
 #ifdef ENABLE_ASSERT
 // SyncPointStopFn predicate adapter for AREQ_TimedOut. Pass the AREQ as `arg`
