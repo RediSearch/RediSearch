@@ -9,7 +9,6 @@
 #include "iterators/optimizer_reader.h"
 #include "iterators_ffi.h"
 #include "rqe_iterator_type.h"
-#include "search_disk.h"
 #include "types_ffi.h"
 
 int cmpAsc(const void *v1, const void *v2, const void *udata) {
@@ -91,13 +90,8 @@ static void OPT_Rewind(QueryIterator *self) {
   }
 
   // create new numeric filter
-  if (qOpt->sctx->spec->diskSpec) {
-    optIt->numericIter = SearchDisk_NewNumericIterator(qOpt->sctx->spec->diskSpec, qOpt->nf,
-                                                       optIt->numericFieldIndex, 1.0);
-  } else {
-    FieldFilterContext filterCtx = {.field = {.index_tag = FieldMaskOrIndex_Index, .index = optIt->numericFieldIndex}, .predicate = FIELD_EXPIRATION_PREDICATE_DEFAULT};
-    optIt->numericIter = NewNumericFilterIterator(qOpt->sctx, qOpt->nf, INDEXFLD_T_NUMERIC, optIt->config, &filterCtx);
-  }
+  FieldFilterContext filterCtx = {.field = {.index_tag = FieldMaskOrIndex_Index, .index = optIt->numericFieldIndex}, .predicate = FIELD_EXPIRATION_PREDICATE_DEFAULT};
+  optIt->numericIter = NewNumericFilterIterator(qOpt->sctx, qOpt->nf, INDEXFLD_T_NUMERIC, optIt->config, &filterCtx);
 
   optIt->heapOldSize = heap_count(heap);
   optIt->numIterations++;
@@ -274,13 +268,11 @@ QueryIterator *NewOptimizerIterator(QOptimizer *qOpt, QueryIterator *root, Itera
     QOptimizer_EstimateLimit(oi->numDocs, oi->childEstimate, qOpt->limit);
 
   oi->numericFieldIndex = field->index;
-  if (qOpt->sctx->spec->diskSpec) {
-    oi->numericIter = SearchDisk_NewNumericIterator(qOpt->sctx->spec->diskSpec, qOpt->nf,
-                                                    field->index, 1.0);
-  } else {
-    FieldFilterContext filterCtx = {.field = {.index_tag = FieldMaskOrIndex_Index, .index = field->index}, .predicate = FIELD_EXPIRATION_PREDICATE_DEFAULT};
-    oi->numericIter = NewNumericFilterIterator(qOpt->sctx, qOpt->nf, INDEXFLD_T_NUMERIC, config, &filterCtx);
-  }
+  // Disk specs are filtered out in QOptimizer_Iterators — OPT_Read and
+  // numDocs both consult spec->docs, which is empty on disk.
+  RS_ASSERT(!qOpt->sctx->spec->diskSpec);
+  FieldFilterContext filterCtx = {.field = {.index_tag = FieldMaskOrIndex_Index, .index = field->index}, .predicate = FIELD_EXPIRATION_PREDICATE_DEFAULT};
+  oi->numericIter = NewNumericFilterIterator(qOpt->sctx, qOpt->nf, INDEXFLD_T_NUMERIC, config, &filterCtx);
   if (!oi->numericIter) {
     OptimizerIterator_Free(&oi->base);
     return NewEmptyIterator();
