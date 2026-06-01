@@ -711,3 +711,109 @@ TEST_F(HybridRequestParseTest, testKeyCorrespondenceBetweenSearchAndTailPipeline
     }
   }
 }
+
+
+// Tail-pipeline classifier tests: for each accepted hybrid pipeline shape,
+// verify that `canYieldPartialResults` on `hybridReq->tailPipeline->qctx`
+// is true and that the end of the tail pipeline matches the rule defined
+// in `hybridTailPipelineCanYieldPartialResults` (src/hybrid/hybrid_request.c):
+// rooted at `RP_HYBRID_MERGER`, ending in `RP_SORTER` (optionally wrapped
+// by `RP_PAGER_LIMITER`).
+//
+// Pipeline construction always appends an implicit sort-by-score for
+// hybrid tails when no explicit SORTBY is given (see the `IsHybrid` branch
+// in `getArrangeRP` and the trailing implicit-arrange block in
+// `Pipeline_BuildAggregationPart`), so every valid parsed hybrid pipeline
+// is expected to be drainable.
+
+// Asserts that the tail pipeline ends in `RP_SORTER` (peeling a trailing
+// `RP_PAGER_LIMITER` if present) and that `canYieldPartialResults` is true.
+static void VerifyTailDrainable(HybridRequest *hybridReq, const std::string &caseName) {
+  ResultProcessor *end = hybridReq->tailPipeline->qctx.endProc;
+  ASSERT_TRUE(end != nullptr) << caseName << ": tail pipeline has no end processor";
+
+  ResultProcessor *probe = end;
+  if (probe->type == RP_PAGER_LIMITER) {
+    probe = probe->upstream;
+    ASSERT_TRUE(probe != nullptr) << caseName << ": pager-limiter has no upstream";
+  }
+  EXPECT_EQ(RP_SORTER, probe->type)
+    << caseName << ": expected tail (after peeling pager) to end in "
+    << RPTypeToString(RP_SORTER) << ", got " << RPTypeToString(probe->type);
+
+  ASSERT_TRUE(FindHybridMergerInPipeline(end) != nullptr)
+    << caseName << ": tail pipeline must be rooted at RP_HYBRID_MERGER";
+
+  EXPECT_TRUE(hybridReq->tailPipeline->qctx.canYieldPartialResults)
+    << caseName << ": canYieldPartialResults should be true for this shape";
+}
+
+// Default minimal hybrid: parser inserts implicit sort-by-score, so the
+// tail ends in RP_SORTER above the merger.
+TEST_F(HybridRequestParseTest, testCanYieldPartialResults_DefaultImplicitSort) {
+  RMCK::ArgvList args(ctx, "FT.HYBRID", "test_cyp_default",
+                      "SEARCH", "machine",
+                      "VSIM", "@vector_field", "$BLOB",
+                      "PARAMS", "2", "BLOB", TEST_BLOB_DATA);
+  HYBRID_TEST_SETUP("test_cyp_default", args);
+  VerifyTailDrainable(hybridReq, "default (implicit sort-by-score)");
+}
+
+// Explicit SORTBY: tail ends in RP_SORTER above the merger.
+TEST_F(HybridRequestParseTest, testCanYieldPartialResults_ExplicitSortBy) {
+  RMCK::ArgvList args(ctx, "FT.HYBRID", "test_cyp_sortby",
+                      "SEARCH", "machine",
+                      "VSIM", "@vector_field", "$BLOB",
+                      "LOAD", "1", "@title",
+                      "SORTBY", "1", "@title",
+                      "PARAMS", "2", "BLOB", TEST_BLOB_DATA);
+  HYBRID_TEST_SETUP("test_cyp_sortby", args);
+  VerifyTailDrainable(hybridReq, "explicit SORTBY");
+}
+
+// GROUPBY (no following SORTBY): the trailing implicit-arrange in
+// `Pipeline_BuildAggregationPart` still adds an RP_SORTER on top of the
+// grouper for hybrid pipelines, so the tail remains drainable.
+TEST_F(HybridRequestParseTest, testCanYieldPartialResults_GroupByOnly) {
+  RMCK::ArgvList args(ctx, "FT.HYBRID", "test_cyp_groupby",
+                      "SEARCH", "machine",
+                      "VSIM", "@vector_field", "$BLOB",
+                      "LOAD", "1", "@category",
+                      "GROUPBY", "1", "@category",
+                      "REDUCE", "COUNT", "0", "AS", "cnt",
+                      "PARAMS", "2", "BLOB", TEST_BLOB_DATA);
+  HYBRID_TEST_SETUP("test_cyp_groupby", args);
+  VerifyTailDrainable(hybridReq, "GROUPBY only (implicit sort)");
+}
+
+// GROUPBY followed by explicit SORTBY: tail ends in RP_SORTER (the
+// post-group sort) above the merger.
+TEST_F(HybridRequestParseTest, testCanYieldPartialResults_GroupByThenSortBy) {
+  RMCK::ArgvList args(ctx, "FT.HYBRID", "test_cyp_groupby_sortby",
+                      "SEARCH", "machine",
+                      "VSIM", "@vector_field", "$BLOB",
+                      "LOAD", "1", "@category",
+                      "GROUPBY", "1", "@category",
+                      "REDUCE", "COUNT", "0", "AS", "cnt",
+                      "SORTBY", "1", "@cnt",
+                      "PARAMS", "2", "BLOB", TEST_BLOB_DATA);
+  HYBRID_TEST_SETUP("test_cyp_groupby_sortby", args);
+  VerifyTailDrainable(hybridReq, "GROUPBY then SORTBY");
+}
+
+// SORTBY with a non-zero LIMIT offset: the sorter cannot absorb the offset,
+// so `getArrangeRP` appends an RP_PAGER_LIMITER above the sorter. The
+// classifier must peel the pager and still detect the sorter underneath.
+TEST_F(HybridRequestParseTest, testCanYieldPartialResults_SortByWithOffset) {
+  RMCK::ArgvList args(ctx, "FT.HYBRID", "test_cyp_sortby_offset",
+                      "SEARCH", "machine",
+                      "VSIM", "@vector_field", "$BLOB",
+                      "LOAD", "1", "@title",
+                      "SORTBY", "1", "@title",
+                      "LIMIT", "3", "10",
+                      "PARAMS", "2", "BLOB", TEST_BLOB_DATA);
+  HYBRID_TEST_SETUP("test_cyp_sortby_offset", args);
+  ASSERT_EQ(RP_PAGER_LIMITER, hybridReq->tailPipeline->qctx.endProc->type)
+    << "SORTBY + LIMIT with offset should produce a pager-limiter above the sorter";
+  VerifyTailDrainable(hybridReq, "SORTBY with LIMIT offset (pager-limiter peeled)");
+}
