@@ -389,7 +389,7 @@ void suffixTrie_freeCallback(void *payload) {
 
 
 void addSuffixTrieMap(TrieMap *trie, const char *str, uint32_t len) {
-  RS_LOG_ASSERT(len >= SUFFIX_DS_MIN_LEN, "addSuffixTrieMap called with len < SUFFIX_DS_MIN_LEN");
+  if (len < SUFFIX_DS_MIN_LEN) return;
   suffixData *data = TrieMap_Find(trie, (char *)str, len);
 
   // if we found a node and term exists, we already have the term in the suffix
@@ -425,8 +425,7 @@ void addSuffixTrieMap(TrieMap *trie, const char *str, uint32_t len) {
 }
 
 void deleteSuffixTrieMap(TrieMap *trie, const char *str, uint32_t len) {
-  RS_LOG_ASSERT(len >= SUFFIX_DS_MIN_LEN,
-                "deleteSuffixTrieMap called with len < SUFFIX_DS_MIN_LEN");
+  if (len < SUFFIX_DS_MIN_LEN) return;
   char *oldTerm = NULL;
 
   // Remove the full-word entry (always inserted by addSuffixTrieMap).

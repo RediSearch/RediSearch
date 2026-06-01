@@ -251,7 +251,7 @@ void TagIndex_Commit(TagIndex *idx, const char **values, size_t n, IndexStats *s
     if (idx->diskSpec) {
       TrieMap_Add(idx->values, tok, len, NULL, NULL);
     }
-    if (idx->suffix && len >= SUFFIX_DS_MIN_LEN) {
+    if (idx->suffix) {
       addSuffixTrieMap(idx->suffix, tok, len);
     }
   }
