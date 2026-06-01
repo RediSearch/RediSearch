@@ -9,7 +9,7 @@
 
 //! [`TopKIterator`] — the generic top-k state machine.
 
-use std::num::NonZeroUsize;
+use std::{cmp::Ordering, num::NonZeroUsize};
 
 use ffi::t_docId;
 use index_result::RSIndexResult;
@@ -17,7 +17,10 @@ use index_spec::IndexSpecReadGuard;
 use rqe_iterator_type::IteratorType;
 use rqe_iterators::{RQEIterator, RQEIteratorError, RQEValidateStatus, SkipToOutcome};
 
-use crate::traits::{ScoreBatch, ScoreSource};
+use crate::{
+    heap::{ScoredResult, TopKHeap},
+    traits::{CollectionStrategy, ScoreBatch, ScoreSource},
+};
 
 /// Determines which collection algorithm [`TopKIterator`] uses.
 ///
@@ -37,6 +40,9 @@ pub enum TopKMode {
     /// Any additional batches are not consumed and their results are silently
     /// lost.  In debug builds, [`TopKIterator`] asserts this invariant.
     Unfiltered,
+    /// Fetch score-ordered batches from the source and intersect each one
+    /// with the child filter iterator.
+    Batches,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -47,10 +53,6 @@ enum Phase {
     /// Actively collecting results (transient; only visible inside collection methods).
     Collecting,
     /// Collection is done; yielding results from `results` in order.
-    #[expect(
-        dead_code,
-        reason = "TopKMode::Unfiltered is without child so no yielding necessary"
-    )]
     Yielding,
     /// Unfiltered path: yielding directly from `direct_batch` without a heap.
     YieldingDirect,
@@ -58,17 +60,23 @@ enum Phase {
 
 /// A generic top-k iterator parameterized over a [`ScoreSource`].
 ///
-/// Implements [`Unfiltered`](TopKMode::Unfiltered).
+/// Implements the two execution modes described in the design doc:
+/// [`Unfiltered`](TopKMode::Unfiltered) and [`Batches`](TopKMode::Batches).
 pub struct TopKIterator<'index, S: ScoreSource> {
     source: S,
     child: Option<Box<dyn RQEIterator<'index> + 'index>>,
     mode: TopKMode,
     /// Preserved so [`rewind`](Self::rewind) can restore the original mode.
     initial_mode: TopKMode,
+    heap: TopKHeap,
     /// Holds the in-progress batch for the Unfiltered path.
     direct_batch: Option<S::Batch>,
     k: NonZeroUsize,
+    compare: fn(f64, f64) -> Ordering,
     phase: Phase,
+    /// Heap contents drained into score order for yielding.
+    results: Vec<ScoredResult>,
+    yield_pos: usize,
     current: Option<RSIndexResult<'index>>,
     last_doc_id: t_docId,
     at_eof: bool,
@@ -77,16 +85,23 @@ pub struct TopKIterator<'index, S: ScoreSource> {
 impl<'index, S: ScoreSource + 'index> TopKIterator<'index, S> {
     /// Create a new [`TopKIterator`].
     ///
-    /// The execution mode is always Unfiltered.
+    /// The execution mode is inferred from `child`:
+    /// - `None` → [`TopKMode::Unfiltered`]
+    /// - `Some(_)` → [`TopKMode::Batches`]
     ///
-    /// For now, only [`TopKMode::Unfiltered`] exists.
+    /// Use [`new_with_mode`](Self::new_with_mode) to override the initial mode.
     pub fn new(
         source: S,
         child: Option<Box<dyn RQEIterator<'index> + 'index>>,
         k: NonZeroUsize,
+        compare: fn(f64, f64) -> Ordering,
     ) -> Self {
-        let mode = TopKMode::Unfiltered;
-        Self::new_with_mode(source, child, k, mode)
+        let mode = if child.is_some() {
+            TopKMode::Batches
+        } else {
+            TopKMode::Unfiltered
+        };
+        Self::new_with_mode(source, child, k, compare, mode)
     }
 
     /// Create a new [`TopKIterator`] with an explicit initial mode.
@@ -94,16 +109,21 @@ impl<'index, S: ScoreSource + 'index> TopKIterator<'index, S> {
         source: S,
         child: Option<Box<dyn RQEIterator<'index> + 'index>>,
         k: NonZeroUsize,
+        compare: fn(f64, f64) -> Ordering,
         mode: TopKMode,
     ) -> Self {
         Self {
+            heap: TopKHeap::new(k, compare),
             source,
             child,
             mode,
             initial_mode: mode,
             direct_batch: None,
             k,
+            compare,
             phase: Phase::NotStarted,
+            results: Vec::new(),
+            yield_pos: 0,
             current: None,
             last_doc_id: 0,
             at_eof: false,
@@ -115,6 +135,7 @@ impl<'index, S: ScoreSource + 'index> TopKIterator<'index, S> {
         self.phase = Phase::Collecting;
         let result = match self.mode {
             TopKMode::Unfiltered => self.prepare_unfiltered_direct(),
+            TopKMode::Batches => self.collect_batches(),
         };
         if result.is_err() {
             // Reset so a retry via read() works: Phase::Collecting has no handler there.
@@ -149,6 +170,41 @@ impl<'index, S: ScoreSource + 'index> TopKIterator<'index, S> {
         Ok(())
     }
 
+    /// Collect results by intersecting score-ordered batches with the child filter.
+    fn collect_batches(&mut self) -> Result<(), RQEIteratorError> {
+        loop {
+            let Some(mut batch) = self.source.next_batch()? else {
+                break;
+            };
+
+            // Borrow-checker split: we can't hold `&mut self.child` and call
+            // `self.heap.push` at the same time.  Pass fields explicitly.
+            if let Some(child) = &mut self.child {
+                intersect_batch_with_child(child, &mut batch, &mut self.heap)?;
+            }
+
+            match self
+                .source
+                .collection_strategy(self.heap.len(), self.k.get())
+            {
+                CollectionStrategy::Continue => continue,
+                CollectionStrategy::Stop => break,
+            }
+        }
+        self.finalize_collection();
+        Ok(())
+    }
+
+    /// Drain the heap into `self.results` in best-first order and transition to
+    /// the [`Yielding`](Phase::Yielding) phase.
+    fn finalize_collection(&mut self) {
+        // Replace heap with a fresh one; drain_sorted consumes the old one.
+        let old_heap = std::mem::replace(&mut self.heap, TopKHeap::new(self.k, self.compare));
+        self.results = old_heap.drain_sorted();
+        self.yield_pos = 0;
+        self.phase = Phase::Yielding;
+    }
+
     /// Yield the next result from the unfiltered direct batch.
     fn advance_unfiltered_direct(
         &mut self,
@@ -168,6 +224,22 @@ impl<'index, S: ScoreSource + 'index> TopKIterator<'index, S> {
                 Ok(None)
             }
         }
+    }
+
+    /// Yield the next result from the pre-sorted `results` vec.
+    fn advance_from_results(
+        &mut self,
+    ) -> Result<Option<&mut RSIndexResult<'index>>, RQEIteratorError> {
+        if self.yield_pos >= self.results.len() {
+            self.at_eof = true;
+            return Ok(None);
+        }
+        let ScoredResult { doc_id, score } = self.results[self.yield_pos];
+        self.yield_pos += 1;
+        let result = self.source.build_result(doc_id, score);
+        self.current = Some(result);
+        self.last_doc_id = doc_id;
+        Ok(self.current.as_mut())
     }
 }
 
@@ -189,9 +261,7 @@ impl<'index, S: ScoreSource + 'index> RQEIterator<'index> for TopKIterator<'inde
 
         match self.phase {
             Phase::YieldingDirect => self.advance_unfiltered_direct(),
-            Phase::Yielding => {
-                unreachable!("`Phase::Yielding` is dead code (planned for batches - MOD-14203).")
-            }
+            Phase::Yielding => self.advance_from_results(),
             Phase::NotStarted | Phase::Collecting => {
                 unreachable!("collect() must set phase to YieldingDirect or Yielding")
             }
@@ -226,7 +296,10 @@ impl<'index, S: ScoreSource + 'index> RQEIterator<'index> for TopKIterator<'inde
             child.rewind();
         }
         self.mode = self.initial_mode;
+        self.heap = TopKHeap::new(self.k, self.compare);
         self.direct_batch = None;
+        self.results.clear();
+        self.yield_pos = 0;
         self.current = None;
         self.last_doc_id = 0;
         self.at_eof = false;
@@ -257,4 +330,67 @@ impl<'index, S: ScoreSource + 'index> RQEIterator<'index> for TopKIterator<'inde
     fn intersection_sort_weight(&self, _: bool) -> f64 {
         1.0
     }
+}
+
+/// Intersect one score-ordered batch with a child filter iterator,
+/// pushing matches into `heap`.
+///
+/// Uses a merge-join (alternating `skip_to` calls) to find matching doc IDs.
+///
+/// The child is **rewound** at the start of each call.
+fn intersect_batch_with_child<'index>(
+    child: &mut Box<dyn RQEIterator<'index> + 'index>,
+    batch: &mut impl ScoreBatch,
+    heap: &mut TopKHeap,
+) -> Result<(), RQEIteratorError> {
+    child.rewind();
+
+    // Prime both cursors.
+    let Some((mut batch_doc, mut batch_score)) = batch.next() else {
+        return Ok(());
+    };
+    let Some(first) = child.read()? else {
+        return Ok(());
+    };
+    let mut child_doc = first.doc_id;
+
+    loop {
+        match batch_doc.cmp(&child_doc) {
+            Ordering::Equal => {
+                heap.push(batch_doc, batch_score);
+                // Advance both cursors.
+                match batch.next() {
+                    Some((d, s)) => {
+                        batch_doc = d;
+                        batch_score = s;
+                    }
+                    None => break,
+                }
+                match child.read()? {
+                    Some(r) => child_doc = r.doc_id,
+                    None => break,
+                }
+            }
+            Ordering::Less => {
+                // batch is behind child — skip batch forward to child_doc.
+                match batch.skip_to(child_doc) {
+                    Some((d, s)) => {
+                        batch_doc = d;
+                        batch_score = s;
+                    }
+                    None => break,
+                }
+            }
+            Ordering::Greater => {
+                // child is behind batch — skip child forward to batch_doc.
+                match child.skip_to(batch_doc)? {
+                    Some(SkipToOutcome::Found(r) | SkipToOutcome::NotFound(r)) => {
+                        child_doc = r.doc_id;
+                    }
+                    None => break,
+                }
+            }
+        }
+    }
+    Ok(())
 }
