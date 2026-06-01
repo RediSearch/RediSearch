@@ -32,11 +32,7 @@ pub struct TrieMap<Data> {
 
 impl<Data> Default for TrieMap<Data> {
     fn default() -> Self {
-        Self {
-            root: None,
-            n_unique_keys: 0,
-            memory_usage: std::mem::size_of::<Self>(),
-        }
+        Self::new()
     }
 }
 
@@ -48,7 +44,11 @@ impl<Data> TrieMap<Data> {
     /// No allocation is performed on creation.
     /// Memory is allocated only when the first insertion occurs.
     pub fn new() -> Self {
-        Default::default()
+        Self {
+            root: None,
+            n_unique_keys: 0,
+            memory_usage: std::mem::size_of::<Self>(),
+        }
     }
 
     /// Insert a key-value pair into the trie.
