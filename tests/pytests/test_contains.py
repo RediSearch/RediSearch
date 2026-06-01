@@ -421,6 +421,104 @@ def testSuffixTrieFindsMultiByteRuneText(env):
   env.expect('FT.SEARCH', 'idx_w',  '*中', 'NOCONTENT').equal([1, 'doc:1'])
   env.expect('FT.SEARCH', 'idx_no', '*中', 'NOCONTENT').equal([1, 'doc:1'])
 
+@skip(cluster=True)
+def testSuffixTrieFindsShortAsciiContainsText(env):
+  # With MINPREFIX=1, a 1-char contains query finds text terms containing
+  # that character, with and without WITHSUFFIXTRIE.
+  env.expect(config_cmd(), 'set', 'MINPREFIX', 1).ok()
+  conn = getConnectionByEnv(env)
+  conn.execute_command('FT.CREATE', 'idx_w',  'SCHEMA', 't', 'TEXT', 'WITHSUFFIXTRIE')
+  conn.execute_command('FT.CREATE', 'idx_no', 'SCHEMA', 't', 'TEXT')
+
+  conn.execute_command('HSET', 'doc:1', 't', 'banana')
+
+  env.expect('FT.SEARCH', 'idx_w',  '*a*', 'NOCONTENT').equal([1, 'doc:1'])
+  env.expect('FT.SEARCH', 'idx_no', '*a*', 'NOCONTENT').equal([1, 'doc:1'])
+
+@skip(cluster=True)
+def testSuffixTrieFindsShortAsciiContainsTag(env):
+  # With MINPREFIX=1, a 1-char contains query finds tag values containing
+  # that character, with and without WITHSUFFIXTRIE.
+  env.expect(config_cmd(), 'set', 'MINPREFIX', 1).ok()
+  conn = getConnectionByEnv(env)
+  conn.execute_command('FT.CREATE', 'idx_w',  'SCHEMA', 't', 'TAG', 'WITHSUFFIXTRIE')
+  conn.execute_command('FT.CREATE', 'idx_no', 'SCHEMA', 't', 'TAG')
+
+  conn.execute_command('HSET', 'doc:1', 't', 'banana')
+
+  env.expect('FT.SEARCH', 'idx_w',  '@t:{*a*}', 'NOCONTENT').equal([1, 'doc:1'])
+  env.expect('FT.SEARCH', 'idx_no', '@t:{*a*}', 'NOCONTENT').equal([1, 'doc:1'])
+
+@skip(cluster=True)
+def testSuffixTrieFindsMultiByteRuneContainsText(env):
+  # A single-rune CJK contains query finds text terms containing that rune,
+  # with and without WITHSUFFIXTRIE.
+  conn = getConnectionByEnv(env)
+  conn.execute_command('FT.CREATE', 'idx_w',  'SCHEMA', 't', 'TEXT', 'WITHSUFFIXTRIE')
+  conn.execute_command('FT.CREATE', 'idx_no', 'SCHEMA', 't', 'TEXT')
+
+  conn.execute_command('HSET', 'doc:1', 't', 'ba中')
+
+  env.expect('FT.SEARCH', 'idx_w',  '*中*', 'NOCONTENT').equal([1, 'doc:1'])
+  env.expect('FT.SEARCH', 'idx_no', '*中*', 'NOCONTENT').equal([1, 'doc:1'])
+
+@skip(cluster=True)
+def testSuffixTrieMixedSchemaShortToken(env):
+  # In a mixed schema (one TEXT field with WITHSUFFIXTRIE, one without), a
+  # short-token contains/suffix query is served exclusively from the suffix
+  # DS — which is built only from suffix-enabled fields. Explicitly targeting
+  # the non-suffix field is rejected; all-mask queries never surface terms
+  # that live only in the non-suffix field.
+  env.expect(config_cmd(), 'set', 'MINPREFIX', 1).ok()
+  conn = getConnectionByEnv(env)
+  conn.execute_command('FT.CREATE', 'idx', 'SCHEMA',
+                       't1', 'TEXT', 'WITHSUFFIXTRIE',
+                       't2', 'TEXT')
+
+  # 'apple' lives in t1 (in the suffix DS); 'orange' lives only in t2.
+  conn.execute_command('HSET', 'doc:1', 't1', 'apple', 't2', 'orange')
+
+  # @t1 short-token queries: served by the suffix DS.
+  env.expect('FT.SEARCH', 'idx', '@t1:*e',  'NOCONTENT').equal([1, 'doc:1'])
+  env.expect('FT.SEARCH', 'idx', '@t1:*p*', 'NOCONTENT').equal([1, 'doc:1'])
+
+  # @t2 (no WITHSUFFIXTRIE) is rejected for contains/suffix queries.
+  env.expect('FT.SEARCH', 'idx', '@t2:*e',  'NOCONTENT').error() \
+    .contains('Contains query on fields without WITHSUFFIXTRIE support')
+  env.expect('FT.SEARCH', 'idx', '@t2:*o*', 'NOCONTENT').error() \
+    .contains('Contains query on fields without WITHSUFFIXTRIE support')
+
+  # All-mask: finds via t1 (apple ends in 'e' / contains 'p'), but does not
+  # surface 'orange' even though it contains 'o' — orange is not in the suffix DS.
+  env.expect('FT.SEARCH', 'idx', '*e',  'NOCONTENT').equal([1, 'doc:1'])
+  env.expect('FT.SEARCH', 'idx', '*p*', 'NOCONTENT').equal([1, 'doc:1'])
+  env.expect('FT.SEARCH', 'idx', '*o*', 'NOCONTENT').equal([0])
+
+@skip(cluster=True)
+def testSuffixTrieMultipleSuffixFieldsShortToken(env):
+  # Two TEXT fields both with WITHSUFFIXTRIE share `spec->suffix`. Field-scoped
+  # short-token queries narrow correctly to each field's terms; all-mask
+  # queries find terms contributed by either field.
+  env.expect(config_cmd(), 'set', 'MINPREFIX', 1).ok()
+  conn = getConnectionByEnv(env)
+  conn.execute_command('FT.CREATE', 'idx', 'SCHEMA',
+                       't1', 'TEXT', 'WITHSUFFIXTRIE',
+                       't2', 'TEXT', 'WITHSUFFIXTRIE')
+
+  conn.execute_command('HSET', 'doc:1', 't1', 'alpha', 't2', 'bravo')
+
+  # Field-scoped: only the term in that field is reachable.
+  env.expect('FT.SEARCH', 'idx', '@t1:*a',  'NOCONTENT').equal([1, 'doc:1'])  # alpha
+  env.expect('FT.SEARCH', 'idx', '@t1:*o',  'NOCONTENT').equal([0])
+  env.expect('FT.SEARCH', 'idx', '@t2:*o',  'NOCONTENT').equal([1, 'doc:1'])  # bravo
+  env.expect('FT.SEARCH', 'idx', '@t2:*a',  'NOCONTENT').equal([0])
+
+  # All-mask: both terms are in the shared suffix DS, so either rune matches.
+  env.expect('FT.SEARCH', 'idx', '*a',  'NOCONTENT').equal([1, 'doc:1'])
+  env.expect('FT.SEARCH', 'idx', '*o',  'NOCONTENT').equal([1, 'doc:1'])
+  env.expect('FT.SEARCH', 'idx', '*v*', 'NOCONTENT').equal([1, 'doc:1'])      # bravo contains 'v'
+  env.expect('FT.SEARCH', 'idx', '*l*', 'NOCONTENT').equal([1, 'doc:1'])      # alpha contains 'l'
+
 def test_params(env):
   env = Env(moduleArgs = 'DEFAULT_DIALECT 2')
   # this test check that `\*` is escaped correctly on contains queries
