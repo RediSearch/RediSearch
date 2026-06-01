@@ -1419,7 +1419,11 @@ static int parseFieldSpec(ArgsCursor *ac, IndexSpec *sp, StrongRef sp_ref, Field
     // Skip SORTABLE and NOINDEX options
     return 1;
   } else if (AC_AdvanceIfMatch(ac, SPEC_NUMERIC_STR)) {  // numeric field
-    if (!SearchDisk_MarkUnsupportedFieldIfDiskEnabled(SPEC_NUMERIC_STR, fs, status)) goto error;
+    // MOD-15855: numeric fields are now backed by the on-disk numeric index
+    // (NumericInvertedIndex), so we drop the Flex-unsupported gate that tag
+    // fields had dropped in MOD-15853. The write path routes through
+    // `SearchDisk_IndexNumeric`; queries route through
+    // `SearchDisk_NewNumericIterator`.
     fs->types |= INDEXFLD_T_NUMERIC;
     if (AC_AdvanceIfMatch(ac, SPEC_INDEXMISSING_STR)) {
       fs->options |= FieldSpec_IndexMissing;
@@ -1567,8 +1571,9 @@ static int IndexSpec_AddFieldsInternal(IndexSpec *sp, StrongRef spec_ref, ArgsCu
 
     if (isSpecOnDiskForValidation(sp))
     {
-      if (!FIELD_IS(fs, INDEXFLD_T_FULLTEXT) && !FIELD_IS(fs, INDEXFLD_T_VECTOR) && !FIELD_IS(fs, INDEXFLD_T_TAG)) {
-        QueryError_SetWithoutUserDataFmt(status, QUERY_ERROR_CODE_INVAL, "Disk index does not support non-TEXT/VECTOR/TAG fields");
+      // MOD-15855: NUMERIC is also a disk-supported field type now.
+      if (!FIELD_IS(fs, INDEXFLD_T_FULLTEXT) && !FIELD_IS(fs, INDEXFLD_T_VECTOR) && !FIELD_IS(fs, INDEXFLD_T_TAG) && !FIELD_IS(fs, INDEXFLD_T_NUMERIC)) {
+        QueryError_SetWithoutUserDataFmt(status, QUERY_ERROR_CODE_INVAL, "Disk index does not support non-TEXT/VECTOR/TAG/NUMERIC fields");
         goto reset;
       }
       if (fs->options & FieldSpec_NotIndexable) {
