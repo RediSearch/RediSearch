@@ -109,10 +109,12 @@ jobs:
 
           # 2) Pull PR details and confirm it was actually merged. The label
           #    and comment triggers can fire on closed-but-not-merged PRs.
-          pr_data=$(gh pr view "$pr" --json title,mergeCommit,labels,merged,url)
-          merged=$(jq -r '.merged' <<<"$pr_data")
-          if [ "$merged" != "true" ]; then
-            echo "PR #$pr is not merged; skipping."
+          #    `gh pr view --json` exposes `state` (one of OPEN/CLOSED/MERGED)
+          #    and `mergedAt`; there is no boolean `merged` field, so use state.
+          pr_data=$(gh pr view "$pr" --json title,mergeCommit,labels,state,url)
+          state=$(jq -r '.state' <<<"$pr_data")
+          if [ "$state" != "MERGED" ]; then
+            echo "PR #$pr is not merged (state=$state); skipping."
             echo "skip=true" >> "$GITHUB_OUTPUT"
             exit 0
           fi
@@ -130,10 +132,13 @@ jobs:
           if [ "$EVENT_NAME" = "issue_comment" ]; then
             args=$(printf '%s\n' "$COMMENT_BODY" | head -n1 | sed -E 's|^/auto-backport[[:space:]]*||')
             if [ -n "$args" ]; then
-              targets_json=$(printf '%s\n' "$args" \
-                | tr ' \t,' '\n' \
-                | grep -v '^$' \
-                | jq -R . | jq -sc 'unique')
+              # Use jq-only splitting on whitespace/comma. The previous
+              # `tr | grep -v '^$' | jq` pipeline crashed under set -euo
+              # pipefail when the args were separator-only (e.g.
+              # `/auto-backport ,`) because grep matched nothing.
+              targets_json=$(jq -nc --arg s "$args" \
+                '[ $s | split("[\\s,]+"; "g") | .[] | select(length > 0) ]
+                 | unique')
             fi
           elif [ "$EVENT_NAME" = "pull_request_target" ] && [ "$EVENT_ACTION" = "labeled" ]; then
             if [[ "$LABEL_NAME" =~ ^backport-(.+)-agent$ ]]; then
@@ -203,9 +208,11 @@ jobs:
           # The agent needs to edit files (conflict resolution), run git/gh, and
           # push to origin. Read-only and workspace-write sandboxes block network
           # writes that `git push` and `gh` need, so this writer-mode flow uses
-          # full access. Constrained by:
+          # full sandbox access. `safety-strategy: unsafe` keeps approvals
+          # disabled (`danger-full-access` is only a sandbox value, not a valid
+          # safety-strategy). Constrained by:
           #   - the App token's scope (only this repo, only contents+PRs)
           #   - the prompt's guardrails (do not force-push, do not skip targets
           #     it can't resolve, etc.)
           sandbox: danger-full-access
-          safety-strategy: danger-full-access
+          safety-strategy: unsafe

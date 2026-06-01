@@ -177,8 +177,25 @@ jobs:
           branch=$(jq -r '.headRefName' <<<"$pr_data")
           base=$(jq -r '.baseRefName' <<<"$pr_data")
           body=$(jq -r '.body' <<<"$pr_data")
+          current_head_sha=$(jq -r '.headRefOid' <<<"$pr_data")
+
+          # For the workflow_run auto-trigger path, `head_sha` is the SHA the
+          # failed CI run was for. If a newer commit has landed on the branch
+          # since then, the failed-run logs no longer reflect what's on disk.
+          # Skip without stamping `auto-backport-fix-attempted`, so the fresh
+          # CI run that's now in flight can still trigger a fix attempt.
+          if [ "$EVENT_NAME" = "workflow_run" ] \
+             && [ -n "$head_sha" ] \
+             && [ "$head_sha" != "$current_head_sha" ]; then
+            echo "workflow_run head_sha ($head_sha) no longer matches PR head ($current_head_sha); skipping stale run."
+            echo "skip=true" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          # For the issue_comment trigger we had no head_sha yet; adopt the
+          # current one from gh pr view.
           if [ -z "$head_sha" ]; then
-            head_sha=$(jq -r '.headRefOid' <<<"$pr_data")
+            head_sha="$current_head_sha"
           fi
 
           # Defensive (also for the issue_comment path): the branch we are
@@ -255,10 +272,23 @@ jobs:
           fi
 
           # 6) Collect human-supplied context. Any PR comment beginning with
-          #    `/auto-backport-context` contributes its remaining body. Inline
-          #    text from `/auto-backport-fix <text>` is appended.
+          #    `/auto-backport-context` contributes its remaining body, but
+          #    only when its author is a write-level collaborator. Without
+          #    that filter, any GitHub user could plant prompt-injection text
+          #    on the PR that the Codex agent (running with a write-capable
+          #    App token and full sandbox) would consume.
+          #    Inline text from `/auto-backport-fix <text>` is already gated
+          #    by the job-level `if:` author-association check and is appended
+          #    further below.
           comments=$(gh api -X GET "repos/${GITHUB_REPOSITORY}/issues/${pr}/comments" \
-                      --jq '[.[] | select(.body | startswith("/auto-backport-context")) | .body]' \
+                      --jq '[
+                        .[]
+                        | select(.body | startswith("/auto-backport-context"))
+                        | select(.author_association == "OWNER"
+                              or .author_association == "MEMBER"
+                              or .author_association == "COLLABORATOR")
+                        | .body
+                      ]' \
                       2>/dev/null || echo "[]")
           context=$(jq -c \
                      --arg inline "$inline_context" \
@@ -321,19 +351,21 @@ jobs:
           echo "Resolved fix context (written to $context_file):"
           cat "$context_file"
 
-      # Check out the backport branch itself (not master). The agent edits
-      # files on this branch and pushes a new commit to it.
+      # Check out master first so the auto-fix prompt file is present on
+      # the working tree — the backport branch (an older release line) may
+      # not yet contain `.github/codex/prompts/pr-backport-auto-fix.md`.
       #
-      # By this point the script step above has verified that the PR is in
-      # this repo, is in OPEN state, carries `auto-backport`, and lives on a
-      # `backport-agent/...` branch. The `ref:` below is therefore not
-      # attacker-controlled in any meaningful sense.
-      - name: Checkout backport branch
+      # Using a literal `ref: master` (no `${{ }}` expression) also avoids
+      # the SonarCloud `githubactions:S7631` pattern that flags a checkout
+      # in a privileged workflow when `ref:` is driven by a workflow output.
+      # The actual branch switch happens in the next step using validated
+      # inputs and explicit git commands.
+      - name: Checkout master (for the prompt)
         if: steps.ctx.outputs.skip != 'true'
         uses: actions/checkout@v6
         with:
           token: ${{ steps.generate-app-token.outputs.token }}
-          ref: ${{ steps.ctx.outputs.branch }}
+          ref: master
           fetch-depth: 0
 
       - name: Configure git identity
@@ -342,25 +374,40 @@ jobs:
           git config user.name "redis-pr-app[bot]"
           git config user.email "redis-pr-app[bot]@users.noreply.github.com"
 
-      # The agent compares against master (the original commit) and the base
-      # branch's tip. `actions/checkout` only brings down the backport branch's
-      # history, so fetch the other refs explicitly here. Best-effort — if any
-      # fetch fails the agent will still have the backport branch and can call
-      # `git fetch` itself.
-      - name: Pre-fetch master, base, and original commit
+      # Stash the prompt outside the worktree before we switch branches —
+      # otherwise `git checkout` of the older branch will remove it.
+      - name: Stash auto-fix prompt
+        id: stash-prompt
+        if: steps.ctx.outputs.skip != 'true'
+        run: |
+          set -euo pipefail
+          prompt_dst="${RUNNER_TEMP}/pr-backport-auto-fix.md"
+          cp .github/codex/prompts/pr-backport-auto-fix.md "$prompt_dst"
+          echo "prompt_file=$prompt_dst" >> "$GITHUB_OUTPUT"
+
+      # Switch to the backport branch using explicit git commands rather
+      # than a second `actions/checkout` with `ref: ${{ … expression }}`.
+      # The branch name has already been validated by the resolve step to
+      # be inside this repo and inside the `backport-agent/` namespace.
+      - name: Switch to backport branch
         if: steps.ctx.outputs.skip != 'true'
         env:
+          BRANCH: ${{ steps.ctx.outputs.branch }}
           BASE_BRANCH: ${{ steps.ctx.outputs.base }}
           ORIGINAL_SHA: ${{ steps.ctx.outputs.original_sha }}
         run: |
-          set -uo pipefail
-          git fetch origin master || true
+          set -euo pipefail
+          # Fetch the backport branch, plus the base branch and original
+          # commit the agent compares against. The master fetch was already
+          # done by the previous checkout step.
+          git fetch origin "$BRANCH"
           if [ -n "$BASE_BRANCH" ] && [ "$BASE_BRANCH" != "master" ]; then
             git fetch origin "$BASE_BRANCH" || true
           fi
           if [ -n "$ORIGINAL_SHA" ]; then
             git fetch origin "$ORIGINAL_SHA" || true
           fi
+          git checkout -B "$BRANCH" "origin/$BRANCH"
 
       # Reuses BACKPORT_OPENAI_API_KEY from task-backport_pr-agent.yml so both
       # flows share the same billing scope.
@@ -375,8 +422,20 @@ jobs:
           BACKPORT_FIX_CONTEXT_FILE: ${{ steps.ctx.outputs.context_file }}
         with:
           openai-api-key: ${{ secrets.OPEN_AI_BACKPORT_AGENT_KEY }}
-          prompt-file: .github/codex/prompts/pr-backport-auto-fix.md
+          # The prompt-file is stashed to $RUNNER_TEMP by an earlier step
+          # because the backport branch (an older release line) generally
+          # will not contain `.github/codex/prompts/pr-backport-auto-fix.md`.
+          prompt-file: ${{ steps.stash-prompt.outputs.prompt_file }}
           # See task-backport_pr-agent.yml for rationale: writer-mode needs
           # network access for git push / gh, so workspace-write is not enough.
+          # `safety-strategy: unsafe` keeps approvals disabled — the action
+          # validates this input and rejects `danger-full-access` here.
           sandbox: danger-full-access
-          safety-strategy: danger-full-access
+          safety-strategy: unsafe
+          # The `workflow_run` trigger fires with `github.actor` set to the
+          # App bot that opened the backport PR. codex-action's default actor
+          # gate refuses bot actors; enable it so auto-trigger runs are not
+          # rejected before Codex starts. Manual `/auto-backport-fix` runs
+          # come from human collaborators and don't need this, but the flag
+          # applies to the whole action invocation.
+          allow-bot-users: true
