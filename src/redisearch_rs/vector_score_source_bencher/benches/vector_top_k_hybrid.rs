@@ -146,8 +146,10 @@ fn child_ids(n: usize, count: usize) -> Vec<usize> {
     (0..count).map(|i| (i * step + 1).min(n)).collect()
 }
 
-/// Reinterpret a `Vec<f32>` as `Vec<u8>` (byte blob for VectorScoreSource).
-fn bytemuck_cast_vec(v: Vec<f32>) -> Vec<u8> {
+/// Reinterpret `&[f32]` as `Vec<u8>` (byte blob for VectorScoreSource).
+/// One allocation; mirrored on the C side by `query_owned_copy` to keep
+/// per-iteration setup cost comparable.
+fn query_bytes(v: &[f32]) -> Vec<u8> {
     let mut bytes = vec![0u8; v.len() * 4];
     for (i, f) in v.iter().enumerate() {
         bytes[i * 4..i * 4 + 4].copy_from_slice(&f.to_ne_bytes());
@@ -181,7 +183,7 @@ fn run_rust(
     let source: VectorScoreSource = unsafe {
         VectorScoreSource::new(
             std::ptr::NonNull::new(index).unwrap(),
-            bytemuck_cast_vec(query.to_vec()),
+            query_bytes(query),
             std::mem::zeroed::<VecSimQueryParams>(),
             k,
             timespec {
@@ -216,12 +218,14 @@ fn run_c(
 ) -> usize {
     // Fresh owned copy each call: the child iterator frees it via RedisModule_Free.
     let ids_ptr = alloc_owned_ids(ids);
+    // Match Rust's per-iteration query allocation (VectorScoreSource owns a Vec<u8>).
+    let query_owned = query_bytes(query);
     // SAFETY: `index` is valid; `ids_ptr` is a sorted, owned array of `ids.len()`
-    // ids whose ownership transfers to the call.
+    // ids whose ownership transfers to the call. `query_owned` outlives the call.
     unsafe {
         bench_c_hybrid(
             index,
-            query.as_ptr() as *const c_void,
+            query_owned.as_ptr() as *const c_void,
             DIM,
             k.get(),
             ids_ptr,
