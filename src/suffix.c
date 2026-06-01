@@ -41,11 +41,14 @@ static void freeSuffixNode(suffixData *node) {
   rm_free(node);
 }
 
-void addSuffixTrie(Trie *trie,
-                   const char *str, uint32_t byte_len,
-                   const rune *runes, size_t rune_len) {
-  RS_LOG_ASSERT(rune_len >= SUFFIX_DS_MIN_LEN,
-                "addSuffixTrie called with rune_len < SUFFIX_DS_MIN_LEN");
+void addSuffixTrie(Trie *trie, const char *str, uint32_t len) {
+  size_t rune_len = 0;
+  runeBuf buf;
+  rune *runes = runeBufFill(str, len, &buf, &rune_len);
+  if (rune_len < SUFFIX_DS_MIN_LEN) {
+    runeBufFree(&buf);
+    return;
+  }
 
   TrieNode *trienode = Trie_GetNode(trie, runes, rune_len, true, NULL);
   suffixData *data = NULL;
@@ -53,11 +56,12 @@ void addSuffixTrie(Trie *trie,
     data = Suffix_GetData(trienode);
     // if string was added in the past, skip
     if (data && data->term) {
+      runeBufFree(&buf);
       return;
     }
   }
 
-  char *copyStr = rm_strndup(str, byte_len);
+  char *copyStr = rm_strndup(str, len);
   if (!data) {
     suffixData newdata = createSuffixNode(copyStr, 1);
     RSPayload payload = { .data = (char*)&newdata, .len = sizeof(newdata) };
@@ -70,6 +74,7 @@ void addSuffixTrie(Trie *trie,
           "Suffix trie: Trie_InsertRuneNoSize() failed due to payload overflow, suffix trie entry was not added");
       array_free(newdata.array);
       rm_free(copyStr);
+      runeBufFree(&buf);
       return;
     }
   } else {
@@ -95,6 +100,7 @@ void addSuffixTrie(Trie *trie,
             RSDummyContext, "warning",
             "Suffix trie: Trie_InsertRune() failed due to payload overflow, suffix trie entry was not added");
         array_free(newdata.array);
+        runeBufFree(&buf);
         return;
       }
 
@@ -102,6 +108,7 @@ void addSuffixTrie(Trie *trie,
       data->array = array_ensure_append_1(data->array, copyStr);
     }
   }
+  runeBufFree(&buf);
 }
 
 static void removeSuffix(const char *str, size_t rlen, arrayof(char*) array) {
@@ -113,11 +120,14 @@ static void removeSuffix(const char *str, size_t rlen, arrayof(char*) array) {
   }
 }
 
-void deleteSuffixTrie(Trie *trie,
-                      const char *str, uint32_t byte_len,
-                      const rune *runes, size_t rune_len) {
-  RS_LOG_ASSERT(rune_len >= SUFFIX_DS_MIN_LEN,
-                "deleteSuffixTrie called with rune_len < SUFFIX_DS_MIN_LEN");
+void deleteSuffixTrie(Trie *trie, const char *str, uint32_t len) {
+  size_t rune_len = 0;
+  runeBuf buf;
+  rune *runes = runeBufFill(str, len, &buf, &rune_len);
+  if (rune_len < SUFFIX_DS_MIN_LEN) {
+    runeBufFree(&buf);
+    return;
+  }
   char *oldTerm = NULL;
 
   // Remove the full-word entry (always inserted by addSuffixTrie).
@@ -127,7 +137,7 @@ void deleteSuffixTrie(Trie *trie,
     if (data) {
       oldTerm = data->term;
       data->term = NULL;
-      removeSuffix(str, byte_len, data->array);
+      removeSuffix(str, len, data->array);
       if (array_len(data->array) == 0) {
         RS_LOG_ASSERT(!data->term, "array should contain a pointer to the string");
         Trie_DeleteRunes(trie, runes, rune_len);
@@ -144,7 +154,7 @@ void deleteSuffixTrie(Trie *trie,
     // then failure to find the suffix is not an error. just move along.
     if (!data) continue;
     // remove from array
-    removeSuffix(str, byte_len, data->array);
+    removeSuffix(str, len, data->array);
     // if array is empty, remove the node
     if (array_len(data->array) == 0) {
       RS_LOG_ASSERT(!data->term, "array should contain a pointer to the string");
@@ -152,6 +162,7 @@ void deleteSuffixTrie(Trie *trie,
     }
   }
   rm_free(oldTerm);
+  runeBufFree(&buf);
 }
 
 static int processSuffixData(suffixData *data, SuffixCtx *sufCtx) {

@@ -15,7 +15,6 @@
 #include "vector_index.h"
 #include "redis_index.h"
 #include "suffix.h"
-#include "trie/rune_util.h"
 #include "config.h"
 #include "rmutil/rm_assert.h"
 #include "phonetic_manager.h"
@@ -121,13 +120,7 @@ static void applyTextIndex(RSAddDocumentCtx *aCtx, RedisSearchCtx *ctx) {
       IndexSpec_AddTerm(spec, entry->term, entry->len);
     }
     if (entryWantsSuffixTrie(spec, entry)) {
-      size_t rune_len = 0;
-      runeBuf buf;
-      rune *runes = runeBufFill(entry->term, entry->len, &buf, &rune_len);
-      if (rune_len >= SUFFIX_DS_MIN_LEN) {
-        addSuffixTrie(spec->suffix, entry->term, entry->len, runes, rune_len);
-      }
-      runeBufFree(&buf);
+      addSuffixTrie(spec->suffix, entry->term, entry->len);
     }
   }
   FieldsGlobalStats_UpdateFieldDocsIndexed(INDEXFLD_T_FULLTEXT, spec->stats.scoring.numTerms - prevNumTerms);
@@ -164,13 +157,7 @@ static void indexText(RSAddDocumentCtx *aCtx, RedisSearchCtx *ctx) {
       IndexSpec_AddTerm(spec, entry->term, entry->len);
     }
     if (entryWantsSuffixTrie(spec, entry)) {
-      size_t rune_len = 0;
-      runeBuf buf;
-      rune *runes = runeBufFill(entry->term, entry->len, &buf, &rune_len);
-      if (rune_len >= SUFFIX_DS_MIN_LEN) {
-        addSuffixTrie(spec->suffix, entry->term, entry->len, runes, rune_len);
-      }
-      runeBufFree(&buf);
+      addSuffixTrie(spec->suffix, entry->term, entry->len);
     }
   }
   FieldsGlobalStats_UpdateFieldDocsIndexed(INDEXFLD_T_FULLTEXT, spec->stats.scoring.numTerms - prevNumTerms);
