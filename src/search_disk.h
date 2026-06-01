@@ -209,6 +209,10 @@ bool SearchDisk_IndexTags(RedisModuleCtx *ctx, RedisSearchDiskIndexSpec *index, 
  * OSS bulk indexer. The write is not durable until `batch` is committed via
  * `SearchDisk_CommitWriteBatch`.
  *
+ * The CF is created and registered with Redis BigModule via `ctx` on the
+ * first call per field, mirroring `SearchDisk_IndexTags`.
+ *
+ * @param ctx Redis module context for BigModule APIs (used to register new CFs)
  * @param index Pointer to the index
  * @param batch Open write batch the numeric write is staged into
  * @param docId Document ID to index
@@ -216,7 +220,7 @@ bool SearchDisk_IndexTags(RedisModuleCtx *ctx, RedisSearchDiskIndexSpec *index, 
  * @param fieldIndex Field index for the numeric field
  * @return true if successful, false otherwise
  */
-bool SearchDisk_IndexNumeric(RedisSearchDiskIndexSpec *index, SearchDiskWriteBatchHandle *batch, t_docId docId, double value, t_fieldIndex fieldIndex);
+bool SearchDisk_IndexNumeric(RedisModuleCtx *ctx, RedisSearchDiskIndexSpec *index, SearchDiskWriteBatchHandle *batch, t_docId docId, double value, t_fieldIndex fieldIndex);
 
 /**
  * @brief Open a new write batch bound to the given disk index.

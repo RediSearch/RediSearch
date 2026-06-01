@@ -623,14 +623,14 @@ FIELD_BULK_INDEXER(numericIndexer) {
                          "disk-mode geo is not supported yet");
 
     if (!fdata->isMulti) {
-      if (!SearchDisk_IndexNumeric(ctx->spec->diskSpec, aCtx->disk.batch,
+      if (!SearchDisk_IndexNumeric(ctx->redisCtx, ctx->spec->diskSpec, aCtx->disk.batch,
                                    aCtx->doc->docId, fdata->numeric, fs->index)) {
         QueryError_SetError(status, QUERY_ERROR_CODE_GENERIC, "Numeric indexing failed");
         return -1;
       }
     } else {
       for (uint32_t i = 0; i < array_len(fdata->arrNumeric); ++i) {
-        if (!SearchDisk_IndexNumeric(ctx->spec->diskSpec, aCtx->disk.batch,
+        if (!SearchDisk_IndexNumeric(ctx->redisCtx, ctx->spec->diskSpec, aCtx->disk.batch,
                                      aCtx->doc->docId, fdata->arrNumeric[i], fs->index)) {
           QueryError_SetError(status, QUERY_ERROR_CODE_GENERIC, "Numeric indexing failed");
           return -1;

@@ -329,9 +329,15 @@ typedef struct IndexDiskAPI {
    * corresponding key. The write is not durable until the batch is committed
    * via `commitWriteBatch`.
    *
+   * Creates a new column family the first time `fieldIndex` is indexed and
+   * registers it with Redis BigModule via `ctx`, matching the tag-indexing
+   * lifecycle — so dynamically-added CFs are visible to checkpoint/SST
+   * replication without waiting for a reopen.
+   *
    * Called once per `(doc, value)` — the OSS bulk indexer loops over multi-value
    * numeric fields.
    *
+   * @param ctx Redis module context for BigModule APIs (used to register new CFs)
    * @param index Pointer to the index
    * @param batch Open write batch to append the write to (must have been returned by `createWriteBatch(index)`)
    * @param docId Document ID to index
@@ -339,7 +345,7 @@ typedef struct IndexDiskAPI {
    * @param fieldIndex Field index for the numeric field
    * @return true if the write was staged successfully, false if the input was rejected
    */
-  bool (*indexNumeric)(RedisSearchDiskIndexSpec *index, SearchDiskWriteBatchHandle *batch, t_docId docId, double value, t_fieldIndex fieldIndex);
+  bool (*indexNumeric)(RedisModuleCtx *ctx, RedisSearchDiskIndexSpec *index, SearchDiskWriteBatchHandle *batch, t_docId docId, double value, t_fieldIndex fieldIndex);
 
   /**
    * @brief Deletes a document by its doc ID directly, removing it from the doc table and marking its ID as deleted
