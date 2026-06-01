@@ -511,3 +511,17 @@ def test_gc_oom_replica_relaxed():
     bytes_collected = int(gc_dict['bytes_collected'])
     env.assertGreater(bytes_collected, 0,
         message="GC should run on replica even when maxmemory is exceeded")
+
+
+# Regression for [MOD-15940](https://redislabs.atlassian.net/browse/MOD-15940)
+@skip(cluster=True)
+def testForkGCEmptyTagSuffixTrie_emptyValue_MOD_15996():
+    env = Env(moduleArgs='FORK_GC_CLEAN_THRESHOLD 0')
+    env.expect('FT.CREATE', 'idx', 'SCHEMA',
+               't', 'TAG', 'INDEXEMPTY', 'WITHSUFFIXTRIE').ok()
+    waitForIndex(env, 'idx')
+    env.cmd('HSET', 'doc1', 't', '')
+    env.expect('DEL', 'doc1').equal(1)
+    forceInvokeGC(env, 'idx')
+    env.expect('PING').equal(True)
+
