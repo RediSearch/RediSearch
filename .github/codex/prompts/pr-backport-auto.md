@@ -13,7 +13,20 @@ You do not need to install tools, switch accounts, or configure credentials.
 
 ## Read the context file
 
-Read `.github/codex/backport-context.json` from the working directory. It looks like:
+The workflow writes a small JSON file outside the working tree (in `$RUNNER_TEMP`)
+and passes its absolute path through the environment variable
+`$BACKPORT_CONTEXT_FILE`. **Read it from there**, not from the repo:
+
+```bash
+cat "$BACKPORT_CONTEXT_FILE"
+```
+
+Keeping the file out of the working tree is deliberate — it ensures the
+`git add -A` you run during cherry-pick conflict resolution (see below) cannot
+accidentally stage CI metadata into the backport commit. Do not copy the file
+into the repo for any reason.
+
+The file looks like:
 
 ```json
 {
@@ -33,8 +46,8 @@ Fields:
 - `url` — the original PR URL.
 - `targets` — the list of release branches to backport to, already deduplicated.
 
-If the file is missing or malformed, stop and print a one-line error. Do not push
-anything.
+If the file is missing or malformed, or `$BACKPORT_CONTEXT_FILE` is empty, stop
+and print a one-line error. Do not push anything.
 
 ## How this differs from the manual backport skill
 

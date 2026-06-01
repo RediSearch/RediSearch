@@ -10,8 +10,10 @@ name: Backport merged pull request (Codex agent)
 # Trigger ways:
 #   - PR is closed and merged with at least one `backport-<branch>-agent` label.
 #   - A `backport-<branch>-agent` label is added to an already-merged PR.
-#   - Someone with write access comments `/backport-agent` on a merged PR.
-#       Optional args: `/backport-agent 8.6 8.2` overrides the labels for this run.
+#   - A repo collaborator/member/owner comments `/auto-backport` on a merged PR.
+#       Optional args: `/auto-backport 8.6 8.2` overrides the labels for this run.
+#       The command intentionally does not share the `/backport` prefix with the
+#       legacy `task-backport_pr.yml` workflow.
 #
 # Behavior is defined by .github/codex/prompts/pr-backport-auto.md. This workflow
 # only resolves inputs, writes a small context file, and invokes Codex.
@@ -33,17 +35,22 @@ jobs:
     timeout-minutes: 60
 
     # Fire when:
-    #   * PR is closed and merged, OR
-    #   * A `backport-<branch>-agent`-style label is added to a merged PR, OR
-    #   * `/backport-agent` is commented on a PR by someone with write access.
+    #   * PR is closed and merged with at least one `backport-...-agent` label
+    #     (the JSON-serialized labels-array check is a coarse pre-filter; the
+    #     script step revalidates against `^backport-(.+)-agent$`).
+    #   * A `backport-<branch>-agent`-style label is added to a merged PR.
+    #   * A write-level user comments `/auto-backport` (and not the longer
+    #     `/auto-backport-fix` / `/auto-backport-context` sibling commands).
     #
-    # The label-shape check below is coarse (startsWith/endsWith); the script
-    # step revalidates against the precise `^backport-(.+)-agent$` regex.
+    # The `author_association` allow-list (OWNER/MEMBER/COLLABORATOR) is required
+    # because `!= 'NONE'` would also admit CONTRIBUTOR/FIRST_TIME_CONTRIBUTOR —
+    # users who merged a prior PR but do not have repo write access.
     if: >
       (
         github.event_name == 'pull_request_target' &&
         github.event.action == 'closed' &&
-        github.event.pull_request.merged
+        github.event.pull_request.merged &&
+        contains(toJSON(github.event.pull_request.labels.*.name), '"backport-')
       ) || (
         github.event_name == 'pull_request_target' &&
         github.event.action == 'labeled' &&
@@ -53,8 +60,9 @@ jobs:
       ) || (
         github.event_name == 'issue_comment' &&
         github.event.issue.pull_request &&
-        github.event.comment.author_association != 'NONE' &&
-        startsWith(github.event.comment.body, '/backport-agent')
+        contains(fromJSON('["OWNER","MEMBER","COLLABORATOR"]'), github.event.comment.author_association) &&
+        startsWith(github.event.comment.body, '/auto-backport') &&
+        !startsWith(github.event.comment.body, '/auto-backport-')
       )
 
     steps:
@@ -120,7 +128,7 @@ jobs:
           #    - pull_request_target closed:  all matching labels on the PR
           targets_json="[]"
           if [ "$EVENT_NAME" = "issue_comment" ]; then
-            args=$(printf '%s\n' "$COMMENT_BODY" | head -n1 | sed -E 's|^/backport-agent[[:space:]]*||')
+            args=$(printf '%s\n' "$COMMENT_BODY" | head -n1 | sed -E 's|^/auto-backport[[:space:]]*||')
             if [ -n "$args" ]; then
               targets_json=$(printf '%s\n' "$args" \
                 | tr ' \t,' '\n' \
@@ -134,10 +142,17 @@ jobs:
           fi
 
           if [ "$targets_json" = "[]" ]; then
-            targets_json=$(jq -r '.labels[].name' <<<"$pr_data" \
-              | grep -E '^backport-.+-agent$' \
-              | sed -E 's/^backport-(.+)-agent$/\1/' \
-              | jq -R . | jq -sc 'unique')
+            # Use jq-only filtering to avoid set -euo pipefail / grep-no-match
+            # crashes on unlabeled PRs. The previous version piped jq->grep->sed,
+            # which under pipefail aborted the script when grep produced no
+            # output, so every merged PR without a `backport-*-agent` label
+            # surfaced as a failed Actions run.
+            targets_json=$(jq -c '
+              [ .labels[].name
+                | capture("^backport-(?<t>.+)-agent$")
+                | .t ]
+              | unique
+            ' <<<"$pr_data")
           fi
 
           if [ "$targets_json" = "[]" ]; then
@@ -146,8 +161,11 @@ jobs:
             exit 0
           fi
 
-          # 4) Persist context for the Codex agent to read.
-          mkdir -p .github/codex
+          # 4) Persist context for the Codex agent to read. We write to
+          #    $RUNNER_TEMP rather than the workspace so the agent's
+          #    `git add -A` during cherry-pick conflict resolution can't
+          #    stage the context JSON into the backport commit.
+          context_file="${RUNNER_TEMP}/auto-backport-context.json"
           jq -nc \
             --argjson pr "$pr" \
             --arg sha "$sha" \
@@ -155,11 +173,14 @@ jobs:
             --arg url "$url" \
             --argjson targets "$targets_json" \
             '{pr: $pr, sha: $sha, title: $title, url: $url, targets: $targets}' \
-            > .github/codex/backport-context.json
+            > "$context_file"
 
-          echo "Resolved context:"
-          cat .github/codex/backport-context.json
-          echo "skip=false" >> "$GITHUB_OUTPUT"
+          echo "Resolved context (written to $context_file):"
+          cat "$context_file"
+          {
+            echo "skip=false"
+            echo "context_file=$context_file"
+          } >> "$GITHUB_OUTPUT"
 
       # TODO: Add BACKPORT_OPENAI_API_KEY as a repo secret (Settings -> Secrets and
       # variables -> Actions) before enabling this workflow. It is kept separate
@@ -173,6 +194,10 @@ jobs:
           # picks it up from GH_TOKEN; the checkout step has already wired the
           # remote to use it for git operations.
           GH_TOKEN: ${{ steps.generate-app-token.outputs.token }}
+          # The prompt reads this env var to find its context JSON. The file
+          # lives in $RUNNER_TEMP rather than the workspace so it can never be
+          # accidentally staged into a cherry-pick commit by `git add -A`.
+          BACKPORT_CONTEXT_FILE: ${{ steps.ctx.outputs.context_file }}
         with:
           openai-api-key: ${{ secrets.BACKPORT_OPENAI_API_KEY }}
           prompt-file: .github/codex/prompts/pr-backport-auto.md

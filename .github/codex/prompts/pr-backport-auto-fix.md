@@ -15,7 +15,19 @@ You do not need to install tools, switch accounts, or configure credentials.
 
 ## Read the context file
 
-Read `.github/codex/backport-fix-context.json` from the working directory:
+The workflow writes a small JSON file outside the working tree (in `$RUNNER_TEMP`)
+and passes its absolute path through the environment variable
+`$BACKPORT_FIX_CONTEXT_FILE`. **Read it from there**, not from the repo:
+
+```bash
+cat "$BACKPORT_FIX_CONTEXT_FILE"
+```
+
+Keeping the file out of the working tree is deliberate — your final `git add -A`
+must not accidentally stage CI log excerpts and backport metadata into the fix
+commit. Do not copy the file into the repo for any reason.
+
+The file looks like:
 
 ```json
 {
@@ -36,13 +48,14 @@ Read `.github/codex/backport-fix-context.json` from the working directory:
     }
   ],
   "context": [
-    "Free-form text from any /backport-agent-context comments on the PR,",
-    "plus any inline text the human supplied with /backport-agent-fix."
+    "Free-form text from any /auto-backport-context comments on the PR,",
+    "plus any inline text the human supplied with /auto-backport-fix."
   ]
 }
 ```
 
-If the file is missing or malformed, stop and print a one-line error. Do not push.
+If the file is missing or malformed, or `$BACKPORT_FIX_CONTEXT_FILE` is empty,
+stop and print a one-line error. Do not push.
 
 ## Decide whether you should act
 
