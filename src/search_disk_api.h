@@ -663,25 +663,26 @@ extern void VecSimDisk_AcquireConsistencyLock(void);
 extern void VecSimDisk_ReleaseConsistencyLock(void);
 
 // ---------------------------------------------------------------------------
-// Compaction debug pause-point (FT.DEBUG COMPACTION_CONTROLLER ...)
+// Fork × compaction debug coordinator (FT.DEBUG REPL_COMPACTION_COORDINATOR)
 //
-// Implemented on the Rust side in `redisearch_disk::compaction::debug`. A
-// single-shot pause-point is exposed:
-//   - `SetPauseInCompaction(true)` arms a pause inside
-//     `on_compaction_begin` *after* the fork rwlock has been taken. The
-//     parked thread auto-releases the gate after a bounded timeout so a
-//     main-thread `PRE_FORK` blocked on the gate can never deadlock.
-// `Resume()` releases the pause if one is currently parked.
-// `GetCompactionState()` returns one of:
-//     0 = running, 1 = paused_in_compaction
-// `ResetCompactionController()` clears any armed flags and releases any
-// parked waiters; intended for test teardown.
-// All entry points are no-ops if no flag is armed and are safe to call
-// from arbitrary threads.
+// Implemented on the Rust side in `redisearch_disk::compaction::debug`. Each
+// lifecycle site (compaction begin/completed, pre_checkpoint, pre_fork,
+// post_fork; `int` values matching `compaction::Site`) calls `reach` when it
+// executes. A test can:
+//   - `ArmPause(site, true)`  park a site when it is next reached.
+//   - `SetWake(trigger, target)`  release `target` when `trigger` is reached
+//       (the cross-wake that lets a main-thread site unblock a parked
+//       background compaction; target -1 clears the link).
+//   - `Release(site)`  release a parked site out-of-band.
+//   - `Reached(site)`  read the arrival count.
+//   - `ResetCompactionController()`  clear all state and free waiters.
+// All entry points are no-ops if nothing is armed and are safe to call from
+// arbitrary threads.
 // ---------------------------------------------------------------------------
-extern void SearchDisk_DebugSetPauseInCompaction(bool armed);
-extern void SearchDisk_DebugResumeCompaction(void);
-extern int  SearchDisk_DebugGetCompactionState(void);
+extern void SearchDisk_DebugCoordinatorArmPause(int site, bool armed);
+extern void SearchDisk_DebugCoordinatorSetWake(int trigger, int target);
+extern void SearchDisk_DebugCoordinatorRelease(int site);
+extern unsigned int SearchDisk_DebugCoordinatorReached(int site);
 extern void SearchDisk_DebugResetCompactionController(void);
 
 #ifdef __cplusplus

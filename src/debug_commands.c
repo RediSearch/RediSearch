@@ -2160,131 +2160,130 @@ DEBUG_COMMAND(debugScannerUpdateConfig) {
 
 
 // ----------------------------------------------------------------------------
-// FT.DEBUG COMPACTION_CONTROLLER ...
+// FT.DEBUG REPL_COMPACTION_COORDINATOR ...
 //
-// Test harness for the SpeedB compaction × replication interaction. The
-// pause-points themselves live in `redisearch_disk` (Rust) and are
-// reached via the symbols declared in `search_disk.h`. Both
-// SET_PAUSE_* subcommands are single-shot: the next compaction event
-// consumes the arm flag.
+// Test harness for the SpeedB compaction × SST-replication interaction. The
+// coordinator itself lives in `redisearch_disk` (Rust) and is reached via the
+// symbols declared in `search_disk.h`. Each lifecycle "site" can be paused,
+// cross-wired to release another site when reached, released out-of-band, and
+// polled for its arrival count. See redisearch_disk/src/compaction/debug.rs.
 // ----------------------------------------------------------------------------
 
-/**
- * FT.DEBUG COMPACTION_CONTROLLER SET_PAUSE_IN_COMPACTION <true/false>
- *
- * Arms a pause inside `on_compaction_begin` after the fork rwlock has
- * been taken in `Compaction_Started`.
- */
-DEBUG_COMMAND(setPauseInCompaction) {
-  if (!debugCommandsEnabled(ctx)) {
-    return RedisModule_ReplyWithError(ctx, NODEBUG_ERR);
-  }
-  if (argc != 3) {
-    return RedisModule_WrongArity(ctx);
-  }
-  const char* op = RedisModule_StringPtrLen(argv[2], NULL);
-  bool armed;
-  if (!strcasecmp(op, "true")) {
-    armed = true;
-  } else if (!strcasecmp(op, "false")) {
-    armed = false;
+// Maps a site name to its SearchDiskCompactionSite value. Returns 1 on
+// success, 0 if the name is unknown.
+static int parseCompactionSite(const char *name, int *out) {
+  if (!strcasecmp(name, "compaction_begin")) {
+    *out = SEARCH_DISK_SITE_COMPACTION_BEGIN;
+  } else if (!strcasecmp(name, "compaction_completed")) {
+    *out = SEARCH_DISK_SITE_COMPACTION_COMPLETED;
+  } else if (!strcasecmp(name, "pre_checkpoint")) {
+    *out = SEARCH_DISK_SITE_PRE_CHECKPOINT;
+  } else if (!strcasecmp(name, "pre_fork")) {
+    *out = SEARCH_DISK_SITE_PRE_FORK;
+  } else if (!strcasecmp(name, "post_fork")) {
+    *out = SEARCH_DISK_SITE_POST_FORK;
   } else {
-    return RedisModule_ReplyWithError(ctx, "Invalid argument for 'SET_PAUSE_IN_COMPACTION'");
+    return 0;
   }
-  globalDebugCtx.debugMode = true;
-  SearchDisk_DebugSetPauseInCompaction(armed);
-  validateDebugMode(&globalDebugCtx);
-  return RedisModule_ReplyWithSimpleString(ctx, "OK");
+  return 1;
 }
 
 /**
- * FT.DEBUG COMPACTION_CONTROLLER SET_RESUME true
+ * FT.DEBUG REPL_COMPACTION_COORDINATOR <command> [options]
  *
- * Releases the BG thread parked on the pause-point above. The argument is
- * required for symmetry with the BG_SCAN controller but only "true" is
- * accepted (resume has no "false").
- */
-DEBUG_COMMAND(setResumeCompaction) {
-  if (!debugCommandsEnabled(ctx)) {
-    return RedisModule_ReplyWithError(ctx, NODEBUG_ERR);
-  }
-  if (argc != 3) {
-    return RedisModule_WrongArity(ctx);
-  }
-  const char* op = RedisModule_StringPtrLen(argv[2], NULL);
-  if (strcasecmp(op, "true") != 0) {
-    return RedisModule_ReplyWithError(ctx, "Invalid argument for 'SET_RESUME' (only 'true' is accepted)");
-  }
-  SearchDisk_DebugResumeCompaction();
-  return RedisModule_ReplyWithSimpleString(ctx, "OK");
-}
-
-/**
- * FT.DEBUG COMPACTION_CONTROLLER GET_STATE
+ *   ARM_PAUSE <site> <true/false>      park <site> when next reached
+ *   WAKE_ON_REACH <trigger> <target>   reaching <trigger> releases <target>
+ *                                      (<target> may be "none" to clear)
+ *   RELEASE <site>                     release a parked <site> out-of-band
+ *   REACHED <site>                     -> integer arrival count
+ *   RESET                              clear all state, free waiters
  *
- * Returns the current compaction debug state:
- *   "running" | "paused_in_compaction"
+ * <site> is one of: compaction_begin, compaction_completed, pre_checkpoint,
+ * pre_fork, post_fork.
  */
-DEBUG_COMMAND(getCompactionState) {
-  if (!debugCommandsEnabled(ctx)) {
-    return RedisModule_ReplyWithError(ctx, NODEBUG_ERR);
-  }
-  if (argc != 2) {
-    return RedisModule_WrongArity(ctx);
-  }
-  static const char *names[] = {
-    "running",
-    "paused_in_compaction",
-  };
-  int state = SearchDisk_DebugGetCompactionState();
-  if (state < 0 || state >= (int)(sizeof(names) / sizeof(names[0]))) {
-    return RedisModule_ReplyWithError(ctx, "Invalid compaction debug state from Rust");
-  }
-  return RedisModule_ReplyWithSimpleString(ctx, names[state]);
-}
-
-/**
- * FT.DEBUG COMPACTION_CONTROLLER RESET
- *
- * Clears any armed flags and releases parked waiters. Test teardown
- * should call this so an unresumed pause from one scenario can't
- * deadlock the next.
- */
-DEBUG_COMMAND(resetCompactionController) {
-  if (!debugCommandsEnabled(ctx)) {
-    return RedisModule_ReplyWithError(ctx, NODEBUG_ERR);
-  }
-  if (argc != 2) {
-    return RedisModule_WrongArity(ctx);
-  }
-  SearchDisk_DebugResetCompactionController();
-  return RedisModule_ReplyWithSimpleString(ctx, "OK");
-}
-
-/**
- * FT.DEBUG COMPACTION_CONTROLLER <command> [options]
- */
-DEBUG_COMMAND(compactionController) {
+DEBUG_COMMAND(replCompactionCoordinator) {
   if (!debugCommandsEnabled(ctx)) {
     return RedisModule_ReplyWithError(ctx, NODEBUG_ERR);
   }
   if (argc < 3) {
     return RedisModule_WrongArity(ctx);
   }
-  const char* op = RedisModule_StringPtrLen(argv[2], NULL);
-  if (!strcasecmp("SET_PAUSE_IN_COMPACTION", op)) {
-    return setPauseInCompaction(ctx, argv + 1, argc - 1);
+  const char *op = RedisModule_StringPtrLen(argv[2], NULL);
+
+  if (!strcasecmp("ARM_PAUSE", op)) {
+    if (argc != 5) {
+      return RedisModule_WrongArity(ctx);
+    }
+    int site;
+    if (!parseCompactionSite(RedisModule_StringPtrLen(argv[3], NULL), &site)) {
+      return RedisModule_ReplyWithError(ctx, "Unknown site for 'ARM_PAUSE'");
+    }
+    const char *val = RedisModule_StringPtrLen(argv[4], NULL);
+    bool armed;
+    if (!strcasecmp(val, "true")) {
+      armed = true;
+    } else if (!strcasecmp(val, "false")) {
+      armed = false;
+    } else {
+      return RedisModule_ReplyWithError(ctx, "Invalid argument for 'ARM_PAUSE'");
+    }
+    globalDebugCtx.debugMode = true;
+    SearchDisk_DebugCoordinatorArmPause(site, armed);
+    validateDebugMode(&globalDebugCtx);
+    return RedisModule_ReplyWithSimpleString(ctx, "OK");
   }
-  if (!strcasecmp("SET_RESUME", op)) {
-    return setResumeCompaction(ctx, argv + 1, argc - 1);
+
+  if (!strcasecmp("WAKE_ON_REACH", op)) {
+    if (argc != 5) {
+      return RedisModule_WrongArity(ctx);
+    }
+    int trigger;
+    if (!parseCompactionSite(RedisModule_StringPtrLen(argv[3], NULL), &trigger)) {
+      return RedisModule_ReplyWithError(ctx, "Unknown trigger site for 'WAKE_ON_REACH'");
+    }
+    const char *targetName = RedisModule_StringPtrLen(argv[4], NULL);
+    int target = -1;
+    if (strcasecmp(targetName, "none") != 0 && !parseCompactionSite(targetName, &target)) {
+      return RedisModule_ReplyWithError(ctx, "Unknown target site for 'WAKE_ON_REACH'");
+    }
+    globalDebugCtx.debugMode = true;
+    SearchDisk_DebugCoordinatorSetWake(trigger, target);
+    validateDebugMode(&globalDebugCtx);
+    return RedisModule_ReplyWithSimpleString(ctx, "OK");
   }
-  if (!strcasecmp("GET_STATE", op)) {
-    return getCompactionState(ctx, argv + 1, argc - 1);
+
+  if (!strcasecmp("RELEASE", op)) {
+    if (argc != 4) {
+      return RedisModule_WrongArity(ctx);
+    }
+    int site;
+    if (!parseCompactionSite(RedisModule_StringPtrLen(argv[3], NULL), &site)) {
+      return RedisModule_ReplyWithError(ctx, "Unknown site for 'RELEASE'");
+    }
+    SearchDisk_DebugCoordinatorRelease(site);
+    return RedisModule_ReplyWithSimpleString(ctx, "OK");
   }
+
+  if (!strcasecmp("REACHED", op)) {
+    if (argc != 4) {
+      return RedisModule_WrongArity(ctx);
+    }
+    int site;
+    if (!parseCompactionSite(RedisModule_StringPtrLen(argv[3], NULL), &site)) {
+      return RedisModule_ReplyWithError(ctx, "Unknown site for 'REACHED'");
+    }
+    return RedisModule_ReplyWithLongLong(ctx, SearchDisk_DebugCoordinatorReached(site));
+  }
+
   if (!strcasecmp("RESET", op)) {
-    return resetCompactionController(ctx, argv + 1, argc - 1);
+    if (argc != 3) {
+      return RedisModule_WrongArity(ctx);
+    }
+    SearchDisk_DebugResetCompactionController();
+    return RedisModule_ReplyWithSimpleString(ctx, "OK");
   }
-  return RedisModule_ReplyWithError(ctx, "Invalid command for 'COMPACTION_CONTROLLER'");
+
+  return RedisModule_ReplyWithError(ctx, "Invalid command for 'REPL_COMPACTION_COORDINATOR'");
 }
 
 /**
@@ -3342,7 +3341,7 @@ DebugCommandType commands[] = {{"DUMP_INVIDX", DumpInvertedIndex}, // Print all 
                                {"WORKERS", WorkerThreadsSwitch},
                                {"COORD_THREADS", CoordThreadsSwitch},
                                {"BG_SCAN_CONTROLLER", bgScanController},
-                               {"COMPACTION_CONTROLLER", compactionController},
+                               {"REPL_COMPACTION_COORDINATOR", replCompactionCoordinator},
                                {"INDEXES", ListIndexesSwitch},
                                {"INFO", IndexObfuscatedInfo},
                                {"GET_HIDE_USER_DATA_FROM_LOGS", getHideUserDataFromLogs},

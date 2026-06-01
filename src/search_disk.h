@@ -620,48 +620,56 @@ void SearchDisk_ReplicationAbort(IndexSpec *sp);
 void SearchDisk_UpdateBufferBudget(RedisModuleCtx *ctx, int percentage);
 
 // ---------------------------------------------------------------------------
-// Debug pause-point (FT.DEBUG COMPACTION_CONTROLLER)
+// Fork × compaction debug coordinator (FT.DEBUG REPL_COMPACTION_COORDINATOR)
 // Declared via search_disk_api.h; redeclared here so debug_commands.c only
-// needs to include "search_disk.h".
+// needs to include "search_disk.h". See redisearch_disk/src/compaction/debug.rs
+// for semantics. Site values must match `compaction::Site`.
 // ---------------------------------------------------------------------------
 
-/**
- * @brief Arms or disarms the "pause in compaction" debug pause-point.
- *
- * When armed, the next SpeedB `on_compaction_begin` to fire on this
- * process will park its BG thread *after* `Compaction_Started` has taken
- * the fork rwlock but before any merge work proceeds. The arm flag is
- * single-shot: the parked thread consumes it.
- *
- * The parked thread auto-releases the fork gate after a bounded timeout, so
- * a `PRE_FORK` blocked on the gate from the main thread can never deadlock
- * waiting for a `SET_RESUME` it cannot process.
- *
- * @param armed `true` to arm, `false` to clear an unconsumed arm.
- */
-void SearchDisk_DebugSetPauseInCompaction(bool armed);
+// Lifecycle rendezvous sites; mirrors the Rust `compaction::Site` repr(i32).
+typedef enum {
+  SEARCH_DISK_SITE_COMPACTION_BEGIN = 0,
+  SEARCH_DISK_SITE_COMPACTION_COMPLETED = 1,
+  SEARCH_DISK_SITE_PRE_CHECKPOINT = 2,
+  SEARCH_DISK_SITE_PRE_FORK = 3,
+  SEARCH_DISK_SITE_POST_FORK = 4,
+} SearchDiskCompactionSite;
 
 /**
- * @brief Releases the compaction pause if one is currently parked.
+ * @brief Arms or disarms a single-shot pause at `site`.
  *
- * Safe to call when nothing is parked: the resume signal is only
- * consumed by a future `wait`.
+ * When armed, the next time that lifecycle site is reached its thread parks
+ * until released (by a cross-wake, an explicit release, or a bounded
+ * backstop timeout). The arm is consumed by the parked thread.
  */
-void SearchDisk_DebugResumeCompaction(void);
+void SearchDisk_DebugCoordinatorArmPause(int site, bool armed);
 
 /**
- * @brief Returns the current compaction debug state.
+ * @brief Configures a cross-wake: reaching `trigger` releases `target`.
  *
- * Returns one of:
- *   0 = running, 1 = paused_in_compaction
+ * This is what breaks the replication-vs-compaction deadlock — a main-thread
+ * site (e.g. PRE_CHECKPOINT) can release a background compaction it is about
+ * to block on. A `target` of -1 clears the link.
  */
-int SearchDisk_DebugGetCompactionState(void);
+void SearchDisk_DebugCoordinatorSetWake(int trigger, int target);
 
 /**
- * @brief Resets the compaction debug controller.
+ * @brief Releases a parked site (or pre-arms a release for the next park).
  *
- * Clears any armed flags and releases parked waiters. Intended for test
- * teardown so an unresumed pause from one scenario can't deadlock the
- * next.
+ * Safe to call when nothing is parked. Used for RDB-only replication, where
+ * the main thread is never blocked so a plain release works.
+ */
+void SearchDisk_DebugCoordinatorRelease(int site);
+
+/**
+ * @brief Returns how many times `site` has been reached since the last reset.
+ */
+unsigned int SearchDisk_DebugCoordinatorReached(int site);
+
+/**
+ * @brief Resets the coordinator.
+ *
+ * Clears arrivals, arming, and cross-wakes, and frees any parked waiter.
+ * Intended for test teardown so a stuck pause can't poison the next test.
  */
 void SearchDisk_DebugResetCompactionController(void);
