@@ -1956,7 +1956,6 @@ ResultProcessor *RPSafeDepleter_New(StrongRef sync_ref, RedisSearchCtx *depletin
   ret->base.Next = RPSafeDepleter_Next_Dispatch;
   ret->base.Free = RPSafeDepleter_Free;
   ret->base.type = RP_SAFE_DEPLETER;
-  ret->depletion_scheduled = false;
   ret->sync_ref = sync_ref;
   ret->depletingThreadCtx = depletingThreadCtx;
   ret->nextThreadCtx = nextThreadCtx;
@@ -2017,8 +2016,8 @@ static inline bool verifyInvariants(arrayof(ResultProcessor*) safeDepleters, Dep
     if (searchCtx && searchCtx != safeDepleter->nextThreadCtx) {
       return false;
     }
-    // Bulk launch requires all depleters to be in the fresh state — no Next
-    // call yet, no prior StartDepletion call.
+    // Bulk launch requires all depleters to be in the fresh unscheduled state —
+    // no Next call yet, no prior StartDepletion call.
     if (safeDepleter->depletion_scheduled) {
       return false;
     }
