@@ -17,7 +17,7 @@
 //! [`RdbError::InvalidUtf8`] rather than silently materializing as an
 //! ill-formed `String`.
 
-use crate::rdb::{self, RdbError, RdbOpts, RdbRead, RdbWrite, TrieEntry};
+use crate::rdb::{self, RdbError, RdbOpts, RdbRead, RdbWrite, TrieEntry, load_nul_terminated};
 use crate::str::StrTrieMap;
 
 /// Serialize a [`StrTrieMap<TrieEntry>`] to `writer` in the trie RDB wire
@@ -38,12 +38,12 @@ pub fn load<R: RdbRead>(reader: &mut R, opts: RdbOpts) -> Result<StrTrieMap<Trie
     let count = reader.load_u64()?;
     let mut map = StrTrieMap::new();
     for _ in 0..count {
-        let key_bytes = reader.load_bytes_strip_nul()?;
+        let key_bytes = load_nul_terminated(reader)?;
         let key = std::str::from_utf8(&key_bytes).map_err(|_| RdbError::InvalidUtf8)?;
         let score = reader.load_f64()?;
         let payload = opts
             .payloads
-            .then(|| reader.load_bytes_strip_nul())
+            .then(|| load_nul_terminated(reader))
             .transpose()?
             .filter(|b| !b.is_empty());
         let num_docs = if opts.num_docs {
@@ -83,11 +83,8 @@ mod tests {
         fn save_f64(&mut self, v: f64) {
             self.0.push(Op::F64(v));
         }
-        fn save_bytes_nul_terminated(&mut self, b: &[u8]) {
-            let mut buf = Vec::with_capacity(b.len() + 1);
-            buf.extend_from_slice(b);
-            buf.push(0);
-            self.0.push(Op::Bytes(buf));
+        fn save_bytes(&mut self, b: &[u8]) {
+            self.0.push(Op::Bytes(b.to_vec()));
         }
     }
 
@@ -117,14 +114,9 @@ mod tests {
                 op => panic!("mock: expected F64, got {op:?}"),
             }
         }
-        fn load_bytes_strip_nul(&mut self) -> Result<Vec<u8>, RdbError> {
+        fn load_bytes(&mut self) -> Result<Vec<u8>, RdbError> {
             match self.step()? {
-                Op::Bytes(mut v) => {
-                    if v.pop() != Some(0) {
-                        return Err(RdbError::MissingTrailingNul);
-                    }
-                    Ok(v)
-                }
+                Op::Bytes(v) => Ok(v),
                 op => panic!("mock: expected Bytes, got {op:?}"),
             }
         }

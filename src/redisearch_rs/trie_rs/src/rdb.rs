@@ -33,9 +33,11 @@
 //! buffer is `key.len() + 1` bytes long, matching C's
 //! `SaveStringBuffer(..., len + 1)`) and the loader strips one byte. Buffers
 //! that do not end in NUL are rejected with [`RdbError::MissingTrailingNul`].
-//! The NUL accounting is delegated to the
-//! [`RdbWrite::save_bytes_nul_terminated`] / [`RdbRead::load_bytes_strip_nul`]
-//! trait methods, so the algorithm body just passes raw key and payload slices.
+//! NUL framing is applied here in the algorithm body via [`save_nul_terminated`]
+//! and [`load_nul_terminated`]; the [`RdbWrite`] / [`RdbRead`] trait surface
+//! stays neutral — it just writes and reads raw length-prefixed buffers. A
+//! single scratch [`Vec<u8>`] is reused across every entry of a save, so the
+//! per-key NUL padding adds zero allocations after the first.
 //!
 //! # Empty-payload normalization
 //!
@@ -54,15 +56,22 @@ use crate::TrieMap;
 /// Serialize a [`TrieMap<TrieEntry>`] to `writer` in the trie RDB wire format.
 ///
 /// Iterates entries in lexicographic key order. Keys, and payloads when
-/// [`RdbOpts::payloads`] is set, are written with a trailing NUL
-/// byte to match the C wire format (the loader strips it back off).
+/// [`RdbOpts::payloads`] is set, are written with a trailing NUL byte to
+/// match the C wire format (the loader strips it back off). One scratch
+/// buffer is reused across all entries so the per-key NUL padding costs
+/// at most one allocation per save call.
 pub fn save<W: RdbWrite>(map: &TrieMap<TrieEntry>, writer: &mut W, opts: RdbOpts) {
     writer.save_u64(map.n_unique_keys() as u64);
+    let mut scratch = Vec::new();
     for (key, entry) in map.iter() {
-        writer.save_bytes_nul_terminated(&key);
+        save_nul_terminated(writer, &mut scratch, &key);
         writer.save_f64(entry.score);
         if opts.payloads {
-            writer.save_bytes_nul_terminated(entry.payload.as_deref().unwrap_or(&[]));
+            save_nul_terminated(
+                writer,
+                &mut scratch,
+                entry.payload.as_deref().unwrap_or(&[]),
+            );
         }
         if opts.num_docs {
             writer.save_u64(entry.num_docs);
@@ -81,11 +90,11 @@ pub fn load<R: RdbRead>(reader: &mut R, opts: RdbOpts) -> Result<TrieMap<TrieEnt
     let count = reader.load_u64()?;
     let mut map = TrieMap::new();
     for _ in 0..count {
-        let key = reader.load_bytes_strip_nul()?;
+        let key = load_nul_terminated(reader)?;
         let score = reader.load_f64()?;
         let payload = opts
             .payloads
-            .then(|| reader.load_bytes_strip_nul())
+            .then(|| load_nul_terminated(reader))
             .transpose()?
             .filter(|b| !b.is_empty());
         let num_docs = if opts.num_docs {
@@ -103,6 +112,33 @@ pub fn load<R: RdbRead>(reader: &mut R, opts: RdbOpts) -> Result<TrieMap<TrieEnt
         );
     }
     Ok(map)
+}
+
+/// Write `b` followed by one trailing NUL byte as a single length-prefixed
+/// record, reusing `scratch` as the temporary contiguous buffer. The saved
+/// buffer is `b.len() + 1` bytes long, matching the C wire format
+/// (`SaveStringBuffer(s, len + 1)`).
+///
+/// `scratch` is borrowed from the caller so one allocation can amortize
+/// across an entire save loop.
+pub(crate) fn save_nul_terminated<W: RdbWrite>(writer: &mut W, scratch: &mut Vec<u8>, b: &[u8]) {
+    scratch.clear();
+    scratch.reserve(b.len() + 1);
+    scratch.extend_from_slice(b);
+    scratch.push(0);
+    writer.save_bytes(scratch);
+}
+
+/// Read one length-prefixed buffer that is expected to end in a NUL byte
+/// and return its contents with the trailing NUL stripped. Returns
+/// [`RdbError::MissingTrailingNul`] when the wire buffer is empty or does
+/// not end in `0x00`.
+pub(crate) fn load_nul_terminated<R: RdbRead>(reader: &mut R) -> Result<Vec<u8>, RdbError> {
+    let mut buf = reader.load_bytes()?;
+    if buf.pop() != Some(0) {
+        return Err(RdbError::MissingTrailingNul);
+    }
+    Ok(buf)
 }
 
 /// Controls which optional fields are present on the wire.
@@ -150,13 +186,10 @@ pub trait RdbWrite {
     fn save_u64(&mut self, v: u64);
     /// Write a 64-bit IEEE-754 double.
     fn save_f64(&mut self, v: f64);
-    /// Write `b` followed by one trailing NUL byte as a single length-prefixed
-    /// buffer (the saved buffer is `b.len() + 1` bytes long).
-    ///
-    /// The trailing NUL is the wire format expected by the C trie loader
-    /// (`SaveStringBuffer(s, len + 1)`); centralizing it here keeps the
-    /// algorithm body free of NUL-padding bookkeeping.
-    fn save_bytes_nul_terminated(&mut self, b: &[u8]);
+    /// Write `b` as a single length-prefixed buffer. Any NUL padding the
+    /// wire format requires is applied by the caller before this is
+    /// invoked (see [`save_nul_terminated`]).
+    fn save_bytes(&mut self, b: &[u8]);
 }
 
 /// Source for the typed RDB load primitives.
@@ -167,12 +200,10 @@ pub trait RdbRead {
     fn load_u64(&mut self) -> Result<u64, RdbError>;
     /// Read a 64-bit IEEE-754 double.
     fn load_f64(&mut self) -> Result<f64, RdbError>;
-    /// Read a length-prefixed buffer that is expected to end in a NUL byte
-    /// and return its contents with the trailing NUL stripped.
-    ///
-    /// Returns [`RdbError::MissingTrailingNul`] when the wire buffer is
-    /// empty or does not end in `0x00`.
-    fn load_bytes_strip_nul(&mut self) -> Result<Vec<u8>, RdbError>;
+    /// Read one length-prefixed buffer and return its raw bytes. The caller
+    /// applies any trailing-NUL stripping the wire format requires (see
+    /// [`load_nul_terminated`]).
+    fn load_bytes(&mut self) -> Result<Vec<u8>, RdbError>;
 }
 
 /// Errors that can occur while reading a trie RDB payload.
@@ -210,11 +241,8 @@ mod tests {
         fn save_f64(&mut self, v: f64) {
             self.0.push(Op::F64(v));
         }
-        fn save_bytes_nul_terminated(&mut self, b: &[u8]) {
-            let mut buf = Vec::with_capacity(b.len() + 1);
-            buf.extend_from_slice(b);
-            buf.push(0);
-            self.0.push(Op::Bytes(buf));
+        fn save_bytes(&mut self, b: &[u8]) {
+            self.0.push(Op::Bytes(b.to_vec()));
         }
     }
 
@@ -265,14 +293,9 @@ mod tests {
                 op => panic!("mock: expected F64, got {op:?}"),
             }
         }
-        fn load_bytes_strip_nul(&mut self) -> Result<Vec<u8>, RdbError> {
+        fn load_bytes(&mut self) -> Result<Vec<u8>, RdbError> {
             match self.step()? {
-                Op::Bytes(mut v) => {
-                    if v.pop() != Some(0) {
-                        return Err(RdbError::MissingTrailingNul);
-                    }
-                    Ok(v)
-                }
+                Op::Bytes(v) => Ok(v),
                 op => panic!("mock: expected Bytes, got {op:?}"),
             }
         }
