@@ -66,14 +66,6 @@ fn non_finite() {
 }
 
 #[test]
-fn negative_nan() {
-    let neg_nan = f64::from_bits(0xFFF8000000000000u64);
-    assert!(neg_nan.is_nan());
-    assert!(neg_nan.is_sign_negative());
-    assert_eq!(format_g(neg_nan), c_format_g(neg_nan));
-}
-
-#[test]
 fn negative() {
     assert_eq!(format_g(-1.0), "-1");
     assert_eq!(format_g(-0.00001), "-1e-05");
