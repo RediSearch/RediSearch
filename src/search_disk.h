@@ -667,13 +667,6 @@ void SearchDisk_DebugCoordinatorRelease(int site);
 unsigned int SearchDisk_DebugCoordinatorReached(int site);
 
 /**
- * @brief Returns the global sequence number at which `site` was first reached
- * (0 if never). Lets a test assert cross-thread ordering, e.g. that an
- * in-flight compaction completed before the fork acquired the gate.
- */
-unsigned int SearchDisk_DebugCoordinatorReachedSeq(int site);
-
-/**
  * @brief Resets the coordinator.
  *
  * Clears arrivals, arming, and cross-wakes, and frees any parked waiter.

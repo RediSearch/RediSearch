@@ -2196,7 +2196,6 @@ static int parseCompactionSite(const char *name, int *out) {
  *                                      (<target> may be "none" to clear)
  *   RELEASE <site>                     release a parked <site> out-of-band
  *   REACHED <site>                     -> integer arrival count
- *   REACHED_SEQ <site>                 -> integer first-arrival order (0=never)
  *   RESET                              clear all state, free waiters
  *
  * <site> is one of: compaction_begin, compaction_completed, pre_checkpoint,
@@ -2274,17 +2273,6 @@ DEBUG_COMMAND(replCompactionCoordinator) {
       return RedisModule_ReplyWithError(ctx, "Unknown site for 'REACHED'");
     }
     return RedisModule_ReplyWithLongLong(ctx, SearchDisk_DebugCoordinatorReached(site));
-  }
-
-  if (!strcasecmp("REACHED_SEQ", op)) {
-    if (argc != 4) {
-      return RedisModule_WrongArity(ctx);
-    }
-    int site;
-    if (!parseCompactionSite(RedisModule_StringPtrLen(argv[3], NULL), &site)) {
-      return RedisModule_ReplyWithError(ctx, "Unknown site for 'REACHED_SEQ'");
-    }
-    return RedisModule_ReplyWithLongLong(ctx, SearchDisk_DebugCoordinatorReachedSeq(site));
   }
 
   if (!strcasecmp("RESET", op)) {
