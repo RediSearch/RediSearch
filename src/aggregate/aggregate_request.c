@@ -1773,11 +1773,7 @@ int AREQ_BuildPipelineWithAggregationParams(AREQ *req,
       return REDISMODULE_ERR;
     }
   }
-  int rc = Pipeline_BuildAggregationPart(&req->pipeline, aggregationParams, &req->stateflags);
-  if (rc == REDISMODULE_OK) {
-    AREQ_SetCanYieldPartialResults(req);
-  }
-  return rc;
+  return Pipeline_BuildAggregationPart(&req->pipeline, aggregationParams, &req->stateflags);
 }
 
 int AREQ_BuildPipeline(AREQ *req, QueryError *status) {
