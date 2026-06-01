@@ -159,7 +159,9 @@ jobs:
       - name: install build artifacts req
         uses: ./.github/actions/retry-command
         with:
-          command: uv pip install -q -r .install/build_package_requirements.txt
+          command: |
+            export UV_VENV_CLEAR=1
+            uv pip install -q -r .install/build_package_requirements.txt
 
       - name: Build Redis (cached)
         uses: ./.github/actions/build-redis
