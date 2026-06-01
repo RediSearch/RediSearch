@@ -231,6 +231,38 @@ fn run_c(
     }
 }
 
+/// Validate that both sides produce the expected result count before the timed
+/// loop starts.  Catches iterator bugs, shim error paths, and mode mismatches
+/// that would otherwise silently corrupt the Rust/C timing comparison.
+fn preflight(
+    index: *mut VecSimIndex,
+    query: &[f32],
+    k: NonZeroUsize,
+    ids: &[u64],
+    rust_mode: TopKMode,
+    force_adhoc: bool,
+) {
+    let expected = k.get().min(ids.len());
+
+    let rust_count = run_rust(index, query, k, ids, rust_mode);
+    assert_eq!(
+        rust_count,
+        expected,
+        "Rust iterator produced {rust_count} results (expected {expected}) \
+         for k={k}, ids.len()={len}, mode={rust_mode:?}",
+        len = ids.len()
+    );
+
+    let c_count = run_c(index, query, k, ids, force_adhoc);
+    assert_eq!(
+        c_count,
+        expected,
+        "C shim produced {c_count} results (expected {expected}) \
+         for k={k}, ids.len()={len}, force_adhoc={force_adhoc}",
+        len = ids.len()
+    );
+}
+
 // ── Batches ────────────────────────────────────────────────────────────────
 
 fn bench_batches(c: &mut Criterion) {
@@ -249,6 +281,8 @@ fn bench_batches(c: &mut Criterion) {
                 .collect();
             let query = random_query(99);
             let param_str = format!("n{n}_k{k}");
+
+            preflight(index, &query, k, &ids, TopKMode::ForcedBatches, false);
 
             group.bench_with_input(BenchmarkId::new("rust", &param_str), &(n, k), |b, _| {
                 b.iter(|| black_box(run_rust(index, &query, k, &ids, TopKMode::ForcedBatches)))
@@ -283,6 +317,8 @@ fn bench_adhoc(c: &mut Criterion) {
                 .collect();
             let query = random_query(7);
             let param_str = format!("n{n}_k{k}");
+
+            preflight(index, &query, k, &ids, TopKMode::AdhocBF, true);
 
             group.bench_with_input(BenchmarkId::new("rust", &param_str), &(n, k), |b, _| {
                 b.iter(|| black_box(run_rust(index, &query, k, &ids, TopKMode::AdhocBF)))
