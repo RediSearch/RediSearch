@@ -18,6 +18,7 @@ use std::{
 
 use inverted_index::NumericFilter;
 use query_node_type::QueryNodeType;
+use rqe_core::DocId;
 
 /// Owns a heap-allocated [`ffi::RSQueryNode`].
 ///
@@ -184,6 +185,33 @@ impl MockQueryNode {
             assert!(!arr.is_null());
             std::ptr::copy_nonoverlapping(children.as_ptr(), arr, children.len());
             (*self.node).children = arr;
+        }
+    }
+
+    /// Set the fields of the IDs-node union variant.
+    ///
+    /// `keys` and `doc_ids` must outlive this `MockQueryNode`.
+    pub fn set_ids(&mut self, keys: *const ffi::sds, doc_ids: *mut DocId, len: usize) {
+        // SAFETY: `self.node` is valid and exclusively owned; the caller
+        // guarantees the node type is Ids so the `fn` variant is active.
+        unsafe {
+            let union_ptr = &raw mut (*self.node).__bindgen_anon_1;
+            let ids = &mut *union_ptr.cast::<ffi::QueryIdFilterNode>();
+            ids.keys = keys;
+            ids.docIds = doc_ids;
+            ids.len = len;
+        }
+    }
+
+    /// Set the `field` pointer of the missing-node union variant.
+    ///
+    /// `field` must outlive this `MockQueryNode`.
+    pub fn set_missing_field(&mut self, field: *const ffi::FieldSpec) {
+        // SAFETY: `self.node` is valid and exclusively owned; the caller
+        // guarantees the node type is Missing so the `miss` variant is active.
+        unsafe {
+            let union_ptr = &raw mut (*self.node).__bindgen_anon_1;
+            (*union_ptr.cast::<ffi::QueryMissingNode>()).field = field.cast_mut();
         }
     }
 }

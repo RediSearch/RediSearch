@@ -25,6 +25,7 @@ use rqe_iterators::IteratorsConfig;
 /// `rqe_iterators_test_utils::MockContext` for the rationale).
 pub struct MockQueryEvalCtx {
     sctx: *mut ffi::RedisSearchCtx,
+    spec: *mut ffi::IndexSpec,
     opts: *mut ffi::RSSearchOptions,
     status: *mut QueryError,
     metric_requests_inner: *mut rlookup::MetricRequest<'static>,
@@ -40,6 +41,7 @@ impl Drop for MockQueryEvalCtx {
         // exclusively owned by this struct; layouts match those used at
         // allocation time.
         unsafe {
+            dealloc(self.spec.cast(), Layout::new::<ffi::IndexSpec>());
             dealloc(self.sctx.cast(), Layout::new::<ffi::RedisSearchCtx>());
             dealloc(self.opts.cast(), Layout::new::<ffi::RSSearchOptions>());
             drop(Box::from_raw(self.status));
@@ -67,9 +69,14 @@ impl MockQueryEvalCtx {
         // SAFETY: all allocations are zeroed and non-null-checked; pointer
         // fields are immediately initialised to valid, owned allocations.
         unsafe {
+            let spec = alloc_zeroed(Layout::new::<ffi::IndexSpec>()).cast::<ffi::IndexSpec>();
+            assert!(!spec.is_null());
+
             let sctx =
                 alloc_zeroed(Layout::new::<ffi::RedisSearchCtx>()).cast::<ffi::RedisSearchCtx>();
             assert!(!sctx.is_null());
+
+            (*sctx).spec = spec;
 
             let opts =
                 alloc_zeroed(Layout::new::<ffi::RSSearchOptions>()).cast::<ffi::RSSearchOptions>();
@@ -116,6 +123,7 @@ impl MockQueryEvalCtx {
 
             Self {
                 sctx,
+                spec,
                 opts,
                 status,
                 metric_requests_inner,
@@ -141,5 +149,20 @@ impl MockQueryEvalCtx {
 
     pub fn doc_table_ptr(&self) -> *mut ffi::DocTable {
         self.doc_table
+    }
+
+    pub fn set_max_doc_id(&mut self, max_doc_id: rqe_core::DocId) {
+        // SAFETY: `self.doc_table` is a valid, exclusively-owned allocation.
+        unsafe { (*self.doc_table).maxDocId = max_doc_id }
+    }
+
+    /// Set `spec.diskSpec` to a non-null sentinel so that
+    /// `!spec.diskSpec.is_null()` holds (simulating search-on-disk mode).
+    ///
+    /// The pointer is dangling — only use this for code paths that check
+    /// the pointer for null but never dereference it.
+    pub fn enable_disk_mode(&mut self) {
+        // SAFETY: `self.spec` is a valid, exclusively-owned allocation.
+        unsafe { (*self.spec).diskSpec = std::ptr::NonNull::dangling().as_ptr() }
     }
 }
