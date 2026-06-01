@@ -863,9 +863,8 @@ static void HybridDispatchCtx_Tail(void *arg) {
     CurrentThread_SetIndexSpec(dispatch->indexSpecRef);
 
     // If timeout fired between dispatch and tail pickup, the timeout callback
-    // already replied. We still must drain depleters before teardown — they
-    // were submitted by scheduleDepleters and are running on coord-pool workers
-    // that touch hreq's pipeline.
+    // already replied — skip the reply path, but still drain depleters before
+    // teardown (see waitForDepleters).
     if (CoordRequestCtx_TimedOut(reqCtx)) {
         waitForDepleters(hreq);
         CurrentThread_ClearIndexSpec();
@@ -894,11 +893,6 @@ static void HybridDispatchCtx_Tail(void *arg) {
     hreq->sctx->redisCtx = NULL;
     RedisModule_FreeThreadSafeContext(replyCtx);
 
-    // Belt-and-braces: sendChunk_hybrid normally drains depleters via the
-    // merger's cv-wait, but its own internal early-bailout paths
-    // (HybridRequest_TimedOut checks before/after startPipelineHybrid) can
-    // skip the merger. Wait here so HybridDispatchCtx_Free can safely tear
-    // down hreq.
     waitForDepleters(hreq);
 
     CurrentThread_ClearIndexSpec();
@@ -1042,9 +1036,6 @@ void RSExecDistHybrid(RedisModuleCtx *ctx, RedisModuleString **argv, int argc,
         return;
     }
 
-    // Schedule depleter jobs to the coord pool, then schedule the tail. FIFO
-    // ordering ensures depleters are picked up first; the tail's cv-wait on
-    // their completion can therefore always make progress.
     scheduleDepleters(hreq);
     scheduleHybridTail(hreq, strong_ref, cmdCtx, &status);
 

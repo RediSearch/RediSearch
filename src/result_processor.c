@@ -1968,13 +1968,6 @@ ResultProcessor *RPSafeDepleter_New(StrongRef sync_ref, RedisSearchCtx *depletin
   return &ret->base;
 }
 
-/**
- * Schedule this depleter to its thread pool. After this call, subsequent
- * Next() calls will skip the lazy-start branch and proceed directly to the
- * wait-for-completion path. Used by the coordinator's split pipeline so that
- * depleter jobs are queued ahead of the tail continuation, ensuring FIFO
- * ordering on the shared coord pool. (See scheduleDepleters and scheduleHybridMerger.)
- */
 void RPSafeDepleter_StartDepletion(ResultProcessor *base) {
   RS_ASSERT(base->type == RP_SAFE_DEPLETER);
   RPSafeDepleter *self = (RPSafeDepleter *)base;
@@ -1993,19 +1986,6 @@ void RPSafeDepleter_StartDepletion(ResultProcessor *base) {
   RPSafeDepleter_StartDepletionThread(self);
 }
 
-/**
- * Block until this depleter's background depletion job has signaled completion.
- *
- * Idempotent and side-effect-free with respect to the result-processor state:
- * does not flip `Next` to Yield, does not consume results. Safe to call:
- *   - after `RPSafeDepleter_StartDepletion` to wait for that scheduled job; or
- *   - on a depleter that was never started (returns immediately); or
- *   - on a depleter that has already completed (returns immediately).
- *
- * Used by callers that need to ensure no background depletion is still in
- * flight before tearing down resources the depleter may be touching (e.g. the
- * parent HybridRequest and its RPNet upstream).
- */
 void RPSafeDepleter_WaitForCompletion(ResultProcessor *base) {
   RS_ASSERT(base->type == RP_SAFE_DEPLETER);
   const RPSafeDepleter *self = (RPSafeDepleter *)base;
