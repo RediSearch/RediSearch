@@ -14,10 +14,10 @@ use lending_iterator::prelude::*;
 /// in lexicographical order.
 ///
 /// Unlike [`ContainsIter`], this iterator lets you borrow the current key, rather than having to clone it.
-pub struct ContainsLendingIter<'tm, Data>(ContainsIter<'tm, Data>);
+pub struct ContainsLendingIter<'tm, 't, Data>(ContainsIter<'tm, 't, Data>);
 
-impl<'tm, Data> From<ContainsIter<'tm, Data>> for ContainsLendingIter<'tm, Data> {
-    fn from(iter: ContainsIter<'tm, Data>) -> Self {
+impl<'tm, 't, Data> From<ContainsIter<'tm, 't, Data>> for ContainsLendingIter<'tm, 't, Data> {
+    fn from(iter: ContainsIter<'tm, 't, Data>) -> Self {
         ContainsLendingIter(iter)
     }
 }
@@ -29,7 +29,7 @@ impl<'tm, Data> From<ContainsIter<'tm, Data>> for ContainsLendingIter<'tm, Data>
 //
 // Why do we need a crate? Well: <https://sabrinajewson.org/blog/the-better-alternative-to-lifetime-gats>
 #[gat]
-impl<'tm, Data> LendingIterator for ContainsLendingIter<'tm, Data> {
+impl<'tm, 't, Data> LendingIterator for ContainsLendingIter<'tm, 't, Data> {
     type Item<'next>
     where
         Self: 'next,
