@@ -9,7 +9,8 @@
 
 use std::ptr::NonNull;
 
-use ffi::{QueryEvalCtx, QueryIterator, t_docId};
+use ffi::{QueryEvalCtx, QueryIterator};
+use rqe_core::DocId;
 use rqe_iterators::c2rust::CRQEIterator;
 use rqe_iterators::interop::RQEIteratorWrapper;
 use rqe_iterators::optional_reducer::{
@@ -32,7 +33,7 @@ use rqe_iterators::optional_reducer::{
 pub unsafe extern "C" fn NewOptionalIterator(
     child: *mut QueryIterator,
     q: *mut QueryEvalCtx,
-    max_doc_id: t_docId,
+    max_doc_id: DocId,
     weight: f64,
 ) -> *mut QueryIterator {
     let query = NonNull::new(q).expect("q is null");

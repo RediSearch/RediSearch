@@ -14,8 +14,9 @@ use crate::{
     DecodedBy, Decoder, Encoder, HasInnerIndex, InvertedIndex, NumericDecoder, TermDecoder,
     index::unique_id::IndexUniqueId, opaque::OpaqueEncoding,
 };
-use ffi::{IndexFlags, IndexFlags_Index_HasMultiValue, t_docId};
+use ffi::{IndexFlags, IndexFlags_Index_HasMultiValue};
 use index_result::RSIndexResult;
+use rqe_core::DocId;
 
 /// Reader that is able to read the records from an [`InvertedIndex`]
 pub struct IndexReaderCore<'index, E> {
@@ -32,7 +33,7 @@ pub struct IndexReaderCore<'index, E> {
 
     /// The last document ID that was read from the index. This is used to determine the base
     /// document ID for delta calculations.
-    pub(crate) last_doc_id: t_docId,
+    pub(crate) last_doc_id: DocId,
 
     /// The marker of the inverted index when this reader last read from it. This is used to
     /// detect if the index has been modified since the last read, in which case the reader
@@ -90,7 +91,7 @@ impl<'index, E: DecodedBy<Decoder = D>, D: Decoder> IndexReader<'index>
     #[inline(always)]
     fn seek_record(
         &mut self,
-        doc_id: t_docId,
+        doc_id: DocId,
         result: &mut RSIndexResult<'index>,
     ) -> std::io::Result<bool> {
         if !self.skip_to(doc_id) {
@@ -107,7 +108,7 @@ impl<'index, E: DecodedBy<Decoder = D>, D: Decoder> IndexReader<'index>
         Ok(success)
     }
 
-    fn skip_to(&mut self, doc_id: t_docId) -> bool {
+    fn skip_to(&mut self, doc_id: DocId) -> bool {
         if self.ii.blocks.is_empty() {
             return false;
         }

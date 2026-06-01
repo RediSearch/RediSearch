@@ -390,12 +390,13 @@ fn tag_with_query_term() {
     use ffi::IndexFlags_Index_DocIdsOnly;
     use inverted_index::doc_ids_only::DocIdsOnly;
     use query_term::RSQueryTerm;
+    use rqe_core::RS_FIELDMASK_ALL;
 
     let mut replier = init();
     let mut ii = inverted_index::InvertedIndex::<DocIdsOnly>::new(IndexFlags_Index_DocIdsOnly);
     let record = index_result::RSIndexResult::build_term()
         .doc_id(1)
-        .field_mask(ffi::RS_FIELDMASK_ALL)
+        .field_mask(RS_FIELDMASK_ALL)
         .build();
     ii.add_record(&record).expect("add_record");
     let mock_ctx = rqe_iterators_test_utils::MockContext::new(1, 1);

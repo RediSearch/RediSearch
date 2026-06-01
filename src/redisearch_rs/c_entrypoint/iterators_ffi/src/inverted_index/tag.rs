@@ -11,9 +11,8 @@ use std::{fmt::Debug, ptr::NonNull};
 
 use field::{FieldExpirationPredicate, FieldFilterContext, FieldMaskOrIndex};
 use index_result::{RSIndexResult, RSQueryTerm};
-use inverted_index::{
-    DocId, IndexReader, doc_ids_only::DocIdsOnly, raw_doc_ids_only::RawDocIdsOnly,
-};
+use inverted_index::{IndexReader, doc_ids_only::DocIdsOnly, raw_doc_ids_only::RawDocIdsOnly};
+use rqe_core::DocId;
 use rqe_iterators::{
     FieldExpirationChecker, IteratorType, interop::RQEIteratorWrapper, inverted_index::Tag,
     profile_print,

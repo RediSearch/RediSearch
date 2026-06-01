@@ -11,9 +11,9 @@ use ffi::{
     IteratorStatus, IteratorStatus_ITERATOR_EOF, IteratorStatus_ITERATOR_NOTFOUND,
     IteratorStatus_ITERATOR_OK, IteratorStatus_ITERATOR_TIMEOUT, QueryIterator, ValidateStatus,
     ValidateStatus_VALIDATE_ABORTED, ValidateStatus_VALIDATE_MOVED, ValidateStatus_VALIDATE_OK,
-    t_docId,
 };
 use index_result::RSIndexResult;
+use rqe_core::DocId;
 
 use crate::{
     RQEIterator, RQEIteratorError, RQEValidateStatus, SkipToOutcome, profile_print::ProfilePrint,
@@ -250,7 +250,7 @@ extern "C" fn read<'index, I: RQEIterator<'index> + 'index>(
 
 extern "C" fn skip_to<'index, I: RQEIterator<'index> + 'index>(
     base: *mut QueryIterator,
-    doc_id: t_docId,
+    doc_id: DocId,
 ) -> IteratorStatus {
     debug_assert!(!base.is_null());
     debug_assert!(base.is_aligned());

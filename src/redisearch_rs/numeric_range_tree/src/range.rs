@@ -13,10 +13,10 @@
 //! document-value entries in an inverted index format. Ranges track their
 //! value bounds and estimate cardinality using HyperLogLog.
 
-use ffi::t_docId;
 use hyperloglog::{HyperLogLog6, WyHasher};
 use index_result::RSIndexResult;
 use inverted_index::IndexReader as _;
+use rqe_core::DocId;
 
 use crate::index::{NumericIndex, NumericIndexReader};
 
@@ -99,7 +99,7 @@ impl NumericRange {
     /// write created.
     ///
     /// [`AddRecordOutcome`]: inverted_index::AddRecordOutcome
-    pub fn add(&mut self, doc_id: t_docId, value: f64) -> inverted_index::AddRecordOutcome {
+    pub fn add(&mut self, doc_id: DocId, value: f64) -> inverted_index::AddRecordOutcome {
         self.hll.add(&value.into());
         self.add_without_cardinality(doc_id, value)
     }
@@ -118,7 +118,7 @@ impl NumericRange {
     ///   explicitly updates cardinality for each destination range.
     pub fn add_without_cardinality(
         &mut self,
-        doc_id: t_docId,
+        doc_id: DocId,
         value: f64,
     ) -> inverted_index::AddRecordOutcome {
         // Update bounds

@@ -9,8 +9,8 @@
 
 //! Utilities used only in tests and benchmarks.
 
-use ffi::t_fieldMask;
 use query_term::RSQueryTerm;
+use rqe_core::FieldMask;
 
 use index_result::{RSIndexResult, RSOffsetSlice};
 
@@ -23,7 +23,7 @@ pub struct TestTermRecord<'index> {
 
 impl<'a> TestTermRecord<'a> {
     /// Create a new `TestTermRecord` with the given parameters.
-    pub fn new(doc_id: u64, field_mask: t_fieldMask, freq: u32, offsets: &'a [u8]) -> Self {
+    pub fn new(doc_id: u64, field_mask: FieldMask, freq: u32, offsets: &'a [u8]) -> Self {
         let mut term = RSQueryTerm::new("test", 1, 0);
         term.set_idf(5.0);
         term.set_bm25_idf(10.0);

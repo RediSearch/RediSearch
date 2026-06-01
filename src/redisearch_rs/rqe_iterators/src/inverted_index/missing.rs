@@ -12,10 +12,11 @@ use std::{
     ptr::NonNull,
 };
 
-use ffi::{RedisSearchCtx, t_docId, t_fieldIndex};
+use ffi::RedisSearchCtx;
 use index_result::RSIndexResult;
 use index_spec::IndexSpecReadGuard;
 use inverted_index::{DecodedBy, DocIdsDecoder, IndexReaderCore, opaque::OpaqueEncoding};
+use rqe_core::{DocId, FieldIndex, RS_FIELDMASK_ALL};
 
 use crate::{
     ExpirationChecker, IteratorType, RQEIterator, RQEIteratorError, RQEValidateStatus,
@@ -42,7 +43,7 @@ use super::InvIndIterator;
 /// * `C` - The expiration checker type.
 pub struct Missing<'index, E: DecodedBy, C = crate::expiration_checker::NoOpChecker> {
     it: InvIndIterator<'index, IndexReaderCore<'index, E>, C>,
-    field_index: t_fieldIndex,
+    field_index: FieldIndex,
     /// Owned copy of the field name, extracted from the spec at construction
     /// time. Owning the string means the iterator no longer borrows from
     /// `spec.fields`, therefore `context`/`spec` only need to be valid at
@@ -74,7 +75,7 @@ where
     pub unsafe fn new(
         reader: IndexReaderCore<'index, E>,
         context: NonNull<RedisSearchCtx>,
-        field_index: t_fieldIndex,
+        field_index: FieldIndex,
         expiration_checker: C,
     ) -> Self {
         debug_assert!(
@@ -84,7 +85,7 @@ where
         );
         let result = RSIndexResult::build_virt()
             .weight(0.0)
-            .field_mask(ffi::RS_FIELDMASK_ALL)
+            .field_mask(RS_FIELDMASK_ALL)
             .frequency(1)
             .build();
 
@@ -190,7 +191,7 @@ where
     #[inline(always)]
     fn skip_to(
         &mut self,
-        doc_id: t_docId,
+        doc_id: DocId,
     ) -> Result<Option<SkipToOutcome<'_, 'index>>, RQEIteratorError> {
         self.it.skip_to(doc_id)
     }
@@ -206,7 +207,7 @@ where
     }
 
     #[inline(always)]
-    fn last_doc_id(&self) -> t_docId {
+    fn last_doc_id(&self) -> DocId {
         self.it.last_doc_id()
     }
 

@@ -11,6 +11,8 @@
 
 use std::{cmp::Ordering, num::NonZeroUsize};
 
+use rqe_core::DocId;
+
 use index_result::RSIndexResult;
 use index_spec::IndexSpecReadGuard;
 use rqe_iterators::{IdList, RQEIterator, RQEIteratorError};
@@ -40,7 +42,7 @@ impl<'index> rqe_iterators::RQEIterator<'index> for AbortOnRevalidate {
 
     fn skip_to(
         &mut self,
-        _doc_id: ffi::t_docId,
+        _doc_id: DocId,
     ) -> Result<Option<rqe_iterators::SkipToOutcome<'_, 'index>>, rqe_iterators::RQEIteratorError>
     {
         unimplemented!()
@@ -59,7 +61,7 @@ impl<'index> rqe_iterators::RQEIterator<'index> for AbortOnRevalidate {
         0
     }
 
-    fn last_doc_id(&self) -> ffi::t_docId {
+    fn last_doc_id(&self) -> DocId {
         0
     }
 
@@ -94,7 +96,7 @@ impl ScoreSource for TimingOutSource {
 
     fn rewind(&mut self) {}
 
-    fn build_result<'r>(&self, doc_id: ffi::t_docId, _: f64) -> RSIndexResult<'r>
+    fn build_result<'r>(&self, doc_id: DocId, _: f64) -> RSIndexResult<'r>
     where
         Self: 'r,
     {
@@ -117,7 +119,7 @@ fn asc(a: f64, b: f64) -> Ordering {
     a.partial_cmp(&b).unwrap_or(Ordering::Equal)
 }
 
-fn make_child<'a>(ids: Vec<ffi::t_docId>) -> Box<dyn RQEIterator<'a> + 'a> {
+fn make_child<'a>(ids: Vec<DocId>) -> Box<dyn RQEIterator<'a> + 'a> {
     Box::new(IdList::<true>::new(ids))
 }
 
@@ -391,7 +393,7 @@ fn rewind_after_mid_collect_error_does_not_retain_stale_heap() {
             self.rewind_count += 1;
         }
 
-        fn build_result<'r>(&self, doc_id: ffi::t_docId, _: f64) -> RSIndexResult<'r>
+        fn build_result<'r>(&self, doc_id: DocId, _: f64) -> RSIndexResult<'r>
         where
             Self: 'r,
         {

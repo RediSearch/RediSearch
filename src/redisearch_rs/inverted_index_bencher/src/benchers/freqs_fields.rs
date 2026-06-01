@@ -10,13 +10,13 @@
 use std::{hint::black_box, io::Cursor, vec};
 
 use criterion::{BatchSize, Criterion};
-use ffi::t_fieldMask;
 use index_result::RSIndexResult;
 use inverted_index::{
     Decoder, Encoder,
     freqs_fields::{FreqsFields, FreqsFieldsWide},
 };
 use itertools::Itertools;
+use rqe_core::FieldMask;
 
 pub struct Bencher {
     test_values: Vec<TestValue>,
@@ -27,7 +27,7 @@ pub struct Bencher {
 struct TestValue {
     delta: u32,
     freq: u32,
-    field_mask: t_fieldMask,
+    field_mask: FieldMask,
 
     encoded: Vec<u8>,
 }
@@ -46,13 +46,12 @@ impl Bencher {
     fn new(wide: bool) -> Self {
         let freq_values = vec![0, 2, 256, u16::MAX as u32, u32::MAX];
         let deltas = vec![0, 1, 256, 65536, u16::MAX as u32, u32::MAX];
-        let mut field_masks_values =
-            vec![0, 1, 10, 100, 1_000, 10_000, u32::MAX as t_fieldMask - 1];
+        let mut field_masks_values = vec![0, 1, 10, 100, 1_000, 10_000, u32::MAX as FieldMask - 1];
         // field mask larger than 32 bits are only supported on 64-bit systems
         #[cfg(target_pointer_width = "64")]
         if wide {
             // Add a larger field mask for wide mode
-            field_masks_values.extend(vec![u32::MAX as t_fieldMask, u128::MAX]);
+            field_masks_values.extend(vec![u32::MAX as FieldMask, u128::MAX]);
         }
 
         let test_values = freq_values

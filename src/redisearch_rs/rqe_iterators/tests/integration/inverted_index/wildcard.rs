@@ -9,9 +9,10 @@
 
 //! Tests for the wildcard inverted index iterator.
 
-use ffi::{IndexFlags_Index_DocIdsOnly, RS_FIELDMASK_ALL, t_docId};
+use ffi::IndexFlags_Index_DocIdsOnly;
 use index_result::RSIndexResult;
 use inverted_index::doc_ids_only::DocIdsOnly;
+use rqe_core::{DocId, RS_FIELDMASK_ALL};
 use rqe_iterators::{IteratorType, RQEIterator, inverted_index::Wildcard};
 
 use crate::inverted_index::utils::BaseTest;
@@ -21,7 +22,7 @@ pub struct WildcardBaseTest {
 }
 
 impl WildcardBaseTest {
-    fn expected_record(doc_id: t_docId) -> RSIndexResult<'static> {
+    fn expected_record(doc_id: DocId) -> RSIndexResult<'static> {
         RSIndexResult::build_virt()
             .doc_id(doc_id)
             .field_mask(RS_FIELDMASK_ALL)
@@ -89,7 +90,7 @@ mod not_miri {
     }
 
     impl WildcardRevalidateTest {
-        fn expected_record(doc_id: t_docId) -> RSIndexResult<'static> {
+        fn expected_record(doc_id: DocId) -> RSIndexResult<'static> {
             RSIndexResult::build_virt()
                 .doc_id(doc_id)
                 .field_mask(RS_FIELDMASK_ALL)

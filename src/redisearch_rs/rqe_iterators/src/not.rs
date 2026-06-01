@@ -9,7 +9,6 @@
 
 //! Supporting types for [`Not`].
 
-use ffi::{RS_FIELDMASK_ALL, t_docId};
 use index_result::RSIndexResult;
 
 use crate::{
@@ -20,6 +19,7 @@ use crate::{
 };
 
 use index_spec::IndexSpecReadGuard;
+use rqe_core::{DocId, RS_FIELDMASK_ALL};
 /// An iterator that negates the results of its child iterator.
 ///
 /// Yields all document IDs from 1 to `max_doc_id` (inclusive) that are **not**
@@ -35,7 +35,7 @@ pub struct Not<'index, I, TC> {
     /// The child iterator whose results are negated.
     child: MaybeEmpty<I>,
     /// The maximum document ID to iterate up to (inclusive).
-    max_doc_id: t_docId,
+    max_doc_id: DocId,
     /// Set to `true` in case the NOT Iterator
     /// detected using the [`TimeoutContext`] a timeout,
     /// and reset to `false` at [`RQEIterator::rewind`].
@@ -61,7 +61,7 @@ where
     /// `timeout_ctx` is the [`TimeoutContext`] implementation to use. Pass
     /// [`NoTimeout`](crate::utils::NoTimeout) to disable timeout checks
     /// entirely on this iterator's hot path.
-    pub fn new(child: I, max_doc_id: t_docId, weight: f64, timeout_ctx: TC) -> Self {
+    pub fn new(child: I, max_doc_id: DocId, weight: f64, timeout_ctx: TC) -> Self {
         Self {
             child: MaybeEmpty::new(child),
             max_doc_id,
@@ -146,7 +146,7 @@ where
     #[inline(always)]
     fn skip_to(
         &mut self,
-        doc_id: t_docId,
+        doc_id: DocId,
     ) -> Result<Option<SkipToOutcome<'_, 'index>>, RQEIteratorError> {
         debug_assert!(self.last_doc_id() < doc_id);
 
@@ -212,7 +212,7 @@ where
     }
 
     #[inline(always)]
-    fn last_doc_id(&self) -> t_docId {
+    fn last_doc_id(&self) -> DocId {
         self.result.doc_id
     }
 

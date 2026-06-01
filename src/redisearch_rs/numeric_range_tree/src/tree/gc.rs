@@ -13,6 +13,7 @@
 //! the normal insert/query hot paths. It handles applying GC deltas from
 //! child processes, trimming empty leaves, and compacting the node slab.
 
+use rqe_core::DocId;
 use std::collections::HashMap;
 
 use index_result::RSIndexResult;
@@ -75,7 +76,7 @@ impl NumericRangeNode {
     ///
     /// Returns `Some(NodeGcDelta)` if the node had GC work, `None` otherwise
     /// (either the node has no range, or no documents were deleted).
-    pub fn scan_gc(&self, doc_exists: &dyn Fn(ffi::t_docId) -> bool) -> Option<NodeGcDelta> {
+    pub fn scan_gc(&self, doc_exists: &dyn Fn(DocId) -> bool) -> Option<NodeGcDelta> {
         let range = self.range()?;
 
         // Pointer to the last block of the index. Used inside the repair

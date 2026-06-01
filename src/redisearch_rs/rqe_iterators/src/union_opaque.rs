@@ -23,8 +23,9 @@
 
 use std::ffi::c_char;
 
-use ffi::{QueryNodeType, t_docId};
+use ffi::QueryNodeType;
 use index_result::RSIndexResult;
+use rqe_core::DocId;
 
 use crate::{
     IteratorType, RQEIterator, RQEIteratorError, RQEValidateStatus, SkipToOutcome, UnionFullFlat,
@@ -162,7 +163,7 @@ impl<'index, I: RQEIterator<'index>> RQEIterator<'index> for UnionOpaque<'index,
     #[inline(always)]
     fn skip_to(
         &mut self,
-        doc_id: t_docId,
+        doc_id: DocId,
     ) -> Result<Option<SkipToOutcome<'_, 'index>>, RQEIteratorError> {
         delegate_variant_ref_mut!(self, skip_to, doc_id)
     }
@@ -186,7 +187,7 @@ impl<'index, I: RQEIterator<'index>> RQEIterator<'index> for UnionOpaque<'index,
     }
 
     #[inline(always)]
-    fn last_doc_id(&self) -> t_docId {
+    fn last_doc_id(&self) -> DocId {
         delegate_variant_ref!(self, last_doc_id)
     }
 

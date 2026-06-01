@@ -13,9 +13,9 @@
 //! descends to the appropriate leaf, inserts the entry, and may trigger
 //! splitting and AVL-like rebalancing on the way back up.
 
-use ffi::t_docId;
 use index_result::RSIndexResult;
 use inverted_index::IndexReader as _;
+use rqe_core::DocId;
 
 use super::{AddResult, CheckedCount, NumericRangeTree};
 use crate::arena::{NodeArena, NodeIndex};
@@ -58,7 +58,7 @@ impl NumericRangeTree {
     /// that are an ancestor of the node that stored the new value.
     pub fn add(
         &mut self,
-        doc_id: t_docId,
+        doc_id: DocId,
         value: f64,
         is_multivalued: bool,
         max_depth_range: usize,
@@ -84,7 +84,7 @@ impl NumericRangeTree {
 
     fn _add(
         &mut self,
-        doc_id: t_docId,
+        doc_id: DocId,
         value: f64,
         is_multivalued: bool,
         max_depth_range: usize,
@@ -158,7 +158,7 @@ impl NumericRangeTree {
     fn node_add(
         nodes: &mut NodeArena,
         node_idx: NodeIndex,
-        doc_id: t_docId,
+        doc_id: DocId,
         value: f64,
         depth: usize,
         max_depth_range: usize,

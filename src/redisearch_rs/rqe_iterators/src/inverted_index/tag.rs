@@ -9,13 +9,14 @@
 
 use std::ptr::NonNull;
 
-use ffi::{RS_FIELDMASK_ALL, RedisSearchCtx, TagIndex, t_docId};
+use ffi::{RedisSearchCtx, TagIndex};
 use index_result::{RSIndexResult, RSOffsetSlice};
 use index_spec::IndexSpecReadGuard;
 use inverted_index::{
     DecodedBy, DocIdsDecoder, IndexReader, IndexReaderCore, opaque::OpaqueEncoding,
 };
 use query_term::RSQueryTerm;
+use rqe_core::{DocId, RS_FIELDMASK_ALL};
 
 use crate::{
     ExpirationChecker, IteratorType, RQEIterator, RQEIteratorError, RQEValidateStatus,
@@ -203,7 +204,7 @@ where
     #[inline(always)]
     fn skip_to(
         &mut self,
-        doc_id: t_docId,
+        doc_id: DocId,
     ) -> Result<Option<SkipToOutcome<'_, 'index>>, RQEIteratorError> {
         self.it.skip_to(doc_id)
     }
@@ -219,7 +220,7 @@ where
     }
 
     #[inline(always)]
-    fn last_doc_id(&self) -> t_docId {
+    fn last_doc_id(&self) -> DocId {
         self.it.last_doc_id()
     }
 
