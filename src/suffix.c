@@ -424,7 +424,7 @@ void deleteSuffixTrieMap(TrieMap *trie, const char *str, uint32_t len) {
 
   for (uint32_t j = 0; j < len; ++j) {
     suffixData *data = TrieMap_Find(trie, str + j, len - j);
-    if (data == TRIEMAP_NOTFOUND) continue;
+    RS_LOG_ASSERT(data != TRIEMAP_NOTFOUND, "all suffixes must exist");
     if (j == 0) {
       // keep pointer to word string to free after it was found in all sub tokens.
       oldTerm = data->term;
