@@ -251,7 +251,7 @@ fn bench_batches(c: &mut Criterion) {
             let param_str = format!("n{n}_k{k}");
 
             group.bench_with_input(BenchmarkId::new("rust", &param_str), &(n, k), |b, _| {
-                b.iter(|| black_box(run_rust(index, &query, k, &ids, TopKMode::Batches)))
+                b.iter(|| black_box(run_rust(index, &query, k, &ids, TopKMode::ForcedBatches)))
             });
 
             group.bench_with_input(BenchmarkId::new("c", &param_str), &(n, k), |b, _| {
@@ -299,5 +299,85 @@ fn bench_adhoc(c: &mut Criterion) {
     group.finish();
 }
 
-criterion_group!(benches, bench_batches, bench_adhoc);
+// ── Adhoc vs Batches mode comparison ─────────────────────────────────────────
+//
+// Three child-size configurations, all with n=100_000 and k=100:
+//
+//   adhoc_favored   — child_count=500  (0.5% of n, ~5×k):
+//       AdhocBF does 500 vector lookups; Batches must run many HNSW rounds to
+//       accumulate 100 results from a 0.5% pass filter → adhoc should win.
+//
+//   balanced        — child_count=8_000 (8% of n, ~80×k):
+//       Both modes have comparable cost near the natural crossover point.
+//
+//   batches_favored — child_count=70_000 (70% of n, 700×k):
+//       AdhocBF must scan 70 000 docs; Batches finds 100 HNSW candidates and
+//       most pass the loose filter → batches should win.
+//
+// Each configuration benchmarks rust/adhoc, rust/batches, c/adhoc, c/batches.
+
+struct ModeCase {
+    label: &'static str,
+    child_count: usize,
+}
+
+const MODE_CASES: &[ModeCase] = &[
+    ModeCase {
+        label: "adhoc_favored",
+        child_count: 500,
+    },
+    ModeCase {
+        label: "balanced",
+        child_count: 8_000,
+    },
+    ModeCase {
+        label: "batches_favored",
+        child_count: 70_000,
+    },
+];
+
+fn bench_mode_comparison(c: &mut Criterion) {
+    let mut group = c.benchmark_group("vector_top_k_hybrid/mode_comparison");
+
+    const N: usize = 100_000;
+    let k = NonZeroUsize::new(100).unwrap();
+
+    // Build a single index for all cases (same n).
+    // SAFETY: make_index + VecSimIndex_Free are paired.
+    let index = unsafe { make_index(N) };
+    let query = random_query(42);
+
+    for case in MODE_CASES {
+        let ids: Vec<u64> = child_ids(N, case.child_count)
+            .iter()
+            .map(|&id| id as u64)
+            .collect();
+
+        preflight(index, &query, k, &ids, TopKMode::AdhocBF, true);
+        preflight(index, &query, k, &ids, TopKMode::ForcedBatches, false);
+
+        group.bench_with_input(BenchmarkId::new("rust_adhoc", case.label), &(), |b, _| {
+            b.iter(|| black_box(run_rust(index, &query, k, &ids, TopKMode::AdhocBF)));
+        });
+
+        group.bench_with_input(BenchmarkId::new("rust_batches", case.label), &(), |b, _| {
+            b.iter(|| black_box(run_rust(index, &query, k, &ids, TopKMode::ForcedBatches)));
+        });
+
+        group.bench_with_input(BenchmarkId::new("c_adhoc", case.label), &(), |b, _| {
+            b.iter(|| black_box(run_c(index, &query, k, &ids, true)));
+        });
+
+        group.bench_with_input(BenchmarkId::new("c_batches", case.label), &(), |b, _| {
+            b.iter(|| black_box(run_c(index, &query, k, &ids, false)));
+        });
+    }
+
+    // SAFETY: `index` was created with make_index.
+    unsafe { VecSimIndex_Free(index) };
+
+    group.finish();
+}
+
+criterion_group!(benches, bench_batches, bench_adhoc, bench_mode_comparison);
 criterion_main!(benches);
