@@ -42,15 +42,15 @@ static void freeSuffixNode(suffixData *node) {
 }
 
 void addSuffixTrie(Trie *trie, const char *str, uint32_t len) {
-  size_t rune_len = 0;
+  size_t rlen = 0;
   runeBuf buf;
-  rune *runes = runeBufFill(str, len, &buf, &rune_len);
-  if (rune_len < SUFFIX_DS_MIN_LEN) {
+  rune *runes = runeBufFill(str, len, &buf, &rlen);
+  if (rlen < SUFFIX_DS_MIN_LEN) {
     runeBufFree(&buf);
     return;
   }
 
-  TrieNode *trienode = Trie_GetNode(trie, runes, rune_len, true, NULL);
+  TrieNode *trienode = Trie_GetNode(trie, runes, rlen, true, NULL);
   suffixData *data = NULL;
   if (trienode) {
     data = Suffix_GetData(trienode);
@@ -65,7 +65,7 @@ void addSuffixTrie(Trie *trie, const char *str, uint32_t len) {
   if (!data) {
     suffixData newdata = createSuffixNode(copyStr, 1);
     RSPayload payload = { .data = (char*)&newdata, .len = sizeof(newdata) };
-    int rc = Trie_InsertRuneNoSize(trie, runes, rune_len, 1, ADD_REPLACE, &payload, 0);
+    int rc = Trie_InsertRuneNoSize(trie, runes, rlen, 1, ADD_REPLACE, &payload, 0);
     RS_LOG_ASSERT(rc != TRIE_ERR_PAYLOAD_OVERFLOW,
                   "Trie_InsertRuneNoSize failed due to payload overflow");
     if (rc == TRIE_ERR_PAYLOAD_OVERFLOW) {
@@ -85,14 +85,14 @@ void addSuffixTrie(Trie *trie, const char *str, uint32_t len) {
 
   // Save string copy to all suffixes of it
   // If it exists, move to the next field
-  for (size_t j = 1; j + SUFFIX_DS_MIN_LEN <= rune_len; ++j) {
-    TrieNode *trienode = Trie_GetNode(trie, runes + j, rune_len - j, true, NULL);
+  for (size_t j = 1; j + SUFFIX_DS_MIN_LEN <= rlen; ++j) {
+    TrieNode *trienode = Trie_GetNode(trie, runes + j, rlen - j, true, NULL);
 
     data = Suffix_GetData(trienode);
     if (!data) {
       suffixData newdata = createSuffixNode(copyStr, 0);
       RSPayload payload = { .data = (char*)&newdata, .len = sizeof(newdata) };
-      int rc = Trie_InsertRune(trie, runes + j, rune_len - j, 1, ADD_REPLACE, &payload, 0);
+      int rc = Trie_InsertRune(trie, runes + j, rlen - j, 1, ADD_REPLACE, &payload, 0);
       RS_LOG_ASSERT(rc != TRIE_ERR_PAYLOAD_OVERFLOW,
                   "TrieNode_Add failed due to payload overflow");
       if (rc == TRIE_ERR_PAYLOAD_OVERFLOW) {
@@ -121,10 +121,10 @@ static void removeSuffix(const char *str, size_t rlen, arrayof(char*) array) {
 }
 
 void deleteSuffixTrie(Trie *trie, const char *str, uint32_t len) {
-  size_t rune_len = 0;
+  size_t rlen = 0;
   runeBuf buf;
-  rune *runes = runeBufFill(str, len, &buf, &rune_len);
-  if (rune_len < SUFFIX_DS_MIN_LEN) {
+  rune *runes = runeBufFill(str, len, &buf, &rlen);
+  if (rlen < SUFFIX_DS_MIN_LEN) {
     runeBufFree(&buf);
     return;
   }
@@ -132,7 +132,7 @@ void deleteSuffixTrie(Trie *trie, const char *str, uint32_t len) {
 
   // Remove the full-word entry (always inserted by addSuffixTrie).
   {
-    TrieNode *node = Trie_GetNode(trie, runes, rune_len, true, NULL);
+    TrieNode *node = Trie_GetNode(trie, runes, rlen, true, NULL);
     suffixData *data = Suffix_GetData(node);
     if (data) {
       oldTerm = data->term;
@@ -140,14 +140,14 @@ void deleteSuffixTrie(Trie *trie, const char *str, uint32_t len) {
       removeSuffix(str, len, data->array);
       if (array_len(data->array) == 0) {
         RS_LOG_ASSERT(!data->term, "array should contain a pointer to the string");
-        Trie_DeleteRunes(trie, runes, rune_len);
+        Trie_DeleteRunes(trie, runes, rlen);
       }
     }
   }
 
   // Remove suffix entries.
-  for (size_t j = 1; j + SUFFIX_DS_MIN_LEN <= rune_len; ++j) {
-    TrieNode *node = Trie_GetNode(trie, runes + j, rune_len - j, true, NULL);
+  for (size_t j = 1; j + SUFFIX_DS_MIN_LEN <= rlen; ++j) {
+    TrieNode *node = Trie_GetNode(trie, runes + j, rlen - j, true, NULL);
     suffixData *data = Suffix_GetData(node);
     // suffix trie is shared between all text fields in index, even if they don't use it.
     // if the trie is owned by other fields and not any one containing this suffix,
@@ -158,7 +158,7 @@ void deleteSuffixTrie(Trie *trie, const char *str, uint32_t len) {
     // if array is empty, remove the node
     if (array_len(data->array) == 0) {
       RS_LOG_ASSERT(!data->term, "array should contain a pointer to the string");
-      Trie_DeleteRunes(trie, runes + j, rune_len - j);
+      Trie_DeleteRunes(trie, runes + j, rlen - j);
     }
   }
   rm_free(oldTerm);
