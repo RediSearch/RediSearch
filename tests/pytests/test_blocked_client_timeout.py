@@ -1252,6 +1252,7 @@ class TestCoordinatorTimeout:
         prev_policy = target_shard.execute_command('CONFIG', 'GET', ON_TIMEOUT_CONFIG)[ON_TIMEOUT_CONFIG]
         before_info = info_modules_to_dict(target_shard)
         base_err_shard = int(before_info[WARN_ERR_SECTION][TIMEOUT_ERROR_SHARD_METRIC])
+        base_warn_shard = int(before_info[WARN_ERR_SECTION][TIMEOUT_WARNING_SHARD_METRIC])
 
         try:
             target_shard.execute_command('CONFIG', 'SET', ON_TIMEOUT_CONFIG, 'return-strict')
@@ -1276,13 +1277,13 @@ class TestCoordinatorTimeout:
             target_shard.execute_command('CONFIG', 'SET', ON_TIMEOUT_CONFIG, 'return')
             target_shard.execute_command(debug_cmd(), 'WORKERS', 'pause')
 
-            error_result = []
+            read_result = []
             def read_vsim_cursor():
                 try:
-                    target_shard.execute_command('_FT.CURSOR', 'READ', 'hybrid_idx', str(vsim_cursor))
-                    error_result.append(None)
+                    read_result.append(target_shard.execute_command(
+                        '_FT.CURSOR', 'READ', 'hybrid_idx', str(vsim_cursor)))
                 except redis_exceptions.ResponseError as e:
-                    error_result.append(str(e))
+                    read_result.append(str(e))
 
             try:
                 t_query = threading.Thread(
@@ -1304,19 +1305,23 @@ class TestCoordinatorTimeout:
             t_query.join(timeout=10)
             env.assertFalse(t_query.is_alive(),
                             message="VSIM cursor read thread should have finished")
-            env.assertEqual(len(error_result), 1, message="Expected one cursor read result")
-            env.assertContains(TIMEOUT_ERROR, error_result[0])
+            env.assertEqual(len(read_result), 1, message="Expected one cursor read result")
+            env.assertFalse(isinstance(read_result[0], str),
+                            message=f"RETURN_STRICT cursor read must not hard-error: {read_result[0]}")
+            _assert_return_strict_cursor_timeout_reply(
+                env, read_result[0], vsim_cursor, expected_results=0,
+                message_prefix='VSIM _FT.CURSOR READ RETURN_STRICT timeout')
 
             wait_for_info_metric(
-                target_shard, [WARN_ERR_SECTION, TIMEOUT_ERROR_SHARD_METRIC],
-                str(base_err_shard + 1),
-                msg="VSIM _FT.CURSOR READ RETURN_STRICT timeout error should bump shard metric")
+                target_shard, [WARN_ERR_SECTION, TIMEOUT_WARNING_SHARD_METRIC],
+                str(base_warn_shard + 1),
+                msg="VSIM _FT.CURSOR READ RETURN_STRICT timeout warning should bump shard metric")
 
-            try:
-                target_shard.execute_command('_FT.CURSOR', 'READ', 'hybrid_idx', str(vsim_cursor))
-                env.assertFalse(True, message="Expected VSIM cursor to be closed after timeout")
-            except redis_exceptions.ResponseError as e:
-                env.assertContains('Cursor not found', str(e))
+            after_info = info_modules_to_dict(target_shard)
+            env.assertEqual(after_info[WARN_ERR_SECTION][TIMEOUT_ERROR_SHARD_METRIC],
+                            str(base_err_shard),
+                            message="RETURN_STRICT cursor read timeout must not bump shard error metric")
+            target_shard.execute_command('_FT.CURSOR', 'DEL', 'hybrid_idx', str(vsim_cursor))
             if search_cursor:
                 target_shard.execute_command('_FT.CURSOR', 'DEL', 'hybrid_idx', str(search_cursor))
         finally:
