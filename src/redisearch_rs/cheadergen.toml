@@ -29,13 +29,16 @@ header_name = "search_result_rs"
 
 [package.ttl_table]
 # Avoid a name conflict with the pre-existing `ttl_table.h` header file.
-header_name = "_ttl_table"
+header_name = "ttl_table_rs"
 
 [c]
 cpp_compat = true
 
 [header.rqe_core]
+includes = ["<time.h>"]
 trailer = """
+typedef struct timespec t_expirationTimePoint;
+
 #if UINTPTR_MAX == UINT64_MAX
 /* 64 bit architectures use 128 bit field masks and up to 128 fields */
 typedef __uint128_t t_fieldMask;

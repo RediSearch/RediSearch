@@ -17,6 +17,7 @@ field.workspace = true
 libc.workspace = true
 thin_vec.workspace = true
 workspace_hack.workspace = true
+rqe_core.workspace = true
 
 [dev-dependencies]
 ttl_table = { path = ".", features = ["test-utils"] }

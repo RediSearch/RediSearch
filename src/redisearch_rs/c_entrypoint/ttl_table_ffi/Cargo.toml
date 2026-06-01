@@ -13,6 +13,7 @@ cheadergen.workspace = true
 ffi.workspace = true
 field.workspace = true
 libc.workspace = true
+rqe_core.workspace = true
 thin_vec.workspace = true
 ttl_table.workspace = true
 workspace_hack.workspace = true
