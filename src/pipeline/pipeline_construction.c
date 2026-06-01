@@ -12,7 +12,7 @@ extern "C" {
 #endif
 
 static ResultProcessor *buildGroupRP(PLN_GroupStep *gstp, RLookup *srclookup,
-                                     GroupByLimits groupByLimits,
+                                     const RLookupKey ***loadKeys, GroupByLimits groupByLimits,
                                      QueryError *err) {
   arrayof(const char*) properties = PLNGroupStep_GetProperties(gstp);
   size_t nproperties = array_len(properties);
