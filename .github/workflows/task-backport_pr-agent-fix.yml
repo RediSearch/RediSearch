@@ -362,9 +362,8 @@ jobs:
             git fetch origin "$ORIGINAL_SHA" || true
           fi
 
-      # TODO: Add BACKPORT_OPENAI_API_KEY as a repo secret (Settings -> Secrets
-      # and variables -> Actions) before enabling this workflow. Reused from
-      # task-backport_pr-agent.yml so both flows share the same billing scope.
+      # Reuses BACKPORT_OPENAI_API_KEY from task-backport_pr-agent.yml so both
+      # flows share the same billing scope.
       - name: Run /pr-backport-auto-fix via Codex
         if: steps.ctx.outputs.skip != 'true'
         uses: openai/codex-action@v1
@@ -375,7 +374,7 @@ jobs:
           # accidentally staged into the fix commit by `git add -A`.
           BACKPORT_FIX_CONTEXT_FILE: ${{ steps.ctx.outputs.context_file }}
         with:
-          openai-api-key: ${{ secrets.BACKPORT_OPENAI_API_KEY }}
+          openai-api-key: ${{ secrets.OPEN_AI_BACKPORT_AGENT_KEY }}
           prompt-file: .github/codex/prompts/pr-backport-auto-fix.md
           # See task-backport_pr-agent.yml for rationale: writer-mode needs
           # network access for git push / gh, so workspace-write is not enough.

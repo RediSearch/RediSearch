@@ -182,10 +182,9 @@ jobs:
             echo "context_file=$context_file"
           } >> "$GITHUB_OUTPUT"
 
-      # TODO: Add BACKPORT_OPENAI_API_KEY as a repo secret (Settings -> Secrets and
-      # variables -> Actions) before enabling this workflow. It is kept separate
-      # from CI_TRIAGE_OPENAI_API_KEY so backport agent usage can be budgeted and
-      # revoked independently from the read-only triage flows.
+      # BACKPORT_OPENAI_API_KEY is kept separate from CI_TRIAGE_OPENAI_API_KEY so
+      # backport-agent usage can be budgeted and revoked independently from the
+      # read-only triage flows.
       - name: Run /pr-backport-auto via Codex
         if: steps.ctx.outputs.skip != 'true'
         uses: openai/codex-action@v1
@@ -199,7 +198,7 @@ jobs:
           # accidentally staged into a cherry-pick commit by `git add -A`.
           BACKPORT_CONTEXT_FILE: ${{ steps.ctx.outputs.context_file }}
         with:
-          openai-api-key: ${{ secrets.BACKPORT_OPENAI_API_KEY }}
+          openai-api-key: ${{ secrets.OPEN_AI_BACKPORT_AGENT_KEY }}
           prompt-file: .github/codex/prompts/pr-backport-auto.md
           # The agent needs to edit files (conflict resolution), run git/gh, and
           # push to origin. Read-only and workspace-write sandboxes block network
