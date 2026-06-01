@@ -11,15 +11,16 @@ use super::{IndexReader, IndexReaderCore, TermReader};
 use crate::{
     DecodedBy, Decoder, HasInnerIndex, InvertedIndex, TermDecoder, opaque::OpaqueEncoding,
 };
-use ffi::{IndexFlags, t_docId, t_fieldMask};
+use ffi::IndexFlags;
 use index_result::RSIndexResult;
+use rqe_core::{DocId, FieldMask};
 
 /// A reader that filters out records that do not match a given field mask. It is used to
 /// filter records in an index based on their field mask, allowing only those that match the
 /// specified mask to be returned.
 pub struct FilterMaskReader<IR> {
     /// Mask which a record needs to match to be valid
-    mask: t_fieldMask,
+    mask: FieldMask,
 
     /// The inner reader that will be used to read the records from the index.
     inner: IR,
@@ -27,7 +28,7 @@ pub struct FilterMaskReader<IR> {
 
 impl<'index, IR: IndexReader<'index>> FilterMaskReader<IR> {
     /// Create a new filter mask reader with the given mask and inner iterator
-    pub const fn new(mask: t_fieldMask, inner: IR) -> Self {
+    pub const fn new(mask: FieldMask, inner: IR) -> Self {
         Self { mask, inner }
     }
 }
@@ -51,7 +52,7 @@ impl<'index, IR: IndexReader<'index>> IndexReader<'index> for FilterMaskReader<I
     #[inline(always)]
     fn seek_record(
         &mut self,
-        doc_id: t_docId,
+        doc_id: DocId,
         result: &mut RSIndexResult<'index>,
     ) -> std::io::Result<bool> {
         let success = self.inner.seek_record(doc_id, result)?;
@@ -67,7 +68,7 @@ impl<'index, IR: IndexReader<'index>> IndexReader<'index> for FilterMaskReader<I
         }
     }
 
-    fn skip_to(&mut self, doc_id: t_docId) -> bool {
+    fn skip_to(&mut self, doc_id: DocId) -> bool {
         self.inner.skip_to(doc_id)
     }
 

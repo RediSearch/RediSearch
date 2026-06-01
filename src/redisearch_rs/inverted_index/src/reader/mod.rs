@@ -12,8 +12,9 @@ mod field_mask;
 mod geo;
 mod numeric;
 
-use ffi::{IndexFlags, t_docId, t_fieldMask};
+use ffi::IndexFlags;
 use index_result::RSIndexResult;
+use rqe_core::{DocId, FieldMask};
 
 pub use self::core::*;
 pub use field_mask::FilterMaskReader;
@@ -31,13 +32,13 @@ pub trait IndexReader<'index> {
     /// is returned.
     fn seek_record(
         &mut self,
-        doc_id: t_docId,
+        doc_id: DocId,
         result: &mut RSIndexResult<'index>,
     ) -> std::io::Result<bool>;
 
     /// Skip forward to the block containing the given document ID. Returns false if the end of the
     /// index was reached and true otherwise.
-    fn skip_to(&mut self, doc_id: t_docId) -> bool;
+    fn skip_to(&mut self, doc_id: DocId) -> bool;
 
     /// Reset the reader to the beginning of the index.
     fn reset(&mut self);
@@ -79,7 +80,7 @@ pub enum ReadFilter<'numeric_filter> {
     None,
 
     /// Accepts entries matching this field mask
-    FieldMask(t_fieldMask),
+    FieldMask(FieldMask),
 
     /// Accepts entries matching this numeric filter
     Numeric(&'numeric_filter NumericFilter),

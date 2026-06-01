@@ -9,9 +9,9 @@
 
 //! Supporting types for [`Empty`].
 
-use ffi::t_docId;
 use index_result::RSIndexResult;
 use index_spec::IndexSpecReadGuard;
+use rqe_core::DocId;
 
 use crate::{
     IteratorType, RQEIterator, RQEIteratorError, RQEValidateStatus, SkipToOutcome,
@@ -38,7 +38,7 @@ impl<'index> RQEIterator<'index> for Empty {
     #[inline(always)]
     fn skip_to(
         &mut self,
-        _doc_id: t_docId,
+        _doc_id: DocId,
     ) -> Result<Option<SkipToOutcome<'_, 'index>>, RQEIteratorError> {
         Ok(None)
     }
@@ -52,7 +52,7 @@ impl<'index> RQEIterator<'index> for Empty {
     }
 
     #[inline(always)]
-    fn last_doc_id(&self) -> t_docId {
+    fn last_doc_id(&self) -> DocId {
         0
     }
 

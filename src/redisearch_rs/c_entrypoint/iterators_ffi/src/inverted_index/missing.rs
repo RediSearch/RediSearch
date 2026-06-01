@@ -11,9 +11,8 @@ use std::{fmt::Debug, ptr::NonNull};
 
 use field::{FieldExpirationPredicate, FieldFilterContext, FieldMaskOrIndex};
 use index_result::RSIndexResult;
-use inverted_index::{
-    DocId, IndexReader, doc_ids_only::DocIdsOnly, raw_doc_ids_only::RawDocIdsOnly,
-};
+use inverted_index::{IndexReader, doc_ids_only::DocIdsOnly, raw_doc_ids_only::RawDocIdsOnly};
+use rqe_core::{DocId, FieldIndex};
 use rqe_iterators::{
     FieldExpirationChecker, IteratorType, interop::RQEIteratorWrapper, inverted_index::Missing,
     profile_print,
@@ -136,7 +135,7 @@ impl<'index> rqe_iterators::RQEIterator<'index> for MissingIterator<'index> {
 pub unsafe extern "C" fn NewInvIndIterator_MissingQuery(
     idx: *const ffi::InvertedIndex,
     sctx: *const ffi::RedisSearchCtx,
-    field_index: ffi::t_fieldIndex,
+    field_index: FieldIndex,
 ) -> *mut ffi::QueryIterator {
     debug_assert!(!idx.is_null(), "idx must not be null");
     debug_assert!(!sctx.is_null(), "sctx must not be null");

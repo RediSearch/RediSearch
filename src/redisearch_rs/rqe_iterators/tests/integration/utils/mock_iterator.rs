@@ -9,8 +9,8 @@
 
 use std::{cell::RefCell, rc::Rc, time::Duration};
 
-use ffi::{RS_FIELDMASK_ALL, t_docId};
 use index_result::{RSIndexResult, RSOffsetSlice};
+use rqe_core::{DocId, RS_FIELDMASK_ALL};
 use rqe_iterators::{IteratorType, RQEIterator, WildcardIterator};
 
 /// Test iterator used in unit tests that expect an [`RQEIterator`]
@@ -49,7 +49,7 @@ use rqe_iterators::{IteratorType, RQEIterator, WildcardIterator};
 /// `tests/cpptests/iterator_util.h`.
 pub struct Mock<'index, const N: usize> {
     result: RSIndexResult<'index>,
-    doc_ids: [t_docId; N],
+    doc_ids: [DocId; N],
     /// One term position per document, or `None` for a virtual (non-term) result.
     ///
     /// Each value must be in the range `1..=127`: values in that range are their own
@@ -157,7 +157,7 @@ impl MockData {
     /// Configure a delay that should be introduced since the given index,
     /// either in a [`RQEIterator::read`] or [`RQEIterator::skip_to`] call
     /// for the [`Mock`] iterator.
-    pub fn add_delay_since_index(&mut self, index: t_docId, delay: Duration) -> &mut Self {
+    pub fn add_delay_since_index(&mut self, index: DocId, delay: Duration) -> &mut Self {
         {
             let mut data = self.0.borrow_mut();
             data.delays.push((index, delay));
@@ -206,14 +206,14 @@ struct MockDataInternal {
     validation_count: usize,
     read_count: usize,
     error_at_done: Option<MockIteratorError>,
-    delays: Vec<(t_docId, Duration)>,
+    delays: Vec<(DocId, Duration)>,
     /// If true, the next call to `read()` will return `None` even if not at EOF.
     /// Simulates Inverted Index iterators that discover EOF only when `read()` is called.
     force_read_none: bool,
 }
 
 impl MockDataInternal {
-    fn delay_if_index_limit_reached(&mut self, idx: t_docId) {
+    fn delay_if_index_limit_reached(&mut self, idx: DocId) {
         // assumes that these delays are sorted in ascending order,
         // as guaranteed by the [`MockData::add_delay_since_index`] method.
 
@@ -250,7 +250,7 @@ impl<'index, const N: usize> Mock<'index, N> {
     /// with weight equal to `1.0` and field mask set to
     /// `RS_FIELDMASK_ALL`.  Each call to `read` or `skip_to` overwrites
     /// `doc_id` in that single result instance.
-    pub fn new(doc_ids: [t_docId; N]) -> Self {
+    pub fn new(doc_ids: [DocId; N]) -> Self {
         debug_assert!(doc_ids.is_sorted(), "Mock Iterator API assumes sorted list");
         Self {
             result: RSIndexResult::build_virt()
@@ -266,7 +266,7 @@ impl<'index, const N: usize> Mock<'index, N> {
 
     /// Like [`Mock::new`], but each document carries a term position (valid range `1..=127`).
     /// The result produced for each document will be a `Term` record instead of a virtual one,
-    pub fn new_with_positions(doc_ids: [t_docId; N], positions: [u8; N]) -> Self {
+    pub fn new_with_positions(doc_ids: [DocId; N], positions: [u8; N]) -> Self {
         debug_assert!(
             positions.iter().all(|&p| (1..=127).contains(&p)),
             "positions must be in 1..=127 (single-byte varint range)"
@@ -348,7 +348,7 @@ impl<'index, const N: usize> RQEIterator<'index> for Mock<'index, N> {
 
     fn skip_to(
         &mut self,
-        doc_id: t_docId,
+        doc_id: DocId,
     ) -> Result<Option<rqe_iterators::SkipToOutcome<'_, 'index>>, rqe_iterators::RQEIteratorError>
     {
         let mut data = self.data.0.borrow_mut();
@@ -423,7 +423,7 @@ impl<'index, const N: usize> RQEIterator<'index> for Mock<'index, N> {
         N
     }
 
-    fn last_doc_id(&self) -> t_docId {
+    fn last_doc_id(&self) -> DocId {
         self.result.doc_id
     }
 
@@ -458,7 +458,7 @@ impl<const N: usize> rqe_iterators::profile_print::ProfilePrint for Mock<'_, N> 
 /// This is useful when the document IDs are determined at runtime.
 pub struct MockVec<'index> {
     result: RSIndexResult<'index>,
-    doc_ids: Vec<t_docId>,
+    doc_ids: Vec<DocId>,
     next_index: usize,
     data: MockData,
 }
@@ -467,7 +467,7 @@ impl<'index> MockVec<'index> {
     /// Create a new [`MockVec`] from a vector of document ids.
     ///
     /// The ids must be sorted in increasing order.
-    pub fn new(doc_ids: Vec<t_docId>) -> Self {
+    pub fn new(doc_ids: Vec<DocId>) -> Self {
         debug_assert!(doc_ids.is_sorted(), "MockVec API assumes sorted list");
         Self {
             result: RSIndexResult::build_virt()
@@ -481,7 +481,7 @@ impl<'index> MockVec<'index> {
     }
 
     /// Create a boxed [`MockVec`] as a trait object.
-    pub fn new_boxed(doc_ids: Vec<t_docId>) -> Box<dyn RQEIterator<'index> + 'index> {
+    pub fn new_boxed(doc_ids: Vec<DocId>) -> Box<dyn RQEIterator<'index> + 'index> {
         Box::new(Self::new(doc_ids))
     }
 }
@@ -525,7 +525,7 @@ impl<'index> RQEIterator<'index> for MockVec<'index> {
 
     fn skip_to(
         &mut self,
-        doc_id: t_docId,
+        doc_id: DocId,
     ) -> Result<Option<rqe_iterators::SkipToOutcome<'_, 'index>>, rqe_iterators::RQEIteratorError>
     {
         let mut data = self.data.0.borrow_mut();
@@ -599,7 +599,7 @@ impl<'index> RQEIterator<'index> for MockVec<'index> {
         self.doc_ids.len()
     }
 
-    fn last_doc_id(&self) -> t_docId {
+    fn last_doc_id(&self) -> DocId {
         self.result.doc_id
     }
 

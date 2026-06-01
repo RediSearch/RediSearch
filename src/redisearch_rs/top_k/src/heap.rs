@@ -13,13 +13,13 @@ use std::cmp::Ordering;
 use std::collections::BinaryHeap;
 use std::num::NonZeroUsize;
 
-use ffi::t_docId;
+use rqe_core::DocId;
 
 /// A (doc_id, score) pair stored in the heap.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct ScoredResult {
     /// Document identifier.
-    pub doc_id: t_docId,
+    pub doc_id: DocId,
     /// Score for the document (lower or higher is "better" depending on the comparator).
     pub score: f64,
 }
@@ -132,7 +132,7 @@ impl TopKHeap {
     /// - Otherwise the element is discarded.
     ///
     /// Returns `true` if the element was inserted.
-    pub fn push(&mut self, doc_id: t_docId, score: f64) -> bool {
+    pub fn push(&mut self, doc_id: DocId, score: f64) -> bool {
         let entry = HeapEntry {
             result: ScoredResult { doc_id, score },
             compare: self.compare,
@@ -271,7 +271,7 @@ mod tests {
         heap.push(3, 1.0); // third tied entry evicts doc_id 10 (highest loses the tie)
 
         let results = heap.drain_sorted();
-        let ids: Vec<t_docId> = results.iter().map(|r| r.doc_id).collect();
+        let ids: Vec<DocId> = results.iter().map(|r| r.doc_id).collect();
 
         assert!(ids.contains(&3));
         assert!(ids.contains(&5));
@@ -301,7 +301,7 @@ mod tests {
         heap.push(3, 1.0); // third tied entry evicts doc_id 10 (highest loses the tie, regardless of sort direction)
 
         let results = heap.drain_sorted();
-        let ids: Vec<t_docId> = results.iter().map(|r| r.doc_id).collect();
+        let ids: Vec<DocId> = results.iter().map(|r| r.doc_id).collect();
 
         assert!(ids.contains(&3));
         assert!(ids.contains(&5));

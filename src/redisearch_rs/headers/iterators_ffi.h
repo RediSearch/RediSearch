@@ -26,15 +26,15 @@ typedef struct AREQ AREQ;
 
 
 /**
- * Filter details to apply to numeric values
- */
-typedef struct NumericFilter NumericFilter;
-
-/**
  * Smart pointer handle for [`RLookupKey`] that can be
  * invalidated when the iterator that owns the key is freed.
  */
 typedef struct RLookupKeyHandle RLookupKeyHandle;
+
+/**
+ * Filter details to apply to numeric values
+ */
+typedef struct NumericFilter NumericFilter;
 
 /**
  * Builder for Redis maps.
@@ -126,7 +126,7 @@ QueryIterator *NewWildcardIterator_NonOptimized(t_docId max_id, double weight);
  *
  * # Safety
  *
- * 1. `ids` must be a valid pointer to an array of `t_docId` with at least `num` elements.
+ * 1. `ids` must be a valid pointer to an array of `DocId` with at least `num` elements.
  *    The array must be sorted in ascending order.
  * 2. The caller must ensure that `ids` is not null unless `num` is zero.
  * 3. The memory pointed to by `ids` will be freed using `RedisModule_Free`,
@@ -154,7 +154,7 @@ QueryIterator *IntoProfiled(QueryIterator *iter);
  *
  * # Safety
  *
- * 1. `ids` must be a valid pointer to an array of `t_docId` with at least `num` elements.
+ * 1. `ids` must be a valid pointer to an array of `DocId` with at least `num` elements.
  *    The array must be sorted in ascending order.
  * 2. `metric_list` must be a valid pointer to an array of `f64` with at least `num` elements.
  * 3. The caller must ensure that `ids` and `metric_list` are not null unless `num` is zero.
@@ -225,7 +225,7 @@ QueryIterator *NewGeoRangeIterator(const RedisSearchCtx *ctx, GeoFilter *gf, con
  *
  * # Safety
  *
- * 1. `ids` must be a valid pointer to an array of `t_docId` with at least `num` elements.
+ * 1. `ids` must be a valid pointer to an array of `DocId` with at least `num` elements.
  * 2. The caller must ensure that `ids` is not null unless `num` is zero.
  * 3. The memory pointed to by `ids` will be freed using `RedisModule_Free`,
  *    so the caller must ensure that the pointer was allocated in a compatible manner.
@@ -252,7 +252,7 @@ void Profile_AddIters(QueryIterator * *root);
  *
  * # Safety
  *
- * 1. `ids` must be a valid pointer to an array of `t_docId` with at least `num` elements.
+ * 1. `ids` must be a valid pointer to an array of `DocId` with at least `num` elements.
  * 2. `metric_list` must be a valid pointer to an array of `f64` with at least `num` elements.
  * 3. The caller must ensure that `ids` and `metric_list` are not null unless `num` is zero.
  * 4. The memory pointed to by `ids` and `metric_list` will be freed using `RedisModule_Free`,

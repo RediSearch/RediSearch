@@ -8,6 +8,7 @@
 */
 
 use buffer::{BufferReader, BufferWriter};
+use rqe_core::FieldMask;
 use std::ptr::NonNull;
 use varint::VarintEncode;
 
@@ -22,7 +23,7 @@ use varint::VarintEncode;
 /// 1. `b` must point to a valid `BufferReader` instance and cannot be NULL.
 /// 2. The caller must have exclusive access to the buffer reader.
 #[unsafe(no_mangle)]
-pub extern "C" fn ReadVarintFieldMask(b: Option<NonNull<BufferReader>>) -> ffi::t_fieldMask {
+pub extern "C" fn ReadVarintFieldMask(b: Option<NonNull<BufferReader>>) -> FieldMask {
     let mut buffer_reader = b.unwrap();
     // Safety: Safe thanks to invariants 1. and 2.
     let buffer_reader = unsafe { buffer_reader.as_mut() };
@@ -44,7 +45,7 @@ pub extern "C" fn ReadVarintFieldMask(b: Option<NonNull<BufferReader>>) -> ffi::
 /// 2. The caller must have exclusive access to the buffer writer.
 #[unsafe(no_mangle)]
 pub extern "C" fn WriteVarintFieldMask(
-    value: ffi::t_fieldMask,
+    value: FieldMask,
     writer: Option<NonNull<BufferWriter>>,
 ) -> usize {
     let mut writer = writer.unwrap();

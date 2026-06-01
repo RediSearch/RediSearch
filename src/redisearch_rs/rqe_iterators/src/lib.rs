@@ -19,8 +19,8 @@ unsafe extern "C" fn AREQ_CheckTimedOut(_areq: *mut ffi::AREQ) -> bool {
 
 use std::sync::OnceLock;
 
-use ffi::t_docId;
 use index_spec::IndexSpecReadGuard;
+use rqe_core::{DocId, FieldIndex};
 use thiserror::Error;
 
 use ::inverted_index::FieldMask;
@@ -142,7 +142,7 @@ pub trait RQEIterator<'index> {
     /// if the iterator found a result greater than `docId`. `None` will be returned if the iterator has reached the end of the index.
     fn skip_to(
         &mut self,
-        doc_id: t_docId,
+        doc_id: DocId,
     ) -> Result<Option<SkipToOutcome<'_, 'index>>, RQEIteratorError>;
 
     /// Called when the iterator is being revalidated after a concurrent index change.
@@ -168,7 +168,7 @@ pub trait RQEIterator<'index> {
     /**************** properties ****************/
 
     /// Returns the last doc id that was read or skipped to.
-    fn last_doc_id(&self) -> t_docId;
+    fn last_doc_id(&self) -> DocId;
 
     /// Returns `false` if the iterator can yield more results.
     /// The iterator implementation must ensure that [`at_eof`](Self::at_eof) returns `true`
@@ -212,7 +212,7 @@ impl<'index, I: RQEIterator<'index> + 'index> RQEIterator<'index> for Box<I> {
 
     fn skip_to(
         &mut self,
-        doc_id: t_docId,
+        doc_id: DocId,
     ) -> Result<Option<SkipToOutcome<'_, 'index>>, RQEIteratorError> {
         (**self).skip_to(doc_id)
     }
@@ -232,7 +232,7 @@ impl<'index, I: RQEIterator<'index> + 'index> RQEIterator<'index> for Box<I> {
         (**self).num_estimated()
     }
 
-    fn last_doc_id(&self) -> t_docId {
+    fn last_doc_id(&self) -> DocId {
         (**self).last_doc_id()
     }
 
@@ -269,7 +269,7 @@ impl<'index> RQEIterator<'index> for Box<dyn RQEIterator<'index> + 'index> {
 
     fn skip_to(
         &mut self,
-        doc_id: t_docId,
+        doc_id: DocId,
     ) -> Result<Option<SkipToOutcome<'_, 'index>>, RQEIteratorError> {
         (**self).skip_to(doc_id)
     }
@@ -289,7 +289,7 @@ impl<'index> RQEIterator<'index> for Box<dyn RQEIterator<'index> + 'index> {
         (**self).num_estimated()
     }
 
-    fn last_doc_id(&self) -> t_docId {
+    fn last_doc_id(&self) -> DocId {
         (**self).last_doc_id()
     }
 
@@ -361,7 +361,7 @@ pub trait SearchEnterpriseIterators: Send + Sync {
         &self,
         index: &'index mut ffi::RedisSearchDiskIndexSpec,
         token: &ffi::RSToken,
-        field_index: ffi::t_fieldIndex,
+        field_index: FieldIndex,
         weight: f64,
     ) -> Result<Box<dyn RQEIterator<'index> + 'index>, Box<dyn std::error::Error>>;
 }

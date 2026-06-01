@@ -14,6 +14,7 @@
 //! test suite to exercise code paths that depend on [`SEARCH_ENTERPRISE_ITERATORS`]
 //! without requiring the actual enterprise implementation.
 
+use rqe_core::{DocId, FieldIndex};
 use rqe_iterators::{
     RQEIterator, SEARCH_ENTERPRISE_ITERATORS, SearchEnterpriseIterators, wildcard::Wildcard,
 };
@@ -24,7 +25,7 @@ use rqe_iterators::{
 /// Tests that exercise the disk-wildcard path can call `num_estimated()` on the
 /// resulting iterator and compare against this sentinel to confirm the disk path
 /// was taken.
-pub(crate) const MOCK_DISK_WILDCARD_TOP_ID: ffi::t_docId = 53596;
+pub(crate) const MOCK_DISK_WILDCARD_TOP_ID: DocId = 53596;
 
 /// Minimal [`SearchEnterpriseIterators`] stub for tests that exercise the
 /// disk-index code paths.
@@ -71,7 +72,7 @@ impl SearchEnterpriseIterators for MockEnterpriseIterators {
         &self,
         _index: &'index mut ffi::RedisSearchDiskIndexSpec,
         _token: &ffi::RSToken,
-        _field_index: ffi::t_fieldIndex,
+        _field_index: FieldIndex,
         _weight: f64,
     ) -> Result<Box<dyn RQEIterator<'index> + 'index>, Box<dyn std::error::Error>> {
         unimplemented!("MockEnterpriseIterators::new_tag_on_disk not used in these tests")

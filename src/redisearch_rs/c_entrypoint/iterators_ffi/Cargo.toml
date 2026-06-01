@@ -21,6 +21,7 @@ bench = false
 
 [dependencies]
 ffi.workspace = true
+rqe_core.workspace = true
 libc.workspace = true
 field.workspace = true
 index_result.workspace = true

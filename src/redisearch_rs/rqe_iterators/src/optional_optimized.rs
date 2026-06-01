@@ -14,7 +14,6 @@
 //! `spec.existingDocs` to visit only real document IDs, yielding real or virtual
 //! results accordingly.
 
-use ffi::{RS_FIELDMASK_ALL, t_docId};
 use index_result::RSIndexResult;
 
 use crate::{
@@ -25,6 +24,7 @@ use crate::{
 };
 
 use index_spec::IndexSpecReadGuard;
+use rqe_core::{DocId, RS_FIELDMASK_ALL};
 /// An iterator that emits results for all document IDs present in the index,
 /// driven by a [wildcard iterator](crate::wildcard) over the existing-documents inverted index.
 ///
@@ -46,14 +46,14 @@ pub struct OptionalOptimized<'index, W, I> {
     /// Virtual result returned when `wcii` has a doc but `child` does not.
     virt: RSIndexResult<'index>,
     /// Inclusive upper bound (matches C `maxDocId`).
-    max_doc_id: t_docId,
+    max_doc_id: DocId,
     /// Weight applied to real results from `child`.
     weight: f64,
     /// Tracks the doc ID of the last result yielded.
     ///
     /// `0` in the initial state and after [`rewind`](RQEIterator::rewind),
     /// which is treated as virtual. Doc IDs start from 1, so 0 is a safe sentinel.
-    last_doc_id: t_docId,
+    last_doc_id: DocId,
     /// Whether the iterator has reached EOF.
     at_eof: bool,
 }
@@ -80,7 +80,7 @@ where
     /// * `child` — query child iterator that provides real hits.
     /// * `max_doc_id` — inclusive upper bound on doc IDs.
     /// * `weight` — applied to results produced by `child`.
-    pub fn new(wcii: W, child: I, max_doc_id: t_docId, weight: f64) -> Self {
+    pub fn new(wcii: W, child: I, max_doc_id: DocId, weight: f64) -> Self {
         Self {
             wcii,
             child: MaybeEmpty::new(child),
@@ -160,7 +160,7 @@ where
 
     fn skip_to(
         &mut self,
-        doc_id: t_docId,
+        doc_id: DocId,
     ) -> Result<Option<SkipToOutcome<'_, 'index>>, RQEIteratorError> {
         debug_assert!(doc_id > self.last_doc_id);
 
@@ -324,7 +324,7 @@ where
     }
 
     #[inline(always)]
-    fn last_doc_id(&self) -> t_docId {
+    fn last_doc_id(&self) -> DocId {
         self.last_doc_id
     }
 

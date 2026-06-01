@@ -9,8 +9,8 @@
 
 use std::io::{Cursor, Seek, Write};
 
-use ffi::t_docId;
 use qint::{qint_decode, qint_encode};
+use rqe_core::DocId;
 
 use crate::{Decoder, Encoder, TermDecoder};
 use index_result::RSIndexResult;
@@ -38,13 +38,13 @@ impl Decoder for FreqsOnly {
     #[inline(always)]
     fn decode<'index>(
         cursor: &mut Cursor<&'index [u8]>,
-        base: t_docId,
+        base: DocId,
         result: &mut RSIndexResult<'index>,
     ) -> std::io::Result<()> {
         let (decoded_values, _bytes_consumed) = qint_decode::<2, _>(cursor)?;
         let [delta, freq] = decoded_values;
 
-        result.doc_id = base + delta as t_docId;
+        result.doc_id = base + delta as DocId;
         result.freq = freq;
         Ok(())
     }
@@ -55,8 +55,8 @@ impl Decoder for FreqsOnly {
 
     fn seek<'index>(
         cursor: &mut Cursor<&'index [u8]>,
-        mut base: t_docId,
-        target: t_docId,
+        mut base: DocId,
+        target: DocId,
         result: &mut RSIndexResult<'index>,
     ) -> std::io::Result<bool> {
         let freq = loop {
@@ -68,7 +68,7 @@ impl Decoder for FreqsOnly {
                 Err(error) => return Err(error),
             };
 
-            base += delta as t_docId;
+            base += delta as DocId;
 
             if base >= target {
                 break freq;

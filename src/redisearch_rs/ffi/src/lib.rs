@@ -117,5 +117,3 @@ impl QueryProcessingCtx {
         unsafe { *self.endProc.get() = result_processor_ptr };
     }
 }
-
-pub use rqe_core::{FieldMask, RS_FIELDMASK_ALL, RS_INVALID_FIELD_INDEX};

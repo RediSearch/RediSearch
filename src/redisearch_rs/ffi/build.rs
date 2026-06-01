@@ -351,7 +351,9 @@ const HEADERS: &[HeaderAllowlist] = &[
 /// `src/redis_index.h` for `InvertedIndex` or `src/spec.h` for `QueryError`.
 const PERMITTED_GENERATED_HEADERS: &[&str] = &[
     // Fundamental type aliases (t_docId, t_fieldIndex, t_fieldMask) used
-    // across both C code and Rust-generated headers.
+    // across both C code and Rust-generated headers. Bindgen emits these
+    // as `pub type t_docId = u64` etc.; user code should import the
+    // canonical names (`DocId`, `FieldIndex`, `FieldMask`) from `rqe_core`.
     "rqe_core.h",
     // `DocumentType` is used as a bitfield in `RSDocumentMetadata`
     // (src/redisearch.h) — the full enum definition is required.

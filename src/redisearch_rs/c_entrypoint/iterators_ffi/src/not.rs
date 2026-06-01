@@ -9,7 +9,8 @@
 
 use std::ptr::NonNull;
 
-use ffi::{AREQ, QueryIterator, t_docId, timespec};
+use ffi::{AREQ, QueryIterator, timespec};
+use rqe_core::DocId;
 use rqe_iterators::{
     NewWildcardIterator, RQEIterator,
     c2rust::CRQEIterator,
@@ -75,7 +76,7 @@ impl<'index> RQEIterator<'index> for NotIteratorEnum<'index> {
     #[inline(always)]
     fn skip_to(
         &mut self,
-        doc_id: t_docId,
+        doc_id: DocId,
     ) -> Result<Option<rqe_iterators::SkipToOutcome<'_, 'index>>, rqe_iterators::RQEIteratorError>
     {
         match self {
@@ -112,7 +113,7 @@ impl<'index> RQEIterator<'index> for NotIteratorEnum<'index> {
     }
 
     #[inline(always)]
-    fn last_doc_id(&self) -> t_docId {
+    fn last_doc_id(&self) -> DocId {
         match self {
             Self::Not(it) => it.last_doc_id(),
             Self::NotOptimized(it) => it.last_doc_id(),
@@ -230,7 +231,7 @@ unsafe fn build_timeout_context(
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn NewNotIterator(
     child: *mut QueryIterator,
-    max_doc_id: t_docId,
+    max_doc_id: DocId,
     weight: f64,
     timeout: timespec,
     bc_timeout_areq: *mut AREQ,
