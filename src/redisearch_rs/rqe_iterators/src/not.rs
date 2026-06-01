@@ -14,7 +14,9 @@ use index_result::RSIndexResult;
 
 use crate::{
     IteratorType, RQEIterator, RQEIteratorError, RQEValidateStatus, SkipToOutcome,
-    maybe_empty::MaybeEmpty, utils::TimeoutContext,
+    maybe_empty::MaybeEmpty,
+    profile_print::{ProfilePrint, ProfilePrintCtx},
+    utils::TimeoutContext,
 };
 
 use index_spec::IndexSpecReadGuard;
@@ -258,25 +260,6 @@ where
     }
 }
 
-/// Trait for NOT iterators ([`Not`] and [`crate::not_optimized::NotOptimized`]).
-pub trait NotIterator<'index>: RQEIterator<'index> {
-    // Those methods are used by profile.c to wrap the child iterator.
-    // They can be removed once this code is ported to Rust.
-    /// Get a shared reference to the child iterator, or `None` if unset.
-    fn child(&self) -> Option<&dyn RQEIterator<'index>>;
-}
-
-impl<'index, TC> NotIterator<'index> for Not<'index, Box<dyn RQEIterator<'index> + 'index>, TC>
-where
-    TC: TimeoutContext,
-{
-    fn child(&self) -> Option<&dyn RQEIterator<'index>> {
-        self.child
-            .as_ref()
-            .map(|c| &**c as &dyn RQEIterator<'index>)
-    }
-}
-
 impl<'index, TC> crate::interop::ProfileChildren<'index>
     for Not<'index, crate::c2rust::CRQEIterator, TC>
 where
@@ -290,5 +273,15 @@ where
             result: self.result,
             timeout_ctx: self.timeout_ctx,
         }
+    }
+}
+
+impl<'index, I, TC> ProfilePrint for Not<'index, I, TC>
+where
+    I: RQEIterator<'index> + ProfilePrint,
+    TC: TimeoutContext,
+{
+    fn print_profile(&self, map: &mut redis_reply::MapBuilder<'_>, ctx: &mut ProfilePrintCtx<'_>) {
+        ctx.print_single_child(c"NOT", self.child(), map);
     }
 }

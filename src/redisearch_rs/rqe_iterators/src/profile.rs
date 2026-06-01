@@ -35,6 +35,17 @@ pub struct ProfileCounters {
     pub eof: bool,
 }
 
+impl ProfileCounters {
+    /// Returns the number of reading operations for profile display.
+    ///
+    /// This is the sum of `read` and `skip_to` counts, minus one if EOF was
+    /// reached (to exclude the final unsuccessful read). The result is
+    /// clamped to zero.
+    pub fn num_reading_operations(&self) -> usize {
+        (self.read + self.skip_to).saturating_sub(usize::from(self.eof))
+    }
+}
+
 /// A wrapper iterator that collects profiling metrics from a child iterator.
 ///
 /// This iterator delegates all operations to its inner child iterator while:
@@ -149,5 +160,18 @@ impl<'index, I: RQEIterator<'index>> RQEIterator<'index> for Profile<'index, I> 
     fn intersection_sort_weight(&self, prioritize_union_children: bool) -> f64 {
         self.child
             .intersection_sort_weight(prioritize_union_children)
+    }
+}
+
+use crate::profile_print::{ProfilePrint, ProfilePrintCtx};
+
+impl<'index, I> ProfilePrint for Profile<'index, I>
+where
+    I: RQEIterator<'index> + ProfilePrint,
+{
+    fn print_profile(&self, map: &mut redis_reply::MapBuilder<'_>, ctx: &mut ProfilePrintCtx<'_>) {
+        let counters = self.counters();
+        let mut child_ctx = ctx.with_counters(counters, self.wall_time_ns());
+        self.child().print_profile(map, &mut child_ctx);
     }
 }

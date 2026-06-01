@@ -15,7 +15,9 @@ use ffi::{
 };
 use index_result::RSIndexResult;
 
-use crate::{RQEIterator, RQEIteratorError, RQEValidateStatus, SkipToOutcome};
+use crate::{
+    RQEIterator, RQEIteratorError, RQEValidateStatus, SkipToOutcome, profile_print::ProfilePrint,
+};
 
 #[repr(C)]
 /// A wrapper around a Rust iterator—i.e. an implementer of the [`RQEIterator`] trait.
@@ -37,7 +39,7 @@ pub struct RQEIteratorWrapper<E> {
 
 impl<'index, I> RQEIteratorWrapper<I>
 where
-    I: RQEIterator<'index> + 'index,
+    I: RQEIterator<'index> + ProfilePrint + 'index,
 {
     /// Heap-allocate a wrapper with the given `ProfileChildren` callback.
     pub fn boxed_new_inner(
@@ -57,6 +59,7 @@ where
                 Free: Some(free_iterator::<I>),
                 Rewind: Some(rewind::<I>),
                 ProfileChildren: profile_children,
+                PrintProfile: Some(print_profile::<I>),
             },
             inner,
         });
@@ -73,7 +76,7 @@ where
 
 impl<'index, I> RQEIteratorWrapper<I>
 where
-    I: RQEIterator<'index> + 'index,
+    I: RQEIterator<'index> + ProfilePrint + 'index,
 {
     /// Create a new C-compatible wrapper around a Rust iterator.
     ///
@@ -141,7 +144,7 @@ pub trait ProfileChildren<'index>: RQEIterator<'index> + Sized + 'index {
 
 impl<'index, I> RQEIteratorWrapper<I>
 where
-    I: ProfileChildren<'index>,
+    I: ProfileChildren<'index> + ProfilePrint,
 {
     /// Create a new C-compatible wrapper around a compound Rust iterator.
     ///
@@ -345,7 +348,7 @@ extern "C" fn num_estimated<'index, I: RQEIterator<'index> + 'index>(
 /// Consumes the wrapper, calls [`ProfileChildren::profile_children`]
 /// on the inner iterator, and re-wraps the result via `boxed_new_inner` with
 /// `ProfileChildren` set to `None` — profiling is a one-shot pass.
-extern "C" fn rust_profile_children<'index, I: ProfileChildren<'index>>(
+extern "C" fn rust_profile_children<'index, I: ProfileChildren<'index> + ProfilePrint>(
     base: *mut QueryIterator,
 ) -> *mut QueryIterator {
     debug_assert!(!base.is_null());
@@ -368,4 +371,30 @@ extern "C" fn free_iterator<'index, I: RQEIterator<'index> + 'index>(base: *mut 
         //  which (internally) use `Box::into_raw` to return a raw header pointer.
         let _ = unsafe { Box::from_raw(base as *mut RQEIteratorWrapper<I>) };
     }
+}
+
+/// `PrintProfile` vtable callback.
+///
+/// # Safety
+///
+/// - `base` must be a valid pointer to a [`QueryIterator`] created by
+///   [`RQEIteratorWrapper::boxed_new`] or [`RQEIteratorWrapper::boxed_new_compound`]
+///   with inner type `I`.
+/// - `map` must be a valid pointer to a [`redis_reply::MapBuilder`].
+/// - `ctx` must be a valid pointer to a [`ProfilePrintCtx`](crate::profile_print::ProfilePrintCtx).
+unsafe extern "C" fn print_profile<'index, I: ProfilePrint + RQEIterator<'index> + 'index>(
+    base: *const QueryIterator,
+    map: *mut ffi::RsMapBuilder,
+    ctx: *mut ffi::RsProfilePrintCtx,
+) {
+    debug_assert!(!base.is_null());
+    debug_assert!(!map.is_null());
+    debug_assert!(!ctx.is_null());
+    // SAFETY: base was created by boxed_new/boxed_new_compound with inner type I.
+    let wrapper = unsafe { RQEIteratorWrapper::<I>::ref_from_header_ptr(base) };
+    // SAFETY: map is a valid &mut MapBuilder per precondition.
+    let map = unsafe { &mut *(map as *mut redis_reply::MapBuilder<'_>) };
+    // SAFETY: ctx is a valid &mut ProfilePrintCtx per precondition.
+    let ctx = unsafe { &mut *(ctx as *mut crate::profile_print::ProfilePrintCtx<'_>) };
+    wrapper.inner.print_profile(map, ctx);
 }

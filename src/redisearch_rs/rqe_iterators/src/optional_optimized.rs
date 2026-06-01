@@ -18,8 +18,10 @@ use ffi::{RS_FIELDMASK_ALL, t_docId};
 use index_result::RSIndexResult;
 
 use crate::{
-    RQEIterator, RQEIteratorError, RQEValidateStatus, SkipToOutcome, maybe_empty::MaybeEmpty,
-    optional::OptionalIterator, wildcard::WildcardIterator,
+    RQEIterator, RQEIteratorError, RQEValidateStatus, SkipToOutcome,
+    maybe_empty::MaybeEmpty,
+    profile_print::{ProfilePrint, ProfilePrintCtx},
+    wildcard::WildcardIterator,
 };
 
 use index_spec::IndexSpecReadGuard;
@@ -66,11 +68,6 @@ where
         self.child.as_ref()
     }
 
-    /// Takes the child iterator out, replacing it with an [`Empty`](crate::Empty) iterator.
-    pub fn take_child(&mut self) -> Option<I> {
-        self.child.take_iterator()
-    }
-
     /// Sets the child iterator.
     pub fn set_child(&mut self, child: I) {
         self.child = MaybeEmpty::new(child);
@@ -96,28 +93,6 @@ where
             last_doc_id: 0,
             at_eof: false,
         }
-    }
-}
-
-impl<'index, W> OptionalIterator<'index>
-    for OptionalOptimized<'index, W, Box<dyn RQEIterator<'index> + 'index>>
-where
-    W: WildcardIterator<'index>,
-{
-    fn child(&self) -> Option<&(dyn RQEIterator<'index> + 'index)> {
-        OptionalOptimized::child(self).map(|c| c.as_ref())
-    }
-
-    fn take_child(&mut self) -> Option<Box<dyn RQEIterator<'index> + 'index>> {
-        self.child.take_iterator()
-    }
-
-    fn set_child(&mut self, child: Box<dyn RQEIterator<'index> + 'index>) {
-        self.child = MaybeEmpty::new(child);
-    }
-
-    fn unset_child(&mut self) {
-        panic!("`unset_child` is not supported for this optional iterator variant");
     }
 }
 
@@ -380,5 +355,15 @@ impl<'index, W: WildcardIterator<'index> + 'index> crate::interop::ProfileChildr
             last_doc_id: self.last_doc_id,
             at_eof: self.at_eof,
         }
+    }
+}
+
+impl<'index, W, I> ProfilePrint for OptionalOptimized<'index, W, I>
+where
+    W: crate::WildcardIterator<'index>,
+    I: RQEIterator<'index> + ProfilePrint,
+{
+    fn print_profile(&self, map: &mut redis_reply::MapBuilder<'_>, ctx: &mut ProfilePrintCtx<'_>) {
+        ctx.print_single_child(c"OPTIONAL", self.child(), map);
     }
 }

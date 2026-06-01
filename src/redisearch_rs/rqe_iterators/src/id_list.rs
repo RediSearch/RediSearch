@@ -16,6 +16,7 @@ use std::cmp::Ordering;
 
 use crate::{
     IteratorType, RQEIterator, RQEIteratorError, RQEValidateStatus, SkipToOutcome,
+    profile_print::{ProfilePrint, ProfilePrintCtx},
     utils::OwnedSlice,
 };
 
@@ -260,5 +261,15 @@ impl<'index, const SORTED_BY_ID: bool> RQEIterator<'index> for IdList<'index, SO
 
     fn intersection_sort_weight(&self, _prioritize_union_children: bool) -> f64 {
         1.0
+    }
+}
+
+impl<const SORTED: bool> ProfilePrint for IdList<'_, SORTED> {
+    fn print_profile(&self, map: &mut redis_reply::MapBuilder<'_>, ctx: &mut ProfilePrintCtx<'_>) {
+        if SORTED {
+            ctx.print_leaf(c"ID-LIST-SORTED", map);
+        } else {
+            ctx.print_leaf(c"ID-LIST-UNSORTED", map);
+        }
     }
 }
