@@ -39,3 +39,13 @@ foreach(benchmark_file ${BENCHMARK_ITER_SOURCES})
   add_executable(${benchmark_name} ${benchmark_file} ../index_utils.cpp ../llapi_test_helpers.cpp ../iterator_util.cpp)
   target_link_libraries(${benchmark_name} redisearch redismock benchmark::benchmark)
 endforeach()
+
+# Local-only ad-hoc microbenchmarks (bench_*.cpp). Not run by nightly CI - those
+# only invoke the iterator benchmarks above. Files matching this glob are built
+# alongside the test suite but are intended for hand-driven A/B comparisons.
+file(GLOB BENCH_LOCAL_SOURCES "bench_*.cpp")
+foreach(bench_file ${BENCH_LOCAL_SOURCES})
+  get_filename_component(bench_name ${bench_file} NAME_WE)
+  add_executable(${bench_name} ${bench_file})
+  target_link_libraries(${bench_name} redisearch redismock benchmark::benchmark)
+endforeach()
