@@ -66,61 +66,7 @@ pub fn load<R: RdbRead>(reader: &mut R, opts: RdbOpts) -> Result<StrTrieMap<Trie
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    #[derive(Debug, Clone, PartialEq)]
-    enum Op {
-        U64(u64),
-        F64(f64),
-        Bytes(Vec<u8>),
-    }
-
-    #[derive(Default)]
-    struct Recorder(Vec<Op>);
-    impl RdbWrite for Recorder {
-        fn save_u64(&mut self, v: u64) {
-            self.0.push(Op::U64(v));
-        }
-        fn save_f64(&mut self, v: f64) {
-            self.0.push(Op::F64(v));
-        }
-        fn save_bytes(&mut self, b: &[u8]) {
-            self.0.push(Op::Bytes(b.to_vec()));
-        }
-    }
-
-    struct Replayer {
-        ops: std::vec::IntoIter<Op>,
-    }
-    impl Replayer {
-        fn new(ops: Vec<Op>) -> Self {
-            Self {
-                ops: ops.into_iter(),
-            }
-        }
-        fn step(&mut self) -> Result<Op, RdbError> {
-            self.ops.next().ok_or(RdbError::Io)
-        }
-    }
-    impl RdbRead for Replayer {
-        fn load_u64(&mut self) -> Result<u64, RdbError> {
-            match self.step()? {
-                Op::U64(v) => Ok(v),
-                op => panic!("mock: expected U64, got {op:?}"),
-            }
-        }
-        fn load_f64(&mut self) -> Result<f64, RdbError> {
-            match self.step()? {
-                Op::F64(v) => Ok(v),
-                op => panic!("mock: expected F64, got {op:?}"),
-            }
-        }
-        fn load_bytes(&mut self) -> Result<Vec<u8>, RdbError> {
-            match self.step()? {
-                Op::Bytes(v) => Ok(v),
-                op => panic!("mock: expected Bytes, got {op:?}"),
-            }
-        }
-    }
+    use crate::rdb::test_helpers::{Op, Recorder, Replayer};
 
     fn entry(score: f64, payload: Option<&[u8]>, num_docs: u64) -> TrieEntry {
         TrieEntry {

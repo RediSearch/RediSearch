@@ -221,19 +221,29 @@ pub enum RdbError {
     InvalidUtf8,
 }
 
+/// In-memory [`RdbWrite`] / [`RdbRead`] mocks shared by the byte-keyed and
+/// str-keyed RDB test suites. Lives here (rather than inside either test
+/// module) so both `crate::rdb::tests` and `crate::str::rdb::tests` import
+/// the same `Op` enum — keeps the wire-shape assertions cross-checkable
+/// against one canonical representation.
 #[cfg(test)]
-mod tests {
+pub(crate) mod test_helpers {
     use super::*;
 
+    /// One typed call against [`RdbWrite`] / [`RdbRead`]. The wire-shape
+    /// tests assert against `Vec<Op>` traces directly.
     #[derive(Debug, Clone, PartialEq)]
-    enum Op {
+    pub(crate) enum Op {
         U64(u64),
         F64(f64),
         Bytes(Vec<u8>),
     }
 
+    /// [`RdbWrite`] impl that records every call as an [`Op`]. The trace
+    /// is exposed via the tuple field so tests can both inspect it
+    /// (`rec.0`) and move it into a [`Replayer`].
     #[derive(Default)]
-    struct Recorder(Vec<Op>);
+    pub(crate) struct Recorder(pub(crate) Vec<Op>);
     impl RdbWrite for Recorder {
         fn save_u64(&mut self, v: u64) {
             self.0.push(Op::U64(v));
@@ -246,14 +256,17 @@ mod tests {
         }
     }
 
-    struct Replayer {
+    /// [`RdbRead`] impl that replays a recorded [`Op`] trace. Optionally
+    /// short-circuits with [`RdbError::Io`] after `n` calls to exercise
+    /// mid-stream IO failure paths.
+    pub(crate) struct Replayer {
         ops: std::vec::IntoIter<Op>,
         fail_after: Option<usize>,
         calls: usize,
     }
 
     impl Replayer {
-        fn new(ops: Vec<Op>) -> Self {
+        pub(crate) fn new(ops: Vec<Op>) -> Self {
             Self {
                 ops: ops.into_iter(),
                 fail_after: None,
@@ -261,7 +274,7 @@ mod tests {
             }
         }
 
-        fn fail_after(ops: Vec<Op>, n: usize) -> Self {
+        pub(crate) fn fail_after(ops: Vec<Op>, n: usize) -> Self {
             Self {
                 ops: ops.into_iter(),
                 fail_after: Some(n),
@@ -300,6 +313,12 @@ mod tests {
             }
         }
     }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use test_helpers::{Op, Recorder, Replayer};
 
     fn entry(score: f64, payload: Option<&[u8]>, num_docs: u64) -> TrieEntry {
         TrieEntry {
