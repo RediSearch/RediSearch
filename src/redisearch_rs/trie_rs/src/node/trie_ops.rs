@@ -212,11 +212,11 @@ impl<Data> Node<Data> {
         let mut current = self;
         loop {
             key = strip_prefix(key, current.label())?;
-            let Some(first_byte) = key.first().copied() else {
+            let Some(first_byte) = key.first() else {
                 // The suffix is empty, so the key and the label are equal.
                 return current.data_mut().as_mut();
             };
-            current = current.child_starting_with_mut(first_byte)?;
+            current = current.child_starting_with_mut(*first_byte)?;
         }
     }
 
