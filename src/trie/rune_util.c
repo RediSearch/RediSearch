@@ -30,7 +30,7 @@ rune runeFold(rune r) {
 }
 
 char *runesToStr(const rune *in, size_t len, size_t *utflen) {
-  if (len > MAX_RUNESTR_LEN) {
+  if (len > MAX_RUNE_STR_LEN) {
     if (utflen) *utflen = 0;
     return NULL;
   }
@@ -67,7 +67,7 @@ rune *strToLowerRunes(const char *str, size_t utf8_len, size_t *unicode_len) {
   // determine the length of the folded string
   ssize_t rlen = nu_strtransformnlen(str, utf8_len, nu_utf8_read,
                                      nu_tolower, nu_casemap_read);
-  if (rlen > MAX_RUNESTR_LEN) {
+  if (rlen > MAX_RUNE_STR_LEN) {
     *unicode_len = 0;
     return NULL;
   }
@@ -108,7 +108,7 @@ rune *strToLowerRunes(const char *str, size_t utf8_len, size_t *unicode_len) {
 rune *strToSingleCodepointFoldedRunes(const char *str, size_t utf8_len, size_t *len) {
 
   ssize_t rlen = nu_strnlen(str, utf8_len, nu_utf8_read);
-  if (rlen > MAX_RUNESTR_LEN) {
+  if (rlen > MAX_RUNE_STR_LEN) {
     if (len) *len = 0;
     return NULL;
   }
@@ -130,7 +130,7 @@ rune *strToSingleCodepointFoldedRunes(const char *str, size_t utf8_len, size_t *
 rune *strToRunes(const char *str, size_t *len) {
   // Determine the length
   ssize_t rlen = nu_strlen(str, nu_utf8_read);
-  if (rlen > MAX_RUNESTR_LEN) {
+  if (rlen > MAX_RUNE_STR_LEN) {
     if (len) *len = 0;
     return NULL;
   }
