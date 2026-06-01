@@ -173,10 +173,8 @@ fn field_satisfies_predicate_present_expired_and_future() {
 }
 
 #[test]
-fn verify_doc_and_field_mask_u32_routes_through_translation_table() {
+fn field_mask_satisfies_predicate_narrow_routes_through_translation_table() {
     // Mask bit 3 ↔ field index 1 (expired). Default → false, Missing → true.
-    let map: Vec<u16> = (0u16..32).collect();
-    let _ = &map[3]; // index 3 ↔ field 3 in identity map; pick a different layout below.
     // Make the translation interesting: bit 3 maps to field 1.
     let mut map: Vec<u16> = vec![0; 32];
     map[3] = 1;
@@ -184,32 +182,34 @@ fn verify_doc_and_field_mask_u32_routes_through_translation_table() {
         let v = into_ffi([fe(1, PAST)]);
         unsafe { TimeToLiveTable_Add(t, 1, v) };
 
-        let mask: u32 = 1 << 3;
+        let mask: FieldMask = (1u64 << 3) as FieldMask;
         assert!(!unsafe {
-            TimeToLiveTable_VerifyDocAndFieldMask(
+            TimeToLiveTable_FieldMaskSatisfiesPredicate(
                 t,
                 1,
                 mask,
                 FieldExpirationPredicate::Default,
                 &NOW,
                 map.as_ptr(),
+                false,
             )
         });
         assert!(unsafe {
-            TimeToLiveTable_VerifyDocAndFieldMask(
+            TimeToLiveTable_FieldMaskSatisfiesPredicate(
                 t,
                 1,
                 mask,
                 FieldExpirationPredicate::Missing,
                 &NOW,
                 map.as_ptr(),
+                false,
             )
         });
     });
 }
 
 #[test]
-fn verify_doc_and_wide_field_mask_uses_active_width() {
+fn field_mask_satisfies_predicate_wide_uses_active_width() {
     // Pick a bit that fits in both u64 and u128 so the test is width-agnostic.
     const BIT: usize = 5;
     let mut map: Vec<u16> = vec![0; 128];
@@ -225,23 +225,25 @@ fn verify_doc_and_wide_field_mask_uses_active_width() {
         let mask: FieldMask = (1u64 << BIT) as FieldMask;
 
         assert!(!unsafe {
-            TimeToLiveTable_VerifyDocAndWideFieldMask(
+            TimeToLiveTable_FieldMaskSatisfiesPredicate(
                 t,
                 1,
                 mask,
                 FieldExpirationPredicate::Default,
                 &NOW,
                 map.as_ptr(),
+                true,
             )
         });
         assert!(unsafe {
-            TimeToLiveTable_VerifyDocAndWideFieldMask(
+            TimeToLiveTable_FieldMaskSatisfiesPredicate(
                 t,
                 1,
                 mask,
                 FieldExpirationPredicate::Missing,
                 &NOW,
                 map.as_ptr(),
+                true,
             )
         });
     });

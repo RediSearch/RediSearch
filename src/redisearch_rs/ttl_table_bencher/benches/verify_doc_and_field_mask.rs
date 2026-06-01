@@ -14,6 +14,7 @@ use std::num::NonZeroUsize;
 
 use criterion::{BatchSize, BenchmarkId, Criterion, Throughput, criterion_group, criterion_main};
 use ffi::t_docId;
+use rqe_core::FieldMask;
 use ttl_table::{
     FieldExpirationPredicate,
     test_utils::{NOW, identity_ft_id},
@@ -73,12 +74,13 @@ fn verify_doc_and_field_mask_doc_default(c: &mut Criterion) {
                     |doc_ids| {
                     let mut acc = 0u64;
                     for doc_id in doc_ids {
-                        let ok = table.verify_doc_and_field_mask(
+                        let ok = table.field_mask_satisfies_predicate(
                             black_box(doc_id as t_docId),
-                            black_box(mask),
+                            black_box(mask as FieldMask),
                             FieldExpirationPredicate::Default,
                             &NOW,
                             &ft_id_to_field_index,
+                            false,
                         );
                         acc += ok as u64;
                     }

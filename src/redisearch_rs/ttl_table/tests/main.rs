@@ -214,19 +214,21 @@ fn verify_field_absent_default_returns_true() {
 fn verify_mask_returns_true_for_unknown_doc() {
     let t = TimeToLiveTable::new(TEST_MAX_SIZE);
     let map = identity_ft_id();
-    assert!(t.verify_doc_and_field_mask(
+    assert!(t.field_mask_satisfies_predicate(
         DOC_ID_1,
         mask_bit(&[0, 1, 2, 3]),
         FieldExpirationPredicate::Default,
         &NOW,
         &map,
+        false,
     ));
-    assert!(t.verify_doc_and_field_mask(
+    assert!(t.field_mask_satisfies_predicate(
         DOC_ID_1,
         mask_bit(&[0, 1, 2, 3]),
         FieldExpirationPredicate::Missing,
         &NOW,
         &map,
+        false,
     ));
 }
 
@@ -238,13 +240,14 @@ fn verify_mask_default_short_circuits_when_more_bits_than_field_expirations() {
         fes([fe(FIELD_INDEX_1, PAST), fe(FIELD_INDEX_2, PAST)]),
     );
     let map = identity_ft_id();
-    assert!(t.verify_doc_and_field_mask(
+    assert!(t.field_mask_satisfies_predicate(
         DOC_ID_1,
         // The bitmask is longer than the entry, so at least one is not expired (or don't have expiration date)
         mask_bit(&[0, 1, 2, 3, 4, 5, 6, 7, 8, 9]),
         FieldExpirationPredicate::Default,
         &NOW,
         &map,
+        false,
     ));
 }
 
@@ -257,12 +260,13 @@ fn verify_mask_default_returns_false_when_all_matched_fields_expired_and_no_extr
     );
     // Mask covers exactly the two expired fields ⇒ no field is valid.
     let map = identity_ft_id();
-    assert!(!t.verify_doc_and_field_mask(
+    assert!(!t.field_mask_satisfies_predicate(
         DOC_ID_1,
         mask_bit(&[FIELD_INDEX_1, FIELD_INDEX_2]),
         FieldExpirationPredicate::Default,
         &NOW,
         &map,
+        false,
     ));
 }
 
@@ -274,12 +278,13 @@ fn verify_mask_missing_returns_true_when_any_matched_field_expired() {
         fes([fe(FIELD_INDEX_1, FUTURE), fe(FIELD_INDEX_2, PAST)]),
     );
     let map = identity_ft_id();
-    assert!(t.verify_doc_and_field_mask(
+    assert!(t.field_mask_satisfies_predicate(
         DOC_ID_1,
         mask_bit(&[FIELD_INDEX_1, FIELD_INDEX_2]),
         FieldExpirationPredicate::Missing,
         &NOW,
         &map,
+        false,
     ));
 }
 
@@ -291,12 +296,13 @@ fn verify_mask_missing_returns_false_when_no_matched_field_expired() {
         fes([fe(FIELD_INDEX_1, FUTURE), fe(FIELD_INDEX_2, FUTURE)]),
     );
     let map = identity_ft_id();
-    assert!(!t.verify_doc_and_field_mask(
+    assert!(!t.field_mask_satisfies_predicate(
         DOC_ID_1,
         mask_bit(&[FIELD_INDEX_1, FIELD_INDEX_2]),
         FieldExpirationPredicate::Missing,
         &NOW,
         &map,
+        false,
     ));
 }
 
@@ -308,12 +314,13 @@ fn verify_mask_default_returns_true_when_at_least_one_matched_field_valid() {
         fes([fe(FIELD_INDEX_1, PAST), fe(FIELD_INDEX_2, FUTURE)]),
     );
     let map = identity_ft_id();
-    assert!(t.verify_doc_and_field_mask(
+    assert!(t.field_mask_satisfies_predicate(
         DOC_ID_1,
         mask_bit(&[FIELD_INDEX_1, FIELD_INDEX_2]),
         FieldExpirationPredicate::Default,
         &NOW,
         &map,
+        false,
     ));
 }
 
@@ -331,19 +338,21 @@ fn verify_mask_skips_bits_whose_field_index_is_not_tracked() {
         DOC_ID_1,
         fes([fe(FIELD_INDEX_1, PAST), fe(FIELD_INDEX_2, PAST)]),
     );
-    assert!(t.verify_doc_and_field_mask(
+    assert!(t.field_mask_satisfies_predicate(
         DOC_ID_1,
         mask_bit(&[FIELD_ID as u16]),
         FieldExpirationPredicate::Default,
         &NOW,
         &map,
+        false,
     ));
-    assert!(!t.verify_doc_and_field_mask(
+    assert!(!t.field_mask_satisfies_predicate(
         DOC_ID_1,
         mask_bit(&[FIELD_ID as u16]),
         FieldExpirationPredicate::Missing,
         &NOW,
         &map,
+        false,
     ));
 }
 
@@ -361,24 +370,26 @@ fn verify_mask_with_sparse_monotonic_translation_table() {
             fe(FIELD_INDEX_3, FUTURE),
         ]),
     );
-    assert!(t.verify_doc_and_field_mask(
+    assert!(t.field_mask_satisfies_predicate(
         DOC_ID_1,
         mask_bit(&[0, 1, 2]),
         FieldExpirationPredicate::Default,
         &NOW,
         &map,
+        false,
     ));
-    assert!(t.verify_doc_and_field_mask(
+    assert!(t.field_mask_satisfies_predicate(
         DOC_ID_1,
         mask_bit(&[0, 1, 2]),
         FieldExpirationPredicate::Missing,
         &NOW,
         &map,
+        false,
     ));
 }
 
 // ---------------------------------------------------------------------------
-// verify_doc_and_wide_field_mask (128-bit)
+// field_mask_satisfies_predicate, wide (128-bit)
 // ---------------------------------------------------------------------------
 
 #[test]
@@ -393,19 +404,21 @@ fn verify_wide_mask_high_bits_use_correct_field_index() {
     let mut t = TimeToLiveTable::new(TEST_MAX_SIZE);
     t.add(DOC_ID_1, fes([fe(FIELD_INDEX_1, PAST)]));
     let mask: u128 = 1u128 << MAPPING_BIT;
-    assert!(!t.verify_doc_and_wide_field_mask(
+    assert!(!t.field_mask_satisfies_predicate(
         DOC_ID_1,
         mask,
         FieldExpirationPredicate::Default,
         &NOW,
         &map,
+        true,
     ));
-    assert!(t.verify_doc_and_wide_field_mask(
+    assert!(t.field_mask_satisfies_predicate(
         DOC_ID_1,
         mask,
         FieldExpirationPredicate::Missing,
         &NOW,
         &map,
+        true,
     ));
 }
 
@@ -413,12 +426,13 @@ fn verify_wide_mask_high_bits_use_correct_field_index() {
 fn verify_wide_mask_returns_true_for_unknown_doc() {
     let t = TimeToLiveTable::new(TEST_MAX_SIZE);
     let map = identity_ft_id();
-    assert!(t.verify_doc_and_wide_field_mask(
+    assert!(t.field_mask_satisfies_predicate(
         1,
         0b1111u128,
         FieldExpirationPredicate::Default,
         &NOW,
         &map,
+        true,
     ));
 }
 
@@ -509,20 +523,22 @@ fn verify_wide_mask_with_bits_in_both_halves() {
     map[65] = FIELD_INDEX_4;
     let mask = mask_bit_u128(&[0, 1, 64, 65]);
     // Default: field FIELD_INDEX_3 is FUTURE (valid) ⇒ "one of the fields valid" ⇒ true.
-    assert!(t.verify_doc_and_wide_field_mask(
+    assert!(t.field_mask_satisfies_predicate(
         DOC_ID_1,
         mask,
         FieldExpirationPredicate::Default,
         &NOW,
         &map,
+        true,
     ));
     // Missing: fields FIELD_INDEX_1, FIELD_INDEX_2, FIELD_INDEX_3 are PAST ⇒ "one of the fields expired" ⇒ true.
-    assert!(t.verify_doc_and_wide_field_mask(
+    assert!(t.field_mask_satisfies_predicate(
         DOC_ID_1,
         mask,
         FieldExpirationPredicate::Missing,
         &NOW,
         &map,
+        true,
     ));
 }
 
@@ -534,19 +550,21 @@ fn verify_mask_with_empty_mask_returns_false_for_both_predicates() {
     let mut t = TimeToLiveTable::new(TEST_MAX_SIZE);
     t.add(DOC_ID_1, fes([fe(FIELD_INDEX_1, PAST)]));
     let map = identity_ft_id();
-    assert!(!t.verify_doc_and_field_mask(
+    assert!(!t.field_mask_satisfies_predicate(
         DOC_ID_1,
-        0u32,
+        0u128,
         FieldExpirationPredicate::Default,
         &NOW,
         &map,
+        false,
     ));
-    assert!(!t.verify_doc_and_field_mask(
+    assert!(!t.field_mask_satisfies_predicate(
         DOC_ID_1,
-        0u32,
+        0u128,
         FieldExpirationPredicate::Missing,
         &NOW,
         &map,
+        false,
     ));
 }
 
@@ -555,19 +573,21 @@ fn verify_wide_mask_with_empty_mask_returns_false_for_both_predicates() {
     let mut t = TimeToLiveTable::new(TEST_MAX_SIZE);
     t.add(DOC_ID_1, fes([fe(FIELD_INDEX_1, PAST)]));
     let map = identity_ft_id();
-    assert!(!t.verify_doc_and_wide_field_mask(
+    assert!(!t.field_mask_satisfies_predicate(
         DOC_ID_1,
         0u128,
         FieldExpirationPredicate::Default,
         &NOW,
         &map,
+        true,
     ));
-    assert!(!t.verify_doc_and_wide_field_mask(
+    assert!(!t.field_mask_satisfies_predicate(
         DOC_ID_1,
         0u128,
         FieldExpirationPredicate::Missing,
         &NOW,
         &map,
+        true,
     ));
 }
 
@@ -579,12 +599,13 @@ fn verify_mask_panics_when_translation_table_is_too_short() {
     let mut t = TimeToLiveTable::new(TEST_MAX_SIZE);
     t.add(DOC_ID_1, fes([fe(FIELD_INDEX_1, FUTURE)]));
     let map: Vec<u16> = vec![0u16; count];
-    let _ = t.verify_doc_and_field_mask(
+    let _ = t.field_mask_satisfies_predicate(
         DOC_ID_1,
         mask_bit(&[count as u16]),
         FieldExpirationPredicate::Default,
         &NOW,
         &map,
+        false,
     );
 }
 
@@ -596,12 +617,13 @@ fn verify_wide_mask_panics_when_translation_table_is_too_short() {
     let mut t = TimeToLiveTable::new(TEST_MAX_SIZE);
     t.add(DOC_ID_1, fes([fe(FIELD_INDEX_1, FUTURE)]));
     let map: Vec<u16> = vec![0u16; count];
-    let _ = t.verify_doc_and_wide_field_mask(
+    let _ = t.field_mask_satisfies_predicate(
         DOC_ID_1,
         mask_bit_u128(&[count as u16]),
         FieldExpirationPredicate::Default,
         &NOW,
         &map,
+        true,
     );
 }
 
@@ -710,40 +732,44 @@ fn verify_mask_interleaved_skip_and_match_pattern() {
     // Untracked: 2 (between entries 1 and 3) — counts as valid.
     let mask_mixed = mask_bit(&[1, 2, 3, 5, 7]);
     // Default: a valid field exists (2 untracked, 3 FUTURE, 7 FUTURE) ⇒ true.
-    assert!(t.verify_doc_and_field_mask(
+    assert!(t.field_mask_satisfies_predicate(
         DOC_ID_1,
         mask_mixed,
         FieldExpirationPredicate::Default,
         &NOW,
         &map,
+        false,
     ));
     // Missing: 1 and 5 are PAST ⇒ true.
-    assert!(t.verify_doc_and_field_mask(
+    assert!(t.field_mask_satisfies_predicate(
         DOC_ID_1,
         mask_mixed,
         FieldExpirationPredicate::Missing,
         &NOW,
         &map,
+        false,
     ));
 
     // Mask {1, 5, 9}: every queried field is tracked AND expired,
     // and no extras ⇒ no field is valid.
     let mask_all_expired_tracked = mask_bit(&[1, 5, 9]);
     // Default: no valid field ⇒ false.
-    assert!(!t.verify_doc_and_field_mask(
+    assert!(!t.field_mask_satisfies_predicate(
         DOC_ID_1,
         mask_all_expired_tracked,
         FieldExpirationPredicate::Default,
         &NOW,
         &map,
+        false,
     ));
     // Missing: every queried field is expired ⇒ true.
-    assert!(t.verify_doc_and_field_mask(
+    assert!(t.field_mask_satisfies_predicate(
         DOC_ID_1,
         mask_all_expired_tracked,
         FieldExpirationPredicate::Missing,
         &NOW,
         &map,
+        false,
     ));
 }
 
@@ -778,19 +804,21 @@ fn verify_wide_mask_at_bit_64_uses_correct_field_index() {
     let mut t = TimeToLiveTable::new(TEST_MAX_SIZE);
     t.add(DOC_ID_1, fes([fe(FIELD_INDEX_1, PAST)]));
     let mask = mask_bit_u128(&[64]);
-    assert!(!t.verify_doc_and_wide_field_mask(
+    assert!(!t.field_mask_satisfies_predicate(
         DOC_ID_1,
         mask,
         FieldExpirationPredicate::Default,
         &NOW,
         &map,
+        true,
     ));
-    assert!(t.verify_doc_and_wide_field_mask(
+    assert!(t.field_mask_satisfies_predicate(
         DOC_ID_1,
         mask,
         FieldExpirationPredicate::Missing,
         &NOW,
         &map,
+        true,
     ));
 }
 
@@ -801,19 +829,21 @@ fn verify_wide_mask_at_bit_127_uses_correct_field_index() {
     let mut t = TimeToLiveTable::new(TEST_MAX_SIZE);
     t.add(DOC_ID_1, fes([fe(FIELD_INDEX_1, FUTURE)]));
     let mask = mask_bit_u128(&[127]);
-    assert!(t.verify_doc_and_wide_field_mask(
+    assert!(t.field_mask_satisfies_predicate(
         DOC_ID_1,
         mask,
         FieldExpirationPredicate::Default,
         &NOW,
         &map,
+        true,
     ));
-    assert!(!t.verify_doc_and_wide_field_mask(
+    assert!(!t.field_mask_satisfies_predicate(
         DOC_ID_1,
         mask,
         FieldExpirationPredicate::Missing,
         &NOW,
         &map,
+        true,
     ));
 }
 
@@ -826,12 +856,13 @@ fn verify_wide_mask_default_short_circuits_when_more_bits_than_field_expirations
     );
     let map = identity_ft_id();
     let mask = mask_bit_u128(&[0, 1, 2, 3, 4, 5, 6, 7, 8, 9]);
-    assert!(t.verify_doc_and_wide_field_mask(
+    assert!(t.field_mask_satisfies_predicate(
         DOC_ID_1,
         mask,
         FieldExpirationPredicate::Default,
         &NOW,
         &map,
+        true,
     ));
 }
 
@@ -844,12 +875,13 @@ fn verify_wide_mask_default_returns_false_when_all_matched_fields_expired_and_no
     );
     let map = identity_ft_id();
     let mask = mask_bit_u128(&[FIELD_INDEX_1, FIELD_INDEX_2]);
-    assert!(!t.verify_doc_and_wide_field_mask(
+    assert!(!t.field_mask_satisfies_predicate(
         DOC_ID_1,
         mask,
         FieldExpirationPredicate::Default,
         &NOW,
         &map,
+        true,
     ));
 }
 
@@ -862,12 +894,13 @@ fn verify_wide_mask_missing_returns_true_when_any_matched_field_expired() {
     );
     let map = identity_ft_id();
     let mask = mask_bit_u128(&[FIELD_INDEX_1, FIELD_INDEX_2]);
-    assert!(t.verify_doc_and_wide_field_mask(
+    assert!(t.field_mask_satisfies_predicate(
         DOC_ID_1,
         mask,
         FieldExpirationPredicate::Missing,
         &NOW,
         &map,
+        true,
     ));
 }
 
@@ -880,12 +913,13 @@ fn verify_wide_mask_missing_returns_false_when_no_matched_field_expired() {
     );
     let map = identity_ft_id();
     let mask = mask_bit_u128(&[FIELD_INDEX_1, FIELD_INDEX_2]);
-    assert!(!t.verify_doc_and_wide_field_mask(
+    assert!(!t.field_mask_satisfies_predicate(
         DOC_ID_1,
         mask,
         FieldExpirationPredicate::Missing,
         &NOW,
         &map,
+        true,
     ));
 }
 
@@ -901,19 +935,21 @@ fn verify_wide_mask_skips_bits_whose_field_index_is_not_tracked() {
     );
     let mask = mask_bit_u128(&[FIELD_ID as u16]);
     // Untracked field ⇒ Default true, Missing false.
-    assert!(t.verify_doc_and_wide_field_mask(
+    assert!(t.field_mask_satisfies_predicate(
         DOC_ID_1,
         mask,
         FieldExpirationPredicate::Default,
         &NOW,
         &map,
+        true,
     ));
-    assert!(!t.verify_doc_and_wide_field_mask(
+    assert!(!t.field_mask_satisfies_predicate(
         DOC_ID_1,
         mask,
         FieldExpirationPredicate::Missing,
         &NOW,
         &map,
+        true,
     ));
 }
 
@@ -1015,20 +1051,22 @@ fn verify_mask_with_two_bits_translating_to_same_field_index() {
     );
     let mask = mask_bit(&[0, 1]);
 
-    assert!(t.verify_doc_and_field_mask(
+    assert!(t.field_mask_satisfies_predicate(
         DOC_ID_1,
         mask,
         FieldExpirationPredicate::Default,
         &NOW,
         &map,
+        false,
     ));
     // No expired field ⇒ Missing false.
-    assert!(!t.verify_doc_and_field_mask(
+    assert!(!t.field_mask_satisfies_predicate(
         DOC_ID_1,
         mask,
         FieldExpirationPredicate::Missing,
         &NOW,
         &map,
+        false,
     ));
 }
 
@@ -1037,12 +1075,13 @@ fn verify_mask_with_all_bits_set_default_short_circuits_to_true() {
     let mut t = TimeToLiveTable::new(TEST_MAX_SIZE);
     t.add(DOC_ID_1, fes([fe(FIELD_INDEX_1, PAST)]));
     let map = identity_ft_id();
-    assert!(t.verify_doc_and_field_mask(
+    assert!(t.field_mask_satisfies_predicate(
         DOC_ID_1,
-        u32::MAX,
+        u32::MAX as u128,
         FieldExpirationPredicate::Default,
         &NOW,
         &map,
+        false,
     ));
 }
 
@@ -1051,12 +1090,13 @@ fn verify_wide_mask_with_all_bits_set_default_short_circuits_to_true() {
     let mut t = TimeToLiveTable::new(TEST_MAX_SIZE);
     t.add(DOC_ID_1, fes([fe(FIELD_INDEX_1, PAST)]));
     let map = identity_ft_id();
-    assert!(t.verify_doc_and_wide_field_mask(
+    assert!(t.field_mask_satisfies_predicate(
         DOC_ID_1,
         u128::MAX,
         FieldExpirationPredicate::Default,
         &NOW,
         &map,
+        true,
     ));
 }
 

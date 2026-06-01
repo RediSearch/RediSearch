@@ -265,8 +265,7 @@ impl TimeToLiveTable {
     ///
     /// These invariants are load-bearing for the lookup hot paths
     /// ([`field_satisfies_predicate`](Self::field_satisfies_predicate),
-    /// [`verify_doc_and_field_mask`](Self::verify_doc_and_field_mask),
-    /// [`verify_doc_and_wide_field_mask`](Self::verify_doc_and_wide_field_mask)),
+    /// [`field_mask_satisfies_predicate`](Self::field_mask_satisfies_predicate)),
     /// which assume them when scanning the per-bucket chain and the
     /// per-entry field-expiration list.
     pub unsafe fn add_unchecked(&mut self, doc_id: DocId, field_expirations: FieldExpirations) {
@@ -390,8 +389,14 @@ impl TimeToLiveTable {
             .unwrap_or(predicate != FieldExpirationPredicate::Missing)
     }
 
-    /// Checks the expiration state of a set of fields described by a
-    /// 32-bit `field_mask`.
+    /// Checks the expiration state of a set of fields described by
+    /// `field_mask` under `predicate`.
+    ///
+    /// `field_mask` is always taken as a wide [`FieldMask`]. When `wide` is
+    /// `false` (the narrow-schema case, at most 32 fields) only the low 32
+    /// bits are meaningful and the mask is walked with the faster `u32`
+    /// bit-walk; when `wide` is `true` the full [`FieldMask`] width
+    /// (`u64`/`u128`, chosen by the C build) is walked.
     ///
     /// `ft_id_to_field_index[bit]` translates a bit position in the mask
     /// into the `FieldIndex` recorded in the table; it must contain at
@@ -407,51 +412,33 @@ impl TimeToLiveTable {
     /// least `highest_set_bit + 1` of `field_mask`. The bit-walk reads
     /// the translation slice via `_unchecked` once per set bit;
     /// violating the bound is undefined behavior in release builds.
-    pub fn verify_doc_and_field_mask(
-        &self,
-        doc_id: DocId,
-        field_mask: u32,
-        predicate: FieldExpirationPredicate,
-        expiration_point: &timespec,
-        ft_id_to_field_index: &[u16],
-    ) -> bool {
-        verify_mask::<u32>(
-            self.find_entry(doc_id),
-            field_mask,
-            predicate,
-            expiration_point,
-            ft_id_to_field_index,
-        )
-    }
-
-    /// Checks the expiration state of a set of fields described by a wide
-    /// [`FieldMask`] (the wide-schema variant).
-    ///
-    /// `FieldMask` is a compile-time alias chosen by the C build: it can be
-    /// either a 64-bit or a 128-bit unsigned integer. This function
-    /// dispatches to the matching bit-walk at compile time, based on the
-    /// target pointer width.
-    ///
-    /// See also [`TimeToLiveTable::verify_doc_and_field_mask`].
-    ///
-    /// # Panics
-    ///
-    /// See [`TimeToLiveTable::verify_doc_and_field_mask`].
-    pub fn verify_doc_and_wide_field_mask(
+    pub fn field_mask_satisfies_predicate(
         &self,
         doc_id: DocId,
         field_mask: FieldMask,
         predicate: FieldExpirationPredicate,
         expiration_point: &timespec,
         ft_id_to_field_index: &[u16],
+        wide: bool,
     ) -> bool {
-        verify_mask::<FieldMask>(
-            self.find_entry(doc_id),
-            field_mask,
-            predicate,
-            expiration_point,
-            ft_id_to_field_index,
-        )
+        let entry = self.find_entry(doc_id);
+        if wide {
+            verify_mask::<FieldMask>(
+                entry,
+                field_mask,
+                predicate,
+                expiration_point,
+                ft_id_to_field_index,
+            )
+        } else {
+            verify_mask::<u32>(
+                entry,
+                field_mask as u32,
+                predicate,
+                expiration_point,
+                ft_id_to_field_index,
+            )
+        }
     }
 
     /// Direct-modulo slot formula

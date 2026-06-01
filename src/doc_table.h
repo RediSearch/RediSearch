@@ -176,15 +176,11 @@ static inline bool DocTable_CheckFieldExpirationPredicate(const DocTable *t, t_d
   if (!t->ttl) return true;
   return TimeToLiveTable_FieldSatisfiesPredicate(t->ttl, docId, field, predicate, expirationPoint);
 }
-// Same as above, but for a field mask (non-wide schema)
-static inline bool DocTable_CheckFieldMaskExpirationPredicate(const DocTable *t, t_docId docId, uint32_t fieldMask, enum FieldExpirationPredicate predicate, const struct timespec* expirationPoint, const t_fieldIndex* ftIdToFieldIndex) {
+// Same as above, but for a field mask. `wide` selects the wide-schema (more
+// than 32 fields) bit width; pass false for narrow schemas.
+static inline bool DocTable_CheckFieldMaskExpirationPredicate(const DocTable *t, t_docId docId, t_fieldMask fieldMask, enum FieldExpirationPredicate predicate, const struct timespec* expirationPoint, const t_fieldIndex* ftIdToFieldIndex, bool wide) {
   if (!t->ttl) return true;
-  return TimeToLiveTable_VerifyDocAndFieldMask(t->ttl, docId, fieldMask, predicate, expirationPoint, ftIdToFieldIndex);
-}
-// Same as above, but for a wide field mask
-static inline bool DocTable_CheckWideFieldMaskExpirationPredicate(const DocTable *t, t_docId docId, t_fieldMask fieldMask, enum FieldExpirationPredicate predicate, const struct timespec* expirationPoint, const t_fieldIndex* ftIdToFieldIndex) {
-  if (!t->ttl) return true;
-  return TimeToLiveTable_VerifyDocAndWideFieldMask(t->ttl, docId, fieldMask, predicate, expirationPoint, ftIdToFieldIndex);
+  return TimeToLiveTable_FieldMaskSatisfiesPredicate(t->ttl, docId, fieldMask, predicate, expirationPoint, ftIdToFieldIndex, wide);
 }
 
 // Borrowed read of the field-expiration array for `docId`. Returns an empty
