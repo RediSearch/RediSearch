@@ -96,7 +96,7 @@ static inline bool entryWantsSuffixTrie(const IndexSpec *spec, const ForwardInde
       && entry->term[0] != STEM_PREFIX
       && entry->term[0] != PHONETIC_PREFIX
       && entry->term[0] != SYNONYM_PREFIX_CHAR
-      && strlen(entry->term) != 0;
+      && entry->len >= SUFFIX_DS_MIN_LEN;
 }
 
 /**

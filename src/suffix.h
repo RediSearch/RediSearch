@@ -17,7 +17,16 @@ extern "C" {
 
 typedef struct TrieMap TrieMap;
 
-#define MIN_SUFFIX 2
+/* Minimum length for entries in the suffix trie / suffix triemap. Values
+ * shorter than this aren't stored; queries shorter than this fall back to
+ * brute-force on the regular trie.
+ *
+ * Memory trade-off: storing length-1 sub-suffix entries would mean one node
+ * per character with an array of every term ending in it — high cost, low
+ * selectivity. Unit is bytes for TAG (`TrieMap` is byte-keyed) and runes
+ * for TEXT (`Trie` is rune-keyed).
+ */
+#define SUFFIX_DS_MIN_LEN 2
 
 typedef enum {
     SUFFIX_TYPE_SUFFIX = 0,

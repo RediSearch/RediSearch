@@ -714,8 +714,7 @@ static QueryIterator *Query_EvalPrefixNode(QueryEvalCtx *q, QueryNode *qn) {
   ctx.its = rm_malloc(sizeof(*ctx.its) * ctx.cap);
   ctx.nits = 0;
 
-  // spec support contains queries
-  if (spec->suffix && qn->pfx.suffix) {
+  if (spec->suffix && qn->pfx.suffix && nstr >= SUFFIX_DS_MIN_LEN) {
     // all modifier fields are supported
     if (qn->opts.fieldMask == RS_FIELDMASK_ALL ||
        (spec->suffixMask & qn->opts.fieldMask) == qn->opts.fieldMask) {
@@ -1272,7 +1271,8 @@ static QueryIterator *Query_EvalTagPrefixNode(QueryEvalCtx *q, TagIndex *idx, Qu
   size_t itsSz = 0, itsCap = 8;
   QueryIterator **its = rm_calloc(itsCap, sizeof(*its));
 
-  if (!qn->pfx.suffix || !withSuffixTrie) {    // prefix query or no suffix triemap, use bruteforce
+  // prefix query, no suffix triemap, or short token — use bruteforce
+  if (!qn->pfx.suffix || !withSuffixTrie || tok->len < SUFFIX_DS_MIN_LEN) {
     tm_iter_mode iter_mode = TM_PREFIX_MODE;
     if (qn->pfx.suffix) {
       if (qn->pfx.prefix) { // contains mode

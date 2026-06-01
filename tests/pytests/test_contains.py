@@ -314,6 +314,64 @@ def testContainsGCTag(env):
   env.expect(debug_cmd(), 'DUMP_SUFFIX_TRIE', 'idx', 't').equal(['ld', 'orld', 'rld', 'world'])
 
 @skip(cluster=True)
+def testSuffixTrieExcludesShortTagValue(env):
+  # Tag values shorter than SUFFIX_DS_MIN_LEN are not stored in the suffix
+  # triemap, and stay absent through the document's lifecycle.
+  env.expect(config_cmd() + ' set FORK_GC_CLEAN_THRESHOLD 0').ok()
+  conn = getConnectionByEnv(env)
+  conn.execute_command('FT.CREATE', 'idx', 'SCHEMA', 't', 'TAG', 'WITHSUFFIXTRIE')
+
+  conn.execute_command('HSET', 'doc1', 't', 'a')
+  env.expect(debug_cmd(), 'DUMP_SUFFIX_TRIE', 'idx', 't').equal([])
+
+  conn.execute_command('DEL', 'doc1')
+  forceInvokeGC(env, 'idx')
+  env.expect(debug_cmd(), 'DUMP_SUFFIX_TRIE', 'idx', 't').equal([])
+
+@skip(cluster=True)
+def testSuffixTrieFindsShortAsciiTag(env):
+  # With MINPREFIX=1, a 1-char suffix query finds tag values that end with
+  # that character, with and without WITHSUFFIXTRIE.
+  env.expect(config_cmd(), 'set', 'MINPREFIX', 1).ok()
+  conn = getConnectionByEnv(env)
+  conn.execute_command('FT.CREATE', 'idx_w',  'SCHEMA', 't', 'TAG', 'WITHSUFFIXTRIE')
+  conn.execute_command('FT.CREATE', 'idx_no', 'SCHEMA', 't', 'TAG')
+
+  conn.execute_command('HSET', 'doc:1', 't', 'banana')
+
+  env.expect('FT.SEARCH', 'idx_w',  '@t:{*a}', 'NOCONTENT').equal([1, 'doc:1'])
+  env.expect('FT.SEARCH', 'idx_no', '@t:{*a}', 'NOCONTENT').equal([1, 'doc:1'])
+
+@skip(cluster=True)
+def testSuffixTrieFindsShortAsciiText(env):
+  # With MINPREFIX=1, a 1-char suffix query finds text terms that end with
+  # that character, with and without WITHSUFFIXTRIE.
+  env.expect(config_cmd(), 'set', 'MINPREFIX', 1).ok()
+  conn = getConnectionByEnv(env)
+  conn.execute_command('FT.CREATE', 'idx_w',  'SCHEMA', 't', 'TEXT', 'WITHSUFFIXTRIE')
+  conn.execute_command('FT.CREATE', 'idx_no', 'SCHEMA', 't', 'TEXT')
+
+  conn.execute_command('HSET', 'doc:1', 't', 'banana')
+
+  env.expect('FT.SEARCH', 'idx_w',  '*a', 'NOCONTENT').equal([1, 'doc:1'])
+  env.expect('FT.SEARCH', 'idx_no', '*a', 'NOCONTENT').equal([1, 'doc:1'])
+
+@skip(cluster=True)
+def testSuffixTrieFindsMultiByteRuneText(env):
+  # A single-rune CJK suffix query finds text terms that end with that rune,
+  # with and without WITHSUFFIXTRIE. At default MINPREFIX=2, "中" is 3 bytes
+  # so the query passes MINPREFIX, but it's only 1 rune — the rune-aware
+  # dispatch must still route correctly.
+  conn = getConnectionByEnv(env)
+  conn.execute_command('FT.CREATE', 'idx_w',  'SCHEMA', 't', 'TEXT', 'WITHSUFFIXTRIE')
+  conn.execute_command('FT.CREATE', 'idx_no', 'SCHEMA', 't', 'TEXT')
+
+  conn.execute_command('HSET', 'doc:1', 't', 'ba中')
+
+  env.expect('FT.SEARCH', 'idx_w',  '*中', 'NOCONTENT').equal([1, 'doc:1'])
+  env.expect('FT.SEARCH', 'idx_no', '*中', 'NOCONTENT').equal([1, 'doc:1'])
+
+@skip(cluster=True)
 def testContainsDebugCommand(env):
   conn = getConnectionByEnv(env)
   conn.execute_command('FT.CREATE', 'idx', 'SCHEMA', 'text', 'TEXT', 'WITHSUFFIXTRIE')
