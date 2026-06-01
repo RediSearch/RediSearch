@@ -131,7 +131,7 @@ static char* unicode_tolower(char *encoded, size_t *inout_len) {
       if (c == 0 || c >= 0x80) break;
       j++;
     }
-    if (j == in_len || (unsigned char)encoded[j] == 0) {
+    if (j == in_len || encoded[j] == 0) {
       for (size_t k = 0; k < j; k++) {
         unsigned char c = (unsigned char)encoded[k];
         if (c >= 'A' && c <= 'Z') {
