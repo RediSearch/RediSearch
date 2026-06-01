@@ -1788,9 +1788,9 @@ static int validateQueryNotDisk(const char *queryTypeName,
 }
 
 static int QueryNode_CheckIsValid(QueryNode *n, IndexSpec *spec, RSSearchOptions *opts,
-  QueryError *status, QAST_ValidationFlags validationFlags) {
+  QueryError *status, QASTValidationFlagsSet validationFlags) {
   // Check if this is the main vector node in a hybrid vector subquery
-  QAST_ValidationFlags effectiveFlags = validationFlags;
+  QASTValidationFlagsSet effectiveFlags = validationFlags;
   if ((n->opts.flags & QueryNode_HybridVectorSubqueryNode) && (n->type == QN_VECTOR)) {
     // This is the main vector node in hybrid vector subquery - allow it despite restrictions
     effectiveFlags &= ~(QAST_NO_WEIGHT | QAST_NO_VECTOR);
