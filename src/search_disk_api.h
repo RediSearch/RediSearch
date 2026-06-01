@@ -28,7 +28,23 @@ typedef const void* RedisSearchDiskIndexSpec;
 typedef const void* RedisSearchDiskInvertedIndex;
 typedef const void* RedisSearchDiskIterator;
 typedef void* RedisSearchDiskAsyncReadPool;
+// Opaque handle to a temporary RDB state object.
+//
+// Per-field vector in-memory state is NOT carried here — it rides inline
+// with each field's own RDB encoding (FieldSpec_RdbSave / FieldSpec_RdbLoad)
+// and is deserialized directly into an unbound VecSimIndex written to
+// fs->vectorOpts.vecSimIndex; storage is bound to that handle in place at
+// LOADING_ENDED.
 typedef const void* RedisSearchDiskRdbState;
+
+// Opaque handle for the underlying storage-layer write batch.
+//
+// Allocated and freed by the storage implementation behind this API; the only
+// C-visible operations are the create / commit / abort / stage entry points on
+// `IndexDiskAPI` and `DocTableDiskAPI`. C-side callers pass the handle through
+// the thin wrappers in `search_disk.h` (`SearchDisk_CreateWriteBatch`,
+// `SearchDisk_CommitWriteBatch`, `SearchDisk_AbortWriteBatch`, etc.).
+typedef struct SearchDiskWriteBatchHandle SearchDiskWriteBatchHandle;
 
 // Callback function to allocate memory for the key in the scope of the search module memory
 typedef char* (*AllocateKeyCallback)(const void*, size_t len);
@@ -157,6 +173,16 @@ typedef struct BasicDiskAPI {
    *       Call this before closeIndexSpec to unregister the database from Redis.
    */
   void (*unregisterIndex)(RedisModuleCtx *ctx, RedisSearchDiskIndexSpec *index);
+  /**
+   * @brief Save the index spec's disk-related state to RDB.
+   *
+   * Writes the IndexSpec's partial RDB state. Per-field vector blobs are written inline with each
+   * field's own RDB encoding by FieldSpec_RdbSave on the C side — they are
+   * NOT part of this payload.
+   *
+   * @param rdb RedisModuleIO RDB save stream
+   * @param index Pointer to the index spec
+   */
   void (*indexSpecRdbSave)(RedisModuleIO *rdb, RedisSearchDiskIndexSpec *index);
 
   /**
@@ -174,29 +200,37 @@ typedef struct BasicDiskAPI {
   void (*setThrottleCallbacks)(ThrottleCB enable, ThrottleCB disable);
 
   /**
-   * @brief Load disk-related RDB data into a temporary in-memory object.
+   * @brief Load the spec's disk-related RDB data into a temporary in-memory object.
    *
    * Called during RDB load when the IndexSpec cannot be created yet (e.g., during replication
-   * before SST files arrive). The returned state must later be passed to openIndexSpecWithRdbState
-   * or freed with freeRdbState.
+   * before SST files arrive). The returned state is consumed by ownership in
+   * openIndexSpecWithRdbState, or freed on abort paths with freeRdbState.
+   *
+   * Per-field vector in-memory state is NOT carried here — it rides inline
+   * with each field's own RDB encoding (FieldSpec_RdbLoad) and is
+   * deserialized directly into an unbound VecSimIndex written to
+   * fs->vectorOpts.vecSimIndex.
    *
    * @param rdb The RedisModuleIO handle for RDB operations
-   * @return Pointer to temporary RDB state, or NULL on error
+   * @return Pointer to the temporary RDB state, or NULL on error
    */
   RedisSearchDiskRdbState *(*loadRdbToTempObject)(RedisModuleIO *rdb);
 
   /**
-   * @brief Create an IndexSpec and restore state from a previously loaded RDB state.
+   * @brief Create an IndexSpec from a previously loaded RDB state.
    *
    * Called after SST files are ready (e.g., after FULL_REPLICATION_FINISHED event).
-   * Takes ownership of rdbState - it will be consumed and freed.
+   *
+   * Consumes `rdbState` unconditionally — the state is freed by this call
+   * regardless of whether IndexSpec creation succeeds or fails. The caller
+   * MUST null its pointer after this call, on both paths.
    *
    * @param disk Pointer to the disk context
    * @param indexName Name of the index
    * @param obfuscatedName Obfuscated name of the index (for logging)
    * @param obfuscatedNameLen Length of the obfuscated name
    * @param type Document type for this index
-   * @param rdbState Temporary RDB state from loadRdbToTempObject (will be consumed)
+   * @param rdbState The RDB state (consumed)
    * @return Pointer to the created IndexSpec, or NULL on error
    */
   RedisSearchDiskIndexSpec *(*openIndexSpecWithRdbState)(RedisModuleCtx *ctx,
@@ -208,11 +242,12 @@ typedef struct BasicDiskAPI {
                                                           RedisSearchDiskRdbState *rdbState);
 
   /**
-   * @brief Free a temporary RDB state object without creating an IndexSpec.
+   * @brief Free a temporary RDB state object.
    *
-   * Use if index creation fails or is cancelled.
+   * Use on abort paths where openIndexSpecWithRdbState was never called (that
+   * function already consumes the state on both success and failure).
    *
-   * @param rdbState The temporary RDB state to free (may be NULL)
+   * @param rdbState The state to free (may be NULL)
    */
   void (*freeRdbState)(RedisSearchDiskRdbState *rdbState);
 
@@ -241,12 +276,63 @@ typedef struct IndexDiskAPI {
   void (*markToBeDeleted)(RedisSearchDiskIndexSpec *index);
 
   /**
+   * @brief Opens a new write batch bound to the given index.
+   *
+   * The returned batch accumulates `indexTerm` / `indexTags` / `putDocument` writes
+   * until the caller commits it (via `commitWriteBatch`) or aborts it (via
+   * `abortWriteBatch`). The handle remains valid after commit/abort and must
+   * eventually be released via `freeWriteBatch`. The batch must not outlive `index`.
+   *
+   * @param index Pointer to the index this batch will write to
+   * @return Pointer to the new batch, or NULL if the index pointer is invalid
+   */
+  SearchDiskWriteBatchHandle *(*createWriteBatch)(RedisSearchDiskIndexSpec *index);
+
+  /**
+   * @brief Atomically commits all writes staged on `batch` to the database.
+   *
+   * Leaves `batch` valid and empty; a subsequent commit/abort is a no-op. The
+   * caller still owns the handle and must release it via `freeWriteBatch`.
+   *
+   * @param batch Pointer to the batch returned by `createWriteBatch`
+   * @return true if the commit succeeded, false otherwise
+   */
+  bool (*commitWriteBatch)(SearchDiskWriteBatchHandle *batch);
+
+  /**
+   * @brief Discards all writes staged on `batch` without touching the database.
+   *
+   * Leaves `batch` valid and empty. The caller still owns the handle and must
+   * release it via `freeWriteBatch`.
+   *
+   * @param batch Pointer to the batch returned by `createWriteBatch`
+   */
+  void (*abortWriteBatch)(SearchDiskWriteBatchHandle *batch);
+
+  /**
+   * @brief Releases the heap allocation backing `batch`.
+   *
+   * Null-safe: passing NULL is a no-op so callers can invoke this
+   * unconditionally from cleanup paths. Staged writes that were never committed
+   * are discarded.
+   *
+   * @param batch Pointer to the batch returned by `createWriteBatch`, or NULL
+   */
+  void (*freeWriteBatch)(SearchDiskWriteBatchHandle *batch);
+
+  /**
    * @brief Indexes a term for fulltext search
    *
-   * Adds a document to the inverted index for the specified term.
-   * Used for fulltext field indexing.
+   * Stages an inverted-index write for the specified term into `batch`. The
+   * write is not visible to the database until the batch is committed via
+   * `commitWriteBatch`. Used for fulltext field indexing.
+   *
+   * Callers must check the return value — a `false` indicates the implementation
+   * rejected this particular term (e.g. invalid UTF-8) and skipped staging it.
+   * Other staged writes on the same batch are unaffected.
    *
    * @param index Pointer to the index
+   * @param batch Open write batch to append the write to (must have been returned by `createWriteBatch(index)`)
    * @param term Term to associate the document with
    * @param termLen Length of the term
    * @param docId Document ID to index
@@ -254,28 +340,35 @@ typedef struct IndexDiskAPI {
    * @param freq Frequency of the term in the document
    * @param offsets Pointer to varint-encoded term offset data (can be NULL)
    * @param offsetsLen Length of the offsets data in bytes
-   * @return true if the write was successful, false otherwise
+   * @return true if the write was staged successfully, false if the input was rejected
    */
-  bool (*indexTerm)(RedisSearchDiskIndexSpec *index, const char *term, size_t termLen, t_docId docId, t_fieldMask fieldMask, uint32_t freq, const uint8_t *offsets, size_t offsetsLen);
+  bool (*indexTerm)(RedisSearchDiskIndexSpec *index, SearchDiskWriteBatchHandle *batch, const char *term, size_t termLen, t_docId docId, t_fieldMask fieldMask, uint32_t freq, const uint8_t *offsets, size_t offsetsLen);
 
   /**
    * @brief Indexes multiple tag values for a document
    *
-   * Adds a document to the inverted index for each specified tag value.
-   * Used for tag field indexing. Creates a new column family if this is the
-   * first time indexing this tag field, and registers it with Redis BigModule.
+   * Stages inverted-index writes for each tag value into `batch`. The writes are
+   * not visible to the database until the batch is committed via `commitWriteBatch`.
+   * Used for tag field indexing. Creates a new column family if this is the first
+   * time indexing this tag field, and registers it with Redis BigModule.
+   *
+   * On a partial failure (e.g. a rejected tag value), the call short-circuits
+   * and returns `false`. Tags already staged in this call remain on the batch;
+   * the caller is expected to surface the failure to its add-document context
+   * so the batch is later aborted by the OSS indexing flow.
    *
    * @param ctx Redis module context for BigModule APIs (used to register new CFs)
    * @param index Pointer to the index
+   * @param batch Open write batch to append the writes to (must have been returned by `createWriteBatch(index)`)
    * @param values Array of tag values to associate the document with.
    *               NOTE: The array may contain NULL entries (e.g., from tokenization).
    *               Implementations must check for NULL before dereferencing each entry.
    * @param numValues Number of tag values in the array
    * @param docId Document ID to index
    * @param fieldIndex Field index for the tag field
-   * @return true if the write was successful, false otherwise
+   * @return true if all writes were staged successfully, false if any value was rejected
    */
-  bool (*indexTags)(RedisModuleCtx *ctx, RedisSearchDiskIndexSpec *index, const char **values, size_t numValues, t_docId docId, t_fieldIndex fieldIndex);
+  bool (*indexTags)(RedisModuleCtx *ctx, RedisSearchDiskIndexSpec *index, SearchDiskWriteBatchHandle *batch, const char **values, size_t numValues, t_docId docId, t_fieldIndex fieldIndex);
 
   /**
    * @brief Deletes a document by its doc ID directly, removing it from the doc table and marking its ID as deleted
@@ -407,12 +500,22 @@ typedef struct IndexDiskAPI {
 
 typedef struct DocTableDiskAPI {
   /**
-   * @brief Adds a new document to the table
+   * @brief Stages a new document insert into `batch`.
    *
-   * Assigns a new document ID and stores the document metadata.
-   * If oldDocId is provided (non-zero), the old document is marked as deleted.
+   * Assigns a new document ID and stages the document metadata write on `batch`. If
+   * `oldDocId` is provided (non-zero), staging also queues the deletion of the old
+   * doc-table entry, and the old doc is marked deleted in the in-memory bitmap only
+   * once the batch commits successfully.
+   *
+   * The new document ID is assigned synchronously and returned; even if the batch is
+   * later aborted, the ID is not reused.
+   *
+   * Returns 0 on failure (input rejected, internal staging error). The caller
+   * is expected to mark the add-document context errored so the batch is later
+   * aborted by the OSS indexing flow.
    *
    * @param handle Handle to the document table
+   * @param batch Open write batch to append the write to (must have been returned by `createWriteBatch(handle)`)
    * @param key Document key
    * @param keyLen Length of the document key
    * @param score Document score (for ranking)
@@ -424,7 +527,7 @@ typedef struct DocTableDiskAPI {
    * @param oldDocId Old document ID from DocIdMeta (0 if new document)
    * @return New document ID, or 0 on error
    */
-  t_docId (*putDocument)(RedisSearchDiskIndexSpec* handle, const char* key, size_t keyLen, float score, uint32_t flags, uint32_t maxTermFreq, uint32_t docLen, uint32_t *oldLen, t_expirationTimePoint documentTtl, t_docId oldDocId);
+  t_docId (*putDocument)(RedisSearchDiskIndexSpec* handle, SearchDiskWriteBatchHandle *batch, const char* key, size_t keyLen, float score, uint32_t flags, uint32_t maxTermFreq, uint32_t docLen, uint32_t *oldLen, t_expirationTimePoint documentTtl, t_docId oldDocId);
 
   /**
    * @brief Returns whether the docId is in the deleted set
@@ -567,6 +670,65 @@ typedef struct VectorDiskAPI {
    * @param vecIndex The vector index handle returned by createVectorIndex
    */
   void (*freeVectorIndex)(void* vecIndex);
+
+  /**
+   * @brief Stream the in-memory state of a quiesced VecSimIndex* directly
+   *        into a RedisModuleIO RDB stream.
+   *
+   * The HNSW graph metadata and SQ8 vectors are written through the RDB
+   * callbacks one scalar/buffer at a time, with no intermediate Vec<u8>
+   * buffering. Caller must ensure the index is quiesced for the duration of
+   * the call.
+   *
+   * @param vecIndex VecSimIndex* handle for the field
+   * @param rdb RedisModuleIO stream to write into
+   * @return true on success, false on serialization failure
+   */
+  bool (*saveVectorIndexToRDB)(void *vecIndex, RedisModuleIO *rdb);
+
+  /**
+   * @brief Create a VecSimIndex without any SpeedB storage bound.
+   *
+   * The returned handle holds in-memory graph state only and is NOT
+   * connected to a column family. It can accept loadVectorIndexFromRDB
+   * but MUST NOT be queried or have vectors added until
+   * bindVectorIndexStorage has been called on it.
+   *
+   * @param params Vector index parameters
+   * @return VecSimIndex* handle, or NULL on error
+   */
+  void* (*createUnboundVectorIndex)(const VecSimParamsDisk *params);
+
+  /**
+   * @brief Stream the in-memory state for a VecSimIndex* directly from a
+   *        RedisModuleIO RDB stream into a previously unbound index.
+   *
+   * The target must be a handle returned by createUnboundVectorIndex that
+   * has not yet been deserialized into.
+   *
+   * @param vecIndex Unbound VecSimIndex* to populate
+   * @param rdb RedisModuleIO stream to read from
+   * @return true on success, false on truncation or deserialization failure
+   */
+  bool (*loadVectorIndexFromRDB)(void *vecIndex, RedisModuleIO *rdb);
+
+  /**
+   * @brief Attach SpeedB storage to a previously unbound VecSimIndex, making
+   *        it fully usable.
+   *
+   * Creates and registers the field's column family if it does not already
+   * exist on the index spec, then binds the resulting storage handles to
+   * `vecIndex`. After a successful return, the index can be queried and
+   * mutated just like one produced by createVectorIndex.
+   *
+   * @param ctx Redis module context for BigModule APIs
+   * @param index Pointer to the index spec (provides storage context)
+   * @param vecIndex Handle returned by createUnboundVectorIndex
+   * @param params Vector index parameters (used to look up the field name)
+   * @return true on success, false on storage setup failure
+   */
+  bool (*bindVectorIndexStorage)(RedisModuleCtx *ctx, RedisSearchDiskIndexSpec *index,
+                                  void *vecIndex, const VecSimParamsDisk *params);
 } VectorDiskAPI;
 
 typedef struct MetricsDiskAPI {
@@ -628,6 +790,18 @@ typedef struct MetricsDiskAPI {
    * @return Number of records in the index
    */
   uint64_t (*getNumRecords)(RedisSearchDiskIndexSpec *index);
+
+  /**
+   * @brief Get the absolute total number of inverted-index blocks for a specific index
+   *
+   * Returns the current absolute block count across the index's inverted-index storage
+   * (text + tag), reported by FT.INFO as `total_inverted_index_blocks`. The value is read
+   * on demand and does not require a prior `collectIndexMetrics` snapshot.
+   *
+   * @param index Pointer to the index spec
+   * @return Total number of inverted-index blocks owned by the index
+   */
+  uint64_t (*getInvertedIndexTotalBlocks)(RedisSearchDiskIndexSpec *index);
 
   /**
    * @brief Output aggregated disk metrics to Redis INFO

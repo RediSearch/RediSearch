@@ -9,19 +9,19 @@
 
 use std::io::Cursor;
 
-use ffi::t_fieldMask;
 use index_result::RSIndexResult;
 use inverted_index::{
     Decoder, Encoder,
     fields_only::{FieldsOnly, FieldsOnlyWide},
 };
+use rqe_core::FieldMask;
 
 /// Helper to encode a sequence of (delta, field_mask) records using FieldsOnly.
 fn encode_fields_only(records: &[(u32, u32)]) -> Vec<u8> {
     let mut buf = Cursor::new(Vec::new());
     for &(delta, field_mask) in records {
         let record = RSIndexResult::build_term()
-            .field_mask(field_mask as t_fieldMask)
+            .field_mask(field_mask as FieldMask)
             .build();
         FieldsOnly::encode(&mut buf, delta, &record).expect("to encode");
     }
@@ -44,18 +44,14 @@ fn test_encode_fields_only() {
     let tests = [
         // (delta, field mask, expected encoding)
         (0, 1, vec![0, 0, 1]),
-        (
-            10,
-            u32::MAX as t_fieldMask,
-            vec![12, 10, 255, 255, 255, 255],
-        ),
+        (10, u32::MAX as FieldMask, vec![12, 10, 255, 255, 255, 255]),
         (256, 1, vec![1, 0, 1, 1]),
         (65536, 1, vec![2, 0, 0, 1, 1]),
         (u16::MAX as u32, 1, vec![1, 255, 255, 1]),
         (u32::MAX, 1, vec![3, 255, 255, 255, 255, 1]),
         (
             u32::MAX,
-            u32::MAX as t_fieldMask,
+            u32::MAX as FieldMask,
             vec![15, 255, 255, 255, 255, 255, 255, 255, 255],
         ),
     ];
@@ -92,25 +88,21 @@ fn test_encode_fields_only_wide() {
     let tests = [
         // (delta, field mask, expected encoding)
         (0, 1, vec![0, 1]),
-        (
-            10,
-            u32::MAX as t_fieldMask,
-            vec![10, 142, 254, 254, 254, 127],
-        ),
+        (10, u32::MAX as FieldMask, vec![10, 142, 254, 254, 254, 127]),
         (256, 1, vec![129, 0, 1]),
         (65536, 1, vec![130, 255, 0, 1]),
         (u16::MAX as u32, 1, vec![130, 254, 127, 1]),
         (u32::MAX, 1, vec![142, 254, 254, 254, 127, 1]),
         (
             u32::MAX,
-            u32::MAX as t_fieldMask,
+            u32::MAX as FieldMask,
             vec![142, 254, 254, 254, 127, 142, 254, 254, 254, 127],
         ),
         // field mask larger than 32 bits
         #[cfg(target_pointer_width = "64")]
         (
             u32::MAX,
-            u32::MAX as t_fieldMask,
+            u32::MAX as FieldMask,
             vec![142, 254, 254, 254, 127, 142, 254, 254, 254, 127],
         ),
         #[cfg(target_pointer_width = "64")]

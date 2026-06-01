@@ -26,10 +26,10 @@ cargo nextest run                             # Rust tests, from `src/redisearch
 cargo +nightly miri test                      # Rust tests under `miri`, from `src/redisearch_rs/`
 ```
 
-Run Rust tests from workspace root (`src/redisearch_rs/`):
+Run Rust tests by pointing cargo at the workspace manifest:
 ```bash
-cd src/redisearch_rs && cargo nextest run
-cd src/redisearch_rs && cargo nextest run -p <crate_name>
+cargo nextest run --manifest-path src/redisearch_rs/Cargo.toml
+cargo nextest run --manifest-path src/redisearch_rs/Cargo.toml -p <crate_name>
 ```
 
 ## Header Generation
@@ -47,7 +47,7 @@ that produce C headers. Output goes to `src/redisearch_rs/headers/`.
 make lint                                 # Run clippy and cargo doc checks
 make fmt                                  # Format all code
 make fmt CHECK=1                          # Check formatting without changes
-cd src/redisearch_rs && cargo license-fix # Add missing license headers
+(cd src/redisearch_rs && cargo license-fix) # Add missing license headers (subshell: custom subcommand, no --manifest-path)
 ```
 
 C code formatting is governed by `.clang-format` at the repo root (LLVM-derived, 100-column limit, 2-space indent). Apply with `clang-format -i <file>`.
@@ -245,6 +245,7 @@ When reviewing pull requests:
 - If an earlier comment is still relevant, avoid restating it. Only add a new comment when there is materially new information, a changed code location, or a distinct issue.
 - Prefer one comment per root cause. If the same pattern appears in several places, comment on the clearest instance and mention the pattern briefly.
 - Keep automated review comments high-signal: prioritize correctness, crashes, memory safety, undefined behavior, data loss, security, and clear test/CI failures.
+- Security-sensitive issues are in scope for automated review. Look for memory-safety bugs, unsafe/FFI soundness problems, malformed input handling gaps, data exposure, ACL/auth bypasses, concurrency races, and denial-of-service risks from unbounded allocation, loops, or recursion.
 - Do not comment on minor style, formatting, naming, or preference issues by default unless they violate an explicit project rule and would block maintainability.
 - If the review explicitly requests nits, style comments, or `--include-nits`, minor findings may be reported as non-blocking suggestions, but must still avoid duplicates and should be grouped by root cause.
 

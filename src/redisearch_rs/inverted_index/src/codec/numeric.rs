@@ -142,7 +142,7 @@
 
 use std::io::{Cursor, IoSlice, Read, Write};
 
-use ffi::t_docId;
+use rqe_core::DocId;
 
 use crate::{Decoder, Encoder, IdDelta, NumericDecoder};
 use index_result::RSIndexResult;
@@ -412,7 +412,7 @@ impl Decoder for Numeric {
     #[inline(always)]
     fn decode<'index>(
         cursor: &mut Cursor<&'index [u8]>,
-        base: t_docId,
+        base: DocId,
         result: &mut RSIndexResult<'index>,
     ) -> std::io::Result<()> {
         decode(cursor, base, result)
@@ -433,7 +433,7 @@ impl Decoder for NumericFloatCompression {
     #[inline(always)]
     fn decode<'index>(
         cursor: &mut Cursor<&'index [u8]>,
-        base: t_docId,
+        base: DocId,
         result: &mut RSIndexResult<'index>,
     ) -> std::io::Result<()> {
         decode(cursor, base, result)
@@ -446,7 +446,7 @@ impl Decoder for NumericFloatCompression {
 
 fn decode<'index>(
     cursor: &mut Cursor<&'index [u8]>,
-    base: t_docId,
+    base: DocId,
     result: &mut RSIndexResult<'index>,
 ) -> Result<(), std::io::Error> {
     let mut header = [0; 1];

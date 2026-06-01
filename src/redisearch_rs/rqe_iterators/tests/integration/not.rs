@@ -9,7 +9,7 @@
 
 use std::time::Duration;
 
-use ffi::t_docId;
+use rqe_core::DocId;
 use rqe_iterators::{
     IteratorType, RQEIterator, RQEIteratorError, RQEValidateStatus, SkipToOutcome,
     id_list::IdListSorted,
@@ -518,7 +518,7 @@ fn skip_to_child_behind_child_skip_returns_eof() {
 fn read_timeout_via_timeout_ctx() {
     let mut child_doc_ids = [0; 5_000];
     for i in 0..5_000 {
-        child_doc_ids[i] = (i + 1) as t_docId;
+        child_doc_ids[i] = (i + 1) as DocId;
     }
     let child = Mock::new(child_doc_ids);
     let mut data = child.data();

@@ -268,7 +268,7 @@ void fillReplyWithIndexInfo(RedisSearchCtx* sctx, RedisModule_Reply *reply, bool
   size_t vector_indexes_size = IndexSpec_VectorIndexesSize(specForOpeningIndexes);
   // FT.INFO reports per-spec block counts, not the process-global TotalIIBlocks (the latter
   // is still exposed via Redis `INFO modules` for cluster-wide aggregation in spec.c).
-  size_t total_ii_blocks = isDisk ? 0
+  size_t total_ii_blocks = isDisk ? SearchDisk_GetInvertedIndexTotalBlocks(sp->diskSpec)
       : __atomic_load_n(&sp->stats.totalInvertedIndexBlocks, __ATOMIC_RELAXED);
   size_t offset_vecs_size = isDisk ? 0 : sp->stats.offsetVecsSize;
   size_t sortables_size = isDisk ? 0 : sp->docs.sortablesSize;

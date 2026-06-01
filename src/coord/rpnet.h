@@ -15,33 +15,11 @@
 #include "rmr/rmr.h"
 #include "aggregate/aggregate.h"
 #include "hybrid/hybrid_cursor_mappings.h"
+#include "shard_barrier.h"
 
 #ifdef __cplusplus
 extern "C" {
 #endif
-
-// Forward declaration
-struct ShardResponseBarrier;
-
-// Callback invoked by IO thread for each reply, before pushing to channel
-// Parameters:
-//   shardIndex: which shard sent this reply
-//   totalResults: extracted total_results from the reply (-1 if error or not found)
-//   isError: true if this is an error reply
-//   privateData: the ShardResponseBarrier passed via MRIteratorCallback_GetPrivateData
-typedef void (*ReplyNotifyCallback)(uint16_t shardIndex, long long totalResults, bool isError, void *privateData);
-
-// Structure for collecting first responses from all shards
-// Shared with I/O threads via MRIterator's privateData
-// Safe to free after MRIterator_Release returns (all callbacks complete)
-typedef struct ShardResponseBarrier {
-  _Atomic(size_t) numShards;       // Total number of shards (written by IO thread, read by main thread)
-  bool *shardResponded;            // Array: has each shard sent its first response? (IO thread only, no atomic needed)
-  _Atomic(size_t) numResponded;    // Count of shards that have responded
-  _Atomic(long long) accumulatedTotal;  // Sum of total_results from all shards
-  _Atomic(bool) hasShardError;     // Set to true if any shard returns an error
-  ReplyNotifyCallback notifyCallback;  // Callback for processing replies (called from IO thread)
-} ShardResponseBarrier;
 
 typedef struct {
   ResultProcessor base;
@@ -74,6 +52,16 @@ typedef struct {
   // and maps timeouts to EOF. Set by the RETURN-STRICT timeout callback after
   // BG has exited the pipeline, so no concurrent reader - plain bool is safe.
   bool drainOnly;
+
+  // KNN snapshot for SHARD_K_RATIO optimization in FT.AGGREGATE.
+  // Populated by buildDistRPChain from the parsed VectorQuery on the main thread,
+  // then used to initialize the iterator-owned AggregateKnnContext if needed.
+  bool hasKnnContext;
+  size_t knnQueryArgIndex;     // Index of query argument in MRCommand
+  size_t knnOriginalK;         // K value from the parsed query
+  double knnShardWindowRatio;  // SHARD_K_RATIO
+  size_t knnKTokenPos;         // Byte offset of K within the query string
+  size_t knnKTokenLen;         // Length of K token in bytes
 } RPNet;
 
 
@@ -88,20 +76,6 @@ int rpnetNext_StartWithMappings(ResultProcessor *rp, SearchResult *r);
 // Return RS_RESULT_OK if there is a next reply to process, RS_RESULT_EOF if there are no more replies
 // Or RS_RESULT_TIMEDOUT if we timed out
 int getNextReply(RPNet *nc);
-
-// Allocate and initialize a new ShardResponseBarrier
-// Notice: numShards and shardResponded init is postponed until shardResponseBarrier_Init is called
-// Returns NULL on allocation failure
-ShardResponseBarrier *shardResponseBarrier_New();
-
-// Initialize ShardResponseBarrier (called from iterStartCb when topology is known)
-void shardResponseBarrier_Init(void *ptr, MRIterator *it);
-
-// Free a ShardResponseBarrier - used as destructor callback for MRIterator
-void shardResponseBarrier_Free(void *ptr);
-
-// Callback for accumulating total_results from shard replies (called from IO thread)
-void shardResponseBarrier_Notify(uint16_t shardIndex, long long totalResults, bool isError, void *privateData);
 
 #ifdef __cplusplus
 }

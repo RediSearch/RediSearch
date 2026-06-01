@@ -197,6 +197,7 @@ static void ForwardIndex_HandleToken(ForwardIndex *idx, const char *tok, size_t 
 
     h->len = tokLen;
     h->freq = 0;
+    h->staged = false;
 
     if (hasOffsets(idx)) {
       h->vw = mempool_get(idx->vvwPool);

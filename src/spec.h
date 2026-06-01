@@ -385,7 +385,8 @@ typedef struct IndexSpec {
   // Disk index handle (NULL for memory-only indexes)
   RedisSearchDiskIndexSpec *diskSpec;
 
-  // Disk RDB state (NULL for memory-only indexes), pending to be applied at replication ending
+  // Disk RDB state (NULL for memory-only indexes), pending to be applied at
+  // replication ending. Vector index state is stored inline in each field.
   RedisSearchDiskRdbState *pendingDiskRdbState;
   bool diskRegistered;
   pthread_rwlock_t disk_fork_rwlock;

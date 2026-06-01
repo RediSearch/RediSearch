@@ -1133,11 +1133,11 @@ void AREQ_WaitForAggregateResultsComplete(AREQ *req) {
 }
 
 void AREQ_ResetForCursorReadReturnStrict(AREQ *req) {
-  RS_AtomicStoreRelaxed(&req->syncCtx.aggregatingResults, false);
+  RS_AtomicBoolStoreRelaxed(&req->syncCtx.aggregatingResults, false);
   pthread_mutex_lock(&req->syncCtx.aggregateResultsLock);
   req->syncCtx.aggregateResultsDone = false;
   pthread_mutex_unlock(&req->syncCtx.aggregateResultsLock);
-  RS_AtomicStoreRelaxed(&req->syncCtx.timedOut, false);
+  RS_AtomicBoolStoreRelaxed(&req->syncCtx.timedOut, false);
   ResultProcessor *root = AREQ_QueryProcessingCtx(req)->rootProc;
   if (root && root->type == RP_NETWORK) {
     ((RPNet *)root)->drainOnly = false;
@@ -1737,7 +1737,26 @@ void AREQ_CleanUpStoredCursor(AREQ *req) {
   }
 }
 
-int AREQ_BuildPipeline(AREQ *req, QueryError *status) {
+AggregationPipelineParams AREQ_MakeAggregationPipelineParams(AREQ *req,
+                                                             GroupByLimits groupByLimits) {
+  return (AggregationPipelineParams){
+    .common = {
+      .sctx = req->sctx,
+      .reqflags = req->reqflags,
+      .optimizer = req->optimizer,
+      // Score alias is not supposed to be used in the aggregation pipeline
+      .scoreAlias = NULL,
+    },
+    .outFields = &req->outFields,
+    .maxResultsLimit = IsSearch(req) ? req->maxSearchResults : req->maxAggregateResults,
+    .groupByLimits = groupByLimits,
+    .language = req->searchopts.language,
+  };
+}
+
+int AREQ_BuildPipelineWithAggregationParams(AREQ *req,
+                                            const AggregationPipelineParams *aggregationParams,
+                                            QueryError *status) {
   Pipeline_Initialize(&req->pipeline, req->reqConfig.timeoutPolicy, status);
   if (!(AREQ_RequestFlags(req) & QEXEC_F_BUILDPIPELINE_NO_ROOT)) {
     QueryPipelineParams params = {
@@ -1761,21 +1780,16 @@ int AREQ_BuildPipeline(AREQ *req, QueryError *status) {
       return REDISMODULE_ERR;
     }
   }
-  AggregationPipelineParams params = {
-    .common = {
-      .sctx = req->sctx,
-      .reqflags = req->reqflags,
-      .optimizer = req->optimizer,
-      // Right now score alias is not supposed to be used in the aggregation pipeline
-      .scoreAlias = NULL,
-    },
-    .outFields = &req->outFields,
-    .maxResultsLimit = IsSearch(req) ? req->maxSearchResults : req->maxAggregateResults,
-    .language = req->searchopts.language,
-  };
-  int rc = Pipeline_BuildAggregationPart(&req->pipeline, &params, &req->stateflags, status);
+  int rc = Pipeline_BuildAggregationPart(&req->pipeline, aggregationParams, &req->stateflags, status);
   if (rc == REDISMODULE_OK) {
     AREQ_SetCanYieldPartialResults(req);
   }
   return rc;
+}
+
+int AREQ_BuildPipeline(AREQ *req, QueryError *status) {
+  AggregationPipelineParams aggregationParams =
+      AREQ_MakeAggregationPipelineParams(
+          req, GroupByLimits_Default(RSGlobalConfig.maxAggregateGroups));
+  return AREQ_BuildPipelineWithAggregationParams(req, &aggregationParams, status);
 }

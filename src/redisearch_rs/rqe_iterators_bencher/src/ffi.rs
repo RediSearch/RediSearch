@@ -11,10 +11,11 @@ pub use ffi::{
     IndexFlags, IndexFlags_Index_DocIdsOnly, IndexFlags_Index_StoreByteOffsets,
     IndexFlags_Index_StoreFieldFlags, IndexFlags_Index_StoreFreqs, IndexFlags_Index_StoreNumeric,
     IndexFlags_Index_StoreTermOffsets, IteratorStatus, IteratorStatus_ITERATOR_OK,
-    RedisModule_Alloc, RedisModule_Free, ValidateStatus, t_docId,
+    RedisModule_Alloc, RedisModule_Free, ValidateStatus,
 };
 use index_result::{RSIndexResult, RSQueryTerm};
 use iterators_ffi::intersection::NewIntersectionIterator;
+use rqe_core::{DocId, RS_FIELDMASK_ALL};
 use std::{ffi::c_void, ptr};
 
 /// Simple wrapper around the C `QueryIterator` type.
@@ -84,7 +85,7 @@ impl QueryIterator {
             iterators_ffi::inverted_index::NewInvIndIterator_TermQuery(
                 ii.cast_const(),
                 sctx,
-                field::FieldMaskOrIndex::Mask(ffi::RS_FIELDMASK_ALL),
+                field::FieldMaskOrIndex::Mask(RS_FIELDMASK_ALL),
                 term,
                 1.0,
             )
@@ -97,7 +98,7 @@ impl QueryIterator {
     /// * `children_ids` - A slice of vectors, each containing sorted document IDs for a child iterator
     /// * `weight` - The weight for the intersection result
     #[inline(always)]
-    pub fn new_intersection(children_ids: &[Vec<t_docId>], weight: f64) -> Self {
+    pub fn new_intersection(children_ids: &[Vec<DocId>], weight: f64) -> Self {
         let num_children = children_ids.len();
 
         // Allocate array of child iterator pointers using RedisModule_Alloc
@@ -110,8 +111,7 @@ impl QueryIterator {
         for (i, ids) in children_ids.iter().enumerate() {
             // Allocate and copy IDs using RedisModule_Alloc (required by NewSortedIdListIterator)
             let ids_ptr = unsafe {
-                RedisModule_Alloc.unwrap()(ids.len() * std::mem::size_of::<t_docId>())
-                    as *mut t_docId
+                RedisModule_Alloc.unwrap()(ids.len() * std::mem::size_of::<DocId>()) as *mut DocId
             };
             unsafe {
                 std::ptr::copy_nonoverlapping(ids.as_ptr(), ids_ptr, ids.len());

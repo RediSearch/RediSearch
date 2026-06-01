@@ -45,8 +45,8 @@
 //! via [`UnionTrimmed::child_at`], so trimmed-away children must remain
 //! accessible even though they are inactive.
 
-use ffi::t_docId;
 use index_result::RSIndexResult;
+use rqe_core::DocId;
 
 use crate::{IteratorType, RQEIterator, RQEIteratorError, RQEValidateStatus, SkipToOutcome};
 use index_spec::IndexSpecReadGuard;
@@ -254,7 +254,7 @@ where
     #[inline(always)]
     fn skip_to(
         &mut self,
-        _doc_id: t_docId,
+        _doc_id: DocId,
     ) -> Result<Option<SkipToOutcome<'_, 'index>>, RQEIteratorError> {
         // UnionTrimmed drains children sequentially, not in doc-id order,
         // so skip_to has no meaningful semantics. Panic to surface misuse
@@ -302,7 +302,7 @@ where
     }
 
     #[inline(always)]
-    fn last_doc_id(&self) -> t_docId {
+    fn last_doc_id(&self) -> DocId {
         self.result.doc_id
     }
 

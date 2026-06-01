@@ -7,10 +7,13 @@
 #include <stddef.h>
 #include <stdint.h>
 #include <stdlib.h>
+#include <time.h>
 
 typedef uint64_t t_docId;
 
 typedef uint16_t t_fieldIndex;
+typedef struct timespec t_expirationTimePoint;
+
 #if UINTPTR_MAX == UINT64_MAX
 /* 64 bit architectures use 128 bit field masks and up to 128 fields */
 typedef __uint128_t t_fieldMask;
