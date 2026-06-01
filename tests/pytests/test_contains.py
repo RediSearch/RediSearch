@@ -383,6 +383,29 @@ def testSuffixTrieExcludesSingleRuneMultiByteText(env):
   env.expect(debug_cmd(), 'DUMP_SUFFIX_TRIE', 'idx').equal([])
 
 @skip(cluster=True)
+def testSuffixTrieShortTokenFallbackHonorsSuffixMask(env):
+  # On a mixed schema (one TEXT field with WITHSUFFIXTRIE, one without), a
+  # short-token all-mask contains/suffix query must behave like the suffix DS
+  # path would: surface hits only from suffix-enabled fields, never from
+  # plain TEXT fields that exist alongside.
+  env.expect(config_cmd(), 'set', 'MINPREFIX', 1).ok()
+  conn = getConnectionByEnv(env)
+  conn.execute_command('FT.CREATE', 'idx_mixed_short', 'SCHEMA',
+                       't1', 'TEXT', 'WITHSUFFIXTRIE',
+                       't2', 'TEXT')
+
+  # Term lives only in the non-suffix field.
+  conn.execute_command('HSET', 'doc:t2_only', 't2', 'banana')
+  # Term lives in both fields.
+  conn.execute_command('HSET', 'doc:both', 't1', 'banana', 't2', 'banana')
+
+  # Short-token all-mask: only docs with the term in t1 should match.
+  env.expect('FT.SEARCH', 'idx_mixed_short', '*a', 'NOCONTENT').equal([1, 'doc:both'])
+  # Explicit non-suffix field is still rejected.
+  env.expect('FT.SEARCH', 'idx_mixed_short', '@t2:*a', 'NOCONTENT').error() \
+    .contains('Contains query on fields without WITHSUFFIXTRIE support')
+
+@skip(cluster=True)
 def testContainsDebugCommand(env):
   conn = getConnectionByEnv(env)
   conn.execute_command('FT.CREATE', 'idx', 'SCHEMA', 'text', 'TEXT', 'WITHSUFFIXTRIE')

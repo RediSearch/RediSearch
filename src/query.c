@@ -719,22 +719,30 @@ static QueryIterator *Query_EvalPrefixNode(QueryEvalCtx *q, QueryNode *qn) {
         qn->opts.fieldMask == RS_FIELDMASK_ALL ||
         (spec->suffixMask & qn->opts.fieldMask) == qn->opts.fieldMask;
 
-    if (!fields_have_suffix) {
-      QueryError_SetError(q->status, QUERY_ERROR_CODE_GENERIC, "Contains query on fields without WITHSUFFIXTRIE support");
-    } else if (nstr >= SUFFIX_DS_MIN_LEN) {
-      SuffixCtx sufCtx = {
-        .trie = spec->suffix,
-        .rune = str,
-        .runelen = nstr,
-        .type = qn->pfx.prefix ? SUFFIX_TYPE_CONTAINS : SUFFIX_TYPE_SUFFIX,
-        .callback = charIterCb,
-        .cbCtx = &ctx,
-      };
-      Suffix_IterateContains(&sufCtx);
+    if (fields_have_suffix) {
+      if (nstr >= SUFFIX_DS_MIN_LEN) {
+        SuffixCtx sufCtx = {
+          .trie = spec->suffix,
+          .rune = str,
+          .runelen = nstr,
+          .type = qn->pfx.prefix ? SUFFIX_TYPE_CONTAINS : SUFFIX_TYPE_SUFFIX,
+          .callback = charIterCb,
+          .cbCtx = &ctx,
+        };
+        Suffix_IterateContains(&sufCtx);
+      } else {
+        // Short token: the suffix DS doesn't store entries this short. Serve
+        // from the regular trie, narrowed to suffix-enabled fields so the
+        // fallback is observationally equivalent to the suffix DS path.
+        t_fieldMask saved = qn->opts.fieldMask;
+        qn->opts.fieldMask &= spec->suffixMask;
+        Trie_IterateContains(t, str, nstr, qn->pfx.prefix, qn->pfx.suffix,
+                             runeIterCb, &ctx, &q->sctx->time.timeout,
+                             q->sctx->time.skipTimeoutChecks);
+        qn->opts.fieldMask = saved;
+      }
     } else {
-      Trie_IterateContains(t, str, nstr, qn->pfx.prefix, qn->pfx.suffix,
-                           runeIterCb, &ctx, &q->sctx->time.timeout,
-                           q->sctx->time.skipTimeoutChecks);
+      QueryError_SetError(q->status, QUERY_ERROR_CODE_GENERIC, "Contains query on fields without WITHSUFFIXTRIE support");
     }
   } else {
     Trie_IterateContains(t, str, nstr, qn->pfx.prefix, qn->pfx.suffix,
