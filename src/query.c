@@ -715,9 +715,6 @@ static QueryIterator *Query_EvalPrefixNode(QueryEvalCtx *q, QueryNode *qn) {
   ctx.nits = 0;
 
   if (spec->suffix && qn->pfx.suffix) {
-    // Field-mask validation is independent of token length: if any queried
-    // field lacks WITHSUFFIXTRIE in a mixed schema, error regardless of
-    // whether we'd have used the suffix DS or brute-force.
     const bool fields_have_suffix =
         qn->opts.fieldMask == RS_FIELDMASK_ALL ||
         (spec->suffixMask & qn->opts.fieldMask) == qn->opts.fieldMask;
