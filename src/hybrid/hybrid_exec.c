@@ -204,7 +204,10 @@ static void startPipelineHybrid(HybridRequest *hreq, ResultProcessor *rp, Search
     .timeout = &hreq->sctx->time.timeout,
     .oomPolicy = hreq->reqConfig.oomPolicy,
     .skipTimeoutChecks = !HybridRequest_ShouldCheckTimeout(hreq),
-    .areq = NULL,
+    // Borrow a subquery AREQ as the tail's row-boundary timeout-flag proxy:
+    // HybridRequest_SetTimedOut propagates to every subquery's AREQ, so
+    // AggregateResults can bail between rows while draining buffered tail rows.
+    .areq = hreq->requests[SEARCH_INDEX],
   };
 
 #ifdef ENABLE_ASSERT

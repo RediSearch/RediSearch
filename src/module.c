@@ -3865,6 +3865,10 @@ int DistHybridCommandInternal(RedisModuleCtx *ctx, RedisModuleString **argv, int
 
   CoordRequestCtx *reqCtx = CoordRequestCtx_New(COMMAND_HYBRID);
 
+  // Capture the policy on the main thread so BG and the timeout callback agree
+  // on one value (avoids a TOCTOU against a concurrent FT.CONFIG SET).
+  RSTimeoutPolicy policy = RSGlobalConfig.requestConfigParams.timeoutPolicy;
+  CoordRequestCtx_SetTimeoutPolicy(reqCtx, policy);
 
   ConcurrentSearchHandlerCtx handlerCtx;
   ConcurrentSearchHandlerCtx_Init(&handlerCtx);
@@ -3876,8 +3880,7 @@ int DistHybridCommandInternal(RedisModuleCtx *ctx, RedisModuleString **argv, int
   handlerCtx.bcCtx.privdata = reqCtx;
   handlerCtx.bcCtx.free_privdata = DistCoordReqFreePrivData;
 
-  RSTimeoutPolicy policy = RSGlobalConfig.requestConfigParams.timeoutPolicy;
-  if (RSGlobalConfig.requestConfigParams.timeoutPolicy != TimeoutPolicy_Return) {
+  if (policy != TimeoutPolicy_Return) {
     handlerCtx.bcCtx.reply_callback = DistHybridReplyCallback;
     handlerCtx.bcCtx.timeout_callback = (policy == TimeoutPolicy_Fail)
         ? DistHybridTimeoutFailClient

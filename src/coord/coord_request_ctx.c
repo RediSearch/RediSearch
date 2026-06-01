@@ -138,6 +138,14 @@ bool CoordRequestCtx_IsCursorReadReturnStrict(CoordRequestCtx *ctx) {
   return ctx->isCursorReadReturnStrict;
 }
 
+void CoordRequestCtx_SetTimeoutPolicy(CoordRequestCtx *ctx, RSTimeoutPolicy policy) {
+  ctx->timeoutPolicy = policy;
+}
+
+RSTimeoutPolicy CoordRequestCtx_GetTimeoutPolicy(CoordRequestCtx *ctx) {
+  return ctx->timeoutPolicy;
+}
+
 void CoordRequestCtx_ReplyOrStoreError(CoordRequestCtx *req, RedisModuleCtx *ctx, QueryError *status) {
   if (req->useReplyCallback) {
     // Assert no existing error
