@@ -61,9 +61,17 @@ typedef struct suffixData {
 /* Add string to suffix trie. If string already exists, do nothing.
  * In case of allocation overflow in TrieNode_Add, log error and return without
  * adding the string.
+ *
+ * `str`/`byte_len` carry the byte form for term-storage. `runes`/`rune_len`
+ * are the operation unit (matches the rune-keyed `Trie`). The caller must
+ * convert via `runeBufFill` and ensure `rune_len >= SUFFIX_DS_MIN_LEN`.
  */
-void addSuffixTrie(Trie *trie, const char *str, uint32_t len);
-void deleteSuffixTrie(Trie *trie, const char *str, uint32_t len);
+void addSuffixTrie(Trie *trie,
+                   const char *str, uint32_t byte_len,
+                   const rune *runes, size_t rune_len);
+void deleteSuffixTrie(Trie *trie,
+                      const char *str, uint32_t byte_len,
+                      const rune *runes, size_t rune_len);
 
 void suffixTrie_freeCallback(void *data);
 

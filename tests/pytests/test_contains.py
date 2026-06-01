@@ -372,6 +372,17 @@ def testSuffixTrieFindsMultiByteRuneText(env):
   env.expect('FT.SEARCH', 'idx_no', '*中', 'NOCONTENT').equal([1, 'doc:1'])
 
 @skip(cluster=True)
+def testSuffixTrieExcludesSingleRuneMultiByteText(env):
+  # Text values whose rune length is below SUFFIX_DS_MIN_LEN are not stored
+  # in the suffix trie, even if their byte length passes a byte-only filter.
+  # "中" is 3 bytes / 1 rune — the rune-aware caller gate keeps it out.
+  conn = getConnectionByEnv(env)
+  conn.execute_command('FT.CREATE', 'idx', 'SCHEMA', 't', 'TEXT', 'WITHSUFFIXTRIE')
+
+  conn.execute_command('HSET', 'doc:1', 't', '中')
+  env.expect(debug_cmd(), 'DUMP_SUFFIX_TRIE', 'idx').equal([])
+
+@skip(cluster=True)
 def testContainsDebugCommand(env):
   conn = getConnectionByEnv(env)
   conn.execute_command('FT.CREATE', 'idx', 'SCHEMA', 'text', 'TEXT', 'WITHSUFFIXTRIE')

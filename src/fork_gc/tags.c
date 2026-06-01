@@ -171,7 +171,7 @@ FGCError FGC_parentHandleTags(ForkGC *gc) {
       IndexStats_BlockCountAdd(&sctx->spec->stats, -(int64_t)InvertedIndex_NumBlocks(idx));
       TrieMap_Delete(tagIdx->values, tagVal, tagValLen, (void (*)(void *))InvertedIndex_Free);
 
-      if (tagIdx->suffix) {
+      if (tagIdx->suffix && tagValLen >= SUFFIX_DS_MIN_LEN) {
         deleteSuffixTrieMap(tagIdx->suffix, tagVal, tagValLen);
       }
     }

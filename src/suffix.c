@@ -41,28 +41,27 @@ static void freeSuffixNode(suffixData *node) {
   rm_free(node);
 }
 
-void addSuffixTrie(Trie *trie, const char *str, uint32_t len) {
-  RS_LOG_ASSERT(len >= SUFFIX_DS_MIN_LEN, "addSuffixTrie called with len < SUFFIX_DS_MIN_LEN");
-  size_t rlen = 0;
-  runeBuf buf;
-  rune *runes = runeBufFill(str, len, &buf, &rlen);
+void addSuffixTrie(Trie *trie,
+                   const char *str, uint32_t byte_len,
+                   const rune *runes, size_t rune_len) {
+  RS_LOG_ASSERT(rune_len >= SUFFIX_DS_MIN_LEN,
+                "addSuffixTrie called with rune_len < SUFFIX_DS_MIN_LEN");
 
-  TrieNode *trienode = Trie_GetNode(trie, runes, rlen, true, NULL);
+  TrieNode *trienode = Trie_GetNode(trie, runes, rune_len, true, NULL);
   suffixData *data = NULL;
   if (trienode) {
     data = Suffix_GetData(trienode);
     // if string was added in the past, skip
     if (data && data->term) {
-      runeBufFree(&buf);
       return;
     }
   }
 
-  char *copyStr = rm_strndup(str, len);
+  char *copyStr = rm_strndup(str, byte_len);
   if (!data) {
     suffixData newdata = createSuffixNode(copyStr, 1);
     RSPayload payload = { .data = (char*)&newdata, .len = sizeof(newdata) };
-    int rc = Trie_InsertRuneNoSize(trie, runes, rlen, 1, ADD_REPLACE, &payload, 0);
+    int rc = Trie_InsertRuneNoSize(trie, runes, rune_len, 1, ADD_REPLACE, &payload, 0);
     RS_LOG_ASSERT(rc != TRIE_ERR_PAYLOAD_OVERFLOW,
                   "Trie_InsertRuneNoSize failed due to payload overflow");
     if (rc == TRIE_ERR_PAYLOAD_OVERFLOW) {
@@ -71,7 +70,6 @@ void addSuffixTrie(Trie *trie, const char *str, uint32_t len) {
           "Suffix trie: Trie_InsertRuneNoSize() failed due to payload overflow, suffix trie entry was not added");
       array_free(newdata.array);
       rm_free(copyStr);
-      runeBufFree(&buf);
       return;
     }
   } else {
@@ -82,14 +80,14 @@ void addSuffixTrie(Trie *trie, const char *str, uint32_t len) {
 
   // Save string copy to all suffixes of it
   // If it exists, move to the next field
-  for (size_t j = 1; j + SUFFIX_DS_MIN_LEN <= rlen; ++j) {
-    TrieNode *trienode = Trie_GetNode(trie, runes + j, rlen - j, true, NULL);
+  for (size_t j = 1; j + SUFFIX_DS_MIN_LEN <= rune_len; ++j) {
+    TrieNode *trienode = Trie_GetNode(trie, runes + j, rune_len - j, true, NULL);
 
     data = Suffix_GetData(trienode);
     if (!data) {
       suffixData newdata = createSuffixNode(copyStr, 0);
       RSPayload payload = { .data = (char*)&newdata, .len = sizeof(newdata) };
-      int rc = Trie_InsertRune(trie, runes + j, rlen - j, 1, ADD_REPLACE, &payload, 0);
+      int rc = Trie_InsertRune(trie, runes + j, rune_len - j, 1, ADD_REPLACE, &payload, 0);
       RS_LOG_ASSERT(rc != TRIE_ERR_PAYLOAD_OVERFLOW,
                   "TrieNode_Add failed due to payload overflow");
       if (rc == TRIE_ERR_PAYLOAD_OVERFLOW) {
@@ -97,7 +95,6 @@ void addSuffixTrie(Trie *trie, const char *str, uint32_t len) {
             RSDummyContext, "warning",
             "Suffix trie: Trie_InsertRune() failed due to payload overflow, suffix trie entry was not added");
         array_free(newdata.array);
-        runeBufFree(&buf);
         return;
       }
 
@@ -105,7 +102,6 @@ void addSuffixTrie(Trie *trie, const char *str, uint32_t len) {
       data->array = array_ensure_append_1(data->array, copyStr);
     }
   }
-  runeBufFree(&buf);
 }
 
 static void removeSuffix(const char *str, size_t rlen, arrayof(char*) array) {
@@ -117,45 +113,45 @@ static void removeSuffix(const char *str, size_t rlen, arrayof(char*) array) {
   }
 }
 
-void deleteSuffixTrie(Trie *trie, const char *str, uint32_t len) {
-  size_t rlen = 0;
-  runeBuf buf;
-  rune *runes = runeBufFill(str, len, &buf, &rlen);
+void deleteSuffixTrie(Trie *trie,
+                      const char *str, uint32_t byte_len,
+                      const rune *runes, size_t rune_len) {
+  RS_LOG_ASSERT(rune_len >= SUFFIX_DS_MIN_LEN,
+                "deleteSuffixTrie called with rune_len < SUFFIX_DS_MIN_LEN");
   char *oldTerm = NULL;
 
   // Remove the full-word entry (always inserted by addSuffixTrie).
-  if (rlen > 0) {
-    TrieNode *node = Trie_GetNode(trie, runes, rlen, true, NULL);
+  {
+    TrieNode *node = Trie_GetNode(trie, runes, rune_len, true, NULL);
     suffixData *data = Suffix_GetData(node);
     if (data) {
       oldTerm = data->term;
       data->term = NULL;
-      removeSuffix(str, len, data->array);
+      removeSuffix(str, byte_len, data->array);
       if (array_len(data->array) == 0) {
         RS_LOG_ASSERT(!data->term, "array should contain a pointer to the string");
-        Trie_DeleteRunes(trie, runes, rlen);
+        Trie_DeleteRunes(trie, runes, rune_len);
       }
     }
   }
 
   // Remove suffix entries.
-  for (size_t j = 1; j + SUFFIX_DS_MIN_LEN <= rlen; ++j) {
-    TrieNode *node = Trie_GetNode(trie, runes + j, rlen - j, true, NULL);
+  for (size_t j = 1; j + SUFFIX_DS_MIN_LEN <= rune_len; ++j) {
+    TrieNode *node = Trie_GetNode(trie, runes + j, rune_len - j, true, NULL);
     suffixData *data = Suffix_GetData(node);
     // suffix trie is shared between all text fields in index, even if they don't use it.
     // if the trie is owned by other fields and not any one containing this suffix,
     // then failure to find the suffix is not an error. just move along.
     if (!data) continue;
     // remove from array
-    removeSuffix(str, len, data->array);
+    removeSuffix(str, byte_len, data->array);
     // if array is empty, remove the node
     if (array_len(data->array) == 0) {
       RS_LOG_ASSERT(!data->term, "array should contain a pointer to the string");
-      Trie_DeleteRunes(trie, runes + j, rlen - j);
+      Trie_DeleteRunes(trie, runes + j, rune_len - j);
     }
   }
   rm_free(oldTerm);
-  runeBufFree(&buf);
 }
 
 static int processSuffixData(suffixData *data, SuffixCtx *sufCtx) {
@@ -418,10 +414,12 @@ void addSuffixTrieMap(TrieMap *trie, const char *str, uint32_t len) {
 }
 
 void deleteSuffixTrieMap(TrieMap *trie, const char *str, uint32_t len) {
+  RS_LOG_ASSERT(len >= SUFFIX_DS_MIN_LEN,
+                "deleteSuffixTrieMap called with len < SUFFIX_DS_MIN_LEN");
   char *oldTerm = NULL;
 
   // Remove the full-word entry (always inserted by addSuffixTrieMap).
-  if (len > 0) {
+  {
     suffixData *data = TrieMap_Find(trie, str, len);
     if (data != TRIEMAP_NOTFOUND) {
       oldTerm = data->term;

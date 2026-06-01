@@ -12,6 +12,7 @@
 #include "triemap_ffi.h"
 #include "redis_index.h"
 #include "suffix.h"
+#include "trie/rune_util.h"
 #include "rmutil/rm_assert.h"
 #include "obfuscation/obfuscation_api.h"
 #include "obfuscation/hidden.h"
@@ -125,7 +126,13 @@ FGCError FGC_parentHandleTerms(ForkGC *gc) {
     sctx->spec->stats.scoring.numTerms--;
     sctx->spec->stats.termsSize -= len;
     if (sctx->spec->suffix) {
-      deleteSuffixTrie(sctx->spec->suffix, term, len);
+      size_t rune_len = 0;
+      runeBuf buf;
+      rune *runes = runeBufFill(term, len, &buf, &rune_len);
+      if (rune_len >= SUFFIX_DS_MIN_LEN) {
+        deleteSuffixTrie(sctx->spec->suffix, term, len, runes, rune_len);
+      }
+      runeBufFree(&buf);
     }
   }
 
