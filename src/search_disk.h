@@ -620,7 +620,7 @@ void SearchDisk_ReplicationAbort(IndexSpec *sp);
 void SearchDisk_UpdateBufferBudget(RedisModuleCtx *ctx, int percentage);
 
 // ---------------------------------------------------------------------------
-// Debug pause-points (FT.DEBUG COMPACTION_CONTROLLER / SST_REPL_CONTROLLER)
+// Debug pause-point (FT.DEBUG COMPACTION_CONTROLLER)
 // Declared via search_disk_api.h; redeclared here so debug_commands.c only
 // needs to include "search_disk.h".
 // ---------------------------------------------------------------------------
@@ -633,22 +633,16 @@ void SearchDisk_UpdateBufferBudget(RedisModuleCtx *ctx, int percentage);
  * the fork rwlock but before any merge work proceeds. The arm flag is
  * single-shot: the parked thread consumes it.
  *
+ * The parked thread auto-releases the fork gate after a bounded timeout, so
+ * a `PRE_FORK` blocked on the gate from the main thread can never deadlock
+ * waiting for a `SET_RESUME` it cannot process.
+ *
  * @param armed `true` to arm, `false` to clear an unconsumed arm.
  */
 void SearchDisk_DebugSetPauseInCompaction(bool armed);
 
 /**
- * @brief Arms or disarms the "pause after commit" debug pause-point.
- *
- * When armed, the next `on_compaction_completed` to fire for the term CF
- * will park its BG thread *after* `apply_delta` has run but before the
- * compaction-completed guard drops (i.e. while the fork rwlock taken in
- * `Compaction_Started` is still held).
- */
-void SearchDisk_DebugSetPauseAfterCommit(bool armed);
-
-/**
- * @brief Releases whichever compaction pause is currently parked.
+ * @brief Releases the compaction pause if one is currently parked.
  *
  * Safe to call when nothing is parked: the resume signal is only
  * consumed by a future `wait`.
@@ -659,8 +653,7 @@ void SearchDisk_DebugResumeCompaction(void);
  * @brief Returns the current compaction debug state.
  *
  * Returns one of:
- *   0 = running, 1 = paused_in_compaction,
- *   2 = paused_before_fork_release, 3 = done
+ *   0 = running, 1 = paused_in_compaction
  */
 int SearchDisk_DebugGetCompactionState(void);
 
@@ -672,22 +665,3 @@ int SearchDisk_DebugGetCompactionState(void);
  * next.
  */
 void SearchDisk_DebugResetCompactionController(void);
-
-/**
- * @brief Arms or disarms a debug pause inside `SearchDisk_PreFork`.
- *
- * When armed, `SearchDisk_PreFork` will, after taking the per-spec fork
- * lock, busy-wait on this flag in 1 ms steps until it is cleared. Lets
- * a test deterministically observe "PRE_FORK is waiting" before it
- * dispatches further.
- *
- * The flag is NOT single-shot; the test must clear it via `false` after
- * its observation point.
- */
-void SearchDisk_DebugSetPausePreFork(bool armed);
-
-/**
- * @brief Returns whether `SearchDisk_PreFork` is currently parked on
- * the pre-fork debug pause flag.
- */
-bool SearchDisk_DebugIsPausedPreFork(void);

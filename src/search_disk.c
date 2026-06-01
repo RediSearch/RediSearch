@@ -475,35 +475,12 @@ void SearchDisk_PreCheckpoint(IndexSpec *sp) {
   disk->index.preCheckpoint(sp->diskSpec);
 }
 
-// Debug pause-point. Armed via `FT.DEBUG SST_REPL_CONTROLLER
-// PAUSE_PRE_FORK true`. `pausedPreFork` lets tests observe that the main
-// thread is parked here without inspecting Redis's bgsave state.
-static volatile bool s_pausePreFork = false;
-static volatile bool s_pausedPreFork = false;
-
-void SearchDisk_DebugSetPausePreFork(bool armed) {
-  s_pausePreFork = armed;
-}
-
-bool SearchDisk_DebugIsPausedPreFork(void) {
-  return s_pausedPreFork;
-}
-
 void SearchDisk_PreFork(IndexSpec *sp) {
   RS_ASSERT(disk && sp && sp->diskSpec);
   // Lock order: protect-fork then rdlock. The disk side must use the same
   // ordering for any critical section that gates the fork to avoid deadlock
   // with this handler.
   IndexSpec_ProtectDiskFork(sp);
-  // Debug-only: hold here after taking the per-spec fork lock so tests
-  // can observe "PRE_FORK is waiting". Modeled on `bgIndexing.pause`.
-  if (s_pausePreFork) {
-    s_pausedPreFork = true;
-    while (s_pausePreFork) {
-      usleep(1000);
-    }
-    s_pausedPreFork = false;
-  }
   disk->index.preFork(sp->diskSpec);
 }
 
