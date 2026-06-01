@@ -121,6 +121,7 @@ inverted_index = { path = "./inverted_index" }
 numeric_range_tree = { path = "./numeric_range_tree" }
 redis_reply = { path = "./redis_reply" }
 qint = { path = "./qint" }
+query = { path = "./c_wrappers/query" }
 query_error = { path = "./query_error" }
 query_eval = { path = "./query_eval" }
 query_flags = { path = "./query_flags" }
