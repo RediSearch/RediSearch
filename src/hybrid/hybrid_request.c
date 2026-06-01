@@ -378,10 +378,6 @@ void HybridRequest_DecrRef(HybridRequest *req) {
   }
 }
 
-// Tail pipeline error codes that the coordinator should emit as warnings
-// rather than fatal errors. NO_PROP_VAL is the canonical case: standalone
-// treats it as fatal, but on the coordinator
-// test_tail_property_not_loaded_warning_coordinator pins it to "warning".
 static bool isSoftTailPipelineErrorCode(QueryErrorCode code) {
     return code == QUERY_ERROR_CODE_NO_PROP_VAL;
 }
