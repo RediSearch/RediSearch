@@ -261,8 +261,8 @@ impl<Data> Node<Data> {
         Some(unsafe { self.children().get_unchecked(i) })
     }
 
-    /// Get a mutable reference to the child node whose label starts with the
-    /// given byte. Returns `None` if there is no such child.
+    /// Get a mutable reference to the child node whose label starts with the given byte.
+    /// Returns `None` if there is no such child.
     pub fn child_starting_with_mut(&mut self, c: u8) -> Option<&mut Node<Data>> {
         let i = self.child_index_starting_with(c)?;
         // SAFETY:
