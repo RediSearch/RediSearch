@@ -91,12 +91,12 @@ static size_t countMerged(mergedEntry *ent) {
 }
 
 // Returns true on terms that should be indexed in the suffix trie.
+// Length-based gating happens inside addSuffixTrie / deleteSuffixTrie.
 static inline bool entryWantsSuffixTrie(const IndexSpec *spec, const ForwardIndexEntry *entry) {
   return (spec->suffixMask & entry->fieldMask)
       && entry->term[0] != STEM_PREFIX
       && entry->term[0] != PHONETIC_PREFIX
-      && entry->term[0] != SYNONYM_PREFIX_CHAR
-      && entry->len >= SUFFIX_DS_MIN_LEN;
+      && entry->term[0] != SYNONYM_PREFIX_CHAR;
 }
 
 /**
