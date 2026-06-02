@@ -1,0 +1,237 @@
+name: PR Validation Triage
+
+# Posts an AI-generated triage comment on PRs whose `Pull Request Flow` run
+# failed, but only when the PR carries the `triage-pr` label. The comment is
+# upserted (single sticky comment per PR) using the marker
+# `<!-- pr-triage-bot -->`.
+
+on:
+  # Fires when Pull Request Flow finishes. We gate on conclusion=failure and
+  # on the PR carrying the `triage-pr` label inside the job.
+  workflow_run:
+    workflows: ["Pull Request Flow"]
+    types: [completed]
+  # Fires when a maintainer adds the label to an already-failed PR. We gate on
+  # the label name and look up the most recent Pull Request Flow run.
+  pull_request_target:
+    types: [labeled]
+
+concurrency:
+  # Serialize per PR so two triggers (workflow_run + labeled) racing on the
+  # same PR don't both try to upsert the same comment.
+  group: pr-triage-${{ github.event.workflow_run.pull_requests[0].number || github.event.pull_request.number }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read       # checkout (needed by codex-ci-triage action)
+  actions: read        # download logs / artifacts from the source workflow run
+  pull-requests: write # comment on the PR
+
+jobs:
+  resolve:
+    # Resolve PR number, head SHA, label state, and the source-run id.
+    # If the label is missing or the source run didn't fail, skip the rest.
+    runs-on: ubuntu-slim
+    outputs:
+      should-triage: ${{ steps.resolve.outputs.should-triage }}
+      pr-number: ${{ steps.resolve.outputs.pr-number }}
+      run-id: ${{ steps.resolve.outputs.run-id }}
+    steps:
+      - name: Resolve PR and source run
+        id: resolve
+        shell: python3 {0}
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPOSITORY: ${{ github.repository }}
+          EVENT_NAME: ${{ github.event_name }}
+          TRIAGE_LABEL: triage-pr
+          # workflow_run inputs (empty for pull_request_target)
+          WORKFLOW_RUN_ID: ${{ github.event.workflow_run.id }}
+          WORKFLOW_RUN_CONCLUSION: ${{ github.event.workflow_run.conclusion }}
+          WORKFLOW_RUN_PR_NUMBER: ${{ github.event.workflow_run.pull_requests[0].number }}
+          WORKFLOW_RUN_HEAD_SHA: ${{ github.event.workflow_run.head_sha }}
+          # pull_request_target inputs (empty for workflow_run)
+          LABELED_PR_NUMBER: ${{ github.event.pull_request.number }}
+          LABELED_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+          LABEL_NAME: ${{ github.event.label.name }}
+        run: |
+          import json
+          import os
+          import subprocess
+          import sys
+
+          def gh_api(path):
+              result = subprocess.run(
+                  ["gh", "api", path],
+                  capture_output=True, text=True, check=False,
+              )
+              if result.returncode != 0:
+                  sys.stderr.write(result.stderr)
+                  return None
+              return json.loads(result.stdout) if result.stdout.strip() else None
+
+          def emit(should, pr="", run_id=""):
+              with open(os.environ["GITHUB_OUTPUT"], "a", encoding="utf-8") as f:
+                  f.write(f"should-triage={'true' if should else 'false'}\n")
+                  f.write(f"pr-number={pr}\n")
+                  f.write(f"run-id={run_id}\n")
+              raise SystemExit
+
+          repo = os.environ["REPOSITORY"]
+          event = os.environ["EVENT_NAME"]
+          label = os.environ["TRIAGE_LABEL"]
+
+          if event == "pull_request_target":
+              # Only react to additions of our label.
+              if os.environ.get("LABEL_NAME") != label:
+                  print(f"Label '{os.environ.get('LABEL_NAME')}' is not the triage label; skipping.")
+                  emit(False)
+              pr_number = os.environ["LABELED_PR_NUMBER"]
+              head_sha = os.environ["LABELED_HEAD_SHA"]
+              # Find the most recent Pull Request Flow run for this head SHA.
+              runs = gh_api(
+                  f"/repos/{repo}/actions/workflows/event-pull_request.yml/runs"
+                  f"?head_sha={head_sha}&per_page=20"
+              ) or {}
+              failed = [
+                  r for r in runs.get("workflow_runs", [])
+                  if r.get("conclusion") in ("failure", "cancelled", "timed_out")
+              ]
+              if not failed:
+                  print(f"No failed Pull Request Flow run found for {head_sha}.")
+                  emit(False, pr_number)
+              run_id = failed[0]["id"]
+              print(f"PR #{pr_number}: triaging failed run {run_id} ({head_sha}).")
+              emit(True, pr_number, run_id)
+
+          # workflow_run path
+          if os.environ.get("WORKFLOW_RUN_CONCLUSION") not in ("failure", "cancelled", "timed_out"):
+              print(f"Source run conclusion '{os.environ.get('WORKFLOW_RUN_CONCLUSION')}' is not a failure; skipping.")
+              emit(False)
+          pr_number = os.environ.get("WORKFLOW_RUN_PR_NUMBER", "")
+          if not pr_number:
+              # Same-repo PRs populate workflow_run.pull_requests; fork PRs
+              # don't. Look up by head_sha as a fallback.
+              head_sha = os.environ.get("WORKFLOW_RUN_HEAD_SHA", "")
+              if head_sha:
+                  prs = gh_api(
+                      f"/repos/{repo}/commits/{head_sha}/pulls"
+                  ) or []
+                  open_prs = [p for p in prs if p.get("state") == "open"]
+                  if open_prs:
+                      pr_number = str(open_prs[0]["number"])
+          if not pr_number:
+              print("Could not resolve PR number from workflow_run event; skipping.")
+              emit(False)
+          # Check the PR carries the triage label.
+          pr_data = gh_api(f"/repos/{repo}/pulls/{pr_number}") or {}
+          labels = {l.get("name") for l in pr_data.get("labels", [])}
+          if label not in labels:
+              print(f"PR #{pr_number} does not have '{label}' label; skipping.")
+              emit(False, pr_number)
+          print(f"PR #{pr_number}: triaging failed run {os.environ['WORKFLOW_RUN_ID']}.")
+          emit(True, pr_number, os.environ["WORKFLOW_RUN_ID"])
+
+  triage:
+    needs: resolve
+    if: ${{ needs.resolve.outputs.should-triage == 'true' }}
+    runs-on: ubuntu-slim
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v6
+
+      - name: Fetch failed-job logs from source run
+        env:
+          GH_TOKEN: ${{ github.token }}
+          SOURCE_RUN_ID: ${{ needs.resolve.outputs.run-id }}
+        run: |
+          set +e
+          # Prefer focused "Failed Test Logs *" artifacts (per-test logs) and
+          # always also include `gh run view --log-failed` so build / lint /
+          # sanitizer failures still have context in mixed-failure runs.
+          mkdir -p downloaded-failed-logs
+          gh run download "$SOURCE_RUN_ID" \
+            --repo "$GITHUB_REPOSITORY" \
+            --pattern "Failed Test Logs *" \
+            --dir downloaded-failed-logs 2>/dev/null
+
+          : > failed-logs.txt
+          if [ -n "$(find downloaded-failed-logs -type f 2>/dev/null)" ]; then
+            echo "Including focused Failed Test Logs artifacts."
+            find downloaded-failed-logs -type f \
+              \( -name '*.log' -o -name '*.txt' \) -print0 |
+            while IFS= read -r -d '' f; do
+              printf '\n##[group]%s\n' "${f#downloaded-failed-logs/}"
+              cat "$f"
+              printf '\n##[endgroup]\n'
+            done >> failed-logs.txt
+          else
+            echo "No Failed Test Logs artifacts found."
+          fi
+
+          {
+            printf '\n##[group]gh run view --log-failed\n'
+            gh run view "$SOURCE_RUN_ID" --repo "$GITHUB_REPOSITORY" --log-failed 2>&1
+            printf '\n##[endgroup]\n'
+          } >> failed-logs.txt
+
+          # Cap at 200KB to bound Codex token spend (matches post-merge triage).
+          if [ "$(wc -c < failed-logs.txt 2>/dev/null || echo 0)" -gt 204800 ]; then
+            tail -c 204800 failed-logs.txt > failed-logs.txt.tmp
+            printf '[truncated to last 200KB]\n' > failed-logs.txt
+            cat failed-logs.txt.tmp >> failed-logs.txt
+            rm failed-logs.txt.tmp
+          fi
+          exit 0
+
+      - name: Run Codex triage
+        id: ai_triage
+        uses: ./.github/actions/codex-ci-triage
+        with:
+          openai-api-key: ${{ secrets.CI_TRIAGE_OPENAI_API_KEY }}
+          prompt-file: .github/codex/prompts/pr-validation-triage.md
+
+      - name: Upsert PR comment
+        if: ${{ steps.ai_triage.outputs.triage-exists == 'true' }}
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PR_NUMBER: ${{ needs.resolve.outputs.pr-number }}
+          SOURCE_RUN_ID: ${{ needs.resolve.outputs.run-id }}
+          TRIAGE_CONTENT: ${{ steps.ai_triage.outputs.triage-content }}
+        run: |
+          set -euo pipefail
+          MARKER="<!-- pr-triage-bot -->"
+          RUN_URL="${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/actions/runs/${SOURCE_RUN_ID}"
+          BODY=$(cat <<EOF
+          ${MARKER}
+          ### 🤖 PR Validation Triage
+
+          Automated analysis of failed run [#${SOURCE_RUN_ID}](${RUN_URL}). This is a best-effort hint from Codex — verify before acting.
+
+          ---
+
+          ${TRIAGE_CONTENT}
+
+          ---
+
+          <sub>Triggered by the \`triage-pr\` label. Remove the label and re-add to re-run, or push a new commit.</sub>
+          EOF
+          )
+
+          EXISTING_ID=$(gh api "repos/${GITHUB_REPOSITORY}/issues/${PR_NUMBER}/comments" --paginate \
+            --jq '.[] | select(.body | startswith("'"${MARKER}"'")) | .id' | head -1)
+
+          if [ -n "$EXISTING_ID" ]; then
+            echo "Updating existing comment $EXISTING_ID"
+            gh api --method PATCH "repos/${GITHUB_REPOSITORY}/issues/comments/${EXISTING_ID}" \
+              -f body="$BODY" >/dev/null
+          else
+            echo "Creating new comment on PR #${PR_NUMBER}"
+            gh api --method POST "repos/${GITHUB_REPOSITORY}/issues/${PR_NUMBER}/comments" \
+              -f body="$BODY" >/dev/null
+          fi
+
+      - name: Note skipped triage
+        if: ${{ steps.ai_triage.outputs.triage-exists != 'true' }}
+        run: |
+          echo "::warning::Codex produced no triage output; skipping PR comment."
