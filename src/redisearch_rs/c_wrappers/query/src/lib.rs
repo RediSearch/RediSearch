@@ -7,10 +7,13 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 
-//! Query evaluation: traverses a parsed query AST and builds an executable
-//! iterator tree.
+//! Safe Rust wrappers around the C query types used during query evaluation.
 
-pub mod string_utils;
+mod query_eval_ctx;
+mod query_node_ref;
+
+pub use query_eval_ctx::QueryEvalContext;
+pub use query_node_ref::{QueryNode, QueryNodeRef, WildcardMode};
 
 #[cfg(test)]
 mod _test_link {

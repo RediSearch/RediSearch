@@ -54,9 +54,9 @@ struct TrieNode {
   // the node's score. Non termn
   float score;
 
-  // the maximal score of any descendant of this node, used to optimize
-  // traversal
-  float maxChildScore;
+  // max(self.score, max descendant subtreeMaxScore); upper-bound used to
+  // prune branch-and-bound traversal in Trie_Search top-k
+  float subtreeMaxScore;
 
   // the number of documents containing this key
   size_t numDocs;
@@ -98,7 +98,10 @@ struct TrieIterator {
   stackNode stack[TRIE_INITIAL_STRING_LEN + 1];
   t_len stackOffset;
   StepFilter filter;
-  float minScore;
+  // kth-best score currently in the top-k heap; rises monotonically as the
+  // heap fills with better candidates. Distinct from the scorer-layer
+  // minScore filter floor (see QueryProcessingCtx::minScore).
+  float kthBestScore;
   int nodesConsumed;
   int nodesSkipped;
   StackPopCallback popCallback;

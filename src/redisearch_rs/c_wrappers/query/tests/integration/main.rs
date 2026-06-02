@@ -6,14 +6,10 @@
  * (RSALv2); or (b) the Server Side Public License v1 (SSPLv1); or (c) the
  * GNU Affero General Public License v3 (AGPLv3).
 */
+#![cfg_attr(miri, allow(dead_code, unused_imports))]
 
-//! Query evaluation: traverses a parsed query AST and builds an executable
-//! iterator tree.
+redis_mock::mock_or_stub_missing_redis_c_symbols!();
+extern crate redisearch_rs;
 
-pub mod string_utils;
-
-#[cfg(test)]
-mod _test_link {
-    extern crate redisearch_rs;
-    redis_mock::mock_or_stub_missing_redis_c_symbols!();
-}
+mod query_eval_ctx;
+mod query_node_ref;
