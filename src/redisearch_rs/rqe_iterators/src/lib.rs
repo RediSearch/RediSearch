@@ -277,7 +277,7 @@ pub trait SearchEnterpriseIterators: Send + Sync {
         &self,
         index: &'index mut ffi::RedisSearchDiskIndexSpec,
         weight: f64,
-    ) -> Result<Box<dyn RQEIterator<'index> + 'index>, Box<dyn std::error::Error>>;
+    ) -> Result<Box<dyn RQEIteratorPrintable<'index> + 'index>, Box<dyn std::error::Error>>;
 
     /// Iterate over all the terms in the index, loading offset data for each document.
     ///
