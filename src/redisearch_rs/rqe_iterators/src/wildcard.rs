@@ -18,12 +18,12 @@ use inverted_index::{DocIdsDecoder, opaque};
 
 use rqe_core::{DocId, RS_FIELDMASK_ALL};
 
-use crate::{IteratorType, RQEIteratorPrintable};
 use crate::{
     Empty, RQEIterator, RQEIteratorError, RQEValidateStatus, SEARCH_ENTERPRISE_ITERATORS,
     SkipToOutcome,
     profile_print::{ProfilePrint, ProfilePrintCtx},
 };
+use crate::{IteratorType, RQEIteratorPrintable};
 
 /// An iterator that yields all ids within a given range, from 1 to max id (inclusive) in an index.
 #[derive(Default)]
