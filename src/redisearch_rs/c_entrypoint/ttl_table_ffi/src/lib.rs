@@ -11,10 +11,11 @@
 
 use std::{marker::PhantomData, num::NonZeroUsize, ptr, slice};
 
-use ffi::{FieldExpiration, t_docId, t_expirationTimePoint, t_fieldMask};
+use ffi::t_expirationTimePoint;
 use field::FieldExpirationPredicate;
-use ttl_table::FieldExpirations;
+use rqe_core::{DocId, FieldMask};
 pub use ttl_table::TimeToLiveTable;
+use ttl_table::{FieldExpiration, FieldExpirations};
 
 /// Borrowed view of a contiguous run of [`FieldExpiration`] entries.
 ///
@@ -106,7 +107,7 @@ pub unsafe extern "C" fn TimeToLiveTable_Destroy(table: *mut *mut TimeToLiveTabl
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn TimeToLiveTable_Add(
     table: *mut TimeToLiveTable,
-    doc_id: t_docId,
+    doc_id: DocId,
     field_expirations: FieldExpirations,
 ) {
     debug_assert!(!table.is_null(), "table cannot be NULL");
@@ -122,7 +123,7 @@ pub unsafe extern "C" fn TimeToLiveTable_Add(
 ///  - `table` must point to a valid, initialized [`TimeToLiveTable`] with
 ///    no other live references.
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn TimeToLiveTable_Remove(table: *mut TimeToLiveTable, doc_id: t_docId) {
+pub unsafe extern "C" fn TimeToLiveTable_Remove(table: *mut TimeToLiveTable, doc_id: DocId) {
     debug_assert!(!table.is_null(), "table cannot be NULL");
     // SAFETY: caller guarantees pointer validity and exclusive access.
     let inner = unsafe { &mut *table };
@@ -152,7 +153,7 @@ pub unsafe extern "C" fn TimeToLiveTable_IsEmpty(table: *const TimeToLiveTable) 
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn TimeToLiveTable_GetFieldExpirations<'a>(
     table: *const TimeToLiveTable,
-    doc_id: t_docId,
+    doc_id: DocId,
 ) -> FieldExpirationSlice<'a> {
     debug_assert!(!table.is_null(), "table cannot be NULL");
     // SAFETY: caller guarantees pointer validity.
@@ -182,7 +183,7 @@ pub unsafe extern "C" fn TimeToLiveTable_GetFieldExpirations<'a>(
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn TimeToLiveTable_VerifyDocAndField(
     table: *const TimeToLiveTable,
-    doc_id: t_docId,
+    doc_id: DocId,
     field_index: u16,
     predicate: FieldExpirationPredicate,
     expiration_point: *const t_expirationTimePoint,
@@ -222,7 +223,7 @@ pub unsafe extern "C" fn TimeToLiveTable_VerifyDocAndField(
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn TimeToLiveTable_VerifyDocAndFieldMask(
     table: *const TimeToLiveTable,
-    doc_id: t_docId,
+    doc_id: DocId,
     field_mask: u32,
     predicate: FieldExpirationPredicate,
     expiration_point: *const t_expirationTimePoint,
@@ -255,8 +256,8 @@ pub unsafe extern "C" fn TimeToLiveTable_VerifyDocAndFieldMask(
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn TimeToLiveTable_VerifyDocAndWideFieldMask(
     table: *const TimeToLiveTable,
-    doc_id: t_docId,
-    field_mask: t_fieldMask,
+    doc_id: DocId,
+    field_mask: FieldMask,
     predicate: FieldExpirationPredicate,
     expiration_point: *const t_expirationTimePoint,
     ft_id_to_field_index: *const u16,
@@ -418,10 +419,10 @@ const fn highest_bit_plus_one(mask: u32) -> usize {
 }
 
 #[inline]
-const fn highest_bit_plus_one_wide(mask: t_fieldMask) -> usize {
+const fn highest_bit_plus_one_wide(mask: FieldMask) -> usize {
     if mask == 0 {
         0
-    } else if size_of::<t_fieldMask>() == size_of::<u128>() {
+    } else if size_of::<FieldMask>() == size_of::<u128>() {
         (u128::BITS - mask.leading_zeros()) as usize
     } else {
         (u64::BITS - mask.leading_zeros()) as usize

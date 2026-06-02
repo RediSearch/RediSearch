@@ -24,9 +24,8 @@ pub fn unicode_tolower(s: &str) -> String {
     s.chars().flat_map(char::to_lowercase).collect()
 }
 
-/// Maximum number of runes (lowercased codepoints) allowed in a single
-/// conversion, matching the C `MAX_RUNESTR_LEN` constant.
-pub const MAX_RUNE_STR_LEN: usize = 1024;
+/// Maximum number of runes (lowercased codepoints) allowed in a single conversion.
+pub const MAX_RUNE_STR_LEN: usize = ffi::MAX_RUNE_STR_LEN as usize;
 
 /// Error returned when the lowercased rune sequence exceeds
 /// [`MAX_RUNE_STR_LEN`].

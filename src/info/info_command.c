@@ -196,6 +196,9 @@ void fillReplyWithIndexInfo(RedisSearchCtx* sctx, RedisModule_Reply *reply, bool
           REPLY_KVSTR("distance_metric", VecSimMetric_ToString(hnsw_params.metric));
           REPLY_KVINT("M", hnsw_params.M);
           REPLY_KVINT("ef_construction", hnsw_params.efConstruction);
+          if (SearchDisk_IsEnabled()) {
+            REPLY_KVSTR("rerank", fs->vectorOpts.diskCtx.rerank ? "true" : "false");
+          }
         } else if (primary_params->algo == VecSimAlgo_SVS) {
           REPLY_KVSTR("algorithm", VecSimAlgorithm_ToString(primary_params->algo));
           SVSParams svs_params = primary_params->algoParams.svsParams;

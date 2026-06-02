@@ -314,7 +314,7 @@ jobs:
       benchmark_runner_group_total: ${{ strategy.job-total }}
       binary_artifact_name: redisearch-bin-${{ github.run_id }}-${{ github.run_attempt }}
 
-  notify-failure:
+  triage-benchmark-failures:
     needs:
       - benchmark-search-oss-standalone
       - benchmark-search-oss-standalone-aarch64
@@ -331,6 +331,54 @@ jobs:
       - benchmark-msmarco-oss-cluster-08-primaries-250gb-threads-8
       - benchmark-hybrid-oss-standalone
     if: ${{ always() && contains(needs.*.result, 'failure') && inputs.notify_failure }}
+    runs-on: ubuntu-latest
+    permissions:
+      actions: read
+      contents: read
+    outputs:
+      triage-exists: ${{ steps.triage.outputs.triage-exists }}
+      triage-content-json: ${{ steps.triage.outputs.triage-content-json }}
+    steps:
+      - uses: actions/checkout@v6
+      - name: Fetch failed-job logs
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set +e
+          gh run view "$GITHUB_RUN_ID" --repo "$GITHUB_REPOSITORY" --log-failed > failed-logs.txt 2>&1
+          # Cap at 200KB to bound Codex token spend
+          if [ "$(wc -c < failed-logs.txt 2>/dev/null || echo 0)" -gt 204800 ]; then
+            tail -c 204800 failed-logs.txt > failed-logs.txt.tmp
+            printf '[truncated to last 200KB]\n' > failed-logs.txt
+            cat failed-logs.txt.tmp >> failed-logs.txt
+            rm failed-logs.txt.tmp
+          fi
+          exit 0
+      - name: Run Codex triage
+        id: triage
+        uses: ./.github/actions/codex-ci-triage
+        with:
+          openai-api-key: ${{ secrets.CI_TRIAGE_OPENAI_API_KEY }}
+          prompt-file: .github/codex/prompts/benchmark-triage.md
+
+  notify-failure:
+    needs:
+      - benchmark-search-oss-standalone
+      - benchmark-search-oss-standalone-aarch64
+      - benchmark-search-oss-standalone-threads-6
+      - benchmark-vecsim-oss-standalone
+      - benchmark-vecsim-oss-standalone-threads-6
+      - benchmark-search-oss-cluster-02-primaries
+      - benchmark-search-oss-cluster-04-primaries
+      - benchmark-search-oss-cluster-04-primaries-threads-6
+      - benchmark-search-oss-cluster-08-primaries
+      - benchmark-search-oss-cluster-16-primaries
+      - benchmark-search-oss-cluster-20-primaries
+      - benchmark-search-oss-cluster-24-primaries
+      - benchmark-msmarco-oss-cluster-08-primaries-250gb-threads-8
+      - benchmark-hybrid-oss-standalone
+      - triage-benchmark-failures
+    if: ${{ always() && contains(needs.*.result, 'failure') && inputs.notify_failure }}
     runs-on: ubuntu-slim
     steps:
       - name: Notify Failure
@@ -341,12 +389,14 @@ jobs:
           errors: true  # fail step on Slack delivery errors; v3 default silently retries
           payload: |
             {
-              "failed_workflow": "${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}/attempts/${{ github.run_attempt }}"
+              "failed_workflow": "${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}/attempts/${{ github.run_attempt }}",
+              "ai_triage": ${{ needs.triage-benchmark-failures.outputs.triage-exists == 'true' && needs.triage-benchmark-failures.outputs.triage-content-json || '""' }}
             }
 
   notify-msmarco-failure:
     needs:
       - benchmark-msmarco-oss-cluster-08-primaries-250gb-threads-8
+      - triage-benchmark-failures
     if: ${{ always() && needs.benchmark-msmarco-oss-cluster-08-primaries-250gb-threads-8.result == 'failure' && inputs.notify_failure }}
     runs-on: ubuntu-slim
     steps:
@@ -359,5 +409,6 @@ jobs:
           payload: |
             {
               "failed_workflow": "${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}/attempts/${{ github.run_attempt }}",
-              "repository": "${{ github.repository }}"
+              "repository": "${{ github.repository }}",
+              "ai_triage": ${{ needs.triage-benchmark-failures.outputs.triage-exists == 'true' && needs.triage-benchmark-failures.outputs.triage-content-json || '""' }}
             }

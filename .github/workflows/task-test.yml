@@ -407,6 +407,20 @@ jobs:
           CLEAR_LOGS: 0
           ENABLE_ASSERT: 1
         run: make rust-tests
+      - name: Build TESTFILE excluding flaky tests (standalone)
+        id: standalone_testfile
+        if: ${{ inputs.standalone && env.IS_FORK_PR != 'true' }}
+        continue-on-error: true
+        uses: ./.github/actions/flaky-build-testfile
+        with:
+          redis-url: ${{ secrets.FLAKY_TESTS_REDIS_URL }}
+          variant: standalone
+          redis-standalone: "1"
+          test-config: ${{ inputs.test-config }}
+          rejson: ${{ env.REJSON }}
+          rejson-branch: ${{ inputs.rejson-branch }}
+          san: ${{ inputs.san }}
+
       - name: Flow tests (standalone)
         timeout-minutes: ${{ fromJSON(inputs.test-timeout) }}
         id: standalone_tests
@@ -421,7 +435,35 @@ jobs:
           REJSON_BRANCH: ${{ inputs.rejson-branch }}
           ENABLE_ASSERT: 1
           TEST_CONFIG: ${{ inputs.test-config }}
+          # Relative path: ${{ github.workspace }} resolves to the runner host
+          # path, which is unreachable when the step runs in a container.
+          # runtests.sh prepends $ROOT for non-absolute FAILEDFILE values.
+          FAILEDFILE: .failed_standalone.txt
+          TESTFILE: ${{ steps.standalone_testfile.outputs.testfile }}
         run: make pytest $TEST_CONFIG
+
+      - name: Record standalone failures to flaky DB
+        if: ${{ always() && inputs.standalone && env.IS_FORK_PR != 'true' }}
+        continue-on-error: true
+        uses: ./.github/actions/flaky-record-results
+        with:
+          redis-url: ${{ secrets.FLAKY_TESTS_REDIS_URL }}
+          failed-file: .failed_standalone.txt
+          job-name: ${{ needs.get-config.outputs.name }} standalone
+
+      - name: Build TESTFILE excluding flaky tests (coordinator)
+        id: coordinator_testfile
+        if: ${{ inputs.coordinator && env.IS_FORK_PR != 'true' }}
+        continue-on-error: true
+        uses: ./.github/actions/flaky-build-testfile
+        with:
+          redis-url: ${{ secrets.FLAKY_TESTS_REDIS_URL }}
+          variant: coordinator
+          redis-standalone: "0"
+          test-config: ${{ inputs.test-config }}
+          rejson: ${{ env.REJSON }}
+          rejson-branch: ${{ inputs.rejson-branch }}
+          san: ${{ inputs.san }}
 
       - name: Flow tests (coordinator)
         timeout-minutes: ${{ fromJSON(inputs.test-timeout) }}
@@ -437,7 +479,18 @@ jobs:
           REJSON_BRANCH: ${{ inputs.rejson-branch }}
           ENABLE_ASSERT: 1
           TEST_CONFIG: ${{ inputs.test-config }}
+          FAILEDFILE: .failed_coordinator.txt
+          TESTFILE: ${{ steps.coordinator_testfile.outputs.testfile }}
         run: make pytest $TEST_CONFIG
+
+      - name: Record coordinator failures to flaky DB
+        if: ${{ always() && inputs.coordinator && env.IS_FORK_PR != 'true' }}
+        continue-on-error: true
+        uses: ./.github/actions/flaky-record-results
+        with:
+          redis-url: ${{ secrets.FLAKY_TESTS_REDIS_URL }}
+          failed-file: .failed_coordinator.txt
+          job-name: ${{ needs.get-config.outputs.name }} coordinator
 
       - name: Rust tests (MIRI)
         if: inputs.san == 'address' && inputs.unit-tests
@@ -526,6 +579,70 @@ jobs:
             bin/**/redisearch.so
             bin/**/redisearch.so.debug
 
+          if-no-files-found: ignore
+
+      - name: Collect failed-test-only logs
+        # Build a focused log bundle containing only logs for tests that actually
+        # failed, so downstream tools (e.g. Codex triage) get high-signal input.
+        # Driven by RLTest's FAILEDFILE output (test ids in `test_file.py:test_name`
+        # form). RLTest log filenames embed the test id as `..._<file>_<test>_...`,
+        # so we convert each failed id to a glob and copy matching files.
+        if: >
+          failure() || (
+            steps.standalone_tests.outcome == 'failure' ||
+            steps.coordinator_tests.outcome == 'failure'
+          )
+        run: |
+          set +e
+          DEST="failed-test-logs"
+          mkdir -p "$DEST"
+
+          copy_for_failed_list() {
+            local listfile="$1"
+            [ -f "$listfile" ] || return 0
+            while IFS= read -r test_id; do
+              [ -z "$test_id" ] && continue
+              local file_part="${test_id%%:*}"
+              local test_part="${test_id#*:}"
+              local file_no_py="${file_part%.py}"
+              local pattern="*-${file_no_py}_${test_part}-*.log*"
+              find tests -path '*/logs/*' -name "$pattern" -type f 2>/dev/null | \
+                while read -r log; do
+                  mkdir -p "$DEST/$(dirname "$log")"
+                  cp "$log" "$DEST/$log"
+                done
+            done < "$listfile"
+          }
+
+          copy_for_failed_list ".failed_standalone.txt"
+          copy_for_failed_list ".failed_coordinator.txt"
+
+          # Always include the run-level RLTest summary log if present — it gives
+          # session-level context that complements per-test logs.
+          find tests -path '*/logs/rstest*.log' -type f 2>/dev/null | while read -r log; do
+            mkdir -p "$DEST/$(dirname "$log")"
+            cp "$log" "$DEST/$log"
+          done
+
+          # Stash the failed-test lists alongside the logs for downstream consumers.
+          for f in .failed_standalone.txt .failed_coordinator.txt; do
+            [ -f "$f" ] && cp "$f" "$DEST/$f"
+          done
+
+          echo "Failed-test logs bundled:"
+          find "$DEST" -type f | wc -l
+          exit 0
+
+      - name: Upload Failed-Only Test Logs
+        if: >
+          failure() || (
+            steps.standalone_tests.outcome == 'failure' ||
+            steps.coordinator_tests.outcome == 'failure'
+          )
+        uses: actions/upload-artifact@v7
+        with:
+          name: Failed Test Logs ${{ steps.artifact-names.outputs.name }}
+          path: failed-test-logs/
           if-no-files-found: ignore
 
       - name: Fail flow if tests failed

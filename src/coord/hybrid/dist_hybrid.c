@@ -576,7 +576,7 @@ static bool shouldCheckInPipelineTimeoutCoord(HybridRequest *req) {
 
 static int HybridRequest_prepareForExecution(HybridRequest *hreq,
         RedisModuleCtx *ctx, RedisModuleString **argv, int argc, IndexSpec *sp,
-        QueryError *status,
+        size_t numShards, QueryError *status,
         const HybridDebugParams *debugParams) {
 
     hreq->tailPipeline->qctx.err = status;
@@ -611,6 +611,8 @@ static int HybridRequest_prepareForExecution(HybridRequest *hreq,
     if (rc != REDISMODULE_OK) {
       return REDISMODULE_ERR;
     }
+    hybridParams.aggregationParams.groupByLimits =
+        GroupByLimits_ForCoordinator(RSGlobalConfig.maxAggregateGroups, numShards);
 
     // Set skip timeout
     HybridRequest_SetSkipTimeoutChecks(hreq, !shouldCheckInPipelineTimeoutCoord(hreq));
@@ -885,8 +887,9 @@ void RSExecDistHybrid(RedisModuleCtx *ctx, RedisModuleString **argv, int argc,
 
     // Store coordinator start time for dispatch time tracking
     hreq->profileClocks.coordStartTime = ConcurrentCmdCtx_GetCoordStartTime(cmdCtx);
+    size_t numShards = ConcurrentCmdCtx_GetNumShards(cmdCtx);
 
-    if (HybridRequest_prepareForExecution(hreq, ctx, argv, argc, sp, &status, NULL) != REDISMODULE_OK) {
+    if (HybridRequest_prepareForExecution(hreq, ctx, argv, argc, sp, numShards, &status, NULL) != REDISMODULE_OK) {
       DistHybridCleanups(ctx, cmdCtx, sp, &strong_ref, hreq, reply, &status);
       return;
     }
@@ -957,10 +960,11 @@ void DEBUG_RSExecDistHybrid(RedisModuleCtx *ctx, RedisModuleString **argv, int a
     CoordRequestCtx_UnlockSetRequest(reqCtx);
 
     hreq->profileClocks.coordStartTime = ConcurrentCmdCtx_GetCoordStartTime(cmdCtx);
+    size_t numShards = ConcurrentCmdCtx_GetNumShards(cmdCtx);
 
     // Use stripped_argc so parsing doesn't see debug params;
     // pass debugParams so the MR command gets _FT.DEBUG prefix + debug args.
-    if (HybridRequest_prepareForExecution(hreq, ctx, argv, stripped_argc, sp,
+    if (HybridRequest_prepareForExecution(hreq, ctx, argv, stripped_argc, sp, numShards,
                                           &status, &debugParams) != REDISMODULE_OK) {
       DistHybridCleanups(ctx, cmdCtx, sp, &strong_ref, hreq, reply, &status);
       return;

@@ -452,6 +452,12 @@ def test_flex_disk_hnsw_rerank_value(env):
 @skip(cluster=True)
 @with_simulate_in_flex(True)
 def test_flex_disk_hnsw_rerank_rdb_roundtrip(env):
+    # _SIMULATE_IN_FLEX validates syntax but does not persist the rerank value
+    # (it is discarded in parseVectorField when sp->diskSpec is NULL), and the
+    # RDB save/load gate is on SearchDisk_IsEnabled() so no byte is written
+    # either. The value-preservation check therefore lives in C/Enterprise CI
+    # where isFlex is true; here we only confirm the dump/reload path stays
+    # error-free across both rerank settings.
     for idx, rerank_value in [('idx_rerank_true', 'TRUE'), ('idx_rerank_false', 'FALSE')]:
         env.expect(
             'FT.CREATE', idx, 'ON', 'HASH', 'SKIPINITIALSCAN', 'SCHEMA',

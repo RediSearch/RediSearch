@@ -44,8 +44,7 @@ For example:
 
 ### 3. Create the Rust Crate
 ```bash
-cd src/redisearch_rs
-cargo new $ARGUMENTS --lib
+cargo new src/redisearch_rs/$ARGUMENTS --lib
 ```
 
 ### 4. Implement Pure Rust Logic
@@ -65,8 +64,7 @@ cargo new $ARGUMENTS --lib
 ### 6. Create FFI Wrapper
 Create an FFI crate to expose the new Rust module to the C codebase:
 ```bash
-cd src/redisearch_rs/c_entrypoint
-cargo new ${ARGUMENTS}_ffi --lib
+cargo new src/redisearch_rs/c_entrypoint/${ARGUMENTS}_ffi --lib
 ```
 
 FFI crate should:

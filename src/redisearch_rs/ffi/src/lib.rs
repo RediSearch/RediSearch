@@ -27,6 +27,7 @@
     clippy::approx_constant,
     clippy::missing_const_for_fn,
     clippy::disallowed_types,
+    clippy::type_complexity,
     rustdoc::invalid_html_tags,
     rustdoc::broken_intra_doc_links
 )]
@@ -116,5 +117,3 @@ impl QueryProcessingCtx {
         unsafe { *self.endProc.get() = result_processor_ptr };
     }
 }
-
-pub use rqe_core::{FieldMask, RS_FIELDMASK_ALL, RS_INVALID_FIELD_INDEX};

@@ -9,15 +9,17 @@
 
 use std::ptr::NonNull;
 
-use ffi::{RS_FIELDMASK_ALL, RedisSearchCtx, t_docId};
+use ffi::RedisSearchCtx;
 use index_result::{RSIndexResult, RSOffsetSlice};
 use index_spec::IndexSpecReadGuard;
 use inverted_index::TermReader;
 use query_term::RSQueryTerm;
+use rqe_core::{DocId, RS_FIELDMASK_ALL};
 
 use crate::{
     IteratorType, RQEIterator, RQEIteratorError, RQEValidateStatus, SkipToOutcome,
     expiration_checker::ExpirationChecker,
+    profile_print::{ProfilePrint, ProfilePrintCtx},
 };
 
 use super::core::InvIndIterator;
@@ -88,6 +90,15 @@ where
     /// Get a reference to the underlying reader.
     pub const fn reader(&self) -> &R {
         &self.it.reader
+    }
+
+    /// Returns the current query term bytes, if available.
+    ///
+    /// The term is stored in the iterator's result and is set during
+    /// construction. Returns [`None`] if the result is not a term result
+    /// or the term has no string representation.
+    fn query_term_bytes(&self) -> Option<&[u8]> {
+        self.it.result.as_term()?.query_term()?.as_bytes()
     }
 
     /// Check if the iterator should abort revalidation.
@@ -176,7 +187,7 @@ where
     #[inline(always)]
     fn skip_to(
         &mut self,
-        doc_id: t_docId,
+        doc_id: DocId,
     ) -> Result<Option<SkipToOutcome<'_, 'index>>, RQEIteratorError> {
         self.it.skip_to(doc_id)
     }
@@ -192,7 +203,7 @@ where
     }
 
     #[inline(always)]
-    fn last_doc_id(&self) -> t_docId {
+    fn last_doc_id(&self) -> DocId {
         self.it.last_doc_id()
     }
 
@@ -220,5 +231,20 @@ where
 
     fn intersection_sort_weight(&self, _prioritize_union_children: bool) -> f64 {
         1.0
+    }
+}
+
+impl<'index, R, E> ProfilePrint for Term<'index, R, E>
+where
+    R: inverted_index::TermReader<'index>,
+    E: crate::expiration_checker::ExpirationChecker,
+{
+    fn print_profile(&self, map: &mut redis_reply::MapBuilder<'_>, ctx: &mut ProfilePrintCtx<'_>) {
+        map.kv_simple_string(c"Type", c"TEXT");
+        if let Some(term_bytes) = self.query_term_bytes() {
+            map.kv_string_buffer(c"Term", term_bytes);
+        }
+        ctx.print_optional_counters(map);
+        map.kv_long_long(c"Estimated number of matches", self.num_estimated() as i64);
     }
 }
