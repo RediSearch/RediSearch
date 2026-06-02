@@ -13,9 +13,7 @@
 extern "C" {
 #endif
 
-#include "hybrid/hybrid_request.h"
 #include "rmr/command.h"
-#include "dist_plan.h"
 #include "profile/options.h"
 #include "vector_index.h"
 

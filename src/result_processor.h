@@ -247,8 +247,24 @@ ResultProcessor *RPVectorNormalizer_New(VectorNormFunction normFunc, const RLook
 * @param sync_ref Reference to shared synchronization object for coordinating multiple safe depleters
 * @param depletingThreadCtx Search context for the upstream processor being wrapped
 * @param nextThreadCtx Search context for the downstream processor that will receive results
+* @param pool Thread pool used to run the depletion job (must be non-NULL)
 */
-ResultProcessor *RPSafeDepleter_New(StrongRef sync_ref, RedisSearchCtx *depletingThreadCtx, RedisSearchCtx *nextThreadCtx);
+ResultProcessor *RPSafeDepleter_New(StrongRef sync_ref, RedisSearchCtx *depletingThreadCtx, RedisSearchCtx *nextThreadCtx, redisearch_thpool_t *pool);
+
+/**
+* Pre-submit a safe depleter to its thread pool. After this call the depleter's
+* lazy-start branch is skipped and Next() proceeds directly to wait-for-completion.
+* Used to enqueue depleters ahead of a tail continuation on the same pool.
+*/
+void RPSafeDepleter_StartDepletion(ResultProcessor *base);
+
+/**
+* Block until this depleter's background depletion job (if any) has completed.
+* Idempotent on never-started or already-completed depleters. Does not advance
+* the depleter's state. Used to ensure no background depletion is still in
+* flight before tearing down resources the depleter may be touching.
+*/
+void RPSafeDepleter_WaitForCompletion(ResultProcessor *base);
 
 /**
 * Get the depletion time for RPSafeDepleter.
