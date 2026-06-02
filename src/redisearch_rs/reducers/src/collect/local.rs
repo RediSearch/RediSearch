@@ -170,7 +170,7 @@ const _: () = assert!(
 /// [`SharedValue`] refcounts.
 pub struct LocalCollectCtx {
     lookup: RLookup<'static>,
-    storage: Storage,
+    storage: Storage<()>,
 }
 
 impl<'a> LocalCollectReducer<'a> {
@@ -240,6 +240,7 @@ impl LocalCollectCtx {
             }
             self.storage.insert_entry(
                 || snapshot_sort_keys(&r.sort_key_names, item),
+                (),
                 || prepare_row(&mut self.lookup, r.requested.as_deref(), item),
             );
         }
