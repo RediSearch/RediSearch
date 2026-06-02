@@ -694,9 +694,6 @@ static void PersistenceEvent(RedisModuleCtx *ctx, RedisModuleEvent eid,
   REDISMODULE_NOT_USED(data);
   RS_ASSERT(SearchDisk_IsEnabled());
   bool useSst = IS_SST_RDB_IN_PROCESS(ctx);
-  RedisModule_Log(ctx, "warning",
-                  "DocIdMeta PersistenceEvent: subevent=%llu useSst=%d",
-                  (unsigned long long)subevent, (int)useSst);
 
   switch (subevent) {
   case REDISMODULE_SUBEVENT_PERSISTENCE_RDB_START:
@@ -852,9 +849,6 @@ void RDB_LoadingEvent(RedisModuleCtx *ctx, RedisModuleEvent eid, uint64_t subeve
     // the replica must KEEP the meta it loads (forget = false). For any other
     // load (plain RDB / AOF / legacy RDB-only replication) the index is rebuilt
     // from the keyspace and the stale docIds are meaningless, so we FORGET.
-    RedisModule_Log(ctx, "warning",
-                    "DocIdMeta RDB_LoadingEvent START: subevent=%llu useSst=%d -> forget=%d",
-                    (unsigned long long)subevent, (int)useSst, (int)(!useSst));
     DocIdMeta_SetForgetDocIdMetadata(!useSst);
     Indexes_StartRDBLoadingEvent(ctx);
     workersThreadPool_OnEventStart();
