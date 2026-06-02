@@ -603,9 +603,6 @@ static int HybridRequest_prepareForExecution(HybridRequest *hreq,
     if (rc != REDISMODULE_OK) {
       return REDISMODULE_ERR;
     }
-    hybridParams.aggregationParams.groupByLimits =
-        GroupByLimits_ForCoordinator(RSGlobalConfig.maxAggregateGroups, numShards);
-
     rs_wall_clock parseClock;
     if (profileOptions != EXEC_NO_FLAGS) {
       // Initialize parseClock after parsing is done, we want that to be accounted in the parsing timing

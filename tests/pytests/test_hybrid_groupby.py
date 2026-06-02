@@ -113,7 +113,7 @@ def test_hybrid_groupby_total_group_limit():
         .contains('2')
 
 @skip(cluster=False)
-def test_hybrid_groupby_coordinator_group_limit_uses_shard_count():
+def test_hybrid_groupby_coordinator_group_limit():
     env = Env(shardsCount=3, protocol=3, moduleArgs='MAX_AGGREGATE_GROUPS 2')
 
     env.expect('FT.CREATE', 'idx',
@@ -131,17 +131,15 @@ def test_hybrid_groupby_coordinator_group_limit_uses_shard_count():
                              'embedding', vector)
 
     query_vector = np.array([0.0, 0.0], dtype=np.float32).tobytes()
-    res = env.cmd('FT.HYBRID', 'idx',
-                  'SEARCH', 'nomatch',
-                  'VSIM', '@embedding', '$BLOB',
-                      'RANGE', '2', 'RADIUS', '16',
-                  'GROUPBY', '1', '@__key',
-                      'REDUCE', 'COUNT', '0', 'AS', 'count',
-                  'PARAMS', '2', 'BLOB', query_vector)
-
-    env.assertEqual(len(res['results']), 3)
-    for row in res['results']:
-        env.assertEqual(row['count'], '1')
+    env.expect('FT.HYBRID', 'idx',
+               'SEARCH', 'nomatch',
+               'VSIM', '@embedding', '$BLOB',
+                   'RANGE', '2', 'RADIUS', '16',
+               'GROUPBY', '1', '@__key',
+                   'REDUCE', 'COUNT', '0', 'AS', 'count',
+               'PARAMS', '2', 'BLOB', query_vector).error() \
+        .contains('MAX_AGGREGATE_GROUPS') \
+        .contains('2')
 
 def test_hybrid_groupby_small():
     """Test hybrid search with small result set (3 docs) + groupby"""
