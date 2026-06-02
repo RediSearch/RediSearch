@@ -1754,7 +1754,8 @@ static int CursorReadTimeoutReturnStrictCallback(RedisModuleCtx *ctx, RedisModul
     // The worker has not entered the stored-results phase yet. Reply in the
     // normal RETURN_STRICT cursor shape; when the worker observes the failed
     // claim, it parks the already-taken cursor for the advertised id.
-    return shard_cursor_read_empty_reply_timeout(ctx, node->cursorId);
+    return IsInternal(req) ? shard_cursor_read_empty_reply_timeout(ctx, node->cursorId)
+                           : coord_cursor_read_empty_reply_timeout(ctx, node->cursorId);
   }
 
   // The worker owns the stored-results phase. Wait for it to store a

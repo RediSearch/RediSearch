@@ -5046,6 +5046,7 @@ class TestShardTimeout:
         prev_policy, cursor_id, baseline, before_info, _, _ = \
             _setup_return_strict_cursor_state(env)
         base_err_coord = int(before_info[COORD_WARN_ERR_SECTION][TIMEOUT_ERROR_COORD_METRIC])
+        base_warn_coord = int(before_info[COORD_WARN_ERR_SECTION][TIMEOUT_WARNING_COORD_METRIC])
         base_warn_shard = int(before_info[WARN_ERR_SECTION][TIMEOUT_WARNING_SHARD_METRIC])
 
         try:
@@ -5083,9 +5084,12 @@ class TestShardTimeout:
             env.assertEqual(after_info[COORD_WARN_ERR_SECTION][TIMEOUT_ERROR_COORD_METRIC],
                             str(base_err_coord),
                             message="RETURN_STRICT cursor-read timeout must not bump coord error metric")
+            env.assertEqual(after_info[COORD_WARN_ERR_SECTION][TIMEOUT_WARNING_COORD_METRIC],
+                            str(base_warn_coord + 1),
+                            message="Coord timeout warning should be +1 after standalone cursor-read timeout")
             env.assertEqual(after_info[WARN_ERR_SECTION][TIMEOUT_WARNING_SHARD_METRIC],
-                            str(base_warn_shard + 1),
-                            message="Shard timeout warning should be +1 after standalone cursor-read timeout")
+                            str(base_warn_shard),
+                            message="Standalone cursor-read timeout must not bump shard warning metric")
 
             env.expect('FT.CURSOR', 'DEL', 'idx', str(cursor_id)).ok()
         finally:
