@@ -2021,6 +2021,20 @@ size_t CleanInProgressOrPending() {
  */
 static void IndexSpec_FreeUnlinkedData(IndexSpec *spec) {
 
+  // Close the disk index first, while the spec's state and locks are still
+  // valid. Compaction listeners registered at open time hold this IndexSpec as
+  // their private data and may call back into it (e.g. IndexSpec_AcquireWriteLock,
+  // IndexSpec_BlockDiskFork, IndexSpec_DecrementTrieTermCount) while the backend
+  // drains potential background jobs.
+  if (spec->diskSpec) {
+    SearchDisk_CloseIndex(spec->diskSpec);
+    spec->diskSpec = NULL;
+  }
+  if (spec->pendingDiskRdbState) {
+    SearchDisk_FreeRdbState(spec->pendingDiskRdbState);
+    spec->pendingDiskRdbState = NULL;
+  }
+
   // Free all documents metadata
   DocTable_Free(&spec->docs);
   // Free TEXT field trie and inverted indexes
@@ -2071,15 +2085,10 @@ static void IndexSpec_FreeUnlinkedData(IndexSpec *spec) {
   HiddenString_Free(spec->specName, true);
   rm_free(spec->obfuscatedName);
 
-  // Destroy the spec's lock
+  // Destroy the spec's lock.
   pthread_rwlock_destroy(&spec->rwlock);
   pthread_rwlock_destroy(&spec->disk_fork_rwlock);
 
-  if (spec->diskSpec) SearchDisk_CloseIndex(spec->diskSpec);
-  if (spec->pendingDiskRdbState) {
-    SearchDisk_FreeRdbState(spec->pendingDiskRdbState);
-    spec->pendingDiskRdbState = NULL;
-  }
   // Free spec struct
   rm_free(spec);
 
