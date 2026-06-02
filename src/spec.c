@@ -2021,11 +2021,26 @@ size_t CleanInProgressOrPending() {
  */
 static void IndexSpec_FreeUnlinkedData(IndexSpec *spec) {
 
-  // Close the disk index first, while the spec's state and locks are still
-  // valid. Compaction listeners registered at open time hold this IndexSpec as
-  // their private data and may call back into it (e.g. IndexSpec_AcquireWriteLock,
-  // IndexSpec_BlockDiskFork, IndexSpec_DecrementTrieTermCount) while the backend
-  // drains potential background jobs.
+  // Free fields data first. For disk-backed vector fields,
+  // IndexSpec_PopulateVectorDiskParams stored spec->diskSpec in each field's
+  // diskCtx.storage, and FieldSpec_Cleanup routes those vector handles through
+  // SearchDisk_FreeVectorIndex; freeing a VecSim disk index after its backing
+  // storage handle was closed would be a use-after-free, so this must run
+  // before the disk close below.
+  if (spec->fields != NULL) {
+    for (size_t i = 0; i < spec->numFields; i++) {
+      FieldSpec_Cleanup(&spec->fields[i]);
+    }
+    rm_free(spec->fields);
+  }
+
+  // Close the disk index right after the fields are cleaned up, while the rest
+  // of the spec's state and locks are still fully alive. Background jobs
+  // bound at open time hold this IndexSpec as their private data and may call
+  // back into it (IndexSpec_AcquireWriteLock, IndexSpec_BlockDiskFork,
+  // IndexSpec_DecrementTrieTermCount, ...) while the backend drains them during close.
+  //  Closing here — before any of the trie/dict/lock
+  // teardown below — keeps every field those callbacks might touch valid.
   if (spec->diskSpec) {
     SearchDisk_CloseIndex(spec->diskSpec);
     spec->diskSpec = NULL;
@@ -2069,13 +2084,6 @@ static void IndexSpec_FreeUnlinkedData(IndexSpec *spec) {
   array_free(spec->fieldIdToIndex);
   spec->fieldIdToIndex = NULL;
 
-  // Free fields data
-  if (spec->fields != NULL) {
-    for (size_t i = 0; i < spec->numFields; i++) {
-      FieldSpec_Cleanup(&spec->fields[i]);
-    }
-    rm_free(spec->fields);
-  }
   // Free suffix trie
   if (spec->suffix) {
     TrieType_Free(spec->suffix);
@@ -2085,7 +2093,8 @@ static void IndexSpec_FreeUnlinkedData(IndexSpec *spec) {
   HiddenString_Free(spec->specName, true);
   rm_free(spec->obfuscatedName);
 
-  // Destroy the spec's lock.
+  // Destroy the spec's lock. Safe now: the disk index was already closed above,
+  // so no compaction listener can reference these locks.
   pthread_rwlock_destroy(&spec->rwlock);
   pthread_rwlock_destroy(&spec->disk_fork_rwlock);
 
