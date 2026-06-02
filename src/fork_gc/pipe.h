@@ -28,6 +28,9 @@
 
 #define FGC_SEND_VAR(fgc, v) FGC_sendFixed(fgc, &v, sizeof v)
 
+// Sentinel length value sent over the pipe to signal end-of-stream.
+#define NO_MORE_DATA SIZE_MAX
+
 //------------------------------------------------------------------------------
 // Pipe read/write callbacks for II GC
 //------------------------------------------------------------------------------

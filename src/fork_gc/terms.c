@@ -64,7 +64,7 @@ FGCError FGC_parentHandleTerms(ForkGC *gc) {
     return FGC_CHILD_ERROR;
   }
 
-  if (len == SIZE_MAX) {
+  if (len == NO_MORE_DATA) {
     return FGC_DONE;
   }
 
