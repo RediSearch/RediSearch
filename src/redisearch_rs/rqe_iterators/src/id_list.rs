@@ -9,13 +9,14 @@
 
 //! Supporting types for [`IdList`].
 
-use ffi::t_docId;
 use index_result::RSIndexResult;
 use index_spec::IndexSpecReadGuard;
+use rqe_core::DocId;
 use std::cmp::Ordering;
 
 use crate::{
     IteratorType, RQEIterator, RQEIteratorError, RQEValidateStatus, SkipToOutcome,
+    profile_print::{ProfilePrint, ProfilePrintCtx},
     utils::OwnedSlice,
 };
 
@@ -29,7 +30,7 @@ pub type IdListUnsorted<'index> = IdList<'index, false>;
 pub struct IdList<'index, const SORTED: bool> {
     /// The list of document IDs to iterate over.
     /// There must be no duplicates. The list must be sorted if `SORTED` is set to `true`.
-    ids: OwnedSlice<t_docId>,
+    ids: OwnedSlice<DocId>,
     /// The current position of the iterator (a.k.a the next document ID to return by [`read`](RQEIterator::read)).
     /// When `offset` is equal to the length of `ids`, the iterator is at EOF.
     offset: usize,
@@ -43,7 +44,7 @@ impl<'index, const SORTED: bool> IdList<'index, SORTED> {
     /// The list of document IDs cannot contain duplicates.
     /// If `SORTED` is set to `true`, the list must be sorted.
     #[inline(always)]
-    pub fn new(ids: impl Into<OwnedSlice<t_docId>>) -> Self {
+    pub fn new(ids: impl Into<OwnedSlice<DocId>>) -> Self {
         Self::with_result(ids, RSIndexResult::build_virt().build())
     }
 
@@ -58,7 +59,7 @@ impl<'index, const SORTED: bool> IdList<'index, SORTED> {
 
     /// Same as [`IdList::new`] but with a custom [`RSIndexResult`],
     /// useful when wrapping this iterator and requiring a non-virtual result.
-    pub fn with_result(ids: impl Into<OwnedSlice<t_docId>>, result: RSIndexResult<'index>) -> Self {
+    pub fn with_result(ids: impl Into<OwnedSlice<DocId>>, result: RSIndexResult<'index>) -> Self {
         let ids = ids.into();
 
         if SORTED {
@@ -78,7 +79,7 @@ impl<'index, const SORTED: bool> IdList<'index, SORTED> {
 
 impl<'index, const SORTED: bool> IdList<'index, SORTED> {
     #[inline(always)]
-    fn get_current(&self) -> Option<t_docId> {
+    fn get_current(&self) -> Option<DocId> {
         self.ids.get(self.offset).copied()
     }
 
@@ -104,7 +105,7 @@ impl<'index, const SORTED: bool> IdList<'index, SORTED> {
     /// Returns `Some(true)` if there is a document with the given ID in the list.
     /// Returns `Some(false)` if there is no document with the given ID in the list.
     /// Returns `None` if the iterator has been advanced past the end of the ID list.
-    pub(super) fn _skip_to(&mut self, target_id: t_docId) -> Option<bool> {
+    pub(super) fn _skip_to(&mut self, target_id: DocId) -> Option<bool> {
         if !SORTED {
             panic!("Can't skip when working with unsorted document ids");
         }
@@ -152,7 +153,7 @@ impl<'index, const SORTED: bool> IdList<'index, SORTED> {
         // This assumption might have to be re-evaluated in the future.
         let mut i = 0usize;
         let mut undershot = false;
-        let mut current_id: t_docId = 0;
+        let mut current_id: DocId = 0;
 
         while bottom < top {
             i = (bottom + top) >> 1;
@@ -209,7 +210,7 @@ impl<'index, const SORTED_BY_ID: bool> RQEIterator<'index> for IdList<'index, SO
     #[inline(always)]
     fn skip_to(
         &mut self,
-        doc_id: t_docId,
+        doc_id: DocId,
     ) -> Result<Option<SkipToOutcome<'_, 'index>>, RQEIteratorError> {
         Ok(self._skip_to(doc_id).map(|found| {
             if found {
@@ -232,7 +233,7 @@ impl<'index, const SORTED_BY_ID: bool> RQEIterator<'index> for IdList<'index, SO
     }
 
     #[inline(always)]
-    fn last_doc_id(&self) -> t_docId {
+    fn last_doc_id(&self) -> DocId {
         self.result.doc_id
     }
 
@@ -260,5 +261,15 @@ impl<'index, const SORTED_BY_ID: bool> RQEIterator<'index> for IdList<'index, SO
 
     fn intersection_sort_weight(&self, _prioritize_union_children: bool) -> f64 {
         1.0
+    }
+}
+
+impl<const SORTED: bool> ProfilePrint for IdList<'_, SORTED> {
+    fn print_profile(&self, map: &mut redis_reply::MapBuilder<'_>, ctx: &mut ProfilePrintCtx<'_>) {
+        if SORTED {
+            ctx.print_leaf(c"ID-LIST-SORTED", map);
+        } else {
+            ctx.print_leaf(c"ID-LIST-UNSORTED", map);
+        }
     }
 }

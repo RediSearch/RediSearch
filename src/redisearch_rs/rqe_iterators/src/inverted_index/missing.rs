@@ -12,14 +12,16 @@ use std::{
     ptr::NonNull,
 };
 
-use ffi::{RedisSearchCtx, t_docId, t_fieldIndex};
+use ffi::RedisSearchCtx;
 use index_result::RSIndexResult;
 use index_spec::IndexSpecReadGuard;
 use inverted_index::{DecodedBy, DocIdsDecoder, IndexReaderCore, opaque::OpaqueEncoding};
+use rqe_core::{DocId, FieldIndex, RS_FIELDMASK_ALL};
 
 use crate::{
     ExpirationChecker, IteratorType, RQEIterator, RQEIteratorError, RQEValidateStatus,
     SkipToOutcome,
+    profile_print::{ProfilePrint, ProfilePrintCtx},
 };
 
 use super::InvIndIterator;
@@ -41,7 +43,7 @@ use super::InvIndIterator;
 /// * `C` - The expiration checker type.
 pub struct Missing<'index, E: DecodedBy, C = crate::expiration_checker::NoOpChecker> {
     it: InvIndIterator<'index, IndexReaderCore<'index, E>, C>,
-    field_index: t_fieldIndex,
+    field_index: FieldIndex,
     /// Owned copy of the field name, extracted from the spec at construction
     /// time. Owning the string means the iterator no longer borrows from
     /// `spec.fields`, therefore `context`/`spec` only need to be valid at
@@ -73,7 +75,7 @@ where
     pub unsafe fn new(
         reader: IndexReaderCore<'index, E>,
         context: NonNull<RedisSearchCtx>,
-        field_index: t_fieldIndex,
+        field_index: FieldIndex,
         expiration_checker: C,
     ) -> Self {
         debug_assert!(
@@ -83,7 +85,7 @@ where
         );
         let result = RSIndexResult::build_virt()
             .weight(0.0)
-            .field_mask(ffi::RS_FIELDMASK_ALL)
+            .field_mask(RS_FIELDMASK_ALL)
             .frequency(1)
             .build();
 
@@ -189,7 +191,7 @@ where
     #[inline(always)]
     fn skip_to(
         &mut self,
-        doc_id: t_docId,
+        doc_id: DocId,
     ) -> Result<Option<SkipToOutcome<'_, 'index>>, RQEIteratorError> {
         self.it.skip_to(doc_id)
     }
@@ -205,7 +207,7 @@ where
     }
 
     #[inline(always)]
-    fn last_doc_id(&self) -> t_docId {
+    fn last_doc_id(&self) -> DocId {
         self.it.last_doc_id()
     }
 
@@ -236,5 +238,22 @@ where
 
     fn intersection_sort_weight(&self, _prioritize_union_children: bool) -> f64 {
         1.0
+    }
+}
+
+impl<'index, E, C> ProfilePrint for Missing<'index, E, C>
+where
+    E: DecodedBy + OpaqueEncoding<Storage = inverted_index::InvertedIndex<E>>,
+    <E as DecodedBy>::Decoder: DocIdsDecoder,
+    C: ExpirationChecker,
+{
+    fn print_profile(&self, map: &mut redis_reply::MapBuilder<'_>, ctx: &mut ProfilePrintCtx<'_>) {
+        map.kv_simple_string(c"Type", c"MISSING");
+        let field_bytes = self.field_name.as_bytes();
+        if !field_bytes.is_empty() {
+            map.kv_string_buffer(c"Field", field_bytes);
+        }
+        ctx.print_optional_counters(map);
+        map.kv_long_long(c"Estimated number of matches", self.num_estimated() as i64);
     }
 }

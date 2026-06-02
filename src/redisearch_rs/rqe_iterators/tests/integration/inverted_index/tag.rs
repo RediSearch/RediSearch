@@ -9,10 +9,11 @@
 
 //! Tests for the tag inverted index iterator.
 
-use ffi::{IndexFlags_Index_DocIdsOnly, RS_FIELDMASK_ALL, t_docId};
+use ffi::IndexFlags_Index_DocIdsOnly;
 use index_result::RSIndexResult;
 use inverted_index::doc_ids_only::DocIdsOnly;
 use query_term::RSQueryTerm;
+use rqe_core::{DocId, RS_FIELDMASK_ALL};
 use rqe_iterators::{IteratorType, NoOpChecker, RQEIterator, inverted_index::Tag};
 use rqe_iterators_test_utils::MockContext;
 
@@ -23,7 +24,7 @@ struct TagBaseTest {
 }
 
 impl TagBaseTest {
-    fn expected_record(doc_id: t_docId) -> RSIndexResult<'static> {
+    fn expected_record(doc_id: DocId) -> RSIndexResult<'static> {
         RSIndexResult::build_term()
             .doc_id(doc_id)
             .field_mask(RS_FIELDMASK_ALL)
@@ -124,7 +125,7 @@ mod not_miri {
     }
 
     impl TagRevalidateTest {
-        fn expected_record(doc_id: t_docId) -> RSIndexResult<'static> {
+        fn expected_record(doc_id: DocId) -> RSIndexResult<'static> {
             RSIndexResult::build_term()
                 .doc_id(doc_id)
                 .field_mask(RS_FIELDMASK_ALL)

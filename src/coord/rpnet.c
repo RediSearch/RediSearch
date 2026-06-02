@@ -393,7 +393,7 @@ int rpnetNext_StartWithMappings(ResultProcessor *rp, SearchResult *r) {
 #endif
 
     CursorMappings *vsimOrSearch = StrongRef_Get(nc->mappings);
-    // Mappings should already be populated by HybridRequest_executePlan
+    // Mappings should already be populated by HybridRequest_prepareCursors
     if (!vsimOrSearch || array_len(vsimOrSearch->mappings) == 0) {
         RedisModule_Log(NULL, "error", "No cursor mappings available for RPNet");
         return REDISMODULE_ERR;

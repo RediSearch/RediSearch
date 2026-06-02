@@ -18,11 +18,11 @@
 
 use std::ptr;
 
-use ffi::FieldExpiration;
 use field::FieldExpirationPredicate;
 use redis_mock::mock_or_stub_missing_redis_c_symbols;
-use ttl_table::FieldExpirations;
+use rqe_core::FieldMask;
 use ttl_table::test_utils::{FUTURE, NOW, PAST, fe};
+use ttl_table::{FieldExpiration, FieldExpirations};
 use ttl_table_ffi::*;
 
 mock_or_stub_missing_redis_c_symbols!();
@@ -191,8 +191,8 @@ fn verify_doc_and_wide_field_mask_uses_active_width() {
 
         // Construct the mask via a u64 value the FFI accepts under either
         // typedef width (u64 or u128 — both can hold `1 << 5` losslessly).
-        // `t_fieldMask` is `ffi::FieldMask`; build it from a u64 literal.
-        let mask: ffi::FieldMask = (1u64 << BIT) as ffi::FieldMask;
+        // `FieldMask` is `FieldMask`; build it from a u64 literal.
+        let mask: FieldMask = (1u64 << BIT) as FieldMask;
 
         assert!(!unsafe {
             TimeToLiveTable_VerifyDocAndWideFieldMask(

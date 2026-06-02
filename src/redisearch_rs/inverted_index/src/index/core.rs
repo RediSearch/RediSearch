@@ -20,8 +20,9 @@ use crate::{
     controlled_cursor::ControlledCursor,
     debug::{BlockSummary, Summary},
 };
-use ffi::{IndexFlags, IndexFlags_Index_HasMultiValue, t_docId};
+use ffi::{IndexFlags, IndexFlags_Index_HasMultiValue};
 use index_result::RSIndexResult;
+use rqe_core::DocId;
 
 /// An inverted index is a data structure that maps terms to their occurrences in documents. It is
 /// used to efficiently search for documents that contain specific terms.
@@ -74,11 +75,11 @@ pub struct AddRecordOutcome {
 pub struct IndexBlock {
     /// The first document ID in this block. This is used to determine the range of document IDs
     /// that this block covers.
-    pub(crate) first_doc_id: t_docId,
+    pub(crate) first_doc_id: DocId,
 
     /// The last document ID in this block. This is used to determine the range of document IDs
     /// that this block covers.
-    pub(crate) last_doc_id: t_docId,
+    pub(crate) last_doc_id: DocId,
 
     /// The total number of non-unique entries in this block
     pub(crate) num_entries: u16,
@@ -97,8 +98,8 @@ impl<'de> Deserialize<'de> for IndexBlock {
     {
         #[derive(Deserialize)]
         struct IB {
-            first_doc_id: t_docId,
-            last_doc_id: t_docId,
+            first_doc_id: DocId,
+            last_doc_id: DocId,
             num_entries: u16,
             buffer: Vec<u8>,
         }
@@ -124,7 +125,7 @@ impl IndexBlock {
 
     /// Make a new index block with primed with the initial doc ID. The next entry written into
     /// the block should be for this doc ID else the block will contain incoherent data.
-    pub(crate) fn new(doc_id: t_docId) -> Self {
+    pub(crate) fn new(doc_id: DocId) -> Self {
         let this = Self {
             first_doc_id: doc_id,
             last_doc_id: doc_id,
@@ -142,12 +143,12 @@ impl IndexBlock {
     }
 
     /// Get the first document ID in this block. This is only needed for some C tests.
-    pub const fn first_block_id(&self) -> t_docId {
+    pub const fn first_block_id(&self) -> DocId {
         self.first_doc_id
     }
 
     /// Get the last document ID in the block. This is only needed for some C tests.
-    pub const fn last_block_id(&self) -> t_docId {
+    pub const fn last_block_id(&self) -> DocId {
         self.last_doc_id
     }
 
@@ -320,12 +321,12 @@ impl<E: Encoder> InvertedIndex<E> {
     }
 
     /// Returns the last document ID in the index, if any.
-    pub fn last_doc_id(&self) -> Option<t_docId> {
+    pub fn last_doc_id(&self) -> Option<DocId> {
         self.blocks.last().map(|b| b.last_doc_id)
     }
 
     /// Take a block that can be written to.
-    fn take_block(&mut self, doc_id: t_docId, same_doc: bool) -> IndexBlock {
+    fn take_block(&mut self, doc_id: DocId, same_doc: bool) -> IndexBlock {
         if self.blocks.is_empty()
             || (
                 // If the block is full

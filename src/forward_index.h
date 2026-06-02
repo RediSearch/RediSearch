@@ -33,6 +33,10 @@ typedef struct ForwardIndexEntry {
   uint32_t len;
   uint32_t hash;
   VarintVectorWriter *vw;
+  // Disk-mode-only: per-term flag set when staging the term on a disk write
+  // batch succeeded, consumed by the matching apply step to decide whether
+  // to bump the in-memory term trie. Unused in memory mode.
+  bool staged;
 } ForwardIndexEntry;
 
 // the quantizationn factor used to encode normalized (0..1) frequencies in the index

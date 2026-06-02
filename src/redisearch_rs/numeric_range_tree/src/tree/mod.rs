@@ -28,7 +28,7 @@ pub(crate) use util::CheckedCount;
 
 pub use gc::{CompactIfSparseResult, NodeGcDelta, SingleNodeGcResult};
 
-use ffi::t_docId;
+use rqe_core::DocId;
 
 use crate::NumericRangeNode;
 use crate::arena::{NodeArena, NodeIndex};
@@ -151,7 +151,7 @@ pub struct NumericRangeTree {
     /// Aggregate statistics for the tree.
     stats: TreeStats,
     /// The last document ID added to the tree.
-    last_doc_id: t_docId,
+    last_doc_id: DocId,
     /// Revision ID, incremented when the tree structure changes (splits/rotations).
     ///
     /// When `revision_id != 0`, it indicates the tree nodes have changed and
@@ -266,7 +266,7 @@ impl NumericRangeTree {
     }
 
     /// Get the last document ID added to the tree.
-    pub const fn last_doc_id(&self) -> t_docId {
+    pub const fn last_doc_id(&self) -> DocId {
         self.last_doc_id
     }
 

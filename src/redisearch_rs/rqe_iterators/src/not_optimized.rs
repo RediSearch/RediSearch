@@ -9,14 +9,17 @@
 
 //! Supporting types for [`NotOptimized`].
 
-use ffi::{RS_FIELDMASK_ALL, t_docId};
 use index_result::RSIndexResult;
 
 use crate::{
     IteratorType, RQEIterator, RQEIteratorError, RQEValidateStatus, SkipToOutcome,
-    WildcardIterator, maybe_empty::MaybeEmpty, not::NotIterator, utils::TimeoutContext,
+    WildcardIterator,
+    maybe_empty::MaybeEmpty,
+    profile_print::{ProfilePrint, ProfilePrintCtx},
+    utils::TimeoutContext,
 };
 use index_spec::IndexSpecReadGuard;
+use rqe_core::{DocId, RS_FIELDMASK_ALL};
 
 /// An optimized NOT iterator that uses a wildcard inverted index iterator.
 ///
@@ -43,7 +46,7 @@ pub struct NotOptimized<'index, W, I, TC> {
     /// The child iterator whose results are negated.
     child: MaybeEmpty<I>,
     /// The maximum document ID (used as upper bound guard).
-    max_doc_id: t_docId,
+    max_doc_id: DocId,
     /// Sticky EOF flag, set when iteration completes.
     forced_eof: bool,
     /// A reusable result object to avoid allocations on each [`read`](RQEIterator::read) call.
@@ -69,7 +72,7 @@ where
     /// `timeout_ctx` is the [`TimeoutContext`] implementation to use; pass
     /// [`NoTimeout`](crate::utils::NoTimeout) to disable timeout checks
     /// entirely.
-    pub fn new(wcii: W, child: I, max_doc_id: t_docId, weight: f64, timeout_ctx: TC) -> Self {
+    pub fn new(wcii: W, child: I, max_doc_id: DocId, weight: f64, timeout_ctx: TC) -> Self {
         Self {
             wcii,
             child: MaybeEmpty::new(child),
@@ -112,7 +115,7 @@ where
     /// (already advanced beyond it) or fully exhausted, meaning `doc_id`
     /// cannot be in the child without performing additional reads.
     #[inline(always)]
-    fn child_is_ahead_or_depleted(&self, doc_id: t_docId) -> bool {
+    fn child_is_ahead_or_depleted(&self, doc_id: DocId) -> bool {
         doc_id < self.child.last_doc_id()
             || (self.child.at_eof() && doc_id > self.child.last_doc_id())
     }
@@ -192,7 +195,7 @@ where
     #[inline(always)]
     fn skip_to(
         &mut self,
-        doc_id: t_docId,
+        doc_id: DocId,
     ) -> Result<Option<SkipToOutcome<'_, 'index>>, RQEIteratorError> {
         debug_assert!(self.last_doc_id() < doc_id);
 
@@ -250,7 +253,7 @@ where
     }
 
     #[inline(always)]
-    fn last_doc_id(&self) -> t_docId {
+    fn last_doc_id(&self) -> DocId {
         self.result.doc_id
     }
 
@@ -336,17 +339,6 @@ where
     }
 }
 
-impl<'index, W, TC> NotIterator<'index>
-    for NotOptimized<'index, W, Box<dyn RQEIterator<'index> + 'index>, TC>
-where
-    W: crate::WildcardIterator<'index>,
-    TC: TimeoutContext,
-{
-    fn child(&self) -> Option<&dyn RQEIterator<'index>> {
-        NotOptimized::child(self).map(|c| &**c as &dyn RQEIterator<'index>)
-    }
-}
-
 impl<'index, W, TC> crate::interop::ProfileChildren<'index>
     for NotOptimized<'index, W, crate::c2rust::CRQEIterator, TC>
 where
@@ -362,5 +354,16 @@ where
             result: self.result,
             timeout_ctx: self.timeout_ctx,
         }
+    }
+}
+
+impl<'index, W, I, TC> ProfilePrint for NotOptimized<'index, W, I, TC>
+where
+    W: crate::WildcardIterator<'index>,
+    I: RQEIterator<'index> + ProfilePrint,
+    TC: TimeoutContext,
+{
+    fn print_profile(&self, map: &mut redis_reply::MapBuilder<'_>, ctx: &mut ProfilePrintCtx<'_>) {
+        ctx.print_single_child(c"NOT", self.child(), map);
     }
 }

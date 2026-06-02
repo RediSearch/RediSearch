@@ -11,30 +11,32 @@
 
 use std::ptr::NonNull;
 
-use ffi::{RS_FIELDMASK_ALL, t_docId};
 use index_result::RSIndexResult;
 use index_spec::IndexSpecReadGuard;
 use inverted_index::codec::{doc_ids_only::DocIdsOnly, raw_doc_ids_only::RawDocIdsOnly};
 use inverted_index::{DocIdsDecoder, opaque};
 
-use crate::IteratorType;
+use rqe_core::{DocId, RS_FIELDMASK_ALL};
+
 use crate::{
     Empty, RQEIterator, RQEIteratorError, RQEValidateStatus, SEARCH_ENTERPRISE_ITERATORS,
     SkipToOutcome,
+    profile_print::{ProfilePrint, ProfilePrintCtx},
 };
+use crate::{IteratorType, RQEIteratorPrintable};
 
 /// An iterator that yields all ids within a given range, from 1 to max id (inclusive) in an index.
 #[derive(Default)]
 pub struct Wildcard<'index> {
     // Supposed to be the max id in the index
-    top_id: t_docId,
+    top_id: DocId,
 
     /// A reusable result object to avoid allocations on each `read` call.
     result: RSIndexResult<'index>,
 }
 
 impl Wildcard<'_> {
-    pub fn new(top_id: t_docId, weight: f64) -> Self {
+    pub fn new(top_id: DocId, weight: f64) -> Self {
         Wildcard {
             top_id,
             result: RSIndexResult::build_virt()
@@ -63,7 +65,7 @@ impl<'index> RQEIterator<'index> for Wildcard<'index> {
 
     fn skip_to(
         &mut self,
-        doc_id: t_docId,
+        doc_id: DocId,
     ) -> Result<Option<SkipToOutcome<'_, 'index>>, RQEIteratorError> {
         if self.at_eof() {
             return Ok(None);
@@ -89,7 +91,7 @@ impl<'index> RQEIterator<'index> for Wildcard<'index> {
         self.top_id as usize
     }
 
-    fn last_doc_id(&self) -> t_docId {
+    fn last_doc_id(&self) -> DocId {
         self.result.doc_id
     }
 
@@ -142,59 +144,6 @@ impl<'index, I: WildcardIterator<'index>> WildcardIterator<'index>
 /// `QueryIterator*` for the `wcii` field.
 impl<'index> WildcardIterator<'index> for crate::c2rust::CRQEIterator {}
 
-impl<'index> RQEIterator<'index> for Box<dyn WildcardIterator<'index> + 'index> {
-    fn current(&mut self) -> Option<&mut RSIndexResult<'index>> {
-        (**self).current()
-    }
-
-    fn read(&mut self) -> Result<Option<&mut RSIndexResult<'index>>, RQEIteratorError> {
-        (**self).read()
-    }
-
-    fn skip_to(
-        &mut self,
-        doc_id: t_docId,
-    ) -> Result<Option<SkipToOutcome<'_, 'index>>, RQEIteratorError> {
-        (**self).skip_to(doc_id)
-    }
-
-    fn revalidate(
-        &mut self,
-        spec: &IndexSpecReadGuard,
-    ) -> Result<RQEValidateStatus<'_, 'index>, RQEIteratorError> {
-        (**self).revalidate(spec)
-    }
-
-    fn rewind(&mut self) {
-        (**self).rewind()
-    }
-
-    fn num_estimated(&self) -> usize {
-        (**self).num_estimated()
-    }
-
-    fn last_doc_id(&self) -> t_docId {
-        (**self).last_doc_id()
-    }
-
-    fn at_eof(&self) -> bool {
-        (**self).at_eof()
-    }
-
-    #[inline(always)]
-    fn type_(&self) -> IteratorType {
-        (**self).type_()
-    }
-
-    fn as_c_iterator(&self) -> Option<&crate::c2rust::CRQEIterator> {
-        (**self).as_c_iterator()
-    }
-
-    fn intersection_sort_weight(&self, prioritize_union_children: bool) -> f64 {
-        (**self).intersection_sort_weight(prioritize_union_children)
-    }
-}
-
 impl<'index> WildcardIterator<'index> for Box<dyn WildcardIterator<'index> + 'index> {}
 
 /// The result of [`new_wildcard_iterator`], representing the different kinds of
@@ -243,7 +192,7 @@ impl<'index> RQEIterator<'index> for OptimizedWildcard<'index> {
 
     fn skip_to(
         &mut self,
-        doc_id: t_docId,
+        doc_id: DocId,
     ) -> Result<Option<SkipToOutcome<'_, 'index>>, RQEIteratorError> {
         delegate_rqe_iterator!(self, skip_to, doc_id)
     }
@@ -256,7 +205,7 @@ impl<'index> RQEIterator<'index> for OptimizedWildcard<'index> {
         delegate_rqe_iterator!(self, num_estimated)
     }
 
-    fn last_doc_id(&self) -> t_docId {
+    fn last_doc_id(&self) -> DocId {
         delegate_rqe_iterator!(self, last_doc_id)
     }
 
@@ -283,6 +232,19 @@ impl<'index> RQEIterator<'index> for OptimizedWildcard<'index> {
 
 impl<'index> WildcardIterator<'index> for OptimizedWildcard<'index> {}
 
+impl crate::profile_print::ProfilePrint for OptimizedWildcard<'_> {
+    fn print_profile(
+        &self,
+        map: &mut redis_reply::MapBuilder<'_>,
+        ctx: &mut crate::profile_print::ProfilePrintCtx<'_>,
+    ) {
+        match self {
+            Self::DocIdsOnly(it) => it.print_profile(map, ctx),
+            Self::RawDocIdsOnly(it) => it.print_profile(map, ctx),
+        }
+    }
+}
+
 /// Delegates each [`RQEIterator`] method to the active variant.
 macro_rules! delegate_wildcard_iterator {
     ($self:ident, $method:ident $(, $arg:ident)*) => {
@@ -307,7 +269,7 @@ impl<'index> RQEIterator<'index> for NewWildcardIterator<'index> {
 
     fn skip_to(
         &mut self,
-        doc_id: t_docId,
+        doc_id: DocId,
     ) -> Result<Option<SkipToOutcome<'_, 'index>>, RQEIteratorError> {
         delegate_wildcard_iterator!(self, skip_to, doc_id)
     }
@@ -320,7 +282,7 @@ impl<'index> RQEIterator<'index> for NewWildcardIterator<'index> {
         delegate_wildcard_iterator!(self, num_estimated)
     }
 
-    fn last_doc_id(&self) -> t_docId {
+    fn last_doc_id(&self) -> DocId {
         delegate_wildcard_iterator!(self, last_doc_id)
     }
 
@@ -428,7 +390,7 @@ pub unsafe fn new_wildcard_iterator_on_disk<'index>(
         .get()
         .expect("SEARCH_ENTERPRISE_ITERATORS not initialized");
     match enterprise_iters_api.new_wildcard_on_disk(disk_spec, weight) {
-        Ok(it) => NewWildcardIterator::Disk(DiskWildcardIterator(it)),
+        Ok(it) => NewWildcardIterator::Disk(it),
         Err(err) => {
             tracing::warn!(
                 "Failed to create a disk wildcard iterator ({err}); falling back to empty iterator."
@@ -519,57 +481,24 @@ pub unsafe fn new_wildcard_iterator<'index>(
 /// [`SEARCH_ENTERPRISE_ITERATORS`] that implements [`WildcardIterator`],
 /// allowing disk-based wildcard queries to be used interchangeably with
 /// in-memory ones.
-#[repr(transparent)]
-pub struct DiskWildcardIterator<'index>(Box<dyn RQEIterator<'index> + 'index>);
-
-impl<'index> RQEIterator<'index> for DiskWildcardIterator<'index> {
-    fn current(&mut self) -> Option<&mut RSIndexResult<'index>> {
-        self.0.current()
-    }
-
-    fn read(&mut self) -> Result<Option<&mut RSIndexResult<'index>>, RQEIteratorError> {
-        self.0.read()
-    }
-
-    fn skip_to(
-        &mut self,
-        doc_id: t_docId,
-    ) -> Result<Option<SkipToOutcome<'_, 'index>>, RQEIteratorError> {
-        self.0.skip_to(doc_id)
-    }
-
-    fn revalidate(
-        &mut self,
-        spec: &IndexSpecReadGuard,
-    ) -> Result<RQEValidateStatus<'_, 'index>, RQEIteratorError> {
-        self.0.revalidate(spec)
-    }
-
-    fn rewind(&mut self) {
-        self.0.rewind()
-    }
-
-    fn num_estimated(&self) -> usize {
-        self.0.num_estimated()
-    }
-
-    fn last_doc_id(&self) -> t_docId {
-        self.0.last_doc_id()
-    }
-
-    fn at_eof(&self) -> bool {
-        self.0.at_eof()
-    }
-
-    #[inline(always)]
-    fn type_(&self) -> IteratorType {
-        self.0.type_()
-    }
-
-    fn intersection_sort_weight(&self, prioritize_union_children: bool) -> f64 {
-        self.0.intersection_sort_weight(prioritize_union_children)
-    }
-}
+pub type DiskWildcardIterator<'index> = Box<dyn RQEIteratorPrintable<'index> + 'index>;
 
 /// [`DiskWildcardIterator`] matches all documents on the disk index.
 impl<'index> WildcardIterator<'index> for DiskWildcardIterator<'index> {}
+
+impl ProfilePrint for Wildcard<'_> {
+    fn print_profile(&self, map: &mut redis_reply::MapBuilder<'_>, ctx: &mut ProfilePrintCtx<'_>) {
+        ctx.print_leaf(c"WILDCARD", map);
+    }
+}
+
+impl ProfilePrint for NewWildcardIterator<'_> {
+    fn print_profile(&self, map: &mut redis_reply::MapBuilder<'_>, ctx: &mut ProfilePrintCtx<'_>) {
+        match self {
+            Self::NotOptimized(it) => it.print_profile(map, ctx),
+            Self::Optimized(it) => it.print_profile(map, ctx),
+            Self::Empty(it) => it.print_profile(map, ctx),
+            Self::Disk(it) => it.print_profile(map, ctx),
+        }
+    }
+}

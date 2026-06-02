@@ -79,7 +79,7 @@ int HybridRequest_BuildDepletionPipeline(HybridRequest *req, const HybridPipelin
           // The safe depleter will feed results to the hybrid merger
           RedisSearchCtx *nextThread = params->aggregationParams.common.sctx; // We will use the context provided in the params
           RedisSearchCtx *depletingThread = AREQ_SearchCtx(areq); // when constructing the AREQ a new context should have been created
-          ResultProcessor *depleter = RPSafeDepleter_New(StrongRef_Clone(sync_ref), depletingThread, nextThread);
+          ResultProcessor *depleter = RPSafeDepleter_New(StrongRef_Clone(sync_ref), depletingThread, nextThread, depleterPool);
           QITR_PushRP(qctx, depleter);
         } else {
           // Create a depleter processor for foreground depletion (WORKERS == 0)
@@ -218,6 +218,15 @@ int HybridRequest_BuildMergePipeline(HybridRequest *req, const RLookupKey *score
 int HybridRequest_BuildPipeline(HybridRequest *req, HybridPipelineParams *params, bool depleteInBackground, QueryError *status) {
     // Build the depletion pipeline for extracting results from individual search requests
     if (HybridRequest_BuildDepletionPipeline(req, params, depleteInBackground) != REDISMODULE_OK) {
+      for (size_t i = 0; i < req->nrequests; i++) {
+        if (QueryError_HasError(&req->errors[i])) {
+          QueryError_CloneFrom(&req->errors[i], status);
+          break;
+        }
+      }
+      if (!QueryError_HasError(status)) {
+        QueryError_SetError(status, QUERY_ERROR_CODE_GENERIC, "Failed to build hybrid pipeline");
+      }
       return REDISMODULE_ERR;
     }
     RLookup *tailLookup = AGPLN_GetLookup(&req->tailPipeline->ap, NULL, AGPLN_GETLOOKUP_FIRST);
@@ -416,10 +425,14 @@ void HybridRequest_DecrRef(HybridRequest *req) {
   }
 }
 
+static bool isSoftTailPipelineErrorCode(QueryErrorCode code) {
+    return code == QUERY_ERROR_CODE_NO_PROP_VAL;
+}
+
 /**
  * Get error information from a HybridRequest.
  * This function checks for errors in priority order:
- * 1. Tail pipeline errors (affects final result processing)
+ * 1. Tail pipeline errors (soft codes skipped — emitted as warnings instead)
  * 2. Individual AREQ errors (sub-query failures)
  *
  * @param hreq The HybridRequest to check for errors
@@ -431,8 +444,9 @@ int HybridRequest_GetError(HybridRequest *hreq, QueryError *status) {
         return REDISMODULE_ERR;
     }
 
-    // Priority 1: Tail pipeline error (affects final result processing)
-    if (QueryError_HasError(&hreq->tailPipelineError)) {
+    // Skip soft codes so the reply path can render them as warnings.
+    if (QueryError_HasError(&hreq->tailPipelineError) &&
+        !isSoftTailPipelineErrorCode(QueryError_GetCode(&hreq->tailPipelineError))) {
         QueryError_CloneFrom(&hreq->tailPipelineError, status);
         return REDISMODULE_ERR;
     }

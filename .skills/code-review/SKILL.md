@@ -154,7 +154,32 @@ Only applies when changes touch `src/rdb.c` or serialization logic:
 - No commented-out code left in the diff.
 - No `TODO` or `FIXME` comments without a tracking issue reference.
 
-#### 2i. PR description
+#### 2i. Security impact
+
+Treat security-sensitive C issues as in scope for automated review. Prioritize findings
+that can lead to crashes, memory corruption, data exposure, unauthorized access, or
+denial of service.
+
+Check especially for:
+- Memory ownership and lifetime bugs, including use-after-free, double-free, leaks on
+  error paths, and raw buffer overflows.
+- NULL pointer dereferences, missing NULL checks, and missing documentation for any
+  non-NULL pointer preconditions that callers must uphold.
+- Uninitialized memory reads, especially when a pointer to uninitialized storage is
+  passed to another function that may not always write before the value is read.
+- Redis Module API misuse, especially calls without the GIL, stale `RedisModuleCtx`
+  usage, and blocked-client/context lifetime bugs.
+- Allocation-size arithmetic overflow, integer truncation or sign bugs, and unchecked
+  casts before allocation, indexing, or serialization.
+- Missing input bound validation for user-controlled query, schema, vector, geoshape,
+  and RDB input.
+- Data exposure, ACL/auth bypass, concurrency races, and unbounded allocation, loops,
+  or recursion that can cause denial of service.
+
+For any security-sensitive finding, state the concrete impact and the input or code path
+that can trigger it.
+
+#### 2j. PR description
 
 Only applies when reviewing a PR (not files or commits directly):
 - Exactly one release notes checkbox is checked (`This PR requires release notes`

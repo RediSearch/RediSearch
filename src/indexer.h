@@ -78,6 +78,13 @@ int IndexerBulkAdd(RSAddDocumentCtx *cur, RedisSearchCtx *sctx,
                    const DocumentField *field, const FieldSpec *fs, FieldIndexerData *fdata,
                    QueryError *status);
 
+/* Per-field-type apply dispatcher: run the RAM bookkeeping for a single
+ * (doc, field) pair. Called inline from `bulkIndexFields` in memory mode, and
+ * from `bulkApplyFields` in disk-mode Phase 3 after a successful batch commit.
+ * Infallible. The spec is reachable via `aCtx->spec`. */
+void IndexerBulkApply(RSAddDocumentCtx *aCtx, const DocumentField *field,
+                      const FieldSpec *fs, FieldIndexerData *fdata);
+
 /**
  * Yield to Redis after a certain number of operations during indexing while loading.
  * This helps keep Redis responsive during long indexing operations.
