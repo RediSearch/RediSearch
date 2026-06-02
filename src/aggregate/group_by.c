@@ -146,10 +146,15 @@ static int Grouper_rpYield(ResultProcessor *base, SearchResult *r) {
   return RS_RESULT_EOF;
 }
 
-static void invokeReducers(Grouper *g, Group *gr, RLookupRow *srcrow) {
+static void invokeReducers(Grouper *g, Group *gr, RLookupRow *srcrow, t_docId docId) {
   size_t nreducers = GROUPER_NREDUCERS(g);
   for (size_t ii = 0; ii < nreducers; ii++) {
-    g->reducers[ii]->Add(g->reducers[ii], gr->accumdata[ii], srcrow);
+    Reducer *r = g->reducers[ii];
+    if (r->AddWithDocId) {
+      r->AddWithDocId(r, gr->accumdata[ii], srcrow, docId);
+    } else {
+      r->Add(r, gr->accumdata[ii], srcrow);
+    }
   }
 }
 
@@ -169,7 +174,7 @@ static void invokeReducers(Grouper *g, Group *gr, RLookupRow *srcrow) {
  * @param rowExpansion the cartesian product size accumulated for the current row
  */
 static int extractGroups(Grouper *g, const RSValue **xarr, size_t xpos, size_t xlen,
-                         uint64_t hval, RLookupRow *res, size_t rowExpansion) {
+                         uint64_t hval, RLookupRow *res, size_t rowExpansion, t_docId docId) {
   // end of the line - create/add to group
   if (xpos == xlen) {
     Group *group = NULL;
@@ -188,7 +193,7 @@ static int extractGroups(Grouper *g, const RSValue **xarr, size_t xpos, size_t x
     }
 
     // send the result to the group and its reducers
-    invokeReducers(g, group, res);
+    invokeReducers(g, group, res, docId);
     return RS_RESULT_OK;
   }
 
@@ -197,13 +202,13 @@ static int extractGroups(Grouper *g, const RSValue **xarr, size_t xpos, size_t x
   // regular value - just move one step -- increment XPOS
   if (!RSValue_IsArray(v)) {
     hval = RSValue_Hash(v, hval);
-    return extractGroups(g, xarr, xpos + 1, xlen, hval, res, rowExpansion);
+    return extractGroups(g, xarr, xpos + 1, xlen, hval, res, rowExpansion, docId);
   } else if (RSValue_ArrayLen(v) == 0) {
     // Empty array - hash as null
     hval = RSValue_Hash(RSValue_NullStatic(), hval);
     const RSValue *array = xarr[xpos];
     xarr[xpos] = RSValue_NullStatic();
-    int rc = extractGroups(g, xarr, xpos + 1, xlen, hval, res, rowExpansion);
+    int rc = extractGroups(g, xarr, xpos + 1, xlen, hval, res, rowExpansion, docId);
     xarr[xpos] = array;
     return rc;
   } else {
@@ -223,7 +228,7 @@ static int extractGroups(Grouper *g, const RSValue **xarr, size_t xpos, size_t x
       // hash the element, even if it's an array
       uint64_t hh = RSValue_Hash(elem, hval);
       xarr[xpos] = elem;
-      int rc = extractGroups(g, xarr, xpos + 1, xlen, hh, res, rowExpansion);
+      int rc = extractGroups(g, xarr, xpos + 1, xlen, hh, res, rowExpansion, docId);
       if (rc != RS_RESULT_OK) {
         xarr[xpos] = array;
         return rc;
@@ -234,7 +239,7 @@ static int extractGroups(Grouper *g, const RSValue **xarr, size_t xpos, size_t x
   }
 }
 
-static int invokeGroupReducers(Grouper *g, RLookupRow *srcrow) {
+static int invokeGroupReducers(Grouper *g, RLookupRow *srcrow, t_docId docId) {
   uint64_t hval = 0;
   size_t nkeys = GROUPER_NSRCKEYS(g);
   const RSValue *groupvals[nkeys];
@@ -247,7 +252,7 @@ static int invokeGroupReducers(Grouper *g, RLookupRow *srcrow) {
     }
     groupvals[ii] = v;
   }
-  return extractGroups(g, groupvals, 0, nkeys, hval, srcrow, 1);
+  return extractGroups(g, groupvals, 0, nkeys, hval, srcrow, 1, docId);
 }
 
 static int Grouper_rpAccum(ResultProcessor *base, SearchResult *res) {
@@ -257,7 +262,7 @@ static int Grouper_rpAccum(ResultProcessor *base, SearchResult *res) {
   int rc;
 
   while ((rc = base->upstream->Next(base->upstream, res)) == RS_RESULT_OK) {
-    rc = invokeGroupReducers(g, SearchResult_GetRowDataMut(res));
+    rc = invokeGroupReducers(g, SearchResult_GetRowDataMut(res), SearchResult_GetDocId(res));
     SearchResult_Clear(res);
     if (rc != RS_RESULT_OK) {
       break;
