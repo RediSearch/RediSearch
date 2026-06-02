@@ -2017,10 +2017,15 @@ static void runCursor(RedisModule_Reply *reply, Cursor *cursor, size_t num) {
   if (req->useReplyCallback) {
     if (req->syncCtx.aggregateResultsClaimLost && !req->storedReplyState.hasStoredResults) {
       // The strict timeout callback won the sync claim and already replied with
-      // this cursor id. Make the already-taken cursor available for follow-up
-      // reads.
+      // either cursor 0 (initial FT.AGGREGATE WITHCURSOR) or this cursor id
+      // (follow-up FT.CURSOR READ). Keep cursor ownership consistent with the
+      // id already returned to the caller.
       req->storedReplyState.cursor = NULL;
-      Cursor_Pause(cursor);
+      if (AREQ_RequestFlags(req) & QEXEC_F_IS_AGGREGATE) {
+        Cursor_Free(cursor);
+      } else {
+        Cursor_Pause(cursor);
+      }
       return;
     }
     // Disposal of the stashed cursor is owned by AREQ_ReplyWithStoredResults.
