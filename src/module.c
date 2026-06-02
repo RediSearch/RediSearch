@@ -4344,9 +4344,9 @@ typedef void (*BlockedClientFreePrivDataCB) (RedisModuleCtx *ctx, void *privdata
 
 // Initialize query timeout from command args or global config.
 // Always assigns a non-negative timeout value to *timeout.
-// The value is also silently capped to search-max-query-timeout-ms when the
-// limit is active; AREQ_Compile sets the QEXEC_S_MAX_TIMEOUT_CAPPED flag on
-// its own request, which is what surfaces the warning to the user.
+// The value is also silently capped to search-_max-foreground-timeout-limit
+// when the limit is active; AREQ_Compile sets the QEXEC_S_MAX_TIMEOUT_CAPPED
+// flag on its own request, which is what surfaces the warning to the user.
 static int initQueryTimeout(size_t *timeout, RedisModuleString **argv, int argc, QueryError *status) {
   RS_ASSERT(timeout != NULL);
 
@@ -4367,7 +4367,7 @@ static int initQueryTimeout(size_t *timeout, RedisModuleString **argv, int argc,
   // would be treated by the cap helper as "unlimited" (<= 0) and silently
   // capped anyway, but the saturation here is defensive and self-documenting.
   long long capped = (*timeout > (size_t)LLONG_MAX) ? LLONG_MAX : (long long)*timeout;
-  if (RSConfig_CapQueryTimeoutToMaxLimit(&capped)) {
+  if (RSConfig_CapQueryTimeoutToForegroundLimit(&capped)) {
     *timeout = (size_t)capped;
   }
   return REDISMODULE_OK;
@@ -4800,12 +4800,6 @@ static int RediSearch_InitModuleConfig(RedisModuleCtx *ctx, RedisModuleString **
   }
   // Apply configuration redis has loaded from the configuration file
   RM_TRY_F(RedisModule_LoadConfigs, ctx);
-  // Cross-knob invariants and the s_moduleConfigLoaded flag are armed later,
-  // after UpgradeDeprecatedMTConfigs has had a chance to apply deprecated
-  // MT_MODE / WORKER_THREADS overrides to numWorkerThreads (see
-  // RediSearch_InitModuleInternal). Doing it here would let a deprecated
-  // MT_MODE_OFF flip numWorkerThreads to 0 after PostLoadNormalize, leaving
-  // the timeout invariant unenforced.
   return REDISMODULE_OK;
 }
 

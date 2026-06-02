@@ -165,8 +165,9 @@ typedef enum {
    * reply emitters surface the TIMEOUT warning to the user via this flag. */
   QEXEC_S_SHARD_TIMED_OUT_WARNING = 0x08,
   /* The per-query TIMEOUT (or the global default) exceeded
-   * search-max-query-timeout-ms while search-workers is 0, so it was capped
-   * to the limit. Surfaced as a RESP3 warning by the reply emitters. */
+   * search-_max-foreground-timeout-limit while search-workers is 0, so it
+   * was capped to the limit. Surfaced as a RESP3 warning by the reply
+   * emitters. */
   QEXEC_S_MAX_TIMEOUT_CAPPED = 0x10,
 } QEStateFlags;
 

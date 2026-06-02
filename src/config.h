@@ -136,9 +136,9 @@ typedef struct {
   size_t maxAggregateResults;
 
   // Maximum allowed value (in ms) for the global search-timeout and per-query
-  // TIMEOUT argument when numWorkerThreads == 0. When workers are enabled this
-  // limit is not enforced. 0 means unlimited.
-  long long maxQueryTimeoutMS;
+  // TIMEOUT argument when numWorkerThreads == 0 (foreground execution). When
+  // workers are enabled this limit is not enforced. 0 means unlimited.
+  long long maxForegroundTimeoutLimitMS;
 
   // MT configuration
   size_t numWorkerThreads;
@@ -281,26 +281,14 @@ size_t GetDefaultWorkerThreads(void);
 /* Register module configuration parameters using Module Configuration API */
 int RegisterModuleConfig_Local(RedisModuleCtx *ctx);
 
-/* Post-load normalization for RSConfig. Must be called once, immediately after
- * RedisModule_LoadConfigs returns, to apply invariants that depend on multiple
- * config values whose load order is not deterministic (e.g. capping
- * search-timeout to search-max-query-timeout-ms when search-workers is 0).
- * Also flips the internal "module config loaded" flag, after which runtime
- * CONFIG SET callbacks may enforce the corresponding invariants. */
-void RSConfig_PostLoadNormalize(RedisModuleCtx *ctx);
-
-/* Returns true once RSConfig_PostLoadNormalize has been called.
- * Setters use this to distinguish initial load (no validation) from runtime
- * CONFIG SET (validation enforced). */
-bool RSConfig_IsModuleConfigLoaded(void);
-
 #ifdef __cplusplus
 extern "C" {
 #endif
-/* Caps `*timeoutMS` to RSGlobalConfig.maxQueryTimeoutMS when the limit is
- * active (workers disabled and limit > 0) and the current value exceeds it.
- * Returns true iff capping occurred, in which case `*timeoutMS` was updated. */
-bool RSConfig_CapQueryTimeoutToMaxLimit(long long *timeoutMS);
+/* Caps `*timeoutMS` to RSGlobalConfig.maxForegroundTimeoutLimitMS when the
+ * limit is active (workers disabled and limit > 0) and the current value
+ * exceeds it. Returns true iff capping occurred, in which case `*timeoutMS`
+ * was updated. */
+bool RSConfig_CapQueryTimeoutToForegroundLimit(long long *timeoutMS);
 #ifdef __cplusplus
 }
 #endif
@@ -375,7 +363,7 @@ long long getRedisConfigNumeric(RedisModuleCtx *ctx, const char *confName, long 
 #define DEFAULT_MIN_STEM_LENGTH 4
 #define DEFAULT_MULTI_TEXT_SLOP 100
 #define DEFAULT_QUERY_TIMEOUT_MS 500
-#define DEFAULT_MAX_QUERY_TIMEOUT_MS 60000
+#define DEFAULT_MAX_FOREGROUND_TIMEOUT_LIMIT_MS 60000
 #define DEFAULT_UNION_ITERATOR_HEAP 20
 #define DEFAULT_VSS_MAX_RESIZE 0
 
@@ -413,7 +401,7 @@ long long getRedisConfigNumeric(RedisModuleCtx *ctx, const char *confName, long 
     .iteratorsConfigParams.maxPrefixExpansions = DEFAULT_MAX_PREFIX_EXPANSIONS,\
     .requestConfigParams.queryTimeoutMS = DEFAULT_QUERY_TIMEOUT_MS,            \
     .requestConfigParams.timeoutPolicy = TimeoutPolicy_Return,                 \
-    .maxQueryTimeoutMS = DEFAULT_MAX_QUERY_TIMEOUT_MS,                         \
+    .maxForegroundTimeoutLimitMS = DEFAULT_MAX_FOREGROUND_TIMEOUT_LIMIT_MS,    \
     .cursorReadSize = 1000,                                                    \
     .cursorMaxIdle = DEFAULT_MAX_CURSOR_IDLE,                                  \
     .maxDocTableSize = DEFAULT_DOC_TABLE_SIZE,                                 \

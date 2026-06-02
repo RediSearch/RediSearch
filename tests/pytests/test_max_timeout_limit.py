@@ -3,14 +3,16 @@ from includes import *
 from common import *
 import numpy as np
 
-# MOD-15110 — coverage for the search-max-query-timeout-ms (MAX_TIMEOUT_LIMIT)
-# invariant. The knob is enforced only while search-workers == 0; a limit of
-# 0 disables the cap entirely. Tests pin the knob explicitly because the
-# pytest harness ships it as MAX_TIMEOUT_LIMIT 0 (see runtests.sh).
+# MOD-15110 — coverage for the search-_max-foreground-timeout-limit
+# (_MAX_FOREGROUND_TIMEOUT_LIMIT) invariant. The knob is enforced only while
+# search-workers == 0; a limit of 0 disables the cap entirely. Tests pin the
+# knob explicitly because the pytest harness ships it as
+# _MAX_FOREGROUND_TIMEOUT_LIMIT 0 (see runtests.sh).
 
 CAP_WARNING = (
-    "Query TIMEOUT exceeded the configured maximum (search-max-query-timeout-ms) "
-    "while search-workers is disabled; effective timeout was capped"
+    "Query TIMEOUT exceeded the configured maximum "
+    "(search-_max-foreground-timeout-limit) while search-workers is disabled; "
+    "effective timeout was capped"
 )
 
 def _get_warnings(response):
@@ -26,95 +28,103 @@ def _get_warnings(response):
     return []
 
 
-# ---------------------------- Load-time normalization ----------------------------
+# ---------------------------- Load-time behaviour --------------------------------
 #
-# RSConfig_PostLoadNormalize caps a persisted search-timeout against the
-# new search-max-query-timeout-ms only when configs flow through the new
-# RedisModule_LoadConfigs path (e.g. saved redis.conf after an upgrade).
-# The legacy MODULE LOAD ... args go through setTimeout / setMaxTimeoutLimit,
-# which validate eagerly and would reject the invalid combination before the
-# normalizer runs, so we cannot reproduce the cap from RLTest's module args.
-# RSConfig_CapQueryTimeoutToMaxLimit (the helper PostLoadNormalize delegates
-# to) is covered by tests/cpptests/test_cpp_config_timeout_cap.cpp.
+# RSConfig_PostLoadNormalize logs a warning when the cross-knob invariant is
+# violated at load time but no longer mutates the in-memory value: the
+# per-query cap (RSConfig_CapQueryTimeoutToForegroundLimit in AREQ_Compile /
+# parseHybridCommand) enforces the limit at runtime so that queries which
+# inherit the global also surface the RESP3 MAX_TIMEOUT_CAPPED warning. The
+# helper itself is covered by tests/cpptests/test_cpp_config_timeout_cap.cpp.
 
 def test_load_time_no_cap_when_workers_enabled():
-    env = Env(moduleArgs='WORKERS 2 TIMEOUT 5000 MAX_TIMEOUT_LIMIT 1000')
+    env = Env(moduleArgs='WORKERS 2 TIMEOUT 5000 _MAX_FOREGROUND_TIMEOUT_LIMIT 1000')
     env.expect(config_cmd(), 'GET', 'TIMEOUT').equal([['TIMEOUT', '5000']])
 
 def test_load_time_no_cap_when_limit_disabled():
-    env = Env(moduleArgs='WORKERS 0 TIMEOUT 5000 MAX_TIMEOUT_LIMIT 0')
+    env = Env(moduleArgs='WORKERS 0 TIMEOUT 5000 _MAX_FOREGROUND_TIMEOUT_LIMIT 0')
     env.expect(config_cmd(), 'GET', 'TIMEOUT').equal([['TIMEOUT', '5000']])
 
+def test_load_time_preserves_timeout_above_limit():
+    # With the simplified accept-and-log model, the load-time value above the
+    # limit is preserved verbatim; per-query enforcement (covered below)
+    # handles the actual cap.
+    env = Env(moduleArgs='WORKERS 0 TIMEOUT 5000 _MAX_FOREGROUND_TIMEOUT_LIMIT 1000')
+    env.expect(config_cmd(), 'GET', 'TIMEOUT').equal([['TIMEOUT', '5000']])
+    env.expect(config_cmd(), 'GET', '_MAX_FOREGROUND_TIMEOUT_LIMIT').equal(
+        [['_MAX_FOREGROUND_TIMEOUT_LIMIT', '1000']])
 
-# ---------------------------- Runtime CONFIG SET guards --------------------------
 
-def test_runtime_reject_timeout_above_limit():
-    env = Env(moduleArgs='WORKERS 0 TIMEOUT 100 MAX_TIMEOUT_LIMIT 1000')
-    env.expect('CONFIG', 'SET', 'search-timeout', '5000').error()\
-        .contains('search-timeout (5000) exceeds search-max-query-timeout-ms (1000)')
-    env.expect(config_cmd(), 'SET', 'TIMEOUT', '5000').error()\
-        .contains('TIMEOUT (5000) exceeds MAX_TIMEOUT_LIMIT (1000)')
-    # The rejected updates must not have leaked through.
-    env.expect(config_cmd(), 'GET', 'TIMEOUT').equal([['TIMEOUT', '100']])
+# ---------------------------- Runtime CONFIG SET behaviour -----------------------
+#
+# All six setters (native search-timeout / search-workers /
+# search-_max-foreground-timeout-limit and the legacy _FT.CONFIG SET
+# equivalents) accept the value when the cross-knob invariant is violated and
+# emit a RedisModule_Log warning. Per-query enforcement happens at FT.SEARCH /
+# FT.AGGREGATE / FT.HYBRID time.
 
-def test_runtime_reject_workers_zero_above_limit():
-    env = Env(moduleArgs='WORKERS 2 TIMEOUT 5000 MAX_TIMEOUT_LIMIT 1000')
-    env.expect('CONFIG', 'SET', 'search-workers', '0').error()\
-        .contains('Cannot set search-workers to 0')
-    env.expect(config_cmd(), 'SET', 'WORKERS', '0').error()\
-        .contains('Cannot set WORKERS to 0')
-    env.expect(config_cmd(), 'GET', 'WORKERS').equal([['WORKERS', '2']])
+def test_runtime_accept_timeout_above_limit():
+    env = Env(moduleArgs='WORKERS 0 TIMEOUT 100 _MAX_FOREGROUND_TIMEOUT_LIMIT 1000')
+    env.expect('CONFIG', 'SET', 'search-timeout', '5000').ok()
+    env.expect(config_cmd(), 'GET', 'TIMEOUT').equal([['TIMEOUT', '5000']])
+    env.expect(config_cmd(), 'SET', 'TIMEOUT', '7000').ok()
+    env.expect(config_cmd(), 'GET', 'TIMEOUT').equal([['TIMEOUT', '7000']])
 
-def test_runtime_reject_lowering_limit_below_timeout():
-    env = Env(moduleArgs='WORKERS 0 TIMEOUT 5000 MAX_TIMEOUT_LIMIT 0')
-    env.expect('CONFIG', 'SET', 'search-max-query-timeout-ms', '1000').error()\
-        .contains('Cannot set search-max-query-timeout-ms to 1000')
-    env.expect(config_cmd(), 'SET', 'MAX_TIMEOUT_LIMIT', '1000').error()\
-        .contains('Cannot set MAX_TIMEOUT_LIMIT to 1000')
-    env.expect(config_cmd(), 'GET', 'MAX_TIMEOUT_LIMIT').equal([['MAX_TIMEOUT_LIMIT', '0']])
+def test_runtime_accept_workers_zero_above_limit():
+    env = Env(moduleArgs='WORKERS 2 TIMEOUT 5000 _MAX_FOREGROUND_TIMEOUT_LIMIT 1000')
+    env.expect('CONFIG', 'SET', 'search-workers', '0').ok()
+    env.expect(config_cmd(), 'GET', 'WORKERS').equal([['WORKERS', '0']])
+    # Re-enable then exercise the legacy path on a fresh env to verify it too.
+    env = Env(moduleArgs='WORKERS 2 TIMEOUT 5000 _MAX_FOREGROUND_TIMEOUT_LIMIT 1000')
+    env.expect(config_cmd(), 'SET', 'WORKERS', '0').ok()
+    env.expect(config_cmd(), 'GET', 'WORKERS').equal([['WORKERS', '0']])
+
+def test_runtime_accept_lowering_limit_below_timeout():
+    env = Env(moduleArgs='WORKERS 0 TIMEOUT 5000 _MAX_FOREGROUND_TIMEOUT_LIMIT 0')
+    env.expect('CONFIG', 'SET', 'search-_max-foreground-timeout-limit', '1000').ok()
+    env.expect(config_cmd(), 'GET', '_MAX_FOREGROUND_TIMEOUT_LIMIT').equal(
+        [['_MAX_FOREGROUND_TIMEOUT_LIMIT', '1000']])
+    env.expect(config_cmd(), 'SET', '_MAX_FOREGROUND_TIMEOUT_LIMIT', '500').ok()
+    env.expect(config_cmd(), 'GET', '_MAX_FOREGROUND_TIMEOUT_LIMIT').equal(
+        [['_MAX_FOREGROUND_TIMEOUT_LIMIT', '500']])
 
 def test_runtime_allowed_when_workers_enabled():
-    env = Env(moduleArgs='WORKERS 2 TIMEOUT 100 MAX_TIMEOUT_LIMIT 1000')
+    env = Env(moduleArgs='WORKERS 2 TIMEOUT 100 _MAX_FOREGROUND_TIMEOUT_LIMIT 1000')
     env.expect('CONFIG', 'SET', 'search-timeout', '5000').ok()
-    env.expect(config_cmd(), 'SET', 'MAX_TIMEOUT_LIMIT', '100').ok()
+    env.expect(config_cmd(), 'SET', '_MAX_FOREGROUND_TIMEOUT_LIMIT', '100').ok()
     env.expect(config_cmd(), 'GET', 'TIMEOUT').equal([['TIMEOUT', '5000']])
-    env.expect(config_cmd(), 'GET', 'MAX_TIMEOUT_LIMIT').equal([['MAX_TIMEOUT_LIMIT', '100']])
+    env.expect(config_cmd(), 'GET', '_MAX_FOREGROUND_TIMEOUT_LIMIT').equal(
+        [['_MAX_FOREGROUND_TIMEOUT_LIMIT', '100']])
 
 def test_runtime_allowed_when_limit_disabled():
-    env = Env(moduleArgs='WORKERS 0 TIMEOUT 100 MAX_TIMEOUT_LIMIT 0')
+    env = Env(moduleArgs='WORKERS 0 TIMEOUT 100 _MAX_FOREGROUND_TIMEOUT_LIMIT 0')
     env.expect('CONFIG', 'SET', 'search-timeout', str(2**31)).ok()
     env.expect(config_cmd(), 'SET', 'TIMEOUT', '500').ok()
 
-def test_runtime_reject_unlimited_timeout_when_limit_active_legacy():
-    # TIMEOUT 0 (unlimited) would be silently capped on every query at runtime
-    # when WORKERS == 0 and the limit is active, so the legacy _FT.CONFIG SET
-    # setter must reject it. The native search-timeout config is gated by the
-    # Redis framework at the registered min (1), so there is no equivalent
-    # path through `CONFIG SET search-timeout 0` to exercise here.
-    env = Env(moduleArgs='WORKERS 0 TIMEOUT 100 MAX_TIMEOUT_LIMIT 1000')
-    env.expect(config_cmd(), 'SET', 'TIMEOUT', '0').error()\
-        .contains('TIMEOUT 0 (unlimited)')
-    env.expect(config_cmd(), 'GET', 'TIMEOUT').equal([['TIMEOUT', '100']])
+def test_runtime_accept_unlimited_timeout_when_limit_active_legacy():
+    # The native search-timeout config is gated by the Redis framework at the
+    # registered min (1), so TIMEOUT 0 is only reachable via _FT.CONFIG SET.
+    env = Env(moduleArgs='WORKERS 0 TIMEOUT 100 _MAX_FOREGROUND_TIMEOUT_LIMIT 1000')
+    env.expect(config_cmd(), 'SET', 'TIMEOUT', '0').ok()
+    env.expect(config_cmd(), 'GET', 'TIMEOUT').equal([['TIMEOUT', '0']])
 
-def test_runtime_reject_activating_limit_with_unlimited_timeout():
-    # Symmetric to the above: with TIMEOUT 0 (unlimited) already active and
-    # WORKERS == 0, activating a positive limit would leave every query capped.
-    env = Env(moduleArgs='WORKERS 0 TIMEOUT 0 MAX_TIMEOUT_LIMIT 0')
-    env.expect('CONFIG', 'SET', 'search-max-query-timeout-ms', '1000').error()\
-        .contains('search-timeout is 0 (unlimited)')
-    env.expect(config_cmd(), 'SET', 'MAX_TIMEOUT_LIMIT', '1000').error()\
-        .contains('TIMEOUT is 0 (unlimited)')
-    env.expect(config_cmd(), 'GET', 'MAX_TIMEOUT_LIMIT').equal([['MAX_TIMEOUT_LIMIT', '0']])
+def test_runtime_accept_activating_limit_with_unlimited_timeout():
+    env = Env(moduleArgs='WORKERS 0 TIMEOUT 0 _MAX_FOREGROUND_TIMEOUT_LIMIT 0')
+    env.expect('CONFIG', 'SET', 'search-_max-foreground-timeout-limit', '1000').ok()
+    env.expect(config_cmd(), 'GET', '_MAX_FOREGROUND_TIMEOUT_LIMIT').equal(
+        [['_MAX_FOREGROUND_TIMEOUT_LIMIT', '1000']])
+    env = Env(moduleArgs='WORKERS 0 TIMEOUT 0 _MAX_FOREGROUND_TIMEOUT_LIMIT 0')
+    env.expect(config_cmd(), 'SET', '_MAX_FOREGROUND_TIMEOUT_LIMIT', '1000').ok()
+    env.expect(config_cmd(), 'GET', '_MAX_FOREGROUND_TIMEOUT_LIMIT').equal(
+        [['_MAX_FOREGROUND_TIMEOUT_LIMIT', '1000']])
 
-def test_runtime_reject_workers_zero_with_unlimited_timeout():
-    # Disabling workers while TIMEOUT is unlimited and a limit is active must
-    # be rejected for the same reason TIMEOUT > limit is rejected.
-    env = Env(moduleArgs='WORKERS 2 TIMEOUT 0 MAX_TIMEOUT_LIMIT 1000')
-    env.expect('CONFIG', 'SET', 'search-workers', '0').error()\
-        .contains('search-timeout is 0 (unlimited)')
-    env.expect(config_cmd(), 'SET', 'WORKERS', '0').error()\
-        .contains('TIMEOUT is 0 (unlimited)')
-    env.expect(config_cmd(), 'GET', 'WORKERS').equal([['WORKERS', '2']])
+def test_runtime_accept_workers_zero_with_unlimited_timeout():
+    env = Env(moduleArgs='WORKERS 2 TIMEOUT 0 _MAX_FOREGROUND_TIMEOUT_LIMIT 1000')
+    env.expect('CONFIG', 'SET', 'search-workers', '0').ok()
+    env.expect(config_cmd(), 'GET', 'WORKERS').equal([['WORKERS', '0']])
+    env = Env(moduleArgs='WORKERS 2 TIMEOUT 0 _MAX_FOREGROUND_TIMEOUT_LIMIT 1000')
+    env.expect(config_cmd(), 'SET', 'WORKERS', '0').ok()
+    env.expect(config_cmd(), 'GET', 'WORKERS').equal([['WORKERS', '0']])
 
 
 # ---------------------------- Per-query TIMEOUT capping --------------------------
@@ -129,21 +139,21 @@ def _setup_hybrid_index(env):
                              'v', np.array([float(i), 0.0]).astype(np.float32).tobytes())
 
 def test_per_query_search_timeout_capped_resp3():
-    env = Env(protocol=3, moduleArgs='WORKERS 0 TIMEOUT 100 MAX_TIMEOUT_LIMIT 1000')
+    env = Env(protocol=3, moduleArgs='WORKERS 0 TIMEOUT 100 _MAX_FOREGROUND_TIMEOUT_LIMIT 1000')
     _setup_hybrid_index(env)
     res = env.cmd('FT.SEARCH', 'idx', '*', 'TIMEOUT', '5000', 'NOCONTENT')
     env.assertContains(CAP_WARNING, _get_warnings(res),
-                       message=f"FT.SEARCH expected MAX_TIMEOUT_LIMIT warning, got: {res}")
+                       message=f"FT.SEARCH expected MAX_TIMEOUT_CAPPED warning, got: {res}")
 
 def test_per_query_aggregate_timeout_capped_resp3():
-    env = Env(protocol=3, moduleArgs='WORKERS 0 TIMEOUT 100 MAX_TIMEOUT_LIMIT 1000')
+    env = Env(protocol=3, moduleArgs='WORKERS 0 TIMEOUT 100 _MAX_FOREGROUND_TIMEOUT_LIMIT 1000')
     _setup_hybrid_index(env)
     res = env.cmd('FT.AGGREGATE', 'idx', '*', 'TIMEOUT', '5000')
     env.assertContains(CAP_WARNING, _get_warnings(res),
-                       message=f"FT.AGGREGATE expected MAX_TIMEOUT_LIMIT warning, got: {res}")
+                       message=f"FT.AGGREGATE expected MAX_TIMEOUT_CAPPED warning, got: {res}")
 
 def test_per_query_hybrid_timeout_capped_resp3():
-    env = Env(protocol=3, moduleArgs='WORKERS 0 TIMEOUT 100 MAX_TIMEOUT_LIMIT 1000')
+    env = Env(protocol=3, moduleArgs='WORKERS 0 TIMEOUT 100 _MAX_FOREGROUND_TIMEOUT_LIMIT 1000')
     _setup_hybrid_index(env)
     blob = np.array([0.0, 0.0]).astype(np.float32).tobytes()
     res = env.cmd('FT.HYBRID', 'idx',
@@ -152,27 +162,50 @@ def test_per_query_hybrid_timeout_capped_resp3():
                   'PARAMS', '2', 'BLOB', blob,
                   'TIMEOUT', '5000')
     env.assertContains(CAP_WARNING, _get_warnings(res),
-                       message=f"FT.HYBRID expected MAX_TIMEOUT_LIMIT warning, got: {res}")
+                       message=f"FT.HYBRID expected MAX_TIMEOUT_CAPPED warning, got: {res}")
+
+def test_per_query_inherits_global_timeout_capped_resp3():
+    # Point 4: when WORKERS == 0 and the global TIMEOUT exceeds the limit,
+    # a query that does *not* pass TIMEOUT must still inherit the (capped)
+    # global and surface the MAX_TIMEOUT_CAPPED RESP3 warning.
+    env = Env(protocol=3, moduleArgs='WORKERS 0 TIMEOUT 5000 _MAX_FOREGROUND_TIMEOUT_LIMIT 1000')
+    _setup_hybrid_index(env)
+    res = env.cmd('FT.SEARCH', 'idx', '*', 'NOCONTENT')
+    env.assertContains(CAP_WARNING, _get_warnings(res),
+                       message=f"FT.SEARCH expected MAX_TIMEOUT_CAPPED warning when "
+                               f"inheriting global TIMEOUT, got: {res}")
+    res = env.cmd('FT.AGGREGATE', 'idx', '*')
+    env.assertContains(CAP_WARNING, _get_warnings(res),
+                       message=f"FT.AGGREGATE expected MAX_TIMEOUT_CAPPED warning when "
+                               f"inheriting global TIMEOUT, got: {res}")
+    blob = np.array([0.0, 0.0]).astype(np.float32).tobytes()
+    res = env.cmd('FT.HYBRID', 'idx',
+                  'SEARCH', '*',
+                  'VSIM', '@v', '$BLOB',
+                  'PARAMS', '2', 'BLOB', blob)
+    env.assertContains(CAP_WARNING, _get_warnings(res),
+                       message=f"FT.HYBRID expected MAX_TIMEOUT_CAPPED warning when "
+                               f"inheriting global TIMEOUT, got: {res}")
 
 
 # ---------------------------- Per-query negative cases ---------------------------
 
 def test_per_query_no_cap_when_workers_enabled():
-    env = Env(protocol=3, moduleArgs='WORKERS 2 TIMEOUT 100 MAX_TIMEOUT_LIMIT 1000')
+    env = Env(protocol=3, moduleArgs='WORKERS 2 TIMEOUT 100 _MAX_FOREGROUND_TIMEOUT_LIMIT 1000')
     _setup_hybrid_index(env)
     res = env.cmd('FT.SEARCH', 'idx', '*', 'TIMEOUT', '5000', 'NOCONTENT')
     env.assertNotContains(CAP_WARNING, _get_warnings(res),
                           message=f"FT.SEARCH should not warn with workers enabled, got: {res}")
 
 def test_per_query_no_cap_when_within_limit():
-    env = Env(protocol=3, moduleArgs='WORKERS 0 TIMEOUT 100 MAX_TIMEOUT_LIMIT 1000')
+    env = Env(protocol=3, moduleArgs='WORKERS 0 TIMEOUT 100 _MAX_FOREGROUND_TIMEOUT_LIMIT 1000')
     _setup_hybrid_index(env)
     res = env.cmd('FT.SEARCH', 'idx', '*', 'TIMEOUT', '500', 'NOCONTENT')
     env.assertNotContains(CAP_WARNING, _get_warnings(res),
                           message=f"FT.SEARCH should not warn within limit, got: {res}")
 
 def test_per_query_no_cap_when_limit_disabled():
-    env = Env(protocol=3, moduleArgs='WORKERS 0 TIMEOUT 100 MAX_TIMEOUT_LIMIT 0')
+    env = Env(protocol=3, moduleArgs='WORKERS 0 TIMEOUT 100 _MAX_FOREGROUND_TIMEOUT_LIMIT 0')
     _setup_hybrid_index(env)
     res = env.cmd('FT.SEARCH', 'idx', '*', 'TIMEOUT', str(2**31), 'NOCONTENT')
     env.assertNotContains(CAP_WARNING, _get_warnings(res),

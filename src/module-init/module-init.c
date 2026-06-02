@@ -129,11 +129,6 @@ int RediSearch_Init(RedisModuleCtx *ctx) {
   // Handle deprecated MT configurations
   UpgradeDeprecatedMTConfigs();
 
-  // Apply cross-knob invariants once all configs (including the deprecated
-  // MT_MODE / WORKER_THREADS overrides applied above) have settled, and arm
-  // setter-side validation for subsequent runtime CONFIG SET calls.
-  RSConfig_PostLoadNormalize(ctx);
-
   // Register rm_malloc memory functions as vector similarity memory functions.
   // Must be done before workersThreadPool_CreatePool, which calls VecSim_UpdateThreadPoolSize
   // and may allocate VecSim internal structures (shared SVS thread pool).

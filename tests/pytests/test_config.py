@@ -604,7 +604,7 @@ def testConfigAPIRunTimeNumericParams():
     env = Env(noDefaultModuleArgs=True)
     # Disable the per-query TIMEOUT cap so we can exercise the full numeric range
     # of search-timeout / search-workers without tripping the cross-knob invariant.
-    env.expect('CONFIG', 'SET', 'search-max-query-timeout-ms', 0).ok()
+    env.expect('CONFIG', 'SET', 'search-_max-foreground-timeout-limit', 0).ok()
 
     def _testNumericConfig(env, configName, ftConfigName, default, min, max):
         # Check default value
@@ -1908,7 +1908,7 @@ def testConfigIndependence_min_values():
     env = Env(noDefaultModuleArgs=True)
     # Disable the per-query TIMEOUT cap so we can iterate over search-timeout /
     # search-workers values without tripping the cross-knob invariant.
-    env.expect('CONFIG', 'SET', 'search-max-query-timeout-ms', 0).ok()
+    env.expect('CONFIG', 'SET', 'search-_max-foreground-timeout-limit', 0).ok()
     # set all numeric configs to min value
     for configName, argName, _, minValue, _, immutable, clusterConfig in numericConfigs:
         if immutable:
@@ -1958,7 +1958,7 @@ def testConfigIndependence_max_values():
     env = Env(noDefaultModuleArgs=True)
     # Disable the per-query TIMEOUT cap so we can iterate over search-timeout /
     # search-workers values without tripping the cross-knob invariant.
-    env.expect('CONFIG', 'SET', 'search-max-query-timeout-ms', 0).ok()
+    env.expect('CONFIG', 'SET', 'search-_max-foreground-timeout-limit', 0).ok()
     # set all numeric configs to max value
     for configName, argName, _, _, maxValue, immutable, clusterConfig in numericConfigs:
         if immutable:

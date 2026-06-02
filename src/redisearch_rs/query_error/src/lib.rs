@@ -658,7 +658,7 @@ impl QueryWarningCode {
                 c"Query execution exceeded maximum delay for RediSearch to delay key trimming. Results may be incomplete due to Atomic Slot Migration."
             }
             Self::MaxTimeoutCapped => {
-                c"Query TIMEOUT exceeded the configured maximum (search-max-query-timeout-ms) while search-workers is disabled; effective timeout was capped"
+                c"Query TIMEOUT exceeded the configured maximum (search-_max-foreground-timeout-limit) while search-workers is disabled; effective timeout was capped"
             }
         }
     }
