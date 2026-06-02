@@ -210,6 +210,11 @@ jobs:
 
           bucket = "redismodules"
           oss_dir = "redisearch-oss"
+          # Artifacts uploaded to the OSS directory use the "redisearch-community"
+          # file prefix (see sbin/upload-artifacts), which differs from the S3
+          # directory name. Example name:
+          #   redisearch-community.macos-sequoia-aarch64.8.6.20260601.131332.03edbf8.zip
+          oss_file_prefix = "redisearch-community"
 
           expected_sha = os.environ["EXPECTED_SHA"]
           expected_short_sha = expected_sha[:7]
@@ -232,8 +237,12 @@ jobs:
                       if suffix_pattern.search(obj["Key"]):
                           yield obj["Key"]
 
-          def list_snapshots_by_branch(dir):
-              return list_files_by_branch(f"{dir}/snapshots/{dir}")
+          # The S3 directory name and the artifact file prefix can differ
+          # (e.g. the "redisearch-oss" dir holds "redisearch-community.*" files),
+          # so allow the file prefix to be specified independently.
+          def list_snapshots_by_branch(dir, file_prefix=None):
+              file_prefix = file_prefix or dir
+              return list_files_by_branch(f"{dir}/snapshots/{file_prefix}")
 
           # Return the git sha from the module.json file in the zip file (build sha)
           def extract_sha(key):
@@ -259,7 +268,7 @@ jobs:
 
           ############################### Main Script ###############################
 
-          files = list(list_snapshots_by_branch(oss_dir))
+          files = list(list_snapshots_by_branch(oss_dir, oss_file_prefix))
 
           group_print(f"{os.environ['SOURCE']} Build Candidates", files)
           if not files:
