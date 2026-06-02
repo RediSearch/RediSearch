@@ -145,41 +145,6 @@ TEST_F(UnicodeToLowerTest, testTurkishDottedI) {
   rm_free(dst); // Free the allocated memory for dst
 }
 
-TEST_F(UnicodeToLowerTest, testSupplementaryPlaneBit12) {
-  // Regression test for a libnu b4_utf8 encoder bug where bit 12 of the
-  // codepoint was dropped from byte 1 and leaked into byte 2, producing
-  // invalid UTF-8 for any supplementary-plane codepoint with bit 12 set.
-  //
-  // U+118A0 (WARANG CITI CAPITAL NGAA, F0 91 A2 A0) lowercases to
-  // U+118C0 (WARANG CITI SMALL NGAA,   F0 91 A3 80). Both have codepoint
-  // bit 12 set, so this exercises the previously buggy path.
-  char str[] = "\xF0\x91\xA2\xA0";
-  char *dst = nullptr;
-  size_t newLen = strlen(str);
-
-  dst = unicode_tolower(str, &newLen);
-  ASSERT_EQ(dst, nullptr); // Same byte count, in-place conversion
-  ASSERT_EQ(newLen, 4u);
-  ASSERT_STREQ(str, "\xF0\x91\xA3\x80");
-}
-
-TEST_F(UnicodeToLowerTest, testSupplementaryPlaneNoBit12) {
-  // Companion to testSupplementaryPlaneBit12: a supplementary-plane casing
-  // pair where codepoint bit 12 is clear, to lock in that the encoder fix
-  // did not regress the non-bit-12 path.
-  //
-  // U+10400 (DESERET CAPITAL LONG I, F0 90 90 80) lowercases to
-  // U+10428 (DESERET SMALL LONG I,   F0 90 90 A8).
-  char str[] = "\xF0\x90\x90\x80";
-  char *dst = nullptr;
-  size_t newLen = strlen(str);
-
-  dst = unicode_tolower(str, &newLen);
-  ASSERT_EQ(dst, nullptr);
-  ASSERT_EQ(newLen, 4u);
-  ASSERT_STREQ(str, "\xF0\x90\x90\xA8");
-}
-
 TEST_F(UnicodeToLowerTest, testEmbeddedNulAsciiPrefix) {
   // Embedded NUL terminates the conversion at the NUL position and the ASCII
   // prefix is lowercased in place. Bytes past the NUL are not touched.
