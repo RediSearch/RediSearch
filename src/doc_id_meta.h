@@ -52,7 +52,7 @@ int DocIdMeta_Delete(RedisModuleCtx *ctx, RedisModuleString *keyName, uint64_t s
 
 // Set the persistence-in-progress flag. When true, RDB save/load callbacks
 // become no-ops. Called from notifications.c during persistence events.
-void DocIdMeta_SetPersistenceInProgress(bool inProgress);
+void DocIdMeta_SetForgetDocIdMetadata(bool inProgress);
 
 #ifdef __cplusplus
 }
