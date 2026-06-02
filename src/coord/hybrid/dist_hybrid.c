@@ -578,6 +578,20 @@ static bool shouldCheckInPipelineTimeoutCoord(HybridRequest *req) {
          (req->reqConfig.timeoutPolicy == TimeoutPolicy_Return);
 }
 
+// prepareForExecution's parseHybridCommand re-reads RSGlobalConfig on the BG
+// thread, so once the pipelines are built we force every
+// config + pipeline ctx the request consults onto the policy captured at
+// dispatch, and recompute skipTimeoutChecks from it.
+static void applyCoordReqConfigTimeoutPolicy(HybridRequest *hreq, RSTimeoutPolicy policy) {
+    hreq->reqConfig.timeoutPolicy = policy;
+    hreq->tailPipeline->qctx.timeoutPolicy = policy;
+    for (size_t i = 0; i < hreq->nrequests; i++) {
+      hreq->requests[i]->reqConfig.timeoutPolicy = policy;
+      hreq->requests[i]->pipeline.qctx.timeoutPolicy = policy;
+    }
+    HybridRequest_SetSkipTimeoutChecks(hreq, !shouldCheckInPipelineTimeoutCoord(hreq));
+}
+
 static int HybridRequest_prepareForExecution(HybridRequest *hreq,
         RedisModuleCtx *ctx, RedisModuleString **argv, int argc, IndexSpec *sp,
         size_t numShards, QueryError *status,
@@ -971,31 +985,6 @@ static void DistHybridCleanups(RedisModuleCtx *ctx,
     }
 }
 
-// Wire the policy (captured at dispatch) onto a fresh HybridRequest. For FAIL /
-// RETURN_STRICT the coord armed DistHybridReplyCallback / DistHybridTimeout*Client
-// (module.c), so BG must store results via useReplyCallback rather than serialize
-// inline; RETURN_STRICT also needs the aggregate-results sync. Shared by the
-// normal and debug exec paths to keep both in lockstep with those callbacks.
-static void applyCoordTimeoutPolicy(HybridRequest *hreq, RSTimeoutPolicy policy) {
-    if (policy != TimeoutPolicy_Return) {
-      hreq->useReplyCallback = true;
-      if (policy == TimeoutPolicy_ReturnStrict) {
-        hreq->syncCtx.requiresAggregateResultsSync = true;
-      }
-    }
-}
-
-// Force the parsed reqConfig (and the subqueries') onto the dispatch-time policy.
-// parseHybridCommand re-reads RSGlobalConfig.requestConfigParams on the BG thread,
-// which can race an FT.CONFIG SET, so the policy used by the tail pipeline could
-// disagree with the callbacks armed at dispatch. Override after parsing so the
-// whole request runs under the single sticky value. Call after prepareForExecution.
-static void applyCoordReqConfigTimeoutPolicy(HybridRequest *hreq, RSTimeoutPolicy policy) {
-    hreq->reqConfig.timeoutPolicy = policy;
-    for (size_t i = 0; i < hreq->nrequests; i++) {
-      hreq->requests[i]->reqConfig.timeoutPolicy = policy;
-    }
-}
 
 void RSExecDistHybrid(RedisModuleCtx *ctx, RedisModuleString **argv, int argc,
                         struct ConcurrentCmdCtx *cmdCtx) {
@@ -1047,9 +1036,6 @@ void RSExecDistHybrid(RedisModuleCtx *ctx, RedisModuleString **argv, int argc,
     // Create and set request atomically while holding lock
     HybridRequest *hreq = MakeDefaultHybridRequest(sctx);
 
-    // Req config not populated yet; use the policy captured at dispatch.
-    applyCoordTimeoutPolicy(hreq, CoordRequestCtx_GetTimeoutPolicy(reqCtx));
-
     CoordRequestCtx_SetRequest(reqCtx, hreq);
     CoordRequestCtx_UnlockSetRequest(reqCtx);
 
@@ -1063,7 +1049,8 @@ void RSExecDistHybrid(RedisModuleCtx *ctx, RedisModuleString **argv, int argc,
       return;
     }
 
-    // Parsing reset reqConfig.timeoutPolicy from the global; restore the sticky value.
+    // Re-pin onto the dispatch-time policy: prepareForExecution re-read
+    // RSGlobalConfig on this BG thread (races FT.CONFIG SET).
     applyCoordReqConfigTimeoutPolicy(hreq, CoordRequestCtx_GetTimeoutPolicy(reqCtx));
 
     if (HybridRequest_prepareCursors(hreq, &status) != REDISMODULE_OK) {
@@ -1132,9 +1119,6 @@ void DEBUG_RSExecDistHybrid(RedisModuleCtx *ctx, RedisModuleString **argv, int a
 
     HybridRequest *hreq = MakeDefaultHybridRequest(sctx);
 
-    // Mirror the non-debug path: same callbacks are armed, so apply the same wiring.
-    applyCoordTimeoutPolicy(hreq, CoordRequestCtx_GetTimeoutPolicy(reqCtx));
-
     CoordRequestCtx_SetRequest(reqCtx, hreq);
     CoordRequestCtx_UnlockSetRequest(reqCtx);
 
@@ -1150,7 +1134,8 @@ void DEBUG_RSExecDistHybrid(RedisModuleCtx *ctx, RedisModuleString **argv, int a
       return;
     }
 
-    // Parsing reset reqConfig.timeoutPolicy from the global; restore the sticky value.
+    // Re-pin onto the dispatch-time policy: prepareForExecution re-read
+    // RSGlobalConfig on this BG thread (races FT.CONFIG SET).
     applyCoordReqConfigTimeoutPolicy(hreq, CoordRequestCtx_GetTimeoutPolicy(reqCtx));
 
     if (HybridRequest_prepareCursors(hreq, &status) != REDISMODULE_OK) {
