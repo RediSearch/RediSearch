@@ -422,10 +422,9 @@ typedef struct IndexDiskAPI {
    * @param index Pointer to the index
    * @param filter Pointer to the numeric filter (min, max, inclusivity flags, field spec)
    * @param fieldIndex Field index for the numeric field
-   * @param weight Weight for the iterator (used in scoring)
    * @return Pointer to the created iterator, or NULL if no buckets overlap the filter
    */
-  QueryIterator *(*newNumericIterator)(RedisSearchDiskIndexSpec *index, const NumericFilter *filter, t_fieldIndex fieldIndex, double weight);
+  QueryIterator *(*newNumericIterator)(RedisSearchDiskIndexSpec *index, const NumericFilter *filter, t_fieldIndex fieldIndex);
 
   /**
    * @brief Run a GC compaction cycle on the disk index.

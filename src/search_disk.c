@@ -253,9 +253,9 @@ QueryIterator* SearchDisk_NewTagIterator(RedisSearchDiskIndexSpec *index, const 
     return disk->index.newTagIterator(index, tok, fieldIndex, weight);
 }
 
-QueryIterator* SearchDisk_NewNumericIterator(RedisSearchDiskIndexSpec *index, const NumericFilter *filter, t_fieldIndex fieldIndex, double weight) {
+QueryIterator* SearchDisk_NewNumericIterator(RedisSearchDiskIndexSpec *index, const NumericFilter *filter, t_fieldIndex fieldIndex) {
     RS_ASSERT(disk && index && filter);
-    return disk->index.newNumericIterator(index, filter, fieldIndex, weight);
+    return disk->index.newNumericIterator(index, filter, fieldIndex);
 }
 
 static void* Compaction_BeginUpdate(void *private_data) {
