@@ -292,6 +292,7 @@ QueryIterator *NewOptimizerIterator(QOptimizer *qOpt, QueryIterator *root, Itera
   ri->SkipTo = NULL;            // The iterator is always on top and and Read() is called
   ri->Read = OPT_Read;
   ri->ProfileChildren = OPT_ProfileChildren;
+  ri->PrintProfile = Optimus_PrintProfile;
   ri->current = NULL;
 
   return &oi->base;

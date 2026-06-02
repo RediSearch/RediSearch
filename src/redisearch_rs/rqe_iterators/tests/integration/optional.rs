@@ -7,7 +7,7 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 
-use ffi::{RS_FIELDMASK_ALL, t_docId};
+use rqe_core::{DocId, RS_FIELDMASK_ALL};
 use rqe_iterators::{
     IteratorType, RQEIterator, RQEValidateStatus, SkipToOutcome, empty::Empty, optional::Optional,
     wildcard::Wildcard,
@@ -61,11 +61,11 @@ mod optional_iterator_skip_backward_panics {
 mod optional_iterator_tests {
     use super::*;
 
-    const MAX_DOC_ID: t_docId = 100;
+    const MAX_DOC_ID: DocId = 100;
     const WEIGHT: f64 = 2.;
 
     const NUM_DOCS: usize = 5;
-    const CHILD_DOCS: [t_docId; NUM_DOCS] = [10, 20, 30, 50, 80];
+    const CHILD_DOCS: [DocId; NUM_DOCS] = [10, 20, 30, 50, 80];
 
     fn setup_optional_iterator_with_mock_child<'index>()
     -> Optional<'index, utils::Mock<'index, NUM_DOCS>> {
@@ -126,7 +126,7 @@ mod optional_iterator_tests {
     fn test_skip_to_real_hit() {
         let mut it = setup_optional_iterator_with_mock_child();
 
-        const SKIP_TO_DOC_ID: t_docId = 20;
+        const SKIP_TO_DOC_ID: DocId = 20;
 
         // Skip to a docId that exists in child
         match it
@@ -155,7 +155,7 @@ mod optional_iterator_tests {
     fn test_skip_to_virtual_hit() {
         let mut it = setup_optional_iterator_with_mock_child();
 
-        const SKIP_TO_DOC_ID: t_docId = 25;
+        const SKIP_TO_DOC_ID: DocId = 25;
 
         // Skip to a docId that doesn't exist in child
         match it
@@ -185,7 +185,7 @@ mod optional_iterator_tests {
         let mut it = setup_optional_iterator_with_mock_child();
 
         // Test skipping to various docIds in sequence
-        const TARGETS: [t_docId; 10] = [5, 15, 25, 35, 45, 55, 65, 75, 85, 95];
+        const TARGETS: [DocId; 10] = [5, 15, 25, 35, 45, 55, 65, 75, 85, 95];
 
         for target in TARGETS {
             // Skip to the target docId
@@ -342,11 +342,11 @@ mod optional_iterator_tests {
 mod optional_iterator_timeout_tests {
     use super::*;
 
-    const MAX_DOC_ID: t_docId = 100;
+    const MAX_DOC_ID: DocId = 100;
     const WEIGHT: f64 = 2.;
 
     const NUM_DOCS: usize = 3;
-    const CHILD_DOCS: [t_docId; NUM_DOCS] = [10, 20, 30];
+    const CHILD_DOCS: [DocId; NUM_DOCS] = [10, 20, 30];
 
     fn setup_optional_iterator_with_mock_child<'index>()
     -> Optional<'index, utils::Mock<'index, NUM_DOCS>> {
@@ -462,7 +462,7 @@ mod optional_iterator_timeout_tests {
 mod optional_iterator_with_empty_child_test {
     use super::*;
 
-    const MAX_DOC_ID: t_docId = 50;
+    const MAX_DOC_ID: DocId = 50;
     const WEIGHT: f64 = 3.;
 
     fn setup_optional_iterator_with_empty_child<'index>() -> Optional<'index, Empty> {
@@ -512,7 +512,7 @@ mod optional_iterator_with_empty_child_test {
         let mut it = setup_optional_iterator_with_empty_child();
 
         // Skip to various docIds - all should be virtual hits
-        const TARGETS: [t_docId; 5] = [5, 15, 25, 35, 45];
+        const TARGETS: [DocId; 5] = [5, 15, 25, 35, 45];
 
         for target in TARGETS {
             match it
@@ -646,11 +646,11 @@ mod optional_iterator_with_empty_child_test {
 mod optional_iterator_revalidate_test {
     use super::*;
 
-    const MAX_DOC_ID: t_docId = 100;
+    const MAX_DOC_ID: DocId = 100;
     const WEIGHT: f64 = 2.;
 
     const NUM_DOCS: usize = 5;
-    const CHILD_DOCS: [t_docId; NUM_DOCS] = [10, 20, 30, 50, 80];
+    const CHILD_DOCS: [DocId; NUM_DOCS] = [10, 20, 30, 50, 80];
 
     fn setup_optional_iterator_with_mock_child_and_data<'index>() -> (
         Optional<'index, utils::Mock<'index, NUM_DOCS>>,
@@ -736,7 +736,7 @@ mod optional_iterator_revalidate_test {
         data.set_revalidate_result(utils::MockRevalidateResult::Move);
 
         // Read to a real hit (document from child)
-        const DOC_ID: t_docId = 10;
+        const DOC_ID: DocId = 10;
         match it
             .skip_to(DOC_ID)
             .expect("no error to be returned while skipping")
@@ -774,7 +774,7 @@ mod optional_iterator_revalidate_test {
         data.set_revalidate_result(utils::MockRevalidateResult::Move);
 
         // Read to a virtual hit (document not in child)
-        const DOC_ID: t_docId = 15;
+        const DOC_ID: DocId = 15;
         match it
             .skip_to(DOC_ID)
             .expect("no error to be returned while skipping")
@@ -806,7 +806,7 @@ mod optional_iterator_revalidate_test {
 mod optional_iterator_revalidate_after_abort {
     use super::*;
 
-    const MAX_DOC_ID: t_docId = 20;
+    const MAX_DOC_ID: DocId = 20;
     const WEIGHT: f64 = 2.;
 
     /// After child abort + a second revalidate, the child is `None` and
@@ -903,13 +903,13 @@ mod optional_iterator_non_sequential_reads {
     use super::*;
 
     struct ReadStepIterator<'index, const N: usize> {
-        read_steps: [t_docId; N],
+        read_steps: [DocId; N],
         read_step: usize,
         result: index_result::RSIndexResult<'index>,
     }
 
     impl<'index, const N: usize> ReadStepIterator<'index, N> {
-        fn new(read_steps: [t_docId; N]) -> Self {
+        fn new(read_steps: [DocId; N]) -> Self {
             Self {
                 read_steps,
                 read_step: 0,
@@ -938,7 +938,7 @@ mod optional_iterator_non_sequential_reads {
 
         fn skip_to(
             &mut self,
-            doc_id: ffi::t_docId,
+            doc_id: DocId,
         ) -> Result<Option<SkipToOutcome<'_, 'index>>, rqe_iterators::RQEIteratorError> {
             while !self.at_eof() && self.result.doc_id < doc_id {
                 self.result.doc_id = self.read_steps[self.read_step];
@@ -961,7 +961,7 @@ mod optional_iterator_non_sequential_reads {
             unimplemented!()
         }
 
-        fn last_doc_id(&self) -> ffi::t_docId {
+        fn last_doc_id(&self) -> DocId {
             self.result.doc_id
         }
 
@@ -988,7 +988,7 @@ mod optional_iterator_non_sequential_reads {
 
     fn assert_numeric_read<'index>(
         it: &mut impl RQEIterator<'index>,
-        expected_id: t_docId,
+        expected_id: DocId,
         expected_weight: f64,
     ) {
         assert!(!it.at_eof());
@@ -1008,7 +1008,7 @@ mod optional_iterator_non_sequential_reads {
         assert_eq!(it.last_doc_id(), expected_id);
     }
 
-    fn assert_virtual_read<'index>(it: &mut impl RQEIterator<'index>, expected_id: t_docId) {
+    fn assert_virtual_read<'index>(it: &mut impl RQEIterator<'index>, expected_id: DocId) {
         assert!(!it.at_eof());
         let outcome = it
             .read()

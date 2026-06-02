@@ -12,17 +12,17 @@
 //!
 //! Gated behind the `test-utils` feature.
 
-use ffi::t_docId;
 use index_result::RSIndexResult;
+use rqe_core::DocId;
 use rqe_iterators::RQEIteratorError;
 
-use crate::traits::{ScoreBatch, ScoreSource};
+use crate::traits::{CollectionStrategy, ScoreBatch, ScoreSource};
 
-/// A [`ScoreBatch`] backed by a pre-sorted `Vec<(t_docId, f64)>`.
+/// A [`ScoreBatch`] backed by a pre-sorted `Vec<(DocId, f64)>`.
 ///
 /// Doc IDs must be strictly increasing; this is validated in debug builds.
 pub struct MockScoreBatch {
-    items: Vec<(t_docId, f64)>,
+    items: Vec<(DocId, f64)>,
     pos: usize,
 }
 
@@ -30,7 +30,7 @@ impl MockScoreBatch {
     /// Creates a batch from a vector of `(doc_id, score)` pairs.
     ///
     /// The pairs must be sorted by `doc_id` in strictly ascending order (asserted in debug builds).
-    pub fn new(items: Vec<(t_docId, f64)>) -> Self {
+    pub fn new(items: Vec<(DocId, f64)>) -> Self {
         debug_assert!(
             items.windows(2).all(|w| w[0].0 < w[1].0),
             "MockScoreBatch: doc IDs must be strictly increasing"
@@ -40,12 +40,17 @@ impl MockScoreBatch {
 }
 
 impl ScoreBatch for MockScoreBatch {
-    fn next(&mut self) -> Option<(t_docId, f64)> {
+    fn next(&mut self) -> Option<(DocId, f64)> {
         let item = self.items.get(self.pos).copied();
         if item.is_some() {
             self.pos += 1;
         }
         item
+    }
+
+    fn skip_to(&mut self, target: DocId) -> Option<(DocId, f64)> {
+        self.pos += self.items[self.pos..].partition_point(|(id, _)| *id < target);
+        self.next()
     }
 }
 
@@ -55,17 +60,21 @@ impl ScoreBatch for MockScoreBatch {
 ///
 /// ```rust
 /// # use top_k::mock::MockScoreSource;
+/// # use top_k::traits::CollectionStrategy;
 /// let source = MockScoreSource::new(
 ///     // Two batches: each is a Vec<(doc_id, score)>
 ///     vec![
 ///         vec![(1, 0.5), (3, 0.8)],
 ///         vec![(5, 0.2), (7, 0.9)],
 ///     ],
+///     // Strategy: always Continue
+///     |_, _| CollectionStrategy::Continue,
 /// );
 /// ```
 pub struct MockScoreSource {
-    batches: Vec<Vec<(t_docId, f64)>>,
+    batches: Vec<Vec<(DocId, f64)>>,
     batch_pos: usize,
+    strategy: Box<dyn FnMut(usize, usize) -> CollectionStrategy>,
     num_estimated: usize,
 }
 
@@ -76,11 +85,15 @@ impl MockScoreSource {
     /// - `strategy` — function called after each batch.
     ///
     /// `num_estimated` defaults to the total number of entries across all batches.
-    pub fn new(batches: Vec<Vec<(t_docId, f64)>>) -> Self {
+    pub fn new(
+        batches: Vec<Vec<(DocId, f64)>>,
+        strategy: impl FnMut(usize, usize) -> CollectionStrategy + 'static,
+    ) -> Self {
         let num_estimated = batches.iter().map(Vec::len).sum();
         Self {
             batches,
             batch_pos: 0,
+            strategy: Box::new(strategy),
             num_estimated,
         }
     }
@@ -115,11 +128,15 @@ impl ScoreSource for MockScoreSource {
         self.batch_pos = 0;
     }
 
-    fn build_result<'r>(&self, doc_id: t_docId, _score: f64) -> RSIndexResult<'r>
+    fn build_result<'r>(&self, doc_id: DocId, _score: f64) -> RSIndexResult<'r>
     where
         Self: 'r,
     {
         RSIndexResult::build_virt().doc_id(doc_id).build()
+    }
+
+    fn collection_strategy(&mut self, heap_count: usize, k: usize) -> CollectionStrategy {
+        (self.strategy)(heap_count, k)
     }
 
     fn iterator_type(&self) -> rqe_iterator_type::IteratorType {

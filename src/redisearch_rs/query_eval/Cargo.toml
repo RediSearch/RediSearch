@@ -14,11 +14,11 @@ unittest = []
 build_utils.workspace = true
 
 [dependencies]
+ffi.workspace = true
 thiserror.workspace = true
 workspace_hack.workspace = true
 
 [dev-dependencies]
-ffi.workspace = true
 proptest = { workspace = true, features = ["std"] }
 query_eval = { path = ".", features = ["unittest"] }
 redis_mock.workspace = true

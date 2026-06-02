@@ -20,7 +20,7 @@ pub mod raw_doc_ids_only;
 
 use std::io::{Cursor, Seek, Write};
 
-use ffi::t_docId;
+use rqe_core::DocId;
 
 use crate::IndexBlock;
 use index_result::RSIndexResult;
@@ -78,7 +78,7 @@ pub trait Encoder {
     ) -> std::io::Result<usize>;
 
     /// Returns the base value that should be used for any delta calculations
-    fn delta_base(block: &IndexBlock) -> t_docId {
+    fn delta_base(block: &IndexBlock) -> DocId {
         block.last_doc_id
     }
 }
@@ -98,7 +98,7 @@ pub trait Decoder {
     /// add to the `base` document ID to get the actual document ID.
     fn decode<'index>(
         cursor: &mut Cursor<&'index [u8]>,
-        base: t_docId,
+        base: DocId,
         result: &mut RSIndexResult<'index>,
     ) -> std::io::Result<()>;
 
@@ -109,7 +109,7 @@ pub trait Decoder {
     /// an existing one.
     fn decode_new<'index>(
         cursor: &mut Cursor<&'index [u8]>,
-        base: t_docId,
+        base: DocId,
     ) -> std::io::Result<RSIndexResult<'index>> {
         let mut result = Self::base_result();
         Self::decode(cursor, base, &mut result)?;
@@ -127,8 +127,8 @@ pub trait Decoder {
     /// than the target.
     fn seek<'index>(
         cursor: &mut Cursor<&'index [u8]>,
-        mut base: t_docId,
-        target: t_docId,
+        mut base: DocId,
+        target: DocId,
         result: &mut RSIndexResult<'index>,
     ) -> std::io::Result<bool> {
         loop {
@@ -147,7 +147,7 @@ pub trait Decoder {
     }
 
     /// Returns the base value to use for any delta calculations
-    fn base_id(_block: &IndexBlock, last_doc_id: t_docId) -> t_docId {
+    fn base_id(_block: &IndexBlock, last_doc_id: DocId) -> DocId {
         last_doc_id
     }
 }

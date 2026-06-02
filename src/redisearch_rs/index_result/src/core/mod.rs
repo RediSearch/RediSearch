@@ -11,8 +11,9 @@ mod proximity;
 
 use std::ptr;
 
-use ffi::{FieldMask, RS_FIELDMASK_ALL, RSDocumentMetadata, t_docId, t_fieldMask};
+use ffi::RSDocumentMetadata;
 use query_term::RSQueryTerm;
+use rqe_core::{DocId, FieldMask, RS_FIELDMASK_ALL};
 
 use super::aggregate::RSAggregateResult;
 use super::kind::RSResultKind;
@@ -28,8 +29,8 @@ use super::term_record::RSTermRecord;
 /// specialized [`RSTermResultBuilder`] with additional setters for
 /// term-specific fields.
 pub struct RSIndexResultBuilder<'index> {
-    doc_id: t_docId,
-    field_mask: t_fieldMask,
+    doc_id: DocId,
+    field_mask: FieldMask,
     freq: u32,
     data: RSResultData<'index>,
     weight: f64,
@@ -42,8 +43,8 @@ pub struct RSIndexResultBuilder<'index> {
 /// or [`Self::owned_record`] to set the term record data before calling
 /// [`Self::build`].
 pub struct RSTermResultBuilder<'index> {
-    doc_id: t_docId,
-    field_mask: t_fieldMask,
+    doc_id: DocId,
+    field_mask: FieldMask,
     freq: u32,
     weight: f64,
     record: TermBuilderRecord<'index>,
@@ -67,7 +68,7 @@ enum TermBuilderRecord<'index> {
 
 impl<'index> RSIndexResultBuilder<'index> {
     /// Set the document ID of this record
-    pub const fn doc_id(mut self, doc_id: t_docId) -> Self {
+    pub const fn doc_id(mut self, doc_id: DocId) -> Self {
         self.doc_id = doc_id;
         self
     }
@@ -187,7 +188,7 @@ impl<'index> RSTermResultBuilder<'index> {
     }
 
     /// Set the document ID of this record
-    pub const fn doc_id(mut self, doc_id: t_docId) -> Self {
+    pub const fn doc_id(mut self, doc_id: DocId) -> Self {
         self.doc_id = doc_id;
         self
     }
@@ -287,13 +288,13 @@ impl<'index> RSTermResultBuilder<'index> {
 #[cheadergen::config(export, rename_all = "camelCase")]
 pub struct RSIndexResult<'index> {
     /// The document ID of the result
-    pub doc_id: t_docId,
+    pub doc_id: DocId,
 
     /// Some metadata about the result document
     pub dmd: *const RSDocumentMetadata,
 
     /// The aggregate field mask of all the records in this result
-    pub field_mask: t_fieldMask,
+    pub field_mask: FieldMask,
 
     /// The total frequency of all the records in this result
     pub freq: u32,

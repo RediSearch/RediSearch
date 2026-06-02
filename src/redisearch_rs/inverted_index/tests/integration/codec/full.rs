@@ -9,13 +9,13 @@
 
 use std::io::Cursor;
 
-use ffi::t_fieldMask;
 use index_result::RSIndexResult;
 use inverted_index::{
     Decoder, Encoder,
     full::{Full, FullWide},
     test_utils::{TermRecordCompare, TestTermRecord},
 };
+use rqe_core::FieldMask;
 
 #[test]
 fn test_encode_full() {
@@ -26,7 +26,7 @@ fn test_encode_full() {
         (
             10,
             5,
-            u32::MAX as t_fieldMask,
+            u32::MAX as FieldMask,
             vec![1u8, 2, 3, 4],
             vec![48, 10, 5, 255, 255, 255, 255, 4, 1, 2, 3, 4],
         ),
@@ -55,7 +55,7 @@ fn test_encode_full() {
         (
             u32::MAX,
             u32::MAX,
-            u32::MAX as t_fieldMask,
+            u32::MAX as FieldMask,
             vec![1; 100],
             vec![
                 63, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 100, 1, 1, 1, 1, 1,
@@ -104,7 +104,7 @@ fn test_encode_full_wide() {
         (
             10,
             5,
-            u32::MAX as t_fieldMask,
+            u32::MAX as FieldMask,
             vec![1u8, 2, 3, 4],
             vec![0, 10, 5, 4, 142, 254, 254, 254, 127, 1, 2, 3, 4],
         ),
@@ -135,7 +135,7 @@ fn test_encode_full_wide() {
         (
             u32::MAX as u32,
             u32::MAX,
-            u32::MAX as t_fieldMask,
+            u32::MAX as FieldMask,
             vec![1; 100],
             vec![
                 15, 255, 255, 255, 255, 255, 255, 255, 255, 100, 142, 254, 254, 254, 127, 1, 1, 1,
@@ -196,7 +196,7 @@ fn test_encode_full_field_mask_overflow() {
     let buf = [0u8; 100];
     let mut cursor = Cursor::new(buf);
 
-    let record = TestTermRecord::new(10, u32::MAX as t_fieldMask + 1, 1, &[1]);
+    let record = TestTermRecord::new(10, u32::MAX as FieldMask + 1, 1, &[1]);
     let _res = Full::encode(&mut cursor, 0, &record.record);
 }
 

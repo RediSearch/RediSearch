@@ -10,12 +10,15 @@
 //! Supporting types for [`Metric`].
 
 use crate::{
-    IteratorType, RQEIterator, RQEIteratorError, RQEValidateStatus, SkipToOutcome, id_list::IdList,
+    IteratorType, RQEIterator, RQEIteratorError, RQEValidateStatus, SkipToOutcome,
+    id_list::IdList,
+    profile_print::{ProfilePrint, ProfilePrintCtx},
     utils::OwnedSlice,
 };
-use ffi::{RLookupKey, RLookupKeyHandle, t_docId};
+use ffi::{RLookupKey, RLookupKeyHandle};
 use index_result::RSIndexResult;
 use index_spec::IndexSpecReadGuard;
+use rqe_core::DocId;
 
 /// The different types of metrics.
 /// At the moment, only vector distance is supported.
@@ -82,10 +85,7 @@ fn set_result_metrics(result: &mut RSIndexResult, val: f64, key: *mut RLookupKey
 }
 
 impl<'index, const SORTED_BY_ID: bool> Metric<'index, SORTED_BY_ID> {
-    pub fn new(
-        ids: impl Into<OwnedSlice<t_docId>>,
-        metric_data: impl Into<OwnedSlice<f64>>,
-    ) -> Self {
+    pub fn new(ids: impl Into<OwnedSlice<DocId>>, metric_data: impl Into<OwnedSlice<f64>>) -> Self {
         let ids = ids.into();
         let metric_data = metric_data.into();
 
@@ -145,7 +145,7 @@ impl<'index, const SORTED_BY_ID: bool> RQEIterator<'index> for Metric<'index, SO
 
     fn skip_to(
         &mut self,
-        doc_id: t_docId,
+        doc_id: DocId,
     ) -> Result<Option<SkipToOutcome<'_, 'index>>, RQEIteratorError> {
         let Some(found) = self.base._skip_to(doc_id) else {
             return Ok(None);
@@ -176,7 +176,7 @@ impl<'index, const SORTED_BY_ID: bool> RQEIterator<'index> for Metric<'index, SO
     }
 
     #[inline(always)]
-    fn last_doc_id(&self) -> t_docId {
+    fn last_doc_id(&self) -> DocId {
         self.base.last_doc_id()
     }
 
@@ -204,5 +204,30 @@ impl<'index, const SORTED_BY_ID: bool> RQEIterator<'index> for Metric<'index, SO
 
     fn intersection_sort_weight(&self, _prioritize_union_children: bool) -> f64 {
         1.0
+    }
+}
+
+impl<const SORTED_BY_ID: bool> ProfilePrint for Metric<'_, SORTED_BY_ID> {
+    fn print_profile(&self, map: &mut redis_reply::MapBuilder<'_>, ctx: &mut ProfilePrintCtx<'_>) {
+        let metric_type = self.metric_type();
+
+        let type_prefix = if SORTED_BY_ID {
+            "METRIC SORTED BY ID"
+        } else {
+            "METRIC SORTED BY SCORE"
+        };
+        let type_str = match metric_type {
+            MetricType::VectorDistance => {
+                format!("{type_prefix} - VECTOR DISTANCE")
+            }
+        };
+        let type_cstr = std::ffi::CString::new(type_str).unwrap();
+        map.kv_simple_string(c"Type", &type_cstr);
+
+        ctx.print_optional_counters(map);
+
+        if matches!(metric_type, MetricType::VectorDistance) {
+            map.kv_simple_string(c"Vector search mode", c"RANGE_QUERY");
+        }
     }
 }

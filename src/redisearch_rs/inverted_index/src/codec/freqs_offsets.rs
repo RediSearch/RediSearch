@@ -9,8 +9,8 @@
 
 use std::io::{Cursor, Seek, SeekFrom, Write};
 
-use ffi::t_docId;
 use qint::{qint_decode, qint_encode};
+use rqe_core::DocId;
 
 use crate::{
     Decoder, Encoder, TermDecoder,
@@ -53,7 +53,7 @@ impl Decoder for FreqsOffsets {
     #[inline(always)]
     fn decode<'index>(
         cursor: &mut Cursor<&'index [u8]>,
-        base: t_docId,
+        base: DocId,
         result: &mut RSIndexResult<'index>,
     ) -> std::io::Result<()> {
         let (decoded_values, _bytes_consumed) = qint_decode::<3, _>(cursor)?;
@@ -68,8 +68,8 @@ impl Decoder for FreqsOffsets {
 
     fn seek<'index>(
         cursor: &mut Cursor<&'index [u8]>,
-        mut base: t_docId,
-        target: t_docId,
+        mut base: DocId,
+        target: DocId,
         result: &mut RSIndexResult<'index>,
     ) -> std::io::Result<bool> {
         let (freq, offsets_sz) = loop {
@@ -81,7 +81,7 @@ impl Decoder for FreqsOffsets {
                 Err(error) => return Err(error),
             };
 
-            base += delta as t_docId;
+            base += delta as DocId;
 
             if base >= target {
                 break (freq, offsets_sz);

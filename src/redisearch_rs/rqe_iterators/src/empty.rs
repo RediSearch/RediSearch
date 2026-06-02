@@ -9,11 +9,14 @@
 
 //! Supporting types for [`Empty`].
 
-use ffi::t_docId;
 use index_result::RSIndexResult;
 use index_spec::IndexSpecReadGuard;
+use rqe_core::DocId;
 
-use crate::{IteratorType, RQEIterator, RQEIteratorError, RQEValidateStatus, SkipToOutcome};
+use crate::{
+    IteratorType, RQEIterator, RQEIteratorError, RQEValidateStatus, SkipToOutcome,
+    profile_print::{ProfilePrint, ProfilePrintCtx},
+};
 
 /// An iterator that yields no results.
 ///
@@ -35,7 +38,7 @@ impl<'index> RQEIterator<'index> for Empty {
     #[inline(always)]
     fn skip_to(
         &mut self,
-        _doc_id: t_docId,
+        _doc_id: DocId,
     ) -> Result<Option<SkipToOutcome<'_, 'index>>, RQEIteratorError> {
         Ok(None)
     }
@@ -49,7 +52,7 @@ impl<'index> RQEIterator<'index> for Empty {
     }
 
     #[inline(always)]
-    fn last_doc_id(&self) -> t_docId {
+    fn last_doc_id(&self) -> DocId {
         0
     }
 
@@ -73,5 +76,11 @@ impl<'index> RQEIterator<'index> for Empty {
 
     fn intersection_sort_weight(&self, _prioritize_union_children: bool) -> f64 {
         1.0
+    }
+}
+
+impl ProfilePrint for Empty {
+    fn print_profile(&self, map: &mut redis_reply::MapBuilder<'_>, ctx: &mut ProfilePrintCtx<'_>) {
+        ctx.print_leaf(c"EMPTY", map);
     }
 }

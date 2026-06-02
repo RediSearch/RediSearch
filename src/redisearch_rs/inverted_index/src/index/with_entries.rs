@@ -12,8 +12,9 @@ use crate::{
     debug::{BlockSummary, Summary},
     reader::IndexReaderCore,
 };
-use ffi::{IndexFlags, t_docId};
+use ffi::IndexFlags;
 use index_result::RSIndexResult;
+use rqe_core::DocId;
 
 /// A wrapper around the inverted index to track the total number of entries in the index.
 /// Unlike [`InvertedIndex::unique_docs()`], this counts all entries, including duplicates.
@@ -60,7 +61,7 @@ impl<E: Encoder> EntriesTrackingIndex<E> {
     }
 
     /// Returns the last document ID in the index, if any.
-    pub fn last_doc_id(&self) -> Option<t_docId> {
+    pub fn last_doc_id(&self) -> Option<DocId> {
         self.index.last_doc_id()
     }
 
@@ -141,7 +142,7 @@ impl<E: Encoder + DecodedBy> EntriesTrackingIndex<E> {
     /// This function returns a delta if GC is needed, or `None` if no GC is needed.
     pub fn scan_gc<'index>(
         &'index self,
-        doc_exist: impl Fn(t_docId) -> bool,
+        doc_exist: impl Fn(DocId) -> bool,
         repair: Option<impl FnMut(&RSIndexResult<'index>, &IndexBlock)>,
     ) -> std::io::Result<Option<GcScanDelta>> {
         self.index.scan_gc(doc_exist, repair)

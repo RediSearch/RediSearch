@@ -23,6 +23,7 @@ build_utils = { path = "../build_utils" }
 [dependencies]
 criterion.workspace = true
 ffi.workspace = true
+rqe_core.workspace = true
 field.workspace = true
 index_result.workspace = true
 query_term.workspace = true

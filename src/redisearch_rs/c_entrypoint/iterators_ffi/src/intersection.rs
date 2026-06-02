@@ -114,54 +114,6 @@ pub unsafe extern "C" fn NewIntersectionIterator(
     wrapper
 }
 
-/// Returns the number of child iterators held by the intersection iterator.
-///
-/// # Safety
-///
-/// 1. `header` must be a valid non-null pointer created via [`NewIntersectionIterator()`].
-#[unsafe(no_mangle)]
-pub unsafe extern "C" fn GetIntersectionIteratorNumChildren(header: *const QueryIterator) -> usize {
-    debug_assert!(!header.is_null());
-    debug_assert_eq!(
-        // SAFETY: safe thanks to 1
-        unsafe { (*header).type_ },
-        IteratorType::Intersect,
-        "Expected an INTERSECT_ITERATOR"
-    );
-    // SAFETY: safe thanks to 1
-    let wrapper =
-        unsafe { RQEIteratorWrapper::<Intersection<CRQEIterator>>::ref_from_header_ptr(header) };
-    wrapper.inner.num_children()
-}
-
-/// Returns a non-owning raw pointer to the child at `idx`.
-///
-/// The returned pointer is valid as long as the intersection iterator is alive and no
-/// structural modifications are made (e.g. via [`AddIntersectionIteratorChild`]).
-///
-/// # Safety
-///
-/// 1. `header` must be a valid non-null pointer created via [`NewIntersectionIterator()`].
-/// 2. `idx` must be less than [`GetIntersectionIteratorNumChildren`]`(header)`.
-#[unsafe(no_mangle)]
-pub unsafe extern "C" fn GetIntersectionIteratorChild(
-    header: *const QueryIterator,
-    idx: usize,
-) -> *const QueryIterator {
-    debug_assert!(!header.is_null());
-    debug_assert_eq!(
-        // SAFETY: safe thanks to 1
-        unsafe { (*header).type_ },
-        IteratorType::Intersect,
-        "Expected an INTERSECT_ITERATOR"
-    );
-    // SAFETY: safe thanks to 1
-    let wrapper =
-        unsafe { RQEIteratorWrapper::<Intersection<CRQEIterator>>::ref_from_header_ptr(header) };
-    // SAFETY: safe thanks to 2
-    wrapper.inner.child_at(idx).as_ref() as *const QueryIterator
-}
-
 /// Append a new child iterator to the intersection.
 ///
 /// Transfers ownership of `child` to the intersection. Updates the estimated result count

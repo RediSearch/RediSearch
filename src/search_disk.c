@@ -426,6 +426,31 @@ void SearchDisk_FreeVectorIndex(void *vecIndex) {
     disk->vector.freeVectorIndex(vecIndex);
 }
 
+bool SearchDisk_SaveVectorIndexToRDB(void *vecIndex, RedisModuleIO *rdb) {
+    RS_ASSERT(disk && vecIndex && rdb);
+    RS_ASSERT(disk->vector.saveVectorIndexToRDB);
+    return disk->vector.saveVectorIndexToRDB(vecIndex, rdb);
+}
+
+void* SearchDisk_CreateUnboundVectorIndex(const VecSimParamsDisk *params) {
+    RS_ASSERT(disk && params);
+    RS_ASSERT(disk->vector.createUnboundVectorIndex);
+    return disk->vector.createUnboundVectorIndex(params);
+}
+
+bool SearchDisk_LoadVectorIndexFromRDB(void *vecIndex, RedisModuleIO *rdb) {
+    RS_ASSERT(disk && vecIndex && rdb);
+    RS_ASSERT(disk->vector.loadVectorIndexFromRDB);
+    return disk->vector.loadVectorIndexFromRDB(vecIndex, rdb);
+}
+
+bool SearchDisk_BindVectorIndexStorage(RedisModuleCtx *ctx, RedisSearchDiskIndexSpec *index,
+                                       void *vecIndex, const VecSimParamsDisk *params) {
+    RS_ASSERT(disk && ctx && index && vecIndex && params);
+    RS_ASSERT(disk->vector.bindVectorIndexStorage);
+    return disk->vector.bindVectorIndexStorage(ctx, index, vecIndex, params);
+}
+
 // Throttle callback wrappers for VecSim
 static int VecSim_EnableThrottle(void) {
   RS_ASSERT(RedisModule_EnablePostponeClients);

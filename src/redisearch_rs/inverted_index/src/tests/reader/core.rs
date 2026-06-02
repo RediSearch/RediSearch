@@ -16,6 +16,7 @@ use ffi::{
 };
 use index_result::RSIndexResult;
 use pretty_assertions::assert_eq;
+use rqe_core::DocId;
 use thin_vec::medium_thin_vec;
 
 use super::super::Dummy;
@@ -267,7 +268,7 @@ fn reader_has_duplicates() {
     impl Decoder for AllowDupsDummy {
         fn decode<'index>(
             _cursor: &mut Cursor<&'index [u8]>,
-            _base: ffi::t_docId,
+            _base: DocId,
             _result: &mut RSIndexResult<'index>,
         ) -> std::io::Result<()> {
             panic!("This test won't decode anything")
@@ -444,7 +445,7 @@ fn read_using_the_first_block_id_as_the_base() {
             RSIndexResult::build_virt().build()
         }
 
-        fn base_id(block: &IndexBlock, _last_doc_id: ffi::t_docId) -> ffi::t_docId {
+        fn base_id(block: &IndexBlock, _last_doc_id: DocId) -> DocId {
             block.first_doc_id
         }
     }
@@ -492,13 +493,13 @@ impl<'index, I: Iterator<Item = RSIndexResult<'index>>> IndexReader<'index> for 
 
     fn seek_record(
         &mut self,
-        _doc_id: ffi::t_docId,
+        _doc_id: DocId,
         _result: &mut RSIndexResult<'index>,
     ) -> std::io::Result<bool> {
         unimplemented!("This tests won't seek anything")
     }
 
-    fn skip_to(&mut self, _doc_id: ffi::t_docId) -> bool {
+    fn skip_to(&mut self, _doc_id: DocId) -> bool {
         unimplemented!("This test won't skip to anything")
     }
 

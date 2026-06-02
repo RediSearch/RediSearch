@@ -9,7 +9,7 @@
 
 /// A version of `std`'s `strip_prefix` that's built on top of [`memchr::arch::all::is_prefix`].
 #[inline(always)]
-pub(crate) fn strip_prefix<'a>(haystack: &'a [u8], prefix: &[u8]) -> Option<&'a [u8]> {
+pub(crate) fn strip_prefix<'h>(haystack: &'h [u8], prefix: &[u8]) -> Option<&'h [u8]> {
     if !memchr::arch::all::is_prefix(haystack, prefix) {
         None
     } else {

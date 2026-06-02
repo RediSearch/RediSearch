@@ -682,7 +682,7 @@ static const char *PrefixNode_GetTypeString(const QueryPrefixNode *pfx) {
   }
 }
 
-#define TRIE_STR_TOO_LONG_MSG "query string is too long. Maximum allowed length is " STRINGIFY(MAX_RUNESTR_LEN)
+#define TRIE_STR_TOO_LONG_MSG "query string is too long. Maximum allowed length is " STRINGIFY(MAX_RUNE_STR_LEN)
 
 /* Evaluate a prefix node by expanding all its possible matches and creating one big UNION on all
  * of them.

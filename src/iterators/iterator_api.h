@@ -17,6 +17,8 @@
 
 struct RLookupKey; // Forward declaration
 struct IndexSpec;
+typedef struct MapBuilder RsMapBuilder; // Opaque Rust type (redis_reply::MapBuilder)
+typedef struct ProfilePrintCtx RsProfilePrintCtx; // Opaque Rust type (rqe_iterators::profile_print::ProfilePrintCtx)
 
 typedef enum IteratorStatus {
   ITERATOR_OK,
@@ -93,6 +95,11 @@ typedef struct QueryIterator {
    * Composite iterators call IntoProfiled() on each child and return `self`.
    * Leaf iterators leave this as NULL (no children to profile). */
   struct QueryIterator* (*ProfileChildren)(struct QueryIterator *self);
+
+  /* Print this iterator's profile as a Redis reply.
+   * Set by Rust iterators at construction time. C iterators set this to a
+   * Rust-exported function. */
+  void (*PrintProfile)(const struct QueryIterator *self, RsMapBuilder *map, RsProfilePrintCtx *ctx);
 } QueryIterator;
 
 static inline ValidateStatus Default_Revalidate(struct QueryIterator *base, struct IndexSpec *spec) {
