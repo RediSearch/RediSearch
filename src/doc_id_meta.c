@@ -160,16 +160,10 @@ static int docIdMetaRDBLoad(RedisModuleIO *rdb, uint64_t *meta, int encver) {
   }
 
   if (forgetDocIDMetadata) {
-    RedisModule_Log(RSDummyContext, "warning",
-                    "DocIdMeta RDBLoad: forget=1 numEntries=%zu -> SKIP (meta dropped)",
-                    numEntries);
     *meta = 0;
     return DOCID_META_RDB_LOAD_SKIP;
   }
 
-  RedisModule_Log(RSDummyContext, "warning",
-                  "DocIdMeta RDBLoad: forget=0 numEntries=%zu attached=%zu -> ATTACH",
-                  numEntries, dictSize(specIdToDocId));
   *meta = (uint64_t)(specIdToDocId);
   return DOCID_META_RDB_LOAD_ATTACH;
 
@@ -186,14 +180,10 @@ static void docIdMetaRDBSave(RedisModuleIO *rdb, void *value, uint64_t *meta) {
 
   if (ForgetDocIdMetadata) {
     // Skip saving during persistence events. We don't want to save this metadata to an RDB/AOF file
-    RedisModule_Log(RSDummyContext, "warning",
-                    "DocIdMeta RDBSave: forget=1 -> SKIP (nothing written)");
     return;
   }
 
   if (*meta == 0) {
-    RedisModule_Log(RSDummyContext, "warning",
-                    "DocIdMeta RDBSave: forget=0 meta=0 -> nothing to save");
     return;
   }
 
@@ -216,9 +206,6 @@ static void docIdMetaRDBSave(RedisModuleIO *rdb, void *value, uint64_t *meta) {
   }
 
   // Save entry count. Version is handled by encver in the KeyMeta API.
-  RedisModule_Log(RSDummyContext, "warning",
-                  "DocIdMeta RDBSave: forget=0 validEntries=%zu -> writing",
-                  validEntries);
   RedisModule_SaveUnsigned(rdb, validEntries);
 
   if (validEntries == 0) {
