@@ -98,6 +98,9 @@ struct TrieIterator {
   stackNode stack[TRIE_INITIAL_STRING_LEN + 1];
   t_len stackOffset;
   StepFilter filter;
+  // kth-best score currently in the top-k heap; rises monotonically as the
+  // heap fills with better candidates. Distinct from the scorer-layer
+  // minScore filter floor (see QueryProcessingCtx::minScore).
   float kthBestScore;
   int nodesConsumed;
   int nodesSkipped;
