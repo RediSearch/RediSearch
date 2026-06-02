@@ -18,7 +18,7 @@ use inverted_index::{DocIdsDecoder, opaque};
 
 use rqe_core::{DocId, RS_FIELDMASK_ALL};
 
-use crate::IteratorType;
+use crate::{IteratorType, RQEIteratorPrintable};
 use crate::{
     Empty, RQEIterator, RQEIteratorError, RQEValidateStatus, SEARCH_ENTERPRISE_ITERATORS,
     SkipToOutcome,
@@ -482,7 +482,7 @@ pub unsafe fn new_wildcard_iterator<'index>(
 /// allowing disk-based wildcard queries to be used interchangeably with
 /// in-memory ones.
 #[repr(transparent)]
-pub struct DiskWildcardIterator<'index>(Box<dyn RQEIterator<'index> + 'index>);
+pub struct DiskWildcardIterator<'index>(Box<dyn RQEIteratorPrintable<'index> + 'index>);
 
 impl<'index> RQEIterator<'index> for DiskWildcardIterator<'index> {
     fn current(&mut self) -> Option<&mut RSIndexResult<'index>> {
@@ -544,8 +544,7 @@ impl ProfilePrint for Wildcard<'_> {
 
 impl ProfilePrint for DiskWildcardIterator<'_> {
     fn print_profile(&self, map: &mut redis_reply::MapBuilder<'_>, ctx: &mut ProfilePrintCtx<'_>) {
-        // TODO: delegate to actual implementation once RSE implements the trait.
-        ctx.print_leaf(c"WILDCARD", map);
+        self.0.print_profile(map, ctx)
     }
 }
 
