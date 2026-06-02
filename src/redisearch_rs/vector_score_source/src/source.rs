@@ -387,12 +387,12 @@ impl<'index> ScoreSource for VectorScoreSource<'index> {
         // shrink the estimate and so grow (double) the next computed batch size.
         // n_res_left > 0 is guaranteed: heap_count < k (checked above) and k_remaining >= 1.
         let new_results_cur_batch = heap_count.saturating_sub(k.saturating_sub(n_res_left));
-        let index_size = self.index_size();
-        let cur_ratio = new_results_cur_batch as f64 / n_res_left as f64;
-        let cur_child_est = (cur_ratio * index_size as f64) as usize;
-        // Rolling average; cap at old estimate to suppress upward drift.
-        let old_est = self.child_num_estimated;
-        self.child_num_estimated = ((old_est + cur_child_est) / 2).min(old_est);
+        self.child_num_estimated = refine_child_estimated(
+            self.child_num_estimated,
+            new_results_cur_batch,
+            n_res_left,
+            self.index_size(),
+        );
 
         let prefer_adhoc = self.index.prefer_adhoc(self.child_num_estimated, k, false);
         if prefer_adhoc {
@@ -400,5 +400,44 @@ impl<'index> ScoreSource for VectorScoreSource<'index> {
         } else {
             BatchStrategy::Continue
         }
+    }
+}
+
+/// Smoothed update of the child-results estimate, averaging the previous
+/// estimate with the one implied by this batch's hit rate. Capped at `old_est`,
+/// so the estimate is monotonically non-increasing across batches.
+fn refine_child_estimated(
+    old_est: usize,
+    new_results_cur_batch: usize,
+    n_res_left: usize,
+    index_size: usize,
+) -> usize {
+    let cur_ratio = new_results_cur_batch as f64 / n_res_left as f64;
+    let cur_child_est = (cur_ratio * index_size as f64) as usize;
+    ((old_est + cur_child_est) / 2).min(old_est)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::refine_child_estimated;
+
+    #[test]
+    fn never_increases_above_previous() {
+        assert_eq!(refine_child_estimated(10, 5, 10, 100), 10);
+    }
+
+    #[test]
+    fn zero_hit_batch_halves() {
+        assert_eq!(refine_child_estimated(80, 0, 10, 1_000), 40);
+    }
+
+    #[test]
+    fn high_hit_batch_clamped_at_previous() {
+        assert_eq!(refine_child_estimated(500, 10, 10, 1_000), 500);
+    }
+
+    #[test]
+    fn cannot_recover_from_zero() {
+        assert_eq!(refine_child_estimated(0, 1, 10, 1_000), 0);
     }
 }
