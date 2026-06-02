@@ -83,6 +83,8 @@ do {                                            \
   }
 
 #define IS_SST_RDB_IN_PROCESS(ctx) (RedisModule_GetContextFlags(ctx) & REDISMODULE_CTX_FLAGS_SST_RDB)
+#define IS_SST_RDB_LOADING(ctx) (IS_SST_RDB_IN_PROCESS(ctx) && (RedisModule_GetContextFlags(ctx) & (REDISMODULE_CTX_FLAGS_LOADING | REDISMODULE_CTX_FLAGS_ASYNC_LOADING)))
+
 // Forward declaration of searchReducerCtx
 struct searchReducerCtx;
 
