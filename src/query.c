@@ -625,7 +625,7 @@ static QueryIterator *iterateExpandedTerms(QueryEvalCtx *q, Trie *terms, const c
   char *target_str = NULL;
   size_t tok_len = 0;
   t_len slen = 0;
-  float score = 0;
+  double score = 0;
   int dist = 0;
 
   // an upper limit on the number of expansions is enforced to avoid stuff like "*"

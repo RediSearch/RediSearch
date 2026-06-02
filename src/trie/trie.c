@@ -70,7 +70,7 @@ int Trie_InsertRune(Trie *t, const rune *runes, size_t len, double score, int in
                     RSPayload *payload, size_t numDocs) {
   int rc = 0;
   if (runes && len && len < TRIE_INITIAL_STRING_LEN) {
-    rc = TrieNode_Add(&t->root, runes, len, payload, (float)score, incr ? ADD_INCR : ADD_REPLACE,
+    rc = TrieNode_Add(&t->root, runes, len, payload, score, incr ? ADD_INCR : ADD_REPLACE,
                       t->freecb, numDocs);
     if (rc == TRIE_OK_NEW) {
       t->size += rc;
@@ -81,7 +81,7 @@ int Trie_InsertRune(Trie *t, const rune *runes, size_t len, double score, int in
 
 int Trie_InsertRuneNoSize(Trie *t, const rune *runes, size_t len, double score, int incr,
                           RSPayload *payload, size_t numDocs) {
-  return TrieNode_Add(&t->root, runes, len, payload, (float)score, incr ? ADD_INCR : ADD_REPLACE,
+  return TrieNode_Add(&t->root, runes, len, payload, score, incr ? ADD_INCR : ADD_REPLACE,
                       t->freecb, numDocs);
 }
 
@@ -248,7 +248,7 @@ Vector *Trie_Search(Trie *tree, const char *s, size_t len, size_t num, int maxDi
   // TrieIterator *it = TrieNode_Iterate(tree->root,NULL, NULL, NULL);
   rune *rstr;
   t_len slen;
-  float score;
+  double score;
   RSPayload payload = {.data = NULL, .len = 0};
 
   TrieSearchResult *pooledEntry = NULL;
@@ -262,7 +262,7 @@ Vector *Trie_Search(Trie *tree, const char *s, size_t len, size_t num, int maxDi
     }
     TrieSearchResult *ent = pooledEntry;
 
-    ent->score = slen > 0 && slen == rlen && memcmp(runes, rstr, slen) == 0 ? (float)INT_MAX : score;
+    ent->score = slen > 0 && slen == rlen && memcmp(runes, rstr, slen) == 0 ? (double)INT_MAX : score;
 
     if (maxDist > 0) {
       // factor the distance into the score
@@ -323,7 +323,7 @@ Vector *Trie_Search(Trie *tree, const char *s, size_t len, size_t num, int maxDi
 
   // trim the results to remove irrelevant results
   if (trim) {
-    float maxScore = 0;
+    double maxScore = 0;
     int i;
     for (i = 0; i < n; ++i) {
       TrieSearchResult *h;
@@ -455,7 +455,7 @@ void TrieType_GenericSave(RedisModuleIO *rdb, Trie *tree, bool savePayloads, boo
     TrieIterator *it = TrieNode_Iterate(tree->root, NULL, NULL, NULL);
     rune *rstr;
     t_len len;
-    float score;
+    double score;
     RSPayload payload = {.data = NULL, .len = 0};
     size_t numDocs = 0;
 
@@ -463,7 +463,7 @@ void TrieType_GenericSave(RedisModuleIO *rdb, Trie *tree, bool savePayloads, boo
       size_t slen = 0;
       char *s = runesToStr(rstr, len, &slen);
       RedisModule_SaveStringBuffer(rdb, s, slen + 1);
-      RedisModule_SaveDouble(rdb, (double)score);
+      RedisModule_SaveDouble(rdb, score);
 
       if (savePayloads) {
         // save an extra space for the null terminator to make the payload null terminated on load

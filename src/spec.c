@@ -3276,7 +3276,7 @@ void IndexSpec_DropLegacyIndexFromKeySpace(IndexSpec *sp) {
 
   rune *rstr = NULL;
   t_len slen = 0;
-  float score = 0;
+  double score = 0;
   int dist = 0;
   size_t termLen;
 

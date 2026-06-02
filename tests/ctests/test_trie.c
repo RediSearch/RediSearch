@@ -29,7 +29,7 @@ size_t __trieNode_Sizeof(t_len numChildren, t_len slen);
 
 int count = 0;
 
-static float trieExactScore(TrieNode *n, rune *str, t_len len) {
+static double trieExactScore(TrieNode *n, rune *str, t_len len) {
   TrieNode *res = TrieNode_Get(n, str, len, true, NULL);
   return res ? res->score : 0;
 }
@@ -144,7 +144,7 @@ int testPayload() {
   TrieIterator *it = TrieNode_Iterate(root, FoldingFilterFunc, StackPop, fc);
   rune *s;
   t_len len;
-  float score;
+  double score;
   RSPayload payload = {.data = NULL, .len = 0};
   int matches = 0;
   int dist = 0;
@@ -182,7 +182,7 @@ int testTrie() {
   __trie_add(&root, "helter skelter", NULL, 3, ADD_REPLACE);
   size_t rlen;
   rune *runes = strToRunes("helter skelter", &rlen);
-  float sc = trieExactScore(root, runes, rlen);
+  double sc = trieExactScore(root, runes, rlen);
   ASSERT(sc == 3);
 
   __trie_add(&root, "heltar skelter", NULL, 4, ADD_REPLACE);
@@ -220,7 +220,7 @@ int testUnicode() {
   ASSERT_EQUAL(0, rc);
   size_t rlen;
   rune *runes = strToRunes(str, &rlen);
-  float sc = trieExactScore(root, runes, rlen);
+  double sc = trieExactScore(root, runes, rlen);
   free(runes);
   ASSERT(sc == 1);
   TrieNode_Free(root, NULL);
@@ -253,7 +253,7 @@ int testDFAFilter() {
     }
 
     runes = strToRunes(line, &rlen);
-    int rc = TrieNode_Add(&root, runes, rlen, NULL, (float)score, ADD_REPLACE, NULL, 0);
+    int rc = TrieNode_Add(&root, runes, rlen, NULL, score, ADD_REPLACE, NULL, 0);
     ASSERT(rc == 1);
     free(runes);
 
@@ -287,7 +287,7 @@ int testDFAFilter() {
     TrieIterator *it = TrieNode_Iterate(root, FoldingFilterFunc, StackPop, fc);
     rune *s;
     t_len len;
-    float score;
+    double score;
     int matches = 0;
     int dist = 0;
 
@@ -319,7 +319,7 @@ int testDFAFilter() {
     TrieIterator *it = TrieNode_Iterate(root, FoldingFilterFunc, StackPop, fc);
     rune *s;
     t_len len;
-    float score;
+    double score;
     int matches = 0;
     int dist = 0;
 
@@ -442,7 +442,7 @@ int testNumDocs() {
   TrieIterator *it = Trie_IterateAll(t);
   rune *s;
   t_len iterLen;
-  float score;
+  double score;
   size_t numDocs;
   RSPayload payload = {.data = NULL, .len = 0};
   int count = 0;

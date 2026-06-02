@@ -30,7 +30,7 @@ typedef struct Trie Trie;
 typedef struct {
   char *str;
   size_t len;
-  float score;
+  double score;
   char *payload;
   size_t plen;
 } TrieSearchResult;

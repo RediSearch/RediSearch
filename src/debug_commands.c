@@ -452,7 +452,7 @@ DEBUG_COMMAND(DumpTerms) {
 
   rune *rstr = NULL;
   t_len slen = 0;
-  float score = 0;
+  double score = 0;
   int dist = 0;
   size_t termLen;
 
@@ -796,7 +796,7 @@ DEBUG_COMMAND(DumpSuffix) {
     TrieIterator *it = Trie_IterateAll(suffix);
     rune *rstr;
     t_len len;
-    float score;
+    double score;
 
     while (TrieIterator_Next(it, &rstr, &len, NULL, &score, NULL, NULL)) {
       size_t slen;

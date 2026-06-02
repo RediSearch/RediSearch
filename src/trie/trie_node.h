@@ -64,11 +64,11 @@ typedef struct {
   TrieSortMode sortMode : 1;
 
   // the node's score. Non termn
-  float score;
+  double score;
 
   // the maximal score of any descendant of this node, used to optimize
   // traversal
-  float maxChildScore;
+  double maxChildScore;
 
   // the number of documents containing this key
   size_t numDocs;
@@ -87,7 +87,7 @@ typedef struct {
  * from offset up until
  * len. numChildren is the initial number of allocated child nodes */
 TrieNode *__newTrieNode(const rune *str, t_len offset, t_len len, const char *payload, size_t plen,
-                        t_len numChildren, float score, int terminal, TrieSortMode sortMode,
+                        t_len numChildren, double score, int terminal, TrieSortMode sortMode,
                         size_t numDocs);
 
 /* Opaque accessors over TrieNode struct internals. Prefer these over direct
@@ -136,7 +136,7 @@ typedef enum {
  * member (incremented only when TRIE_OK_NEW is returned).
  */
 int TrieNode_Add(TrieNode **n, const rune *str, t_len len, RSPayload *payload,
-                 float score, TrieAddOp op, TrieFreeCallback freecb,
+                 double score, TrieAddOp op, TrieFreeCallback freecb,
                  size_t numDocs);
 
 /* Find the entry with a given string and length, and return it. */
@@ -183,7 +183,7 @@ typedef struct TrieIterator {
   stackNode stack[TRIE_INITIAL_STRING_LEN + 1];
   t_len stackOffset;
   StepFilter filter;
-  float minScore;
+  double minScore;
   int nodesConsumed;
   int nodesSkipped;
   StackPopCallback popCallback;
@@ -225,7 +225,7 @@ void TrieIterator_Free(TrieIterator *it);
 /* Iterate to the next matching entry in the trie. Returns 1 if we can continue,
  * or 0 if we're done
  * and should exit */
-int TrieIterator_Next(TrieIterator *it, rune **ptr, t_len *len, RSPayload *payload, float *score,
+int TrieIterator_Next(TrieIterator *it, rune **ptr, t_len *len, RSPayload *payload, double *score,
                       size_t *numDocs, void *matchCtx);
 
 TrieNode *TrieNode_RandomWalk(TrieNode *n, int minSteps, rune **str, t_len *len);

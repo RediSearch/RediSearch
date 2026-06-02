@@ -271,7 +271,7 @@ void checkNext(TrieIterator *iter, const char *str) {
   char buf[16];
   rune *rstr = (rune *)&buf;
   t_len rlen;
-  float score;
+  double score;
   RSPayload payload;
 
   TrieIterator_Next(iter, &rstr, &rlen, &payload, &score, NULL, NULL);
@@ -313,7 +313,7 @@ TEST_F(TrieTest, testLexOrder) {
   TrieType_Free(t);
 }
 
-bool trieInsertByScore(Trie *t, const char *s, float score) {
+bool trieInsertByScore(Trie *t, const char *s, double score) {
   return Trie_InsertStringBuffer(t, s, strlen(s), score, 1, NULL, 0);
 }
 
@@ -394,7 +394,7 @@ static bool compareTrieContents(Trie *original, Trie *loaded) {
 
   rune *origRstr, *loadedRstr;
   t_len origLen, loadedLen;
-  float origScore, loadedScore;
+  double origScore, loadedScore;
   RSPayload origPayload, loadedPayload;
 
   while (true) {
@@ -823,7 +823,7 @@ TEST_F(TrieTest, testRdbSaveLoadLexSortedTrie) {
 }
 
 // Helper function to insert with numDocs
-static bool trieInsertWithNumDocs(Trie *t, const char *s, float score, size_t numDocs) {
+static bool trieInsertWithNumDocs(Trie *t, const char *s, double score, size_t numDocs) {
   return Trie_InsertStringBuffer(t, s, strlen(s), score, 0, NULL, numDocs);
 }
 
@@ -849,7 +849,7 @@ TEST_F(TrieTest, testRdbSaveLoadLexRangePreservesQueries) {
 
   // Single-char top-level entries so they become direct children of root.
   // Scores scrambled so score-descending order != lex-ascending order.
-  struct E { const char *term; float score; };
+  struct E { const char *term; double score; };
   E entries[] = {
       {"a", 5},  {"b", 11}, {"c", 2},  {"d", 8},  {"e", 13},
       {"f", 1},  {"g", 7},  {"h", 4},  {"i", 10}, {"j", 6},
@@ -954,7 +954,7 @@ TEST_F(TrieTest, testRdbSaveLoadWithNumDocs) {
   TrieIterator *it = Trie_IterateAll(loadedTrie);
   rune *rstr;
   t_len len;
-  float score;
+  double score;
   size_t numDocs;
   RSPayload payload = {.data = NULL, .len = 0};
   int count = 0;

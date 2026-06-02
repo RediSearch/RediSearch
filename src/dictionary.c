@@ -77,7 +77,7 @@ void Dictionary_Dump(RedisModuleCtx *ctx, const char *dictName) {
 
   rune *rstr = NULL;
   t_len slen = 0;
-  float score = 0;
+  double score = 0;
   int dist = 0;
   size_t termLen;
 
@@ -161,7 +161,7 @@ static void Propagate_Dict(RedisModuleCtx* ctx, const char* dictName, Trie* trie
   size_t termLen;
   rune *rstr = NULL;
   t_len slen = 0;
-  float score = 0;
+  double score = 0;
   int dist = 0;
 
   RedisModuleString **terms = rm_malloc(Trie_Size(trie) * sizeof(RedisModuleString*));

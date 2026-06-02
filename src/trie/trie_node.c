@@ -116,7 +116,7 @@ static void triePayload_Free(TriePayload *payload, TrieFreeCallback freecb) {
 }
 
 TrieNode *__newTrieNode(const rune *str, t_len offset, t_len len, const char *payload, size_t plen,
-                        t_len numChildren, float score, int terminal, TrieSortMode sortMode,
+                        t_len numChildren, double score, int terminal, TrieSortMode sortMode,
                         size_t numDocs) {
   TrieNode *n = rm_calloc(1, __trieNode_Sizeof(numChildren, len - offset));
   n->len = len - offset;
@@ -144,7 +144,7 @@ static TrieNode *__trieNode_resizeChildren(TrieNode *n, int offset) {
 }
 
 static TrieNode *__trie_AddChildIdx(TrieNode *n, const rune *str, t_len offset, t_len len, RSPayload *payload,
-                                    float score, int idx, size_t numDocs) {
+                                    double score, int idx, size_t numDocs) {
   n = __trieNode_resizeChildren(n, 1);
 
   // a newly added child must be a terminal node
@@ -235,14 +235,14 @@ typedef struct {
   int rc;
 } TrieAddChildResult;
 
-static int __trieNode_Add(TrieNode **np, const rune *str, t_len len, RSPayload *payload, float score,
+static int __trieNode_Add(TrieNode **np, const rune *str, t_len len, RSPayload *payload, double score,
                           TrieAddOp op, TrieFreeCallback freecb, size_t numDocs);
 
 // Lex-mode child placement. Children are kept sorted by their first rune; the
 // scan can early-exit at the first key that exceeds the inserted rune. A recursed
 // update never changes a child's first rune, so no resort is required.
 static TrieAddChildResult __trieNode_addChild_lex(
-    TrieNode *n, const rune *str, t_len len, t_len offset, RSPayload *payload, float score,
+    TrieNode *n, const rune *str, t_len len, t_len offset, RSPayload *payload, double score,
     TrieAddOp op, TrieFreeCallback freecb, size_t numDocs) {
   int idx = 0;
   for (; idx < n->numChildren; idx++) {
@@ -270,7 +270,7 @@ static TrieAddChildResult __trieNode_addChild_lex(
 // maxChildScore; a recursed update may invalidate that order, so we check the
 // two neighbours and re-sort if needed.
 static TrieAddChildResult __trieNode_addChild_score(
-    TrieNode *n, const rune *str, t_len len, t_len offset, RSPayload *payload, float score,
+    TrieNode *n, const rune *str, t_len len, t_len offset, RSPayload *payload, double score,
     TrieAddOp op, TrieFreeCallback freecb, size_t numDocs) {
   int idx = 0;
   int scoreIdx = REDISEARCH_UNINITIALIZED;
@@ -306,7 +306,7 @@ static TrieAddChildResult __trieNode_addChild_score(
   return (TrieAddChildResult){.node = n, .rc = TRIE_OK_NEW};
 }
 
-static int __trieNode_Add(TrieNode **np, const rune *str, t_len len, RSPayload *payload, float score,
+static int __trieNode_Add(TrieNode **np, const rune *str, t_len len, RSPayload *payload, double score,
                    TrieAddOp op, TrieFreeCallback freecb, size_t numDocs) {
   if (score == 0 || len == 0) {
     return TRIE_OK_UPDATED;
@@ -397,7 +397,7 @@ static int __trieNode_Add(TrieNode **np, const rune *str, t_len len, RSPayload *
   return r.rc;
 }
 
-int TrieNode_Add(TrieNode **np, const rune *str, t_len len, RSPayload *payload, float score,
+int TrieNode_Add(TrieNode **np, const rune *str, t_len len, RSPayload *payload, double score,
                  TrieAddOp op, TrieFreeCallback freecb, size_t numDocs) {
   if (score == 0 || len == 0) {
     return TRIE_OK_UPDATED;
@@ -777,7 +777,7 @@ void TrieIterator_Free(TrieIterator *it) {
   rm_free(it);
 }
 
-int TrieIterator_Next(TrieIterator *it, rune **ptr, t_len *len, RSPayload *payload, float *score,
+int TrieIterator_Next(TrieIterator *it, rune **ptr, t_len *len, RSPayload *payload, double *score,
                       size_t *numDocs, void *matchCtx) {
   int rc;
   while ((rc = __ti_step(it, matchCtx)) != __STEP_STOP) {
