@@ -129,8 +129,9 @@ fn test_seek_raw_doc_ids_only() {
 #[test]
 #[cfg_attr(miri, ignore = "Too slow to be run under miri.")]
 fn test_inverted_index_raw_doc_ids_gc() {
-    use ffi::{IndexFlags_Index_DocIdsOnly, t_docId};
+    use ffi::IndexFlags_Index_DocIdsOnly;
     use inverted_index::{IndexBlock, IndexReader, InvertedIndex, raw_doc_ids_only::RawDocIdsOnly};
+    use rqe_core::DocId;
 
     let mut ii = InvertedIndex::<RawDocIdsOnly>::new(IndexFlags_Index_DocIdsOnly);
 
@@ -222,7 +223,7 @@ fn test_inverted_index_raw_doc_ids_gc() {
     for i in 0..100 {
         ii.add_record(
             &RSIndexResult::build_virt()
-                .doc_id(i * (u32::MAX as t_docId))
+                .doc_id(i * (u32::MAX as DocId))
                 .build(),
         )
         .unwrap();
@@ -233,7 +234,7 @@ fn test_inverted_index_raw_doc_ids_gc() {
     // GC every second entry (causes large deltas after GC)
     let delta = ii
         .scan_gc(
-            |doc_id| doc_id % (u32::MAX as t_docId * 2) == 0,
+            |doc_id| doc_id % (u32::MAX as DocId * 2) == 0,
             None::<fn(&RSIndexResult, &IndexBlock)>,
         )
         .expect("scan_gc should not fail for valid index")
@@ -249,7 +250,7 @@ fn test_inverted_index_raw_doc_ids_gc() {
         let mut result = RSIndexResult::build_virt().build();
 
         for i in 0..50 {
-            let target_id = i * (u32::MAX as t_docId * 2);
+            let target_id = i * (u32::MAX as DocId * 2);
             let found = reader.seek_record(target_id, &mut result).unwrap();
             assert!(found, "expected to find doc_id {}", target_id);
             assert_eq!(result.doc_id, target_id);

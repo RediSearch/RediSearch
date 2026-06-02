@@ -10,6 +10,7 @@
 use enumflags2::{BitFlags, bitflags};
 use index_result::RSIndexResult;
 use rlookup::RLookupRow;
+use rqe_core::DocId;
 use std::ptr::NonNull;
 
 use document_metadata::{DocumentMetadata, OwnedDocumentMetadata};
@@ -29,7 +30,7 @@ pub type SearchResultFlags = enumflags2::BitFlags<SearchResultFlag>;
 #[derive(Debug)]
 #[repr(C)]
 pub struct SearchResult<'index> {
-    _doc_id: ffi::t_docId,
+    _doc_id: DocId,
     // not all results have score - TBD
     _score: f64,
 
@@ -109,12 +110,12 @@ impl<'index> SearchResult<'index> {
     }
 
     /// Sets the document ID of this search result.
-    pub const fn doc_id(&self) -> ffi::t_docId {
+    pub const fn doc_id(&self) -> DocId {
         self._doc_id
     }
 
     /// Sets the document ID of this search result.
-    pub const fn set_doc_id(&mut self, doc_id: ffi::t_docId) {
+    pub const fn set_doc_id(&mut self, doc_id: DocId) {
         self._doc_id = doc_id;
     }
 

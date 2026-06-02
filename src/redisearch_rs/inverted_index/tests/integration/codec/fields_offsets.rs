@@ -9,13 +9,13 @@
 
 use std::io::Cursor;
 
-use ffi::t_fieldMask;
 use index_result::RSIndexResult;
 use inverted_index::{
     Decoder, Encoder,
     fields_offsets::{FieldsOffsets, FieldsOffsetsWide},
     test_utils::{TermRecordCompare, TestTermRecord},
 };
+use rqe_core::FieldMask;
 
 #[test]
 fn test_encode_fields_offsets() {
@@ -25,7 +25,7 @@ fn test_encode_fields_offsets() {
         (0, 1, vec![1u8, 2, 3], vec![0, 0, 1, 3, 1, 2, 3]),
         (
             10,
-            u32::MAX as t_fieldMask,
+            u32::MAX as FieldMask,
             vec![1u8, 2, 3, 4],
             vec![12, 10, 255, 255, 255, 255, 4, 1, 2, 3, 4],
         ),
@@ -81,7 +81,7 @@ fn test_encode_fields_offsets_wide() {
         (0, 1, vec![1u8, 2, 3], vec![0, 0, 3, 1, 1, 2, 3]),
         (
             10,
-            u32::MAX as t_fieldMask,
+            u32::MAX as FieldMask,
             vec![1u8, 2, 3, 4],
             vec![0, 10, 4, 142, 254, 254, 254, 127, 1, 2, 3, 4],
         ),
@@ -103,7 +103,7 @@ fn test_encode_fields_offsets_wide() {
         #[cfg(target_pointer_width = "64")]
         (
             u32::MAX,
-            u32::MAX as t_fieldMask,
+            u32::MAX as FieldMask,
             vec![1; 100],
             vec![
                 3, 255, 255, 255, 255, 100, 142, 254, 254, 254, 127, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1,
@@ -165,7 +165,7 @@ fn test_encode_fields_offsets_field_mask_overflow() {
     let mut cursor = Cursor::new(buf);
 
     let record = index_result::RSIndexResult::build_term()
-        .field_mask(u32::MAX as t_fieldMask + 1)
+        .field_mask(u32::MAX as FieldMask + 1)
         .build();
     let _res = FieldsOffsets::encode(&mut cursor, 0, &record);
 }

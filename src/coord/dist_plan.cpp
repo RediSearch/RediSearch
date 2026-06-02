@@ -15,6 +15,7 @@
 #include "util/stringify.h"
 #include "dist_plan.h"
 #include "dist_plan_utils.h"
+#include "config.h"
 
 #include <vector>
 #include <string>
@@ -622,13 +623,23 @@ static void finalize_distribution(AGGPlan *local, AGGPlan *remote, PLN_Distribut
   AGPLN_Serialize(dstp->plan, &dstp->serialized);
 }
 
-int AREQ_BuildDistributedPipeline(AREQ *r, AREQDIST_UpstreamInfo *us, QueryError *status) {
+int AREQ_BuildDistributedPipeline(AREQ *r, AREQDIST_UpstreamInfo *us,
+                                  const AggregationPipelineParams *aggregationParams,
+                                  QueryError *status) {
 
   auto dstp = (PLN_DistributeStep *)AGPLN_FindStep(AREQ_AGGPlan(r), NULL, NULL, PLN_T_DISTRIBUTE);
   RS_ASSERT(dstp);
 
   RLookup_EnableOptions(&dstp->lk, RLOOKUP_OPT_ALLOWUNRESOLVED);
-  int rc = AREQ_BuildPipeline(r, status);
+
+  AggregationPipelineParams defaultAggregationParams = {};
+  if (!aggregationParams) {
+    defaultAggregationParams = AREQ_MakeAggregationPipelineParams(
+        r, GroupByLimits_Default(RSGlobalConfig.maxAggregateGroups));
+    aggregationParams = &defaultAggregationParams;
+  }
+
+  int rc = AREQ_BuildPipelineWithAggregationParams(r, aggregationParams, status);
   RLookup_DisableOptions(&dstp->lk, RLOOKUP_OPT_ALLOWUNRESOLVED);
 
   if (rc != REDISMODULE_OK) {

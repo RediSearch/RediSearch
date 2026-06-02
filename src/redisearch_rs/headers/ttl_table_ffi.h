@@ -7,9 +7,9 @@
 #include <stddef.h>
 #include <stdint.h>
 #include <stdlib.h>
-#include "_ttl_table.h"
 #include "field.h"
 #include "rqe_core.h"
+#include "ttl_table_rs.h"
 
 /**
  * Borrowed view of a contiguous run of [`FieldExpiration`] entries.
@@ -20,7 +20,7 @@
  * `len == 0`.
  */
 typedef struct FieldExpirationSlice {
-  const FieldExpiration *ptr;
+  const struct FieldExpiration *ptr;
   size_t len;
 } FieldExpirationSlice;
 
@@ -195,7 +195,7 @@ FieldExpirations FieldExpirations_WithCapacity(size_t cap);
  *  - `fe.index` must be strictly greater than the `index` of every entry
  *    already present in `*v`.
  */
-void FieldExpirations_Push(FieldExpirations *v, FieldExpiration fe);
+void FieldExpirations_Push(FieldExpirations *v, struct FieldExpiration fe);
 
 /**
  * Number of [`FieldExpiration`] entries currently stored in `*v`.

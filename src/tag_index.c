@@ -218,42 +218,60 @@ static inline size_t tagIndex_Put(TagIndex *idx, const char *value, size_t len, 
   return r.mem_growth + sz;
 }
 
-/* Index a vector of pre-processed tags for a docId */
-bool TagIndex_Index(RedisModuleCtx *ctx, TagIndex *idx, const char **values, size_t n, t_docId docId, IndexStats *stats) {
-  if (!values) return true;
-
-  if (idx->diskSpec) {
-    // DISK MODE: Index to disk and add tags to TrieMap with NULL sentinel
-    if (!SearchDisk_IndexTags(ctx, idx->diskSpec, values, n, docId, idx->fieldIndex)) {
-      return false;
-    }
-
-    // Also populate TrieMap with NULL sentinels for tag enumeration
-    for (size_t ii = 0; ii < n; ++ii) {
-      const char *tok = values[ii];
-      if (tok) {
-        TrieMap_Add(idx->values, tok, strlen(tok), NULL, NULL);
-
-        if (idx->suffix && (*tok != '\0')) {
-          addSuffixTrieMap(idx->suffix, tok, strlen(tok));
-        }
-      }
-    }
-  } else {
-    // MEMORY MODE
-    for (size_t ii = 0; ii < n; ++ii) {
-      const char *tok = values[ii];
-      if (tok) {
-        stats->invertedSize += tagIndex_Put(idx, tok, strlen(tok), docId, stats);
-
-        if (idx->suffix && (*tok != '\0')) { // add to suffix TrieMap
-          addSuffixTrieMap(idx->suffix, tok, strlen(tok));
-        }
-      }
+/* Memory-mode helper: write the per-tag inverted-index postings for `docId`.
+ * `tagIndex_Put` also inserts the matching `InvertedIndex*` into `idx->values`
+ * if it is not already there. */
+static void TagIndex_WritePostings(TagIndex *idx, const char **values, size_t n,
+                                     t_docId docId, IndexStats *stats) {
+  if (!values) return;
+  for (size_t ii = 0; ii < n; ++ii) {
+    const char *tok = values[ii];
+    if (tok) {
+      stats->invertedSize += tagIndex_Put(idx, tok, strlen(tok), docId, stats);
     }
   }
+}
 
+/* Apply the in-memory tag-trie updates for a vector of tag tokens (Phase 3).
+ *
+ * Called from `tagApplier` in both modes:
+ *   - Disk mode: runs after a successful batch commit. Inserts NULL sentinels
+ *     into `idx->values` (postings live on disk).
+ *   - Memory mode: the trie already holds `InvertedIndex*` pointers from
+ *     `TagIndex_WritePostings`, so the trie insert is skipped to preserve
+ *     them.
+ *
+ * Both modes populate `idx->suffix` and bump `stats->numRecords`. Infallible. */
+void TagIndex_Commit(TagIndex *idx, const char **values, size_t n, IndexStats *stats) {
+  if (!values) return;
+  for (size_t ii = 0; ii < n; ++ii) {
+    const char *tok = values[ii];
+    if (!tok) continue;
+    size_t len = strlen(tok);
+    if (idx->diskSpec) {
+      TrieMap_Add(idx->values, tok, len, NULL, NULL);
+    }
+    if (idx->suffix && (*tok != '\0')) {
+      addSuffixTrieMap(idx->suffix, tok, len);
+    }
+  }
   stats->numRecords++;
+}
+
+/* Phase 1 (index) for a vector of pre-processed tags. Writes the per-tag
+ * postings only — the matching trie / suffix-trie / `numRecords` updates run
+ * later from `tagApplier` via `TagIndex_Commit`.
+ *
+ * In disk mode the postings are staged onto `batch` (committed by
+ * `commitDocument`). In memory mode they are written inline into the per-tag
+ * `InvertedIndex` and `batch` is ignored. */
+bool TagIndex_Index(RedisModuleCtx *ctx, TagIndex *idx, SearchDiskWriteBatchHandle *batch,
+                    const char **values, size_t n, t_docId docId, IndexStats *stats) {
+  if (idx->diskSpec) {
+    if (!values) return true;
+    return SearchDisk_IndexTags(ctx, idx->diskSpec, batch, values, n, docId, idx->fieldIndex);
+  }
+  TagIndex_WritePostings(idx, values, n, docId, stats);
   return true;
 }
 

@@ -12,7 +12,7 @@
 
 use std::ptr::NonNull;
 
-use ffi::t_docId;
+use rqe_core::DocId;
 
 use crate::{
     Empty, IteratorType, NewWildcardIterator, RQEIterator,
@@ -134,7 +134,7 @@ pub enum NewNotIterator<'index, I, TC> {
 ///    empty).
 pub unsafe fn new_not_iterator<'index, I, TC>(
     child: I,
-    max_doc_id: t_docId,
+    max_doc_id: DocId,
     weight: f64,
     timeout_ctx: TC,
     query: NonNull<ffi::QueryEvalCtx>,

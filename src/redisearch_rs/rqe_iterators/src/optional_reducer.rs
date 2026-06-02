@@ -12,7 +12,8 @@
 
 use std::ptr::NonNull;
 
-use ffi::{IteratorType, t_docId};
+use ffi::IteratorType;
+use rqe_core::DocId;
 
 use crate::{
     NewWildcardIterator, RQEIterator,
@@ -60,7 +61,7 @@ pub unsafe fn new_optional_iterator<'index, I>(
     mut child: I,
     weight: f64,
     query: NonNull<ffi::QueryEvalCtx>,
-    max_doc_id: t_docId,
+    max_doc_id: DocId,
 ) -> NewOptionalIterator<'index, I>
 where
     I: RQEIterator<'index> + 'index,

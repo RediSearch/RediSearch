@@ -1,0 +1,6 @@
+---
+source: rqe_iterators/tests/integration/profile_print.rs
+assertion_line: 377
+expression: reply
+---
+{"Type": "TEXT", "Term": b"hello", "Estimated number of matches": 1}

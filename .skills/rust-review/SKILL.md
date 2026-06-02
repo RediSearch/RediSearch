@@ -1,11 +1,12 @@
 ---
 name: rust-review
-description: Review Rust code changes for unsafe correctness, documentation quality, and C-to-Rust porting fidelity. Use this when you want to review Rust changes before merging.
+description: Review Rust code changes for unsafe correctness, security and robustness, documentation quality, and C-to-Rust porting fidelity. Use this when you want to review Rust changes before merging.
 ---
 
 # Rust Review
 
-Review Rust code changes for unsafe correctness, documentation quality, and (when applicable) C-to-Rust porting fidelity.
+Review Rust code changes for unsafe correctness, security and robustness risks,
+documentation quality, and (when applicable) C-to-Rust porting fidelity.
 
 ## Arguments
 
@@ -29,6 +30,16 @@ If a path points to a directory, review all `.rs` files in that directory (recur
 (`jj diff` if `.jj/` is present, `git diff` otherwise).
 
 ## Instructions
+
+### 0. Avoid duplicate PR comments
+
+When reviewing a GitHub PR:
+
+- First inspect existing PR comments, review threads, and prior bot comments when available.
+- Treat an issue as already reported if an existing comment identifies the same root cause, even if it points to a different line.
+- Do not post or include duplicate findings for issues that were already raised.
+- If a previous comment is still accurate, do not restate it. Only mention it again if the new diff changes the issue, invalidates the previous fix, or introduces materially new evidence.
+- If the same issue appears in multiple places, report it once on the clearest example and state that the same pattern may apply elsewhere.
 
 ### 1. Collect the code to review
 
@@ -121,6 +132,38 @@ Violations:
 Exceptions: symbols that are not Rust items (e.g. C function names, Redis command names,
 field names used in prose) do not need intra-doc links.
 
+#### 3d. Security and robustness
+
+Treat security-sensitive Rust issues as in scope for automated review. Prioritize findings
+that can lead to panics, undefined behavior, memory unsoundness, data exposure,
+unauthorized access, or denial of service.
+
+Check especially for:
+- `unsafe` and FFI soundness bugs, including invalid pointer, NULL, lifetime, aliasing,
+  initialization, and ownership assumptions.
+- Allocator mismatches across the FFI boundary: RediSearch C code uses `rm_malloc` /
+  `rm_free`, while Rust values must be released through the allocator and ownership
+  path that created them.
+- Rust-owned allocations passed to C, such as values exposed with `Box::into_raw`,
+  must have a clear path back to Rust and be converted with `Box::from_raw` exactly
+  once so they are cleaned up correctly.
+- FFI string handling must account for Redis strings being binary-safe and often
+  NUL-terminated; do not assume they map directly to Rust `String` / `str` or
+  `CString` / `CStr`.
+- Unsafe conversions such as `mem::transmute` and `from_raw_parts` must validate size,
+  alignment, initialized memory, lifetime, and valid-value requirements.
+- Panics on user-controlled input, unchecked indexing, unchecked `unwrap` / `expect`,
+  unsafe conversions, and unchecked UTF-8 or slice assumptions.
+- Allocation-size arithmetic overflow, integer truncation or sign bugs, and unchecked
+  casts before allocation, indexing, or serialization.
+- Missing input bound validation for user-controlled query, schema, vector, geoshape,
+  and RDB input.
+- Data exposure, ACL/auth bypass, concurrency races, and unbounded allocation, loops,
+  or recursion that can cause denial of service.
+
+For any security-sensitive finding, state the concrete impact and the input or code path
+that can trigger it.
+
 ### 4. Porting-mode checks (only when porting mode = true)
 
 #### 4a. Semantic equivalence
@@ -155,12 +198,25 @@ Violations:
 
 ### 5. Emit the report
 
-Present findings grouped by check (3a, 3b, 3c, 4a, 4b). For each group, list the
-violations or state "No issues found."
+Report only actionable, non-duplicate findings.
 
-At the end, provide a summary:
-- Total number of violations by severity (blocking vs. suggestion).
-- Whether the change is **ready to merge** or **needs revision**.
+For each finding include:
+- Severity: blocking or suggestion
+- File and line/range
+- Rule violated
+- Why it matters / impact
+- Suggested fix
 
-Blocking violations: any issue in 3a, 3b, 4a, or 4b.
-Suggestions: issues in 3c (intra-doc links).
+Omit checklist sections with no findings. Do not include "No issues found" for every section.
+If there are no findings at all, it is fine to give the normal approval, thumbs-up, or
+no-findings signal.
+
+At the end, provide a short summary:
+- Total blocking findings
+- Total suggestions
+- Whether the change is **ready to merge** or **needs revision**
+
+Blocking violations: any issue in 3a, 3b, 4a, or 4b, plus any 3d issue that
+can cause memory unsoundness, crashes, data exposure, unauthorized access, or
+denial of service.
+Suggestions: issues in 3c (intra-doc links) and low-risk robustness improvements in 3d.

@@ -18,7 +18,8 @@ use std::{
     },
 };
 
-use ffi::{IndexFlags, IndexFlags_Index_WideSchema, t_docId};
+use ffi::{IndexFlags, IndexFlags_Index_WideSchema};
+use rqe_core::{DocId, FieldMask};
 
 /// Global counter for generating unique index names across tests.
 static INDEX_COUNTER: AtomicU64 = AtomicU64::new(0);
@@ -230,10 +231,10 @@ impl TestContext {
         // Add numeric data to the range tree
         for record in records {
             let record_val = record.as_numeric().unwrap();
-            numeric_range_tree.add(record.doc_id as t_docId, record_val, false, 0);
+            numeric_range_tree.add(record.doc_id as DocId, record_val, false, 0);
 
             if multi {
-                numeric_range_tree.add(record.doc_id as t_docId, record_val, true, 0);
+                numeric_range_tree.add(record.doc_id as DocId, record_val, true, 0);
             }
         }
 
@@ -548,6 +549,7 @@ impl TestContext {
             len: term.as_bytes().len() as u32,
             hash: 0,
             vw: vw.cast(), // Cast varint::VectorWriter* to ffi::VarintVectorWriter*
+            staged: false,
         };
 
         // Write the entry to the inverted index
@@ -647,7 +649,7 @@ impl TestContext {
     ///
     /// The `ftId` is the full-text field ID, distinct from the general `index` field.
     /// Use this when filtering term records by field or marking field expiration.
-    pub const fn text_field_bit(&self) -> ffi::t_fieldMask {
+    pub const fn text_field_bit(&self) -> FieldMask {
         1 << self.field_spec().ftId
     }
 
@@ -756,7 +758,7 @@ impl TestContext {
     /// Add a TTL entry for the given field in the given document.
     fn ttl_add(
         &mut self,
-        doc_id: t_docId,
+        doc_id: DocId,
         field: FieldMaskOrIndex,
         expiration: ffi::t_expirationTimePoint,
     ) {
@@ -816,7 +818,7 @@ impl TestContext {
     ///
     /// Sets the field expiration time to the past and the current query time
     /// to the future, so expiration checks will consider these fields expired.
-    pub fn mark_index_expired(&mut self, ids: Vec<t_docId>, field: FieldMaskOrIndex) {
+    pub fn mark_index_expired(&mut self, ids: Vec<DocId>, field: FieldMaskOrIndex) {
         // Expiration time in the past
         let expiration = ffi::t_expirationTimePoint {
             tv_sec: 1,

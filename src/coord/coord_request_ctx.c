@@ -115,7 +115,7 @@ void *CoordRequestCtx_GetRequest(CoordRequestCtx *ctx) {
 }
 
 void CoordRequestCtx_SetTimedOut(CoordRequestCtx *ctx) {
-  RS_AtomicStoreRelaxed(&ctx->timedOut, true);
+  RS_AtomicBoolStoreRelaxed(&ctx->timedOut, true);
   // Also propagate to the underlying request if set
   if (ctx->type == COMMAND_HYBRID) {
     if (ctx->hreq) HybridRequest_SetTimedOut(ctx->hreq);

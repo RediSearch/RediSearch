@@ -33,7 +33,12 @@ void FieldSpec_Cleanup(FieldSpec* fs) {
   if (FIELD_IS(fs, INDEXFLD_T_VECTOR)) {
     VecSimParams_Cleanup(&fs->vectorOpts.vecSimParams);
     if (fs->vectorOpts.vecSimIndex) {
-      if (fs->vectorOpts.diskCtx.storage) {
+      // diskCtx.indexName is set for every disk-backed field (parseVectorField
+      // for fresh creates, FieldSpec_RdbLoad for RDB-loaded fields) and stays
+      // set even before storage is bound. Use it as the disk-vs-RAM
+      // discriminator so an empty-but-unbound vector index loaded from RDB
+      // is still torn down via the disk path.
+      if (fs->vectorOpts.diskCtx.indexName) {
         SearchDisk_FreeVectorIndex(fs->vectorOpts.vecSimIndex);
       } else {
         VecSimIndex_Free(fs->vectorOpts.vecSimIndex);
