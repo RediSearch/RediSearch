@@ -64,7 +64,7 @@ FGCError FGC_parentHandleFromChild(ForkGC *gc) {
   // Wait for the final terminator from the child, so it can finish post-processing chores before we kill it
   size_t terminator_check;
   int rc = FGC_recvFixed(gc, &terminator_check, sizeof(terminator_check)); // final status from child
-  if (rc != REDISMODULE_OK || terminator_check != SIZE_MAX) {
+  if (rc != REDISMODULE_OK || terminator_check != NO_MORE_DATA) {
     return FGC_CHILD_ERROR;
   }
   RedisModule_Log(gc->ctx, "debug", "ForkGC - parent ends applying changes");
