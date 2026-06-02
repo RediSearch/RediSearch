@@ -82,7 +82,18 @@ do {                                            \
     return REDISMODULE_ERR;                                            \
   }
 
-#define IS_SST_RDB_IN_PROCESS(ctx) (RedisModule_GetContextFlags(ctx) & REDISMODULE_CTX_FLAGS_SST_RDB)
+static inline bool IS_SST_RDB_IN_PROCESS(RedisModuleCtx *ctx) {
+  return (RedisModule_GetContextFlags(ctx) & REDISMODULE_CTX_FLAGS_SST_RDB) != 0;
+}
+
+static inline bool IS_SST_RDB_LOADING(RedisModuleCtx *ctx) {
+  // Fetch the context flags once and test both bits, instead of calling
+  // RedisModule_GetContextFlags() twice.
+  int flags = RedisModule_GetContextFlags(ctx);
+  return (flags & REDISMODULE_CTX_FLAGS_SST_RDB) &&
+         (flags & (REDISMODULE_CTX_FLAGS_LOADING | REDISMODULE_CTX_FLAGS_ASYNC_LOADING));
+}
+
 // Forward declaration of searchReducerCtx
 struct searchReducerCtx;
 
