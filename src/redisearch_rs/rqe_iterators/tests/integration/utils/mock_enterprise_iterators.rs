@@ -85,7 +85,7 @@ impl SearchEnterpriseIterators for MockEnterpriseIterators {
         _filter: &ffi::NumericFilter,
         _field_index: ffi::t_fieldIndex,
         _weight: f64,
-    ) -> Result<Box<dyn RQEIterator<'index> + 'index>, Box<dyn std::error::Error>> {
+    ) -> Result<Box<dyn RQEIteratorPrintable<'index> + 'index>, Box<dyn std::error::Error>> {
         unimplemented!("MockEnterpriseIterators::new_numeric_on_disk not used in these tests")
     }
 }

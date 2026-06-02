@@ -613,31 +613,29 @@ FIELD_BULK_INDEXER(geometryIndexer) {
 #define NumericRangeTree_Add(t, docId, value, isMulti) \
   _NumericRangeTree_Add((t), (docId), (value), (isMulti), RSGlobalConfig.numericTreeMaxDepthRange)
 
+static int indexNumericOnDiskBatch(RSAddDocumentCtx *aCtx, RedisSearchCtx *ctx,
+                                   const FieldSpec *fs, const FieldIndexerData *fdata,
+                                   QueryError *status) {
+  const double *values = fdata->isMulti ? fdata->arrNumeric : &fdata->numeric;
+  const uint32_t count = fdata->isMulti ? array_len(fdata->arrNumeric) : 1;
+  for (uint32_t i = 0; i < count; ++i) {
+    if (!SearchDisk_IndexNumeric(ctx->redisCtx, ctx->spec->diskSpec, aCtx->disk.batch,
+                                 aCtx->doc->docId, values[i], fs->index)) {
+      QueryError_SetError(status, QUERY_ERROR_CODE_GENERIC, "Numeric indexing failed");
+      return -1;
+    }
+  }
+  return 0;
+}
+
 FIELD_BULK_INDEXER(numericIndexer) {
   if (aCtx->disk.batch) {
-    // Disk-mode geo is out of scope for the current numeric-on-disk work;
-    // the dispatcher in `IndexerBulkAdd` routes both IXFLDPOS_NUMERIC and
-    // IXFLDPOS_GEO through this indexer, so keep geo asserting while numeric
-    // rides the disk batch.
+    // The dispatcher in `IndexerBulkAdd` routes both IXFLDPOS_NUMERIC and
+    // IXFLDPOS_GEO through this indexer; only the numeric path rides the
+    // disk batch today.
     RS_LOG_ASSERT_ALWAYS(!(fs->types & INDEXFLD_T_GEO),
                          "disk-mode geo is not supported yet");
-
-    if (!fdata->isMulti) {
-      if (!SearchDisk_IndexNumeric(ctx->redisCtx, ctx->spec->diskSpec, aCtx->disk.batch,
-                                   aCtx->doc->docId, fdata->numeric, fs->index)) {
-        QueryError_SetError(status, QUERY_ERROR_CODE_GENERIC, "Numeric indexing failed");
-        return -1;
-      }
-    } else {
-      for (uint32_t i = 0; i < array_len(fdata->arrNumeric); ++i) {
-        if (!SearchDisk_IndexNumeric(ctx->redisCtx, ctx->spec->diskSpec, aCtx->disk.batch,
-                                     aCtx->doc->docId, fdata->arrNumeric[i], fs->index)) {
-          QueryError_SetError(status, QUERY_ERROR_CODE_GENERIC, "Numeric indexing failed");
-          return -1;
-        }
-      }
-    }
-    return 0;
+    return indexNumericOnDiskBatch(aCtx, ctx, fs, fdata, status);
   }
 
   NumericRangeTree *rt = openNumericOrGeoIndex(ctx->spec, &ctx->spec->fields[fs->index], CREATE_INDEX);
@@ -860,9 +858,8 @@ FIELD_BULK_APPLIER(vectorApplier) {
 }
 
 FIELD_BULK_APPLIER(numericApplier) {
-  // Disk-mode numeric accounting (in-memory BTreeMap's num_entries and HLL)
-  // lives on the disk side; memory-mode stats are bumped inline in
-  // `numericIndexer`. Only the global field-docs counter needs an apply hook.
+  // Per-spec numeric stats are bumped by `numericIndexer` in both modes.
+  // The applier only handles the global field-docs counter.
   (void)aCtx; (void)field; (void)fs; (void)fdata;
   FieldsGlobalStats_UpdateFieldDocsIndexed(INDEXFLD_T_NUMERIC, 1);
 }
