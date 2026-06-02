@@ -21,17 +21,17 @@
 static RedisModuleKeyMetaClassId docIdKeyMetaClassId;
 
 // When true, RDB save/load callbacks become no-ops.
-// Controlled via DocIdMeta_SetPersistenceInProgress, called from notifications.c
+// Controlled via DocIdMeta_SetForgetDocIdMetadata, called from notifications.c
 // during persistence events (BGSAVE/BGREWRITEAOF) to avoid saving/loading
 // DocIdMeta data while persistence is in progress.
-static bool PersistenceInProgress = false;
+static bool ForgetDocIdMetadata = false;
 
-void DocIdMeta_SetPersistenceInProgress(bool inProgress) {
+void DocIdMeta_SetForgetDocIdMetadata(bool inProgress) {
   const char *message = inProgress ?
                           "DocIdMeta: disabling RDB callbacks during persistence" :
                           "DocIdMeta: re-enabling RDB callbacks after persistence";
   RedisModule_Log(RSDummyContext, "verbose", "%s", message);
-  PersistenceInProgress = inProgress;
+  ForgetDocIdMetadata = inProgress;
 }
 
 // Helper macros for casting between uint64_t and void* for dict keys/values.
@@ -130,14 +130,14 @@ static int docIdMetaRDBLoad(RedisModuleIO *rdb, uint64_t *meta, int encver) {
 
   // Cache the flag locally to ensure all decisions in this callback observe a
   // consistent value, although it cannot really happen, this gives certainty to static analyzers.
-  const bool persistenceInProgress = PersistenceInProgress;
+  const bool forgetDocIDMetadata = ForgetDocIdMetadata;
 
-  // Even when persistenceInProgress is set we must consume exactly the bytes
+  // Even when forgetDocIDMetadata is set we must consume exactly the bytes
   // that docIdMetaRDBSave wrote: the key-meta framework reads a trailing EOF
   // marker right after this callback returns and expects the stream to be
   // positioned at it. Discarding the parsed entries is fine; skipping the
   // reads would desynchronize the stream and fail the EOF check.
-  dict *specIdToDocId = persistenceInProgress ? NULL : dictCreate(&dictTypeUint64, NULL);
+  dict *specIdToDocId = forgetDocIDMetadata ? NULL : dictCreate(&dictTypeUint64, NULL);
   size_t numEntries;
 
   // Load the number of entries
@@ -149,7 +149,7 @@ static int docIdMetaRDBLoad(RedisModuleIO *rdb, uint64_t *meta, int encver) {
     uint64_t docId = LoadUnsigned_IOError(rdb, goto cleanup);
 
     // While persistence is in progress, drain the bytes but do not attach.
-    if (persistenceInProgress) continue;
+    if (forgetDocIDMetadata) continue;
 
     // Skip entries belonging to indexes that are no longer in specIdDict_g (O(1) lookup).
     if (!isSpecValid(specId)) {
@@ -159,7 +159,7 @@ static int docIdMetaRDBLoad(RedisModuleIO *rdb, uint64_t *meta, int encver) {
     dictAdd(specIdToDocId, SPECID_TO_KEY(specId), DOCID_TO_VAL(docId));
   }
 
-  if (persistenceInProgress) {
+  if (forgetDocIDMetadata) {
     *meta = 0;
     return DOCID_META_RDB_LOAD_SKIP;
   }
@@ -178,7 +178,7 @@ cleanup:
 static void docIdMetaRDBSave(RedisModuleIO *rdb, void *value, uint64_t *meta) {
   REDISMODULE_NOT_USED(value);
 
-  if (PersistenceInProgress) {
+  if (ForgetDocIdMetadata) {
     // Skip saving during persistence events. We don't want to save this metadata to an RDB/AOF file
     return;
   }

@@ -693,17 +693,22 @@ static void PersistenceEvent(RedisModuleCtx *ctx, RedisModuleEvent eid,
   REDISMODULE_NOT_USED(eid);
   REDISMODULE_NOT_USED(data);
   RS_ASSERT(SearchDisk_IsEnabled());
+  bool useSst = IS_SST_RDB_IN_PROCESS(ctx);
 
   switch (subevent) {
   case REDISMODULE_SUBEVENT_PERSISTENCE_RDB_START:
   case REDISMODULE_SUBEVENT_PERSISTENCE_SYNC_RDB_START:
-    RedisModule_Log(ctx, "notice", "Persistence started");
-    DocIdMeta_SetPersistenceInProgress(true);
+    if (!useSst) {
+      RedisModule_Log(ctx, "notice", "Persistence started");
+      DocIdMeta_SetForgetDocIdMetadata(true);
+    }
     break;
   case REDISMODULE_SUBEVENT_PERSISTENCE_ENDED:
   case REDISMODULE_SUBEVENT_PERSISTENCE_FAILED:
-    RedisModule_Log(ctx, "notice", "Persistence ended");
-    DocIdMeta_SetPersistenceInProgress(false);
+    if (!useSst) {
+      RedisModule_Log(ctx, "notice", "Persistence ended");
+      DocIdMeta_SetForgetDocIdMetadata(false);
+    }
     break;
   }
 }
@@ -838,6 +843,13 @@ void RDB_LoadingEvent(RedisModuleCtx *ctx, RedisModuleEvent eid, uint64_t subeve
   case REDISMODULE_SUBEVENT_LOADING_RDB_START:
   case REDISMODULE_SUBEVENT_LOADING_AOF_START:
   case REDISMODULE_SUBEVENT_LOADING_REPL_START:
+    // Symmetric counterpart to the save-side decision in PersistenceEvent.
+    // During an SST + RDB sync the master streams RAM-resident keys together
+    // with their DocIdMeta, and the disk state arrives via the SST files, so
+    // the replica must KEEP the meta it loads (forget = false). For any other
+    // load (plain RDB / AOF / legacy RDB-only replication) the index is rebuilt
+    // from the keyspace and the stale docIds are meaningless, so we FORGET.
+    DocIdMeta_SetForgetDocIdMetadata(!useSst);
     Indexes_StartRDBLoadingEvent(ctx);
     workersThreadPool_OnEventStart();
     RedisModule_Log(RSDummyContext, "notice", "Loading RDB event started");
@@ -852,6 +864,8 @@ void RDB_LoadingEvent(RedisModuleCtx *ctx, RedisModuleEvent eid, uint64_t subeve
     RedisModule_Log(RSDummyContext, "notice", "Loading RDB event ended");
     break;
   case REDISMODULE_SUBEVENT_LOADING_ENDED:
+    // Re-enable the DocIdMeta RDB callbacks now that this load is done.
+    DocIdMeta_SetForgetDocIdMetadata(false);
     if (!SearchDisk_IsEnabled()) {
       // This only handles legacy indices that are not available in disk
       Indexes_EndRDBLoadingEvent(ctx);
@@ -872,6 +886,7 @@ void RDB_LoadingEvent(RedisModuleCtx *ctx, RedisModuleEvent eid, uint64_t subeve
     // aborted, network dropped, validation rejected, etc.) Redis fires LOADING_FAILED. Tear down anything we
     // staged for the round so the next attempt starts from a clean slate.
     // No-op when no specs are staged.
+    DocIdMeta_SetForgetDocIdMetadata(false);
     if (SearchDisk_IsEnabled()) {
       Indexes_AbortSSTReplicationLoading(ctx);
     }
