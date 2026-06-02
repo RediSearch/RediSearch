@@ -349,9 +349,11 @@ jobs:
           # REST API instead, which works on live runs.
           set +e
           : > failed-logs.txt
+          # `timed_out` rolls up to `failure` in `needs.*.result`, so the triage
+          # job also runs for timeouts — include that conclusion in the filter.
           gh api --paginate \
             "repos/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}/attempts/${GITHUB_RUN_ATTEMPT}/jobs" \
-            --jq '.jobs[] | select(.conclusion == "failure") | "\(.id)\t\(.name)"' \
+            --jq '.jobs[] | select(.conclusion == "failure" or .conclusion == "timed_out") | "\(.id)\t\(.name)"' \
             > failed-jobs.tsv
           while IFS=$'\t' read -r job_id job_name; do
             [ -z "$job_id" ] && continue
