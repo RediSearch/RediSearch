@@ -282,7 +282,7 @@ BENCHMARK_DEFINE_F(BM_ForkGC, MissingDocs)(benchmark::State &state) {
     ResetForIteration();
     RediSearch_CreateTagField(ism, "data");
     for (int i = 0; i < numMissingFields; i++) {
-      AddMissingField(("required" + std::to_string(i)).c_str());
+      AddMissingField(("optional" + std::to_string(i)).c_str());
     }
     AddAndDeleteDocs_Tag(n, "data", /*numTagValues=*/1);
     state.ResumeTiming();
