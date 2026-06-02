@@ -152,8 +152,7 @@ static RSDocumentMetadata *makeDocumentId(RedisModuleCtx *ctx, RSAddDocumentCtx 
       if (spec->flags & Index_HasVecSim) {
         for (int i = 0; i < spec->numFields; ++i) {
           if (spec->fields[i].types == INDEXFLD_T_VECTOR) {
-            // ctx is NULL because we don't create the index here
-            VecSimIndex *vecsim = openVectorIndex(NULL, &spec->fields[i], DONT_CREATE_INDEX);
+            VecSimIndex *vecsim = openVectorIndex(ctx, &spec->fields[i], DONT_CREATE_INDEX);
             if(!vecsim)
               continue;
             VecSimIndex_DeleteVector(vecsim, dmd->id);
@@ -227,6 +226,18 @@ static void doAssignIds(RSAddDocumentCtx *cur, RedisSearchCtx *ctx) {
         RS_ASSERT(spec->stats.scoring.totalDocsLen >= oldLen);
         spec->stats.scoring.totalDocsLen -= oldLen;
         updated = docId != 0; // If docId is 0, the document was not added
+      }
+
+      // Vector indexes are in-process and not managed by the disk layer, so
+      // they must be updated explicitly when a document is replaced.
+      if (oldDocId != 0 && (spec->flags & Index_HasVecSim)) {
+        for (int i = 0; i < spec->numFields; ++i) {
+          if (spec->fields[i].types == INDEXFLD_T_VECTOR) {
+            VecSimIndex *vecsim = openVectorIndex(ctx->redisCtx, &spec->fields[i], DONT_CREATE_INDEX);
+            if (!vecsim) continue;
+            VecSimIndex_DeleteVector(vecsim, oldDocId);
+          }
+        }
       }
 
       if (!failure) {
