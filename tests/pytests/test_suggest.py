@@ -259,7 +259,7 @@ def testWrongType(env):
         env.assertContains(errMsg, str(e))
 
 def testSuggestZeroScoreAdd(env):
-    # FT.SUGADD key string 0 — direct insert with score 0 (previously rejected).
+    # FT.SUGADD key string 0 — direct insert with score 0.
     # SUGGET queries use a strict prefix to avoid the (float)INT_MAX exact-match
     # boost applied to whole-term matches in Trie_Search.
     skipOnCrdtEnv(env)
@@ -273,7 +273,7 @@ def testSuggestZeroScoreAdd(env):
     env.assertEqual(0.0, float(res[1]))
 
 def testSuggestZeroScoreIncrOnMissing(env):
-    # FT.SUGADD key string 0 INCR on a previously absent term — terminal at 0.
+    # FT.SUGADD key string 0 INCR on an absent term — terminal at 0.
     skipOnCrdtEnv(env)
     conn = env.getClusterConnectionIfNeeded()
 
