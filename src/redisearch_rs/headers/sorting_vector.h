@@ -8,6 +8,7 @@
 #include <stdlib.h>
 // Forward declaration of RSValue, which is only used as ptr in the sorting_vector module
 typedef struct RSValue RSValue;
+typedef struct QueryError QueryError;
 
 // RSSortingVector is repr(transparent) in Rust over a ThinVec<RSValueFFI>.
 // On the stack it is a single pointer to a heap allocation with this layout:
@@ -82,21 +83,25 @@ void RSSortingVector_PutStr(RSSortingVector *vec,
 /**
  * Puts a string at the given index in the sorting vector, the string is normalized before being set.
  *
+ * Returns `true` if the string was successfully normalized and added to the sorting vector.
+ * Returns `false` is the string was malformed and was not inserted; the `QueryError` has been set to reflect this.
+ *
  * # Panics
  *
- * - Panics if the provided string is invalid UTF-8
  * - Panics if the `idx` is out of bounds for the vector.
  *
  * # Safety
  *
  * 1. `vec` must be a [valid], non-null pointer to an [`RSSortingVector`] created by [`RSSortingVector_New`] or equivalent.
  * 2. `str` must be a [valid], non-null pointer to a C string (null-terminated).
+ * 3. `status` must have been created by `QueryError_Default`.
  *
  * [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
  */
-void RSSortingVector_PutStrNormalize(RSSortingVector *vec,
+bool RSSortingVector_PutStrNormalize(RSSortingVector *vec,
                                      size_t idx,
-                                     const char *str);
+                                     const char *str,
+                                     QueryError *status);
 
 /**
  * Puts a value at the given index in the sorting vector. If a out of bounds occurs it returns silently.

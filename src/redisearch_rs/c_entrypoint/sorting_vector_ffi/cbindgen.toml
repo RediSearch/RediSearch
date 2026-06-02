@@ -5,6 +5,7 @@ pragma_once = true
 after_includes = """
 // Forward declaration of RSValue, which is only used as ptr in the sorting_vector module
 typedef struct RSValue RSValue;
+typedef struct QueryError QueryError;
 
 // RSSortingVector is repr(transparent) in Rust over a ThinVec<RSValueFFI>.
 // On the stack it is a single pointer to a heap allocation with this layout:
@@ -54,3 +55,6 @@ include = []
 
 [export]
 exclude = ["RSSortingVector"]
+
+[export.rename]
+"OpaqueQueryError" = "QueryError"
