@@ -340,35 +340,9 @@ jobs:
       triage-content-json: ${{ steps.triage.outputs.triage-content-json }}
     steps:
       - uses: actions/checkout@v6
-      - name: Fetch failed-job logs
-        env:
-          GH_TOKEN: ${{ github.token }}
-        run: |
-          # `gh run view --log-failed` refuses while the run is still in progress
-          # (this triage job is itself part of the run). Fetch per-job logs via the
-          # REST API instead, which works on live runs.
-          set +e
-          : > failed-logs.txt
-          # `timed_out` rolls up to `failure` in `needs.*.result`, so the triage
-          # job also runs for timeouts — include that conclusion in the filter.
-          gh api --paginate \
-            "repos/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}/attempts/${GITHUB_RUN_ATTEMPT}/jobs" \
-            --jq '.jobs[] | select(.conclusion == "failure" or .conclusion == "timed_out") | "\(.id)\t\(.name)"' \
-            > failed-jobs.tsv
-          while IFS=$'\t' read -r job_id job_name; do
-            [ -z "$job_id" ] && continue
-            printf '##[group]%s\n' "$job_name" >> failed-logs.txt
-            gh api "repos/${GITHUB_REPOSITORY}/actions/jobs/${job_id}/logs" >> failed-logs.txt 2>&1
-            printf '\n##[endgroup]\n' >> failed-logs.txt
-          done < failed-jobs.tsv
-          # Cap at 200KB to bound Codex token spend
-          if [ "$(wc -c < failed-logs.txt 2>/dev/null || echo 0)" -gt 204800 ]; then
-            tail -c 204800 failed-logs.txt > failed-logs.txt.tmp
-            printf '[truncated to last 200KB]\n' > failed-logs.txt
-            cat failed-logs.txt.tmp >> failed-logs.txt
-            rm failed-logs.txt.tmp
-          fi
-          exit 0
+      - uses: ./.github/actions/fetch-failed-run-logs
+        with:
+          github-token: ${{ github.token }}
       - name: Run Codex triage
         id: triage
         uses: ./.github/actions/codex-ci-triage
