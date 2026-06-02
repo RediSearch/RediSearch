@@ -199,6 +199,59 @@ fn range() {
     );
 }
 
+/// When the trie holds the empty key and the caller passes
+/// `min: Some(RangeBoundary::excluded(b""))` together with any upper bound,
+/// the shared-prefix optimization in `RangeIter::new` used to collapse the
+/// empty `min.value` down to a `None` boundary, discarding the
+/// `is_included: false` flag and yielding the empty key. Regression for that
+/// optimization stripping the excluded-empty marker.
+#[test]
+fn excluded_empty_lower_bound_is_preserved() {
+    let mut trie = TrieMap::new();
+    trie.insert(b"", 0);
+    trie.insert(b"apple", 1);
+    trie.insert(b"banana", 2);
+
+    let with_upper = in_range(
+        &trie,
+        RangeFilter {
+            min: Some(RangeBoundary::excluded(b"")),
+            max: Some(RangeBoundary::included(b"banana")),
+        },
+    );
+    assert_eq!(
+        with_upper,
+        vec![b"apple".to_vec(), b"banana".to_vec()],
+        "excluded empty min must skip the empty key",
+    );
+
+    let unbounded_upper = in_range(
+        &trie,
+        RangeFilter {
+            min: Some(RangeBoundary::excluded(b"")),
+            max: None,
+        },
+    );
+    assert_eq!(
+        unbounded_upper,
+        vec![b"apple".to_vec(), b"banana".to_vec()],
+        "excluded empty min must skip the empty key even with no upper bound",
+    );
+
+    let included_empty = in_range(
+        &trie,
+        RangeFilter {
+            min: Some(RangeBoundary::included(b"")),
+            max: Some(RangeBoundary::included(b"banana")),
+        },
+    );
+    assert_eq!(
+        included_empty,
+        vec![b"".to_vec(), b"apple".to_vec(), b"banana".to_vec()],
+        "included empty min must yield the empty key",
+    );
+}
+
 mod property_based {
     #![cfg(not(miri))]
 
