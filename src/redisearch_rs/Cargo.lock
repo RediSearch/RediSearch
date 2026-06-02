@@ -2373,6 +2373,7 @@ dependencies = [
  "numeric_range_tree_ffi",
  "proptest",
  "query_error_ffi",
+ "query_eval_ffi",
  "query_term_ffi",
  "redis_mock",
  "reducers_ffi",

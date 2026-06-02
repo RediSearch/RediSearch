@@ -18,6 +18,7 @@
 #include "spec.h"
 #include "search_ctx.h"
 #include "aggregate/aggregate.h"
+#include "query_eval_ffi.h"
 
 // Macro for BLOB data that all tests using $BLOB should use
 #define TEST_BLOB_DATA "AQIDBAUGBwgJCg=="

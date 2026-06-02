@@ -16,6 +16,7 @@
 #include "info/info_redis/block_client.h"
 #include "query_error_ffi.h"
 #include "search_ctx.h"
+#include "query_eval_ffi.h"
 #include "spec.h"
 #include "module.h"
 #include "profile/profile.h"

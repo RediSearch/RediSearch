@@ -23,6 +23,7 @@ extern crate metrics_ffi as _;
 extern crate module_init_ffi as _;
 extern crate numeric_range_tree_ffi as _;
 extern crate query_error_ffi as _;
+extern crate query_eval_ffi as _;
 extern crate query_term_ffi as _;
 extern crate reducers_ffi as _;
 extern crate result_processor_ffi as _;
