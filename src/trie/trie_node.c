@@ -794,11 +794,6 @@ TrieIterator *TrieNode_Iterate(TrieNode *n, StepFilter f, StackPopCallback pf, v
   TrieIterator *it = rm_calloc(1, sizeof(TrieIterator));
   it->filter = f;
   it->popCallback = pf;
-  // Sentinel: any real score beats INT_MIN, so the pruning check at
-  // TrieNode_Step accepts every subtree until Trie_Search fills the top-k
-  // heap and starts overwriting kthBestScore with real candidate scores.
-  // DFA-driven iteration never overwrites it, leaving pruning disabled by
-  // design.
   it->kthBestScore = INT_MIN;
   it->ctx = ctx;
   __ti_Push(it, n, 0);
