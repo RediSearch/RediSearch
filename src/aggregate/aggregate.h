@@ -178,14 +178,9 @@ typedef struct RequestSyncCtx {
   // Reference count for shared ownership between timeout callback (main thread) and background thread
   uint8_t refcount;
 
-  /* Partial-timeout coordination. The CAS claim grants exclusive ownership of
-   * the result-production phase: the BG-thread winner runs AggregateResults
-   * and stores results, while the timeout-callback winner preempts BG before it
-   * runs the pipeline. If BG already won, the timeout callback waits for BG's
-   * completion signal before replying.
-   * Gated by `requiresAggregateResultsSync`. */
   bool requiresAggregateResultsSync;     // Enable CAS/Signal/Wait around AggregateResults
   RS_Atomic(bool) aggregatingResults;    // CAS claim: BG winner runs the pipeline
+  bool aggregateResultsClaimLost;        // BG lost the CAS claim to the timeout callback
   bool aggregateResultsDone;             // Set at completion; guarded by aggregateResultsLock
   pthread_mutex_t aggregateResultsLock;
   pthread_cond_t aggregateResultsCond;
@@ -203,6 +198,7 @@ static inline void RequestSyncCtx_Init(RequestSyncCtx *ctx) {
   ctx->refcount = 1;
   ctx->requiresAggregateResultsSync = false;
   ctx->aggregatingResults = false;
+  ctx->aggregateResultsClaimLost = false;
   ctx->aggregateResultsDone = false;
   pthread_mutex_init(&ctx->aggregateResultsLock, NULL);
   pthread_cond_init(&ctx->aggregateResultsCond, NULL);
@@ -482,7 +478,7 @@ ResultProcessor *Grouper_GetRP(Grouper *gr);
 void Grouper_AddReducer(Grouper *g, Reducer *r, RLookupKey *dst);
 
 void AREQ_Execute(AREQ *req, RedisModuleCtx *outctx);
-bool sendChunk(AREQ *req, RedisModule_Reply *reply, size_t limit);
+void sendChunk(AREQ *req, RedisModule_Reply *reply, size_t limit);
 void sendChunk_ReplyOnly_EmptyResults(RedisModuleCtx *ctx, AREQ *req);
 
 /**
@@ -566,15 +562,10 @@ bool areq_timed_out(void *arg);
  * stable symbol that LTO can inline through. */
 bool AREQ_CheckTimedOut(AREQ *areq);
 
-/* True when this AREQ uses the BG-thread / timeout-callback claim handshake
- * around AggregateResults (TryClaim/Signal/Wait). */
 static inline bool AREQ_RequiresThreadsSyncResults(const AREQ *req) {
   return req->syncCtx.requiresAggregateResultsSync;
 }
 
-/* TryClaim: atomic CAS on `aggregatingResults`; winner runs AggregateResults.
- * Signal: called by winner at completion. Wait: called by loser, blocks until Signal.
- * Exactly one of {BG thread, timeout callback} wins. */
 bool AREQ_TryClaimAggregateResults(AREQ *req);
 void AREQ_SignalAggregateResultsComplete(AREQ *req);
 void AREQ_WaitForAggregateResultsComplete(AREQ *req);

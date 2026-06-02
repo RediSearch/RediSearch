@@ -1298,19 +1298,24 @@ class TestCoordinatorTimeout:
                     1,
                     message="CLIENT UNBLOCK on shard's _FT.CURSOR|READ should report 1")
                 wait_for_client_unblocked(target_shard, blocked_client_id)
+                t_query.join(timeout=10)
+                env.assertFalse(t_query.is_alive(),
+                                message="VSIM cursor read thread should have finished")
+                env.assertEqual(len(read_result), 1, message="Expected one cursor read result")
+                env.assertFalse(isinstance(read_result[0], str),
+                                message=f"RETURN_STRICT cursor read must not hard-error: {read_result[0]}")
+                _assert_return_strict_cursor_timeout_reply(
+                    env, read_result[0], vsim_cursor, expected_results=0,
+                    message_prefix='VSIM _FT.CURSOR READ RETURN_STRICT timeout')
+
+                try:
+                    target_shard.execute_command('_FT.CURSOR', 'READ', 'hybrid_idx', str(vsim_cursor))
+                    env.assertFalse(True, message="Busy cursor read should return a temporary error")
+                except redis_exceptions.ResponseError as e:
+                    env.assertContains('Cursor temporarily unavailable', str(e))
             finally:
                 target_shard.execute_command(debug_cmd(), 'WORKERS', 'resume')
                 target_shard.execute_command(debug_cmd(), 'WORKERS', 'drain')
-
-            t_query.join(timeout=10)
-            env.assertFalse(t_query.is_alive(),
-                            message="VSIM cursor read thread should have finished")
-            env.assertEqual(len(read_result), 1, message="Expected one cursor read result")
-            env.assertFalse(isinstance(read_result[0], str),
-                            message=f"RETURN_STRICT cursor read must not hard-error: {read_result[0]}")
-            _assert_return_strict_cursor_timeout_reply(
-                env, read_result[0], vsim_cursor, expected_results=0,
-                message_prefix='VSIM _FT.CURSOR READ RETURN_STRICT timeout')
 
             wait_for_info_metric(
                 target_shard, [WARN_ERR_SECTION, TIMEOUT_WARNING_SHARD_METRIC],

@@ -59,7 +59,7 @@ static void AREQ_DecrRefWrapper(void *privdata) {
   AREQ_DecrRef((AREQ *)privdata);
 }
 
-// freePrivData for shard/local BlockCursorClientWithTimeout. Drains any cursor
+// freePrivData for shard/standalone BlockCursorClientWithTimeout. Drains any cursor
 // parked in storedReplyState before releasing our AREQ ref (no-op on the happy
 // path, where CursorReadReplyCallback already cleared it).
 static void ShardCursorBlockClient_FreeAREQ(void *privdata) {
@@ -415,7 +415,8 @@ static bool startPipeline(AREQ *req, ResultProcessor *rp, SearchResult ***result
     if (!AREQ_TryClaimAggregateResults(req)) {
       // The RETURN_STRICT timeout callback claimed the sync phase first and
       // already owns the reply. The caller must skip stored-result handling and
-      // clean up the cursor locally.
+      // clean up the cursor in runCursor.
+      req->syncCtx.aggregateResultsClaimLost = true;
       *rc = RS_RESULT_TIMEDOUT;
       return false;
     }
@@ -988,7 +989,7 @@ static bool sendChunk_Resp3(AREQ *req, RedisModule_Reply *reply, size_t limit,
 /**
  * Sends a chunk of <n> rows, optionally also sending the preamble
  */
-bool sendChunk(AREQ *req, RedisModule_Reply *reply, size_t limit) {
+void sendChunk(AREQ *req, RedisModule_Reply *reply, size_t limit) {
   QEFlags reqFlags = AREQ_RequestFlags(req);
   if (!(reqFlags & QEXEC_F_IS_CURSOR) && !(reqFlags & QEXEC_F_IS_SEARCH)) {
     limit = req->maxAggregateResults;
@@ -1008,13 +1009,15 @@ bool sendChunk(AREQ *req, RedisModule_Reply *reply, size_t limit) {
   QueryProcessingCtx *qctx = AREQ_QueryProcessingCtx(req);
   qctx->resultLimit = limit;
 
-  bool storedResults = reply->resp3 ? sendChunk_Resp3(req, reply, limit, cv)
-                                    : sendChunk_Resp2(req, reply, limit, cv);
+  if (reply->resp3) {
+    sendChunk_Resp3(req, reply, limit, cv);
+  } else {
+    sendChunk_Resp2(req, reply, limit, cv);
+  }
 
   if (sctx->spec) {
     IndexSpec_DecrActiveQueries(sctx->spec);
   }
-  return storedResults;
 }
 
 // Simple version of sendChunk that returns empty results for aggregate queries.
@@ -1761,10 +1764,6 @@ static int CursorReadTimeoutReturnStrictCallback(RedisModuleCtx *ctx, RedisModul
   if (req->storedReplyState.hasStoredResults) {
     drainPartialResultsAfterTimeout(req);
     AREQ_ReplyWithStoredResults(ctx, req);
-  } else if (QueryError_HasError(&req->storedReplyState.err)) {
-    QueryErrorsGlobalStats_UpdateError(QueryError_GetCode(&req->storedReplyState.err), 1,
-                                       !IsInternal(req));
-    QueryError_ReplyAndClear(ctx, &req->storedReplyState.err);
   } else {
     RedisModule_ReplyWithError(ctx, "ERR Internal error: no results stored");
   }
@@ -1984,10 +1983,7 @@ int AREQ_StartCursor(AREQ *r, RedisModule_Reply *reply, StrongRef spec_ref, Quer
 static void runCursor(RedisModule_Reply *reply, Cursor *cursor, size_t num) {
   AREQ *req = cursor->execState;
   AREQ_ProfilePrinterCtx(req)->cursor_reads++;
-  // FAIL callback reads rely only on the blocked-client timer. RETURN_STRICT
-  // still runs the pipeline to store a cursor-shaped reply, so refresh its
-  // deadline per read and avoid inheriting the cursor-creating query deadline.
-  if (!req->useReplyCallback || req->reqConfig.timeoutPolicy == TimeoutPolicy_ReturnStrict) {
+  if (!req->useReplyCallback) {
     SearchCtx_UpdateTime(AREQ_SearchCtx(req), req->reqConfig.queryTimeoutMS);
   }
 
@@ -2015,11 +2011,11 @@ static void runCursor(RedisModule_Reply *reply, Cursor *cursor, size_t num) {
     req->storedReplyState.cursor = cursor;
   }
 
-  bool storedReply = sendChunk(req, reply, num);
+  sendChunk(req, reply, num);
   RedisSearchCtx_UnlockSpec(AREQ_SearchCtx(req)); // Verify that we release the spec lock
 
   if (req->useReplyCallback) {
-    if (!storedReply) {
+    if (req->syncCtx.aggregateResultsClaimLost && !req->storedReplyState.hasStoredResults) {
       // The strict timeout callback won the sync claim and already replied with
       // this cursor id. Make the already-taken cursor available for follow-up
       // reads.
@@ -2132,6 +2128,11 @@ typedef struct {
   size_t count;
 } CursorReadCtx;
 
+static const char *cursorTakeStatusMessage(CursorTakeStatus status) {
+  return status == CURSOR_TAKE_NOT_IDLE ? "Cursor temporarily unavailable, id: %lld"
+                                        : "Cursor not found, id: %lld";
+}
+
 static void cursorRead_ctx(CursorReadCtx *cr_ctx) {
   RedisModuleCtx *ctx = RedisModule_GetThreadSafeContext(cr_ctx->bc);
   // Optimization (mirrors AREQ_Execute_Callback): if the timer fired while
@@ -2164,13 +2165,15 @@ static inline int coordCursorReadReturnStrict(RedisModuleCtx *ctx, CoordRequestC
     CoordRequestCtx_UnlockSetRequest(reqCtx);
     return REDISMODULE_OK;
   }
-  Cursor *cursor = Cursors_TakeForExecution(GetGlobalCursor(cid), cid);
+  CursorTakeStatus takeStatus = CURSOR_TAKE_NOT_FOUND;
+  Cursor *cursor = Cursors_TakeForExecutionWithStatus(GetGlobalCursor(cid), cid, &takeStatus);
   if (!cursor) {
-    // Cursor was destroyed between CursorCommand's peek and our take
+    // Cursor was destroyed or is still owned by an earlier read between
+    // CursorCommand's peek and our take.
     CoordRequestCtx_UnlockSetRequest(reqCtx);
     QueryError err = QueryError_Default();
     QueryError_SetWithoutUserDataFmt(&err, QUERY_ERROR_CODE_GENERIC,
-                                     "Cursor not found, id: %lld", cid);
+                                     cursorTakeStatusMessage(takeStatus), cid);
     CoordRequestCtx_ReplyOrStoreError(reqCtx, ctx, &err);
     return REDISMODULE_OK;
   }
@@ -2243,19 +2246,20 @@ int RSCursorReadCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc)
     return coordCursorReadReturnStrict(ctx, reqCtx, cid, count);
   }
 
-  Cursor *cursor = Cursors_TakeForExecution(GetGlobalCursor(cid), cid);
+  CursorTakeStatus takeStatus = CURSOR_TAKE_NOT_FOUND;
+  Cursor *cursor = Cursors_TakeForExecutionWithStatus(GetGlobalCursor(cid), cid, &takeStatus);
   if (cursor == NULL) {
     if (reqCtx) {
       QueryError_SetWithoutUserDataFmt(&err, QUERY_ERROR_CODE_GENERIC,
-                                       "Cursor not found, id: %lld", cid);
+                                       cursorTakeStatusMessage(takeStatus), cid);
       CoordRequestCtx_ReplyOrStoreError(reqCtx, ctx, &err);
       return REDISMODULE_OK;
     }
-    return RedisModule_ReplyWithErrorFormat(ctx, "Cursor not found, id: %lld", cid);
+    return RedisModule_ReplyWithErrorFormat(ctx, cursorTakeStatusMessage(takeStatus), cid);
   }
 
   if (RunInThread(ctx) && !upstreamBC) {
-    // Shard/local path: block and dispatch to worker. Non-RETURN policies arm
+    // Shard/standalone path: block and dispatch to worker. Non-RETURN policies arm
     // the blocked-client timer with reply/timeout callbacks;
     // BlockCursorClientWithTimeout requires cursor->execState != NULL (it dereferences it
     // for the AST).
@@ -2267,7 +2271,7 @@ int RSCursorReadCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc)
       RS_ASSERT(cursor->queryTimeoutMS == (size_t)req->reqConfig.queryTimeoutMS);
       RS_ASSERT(cursor->queryTimeoutPolicy == req->reqConfig.timeoutPolicy);
       if (cursor->queryTimeoutPolicy == TimeoutPolicy_ReturnStrict) {
-        // Shard/local RETURN_STRICT cursor reads bypass coordCursorReadReturnStrict,
+        // Shard/standalone RETURN_STRICT cursor reads bypass coordCursorReadReturnStrict,
         // so opt into the same per-read worker/timeout claim handshake here.
         req->syncCtx.requiresAggregateResultsSync = true;
         AREQ_ResetForCursorReadReturnStrict(req);
