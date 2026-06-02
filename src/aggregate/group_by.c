@@ -73,7 +73,6 @@ typedef struct Grouper {
   // array of reducers
   Reducer **reducers;
 
-  // GROUPBY materialization limit.
   GroupByLimits groupByLimits;
 
   // Used for maintaining state when yielding groups
