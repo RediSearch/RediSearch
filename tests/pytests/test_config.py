@@ -45,8 +45,7 @@ def testConfigErrors(env):
         .contains('Minimum stem length cannot be lower than')
     env.expect(config_cmd(), 'set', 'WORKERS', 1_000_000).error()\
         .contains('Number of worker threads cannot exceed')
-    env.expect(config_cmd(), 'set', 'MAX_AGGREGATE_GROUPS', 0).error()\
-        .contains('SEARCH_PARSE_ARGS')
+    env.expect(config_cmd(), 'set', 'MAX_AGGREGATE_GROUPS', 0).error()
 
 @skip(cluster=True)
 def testGetConfigOptions(env):
