@@ -174,15 +174,6 @@ where
     pub const fn reader(&self) -> &IndexReaderCore<'index, E> {
         &self.it.reader
     }
-
-    /// Returns the current query term bytes, if available.
-    ///
-    /// The term is stored in the iterator's result and is set during
-    /// construction. Returns [`None`] if the result is not a term result
-    /// or the term has no string representation.
-    fn query_term_bytes(&self) -> Option<&[u8]> {
-        self.it.result.as_term()?.query_term()?.as_bytes()
-    }
 }
 
 impl<'index, E, C> RQEIterator<'index> for Tag<'index, E, C>
@@ -260,7 +251,7 @@ where
 {
     fn print_profile(&self, map: &mut redis_reply::MapBuilder<'_>, ctx: &mut ProfilePrintCtx<'_>) {
         map.kv_simple_string(c"Type", c"TAG");
-        if let Some(term_bytes) = self.query_term_bytes() {
+        if let Some(term_bytes) = self.it.query_term_bytes() {
             map.kv_string_buffer(c"Term", term_bytes);
         }
         ctx.print_optional_counters(map);
