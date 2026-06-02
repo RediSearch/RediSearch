@@ -7,13 +7,7 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 
-//! Query evaluation: traverses a parsed query AST and builds an executable
-//! iterator tree.
-
-pub mod string_utils;
-
-#[cfg(test)]
-mod _test_link {
-    extern crate redisearch_rs;
-    redis_mock::mock_or_stub_missing_redis_c_symbols!();
+fn main() {
+    #[cfg(feature = "unittest")]
+    build_utils::bind_foreign_c_symbols();
 }

@@ -10,7 +10,7 @@
 mod mock;
 
 use mock::MockQueryEvalCtx;
-use query_eval::QueryEvalContext;
+use query::QueryEvalContext;
 use query_flags::QEFlag;
 
 #[test]

@@ -13,7 +13,7 @@ use std::ops::Bound;
 
 use inverted_index::NumericFilter;
 use mock::MockQueryNode;
-use query_eval::{QueryNode, QueryNodeRef, WildcardMode};
+use query::{QueryNode, QueryNodeRef, WildcardMode};
 use query_node_type::QueryNodeType;
 
 #[test]

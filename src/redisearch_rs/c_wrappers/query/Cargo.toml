@@ -1,5 +1,5 @@
 [package]
-name = "query_eval"
+name = "query"
 version.workspace = true
 edition.workspace = true
 license-file.workspace = true
@@ -15,12 +15,17 @@ build_utils.workspace = true
 
 [dependencies]
 ffi.workspace = true
-thiserror.workspace = true
+inverted_index.workspace = true
+query_error.workspace = true
+query_flags.workspace = true
+query_node_type.workspace = true
+rlookup.workspace = true
+rqe_core.workspace = true
+rqe_iterators.workspace = true
 workspace_hack.workspace = true
 
 [dev-dependencies]
-proptest = { workspace = true, features = ["std"] }
-query_eval = { path = ".", features = ["unittest"] }
+query = { path = ".", features = ["unittest"] }
 redis_mock.workspace = true
 redisearch_rs = { workspace = true, features = ["mock_allocator"] }
 
