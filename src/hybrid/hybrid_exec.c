@@ -988,8 +988,15 @@ static int HybridRequest_BuildPipelineAndExecute(StrongRef hybrid_ref, HybridPip
 
     return REDISMODULE_OK;
   } else {
-    // Single-threaded execution path
-    return buildPipelineAndExecute(hybrid_ref, hybridParams, ctx, sctx, status, internal, false);
+    // Single-threaded execution path.
+    // Acquire read lock before building pipeline (matching HREQ_Execute_Callback).
+    // The lock may be released early during pipeline execution (e.g. in
+    // WaitForDepletionToStart); RedisSearchCtx_UnlockSpec safely no-ops in that
+    // case by checking sctx->flags.
+    RedisSearchCtx_LockSpecRead(sctx);
+    int rc = buildPipelineAndExecute(hybrid_ref, hybridParams, ctx, sctx, status, internal, false);
+    RedisSearchCtx_UnlockSpec(sctx);
+    return rc;
   }
 }
 
