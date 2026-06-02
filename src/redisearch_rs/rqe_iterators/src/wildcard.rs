@@ -18,12 +18,12 @@ use inverted_index::{DocIdsDecoder, opaque};
 
 use rqe_core::{DocId, RS_FIELDMASK_ALL};
 
-use crate::IteratorType;
 use crate::{
     Empty, RQEIterator, RQEIteratorError, RQEValidateStatus, SEARCH_ENTERPRISE_ITERATORS,
     SkipToOutcome,
     profile_print::{ProfilePrint, ProfilePrintCtx},
 };
+use crate::{IteratorType, RQEIteratorPrintable};
 
 /// An iterator that yields all ids within a given range, from 1 to max id (inclusive) in an index.
 #[derive(Default)]
@@ -390,7 +390,7 @@ pub unsafe fn new_wildcard_iterator_on_disk<'index>(
         .get()
         .expect("SEARCH_ENTERPRISE_ITERATORS not initialized");
     match enterprise_iters_api.new_wildcard_on_disk(disk_spec, weight) {
-        Ok(it) => NewWildcardIterator::Disk(DiskWildcardIterator(it)),
+        Ok(it) => NewWildcardIterator::Disk(it),
         Err(err) => {
             tracing::warn!(
                 "Failed to create a disk wildcard iterator ({err}); falling back to empty iterator."
@@ -481,70 +481,13 @@ pub unsafe fn new_wildcard_iterator<'index>(
 /// [`SEARCH_ENTERPRISE_ITERATORS`] that implements [`WildcardIterator`],
 /// allowing disk-based wildcard queries to be used interchangeably with
 /// in-memory ones.
-#[repr(transparent)]
-pub struct DiskWildcardIterator<'index>(Box<dyn RQEIterator<'index> + 'index>);
-
-impl<'index> RQEIterator<'index> for DiskWildcardIterator<'index> {
-    fn current(&mut self) -> Option<&mut RSIndexResult<'index>> {
-        self.0.current()
-    }
-
-    fn read(&mut self) -> Result<Option<&mut RSIndexResult<'index>>, RQEIteratorError> {
-        self.0.read()
-    }
-
-    fn skip_to(
-        &mut self,
-        doc_id: DocId,
-    ) -> Result<Option<SkipToOutcome<'_, 'index>>, RQEIteratorError> {
-        self.0.skip_to(doc_id)
-    }
-
-    fn revalidate(
-        &mut self,
-        spec: &IndexSpecReadGuard,
-    ) -> Result<RQEValidateStatus<'_, 'index>, RQEIteratorError> {
-        self.0.revalidate(spec)
-    }
-
-    fn rewind(&mut self) {
-        self.0.rewind()
-    }
-
-    fn num_estimated(&self) -> usize {
-        self.0.num_estimated()
-    }
-
-    fn last_doc_id(&self) -> DocId {
-        self.0.last_doc_id()
-    }
-
-    fn at_eof(&self) -> bool {
-        self.0.at_eof()
-    }
-
-    #[inline(always)]
-    fn type_(&self) -> IteratorType {
-        self.0.type_()
-    }
-
-    fn intersection_sort_weight(&self, prioritize_union_children: bool) -> f64 {
-        self.0.intersection_sort_weight(prioritize_union_children)
-    }
-}
+pub type DiskWildcardIterator<'index> = Box<dyn RQEIteratorPrintable<'index> + 'index>;
 
 /// [`DiskWildcardIterator`] matches all documents on the disk index.
 impl<'index> WildcardIterator<'index> for DiskWildcardIterator<'index> {}
 
 impl ProfilePrint for Wildcard<'_> {
     fn print_profile(&self, map: &mut redis_reply::MapBuilder<'_>, ctx: &mut ProfilePrintCtx<'_>) {
-        ctx.print_leaf(c"WILDCARD", map);
-    }
-}
-
-impl ProfilePrint for DiskWildcardIterator<'_> {
-    fn print_profile(&self, map: &mut redis_reply::MapBuilder<'_>, ctx: &mut ProfilePrintCtx<'_>) {
-        // TODO: delegate to actual implementation once RSE implements the trait.
         ctx.print_leaf(c"WILDCARD", map);
     }
 }
