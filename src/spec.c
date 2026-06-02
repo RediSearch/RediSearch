@@ -2567,10 +2567,11 @@ static void FieldSpec_RdbSave(RedisModuleIO *rdb, FieldSpec *f, int contextFlags
   if (FIELD_IS(f, INDEXFLD_T_VECTOR)) {
     RedisModule_SaveUnsigned(rdb, f->vectorOpts.expBlobSize);
     VecSim_RdbSave(rdb, &f->vectorOpts.vecSimParams);
-    // RERANK is meaningful only in disk-base envs (the only place its value is
-    // populated and consumed). Skip the byte otherwise so memory-mode RDBs stay
-    // byte-for-byte unchanged.
-    if (SearchDisk_IsEnabled()) {
+    // RERANK applies to HNSW (TIERED+HNSWLIB) only — BF/SVS streams stay
+    // unchanged. The byte is written for every HNSW field regardless of disk
+    // mode so the config survives RDB save/load uniformly.
+    if (f->vectorOpts.vecSimParams.algo == VecSimAlgo_TIERED &&
+        f->vectorOpts.vecSimParams.algoParams.tieredParams.primaryIndexParams->algo == VecSimAlgo_HNSWLIB) {
       RedisModule_SaveUnsigned(rdb, f->vectorOpts.diskCtx.rerank ? 1 : 0);
     }
     // Disk-backed vector fields ride their in-memory state inline with the field's RDB encoding so the
@@ -2711,10 +2712,11 @@ static int FieldSpec_RdbLoad(RedisModuleIO *rdb, FieldSpec *f, StrongRef sp_ref,
         goto fail;  // svs is not supported in old encvers
       }
     }
-    // RERANK byte was added in INDEX_VECTOR_RERANK_VERSION, and is written only
-    // in disk-base envs (see FieldSpec_RdbSave). Older RDBs and memory-mode
-    // RDBs default to TRUE.
-    if (encver >= INDEX_VECTOR_RERANK_VERSION && SearchDisk_IsEnabled()) {
+    // RERANK byte was added in INDEX_VECTOR_RERANK_VERSION for every
+    // TIERED+HNSWLIB field. Older RDBs and non-HNSW fields default to TRUE.
+    if (encver >= INDEX_VECTOR_RERANK_VERSION &&
+        f->vectorOpts.vecSimParams.algo == VecSimAlgo_TIERED &&
+        f->vectorOpts.vecSimParams.algoParams.tieredParams.primaryIndexParams->algo == VecSimAlgo_HNSWLIB) {
       f->vectorOpts.diskCtx.rerank = LoadUnsigned_IOError(rdb, goto fail) != 0;
     } else {
       f->vectorOpts.diskCtx.rerank = true;
