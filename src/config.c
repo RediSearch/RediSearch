@@ -207,34 +207,6 @@ static int set_min_trim_delay_numeric_config(const char *name, long long val,
   return REDISMODULE_OK;
 }
 
-// Custom setter for search-timeout. Accepts any non-negative value; the
-// per-query cap (RSConfig_CapQueryTimeoutToForegroundLimit in AREQ_Compile /
-// parseHybridCommand) enforces search-_max-foreground-timeout-limit at runtime
-// and emits the RESP3 MAX_TIMEOUT_CAPPED warning to the client when capping
-// occurs. The framework gates val == 0 via the registered min=1, so we only
-// see positive values here.
-static int set_query_timeout_config(const char *name, long long val,
-                                    void *privdata, RedisModuleString **err) {
-  REDISMODULE_NOT_USED(name);
-  REDISMODULE_NOT_USED(err);
-  RedisModule_Log(RSDummyContext, "notice", "search-timeout set to %lld", val);
-  *(long long *)privdata = val;
-  return REDISMODULE_OK;
-}
-
-// Custom setter for search-_max-foreground-timeout-limit. Accepts any
-// non-negative value; the runtime cap (see set_query_timeout_config) handles
-// the per-query enforcement and emits the RESP3 warning to the client.
-static int set_max_foreground_timeout_limit_config(const char *name, long long val,
-                                                   void *privdata, RedisModuleString **err) {
-  REDISMODULE_NOT_USED(name);
-  REDISMODULE_NOT_USED(err);
-  RedisModule_Log(RSDummyContext, "notice",
-    "search-_max-foreground-timeout-limit set to %lld", val);
-  *(long long *)privdata = val;
-  return REDISMODULE_OK;
-}
-
 // Custom setter for _MAX_TRIM_DELAY with validation
 static int set_max_trim_delay_numeric_config(const char *name, long long val,
                                      void *privdata, RedisModuleString **err) {
@@ -2273,7 +2245,7 @@ int RegisterModuleConfig_Local(RedisModuleCtx *ctx) {
     RedisModule_RegisterNumericConfig(
       ctx, "search-timeout", DEFAULT_QUERY_TIMEOUT_MS,
       REDISMODULE_CONFIG_UNPREFIXED, 1,
-      LLONG_MAX, get_long_numeric_config, set_query_timeout_config, NULL,
+      LLONG_MAX, get_long_numeric_config, set_long_numeric_config, NULL,
       (void *)&(RSGlobalConfig.requestConfigParams.queryTimeoutMS)
     )
   )
@@ -2282,7 +2254,7 @@ int RegisterModuleConfig_Local(RedisModuleCtx *ctx) {
     RedisModule_RegisterNumericConfig(
       ctx, "search-_max-foreground-timeout-limit", DEFAULT_MAX_FOREGROUND_TIMEOUT_LIMIT_MS,
       REDISMODULE_CONFIG_UNPREFIXED, 0,
-      LLONG_MAX, get_long_numeric_config, set_max_foreground_timeout_limit_config, NULL,
+      LLONG_MAX, get_long_numeric_config, set_long_numeric_config, NULL,
       (void *)&(RSGlobalConfig.maxForegroundTimeoutLimitMS)
     )
   )
