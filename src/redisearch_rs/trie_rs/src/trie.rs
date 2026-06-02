@@ -43,7 +43,7 @@ impl<Data> TrieMap<Data> {
     ///
     /// No allocation is performed on creation.
     /// Memory is allocated only when the first insertion occurs.
-    pub fn new() -> Self {
+    pub const fn new() -> Self {
         Self {
             root: None,
             n_unique_keys: 0,
