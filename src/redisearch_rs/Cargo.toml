@@ -145,6 +145,7 @@ sorting_vector = { path = "./sorting_vector" }
 thin_vec = { path = "./thin_vec" }
 top_k = { path = "./top_k" }
 tracing_assert = { path = "./tracing_assert" }
+vecsim = { path = "./c_wrappers/vecsim" }
 tracing_redismodule = { path = "./tracing_redismodule" }
 trie_rs = { path = "./trie_rs" }
 ttl_table = { path = "./ttl_table" }
