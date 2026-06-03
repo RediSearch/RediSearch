@@ -23,11 +23,14 @@
 
 class SuffixChooseTokenTest : public ::testing::Test {};
 
-// The chosen token: its ordinal (REDISEARCH_UNINITIALIZED if none) and length,
-// so tests can assert exactly which token the scorer picked.
+// Result of the rune scorer for one pattern, so tests can assert exactly which
+// token it picked.
 struct RuneChoice {
-  int idx;
-  size_t len;
+  // 0-based position of the chosen token among the '*'-split tokens (1st, 2nd,
+  // ...), NOT a character offset into the pattern. REDISEARCH_UNINITIALIZED when
+  // no token qualifies.
+  int tokenOrdinal;
+  size_t len;  // length of the chosen token, in runes
 };
 
 // Run the rune scorer on an ASCII pattern (one byte == one rune here).
@@ -43,7 +46,7 @@ static RuneChoice chooseRune(const char *pattern) {
   return {res, chosenLen};
 }
 
-static int chooseTokenRune(const char *pattern) { return chooseRune(pattern).idx; }
+static int chooseTokenRune(const char *pattern) { return chooseRune(pattern).tokenOrdinal; }
 
 static int chooseTokenChar(const char *pattern) {
   size_t n = strlen(pattern);
@@ -55,42 +58,67 @@ static int chooseTokenChar(const char *pattern) {
 // token from being chosen. Before the fix the rune scorer returned
 // REDISEARCH_UNINITIALIZED here, forcing a full-trie brute-force fallback.
 TEST_F(SuffixChooseTokenTest, questionMarkInFirstTokenStillSelects) {
-  // Each case asserts the chosen token's ordinal and length, making it explicit
-  // which '?'-bearing token survives (token shapes shown in comments).
+  // Each case asserts the chosen token's ordinal (which token in the split) and
+  // length, making it explicit which '?'-bearing token survives.
   // Single token "?abcd" (len 5), '?' leading.
-  EXPECT_EQ(chooseRune("?abcd").idx, 0);
+  EXPECT_EQ(chooseRune("?abcd").tokenOrdinal, 0);
   EXPECT_EQ(chooseRune("?abcd").len, 5u);
   // Single token "ab?cd" (len 5), '?' in the middle.
-  EXPECT_EQ(chooseRune("ab?cd").idx, 0);
+  EXPECT_EQ(chooseRune("ab?cd").tokenOrdinal, 0);
   EXPECT_EQ(chooseRune("ab?cd").len, 5u);
   // Single token "abc?" (len 4), '?' trailing.
-  EXPECT_EQ(chooseRune("abc?").idx, 0);
+  EXPECT_EQ(chooseRune("abc?").tokenOrdinal, 0);
   EXPECT_EQ(chooseRune("abc?").len, 4u);
   // Single token "a??cd" (len 5): each '?' must penalize only this candidate,
   // not the running best, so the token is still selectable.
-  EXPECT_EQ(chooseRune("a??cd").idx, 0);
+  EXPECT_EQ(chooseRune("a??cd").tokenOrdinal, 0);
   EXPECT_EQ(chooseRune("a??cd").len, 5u);
   // Degenerate token "??" (len 2, == MIN_SUFFIX) is a weak but valid filter and
   // must be chosen over a full-trie fallback.
-  EXPECT_EQ(chooseRune("??").idx, 0);
+  EXPECT_EQ(chooseRune("??").tokenOrdinal, 0);
   EXPECT_EQ(chooseRune("??").len, 2u);
-  // "a?c"*"defg": clean token "defg" (idx 1, len 4) beats the '?'-bearing first.
-  EXPECT_EQ(chooseRune("a?c*defg").idx, 1);
+  // "a?c"*"defg": the clean 2nd token "defg" (ordinal 1, len 4) beats the
+  // '?'-bearing 1st.
+  EXPECT_EQ(chooseRune("a?c*defg").tokenOrdinal, 1);
   EXPECT_EQ(chooseRune("a?c*defg").len, 4u);
-  // "a?b"*"c?d": both tokens carry a '?'; the later "c?d" (idx 1, len 3) wins by
-  // avoiding the trailing-'*' penalty the first token pays.
-  EXPECT_EQ(chooseRune("a?b*c?d").idx, 1);
+  // "a?b"*"c?d": both tokens carry a '?'; the 2nd token "c?d" (ordinal 1, len 3)
+  // wins by avoiding the trailing-'*' penalty the 1st token pays.
+  EXPECT_EQ(chooseRune("a?b*c?d").tokenOrdinal, 1);
   EXPECT_EQ(chooseRune("a?b*c?d").len, 3u);
-  // "abcde?fghij"*"xy": the long first token (idx 0, len 11) keeps winning
-  // despite its '?' and trailing '*', over the short clean later token.
-  EXPECT_EQ(chooseRune("abcde?fghij*xy").idx, 0);
+  // "abcde?fghij"*"xy": the long 1st token (ordinal 0, len 11) keeps winning
+  // despite its '?' and trailing '*', over the short clean 2nd token.
+  EXPECT_EQ(chooseRune("abcde?fghij*xy").tokenOrdinal, 0);
   EXPECT_EQ(chooseRune("abcde?fghij*xy").len, 11u);
 }
 
-// The rune scorer must agree with the char scorer on the chosen token index.
+// Tokenization splits the pattern on runs of '*': consecutive '*' collapse, and
+// leading/trailing '*' are dropped. The scorer returns the chosen token's
+// ordinal in that split, which is unrelated to its character offset.
+TEST_F(SuffixChooseTokenTest, multipleStarsSelectByTokenOrdinal) {
+  // Consecutive and leading/trailing '*' collapse to a single token "abcd".
+  EXPECT_EQ(chooseRune("**abcd**").tokenOrdinal, 0);
+  EXPECT_EQ(chooseRune("**abcd**").len, 4u);
+  // "ab"**"cd": a double '*' still yields just two tokens; the clean trailing
+  // "cd" (2nd token, ordinal 1) wins.
+  EXPECT_EQ(chooseRune("ab**cd").tokenOrdinal, 1);
+  EXPECT_EQ(chooseRune("ab**cd").len, 2u);
+  // "ab"*"cd"*"ef": three tokens; the last (3rd token, ordinal 2) avoids the
+  // trailing-'*' penalty and wins.
+  EXPECT_EQ(chooseRune("ab*cd*ef").tokenOrdinal, 2);
+  EXPECT_EQ(chooseRune("ab*cd*ef").len, 2u);
+  // Sub-MIN_SUFFIX tokens are skipped for scoring but still counted in the
+  // ordinal: "a"/"b"/"cd"/"ef"/"ghij" -> the chosen "ghij" is the 5th token
+  // (ordinal 4), even though its character offset is 10. Confirms the result is
+  // the split ordinal, not an offset.
+  EXPECT_EQ(chooseRune("a*b*cd*ef*ghij").tokenOrdinal, 4);
+  EXPECT_EQ(chooseRune("a*b*cd*ef*ghij").len, 4u);
+}
+
+// The rune scorer must agree with the char scorer on the chosen token ordinal.
 TEST_F(SuffixChooseTokenTest, runeAgreesWithChar) {
   const char *patterns[] = {
       "?abcd", "ab?cd", "a?c*defg", "abc*defg", "ab*cd*efgh", "*magicneedl?*",
+      "**abcd**", "ab**cd", "ab*cd*ef", "a*b*cd*ef*ghij",
   };
   for (const char *p : patterns) {
     EXPECT_EQ(chooseTokenRune(p), chooseTokenChar(p)) << "pattern: " << p;
