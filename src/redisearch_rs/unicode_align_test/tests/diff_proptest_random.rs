@@ -19,6 +19,7 @@ use proptest::strategy::ValueTree;
 use proptest::test_runner::TestRunner;
 
 #[test]
+#[ignore = "1M proptest samples; run on demand with --run-ignored only"]
 fn random_unicode_corpus() {
     let mut runner = TestRunner::deterministic();
     let strategy = prop::collection::vec(any::<char>(), 0..50);
