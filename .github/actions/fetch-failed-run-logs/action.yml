@@ -8,7 +8,8 @@ description: >
 
 inputs:
   github-token:
-    description: GitHub token with `actions: read` for the target run.
+    description: >
+      GitHub token with `actions: read` for the target run.
     required: true
   run-id:
     description: Workflow run ID to inspect. Defaults to the current run.
