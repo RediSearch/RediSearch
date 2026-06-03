@@ -47,6 +47,7 @@ typedef struct ConcurrentCmdCtx {
   int argc;
   int options;
   WeakRef spec_ref;
+  size_t numShards;
 } ConcurrentCmdCtx;
 
 /* Run a function on the concurrent thread pool */
@@ -103,14 +104,21 @@ WeakRef ConcurrentCmdCtx_GetWeakRef(ConcurrentCmdCtx *cctx) {
   return cctx->spec_ref;
 }
 
-int ConcurrentSearch_HandleRedisCommandEx(int poolType, int options, ConcurrentCmdHandler handler,
-                                          RedisModuleCtx *ctx, RedisModuleString **argv, int argc,
-                                          WeakRef spec_ref) {
+size_t ConcurrentCmdCtx_GetNumShards(const ConcurrentCmdCtx *cctx) {
+  return cctx->numShards;
+}
+
+int ConcurrentSearch_HandleRedisCommandExWithNumShards(int poolType, int options,
+                                                       ConcurrentCmdHandler handler,
+                                                       RedisModuleCtx *ctx,
+                                                       RedisModuleString **argv, int argc,
+                                                       WeakRef spec_ref, size_t numShards) {
   ConcurrentCmdCtx *cmdCtx = rm_malloc(sizeof(*cmdCtx));
 
   cmdCtx->bc = RedisModule_BlockClient(ctx, NULL, NULL, NULL, 0);
   cmdCtx->argc = argc;
   cmdCtx->spec_ref = spec_ref;
+  cmdCtx->numShards = numShards;
   cmdCtx->ctx = RedisModule_GetThreadSafeContext(cmdCtx->bc);
   RS_AutoMemory(cmdCtx->ctx);
   cmdCtx->handler = handler;
@@ -125,6 +133,13 @@ int ConcurrentSearch_HandleRedisCommandEx(int poolType, int options, ConcurrentC
 
   ConcurrentSearch_ThreadPoolRun(threadHandleCommand, cmdCtx, poolType);
   return REDISMODULE_OK;
+}
+
+int ConcurrentSearch_HandleRedisCommandEx(int poolType, int options, ConcurrentCmdHandler handler,
+                                          RedisModuleCtx *ctx, RedisModuleString **argv, int argc,
+                                          WeakRef spec_ref) {
+  return ConcurrentSearch_HandleRedisCommandExWithNumShards(poolType, options, handler, ctx, argv,
+                                                            argc, spec_ref, 0);
 }
 
 int ConcurrentSearch_HandleRedisCommand(int poolType, ConcurrentCmdHandler handler,

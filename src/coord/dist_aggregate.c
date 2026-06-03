@@ -268,7 +268,8 @@ static int parseProfile(RedisModuleString **argv, int argc, AREQ *r) {
 }
 
 static int prepareForExecution(AREQ *r, RedisModuleCtx *ctx, RedisModuleString **argv, int argc,
-                         IndexSpec *sp, specialCaseCtx **knnCtx_ptr, QueryError *status) {
+                               IndexSpec *sp, specialCaseCtx **knnCtx_ptr, size_t numShards,
+                               QueryError *status) {
   r->qiter.err = status;
   r->reqflags |= QEXEC_F_IS_AGGREGATE | QEXEC_F_BUILDPIPELINE_NO_ROOT;
   rs_wall_clock_init(&r->initClock);
@@ -303,8 +304,12 @@ static int prepareForExecution(AREQ *r, RedisModuleCtx *ctx, RedisModuleString *
   rc = AGGPLN_Distribute(&r->ap, status);
   if (rc != REDISMODULE_OK) return REDISMODULE_ERR;
 
+  // The coordinator merges shard-local groups, so allow one configured cap per shard.
+  GroupByLimits groupByLimits =
+      GroupByLimits_ForCoordinator(RSGlobalConfig.maxAggregateGroups, numShards);
+
   AREQDIST_UpstreamInfo us = {NULL};
-  rc = AREQ_BuildDistributedPipeline(r, &us, status);
+  rc = AREQ_BuildDistributedPipeline(r, &us, &groupByLimits, status);
   if (rc != REDISMODULE_OK) return REDISMODULE_ERR;
 
   // Construct the command string
@@ -375,6 +380,8 @@ void RSExecDistAggregate(RedisModuleCtx *ctx, RedisModuleString **argv, int argc
   QueryError status = {0};
   specialCaseCtx *knnCtx = NULL;
 
+  size_t numShards = ConcurrentCmdCtx_GetNumShards(cmdCtx);
+
   // Check if the index still exists, and promote the ref accordingly
   StrongRef strong_ref = IndexSpecRef_Promote(ConcurrentCmdCtx_GetWeakRef(cmdCtx));
   IndexSpec *sp = StrongRef_Get(strong_ref);
@@ -383,7 +390,7 @@ void RSExecDistAggregate(RedisModuleCtx *ctx, RedisModuleString **argv, int argc
     goto err;
   }
 
-  if (prepareForExecution(r, ctx, argv, argc, sp, &knnCtx, &status) != REDISMODULE_OK) {
+  if (prepareForExecution(r, ctx, argv, argc, sp, &knnCtx, numShards, &status) != REDISMODULE_OK) {
     goto err;
   }
 
@@ -412,6 +419,11 @@ void DEBUG_RSExecDistAggregate(RedisModuleCtx *ctx, RedisModuleString **argv, in
   AREQ *r = NULL;
   IndexSpec *sp = NULL;
   specialCaseCtx *knnCtx = NULL;
+  AREQ_Debug_params debug_params = {0};
+  StrongRef strong_ref = {0};
+  int debug_argv_count = 0;
+  MRCommand *cmd = NULL;
+  size_t numShards = 0;
 
   // debug_req and &debug_req->r are allocated in the same memory block, so it will be freed
   // when AREQ_Free is called
@@ -422,22 +434,25 @@ void DEBUG_RSExecDistAggregate(RedisModuleCtx *ctx, RedisModuleString **argv, in
   }
   // CMD, index, expr, args...
   r = &debug_req->r;
-  AREQ_Debug_params debug_params = debug_req->debug_params;
+
+  numShards = ConcurrentCmdCtx_GetNumShards(cmdCtx);
+  debug_params = debug_req->debug_params;
   // Check if the index still exists, and promote the ref accordingly
-  StrongRef strong_ref = IndexSpecRef_Promote(ConcurrentCmdCtx_GetWeakRef(cmdCtx));
+  strong_ref = IndexSpecRef_Promote(ConcurrentCmdCtx_GetWeakRef(cmdCtx));
   sp = StrongRef_Get(strong_ref);
   if (!sp) {
     QueryError_SetCode(&status, QUERY_EDROPPEDBACKGROUND);
     goto err;
   }
 
-  int debug_argv_count = debug_params.debug_params_count + 2;  // account for `DEBUG_PARAMS_COUNT` `<count>` strings
-  if (prepareForExecution(r, ctx, argv, argc - debug_argv_count, sp, &knnCtx, &status) != REDISMODULE_OK) {
+  debug_argv_count = debug_params.debug_params_count + 2;  // account for `DEBUG_PARAMS_COUNT` `<count>` strings
+  if (prepareForExecution(r, ctx, argv, argc - debug_argv_count, sp, &knnCtx, numShards,
+                          &status) != REDISMODULE_OK) {
     goto err;
   }
 
   // rpnet now owns the command
-  MRCommand *cmd = &(((RPNet *)r->qiter.rootProc)->cmd);
+  cmd = &(((RPNet *)r->qiter.rootProc)->cmd);
 
   MRCommand_Insert(cmd, 0, "_FT.DEBUG", sizeof("_FT.DEBUG") - 1);
   // insert also debug params at the end
