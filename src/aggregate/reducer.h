@@ -75,6 +75,13 @@ typedef struct Reducer {
   int (*Add)(struct Reducer *parent, void *instance, const RLookupRow *srcrow);
 
   /**
+   * Optional Add variant for reducers that need the upstream document id as
+   * out-of-band metadata. Reducers that do not set this callback use Add().
+   */
+  int (*AddWithDocId)(struct Reducer *parent, void *instance, const RLookupRow *srcrow,
+                      t_docId docId);
+
+  /**
    * Called when Add() has been invoked for the last time. This is used to
    * populate the result of the reduce function.
    */

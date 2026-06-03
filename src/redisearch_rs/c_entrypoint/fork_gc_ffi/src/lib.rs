@@ -27,13 +27,6 @@ use tracing_log_error::log_error;
 
 mod util;
 
-// Sentinel pointer defined in `src/fork_gc/pipe.c`, compared by pointer
-// identity in C callers (e.g. `recvFieldHeader`) to detect end-of-stream
-// frames returned through `FGC_recvBuffer`'s `buf` out-parameter.
-unsafe extern "C" {
-    static RECV_BUFFER_EMPTY: *mut c_void;
-}
-
 /// Status code returned by Fork GC parent-side pipe-receive operations.
 #[cheadergen::config(export)]
 #[repr(C)]
@@ -160,11 +153,12 @@ pub unsafe extern "C" fn FGC_recvFixed(
 
 /// Read a length-prefixed buffer frame from the FGC pipe.
 ///
-/// On receipt of a `SIZE_MAX` length prefix, writes `SIZE_MAX` to
-/// `*len` and the `RECV_BUFFER_EMPTY` sentinel pointer to `*buf`. On a
-/// zero-length prefix, writes `0` and a null pointer. Otherwise leaks a
-/// boxed payload slice, writing its pointer and length to `*buf` / `*len`;
-/// the caller is responsible for releasing it with [`FGC_freeBuffer`].
+/// On receipt of a `SIZE_MAX` length prefix (end-of-stream terminator), writes
+/// `SIZE_MAX` to `*len` and a null pointer to `*buf`. Callers detect
+/// end-of-stream by checking `*len == SIZE_MAX`. On a zero-length prefix,
+/// writes `0` and a null pointer. Otherwise leaks a boxed payload slice,
+/// writing its pointer and length to `*buf` / `*len`; the caller is
+/// responsible for releasing it with [`FGC_freeBuffer`].
 ///
 /// On read error (timeout, short stream, ...), returns `REDISMODULE_ERR`
 /// and leaves `*buf` / `*len` unchanged.
@@ -260,7 +254,7 @@ pub unsafe extern "C" fn recvFieldHeader(
 
 /// Free a buffer previously returned by [`FGC_recvBuffer`] or [`recvFieldHeader`].
 ///
-/// No-ops for the `RECV_BUFFER_EMPTY` sentinel and null pointers.
+/// No-ops for null pointers (returned for both the terminator and empty-frame cases).
 ///
 /// # Safety
 ///
@@ -268,8 +262,7 @@ pub unsafe extern "C" fn recvFieldHeader(
 ///    [`FGC_recvBuffer`] or [`recvFieldHeader`], and must not have been freed before.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn FGC_freeBuffer(buf: *mut c_void, len: usize) {
-    // SAFETY: `RECV_BUFFER_EMPTY` is a static defined in `pipe.c`.
-    if buf.is_null() || buf == unsafe { RECV_BUFFER_EMPTY } {
+    if buf.is_null() {
         return;
     }
 
