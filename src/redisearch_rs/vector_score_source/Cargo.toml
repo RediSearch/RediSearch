@@ -26,6 +26,7 @@ index_result.workspace = true
 [dev-dependencies]
 vector_score_source = { path = ".", features = ["unittest"] }
 redis_mock.workspace = true
+rqe_core.workspace = true
 rqe_iterators = { workspace = true, features = ["unittest"] }
 redisearch_rs = { path = "../c_entrypoint/redisearch_rs", features = [
     "mock_allocator",
