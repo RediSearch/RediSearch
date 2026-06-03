@@ -23,7 +23,12 @@ concurrency:
   # `pull_request.number` is undefined; fall through to the source run's
   # head_sha so unrelated fork-PR triage runs don't collide on a constant
   # `pr-triage-` group key.
-  group: pr-triage-${{ github.event.workflow_run.pull_requests[0].number || github.event.pull_request.number || github.event.workflow_run.head_sha }}
+  #
+  # `pull_request_target: labeled` fires for *any* label (the trigger has no
+  # label-name filter). For non-`triage-pr` labels we give each run its own
+  # group keyed by `github.run_id`, so `cancel-in-progress` can't cancel an
+  # in-flight opted-in triage before the no-op label check inside resolve.
+  group: ${{ (github.event_name == 'pull_request_target' && github.event.label.name != 'triage-pr') && format('pr-triage-noop-{0}', github.run_id) || format('pr-triage-{0}', github.event.workflow_run.pull_requests[0].number || github.event.pull_request.number || github.event.workflow_run.head_sha) }}
   cancel-in-progress: true
 
 jobs:
@@ -54,6 +59,8 @@ jobs:
           WORKFLOW_RUN_CONCLUSION: ${{ github.event.workflow_run.conclusion }}
           WORKFLOW_RUN_PR_NUMBER: ${{ github.event.workflow_run.pull_requests[0].number }}
           WORKFLOW_RUN_HEAD_SHA: ${{ github.event.workflow_run.head_sha }}
+          WORKFLOW_RUN_HEAD_REPO: ${{ github.event.workflow_run.head_repository.full_name }}
+          WORKFLOW_RUN_HEAD_BRANCH: ${{ github.event.workflow_run.head_branch }}
           # pull_request_target inputs (empty for workflow_run)
           LABELED_PR_NUMBER: ${{ github.event.pull_request.number }}
           LABELED_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
@@ -122,13 +129,23 @@ jobs:
                   f"/repos/{repo}/actions/workflows/event-pull_request.yml/runs"
                   f"?head_sha={head_sha}&per_page=20"
               ) or {}
-              pr_head_repo = ((pr_data.get("head") or {}).get("repo") or {}).get("full_name")
+              pr_head = pr_data.get("head") or {}
+              pr_head_repo = (pr_head.get("repo") or {}).get("full_name")
+              pr_head_ref = pr_head.get("ref")
               def run_matches_pr(run):
                   pulls = run.get("pull_requests") or []
                   if any(p.get("number") == int(pr_number) for p in pulls):
                       return True
+                  # Fork PRs: run.pull_requests is empty. Match on head repo
+                  # AND head branch — matching on repo alone picks up sibling
+                  # fork PRs (e.g. parallel PRs from the same fork against
+                  # different base branches share head_repository).
                   run_head_repo = (run.get("head_repository") or {}).get("full_name")
-                  return bool(pr_head_repo) and pr_head_repo == run_head_repo
+                  run_head_branch = run.get("head_branch")
+                  return (
+                      bool(pr_head_repo) and pr_head_repo == run_head_repo
+                      and bool(pr_head_ref) and pr_head_ref == run_head_branch
+                  )
               runs_list = [r for r in runs.get("workflow_runs", []) if run_matches_pr(r)]
               if not runs_list:
                   print(f"No Pull Request Flow run for PR #{pr_number} at {head_sha}.")
@@ -149,15 +166,25 @@ jobs:
           pr_number = os.environ.get("WORKFLOW_RUN_PR_NUMBER", "")
           if not pr_number:
               # Same-repo PRs populate workflow_run.pull_requests; fork PRs
-              # don't. Look up by head_sha as a fallback.
+              # don't. Look up by head_sha as a fallback, scoped to the
+              # source run's fork branch so parallel fork PRs sharing one
+              # commit (e.g. open PRs from the same fork against different
+              # base branches) don't cross-pollinate.
               head_sha = os.environ.get("WORKFLOW_RUN_HEAD_SHA", "")
+              run_head_repo = os.environ.get("WORKFLOW_RUN_HEAD_REPO", "")
+              run_head_branch = os.environ.get("WORKFLOW_RUN_HEAD_BRANCH", "")
               if head_sha:
                   prs = gh_api(
                       f"/repos/{repo}/commits/{head_sha}/pulls"
                   ) or []
-                  open_prs = [p for p in prs if p.get("state") == "open"]
-                  if open_prs:
-                      pr_number = str(open_prs[0]["number"])
+                  candidates = [
+                      p for p in prs
+                      if p.get("state") == "open"
+                      and (not run_head_repo or ((p.get("head") or {}).get("repo") or {}).get("full_name") == run_head_repo)
+                      and (not run_head_branch or (p.get("head") or {}).get("ref") == run_head_branch)
+                  ]
+                  if candidates:
+                      pr_number = str(candidates[0]["number"])
           if not pr_number:
               print("Could not resolve PR number from workflow_run event; skipping.")
               emit(False)
@@ -176,9 +203,20 @@ jobs:
           if current_head_sha and run_head_sha and current_head_sha != run_head_sha:
               print(f"PR #{pr_number} has moved to {current_head_sha}; skipping stale run {run_head_sha}.")
               emit(False, pr_number)
+          # Skip if the source run has been re-run since this event fired.
+          # When a maintainer manually re-runs the failed Pull Request Flow,
+          # GitHub starts attempt N+1 on the same SHA and both attempts emit
+          # a workflow_run completion event. Triaging an older attempt would
+          # post stale logs or get clobbered by N+1's triage a moment later.
+          run_id = os.environ["WORKFLOW_RUN_ID"]
           run_attempt = os.environ.get("WORKFLOW_RUN_ATTEMPT") or "1"
-          print(f"PR #{pr_number}: triaging failed run {os.environ['WORKFLOW_RUN_ID']} (attempt {run_attempt}).")
-          emit(True, pr_number, os.environ["WORKFLOW_RUN_ID"], run_attempt)
+          run_data = gh_api(f"/repos/{repo}/actions/runs/{run_id}") or {}
+          latest_attempt = run_data.get("run_attempt", int(run_attempt))
+          if latest_attempt > int(run_attempt):
+              print(f"Run {run_id} has been re-run (attempt {latest_attempt} > this {run_attempt}); skipping stale attempt.")
+              emit(False, pr_number)
+          print(f"PR #{pr_number}: triaging failed run {run_id} (attempt {run_attempt}).")
+          emit(True, pr_number, run_id, run_attempt)
 
   triage:
     needs: resolve
