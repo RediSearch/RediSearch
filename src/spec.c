@@ -1844,7 +1844,7 @@ static StrongRef IndexSpec_ParseFromArgCursor(RedisModuleCtx *ctx, const HiddenS
   spec->diskSpec = NULL;
   if (isSpecOnDisk(spec)) {
     RS_ASSERT(disk_db);
-    spec->diskSpec = SearchDisk_OpenIndex(ctx, spec->specName, spec->obfuscatedName, spec->rule->type, false);
+    spec->diskSpec = SearchDisk_OpenIndex(ctx, spec->specName, spec->obfuscatedName, spec->rule->type, false, spec);
     RS_LOG_ASSERT(spec->diskSpec, "Failed to open disk spec")
     if (!spec->diskSpec) {
       QueryError_SetError(status, QUERY_ERROR_CODE_DISK_CREATION, "Could not open disk index");
@@ -2021,6 +2021,35 @@ size_t CleanInProgressOrPending() {
  */
 static void IndexSpec_FreeUnlinkedData(IndexSpec *spec) {
 
+  // Free fields data first. For disk-backed vector fields,
+  // IndexSpec_PopulateVectorDiskParams stored spec->diskSpec in each field's
+  // diskCtx.storage, and FieldSpec_Cleanup routes those vector handles through
+  // SearchDisk_FreeVectorIndex; freeing a VecSim disk index after its backing
+  // storage handle was closed would be a use-after-free, so this must run
+  // before the disk close below.
+  if (spec->fields != NULL) {
+    for (size_t i = 0; i < spec->numFields; i++) {
+      FieldSpec_Cleanup(&spec->fields[i]);
+    }
+    rm_free(spec->fields);
+  }
+
+  // Close the disk index right after the fields are cleaned up, while the rest
+  // of the spec's state and locks are still fully alive. Background jobs
+  // bound at open time hold this IndexSpec as their private data and may call
+  // back into it (IndexSpec_AcquireWriteLock, IndexSpec_BlockDiskFork,
+  // IndexSpec_DecrementTrieTermCount, ...) while the backend drains them during close.
+  //  Closing here — before any of the trie/dict/lock
+  // teardown below — keeps every field those callbacks might touch valid.
+  if (spec->diskSpec) {
+    SearchDisk_CloseIndex(spec->diskSpec);
+    spec->diskSpec = NULL;
+  }
+  if (spec->pendingDiskRdbState) {
+    SearchDisk_FreeRdbState(spec->pendingDiskRdbState);
+    spec->pendingDiskRdbState = NULL;
+  }
+
   // Free all documents metadata
   DocTable_Free(&spec->docs);
   // Free TEXT field trie and inverted indexes
@@ -2055,13 +2084,6 @@ static void IndexSpec_FreeUnlinkedData(IndexSpec *spec) {
   array_free(spec->fieldIdToIndex);
   spec->fieldIdToIndex = NULL;
 
-  // Free fields data
-  if (spec->fields != NULL) {
-    for (size_t i = 0; i < spec->numFields; i++) {
-      FieldSpec_Cleanup(&spec->fields[i]);
-    }
-    rm_free(spec->fields);
-  }
   // Free suffix trie
   if (spec->suffix) {
     TrieType_Free(spec->suffix);
@@ -2071,15 +2093,11 @@ static void IndexSpec_FreeUnlinkedData(IndexSpec *spec) {
   HiddenString_Free(spec->specName, true);
   rm_free(spec->obfuscatedName);
 
-  // Destroy the spec's lock
+  // Destroy the spec's lock. Safe now: the disk index was already closed above,
+  // so no compaction listener can reference these locks.
   pthread_rwlock_destroy(&spec->rwlock);
   pthread_rwlock_destroy(&spec->disk_fork_rwlock);
 
-  if (spec->diskSpec) SearchDisk_CloseIndex(spec->diskSpec);
-  if (spec->pendingDiskRdbState) {
-    SearchDisk_FreeRdbState(spec->pendingDiskRdbState);
-    spec->pendingDiskRdbState = NULL;
-  }
   // Free spec struct
   rm_free(spec);
 
@@ -3414,7 +3432,7 @@ static bool IndexSpec_SSTRdbOpenAndApply(RedisModuleCtx *ctx, IndexSpec *sp) {
   // written directly to fs->vectorOpts.vecSimIndex; the loop below either
   // binds SpeedB storage to those handles or, for fields that were empty at
   // save time, falls back to the eager construction path.
-  sp->diskSpec = SearchDisk_OpenIndexWithRdbState(ctx, sp->specName, sp->obfuscatedName, sp->rule->type, sp->pendingDiskRdbState);
+  sp->diskSpec = SearchDisk_OpenIndexWithRdbState(ctx, sp->specName, sp->obfuscatedName, sp->rule->type, sp->pendingDiskRdbState, sp);
   sp->pendingDiskRdbState = NULL;  // consumed regardless of result
   if (!sp->diskSpec) {
     return false;
@@ -3670,7 +3688,7 @@ IndexSpec *IndexSpec_RdbLoad(RedisModuleIO *rdb, int encver, bool useSst, QueryE
   } else if (isSpecOnDisk(sp) && !sp->isDuplicate) {
     // If the regular RDB method is used, just open an Index without any populated data.
     RS_ASSERT(!useSst);
-    sp->diskSpec = SearchDisk_OpenIndex(ctx, sp->specName, sp->obfuscatedName, sp->rule->type, false);
+    sp->diskSpec = SearchDisk_OpenIndex(ctx, sp->specName, sp->obfuscatedName, sp->rule->type, false, sp);
     if (!sp->diskSpec) {
       goto cleanup;
     }

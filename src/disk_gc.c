@@ -43,7 +43,7 @@ static bool periodicCb(void *privdata, bool force) {
   atomic_fetch_sub(&gc->deletesFromLastRun, num_deletes);
   atomic_fetch_sub(&gc->updatesFromLastRun, num_updates);
 
-  size_t num_cleaned = SearchDisk_RunGC(sp->diskSpec, sp);
+  size_t num_cleaned = SearchDisk_RunGC(sp->diskSpec);
   IndexsGlobalStats_DecreaseLogicallyDeleted(num_cleaned);
 
   gc->intervalSec = RSGlobalConfig.gcConfigParams.gcSettings.forkGcRunIntervalSec;
