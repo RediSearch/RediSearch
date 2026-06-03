@@ -1,0 +1,73 @@
+name: Fetch Failed Run Logs
+description: >
+  Download the logs of all failed (or timed-out) jobs in a workflow run and
+  concatenate them into a single file with `##[group]<job_name>` /
+  `##[endgroup]` markers. Works on still-in-progress runs (uses the per-job
+  REST endpoint instead of `gh run view --log-failed`, which refuses while the
+  parent run is live).
+
+inputs:
+  github-token:
+    description: >
+      GitHub token with `actions: read` for the target run.
+    required: true
+  run-id:
+    description: Workflow run ID to inspect. Defaults to the current run.
+    required: false
+    default: ${{ github.run_id }}
+  run-attempt:
+    description: Run attempt number. Defaults to the current attempt.
+    required: false
+    default: ${{ github.run_attempt }}
+  output-file:
+    description: Path to write the concatenated logs to.
+    required: false
+    default: failed-logs.txt
+  append:
+    description: >
+      If `true`, append to `output-file` instead of truncating it. Useful when
+      a caller has already prepared part of the log file (e.g. artifact-based
+      test logs) and wants job logs appended.
+    required: false
+    default: 'false'
+  max-bytes:
+    description: >
+      Truncate the final file to its last N bytes. Bounds Codex token spend.
+    required: false
+    default: '204800'
+
+runs:
+  using: composite
+  steps:
+    - name: Fetch failed-job logs
+      shell: bash
+      env:
+        GH_TOKEN: ${{ inputs.github-token }}
+        RUN_ID: ${{ inputs.run-id }}
+        RUN_ATTEMPT: ${{ inputs.run-attempt }}
+        OUTPUT_FILE: ${{ inputs.output-file }}
+        APPEND: ${{ inputs.append }}
+        MAX_BYTES: ${{ inputs.max-bytes }}
+      run: |
+        set +e
+        if [ "$APPEND" != "true" ]; then
+          : > "$OUTPUT_FILE"
+        fi
+        # `failure` and `timed_out` both roll up to `failure` in `needs.*.result`,
+        # so triage callers expect both categories of logs.
+        gh api --paginate \
+          "repos/${GITHUB_REPOSITORY}/actions/runs/${RUN_ID}/attempts/${RUN_ATTEMPT}/jobs" \
+          --jq '.jobs[] | select(.conclusion == "failure" or .conclusion == "timed_out") | "\(.id)\t\(.name)"' |
+          while IFS=$'\t' read -r job_id job_name; do
+            [ -z "$job_id" ] && continue
+            printf '##[group]%s\n' "$job_name" >> "$OUTPUT_FILE"
+            gh api "repos/${GITHUB_REPOSITORY}/actions/jobs/${job_id}/logs" >> "$OUTPUT_FILE" 2>&1
+            printf '\n##[endgroup]\n' >> "$OUTPUT_FILE"
+          done
+        if [ "$(wc -c < "$OUTPUT_FILE" 2>/dev/null || echo 0)" -gt "$MAX_BYTES" ]; then
+          tail -c "$MAX_BYTES" "$OUTPUT_FILE" > "${OUTPUT_FILE}.tmp"
+          printf '[truncated to last %s bytes]\n' "$MAX_BYTES" > "$OUTPUT_FILE"
+          cat "${OUTPUT_FILE}.tmp" >> "$OUTPUT_FILE"
+          rm "${OUTPUT_FILE}.tmp"
+        fi
+        exit 0

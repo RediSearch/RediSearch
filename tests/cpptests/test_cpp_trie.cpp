@@ -162,6 +162,38 @@ TEST_F(TrieTest, testBasicRangeWithScore) {
   TrieType_Free(t);
 }
 
+// Regression test for `rangeIterate` double-emission when the boundary value
+// is a proper prefix of a child's collapsed label. The fixture uses textual
+// terms (rather than testBasicRange's numeric ones) so that root children
+// like "ban" have multi-character labels — only those expose the bug, because
+// `rsb_gt`/`rsb_lt` treat e.g. "b" < "ban" and thus include the boundary
+// child in the for-loop alongside the dedicated boundary recursion above it.
+// `rangeFunc`'s `assert(e->end() == e->find(xs))` aborts on any duplicate
+// emission, so a clean run is the regression signal.
+TEST_F(TrieTest, testRangeBoundaryPrefix) {
+  Trie *t = NewTrie(NULL, Trie_Sort_Lex);
+  for (const char *term : {"apple", "banana", "band", "bandana", "cherry", "date"}) {
+    ASSERT_TRUE(trieInsert(t, term));
+  }
+
+  // Min-only: [b, +inf). "b" is a proper prefix of the collapsed "ban" label.
+  // Pre-fix: ban-subtree fires once via the boundary recursion and again
+  // via the for-loop (`rsb_gt("b")` returns the same index as `beginEqIdx`).
+  auto retMin = trieIterRange(t, "b", NULL);
+  ElemSet expectedMin{"banana", "band", "bandana", "cherry", "date"};
+  EXPECT_EQ(expectedMin, retMin);
+
+  // Max-only: (-inf, banb). "ban" is a proper prefix of "banb", so
+  // `rsb_lt("banb")` includes the "ban" subtree alongside the boundary
+  // recursion. After the fix only entries strictly less than "banb" surface
+  // ("band"/"bandana" are lex-greater than "banb").
+  auto retMax = trieIterRange(t, NULL, "banb");
+  ElemSet expectedMax{"apple", "banana"};
+  EXPECT_EQ(expectedMax, retMax);
+
+  TrieType_Free(t);
+}
+
 /**
  * This test ensures that the stack isn't overflown from all the frames.
  * The maximum trie depth cannot be greater than the maximum length of the

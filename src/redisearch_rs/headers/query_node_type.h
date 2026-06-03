@@ -43,9 +43,6 @@
 #define QAST_NO_WEIGHT       QASTValidationFlags_NoWeight
 #define QAST_NO_VECTOR       QASTValidationFlags_NoVector
 
-/* Backward-compatible typedef for C code that uses the old enum name. */
-typedef uint32_t QAST_ValidationFlags;
-
 /* Backward-compatible aliases for C code that uses the old PHONETIC_* macros. */
 #define PHONETIC_DEFAULT  PhoneticMode_Default
 #define PHONETIC_ENABLED  PhoneticMode_Enabled

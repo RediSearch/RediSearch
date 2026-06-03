@@ -30,13 +30,23 @@ pub fn repository_root() -> Result<std::path::PathBuf, Box<dyn std::error::Error
 }
 
 fn rerun_if_changes(dir: &Path, extensions: &[&str]) -> std::io::Result<()> {
+    // Don't descend into Cargo's target directory. Cargo marks it with a
+    // `CACHEDIR.TAG` file, so detect it that way regardless of where
+    // `CARGO_TARGET_DIR` points (e.g. the CMake build sets it to
+    // `src/redisearch_rs/target`, which sits under the `src` include root
+    // scanned by `ffi/build.rs`). Otherwise the sweep would reach a build
+    // script's own `OUT_DIR` and emit `rerun-if-changed` for the headers that
+    // script just staged there, forcing a rebuild on every invocation.
+    if dir.join("CACHEDIR.TAG").exists() {
+        return Ok(());
+    }
     for entry in read_dir(dir)? {
         let Ok(entry) = entry else {
             continue;
         };
         let path = entry.path();
         if path.is_dir() {
-            return rerun_if_changes(&path, extensions);
+            rerun_if_changes(&path, extensions)?;
         } else if let Some(extension) = path.extension().and_then(|ext| ext.to_str())
             && extensions.contains(&extension)
         {

@@ -4189,6 +4189,14 @@ void IndexSpec_DeleteDoc_Unsafe(IndexSpec *spec, RedisModuleCtx *ctx, RedisModul
       // Failed to delete
       return;
     }
+
+    // Drop the key→docId mapping now that the document is gone from disk. This
+    // keeps DocIdMeta authoritative as an "is this key indexed?" oracle: an
+    // entry exists iff the document is currently indexed in this spec. Without
+    // this, a key that survives in the keyspace but is de-indexed (e.g. an HSET
+    // that makes it stop passing the index FILTER) would keep a stale mapping
+    // pointing at an already-deleted docId.
+    DocIdMeta_Delete(ctx, key, spec->specId);
   } else {
     RSDocumentMetadata *md = DocTable_PopR(&spec->docs, key);
     if (!md) {
