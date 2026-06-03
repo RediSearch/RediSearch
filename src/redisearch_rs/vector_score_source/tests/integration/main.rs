@@ -14,3 +14,4 @@ extern crate redisearch_rs;
 
 mod policy;
 mod source;
+mod source_pytest_parity;
