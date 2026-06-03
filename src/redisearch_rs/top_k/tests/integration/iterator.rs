@@ -443,6 +443,39 @@ fn rewind_after_mid_collect_error_does_not_retain_stale_heap() {
 }
 
 #[test]
+fn strategy_switch_to_adhoc() {
+    // First call to batch_strategy → SwitchToAdhoc; subsequent → Continue.
+    let mut call_count = 0u32;
+    let strategy = move |_heap: usize, _k: usize| {
+        call_count += 1;
+        if call_count == 1 {
+            BatchStrategy::SwitchToAdhoc
+        } else {
+            BatchStrategy::Continue
+        }
+    };
+    // Doc 2 is found in BOTH phases: the batch (score 3.0) and the adhoc scan
+    // (score 1.0). On SwitchToAdhoc the heap is cleared before the adhoc rescan,
+    // so doc 2 must be admitted exactly once — without the clear it would appear
+    // twice, since TopKHeap::push only de-dups against the worst heap element.
+    // Doc 1 is batch-only (absent from the adhoc scores map) and is dropped.
+    let source = MockScoreSource::new(
+        vec![vec![(1, 5.0), (2, 3.0)]],
+        vec![(2, 1.0), (3, 2.0)],
+        strategy,
+    );
+    let mut it = TopKIterator::new(
+        source,
+        Some(make_child(vec![1, 2, 3])),
+        NonZeroUsize::new(10).unwrap(),
+        asc,
+    );
+    let doc_ids: Vec<_> = std::iter::from_fn(|| it.read().unwrap().map(|r| r.doc_id)).collect();
+    // Adhoc-only scores, doc 2 exactly once: 2(1.0), 3(2.0).
+    assert_eq!(doc_ids, vec![2, 3]);
+}
+
+#[test]
 fn strategy_switch_to_batches_rewinds() {
     // Call 0 → SwitchToBatches (rewinds source+child, restarts loop).
     // Call 1 → Stop (to exit on the second pass).
