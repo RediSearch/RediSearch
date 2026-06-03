@@ -10,15 +10,21 @@
 use std::ptr::NonNull;
 
 use ffi::RedisSearchCtx;
+use field::{FieldExpirationPredicate, FieldFilterContext, FieldMaskOrIndex};
 use index_result::{RSIndexResult, RSOffsetSlice};
 use index_spec::IndexSpecReadGuard;
-use inverted_index::TermReader;
+use inverted_index::{
+    FilterMaskReader, IndexReader, IndexReaderCore, TermReader, doc_ids_only::DocIdsOnly,
+    fields_offsets, fields_only, freqs_fields, freqs_offsets, freqs_only, full, offsets_only,
+    opaque::InvertedIndex, raw_doc_ids_only::RawDocIdsOnly,
+};
 use query_term::RSQueryTerm;
 use ref_mode::{Active, Ref};
 use rqe_core::{DocId, RS_FIELDMASK_ALL};
 
 use crate::{
-    IteratorType, RQEIterator, RQEIteratorError, RQEValidateStatus, SkipToOutcome,
+    FieldExpirationChecker, IteratorType, RQEIterator, RQEIteratorError, RQEValidateStatus,
+    SkipToOutcome,
     expiration_checker::ExpirationChecker,
     profile_print::{ProfilePrint, ProfilePrintCtx},
 };
@@ -245,4 +251,186 @@ where
         ctx.print_optional_counters(map);
         map.kv_long_long(c"Estimated number of matches", self.num_estimated() as i64);
     }
+}
+
+/// A reader over any term-compatible inverted index encoding, erasing the
+/// encoding type behind a single enum so callers don't need to be generic over
+/// it.
+///
+/// Encodings that track a field mask filter their records through a
+/// [`FilterMaskReader`]; encodings without field-mask data use the bare
+/// [`IndexReaderCore`].
+pub enum TermIndexReader<'index> {
+    // Field-mask-tracking encodings (filtered through `FilterMaskReader`).
+    Full(FilterMaskReader<IndexReaderCore<'index, full::Full>>),
+    FullWide(FilterMaskReader<IndexReaderCore<'index, full::FullWide>>),
+    FreqsFields(FilterMaskReader<IndexReaderCore<'index, freqs_fields::FreqsFields>>),
+    FreqsFieldsWide(FilterMaskReader<IndexReaderCore<'index, freqs_fields::FreqsFieldsWide>>),
+    FieldsOnly(FilterMaskReader<IndexReaderCore<'index, fields_only::FieldsOnly>>),
+    FieldsOnlyWide(FilterMaskReader<IndexReaderCore<'index, fields_only::FieldsOnlyWide>>),
+    FieldsOffsets(FilterMaskReader<IndexReaderCore<'index, fields_offsets::FieldsOffsets>>),
+    FieldsOffsetsWide(FilterMaskReader<IndexReaderCore<'index, fields_offsets::FieldsOffsetsWide>>),
+    // Encodings without field-mask data (no `FilterMaskReader`).
+    FreqsOnly(IndexReaderCore<'index, freqs_only::FreqsOnly>),
+    OffsetsOnly(IndexReaderCore<'index, offsets_only::OffsetsOnly>),
+    FreqsOffsets(IndexReaderCore<'index, freqs_offsets::FreqsOffsets>),
+    DocIdsOnly(IndexReaderCore<'index, DocIdsOnly>),
+    RawDocIdsOnly(IndexReaderCore<'index, RawDocIdsOnly>),
+}
+
+macro_rules! term_ir_dispatch {
+    ($self:expr, $method:ident $(, $args:expr)*) => {
+        match $self {
+            TermIndexReader::Full(r) => r.$method($($args),*),
+            TermIndexReader::FullWide(r) => r.$method($($args),*),
+            TermIndexReader::FreqsFields(r) => r.$method($($args),*),
+            TermIndexReader::FreqsFieldsWide(r) => r.$method($($args),*),
+            TermIndexReader::FieldsOnly(r) => r.$method($($args),*),
+            TermIndexReader::FieldsOnlyWide(r) => r.$method($($args),*),
+            TermIndexReader::FieldsOffsets(r) => r.$method($($args),*),
+            TermIndexReader::FieldsOffsetsWide(r) => r.$method($($args),*),
+            TermIndexReader::FreqsOnly(r) => r.$method($($args),*),
+            TermIndexReader::OffsetsOnly(r) => r.$method($($args),*),
+            TermIndexReader::FreqsOffsets(r) => r.$method($($args),*),
+            TermIndexReader::DocIdsOnly(r) => r.$method($($args),*),
+            TermIndexReader::RawDocIdsOnly(r) => r.$method($($args),*),
+        }
+    };
+}
+
+impl<'index> IndexReader<'index> for TermIndexReader<'index> {
+    #[inline(always)]
+    fn next_record(&mut self, result: &mut RSIndexResult<'index>) -> std::io::Result<bool> {
+        term_ir_dispatch!(self, next_record, result)
+    }
+
+    #[inline(always)]
+    fn seek_record(
+        &mut self,
+        doc_id: DocId,
+        result: &mut RSIndexResult<'index>,
+    ) -> std::io::Result<bool> {
+        term_ir_dispatch!(self, seek_record, doc_id, result)
+    }
+
+    #[inline(always)]
+    fn skip_to(&mut self, doc_id: DocId) -> bool {
+        term_ir_dispatch!(self, skip_to, doc_id)
+    }
+
+    #[inline(always)]
+    fn reset(&mut self) {
+        term_ir_dispatch!(self, reset)
+    }
+
+    #[inline(always)]
+    fn unique_docs(&self) -> u64 {
+        term_ir_dispatch!(self, unique_docs)
+    }
+
+    #[inline(always)]
+    fn has_duplicates(&self) -> bool {
+        term_ir_dispatch!(self, has_duplicates)
+    }
+
+    #[inline(always)]
+    fn flags(&self) -> ffi::IndexFlags {
+        term_ir_dispatch!(self, flags)
+    }
+
+    #[inline(always)]
+    fn needs_revalidation(&self) -> bool {
+        term_ir_dispatch!(self, needs_revalidation)
+    }
+
+    #[inline(always)]
+    fn refresh_buffer_pointers(&mut self) {
+        term_ir_dispatch!(self, refresh_buffer_pointers)
+    }
+}
+
+impl<'index> TermReader<'index> for TermIndexReader<'index> {
+    fn points_to_the_same_opaque_index(
+        &self,
+        opaque: &inverted_index::opaque::InvertedIndex,
+    ) -> bool {
+        term_ir_dispatch!(self, points_to_the_same_opaque_index, opaque)
+    }
+}
+
+/// Build a term-query iterator over an in-memory inverted index.
+///
+/// Selects the reader for `idx`'s encoding, filters it by `field_mask_or_index`
+/// (a field mask reads only matching fields; a field index reads all fields and
+/// filters via the expiration checker), and returns a [`Term`] iterator that
+/// yields one entry per document containing `term`. `term`'s IDF scores are
+/// (re)computed from the opened index inside [`Term::new`].
+///
+/// # Safety
+///
+/// 1. `idx` must be a valid, non-null pointer to a term [`InvertedIndex`],
+///    remaining valid — and stable between [`revalidate`](RQEIterator::revalidate)
+///    calls — for `'index`. (Revalidation detects a GC replacement by comparing
+///    the index pointer looked up via `Redis_OpenInvertedIndex`.)
+/// 2. `sctx` and `sctx.spec` must be valid and remain valid for `'index`.
+/// 3. `term` is a heap-allocated [`RSQueryTerm`] whose ownership is transferred
+///    to the returned iterator.
+///
+/// # Panics
+///
+/// Panics if `idx` is a numeric index, which has no term reader.
+pub unsafe fn build_term_iterator<'index>(
+    idx: *const ffi::InvertedIndex,
+    sctx: NonNull<RedisSearchCtx>,
+    field_mask_or_index: FieldMaskOrIndex,
+    term: Box<RSQueryTerm>,
+    weight: f64,
+) -> Term<'index, TermIndexReader<'index>, FieldExpirationChecker> {
+    debug_assert!(!idx.is_null(), "idx must not be null");
+
+    let idx_ptr: *const InvertedIndex = idx.cast();
+    // SAFETY: precondition (1) — `idx` is a valid, non-null `InvertedIndex`.
+    let idx = unsafe { &*idx_ptr };
+
+    // A field mask reads only its fields; a field index reads all fields (index
+    // filtering happens later, via the expiration checker).
+    let mask = match field_mask_or_index {
+        FieldMaskOrIndex::Mask(m) => m,
+        FieldMaskOrIndex::Index(_) => RS_FIELDMASK_ALL,
+    };
+
+    let reader = match idx {
+        InvertedIndex::Full(ii) => TermIndexReader::Full(ii.reader(mask)),
+        InvertedIndex::FullWide(ii) => TermIndexReader::FullWide(ii.reader(mask)),
+        InvertedIndex::FreqsFields(ii) => TermIndexReader::FreqsFields(ii.reader(mask)),
+        InvertedIndex::FreqsFieldsWide(ii) => TermIndexReader::FreqsFieldsWide(ii.reader(mask)),
+        InvertedIndex::FieldsOnly(ii) => TermIndexReader::FieldsOnly(ii.reader(mask)),
+        InvertedIndex::FieldsOnlyWide(ii) => TermIndexReader::FieldsOnlyWide(ii.reader(mask)),
+        InvertedIndex::FieldsOffsets(ii) => TermIndexReader::FieldsOffsets(ii.reader(mask)),
+        InvertedIndex::FieldsOffsetsWide(ii) => TermIndexReader::FieldsOffsetsWide(ii.reader(mask)),
+        InvertedIndex::FreqsOnly(ii) => TermIndexReader::FreqsOnly(ii.reader()),
+        InvertedIndex::OffsetsOnly(ii) => TermIndexReader::OffsetsOnly(ii.reader()),
+        InvertedIndex::FreqsOffsets(ii) => TermIndexReader::FreqsOffsets(ii.reader()),
+        InvertedIndex::DocIdsOnly(ii) => TermIndexReader::DocIdsOnly(ii.reader()),
+        InvertedIndex::RawDocIdsOnly(ii) => TermIndexReader::RawDocIdsOnly(ii.reader()),
+        InvertedIndex::Numeric(_) | InvertedIndex::NumericFloatCompression(_) => {
+            panic!("numeric inverted indices have no term reader")
+        }
+    };
+
+    // SAFETY: precondition (2) — `sctx`/`sctx.spec` are valid for `'index`.
+    let expiration_checker = unsafe {
+        FieldExpirationChecker::new(
+            sctx,
+            FieldFilterContext {
+                field: field_mask_or_index,
+                predicate: FieldExpirationPredicate::Default,
+            },
+            reader.flags(),
+        )
+    };
+
+    // SAFETY: `reader` was just built from the valid `idx`; preconditions (2)/(3)
+    // uphold the remaining `Term::new` requirements (valid `sctx`, owned `term`).
+    unsafe { Term::new(reader, sctx, term, weight, expiration_checker) }
 }
