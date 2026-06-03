@@ -9,8 +9,8 @@
 
 use std::time::Duration;
 
-use ffi::t_docId;
 use index_result::RSIndexResult;
+use rqe_core::DocId;
 use rqe_iterators::{
     RQEIterator, RQEIteratorError, SkipToOutcome,
     not_optimized::NotOptimized,
@@ -26,7 +26,7 @@ use crate::utils::{Mock, MockIteratorError, MockVec, WildcardHelper};
 ///
 /// Returns all doc IDs in `wc_ids` that are NOT in `child_ids` and are at
 /// most `max_doc_id` (inclusive).
-fn compute_result_set(wc_ids: &[t_docId], child_ids: &[t_docId], max_doc_id: t_docId) -> Vec<u64> {
+fn compute_result_set(wc_ids: &[DocId], child_ids: &[DocId], max_doc_id: DocId) -> Vec<u64> {
     wc_ids
         .iter()
         .copied()
@@ -40,7 +40,7 @@ fn compute_result_set(wc_ids: &[t_docId], child_ids: &[t_docId], max_doc_id: t_d
 
 /// Read all results from the NOT-optimized iterator and compare against
 /// expected complement.
-fn read_test(wc_ids: Vec<t_docId>, child_ids: Vec<t_docId>, max_doc_id: t_docId) {
+fn read_test(wc_ids: Vec<DocId>, child_ids: Vec<DocId>, max_doc_id: DocId) {
     let expected = compute_result_set(&wc_ids, &child_ids, max_doc_id);
     let wc_helper = WildcardHelper::new(&wc_ids);
     let wcii = wc_helper.create_wildcard();
@@ -213,7 +213,7 @@ fn skip_to_not_in_wc_returns_not_found() {
 }
 
 /// SkipTo all doc IDs from 1 to max, checking Found/NotFound/EOF.
-fn skip_to_all_test(wc_ids: Vec<t_docId>, child_ids: Vec<t_docId>, max_doc_id: t_docId) {
+fn skip_to_all_test(wc_ids: Vec<DocId>, child_ids: Vec<DocId>, max_doc_id: DocId) {
     let expected = compute_result_set(&wc_ids, &child_ids, max_doc_id);
 
     for id in 1..max_doc_id {
@@ -520,11 +520,11 @@ fn child_timeout_on_skip_to() {
 fn read_timeout_via_timeout_ctx() {
     // Create child and wildcard with the same IDs so the loop runs many times
     // (every doc in wc matches child, so read_inner loops without returning).
-    let ids: Vec<t_docId> = (1..=5500).collect();
+    let ids: Vec<DocId> = (1..=5500).collect();
     let wc_helper = WildcardHelper::new(&ids);
     let wcii = wc_helper.create_wildcard();
 
-    let child_ids: [t_docId; 5500] = std::array::from_fn(|i| (i + 1) as t_docId);
+    let child_ids: [DocId; 5500] = std::array::from_fn(|i| (i + 1) as DocId);
     let child = Mock::new(child_ids);
     let mut child_data = child.data();
     child_data.add_delay_since_index(1, Duration::from_micros(100));
@@ -554,12 +554,12 @@ mod revalidate {
     use rqe_iterators_test_utils::{GlobalGuard, TestContext};
 
     /// Wildcard doc IDs used by the revalidate tests.
-    const WC_IDS: [t_docId; 20] = [
+    const WC_IDS: [DocId; 20] = [
         1, 5, 10, 15, 20, 25, 30, 35, 40, 45, 50, 55, 60, 65, 70, 75, 80, 85, 90, 95,
     ];
 
     /// Child doc IDs used by the revalidate tests.
-    const CHILD_IDS: [t_docId; 4] = [10, 30, 50, 70];
+    const CHILD_IDS: [DocId; 4] = [10, 30, 50, 70];
 
     /// Create the context and guard for revalidate tests.
     fn make_revalidate_context() -> (GlobalGuard, TestContext) {
@@ -591,7 +591,7 @@ mod revalidate {
     }
 
     /// Helper: GC `doc_id` from the wildcard inverted index.
-    fn gc_document(context: &TestContext, doc_id: t_docId) {
+    fn gc_document(context: &TestContext, doc_id: DocId) {
         let ii = DocIdsOnly::from_mut_opaque(context.wildcard_inverted_index());
         let scan_delta = ii
             .scan_gc(

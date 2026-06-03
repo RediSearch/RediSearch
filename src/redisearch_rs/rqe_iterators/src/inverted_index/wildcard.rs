@@ -7,17 +7,19 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 
-use ffi::t_docId;
 use index_result::RSIndexResult;
 use index_spec::IndexSpecReadGuard;
 use inverted_index::{DecodedBy, DocIdsDecoder, IndexReaderCore, opaque::OpaqueEncoding};
+use rqe_core::DocId;
 
 use crate::{
     IteratorType, RQEIterator, RQEIteratorError, RQEValidateStatus, SkipToOutcome,
     expiration_checker::NoOpChecker,
+    profile_print::{ProfilePrint, ProfilePrintCtx},
 };
 
 use super::core::InvIndIterator;
+use rqe_core::RS_FIELDMASK_ALL;
 
 /// An iterator over all existing documents in an index.
 ///
@@ -47,8 +49,6 @@ where
     ///
     /// `weight` is the score weight applied to every returned result.
     pub fn new(reader: IndexReaderCore<'index, E>, weight: f64) -> Self {
-        use ffi::RS_FIELDMASK_ALL;
-
         let result = RSIndexResult::build_virt()
             .weight(weight)
             .field_mask(RS_FIELDMASK_ALL)
@@ -114,7 +114,7 @@ where
     #[inline(always)]
     fn skip_to(
         &mut self,
-        doc_id: t_docId,
+        doc_id: DocId,
     ) -> Result<Option<SkipToOutcome<'_, 'index>>, RQEIteratorError> {
         self.it.skip_to(doc_id)
     }
@@ -130,7 +130,7 @@ where
     }
 
     #[inline(always)]
-    fn last_doc_id(&self) -> t_docId {
+    fn last_doc_id(&self) -> DocId {
         self.it.last_doc_id()
     }
 
@@ -160,5 +160,11 @@ where
 
     fn intersection_sort_weight(&self, _prioritize_union_children: bool) -> f64 {
         1.0
+    }
+}
+
+impl<E: DecodedBy> ProfilePrint for Wildcard<'_, E> {
+    fn print_profile(&self, map: &mut redis_reply::MapBuilder<'_>, ctx: &mut ProfilePrintCtx<'_>) {
+        ctx.print_leaf(c"WILDCARD", map);
     }
 }

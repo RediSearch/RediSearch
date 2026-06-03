@@ -534,7 +534,7 @@ impl<Data> PtrWithMetadata<Data> {
 
 /// A struct that groups together methods to manipulate the buffer allocated
 /// to store this node's label.
-pub(super) struct LabelBuffer<'a, Data>(&'a PtrWithMetadata<Data>);
+pub(super) struct LabelBuffer<'meta, Data>(&'meta PtrWithMetadata<Data>);
 
 impl<Data> LabelBuffer<'_, Data> {
     /// Returns a pointer to beginning of the label buffer.
@@ -638,7 +638,7 @@ impl<Data> LabelBuffer<'_, Data> {
 
 /// A struct that groups together methods to manipulate the buffer allocated
 /// to store the first byte of the children of this node.
-pub(super) struct ChildrenFirstBytesBuffer<'a, Data>(&'a PtrWithMetadata<Data>);
+pub(super) struct ChildrenFirstBytesBuffer<'meta, Data>(&'meta PtrWithMetadata<Data>);
 
 impl<Data> ChildrenFirstBytesBuffer<'_, Data> {
     /// Returns a pointer to beginning of the children first-bytes buffer.
@@ -758,7 +758,7 @@ impl<Data> ChildrenFirstBytesBuffer<'_, Data> {
 
 /// A struct that groups together methods to manipulate the buffer allocated
 /// to store the children of this node.
-pub(super) struct ChildrenBuffer<'a, Data>(&'a PtrWithMetadata<Data>);
+pub(super) struct ChildrenBuffer<'meta, Data>(&'meta PtrWithMetadata<Data>);
 
 impl<Data> ChildrenBuffer<'_, Data> {
     /// Returns a pointer to beginning of the children buffer.

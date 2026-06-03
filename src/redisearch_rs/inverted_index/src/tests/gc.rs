@@ -16,9 +16,10 @@ use crate::{
     Decoder, Encoder, EntriesTrackingIndex, GcApplyInfo, GcScanDelta, IdDelta, IndexBlock,
     InvertedIndex, gc::BlockGcScanResult, gc::RepairType,
 };
-use ffi::{IndexFlags_Index_DocIdsOnly, t_docId};
+use ffi::IndexFlags_Index_DocIdsOnly;
 use index_result::RSIndexResult;
 use pretty_assertions::assert_eq;
+use rqe_core::DocId;
 use smallvec::smallvec;
 use thin_vec::medium_thin_vec;
 
@@ -34,7 +35,7 @@ fn index_block_repair_delete() {
         last_doc_id: 11,
     };
 
-    fn cb(doc_id: t_docId) -> bool {
+    fn cb(doc_id: DocId) -> bool {
         ![10, 11].contains(&doc_id)
     }
 
@@ -64,7 +65,7 @@ fn index_block_repair_unchanged() {
         last_doc_id: 11,
     };
 
-    fn cb(_doc_id: t_docId) -> bool {
+    fn cb(_doc_id: DocId) -> bool {
         true
     }
 
@@ -89,7 +90,7 @@ fn index_block_repair_some_deletions() {
         last_doc_id: 12,
     };
 
-    fn cb(doc_id: t_docId) -> bool {
+    fn cb(doc_id: DocId) -> bool {
         [11].contains(&doc_id)
     }
 
@@ -153,7 +154,7 @@ fn index_block_repair_delta_too_big() {
     impl Decoder for SmallDeltaDummy {
         fn decode<'index>(
             cursor: &mut Cursor<&'index [u8]>,
-            base: t_docId,
+            base: DocId,
             result: &mut RSIndexResult<'index>,
         ) -> std::io::Result<()> {
             let mut buffer = [0; 1];
@@ -198,7 +199,7 @@ fn index_block_repair_delta_too_big() {
         last_doc_id: 42,
     };
 
-    fn cb(doc_id: t_docId) -> bool {
+    fn cb(doc_id: DocId) -> bool {
         ![41].contains(&doc_id)
     }
 
@@ -288,7 +289,7 @@ fn ii_scan_gc() {
 
     let ii = InvertedIndex::<Dummy>::from_blocks(IndexFlags_Index_DocIdsOnly, blocks);
 
-    fn cb(doc_id: t_docId) -> bool {
+    fn cb(doc_id: DocId) -> bool {
         [21, 22, 30, 40].contains(&doc_id)
     }
 
@@ -345,7 +346,7 @@ fn ii_scan_gc_no_change() {
     ];
     let ii = InvertedIndex::<Dummy>::from_blocks(IndexFlags_Index_DocIdsOnly, blocks);
 
-    fn cb(_doc_id: t_docId) -> bool {
+    fn cb(_doc_id: DocId) -> bool {
         true
     }
 

@@ -36,14 +36,14 @@ void FGC_childCollectExistingDocs(ForkGC *gc, RedisSearchCtx *sctx) {
 FGCError FGC_parentHandleExistingDocs(ForkGC *gc) {
   FGCError status = FGC_COLLECTED;
 
-  size_t ei_len;
-  char *empty_indicator = NULL;
+  size_t len;
+  char *buf = NULL;
 
-  if (FGC_recvBuffer(gc, (void **)&empty_indicator, &ei_len) != REDISMODULE_OK) {
+  if (FGC_recvBuffer(gc, (void **)&buf, &len) != REDISMODULE_OK) {
     return FGC_CHILD_ERROR;
   }
 
-  if (empty_indicator == RECV_BUFFER_EMPTY) {
+  if (len == NO_MORE_DATA) {
     return FGC_DONE;
   }
 
@@ -52,7 +52,7 @@ FGCError FGC_parentHandleExistingDocs(ForkGC *gc) {
   InvertedIndexGcDelta *delta = InvertedIndex_GcDelta_Read(&rd);
 
   if (delta == NULL) {
-    FGC_freeBuffer(empty_indicator, ei_len);
+    FGC_freeBuffer(buf, len);
     return FGC_CHILD_ERROR;
   }
 
@@ -92,7 +92,7 @@ FGCError FGC_parentHandleExistingDocs(ForkGC *gc) {
   FGC_updateStats(gc, sctx, 0, info.bytes_freed, info.bytes_allocated, info.ignored_last_block);
 
 cleanup:
-  FGC_freeBuffer(empty_indicator, ei_len);
+  FGC_freeBuffer(buf, len);
   if (sp) {
     RedisSearchCtx_UnlockSpec(sctx);
     IndexSpecRef_Release(spec_ref);

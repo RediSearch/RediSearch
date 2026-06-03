@@ -18,6 +18,10 @@
 #include "rmutil/args.h"
 #include "json.h"
 
+// Forward declaration of the C-side write-batch wrapper (defined in search_disk.h).
+// Forward-declared here to avoid pulling the entire disk-API surface into document.h.
+typedef struct SearchDiskWriteBatchHandle SearchDiskWriteBatchHandle;
+
 typedef struct QueryError QueryError;
 
 #ifdef __cplusplus
@@ -312,6 +316,14 @@ typedef struct RSAddDocumentCtx {
   uint8_t stateFlags;    // Indexing state, ACTX_F_xxx
   DocumentAddCompleted donecb;
   void *donecbData;
+
+  // Disk-mode-only state. `batch` is NULL outside disk mode; the other fields
+  // are unused there.
+  struct {
+    SearchDiskWriteBatchHandle *batch;
+    t_docId oldDocId;
+    uint32_t oldDocLen;
+  } disk;
 } RSAddDocumentCtx;
 
 /**

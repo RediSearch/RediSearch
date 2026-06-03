@@ -15,13 +15,18 @@ pub struct OwnedSlice<T> {
 impl<T> Default for OwnedSlice<T> {
     #[inline(always)]
     fn default() -> Self {
-        Self {
-            kind: SliceKind::Rust(Vec::default()),
-        }
+        Self::new()
     }
 }
 
 impl<T> OwnedSlice<T> {
+    #[inline(always)]
+    pub const fn new() -> Self {
+        Self {
+            kind: SliceKind::Rust(Vec::new()),
+        }
+    }
+
     /// # Safety
     ///
     /// ptr must be non-null and point to `len` initialized elements

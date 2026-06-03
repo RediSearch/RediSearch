@@ -15,9 +15,9 @@ use crate::{node::Node, utils::longest_common_prefix};
 /// in lexicographical order.
 ///
 /// Invoke [`TrieMap::range_iter`](crate::TrieMap::range_iter) to create an instance of this iterator.
-pub struct RangeIter<'tm, Data> {
+pub struct RangeIter<'tm, 'f, Data> {
     /// Stack of nodes and whether they have been visited.
-    stack: Vec<StackEntry<'tm, Data>>,
+    stack: Vec<StackEntry<'tm, 'f, Data>>,
     /// Concatenation of the labels of current node and its ancestors,
     /// i.e. the key of the current node.
     key: Vec<u8>,
@@ -33,14 +33,14 @@ pub struct RangeIter<'tm, Data> {
 
 #[derive(Clone, Copy, Debug)]
 /// One of the bounds for a [`RangeFilter`].
-pub struct RangeBoundary<'a> {
-    pub value: &'a [u8],
+pub struct RangeBoundary<'f> {
+    pub value: &'f [u8],
     pub is_included: bool,
 }
 
-impl<'a> RangeBoundary<'a> {
+impl<'f> RangeBoundary<'f> {
     /// Create a new range boundary that includes its boundary value.
-    pub const fn included(value: &'a [u8]) -> Self {
+    pub const fn included(value: &'f [u8]) -> Self {
         Self {
             value,
             is_included: true,
@@ -48,7 +48,7 @@ impl<'a> RangeBoundary<'a> {
     }
 
     /// Create a new range boundary that doesn't include its boundary value.
-    pub const fn excluded(value: &'a [u8]) -> Self {
+    pub const fn excluded(value: &'f [u8]) -> Self {
         Self {
             value,
             is_included: false,
@@ -57,9 +57,9 @@ impl<'a> RangeBoundary<'a> {
 }
 
 #[derive(Clone, Copy, Debug)]
-pub struct RangeFilter<'a> {
-    pub min: Option<RangeBoundary<'a>>,
-    pub max: Option<RangeBoundary<'a>>,
+pub struct RangeFilter<'f> {
+    pub min: Option<RangeBoundary<'f>>,
+    pub max: Option<RangeBoundary<'f>>,
 }
 
 impl RangeFilter<'_> {
@@ -89,16 +89,16 @@ impl std::fmt::Display for RangeFilter<'_> {
     }
 }
 
-struct StackEntry<'a, Data> {
-    node: &'a Node<Data>,
+struct StackEntry<'tm, 'f, Data> {
+    node: &'tm Node<Data>,
     was_visited: bool,
-    min: Option<&'a [u8]>,
-    max: Option<&'a [u8]>,
+    min: Option<&'f [u8]>,
+    max: Option<&'f [u8]>,
 }
 
-impl<'tm, Data> RangeIter<'tm, Data> {
+impl<'tm, 'f, Data> RangeIter<'tm, 'f, Data> {
     /// Creates a new iterator over the entries of a [`TrieMap`](crate::TrieMap).
-    pub(crate) fn new(root: Option<&'tm Node<Data>>, filter: RangeFilter<'tm>) -> Self {
+    pub(crate) fn new(root: Option<&'tm Node<Data>>, filter: RangeFilter<'f>) -> Self {
         let Some(root) = root else {
             return Self::empty();
         };
@@ -157,9 +157,9 @@ impl<'tm, Data> RangeIter<'tm, Data> {
     }
 }
 
-impl<'tm, Data> RangeIter<'tm, Data> {
+impl<'tm, 'f, Data> RangeIter<'tm, 'f, Data> {
     /// Creates a new iterator over the entries of a [`TrieMap`](crate::TrieMap).
-    fn filtered(root: Option<&'tm Node<Data>>, prefix: Vec<u8>, range: RangeFilter<'tm>) -> Self {
+    fn filtered(root: Option<&'tm Node<Data>>, prefix: Vec<u8>, range: RangeFilter<'f>) -> Self {
         Self {
             stack: root
                 .into_iter()
@@ -358,7 +358,7 @@ impl<'tm, Data> RangeIter<'tm, Data> {
     }
 }
 
-impl<'tm, Data> Iterator for RangeIter<'tm, Data> {
+impl<'tm, 'f, Data> Iterator for RangeIter<'tm, 'f, Data> {
     type Item = (Vec<u8>, &'tm Data);
 
     fn next(&mut self) -> Option<Self::Item> {

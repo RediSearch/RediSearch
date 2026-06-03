@@ -195,6 +195,9 @@ RSAddDocumentCtx *NewAddDocumentCtx(IndexSpec *sp, Document *doc, QueryError *st
   aCtx->next = NULL;
   aCtx->specFlags = sp->flags;
   aCtx->spec = sp;
+  aCtx->disk.batch = NULL;
+  aCtx->disk.oldDocId = 0;
+  aCtx->disk.oldDocLen = 0;
   if (aCtx->specFlags & Index_Async) {
     HiddenString_Clone(sp->specName, &aCtx->specName);
   }
@@ -351,6 +354,14 @@ void AddDocumentCtx_Free(RSAddDocumentCtx *aCtx) {
   ByteOffsetWriter_Cleanup(&aCtx->offsetsWriter);
   QueryError_ClearError(&aCtx->status);
 
+  // Disk-mode: the batch handle stays alive across commit/abort and is owned
+  // by `aCtx`. Free it unconditionally here so we don't leak on any teardown
+  // path — including ones that bail out before `commitDocument` ran.
+  // `SearchDisk_FreeWriteBatch` is null-safe, so memory-mode contexts (where
+  // the batch was never created) are a no-op.
+  SearchDisk_FreeWriteBatch(aCtx->disk.batch);
+  aCtx->disk.batch = NULL;
+
   mempool_release(actxPool_g, aCtx);
 }
 
@@ -370,6 +381,17 @@ static void writeByteOffsets(ForwardIndexTokenizerCtx *tokCtx, const Token *tokI
 #define FIELD_BULK_INDEXER(name)                                                            \
   static int name(RSAddDocumentCtx *aCtx, RedisSearchCtx *ctx, const DocumentField *field,  \
                   const FieldSpec *fs, FieldIndexerData *fdata, QueryError *status)
+
+/* Apply hook for a single field of a given type. Mirrors `FIELD_BULK_INDEXER`.
+ * Appliers run inline from `bulkIndexFields` (memory mode) or from
+ * `bulkApplyFields` (disk mode, after a successful batch commit). They are
+ * infallible — they only perform RAM bookkeeping (trie inserts, stats
+ * counters, global-stats bumps) that pairs with the durable writes from the
+ * indexer. The spec is reachable via `aCtx->spec`; Redis API access via
+ * `aCtx->sctx->redisCtx`. */
+#define FIELD_BULK_APPLIER(name)                                              \
+  static void name(RSAddDocumentCtx *aCtx, const DocumentField *field,        \
+                   const FieldSpec *fs, FieldIndexerData *fdata)
 
 #define FIELD_BULK_CTOR(name) \
   static void name(IndexBulkData *bulk, const FieldSpec *fs, RedisSearchCtx *ctx)
@@ -404,7 +426,9 @@ FIELD_PREPROCESSOR(fulltextPreprocessor) {
       if (is_normalized) {
           RSSortingVector_PutStr(&aCtx->sv, fs->sortIdx, c);
       } else {
-          RSSortingVector_PutStrNormalize(&aCtx->sv, fs->sortIdx, c);
+          if (!RSSortingVector_PutStrNormalize(&aCtx->sv, fs->sortIdx, c, status)) {
+              return -1;
+          }
       }
     } else if (field->multisv) {
       RSSortingVector_PutRSVal(&aCtx->sv, fs->sortIdx, field->multisv);
@@ -561,6 +585,9 @@ FIELD_PREPROCESSOR(geometryPreprocessor) {
 }
 
 FIELD_BULK_INDEXER(geometryIndexer) {
+  RS_LOG_ASSERT_ALWAYS(!SearchDisk_IsEnabled(),
+                       "geometryIndexer is not commit-batched; disk-mode geometry is not supported");
+
   GeometryIndex *rt = OpenGeometryIndex(&ctx->spec->fields[fs->index], CREATE_INDEX);
   if (!rt) {
     QueryError_SetError(status, QUERY_ERROR_CODE_GENERIC, "Could not open geoshape index for indexing");
@@ -589,6 +616,8 @@ FIELD_BULK_INDEXER(geometryIndexer) {
   _NumericRangeTree_Add((t), (docId), (value), (isMulti), RSGlobalConfig.numericTreeMaxDepthRange)
 
 FIELD_BULK_INDEXER(numericIndexer) {
+  RS_LOG_ASSERT_ALWAYS(!SearchDisk_IsEnabled(),
+                       "numericIndexer is not commit-batched; disk-mode numeric/geo is not supported");
 
   NumericRangeTree *rt = openNumericOrGeoIndex(ctx->spec, &ctx->spec->fields[fs->index], CREATE_INDEX);
   if (!rt) {
@@ -736,7 +765,9 @@ FIELD_PREPROCESSOR(geoPreprocessor) {
       if (is_normalized) {
           RSSortingVector_PutStr(&aCtx->sv, fs->sortIdx, str);
       } else {
-          RSSortingVector_PutStrNormalize(&aCtx->sv, fs->sortIdx, str);
+          if (!RSSortingVector_PutStrNormalize(&aCtx->sv, fs->sortIdx, str, status)) {
+              return -1;
+          }
       }
     } else if (field->multisv) {
       RSSortingVector_PutRSVal(&aCtx->sv, fs->sortIdx, field->multisv);
@@ -756,7 +787,9 @@ FIELD_PREPROCESSOR(tagPreprocessor) {
         if (is_normalized) {
             RSSortingVector_PutStr(&aCtx->sv, fs->sortIdx, str);
         } else {
-            RSSortingVector_PutStrNormalize(&aCtx->sv, fs->sortIdx, str);
+            if (!RSSortingVector_PutStrNormalize(&aCtx->sv, fs->sortIdx, str, status)) {
+                return -1;
+            }
         }
       } else if (field->multisv) {
         RSSortingVector_PutRSVal(&aCtx->sv, fs->sortIdx, field->multisv);
@@ -778,12 +811,61 @@ FIELD_BULK_INDEXER(tagIndexer) {
     tidx->suffix = NewTrieMap();
   }
 
-  // TagIndex_Index handles both disk and memory modes internally
-  if (!TagIndex_Index(ctx->redisCtx, tidx, (const char **)fdata->tags, array_len(fdata->tags), aCtx->doc->docId, &ctx->spec->stats)) {
+  if (!TagIndex_Index(ctx->redisCtx, tidx, aCtx->disk.batch,
+                      (const char **)fdata->tags, array_len(fdata->tags),
+                      aCtx->doc->docId, &ctx->spec->stats)) {
     QueryError_SetError(status, QUERY_ERROR_CODE_GENERIC, "Tag indexing failed");
     return -1;
   }
   return 0;
+}
+
+/* Apply hooks. Each runs once per (doc, indexed field) pair from
+ * `IndexerBulkApply`. See `FIELD_BULK_APPLIER` for the contract. */
+
+FIELD_BULK_APPLIER(tagApplier) {
+  // `aCtx->fspecs` is a shallow copy taken in `AddDocumentCtx_SetDocument`.
+  // The TagIndex is lazily allocated by `tagIndexer` via `TagIndex_Ensure` on
+  // the live spec field, so the copy's `tagOpts.tagIndex` may still be NULL
+  // here. Look up the live spec field directly.
+  TagIndex *tidx = TagIndex_Open(&aCtx->spec->fields[fs->index]);
+  if (!tidx) return;
+  TagIndex_Commit(tidx, (const char **)fdata->tags, array_len(fdata->tags),
+                  &aCtx->spec->stats);
+  FieldsGlobalStats_UpdateFieldDocsIndexed(INDEXFLD_T_TAG, 1);
+}
+
+FIELD_BULK_APPLIER(vectorApplier) {
+  // The VecSim insert itself runs in `applyVectorInserts` for disk mode
+  // (after the batch commits) and inline in `vectorIndexer` for memory mode.
+  // The applier only handles the global-stats bump, which is mode-independent.
+  FieldsGlobalStats_UpdateFieldDocsIndexed(INDEXFLD_T_VECTOR, 1);
+}
+
+FIELD_BULK_APPLIER(numericApplier) {
+  // TODO: when numeric lands on the per-document disk write batch, move the
+  // `spec->stats.invertedSize` / `numRecords` deltas and the `NumericRangeTree`
+  // mutation here. Today both are done inline in `numericIndexer`, which
+  // asserts disk-mode is disabled.
+  (void)aCtx; (void)field; (void)fs; (void)fdata;
+  FieldsGlobalStats_UpdateFieldDocsIndexed(INDEXFLD_T_NUMERIC, 1);
+}
+
+FIELD_BULK_APPLIER(geoApplier) {
+  // TODO: when geo lands on the per-document disk write batch, move the
+  // numeric-tree mutation + stats deltas here. Today `numericIndexer` (which
+  // handles both numeric and geo) does the work inline and asserts disk-mode
+  // is disabled.
+  (void)aCtx; (void)field; (void)fs; (void)fdata;
+  FieldsGlobalStats_UpdateFieldDocsIndexed(INDEXFLD_T_GEO, 1);
+}
+
+FIELD_BULK_APPLIER(geometryApplier) {
+  // TODO: when geometry lands on the per-document disk write batch, move the
+  // R-tree mutation here. Today `geometryIndexer` does the insert inline and
+  // asserts disk-mode is disabled.
+  (void)aCtx; (void)field; (void)fs; (void)fdata;
+  FieldsGlobalStats_UpdateFieldDocsIndexed(INDEXFLD_T_GEOMETRY, 1);
 }
 
 static PreprocessorFunc preprocessorMap[] = {
@@ -812,6 +894,13 @@ int IndexerBulkAdd(RSAddDocumentCtx *cur, RedisSearchCtx *sctx,
           rc = numericIndexer(cur, sctx, field, fs, fdata, status);
           break;
         case IXFLDPOS_VECTOR:
+          // Disk mode: defer the actual `VecSimIndex_AddVector` to
+          // `applyVectorInserts` (called after the batch commits) so a
+          // failed commit never leaves the vector index referencing a
+          // doc-id that was not persisted. The vector blob in
+          // `fdata->vector` is borrowed (not copied) and lives until
+          // `AddDocumentCtx_Free`, so it is safe to read post-commit.
+          if (cur->disk.batch) break;
           rc = vectorIndexer(cur, sctx, field, fs, fdata, status);
           break;
         case IXFLDPOS_GEOMETRY:
@@ -826,11 +915,22 @@ int IndexerBulkAdd(RSAddDocumentCtx *cur, RedisSearchCtx *sctx,
       }
     }
   }
-  // If the indexing was successful, update the global statistics.
-  if (rc == 0) {
-    FieldsGlobalStats_UpdateFieldDocsIndexed(fs->types, 1);
-  }
   return rc;
+}
+
+void IndexerBulkApply(RSAddDocumentCtx *aCtx, const DocumentField *field,
+                      const FieldSpec *fs, FieldIndexerData *fdata) {
+  for (size_t ii = 0; ii < INDEXFLD_NUM_TYPES; ++ii) {
+    if (!(field->indexAs & INDEXTYPE_FROM_POS(ii))) continue;
+    switch (ii) {
+      case IXFLDPOS_TAG:      tagApplier(aCtx, field, fs, fdata);      break;
+      case IXFLDPOS_NUMERIC:  numericApplier(aCtx, field, fs, fdata);  break;
+      case IXFLDPOS_GEO:      geoApplier(aCtx, field, fs, fdata);      break;
+      case IXFLDPOS_VECTOR:   vectorApplier(aCtx, field, fs, fdata);   break;
+      case IXFLDPOS_GEOMETRY: geometryApplier(aCtx, field, fs, fdata); break;
+      case IXFLDPOS_FULLTEXT: break;
+    }
+  }
 }
 
 int Document_AddToIndexes(RSAddDocumentCtx *aCtx, RedisSearchCtx *sctx) {
@@ -1004,7 +1104,9 @@ static void AddDocumentCtx_UpdateNoIndex(RSAddDocumentCtx *aCtx, RedisSearchCtx 
           if (is_normalized) {
               RSSortingVector_PutStr(&md->sortVector, idx, str);
           } else {
-              RSSortingVector_PutStrNormalize(&md->sortVector, idx, str);
+              if (!RSSortingVector_PutStrNormalize(&md->sortVector, idx, str, &aCtx->status)) {
+                BAIL("Invalid UTF8");
+              }
           }
 
           break;

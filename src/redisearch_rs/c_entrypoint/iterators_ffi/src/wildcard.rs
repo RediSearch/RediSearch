@@ -9,14 +9,15 @@
 
 use std::ptr::NonNull;
 
-use ffi::{QueryIterator, t_docId};
+use ffi::QueryIterator;
+use rqe_core::DocId;
 use rqe_iterator_type::IteratorType;
 use rqe_iterators::{NewWildcardIterator, Wildcard, interop::RQEIteratorWrapper};
 
 /// Creates a new non-optimized wildcard iterator over the `[0, max_id]` document id range.
 #[unsafe(no_mangle)]
 pub extern "C" fn NewWildcardIterator_NonOptimized(
-    max_id: t_docId,
+    max_id: DocId,
     weight: f64,
 ) -> *mut QueryIterator {
     let it = NewWildcardIterator::NotOptimized(Wildcard::new(max_id, weight));
@@ -38,34 +39,6 @@ pub const unsafe extern "C" fn IsWildcardIterator(it: *const QueryIterator) -> b
         it.type_,
         IteratorType::Wildcard | IteratorType::InvIdxWildcard
     )
-}
-
-/// Creates a new optimized wildcard iterator.
-///
-/// This can only be used when the index is configured to index all documents
-/// ([`SchemaRule`](ffi::SchemaRule)`.index_all` is set).
-///
-/// # Safety
-///
-/// 1. `sctx` must be a non-null pointer to a valid [`RedisSearchCtx`](ffi::RedisSearchCtx)
-///    that remains valid for the lifetime of the returned iterator.
-/// 2. `sctx.spec` must be a non-null pointer to a valid [`IndexSpec`](ffi::IndexSpec) that
-///    remains valid for the lifetime of the returned iterator.
-/// 3. `sctx.spec.rule` must be a non-null pointer to a valid [`SchemaRule`](ffi::SchemaRule) with
-///    [`index_all`](ffi::SchemaRule::index_all) set to `true`.
-/// 4. `sctx.spec.existingDocs`, when non-null, must point to a valid
-///    [`InvertedIndex`](ffi::InvertedIndex) with either
-///    [`DocIdsOnly`](inverted_index::codec::doc_ids_only::DocIdsOnly) or
-///    [`RawDocIdsOnly`](inverted_index::codec::raw_doc_ids_only::RawDocIdsOnly) encoding.
-#[unsafe(no_mangle)]
-pub unsafe extern "C" fn NewWildcardIterator_Optimized(
-    sctx: *const ffi::RedisSearchCtx,
-    weight: f64,
-) -> *mut QueryIterator {
-    let sctx = NonNull::new(sctx.cast_mut()).expect("sctx is null");
-    // SAFETY: Caller guarantees all preconditions of `new_wildcard_iterator_optimized`.
-    let it = unsafe { rqe_iterators::wildcard::new_wildcard_iterator_optimized(sctx, weight) };
-    RQEIteratorWrapper::boxed_new(it)
 }
 
 /// Creates a new wildcard iterator from a query evaluation context.

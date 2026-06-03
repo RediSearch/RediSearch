@@ -568,7 +568,7 @@ QueryIterator *Query_EvalTokenNode(QueryEvalCtx *q, QueryNode *qn) {
     rune *runes = runeBufFill(qn->tn.str, qn->tn.len, &buf, &rlen);
     TrieNode *trienode = Trie_GetNode(q->sctx->spec->terms, runes, rlen, true, NULL);
     runeBufFree(&buf);
-    size_t numDocsInTerm = trienode ? trienode->numDocs : 0;
+    size_t numDocsInTerm = trienode ? TrieNode_NumDocs(trienode) : 0;
     double idf = CalculateIDF(q->sctx->spec->stats.scoring.numDocuments, numDocsInTerm);
     double bm25_idf = CalculateIDF_BM25(q->sctx->spec->stats.scoring.numDocuments, numDocsInTerm);
     bool needsOffsets = queryNeedsOffsets(q->opts->scorerName, &qn->opts);
@@ -650,7 +650,7 @@ static QueryIterator *iterateExpandedTerms(QueryEvalCtx *q, Trie *terms, const c
     rune *runes = runeBufFill("", 1, &buf, &rlen);
     TrieNode *emptyNode = Trie_GetNode(terms, runes, rlen, true, NULL);
     runeBufFree(&buf);
-    size_t numDocsInEmpty = emptyNode ? emptyNode->numDocs : 0;
+    size_t numDocsInEmpty = emptyNode ? TrieNode_NumDocs(emptyNode) : 0;
     addTerm("", 0, numDocsInEmpty, q, opts, &its, &itsSz, &itsCap);
   }
 
@@ -682,7 +682,7 @@ static const char *PrefixNode_GetTypeString(const QueryPrefixNode *pfx) {
   }
 }
 
-#define TRIE_STR_TOO_LONG_MSG "query string is too long. Maximum allowed length is " STRINGIFY(MAX_RUNESTR_LEN)
+#define TRIE_STR_TOO_LONG_MSG "query string is too long. Maximum allowed length is " STRINGIFY(MAX_RUNE_STR_LEN)
 
 /* Evaluate a prefix node by expanding all its possible matches and creating one big UNION on all
  * of them.
@@ -871,7 +871,7 @@ static int charIterCb(const char *s, size_t n, void *p, void *payload) {
     rune *runes = runeBufFill(tok.str, tok.len, &buf, &rlen);
     TrieNode *trienode = Trie_GetNode(q->sctx->spec->terms, runes, rlen, true, NULL);
     runeBufFree(&buf);
-    size_t numDocsInTerm = trienode ? trienode->numDocs : 0;
+    size_t numDocsInTerm = trienode ? TrieNode_NumDocs(trienode) : 0;
     double idf = CalculateIDF(q->sctx->spec->stats.scoring.numDocuments, numDocsInTerm);
     double bm25_idf = CalculateIDF_BM25(q->sctx->spec->stats.scoring.numDocuments, numDocsInTerm);
     bool needsOffsets = queryNeedsOffsets(q->opts->scorerName, ctx->opts);

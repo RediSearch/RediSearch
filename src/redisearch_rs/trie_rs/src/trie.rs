@@ -32,11 +32,7 @@ pub struct TrieMap<Data> {
 
 impl<Data> Default for TrieMap<Data> {
     fn default() -> Self {
-        Self {
-            root: None,
-            n_unique_keys: 0,
-            memory_usage: std::mem::size_of::<Self>(),
-        }
+        Self::new()
     }
 }
 
@@ -47,8 +43,12 @@ impl<Data> TrieMap<Data> {
     ///
     /// No allocation is performed on creation.
     /// Memory is allocated only when the first insertion occurs.
-    pub fn new() -> Self {
-        Default::default()
+    pub const fn new() -> Self {
+        Self {
+            root: None,
+            n_unique_keys: 0,
+            memory_usage: std::mem::size_of::<Self>(),
+        }
     }
 
     /// Insert a key-value pair into the trie.
@@ -107,6 +107,13 @@ impl<Data> TrieMap<Data> {
     /// Returns `None` if there is no entry for the key.
     pub fn find(&self, key: &[u8]) -> Option<&Data> {
         self.root.as_ref().and_then(|n| n.find(key))
+    }
+
+    /// Get a mutable reference to the value associated with a key.
+    ///
+    /// Returns `None` if there is no entry for the key.
+    pub fn find_mut(&mut self, key: &[u8]) -> Option<&mut Data> {
+        self.root.as_mut().and_then(|n| n.find_mut(key))
     }
 
     /// Get a reference to the subtree associated with a key prefix.
@@ -197,12 +204,18 @@ impl<Data> TrieMap<Data> {
     }
 
     /// Iterate over all trie entries whose key is a prefix of `target`.
-    pub const fn prefixes_iter<'a>(&'a self, target: &'a [u8]) -> PrefixesIter<'a, Data> {
+    pub const fn prefixes_iter<'tm, 't>(
+        &'tm self,
+        target: &'t [u8],
+    ) -> PrefixesIter<'tm, 't, Data> {
         PrefixesIter::new(self.root.as_ref(), target)
     }
 
     /// Iterate over all trie entries whose key matches the specified pattern.
-    pub fn wildcard_iter<'a>(&'a self, pattern: WildcardPattern<'a>) -> WildcardIter<'a, Data> {
+    pub fn wildcard_iter<'tm, 'p>(
+        &'tm self,
+        pattern: WildcardPattern<'p>,
+    ) -> WildcardIter<'tm, 'p, Data> {
         WildcardIter::new(self.root.as_ref(), pattern)
     }
 
@@ -220,12 +233,12 @@ impl<Data> TrieMap<Data> {
     }
 
     /// Iterates over the entries between the specified `min` and `max`, in lexicographical order.
-    pub fn range_iter<'a>(&'a self, filter: RangeFilter<'a>) -> RangeIter<'a, Data> {
+    pub fn range_iter<'tm, 'f>(&'tm self, filter: RangeFilter<'f>) -> RangeIter<'tm, 'f, Data> {
         RangeIter::new(self.root.as_ref(), filter)
     }
 
     /// Iterate over the entries that contain the target fragment, in lexicographical key order.
-    pub fn contains_iter<'a>(&'a self, target: &'a [u8]) -> ContainsIter<'a, Data> {
+    pub fn contains_iter<'tm, 't>(&'tm self, target: &'t [u8]) -> ContainsIter<'tm, 't, Data> {
         ContainsIter::new(self.root.as_ref(), target)
     }
 

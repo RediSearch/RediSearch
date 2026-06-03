@@ -7,10 +7,10 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 
-use ffi::t_docId;
 use index_result::RSIndexResult;
 use index_spec::IndexSpecReadGuard;
 use inverted_index::IndexReader;
+use rqe_core::DocId;
 
 use crate::{
     IteratorType, RQEIterator, RQEIteratorError, RQEValidateStatus, SkipToOutcome,
@@ -32,7 +32,7 @@ pub struct InvIndIterator<'index, R, E = NoOpChecker> {
     /// if we reached the end of the index.
     at_eos: bool,
     /// the last document ID read by the iterator.
-    last_doc_id: t_docId,
+    last_doc_id: DocId,
     /// A reusable result object to avoid allocations on each `read` call.
     pub(super) result: RSIndexResult<'index>,
 
@@ -45,7 +45,7 @@ pub struct InvIndIterator<'index, R, E = NoOpChecker> {
     read_impl: fn(&mut Self) -> Result<Option<&mut RSIndexResult<'index>>, RQEIteratorError>,
     /// The implementation of the [`skip_to`](RQEIterator::skip_to) method.
     skip_to_impl:
-        fn(&mut Self, t_docId) -> Result<Option<SkipToOutcome<'_, 'index>>, RQEIteratorError>,
+        fn(&mut Self, DocId) -> Result<Option<SkipToOutcome<'_, 'index>>, RQEIteratorError>,
 }
 
 impl<'index, R, E> InvIndIterator<'index, R, E>
@@ -82,6 +82,15 @@ where
             read_impl,
             skip_to_impl,
         }
+    }
+
+    /// Returns the current query term bytes, if available.
+    ///
+    /// The term is stored in the iterator's result and is set during
+    /// construction. Returns [`None`] if the result is not a term result
+    /// or the term has no string representation.
+    pub fn query_term_bytes(&self) -> Option<&[u8]> {
+        self.result.as_term()?.query_term()?.as_bytes()
     }
 
     /// Default read implementation, without any additional filtering.
@@ -174,7 +183,7 @@ where
     // SkipTo implementation that uses a seeker to find the next valid docId, no additional filtering.
     fn skip_to_default(
         &mut self,
-        doc_id: t_docId,
+        doc_id: DocId,
     ) -> Result<Option<SkipToOutcome<'_, 'index>>, RQEIteratorError> {
         if self.at_eos {
             return Ok(None);
@@ -200,7 +209,7 @@ where
     // SkipTo implementation that uses a seeker and checks for field expiration.
     fn skip_to_check_expiration(
         &mut self,
-        doc_id: t_docId,
+        doc_id: DocId,
     ) -> Result<Option<SkipToOutcome<'_, 'index>>, RQEIteratorError> {
         if self.at_eos {
             return Ok(None);
@@ -261,7 +270,7 @@ where
     #[inline(always)]
     fn skip_to(
         &mut self,
-        doc_id: t_docId,
+        doc_id: DocId,
     ) -> Result<Option<SkipToOutcome<'_, 'index>>, RQEIteratorError> {
         // cannot be called with an id smaller than the last one returned by the iterator, see
         // [`RQEIterator::skip_to`].
@@ -280,7 +289,7 @@ where
         self.reader.unique_docs() as usize
     }
 
-    fn last_doc_id(&self) -> t_docId {
+    fn last_doc_id(&self) -> DocId {
         self.last_doc_id
     }
 

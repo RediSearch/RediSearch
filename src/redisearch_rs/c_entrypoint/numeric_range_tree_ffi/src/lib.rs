@@ -41,7 +41,7 @@ pub use range::*;
 pub use tree::*;
 
 use ::inverted_index::NumericFilter;
-use ffi::t_docId;
+use rqe_core::DocId;
 use std::ffi::c_int;
 
 // Re-export IndexReader type from inverted_index_ffi for C code to use.
@@ -108,7 +108,7 @@ pub extern "C" fn NewNumericRangeTree(compress_floats: bool) -> *mut NumericRang
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn _NumericRangeTree_Add(
     t: *mut NumericRangeTree,
-    doc_id: t_docId,
+    doc_id: DocId,
     value: f64,
     isMulti: c_int,
     maxDepthRange: usize,
