@@ -127,6 +127,17 @@ TEST_F(SuffixChooseTokenTest, runeAgreesWithChar) {
 
 // Tokens shorter than MIN_SUFFIX are not usable; with no qualifying token the
 // scorer reports UNINITIALIZED so the caller falls back to a brute-force scan.
+// This is the *correct* UNINITIALIZED outcome, distinct from the fixed bug that
+// returned UNINITIALIZED for valid '?'-bearing tokens.
 TEST_F(SuffixChooseTokenTest, noQualifyingTokenIsUninitialized) {
-  EXPECT_EQ(chooseTokenRune("a*b*c"), REDISEARCH_UNINITIALIZED);
+  EXPECT_EQ(chooseTokenRune(""), REDISEARCH_UNINITIALIZED);       // no tokens
+  EXPECT_EQ(chooseTokenRune("*"), REDISEARCH_UNINITIALIZED);      // only '*'
+  EXPECT_EQ(chooseTokenRune("**"), REDISEARCH_UNINITIALIZED);     // only '*'
+  EXPECT_EQ(chooseTokenRune("a"), REDISEARCH_UNINITIALIZED);      // single short token
+  EXPECT_EQ(chooseTokenRune("a*b*c"), REDISEARCH_UNINITIALIZED);  // all tokens len 1
+  // A '?' below MIN_SUFFIX is still too short to be a usable filter: it must be
+  // skipped, not force a selection.
+  EXPECT_EQ(chooseTokenRune("?"), REDISEARCH_UNINITIALIZED);      // single '?'
+  EXPECT_EQ(chooseTokenRune("*?*"), REDISEARCH_UNINITIALIZED);    // token "?" len 1
+  EXPECT_EQ(chooseTokenRune("a*?*b"), REDISEARCH_UNINITIALIZED);  // "a","?","b" all len 1
 }
