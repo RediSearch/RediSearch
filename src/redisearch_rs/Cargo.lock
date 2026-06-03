@@ -2538,7 +2538,9 @@ name = "search_disk"
 version = "0.0.1"
 dependencies = [
  "ffi",
+ "inverted_index",
  "rqe_core",
+ "rqe_iterators",
  "workspace_hack",
 ]
 
