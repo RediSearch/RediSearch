@@ -2313,6 +2313,7 @@ class TestCoordinatorTimeout:
         base_warn_coord = int(before_info[COORD_WARN_ERR_SECTION][TIMEOUT_WARNING_COORD_METRIC])
 
         verify_command_OK_on_all_shards(env, debug_cmd(), 'WORKERS', 'pause')
+        workers_paused = True
 
         sync_point = 'AfterIteratorStart'
         env.cmd(debug_cmd(), 'SYNC_POINT', 'CLEAR')

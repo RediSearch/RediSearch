@@ -396,8 +396,7 @@ static inline void debugPauseStoreResults(AREQ *req, bool before) {
   UNUSED(before);
 }
 #endif
-static void startPipeline(AREQ *req, ResultProcessor *rp, SearchResult ***results, SearchResult *r,
-                          int *rc) {
+static void startPipeline(AREQ *req, ResultProcessor *rp, SearchResult ***results, SearchResult *r, int *rc) {
   CommonPipelineCtx ctx = {
     .timeoutPolicy = req->reqConfig.timeoutPolicy,
     .timeout = &req->sctx->time.timeout,
@@ -1751,8 +1750,7 @@ static int CursorReadTimeoutReturnStrictCallback(RedisModuleCtx *ctx, RedisModul
     // The worker has not entered the stored-results phase yet. Reply in the
     // normal RETURN_STRICT cursor shape; when the worker observes the failed
     // claim, it parks the already-taken cursor for the advertised id.
-    return IsInternal(req) ? shard_cursor_read_empty_reply_timeout(ctx, node->cursorId)
-                           : coord_cursor_read_empty_reply_timeout(ctx, node->cursorId);
+    return cursor_read_empty_reply_timeout(ctx, node->cursorId, IsInternal(req));
   }
 
   // The worker owns the stored-results phase. Wait for it to store a
@@ -1762,6 +1760,9 @@ static int CursorReadTimeoutReturnStrictCallback(RedisModuleCtx *ctx, RedisModul
   if (req->storedReplyState.hasStoredResults) {
     drainPartialResultsAfterTimeout(req);
     AREQ_ReplyWithStoredResults(ctx, req);
+  } else if (QueryError_HasError(&req->storedReplyState.err)) {
+    QueryErrorsGlobalStats_UpdateError(QueryError_GetCode(&req->storedReplyState.err), 1, !IsInternal(req));
+    QueryError_ReplyAndClear(ctx, &req->storedReplyState.err);
   } else {
     RedisModule_ReplyWithError(ctx, "ERR Internal error: no results stored");
   }
@@ -2016,7 +2017,7 @@ static void runCursor(RedisModule_Reply *reply, Cursor *cursor, size_t num) {
   RedisSearchCtx_UnlockSpec(AREQ_SearchCtx(req)); // Verify that we release the spec lock
 
   if (req->useReplyCallback) {
-    if (req->syncCtx.aggregateResultsClaimLost && !req->storedReplyState.hasStoredResults) {
+    if (req->syncCtx.aggregateResultsClaimLost) {
       // The strict timeout callback won the sync claim and already replied with
       // either cursor 0 (initial FT.AGGREGATE WITHCURSOR) or this cursor id
       // (follow-up FT.CURSOR READ). Keep cursor ownership consistent with the
