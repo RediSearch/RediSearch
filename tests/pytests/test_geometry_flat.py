@@ -214,6 +214,22 @@ def testWKTQueryError(env):
   env.expect('FT.SEARCH', 'idx', '@name:(Ho*) @geom:[contains $poly]', 'PARAMS', 2, 'moly', 'POLYGON((0 0, 0 150, 150 150, 150 0, 0 0))]', 'NOCONTENT', 'DIALECT', 3).error().contains('SEARCH_PARAM_NOT_FOUND Parameter not found')
   env.expect('FT.SEARCH', 'idx', '@name:(Ho*) @geom:[within $poly]', 'NOCONTENT', 'DIALECT', 3).error().contains('SEARCH_PARAM_NOT_FOUND Parameter not found')
 
+def testWKTQueryGeoshapeError(env):
+  ''' A syntactically valid query whose geometry string fails to parse must
+      surface the geoshape query error, wrapped with a fixed prefix and the
+      backend's detail. '''
+  conn = getConnectionByEnv(env)
+  env.expect('FT.CREATE', 'idx', 'SCHEMA', 'geom', 'GEOSHAPE', 'FLAT').ok()
+  conn.execute_command('HSET', 'doc', 'geom', 'POLYGON((0 0, 0 150, 150 150, 150 0, 0 0))')
+
+  # The predicate and parameter are well-formed, so the query parser accepts
+  # them and the parameter value is handed verbatim to the geometry backend,
+  # which rejects the misspelled geometry keyword. The error must carry the
+  # fixed prefix; the backend detail follows the colon.
+  env.expect('FT.SEARCH', 'idx', '@geom:[within $poly]', 'PARAMS', 2,
+             'poly', 'POLIGON((0 0, 0 150, 150 150, 150 0, 0 0))', 'NOCONTENT',
+             'DIALECT', 3).error().contains('Error querying geoshape index:')
+
 def testSimpleUpdate(env):
   ''' Test updating geometries '''
 
