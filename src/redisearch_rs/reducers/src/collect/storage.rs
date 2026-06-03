@@ -18,11 +18,7 @@
 //!   Suitable when a ranked top-K is needed.
 //! - [`Storage::DistinctHeap`] — like [`Storage::Heap`] but deduplicates by
 //!   projected fields, keeping the best representative per sort key (the
-//!   `COLLECT … SORTBY DISTINCT` path). Backed by a `DoublePriorityQueue`
-//!   keyed on [`DistinctRow`]; the hash index collapses duplicates in O(1) and,
-//!   on a strictly-better duplicate, the winning row *and* its priority replace
-//!   the incumbent (a plain `push_increase` would keep the loser's row — see
-//!   `insert_entry_with_dedup`).
+//!   `COLLECT … SORTBY DISTINCT` path).
 
 use std::cmp::Ordering;
 
@@ -135,38 +131,13 @@ impl<D: Ord> Storage<D> {
     /// that don't need tie-breaking instantiate `Storage<()>` and pass
     /// `()` here — `()`'s `Ord` impl makes the fallback a no-op.
     ///
-    /// This is the non-DISTINCT entry point ([`Self::Array`] / [`Self::Heap`]);
-    /// it delegates to [`Self::insert_entry_with_dedup`] with a no-op dedup
-    /// closure. The DISTINCT path ([`Self::DistinctHeap`]) calls
-    /// `insert_entry_with_dedup` directly.
+    /// This is the non-DISTINCT entry point ([`Self::Array`] / [`Self::Heap`]).
+    /// The DISTINCT path ([`Self::DistinctHeap`]) must call
+    /// [`Self::insert_distinct_entry`] instead.
     pub fn insert_entry<S, P>(&mut self, sort_vals: S, doc_id: D, project: P) -> bool
     where
         S: FnOnce() -> Box<[Option<SharedValue>]>,
         P: FnOnce() -> RLookupRow<'static>,
-    {
-        self.insert_entry_with_dedup(sort_vals, doc_id, project, |_row| Box::default())
-    }
-
-    /// Insert an entry under the cap, with a `dedup_from_row` closure used only
-    /// by the [`Self::DistinctHeap`] path to derive each row's dedup identity
-    /// (the canonical encoding of its *projected* fields — see the design doc
-    /// §5.1.1). [`Self::Array`] and [`Self::Heap`] ignore it.
-    ///
-    /// `dedup_from_row` is invoked only for a candidate that survives the
-    /// doomed-candidate short-circuit, so deferred projection is preserved.
-    ///
-    /// Returns `true` if the entry was buffered, `false` if it was dropped.
-    pub fn insert_entry_with_dedup<S, P, K>(
-        &mut self,
-        sort_vals: S,
-        doc_id: D,
-        project: P,
-        dedup_from_row: K,
-    ) -> bool
-    where
-        S: FnOnce() -> Box<[Option<SharedValue>]>,
-        P: FnOnce() -> RLookupRow<'static>,
-        K: FnOnce(&RLookupRow<'static>) -> Box<[u8]>,
     {
         match self {
             Self::Array {
@@ -210,6 +181,26 @@ impl<D: Ord> Storage<D> {
                     }
                 }
             }
+            Self::DistinctHeap { .. } => unreachable!("insert_entry called on DISTINCT storage"),
+        }
+    }
+
+    /// Insert an entry into DISTINCT storage.
+    ///
+    /// Returns `true` if the entry was buffered, `false` if it was dropped.
+    pub fn insert_distinct_entry<S, P, K>(
+        &mut self,
+        sort_vals: S,
+        doc_id: D,
+        project: P,
+        dedup_from_row: K,
+    ) -> bool
+    where
+        S: FnOnce() -> Box<[Option<SharedValue>]>,
+        P: FnOnce() -> RLookupRow<'static>,
+        K: FnOnce(&RLookupRow<'static>) -> Box<[u8]>,
+    {
+        match self {
             Self::DistinctHeap {
                 pq,
                 sort_asc_map,
@@ -221,30 +212,20 @@ impl<D: Ord> Storage<D> {
                     return false;
                 }
                 let cand_key = EntryKey::new(sort_vals(), *sort_asc_map, doc_id);
-                // Doomed short-circuit (§9.1 step 1): if the heap is full and
-                // the candidate is no better than the current worst, drop it
-                // without projecting or hashing. Safe even without a dedup
-                // probe — any existing entry is `>= worst >= candidate`, so a
-                // duplicate would be represented at least as well already.
+                // If the heap is full and the candidate is no better than the
+                // current worst, drop it.
                 if pq.len() >= max_size {
                     let worst = pq.peek_min().expect("pq at cap is non-empty").1;
                     if cand_key <= *worst {
                         return false;
                     }
                 }
-                // Project now (dedup needs the candidate's projected fields)
-                // and derive its dedup identity from the projected row.
+                // Project and derive its dedup identity from the projected row.
                 let row = project();
                 let canon = dedup_from_row(&row);
                 let item = DistinctRow::from_parts(row, canon);
 
-                // Dedup-keep-best. `push_increase` would update only the
-                // *priority* while retaining the first-seen item, leaving the
-                // stored row stale — its SORTBY columns would still hold the
-                // loser's values, which corrupts the shard→coordinator payload
-                // (`is_internal`) where those columns are serialized. So on a
-                // strictly-better duplicate we replace **both** the row and its
-                // priority via remove + push.
+                // Dedup-keep-best.
                 match pq
                     .get_priority(&item)
                     .map(|existing| cand_key.cmp(existing))
@@ -253,11 +234,9 @@ impl<D: Ord> Storage<D> {
                         pq.remove(&item);
                         pq.push(item, cand_key);
                     }
-                    // Worse-or-equal duplicate: keep the incumbent, drop the
-                    // candidate (first/best wins on ties).
+                    // Worse-or-equal duplicate: keep the current item.
                     Some(_) => {}
-                    // No duplicate: a genuinely new insert, which may exceed the
-                    // cap and require evicting the current worst.
+                    // No duplicate: a genuinely new insert.
                     None => {
                         pq.push(item, cand_key);
                         if pq.len() > max_size {
@@ -266,6 +245,9 @@ impl<D: Ord> Storage<D> {
                     }
                 }
                 true
+            }
+            Self::Array { .. } | Self::Heap { .. } => {
+                unreachable!("insert_distinct_entry called on non-DISTINCT storage")
             }
         }
     }

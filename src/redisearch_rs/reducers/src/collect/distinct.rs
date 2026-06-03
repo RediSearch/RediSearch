@@ -15,26 +15,13 @@
 //! derive from a single **canonical byte encoding** of the projected values,
 //! so the `Hash`/`Eq` contract holds by construction.
 //!
-//! ## Why a bespoke encoding
 //!
-//! The two value comparators already in the crate are *not* usable here:
-//!
-//! - [`compare`][value::comparison::compare] /
-//!   [`compare_on_equality_only`][value::comparison::compare_on_equality_only]
-//!   is **non-transitive** across the number/string boundary (a string is
-//!   parsed as a number when the other side is numeric, so `"5" == 5` and
-//!   `5 == "5.0"` while `"5" != "5.0"`) and **collapses every map to equal**
-//!   (the `MapComparison` stub). Neither can back a hash-map key.
-//! - [`hash_value`][value::hash::hash_value] hashes numbers by their `f64`
-//!   bytes, hashes [`Trio`][value::trio::Trio] via its `left` slot, and hashes maps
-//!   structurally — none of which matches the string-comparison policy the
-//!   COLLECT design pins DISTINCT to.
-//!
-//! So this module owns its encoding. It is the string-comparison decision made
+//! This module owns its encoding. It is the string-comparison decision made
 //! concrete: scalars are encoded by their textual form, JSON paths by their
-//! serialized string (the [`Trio`][value::trio::Trio] `middle` slot), and compound values
-//! recursively. Each value is tagged by variant and length-prefixed so field
-//! and element boundaries are unambiguous.
+//! serialized string (the [`Trio`][value::trio::Trio] `middle` slot), and
+//! compound values recursively. Each value is tagged by variant; variable-length
+//! values (strings, numbers) and compound values (arrays, maps) are additionally
+//! length-prefixed, so field and element boundaries are unambiguous.
 //!
 //! ## Accepted divergence from `RSValue_Cmp`
 //!
@@ -45,14 +32,6 @@
 //! a string), so two documents that genuinely share a field value share a
 //! variant. The mixed-type cases that make `compare` non-transitive do not
 //! arise for one field across documents.
-//!
-//! ## Per-pass consistency
-//!
-//! The encoding only needs to be internally consistent within a single dedup
-//! pass. The shard pass sees typed values; the coordinator pass sees
-//! wire-deserialized values (largely strings, JSON as serialized strings). The
-//! two passes need not produce identical bytes for the "same" logical value —
-//! they are independent dedup passes over the same field set.
 
 use std::hash::{Hash, Hasher};
 

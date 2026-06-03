@@ -220,17 +220,6 @@ pub const unsafe extern "C" fn CollectReducer_IsLoadAll(r: *const ffi::Reducer) 
 /// `r` must point to a valid [`RemoteCollectReducer`] originally created by
 /// `CollectReducer_CreateRemote`.
 #[unsafe(no_mangle)]
-pub const unsafe extern "C" fn CollectReducer_IsDistinct(r: *const ffi::Reducer) -> bool {
-    // SAFETY: ensured by caller.
-    let r = unsafe { r.cast::<RemoteCollectReducer>().as_ref().unwrap() };
-    r.is_distinct()
-}
-
-/// # Safety
-///
-/// `r` must point to a valid [`RemoteCollectReducer`] originally created by
-/// `CollectReducer_CreateRemote`.
-#[unsafe(no_mangle)]
 pub const unsafe extern "C" fn CollectReducer_GetSortKeysLen(r: *const ffi::Reducer) -> usize {
     // SAFETY: ensured by caller.
     let r = unsafe { r.cast::<RemoteCollectReducer>().as_ref().unwrap() };

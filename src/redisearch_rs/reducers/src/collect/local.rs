@@ -175,7 +175,7 @@ pub struct LocalCollectReducer<'a> {
     input_key: &'a RLookupKey<'a>,
     fields: Fields,
     limit: Option<(u64, u64)>,
-    distinct: bool,
+    uses_distinct_storage: bool,
 }
 
 const _: () = assert!(core::mem::offset_of!(LocalCollectReducer<'_>, reducer) == 0);
@@ -211,6 +211,8 @@ impl<'a> LocalCollectReducer<'a> {
             },
             None => Fields::All { sort_key_names },
         };
+        let uses_distinct_storage =
+            distinct && !fields.sort_key_names().is_empty() && !fields.projects_key_field();
         Self {
             reducer: Reducer::new(),
             arena: Bump::new(),
@@ -218,7 +220,7 @@ impl<'a> LocalCollectReducer<'a> {
             input_key,
             fields,
             limit,
-            distinct,
+            uses_distinct_storage,
         }
     }
 
@@ -234,18 +236,12 @@ impl<'a> LocalCollectReducer<'a> {
     pub const fn is_load_all(&self) -> bool {
         matches!(self.fields, Fields::All { .. })
     }
-
-    /// Exposed via `CollectReducer_IsLocalDistinct` for C++ parser tests.
-    pub const fn is_distinct(&self) -> bool {
-        self.distinct
-    }
 }
 
 impl LocalCollectCtx {
     pub fn new(r: &LocalCollectReducer) -> Self {
         let sortby = !r.fields.sort_key_names().is_empty();
-        let distinct = r.distinct && sortby && !r.fields.projects_key_field();
-        let storage = if distinct {
+        let storage = if r.uses_distinct_storage {
             Storage::new_distinct(r.limit, r.sort_asc_map)
         } else {
             Storage::new(sortby, r.limit, r.sort_asc_map)
@@ -275,16 +271,20 @@ impl LocalCollectCtx {
                 );
                 continue;
             }
-            self.storage.insert_entry_with_dedup(
-                || snapshot_sort_keys(r.fields.sort_key_names(), item),
-                (),
-                || r.fields.prepare_row(item, &mut self.lookup),
-                // DISTINCT dedup identity (§5.1.1): the whole prepared row. The
-                // coordinator's prepared row holds exactly the projected fields
-                // — `Specific` writes only `requested`, and `All` receives the
-                // shard's projection, which appends no sort columns.
-                |row| encode_values(row.dyn_values()),
-            );
+            if r.uses_distinct_storage {
+                self.storage.insert_distinct_entry(
+                    || snapshot_sort_keys(r.fields.sort_key_names(), item),
+                    (),
+                    || r.fields.prepare_row(item, &mut self.lookup),
+                    |row| encode_values(row.dyn_values()),
+                );
+            } else {
+                self.storage.insert_entry(
+                    || snapshot_sort_keys(r.fields.sort_key_names(), item),
+                    (),
+                    || r.fields.prepare_row(item, &mut self.lookup),
+                );
+            }
         }
     }
 

@@ -146,7 +146,7 @@ pub struct RemoteCollectReducer<'a> {
     fields: Fields<'a>,
     limit: Option<(u64, u64)>,
     is_internal: bool,
-    distinct: bool,
+    uses_distinct_storage: bool,
 }
 
 const _: () = assert!(core::mem::offset_of!(RemoteCollectReducer<'_>, reducer) == 0);
@@ -189,6 +189,11 @@ impl<'a> RemoteCollectReducer<'a> {
                 sort_keys,
             },
         };
+        // DISTINCT needs SORTBY, and when the document key is projected every
+        // tuple is unique, so dedup is a no-op and we keep the cheaper plain
+        // `Heap`.
+        let uses_distinct_storage =
+            distinct && !fields.sort_keys().is_empty() && !fields.projects_key_field();
         Self {
             reducer: Reducer::new(),
             arena: Bump::new(),
@@ -196,7 +201,7 @@ impl<'a> RemoteCollectReducer<'a> {
             fields,
             limit,
             is_internal,
-            distinct,
+            uses_distinct_storage,
         }
     }
 
@@ -219,10 +224,6 @@ impl<'a> RemoteCollectReducer<'a> {
 
     pub const fn is_load_all(&self) -> bool {
         matches!(self.fields, Fields::All { .. })
-    }
-
-    pub const fn is_distinct(&self) -> bool {
-        self.distinct
     }
 
     pub const fn sort_keys_len(&self) -> usize {
@@ -273,11 +274,7 @@ fn dedup_by_dstidx<'a>(
 impl RemoteCollectCtx {
     pub fn new(r: &RemoteCollectReducer<'_>) -> Self {
         let sortby = !r.fields.sort_keys().is_empty();
-        // The `@__key`: DISTINCT needs SORTBY, and when the document key is
-        // projected every tuple is unique, so dedup is a no-op and we keep the
-        // cheaper plain `Heap`.
-        let distinct = r.distinct && sortby && !r.fields.projects_key_field();
-        let storage = if distinct {
+        let storage = if r.uses_distinct_storage {
             Storage::new_distinct(r.limit, r.sort_asc_map)
         } else {
             Storage::new(sortby, r.limit, r.sort_asc_map)
@@ -321,8 +318,12 @@ impl RemoteCollectCtx {
                     .map(|k| projected.get(k).map(|v| &**v)),
             )
         };
-        self.storage
-            .insert_entry_with_dedup(sort_vals, doc_id, project, dedup_from_row);
+        if r.uses_distinct_storage {
+            self.storage
+                .insert_distinct_entry(sort_vals, doc_id, project, dedup_from_row);
+        } else {
+            self.storage.insert_entry(sort_vals, doc_id, project);
+        }
     }
 
     /// Serialize the buffered rows into an array of maps. Keys absent from a

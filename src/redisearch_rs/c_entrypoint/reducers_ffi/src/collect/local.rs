@@ -109,17 +109,6 @@ pub const unsafe extern "C" fn CollectReducer_IsLocalLoadAll(r: *const ffi::Redu
 
 /// # Safety
 ///
-/// 1. `r` must point to a valid [`LocalCollectReducer`] originally created by
-///    [`CollectReducer_CreateLocal`].
-#[unsafe(no_mangle)]
-pub const unsafe extern "C" fn CollectReducer_IsLocalDistinct(r: *const ffi::Reducer) -> bool {
-    // SAFETY: ensured by caller (1.)
-    let r = unsafe { r.cast::<LocalCollectReducer>().as_ref().unwrap() };
-    r.is_distinct()
-}
-
-/// # Safety
-///
 /// 1. `r` must point to a [valid] `LocalCollectReducer` masquerading as a `ffi::Reducer`.
 ///
 /// [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
