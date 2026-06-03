@@ -1,0 +1,32 @@
+[package]
+name = "casemap_compare"
+version.workspace = true
+edition.workspace = true
+license-file.workspace = true
+publish.workspace = true
+
+[lib]
+bench = false
+
+[[bin]]
+name = "compare"
+path = "src/bin/compare.rs"
+bench = false
+
+[dependencies]
+anyhow.workspace = true
+icu_casemap.workspace = true
+icu_locale_core.workspace = true
+rayon.workspace = true
+
+[dev-dependencies]
+crc32fast.workspace = true
+fs-err.workspace = true
+proptest = { workspace = true, features = ["std"] }
+ureq.workspace = true
+
+[build-dependencies]
+cc.workspace = true
+
+[lints]
+workspace = true

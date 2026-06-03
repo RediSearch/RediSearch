@@ -237,6 +237,21 @@ dependencies = [
 ]
 
 [[package]]
+name = "casemap_compare"
+version = "0.0.1"
+dependencies = [
+ "anyhow",
+ "cc",
+ "crc32fast",
+ "fs-err",
+ "icu_casemap",
+ "icu_locale_core",
+ "proptest",
+ "rayon",
+ "ureq",
+]
+
+[[package]]
 name = "cast"
 version = "0.3.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
