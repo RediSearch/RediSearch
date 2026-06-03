@@ -64,6 +64,7 @@ pub unsafe extern "C" fn CollectReducer_CreateLocal(
     has_limit: bool,
     limit_offset: u64,
     limit_count: u64,
+    distinct: bool,
 ) -> *mut ffi::Reducer {
     // SAFETY: ensured by caller (1.); `input_key` points to a valid
     // `RLookupKey` that outlives the returned reducer.
@@ -82,6 +83,7 @@ pub unsafe extern "C" fn CollectReducer_CreateLocal(
         sort_key_names,
         sort_asc_map,
         limit,
+        distinct,
     ));
 
     cr.reducer_mut()
@@ -103,6 +105,17 @@ pub const unsafe extern "C" fn CollectReducer_IsLocalLoadAll(r: *const ffi::Redu
     // SAFETY: ensured by caller (1.)
     let r = unsafe { r.cast::<LocalCollectReducer>().as_ref().unwrap() };
     r.is_load_all()
+}
+
+/// # Safety
+///
+/// 1. `r` must point to a valid [`LocalCollectReducer`] originally created by
+///    [`CollectReducer_CreateLocal`].
+#[unsafe(no_mangle)]
+pub const unsafe extern "C" fn CollectReducer_IsLocalDistinct(r: *const ffi::Reducer) -> bool {
+    // SAFETY: ensured by caller (1.)
+    let r = unsafe { r.cast::<LocalCollectReducer>().as_ref().unwrap() };
+    r.is_distinct()
 }
 
 /// # Safety

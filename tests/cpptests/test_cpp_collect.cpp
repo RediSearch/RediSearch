@@ -202,6 +202,44 @@ TEST_F(CollectParserTest, FieldsSortByAndLimit) {
   r->Free(r);
 }
 
+TEST_F(CollectParserTest, DistinctWithSortByReachesReducer) {
+  registerKeys({"price", "name"});
+  Reducer *r = parseCollectOk({
+      "FIELDS", "1", "@name",
+      "SORTBY", "1", "@price",
+      "DISTINCT",
+  });
+  ASSERT_NE(r, nullptr);
+  EXPECT_TRUE(CollectReducer_IsDistinct(r));
+  r->Free(r);
+}
+
+TEST_F(CollectParserTest, NoDistinctByDefault) {
+  registerKeys({"price", "name"});
+  Reducer *r = parseCollectOk({
+      "FIELDS", "1", "@name",
+      "SORTBY", "1", "@price",
+  });
+  ASSERT_NE(r, nullptr);
+  EXPECT_FALSE(CollectReducer_IsDistinct(r));
+  r->Free(r);
+}
+
+TEST_F(CollectParserTest, LocalDistinctWithSortByReachesReducer) {
+  registerKeys({"price", "name"});
+  QueryError status = QueryError_Default();
+  std::vector<const char *> args = {
+      "FIELDS", "1", "@name",
+      "SORTBY", "1", "@price",
+      "DISTINCT",
+  };
+  Reducer *r = parseCollect(args, &status, true, plannerInputKey);
+  ASSERT_NE(r, nullptr) << QueryError_GetUserError(&status);
+  EXPECT_TRUE(CollectReducer_IsLocalDistinct(r));
+  QueryError_ClearError(&status);
+  r->Free(r);
+}
+
 TEST_F(CollectParserTest, FieldsAndLimitWithoutSortBy) {
   registerKeys({"price"});
   Reducer *r = parseCollectOk({

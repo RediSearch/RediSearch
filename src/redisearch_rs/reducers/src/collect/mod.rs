@@ -20,6 +20,9 @@
 //! "local to the merge step", not "the local node". See [`local`] and
 //! [`remote`] for per-variant details.
 
+use std::ffi::CStr;
+
+pub mod distinct;
 pub mod heap;
 pub mod local;
 pub mod remote;
@@ -27,3 +30,5 @@ pub mod storage;
 
 pub use local::{LocalCollectCtx, LocalCollectReducer};
 pub use remote::{RemoteCollectCtx, RemoteCollectReducer};
+
+pub(crate) const UNDERSCORE_KEY: &CStr = c"__key";

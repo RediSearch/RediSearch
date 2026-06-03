@@ -47,6 +47,7 @@ pub unsafe extern "C" fn CollectReducer_CreateRemote(
     limit_offset: u64,
     limit_count: u64,
     is_internal: bool,
+    distinct: bool,
 ) -> *mut ffi::Reducer {
     let field_keys: Box<[&RLookupKey]> = if !field_keys.is_null() && field_keys_len > 0 {
         // SAFETY: ensured by caller (1.)
@@ -76,6 +77,7 @@ pub unsafe extern "C" fn CollectReducer_CreateRemote(
         sort_asc_map,
         limit,
         is_internal,
+        distinct,
     ));
 
     cr.reducer_mut()
@@ -211,6 +213,17 @@ pub const unsafe extern "C" fn CollectReducer_IsLoadAll(r: *const ffi::Reducer) 
     // SAFETY: ensured by caller.
     let r = unsafe { r.cast::<RemoteCollectReducer>().as_ref().unwrap() };
     r.is_load_all()
+}
+
+/// # Safety
+///
+/// `r` must point to a valid [`RemoteCollectReducer`] originally created by
+/// `CollectReducer_CreateRemote`.
+#[unsafe(no_mangle)]
+pub const unsafe extern "C" fn CollectReducer_IsDistinct(r: *const ffi::Reducer) -> bool {
+    // SAFETY: ensured by caller.
+    let r = unsafe { r.cast::<RemoteCollectReducer>().as_ref().unwrap() };
+    r.is_distinct()
 }
 
 /// # Safety

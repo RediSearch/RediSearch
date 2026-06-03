@@ -32,6 +32,8 @@ use rlookup::{RLookup, RLookupKey, RLookupKeyFlag, RLookupRow};
 use value::{SharedValue, Value};
 
 use crate::Reducer;
+use crate::collect::UNDERSCORE_KEY;
+use crate::collect::distinct::encode_values;
 use crate::collect::storage::Storage;
 
 /// Look up `name` in a shard-payload item (`Map` or flat `Array`).
@@ -68,6 +70,20 @@ impl Fields {
     fn sort_key_names(&self) -> &[CString] {
         match self {
             Self::All { sort_key_names } | Self::Specific { sort_key_names, .. } => sort_key_names,
+        }
+    }
+
+    /// Whether `@__key` is among the projected fields, making DISTINCT a no-op
+    /// For [`Fields::All`] the projected set is discovered from
+    /// shard payloads at runtime, so the skip is not resolvable at
+    /// construction — it returns `false` and the (still correct) `DistinctHeap`
+    /// path is used.
+    fn projects_key_field(&self) -> bool {
+        match self {
+            Self::All { .. } => false,
+            Self::Specific { requested, .. } => {
+                requested.iter().any(|n| n.as_c_str() == UNDERSCORE_KEY)
+            }
         }
     }
 
@@ -159,6 +175,7 @@ pub struct LocalCollectReducer<'a> {
     input_key: &'a RLookupKey<'a>,
     fields: Fields,
     limit: Option<(u64, u64)>,
+    distinct: bool,
 }
 
 const _: () = assert!(core::mem::offset_of!(LocalCollectReducer<'_>, reducer) == 0);
@@ -185,6 +202,7 @@ impl<'a> LocalCollectReducer<'a> {
         sort_key_names: Box<[CString]>,
         sort_asc_map: u64,
         limit: Option<(u64, u64)>,
+        distinct: bool,
     ) -> Self {
         let fields = match requested {
             Some(requested) => Fields::Specific {
@@ -200,6 +218,7 @@ impl<'a> LocalCollectReducer<'a> {
             input_key,
             fields,
             limit,
+            distinct,
         }
     }
 
@@ -215,17 +234,25 @@ impl<'a> LocalCollectReducer<'a> {
     pub const fn is_load_all(&self) -> bool {
         matches!(self.fields, Fields::All { .. })
     }
+
+    /// Exposed via `CollectReducer_IsLocalDistinct` for C++ parser tests.
+    pub const fn is_distinct(&self) -> bool {
+        self.distinct
+    }
 }
 
 impl LocalCollectCtx {
     pub fn new(r: &LocalCollectReducer) -> Self {
+        let sortby = !r.fields.sort_key_names().is_empty();
+        let distinct = r.distinct && sortby && !r.fields.projects_key_field();
+        let storage = if distinct {
+            Storage::new_distinct(r.limit, r.sort_asc_map)
+        } else {
+            Storage::new(sortby, r.limit, r.sort_asc_map)
+        };
         Self {
             lookup: RLookup::new(),
-            storage: Storage::new(
-                !r.fields.sort_key_names().is_empty(),
-                r.limit,
-                r.sort_asc_map,
-            ),
+            storage,
         }
     }
 
@@ -248,10 +275,15 @@ impl LocalCollectCtx {
                 );
                 continue;
             }
-            self.storage.insert_entry(
+            self.storage.insert_entry_with_dedup(
                 || snapshot_sort_keys(r.fields.sort_key_names(), item),
                 (),
                 || r.fields.prepare_row(item, &mut self.lookup),
+                // DISTINCT dedup identity (§5.1.1): the whole prepared row. The
+                // coordinator's prepared row holds exactly the projected fields
+                // — `Specific` writes only `requested`, and `All` receives the
+                // shard's projection, which appends no sort columns.
+                |row| encode_values(row.dyn_values()),
             );
         }
     }

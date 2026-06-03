@@ -31,6 +31,7 @@ fn local_collect_projects_remote_maps_and_omits_missing_fields() {
         Box::new([]),
         0,
         None,
+        false,
     );
     let mut ctx = LocalCollectCtx::new(&reducer);
 
@@ -68,6 +69,7 @@ fn local_collect_accepts_resp2_flat_array_payloads() {
         Box::new([]),
         0,
         None,
+        false,
     );
     let mut ctx = LocalCollectCtx::new(&reducer);
 
@@ -123,6 +125,7 @@ fn local_array_limit_concatenates_then_caps() {
         Box::new([]),
         0,
         Some((0, 3)),
+        false,
     );
     let mut ctx = LocalCollectCtx::new(&r);
 
@@ -146,6 +149,82 @@ fn local_array_limit_concatenates_then_caps() {
 }
 
 #[test]
+fn local_distinct_keeps_best_sort_key_across_payloads() {
+    // Coordinator-side DISTINCT: each shard sends one `cat=a` rep (string score,
+    // as over the wire). The local reducer must dedup on `cat` keeping the best
+    // (highest, DESC) score, and drain best→worst.
+    let input = make_key(c"__shard_payload", 0);
+    let r = LocalCollectReducer::new(
+        &input,
+        Some(Box::new([CString::new("cat").unwrap()])), // FIELDS @cat
+        Box::new([CString::new("score").unwrap()]),     // SORTBY @score
+        0,                                              // DESC (bit 0 clear)
+        None,
+        true,
+    );
+    let mut ctx = LocalCollectCtx::new(&r);
+
+    for (cat, score) in [("a", "1"), ("a", "5"), ("b", "3")] {
+        let entry =
+            shard_map_entry(&[(b"cat", string_value(cat)), (b"score", string_value(score))]);
+        let row = local_row_with_payload(&input, vec![entry]);
+        ctx.add(&r, &row);
+    }
+
+    let out = ctx.finalize(&r);
+    let cats: Vec<Vec<u8>> = array_entries(&out)
+        .iter()
+        .map(|row| {
+            map_entries(row)
+                .get(b"cat")
+                .and_then(|v| v.as_str_bytes())
+                .unwrap()
+                .to_vec()
+        })
+        .collect();
+    // Dedup `a` to its best score (5), ordered DESC: a(5) before b(3).
+    assert_eq!(cats, vec![b"a".to_vec(), b"b".to_vec()]);
+}
+
+#[test]
+fn local_distinct_keeps_best_sort_key_numeric_scores() {
+    // Same as above but scores arrive as NUMBERS (as RESP3 doubles do over the
+    // wire from shards). `a`'s best (5) arrives before its worse rep (1).
+    let input = make_key(c"__shard_payload", 0);
+    let r = LocalCollectReducer::new(
+        &input,
+        Some(Box::new([CString::new("cat").unwrap()])),
+        Box::new([CString::new("score").unwrap()]),
+        0, // DESC
+        None,
+        true,
+    );
+    let mut ctx = LocalCollectCtx::new(&r);
+
+    for (cat, score) in [("a", 5.0), ("a", 1.0), ("b", 3.0)] {
+        let entry = shard_map_entry(&[
+            (b"cat", string_value(cat)),
+            (b"score", SharedValue::new_num(score)),
+        ]);
+        let row = local_row_with_payload(&input, vec![entry]);
+        ctx.add(&r, &row);
+    }
+
+    let out = ctx.finalize(&r);
+    let cats: Vec<Vec<u8>> = array_entries(&out)
+        .iter()
+        .map(|row| {
+            map_entries(row)
+                .get(b"cat")
+                .and_then(|v| v.as_str_bytes())
+                .unwrap()
+                .to_vec()
+        })
+        .collect();
+    assert_eq!(cats, vec![b"a".to_vec(), b"b".to_vec()]);
+}
+
+#[test]
 fn local_lookup_in_entry_handles_resp2_flat_array() {
     // RESP2 serialises remote rows as flat `[k, v, k, v, …]` arrays.
     let input = make_key(c"__shard_payload", 0);
@@ -160,6 +239,7 @@ fn local_lookup_in_entry_handles_resp2_flat_array() {
         Box::new([]),
         0,
         Some((0, 3)),
+        false,
     );
     let mut ctx = LocalCollectCtx::new(&r);
 
@@ -206,7 +286,7 @@ impl LocalCollectFixture {
     }
 
     fn load_all_reducer(&self) -> LocalCollectReducer<'_> {
-        LocalCollectReducer::new(&self.input_key, None, Box::new([]), 0, None)
+        LocalCollectReducer::new(&self.input_key, None, Box::new([]), 0, None, false)
     }
 
     fn outer_row(&self, payload: SharedValue) -> RLookupRow<'_> {

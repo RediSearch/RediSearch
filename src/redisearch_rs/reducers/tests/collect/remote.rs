@@ -69,6 +69,7 @@ fn remote_finalize_dedupes_overlapping_field_and_sort_key() {
         0,
         None,
         true, // is_internal
+        false,
     );
     let mut ctx = RemoteCollectCtx::new(&reducer);
     let row = fixture.row("apple", 10.0);
@@ -102,6 +103,7 @@ fn remote_collect_uses_raw_doc_id_to_break_equal_sortby_values() {
         Box::new([&fixture.sweetness_key]),
         0b1,
         Some((0, 2)),
+        false,
         false,
     );
     let mut ctx = RemoteCollectCtx::new(&reducer);
@@ -171,6 +173,7 @@ fn remote_external_omits_keys_missing_on_row() {
         0,
         Some((0, 100)),
         false,
+        false,
     );
     let mut ctx = RemoteCollectCtx::new(&reducer);
 
@@ -216,6 +219,7 @@ fn remote_load_all_emits_all_lookup_keys_present_on_row() {
         Box::new([]),
         0,
         Some((0, 100)),
+        false,
         false,
     );
     let mut ctx = RemoteCollectCtx::new(&reducer);
@@ -263,6 +267,7 @@ fn remote_load_all_omits_keys_missing_on_row() {
         0,
         Some((0, 100)),
         false,
+        false,
     );
     let mut ctx = RemoteCollectCtx::new(&reducer);
 
@@ -306,6 +311,7 @@ fn remote_load_all_skips_hidden_keys_even_when_row_has_value() {
         Box::new([]),
         0,
         Some((0, 100)),
+        false,
         false,
     );
     let mut ctx = RemoteCollectCtx::new(&reducer);

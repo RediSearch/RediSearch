@@ -23,7 +23,19 @@ use rlookup::{RLookup, RLookupKey, RLookupKeyFlag, RLookupRow};
 use value::SharedValue;
 
 use crate::Reducer;
+use crate::collect::UNDERSCORE_KEY;
+use crate::collect::distinct::encode_value_refs;
 use crate::collect::storage::Storage;
+
+/// Whether `key` projects the document key (`@__key`), comparing the resolved
+/// path (falling back to the name) like the C `RLookupKey_GetPath` check.
+fn is_key_field(key: &RLookupKey<'_>) -> bool {
+    let path = key
+        .path()
+        .as_ref()
+        .map_or_else(|| key.name().as_ref(), |p| p.as_ref());
+    path == UNDERSCORE_KEY
+}
 
 /// Field-selection state: `FIELDS *` vs explicit list.
 ///
@@ -67,6 +79,33 @@ impl<'a> Fields<'a> {
         }
     }
 
+    /// Keys forming the DISTINCT dedup identity: the **projected fields only**,
+    /// excluding the SORTBY keys that [`Fields::Specific`] appends to each row
+    /// for the coordinator's re-sort.
+    /// For [`Fields::All`] the projection *is* the non-hidden lookup, so this
+    /// matches [`Fields::get_keys_add`].
+    fn dedup_keys(&self) -> impl Iterator<Item = &'a RLookupKey<'a>> + '_ {
+        match self {
+            Self::All { src_lookup, .. } => Either::Left(
+                src_lookup
+                    .iter()
+                    .filter(|k| !k.flags.contains(RLookupKeyFlag::Hidden)),
+            ),
+            Self::Specific { field_keys, .. } => Either::Right(field_keys.iter().copied()),
+        }
+    }
+
+    /// Whether `@__key` is among the projected fields, which makes DISTINCT a
+    /// no-op. Scans the same keys [`Fields::dedup_keys`] uses.
+    fn projects_key_field(&self) -> bool {
+        match self {
+            Self::All { src_lookup, .. } => src_lookup
+                .iter()
+                .any(|k| !k.flags.contains(RLookupKeyFlag::Hidden) && is_key_field(k)),
+            Self::Specific { field_keys, .. } => field_keys.iter().any(|k| is_key_field(k)),
+        }
+    }
+
     /// Key→name template for [`RemoteCollectCtx::finalize`].
     ///
     /// `include_sort_extras` extends the [`Fields::Specific`] projection
@@ -107,6 +146,7 @@ pub struct RemoteCollectReducer<'a> {
     fields: Fields<'a>,
     limit: Option<(u64, u64)>,
     is_internal: bool,
+    distinct: bool,
 }
 
 const _: () = assert!(core::mem::offset_of!(RemoteCollectReducer<'_>, reducer) == 0);
@@ -132,6 +172,7 @@ impl<'a> RemoteCollectReducer<'a> {
         sort_asc_map: u64,
         limit: Option<(u64, u64)>,
         is_internal: bool,
+        distinct: bool,
     ) -> Self {
         // `distributeCollect` rewrites the shard wire's LIMIT to
         // `(0, offset+count)`, so an internal shard never sees a non-zero
@@ -155,6 +196,7 @@ impl<'a> RemoteCollectReducer<'a> {
             fields,
             limit,
             is_internal,
+            distinct,
         }
     }
 
@@ -177,6 +219,10 @@ impl<'a> RemoteCollectReducer<'a> {
 
     pub const fn is_load_all(&self) -> bool {
         matches!(self.fields, Fields::All { .. })
+    }
+
+    pub const fn is_distinct(&self) -> bool {
+        self.distinct
     }
 
     pub const fn sort_keys_len(&self) -> usize {
@@ -226,9 +272,17 @@ fn dedup_by_dstidx<'a>(
 
 impl RemoteCollectCtx {
     pub fn new(r: &RemoteCollectReducer<'_>) -> Self {
-        Self {
-            storage: Storage::new(!r.fields.sort_keys().is_empty(), r.limit, r.sort_asc_map),
-        }
+        let sortby = !r.fields.sort_keys().is_empty();
+        // The `@__key`: DISTINCT needs SORTBY, and when the document key is
+        // projected every tuple is unique, so dedup is a no-op and we keep the
+        // cheaper plain `Heap`.
+        let distinct = r.distinct && sortby && !r.fields.projects_key_field();
+        let storage = if distinct {
+            Storage::new_distinct(r.limit, r.sort_asc_map)
+        } else {
+            Storage::new(sortby, r.limit, r.sort_asc_map)
+        };
+        Self { storage }
     }
 
     /// Project the source row's field values into a stored [`RLookupRow`]
@@ -259,7 +313,16 @@ impl RemoteCollectCtx {
             }
             dst
         };
-        self.storage.insert_entry(sort_vals, doc_id, project);
+        // DISTINCT dedup identity: the projected fields only.
+        let dedup_from_row = |projected: &RLookupRow<'static>| {
+            encode_value_refs(
+                r.fields
+                    .dedup_keys()
+                    .map(|k| projected.get(k).map(|v| &**v)),
+            )
+        };
+        self.storage
+            .insert_entry_with_dedup(sort_vals, doc_id, project, dedup_from_row);
     }
 
     /// Serialize the buffered rows into an array of maps. Keys absent from a
