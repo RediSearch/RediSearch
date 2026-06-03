@@ -2,6 +2,8 @@ from RLTest import Env
 from includes import *
 from common import *
 import numpy as np
+import threading
+import time
 
 # MOD-15110 — coverage for the search-_max-foreground-timeout-limit
 # (_MAX_FOREGROUND_TIMEOUT_LIMIT) invariant. The knob is enforced only while
@@ -240,3 +242,61 @@ def test_cursor_read_caps_after_limit_tightened():
     env.assertContains(CAP_WARNING, _get_warnings(results_map),
                        message=f"FT.CURSOR READ expected MAX_TIMEOUT_CAPPED warning after "
                                f"limit tightened, got: {res}")
+
+
+# ---------------------------- Coordinator cursor timer cap -----------------------
+#
+# In cluster mode under ON_TIMEOUT FAIL/RETURN_STRICT, CursorCommand arms the
+# blocked-client timer from the cursor's cached queryTimeoutMS *before*
+# dispatching to runCursor on the shards. The coord must re-apply the
+# foreground cap so the timer fires at the capped budget when shards are
+# unreachable; otherwise the coord would wait for the original (uncapped)
+# WITHCURSOR TIMEOUT.
+
+def test_cursor_read_coord_timer_capped_after_limit_tightened():
+    skipTest(cluster=False)
+    env = Env(protocol=3, moduleArgs='WORKERS 0 TIMEOUT 60000 _MAX_FOREGROUND_TIMEOUT_LIMIT 0')
+    _setup_hybrid_index(env)
+    run_command_on_all_shards(env, 'CONFIG', 'SET', 'search-on-timeout', 'fail')
+    # Open a cursor while the cap is disabled — cursor caches queryTimeoutMS=60000.
+    res = env.cmd('FT.AGGREGATE', 'idx', '*', 'LOAD', '1', '@t',
+                  'TIMEOUT', '60000', 'WITHCURSOR', 'COUNT', '1')
+    cursor_id = res[1]
+    # Tighten the cap below the cursor's cached TIMEOUT.
+    env.expect('CONFIG', 'SET', 'search-_max-foreground-timeout-limit', '500').ok()
+    # Pause the coord threadpool so the cursor-read job cannot be picked up;
+    # the blocked-client timer is then the only unblock path.
+    env.expect(debug_cmd(), 'COORD_THREADS', 'PAUSE').ok()
+    wait_for_condition(
+        lambda: (env.cmd(debug_cmd(), 'COORD_THREADS', 'is_paused') == 1, {}),
+        'Timeout while waiting for coordinator threads to pause', timeout=30)
+    try:
+        outcome = {}
+        def run_read():
+            try:
+                outcome['reply'] = env.cmd('FT.CURSOR', 'READ', 'idx', str(cursor_id))
+            except Exception as e:
+                outcome['error'] = str(e)
+        t = threading.Thread(target=run_read, daemon=True)
+        start = time.monotonic()
+        t.start()
+        # The capped timer should fire in ~500ms; allow generous slack but
+        # well under the 60000ms uncapped budget.
+        t.join(timeout=10)
+        elapsed = time.monotonic() - start
+        env.assertFalse(t.is_alive(),
+                        message=f"FT.CURSOR READ did not return within 10s (elapsed={elapsed:.2f}s); "
+                                f"coord timer was not capped")
+        env.assertLess(elapsed, 5.0,
+                       message=f"FT.CURSOR READ took {elapsed:.2f}s; coord timer should have "
+                               f"fired near the 500ms cap, not the 60s cursor TIMEOUT")
+        # FAIL policy surfaces the timeout as a Redis error from the BC timeout callback.
+        env.assertIn('error', outcome,
+                     message=f"Expected timeout error from FT.CURSOR READ, got reply: {outcome}")
+        env.assertContains('Timeout', outcome['error'],
+                           message=f"Expected timeout error from FT.CURSOR READ, got: {outcome['error']}")
+    finally:
+        env.expect(debug_cmd(), 'COORD_THREADS', 'RESUME').ok()
+        wait_for_condition(
+            lambda: (env.cmd(debug_cmd(), 'COORD_THREADS', 'is_paused') == 0, {}),
+            'Timeout while waiting for coordinator threads to resume', timeout=30)

@@ -3956,11 +3956,20 @@ static inline int CursorCommand(RedisModuleCtx *ctx, RedisModuleString **argv, i
       // _FT.HYBRID WITHCURSOR is read via _FT.CURSOR READ, bypassing CursorCommand.
       RS_ASSERT(!info.isHybrid);
 #endif
+      // Apply the foreground cap to the blocked-client timer budget. The cursor
+      // cached its queryTimeoutMS at WITHCURSOR time; tightening
+      // search-_max-foreground-timeout-limit (or disabling workers) between
+      // cursor open and this READ must shrink both the execution deadline
+      // (capped in runCursor) and the coordinator-side timer here.
+      long long capped = info.queryTimeoutMS > (size_t)LLONG_MAX
+                           ? LLONG_MAX
+                           : (long long)info.queryTimeoutMS;
+      RSConfig_CapQueryTimeoutToForegroundLimit(&capped);
       CoordRequestCtx *reqCtx = CoordRequestCtx_New(COMMAND_AGGREGATE);
       handlerCtx.bcCtx.privdata = reqCtx;
       handlerCtx.bcCtx.free_privdata = DistCoordReqFreePrivData;
       handlerCtx.bcCtx.reply_callback = DistAggregateReplyCallback;
-      handlerCtx.bcCtx.timeoutMS = info.queryTimeoutMS;
+      handlerCtx.bcCtx.timeoutMS = (size_t)capped;
       CoordRequestCtx_SetUseReplyCallback(reqCtx, true);
       if (info.queryTimeoutPolicy == TimeoutPolicy_Fail) {
         handlerCtx.bcCtx.timeout_callback = DistAggregateTimeoutFailClient;
