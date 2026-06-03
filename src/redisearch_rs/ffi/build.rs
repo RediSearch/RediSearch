@@ -321,6 +321,12 @@ const HEADERS: &[HeaderAllowlist] = &[
         types: &[],
         vars: &[],
     },
+    HeaderAllowlist {
+        path: "src/search_disk.h",
+        fns: &["SearchDisk_GetMaxDocId"],
+        types: &[],
+        vars: &[],
+    },
     // RSE: the entire disk API struct family lives in this header and is
     // consumed by `redisearch_disk` to bridge from C into the Rust storage
     // layer. None of these symbols are referenced by RediSearch itself.

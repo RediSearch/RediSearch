@@ -994,13 +994,6 @@ static QueryIterator *Query_EvalNotNode(QueryEvalCtx *q, QueryNode *qn) {
                         q->bcTimeoutAreq, q);
 }
 
-static QueryIterator *Query_EvalOptionalNode(QueryEvalCtx *q, QueryNode *qn) {
-  RS_LOG_ASSERT(qn->type == QN_OPTIONAL, "query node type should be optional");
-  RS_LOG_ASSERT(QueryNode_NumChildren(qn) == 1, "Optional node must have a single child");
-  t_docId maxDocId = q->sctx->spec->diskSpec ? SearchDisk_GetMaxDocId(q->sctx->spec->diskSpec) : q->docTable->maxDocId;
-  return NewOptionalIterator(Query_EvalNode_Rs(q, qn->children[0]), q, maxDocId, qn->opts.weight);
-}
-
 static QueryIterator *Query_EvalNumericNode(QueryEvalCtx *q, QueryNode *node) {
   RS_LOG_ASSERT(node->type == QN_NUMERIC, "query node type should be numeric")
 
@@ -1474,6 +1467,7 @@ QueryIterator *Query_EvalNode(QueryEvalCtx *q, QueryNode *n) {
     case QN_WILDCARD:
     case QN_NULL:
     case QN_MISSING:
+    case QN_OPTIONAL:
       // These node types have been ported to Rust.
       return Query_EvalNode_Rs(q, n);
     case QN_TOKEN:
@@ -1494,8 +1488,6 @@ QueryIterator *Query_EvalNode(QueryEvalCtx *q, QueryNode *n) {
       return Query_EvalFuzzyNode(q, n);
     case QN_NUMERIC:
       return Query_EvalNumericNode(q, n);
-    case QN_OPTIONAL:
-      return Query_EvalOptionalNode(q, n);
     case QN_GEO:
       return Query_EvalGeofilterNode(q, n, n->opts.weight);
     case QN_VECTOR:

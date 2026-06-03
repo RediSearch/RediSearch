@@ -13,6 +13,7 @@ use std::ptr::NonNull;
 
 use query_flags::QEFlags;
 use rlookup::MetricRequest;
+use rqe_core::DocId;
 use rqe_iterators::IteratorsConfig;
 
 /// Safe wrapper around [`ffi::QueryEvalCtx`].
@@ -139,6 +140,22 @@ impl QueryEvalContext {
     pub fn doc_table(&self) -> &ffi::DocTable {
         // SAFETY: invariant (2) of `new`.
         unsafe { &*self.as_ref().docTable }
+    }
+
+    /// The highest document ID currently assigned in the index.
+    ///
+    /// In search-on-disk mode (`spec.diskSpec` non-null) the value comes from
+    /// the disk index; otherwise it is read from the in-memory
+    /// [`DocTable`](ffi::DocTable).
+    pub fn max_doc_id(&self) -> DocId {
+        let disk_spec = self.spec().diskSpec;
+        if disk_spec.is_null() {
+            self.doc_table().maxDocId
+        } else {
+            // SAFETY: `disk_spec` is non-null (checked above) and, per invariant
+            // (1)/(2) of `new`, a valid `RedisSearchDiskIndexSpec`.
+            unsafe { ffi::SearchDisk_GetMaxDocId(disk_spec) }
+        }
     }
 
     /// Request-type flags ([`QEFlags`] bitmask).
