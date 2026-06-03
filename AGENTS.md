@@ -256,10 +256,10 @@ on an unrelated branch, or already tied to another open PR, automatically create
 worktree and do the work there. Use the existing checkout only when it is already the right clean
 branch for the task.
 
-Always use `-b` when creating a worktree — git forbids two worktrees on the same branch, so checking out `master` directly will fail when master is already the main checkout. Prefix the branch with your handle (e.g. `alice-`, `bob-`) to avoid collisions on the shared remote:
+Always use `-b` when creating a worktree — git forbids two worktrees on the same branch, so checking out `master` directly will fail when master is already the main checkout. Prefix the branch with your handle (e.g. `alice-`, `bob-`) to avoid collisions on the shared remote. Pass `--no-track` so the new branch does not inherit `origin/master` as its upstream — otherwise a later `git push --force` without an explicit target can try to force-push the feature branch onto master:
 
 ```bash
-git worktree add -b <your-handle>-<feature> .claude/worktrees/<your-handle>-<feature> origin/master
+git worktree add --no-track -b <your-handle>-<feature> .claude/worktrees/<your-handle>-<feature> origin/master
 ```
 
 To remove a worktree, use `git worktree remove --force <path>` (plain `remove` fails on initialized submodules).
