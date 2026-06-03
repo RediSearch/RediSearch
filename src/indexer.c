@@ -229,6 +229,18 @@ static void doAssignIds(RSAddDocumentCtx *cur, RedisSearchCtx *ctx) {
         updated = docId != 0; // If docId is 0, the document was not added
       }
 
+      // Vector indexes are cleaned explicitly and not managed by the disk layer or GC,
+      // so they must be updated explicitly when a document is replaced.
+      if (oldDocId != 0 && (spec->flags & Index_HasVecSim)) {
+        for (int i = 0; i < spec->numFields; ++i) {
+          if (spec->fields[i].types == INDEXFLD_T_VECTOR) {
+            VecSimIndex *vecsim = openVectorIndex(ctx->redisCtx, &spec->fields[i], DONT_CREATE_INDEX);
+            if (!vecsim) continue;
+            VecSimIndex_DeleteVector(vecsim, oldDocId);
+          }
+        }
+      }
+
       if (!failure) {
         cur->doc->docId = docId;
         // Store docId in key metadata for fast lookup
