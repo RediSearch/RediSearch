@@ -17,9 +17,7 @@
 
 // Suffix_ChooseToken (char) and Suffix_ChooseToken_rune (rune) pick the literal
 // token of a wildcard "contains" pattern used to narrow the suffix-trie scan.
-// The two must agree on which token they choose; the rune variant once
-// decremented the shared `score` accumulator on every '?', underflowing it from
-// INT32_MIN to INT32_MAX so that no token was ever selected.
+// The two must agree on which token they choose.
 
 class SuffixChooseTokenTest : public ::testing::Test {};
 
@@ -55,7 +53,7 @@ static int chooseTokenChar(const char *pattern) {
 }
 
 // A '?' in the first qualifying (len >= MIN_SUFFIX) token must not prevent a
-// token from being chosen. Before the fix the rune scorer returned
+// token from being chosen. Before the fix (MOD-16054) the rune scorer returned
 // REDISEARCH_UNINITIALIZED here, forcing a full-trie brute-force fallback.
 TEST_F(SuffixChooseTokenTest, questionMarkInFirstTokenStillSelects) {
   // Each case asserts the chosen token's ordinal (which token in the split) and
