@@ -108,11 +108,11 @@ impl RQEIterator<'static> for FieldMaskMock {
     }
 }
 
-use ffi::t_docId;
+use rqe_core::DocId;
 use std::collections::BTreeSet;
 
 /// Drain all documents from an iterator and return their doc_ids.
-pub(crate) fn drain_doc_ids<'index, I: RQEIterator<'index>>(it: &mut I) -> Vec<t_docId> {
+pub(crate) fn drain_doc_ids<'index, I: RQEIterator<'index>>(it: &mut I) -> Vec<DocId> {
     let mut docs = Vec::new();
     while let Some(r) = it.read().unwrap() {
         docs.push(r.doc_id);
@@ -123,7 +123,7 @@ pub(crate) fn drain_doc_ids<'index, I: RQEIterator<'index>>(it: &mut I) -> Vec<t
 /// Create a single [`Mock`] child and return it as a boxed trait object
 /// together with a handle to its [`MockData`].
 pub(crate) fn create_mock_1<const N: usize>(
-    doc_ids: [t_docId; N],
+    doc_ids: [DocId; N],
 ) -> (Box<dyn RQEIterator<'static>>, MockData) {
     let mock = Mock::new(doc_ids);
     let data = mock.data();
@@ -133,8 +133,8 @@ pub(crate) fn create_mock_1<const N: usize>(
 /// Create two [`Mock`] children and return them as a `Vec` of boxed trait
 /// objects together with a two-element array of [`MockData`] handles.
 pub(crate) fn create_mock_2<const A: usize, const B: usize>(
-    a: [t_docId; A],
-    b: [t_docId; B],
+    a: [DocId; A],
+    b: [DocId; B],
 ) -> (Vec<Box<dyn RQEIterator<'static>>>, [MockData; 2]) {
     let m1 = Mock::new(a);
     let m2 = Mock::new(b);
@@ -146,9 +146,9 @@ pub(crate) fn create_mock_2<const A: usize, const B: usize>(
 /// Create three [`Mock`] children and return them as a `Vec` of boxed trait
 /// objects together with a three-element array of [`MockData`] handles.
 pub(crate) fn create_mock_3<const A: usize, const B: usize, const C: usize>(
-    a: [t_docId; A],
-    b: [t_docId; B],
-    c: [t_docId; C],
+    a: [DocId; A],
+    b: [DocId; B],
+    c: [DocId; C],
 ) -> (Vec<Box<dyn RQEIterator<'static>>>, [MockData; 3]) {
     let m1 = Mock::new(a);
     let m2 = Mock::new(b);
@@ -166,11 +166,11 @@ pub(crate) fn create_mock_3<const A: usize, const B: usize, const C: usize>(
 pub(crate) fn create_union_children(
     num_children: usize,
     base_result_set: &[u64],
-) -> (Vec<Box<dyn RQEIterator<'static>>>, Vec<t_docId>) {
+) -> (Vec<Box<dyn RQEIterator<'static>>>, Vec<DocId>) {
     let mut expected = BTreeSet::new();
     let children: Vec<Box<dyn RQEIterator<'static>>> = (1..=num_children)
         .map(|i| {
-            let doc_ids: Vec<t_docId> = base_result_set.iter().map(|&x| x * i as u64).collect();
+            let doc_ids: Vec<DocId> = base_result_set.iter().map(|&x| x * i as u64).collect();
             expected.extend(doc_ids.iter().copied());
             MockVec::new_boxed(doc_ids)
         })

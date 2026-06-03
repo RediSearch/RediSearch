@@ -11,8 +11,8 @@
 //!
 //! [`TopKIterator`]: crate::TopKIterator
 
-use ffi::t_docId;
 use index_result::RSIndexResult;
+use rqe_core::DocId;
 use rqe_iterator_type::IteratorType;
 use rqe_iterators::RQEIteratorError;
 
@@ -27,12 +27,12 @@ pub trait ScoreBatch {
     /// Advance to the next `(doc_id, score)` pair.
     ///
     /// Returns `None` when the batch is exhausted.
-    fn next(&mut self) -> Option<(t_docId, f64)>;
+    fn next(&mut self) -> Option<(DocId, f64)>;
 
     /// Skip forward to the first pair whose `doc_id >= target`.
     ///
     /// Returns `None` if no such pair exists in this batch.
-    fn skip_to(&mut self, target: t_docId) -> Option<(t_docId, f64)>;
+    fn skip_to(&mut self, target: DocId) -> Option<(DocId, f64)>;
 }
 
 /// Decision returned by [`ScoreSource::collection_strategy`] after each batch,
@@ -105,7 +105,7 @@ pub trait ScoreSource {
     /// valid. For `'static` sources, `'r` is unconstrained.
     ///
     /// [`TopKIterator`]: crate::TopKIterator
-    fn build_result<'r>(&self, doc_id: t_docId, score: f64) -> RSIndexResult<'r>
+    fn build_result<'r>(&self, doc_id: DocId, score: f64) -> RSIndexResult<'r>
     where
         Self: 'r;
 

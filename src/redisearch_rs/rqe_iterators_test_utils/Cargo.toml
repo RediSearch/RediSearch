@@ -14,6 +14,7 @@ workspace = true
 
 [dependencies]
 ffi.workspace = true
+rqe_core.workspace = true
 field.workspace = true
 index_result.workspace = true
 index_spec.workspace = true

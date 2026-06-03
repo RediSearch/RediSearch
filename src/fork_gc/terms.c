@@ -64,7 +64,7 @@ FGCError FGC_parentHandleTerms(ForkGC *gc) {
     return FGC_CHILD_ERROR;
   }
 
-  if (term == RECV_BUFFER_EMPTY) {
+  if (len == NO_MORE_DATA) {
     return FGC_DONE;
   }
 

@@ -368,7 +368,7 @@ impl TimeToLiveTable {
     /// 32-bit `field_mask`.
     ///
     /// `ft_id_to_field_index[bit]` translates a bit position in the mask
-    /// into the `t_fieldIndex` recorded in the table; it must contain at
+    /// into the `FieldIndex` recorded in the table; it must contain at
     /// least as many entries as the highest set bit of `field_mask`. The
     /// translation is required to be monotonic, bits scanned low-to-high
     /// must produce non-decreasing field indices.

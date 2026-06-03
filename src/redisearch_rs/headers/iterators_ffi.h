@@ -26,15 +26,15 @@ typedef struct AREQ AREQ;
 
 
 /**
- * Filter details to apply to numeric values
- */
-typedef struct NumericFilter NumericFilter;
-
-/**
  * Smart pointer handle for [`RLookupKey`] that can be
  * invalidated when the iterator that owns the key is freed.
  */
 typedef struct RLookupKeyHandle RLookupKeyHandle;
+
+/**
+ * Filter details to apply to numeric values
+ */
+typedef struct NumericFilter NumericFilter;
 
 /**
  * Builder for Redis maps.
@@ -126,7 +126,7 @@ QueryIterator *NewWildcardIterator_NonOptimized(t_docId max_id, double weight);
  *
  * # Safety
  *
- * 1. `ids` must be a valid pointer to an array of `t_docId` with at least `num` elements.
+ * 1. `ids` must be a valid pointer to an array of `DocId` with at least `num` elements.
  *    The array must be sorted in ascending order.
  * 2. The caller must ensure that `ids` is not null unless `num` is zero.
  * 3. The memory pointed to by `ids` will be freed using `RedisModule_Free`,
@@ -154,7 +154,7 @@ QueryIterator *IntoProfiled(QueryIterator *iter);
  *
  * # Safety
  *
- * 1. `ids` must be a valid pointer to an array of `t_docId` with at least `num` elements.
+ * 1. `ids` must be a valid pointer to an array of `DocId` with at least `num` elements.
  *    The array must be sorted in ascending order.
  * 2. `metric_list` must be a valid pointer to an array of `f64` with at least `num` elements.
  * 3. The caller must ensure that `ids` and `metric_list` are not null unless `num` is zero.
@@ -221,11 +221,39 @@ void Hybrid_PrintProfile(const QueryIterator *self_, struct MapBuilder *map, str
 QueryIterator *NewGeoRangeIterator(const RedisSearchCtx *ctx, GeoFilter *gf, const struct IteratorsConfig *config);
 
 /**
+ * Creates a new missing-field inverted index iterator.
+ *
+ * # Parameters
+ *
+ * * `idx` - Pointer to the missing-field inverted index (DocIdsOnly or RawDocIdsOnly encoded).
+ * * `sctx` - Pointer to the Redis search context.
+ * * `field_index` - The index of the field in `spec.fields` whose missing documents are tracked.
+ *
+ * # Returns
+ *
+ * A pointer to a `QueryIterator` that can be used from C code.
+ *
+ * # Safety
+ *
+ * The following invariants must be upheld when calling this function:
+ *
+ * 1. `idx` must be a valid pointer to an `InvertedIndex` and cannot be NULL.
+ * 2. `idx` must remain valid between `revalidate()` calls, since the revalidation
+ *    mechanism detects when the index has been replaced via `spec.missingFieldDict`
+ *    lookup.
+ * 3. `sctx` must be a valid pointer to a `RedisSearchCtx` and cannot be NULL.
+ * 4. `sctx` and `sctx.spec` must remain valid for the lifetime of the returned iterator.
+ * 5. `field_index` must be a valid index into `sctx.spec.fields`.
+ * 6. `sctx.spec.missingFieldDict` must be a non-null, valid dict pointer.
+ */
+QueryIterator *NewInvIndIterator_MissingQuery(const InvertedIndex *idx, const RedisSearchCtx *sctx, t_fieldIndex field_index);
+
+/**
  * Creates a new iterator over a list of unsorted document IDs.
  *
  * # Safety
  *
- * 1. `ids` must be a valid pointer to an array of `t_docId` with at least `num` elements.
+ * 1. `ids` must be a valid pointer to an array of `DocId` with at least `num` elements.
  * 2. The caller must ensure that `ids` is not null unless `num` is zero.
  * 3. The memory pointed to by `ids` will be freed using `RedisModule_Free`,
  *    so the caller must ensure that the pointer was allocated in a compatible manner.
@@ -252,7 +280,7 @@ void Profile_AddIters(QueryIterator * *root);
  *
  * # Safety
  *
- * 1. `ids` must be a valid pointer to an array of `t_docId` with at least `num` elements.
+ * 1. `ids` must be a valid pointer to an array of `DocId` with at least `num` elements.
  * 2. `metric_list` must be a valid pointer to an array of `f64` with at least `num` elements.
  * 3. The caller must ensure that `ids` and `metric_list` are not null unless `num` is zero.
  * 4. The memory pointed to by `ids` and `metric_list` will be freed using `RedisModule_Free`,
@@ -371,34 +399,6 @@ void GeoShape_PrintProfile(const QueryIterator *self_, struct MapBuilder *map, s
  * 2. `child` must be a valid non-null pointer to a `QueryIterator`, not aliased.
  */
 void AddIntersectionIteratorChild(QueryIterator *header, QueryIterator *child);
-
-/**
- * Creates a new missing-field inverted index iterator.
- *
- * # Parameters
- *
- * * `idx` - Pointer to the missing-field inverted index (DocIdsOnly or RawDocIdsOnly encoded).
- * * `sctx` - Pointer to the Redis search context.
- * * `field_index` - The index of the field in `spec.fields` whose missing documents are tracked.
- *
- * # Returns
- *
- * A pointer to a `QueryIterator` that can be used from C code.
- *
- * # Safety
- *
- * The following invariants must be upheld when calling this function:
- *
- * 1. `idx` must be a valid pointer to an `InvertedIndex` and cannot be NULL.
- * 2. `idx` must remain valid between `revalidate()` calls, since the revalidation
- *    mechanism detects when the index has been replaced via `spec.missingFieldDict`
- *    lookup.
- * 3. `sctx` must be a valid pointer to a `RedisSearchCtx` and cannot be NULL.
- * 4. `sctx` and `sctx.spec` must remain valid for the lifetime of the returned iterator.
- * 5. `field_index` must be a valid index into `sctx.spec.fields`.
- * 6. `sctx.spec.missingFieldDict` must be a non-null, valid dict pointer.
- */
-QueryIterator *NewInvIndIterator_MissingQuery(const InvertedIndex *idx, const RedisSearchCtx *sctx, t_fieldIndex field_index);
 
 /**
  * Get a mutable reference to the [`RLookupKey`] stored inside this metric iterator.

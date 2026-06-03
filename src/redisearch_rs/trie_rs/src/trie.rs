@@ -32,11 +32,7 @@ pub struct TrieMap<Data> {
 
 impl<Data> Default for TrieMap<Data> {
     fn default() -> Self {
-        Self {
-            root: None,
-            n_unique_keys: 0,
-            memory_usage: std::mem::size_of::<Self>(),
-        }
+        Self::new()
     }
 }
 
@@ -47,8 +43,12 @@ impl<Data> TrieMap<Data> {
     ///
     /// No allocation is performed on creation.
     /// Memory is allocated only when the first insertion occurs.
-    pub fn new() -> Self {
-        Default::default()
+    pub const fn new() -> Self {
+        Self {
+            root: None,
+            n_unique_keys: 0,
+            memory_usage: std::mem::size_of::<Self>(),
+        }
     }
 
     /// Insert a key-value pair into the trie.
@@ -107,6 +107,13 @@ impl<Data> TrieMap<Data> {
     /// Returns `None` if there is no entry for the key.
     pub fn find(&self, key: &[u8]) -> Option<&Data> {
         self.root.as_ref().and_then(|n| n.find(key))
+    }
+
+    /// Get a mutable reference to the value associated with a key.
+    ///
+    /// Returns `None` if there is no entry for the key.
+    pub fn find_mut(&mut self, key: &[u8]) -> Option<&mut Data> {
+        self.root.as_mut().and_then(|n| n.find_mut(key))
     }
 
     /// Get a reference to the subtree associated with a key prefix.

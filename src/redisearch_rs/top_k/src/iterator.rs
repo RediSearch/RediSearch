@@ -11,9 +11,9 @@
 
 use std::{cmp::Ordering, num::NonZeroUsize};
 
-use ffi::t_docId;
 use index_result::RSIndexResult;
 use index_spec::IndexSpecReadGuard;
+use rqe_core::DocId;
 use rqe_iterator_type::IteratorType;
 use rqe_iterators::{RQEIterator, RQEIteratorError, RQEValidateStatus, SkipToOutcome};
 
@@ -78,7 +78,7 @@ pub struct TopKIterator<'index, S: ScoreSource> {
     results: Vec<ScoredResult>,
     yield_pos: usize,
     current: Option<RSIndexResult<'index>>,
-    last_doc_id: t_docId,
+    last_doc_id: DocId,
     at_eof: bool,
 }
 
@@ -270,7 +270,7 @@ impl<'index, S: ScoreSource + 'index> RQEIterator<'index> for TopKIterator<'inde
 
     fn skip_to(
         &mut self,
-        _doc_id: t_docId,
+        _doc_id: DocId,
     ) -> Result<Option<SkipToOutcome<'_, 'index>>, RQEIteratorError> {
         // TopKIterator is a root-only iterator that yields results sorted by
         // score, not by doc_id.  It cannot be used as a child in a larger
@@ -312,7 +312,7 @@ impl<'index, S: ScoreSource + 'index> RQEIterator<'index> for TopKIterator<'inde
     }
 
     #[inline(always)]
-    fn last_doc_id(&self) -> t_docId {
+    fn last_doc_id(&self) -> DocId {
         self.last_doc_id
     }
 

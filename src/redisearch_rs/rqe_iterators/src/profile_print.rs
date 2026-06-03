@@ -17,6 +17,10 @@ use std::{borrow::Cow, ffi::CStr};
 
 use redis_reply::MapBuilder;
 
+/// Re-exported for crates that implement [`ProfilePrint`] without directly
+/// depending on `redis_reply`.
+pub use redis_reply::MapBuilder as ProfileMapBuilder;
+
 use crate::profile::ProfileCounters;
 
 /// Trait for iterator types that can print their profile.
@@ -115,6 +119,12 @@ impl ProfilePrintCtx<'_> {
             let mut child_ctx = self.child_ctx();
             child.print_profile(&mut child_map, &mut child_ctx);
         }
+    }
+}
+
+impl<T: ProfilePrint + ?Sized> ProfilePrint for Box<T> {
+    fn print_profile(&self, map: &mut MapBuilder<'_>, ctx: &mut ProfilePrintCtx<'_>) {
+        (**self).print_profile(map, ctx)
     }
 }
 

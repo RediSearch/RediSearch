@@ -9,7 +9,6 @@
 
 //! Supporting types for [`Optional`].
 
-use ffi::{RS_FIELDMASK_ALL, t_docId};
 use index_result::RSIndexResult;
 use std::cmp;
 
@@ -18,6 +17,7 @@ use crate::{
     profile_print::{ProfilePrint, ProfilePrintCtx},
 };
 use index_spec::IndexSpecReadGuard;
+use rqe_core::{DocId, RS_FIELDMASK_ALL};
 
 /// An iterator that emits a sequence of results with no gaps, up to a given document id.
 /// Results are pulled from an underlying [`RQEIterator`] instance. If there is no entry
@@ -27,7 +27,7 @@ pub struct Optional<'index, I> {
     /// Reads from the [`Optional::child`] beyond this bound are ignored.
     /// If the [`Optional::child`] ends before this bound, this [`Optional`] iterator yields virtual
     /// results with no [`Optional::weight`] applied until [`Optional::max_doc_id`] is reached.
-    max_doc_id: t_docId,
+    max_doc_id: DocId,
 
     /// Weight applied to results produced by the inner [`Optional::child`] iterator.
     /// This weight is not applied to virtual results.
@@ -64,7 +64,7 @@ where
     ///   child [`RQEIterator`]. When the child is exhausted, the iterator
     ///   yields virtual [`RSIndexResult`] values without weight until `max_id` is reached.
     /// * `child` [`RQEIterator`] used and wrapped around by this [`Optional`] iterator
-    pub fn new(max_id: t_docId, weight: f64, child: I) -> Self {
+    pub fn new(max_id: DocId, weight: f64, child: I) -> Self {
         Self {
             max_doc_id: max_id,
             weight,
@@ -139,7 +139,7 @@ where
     /// Otherwise, return a virtual hit.
     fn skip_to(
         &mut self,
-        doc_id: t_docId,
+        doc_id: DocId,
     ) -> Result<Option<SkipToOutcome<'_, 'index>>, RQEIteratorError> {
         debug_assert!(doc_id > self.result.doc_id);
 
@@ -217,7 +217,7 @@ where
     }
 
     #[inline(always)]
-    fn last_doc_id(&self) -> t_docId {
+    fn last_doc_id(&self) -> DocId {
         self.result.doc_id
     }
 

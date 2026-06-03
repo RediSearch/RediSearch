@@ -15,9 +15,10 @@ use crate::{
     profile_print::{ProfilePrint, ProfilePrintCtx},
     utils::OwnedSlice,
 };
-use ffi::{RLookupKey, RLookupKeyHandle, t_docId};
+use ffi::{RLookupKey, RLookupKeyHandle};
 use index_result::RSIndexResult;
 use index_spec::IndexSpecReadGuard;
+use rqe_core::DocId;
 
 /// The different types of metrics.
 /// At the moment, only vector distance is supported.
@@ -84,10 +85,7 @@ fn set_result_metrics(result: &mut RSIndexResult, val: f64, key: *mut RLookupKey
 }
 
 impl<'index, const SORTED_BY_ID: bool> Metric<'index, SORTED_BY_ID> {
-    pub fn new(
-        ids: impl Into<OwnedSlice<t_docId>>,
-        metric_data: impl Into<OwnedSlice<f64>>,
-    ) -> Self {
+    pub fn new(ids: impl Into<OwnedSlice<DocId>>, metric_data: impl Into<OwnedSlice<f64>>) -> Self {
         let ids = ids.into();
         let metric_data = metric_data.into();
 
@@ -147,7 +145,7 @@ impl<'index, const SORTED_BY_ID: bool> RQEIterator<'index> for Metric<'index, SO
 
     fn skip_to(
         &mut self,
-        doc_id: t_docId,
+        doc_id: DocId,
     ) -> Result<Option<SkipToOutcome<'_, 'index>>, RQEIteratorError> {
         let Some(found) = self.base._skip_to(doc_id) else {
             return Ok(None);
@@ -178,7 +176,7 @@ impl<'index, const SORTED_BY_ID: bool> RQEIterator<'index> for Metric<'index, SO
     }
 
     #[inline(always)]
-    fn last_doc_id(&self) -> t_docId {
+    fn last_doc_id(&self) -> DocId {
         self.base.last_doc_id()
     }
 

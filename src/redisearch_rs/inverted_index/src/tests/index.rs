@@ -18,10 +18,11 @@ use crate::{
 };
 use ffi::{
     IndexFlags_Index_DocIdsOnly, IndexFlags_Index_HasMultiValue, IndexFlags_Index_StoreFieldFlags,
-    IndexFlags_Index_StoreNumeric, t_docId,
+    IndexFlags_Index_StoreNumeric,
 };
 use index_result::RSIndexResult;
 use pretty_assertions::assert_eq;
+use rqe_core::DocId;
 
 use super::Dummy;
 
@@ -299,7 +300,7 @@ fn adding_ii_blocks_growth_strategy() {
     impl Decoder for SmallBlocksDummy {
         fn decode<'index>(
             _cursor: &mut Cursor<&'index [u8]>,
-            _base: t_docId,
+            _base: DocId,
             _result: &mut RSIndexResult<'index>,
         ) -> std::io::Result<()> {
             unimplemented!("not used by this test")

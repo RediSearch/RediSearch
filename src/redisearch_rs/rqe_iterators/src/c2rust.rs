@@ -11,8 +11,9 @@
 use ffi::{
     IteratorStatus_ITERATOR_EOF, IteratorStatus_ITERATOR_NOTFOUND, IteratorStatus_ITERATOR_OK,
     IteratorStatus_ITERATOR_TIMEOUT, IteratorType, QueryIterator, ValidateStatus_VALIDATE_ABORTED,
-    ValidateStatus_VALIDATE_MOVED, ValidateStatus_VALIDATE_OK, t_docId,
+    ValidateStatus_VALIDATE_MOVED, ValidateStatus_VALIDATE_OK,
 };
+use rqe_core::DocId;
 
 use crate::{
     RQEIterator, RQEIteratorError, RQEValidateStatus, SkipToOutcome, interop::RQEIteratorWrapper,
@@ -210,7 +211,7 @@ impl<'index> RQEIterator<'index> for CRQEIterator {
 
     fn skip_to(
         &mut self,
-        doc_id: t_docId,
+        doc_id: DocId,
     ) -> Result<Option<SkipToOutcome<'_, 'index>>, RQEIteratorError> {
         let callback = self
             .SkipTo
@@ -295,7 +296,7 @@ impl<'index> RQEIterator<'index> for CRQEIterator {
         unsafe { callback(self.header.as_ptr()) }
     }
 
-    fn last_doc_id(&self) -> t_docId {
+    fn last_doc_id(&self) -> DocId {
         self.lastDocId
     }
 
