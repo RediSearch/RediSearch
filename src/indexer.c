@@ -229,8 +229,8 @@ static void doAssignIds(RSAddDocumentCtx *cur, RedisSearchCtx *ctx) {
         updated = docId != 0; // If docId is 0, the document was not added
       }
 
-      // Vector indexes are in-process and not managed by the disk layer, so
-      // they must be updated explicitly when a document is replaced.
+      // Vector indexes are cleaned explicitly and not managed by the disk layer or GC,
+      // so they must be updated explicitly when a document is replaced.
       if (oldDocId != 0 && (spec->flags & Index_HasVecSim)) {
         for (int i = 0; i < spec->numFields; ++i) {
           if (spec->fields[i].types == INDEXFLD_T_VECTOR) {
