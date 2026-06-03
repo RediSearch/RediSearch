@@ -153,6 +153,18 @@ const HEADERS: &[HeaderAllowlist] = &[
         vars: &[],
     },
     HeaderAllowlist {
+        path: "src/geometry/geometry_api.h",
+        fns: &["GeometryApi_Get"],
+        types: &["GeometryApi"],
+        vars: &[],
+    },
+    HeaderAllowlist {
+        path: "src/geometry_index.h",
+        fns: &["OpenGeometryIndex"],
+        types: &["GeometryQuery"],
+        vars: &[],
+    },
+    HeaderAllowlist {
         path: "src/indexes.h",
         fns: &[
             "Indexes_Init",

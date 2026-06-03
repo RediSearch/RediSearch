@@ -838,29 +838,6 @@ bool AREQ_CheckTimedOut(AREQ *areq) {
   return AREQ_TimedOut(areq);
 }
 
-static QueryIterator *Query_EvalGeometryNode(QueryEvalCtx *q, QueryNode *node) {
-  RS_LOG_ASSERT(node->type == QN_GEOMETRY, "query node type should be geometry");
-
-  const FieldSpec *fs = node->gmn.geomq->fs;
-
-  // TODO: open with DONT_CREATE_INDEX once the query string is validated before we get here.
-  // Currently, if  we use DONT_CREATE_INDEX, and the index was not initialized yet, and the query is invalid,
-  // we return results as if the index was empty, instead of raising an error.
-  const GeometryIndex *index = OpenGeometryIndex((FieldSpec *)fs, CREATE_INDEX);
-  const GeometryApi *api = GeometryApi_Get(index);
-  const GeometryQuery *gq = node->gmn.geomq;
-  RedisModuleString *errMsg;
-  FieldFilterContext filterCtx = {.field = {.index_tag = FieldMaskOrIndex_Index, .index = fs->index}, .predicate = FIELD_EXPIRATION_PREDICATE_DEFAULT};
-  QueryIterator *ret = api->query(q->sctx, &filterCtx, index, gq->query_type, gq->format, gq->str, gq->str_len, &errMsg);
-  if (ret == NULL) {
-    QueryError_SetWithUserDataFmt(q->status, QUERY_ERROR_CODE_BAD_VAL, "Error querying geoshape index", ": %s",
-                           RedisModule_StringPtrLen(errMsg, NULL));
-    RedisModule_FreeString(NULL, errMsg);
-  }
-  return ret;
-}
-
-
 static QueryIterator *Query_EvalVectorNode(QueryEvalCtx *q, QueryNode *qn) {
   RS_LOG_ASSERT(qn->type == QN_VECTOR, "query node type should be vector");
 
@@ -1248,6 +1225,7 @@ QueryIterator *Query_EvalNode(QueryEvalCtx *q, QueryNode *n) {
     case QN_NUMERIC:
     case QN_GEO:
     case QN_TOKEN:
+    case QN_GEOMETRY:
       // These node types have been ported to Rust.
       return Query_EvalNode_Rs(q, n);
     case QN_TAG:
@@ -1260,8 +1238,6 @@ QueryIterator *Query_EvalNode(QueryEvalCtx *q, QueryNode *n) {
       return Query_EvalVectorNode(q, n);
     case QN_WILDCARD_QUERY:
       return Query_EvalWildcardQueryNode(q,n);
-    case QN_GEOMETRY:
-      return Query_EvalGeometryNode(q, n);
     case QN_MAX: // LCOV_EXCL_LINE — exhaustive switch: all valid QN types handled above
       RS_ABORT("Invalid query node type"); // LCOV_EXCL_LINE
   }
