@@ -346,6 +346,12 @@ const HEADERS: &[HeaderAllowlist] = &[
         vars: &[],
     },
     HeaderAllowlist {
+        path: "src/search_options.h",
+        fns: &[],
+        types: &["RSSearchFlags"],
+        vars: &[],
+    },
+    HeaderAllowlist {
         path: "src/spec.h",
         fns: &[
             "IndexSpec_AcquireWriteLock",
