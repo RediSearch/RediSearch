@@ -16,7 +16,7 @@
 //! bad-bytes input must contain a single codepoint that already triggers
 //! the problem.
 
-use unicode_align::fold_libnu_raw;
+use unicode_align_test::fold_libnu_raw;
 
 #[test]
 fn sweep_for_invalid_libnu_output() {

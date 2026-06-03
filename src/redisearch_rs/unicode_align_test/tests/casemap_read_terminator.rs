@@ -39,7 +39,7 @@
 
 use std::collections::BTreeMap;
 
-use unicode_align::{CaseMapTable, CasemapWalk, walk_casemap_expansion};
+use unicode_align_test::{CaseMapTable, CasemapWalk, walk_casemap_expansion};
 use rayon::prelude::*;
 
 const CAP: usize = 16;

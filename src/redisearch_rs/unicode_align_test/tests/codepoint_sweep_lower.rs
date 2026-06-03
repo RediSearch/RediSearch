@@ -19,7 +19,7 @@
 //! (Greek final sigma in particular) won't trigger here; that interaction
 //! is left to the random / corpus tests.
 
-use unicode_align::run_corpus_lower;
+use unicode_align_test::run_corpus_lower;
 
 #[test]
 fn sweep_all_codepoints_lower() {

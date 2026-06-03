@@ -7,30 +7,21 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 
-//! Hand-picked strings exercising known libnu vs ICU lowercase divergences.
+//! Hand-picked strings that exercise well-known libnu vs ICU divergences.
 //!
-//! Sister to `single_strings` (fold). The shared cases (sharp s, sigma,
-//! Turkish I, ligatures) test very different surface area under lowercase:
-//! folding canonicalises Σ/σ/ς to a single codepoint regardless of position,
-//! whereas lowercase preserves uppercase-vs-lowercase distinctions and is
-//! context-sensitive for final sigma (in ICU) — context that libnu's
-//! unconditional `nu_tolower` ignores.
+//! These tests print their results; they don't gate CI on divergence
+//! (the divergence is the point — this is a comparison harness, not a
+//! regression check).
 
-use unicode_align::{compare_lower, run_corpus_lower};
+use unicode_align_test::{compare, run_corpus};
 
 fn known_cases() -> Vec<(&'static str, &'static str)> {
     vec![
         ("sharp s (German)", "Straße"),
         ("uppercase sharp s", "STRAẞE"),
-        (
-            "Greek final sigma (word-final triggers ς in ICU)",
-            "ΟΔΥΣΣΕΥΣ",
-        ),
+        ("Greek final sigma", "ΟΔΥΣΣΕΥΣ"),
         ("Greek mixed", "Ὀδυσσεύς"),
-        (
-            "Turkish dotted I (root locale lowercases to i\u{0307})",
-            "İstanbul",
-        ),
+        ("Turkish dotted I", "İstanbul"),
         ("Turkish dotless i (uppercase)", "IZMIR"),
         ("Latin ffi ligature", "ﬃ"),
         ("Latin ff ligature", "ﬀ"),
@@ -46,21 +37,21 @@ fn known_cases() -> Vec<(&'static str, &'static str)> {
 }
 
 #[test]
-fn print_known_lowercase_divergences() {
-    println!("\n=== single-string lowercase divergence cases ===");
+fn print_known_divergences() {
+    println!("\n=== single-string known divergence cases ===");
     for (name, input) in known_cases() {
-        let diff = compare_lower(input);
+        let diff = compare(input);
         println!("\n## {name}");
         print!("{}", diff.render());
     }
 }
 
 #[test]
-fn aggregate_known_lowercase_cases() {
+fn aggregate_known_cases() {
     let inputs: Vec<String> = known_cases()
         .into_iter()
         .map(|(_, s)| s.to_owned())
         .collect();
-    let report = run_corpus_lower(inputs);
+    let report = run_corpus(inputs);
     print!("{}", report.render());
 }

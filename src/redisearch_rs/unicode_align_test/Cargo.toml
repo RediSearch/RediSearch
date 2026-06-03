@@ -1,5 +1,5 @@
 [package]
-name = "unicode_align"
+name = "unicode_align_test"
 version.workspace = true
 edition.workspace = true
 license-file.workspace = true

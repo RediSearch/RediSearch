@@ -13,7 +13,7 @@
 //! final sigma triggers based on adjacency). Random strings put codepoints
 //! into context with each other and surface those interactions.
 
-use unicode_align::run_corpus;
+use unicode_align_test::run_corpus;
 use proptest::prelude::*;
 use proptest::strategy::ValueTree;
 use proptest::test_runner::TestRunner;

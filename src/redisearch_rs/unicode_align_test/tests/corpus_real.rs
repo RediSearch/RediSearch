@@ -18,7 +18,7 @@
 
 use std::path::PathBuf;
 
-use unicode_align::run_corpus;
+use unicode_align_test::run_corpus;
 
 const GUTENBERG_URL: &str = "https://gutenberg.net.au/ebooks01/0100021.txt";
 const GUTENBERG_CRC32: u32 = 3817457071;
@@ -31,7 +31,7 @@ const WIKI_FILE: &str = "enwiki_abstract-hashes-contains.redisearch.commands.SET
 fn cache_dir() -> PathBuf {
     let base = std::env::var("CARGO_TARGET_TMPDIR")
         .map(PathBuf::from)
-        .unwrap_or_else(|_| std::env::temp_dir().join("unicode_align"));
+        .unwrap_or_else(|_| std::env::temp_dir().join("unicode_align_test"));
     let dir = base.join("corpora");
     if !dir.exists() {
         let _ = fs_err::create_dir_all(&dir);

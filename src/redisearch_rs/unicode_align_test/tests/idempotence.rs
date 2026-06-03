@@ -15,11 +15,11 @@
 //! here is not a Unicode edge case — it points at a stale or misgenerated
 //! entry in libnu's fold table (`deps/libnu/tofold.c`).
 //!
-//! Since [`unicode_align::fold_libnu`] is a per-codepoint loop, string-level
+//! Since [`unicode_align_test::fold_libnu`] is a per-codepoint loop, string-level
 //! idempotence follows trivially from per-codepoint idempotence. Sweeping all
 //! 1,112,064 scalars is therefore necessary and sufficient.
 
-use unicode_align::fold_libnu;
+use unicode_align_test::fold_libnu;
 use rayon::prelude::*;
 
 #[derive(Debug, Clone)]
