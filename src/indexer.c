@@ -414,17 +414,18 @@ static void applyDocTable(RSAddDocumentCtx *aCtx, RedisSearchCtx *ctx) {
 
   // `oldDocId` comes from the key→docId mapping in Redis. The de-index path
   // (`IndexSpec_DeleteDoc`) now clears that mapping, so in normal operation a
-  // non-zero `oldDocId` means a real on-disk row is being replaced. We still
-  // treat it defensively — the mapping (Redis keyspace) and the disk doc-table
-  // (SpeedB) are separate stores that can diverge on crash — so dropping stale
-  // VecSim / geometry entries is a no-op when the id is unknown. `oldDocLen` is
-  // set by `SearchDisk_PutDocument` only when a row was actually replaced, so
-  // only that case counts as a REPLACE for stats and GC purposes.
-  if (aCtx->disk.oldDocId != 0) {
-    removeReplacedDocVectorAndGeometry(spec, aCtx->disk.oldDocId);
-  }
-  const bool replaced = aCtx->disk.oldDocLen != 0;
+  // non-zero `oldDocId` means a real on-disk row is being replaced.
+  // `oldDocId` (not `oldDocLen`) is the REPLACE signal for stats and GC: a
+  // vector/tag/numeric-only document has no full-text tokens, so its `docLen`
+  // (== `fwIdx->totalFreq`) is 0. Gating on `oldDocLen != 0` would miss those
+  // replaces and leak `numDocuments` (the new doc's `addNewDocStats` increment
+  // would never be matched by `removeOldDocStats`). This mirrors memory mode,
+  // which gates `removeOldDocStats` on whether an old DMD existed, not on its
+  // length. `oldDocLen` is still the right value to subtract from `totalDocsLen`
+  // (0 for a zero-length old doc is a correct no-op subtraction).
+  const bool replaced = aCtx->disk.oldDocId != 0;
   if (replaced) {
+    removeReplacedDocVectorAndGeometry(spec, aCtx->disk.oldDocId);
     removeOldDocStats(spec, aCtx->disk.oldDocLen);
   }
   addNewDocStats(spec, aCtx->fwIdx->totalFreq);
