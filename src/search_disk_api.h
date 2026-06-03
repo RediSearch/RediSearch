@@ -66,11 +66,6 @@ typedef RSDocumentMetadata* (*AllocateDMDCallback)(const void* key_data, size_t 
 // intended for fine-grained protection (e.g. the IndexSpec wrlock around the
 // trie/numTerms updates).
 typedef struct SearchDiskCompactionCallbacks {
-  // Called once at the start of a parent compaction, before any
-  // beginUpdate/endUpdate pair. Implementations may take long-lived locks
-  // here; the matching release goes in `compactionCompleted`.
-  void (*compactionStarted)(void *private_data);
-
   // Opens an update session and returns opaque update context.
   // Implementations may acquire internal locks here.
   void *(*beginUpdate)(void *private_data);
@@ -88,10 +83,6 @@ typedef struct SearchDiskCompactionCallbacks {
   // Closes an update session.
   // Implementations may release internal locks here.
   void (*endUpdate)(void *update_ctx);
-
-  // Called once at the end of a parent compaction, after every
-  // beginUpdate/endUpdate pair has returned. Pairs with `compactionStarted`.
-  void (*compactionCompleted)(void *private_data);
 } SearchDiskCompactionCallbacks;
 
 // Result of polling the async read pool
