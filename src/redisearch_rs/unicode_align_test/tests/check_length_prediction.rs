@@ -62,7 +62,7 @@
 //! no way to represent "I literally want to count NUL." This matches the
 //! `unicode_tolower` precondition (`if (*inout_len == 0) return NULL;`).
 
-use unicode_align_test::{
+use unicode_align_test::checks::{
     actual_encoded_byte_count, lower_libnu, predict_bytelen, predict_bytenlen, predict_lower_len,
     predict_strlen, predict_strnlen, write_with_libnu,
 };

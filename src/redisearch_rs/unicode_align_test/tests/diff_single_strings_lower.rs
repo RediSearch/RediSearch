@@ -16,7 +16,7 @@
 //! context-sensitive for final sigma (in ICU) — context that libnu's
 //! unconditional `nu_tolower` ignores.
 
-use unicode_align_test::{compare_lower, run_corpus_lower};
+use unicode_align_test::diff::{compare_lower, run_corpus_lower};
 
 fn known_cases() -> Vec<(&'static str, &'static str)> {
     vec![

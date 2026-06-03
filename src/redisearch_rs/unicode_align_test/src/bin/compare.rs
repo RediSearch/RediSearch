@@ -17,7 +17,7 @@ fn main() -> anyhow::Result<()> {
     let input = std::env::args().nth(1).ok_or_else(|| {
         anyhow::anyhow!("usage: compare <string>  (the string is folded with both libnu and ICU)")
     })?;
-    let diff = unicode_align_test::compare(&input);
+    let diff = unicode_align_test::diff::compare(&input);
     print!("{}", diff.render());
     Ok(())
 }

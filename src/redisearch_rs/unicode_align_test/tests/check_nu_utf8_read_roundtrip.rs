@@ -45,7 +45,7 @@
 //!   it tests the actual production data path where both halves are
 //!   libnu.
 
-use unicode_align_test::{decode_codepoint_with_libnu, encode_codepoint_with_libnu};
+use unicode_align_test::checks::{decode_codepoint_with_libnu, encode_codepoint_with_libnu};
 use rayon::prelude::*;
 
 #[derive(Debug)]

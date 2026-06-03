@@ -18,7 +18,7 @@
 
 use std::path::PathBuf;
 
-use unicode_align_test::run_corpus;
+use unicode_align_test::diff::run_corpus;
 
 const GUTENBERG_URL: &str = "https://gutenberg.net.au/ebooks01/0100021.txt";
 const GUTENBERG_CRC32: u32 = 3817457071;
