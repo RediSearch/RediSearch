@@ -13,6 +13,7 @@
 #include "redisearch.h"
 
 #include <string>
+#include <string_view>
 #include <vector>
 
 // Suffix_ChooseToken (char) and Suffix_ChooseToken_rune (rune) pick the literal
@@ -32,11 +33,11 @@ struct RuneChoice {
 };
 
 // Run the rune scorer on an ASCII pattern (one byte == one rune here).
-static RuneChoice chooseRune(const char *pattern) {
-  size_t n = strlen(pattern);
+static RuneChoice chooseRune(std::string_view pattern) {
+  size_t n = pattern.size();
   runeBuf buf;
   size_t rlen;
-  rune *runes = runeBufFill(pattern, n, &buf, &rlen);
+  rune *runes = runeBufFill(pattern.data(), n, &buf, &rlen);
   std::vector<size_t> idx(rlen + 1), len(rlen + 1);
   int res = Suffix_ChooseToken_rune(runes, rlen, idx.data(), len.data());
   size_t chosenLen = res == REDISEARCH_UNINITIALIZED ? 0 : len[res];
@@ -44,12 +45,12 @@ static RuneChoice chooseRune(const char *pattern) {
   return {res, chosenLen};
 }
 
-static int chooseTokenRune(const char *pattern) { return chooseRune(pattern).tokenOrdinal; }
+static int chooseTokenRune(std::string_view pattern) { return chooseRune(pattern).tokenOrdinal; }
 
-static int chooseTokenChar(const char *pattern) {
-  size_t n = strlen(pattern);
+static int chooseTokenChar(std::string_view pattern) {
+  size_t n = pattern.size();
   std::vector<size_t> idx(n + 1), len(n + 1);
-  return Suffix_ChooseToken(pattern, n, idx.data(), len.data());
+  return Suffix_ChooseToken(pattern.data(), n, idx.data(), len.data());
 }
 
 // A '?' in the first qualifying (len >= MIN_SUFFIX) token must not prevent a
