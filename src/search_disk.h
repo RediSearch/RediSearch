@@ -702,8 +702,7 @@ void SearchDisk_PreCheckpoint(IndexSpec *sp);
 /**
  * @brief Master-side SST replication PRE_FORK hook for a single index.
  *
- * Acquires the per-spec fork lock, then the IndexSpec read lock, then
- * dispatches to the disk-side preFork hook.
+ * Dispatches to the disk-side preFork hook.
  *
  * @param sp Pointer to the IndexSpec (must have a non-NULL diskSpec)
  */
@@ -712,8 +711,7 @@ void SearchDisk_PreFork(IndexSpec *sp);
 /**
  * @brief Master-side SST replication POST_FORK hook for a single index.
  *
- * Dispatches to the disk-side postFork hook, then releases the read lock and
- * the fork lock acquired in SearchDisk_PreFork.
+ * Dispatches to the disk-side postFork hook.
  *
  * @param sp Pointer to the IndexSpec
  */
@@ -753,8 +751,6 @@ typedef enum {
   SEARCH_DISK_SITE_COMPACTION_BEGIN = 0,
   SEARCH_DISK_SITE_COMPACTION_COMPLETED = 1,
   SEARCH_DISK_SITE_PRE_CHECKPOINT = 2,
-  SEARCH_DISK_SITE_PRE_FORK = 3,
-  SEARCH_DISK_SITE_POST_FORK = 4,
 } SearchDiskCompactionSite;
 
 /**
