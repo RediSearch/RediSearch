@@ -42,7 +42,16 @@ pub enum TopKMode {
     Unfiltered,
     /// Fetch score-ordered batches from the source and intersect each one
     /// with the child filter iterator.
+    ///
+    /// The source's [`ScoreSource::batch_strategy`] may return
+    /// [`BatchStrategy::SwitchToAdhoc`] mid-run to switch to
+    /// [`AdhocBF`](TopKMode::AdhocBF) when the source considers it more
+    /// efficient.  Use [`ForcedBatches`](TopKMode::ForcedBatches) to suppress
+    /// that switch.
     Batches,
+    /// Like [`Batches`](TopKMode::Batches), but [`BatchStrategy::SwitchToAdhoc`]
+    /// from the source is ignored and treated as [`BatchStrategy::Continue`].
+    ForcedBatches,
     /// Walk the child iterator and call [`ScoreSource::lookup_score`] for
     /// each document it yields.
     ///
@@ -154,7 +163,7 @@ impl<'index, S: ScoreSource + 'index> TopKIterator<'index, S> {
         self.phase = Phase::Collecting;
         let result = match self.mode {
             TopKMode::Unfiltered => self.prepare_unfiltered_direct(),
-            TopKMode::Batches => self.collect_batches(),
+            TopKMode::Batches | TopKMode::ForcedBatches => self.collect_batches(),
             TopKMode::AdhocBF => self.collect_adhoc(),
         };
         if result.is_err() {
@@ -207,8 +216,17 @@ impl<'index, S: ScoreSource + 'index> TopKIterator<'index, S> {
                 BatchStrategy::Continue => continue,
                 BatchStrategy::Stop => break,
                 BatchStrategy::SwitchToAdhoc => {
+                    if self.mode == TopKMode::ForcedBatches {
+                        // Honour the forced-batches contract: never switch
+                        // mid-run.
+                        continue;
+                    }
                     self.mode = TopKMode::AdhocBF;
-                    // Fall through to adhoc collection; heap is preserved.
+                    // Clear the heap: collect_adhoc rewinds the child and
+                    // rescans every match from scratch, so batch-phase entries
+                    // are redundant. Keeping them would re-admit the same doc id
+                    // (TopKHeap::push only de-dups against the worst element).
+                    self.heap = TopKHeap::new(self.k, self.compare);
                     self.collect_adhoc()?;
                     return Ok(());
                 }
