@@ -93,20 +93,24 @@ jobs:
                   emit(False)
               pr_number = os.environ["LABELED_PR_NUMBER"]
               head_sha = os.environ["LABELED_HEAD_SHA"]
-              # Find the most recent Pull Request Flow run for this head SHA.
+              # Look at the most recent Pull Request Flow run for this head
+              # SHA. API returns workflow_runs newest-first, so only triage
+              # if the *latest* run is failed — otherwise a re-run to green
+              # would still surface a stale failure comment.
               runs = gh_api(
                   f"/repos/{repo}/actions/workflows/event-pull_request.yml/runs"
                   f"?head_sha={head_sha}&per_page=20"
               ) or {}
-              failed = [
-                  r for r in runs.get("workflow_runs", [])
-                  if r.get("conclusion") in ("failure", "cancelled", "timed_out")
-              ]
-              if not failed:
-                  print(f"No failed Pull Request Flow run found for {head_sha}.")
+              runs_list = runs.get("workflow_runs", [])
+              if not runs_list:
+                  print(f"No Pull Request Flow run found for {head_sha}.")
                   emit(False, pr_number)
-              run_id = failed[0]["id"]
-              run_attempt = failed[0].get("run_attempt", 1)
+              latest = runs_list[0]
+              if latest.get("conclusion") not in ("failure", "cancelled", "timed_out"):
+                  print(f"Latest Pull Request Flow run for {head_sha} concluded as '{latest.get('conclusion')}'; skipping.")
+                  emit(False, pr_number)
+              run_id = latest["id"]
+              run_attempt = latest.get("run_attempt", 1)
               print(f"PR #{pr_number}: triaging failed run {run_id} (attempt {run_attempt}, {head_sha}).")
               emit(True, pr_number, run_id, run_attempt)
 
