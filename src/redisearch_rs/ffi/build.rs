@@ -258,7 +258,7 @@ const HEADERS: &[HeaderAllowlist] = &[
     },
     HeaderAllowlist {
         path: "src/redis_index.h",
-        fns: &["Redis_OpenInvertedIndex"],
+        fns: &["Redis_OpenInvertedIndex", "Redis_OpenReaderIndex"],
         types: &[],
         vars: &[],
     },
@@ -444,13 +444,19 @@ const HEADERS: &[HeaderAllowlist] = &[
     },
     HeaderAllowlist {
         path: "src/trie/rune_util.h",
-        fns: &["strToLowerRunes"],
+        fns: &["strToLowerRunes", "strToRunesN"],
         types: &[],
         vars: &["MAX_RUNE_STR_LEN"],
     },
     HeaderAllowlist {
         path: "src/trie/trie.h",
-        fns: &["Trie_DecrementNumDocs"],
+        fns: &["Trie_DecrementNumDocs", "Trie_GetNode"],
+        types: &[],
+        vars: &[],
+    },
+    HeaderAllowlist {
+        path: "src/trie/trie_node.h",
+        fns: &["TrieNode_NumDocs"],
         types: &[],
         vars: &[],
     },
