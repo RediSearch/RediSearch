@@ -3477,3 +3477,4 @@ int SetFtHybridInfo(RedisModuleCommand *cmd) {
   };
   return RedisModule_SetCommandInfo(cmd, &info);
 }
+
