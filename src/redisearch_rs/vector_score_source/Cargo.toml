@@ -16,7 +16,6 @@ build_utils = {path = "../build_utils"}
 [dependencies]
 ffi.workspace = true
 index_result.workspace = true
-index_result.workspace = true
 inverted_index.workspace = true
 rqe_iterators.workspace = true
 top_k = {path = "../top_k"}
@@ -29,5 +28,6 @@ redis_mock.workspace = true
 redisearch_rs = {path = "../c_entrypoint/redisearch_rs", features = [
   "mock_allocator",
 ]}
+rqe_core.workspace = true
 rqe_iterators = {workspace = true, features = ["unittest"]}
 vector_score_source = {path = ".", features = ["unittest"]}

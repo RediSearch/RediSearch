@@ -3315,6 +3315,7 @@ dependencies = [
  "inverted_index",
  "redis_mock",
  "redisearch_rs",
+ "rqe_core",
  "rqe_iterators",
  "top_k",
  "tracing",
