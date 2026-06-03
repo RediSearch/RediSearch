@@ -49,8 +49,22 @@ TEST_F(SuffixChooseTokenTest, questionMarkInFirstTokenStillSelects) {
   EXPECT_EQ(chooseTokenRune("?abcd"), 0);
   // Single token, '?' in the middle.
   EXPECT_EQ(chooseTokenRune("ab?cd"), 0);
+  // Single token, '?' as its trailing character.
+  EXPECT_EQ(chooseTokenRune("abc?"), 0);
+  // Several '?' in the token: each must penalize only this candidate, not the
+  // running best, so the token is still selectable.
+  EXPECT_EQ(chooseTokenRune("a??cd"), 0);
+  // Degenerate token of only '?' (still >= MIN_SUFFIX) is a weak but valid
+  // filter and must be chosen over a full-trie fallback.
+  EXPECT_EQ(chooseTokenRune("??"), 0);
   // First token carries the '?', a clean selective token follows: token 1 wins.
   EXPECT_EQ(chooseTokenRune("a?c*defg"), 1);
+  // Both tokens carry a '?'; the later one wins by avoiding the trailing-'*'
+  // penalty the first token pays.
+  EXPECT_EQ(chooseTokenRune("a?b*c?d"), 1);
+  // A long first token keeps winning despite its '?' and trailing '*', over a
+  // short clean later token.
+  EXPECT_EQ(chooseTokenRune("abcde?fghij*xy"), 0);
 }
 
 // The rune scorer must agree with the char scorer on the chosen token index.
