@@ -506,19 +506,14 @@ typedef struct QueryNodeOptions {
 #define DEFAULT_EXPANDER_NAME "DEFAULT"
 
 /**
- * TF-IDF scorer (`TFIDF`). Uses term proximity, so it needs term offsets.
- */
-#define TFIDF_SCORER_NAME "TFIDF"
-
-/**
  * Phonetic-matching query expander (`PHONETIC`).
  */
 #define PHONETIC_EXPENDER_NAME "PHONETIC"
 
 /**
- * Document-normalized TF-IDF scorer (`TFIDF.DOCNORM`).
+ * TF-IDF scorer (`TFIDF`). Uses term proximity, so it needs term offsets.
  */
-#define TFIDF_DOCNORM_SCORER_NAME "TFIDF.DOCNORM"
+#define TFIDF_SCORER_NAME "TFIDF"
 
 /**
  * Synonym-expansion query expander (`SYNONYM`).
@@ -526,14 +521,19 @@ typedef struct QueryNodeOptions {
 #define SYNONYMS_EXPENDER_NAME "SYNONYM"
 
 /**
- * Disjunction-max scorer (`DISMAX`).
+ * Document-normalized TF-IDF scorer (`TFIDF.DOCNORM`).
  */
-#define DISMAX_SCORER_NAME "DISMAX"
+#define TFIDF_DOCNORM_SCORER_NAME "TFIDF.DOCNORM"
 
 /**
  * Stemming query expander (`SBSTEM`).
  */
 #define STEMMER_EXPENDER_NAME "SBSTEM"
+
+/**
+ * Disjunction-max scorer (`DISMAX`).
+ */
+#define DISMAX_SCORER_NAME "DISMAX"
 
 /**
  * Legacy BM25 scorer (`BM25`).

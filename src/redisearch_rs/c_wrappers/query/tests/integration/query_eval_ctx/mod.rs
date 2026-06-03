@@ -9,6 +9,7 @@
 
 use query::{QueryEvalContext, mock::MockQueryEvalCtx};
 use query_flags::QEFlag;
+use query_types::scorers::{BuiltInScorer, RequestedScorer};
 use rqe_iterators::utils::AnyTimeoutContext;
 
 #[test]
@@ -150,4 +151,45 @@ fn build_timeout_context_prefers_blocked_client_when_wired() {
     // the end of the assertion — never used past the AREQ.
     let timeout = unsafe { ctx.build_timeout_context() };
     assert!(matches!(timeout, AnyTimeoutContext::BlockedClient(_)));
+}
+
+/// Build a context whose query scorer name is `name`, keeping the backing
+/// [`CString`] alive for the returned context.
+fn ctx_with_scorer_name(mock: &mut MockQueryEvalCtx, name: &std::ffi::CStr) -> QueryEvalContext {
+    // SAFETY: `mock.opts_ptr()` is a valid, exclusively-owned `RSSearchOptions`;
+    // `name` outlives the returned context.
+    unsafe { (*mock.opts_ptr()).scorerName = name.as_ptr() };
+    unsafe { QueryEvalContext::new(mock.as_non_null()) }
+}
+
+#[test]
+fn scorer_unset_query_is_unset() {
+    // The mock zero-inits `opts`, so `scorerName` is null: the query requested
+    // no scorer, so `scorer()` reports `Unset` and leaves the fallback to the
+    // caller.
+    let mut mock = MockQueryEvalCtx::new();
+    // SAFETY: the mock is a valid, exclusively-owned `QueryEvalCtx`.
+    let ctx = unsafe { QueryEvalContext::new(mock.as_non_null()) };
+    assert_eq!(ctx.scorer(), RequestedScorer::Unset);
+}
+
+#[test]
+fn scorer_builtin_query_resolves_to_that_scorer() {
+    let name = std::ffi::CString::new("BM25STD").unwrap();
+    let mut mock = MockQueryEvalCtx::new();
+    let ctx = ctx_with_scorer_name(&mut mock, &name);
+    assert_eq!(
+        ctx.scorer(),
+        RequestedScorer::BuiltIn(BuiltInScorer::Bm25Std)
+    );
+}
+
+#[test]
+fn scorer_custom_query_is_custom() {
+    // A set-but-custom query scorer is not one of the built-ins, so it resolves
+    // to `Custom` (distinct from an unset scorer).
+    let name = std::ffi::CString::new("MY_CUSTOM_SCORER").unwrap();
+    let mut mock = MockQueryEvalCtx::new();
+    let ctx = ctx_with_scorer_name(&mut mock, &name);
+    assert_eq!(ctx.scorer(), RequestedScorer::Custom(name.as_c_str()));
 }
