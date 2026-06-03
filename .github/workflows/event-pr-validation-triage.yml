@@ -93,6 +93,15 @@ jobs:
                   emit(False)
               pr_number = os.environ["LABELED_PR_NUMBER"]
               head_sha = os.environ["LABELED_HEAD_SHA"]
+              # The label event freezes head_sha at label-application time. If
+              # a new commit lands before this job runs, skip rather than
+              # triage a run the PR has already moved past — same freshness
+              # guarantee as the workflow_run path.
+              pr_data = gh_api(f"/repos/{repo}/pulls/{pr_number}") or {}
+              current_head_sha = (pr_data.get("head") or {}).get("sha")
+              if current_head_sha and current_head_sha != head_sha:
+                  print(f"PR #{pr_number} has moved from labeled SHA {head_sha} to {current_head_sha}; skipping stale triage.")
+                  emit(False, pr_number)
               # Look at the most recent Pull Request Flow run for this head
               # SHA. API returns workflow_runs newest-first, so only triage
               # if the *latest* run is failed — otherwise a re-run to green
