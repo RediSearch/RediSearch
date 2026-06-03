@@ -9,16 +9,66 @@ name: temporary testing
 
 on:
   push:
-    branches-ignore: ['**'] # ignore all branches. Comment this line to run your workflow below on every push.
+    # branches-ignore: ['**'] # ignore all branches. Comment this line to run your workflow below on every push.
 
 jobs:
 
-  alpine-test:
+  triage-smoke-test:
+    runs-on: ubuntu-latest
     permissions:
       contents: read
-      packages: write
-    uses: ./.github/workflows/flow-test.yml
-    secrets: inherit
-    with:
-      platform: alpine:3.23
-      redis-ref: unstable
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Run codex-ci-triage composite action
+        id: triage
+        uses: ./.github/actions/codex-ci-triage
+        with:
+          openai-api-key: ${{ secrets.CI_TRIAGE_OPENAI_API_KEY }}
+          prompt-file: .github/codex/prompts/test-triage.md
+
+      - name: Verify composite outputs are non-empty
+        env:
+          TRIAGE_EXISTS: ${{ steps.triage.outputs.triage-exists }}
+          TRIAGE_CONTENT: ${{ steps.triage.outputs.triage-content }}
+          TRIAGE_CONTENT_JSON: ${{ steps.triage.outputs.triage-content-json }}
+        run: |
+          echo "::group::triage-exists"
+          echo "$TRIAGE_EXISTS"
+          echo "::endgroup::"
+          echo "::group::triage-content (raw)"
+          echo "$TRIAGE_CONTENT"
+          echo "::endgroup::"
+          echo "::group::triage-content-json"
+          echo "$TRIAGE_CONTENT_JSON"
+          echo "::endgroup::"
+          if [ "$TRIAGE_EXISTS" != "true" ]; then
+            echo "FAIL: triage-exists is not true ($TRIAGE_EXISTS)"
+            exit 1
+          fi
+          if [ -z "$TRIAGE_CONTENT_JSON" ] || [ "$TRIAGE_CONTENT_JSON" = '""' ]; then
+            echo "FAIL: triage-content-json is empty"
+            exit 1
+          fi
+          if ! printf '%s' "$TRIAGE_CONTENT" | grep -q SENTINEL_45f1e93a; then
+            echo "FAIL: triage-content does not contain the SENTINEL token"
+            exit 1
+          fi
+          echo "PASS: composite action returned non-empty triage output containing the sentinel"
+
+      - name: Render Slack-style payload (no send)
+        env:
+          TRIAGE_EXISTS: ${{ steps.triage.outputs.triage-exists }}
+          TRIAGE_CONTENT_JSON: ${{ steps.triage.outputs.triage-content-json }}
+          REPO: ${{ github.repository }}
+          RUN_ID: ${{ github.run_id }}
+        run: |
+          if [ "$TRIAGE_EXISTS" = "true" ]; then
+            AI_TRIAGE="$TRIAGE_CONTENT_JSON"
+          else
+            AI_TRIAGE='""'
+          fi
+          jq -n \
+            --arg failed_workflow "https://github.com/${REPO}/actions/runs/${RUN_ID}" \
+            --argjson ai_triage "$AI_TRIAGE" \
+            '{failed_workflow: $failed_workflow, ai_triage: $ai_triage}'
