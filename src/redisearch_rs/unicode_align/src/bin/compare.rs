@@ -10,14 +10,14 @@
 //! Ad-hoc single-string compare CLI.
 //!
 //! ```text
-//! cargo run -p casemap_compare --bin compare -- "Straße"
+//! cargo run -p unicode_align --bin compare -- "Straße"
 //! ```
 
 fn main() -> anyhow::Result<()> {
     let input = std::env::args().nth(1).ok_or_else(|| {
         anyhow::anyhow!("usage: compare <string>  (the string is folded with both libnu and ICU)")
     })?;
-    let diff = casemap_compare::compare(&input);
+    let diff = unicode_align::compare(&input);
     print!("{}", diff.render());
     Ok(())
 }

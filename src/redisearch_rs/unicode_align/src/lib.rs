@@ -635,7 +635,7 @@ impl Report {
     /// Render the aggregate report as human-readable text.
     pub fn render(&self) -> String {
         let mut out = String::new();
-        let _ = writeln!(out, "=== casemap_compare report ===");
+        let _ = writeln!(out, "=== unicode_align report ===");
         let pct = if self.total > 0 {
             100.0 * self.diverged as f64 / self.total as f64
         } else {

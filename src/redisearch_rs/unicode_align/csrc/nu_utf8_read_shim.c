@@ -11,7 +11,7 @@
  * has no externally callable symbol — it only inlines into whichever TU
  * happened to include the header. This tiny shim instantiates the inline
  * body inside a non-static wrapper so the Rust FFI layer in
- * `casemap_compare` has a real symbol to bind against.
+ * `unicode_align` has a real symbol to bind against.
  *
  * Keep this wrapper a single delegation call: the test value is in
  * exercising libnu's decode bytes-to-codepoint logic, not anything we

@@ -1,5 +1,5 @@
 [package]
-name = "casemap_compare"
+name = "unicode_align"
 version.workspace = true
 edition.workspace = true
 license-file.workspace = true

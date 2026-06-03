@@ -40,7 +40,7 @@
 //! output is valid UTF-8 for every input, plus spot-checks the correct
 //! encoding of U+11004 so a *partial* regression doesn't slip through.
 
-use casemap_compare::encode_codepoint_with_libnu;
+use unicode_align::encode_codepoint_with_libnu;
 
 #[test]
 fn sweep_nu_utf8_write_validity() {

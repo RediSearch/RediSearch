@@ -13,7 +13,7 @@
 //! (the divergence is the point — this is a comparison harness, not a
 //! regression check).
 
-use casemap_compare::{compare, run_corpus};
+use unicode_align::{compare, run_corpus};
 
 fn known_cases() -> Vec<(&'static str, &'static str)> {
     vec![

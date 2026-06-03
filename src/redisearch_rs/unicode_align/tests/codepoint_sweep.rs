@@ -14,7 +14,7 @@
 //! like final sigma don't interfere) and let the corpus aggregator emit the
 //! full codepoint divergence table.
 
-use casemap_compare::run_corpus;
+use unicode_align::run_corpus;
 
 #[test]
 fn sweep_all_codepoints() {
