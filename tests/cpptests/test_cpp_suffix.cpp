@@ -125,8 +125,6 @@ TEST_F(SuffixChooseTokenTest, runeAgreesWithChar) {
 
 // Tokens shorter than MIN_SUFFIX are not usable; with no qualifying token the
 // scorer reports UNINITIALIZED so the caller falls back to a brute-force scan.
-// This is the *correct* UNINITIALIZED outcome, distinct from the fixed bug that
-// returned UNINITIALIZED for valid '?'-bearing tokens.
 TEST_F(SuffixChooseTokenTest, noQualifyingTokenIsUninitialized) {
   EXPECT_EQ(chooseTokenRune(""), REDISEARCH_UNINITIALIZED);       // no tokens
   EXPECT_EQ(chooseTokenRune("*"), REDISEARCH_UNINITIALIZED);      // only '*'
