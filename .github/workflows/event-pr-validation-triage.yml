@@ -36,6 +36,7 @@ jobs:
       should-triage: ${{ steps.resolve.outputs.should-triage }}
       pr-number: ${{ steps.resolve.outputs.pr-number }}
       run-id: ${{ steps.resolve.outputs.run-id }}
+      run-attempt: ${{ steps.resolve.outputs.run-attempt }}
     steps:
       - name: Resolve PR and source run
         id: resolve
@@ -47,6 +48,7 @@ jobs:
           TRIAGE_LABEL: triage-pr
           # workflow_run inputs (empty for pull_request_target)
           WORKFLOW_RUN_ID: ${{ github.event.workflow_run.id }}
+          WORKFLOW_RUN_ATTEMPT: ${{ github.event.workflow_run.run_attempt }}
           WORKFLOW_RUN_CONCLUSION: ${{ github.event.workflow_run.conclusion }}
           WORKFLOW_RUN_PR_NUMBER: ${{ github.event.workflow_run.pull_requests[0].number }}
           WORKFLOW_RUN_HEAD_SHA: ${{ github.event.workflow_run.head_sha }}
@@ -70,11 +72,12 @@ jobs:
                   return None
               return json.loads(result.stdout) if result.stdout.strip() else None
 
-          def emit(should, pr="", run_id=""):
+          def emit(should, pr="", run_id="", run_attempt=""):
               with open(os.environ["GITHUB_OUTPUT"], "a", encoding="utf-8") as f:
                   f.write(f"should-triage={'true' if should else 'false'}\n")
                   f.write(f"pr-number={pr}\n")
                   f.write(f"run-id={run_id}\n")
+                  f.write(f"run-attempt={run_attempt}\n")
               raise SystemExit
 
           repo = os.environ["REPOSITORY"]
@@ -101,8 +104,9 @@ jobs:
                   print(f"No failed Pull Request Flow run found for {head_sha}.")
                   emit(False, pr_number)
               run_id = failed[0]["id"]
-              print(f"PR #{pr_number}: triaging failed run {run_id} ({head_sha}).")
-              emit(True, pr_number, run_id)
+              run_attempt = failed[0].get("run_attempt", 1)
+              print(f"PR #{pr_number}: triaging failed run {run_id} (attempt {run_attempt}, {head_sha}).")
+              emit(True, pr_number, run_id, run_attempt)
 
           # workflow_run path
           if os.environ.get("WORKFLOW_RUN_CONCLUSION") not in ("failure", "cancelled", "timed_out"):
@@ -129,8 +133,9 @@ jobs:
           if label not in labels:
               print(f"PR #{pr_number} does not have '{label}' label; skipping.")
               emit(False, pr_number)
-          print(f"PR #{pr_number}: triaging failed run {os.environ['WORKFLOW_RUN_ID']}.")
-          emit(True, pr_number, os.environ["WORKFLOW_RUN_ID"])
+          run_attempt = os.environ.get("WORKFLOW_RUN_ATTEMPT") or "1"
+          print(f"PR #{pr_number}: triaging failed run {os.environ['WORKFLOW_RUN_ID']} (attempt {run_attempt}).")
+          emit(True, pr_number, os.environ["WORKFLOW_RUN_ID"], run_attempt)
 
   triage:
     needs: resolve
@@ -140,15 +145,15 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v6
 
-      - name: Fetch failed-job logs from source run
+      - name: Download focused Failed Test Logs artifacts
         env:
           GH_TOKEN: ${{ github.token }}
           SOURCE_RUN_ID: ${{ needs.resolve.outputs.run-id }}
         run: |
           set +e
-          # Prefer focused "Failed Test Logs *" artifacts (per-test logs) and
-          # always also include `gh run view --log-failed` so build / lint /
-          # sanitizer failures still have context in mixed-failure runs.
+          # Prefer focused "Failed Test Logs *" artifacts (per-test logs).
+          # Build / lint / sanitizer logs are appended below by
+          # fetch-failed-run-logs so mixed-failure runs still have context.
           mkdir -p downloaded-failed-logs
           gh run download "$SOURCE_RUN_ID" \
             --repo "$GITHUB_REPOSITORY" \
@@ -168,21 +173,15 @@ jobs:
           else
             echo "No Failed Test Logs artifacts found."
           fi
-
-          {
-            printf '\n##[group]gh run view --log-failed\n'
-            gh run view "$SOURCE_RUN_ID" --repo "$GITHUB_REPOSITORY" --log-failed 2>&1
-            printf '\n##[endgroup]\n'
-          } >> failed-logs.txt
-
-          # Cap at 200KB to bound Codex token spend (matches post-merge triage).
-          if [ "$(wc -c < failed-logs.txt 2>/dev/null || echo 0)" -gt 204800 ]; then
-            tail -c 204800 failed-logs.txt > failed-logs.txt.tmp
-            printf '[truncated to last 200KB]\n' > failed-logs.txt
-            cat failed-logs.txt.tmp >> failed-logs.txt
-            rm failed-logs.txt.tmp
-          fi
           exit 0
+
+      - name: Append failed-job logs from source run
+        uses: ./.github/actions/fetch-failed-run-logs
+        with:
+          github-token: ${{ github.token }}
+          run-id: ${{ needs.resolve.outputs.run-id }}
+          run-attempt: ${{ needs.resolve.outputs.run-attempt }}
+          append: 'true'
 
       - name: Run Codex triage
         id: ai_triage
