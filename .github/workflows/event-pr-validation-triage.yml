@@ -18,20 +18,22 @@ on:
 
 concurrency:
   # Serialize per PR so two triggers (workflow_run + labeled) racing on the
-  # same PR don't both try to upsert the same comment.
-  group: pr-triage-${{ github.event.workflow_run.pull_requests[0].number || github.event.pull_request.number }}
+  # same PR don't both try to upsert the same comment. For fork-PR
+  # workflow_run events, `workflow_run.pull_requests[0].number` is empty and
+  # `pull_request.number` is undefined; fall through to the source run's
+  # head_sha so unrelated fork-PR triage runs don't collide on a constant
+  # `pr-triage-` group key.
+  group: pr-triage-${{ github.event.workflow_run.pull_requests[0].number || github.event.pull_request.number || github.event.workflow_run.head_sha }}
   cancel-in-progress: true
-
-permissions:
-  contents: read       # checkout (needed by codex-ci-triage action)
-  actions: read        # download logs / artifacts from the source workflow run
-  pull-requests: write # comment on the PR
 
 jobs:
   resolve:
     # Resolve PR number, head SHA, label state, and the source-run id.
     # If the label is missing or the source run didn't fail, skip the rest.
     runs-on: ubuntu-slim
+    permissions:
+      actions: read       # list workflow runs for the source run lookup
+      pull-requests: read # read labels and head SHA on the candidate PR
     outputs:
       should-triage: ${{ steps.resolve.outputs.should-triage }}
       pr-number: ${{ steps.resolve.outputs.pr-number }}
@@ -133,6 +135,26 @@ jobs:
           if label not in labels:
               print(f"PR #{pr_number} does not have '{label}' label; skipping.")
               emit(False, pr_number)
+          # Skip if the source run is obsolete: when a new commit lands, Pull
+          # Request Flow auto-cancels the prior run; if we triage that stale
+          # run we'd overwrite the sticky comment with logs from a SHA the PR
+          # has already moved past.
+          current_head_sha = (pr_data.get("head") or {}).get("sha")
+          run_head_sha = os.environ.get("WORKFLOW_RUN_HEAD_SHA", "")
+          if current_head_sha and run_head_sha and current_head_sha != run_head_sha:
+              print(f"PR #{pr_number} has moved to {current_head_sha}; skipping stale run {run_head_sha}.")
+              emit(False, pr_number)
+          # Skip fork-PR workflow_run triggers: github.actor here is the fork
+          # author (non-collaborator), and codex-ci-triage's actor gate will
+          # refuse to run Codex, producing no triage output. The
+          # pull_request_target: labeled path still works for fork PRs
+          # (actor = maintainer applying the label), so maintainers can
+          # re-apply the label after each failure to re-trigger triage.
+          head_repo = ((pr_data.get("head") or {}).get("repo") or {}).get("full_name")
+          base_repo = ((pr_data.get("base") or {}).get("repo") or {}).get("full_name")
+          if head_repo and base_repo and head_repo != base_repo:
+              print(f"PR #{pr_number} is from fork {head_repo}; skipping workflow_run-triggered triage. Re-add the '{label}' label to retrigger via pull_request_target.")
+              emit(False, pr_number)
           run_attempt = os.environ.get("WORKFLOW_RUN_ATTEMPT") or "1"
           print(f"PR #{pr_number}: triaging failed run {os.environ['WORKFLOW_RUN_ID']} (attempt {run_attempt}).")
           emit(True, pr_number, os.environ["WORKFLOW_RUN_ID"], run_attempt)
@@ -141,6 +163,10 @@ jobs:
     needs: resolve
     if: ${{ needs.resolve.outputs.should-triage == 'true' }}
     runs-on: ubuntu-slim
+    permissions:
+      contents: read       # checkout (needed by codex-ci-triage action)
+      actions: read        # download focused artifacts + fetch-failed-run-logs
+      pull-requests: write # upsert the sticky triage comment
     steps:
       - name: Checkout repository
         uses: actions/checkout@v6
@@ -217,8 +243,13 @@ jobs:
           EOF
           )
 
-          EXISTING_ID=$(gh api "repos/${GITHUB_REPOSITORY}/issues/${PR_NUMBER}/comments" --paginate \
-            --jq '.[] | select(.body | startswith("'"${MARKER}"'")) | .id' | head -1)
+          # Capture all matching IDs first, then take the first via parameter
+          # expansion. Piping `gh api --paginate` into `head -1` under
+          # `pipefail` risks SIGPIPE (exit 141) aborting the script when
+          # pagination is still writing after the first match.
+          MATCHING_IDS=$(gh api "repos/${GITHUB_REPOSITORY}/issues/${PR_NUMBER}/comments" --paginate \
+            --jq '.[] | select(.body | startswith("'"${MARKER}"'")) | .id')
+          EXISTING_ID=${MATCHING_IDS%%$'\n'*}
 
           if [ -n "$EXISTING_ID" ]; then
             echo "Updating existing comment $EXISTING_ID"
