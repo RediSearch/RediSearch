@@ -2134,11 +2134,6 @@ typedef struct {
   size_t count;
 } CursorReadCtx;
 
-static const char *cursorTakeStatusMessage(CursorTakeStatus status) {
-  return status == CURSOR_TAKE_NOT_IDLE ? "Cursor temporarily unavailable, id: %lld"
-                                        : "Cursor not found, id: %lld";
-}
-
 static void cursorRead_ctx(CursorReadCtx *cr_ctx) {
   RedisModuleCtx *ctx = RedisModule_GetThreadSafeContext(cr_ctx->bc);
   // Optimization (mirrors AREQ_Execute_Callback): if the timer fired while
@@ -2171,15 +2166,13 @@ static inline int coordCursorReadReturnStrict(RedisModuleCtx *ctx, CoordRequestC
     CoordRequestCtx_UnlockSetRequest(reqCtx);
     return REDISMODULE_OK;
   }
-  CursorTakeStatus takeStatus = CURSOR_TAKE_NOT_FOUND;
-  Cursor *cursor = Cursors_TakeForExecutionWithStatus(GetGlobalCursor(cid), cid, &takeStatus);
+  Cursor *cursor = Cursors_TakeForExecution(GetGlobalCursor(cid), cid);
   if (!cursor) {
-    // Cursor was destroyed or is still owned by an earlier read between
-    // CursorCommand's peek and our take.
+    // Cursor was destroyed between CursorCommand's peek and our take
     CoordRequestCtx_UnlockSetRequest(reqCtx);
     QueryError err = QueryError_Default();
     QueryError_SetWithoutUserDataFmt(&err, QUERY_ERROR_CODE_GENERIC,
-                                     cursorTakeStatusMessage(takeStatus), cid);
+                                     "Cursor not found, id: %lld", cid);
     CoordRequestCtx_ReplyOrStoreError(reqCtx, ctx, &err);
     return REDISMODULE_OK;
   }
@@ -2252,16 +2245,15 @@ int RSCursorReadCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc)
     return coordCursorReadReturnStrict(ctx, reqCtx, cid, count);
   }
 
-  CursorTakeStatus takeStatus = CURSOR_TAKE_NOT_FOUND;
-  Cursor *cursor = Cursors_TakeForExecutionWithStatus(GetGlobalCursor(cid), cid, &takeStatus);
+  Cursor *cursor = Cursors_TakeForExecution(GetGlobalCursor(cid), cid);
   if (cursor == NULL) {
     if (reqCtx) {
       QueryError_SetWithoutUserDataFmt(&err, QUERY_ERROR_CODE_GENERIC,
-                                       cursorTakeStatusMessage(takeStatus), cid);
+                                       "Cursor not found, id: %lld", cid);
       CoordRequestCtx_ReplyOrStoreError(reqCtx, ctx, &err);
       return REDISMODULE_OK;
     }
-    return RedisModule_ReplyWithErrorFormat(ctx, cursorTakeStatusMessage(takeStatus), cid);
+    return RedisModule_ReplyWithErrorFormat(ctx, "Cursor not found, id: %lld", cid);
   }
 
   if (RunInThread(ctx) && !upstreamBC) {

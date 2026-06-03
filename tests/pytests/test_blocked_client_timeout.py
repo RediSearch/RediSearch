@@ -146,6 +146,20 @@ def _drain_cursor(env, cursor_id, idx='idx'):
             total_rows += max(0, len(res) - 1)
     return total_rows
 
+def _reply_row_count(res):
+    if isinstance(res, dict):
+        return len(res.get('results', []))
+    # RESP2 aggregate cursor reply: [total_results, row0, row1, ...]
+    return max(0, len(res) - 1)
+
+def _assert_aggregate_cursor_total_rows(env, first_res, cursor_id, expected_rows, context):
+    total_rows = _reply_row_count(first_res) + _drain_cursor(env, cursor_id)
+    env.assertEqual(total_rows, expected_rows,
+                    message=f"{context}: expected {expected_rows} rows across "
+                            f"FT.AGGREGATE + FT.CURSOR READ replies, got {total_rows}")
+    if cursor_id:
+        env.expect('FT.CURSOR', 'READ', 'idx', str(cursor_id)).error().contains('Cursor not found')
+
 def debug_print_hybrid_clients(env, label=""):
     """Debug helper: Print clients with HYBRID commands from coordinator and all shards.
 
@@ -945,6 +959,26 @@ class TestCoordinatorTimeout:
 
         env.expect('CONFIG', 'SET', ON_TIMEOUT_CONFIG, prev_on_timeout_policy).ok()
 
+    def test_aggregate_cursor_reply_count_cluster(self):
+        """Cluster FT.AGGREGATE WITHCURSOR drains exactly all aggregate rows."""
+        env = self.env
+        chunk_size = 7
+
+        prev_policy = env.cmd('CONFIG', 'GET', ON_TIMEOUT_CONFIG)[ON_TIMEOUT_CONFIG]
+        env.expect('CONFIG', 'SET', ON_TIMEOUT_CONFIG, 'return-strict').ok()
+        try:
+            first_res, cursor_id = env.cmd('FT.AGGREGATE', 'idx', '*', 'LOAD', '1', '@name',
+                                           'WITHCURSOR', 'COUNT', str(chunk_size))
+            env.assertNotEqual(cursor_id, 0, message="Expected non-zero cursor ID")
+            env.assertEqual(first_res.get('warning', []), [],
+                            message=f"Happy aggregate cursor reply should not warn: {first_res}")
+
+            _assert_aggregate_cursor_total_rows(
+                env, first_res, cursor_id, self.n_docs,
+                'cluster happy FT.AGGREGATE WITHCURSOR')
+        finally:
+            env.expect('CONFIG', 'SET', ON_TIMEOUT_CONFIG, prev_policy).ok()
+
     def _start_blocked_cursor_read(self, cursor_id):
         """Start FT.CURSOR READ in a thread and return ``(thread, blocked_client_id)``
         once the client is blocked. Caller fires the timeout and joins the thread."""
@@ -1308,11 +1342,6 @@ class TestCoordinatorTimeout:
                     env, read_result[0], vsim_cursor, expected_results=0,
                     message_prefix='VSIM _FT.CURSOR READ RETURN_STRICT timeout')
 
-                try:
-                    target_shard.execute_command('_FT.CURSOR', 'READ', 'hybrid_idx', str(vsim_cursor))
-                    env.assertFalse(True, message="Busy cursor read should return a temporary error")
-                except redis_exceptions.ResponseError as e:
-                    env.assertContains('Cursor temporarily unavailable', str(e))
             finally:
                 target_shard.execute_command(debug_cmd(), 'WORKERS', 'resume')
                 target_shard.execute_command(debug_cmd(), 'WORKERS', 'drain')
@@ -2007,6 +2036,7 @@ class TestCoordinatorTimeout:
 
         # Pause workers on every shard so no `_FT.AGGREGATE` job can run.
         verify_command_OK_on_all_shards(env, debug_cmd(), 'WORKERS', 'pause')
+        workers_paused = True
 
         sync_point = 'RpnetReplyAdmitted'
         env.cmd(debug_cmd(), 'SYNC_POINT', 'CLEAR')
@@ -2270,6 +2300,77 @@ class TestCoordinatorTimeout:
         env.cmd(debug_cmd(), 'SYNC_POINT', 'CLEAR')
         verify_command_OK_on_all_shards(env, debug_cmd(), 'WORKERS', 'resume')
         env.cmd('CONFIG', 'SET', ON_TIMEOUT_CONFIG, prev_on_timeout_policy)
+
+    def test_return_strict_timeout_all_shards_paused_aggregate_with_cursor_count(self):
+        """Cluster FT.AGGREGATE WITHCURSOR timeout with no shard replies returns no rows."""
+        env = self.env
+        skipIfNoEnableAssert(env)
+
+        prev_policy = env.cmd('CONFIG', 'GET', ON_TIMEOUT_CONFIG)[ON_TIMEOUT_CONFIG]
+        env.cmd('CONFIG', 'SET', ON_TIMEOUT_CONFIG, 'return-strict')
+
+        before_info = info_modules_to_dict(env)
+        base_warn_coord = int(before_info[COORD_WARN_ERR_SECTION][TIMEOUT_WARNING_COORD_METRIC])
+
+        verify_command_OK_on_all_shards(env, debug_cmd(), 'WORKERS', 'pause')
+
+        sync_point = 'AfterIteratorStart'
+        env.cmd(debug_cmd(), 'SYNC_POINT', 'CLEAR')
+        env.cmd(debug_cmd(), 'SYNC_POINT', 'ARM', sync_point)
+
+        query_result = []
+        t_query = threading.Thread(
+            target=call_and_store,
+            args=(env.cmd,
+                  ['FT.AGGREGATE', 'idx', '*', 'LOAD', '1', '@name',
+                   'WITHCURSOR', 'COUNT', '5'],
+                  query_result),
+            daemon=True
+        )
+        t_query.start()
+
+        try:
+            wait_for_condition(
+                lambda: (env.cmd(debug_cmd(), 'SYNC_POINT', 'IS_WAITING', sync_point) == 1, {}),
+                f'Timeout waiting for {sync_point} sync point'
+            )
+
+            blocked_client_id = wait_for_blocked_query_client(env, 'FT.AGGREGATE')
+            env.cmd('CLIENT', 'UNBLOCK', blocked_client_id, 'TIMEOUT')
+            wait_for_client_unblocked(env, blocked_client_id)
+
+            env.cmd(debug_cmd(), 'SYNC_POINT', 'SIGNAL', sync_point)
+
+            t_query.join(timeout=10)
+            env.assertFalse(t_query.is_alive(), message="Query thread should have finished")
+
+            env.assertEqual(len(query_result), 1, message="Expected 1 result from query thread")
+            res, cursor_id = query_result[0]
+            env.assertEqual(_reply_row_count(res), 0,
+                            message=f"Expected no rows in timed-out first page, got {res}")
+            env.assertNotEqual(cursor_id, 0,
+                               message=f"Cursor should be preserved for delayed shard replies: {query_result[0]}")
+            env.assertEqual(res.get('warning', []), [TIMEOUT_WARNING])
+
+            verify_command_OK_on_all_shards(env, debug_cmd(), 'WORKERS', 'resume')
+            workers_paused = False
+            _assert_aggregate_cursor_total_rows(
+                env, res, cursor_id, self.n_docs,
+                'cluster all-shards-paused FT.AGGREGATE WITHCURSOR timeout')
+
+            after_info = info_modules_to_dict(env)
+            env.assertEqual(after_info[COORD_WARN_ERR_SECTION][TIMEOUT_WARNING_COORD_METRIC],
+                            str(base_warn_coord + 1),
+                            message="Coordinator timeout warning should be +1")
+            _verify_metrics_not_changed(env, env, before_info, [TIMEOUT_WARNING_COORD_METRIC])
+        finally:
+            try:
+                env.cmd(debug_cmd(), 'SYNC_POINT', 'CLEAR')
+            except Exception:
+                pass
+            if workers_paused:
+                verify_command_OK_on_all_shards(env, debug_cmd(), 'WORKERS', 'resume')
+            env.cmd('CONFIG', 'SET', ON_TIMEOUT_CONFIG, prev_policy)
 
     def test_return_strict_timeout_channel_drain_aggregate(self):
         """RETURN_STRICT timeout while shard replies are queued in the channel.
@@ -4868,6 +4969,69 @@ class TestShardTimeout:
                         message=f"Expected {self.n_docs} total results across all cursor reads")
 
         env.expect('CONFIG', 'SET', ON_TIMEOUT_CONFIG, prev_on_timeout_policy).ok()
+
+    def test_aggregate_cursor_reply_count_standalone(self):
+        """Standalone FT.AGGREGATE WITHCURSOR drains exactly all aggregate rows."""
+        env = self.env
+        chunk_size = 7
+
+        prev_policy = env.cmd('CONFIG', 'GET', ON_TIMEOUT_CONFIG)[ON_TIMEOUT_CONFIG]
+        env.expect('CONFIG', 'SET', ON_TIMEOUT_CONFIG, 'return-strict').ok()
+        try:
+            first_res, cursor_id = env.cmd('FT.AGGREGATE', 'idx', '*', 'LOAD', '1', '@name',
+                                           'WITHCURSOR', 'COUNT', str(chunk_size))
+            env.assertNotEqual(cursor_id, 0, message="Expected non-zero cursor ID")
+            env.assertEqual(first_res.get('warning', []), [],
+                            message=f"Happy aggregate cursor reply should not warn: {first_res}")
+
+            _assert_aggregate_cursor_total_rows(
+                env, first_res, cursor_id, self.n_docs,
+                'standalone happy FT.AGGREGATE WITHCURSOR')
+        finally:
+            env.expect('CONFIG', 'SET', ON_TIMEOUT_CONFIG, prev_policy).ok()
+
+    def test_return_strict_timeout_aggregate_cursor_reply_count_standalone(self):
+        """Standalone timed-out FT.AGGREGATE WITHCURSOR can drain the remaining rows."""
+        env = self.env
+        skipIfNoEnableAssert(env)
+        chunk_size = 10
+
+        prev_policy = env.cmd('CONFIG', 'GET', ON_TIMEOUT_CONFIG)[ON_TIMEOUT_CONFIG]
+        env.expect('CONFIG', 'SET', ON_TIMEOUT_CONFIG, 'return-strict').ok()
+        resetAggregateResultsDebug(env)
+        setPauseAfterAggregateResult(env, 1)
+
+        query_result = []
+        try:
+            t_query = threading.Thread(
+                target=call_and_store,
+                args=(env.cmd, ['FT.AGGREGATE', 'idx', '*', 'LOAD', '1', '@name',
+                                'WITHCURSOR', 'COUNT', str(chunk_size)], query_result),
+                daemon=True,
+            )
+            t_query.start()
+
+            blocked_client_id = _wait_shard_paused_after_aggregate_result(env, 'FT.AGGREGATE')
+            env.expect('CLIENT', 'UNBLOCK', blocked_client_id, 'TIMEOUT').equal(1)
+            wait_for_client_unblocked(env, blocked_client_id)
+
+            resetAggregateResultsDebug(env)
+
+            t_query.join(timeout=10)
+            env.assertFalse(t_query.is_alive(), message="Query thread should have finished")
+            env.assertEqual(len(query_result), 1, message="Expected one aggregate result")
+
+            first_res, cursor_id = query_result[0]
+            env.assertNotEqual(cursor_id, 0, message="Expected non-zero cursor ID after partial timeout")
+            VerifyTimeoutWarningResp3(env, first_res,
+                                      message="initial standalone aggregate cursor reply must warn")
+
+            _assert_aggregate_cursor_total_rows(
+                env, first_res, cursor_id, self.n_docs,
+                'standalone timed-out FT.AGGREGATE WITHCURSOR')
+        finally:
+            resetAggregateResultsDebug(env)
+            env.expect('CONFIG', 'SET', ON_TIMEOUT_CONFIG, prev_policy).ok()
 
     def test_cursor_read_after_initial_timeout(self):
         """

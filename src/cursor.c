@@ -411,35 +411,25 @@ int Cursor_Pause(Cursor *cur) {
   return REDISMODULE_OK;
 }
 
-Cursor *Cursors_TakeForExecutionWithStatus(CursorList *cl, uint64_t cid,
-                                           CursorTakeStatus *status) {
+Cursor *Cursors_TakeForExecution(CursorList *cl, uint64_t cid) {
   CursorList_Lock(cl);
   CursorList_IncrCounter(cl);
 
   Cursor *cur = NULL;
-  CursorTakeStatus takeStatus = CURSOR_TAKE_NOT_FOUND;
   khiter_t iter = kh_get(cursors, cl->lookup, cid);
   if (iter != kh_end(cl->lookup)) {
     cur = kh_value(cl->lookup, iter);
     if (cur->pos == -1) {
-      takeStatus = CURSOR_TAKE_NOT_IDLE;
+      // Cursor is not idle!
       cur = NULL;
     } else {
       // Remove from idle
       Cursor_RemoveFromIdle(cur);
-      takeStatus = CURSOR_TAKE_OK;
     }
   }
 
   CursorList_Unlock(cl);
-  if (status) {
-    *status = takeStatus;
-  }
   return cur;
-}
-
-Cursor *Cursors_TakeForExecution(CursorList *cl, uint64_t cid) {
-  return Cursors_TakeForExecutionWithStatus(cl, cid, NULL);
 }
 
 CursorTimeoutInfo Cursors_PeekTimeoutInfo(CursorList *cl, uint64_t cid) {

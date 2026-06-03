@@ -190,19 +190,6 @@ Cursor *Cursors_Reserve(CursorList *cl, StrongRef global_spec_ref, unsigned time
  */
 Cursor *Cursors_TakeForExecution(CursorList *cl, uint64_t cid);
 
-typedef enum {
-  CURSOR_TAKE_OK,
-  CURSOR_TAKE_NOT_FOUND,
-  CURSOR_TAKE_NOT_IDLE,
-} CursorTakeStatus;
-
-/**
- * Retrieve a cursor for execution and report whether a NULL result means the
- * cursor is missing or temporarily owned by another reader.
- */
-Cursor *Cursors_TakeForExecutionWithStatus(CursorList *cl, uint64_t cid,
-                                           CursorTakeStatus *status);
-
 /**
  * Snapshot of an idle cursor's timeout configuration, returned by
  * Cursors_PeekTimeoutInfo without taking ownership of the cursor.
