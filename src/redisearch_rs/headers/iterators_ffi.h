@@ -211,6 +211,27 @@ QueryIterator *IntoProfiled(QueryIterator *iter);
 QueryIterator *NewMetricIteratorSortedById(t_docId *ids, double *metric_list, size_t num, enum MetricType type_);
 
 /**
+ * Creates an iterator over all geo-encoded index entries within the radius specified by `gf`.
+ *
+ * Geo fields are stored as sorted numeric geohash values. A radius query maps to up to 9
+ * contiguous geohash ranges (the cell containing the centre point and its 8 neighbours).
+ * Each range is queried via the numeric range tree; per-record distance filtering is applied
+ * by `FilterGeoReader` in the `inverted_index` crate.
+ *
+ * # Safety
+ *
+ * 1. `ctx` must be a valid non-NULL pointer to a `RedisSearchCtx`, remaining valid for the
+ *    lifetime of all returned iterators.
+ * 2. `ctx.spec` must be a valid non-NULL pointer to an `IndexSpec`.
+ * 3. `gf` must be a valid non-NULL pointer to a `GeoFilter`.
+ *    - `gf.fieldSpec` must be a valid non-NULL pointer to a `FieldSpec`.
+ *    - `gf.numericFilters` must be NULL on entry; it is populated by this function and
+ *      freed by `GeoFilter_Free`.
+ * 4. `config` must be a valid non-NULL pointer to an `IteratorsConfig`.
+ */
+QueryIterator *NewGeoRangeIterator(const RedisSearchCtx *ctx, GeoFilter *gf, const struct IteratorsConfig *config);
+
+/**
  * Create an optional iterator over `child`, applying shortcircuit reductions where possible.
  *
  * - If `child` is null or an empty iterator, a wildcard iterator is returned instead (all results will be virtual hits).
@@ -245,27 +266,6 @@ bool IsWildcardIterator(const QueryIterator *it);
  * 3. `ctx` must be a valid pointer to a [`ProfilePrintCtx`].
  */
 void Hybrid_PrintProfile(const QueryIterator *self_, struct MapBuilder *map, struct ProfilePrintCtx *ctx);
-
-/**
- * Creates an iterator over all geo-encoded index entries within the radius specified by `gf`.
- *
- * Geo fields are stored as sorted numeric geohash values. A radius query maps to up to 9
- * contiguous geohash ranges (the cell containing the centre point and its 8 neighbours).
- * Each range is queried via the numeric range tree; per-record distance filtering is applied
- * by `FilterGeoReader` in the `inverted_index` crate.
- *
- * # Safety
- *
- * 1. `ctx` must be a valid non-NULL pointer to a `RedisSearchCtx`, remaining valid for the
- *    lifetime of all returned iterators.
- * 2. `ctx.spec` must be a valid non-NULL pointer to an `IndexSpec`.
- * 3. `gf` must be a valid non-NULL pointer to a `GeoFilter`.
- *    - `gf.fieldSpec` must be a valid non-NULL pointer to a `FieldSpec`.
- *    - `gf.numericFilters` must be NULL on entry; it is populated by this function and
- *      freed by `GeoFilter_Free`.
- * 4. `config` must be a valid non-NULL pointer to an `IteratorsConfig`.
- */
-QueryIterator *NewGeoRangeIterator(const RedisSearchCtx *ctx, GeoFilter *gf, const struct IteratorsConfig *config);
 
 /**
  * Creates a new missing-field inverted index iterator.

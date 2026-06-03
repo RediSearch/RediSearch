@@ -20,7 +20,7 @@ use inverted_index::NumericFilter;
 use query_error::QueryErrorCode;
 use rqe_core::DocId;
 use rqe_iterators::{
-    Empty, RQEIteratorPrintable, build_numeric_filter_iterator,
+    Empty, RQEIteratorPrintable, build_geo_range_iterator, build_numeric_filter_iterator,
     c2rust::CRQEIterator,
     id_list::IdListSorted,
     interop::RQEIteratorWrapper,
@@ -170,6 +170,7 @@ pub fn eval_node<'index>(
         QueryNode::Phrase { exact } => eval_phrase(ctx, node, exact),
         QueryNode::Union => Some(eval_union(ctx, node)),
         QueryNode::Numeric { nf } => eval_numeric(ctx, nf),
+        QueryNode::Geo { gf } => eval_geo(ctx, gf),
         // Node types not yet ported to Rust are delegated back to the C
         // dispatcher.
         _ => eval_node_c(ctx, node),
@@ -672,6 +673,42 @@ fn eval_numeric<'index>(
     // 3. `field_ctx.field` is a field index, built as `Index` just above.
     let ptr =
         unsafe { build_numeric_filter_iterator(ctx.sctx(), nf, min_union_iter_heap, &field_ctx) };
+
+    NonNull::new(ptr).map(Evaluated::RustCompound)
+}
+
+/// `QN_GEO` — a geo-radius filter on a geo field.
+///
+/// Validates the geo filter (reporting any error into the query's status), then
+/// builds a union over the matching geohash ranges via
+/// [`build_geo_range_iterator`]. Returns `None` — i.e. no iterator — when
+/// validation fails, the geo index does not exist yet, or no entries match.
+fn eval_geo<'index>(
+    ctx: &'index mut QueryEvalContext,
+    gf: *mut ffi::GeoFilter,
+) -> Option<Evaluated<'index>> {
+    let status = ctx.status_ptr();
+    // SAFETY: `gf` is a valid, non-null `GeoFilter` (well-formed geo node) and
+    // `status` is the query's valid `QueryError` accumulator
+    // (`QueryEvalContext` invariant (2)).
+    if unsafe { ffi::GeoFilter_Validate(gf, status) } == 0 {
+        return None;
+    }
+
+    let sctx = NonNull::from(ctx.sctx());
+    let min_union_iter_heap = ctx.config().min_union_iter_heap as usize;
+
+    // SAFETY: `gf` is valid and, during evaluation, exclusively owned, so a
+    // `&mut` is sound.
+    let gf_ref = unsafe { &mut *gf };
+    // SAFETY: `build_geo_range_iterator` preconditions hold:
+    // 1. `sctx`/`sctx.spec` are valid and outlive the iterator —
+    //    `QueryEvalContext` invariants (1)/(2).
+    // 2. `gf.fieldSpec` is a valid, non-null `FieldSpec` for a geo field
+    //    (well-formed geo node).
+    // 3. `gf.numericFilters` is NULL on entry (freshly parsed geo node) and is
+    //    populated/owned by `gf`, freed by `GeoFilter_Free`.
+    let ptr = unsafe { build_geo_range_iterator(sctx, gf_ref, min_union_iter_heap) };
 
     NonNull::new(ptr).map(Evaluated::RustCompound)
 }
