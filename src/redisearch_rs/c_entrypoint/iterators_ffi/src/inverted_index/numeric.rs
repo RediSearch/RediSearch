@@ -12,84 +12,7 @@ use std::ptr;
 use ffi::{FieldSpec, RSGlobalConfig};
 use field::FieldFilterContext;
 use inverted_index::NumericFilter;
-use rqe_iterator_type::IteratorType;
-use rqe_iterators::{
-    IteratorsConfig, NumericIteratorVariant, open_numeric_or_geo_index, profile_print,
-};
-
-/// Wrapper around [`NumericIteratorVariant`].
-pub(super) struct NumericIterator<'index> {
-    /// The iterator variant (unfiltered, filtered numeric, or geo).
-    iterator: NumericIteratorVariant<'index>,
-}
-
-impl<'index> NumericIterator<'index> {
-    /// Wrap a variant for use by [`crate::inverted_index::geo`].
-    pub(super) const fn new(iterator: NumericIteratorVariant<'index>) -> Self {
-        Self { iterator }
-    }
-}
-
-impl<'index> rqe_iterators::RQEIterator<'index> for NumericIterator<'index> {
-    #[inline(always)]
-    fn current(&mut self) -> Option<&mut index_result::RSIndexResult<'index>> {
-        self.iterator.current()
-    }
-
-    #[inline(always)]
-    fn read(
-        &mut self,
-    ) -> Result<Option<&mut index_result::RSIndexResult<'index>>, rqe_iterators::RQEIteratorError>
-    {
-        self.iterator.read()
-    }
-
-    #[inline(always)]
-    fn skip_to(
-        &mut self,
-        doc_id: u64,
-    ) -> Result<Option<rqe_iterators::SkipToOutcome<'_, 'index>>, rqe_iterators::RQEIteratorError>
-    {
-        self.iterator.skip_to(doc_id)
-    }
-
-    #[inline(always)]
-    fn revalidate(
-        &mut self,
-        spec: &index_spec::IndexSpecReadGuard,
-    ) -> Result<rqe_iterators::RQEValidateStatus<'_, 'index>, rqe_iterators::RQEIteratorError> {
-        self.iterator.revalidate(spec)
-    }
-
-    #[inline(always)]
-    fn rewind(&mut self) {
-        self.iterator.rewind()
-    }
-
-    #[inline(always)]
-    fn num_estimated(&self) -> usize {
-        self.iterator.num_estimated()
-    }
-
-    #[inline(always)]
-    fn last_doc_id(&self) -> u64 {
-        self.iterator.last_doc_id()
-    }
-
-    #[inline(always)]
-    fn at_eof(&self) -> bool {
-        self.iterator.at_eof()
-    }
-
-    #[inline(always)]
-    fn type_(&self) -> IteratorType {
-        IteratorType::InvIdxNumeric
-    }
-
-    fn intersection_sort_weight(&self, _prioritize_union_children: bool) -> f64 {
-        1.0
-    }
-}
+use rqe_iterators::{IteratorsConfig, open_numeric_or_geo_index};
 
 ///
 /// # Safety
@@ -163,15 +86,5 @@ pub unsafe extern "C" fn NewNumericFilterIterator(
     // `build_numeric_filter_iterator`.
     unsafe {
         rqe_iterators::build_numeric_filter_iterator(sctx, flt_ref, min_union_iter_heap, field_ctx)
-    }
-}
-
-impl profile_print::ProfilePrint for NumericIterator<'_> {
-    fn print_profile(
-        &self,
-        map: &mut redis_reply::MapBuilder<'_>,
-        ctx: &mut profile_print::ProfilePrintCtx<'_>,
-    ) {
-        self.iterator.print_profile(map, ctx);
     }
 }

@@ -17,8 +17,6 @@ use rqe_iterators::{
     union_opaque::build_union,
 };
 
-use crate::inverted_index::numeric::NumericIterator;
-
 /// Creates an iterator over all geo-encoded index entries within the radius specified by `gf`.
 ///
 /// Geo fields are stored as sorted numeric geohash values. A radius query maps to up to 9
@@ -66,8 +64,8 @@ pub unsafe extern "C" fn NewGeoRangeIterator(
     let children: Vec<CRQEIterator> = groups
         .into_iter()
         .flat_map(|(_, variants)| {
-            variants.into_iter().map(move |v| {
-                let ptr = RQEIteratorWrapper::boxed_new(NumericIterator::new(v));
+            variants.into_iter().map(move |variant| {
+                let ptr = RQEIteratorWrapper::boxed_new(variant);
                 // SAFETY: `boxed_new` uses `Box::into_raw`, which is guaranteed non-null.
                 let ptr = unsafe { NonNull::new_unchecked(ptr) };
                 // SAFETY: `ptr` is a valid, uniquely-owned `QueryIterator`.
