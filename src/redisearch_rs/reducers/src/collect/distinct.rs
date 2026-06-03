@@ -66,19 +66,21 @@ use value::{SharedValue, Value};
 mod tag {
     /// A `None` slot in the row (field absent for this row).
     pub const ABSENT: u8 = 0x00;
-    /// [`Value::Null`].
+    /// [`value::Value::Null`].
     pub const NULL: u8 = 0x01;
-    /// [`Value::Undefined`].
+    /// [`value::Value::Undefined`].
     pub const UNDEFINED: u8 = 0x02;
-    /// [`Value::String`] / [`Value::RedisString`] / a [`Value::Trio`] `middle`
-    /// resolved to a string. Length-prefixed bytes follow.
+    /// [`value::Value::String`] / [`value::Value::RedisString`] / a
+    /// [`value::Value::Trio`] `middle` resolved to a string. Length-prefixed
+    /// bytes follow.
     pub const STRING: u8 = 0x03;
-    /// [`Value::Number`], encoded via `num_to_str`. Length-prefixed bytes follow.
+    /// [`value::Value::Number`], encoded via `num_to_str`. Length-prefixed
+    /// bytes follow.
     pub const NUMBER: u8 = 0x04;
-    /// [`Value::Array`]. A length-prefixed count of recursively-encoded elements
-    /// follows.
+    /// [`value::Value::Array`]. A length-prefixed count of recursively-encoded
+    /// elements follows.
     pub const ARRAY: u8 = 0x05;
-    /// [`Value::Map`]. A length-prefixed count of recursively-encoded
+    /// [`value::Value::Map`]. A length-prefixed count of recursively-encoded
     /// `(key, value)` pairs follows.
     pub const MAP: u8 = 0x06;
 }
