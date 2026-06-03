@@ -44,7 +44,10 @@ fn enc(values: &[Option<SharedValue>]) -> Box<[u8]> {
 }
 
 #[test]
-#[cfg_attr(miri, ignore = "encodes a number via `num_to_str`, which calls C `snprintf`")]
+#[cfg_attr(
+    miri,
+    ignore = "encodes a number via `num_to_str`, which calls C `snprintf`"
+)]
 fn identical_rows_collapse() {
     assert_eq!(enc(&[s("apple"), n(5.0)]), enc(&[s("apple"), n(5.0)]));
 }
@@ -55,7 +58,10 @@ fn differing_strings_do_not_collapse() {
 }
 
 #[test]
-#[cfg_attr(miri, ignore = "encodes a number via `num_to_str`, which calls C `snprintf`")]
+#[cfg_attr(
+    miri,
+    ignore = "encodes a number via `num_to_str`, which calls C `snprintf`"
+)]
 fn differing_numbers_do_not_collapse() {
     assert_ne!(enc(&[n(5.0)]), enc(&[n(6.0)]));
 }
@@ -82,14 +88,20 @@ fn absent_null_and_empty_string_are_distinct() {
 }
 
 #[test]
-#[cfg_attr(miri, ignore = "encodes a number via `num_to_str`, which calls C `snprintf`")]
+#[cfg_attr(
+    miri,
+    ignore = "encodes a number via `num_to_str`, which calls C `snprintf`"
+)]
 fn number_and_numeric_string_are_distinct() {
     // Accepted divergence from RSValue_Cmp: no number↔string coercion.
     assert_ne!(enc(&[n(5.0)]), enc(&[s("5")]));
 }
 
 #[test]
-#[cfg_attr(miri, ignore = "encodes a number via `num_to_str`, which calls C `snprintf`")]
+#[cfg_attr(
+    miri,
+    ignore = "encodes a number via `num_to_str`, which calls C `snprintf`"
+)]
 fn integral_floats_normalize() {
     // 5 and 5.0 are the same f64 and num_to_str renders both as "5".
     assert_eq!(enc(&[n(5.0)]), enc(&[n(5.0)]));
@@ -117,7 +129,10 @@ fn maps_dedup_by_content_not_all_collapse() {
 }
 
 #[test]
-#[cfg_attr(miri, ignore = "encodes numbers via `num_to_str`, which calls C `snprintf`")]
+#[cfg_attr(
+    miri,
+    ignore = "encodes numbers via `num_to_str`, which calls C `snprintf`"
+)]
 fn arrays_encode_elementwise() {
     let a1 = Some(SharedValue::new_array(vec![
         SharedValue::new_num(1.0),
@@ -136,7 +151,10 @@ fn arrays_encode_elementwise() {
 }
 
 #[test]
-#[cfg_attr(miri, ignore = "encodes a number via `num_to_str`, which calls C `snprintf`")]
+#[cfg_attr(
+    miri,
+    ignore = "encodes a number via `num_to_str`, which calls C `snprintf`"
+)]
 fn distinct_row_eq_and_hash_agree_over_real_rows() {
     fn distinct_row(key: &RLookupKey<'_>, v: f64) -> DistinctRow {
         let mut row = RLookupRow::new();
@@ -205,18 +223,21 @@ fn distinct_insert(
     s: &RLookupKey<'static>,
     group: &str,
     sort: f64,
-) -> bool {
+) {
     let group = group.to_owned();
     storage.insert_distinct_entry(
         || vec![Some(SharedValue::new_num(sort))].into_boxed_slice(),
         (),
         || group_row(g, &group, s, sort),
         |row| encode_value_refs([row.get(g).map(|v| &**v)]),
-    )
+    );
 }
 
 #[test]
-#[cfg_attr(miri, ignore = "encodes a number via `num_to_str`, which calls C `snprintf`")]
+#[cfg_attr(
+    miri,
+    ignore = "encodes a number via `num_to_str`, which calls C `snprintf`"
+)]
 fn distinct_keeps_best_representative_per_sort_key() {
     let g = make_key(c"g", 0);
     let s = make_key(c"s", 1);
@@ -236,7 +257,10 @@ fn distinct_keeps_best_representative_per_sort_key() {
 }
 
 #[test]
-#[cfg_attr(miri, ignore = "encodes a number via `num_to_str`, which calls C `snprintf`")]
+#[cfg_attr(
+    miri,
+    ignore = "encodes a number via `num_to_str`, which calls C `snprintf`"
+)]
 fn distinct_keeps_best_when_better_arrives_first() {
     // Mirror of `distinct_keeps_best_representative_per_sort_key` but with the
     // BETTER representative inserted FIRST, then the worse duplicate. This is
@@ -257,7 +281,10 @@ fn distinct_keeps_best_when_better_arrives_first() {
 }
 
 #[test]
-#[cfg_attr(miri, ignore = "encodes a number via `num_to_str`, which calls C `snprintf`")]
+#[cfg_attr(
+    miri,
+    ignore = "encodes a number via `num_to_str`, which calls C `snprintf`"
+)]
 fn distinct_collapses_duplicate_projected_fields() {
     let g = make_key(c"g", 0);
     let s = make_key(c"s", 1);
@@ -274,7 +301,10 @@ fn distinct_collapses_duplicate_projected_fields() {
 }
 
 #[test]
-#[cfg_attr(miri, ignore = "encodes a number via `num_to_str`, which calls C `snprintf`")]
+#[cfg_attr(
+    miri,
+    ignore = "encodes a number via `num_to_str`, which calls C `snprintf`"
+)]
 fn distinct_bounded_eviction_keeps_top_k_groups() {
     let g = make_key(c"g", 0);
     let s = make_key(c"s", 1);
@@ -291,7 +321,10 @@ fn distinct_bounded_eviction_keeps_top_k_groups() {
 }
 
 #[test]
-#[cfg_attr(miri, ignore = "seed insert encodes a number via `num_to_str`, which calls C `snprintf`")]
+#[cfg_attr(
+    miri,
+    ignore = "seed insert encodes a number via `num_to_str`, which calls C `snprintf`"
+)]
 fn distinct_doomed_candidate_skips_projection() {
     let g = make_key(c"g", 0);
     let s = make_key(c"s", 1);
@@ -304,7 +337,7 @@ fn distinct_doomed_candidate_skips_projection() {
     // `project` nor `dedup_from_row` may run (deferred projection).
     let projected = Cell::new(false);
     let dedup_called = Cell::new(false);
-    let retained = storage.insert_distinct_entry(
+    storage.insert_distinct_entry(
         || vec![Some(SharedValue::new_num(1.0))].into_boxed_slice(),
         (),
         || {
@@ -317,13 +350,15 @@ fn distinct_doomed_candidate_skips_projection() {
         },
     );
 
-    assert!(!retained, "doomed candidate must be dropped");
     assert!(!projected.get(), "doomed candidate must not be projected");
     assert!(!dedup_called.get(), "doomed candidate must not be hashed");
 }
 
 #[test]
-#[cfg_attr(miri, ignore = "encodes a number via `num_to_str`, which calls C `snprintf`")]
+#[cfg_attr(
+    miri,
+    ignore = "encodes a number via `num_to_str`, which calls C `snprintf`"
+)]
 fn distinct_drain_applies_offset_and_count() {
     let g = make_key(c"g", 0);
     let s = make_key(c"s", 1);
@@ -363,7 +398,10 @@ fn output_field(out: &SharedValue, field: &[u8]) -> Vec<String> {
 }
 
 #[test]
-#[cfg_attr(miri, ignore = "encodes a number via `num_to_str`, which calls C `snprintf`")]
+#[cfg_attr(
+    miri,
+    ignore = "encodes a number via `num_to_str`, which calls C `snprintf`"
+)]
 fn reducer_distinct_dedups_on_field_excluding_sort_key() {
     // REDUCE COLLECT FIELDS 1 @name SORTBY 1 @sweetness DESC DISTINCT
     let name = make_key(c"name", 0);
@@ -399,7 +437,10 @@ fn reducer_distinct_dedups_on_field_excluding_sort_key() {
 }
 
 #[test]
-#[cfg_attr(miri, ignore = "encodes a number via `num_to_str`, which calls C `snprintf`")]
+#[cfg_attr(
+    miri,
+    ignore = "encodes a number via `num_to_str`, which calls C `snprintf`"
+)]
 fn reducer_distinct_internal_emits_winning_sort_value() {
     // Regression: on the shard→coordinator path (`is_internal`) the emitted
     // payload carries the SORTBY columns. When a better duplicate replaces an

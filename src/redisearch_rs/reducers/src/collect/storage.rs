@@ -124,8 +124,6 @@ impl<D: Ord> Storage<D> {
     ///   retained (i.e. on the heap path, only when the candidate beats
     ///   the current worst).
     ///
-    /// Returns `true` if the entry was buffered, `false` if it was dropped.
-    ///
     /// `doc_id` is only consulted on heap-backed paths, where it acts as a
     /// deterministic tie-breaker when sort keys compare equal. Callers
     /// that don't need tie-breaking instantiate `Storage<()>` and pass
@@ -134,7 +132,7 @@ impl<D: Ord> Storage<D> {
     /// This is the non-DISTINCT entry point ([`Self::Array`] / [`Self::Heap`]).
     /// The DISTINCT path ([`Self::DistinctHeap`]) must call
     /// [`Self::insert_distinct_entry`] instead.
-    pub fn insert_entry<S, P>(&mut self, sort_vals: S, doc_id: D, project: P) -> bool
+    pub fn insert_entry<S, P>(&mut self, sort_vals: S, doc_id: D, project: P)
     where
         S: FnOnce() -> Box<[Option<SharedValue>]>,
         P: FnOnce() -> RLookupRow<'static>,
@@ -146,9 +144,6 @@ impl<D: Ord> Storage<D> {
                 let max_size = offset.saturating_add(*count);
                 if buf.len() < max_size {
                     buf.push(project());
-                    true
-                } else {
-                    false
                 }
             }
             Self::Heap {
@@ -160,12 +155,11 @@ impl<D: Ord> Storage<D> {
                 let max_size = offset.saturating_add(*count);
                 let make_key = |sort_vals: S| EntryKey::new(sort_vals(), *sort_asc_map, doc_id);
                 if max_size == 0 {
-                    return false;
+                    return;
                 }
                 if heap.len() < max_size {
                     let key = make_key(sort_vals);
                     heap.push(HeapEntry::new(key, project()));
-                    true
                 } else {
                     let cand_key = make_key(sort_vals);
                     // `peek_min` returns the worst surviving candidate
@@ -175,9 +169,6 @@ impl<D: Ord> Storage<D> {
                     let worst = heap.peek_min().expect("heap at cap is non-empty");
                     if cand_key > *worst.key() {
                         heap.push_pop_min(HeapEntry::new(cand_key, project()));
-                        true
-                    } else {
-                        false
                     }
                 }
             }
@@ -186,16 +177,13 @@ impl<D: Ord> Storage<D> {
     }
 
     /// Insert an entry into DISTINCT storage.
-    ///
-    /// Returns `true` if the entry was buffered, `false` if it was dropped.
     pub fn insert_distinct_entry<S, P, K>(
         &mut self,
         sort_vals: S,
         doc_id: D,
         project: P,
         dedup_from_row: K,
-    ) -> bool
-    where
+    ) where
         S: FnOnce() -> Box<[Option<SharedValue>]>,
         P: FnOnce() -> RLookupRow<'static>,
         K: FnOnce(&RLookupRow<'static>) -> Box<[u8]>,
@@ -209,15 +197,15 @@ impl<D: Ord> Storage<D> {
             } => {
                 let max_size = offset.saturating_add(*count);
                 if max_size == 0 {
-                    return false;
+                    return;
                 }
                 let cand_key = EntryKey::new(sort_vals(), *sort_asc_map, doc_id);
                 // If the heap is full and the candidate is no better than the
                 // current worst, drop it.
                 if pq.len() >= max_size {
-                    let worst = pq.peek_min().expect("pq at cap is non-empty").1;
-                    if cand_key <= *worst {
-                        return false;
+                    let worst_key = pq.peek_min().expect("pq at cap is non-empty").1;
+                    if cand_key <= *worst_key {
+                        return;
                     }
                 }
                 // Project and derive its dedup identity from the projected row.
@@ -244,7 +232,6 @@ impl<D: Ord> Storage<D> {
                         }
                     }
                 }
-                true
             }
             Self::Array { .. } | Self::Heap { .. } => {
                 unreachable!("insert_distinct_entry called on non-DISTINCT storage")
