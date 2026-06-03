@@ -255,12 +255,12 @@ mod tests {
     use super::*;
     use std::ffi::CString;
 
-    /// Build a [`RedisString`] whose backing bytes live in the caller's `CString`.
+    /// Build a [`RedisString`] from `bytes`.
     ///
-    /// The mock `RedisModule_CreateString` stores the pointer, not a copy, so
-    /// `bytes` must outlive the returned [`RedisString`].
+    /// The mock `RedisModule_CreateString` copies its input, so `bytes` need not
+    /// outlive the returned [`RedisString`].
     fn make_string(bytes: &CString) -> RedisString {
-        // Safety: `bytes` outlives the returned `RedisString` (caller-controlled).
+        // Safety: `bytes` is valid for the duration of the `from_raw_parts` call.
         unsafe { RedisString::from_raw_parts(None, bytes.as_ptr(), bytes.as_bytes().len()) }
     }
 
