@@ -93,30 +93,49 @@ jobs:
                   emit(False)
               pr_number = os.environ["LABELED_PR_NUMBER"]
               head_sha = os.environ["LABELED_HEAD_SHA"]
+              pr_data = gh_api(f"/repos/{repo}/pulls/{pr_number}") or {}
+              # Re-check that the label is still present at job-run time.
+              # The labeled event only tells us the label was *added*; a
+              # maintainer could remove it before this queued job runs, and
+              # we shouldn't post triage on a PR that's no longer opted in.
+              current_labels = {l.get("name") for l in pr_data.get("labels", [])}
+              if label not in current_labels:
+                  print(f"PR #{pr_number} no longer has '{label}' label; skipping.")
+                  emit(False, pr_number)
               # The label event freezes head_sha at label-application time. If
               # a new commit lands before this job runs, skip rather than
               # triage a run the PR has already moved past — same freshness
               # guarantee as the workflow_run path.
-              pr_data = gh_api(f"/repos/{repo}/pulls/{pr_number}") or {}
               current_head_sha = (pr_data.get("head") or {}).get("sha")
               if current_head_sha and current_head_sha != head_sha:
                   print(f"PR #{pr_number} has moved from labeled SHA {head_sha} to {current_head_sha}; skipping stale triage.")
                   emit(False, pr_number)
               # Look at the most recent Pull Request Flow run for this head
-              # SHA. API returns workflow_runs newest-first, so only triage
-              # if the *latest* run is failed — otherwise a re-run to green
-              # would still surface a stale failure comment.
+              # SHA *that belongs to this PR*. The head_sha filter alone can
+              # match unrelated PRs (e.g. parallel PRs against different base
+              # branches from the same fork commit), so filter by the run's
+              # pull_requests list (populated for same-repo PRs) or by the
+              # run's head_repository (for fork PRs where pull_requests is
+              # empty). API returns workflow_runs newest-first, so only
+              # triage if the *latest* matching run is failed.
               runs = gh_api(
                   f"/repos/{repo}/actions/workflows/event-pull_request.yml/runs"
                   f"?head_sha={head_sha}&per_page=20"
               ) or {}
-              runs_list = runs.get("workflow_runs", [])
+              pr_head_repo = ((pr_data.get("head") or {}).get("repo") or {}).get("full_name")
+              def run_matches_pr(run):
+                  pulls = run.get("pull_requests") or []
+                  if any(p.get("number") == int(pr_number) for p in pulls):
+                      return True
+                  run_head_repo = (run.get("head_repository") or {}).get("full_name")
+                  return bool(pr_head_repo) and pr_head_repo == run_head_repo
+              runs_list = [r for r in runs.get("workflow_runs", []) if run_matches_pr(r)]
               if not runs_list:
-                  print(f"No Pull Request Flow run found for {head_sha}.")
+                  print(f"No Pull Request Flow run for PR #{pr_number} at {head_sha}.")
                   emit(False, pr_number)
               latest = runs_list[0]
               if latest.get("conclusion") not in ("failure", "cancelled", "timed_out"):
-                  print(f"Latest Pull Request Flow run for {head_sha} concluded as '{latest.get('conclusion')}'; skipping.")
+                  print(f"Latest Pull Request Flow run for PR #{pr_number} at {head_sha} concluded as '{latest.get('conclusion')}'; skipping.")
                   emit(False, pr_number)
               run_id = latest["id"]
               run_attempt = latest.get("run_attempt", 1)
@@ -156,17 +175,6 @@ jobs:
           run_head_sha = os.environ.get("WORKFLOW_RUN_HEAD_SHA", "")
           if current_head_sha and run_head_sha and current_head_sha != run_head_sha:
               print(f"PR #{pr_number} has moved to {current_head_sha}; skipping stale run {run_head_sha}.")
-              emit(False, pr_number)
-          # Skip fork-PR workflow_run triggers: github.actor here is the fork
-          # author (non-collaborator), and codex-ci-triage's actor gate will
-          # refuse to run Codex, producing no triage output. The
-          # pull_request_target: labeled path still works for fork PRs
-          # (actor = maintainer applying the label), so maintainers can
-          # re-apply the label after each failure to re-trigger triage.
-          head_repo = ((pr_data.get("head") or {}).get("repo") or {}).get("full_name")
-          base_repo = ((pr_data.get("base") or {}).get("repo") or {}).get("full_name")
-          if head_repo and base_repo and head_repo != base_repo:
-              print(f"PR #{pr_number} is from fork {head_repo}; skipping workflow_run-triggered triage. Re-add the '{label}' label to retrigger via pull_request_target.")
               emit(False, pr_number)
           run_attempt = os.environ.get("WORKFLOW_RUN_ATTEMPT") or "1"
           print(f"PR #{pr_number}: triaging failed run {os.environ['WORKFLOW_RUN_ID']} (attempt {run_attempt}).")
@@ -228,6 +236,13 @@ jobs:
         with:
           openai-api-key: ${{ secrets.CI_TRIAGE_OPENAI_API_KEY }}
           prompt-file: .github/codex/prompts/pr-validation-triage.md
+          # Whitelist the source-run actor so fork-PR workflow_run triggers
+          # bypass codex-ci-triage's collaborator gate. Safe because the
+          # maintainer-applied `triage-pr` label is the primary opt-in; if
+          # the label is removed, this workflow's resolve step short-circuits
+          # before Codex ever runs. Empty for pull_request_target events
+          # (the maintainer applying the label is already a collaborator).
+          allow-users: ${{ github.event.workflow_run.actor.login }}
 
       - name: Upsert PR comment
         if: ${{ steps.ai_triage.outputs.triage-exists == 'true' }}
