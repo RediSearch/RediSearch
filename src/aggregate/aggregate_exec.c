@@ -1935,6 +1935,14 @@ int AREQ_StartCursor(AREQ *r, RedisModule_Reply *reply, StrongRef spec_ref, Quer
 static void runCursor(RedisModule_Reply *reply, Cursor *cursor, size_t num) {
   AREQ *req = cursor->execState;
   AREQ_ProfilePrinterCtx(req)->cursor_reads++;
+  // Re-apply the foreground cap on every READ: the limit / WORKERS knobs may
+  // change between cursor creation and this read, and the AREQ's reqConfig is
+  // otherwise reused verbatim from AREQ_Compile time. Setting the cap flag is
+  // sticky (cleared by nothing) because once the stored timeout has been
+  // truncated, subsequent reads still serve capped state.
+  if (RSConfig_CapQueryTimeoutToForegroundLimit(&req->reqConfig.queryTimeoutMS)) {
+    req->stateflags |= QEXEC_S_MAX_TIMEOUT_CAPPED;
+  }
   // Skip when useReplyCallback is set (coord+FAIL): the deadline is owned by
   // the blocked-client timer, armed by buildPipelineAndExecute (initial
   // WITHCURSOR) or CursorCommand (subsequent READ).

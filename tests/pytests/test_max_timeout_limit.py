@@ -210,3 +210,33 @@ def test_per_query_no_cap_when_limit_disabled():
     res = env.cmd('FT.SEARCH', 'idx', '*', 'TIMEOUT', str(2**31), 'NOCONTENT')
     env.assertNotContains(CAP_WARNING, _get_warnings(res),
                           message=f"FT.SEARCH should not warn with limit disabled, got: {res}")
+
+
+# ---------------------------- Cursor capping --------------------------------
+#
+# Cursors cache the resolved timeout on the AREQ at WITHCURSOR time, so a
+# limit tightened after cursor creation must still cap on subsequent reads.
+# runCursor re-applies RSConfig_CapQueryTimeoutToForegroundLimit on every
+# FT.CURSOR READ and the QEXEC_S_MAX_TIMEOUT_CAPPED flag is sticky once set.
+
+def test_cursor_read_caps_after_limit_tightened():
+    env = Env(protocol=3, moduleArgs='WORKERS 0 TIMEOUT 100 _MAX_FOREGROUND_TIMEOUT_LIMIT 0')
+    _setup_hybrid_index(env)
+    # FT.AGGREGATE WITHCURSOR returns a 2-element array [<results map>, <cursor_id>]
+    # in RESP3. Unwrap it before pulling warnings.
+    res = env.cmd('FT.AGGREGATE', 'idx', '*',
+                  'LOAD', '1', '@t',
+                  'TIMEOUT', '5000',
+                  'WITHCURSOR', 'COUNT', '1')
+    results_map, cursor_id = res[0], res[1]
+    # Open a cursor with a large TIMEOUT while the cap is disabled — the
+    # initial reply must not carry the warning.
+    env.assertNotContains(CAP_WARNING, _get_warnings(results_map),
+                          message=f"Initial WITHCURSOR reply should not warn while limit is 0, got: {res}")
+    # Tighten the limit below the cached cursor TIMEOUT and read again.
+    env.expect('CONFIG', 'SET', 'search-_max-foreground-timeout-limit', '1000').ok()
+    res = env.cmd('FT.CURSOR', 'READ', 'idx', cursor_id)
+    results_map = res[0]
+    env.assertContains(CAP_WARNING, _get_warnings(results_map),
+                       message=f"FT.CURSOR READ expected MAX_TIMEOUT_CAPPED warning after "
+                               f"limit tightened, got: {res}")
