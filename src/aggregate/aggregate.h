@@ -178,8 +178,14 @@ typedef struct RequestSyncCtx {
   // Reference count for shared ownership between timeout callback (main thread) and background thread
   uint8_t refcount;
 
+  /* Partial-timeout coordination. The CAS claim grants exclusive ownership of
+   * the result-production phase: the BG-thread winner runs AggregateResults
+   * and stores results, while the timeout-callback winner preempts BG (BG
+   * bails at its post-claim check) and replies empty without running the
+   * pipeline. The loser waits for the winner's completion signal.
+   * Gated by `requiresAggregateResultsSync`. */
   bool requiresAggregateResultsSync;     // Enable CAS/Signal/Wait around AggregateResults
-  RS_Atomic(bool) aggregatingResults;    // CAS claim: BG winner runs the pipeline
+  RS_Atomic(bool) aggregatingResults;    // CAS claim: BG winner runs the pipeline; timeout-callback winner skips it and replies empty
   bool aggregateResultsClaimLost;        // BG lost the CAS claim to the timeout callback
   bool aggregateResultsDone;             // Set at completion; guarded by aggregateResultsLock
   pthread_mutex_t aggregateResultsLock;
@@ -562,10 +568,17 @@ bool areq_timed_out(void *arg);
  * stable symbol that LTO can inline through. */
 bool AREQ_CheckTimedOut(AREQ *areq);
 
+/* True when this AREQ uses the BG-thread / timeout-callback claim handshake
+ * around AggregateResults (TryClaim/Signal/Wait). Set on coordinator AREQs
+ * under RETURN_STRICT, and on shard/standalone AREQs for RETURN_STRICT
+ * cursor reads; all other paths skip the protocol. */
 static inline bool AREQ_RequiresThreadsSyncResults(const AREQ *req) {
   return req->syncCtx.requiresAggregateResultsSync;
 }
 
+/* TryClaim: atomic CAS on `aggregatingResults`; winner runs AggregateResults.
+ * Signal: called by winner at completion. Wait: called by loser, blocks until Signal.
+ * Exactly one of {BG thread, timeout callback} wins. */
 bool AREQ_TryClaimAggregateResults(AREQ *req);
 void AREQ_SignalAggregateResultsComplete(AREQ *req);
 void AREQ_WaitForAggregateResultsComplete(AREQ *req);

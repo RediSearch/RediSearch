@@ -396,7 +396,7 @@ static inline void debugPauseStoreResults(AREQ *req, bool before) {
   UNUSED(before);
 }
 #endif
-static bool startPipeline(AREQ *req, ResultProcessor *rp, SearchResult ***results, SearchResult *r,
+static void startPipeline(AREQ *req, ResultProcessor *rp, SearchResult ***results, SearchResult *r,
                           int *rc) {
   CommonPipelineCtx ctx = {
     .timeoutPolicy = req->reqConfig.timeoutPolicy,
@@ -418,18 +418,17 @@ static bool startPipeline(AREQ *req, ResultProcessor *rp, SearchResult ***result
       // clean up the cursor in runCursor.
       req->syncCtx.aggregateResultsClaimLost = true;
       *rc = RS_RESULT_TIMEDOUT;
-      return false;
+      return;
     }
     if (AREQ_TimedOut(req)) {
       // We claimed the sync phase, but timeout was already signaled. Store a
       // timed-out cursor-shaped reply and wake the timeout callback.
       *rc = RS_RESULT_TIMEDOUT;
-      return true;
+      return;
     }
   }
 
   startPipelineCommon(&ctx, rp, results, r, rc);
-  return true;
 }
 
 
@@ -718,7 +717,7 @@ done_2:
 /**
  * Sends a chunk of <n> rows in the resp2 format
  */
-static bool sendChunk_Resp2(AREQ *req, RedisModule_Reply *reply, size_t limit,
+static void sendChunk_Resp2(AREQ *req, RedisModule_Reply *reply, size_t limit,
   cachedVars cv) {
     SearchResult r = SearchResult_New();
     int rc = RS_RESULT_EOF;
@@ -733,12 +732,12 @@ static bool sendChunk_Resp2(AREQ *req, RedisModule_Reply *reply, size_t limit,
       .cursor_done = false
     };
 
-    bool workerOwnsResults = startPipeline(req, rp, &state.results, &r, &rc);
+    startPipeline(req, rp, &state.results, &r, &rc);
 
     if (req->useReplyCallback) {
-      if (!workerOwnsResults) {
+      if (req->syncCtx.aggregateResultsClaimLost) {
         SearchResult_Destroy(&r);
-        return false;
+        return;
       }
 
       // Store results for reply_callback (includes cv and limit)
@@ -753,7 +752,7 @@ static bool sendChunk_Resp2(AREQ *req, RedisModule_Reply *reply, size_t limit,
 
       // Destroy unused SearchResult
       SearchResult_Destroy(&r);
-      return true;
+      return;
     }
 
     state.r = &r;
@@ -765,7 +764,6 @@ static bool sendChunk_Resp2(AREQ *req, RedisModule_Reply *reply, size_t limit,
     if (state.resultsLen != REDISMODULE_POSTPONED_ARRAY_LEN && rc == RS_RESULT_OK && state.resultsLen != state.nelem) {
       RS_LOG_ASSERT_FMT(false, "Failed to predict the number of replied results. Prediction=%ld, actual_number=%ld.", state.resultsLen, state.nelem);
     }
-    return true;
 }
 
 static void _replyWarnings(AREQ *req, RedisModule_Reply *reply, int rc) {
@@ -941,7 +939,7 @@ done_3:
 /**
  * Sends a chunk of <n> rows in the resp3 format
  */
-static bool sendChunk_Resp3(AREQ *req, RedisModule_Reply *reply, size_t limit,
+static void sendChunk_Resp3(AREQ *req, RedisModule_Reply *reply, size_t limit,
   cachedVars cv) {
     SearchResult r = SearchResult_New();
     int rc = RS_RESULT_EOF;
@@ -955,12 +953,12 @@ static bool sendChunk_Resp3(AREQ *req, RedisModule_Reply *reply, size_t limit,
       .resultsLen = 0,         // Unused in RESP3
     };
 
-    bool workerOwnsResults = startPipeline(req, rp, &state.results, &r, &rc);
+    startPipeline(req, rp, &state.results, &r, &rc);
 
     if (req->useReplyCallback) {
-      if (!workerOwnsResults) {
+      if (req->syncCtx.aggregateResultsClaimLost) {
         SearchResult_Destroy(&r);
-        return false;
+        return;
       }
 
       // Store results for reply_callback (includes cv and limit)
@@ -975,7 +973,7 @@ static bool sendChunk_Resp3(AREQ *req, RedisModule_Reply *reply, size_t limit,
 
       // Destroy unused SearchResult
       SearchResult_Destroy(&r);
-      return true;
+      return;
     }
 
     state.r = &r;
@@ -983,7 +981,6 @@ static bool sendChunk_Resp3(AREQ *req, RedisModule_Reply *reply, size_t limit,
     rc = serializeAndReplyResults_Resp3(req, reply, rp, qctx, rc, &cv, &state);
 
     finishSendChunk(req, state.results, &r, state.cursor_done);
-    return true;
 }
 
 /**
@@ -1984,6 +1981,9 @@ int AREQ_StartCursor(AREQ *r, RedisModule_Reply *reply, StrongRef spec_ref, Quer
 static void runCursor(RedisModule_Reply *reply, Cursor *cursor, size_t num) {
   AREQ *req = cursor->execState;
   AREQ_ProfilePrinterCtx(req)->cursor_reads++;
+  // Skip when useReplyCallback is set (FAIL or RETURN_STRICT): the deadline is owned by
+  // the blocked-client timer, armed by buildPipelineAndExecute (initial
+  // WITHCURSOR) or CursorCommand (subsequent READ).
   if (!req->useReplyCallback) {
     SearchCtx_UpdateTime(AREQ_SearchCtx(req), req->reqConfig.queryTimeoutMS);
   }
