@@ -22,6 +22,7 @@ use rqe_iterators::{
     id_list::IdListSorted,
     interop::RQEIteratorWrapper,
     inverted_index::new_missing_iterator,
+    not_reducer::{NewNotIterator, new_not_iterator},
     optional_reducer::{NewOptionalIterator, new_optional_iterator},
 };
 
@@ -159,6 +160,7 @@ pub fn eval_node<'index>(
         QueryNode::Ids { keys, doc_ids } => Some(eval_ids(ctx, keys, doc_ids)),
         QueryNode::Missing { field } => eval_missing(ctx, field).map(Evaluated::RustLeaf),
         QueryNode::Optional => Some(eval_optional(ctx, node)),
+        QueryNode::Not => Some(eval_not(ctx, node)),
         // Node types not yet ported to Rust are delegated back to the C
         // dispatcher.
         _ => eval_node_c(ctx, node),
@@ -389,6 +391,62 @@ fn eval_optional<'index>(
         NewOptionalIterator::OptionalOptimized(opt) => Evaluated::RustCompound(
             NonNull::new(RQEIteratorWrapper::boxed_new_compound(opt))
                 .expect("optional iterator must not be null"),
+        ),
+    }
+}
+
+/// `QN_NOT` — logical negation: matches every document *not* matched by its
+/// single child.
+fn eval_not<'index>(ctx: &'index mut QueryEvalContext, node: &QueryNodeRef) -> Evaluated<'index> {
+    debug_assert_eq!(
+        node.num_children(),
+        1,
+        "a not node must have exactly one child"
+    );
+
+    // Evaluate the child with the "not-subtree" flag set. A NOT only cares
+    // *whether* a document matches its child, never the child's score, so any
+    // descendant `UNION` may stop at its first matching branch instead of
+    // visiting every branch to accumulate a score. Setting the flag lets those
+    // unions take that cheaper quick exit path.
+    //
+    // The previous value is saved and restored rather than just cleared: NOT
+    // nodes can nest (e.g. `-(-foo)`), and the outer NOT must keep the flag set
+    // while the inner one is being evaluated and after it returns.
+    let prev_not_subtree = ctx.set_not_subtree(true);
+    let child_node = node.child(0);
+    let child = eval_child_iterator(ctx, &child_node);
+    ctx.set_not_subtree(prev_not_subtree);
+
+    // SAFETY: the preconditions of `new_not_iterator` map to
+    // `QueryEvalContext::new` invariants:
+    // 1. `query` is a valid, non-null `QueryEvalCtx` — invariant (1).
+    // 2. `query.sctx` is valid and non-null — invariant (2).
+    // 3. `query.sctx.spec` is valid and non-null — invariant (2).
+    // 4. `spec.rule`, when non-null, is a valid `SchemaRule` — part of (1).
+    // 5. The wildcard-iterator preconditions hold for the same reasons
+    //    as in `eval_wildcard` (a properly initialised spec with its
+    //    `existingDocs` index, valid `docTable`, and
+    //    `diskSpec`/`SEARCH_ENTERPRISE_ITERATORS` when on disk).
+    let outcome = unsafe {
+        new_not_iterator(
+            child,
+            ctx.max_doc_id(),
+            node.opts().weight,
+            ctx.build_timeout_context(),
+            ctx.as_non_null(),
+        )
+    };
+    match outcome {
+        NewNotIterator::ReducedWildcard(wc) => Evaluated::RustLeaf(Box::new(wc)),
+        NewNotIterator::ReducedEmpty(empty) => Evaluated::RustLeaf(Box::new(empty)),
+        NewNotIterator::Not(it) => Evaluated::RustCompound(
+            NonNull::new(RQEIteratorWrapper::boxed_new_compound(it))
+                .expect("not iterator must not be null"),
+        ),
+        NewNotIterator::NotOptimized(it) => Evaluated::RustCompound(
+            NonNull::new(RQEIteratorWrapper::boxed_new_compound(it))
+                .expect("not iterator must not be null"),
         ),
     }
 }

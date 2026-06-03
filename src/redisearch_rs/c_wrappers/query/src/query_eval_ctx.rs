@@ -14,7 +14,11 @@ use std::ptr::NonNull;
 use query_flags::QEFlags;
 use rlookup::MetricRequest;
 use rqe_core::DocId;
-use rqe_iterators::IteratorsConfig;
+use rqe_iterators::{
+    IteratorsConfig,
+    not_reducer::TIMEOUT_CHECK_GRANULARITY,
+    utils::{AnyTimeoutContext, TimeoutContextBlockedClient},
+};
 use search_disk::SearchDiskHandle;
 
 /// Safe wrapper around [`ffi::QueryEvalCtx`].
@@ -48,6 +52,14 @@ impl QueryEvalContext {
     /// 2. All pointer fields within the [`ffi::QueryEvalCtx`] (`sctx`, `opts`,
     ///    `status`, `metricRequestsP`, `docTable`, `config`) and the nested
     ///    `sctx.spec` pointer must themselves be valid, non-null pointers.
+    ///    The nested `sctx.spec.diskSpec` pointer may be null (in-memory mode);
+    ///    when non-null it must point to a valid
+    ///    [`RedisSearchDiskIndexSpec`](ffi::RedisSearchDiskIndexSpec).
+    ///    `bcTimeoutAreq` may be null; when non-null it must point to a valid
+    ///    [`AREQ`](ffi::AREQ) that stays valid not just for the lifetime of the returned
+    ///    context, but for the lifetime of every timeout context and iterator
+    ///    derived from it (e.g. via
+    ///    [`build_timeout_context`](QueryEvalContext::build_timeout_context)).
     /// 3. The caller must have exclusive access to the pointer for the
     ///    lifetime of the returned [`QueryEvalContext`].
     ///
@@ -187,5 +199,38 @@ impl QueryEvalContext {
         let prev = inner.notSubtree;
         inner.notSubtree = value;
         prev
+    }
+
+    /// Build the [`AnyTimeoutContext`] a query iterator should use for this
+    /// evaluation.
+    ///
+    /// When a Blocked Client Timeout request is wired into the context
+    /// (`bcTimeoutAreq` non-null) the iterator polls that request's timeout
+    /// flag. Otherwise the Clock Based Timeout (or [`NoTimeout`], when timeout
+    /// checks are skipped or no deadline is set) is derived from `sctx.time`.
+    ///
+    /// The returned [`AnyTimeoutContext`] carries no lifetime tying it back to
+    /// this wrapper: in the Blocked Client case it holds a raw pointer to the
+    /// [`AREQ`](ffi::AREQ). Invariant (2) of [`new`](QueryEvalContext::new) requires that
+    /// [`AREQ`](ffi::AREQ) to outlive every iterator built from this context, so probing it
+    /// after the wrapper is dropped (e.g. from C) stays sound.
+    ///
+    /// [`NoTimeout`]: rqe_iterators::utils::NoTimeout
+    pub fn build_timeout_context(&self) -> AnyTimeoutContext {
+        match NonNull::new(self.as_ref().bcTimeoutAreq) {
+            Some(areq) => {
+                // SAFETY: invariant (2) of `new` guarantees a non-null
+                // `bcTimeoutAreq` points to a valid `AREQ` that stays valid for
+                // the lifetime of every iterator built from this context — which
+                // is exactly the span the resulting timeout context (and the
+                // iterator holding it) requires, satisfying the
+                // `TimeoutContextBlockedClient::new` contract.
+                let timeout = unsafe { TimeoutContextBlockedClient::new(areq) };
+                AnyTimeoutContext::BlockedClient(timeout)
+            }
+            // No Blocked Client Timeout source: derive the Clock Based Timeout
+            // (or `NoTimeout`) from `sctx.time`.
+            None => AnyTimeoutContext::from_sctx(self.sctx(), TIMEOUT_CHECK_GRANULARITY),
+        }
     }
 }
