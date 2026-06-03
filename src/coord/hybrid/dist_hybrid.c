@@ -29,7 +29,6 @@
 #include "concurrent_ctx.h"
 #include "info/info_redis/threads/current_thread.h"
 #include "aggregate/reply_empty.h"
-#include "aggregate/aggregate_exec_common.h"
 
 // We mainly need the resp protocol to be three in order to easily extract the "score" key from the response
 #define HYBRID_RESP_PROTOCOL_VERSION 3
@@ -1177,27 +1176,6 @@ int DistHybridTimeoutFailClient(RedisModuleCtx *ctx, RedisModuleString **argv, i
   return REDISMODULE_OK;
 }
 
-// Drain any queued partial results into `hreq->storedReplyState.results` on
-// the main thread after the background hybrid pipeline has aborted.
-//
-// Only sorter-terminated tail pipelines are drainable (see
-// `hybridTailPipelineCanYieldPartialResults` in `hybrid_request.c`): the
-// merger itself cannot be drained after the deadline, but a downstream
-// RPSorter buffers rows that were yielded before the deadline and pops them
-// from its heap in Yield mode without re-entering its upstream. As a result
-// the drain never reaches the merger or the per-subquery RPNets, so unlike
-// the aggregate equivalent there is no `drainOnly` flag to flip here.
-static void drainPartialResultsAfterTimeout_hybrid(HybridRequest *hreq) {
-  QueryProcessingCtx *qctx = &hreq->tailPipeline->qctx;
-  if (!qctx->canYieldPartialResults) {
-    return;
-  }
-
-  RS_ASSERT(qctx->rootProc->type == RP_HYBRID_MERGER);
-
-  Pipeline_DrainStoredResultsAfterTimeout(qctx, &hreq->storedReplyState);
-}
-
 // Timeout callback for Coordinator HybridRequest execution
 // Called on the main thread when the blocking client times out (RETURN-STRICT policy only).
 int DistHybridTimeoutReturnStrictClient(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
@@ -1222,35 +1200,34 @@ int DistHybridTimeoutReturnStrictClient(RedisModuleCtx *ctx, RedisModuleString *
 
   HybridRequest *hreq = (HybridRequest *)CoordRequestCtx_GetRequest(CoordReqCtx);
 
+  // Wake every subquery's abort channel so any depleter parked in
+  // MRIterator_NextWithTimeout observes the propagated `timedOut` flag and exits
+  // promptly. WakeAbortChannel is a no-op when no channel is registered yet, in
+  // which case the depleter instead observes `timedOut` on entry to the pop.
+  if (hreq) {
+    for (size_t i = 0; i < hreq->nrequests; i++) {
+      if (hreq->requests[i]) {
+        RequestSyncCtx_WakeAbortChannel(&hreq->requests[i]->syncCtx);
+      }
+    }
+  }
+
   if (!hreq || HybridRequest_TryClaimAggregateResults(hreq)) {
-    // Either the request is NULL or We were able to claim the aggregation results.
-    // That means that the background thread didn't reach the aggregation phase (startPipelineCommon) yet.
-    // Reply with empty results
+    // Either the request is NULL or we were able to claim the aggregation results.
+    // That means that the background thread didn't reach the aggregation phase
+    // (startPipelineCommon) yet. Reply with empty results.
     common_hybrid_query_reply_empty(ctx, QUERY_ERROR_CODE_TIMED_OUT, false, false);
     return REDISMODULE_OK;
   }
 
-  // Losing TryClaim means BG owns the claim, it may be blocked in
-  // MRIterator_NextWithTimeout on one of the subquery RPNet channels.
-  // Wake every subquery so it observes the propagated timedOut and exits
-  // the pipeline promptly. Mirrors RequestSyncCtx_WakeAbortChannel call
-  // in DistAggregateTimeoutReturnStrictClient.
-  for (size_t i = 0; i < hreq->nrequests; i++) {
-    if (hreq->requests[i]) {
-      RequestSyncCtx_WakeAbortChannel(&hreq->requests[i]->syncCtx);
-    }
-  }
-
+  // Losing TryClaim means BG owns the claim; wait for it to finish writing
+  // `storedReplyState` (the abort-channel wakes above let it exit promptly).
   HybridRequest_WaitForAggregateResultsComplete(hreq);
 
-  // Harvest any rows the tail pipeline buffered before the deadline (only
-  // sorter-terminated tail pipelines are drainable; see
-  // `hybridTailPipelineCanYieldPartialResults`). No-op for trivial /
-  // grouper / loader tails -- their `storedReplyState.results` already
-  // holds whatever BG accumulated before the deadline fired.
-  drainPartialResultsAfterTimeout_hybrid(hreq);
-
-  // Call serializeStoredResults_hybrid to build reply from stored results
+  // The coordinator hybrid pipeline is not drainable: the tail merger and the
+  // per-subquery depleters run on separate coord-pool threads, so a main-thread
+  // drain would re-enter live upstream processors. Reply only with whatever the
+  // tail already accumulated into `storedReplyState.results` before the deadline.
   RedisModule_Reply _reply = RedisModule_NewReply(ctx), *reply = &_reply;
   serializeStoredResults_hybrid(hreq, reply);
   RedisModule_EndReply(reply);

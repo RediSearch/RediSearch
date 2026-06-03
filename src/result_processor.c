@@ -1759,6 +1759,13 @@ static void RPSafeDepleter_DepleteFromUpstream(RPSafeDepleter *self, DepleterSyn
     array_append(self->results, r);
     r = rm_calloc(1, sizeof(*r));
     *r = SearchResult_New();
+    // Notice a blocked-client (RETURN_STRICT) timeout promptly: the main-thread
+    // callback flips the borrowed flag, which skipTimeoutChecks does not gate.
+    // The wall-clock deadline is already handled by the upstream's own checks.
+    if (SearchTime_IsTimedOut(&self->depletingThreadCtx->time)) {
+      rc = RS_RESULT_TIMEDOUT;
+      break;
+    }
   }
   rm_free(r);
 
@@ -1780,7 +1787,9 @@ static void RPSafeDepleter_DepleteFromUpstream(RPSafeDepleter *self, DepleterSyn
 /**
  * Background thread function: consumes all results from upstream and stores them in the results array.
  *
- * Checks for timeout before starting execution and relies on upstream timeout detection during processing.
+ * Checks for timeout before starting execution and, while depleting, polls the
+ * blocked-client timeout flag each iteration (the wall-clock deadline is still
+ * handled by the upstream's own checks) so the background thread exits promptly.
  * Signals completion by setting done_depleting to `true` and broadcasting to condition variable.
  */
 static void RPSafeDepleter_Deplete(void *arg) {
@@ -1791,8 +1800,13 @@ static void RPSafeDepleter_Deplete(void *arg) {
   rs_wall_clock depletionStart;
   rs_wall_clock_init(&depletionStart);
 
-  // Check if timeout was exceeded before starting execution (respecting skipTimeoutChecks flag)
-  if (self->depletingThreadCtx->time.skipTimeoutChecks || TimedOut(&self->depletingThreadCtx->time.timeout) == NOT_TIMED_OUT) {
+  // Check if timeout was exceeded before starting execution. The wall-clock
+  // check honors skipTimeoutChecks, but the blocked-client (RETURN_STRICT) flag
+  // is checked unconditionally since skipTimeoutChecks does not gate it.
+  bool timed_out = SearchTime_IsTimedOut(&self->depletingThreadCtx->time) ||
+                   (!self->depletingThreadCtx->time.skipTimeoutChecks &&
+                    TimedOut(&self->depletingThreadCtx->time.timeout) == TIMED_OUT);
+  if (!timed_out) {
     RPSafeDepleter_DepleteFromUpstream(self, sync);
   } else {
     // Timeout before starting - no need to acquire lock or do any work

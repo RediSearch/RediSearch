@@ -126,48 +126,6 @@ void HybridRequest_SynchronizeLookupKeys(HybridRequest *req) {
   }
 }
 
-/**
- * True iff draining `endProc->Next` after a RETURN-STRICT timeout produces a
- * valid (possibly empty) partial answer for the hybrid tail pipeline.
- *
- * The tail pipeline's root is always `RPHybridMerger`. The merger is an
- * aggregator (its Yield phase has its own deadline check that returns
- * TIMEDOUT after popping one dict entry), so it cannot itself be drained
- * after the deadline -- any further yields would lose the popped entry.
- * Drainage is only meaningful when a downstream `RPSorter` has already
- * latched yielded rows into its heap before the deadline fired: on
- * TIMEDOUT, RPSorter switches to its Yield state which pops the heap
- * without re-entering upstream.
- *
- * Accepted shape (top = end of pipeline):
- *   [RPPager_Limiter ->] RPSorter -> ... -> RPHybridMerger
- *
- * All other shapes (trivial Merger -> Pager, Grouper-terminated, Loader-
- * terminated, ...) return false: trivial pipelines have nothing further to
- * harvest beyond what BG already accumulated into `storedReplyState.results`
- * before the deadline, and non-Sorter aggregators (Grouper, ...) do not
- * support partial yielding on timeout.
- *
- * Profile is excluded: it wraps every RP and is not yet supported under
- * RETURN-STRICT drain.
- */
-static bool hybridTailPipelineCanYieldPartialResults(QueryProcessingCtx *qctx) {
-    if (qctx->isProfile) {
-        return false;
-    }
-    ResultProcessor *end = qctx->endProc;
-    ResultProcessor *root = qctx->rootProc;
-    if (!end || !root || root->type != RP_HYBRID_MERGER) {
-        return false;
-    }
-    ResultProcessor *rp = end;
-    if (rp->type == RP_PAGER_LIMITER) {
-        rp = rp->upstream;
-        RS_ASSERT(rp);
-    }
-    return rp->type == RP_SORTER;
-}
-
 int HybridRequest_BuildMergePipeline(HybridRequest *req, const RLookupKey *scoreKey, HybridPipelineParams *params, QueryError *status) {
     // Array to collect upstream from each individual request pipeline
     arrayof(ResultProcessor*) upstreams = array_new(ResultProcessor *, req->nrequests);
@@ -208,10 +166,6 @@ int HybridRequest_BuildMergePipeline(HybridRequest *req, const RLookupKey *score
     // This handles sorting, filtering, field loading, and output formatting of merged results
     uint32_t stateFlags = 0;
     int rc = Pipeline_BuildAggregationPart(req->tailPipeline, &params->aggregationParams, &stateFlags, status);
-    if (rc == REDISMODULE_OK) {
-        req->tailPipeline->qctx.canYieldPartialResults =
-            hybridTailPipelineCanYieldPartialResults(&req->tailPipeline->qctx);
-    }
     return rc;
 }
 

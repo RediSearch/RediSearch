@@ -3039,15 +3039,16 @@ class TestCoordinatorTimeout:
         every subquery AREQ and broadcast on each registered abort channel;
         BG observes the abort, returns ``RS_RESULT_TIMEDOUT`` from each
         depleter, the merger switches to Yield with an empty dict, the tail
-        pipeline returns ``TIMEDOUT``, and the main-thread callback runs
-        ``drainPartialResultsAfterTimeout_hybrid`` followed by
-        ``serializeStoredResults_hybrid``.
+        pipeline returns ``TIMEDOUT``, and the main-thread callback replies
+        with whatever the tail already placed in ``storedReplyState.results``
+        via ``serializeStoredResults_hybrid``. The coordinator hybrid
+        pipeline is not drainable, so no partial rows are harvested from the
+        tail processors after the deadline.
 
         ``agg_steps_suffix`` is appended after the standard
         ``SEARCH * VSIM @embedding $BLOB PARAMS 2 BLOB <vec>`` prefix so
         callers can vary the tail pipeline shape (trivial / sorter / grouper)
-        and exercise the corresponding branch of
-        ``hybridTailPipelineCanYieldPartialResults``.
+        and confirm every shape times out to the same empty reply.
         ``assert_reply(result)`` is invoked after the reply has been parsed;
         callers assert their tail-shape-specific reply expectations.
 
@@ -3150,15 +3151,11 @@ class TestCoordinatorTimeout:
 
         Trivial tail = no SORTBY / GROUPBY: the coord pipeline is
         ``RPHybridMerger -> ... -> RPPager_Limiter`` with no RPSorter
-        between them. ``hybridTailPipelineCanYieldPartialResults`` peels
-        the pager and sees a non-sorter (the merger or a loader above it),
-        so it returns false and ``drainPartialResultsAfterTimeout_hybrid``
-        no-ops: the merger is itself an aggregator and cannot be drained
-        after the deadline (it has no buffered ready-to-emit rows -- its
-        accumulation dict is dropped on the abort path), so the only
-        partial rows that could possibly land in the reply are those BG
-        already moved into ``hreq->storedReplyState.results`` before the
-        deadline fired.
+        between them. The coordinator hybrid pipeline is not drainable, so
+        on timeout the reply carries only whatever BG already moved into
+        ``hreq->storedReplyState.results`` before the deadline fired -- the
+        merger's accumulation dict is dropped on the abort path and is
+        never harvested.
 
         With every shard parked at ``BeforeCursorReadSendChunk`` BG never
         receives any cursor-read reply, so ``storedReplyState.results`` is
@@ -3184,24 +3181,16 @@ class TestCoordinatorTimeout:
 
         SORTBY pushes an ``RPSorter`` onto the tail pipeline above the
         merger: ``RPHybridMerger -> ... -> RPSorter -> RPPager_Limiter``.
-        ``hybridTailPipelineCanYieldPartialResults`` peels the pager and
-        accepts (end is ``RP_SORTER``), so the main-thread callback runs
-        ``drainPartialResultsAfterTimeout_hybrid`` after BG has unwound,
-        invoking the shared ``Pipeline_DrainStoredResultsAfterTimeout``
-        to pop from the sorter in Yield mode (which doesn't re-enter the
-        merger or the per-subquery RPNets).
+        The coordinator hybrid pipeline is not drainable, so the sorter
+        heap is never popped from the main thread after the deadline; the
+        reply carries only what BG stored into ``storedReplyState.results``
+        before timing out.
 
-        With every shard parked at ``BeforeCursorReadSendChunk`` the
-        merger's accumulation dict was empty at abort time, so it yielded
-        nothing into the sorter -- the sorter heap is empty when the
-        drain runs and the reply carries 0 rows + two per-subquery
-        TIMEOUT warnings. The point of the test is to exercise the
-        classifier's accept branch and the sorter-Yield-on-empty-heap
-        drain path end-to-end without crashing; the partial-harvest
-        analogue (sorter heap non-empty at abort time) is the hybrid
-        counterpart of
-        ``test_return_strict_timeout_sortby_one_shard_paused_aggregate``
-        and is out of scope for this all-shards-paused setup.
+        With every shard parked at ``BeforeCursorReadSendChunk`` BG never
+        admits any reply, so the stored results are empty and the reply
+        carries 0 rows + two per-subquery TIMEOUT warnings -- identical to
+        the trivial-tail case, confirming that a sorter-terminated tail
+        gets no special drain treatment.
         """
         def assert_reply(result):
             env = self.env
@@ -3222,20 +3211,16 @@ class TestCoordinatorTimeout:
 
         GROUPBY breaks ``HybridPlan_Distribute``'s loop and forces every
         subsequent step to remain on the coordinator: the tail pipeline is
-        ``RPHybridMerger -> ... -> RPGrouper`` with no RPSorter.
-        ``hybridTailPipelineCanYieldPartialResults`` peels the (absent)
-        pager and sees ``RP_GROUPER`` at the end, which is not the
-        accepted ``RP_SORTER`` shape, so the classifier returns false and
-        ``drainPartialResultsAfterTimeout_hybrid`` no-ops -- the grouper
-        is fully buffering and only flushes on EOF, so there is nothing
-        safe to harvest after a TIMEDOUT abort.
+        ``RPHybridMerger -> ... -> RPGrouper`` with no RPSorter. The
+        coordinator hybrid pipeline is not drainable, and the grouper is
+        fully buffering (flushes only on EOF), so on timeout nothing is
+        harvested -- the reply carries only what BG stored into
+        ``storedReplyState.results`` before timing out.
 
         With every shard parked at ``BeforeCursorReadSendChunk`` BG never
         admits any reply, the grouper buffer stays empty, and the reply
-        carries 0 rows + two per-subquery TIMEOUT warnings. Hybrid
-        counterpart of
-        ``test_return_strict_timeout_groupby_sortby_one_shard_paused_aggregate``
-        for the classifier's reject branch on grouper tails.
+        carries 0 rows + two per-subquery TIMEOUT warnings -- identical to
+        the trivial- and sorter-tail cases.
         """
         def assert_reply(result):
             env = self.env
@@ -3458,34 +3443,30 @@ class TestCoordinatorTimeout:
         """RETURN_STRICT timeout on FT.HYBRID SORTBY with one shard suspended.
 
         Coord tail-pipeline shape:
-        ``RPHybridMerger -> ... -> RPSorter -> RPPager_Limiter``.
-        ``hybridTailPipelineCanYieldPartialResults`` peels the pager and
-        accepts (end is ``RP_SORTER``), so the main-thread callback runs
-        ``drainPartialResultsAfterTimeout_hybrid`` after BG has unwound.
+        ``RPHybridMerger -> ... -> RPSorter -> RPPager_Limiter``. The
+        coordinator hybrid pipeline is not drainable, so the sorter heap
+        is never popped from the main thread after the deadline.
 
-        With one shard paused before Phase 2 dispatch, the merger's
-        Accum loop blocks on the paused shard's subquery-0 reply and
-        never transitions to Yield in BG before the deadline fires.
-        When the deadline trips, BG's pending pop returns TIMEDOUT and
-        BG unwinds without pushing the merger's accumulated entries
-        downstream -- the sorter heap is therefore empty, and the
-        main-thread drain has nothing to harvest.
+        This is the strongest no-drain check in the suite: with one shard
+        paused before Phase 2 dispatch, the merger's Accum loop has already
+        absorbed the responsive shards' subquery-0 rows into its
+        accumulation dict, yet that dict is dropped on the abort path and
+        is never moved into ``storedReplyState.results``. When the deadline
+        trips, BG's pending pop returns TIMEDOUT and BG unwinds without
+        pushing the accumulated entries downstream, so the reply carries no
+        rows even though partial data existed at abort time.
 
-        Asserts that the reply carries an empty ``results`` array
-        (drain is a no-op in this scenario) together with one TIMEOUT
-        warning per subquery.
-
-        TODO: a follow-up should add a hook that fires the deadline
-        after the merger has flipped to Yield so this scenario can
-        exercise a non-empty partial harvest.
+        Asserts that the reply carries an empty ``results`` array together
+        with one TIMEOUT warning per subquery.
         """
         env = self.env
 
         def assert_reply(result, expected_rows):
             rows = result.get('results', [])
             env.assertEqual(len(rows), 0,
-                            message=f"Expected empty partial-harvest (merger "
-                                    f"never reached Yield before deadline), "
+                            message=f"Expected empty results (hybrid pipeline "
+                                    f"is not drainable; accumulated merger "
+                                    f"entries are dropped on timeout), "
                                     f"got: {result}")
 
         self._drive_one_shard_paused_hybrid_return_strict(
