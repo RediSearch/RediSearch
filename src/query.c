@@ -949,17 +949,6 @@ bool AREQ_CheckTimedOut(AREQ *areq) {
   return AREQ_TimedOut(areq);
 }
 
-static QueryIterator *Query_EvalNumericNode(QueryEvalCtx *q, QueryNode *node) {
-  RS_LOG_ASSERT(node->type == QN_NUMERIC, "query node type should be numeric")
-
-  const FieldSpec *fs = node->nn.nf->fieldSpec;
-  if (q->sctx->spec->diskSpec) {
-    return SearchDisk_NewNumericIterator(q->sctx->spec->diskSpec, q->sctx, node->nn.nf, fs->index, q->status);
-  }
-  FieldFilterContext filterCtx = {.field = {.index_tag = FieldMaskOrIndex_Index, .index = fs->index}, .predicate = FIELD_EXPIRATION_PREDICATE_DEFAULT};
-  return NewNumericFilterIterator(q->sctx, node->nn.nf, INDEXFLD_T_NUMERIC, q->config, &filterCtx);
-}
-
 static QueryIterator *Query_EvalGeofilterNode(QueryEvalCtx *q, QueryNode *node,
                                               double weight) {
   RS_LOG_ASSERT(node->type == QN_GEO, "query node type should be geo");
@@ -1406,6 +1395,7 @@ QueryIterator *Query_EvalNode(QueryEvalCtx *q, QueryNode *n) {
     case QN_NOT:
     case QN_PHRASE:
     case QN_UNION:
+    case QN_NUMERIC:
       // These node types have been ported to Rust.
       return Query_EvalNode_Rs(q, n);
     case QN_TOKEN:
@@ -1418,8 +1408,6 @@ QueryIterator *Query_EvalNode(QueryEvalCtx *q, QueryNode *n) {
       return Query_EvalLexRangeNode(q, n);
     case QN_FUZZY:
       return Query_EvalFuzzyNode(q, n);
-    case QN_NUMERIC:
-      return Query_EvalNumericNode(q, n);
     case QN_GEO:
       return Query_EvalGeofilterNode(q, n, n->opts.weight);
     case QN_VECTOR:
