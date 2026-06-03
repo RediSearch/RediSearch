@@ -144,3 +144,70 @@ TEST_F(UnicodeToLowerTest, testTurkishDottedI) {
   ASSERT_STREQ(dst, "i̇stanbul");
   rm_free(dst); // Free the allocated memory for dst
 }
+
+TEST_F(UnicodeToLowerTest, testEmbeddedNulAsciiPrefix) {
+  // Embedded NUL terminates the conversion at the NUL position and the ASCII
+  // prefix is lowercased in place. Bytes past the NUL are not touched.
+  char str[] = {'F', 'O', 'O', '\0', 'B', 'A', 'R'};
+  size_t newLen = sizeof(str);
+
+  char *dst = unicode_tolower(str, &newLen);
+  ASSERT_EQ(dst, nullptr);
+  ASSERT_EQ(newLen, 3u);
+  ASSERT_EQ(str[0], 'f');
+  ASSERT_EQ(str[1], 'o');
+  ASSERT_EQ(str[2], 'o');
+  ASSERT_EQ(str[3], '\0');
+  ASSERT_EQ(str[4], 'B');
+  ASSERT_EQ(str[5], 'A');
+  ASSERT_EQ(str[6], 'R');
+}
+
+TEST_F(UnicodeToLowerTest, testEmbeddedNulAtStart) {
+  // NUL at offset 0: no output codepoints, inout_len is left untouched and the
+  // buffer is unchanged.
+  char str[] = {'\0', 'A', 'B', 'C'};
+  size_t newLen = sizeof(str);
+
+  char *dst = unicode_tolower(str, &newLen);
+  ASSERT_EQ(dst, nullptr);
+  ASSERT_EQ(newLen, sizeof(str));
+  ASSERT_EQ(str[0], '\0');
+  ASSERT_EQ(str[1], 'A');
+  ASSERT_EQ(str[2], 'B');
+  ASSERT_EQ(str[3], 'C');
+}
+
+TEST_F(UnicodeToLowerTest, testEmbeddedNulBeforeMultibyte) {
+  // ASCII prefix, NUL, then a multibyte suffix. The NUL terminates the
+  // conversion before the multibyte bytes are ever inspected.
+  char str[] = {'F', 'O', 'O', '\0', '\xC3', '\x89'}; // ..\0É
+  size_t newLen = sizeof(str);
+
+  char *dst = unicode_tolower(str, &newLen);
+  ASSERT_EQ(dst, nullptr);
+  ASSERT_EQ(newLen, 3u);
+  ASSERT_EQ(str[0], 'f');
+  ASSERT_EQ(str[1], 'o');
+  ASSERT_EQ(str[2], 'o');
+  ASSERT_EQ(str[3], '\0');
+  ASSERT_EQ((unsigned char)str[4], 0xC3);
+  ASSERT_EQ((unsigned char)str[5], 0x89);
+}
+
+TEST_F(UnicodeToLowerTest, testEmbeddedNulAfterMultibyte) {
+  // Multibyte prefix, NUL, then an ASCII suffix. This routes through the slow
+  // path (first byte has bit 7 set), and the slow path also truncates at NUL.
+  char str[] = {'\xC3', '\x89', 'A', '\0', 'B', 'C'}; // ÉA\0BC
+  size_t newLen = sizeof(str);
+
+  char *dst = unicode_tolower(str, &newLen);
+  ASSERT_EQ(dst, nullptr);
+  ASSERT_EQ(newLen, 3u);
+  ASSERT_EQ((unsigned char)str[0], 0xC3);
+  ASSERT_EQ((unsigned char)str[1], 0xA9); // é
+  ASSERT_EQ(str[2], 'a');
+  ASSERT_EQ(str[3], '\0');
+  ASSERT_EQ(str[4], 'B');
+  ASSERT_EQ(str[5], 'C');
+}
