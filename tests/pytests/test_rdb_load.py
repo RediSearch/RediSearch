@@ -5,7 +5,7 @@ import threading
 import time
 import signal
 import tempfile
-from common import skip, getRDBFile, REDISEARCH_CACHE_DIR, debug_cmd
+from common import skip, getRDBFile, REDISEARCH_CACHE_DIR, config_cmd, debug_cmd, getConnectionByEnv, waitForIndex
 from RLTest import Env
 
 @skip(cluster=True)
@@ -98,3 +98,31 @@ def test_rdb_load_no_deadlock():
     assert indices_info, "No indices found after RDB load"
     # If there are indices, verify we can get info about the first one
     test_env.expect('FT.INFO', indices_info[0]).noError()
+
+@skip(cluster=True)
+def test_suffix_trie_survives_rdb_reload(env):
+    """
+    The suffix DS isn't serialized directly — it's rebuilt from the inverted
+    index when the RDB is loaded. Verify the length-1 sub-suffix invariant
+    survives the round-trip on both TEXT (rune trie) and TAG (byte triemap),
+    in the dump and through a short-token query.
+    """
+    env.expect(config_cmd(), 'set', 'MINPREFIX', 1).ok()
+    conn = getConnectionByEnv(env)
+    conn.execute_command('FT.CREATE', 'idx', 'SCHEMA',
+                         't_text', 'TEXT', 'WITHSUFFIXTRIE',
+                         't_tag',  'TAG',  'WITHSUFFIXTRIE')
+
+    conn.execute_command('HSET', 'doc:1', 't_text', 'banana', 't_tag', 'banana')
+
+    text_dump_before = sorted(env.cmd(debug_cmd(), 'DUMP_SUFFIX_TRIE', 'idx'))
+    tag_dump_before  = sorted(env.cmd(debug_cmd(), 'DUMP_SUFFIX_TRIE', 'idx', 't_tag'))
+
+    env.dumpAndReload()
+    waitForIndex(env, 'idx')
+
+    env.assertEqual(sorted(env.cmd(debug_cmd(), 'DUMP_SUFFIX_TRIE', 'idx')), text_dump_before)
+    env.assertEqual(sorted(env.cmd(debug_cmd(), 'DUMP_SUFFIX_TRIE', 'idx', 't_tag')), tag_dump_before)
+
+    env.expect('FT.SEARCH', 'idx', '@t_text:*a*',  'NOCONTENT').equal([1, 'doc:1'])
+    env.expect('FT.SEARCH', 'idx', '@t_tag:{*a*}', 'NOCONTENT').equal([1, 'doc:1'])

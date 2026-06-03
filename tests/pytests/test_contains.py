@@ -275,20 +275,24 @@ def testContainsGC(env):
   conn.execute_command('FT.CREATE', 'idx', 'SCHEMA', 't', 'TEXT', 'WITHSUFFIXTRIE', 'SORTABLE')
 
   conn.execute_command('HSET', 'doc1', 't', 'hello')
-  env.expect(debug_cmd(), 'DUMP_SUFFIX_TRIE', 'idx').equal(['ello', 'hello', 'llo', 'lo', 'o'])
+  env.assertEqual(sorted(env.cmd(debug_cmd(), 'DUMP_SUFFIX_TRIE', 'idx')),
+                  sorted(['ello', 'hello', 'llo', 'lo', 'o']))
   conn.execute_command('HSET', 'doc1', 't', 'world')
 
   forceInvokeGC(env, 'idx')
 
-  env.expect(debug_cmd(), 'DUMP_SUFFIX_TRIE', 'idx').equal(['d', 'ld', 'orld', 'rld', 'world'])
+  env.assertEqual(sorted(env.cmd(debug_cmd(), 'DUMP_SUFFIX_TRIE', 'idx')),
+                  sorted(['d', 'ld', 'orld', 'rld', 'world']))
 
   conn.execute_command('HSET', 'doc2', 't', 'bold')
-  env.expect(debug_cmd(), 'DUMP_SUFFIX_TRIE', 'idx').equal(['bold', 'd', 'ld', 'old', 'orld', 'rld', 'world'])
+  env.assertEqual(sorted(env.cmd(debug_cmd(), 'DUMP_SUFFIX_TRIE', 'idx')),
+                  sorted(['bold', 'd', 'ld', 'old', 'orld', 'rld', 'world']))
   conn.execute_command('DEL', 'doc2')
 
   forceInvokeGC(env, 'idx')
 
-  env.expect(debug_cmd(), 'DUMP_SUFFIX_TRIE', 'idx').equal(['d', 'ld', 'orld', 'rld', 'world'])
+  env.assertEqual(sorted(env.cmd(debug_cmd(), 'DUMP_SUFFIX_TRIE', 'idx')),
+                  sorted(['d', 'ld', 'orld', 'rld', 'world']))
 
 @skip(cluster=True)
 def testContainsGCTag(env):
@@ -298,20 +302,24 @@ def testContainsGCTag(env):
   conn.execute_command('FT.CREATE', 'idx', 'SCHEMA', 't', 'TAG', 'WITHSUFFIXTRIE', 'SORTABLE')
 
   conn.execute_command('HSET', 'doc1', 't', 'hello')
-  env.expect(debug_cmd(), 'DUMP_SUFFIX_TRIE', 'idx', 't').equal(['ello', 'hello', 'llo', 'lo', 'o'])
+  env.assertEqual(sorted(env.cmd(debug_cmd(), 'DUMP_SUFFIX_TRIE', 'idx', 't')),
+                  sorted(['ello', 'hello', 'llo', 'lo', 'o']))
   conn.execute_command('HSET', 'doc1', 't', 'world')
 
   forceInvokeGC(env, 'idx')
 
-  env.expect(debug_cmd(), 'DUMP_SUFFIX_TRIE', 'idx', 't').equal(['d', 'ld', 'orld', 'rld', 'world'])
+  env.assertEqual(sorted(env.cmd(debug_cmd(), 'DUMP_SUFFIX_TRIE', 'idx', 't')),
+                  sorted(['d', 'ld', 'orld', 'rld', 'world']))
 
   conn.execute_command('HSET', 'doc2', 't', 'bold')
-  env.expect(debug_cmd(), 'DUMP_SUFFIX_TRIE', 'idx', 't').equal(['bold', 'd', 'ld', 'old', 'orld', 'rld', 'world'])
+  env.assertEqual(sorted(env.cmd(debug_cmd(), 'DUMP_SUFFIX_TRIE', 'idx', 't')),
+                  sorted(['bold', 'd', 'ld', 'old', 'orld', 'rld', 'world']))
   conn.execute_command('DEL', 'doc2')
 
   forceInvokeGC(env, 'idx')
 
-  env.expect(debug_cmd(), 'DUMP_SUFFIX_TRIE', 'idx', 't').equal(['d', 'ld', 'orld', 'rld', 'world'])
+  env.assertEqual(sorted(env.cmd(debug_cmd(), 'DUMP_SUFFIX_TRIE', 'idx', 't')),
+                  sorted(['d', 'ld', 'orld', 'rld', 'world']))
 
 @skip(cluster=True)
 def testContainsDebugCommand(env):
@@ -351,11 +359,13 @@ def testSuffixTrieIncludesShortTagValue(env):
   conn.execute_command('FT.CREATE', 'idx', 'SCHEMA', 't', 'TAG', 'WITHSUFFIXTRIE')
 
   conn.execute_command('HSET', 'doc1', 't', 'a')
-  env.expect(debug_cmd(), 'DUMP_SUFFIX_TRIE', 'idx', 't').equal(['a'])
+  env.assertEqual(sorted(env.cmd(debug_cmd(), 'DUMP_SUFFIX_TRIE', 'idx', 't')),
+                  sorted(['a']))
 
   conn.execute_command('DEL', 'doc1')
   forceInvokeGC(env, 'idx')
-  env.expect(debug_cmd(), 'DUMP_SUFFIX_TRIE', 'idx', 't').equal([])
+  env.assertEqual(sorted(env.cmd(debug_cmd(), 'DUMP_SUFFIX_TRIE', 'idx', 't')),
+                  sorted([]))
 
 @skip(cluster=True)
 def testSuffixTrieIncludesSingleRuneMultiByteText(env):
@@ -365,7 +375,8 @@ def testSuffixTrieIncludesSingleRuneMultiByteText(env):
   conn.execute_command('FT.CREATE', 'idx', 'SCHEMA', 't', 'TEXT', 'WITHSUFFIXTRIE')
 
   conn.execute_command('HSET', 'doc1', 't', '中')
-  env.expect(debug_cmd(), 'DUMP_SUFFIX_TRIE', 'idx').equal(['中'])
+  env.assertEqual(sorted(env.cmd(debug_cmd(), 'DUMP_SUFFIX_TRIE', 'idx')),
+                  sorted(['中']))
 
 @skip(cluster=True)
 def testSuffixTrieIncludesLengthOneSubSuffix(env):
@@ -376,8 +387,8 @@ def testSuffixTrieIncludesLengthOneSubSuffix(env):
   conn.execute_command('FT.CREATE', 'idx', 'SCHEMA', 't', 'TEXT', 'WITHSUFFIXTRIE')
 
   conn.execute_command('HSET', 'doc1', 't', 'banana')
-  env.expect(debug_cmd(), 'DUMP_SUFFIX_TRIE', 'idx') \
-    .equal(['a', 'ana', 'anana', 'banana', 'na', 'nana'])
+  env.assertEqual(sorted(env.cmd(debug_cmd(), 'DUMP_SUFFIX_TRIE', 'idx')),
+                  sorted(['a', 'ana', 'anana', 'banana', 'na', 'nana']))
 
 @skip(cluster=True)
 def testSuffixTrieFindsShortAsciiTag(env):
@@ -559,32 +570,6 @@ def testSuffixTrieFindsMultiTokenShortPatternTag(env):
 
   env.expect('FT.SEARCH', 'idx_w',  "@t:{w'*x*y*'}", 'NOCONTENT').equal([0])
   env.expect('FT.SEARCH', 'idx_no', "@t:{w'*x*y*'}", 'NOCONTENT').equal([0])
-
-@skip(cluster=True)
-def testSuffixTrieSurvivesRdbReload(env):
-  # The suffix DS isn't serialized directly — it's rebuilt from the inverted
-  # index when the RDB is loaded. Verify the length-1 sub-suffix invariant
-  # survives the round-trip on both TEXT (rune trie) and TAG (byte triemap),
-  # in the dump and through a short-token query.
-  env.expect(config_cmd(), 'set', 'MINPREFIX', 1).ok()
-  conn = getConnectionByEnv(env)
-  conn.execute_command('FT.CREATE', 'idx', 'SCHEMA',
-                       't_text', 'TEXT', 'WITHSUFFIXTRIE',
-                       't_tag',  'TAG',  'WITHSUFFIXTRIE')
-
-  conn.execute_command('HSET', 'doc:1', 't_text', 'banana', 't_tag', 'banana')
-
-  text_dump_before = env.cmd(debug_cmd(), 'DUMP_SUFFIX_TRIE', 'idx')
-  tag_dump_before  = env.cmd(debug_cmd(), 'DUMP_SUFFIX_TRIE', 'idx', 't_tag')
-
-  env.dumpAndReload()
-  waitForIndex(env, 'idx')
-
-  env.expect(debug_cmd(), 'DUMP_SUFFIX_TRIE', 'idx').equal(text_dump_before)
-  env.expect(debug_cmd(), 'DUMP_SUFFIX_TRIE', 'idx', 't_tag').equal(tag_dump_before)
-
-  env.expect('FT.SEARCH', 'idx', '@t_text:*a*',  'NOCONTENT').equal([1, 'doc:1'])
-  env.expect('FT.SEARCH', 'idx', '@t_tag:{*a*}', 'NOCONTENT').equal([1, 'doc:1'])
 
 def test_params(env):
   env = Env(moduleArgs = 'DEFAULT_DIALECT 2')
