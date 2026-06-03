@@ -50,9 +50,7 @@ static void processHybridWarning(processCursorMappingCallbackContext *ctx, const
     const char *warningMessage = MRReply_String(rep, NULL);
     QueryWarningCode warningCode = QueryWarningCode_GetCodeFromMessage(warningMessage);
     // MaxTimeoutCapped is purely informational: the coordinator's own cap is
-    // already surfaced to the client via QEXEC_S_MAX_TIMEOUT_CAPPED on the
-    // hybrid request, so the shard's copy of the warning needs no further
-    // handling here and must not be promoted to a fatal error.
+    // already surfaced to the client on the hybrid request.
     if (warningCode == QUERY_WARNING_CODE_MAX_TIMEOUT_CAPPED) {
         return;
     }

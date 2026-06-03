@@ -1275,12 +1275,8 @@ int AREQ_Compile(AREQ *req, RedisModuleCtx *ctx, RedisModuleString **argv, int a
     goto error;
   }
 
-  // Cap the per-query TIMEOUT (or the inherited global default) against
-  // search-_max-foreground-timeout-limit when workers are disabled. Setting
-  // the QEXEC_S_MAX_TIMEOUT_CAPPED state flag causes the reply emitters to
-  // surface a RESP3 warning to the user. Apply the cap before subtracting the
-  // coordinator dispatch time so the shard budget is measured against the
-  // capped ceiling rather than the original (possibly larger) value.
+  // Cap the per-query timeout to _MAX_FOREGROUND_TIMEOUT_LIMIT when workers
+  // are disabled; the state flag drives the RESP3 MaxTimeoutCapped warning.
   if (RSConfig_CapQueryTimeoutToForegroundLimit(&req->reqConfig.queryTimeoutMS)) {
     req->stateflags |= QEXEC_S_MAX_TIMEOUT_CAPPED;
   }

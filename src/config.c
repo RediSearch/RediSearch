@@ -549,10 +549,19 @@ CONFIG_SETTER(setTimeout) {
   long long newTimeoutMS;
   int acrc = AC_GetLongLong(ac, &newTimeoutMS, AC_F_GE0);
   CHECK_RETURN_PARSE_ERROR(acrc);
-  // The per-query cap (RSConfig_CapQueryTimeoutToForegroundLimit in
-  // AREQ_Compile / parseHybridCommand) enforces _MAX_FOREGROUND_TIMEOUT_LIMIT
-  // at runtime and emits the RESP3 MAX_TIMEOUT_CAPPED warning to the client.
-  RedisModule_Log(RSDummyContext, "notice", "TIMEOUT set to %lld", newTimeoutMS);
+  // Warn only when the new value would actually be capped at query time
+  // (workers disabled and limit configured). The per-query cap is handled by
+  // RSConfig_CapQueryTimeoutToForegroundLimit, which also emits the RESP3
+  // MAX_TIMEOUT_CAPPED warning to the client.
+  if (config->maxForegroundTimeoutLimitMS > 0 &&
+      config->numWorkerThreads == 0 &&
+      (newTimeoutMS == 0 || newTimeoutMS > config->maxForegroundTimeoutLimitMS)) {
+    RedisModule_Log(RSDummyContext, "warning",
+      "TIMEOUT %lld exceeds _MAX_FOREGROUND_TIMEOUT_LIMIT %lld and WORKERS is 0; "
+      "queries will be capped at %lld",
+      newTimeoutMS, config->maxForegroundTimeoutLimitMS,
+      config->maxForegroundTimeoutLimitMS);
+  }
   config->requestConfigParams.queryTimeoutMS = newTimeoutMS;
   return REDISMODULE_OK;
 }
@@ -567,10 +576,6 @@ CONFIG_SETTER(setMaxForegroundTimeoutLimit) {
   long long newLimit;
   int acrc = AC_GetLongLong(ac, &newLimit, AC_F_GE0);
   CHECK_RETURN_PARSE_ERROR(acrc);
-  // The per-query cap handles the actual enforcement at runtime and emits the
-  // RESP3 MAX_TIMEOUT_CAPPED warning to the client.
-  RedisModule_Log(RSDummyContext, "notice",
-    "_MAX_FOREGROUND_TIMEOUT_LIMIT set to %lld", newLimit);
   config->maxForegroundTimeoutLimitMS = newLimit;
   return REDISMODULE_OK;
 }
@@ -597,7 +602,6 @@ CONFIG_SETTER(setWorkThreads) {
     RedisModule_Log(RSDummyContext, "warning", "WORKERS must be at least %d in Flex mode, setting to %d", MIN_WORKER_THREADS_FLEX, MIN_WORKER_THREADS_FLEX);
     newNumThreads = MIN_WORKER_THREADS_FLEX;
   }
-  RedisModule_Log(RSDummyContext, "notice", "WORKERS set to %zu", newNumThreads);
   config->numWorkerThreads = newNumThreads;
 
   workersThreadPool_SetNumWorkers();
@@ -622,7 +626,6 @@ static int set_workers(const char *name, long long val, void *privdata, RedisMod
   }
   uint32_t externalTriggerId = 0;
   RSConfig *config = (RSConfig *)privdata;
-  RedisModule_Log(RSDummyContext, "notice", "search-workers set to %lld", val);
   config->numWorkerThreads = val;
   workersThreadPool_SetNumWorkers();
   // Trigger the connection per shard to be updated (only if we are in coordinator mode)
@@ -2573,4 +2576,3 @@ int RegisterModuleConfig_Local(RedisModuleCtx *ctx) {
 
   return REDISMODULE_OK;
 }
-
