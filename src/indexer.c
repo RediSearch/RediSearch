@@ -412,12 +412,14 @@ static void applyDocTable(RSAddDocumentCtx *aCtx, RedisSearchCtx *ctx) {
   int rc = DocIdMeta_Set(ctx->redisCtx, aCtx->doc->docKey, spec->specId, aCtx->doc->docId);
   RS_LOG_ASSERT_ALWAYS(rc == REDISMODULE_OK, "DocIdMeta_Set failed after a successful disk commit");
 
-  // `oldDocId` comes from the key→docId mapping in Redis and can survive a
-  // prior deindex path that removed the disk row; `oldDocLen` is set by
-  // `SearchDisk_PutDocument` only when a row was actually replaced. Drop stale
-  // VecSim / geometry entries whenever the key meta points at an old doc-id
-  // (no-op safe on unknown ids), but only treat this as a REPLACE for stats
-  // and GC purposes when an on-disk row was really overwritten.
+  // `oldDocId` comes from the key→docId mapping in Redis. The de-index path
+  // (`IndexSpec_DeleteDoc`) now clears that mapping, so in normal operation a
+  // non-zero `oldDocId` means a real on-disk row is being replaced. We still
+  // treat it defensively — the mapping (Redis keyspace) and the disk doc-table
+  // (SpeedB) are separate stores that can diverge on crash — so dropping stale
+  // VecSim / geometry entries is a no-op when the id is unknown. `oldDocLen` is
+  // set by `SearchDisk_PutDocument` only when a row was actually replaced, so
+  // only that case counts as a REPLACE for stats and GC purposes.
   if (aCtx->disk.oldDocId != 0) {
     removeReplacedDocVectorAndGeometry(spec, aCtx->disk.oldDocId);
   }
