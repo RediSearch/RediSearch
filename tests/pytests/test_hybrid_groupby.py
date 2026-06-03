@@ -102,20 +102,15 @@ def test_hybrid_groupby_total_group_limit():
                              'embedding', vector)
 
     query_vector = np.array([0.0, 0.0], dtype=np.float32).tobytes()
-    res = env.cmd('FT.HYBRID', 'idx',
-                  'SEARCH', 'nomatch',
-                  'VSIM', '@embedding', '$BLOB',
-                      'RANGE', '2', 'RADIUS', '16',
-                  'GROUPBY', '1', '@__key',
-                      'REDUCE', 'COUNT', '0', 'AS', 'count',
-                  'PARAMS', '2', 'BLOB', query_vector)
-
-    warnings = res.get('warnings', [])
-    env.assertTrue(len(warnings) > 0, message=f'Expected GROUPBY limit warning, got: {res}')
-    warning = warnings[0]
-    env.assertContains('MAX_AGGREGATE_GROUPS', warning)
-    env.assertContains('2', warning)
-    env.assertEqual(res['results'], [])
+    env.expect('FT.HYBRID', 'idx',
+               'SEARCH', 'nomatch',
+               'VSIM', '@embedding', '$BLOB',
+                   'RANGE', '2', 'RADIUS', '16',
+               'GROUPBY', '1', '@__key',
+                   'REDUCE', 'COUNT', '0', 'AS', 'count',
+               'PARAMS', '2', 'BLOB', query_vector).error() \
+        .contains('MAX_AGGREGATE_GROUPS') \
+        .contains('2')
 
 @skip(cluster=False)
 def test_hybrid_groupby_coordinator_group_limit():
