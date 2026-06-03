@@ -519,6 +519,73 @@ def testSuffixTrieMultipleSuffixFieldsShortToken(env):
   env.expect('FT.SEARCH', 'idx', '*v*', 'NOCONTENT').equal([1, 'doc:1'])      # bravo contains 'v'
   env.expect('FT.SEARCH', 'idx', '*l*', 'NOCONTENT').equal([1, 'doc:1'])      # alpha contains 'l'
 
+@skip(cluster=True)
+def testSuffixTrieFindsMultiTokenShortPatternText(env):
+  # Verbatim wildcards (`w'...'`, dialect 2+) with multiple length-1 tokens
+  # between `*`s used to return 0 results on WITHSUFFIXTRIE fields:
+  # Suffix_ChooseToken filtered every candidate token and the suffix DS bailed
+  # out. With the floor gone, the chooser picks a token and the iteration
+  # finds the matching term — same recall as a plain field.
+  env.expect(config_cmd(), 'set', 'DEFAULT_DIALECT', 2).ok()
+  env.expect(config_cmd(), 'set', 'MINPREFIX', 1).ok()
+  conn = getConnectionByEnv(env)
+  conn.execute_command('FT.CREATE', 'idx_w',  'SCHEMA', 't', 'TEXT', 'WITHSUFFIXTRIE')
+  conn.execute_command('FT.CREATE', 'idx_no', 'SCHEMA', 't', 'TEXT')
+
+  conn.execute_command('HSET', 'doc:1', 't', 'rabbit')  # has 'a' followed by 'b'
+  conn.execute_command('HSET', 'doc:2', 't', 'lemon')   # no 'a', no 'b'
+
+  env.expect('FT.SEARCH', 'idx_w',  "w'*a*b*'", 'NOCONTENT').equal([1, 'doc:1'])
+  env.expect('FT.SEARCH', 'idx_no', "w'*a*b*'", 'NOCONTENT').equal([1, 'doc:1'])
+
+  # No term contains both 'x' and 'y'.
+  env.expect('FT.SEARCH', 'idx_w',  "w'*x*y*'", 'NOCONTENT').equal([0])
+  env.expect('FT.SEARCH', 'idx_no', "w'*x*y*'", 'NOCONTENT').equal([0])
+
+@skip(cluster=True)
+def testSuffixTrieFindsMultiTokenShortPatternTag(env):
+  # TAG analogue of testSuffixTrieFindsMultiTokenShortPatternText.
+  env.expect(config_cmd(), 'set', 'DEFAULT_DIALECT', 2).ok()
+  env.expect(config_cmd(), 'set', 'MINPREFIX', 1).ok()
+  conn = getConnectionByEnv(env)
+  conn.execute_command('FT.CREATE', 'idx_w',  'SCHEMA', 't', 'TAG', 'WITHSUFFIXTRIE')
+  conn.execute_command('FT.CREATE', 'idx_no', 'SCHEMA', 't', 'TAG')
+
+  conn.execute_command('HSET', 'doc:1', 't', 'rabbit')
+  conn.execute_command('HSET', 'doc:2', 't', 'lemon')
+
+  env.expect('FT.SEARCH', 'idx_w',  "@t:{w'*a*b*'}", 'NOCONTENT').equal([1, 'doc:1'])
+  env.expect('FT.SEARCH', 'idx_no', "@t:{w'*a*b*'}", 'NOCONTENT').equal([1, 'doc:1'])
+
+  env.expect('FT.SEARCH', 'idx_w',  "@t:{w'*x*y*'}", 'NOCONTENT').equal([0])
+  env.expect('FT.SEARCH', 'idx_no', "@t:{w'*x*y*'}", 'NOCONTENT').equal([0])
+
+@skip(cluster=True)
+def testSuffixTrieSurvivesRdbReload(env):
+  # The suffix DS isn't serialized directly — it's rebuilt from the inverted
+  # index when the RDB is loaded. Verify the length-1 sub-suffix invariant
+  # survives the round-trip on both TEXT (rune trie) and TAG (byte triemap),
+  # in the dump and through a short-token query.
+  env.expect(config_cmd(), 'set', 'MINPREFIX', 1).ok()
+  conn = getConnectionByEnv(env)
+  conn.execute_command('FT.CREATE', 'idx', 'SCHEMA',
+                       't_text', 'TEXT', 'WITHSUFFIXTRIE',
+                       't_tag',  'TAG',  'WITHSUFFIXTRIE')
+
+  conn.execute_command('HSET', 'doc:1', 't_text', 'banana', 't_tag', 'banana')
+
+  text_dump_before = env.cmd(debug_cmd(), 'DUMP_SUFFIX_TRIE', 'idx')
+  tag_dump_before  = env.cmd(debug_cmd(), 'DUMP_SUFFIX_TRIE', 'idx', 't_tag')
+
+  env.dumpAndReload()
+  waitForIndex(env, 'idx')
+
+  env.expect(debug_cmd(), 'DUMP_SUFFIX_TRIE', 'idx').equal(text_dump_before)
+  env.expect(debug_cmd(), 'DUMP_SUFFIX_TRIE', 'idx', 't_tag').equal(tag_dump_before)
+
+  env.expect('FT.SEARCH', 'idx', '@t_text:*a*',  'NOCONTENT').equal([1, 'doc:1'])
+  env.expect('FT.SEARCH', 'idx', '@t_tag:{*a*}', 'NOCONTENT').equal([1, 'doc:1'])
+
 def test_params(env):
   env = Env(moduleArgs = 'DEFAULT_DIALECT 2')
   # this test check that `\*` is escaped correctly on contains queries
