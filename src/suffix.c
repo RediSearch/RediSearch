@@ -312,9 +312,6 @@ int Suffix_ChooseToken_rune(const rune *str, size_t len, size_t *tokenIdx, size_
     // this branching is heavy
     for (int j = tokenIdx[i]; j < tokenIdx[i] + tokenLen[i]; ++j) {
       if (str[j] == (rune)'?') {
-        // Penalize this candidate, not the running best (`score`): decrementing
-        // `score` underflows from its INT32_MIN seed to INT32_MAX, after which no
-        // token is ever selected and the caller falls back to a full-trie scan.
         --curScore;
       }
     }
