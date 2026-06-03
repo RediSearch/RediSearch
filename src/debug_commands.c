@@ -2205,6 +2205,9 @@ DEBUG_COMMAND(replCompactionCoordinator) {
   if (!debugCommandsEnabled(ctx)) {
     return RedisModule_ReplyWithError(ctx, NODEBUG_ERR);
   }
+  if (!SearchDisk_IsEnabled()) {
+    return RedisModule_ReplyWithError(ctx, "REPL_COMPACTION_COORDINATOR is only supported in disk mode");
+  }
   if (argc < 3) {
     return RedisModule_WrongArity(ctx);
   }
