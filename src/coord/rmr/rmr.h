@@ -132,6 +132,21 @@ typedef struct MRIterator MRIterator;
 typedef void (*MRIteratorCallback)(MRIteratorCallbackCtx *ctx, MRReply *rep);
 
 /**
+ * Callback invoked when a shard command terminates WITHOUT delivering a reply to
+ * the success callback (`MRIteratorCallback`): i.e. a NULL async reply (the shard
+ * connection dropped or errored) or a synchronous send failure. It runs on the IO
+ * thread and is only responsible for notifying the caller's own completion
+ * bookkeeping (e.g. a hand-rolled response counter). It must NOT free the iterator
+ * and must NOT call MRIteratorCallback_Done — the MR layer performs the iterator's
+ * own accounting immediately after this returns.
+ *
+ * When NULL, the MR layer simply performs MRIteratorCallback_Done, preserving the
+ * historical behavior for callers that key completion off iterator depletion
+ * rather than a private counter.
+ */
+typedef void (*MRIteratorErrorCallback)(MRIteratorCallbackCtx *ctx);
+
+/**
  * Callback type for modifying commands before they are sent to shards.
  * Called from iterStartCb on the IO thread after numShards is known but before
  * commands are sent.
@@ -160,7 +175,8 @@ MRReply *MRIterator_NextWithTimeout(MRIterator *it, const struct timespec *absti
  * invoke MRChannel_WakeAbort directly (e.g. from a timeout callback on another thread). */
 struct MRChannel *MRIterator_GetChannel(MRIterator *it);
 
-MRIterator *MR_IterateWithPrivateData(const MRCommand *cmd, MRIteratorCallback cb, void *cbPrivateData,
+MRIterator *MR_IterateWithPrivateData(const MRCommand *cmd, MRIteratorCallback cb,
+                                      MRIteratorErrorCallback errorCB, void *cbPrivateData,
                                       void (*cbPrivateDataDestructor)(void *),
                                       void (*cbPrivateDataInit)(void *, const MRIterator *),
                                       MRCommandModifier commandModifier,

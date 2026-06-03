@@ -12,6 +12,7 @@
 
 #include <stdlib.h>
 #include "rq.h"
+#include "debug_commands.h"  // DebugSendError_Consume (ENABLE_ASSERT fault injection)
 
 /* Initialize the MapReduce engine with a node provider */
 MRCluster *MR_NewCluster(MRClusterTopology *initialTopology, size_t conn_pool_size, size_t num_io_threads) {
@@ -40,6 +41,13 @@ int MRCluster_SendCommand(IORuntimeCtx *ioRuntime,
                           MRCommand *cmd,
                           redisCallbackFn *fn,
                           void *privdata) {
+#ifdef ENABLE_ASSERT
+  // Test-only: simulate a shard connection that drops/errors after pre-fanout
+  // validation, so the dispatch fails without a reply ever arriving (MOD-15394).
+  if (DebugSendError_Consume()) {
+    return REDIS_ERR;
+  }
+#endif
   MRConn *conn = MRCluster_GetConn(ioRuntime, cmd);
   if (!conn) return REDIS_ERR;
   return MRConn_SendCommand(conn, cmd, fn, privdata);

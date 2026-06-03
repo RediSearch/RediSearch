@@ -213,6 +213,35 @@ static void processCursorMappingCallback(MRIteratorCallbackCtx *ctx, MRReply *re
     MRReply_Free(rep);
 }
 
+// Error callback: invoked by the MR layer when a shard command terminates without
+// delivering a reply (connection dropped / NULL reply, or a synchronous send
+// failure). Unlike FT.SEARCH/FT.AGGREGATE — which track completion via iterator
+// depletion — ProcessHybridCursorMappings waits on a private responseCount, which
+// only processCursorMappingCallback ever increments. Without notifying here, the
+// failing shard would never be counted and the coordinator would block on
+// completionCond forever (the hang in MOD-15394); and even if it unblocked, it
+// would silently return partial cursor mappings. Record a communication error and
+// bump responseCount so the wait loop completes and surfaces the failure.
+//
+// Mirrors the locked section of processCursorMappingCallback. Per the
+// MRIteratorErrorCallback contract, this only notifies — the MR layer calls
+// MRIteratorCallback_Done after this returns.
+static void processCursorMappingErrorCallback(MRIteratorCallbackCtx *ctx) {
+    processCursorMappingCallbackContext *cb_ctx = (processCursorMappingCallbackContext *)MRIteratorCallback_GetPrivateData(ctx);
+    RS_ASSERT(cb_ctx);
+
+    pthread_mutex_lock(cb_ctx->mutex);
+    cb_ctx->responseCount++;
+    QueryError error = QueryError_Default();
+    QueryError_SetCode(&error, QUERY_ERROR_CODE_GENERIC);
+    // Matches CLUSTER_QUERY_ERROR in rmr.c, so a post-validation connection drop is
+    // reported identically to the pre-fanout connection-validation failure.
+    QueryError_SetDetail(&error, "Could not send query to cluster");
+    cb_ctx->errors = array_ensure_append_1(cb_ctx->errors, error);
+    pthread_cond_signal(cb_ctx->completionCond);
+    pthread_mutex_unlock(cb_ctx->mutex);
+}
+
 // Init callback for the private data, so that numShards is set to the actual number of shards in the cluster, and the expected responses.
 static void processCursorMappingInit(void *privateData, const MRIterator *it) {
     processCursorMappingCallbackContext *ctx = (processCursorMappingCallbackContext *)privateData;
@@ -292,6 +321,7 @@ bool ProcessHybridCursorMappings(const MRCommand *cmd, StrongRef searchMappingsR
     // with the actual shard count from the live topology, preventing use-after-free
     // when topology changes during shard migration.
     MRIterator *it = MR_IterateWithPrivateData(cmd, processCursorMappingCallback,
+                                               processCursorMappingErrorCallback,
                                                ctx, NULL, processCursorMappingInit,
                                                cmdModifier, iterStartCb, NULL);
     if (!it) {

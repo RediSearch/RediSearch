@@ -615,6 +615,7 @@ void MR_ReplyClusterInfo(RedisModuleCtx *ctx, MRClusterTopology *topo) {
 struct MRIteratorCtx {
   MRChannel *chan;
   MRIteratorCallback cb;
+  MRIteratorErrorCallback errorCB;  // Optional: notify caller's completion tracking on a no-reply error
   short pending;    // Number of shards with more results (not depleted)
   short inProcess;  // Number of currently running commands on shards
   bool timedOut;    // whether the coordinator experienced a timeout
@@ -639,12 +640,28 @@ struct MRIterator {
   size_t len;
 };
 
+// Terminate a shard command that produced no reply for the success callback
+// (a NULL async reply because the connection dropped/errored, or a synchronous
+// send failure). First notify the caller's own completion tracking via the
+// optional errorCB, then perform the iterator's bookkeeping. errorCB must only
+// notify; it must not free the iterator nor call MRIteratorCallback_Done (this
+// function owns that). When errorCB is NULL the behavior is exactly the historical
+// one: a plain MRIteratorCallback_Done.
+//
+// Callers that key completion off a private counter (e.g. ProcessHybridCursorMappings)
+// register an errorCB; otherwise the shard's failure would never be counted and the
+// caller would wait on its completion condition forever (see MOD-15394).
+static void mrIteratorCallback_Error(MRIteratorCallbackCtx *ctx) {
+  if (ctx->it->ctx.errorCB) {
+    ctx->it->ctx.errorCB(ctx);
+  }
+  MRIteratorCallback_Done(ctx, 1);
+}
+
 static void mrIteratorRedisCB(redisAsyncContext *c, void *r, void *privdata) {
   MRIteratorCallbackCtx *ctx = privdata;
   if (!r) {
-    MRIteratorCallback_Done(ctx, 1);
-    // ctx->numErrored++;
-    // TODO: report error
+    mrIteratorCallback_Error(ctx);
   } else {
     ctx->it->ctx.cb(ctx, r);
   }
@@ -802,7 +819,7 @@ void iterStartCb(void *p) {
   for (size_t i = 0; i < numShards; i++) {
     if (MRCluster_SendCommand(io_runtime_ctx, &it->cbxs[i].cmd, mrIteratorRedisCB, &it->cbxs[i]) ==
         REDIS_ERR) {
-      MRIteratorCallback_Done(&it->cbxs[i], 1);
+      mrIteratorCallback_Error(&it->cbxs[i]);
     }
   }
 
@@ -871,7 +888,7 @@ void iterCursorMappingCb(void *p) {
   for (size_t i = 0; i < numShardsWithMapping; i++) {
     if (MRCluster_SendCommand(io_runtime_ctx, &it->cbxs[i].cmd,
                               mrIteratorRedisCB, &it->cbxs[i]) == REDIS_ERR) {
-      MRIteratorCallback_Done(&it->cbxs[i], 1);
+      mrIteratorCallback_Error(&it->cbxs[i]);
     }
   }
 
@@ -888,7 +905,7 @@ void iterManualNextCb(void *p) {
     if (!it->cbxs[i].cmd.depleted) {
       if (MRCluster_SendCommand(io_runtime_ctx, &it->cbxs[i].cmd,
                                 mrIteratorRedisCB, &it->cbxs[i]) == REDIS_ERR) {
-        MRIteratorCallback_Done(&it->cbxs[i], 1);
+        mrIteratorCallback_Error(&it->cbxs[i]);
       }
     }
   }
@@ -925,7 +942,8 @@ bool MR_ManuallyTriggerNextIfNeeded(MRIterator *it, size_t channelThreshold) {
   return channelSize > 0;
 }
 
-MRIterator *MR_IterateWithPrivateData(const MRCommand *cmd, MRIteratorCallback cb, void *cbPrivateData,
+MRIterator *MR_IterateWithPrivateData(const MRCommand *cmd, MRIteratorCallback cb,
+                                      MRIteratorErrorCallback errorCB, void *cbPrivateData,
                                       void (*cbPrivateDataDestructor)(void *),
                                       void (*cbPrivateDataInit)(void *, const MRIterator *),
                                       MRCommandModifier commandModifier,
@@ -943,6 +961,7 @@ MRIterator *MR_IterateWithPrivateData(const MRCommand *cmd, MRIteratorCallback c
     .ctx = {
       .chan = MR_NewChannel(),
       .cb = cb,
+      .errorCB = errorCB,
       .pending = 1,
       .inProcess = 1,
       .timedOut = false,
