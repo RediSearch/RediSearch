@@ -803,6 +803,7 @@ void RSExecDistHybrid(RedisModuleCtx *ctx, RedisModuleString **argv, int argc,
         DistHybridCleanups(ctx, cmdCtx, sp, &strong_ref, hreq, reply, &status);
         return;
     }
+    QueryError_ClearError(&status);
     WeakRef_Release(ConcurrentCmdCtx_GetWeakRef(cmdCtx));
     IndexSpecRef_Release(strong_ref);
     RedisModule_EndReply(reply);
