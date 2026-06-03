@@ -18,9 +18,12 @@ use index_spec::IndexSpecReadGuard;
 use inverted_index::{DecodedBy, DocIdsDecoder, IndexReaderCore, opaque::OpaqueEncoding};
 use rqe_core::{DocId, FieldIndex, RS_FIELDMASK_ALL};
 
+use field::{FieldExpirationPredicate, FieldFilterContext, FieldMaskOrIndex};
+use inverted_index::IndexReader;
+
 use crate::{
-    ExpirationChecker, IteratorType, RQEIterator, RQEIteratorError, RQEValidateStatus,
-    SkipToOutcome,
+    ExpirationChecker, FieldExpirationChecker, IteratorType, RQEIterator, RQEIteratorError,
+    RQEIteratorPrintable, RQEValidateStatus, SkipToOutcome,
     profile_print::{ProfilePrint, ProfilePrintCtx},
 };
 
@@ -33,7 +36,7 @@ use super::InvIndIterator;
 /// documents is maintained per-field in the index spec's `missingFieldDict`.
 ///
 /// This iterator supports per-field expiration checks via
-/// [`FieldExpirationChecker`](crate::FieldExpirationChecker) using the
+/// [`FieldExpirationChecker`] using the
 /// [`Missing`](field::FieldExpirationPredicate::Missing) predicate.
 ///
 /// # Type Parameters
@@ -255,5 +258,52 @@ where
         }
         ctx.print_optional_counters(map);
         map.kv_long_long(c"Estimated number of matches", self.num_estimated() as i64);
+    }
+}
+
+/// Create a missing-field iterator from an opaque [`InvertedIndex`](inverted_index::opaque::InvertedIndex),
+/// dispatching on the encoding type.
+///
+/// # Safety
+///
+/// 1. `sctx` must point to a valid [`RedisSearchCtx`] whose `spec` is
+///    non-null and valid.
+/// 2. `field_index` must be a valid index into `sctx.spec.fields`.
+/// 3. `sctx.spec.missingFieldDict` must be a non-null, valid dict pointer.
+/// 4. The opaque inverted index must use either
+///    [`DocIdsOnly`](inverted_index::doc_ids_only::DocIdsOnly) or
+///    [`RawDocIdsOnly`](inverted_index::raw_doc_ids_only::RawDocIdsOnly)
+///    encoding.
+pub unsafe fn new_missing_iterator<'index>(
+    ii: &'index inverted_index::opaque::InvertedIndex,
+    sctx: NonNull<RedisSearchCtx>,
+    field_index: FieldIndex,
+) -> Box<dyn RQEIteratorPrintable<'index> + 'index> {
+    let filter_ctx = FieldFilterContext {
+        field: FieldMaskOrIndex::Index(field_index),
+        predicate: FieldExpirationPredicate::Missing,
+    };
+
+    match ii {
+        inverted_index::opaque::InvertedIndex::DocIdsOnly(ii) => {
+            let reader = ii.reader();
+            // SAFETY: caller guarantees sctx and spec validity (1-3).
+            let checker = unsafe { FieldExpirationChecker::new(sctx, filter_ctx, reader.flags()) };
+            // SAFETY: caller guarantees sctx, spec, field_index, and
+            // missingFieldDict validity (1-3).
+            Box::new(unsafe { Missing::new(reader, sctx, field_index, checker) })
+        }
+        inverted_index::opaque::InvertedIndex::RawDocIdsOnly(ii) => {
+            let reader = ii.reader();
+            // SAFETY: caller guarantees sctx and spec validity (1-3).
+            let checker = unsafe { FieldExpirationChecker::new(sctx, filter_ctx, reader.flags()) };
+            // SAFETY: caller guarantees sctx, spec, field_index, and
+            // missingFieldDict validity (1-3).
+            Box::new(unsafe { Missing::new(reader, sctx, field_index, checker) })
+        }
+        _ => panic!(
+            "Missing iterator requires a DocIdsOnly or RawDocIdsOnly inverted index, got: {:?}",
+            std::mem::discriminant(ii)
+        ),
     }
 }
