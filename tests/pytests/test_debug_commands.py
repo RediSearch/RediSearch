@@ -62,6 +62,7 @@ class TestDebugCommands(object):
             "WORKERS",
             'COORD_THREADS',
             'BG_SCAN_CONTROLLER',
+            'REPL_COMPACTION_COORDINATOR',
             "INDEXES",
             "INFO",
             'GET_HIDE_USER_DATA_FROM_LOGS',
