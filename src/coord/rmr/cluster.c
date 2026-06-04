@@ -42,7 +42,7 @@ int MRCluster_SendCommand(IORuntimeCtx *ioRuntime,
                           redisCallbackFn *fn,
                           void *privdata) {
 #ifdef ENABLE_ASSERT
-  // Test-only: simulate a no-reply dispatch failure (MOD-15394).
+  // Test-only: simulate a no-reply dispatch failure.
   if (DebugSendError_Consume()) {
     return REDIS_ERR;
   }

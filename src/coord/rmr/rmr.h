@@ -29,10 +29,10 @@ extern "C" {
 typedef struct QueryError QueryError;
 
 // Error detail returned to the client when a query cannot be dispatched to the
-// cluster (pre-fanout connection-validation / send failure). Shared by the MR
-// iterator no-reply path (rmr.c) and the hybrid cursor-mapping error callback;
-// tests assert on this substring, so keep them in sync via this single macro.
-#define CLUSTER_QUERY_ERROR "Could not send query to cluster"
+// cluster (pre-fanout connection-validation / send failure). Defined in rmr.c
+// and shared by the MR iterator no-reply path and the hybrid cursor-mapping
+// error callback; tests assert on this substring, so keep it the single source.
+extern const char CLUSTER_QUERY_ERROR[];
 
 struct MRCtx;
 struct RedisModuleCtx;
@@ -140,7 +140,7 @@ typedef void (*MRIteratorCallback)(MRIteratorCallbackCtx *ctx, MRReply *rep);
  * Invoked on the IO thread when a shard command terminates without a reply
  * (NULL async reply or synchronous send failure). Notify-only: must not free
  * the iterator nor call MRIteratorCallback_Done — the MR layer does that next.
- * Optional; NULL preserves the historical depletion-only behavior (MOD-15394).
+ * Optional; NULL preserves the historical depletion-only behavior.
  */
 typedef void (*MRIteratorErrorCallback)(MRIteratorCallbackCtx *ctx);
 
@@ -161,7 +161,7 @@ typedef void (*MRCommandModifier)(MRCommand *cmd, size_t numShards, void *privat
  * Only `cb` is required; every other field may be NULL to opt out of that hook.
  *
  * @param cb                     Per-reply callback (required).
- * @param errorCB                No-reply termination callback (optional, MOD-15394).
+ * @param errorCB                No-reply termination callback (optional).
  * @param cbPrivateData          Private data handed to `cb` via the callback ctx.
  * @param cbPrivateDataDestructor Frees `cbPrivateData` when the iterator is freed.
  * @param cbPrivateDataInit      Runs once on the IO thread after numShards is known.

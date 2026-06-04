@@ -2844,7 +2844,7 @@ DEBUG_COMMAND(syncPoint) {
 /**
  * FT.DEBUG SEND_ERROR <count>
  * Arm the next <count> MRCluster_SendCommand dispatches to return REDIS_ERR,
- * simulating a no-reply shard failure (MOD-15394).
+ * simulating a no-reply shard failure.
  */
 DEBUG_COMMAND(sendError) {
   if (!debugCommandsEnabled(ctx)) return RedisModule_ReplyWithError(ctx, NODEBUG_ERR);

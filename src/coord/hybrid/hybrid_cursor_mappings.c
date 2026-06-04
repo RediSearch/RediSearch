@@ -215,7 +215,7 @@ static void processCursorMappingCallback(MRIteratorCallbackCtx *ctx, MRReply *re
 
 // No-reply error callback: bumps responseCount and records a communication
 // error so the wait loop below (which keys completion off responseCount, not
-// iterator depletion) unblocks instead of hanging (MOD-15394).
+// iterator depletion) unblocks instead of hanging.
 static void processCursorMappingErrorCallback(MRIteratorCallbackCtx *ctx) {
     processCursorMappingCallbackContext *cb_ctx = (processCursorMappingCallbackContext *)MRIteratorCallback_GetPrivateData(ctx);
     RS_ASSERT(cb_ctx);

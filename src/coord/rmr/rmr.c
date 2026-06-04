@@ -47,7 +47,8 @@
 
 #define CEIL_DIV(a, b) ((a + b - 1) / b)
 
-// CLUSTER_QUERY_ERROR is defined in rmr.h and shared with the hybrid error path.
+// Declared extern in rmr.h; shared with the hybrid cursor-mapping error path.
+const char CLUSTER_QUERY_ERROR[] = "Could not send query to cluster";
 
 /* A cluster is a pool of IORuntimes. It is owned by the main thread and accessed in the coordinator threads */
 static MRCluster *cluster_g = NULL;
@@ -642,8 +643,7 @@ struct MRIterator {
 
 // No-reply termination path: invoke the caller's optional errorCB (notify-only)
 // before the iterator's MRIteratorCallback_Done. Without this hook callers that
-// wait on a private counter (e.g. ProcessHybridCursorMappings) would hang
-// (MOD-15394).
+// wait on a private counter (e.g. ProcessHybridCursorMappings) would hang.
 static void mrIteratorCallback_Error(MRIteratorCallbackCtx *ctx) {
   if (ctx->it->ctx.errorCB) {
     ctx->it->ctx.errorCB(ctx);

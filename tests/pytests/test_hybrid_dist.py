@@ -72,7 +72,7 @@ def test_dist_hybrid_index_drop_after_sctx_allocation(env):
 @skip(cluster=False)
 @require_enable_assert
 def test_dist_hybrid_shard_dispatch_failure_does_not_hang(env):
-    """MOD-15394: a no-reply shard dispatch failure must surface as an error
+    """A no-reply shard dispatch failure must surface as an error
     rather than hanging FT.HYBRID on ProcessHybridCursorMappings' completionCond.
     FT.DEBUG SEND_ERROR forces the next MRCluster_SendCommand to return REDIS_ERR."""
     conn, query_vec, doc_vec = _setup_hybrid_index(env)
@@ -105,7 +105,7 @@ def test_dist_hybrid_shard_dispatch_failure_does_not_hang(env):
     query_thread.join(timeout=15)
 
     env.assertFalse(query_thread.is_alive(),
-                    message='FT.HYBRID hung after a shard dispatch failure (MOD-15394)')
+                    message='FT.HYBRID hung after a shard dispatch failure')
     env.assertEqual(len(error_holder), 1,
                     message=f'Expected a communication error, got results: {result_holder}')
     env.assertContains('Could not send query to cluster', str(error_holder[0]))
