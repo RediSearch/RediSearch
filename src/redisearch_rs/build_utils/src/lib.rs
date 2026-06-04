@@ -72,7 +72,7 @@ pub fn rerun_if_c_changes(dir: &Path) -> std::io::Result<()> {
 /// during the build process.
 pub fn bind_foreign_c_symbols() {
     force_link_time_symbol_resolution();
-    link_redisearch_all();
+    link_redisearch_all().unwrap_or_else(|e| panic!("{e}"));
     link_mkl();
     link_c_plusplus();
 }
@@ -116,7 +116,8 @@ fn bin_root() -> PathBuf {
     }
 }
 
-/// Link `libredisearch_all.a` using the `-bundle` modifier.
+/// Link `libredisearch_all.a` using the `-bundle` modifier, returning an error if the
+/// library is not found.
 ///
 /// The `-bundle` modifier prevents the (very large) C archive from being
 /// embedded into every Rust rlib in the dependency tree. Instead, the linker
@@ -129,7 +130,11 @@ fn bin_root() -> PathBuf {
 ///    errors in unrelated workspace members.
 /// 2. Archive member counts exceeding `u16::MAX` in rustc's
 ///    `ar_archive_writer` when MKL or other large archives are involved.
-fn link_redisearch_all() {
+///
+/// Callers that need soft-fail behaviour (e.g. lint-only runs where the
+/// library has not been built) can inspect the returned `Err` and emit a
+/// `cargo::warning` instead of panicking.
+pub fn link_redisearch_all() -> Result<PathBuf, Box<dyn std::error::Error>> {
     let bin_root = bin_root();
     let lib_dir = bin_root.join("src");
     let lib = lib_dir.join("libredisearch_all.a");
@@ -137,8 +142,9 @@ fn link_redisearch_all() {
         println!("cargo::rustc-link-lib=static:-bundle=redisearch_all");
         println!("cargo::rerun-if-changed={}", lib.display());
         println!("cargo::rustc-link-search=native={}", lib_dir.display());
+        Ok(lib)
     } else {
-        panic!("Static library not found: {}", lib.display());
+        Err(format!("Static library not found: {}", lib.display()).into())
     }
 }
 
