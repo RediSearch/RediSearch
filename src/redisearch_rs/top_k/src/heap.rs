@@ -408,6 +408,31 @@ mod tests {
     }
 
     #[test]
+    fn drain_unsorted_empties_heap_and_returns_all() {
+        let mut heap = TopKHeap::new(non_zero_capacity(3), asc);
+        heap.push(1, 2.0);
+        heap.push(2, 5.0);
+        heap.push(3, 3.0);
+
+        let mut drained = heap.drain_unsorted();
+        assert_eq!(drained.len(), 3);
+        assert!(heap.is_empty(), "drain_unsorted must leave the heap empty");
+
+        // Order is unspecified; sort by doc_id to check membership.
+        drained.sort_by_key(|r| r.doc_id);
+        let scores: Vec<f64> = drained.iter().map(|r| r.score).collect();
+        assert_eq!(scores, vec![2.0, 5.0, 3.0]);
+
+        // The heap stays reusable: re-pushing rebuilds order.
+        for r in drained {
+            heap.push(r.doc_id, r.score);
+        }
+        let sorted = heap.drain_sorted();
+        assert_eq!(sorted[0].score, 2.0);
+        assert_eq!(sorted[2].score, 5.0);
+    }
+
+    #[test]
     fn heap_is_empty_and_is_full() {
         let mut heap = TopKHeap::new(non_zero_capacity(2), asc);
         assert!(heap.is_empty());
