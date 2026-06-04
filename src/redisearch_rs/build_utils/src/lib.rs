@@ -73,7 +73,7 @@ pub fn rerun_if_c_changes(dir: &Path) -> std::io::Result<()> {
 pub fn bind_foreign_c_symbols() {
     force_link_time_symbol_resolution();
     link_redisearch_all().unwrap_or_else(|e| panic!("{e}"));
-    link_mkl();
+    link_mkl(&bin_root().join("_deps/svs-src/lib"));
     link_c_plusplus();
 }
 
@@ -153,8 +153,11 @@ pub fn link_redisearch_all() -> Result<PathBuf, Box<dyn std::error::Error>> {
 /// MKL is excluded from `libredisearch_all.a` because its ~42K object files
 /// overflow the `u16` archive member index in rustc's `ar_archive_writer`.
 /// Like `redisearch_all`, we link with `-bundle` to avoid rlib bloat.
-fn link_mkl() {
-    let svs_lib_dir = bin_root().join("_deps/svs-src/lib");
+///
+/// `svs_lib_dir` is the directory that contains `libmkl_static_library.a`.
+/// Its location varies across build configurations, so callers are responsible
+/// for supplying the correct path.
+pub fn link_mkl(svs_lib_dir: &Path) {
     let mkl = svs_lib_dir.join("libmkl_static_library.a");
     if std::fs::exists(&mkl).unwrap_or(false) {
         println!("cargo::rerun-if-changed={}", mkl.display());
