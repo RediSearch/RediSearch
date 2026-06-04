@@ -99,11 +99,17 @@ impl IndexBlock {
     /// Repair a block by removing records which no longer exists according to `doc_exists`. If a
     /// record does exist, then `repair` is called with it.
     ///
+    /// The `repair` callback receives the surviving record, this block (read-only), and
+    /// the block's logical index within the index — the latter lets callers compare
+    /// against `index.number_of_blocks() - 1` to ask "is this the last block?" without
+    /// resorting to pointer equality, which isn't stable in the lock-free state model.
+    ///
     /// `None` is returned when there is nothing to repair in this block.
     pub(crate) fn repair<'index, E: Encoder + DecodedBy<Decoder = D>, D: Decoder>(
         &'index self,
+        block_idx: usize,
         doc_exist: impl Fn(DocId) -> bool,
-        mut repair: Option<impl FnMut(&RSIndexResult<'index>, &IndexBlock)>,
+        mut repair: Option<impl FnMut(&RSIndexResult<'index>, &IndexBlock, usize)>,
         _encoder: PhantomData<E>,
     ) -> std::io::Result<Option<RepairType>> {
         let mut cursor: std::io::Cursor<&'index [u8]> = std::io::Cursor::new(&self.buffer);
@@ -121,7 +127,7 @@ impl IndexBlock {
 
             if doc_exist(result.doc_id) {
                 if let Some(repair) = repair.as_mut() {
-                    repair(&result, self);
+                    repair(&result, self, block_idx);
                 }
 
                 tmp_inverted_index.add_record(&result)?;
@@ -168,16 +174,12 @@ impl<E: Encoder + DecodedBy> InvertedIndex<E> {
     pub fn scan_gc<'index>(
         &'index self,
         doc_exist: impl Fn(DocId) -> bool,
-        mut repair: Option<impl FnMut(&RSIndexResult<'index>, &IndexBlock)>,
+        mut repair: Option<impl FnMut(&RSIndexResult<'index>, &IndexBlock, usize)>,
     ) -> std::io::Result<Option<GcScanDelta>> {
         // Scan against a snapshot — gives us a stable enumeration even if writes happen
         // concurrently with the scan. The `last_block_idx` / `last_block_num_entries`
         // fields below let `apply_gc` detect drift and ignore any stale delta.
-        // SAFETY (lifetime): `'index` is the borrow of `self`; the snapshot is kept alive
-        // by the local `state_arc` for the duration of this function and the returned
-        // delta doesn't borrow from it.
         let state_arc = self.state.load_full();
-        // The snapshot itself: held via the Arc for the duration of this call.
         let state = &*state_arc;
 
         let mut results = Vec::new();
@@ -190,7 +192,7 @@ impl<E: Encoder + DecodedBy> InvertedIndex<E> {
             // and the IndexBlock buffers are immutable).
             let block_ref: &'index IndexBlock = unsafe { std::mem::transmute(block) };
 
-            let repair = block_ref.repair(&doc_exist, repair.as_mut(), PhantomData::<E>)?;
+            let repair = block_ref.repair(i, &doc_exist, repair.as_mut(), PhantomData::<E>)?;
 
             if let Some(repair) = repair {
                 results.push(BlockGcScanResult { index: i, repair });

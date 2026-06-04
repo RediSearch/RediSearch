@@ -79,14 +79,12 @@ impl NumericRangeNode {
     pub fn scan_gc(&self, doc_exists: &dyn Fn(DocId) -> bool) -> Option<NodeGcDelta> {
         let range = self.range()?;
 
-        // Pointer to the last block of the index. Used inside the repair
-        // closure to route each entry's HLL contribution into the correct
-        // accumulator.
-        let last_block_ptr: *const IndexBlock = range
-            .entries()
-            .last_block()
-            .map(|b| b as *const IndexBlock)
-            .unwrap_or(std::ptr::null());
+        // The logical index of the last block — used inside the repair closure to route
+        // each entry's HLL contribution into the correct accumulator. Pointer comparison
+        // isn't reliable in the lock-free `State` model (a fresh snapshot can produce
+        // different block addresses than the previous one), so we compare indices instead.
+        let num_blocks = range.entries().num_blocks();
+        let last_block_idx = num_blocks.saturating_sub(1);
 
         // HLL tracking for cardinality (re)estimation.
         //
@@ -95,10 +93,10 @@ impl NumericRangeNode {
         let mut majority_hll = Hll::new();
         let mut last_block_hll = Hll::new();
 
-        let mut repair_fn = |res: &RSIndexResult<'_>, block: &IndexBlock| {
+        let mut repair_fn = |res: &RSIndexResult<'_>, _block: &IndexBlock, block_idx: usize| {
             // SAFETY: We know this is a numeric index result
             let value = unsafe { res.as_numeric_unchecked() };
-            let target = if std::ptr::eq(block, last_block_ptr) {
+            let target = if num_blocks > 0 && block_idx == last_block_idx {
                 &mut last_block_hll
             } else {
                 &mut majority_hll

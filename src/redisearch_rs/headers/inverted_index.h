@@ -38,6 +38,20 @@ typedef struct IndexBlock IndexBlock;
 typedef struct InvertedIndex InvertedIndex;
 
 /**
+ * An owned snapshot of an [`InvertedIndex`](super::core::InvertedIndex)'s block storage.
+ *
+ * Holds an internal [`Arc`] to the [`State`] that was current when the snapshot was
+ * taken, so the contained blocks remain alive for the snapshot's entire lifetime —
+ * regardless of writes to the source index. Use this to hand block references across
+ * boundaries where the borrow checker can't prove the source index outlives the
+ * reference (FFI, threads, callbacks).
+ *
+ * The snapshot does **not** see writes made after it was taken; if a fresh view is
+ * needed, take a new snapshot.
+ */
+typedef struct InvertedIndexSnapshot InvertedIndexSnapshot;
+
+/**
  * Summary information about an inverted index containing all key metrics
  */
 typedef struct IISummary {
@@ -116,6 +130,35 @@ typedef struct AddRecordOutcome {
 } AddRecordOutcome;
 
 /**
+ * Information about the result of applying a garbage collection scan to the index
+ */
+typedef struct II_GCScanStats {
+  /**
+   * The number of bytes that were freed
+   */
+  size_t bytes_freed;
+  /**
+   * The number of bytes that were allocated
+   */
+  size_t bytes_allocated;
+  /**
+   * The number of entries that were removed from the index including duplicates
+   */
+  size_t entries_removed;
+  /**
+   * Net change in the index's block count for this apply. Positive when blocks were added
+   * (e.g. a `Replace` repair adding more blocks than it removed), negative when removed.
+   * Callers maintaining per-spec totals should add this signed value to their counter.
+   */
+  int64_t block_count_delta;
+  /**
+   * Whether or not we ignored the last block in the index, since it changed
+   * compared to the time we performed the scan
+   */
+  bool ignored_last_block;
+} II_GCScanStats;
+
+/**
  * Filter to apply when reading from an index. Entries which don't match the filter will not be
  * returned by the reader.
  */
@@ -152,32 +195,3 @@ typedef union IndexDecoderCtx {
     const struct NumericFilter *numeric;
   };
 } IndexDecoderCtx;
-
-/**
- * Information about the result of applying a garbage collection scan to the index
- */
-typedef struct II_GCScanStats {
-  /**
-   * The number of bytes that were freed
-   */
-  size_t bytes_freed;
-  /**
-   * The number of bytes that were allocated
-   */
-  size_t bytes_allocated;
-  /**
-   * The number of entries that were removed from the index including duplicates
-   */
-  size_t entries_removed;
-  /**
-   * Net change in the index's block count for this apply. Positive when blocks were added
-   * (e.g. a `Replace` repair adding more blocks than it removed), negative when removed.
-   * Callers maintaining per-spec totals should add this signed value to their counter.
-   */
-  int64_t block_count_delta;
-  /**
-   * Whether or not we ignored the last block in the index, since it changed
-   * compared to the time we performed the scan
-   */
-  bool ignored_last_block;
-} II_GCScanStats;

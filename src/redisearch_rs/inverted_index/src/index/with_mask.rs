@@ -98,9 +98,9 @@ impl<E: Encoder> FieldMaskTrackingIndex<E> {
         self.index.block_at(index)
     }
 
-    /// See [`InvertedIndex::block_ref`] for safety constraints.
-    pub fn block_ref(&self, index: usize) -> Option<&IndexBlock> {
-        self.index.block_ref(index)
+    /// Take an owned snapshot. See [`InvertedIndex::snapshot`].
+    pub fn snapshot(&self) -> crate::InvertedIndexSnapshot {
+        self.index.snapshot()
     }
 
     /// Get the current GC marker of this index. This is only used by the some C tests.
@@ -142,7 +142,7 @@ impl<E: Encoder + DecodedBy> FieldMaskTrackingIndex<E> {
     pub fn scan_gc<'index>(
         &'index self,
         doc_exist: impl Fn(DocId) -> bool,
-        repair: Option<impl FnMut(&RSIndexResult<'index>, &IndexBlock)>,
+        repair: Option<impl FnMut(&RSIndexResult<'index>, &IndexBlock, usize)>,
     ) -> std::io::Result<Option<GcScanDelta>> {
         self.index.scan_gc(doc_exist, repair)
     }

@@ -155,3 +155,38 @@ impl State {
         self.block_count()
     }
 }
+
+/// An owned snapshot of an [`InvertedIndex`](super::core::InvertedIndex)'s block storage.
+///
+/// Holds an internal [`Arc`] to the [`State`] that was current when the snapshot was
+/// taken, so the contained blocks remain alive for the snapshot's entire lifetime —
+/// regardless of writes to the source index. Use this to hand block references across
+/// boundaries where the borrow checker can't prove the source index outlives the
+/// reference (FFI, threads, callbacks).
+///
+/// The snapshot does **not** see writes made after it was taken; if a fresh view is
+/// needed, take a new snapshot.
+pub struct InvertedIndexSnapshot {
+    state: Arc<State>,
+}
+
+impl InvertedIndexSnapshot {
+    /// Construct from an `Arc<State>`. Intentionally `pub(crate)` so only the parent
+    /// `InvertedIndex::snapshot` constructor — which has access to `self.state` — can
+    /// call it.
+    pub(crate) fn from_arc(state: Arc<State>) -> Self {
+        Self { state }
+    }
+
+    /// Total number of blocks visible in the snapshot.
+    pub fn block_count(&self) -> usize {
+        self.state.block_count()
+    }
+
+    /// Borrow the block at the given logical index, or `None` if out of bounds. The
+    /// borrow lives as long as `&self`, which is safe: the snapshot keeps the
+    /// underlying [`State`] alive via its `Arc`.
+    pub fn block_ref(&self, idx: usize) -> Option<&super::core::IndexBlock> {
+        self.state.get_block(idx)
+    }
+}

@@ -61,7 +61,7 @@ fn test_inverted_index_usage() {
     let delta = ii
         .scan_gc(
             |doc_id| doc_id >= 2_000,
-            None::<fn(&RSIndexResult, &IndexBlock)>,
+            None::<fn(&RSIndexResult, &IndexBlock, usize)>,
         )
         .unwrap()
         .unwrap();
@@ -88,7 +88,7 @@ fn test_inverted_index_usage() {
     let delta = ii
         .scan_gc(
             |doc_id| doc_id < 3_000,
-            None::<fn(&RSIndexResult, &IndexBlock)>,
+            None::<fn(&RSIndexResult, &IndexBlock, usize)>,
         )
         .unwrap()
         .unwrap();
@@ -102,7 +102,7 @@ fn test_inverted_index_usage() {
 
     // Remove all the records and check that the index can still be used
     let delta = ii
-        .scan_gc(|_| false, None::<fn(&RSIndexResult, &IndexBlock)>)
+        .scan_gc(|_| false, None::<fn(&RSIndexResult, &IndexBlock, usize)>)
         .unwrap()
         .unwrap();
     let apply_info = ii.apply_gc(delta);
@@ -138,7 +138,7 @@ fn test_inverted_index_usage() {
     let delta = ii
         .scan_gc(
             |doc_id| doc_id % (u32::MAX as DocId * 2) == 0,
-            None::<fn(&RSIndexResult, &IndexBlock)>,
+            None::<fn(&RSIndexResult, &IndexBlock, usize)>,
         )
         .unwrap()
         .unwrap();

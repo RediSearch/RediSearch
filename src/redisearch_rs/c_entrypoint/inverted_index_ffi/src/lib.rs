@@ -27,7 +27,7 @@ pub use inverted_index::opaque::InvertedIndex;
 use inverted_index::{
     AddRecordOutcome, EntriesTrackingIndex, FieldMaskTrackingIndex, FilterGeoReader,
     FilterMaskReader, FilterNumericReader, GcApplyInfo, GcScanDelta, IndexBlock, IndexReader as _,
-    NumericFilter, ReadFilter,
+    InvertedIndexSnapshot, NumericFilter, ReadFilter,
     debug::{BlockSummary, Summary},
     doc_ids_only::DocIdsOnly,
     fields_offsets::{FieldsOffsets, FieldsOffsetsWide},
@@ -438,22 +438,69 @@ pub unsafe extern "C" fn InvertedIndex_NumEntries(ii: *const InvertedIndex) -> u
     }
 }
 
-/// Get a reference to the block at the specified index. Returns NULL if the index is out of bounds.
-/// This is used by some C tests.
+/// Take an owned snapshot of the index's block storage. The returned snapshot keeps the
+/// contained blocks alive for its entire lifetime, regardless of concurrent writes to the
+/// source index — call [`InvertedIndexSnapshot_BlockRef`] to access them, and
+/// [`InvertedIndexSnapshot_Free`] when done.
 ///
 /// # Safety
-/// The following invariant must be upheld when calling this function:
-/// - `ii` must be a valid pointer to an `InvertedIndex` instance and cannot be NULL.
+/// - `ii` must be a valid pointer to an `InvertedIndex` and cannot be NULL.
+/// - The returned pointer must be released via `InvertedIndexSnapshot_Free`.
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn InvertedIndex_BlockRef<'index>(
+pub unsafe extern "C" fn InvertedIndex_Snapshot(
     ii: *const InvertedIndex,
-    block_idx: usize,
-) -> Option<&'index IndexBlock> {
+) -> *mut InvertedIndexSnapshot {
     debug_assert!(!ii.is_null(), "ii must not be null");
+    // SAFETY: caller-upheld; see function-level docs.
+    let ii: &_ = unsafe { &*ii };
+    let snapshot = ii_dispatch!(ii, snapshot);
+    Box::into_raw(Box::new(snapshot))
+}
 
-    // SAFETY: The caller must ensure that `ii` is a valid pointer to an `InvertedIndex`
-    let ii: &'index _ = unsafe { &*ii };
-    ii_dispatch!(ii, block_ref, block_idx)
+/// Free a snapshot previously returned by [`InvertedIndex_Snapshot`]. Safe to call on
+/// NULL (no-op).
+///
+/// # Safety
+/// - `snapshot`, if non-NULL, must have been returned by `InvertedIndex_Snapshot` and
+///   not previously freed.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn InvertedIndexSnapshot_Free(snapshot: *mut InvertedIndexSnapshot) {
+    if snapshot.is_null() {
+        return;
+    }
+    // SAFETY: caller-upheld; see function-level docs.
+    drop(unsafe { Box::from_raw(snapshot) });
+}
+
+/// Number of blocks in the snapshot.
+///
+/// # Safety
+/// - `snapshot` must be a valid pointer to an `InvertedIndexSnapshot` and cannot be NULL.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn InvertedIndexSnapshot_NumBlocks(
+    snapshot: *const InvertedIndexSnapshot,
+) -> usize {
+    debug_assert!(!snapshot.is_null(), "snapshot must not be null");
+    // SAFETY: caller-upheld; see function-level docs.
+    let snapshot = unsafe { &*snapshot };
+    snapshot.block_count()
+}
+
+/// Borrow the block at the given logical index, or return NULL if out of bounds. The
+/// returned pointer is valid for as long as `snapshot` is alive.
+///
+/// # Safety
+/// - `snapshot` must be a valid pointer to an `InvertedIndexSnapshot` and cannot be NULL.
+/// - The returned pointer must not outlive the snapshot.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn InvertedIndexSnapshot_BlockRef<'snap>(
+    snapshot: *const InvertedIndexSnapshot,
+    block_idx: usize,
+) -> Option<&'snap IndexBlock> {
+    debug_assert!(!snapshot.is_null(), "snapshot must not be null");
+    // SAFETY: caller-upheld; see function-level docs.
+    let snapshot: &'snap _ = unsafe { &*snapshot };
+    snapshot.block_ref(block_idx)
 }
 
 /// Get ID of the last document in the index. Returns 0 if the index is empty.
@@ -559,9 +606,16 @@ pub unsafe extern "C" fn InvertedIndex_GcDelta_Scan(
         // SAFETY: The caller must ensure `params` is a valid pointer to a `IndexRepairParams` and
         // we just checked it is not NULL
         let params = unsafe { &*params };
-        params
-            .repair_callback
-            .map(|cb| move |res: &RSIndexResult, ib: &IndexBlock| cb(res, ib, params.repair_arg))
+        params.repair_callback.map(|cb| {
+            // The Rust `repair_fn` signature now receives a block index too (the
+            // pointer-equality trick used internally by `numeric_range_tree` no longer
+            // works in the lock-free model). The C-side callback doesn't need it — fork-GC
+            // runs in a child process with no concurrent writers, so pointer equality
+            // there is still meaningful — so we drop it on the floor here.
+            move |res: &RSIndexResult, ib: &IndexBlock, _block_idx: usize| {
+                cb(res, ib, params.repair_arg)
+            }
+        })
     };
 
     // SAFETY: The caller must ensure `idx` is a valid pointer to an `InvertedIndex`

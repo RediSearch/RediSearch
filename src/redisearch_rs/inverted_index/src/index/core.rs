@@ -16,7 +16,7 @@ use std::{
         atomic::{self, AtomicU32, AtomicUsize},
     },
 };
-use super::state::State;
+use super::state::{InvertedIndexSnapshot, State};
 use super::unique_id::IndexUniqueId;
 use crate::{
     Encoder, IdDelta,
@@ -467,28 +467,13 @@ impl<E: Encoder> InvertedIndex<E> {
             .map(|b| (*b).clone())
     }
 
-    /// Get a reference to the block at the given index, if it exists.
-    ///
-    /// Used by the C FFI which expects a `*const IndexBlock`. The returned ref points
-    /// into the [`State`] snapshot loaded inside this call; the snapshot's local `Arc`
-    /// is dropped on return, leaving only the ref held inside [`Self::state`].
-    ///
-    /// # Safety invariant for callers
-    ///
-    /// The ref remains valid only as long as `self.state` still holds the State that
-    /// produced it (i.e. no concurrent writer published a new state). This matches the
-    /// pre-state model's constraint that callers must not access blocks while writes are
-    /// happening — it's the same caller discipline, just enforced more loosely.
-    pub fn block_ref(&self, index: usize) -> Option<&IndexBlock> {
-        let snapshot = self.state.load_full();
-        let block = snapshot.get_block(index)?;
-        // SAFETY: see the function-level doc. The returned ref is valid for as long as
-        // some Arc<State> referencing this block exists. `self.state` holds one such Arc
-        // (until a writer publishes a new state). When `snapshot` is dropped at end of
-        // scope, `self.state`'s Arc keeps the block alive.
-        let extended: &IndexBlock = unsafe { std::mem::transmute::<&IndexBlock, &IndexBlock>(block) };
-        drop(snapshot);
-        Some(extended)
+    /// Take an owned [`InvertedIndexSnapshot`] of the current block storage. The
+    /// snapshot holds an internal `Arc` and keeps the contained blocks alive for its
+    /// own lifetime — use this when handing block references to a context (FFI,
+    /// another thread, a long-lived callback) where the borrow checker can't keep
+    /// `&self` alive for you.
+    pub fn snapshot(&self) -> InvertedIndexSnapshot {
+        InvertedIndexSnapshot::from_arc(self.state.load_full())
     }
 
     /// Get the current GC marker of this index. This is only used by the some C tests.

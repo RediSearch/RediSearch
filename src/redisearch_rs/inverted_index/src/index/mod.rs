@@ -15,6 +15,7 @@ mod with_entries;
 mod with_mask;
 
 pub use self::core::*;
+pub use self::state::InvertedIndexSnapshot;
 pub use with_entries::EntriesTrackingIndex;
 pub use with_mask::FieldMaskTrackingIndex;
 
