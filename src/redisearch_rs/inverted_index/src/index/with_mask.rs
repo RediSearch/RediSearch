@@ -93,7 +93,12 @@ impl<E: Encoder> FieldMaskTrackingIndex<E> {
         self.index.number_of_blocks()
     }
 
-    /// Get a reference to the block at the given index, if it exists. This is only used by some C tests.
+    /// Get a clone of the block at the given index, if it exists. This is only used by some C tests.
+    pub fn block_at(&self, index: usize) -> Option<IndexBlock> {
+        self.index.block_at(index)
+    }
+
+    /// See [`InvertedIndex::block_ref`] for safety constraints.
     pub fn block_ref(&self, index: usize) -> Option<&IndexBlock> {
         self.index.block_ref(index)
     }

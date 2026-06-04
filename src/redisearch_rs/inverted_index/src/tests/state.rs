@@ -8,9 +8,9 @@
 */
 
 //! Snapshot tests for the lock-free [`State`](crate::index::state::State) field on
-//! `InvertedIndex`. During Story 1.1 of Epic 1 the state is a parallel mirror of the
-//! `blocks` `ThinVec`; these tests check that it stays consistent across every mutation
-//! path (initial construction, `add_record` in all its sub-cases, and `apply_gc`).
+//! `InvertedIndex`. Storage is now `state`-only (Story 1.3); these tests check that
+//! state stays internally consistent across every mutation path (initial construction,
+//! `add_record` in all its sub-cases, and `apply_gc`).
 
 use ffi::IndexFlags_Index_DocIdsOnly;
 use index_result::RSIndexResult;
@@ -20,37 +20,37 @@ use crate::{Encoder, IndexBlock, InvertedIndex};
 
 use super::Dummy;
 
-/// Assert that the `state` snapshot matches `blocks`: empty `sealed`, `pending` mirrors
-/// every block except the last, and `in_progress` is the last block (or `None` if empty).
-fn assert_state_mirrors_blocks<E: Encoder>(ii: &InvertedIndex<E>) {
+/// Assert that the `state` snapshot is internally consistent:
+/// - `sealed` is empty (Story 1.4 introduces sealed compaction).
+/// - All `pending` block ranges are non-overlapping and ordered before `in_progress`.
+/// - `number_of_blocks()` equals `pending.len() + in_progress.is_some() as usize`.
+fn assert_state_invariants<E: Encoder>(ii: &InvertedIndex<E>) {
     let state = ii.state.load_full();
 
     assert!(
         state.sealed.is_empty(),
-        "sealed must be empty during the dual-write phase (Stories 1.1-1.3)"
+        "sealed must be empty until Story 1.4"
     );
 
-    let expected_pending_len = ii.blocks.len().saturating_sub(1);
+    let expected_total = state.pending.len() + usize::from(state.in_progress.is_some());
     assert_eq!(
-        state.pending.len(),
-        expected_pending_len,
-        "pending must mirror blocks[..len-1]"
+        ii.number_of_blocks(),
+        expected_total,
+        "block count must match pending+in_progress"
     );
-    for (i, arc) in state.pending.iter().enumerate() {
-        assert_eq!(
-            &**arc, &ii.blocks[i],
-            "pending[{i}] must equal blocks[{i}]"
+
+    // Pending blocks are non-overlapping and strictly ordered by doc id.
+    for window in state.pending.windows(2) {
+        assert!(
+            window[0].last_doc_id < window[1].first_doc_id,
+            "pending blocks must be strictly ordered by doc id"
         );
     }
-
-    match (ii.blocks.last(), state.in_progress.as_ref()) {
-        (None, None) => {}
-        (Some(last), Some(ip)) => assert_eq!(
-            &**ip, last,
-            "in_progress must equal blocks.last()"
-        ),
-        (None, Some(_)) => panic!("in_progress is Some but blocks is empty"),
-        (Some(_), None) => panic!("in_progress is None but blocks is non-empty"),
+    if let (Some(last_pending), Some(ip)) = (state.pending.last(), state.in_progress.as_ref()) {
+        assert!(
+            last_pending.last_doc_id < ip.first_doc_id,
+            "in_progress must come after all pending blocks"
+        );
     }
 }
 
@@ -79,7 +79,7 @@ fn first_record_promotes_in_progress() {
     assert_eq!(ip.first_doc_id, 10);
     assert_eq!(ip.last_doc_id, 10);
     assert_eq!(ip.num_entries, 1);
-    assert_state_mirrors_blocks(&ii);
+    assert_state_invariants(&ii);
 }
 
 #[test]
@@ -97,7 +97,7 @@ fn appending_to_same_block_only_updates_in_progress() {
     assert_eq!(ip.first_doc_id, 10);
     assert_eq!(ip.last_doc_id, 14);
     assert_eq!(ip.num_entries, 5);
-    assert_state_mirrors_blocks(&ii);
+    assert_state_invariants(&ii);
 }
 
 #[test]
@@ -112,7 +112,7 @@ fn block_fill_moves_previous_in_progress_into_pending() {
             .unwrap();
     }
 
-    assert_eq!(ii.blocks.len(), 2, "should have rolled to a second block");
+    assert_eq!(ii.number_of_blocks(), 2, "should have rolled to a second block");
 
     let state = ii.state.load_full();
     assert_eq!(state.pending.len(), 1, "first block is now pending");
@@ -122,7 +122,7 @@ fn block_fill_moves_previous_in_progress_into_pending() {
     let ip = state.in_progress.as_ref().unwrap();
     assert_eq!(ip.num_entries, 1);
     assert_eq!(ip.first_doc_id, entries_per_block + 1);
-    assert_state_mirrors_blocks(&ii);
+    assert_state_invariants(&ii);
 }
 
 #[test]
@@ -137,7 +137,7 @@ fn pending_grows_monotonically_across_multiple_rollovers() {
             .unwrap();
     }
 
-    assert_eq!(ii.blocks.len(), 3);
+    assert_eq!(ii.number_of_blocks(), 3);
 
     let state = ii.state.load_full();
     assert_eq!(state.pending.len(), 2);
@@ -146,7 +146,7 @@ fn pending_grows_monotonically_across_multiple_rollovers() {
     let ip = state.in_progress.as_ref().unwrap();
     assert_eq!(ip.first_doc_id, 2 * entries_per_block + 1);
     assert_eq!(ip.num_entries, 5);
-    assert_state_mirrors_blocks(&ii);
+    assert_state_invariants(&ii);
 }
 
 #[test]
@@ -221,7 +221,7 @@ fn from_blocks_initializes_state_to_match() {
     let ip = state.in_progress.as_ref().unwrap();
     assert_eq!(ip.first_doc_id, 11);
     assert_eq!(ip.num_entries, 3);
-    assert_state_mirrors_blocks(&ii);
+    assert_state_invariants(&ii);
 }
 
 #[test]
@@ -238,7 +238,7 @@ fn reader_uses_snapshot_block_layout() {
         ii.add_record(&RSIndexResult::build_virt().doc_id(id).build())
             .unwrap();
     }
-    assert_eq!(ii.blocks.len(), 2);
+    assert_eq!(ii.number_of_blocks(), 2);
 
     let ii_ptr = &mut ii as *mut InvertedIndex<Dummy>;
     let mut reader = ii.reader();
@@ -312,13 +312,13 @@ fn apply_gc_keeps_state_in_sync() {
         ii.add_record(&RSIndexResult::build_virt().doc_id(id).build())
             .unwrap();
     }
-    assert_eq!(ii.blocks.len(), 3);
+    assert_eq!(ii.number_of_blocks(), 3);
 
     // Synthetic delta: delete the first block. This exercises the GC path that calls
     // `mem::swap` and rebuilds `blocks`, which is the case the state-sync hook covers.
     let delta = GcScanDelta {
-        last_block_idx: ii.blocks.len() - 1,
-        last_block_num_entries: ii.blocks.last().unwrap().num_entries,
+        last_block_idx: ii.number_of_blocks() - 1,
+        last_block_num_entries: ii.state.load_full().last_block().cloned().unwrap().num_entries,
         deltas: vec![BlockGcScanResult {
             index: 0,
             repair: RepairType::Delete {
@@ -329,6 +329,6 @@ fn apply_gc_keeps_state_in_sync() {
 
     ii.apply_gc(delta);
 
-    assert_eq!(ii.blocks.len(), 2, "first block deleted by GC");
-    assert_state_mirrors_blocks(&ii);
+    assert_eq!(ii.number_of_blocks(), 2, "first block deleted by GC");
+    assert_state_invariants(&ii);
 }

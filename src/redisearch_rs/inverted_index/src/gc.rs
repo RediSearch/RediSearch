@@ -8,14 +8,13 @@
 */
 
 use serde::{Deserialize, Serialize};
-use std::marker::PhantomData;
+use std::{marker::PhantomData, sync::Arc};
 
-use crate::{BlockCapacity, DecodedBy, Decoder, Encoder, IndexBlock, InvertedIndex};
+use crate::{DecodedBy, Decoder, Encoder, IndexBlock, InvertedIndex};
 use ffi::IndexFlags_Index_DocIdsOnly;
 use index_result::RSIndexResult;
 use rqe_core::DocId;
 use smallvec::SmallVec;
-use thin_vec::{Header, ThinVec};
 
 /// The type of repair needed for a block after a garbage collection scan.
 #[derive(Debug, Eq, PartialEq, Deserialize, Serialize)]
@@ -141,13 +140,14 @@ impl IndexBlock {
             last_read_doc_id = Some(result.doc_id);
         }
 
-        if tmp_inverted_index.blocks.is_empty() {
+        let repaired_blocks = tmp_inverted_index.into_blocks_owned();
+        if repaired_blocks.is_empty() {
             Ok(Some(RepairType::Delete {
                 n_unique_docs_removed: unique_read,
             }))
         } else if block_changed {
             Ok(Some(RepairType::Replace {
-                blocks: SmallVec::from_iter(tmp_inverted_index.blocks),
+                blocks: SmallVec::from_iter(repaired_blocks),
                 n_unique_docs_removed: unique_read - unique_write,
             }))
         } else {
@@ -170,10 +170,27 @@ impl<E: Encoder + DecodedBy> InvertedIndex<E> {
         doc_exist: impl Fn(DocId) -> bool,
         mut repair: Option<impl FnMut(&RSIndexResult<'index>, &IndexBlock)>,
     ) -> std::io::Result<Option<GcScanDelta>> {
+        // Scan against a snapshot — gives us a stable enumeration even if writes happen
+        // concurrently with the scan. The `last_block_idx` / `last_block_num_entries`
+        // fields below let `apply_gc` detect drift and ignore any stale delta.
+        // SAFETY (lifetime): `'index` is the borrow of `self`; the snapshot is kept alive
+        // by the local `state_arc` for the duration of this function and the returned
+        // delta doesn't borrow from it.
+        let state_arc = self.state.load_full();
+        // The snapshot itself: held via the Arc for the duration of this call.
+        let state = &*state_arc;
+
         let mut results = Vec::new();
 
-        for (i, block) in self.blocks.iter().enumerate() {
-            let repair = block.repair(&doc_exist, repair.as_mut(), PhantomData::<E>)?;
+        let total = state.block_count();
+        for i in 0..total {
+            let Some(block) = state.get_block(i) else { continue };
+            // SAFETY: lifetime extension — same justification as `IndexReaderCore::cursor_at`
+            // (the snapshot is owned by `state_arc`, alive for this function's duration,
+            // and the IndexBlock buffers are immutable).
+            let block_ref: &'index IndexBlock = unsafe { std::mem::transmute(block) };
+
+            let repair = block_ref.repair(&doc_exist, repair.as_mut(), PhantomData::<E>)?;
 
             if let Some(repair) = repair {
                 results.push(BlockGcScanResult { index: i, repair });
@@ -183,16 +200,18 @@ impl<E: Encoder + DecodedBy> InvertedIndex<E> {
         if results.is_empty() {
             Ok(None)
         } else {
+            let last_block_idx = total.saturating_sub(1);
+            let last_block_num_entries = state.last_block().map(|b| b.num_entries).unwrap_or(0);
             Ok(Some(GcScanDelta {
-                last_block_idx: self.blocks.len() - 1,
-                last_block_num_entries: self.blocks.last().map(|b| b.num_entries).unwrap_or(0),
+                last_block_idx,
+                last_block_num_entries,
                 deltas: results,
             }))
         }
     }
 
-    /// Apply the deltas of a garbage collection scan to the index. This will modify the index
-    /// by deleting or repairing blocks as needed.
+    /// Apply the deltas of a garbage collection scan to the index. This will publish a new
+    /// [`State`](crate::index::state::State) with the deleted/repaired blocks applied.
     pub fn apply_gc(&mut self, delta: GcScanDelta) -> GcApplyInfo {
         let GcScanDelta {
             last_block_idx,
@@ -208,15 +227,14 @@ impl<E: Encoder + DecodedBy> InvertedIndex<E> {
             ignored_last_block: false,
         };
 
-        let blocks_before = self.blocks.len();
+        let prev = self.state.load_full();
+        let blocks_before = prev.block_count();
 
-        // Check if the last block has changed since the scan was performed
-        let last_block_changed = self
-            .blocks
-            .get(last_block_idx)
+        // Check if the last block has changed since the scan was performed.
+        let last_block_changed = prev
+            .get_block(last_block_idx)
             .is_some_and(|b| b.num_entries != last_block_num_entries);
 
-        // If the last block has changed, then we need to ignore any deltas that refer to it
         if last_block_changed {
             let remove_stale_delta = deltas
                 .last()
@@ -228,74 +246,78 @@ impl<E: Encoder + DecodedBy> InvertedIndex<E> {
             info.ignored_last_block = true;
         }
 
-        // There is no point in moving everything to a new vector if there are no deltas
         if deltas.is_empty() {
             return info;
         }
 
-        let mut tmp_blocks = ThinVec::with_capacity(self.blocks.len());
-        std::mem::swap(&mut self.blocks, &mut tmp_blocks);
+        // Build a flat working list of all current blocks. Each entry is an `Arc<IndexBlock>`
+        // so we share storage with the snapshot — no IndexBlock clones unless GC actually
+        // mutates a block. Iteration order matches the logical-index used by `delta.index`.
+        let mut working: Vec<Arc<IndexBlock>> = Vec::with_capacity(blocks_before);
+        for arc in prev.pending.iter() {
+            working.push(Arc::clone(arc));
+        }
+        if let Some(ip) = prev.in_progress.as_ref() {
+            working.push(Arc::clone(ip));
+        }
+        // Note: sealed is empty until Story 1.4. If/when it's populated, we'd need to
+        // include those blocks here too — but they're inside an Arc<ThinVec<IndexBlock>>,
+        // not individually Arc'd. Story 1.4 will revisit this.
+        debug_assert!(prev.sealed.is_empty(), "Story 1.3: sealed stays empty");
 
-        let mut deltas = deltas.into_iter().peekable();
+        let mut deltas_iter = deltas.into_iter().peekable();
+        let mut new_all: Vec<Arc<IndexBlock>> = Vec::with_capacity(working.len());
 
-        for (block_index, block) in tmp_blocks.into_iter().enumerate() {
-            match deltas.peek() {
-                Some(delta) if delta.index == block_index => {
-                    // This block needs to be repaired
-                    let Some(delta) = deltas.next() else {
-                        unreachable!(
-                            "we are in the `Some` case and therefore know the next value exists"
-                        )
-                    };
-
-                    match delta.repair {
+        for (block_index, arc_block) in working.into_iter().enumerate() {
+            match deltas_iter.peek() {
+                Some(d) if d.index == block_index => {
+                    let d = deltas_iter
+                        .next()
+                        .expect("peek() returned Some on this iteration");
+                    match d.repair {
                         RepairType::Delete {
                             n_unique_docs_removed,
                         } => {
-                            info.entries_removed += block.num_entries as usize;
-                            info.bytes_freed += block.mem_usage();
+                            info.entries_removed += arc_block.num_entries as usize;
+                            info.bytes_freed += arc_block.mem_usage();
                             self.n_unique_docs -= n_unique_docs_removed;
+                            // Drop arc_block — the block is gone.
                         }
                         RepairType::Replace {
                             blocks,
                             n_unique_docs_removed,
                         } => {
-                            info.entries_removed += block.num_entries as usize;
-                            info.bytes_freed += block.mem_usage();
+                            info.entries_removed += arc_block.num_entries as usize;
+                            info.bytes_freed += arc_block.mem_usage();
                             self.n_unique_docs -= n_unique_docs_removed;
-
-                            for block in blocks {
-                                info.entries_removed -= block.num_entries as usize;
-                                info.bytes_allocated += block.mem_usage();
-                                self.blocks.push(block);
+                            for b in blocks {
+                                info.entries_removed -= b.num_entries as usize;
+                                info.bytes_allocated += b.mem_usage();
+                                new_all.push(Arc::new(b));
                             }
                         }
                     }
                 }
-                _ => {
-                    // This block does not need to be repaired, so just put it back
-                    self.blocks.push(block);
-                }
+                _ => new_all.push(arc_block),
             }
         }
 
-        // Remove excess capacity from the blocks vector.
-        {
-            let had_allocated = self.blocks.has_allocated();
-            self.blocks.shrink_to_fit();
-            // If we got rid of the heap block buffer entirely, we have also freed the memory occupied
-            // by the thin vec header. That hasn't been accounted for yet, so we add it to the bytes freed now.
-            if !self.blocks.has_allocated() && had_allocated {
-                info.bytes_freed += Header::<BlockCapacity>::size_with_padding::<IndexBlock>();
-            }
-        }
+        // The trailing block becomes the new `in_progress`; everything before it goes to
+        // `pending`. (Sealed stays empty in Story 1.3.)
+        let new_in_progress = new_all.pop();
+        let mut new_pending = new_all;
+        new_pending.shrink_to_fit();
 
-        info.block_count_delta = self.blocks.len() as i64 - blocks_before as i64;
+        let blocks_after = new_pending.len() + usize::from(new_in_progress.is_some());
+
+        self.state.store(Arc::new(crate::index::state::State {
+            sealed: Arc::clone(&prev.sealed),
+            pending: Arc::new(new_pending),
+            in_progress: new_in_progress,
+        }));
+
+        info.block_count_delta = blocks_after as i64 - blocks_before as i64;
         self.gc_marker_inc();
-
-        // Keep the lock-free state mirror in sync with the rebuilt `blocks`. Story 1.4
-        // will replace this with a `state.rcu()` that compacts into `State::sealed`.
-        self.resync_state_from_blocks();
 
         info
     }
