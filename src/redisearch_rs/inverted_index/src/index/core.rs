@@ -293,6 +293,17 @@ impl<E: Encoder> InvertedIndex<E> {
     /// The write publishes a new [`State`] via [`ArcSwap::store`]. Readers holding a previous
     /// snapshot are unaffected — they continue to see the pre-write view until they
     /// re-snapshot.
+    ///
+    /// # Note on `store` vs `rcu`
+    ///
+    /// The design doc (Epic 1, FT.HYBRID Workers Pool Consolidation) calls for the writer
+    /// to use [`ArcSwap::rcu`]. We use [`ArcSwap::store`] instead, which is functionally
+    /// equivalent under the current locking model: writers take `&mut self` (Rust) and the
+    /// spec write lock (C side), so no concurrent writer can race between our `load_full`
+    /// and `store`. If a future story lifts the spec lock from this path to allow
+    /// concurrent indexers, this must be switched to `rcu` — otherwise two racing writers
+    /// would each `load`, each compute a new state, and one would silently overwrite the
+    /// other.
     pub fn add_record(&mut self, record: &RSIndexResult) -> std::io::Result<AddRecordOutcome> {
         let doc_id = record.doc_id;
         let prev = self.state.load_full();

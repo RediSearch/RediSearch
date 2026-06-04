@@ -215,6 +215,16 @@ impl<E: Encoder + DecodedBy> InvertedIndex<E> {
 
     /// Apply the deltas of a garbage collection scan to the index. This will publish a new
     /// [`State`](crate::index::state::State) with the deleted/repaired blocks applied.
+    ///
+    /// # Note on `store` vs `rcu`
+    ///
+    /// The design doc (Epic 1, FT.HYBRID Workers Pool Consolidation) calls for GC to
+    /// publish via [`ArcSwap::rcu`]. We use [`ArcSwap::store`] instead: the apply step
+    /// runs under the spec write lock (C side) and takes `&mut self` (Rust), so no
+    /// concurrent writer — neither another `apply_gc` nor [`InvertedIndex::add_record`] —
+    /// can race between our `load_full` and `store`. If a future story lifts the spec
+    /// lock from this path (e.g., to overlap GC apply with concurrent indexing), this
+    /// must become an `rcu` retry-loop.
     pub fn apply_gc(&mut self, delta: GcScanDelta) -> GcApplyInfo {
         let GcScanDelta {
             last_block_idx,
