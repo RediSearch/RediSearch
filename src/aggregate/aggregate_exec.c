@@ -1959,13 +1959,12 @@ static void runCursor(RedisModule_Reply *reply, Cursor *cursor, size_t num) {
   req->cursorConfig.chunkSize = num;
 
 #ifdef ENABLE_ASSERT
-  // Debug: pin coord+FAIL worker before sendChunk so tests can fire the
-  // blocked-client timeout; break out of the wait once the timeout callback
-  // has marked the AREQ as timed out.
-  if (req->useReplyCallback) {
-    SyncPoint_WaitUntil(SYNC_POINT_BEFORE_CURSOR_READ_SEND_CHUNK,
-                        areq_timed_out, req);
-  }
+  // Debug: pin the cursor-read worker before sendChunk so tests can fire the
+  // blocked-client timeout (FAIL) or the coord-side blocked-client timeout
+  // (RETURN/RETURN_STRICT, where the shard never sets AREQ timedOut itself
+  // and the test signals the sync point to release the worker).
+  SyncPoint_WaitUntil(SYNC_POINT_BEFORE_CURSOR_READ_SEND_CHUNK,
+                      areq_timed_out, req);
 #endif
 
   if (req->useReplyCallback) {

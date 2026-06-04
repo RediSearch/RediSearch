@@ -77,9 +77,14 @@ void CoordRequestCtx_SetRequest(CoordRequestCtx *ctx, void *req) {
     COORD_REQUEST_CTX_UNSUPPORTED_TYPE();
   }
 
-  // Propagate useReplyCallback to the request
+  // Propagate policy-derived flags from the sticky ctx (single source of truth):
+  // useReplyCallback for FAIL/RETURN_STRICT, plus the aggregate-results sync that
+  // RETURN_STRICT needs. Mirrors the callbacks armed at dispatch in module.c.
   if (ctx->type == COMMAND_HYBRID) {
-    ((HybridRequest *)req)->useReplyCallback = ctx->useReplyCallback;
+    HybridRequest *hreq = (HybridRequest *)req;
+    hreq->useReplyCallback = ctx->useReplyCallback;
+    hreq->syncCtx.requiresAggregateResultsSync =
+        (ctx->timeoutPolicy == TimeoutPolicy_ReturnStrict);
   } else if (ctx->type == COMMAND_AGGREGATE) {
     ((AREQ *)req)->useReplyCallback = ctx->useReplyCallback;
   } else {
@@ -136,6 +141,14 @@ void CoordRequestCtx_SetCursorReadReturnStrict(CoordRequestCtx *ctx, bool value)
 
 bool CoordRequestCtx_IsCursorReadReturnStrict(CoordRequestCtx *ctx) {
   return ctx->isCursorReadReturnStrict;
+}
+
+void CoordRequestCtx_SetTimeoutPolicy(CoordRequestCtx *ctx, RSTimeoutPolicy policy) {
+  ctx->timeoutPolicy = policy;
+}
+
+RSTimeoutPolicy CoordRequestCtx_GetTimeoutPolicy(CoordRequestCtx *ctx) {
+  return ctx->timeoutPolicy;
 }
 
 void CoordRequestCtx_ReplyOrStoreError(CoordRequestCtx *req, RedisModuleCtx *ctx, QueryError *status) {

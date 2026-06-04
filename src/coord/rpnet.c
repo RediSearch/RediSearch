@@ -382,6 +382,16 @@ int getNextReply(RPNet *nc) {
 int rpnetNext_StartWithMappings(ResultProcessor *rp, SearchResult *r) {
     RPNet *nc = (RPNet *)rp;
 
+#ifdef ENABLE_ASSERT
+    // Sync point (debug): park BG just before Phase 2 cursor-read dispatch.
+    // Mirrors rpnetNext_Start in dist_aggregate.c. Reaching this site implies
+    // every shard has delivered its Phase 1 cursor mapping, so tests can
+    // suspend a shard here to deterministically stage a Phase 2 timeout.
+    if (nc->areq) {
+        SyncPoint_WaitUntil(SYNC_POINT_BEFORE_RPNET_START, areq_timed_out, nc->areq);
+    }
+#endif
+
     CursorMappings *vsimOrSearch = StrongRef_Get(nc->mappings);
     // Mappings should already be populated by HybridRequest_prepareCursors
     if (!vsimOrSearch || array_len(vsimOrSearch->mappings) == 0) {

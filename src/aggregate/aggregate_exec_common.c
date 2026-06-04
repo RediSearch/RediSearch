@@ -208,10 +208,8 @@ static inline void debugCheckAndPauseAfterAggregateResult(AREQ *areq) {}
   * post-abort budget, so this loop naturally respects the user's LIMIT and
   * terminates at EOF.
   */
- void AREQ_DrainStoredResultsAfterTimeout(AREQ *req) {
-   QueryProcessingCtx *qctx = AREQ_QueryProcessingCtx(req);
+ void Pipeline_DrainStoredResultsAfterTimeout(QueryProcessingCtx *qctx, ChunkReplyState *stored) {
    ResultProcessor *endProc = qctx->endProc;
-   ChunkReplyState *stored = &req->storedReplyState;
    if (!stored->results) {
      stored->results = array_new(SearchResult *, 8);
    }
@@ -223,4 +221,9 @@ static inline void debugCheckAndPauseAfterAggregateResult(AREQ *areq) {}
      r = SearchResult_New();
    }
    SearchResult_Destroy(&r);
+ }
+
+ void AREQ_DrainStoredResultsAfterTimeout(AREQ *req) {
+   Pipeline_DrainStoredResultsAfterTimeout(AREQ_QueryProcessingCtx(req),
+                                           &req->storedReplyState);
  }
