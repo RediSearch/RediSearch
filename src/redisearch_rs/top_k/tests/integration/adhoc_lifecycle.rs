@@ -17,7 +17,10 @@ use std::{cmp::Ordering, marker::PhantomData, num::NonZeroUsize};
 use index_result::RSIndexResult;
 use index_spec::IndexSpecReadGuard;
 use rqe_iterators::{IdList, RQEIterator, RQEIteratorError};
-use top_k::{BatchStrategy, ScoreSource, TopKIterator, TopKMode, mock::MockScoreBatch};
+use top_k::{
+    BatchStrategy, ScoreSource, ScoredResult, TopKIterator, TopKMode, mock::MockScoreBatch,
+    mock::MockScoreSource,
+};
 
 fn asc(a: f64, b: f64) -> Ordering {
     a.partial_cmp(&b).unwrap_or(Ordering::Equal)
@@ -35,6 +38,10 @@ struct LifecycleCountingSource {
     end_calls: u32,
     lookups_after_begin_before_end: u32,
     lookups_outside_scan: u32,
+    /// When set, [`ScoreSource::should_rerank`] returns `true`.
+    rerank_enabled: bool,
+    /// Number of times [`ScoreSource::rerank`] was invoked.
+    rerank_calls: u32,
 }
 
 impl ScoreSource for LifecycleCountingSource {
@@ -76,6 +83,19 @@ impl ScoreSource for LifecycleCountingSource {
 
     fn end_adhoc(&mut self) {
         self.end_calls += 1;
+    }
+
+    fn should_rerank(&self) -> bool {
+        self.rerank_enabled
+    }
+
+    fn rerank(&mut self, _results: &mut [ScoredResult]) {
+        // Rerank must run inside the scan window, before `end_adhoc`.
+        assert!(
+            self.begin_calls > self.end_calls,
+            "rerank must run before end_adhoc"
+        );
+        self.rerank_calls += 1;
     }
 
     fn iterator_type(&self) -> rqe_iterator_type::IteratorType {
@@ -195,4 +215,105 @@ fn end_adhoc_runs_when_child_errors_midscan() {
         source.end_calls, 1,
         "end_adhoc must run when child.read()? bails out"
     );
+}
+
+#[test]
+fn rerank_runs_once_after_clean_scan() {
+    let source = LifecycleCountingSource {
+        rerank_enabled: true,
+        ..Default::default()
+    };
+    let mut it = TopKIterator::new_with_mode(
+        source,
+        Some(make_child(vec![1, 2, 3])),
+        NonZeroUsize::new(10).unwrap(),
+        asc,
+        TopKMode::AdhocBF,
+    );
+    while it.read().unwrap().is_some() {}
+
+    let source = it.source();
+    assert_eq!(
+        source.rerank_calls, 1,
+        "rerank must run once after a clean adhoc scan"
+    );
+    assert_eq!(source.end_calls, 1);
+}
+
+#[test]
+fn rerank_skipped_on_timeout() {
+    let source = LifecycleCountingSource {
+        rerank_enabled: true,
+        ..Default::default()
+    };
+    let child: Box<dyn RQEIterator<'_>> = Box::new(ErrOnSecondRead::new());
+    let mut it = TopKIterator::new_with_mode(
+        source,
+        Some(child),
+        NonZeroUsize::new(10).unwrap(),
+        asc,
+        TopKMode::AdhocBF,
+    );
+    assert!(matches!(it.read().unwrap_err(), RQEIteratorError::TimedOut));
+
+    let source = it.source();
+    assert_eq!(
+        source.rerank_calls, 0,
+        "rerank must not run when the scan times out"
+    );
+    assert_eq!(
+        source.end_calls, 1,
+        "end_adhoc still runs on the error path"
+    );
+}
+
+#[test]
+fn rerank_reorders_topk_by_exact_scores() {
+    // Adhoc (approximate) scores order the docs 1 < 2 < 3 (ascending = better).
+    // The exact rerank scores invert that to 3 < 2 < 1, so the final yield
+    // order must follow the reranked scores, not the adhoc ones.
+    let source = MockScoreSource::new(vec![], vec![(1, 0.1), (2, 0.2), (3, 0.3)], |_, _| {
+        BatchStrategy::Continue
+    })
+    .with_rerank(vec![(1, 0.30), (2, 0.20), (3, 0.10)]);
+
+    let mut it = TopKIterator::new_with_mode(
+        source,
+        Some(make_child(vec![1, 2, 3])),
+        NonZeroUsize::new(3).unwrap(),
+        asc,
+        TopKMode::AdhocBF,
+    );
+
+    let mut ids = Vec::new();
+    while let Some(r) = it.read().unwrap() {
+        ids.push(r.doc_id);
+    }
+    assert_eq!(ids, vec![3, 2, 1], "yield order must follow exact scores");
+}
+
+#[test]
+fn rerank_keeps_adhoc_score_for_unmapped_doc() {
+    // Only doc 1 has an exact score; docs 2 and 3 keep their adhoc scores,
+    // mirroring the disk path's handling of labels with no exact distance.
+    // Adhoc: 1→0.5, 2→0.1, 3→0.9. After rerank doc 1 becomes the best (0.05),
+    // so the order is 1 < 2 < 3.
+    let source = MockScoreSource::new(vec![], vec![(1, 0.5), (2, 0.1), (3, 0.9)], |_, _| {
+        BatchStrategy::Continue
+    })
+    .with_rerank(vec![(1, 0.05)]);
+
+    let mut it = TopKIterator::new_with_mode(
+        source,
+        Some(make_child(vec![1, 2, 3])),
+        NonZeroUsize::new(3).unwrap(),
+        asc,
+        TopKMode::AdhocBF,
+    );
+
+    let mut ids = Vec::new();
+    while let Some(r) = it.read().unwrap() {
+        ids.push(r.doc_id);
+    }
+    assert_eq!(ids, vec![1, 2, 3], "unmapped docs keep their adhoc score");
 }

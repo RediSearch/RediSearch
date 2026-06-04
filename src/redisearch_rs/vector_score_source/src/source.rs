@@ -451,7 +451,7 @@ fn refine_child_estimated(
 
 #[cfg(test)]
 mod tests {
-    use std::{ffi::c_void, num::NonZeroUsize, ptr, ptr::NonNull};
+    use std::{ffi::c_void, ptr, ptr::NonNull};
 
     use ffi::{
         AlgoParams, BFParams, VecSimAlgo_VecSimAlgo_BF, VecSimIndex, VecSimIndex_AddVector,
@@ -530,7 +530,7 @@ mod tests {
                 index,
                 0.0f32.to_ne_bytes().to_vec(),
                 std::mem::zeroed(),
-                NonZeroUsize::new(k).unwrap(),
+                k,
                 std::mem::zeroed(),
                 true,
                 child_num_estimated,
