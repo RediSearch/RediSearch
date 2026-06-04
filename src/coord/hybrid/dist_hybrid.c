@@ -1055,6 +1055,12 @@ void RSExecDistHybrid(RedisModuleCtx *ctx, RedisModuleString **argv, int argc,
     }
 
     scheduleDepleters(hreq);
+
+#ifdef ENABLE_ASSERT
+    // Lets a test pause the dispatcher between scheduling the depleters and the tail merger.
+    SyncPoint_Wait(SYNC_POINT_AFTER_SCHEDULE_DEPLETERS);
+#endif
+
     scheduleHybridTail(hreq, strong_ref, cmdCtx, &status);
 
     // IndexSpecRef_Promote set the TLS on this (dispatcher) thread.

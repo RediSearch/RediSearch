@@ -3024,6 +3024,102 @@ class TestCoordinatorTimeout:
         resetStoreResultsDebug(env)
         env.cmd('CONFIG', 'SET', ON_TIMEOUT_CONFIG, prev_on_timeout_policy)
 
+    def test_return_strict_timeout_tail_scheduled_late_hybrid(self):
+        """RETURN_STRICT timeout fired after the depleters are scheduled but
+        before the tail merger, so the tail is scheduled into an already-replied
+        request.
+
+        Arms the ``AfterScheduleDepleters`` sync point so the coordinator
+        dispatch thread (``RSExecDistHybrid``) parks after ``scheduleDepleters``
+        but before ``scheduleHybridTail``. With the tail not yet scheduled, the
+        main-thread timeout callback wins ``HybridRequest_TryClaimAggregateResults``
+        and replies via ``sendChunk_ReplyOnly_HybridEmptyResults`` with an empty
+        result set and a single TIMEOUT warning. Signalling the sync point then
+        lets the dispatcher schedule the tail into the already-replied,
+        timed-out request: the tail must lose the claim, drain its depleters,
+        and tear ``hreq`` down cleanly without crashing or sending a second
+        reply.
+        """
+        env = self.env
+        skipIfNoEnableAssert(env)
+
+        prev_on_timeout_policy = env.cmd('CONFIG', 'GET', ON_TIMEOUT_CONFIG)[ON_TIMEOUT_CONFIG]
+        env.cmd('CONFIG', 'SET', ON_TIMEOUT_CONFIG, 'return-strict')
+
+        before_info = info_modules_to_dict(env)
+        base_warn_coord = int(before_info[COORD_WARN_ERR_SECTION][TIMEOUT_WARNING_COORD_METRIC])
+
+        sync_point = 'AfterScheduleDepleters'
+        env.cmd(debug_cmd(), 'SYNC_POINT', 'CLEAR')
+        env.cmd(debug_cmd(), 'SYNC_POINT', 'ARM', sync_point)
+
+        query_args = [
+            'FT.HYBRID', 'hybrid_idx',
+            'SEARCH', '*',
+            'VSIM', '@embedding', '$BLOB',
+            'PARAMS', '2', 'BLOB', self.hybrid_query_vec,
+        ]
+        query_result = []
+        t_query = threading.Thread(
+            target=call_and_store,
+            args=(env.cmd, query_args, query_result),
+            daemon=True
+        )
+        t_query.start()
+
+        # Fire the timeout. The main-thread callback wins TryClaim (no tail
+        # yet) and replies with an empty result set + one TIMEOUT warning.
+        blocked_client_id = wait_for_blocked_query_client(env, 'FT.HYBRID')
+
+        try:
+            # Wait for the coordinator dispatch thread to park between scheduling
+            # the depleters and scheduling the tail merger. At this point hreq
+            # exists and is set in the CoordRequestCtx, but no tail can contend
+            # for the aggregate-results claim yet.
+            wait_for_condition(
+                lambda: (env.cmd(debug_cmd(), 'SYNC_POINT', 'IS_WAITING', sync_point) == 1, {}),
+                f'Timeout waiting for dispatcher to park at {sync_point}'
+            )
+
+            env.cmd('CLIENT', 'UNBLOCK', blocked_client_id, 'TIMEOUT')
+            wait_for_client_unblocked(env, blocked_client_id)
+
+            # Release the dispatcher so it schedules the tail into the
+            # already-replied request. The tail must lose the claim, drain the
+            # depleters, and free hreq without a second reply.
+            env.cmd(debug_cmd(), 'SYNC_POINT', 'SIGNAL', sync_point)
+
+            t_query.join(timeout=10)
+            env.assertFalse(t_query.is_alive(), message="Query thread should have finished")
+
+            env.assertEqual(len(query_result), 1, message="Expected exactly 1 reply from query thread")
+            result = query_result[0]
+
+            # Win-claim reply path: 0 rows + a single TIMEOUT warning.
+            env.assertEqual(result['total_results'], 0,
+                            message=f"Expected 0 results, got: {result}")
+            env.assertEqual(result.get('results', []), [],
+                            message=f"Expected no rows, got {result.get('results')}")
+            warnings = result.get('warnings', [])
+            env.assertEqual(len(warnings), 1,
+                            message=f"Expected a single TIMEOUT warning, got: {warnings}")
+            env.assertContains('Timeout', warnings[0],
+                               message=f"Expected TIMEOUT warning, got: {warnings}")
+
+            # sendChunk_ReplyOnly_HybridEmptyResults bumps the coord
+            # timeout-warning metric exactly once on the win-claim path.
+            after_info = info_modules_to_dict(env)
+            env.assertEqual(after_info[COORD_WARN_ERR_SECTION][TIMEOUT_WARNING_COORD_METRIC],
+                            str(base_warn_coord + 1),
+                            message="Coordinator timeout warning should be +1 (win-claim empty reply)")
+            _verify_metrics_not_changed(env, env, before_info, [TIMEOUT_WARNING_COORD_METRIC])
+        finally:
+            try:
+                env.cmd(debug_cmd(), 'SYNC_POINT', 'CLEAR')
+            except Exception:
+                pass
+            env.cmd('CONFIG', 'SET', ON_TIMEOUT_CONFIG, prev_on_timeout_policy)
+
     def _drive_all_shards_paused_hybrid_return_strict(self, agg_steps_suffix, assert_reply):
         """Shared driver for all-shards-paused RETURN_STRICT FT.HYBRID timeout tests.
 
