@@ -28,6 +28,11 @@ extern "C" {
 
 typedef struct QueryError QueryError;
 
+// Error detail returned to the client when a query cannot be dispatched to the
+// cluster (pre-fanout connection-validation / send failure). Shared by the MR
+// iterator no-reply path (rmr.c) and the hybrid cursor-mapping error callback;
+// tests assert on this substring, so keep them in sync via this single macro.
+#define CLUSTER_QUERY_ERROR "Could not send query to cluster"
 
 struct MRCtx;
 struct RedisModuleCtx;

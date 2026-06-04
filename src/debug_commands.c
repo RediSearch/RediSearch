@@ -43,6 +43,7 @@
 #include "query_error_ffi.h"
 #include "doc_id_meta.h"
 #include "coord/rmr/rmr.h"
+#include <limits.h>
 
 DebugCTX globalDebugCtx = {0};
 
@@ -2849,8 +2850,10 @@ DEBUG_COMMAND(sendError) {
   if (!debugCommandsEnabled(ctx)) return RedisModule_ReplyWithError(ctx, NODEBUG_ERR);
   if (argc != 3) return RedisModule_WrongArity(ctx);
   long long count;
-  if (RedisModule_StringToLongLong(argv[2], &count) != REDISMODULE_OK || count < 0) {
-    return RedisModule_ReplyWithError(ctx, "SEND_ERROR count must be a non-negative integer");
+  if (RedisModule_StringToLongLong(argv[2], &count) != REDISMODULE_OK || count < 0 ||
+      count > INT_MAX) {
+    return RedisModule_ReplyWithError(ctx,
+        "SEND_ERROR count must be a non-negative integer no greater than INT_MAX");
   }
   DebugSendError_Arm((int)count);
   return RedisModule_ReplyWithSimpleString(ctx, "OK");

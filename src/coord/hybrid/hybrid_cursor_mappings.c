@@ -224,8 +224,8 @@ static void processCursorMappingErrorCallback(MRIteratorCallbackCtx *ctx) {
     cb_ctx->responseCount++;
     QueryError error = QueryError_Default();
     QueryError_SetCode(&error, QUERY_ERROR_CODE_GENERIC);
-    // Matches CLUSTER_QUERY_ERROR in rmr.c (pre-fanout connection-validation failure).
-    QueryError_SetDetail(&error, "Could not send query to cluster");
+    // Shared with the MR iterator no-reply path (pre-fanout connection-validation failure).
+    QueryError_SetDetail(&error, CLUSTER_QUERY_ERROR);
     cb_ctx->errors = array_ensure_append_1(cb_ctx->errors, error);
     pthread_cond_signal(cb_ctx->completionCond);
     pthread_mutex_unlock(cb_ctx->mutex);

@@ -47,7 +47,7 @@
 
 #define CEIL_DIV(a, b) ((a + b - 1) / b)
 
-#define CLUSTER_QUERY_ERROR "Could not send query to cluster"
+// CLUSTER_QUERY_ERROR is defined in rmr.h and shared with the hybrid error path.
 
 /* A cluster is a pool of IORuntimes. It is owned by the main thread and accessed in the coordinator threads */
 static MRCluster *cluster_g = NULL;
