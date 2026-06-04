@@ -406,17 +406,6 @@ NumericRangeTree *openNumericOrGeoIndex(IndexSpec *spec, FieldSpec *fs, bool cre
 void SetMetricRLookupHandle(QueryIterator *header, RLookupKeyHandle *key_handle);
 
 /**
- * `PrintProfile` vtable entry for GeoShape iterators.
- *
- * # Safety
- *
- * 1. `self_` must be a valid pointer to a GeoShape iterator.
- * 2. `map` must be a valid pointer to a [`redis_reply::MapBuilder`].
- * 3. `ctx` must be a valid pointer to a [`ProfilePrintCtx`].
- */
-void GeoShape_PrintProfile(const QueryIterator *self_, struct MapBuilder *map, struct ProfilePrintCtx *ctx);
-
-/**
  * Append a new child iterator to the intersection.
  *
  * Transfers ownership of `child` to the intersection. Updates the estimated result count
@@ -432,6 +421,31 @@ void GeoShape_PrintProfile(const QueryIterator *self_, struct MapBuilder *map, s
  * 2. `child` must be a valid non-null pointer to a `QueryIterator`, not aliased.
  */
 void AddIntersectionIteratorChild(QueryIterator *header, QueryIterator *child);
+
+/**
+ * Print iterator profile tree as a Redis reply.
+ *
+ * This is the FFI entry point called from C `Profile_PrintCommon`.
+ *
+ * # Parameters
+ *
+ * - `ctx`: The Redis module context used to emit reply protocol.
+ * - `root`: The root of the profile-wrapped iterator tree to print.
+ *   May be null, in which case the function returns immediately.
+ * - `limited`: When `true`, non-`UNION` union iterators collapse their
+ *   children into a summary count instead of printing each child
+ *   individually. Corresponds to `FT.PROFILE ... LIMITED`.
+ * - `print_profile_clock`: When `true`, include wall-clock timing
+ *   (`"Time"`) in each profile entry. Corresponds to
+ *   `PROFILE_VERBOSE` / `_FT.DEBUG PROFILE_VERBOSE`.
+ *
+ * # Safety
+ *
+ * 1. `ctx` must be a valid [`RedisModuleCtx`] pointer.
+ * 2. `root` must be null or a valid pointer to a [`QueryIterator`] tree
+ *    that has been profile-wrapped via `Profile_AddIters`.
+ */
+void Profile_PrintIterators(RedisModuleCtx *ctx, const QueryIterator *root, bool limited, bool print_profile_clock);
 
 /**
  * Get a mutable reference to the [`RLookupKey`] stored inside this metric iterator.
@@ -578,31 +592,6 @@ QueryIterator *NewInvIndIterator_TermQuery(const InvertedIndex *idx, const Redis
  * 4. `sctx` and `sctx.spec` must remain valid for the lifetime of the returned iterator.
  */
 QueryIterator *NewInvIndIterator_WildcardQuery(const InvertedIndex *idx, const RedisSearchCtx *sctx, double weight);
-
-/**
- * Print iterator profile tree as a Redis reply.
- *
- * This is the FFI entry point called from C `Profile_PrintCommon`.
- *
- * # Parameters
- *
- * - `ctx`: The Redis module context used to emit reply protocol.
- * - `root`: The root of the profile-wrapped iterator tree to print.
- *   May be null, in which case the function returns immediately.
- * - `limited`: When `true`, non-`UNION` union iterators collapse their
- *   children into a summary count instead of printing each child
- *   individually. Corresponds to `FT.PROFILE ... LIMITED`.
- * - `print_profile_clock`: When `true`, include wall-clock timing
- *   (`"Time"`) in each profile entry. Corresponds to
- *   `PROFILE_VERBOSE` / `_FT.DEBUG PROFILE_VERBOSE`.
- *
- * # Safety
- *
- * 1. `ctx` must be a valid [`RedisModuleCtx`] pointer.
- * 2. `root` must be null or a valid pointer to a [`QueryIterator`] tree
- *    that has been profile-wrapped via `Profile_AddIters`.
- */
-void Profile_PrintIterators(RedisModuleCtx *ctx, const QueryIterator *root, bool limited, bool print_profile_clock);
 
 /**
  * Trims a union iterator for the LIMIT optimizer, then switches to unsorted

@@ -138,14 +138,6 @@ const HEADERS: &[HeaderAllowlist] = &[
         vars: &[],
     },
     HeaderAllowlist {
-        // Benchmark-only GeoShape iterator constructor, used by
-        // `rqe_iterators_bencher` to compare against the Rust implementation.
-        path: "src/geometry/geometry_api.h",
-        fns: &["NewGeometryQueryIterator_Bench"],
-        types: &[],
-        vars: &[],
-    },
-    HeaderAllowlist {
         path: "src/indexes.h",
         fns: &[
             "Indexes_Init",
