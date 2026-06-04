@@ -274,6 +274,20 @@ impl<'index, S: ScoreSource + 'index, C: RQEIterator<'index> + 'index> TopKItera
                 self.heap.push(doc_id, score);
             }
         }
+
+        // Reached only on a clean scan exit (EOF or `Stop`); a timed-out scan
+        // propagates via `?` above and never gets here. Rerank while `scope` is
+        // alive, so the source's scan resources are still held.
+        if scope.0.should_rerank() && !self.heap.is_empty() {
+            let mut entries = self.heap.drain_unsorted();
+            scope.0.rerank(&mut entries);
+            // Re-push to restore heap order under the (possibly) new scores.
+            // The count never exceeded k, so every entry is retained.
+            for ScoredResult { doc_id, score } in entries {
+                self.heap.push(doc_id, score);
+            }
+        }
+
         drop(scope);
         self.finalize_collection();
         Ok(())

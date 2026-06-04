@@ -14,7 +14,7 @@ use std::{ffi::c_void, num::NonZeroUsize, ptr::NonNull};
 use ffi::{TimeoutCtx, VecSearchMode, VecSimIndex, VecSimQueryParams, t_docId, timespec};
 use index_result::RSIndexResult;
 use rqe_iterators::RQEIteratorError;
-use top_k::{BatchStrategy, ScoreSource};
+use top_k::{BatchStrategy, ScoreSource, ScoredResult};
 use vecsim::{
     AdhocBfCtx, BatchIterator, IndexRef, QueryError, QueryVector, ReplyOrder, SharedLockGuard,
 };
@@ -63,6 +63,10 @@ pub struct VectorScoreSource<'index> {
     timeout_ctx: Box<TimeoutCtx>,
     /// Adhoc-BF path selection and scan-scoped state.
     adhoc_state: AdhocPathState<'index>,
+    /// Whether the disk adhoc-BF scan should rescore its top-k with exact
+    /// distances once collection finishes. Always `false` on the RAM path,
+    /// whose scores are already exact. Immutable after construction.
+    should_rerank: bool,
 
     /// Fixed batch size; `0` means compute dynamically per batch. Immutable
     /// after construction.
@@ -102,6 +106,10 @@ impl<'index> VectorScoreSource<'index> {
     /// `true`, the VecSim periodic counter check is disabled
     /// (`REDISEARCH_UNINITIALIZED`).
     ///
+    /// `should_rerank` requests exact-distance rescoring of the adhoc-BF top-k
+    /// after collection. It only applies to disk indexes; it is ignored when
+    /// `is_disk` is `false`, since the RAM path already scores exactly.
+    ///
     /// # Safety
     ///
     /// - `index` must remain valid for `'index`, which outlives the returned
@@ -121,6 +129,7 @@ impl<'index> VectorScoreSource<'index> {
         timeout: timespec,
         skip_timeout_checks: bool,
         is_disk: bool,
+        should_rerank: bool,
         child_num_estimated: usize,
         fixed_batch_size: usize,
     ) -> Self {
@@ -148,6 +157,8 @@ impl<'index> VectorScoreSource<'index> {
                 counter: if skip_timeout_checks { u32::MAX } else { 0 },
             }),
             adhoc_state,
+            // Rerank is a disk-only step; the RAM path already scores exactly.
+            should_rerank: is_disk && should_rerank,
             batch_iter: None,
             fixed_batch_size,
             num_iterations: 0,
@@ -320,6 +331,40 @@ impl<'index> ScoreSource for VectorScoreSource<'index> {
             AdhocPathState::Disk { ctx } => {
                 // Drop the context, which frees it via `AdhocBfCtx::Drop`.
                 *ctx = None;
+            }
+        }
+    }
+
+    fn should_rerank(&self) -> bool {
+        self.should_rerank
+    }
+
+    /// Replace the adhoc-BF top-k scores with exact distances.
+    ///
+    /// The disk adhoc-BF scan scores each candidate from SQ8-quantized data,
+    /// which is fast but approximate. This second pass fetches the exact
+    /// full-precision distance for each retained document and overwrites its
+    /// score, so the final ordering and the reported `$score` reflect exact
+    /// distances rather than the quantized estimates.
+    ///
+    /// A document deleted between the scan and this pass has no exact distance
+    /// (VecSim reports `NaN`); its approximate score is kept unchanged.
+    fn rerank(&mut self, results: &mut [ScoredResult]) {
+        // `should_rerank` is only set on the disk path, so the context is the
+        // one created by `begin_adhoc` and not yet freed by `end_adhoc`.
+        let AdhocPathState::Disk { ctx: Some(ctx) } = &self.adhoc_state else {
+            return;
+        };
+
+        let labels: Vec<usize> = results.iter().map(|r| r.doc_id as usize).collect();
+        // Seed with NaN so any entry VecSim leaves untouched keeps its
+        // approximate score below rather than reading uninitialized memory.
+        let mut exact = vec![f64::NAN; results.len()];
+        ctx.get_exact_distances(&labels, &mut exact);
+
+        for (result, &distance) in results.iter_mut().zip(exact.iter()) {
+            if !distance.is_nan() {
+                result.score = distance;
             }
         }
     }

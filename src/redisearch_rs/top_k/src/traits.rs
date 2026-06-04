@@ -16,6 +16,8 @@ use rqe_core::DocId;
 use rqe_iterator_type::IteratorType;
 use rqe_iterators::RQEIteratorError;
 
+use crate::heap::ScoredResult;
+
 /// A cursor over a single score-ordered batch of `(doc_id, score)` pairs.
 ///
 /// Batches are produced by [`ScoreSource::next_batch`] and consumed by the
@@ -140,6 +142,32 @@ pub trait ScoreSource {
     ///
     /// [`TopKIterator`]: crate::TopKIterator
     fn end_adhoc(&mut self) {}
+
+    /// Whether [`rerank`](Self::rerank) should run after an adhoc scan
+    /// completes. The default is `false`, so sources with no rerank step pay
+    /// nothing — [`TopKIterator`] skips draining and rebuilding the heap.
+    ///
+    /// [`TopKIterator`]: crate::TopKIterator
+    fn should_rerank(&self) -> bool {
+        false
+    }
+
+    /// Recompute the scores of the collected top-k results in place.
+    ///
+    /// [`TopKIterator`] calls this once, only when
+    /// [`should_rerank`](Self::should_rerank) returns `true` and the heap is
+    /// non-empty, after the adhoc scan finishes and before
+    /// [`end_adhoc`](Self::end_adhoc) releases the scan resources. It is never
+    /// called on a timed-out or otherwise aborted scan.
+    ///
+    /// The iterator rebuilds heap order from the updated scores afterward, so
+    /// an implementation may overwrite scores freely without preserving the
+    /// prior ordering. An implementation must leave the original score in place
+    /// for any entry it cannot rescore; the default no-op is therefore always
+    /// safe.
+    ///
+    /// [`TopKIterator`]: crate::TopKIterator
+    fn rerank(&mut self, _results: &mut [ScoredResult]) {}
 
     /// Return an upper-bound estimate for the number of documents this source
     /// can produce.

@@ -161,6 +161,16 @@ impl TopKHeap {
         self.inner.pop().map(|e| e.result)
     }
 
+    /// Removes all elements and returns them in unspecified order, leaving the
+    /// heap empty.
+    ///
+    /// Unlike [`drain_sorted`](Self::drain_sorted) this keeps the heap reusable:
+    /// callers that mutate the returned scores can push the entries back to
+    /// re-establish heap order.
+    pub fn drain_unsorted(&mut self) -> Vec<ScoredResult> {
+        self.inner.drain().map(|e| e.result).collect()
+    }
+
     /// Drains all elements and returns them sorted best-first.
     ///
     /// Consumes the heap.

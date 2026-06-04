@@ -59,6 +59,7 @@ const HEADERS: &[HeaderAllowlist] = &[
             "VecSimIndex_AddVector",
             "VecSimIndex_AdhocBfCtx_Free",
             "VecSimIndex_AdhocBfCtx_GetDistanceFrom",
+            "VecSimIndex_AdhocBfCtx_GetExactDistances",
             "VecSimIndex_AdhocBfCtx_New",
             "VecSimIndex_BasicInfo",
             "VecSimIndex_Free",

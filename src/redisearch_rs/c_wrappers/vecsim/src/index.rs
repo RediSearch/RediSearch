@@ -16,10 +16,11 @@ use std::{ffi::c_void, marker::PhantomData, num::NonZeroUsize, ptr::NonNull};
 use crate::{BatchIterator, QueryError, QueryReply, ReplyOrder};
 use ffi::{
     VecSim_Normalize, VecSimAdhocBfCtx, VecSimIndex, VecSimIndex_AdhocBfCtx_Free,
-    VecSimIndex_AdhocBfCtx_GetDistanceFrom, VecSimIndex_AdhocBfCtx_New, VecSimIndex_BasicInfo,
-    VecSimIndex_GetDistanceFrom_Unsafe, VecSimIndex_IndexSize, VecSimIndex_PreferAdHocSearch,
-    VecSimIndex_TopKQuery, VecSimMetric_VecSimMetric_Cosine, VecSimParams_GetQueryBlobSize,
-    VecSimQueryParams, VecSimTieredIndex_AcquireSharedLocks, VecSimTieredIndex_ReleaseSharedLocks,
+    VecSimIndex_AdhocBfCtx_GetDistanceFrom, VecSimIndex_AdhocBfCtx_GetExactDistances,
+    VecSimIndex_AdhocBfCtx_New, VecSimIndex_BasicInfo, VecSimIndex_GetDistanceFrom_Unsafe,
+    VecSimIndex_IndexSize, VecSimIndex_PreferAdHocSearch, VecSimIndex_TopKQuery,
+    VecSimMetric_VecSimMetric_Cosine, VecSimParams_GetQueryBlobSize, VecSimQueryParams,
+    VecSimTieredIndex_AcquireSharedLocks, VecSimTieredIndex_ReleaseSharedLocks,
     VecSimType_VecSimType_BFLOAT16, VecSimType_VecSimType_FLOAT16, VecSimType_VecSimType_FLOAT32,
     VecSimType_VecSimType_FLOAT64, VecSimType_VecSimType_INT8, VecSimType_VecSimType_INT32,
     VecSimType_VecSimType_INT64, VecSimType_VecSimType_UINT8,
@@ -355,6 +356,33 @@ impl<'index> AdhocBfCtx<'index> {
         let distance =
             unsafe { VecSimIndex_AdhocBfCtx_GetDistanceFrom(self.inner.as_ptr(), doc_id as usize) };
         (!distance.is_nan()).then_some(distance)
+    }
+
+    /// Fetch exact FP32 distances for a batch of `labels`, writing one distance
+    /// per label into `distances_out`. For disk indexes this reads the full-
+    /// precision vectors from disk, recomputing distances that the adhoc scan
+    /// approximated from SQ8-quantized data. Entries whose label is not found
+    /// are written as `NaN`.
+    ///
+    /// `labels` and `distances_out` must have the same length; the slice
+    /// lengths bound the C call, so it never reads or writes past either.
+    pub fn get_exact_distances(&self, labels: &[usize], distances_out: &mut [f64]) {
+        debug_assert_eq!(
+            labels.len(),
+            distances_out.len(),
+            "labels and distances_out must have equal length"
+        );
+        // SAFETY: `self.inner` upholds its invariant. `labels` and
+        // `distances_out` are valid for `count` reads/writes respectively, and
+        // `count` is their (equal) length, so the C call stays in bounds.
+        unsafe {
+            VecSimIndex_AdhocBfCtx_GetExactDistances(
+                self.inner.as_ptr(),
+                labels.as_ptr(),
+                distances_out.as_mut_ptr(),
+                labels.len(),
+            );
+        }
     }
 }
 
