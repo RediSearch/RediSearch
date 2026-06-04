@@ -95,6 +95,35 @@ def test_mod15394_hybrid_teardown_uaf_stress(env):
             except Exception:
                 errors[0] += 1
 
+    def agg_cursor_hammer():
+        # Open an FT.AGGREGATE WITHCURSOR (cursor-read iterator on the coordinator),
+        # then fire a FT.CURSOR READ on a raw socket and drop it mid-flight. This
+        # tears down the cursor-read iterator while shard cursor replies are still
+        # in flight -- the suspected UAF window.
+        host, port = random.choice(nodes)
+        c = _redis.Redis(host=host, port=port)
+        while not stop.is_set():
+            try:
+                res = c.execute_command('FT.AGGREGATE', 'idx', '*', 'LOAD', '1', '@t',
+                                        'WITHCURSOR', 'COUNT', '50')
+                cid = 0
+                try:
+                    cid = int(res[1])
+                except Exception:
+                    cid = 0
+                if cid:
+                    s = socket.create_connection((host, port), timeout=2)
+                    s.sendall(_resp('FT.CURSOR', 'READ', 'idx', str(cid), 'COUNT', '50'))
+                    time.sleep(random.uniform(0, 0.01))
+                    s.close()
+            except Exception:
+                errors[0] += 1
+                try:
+                    host, port = random.choice(nodes)
+                    c = _redis.Redis(host=host, port=port)
+                except Exception:
+                    pass
+
     def chaos_timeout():
         # Cycle the global query timeout so the FAIL teardown fires at different
         # phases (a fixed tiny timeout always dies in mapping, never reaching the
@@ -112,9 +141,9 @@ def test_mod15394_hybrid_teardown_uaf_stress(env):
     ct = threading.Thread(target=chaos_timeout, daemon=True)
     ct.start()
     threads.append(ct)
+    hammers = [normal_hammer, drop_hammer, agg_cursor_hammer]
     for k in range(NTHREADS):
-        target = normal_hammer if (k % 2 == 0) else drop_hammer
-        t = threading.Thread(target=target, daemon=True)
+        t = threading.Thread(target=hammers[k % len(hammers)], daemon=True)
         t.start()
         threads.append(t)
 
