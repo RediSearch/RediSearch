@@ -293,6 +293,10 @@ impl<E: Encoder + DecodedBy> InvertedIndex<E> {
         info.block_count_delta = self.blocks.len() as i64 - blocks_before as i64;
         self.gc_marker_inc();
 
+        // Keep the lock-free state mirror in sync with the rebuilt `blocks`. Story 1.4
+        // will replace this with a `state.rcu()` that compacts into `State::sealed`.
+        self.resync_state_from_blocks();
+
         info
     }
 }

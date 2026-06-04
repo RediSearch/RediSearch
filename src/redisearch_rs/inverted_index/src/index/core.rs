@@ -7,13 +7,18 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 
+use arc_swap::ArcSwap;
 use serde::{Deserialize, Serialize};
 use std::{
     marker::PhantomData,
-    sync::atomic::{self, AtomicU32, AtomicUsize},
+    sync::{
+        Arc,
+        atomic::{self, AtomicU32, AtomicUsize},
+    },
 };
 use thin_vec::ThinVec;
 
+use super::state::State;
 use super::unique_id::IndexUniqueId;
 use crate::{
     BlockCapacity, Encoder, IdDelta,
@@ -33,6 +38,11 @@ pub struct InvertedIndex<E> {
     /// block contains entries for the lowest document IDs, and the last block contains entries for
     /// the highest document IDs.
     pub(crate) blocks: ThinVec<IndexBlock, BlockCapacity>,
+
+    /// A lock-free snapshot of the block storage, kept in sync with [`Self::blocks`] during
+    /// Epic 1's dual-write phase (Story 1.1). Readers will switch to this in Story 1.2; the
+    /// `blocks` field is then removed in Story 1.3.
+    pub(crate) state: ArcSwap<State>,
 
     /// Number of unique documents in the index. This is not the total number of entries, but rather the
     /// number of unique documents that have been indexed.
@@ -178,12 +188,30 @@ impl Drop for IndexBlock {
     }
 }
 
+// `Clone` must increment `TOTAL_BLOCKS` to stay balanced with `Drop`. Constructing an
+// `IndexBlock` via struct literal (as a copy) would otherwise let the counter underflow
+// when the clone is dropped. While Epic 1's dual-write phase is in progress, each logical
+// block is cloned into the `State` snapshot, so `TOTAL_BLOCKS` will read ~2x the logical
+// block count. Story 1.3 removes the duplication.
+impl Clone for IndexBlock {
+    fn clone(&self) -> Self {
+        TOTAL_BLOCKS.fetch_add(1, atomic::Ordering::Relaxed);
+        Self {
+            first_doc_id: self.first_doc_id,
+            last_doc_id: self.last_doc_id,
+            num_entries: self.num_entries,
+            buffer: self.buffer.clone(),
+        }
+    }
+}
+
 impl<E: Encoder> InvertedIndex<E> {
     /// Create a new inverted index with the given encoder. The encoder is used to write new
     /// entries to the index.
     pub fn new(flags: IndexFlags) -> Self {
         Self {
             blocks: Default::default(),
+            state: ArcSwap::from_pointee(State::empty()),
             n_unique_docs: 0,
             flags,
             gc_marker: AtomicU32::new(0),
@@ -210,9 +238,11 @@ impl<E: Encoder> InvertedIndex<E> {
         );
 
         let n_unique_docs = blocks.iter().map(|b| b.num_entries as u32).sum();
+        let state = Self::build_state_from_blocks(&blocks);
 
         Self {
             blocks,
+            state: ArcSwap::from_pointee(state),
             n_unique_docs,
             flags,
             gc_marker: AtomicU32::new(0),
@@ -307,6 +337,9 @@ impl<E: Encoder> InvertedIndex<E> {
             self.flags |= IndexFlags_Index_HasMultiValue;
         }
 
+        let blocks_added = (self.blocks.len() - blocks_before) as u32;
+        self.sync_state_after_write(blocks_added);
+
         let total_mem_growth = buf_growth + mem_growth;
         // A single add_record can grow memory by at most one block-buffer doubling plus the
         // overhead of inserting one new block into the `blocks` ThinVec — comfortably below 4 GiB.
@@ -316,7 +349,7 @@ impl<E: Encoder> InvertedIndex<E> {
         );
         Ok(AddRecordOutcome {
             mem_growth: total_mem_growth as u32,
-            blocks_added: (self.blocks.len() - blocks_before) as u32,
+            blocks_added,
         })
     }
 
@@ -432,5 +465,81 @@ impl<E: Encoder> InvertedIndex<E> {
     /// revalidation.
     pub const fn unique_id(&self) -> IndexUniqueId {
         self.unique_id
+    }
+
+    /// Build a fresh [`State`] mirroring the contents of `blocks`.
+    ///
+    /// Used by constructors and by [`Self::resync_state_from_blocks`] when an incremental
+    /// update isn't appropriate (e.g. after garbage collection rebuilds `blocks` from
+    /// scratch). The `sealed` field is always empty during Epic 1's dual-write phase;
+    /// Story 1.4 makes GC write into it.
+    fn build_state_from_blocks(blocks: &ThinVec<IndexBlock, BlockCapacity>) -> State {
+        let (pending, in_progress) = match blocks.split_last() {
+            None => (Vec::new(), None),
+            Some((last, rest)) => {
+                let pending: Vec<Arc<IndexBlock>> =
+                    rest.iter().map(|b| Arc::new(b.clone())).collect();
+                (pending, Some(Arc::new(last.clone())))
+            }
+        };
+        State {
+            sealed: Arc::new(ThinVec::new()),
+            pending: Arc::new(pending),
+            in_progress,
+        }
+    }
+
+    /// Update [`Self::state`] to match the contents of [`Self::blocks`] after an
+    /// [`Self::add_record`] call.
+    ///
+    /// `blocks_added` is the increase in `blocks.len()` from before the write: 0 if we only
+    /// appended to the current last block, 1 if a new block was rolled over (the common
+    /// "block full" path), 2 in the corner case where both a fresh block was created and a
+    /// large delta forced a new block (rare in practice).
+    ///
+    /// The function is intentionally incremental: when `blocks_added == 0` it reuses every
+    /// `Arc` from the previous state except `in_progress`; when `blocks_added > 0` it
+    /// extends `pending` by promoting the previous `in_progress` (and any newly-added
+    /// intermediate blocks) and installs a fresh `in_progress` from the new last block. The
+    /// previous `sealed` Arc is always reused — only GC writes to it.
+    fn sync_state_after_write(&self, blocks_added: u32) {
+        let prev = self.state.load_full();
+
+        let new_in_progress = self.blocks.last().map(|b| Arc::new(b.clone()));
+
+        let new_pending = if blocks_added == 0 {
+            Arc::clone(&prev.pending)
+        } else {
+            let mut new = Vec::with_capacity(prev.pending.len() + blocks_added as usize);
+            new.extend(prev.pending.iter().cloned());
+
+            // The previously-in-progress block (if any) is now pending. The blocks
+            // between it and the new last block (any intermediate growth — only possible
+            // when `blocks_added > 1`) are read fresh from `self.blocks`.
+            if let Some(old_ip) = prev.in_progress.as_ref() {
+                new.push(Arc::clone(old_ip));
+            }
+            let pending_target = self.blocks.len().saturating_sub(1);
+            while new.len() < pending_target {
+                let idx = new.len();
+                new.push(Arc::new(self.blocks[idx].clone()));
+            }
+
+            Arc::new(new)
+        };
+
+        self.state.store(Arc::new(State {
+            sealed: Arc::clone(&prev.sealed),
+            pending: new_pending,
+            in_progress: new_in_progress,
+        }));
+    }
+
+    /// Rebuild [`Self::state`] from scratch to match [`Self::blocks`]. Used after garbage
+    /// collection, which mutates `blocks` in ways that don't fit the incremental
+    /// [`Self::sync_state_after_write`] update path.
+    pub(crate) fn resync_state_from_blocks(&self) {
+        let state = Self::build_state_from_blocks(&self.blocks);
+        self.state.store(Arc::new(state));
     }
 }

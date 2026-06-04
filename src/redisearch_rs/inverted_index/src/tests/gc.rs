@@ -395,7 +395,7 @@ fn ii_apply_gc() {
 
     assert_eq!(
         ii.memory_usage(),
-        24// Size of an empty inverted index
+        32// Size of an empty inverted index (24 original + 8 for `state` field, Epic 1)
         + 8 // Size of the header of the thinvec storing blocks
         + IndexBlock::STACK_SIZE * 4 // Size of the index blocks
         + 8 // Size of the buffer of the first index block
@@ -459,7 +459,7 @@ fn ii_apply_gc() {
 
     assert_eq!(
         ii.memory_usage(),
-        24// Size of an empty inverted index
+        32// Size of an empty inverted index (24 original + 8 for `state` field, Epic 1)
         + 8 // Size of the header of the thinvec storing blocks
         + IndexBlock::STACK_SIZE * 4 // Size of the index blocks
         + 8 // Size of the buffer of the first index block
@@ -535,7 +535,7 @@ fn ii_apply_gc_last_block_updated() {
 
     assert_eq!(
         ii.memory_usage(),
-        24// Size of an empty inverted index
+        32// Size of an empty inverted index (24 original + 8 for `state` field, Epic 1)
         + 8 // Size of the header of the thinvec storing blocks
         + IndexBlock::STACK_SIZE * 2 // Size of the index blocks
         + 8 // Size of the buffer of the first index block
@@ -579,7 +579,7 @@ fn ii_apply_gc_last_block_updated() {
 
     assert_eq!(
         ii.memory_usage(),
-        24 // Size of an empty inverted index
+        32 // Size of an empty inverted index (24 original + 8 for `state` field, Epic 1)
         + 8 // Size of the header of the thinvec storing blocks
         + IndexBlock::STACK_SIZE * 1 // Size of the index blocks
         + 16 // Size of the buffer of the first index block

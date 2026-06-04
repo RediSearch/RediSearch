@@ -9,6 +9,7 @@
 
 mod core;
 pub mod opaque;
+pub(crate) mod state;
 pub(crate) mod unique_id;
 mod with_entries;
 mod with_mask;

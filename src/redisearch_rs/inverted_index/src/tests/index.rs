@@ -29,7 +29,8 @@ use super::Dummy;
 #[test]
 fn memory_usage() {
     let mut ii = InvertedIndex::<Dummy>::new(IndexFlags_Index_DocIdsOnly);
-    let empty_size = 24;
+    // 24 bytes of original fields + 8 bytes for `state: ArcSwap<State>` (Epic 1, Story 1.1).
+    let empty_size = 32;
 
     assert_eq!(ii.memory_usage(), empty_size);
 
@@ -382,7 +383,8 @@ fn adding_ii_blocks_growth_strategy() {
 fn adding_tracks_entries() {
     let mut ii = EntriesTrackingIndex::<Dummy>::new(IndexFlags_Index_DocIdsOnly);
 
-    let empty_size = 32;
+    // 32 bytes of original fields + 8 bytes for `state: ArcSwap<State>` (Epic 1, Story 1.1).
+    let empty_size = 40;
     assert_eq!(ii.memory_usage(), empty_size);
     assert_eq!(ii.number_of_entries(), 0);
 
@@ -402,7 +404,8 @@ fn adding_tracks_entries() {
 fn adding_track_field_mask() {
     let mut ii = FieldMaskTrackingIndex::<Dummy>::new(IndexFlags_Index_StoreFieldFlags);
 
-    assert_eq!(ii.memory_usage(), 40);
+    // 40 bytes of original fields + 8 bytes for `state: ArcSwap<State>` (Epic 1, Story 1.1).
+    assert_eq!(ii.memory_usage(), 48);
     assert_eq!(ii.field_mask(), 0);
 
     let record = RSIndexResult::build_virt()
