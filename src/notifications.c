@@ -633,11 +633,7 @@ static void ForEachIndex(void (*fn)(IndexSpec *)) {
 //Keeps track to know if SST replication holds the lock avoiding background vector index building jobs from running
 static bool vecsimdisk_sst_consistency_lock_held = false;
 
-// Begin a consistent on-disk save window. Takes the VecSim consistency lock
-// (which blocks background vector-index build jobs), records that we hold it,
-// and runs `flush` against every disk-backed spec to make the on-disk SpeedB
-// DBs consistent with what is being saved.
-//
+// Begin a consistent on-disk save window.
 // Shared by the SST replication fork (flush = SearchDisk_PreFork) and the
 // foreground hot-restart save (flush = SearchDisk_PreCheckpoint), so the two
 // callers cannot drift apart on the lock/flag protocol. Pairs with
@@ -649,10 +645,6 @@ static void DiskConsistencyWindow_Begin(void (*flush)(IndexSpec *)) {
 }
 
 // End the consistent on-disk save window opened by DiskConsistencyWindow_Begin.
-// Runs `finalize` against every disk-backed spec (SearchDisk_PostFork to
-// re-enable compactions on success, or SearchDisk_ReplicationAbort to do so
-// defensively on failure/abort), then releases the VecSim consistency lock and
-// clears the held flag.
 //
 // The caller must check vecsimdisk_sst_consistency_lock_held before calling
 // this on a path where the window may never have been opened (e.g. SST ABORT).
