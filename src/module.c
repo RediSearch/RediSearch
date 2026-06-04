@@ -3964,7 +3964,12 @@ static inline int CursorCommand(RedisModuleCtx *ctx, RedisModuleString **argv, i
       long long capped = info.queryTimeoutMS > (size_t)LLONG_MAX
                            ? LLONG_MAX
                            : (long long)info.queryTimeoutMS;
-      RSConfig_CapQueryTimeoutToForegroundLimit(&capped);
+      if (RSConfig_CapQueryTimeoutToForegroundLimit(&capped)) {
+        RedisModule_Log(ctx, "verbose",
+          "FT.CURSOR READ: coordinator blocked-client timer capped by "
+          "_MAX_FOREGROUND_TIMEOUT_LIMIT (from %zu ms to %lld ms)",
+          info.queryTimeoutMS, capped);
+      }
       CoordRequestCtx *reqCtx = CoordRequestCtx_New(COMMAND_AGGREGATE);
       handlerCtx.bcCtx.privdata = reqCtx;
       handlerCtx.bcCtx.free_privdata = DistCoordReqFreePrivData;

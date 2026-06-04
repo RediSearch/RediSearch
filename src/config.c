@@ -558,7 +558,7 @@ CONFIG_SETTER(setTimeout) {
       (newTimeoutMS == 0 || newTimeoutMS > config->maxForegroundTimeoutLimitMS)) {
     RedisModule_Log(RSDummyContext, "warning",
       "TIMEOUT %lld exceeds _MAX_FOREGROUND_TIMEOUT_LIMIT %lld and WORKERS is 0; "
-      "queries will be capped at %lld",
+      "queries timeout will be capped at %lld",
       newTimeoutMS, config->maxForegroundTimeoutLimitMS,
       config->maxForegroundTimeoutLimitMS);
   }
