@@ -633,6 +633,35 @@ static void ForEachIndex(void (*fn)(IndexSpec *)) {
 //Keeps track to know if SST replication holds the lock avoiding background vector index building jobs from running
 static bool vecsimdisk_sst_consistency_lock_held = false;
 
+// Begin a consistent on-disk save window. Takes the VecSim consistency lock
+// (which blocks background vector-index build jobs), records that we hold it,
+// and runs `flush` against every disk-backed spec to make the on-disk SpeedB
+// DBs consistent with what is being saved.
+//
+// Shared by the SST replication fork (flush = SearchDisk_PreFork) and the
+// foreground hot-restart save (flush = SearchDisk_PreCheckpoint), so the two
+// callers cannot drift apart on the lock/flag protocol. Pairs with
+// DiskConsistencyWindow_End.
+static void DiskConsistencyWindow_Begin(void (*flush)(IndexSpec *)) {
+  VecSimDisk_AcquireConsistencyLock();
+  vecsimdisk_sst_consistency_lock_held = true;
+  ForEachIndex(flush);
+}
+
+// End the consistent on-disk save window opened by DiskConsistencyWindow_Begin.
+// Runs `finalize` against every disk-backed spec (SearchDisk_PostFork to
+// re-enable compactions on success, or SearchDisk_ReplicationAbort to do so
+// defensively on failure/abort), then releases the VecSim consistency lock and
+// clears the held flag.
+//
+// The caller must check vecsimdisk_sst_consistency_lock_held before calling
+// this on a path where the window may never have been opened (e.g. SST ABORT).
+static void DiskConsistencyWindow_End(void (*finalize)(IndexSpec *)) {
+  ForEachIndex(finalize);
+  VecSimDisk_ReleaseConsistencyLock();
+  vecsimdisk_sst_consistency_lock_held = false;
+}
+
 // SST replication event handler.
 //
 // Dispatches each replication sub-event to the matching per-spec wrapper in
@@ -658,23 +687,22 @@ static void SSTReplicationEvent(RedisModuleCtx *ctx, RedisModuleEvent eid,
       break;
     case REDISMODULE_SUBEVENT_SST_REPL_PRE_FORK:
       RedisModule_Log(ctx, "notice", "SST replication: PRE_FORK");
-      VecSimDisk_AcquireConsistencyLock();
-      vecsimdisk_sst_consistency_lock_held = true;
-      ForEachIndex(SearchDisk_PreFork);
+      DiskConsistencyWindow_Begin(SearchDisk_PreFork);
       break;
     case REDISMODULE_SUBEVENT_SST_REPL_POST_FORK:
       RedisModule_Log(ctx, "notice", "SST replication: POST_FORK");
-      ForEachIndex(SearchDisk_PostFork);
       RS_ASSERT(vecsimdisk_sst_consistency_lock_held);
-      VecSimDisk_ReleaseConsistencyLock();
-      vecsimdisk_sst_consistency_lock_held = false;
+      DiskConsistencyWindow_End(SearchDisk_PostFork);
       break;
     case REDISMODULE_SUBEVENT_SST_REPL_ABORT:
       RedisModule_Log(ctx, "notice", "SST replication: ABORT");
-      ForEachIndex(SearchDisk_ReplicationAbort);
+      // The abort can fire before PRE_FORK opened the window, so the lock may
+      // not be held. Always run ReplicationAbort; only unwind the window when
+      // it was actually opened.
       if (vecsimdisk_sst_consistency_lock_held) {
-        VecSimDisk_ReleaseConsistencyLock();
-        vecsimdisk_sst_consistency_lock_held = false;
+        DiskConsistencyWindow_End(SearchDisk_ReplicationAbort);
+      } else {
+        ForEachIndex(SearchDisk_ReplicationAbort);
       }
       break;
     default:
@@ -697,41 +725,43 @@ static void PersistenceEvent(RedisModuleCtx *ctx, RedisModuleEvent eid,
 
   switch (subevent) {
   case REDISMODULE_SUBEVENT_PERSISTENCE_RDB_START:
+    // Async (fork child) save: BGSAVE / replication. This can never be a hot
+    // restart (those only happen in the foreground, main-process SYNC_ variant)
+    if (!useSst) {
+      RedisModule_Log(ctx, "notice", "Persistence started");
+      DocIdMeta_SetForgetDocIdMetadata(true);
+    }
+    break;
   case REDISMODULE_SUBEVENT_PERSISTENCE_SYNC_RDB_START:
     if (!useSst) {
       RedisModule_Log(ctx, "notice", "Persistence started");
       DocIdMeta_SetForgetDocIdMetadata(true);
-    } else if (subevent == REDISMODULE_SUBEVENT_PERSISTENCE_SYNC_RDB_START &&
-               SearchDisk_IsInitialized()) {
+    } else {
       // Hot restart: a RAM-only RDB (restart.rdb) is being saved in the
-      // foreground alongside the on-disk SST files. The replication
+      // foreground alongside the on-disk state. The replication
       // SST_REPL_PRE_FORK consistency hook never fires for a foreground save,
-      // so do the equivalent work here: take the VecSim consistency lock and
-      // flush each spec's memtables to SSTs (PreCheckpoint disables compactions
-      // then flushes) so the on-disk SpeedB DBs are consistent with the RDB.
-      // Only the SYNC_ (foreground, main-process) variant can be a hot restart;
-      // the async RDB_START fires in fork children (BGSAVE / replication).
+      // so open the consistency window here instead (flushing via PreCheckpoint).
       RedisModule_Log(ctx, "notice", "Hot-restart save started (SST + RAM-only RDB)");
-      VecSimDisk_AcquireConsistencyLock();
-      vecsimdisk_sst_consistency_lock_held = true;
-      ForEachIndex(SearchDisk_PreCheckpoint);
+      DiskConsistencyWindow_Begin(SearchDisk_PreCheckpoint);
     }
     break;
   case REDISMODULE_SUBEVENT_PERSISTENCE_ENDED:
+    if (vecsimdisk_sst_consistency_lock_held) {
+      // Unwind the hot-restart consistency window opened at SYNC_RDB_START,
+      // re-enabling compactions via PostFork on success.
+      DiskConsistencyWindow_End(SearchDisk_PostFork);
+      RedisModule_Log(ctx, "notice", "Hot-restart save ended");
+    } else if (!useSst) {
+      RedisModule_Log(ctx, "notice", "Persistence ended");
+      DocIdMeta_SetForgetDocIdMetadata(false);
+    }
+    break;
   case REDISMODULE_SUBEVENT_PERSISTENCE_FAILED:
     if (vecsimdisk_sst_consistency_lock_held) {
-      // Unwind the hot-restart save state established at SYNC_RDB_START. On
-      // success re-enable compactions via PostFork; on failure ReplicationAbort
-      // re-enables them defensively. Release the VecSim lock in both cases.
-      if (subevent == REDISMODULE_SUBEVENT_PERSISTENCE_ENDED) {
-        ForEachIndex(SearchDisk_PostFork);
-        RedisModule_Log(ctx, "notice", "Hot-restart save ended");
-      } else {
-        ForEachIndex(SearchDisk_ReplicationAbort);
-        RedisModule_Log(ctx, "warning", "Hot-restart save failed");
-      }
-      VecSimDisk_ReleaseConsistencyLock();
-      vecsimdisk_sst_consistency_lock_held = false;
+      // Unwind the hot-restart consistency window opened at SYNC_RDB_START,
+      // re-enabling compactions defensively via ReplicationAbort on failure.
+      DiskConsistencyWindow_End(SearchDisk_ReplicationAbort);
+      RedisModule_Log(ctx, "warning", "Hot-restart save failed");
     } else if (!useSst) {
       RedisModule_Log(ctx, "notice", "Persistence ended");
       DocIdMeta_SetForgetDocIdMetadata(false);
