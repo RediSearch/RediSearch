@@ -39,6 +39,7 @@ extern "C" {
 #include <time.h>
 #include <float.h>
 #include <vector>
+#include <set>
 #include <cstdint>
 #include <random>
 #include <chrono>
@@ -825,8 +826,8 @@ TEST_F(IndexTest, testMetric_VectorRange) {
   VecSimQueryReply *results =
       VecSimIndex_RangeQuery(index, range_query.vector, range_query.radius, &queryParams, range_query.order);
 
-  // Run simple range query.
-  QueryIterator *vecIt = createMetricIteratorFromVectorQueryResults(results, true, true);
+  // Run simple range query (max_doc_id = 0 disables the snapshot filter).
+  QueryIterator *vecIt = createMetricIteratorFromVectorQueryResults(results, true, true, 0);
   size_t count = 0;
   size_t lowest_id = 25;
   size_t n_expected_res = n - lowest_id + 1;
@@ -891,6 +892,109 @@ TEST_F(IndexTest, testMetric_VectorRange) {
   ASSERT_FALSE(vecIt->atEOF);
 
   vecIt->Free(vecIt);
+  VecSimIndex_Free(index);
+}
+
+// Verifies the max_doc_id snapshot filter applied while materializing vector
+// range results into a metric/id-list iterator (createMetricIteratorFromVectorQueryResults).
+// On disk indexes the range query may return docIds newer than the query snapshot; those must
+// be dropped so the range result stays consistent with the snapshot-bounded iterators it may be
+// unioned with. This exercises the drop path deterministically, which a flow test cannot: there
+// SearchDisk_GetMaxDocId advances synchronously with docId assignment, so no live docId ever
+// exceeds it.
+TEST_F(IndexTest, testMetric_VectorRange_MaxDocIdFilter) {
+  size_t n = 100;
+  size_t d = 4;
+  VecSimMetric met = VecSimMetric_Cosine;
+  VecSimType t = VecSimType_FLOAT32;
+
+  VecSimLogCtx logCtx = { .index_field_name = "v" };
+  VecSimParams params{.algo = VecSimAlgo_HNSWLIB,
+                      .algoParams = {.hnswParams = HNSWParams{.type = t,
+                                               .dim = d,
+                                               .metric = met,
+                                               .initialCapacity = n,
+                                               .M = 16,
+                                               .efConstruction = 100}},
+                      .logCtx = &logCtx};
+  VecSimIndex *index = VecSimIndex_New(&params);
+  for (size_t i = 1; i <= n; i++) {
+    float f[d];
+    f[0] = 1.0f;
+    for (size_t j = 1; j < d; j++) {
+      f[j] = (float)i / n;
+    }
+    VecSimIndex_AddVector(index, (const void *)f, (int)i);
+  }
+  ASSERT_EQ(VecSimIndex_IndexSize(index), n);
+
+  float query[] = {(float)n, (float)n, (float)n, (float)n};
+  // Same parameters as testMetric_VectorRange: radius 0.2 admits ids 25..100.
+  const size_t lowest_id = 25;
+  const size_t total_in_range = n - lowest_id + 1;  // 76
+
+  // Fresh range reply per call: createMetricIteratorFromVectorQueryResults takes ownership and
+  // frees it.
+  auto run_range = [&](VecSimQueryReply_Order order) {
+    VecSimQueryParams queryParams = {0};
+    queryParams.hnswRuntimeParams.efRuntime = n;
+    return VecSimIndex_RangeQuery(index, query, 0.2, &queryParams, order);
+  };
+
+  // BY_ID, cutoff in the middle: only the contiguous head 25..max_doc_id survives, in order.
+  {
+    const t_docId max_doc_id = 50;
+    QueryIterator *it = createMetricIteratorFromVectorQueryResults(run_range(BY_ID), true, true,
+                                                                   max_doc_id);
+    ASSERT_TRUE(it != nullptr);
+    size_t count = 0;
+    while (it->Read(it) != ITERATOR_EOF) {
+      ASSERT_EQ(it->current->docId, lowest_id + count);
+      ASSERT_LE(it->current->docId, max_doc_id);
+      count++;
+    }
+    ASSERT_EQ(count, max_doc_id - lowest_id + 1);  // 26
+    it->Free(it);
+  }
+
+  // BY_SCORE (unsorted by id): order follows distance, but every surviving id must be <= cutoff
+  // and the surviving set must be exactly {25..50}.
+  {
+    const t_docId max_doc_id = 50;
+    QueryIterator *it = createMetricIteratorFromVectorQueryResults(run_range(BY_SCORE), true,
+                                                                   false, max_doc_id);
+    ASSERT_TRUE(it != nullptr);
+    std::set<t_docId> seen;
+    while (it->Read(it) != ITERATOR_EOF) {
+      ASSERT_LE(it->current->docId, max_doc_id);
+      seen.insert(it->current->docId);
+    }
+    ASSERT_EQ(seen.size(), max_doc_id - lowest_id + 1);  // 26
+    ASSERT_EQ(*seen.begin(), lowest_id);
+    ASSERT_EQ(*seen.rbegin(), max_doc_id);
+    it->Free(it);
+  }
+
+  // Cutoff below the lowest in-range id: every result is filtered out, so no iterator is created.
+  {
+    QueryIterator *it = createMetricIteratorFromVectorQueryResults(run_range(BY_ID), true, true,
+                                                                   /*max_doc_id=*/10);
+    ASSERT_TRUE(it == nullptr);
+  }
+
+  // max_doc_id == 0 disables filtering entirely (RAM path): all in-range docs are returned.
+  {
+    QueryIterator *it = createMetricIteratorFromVectorQueryResults(run_range(BY_ID), true, true,
+                                                                   /*max_doc_id=*/0);
+    ASSERT_TRUE(it != nullptr);
+    size_t count = 0;
+    while (it->Read(it) != ITERATOR_EOF) {
+      count++;
+    }
+    ASSERT_EQ(count, total_in_range);  // 76
+    it->Free(it);
+  }
+
   VecSimIndex_Free(index);
 }
 
