@@ -191,6 +191,7 @@ typedef struct RequestSyncCtx {
    * Gated by `requiresAggregateResultsSync`. */
   bool requiresAggregateResultsSync;     // Enable CAS/Signal/Wait around AggregateResults
   RS_Atomic(bool) aggregatingResults;    // CAS claim: BG winner runs the pipeline; timeout-callback winner skips it and replies empty
+  bool aggregateResultsClaimLost;        // BG lost the CAS claim to the timeout callback
   bool aggregateResultsDone;             // Set at completion; guarded by aggregateResultsLock
   pthread_mutex_t aggregateResultsLock;
   pthread_cond_t aggregateResultsCond;
@@ -208,6 +209,7 @@ static inline void RequestSyncCtx_Init(RequestSyncCtx *ctx) {
   ctx->refcount = 1;
   ctx->requiresAggregateResultsSync = false;
   ctx->aggregatingResults = false;
+  ctx->aggregateResultsClaimLost = false;
   ctx->aggregateResultsDone = false;
   pthread_mutex_init(&ctx->aggregateResultsLock, NULL);
   pthread_cond_init(&ctx->aggregateResultsCond, NULL);
@@ -580,8 +582,9 @@ bool areq_timed_out(void *arg);
 bool AREQ_CheckTimedOut(AREQ *areq);
 
 /* True when this AREQ uses the BG-thread / timeout-callback claim handshake
- * around AggregateResults (TryClaim/Signal/Wait). Currently set only on the
- * coordinator AREQ under RETURN-STRICT; all other paths skip the protocol. */
+ * around AggregateResults (TryClaim/Signal/Wait). Set on coordinator AREQs
+ * under RETURN_STRICT, and on shard/standalone AREQs for RETURN_STRICT
+ * cursor reads; all other paths skip the protocol. */
 static inline bool AREQ_RequiresThreadsSyncResults(const AREQ *req) {
   return req->syncCtx.requiresAggregateResultsSync;
 }

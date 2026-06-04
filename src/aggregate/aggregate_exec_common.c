@@ -176,7 +176,7 @@ static inline void debugCheckAndPauseAfterAggregateResult(AREQ *areq) {}
    }
 
    ResultProcessor *rp = end;
-   if (rp->type == RP_PAGER_LIMITER) {
+   while (rp->type == RP_PAGER_LIMITER || rp->type == RP_VECTOR_NORMALIZER) {
      rp = rp->upstream;
      RS_ASSERT(rp);
    }

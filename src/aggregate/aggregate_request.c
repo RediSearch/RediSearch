@@ -1134,6 +1134,7 @@ void AREQ_WaitForAggregateResultsComplete(AREQ *req) {
 
 void AREQ_ResetForCursorReadReturnStrict(AREQ *req) {
   RS_AtomicBoolStoreRelaxed(&req->syncCtx.aggregatingResults, false);
+  req->syncCtx.aggregateResultsClaimLost = false;
   pthread_mutex_lock(&req->syncCtx.aggregateResultsLock);
   req->syncCtx.aggregateResultsDone = false;
   pthread_mutex_unlock(&req->syncCtx.aggregateResultsLock);
