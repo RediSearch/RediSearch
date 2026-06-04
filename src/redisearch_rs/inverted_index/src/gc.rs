@@ -10,11 +10,12 @@
 use serde::{Deserialize, Serialize};
 use std::{marker::PhantomData, sync::Arc};
 
-use crate::{DecodedBy, Decoder, Encoder, IndexBlock, InvertedIndex};
+use crate::{BlockCapacity, DecodedBy, Decoder, Encoder, IndexBlock, InvertedIndex};
 use ffi::IndexFlags_Index_DocIdsOnly;
 use index_result::RSIndexResult;
 use rqe_core::DocId;
 use smallvec::SmallVec;
+use thin_vec::ThinVec;
 
 /// The type of repair needed for a block after a garbage collection scan.
 #[derive(Debug, Eq, PartialEq, Deserialize, Serialize)]
@@ -252,20 +253,24 @@ impl<E: Encoder + DecodedBy> InvertedIndex<E> {
             return info;
         }
 
-        // Build a flat working list of all current blocks. Each entry is an `Arc<IndexBlock>`
-        // so we share storage with the snapshot — no IndexBlock clones unless GC actually
-        // mutates a block. Iteration order matches the logical-index used by `delta.index`.
+        // Build a flat working list of all current blocks as `Arc<IndexBlock>`s, in the
+        // same logical order that [`State::get_block`] enumerates them (sealed → pending →
+        // in_progress). Using `Arc` here (rather than cloning to owned `IndexBlock`s)
+        // lets the trailing survivor pass through to the new `in_progress` with its
+        // buffer memory address intact — important for the C-side tests that compare
+        // `IndexBlock_Data(...)` pointers across a GC apply. Sealed blocks (which aren't
+        // Arc'd in `prev.sealed`) get a one-time `Arc::new(b.clone())` here; this is
+        // unavoidable since `ThinVec<IndexBlock>` stores blocks by value.
         let mut working: Vec<Arc<IndexBlock>> = Vec::with_capacity(blocks_before);
-        for arc in prev.pending.iter() {
-            working.push(Arc::clone(arc));
+        for b in prev.sealed.iter() {
+            working.push(Arc::new(b.clone()));
+        }
+        for arc_b in prev.pending.iter() {
+            working.push(Arc::clone(arc_b));
         }
         if let Some(ip) = prev.in_progress.as_ref() {
             working.push(Arc::clone(ip));
         }
-        // Note: sealed is empty until Story 1.4. If/when it's populated, we'd need to
-        // include those blocks here too — but they're inside an Arc<ThinVec<IndexBlock>>,
-        // not individually Arc'd. Story 1.4 will revisit this.
-        debug_assert!(prev.sealed.is_empty(), "Story 1.3: sealed stays empty");
 
         let mut deltas_iter = deltas.into_iter().peekable();
         let mut new_all: Vec<Arc<IndexBlock>> = Vec::with_capacity(working.len());
@@ -304,17 +309,31 @@ impl<E: Encoder + DecodedBy> InvertedIndex<E> {
             }
         }
 
-        // The trailing block becomes the new `in_progress`; everything before it goes to
-        // `pending`. (Sealed stays empty in Story 1.3.)
+        // The trailing block becomes the new `in_progress` (the next write will either
+        // append to it or roll a new block, depending on its fill state). The Arc passes
+        // through unchanged for pass-through survivors — preserving buffer-pointer
+        // identity for C-side tests that compare `IndexBlock_Data(...)` across GC.
+        //
+        // Everything before it gets compacted into a contiguous `sealed` `ThinVec` — the
+        // cache-friendly read path. We try `Arc::try_unwrap` first to move the block out
+        // of its Arc without copying; that succeeds for blocks added by Replace deltas
+        // (only one strong ref), and falls back to a clone for blocks that previously
+        // came from `prev.pending` (still referenced by the old State while we hold
+        // `prev`). `pending` resets to empty: it accumulates again as future writes roll
+        // new blocks, until the next GC pass compacts them into `sealed` again.
         let new_in_progress = new_all.pop();
-        let mut new_pending = new_all;
-        new_pending.shrink_to_fit();
+        let mut new_sealed: ThinVec<IndexBlock, BlockCapacity> =
+            ThinVec::with_capacity(new_all.len());
+        for arc_b in new_all {
+            let b = Arc::try_unwrap(arc_b).unwrap_or_else(|a| (*a).clone());
+            new_sealed.push(b);
+        }
 
-        let blocks_after = new_pending.len() + usize::from(new_in_progress.is_some());
+        let blocks_after = new_sealed.len() + usize::from(new_in_progress.is_some());
 
         self.state.store(Arc::new(crate::index::state::State {
-            sealed: Arc::clone(&prev.sealed),
-            pending: Arc::new(new_pending),
+            sealed: Arc::new(new_sealed),
+            pending: Arc::new(Vec::new()),
             in_progress: new_in_progress,
         }));
 

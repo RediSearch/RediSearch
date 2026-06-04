@@ -460,14 +460,27 @@ fn ii_apply_gc() {
 
     assert_eq!(ii.gc_marker(), 1);
 
+    // Story 1.4 GC working-list semantics:
+    //   - Blocks from prev.pending have Arc strong-count 2 (us + prev.pending). When
+    //     they go to the new `sealed` ThinVec, `Arc::try_unwrap` fails and we fall back
+    //     to `(*a).clone()` which shrinks the Vec<u8> capacity to its length.
+    //   - Newly-constructed Replace blocks have Arc strong-count 1 (only our new_all),
+    //     so `try_unwrap` succeeds and they keep their original capacity.
+    //   - The trailing block becomes `in_progress` via `new_all.pop()` — Arc preserved,
+    //     capacity preserved.
+    //
+    // For this test, post-GC sealed = [Replace_block_for_1 (cap=8),
+    //                                  survivor_of_block_2 (cap=4, shrunk via clone),
+    //                                  Replace_block_for_3a (cap=8)],
+    //              in_progress = Replace_block_for_3b (cap=8).
     assert_eq!(
         ii.memory_usage(),
         24// Size of an empty inverted index (Epic 1 Story 1.3: blocks field removed)
         + IndexBlock::STACK_SIZE * 4 // Size of the index blocks
-        + 8 // Size of the buffer of the first index block
-        + 8 // Size of the buffer of the second index block
-        + 8 // Size of the buffer of the third index block
-        + 8 // Size of the buffer of the fourth index block
+        + 8 // Replace block (encode_ids!, cap=8)
+        + 4 // Survivor (cap shrunk on Arc::try_unwrap-failed clone)
+        + 8 // Replace block (cap=8)
+        + 8 // Replace block — trailing, becomes in_progress (cap=8)
     );
 
     assert_eq!(ii.unique_docs(), 4);
@@ -787,11 +800,9 @@ fn ii_apply_gc_entries_tracking_index() {
     assert_eq!(
         apply_info,
         GcApplyInfo {
-            // After Story 1.3 the write path clones in_progress on each append; the
-            // clone's Vec<u8> only reserves capacity-equal-to-len, so the resulting
-            // buffer capacity is slightly larger after subsequent grow. The freed/
-            // allocated byte counts shifted by a small constant from the old pop+push
-            // path.
+            // Story 1.4 preserves the Arc of pass-through blocks in `apply_gc`, so the
+            // freed block's buffer capacity (19 after 4 ControlledCursor writes) is
+            // reported as-is here: bytes_freed = STACK_SIZE (48) + cap (19) = 67.
             bytes_freed: 67,
             bytes_allocated: 56,
             entries_removed: 2,

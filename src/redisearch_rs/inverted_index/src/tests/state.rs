@@ -8,9 +8,10 @@
 */
 
 //! Snapshot tests for the lock-free [`State`](crate::index::state::State) field on
-//! `InvertedIndex`. Storage is now `state`-only (Story 1.3); these tests check that
-//! state stays internally consistent across every mutation path (initial construction,
-//! `add_record` in all its sub-cases, and `apply_gc`).
+//! `InvertedIndex`. Storage is `state`-only (Story 1.3); after GC, `sealed` is also
+//! populated with compacted survivors (Story 1.4). These tests check that state stays
+//! internally consistent across every mutation path (initial construction, `add_record`
+//! in all its sub-cases, and `apply_gc`).
 
 use ffi::IndexFlags_Index_DocIdsOnly;
 use index_result::RSIndexResult;
@@ -21,35 +22,58 @@ use crate::{Encoder, IndexBlock, InvertedIndex};
 use super::Dummy;
 
 /// Assert that the `state` snapshot is internally consistent:
-/// - `sealed` is empty (Story 1.4 introduces sealed compaction).
-/// - All `pending` block ranges are non-overlapping and ordered before `in_progress`.
-/// - `number_of_blocks()` equals `pending.len() + in_progress.is_some() as usize`.
+/// - All blocks in `sealed`, `pending`, and `in_progress` have non-overlapping ranges and
+///   are strictly ordered by doc id across the three regions (sealed → pending →
+///   in_progress).
+/// - `number_of_blocks()` equals `sealed.len() + pending.len() + in_progress.is_some() as
+///   usize`.
 fn assert_state_invariants<E: Encoder>(ii: &InvertedIndex<E>) {
     let state = ii.state.load_full();
 
-    assert!(
-        state.sealed.is_empty(),
-        "sealed must be empty until Story 1.4"
-    );
-
-    let expected_total = state.pending.len() + usize::from(state.in_progress.is_some());
+    let expected_total =
+        state.sealed.len() + state.pending.len() + usize::from(state.in_progress.is_some());
     assert_eq!(
         ii.number_of_blocks(),
         expected_total,
-        "block count must match pending+in_progress"
+        "block count must match sealed+pending+in_progress"
     );
 
-    // Pending blocks are non-overlapping and strictly ordered by doc id.
+    // Within each region, blocks are strictly ordered by doc id.
+    for window in state.sealed.windows(2) {
+        assert!(
+            window[0].last_doc_id < window[1].first_doc_id,
+            "sealed blocks must be strictly ordered by doc id"
+        );
+    }
     for window in state.pending.windows(2) {
         assert!(
             window[0].last_doc_id < window[1].first_doc_id,
             "pending blocks must be strictly ordered by doc id"
         );
     }
+
+    // Across regions, the trailing block of each region precedes the leading block of the
+    // next.
+    if let (Some(last_sealed), Some(first_pending)) =
+        (state.sealed.last(), state.pending.first())
+    {
+        assert!(
+            last_sealed.last_doc_id < first_pending.first_doc_id,
+            "pending must come after sealed"
+        );
+    }
     if let (Some(last_pending), Some(ip)) = (state.pending.last(), state.in_progress.as_ref()) {
         assert!(
             last_pending.last_doc_id < ip.first_doc_id,
             "in_progress must come after all pending blocks"
+        );
+    }
+    if state.pending.is_empty()
+        && let (Some(last_sealed), Some(ip)) = (state.sealed.last(), state.in_progress.as_ref())
+    {
+        assert!(
+            last_sealed.last_doc_id < ip.first_doc_id,
+            "in_progress must come after sealed when pending is empty"
         );
     }
 }
@@ -184,6 +208,7 @@ fn snapshot_taken_before_write_is_not_mutated_by_later_writes() {
 
 #[test]
 fn sealed_remains_empty_after_writes() {
+    // Writes never touch `sealed`; only `apply_gc` does (Story 1.4).
     let mut ii = InvertedIndex::<Dummy>::new(IndexFlags_Index_DocIdsOnly);
     for id in 1..50 {
         ii.add_record(&RSIndexResult::build_virt().doc_id(id).build())
@@ -191,10 +216,7 @@ fn sealed_remains_empty_after_writes() {
     }
 
     let state = ii.state.load_full();
-    assert!(
-        state.sealed.is_empty(),
-        "only GC writes to sealed; Story 1.4 introduces that"
-    );
+    assert!(state.sealed.is_empty(), "writes don't populate sealed");
 }
 
 #[test]
@@ -298,6 +320,69 @@ fn find_block_for_doc_id_spans_regions() {
     assert_eq!(state.find_block_for_doc_id(1, 5), 1);
     assert_eq!(state.find_block_for_doc_id(2, 5), 2);
     assert_eq!(state.find_block_for_doc_id(3, 5), 3, "past the end");
+}
+
+#[test]
+fn apply_gc_compacts_survivors_into_sealed() {
+    // Story 1.4: after `apply_gc`, surviving completed blocks are moved into the
+    // contiguous `sealed` ThinVec. `pending` resets to empty; the trailing survivor
+    // becomes the new `in_progress`. The next write will roll back through the
+    // pending → sealed flow.
+    use crate::GcScanDelta;
+    use crate::gc::{BlockGcScanResult, RepairType};
+
+    let mut ii = InvertedIndex::<Dummy>::new(IndexFlags_Index_DocIdsOnly);
+    let entries_per_block = Dummy::RECOMMENDED_BLOCK_ENTRIES as u64;
+    // Roll three blocks: two full (→ pending) + one partial (→ in_progress).
+    let total = entries_per_block * 2 + 5;
+    for id in 1..=total {
+        ii.add_record(&RSIndexResult::build_virt().doc_id(id).build())
+            .unwrap();
+    }
+    let before = ii.state.load_full();
+    assert!(before.sealed.is_empty(), "sealed empty pre-GC");
+    assert_eq!(before.pending.len(), 2);
+    assert!(before.in_progress.is_some());
+
+    // GC with no deltas → state unchanged.
+    // Apply a no-op-ish delta that won't actually modify anything but forces apply to run.
+    // We synthesize a Delete of block 0 to make GC do work, then verify the layout flips
+    // from "pending+in_progress" to "sealed+in_progress".
+    let delta = GcScanDelta {
+        last_block_idx: ii.number_of_blocks() - 1,
+        last_block_num_entries: ii
+            .state
+            .load_full()
+            .last_block()
+            .unwrap()
+            .num_entries,
+        deltas: vec![BlockGcScanResult {
+            index: 0,
+            repair: RepairType::Delete {
+                n_unique_docs_removed: entries_per_block as u32,
+            },
+        }],
+    };
+
+    ii.apply_gc(delta);
+
+    let after = ii.state.load_full();
+    // Block 0 deleted → 2 survivors. Trailing one (was in_progress) becomes new
+    // in_progress; the other (was pending) goes to sealed.
+    assert_eq!(
+        after.sealed.len(),
+        1,
+        "the surviving completed block landed in sealed"
+    );
+    assert!(after.pending.is_empty(), "pending reset to empty after GC");
+    assert!(after.in_progress.is_some(), "in_progress preserved");
+
+    // The sealed block is the survivor from old pending (originally pending[1] after
+    // pending[0] was deleted).
+    assert_eq!(after.sealed[0].first_doc_id, entries_per_block + 1);
+    assert_eq!(after.in_progress.as_ref().unwrap().first_doc_id, 2 * entries_per_block + 1);
+
+    assert_state_invariants(&ii);
 }
 
 #[test]
