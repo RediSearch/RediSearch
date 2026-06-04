@@ -5,7 +5,7 @@ For non-trivial changes — new commands, new index types, behavior changes, any
 This workflow is **framework-neutral**. What gets reviewed is a set of artifacts (described below), not any particular tool. You can produce them however you like:
 
 - by hand, in plain Markdown — no tooling required;
-- with [OpenSpec](https://github.com/Fission-AI/OpenSpec), which this repo ships a setup for under `openspec/` (see [worked examples](../openspec/changes/));
+- with [OpenSpec](https://github.com/Fission-AI/OpenSpec), which this repo ships a setup for under `openspec/` (see the [worked example](../openspec/changes/example-add-ft-foo/));
 - with [GitHub Spec Kit](https://github.com/github/spec-kit) or another spec framework you prefer.
 
 The artifacts and maintainer review are the contract; the tool that generates them is your choice. You do **not** need to install or run any AI tooling to follow this workflow.
@@ -47,7 +47,7 @@ openspec/
 
 If you use a different framework whose on-disk layout differs, that's fine — note it in your PR so a maintainer can help fold the artifacts into this convention on merge.
 
-For shape and tone, browse any subdirectory under [`openspec/changes/`](../openspec/changes/) or [`openspec/changes/archive/`](../openspec/changes/archive/) — each one contains a worked set of the artifacts described below.
+For shape and tone, see the worked example [`openspec/changes/example-add-ft-foo/`](../openspec/changes/example-add-ft-foo/) — a small, deliberately fictional change carrying a complete set of the artifacts described below. Completed changes are kept under [`openspec/changes/archive/`](../openspec/changes/archive/) (empty until the first change is archived).
 
 ## The four artifacts, in plain English
 
@@ -88,7 +88,7 @@ It's fine. The spec workflow is here to make large changes reviewable, not to ad
 ## See also
 
 - [`CONTRIBUTING.md`](../CONTRIBUTING.md) — the general contributor guide (setup, coding standards, PR workflow).
-- [`openspec/changes/`](../openspec/changes/) and [`openspec/changes/archive/`](../openspec/changes/archive/) — browse for worked examples.
+- [`openspec/changes/example-add-ft-foo/`](../openspec/changes/example-add-ft-foo/) — a worked example change. Completed changes are archived under [`openspec/changes/archive/`](../openspec/changes/archive/).
 - Spec-framework options (all optional — pick one or write the artifacts by hand):
   - [OpenSpec](https://github.com/Fission-AI/OpenSpec) — the tool this repo's `openspec/` layout matches; its CLI can scaffold the artifacts.
   - [GitHub Spec Kit](https://github.com/github/spec-kit) — spec-driven development toolkit.
