@@ -225,6 +225,82 @@ fn from_blocks_initializes_state_to_match() {
 }
 
 #[test]
+fn reader_uses_snapshot_block_layout() {
+    // Story 1.2: the reader snapshots the index at construction. Verify the snapshot's
+    // block count is frozen even when writes happen "concurrently" (here, via raw pointer
+    // because the borrow checker won't otherwise let us mutate `ii` while a reader
+    // borrow is live).
+    use crate::IndexReader as _;
+
+    let mut ii = InvertedIndex::<Dummy>::new(IndexFlags_Index_DocIdsOnly);
+    let entries_per_block = Dummy::RECOMMENDED_BLOCK_ENTRIES as u64;
+    for id in 1..=(entries_per_block + 5) {
+        ii.add_record(&RSIndexResult::build_virt().doc_id(id).build())
+            .unwrap();
+    }
+    assert_eq!(ii.blocks.len(), 2);
+
+    let ii_ptr = &mut ii as *mut InvertedIndex<Dummy>;
+    let mut reader = ii.reader();
+    assert_eq!(reader.snapshot_block_count(), 2);
+
+    // Add more records that roll a third block. The reader's snapshot still shows 2.
+    // SAFETY: we don't touch the reader while mutating `ii`, and the InvertedIndex
+    // remains valid throughout — same pattern as the existing
+    // `reader_snapshot_is_frozen_against_concurrent_writes` test.
+    unsafe {
+        for id in (entries_per_block + 6)..=(2 * entries_per_block + 5) {
+            (*ii_ptr)
+                .add_record(&RSIndexResult::build_virt().doc_id(id).build())
+                .unwrap();
+        }
+    }
+    assert_eq!(reader.snapshot_block_count(), 2, "reader's snapshot is frozen");
+
+    // After `reset()`, the reader picks up the new snapshot.
+    reader.reset();
+    assert_eq!(reader.snapshot_block_count(), 3);
+}
+
+#[test]
+fn find_block_for_doc_id_spans_regions() {
+    // Stage a State by hand: 2 pending blocks + 1 in_progress, sealed empty.
+    use crate::index::state::State;
+    use std::sync::Arc;
+    use thin_vec::ThinVec;
+
+    let mut p0 = IndexBlock::new(1);
+    p0.last_doc_id = 10;
+    p0.num_entries = 5;
+    let mut p1 = IndexBlock::new(11);
+    p1.last_doc_id = 20;
+    p1.num_entries = 5;
+    let mut ip = IndexBlock::new(21);
+    ip.last_doc_id = 25;
+    ip.num_entries = 3;
+
+    let state = State {
+        sealed: Arc::new(ThinVec::new()),
+        pending: Arc::new(vec![Arc::new(p0), Arc::new(p1)]),
+        in_progress: Some(Arc::new(ip)),
+    };
+
+    assert_eq!(state.block_count(), 3);
+    assert_eq!(state.find_block_for_doc_id(0, 5), 0);
+    assert_eq!(state.find_block_for_doc_id(0, 10), 0);
+    assert_eq!(state.find_block_for_doc_id(0, 11), 1);
+    assert_eq!(state.find_block_for_doc_id(0, 20), 1);
+    assert_eq!(state.find_block_for_doc_id(0, 21), 2);
+    assert_eq!(state.find_block_for_doc_id(0, 25), 2);
+    assert_eq!(state.find_block_for_doc_id(0, 26), 3, "past the end");
+
+    // Skip the first block: search starts from index 1.
+    assert_eq!(state.find_block_for_doc_id(1, 5), 1);
+    assert_eq!(state.find_block_for_doc_id(2, 5), 2);
+    assert_eq!(state.find_block_for_doc_id(3, 5), 3, "past the end");
+}
+
+#[test]
 fn apply_gc_keeps_state_in_sync() {
     use crate::GcScanDelta;
     use crate::gc::{BlockGcScanResult, RepairType};

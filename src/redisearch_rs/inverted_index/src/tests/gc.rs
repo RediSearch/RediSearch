@@ -796,34 +796,35 @@ fn ii_apply_gc_entries_tracking_index() {
 }
 #[cfg_attr(miri, ignore = "the memory hack below raises error in miri")]
 #[test]
-fn test_refresh_buffer_pointers_after_reallocation() {
+fn reader_snapshot_is_frozen_against_concurrent_writes() {
+    // Epic 1, Story 1.2: the reader holds an `Arc<State>` snapshot taken at construction
+    // time and reads through it. Writes that happen afterwards are invisible until the
+    // caller `reset()`s, which re-snapshots. `refresh_buffer_pointers` is a no-op in this
+    // model — pre-snapshot it existed to handle in-place buffer reallocation, but
+    // snapshot block buffers are immutable.
     use crate::IndexReader as _;
 
     let mut ii = InvertedIndex::<Dummy>::new(IndexFlags_Index_DocIdsOnly);
 
-    // Add initial records
     ii.add_record(&RSIndexResult::build_virt().doc_id(10).build())
         .unwrap();
     ii.add_record(&RSIndexResult::build_virt().doc_id(11).build())
         .unwrap();
 
-    // SAFETY: We need to bypass Rust's borrowing rules to simulate the real-world
-    // scenario where buffer reallocation happens while a reader is active.
-    // This is safe because:
-    // 1. We're not accessing the reader during the mutation
-    // 2. The InvertedIndex structure remains valid
-    // 3. We call refresh_buffer_pointers before using the reader again
+    // Bypass Rust's borrow rules to simulate the real-world scenario where writes happen
+    // concurrently with a reader. In production these are on different threads under the
+    // spec lock; here we use a raw pointer so we can mutate the index while a reader
+    // borrow is live.
     let ii_ptr = &mut ii as *mut InvertedIndex<Dummy>;
 
     let mut reader: crate::IndexReaderCore<'_, Dummy> = ii.reader();
     let mut result = RSIndexResult::build_virt().build();
 
-    // Read first record
     assert!(reader.next_record(&mut result).unwrap());
     assert_eq!(result.doc_id, 10);
 
-    // Force buffer reallocation by adding many records to the same block
-    // This should cause the buffer to grow and potentially move
+    // Add many more records — these go into `ii.blocks` and into a new `state` revision,
+    // but the reader's snapshot still references the original revision.
     unsafe {
         for i in 12..1000 {
             (*ii_ptr)
@@ -832,20 +833,24 @@ fn test_refresh_buffer_pointers_after_reallocation() {
         }
     }
 
-    // Buffer was reallocated - test refresh_buffer_pointers
+    // No-op in the snapshot model. The reader continues to see its frozen view.
     reader.refresh_buffer_pointers();
 
-    // Verify we can still read correctly from the new buffer
-    let mut doc_count = 1; // Already read doc_id 10
-    let mut expected_doc_id = 11;
+    // From the frozen snapshot, the reader sees only doc_id 11 (the second record at
+    // snapshot time), then EOF.
+    assert!(reader.next_record(&mut result).unwrap());
+    assert_eq!(result.doc_id, 11);
+    assert!(!reader.next_record(&mut result).unwrap());
 
+    // `reset()` takes a fresh snapshot — now the reader sees everything.
+    reader.reset();
+    let mut count = 0;
+    let mut expected = 10;
     while reader.next_record(&mut result).unwrap() {
-        assert_eq!(result.doc_id, expected_doc_id);
-        doc_count += 1;
-        expected_doc_id += 1;
+        assert_eq!(result.doc_id, expected);
+        count += 1;
+        expected += 1;
     }
-
-    // Should have read all 990 documents (10, 11, 12..999)
-    assert_eq!(doc_count, 990);
-    assert_eq!(expected_doc_id, 1000);
+    // Initial 2 records + 988 added = 990.
+    assert_eq!(count, 990);
 }

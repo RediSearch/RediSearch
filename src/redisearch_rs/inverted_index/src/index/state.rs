@@ -32,6 +32,7 @@
 
 use std::sync::Arc;
 
+use rqe_core::DocId;
 use thin_vec::ThinVec;
 
 use super::core::IndexBlock;
@@ -69,8 +70,88 @@ impl State {
     }
 
     /// Total number of blocks visible in this snapshot.
+    pub(crate) fn block_count(&self) -> usize {
+        self.sealed.len() + self.pending.len() + usize::from(self.in_progress.is_some())
+    }
+
+    /// Alias for [`Self::block_count`], kept for symmetry with `Vec::len`.
     #[cfg(test)]
     pub(crate) fn len(&self) -> usize {
-        self.sealed.len() + self.pending.len() + usize::from(self.in_progress.is_some())
+        self.block_count()
+    }
+
+    /// Get the block at logical index `idx`. The logical index is flat across the three
+    /// regions: `sealed[0..n_sealed]` then `pending[0..n_pending]` then `in_progress`
+    /// (if present, occupying the last slot).
+    pub(crate) fn get_block(&self, idx: usize) -> Option<&IndexBlock> {
+        if let Some(b) = self.sealed.get(idx) {
+            return Some(b);
+        }
+        let idx = idx.checked_sub(self.sealed.len())?;
+        if let Some(b) = self.pending.get(idx) {
+            return Some(&**b);
+        }
+        let idx = idx.checked_sub(self.pending.len())?;
+        if idx == 0 {
+            self.in_progress.as_deref()
+        } else {
+            None
+        }
+    }
+
+    /// First block in the snapshot.
+    pub(crate) fn first_block(&self) -> Option<&IndexBlock> {
+        self.get_block(0)
+    }
+
+    /// Last block in the snapshot.
+    pub(crate) fn last_block(&self) -> Option<&IndexBlock> {
+        let total = self.block_count();
+        if total == 0 {
+            None
+        } else {
+            self.get_block(total - 1)
+        }
+    }
+
+    /// Find the logical index of the first block whose `last_doc_id >= target`, searching
+    /// from logical index `start` onward. Returns [`Self::block_count`] if no such block
+    /// exists (i.e. `target` is past the end of the index).
+    ///
+    /// Each of `sealed` and `pending` is sorted by `last_doc_id`, so we can binary-search
+    /// within each region. `in_progress` is the single trailing partial block.
+    pub(crate) fn find_block_for_doc_id(&self, start: usize, target: DocId) -> usize {
+        let n_sealed = self.sealed.len();
+        let n_pending = self.pending.len();
+
+        if start < n_sealed {
+            let rel = self.sealed[start..]
+                .binary_search_by_key(&target, |b| b.last_doc_id)
+                .unwrap_or_else(|insertion_point| insertion_point);
+            let abs = start + rel;
+            if abs < n_sealed {
+                return abs;
+            }
+        }
+
+        let pending_start = start.saturating_sub(n_sealed);
+        if pending_start < n_pending {
+            let rel = self.pending[pending_start..]
+                .binary_search_by_key(&target, |b| b.last_doc_id)
+                .unwrap_or_else(|insertion_point| insertion_point);
+            let abs = n_sealed + pending_start + rel;
+            if abs < n_sealed + n_pending {
+                return abs;
+            }
+        }
+
+        if start <= n_sealed + n_pending
+            && let Some(ip) = self.in_progress.as_ref()
+            && ip.last_doc_id >= target
+        {
+            return n_sealed + n_pending;
+        }
+
+        self.block_count()
     }
 }
