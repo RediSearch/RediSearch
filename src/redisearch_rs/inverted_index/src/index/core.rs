@@ -23,9 +23,7 @@ use crate::{
     controlled_cursor::ControlledCursor,
     debug::{BlockSummary, Summary},
 };
-#[cfg(test)]
 use crate::BlockCapacity;
-#[cfg(test)]
 use thin_vec::ThinVec;
 use ffi::{IndexFlags, IndexFlags_Index_HasMultiValue};
 use index_result::RSIndexResult;
@@ -35,8 +33,8 @@ use rqe_core::DocId;
 /// used to efficiently search for documents that contain specific terms.
 ///
 /// The block storage lives behind a single [`ArcSwap<State>`] (see [`Self::state`]). Writers
-/// publish a new [`State`] per [`Self::add_record`] via [`ArcSwap::store`]; readers take a
-/// consistent snapshot via [`ArcSwap::load_full`] and walk it without locking.
+/// publish a new [`State`] per [`Self::add_record`] via [`arc_swap::ArcSwap::store`]; readers take a
+/// consistent snapshot via [`arc_swap::ArcSwap::load_full`] and walk it without locking.
 #[derive(Debug)]
 pub struct InvertedIndex<E> {
     /// The lock-free block storage. Every block of the index lives inside this [`State`]
@@ -97,6 +95,21 @@ pub struct IndexBlock {
     /// The encoded entries in this block
     pub(crate) buffer: Vec<u8>,
 }
+
+/// The strong/weak refcount header that prefixes the `T` inside every `Arc<T>` heap
+/// allocation. Two pointer-sized atomics — 16 bytes on a 64-bit target. Used by
+/// [`InvertedIndex::memory_usage`] and [`InvertedIndex::add_record`] (mem_growth) to
+/// keep their accounting consistent.
+pub(crate) const ARC_HEADER_BYTES: usize = std::mem::size_of::<usize>() * 2;
+
+/// Memory cost of adding one new block to the index, beyond the block's buffer growth:
+/// the fresh `Arc<IndexBlock>` heap allocation (`ARC_HEADER_BYTES` + the inline
+/// `IndexBlock`) plus one new pointer slot in the rebuilt `pending`
+/// `Vec<Arc<IndexBlock>>`. Used by [`InvertedIndex::add_record`] for `mem_growth`
+/// reporting and referenced by tests that pin the per-block delta.
+pub(crate) const PER_NEW_BLOCK_BYTES: usize = IndexBlock::STACK_SIZE
+    + ARC_HEADER_BYTES
+    + std::mem::size_of::<Arc<IndexBlock>>();
 
 static TOTAL_BLOCKS: AtomicUsize = AtomicUsize::new(0);
 
@@ -262,23 +275,59 @@ impl<E: Encoder> InvertedIndex<E> {
 
     /// The memory size of the index in bytes.
     ///
-    /// Counts the [`Self`] stack size, the per-block stack contribution (one
-    /// [`IndexBlock::STACK_SIZE`] per block in the snapshot), and the capacity of each
-    /// block's data buffer. The smaller overheads (pending `Vec` capacity, `Arc` ref-
-    /// count headers) aren't tracked — same approximation as the pre-state model, which
-    /// also didn't track Vec-of-blocks slop precisely.
+    /// Counts every heap allocation reachable from `self`: the outer `Arc<State>`, the
+    /// inner `Arc<ThinVec>` for sealed (plus its heap if it has one), the inner
+    /// `Arc<Vec<Arc<IndexBlock>>>` for pending (plus its heap), each per-block
+    /// `Arc<IndexBlock>` in `pending` and `in_progress`, and every block's `buffer`
+    /// capacity. The pre-state model counted only `blocks.mem_usage() + buffer
+    /// capacities + stack`; this model has more layers of indirection (each carrying an
+    /// `Arc` header), so the same logical index reports a larger number — that's the
+    /// real memory the new layout occupies.
     pub fn memory_usage(&self) -> usize {
+        // `Arc<T>` heap layout: `(strong: AtomicUsize, weak: AtomicUsize, T)`. The strong
+        // and weak counters together total `ARC_HEADER_BYTES`; the `T` itself is added
+        // separately at each site below.
+        const ARC_HEADER: usize = ARC_HEADER_BYTES;
+
         let state = self.state.load_full();
-        let total = state.block_count();
-        let mut buffers_capacity = 0usize;
-        for i in 0..total {
-            if let Some(b) = state.get_block(i) {
-                buffers_capacity += b.buffer.capacity();
-            }
-        }
         let stack = std::mem::size_of::<Self>();
-        let blocks_overhead = total * IndexBlock::STACK_SIZE;
-        stack + buffers_capacity + blocks_overhead
+
+        // Outer `Arc<State>`: header + the three pointer-sized fields of `State`.
+        let outer_state = ARC_HEADER + std::mem::size_of::<State>();
+
+        // `sealed: Arc<ThinVec<IndexBlock, BlockCapacity>>`. The Arc allocation holds the
+        // ThinVec stack representation (one pointer); the ThinVec's heap allocation, if
+        // any, carries the header + slot storage via `mem_usage()`.
+        let sealed_arc = ARC_HEADER + std::mem::size_of::<ThinVec<IndexBlock, BlockCapacity>>();
+        let sealed_thinvec_heap = state.sealed.mem_usage();
+        let sealed_buffers: usize = state.sealed.iter().map(|b| b.buffer.capacity()).sum();
+
+        // `pending: Arc<Vec<Arc<IndexBlock>>>`. The Arc allocation holds the Vec
+        // (ptr+len+cap = 24 bytes); the Vec's heap carries `capacity * sizeof(Arc<IndexBlock>)`
+        // pointer slots.
+        let pending_arc = ARC_HEADER + std::mem::size_of::<Vec<Arc<IndexBlock>>>();
+        let pending_vec_heap = state.pending.capacity() * std::mem::size_of::<Arc<IndexBlock>>();
+        let pending_blocks: usize = state
+            .pending
+            .iter()
+            .map(|arc_b| ARC_HEADER + IndexBlock::STACK_SIZE + arc_b.buffer.capacity())
+            .sum();
+
+        // `in_progress: Option<Arc<IndexBlock>>`.
+        let in_progress = match state.in_progress.as_ref() {
+            Some(arc_b) => ARC_HEADER + IndexBlock::STACK_SIZE + arc_b.buffer.capacity(),
+            None => 0,
+        };
+
+        stack
+            + outer_state
+            + sealed_arc
+            + sealed_thinvec_heap
+            + sealed_buffers
+            + pending_arc
+            + pending_vec_heap
+            + pending_blocks
+            + in_progress
     }
 
     /// Add a new record to the index. Returns an [`AddRecordOutcome`] reporting how many bytes
@@ -290,14 +339,14 @@ impl<E: Encoder> InvertedIndex<E> {
     /// It is expected that the document ID of the record is greater than or equal to the last
     /// document ID in the index.
     ///
-    /// The write publishes a new [`State`] via [`ArcSwap::store`]. Readers holding a previous
+    /// The write publishes a new [`State`] via [`arc_swap::ArcSwap::store`]. Readers holding a previous
     /// snapshot are unaffected — they continue to see the pre-write view until they
     /// re-snapshot.
     ///
     /// # Note on `store` vs `rcu`
     ///
     /// The design doc (Epic 1, FT.HYBRID Workers Pool Consolidation) calls for the writer
-    /// to use [`ArcSwap::rcu`]. We use [`ArcSwap::store`] instead, which is functionally
+    /// to use [`arc_swap::ArcSwap::rcu`]. We use [`arc_swap::ArcSwap::store`] instead, which is functionally
     /// equivalent under the current locking model: writers take `&mut self` (Rust) and the
     /// spec write lock (C side), so no concurrent writer can race between our `load_full`
     /// and `store`. If a future story lifts the spec lock from this path to allow
@@ -371,8 +420,9 @@ impl<E: Encoder> InvertedIndex<E> {
         // encoder's `bytes_written` because the buffer may have had spare capacity.
         let buf_growth = working_block.buffer.capacity() - buf_cap;
         mem_growth += buf_growth;
-        // Each new block (logical) contributes IndexBlock::STACK_SIZE to memory_usage.
-        mem_growth += (blocks_added as usize) * IndexBlock::STACK_SIZE;
+        // Each new block contributes [`PER_NEW_BLOCK_BYTES`] beyond the buffer growth
+        // (already counted in `buf_growth` above).
+        mem_growth += (blocks_added as usize) * PER_NEW_BLOCK_BYTES;
 
         debug_assert!(working_block.num_entries.saturating_add(1) < u16::MAX);
         working_block.num_entries += 1;

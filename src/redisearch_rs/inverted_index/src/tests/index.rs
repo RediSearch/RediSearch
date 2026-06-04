@@ -11,7 +11,7 @@ use std::io::Cursor;
 
 use crate::{
     Decoder, Encoder, EntriesTrackingIndex, FieldMaskTrackingIndex, GcScanDelta, IdDelta,
-    IndexBlock, InvertedIndex,
+    InvertedIndex, PER_NEW_BLOCK_BYTES,
     debug::{BlockSummary, Summary},
     gc::BlockGcScanResult,
     gc::RepairType,
@@ -29,10 +29,11 @@ use super::Dummy;
 #[test]
 fn memory_usage() {
     let mut ii = InvertedIndex::<Dummy>::new(IndexFlags_Index_DocIdsOnly);
-    // 16 bytes of original fields (n_unique_docs, flags, gc_marker, unique_id) + 8 bytes
-    // for `state: ArcSwap<State>`. The 8-byte `blocks: ThinVec` field was removed in
-    // Epic 1, Story 1.3.
-    let empty_size = 24;
+    // 24 stack bytes (n_unique_docs, flags, gc_marker, unique_id, state ArcSwap) + the
+    // State container's fixed heap overhead introduced by Epic 1: the outer Arc<State>
+    // allocation (40 = 16 header + 24 State struct) plus the empty sealed and pending
+    // Arcs (24 + 40). Total: 24 + 40 + 24 + 40 = 128.
+    let empty_size = 128;
 
     assert_eq!(ii.memory_usage(), empty_size);
 
@@ -51,8 +52,8 @@ fn adding_records() {
 
     assert_eq!(
         mem_growth,
-        IndexBlock::STACK_SIZE + 4,
-        "size of the first index block (48 bytes) plus 4 bytes for the encoded delta"
+        PER_NEW_BLOCK_BYTES + 4,
+        "Arc<IndexBlock> allocation (16 header + 48 block) plus 4 bytes for the encoded delta"
     );
     assert_eq!(ii.number_of_blocks(), 1);
     assert_eq!(ii.snapshot().block_ref(0).unwrap().buffer, [0, 0, 0, 0]);
@@ -186,8 +187,8 @@ fn adding_creates_new_blocks_when_entries_is_reached() {
         .mem_growth as usize;
     assert_eq!(
         mem_growth,
-        IndexBlock::STACK_SIZE + 1,
-        "size of the first index block (48 bytes) plus the byte written"
+        PER_NEW_BLOCK_BYTES + 1,
+        "Arc<IndexBlock> allocation (16 + 48) plus the byte written"
     );
     assert_eq!(ii.number_of_blocks(), 1);
     let mem_growth = ii
@@ -204,8 +205,8 @@ fn adding_creates_new_blocks_when_entries_is_reached() {
         .mem_growth as usize;
     assert_eq!(
         mem_growth,
-        IndexBlock::STACK_SIZE + 1,
-        "size of the new index block (48 bytes) plus the byte written"
+        PER_NEW_BLOCK_BYTES + 1,
+        "Arc<IndexBlock> allocation (16 + 48) for the new block plus the byte written"
     );
     assert_eq!(
         ii.number_of_blocks(),
@@ -245,8 +246,8 @@ fn adding_big_delta_makes_new_block() {
 
     assert_eq!(
         mem_growth,
-        4 + 48,
-        "should write 4 bytes for delta and 48 bytes for the new index block"
+        4 + PER_NEW_BLOCK_BYTES,
+        "4 bytes for the encoded delta plus a fresh Arc<IndexBlock> allocation (16 + 48)"
     );
     assert_eq!(ii.number_of_blocks(), 1);
     assert_eq!(ii.snapshot().block_ref(0).unwrap().buffer, [0, 0, 0, 0]);
@@ -263,8 +264,8 @@ fn adding_big_delta_makes_new_block() {
 
     assert_eq!(
         mem_growth,
-        4 + 48,
-        "should write 4 bytes for delta and 48 bytes for the new index block"
+        4 + PER_NEW_BLOCK_BYTES,
+        "4 bytes for the encoded delta plus a fresh Arc<IndexBlock> allocation (16 + 48)"
     );
     assert_eq!(ii.number_of_blocks(), 2);
     assert_eq!(ii.snapshot().block_ref(1).unwrap().buffer, [0, 0, 0, 0]);
@@ -383,9 +384,9 @@ fn adding_ii_blocks_growth_strategy() {
 fn adding_tracks_entries() {
     let mut ii = EntriesTrackingIndex::<Dummy>::new(IndexFlags_Index_DocIdsOnly);
 
-    // InvertedIndex (24) + EntriesTrackingIndex's own fields (8) = 32. Down from 40 in
-    // Story 1.2; Story 1.3 removed the 8-byte `blocks: ThinVec` field.
-    let empty_size = 32;
+    // InvertedIndex's own bytes (128, see `memory_usage` test) + EntriesTrackingIndex's
+    // own 8-byte `number_of_entries` field = 136.
+    let empty_size = 136;
     assert_eq!(ii.memory_usage(), empty_size);
     assert_eq!(ii.number_of_entries(), 0);
 
@@ -405,9 +406,9 @@ fn adding_tracks_entries() {
 fn adding_track_field_mask() {
     let mut ii = FieldMaskTrackingIndex::<Dummy>::new(IndexFlags_Index_StoreFieldFlags);
 
-    // InvertedIndex (24) + FieldMaskTrackingIndex's own fields (16) = 40. Down from 48 in
-    // Story 1.2; Story 1.3 removed the 8-byte `blocks: ThinVec` field.
-    assert_eq!(ii.memory_usage(), 40);
+    // InvertedIndex's own bytes (128, see `memory_usage` test) + FieldMaskTrackingIndex's
+    // own 16 bytes (field_mask + sum_of_records) = 144.
+    assert_eq!(ii.memory_usage(), 144);
     assert_eq!(ii.field_mask(), 0);
 
     let record = RSIndexResult::build_virt()
@@ -418,8 +419,8 @@ fn adding_track_field_mask() {
 
     assert_eq!(
         mem_growth,
-        IndexBlock::STACK_SIZE + 4,
-        "size of the first index block (48 bytes) plus 4 bytes for the encoded result"
+        PER_NEW_BLOCK_BYTES + 4,
+        "Arc<IndexBlock> allocation (16 + 48) plus 4 bytes for the encoded result"
     );
     assert_eq!(ii.field_mask(), 0b101);
 

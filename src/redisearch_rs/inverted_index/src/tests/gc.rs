@@ -397,14 +397,20 @@ fn ii_apply_gc() {
     ];
     let mut ii = InvertedIndex::<Dummy>::from_blocks(IndexFlags_Index_DocIdsOnly, blocks);
 
+    // PRE-GC layout (Epic 1 Story 1.4):
+    //   - Empty `InvertedIndex` overhead: 128 bytes
+    //     (24 stack + 40 outer Arc<State> + 24 sealed Arc + 40 pending Arc).
+    //   - `from_blocks` puts the first 3 blocks into `pending` (Vec capacity 4 → 32 bytes
+    //     of pointer slots) and the last block into `in_progress`.
+    //   - Per pending block: ARC_HEADER (16) + STACK_SIZE (48) + buffer.cap.
+    //   - in_progress: ARC_HEADER + STACK_SIZE + buffer.cap.
     assert_eq!(
         ii.memory_usage(),
-        24// Size of an empty inverted index (Epic 1 Story 1.3: blocks field removed)
-        + IndexBlock::STACK_SIZE * 4 // Size of the index blocks
-        + 8 // Size of the buffer of the first index block
-        + 16 // Size of the buffer of the second index block
-        + 8 // Size of the buffer of the third index block
-        + 16 // Size of the buffer of the fourth index block
+        128 // empty InvertedIndex overhead
+        + 32 // pending Vec heap (cap=4)
+        + (16 + IndexBlock::STACK_SIZE) * 3 // ARC_HEADER + STACK_SIZE for each pending block
+        + (16 + IndexBlock::STACK_SIZE) // ARC_HEADER + STACK_SIZE for in_progress
+        + 8 + 16 + 8 + 16 // buffer capacities of the 4 blocks
     );
 
     let gc_result = vec![
@@ -460,27 +466,21 @@ fn ii_apply_gc() {
 
     assert_eq!(ii.gc_marker(), 1);
 
-    // Story 1.4 GC working-list semantics:
-    //   - Blocks from prev.pending have Arc strong-count 2 (us + prev.pending). When
-    //     they go to the new `sealed` ThinVec, `Arc::try_unwrap` fails and we fall back
-    //     to `(*a).clone()` which shrinks the Vec<u8> capacity to its length.
-    //   - Newly-constructed Replace blocks have Arc strong-count 1 (only our new_all),
-    //     so `try_unwrap` succeeds and they keep their original capacity.
-    //   - The trailing block becomes `in_progress` via `new_all.pop()` — Arc preserved,
-    //     capacity preserved.
-    //
-    // For this test, post-GC sealed = [Replace_block_for_1 (cap=8),
-    //                                  survivor_of_block_2 (cap=4, shrunk via clone),
-    //                                  Replace_block_for_3a (cap=8)],
-    //              in_progress = Replace_block_for_3b (cap=8).
+    // Story 1.4 GC working-list semantics (post-apply layout):
+    //   - 3 sealed blocks live in a `ThinVec<IndexBlock>` (capacity = 3 here):
+    //       Replace_block_for_1 (cap=8),
+    //       survivor_of_block_2 (cap=4, shrunk on Arc::try_unwrap-failed clone),
+    //       Replace_block_for_3a (cap=8).
+    //   - 1 in_progress block (Arc<IndexBlock>): Replace_block_for_3b (cap=8).
+    //   - pending is empty (Vec::new(), no heap allocation).
     assert_eq!(
         ii.memory_usage(),
-        24// Size of an empty inverted index (Epic 1 Story 1.3: blocks field removed)
-        + IndexBlock::STACK_SIZE * 4 // Size of the index blocks
-        + 8 // Replace block (encode_ids!, cap=8)
-        + 4 // Survivor (cap shrunk on Arc::try_unwrap-failed clone)
-        + 8 // Replace block (cap=8)
-        + 8 // Replace block — trailing, becomes in_progress (cap=8)
+        128 // empty InvertedIndex overhead
+        + 8 // sealed ThinVec heap header (4-byte length + 4-byte capacity)
+        + IndexBlock::STACK_SIZE * 3 // sealed slots (in-line IndexBlocks)
+        + 8 + 4 + 8 // sealed buffer capacities
+        + (16 + IndexBlock::STACK_SIZE) // in_progress Arc<IndexBlock>
+        + 8 // in_progress buffer capacity
     );
 
     assert_eq!(ii.unique_docs(), 4);
@@ -548,12 +548,15 @@ fn ii_apply_gc_last_block_updated() {
 
     let mut ii = InvertedIndex::<Dummy>::from_blocks(IndexFlags_Index_DocIdsOnly, blocks);
 
+    // PRE-GC layout: 1 pending block + 1 in_progress (see ii_apply_gc test for the
+    // breakdown of the 128 + 32 + per-block accounting).
     assert_eq!(
         ii.memory_usage(),
-        24// Size of an empty inverted index (Epic 1 Story 1.3: blocks field removed)
-        + IndexBlock::STACK_SIZE * 2 // Size of the index blocks
-        + 8 // Size of the buffer of the first index block
-        + 16 // Size of the buffer of the second index block
+        128 // empty InvertedIndex overhead
+        + 32 // pending Vec heap (cap=4)
+        + (16 + IndexBlock::STACK_SIZE) // pending block (Arc<IndexBlock>)
+        + (16 + IndexBlock::STACK_SIZE) // in_progress (Arc<IndexBlock>)
+        + 8 + 16 // buffer capacities
     );
 
     let gc_result = vec![
@@ -591,11 +594,15 @@ fn ii_apply_gc_last_block_updated() {
 
     assert_eq!(ii.gc_marker(), 1);
 
+    // POST-GC: block 0 deleted, block 1 (in_progress) survives unchanged (last-block
+    // delta dropped because num_entries grew since the scan). One surviving block
+    // becomes the new `in_progress`; sealed is empty (no `ThinVec::with_capacity(0)`
+    // allocation); pending is empty.
     assert_eq!(
         ii.memory_usage(),
-        24 // Size of an empty inverted index (Epic 1 Story 1.3: blocks field removed)
-        + IndexBlock::STACK_SIZE * 1 // Size of the index blocks
-        + 16 // Size of the buffer of the first index block
+        128 // empty InvertedIndex overhead
+        + (16 + IndexBlock::STACK_SIZE) // in_progress Arc<IndexBlock>
+        + 16 // in_progress buffer capacity (block 1's original cap=16, Arc preserved)
     );
 
     assert_eq!(ii.unique_docs(), 3);

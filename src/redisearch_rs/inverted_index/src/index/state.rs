@@ -25,10 +25,11 @@
 //! - [`State::in_progress`] — the partial block currently being written to, or
 //!   `None` if the index is empty.
 //!
-//! During Epic 1's dual-write phase (Story 1.1), the canonical block storage is still
-//! the [`InvertedIndex::blocks`](super::core::InvertedIndex::blocks) `ThinVec` and
-//! the state is a parallel mirror. Stories 1.2-1.3 will switch reads and writes over
-//! to the state and remove `blocks`.
+//! Post Epic 1 Story 1.3, this `State` is the sole owner of the index's block storage —
+//! the old [`InvertedIndex`](super::core::InvertedIndex)'s `blocks: ThinVec` field has
+//! been removed. Writers publish a new `State` via
+//! [`arc_swap::ArcSwap::store`]; readers take a snapshot via
+//! [`arc_swap::ArcSwap::load_full`] and walk it without locking.
 
 use std::sync::Arc;
 
@@ -174,7 +175,7 @@ impl InvertedIndexSnapshot {
     /// Construct from an `Arc<State>`. Intentionally `pub(crate)` so only the parent
     /// `InvertedIndex::snapshot` constructor — which has access to `self.state` — can
     /// call it.
-    pub(crate) fn from_arc(state: Arc<State>) -> Self {
+    pub(crate) const fn from_arc(state: Arc<State>) -> Self {
         Self { state }
     }
 
