@@ -158,11 +158,6 @@ static void handleCollectSortBy(const ArgParser *parser, const void *value, void
 // ----- LIMIT -----
 
 // Parses: LIMIT <offset> <count>
-//   Both values must be non-negative integers <= MAX_AGGREGATE_REQUEST_RESULTS,
-//   and their sum must also be <= MAX_AGGREGATE_REQUEST_RESULTS. The sum bound
-//   is what the coordinator-side `distributeCollect` will encode on the shard
-//   wire (`LIMIT 0 (offset+count)`); rejecting it here at the user-facing
-//   parser produces a clean error instead of a shard-side rejection.
 static void handleCollectLimit(const ArgParser *parser, const void *value, void *user_data) {
   (void)parser;
   CollectParseCtx *pctx = (CollectParseCtx *)user_data;
