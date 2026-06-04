@@ -147,7 +147,10 @@ const HEADERS: &[HeaderAllowlist] = &[
             "HybridIterator_GetSearchModeString",
             "HybridIterator_IsBatchMode",
         ],
-        types: &[],
+        // `vector_score_source` owns a `TimeoutCtx` (an absolute `timespec`
+        // deadline) handed to VecSim. Exposed via this already-included header
+        // rather than a dedicated `timeout.h` bindgen root.
+        types: &["TimeoutCtx", "timespec"],
         vars: &[],
     },
     HeaderAllowlist {
