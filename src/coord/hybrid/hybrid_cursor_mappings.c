@@ -213,19 +213,9 @@ static void processCursorMappingCallback(MRIteratorCallbackCtx *ctx, MRReply *re
     MRReply_Free(rep);
 }
 
-// Error callback: invoked by the MR layer when a shard command terminates without
-// delivering a reply (connection dropped / NULL reply, or a synchronous send
-// failure). Unlike FT.SEARCH/FT.AGGREGATE — which track completion via iterator
-// depletion — ProcessHybridCursorMappings waits on a private responseCount, which
-// only processCursorMappingCallback ever increments. Without notifying here, the
-// failing shard would never be counted and the coordinator would block on
-// completionCond forever (the hang in MOD-15394); and even if it unblocked, it
-// would silently return partial cursor mappings. Record a communication error and
-// bump responseCount so the wait loop completes and surfaces the failure.
-//
-// Mirrors the locked section of processCursorMappingCallback. Per the
-// MRIteratorErrorCallback contract, this only notifies — the MR layer calls
-// MRIteratorCallback_Done after this returns.
+// No-reply error callback: bumps responseCount and records a communication
+// error so the wait loop below (which keys completion off responseCount, not
+// iterator depletion) unblocks instead of hanging (MOD-15394).
 static void processCursorMappingErrorCallback(MRIteratorCallbackCtx *ctx) {
     processCursorMappingCallbackContext *cb_ctx = (processCursorMappingCallbackContext *)MRIteratorCallback_GetPrivateData(ctx);
     RS_ASSERT(cb_ctx);
@@ -234,8 +224,7 @@ static void processCursorMappingErrorCallback(MRIteratorCallbackCtx *ctx) {
     cb_ctx->responseCount++;
     QueryError error = QueryError_Default();
     QueryError_SetCode(&error, QUERY_ERROR_CODE_GENERIC);
-    // Matches CLUSTER_QUERY_ERROR in rmr.c, so a post-validation connection drop is
-    // reported identically to the pre-fanout connection-validation failure.
+    // Matches CLUSTER_QUERY_ERROR in rmr.c (pre-fanout connection-validation failure).
     QueryError_SetDetail(&error, "Could not send query to cluster");
     cb_ctx->errors = array_ensure_append_1(cb_ctx->errors, error);
     pthread_cond_signal(cb_ctx->completionCond);

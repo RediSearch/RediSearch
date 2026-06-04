@@ -69,18 +69,9 @@ def test_dist_hybrid_index_drop_after_sctx_allocation(env):
 @skip(cluster=False)
 @require_enable_assert
 def test_dist_hybrid_shard_dispatch_failure_does_not_hang(env):
-    """MOD-15394: a shard command that fails to dispatch (connection dropped or
-    errored after pre-fanout validation) must not hang the coordinator.
-
-    ProcessHybridCursorMappings waits on a private responseCount that only the
-    success callback increments. Before the fix the failed shard was never
-    counted, so the coordinator blocked on completionCond forever (the FT.HYBRID
-    client would hang). The fix routes the no-reply error path through an error
-    callback that counts the shard and records a communication error, so the
-    command returns an error instead of hanging.
-
-    FT.DEBUG SEND_ERROR makes the next MRCluster_SendCommand return REDIS_ERR,
-    which deterministically reproduces the failure without killing a shard."""
+    """MOD-15394: a no-reply shard dispatch failure must surface as an error
+    rather than hanging FT.HYBRID on ProcessHybridCursorMappings' completionCond.
+    FT.DEBUG SEND_ERROR forces the next MRCluster_SendCommand to return REDIS_ERR."""
     set_workers(env, 1)
 
     dim = 2

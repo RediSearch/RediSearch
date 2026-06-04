@@ -174,17 +174,12 @@ typedef bool (*SyncPointStopFn)(void *arg);
 // true. Lets workers release early when a timeout fires on the main thread.
 void SyncPoint_WaitUntil(const char *name, SyncPointStopFn stop_fn, void *arg);
 
-// ============================================================================
-// Shard dispatch fault injection (test-only)
-// ============================================================================
-// Arm the coordinator to fail the next `count` shard command dispatches:
-// DebugSendError_Consume() returns true that many times, so MRCluster_SendCommand
-// returns REDIS_ERR, simulating a shard connection that drops/errors after
-// pre-fanout validation. Used to exercise the no-reply error path (MOD-15394).
-// Only consumed in ENABLE_ASSERT builds.
+// Shard dispatch fault injection (test-only, ENABLE_ASSERT builds): arm the next
+// `count` MRCluster_SendCommand calls to return REDIS_ERR, so DebugSendError_Consume
+// returns true that many times. Exercises the no-reply error path (MOD-15394).
 void DebugSendError_Arm(int count);
-// Consume one armed dispatch failure. Returns true if the caller should treat the
-// send as failed. Thread-safe.
+// Consume one armed failure; returns true if the caller should treat the send as
+// failed. Thread-safe.
 bool DebugSendError_Consume(void);
 
 // Process-wide counter of threads parked in `RedisSearchCtx_LockSpecWrite`

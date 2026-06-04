@@ -615,7 +615,7 @@ void MR_ReplyClusterInfo(RedisModuleCtx *ctx, MRClusterTopology *topo) {
 struct MRIteratorCtx {
   MRChannel *chan;
   MRIteratorCallback cb;
-  MRIteratorErrorCallback errorCB;  // Optional: notify caller's completion tracking on a no-reply error
+  MRIteratorErrorCallback errorCB;  // Optional: notify caller on no-reply termination
   short pending;    // Number of shards with more results (not depleted)
   short inProcess;  // Number of currently running commands on shards
   bool timedOut;    // whether the coordinator experienced a timeout
@@ -640,17 +640,10 @@ struct MRIterator {
   size_t len;
 };
 
-// Terminate a shard command that produced no reply for the success callback
-// (a NULL async reply because the connection dropped/errored, or a synchronous
-// send failure). First notify the caller's own completion tracking via the
-// optional errorCB, then perform the iterator's bookkeeping. errorCB must only
-// notify; it must not free the iterator nor call MRIteratorCallback_Done (this
-// function owns that). When errorCB is NULL the behavior is exactly the historical
-// one: a plain MRIteratorCallback_Done.
-//
-// Callers that key completion off a private counter (e.g. ProcessHybridCursorMappings)
-// register an errorCB; otherwise the shard's failure would never be counted and the
-// caller would wait on its completion condition forever (see MOD-15394).
+// No-reply termination path: invoke the caller's optional errorCB (notify-only)
+// before the iterator's MRIteratorCallback_Done. Without this hook callers that
+// wait on a private counter (e.g. ProcessHybridCursorMappings) would hang
+// (MOD-15394).
 static void mrIteratorCallback_Error(MRIteratorCallbackCtx *ctx) {
   if (ctx->it->ctx.errorCB) {
     ctx->it->ctx.errorCB(ctx);

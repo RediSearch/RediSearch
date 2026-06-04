@@ -132,17 +132,10 @@ typedef struct MRIterator MRIterator;
 typedef void (*MRIteratorCallback)(MRIteratorCallbackCtx *ctx, MRReply *rep);
 
 /**
- * Callback invoked when a shard command terminates WITHOUT delivering a reply to
- * the success callback (`MRIteratorCallback`): i.e. a NULL async reply (the shard
- * connection dropped or errored) or a synchronous send failure. It runs on the IO
- * thread and is only responsible for notifying the caller's own completion
- * bookkeeping (e.g. a hand-rolled response counter). It must NOT free the iterator
- * and must NOT call MRIteratorCallback_Done — the MR layer performs the iterator's
- * own accounting immediately after this returns.
- *
- * When NULL, the MR layer simply performs MRIteratorCallback_Done, preserving the
- * historical behavior for callers that key completion off iterator depletion
- * rather than a private counter.
+ * Invoked on the IO thread when a shard command terminates without a reply
+ * (NULL async reply or synchronous send failure). Notify-only: must not free
+ * the iterator nor call MRIteratorCallback_Done — the MR layer does that next.
+ * Optional; NULL preserves the historical depletion-only behavior (MOD-15394).
  */
 typedef void (*MRIteratorErrorCallback)(MRIteratorCallbackCtx *ctx);
 
