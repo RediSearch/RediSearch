@@ -25,8 +25,6 @@ CAP_WARNING = (
     "effective timeout was capped"
 )
 
-COORD_CURSOR_CAP_LOG = "FT.CURSOR READ: coordinator blocked-client timer capped"
-
 def _get_warnings(response):
     """Pull warnings out of FT.SEARCH/FT.AGGREGATE ('warning') or
     FT.HYBRID ('warnings') replies in both RESP2 and RESP3 shapes."""
@@ -59,18 +57,24 @@ class TestMaxForegroundTimeoutLimit:
                                  'v', np.array([float(i), 0.0]).astype(np.float32).tobytes())
 
     def _reset(self, *, workers, timeout, limit):
-        """Pin all three knobs. timeout=0 routes via legacy _FT.CONFIG SET
-        because native search-timeout is gated at min=1."""
+        """Pin all three knobs on every shard. timeout=0 routes via legacy
+        _FT.CONFIG SET because native search-timeout is gated at min=1.
+        Propagation is required so any test that previously set a knob via
+        run_command_on_all_shards cannot leak its value into the next test."""
         env = self.env
         # Drop the limit first so intermediate states never violate the
         # cross-knob invariant during the transition.
-        env.expect('CONFIG', 'SET', 'search-_max-foreground-timeout-limit', '0').ok()
-        env.expect('CONFIG', 'SET', 'search-workers', str(workers)).ok()
+        verify_command_OK_on_all_shards(env, 'CONFIG', 'SET',
+                                        'search-_max-foreground-timeout-limit', '0')
+        verify_command_OK_on_all_shards(env, 'CONFIG', 'SET',
+                                        'search-workers', str(workers))
         if timeout == 0:
-            env.expect(config_cmd(), 'SET', 'TIMEOUT', '0').ok()
+            verify_command_OK_on_all_shards(env, config_cmd(), 'SET', 'TIMEOUT', '0')
         else:
-            env.expect('CONFIG', 'SET', 'search-timeout', str(timeout)).ok()
-        env.expect('CONFIG', 'SET', 'search-_max-foreground-timeout-limit', str(limit)).ok()
+            verify_command_OK_on_all_shards(env, 'CONFIG', 'SET',
+                                            'search-timeout', str(timeout))
+        verify_command_OK_on_all_shards(env, 'CONFIG', 'SET',
+                                        'search-_max-foreground-timeout-limit', str(limit))
 
     def _assert_config(self, name, expected):
         """Assert a single config value, normalising RESP3 map vs RESP2 list
@@ -82,11 +86,6 @@ class TestMaxForegroundTimeoutLimit:
         else:
             self.env.assertEqual(res, [[name, expected]],
                                  message=f"{name}: got {res!r}, expected [[{name!r}, {expected!r}]]")
-
-    def _config_get_raw(self, name):
-        """Return the raw string value of a single config, normalising shape."""
-        res = self.env.cmd('CONFIG', 'GET', name)
-        return res.get(name) if isinstance(res, dict) else res[1]
 
     # ---------------------------- Runtime CONFIG SET behaviour -------------------
     #
@@ -245,8 +244,15 @@ class TestMaxForegroundTimeoutLimit:
     # limit tightened after cursor creation must still cap on subsequent reads.
     # runCursor re-applies RSConfig_CapQueryTimeoutToForegroundLimit on every
     # FT.CURSOR READ and the QEXEC_S_MAX_TIMEOUT_CAPPED flag is sticky once set.
+    #
+    # Both standalone and cluster modes are covered explicitly: in cluster mode
+    # the warning is emitted by the cursor-owning shard's runCursor and must
+    # survive coord-side aggregation before reaching the client.
 
-    def test_cursor_read_caps_after_limit_tightened(self):
+    def _open_cursor_then_tighten_and_read(self, set_limit):
+        """Open a WITHCURSOR with TIMEOUT above the (initially-disabled) limit,
+        confirm the first reply carries no cap warning, then apply set_limit()
+        and FT.CURSOR READ. Returns the READ response for warning assertion."""
         self._reset(workers=0, timeout=100, limit=0)
         env = self.env
         # FT.AGGREGATE WITHCURSOR returns a 2-element [<results>, <cursor_id>]
@@ -260,47 +266,29 @@ class TestMaxForegroundTimeoutLimit:
         env.assertNotContains(CAP_WARNING, _get_warnings(results_map),
                               message=f"Initial WITHCURSOR reply should not warn while limit is 0, got: {res}")
         # Tighten the limit below the cached cursor TIMEOUT and read again.
-        env.expect('CONFIG', 'SET', 'search-_max-foreground-timeout-limit', '1000').ok()
-        res = env.cmd('FT.CURSOR', 'READ', 'idx', cursor_id)
-        results_map = res[0]
-        env.assertContains(CAP_WARNING, _get_warnings(results_map),
-                           message=f"FT.CURSOR READ expected MAX_TIMEOUT_CAPPED warning after "
-                                   f"limit tightened, got: {res}")
+        set_limit()
+        return env.cmd('FT.CURSOR', 'READ', 'idx', cursor_id)
 
-    # ---------------------------- Coordinator cursor timer cap -------------------
-    #
-    # In cluster mode under ON_TIMEOUT FAIL/RETURN_STRICT, CursorCommand arms
-    # the blocked-client timer from the cursor's cached queryTimeoutMS *before*
-    # dispatching to runCursor on the shards. The coord must re-apply the
-    # foreground cap so the timer fires at the capped budget; otherwise the
-    # coord would wait for the original (uncapped) WITHCURSOR TIMEOUT.
-    #
-    # We assert on the verbose log emitted by CursorCommand when the cap fires
-    # rather than wall-clock timing, to avoid CI-load-induced flakes.
-
-    def test_cursor_read_coord_timer_capped_after_limit_tightened(self):
-        skipTest(cluster=False)
-        self._reset(workers=0, timeout=60000, limit=0)
+    def test_cursor_read_caps_after_limit_tightened_standalone(self):
+        skipTest(cluster=True)
         env = self.env
-        # The cap branch in CursorCommand only runs for FAIL / RETURN_STRICT;
-        # under the default 'return' policy the coord uses the cached timeout
-        # as-is. Set + restore so other tests are unaffected.
-        run_command_on_all_shards(env, 'CONFIG', 'SET', 'search-on-timeout', 'fail')
-        try:
-            res = env.cmd('FT.AGGREGATE', 'idx', '*', 'LOAD', '1', '@t',
-                          'TIMEOUT', '60000', 'WITHCURSOR', 'COUNT', '1')
-            cursor_id = res[1]
-            env.expect('CONFIG', 'SET', 'search-_max-foreground-timeout-limit', '500').ok()
-            env.cmd('FT.CURSOR', 'READ', 'idx', str(cursor_id))
-            # Verify the cap was applied on the coordinator that served FT.CURSOR
-            # READ (`env.cmd` routes to the same shard that owns the coord cursor).
-            logDir = self._config_get_raw('dir')
-            logFileName = self._config_get_raw('logfile')
-            logFilePath = os.path.join(logDir, logFileName)
-            with open(logFilePath) as f:
-                log = f.read()
-            env.assertContains(COORD_CURSOR_CAP_LOG, log,
-                               message=f"Expected coord cap log line in {logFilePath}; "
-                                       f"the CursorCommand cap path was not reached")
-        finally:
-            run_command_on_all_shards(env, 'CONFIG', 'SET', 'search-on-timeout', 'return')
+        res = self._open_cursor_then_tighten_and_read(
+            lambda: env.expect('CONFIG', 'SET',
+                               'search-_max-foreground-timeout-limit', '1000').ok())
+        env.assertContains(CAP_WARNING, _get_warnings(res[0]),
+                           message=f"FT.CURSOR READ expected MAX_TIMEOUT_CAPPED warning after "
+                                   f"limit tightened (standalone), got: {res}")
+
+    def test_cursor_read_caps_after_limit_tightened_cluster(self):
+        # The cursor lives on whichever shard served FT.AGGREGATE WITHCURSOR;
+        # env.cmd is sticky to one node and we do not know which. Propagate the
+        # limit to all shards so the cap fires regardless of routing, then
+        # verify the warning survives coord-side aggregation back to the client.
+        skipTest(cluster=False)
+        env = self.env
+        res = self._open_cursor_then_tighten_and_read(
+            lambda: verify_command_OK_on_all_shards(
+                env, 'CONFIG', 'SET', 'search-_max-foreground-timeout-limit', '1000'))
+        env.assertContains(CAP_WARNING, _get_warnings(res[0]),
+                           message=f"FT.CURSOR READ expected MAX_TIMEOUT_CAPPED warning after "
+                                   f"limit tightened (cluster), got: {res}")
