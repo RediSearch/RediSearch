@@ -343,12 +343,11 @@ Reducer *RDCRCollect_New(const ReducerOptions *options) {
       }
     }
 
-    if (args.sort_names && array_len(args.sort_names) > 0) {
-      if (!resolveSortKeys(options, &args, &sort_keys)) {
-        array_free(field_keys);
-        CollectArgs_Free(&args);
-        return NULL;
-      }
+    if (args.sort_names && array_len(args.sort_names) > 0 &&
+          !resolveSortKeys(options, &args, &sort_keys)) {
+      array_free(field_keys);
+      CollectArgs_Free(&args);
+      return NULL;
     }
 
     rbase = CollectReducer_CreateRemote(

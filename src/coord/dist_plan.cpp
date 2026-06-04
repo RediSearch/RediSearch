@@ -44,7 +44,7 @@ static const char *distAllocU64Str(BlkAlloc *alloc, uint64_t v) {
   // fits in `buf` and `snprintf` cannot truncate or return a negative value.
   RS_ASSERT(n > 0 && (size_t)n < sizeof(buf));
   size_t len = (size_t)n + 1;
-  char *p = (char *)BlkAlloc_Alloc(alloc, len, std::max(len, DIST_REDUCER_BLOCK_SIZE));
+  auto p = (char *)BlkAlloc_Alloc(alloc, len, std::max(len, DIST_REDUCER_BLOCK_SIZE));
   memcpy(p, buf, len);
   return p;
 }
@@ -70,7 +70,7 @@ struct ReducerDistCtx {
   ArgsCursor *copyArgs(ArgsCursor *args) {
     // Because args are only in temporary storage
     size_t allocsz = sizeof(void *) * args->argc;
-    void **arr = (void **)BlkAlloc_Alloc(alloc, allocsz, std::max(allocsz, DIST_REDUCER_BLOCK_SIZE));
+    auto arr = (void **)BlkAlloc_Alloc(alloc, allocsz, std::max(allocsz, DIST_REDUCER_BLOCK_SIZE));
     memcpy(arr, args->objs, args->argc * sizeof(*args->objs));
     args->objs = arr;
     return args;
@@ -393,7 +393,7 @@ static int distributeCollect(ReducerDistCtx *rdctx, QueryError *status) {
   }
 
   const size_t srcArgc = src->args.argc;  // reducer args (no leading <nargs>)
-  const char **srcObjs = (const char **)src->args.objs;
+  auto srcObjs = (const char **)src->args.objs;
 
   // Locate the LIMIT offset slot in the original argv.
   size_t limitValIdx = SIZE_MAX;  // index into srcObjs of the LIMIT offset token
@@ -409,7 +409,7 @@ static int distributeCollect(ReducerDistCtx *rdctx, QueryError *status) {
 
   // ---- Remote argv: [<nargs>] [forwarded args, LIMIT rewritten to 0/(off+cnt)]
   size_t remoteTotal = srcArgc + 1;  // +1 for the leading <nargs>
-  const char **remoteObjs = (const char **)BlkAlloc_Alloc(
+  auto remoteObjs = (const char **)BlkAlloc_Alloc(
       rdctx->alloc, sizeof(char *) * remoteTotal,
       std::max(sizeof(char *) * remoteTotal, DIST_REDUCER_BLOCK_SIZE));
   remoteObjs[0] = distAllocU64Str(rdctx->alloc, srcArgc);  // <nargs> = reducer args only
@@ -433,7 +433,7 @@ static int distributeCollect(ReducerDistCtx *rdctx, QueryError *status) {
   //      `<nargs>` still counts ONLY the reducer args; `AS`/alias sit outside
   //      it. LIMIT is forwarded unchanged (the coordinator applies offset).
   size_t localTotal = srcArgc + 1 + 2;  // +<nargs> +"AS" +alias
-  const char **localObjs = (const char **)BlkAlloc_Alloc(
+  auto localObjs = (const char **)BlkAlloc_Alloc(
       rdctx->alloc, sizeof(char *) * localTotal,
       std::max(sizeof(char *) * localTotal, DIST_REDUCER_BLOCK_SIZE));
   localObjs[0] = distAllocU64Str(rdctx->alloc, srcArgc);  // unchanged count
