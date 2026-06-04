@@ -2200,11 +2200,11 @@ DEBUG_COMMAND(replCompactionCoordinator) {
   if (!debugCommandsEnabled(ctx)) {
     return RedisModule_ReplyWithError(ctx, NODEBUG_ERR);
   }
-  if (!SearchDisk_IsEnabled()) {
-    return RedisModule_ReplyWithError(ctx, "REPL_COMPACTION_COORDINATOR is only supported in disk mode");
-  }
   if (argc < 3) {
     return RedisModule_WrongArity(ctx);
+  }
+  if (!SearchDisk_IsEnabled()) {
+    return RedisModule_ReplyWithError(ctx, "REPL_COMPACTION_COORDINATOR is only supported in disk mode");
   }
   const char *op = RedisModule_StringPtrLen(argv[2], NULL);
 
@@ -2225,9 +2225,7 @@ DEBUG_COMMAND(replCompactionCoordinator) {
     } else {
       return RedisModule_ReplyWithError(ctx, "Invalid argument for 'ARM_PAUSE'");
     }
-    globalDebugCtx.debugMode = true;
     SearchDisk_DebugCoordinatorArmPause(site, armed);
-    validateDebugMode(&globalDebugCtx);
     return RedisModule_ReplyWithSimpleString(ctx, "OK");
   }
 
@@ -2244,9 +2242,7 @@ DEBUG_COMMAND(replCompactionCoordinator) {
     if (strcasecmp(targetName, "none") != 0 && !parseCompactionSite(targetName, &target)) {
       return RedisModule_ReplyWithError(ctx, "Unknown target site for 'WAKE_ON_REACH'");
     }
-    globalDebugCtx.debugMode = true;
     SearchDisk_DebugCoordinatorSetWake(trigger, target);
-    validateDebugMode(&globalDebugCtx);
     return RedisModule_ReplyWithSimpleString(ctx, "OK");
   }
 
