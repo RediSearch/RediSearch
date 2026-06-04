@@ -78,7 +78,7 @@ pub fn bind_foreign_c_symbols() {
 }
 
 /// Require all symbols to be resolved at link time.
-fn force_link_time_symbol_resolution() {
+pub fn force_link_time_symbol_resolution() {
     let target_os = env::var("CARGO_CFG_TARGET_OS").unwrap_or_else(|_| "linux".to_string());
     if target_os == "macos" {
         println!("cargo::rustc-link-arg=-Wl,-undefined,error");
