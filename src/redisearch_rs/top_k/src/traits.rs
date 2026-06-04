@@ -16,8 +16,7 @@ use rqe_core::DocId;
 use rqe_iterator_type::IteratorType;
 use rqe_iterators::RQEIteratorError;
 
-use crate::ScoredResult;
-
+use crate::heap::ScoredResult;
 /// A cursor over a single score-ordered batch of `(doc_id, score)` pairs.
 ///
 /// Batches are produced by [`ScoreSource::next_batch`] and consumed by the
