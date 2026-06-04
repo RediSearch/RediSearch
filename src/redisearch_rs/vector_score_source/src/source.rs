@@ -11,7 +11,7 @@
 
 use std::{ffi::c_void, num::NonZeroUsize, ptr::NonNull};
 
-use ffi::{VecSimIndex, VecSimQueryParams, t_docId};
+use ffi::{TimeoutCtx, VecSimIndex, VecSimQueryParams, t_docId, timespec};
 use index_result::RSIndexResult;
 use rqe_iterators::RQEIteratorError;
 use top_k::{BatchStrategy, ScoreSource, ScoredResult};
@@ -58,8 +58,9 @@ pub struct VectorScoreSource<'index> {
     query_vector: QueryVector<'index>,
     query_params: VecSimQueryParams,
     k: usize,
-    /// Passed through to VecSim as the timeout context pointer.
-    timeout_ctx: *mut c_void,
+    /// Heap-allocated timeout context passed to VecSim as a `*mut c_void`.
+    /// Boxed so the pointer remains stable even if `VectorScoreSource` is moved.
+    timeout_ctx: Box<TimeoutCtx>,
     /// Adhoc-BF path selection and scan-scoped state.
     adhoc_state: AdhocPathState<'index>,
     /// Whether the disk adhoc-BF scan should rescore its top-k with exact
@@ -100,6 +101,11 @@ unsafe impl Send for VectorScoreSource<'_> {}
 impl<'index> VectorScoreSource<'index> {
     /// Create a new `VectorScoreSource`.
     ///
+    /// `timeout` is the query deadline as an absolute `timespec`.
+    /// `skip_timeout_checks` mirrors `sctx->time.skipTimeoutChecks`: when
+    /// `true`, the VecSim periodic counter check is disabled
+    /// (`REDISEARCH_UNINITIALIZED`).
+    ///
     /// # Safety
     ///
     /// 1. `index` must remain valid for `'index`, which outlives the returned
@@ -115,7 +121,8 @@ impl<'index> VectorScoreSource<'index> {
         query_vector: Vec<u8>,
         query_params: VecSimQueryParams,
         k: usize,
-        timeout_ctx: *mut c_void,
+        timeout: timespec,
+        skip_timeout_checks: bool,
         child_num_estimated: usize,
         fixed_batch_size: usize,
     ) -> Self {
@@ -148,7 +155,11 @@ impl<'index> VectorScoreSource<'index> {
             query_vector,
             query_params,
             k,
-            timeout_ctx,
+            timeout_ctx: Box::new(TimeoutCtx {
+                timeout,
+                // u32::MAX ≡ REDISEARCH_UNINITIALIZED = (uint32_t)(-1)
+                counter: if skip_timeout_checks { u32::MAX } else { 0 },
+            }),
             adhoc_state,
             should_rerank,
             batch_iter: None,
@@ -158,6 +169,12 @@ impl<'index> VectorScoreSource<'index> {
             initial_child_num_estimated: child_num_estimated,
             k_remaining: k,
         }
+    }
+
+    /// Return a `*mut c_void` pointing to the owned [`TimeoutCtx`],
+    /// suitable for assignment to [`VecSimQueryParams::timeoutCtx`].
+    fn timeout_ctx_ptr(&mut self) -> *mut c_void {
+        self.timeout_ctx.as_mut() as *mut TimeoutCtx as *mut c_void
     }
 
     /// Return the number of vectors currently in the index.
@@ -192,7 +209,7 @@ impl<'index> ScoreSource for VectorScoreSource<'index> {
     fn all_results_unfiltered_batch(&mut self) -> Result<Option<Self::Batch>, RQEIteratorError> {
         // Single-shot top-k query for the unfiltered path; called exactly once
         // per evaluation by `prepare_unfiltered_direct`.
-        self.query_params.timeoutCtx = self.timeout_ctx;
+        self.query_params.timeoutCtx = self.timeout_ctx_ptr();
         let reply = self
             .index
             .top_k_query(
@@ -217,7 +234,7 @@ impl<'index> ScoreSource for VectorScoreSource<'index> {
                 return Ok(None);
             }
             // Pass timeout context via query params so VecSim handles it.
-            self.query_params.timeoutCtx = self.timeout_ctx;
+            self.query_params.timeoutCtx = self.timeout_ctx_ptr();
             // Raw pointer rather than `&mut self.query_params`: the iterator is
             // stored back into `self`, so a `'params` borrow of our own field
             // would be self-referential. `batch_iterator_unchecked` lets us pick
