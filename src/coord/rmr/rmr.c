@@ -935,12 +935,7 @@ bool MR_ManuallyTriggerNextIfNeeded(MRIterator *it, size_t channelThreshold) {
   return channelSize > 0;
 }
 
-MRIterator *MR_IterateWithPrivateData(const MRCommand *cmd, MRIteratorCallback cb,
-                                      MRIteratorErrorCallback errorCB, void *cbPrivateData,
-                                      void (*cbPrivateDataDestructor)(void *),
-                                      void (*cbPrivateDataInit)(void *, const MRIterator *),
-                                      MRCommandModifier commandModifier,
-                                      void (*iterStartCb)(void *), StrongRef *iterStartCbPrivateData) {
+MRIterator *MR_IterateWithPrivateData(const MRCommand *cmd, const MRIteratorConfig *config) {
   MRIterator *ret = rm_new(MRIterator);
   // Initial initialization of the iterator.
   // The rest of the initialization is done in the iterator start callback.
@@ -953,16 +948,16 @@ MRIterator *MR_IterateWithPrivateData(const MRCommand *cmd, MRIteratorCallback c
   *ret = (MRIterator){
     .ctx = {
       .chan = MR_NewChannel(),
-      .cb = cb,
-      .errorCB = errorCB,
+      .cb = config->cb,
+      .errorCB = config->errorCB,
       .pending = 1,
       .inProcess = 1,
       .timedOut = false,
       .itRefCount = 2,
       .ioRuntime = MRCluster_GetIORuntimeCtx(cluster_g, MRCluster_AssignRoundRobinIORuntimeIdx(cluster_g)),
-      .privateDataDestructor = cbPrivateDataDestructor,
-      .privateDataInit = cbPrivateDataInit,
-      .commandModifier = commandModifier,
+      .privateDataDestructor = config->cbPrivateDataDestructor,
+      .privateDataInit = config->cbPrivateDataInit,
+      .commandModifier = config->commandModifier,
     },
     .cbxs = rm_new(MRIteratorCallbackCtx),
     .len = 1,
@@ -971,17 +966,17 @@ MRIterator *MR_IterateWithPrivateData(const MRCommand *cmd, MRIteratorCallback c
   *ret->cbxs = (MRIteratorCallbackCtx){
     .cmd = MRCommand_Copy(cmd),
     .it = ret,
-    .privateData = cbPrivateData,
+    .privateData = config->cbPrivateData,
   };
 
   // Create data structure with iterator and private data (on heap)
   IteratorData *data = rm_malloc(sizeof(IteratorData));
   data->it = ret;
   data->privateDataRef = (WeakRef){0};
-  if (iterStartCbPrivateData) {
-    data->privateDataRef = StrongRef_Demote(*iterStartCbPrivateData);
+  if (config->iterStartCbPrivateData) {
+    data->privateDataRef = StrongRef_Demote(*config->iterStartCbPrivateData);
   }
-  IORuntimeCtx_Schedule(ret->ctx.ioRuntime, iterStartCb, data);
+  IORuntimeCtx_Schedule(ret->ctx.ioRuntime, config->iterStartCb, data);
   return ret;
 }
 

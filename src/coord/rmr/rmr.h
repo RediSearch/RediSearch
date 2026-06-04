@@ -156,6 +156,30 @@ typedef void (*MRIteratorErrorCallback)(MRIteratorCallbackCtx *ctx);
  */
 typedef void (*MRCommandModifier)(MRCommand *cmd, size_t numShards, void *privateData);
 
+/**
+ * Bundles the optional callbacks and private data for MR_IterateWithPrivateData.
+ * Only `cb` is required; every other field may be NULL to opt out of that hook.
+ *
+ * @param cb                     Per-reply callback (required).
+ * @param errorCB                No-reply termination callback (optional, MOD-15394).
+ * @param cbPrivateData          Private data handed to `cb` via the callback ctx.
+ * @param cbPrivateDataDestructor Frees `cbPrivateData` when the iterator is freed.
+ * @param cbPrivateDataInit      Runs once on the IO thread after numShards is known.
+ * @param commandModifier        Rewrites the command per-shard before sending.
+ * @param iterStartCb            Scheduled on the IO thread to trigger the first send.
+ * @param iterStartCbPrivateData StrongRef demoted and passed to `iterStartCb`.
+ */
+typedef struct {
+  MRIteratorCallback cb;
+  MRIteratorErrorCallback errorCB;
+  void *cbPrivateData;
+  void (*cbPrivateDataDestructor)(void *);
+  void (*cbPrivateDataInit)(void *, const MRIterator *);
+  MRCommandModifier commandModifier;
+  void (*iterStartCb)(void *);
+  StrongRef *iterStartCbPrivateData;
+} MRIteratorConfig;
+
 // Trigger all the commands in the iterator to be sent.
 // Returns true if there may be more replies to come, false if we are done.
 bool MR_ManuallyTriggerNextIfNeeded(MRIterator *it, size_t channelThreshold);
@@ -173,12 +197,7 @@ MRReply *MRIterator_NextWithTimeout(MRIterator *it, const struct timespec *absti
  * invoke MRChannel_WakeAbort directly (e.g. from a timeout callback on another thread). */
 struct MRChannel *MRIterator_GetChannel(MRIterator *it);
 
-MRIterator *MR_IterateWithPrivateData(const MRCommand *cmd, MRIteratorCallback cb,
-                                      MRIteratorErrorCallback errorCB, void *cbPrivateData,
-                                      void (*cbPrivateDataDestructor)(void *),
-                                      void (*cbPrivateDataInit)(void *, const MRIterator *),
-                                      MRCommandModifier commandModifier,
-                                      void (*iterStartCb)(void *), StrongRef *iterStartCbPrivateData);
+MRIterator *MR_IterateWithPrivateData(const MRCommand *cmd, const MRIteratorConfig *config);
 
 MRCommand *MRIteratorCallback_GetCommand(MRIteratorCallbackCtx *ctx);
 

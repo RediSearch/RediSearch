@@ -309,10 +309,14 @@ bool ProcessHybridCursorMappings(const MRCommand *cmd, StrongRef searchMappingsR
     // processCursorMappingInit is called from iterStartCb to update ctx->numShards
     // with the actual shard count from the live topology, preventing use-after-free
     // when topology changes during shard migration.
-    MRIterator *it = MR_IterateWithPrivateData(cmd, processCursorMappingCallback,
-                                               processCursorMappingErrorCallback,
-                                               ctx, NULL, processCursorMappingInit,
-                                               cmdModifier, iterStartCb, NULL);
+    MRIterator *it = MR_IterateWithPrivateData(cmd, &(MRIteratorConfig){
+        .cb = processCursorMappingCallback,
+        .errorCB = processCursorMappingErrorCallback,
+        .cbPrivateData = ctx,
+        .cbPrivateDataInit = processCursorMappingInit,
+        .commandModifier = cmdModifier,
+        .iterStartCb = iterStartCb,
+    });
     if (!it) {
         // Cleanup on error
         QueryError_SetWithoutUserDataFmt(status, QUERY_ERROR_CODE_GENERIC, "Failed to communicate with shards");
