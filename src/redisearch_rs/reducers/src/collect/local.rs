@@ -34,7 +34,7 @@ use value::{SharedValue, Value};
 use crate::Reducer;
 use crate::collect::UNDERSCORE_KEY;
 use crate::collect::distinct::encode_values;
-use crate::collect::storage::Storage;
+use crate::collect::storage::{Storage, StorageMode};
 
 /// Look up `name` in a shard-payload item (`Map` or flat `Array`).
 ///
@@ -241,11 +241,8 @@ impl<'a> LocalCollectReducer<'a> {
 impl LocalCollectCtx {
     pub fn new(r: &LocalCollectReducer) -> Self {
         let sortby = !r.fields.sort_key_names().is_empty();
-        let storage = if r.uses_distinct_storage {
-            Storage::new_distinct(r.limit, r.sort_asc_map)
-        } else {
-            Storage::new(sortby, r.limit, r.sort_asc_map)
-        };
+        let mode = StorageMode::from_flags(sortby, r.uses_distinct_storage);
+        let storage = Storage::new(mode, r.limit, r.sort_asc_map);
         Self {
             lookup: RLookup::new(),
             storage,

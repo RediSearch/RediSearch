@@ -7,7 +7,7 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 
-//! Bounded storage shared by the COLLECT reducer variants. Two modes:
+//! Bounded storage shared by the COLLECT reducer variants. Three modes:
 //!
 //! - [`Storage::Array`] — preserves arrival order under an `offset + count`
 //!   cap and drops excess inserts in O(1) without paying any projection
@@ -43,6 +43,28 @@ pub const DEFAULT_LIMIT: u64 = 10;
 /// number of rows we will retain.
 const INITIAL_CAPACITY_CAP: usize = 16_384;
 
+pub enum StorageMode {
+    Array,
+    Heap,
+    DistinctHeap,
+}
+
+impl StorageMode {
+    pub fn from_flags(sortby: bool, uses_distinct_storage: bool) -> Self {
+        debug_assert!(
+            !uses_distinct_storage || sortby,
+            "DISTINCT storage requires SORTBY"
+        );
+        if uses_distinct_storage {
+            Self::DistinctHeap
+        } else if sortby {
+            Self::Heap
+        } else {
+            Self::Array
+        }
+    }
+}
+
 pub enum Storage<D: Ord> {
     Array {
         buf: Vec<RLookupRow<'static>>,
@@ -69,7 +91,8 @@ pub enum Storage<D: Ord> {
 
 impl<D: Ord> Storage<D> {
     /// Resolve `(offset, count)` and pre-size the buffer/heap.
-    pub fn new(sortby: bool, limit: Option<(u64, u64)>, sort_asc_map: u64) -> Self {
+    pub fn new(mode: StorageMode, limit: Option<(u64, u64)>, sort_asc_map: u64) -> Self {
+        let sortby = matches!(mode, StorageMode::Heap | StorageMode::DistinctHeap);
         let (offset, count) = match (sortby, limit) {
             (_, Some((o, c))) => (o as usize, c as usize),
             // SAFETY: `ffi::RSGlobalConfig` is the module-global config
@@ -79,39 +102,25 @@ impl<D: Ord> Storage<D> {
             (true, None) => (0, DEFAULT_LIMIT as usize),
         };
         let initial_capacity = offset.saturating_add(count).min(INITIAL_CAPACITY_CAP);
-        if sortby {
-            Self::Heap {
-                heap: MinMaxHeap::with_capacity(initial_capacity),
-                sort_asc_map,
-                offset,
-                count,
-            }
-        } else {
-            Self::Array {
+        match mode {
+            StorageMode::Array => Self::Array {
                 buf: Vec::with_capacity(initial_capacity),
                 offset,
                 count,
                 _marker: PhantomData,
-            }
-        }
-    }
-
-    /// Construct the DISTINCT variant. DISTINCT always implies `SORTBY`, so an
-    /// absent `LIMIT` resolves to [`DEFAULT_LIMIT`] like the [`Self::Heap`]
-    /// path. The caller is responsible for the `@__key` skip (selecting
-    /// [`Self::new`] with `sortby = true` instead) when dedup is probably a
-    /// no-op.
-    pub fn new_distinct(limit: Option<(u64, u64)>, sort_asc_map: u64) -> Self {
-        let (offset, count) = match limit {
-            Some((o, c)) => (o as usize, c as usize),
-            None => (0, DEFAULT_LIMIT as usize),
-        };
-        let initial_capacity = offset.saturating_add(count).min(INITIAL_CAPACITY_CAP);
-        Self::DistinctHeap {
-            pq: DoublePriorityQueue::with_capacity(initial_capacity),
-            sort_asc_map,
-            offset,
-            count,
+            },
+            StorageMode::Heap => Self::Heap {
+                heap: MinMaxHeap::with_capacity(initial_capacity),
+                sort_asc_map,
+                offset,
+                count,
+            },
+            StorageMode::DistinctHeap => Self::DistinctHeap {
+                pq: DoublePriorityQueue::with_capacity(initial_capacity),
+                sort_asc_map,
+                offset,
+                count,
+            },
         }
     }
 

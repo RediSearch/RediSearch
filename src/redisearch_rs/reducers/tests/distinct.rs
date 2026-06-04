@@ -20,7 +20,7 @@ use std::cell::Cell;
 use std::ffi::CStr;
 
 use reducers::collect::distinct::{DistinctRow, encode_value_refs, encode_values};
-use reducers::collect::storage::Storage;
+use reducers::collect::storage::{Storage, StorageMode};
 use reducers::collect::{RemoteCollectCtx, RemoteCollectReducer};
 use rlookup::{RLookupKey, RLookupKeyFlags, RLookupRow};
 use value::{SharedValue, Value};
@@ -241,7 +241,7 @@ fn distinct_insert(
 fn distinct_keeps_best_representative_per_sort_key() {
     let g = make_key(c"g", 0);
     let s = make_key(c"s", 1);
-    let mut storage = Storage::new_distinct(Some((0, 2)), SORT_DESC);
+    let mut storage = Storage::new(StorageMode::DistinctHeap, Some((0, 2)), SORT_DESC);
 
     // Group A appears twice; its better sort key (9) must be the one retained.
     // With (group, sort): A:1, A:9, B:5, C:3 and K=2, the top-2 by sort DESC
@@ -268,7 +268,7 @@ fn distinct_keeps_best_when_better_arrives_first() {
     // `push_increase` correctly *keeps* the incumbent when the new key is worse.
     let g = make_key(c"g", 0);
     let s = make_key(c"s", 1);
-    let mut storage = Storage::new_distinct(Some((0, 2)), SORT_DESC);
+    let mut storage = Storage::new(StorageMode::DistinctHeap, Some((0, 2)), SORT_DESC);
 
     for (group, sort) in [("a", 5.0), ("a", 1.0), ("b", 3.0)] {
         distinct_insert(&mut storage, &g, &s, group, sort);
@@ -288,7 +288,7 @@ fn distinct_keeps_best_when_better_arrives_first() {
 fn distinct_collapses_duplicate_projected_fields() {
     let g = make_key(c"g", 0);
     let s = make_key(c"s", 1);
-    let mut storage = Storage::new_distinct(Some((0, 10)), SORT_DESC);
+    let mut storage = Storage::new(StorageMode::DistinctHeap, Some((0, 10)), SORT_DESC);
 
     // Same projected field, three different sort keys → one survivor.
     for sort in [1.0, 2.0, 3.0] {
@@ -308,7 +308,7 @@ fn distinct_collapses_duplicate_projected_fields() {
 fn distinct_bounded_eviction_keeps_top_k_groups() {
     let g = make_key(c"g", 0);
     let s = make_key(c"s", 1);
-    let mut storage = Storage::new_distinct(Some((0, 2)), SORT_DESC);
+    let mut storage = Storage::new(StorageMode::DistinctHeap, Some((0, 2)), SORT_DESC);
 
     // Four distinct groups; only the top-2 by sort DESC survive.
     for (group, sort) in [("A", 4.0), ("B", 3.0), ("C", 2.0), ("D", 1.0)] {
@@ -328,7 +328,7 @@ fn distinct_bounded_eviction_keeps_top_k_groups() {
 fn distinct_doomed_candidate_skips_projection() {
     let g = make_key(c"g", 0);
     let s = make_key(c"s", 1);
-    let mut storage = Storage::new_distinct(Some((0, 1)), SORT_DESC); // K = 1
+    let mut storage = Storage::new(StorageMode::DistinctHeap, Some((0, 1)), SORT_DESC); // K = 1
 
     // Seed the single slot with a strong sort key.
     distinct_insert(&mut storage, &g, &s, "A", 5.0);
@@ -363,7 +363,7 @@ fn distinct_drain_applies_offset_and_count() {
     let g = make_key(c"g", 0);
     let s = make_key(c"s", 1);
     // offset 1, count 2 → cap = 3 survivors retained, window skips the best.
-    let mut storage = Storage::new_distinct(Some((1, 2)), SORT_DESC);
+    let mut storage = Storage::new(StorageMode::DistinctHeap, Some((1, 2)), SORT_DESC);
 
     for (group, sort) in [("A", 4.0), ("B", 3.0), ("C", 2.0), ("D", 1.0)] {
         distinct_insert(&mut storage, &g, &s, group, sort);

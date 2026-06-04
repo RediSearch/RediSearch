@@ -25,7 +25,7 @@ use value::SharedValue;
 use crate::Reducer;
 use crate::collect::UNDERSCORE_KEY;
 use crate::collect::distinct::encode_value_refs;
-use crate::collect::storage::Storage;
+use crate::collect::storage::{Storage, StorageMode};
 
 /// Whether `key` projects the document key (`@__key`), comparing the resolved
 /// path (falling back to the name) like the C `RLookupKey_GetPath` check.
@@ -274,11 +274,8 @@ fn dedup_by_dstidx<'a>(
 impl RemoteCollectCtx {
     pub fn new(r: &RemoteCollectReducer<'_>) -> Self {
         let sortby = !r.fields.sort_keys().is_empty();
-        let storage = if r.uses_distinct_storage {
-            Storage::new_distinct(r.limit, r.sort_asc_map)
-        } else {
-            Storage::new(sortby, r.limit, r.sort_asc_map)
-        };
+        let mode = StorageMode::from_flags(sortby, r.uses_distinct_storage);
+        let storage = Storage::new(mode, r.limit, r.sort_asc_map);
         Self { storage }
     }
 
