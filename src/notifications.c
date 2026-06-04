@@ -701,11 +701,38 @@ static void PersistenceEvent(RedisModuleCtx *ctx, RedisModuleEvent eid,
     if (!useSst) {
       RedisModule_Log(ctx, "notice", "Persistence started");
       DocIdMeta_SetForgetDocIdMetadata(true);
+    } else if (subevent == REDISMODULE_SUBEVENT_PERSISTENCE_SYNC_RDB_START &&
+               SearchDisk_IsInitialized()) {
+      // Hot restart: a RAM-only RDB (restart.rdb) is being saved in the
+      // foreground alongside the on-disk SST files. The replication
+      // SST_REPL_PRE_FORK consistency hook never fires for a foreground save,
+      // so do the equivalent work here: take the VecSim consistency lock and
+      // flush each spec's memtables to SSTs (PreCheckpoint disables compactions
+      // then flushes) so the on-disk SpeedB DBs are consistent with the RDB.
+      // Only the SYNC_ (foreground, main-process) variant can be a hot restart;
+      // the async RDB_START fires in fork children (BGSAVE / replication).
+      RedisModule_Log(ctx, "notice", "Hot-restart save started (SST + RAM-only RDB)");
+      VecSimDisk_AcquireConsistencyLock();
+      vecsimdisk_sst_consistency_lock_held = true;
+      ForEachIndex(SearchDisk_PreCheckpoint);
     }
     break;
   case REDISMODULE_SUBEVENT_PERSISTENCE_ENDED:
   case REDISMODULE_SUBEVENT_PERSISTENCE_FAILED:
-    if (!useSst) {
+    if (vecsimdisk_sst_consistency_lock_held) {
+      // Unwind the hot-restart save state established at SYNC_RDB_START. On
+      // success re-enable compactions via PostFork; on failure ReplicationAbort
+      // re-enables them defensively. Release the VecSim lock in both cases.
+      if (subevent == REDISMODULE_SUBEVENT_PERSISTENCE_ENDED) {
+        ForEachIndex(SearchDisk_PostFork);
+        RedisModule_Log(ctx, "notice", "Hot-restart save ended");
+      } else {
+        ForEachIndex(SearchDisk_ReplicationAbort);
+        RedisModule_Log(ctx, "warning", "Hot-restart save failed");
+      }
+      VecSimDisk_ReleaseConsistencyLock();
+      vecsimdisk_sst_consistency_lock_held = false;
+    } else if (!useSst) {
       RedisModule_Log(ctx, "notice", "Persistence ended");
       DocIdMeta_SetForgetDocIdMetadata(false);
     }
@@ -834,6 +861,14 @@ void Initialize_RoleChangeNotifications(RedisModuleCtx *ctx) {
   RedisModule_Log(ctx, "notice", "Enabled role change notification");
 }
 
+// Latch set at LOADING/RDB_START when a partial-RDB (SST) load is staged.
+//
+// The SST_RDB context flag is reliably ON at RDB_START, but for a hot restart
+// the server clears it *before* firing LOADING_ENDED (unlike replication, which
+// keeps it ON across the event). Latching here lets the LOADING_ENDED handler
+// run the finish step regardless of the flag's clear-timing.
+static bool g_partialRdbLoadStaged = false;
+
 // This function is called in case the server is started or
 // when the replica is loading the RDB file from the master.
 void RDB_LoadingEvent(RedisModuleCtx *ctx, RedisModuleEvent eid, uint64_t subevent, void *data) {
@@ -850,6 +885,11 @@ void RDB_LoadingEvent(RedisModuleCtx *ctx, RedisModuleEvent eid, uint64_t subeve
     // load (plain RDB / AOF / legacy RDB-only replication) the index is rebuilt
     // from the keyspace and the stale docIds are meaningless, so we FORGET.
     DocIdMeta_SetForgetDocIdMetadata(!useSst);
+    if (useSst) {
+      // Latch that a partial-RDB (SST) load is staged; the flag is reliably ON
+      // here but may be cleared before LOADING_ENDED (hot restart).
+      g_partialRdbLoadStaged = true;
+    }
     Indexes_StartRDBLoadingEvent(ctx);
     workersThreadPool_OnEventStart();
     RedisModule_Log(RSDummyContext, "notice", "Loading RDB event started");
@@ -863,29 +903,37 @@ void RDB_LoadingEvent(RedisModuleCtx *ctx, RedisModuleEvent eid, uint64_t subeve
   case REDISMODULE_SUBEVENT_LOADING_RDB_ENDED:
     RedisModule_Log(RSDummyContext, "notice", "Loading RDB event ended");
     break;
-  case REDISMODULE_SUBEVENT_LOADING_ENDED:
+  case REDISMODULE_SUBEVENT_LOADING_ENDED: {
+    // For a hot restart the server clears the SST_RDB flag before firing this
+    // event, so IS_SST_RDB_IN_PROCESS is false here even though we staged a
+    // partial-RDB load. Fall back to the latch set at RDB_START. Replication
+    // keeps the flag ON, so useSst still covers it.
+    bool finishSst = useSst || g_partialRdbLoadStaged;
+    g_partialRdbLoadStaged = false;
     // Re-enable the DocIdMeta RDB callbacks now that this load is done.
     DocIdMeta_SetForgetDocIdMetadata(false);
     if (!SearchDisk_IsEnabled()) {
       // This only handles legacy indices that are not available in disk
       Indexes_EndRDBLoadingEvent(ctx);
-    } else if (useSst) {
+    } else if (finishSst) {
       RedisModule_Log(RSDummyContext, "notice", "Loading event ended (SST + RDB ready). Finish loading");
       Indexes_FinishSSTReplication(ctx);
     }
     workersThreadPool_OnEventEnd(true);
     Indexes_EndLoading();
-    if (!SearchDisk_IsEnabled() || !useSst) {
+    if (!SearchDisk_IsEnabled() || !finishSst) {
       RedisModule_Log(RSDummyContext, "notice", "Loading event ended successfully");
     } else {
       RedisModule_Log(RSDummyContext, "notice", "Loading event ended successfully (SST + RDB ready). Finished loading successfully");
     }
     break;
+  }
   case REDISMODULE_SUBEVENT_LOADING_FAILED:
     // If the failure happens in the middle of an SST replication round (master
     // aborted, network dropped, validation rejected, etc.) Redis fires LOADING_FAILED. Tear down anything we
     // staged for the round so the next attempt starts from a clean slate.
     // No-op when no specs are staged.
+    g_partialRdbLoadStaged = false;
     DocIdMeta_SetForgetDocIdMetadata(false);
     if (SearchDisk_IsEnabled()) {
       Indexes_AbortSSTReplicationLoading(ctx);

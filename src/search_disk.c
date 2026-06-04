@@ -532,26 +532,17 @@ void SearchDisk_PreCheckpoint(IndexSpec *sp) {
 
 void SearchDisk_PreFork(IndexSpec *sp) {
   RS_ASSERT(disk && sp && sp->diskSpec);
-  // Lock order: protect-fork then rdlock. The disk side must use the same
-  // ordering for any critical section that gates the fork to avoid deadlock
-  // with this handler.
-  IndexSpec_ProtectDiskFork(sp);
   disk->index.preFork(sp->diskSpec);
 }
 
 void SearchDisk_PostFork(IndexSpec *sp) {
   RS_ASSERT(disk && sp && sp->diskSpec);
-  RS_ASSERT(sp->repl_flags & REPL_LOCK_DISK_FORK_PROTECTED);
   disk->index.postFork(sp->diskSpec);
-  IndexSpec_UnProtectDiskFork(sp);
 }
 
 void SearchDisk_ReplicationAbort(IndexSpec *sp) {
   RS_ASSERT(disk && sp && sp->diskSpec);
   disk->index.replicationAbort(sp->diskSpec);
-  if (sp->repl_flags & REPL_LOCK_DISK_FORK_PROTECTED) {
-    IndexSpec_UnProtectDiskFork(sp);
-  }
 }
 
 void SearchDisk_UpdateBufferBudget(RedisModuleCtx *ctx, int percentage) {
