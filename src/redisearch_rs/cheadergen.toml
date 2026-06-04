@@ -29,13 +29,16 @@ header_name = "search_result_rs"
 
 [package.ttl_table]
 # Avoid a name conflict with the pre-existing `ttl_table.h` header file.
-header_name = "_ttl_table"
+header_name = "ttl_table_rs"
 
 [c]
 cpp_compat = true
 
 [header.rqe_core]
+includes = ["<time.h>"]
 trailer = """
+typedef struct timespec t_expirationTimePoint;
+
 #if UINTPTR_MAX == UINT64_MAX
 /* 64 bit architectures use 128 bit field masks and up to 128 fields */
 typedef __uint128_t t_fieldMask;
@@ -247,9 +250,6 @@ after_includes = """
 #define QAST_SYNTAX_DEFAULT  0
 #define QAST_NO_WEIGHT       QASTValidationFlags_NoWeight
 #define QAST_NO_VECTOR       QASTValidationFlags_NoVector
-
-/* Backward-compatible typedef for C code that uses the old enum name. */
-typedef uint32_t QAST_ValidationFlags;
 
 /* Backward-compatible aliases for C code that uses the old PHONETIC_* macros. */
 #define PHONETIC_DEFAULT  PhoneticMode_Default

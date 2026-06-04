@@ -188,14 +188,42 @@ static void serializeResult_hybrid(HybridRequest *hreq, RedisModule_Reply *reply
   RedisModule_Reply_MapEnd(reply); // >result
 }
 
+#ifdef ENABLE_ASSERT
+// SyncPoint stop predicate: break out of a sync-point wait when the request
+// has timed out (so BG can release as soon as the main-thread timeout callback
+// fires) or when a writer is parked on a spec rwlock (mirrors the AGG-side
+// predicate at aggregate_exec.c:areq_timeout_or_pending_spec_writers).
+static bool hreq_timeout_or_pending_spec_writers(void *arg) {
+  return HybridRequest_TimedOut((HybridRequest *)arg) || PendingSpecWriters_Get() > 0;
+}
+#endif
+
 static void startPipelineHybrid(HybridRequest *hreq, ResultProcessor *rp, SearchResult ***results, SearchResult *r, int *rc) {
   CommonPipelineCtx ctx = {
     .timeoutPolicy = hreq->reqConfig.timeoutPolicy,
     .timeout = &hreq->sctx->time.timeout,
     .oomPolicy = hreq->reqConfig.oomPolicy,
     .skipTimeoutChecks = !HybridRequest_ShouldCheckTimeout(hreq),
-    .areq = NULL,
+    // Borrow a subquery AREQ as the tail's row-boundary timeout-flag proxy:
+    // HybridRequest_SetTimedOut propagates to every subquery's AREQ, so
+    // AggregateResults can bail between rows while draining buffered tail rows.
+    .areq = hreq->requests[SEARCH_INDEX],
   };
+
+#ifdef ENABLE_ASSERT
+  // Sync point (debug): pause before the TryClaim race
+  SyncPoint_WaitUntil(SYNC_POINT_BEFORE_HYBRID_RESULTS_CLAIM, hreq_timeout_or_pending_spec_writers, hreq);
+#endif
+
+  // Bail if the RETURN-STRICT timeout callback already claimed (it replies)
+  // or if it signaled timeout in parallel after we won (it will reply with
+  // our stored zero-result state).
+  if (HybridRequest_RequiresThreadsSyncResults(hreq) &&
+      (!HybridRequest_TryClaimAggregateResults(hreq) || HybridRequest_TimedOut(hreq))) {
+    *rc = RS_RESULT_TIMEDOUT;
+    return;
+  }
+
   startPipelineCommon(&ctx, rp, results, r, rc);
 }
 
@@ -285,6 +313,12 @@ static void finishSendChunkReply_hybrid(HybridRequest *hreq, RedisModule_Reply *
   if (QueryError_GetCode(qctx->err) == QUERY_ERROR_CODE_TIMED_OUT) {
     QueryWarningsGlobalStats_UpdateWarning(QUERY_WARNING_CODE_TIMED_OUT, 1, COORD_ERR_WARN);
     RedisModule_Reply_SimpleString(reply, QueryWarning_Strwarning(QUERY_WARNING_CODE_TIMED_OUT));
+  }
+  // The cap flag is mirrored on both subqueries by parseHybridCommand; checking
+  // the search subquery is sufficient.
+  const AREQ *searchReq = hreq->requests[SEARCH_INDEX];
+  if (searchReq->stateflags & QEXEC_S_MAX_TIMEOUT_CAPPED) {
+    RedisModule_Reply_SimpleString(reply, QueryWarning_Strwarning(QUERY_WARNING_CODE_MAX_TIMEOUT_CAPPED));
   }
 
   replyWarningsWithSuffixes(reply, hreq, qctx, rc);
@@ -464,17 +498,17 @@ void sendChunk_hybrid(HybridRequest *hreq, RedisModule_Reply *reply, size_t limi
 
     startPipelineHybrid(hreq, rp, &results, &r, &rc);
 
-    // Check if timed out during pipeline execution
-    if (HybridRequest_TimedOut(hreq)) {
-      // Timeout callback already replied - skip to cleanup without replying
-      goto done_err;
-    }
-
     if (hreq->useReplyCallback) {
       // Store results for reply_callback (includes cv)
       debugPauseStoreResultsHybrid(hreq, true);  // pause before
       HREQ_StoreResults(hreq, results, rc, cv);
       debugPauseStoreResultsHybrid(hreq, false); // pause after
+
+      // Signal completion for main-thread timeout
+      if (HybridRequest_RequiresThreadsSyncResults(hreq)) {
+        HybridRequest_SignalAggregateResultsComplete(hreq);
+      }
+
       return;
     }
 
@@ -791,7 +825,7 @@ static int buildPipelineAndExecute(StrongRef hybrid_ref, HybridPipelineParams *h
     if (HybridRequest_BuildDepletionPipeline(hreq, hybridParams, depleteInBackground) != REDISMODULE_OK) {
       return REDISMODULE_ERR;
     }
-  } else if (HybridRequest_BuildPipeline(hreq, hybridParams, depleteInBackground, &hreq->tailPipelineError) != REDISMODULE_OK) {
+  } else if (HybridRequest_BuildPipeline(hreq, hybridParams, depleteInBackground, status) != REDISMODULE_OK) {
     return REDISMODULE_ERR;
   }
 

@@ -32,6 +32,21 @@
 #define RS_MAX_CONFIG_TRIGGERS 1 // Increase this if you need more triggers
 RSConfigExternalTrigger RSGlobalConfigTriggers[RS_MAX_CONFIG_TRIGGERS];
 
+bool RSConfig_CapQueryTimeoutToForegroundLimit(long long *timeoutMS) {
+  if (!timeoutMS) return false;
+  const long long limit = RSGlobalConfig.maxForegroundTimeoutLimitMS;
+  if (limit <= 0 || RSGlobalConfig.numWorkerThreads != 0) {
+    return false;
+  }
+  // *timeoutMS <= 0 represents "unlimited" (TIMEOUT 0) or a wrapped oversized
+  // value; both are semantically above the configured maximum, so cap them.
+  if (*timeoutMS > 0 && *timeoutMS <= limit) {
+    return false;
+  }
+  *timeoutMS = limit;
+  return true;
+}
+
 typedef struct {
   const char *FTConfigName;
   const char *ConfigName;
@@ -63,10 +78,12 @@ configPair_t __configPairs[] = {
   {"GC_POLICY",                       ""},
   {"GCSCANSIZE",                      "search-gc-scan-size"},
   {"INDEX_CURSOR_LIMIT",              "search-index-cursor-limit"},
+  {"MAX_AGGREGATE_GROUPS",            "search-max-aggregate-groups"},
   {"MAXAGGREGATERESULTS",             "search-max-aggregate-results"},
   {"MAXDOCTABLESIZE",                 "search-max-doctablesize"},
   {"MAXPREFIXEXPANSIONS",             "search-max-prefix-expansions"},
   {"MAXSEARCHRESULTS",                "search-max-search-results"},
+  {"_MAX_FOREGROUND_TIMEOUT_LIMIT",   "search-_max-foreground-timeout-limit"},
   {"MIN_OPERATION_WORKERS",           "search-min-operation-workers"},
   {"MIN_PHONETIC_TERM_LEN",           "search-min-phonetic-term-len"},
   {"MINPREFIX",                       "search-min-prefix"},
@@ -506,6 +523,25 @@ CONFIG_GETTER(getMaxAggregateResults) {
   return sdscatprintf(ss, "%lu", config->maxAggregateResults);
 }
 
+// MAX_AGGREGATE_GROUPS
+CONFIG_SETTER(setMaxAggregateGroups) {
+  long long newSize = 0;
+  int acrc = AC_GetLongLong(ac, &newSize, AC_F_GE1);
+  CHECK_RETURN_PARSE_ERROR(acrc)
+  if (newSize > MAX_AGGREGATE_GROUPS) {
+    QueryError_SetError(status, QUERY_ERROR_CODE_LIMIT,
+                        "Value exceeds maximum possible aggregate groups");
+    return REDISMODULE_ERR;
+  }
+  config->maxAggregateGroups = newSize;
+  return REDISMODULE_OK;
+}
+
+CONFIG_GETTER(getMaxAggregateGroups) {
+  sds ss = sdsempty();
+  return sdscatprintf(ss, "%lu", config->maxAggregateGroups);
+}
+
 // MAXEXPANSIONS MAXPREFIXEXPANSIONS
 CONFIG_SETTER(setMaxExpansions) {
   long long val;
@@ -530,13 +566,43 @@ CONFIG_GETTER(getMaxExpansions) {
 
 // TIMEOUT
 CONFIG_SETTER(setTimeout) {
-  int acrc = AC_GetLongLong(ac, &config->requestConfigParams.queryTimeoutMS, AC_F_GE0);
-  RETURN_STATUS(acrc);
+  long long newTimeoutMS;
+  int acrc = AC_GetLongLong(ac, &newTimeoutMS, AC_F_GE0);
+  CHECK_RETURN_PARSE_ERROR(acrc);
+  // Warn only when the new value would actually be capped at query time
+  // (workers disabled and limit configured). The per-query cap is handled by
+  // RSConfig_CapQueryTimeoutToForegroundLimit, which also emits the RESP3
+  // MAX_TIMEOUT_CAPPED warning to the client.
+  if (config->maxForegroundTimeoutLimitMS > 0 &&
+      config->numWorkerThreads == 0 &&
+      (newTimeoutMS == 0 || newTimeoutMS > config->maxForegroundTimeoutLimitMS)) {
+    RedisModule_Log(RSDummyContext, "warning",
+      "TIMEOUT %lld exceeds _MAX_FOREGROUND_TIMEOUT_LIMIT %lld and WORKERS is 0; "
+      "queries timeout will be capped at %lld",
+      newTimeoutMS, config->maxForegroundTimeoutLimitMS,
+      config->maxForegroundTimeoutLimitMS);
+  }
+  config->requestConfigParams.queryTimeoutMS = newTimeoutMS;
+  return REDISMODULE_OK;
 }
 
 CONFIG_GETTER(getTimeout) {
   sds ss = sdsempty();
   return sdscatprintf(ss, "%lld", config->requestConfigParams.queryTimeoutMS);
+}
+
+// _MAX_FOREGROUND_TIMEOUT_LIMIT
+CONFIG_SETTER(setMaxForegroundTimeoutLimit) {
+  long long newLimit;
+  int acrc = AC_GetLongLong(ac, &newLimit, AC_F_GE0);
+  CHECK_RETURN_PARSE_ERROR(acrc);
+  config->maxForegroundTimeoutLimitMS = newLimit;
+  return REDISMODULE_OK;
+}
+
+CONFIG_GETTER(getMaxForegroundTimeoutLimit) {
+  sds ss = sdsempty();
+  return sdscatprintf(ss, "%lld", config->maxForegroundTimeoutLimitMS);
 }
 
 static inline int errorTooManyThreads(QueryError *status) {
@@ -1499,6 +1565,10 @@ RSConfigOptions RSGlobalConfigOptions = {
          .helpText = "Maximum number of results from ft.aggregate command",
          .setValue = setMaxAggregateResults,
          .getValue = getMaxAggregateResults},
+        {.name = "MAX_AGGREGATE_GROUPS",
+         .helpText = "Maximum number of GROUPBY groups materialized by ft.aggregate command",
+         .setValue = setMaxAggregateGroups,
+         .getValue = getMaxAggregateGroups},
         {.name = "MAXEXPANSIONS",
          .helpText = "Maximum prefix expansions to be used in a query",
          .setValue = setMaxExpansions,
@@ -1511,6 +1581,10 @@ RSConfigOptions RSGlobalConfigOptions = {
          .helpText = "Query (search) timeout",
          .setValue = setTimeout,
          .getValue = getTimeout},
+        {.name = "_MAX_FOREGROUND_TIMEOUT_LIMIT",
+         .helpText = "Maximum allowed value (ms) for search-timeout and per-query TIMEOUT when workers are disabled (0 = unlimited)",
+         .setValue = setMaxForegroundTimeoutLimit,
+         .getValue = getMaxForegroundTimeoutLimit},
         {.name = "WORKERS",
          .helpText = "Number of worker threads to use for query processing and background tasks. Default is 0."
                      " This configuration also affects the number of connections per shard. See CONN_PER_SHARD."
@@ -2105,6 +2179,15 @@ int RegisterModuleConfig_Local(RedisModuleCtx *ctx) {
 
   RM_TRY(
     RedisModule_RegisterNumericConfig(
+      ctx, "search-max-aggregate-groups", DEFAULT_MAX_AGGREGATE_GROUPS,
+      REDISMODULE_CONFIG_UNPREFIXED, 1,
+      MAX_AGGREGATE_GROUPS, get_size_t_numeric_config, set_size_t_numeric_config,
+      NULL, (void *)&(RSGlobalConfig.maxAggregateGroups)
+    )
+  )
+
+  RM_TRY(
+    RedisModule_RegisterNumericConfig(
       ctx, "search-max-prefix-expansions", DEFAULT_MAX_PREFIX_EXPANSIONS,
       REDISMODULE_CONFIG_UNPREFIXED, 1,
       LLONG_MAX, get_uint_numeric_config, set_uint_clamped_numeric_config, NULL,
@@ -2200,6 +2283,15 @@ int RegisterModuleConfig_Local(RedisModuleCtx *ctx) {
       REDISMODULE_CONFIG_UNPREFIXED, 1,
       LLONG_MAX, get_long_numeric_config, set_long_numeric_config, NULL,
       (void *)&(RSGlobalConfig.requestConfigParams.queryTimeoutMS)
+    )
+  )
+
+  RM_TRY(
+    RedisModule_RegisterNumericConfig(
+      ctx, "search-_max-foreground-timeout-limit", DEFAULT_MAX_FOREGROUND_TIMEOUT_LIMIT_MS,
+      REDISMODULE_CONFIG_UNPREFIXED, 0,
+      LLONG_MAX, get_long_numeric_config, set_long_numeric_config, NULL,
+      (void *)&(RSGlobalConfig.maxForegroundTimeoutLimitMS)
     )
   )
 

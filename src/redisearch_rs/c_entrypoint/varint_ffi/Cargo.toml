@@ -16,6 +16,7 @@ workspace = true
 
 [dependencies]
 ffi = { workspace = true }
+rqe_core.workspace = true
 buffer = { workspace = true }
 cheadergen = { workspace = true }
 varint = { workspace = true }

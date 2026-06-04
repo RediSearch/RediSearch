@@ -123,7 +123,7 @@ Determine the scope of the conflict:
   ```
   Then format:
   ```bash
-  cd src/redisearch_rs && cargo fmt
+  cargo fmt --manifest-path src/redisearch_rs/Cargo.toml --all
   ```
 
 - **C code or mixed conflict** (any file outside `src/redisearch_rs/`):
@@ -166,7 +166,7 @@ jj new <tip-of-target-revset>
 
 - If any Rust files were touched:
   ```bash
-  cd src/redisearch_rs && cargo check && cargo fmt
+  (cd src/redisearch_rs && cargo check && cargo fmt)   # subshell keeps both cargo invocations co-located
   ```
 - If any C files were touched:
   ```bash

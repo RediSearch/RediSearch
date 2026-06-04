@@ -805,6 +805,9 @@ static void _replyWarnings(AREQ *req, RedisModule_Reply *reply, int rc) {
     RedisModule_Reply_SimpleString(reply, QUERY_ASM_INACCURATE_RESULTS);
     ProfileWarnings_Add(&profileCtx->warnings, PROFILE_WARNING_TYPE_ASM_INACCURATE_RESULTS);
   }
+  if (req->stateflags & QEXEC_S_MAX_TIMEOUT_CAPPED) {
+    RedisModule_Reply_SimpleString(reply, QueryWarning_Strwarning(QUERY_WARNING_CODE_MAX_TIMEOUT_CAPPED));
+  }
   RedisModule_Reply_ArrayEnd(reply); // >warnings
 }
 
@@ -1076,6 +1079,9 @@ void sendChunk(AREQ *req, RedisModule_Reply *reply, size_t limit) {
       QueryWarningsGlobalStats_UpdateWarning(QUERY_WARNING_CODE_ASM_INACCURATE_RESULTS, 1, !IsInternal(req));
       ProfileWarnings_Add(&req->profileCtx.warnings, PROFILE_WARNING_TYPE_ASM_INACCURATE_RESULTS);
       RedisModule_Reply_SimpleString(reply, QUERY_ASM_INACCURATE_RESULTS);
+    }
+    if (req->stateflags & QEXEC_S_MAX_TIMEOUT_CAPPED) {
+      RedisModule_Reply_SimpleString(reply, QueryWarning_Strwarning(QUERY_WARNING_CODE_MAX_TIMEOUT_CAPPED));
     }
     RedisModule_Reply_ArrayEnd(reply);
 
@@ -1982,6 +1988,14 @@ int AREQ_StartCursor(AREQ *r, RedisModule_Reply *reply, StrongRef spec_ref, Quer
 static void runCursor(RedisModule_Reply *reply, Cursor *cursor, size_t num) {
   AREQ *req = cursor->execState;
   AREQ_ProfilePrinterCtx(req)->cursor_reads++;
+  // Re-apply the foreground cap on every READ: the limit / WORKERS knobs may
+  // change between cursor creation and this read, and the AREQ's reqConfig is
+  // otherwise reused verbatim from AREQ_Compile time. Setting the cap flag is
+  // sticky (cleared by nothing) because once the stored timeout has been
+  // truncated, subsequent reads still serve capped state.
+  if (RSConfig_CapQueryTimeoutToForegroundLimit(&req->reqConfig.queryTimeoutMS)) {
+    req->stateflags |= QEXEC_S_MAX_TIMEOUT_CAPPED;
+  }
   // Skip when useReplyCallback is set (FAIL or RETURN_STRICT): the deadline is owned by
   // the blocked-client timer, armed by buildPipelineAndExecute (initial
   // WITHCURSOR) or CursorCommand (subsequent READ).
@@ -1998,13 +2012,12 @@ static void runCursor(RedisModule_Reply *reply, Cursor *cursor, size_t num) {
   req->cursorConfig.chunkSize = num;
 
 #ifdef ENABLE_ASSERT
-  // Debug: pin coord+FAIL worker before sendChunk so tests can fire the
-  // blocked-client timeout; break out of the wait once the timeout callback
-  // has marked the AREQ as timed out.
-  if (req->useReplyCallback) {
-    SyncPoint_WaitUntil(SYNC_POINT_BEFORE_CURSOR_READ_SEND_CHUNK,
-                        areq_timed_out, req);
-  }
+  // Debug: pin the cursor-read worker before sendChunk so tests can fire the
+  // blocked-client timeout (FAIL) or the coord-side blocked-client timeout
+  // (RETURN/RETURN_STRICT, where the shard never sets AREQ timedOut itself
+  // and the test signals the sync point to release the worker).
+  SyncPoint_WaitUntil(SYNC_POINT_BEFORE_CURSOR_READ_SEND_CHUNK,
+                      areq_timed_out, req);
 #endif
 
   if (req->useReplyCallback) {

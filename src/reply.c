@@ -153,6 +153,10 @@ static void _RedisModule_Reply_Next(RedisModule_Reply *reply) {
   ++*count;
 }
 
+void RedisModule_Reply_TrackExternalElement(RedisModule_Reply *reply) {
+  _RedisModule_Reply_Next(reply);
+}
+
 static void _RedisModule_Reply_Push(RedisModule_Reply *reply, int type) {
   StackEntry *e = array_ensure_tail(&reply->stack, StackEntry);
   e->count = 0;

@@ -9,12 +9,12 @@
 
 use std::io::{Cursor, Seek, SeekFrom, Write};
 
-use ffi::{t_docId, t_fieldMask};
 use qint::{qint_decode, qint_encode};
 use varint::VarintEncode;
 
 use crate::{Decoder, Encoder, TermDecoder};
 use index_result::{RSIndexResult, RSOffsetSlice};
+use rqe_core::{DocId, FieldMask};
 
 /// Encode and decode the delta, frequency, field mask and offsets of a term record.
 ///
@@ -77,9 +77,9 @@ impl Encoder for Full {
 #[inline(always)]
 pub fn decode_term_record_offsets<'index>(
     cursor: &mut Cursor<&'index [u8]>,
-    base: t_docId,
+    base: DocId,
     delta: u32,
-    field_mask: t_fieldMask,
+    field_mask: FieldMask,
     freq: u32,
     offsets_sz: u32,
     result: &mut RSIndexResult<'index>,
@@ -103,7 +103,7 @@ pub fn decode_term_record_offsets<'index>(
 
     cursor.set_position(end as u64);
 
-    result.doc_id = base + delta as t_docId;
+    result.doc_id = base + delta as DocId;
     result.field_mask = field_mask;
     result.freq = freq;
 
@@ -118,7 +118,7 @@ impl Decoder for Full {
     #[inline(always)]
     fn decode<'index>(
         cursor: &mut Cursor<&'index [u8]>,
-        base: t_docId,
+        base: DocId,
         result: &mut RSIndexResult<'index>,
     ) -> std::io::Result<()> {
         let (decoded_values, _bytes_consumed) = qint_decode::<4, _>(cursor)?;
@@ -128,7 +128,7 @@ impl Decoder for Full {
             cursor,
             base,
             delta,
-            field_mask as t_fieldMask,
+            field_mask as FieldMask,
             freq,
             offsets_sz,
             result,
@@ -141,8 +141,8 @@ impl Decoder for Full {
 
     fn seek<'index>(
         cursor: &mut Cursor<&'index [u8]>,
-        mut base: t_docId,
-        target: t_docId,
+        mut base: DocId,
+        target: DocId,
         result: &mut RSIndexResult<'index>,
     ) -> std::io::Result<bool> {
         let (freq, field_mask, offsets_sz) = loop {
@@ -154,10 +154,10 @@ impl Decoder for Full {
                 Err(error) => return Err(error),
             };
 
-            base += delta as t_docId;
+            base += delta as DocId;
 
             if base >= target {
-                break (freq, field_mask as t_fieldMask, offsets_sz);
+                break (freq, field_mask as FieldMask, offsets_sz);
             }
 
             // Skip offsets
@@ -168,7 +168,7 @@ impl Decoder for Full {
             cursor,
             base,
             0,
-            field_mask as t_fieldMask,
+            field_mask as FieldMask,
             freq,
             offsets_sz,
             result,
@@ -217,12 +217,12 @@ impl Decoder for FullWide {
     #[inline(always)]
     fn decode<'index>(
         cursor: &mut Cursor<&'index [u8]>,
-        base: t_docId,
+        base: DocId,
         result: &mut RSIndexResult<'index>,
     ) -> std::io::Result<()> {
         let (decoded_values, _bytes_consumed) = qint_decode::<3, _>(cursor)?;
         let [delta, freq, offsets_sz] = decoded_values;
-        let field_mask = t_fieldMask::read_as_varint(cursor)?;
+        let field_mask = FieldMask::read_as_varint(cursor)?;
 
         decode_term_record_offsets(cursor, base, delta, field_mask, freq, offsets_sz, result)
     }
@@ -233,8 +233,8 @@ impl Decoder for FullWide {
 
     fn seek<'index>(
         cursor: &mut Cursor<&'index [u8]>,
-        mut base: t_docId,
-        target: t_docId,
+        mut base: DocId,
+        target: DocId,
         result: &mut RSIndexResult<'index>,
     ) -> std::io::Result<bool> {
         let (freq, field_mask, offsets_sz) = loop {
@@ -245,9 +245,9 @@ impl Decoder for FullWide {
                 }
                 Err(error) => return Err(error),
             };
-            let field_mask = t_fieldMask::read_as_varint(cursor)?;
+            let field_mask = FieldMask::read_as_varint(cursor)?;
 
-            base += delta as t_docId;
+            base += delta as DocId;
 
             if base >= target {
                 break (freq, field_mask, offsets_sz);

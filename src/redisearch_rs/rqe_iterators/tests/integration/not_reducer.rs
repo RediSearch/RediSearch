@@ -9,7 +9,7 @@
 
 //! Tests for [`new_not_iterator`].
 
-use ffi::t_docId;
+use rqe_core::DocId;
 use rqe_iterators::{
     Empty, IteratorType, RQEIterator, SkipToOutcome, Wildcard,
     not_reducer::{NewNotIterator, new_not_iterator},
@@ -23,7 +23,7 @@ use crate::utils::Mock;
 /// returning the result alongside the context (to keep it alive).
 fn call_new_not_iterator<'a, I>(
     child: I,
-    max_doc_id: t_docId,
+    max_doc_id: DocId,
     ctx: &'a MockContext,
 ) -> NewNotIterator<'a, I, NoTimeout>
 where

@@ -163,6 +163,11 @@ typedef enum {
    * keeps draining other shards (the coord has its own deadline check) and the
    * reply emitters surface the TIMEOUT warning to the user via this flag. */
   QEXEC_S_SHARD_TIMED_OUT_WARNING = 0x08,
+  /* The per-query TIMEOUT (or the global default) exceeded
+   * search-_max-foreground-timeout-limit while search-workers is 0, so it
+   * was capped to the limit. Surfaced as a RESP3 warning by the reply
+   * emitters. */
+  QEXEC_S_MAX_TIMEOUT_CAPPED = 0x10,
 } QEStateFlags;
 
 
@@ -378,10 +383,17 @@ void initializeAREQ(AREQ *req);
  */
 int AREQ_ApplyContext(AREQ *req, RedisSearchCtx *sctx, QueryError *status);
 
+/** Creates the aggregation pipeline parameters derived from the request. */
+AggregationPipelineParams AREQ_MakeAggregationPipelineParams(AREQ *req,
+                                                             GroupByLimits groupByLimits);
+
 /**
  * Constructs the pipeline objects needed to actually start processing
  * the requests. This does not yet start iterating over the objects
  */
+int AREQ_BuildPipelineWithAggregationParams(AREQ *req,
+                                            const AggregationPipelineParams *aggregationParams,
+                                            QueryError *status);
 int AREQ_BuildPipeline(AREQ *req, QueryError *status);
 
 /**
@@ -467,7 +479,8 @@ static inline AGGPlan *AREQ_AGGPlan(AREQ *req) {
  * ResultProcessors (and a grouper is a ResultProcessor) before the grouper
  * should write their data using `lksrc` as a reference point.
  */
-Grouper *Grouper_New(const RLookupKey **srckeys, const RLookupKey **dstkeys, size_t n);
+Grouper *Grouper_New(const RLookupKey **srckeys, const RLookupKey **dstkeys, size_t n,
+                     GroupByLimits groupByLimits);
 
 void Grouper_Free(Grouper *g);
 

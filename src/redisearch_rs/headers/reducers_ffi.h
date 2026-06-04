@@ -7,6 +7,7 @@
 #include <stddef.h>
 #include <stdint.h>
 #include <stdlib.h>
+#include "rqe_core.h"
 
 /**
  * The C version of a [`SharedValue`](value::SharedValue)
@@ -127,8 +128,8 @@ void collectRemoteFreeInstance(Reducer *_r, void *ctx);
 void collectLocalFreeInstance(Reducer *_r, void *ctx);
 
 /**
- * Processes the provided [`ffi::RLookupRow`] with the shard collect reducer
- * instance.
+ * Processes the provided [`ffi::RLookupRow`] and document id with the shard
+ * collect reducer instance.
  *
  * # Safety
  *
@@ -138,7 +139,7 @@ void collectLocalFreeInstance(Reducer *_r, void *ctx);
  *
  * [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
  */
-int collectRemoteAdd(Reducer *r, void *ctx, const RLookupRow *srcrow);
+int collectRemoteAddWithDocId(Reducer *r, void *ctx, const RLookupRow *srcrow, t_docId doc_id);
 
 /**
  * # Safety

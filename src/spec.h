@@ -385,7 +385,8 @@ typedef struct IndexSpec {
   // Disk index handle (NULL for memory-only indexes)
   RedisSearchDiskIndexSpec *diskSpec;
 
-  // Disk RDB state (NULL for memory-only indexes), pending to be applied at replication ending
+  // Disk RDB state (NULL for memory-only indexes), pending to be applied at
+  // replication ending. Vector index state is stored inline in each field.
   RedisSearchDiskRdbState *pendingDiskRdbState;
   bool diskRegistered;
   pthread_rwlock_t disk_fork_rwlock;
@@ -567,8 +568,10 @@ StrongRef IndexSpec_ParseC(RedisModuleCtx *ctx, const char *name, const char **a
 FieldSpec *IndexSpec_CreateField(IndexSpec *sp, const char *name, const char *path);
 
 // Delete a document from the index by its key name.
-// Looks up the docId via DocIdMeta_Get on the key, then removes the document
-// from the DocTable and cleans up associated metadata (DocIdMeta_Delete).
+// In disk mode, looks up the docId via DocIdMeta_Get on the key, removes the
+// document from disk by that id, and deletes the DocIdMeta key→docId mapping so
+// it stays authoritative (an entry exists iff the doc is indexed). In memory
+// mode, pops the document metadata from the DocTable.
 // Requires a RedisModuleCtx to access the key's metadata.
 // This function locks the spec for writing.
 int IndexSpec_DeleteDoc(IndexSpec *spec, RedisModuleCtx *ctx, RedisModuleString *key);

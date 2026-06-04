@@ -17,6 +17,14 @@ cd $HERE
 
 #----------------------------------------------------------------------------------------------
 
+# Returns 0 (success) if $1 is an absolute path, non-zero otherwise.
+# Used to decide whether to prepend $ROOT to user-supplied file arguments.
+is_abspath() {
+	[[ "$1" == /* ]]
+}
+
+#----------------------------------------------------------------------------------------------
+
 help() {
 	cat <<-'END'
 		Run Python tests using RLTest
@@ -462,7 +470,7 @@ fi
 
 if [[ -n $FAILEDFILE ]]; then
 	if ! is_abspath "$FAILEDFILE"; then
-		TESTFILE="$ROOT/$FAILEDFILE"
+		FAILEDFILE="$ROOT/$FAILEDFILE"
 	fi
 	RLTEST_TEST_ARGS+=" -F $FAILEDFILE"
 fi
@@ -532,6 +540,7 @@ E=0
 # Test suite assumes WORKERS=0; tests that need workers enable them explicitly.
 MODARGS="${MODARGS}; WORKERS 0;"
 MODARGS="${MODARGS}; TIMEOUT 0;" # disable query timeout by default
+MODARGS="${MODARGS}; _MAX_FOREGROUND_TIMEOUT_LIMIT 0;" # disable per-query TIMEOUT cap by default
 MODARGS="${MODARGS}; DEFAULT_DIALECT 2;" # set default dialect to 2
 
 if [[ $GC == 0 ]]; then

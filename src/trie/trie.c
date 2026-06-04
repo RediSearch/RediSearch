@@ -14,6 +14,7 @@
 #include "util/misc.h"
 #include "rune_util.h"
 #include "trie.h"
+#include "trie_node_internal.h"
 #include "rmalloc.h"
 #include "rdb.h"
 
@@ -282,11 +283,11 @@ Vector *Trie_Search(Trie *tree, const char *s, size_t len, size_t num, int maxDi
 
       if (heap_count(pq) == heap_size(pq)) {
         TrieSearchResult *qe = heap_peek(pq);
-        it->minScore = qe->score;
+        it->kthBestScore = qe->score;
       }
 
     } else {
-      if (ent->score > it->minScore) {
+      if (ent->score > it->kthBestScore) {
         pooledEntry = heap_poll(pq);
         rm_free(pooledEntry->str);
         pooledEntry->str = NULL;
@@ -295,10 +296,10 @@ Vector *Trie_Search(Trie *tree, const char *s, size_t len, size_t num, int maxDi
         ent->plen = payload.len;
         heap_offerx(pq, ent);
 
-        // get the new minimal score
+        // get the new kth-best score
         TrieSearchResult *qe = heap_peek(pq);
-        if (qe->score > it->minScore) {
-          it->minScore = qe->score;
+        if (qe->score > it->kthBestScore) {
+          it->kthBestScore = qe->score;
         }
 
       } else {
@@ -387,16 +388,20 @@ void *TrieType_RdbLoad(RedisModuleIO *rdb, int encver) {
   if (encver > TRIE_ENCVER_CURRENT) {
     return NULL;
   }
-  return TrieType_GenericLoad(rdb, encver >= TRIE_ENCVER_PAYLOADS, encver >= TRIE_ENCVER_NUMDOCS);
+  // The registered TrieType is used only by FT.SUGADD (suggest.c builds with Trie_Sort_Score),
+  // so the score-ordered children expected by SUGGET ranking are restored here.
+  return TrieType_GenericLoad(rdb, encver >= TRIE_ENCVER_PAYLOADS, encver >= TRIE_ENCVER_NUMDOCS,
+                              Trie_Sort_Score);
 }
 
-void *TrieType_GenericLoad(RedisModuleIO *rdb, bool loadPayloads, bool loadNumDocs) {
+void *TrieType_GenericLoad(RedisModuleIO *rdb, bool loadPayloads, bool loadNumDocs,
+                           TrieSortMode sortMode) {
 
   Trie *tree = NULL;
   char *str = NULL;
   uint64_t elements = LoadUnsigned_IOError(rdb, goto cleanup);
 
-  tree = NewTrie(NULL, Trie_Sort_Score);
+  tree = NewTrie(NULL, sortMode);
 
   while (elements--) {
     size_t len;

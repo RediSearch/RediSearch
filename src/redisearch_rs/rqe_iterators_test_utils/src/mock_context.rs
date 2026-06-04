@@ -9,8 +9,9 @@
 
 use std::ptr::NonNull;
 
-use ffi::{QueryEvalCtx, RedisSearchCtx, SchemaRule, t_docId};
+use ffi::{QueryEvalCtx, RedisSearchCtx, SchemaRule};
 use numeric_range_tree::NumericRangeTree;
+use rqe_core::DocId;
 
 /// Mock search context creating fake objects for testing.
 /// It can be used to test expiration but not validation.
@@ -63,7 +64,7 @@ impl Drop for MockContext {
 }
 
 impl MockContext {
-    pub fn new(max_doc_id: t_docId, num_docs: usize) -> Self {
+    pub fn new(max_doc_id: DocId, num_docs: usize) -> Self {
         // Allocate each struct using Box::into_raw to get raw pointers.
         // We store raw pointers (not Boxes) because the library code creates
         // references through the pointer chain which would invalidate Box's

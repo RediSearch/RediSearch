@@ -1276,6 +1276,12 @@ int AREQ_Compile(AREQ *req, RedisModuleCtx *ctx, RedisModuleString **argv, int a
     goto error;
   }
 
+  // Cap the per-query timeout to _MAX_FOREGROUND_TIMEOUT_LIMIT when workers
+  // are disabled; the state flag drives the RESP3 MaxTimeoutCapped warning.
+  if (RSConfig_CapQueryTimeoutToForegroundLimit(&req->reqConfig.queryTimeoutMS)) {
+    req->stateflags |= QEXEC_S_MAX_TIMEOUT_CAPPED;
+  }
+
   if (IsInternal(req) &&
       RequestConfig_ApplyCoordinatorElapsedTime(&req->reqConfig, req->profileClocks.coordDispatchTime)) {
     QueryError_SetCode(status, QUERY_ERROR_CODE_TIMED_OUT);
@@ -1738,7 +1744,26 @@ void AREQ_CleanUpStoredCursor(AREQ *req) {
   }
 }
 
-int AREQ_BuildPipeline(AREQ *req, QueryError *status) {
+AggregationPipelineParams AREQ_MakeAggregationPipelineParams(AREQ *req,
+                                                             GroupByLimits groupByLimits) {
+  return (AggregationPipelineParams){
+    .common = {
+      .sctx = req->sctx,
+      .reqflags = req->reqflags,
+      .optimizer = req->optimizer,
+      // Score alias is not supposed to be used in the aggregation pipeline
+      .scoreAlias = NULL,
+    },
+    .outFields = &req->outFields,
+    .maxResultsLimit = IsSearch(req) ? req->maxSearchResults : req->maxAggregateResults,
+    .groupByLimits = groupByLimits,
+    .language = req->searchopts.language,
+  };
+}
+
+int AREQ_BuildPipelineWithAggregationParams(AREQ *req,
+                                            const AggregationPipelineParams *aggregationParams,
+                                            QueryError *status) {
   Pipeline_Initialize(&req->pipeline, req->reqConfig.timeoutPolicy, status);
   if (!(AREQ_RequestFlags(req) & QEXEC_F_BUILDPIPELINE_NO_ROOT)) {
     QueryPipelineParams params = {
@@ -1762,21 +1787,16 @@ int AREQ_BuildPipeline(AREQ *req, QueryError *status) {
       return REDISMODULE_ERR;
     }
   }
-  AggregationPipelineParams params = {
-    .common = {
-      .sctx = req->sctx,
-      .reqflags = req->reqflags,
-      .optimizer = req->optimizer,
-      // Right now score alias is not supposed to be used in the aggregation pipeline
-      .scoreAlias = NULL,
-    },
-    .outFields = &req->outFields,
-    .maxResultsLimit = IsSearch(req) ? req->maxSearchResults : req->maxAggregateResults,
-    .language = req->searchopts.language,
-  };
-  int rc = Pipeline_BuildAggregationPart(&req->pipeline, &params, &req->stateflags, status);
+  int rc = Pipeline_BuildAggregationPart(&req->pipeline, aggregationParams, &req->stateflags, status);
   if (rc == REDISMODULE_OK) {
     AREQ_SetCanYieldPartialResults(req);
   }
   return rc;
+}
+
+int AREQ_BuildPipeline(AREQ *req, QueryError *status) {
+  AggregationPipelineParams aggregationParams =
+      AREQ_MakeAggregationPipelineParams(
+          req, GroupByLimits_Default(RSGlobalConfig.maxAggregateGroups));
+  return AREQ_BuildPipelineWithAggregationParams(req, &aggregationParams, status);
 }

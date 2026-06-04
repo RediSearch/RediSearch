@@ -8,6 +8,7 @@
 */
 #include "query_iterator.hpp"
 #include "doc_table.h"
+#include "iterators_ffi.h"
 #include "search_ctx.h"
 #include "spec.h"
 #include "util/timeout.h"
@@ -142,6 +143,7 @@ QueryIterator CPPQueryIterator::init_base() {
       .Revalidate = QIter_Revalidate,
       .Free = QIter_Free,
       .Rewind = QIter_Rewind,
+      .PrintProfile = GeoShape_PrintProfile,
   };
 }
 }  // namespace GeoShape
