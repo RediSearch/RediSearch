@@ -51,6 +51,11 @@ static void processHybridError(processCursorMappingCallbackContext *ctx, MRReply
 static void processHybridWarning(processCursorMappingCallbackContext *ctx, const MRReply *rep) {
     const char *warningMessage = MRReply_String(rep, NULL);
     QueryWarningCode warningCode = QueryWarningCode_GetCodeFromMessage(warningMessage);
+    // MaxTimeoutCapped is purely informational: the coordinator's own cap is
+    // already surfaced to the client on the hybrid request.
+    if (warningCode == QUERY_WARNING_CODE_MAX_TIMEOUT_CAPPED) {
+        return;
+    }
     QueryError error = QueryError_Default();
     if (warningCode == QUERY_WARNING_CODE_TIMED_OUT) {
         QueryError_SetCode(&error, QUERY_ERROR_CODE_TIMED_OUT);
