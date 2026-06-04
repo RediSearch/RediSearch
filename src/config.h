@@ -281,18 +281,6 @@ size_t GetDefaultWorkerThreads(void);
 /* Register module configuration parameters using Module Configuration API */
 int RegisterModuleConfig_Local(RedisModuleCtx *ctx);
 
-#ifdef __cplusplus
-extern "C" {
-#endif
-/* Caps `*timeoutMS` to RSGlobalConfig.maxForegroundTimeoutLimitMS when the
- * limit is active (workers disabled and limit > 0) and the current value
- * exceeds it. Returns true iff capping occurred, in which case `*timeoutMS`
- * was updated. */
-bool RSConfig_CapQueryTimeoutToForegroundLimit(long long *timeoutMS);
-#ifdef __cplusplus
-}
-#endif
-
 /**
  * Writes the retrieval of the configuration value to the network.
  * isHelp will use a more dict-like pattern, which should be a bit friendlier
@@ -472,6 +460,12 @@ void iteratorsConfig_init(IteratorsConfig *config);
 
 void LogWarningDeprecatedFTConfig(RedisModuleCtx *ctx, const char *action,
                                   const char *name);
+
+/* Caps `*timeoutMS` to RSGlobalConfig.maxForegroundTimeoutLimitMS when the
+ * limit is active (workers disabled and limit > 0) and the current value
+ * exceeds it. Returns true iff capping occurred, in which case `*timeoutMS`
+ * was updated. */
+bool RSConfig_CapQueryTimeoutToForegroundLimit(long long *timeoutMS);
 
 #ifdef __cplusplus
 }
