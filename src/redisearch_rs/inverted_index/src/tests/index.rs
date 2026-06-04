@@ -55,10 +55,10 @@ fn adding_records() {
         "size of the first index block (48 bytes) plus 4 bytes for the encoded delta"
     );
     assert_eq!(ii.number_of_blocks(), 1);
-    assert_eq!(ii.block_at(0).unwrap().buffer, [0, 0, 0, 0]);
-    assert_eq!(ii.block_at(0).unwrap().num_entries, 1);
-    assert_eq!(ii.block_at(0).unwrap().first_doc_id, 10);
-    assert_eq!(ii.block_at(0).unwrap().last_doc_id, 10);
+    assert_eq!(ii.snapshot().block_ref(0).unwrap().buffer, [0, 0, 0, 0]);
+    assert_eq!(ii.snapshot().block_ref(0).unwrap().num_entries, 1);
+    assert_eq!(ii.snapshot().block_ref(0).unwrap().first_doc_id, 10);
+    assert_eq!(ii.snapshot().block_ref(0).unwrap().last_doc_id, 10);
     assert_eq!(ii.n_unique_docs, 1);
 
     let record = RSIndexResult::build_virt().doc_id(11).build();
@@ -70,10 +70,10 @@ fn adding_records() {
         "buffer needs to grow to 9 bytes to hold a total of 8 bytes"
     );
     assert_eq!(ii.number_of_blocks(), 1);
-    assert_eq!(ii.block_at(0).unwrap().buffer, [0, 0, 0, 0, 0, 0, 0, 1]);
-    assert_eq!(ii.block_at(0).unwrap().num_entries, 2);
-    assert_eq!(ii.block_at(0).unwrap().first_doc_id, 10);
-    assert_eq!(ii.block_at(0).unwrap().last_doc_id, 11);
+    assert_eq!(ii.snapshot().block_ref(0).unwrap().buffer, [0, 0, 0, 0, 0, 0, 0, 1]);
+    assert_eq!(ii.snapshot().block_ref(0).unwrap().num_entries, 2);
+    assert_eq!(ii.snapshot().block_ref(0).unwrap().first_doc_id, 10);
+    assert_eq!(ii.snapshot().block_ref(0).unwrap().last_doc_id, 11);
     assert_eq!(ii.n_unique_docs, 2);
 }
 
@@ -84,8 +84,8 @@ fn adding_same_record_twice() {
 
     ii.add_record(&record).unwrap();
     assert_eq!(ii.number_of_blocks(), 1);
-    assert_eq!(ii.block_at(0).unwrap().buffer, [0, 0, 0, 0]);
-    assert_eq!(ii.block_at(0).unwrap().num_entries, 1);
+    assert_eq!(ii.snapshot().block_ref(0).unwrap().buffer, [0, 0, 0, 0]);
+    assert_eq!(ii.snapshot().block_ref(0).unwrap().num_entries, 1);
     assert_eq!(ii.flags(), IndexFlags_Index_DocIdsOnly);
 
     let mem_growth = ii.add_record(&record).unwrap().mem_growth as usize;
@@ -96,13 +96,13 @@ fn adding_same_record_twice() {
     );
     assert_eq!(ii.number_of_blocks(), 1);
     assert_eq!(
-        ii.block_at(0).unwrap().buffer,
+        ii.snapshot().block_ref(0).unwrap().buffer,
         [0, 0, 0, 0],
         "buffer should remain unchanged"
     );
-    assert_eq!(ii.block_at(0).unwrap().num_entries, 1);
-    assert_eq!(ii.block_at(0).unwrap().first_doc_id, 10);
-    assert_eq!(ii.block_at(0).unwrap().last_doc_id, 10);
+    assert_eq!(ii.snapshot().block_ref(0).unwrap().num_entries, 1);
+    assert_eq!(ii.snapshot().block_ref(0).unwrap().first_doc_id, 10);
+    assert_eq!(ii.snapshot().block_ref(0).unwrap().last_doc_id, 10);
     assert_eq!(ii.n_unique_docs, 1, "this second doc was not added");
     assert_eq!(ii.flags(), IndexFlags_Index_DocIdsOnly);
 
@@ -130,20 +130,20 @@ fn adding_same_record_twice() {
 
     ii.add_record(&record).unwrap();
     assert_eq!(ii.number_of_blocks(), 1);
-    assert_eq!(ii.block_at(0).unwrap().buffer, [255]);
+    assert_eq!(ii.snapshot().block_ref(0).unwrap().buffer, [255]);
     assert_eq!(ii.flags(), IndexFlags_Index_DocIdsOnly);
 
     ii.add_record(&record).unwrap();
 
     assert_eq!(ii.number_of_blocks(), 1);
     assert_eq!(
-        ii.block_at(0).unwrap().buffer,
+        ii.snapshot().block_ref(0).unwrap().buffer,
         [255, 255],
         "buffer should contain two entries"
     );
-    assert_eq!(ii.block_at(0).unwrap().num_entries, 2);
-    assert_eq!(ii.block_at(0).unwrap().first_doc_id, 10);
-    assert_eq!(ii.block_at(0).unwrap().last_doc_id, 10);
+    assert_eq!(ii.snapshot().block_ref(0).unwrap().num_entries, 2);
+    assert_eq!(ii.snapshot().block_ref(0).unwrap().first_doc_id, 10);
+    assert_eq!(ii.snapshot().block_ref(0).unwrap().last_doc_id, 10);
     assert_eq!(
         ii.n_unique_docs, 1,
         "this doc was added but should not affect the count"
@@ -231,7 +231,7 @@ fn adding_creates_new_blocks_when_entries_is_reached() {
         "duplicates should stay on the same block"
     );
     assert_eq!(
-        ii.block_at(1).unwrap().num_entries, 3,
+        ii.snapshot().block_ref(1).unwrap().num_entries, 3,
         "should have 3 entries in the second block because duplicate was added"
     );
 }
@@ -249,10 +249,10 @@ fn adding_big_delta_makes_new_block() {
         "should write 4 bytes for delta and 48 bytes for the new index block"
     );
     assert_eq!(ii.number_of_blocks(), 1);
-    assert_eq!(ii.block_at(0).unwrap().buffer, [0, 0, 0, 0]);
-    assert_eq!(ii.block_at(0).unwrap().num_entries, 1);
-    assert_eq!(ii.block_at(0).unwrap().first_doc_id, 10);
-    assert_eq!(ii.block_at(0).unwrap().last_doc_id, 10);
+    assert_eq!(ii.snapshot().block_ref(0).unwrap().buffer, [0, 0, 0, 0]);
+    assert_eq!(ii.snapshot().block_ref(0).unwrap().num_entries, 1);
+    assert_eq!(ii.snapshot().block_ref(0).unwrap().first_doc_id, 10);
+    assert_eq!(ii.snapshot().block_ref(0).unwrap().last_doc_id, 10);
     assert_eq!(ii.n_unique_docs, 1);
 
     // This will create a delta that is larger than the default u32 acceptable delta size
@@ -267,10 +267,10 @@ fn adding_big_delta_makes_new_block() {
         "should write 4 bytes for delta and 48 bytes for the new index block"
     );
     assert_eq!(ii.number_of_blocks(), 2);
-    assert_eq!(ii.block_at(1).unwrap().buffer, [0, 0, 0, 0]);
-    assert_eq!(ii.block_at(1).unwrap().num_entries, 1);
-    assert_eq!(ii.block_at(1).unwrap().first_doc_id, doc_id);
-    assert_eq!(ii.block_at(1).unwrap().last_doc_id, doc_id);
+    assert_eq!(ii.snapshot().block_ref(1).unwrap().buffer, [0, 0, 0, 0]);
+    assert_eq!(ii.snapshot().block_ref(1).unwrap().num_entries, 1);
+    assert_eq!(ii.snapshot().block_ref(1).unwrap().first_doc_id, doc_id);
+    assert_eq!(ii.snapshot().block_ref(1).unwrap().last_doc_id, doc_id);
     assert_eq!(ii.n_unique_docs, 2);
 }
 

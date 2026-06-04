@@ -468,16 +468,6 @@ impl<E: Encoder> InvertedIndex<E> {
         self.state.load_full().block_count()
     }
 
-    /// Get a clone of the block at the given index, if it exists. Used by some C tests; in
-    /// the lock-free model we can't safely hand out a `&IndexBlock` whose lifetime would
-    /// have to outlive the loaded snapshot.
-    pub fn block_at(&self, index: usize) -> Option<IndexBlock> {
-        self.state
-            .load_full()
-            .get_block(index)
-            .map(|b| (*b).clone())
-    }
-
     /// Take an owned [`InvertedIndexSnapshot`] of the current block storage. The
     /// snapshot holds an internal `Arc` and keeps the contained blocks alive for its
     /// own lifetime — use this when handing block references to a context (FFI,

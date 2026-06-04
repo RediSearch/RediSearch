@@ -93,11 +93,6 @@ impl<E: Encoder> FieldMaskTrackingIndex<E> {
         self.index.number_of_blocks()
     }
 
-    /// Get a clone of the block at the given index, if it exists. This is only used by some C tests.
-    pub fn block_at(&self, index: usize) -> Option<IndexBlock> {
-        self.index.block_at(index)
-    }
-
     /// Take an owned snapshot. See [`InvertedIndex::snapshot`].
     pub fn snapshot(&self) -> crate::InvertedIndexSnapshot {
         self.index.snapshot()
