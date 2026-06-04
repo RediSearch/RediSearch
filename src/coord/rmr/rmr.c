@@ -1000,6 +1000,22 @@ size_t MRIterator_GetNumShards(const MRIterator *it) {
 
 // Assumes no other thread is using the iterator, the channel, or any of the commands and contexts
 static void MRIterator_Free(MRIterator *it) {
+  // MOD-15394 diagnostic: freeing while commands are still in flight (inProcess != 0)
+  // or not depleted means a shard reply can still arrive on a freed iterator -> UAF.
+  {
+    short ip = __atomic_load_n(&it->ctx.inProcess, __ATOMIC_ACQUIRE);
+    size_t notDepleted = 0;
+    for (size_t i = 0; i < it->len; i++) {
+      if (!it->cbxs[i].cmd.depleted) notDepleted++;
+    }
+    if (ip != 0 || notDepleted != 0) {
+      fprintf(stderr,
+              "MOD15394_FREE_INFLIGHT: MRIterator_Free it=%p inProcess=%d pending=%d "
+              "notDepleted=%zu len=%zu refcount=%d\n",
+              (void *)it, ip, it->ctx.pending, notDepleted, it->len, it->ctx.itRefCount);
+      fflush(stderr);
+    }
+  }
   // Free privateData using destructor if provided (e.g., ShardResponseBarrier)
   if (it->ctx.privateDataDestructor && it->cbxs[0].privateData) {
     it->ctx.privateDataDestructor(it->cbxs[0].privateData);
