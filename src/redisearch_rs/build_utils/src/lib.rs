@@ -71,9 +71,10 @@ pub fn rerun_if_c_changes(dir: &Path) -> std::io::Result<()> {
 /// all C code and dependencies together. The combined library is created by CMake
 /// during the build process.
 pub fn bind_foreign_c_symbols() {
+    let bin_root = bin_root();
     force_link_time_symbol_resolution();
-    link_redisearch_all().unwrap_or_else(|e| panic!("{e}"));
-    link_mkl(&bin_root().join("_deps/svs-src/lib"));
+    link_redisearch_all(&bin_root).unwrap_or_else(|e| panic!("{e}"));
+    link_mkl(&bin_root.join("_deps/svs-src/lib"));
     link_c_plusplus();
 }
 
@@ -134,8 +135,7 @@ fn bin_root() -> PathBuf {
 /// Callers that need soft-fail behaviour (e.g. lint-only runs where the
 /// library has not been built) can inspect the returned `Err` and emit a
 /// `cargo::warning` instead of panicking.
-pub fn link_redisearch_all() -> Result<PathBuf, Box<dyn std::error::Error>> {
-    let bin_root = bin_root();
+pub fn link_redisearch_all(bin_root: &Path) -> Result<PathBuf, Box<dyn std::error::Error>> {
     let lib_dir = bin_root.join("src");
     let lib = lib_dir.join("libredisearch_all.a");
     if std::fs::exists(&lib).unwrap_or(false) {
