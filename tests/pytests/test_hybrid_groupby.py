@@ -84,6 +84,68 @@ def l2_from_bytes(a_bytes, b_bytes) -> float:
     b = np.frombuffer(b_bytes, dtype=np.float32)
     return np.linalg.norm(a - b)
 
+@skip(cluster=True)
+def test_hybrid_groupby_total_group_limit():
+    env = Env(protocol=3, moduleArgs='MAX_AGGREGATE_GROUPS 2')
+
+    env.expect('FT.CREATE', 'idx',
+               'SCHEMA',
+               'description', 'TEXT',
+               'embedding', 'VECTOR', 'FLAT', '6',
+               'TYPE', 'FLOAT32', 'DIM', '2', 'DISTANCE_METRIC', 'L2').ok()
+
+    conn = getConnectionByEnv(env)
+    for i in range(3):
+        vector = np.array([float(i + 1), 0.0], dtype=np.float32).tobytes()
+        conn.execute_command('HSET', f'doc:{i}',
+                             'description', 'red',
+                             'embedding', vector)
+
+    query_vector = np.array([0.0, 0.0], dtype=np.float32).tobytes()
+    env.expect('FT.HYBRID', 'idx',
+               'SEARCH', 'nomatch',
+               'VSIM', '@embedding', '$BLOB',
+                   'RANGE', '2', 'RADIUS', '16',
+               'GROUPBY', '1', '@__key',
+                   'REDUCE', 'COUNT', '0', 'AS', 'count',
+               'PARAMS', '2', 'BLOB', query_vector).error() \
+        .contains('MAX_AGGREGATE_GROUPS') \
+        .contains('2')
+
+@skip(cluster=False)
+def test_hybrid_groupby_coordinator_group_limit():
+    env = Env(shardsCount=3, protocol=3, moduleArgs='MAX_AGGREGATE_GROUPS 2')
+
+    env.expect('FT.CREATE', 'idx',
+               'SCHEMA',
+               'description', 'TEXT',
+               'embedding', 'VECTOR', 'FLAT', '6',
+               'TYPE', 'FLOAT32', 'DIM', '2', 'DISTANCE_METRIC', 'L2').ok()
+
+    conn = getConnectionByEnv(env)
+    shard_tags = ['shard:0', 'shard:1', 'shard:3']
+    for i, shard_tag in enumerate(shard_tags):
+        vector = np.array([float(i + 1), 0.0], dtype=np.float32).tobytes()
+        conn.execute_command('HSET', f'doc:{i}{{{shard_tag}}}',
+                             'description', 'red',
+                             'embedding', vector)
+
+    query_vector = np.array([0.0, 0.0], dtype=np.float32).tobytes()
+    res = env.cmd('FT.HYBRID', 'idx',
+                  'SEARCH', 'nomatch',
+                  'VSIM', '@embedding', '$BLOB',
+                      'RANGE', '2', 'RADIUS', '16',
+                  'GROUPBY', '1', '@__key',
+                      'REDUCE', 'COUNT', '0', 'AS', 'count',
+                  'PARAMS', '2', 'BLOB', query_vector)
+
+    warnings = res.get('warnings', [])
+    env.assertTrue(len(warnings) > 0, message=f'Expected GROUPBY limit warning, got: {res}')
+    warning = warnings[0]
+    env.assertContains('MAX_AGGREGATE_GROUPS', warning)
+    env.assertContains('2', warning)
+    env.assertEqual(res['results'], [])
+
 def test_hybrid_groupby_small():
     """Test hybrid search with small result set (3 docs) + groupby"""
     env = Env()
