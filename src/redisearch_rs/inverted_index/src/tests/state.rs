@@ -7,11 +7,10 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 
-//! Snapshot tests for the lock-free [`State`](crate::index::state::State) field on
-//! `InvertedIndex`. Storage is `state`-only (Story 1.3); after GC, `sealed` is also
-//! populated with compacted survivors (Story 1.4). These tests check that state stays
-//! internally consistent across every mutation path (initial construction, `add_record`
-//! in all its sub-cases, and `apply_gc`).
+//! Invariant tests for the directly-owned `sealed`, `pending`, `in_progress` fields on
+//! `InvertedIndex`. After GC, `sealed` is populated with compacted survivors; otherwise
+//! writes only touch `pending` (on roll-over) and `in_progress` (in-place). These tests
+//! check the layout stays internally consistent across every mutation path.
 
 use ffi::IndexFlags_Index_DocIdsOnly;
 use index_result::RSIndexResult;
@@ -21,17 +20,15 @@ use crate::{Encoder, IndexBlock, InvertedIndex};
 
 use super::Dummy;
 
-/// Assert that the `state` snapshot is internally consistent:
+/// Assert that the three regions are internally consistent:
 /// - All blocks in `sealed`, `pending`, and `in_progress` have non-overlapping ranges and
 ///   are strictly ordered by doc id across the three regions (sealed → pending →
 ///   in_progress).
 /// - `number_of_blocks()` equals `sealed.len() + pending.len() + in_progress.is_some() as
 ///   usize`.
 fn assert_state_invariants<E: Encoder>(ii: &InvertedIndex<E>) {
-    let state = ii.state.load_full();
-
     let expected_total =
-        state.sealed.len() + state.pending.len() + usize::from(state.in_progress.is_some());
+        ii.sealed.len() + ii.pending.len() + usize::from(ii.in_progress.is_some());
     assert_eq!(
         ii.number_of_blocks(),
         expected_total,
@@ -39,13 +36,13 @@ fn assert_state_invariants<E: Encoder>(ii: &InvertedIndex<E>) {
     );
 
     // Within each region, blocks are strictly ordered by doc id.
-    for window in state.sealed.windows(2) {
+    for window in ii.sealed.windows(2) {
         assert!(
             window[0].last_doc_id < window[1].first_doc_id,
             "sealed blocks must be strictly ordered by doc id"
         );
     }
-    for window in state.pending.windows(2) {
+    for window in ii.pending.windows(2) {
         assert!(
             window[0].last_doc_id < window[1].first_doc_id,
             "pending blocks must be strictly ordered by doc id"
@@ -54,20 +51,20 @@ fn assert_state_invariants<E: Encoder>(ii: &InvertedIndex<E>) {
 
     // Across regions, the trailing block of each region precedes the leading block of the
     // next.
-    if let (Some(last_sealed), Some(first_pending)) = (state.sealed.last(), state.pending.first()) {
+    if let (Some(last_sealed), Some(first_pending)) = (ii.sealed.last(), ii.pending.first()) {
         assert!(
             last_sealed.last_doc_id < first_pending.first_doc_id,
             "pending must come after sealed"
         );
     }
-    if let (Some(last_pending), Some(ip)) = (state.pending.last(), state.in_progress.as_ref()) {
+    if let (Some(last_pending), Some(ip)) = (ii.pending.last(), ii.in_progress.as_ref()) {
         assert!(
             last_pending.last_doc_id < ip.first_doc_id,
             "in_progress must come after all pending blocks"
         );
     }
-    if state.pending.is_empty()
-        && let (Some(last_sealed), Some(ip)) = (state.sealed.last(), state.in_progress.as_ref())
+    if ii.pending.is_empty()
+        && let (Some(last_sealed), Some(ip)) = (ii.sealed.last(), ii.in_progress.as_ref())
     {
         assert!(
             last_sealed.last_doc_id < ip.first_doc_id,
@@ -79,12 +76,11 @@ fn assert_state_invariants<E: Encoder>(ii: &InvertedIndex<E>) {
 #[test]
 fn empty_index_has_empty_state() {
     let ii = InvertedIndex::<Dummy>::new(IndexFlags_Index_DocIdsOnly);
-    let state = ii.state.load_full();
 
-    assert!(state.sealed.is_empty());
-    assert!(state.pending.is_empty());
-    assert!(state.in_progress.is_none());
-    assert_eq!(state.len(), 0);
+    assert!(ii.sealed.is_empty());
+    assert!(ii.pending.is_empty());
+    assert!(ii.in_progress.is_none());
+    assert_eq!(ii.number_of_blocks(), 0);
 }
 
 #[test]
@@ -94,10 +90,9 @@ fn first_record_promotes_in_progress() {
     let record = RSIndexResult::build_virt().doc_id(10).build();
     ii.add_record(&record).unwrap();
 
-    let state = ii.state.load_full();
-    assert!(state.sealed.is_empty());
-    assert!(state.pending.is_empty());
-    let ip = state.in_progress.as_ref().expect("must have in_progress");
+    assert!(ii.sealed.is_empty());
+    assert!(ii.pending.is_empty());
+    let ip = ii.in_progress.as_ref().expect("must have in_progress");
     assert_eq!(ip.first_doc_id, 10);
     assert_eq!(ip.last_doc_id, 10);
     assert_eq!(ip.num_entries, 1);
@@ -113,9 +108,8 @@ fn appending_to_same_block_only_updates_in_progress() {
             .unwrap();
     }
 
-    let state = ii.state.load_full();
-    assert!(state.pending.is_empty(), "no block rolled over");
-    let ip = state.in_progress.as_ref().unwrap();
+    assert!(ii.pending.is_empty(), "no block rolled over");
+    let ip = ii.in_progress.as_ref().unwrap();
     assert_eq!(ip.first_doc_id, 10);
     assert_eq!(ip.last_doc_id, 14);
     assert_eq!(ip.num_entries, 5);
@@ -140,12 +134,11 @@ fn block_fill_moves_previous_in_progress_into_pending() {
         "should have rolled to a second block"
     );
 
-    let state = ii.state.load_full();
-    assert_eq!(state.pending.len(), 1, "first block is now pending");
-    assert_eq!(state.pending[0].first_doc_id, 1);
-    assert_eq!(state.pending[0].num_entries as u64, entries_per_block);
+    assert_eq!(ii.pending.len(), 1, "first block is now pending");
+    assert_eq!(ii.pending[0].first_doc_id, 1);
+    assert_eq!(ii.pending[0].num_entries as u64, entries_per_block);
 
-    let ip = state.in_progress.as_ref().unwrap();
+    let ip = ii.in_progress.as_ref().unwrap();
     assert_eq!(ip.num_entries, 1);
     assert_eq!(ip.first_doc_id, entries_per_block + 1);
     assert_state_invariants(&ii);
@@ -165,11 +158,10 @@ fn pending_grows_monotonically_across_multiple_rollovers() {
 
     assert_eq!(ii.number_of_blocks(), 3);
 
-    let state = ii.state.load_full();
-    assert_eq!(state.pending.len(), 2);
-    assert_eq!(state.pending[0].first_doc_id, 1);
-    assert_eq!(state.pending[1].first_doc_id, entries_per_block + 1);
-    let ip = state.in_progress.as_ref().unwrap();
+    assert_eq!(ii.pending.len(), 2);
+    assert_eq!(ii.pending[0].first_doc_id, 1);
+    assert_eq!(ii.pending[1].first_doc_id, entries_per_block + 1);
+    let ip = ii.in_progress.as_ref().unwrap();
     assert_eq!(ip.first_doc_id, 2 * entries_per_block + 1);
     assert_eq!(ip.num_entries, 5);
     assert_state_invariants(&ii);
@@ -182,10 +174,9 @@ fn snapshot_taken_before_write_is_not_mutated_by_later_writes() {
         .unwrap();
 
     // Take a snapshot before the next write.
-    let before = ii.state.load_full();
+    let before = ii.snapshot();
     let before_ip = before
-        .in_progress
-        .as_ref()
+        .in_progress()
         .expect("first add already happened")
         .clone();
     assert_eq!(before_ip.num_entries, 1);
@@ -193,7 +184,7 @@ fn snapshot_taken_before_write_is_not_mutated_by_later_writes() {
     ii.add_record(&RSIndexResult::build_virt().doc_id(2).build())
         .unwrap();
 
-    // The snapshot's Arc'd `IndexBlock` must remain unchanged — readers holding it
+    // The snapshot's owned `IndexBlock` must remain unchanged — readers holding it
     // shouldn't see a torn write.
     assert_eq!(
         before_ip.num_entries, 1,
@@ -201,24 +192,22 @@ fn snapshot_taken_before_write_is_not_mutated_by_later_writes() {
     );
     assert_eq!(before_ip.last_doc_id, 1);
 
-    // The live state reflects the new write.
-    let after = ii.state.load_full();
-    let after_ip = after.in_progress.as_ref().unwrap();
+    // The live index reflects the new write.
+    let after_ip = ii.in_progress.as_ref().unwrap();
     assert_eq!(after_ip.num_entries, 2);
     assert_eq!(after_ip.last_doc_id, 2);
 }
 
 #[test]
 fn sealed_remains_empty_after_writes() {
-    // Writes never touch `sealed`; only `apply_gc` does (Story 1.4).
+    // Writes never touch `sealed`; only `apply_gc` does.
     let mut ii = InvertedIndex::<Dummy>::new(IndexFlags_Index_DocIdsOnly);
     for id in 1..50 {
         ii.add_record(&RSIndexResult::build_virt().doc_id(id).build())
             .unwrap();
     }
 
-    let state = ii.state.load_full();
-    assert!(state.sealed.is_empty(), "writes don't populate sealed");
+    assert!(ii.sealed.is_empty(), "writes don't populate sealed");
 }
 
 #[test]
@@ -238,11 +227,10 @@ fn from_blocks_initializes_state_to_match() {
 
     let ii = InvertedIndex::<Dummy>::from_blocks(IndexFlags_Index_DocIdsOnly, blocks);
 
-    let state = ii.state.load_full();
-    assert_eq!(state.pending.len(), 1);
-    assert_eq!(state.pending[0].first_doc_id, 1);
-    assert_eq!(state.pending[0].num_entries, 5);
-    let ip = state.in_progress.as_ref().unwrap();
+    assert_eq!(ii.pending.len(), 1);
+    assert_eq!(ii.pending[0].first_doc_id, 1);
+    assert_eq!(ii.pending[0].num_entries, 5);
+    let ip = ii.in_progress.as_ref().unwrap();
     assert_eq!(ip.first_doc_id, 11);
     assert_eq!(ip.num_entries, 3);
     assert_state_invariants(&ii);
@@ -292,9 +280,7 @@ fn reader_uses_snapshot_block_layout() {
 
 #[test]
 fn find_block_for_doc_id_spans_regions() {
-    // Stage a State by hand: 2 pending blocks + 1 in_progress, sealed empty.
-    use crate::index::state::State;
-    use std::sync::Arc;
+    // Build a 3-block index by hand and exercise `find_block_for_doc_id` on its snapshot.
     use thin_vec::ThinVec;
 
     let mut p0 = IndexBlock::new(1);
@@ -307,33 +293,34 @@ fn find_block_for_doc_id_spans_regions() {
     ip.last_doc_id = 25;
     ip.num_entries = 3;
 
-    let state = State {
-        sealed: Arc::new(ThinVec::new()),
-        pending: Arc::new(vec![Arc::new(p0), Arc::new(p1)]),
-        in_progress: Some(Arc::new(ip)),
-    };
+    let mut blocks: ThinVec<IndexBlock, crate::BlockCapacity> = ThinVec::new();
+    blocks.push(p0);
+    blocks.push(p1);
+    blocks.push(ip);
 
-    assert_eq!(state.block_count(), 3);
-    assert_eq!(state.find_block_for_doc_id(0, 5), 0);
-    assert_eq!(state.find_block_for_doc_id(0, 10), 0);
-    assert_eq!(state.find_block_for_doc_id(0, 11), 1);
-    assert_eq!(state.find_block_for_doc_id(0, 20), 1);
-    assert_eq!(state.find_block_for_doc_id(0, 21), 2);
-    assert_eq!(state.find_block_for_doc_id(0, 25), 2);
-    assert_eq!(state.find_block_for_doc_id(0, 26), 3, "past the end");
+    let ii = InvertedIndex::<Dummy>::from_blocks(IndexFlags_Index_DocIdsOnly, blocks);
+    let snap = ii.snapshot();
+
+    assert_eq!(snap.block_count(), 3);
+    assert_eq!(snap.find_block_for_doc_id(0, 5), 0);
+    assert_eq!(snap.find_block_for_doc_id(0, 10), 0);
+    assert_eq!(snap.find_block_for_doc_id(0, 11), 1);
+    assert_eq!(snap.find_block_for_doc_id(0, 20), 1);
+    assert_eq!(snap.find_block_for_doc_id(0, 21), 2);
+    assert_eq!(snap.find_block_for_doc_id(0, 25), 2);
+    assert_eq!(snap.find_block_for_doc_id(0, 26), 3, "past the end");
 
     // Skip the first block: search starts from index 1.
-    assert_eq!(state.find_block_for_doc_id(1, 5), 1);
-    assert_eq!(state.find_block_for_doc_id(2, 5), 2);
-    assert_eq!(state.find_block_for_doc_id(3, 5), 3, "past the end");
+    assert_eq!(snap.find_block_for_doc_id(1, 5), 1);
+    assert_eq!(snap.find_block_for_doc_id(2, 5), 2);
+    assert_eq!(snap.find_block_for_doc_id(3, 5), 3, "past the end");
 }
 
 #[test]
 fn apply_gc_compacts_survivors_into_sealed() {
-    // Story 1.4: after `apply_gc`, surviving completed blocks are moved into the
-    // contiguous `sealed` ThinVec. `pending` resets to empty; the trailing survivor
-    // becomes the new `in_progress`. The next write will roll back through the
-    // pending → sealed flow.
+    // After `apply_gc`, surviving completed blocks are moved into the contiguous `sealed`
+    // ThinVec. `pending` resets to empty; the trailing survivor becomes the new
+    // `in_progress`. The next write will roll back through the pending → sealed flow.
     use crate::GcScanDelta;
     use crate::gc::{BlockGcScanResult, RepairType};
 
@@ -345,18 +332,16 @@ fn apply_gc_compacts_survivors_into_sealed() {
         ii.add_record(&RSIndexResult::build_virt().doc_id(id).build())
             .unwrap();
     }
-    let before = ii.state.load_full();
-    assert!(before.sealed.is_empty(), "sealed empty pre-GC");
-    assert_eq!(before.pending.len(), 2);
-    assert!(before.in_progress.is_some());
+    assert!(ii.sealed.is_empty(), "sealed empty pre-GC");
+    assert_eq!(ii.pending.len(), 2);
+    assert!(ii.in_progress.is_some());
 
-    // GC with no deltas → state unchanged.
-    // Apply a no-op-ish delta that won't actually modify anything but forces apply to run.
-    // We synthesize a Delete of block 0 to make GC do work, then verify the layout flips
-    // from "pending+in_progress" to "sealed+in_progress".
+    // Synthetic delta: delete block 0. This forces apply to rebuild layout and verifies
+    // it flips from "pending+in_progress" to "sealed+in_progress".
+    let last_block_num_entries = ii.snapshot().last_block().unwrap().num_entries;
     let delta = GcScanDelta {
         last_block_idx: ii.number_of_blocks() - 1,
-        last_block_num_entries: ii.state.load_full().last_block().unwrap().num_entries,
+        last_block_num_entries,
         deltas: vec![BlockGcScanResult {
             index: 0,
             repair: RepairType::Delete {
@@ -367,22 +352,21 @@ fn apply_gc_compacts_survivors_into_sealed() {
 
     ii.apply_gc(delta);
 
-    let after = ii.state.load_full();
     // Block 0 deleted → 2 survivors. Trailing one (was in_progress) becomes new
     // in_progress; the other (was pending) goes to sealed.
     assert_eq!(
-        after.sealed.len(),
+        ii.sealed.len(),
         1,
         "the surviving completed block landed in sealed"
     );
-    assert!(after.pending.is_empty(), "pending reset to empty after GC");
-    assert!(after.in_progress.is_some(), "in_progress preserved");
+    assert!(ii.pending.is_empty(), "pending reset to empty after GC");
+    assert!(ii.in_progress.is_some(), "in_progress preserved");
 
     // The sealed block is the survivor from old pending (originally pending[1] after
     // pending[0] was deleted).
-    assert_eq!(after.sealed[0].first_doc_id, entries_per_block + 1);
+    assert_eq!(ii.sealed[0].first_doc_id, entries_per_block + 1);
     assert_eq!(
-        after.in_progress.as_ref().unwrap().first_doc_id,
+        ii.in_progress.as_ref().unwrap().first_doc_id,
         2 * entries_per_block + 1
     );
 
@@ -403,17 +387,11 @@ fn apply_gc_keeps_state_in_sync() {
     }
     assert_eq!(ii.number_of_blocks(), 3);
 
-    // Synthetic delta: delete the first block. This exercises the GC path that calls
-    // `mem::swap` and rebuilds `blocks`, which is the case the state-sync hook covers.
+    // Synthetic delta: delete the first block. Exercises the GC rebuild path.
+    let last_block_num_entries = ii.snapshot().last_block().unwrap().num_entries;
     let delta = GcScanDelta {
         last_block_idx: ii.number_of_blocks() - 1,
-        last_block_num_entries: ii
-            .state
-            .load_full()
-            .last_block()
-            .cloned()
-            .unwrap()
-            .num_entries,
+        last_block_num_entries,
         deltas: vec![BlockGcScanResult {
             index: 0,
             repair: RepairType::Delete {

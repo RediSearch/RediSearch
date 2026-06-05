@@ -177,22 +177,21 @@ impl<E: Encoder + DecodedBy> InvertedIndex<E> {
         doc_exist: impl Fn(DocId) -> bool,
         mut repair: Option<impl FnMut(&RSIndexResult<'index>, &IndexBlock, usize)>,
     ) -> std::io::Result<Option<GcScanDelta>> {
-        // Scan against a snapshot — gives us a stable enumeration even if writes happen
-        // concurrently with the scan. The `last_block_idx` / `last_block_num_entries`
-        // fields below let `apply_gc` detect drift and ignore any stale delta.
-        let state_arc = self.state.load_full();
-        let state = &*state_arc;
-
+        // Scan against an `InvertedIndexSnapshot` — gives us a stable enumeration even if
+        // writes happen concurrently with the scan. The `last_block_idx` /
+        // `last_block_num_entries` fields below let `apply_gc` detect drift and ignore
+        // any stale delta. The snapshot lives for the duration of this function and owns
+        // the cloned in_progress, so block references are valid for the local scope.
+        let snapshot = self.snapshot();
         let mut results = Vec::new();
 
-        let total = state.block_count();
+        let total = snapshot.block_count();
         for i in 0..total {
-            let Some(block) = state.get_block(i) else {
+            let Some(block) = snapshot.block_ref(i) else {
                 continue;
             };
-            // SAFETY: lifetime extension — same justification as `IndexReaderCore::cursor_at`
-            // (the snapshot is owned by `state_arc`, alive for this function's duration,
-            // and the IndexBlock buffers are immutable).
+            // SAFETY: lifetime extension — the snapshot is owned by this function and
+            // its block buffers are immutable for the function's duration.
             let block_ref: &'index IndexBlock = unsafe { std::mem::transmute(block) };
 
             let repair = block_ref.repair(i, &doc_exist, repair.as_mut(), PhantomData::<E>)?;
@@ -206,7 +205,7 @@ impl<E: Encoder + DecodedBy> InvertedIndex<E> {
             Ok(None)
         } else {
             let last_block_idx = total.saturating_sub(1);
-            let last_block_num_entries = state.last_block().map(|b| b.num_entries).unwrap_or(0);
+            let last_block_num_entries = snapshot.last_block().map(|b| b.num_entries).unwrap_or(0);
             Ok(Some(GcScanDelta {
                 last_block_idx,
                 last_block_num_entries,
@@ -215,18 +214,14 @@ impl<E: Encoder + DecodedBy> InvertedIndex<E> {
         }
     }
 
-    /// Apply the deltas of a garbage collection scan to the index. This will publish a new
-    /// [`State`](crate::index::state::State) with the deleted/repaired blocks applied.
+    /// Apply the deltas of a garbage collection scan to the index. Mutates the direct
+    /// `sealed` / `pending` / `in_progress` fields in place: survivors are compacted
+    /// into a freshly-rebuilt `sealed`, `pending` is drained to empty, and the trailing
+    /// survivor becomes the new `in_progress`.
     ///
-    /// # Note on `store` vs `rcu`
-    ///
-    /// The design doc (Epic 1, FT.HYBRID Workers Pool Consolidation) calls for GC to
-    /// publish via [`arc_swap::ArcSwap::rcu`]. We use [`arc_swap::ArcSwap::store`]
-    /// instead: the apply step runs under the spec write lock (C side) and takes
-    /// `&mut self` (Rust), so no concurrent writer — neither another `apply_gc` nor
-    /// [`InvertedIndex::add_record`] — can race between our `load_full` and `store`. If
-    /// a future story lifts the spec lock from this path (e.g., to overlap GC apply
-    /// with concurrent indexing), this must become an `rcu` retry-loop.
+    /// Runs under `&mut self` plus the spec write lock (C side), so no concurrent
+    /// writer or reader can race. Outstanding snapshots are unaffected — they hold
+    /// their own [`Arc`] / [`Vec`] clones from the pre-GC state.
     pub fn apply_gc(&mut self, delta: GcScanDelta) -> GcApplyInfo {
         let GcScanDelta {
             last_block_idx,
@@ -242,13 +237,28 @@ impl<E: Encoder + DecodedBy> InvertedIndex<E> {
             ignored_last_block: false,
         };
 
-        let prev = self.state.load_full();
-        let blocks_before = prev.block_count();
+        let n_sealed = self.sealed.len();
+        let n_pending = self.pending.len();
+        let n_in_progress = usize::from(self.in_progress.is_some());
+        let blocks_before = n_sealed + n_pending + n_in_progress;
 
-        // Check if the last block has changed since the scan was performed.
-        let last_block_changed = prev
-            .get_block(last_block_idx)
-            .is_some_and(|b| b.num_entries != last_block_num_entries);
+        // Check if the in-progress block (if it's the one the scan recorded) has changed
+        // since the scan. last_block_idx points into the flat sealed+pending+in_progress
+        // ordering; if it points at the in_progress slot, check via self.in_progress.
+        let in_progress_idx = n_sealed + n_pending;
+        let last_block_changed = if last_block_idx == in_progress_idx {
+            self.in_progress
+                .as_ref()
+                .is_some_and(|b| b.num_entries != last_block_num_entries)
+        } else if last_block_idx < n_sealed {
+            self.sealed
+                .get(last_block_idx)
+                .is_some_and(|b| b.num_entries != last_block_num_entries)
+        } else {
+            // last_block_idx is in pending — but pending blocks are immutable so they
+            // can't have changed.
+            false
+        };
 
         if last_block_changed {
             let remove_stale_delta = deltas
@@ -266,22 +276,17 @@ impl<E: Encoder + DecodedBy> InvertedIndex<E> {
         }
 
         // Build a flat working list of all current blocks as `Arc<IndexBlock>`s, in the
-        // same logical order that [`State::get_block`] enumerates them (sealed → pending →
-        // in_progress). Using `Arc` here (rather than cloning to owned `IndexBlock`s)
-        // lets the trailing survivor pass through to the new `in_progress` with its
-        // buffer memory address intact — important for the C-side tests that compare
-        // `IndexBlock_Data(...)` pointers across a GC apply. Sealed blocks (which aren't
-        // Arc'd in `prev.sealed`) get a one-time `Arc::new(b.clone())` here; this is
-        // unavoidable since `ThinVec<IndexBlock>` stores blocks by value.
+        // sealed → pending → in_progress order. The in_progress (owned directly on
+        // `self`) is `take()`n out so we can move it into the working list; we'll set
+        // self.in_progress to whatever survives at the trailing slot.
         let mut working: Vec<Arc<IndexBlock>> = Vec::with_capacity(blocks_before);
-        for b in prev.sealed.iter() {
+        for b in self.sealed.iter() {
             working.push(Arc::new(b.clone()));
         }
-        for arc_b in prev.pending.iter() {
-            working.push(Arc::clone(arc_b));
-        }
-        if let Some(ip) = prev.in_progress.as_ref() {
-            working.push(Arc::clone(ip));
+        let old_pending = std::mem::take(&mut self.pending);
+        working.extend(old_pending);
+        if let Some(ip) = self.in_progress.take() {
+            working.push(Arc::new(ip));
         }
 
         let mut deltas_iter = deltas.into_iter().peekable();
@@ -300,7 +305,6 @@ impl<E: Encoder + DecodedBy> InvertedIndex<E> {
                             info.entries_removed += arc_block.num_entries as usize;
                             info.bytes_freed += arc_block.mem_usage();
                             self.n_unique_docs -= n_unique_docs_removed;
-                            // Drop arc_block — the block is gone.
                         }
                         RepairType::Replace {
                             blocks,
@@ -321,19 +325,17 @@ impl<E: Encoder + DecodedBy> InvertedIndex<E> {
             }
         }
 
-        // The trailing block becomes the new `in_progress` (the next write will either
-        // append to it or roll a new block, depending on its fill state). The Arc passes
-        // through unchanged for pass-through survivors — preserving buffer-pointer
-        // identity for C-side tests that compare `IndexBlock_Data(...)` across GC.
-        //
-        // Everything before it gets compacted into a contiguous `sealed` `ThinVec` — the
-        // cache-friendly read path. We try `Arc::try_unwrap` first to move the block out
-        // of its Arc without copying; that succeeds for blocks added by Replace deltas
-        // (only one strong ref), and falls back to a clone for blocks that previously
-        // came from `prev.pending` (still referenced by the old State while we hold
-        // `prev`). `pending` resets to empty: it accumulates again as future writes roll
-        // new blocks, until the next GC pass compacts them into `sealed` again.
-        let new_in_progress = new_all.pop();
+        // The trailing block becomes the new `in_progress` (set on self directly).
+        // Everything before it gets compacted into the contiguous `sealed` ThinVec.
+        // pending resets to empty.
+        let new_in_progress_arc = new_all.pop();
+        let new_in_progress: Option<IndexBlock> = new_in_progress_arc.map(|arc| {
+            // The trailing block was either the in_progress we take()'d above (Arc
+            // unique → try_unwrap succeeds) or a Replace-emitted block. Either way,
+            // try_unwrap should succeed; fall back to clone if not.
+            Arc::try_unwrap(arc).unwrap_or_else(|a| (*a).clone())
+        });
+
         let mut new_sealed: ThinVec<IndexBlock, BlockCapacity> =
             ThinVec::with_capacity(new_all.len());
         for arc_b in new_all {
@@ -343,11 +345,9 @@ impl<E: Encoder + DecodedBy> InvertedIndex<E> {
 
         let blocks_after = new_sealed.len() + usize::from(new_in_progress.is_some());
 
-        self.state.store(Arc::new(crate::index::state::State {
-            sealed: Arc::new(new_sealed),
-            pending: Arc::new(Vec::new()),
-            in_progress: new_in_progress,
-        }));
+        self.sealed = Arc::new(new_sealed);
+        // pending was drained via std::mem::take above; leave it empty.
+        self.in_progress = new_in_progress;
 
         info.block_count_delta = blocks_after as i64 - blocks_before as i64;
         self.gc_marker_inc();

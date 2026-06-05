@@ -7,7 +7,7 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 
-use super::state::{InvertedIndexSnapshot, State};
+use super::state::InvertedIndexSnapshot;
 use super::unique_id::IndexUniqueId;
 use crate::BlockCapacity;
 use crate::{
@@ -15,7 +15,6 @@ use crate::{
     controlled_cursor::ControlledCursor,
     debug::{BlockSummary, Summary},
 };
-use arc_swap::ArcSwap;
 use ffi::{IndexFlags, IndexFlags_Index_HasMultiValue};
 use index_result::RSIndexResult;
 use rqe_core::DocId;
@@ -32,15 +31,33 @@ use thin_vec::ThinVec;
 /// An inverted index is a data structure that maps terms to their occurrences in documents. It is
 /// used to efficiently search for documents that contain specific terms.
 ///
-/// The block storage lives behind a single [`ArcSwap<State>`] (see [`Self::state`]). Writers
-/// publish a new [`State`] per [`Self::add_record`] via [`arc_swap::ArcSwap::store`]; readers take a
-/// consistent snapshot via [`arc_swap::ArcSwap::load_full`] and walk it without locking.
+/// Block storage is split across three direct fields:
+/// - [`Self::sealed`] — compacted blocks owned via [`Arc`]; only GC writes here.
+/// - [`Self::pending`] — full-but-not-yet-compacted blocks added by `add_record`'s
+///   roll-over path. Each block is wrapped in an [`Arc`] so the snapshot's shallow Vec
+///   clone shares the underlying data with the index.
+/// - [`Self::in_progress`] — the currently-being-written block, mutated in place.
+///
+/// All three are protected by the spec write lock (C side) plus `&mut self` (Rust side)
+/// for mutations. Readers take a snapshot under the spec read lock — see
+/// [`Self::snapshot`].
 #[derive(Debug)]
 pub struct InvertedIndex<E> {
-    /// The lock-free block storage. Every block of the index lives inside this [`State`]
-    /// snapshot, split across three regions (sealed, pending, in_progress). Writers
-    /// publish a new state per [`Self::add_record`] / [`Self::apply_gc`].
-    pub(crate) state: ArcSwap<State>,
+    /// Compacted, immutable blocks. GC's `apply_gc` replaces this [`Arc`] under
+    /// `&mut self`; readers' snapshots share the same allocation via refcount clone.
+    pub(crate) sealed: Arc<ThinVec<IndexBlock, BlockCapacity>>,
+
+    /// Full-but-not-yet-compacted blocks, in insertion order. `add_record` pushes the
+    /// `in_progress` block here as an [`Arc`] when it fills up; GC drains this into
+    /// `sealed` on compaction. Snapshots `.clone()` this Vec (a shallow copy of the
+    /// pointer slots).
+    pub(crate) pending: Vec<Arc<IndexBlock>>,
+
+    /// The currently-being-written block. Mutated in place via `&mut self` — the spec
+    /// write lock at the FFI boundary guarantees there's no concurrent reader during
+    /// mutation, and readers eagerly clone this at snapshot time under the spec read
+    /// lock. Replaced (via `take()` + `Some(new_block)`) on block roll-over.
+    pub(crate) in_progress: Option<IndexBlock>,
 
     /// Number of unique documents in the index. This is not the total number of entries, but rather the
     /// number of unique documents that have been indexed.
@@ -222,7 +239,9 @@ impl<E: Encoder> InvertedIndex<E> {
     /// entries to the index.
     pub fn new(flags: IndexFlags) -> Self {
         Self {
-            state: ArcSwap::from_pointee(State::empty()),
+            sealed: Arc::new(ThinVec::new()),
+            pending: Vec::new(),
+            in_progress: None,
             n_unique_docs: 0,
             flags,
             gc_marker: AtomicU32::new(0),
@@ -251,19 +270,14 @@ impl<E: Encoder> InvertedIndex<E> {
         let n_unique_docs = blocks.iter().map(|b| b.num_entries as u32).sum();
 
         // All input blocks except the last go to `pending`; the last becomes `in_progress`.
-        // Sealed is empty — Story 1.4 populates it.
         let mut iter = blocks.into_iter();
-        let last = iter.next_back();
+        let in_progress = iter.next_back();
         let pending: Vec<Arc<IndexBlock>> = iter.map(Arc::new).collect();
-        let in_progress = last.map(Arc::new);
-        let state = State {
-            sealed: Arc::new(ThinVec::new()),
-            pending: Arc::new(pending),
-            in_progress,
-        };
 
         Self {
-            state: ArcSwap::from_pointee(state),
+            sealed: Arc::new(ThinVec::new()),
+            pending,
+            in_progress,
             n_unique_docs,
             flags,
             gc_marker: AtomicU32::new(0),
@@ -274,59 +288,48 @@ impl<E: Encoder> InvertedIndex<E> {
 
     /// The memory size of the index in bytes.
     ///
-    /// Counts every heap allocation reachable from `self`: the outer `Arc<State>`, the
-    /// inner `Arc<ThinVec>` for sealed (plus its heap if it has one), the inner
-    /// `Arc<Vec<Arc<IndexBlock>>>` for pending (plus its heap), each per-block
-    /// `Arc<IndexBlock>` in `pending` and `in_progress`, and every block's `buffer`
-    /// capacity. The pre-state model counted only `blocks.mem_usage() + buffer
-    /// capacities + stack`; this model has more layers of indirection (each carrying an
-    /// `Arc` header), so the same logical index reports a larger number — that's the
-    /// real memory the new layout occupies.
+    /// Counts every heap allocation reachable from `self`: the [`Arc<ThinVec>`] for
+    /// `sealed` (header + ThinVec stack + heap if it has one), the heap of the directly-
+    /// owned `pending: Vec<Arc<IndexBlock>>` plus each `Arc<IndexBlock>`'s allocation,
+    /// and every block's `buffer` capacity. `in_progress` is owned directly on the
+    /// struct, so its `IndexBlock` is already in `size_of::<Self>()`; only the
+    /// heap-allocated `buffer` capacity is added below.
     pub fn memory_usage(&self) -> usize {
-        // `Arc<T>` heap layout: `(strong: AtomicUsize, weak: AtomicUsize, T)`. The strong
-        // and weak counters together total `ARC_HEADER_BYTES`; the `T` itself is added
-        // separately at each site below.
-        const ARC_HEADER: usize = ARC_HEADER_BYTES;
-
-        let state = self.state.load_full();
+        // `size_of::<Self>` covers the direct fields: the `Arc<ThinVec>` pointer, the
+        // `Vec<Arc<IndexBlock>>` triple, the `Option<IndexBlock>`, the atomics and
+        // PhantomData. Heap-allocated portions are added below.
         let stack = std::mem::size_of::<Self>();
 
-        // Outer `Arc<State>`: header + the three pointer-sized fields of `State`.
-        let outer_state = ARC_HEADER + std::mem::size_of::<State>();
+        // `sealed: Arc<ThinVec<IndexBlock, BlockCapacity>>`.
+        let sealed_arc =
+            ARC_HEADER_BYTES + std::mem::size_of::<ThinVec<IndexBlock, BlockCapacity>>();
+        let sealed_thinvec_heap = self.sealed.mem_usage();
+        let sealed_buffers: usize = self.sealed.iter().map(|b| b.buffer.capacity()).sum();
 
-        // `sealed: Arc<ThinVec<IndexBlock, BlockCapacity>>`. The Arc allocation holds the
-        // ThinVec stack representation (one pointer); the ThinVec's heap allocation, if
-        // any, carries the header + slot storage via `mem_usage()`.
-        let sealed_arc = ARC_HEADER + std::mem::size_of::<ThinVec<IndexBlock, BlockCapacity>>();
-        let sealed_thinvec_heap = state.sealed.mem_usage();
-        let sealed_buffers: usize = state.sealed.iter().map(|b| b.buffer.capacity()).sum();
-
-        // `pending: Arc<Vec<Arc<IndexBlock>>>`. The Arc allocation holds the Vec
-        // (ptr+len+cap = 24 bytes); the Vec's heap carries `capacity * sizeof(Arc<IndexBlock>)`
-        // pointer slots.
-        let pending_arc = ARC_HEADER + std::mem::size_of::<Vec<Arc<IndexBlock>>>();
-        let pending_vec_heap = state.pending.capacity() * std::mem::size_of::<Arc<IndexBlock>>();
-        let pending_blocks: usize = state
+        // `pending: Vec<Arc<IndexBlock>>` — direct field. Only the Vec heap and each
+        // `Arc<IndexBlock>` allocation are heap; the Vec stack triple is in `stack`.
+        let pending_vec_heap = self.pending.capacity() * std::mem::size_of::<Arc<IndexBlock>>();
+        let pending_blocks: usize = self
             .pending
             .iter()
-            .map(|arc_b| ARC_HEADER + IndexBlock::STACK_SIZE + arc_b.buffer.capacity())
+            .map(|arc_b| ARC_HEADER_BYTES + IndexBlock::STACK_SIZE + arc_b.buffer.capacity())
             .sum();
 
-        // `in_progress: Option<Arc<IndexBlock>>`.
-        let in_progress = match state.in_progress.as_ref() {
-            Some(arc_b) => ARC_HEADER + IndexBlock::STACK_SIZE + arc_b.buffer.capacity(),
-            None => 0,
-        };
+        // `in_progress: Option<IndexBlock>` owned directly on `self`. The IndexBlock
+        // itself is in `stack` above; only the heap-allocated buffer capacity is added.
+        let in_progress_buffer = self
+            .in_progress
+            .as_ref()
+            .map(|b| b.buffer.capacity())
+            .unwrap_or(0);
 
         stack
-            + outer_state
             + sealed_arc
             + sealed_thinvec_heap
             + sealed_buffers
-            + pending_arc
             + pending_vec_heap
             + pending_blocks
-            + in_progress
+            + in_progress_buffer
     }
 
     /// Add a new record to the index. Returns an [`AddRecordOutcome`] reporting how many bytes
@@ -338,116 +341,110 @@ impl<E: Encoder> InvertedIndex<E> {
     /// It is expected that the document ID of the record is greater than or equal to the last
     /// document ID in the index.
     ///
-    /// The write publishes a new [`State`] via [`arc_swap::ArcSwap::store`]. Readers holding a previous
-    /// snapshot are unaffected — they continue to see the pre-write view until they
-    /// re-snapshot.
+    /// The write mutates `self.in_progress` in place — no buffer clone, no `Arc`
+    /// allocation, no Vec clone — in the common case where we're appending to the
+    /// current block. On roll-over the in_progress block is moved into a fresh
+    /// [`Arc<IndexBlock>`] and pushed onto `self.pending` (O(1) amortized).
     ///
-    /// # Note on `store` vs `rcu`
-    ///
-    /// The design doc (Epic 1, FT.HYBRID Workers Pool Consolidation) calls for the writer
-    /// to use [`arc_swap::ArcSwap::rcu`]. We use [`arc_swap::ArcSwap::store`] instead, which is functionally
-    /// equivalent under the current locking model: writers take `&mut self` (Rust) and the
-    /// spec write lock (C side), so no concurrent writer can race between our `load_full`
-    /// and `store`. If a future story lifts the spec lock from this path to allow
-    /// concurrent indexers, this must be switched to `rcu` — otherwise two racing writers
-    /// would each `load`, each compute a new state, and one would silently overwrite the
-    /// other.
+    /// Safety: `&mut self` guarantees no concurrent writer in Rust; the spec write lock
+    /// at the FFI boundary guarantees no concurrent reader (readers eagerly clone
+    /// `pending` + `in_progress` at snapshot time under the spec read lock, so they only
+    /// see quiescent states). If a future story lifts the spec lock, this must be
+    /// reworked.
     pub fn add_record(&mut self, record: &RSIndexResult) -> std::io::Result<AddRecordOutcome> {
         let doc_id = record.doc_id;
-        let prev = self.state.load_full();
 
         let same_doc = match (
             E::ALLOW_DUPLICATES,
-            prev.in_progress
+            self.in_progress
                 .as_ref()
                 .map(|b| b.last_doc_id == doc_id)
                 .unwrap_or(false),
         ) {
             (true, true) => true,
             (false, true) => {
-                // The current encoder does not allow duplicates — skip this record.
+                // Encoder doesn't allow duplicates — skip.
                 return Ok(AddRecordOutcome::default());
             }
             (_, false) => false,
         };
 
-        // Decide the working block: clone the existing in_progress (case A: appending to the
-        // current block), or start a fresh one (case B: empty index or current block is full).
-        // The previous in_progress, when not reused, gets promoted to `pending` later.
-        let start_new_block = match prev.in_progress.as_ref() {
+        let start_new_block = match self.in_progress.as_ref() {
             None => true,
             Some(ip) => !same_doc && ip.num_entries >= E::RECOMMENDED_BLOCK_ENTRIES,
         };
 
-        let mut working_block = if start_new_block {
-            IndexBlock::new(doc_id)
-        } else {
-            (**prev.in_progress.as_ref().expect("non-empty by branch")).clone()
-        };
         let mut mem_growth: usize = 0;
-        let mut blocks_added: u32 = if start_new_block { 1 } else { 0 };
+        let mut blocks_added: u32 = 0;
+        // Tracks the count of "old in_progress moved into pending" events. Each event
+        // adds an `Arc<IndexBlock>` heap allocation plus one pointer slot in the pending
+        // Vec — `PER_NEW_BLOCK_BYTES` bytes. The "fresh in_progress from None" case
+        // (first record after creation or GC) does NOT trigger this, because no Arc is
+        // allocated and pending isn't touched.
+        let mut rollovers_into_pending: u32 = 0;
 
-        // Holds an extra block to push to pending in the "delta too big" case. None most of
-        // the time.
-        let mut extra_pending: Option<Arc<IndexBlock>> = None;
-
-        let delta_base = E::delta_base(&working_block);
-        debug_assert!(
-            doc_id >= delta_base,
-            "documents should be encoded in the order of their IDs"
-        );
-        let delta = doc_id.wrapping_sub(delta_base);
-
-        let delta = match E::Delta::from_u64(delta) {
-            Some(delta) => delta,
-            None => {
-                // Delta too big for this encoder. Park the current working_block (it was
-                // either the cloned in_progress or a freshly-created empty block) as pending
-                // and start a brand-new block for this record.
-                extra_pending = Some(Arc::new(std::mem::replace(
-                    &mut working_block,
-                    IndexBlock::new(doc_id),
-                )));
-                blocks_added += 1;
-                E::Delta::zero()
+        if start_new_block {
+            if let Some(old_ip) = self.in_progress.take() {
+                self.pending.push(Arc::new(old_ip));
+                rollovers_into_pending += 1;
             }
-        };
+            self.in_progress = Some(IndexBlock::new(doc_id));
+            blocks_added += 1;
+        }
 
-        let buf_cap = working_block.buffer.capacity();
-        E::encode(working_block.writer(), delta, record)?;
-        // Buffer growth: cap before vs after the encode. We use capacity rather than the
-        // encoder's `bytes_written` because the buffer may have had spare capacity.
-        let buf_growth = working_block.buffer.capacity() - buf_cap;
-        mem_growth += buf_growth;
-        // Each new block contributes [`PER_NEW_BLOCK_BYTES`] beyond the buffer growth
-        // (already counted in `buf_growth` above).
-        mem_growth += (blocks_added as usize) * PER_NEW_BLOCK_BYTES;
+        // Try to encode into the current in_progress. If the encoder reports the delta
+        // is too big for its format, roll the current block to pending and start fresh.
+        let mut delta_too_big = false;
+        {
+            let working_block = self.in_progress.as_mut().expect("ensured above");
+            let delta_base = E::delta_base(working_block);
+            debug_assert!(
+                doc_id >= delta_base,
+                "documents should be encoded in the order of their IDs"
+            );
+            let delta = doc_id.wrapping_sub(delta_base);
 
-        debug_assert!(working_block.num_entries.saturating_add(1) < u16::MAX);
-        working_block.num_entries += 1;
-        working_block.last_doc_id = doc_id;
+            match E::Delta::from_u64(delta) {
+                Some(delta) => {
+                    let buf_cap = working_block.buffer.capacity();
+                    E::encode(working_block.writer(), delta, record)?;
+                    let buf_growth = working_block.buffer.capacity() - buf_cap;
+                    mem_growth += buf_growth;
 
-        // Build the new pending. When the previous in_progress wasn't reused (start_new_block
-        // or extra_pending), promote it. Append any extra_pending after that.
-        let new_pending = if blocks_added == 0 {
-            Arc::clone(&prev.pending)
-        } else {
-            let mut new = Vec::with_capacity(prev.pending.len() + blocks_added as usize);
-            new.extend(prev.pending.iter().cloned());
-            if start_new_block && let Some(old_ip) = prev.in_progress.as_ref() {
-                new.push(Arc::clone(old_ip));
+                    debug_assert!(working_block.num_entries.saturating_add(1) < u16::MAX);
+                    working_block.num_entries += 1;
+                    working_block.last_doc_id = doc_id;
+                }
+                None => {
+                    delta_too_big = true;
+                }
             }
-            if let Some(extra) = extra_pending {
-                new.push(extra);
-            }
-            Arc::new(new)
-        };
+        }
 
-        self.state.store(Arc::new(State {
-            sealed: Arc::clone(&prev.sealed),
-            pending: new_pending,
-            in_progress: Some(Arc::new(working_block)),
-        }));
+        if delta_too_big {
+            // The current in_progress can't hold this delta — promote it to pending,
+            // start a fresh one, encode delta=0.
+            let old_ip = self.in_progress.take().expect("just had one");
+            self.pending.push(Arc::new(old_ip));
+            rollovers_into_pending += 1;
+            self.in_progress = Some(IndexBlock::new(doc_id));
+            blocks_added += 1;
+
+            let working_block = self.in_progress.as_mut().expect("just set");
+            let buf_cap = working_block.buffer.capacity();
+            E::encode(working_block.writer(), E::Delta::zero(), record)?;
+            let buf_growth = working_block.buffer.capacity() - buf_cap;
+            mem_growth += buf_growth;
+
+            working_block.num_entries += 1;
+            working_block.last_doc_id = doc_id;
+        }
+
+        // Per-rollover memory: each "move old in_progress into pending" event adds one
+        // Arc<IndexBlock> heap allocation (refcount + inline IndexBlock) plus one new
+        // pointer slot in the pending Vec. The fresh in_progress itself lives on the
+        // struct stack and is already counted in `size_of::<Self>()`.
+        mem_growth += (rollovers_into_pending as usize) * PER_NEW_BLOCK_BYTES;
 
         if !same_doc {
             self.n_unique_docs += 1;
@@ -455,8 +452,6 @@ impl<E: Encoder> InvertedIndex<E> {
             self.flags |= IndexFlags_Index_HasMultiValue;
         }
 
-        // A single add_record can grow memory by at most one block-buffer doubling plus the
-        // overhead of one or two new block allocations — comfortably below 4 GiB.
         debug_assert!(
             mem_growth <= u32::MAX as usize,
             "AddRecordOutcome::mem_growth overflowed u32 ({mem_growth} bytes in one add)"
@@ -469,7 +464,15 @@ impl<E: Encoder> InvertedIndex<E> {
 
     /// Returns the last document ID in the index, if any.
     pub fn last_doc_id(&self) -> Option<DocId> {
-        self.state.load_full().last_block().map(|b| b.last_doc_id)
+        // Fast path: in_progress is the last block (when present).
+        if let Some(ip) = self.in_progress.as_ref() {
+            return Some(ip.last_doc_id);
+        }
+        // No in_progress: last block (if any) is the tail of pending or sealed.
+        self.pending
+            .last()
+            .map(|arc| arc.last_doc_id)
+            .or_else(|| self.sealed.last().map(|b| b.last_doc_id))
     }
 
     /// Returns the number of unique documents in the index.
@@ -484,13 +487,13 @@ impl<E: Encoder> InvertedIndex<E> {
 
     /// Return the debug summary for this inverted index.
     pub fn summary(&self) -> Summary {
-        let state = self.state.load_full();
+        let snap = self.snapshot();
         Summary {
             number_of_docs: self.n_unique_docs,
             number_of_entries: self.n_unique_docs as usize,
-            last_doc_id: state.last_block().map(|b| b.last_doc_id).unwrap_or(0),
+            last_doc_id: snap.last_block().map(|b| b.last_doc_id).unwrap_or(0),
             flags: self.flags as _,
-            number_of_blocks: state.block_count(),
+            number_of_blocks: snap.block_count(),
             block_efficiency: 0.0,
             has_efficiency: false,
         }
@@ -498,10 +501,10 @@ impl<E: Encoder> InvertedIndex<E> {
 
     /// Return basic information about the blocks in this inverted index.
     pub fn blocks_summary(&self) -> Vec<BlockSummary> {
-        let state = self.state.load_full();
-        let total = state.block_count();
+        let snap = self.snapshot();
+        let total = snap.block_count();
         (0..total)
-            .filter_map(|i| state.get_block(i))
+            .filter_map(|i| snap.block_ref(i))
             .map(|b| BlockSummary {
                 first_doc_id: b.first_doc_id,
                 last_doc_id: b.last_doc_id,
@@ -512,16 +515,20 @@ impl<E: Encoder> InvertedIndex<E> {
 
     /// Returns the number of blocks in this index.
     pub fn number_of_blocks(&self) -> usize {
-        self.state.load_full().block_count()
+        self.sealed.len() + self.pending.len() + usize::from(self.in_progress.is_some())
     }
 
-    /// Take an owned [`InvertedIndexSnapshot`] of the current block storage. The
-    /// snapshot holds an internal `Arc` and keeps the contained blocks alive for its
-    /// own lifetime — use this when handing block references to a context (FFI,
-    /// another thread, a long-lived callback) where the borrow checker can't keep
-    /// `&self` alive for you.
+    /// Take an owned [`InvertedIndexSnapshot`] of the current block storage. Combines
+    /// a refcount clone of `sealed`, a shallow Vec clone of `pending` (the Arcs share
+    /// underlying block data), and a deep clone of `in_progress`. All three are
+    /// captured together so the snapshot is internally consistent — the caller must
+    /// hold the spec read lock so no concurrent writer/GC can interleave.
     pub fn snapshot(&self) -> InvertedIndexSnapshot {
-        InvertedIndexSnapshot::from_arc(self.state.load_full())
+        InvertedIndexSnapshot::new(
+            Arc::clone(&self.sealed),
+            self.pending.clone(),
+            self.in_progress.clone(),
+        )
     }
 
     /// Get the current GC marker of this index. This is only used by the some C tests.
@@ -546,37 +553,28 @@ impl<E: Encoder> InvertedIndex<E> {
     /// `state.load_full()` directly.
     #[cfg(test)]
     pub(crate) fn blocks_snapshot(&self) -> Vec<IndexBlock> {
-        let state = self.state.load_full();
-        let total = state.block_count();
-        (0..total)
-            .filter_map(|i| state.get_block(i).cloned())
-            .collect()
+        let snap = self.snapshot();
+        let total = snap.block_count();
+        (0..total).filter_map(|i| snap.block_ref(i).cloned()).collect()
     }
 
     /// Consume the index and return all its blocks as a flat `Vec<IndexBlock>`. Useful when
     /// the caller built a small throwaway index (e.g. [`IndexBlock::repair`]) and needs to
     /// extract its blocks into an owned form. Tries to avoid cloning by `Arc::try_unwrap` —
-    /// since the consumer owns the index, the snapshot's Arcs are usually unique.
+    /// since the consumer owns the index, the Arcs are usually unique.
     pub(crate) fn into_blocks_owned(self) -> Vec<IndexBlock> {
-        let state_arc = self.state.into_inner();
-        let state = match Arc::try_unwrap(state_arc) {
-            Ok(s) => s,
-            Err(arc) => State {
-                sealed: Arc::clone(&arc.sealed),
-                pending: Arc::clone(&arc.pending),
-                in_progress: arc.in_progress.clone(),
-            },
-        };
-        let pending = match Arc::try_unwrap(state.pending) {
-            Ok(v) => v,
+        let sealed = match Arc::try_unwrap(self.sealed) {
+            Ok(tv) => tv,
             Err(arc) => (*arc).clone(),
         };
-        let mut out: Vec<IndexBlock> = Vec::with_capacity(pending.len() + 1);
-        for arc_block in pending {
+        let mut out: Vec<IndexBlock> =
+            Vec::with_capacity(sealed.len() + self.pending.len() + usize::from(self.in_progress.is_some()));
+        out.extend(sealed);
+        for arc_block in self.pending {
             out.push(Arc::try_unwrap(arc_block).unwrap_or_else(|arc| (*arc).clone()));
         }
-        if let Some(ip) = state.in_progress {
-            out.push(Arc::try_unwrap(ip).unwrap_or_else(|arc| (*arc).clone()));
+        if let Some(ip) = self.in_progress {
+            out.push(ip);
         }
         out
     }

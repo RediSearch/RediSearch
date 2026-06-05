@@ -29,11 +29,11 @@ use super::Dummy;
 #[test]
 fn memory_usage() {
     let mut ii = InvertedIndex::<Dummy>::new(IndexFlags_Index_DocIdsOnly);
-    // 24 stack bytes (n_unique_docs, flags, gc_marker, unique_id, state ArcSwap) + the
-    // State container's fixed heap overhead introduced by Epic 1: the outer Arc<State>
-    // allocation (40 = 16 header + 24 State struct) plus the empty sealed and pending
-    // Arcs (24 + 40). Total: 24 + 40 + 24 + 40 = 128.
-    let empty_size = 128;
+    // Empty index: stack (96 = sealed Arc ptr 8 + pending Vec 24 + Option<IndexBlock> 48
+    // + n_unique_docs 4 + flags 4 + gc_marker 4 + unique_id 4 + alignment) plus the
+    // empty `sealed` Arc allocation (16 Arc header + 8 ThinVec stack rep = 24). pending
+    // and in_progress have no heap allocation when empty.
+    let empty_size = 120;
 
     assert_eq!(ii.memory_usage(), empty_size);
 
@@ -51,9 +51,9 @@ fn adding_records() {
     let mem_growth = ii.add_record(&record).unwrap().mem_growth as usize;
 
     assert_eq!(
-        mem_growth,
-        PER_NEW_BLOCK_BYTES + 4,
-        "Arc<IndexBlock> allocation (16 header + 48 block) plus 4 bytes for the encoded delta"
+        mem_growth, 4,
+        "the first record promotes in_progress from None — no Arc allocation; \
+         only the 4-byte encoded delta lands on the heap"
     );
     assert_eq!(ii.number_of_blocks(), 1);
     assert_eq!(ii.snapshot().block_ref(0).unwrap().buffer, [0, 0, 0, 0]);
@@ -189,9 +189,8 @@ fn adding_creates_new_blocks_when_entries_is_reached() {
         .unwrap()
         .mem_growth as usize;
     assert_eq!(
-        mem_growth,
-        PER_NEW_BLOCK_BYTES + 1,
-        "Arc<IndexBlock> allocation (16 + 48) plus the byte written"
+        mem_growth, 1,
+        "first record: in_progress promoted from None, no Arc, just 1 byte buffer growth"
     );
     assert_eq!(ii.number_of_blocks(), 1);
     let mem_growth = ii
@@ -249,9 +248,8 @@ fn adding_big_delta_makes_new_block() {
     let mem_growth = ii.add_record(&record).unwrap().mem_growth as usize;
 
     assert_eq!(
-        mem_growth,
-        4 + PER_NEW_BLOCK_BYTES,
-        "4 bytes for the encoded delta plus a fresh Arc<IndexBlock> allocation (16 + 48)"
+        mem_growth, 4,
+        "first record: in_progress promoted from None, no Arc, just 4 bytes for the delta"
     );
     assert_eq!(ii.number_of_blocks(), 1);
     assert_eq!(ii.snapshot().block_ref(0).unwrap().buffer, [0, 0, 0, 0]);
@@ -377,20 +375,18 @@ fn adding_ii_blocks_growth_strategy() {
         1,
         "GC leaves only the surviving in_progress block"
     );
-    // The pending Vec was shrunk to fit by `apply_gc`. Only the in_progress block
-    // remains; pending is empty (capacity may still be one slot from the survivor that
-    // was pop()'d into in_progress, but len is 0).
-    let state = ii.state.load_full();
-    assert!(state.pending.is_empty(), "no surviving pending blocks");
+    // The pending Vec was drained by `apply_gc`. Only the in_progress block remains;
+    // pending is empty.
+    assert!(ii.pending.is_empty(), "no surviving pending blocks");
 }
 
 #[test]
 fn adding_tracks_entries() {
     let mut ii = EntriesTrackingIndex::<Dummy>::new(IndexFlags_Index_DocIdsOnly);
 
-    // InvertedIndex's own bytes (128, see `memory_usage` test) + EntriesTrackingIndex's
-    // own 8-byte `number_of_entries` field = 136.
-    let empty_size = 136;
+    // InvertedIndex's own bytes (120, see `memory_usage` test) + EntriesTrackingIndex's
+    // own 8-byte `number_of_entries` field = 128.
+    let empty_size = 128;
     assert_eq!(ii.memory_usage(), empty_size);
     assert_eq!(ii.number_of_entries(), 0);
 
@@ -410,9 +406,9 @@ fn adding_tracks_entries() {
 fn adding_track_field_mask() {
     let mut ii = FieldMaskTrackingIndex::<Dummy>::new(IndexFlags_Index_StoreFieldFlags);
 
-    // InvertedIndex's own bytes (128, see `memory_usage` test) + FieldMaskTrackingIndex's
-    // own 16 bytes (field_mask + sum_of_records) = 144.
-    assert_eq!(ii.memory_usage(), 144);
+    // InvertedIndex's own bytes (120, see `memory_usage` test) + FieldMaskTrackingIndex's
+    // own 16 bytes (field_mask + sum_of_records) = 136.
+    assert_eq!(ii.memory_usage(), 136);
     assert_eq!(ii.field_mask(), 0);
 
     let record = RSIndexResult::build_virt()
@@ -422,9 +418,8 @@ fn adding_track_field_mask() {
     let mem_growth = ii.add_record(&record).unwrap().mem_growth as usize;
 
     assert_eq!(
-        mem_growth,
-        PER_NEW_BLOCK_BYTES + 4,
-        "Arc<IndexBlock> allocation (16 + 48) plus 4 bytes for the encoded result"
+        mem_growth, 4,
+        "first record: in_progress promoted from None, no Arc, just 4 bytes for the result"
     );
     assert_eq!(ii.field_mask(), 0b101);
 

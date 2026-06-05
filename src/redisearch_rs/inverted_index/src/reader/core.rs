@@ -7,12 +7,12 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 
-use std::{io::Cursor, sync::Arc, sync::atomic};
+use std::{io::Cursor, sync::atomic};
 
 use super::{IndexReader, NumericReader, TermReader};
 use crate::{
     DecodedBy, Decoder, Encoder, HasInnerIndex, InvertedIndex, NumericDecoder, TermDecoder,
-    index::state::State, index::unique_id::IndexUniqueId, opaque::OpaqueEncoding,
+    index::state::InvertedIndexSnapshot, index::unique_id::IndexUniqueId, opaque::OpaqueEncoding,
 };
 use ffi::{IndexFlags, IndexFlags_Index_HasMultiValue};
 use index_result::RSIndexResult;
@@ -34,7 +34,7 @@ pub struct IndexReaderCore<'index, E> {
     /// Snapshot of the index's block storage taken at construction (refreshed on
     /// [`Self::reset`]). All block-data reads go through this; the reader never touches
     /// `ii.blocks` for block data, keeping reads lock-free.
-    snapshot: Arc<State>,
+    snapshot: InvertedIndexSnapshot,
 
     /// Logical index of the current block in [`Self::snapshot`]. The index is flat
     /// across the snapshot's three regions (sealed → pending → in_progress).
@@ -84,7 +84,7 @@ impl<'index, E: DecodedBy<Decoder = D>, D: Decoder> IndexReader<'index>
     #[inline(always)]
     fn next_record(&mut self, result: &mut RSIndexResult<'index>) -> std::io::Result<bool> {
         loop {
-            let block = match self.snapshot.get_block(self.current_block_idx) {
+            let block = match self.snapshot.block_ref(self.current_block_idx) {
                 Some(b) => b,
                 None => return Ok(false),
             };
@@ -122,7 +122,7 @@ impl<'index, E: DecodedBy<Decoder = D>, D: Decoder> IndexReader<'index>
 
         let block = self
             .snapshot
-            .get_block(self.current_block_idx)
+            .block_ref(self.current_block_idx)
             .expect("skip_to placed the cursor on a valid block");
         let base = D::base_id(block, self.last_doc_id);
         // SAFETY: see `cursor_at`.
@@ -145,7 +145,7 @@ impl<'index, E: DecodedBy<Decoder = D>, D: Decoder> IndexReader<'index>
 
         let current = self
             .snapshot
-            .get_block(self.current_block_idx)
+            .block_ref(self.current_block_idx)
             .expect("current_block_idx must point to a valid block");
         if current.last_doc_id >= doc_id {
             return true;
@@ -160,7 +160,7 @@ impl<'index, E: DecodedBy<Decoder = D>, D: Decoder> IndexReader<'index>
 
         // Fast path: is the very next block the answer?
         let search_start = self.current_block_idx + 1;
-        if let Some(next) = self.snapshot.get_block(search_start)
+        if let Some(next) = self.snapshot.block_ref(search_start)
             && next.last_doc_id >= doc_id
         {
             self.set_current_block(search_start);
@@ -177,7 +177,7 @@ impl<'index, E: DecodedBy<Decoder = D>, D: Decoder> IndexReader<'index>
     fn reset(&mut self) {
         // Take a fresh snapshot so the caller can see writes/GC that happened since this
         // reader was last positioned.
-        self.snapshot = self.ii.state.load_full();
+        self.snapshot = self.ii.snapshot();
         self.current_block_idx = 0;
         self.current_position = 0;
         self.last_doc_id = self
@@ -217,7 +217,7 @@ impl<'index, E: DecodedBy<Decoder = D>, D: Decoder> IndexReaderCore<'index, E> {
     /// The reader sees a frozen view of the index for its lifetime; calling
     /// [`Self::reset`] refreshes the snapshot.
     pub(crate) fn new(ii: &'index InvertedIndex<E>) -> Self {
-        let snapshot = ii.state.load_full();
+        let snapshot = ii.snapshot();
         let (current_block_idx, current_position, last_doc_id) = match snapshot.first_block() {
             Some(first) => (0, 0, first.first_doc_id),
             None => (0, 0, 0),
@@ -247,7 +247,7 @@ impl<'index, E: DecodedBy<Decoder = D>, D: Decoder> IndexReaderCore<'index, E> {
     pub fn swap_index(&mut self, index: &mut &'index InvertedIndex<E>) {
         std::mem::swap(&mut self.ii, index);
         self.ii_unique_id = self.ii.unique_id();
-        self.snapshot = self.ii.state.load_full();
+        self.snapshot = self.ii.snapshot();
         self.current_block_idx = 0;
         self.current_position = 0;
         self.last_doc_id = self
@@ -271,7 +271,7 @@ impl<'index, E: DecodedBy<Decoder = D>, D: Decoder> IndexReaderCore<'index, E> {
         );
         self.current_block_idx = index;
         self.current_position = 0;
-        if let Some(block) = self.snapshot.get_block(index) {
+        if let Some(block) = self.snapshot.block_ref(index) {
             self.last_doc_id = block.first_doc_id;
         }
     }
