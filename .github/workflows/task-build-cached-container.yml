@@ -56,7 +56,7 @@ jobs:
           RUN_ID: ${{ github.run_id }}
           IS_FORK_PR: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository }}
         run: |
-          IMAGE_NAME="ghcr.io/redisearch/redisearch-ci"
+          IMAGE_NAME="ghcr.io/${{ github.repository_owner }}/redisearch-ci"
           CONTAINER_SAFE=$(echo "$CONTAINER" | sed 's#[^A-Za-z0-9_.-]#-#g')
           SAN_SAFE=$(echo "$SAN" | sed 's#[^A-Za-z0-9_.-]#-#g')
           RUNNER_ENV_SAFE=$(echo "$RUNNER_ENV" | sed 's#[^A-Za-z0-9_.-]#-#g')
