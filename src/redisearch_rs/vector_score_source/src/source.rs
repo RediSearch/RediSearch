@@ -11,7 +11,10 @@
 
 use std::{ffi::c_void, num::NonZeroUsize, ptr::NonNull};
 
-use ffi::{TimeoutCtx, VecSearchMode, VecSimIndex, VecSimQueryParams, t_docId, timespec};
+use ffi::{
+    RS_VecSimCheckTimeout, TimeoutCtx, VecSearchMode, VecSimIndex, VecSimQueryParams, t_docId,
+    timespec,
+};
 use index_result::RSIndexResult;
 use rqe_iterators::{ExpirationChecker, FieldExpirationChecker, RQEIteratorError};
 use top_k::{BatchStrategy, ScoreSource, ScoredResult};
@@ -407,6 +410,14 @@ impl<'index, E: ExpirationChecker + Clone> ScoreSource for VectorScoreSource<'in
 
     fn iterator_type(&self) -> rqe_iterators::IteratorType {
         rqe_iterators::IteratorType::Hybrid
+    }
+
+    fn adhoc_check_timeout(&mut self) -> bool {
+        // SAFETY: `timeout_ctx` is heap-allocated and lives as long as `self`,
+        // so the pointer is valid for this call. `RS_VecSimCheckTimeout` only
+        // reads the deadline and bumps the periodic counter.
+        let timeout = unsafe { RS_VecSimCheckTimeout(self.timeout_ctx.as_mut()) };
+        timeout != 0
     }
 
     fn batch_strategy(&mut self, heap_count: usize, k: usize) -> BatchStrategy {

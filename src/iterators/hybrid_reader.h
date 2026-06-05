@@ -63,6 +63,10 @@ extern "C" {
 
 QueryIterator *NewHybridVectorIterator(HybridIteratorParams hParams, QueryError *status);
 
+// Forwards to the test-mockable `vecsimTimeoutCallback`. Called from the Rust
+// hybrid adhoc-BF scan so it polls the query deadline like the C path does.
+int RS_VecSimCheckTimeout(TimeoutCtx *ctx);
+
 RLookupKey    **HybridIterator_GetOwnKeyRef(QueryIterator *it);
 void            HybridIterator_SetKeyHandle(QueryIterator *it, struct RLookupKeyHandle *h);
 

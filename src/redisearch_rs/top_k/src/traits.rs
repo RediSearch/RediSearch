@@ -203,6 +203,10 @@ pub trait ScoreSource {
     /// - `k` — the target number of results.
     fn batch_strategy(&mut self, heap_count: usize, k: usize) -> BatchStrategy;
 
+    /// Checked only in Adhoc-BF mode, returns `true` if the iteration needs to abort
+    /// completely due to a timeout.
+    fn adhoc_check_timeout(&mut self) -> bool;
+
     /// The [`IteratorType`] that the wrapping [`TopKIterator`] should report.
     ///
     /// [`TopKIterator`]: crate::TopKIterator

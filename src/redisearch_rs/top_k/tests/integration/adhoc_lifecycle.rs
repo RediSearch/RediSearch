@@ -77,6 +77,10 @@ impl ScoreSource for LifecycleCountingSource {
         BatchStrategy::Continue
     }
 
+    fn adhoc_check_timeout(&mut self) -> bool {
+        false
+    }
+
     fn begin_adhoc(&mut self) {
         self.begin_calls += 1;
     }
@@ -261,7 +265,10 @@ fn rerank_skipped_on_timeout() {
         source.rerank_calls, 0,
         "rerank must not run when the scan times out"
     );
-    assert_eq!(source.end_calls, 1, "end_adhoc still runs on the error path");
+    assert_eq!(
+        source.end_calls, 1,
+        "end_adhoc still runs on the error path"
+    );
 }
 
 #[test]
@@ -269,11 +276,9 @@ fn rerank_reorders_topk_by_exact_scores() {
     // Adhoc (approximate) scores order the docs 1 < 2 < 3 (ascending = better).
     // The exact rerank scores invert that to 3 < 2 < 1, so the final yield
     // order must follow the reranked scores, not the adhoc ones.
-    let source = MockScoreSource::new(
-        vec![],
-        vec![(1, 0.1), (2, 0.2), (3, 0.3)],
-        |_, _| BatchStrategy::Continue,
-    )
+    let source = MockScoreSource::new(vec![], vec![(1, 0.1), (2, 0.2), (3, 0.3)], |_, _| {
+        BatchStrategy::Continue
+    })
     .with_rerank(vec![(1, 0.30), (2, 0.20), (3, 0.10)]);
 
     let mut it = TopKIterator::new_with_mode(
@@ -297,11 +302,9 @@ fn rerank_keeps_adhoc_score_for_unmapped_doc() {
     // mirroring the disk path's handling of labels with no exact distance.
     // Adhoc: 1→0.5, 2→0.1, 3→0.9. After rerank doc 1 becomes the best (0.05),
     // so the order is 1 < 2 < 3.
-    let source = MockScoreSource::new(
-        vec![],
-        vec![(1, 0.5), (2, 0.1), (3, 0.9)],
-        |_, _| BatchStrategy::Continue,
-    )
+    let source = MockScoreSource::new(vec![], vec![(1, 0.5), (2, 0.1), (3, 0.9)], |_, _| {
+        BatchStrategy::Continue
+    })
     .with_rerank(vec![(1, 0.05)]);
 
     let mut it = TopKIterator::new_with_mode(
