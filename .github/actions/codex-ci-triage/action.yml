@@ -44,10 +44,12 @@ runs:
         # (github-merge-queue, github-actions[bot]); allow them past the
         # action's collaborator gate. Sandbox + safety remain read-only.
         # `allow-bots: true` only covers github-actions[bot] (hardcoded in
-        # codex-action's trusted set); other bot actors must be listed
-        # explicitly via `allow-bot-users`.
+        # codex-action's trusted set). `github-merge-queue` is exposed
+        # without the `[bot]` suffix in `github.actor`, so the action's
+        # `isBotActor` check (endsWith "[bot]") rejects it and never
+        # consults `allow-bot-users`; pass it via `allow-users` instead.
         allow-bots: true
-        allow-bot-users: github-merge-queue[bot]
+        allow-users: github-merge-queue
 
     - name: Read triage output
       id: read
