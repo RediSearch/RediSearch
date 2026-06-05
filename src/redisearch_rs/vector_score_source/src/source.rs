@@ -12,8 +12,8 @@
 use std::{ffi::c_void, num::NonZeroUsize, ptr::NonNull};
 
 use ffi::{
-    TimeoutCtx, VecSearchMode, VecSearchMode_HYBRID_BATCHES, VecSimIndex, VecSimQueryParams,
-    timespec,
+    RS_VecSimCheckTimeout, TimeoutCtx, VecSearchMode, VecSearchMode_HYBRID_BATCHES, VecSimIndex,
+    VecSimQueryParams, timespec,
 };
 use index_result::RSIndexResult;
 use rqe_core::DocId;
@@ -404,6 +404,15 @@ impl<'index, E: ExpirationChecker> ScoreSource for VectorScoreSource<'index, E> 
     fn iterator_type(&self) -> rqe_iterators::IteratorType {
         // TODO: MOD-14206: Rename.
         rqe_iterators::IteratorType::Hybrid
+    }
+
+    fn adhoc_check_timeout(&mut self) -> bool {
+        // SAFETY: `as_mut()` gives a valid, exclusive borrow for the call; the
+        // source is single-threaded so the aliased raw pointer in
+        // `query_params.timeoutCtx` is idle. The callee reads the deadline and
+        // bumps the counter without retaining the pointer.
+        let timeout = unsafe { RS_VecSimCheckTimeout(self.timeout_ctx.as_mut()) };
+        timeout != 0
     }
 
     fn batch_strategy(&mut self, heap_count: usize, k: usize) -> BatchStrategy {

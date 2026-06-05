@@ -272,11 +272,15 @@ impl<'index, S: ScoreSource + 'index, C: RQEIterator<'index> + 'index> TopKItera
             if let Some(score) = scope.0.lookup_score(doc_id) {
                 self.heap.push(doc_id, score);
             }
+            if scope.0.adhoc_check_timeout() {
+                return Err(RQEIteratorError::TimedOut);
+            }
         }
 
         // Reached only on a clean scan exit (EOF or `Stop`); a timed-out scan
-        // propagates via `?` above and never gets here. Rerank while `scope` is
-        // alive, so the source's scan resources are still held.
+        // propagates via `?` or an `AdhocStrategy::TimedOut` return above and
+        // never gets here. Rerank while `scope` is alive, so the source's scan
+        // resources are still held.
         if scope.0.should_rerank() && !self.heap.is_empty() {
             let mut entries: Vec<_> = self.heap.drain_unsorted().collect();
             scope.0.rerank(&mut entries);
