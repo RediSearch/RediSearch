@@ -106,14 +106,14 @@ impl IndexBlock {
     /// resorting to pointer equality, which isn't stable in the lock-free state model.
     ///
     /// `None` is returned when there is nothing to repair in this block.
-    pub(crate) fn repair<'index, E: Encoder + DecodedBy<Decoder = D>, D: Decoder>(
-        &'index self,
+    pub(crate) fn repair<'block, E: Encoder + DecodedBy<Decoder = D>, D: Decoder>(
+        &'block self,
         block_idx: usize,
         doc_exist: impl Fn(DocId) -> bool,
-        mut repair: Option<impl FnMut(&RSIndexResult<'index>, &IndexBlock, usize)>,
+        mut repair: Option<impl FnMut(&RSIndexResult<'block>, &IndexBlock, usize)>,
         _encoder: PhantomData<E>,
     ) -> std::io::Result<Option<RepairType>> {
-        let mut cursor: std::io::Cursor<&'index [u8]> = std::io::Cursor::new(&self.buffer);
+        let mut cursor: std::io::Cursor<&'block [u8]> = std::io::Cursor::new(&self.buffer);
         let mut last_read_doc_id = None;
         let mut result = D::base_result();
         let mut unique_read = 0;
@@ -170,18 +170,24 @@ impl<E: Encoder + DecodedBy> InvertedIndex<E> {
     /// exists and `false` otherwise.
     ///
     /// If a doc does exist, then `repair` is called with it to run any repair calculations needed.
+    /// The `repair` closure is invoked synchronously per surviving record. Its
+    /// [`RSIndexResult`] argument carries a higher-ranked lifetime, so the closure
+    /// cannot store the result (or the borrows inside it) beyond a single call — that
+    /// constraint is what lets us walk snapshot-owned block buffers without `unsafe`
+    /// lifetime extension.
     ///
     /// This function returns a delta if GC is needed, or `None` if no GC is needed.
-    pub fn scan_gc<'index>(
-        &'index self,
+    pub fn scan_gc(
+        &self,
         doc_exist: impl Fn(DocId) -> bool,
-        mut repair: Option<impl FnMut(&RSIndexResult<'index>, &IndexBlock, usize)>,
+        mut repair: Option<impl for<'snap> FnMut(&RSIndexResult<'snap>, &IndexBlock, usize)>,
     ) -> std::io::Result<Option<GcScanDelta>> {
         // Scan against an `InvertedIndexSnapshot` — gives us a stable enumeration even if
         // writes happen concurrently with the scan. The `last_block_idx` /
         // `last_block_num_entries` fields below let `apply_gc` detect drift and ignore
-        // any stale delta. The snapshot lives for the duration of this function and owns
-        // the cloned in_progress, so block references are valid for the local scope.
+        // any stale delta. The snapshot lives for the duration of this function; each
+        // block's borrow lifetime is the snapshot's, so `IndexBlock::repair` and its
+        // HRTB-bound closure stay inside that scope without any lifetime tricks.
         let snapshot = self.snapshot();
         let mut results = Vec::new();
 
@@ -190,11 +196,8 @@ impl<E: Encoder + DecodedBy> InvertedIndex<E> {
             let Some(block) = snapshot.block_ref(i) else {
                 continue;
             };
-            // SAFETY: lifetime extension — the snapshot is owned by this function and
-            // its block buffers are immutable for the function's duration.
-            let block_ref: &'index IndexBlock = unsafe { std::mem::transmute(block) };
 
-            let repair = block_ref.repair(i, &doc_exist, repair.as_mut(), PhantomData::<E>)?;
+            let repair = block.repair(i, &doc_exist, repair.as_mut(), PhantomData::<E>)?;
 
             if let Some(repair) = repair {
                 results.push(BlockGcScanResult { index: i, repair });
@@ -314,7 +317,13 @@ impl<E: Encoder + DecodedBy> InvertedIndex<E> {
                             info.bytes_freed += arc_block.mem_usage();
                             self.n_unique_docs -= n_unique_docs_removed;
                             for b in blocks {
-                                info.entries_removed -= b.num_entries as usize;
+                                // Replace can only shrink — new block entries are always
+                                // a subset of the old. saturating_sub guards against a
+                                // malformed delta (e.g. corrupted RDB) producing a
+                                // larger replacement.
+                                info.entries_removed = info
+                                    .entries_removed
+                                    .saturating_sub(b.num_entries as usize);
                                 info.bytes_allocated += b.mem_usage();
                                 new_all.push(Arc::new(b));
                             }

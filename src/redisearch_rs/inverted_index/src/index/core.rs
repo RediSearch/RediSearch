@@ -219,9 +219,10 @@ impl Drop for IndexBlock {
 
 // `Clone` must increment `TOTAL_BLOCKS` to stay balanced with `Drop`. Constructing an
 // `IndexBlock` via struct literal (as a copy) would otherwise let the counter underflow
-// when the clone is dropped. `add_record` clones the current `in_progress` block on each
-// write (to mutate the copy and publish a new state), so this path is hot — but each call
-// still represents one logical block in existence, so the counter remains accurate.
+// when the clone is dropped. The hot users of this impl are `apply_gc` (clones sealed
+// blocks into the working list) and `InvertedIndex::snapshot` (deep-clones `in_progress`
+// for the reader's owned view). Each clone is a fresh logical block, so the counter
+// remains accurate.
 impl Clone for IndexBlock {
     fn clone(&self) -> Self {
         TOTAL_BLOCKS.fetch_add(1, atomic::Ordering::Relaxed);
@@ -549,8 +550,8 @@ impl<E: Encoder> InvertedIndex<E> {
     }
 
     /// Return a snapshot of all blocks as an owned `Vec<IndexBlock>`. Used by tests that
-    /// want to inspect or compare the full block list; production code should walk
-    /// `state.load_full()` directly.
+    /// want to inspect or compare the full block list; production code should call
+    /// [`Self::snapshot`] and walk the returned [`InvertedIndexSnapshot`] instead.
     #[cfg(test)]
     pub(crate) fn blocks_snapshot(&self) -> Vec<IndexBlock> {
         let snap = self.snapshot();

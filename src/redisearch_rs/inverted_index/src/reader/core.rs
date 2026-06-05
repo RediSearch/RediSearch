@@ -20,20 +20,21 @@ use rqe_core::DocId;
 
 /// Reader that is able to read the records from an [`InvertedIndex`].
 ///
-/// Reads go through a [`State`] snapshot, not the index's `blocks` directly. The snapshot
-/// is taken at construction (or after [`Self::reset`]) and held via an `Arc` for the
-/// lifetime of the reader, so concurrent writers and GC don't observe-or-tear the reader's
-/// view. The `'index` lifetime continues to bind result-buffer references — see the
-/// safety notes on [`Self::cursor_at`].
+/// Reads go through an [`InvertedIndexSnapshot`], not the index's block fields directly.
+/// The snapshot is taken at construction (or after [`Self::reset`]) and owned by the
+/// reader for its lifetime, so concurrent writers and GC don't observe-or-tear the
+/// reader's view. The `'index` lifetime continues to bind result-buffer references —
+/// see the safety notes on [`Self::cursor_at`].
 pub struct IndexReaderCore<'index, E> {
     /// The inverted index that is being read from. Held for ABA detection
     /// ([`Self::points_to_ii`]), flag/`unique_docs` queries, and the GC marker. Block
-    /// data is read from [`Self::snapshot`], not from `ii.blocks`.
+    /// data is read from [`Self::snapshot`], not from the index's `sealed` /
+    /// `pending` / `in_progress` fields.
     pub(crate) ii: &'index InvertedIndex<E>,
 
     /// Snapshot of the index's block storage taken at construction (refreshed on
     /// [`Self::reset`]). All block-data reads go through this; the reader never touches
-    /// `ii.blocks` for block data, keeping reads lock-free.
+    /// the index's block fields directly during iteration, keeping reads lock-free.
     snapshot: InvertedIndexSnapshot,
 
     /// Logical index of the current block in [`Self::snapshot`]. The index is flat

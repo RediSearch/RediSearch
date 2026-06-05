@@ -134,10 +134,10 @@ impl<E: Encoder + DecodedBy> FieldMaskTrackingIndex<E> {
     /// If a doc does exist, then `repair` is called with it to run any repair calculations needed.
     ///
     /// This function returns a delta if GC is needed, or `None` if no GC is needed.
-    pub fn scan_gc<'index>(
-        &'index self,
+    pub fn scan_gc(
+        &self,
         doc_exist: impl Fn(DocId) -> bool,
-        repair: Option<impl FnMut(&RSIndexResult<'index>, &IndexBlock, usize)>,
+        repair: Option<impl for<'snap> FnMut(&RSIndexResult<'snap>, &IndexBlock, usize)>,
     ) -> std::io::Result<Option<GcScanDelta>> {
         self.index.scan_gc(doc_exist, repair)
     }

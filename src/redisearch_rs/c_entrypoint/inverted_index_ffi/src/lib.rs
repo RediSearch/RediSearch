@@ -272,8 +272,10 @@ pub unsafe extern "C" fn InvertedIndex_WriteEntryGeneric(
 /// Return the number of blocks in the inverted index.
 ///
 /// # Safety
-/// The following invariant must be upheld when calling this function:
+/// The following invariants must be upheld when calling this function:
 /// - `ii` must be a valid pointer to an `InvertedIndex` instance and cannot be NULL.
+/// - The caller must hold the spec read lock — `number_of_blocks` reads
+///   `pending.len()` non-atomically, which races with a concurrent writer's `push`.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn InvertedIndex_NumBlocks(ii: *const InvertedIndex) -> usize {
     debug_assert!(!ii.is_null(), "ii must not be null");
@@ -445,6 +447,11 @@ pub unsafe extern "C" fn InvertedIndex_NumEntries(ii: *const InvertedIndex) -> u
 ///
 /// # Safety
 /// - `ii` must be a valid pointer to an `InvertedIndex` and cannot be NULL.
+/// - The caller must hold the spec read lock for the duration of this call. The snapshot
+///   reads the `pending` Vec triple (ptr/len/cap) and the `in_progress` `IndexBlock`
+///   (which contains its own `Vec`) non-atomically. Writers
+///   ([`InvertedIndex_WriteEntryGeneric`], [`InvertedIndex_ApplyGCDelta`]) mutate those
+///   fields under the spec write lock, so without the read lock you race with them.
 /// - The returned pointer must be released via `InvertedIndexSnapshot_Free`.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn InvertedIndex_Snapshot(
@@ -507,8 +514,10 @@ pub unsafe extern "C" fn InvertedIndexSnapshot_BlockRef<'snap>(
 /// This is used by some C tests.
 ///
 /// # Safety
-/// The following invariant must be upheld when calling this function:
+/// The following invariants must be upheld when calling this function:
 /// - `ii` must be a valid pointer to an `InvertedIndex` instance and cannot be NULL.
+/// - The caller must hold the spec read lock — `last_doc_id` reads `in_progress` and
+///   the tail of `pending` non-atomically, which races with a concurrent writer.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn InvertedIndex_LastId(ii: *const InvertedIndex) -> DocId {
     debug_assert!(!ii.is_null(), "ii must not be null");
