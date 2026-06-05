@@ -7,7 +7,18 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 
+use super::state::{InvertedIndexSnapshot, State};
+use super::unique_id::IndexUniqueId;
+use crate::BlockCapacity;
+use crate::{
+    Encoder, IdDelta,
+    controlled_cursor::ControlledCursor,
+    debug::{BlockSummary, Summary},
+};
 use arc_swap::ArcSwap;
+use ffi::{IndexFlags, IndexFlags_Index_HasMultiValue};
+use index_result::RSIndexResult;
+use rqe_core::DocId;
 use serde::{Deserialize, Serialize};
 use std::{
     marker::PhantomData,
@@ -16,18 +27,7 @@ use std::{
         atomic::{self, AtomicU32, AtomicUsize},
     },
 };
-use super::state::{InvertedIndexSnapshot, State};
-use super::unique_id::IndexUniqueId;
-use crate::{
-    Encoder, IdDelta,
-    controlled_cursor::ControlledCursor,
-    debug::{BlockSummary, Summary},
-};
-use crate::BlockCapacity;
 use thin_vec::ThinVec;
-use ffi::{IndexFlags, IndexFlags_Index_HasMultiValue};
-use index_result::RSIndexResult;
-use rqe_core::DocId;
 
 /// An inverted index is a data structure that maps terms to their occurrences in documents. It is
 /// used to efficiently search for documents that contain specific terms.
@@ -107,9 +107,8 @@ pub(crate) const ARC_HEADER_BYTES: usize = std::mem::size_of::<usize>() * 2;
 /// `IndexBlock`) plus one new pointer slot in the rebuilt `pending`
 /// `Vec<Arc<IndexBlock>>`. Used by [`InvertedIndex::add_record`] for `mem_growth`
 /// reporting and referenced by tests that pin the per-block delta.
-pub(crate) const PER_NEW_BLOCK_BYTES: usize = IndexBlock::STACK_SIZE
-    + ARC_HEADER_BYTES
-    + std::mem::size_of::<Arc<IndexBlock>>();
+pub(crate) const PER_NEW_BLOCK_BYTES: usize =
+    IndexBlock::STACK_SIZE + ARC_HEADER_BYTES + std::mem::size_of::<Arc<IndexBlock>>();
 
 static TOTAL_BLOCKS: AtomicUsize = AtomicUsize::new(0);
 
@@ -435,9 +434,7 @@ impl<E: Encoder> InvertedIndex<E> {
         } else {
             let mut new = Vec::with_capacity(prev.pending.len() + blocks_added as usize);
             new.extend(prev.pending.iter().cloned());
-            if start_new_block
-                && let Some(old_ip) = prev.in_progress.as_ref()
-            {
+            if start_new_block && let Some(old_ip) = prev.in_progress.as_ref() {
                 new.push(Arc::clone(old_ip));
             }
             if let Some(extra) = extra_pending {

@@ -54,9 +54,7 @@ fn assert_state_invariants<E: Encoder>(ii: &InvertedIndex<E>) {
 
     // Across regions, the trailing block of each region precedes the leading block of the
     // next.
-    if let (Some(last_sealed), Some(first_pending)) =
-        (state.sealed.last(), state.pending.first())
-    {
+    if let (Some(last_sealed), Some(first_pending)) = (state.sealed.last(), state.pending.first()) {
         assert!(
             last_sealed.last_doc_id < first_pending.first_doc_id,
             "pending must come after sealed"
@@ -136,7 +134,11 @@ fn block_fill_moves_previous_in_progress_into_pending() {
             .unwrap();
     }
 
-    assert_eq!(ii.number_of_blocks(), 2, "should have rolled to a second block");
+    assert_eq!(
+        ii.number_of_blocks(),
+        2,
+        "should have rolled to a second block"
+    );
 
     let state = ii.state.load_full();
     assert_eq!(state.pending.len(), 1, "first block is now pending");
@@ -277,7 +279,11 @@ fn reader_uses_snapshot_block_layout() {
                 .unwrap();
         }
     }
-    assert_eq!(reader.snapshot_block_count(), 2, "reader's snapshot is frozen");
+    assert_eq!(
+        reader.snapshot_block_count(),
+        2,
+        "reader's snapshot is frozen"
+    );
 
     // After `reset()`, the reader picks up the new snapshot.
     reader.reset();
@@ -350,12 +356,7 @@ fn apply_gc_compacts_survivors_into_sealed() {
     // from "pending+in_progress" to "sealed+in_progress".
     let delta = GcScanDelta {
         last_block_idx: ii.number_of_blocks() - 1,
-        last_block_num_entries: ii
-            .state
-            .load_full()
-            .last_block()
-            .unwrap()
-            .num_entries,
+        last_block_num_entries: ii.state.load_full().last_block().unwrap().num_entries,
         deltas: vec![BlockGcScanResult {
             index: 0,
             repair: RepairType::Delete {
@@ -380,7 +381,10 @@ fn apply_gc_compacts_survivors_into_sealed() {
     // The sealed block is the survivor from old pending (originally pending[1] after
     // pending[0] was deleted).
     assert_eq!(after.sealed[0].first_doc_id, entries_per_block + 1);
-    assert_eq!(after.in_progress.as_ref().unwrap().first_doc_id, 2 * entries_per_block + 1);
+    assert_eq!(
+        after.in_progress.as_ref().unwrap().first_doc_id,
+        2 * entries_per_block + 1
+    );
 
     assert_state_invariants(&ii);
 }
@@ -403,7 +407,13 @@ fn apply_gc_keeps_state_in_sync() {
     // `mem::swap` and rebuilds `blocks`, which is the case the state-sync hook covers.
     let delta = GcScanDelta {
         last_block_idx: ii.number_of_blocks() - 1,
-        last_block_num_entries: ii.state.load_full().last_block().cloned().unwrap().num_entries,
+        last_block_num_entries: ii
+            .state
+            .load_full()
+            .last_block()
+            .cloned()
+            .unwrap()
+            .num_entries,
         deltas: vec![BlockGcScanResult {
             index: 0,
             repair: RepairType::Delete {

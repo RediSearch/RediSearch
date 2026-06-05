@@ -187,7 +187,9 @@ impl<E: Encoder + DecodedBy> InvertedIndex<E> {
 
         let total = state.block_count();
         for i in 0..total {
-            let Some(block) = state.get_block(i) else { continue };
+            let Some(block) = state.get_block(i) else {
+                continue;
+            };
             // SAFETY: lifetime extension — same justification as `IndexReaderCore::cursor_at`
             // (the snapshot is owned by `state_arc`, alive for this function's duration,
             // and the IndexBlock buffers are immutable).

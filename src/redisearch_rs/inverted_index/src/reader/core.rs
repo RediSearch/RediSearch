@@ -12,9 +12,7 @@ use std::{io::Cursor, sync::Arc, sync::atomic};
 use super::{IndexReader, NumericReader, TermReader};
 use crate::{
     DecodedBy, Decoder, Encoder, HasInnerIndex, InvertedIndex, NumericDecoder, TermDecoder,
-    index::state::State,
-    index::unique_id::IndexUniqueId,
-    opaque::OpaqueEncoding,
+    index::state::State, index::unique_id::IndexUniqueId, opaque::OpaqueEncoding,
 };
 use ffi::{IndexFlags, IndexFlags_Index_HasMultiValue};
 use index_result::RSIndexResult;
@@ -182,7 +180,11 @@ impl<'index, E: DecodedBy<Decoder = D>, D: Decoder> IndexReader<'index>
         self.snapshot = self.ii.state.load_full();
         self.current_block_idx = 0;
         self.current_position = 0;
-        self.last_doc_id = self.snapshot.first_block().map(|b| b.first_doc_id).unwrap_or(0);
+        self.last_doc_id = self
+            .snapshot
+            .first_block()
+            .map(|b| b.first_doc_id)
+            .unwrap_or(0);
         self.gc_marker = self.ii.gc_marker.load(atomic::Ordering::Relaxed);
     }
 
@@ -248,7 +250,11 @@ impl<'index, E: DecodedBy<Decoder = D>, D: Decoder> IndexReaderCore<'index, E> {
         self.snapshot = self.ii.state.load_full();
         self.current_block_idx = 0;
         self.current_position = 0;
-        self.last_doc_id = self.snapshot.first_block().map(|b| b.first_doc_id).unwrap_or(0);
+        self.last_doc_id = self
+            .snapshot
+            .first_block()
+            .map(|b| b.first_doc_id)
+            .unwrap_or(0);
         self.gc_marker = self.ii.gc_marker.load(atomic::Ordering::Relaxed);
     }
 

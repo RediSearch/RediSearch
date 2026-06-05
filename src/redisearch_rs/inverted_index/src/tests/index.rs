@@ -71,7 +71,10 @@ fn adding_records() {
         "buffer needs to grow to 9 bytes to hold a total of 8 bytes"
     );
     assert_eq!(ii.number_of_blocks(), 1);
-    assert_eq!(ii.snapshot().block_ref(0).unwrap().buffer, [0, 0, 0, 0, 0, 0, 0, 1]);
+    assert_eq!(
+        ii.snapshot().block_ref(0).unwrap().buffer,
+        [0, 0, 0, 0, 0, 0, 0, 1]
+    );
     assert_eq!(ii.snapshot().block_ref(0).unwrap().num_entries, 2);
     assert_eq!(ii.snapshot().block_ref(0).unwrap().first_doc_id, 10);
     assert_eq!(ii.snapshot().block_ref(0).unwrap().last_doc_id, 11);
@@ -232,7 +235,8 @@ fn adding_creates_new_blocks_when_entries_is_reached() {
         "duplicates should stay on the same block"
     );
     assert_eq!(
-        ii.snapshot().block_ref(1).unwrap().num_entries, 3,
+        ii.snapshot().block_ref(1).unwrap().num_entries,
+        3,
         "should have 3 entries in the second block because duplicate was added"
     );
 }
