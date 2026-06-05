@@ -72,7 +72,7 @@ def test_hybrid_linear_default_weights():
         'VSIM', '@embedding', '$BLOB',
             'KNN', '2', 'K', '10',
             'YIELD_SCORE_AS', 'v_score',
-        'COMBINE', 'LINEAR', '2',
+        'COMBINE', 'LINEAR', '2', 'WINDOW', '10',
             'YIELD_SCORE_AS', 'fused_score',
         'PARAMS', '2', 'BLOB', query_vector)
     results, _ = get_results_from_hybrid_response(response)
@@ -115,7 +115,7 @@ def test_hybrid_linear_explicit_weights():
         'VSIM', '@embedding', '$BLOB',
             'KNN', '2', 'K', '10',
             'YIELD_SCORE_AS', 'v_score',
-        'COMBINE', 'LINEAR', '6', 'ALPHA', alpha, 'BETA', beta,
+        'COMBINE', 'LINEAR', '4', 'ALPHA', alpha, 'BETA', beta,
             'YIELD_SCORE_AS', 'fused_score',
         'PARAMS', '2', 'BLOB', query_vector)
     results, _ = get_results_from_hybrid_response(response)
