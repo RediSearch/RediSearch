@@ -41,8 +41,9 @@ fn index_block_repair_delete() {
 
     let repair_status = block
         .repair(
+            0,
             cb,
-            None::<fn(&RSIndexResult, &IndexBlock)>,
+            None::<fn(&RSIndexResult, &crate::RepairContext<'_>)>,
             PhantomData::<Dummy>::default(),
         )
         .unwrap();
@@ -71,8 +72,9 @@ fn index_block_repair_unchanged() {
 
     let repair_status = block
         .repair(
+            0,
             cb,
-            None::<fn(&RSIndexResult, &IndexBlock)>,
+            None::<fn(&RSIndexResult, &crate::RepairContext<'_>)>,
             PhantomData::<Dummy>::default(),
         )
         .unwrap();
@@ -96,8 +98,9 @@ fn index_block_repair_some_deletions() {
 
     let repair_status = block
         .repair(
+            0,
             cb,
-            None::<fn(&RSIndexResult, &IndexBlock)>,
+            None::<fn(&RSIndexResult, &crate::RepairContext<'_>)>,
             PhantomData::<Dummy>::default(),
         )
         .unwrap();
@@ -205,8 +208,9 @@ fn index_block_repair_delta_too_big() {
 
     let repair_status = block
         .repair(
+            0,
             cb,
-            None::<fn(&RSIndexResult, &IndexBlock)>,
+            None::<fn(&RSIndexResult, &crate::RepairContext<'_>)>,
             PhantomData::<SmallDeltaDummy>::default(),
         )
         .unwrap();
@@ -294,7 +298,7 @@ fn ii_scan_gc() {
     }
 
     let gc_result = ii
-        .scan_gc(cb, None::<fn(&RSIndexResult, &IndexBlock)>)
+        .scan_gc(cb, None::<fn(&RSIndexResult, &crate::RepairContext<'_>)>)
         .unwrap()
         .unwrap();
 
@@ -351,7 +355,7 @@ fn ii_scan_gc_no_change() {
     }
 
     let gc_result = ii
-        .scan_gc(cb, None::<fn(&RSIndexResult, &IndexBlock)>)
+        .scan_gc(cb, None::<fn(&RSIndexResult, &crate::RepairContext<'_>)>)
         .unwrap();
 
     assert_eq!(gc_result, None, "there should be no changes");
@@ -759,7 +763,9 @@ fn ii_apply_gc_entries_tracking_index() {
 
     let mut repaired = Vec::new();
 
-    let repair = |result: &RSIndexResult, _ib: &IndexBlock| repaired.push(result.doc_id);
+    let repair = |result: &RSIndexResult, _ctx: &crate::RepairContext<'_>| {
+        repaired.push(result.doc_id)
+    };
 
     assert_eq!(
         ii.scan_gc(doc_exist, Some(repair)).unwrap().unwrap(),

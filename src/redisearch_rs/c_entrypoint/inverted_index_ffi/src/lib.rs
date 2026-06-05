@@ -506,7 +506,12 @@ pub unsafe extern "C" fn InvertedIndex_GcMarkerInc(ii: *mut InvertedIndex) {
 /// Setting to pass to the GC scan function
 #[repr(C)]
 pub struct IndexRepairParams {
-    /// Callback to call for each entry that is still valid
+    /// Callback to call for each entry that is still valid.
+    ///
+    /// The C-side signature stays `(res, ib, repair_arg)`. The Rust side now also
+    /// receives the block's logical index, but fork-GC runs in a child process with
+    /// no concurrent writers — pointer equality on `ib` is still meaningful there —
+    /// so we don't expose the new parameter to C.
     pub repair_callback:
         Option<extern "C" fn(res: *const RSIndexResult, ib: *const IndexBlock, *mut c_void)>,
 
@@ -559,9 +564,11 @@ pub unsafe extern "C" fn InvertedIndex_GcDelta_Scan(
         // SAFETY: The caller must ensure `params` is a valid pointer to a `IndexRepairParams` and
         // we just checked it is not NULL
         let params = unsafe { &*params };
-        params
-            .repair_callback
-            .map(|cb| move |res: &RSIndexResult, ib: &IndexBlock| cb(res, ib, params.repair_arg))
+        params.repair_callback.map(|cb| {
+            move |res: &RSIndexResult, ctx: &inverted_index::RepairContext<'_>| {
+                cb(res, ctx.block, params.repair_arg)
+            }
+        })
     };
 
     // SAFETY: The caller must ensure `idx` is a valid pointer to an `InvertedIndex`

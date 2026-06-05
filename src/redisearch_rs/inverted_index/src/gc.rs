@@ -17,6 +17,22 @@ use rqe_core::DocId;
 use smallvec::SmallVec;
 use thin_vec::{Header, ThinVec};
 
+/// Context handed to the GC repair callback for each surviving record.
+///
+/// Carries the block the record was decoded from plus the block's logical index
+/// within the inverted index. Packaged as a struct so future fields (e.g. a
+/// last-block flag, a GC marker) can ride along without changing the callback
+/// signature.
+#[non_exhaustive]
+pub struct RepairContext<'a> {
+    /// The block the surviving record was decoded from.
+    pub block: &'a IndexBlock,
+    /// The block's logical index within the inverted index. Use this instead of
+    /// pointer-equality on `block` — pointer identity isn't reliable when blocks
+    /// are read through a snapshot.
+    pub block_idx: usize,
+}
+
 /// The type of repair needed for a block after a garbage collection scan.
 #[derive(Debug, Eq, PartialEq, Deserialize, Serialize)]
 pub(crate) enum RepairType {
@@ -100,11 +116,18 @@ impl IndexBlock {
     /// Repair a block by removing records which no longer exists according to `doc_exists`. If a
     /// record does exist, then `repair` is called with it.
     ///
+    /// The `repair` callback receives the surviving record and a [`RepairContext`]
+    /// carrying the block and its logical index within the inverted index. Comparing
+    /// `ctx.block_idx` against `index.number_of_blocks() - 1` answers "is this the last
+    /// block?" without relying on pointer identity — pointer equality won't be stable
+    /// once blocks are read through a snapshot in a later epic.
+    ///
     /// `None` is returned when there is nothing to repair in this block.
     pub(crate) fn repair<'index, E: Encoder + DecodedBy<Decoder = D>, D: Decoder>(
         &'index self,
+        block_idx: usize,
         doc_exist: impl Fn(DocId) -> bool,
-        mut repair: Option<impl FnMut(&RSIndexResult<'index>, &IndexBlock)>,
+        mut repair: Option<impl FnMut(&RSIndexResult<'index>, &RepairContext<'index>)>,
         _encoder: PhantomData<E>,
     ) -> std::io::Result<Option<RepairType>> {
         let mut cursor: std::io::Cursor<&'index [u8]> = std::io::Cursor::new(&self.buffer);
@@ -122,7 +145,8 @@ impl IndexBlock {
 
             if doc_exist(result.doc_id) {
                 if let Some(repair) = repair.as_mut() {
-                    repair(&result, self);
+                    let ctx = RepairContext { block: self, block_idx };
+                    repair(&result, &ctx);
                 }
 
                 tmp_inverted_index.add_record(&result)?;
@@ -168,12 +192,12 @@ impl<E: Encoder + DecodedBy> InvertedIndex<E> {
     pub fn scan_gc<'index>(
         &'index self,
         doc_exist: impl Fn(DocId) -> bool,
-        mut repair: Option<impl FnMut(&RSIndexResult<'index>, &IndexBlock)>,
+        mut repair: Option<impl FnMut(&RSIndexResult<'index>, &RepairContext<'index>)>,
     ) -> std::io::Result<Option<GcScanDelta>> {
         let mut results = Vec::new();
 
         for (i, block) in self.blocks.iter().enumerate() {
-            let repair = block.repair(&doc_exist, repair.as_mut(), PhantomData::<E>)?;
+            let repair = block.repair(i, &doc_exist, repair.as_mut(), PhantomData::<E>)?;
 
             if let Some(repair) = repair {
                 results.push(BlockGcScanResult { index: i, repair });

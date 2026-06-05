@@ -159,7 +159,7 @@ impl NumericIndex {
         repair_fn: Option<F>,
     ) -> std::io::Result<Option<inverted_index::GcScanDelta>>
     where
-        F: for<'index> FnMut(&RSIndexResult<'index>, &IndexBlock),
+        F: for<'index> FnMut(&RSIndexResult<'index>, &inverted_index::RepairContext<'index>),
     {
         match self {
             NumericIndex::Uncompressed(idx) => idx.scan_gc(doc_exist, repair_fn),
