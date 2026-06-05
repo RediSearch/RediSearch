@@ -21,6 +21,7 @@
 #include "cursor.h"
 #include "search_disk.h"
 #include "doc_id_meta.h"
+#include "module_init.h"
 
 #define JSON_LEN 5 // length of string "json."
 RedisModuleString *global_RenameFromKey = NULL;
@@ -586,6 +587,7 @@ void ShutdownDiskClose(RedisModuleCtx *ctx, RedisModuleEvent eid, uint64_t subev
 
 #define HIDE_USER_DATA_FROM_LOGS "hide-user-data-from-log"
 #define BIGREDIS_MAX_RAM "bigredis-max-ram"
+#define REDIS_LOGLEVEL "loglevel"
 
 bool getHideUserDataFromLogs() {
   char *value = getRedisConfigValue(RSDummyContext, HIDE_USER_DATA_FROM_LOGS);
@@ -606,6 +608,15 @@ void onUpdatedHideUserDataFromLogs(RedisModuleCtx *ctx) {
   }
 }
 
+static void onUpdatedLogLevel(RedisModuleCtx *ctx) {
+  RedisModuleString *level = getRedisConfigValue(ctx, REDIS_LOGLEVEL);
+  if (!level) {
+    return;
+  }
+  TracingRedisModule_SetLogLevel(RedisModule_StringPtrLen(level, NULL));
+  RedisModule_FreeString(ctx, level);
+}
+
 void ConfigChangedCallback(RedisModuleCtx *ctx, RedisModuleEvent eid, uint64_t event, void *data) {
   if (eid.id != REDISMODULE_EVENT_CONFIG ||
       event != REDISMODULE_SUBEVENT_CONFIG_CHANGE) {
@@ -620,6 +631,9 @@ void ConfigChangedCallback(RedisModuleCtx *ctx, RedisModuleEvent eid, uint64_t e
     if (!strcmp(conf, BIGREDIS_MAX_RAM)) {
       RS_ASSERT(SearchDisk_IsInitialized());
       SearchDisk_UpdateBufferBudget(ctx, (int)RSGlobalConfig.diskBufferPercentage);
+    }
+    if (strcmp(conf, REDIS_LOGLEVEL) == 0) {
+      onUpdatedLogLevel(ctx);
     }
   }
 }

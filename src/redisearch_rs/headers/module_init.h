@@ -13,8 +13,24 @@ extern "C" {
 
 /**
  * Initializes a global subscriber that reports Rust `tracing` traces through `redismodule` logging.
+ *
+ * `level` is the initial redis `loglevel` config value the filter is set to.
+ *
+ * # Safety
+ *
+ * `level` must point to a valid, null-terminated C string.
  */
-void TracingRedisModule_Init(RedisModuleCtx *ctx);
+void TracingRedisModule_Init(RedisModuleCtx *ctx, const char *level);
+
+/**
+ * Updates the `tracing` log level filter from a redis `loglevel` config value
+ * (one of `debug`, `verbose`, `notice`, `warning`).
+ *
+ * # Safety
+ *
+ * `level` must point to a valid, null-terminated C string.
+ */
+void TracingRedisModule_SetLogLevel(const char *level);
 
 /**
  * Initialize RediSearch's panic hook, without replaacing the pre-existing panic hook (if any).
