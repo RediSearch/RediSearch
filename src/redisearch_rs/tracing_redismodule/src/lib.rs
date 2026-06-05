@@ -11,32 +11,13 @@
 //!
 //! # Configuring Logging Output
 //!
-//! Logging output can be configured by setting the `RUST_LOG` environment variable to a _filter_.
-//! A filter consists of one or more comma-separated directives which match on `Span`s and `Event`s.
-//! Each directive may have a corresponding maximum verbosity [`level`] which enables (e.g., _selects for_)
-//! spans and events that match. Like `log`, `tracing` considers less exclusive levels (like `trace` or `info`)
-//! to be more verbose than more exclusive levels (like `error` or `warn`).
+//! The maximum verbosity is set by the redis server `loglevel` config option. Its values map
+//! onto `tracing` [`level`]s as follows:
 //!
-//! At a high level, the syntax for directives consists of several parts:
-//!
-//! ```text
-//! target[span{field=value}]=level
-//! ```
-//!
-//! - `target` matches the event or span's target. In general, this is the module path and/or crate name.
-//!   Examples of targets `h2`, `tokio::net`, or `tide::server`. For more information on targets,
-//!   please refer to [`Metadata`]'s documentation.
-//! - `span` matches on the span's name. If a `span` directive is provided alongside a `target`,
-//!   the `span` directive will match on spans _within_ the `target`.
-//! - `field` matches on fields within spans. Field names can also be supplied without a `value`
-//!   and will match on any `Span` or `Event` that has a field with that name.
-//!   For example: `[span{field=\"value\"}]=debug`, `[{field}]=trace`.
-//! - `value` matches on the value of a span's field. If a value is a numeric literal or a bool,
-//!   it will match _only_ on that value. Otherwise, this filter matches the
-//!   [`std::fmt::Debug`] output from the value.
-//! - `level` sets a maximum verbosity level accepted by this directive.
-//!
-//! For details see the [`tracing_subscriber`] documentation.
+//! - `debug` => [`Level::TRACE`]
+//! - `verbose` => [`Level::DEBUG`]
+//! - `notice` => [`Level::INFO`]
+//! - `warning` => [`Level::WARN`] (and [`Level::ERROR`])
 //!
 //! ## Output Styling
 //!
@@ -49,8 +30,6 @@
 //! - `never` will never print style characters.
 //!
 //! [`level`]: tracing_core::Level
-//! [`Metadata`]: tracing_core::Metadata
-//! [`tracing_subscriber`]: https://docs.rs/tracing-subscriber/0.3.20/tracing_subscriber/filter/struct.EnvFilter.html#directives
 
 use std::cell::RefCell;
 use std::env::{self, VarError};
@@ -58,17 +37,26 @@ use std::error::Error;
 use std::ffi::{CStr, c_char};
 use std::io::IsTerminal;
 use std::ptr::NonNull;
+use std::sync::OnceLock;
 use std::{io, ptr};
 use tracing::Level;
 use tracing_core::LevelFilter;
-use tracing_subscriber::EnvFilter;
 use tracing_subscriber::fmt::MakeWriter;
 use tracing_subscriber::fmt::format::FmtSpan;
+use tracing_subscriber::layer::SubscriberExt;
+use tracing_subscriber::util::SubscriberInitExt;
+use tracing_subscriber::{Registry, reload};
 
 const LOGLEVEL_DEBUG: &CStr = c"debug";
 const LOGLEVEL_VERBOSE: &CStr = c"verbose";
 const LOGLEVEL_NOTICE: &CStr = c"notice";
 const LOGLEVEL_WARNING: &CStr = c"warning";
+
+/// Handle to the reloadable level filter, installed by [`try_init`].
+///
+/// Used by [`set_log_level`] to update the active filter when the redis
+/// `loglevel` config changes.
+static FILTER_RELOAD: OnceLock<reload::Handle<LevelFilter, Registry>> = OnceLock::new();
 
 type LogFunc = unsafe extern "C" fn(
     ctx: *mut ffi::RedisModuleCtx,
@@ -78,12 +66,16 @@ type LogFunc = unsafe extern "C" fn(
 );
 
 /// Initializes a global subscriber that reports traces through `redismodule` logging.
-pub fn init(ctx: Option<NonNull<ffi::RedisModuleCtx>>) {
-    try_init(ctx).expect("Unable to install global tracing subscriber")
+///
+/// `level` is the initial maximum verbosity the filter is set to.
+pub fn init(ctx: Option<NonNull<ffi::RedisModuleCtx>>, filter: LevelFilter) {
+    try_init(ctx, filter).expect("Unable to install global tracing subscriber")
 }
 
 /// Initializes a global subscriber that reports traces through `redismodule`
 ///  logging if one is not already set.
+///
+/// `level` is the initial maximum verbosity the filter is set to.
 ///
 /// # Errors
 ///
@@ -91,18 +83,16 @@ pub fn init(ctx: Option<NonNull<ffi::RedisModuleCtx>>) {
 /// a global subscriber was already installed by another call to `try_init`.
 pub fn try_init(
     ctx: Option<NonNull<ffi::RedisModuleCtx>>,
+    filter: LevelFilter,
 ) -> Result<(), Box<dyn Error + Send + Sync + 'static>> {
-    let env_filter = EnvFilter::builder()
-        .with_default_directive(LevelFilter::INFO.into())
-        .from_env_lossy();
+    let (filter, reload_handle) = reload::Layer::new(filter);
 
-    tracing_subscriber::fmt()
+    let fmt = tracing_subscriber::fmt::Layer::default()
         .with_file(true)
         .with_line_number(true)
         .with_thread_names(true)
         .with_thread_ids(true)
         .with_span_events(FmtSpan::FULL)
-        .with_env_filter(env_filter)
         .with_ansi(should_print_colors())
         .without_time() // redis already prints timestamps
         .with_writer(MakeRedisModuleWriter {
@@ -117,12 +107,27 @@ pub fn try_init(
             }),
             // Safety: This static will not be written to after it has been initialized
             log: unsafe { ffi::RedisModule_Log.unwrap() },
-        })
+        });
+
+    tracing_subscriber::registry()
+        .with(filter)
+        .with(fmt)
         .try_init()?;
+
+    let _ = FILTER_RELOAD.set(reload_handle);
 
     tracing::debug!("Tracing Subscriber Initialized!");
 
     Ok(())
+}
+
+/// Updates the active maximum verbosity of the log filter.
+///
+/// Has no effect if the subscriber is not installed yet.
+pub fn set_log_level(filter: LevelFilter) {
+    if let Some(reload_handle) = FILTER_RELOAD.get() {
+        let _ = reload_handle.reload(filter);
+    }
 }
 
 fn should_print_colors() -> bool {
@@ -166,11 +171,7 @@ impl<'a> MakeWriter<'a> for MakeRedisModuleWriter {
     type Writer = RedisModuleWriter;
 
     fn make_writer(&'a self) -> Self::Writer {
-        RedisModuleWriter {
-            ctx: self.ctx,
-            level: LOGLEVEL_NOTICE,
-            log: self.log,
-        }
+        unreachable!("must always be configured with a log level");
     }
 
     fn make_writer_for(&'a self, meta: &tracing::Metadata<'_>) -> Self::Writer {
