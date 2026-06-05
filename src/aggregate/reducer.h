@@ -172,10 +172,20 @@ int ReducerOpts_GetKey(const ReducerOptions *options, const RLookupKey **kout);
 #define ReducerOptions_GetKey ReducerOpts_GetKey
 
 /**
- * Resolves an already-extracted (stripped) field name against
- * `options->srclookup`, opening a load slot via `options->loadKeys` when
- * available. On failure, sets `QUERY_ERROR_CODE_NO_PROP_KEY` on
- * `options->status`.
+ * Resolves an already-extracted (stripped) field name to an RLookupKey against
+ * `options->srclookup`.
+ *
+ * Resolution order:
+ *   1. Look the name up as a key already available for read in `srclookup`.
+ *   2. If not found and `options->loadKeys` is non-NULL (implicit loading is
+ *      enabled), open a load slot for the name, append it to `*options->loadKeys`,
+ *      and accept it only if it is a schema field (RLOOKUP_F_SCHEMASRC).
+ *
+ * Fails (returns false, sets QUERY_ERROR_CODE_NO_PROP_KEY on `options->status`)
+ * when the name is neither already available nor an implicitly-loadable schema
+ * field. See `ReducerOptions::loadKeys` for the loading contract.
+ *
+ * @return true on success (`*out` set to the resolved key), false on failure.
  */
 bool ReducerOpts_ResolveKey(const ReducerOptions *options, const char *keyName,
                             const RLookupKey **out);

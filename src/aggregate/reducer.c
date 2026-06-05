@@ -48,19 +48,32 @@ ReducerFactory RDCR_GetFactory(const char *name) {
 
 bool ReducerOpts_ResolveKey(const ReducerOptions *options, const char *keyName,
                             const RLookupKey **out) {
+  // Fast path: the field is already available for read in the source lookup.
   *out = RLookup_GetKey_Read(options->srclookup, keyName, RLOOKUP_F_HIDDEN);
-  if (!*out) {
-    if (options->loadKeys) {
-      *out = RLookup_GetKey_Load(options->srclookup, keyName, keyName, RLOOKUP_F_HIDDEN);
-      *options->loadKeys = array_ensure_append_1(*options->loadKeys, *out);
-    }
-    // We currently allow implicit loading only for known fields from the schema.
-    // If we can't load keys, or the key we loaded is not in the schema, we fail.
-    if (!options->loadKeys || !(RLookupKey_GetFlags(*out) & RLOOKUP_F_SCHEMASRC)) {
-      QueryError_SetWithUserDataFmt(options->status, QUERY_ERROR_CODE_NO_PROP_KEY, "Property not loaded nor in pipeline", ": `%s`", keyName);
-      return false;
-    }
+  if (*out) {
+    return true;
   }
+
+  // Not available. Implicit loading is only possible when the caller provided a
+  // `loadKeys` array (see ReducerOptions::loadKeys).
+  if (!options->loadKeys) {
+    QueryError_SetWithUserDataFmt(options->status, QUERY_ERROR_CODE_NO_PROP_KEY,
+                                  "Property not loaded nor in pipeline", ": `%s`", keyName);
+    return false;
+  }
+
+  // Open a load slot. We currently allow implicit loading only for known fields
+  // from the schema; anything else is rejected.
+  const RLookupKey *loaded =
+      RLookup_GetKey_Load(options->srclookup, keyName, keyName, RLOOKUP_F_HIDDEN);
+  if (!loaded || !(RLookupKey_GetFlags(loaded) & RLOOKUP_F_SCHEMASRC)) {
+    QueryError_SetWithUserDataFmt(options->status, QUERY_ERROR_CODE_NO_PROP_KEY,
+                                  "Property not loaded nor in pipeline", ": `%s`", keyName);
+    return false;
+  }
+
+  *options->loadKeys = array_ensure_append_1(*options->loadKeys, loaded);
+  *out = loaded;
   return true;
 }
 
