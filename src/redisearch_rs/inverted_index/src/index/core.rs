@@ -412,6 +412,13 @@ impl<E: Encoder> InvertedIndex<E> {
         self.blocks.len()
     }
 
+    /// Take a borrowed [`InvertedIndexSnapshot`] of this index's block storage.
+    /// The follow-up storage refactor will swap this for an owned snapshot — call
+    /// sites that already go through `snapshot()` won't need to change.
+    pub fn snapshot(&self) -> super::snapshot::InvertedIndexSnapshot<'_> {
+        super::snapshot::InvertedIndexSnapshot::from_slice(&self.blocks)
+    }
+
     /// Get a reference to the block at the given index, if it exists. This is only used by some C tests.
     pub fn block_ref(&self, index: usize) -> Option<&IndexBlock> {
         self.blocks.get(index)

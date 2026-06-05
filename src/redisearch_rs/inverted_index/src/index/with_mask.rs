@@ -98,6 +98,11 @@ impl<E: Encoder> FieldMaskTrackingIndex<E> {
         self.index.block_ref(index)
     }
 
+    /// Take a snapshot of the inverted index's block storage. See [`InvertedIndex::snapshot`].
+    pub fn snapshot(&self) -> crate::InvertedIndexSnapshot<'_> {
+        self.index.snapshot()
+    }
+
     /// Get the current GC marker of this index. This is only used by the some C tests.
     pub fn gc_marker(&self) -> u32 {
         self.index.gc_marker()

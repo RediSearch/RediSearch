@@ -12,23 +12,32 @@ use std::{io::Cursor, sync::atomic};
 use super::{IndexReader, NumericReader, TermReader};
 use crate::{
     DecodedBy, Decoder, Encoder, HasInnerIndex, InvertedIndex, NumericDecoder, TermDecoder,
-    index::unique_id::IndexUniqueId, opaque::OpaqueEncoding,
+    index::snapshot::InvertedIndexSnapshot, index::unique_id::IndexUniqueId,
+    opaque::OpaqueEncoding,
 };
 use ffi::{IndexFlags, IndexFlags_Index_HasMultiValue};
 use index_result::RSIndexResult;
 use rqe_core::DocId;
 
-/// Reader that is able to read the records from an [`InvertedIndex`]
+/// Reader that is able to read the records from an [`InvertedIndex`].
+///
+/// Block-data access goes through [`Self::snapshot`] — a borrowed view of the index
+/// captured at construction (refreshed by [`Self::reset`] and [`Self::swap_index`]).
+/// The follow-up storage refactor will change `snapshot` from a borrowed wrapper into
+/// an owned one without changing the reader's call sites.
 pub struct IndexReaderCore<'index, E> {
     /// The inverted index that is being read from.
     pub(crate) ii: &'index InvertedIndex<E>,
 
+    /// Snapshot of the index's block storage. Currently borrows from `ii`; the follow-up
+    /// storage refactor swaps in an owned snapshot.
+    snapshot: InvertedIndexSnapshot<'index>,
+
     /// The current position in the block that is being read from.
     current_buffer: Cursor<&'index [u8]>,
 
-    /// The index of the current block in the `blocks` vector. This is used to keep track of
-    /// which block we are currently reading from, especially when the current buffer is empty and we
-    /// need to move to the next block.
+    /// The index of the current block in the snapshot. Used to track which block we're
+    /// reading from, especially when the current buffer is empty and we need to advance.
     pub(crate) current_block_idx: usize,
 
     /// The last document ID that was read from the index. This is used to determine the base
@@ -72,7 +81,7 @@ impl<'index, E: DecodedBy<Decoder = D>, D: Decoder> IndexReader<'index>
     fn next_record(&mut self, result: &mut RSIndexResult<'index>) -> std::io::Result<bool> {
         // Check if the current buffer is empty or the end of the buffer has been reached
         if self.current_buffer.get_ref().len() as u64 <= self.current_buffer.position() {
-            if self.current_block_idx + 1 >= self.ii.blocks.len() {
+            if self.current_block_idx + 1 >= self.snapshot.block_count() {
                 // No more blocks to read from
                 return Ok(false);
             };
@@ -80,7 +89,11 @@ impl<'index, E: DecodedBy<Decoder = D>, D: Decoder> IndexReader<'index>
             self.set_current_block(self.current_block_idx + 1);
         }
 
-        let base = D::base_id(&self.ii.blocks[self.current_block_idx], self.last_doc_id);
+        let block = self
+            .snapshot
+            .block_ref(self.current_block_idx)
+            .expect("current_block_idx must point to a valid block");
+        let base = D::base_id(block, self.last_doc_id);
         D::decode(&mut self.current_buffer, base, result)?;
 
         self.last_doc_id = result.doc_id;
@@ -98,7 +111,11 @@ impl<'index, E: DecodedBy<Decoder = D>, D: Decoder> IndexReader<'index>
             return Ok(false);
         }
 
-        let base = D::base_id(&self.ii.blocks[self.current_block_idx], self.last_doc_id);
+        let block = self
+            .snapshot
+            .block_ref(self.current_block_idx)
+            .expect("skip_to placed the cursor on a valid block");
+        let base = D::base_id(block, self.last_doc_id);
         let success = D::seek(&mut self.current_buffer, base, doc_id, result)?;
 
         if success {
@@ -109,44 +126,43 @@ impl<'index, E: DecodedBy<Decoder = D>, D: Decoder> IndexReader<'index>
     }
 
     fn skip_to(&mut self, doc_id: DocId) -> bool {
-        if self.ii.blocks.is_empty() {
+        let total = self.snapshot.block_count();
+        if total == 0 {
             return false;
         }
 
-        if self.ii.blocks[self.current_block_idx].last_doc_id >= doc_id {
-            // We are already in the correct block
+        let current = self
+            .snapshot
+            .block_ref(self.current_block_idx)
+            .expect("current_block_idx must point to a valid block");
+        if current.last_doc_id >= doc_id {
             return true;
         }
 
-        // SAFETY: it is safe to unwrap because we checked that the blocks are not empty when
-        // creating the reader.
-        if self.ii.blocks.last().unwrap().last_doc_id < doc_id {
-            // The document ID is greater than the last document ID in the index
+        // SAFETY: total > 0 was checked above.
+        let last = self.snapshot.last_block().unwrap();
+        if last.last_doc_id < doc_id {
             return false;
         }
 
-        // Check if the very next block is correct before doing a binary search. This is a small
-        // optimization for the common case where we are skipping to the next block.
+        // Fast path: is the very next block the answer?
         let search_start = self.current_block_idx + 1;
-        if let Some(next_block) = self.ii.blocks.get(search_start)
+        if let Some(next_block) = self.snapshot.block_ref(search_start)
             && next_block.last_doc_id >= doc_id
         {
             self.set_current_block(search_start);
             return true;
         }
 
-        // Binary search to find the correct block index
-        let relative_idx = self.ii.blocks[search_start..]
-            .binary_search_by_key(&doc_id, |b| b.last_doc_id)
-            .unwrap_or_else(|insertion_point| insertion_point);
-
-        self.set_current_block(search_start + relative_idx);
-
+        let idx = self.snapshot.find_block_for_doc_id(search_start, doc_id);
+        debug_assert!(idx < total, "we verified above that doc_id is in range");
+        self.set_current_block(idx);
         true
     }
 
     fn reset(&mut self) {
-        if !self.ii.blocks.is_empty() {
+        self.snapshot = self.ii.snapshot();
+        if self.snapshot.block_count() > 0 {
             self.set_current_block(0);
         } else {
             self.current_buffer = Cursor::new(&[]);
@@ -173,8 +189,11 @@ impl<'index, E: DecodedBy<Decoder = D>, D: Decoder> IndexReader<'index>
     }
 
     fn refresh_buffer_pointers(&mut self) {
-        if !self.ii.blocks.is_empty() && self.current_block_idx < self.ii.blocks.len() {
-            let current_block = &self.ii.blocks[self.current_block_idx];
+        // Re-snapshot first — the borrowed snapshot may be stale (e.g. the index's
+        // backing Vec was reallocated under us via raw-pointer mutation in C-side
+        // code). Refreshing gives us a current view of `ii.blocks`.
+        self.snapshot = self.ii.snapshot();
+        if let Some(current_block) = self.snapshot.block_ref(self.current_block_idx) {
             // Update the cursor to point to the current position in the refreshed buffer
             let position = self.current_buffer.position();
             self.current_buffer = Cursor::new(&current_block.buffer);
@@ -189,7 +208,8 @@ impl<'index, E: DecodedBy<Decoder = D>, D: Decoder> IndexReaderCore<'index, E> {
     /// # Panic
     /// This function will panic if the inverted index is empty.
     pub(crate) fn new(ii: &'index InvertedIndex<E>) -> Self {
-        let (current_buffer, last_doc_id) = if let Some(first_block) = ii.blocks.first() {
+        let snapshot = ii.snapshot();
+        let (current_buffer, last_doc_id) = if let Some(first_block) = snapshot.first_block() {
             (
                 Cursor::new(first_block.buffer.as_ref()),
                 first_block.first_doc_id,
@@ -200,6 +220,7 @@ impl<'index, E: DecodedBy<Decoder = D>, D: Decoder> IndexReaderCore<'index, E> {
 
         Self {
             ii,
+            snapshot,
             current_buffer,
             current_block_idx: 0,
             last_doc_id,
@@ -216,10 +237,11 @@ impl<'index, E: DecodedBy<Decoder = D>, D: Decoder> IndexReaderCore<'index, E> {
     }
 
     /// Swap the inverted index of the reader with the supplied index. This is only used by the C
-    /// tests to trigger a revalidation.
-    pub const fn swap_index(&mut self, index: &mut &'index InvertedIndex<E>) {
+    /// tests to trigger a revalidation. Also refreshes the snapshot to point at the new index.
+    pub fn swap_index(&mut self, index: &mut &'index InvertedIndex<E>) {
         std::mem::swap(&mut self.ii, index);
         self.ii_unique_id = self.ii.unique_id();
+        self.snapshot = self.ii.snapshot();
     }
 
     /// Get the internal index of the reader. This is only used by some C tests.
@@ -227,15 +249,18 @@ impl<'index, E: DecodedBy<Decoder = D>, D: Decoder> IndexReaderCore<'index, E> {
         self.ii
     }
 
-    /// Set the current active block to the given index
+    /// Set the current active block to the given index in the snapshot.
     fn set_current_block(&mut self, index: usize) {
         debug_assert!(
-            index < self.ii.blocks.len(),
+            index < self.snapshot.block_count(),
             "block index should stay in bounds"
         );
 
         self.current_block_idx = index;
-        let current_block = &self.ii.blocks[self.current_block_idx];
+        let current_block = self
+            .snapshot
+            .block_ref(self.current_block_idx)
+            .expect("debug_assert above bounded the index");
         self.last_doc_id = current_block.first_doc_id;
         self.current_buffer = Cursor::new(&current_block.buffer);
     }

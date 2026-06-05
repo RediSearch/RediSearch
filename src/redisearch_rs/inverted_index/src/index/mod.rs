@@ -9,11 +9,13 @@
 
 mod core;
 pub mod opaque;
+pub mod snapshot;
 pub(crate) mod unique_id;
 mod with_entries;
 mod with_mask;
 
 pub use self::core::*;
+pub use self::snapshot::InvertedIndexSnapshot;
 pub use with_entries::EntriesTrackingIndex;
 pub use with_mask::FieldMaskTrackingIndex;
 

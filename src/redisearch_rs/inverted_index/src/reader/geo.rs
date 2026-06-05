@@ -182,7 +182,7 @@ impl<'index, E: DecodedBy<Decoder = D>, D: Decoder> FilterGeoReader<IndexReaderC
 
     /// Swap the inverted index of the reader with the supplied index. This is only used by the C
     /// tests to trigger a revalidation.
-    pub const fn swap_index(&mut self, index: &mut &'index InvertedIndex<E>) {
+    pub fn swap_index(&mut self, index: &mut &'index InvertedIndex<E>) {
         self.inner.swap_index(index);
     }
 

@@ -194,9 +194,14 @@ impl<E: Encoder + DecodedBy> InvertedIndex<E> {
         doc_exist: impl Fn(DocId) -> bool,
         mut repair: Option<impl for<'snap> FnMut(&RSIndexResult<'snap>, &RepairContext<'snap>)>,
     ) -> std::io::Result<Option<GcScanDelta>> {
+        let snapshot = self.snapshot();
         let mut results = Vec::new();
 
-        for (i, block) in self.blocks.iter().enumerate() {
+        let total = snapshot.block_count();
+        for i in 0..total {
+            let Some(block) = snapshot.block_ref(i) else {
+                continue;
+            };
             let repair = block.repair(i, &doc_exist, repair.as_mut(), PhantomData::<E>)?;
 
             if let Some(repair) = repair {
@@ -207,9 +212,11 @@ impl<E: Encoder + DecodedBy> InvertedIndex<E> {
         if results.is_empty() {
             Ok(None)
         } else {
+            let last_block_idx = total.saturating_sub(1);
+            let last_block_num_entries = snapshot.last_block().map(|b| b.num_entries).unwrap_or(0);
             Ok(Some(GcScanDelta {
-                last_block_idx: self.blocks.len() - 1,
-                last_block_num_entries: self.blocks.last().map(|b| b.num_entries).unwrap_or(0),
+                last_block_idx,
+                last_block_num_entries,
                 deltas: results,
             }))
         }
