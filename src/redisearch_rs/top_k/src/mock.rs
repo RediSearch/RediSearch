@@ -183,6 +183,10 @@ impl ScoreSource for MockScoreSource {
         (self.batch_strategy)(heap_count, k)
     }
 
+    fn adhoc_check_timeout(&mut self) -> bool {
+        return false;
+    }
+
     fn should_rerank(&self) -> bool {
         self.rerank_scores.is_some()
     }

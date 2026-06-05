@@ -75,6 +75,10 @@ impl ScoreSource for CallCountingScoreSource {
         BatchStrategy::Continue
     }
 
+    fn adhoc_check_timeout(&mut self) -> bool {
+        false
+    }
+
     fn begin_adhoc(&mut self) {
         self.begin_calls += 1;
     }
