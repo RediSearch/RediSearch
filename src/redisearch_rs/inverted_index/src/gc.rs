@@ -123,14 +123,14 @@ impl IndexBlock {
     /// once blocks are read through a snapshot in a later epic.
     ///
     /// `None` is returned when there is nothing to repair in this block.
-    pub(crate) fn repair<'index, E: Encoder + DecodedBy<Decoder = D>, D: Decoder>(
-        &'index self,
+    pub(crate) fn repair<'block, E: Encoder + DecodedBy<Decoder = D>, D: Decoder>(
+        &'block self,
         block_idx: usize,
         doc_exist: impl Fn(DocId) -> bool,
-        mut repair: Option<impl FnMut(&RSIndexResult<'index>, &RepairContext<'index>)>,
+        mut repair: Option<impl FnMut(&RSIndexResult<'block>, &RepairContext<'block>)>,
         _encoder: PhantomData<E>,
     ) -> std::io::Result<Option<RepairType>> {
-        let mut cursor: std::io::Cursor<&'index [u8]> = std::io::Cursor::new(&self.buffer);
+        let mut cursor: std::io::Cursor<&'block [u8]> = std::io::Cursor::new(&self.buffer);
         let mut last_read_doc_id = None;
         let mut result = D::base_result();
         let mut unique_read = 0;
@@ -189,10 +189,10 @@ impl<E: Encoder + DecodedBy> InvertedIndex<E> {
     /// If a doc does exist, then `repair` is called with it to run any repair calculations needed.
     ///
     /// This function returns a delta if GC is needed, or `None` if no GC is needed.
-    pub fn scan_gc<'index>(
-        &'index self,
+    pub fn scan_gc(
+        &self,
         doc_exist: impl Fn(DocId) -> bool,
-        mut repair: Option<impl FnMut(&RSIndexResult<'index>, &RepairContext<'index>)>,
+        mut repair: Option<impl for<'snap> FnMut(&RSIndexResult<'snap>, &RepairContext<'snap>)>,
     ) -> std::io::Result<Option<GcScanDelta>> {
         let mut results = Vec::new();
 
