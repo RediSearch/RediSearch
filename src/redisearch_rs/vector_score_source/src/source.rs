@@ -11,7 +11,10 @@
 
 use std::{ffi::c_void, num::NonZeroUsize, ptr::NonNull};
 
-use ffi::{TimeoutCtx, VecSimIndex, VecSimQueryParams, t_docId, timespec};
+use ffi::{
+    TimeoutCtx, VecSearchMode, VecSearchMode_HYBRID_BATCHES, VecSimIndex, VecSimQueryParams,
+    t_docId, timespec,
+};
 use index_result::RSIndexResult;
 use rqe_iterators::RQEIteratorError;
 use top_k::{BatchStrategy, ScoreSource, ScoredResult};
@@ -186,6 +189,15 @@ impl<'index> VectorScoreSource<'index> {
     /// filter-subset size and k.
     pub fn prefer_adhoc(&self, subset_size: usize, k: usize, initial_check: bool) -> bool {
         self.index.prefer_adhoc(subset_size, k, initial_check)
+    }
+
+    /// The hybrid search policy the user pinned explicitly via the
+    /// `HYBRID_POLICY` query attribute, or [`VecSearchMode_EMPTY_MODE`] when no
+    /// policy was given and the mode is left to the cost heuristic.
+    ///
+    /// [`VecSearchMode_EMPTY_MODE`]: ffi::VecSearchMode_EMPTY_MODE
+    pub fn requested_search_mode(&self) -> VecSearchMode {
+        self.query_params.searchMode
     }
 
     /// Compute the next batch size.
@@ -407,6 +419,9 @@ impl<'index> ScoreSource for VectorScoreSource<'index> {
             n_res_left,
             self.index_size(),
         );
+        if self.requested_search_mode() == VecSearchMode_HYBRID_BATCHES {
+            return BatchStrategy::Continue;
+        }
 
         let prefer_adhoc = self.index.prefer_adhoc(self.child_num_estimated, k, false);
         if prefer_adhoc {
