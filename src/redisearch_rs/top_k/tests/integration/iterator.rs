@@ -114,6 +114,10 @@ impl ScoreSource for TimingOutSource {
         BatchStrategy::Continue
     }
 
+    fn adhoc_check_timeout(&mut self) -> bool {
+        false
+    }
+
     fn iterator_type(&self) -> rqe_iterator_type::IteratorType {
         rqe_iterator_type::IteratorType::Mock
     }
@@ -468,6 +472,10 @@ fn rewind_after_mid_collect_error_does_not_retain_stale_heap() {
             BatchStrategy::Continue
         }
 
+        fn adhoc_check_timeout(&mut self) -> bool {
+            false
+        }
+
         fn iterator_type(&self) -> rqe_iterator_type::IteratorType {
             rqe_iterator_type::IteratorType::Mock
         }
@@ -644,6 +652,57 @@ fn adhoc_empty_child_is_eof() {
     );
     assert!(it.read().unwrap().is_none());
     assert!(it.at_eof());
+}
+
+/// An adhoc scan that hits the query deadline mid-walk must abort with
+/// [`RQEIteratorError::TimedOut`], not return a truncated top-k.
+#[test]
+fn adhoc_timeout_propagated() {
+    // Returns `TimedOut` from the second `adhoc_strategy` call, simulating the
+    // deadline firing after one document has been scored.
+    struct TimingOutAdhocSource {
+        adhoc_calls: u32,
+    }
+    impl ScoreSource for TimingOutAdhocSource {
+        type Batch = MockScoreBatch;
+        fn next_batch(&mut self) -> Result<Option<Self::Batch>, RQEIteratorError> {
+            Ok(None)
+        }
+        fn lookup_score(&mut self, _: DocId) -> Option<f64> {
+            Some(1.0)
+        }
+        fn num_estimated(&self) -> usize {
+            0
+        }
+        fn rewind(&mut self) {
+            self.adhoc_calls = 0;
+        }
+        fn build_result<'r>(&self, doc_id: DocId, _: f64) -> RSIndexResult<'r>
+        where
+            Self: 'r,
+        {
+            RSIndexResult::build_virt().doc_id(doc_id).build()
+        }
+        fn batch_strategy(&mut self, _: usize, _: usize) -> BatchStrategy {
+            BatchStrategy::Continue
+        }
+        fn adhoc_check_timeout(&mut self) -> bool {
+            self.adhoc_calls += 1;
+            if self.adhoc_calls >= 2 { true } else { false }
+        }
+        fn iterator_type(&self) -> IteratorType {
+            IteratorType::Mock
+        }
+    }
+
+    let mut it = TopKIterator::new_with_mode(
+        TimingOutAdhocSource { adhoc_calls: 0 },
+        Some(make_child(vec![1, 2, 3, 4, 5])),
+        NonZeroUsize::new(10).unwrap(),
+        asc,
+        TopKMode::AdhocBF,
+    );
+    assert!(matches!(it.read().unwrap_err(), RQEIteratorError::TimedOut));
 }
 
 // ── ProfileChildren ───────────────────────────────────────────────────────────
