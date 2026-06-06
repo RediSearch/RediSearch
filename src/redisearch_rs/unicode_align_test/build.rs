@@ -96,12 +96,20 @@ fn main() {
 }
 
 fn repository_root() -> Result<PathBuf, Box<dyn std::error::Error>> {
+    // A bare `.git` / `.jj` check can resolve to the wrong root if any
+    // ancestor directory above the actual repo also has one (e.g. a `~/Src`
+    // checkout or a sibling jj workspace). Anchor the walk on the libnu
+    // sources we are about to compile so a stray marker can't poison the
+    // build.
     let mut path = std::env::current_dir()?;
-    while !(path.join(".git").exists() || path.join(".jj").exists()) {
+    loop {
+        let has_marker = path.join(".git").exists() || path.join(".jj").exists();
+        if has_marker && path.join("deps").join("libnu").exists() {
+            return Ok(path);
+        }
         path = path
             .parent()
-            .ok_or("could not find repository root")?
+            .ok_or("could not find repository root containing deps/libnu")?
             .to_path_buf();
     }
-    Ok(path)
 }

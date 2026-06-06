@@ -221,7 +221,7 @@ impl Report {
     }
 
     /// Merge `other` into `self`. Used by the rayon fold/reduce pipeline:
-    /// each worker accumulates into a thread-local `Report` and the reduce
+    /// each worker accumulates into a thread-local [`Report`] and the reduce
     /// step folds them together into a single combined report.
     fn merge(&mut self, other: Self) {
         self.total += other.total;

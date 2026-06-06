@@ -259,8 +259,8 @@ pub fn predict_bytenlen(unicode: &[u32]) -> isize {
 /// would emit for `unicode`, stopping at the first 0 codepoint (the same
 /// terminator semantics `nu_bytelen` / `nu_bytenlen` use).
 ///
-/// This is the "actual" byte count to compare against `predict_bytelen` /
-/// `predict_bytenlen`: both predictors compute the same value by invoking
+/// This is the "actual" byte count to compare against [`predict_bytelen`] /
+/// [`predict_bytenlen`]: both predictors compute the same value by invoking
 /// the write iterator once per codepoint internally, so the sum here is the
 /// reference value the predictors must agree with.
 pub fn actual_encoded_byte_count(unicode: &[u32]) -> usize {

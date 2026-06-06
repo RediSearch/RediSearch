@@ -62,8 +62,16 @@ fn fetch(url: &str, expected_crc32: u32, filename: &str) -> Result<String, Strin
     if !response.status().is_success() {
         return Err(format!("download {url}: status {}", response.status()));
     }
+    // Explicit cap so a server-side regression that ships a much-larger-than-
+    // expected payload fails fast instead of OOMing the test runner. 64 MiB
+    // sits well above the known corpora (1984.txt ~600 KB, Wikipedia
+    // abstracts CSV ~tens of MB) while keeping the bound visible at the call
+    // site rather than in ureq's default.
+    const BODY_LIMIT: u64 = 64 * 1024 * 1024;
     let body = response
         .into_body()
+        .with_config()
+        .limit(BODY_LIMIT)
         .read_to_string()
         .map_err(|e| format!("read body {url}: {e}"))?;
 
