@@ -201,6 +201,12 @@ pub fn decode_codepoint_with_libnu(bytes: &[u8]) -> (u32, usize) {
 /// the `nu_strtransformnlen` call at `src/util/strconv.h:132` and
 /// `src/trie/rune_util.c:68`.
 pub fn predict_lower_len(bytes: &[u8]) -> isize {
+    // libnu's `_nu_strtransformnlen_unconditional` forms `encoded + max_len`
+    // before iterating; passing Rust's dangling empty-slice sentinel is UB
+    // under the C standard even when `max_len == 0`. Empty in → 0 out.
+    if bytes.is_empty() {
+        return 0;
+    }
     let begin = bytes.as_ptr() as *const std::ffi::c_char;
     // SAFETY: libnu reads up to `bytes.len()` bytes starting at `begin` and
     // stops at the first NUL byte. The slice provides exactly that much
@@ -228,6 +234,12 @@ pub fn predict_strlen(s: &[u8]) -> isize {
 /// Predicted codepoint count for the first `bytes.len()` bytes of `bytes`
 /// via libnu's `nu_strnlen` (stops early at NUL).
 pub fn predict_strnlen(bytes: &[u8]) -> isize {
+    // See [`predict_lower_len`]: libnu computes `encoded + max_len` on the
+    // C side; bypass the FFI entirely for the empty case to avoid forming a
+    // pointer from Rust's dangling empty-slice sentinel.
+    if bytes.is_empty() {
+        return 0;
+    }
     let begin = bytes.as_ptr() as *const std::ffi::c_char;
     // SAFETY: libnu reads at most `bytes.len()` bytes starting at `begin`.
     unsafe { libnu_ffi::nu_strnlen_shim(begin, bytes.len()) }
@@ -250,6 +262,11 @@ pub fn predict_bytelen(unicode: &[u32]) -> isize {
 /// Predicted UTF-8 byte count to encode the first `unicode.len()` codepoints
 /// of `unicode` via libnu's `nu_bytenlen` (stops early at NUL).
 pub fn predict_bytenlen(unicode: &[u32]) -> isize {
+    // See [`predict_lower_len`]: same dangling-pointer hazard, just over
+    // `*const u32` instead of `*const c_char`.
+    if unicode.is_empty() {
+        return 0;
+    }
     // SAFETY: libnu reads at most `unicode.len()` codepoints from
     // `unicode.as_ptr()`.
     unsafe { libnu_ffi::nu_bytenlen_shim(unicode.as_ptr(), unicode.len()) }
