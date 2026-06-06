@@ -40,31 +40,42 @@ fn cache_dir() -> PathBuf {
 }
 
 /// Returns Ok(contents) on success, Err with reason on network/IO failure.
+///
+/// If a cached copy exists but fails the CRC check, it is discarded and
+/// re-downloaded — otherwise a corrupted cache would wedge the test
+/// indefinitely until manual deletion.
 fn fetch(url: &str, expected_crc32: u32, filename: &str) -> Result<String, String> {
     let path = cache_dir().join(filename);
-    let body = if path.exists() {
-        fs_err::read_to_string(&path).map_err(|e| format!("read cache {}: {e}", path.display()))?
-    } else {
-        let response = ureq::get(url)
-            .call()
-            .map_err(|e| format!("download {url}: {e}"))?;
-        if !response.status().is_success() {
-            return Err(format!("download {url}: status {}", response.status()));
+    if path.exists() {
+        let body = fs_err::read_to_string(&path)
+            .map_err(|e| format!("read cache {}: {e}", path.display()))?;
+        if crc32fast::hash(body.as_bytes()) == expected_crc32 {
+            return Ok(body);
         }
-        let body = response
-            .into_body()
-            .read_to_string()
-            .map_err(|e| format!("read body {url}: {e}"))?;
-        fs_err::write(&path, body.as_bytes())
-            .map_err(|e| format!("write cache {}: {e}", path.display()))?;
-        body
-    };
+        eprintln!("[fetch] cached {filename} failed CRC; re-downloading from {url}");
+        let _ = fs_err::remove_file(&path);
+    }
+
+    let response = ureq::get(url)
+        .call()
+        .map_err(|e| format!("download {url}: {e}"))?;
+    if !response.status().is_success() {
+        return Err(format!("download {url}: status {}", response.status()));
+    }
+    let body = response
+        .into_body()
+        .read_to_string()
+        .map_err(|e| format!("read body {url}: {e}"))?;
+
     let checksum = crc32fast::hash(body.as_bytes());
     if checksum != expected_crc32 {
         return Err(format!(
             "checksum mismatch for {filename}: got 0x{checksum:08x}, expected 0x{expected_crc32:08x}"
         ));
     }
+
+    fs_err::write(&path, body.as_bytes())
+        .map_err(|e| format!("write cache {}: {e}", path.display()))?;
     Ok(body)
 }
 

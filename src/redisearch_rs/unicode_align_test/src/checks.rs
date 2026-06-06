@@ -151,10 +151,12 @@ pub fn lower_libnu(s: &str) -> String {
 pub fn encode_codepoint_with_libnu(cp: u32) -> Vec<u8> {
     let mut buf = [0u8; 4];
     let begin = buf.as_mut_ptr() as *mut std::ffi::c_char;
-    // SAFETY: `nu_utf8_write` writes at most 4 bytes (the UTF-8 maximum for
-    // any codepoint <= U+10FFFF) into the buffer at `begin` and returns a
-    // pointer to one past the last byte written. The buffer is exactly 4
-    // bytes, so the writer cannot overrun.
+    // SAFETY: libnu's `utf8_codepoint_length` (deps/libnu/utf8_internal.h)
+    // returns at most 4 for any u32 — its final branch returns 4
+    // unconditionally for codepoints >= 0x10000. So `nu_utf8_write` writes
+    // at most 4 bytes regardless of the input value (out-of-range u32
+    // inputs encode to non-canonical bytes but cannot overrun the buffer).
+    // `nu_utf8_write` returns a pointer to one past the last byte written.
     let end = unsafe { libnu_ffi::nu_utf8_write(cp, begin) };
     // SAFETY: `end` is derived from `begin` (returned by `nu_utf8_write`
     // pointing into the same 4-byte allocation), so both pointers share an
@@ -177,6 +179,10 @@ pub fn encode_codepoint_with_libnu(cp: u32) -> Vec<u8> {
 /// content for the lead byte's class. For the round-trip sweep this is
 /// trivially true because we always feed it a canonical encoding.
 pub fn decode_codepoint_with_libnu(bytes: &[u8]) -> (u32, usize) {
+    debug_assert!(
+        !bytes.is_empty(),
+        "decode_codepoint_with_libnu requires non-empty input"
+    );
     let mut decoded: u32 = 0;
     let begin = bytes.as_ptr() as *const std::ffi::c_char;
     // SAFETY: `nu_utf8_read` reads 1–4 bytes from `begin` depending on the
@@ -227,12 +233,13 @@ pub fn predict_strnlen(bytes: &[u8]) -> isize {
     unsafe { libnu_ffi::nu_strnlen_shim(begin, bytes.len()) }
 }
 
-/// Predicted UTF-8 byte count to encode the NUL-terminated `unicode` array
-/// via libnu's `nu_bytelen` with `nu_utf8_write`.
+/// Predicted UTF-8 byte count to encode `unicode` via libnu's `nu_bytelen`
+/// with `nu_utf8_write`. `unicode` must contain a 0 codepoint terminator
+/// somewhere — libnu reads until it finds one and ignores everything past it.
 pub fn predict_bytelen(unicode: &[u32]) -> isize {
     debug_assert!(
         unicode.contains(&0),
-        "predict_bytelen requires a NUL-terminated codepoint slice"
+        "predict_bytelen requires a 0 codepoint terminator"
     );
     // SAFETY: libnu reads codepoints starting at `unicode.as_ptr()` until
     // it hits a 0 sentinel; the caller-provided 0 within `unicode`
@@ -284,7 +291,7 @@ pub fn write_with_libnu(unicode: &[u32]) -> Vec<u8> {
     // writer emits exactly that many bytes because both routines invoke
     // `nu_utf8_write` per codepoint and stop at the first 0.
     let rc = unsafe { libnu_ffi::nu_writenstr_shim(unicode.as_ptr(), unicode.len(), dst) };
-    debug_assert_eq!(rc, 0, "nu_writenstr returned non-zero status: {rc}");
+    assert_eq!(rc, 0, "nu_writenstr returned non-zero status: {rc}");
     buf
 }
 
