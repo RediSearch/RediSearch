@@ -17,6 +17,7 @@
 use unicode_align_test::diff::run_corpus;
 
 #[test]
+#[ignore = "reporting-only sweep; run with --run-ignored or --test 'diff_*'"]
 fn sweep_all_codepoints() {
     // Materialise the codepoint list to a Vec<String> so rayon can balance
     // work across cores. ~1.1M short strings ≈ a few tens of MB — well within

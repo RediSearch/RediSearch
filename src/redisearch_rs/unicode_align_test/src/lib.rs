@@ -29,9 +29,12 @@
 //!   the divergence is the subject under study, not a regression.
 //!
 //! The split is also visible at the filesystem level: every test file is
-//! prefixed `check_` (gating) or `diff_` (reporting), so
-//! `cargo test --test 'check_*'` and `--test 'diff_*'` select one mission
-//! at a time.
+//! prefixed `check_` (gating) or `diff_` (reporting). The gating
+//! `check_*` tests run by default; every `diff_*` test is `#[ignore]`d so
+//! default `cargo test` / `cargo nextest run` stays cheap. Run the
+//! reporting suite explicitly with
+//! `cargo test --test 'diff_*' -- --ignored` (or
+//! `cargo nextest run --run-ignored all -E 'binary(/^diff_/)'`).
 //!
 //! # Production call-site mapping
 //!

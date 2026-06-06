@@ -22,6 +22,7 @@
 use unicode_align_test::diff::run_corpus_lower;
 
 #[test]
+#[ignore = "reporting-only sweep; run with --run-ignored or --test 'diff_*'"]
 fn sweep_all_codepoints_lower() {
     let inputs: Vec<String> = (0u32..=0x10FFFFu32)
         // Skip UTF-16 surrogate range; these are not valid Rust `char`s.

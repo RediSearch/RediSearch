@@ -102,6 +102,7 @@ fn skip_if<E: std::fmt::Display>(label: &str, err: E) {
 }
 
 #[test]
+#[ignore = "reporting-only; downloads corpora — run with --run-ignored or --test 'diff_*'"]
 fn gutenberg_1984() {
     match fetch(GUTENBERG_URL, GUTENBERG_CRC32, GUTENBERG_FILE) {
         Ok(text) => run_lines("Gutenberg 1984", &text, None),
@@ -110,6 +111,7 @@ fn gutenberg_1984() {
 }
 
 #[test]
+#[ignore = "reporting-only; downloads corpora — run with --run-ignored or --test 'diff_*'"]
 fn wikipedia_abstracts() {
     match fetch(WIKI_URL, WIKI_CRC32, WIKI_FILE) {
         // CSV is large (~tens of MB). Cap to 5000 rows to keep the test snappy

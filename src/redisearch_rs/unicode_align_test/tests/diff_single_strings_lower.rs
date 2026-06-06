@@ -46,6 +46,7 @@ fn known_cases() -> Vec<(&'static str, &'static str)> {
 }
 
 #[test]
+#[ignore = "reporting-only; run with --run-ignored or --test 'diff_*'"]
 fn print_known_lowercase_divergences() {
     println!("\n=== single-string lowercase divergence cases ===");
     for (name, input) in known_cases() {
@@ -56,6 +57,7 @@ fn print_known_lowercase_divergences() {
 }
 
 #[test]
+#[ignore = "reporting-only; run with --run-ignored or --test 'diff_*'"]
 fn aggregate_known_lowercase_cases() {
     let inputs: Vec<String> = known_cases()
         .into_iter()
