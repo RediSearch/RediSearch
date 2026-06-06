@@ -73,7 +73,10 @@ fn strict_roundtrip_rust_encode_libnu_decode() {
             let encoded = ch.encode_utf8(&mut buf).as_bytes();
 
             // Decode with libnu.
-            let (decoded, consumed) = decode_codepoint_with_libnu(encoded);
+            // SAFETY: `encoded` was produced by `char::encode_utf8` on a
+            // pre-filtered Unicode scalar, so it is a complete canonical
+            // UTF-8 sequence — exactly the precondition the helper requires.
+            let (decoded, consumed) = unsafe { decode_codepoint_with_libnu(encoded) };
 
             if decoded == cp && consumed == encoded.len() {
                 None
@@ -101,7 +104,11 @@ fn symmetric_roundtrip_libnu_encode_libnu_decode() {
             // where both halves live in libnu (e.g. `unicode_tolower`
             // reads then writes through `nu_utf8_read`/`nu_utf8_write`).
             let encoded = encode_codepoint_with_libnu(cp);
-            let (decoded, consumed) = decode_codepoint_with_libnu(&encoded);
+            // SAFETY: `nu_utf8_write` writes a complete UTF-8 sequence whose
+            // byte count matches `utf8_codepoint_length(cp)`, and
+            // `encode_codepoint_with_libnu` returns that whole window — so
+            // the slice contains a full canonical codepoint.
+            let (decoded, consumed) = unsafe { decode_codepoint_with_libnu(&encoded) };
 
             if decoded == cp && consumed == encoded.len() {
                 None
@@ -127,7 +134,10 @@ fn decode_u11004_consumes_four_bytes() {
     // the matching bit-shift logic in `utf8_4b` — assert it produces the
     // right codepoint from the canonical bytes.
     let canonical = [0xF0u8, 0x91, 0x80, 0x84];
-    let (decoded, consumed) = decode_codepoint_with_libnu(&canonical);
+    // SAFETY: `canonical` is a literal 4-byte UTF-8 sequence (the encoding
+    // of U+11004), the exact shape `nu_utf8_read` expects for an `0xF0`
+    // lead byte.
+    let (decoded, consumed) = unsafe { decode_codepoint_with_libnu(&canonical) };
     assert_eq!(
         decoded, 0x11004,
         "libnu decoded F0 91 80 84 as U+{decoded:06X}; expected U+11004"

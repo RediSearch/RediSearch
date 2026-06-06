@@ -173,12 +173,17 @@ pub fn encode_codepoint_with_libnu(cp: u32) -> Vec<u8> {
 /// (as `u32`, since the caller may want to inspect malformed values that
 /// don't fit `char`) and `advance` is the number of bytes consumed.
 ///
-/// `bytes` must be non-empty. The function inspects the lead byte to decide
-/// how many bytes to read (1–4) and only touches that many — `nu_utf8_read`
-/// does no bounds checking, so the caller must ensure the slice has enough
-/// content for the lead byte's class. For the round-trip sweep this is
-/// trivially true because we always feed it a canonical encoding.
-pub fn decode_codepoint_with_libnu(bytes: &[u8]) -> (u32, usize) {
+/// # Safety
+///
+/// `bytes` must begin with a *complete* UTF-8 sequence: at least one byte,
+/// and at least as many bytes as the lead byte's class implies (1–4 for
+/// lead bytes in the ranges `0x00..=0x7F`, `0xC0..=0xDF`, `0xE0..=0xEF`,
+/// `0xF0..=0xF7` respectively). `nu_utf8_read` reads that many bytes with no
+/// bounds checking; a shorter slice causes an out-of-bounds read.
+///
+/// Passing an output of `char::encode_utf8` or `nu_utf8_write` trivially
+/// satisfies this — both produce a canonical, complete encoding.
+pub unsafe fn decode_codepoint_with_libnu(bytes: &[u8]) -> (u32, usize) {
     debug_assert!(
         !bytes.is_empty(),
         "decode_codepoint_with_libnu requires non-empty input"
@@ -186,9 +191,9 @@ pub fn decode_codepoint_with_libnu(bytes: &[u8]) -> (u32, usize) {
     let mut decoded: u32 = 0;
     let begin = bytes.as_ptr() as *const std::ffi::c_char;
     // SAFETY: `nu_utf8_read` reads 1–4 bytes from `begin` depending on the
-    // lead byte's range and writes one `u32` to `&mut decoded`. The caller
-    // contract requires `bytes` to hold a full codepoint, so the read stays
-    // in bounds.
+    // lead byte's range and writes one `u32` to `&mut decoded`. The
+    // function-level safety contract requires the slice to hold a full
+    // codepoint, so the read stays in bounds.
     let end = unsafe { libnu_ffi::nu_utf8_read_shim(begin, &mut decoded) };
     // SAFETY: `end` is derived from `begin` (both point into `bytes`), so
     // they share an origin and the difference fits in `isize`.
