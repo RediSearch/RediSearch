@@ -23,18 +23,35 @@ harness = false
 name = "iter"
 harness = false
 
+[features]
+# Pulls in `bind_foreign_c_symbols` so binaries and benches that hit the
+# C trie can resolve `Trie_*` / `TrieType_*` symbols. Off by default so
+# `cargo check` / `cargo doc` / `clippy` over the workspace do not require
+# `./build.sh` to have produced `libredisearch_all.a` first.
+# See https://github.com/rust-lang/cargo/issues/4789#issuecomment-2308131243
+unittest = []
+
+[build-dependencies]
+build_utils = { path = "../build_utils" }
+
 [dependencies]
 crc32fast.workspace = true
 criterion.workspace = true
 csv.workspace = true
 fs-err.workspace = true
-lending-iterator.workspace = true
+icu_casemap.workspace = true
+libc.workspace = true
 redis_mock.workspace = true
 trie_rs.workspace = true
 ureq.workspace = true
-rqe_wildcard.workspace = true
 ffi.workspace = true
 workspace_hack.workspace = true
+
+[dev-dependencies]
+# Self-dependency activates the `unittest` feature only when building
+# benches/tests — keeps `cargo check` on the workspace working without
+# the C archive.
+trie_bencher = { path = ".", features = ["unittest"] }
 
 [lints]
 workspace = true

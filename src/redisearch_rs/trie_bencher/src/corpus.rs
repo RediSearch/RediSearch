@@ -9,8 +9,6 @@
 
 use std::{collections::BTreeSet, io::Cursor, path::PathBuf};
 
-use crate::bencher::rust_load_from_terms;
-
 /// This enum defines different corpora for benchmarking.
 ///
 /// Users may call [CorpusType::download_or_read_corpus] to get the full content of the source files of a corpus or
@@ -90,7 +88,15 @@ impl CorpusType {
             CorpusType::GutenbergEbook(full) => self.create_terms_gutenberg(&corpus, *full),
         };
         if output_pretty_print_trie {
-            let trie = rust_load_from_terms(&reval);
+            // Route through the byte-keyed `TrieMap<()>` for the dump so
+            // the `Debug` impl on `TrieMap<Data: Debug>` (trie.rs:299) is
+            // usable — `TermDictionary` (the bench target) has no Debug
+            // impl, but the pretty-printed shape we care about here is
+            // the trie structure, not the per-term metadata.
+            let mut trie: trie_rs::TrieMap<()> = trie_rs::TrieMap::new();
+            for k in &reval {
+                trie.insert(k.as_bytes(), ());
+            }
             fs_err::write(self.get_pretty_print_path(), format!("{trie:?}").as_bytes())
                 .expect("Failed to write bench words debug to disk");
         }

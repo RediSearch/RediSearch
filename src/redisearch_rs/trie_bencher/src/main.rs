@@ -7,39 +7,31 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 
-use std::ptr::NonNull;
 use trie_bencher::{RustTrieMap, corpus::CorpusType};
 
 fn main() {
     compute_and_report_memory_usage();
 }
 
-/// Download a text corpus and build a trie from it, using
-/// both the Rust and the C implementations.
-///
-/// Report to stdout the memory usage of both tries, alongside
-/// the memory size of the original raw corpus.
+/// Download a text corpus and build a [`RustTrieMap`] from it, then
+/// report raw size, unique-word count, and trie memory footprint.
 fn compute_and_report_memory_usage() {
-    let mut map = RustTrieMap::new();
+    let mut dict = RustTrieMap::new();
     let mut raw_size = 0;
     let unique_words = CorpusType::GutenbergEbook(true).create_terms(false);
 
-    for string in unique_words.iter() {
-        raw_size += string.len();
-        // Use a zero-sized type by passing a null pointer for `value`
-        let value = NonNull::dangling();
-        map.insert(string.as_bytes(), value);
+    for term in unique_words.iter() {
+        raw_size += term.len();
+        dict.add_term(term, 1.0, 1);
     }
 
-    let n_unique_words = unique_words.len();
+    let n_unique_terms = dict.len();
     println!(
         r#"Statistics:
 - Raw text size: {:.3} MBs
-- Number of unique words: {n_unique_words}
-- Memory {:.3} MBs
-- {} nodes"#,
+- Number of unique terms: {n_unique_terms}
+- Memory {:.3} MBs"#,
         raw_size as f64 / 1024. / 1024.,
-        map.mem_usage() as f64 / 1024. / 1024.,
-        map.n_nodes(),
+        dict.mem_usage() as f64 / 1024. / 1024.,
     );
 }

@@ -3078,14 +3078,16 @@ dependencies = [
 name = "trie_bencher"
 version = "0.0.1"
 dependencies = [
+ "build_utils",
  "crc32fast",
  "criterion",
  "csv",
  "ffi",
  "fs-err",
- "lending-iterator",
+ "icu_casemap",
+ "libc",
  "redis_mock",
- "rqe_wildcard",
+ "trie_bencher",
  "trie_rs",
  "ureq",
  "workspace_hack",

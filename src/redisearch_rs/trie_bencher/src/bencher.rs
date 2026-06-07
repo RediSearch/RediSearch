@@ -7,57 +7,100 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 
-use criterion::{
-    BatchSize, BenchmarkGroup, Criterion,
-    measurement::{Measurement, WallTime},
-};
-use lending_iterator::LendingIterator;
-use rqe_wildcard::WildcardPattern;
-use std::{ffi::c_void, hint::black_box, ptr::NonNull, time::Duration};
-use trie_rs::iter::{ContainsLendingIter, LendingIter};
-use trie_rs::iter::{RangeFilter, RangeLendingIter};
+//! Side-by-side Rust `TermDictionary` vs C `Trie` (`Trie_Sort_Lex`) benches.
+//!
+//! Every `*_group` helper here produces a single Criterion benchmark group
+//! containing one `Rust` bar and (where a faithful C equivalent exists) one
+//! `C` bar. The group label embeds the corpus prefix and the case-folding
+//! mode so a Criterion run produces self-explanatory charts.
+//!
+//! ## Folding modes
+//!
+//! [`FoldMode::Raw`] feeds untouched corpus to both sides — each side folds
+//! internally (ICU for Rust, libnu inside `Trie_InsertStringBuffer` for C),
+//! so the measured cost mirrors the realistic call-site. ICU folds differ
+//! from libnu on a few codepoints (e.g. `ß → ss`, `ς → σ`), so the two
+//! tries store slightly different key sets when the corpus contains those
+//! codepoints — flagged here, not blocking the comparison.
+//!
+//! [`FoldMode::PreFolded`] ICU-folds the corpus once at bencher
+//! construction and feeds the folded bytes to both sides. The Rust side
+//! still runs ICU on each insert, but on already-folded input
+//! `CaseMapper::fold_string` returns `Cow::Borrowed` — i.e. no
+//! allocation — so the trie work dominates. The C side's libnu pass still
+//! runs unchanged; on ASCII input that is a near-no-op.
+//!
+//! ## Per-bench shape
+//!
+//! - Immutable benches reuse a pre-built map held on `self`.
+//! - Mutable benches use `iter_batched(_, _, PerIteration)` because
+//!   `TermDictionary` and `CTrie` are not `Clone` — each iteration rebuilds
+//!   a fresh map from the cached terms via the bench setup closure.
+//!   Criterion excludes the setup cost from the measured window, so the
+//!   "rebuild N keys" overhead is not double-counted as part of the
+//!   operation under test.
 
-use crate::RustTrieMap;
+use std::time::Duration;
 
-/// A helper struct for benchmarking operations on different trie map implementations.
+use criterion::{BatchSize, BenchmarkGroup, Criterion, measurement::WallTime};
+use icu_casemap::CaseMapper;
+
+use trie_rs::str::term_dict::TermDictionary;
+
+use crate::c_trie::CTrie;
+
+/// Which case-folding input regime the bencher feeds to both sides.
+///
+/// See the module docs for the trade-off; the default is to run both
+/// modes from the bench entry points so charts compare directly.
+#[derive(Copy, Clone, Debug, PartialEq, Eq)]
+pub enum FoldMode {
+    /// Feed the corpus as it arrived — both sides fold internally.
+    Raw,
+    /// ICU-fold the corpus once at construction so both sides see
+    /// already-folded input.
+    PreFolded,
+}
+
+impl FoldMode {
+    /// Short tag included in the Criterion group label so charts stay
+    /// self-describing.
+    pub const fn tag(self) -> &'static str {
+        match self {
+            FoldMode::Raw => "raw",
+            FoldMode::PreFolded => "pre-folded",
+        }
+    }
+}
+
+/// Helper that drives one (corpus, folding-mode) sweep across the bench
+/// surface, mirroring every Rust call with the equivalent C call where
+/// one exists.
 pub struct OperationBencher {
-    map: RustTrieMap,
-
-    /// A vector of strings that will be inserted into the trie map.
+    /// Pre-built Rust dict — used directly by immutable benches.
+    rust_map: TermDictionary,
+    /// Pre-built C trie — used directly by immutable benches.
+    c_map: CTrie,
+    /// Original (post-fold) terms used to rebuild fresh maps in mutation
+    /// bench setup closures.
     keys: Vec<String>,
-
-    /// How long to run benchmarks overall, this differs significantly for benching immutable vs mutable operations because of the setup.
-    ///
-    /// We need to customize this parameter when using large datasets that require a time-consuming set up
-    /// (e.g. an expensive clone of the triemap we are benching, for the example with 10k entries).
+    /// Cached byte view of `keys` for `CTrie::insert` (avoids re-borrowing
+    /// every iteration).
+    key_bytes: Vec<Vec<u8>>,
     measurement_times: CorpusMeasurementTime,
-
-    /// The prefix added to the label of each benchmark group to identify which corpus was used.
+    /// Already includes the corpus prefix and the [`FoldMode`] tag.
     prefix: String,
 }
 
-/// A struct to hold the best `overall measurement times` in a group.
-///
-/// The benchmarking tool [Criterion] uses this to determine how long to run the benchmarks overall.
-/// The `measurement_time_immutable` is used for immutable operations (e.g. find),
-/// while the `measurement_time_mutable` is used for mutable operations (e.g. insert, remove).
-/// The `measurement_time_immutable` is set to 20% of the `measurement_time_mutable`.
-/// This is an approximation based on the assumption that immutable operations are 5 times faster than mutable operations.
+/// Per-corpus measurement durations.
 pub struct CorpusMeasurementTime {
-    /// Measurement time for immutable operations, e.g. find
     immutable: Duration,
-
-    /// Measurement time for mutable operations, e.g. insert, remove
     mutable: Duration,
 }
 
 impl CorpusMeasurementTime {
-    /// Creates a new [CorpusMeasurementTime] instance based on a mutable measurement time, assuming immutable operations are 5 times faster.
-    ///
-    /// This holds for the trie operations, but may not hold for other operations.
-    ///
-    /// This is an approximation based on the assumption that immutable operations are 5 times faster than mutable operations which has been seen
-    /// for find vs insert/remove in the benchmarks.
+    /// Approximate immutable measurement time at 20% of the mutable time.
+    /// Holds for trie ops where read is ~5× faster than write.
     pub fn from_mutable_trie(mutable_measurement_time: Duration) -> Self {
         Self {
             immutable: mutable_measurement_time.mul_f32(0.2),
@@ -76,29 +119,42 @@ impl Default for CorpusMeasurementTime {
 }
 
 impl OperationBencher {
-    /// Creates a new `OperationBencher` instance with the given prefix and terms.
+    /// Build a bencher over `terms` for a given `fold_mode`.
     ///
-    /// - `prefix` is used to identify the corpus in the benchmark groups.
-    /// - `terms` are used to create a trie map in the setup routine of criterion.
-    /// - `mutable_measurement_time` is used to set the measurement time for mutable operations (insert, remove), for now it's also used to approximate the immutable measurement time.
-    ///
-    /// Use the provided mutable measurement time or default to 5 seconds which is the default in criterion.
-    /// For benching other operations than the trie, ensure to check the assumption from [CorpusMeasurementTime::from_mutable_trie].
+    /// - `prefix` identifies the corpus in the bench group label.
+    /// - `fold_mode` decides whether `terms` are ICU-folded at construction
+    ///   (see [`FoldMode`]).
+    /// - `mutable_measurement_time` overrides Criterion's default 5s for
+    ///   mutable ops; defaults to 5s if `None`.
     pub fn new(
         prefix: String,
         terms: Vec<String>,
+        fold_mode: FoldMode,
         mutable_measurement_time: Option<Duration>,
     ) -> Self {
-        let rust_map = rust_load_from_terms(&terms);
+        let keys = match fold_mode {
+            FoldMode::Raw => terms,
+            FoldMode::PreFolded => {
+                let cm = CaseMapper::new();
+                terms
+                    .into_iter()
+                    .map(|t| cm.fold_string(&t).into_owned())
+                    .collect()
+            }
+        };
+        let key_bytes: Vec<Vec<u8>> = keys.iter().map(|s| s.as_bytes().to_vec()).collect();
+
+        let rust_map = build_rust_map(&keys);
+        let c_map = build_c_map(&key_bytes);
 
         let measurement_time = mutable_measurement_time.unwrap_or(Duration::from_secs(5));
-        // approximate the immutable measurement time based on the mutable measurement time, only liable for trie operations.
-        let measurement_times = CorpusMeasurementTime::from_mutable_trie(measurement_time);
         Self {
-            prefix,
-            map: rust_map,
-            keys: terms,
-            measurement_times,
+            prefix: format!("{prefix}|{}", fold_mode.tag()),
+            rust_map,
+            c_map,
+            keys,
+            key_bytes,
+            measurement_times: CorpusMeasurementTime::from_mutable_trie(measurement_time),
         }
     }
 
@@ -122,222 +178,243 @@ impl OperationBencher {
         group
     }
 
-    /// Benchmark the find operation.
-    ///
-    /// The benchmark group will be marked with the given label.
+    /// `get` on a pre-built dict. C-side mirror omitted: `sp->terms` has
+    /// no `Trie_Find` primitive — `Trie_InsertStringBuffer` does the
+    /// read+modify atomically, so the realistic comparison lives in
+    /// [`Self::insert_group`].
     pub fn find_group(&self, c: &mut Criterion, word: &str, label: &str) {
         let mut group = self.benchmark_group_immutable(c, label);
-        find_rust_benchmark(&mut group, &self.map, word);
+        group.bench_function("Rust", |b| {
+            b.iter(|| self.rust_map.get(std::hint::black_box(word)).is_some())
+        });
         group.finish();
     }
 
-    /// Benchmark the insert operation.
-    ///
-    /// The benchmark group will be marked with the given label.
+    /// `ADD_INCR` insert — mirrors `Trie_InsertStringBuffer` in
+    /// `src/spec.c:1928`. Mutation bench: each iteration rebuilds a fresh
+    /// dict from cached terms via `iter_batched(..., PerIteration)`.
     pub fn insert_group(&self, c: &mut Criterion, word: &str, label: &str) {
         let mut group = self.benchmark_group_mutable(c, label);
-        insert_rust_benchmark(&mut group, self.map.clone(), word);
+        let word_bytes = word.as_bytes();
+        group.bench_function("Rust", |b| {
+            b.iter_batched_ref(
+                || build_rust_map(&self.keys),
+                |dict| {
+                    dict.add_term(std::hint::black_box(word), 1.0, 1);
+                },
+                BatchSize::PerIteration,
+            )
+        });
+        group.bench_function("C", |b| {
+            b.iter_batched_ref(
+                || build_c_map(&self.key_bytes),
+                |trie| trie.insert(std::hint::black_box(word_bytes)),
+                BatchSize::PerIteration,
+            )
+        });
         group.finish();
     }
 
-    /// Benchmark the removal operation.
-    ///
-    /// The benchmark group will be marked with the given label.
     pub fn remove_group(&self, c: &mut Criterion, word: &str, label: &str) {
         let mut group = self.benchmark_group_mutable(c, label);
-        remove_rust_benchmark(&mut group, self.map.clone(), word);
+        let word_bytes = word.as_bytes();
+        group.bench_function("Rust", |b| {
+            b.iter_batched_ref(
+                || build_rust_map(&self.keys),
+                |dict| dict.remove(std::hint::black_box(word)).is_some(),
+                BatchSize::PerIteration,
+            )
+        });
+        group.bench_function("C", |b| {
+            b.iter_batched_ref(
+                || build_c_map(&self.key_bytes),
+                |trie| trie.remove(std::hint::black_box(word_bytes)),
+                BatchSize::PerIteration,
+            )
+        });
         group.finish();
     }
 
-    /// Benchmark loading a corpus of words.
+    /// Bulk-load the whole corpus from scratch.
     pub fn load_group(&self, c: &mut Criterion) {
         let mut group = self.benchmark_group_mutable(c, "Load");
-        load_rust_benchmark(&mut group, &self.keys);
+        group.bench_function("Rust", |b| {
+            b.iter_batched(
+                || self.keys.clone(),
+                |keys| build_rust_map(&keys),
+                BatchSize::LargeInput,
+            )
+        });
+        let key_bytes_view: Vec<&[u8]> =
+            self.key_bytes.iter().map(|v| v.as_slice()).collect();
+        group.bench_function("C", |b| {
+            b.iter_batched(
+                || key_bytes_view.clone(),
+                |keys| {
+                    let mut t = CTrie::new();
+                    for k in &keys {
+                        t.insert(k);
+                    }
+                    t
+                },
+                BatchSize::LargeInput,
+            )
+        });
         group.finish();
     }
 
-    /// Benchmark the find prefixes iterator.
-    ///
-    /// The benchmark group will be marked with the given label.
-    pub fn find_prefixes_group(&self, c: &mut Criterion, target: &str, label: &str) {
-        let mut group = self.benchmark_group_immutable(c, label);
-        find_prefixes_rust_benchmark(&mut group, &self.map, target);
-        group.finish();
-    }
-
-    /// Benchmark the wildcard iterator.
-    ///
-    /// The benchmark group will be marked with the given label.
-    pub fn wildcard_group(&self, c: &mut Criterion, target: &str) {
-        let label = format!("Wildcard [{target}]");
-        let mut group = self.benchmark_group_immutable(c, &label);
-        wildcard_rust_benchmark(&mut group, &self.map, target);
-        group.finish();
-    }
-
-    /// Benchmark the range iterator.
-    ///
-    /// The benchmark group will be marked with the given label.
-    pub fn range_group(&self, c: &mut Criterion, range: RangeFilter) {
-        let label = format!("Range [{range}]");
-        let mut group = self.benchmark_group_immutable(c, &label);
-        range_rust_benchmark(&mut group, &self.map, range);
-        group.finish();
-    }
-
-    /// Benchmark the `IntoValues` iterator.
-    ///
-    /// The benchmark group will be marked with the given label.
-    pub fn into_values_group(&self, c: &mut Criterion, label: &str) {
-        let mut group = self.benchmark_group_mutable(c, label);
-        into_values_benchmark(&mut group, &self.map);
-        group.finish();
-    }
-
-    /// Benchmark the `ContainsIter` iterator.
-    ///
-    /// The benchmark group will be marked with the given label.
-    pub fn contains_group(&self, c: &mut Criterion, target: &str) {
-        let label = format!("Contains [{target}]");
-        let mut group = self.benchmark_group_mutable(c, &label);
-        contains_rust_benchmark(&mut group, &self.map, target);
-        group.finish();
-    }
-}
-
-fn contains_rust_benchmark<M: Measurement>(
-    c: &mut BenchmarkGroup<'_, M>,
-    map: &RustTrieMap,
-    target: &str,
-) {
-    c.bench_function("Rust", |b| {
-        b.iter(|| {
-            let mut iter: ContainsLendingIter<_> =
-                map.contains_iter(black_box(target.as_bytes())).into();
-            while let Some(entry) = LendingIterator::next(&mut iter) {
-                black_box(entry);
-            }
-        })
-    });
-}
-
-fn into_values_benchmark<M: Measurement>(c: &mut BenchmarkGroup<'_, M>, map: &RustTrieMap) {
-    c.bench_function("Rust", |b| {
-        b.iter_batched(
-            || map.clone(),
-            |map| {
-                for value in map.into_values() {
-                    black_box(value);
+    /// Full lex walk — `TermDictionary::iter()` vs `Trie_IterateAll`.
+    /// Hot path for fork-GC terms walk (`src/fork_gc/terms.c:20`).
+    pub fn iter_all_group(&self, c: &mut Criterion) {
+        let mut group = self.benchmark_group_immutable(c, "IterAll");
+        group.bench_function("Rust", |b| {
+            b.iter(|| {
+                let mut count = 0usize;
+                for _ in self.rust_map.iter() {
+                    count += 1;
                 }
-            },
-            BatchSize::LargeInput,
-        )
-    });
-}
-
-fn range_rust_benchmark<M: Measurement>(
-    c: &mut BenchmarkGroup<'_, M>,
-    map: &RustTrieMap,
-    range: RangeFilter,
-) {
-    c.bench_function("Rust", |b| {
-        b.iter(|| {
-            let mut iter: RangeLendingIter<_> = map.range_iter(black_box(range)).into();
-            while let Some(entry) = LendingIterator::next(&mut iter) {
-                black_box(entry);
-            }
-        })
-    });
-}
-
-fn wildcard_rust_benchmark<M: Measurement>(
-    c: &mut BenchmarkGroup<'_, M>,
-    map: &RustTrieMap,
-    pattern: &str,
-) {
-    c.bench_function("Rust", |b| {
-        b.iter(|| {
-            let filter = WildcardPattern::parse(black_box(pattern.as_bytes()));
-            let mut iter: LendingIter<'_, _, _> = map.wildcard_iter(filter).into();
-            while let Some(entry) = LendingIterator::next(&mut iter) {
-                black_box(entry);
-            }
-        })
-    });
-}
-
-fn find_prefixes_rust_benchmark<M: Measurement>(
-    c: &mut BenchmarkGroup<'_, M>,
-    map: &RustTrieMap,
-    target: &str,
-) {
-    let target = target.as_bytes();
-    c.bench_function("Rust", |b| {
-        b.iter(|| map.prefixes_iter(black_box(target)).collect::<Vec<_>>())
-    });
-}
-
-fn find_rust_benchmark<M: Measurement>(
-    c: &mut BenchmarkGroup<'_, M>,
-    map: &RustTrieMap,
-    word: &str,
-) {
-    let word = word.as_bytes();
-    c.bench_function("Rust", |b| b.iter(|| map.find(black_box(word)).is_some()));
-}
-
-fn insert_rust_benchmark<M: Measurement>(
-    c: &mut BenchmarkGroup<'_, M>,
-    map: RustTrieMap,
-    word: &str,
-) {
-    let word = word.as_bytes();
-    c.bench_function("Rust", |b| {
-        b.iter_batched_ref(
-            || map.clone(),
-            |data| {
-                data.insert(black_box(word), black_box(NonNull::<c_void>::dangling()))
-                    .is_some()
-            },
-            BatchSize::LargeInput,
-        )
-    });
-}
-
-fn remove_rust_benchmark<M: Measurement>(
-    c: &mut BenchmarkGroup<'_, M>,
-    map: RustTrieMap,
-    word: &str,
-) {
-    let bytes = word.as_bytes();
-    c.bench_function("Rust", |b| {
-        b.iter_batched_ref(
-            || map.clone(),
-            |data| data.remove(black_box(bytes)).is_some(),
-            BatchSize::LargeInput,
-        )
-    });
-}
-
-fn load_rust_benchmark<M: Measurement>(group: &mut BenchmarkGroup<'_, M>, keys: &[String]) {
-    group.bench_function("Rust", |b| {
-        b.iter_batched(
-            || keys.iter().map(|s| s.as_bytes()).collect::<Vec<_>>(),
-            |data| rust_load(black_box(&data)),
-            BatchSize::LargeInput,
-        )
-    });
-}
-
-pub fn rust_load_from_terms(keys: &[String]) -> RustTrieMap {
-    let words = keys.iter().map(|s| s.as_bytes()).collect::<Vec<_>>();
-    rust_load(&words)
-}
-
-fn rust_load(words: &[&[u8]]) -> RustTrieMap {
-    let mut map = trie_rs::TrieMap::new();
-    for word in words {
-        map.insert(word, NonNull::<c_void>::dangling());
+                std::hint::black_box(count)
+            })
+        });
+        group.bench_function("C", |b| {
+            b.iter(|| std::hint::black_box(self.c_map.iterate_all()))
+        });
+        group.finish();
     }
-    map
+
+    /// DFA-filtered walk — `TermDictionary::iterate_dfa` vs `Trie_Iterate`.
+    /// Hot path for FT.SEARCH prefix/fuzzy queries (`src/query.c:617`).
+    /// We sum the per-match distance on both sides so the running-min
+    /// bookkeeping is included — it is load-bearing for FT.SUGGET FUZZY
+    /// ranking (memory `project_dfa_filter_dist_semantics`).
+    pub fn dfa_group(&self, c: &mut Criterion, prefix: &str, max_dist: u32, prefix_mode: bool) {
+        let label = format!("DFA[prefix={prefix:?}, dist={max_dist}, pm={prefix_mode}]");
+        let mut group = self.benchmark_group_immutable(c, &label);
+        group.bench_function("Rust", |b| {
+            b.iter(|| {
+                let mut count = 0usize;
+                let mut dist_sum: u64 = 0;
+                for (_, _, dist) in self.rust_map.iterate_dfa(prefix, max_dist, prefix_mode) {
+                    count += 1;
+                    dist_sum += u64::from(dist);
+                }
+                std::hint::black_box((count, dist_sum))
+            })
+        });
+        let prefix_bytes = prefix.as_bytes();
+        group.bench_function("C", |b| {
+            b.iter(|| {
+                std::hint::black_box(self.c_map.iterate_dfa(
+                    prefix_bytes,
+                    max_dist as i32,
+                    prefix_mode,
+                ))
+            })
+        });
+        group.finish();
+    }
+
+    /// Wildcard walk — `TermDictionary::wildcard_iter` vs `Trie_IterateWildcard`.
+    pub fn wildcard_group(&self, c: &mut Criterion, pattern: &str) {
+        let label = format!("Wildcard[{pattern}]");
+        let mut group = self.benchmark_group_immutable(c, &label);
+        group.bench_function("Rust", |b| {
+            b.iter(|| {
+                let mut count = 0usize;
+                for entry in self.rust_map.wildcard_iter(std::hint::black_box(pattern)) {
+                    std::hint::black_box(entry);
+                    count += 1;
+                }
+                std::hint::black_box(count)
+            })
+        });
+        group.bench_function("C", |b| {
+            b.iter(|| std::hint::black_box(self.c_map.iterate_wildcard(pattern)))
+        });
+        group.finish();
+    }
+
+    /// Lex-range walk. `None` bound disables that side.
+    pub fn range_group(
+        &self,
+        c: &mut Criterion,
+        min: Option<&str>,
+        include_min: bool,
+        max: Option<&str>,
+        include_max: bool,
+    ) {
+        let label = format!(
+            "Range[min={:?}({}), max={:?}({})]",
+            min,
+            if include_min { "incl" } else { "excl" },
+            max,
+            if include_max { "incl" } else { "excl" },
+        );
+        let mut group = self.benchmark_group_immutable(c, &label);
+        group.bench_function("Rust", |b| {
+            b.iter(|| {
+                let mut count = 0usize;
+                for entry in self
+                    .rust_map
+                    .range_iter(min, include_min, max, include_max)
+                {
+                    std::hint::black_box(entry);
+                    count += 1;
+                }
+                std::hint::black_box(count)
+            })
+        });
+        group.bench_function("C", |b| {
+            b.iter(|| {
+                std::hint::black_box(self.c_map.iterate_range(
+                    min,
+                    include_min,
+                    max,
+                    include_max,
+                ))
+            })
+        });
+        group.finish();
+    }
+
+    /// "Contains anywhere" walk — `TermDictionary::contains_iter` vs
+    /// `Trie_IterateContains(prefix=false, suffix=false)`.
+    pub fn contains_group(&self, c: &mut Criterion, target: &str) {
+        let label = format!("Contains[{target}]");
+        let mut group = self.benchmark_group_immutable(c, &label);
+        group.bench_function("Rust", |b| {
+            b.iter(|| {
+                let mut count = 0usize;
+                for entry in self.rust_map.contains_iter(std::hint::black_box(target)) {
+                    std::hint::black_box(entry);
+                    count += 1;
+                }
+                std::hint::black_box(count)
+            })
+        });
+        group.bench_function("C", |b| {
+            b.iter(|| std::hint::black_box(self.c_map.iterate_contains(target)))
+        });
+        group.finish();
+    }
+}
+
+/// Build a fresh [`TermDictionary`] from the cached corpus. Used as the
+/// setup closure for `iter_batched` mutation benches and as the
+/// one-shot construction for immutable benches.
+pub fn build_rust_map(keys: &[String]) -> TermDictionary {
+    let mut dict = TermDictionary::new();
+    for k in keys {
+        dict.add_term(k, 1.0, 1);
+    }
+    dict
+}
+
+/// Build a fresh [`CTrie`] from the cached corpus.
+pub fn build_c_map(keys: &[Vec<u8>]) -> CTrie {
+    let mut t = CTrie::new();
+    for k in keys {
+        t.insert(k);
+    }
+    t
 }
