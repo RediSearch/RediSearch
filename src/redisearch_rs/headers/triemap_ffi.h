@@ -229,6 +229,14 @@ void *TrieMapResultBuf_GetByIndex(TrieMapResultBuf *buf, size_t index);
 struct TrieMapIterator *TrieMap_IterateWithFilter(struct TrieMap *t, const char *prefix, tm_len_t prefix_len, enum tm_iter_mode iter_mode);
 
 /**
+ * Allocate an empty [`LexTrieRs`] on the Rust heap.
+ *
+ * The returned pointer owns its allocation and must be released through
+ * [`LexTrieRs_Free`].
+ */
+struct LexTrieRs *LexTrieRs_New(void);
+
+/**
  * Get the length of the TrieMapResultBuf.
  *
  * # Safety
@@ -237,14 +245,6 @@ struct TrieMapIterator *TrieMap_IterateWithFilter(struct TrieMap *t, const char 
  * - `buf` must point to a valid TrieMapResultBuf initialized by [`TrieMap_FindPrefixes`] and cannot be NULL.
  */
 size_t TrieMapResultBuf_Len(TrieMapResultBuf *buf);
-
-/**
- * Allocate an empty [`LexTrieRs`] on the Rust heap.
- *
- * The returned pointer owns its allocation and must be released through
- * [`LexTrieRs_Free`].
- */
-struct LexTrieRs *LexTrieRs_New(void);
 
 /**
  * Free a [`LexTrieRs`] previously produced by [`LexTrieRs_New`] or
@@ -256,19 +256,6 @@ struct LexTrieRs *LexTrieRs_New(void);
  *   [`LexTrieRs_New`] / [`LexTrieRs_RdbLoad`] and not yet freed.
  */
 void LexTrieRs_Free(struct LexTrieRs *t);
-
-/**
- * Set timeout limit used for affix queries. This timeout is checked in
- * [`TrieMapIterator_Next`], which will return `0` if the timeout is reached.
- *
- * If the provided timeout is 0, it's interpreted as unlimited.
- *
- * # Safety
- * The following invariants must be upheld when calling this function:
- * - `it` must point to a valid [`TrieMapIterator`] obtained from [`TrieMap_Iterate`] or
- *   [`TrieMap_IterateWithFilter`] and cannot be NULL.
- */
-void TrieMapIterator_SetTimeout(struct TrieMapIterator *it, timespec timeout);
 
 /**
  * Serialize a [`LexTrieRs`] to `io` in the lex-mode RDB wire format.
@@ -287,6 +274,19 @@ void TrieMapIterator_SetTimeout(struct TrieMapIterator *it, timespec timeout);
  *   references must exist.
  */
 void LexTrieRs_RdbSave(RedisModuleIO *io, const struct LexTrieRs *map, bool save_payloads, bool save_num_docs);
+
+/**
+ * Set timeout limit used for affix queries. This timeout is checked in
+ * [`TrieMapIterator_Next`], which will return `0` if the timeout is reached.
+ *
+ * If the provided timeout is 0, it's interpreted as unlimited.
+ *
+ * # Safety
+ * The following invariants must be upheld when calling this function:
+ * - `it` must point to a valid [`TrieMapIterator`] obtained from [`TrieMap_Iterate`] or
+ *   [`TrieMap_IterateWithFilter`] and cannot be NULL.
+ */
+void TrieMapIterator_SetTimeout(struct TrieMapIterator *it, timespec timeout);
 
 /**
  * Find the entry with a given string and length, and return its value, even if
