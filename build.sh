@@ -581,8 +581,18 @@ prepare_cmake_arguments() {
   # Prefer SCCACHE_PATH (set by sccache-action in CI with the full path), otherwise look on PATH.
   SCCACHE="${SCCACHE_PATH:-$(command -v sccache 2>/dev/null || true)}"
   if [[ -n "$SCCACHE" && -x "$SCCACHE" ]]; then
-    CMAKE_BASIC_ARGS="$CMAKE_BASIC_ARGS -DCMAKE_C_COMPILER_LAUNCHER=$SCCACHE -DCMAKE_CXX_COMPILER_LAUNCHER=$SCCACHE"
-    echo "Using sccache for C/C++ compilation caching"
+    # The binary being present is not enough: if the sccache server fails to
+    # start (e.g. the remote S3 cache is unreachable), every compile invocation
+    # errors out and the whole build fails. Probe that the server actually
+    # comes up first, and fall back to a regular uncached build if it does not.
+    # --show-stats is idempotent: it spawns the server if needed, connects to
+    # an already-running one otherwise, and fails only if it cannot start.
+    if "$SCCACHE" --show-stats >/dev/null 2>&1; then
+      CMAKE_BASIC_ARGS="$CMAKE_BASIC_ARGS -DCMAKE_C_COMPILER_LAUNCHER=$SCCACHE -DCMAKE_CXX_COMPILER_LAUNCHER=$SCCACHE"
+      echo "Using sccache for C/C++ compilation caching"
+    else
+      echo "WARNING: sccache server failed to start; building without sccache" >&2
+    fi
   fi
 
   # Add caching flags to prevent using old configurations
