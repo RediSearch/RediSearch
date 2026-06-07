@@ -54,8 +54,10 @@ jobs:
           SAN: ${{ inputs.san }}
           RUNNER_ENV: ${{ inputs.runner-env }}
           RUN_ID: ${{ github.run_id }}
+          OWNER: ${{ github.repository_owner }}
         run: |
-          IMAGE_NAME="ghcr.io/redisearch/redisearch-ci"
+          OWNER_LC=$(echo "$OWNER" | tr '[:upper:]' '[:lower:]')
+          IMAGE_NAME="ghcr.io/${OWNER_LC}/redisearch-ci"
           CONTAINER_SAFE=$(echo "$CONTAINER" | sed 's#[^A-Za-z0-9_.-]#-#g')
           SAN_SAFE=$(echo "$SAN" | sed 's#[^A-Za-z0-9_.-]#-#g')
           RUNNER_ENV_SAFE=$(echo "$RUNNER_ENV" | sed 's#[^A-Za-z0-9_.-]#-#g')
