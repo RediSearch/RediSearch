@@ -221,6 +221,65 @@ fn reader_needs_revalidation() {
     assert!(ir.needs_revalidation(), "index was modified");
 }
 
+/// `add_record` does not bump `gc_marker`, so the reader must notice appends made
+/// after the cached snapshot was taken — both new blocks and growth of the tail
+/// block — or it will stop short of the live tail on resume.
+///
+/// We simulate the append by building a second index in the post-append state and
+/// repointing the reader at it, leaving the cached snapshot stale.
+#[test]
+fn reader_needs_revalidation_detects_appends_without_gc_marker_bump() {
+    let mut pre = InvertedIndex::<Dummy>::new(IndexFlags_Index_DocIdsOnly);
+    pre.add_record(&RSIndexResult::build_virt().doc_id(10).build())
+        .unwrap();
+
+    // Tail-block-grew variant: same block count, one extra entry.
+    let mut tail_grew = InvertedIndex::<Dummy>::new(IndexFlags_Index_DocIdsOnly);
+    tail_grew
+        .add_record(&RSIndexResult::build_virt().doc_id(10).build())
+        .unwrap();
+    tail_grew
+        .add_record(&RSIndexResult::build_virt().doc_id(11).build())
+        .unwrap();
+
+    // New-block variant: an additional block appended.
+    let two_blocks = medium_thin_vec![
+        IndexBlock {
+            buffer: vec![0, 0, 0, 0],
+            num_entries: 1,
+            first_doc_id: 10,
+            last_doc_id: 10,
+        },
+        IndexBlock {
+            buffer: vec![0, 0, 0, 0],
+            num_entries: 1,
+            first_doc_id: 20,
+            last_doc_id: 20,
+        },
+    ];
+    let new_block = InvertedIndex::<Dummy>::from_blocks(IndexFlags_Index_DocIdsOnly, two_blocks);
+
+    {
+        let mut ir = pre.reader();
+        assert!(!ir.needs_revalidation());
+        ir.ii = &tail_grew;
+        assert!(
+            ir.needs_revalidation(),
+            "tail block grew but reader didn't notice"
+        );
+    }
+
+    {
+        let mut ir = pre.reader();
+        assert!(!ir.needs_revalidation());
+        ir.ii = &new_block;
+        assert!(
+            ir.needs_revalidation(),
+            "new block added but reader didn't notice"
+        );
+    }
+}
+
 #[test]
 fn reader_unique_docs() {
     let blocks = medium_thin_vec![

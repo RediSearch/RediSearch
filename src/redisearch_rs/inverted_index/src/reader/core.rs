@@ -185,7 +185,20 @@ impl<'index, E: DecodedBy<Decoder = D>, D: Decoder> IndexReader<'index>
     }
 
     fn needs_revalidation(&self) -> bool {
-        self.gc_marker != self.ii.gc_marker.load(atomic::Ordering::Relaxed)
+        if self.gc_marker != self.ii.gc_marker.load(atomic::Ordering::Relaxed) {
+            return true;
+        }
+        // `add_record` doesn't bump `gc_marker`, so a `gc_marker`-only check would let
+        // appends made between lock release and resume slip past the cached snapshot.
+        if self.snapshot.block_count() != self.ii.blocks.len() {
+            return true;
+        }
+        match (self.snapshot.last_block(), self.ii.blocks.last()) {
+            (Some(snap_last), Some(live_last)) => {
+                snap_last.num_entries() != live_last.num_entries()
+            }
+            _ => false,
+        }
     }
 
     fn refresh_buffer_pointers(&mut self) {
