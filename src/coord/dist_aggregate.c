@@ -763,6 +763,9 @@ int DistAggregateTimeoutReturnStrictClient(RedisModuleCtx *ctx, RedisModuleStrin
   if (!req || AREQ_TryClaimAggregateResults(req)) {
     // Either the request is NULL or We were able to claim the aggregation results.
     // That means that the background thread didn't reach the aggregation phase (startPipelineCommon) yet.
+    // Intentionally claim as worker-owned here: query-level coord aggregate timeouts do not use
+    // the cursor-read timeout-owner cleanup path, and the worker must still observe a claimed
+    // aggregation phase so it stores/signals the timed-out state for partial-result handling.
     // Reply with empty results
     coord_aggregate_query_reply_empty(ctx, argv, argc, QUERY_ERROR_CODE_TIMED_OUT);
     return REDISMODULE_OK;

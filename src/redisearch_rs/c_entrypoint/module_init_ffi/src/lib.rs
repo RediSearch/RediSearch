@@ -7,12 +7,63 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 
+use std::ffi::{CStr, c_char};
 use std::ptr::NonNull;
+use tracing::level_filters::LevelFilter;
+
+/// Parses a redis `loglevel` config value into a `tracing` level.
+///
+/// # Panics
+///
+/// Panics if `level` is not valid UTF-8, or is not one of the redis log levels
+/// `debug`, `verbose`, `notice`, or `warning`.
+///
+/// # Safety
+///
+/// `level` must point to a valid, null-terminated C string.
+unsafe fn parse_level(level: *const c_char) -> LevelFilter {
+    // Safety: the caller guarantees a valid, null-terminated C string.
+    let level = unsafe { CStr::from_ptr(level) };
+    let level = level.to_str().expect("redis loglevel must be valid UTF-8");
+
+    match level {
+        "debug" => LevelFilter::TRACE,
+        "verbose" => LevelFilter::DEBUG,
+        "notice" => LevelFilter::INFO,
+        "warning" => LevelFilter::WARN,
+        "nothing" => LevelFilter::OFF,
+        other => panic!("invalid redis loglevel: {other:?}"),
+    }
+}
 
 /// Initializes a global subscriber that reports Rust `tracing` traces through `redismodule` logging.
+///
+/// `level` is the initial redis `loglevel` config value the filter is set to.
+///
+/// # Safety
+///
+/// `level` must point to a valid, null-terminated C string.
 #[unsafe(no_mangle)]
-pub extern "C" fn TracingRedisModule_Init(ctx: Option<NonNull<ffi::RedisModuleCtx>>) {
-    tracing_redismodule::init(ctx);
+pub unsafe extern "C" fn TracingRedisModule_Init(
+    ctx: Option<NonNull<ffi::RedisModuleCtx>>,
+    level: *const c_char,
+) {
+    // Safety: forwarded to the caller's contract on `level`.
+    let level = unsafe { parse_level(level) };
+    tracing_redismodule::init(ctx, level);
+}
+
+/// Updates the `tracing` log level filter from a redis `loglevel` config value
+/// (one of `debug`, `verbose`, `notice`, `warning`).
+///
+/// # Safety
+///
+/// `level` must point to a valid, null-terminated C string.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn TracingRedisModule_SetLogLevel(level: *const c_char) {
+    // Safety: forwarded to the caller's contract on `level`.
+    let level = unsafe { parse_level(level) };
+    tracing_redismodule::set_log_level(level);
 }
 
 /// Initialize RediSearch's panic hook, without replaacing the pre-existing panic hook (if any).

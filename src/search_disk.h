@@ -217,6 +217,26 @@ bool SearchDisk_IndexTerm(RedisSearchDiskIndexSpec *index, SearchDiskWriteBatchH
 bool SearchDisk_IndexTags(RedisModuleCtx *ctx, RedisSearchDiskIndexSpec *index, SearchDiskWriteBatchHandle *batch, const char **values, size_t numValues, t_docId docId, t_fieldIndex fieldIndex);
 
 /**
+ * @brief Stage a numeric value for a document on a write batch.
+ *
+ * Called once per `(doc, value)`. Multi-value numeric fields loop in the
+ * OSS bulk indexer. The write is not durable until `batch` is committed via
+ * `SearchDisk_CommitWriteBatch`.
+ *
+ * The CF is created and registered with Redis BigModule via `ctx` on the
+ * first call per field, mirroring `SearchDisk_IndexTags`.
+ *
+ * @param ctx Redis module context for BigModule APIs (used to register new CFs)
+ * @param index Pointer to the index
+ * @param batch Open write batch the numeric write is staged into
+ * @param docId Document ID to index
+ * @param value Numeric value to associate with the document
+ * @param fieldIndex Field index for the numeric field
+ * @return true if successful, false otherwise
+ */
+bool SearchDisk_IndexNumeric(RedisModuleCtx *ctx, RedisSearchDiskIndexSpec *index, SearchDiskWriteBatchHandle *batch, t_docId docId, double value, t_fieldIndex fieldIndex);
+
+/**
  * @brief Open a new write batch bound to the given disk index.
  *
  * The returned batch accumulates `SearchDisk_IndexTerm` / `SearchDisk_IndexTags` /
@@ -324,6 +344,20 @@ QueryIterator* SearchDisk_NewTermIterator(RedisSearchDiskIndexSpec *index, RSTok
  * @return Pointer to the IndexIterator, or NULL if the tag is absent or on error
  */
 QueryIterator* SearchDisk_NewTagIterator(RedisSearchDiskIndexSpec *index, const RSToken *tok, t_fieldIndex fieldIndex, double weight, QueryError *status);
+
+/**
+ * @brief Create a numeric range IndexIterator over the disk-backed index
+ *
+ * Wraps the disk API's per-bucket readers in a union iterator that yields
+ * doc-ids matching `filter`'s range. The iterator captures a Speedb snapshot
+ * and is independent of subsequent writes.
+ *
+ * @param index Pointer to the index
+ * @param filter Pointer to the numeric filter (min, max, inclusivity, field spec)
+ * @param fieldIndex Field index for the numeric field
+ * @return Pointer to the IndexIterator, or NULL if no buckets overlap the filter
+ */
+QueryIterator* SearchDisk_NewNumericIterator(RedisSearchDiskIndexSpec *index, const NumericFilter *filter, t_fieldIndex fieldIndex);
 
 // DocTable API wrappers
 
