@@ -11,8 +11,8 @@ use std::{io::Cursor, sync::atomic};
 
 use super::{IndexReader, NumericReader, TermReader};
 use crate::{
-    DecodedBy, Decoder, Encoder, HasInnerIndex, InvertedIndex, NumericDecoder, TermDecoder,
-    index::snapshot::InvertedIndexSnapshot, index::unique_id::IndexUniqueId,
+    DecodedBy, Decoder, Encoder, HasInnerIndex, IndexBlock, InvertedIndex, NumericDecoder,
+    TermDecoder, index::snapshot::InvertedIndexSnapshot, index::unique_id::IndexUniqueId,
     opaque::OpaqueEncoding,
 };
 use ffi::{IndexFlags, IndexFlags_Index_HasMultiValue};
@@ -48,6 +48,13 @@ pub struct IndexReaderCore<'index, E> {
     /// detect if the index has been modified since the last read, in which case the reader
     /// should be reset.
     pub(crate) gc_marker: u32,
+
+    /// Snapshot-time `num_entries` of the tail block. Stored separately because the snapshot
+    /// is currently a borrow into `ii.blocks`, so `self.snapshot.last_block().num_entries()`
+    /// would observe the live block (mutated by in-place tail appends) and miss them. After
+    /// the follow-up storage refactor makes the snapshot owned, this can be sourced from
+    /// the snapshot directly.
+    pub(crate) tail_num_entries_at_snapshot: Option<u16>,
 
     /// The unique ID of the inverted index when this reader was created. Used together with
     /// pointer comparison in [`Self::points_to_ii`] to detect the ABA problem: if the original
@@ -170,6 +177,7 @@ impl<'index, E: DecodedBy<Decoder = D>, D: Decoder> IndexReader<'index>
         }
 
         self.gc_marker = self.ii.gc_marker.load(atomic::Ordering::Relaxed);
+        self.tail_num_entries_at_snapshot = self.ii.blocks.last().map(IndexBlock::num_entries);
     }
 
     fn unique_docs(&self) -> u64 {
@@ -193,12 +201,12 @@ impl<'index, E: DecodedBy<Decoder = D>, D: Decoder> IndexReader<'index>
         if self.snapshot.block_count() != self.ii.blocks.len() {
             return true;
         }
-        match (self.snapshot.last_block(), self.ii.blocks.last()) {
-            (Some(snap_last), Some(live_last)) => {
-                snap_last.num_entries() != live_last.num_entries()
-            }
-            _ => false,
-        }
+        // For in-place tail appends (same block count, more entries) the borrowed
+        // snapshot's `last_block()` points at the *live* `IndexBlock` and would observe
+        // the writer's new `num_entries`. Compare the value we captured at
+        // snapshot/refresh time instead.
+        let live_tail_entries = self.ii.blocks.last().map(IndexBlock::num_entries);
+        self.tail_num_entries_at_snapshot != live_tail_entries
     }
 
     fn refresh_buffer_pointers(&mut self) {
@@ -206,6 +214,7 @@ impl<'index, E: DecodedBy<Decoder = D>, D: Decoder> IndexReader<'index>
         // backing Vec was reallocated under us via raw-pointer mutation in C-side
         // code). Refreshing gives us a current view of `ii.blocks`.
         self.snapshot = self.ii.snapshot();
+        self.tail_num_entries_at_snapshot = self.ii.blocks.last().map(IndexBlock::num_entries);
         if let Some(current_block) = self.snapshot.block_ref(self.current_block_idx) {
             // Update the cursor to point to the current position in the refreshed buffer
             let position = self.current_buffer.position();
@@ -238,6 +247,7 @@ impl<'index, E: DecodedBy<Decoder = D>, D: Decoder> IndexReaderCore<'index, E> {
             current_block_idx: 0,
             last_doc_id,
             gc_marker: ii.gc_marker.load(atomic::Ordering::Relaxed),
+            tail_num_entries_at_snapshot: ii.blocks.last().map(IndexBlock::num_entries),
             ii_unique_id: ii.unique_id(),
         }
     }
@@ -255,6 +265,7 @@ impl<'index, E: DecodedBy<Decoder = D>, D: Decoder> IndexReaderCore<'index, E> {
         std::mem::swap(&mut self.ii, index);
         self.ii_unique_id = self.ii.unique_id();
         self.snapshot = self.ii.snapshot();
+        self.tail_num_entries_at_snapshot = self.ii.blocks.last().map(IndexBlock::num_entries);
     }
 
     /// Get the internal index of the reader. This is only used by some C tests.
