@@ -273,10 +273,18 @@ pub static SEARCH_ENTERPRISE_ITERATORS: OnceLock<Box<dyn SearchEnterpriseIterato
 pub trait SearchEnterpriseIterators: Send + Sync {
     /// Iterate over all the documents in the index. Each document in the iterator will have the
     /// given weight.
-    fn new_wildcard_on_disk<'index>(
+    ///
+    /// On a creation failure the implementation records a query error on `status`, so the
+    /// query fails instead of silently returning no results.
+    ///
+    /// # Safety
+    /// 1. `status` must point to a valid [`QueryError`](ffi::QueryError) to which the
+    ///    callee has exclusive access for the duration of the call.
+    unsafe fn new_wildcard_on_disk<'index>(
         &self,
         index: &'index mut ffi::RedisSearchDiskIndexSpec,
         weight: f64,
+        status: *mut ffi::QueryError,
     ) -> Result<Box<dyn RQEIteratorPrintable<'index> + 'index>, Box<dyn std::error::Error>>;
 
     /// Iterate over all the terms in the index, loading offset data for each document.
