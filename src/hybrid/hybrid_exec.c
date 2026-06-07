@@ -64,8 +64,9 @@ static inline bool handleAndReplyWarning(RedisModule_Reply *reply, QueryError *e
     ReplyWarning(reply, QueryError_Strerror(QUERY_ERROR_CODE_TIMED_OUT), suffix);
     timeoutOccurred = true;
   } else if (returnCode == RS_RESULT_ERROR) {
-    // Non-fatal error
+    // Non-fatal error - convert to warning
     ReplyWarning(reply, QueryError_GetUserError(err), suffix);
+    QueryError_ClearError(err);
   } else if (QueryError_HasReachedMaxPrefixExpansionsWarning(err)) {
     QueryWarningsGlobalStats_UpdateWarning(QUERY_WARNING_CODE_REACHED_MAX_PREFIX_EXPANSIONS, 1, COORD_ERR_WARN);
     ReplyWarning(reply, QUERY_WMAXPREFIXEXPANSIONS, suffix);

@@ -1516,7 +1516,26 @@ void AREQ_Free(AREQ *req) {
 
 
 
-int AREQ_BuildPipeline(AREQ *req, QueryError *status) {
+AggregationPipelineParams AREQ_MakeAggregationPipelineParams(AREQ *req,
+                                                             GroupByLimits groupByLimits) {
+  return (AggregationPipelineParams){
+    .common = {
+      .sctx = req->sctx,
+      .reqflags = req->reqflags,
+      .optimizer = req->optimizer,
+      // Score alias is not supposed to be used in the aggregation pipeline
+      .scoreAlias = NULL,
+    },
+    .outFields = &req->outFields,
+    .maxResultsLimit = IsSearch(req) ? req->maxSearchResults : req->maxAggregateResults,
+    .groupByLimits = groupByLimits,
+    .language = req->searchopts.language,
+  };
+}
+
+int AREQ_BuildPipelineWithAggregationParams(AREQ *req,
+                                            const AggregationPipelineParams *aggregationParams,
+                                            QueryError *status) {
   Pipeline_Initialize(&req->pipeline, req->reqConfig.timeoutPolicy, status);
   if (!(AREQ_RequestFlags(req) & QEXEC_F_BUILDPIPELINE_NO_ROOT)) {
     QueryPipelineParams params = {
@@ -1540,17 +1559,12 @@ int AREQ_BuildPipeline(AREQ *req, QueryError *status) {
       return REDISMODULE_ERR;
     }
   }
-  AggregationPipelineParams params = {
-    .common = {
-      .sctx = req->sctx,
-      .reqflags = req->reqflags,
-      .optimizer = req->optimizer,
-      // Right now score alias is not supposed to be used in the aggregation pipeline
-      .scoreAlias = NULL,
-    },
-    .outFields = &req->outFields,
-    .maxResultsLimit = IsSearch(req) ? req->maxSearchResults : req->maxAggregateResults,
-    .language = req->searchopts.language,
-  };
-  return Pipeline_BuildAggregationPart(&req->pipeline, &params, &req->stateflags);
+  return Pipeline_BuildAggregationPart(&req->pipeline, aggregationParams, &req->stateflags);
+}
+
+int AREQ_BuildPipeline(AREQ *req, QueryError *status) {
+  AggregationPipelineParams aggregationParams =
+      AREQ_MakeAggregationPipelineParams(
+          req, GroupByLimits_Default(RSGlobalConfig.maxAggregateGroups));
+  return AREQ_BuildPipelineWithAggregationParams(req, &aggregationParams, status);
 }
