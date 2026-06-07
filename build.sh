@@ -587,11 +587,14 @@ prepare_cmake_arguments() {
     # comes up first, and fall back to a regular uncached build if it does not.
     # --show-stats is idempotent: it spawns the server if needed, connects to
     # an already-running one otherwise, and fails only if it cannot start.
-    if "$SCCACHE" --show-stats >/dev/null 2>&1; then
+    if SCCACHE_PROBE_OUTPUT=$("$SCCACHE" --show-stats 2>&1); then
       CMAKE_BASIC_ARGS="$CMAKE_BASIC_ARGS -DCMAKE_C_COMPILER_LAUNCHER=$SCCACHE -DCMAKE_CXX_COMPILER_LAUNCHER=$SCCACHE"
       echo "Using sccache for C/C++ compilation caching"
     else
+      # Surface the underlying sccache error (e.g. "Timed out waiting for
+      # server startup") so the cause is visible in CI logs.
       echo "WARNING: sccache server failed to start; building without sccache" >&2
+      echo "$SCCACHE_PROBE_OUTPUT" >&2
     fi
   fi
 
