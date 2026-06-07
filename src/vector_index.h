@@ -192,8 +192,13 @@ extern "C" {
 
 QueryIterator *createMetricIteratorFromVectorQueryResults(VecSimQueryReply *reply,
                                                           bool yields_metric,
-                                                          bool sorted_by_id,
-                                                          t_docId max_doc_id);
+                                                          bool sorted_by_id);
+
+// Disk variant: additionally drops results with docId > max_doc_id (the query snapshot boundary).
+QueryIterator *createMetricIteratorFromVectorQueryResultsDisk(VecSimQueryReply *reply,
+                                                              bool yields_metric,
+                                                              bool sorted_by_id,
+                                                              t_docId max_doc_id);
 #ifdef __cplusplus
 }
 #endif

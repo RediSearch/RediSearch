@@ -66,7 +66,35 @@ VecSimIndex *openVectorIndex(RedisModuleCtx *ctx, FieldSpec *fieldSpec, bool cre
   return fieldSpec->vectorOpts.vecSimIndex;
 }
 
-QueryIterator *createMetricIteratorFromVectorQueryResults(VecSimQueryReply *reply, const bool yields_metric, const bool sorted_by_id, t_docId max_doc_id) {
+// Wrap the materialized (id, metric) arrays in the matching metric / id-list iterator, taking
+// ownership of the arrays. `num` is the number of valid leading entries (arrays may be
+// over-allocated). Returns NULL and frees the arrays when there are no results to yield.
+static QueryIterator *newMetricOrIdListIterator(t_docId *docIdsList, double *metricList,
+                                                size_t num, const bool yields_metric,
+                                                const bool sorted_by_id) {
+  if (num == 0) {
+    rm_free(docIdsList);
+    if (metricList) {
+      rm_free(metricList);
+    }
+    return NULL;
+  }
+  if (yields_metric) {
+    if (sorted_by_id) {
+      return NewMetricIteratorSortedById(docIdsList, metricList, num, VECTOR_DISTANCE);
+    } else {
+      return NewMetricIteratorSortedByScore(docIdsList, metricList, num, VECTOR_DISTANCE);
+    }
+  } else {
+    if (sorted_by_id) {
+      return NewSortedIdListIterator(docIdsList, num, 1.0);
+    } else {
+      return NewUnsortedIdListIterator(docIdsList, num, 1.0);
+    }
+  }
+}
+
+QueryIterator *createMetricIteratorFromVectorQueryResults(VecSimQueryReply *reply, const bool yields_metric, const bool sorted_by_id) {
   size_t res_num = VecSimQueryReply_Len(reply);
   if (res_num == 0) {
     VecSimQueryReply_Free(reply);
@@ -75,18 +103,42 @@ QueryIterator *createMetricIteratorFromVectorQueryResults(VecSimQueryReply *repl
   t_docId *docIdsList = rm_malloc(sizeof(*docIdsList) * res_num);
   double *metricList = yields_metric ? rm_malloc(sizeof(*metricList) * res_num) : NULL;
 
-  // Collect the results' id and distance and set it in the arrays.
-  // When max_doc_id is non-zero (disk indexes), drop docs newer than the query snapshot so the
-  // range result stays consistent with the snapshot-bounded iterators it may be unioned with.
-  // Compacting in place preserves the relative order, so it is correct for both BY_ID and
-  // BY_SCORE orders and for both the metric and plain id-list output paths.
+  // Collect the results' id and distance into the arrays.
+  VecSimQueryReply_Iterator *iter = VecSimQueryReply_GetIterator(reply);
+  for (size_t i = 0; i < res_num; i++) {
+    VecSimQueryResult *res = VecSimQueryReply_IteratorNext(iter);
+    docIdsList[i] = VecSimQueryResult_GetId(res);
+    if (yields_metric) {
+      metricList[i] = VecSimQueryResult_GetScore(res);
+    }
+  }
+  VecSimQueryReply_IteratorFree(iter);
+  VecSimQueryReply_Free(reply);
+
+  return newMetricOrIdListIterator(docIdsList, metricList, res_num, yields_metric, sorted_by_id);
+}
+
+// Disk variant of createMetricIteratorFromVectorQueryResults. A disk range query reads outside the
+// query snapshot and may return docIds newer than max_doc_id; drop those so the range result stays
+// consistent with the snapshot-bounded iterators it may be unioned with. Compacting in place
+// preserves the relative order, so it is correct for both BY_ID and BY_SCORE orders and for both
+// the metric and plain id-list output paths.
+QueryIterator *createMetricIteratorFromVectorQueryResultsDisk(VecSimQueryReply *reply, const bool yields_metric, const bool sorted_by_id, t_docId max_doc_id) {
+  size_t res_num = VecSimQueryReply_Len(reply);
+  if (res_num == 0) {
+    VecSimQueryReply_Free(reply);
+    return NULL;
+  }
+  t_docId *docIdsList = rm_malloc(sizeof(*docIdsList) * res_num);
+  double *metricList = yields_metric ? rm_malloc(sizeof(*metricList) * res_num) : NULL;
+
   size_t kept = 0;
   VecSimQueryReply_Iterator *iter = VecSimQueryReply_GetIterator(reply);
   for (size_t i = 0; i < res_num; i++) {
     VecSimQueryResult *res = VecSimQueryReply_IteratorNext(iter);
     t_docId id = VecSimQueryResult_GetId(res);
-    if (max_doc_id && id > max_doc_id) {
-      continue;
+    if (id > max_doc_id) {
+      continue;  // newer than the query snapshot
     }
     docIdsList[kept] = id;
     if (yields_metric) {
@@ -97,30 +149,7 @@ QueryIterator *createMetricIteratorFromVectorQueryResults(VecSimQueryReply *repl
   VecSimQueryReply_IteratorFree(iter);
   VecSimQueryReply_Free(reply);
 
-  if (kept == 0) {
-    // Every result was beyond the snapshot boundary.
-    rm_free(docIdsList);
-    if (metricList) {
-      rm_free(metricList);
-    }
-    return NULL;
-  }
-  res_num = kept;  // arrays are slightly over-allocated; the iterator takes ownership as-is.
-
-  // Move ownership on the arrays to the iterator.
-  if (yields_metric) {
-      if (sorted_by_id) {
-          return NewMetricIteratorSortedById(docIdsList, metricList, res_num, VECTOR_DISTANCE);
-      } else {
-          return NewMetricIteratorSortedByScore(docIdsList, metricList, res_num, VECTOR_DISTANCE);
-      }
-  } else {
-      if (sorted_by_id) {
-          return NewSortedIdListIterator(docIdsList, res_num, 1.0);
-      } else {
-          return NewUnsortedIdListIterator(docIdsList, res_num, 1.0);
-      }
-  }
+  return newMetricOrIdListIterator(docIdsList, metricList, kept, yields_metric, sorted_by_id);
 }
 
 static bool VectorQuery_HasParam(const VectorQuery *vq, const char *param_name, size_t param_name_len) {
@@ -230,13 +259,15 @@ QueryIterator *NewVectorIterator(QueryEvalCtx *q, VectorQuery *vq, QueryIterator
       }
       bool yields_metric = vq->scoreField != NULL;
       bool sorted_by_id = vq->range.order == BY_ID;
-      // On disk indexes the range query reads outside the query snapshot and may return docs
-      // newer than maxDocId. Bound the results to the snapshot (0 = no filtering for RAM, where
-      // the bound is a guaranteed no-op), matching the NOT/OPTIONAL iterators in query.c.
-      t_docId max_doc_id =
-          q->sctx->spec->diskSpec ? SearchDisk_GetMaxDocId(q->sctx->spec->diskSpec) : 0;
-      return createMetricIteratorFromVectorQueryResults(results, yields_metric, sorted_by_id,
-                                                        max_doc_id);
+      if (q->sctx->spec->diskSpec) {
+        // On disk indexes the range query reads outside the query snapshot and may return docs
+        // newer than maxDocId. Bound the results to the snapshot, matching the NOT/OPTIONAL
+        // iterators in query.c. RAM indexes need no such bound (no snapshot).
+        t_docId max_doc_id = SearchDisk_GetMaxDocId(q->sctx->spec->diskSpec);
+        return createMetricIteratorFromVectorQueryResultsDisk(results, yields_metric, sorted_by_id,
+                                                              max_doc_id);
+      }
+      return createMetricIteratorFromVectorQueryResults(results, yields_metric, sorted_by_id);
     }
   }
   return NULL;

@@ -826,8 +826,8 @@ TEST_F(IndexTest, testMetric_VectorRange) {
   VecSimQueryReply *results =
       VecSimIndex_RangeQuery(index, range_query.vector, range_query.radius, &queryParams, range_query.order);
 
-  // Run simple range query (max_doc_id = 0 disables the snapshot filter).
-  QueryIterator *vecIt = createMetricIteratorFromVectorQueryResults(results, true, true, 0);
+  // Run simple range query (RAM variant: no snapshot bound).
+  QueryIterator *vecIt = createMetricIteratorFromVectorQueryResults(results, true, true);
   size_t count = 0;
   size_t lowest_id = 25;
   size_t n_expected_res = n - lowest_id + 1;
@@ -895,13 +895,13 @@ TEST_F(IndexTest, testMetric_VectorRange) {
   VecSimIndex_Free(index);
 }
 
-// Verifies the max_doc_id snapshot filter applied while materializing vector
-// range results into a metric/id-list iterator (createMetricIteratorFromVectorQueryResults).
-// On disk indexes the range query may return docIds newer than the query snapshot; those must
-// be dropped so the range result stays consistent with the snapshot-bounded iterators it may be
-// unioned with. This exercises the drop path deterministically, which a flow test cannot: there
-// SearchDisk_GetMaxDocId advances synchronously with docId assignment, so no live docId ever
-// exceeds it.
+// Verifies the max_doc_id snapshot filter applied while materializing vector range results into a
+// metric/id-list iterator (createMetricIteratorFromVectorQueryResultsDisk). On disk indexes the
+// range query may return docIds newer than the query snapshot; those must be dropped so the range
+// result stays consistent with the snapshot-bounded iterators it may be unioned with. This
+// exercises the drop path deterministically, which a flow test cannot: there SearchDisk_GetMaxDocId
+// advances synchronously with docId assignment, so no live docId ever exceeds it. The final case
+// also checks the RAM variant (createMetricIteratorFromVectorQueryResults) leaves results unbounded.
 TEST_F(IndexTest, testMetric_VectorRange_MaxDocIdFilter) {
   size_t n = 100;
   size_t d = 4;
@@ -941,11 +941,11 @@ TEST_F(IndexTest, testMetric_VectorRange_MaxDocIdFilter) {
     return VecSimIndex_RangeQuery(index, query, 0.2, &queryParams, order);
   };
 
-  // BY_ID, cutoff in the middle: only the contiguous head 25..max_doc_id survives, in order.
+  // Disk, BY_ID, cutoff in the middle: only the contiguous head 25..max_doc_id survives, in order.
   {
     const t_docId max_doc_id = 50;
-    QueryIterator *it = createMetricIteratorFromVectorQueryResults(run_range(BY_ID), true, true,
-                                                                   max_doc_id);
+    QueryIterator *it = createMetricIteratorFromVectorQueryResultsDisk(run_range(BY_ID), true, true,
+                                                                       max_doc_id);
     ASSERT_TRUE(it != nullptr);
     size_t count = 0;
     while (it->Read(it) != ITERATOR_EOF) {
@@ -957,12 +957,12 @@ TEST_F(IndexTest, testMetric_VectorRange_MaxDocIdFilter) {
     it->Free(it);
   }
 
-  // BY_SCORE (unsorted by id): order follows distance, but every surviving id must be <= cutoff
-  // and the surviving set must be exactly {25..50}.
+  // Disk, BY_SCORE (unsorted by id): order follows distance, but every surviving id must be <=
+  // cutoff and the surviving set must be exactly {25..50}.
   {
     const t_docId max_doc_id = 50;
-    QueryIterator *it = createMetricIteratorFromVectorQueryResults(run_range(BY_SCORE), true,
-                                                                   false, max_doc_id);
+    QueryIterator *it = createMetricIteratorFromVectorQueryResultsDisk(run_range(BY_SCORE), true,
+                                                                       false, max_doc_id);
     ASSERT_TRUE(it != nullptr);
     std::set<t_docId> seen;
     while (it->Read(it) != ITERATOR_EOF) {
@@ -975,17 +975,17 @@ TEST_F(IndexTest, testMetric_VectorRange_MaxDocIdFilter) {
     it->Free(it);
   }
 
-  // Cutoff below the lowest in-range id: every result is filtered out, so no iterator is created.
+  // Disk, cutoff below the lowest in-range id: every result is filtered out, so no iterator is
+  // created.
   {
-    QueryIterator *it = createMetricIteratorFromVectorQueryResults(run_range(BY_ID), true, true,
-                                                                   /*max_doc_id=*/10);
+    QueryIterator *it = createMetricIteratorFromVectorQueryResultsDisk(run_range(BY_ID), true, true,
+                                                                       /*max_doc_id=*/10);
     ASSERT_TRUE(it == nullptr);
   }
 
-  // max_doc_id == 0 disables filtering entirely (RAM path): all in-range docs are returned.
+  // RAM variant applies no snapshot bound: all in-range docs are returned.
   {
-    QueryIterator *it = createMetricIteratorFromVectorQueryResults(run_range(BY_ID), true, true,
-                                                                   /*max_doc_id=*/0);
+    QueryIterator *it = createMetricIteratorFromVectorQueryResults(run_range(BY_ID), true, true);
     ASSERT_TRUE(it != nullptr);
     size_t count = 0;
     while (it->Read(it) != ITERATOR_EOF) {
