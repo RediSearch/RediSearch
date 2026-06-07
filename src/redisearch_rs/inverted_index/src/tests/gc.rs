@@ -399,7 +399,8 @@ fn ii_apply_gc() {
 
     assert_eq!(
         ii.memory_usage(),
-        24// Size of an empty inverted index
+        24 // Size of an empty inverted index
+        + 24 // Size of the Arc<ThinVec> heap header backing `sealed`
         + 8 // Size of the header of the thinvec storing blocks
         + IndexBlock::STACK_SIZE * 4 // Size of the index blocks
         + 8 // Size of the buffer of the first index block
@@ -463,7 +464,8 @@ fn ii_apply_gc() {
 
     assert_eq!(
         ii.memory_usage(),
-        24// Size of an empty inverted index
+        24 // Size of an empty inverted index
+        + 24 // Size of the Arc<ThinVec> heap header backing `sealed`
         + 8 // Size of the header of the thinvec storing blocks
         + IndexBlock::STACK_SIZE * 4 // Size of the index blocks
         + 8 // Size of the buffer of the first index block
@@ -474,7 +476,7 @@ fn ii_apply_gc() {
 
     assert_eq!(ii.unique_docs(), 4);
     assert_eq!(
-        ii.blocks,
+        ii.blocks.iter().cloned().collect::<Vec<_>>(),
         vec![
             IndexBlock {
                 buffer: encode_ids!(Dummy, 21),
@@ -539,7 +541,8 @@ fn ii_apply_gc_last_block_updated() {
 
     assert_eq!(
         ii.memory_usage(),
-        24// Size of an empty inverted index
+        24 // Size of an empty inverted index
+        + 24 // Size of the Arc<ThinVec> heap header backing `sealed`
         + 8 // Size of the header of the thinvec storing blocks
         + IndexBlock::STACK_SIZE * 2 // Size of the index blocks
         + 8 // Size of the buffer of the first index block
@@ -584,6 +587,7 @@ fn ii_apply_gc_last_block_updated() {
     assert_eq!(
         ii.memory_usage(),
         24 // Size of an empty inverted index
+        + 24 // Size of the Arc<ThinVec> heap header backing `sealed`
         + 8 // Size of the header of the thinvec storing blocks
         + IndexBlock::STACK_SIZE * 1 // Size of the index blocks
         + 16 // Size of the buffer of the first index block
@@ -591,7 +595,7 @@ fn ii_apply_gc_last_block_updated() {
 
     assert_eq!(ii.unique_docs(), 3);
     assert_eq!(
-        ii.blocks,
+        ii.blocks.iter().cloned().collect::<Vec<_>>(),
         vec![IndexBlock {
             buffer: encode_ids!(Dummy, 20, 21, 22),
             num_entries: 3,
@@ -671,7 +675,7 @@ fn ii_apply_gc_last_block_updated_no_delta() {
 
     // Block 0 was deleted, block 1 (unchanged) remains.
     assert_eq!(
-        ii.blocks,
+        ii.blocks.iter().cloned().collect::<Vec<_>>(),
         vec![IndexBlock {
             buffer: encode_ids!(Dummy, 20, 21, 22),
             num_entries: 3,
@@ -780,7 +784,7 @@ fn ii_apply_gc_entries_tracking_index() {
     assert_eq!(ii.unique_docs(), 1);
     assert_eq!(repaired, vec![15, 15]);
     assert_eq!(
-        ii.inner().blocks,
+        ii.inner().blocks.iter().cloned().collect::<Vec<_>>(),
         vec![IndexBlock {
             buffer: encode_ids!(AllowDupsDummy, 15, 15),
             num_entries: 2,
@@ -799,58 +803,9 @@ fn ii_apply_gc_entries_tracking_index() {
         }
     );
 }
-#[cfg_attr(miri, ignore = "the memory hack below raises error in miri")]
-#[test]
-fn test_refresh_buffer_pointers_after_reallocation() {
-    use crate::IndexReader as _;
-
-    let mut ii = InvertedIndex::<Dummy>::new(IndexFlags_Index_DocIdsOnly);
-
-    // Add initial records
-    ii.add_record(&RSIndexResult::build_virt().doc_id(10).build())
-        .unwrap();
-    ii.add_record(&RSIndexResult::build_virt().doc_id(11).build())
-        .unwrap();
-
-    // SAFETY: We need to bypass Rust's borrowing rules to simulate the real-world
-    // scenario where buffer reallocation happens while a reader is active.
-    // This is safe because:
-    // 1. We're not accessing the reader during the mutation
-    // 2. The InvertedIndex structure remains valid
-    // 3. We call refresh_buffer_pointers before using the reader again
-    let ii_ptr = &mut ii as *mut InvertedIndex<Dummy>;
-
-    let mut reader: crate::IndexReaderCore<'_, Dummy> = ii.reader();
-    let mut result = RSIndexResult::build_virt().build();
-
-    // Read first record
-    assert!(reader.next_record(&mut result).unwrap());
-    assert_eq!(result.doc_id, 10);
-
-    // Force buffer reallocation by adding many records to the same block
-    // This should cause the buffer to grow and potentially move
-    unsafe {
-        for i in 12..1000 {
-            (*ii_ptr)
-                .add_record(&RSIndexResult::build_virt().doc_id(i).build())
-                .unwrap();
-        }
-    }
-
-    // Buffer was reallocated - test refresh_buffer_pointers
-    reader.refresh_buffer_pointers();
-
-    // Verify we can still read correctly from the new buffer
-    let mut doc_count = 1; // Already read doc_id 10
-    let mut expected_doc_id = 11;
-
-    while reader.next_record(&mut result).unwrap() {
-        assert_eq!(result.doc_id, expected_doc_id);
-        doc_count += 1;
-        expected_doc_id += 1;
-    }
-
-    // Should have read all 990 documents (10, 11, 12..999)
-    assert_eq!(doc_count, 990);
-    assert_eq!(expected_doc_id, 1000);
-}
+// The pre-snapshot `test_refresh_buffer_pointers_after_reallocation` was
+// removed alongside Step A. Snapshot block buffers are immutable `Vec<u8>`
+// clones owned by the reader, so the in-place reallocation scenario that
+// test exercised cannot happen anymore. Reader-side staleness after writes
+// is covered by `tests::reader::core::reader_needs_revalidation_detects_appends_without_gc_marker_bump`
+// and by `reader_reset`.

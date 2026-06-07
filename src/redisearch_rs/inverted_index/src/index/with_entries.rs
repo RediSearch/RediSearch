@@ -106,7 +106,7 @@ impl<E: Encoder> EntriesTrackingIndex<E> {
     }
 
     /// Take a snapshot of the inverted index's block storage. See [`InvertedIndex::snapshot`].
-    pub fn snapshot(&self) -> crate::InvertedIndexSnapshot<'_> {
+    pub fn snapshot(&self) -> crate::InvertedIndexSnapshot {
         self.index.snapshot()
     }
 
