@@ -57,6 +57,14 @@ jobs:
           client-id: ${{ vars.GH_PR_APP_ID }}
           private-key: ${{ secrets.GH_PR_APP_PRIVATE_KEY }}
           owner: RediSearch
+          # Hard-cap the minted token to exactly what this flow needs, so it
+          # stays least-privilege even if the redis-pr-app App is granted more
+          # at the installation level. Without these, the token inherits the
+          # App's full installed permission set, not the `permissions:` block
+          # above (which only governs the unused default GITHUB_TOKEN).
+          permission-contents: write       # push fix commits to the PR branch
+          permission-pull-requests: write  # comment on the backport PR
+          permission-actions: read         # read failed-run logs via gh api
 
       # Resolves which PR (and which branch) this run is for, extracts CI failure
       # logs, and gathers any human-supplied context comments. Outputs `skip=true`

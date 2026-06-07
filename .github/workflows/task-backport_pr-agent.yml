@@ -85,6 +85,13 @@ jobs:
           client-id: ${{ vars.GH_PR_APP_ID }}
           private-key: ${{ secrets.GH_PR_APP_PRIVATE_KEY }}
           owner: RediSearch
+          # Hard-cap the minted token to exactly what this flow needs, so it
+          # stays least-privilege even if the redis-pr-app App is granted more
+          # at the installation level. Without these, the token inherits the
+          # App's full installed permission set, not the `permissions:` block
+          # above (which only governs the unused default GITHUB_TOKEN).
+          permission-contents: write       # push backport-agent/* branches
+          permission-pull-requests: write  # open / label / comment on PRs
 
       - name: Checkout master (with full history)
         uses: actions/checkout@v6
