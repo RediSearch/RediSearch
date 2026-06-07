@@ -1,4 +1,5 @@
 #include "hybrid/hybrid_request.h"
+#include <stdatomic.h>
 #include "pipeline/pipeline.h"
 #include "pipeline/pipeline_construction.h"
 #include "rlookup.h"
@@ -477,6 +478,40 @@ void AddValidationErrorContext(AREQ *req, QueryError *status) {
                                        "Weight attributes are not allowed in FT.HYBRID VSIM FILTER");
     }
   }
+}
+
+void HybridRequest_SetTimedOut(HybridRequest *req) {
+  RS_AtomicBoolStoreRelaxed(&req->syncCtx.timedOut, true);
+  // Propagate to each subquery AREQ so its RPNet's MRChannel_PopWithTimeout
+  // abort flag (&areq->syncCtx.timedOut) is flipped. Without this the BG
+  // worker can stay parked on the channel even after the hybrid-level flag
+  // is set.
+  for (size_t i = 0; i < req->nrequests; i++) {
+    if (req->requests[i]) {
+      AREQ_SetTimedOut(req->requests[i]);
+    }
+  }
+}
+
+bool HybridRequest_TryClaimAggregateResults(HybridRequest *req) {
+  bool expected = false;
+  return atomic_compare_exchange_strong_explicit(&req->syncCtx.aggregatingResults, &expected, true,
+                                                 memory_order_relaxed, memory_order_relaxed);
+}
+
+void HybridRequest_SignalAggregateResultsComplete(HybridRequest *req) {
+  pthread_mutex_lock(&req->syncCtx.aggregateResultsLock);
+  req->syncCtx.aggregateResultsDone = true;
+  pthread_cond_broadcast(&req->syncCtx.aggregateResultsCond);
+  pthread_mutex_unlock(&req->syncCtx.aggregateResultsLock);
+}
+
+void HybridRequest_WaitForAggregateResultsComplete(HybridRequest *req) {
+  pthread_mutex_lock(&req->syncCtx.aggregateResultsLock);
+  while (!req->syncCtx.aggregateResultsDone) {
+    pthread_cond_wait(&req->syncCtx.aggregateResultsCond, &req->syncCtx.aggregateResultsLock);
+  }
+  pthread_mutex_unlock(&req->syncCtx.aggregateResultsLock);
 }
 
 #ifdef __cplusplus

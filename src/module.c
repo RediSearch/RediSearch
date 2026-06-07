@@ -10,6 +10,7 @@
 
 #include <assert.h>
 #include "triemap_ffi.h"
+#include <limits.h>
 #include <stdio.h>
 #include <string.h>
 #include <sys/param.h>
@@ -3866,6 +3867,10 @@ int DistHybridCommandInternal(RedisModuleCtx *ctx, RedisModuleString **argv, int
 
   CoordRequestCtx *reqCtx = CoordRequestCtx_New(COMMAND_HYBRID);
 
+  // Capture the policy on the main thread so BG and the timeout callback agree
+  // on one value (avoids a TOCTOU against a concurrent FT.CONFIG SET).
+  RSTimeoutPolicy policy = RSGlobalConfig.requestConfigParams.timeoutPolicy;
+  CoordRequestCtx_SetTimeoutPolicy(reqCtx, policy);
 
   ConcurrentSearchHandlerCtx handlerCtx;
   ConcurrentSearchHandlerCtx_Init(&handlerCtx);
@@ -3877,9 +3882,11 @@ int DistHybridCommandInternal(RedisModuleCtx *ctx, RedisModuleString **argv, int
   handlerCtx.bcCtx.privdata = reqCtx;
   handlerCtx.bcCtx.free_privdata = DistCoordReqFreePrivData;
 
-  if (RSGlobalConfig.requestConfigParams.timeoutPolicy == TimeoutPolicy_Fail) {
+  if (policy != TimeoutPolicy_Return) {
     handlerCtx.bcCtx.reply_callback = DistHybridReplyCallback;
-    handlerCtx.bcCtx.timeout_callback = DistHybridTimeoutFailClient;
+    handlerCtx.bcCtx.timeout_callback = (policy == TimeoutPolicy_Fail)
+        ? DistHybridTimeoutFailClient
+        : DistHybridTimeoutReturnStrictClient;
     handlerCtx.bcCtx.timeoutMS = queryTimeoutMS;
     CoordRequestCtx_SetUseReplyCallback(reqCtx, true);
   }
@@ -3956,11 +3963,25 @@ static inline int CursorCommand(RedisModuleCtx *ctx, RedisModuleString **argv, i
       // _FT.HYBRID WITHCURSOR is read via _FT.CURSOR READ, bypassing CursorCommand.
       RS_ASSERT(!info.isHybrid);
 #endif
+      // Apply the foreground cap to the blocked-client timer budget. The cursor
+      // cached its queryTimeoutMS at WITHCURSOR time; tightening
+      // search-_max-foreground-timeout-limit (or disabling workers) between
+      // cursor open and this READ must shrink both the execution deadline
+      // (capped in runCursor) and the coordinator-side timer here.
+      long long capped = info.queryTimeoutMS > (size_t)LLONG_MAX
+                           ? LLONG_MAX
+                           : (long long)info.queryTimeoutMS;
+      if (RSConfig_CapQueryTimeoutToForegroundLimit(&capped)) {
+        RedisModule_Log(ctx, "verbose",
+          "FT.CURSOR READ: coordinator blocked-client timer capped by "
+          "_MAX_FOREGROUND_TIMEOUT_LIMIT (from %zu ms to %lld ms)",
+          info.queryTimeoutMS, capped);
+      }
       CoordRequestCtx *reqCtx = CoordRequestCtx_New(COMMAND_AGGREGATE);
       handlerCtx.bcCtx.privdata = reqCtx;
       handlerCtx.bcCtx.free_privdata = DistCoordReqFreePrivData;
       handlerCtx.bcCtx.reply_callback = DistAggregateReplyCallback;
-      handlerCtx.bcCtx.timeoutMS = info.queryTimeoutMS;
+      handlerCtx.bcCtx.timeoutMS = (size_t)capped;
       CoordRequestCtx_SetUseReplyCallback(reqCtx, true);
       if (info.queryTimeoutPolicy == TimeoutPolicy_Fail) {
         handlerCtx.bcCtx.timeout_callback = DistAggregateTimeoutFailClient;
@@ -4345,6 +4366,9 @@ typedef void (*BlockedClientFreePrivDataCB) (RedisModuleCtx *ctx, void *privdata
 
 // Initialize query timeout from command args or global config.
 // Always assigns a non-negative timeout value to *timeout.
+// The value is also silently capped to search-_max-foreground-timeout-limit
+// when the limit is active; AREQ_Compile sets the QEXEC_S_MAX_TIMEOUT_CAPPED
+// flag on its own request, which is what surfaces the warning to the user.
 static int initQueryTimeout(size_t *timeout, RedisModuleString **argv, int argc, QueryError *status) {
   RS_ASSERT(timeout != NULL);
 
@@ -4356,7 +4380,17 @@ static int initQueryTimeout(size_t *timeout, RedisModuleString **argv, int argc,
     ArgsCursor ac;
     ArgsCursor_InitRString(&ac, argv + timeoutArgIdx, argc - timeoutArgIdx);
     // parseTimeout validates non-negative timeout and returns error if no argument is provided
-    return parseTimeout(timeout, &ac, status);
+    if (parseTimeout(timeout, &ac, status) != REDISMODULE_OK) {
+      return REDISMODULE_ERR;
+    }
+  }
+  // Saturate the size_t to LLONG_MAX before casting so values >= 2^63 do not
+  // wrap to a negative long long. Without this clamp, an oversized timeout
+  // would be treated by the cap helper as "unlimited" (<= 0) and silently
+  // capped anyway, but the saturation here is defensive and self-documenting.
+  long long capped = (*timeout > (size_t)LLONG_MAX) ? LLONG_MAX : (long long)*timeout;
+  if (RSConfig_CapQueryTimeoutToForegroundLimit(&capped)) {
+    *timeout = (size_t)capped;
   }
   return REDISMODULE_OK;
 }

@@ -65,7 +65,7 @@ static void __trieNode_sortChildren(TrieNode *n);
 #define updateScore(n, value)                             \
 do {                                                      \
   if (n->sortMode == Trie_Sort_Score) {                   \
-    n->maxChildScore = MAX(n->maxChildScore, value);      \
+    n->subtreeMaxScore = MAX(n->subtreeMaxScore, value);      \
   }                                                       \
 } while(0)
 
@@ -156,7 +156,7 @@ TrieNode *__newTrieNode(const rune *str, t_len offset, t_len len, const char *pa
   n->score = score;
   n->sortMode = sortMode;
   n->flags = 0 | (terminal ? TRIENODE_TERMINAL : 0);
-  n->maxChildScore = score;
+  n->subtreeMaxScore = score;
   n->numDocs = numDocs;
   memcpy(n->str, str + offset, sizeof(rune) * (len - offset));
   if (payload != NULL && plen > 0) {
@@ -199,7 +199,7 @@ static TrieNode *__trie_SplitNode(TrieNode *n, t_len offset) {
   // Copy the current node's data and children to a new child node
   TrieNode *newChild = __newTrieNode(n->str, offset, n->len, NULL, 0, n->numChildren, n->score,
                                      TrieNode_IsTerminal(n), n->sortMode, n->numDocs);
-  newChild->maxChildScore = n->maxChildScore;
+  newChild->subtreeMaxScore = n->subtreeMaxScore;
   newChild->flags = n->flags;
   newChild->payload = n->payload;
   n->payload = NULL;
@@ -240,7 +240,7 @@ static TrieNode *__trieNode_MergeWithSingleChild(TrieNode *n, TrieFreeCallback f
   TrieNode *merged = __newTrieNode(
       nstr, 0, n->len + ch->len, NULL, 0, ch->numChildren,
       ch->score, TrieNode_IsTerminal(ch), n->sortMode, ch->numDocs);
-  merged->maxChildScore = ch->maxChildScore;
+  merged->subtreeMaxScore = ch->subtreeMaxScore;
   merged->numChildren = ch->numChildren;
   merged->payload = ch->payload;
   ch->payload = NULL;
@@ -299,7 +299,7 @@ static TrieAddChildResult __trieNode_addChild_lex(
 }
 
 // Score-mode child placement. Children are kept sorted by descending
-// maxChildScore; a recursed update may invalidate that order, so we check the
+// subtreeMaxScore; a recursed update may invalidate that order, so we check the
 // two neighbours and re-sort if needed.
 static TrieAddChildResult __trieNode_addChild_score(
     TrieNode *n, const rune *str, t_len len, t_len offset, RSPayload *payload, float score,
@@ -318,15 +318,15 @@ static TrieAddChildResult __trieNode_addChild_score(
       TrieNode_Children(n)[idx] = child;
       // check if the order was kept and fix as necessary
       if (n->numChildren > 1) {
-        if ((idx > 0 && child->maxChildScore > TrieNode_Children(n)[idx - 1]->maxChildScore) ||
-            (idx < n->numChildren - 2 && child->maxChildScore < TrieNode_Children(n)[idx + 1]->maxChildScore)) {
+        if ((idx > 0 && child->subtreeMaxScore > TrieNode_Children(n)[idx - 1]->subtreeMaxScore) ||
+            (idx < n->numChildren - 2 && child->subtreeMaxScore < TrieNode_Children(n)[idx + 1]->subtreeMaxScore)) {
           __trieNode_sortChildren(n);
         }
       }
       return (TrieAddChildResult){.node = n, .rc = rc};
     }
     // keep the index that fits the score
-    if (child->maxChildScore < score && scoreIdx == REDISEARCH_UNINITIALIZED) {
+    if (child->subtreeMaxScore < score && scoreIdx == REDISEARCH_UNINITIALIZED) {
       scoreIdx = idx;
     }
   }
@@ -518,7 +518,7 @@ static int __trieNode_optimizeChildren(TrieNode *n, TrieFreeCallback freecb) {
   int rc = 0;
   int i = 0;
   TrieNode **nodes = TrieNode_Children(n);
-  n->maxChildScore = n->score;
+  n->subtreeMaxScore = n->score;
   // free deleted terminal nodes
   while (i < n->numChildren) {
 
@@ -532,7 +532,7 @@ static int __trieNode_optimizeChildren(TrieNode *n, TrieFreeCallback freecb) {
       while (i < n->numChildren - 1) {
         nodes[i] = nodes[i + 1];
         *nk = *(nk + 1);
-        updateScore(n, nodes[i]->maxChildScore);
+        updateScore(n, nodes[i]->subtreeMaxScore);
         i++;
         nk++;
       }
@@ -548,7 +548,7 @@ static int __trieNode_optimizeChildren(TrieNode *n, TrieFreeCallback freecb) {
         nodes[i] = __trieNode_MergeWithSingleChild(nodes[i], freecb);
         rc++;
       }
-      updateScore(n, nodes[i]->maxChildScore);
+      updateScore(n, nodes[i]->subtreeMaxScore);
     }
     i++;
   }
@@ -663,9 +663,9 @@ inline static int __trieNode_Cmp_Score(const void *p1, const void *p2) {
   TrieNode *n1 = *(TrieNode **)p1;
   TrieNode *n2 = *(TrieNode **)p2;
 
-  if (n1->maxChildScore < n2->maxChildScore) {
+  if (n1->subtreeMaxScore < n2->subtreeMaxScore) {
     return 1;
-  } else if (n1->maxChildScore > n2->maxChildScore) {
+  } else if (n1->subtreeMaxScore > n2->subtreeMaxScore) {
     return -1;
   }
   return __trieNode_Cmp_Lex(&n1, &n2);
@@ -774,7 +774,7 @@ inline int __ti_step(TrieIterator *it, void *matchCtx) {
       // push the next child
       if (current->childOffset < current->n->numChildren) {
         TrieNode *ch = TrieNode_Children(current->n)[current->childOffset++];
-        if (ch->maxChildScore >= it->minScore || ch->score >= it->minScore) {
+        if (ch->subtreeMaxScore >= it->kthBestScore || ch->score >= it->kthBestScore) {
           __ti_Push(it, ch, 0);
           it->nodesConsumed++;
         } else {
@@ -794,7 +794,7 @@ TrieIterator *TrieNode_Iterate(TrieNode *n, StepFilter f, StackPopCallback pf, v
   TrieIterator *it = rm_calloc(1, sizeof(TrieIterator));
   it->filter = f;
   it->popCallback = pf;
-  it->minScore = INT_MIN;    // terms from dictionary which are not in term trie get a valid score INT_MIN
+  it->kthBestScore = INT_MIN;
   it->ctx = ctx;
   __ti_Push(it, n, 0);
 
@@ -1062,7 +1062,17 @@ static void rangeIterate(TrieNode *n, const rune *min, int nmin, const rune *max
     endIdx = rsb_lt(arr, arrlen, sizeof(*arr), &h, rsbCompareExact);
   }
 
-  // we need to iterate (without any checking) on all the subtree from beginIdx to endIdx
+  // we need to iterate (without any checking) on all the subtree from beginIdx
+  // to endIdx, excluding the prefix-boundary children that the blocks above
+  // and below recurse on separately. Without these guards, when the min (or
+  // max) is a proper prefix of the boundary child's label, `rsb_gt`/`rsb_lt`
+  // include that child here as well, double-emitting the entire subtree.
+  if (beginEqIdx != -1 && beginIdx <= beginEqIdx) {
+    beginIdx = beginEqIdx + 1;
+  }
+  if (endEqIdx != -1 && endIdx >= endEqIdx) {
+    endIdx = endEqIdx - 1;
+  }
   for (int ii = beginIdx; ii <= endIdx; ++ii) {
     rangeIterateSubTree(arr[ii], r);
   }

@@ -27,6 +27,7 @@ impl Reducer {
             reducerId: 0,
             NewInstance: None,
             Add: None,
+            AddWithDocId: None,
             Finalize: None,
             FreeInstance: None,
             Free: None,
@@ -70,6 +71,20 @@ impl Reducer {
         f: unsafe extern "C" fn(*mut ffi::Reducer, *mut c_void, *const ffi::RLookupRow) -> i32,
     ) -> &mut Self {
         self.0.Add = Some(f);
+        self
+    }
+
+    /// Set `AddWithDocId` function pointer.
+    pub fn set_add_with_doc_id(
+        &mut self,
+        f: unsafe extern "C" fn(
+            *mut ffi::Reducer,
+            *mut c_void,
+            *const ffi::RLookupRow,
+            ffi::t_docId,
+        ) -> i32,
+    ) -> &mut Self {
+        self.0.AddWithDocId = Some(f);
         self
     }
 

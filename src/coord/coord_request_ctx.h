@@ -47,6 +47,10 @@ typedef struct CoordRequestCtx {
   // Distinguishes coord FT.CURSOR READ on a RETURN_STRICT. Set in
   // CursorCommand before BC arming; never mutated afterwards.
   bool isCursorReadReturnStrict;
+  // Timeout policy captured on the main thread at dispatch so BG and the armed
+  // timeout callback agree on one value (reading RSGlobalConfig on BG races with
+  // FT.CONFIG SET). Set before BC arming; never mutated afterwards.
+  RSTimeoutPolicy timeoutPolicy;
 } CoordRequestCtx;
 
 /**
@@ -111,6 +115,10 @@ void CoordRequestCtx_SetUseReplyCallback(CoordRequestCtx *ctx, bool useReplyCall
  */
 void CoordRequestCtx_SetCursorReadReturnStrict(CoordRequestCtx *ctx, bool value);
 bool CoordRequestCtx_IsCursorReadReturnStrict(CoordRequestCtx *ctx);
+
+/** Store/read the timeout policy captured on the main thread at dispatch. */
+void CoordRequestCtx_SetTimeoutPolicy(CoordRequestCtx *ctx, RSTimeoutPolicy policy);
+RSTimeoutPolicy CoordRequestCtx_GetTimeoutPolicy(CoordRequestCtx *ctx);
 
 /**
  * Store error for reply_callback to handle (pre-request errors).

@@ -1282,6 +1282,12 @@ int AREQ_Compile(AREQ *req, RedisModuleCtx *ctx, RedisModuleString **argv, int a
     goto error;
   }
 
+  // Cap the per-query timeout to _MAX_FOREGROUND_TIMEOUT_LIMIT when workers
+  // are disabled; the state flag drives the RESP3 MaxTimeoutCapped warning.
+  if (RSConfig_CapQueryTimeoutToForegroundLimit(&req->reqConfig.queryTimeoutMS)) {
+    req->stateflags |= QEXEC_S_MAX_TIMEOUT_CAPPED;
+  }
+
   if (IsInternal(req) &&
       RequestConfig_ApplyCoordinatorElapsedTime(&req->reqConfig, req->profileClocks.coordDispatchTime)) {
     QueryError_SetCode(status, QUERY_ERROR_CODE_TIMED_OUT);

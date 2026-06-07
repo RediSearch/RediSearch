@@ -426,7 +426,9 @@ FIELD_PREPROCESSOR(fulltextPreprocessor) {
       if (is_normalized) {
           RSSortingVector_PutStr(&aCtx->sv, fs->sortIdx, c);
       } else {
-          RSSortingVector_PutStrNormalize(&aCtx->sv, fs->sortIdx, c);
+          if (!RSSortingVector_PutStrNormalize(&aCtx->sv, fs->sortIdx, c, status)) {
+              return -1;
+          }
       }
     } else if (field->multisv) {
       RSSortingVector_PutRSVal(&aCtx->sv, fs->sortIdx, field->multisv);
@@ -784,7 +786,9 @@ FIELD_PREPROCESSOR(geoPreprocessor) {
       if (is_normalized) {
           RSSortingVector_PutStr(&aCtx->sv, fs->sortIdx, str);
       } else {
-          RSSortingVector_PutStrNormalize(&aCtx->sv, fs->sortIdx, str);
+          if (!RSSortingVector_PutStrNormalize(&aCtx->sv, fs->sortIdx, str, status)) {
+              return -1;
+          }
       }
     } else if (field->multisv) {
       RSSortingVector_PutRSVal(&aCtx->sv, fs->sortIdx, field->multisv);
@@ -804,7 +808,9 @@ FIELD_PREPROCESSOR(tagPreprocessor) {
         if (is_normalized) {
             RSSortingVector_PutStr(&aCtx->sv, fs->sortIdx, str);
         } else {
-            RSSortingVector_PutStrNormalize(&aCtx->sv, fs->sortIdx, str);
+            if (!RSSortingVector_PutStrNormalize(&aCtx->sv, fs->sortIdx, str, status)) {
+                return -1;
+            }
         }
       } else if (field->multisv) {
         RSSortingVector_PutRSVal(&aCtx->sv, fs->sortIdx, field->multisv);
@@ -1117,7 +1123,9 @@ static void AddDocumentCtx_UpdateNoIndex(RSAddDocumentCtx *aCtx, RedisSearchCtx 
           if (is_normalized) {
               RSSortingVector_PutStr(&md->sortVector, idx, str);
           } else {
-              RSSortingVector_PutStrNormalize(&md->sortVector, idx, str);
+              if (!RSSortingVector_PutStrNormalize(&md->sortVector, idx, str, &aCtx->status)) {
+                BAIL("Invalid UTF8");
+              }
           }
 
           break;

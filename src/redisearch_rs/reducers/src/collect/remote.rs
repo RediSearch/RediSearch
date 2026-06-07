@@ -117,7 +117,7 @@ const _: () = assert!(core::mem::offset_of!(RemoteCollectReducer<'_>, reducer) =
 /// [`ptr::drop_in_place`][std::ptr::drop_in_place] must be called to release
 /// the stored [`RLookupRow`]s and decrement [`SharedValue`] refcounts.
 pub struct RemoteCollectCtx {
-    storage: Storage,
+    storage: Storage<ffi::t_docId>,
 }
 
 impl<'a> RemoteCollectReducer<'a> {
@@ -232,7 +232,12 @@ impl RemoteCollectCtx {
     /// The array path ignores the snapshot closure entirely. The heap path
     /// uses the snapshot to drive comparisons, dropping doomed candidates
     /// without paying the row-projection cost.
-    pub fn add(&mut self, r: &RemoteCollectReducer<'_>, row: &RLookupRow<'_>) {
+    pub fn add(
+        &mut self,
+        r: &RemoteCollectReducer<'_>,
+        row: &RLookupRow<'_>,
+        doc_id: ffi::t_docId,
+    ) {
         let sort_vals = || -> Box<[Option<SharedValue>]> {
             r.fields
                 .sort_keys()
@@ -249,7 +254,7 @@ impl RemoteCollectCtx {
             }
             dst
         };
-        self.storage.insert_entry(sort_vals, project);
+        self.storage.insert_entry(sort_vals, doc_id, project);
     }
 
     /// Serialize the buffered rows into an array of maps. Keys absent from a

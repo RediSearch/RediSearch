@@ -11,3 +11,9 @@
 //! iterator tree.
 
 pub mod string_utils;
+
+#[cfg(test)]
+mod _test_link {
+    extern crate redisearch_rs;
+    redis_mock::mock_or_stub_missing_redis_c_symbols!();
+}

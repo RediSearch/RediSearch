@@ -707,18 +707,16 @@ run_cmake() {
   echo "Configuring CMake..."
   echo "Build directory: $BINDIR"
 
-  # Run CMake with all the flags
-  if [[ "$FORCE" == "1" || ! -f "$BINDIR/Makefile" ]]; then
-    CMAKE_CMD="cmake $ROOT $CMAKE_BASIC_ARGS $CMAKE_ARGS"
-    echo "$CMAKE_CMD"
+  # Always reconfigure so -D changes (BUILD_SEARCH_UNIT_TESTS, DEBUG, COV, SAN, ...)
+  # take effect on subsequent invocations without requiring FORCE.
+  CMAKE_CMD="cmake $ROOT $CMAKE_BASIC_ARGS $CMAKE_ARGS"
+  echo "$CMAKE_CMD"
 
-    # If verbose, dump all CMake variables before and after configuration
-    if [[ "$VERBOSE" == "1" ]]; then
-      echo "Running CMake with verbose output..."
-      RUSTFLAGS="$RUSTFLAGS" $CMAKE_CMD --trace-expand
-    else
-      RUSTFLAGS="$RUSTFLAGS" $CMAKE_CMD
-    fi
+  if [[ "$VERBOSE" == "1" ]]; then
+    echo "Running CMake with verbose output..."
+    RUSTFLAGS="$RUSTFLAGS" $CMAKE_CMD --trace-expand
+  else
+    RUSTFLAGS="$RUSTFLAGS" $CMAKE_CMD
   fi
 }
 
