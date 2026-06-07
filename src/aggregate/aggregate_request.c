@@ -725,9 +725,11 @@ static int parseQueryArgs(ArgsCursor *ac, AREQ *req, RSSearchOptions *searchOpts
     AREQ_AddRequestFlags(req, QEXEC_OPTIMIZE);
   }
 
-  // The QOptimizer pipeline reads from the RAM DocTable / NumericRangeTree,
-  // neither of which is populated on disk specs. Force-disable so
-  // QOptimizer_Iterators is never entered for disk specs (it asserts the same).
+  // QEXEC_OPTIMIZE can be set either by the dialect-4 default above or by an
+  // explicit WITHOUTCOUNT token earlier in this function. Either way, the
+  // QOptimizer pipeline reads from the RAM DocTable / NumericRangeTree, which
+  // aren't populated on disk specs. Force-disable so QOptimizer_Iterators is
+  // never entered for disk specs (it asserts the same).
   if (isDiskIndex) {
     AREQ_RemoveRequestFlags(req, QEXEC_OPTIMIZE);
   }
