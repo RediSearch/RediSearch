@@ -199,7 +199,10 @@ fn test_inverted_index_raw_doc_ids_gc() {
 
     // Test GC: Remove all remaining records
     let delta = ii
-        .scan_gc(|_| false, None::<fn(&RSIndexResult, &inverted_index::RepairContext<'_>)>)
+        .scan_gc(
+            |_| false,
+            None::<fn(&RSIndexResult, &inverted_index::RepairContext<'_>)>,
+        )
         .expect("scan_gc should not fail for valid index")
         .expect("scan_gc should return Some delta when entries are removed");
     let apply_info = ii.apply_gc(delta);

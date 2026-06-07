@@ -136,7 +136,12 @@ pub fn scan_node_delta_with_hll(
                 .entries()
                 .scan_gc(
                     doc_exist,
-                    None::<for<'index> fn(&RSIndexResult<'index>, &inverted_index::RepairContext<'index>)>,
+                    None::<
+                        for<'index> fn(
+                            &RSIndexResult<'index>,
+                            &inverted_index::RepairContext<'index>,
+                        ),
+                    >,
                 )
                 .expect("scan_gc should not fail")
         })
