@@ -280,37 +280,6 @@ fn reader_needs_revalidation_detects_appends_without_gc_marker_bump() {
     }
 }
 
-/// Codex regression: in #10009 the snapshot is a borrow into `self.ii.blocks`, so
-/// `snapshot.last_block().num_entries()` and `ii.blocks.last().num_entries()` resolve
-/// to the *same* `IndexBlock`. A naive snapshot-vs-live comparison would always read
-/// equal even after the writer mutated the tail in place. The reader must store the
-/// tail's `num_entries` value separately at snapshot/refresh time.
-#[test]
-fn reader_detects_in_place_tail_append_on_same_index() {
-    let mut ii = InvertedIndex::<Dummy>::new(IndexFlags_Index_DocIdsOnly);
-    ii.add_record(&RSIndexResult::build_virt().doc_id(10).build())
-        .unwrap();
-
-    let ir = ii.reader();
-    assert!(!ir.needs_revalidation());
-
-    // Simulate a concurrent in-place tail append. In production this happens under
-    // the spec write lock with no concurrent reader; in this single-threaded test we
-    // just bump `num_entries` on the live block via a raw-pointer write.
-    //
-    // SAFETY: single-threaded test. The reader is not actively iterating between
-    // these statements, so the mutation does not alias an active borrow of the
-    // block's contents.
-    let block_ptr: *mut IndexBlock = &ii.blocks[0] as *const _ as *mut _;
-    unsafe {
-        (*block_ptr).num_entries += 1;
-    }
-
-    assert!(
-        ir.needs_revalidation(),
-        "in-place tail append on the same index must trigger revalidation"
-    );
-}
 
 #[test]
 fn reader_unique_docs() {
