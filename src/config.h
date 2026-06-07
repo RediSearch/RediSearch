@@ -217,6 +217,12 @@ typedef struct {
   bool monitorExpiration;
   // Percentage of available memory to use for disk write buffer (0-100).
   uint8_t diskBufferPercentage;
+  // Controls SpeedB OS page-cache behaviour for disk indexes (MOD-15866).
+  // Both default to false; users opt in via search-disk-drop-read-cache and
+  // search-disk-use-direct-reads at load time.  These are RSE-only knobs and
+  // are intentionally not coupled to any Flex bigredis-driver settings.
+  bool diskDropReadCache;
+  bool diskUseDirectReads;
 } RSConfig;
 
 typedef enum {
@@ -413,6 +419,8 @@ char *getRedisConfigValue(RedisModuleCtx *ctx, const char* confName);
     .simulateInFlex = false,                                                   \
     .monitorExpiration = true,                                                 \
     .diskBufferPercentage = DEFAULT_DISK_BUFFER_PERCENTAGE,                    \
+    .diskDropReadCache = false,                                                \
+    .diskUseDirectReads = false,                                               \
   }
 
 #define REDIS_ARRAY_LIMIT 7
