@@ -377,8 +377,14 @@ impl OperationBencher {
         group.finish();
     }
 
-    /// "Contains anywhere" walk — `TermDictionary::contains_iter` vs
-    /// `Trie_IterateContains(prefix=false, suffix=false)`.
+    /// "Contains anywhere" walk — Rust-only. The C side has no equivalent:
+    /// `Trie_IterateContains(prefix=false, suffix=false)` is a documented
+    /// dead-code path in `trie_node.c:1146-1152` that performs an exact
+    /// lookup (`TrieNode_Get(..., exact=true)`) and emits at most one
+    /// callback — the inline comment in C reads
+    /// `"exact match - should not be used. change to assert"`. Production
+    /// only ever calls this entry point with `prefix=true XOR suffix=true`,
+    /// neither of which matches `contains_iter`'s "anywhere" semantic.
     pub fn contains_group(&self, c: &mut Criterion, target: &str) {
         let label = format!("Contains[{target}]");
         let mut group = self.benchmark_group_immutable(c, &label);
@@ -391,9 +397,6 @@ impl OperationBencher {
                 }
                 std::hint::black_box(count)
             })
-        });
-        group.bench_function("C", |b| {
-            b.iter(|| std::hint::black_box(self.c_map.iterate_contains(target)))
         });
         group.finish();
     }

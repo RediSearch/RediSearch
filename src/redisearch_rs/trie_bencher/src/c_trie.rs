@@ -27,7 +27,6 @@
 //!   on why we read `matchCtx` per match — running-min distance is load-bearing)
 //! - [`CTrie::iterate_range`] → `Trie_IterateRange(t, min, ..., max, ...)` (lex-range walk)
 //! - [`CTrie::iterate_wildcard`] → `Trie_IterateWildcard(t, runes, n, ...)`
-//! - [`CTrie::iterate_contains`] → `Trie_IterateContains(t, runes, n, prefix=false, suffix=false, ...)`
 //!
 //! Out of scope:
 //!
@@ -36,6 +35,13 @@
 //!   harness deliberately runs the Rust `TermDictionary::get` benches
 //!   without a C mirror rather than synthesizing a fake one via
 //!   `Trie_Iterate(..., 0, 0)`.
+//! - "Contains anywhere" — `Trie_IterateContains(prefix=false, suffix=false)`
+//!   is a documented dead-code exact-match path in
+//!   `trie_node.c:1146-1152` ("exact match - should not be used. change
+//!   to assert"). Production only uses this entry point with
+//!   `prefix=true XOR suffix=true`, neither of which matches the byte
+//!   trie's "anywhere" semantic. The Rust `contains_iter` bench is
+//!   therefore Rust-only.
 //! - `Clone` — the C trie has no clone API. Mutation benches must rebuild
 //!   from a [`Vec<String>`] per iteration via Criterion's `iter_batched`.
 
@@ -45,8 +51,8 @@ use std::ptr::{self, NonNull};
 
 use ffi::{
     NewTrie, RSPayload, Trie, TrieIterator_Free, TrieIterator_Next, TrieSortMode_Trie_Sort_Lex,
-    TrieType_Free, Trie_Delete, Trie_InsertStringBuffer, Trie_IterateAll, Trie_IterateContains,
-    Trie_IterateRange, Trie_IterateWildcard, Trie_Iterate, Trie_Size, rune, t_len,
+    TrieType_Free, Trie_Delete, Trie_InsertStringBuffer, Trie_IterateAll, Trie_IterateRange,
+    Trie_IterateWildcard, Trie_Iterate, Trie_Size, rune, t_len,
 };
 use libc::{c_char, c_int};
 
@@ -291,30 +297,6 @@ impl CTrie {
         RANGE_COUNT.with(|c| *c.borrow())
     }
 
-    /// `Trie_IterateContains` mirror with `prefix=false, suffix=false`
-    /// — i.e. "contains anywhere", which is the byte-trie's
-    /// `contains_iter` semantic. ASCII-lowercases `target` before
-    /// UTF-16 encoding to mirror `strToLowerRunes`.
-    pub fn iterate_contains(&self, target: &str) -> usize {
-        let lowered = target.to_lowercase();
-        let runes = encode_runes(&lowered);
-        RANGE_COUNT.with(|c| *c.borrow_mut() = 0);
-        // SAFETY: see `iterate_range`.
-        unsafe {
-            Trie_IterateContains(
-                self.0.as_ptr(),
-                runes.as_ptr(),
-                runes.len() as c_int,
-                false,
-                false,
-                Some(count_range_cb),
-                ptr::null_mut(),
-                ptr::null_mut(),
-                true,
-            );
-        }
-        RANGE_COUNT.with(|c| *c.borrow())
-    }
 }
 
 impl Default for CTrie {
