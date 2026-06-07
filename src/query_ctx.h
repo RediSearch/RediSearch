@@ -21,6 +21,10 @@ typedef struct QueryEvalCtx {
   struct MetricRequest **metricRequestsP;
   uint32_t tokenId;
   DocTable *docTable;
+  // Max doc id captured once at query-snapshot establishment (top of QAST_Iterate), so all
+  // snapshot-bounded iterators share a single boundary that is consistent with the SpeedB
+  // snapshot the disk iterators read from. Disk: SearchDisk_GetMaxDocId; RAM: docs.maxDocId.
+  t_docId maxDocId;
   uint32_t reqFlags;
   IteratorsConfig *config;
   bool notSubtree;

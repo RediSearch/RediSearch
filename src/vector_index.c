@@ -260,12 +260,12 @@ QueryIterator *NewVectorIterator(QueryEvalCtx *q, VectorQuery *vq, QueryIterator
       bool yields_metric = vq->scoreField != NULL;
       bool sorted_by_id = vq->range.order == BY_ID;
       if (q->sctx->spec->diskSpec) {
-        // On disk indexes the range query reads outside the query snapshot and may return docs
-        // newer than maxDocId. Bound the results to the snapshot, matching the NOT/OPTIONAL
-        // iterators in query.c. RAM indexes need no such bound (no snapshot).
-        t_docId max_doc_id = SearchDisk_GetMaxDocId(q->sctx->spec->diskSpec);
+        // On disk indexes the range query reads the live vector index and may return docs newer
+        // than the query snapshot. Bound the results to q->maxDocId, captured once at query start
+        // (QAST_Iterate) so the bound is consistent with the snapshot-backed sibling iterators -
+        // not re-read here, which would let docs added during the query slip through.
         return createMetricIteratorFromVectorQueryResultsDisk(results, yields_metric, sorted_by_id,
-                                                              max_doc_id);
+                                                              q->maxDocId);
       }
       return createMetricIteratorFromVectorQueryResults(results, yields_metric, sorted_by_id);
     }

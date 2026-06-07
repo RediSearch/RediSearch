@@ -1617,6 +1617,10 @@ QueryIterator *QAST_Iterate(QueryAST *qast, const RSSearchOptions *opts, RedisSe
   QueryEvalCtx qectx = {
       .opts = opts,
       .docTable = &sctx->spec->docs,
+      // Capture the snapshot boundary once, under the spec read lock that gates iterator
+      // creation, so every snapshot-bounded iterator built below shares the same maxDocId.
+      .maxDocId = sctx->spec->diskSpec ? SearchDisk_GetMaxDocId(sctx->spec->diskSpec)
+                                       : sctx->spec->docs.maxDocId,
       .sctx = sctx,
       .status = status,
       .metricRequestsP = &qast->metricRequests,
