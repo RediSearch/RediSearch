@@ -18,6 +18,7 @@
 #include "rmutil/rm_assert.h"
 #include "phonetic_manager.h"
 #include "obfuscation/obfuscation_api.h"
+#include "obfuscation/hidden.h"
 #include "redismodule.h"
 #include "debug_commands.h"
 #include "search_disk.h"
@@ -133,11 +134,63 @@ static void writeCurEntries(RSAddDocumentCtx *aCtx, RedisSearchCtx *ctx) {
   FieldsGlobalStats_UpdateFieldDocsIndexed(INDEXFLD_T_FULLTEXT, spec->stats.numTerms - prevNumTerms);
 }
 
+// Returns true if the given field's name appears in the set of hash fields the triggering command
+// modified. Caller must pass a non-NULL hashFields.
+static bool vectorFieldInChangedSet(const FieldSpec *fs, RedisModuleString **hashFields) {
+  for (size_t i = 0; hashFields[i] != NULL; ++i) {
+    size_t length = 0;
+    const char *field = RedisModule_StringPtrLen(hashFields[i], &length);
+    if (!HiddenString_CompareC(fs->fieldName, field, length)) {
+      return true;
+    }
+  }
+  return false;
+}
+
+// Finds the document-field index (into aCtx->fdatas / doc->fields) whose schema field is the spec
+// field at specFieldIdx, or -1 if the document does not carry that field.
+static int docFieldIndexForSpecField(RSAddDocumentCtx *aCtx, int specFieldIdx) {
+  for (size_t di = 0; di < aCtx->doc->numFields; ++di) {
+    if (aCtx->fspecs[di].index == specFieldIdx) {
+      return (int)di;
+    }
+  }
+  return -1;
+}
+
+// On a REPLACE, reconcile the previous document's vectors (stored under oldId) with the new doc id.
+// A vector field the triggering command did not modify is unchanged: relabel its vector in place
+// from oldId to newId (O(1), no HNSW graph churn) and mark the field so the indexer skips re-adding
+// the identical vector. Any field that changed (or whose change set is unknown) is deleted as
+// before, and re-added by the normal indexing flow. Must be called holding the spec write lock.
+static void reconcileReplacedVectors(RSAddDocumentCtx *aCtx, IndexSpec *spec, t_docId oldId,
+                                     t_docId newId) {
+  for (int i = 0; i < spec->numFields; ++i) {
+    if (spec->fields[i].types != INDEXFLD_T_VECTOR) {
+      continue;
+    }
+    VecSimIndex *vecsim = openVectorIndex(&spec->fields[i], DONT_CREATE_INDEX);
+    if (!vecsim) {
+      continue;
+    }
+    int di = -1;
+    if (aCtx->hashFields && !vectorFieldInChangedSet(&spec->fields[i], aCtx->hashFields) &&
+        (di = docFieldIndexForSpecField(aCtx, i)) >= 0 &&
+        VecSimIndex_RelabelVector(vecsim, oldId, newId) == 1) {
+      // Vector unchanged and relabeled in place; the indexer will skip re-adding it.
+      aCtx->fdatas[di].skipVectorAdd = 1;
+    } else {
+      VecSimIndex_DeleteVector(vecsim, oldId);
+    }
+  }
+}
+
 /** Assigns a document ID to a single document. */
 static RSDocumentMetadata *makeDocumentId(RedisModuleCtx *ctx, RSAddDocumentCtx *aCtx, IndexSpec *spec,
                                           int replace, QueryError *status) {
   DocTable *table = &spec->docs;
   Document *doc = aCtx->doc;
+  t_docId oldDocId = 0;
   if (replace) {
     RSDocumentMetadata *dmd = DocTable_PopR(table, doc->docKey);
     if (dmd) {
@@ -149,21 +202,12 @@ static RSDocumentMetadata *makeDocumentId(RedisModuleCtx *ctx, RSAddDocumentCtx 
       if (spec->gc) {
         GCContext_OnDelete(spec->gc);
       }
-      if (spec->flags & Index_HasVecSim) {
-        for (int i = 0; i < spec->numFields; ++i) {
-          if (spec->fields[i].types == INDEXFLD_T_VECTOR) {
-            VecSimIndex *vecsim = openVectorIndex(&spec->fields[i], DONT_CREATE_INDEX);
-            if(!vecsim)
-              continue;
-            VecSimIndex_DeleteVector(vecsim, dmd->id);
-            // TODO: use VecSimReplace instead and if successful, do not insert and remove from doc
-          }
-        }
-      }
       if (spec->flags & Index_HasGeometry) {
         GeometryIndex_RemoveId(spec, dmd->id);
       }
-
+      // Defer vector handling until the new doc id is assigned, so unchanged vectors can be
+      // relabeled (old -> new) instead of deleted + re-inserted.
+      oldDocId = dmd->id;
       DMD_Return(dmd);
     }
   }
@@ -175,6 +219,10 @@ static RSDocumentMetadata *makeDocumentId(RedisModuleCtx *ctx, RSAddDocumentCtx 
   if (dmd) {
     doc->docId = dmd->id;
     ++spec->stats.numDocuments;
+  }
+
+  if (oldDocId && dmd && (spec->flags & Index_HasVecSim)) {
+    reconcileReplacedVectors(aCtx, spec, oldDocId, dmd->id);
   }
 
   return dmd;

@@ -2544,7 +2544,8 @@ static void IndexSpec_DoneIndexingCallabck(struct RSAddDocumentCtx *docCtx, Redi
 
 //---------------------------------------------------------------------------------------------
 
-int IndexSpec_UpdateDoc(IndexSpec *spec, RedisModuleCtx *ctx, RedisModuleString *key, DocumentType type);
+int IndexSpec_UpdateDoc(IndexSpec *spec, RedisModuleCtx *ctx, RedisModuleString *key, DocumentType type,
+                        RedisModuleString **hashFields);
 static void Indexes_ScanProc(RedisModuleCtx *ctx, RedisModuleString *keyname, RedisModuleKey *key,
                              IndexesScanner *scanner) {
 
@@ -2589,7 +2590,7 @@ static void Indexes_ScanProc(RedisModuleCtx *ctx, RedisModuleString *keyname, Re
       // This check is performed without locking the spec, but it's ok since we locked the GIL
       // So the main thread is not running and the GC is not touching the relevant data
       if (SchemaRule_ShouldIndex(sp, keyname, type)) {
-        IndexSpec_UpdateDoc(sp, ctx, keyname, type);
+        IndexSpec_UpdateDoc(sp, ctx, keyname, type, NULL);
       }
       IndexSpecRef_Release(curr_run_ref);
     } else {
@@ -3557,7 +3558,8 @@ int IndexSpec_RegisterType(RedisModuleCtx *ctx) {
   return REDISMODULE_OK;
 }
 
-int IndexSpec_UpdateDoc(IndexSpec *spec, RedisModuleCtx *ctx, RedisModuleString *key, DocumentType type) {
+int IndexSpec_UpdateDoc(IndexSpec *spec, RedisModuleCtx *ctx, RedisModuleString *key, DocumentType type,
+                        RedisModuleString **hashFields) {
   RedisSearchCtx sctx = SEARCH_CTX_STATIC(ctx, spec);
 
   if (!spec->rule) {
@@ -3608,18 +3610,41 @@ int IndexSpec_UpdateDoc(IndexSpec *spec, RedisModuleCtx *ctx, RedisModuleString 
 
   unsigned int numOps = doc.numFields != 0 ? doc.numFields: 1;
   IndexerYieldWhileLoading(ctx, numOps, REDISMODULE_YIELD_FLAG_CLIENTS);
+
+  // Build the context and run the per-field preprocessors (tokenization, vector blob
+  // copy/normalize, etc.) WITHOUT the spec write lock. This is pure per-document CPU work that only
+  // writes into aCtx-local scratch state and reads the (main-thread-stable) schema, so it must not
+  // block concurrent searches. Only the actual index mutations below run under the write lock.
+  RSAddDocumentCtx *aCtx = NewAddDocumentCtx(spec, &doc, &status);
+  aCtx->stateFlags |= ACTX_F_NOFREEDOC;
+  aCtx->options = DOCUMENT_ADD_REPLACE;
+  aCtx->sctx = &sctx;
+  aCtx->hashFields = hashFields;
+  // The preprocessors borrow pointers into the document's strings, so take ownership first.
+  Document_MakeStringsOwner(aCtx->doc);
+  int pp_rv = Document_Preprocess(aCtx, &sctx);
+
   RedisSearchCtx_LockSpecWrite(&sctx);
   IndexSpec_IncrActiveWrites(spec);
 
-  RSAddDocumentCtx *aCtx = NewAddDocumentCtx(spec, &doc, &status);
-  aCtx->stateFlags |= ACTX_F_NOFREEDOC;
-  AddDocumentCtx_Submit(aCtx, &sctx, DOCUMENT_ADD_REPLACE);
-
-  Document_Free(&doc);
+  if (pp_rv == REDISMODULE_OK) {
+    // Assign the doc id and write the (already-preprocessed) fields to the indexes. IndexDocument
+    // finishes (and frees) aCtx.
+    IndexDocument(aCtx);
+  } else {
+    // Preprocess failed: perform the same cleanup Document_AddToIndexes would, under the lock.
+    t_docId failDocId = DocTable_GetIdR(&spec->docs, doc.docKey);
+    if (failDocId)
+      IndexSpec_DeleteDoc_Unsafe(spec, RSDummyContext, doc.docKey, failDocId);
+    QueryError_SetCode(&aCtx->status, QUERY_EGENERIC);
+    AddDocumentCtx_Finish(aCtx);
+  }
 
   spec->stats.totalIndexTime += rs_wall_clock_elapsed_ns(&startDocTime);
   IndexSpec_DecrActiveWrites(spec);
   RedisSearchCtx_UnlockSpec(&sctx);
+
+  Document_Free(&doc);
   return REDISMODULE_OK;
 }
 
@@ -3838,7 +3863,7 @@ void Indexes_UpdateMatchingWithSchemaRules(RedisModuleCtx *ctx, RedisModuleStrin
 
     if (hashFieldChanged(specOp->spec, hashFields)) {
       if (specOp->op == SpecOp_Add) {
-        IndexSpec_UpdateDoc(specOp->spec, ctx, key, type);
+        IndexSpec_UpdateDoc(specOp->spec, ctx, key, type, hashFields);
       } else {
         IndexSpec_DeleteDoc(specOp->spec, ctx, key);
       }
@@ -3979,7 +4004,7 @@ void Indexes_ReplaceMatchingWithSchemaRules(RedisModuleCtx *ctx, RedisModuleStri
       // on the spec from section.
       continue;
     }
-    IndexSpec_UpdateDoc(specOp->spec, ctx, to_key, type);
+    IndexSpec_UpdateDoc(specOp->spec, ctx, to_key, type, NULL);
   }
   Indexes_SpecOpsIndexingCtxFree(from_specs);
   Indexes_SpecOpsIndexingCtxFree(to_specs);

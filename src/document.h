@@ -303,6 +303,11 @@ typedef struct RSAddDocumentCtx {
   uint8_t stateFlags;    // Indexing state, ACTX_F_xxx
   DocumentAddCompleted donecb;
   void *donecbData;
+
+  // When set (the HSET-update path), the names of the hash fields the command modified, as captured
+  // by the command filter. Used to detect unchanged vector fields so they can be relabeled instead
+  // of re-indexed. Borrowed pointer (not owned by aCtx); NULL when the changed set is unknown.
+  RedisModuleString **hashFields;
 } RSAddDocumentCtx;
 
 /**
@@ -341,6 +346,16 @@ void AddDocumentCtx_Finish(RSAddDocumentCtx *aCtx);
  * unblock the client passed when the context was first created.
  */
 int Document_AddToIndexes(RSAddDocumentCtx *ctx, RedisSearchCtx *sctx);
+
+/**
+ * Run only the per-field preprocessors (tokenization, vector blob copy/normalize, etc.) of the
+ * document, filling aCtx's scratch state. This is pure per-document CPU work that touches no shared
+ * index state, so it can be run BEFORE taking the spec write lock to keep the critical section
+ * short. Returns REDISMODULE_OK, or REDISMODULE_ERR if a preprocessor failed (the per-field error
+ * is recorded on the spec/field stats). On error the caller is responsible for the cleanup that
+ * Document_AddToIndexes performs (delete the doc + finish the context).
+ */
+int Document_Preprocess(RSAddDocumentCtx *aCtx, RedisSearchCtx *sctx);
 
 /**
  * Free the AddDocumentCtx. Should be done once AddToIndexes() completes; or

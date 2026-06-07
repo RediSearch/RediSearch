@@ -20,6 +20,10 @@ extern bool g_isLoading;
 typedef struct FieldIndexerData {
   int isMulti;
   int isNull;
+  // Set when the document is replacing an existing one whose vector for this field is unchanged and
+  // was relabeled in place to the new doc id (see makeDocumentId). The vector indexer then skips
+  // re-adding the (identical) vector, avoiding HNSW graph churn.
+  int skipVectorAdd;
   struct {
     // This is a struct and not a union since when FieldSpec options is `FieldSpec_Dynamic`:
     // it can store data as several types, e.g., as numeric and as tag)

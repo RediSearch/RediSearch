@@ -627,6 +627,11 @@ FIELD_PREPROCESSOR(vectorPreprocessor) {
 }
 
 FIELD_BULK_INDEXER(vectorIndexer) {
+  // On a REPLACE where this vector was unchanged, makeDocumentId already relabeled it from the old
+  // doc id to the new one, so there is nothing to add (re-adding would needlessly churn the graph).
+  if (fdata->skipVectorAdd) {
+    return 0;
+  }
   IndexSpec *sp = ctx->spec;
   VecSimIndex *vecsim = openVectorIndex(&sp->fields[fs->index], CREATE_INDEX);
   if (!vecsim) {
@@ -809,9 +814,8 @@ int IndexerBulkAdd(RSAddDocumentCtx *cur, RedisSearchCtx *sctx,
   return rc;
 }
 
-int Document_AddToIndexes(RSAddDocumentCtx *aCtx, RedisSearchCtx *sctx) {
+int Document_Preprocess(RSAddDocumentCtx *aCtx, RedisSearchCtx *sctx) {
   Document *doc = aCtx->doc;
-  int ourRv = REDISMODULE_OK;
 
   for (size_t i = 0; i < doc->numFields; i++) {
     const FieldSpec *fs = aCtx->fspecs + i;
@@ -827,8 +831,7 @@ int Document_AddToIndexes(RSAddDocumentCtx *aCtx, RedisSearchCtx *sctx) {
       if (pp(aCtx, sctx, ff, fs, fdata, &aCtx->status) != 0) {
         IndexError_AddQueryError(&aCtx->spec->stats.indexError, &aCtx->status, doc->docKey);
         FieldSpec_AddQueryError(&aCtx->spec->fields[fs->index], &aCtx->status, doc->docKey);
-        ourRv = REDISMODULE_ERR;
-        goto cleanup;
+        return REDISMODULE_ERR;
       }
       if (!(fs->options & FieldSpec_Dynamic)) {
         // Non-dynamic fields are only indexed as a single type.
@@ -837,22 +840,31 @@ int Document_AddToIndexes(RSAddDocumentCtx *aCtx, RedisSearchCtx *sctx) {
       }
     }
   }
+  return REDISMODULE_OK;
+}
 
-  if (IndexDocument(aCtx) != 0) {
+// Shared cleanup for a failed indexing attempt: drop the (now mismatched) doc and finish the
+// context. Must be called holding the spec write lock.
+static void Document_HandleIndexingFailure(RSAddDocumentCtx *aCtx) {
+  // if a document did not load/preprocess properly, it is deleted to prevent mismatch of index and
+  // hash
+  t_docId docId = DocTable_GetIdR(&aCtx->spec->docs, aCtx->doc->docKey);
+  if (docId)
+    IndexSpec_DeleteDoc_Unsafe(aCtx->spec, RSDummyContext, aCtx->doc->docKey, docId);
+
+  QueryError_SetCode(&aCtx->status, QUERY_EGENERIC);
+  AddDocumentCtx_Finish(aCtx);
+}
+
+int Document_AddToIndexes(RSAddDocumentCtx *aCtx, RedisSearchCtx *sctx) {
+  int ourRv = Document_Preprocess(aCtx, sctx);
+
+  if (ourRv == REDISMODULE_OK && IndexDocument(aCtx) != 0) {
     ourRv = REDISMODULE_ERR;
-    goto cleanup;
   }
 
-cleanup:
   if (ourRv != REDISMODULE_OK) {
-    // if a document did not load properly, it is deleted
-    // to prevent mismatch of index and hash
-    t_docId docId = DocTable_GetIdR(&aCtx->spec->docs, doc->docKey);
-    if (docId)
-      IndexSpec_DeleteDoc_Unsafe(aCtx->spec, RSDummyContext, doc->docKey, docId);
-
-    QueryError_SetCode(&aCtx->status, QUERY_EGENERIC);
-    AddDocumentCtx_Finish(aCtx);
+    Document_HandleIndexingFailure(aCtx);
   }
   return ourRv;
 }
