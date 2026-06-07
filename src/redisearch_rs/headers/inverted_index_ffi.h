@@ -244,6 +244,53 @@ size_t InvertedIndex_NumEntries(const struct InvertedIndex *ii);
 const struct IndexBlock *InvertedIndex_BlockRef(const struct InvertedIndex *ii, size_t block_idx);
 
 /**
+ * Take an owned snapshot of the index's block storage. Currently a borrowed view
+ * (zero-copy); the follow-up storage refactor will make it own its data so it
+ * remains valid after the index is mutated. Call [`InvertedIndexSnapshot_BlockRef`]
+ * to access blocks and [`InvertedIndexSnapshot_Free`] when done.
+ *
+ * # Safety
+ * - `ii` must be a valid pointer to an `InvertedIndex` and cannot be NULL.
+ * - The returned pointer must be released via `InvertedIndexSnapshot_Free`, and
+ *   must not outlive `ii`.
+ * - `ii` must not be mutated while the snapshot is alive. The snapshot borrows
+ *   directly from `ii`'s block storage; mutating calls like
+ *   [`InvertedIndex_WriteEntryGeneric`] or [`InvertedIndex_ApplyGCDelta`] can
+ *   reallocate or replace the backing `ThinVec`, leaving the snapshot's borrow
+ *   dangling. The follow-up storage refactor will lift this restriction by
+ *   making the snapshot own its data.
+ */
+struct InvertedIndexSnapshot *InvertedIndex_Snapshot(const struct InvertedIndex *ii);
+
+/**
+ * Free a snapshot previously returned by [`InvertedIndex_Snapshot`]. Safe to call
+ * on NULL (no-op).
+ *
+ * # Safety
+ * - `snapshot`, if non-NULL, must have been returned by `InvertedIndex_Snapshot`
+ *   and not previously freed.
+ */
+void InvertedIndexSnapshot_Free(struct InvertedIndexSnapshot *snapshot);
+
+/**
+ * Number of blocks in the snapshot.
+ *
+ * # Safety
+ * - `snapshot` must be a valid pointer to an `InvertedIndexSnapshot` and cannot be NULL.
+ */
+size_t InvertedIndexSnapshot_NumBlocks(const struct InvertedIndexSnapshot *snapshot);
+
+/**
+ * Borrow the block at the given logical index, or return NULL if out of bounds.
+ * The returned pointer is valid for as long as `snapshot` is alive.
+ *
+ * # Safety
+ * - `snapshot` must be a valid pointer to an `InvertedIndexSnapshot` and cannot be NULL.
+ * - The returned pointer must not outlive the snapshot.
+ */
+const struct IndexBlock *InvertedIndexSnapshot_BlockRef(const struct InvertedIndexSnapshot *snapshot, size_t block_idx);
+
+/**
  * Get ID of the last document in the index. Returns 0 if the index is empty.
  * This is used by some C tests.
  *

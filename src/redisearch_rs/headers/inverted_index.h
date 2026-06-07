@@ -16,6 +16,13 @@ typedef struct FieldSpec FieldSpec;
 
 
 /**
+ * A point-in-time view of an inverted index's block storage. Currently borrows
+ * directly from the index; the follow-up storage refactor will replace the borrow
+ * with owned, multi-region data without changing this public surface.
+ */
+typedef struct InvertedIndexSnapshot InvertedIndexSnapshot;
+
+/**
  * Result of scanning the index for garbage collection
  */
 typedef struct InvertedIndexGcDelta InvertedIndexGcDelta;
