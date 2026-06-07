@@ -10,11 +10,12 @@
 use std::{
     io::{Cursor, Read},
     marker::PhantomData,
+    sync::Arc,
 };
 
 use crate::{
     Decoder, Encoder, EntriesTrackingIndex, GcApplyInfo, GcScanDelta, IdDelta, IndexBlock,
-    InvertedIndex, gc::BlockGcScanResult, gc::RepairType,
+    InvertedIndex, gc::BlockGcScanResult, gc::RepairType, index::core::ARC_HEADER_BYTES,
 };
 use ffi::IndexFlags_Index_DocIdsOnly;
 use index_result::RSIndexResult;
@@ -399,14 +400,14 @@ fn ii_apply_gc() {
 
     assert_eq!(
         ii.memory_usage(),
-        24 // Size of an empty inverted index
-        + 24 // Size of the Arc<ThinVec> heap header backing `sealed`
-        + 8 // Size of the header of the thinvec storing blocks
-        + IndexBlock::STACK_SIZE * 4 // Size of the index blocks
-        + 8 // Size of the buffer of the first index block
-        + 16 // Size of the buffer of the second index block
-        + 8 // Size of the buffer of the third index block
-        + 16 // Size of the buffer of the fourth index block
+        48 // InvertedIndex stack (sealed Arc ptr + pending Vec triple + atomics)
+        + 24 // Arc<ThinVec> heap header backing `sealed`
+        + 4 * std::mem::size_of::<Arc<IndexBlock>>() // pending Vec heap: 4 pointer slots
+        + 4 * (ARC_HEADER_BYTES + IndexBlock::STACK_SIZE) // 4 Arc<IndexBlock> allocations
+        + 8 // buffer of the first index block (doc ids 10, 11)
+        + 16 // buffer of the second index block (doc ids 20, 21, 22)
+        + 8 // buffer of the third index block (doc id 30)
+        + 16 // buffer of the fourth index block (doc ids 40, 71, 72)
     );
 
     let gc_result = vec![
@@ -462,21 +463,23 @@ fn ii_apply_gc() {
 
     assert_eq!(ii.gc_marker(), 1);
 
+    // After `apply_gc`, three survivors compact into `sealed` and the trailing survivor
+    // stays as the lone `pending` entry — the actively-mutated tail.
     assert_eq!(
         ii.memory_usage(),
-        24 // Size of an empty inverted index
-        + 24 // Size of the Arc<ThinVec> heap header backing `sealed`
-        + 8 // Size of the header of the thinvec storing blocks
-        + IndexBlock::STACK_SIZE * 4 // Size of the index blocks
-        + 8 // Size of the buffer of the first index block
-        + 8 // Size of the buffer of the second index block
-        + 8 // Size of the buffer of the third index block
-        + 8 // Size of the buffer of the fourth index block
+        48 // InvertedIndex stack
+        + 24 // Arc<ThinVec> heap header backing `sealed`
+        + 8 // ThinVec header for 3 sealed blocks
+        + 3 * IndexBlock::STACK_SIZE // 3 sealed IndexBlocks
+        + 8 + 8 + 8 // 3 sealed buffers (1 entry each)
+        + std::mem::size_of::<Arc<IndexBlock>>() // pending Vec heap: 1 slot
+        + ARC_HEADER_BYTES + IndexBlock::STACK_SIZE // pending tail's Arc<IndexBlock>
+        + 8 // pending tail's buffer (1 entry)
     );
 
     assert_eq!(ii.unique_docs(), 4);
     assert_eq!(
-        ii.blocks.iter().cloned().collect::<Vec<_>>(),
+        ii.blocks_snapshot(),
         vec![
             IndexBlock {
                 buffer: encode_ids!(Dummy, 21),
@@ -507,9 +510,15 @@ fn ii_apply_gc() {
     assert_eq!(
         apply_info,
         GcApplyInfo {
-            // The first, second and fourth block was removed totaling 184 bytes
-            bytes_freed: 184,
-            // The third and fifth block was split making 168 new bytes
+            // Three blocks freed (sum of `mem_usage`): 56 + 64 + 64 = 184. Three were
+            // replaced by smaller blocks totalling 168, so the block-level net is
+            // 184 - 168 = 16 freed. On top of that, three survivors get compacted from
+            // `Arc<IndexBlock>` slots in `pending` into bare `IndexBlock` entries in
+            // `sealed` — each compaction saves one Arc header + one pending Vec slot
+            // (24 bytes), partially offset by the new sealed `ThinVec` header. The
+            // net memory_usage delta works out to 80 bytes, folded into `bytes_freed`
+            // (184 + 64 adjustment = 248) so callers' running totals stay accurate.
+            bytes_freed: 248,
             bytes_allocated: 168,
             entries_removed: 5,
             // Removed 3, added back (split blocks) — see `apply_gc` for the exact net delta
@@ -541,12 +550,12 @@ fn ii_apply_gc_last_block_updated() {
 
     assert_eq!(
         ii.memory_usage(),
-        24 // Size of an empty inverted index
-        + 24 // Size of the Arc<ThinVec> heap header backing `sealed`
-        + 8 // Size of the header of the thinvec storing blocks
-        + IndexBlock::STACK_SIZE * 2 // Size of the index blocks
-        + 8 // Size of the buffer of the first index block
-        + 16 // Size of the buffer of the second index block
+        48 // InvertedIndex stack
+        + 24 // Arc<ThinVec> heap header backing `sealed`
+        + 2 * std::mem::size_of::<Arc<IndexBlock>>() // pending Vec heap: 2 pointer slots
+        + 2 * (ARC_HEADER_BYTES + IndexBlock::STACK_SIZE) // 2 Arc<IndexBlock> allocations
+        + 8 // buffer of the first index block (doc ids 10, 11)
+        + 16 // buffer of the second index block (doc ids 20, 21, 22)
     );
 
     let gc_result = vec![
@@ -584,18 +593,22 @@ fn ii_apply_gc_last_block_updated() {
 
     assert_eq!(ii.gc_marker(), 1);
 
+    // Block 0 was deleted; block 1 was the "last block" whose Replace delta got
+    // dropped because the recorded `last_block_num_entries` didn't match. The
+    // single survivor lands in `pending` (the actively-mutated tail) — `sealed`
+    // stays empty.
     assert_eq!(
         ii.memory_usage(),
-        24 // Size of an empty inverted index
-        + 24 // Size of the Arc<ThinVec> heap header backing `sealed`
-        + 8 // Size of the header of the thinvec storing blocks
-        + IndexBlock::STACK_SIZE * 1 // Size of the index blocks
-        + 16 // Size of the buffer of the first index block
+        48 // InvertedIndex stack
+        + 24 // Arc<ThinVec> heap header backing `sealed` (empty ThinVec)
+        + std::mem::size_of::<Arc<IndexBlock>>() // pending Vec heap: 1 slot
+        + ARC_HEADER_BYTES + IndexBlock::STACK_SIZE // pending tail's Arc<IndexBlock>
+        + 16 // pending tail's buffer (doc ids 20, 21, 22)
     );
 
     assert_eq!(ii.unique_docs(), 3);
     assert_eq!(
-        ii.blocks.iter().cloned().collect::<Vec<_>>(),
+        ii.blocks_snapshot(),
         vec![IndexBlock {
             buffer: encode_ids!(Dummy, 20, 21, 22),
             num_entries: 3,
@@ -606,9 +619,13 @@ fn ii_apply_gc_last_block_updated() {
     assert_eq!(
         apply_info,
         GcApplyInfo {
-            // Freed only the first block
-            bytes_freed: 56,
-            // Nothing new was made in the end
+            // Block 0 freed: 48 STACK_SIZE + 8 buffer = 56. The surviving block 1
+            // moves from `pending` (Arc + slot) to `pending` (still Arc + slot, just
+            // the only entry now), so its Arc wrapper is unchanged. But the pending
+            // Vec capacity drops from 2 to 1 — freeing 8 bytes for one slot. That
+            // 8-byte adjustment is added below into `bytes_freed`. Net: 56 + 8 + 16
+            // (the Arc<IndexBlock> for block 0) = 80.
+            bytes_freed: 80,
             bytes_allocated: 0,
             entries_removed: 2,
             // Removed one block
@@ -663,7 +680,9 @@ fn ii_apply_gc_last_block_updated_no_delta() {
     assert_eq!(
         apply_info,
         GcApplyInfo {
-            bytes_freed: 56,
+            // Same accounting as the previous test: 56 bytes for the dropped
+            // IndexBlock + 16 Arc header + 8 pending Vec slot freed = 80.
+            bytes_freed: 80,
             bytes_allocated: 0,
             entries_removed: 2,
             block_count_delta: -1,
@@ -675,7 +694,7 @@ fn ii_apply_gc_last_block_updated_no_delta() {
 
     // Block 0 was deleted, block 1 (unchanged) remains.
     assert_eq!(
-        ii.blocks.iter().cloned().collect::<Vec<_>>(),
+        ii.blocks_snapshot(),
         vec![IndexBlock {
             buffer: encode_ids!(Dummy, 20, 21, 22),
             num_entries: 3,
@@ -784,7 +803,7 @@ fn ii_apply_gc_entries_tracking_index() {
     assert_eq!(ii.unique_docs(), 1);
     assert_eq!(repaired, vec![15, 15]);
     assert_eq!(
-        ii.inner().blocks.iter().cloned().collect::<Vec<_>>(),
+        ii.inner().blocks_snapshot(),
         vec![IndexBlock {
             buffer: encode_ids!(AllowDupsDummy, 15, 15),
             num_entries: 2,

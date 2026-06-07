@@ -294,6 +294,14 @@ impl<'index, E: DecodedBy<Decoder = D>, D: Decoder> IndexReaderCore<'index, E> {
         self.ii
     }
 
+    /// Number of blocks visible in this reader's frozen snapshot. Test-only inspection
+    /// helper — verifies the snapshot's view stays put across concurrent live-index
+    /// writes.
+    #[cfg(test)]
+    pub(crate) fn snapshot_block_count(&self) -> usize {
+        self.snapshot.block_count()
+    }
+
     /// Set the current active block to the given logical index in the snapshot.
     fn set_current_block(&mut self, index: usize) {
         debug_assert!(

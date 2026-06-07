@@ -15,7 +15,7 @@ use ffi::IndexFlags_Index_DocIdsOnly;
 use index_result::RSIndexResult;
 use rqe_core::DocId;
 use smallvec::SmallVec;
-use thin_vec::{Header, ThinVec};
+use thin_vec::ThinVec;
 
 /// Context handed to the GC repair callback for each surviving record.
 ///
@@ -168,18 +168,14 @@ impl IndexBlock {
             last_read_doc_id = Some(result.doc_id);
         }
 
-        if tmp_inverted_index.blocks.is_empty() {
+        let repaired_blocks = tmp_inverted_index.into_blocks_owned();
+        if repaired_blocks.is_empty() {
             Ok(Some(RepairType::Delete {
                 n_unique_docs_removed: unique_read,
             }))
         } else if block_changed {
-            // `tmp_inverted_index.blocks` is `Arc<ThinVec<IndexBlock>>` but is uniquely
-            // owned here (we just built it in this function), so `try_unwrap` extracts
-            // the inner `ThinVec` without cloning.
-            let blocks = Arc::try_unwrap(tmp_inverted_index.blocks)
-                .expect("tmp_inverted_index is local; its blocks Arc is uniquely owned");
             Ok(Some(RepairType::Replace {
-                blocks: SmallVec::from_iter(blocks),
+                blocks: SmallVec::from_iter(repaired_blocks),
                 n_unique_docs_removed: unique_read - unique_write,
             }))
         } else {
@@ -230,8 +226,23 @@ impl<E: Encoder + DecodedBy> InvertedIndex<E> {
         }
     }
 
-    /// Apply the deltas of a garbage collection scan to the index. This will modify the index
-    /// by deleting or repairing blocks as needed.
+    /// Apply the deltas of a garbage collection scan to the index. Mutates the direct
+    /// `sealed` / `pending` fields in place: survivors are compacted into a freshly-rebuilt
+    /// `sealed`, and the trailing survivor (the actively-mutated tail) is kept as the sole
+    /// entry of a freshly-rebuilt `pending`.
+    ///
+    /// Runs under `&mut self` plus the spec write lock (C side), so no concurrent writer
+    /// or reader can race. Outstanding snapshots are unaffected — they hold their own
+    /// [`Arc`] / [`Vec`] clones from the pre-GC state.
+    ///
+    /// `bytes_freed` / `bytes_allocated` in the returned [`GcApplyInfo`] are the
+    /// net change in [`Self::memory_usage`], not just the block-level mem-usage sum:
+    /// they fold in the compaction savings (per-block `Arc<IndexBlock>` headers and
+    /// pending Vec slots dropped as blocks move into the contiguous `sealed` ThinVec)
+    /// so callers that maintain a total like [`numeric_range_tree`]'s
+    /// `inverted_indexes_size` invariant stay accurate without extra bookkeeping.
+    ///
+    /// [`numeric_range_tree`]: ../../numeric_range_tree/index.html
     pub fn apply_gc(&mut self, delta: GcScanDelta) -> GcApplyInfo {
         let GcScanDelta {
             last_block_idx,
@@ -247,15 +258,25 @@ impl<E: Encoder + DecodedBy> InvertedIndex<E> {
             ignored_last_block: false,
         };
 
-        let blocks_before = self.blocks.len();
+        let mem_before = self.memory_usage();
+        let n_sealed = self.sealed.len();
+        let n_pending = self.pending.len();
+        let blocks_before = n_sealed + n_pending;
 
-        // Check if the last block has changed since the scan was performed
-        let last_block_changed = self
-            .blocks
-            .get(last_block_idx)
-            .is_some_and(|b| b.num_entries != last_block_num_entries);
+        // Check if the actively-mutated tail (last entry of `pending`, when present) has
+        // changed since the scan was performed. Sealed blocks and non-tail pending blocks
+        // are immutable, so they cannot have changed.
+        let tail_idx = blocks_before.saturating_sub(1);
+        let last_block_changed = if last_block_idx == tail_idx && n_pending > 0 {
+            self.pending
+                .last()
+                .is_some_and(|arc| arc.num_entries != last_block_num_entries)
+        } else {
+            // Either the scan recorded a block that's not the tail (immutable), or
+            // pending is empty so the tail lives in `sealed` (also immutable).
+            false
+        };
 
-        // If the last block has changed, then we need to ignore any deltas that refer to it
         if last_block_changed {
             let remove_stale_delta = deltas
                 .last()
@@ -267,88 +288,105 @@ impl<E: Encoder + DecodedBy> InvertedIndex<E> {
             info.ignored_last_block = true;
         }
 
-        // There is no point in moving everything to a new vector if there are no deltas
         if deltas.is_empty() {
             return info;
         }
 
-        // Take ownership of the underlying `ThinVec` so we can iterate by value.
-        // If a reader holds an outstanding snapshot, the previous Arc keeps the
-        // pre-GC blocks alive for that snapshot; we clone-out a fresh ThinVec.
-        // When no snapshot is alive, `try_unwrap` extracts in place.
-        let old_arc =
-            std::mem::replace(&mut self.blocks, Arc::new(ThinVec::with_capacity(0)));
-        let tmp_blocks: ThinVec<IndexBlock, BlockCapacity> = match Arc::try_unwrap(old_arc)
-        {
-            Ok(v) => v,
-            Err(shared) => {
-                let mut v = ThinVec::with_capacity(shared.len());
-                for b in shared.iter() {
-                    v.push(b.clone());
-                }
-                v
-            }
-        };
+        // Build a flat working list of all current blocks in `sealed` → `pending` order.
+        // Take pending by value so we don't double-account its `Arc`s. Sealed entries are
+        // cloned (rebuild path) — if no reader holds an outstanding snapshot, the source
+        // `Arc<ThinVec>` is uniquely owned and the clones-into-owned-IndexBlocks below
+        // happen in place via `Arc::try_unwrap` at the end.
+        let mut working: Vec<Arc<IndexBlock>> = Vec::with_capacity(blocks_before);
+        for b in self.sealed.iter() {
+            working.push(Arc::new(b.clone()));
+        }
+        let old_pending = std::mem::take(&mut self.pending);
+        working.extend(old_pending);
 
-        let mut new_blocks: ThinVec<IndexBlock, BlockCapacity> =
-            ThinVec::with_capacity(tmp_blocks.len());
-        let mut deltas = deltas.into_iter().peekable();
+        let mut deltas_iter = deltas.into_iter().peekable();
+        let mut new_all: Vec<Arc<IndexBlock>> = Vec::with_capacity(working.len());
 
-        for (block_index, block) in tmp_blocks.into_iter().enumerate() {
-            match deltas.peek() {
-                Some(delta) if delta.index == block_index => {
-                    // This block needs to be repaired
-                    let Some(delta) = deltas.next() else {
-                        unreachable!(
-                            "we are in the `Some` case and therefore know the next value exists"
-                        )
-                    };
-
-                    match delta.repair {
+        for (block_index, arc_block) in working.into_iter().enumerate() {
+            match deltas_iter.peek() {
+                Some(d) if d.index == block_index => {
+                    let d = deltas_iter
+                        .next()
+                        .expect("peek() returned Some on this iteration");
+                    match d.repair {
                         RepairType::Delete {
                             n_unique_docs_removed,
                         } => {
-                            info.entries_removed += block.num_entries as usize;
-                            info.bytes_freed += block.mem_usage();
+                            info.entries_removed += arc_block.num_entries as usize;
+                            info.bytes_freed += arc_block.mem_usage();
                             self.n_unique_docs -= n_unique_docs_removed;
                         }
                         RepairType::Replace {
                             blocks,
                             n_unique_docs_removed,
                         } => {
-                            info.entries_removed += block.num_entries as usize;
-                            info.bytes_freed += block.mem_usage();
+                            info.entries_removed += arc_block.num_entries as usize;
+                            info.bytes_freed += arc_block.mem_usage();
                             self.n_unique_docs -= n_unique_docs_removed;
-
-                            for block in blocks {
-                                info.entries_removed -= block.num_entries as usize;
-                                info.bytes_allocated += block.mem_usage();
-                                new_blocks.push(block);
+                            for b in blocks {
+                                // Replace can only shrink — new blocks are always a
+                                // subset of the old. `saturating_sub` guards against
+                                // a malformed delta (e.g. corrupted RDB) producing a
+                                // larger replacement.
+                                info.entries_removed =
+                                    info.entries_removed.saturating_sub(b.num_entries as usize);
+                                info.bytes_allocated += b.mem_usage();
+                                new_all.push(Arc::new(b));
                             }
                         }
                     }
                 }
-                _ => {
-                    // This block does not need to be repaired, so just put it back
-                    new_blocks.push(block);
-                }
+                _ => new_all.push(arc_block),
             }
         }
 
-        // Remove excess capacity from the new vector.
-        {
-            let had_allocated = new_blocks.has_allocated();
-            new_blocks.shrink_to_fit();
-            // If we got rid of the heap block buffer entirely, we have also freed the memory occupied
-            // by the thin vec header. That hasn't been accounted for yet, so we add it to the bytes freed now.
-            if !new_blocks.has_allocated() && had_allocated {
-                info.bytes_freed += Header::<BlockCapacity>::size_with_padding::<IndexBlock>();
-            }
+        // The trailing survivor becomes the new `pending` tail (kept so future writes can
+        // mutate it via `Arc::make_mut`); everything before it gets compacted into the
+        // contiguous `sealed` ThinVec.
+        let new_pending_tail = new_all.pop();
+
+        let mut new_sealed: ThinVec<IndexBlock, BlockCapacity> =
+            ThinVec::with_capacity(new_all.len());
+        for arc_b in new_all {
+            // Each Arc here has refcount = 1 (we just built `working` and split it),
+            // so `try_unwrap` succeeds without cloning. The clone fallback covers the
+            // theoretical case where a snapshot tail Arc landed in `working` via the
+            // `pending` extension — that can't happen because `std::mem::take` left
+            // `self.pending` empty and the snapshot's pending Vec is its own clone.
+            let b = Arc::try_unwrap(arc_b).unwrap_or_else(|arc| (*arc).clone());
+            new_sealed.push(b);
+        }
+        new_sealed.shrink_to_fit();
+
+        let new_pending: Vec<Arc<IndexBlock>> = new_pending_tail.into_iter().collect();
+        let blocks_after = new_sealed.len() + new_pending.len();
+
+        self.sealed = Arc::new(new_sealed);
+        self.pending = new_pending;
+
+        info.block_count_delta = blocks_after as i64 - blocks_before as i64;
+
+        // Fold the compaction overhead (Arc headers / pending Vec slots freed,
+        // sealed ThinVec header allocated) into bytes_freed / bytes_allocated so
+        // the net matches the actual `memory_usage` delta. The block-level
+        // accumulators above already cover the dropped/added IndexBlock contents;
+        // this adjustment closes the gap for callers that maintain a running
+        // `inverted_indexes_size` invariant.
+        let mem_after = self.memory_usage();
+        let block_net = info.bytes_freed as isize - info.bytes_allocated as isize;
+        let actual_net = mem_before as isize - mem_after as isize;
+        let adjust = actual_net - block_net;
+        if adjust >= 0 {
+            info.bytes_freed += adjust as usize;
+        } else {
+            info.bytes_allocated += (-adjust) as usize;
         }
 
-        let new_len = new_blocks.len();
-        self.blocks = Arc::new(new_blocks);
-        info.block_count_delta = new_len as i64 - blocks_before as i64;
         self.gc_marker_inc();
 
         info

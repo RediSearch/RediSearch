@@ -11,10 +11,11 @@ use std::io::Cursor;
 
 use crate::{
     Decoder, Encoder, EntriesTrackingIndex, FieldMaskTrackingIndex, GcScanDelta, IdDelta,
-    IndexBlock, InvertedIndex,
+    InvertedIndex,
     debug::{BlockSummary, Summary},
     gc::BlockGcScanResult,
     gc::RepairType,
+    index::core::PER_NEW_BLOCK_BYTES,
 };
 use ffi::{
     IndexFlags_Index_DocIdsOnly, IndexFlags_Index_HasMultiValue, IndexFlags_Index_StoreFieldFlags,
@@ -29,9 +30,11 @@ use super::Dummy;
 #[test]
 fn memory_usage() {
     let mut ii = InvertedIndex::<Dummy>::new(IndexFlags_Index_DocIdsOnly);
-    // 24 bytes for the InvertedIndex's own fields, plus 24 bytes for the
-    // heap-allocated `Arc<ThinVec<IndexBlock>>` header that backs `sealed`.
-    let empty_size = 48;
+    // 48 bytes for the InvertedIndex's own fields (sealed Arc pointer + pending Vec
+    // triple + atomics/flags/unique_id), plus 24 bytes for the `Arc<ThinVec<IndexBlock>>`
+    // heap header that backs `sealed`. Pending starts with zero capacity, so no Vec
+    // heap is allocated yet.
+    let empty_size = 72;
 
     assert_eq!(ii.memory_usage(), empty_size);
 
@@ -50,14 +53,15 @@ fn adding_records() {
 
     assert_eq!(
         mem_growth,
-        8 + IndexBlock::STACK_SIZE + 4,
-        "header of the thin vec storing the blocks (8 bytes), size of the first index block (48 bytes) plus 4 bytes for the encoded delta"
+        PER_NEW_BLOCK_BYTES + 4,
+        "fresh `Arc<IndexBlock>` allocation (refcount header + 48-byte IndexBlock + 8-byte \
+         pending-Vec slot) plus 4 bytes for the encoded delta"
     );
-    assert_eq!(ii.blocks.len(), 1);
-    assert_eq!(ii.blocks[0].buffer, [0, 0, 0, 0]);
-    assert_eq!(ii.blocks[0].num_entries, 1);
-    assert_eq!(ii.blocks[0].first_doc_id, 10);
-    assert_eq!(ii.blocks[0].last_doc_id, 10);
+    assert_eq!(ii.number_of_blocks(), 1);
+    assert_eq!(ii.blocks_snapshot()[0].buffer, [0, 0, 0, 0]);
+    assert_eq!(ii.blocks_snapshot()[0].num_entries, 1);
+    assert_eq!(ii.blocks_snapshot()[0].first_doc_id, 10);
+    assert_eq!(ii.blocks_snapshot()[0].last_doc_id, 10);
     assert_eq!(ii.n_unique_docs, 1);
 
     let record = RSIndexResult::build_virt().doc_id(11).build();
@@ -66,13 +70,13 @@ fn adding_records() {
 
     assert_eq!(
         mem_growth, 5,
-        "buffer needs to grow to 9 bytes to hold a total of 8 bytes"
+        "tail buffer grows to 9 bytes to hold a total of 8 bytes"
     );
-    assert_eq!(ii.blocks.len(), 1);
-    assert_eq!(ii.blocks[0].buffer, [0, 0, 0, 0, 0, 0, 0, 1]);
-    assert_eq!(ii.blocks[0].num_entries, 2);
-    assert_eq!(ii.blocks[0].first_doc_id, 10);
-    assert_eq!(ii.blocks[0].last_doc_id, 11);
+    assert_eq!(ii.number_of_blocks(), 1);
+    assert_eq!(ii.blocks_snapshot()[0].buffer, [0, 0, 0, 0, 0, 0, 0, 1]);
+    assert_eq!(ii.blocks_snapshot()[0].num_entries, 2);
+    assert_eq!(ii.blocks_snapshot()[0].first_doc_id, 10);
+    assert_eq!(ii.blocks_snapshot()[0].last_doc_id, 11);
     assert_eq!(ii.n_unique_docs, 2);
 }
 
@@ -82,9 +86,9 @@ fn adding_same_record_twice() {
     let record = RSIndexResult::build_virt().doc_id(10).build();
 
     ii.add_record(&record).unwrap();
-    assert_eq!(ii.blocks.len(), 1);
-    assert_eq!(ii.blocks[0].buffer, [0, 0, 0, 0]);
-    assert_eq!(ii.blocks[0].num_entries, 1);
+    assert_eq!(ii.number_of_blocks(), 1);
+    assert_eq!(ii.blocks_snapshot()[0].buffer, [0, 0, 0, 0]);
+    assert_eq!(ii.blocks_snapshot()[0].num_entries, 1);
     assert_eq!(ii.flags(), IndexFlags_Index_DocIdsOnly);
 
     let mem_growth = ii.add_record(&record).unwrap().mem_growth as usize;
@@ -93,15 +97,15 @@ fn adding_same_record_twice() {
         mem_growth, 0,
         "duplicate record should not be written by default"
     );
-    assert_eq!(ii.blocks.len(), 1);
+    assert_eq!(ii.number_of_blocks(), 1);
     assert_eq!(
-        ii.blocks[0].buffer,
+        ii.blocks_snapshot()[0].buffer,
         [0, 0, 0, 0],
         "buffer should remain unchanged"
     );
-    assert_eq!(ii.blocks[0].num_entries, 1);
-    assert_eq!(ii.blocks[0].first_doc_id, 10);
-    assert_eq!(ii.blocks[0].last_doc_id, 10);
+    assert_eq!(ii.blocks_snapshot()[0].num_entries, 1);
+    assert_eq!(ii.blocks_snapshot()[0].first_doc_id, 10);
+    assert_eq!(ii.blocks_snapshot()[0].last_doc_id, 10);
     assert_eq!(ii.n_unique_docs, 1, "this second doc was not added");
     assert_eq!(ii.flags(), IndexFlags_Index_DocIdsOnly);
 
@@ -128,21 +132,21 @@ fn adding_same_record_twice() {
     let mut ii = InvertedIndex::<AllowDupsDummy>::new(IndexFlags_Index_DocIdsOnly);
 
     ii.add_record(&record).unwrap();
-    assert_eq!(ii.blocks.len(), 1);
-    assert_eq!(ii.blocks[0].buffer, [255]);
+    assert_eq!(ii.number_of_blocks(), 1);
+    assert_eq!(ii.blocks_snapshot()[0].buffer, [255]);
     assert_eq!(ii.flags(), IndexFlags_Index_DocIdsOnly);
 
     ii.add_record(&record).unwrap();
 
-    assert_eq!(ii.blocks.len(), 1);
+    assert_eq!(ii.number_of_blocks(), 1);
     assert_eq!(
-        ii.blocks[0].buffer,
+        ii.blocks_snapshot()[0].buffer,
         [255, 255],
         "buffer should contain two entries"
     );
-    assert_eq!(ii.blocks[0].num_entries, 2);
-    assert_eq!(ii.blocks[0].first_doc_id, 10);
-    assert_eq!(ii.blocks[0].last_doc_id, 10);
+    assert_eq!(ii.blocks_snapshot()[0].num_entries, 2);
+    assert_eq!(ii.blocks_snapshot()[0].first_doc_id, 10);
+    assert_eq!(ii.blocks_snapshot()[0].last_doc_id, 10);
     assert_eq!(
         ii.n_unique_docs, 1,
         "this doc was added but should not affect the count"
@@ -185,16 +189,16 @@ fn adding_creates_new_blocks_when_entries_is_reached() {
         .mem_growth as usize;
     assert_eq!(
         mem_growth,
-        8 + IndexBlock::STACK_SIZE + 1,
-        "header of the thin vec storing the blocks (8 bytes), size of the first index block (48 bytes) plus the byte written"
+        PER_NEW_BLOCK_BYTES + 1,
+        "fresh `Arc<IndexBlock>` allocation plus one byte written by the encoder"
     );
-    assert_eq!(ii.blocks.len(), 1);
+    assert_eq!(ii.number_of_blocks(), 1);
     let mem_growth = ii
         .add_record(&RSIndexResult::build_virt().doc_id(11).build())
         .unwrap()
         .mem_growth as usize;
     assert_eq!(mem_growth, 1, "buffer needs to grow for the new byte");
-    assert_eq!(ii.blocks.len(), 1);
+    assert_eq!(ii.number_of_blocks(), 1);
 
     // 3 entry should create a new block
     let mem_growth = ii
@@ -203,11 +207,11 @@ fn adding_creates_new_blocks_when_entries_is_reached() {
         .mem_growth as usize;
     assert_eq!(
         mem_growth,
-        IndexBlock::STACK_SIZE + 1,
-        "size of the new index block (48 bytes) plus the byte written"
+        PER_NEW_BLOCK_BYTES + 1,
+        "fresh `Arc<IndexBlock>` allocation for the rolled-over tail plus the byte written"
     );
     assert_eq!(
-        ii.blocks.len(),
+        ii.number_of_blocks(),
         2,
         "should create a new block after reaching the limit"
     );
@@ -216,7 +220,7 @@ fn adding_creates_new_blocks_when_entries_is_reached() {
         .unwrap()
         .mem_growth as usize;
     assert_eq!(mem_growth, 1, "buffer needs to grow for the new byte");
-    assert_eq!(ii.blocks.len(), 2);
+    assert_eq!(ii.number_of_blocks(), 2);
 
     // But duplicate entry does not go in new block even if the current block is full
     let mem_growth = ii
@@ -225,12 +229,13 @@ fn adding_creates_new_blocks_when_entries_is_reached() {
         .mem_growth as usize;
     assert_eq!(mem_growth, 1, "buffer needs to grow again");
     assert_eq!(
-        ii.blocks.len(),
+        ii.number_of_blocks(),
         2,
         "duplicates should stay on the same block"
     );
     assert_eq!(
-        ii.blocks[1].num_entries, 3,
+        ii.blocks_snapshot()[1].num_entries,
+        3,
         "should have 3 entries in the second block because duplicate was added"
     );
 }
@@ -244,14 +249,14 @@ fn adding_big_delta_makes_new_block() {
 
     assert_eq!(
         mem_growth,
-        4 + 8 + 48,
-        "should write 4 bytes for delta, 8 bytes of thin vec header, and 48 bytes for the index block"
+        PER_NEW_BLOCK_BYTES + 4,
+        "fresh `Arc<IndexBlock>` allocation plus 4 bytes for the encoded delta"
     );
-    assert_eq!(ii.blocks.len(), 1);
-    assert_eq!(ii.blocks[0].buffer, [0, 0, 0, 0]);
-    assert_eq!(ii.blocks[0].num_entries, 1);
-    assert_eq!(ii.blocks[0].first_doc_id, 10);
-    assert_eq!(ii.blocks[0].last_doc_id, 10);
+    assert_eq!(ii.number_of_blocks(), 1);
+    assert_eq!(ii.blocks_snapshot()[0].buffer, [0, 0, 0, 0]);
+    assert_eq!(ii.blocks_snapshot()[0].num_entries, 1);
+    assert_eq!(ii.blocks_snapshot()[0].first_doc_id, 10);
+    assert_eq!(ii.blocks_snapshot()[0].last_doc_id, 10);
     assert_eq!(ii.n_unique_docs, 1);
 
     // This will create a delta that is larger than the default u32 acceptable delta size
@@ -262,20 +267,21 @@ fn adding_big_delta_makes_new_block() {
 
     assert_eq!(
         mem_growth,
-        4 + 48,
-        "should write 4 bytes for delta and 48 bytes for the new index block"
+        PER_NEW_BLOCK_BYTES + 4,
+        "fresh `Arc<IndexBlock>` allocation for the delta-overflow split plus 4 bytes for the encoded delta"
     );
-    assert_eq!(ii.blocks.len(), 2);
-    assert_eq!(ii.blocks[1].buffer, [0, 0, 0, 0]);
-    assert_eq!(ii.blocks[1].num_entries, 1);
-    assert_eq!(ii.blocks[1].first_doc_id, doc_id);
-    assert_eq!(ii.blocks[1].last_doc_id, doc_id);
+    assert_eq!(ii.number_of_blocks(), 2);
+    assert_eq!(ii.blocks_snapshot()[1].buffer, [0, 0, 0, 0]);
+    assert_eq!(ii.blocks_snapshot()[1].num_entries, 1);
+    assert_eq!(ii.blocks_snapshot()[1].first_doc_id, doc_id);
+    assert_eq!(ii.blocks_snapshot()[1].last_doc_id, doc_id);
     assert_eq!(ii.n_unique_docs, 2);
 }
 
-// An `IndexBlock` is 48 bytes so we want to carefully control the growth strategy used by it to
-// limit memory usage. This test ensures the blocks field of an inverted index only grows by one
-// element at a time.
+// Exercises the block-count progression across the writer (which pushes to `pending`)
+// and the GC (which consolidates survivors into `sealed`). The ThinVec backing `sealed`
+// is rebuilt with `shrink_to_fit` after each `apply_gc`, so we additionally check that
+// `memory_usage` doesn't carry dangling capacity after GC drops blocks.
 #[test]
 fn adding_ii_blocks_growth_strategy() {
     /// Dummy encoder which only allows 2 entries per block for testing
@@ -315,45 +321,33 @@ fn adding_ii_blocks_growth_strategy() {
 
     let mut ii = InvertedIndex::<SmallBlocksDummy>::new(IndexFlags_Index_DocIdsOnly);
 
-    assert_eq!(
-        ii.blocks.capacity(),
-        0,
-        "initially there are no blocks allocated"
-    );
+    assert_eq!(ii.number_of_blocks(), 0, "no blocks initially");
 
-    // Test when a new block are added normally
+    // Two records fit in the first block (RECOMMENDED_BLOCK_ENTRIES = 2).
     ii.add_record(&RSIndexResult::build_virt().doc_id(10).build())
         .unwrap();
     ii.add_record(&RSIndexResult::build_virt().doc_id(11).build())
         .unwrap();
-    assert_eq!(
-        ii.blocks.capacity(),
-        1,
-        "we should only have grown the capacity by one"
-    );
+    assert_eq!(ii.number_of_blocks(), 1);
 
+    // Third record triggers a roll-over into a new pending block.
     ii.add_record(&RSIndexResult::build_virt().doc_id(12).build())
         .unwrap();
-    assert_eq!(
-        ii.blocks.capacity(),
-        2,
-        "only one new capacity should be added"
-    );
+    assert_eq!(ii.number_of_blocks(), 2);
 
-    // Test when a new block is added due to delta overflow
+    // Delta overflow forces another new block.
     ii.add_record(
         &RSIndexResult::build_virt()
             .doc_id(u32::MAX as u64 + 13)
             .build(),
     )
     .unwrap();
-    assert_eq!(
-        ii.blocks.capacity(),
-        3,
-        "only one new capacity should be added"
-    );
+    assert_eq!(ii.number_of_blocks(), 3);
 
-    // Make sure GC is also smart to remove extra capacity
+    // Pre-GC memory footprint: includes the three pending Arcs and their buffers.
+    let pre_gc = ii.memory_usage();
+
+    // GC deletes the first two blocks; the trailing survivor stays as the pending tail.
     ii.apply_gc(GcScanDelta {
         last_block_idx: 2,
         last_block_num_entries: 1,
@@ -374,9 +368,13 @@ fn adding_ii_blocks_growth_strategy() {
     });
 
     assert_eq!(
-        ii.blocks.capacity(),
+        ii.number_of_blocks(),
         1,
-        "no extra capacity should be dangling"
+        "only the surviving tail block remains"
+    );
+    assert!(
+        ii.memory_usage() < pre_gc,
+        "memory usage must shrink after dropping two blocks"
     );
 }
 
@@ -384,9 +382,10 @@ fn adding_ii_blocks_growth_strategy() {
 fn adding_tracks_entries() {
     let mut ii = EntriesTrackingIndex::<Dummy>::new(IndexFlags_Index_DocIdsOnly);
 
-    // 32 bytes for the index's own fields, plus 24 bytes for the
-    // `Arc<ThinVec<IndexBlock>>` heap header.
-    let empty_size = 56;
+    // 48 bytes for the inner InvertedIndex stack + 8 for the EntriesTrackingIndex's
+    // `number_of_entries` usize, plus 24 bytes for the `Arc<ThinVec<IndexBlock>>`
+    // heap header.
+    let empty_size = 80;
     assert_eq!(ii.memory_usage(), empty_size);
     assert_eq!(ii.number_of_entries(), 0);
 
@@ -406,9 +405,9 @@ fn adding_tracks_entries() {
 fn adding_track_field_mask() {
     let mut ii = FieldMaskTrackingIndex::<Dummy>::new(IndexFlags_Index_StoreFieldFlags);
 
-    // 40 bytes for the index's own fields, plus 24 bytes for the
-    // `Arc<ThinVec<IndexBlock>>` heap header.
-    assert_eq!(ii.memory_usage(), 64);
+    // 48 bytes for the inner InvertedIndex stack + 16 for the FieldMask (u128) field,
+    // plus 24 bytes for the `Arc<ThinVec<IndexBlock>>` heap header.
+    assert_eq!(ii.memory_usage(), 88);
     assert_eq!(ii.field_mask(), 0);
 
     let record = RSIndexResult::build_virt()
@@ -419,8 +418,8 @@ fn adding_track_field_mask() {
 
     assert_eq!(
         mem_growth,
-        8 + IndexBlock::STACK_SIZE + 4,
-        "header of the thin vec storing the blocks (8 bytes), size of the first index block (48 bytes) plus 4 bytes for the encoded result"
+        PER_NEW_BLOCK_BYTES + 4,
+        "fresh `Arc<IndexBlock>` allocation plus 4 bytes for the encoded result"
     );
     assert_eq!(ii.field_mask(), 0b101);
 
