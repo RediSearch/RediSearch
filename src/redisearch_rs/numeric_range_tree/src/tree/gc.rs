@@ -83,8 +83,7 @@ impl NumericRangeNode {
         // each entry's HLL contribution into the correct accumulator. Comparing by
         // logical index instead of pointer equality is robust to future changes that
         // produce blocks via owned snapshots (where block addresses can shift).
-        let num_blocks = range.entries().num_blocks();
-        let last_block_idx = num_blocks.saturating_sub(1);
+        let last_block_idx = range.entries().num_blocks().saturating_sub(1);
 
         // HLL tracking for cardinality (re)estimation.
         //
@@ -96,7 +95,7 @@ impl NumericRangeNode {
         let mut repair_fn = |res: &RSIndexResult<'_>, ctx: &inverted_index::RepairContext<'_>| {
             // SAFETY: We know this is a numeric index result
             let value = unsafe { res.as_numeric_unchecked() };
-            let target = if num_blocks > 0 && ctx.block_idx == last_block_idx {
+            let target = if ctx.block_idx == last_block_idx {
                 &mut last_block_hll
             } else {
                 &mut majority_hll
