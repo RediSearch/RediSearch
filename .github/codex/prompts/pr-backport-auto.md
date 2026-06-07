@@ -91,6 +91,15 @@ git checkout -B "${BRANCH}" "origin/${TARGET}"
 git cherry-pick "${SHA}"
 ```
 
+> **Squash-merge assumption.** RediSearch squash-merges PRs, so `sha` is the
+> single squashed commit on master with one parent — a plain
+> `git cherry-pick "${SHA}"` applies it directly, which is what this flow
+> expects and handles. If a target ever resolves to a *true merge commit*
+> (multiple parents), `git cherry-pick` will refuse with
+> `is a merge but no -m option was given`. Do **not** guess a parent with `-m`:
+> treat that as a non-mechanical case, `git cherry-pick --abort`, and skip the
+> target for manual backport (record it in the summary).
+
 If the cherry-pick succeeds cleanly:
 
 - Push the branch and open the backport PR (see "Open the PR" below).

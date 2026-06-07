@@ -48,10 +48,10 @@ The file looks like:
     }
   ],
   "context": [
-    "Free-form text from any /auto-backport-context comments on the PR",
+    "Free-form text from any /backport-agent-context comments on the PR",
     "(only comments authored by OWNER/MEMBER/COLLABORATOR are included —",
     "the workflow filters out untrusted commenters before reaching you),",
-    "plus any inline text the human supplied with /auto-backport-fix."
+    "plus any inline text the human supplied with /backport-agent-fix."
   ]
 }
 ```

@@ -1,24 +1,25 @@
 name: Fix CI failures on auto-backport PR (Codex agent)
 
 # Companion to task-backport_pr-agent.yml. Once the auto-backport workflow has
-# opened a backport PR, that PR runs the normal `Pull Request Flow` CI. This
-# workflow watches for CI failures on those backport PRs and invokes a Codex
-# agent to make a minimal mechanical fix (or to bail out and tag a human).
+# opened a backport PR, that PR runs the normal `Pull Request Flow` CI. When CI
+# fails, a human can ask a Codex agent to make a minimal mechanical fix (or to
+# bail out and tag a human) by commenting on the backport PR.
 #
-# Trigger ways:
-#   - Auto: `Pull Request Flow` (event-pull_request.yml) finishes with
-#     conclusion=failure on a PR that carries the `auto-backport` label and
-#     does NOT already carry `auto-backport-fix-attempted`. Fires once per PR.
-#   - Manual: a repo collaborator/member/owner comments `/auto-backport-fix`
-#     on the backport PR. Bypasses the once-per-PR guard so humans can retry
-#     after adding context with `/auto-backport-context <text>` comments.
+# Trigger (comment-only, on purpose):
+#   - A repo collaborator/member/owner comments `/backport-agent-fix` on the
+#     backport PR. Any inline text after the command is passed to the agent as
+#     extra context. Additional `/backport-agent-context <text>` comments from
+#     write-level users are also collected.
+#
+# This flow is deliberately NOT wired to `workflow_run`/CI-failure events: we do
+# not want an agent run (which holds a write token) firing automatically on
+# every PR failure across the repo. A human collaborator explicitly opts in per
+# PR, which also keeps the trigger actor a trusted human (no bot-actor gate to
+# relax) and removes the need for a once-per-PR throttle label.
 #
 # Behavior is defined by .github/codex/prompts/pr-backport-auto-fix.md.
 
 on:
-  workflow_run:
-    workflows: ["Pull Request Flow"]
-    types: [completed]
   issue_comment:
     types: [created]
 
@@ -26,6 +27,12 @@ permissions:
   contents: write
   pull-requests: write
   actions: read
+
+# Serialize per-PR so two quick `/backport-agent-fix` comments can't run
+# concurrently against the same branch and race on push.
+concurrency:
+  group: backport-agent-fix-${{ github.event.issue.number }}
+  cancel-in-progress: false
 
 jobs:
   backport-fix:
@@ -37,16 +44,10 @@ jobs:
     # because `!= 'NONE'` would also admit CONTRIBUTOR/FIRST_TIME_CONTRIBUTOR —
     # users who merged a prior PR but do not have repo write access.
     if: >
-      (
-        github.event_name == 'workflow_run' &&
-        github.event.workflow_run.conclusion == 'failure' &&
-        github.event.workflow_run.event == 'pull_request'
-      ) || (
-        github.event_name == 'issue_comment' &&
-        github.event.issue.pull_request &&
-        contains(fromJSON('["OWNER","MEMBER","COLLABORATOR"]'), github.event.comment.author_association) &&
-        startsWith(github.event.comment.body, '/auto-backport-fix')
-      )
+      github.event_name == 'issue_comment' &&
+      github.event.issue.pull_request &&
+      contains(fromJSON('["OWNER","MEMBER","COLLABORATOR"]'), github.event.comment.author_association) &&
+      startsWith(github.event.comment.body, '/backport-agent-fix')
 
     steps:
       - name: 🔑 Generate GitHub App Token
@@ -68,75 +69,20 @@ jobs:
         id: ctx
         env:
           GH_TOKEN: ${{ steps.generate-app-token.outputs.token }}
-          EVENT_NAME: ${{ github.event_name }}
-          WORKFLOW_RUN_ID: ${{ github.event.workflow_run.id }}
-          WORKFLOW_RUN_URL: ${{ github.event.workflow_run.html_url }}
-          WORKFLOW_RUN_BRANCH: ${{ github.event.workflow_run.head_branch }}
-          WORKFLOW_RUN_HEAD_SHA: ${{ github.event.workflow_run.head_sha }}
-          WORKFLOW_RUN_HEAD_REPO_FULL: ${{ github.event.workflow_run.head_repository.full_name }}
           PR_NUMBER_FROM_ISSUE: ${{ github.event.issue.number }}
           COMMENT_BODY: ${{ github.event.comment.body }}
         run: |
           set -euo pipefail
 
-          inline_context=""
-          run_id=""
-          run_url=""
-          head_sha=""
+          pr="$PR_NUMBER_FROM_ISSUE"
+          # Inline context: everything after `/backport-agent-fix` on the
+          # first line of the comment.
+          inline_context=$(printf '%s\n' "$COMMENT_BODY" \
+            | head -n1 \
+            | sed -E 's|^/backport-agent-fix[[:space:]]*||')
 
-          # 1) Resolve the backport PR number based on the trigger.
-          if [ "$EVENT_NAME" = "issue_comment" ]; then
-            pr="$PR_NUMBER_FROM_ISSUE"
-            # Inline context: everything after `/auto-backport-fix` on the
-            # first line of the comment.
-            inline_context=$(printf '%s\n' "$COMMENT_BODY" \
-              | head -n1 \
-              | sed -E 's|^/auto-backport-fix[[:space:]]*||')
-          else
-            # workflow_run: map head_branch -> PR number. Backport branches are
-            # always named `backport-agent/pr-<n>-to-<branch>` so the head
-            # lookup is unambiguous.
-            if [ -z "$WORKFLOW_RUN_BRANCH" ]; then
-              echo "workflow_run has no head_branch; skipping."
-              echo "skip=true" >> "$GITHUB_OUTPUT"
-              exit 0
-            fi
-            # Defensive: only ever proceed for branches we own (this repo,
-            # `backport-agent/` namespace). The `auto-backport` label check
-            # below is the primary gate, but explicitly refusing to touch a
-            # fork or an off-namespace branch is what the SonarCloud rule
-            # "Forked repository code should not be checked out in privileged
-            # workflow contexts" is asking for.
-            if [ "$WORKFLOW_RUN_HEAD_REPO_FULL" != "${GITHUB_REPOSITORY}" ]; then
-              echo "workflow_run head_repository ($WORKFLOW_RUN_HEAD_REPO_FULL) is not this repo; skipping."
-              echo "skip=true" >> "$GITHUB_OUTPUT"
-              exit 0
-            fi
-            case "$WORKFLOW_RUN_BRANCH" in
-              backport-agent/*) : ;;
-              *)
-                echo "workflow_run branch ($WORKFLOW_RUN_BRANCH) is outside the backport-agent/ namespace; skipping."
-                echo "skip=true" >> "$GITHUB_OUTPUT"
-                exit 0
-                ;;
-            esac
-            pr=$(gh pr list \
-                  --head "$WORKFLOW_RUN_BRANCH" \
-                  --state open \
-                  --json number \
-                  --jq '.[0].number // empty')
-            if [ -z "$pr" ]; then
-              echo "No open PR found for branch $WORKFLOW_RUN_BRANCH; skipping."
-              echo "skip=true" >> "$GITHUB_OUTPUT"
-              exit 0
-            fi
-            run_id="$WORKFLOW_RUN_ID"
-            run_url="$WORKFLOW_RUN_URL"
-            head_sha="$WORKFLOW_RUN_HEAD_SHA"
-          fi
-
-          # 2) Pull PR details and check eligibility.
-          pr_data=$(gh pr view "$pr" --json number,headRefName,baseRefName,labels,state,title,body,headRefOid,headRepositoryOwner,isCrossRepository)
+          # 1) Pull PR details and check eligibility.
+          pr_data=$(gh pr view "$pr" --json number,headRefName,baseRefName,labels,state,title,body,headRefOid,isCrossRepository)
           state=$(jq -r '.state' <<<"$pr_data")
           if [ "$state" != "OPEN" ]; then
             echo "PR #$pr is not open (state=$state); skipping."
@@ -144,9 +90,10 @@ jobs:
             exit 0
           fi
 
-          # Even for issue_comment, refuse cross-repo PRs. Our auto-backport
-          # PRs are always opened by the App with the head branch in this repo,
-          # so `isCrossRepository` should be false.
+          # Refuse cross-repo PRs. Our auto-backport PRs are always opened by the
+          # App with the head branch in this repo, so `isCrossRepository` should
+          # be false; bail otherwise rather than check out a fork branch in a
+          # privileged context.
           cross_repo=$(jq -r '.isCrossRepository' <<<"$pr_data")
           if [ "$cross_repo" = "true" ]; then
             echo "PR #$pr is cross-repository; the auto-fix flow does not touch fork branches. Skipping."
@@ -163,43 +110,13 @@ jobs:
             exit 0
           fi
 
-          # The once-per-PR guard applies only to the workflow_run path. Manual
-          # /auto-backport-fix re-triggers always bypass it so humans can retry
-          # after adding context.
-          if [ "$EVENT_NAME" = "workflow_run" ]; then
-            if grep -Fxq "auto-backport-fix-attempted" <<<"$labels"; then
-              echo "PR #$pr already has auto-backport-fix-attempted; skipping auto retry."
-              echo "skip=true" >> "$GITHUB_OUTPUT"
-              exit 0
-            fi
-          fi
-
           branch=$(jq -r '.headRefName' <<<"$pr_data")
           base=$(jq -r '.baseRefName' <<<"$pr_data")
           body=$(jq -r '.body' <<<"$pr_data")
-          current_head_sha=$(jq -r '.headRefOid' <<<"$pr_data")
+          head_sha=$(jq -r '.headRefOid' <<<"$pr_data")
 
-          # For the workflow_run auto-trigger path, `head_sha` is the SHA the
-          # failed CI run was for. If a newer commit has landed on the branch
-          # since then, the failed-run logs no longer reflect what's on disk.
-          # Skip without stamping `auto-backport-fix-attempted`, so the fresh
-          # CI run that's now in flight can still trigger a fix attempt.
-          if [ "$EVENT_NAME" = "workflow_run" ] \
-             && [ -n "$head_sha" ] \
-             && [ "$head_sha" != "$current_head_sha" ]; then
-            echo "workflow_run head_sha ($head_sha) no longer matches PR head ($current_head_sha); skipping stale run."
-            echo "skip=true" >> "$GITHUB_OUTPUT"
-            exit 0
-          fi
-
-          # For the issue_comment trigger we had no head_sha yet; adopt the
-          # current one from gh pr view.
-          if [ -z "$head_sha" ]; then
-            head_sha="$current_head_sha"
-          fi
-
-          # Defensive (also for the issue_comment path): the branch we are
-          # about to check out must be in our namespace.
+          # Defensive: the branch we are about to check out must be in our
+          # namespace.
           case "$branch" in
             backport-agent/*) : ;;
             *)
@@ -209,7 +126,7 @@ jobs:
               ;;
           esac
 
-          # 3) Extract the original PR number and merge SHA from the backport
+          # 2) Extract the original PR number and merge SHA from the backport
           #    PR's body. The auto-backport workflow always writes them in a
           #    canonical form ("Backport of #<n>" and "Merge commit: `<sha>`").
           original_pr=$(grep -oE 'Backport of #[0-9]+' <<<"$body" \
@@ -219,26 +136,25 @@ jobs:
                          | head -n1 \
                          | grep -oE '[0-9a-f]{7,}' || true)
 
-          # 4) For the comment trigger, look up the most recent failed CI run
-          #    *on the current HEAD commit* so the agent's logs match the code
-          #    on the branch. Filtering only by branch can hand back a stale
-          #    run from before a newer push or rerun.
-          if [ "$EVENT_NAME" = "issue_comment" ]; then
-            run_info=$(gh run list \
-                        --branch "$branch" \
-                        --commit "$head_sha" \
-                        --workflow "Pull Request Flow" \
-                        --status failure \
-                        --limit 1 \
-                        --json databaseId,url \
-                        --jq '.[0] // empty')
-            if [ -n "$run_info" ]; then
-              run_id=$(jq -r '.databaseId' <<<"$run_info")
-              run_url=$(jq -r '.url' <<<"$run_info")
-            fi
+          # 3) Look up the most recent failed CI run *on the current HEAD commit*
+          #    so the agent's logs match the code on the branch. Filtering only
+          #    by branch can hand back a stale run from before a newer push.
+          run_id=""
+          run_url=""
+          run_info=$(gh run list \
+                      --branch "$branch" \
+                      --commit "$head_sha" \
+                      --workflow "Pull Request Flow" \
+                      --status failure \
+                      --limit 1 \
+                      --json databaseId,url \
+                      --jq '.[0] // empty')
+          if [ -n "$run_info" ]; then
+            run_id=$(jq -r '.databaseId' <<<"$run_info")
+            run_url=$(jq -r '.url' <<<"$run_info")
           fi
 
-          # 5) Pull failed-step logs. Tail each to ~200 lines so the prompt
+          # 4) Pull failed-step logs. Tail each to ~200 lines so the prompt
           #    stays bounded. Best-effort: if the API doesn't return logs the
           #    agent can still call `gh run view` itself.
           excerpts="[]"
@@ -271,19 +187,19 @@ jobs:
             rm -rf "$tmpdir"
           fi
 
-          # 6) Collect human-supplied context. Any PR comment beginning with
-          #    `/auto-backport-context` contributes its remaining body, but
+          # 5) Collect human-supplied context. Any PR comment beginning with
+          #    `/backport-agent-context` contributes its remaining body, but
           #    only when its author is a write-level collaborator. Without
           #    that filter, any GitHub user could plant prompt-injection text
           #    on the PR that the Codex agent (running with a write-capable
-          #    App token and full sandbox) would consume.
-          #    Inline text from `/auto-backport-fix <text>` is already gated
+          #    App token) would consume.
+          #    Inline text from `/backport-agent-fix <text>` is already gated
           #    by the job-level `if:` author-association check and is appended
           #    further below.
           comments=$(gh api -X GET "repos/${GITHUB_REPOSITORY}/issues/${pr}/comments" \
                       --jq '[
                         .[]
-                        | select(.body | startswith("/auto-backport-context"))
+                        | select(.body | startswith("/backport-agent-context"))
                         | select(.author_association == "OWNER"
                               or .author_association == "MEMBER"
                               or .author_association == "COLLABORATOR")
@@ -292,11 +208,11 @@ jobs:
                       2>/dev/null || echo "[]")
           context=$(jq -c \
                      --arg inline "$inline_context" \
-                     '[ .[] | sub("^/auto-backport-context[ \t]*"; "") | select(length > 0) ]
+                     '[ .[] | sub("^/backport-agent-context[ \t]*"; "") | select(length > 0) ]
                       + ( if $inline == "" then [] else [$inline] end )' \
                      <<<"$comments")
 
-          # 7) Write the context file to $RUNNER_TEMP, NOT into the workspace.
+          # 6) Write the context file to $RUNNER_TEMP, NOT into the workspace.
           #    The agent runs `git add -A` to stage its fix; if the context
           #    JSON sat next to the source tree it would land inside the fix
           #    commit (CI log excerpts and backport metadata leaking into a
@@ -328,16 +244,6 @@ jobs:
                context: $context
              }' \
             > "$context_file"
-
-          # 8) Stamp the auto-trigger guard label *before* the agent runs, so
-          #    if anything misbehaves we don't loop. Manual /auto-backport-fix
-          #    re-triggers ignore this label, so a human can always retry.
-          if [ "$EVENT_NAME" = "workflow_run" ]; then
-            gh label create "auto-backport-fix-attempted" \
-              --description "Auto-backport fix workflow has run at least once on this PR" \
-              --color "fbca04" 2>/dev/null || true
-            gh pr edit "$pr" --add-label "auto-backport-fix-attempted"
-          fi
 
           {
             echo "skip=false"
@@ -409,8 +315,6 @@ jobs:
           fi
           git checkout -B "$BRANCH" "origin/$BRANCH"
 
-      # Reuses BACKPORT_OPENAI_API_KEY from task-backport_pr-agent.yml so both
-      # flows share the same billing scope.
       - name: Run /pr-backport-auto-fix via Codex
         if: steps.ctx.outputs.skip != 'true'
         uses: openai/codex-action@v1
@@ -426,16 +330,12 @@ jobs:
           # because the backport branch (an older release line) generally
           # will not contain `.github/codex/prompts/pr-backport-auto-fix.md`.
           prompt-file: ${{ steps.stash-prompt.outputs.prompt_file }}
-          # See task-backport_pr-agent.yml for rationale: writer-mode needs
-          # network access for git push / gh, so workspace-write is not enough.
-          # `safety-strategy: unsafe` keeps approvals disabled — the action
-          # validates this input and rejects `danger-full-access` here.
-          sandbox: danger-full-access
-          safety-strategy: unsafe
-          # The `workflow_run` trigger fires with `github.actor` set to the
-          # App bot that opened the backport PR. codex-action's default actor
-          # gate refuses bot actors; enable it so auto-trigger runs are not
-          # rejected before Codex starts. Manual `/auto-backport-fix` runs
-          # come from human collaborators and don't need this, but the flag
-          # applies to the whole action invocation.
-          allow-bot-users: true
+          # See task-backport_pr-agent.yml for the full rationale: keep the
+          # filesystem confined to the checkout (`workspace-write`) and enable
+          # only outbound network (for `git push` / `gh`) via the codex
+          # `sandbox_workspace_write.network_access` override on Linux/Landlock,
+          # rather than the much broader `danger-full-access`. `drop-sudo` is the
+          # action default and blocks privilege escalation on the runner.
+          sandbox: workspace-write
+          safety-strategy: drop-sudo
+          codex-args: -c sandbox_workspace_write.network_access=true

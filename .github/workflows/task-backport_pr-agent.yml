@@ -10,10 +10,13 @@ name: Backport merged pull request (Codex agent)
 # Trigger ways:
 #   - PR is closed and merged with at least one `backport-<branch>-agent` label.
 #   - A `backport-<branch>-agent` label is added to an already-merged PR.
-#   - A repo collaborator/member/owner comments `/auto-backport` on a merged PR.
-#       Optional args: `/auto-backport 8.6 8.2` overrides the labels for this run.
-#       The command intentionally does not share the `/backport` prefix with the
-#       legacy `task-backport_pr.yml` workflow.
+#   - A repo collaborator/member/owner comments `/backport-agent` on a merged PR.
+#       Optional args: `/backport-agent 8.6 8.2` overrides the labels for this run.
+#       Only a target-branch list is accepted here (no free-form context): the
+#       create step is mechanical, and keeping the trigger payload constrained
+#       minimizes what a comment can feed the agent. The command intentionally
+#       does not share the `/backport` prefix with the legacy
+#       `task-backport_pr.yml` workflow.
 #
 # Behavior is defined by .github/codex/prompts/pr-backport-auto.md. This workflow
 # only resolves inputs, writes a small context file, and invokes Codex.
@@ -28,6 +31,14 @@ permissions:
   contents: write
   pull-requests: write
 
+# Serialize per-PR so the `closed`, `labeled`, and `/backport-agent` triggers
+# can't run concurrently against the same `backport-agent/pr-<n>-to-<branch>`
+# branches and race on push / PR creation. Do not cancel an in-flight run — it
+# may already have opened some target PRs.
+concurrency:
+  group: backport-agent-create-${{ github.event.pull_request.number || github.event.issue.number }}
+  cancel-in-progress: false
+
 jobs:
   backport-agent:
     name: Auto-backport via Codex
@@ -39,8 +50,9 @@ jobs:
     #     (the JSON-serialized labels-array check is a coarse pre-filter; the
     #     script step revalidates against `^backport-(.+)-agent$`).
     #   * A `backport-<branch>-agent`-style label is added to a merged PR.
-    #   * A write-level user comments `/auto-backport` (and not the longer
-    #     `/auto-backport-fix` / `/auto-backport-context` sibling commands).
+    #   * A write-level user comments `/backport-agent` (and not the longer
+    #     `/backport-agent-fix` / `/backport-agent-context` sibling commands,
+    #     which belong to the fix workflow).
     #
     # The `author_association` allow-list (OWNER/MEMBER/COLLABORATOR) is required
     # because `!= 'NONE'` would also admit CONTRIBUTOR/FIRST_TIME_CONTRIBUTOR —
@@ -61,8 +73,8 @@ jobs:
         github.event_name == 'issue_comment' &&
         github.event.issue.pull_request &&
         contains(fromJSON('["OWNER","MEMBER","COLLABORATOR"]'), github.event.comment.author_association) &&
-        startsWith(github.event.comment.body, '/auto-backport') &&
-        !startsWith(github.event.comment.body, '/auto-backport-')
+        startsWith(github.event.comment.body, '/backport-agent') &&
+        !startsWith(github.event.comment.body, '/backport-agent-')
       )
 
     steps:
@@ -130,12 +142,12 @@ jobs:
           #    - pull_request_target closed:  all matching labels on the PR
           targets_json="[]"
           if [ "$EVENT_NAME" = "issue_comment" ]; then
-            args=$(printf '%s\n' "$COMMENT_BODY" | head -n1 | sed -E 's|^/auto-backport[[:space:]]*||')
+            args=$(printf '%s\n' "$COMMENT_BODY" | head -n1 | sed -E 's|^/backport-agent[[:space:]]*||')
             if [ -n "$args" ]; then
               # Use jq-only splitting on whitespace/comma. The previous
               # `tr | grep -v '^$' | jq` pipeline crashed under set -euo
               # pipefail when the args were separator-only (e.g.
-              # `/auto-backport ,`) because grep matched nothing.
+              # `/backport-agent ,`) because grep matched nothing.
               targets_json=$(jq -nc --arg s "$args" \
                 '[ $s | split("[\\s,]+"; "g") | .[] | select(length > 0) ]
                  | unique')
@@ -187,9 +199,6 @@ jobs:
             echo "context_file=$context_file"
           } >> "$GITHUB_OUTPUT"
 
-      # BACKPORT_OPENAI_API_KEY is kept separate from CI_TRIAGE_OPENAI_API_KEY so
-      # backport-agent usage can be budgeted and revoked independently from the
-      # read-only triage flows.
       - name: Run /pr-backport-auto via Codex
         if: steps.ctx.outputs.skip != 'true'
         uses: openai/codex-action@v1
@@ -205,14 +214,21 @@ jobs:
         with:
           openai-api-key: ${{ secrets.OPEN_AI_BACKPORT_AGENT_KEY }}
           prompt-file: .github/codex/prompts/pr-backport-auto.md
-          # The agent needs to edit files (conflict resolution), run git/gh, and
-          # push to origin. Read-only and workspace-write sandboxes block network
-          # writes that `git push` and `gh` need, so this writer-mode flow uses
-          # full sandbox access. `safety-strategy: unsafe` keeps approvals
-          # disabled (`danger-full-access` is only a sandbox value, not a valid
-          # safety-strategy). Constrained by:
+          # Sandbox posture: keep the filesystem confined to the checkout
+          # (`workspace-write`) and punch out only the one capability the agent
+          # genuinely needs — outbound network for `git push` / `gh` — via the
+          # codex `sandbox_workspace_write.network_access` config override. This
+          # is far narrower than `danger-full-access`, which would also hand the
+          # agent write access to the rest of the runner filesystem. The runners
+          # are Linux (ubuntu-slim), whose Landlock sandbox honors this override
+          # (the macOS Seatbelt caveat does not apply). `safety-strategy:
+          # drop-sudo` is the action default and keeps the agent from escalating
+          # privileges on the runner; `codex exec` is non-interactive, so no
+          # approval prompts are involved regardless. The agent remains bounded
+          # by:
           #   - the App token's scope (only this repo, only contents+PRs)
           #   - the prompt's guardrails (do not force-push, do not skip targets
           #     it can't resolve, etc.)
-          sandbox: danger-full-access
-          safety-strategy: unsafe
+          sandbox: workspace-write
+          safety-strategy: drop-sudo
+          codex-args: -c sandbox_workspace_write.network_access=true
