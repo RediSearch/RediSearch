@@ -271,15 +271,12 @@ void CommandFilterCallback(RedisModuleCommandFilterCtx *filter) {
 
   freeHashFields();
 
-  const RedisModuleString *keyStr = RedisModule_CommandFilterArgGet(filter, 1);
-  RedisModuleString *copyKeyStr = RedisModule_CreateStringFromString(RSDummyContext, keyStr);
-
-  RedisModuleKey *k = RedisModule_OpenKey(RSDummyContext, copyKeyStr, REDISMODULE_READ);
-  if (!k || RedisModule_KeyType(k) != REDISMODULE_KEYTYPE_HASH) {
-    // key does not exist or is not a hash, nothing to do
-    goto done;
-  }
-
+  // Capture the modified field names directly from the command arguments. We deliberately do NOT
+  // open the key to verify it is an existing hash: hashFields is consumed only when the matching
+  // keyspace notification fires (i.e. the command actually modified a hash), and freeHashFields()
+  // above clears any stale capture left by a command that did not modify a hash (WRONGTYPE, HSETNX
+  // on an existing field, or a brand-new key). Skipping the OpenKey removes a keyspace lookup and a
+  // key-string allocation from every hash-write command.
   int fieldsNum = (numArgs - 2) / cmdFactor;
   hashFields = (RedisModuleString **)rm_calloc(fieldsNum + 1, sizeof(*hashFields));
 
@@ -288,10 +285,6 @@ void CommandFilterCallback(RedisModuleCommandFilterCtx *filter) {
     RedisModule_RetainString(RSDummyContext, field);
     hashFields[i] = field;
   }
-
-done:
-  RedisModule_FreeString(RSDummyContext, copyKeyStr);
-  RedisModule_CloseKey(k);
 }
 
 // These events do not use ASM State Machine
