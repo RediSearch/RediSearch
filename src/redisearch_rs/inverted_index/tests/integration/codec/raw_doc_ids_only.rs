@@ -130,7 +130,7 @@ fn test_seek_raw_doc_ids_only() {
 #[cfg_attr(miri, ignore = "Too slow to be run under miri.")]
 fn test_inverted_index_raw_doc_ids_gc() {
     use ffi::IndexFlags_Index_DocIdsOnly;
-    use inverted_index::{IndexBlock, IndexReader, InvertedIndex, raw_doc_ids_only::RawDocIdsOnly};
+    use inverted_index::{IndexReader, InvertedIndex, raw_doc_ids_only::RawDocIdsOnly};
     use rqe_core::DocId;
 
     let mut ii = InvertedIndex::<RawDocIdsOnly>::new(IndexFlags_Index_DocIdsOnly);
