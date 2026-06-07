@@ -239,3 +239,14 @@ jobs:
           sandbox: workspace-write
           safety-strategy: drop-sudo
           codex-args: -c sandbox_workspace_write.network_access=true
+          # RediSearch merges through GitHub's merge queue, so a PR merged that
+          # way fires this workflow with `github.actor = github-merge-queue[bot]`
+          # — a bot. codex-action's default actor gate rejects bot actors, which
+          # would silently skip auto-backport for every queue-merged PR. Trust
+          # the queue bot specifically (it only acts after a human approved and
+          # queued the PR, and our `if:` still requires a human-applied
+          # `backport-<branch>-agent` label). The comment/label triggers come
+          # from humans and pass the gate without this. Mirrors
+          # .github/actions/codex-ci-triage/action.yml.
+          allow-bots: true
+          allow-bot-users: github-merge-queue[bot]
