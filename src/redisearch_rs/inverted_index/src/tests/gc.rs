@@ -763,9 +763,8 @@ fn ii_apply_gc_entries_tracking_index() {
 
     let mut repaired = Vec::new();
 
-    let repair = |result: &RSIndexResult, _ctx: &crate::RepairContext<'_>| {
-        repaired.push(result.doc_id)
-    };
+    let repair =
+        |result: &RSIndexResult, _ctx: &crate::RepairContext<'_>| repaired.push(result.doc_id);
 
     assert_eq!(
         ii.scan_gc(doc_exist, Some(repair)).unwrap().unwrap(),

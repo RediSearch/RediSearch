@@ -102,7 +102,10 @@ fn test_inverted_index_usage() {
 
     // Remove all the records and check that the index can still be used
     let delta = ii
-        .scan_gc(|_| false, None::<fn(&RSIndexResult, &inverted_index::RepairContext<'_>)>)
+        .scan_gc(
+            |_| false,
+            None::<fn(&RSIndexResult, &inverted_index::RepairContext<'_>)>,
+        )
         .unwrap()
         .unwrap();
     let apply_info = ii.apply_gc(delta);

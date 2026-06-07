@@ -145,7 +145,10 @@ impl IndexBlock {
 
             if doc_exist(result.doc_id) {
                 if let Some(repair) = repair.as_mut() {
-                    let ctx = RepairContext { block: self, block_idx };
+                    let ctx = RepairContext {
+                        block: self,
+                        block_idx,
+                    };
                     repair(&result, &ctx);
                 }
 
