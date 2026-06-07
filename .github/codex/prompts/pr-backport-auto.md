@@ -82,10 +82,39 @@ project's conflict patterns. This automated flow is different in three ways:
 
 ## Per-branch loop
 
-For each `TARGET` in the ordered list:
+Process each target **independently**. If one target fails unexpectedly (a push
+is rejected, `gh` errors out, the branch is missing), record it in the summary
+and move on to the next — never let one target abort the rest of the run.
+
+For each `TARGET` in the ordered list, first run two pre-flight checks:
 
 ```bash
 BRANCH="backport-agent/pr-${PR}-to-${TARGET}"
+
+# 1) The target branch must exist. Targets supplied via `/backport-agent <list>`
+#    are user-typed and may be wrong; a missing branch must not abort the run.
+if ! git ls-remote --exit-code --heads origin "${TARGET}" >/dev/null 2>&1; then
+  # Record `skipped — no such branch ${TARGET}` in the summary and continue
+  # to the next target. Do not push or open anything.
+  continue
+fi
+
+# 2) Idempotency. This workflow can fire more than once for the same
+#    (PR, target) — e.g. a `backport-<branch>-agent` label removed and re-added
+#    after merge, or a `/backport-agent <target>` comment for a target already
+#    handled. If an open backport PR already exists for this head branch, do not
+#    push or re-open it.
+existing=$(gh pr list --head "${BRANCH}" --state open --json url --jq '.[0].url // empty')
+if [ -n "${existing}" ]; then
+  # Record `already open — ${existing}` in the summary and continue to the
+  # next target. Do not force-push over an existing backport PR.
+  continue
+fi
+```
+
+Then cherry-pick onto a fresh branch:
+
+```bash
 git fetch origin "${TARGET}"
 git checkout -B "${BRANCH}" "origin/${TARGET}"
 git cherry-pick "${SHA}"
@@ -163,7 +192,7 @@ gh label create "auto-backport-conflicts" \
   --color "d93f0b" 2>/dev/null || true
 ```
 
-Then:
+Then apply labels with `gh pr edit "<new-pr-url>" --add-label "<label>"`:
 
 - Add `auto-backport` to every PR you open.
 - Add `auto-backport-conflicts` to PRs where you resolved any conflict.
@@ -228,6 +257,10 @@ Auto-backport summary for PR #8774 (1a2b3c4):
   8.6           conflicts(2)  https://github.com/RediSearch/RediSearch/pull/10001
   8.2           skipped       Non-mechanical conflict in src/rdb.c — manual backport required
 ```
+
+Targets stopped by a pre-flight check use the same `skipped` status with the
+reason in the last column, e.g. `skipped  already open — <url>` or
+`skipped  no such branch foo`.
 
 Do not invent PR URLs you did not create. If you skipped a target, do not push a
 branch or open a PR for it; the summary line is all the workflow needs to surface

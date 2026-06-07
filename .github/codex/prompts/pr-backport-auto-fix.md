@@ -61,6 +61,12 @@ stop and print a one-line error. Do not push.
 
 ## Decide whether you should act
 
+**First, confirm there is actually a failure to act on.** If both `failed_jobs`
+and `log_excerpts` are empty — e.g. someone ran `/backport-agent-fix` while CI
+was green or still in progress, or no failed `Pull Request Flow` run exists for
+the current HEAD — comment on the PR that there is no failed run to fix and
+stop. Do not push, and do not go hunting for something to change.
+
 This flow exists to fix **mechanical** issues introduced by the cherry-pick or
 conflict resolution — code that needs to be adjusted to the older branch's shape.
 It is **not** the right tool for:
@@ -159,7 +165,7 @@ EOF
 <one or two sentences explaining what was different about this branch>
 
 Pushed as <new-commit-short-sha> on top of the existing branch. The original
-cherry-pick commit is unchanged. Re-running CI now.
+cherry-pick commit is unchanged. CI will re-run automatically on the new commit.
 
 Failed run: <run_url>
 ```
