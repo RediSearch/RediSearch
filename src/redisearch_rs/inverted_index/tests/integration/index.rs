@@ -9,7 +9,7 @@
 
 use ffi::IndexFlags_Index_DocIdsOnly;
 use index_result::RSIndexResult;
-use inverted_index::{IndexBlock, IndexReader, InvertedIndex, doc_ids_only::DocIdsOnly};
+use inverted_index::{IndexReader, InvertedIndex, doc_ids_only::DocIdsOnly};
 use rqe_core::DocId;
 
 #[test]
