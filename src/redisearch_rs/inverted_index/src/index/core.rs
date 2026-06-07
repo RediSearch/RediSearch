@@ -412,7 +412,7 @@ impl<E: Encoder> InvertedIndex<E> {
         self.blocks.len()
     }
 
-    /// Take a borrowed [`InvertedIndexSnapshot`] of this index's block storage.
+    /// Take a borrowed [`super::snapshot::InvertedIndexSnapshot`] of this index's block storage.
     /// The follow-up storage refactor will swap this for an owned snapshot — call
     /// sites that already go through `snapshot()` won't need to change.
     pub fn snapshot(&self) -> super::snapshot::InvertedIndexSnapshot<'_> {

@@ -34,7 +34,7 @@ impl<'a> InvertedIndexSnapshot<'a> {
     }
 
     /// Total number of blocks visible in the snapshot.
-    pub fn block_count(&self) -> usize {
+    pub const fn block_count(&self) -> usize {
         self.blocks.len()
     }
 
@@ -46,12 +46,12 @@ impl<'a> InvertedIndexSnapshot<'a> {
     }
 
     /// First block in the snapshot.
-    pub fn first_block(&self) -> Option<&'a IndexBlock> {
+    pub const fn first_block(&self) -> Option<&'a IndexBlock> {
         self.blocks.first()
     }
 
     /// Last block in the snapshot.
-    pub fn last_block(&self) -> Option<&'a IndexBlock> {
+    pub const fn last_block(&self) -> Option<&'a IndexBlock> {
         self.blocks.last()
     }
 
