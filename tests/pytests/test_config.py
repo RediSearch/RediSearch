@@ -49,6 +49,8 @@ def testConfigErrors(env):
         .contains('Minimum stem length cannot be lower than')
     env.expect(config_cmd(), 'set', 'WORKERS', 1_000_000).error()\
         .contains('Number of worker threads cannot exceed')
+    env.expect(config_cmd(), 'set', 'MAX_AGGREGATE_GROUPS', 0).error()\
+        .contains('SEARCH_PARSE_ARGS')
 
 @skip(cluster=True)
 def testGetConfigOptions(env):
@@ -73,6 +75,7 @@ def testGetConfigOptions(env):
     check_config('FRISOINI')
     check_config('MAXSEARCHRESULTS')
     check_config('MAXAGGREGATERESULTS')
+    check_config('MAX_AGGREGATE_GROUPS')
     check_config('ON_TIMEOUT')
     check_config('GCSCANSIZE')
     check_config('MIN_PHONETIC_TERM_LEN')
@@ -545,6 +548,8 @@ UINT64_MAX = (1 << 64) - 1
 UINT32_MAX = (1 << 32) - 1
 MAX_AGGREGATE_REQUEST_RESULTS = (1 << 31)
 DEFAULT_MAX_AGGREGATE_REQUEST_RESULTS = MAX_AGGREGATE_REQUEST_RESULTS
+MAX_AGGREGATE_GROUPS = (1 << 26)
+DEFAULT_MAX_AGGREGATE_GROUPS = 1_000_000
 
 MAX_SEARCH_REQUEST_RESULTS = (1 << 31)
 DEFAULT_MAX_SEARCH_REQUEST_RESULTS = 1_000_000
@@ -562,6 +567,7 @@ numericConfigs = [
     ('search-fork-gc-sleep-before-exit', 'FORKGC_SLEEP_BEFORE_EXIT', 0, 0, LLONG_MAX, False, False),
     ('search-gc-scan-size', 'GCSCANSIZE', 100, 1, LLONG_MAX, True, False),
     ('search-index-cursor-limit', 'INDEX_CURSOR_LIMIT', 128, 0, LLONG_MAX, False, False),
+    ('search-max-aggregate-groups', 'MAX_AGGREGATE_GROUPS', DEFAULT_MAX_AGGREGATE_GROUPS, 1, MAX_AGGREGATE_GROUPS, False, False),
     ('search-max-aggregate-results', 'MAXAGGREGATERESULTS', DEFAULT_MAX_AGGREGATE_REQUEST_RESULTS, 0, MAX_AGGREGATE_REQUEST_RESULTS, False, False),
     ('search-max-doctablesize', 'MAXDOCTABLESIZE', 1_000_000, 1, 100_000_000, True, False),
     ('search-max-prefix-expansions', 'MAXPREFIXEXPANSIONS', 200, 1, LLONG_MAX, False, False),

@@ -617,7 +617,6 @@ static int HybridRequest_prepareForExecution(HybridRequest *hreq,
     if (rc != REDISMODULE_OK) {
       return REDISMODULE_ERR;
     }
-
     // Set skip timeout
     HybridRequest_SetSkipTimeoutChecks(hreq, !shouldCheckInPipelineTimeoutCoord(hreq));
 
@@ -877,8 +876,6 @@ void RSExecDistHybrid(RedisModuleCtx *ctx, RedisModuleString **argv, int argc,
 
     // Store coordinator start time for dispatch time tracking
     hreq->profileClocks.coordStartTime = ConcurrentCmdCtx_GetCoordStartTime(cmdCtx);
-
-    // Get numShards captured from main thread for thread-safe access and to compute effective K
     size_t numShards = ConcurrentCmdCtx_GetNumShards(cmdCtx);
 
     if (HybridRequest_prepareForExecution(hreq, ctx, argv, argc, sp, numShards, &status, NULL) != REDISMODULE_OK) {
