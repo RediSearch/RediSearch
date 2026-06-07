@@ -1282,7 +1282,7 @@ def test_ft_info():
 
       res = order_dict(r.execute_command('ft.info', 'idx'))
 
-      # The FT.INFO vector_index_sz_mb field folds in VecSim_GetGlobalMemory()
+      # The FT.INFO vector_index_sz_mb field folds in VecSim_GetSharedMemory()
       # (process-wide vector allocations not tied to any single index). For an
       # index without vector fields IndexSpec_VectorIndexesSize() is 0, so
       # vector_index_sz_mb is exactly that global overhead. In cluster mode it's

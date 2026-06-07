@@ -621,9 +621,9 @@ def test_redis_info_modules_vecsim():
   env.expect(debug_cmd(), 'WORKERS', 'DRAIN').ok()
 
   # search_used_memory_vector_index aggregates per-index MEMORY across all vector
-  # fields plus VecSim_GetGlobalMemory() (folded in once).
+  # fields plus VecSim_GetSharedMemory() (folded in once).
   expected_vec_mem = lambda field_infos: (sum(int(fi['MEMORY']) for fi in field_infos) +
-                                          int(field_infos[0]['GLOBAL_MEMORY']))
+                                          int(field_infos[0]['SHARED_MEMORY']))
 
   info = env.cmd('INFO', 'MODULES')
   field_infos = [to_dict(env.cmd(debug_cmd(), 'VECSIM_INFO', f'idx{i}', 'vec')) for i in range(1, 5)]

@@ -76,7 +76,7 @@ def get_vecsim_memory(env, index_key, field_name):
     # Returns the total vector-related memory for this field in MB: the per-index
     # allocator (MEMORY) plus the process-wide VecSim global memory.
     info = to_dict(env.cmd(debug_cmd(), "VECSIM_INFO", index_key, field_name))
-    total = float(info["MEMORY"]) + float(info.get("GLOBAL_MEMORY", 0))
+    total = float(info["MEMORY"]) + float(info.get("SHARED_MEMORY", 0))
     return total / 0x100000
 
 def get_vecsim_index_size(env, index_key, field_name):

@@ -89,8 +89,8 @@ TotalIndexesInfo IndexesInfo_TotalInfo() {
 
   // Process-wide vector memory not tied to any specific spec (e.g. the shared SVS
   // thread pool singleton).
-  size_t global_vector_mem = VecSim_GetGlobalMemory();
-  info.fields_stats.total_vector_idx_mem += global_vector_mem;
-  info.total_mem += global_vector_mem;
+  size_t shared_vector_mem = VecSim_GetSharedMemory();
+  info.fields_stats.total_vector_idx_mem += shared_vector_mem;
+  info.total_mem += shared_vector_mem;
   return info;
 }

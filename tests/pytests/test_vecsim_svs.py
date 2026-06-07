@@ -262,9 +262,9 @@ def test_memory_info():
 @skip(cluster=True)
 def test_svs_shared_threadpool_memory_info():
     """Verify shared SVS thread pool memory accounting:
-      * FT.DEBUG VECSIM_INFO exposes it as SHARED_SVS_THREADPOOL_MEMORY inside
-        the SVS section (BACKEND_INDEX for a tiered SVS index, top level for a
-        non-tiered SVS index).
+      * FT.DEBUG VECSIM_INFO exposes it as the top-level SHARED_MEMORY field
+        (appended once by the VecSim C API wrapper, not inside the nested
+        FRONTEND_INDEX/BACKEND_INDEX sections).
       * FT.INFO vector_index_sz_mb folds it in once per call (per-spec scope).
       * INFO MODULES search_used_memory_vector_index folds it in once per call
         (process-wide scope).
@@ -280,7 +280,7 @@ def test_svs_shared_threadpool_memory_info():
     grown_workers = 4
     env = Env(moduleArgs=f'DEFAULT_DIALECT 2 WORKERS {initial_workers}')
     dim = 2
-    debug_svs_pool_mem_field = 'SHARED_SVS_THREADPOOL_MEMORY'
+    shared_mem_field = 'SHARED_MEMORY'
 
     # The shared SVS pool singleton is initialized at module init via
     # workersThreadPool_CreatePool -> VecSim_UpdateThreadPoolSize, so the field is
@@ -288,13 +288,14 @@ def test_svs_shared_threadpool_memory_info():
     create_vector_index(env, dim, alg='SVS-VAMANA')
 
     def measure():
+        # SHARED_MEMORY is appended once at the top level by the VecSim C API
+        # wrapper, not inside the nested BACKEND_INDEX/FRONTEND_INDEX sections.
         debug_info = get_tiered_debug_info(env, DEFAULT_INDEX_NAME, DEFAULT_FIELD_NAME)
-        backend_info = get_tiered_backend_debug_info(env, DEFAULT_INDEX_NAME, DEFAULT_FIELD_NAME)
-        env.assertTrue(debug_svs_pool_mem_field in backend_info,
-                       message=f"BACKEND_INDEX debug info missing '{debug_svs_pool_mem_field}': {backend_info}")
+        env.assertTrue(shared_mem_field in debug_info,
+                       message=f"VECSIM_INFO missing top-level '{shared_mem_field}': {debug_info}")
         info_modules = env.cmd('INFO', 'MODULES')
         return {
-            'debug_svs_pool_mem': int(backend_info[debug_svs_pool_mem_field]),
+            'debug_svs_pool_mem': int(debug_info[shared_mem_field]),
             'debug_per_index_mem': int(debug_info['MEMORY']),
             'info_modules_vec_mem': int(info_modules['search_used_memory_vector_index']),
             'ft_info_vec_bytes': int(float(index_info(env, DEFAULT_INDEX_NAME)['vector_index_sz_mb']) * 0x100000),
@@ -324,7 +325,7 @@ def test_svs_shared_threadpool_memory_info():
 
     after = measure()
     env.assertGreater(after['debug_svs_pool_mem'], before['debug_svs_pool_mem'],
-                      message=f"SHARED_SVS_THREADPOOL_MEMORY should grow when workers go from "
+                      message=f"SHARED_MEMORY should grow when workers go from "
                               f"{initial_workers} to {grown_workers}: before={before}, after={after}")
     assert_invariants('after resize', after)
 
