@@ -23,6 +23,9 @@ typedef struct NumericFilter NumericFilter;
 // Forward declaration for HiddenString
 typedef struct HiddenString HiddenString;
 
+// Forward declaration for QueryError (the query's error accumulator)
+typedef struct QueryError QueryError;
+
 // Helper opaque types for the disk API
 typedef const void* RedisSearchDisk;
 typedef const void* RedisSearchDiskIndexSpec;
@@ -428,9 +431,13 @@ typedef struct IndexDiskAPI {
    * @param fieldMask Field mask indicating which fields are present in the document
    * @param weight Weight for the iterator (used in scoring)
    * @param needsOffsets Whether the query needs term offset data (for scoring or phrase matching)
-   * @return Pointer to the created iterator, or NULL if creation failed
+   * @param status Optional query error accumulator (may be NULL). On a creation
+   *   failure, a disk-creation error is set on it so the query fails instead of
+   *   silently returning no results; a NULL return without an error set still
+   *   means "no such term" (an empty result).
+   * @return Pointer to the created iterator, or NULL if the term is absent or creation failed
    */
-  QueryIterator *(*newTermIterator)(RedisSearchDiskIndexSpec* index, RSQueryTerm* term, t_fieldMask fieldMask, double weight, bool needsOffsets);
+  QueryIterator *(*newTermIterator)(RedisSearchDiskIndexSpec* index, RSQueryTerm* term, t_fieldMask fieldMask, double weight, bool needsOffsets, QueryError* status);
 
   /**
    * @brief Creates a new iterator for a tag index
@@ -439,9 +446,13 @@ typedef struct IndexDiskAPI {
    * @param tok Pointer to the token (contains tag string and length)
    * @param fieldIndex Field index for the tag field
    * @param weight Weight for the iterator (used in scoring)
-   * @return Pointer to the created iterator, or NULL if creation failed
+   * @param status Optional query error accumulator (may be NULL). On a creation
+   *   failure, a disk-creation error is set on it so the query fails instead of
+   *   silently returning no results; a NULL return without an error set still
+   *   means "no such tag" (an empty result).
+   * @return Pointer to the created iterator, or NULL if the tag is absent or creation failed
    */
-  QueryIterator *(*newTagIterator)(RedisSearchDiskIndexSpec* index, const RSToken* tok, t_fieldIndex fieldIndex, double weight);
+  QueryIterator *(*newTagIterator)(RedisSearchDiskIndexSpec* index, const RSToken* tok, t_fieldIndex fieldIndex, double weight, QueryError* status);
 
   /**
    * @brief Creates a new iterator over a numeric range on the disk-backed index
