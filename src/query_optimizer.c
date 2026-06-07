@@ -230,6 +230,11 @@ int QOptimizer_Iterators(AREQ *req, QOptimizer *opt, QueryError *status) {
   IndexSpec *spec = AREQ_SearchCtx(req)->spec;
   QueryIterator *root = req->rootiter;
 
+  // OptimizerIterator and the Q_OPT_UNDECIDED numeric fallback both rely on
+  // the RAM DocTable / NumericRangeTree. parseQueryArgs clears QEXEC_OPTIMIZE
+  // for disk specs, so this function should never be entered for them.
+  RS_ASSERT(!spec->diskSpec);
+
   switch (opt->type) {
     case Q_OPT_HYBRID:
       RS_ABORT("cannot be decided earlier");
