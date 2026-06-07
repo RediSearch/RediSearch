@@ -16,9 +16,11 @@ PARTIAL_DOCS_ARGS = 'DEFAULT_DIALECT 2 PARTIAL_INDEXED_DOCS 1'
 
 def _knn_top(conn, idx, blob, k=10):
     # Run a KNN query and return {doc_id: {field: value}} for the results.
+    # RETURN only the distance and the text field 't' -- never the vector field, whose binary blob
+    # would fail UTF-8 decoding on the (decode_responses) test client.
     res = conn.execute_command(
         'FT.SEARCH', idx, f'*=>[KNN {k} @v $blob AS __dist]',
-        'PARAMS', '2', 'blob', blob, 'SORTBY', '__dist', 'DIALECT', '2')
+        'PARAMS', '2', 'blob', blob, 'SORTBY', '__dist', 'RETURN', '2', '__dist', 't', 'DIALECT', '2')
     out = {}
     for i in range(1, len(res), 2):
         doc_id = res[i]
