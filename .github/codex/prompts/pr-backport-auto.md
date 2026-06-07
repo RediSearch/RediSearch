@@ -180,19 +180,9 @@ EOF
 )
 ```
 
-After creating the PR, set labels. Some labels may not exist in the repo yet; create
-them defensively so the first run does not fail:
-
-```bash
-gh label create "auto-backport" \
-  --description "PR opened automatically by the auto-backport workflow" \
-  --color "ededed" 2>/dev/null || true
-gh label create "auto-backport-conflicts" \
-  --description "Auto-backport PR where the agent resolved cherry-pick conflicts" \
-  --color "d93f0b" 2>/dev/null || true
-```
-
-Then apply labels with `gh pr edit "<new-pr-url>" --add-label "<label>"`:
+After creating the PR, set labels with `gh pr edit "<new-pr-url>" --add-label "<label>"`.
+All labels you need already exist in the repo — do **not** run `gh label create`
+(the token cannot create label definitions, and labels are provisioned ahead of time):
 
 - Add `auto-backport` to every PR you open.
 - Add `auto-backport-conflicts` to PRs where you resolved any conflict.
