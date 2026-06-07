@@ -17,7 +17,7 @@ use rqe_core::DocId;
 use std::collections::HashMap;
 
 use index_result::RSIndexResult;
-use inverted_index::{GcApplyInfo, GcScanDelta, IndexBlock};
+use inverted_index::{GcApplyInfo, GcScanDelta};
 
 use super::{NumericRangeTree, TrimEmptyLeavesResult};
 use crate::NumericRangeNode;
