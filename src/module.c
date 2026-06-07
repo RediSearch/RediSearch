@@ -4662,10 +4662,10 @@ RedisModule_OnLoad(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
     return REDISMODULE_ERR;
   }
 
-  RedisModuleString *logLevel = getRedisConfigValue(ctx, "loglevel");
+  char *logLevel = getRedisConfigValue(ctx, "loglevel");
   RS_ASSERT(logLevel);
-  TracingRedisModule_Init(ctx, RedisModule_StringPtrLen(logLevel, NULL));
-  RedisModule_FreeString(ctx, logLevel);
+  TracingRedisModule_Init(ctx, logLevel);
+  rm_free(logLevel);
   RustPanicHook_Init();
 
   setHiredisAllocators();

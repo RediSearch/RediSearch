@@ -609,12 +609,12 @@ void onUpdatedHideUserDataFromLogs(RedisModuleCtx *ctx) {
 }
 
 static void onUpdatedLogLevel(RedisModuleCtx *ctx) {
-  RedisModuleString *level = getRedisConfigValue(ctx, REDIS_LOGLEVEL);
+  char *level = getRedisConfigValue(ctx, REDIS_LOGLEVEL);
   if (!level) {
     return;
   }
-  TracingRedisModule_SetLogLevel(RedisModule_StringPtrLen(level, NULL));
-  RedisModule_FreeString(ctx, level);
+  TracingRedisModule_SetLogLevel(level);
+  rm_free(level);
 }
 
 void ConfigChangedCallback(RedisModuleCtx *ctx, RedisModuleEvent eid, uint64_t event, void *data) {
