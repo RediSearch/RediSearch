@@ -42,7 +42,12 @@ use inverted_index::{
 };
 use serde::{Deserialize, Serialize};
 
-/// Get the total number of index blocks allocated across all inverted index instances.
+/// Get the count of live `IndexBlock` *instances* in the process.
+///
+/// Note: with the three-region snapshot design, snapshots and `apply_gc` both
+/// transiently clone blocks. While a snapshot is alive or GC is mid-flight, this
+/// count is inflated above the logical block total. See MOD-16149 for the
+/// follow-up to expose a clone-free counter.
 #[unsafe(no_mangle)]
 pub extern "C" fn TotalIIBlocks() -> usize {
     IndexBlock::total_blocks()
@@ -275,8 +280,7 @@ pub unsafe extern "C" fn InvertedIndex_WriteEntryGeneric(
 /// The following invariants must be upheld when calling this function:
 /// - `ii` must be a valid pointer to an `InvertedIndex` instance and cannot be NULL.
 /// - The caller must hold the spec read lock — `number_of_blocks` reads
-///   `pending.len()` non-atomically, which races with a concurrent writer's
-///   `push`.
+///   `pending.len()` non-atomically, which races with a concurrent writer's `push`.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn InvertedIndex_NumBlocks(ii: *const InvertedIndex) -> usize {
     debug_assert!(!ii.is_null(), "ii must not be null");
@@ -441,37 +445,18 @@ pub unsafe extern "C" fn InvertedIndex_NumEntries(ii: *const InvertedIndex) -> u
     }
 }
 
-/// Get a reference to the block at the specified index. Returns NULL if the index is out of bounds.
-/// This is used by some C tests.
-///
-/// # Safety
-/// The following invariant must be upheld when calling this function:
-/// - `ii` must be a valid pointer to an `InvertedIndex` instance and cannot be NULL.
-#[unsafe(no_mangle)]
-pub unsafe extern "C" fn InvertedIndex_BlockRef<'index>(
-    ii: *const InvertedIndex,
-    block_idx: usize,
-) -> Option<&'index IndexBlock> {
-    debug_assert!(!ii.is_null(), "ii must not be null");
-
-    // SAFETY: The caller must ensure that `ii` is a valid pointer to an `InvertedIndex`
-    let ii: &'index _ = unsafe { &*ii };
-    ii_dispatch!(ii, block_ref, block_idx)
-}
-
 /// Take an owned snapshot of the index's block storage. Combines a refcount clone
-/// of `sealed` blocks and a shallow Vec clone of `pending`, plus a captured
-/// `tail_num_entries`. The snapshot is fully owned and outlives writer mutations
-/// — the pre-Step-A "snapshot becomes invalid after a write" caveat is gone.
-/// Call [`InvertedIndexSnapshot_BlockRef`] to access blocks and
+/// of `sealed` blocks, a shallow Vec clone of `pending`, and a deep clone of
+/// `in_progress`. Call [`InvertedIndexSnapshot_BlockRef`] to access blocks and
 /// [`InvertedIndexSnapshot_Free`] when done.
 ///
 /// # Safety
 /// - `ii` must be a valid pointer to an `InvertedIndex` and cannot be NULL.
 /// - The caller must hold the spec read lock for the duration of this call. The
-///   snapshot reads the `pending` Vec triple (ptr/len/cap) non-atomically.
-///   Writers ([`InvertedIndex_WriteEntryGeneric`], [`InvertedIndex_ApplyGCDelta`])
-///   mutate `pending` under the spec write lock, so without the read lock you race.
+///   snapshot reads the `pending` Vec triple (ptr/len/cap) and the `in_progress`
+///   `IndexBlock` (which contains its own `Vec`) non-atomically. Writers
+///   ([`InvertedIndex_WriteEntryGeneric`], [`InvertedIndex_ApplyGCDelta`]) mutate
+///   those fields under the spec write lock, so without the read lock you race.
 /// - The returned pointer must be released via `InvertedIndexSnapshot_Free`.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn InvertedIndex_Snapshot(
@@ -479,7 +464,7 @@ pub unsafe extern "C" fn InvertedIndex_Snapshot(
 ) -> *mut InvertedIndexSnapshot {
     debug_assert!(!ii.is_null(), "ii must not be null");
     // SAFETY: caller-upheld; see function-level docs.
-    let ii = unsafe { &*ii };
+    let ii: &_ = unsafe { &*ii };
     let snapshot = ii_dispatch!(ii, snapshot);
     Box::into_raw(Box::new(snapshot))
 }
@@ -520,14 +505,13 @@ pub unsafe extern "C" fn InvertedIndexSnapshot_NumBlocks(
 /// - `snapshot` must be a valid pointer to an `InvertedIndexSnapshot` and cannot be NULL.
 /// - The returned pointer must not outlive the snapshot.
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn InvertedIndexSnapshot_BlockRef<'a>(
+pub unsafe extern "C" fn InvertedIndexSnapshot_BlockRef<'snap>(
     snapshot: *const InvertedIndexSnapshot,
     block_idx: usize,
-) -> Option<&'a IndexBlock> {
+) -> Option<&'snap IndexBlock> {
     debug_assert!(!snapshot.is_null(), "snapshot must not be null");
-    // SAFETY: caller-upheld; the returned reference is tied to `'a`, which the
-    // caller binds to the snapshot's lifetime.
-    let snapshot: &'a _ = unsafe { &*snapshot };
+    // SAFETY: caller-upheld; see function-level docs.
+    let snapshot: &'snap _ = unsafe { &*snapshot };
     snapshot.block_ref(block_idx)
 }
 
@@ -537,9 +521,8 @@ pub unsafe extern "C" fn InvertedIndexSnapshot_BlockRef<'a>(
 /// # Safety
 /// The following invariants must be upheld when calling this function:
 /// - `ii` must be a valid pointer to an `InvertedIndex` instance and cannot be NULL.
-/// - The caller must hold the spec read lock — `last_doc_id` reads the tail of
-///   `pending` (or `sealed` when `pending` is empty) non-atomically, which races
-///   with a concurrent writer's in-place mutation.
+/// - The caller must hold the spec read lock — `last_doc_id` reads `in_progress`
+///   and the tail of `pending` non-atomically, which races with a concurrent writer.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn InvertedIndex_LastId(ii: *const InvertedIndex) -> DocId {
     debug_assert!(!ii.is_null(), "ii must not be null");

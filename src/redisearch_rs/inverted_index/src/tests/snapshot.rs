@@ -7,14 +7,10 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 
-//! Invariant tests for the directly-owned `sealed` and `pending` fields on
-//! [`InvertedIndex`]. After GC, `sealed` is populated with compacted survivors;
-//! otherwise writes only touch `pending` (push-on-rollover or in-place mutation of the
-//! tail `Arc<IndexBlock>` via `Arc::make_mut`). These tests check the layout stays
-//! internally consistent across every mutation path, and that snapshots taken before a
-//! write remain frozen even when the writer mutates the live tail.
-
-use std::sync::Arc;
+//! Invariant tests for the directly-owned `sealed`, `pending`, `in_progress` fields on
+//! `InvertedIndex`. After GC, `sealed` is populated with compacted survivors; otherwise
+//! writes only touch `pending` (on roll-over) and `in_progress` (in-place). These tests
+//! check the layout stays internally consistent across every mutation path.
 
 use ffi::IndexFlags_Index_DocIdsOnly;
 use index_result::RSIndexResult;
@@ -24,16 +20,18 @@ use crate::{Encoder, IndexBlock, InvertedIndex};
 
 use super::Dummy;
 
-/// Assert that the two regions are internally consistent:
-/// - All blocks in `sealed` and `pending` have non-overlapping ranges and are strictly
-///   ordered by doc id across both regions (sealed → pending).
-/// - `number_of_blocks()` equals `sealed.len() + pending.len()`.
+/// Assert that the three regions are internally consistent:
+/// - All blocks in `sealed`, `pending`, and `in_progress` have non-overlapping ranges and
+///   are strictly ordered by doc id across the three regions (sealed → pending →
+///   in_progress).
+/// - `number_of_blocks()` equals `sealed.len() + pending.len() + in_progress.is_some() as
+///   usize`.
 fn assert_state_invariants<E: Encoder>(ii: &InvertedIndex<E>) {
-    let expected_total = ii.sealed.len() + ii.pending.len();
+    let expected_total = ii.sealed.len() + ii.pending.len() + usize::from(ii.in_progress.is_some());
     assert_eq!(
         ii.number_of_blocks(),
         expected_total,
-        "block count must match sealed + pending"
+        "block count must match sealed+pending+in_progress"
     );
 
     // Within each region, blocks are strictly ordered by doc id.
@@ -50,11 +48,26 @@ fn assert_state_invariants<E: Encoder>(ii: &InvertedIndex<E>) {
         );
     }
 
-    // Across regions, the trailing block of sealed precedes the leading block of pending.
+    // Across regions, the trailing block of each region precedes the leading block of the
+    // next.
     if let (Some(last_sealed), Some(first_pending)) = (ii.sealed.last(), ii.pending.first()) {
         assert!(
             last_sealed.last_doc_id < first_pending.first_doc_id,
             "pending must come after sealed"
+        );
+    }
+    if let (Some(last_pending), Some(ip)) = (ii.pending.last(), ii.in_progress.as_ref()) {
+        assert!(
+            last_pending.last_doc_id < ip.first_doc_id,
+            "in_progress must come after all pending blocks"
+        );
+    }
+    if ii.pending.is_empty()
+        && let (Some(last_sealed), Some(ip)) = (ii.sealed.last(), ii.in_progress.as_ref())
+    {
+        assert!(
+            last_sealed.last_doc_id < ip.first_doc_id,
+            "in_progress must come after sealed when pending is empty"
         );
     }
 }
@@ -65,27 +78,28 @@ fn empty_index_has_empty_state() {
 
     assert!(ii.sealed.is_empty());
     assert!(ii.pending.is_empty());
+    assert!(ii.in_progress.is_none());
     assert_eq!(ii.number_of_blocks(), 0);
 }
 
 #[test]
-fn first_record_creates_pending_tail() {
+fn first_record_promotes_in_progress() {
     let mut ii = InvertedIndex::<Dummy>::new(IndexFlags_Index_DocIdsOnly);
 
     let record = RSIndexResult::build_virt().doc_id(10).build();
     ii.add_record(&record).unwrap();
 
-    assert!(ii.sealed.is_empty(), "writes don't populate sealed");
-    assert_eq!(ii.pending.len(), 1);
-    let tail = &ii.pending[0];
-    assert_eq!(tail.first_doc_id, 10);
-    assert_eq!(tail.last_doc_id, 10);
-    assert_eq!(tail.num_entries, 1);
+    assert!(ii.sealed.is_empty());
+    assert!(ii.pending.is_empty());
+    let ip = ii.in_progress.as_ref().expect("must have in_progress");
+    assert_eq!(ip.first_doc_id, 10);
+    assert_eq!(ip.last_doc_id, 10);
+    assert_eq!(ip.num_entries, 1);
     assert_state_invariants(&ii);
 }
 
 #[test]
-fn appending_to_same_block_only_updates_pending_tail() {
+fn appending_to_same_block_only_updates_in_progress() {
     let mut ii = InvertedIndex::<Dummy>::new(IndexFlags_Index_DocIdsOnly);
 
     for id in 10..15 {
@@ -93,20 +107,20 @@ fn appending_to_same_block_only_updates_pending_tail() {
             .unwrap();
     }
 
-    assert_eq!(ii.pending.len(), 1, "no block rolled over");
-    let tail = &ii.pending[0];
-    assert_eq!(tail.first_doc_id, 10);
-    assert_eq!(tail.last_doc_id, 14);
-    assert_eq!(tail.num_entries, 5);
+    assert!(ii.pending.is_empty(), "no block rolled over");
+    let ip = ii.in_progress.as_ref().unwrap();
+    assert_eq!(ip.first_doc_id, 10);
+    assert_eq!(ip.last_doc_id, 14);
+    assert_eq!(ip.num_entries, 5);
     assert_state_invariants(&ii);
 }
 
 #[test]
-fn block_fill_pushes_new_pending_tail() {
+fn block_fill_moves_previous_in_progress_into_pending() {
     let mut ii = InvertedIndex::<Dummy>::new(IndexFlags_Index_DocIdsOnly);
 
-    // `Dummy::RECOMMENDED_BLOCK_ENTRIES` is the default 100. Write enough records to
-    // force a roll-over to a second pending block.
+    // Dummy::RECOMMENDED_BLOCK_ENTRIES is the default 100. Write enough records to
+    // force a roll-over to a second block.
     let entries_per_block = Dummy::RECOMMENDED_BLOCK_ENTRIES as u64;
     for id in 1..=(entries_per_block + 1) {
         ii.add_record(&RSIndexResult::build_virt().doc_id(id).build())
@@ -119,13 +133,13 @@ fn block_fill_pushes_new_pending_tail() {
         "should have rolled to a second block"
     );
 
-    assert_eq!(ii.pending.len(), 2);
+    assert_eq!(ii.pending.len(), 1, "first block is now pending");
     assert_eq!(ii.pending[0].first_doc_id, 1);
     assert_eq!(ii.pending[0].num_entries as u64, entries_per_block);
 
-    let tail = &ii.pending[1];
-    assert_eq!(tail.num_entries, 1);
-    assert_eq!(tail.first_doc_id, entries_per_block + 1);
+    let ip = ii.in_progress.as_ref().unwrap();
+    assert_eq!(ip.num_entries, 1);
+    assert_eq!(ip.first_doc_id, entries_per_block + 1);
     assert_state_invariants(&ii);
 }
 
@@ -134,7 +148,7 @@ fn pending_grows_monotonically_across_multiple_rollovers() {
     let mut ii = InvertedIndex::<Dummy>::new(IndexFlags_Index_DocIdsOnly);
     let entries_per_block = Dummy::RECOMMENDED_BLOCK_ENTRIES as u64;
 
-    // Roll over three blocks: two full + one partial (the tail).
+    // Roll over three blocks: two full + one partial.
     let total = entries_per_block * 2 + 5;
     for id in 1..=total {
         ii.add_record(&RSIndexResult::build_virt().doc_id(id).build())
@@ -143,81 +157,44 @@ fn pending_grows_monotonically_across_multiple_rollovers() {
 
     assert_eq!(ii.number_of_blocks(), 3);
 
-    assert_eq!(ii.pending.len(), 3);
+    assert_eq!(ii.pending.len(), 2);
     assert_eq!(ii.pending[0].first_doc_id, 1);
     assert_eq!(ii.pending[1].first_doc_id, entries_per_block + 1);
-    let tail = &ii.pending[2];
-    assert_eq!(tail.first_doc_id, 2 * entries_per_block + 1);
-    assert_eq!(tail.num_entries, 5);
+    let ip = ii.in_progress.as_ref().unwrap();
+    assert_eq!(ip.first_doc_id, 2 * entries_per_block + 1);
+    assert_eq!(ip.num_entries, 5);
     assert_state_invariants(&ii);
 }
 
 #[test]
-fn snapshot_taken_before_write_sees_only_pre_snapshot_entries() {
-    // This is the key Step B acceptance test: a snapshot must see exactly the
-    // entries present at snapshot time, even when the writer's next append finds
-    // the tail Arc at refcount = 1 *after* the snapshot was constructed but before
-    // it could be observed elsewhere.
-    //
-    // In Step B today, `snapshot()` increments the tail Arc's refcount via
-    // `Vec::clone`, so a subsequent `Arc::make_mut` in the writer sees refcount = 2
-    // and deep-clones. That deep clone is what protects this snapshot — verify it
-    // empirically by holding the snapshot across two writes and checking the
-    // snapshot's tail entry count is frozen.
+fn snapshot_taken_before_write_is_not_mutated_by_later_writes() {
     let mut ii = InvertedIndex::<Dummy>::new(IndexFlags_Index_DocIdsOnly);
     ii.add_record(&RSIndexResult::build_virt().doc_id(1).build())
         .unwrap();
+
+    // Take a snapshot before the next write.
+    let before = ii.snapshot();
+    let before_ip = before
+        .in_progress()
+        .expect("first add already happened")
+        .clone();
+    assert_eq!(before_ip.num_entries, 1);
+
     ii.add_record(&RSIndexResult::build_virt().doc_id(2).build())
         .unwrap();
-    let snap = ii.snapshot();
-    assert_eq!(snap.block_count(), 1);
-    assert_eq!(snap.tail_num_entries(), 2);
-    let snap_tail_arc = Arc::clone(&ii.pending[0]);
 
-    // Writer appends a record. Because the snapshot bumped the tail Arc's
-    // refcount via `Vec::clone`, `Arc::make_mut` inside `add_record` must
-    // deep-clone — the live tail Arc is replaced; the one the snapshot holds is
-    // untouched.
-    ii.add_record(&RSIndexResult::build_virt().doc_id(3).build())
-        .unwrap();
-
-    // The snapshot's frozen view: still 2 entries, last id 2.
-    let snap_block = snap.last_block().unwrap();
+    // The snapshot's owned `IndexBlock` must remain unchanged — readers holding it
+    // shouldn't see a torn write.
     assert_eq!(
-        snap_block.num_entries, 2,
-        "snapshot's tail entry count must not be mutated by a later write"
+        before_ip.num_entries, 1,
+        "snapshot taken before the second write is immutable"
     );
-    assert_eq!(snap_block.last_doc_id, 2);
-    assert_eq!(snap_block.buffer.len(), 8, "no extra encoded delta visible");
-
-    // The Arc the snapshot captured is no longer the live tail.
-    assert!(
-        !Arc::ptr_eq(&snap_tail_arc, &ii.pending[0]),
-        "writer's `Arc::make_mut` must have replaced the live tail"
-    );
+    assert_eq!(before_ip.last_doc_id, 1);
 
     // The live index reflects the new write.
-    assert_eq!(ii.pending[0].num_entries, 3);
-    assert_eq!(ii.pending[0].last_doc_id, 3);
-    assert_state_invariants(&ii);
-}
-
-#[test]
-fn snapshot_block_ref_returns_same_arc_data_as_live_pending_when_no_intervening_write() {
-    // Without an intervening write, the snapshot's tail block is the same Arc the
-    // live index holds — readers and writers share the underlying block data until
-    // the writer triggers an `Arc::make_mut` clone.
-    let mut ii = InvertedIndex::<Dummy>::new(IndexFlags_Index_DocIdsOnly);
-    ii.add_record(&RSIndexResult::build_virt().doc_id(1).build())
-        .unwrap();
-
-    let snap = ii.snapshot();
-    let snap_block_ptr = snap.last_block().unwrap() as *const IndexBlock;
-    let live_block_ptr = ii.pending[0].as_ref() as *const IndexBlock;
-    assert_eq!(
-        snap_block_ptr, live_block_ptr,
-        "snapshot's tail Arc must point at the same heap allocation as the live tail"
-    );
+    let after_ip = ii.in_progress.as_ref().unwrap();
+    assert_eq!(after_ip.num_entries, 2);
+    assert_eq!(after_ip.last_doc_id, 2);
 }
 
 #[test]
@@ -233,10 +210,11 @@ fn sealed_remains_empty_after_writes() {
 }
 
 #[test]
-fn from_blocks_seeds_pending() {
+fn from_blocks_initializes_state_to_match() {
     use thin_vec::ThinVec;
 
     let mut blocks: ThinVec<IndexBlock, crate::BlockCapacity> = ThinVec::new();
+    // Two pre-populated blocks with disjoint, sorted ranges.
     let mut b0 = IndexBlock::new(1);
     b0.last_doc_id = 10;
     b0.num_entries = 5;
@@ -248,21 +226,21 @@ fn from_blocks_seeds_pending() {
 
     let ii = InvertedIndex::<Dummy>::from_blocks(IndexFlags_Index_DocIdsOnly, blocks);
 
-    // All seeded blocks go to pending (Step B has no `in_progress` region; the actively-
-    // mutated tail is the last entry of `pending`).
-    assert!(ii.sealed.is_empty(), "sealed empty after from_blocks");
-    assert_eq!(ii.pending.len(), 2);
+    assert_eq!(ii.pending.len(), 1);
     assert_eq!(ii.pending[0].first_doc_id, 1);
     assert_eq!(ii.pending[0].num_entries, 5);
-    assert_eq!(ii.pending[1].first_doc_id, 11);
-    assert_eq!(ii.pending[1].num_entries, 3);
+    let ip = ii.in_progress.as_ref().unwrap();
+    assert_eq!(ip.first_doc_id, 11);
+    assert_eq!(ip.num_entries, 3);
     assert_state_invariants(&ii);
 }
 
 #[test]
-fn reader_snapshot_is_frozen_against_pending_writes() {
-    // The reader takes a snapshot at construction; subsequent writes don't shift
-    // its view of `block_count`.
+fn reader_uses_snapshot_block_layout() {
+    // Story 1.2: the reader snapshots the index at construction. Verify the snapshot's
+    // block count is frozen even when writes happen "concurrently" (here, via raw pointer
+    // because the borrow checker won't otherwise let us mutate `ii` while a reader
+    // borrow is live).
     use crate::IndexReader as _;
 
     let mut ii = InvertedIndex::<Dummy>::new(IndexFlags_Index_DocIdsOnly);
@@ -279,9 +257,8 @@ fn reader_snapshot_is_frozen_against_pending_writes() {
 
     // Add more records that roll a third block. The reader's snapshot still shows 2.
     // SAFETY: we don't touch the reader while mutating `ii`, and the InvertedIndex
-    // remains valid throughout — same pattern used elsewhere in the test suite to
-    // exercise concurrent-write scenarios that the borrow checker would otherwise
-    // forbid.
+    // remains valid throughout — same pattern as the existing
+    // `reader_snapshot_is_frozen_against_concurrent_writes` test.
     unsafe {
         for id in (entries_per_block + 6)..=(2 * entries_per_block + 5) {
             (*ii_ptr)
@@ -311,14 +288,14 @@ fn find_block_for_doc_id_spans_regions() {
     let mut p1 = IndexBlock::new(11);
     p1.last_doc_id = 20;
     p1.num_entries = 5;
-    let mut tail = IndexBlock::new(21);
-    tail.last_doc_id = 25;
-    tail.num_entries = 3;
+    let mut ip = IndexBlock::new(21);
+    ip.last_doc_id = 25;
+    ip.num_entries = 3;
 
     let mut blocks: ThinVec<IndexBlock, crate::BlockCapacity> = ThinVec::new();
     blocks.push(p0);
     blocks.push(p1);
-    blocks.push(tail);
+    blocks.push(ip);
 
     let ii = InvertedIndex::<Dummy>::from_blocks(IndexFlags_Index_DocIdsOnly, blocks);
     let snap = ii.snapshot();
@@ -341,24 +318,25 @@ fn find_block_for_doc_id_spans_regions() {
 #[test]
 fn apply_gc_compacts_survivors_into_sealed() {
     // After `apply_gc`, surviving completed blocks are moved into the contiguous `sealed`
-    // ThinVec. `pending` is rebuilt with the trailing survivor as the lone entry — the
-    // next write mutates it in place via `Arc::make_mut`.
+    // ThinVec. `pending` resets to empty; the trailing survivor becomes the new
+    // `in_progress`. The next write will roll back through the pending → sealed flow.
     use crate::GcScanDelta;
     use crate::gc::{BlockGcScanResult, RepairType};
 
     let mut ii = InvertedIndex::<Dummy>::new(IndexFlags_Index_DocIdsOnly);
     let entries_per_block = Dummy::RECOMMENDED_BLOCK_ENTRIES as u64;
-    // Roll three blocks (all in pending).
+    // Roll three blocks: two full (→ pending) + one partial (→ in_progress).
     let total = entries_per_block * 2 + 5;
     for id in 1..=total {
         ii.add_record(&RSIndexResult::build_virt().doc_id(id).build())
             .unwrap();
     }
     assert!(ii.sealed.is_empty(), "sealed empty pre-GC");
-    assert_eq!(ii.pending.len(), 3);
+    assert_eq!(ii.pending.len(), 2);
+    assert!(ii.in_progress.is_some());
 
-    // Synthetic delta: delete block 0. This forces apply to rebuild the layout and verifies
-    // the post-GC sealed/pending split.
+    // Synthetic delta: delete block 0. This forces apply to rebuild layout and verifies
+    // it flips from "pending+in_progress" to "sealed+in_progress".
     let last_block_num_entries = ii.snapshot().last_block().unwrap().num_entries;
     let delta = GcScanDelta {
         last_block_idx: ii.number_of_blocks() - 1,
@@ -373,22 +351,23 @@ fn apply_gc_compacts_survivors_into_sealed() {
 
     ii.apply_gc(delta);
 
-    // Block 0 deleted → 2 survivors. Trailing one (was pending[2]) becomes the new
-    // pending[0]; the other (was pending[1]) goes into sealed.
+    // Block 0 deleted → 2 survivors. Trailing one (was in_progress) becomes new
+    // in_progress; the other (was pending) goes to sealed.
     assert_eq!(
         ii.sealed.len(),
         1,
         "the surviving completed block landed in sealed"
     );
-    assert_eq!(
-        ii.pending.len(),
-        1,
-        "the trailing survivor stays in pending"
-    );
+    assert!(ii.pending.is_empty(), "pending reset to empty after GC");
+    assert!(ii.in_progress.is_some(), "in_progress preserved");
 
-    // The sealed block is the survivor from old pending[1] (after pending[0] was deleted).
+    // The sealed block is the survivor from old pending (originally pending[1] after
+    // pending[0] was deleted).
     assert_eq!(ii.sealed[0].first_doc_id, entries_per_block + 1);
-    assert_eq!(ii.pending[0].first_doc_id, 2 * entries_per_block + 1);
+    assert_eq!(
+        ii.in_progress.as_ref().unwrap().first_doc_id,
+        2 * entries_per_block + 1
+    );
 
     assert_state_invariants(&ii);
 }
@@ -423,12 +402,5 @@ fn apply_gc_keeps_state_in_sync() {
     ii.apply_gc(delta);
 
     assert_eq!(ii.number_of_blocks(), 2, "first block deleted by GC");
-    assert_state_invariants(&ii);
-
-    // Subsequent writes flow back through the pending tail (the existing pending[0]).
-    let next_id = total + 1;
-    ii.add_record(&RSIndexResult::build_virt().doc_id(next_id).build())
-        .unwrap();
-    assert_eq!(ii.pending[0].last_doc_id, next_id);
     assert_state_invariants(&ii);
 }

@@ -508,12 +508,21 @@ DEBUG_COMMAND(InvertedIndexSummary) {
     goto end;
   }
 
+  // InvertedIndex_Summary and InvertedIndex_BlocksSummary both take an owned
+  // snapshot internally; the FFI docs require the spec read lock for that read
+  // (it clones pending/in_progress non-atomically and races with the indexer
+  // otherwise). Hold the lock across both calls; the returned BlockSummary array
+  // is POD owned by C, so we can release before the reply loop.
+  RedisSearchCtx_LockSpecRead(sctx);
+
   RedisModule_ReplyWithArray(ctx, REDISMODULE_POSTPONED_ARRAY_LEN);
   invIdxBulkLen = InvertedIndexSummaryHeader(ctx, invidx);
 
   RedisModule_ReplyWithStringBuffer(ctx, "blocks", strlen("blocks"));
 
   blocksSummary = InvertedIndex_BlocksSummary(invidx, &blockCount);
+
+  RedisSearchCtx_UnlockSpec(sctx);
 
   for (size_t i = 0; i < blockCount; i++) {
     IIBlockSummary *blockSummary = blocksSummary + i;
@@ -1385,6 +1394,11 @@ DEBUG_COMMAND(InfoTagIndex) {
   RedisModule_ReplyWithLiteral(ctx, "values");
   RedisModule_ReplyWithArray(ctx, REDISMODULE_POSTPONED_ARRAY_LEN);
 
+  // Per-value reads inside the loop call `InvertedIndex_NumBlocks` (and
+  // `NewIndexReader` under `dump_id_entries`), both of which snapshot
+  // `pending`/`in_progress` non-atomically. Hold the spec read lock across the
+  // iteration so we don't race with the indexer.
+  RedisSearchCtx_LockSpecRead(sctx);
   seekTagIterator(iter, options.offset);
   while (nvalues++ < limit && TrieMapIterator_Next(iter, &tag, &len, (void **)&iv)) {
     size_t nsubelem = 8;
@@ -1414,6 +1428,7 @@ DEBUG_COMMAND(InfoTagIndex) {
 
     RedisModule_ReplySetArrayLength(ctx, nsubelem);
   }
+  RedisSearchCtx_UnlockSpec(sctx);
   TrieMapIterator_Free(iter);
   RedisModule_ReplySetArrayLength(ctx, nvalues - 1);
 

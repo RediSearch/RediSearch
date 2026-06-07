@@ -40,7 +40,15 @@ pub trait IndexReader<'index> {
     /// index was reached and true otherwise.
     fn skip_to(&mut self, doc_id: DocId) -> bool;
 
-    /// Reset the reader to the beginning of the index.
+    /// Reset the reader to the beginning of the index, refreshing any cached snapshot.
+    ///
+    /// # Caller obligation (unenforced by the type system)
+    /// Implementors backed by an owned snapshot (e.g. [`IndexReaderCore`])
+    /// drop the previous snapshot here. Any [`RSIndexResult`] previously yielded by
+    /// `next_record` / `seek_record` and not yet dropped will be left with dangling
+    /// slices into the discarded snapshot — safe Rust does NOT catch this. Drop every
+    /// outstanding result before calling. Tracked in MOD-16148 for a borrow-checker-
+    /// enforced fix.
     fn reset(&mut self);
 
     /// Return the number of unique documents in the underlying index.

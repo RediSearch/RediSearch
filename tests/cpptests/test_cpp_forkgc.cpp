@@ -260,11 +260,18 @@ TEST_F(FGCTestTag, testModifyLastBlockWhileAddingNewBlocks) {
     while (InvertedIndex_NumBlocks(iv) < 3)
       ASSERT_TRUE(RS::addDocument(ctx, ism, numToDocStr(curId++).c_str(), "f1", "hello"));
     ASSERT_EQ(3, TotalIIBlocks() - startValue);
-    originalData = IndexBlock_Data(InvertedIndex_BlockRef(iv, 0));
+    // Block 0 is sealed (Arc-shared with the live index), so its buffer pointer
+    // stays valid after we drop the snapshot — the live `iv` still holds the
+    // sealed Arc.
+    InvertedIndexSnapshot *snap = InvertedIndex_Snapshot(iv);
+    originalData = IndexBlock_Data(InvertedIndexSnapshot_BlockRef(snap, 0));
+    InvertedIndexSnapshot_Free(snap);
     invertedSizeBeforeApply = (get_spec(ism))->stats.invertedSize;
   });
 
-  const char *afterGcData = IndexBlock_Data(InvertedIndex_BlockRef(iv, 0));
+  InvertedIndexSnapshot *snap = InvertedIndex_Snapshot(iv);
+  const char *afterGcData = IndexBlock_Data(InvertedIndexSnapshot_BlockRef(snap, 0));
+  InvertedIndexSnapshot_Free(snap);
   ASSERT_EQ(afterGcData, originalData);
 
   // gc stats
@@ -304,7 +311,13 @@ TEST_F(FGCTestTag, testRemoveAllBlocksWhileUpdateLast) {
   ASSERT_EQ(2, TotalIIBlocks() - startValue);
 
   size_t invertedSizeBeforeApply;
-  const char *originalData;
+  // The last block is the `in_progress` slot, which the snapshot deep-clones —
+  // pointer identity across snapshots is meaningless. Instead, capture the
+  // block's metadata pre- and post-GC and assert it didn't change. That matches
+  // the test's intent ("verify GC was denied on the last block").
+  uint16_t origLastNumEntries = 0;
+  t_docId origLastFirstId = 0;
+  t_docId origLastLastId = 0;
 
   for (unsigned i = 1; i < curId; i++) {
     size_t n = snprintf(buf, sizeof(buf), "doc%u", i);
@@ -315,14 +328,25 @@ TEST_F(FGCTestTag, testRemoveAllBlocksWhileUpdateLast) {
       invertedSizeBeforeApply = sctx.spec->stats.invertedSize;
       size_t n = snprintf(buf, sizeof(buf), "doc%u", curId);
       lastBlockMemory += this->addDocumentWrapper(buf, "f1", "hello");
-      const IndexBlock *lastBlock = InvertedIndex_BlockRef(iv, InvertedIndex_NumBlocks(iv) - 1);
-      originalData = IndexBlock_Data(lastBlock);
+      InvertedIndexSnapshot *snap = InvertedIndex_Snapshot(iv);
+      const IndexBlock *lastBlock = InvertedIndexSnapshot_BlockRef(
+        snap, InvertedIndexSnapshot_NumBlocks(snap) - 1);
+      origLastNumEntries = IndexBlock_NumEntries(lastBlock);
+      origLastFirstId = IndexBlock_FirstId(lastBlock);
+      origLastLastId = IndexBlock_LastId(lastBlock);
+      InvertedIndexSnapshot_Free(snap);
     });
 
   // gc stats - make sure we skipped the last block
-  const IndexBlock *lastBlock = InvertedIndex_BlockRef(iv, InvertedIndex_NumBlocks(iv) - 1);
-  const char *afterGcData = IndexBlock_Data(lastBlock);
-  ASSERT_EQ(afterGcData, originalData);
+  {
+    InvertedIndexSnapshot *snap = InvertedIndex_Snapshot(iv);
+    const IndexBlock *lastBlock = InvertedIndexSnapshot_BlockRef(
+      snap, InvertedIndexSnapshot_NumBlocks(snap) - 1);
+    ASSERT_EQ(origLastNumEntries, IndexBlock_NumEntries(lastBlock));
+    ASSERT_EQ(origLastFirstId, IndexBlock_FirstId(lastBlock));
+    ASSERT_EQ(origLastLastId, IndexBlock_LastId(lastBlock));
+    InvertedIndexSnapshot_Free(snap);
+  }
   ASSERT_EQ(1, fgc->stats.gcBlocksDenied);
 
   // numDocuments is updated in the indexing process, while all other fields are only updated if
@@ -386,7 +410,11 @@ TEST_F(FGCTestTag, testRepairLastBlockWhileRemovingMiddle) {
   }
   valid_docs = curId - 1 - total_deletions;
   ASSERT_EQ(valid_docs, sctx.spec->stats.scoring.numDocuments);
-  lastBlockEntries = IndexBlock_NumEntries(InvertedIndex_BlockRef(iv, 2));
+  {
+    InvertedIndexSnapshot *snap = InvertedIndex_Snapshot(iv);
+    lastBlockEntries = IndexBlock_NumEntries(InvertedIndexSnapshot_BlockRef(snap, 2));
+    InvertedIndexSnapshot_Free(snap);
+  }
   runGC([&]() {
       snprintf(buf, sizeof(buf), "doc%u", curId);
       RS::addDocument(ctx, ism, buf, "f1", "hello");
@@ -401,11 +429,15 @@ TEST_F(FGCTestTag, testRepairLastBlockWhileRemovingMiddle) {
   ASSERT_EQ(valid_docs, sctx.spec->stats.scoring.numDocuments);
   // We are left with the first + last block.
   ASSERT_EQ(2, InvertedIndex_NumBlocks(iv));
-  // The first entry was deleted. first block starts from docId = 2.
-  ASSERT_EQ(2, IndexBlock_FirstId(InvertedIndex_BlockRef(iv, 0)));
-  // Last block was moved.
-  ASSERT_EQ(lastBlockFirstId, IndexBlock_FirstId(InvertedIndex_BlockRef(iv, 1)));
-  ASSERT_EQ(3, IndexBlock_NumEntries(InvertedIndex_BlockRef(iv, 1)));
+  {
+    InvertedIndexSnapshot *snap = InvertedIndex_Snapshot(iv);
+    // The first entry was deleted. first block starts from docId = 2.
+    ASSERT_EQ(2, IndexBlock_FirstId(InvertedIndexSnapshot_BlockRef(snap, 0)));
+    // Last block was moved.
+    ASSERT_EQ(lastBlockFirstId, IndexBlock_FirstId(InvertedIndexSnapshot_BlockRef(snap, 1)));
+    ASSERT_EQ(3, IndexBlock_NumEntries(InvertedIndexSnapshot_BlockRef(snap, 1)));
+    InvertedIndexSnapshot_Free(snap);
+  }
 }
 
 /**
@@ -514,8 +546,13 @@ TEST_F(FGCTestTag, testRemoveMiddleBlock) {
       while (InvertedIndex_NumBlocks(iv) < 4)
         ASSERT_TRUE(RS::addDocument(ctx, ism, numToDocStr(++curId).c_str(), "f1", "hello"));
       lastLastBlockId = curId - 1;
-      const IndexBlock *secondLastBlock = InvertedIndex_BlockRef(iv, InvertedIndex_NumBlocks(iv) - 2);
+      // Second-last block is sealed (Arc-shared with the live index), so the
+      // buffer pointer survives dropping the snapshot.
+      InvertedIndexSnapshot *snap = InvertedIndex_Snapshot(iv);
+      const IndexBlock *secondLastBlock = InvertedIndexSnapshot_BlockRef(
+        snap, InvertedIndexSnapshot_NumBlocks(snap) - 2);
       pp = IndexBlock_Data(secondLastBlock);
+      InvertedIndexSnapshot_Free(snap);
     });
 
   // We add new documents to the last block after the fork, so we expect the GC to deny it.
@@ -523,8 +560,14 @@ TEST_F(FGCTestTag, testRemoveMiddleBlock) {
   ASSERT_EQ(3, InvertedIndex_NumBlocks(iv));
 
   // The pointer to the last gc-block, received from the fork
-  const IndexBlock *secondLastBlock = InvertedIndex_BlockRef(iv, InvertedIndex_NumBlocks(iv) - 2);
-  const char *gcpp = IndexBlock_Data(secondLastBlock);
+  const char *gcpp = nullptr;
+  {
+    InvertedIndexSnapshot *snap = InvertedIndex_Snapshot(iv);
+    const IndexBlock *secondLastBlock = InvertedIndexSnapshot_BlockRef(
+      snap, InvertedIndexSnapshot_NumBlocks(snap) - 2);
+    gcpp = IndexBlock_Data(secondLastBlock);
+    InvertedIndexSnapshot_Free(snap);
+  }
   ASSERT_EQ(pp, gcpp);
 
   // Now search for the ID- let's be sure it exists
