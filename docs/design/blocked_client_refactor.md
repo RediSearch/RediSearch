@@ -72,12 +72,12 @@ The following structs are passed across the main/worker boundary today.
 | --- | --- | --- | --- |
 | `AREQ` | `aggregate/aggregate.h` | Query, pipeline, results, `useReplyCallback`, `storedReplyState`, `sctx` (with spec lock state), refcount. | Worker ctx (`blockedClientReqCtx.req`), `BlockedQueryNode.privdata`, sometimes the cursor. |
 | `HybridRequest` | `hybrid/hybrid_request.h` | Multiple `AREQ`s + tail pipeline. | Same shape as `AREQ`. |
-| `blockedClientReqCtx` | `aggregate/aggregate_exec.c` | `AREQ*`, `RedisModuleBlockedClient*`, `RedisModuleCtx*`. | Allocated on main, consumed on worker. |
+| `blockedClientReqCtx` | `aggregate/aggregate_exec.c` | `AREQ*`, `RedisModuleBlockedClient*`, `WeakRef spec_ref`. | Allocated on main, consumed on worker. |
 | `BlockClientCtx` | `info/info_redis/block_client.h` | reply/timeout callback ptrs, free-privdata ptr, timeout, `ast` (for diagnostic dump). | Stack-built on main, consumed during `RedisModule_BlockClient`. |
 | `BlockedQueryNode` / `BlockedCursorNode` | `info/info_redis/types/blocked_queries.h` | `privdata` (an `AREQ*` ref), `freePrivData`, `spec` (`StrongRef`), query string. | Linked into a TLS list on the main thread; "non-owning" by comment, owning by code. |
 | `MRCtx` | `coord/rmr/rmr.c` | Coordinator fan-out state, `RedisModuleBlockedClient*`. | Created on main, consumed by `uv` IO thread. |
-| `CoordRequestCtx` | `module.c` (FT.SEARCH coord) | Coordinator-side request bag. | Created on main, consumed by `uv` IO thread. |
-| `BCHCtx` | `hybrid/hybrid_exec.c` | Hybrid blocked-client wrapper. | Same shape as `blockedClientReqCtx`. |
+| `CoordRequestCtx` | `module.c` (FT.AGGREGATE / FT.HYBRID coord) | Coordinator-side request bag for the AREQ-shaped coord paths (`DistAggregate` / `DistHybrid`). The `FT.SEARCH` coord path does not use it — it uses `MRCtx` + `searchRequestCtx` instead. | Created on main, consumed by `uv` IO thread. |
+| `blockedClientHybridCtx` | `hybrid/hybrid_exec.c` | Hybrid blocked-client wrapper (instances are named `BCHCtx`). | Same shape as `blockedClientReqCtx`. |
 | `ChunkReplyState` (inside `AREQ`) | `aggregate/aggregate.h` | BG-produced results, error copy, `cv`, `limit`, `cursor`, `hasStoredResults`. | Written by BG, read by main; lives on AREQ. |
 
 ### 1.2 Today's ownership graph
@@ -123,7 +123,8 @@ The two failure modes that have bitten us are visible here:
 
 ### 1.3 Concrete footguns, in code
 
-- `req->storedReplyState.useReplyCallback` is mutated by `RSCursorReadCommand`
+- `req->useReplyCallback` (a plain `bool` field on `AREQ`, distinct from the
+  `storedReplyState` `ChunkReplyState`) is mutated by `RSCursorReadCommand`
   on a cursor whose AREQ was previously left in the opposite mode — a write to
   shared state from the main thread between BG cycles.
 - `BlockedQueryNode.freePrivData = AREQ_DecrRefWrapper`. The struct comment
@@ -133,9 +134,10 @@ The two failure modes that have bitten us are visible here:
   (`MeasureTimeEnd` → `GetPrivateData` → `UnblockClient` → free our struct).
   Any reordering, or any path that frees the wrapper before unblocking, is a
   bug — and there is no compile-time check that prevents it.
-- Coordinator queries (`module.c:4412`, `rmr.c:359`) are **not** registered in
-  `BlockedQueries`, so a hung coordinator query is invisible to `FT.INFO` and
-  the crash report.
+- Coordinator queries (`DistSearchBlockClientWithTimeout` in `module.c`,
+  `MR_Fanout` in `rmr.c`) call `RedisModule_BlockClient` directly and are
+  **not** registered in `BlockedQueries`, so a hung coordinator query is
+  invisible to `FT.INFO` and the crash report.
 
 ---
 
@@ -273,7 +275,7 @@ shared ownership turns out to be solved by an existing primitive.
 | --- | --- |
 | BG ↔ main lifetime during a cycle | Redis BlockedClient API guarantees `bc->privdata` (the RSC) alive until `OnFree` returns. BG dereferences the RSC via `bc->privdata` freely; no ref needed. |
 | Cursor ↔ in-flight cycle ownership | Single-owner-with-transfer at `RSC_BeginCycle` and `OnFree`. Cursor mutex serializes the transfer block against `Cursor_Free`. |
-| `CURSOR DEL` / GC during in-flight cycle | The existing `delete_mark` flag on `Cursor` ([cursor.c:352](../../src/cursor.c#L352)). `Cursors_Purge` sets it when the cursor isn't idle; `OnFree`'s park branch checks it and converts to free if set. No new mechanism. |
+| `CURSOR DEL` / GC during in-flight cycle | The existing `delete_mark` flag on `Cursor` ([cursor.c:452](../../src/cursor.c#L452)). `Cursors_Purge` sets it when the cursor isn't idle; `OnFree`'s park branch checks it and converts to free if set. No new mechanism. |
 | timeout_cb ↔ BG concurrent AREQ access | BlockedClient API lifetime guarantee covers timeout_cb too (it reaches the AREQ via the RSC). The partial-timeout CAS / condvar coordinates *who writes the reply*, not lifetime. |
 
 **Ownership transfers** happen at exactly two sites, both on main,
@@ -605,7 +607,7 @@ if (cursor && !cursor->delete_mark
 
 Both transfers run on main under the cursor mutex. The pre-existing
 `Cursor.delete_mark` flag is what handles `CURSOR DEL` / GC firing
-during an in-flight cycle: `Cursors_Purge` ([cursor.c:352](../../src/cursor.c#L352))
+during an in-flight cycle: `Cursors_Purge` ([cursor.c:452](../../src/cursor.c#L452))
 sets `delete_mark` when the cursor is not idle; `OnFree`'s park branch
 checks it and falls through to free. No new defensive mechanism is
 needed.
@@ -632,7 +634,7 @@ registry. Cases 1 and 2 *during* an in-flight cycle: cycle owns RSC
 cleans it up. Case 3 is the `OnFree` free branch above.
 
 For initial WITHCURSOR queries, today's `AREQ_StartCursor`
-([aggregate_exec.c:1790](../../src/aggregate/aggregate_exec.c#L1790))
+([aggregate_exec.c:1802](../../src/aggregate/aggregate_exec.c#L1802))
 calls `Cursors_Reserve` on **main** before dispatching to BG, so
 `r->cursor_id` is set on main before the cycle starts. The cursor
 exists in the registry from that point with `cursor->query == NULL`
@@ -1007,8 +1009,8 @@ The eight `RedisModule_BlockClient` call-sites in `src/` (excluding tests and
 | --- | --- | --- |
 | `info_redis/block_client.c::BlockQueryClientWithTimeout` | Wraps `BlockClient` + adds `BlockedQueryNode` w/ AREQ ref | `rsc = RequestSyncCtx_NewAREQ(areq); RSC_BeginCycle(rsc, bc, reply_cb, NULL /*coord_ctx*/); RM_BlockClient(... privdata=rsc, free_privdata=RequestSyncCtx_OnFree ...)`. `BeginCycle` links `&rsc->blocked_node` into `BlockedQueries.queries` itself. |
 | `info_redis/block_client.c::BlockCursorClientWithTimeout` | Same shape, cursor flavour | `rsc = cursor->query; cursor->query = NULL;` (under cursor mutex), then `RSC_BeginCycle(...)` and `RM_BlockClient(...)` as above. `BeginCycle` links `&rsc->blocked_node` into `BlockedQueries.cursors`. |
-| `coord/rmr/rmr.c::MR_Fanout` (line 359) | `BlockClient(unblockHandler, timeoutHandler, freePrivDataCB, queryTimeout)`; `MRCtx` owns `bc` | `RequestSyncCtx_NewAREQ` + `RSC_BeginCycle` + `RM_BlockClient`. The coord-side reader is itself an AREQ / HybridRequest with a `syncCtx` (used for `RequestSyncCtx_RegisterAbortWakeChannel`), so the same RSC wraps it just like the shard path. The `MRCtx` lives on `rsc->coord_ctx`, freed from `OnFree` after `RequestSyncCtx_Free`. Coord queries gain `BlockedQueries` visibility. |
-| `module.c::DistSearchBlockClientWithTimeout` (line 4412) | `BlockClient(DistSearchUnblockClient, timeoutCallback, freePrivDataCallback, queryTimeout)` | Same as `MR_Fanout` — RSC wraps the coord-side AREQ, `CoordRequestCtx` lives on `rsc->coord_ctx`. Privdata-smuggling hack removed; coord queries gain visibility. |
+| `coord/rmr/rmr.c::MR_Fanout` (line 356) | `BlockClient(unblockHandler, timeoutHandler, freePrivDataCB, queryTimeout)`; `MRCtx` owns `bc` | `RequestSyncCtx_NewAREQ` + `RSC_BeginCycle` + `RM_BlockClient`. The coord-side reader is itself an AREQ / HybridRequest with a `syncCtx` (used for `RequestSyncCtx_RegisterAbortWakeChannel`), so the same RSC wraps it just like the shard path. The `MRCtx` lives on `rsc->coord_ctx`, freed from `OnFree` after `RequestSyncCtx_Free`. Coord queries gain `BlockedQueries` visibility. |
+| `module.c::DistSearchBlockClientWithTimeout` (line 4397) | `BlockClient(DistSearchUnblockClient, timeoutCallback, freePrivDataCallback, queryTimeout)` | Same as `MR_Fanout` — RSC wraps the coord-side AREQ, `CoordRequestCtx` lives on `rsc->coord_ctx`. Privdata-smuggling hack removed; coord queries gain visibility. |
 | `concurrent_ctx.c:122` (`ConcurrentCmdCtx`) | Generic-shaped block-client via `ConcurrentSearchBlockClientCtx`; no registry | Reuse the existing `ConcurrentSearchBlockClientCtx` machinery as the "operational" path. The only change here is to require a non-NULL `free_privdata` (no semantic shift). |
 | `debug_commands.c:888,986`, `gc.c:107,187`, `rmr.c:539,569` | `BlockClient(NULL/cb, NULL, NULL/cb, 0)` | Migrate to `ConcurrentSearchBlockClientCtx`. The NULL-callbacks fire-and-forget pattern (`rmr.c:569`) folds into here by supplying a `free_privdata` that frees the small ctx struct. |
 
