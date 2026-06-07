@@ -160,16 +160,20 @@ bool TagIndex_Index(RedisModuleCtx *ctx, TagIndex *idx, SearchDiskWriteBatchHand
 void TagIndex_Commit(TagIndex *idx, const char **values, size_t n, IndexStats *stats);
 
 /* Open an index reader to iterate a tag index for a specific tag. Used at query evaluation time.
- * Returns NULL if there is no such tag in the index */
+ * Returns NULL if there is no such tag in the index.
+ * In disk mode, on a creation failure a disk-creation error is set on `status` (when non-NULL)
+ * so the query fails instead of silently returning no results. */
 QueryIterator *TagIndex_OpenReader(TagIndex *idx, const RedisSearchCtx *sctx, const char *value, size_t len,
-                                   double weight, t_fieldIndex fieldIndex);
+                                   double weight, t_fieldIndex fieldIndex, QueryError *status);
 
 /* Get iterator from TrieMap iterator value
- * In disk mode: ptr is ignored, calls disk API with tag string
+ * In disk mode: ptr is ignored, calls disk API with tag string; on a creation failure a
+ *   disk-creation error is set on `status` (when non-NULL).
  * In memory mode: ptr is InvertedIndex*, uses it directly */
 QueryIterator *TagIndex_GetIteratorFromTrieMapValue(TagIndex *idx, const RedisSearchCtx *sctx,
                                                     const char *tag, size_t len, void *ptr,
-                                                    double weight, t_fieldIndex fieldIndex);
+                                                    double weight, t_fieldIndex fieldIndex,
+                                                    QueryError *status);
 
 /* Open the tag index, returning NULL if it doesn't exist.
  * @param spec Field spec for the tag field

@@ -101,8 +101,8 @@ where
                     // SAFETY: We checked `disk_index_available` (i.e. `!spec.diskSpec.is_null()`)
                     // above, and (6) guarantees the pointer is valid for `'index`.
                     let disk_spec = unsafe { &mut *spec.diskSpec };
-                    // SAFETY: (6).
-                    unsafe { new_wildcard_iterator_on_disk(disk_spec, weight) }
+                    // SAFETY: (6). `query.status` is the query's error accumulator.
+                    unsafe { new_wildcard_iterator_on_disk(disk_spec, weight, query_ref.status) }
                 } else {
                     // SAFETY: (2) guarantees `sctx` is valid; (7) covers all remaining
                     // preconditions of `new_wildcard_iterator_optimized`.

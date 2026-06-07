@@ -298,17 +298,17 @@ bool SearchDisk_IndexTags(RedisModuleCtx *ctx, RedisSearchDiskIndexSpec *index, 
     return disk->index.indexTags(ctx, index, batch, values, numValues, docId, fieldIndex);
 }
 
-QueryIterator* SearchDisk_NewTermIterator(RedisSearchDiskIndexSpec *index, RSToken *tok, int tokenId, t_fieldMask fieldMask, double weight, double idf, double bm25_idf, bool needsOffsets) {
+QueryIterator* SearchDisk_NewTermIterator(RedisSearchDiskIndexSpec *index, RSToken *tok, int tokenId, t_fieldMask fieldMask, double weight, double idf, double bm25_idf, bool needsOffsets, QueryError *status) {
     RS_ASSERT(disk && index && tok);
     RSQueryTerm *term = NewQueryTerm(tok, tokenId);
     QueryTerm_SetIDFs(term, idf, bm25_idf);
     // Ownership of `term` is transferred to Rust, which handles cleanup on all paths
-    return disk->index.newTermIterator(index, term, fieldMask, weight, needsOffsets);
+    return disk->index.newTermIterator(index, term, fieldMask, weight, needsOffsets, status);
 }
 
-QueryIterator* SearchDisk_NewTagIterator(RedisSearchDiskIndexSpec *index, const RSToken *tok, t_fieldIndex fieldIndex, double weight) {
+QueryIterator* SearchDisk_NewTagIterator(RedisSearchDiskIndexSpec *index, const RSToken *tok, t_fieldIndex fieldIndex, double weight, QueryError *status) {
     RS_ASSERT(disk && index && tok);
-    return disk->index.newTagIterator(index, tok, fieldIndex, weight);
+    return disk->index.newTagIterator(index, tok, fieldIndex, weight, status);
 }
 
 size_t SearchDisk_RunGC(RedisSearchDiskIndexSpec *index) {

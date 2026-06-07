@@ -303,9 +303,11 @@ size_t SearchDisk_RunGC(RedisSearchDiskIndexSpec *index);
  * @param idf Inverse document frequency for the term
  * @param bm25_idf BM25 inverse document frequency for the term
  * @param needsOffsets Whether the query needs term offset data (for scoring or phrase matching)
- * @return Pointer to the IndexIterator, or NULL on error
+ * @param status Optional query error accumulator (may be NULL). On a creation failure a
+ *   disk-creation error is set on it; a NULL return without an error set means the term is absent.
+ * @return Pointer to the IndexIterator, or NULL if the term is absent or on error
  */
-QueryIterator* SearchDisk_NewTermIterator(RedisSearchDiskIndexSpec *index, RSToken *tok, int tokenId, t_fieldMask fieldMask, double weight, double idf, double bm25_idf, bool needsOffsets);
+QueryIterator* SearchDisk_NewTermIterator(RedisSearchDiskIndexSpec *index, RSToken *tok, int tokenId, t_fieldMask fieldMask, double weight, double idf, double bm25_idf, bool needsOffsets, QueryError *status);
 
 /**
  * @brief Create a tag IndexIterator for a specific tag value
@@ -317,9 +319,11 @@ QueryIterator* SearchDisk_NewTermIterator(RedisSearchDiskIndexSpec *index, RSTok
  * @param tok Pointer to the token (contains tag value string)
  * @param fieldIndex Field index for the tag field
  * @param weight Weight for the term (used in scoring)
- * @return Pointer to the IndexIterator, or NULL on error
+ * @param status Optional query error accumulator (may be NULL). On a creation failure a
+ *   disk-creation error is set on it; a NULL return without an error set means the tag is absent.
+ * @return Pointer to the IndexIterator, or NULL if the tag is absent or on error
  */
-QueryIterator* SearchDisk_NewTagIterator(RedisSearchDiskIndexSpec *index, const RSToken *tok, t_fieldIndex fieldIndex, double weight);
+QueryIterator* SearchDisk_NewTagIterator(RedisSearchDiskIndexSpec *index, const RSToken *tok, t_fieldIndex fieldIndex, double weight, QueryError *status);
 
 // DocTable API wrappers
 
