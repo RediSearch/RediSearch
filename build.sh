@@ -595,6 +595,10 @@ prepare_cmake_arguments() {
       # server startup") so the cause is visible in CI logs.
       echo "WARNING: sccache server failed to start; building without sccache" >&2
       echo "$SCCACHE_PROBE_OUTPUT" >&2
+      # run_cmake() reuses an existing build directory unless FORCE=1, so a
+      # previously cached CMAKE_*_COMPILER_LAUNCHER would otherwise keep the
+      # broken sccache active on reconfigure. Pass empty values to clear it.
+      CMAKE_BASIC_ARGS="$CMAKE_BASIC_ARGS -DCMAKE_C_COMPILER_LAUNCHER= -DCMAKE_CXX_COMPILER_LAUNCHER="
     fi
   fi
 
