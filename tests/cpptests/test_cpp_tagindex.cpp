@@ -45,23 +45,28 @@ TEST_F(TagIndexTest, testCreate) {
   size_t buffer_cap = 1106;
   size_t num_blocks = N / 1000;
 
-  // The base size of an inverted index is 48 bytes: 24 bytes for the struct itself
-  // plus 24 bytes for the Arc<ThinVec> heap allocation (Arc refcount header + ThinVec
-  // stack representation).
-  size_t iv_index_size = 48;
+  // The base size of an inverted index is 72 bytes: 48 bytes for the struct itself
+  // (including the `pending: Vec<Arc<IndexBlock>>` field) plus 24 bytes for the
+  // Arc<ThinVec> heap allocation for the empty `sealed` region (Arc refcount header
+  // + ThinVec stack representation).
+  size_t iv_index_size = 72;
 
-  // Each index block is 48 bytes + its buffer capacity + the header of the block vector
-  size_t expectedTotalSZ = v.size() * (iv_index_size + (8 + (buffer_cap + 48) * num_blocks));
+  // Each block in `pending` costs PER_NEW_BLOCK_BYTES + buffer capacity:
+  //   48  IndexBlock inline (first_doc_id + last_doc_id + num_entries + buffer triple)
+  //   16  Arc refcount header (strong + weak counter)
+  //    8  one pointer slot in the `pending` Vec (reserve_exact strategy)
+  size_t per_block_overhead = 48 + 16 + 8;
+  size_t expectedTotalSZ =
+      v.size() * (iv_index_size + (buffer_cap + per_block_overhead) * num_blocks);
   ASSERT_EQ(expectedTotalSZ, stats.invertedSize);
 
   // Add a new entry to and check the last block size
   std::vector<const char *> v2{"bye"};
   TagIndex_Index(NULL, idx, NULL, &v2[0], v2.size(), ++d, &stats);
-  // A base inverted index is 48 bytes (24 struct + 24 Arc<ThinVec> heap)
-  // The header of the block vector is 8 bytes
-  // An index block is 48 bytes
-  // And after the first insert the buffer capacity is 1 byte
-  size_t last_block_size = 48 + 8 + 48 + 1;
+  // A base inverted index is 72 bytes (48 struct + 24 Arc<ThinVec> heap),
+  // a block in `pending` is 48 (IndexBlock inline) + 16 (Arc header) + 8 (Vec slot),
+  // and after the first insert the buffer capacity is 1 byte.
+  size_t last_block_size = iv_index_size + per_block_overhead + 1;
   ASSERT_EQ(expectedTotalSZ + last_block_size, stats.invertedSize);
 
   MockQueryEvalCtx mockQctx(N, N);

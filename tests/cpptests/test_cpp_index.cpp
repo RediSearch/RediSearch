@@ -97,21 +97,22 @@ TEST_P(IndexFlagsTest, testRWFlags) {
   ASSERT_EQ(exp_t_fieldMask_memsize, t_fiedlMask_memsize);
 
   // Details of the memory occupied by InvertedIndex in bytes (64-bit system):
-  // Arc<ThinVec<IndexBlock, u32>> blocks        8   (pointer to heap allocation)
+  // Arc<ThinVec<IndexBlock, u32>> sealed        8   (pointer to heap allocation)
+  // Vec<Arc<IndexBlock>> pending               24   (data ptr + len + cap)
   // u32 n_uniqe_blocks                          4
   // flags IndexFlags                            4
   // u32 gc_marker                               4
+  // u32 unique_id                               4
   // ---------------------------------------------
-  // Total                                      20
-  // After padding                              24
+  // Total                                      48
   //
-  // Plus the heap allocation behind the `Arc<ThinVec>`:
+  // Plus the heap allocation behind the `Arc<ThinVec>` for `sealed` (empty):
   // Arc refcount header (strong + weak counter) 16
   // ThinVec stack representation                 8
   // ---------------------------------------------
   // Heap                                        24
 
-  size_t exp_idx_no_block_memsize = 48;
+  size_t exp_idx_no_block_memsize = 72;
 
   if (useFieldMask) {
     exp_idx_no_block_memsize += t_fiedlMask_memsize;
@@ -391,10 +392,11 @@ TEST_F(IndexTest, testNumericInverted) {
     expected_sz = target_cap - buff_cap;
     buff_cap = target_cap;
 
-    // The first write add an index block of 48 bytes
-    // and the vector header
+    // The first write rolls a fresh block onto `pending`, which costs
+    // PER_NEW_BLOCK_BYTES: 48 (IndexBlock inline) + 16 (Arc refcount header)
+    // + 8 (one pointer slot in the `pending` Vec, reserved exactly).
     if (i < 1) {
-      expected_sz += 48 + 8;
+      expected_sz += 48 + 16 + 8;
     }
 
     // Check if the write matches the simulation
@@ -1177,53 +1179,53 @@ TEST_F(IndexTest, testIndexFlags) {
   size_t index_memsize;
   InvertedIndex *w = NewInvertedIndex(IndexFlags(flags), &index_memsize);
   // The memory occupied by an empty inverted index created with INDEX_DEFAULT_FLAGS
-  // is 64 bytes (see NewInvertedIndex()):
-  // sizeof InvertedIndex                       24
-  // Arc<ThinVec> heap (refcount header + stack)24
+  // is 88 bytes (see NewInvertedIndex()):
+  // sizeof InvertedIndex                       48   (incl. sealed Arc + pending Vec)
+  // Arc<ThinVec> heap for sealed                24   (refcount header + ThinVec stack)
   // storing fieldmask on idx                   16
-  ASSERT_EQ(64, index_memsize);
+  ASSERT_EQ(88, index_memsize);
   ASSERT_TRUE(InvertedIndex_Flags(w) == flags);
   size_t sz = InvertedIndex_WriteForwardIndexEntry(w, &h).mem_growth;
-  ASSERT_EQ(73, sz);
+  ASSERT_EQ(89, sz);
   InvertedIndex_Free(w);
 
   flags &= ~Index_StoreTermOffsets;
   w = NewInvertedIndex(IndexFlags(flags), &index_memsize);
-  ASSERT_EQ(64, index_memsize);
+  ASSERT_EQ(88, index_memsize);
   ASSERT_TRUE(!(InvertedIndex_Flags(w) & Index_StoreTermOffsets));
   size_t sz2 = InvertedIndex_WriteForwardIndexEntry(w, &h).mem_growth;
-  ASSERT_EQ(sz2, 60);
+  ASSERT_EQ(sz2, 76);
   InvertedIndex_Free(w);
 
   flags = INDEX_DEFAULT_FLAGS | Index_WideSchema;
   w = NewInvertedIndex(IndexFlags(flags), &index_memsize);
-  ASSERT_EQ(64, index_memsize);
+  ASSERT_EQ(88, index_memsize);
   ASSERT_TRUE((InvertedIndex_Flags(w) & Index_WideSchema));
   h.fieldMask = 0xffffffffffff;
-  ASSERT_EQ(77, InvertedIndex_WriteForwardIndexEntry(w, &h).mem_growth);
+  ASSERT_EQ(93, InvertedIndex_WriteForwardIndexEntry(w, &h).mem_growth);
   InvertedIndex_Free(w);
 
   flags &= Index_StoreFreqs;
   w = NewInvertedIndex(IndexFlags(flags), &index_memsize);
   // The memory occupied by an empty inverted index with Index_StoreFieldFlags == 0
-  // is 48 bytes (see NewInvertedIndex()):
-  // sizeof InvertedIndex                       24
-  // Arc<ThinVec> heap (refcount header + stack)24
-  ASSERT_EQ(48, index_memsize);
+  // is 72 bytes (see NewInvertedIndex()):
+  // sizeof InvertedIndex                       48   (incl. sealed Arc + pending Vec)
+  // Arc<ThinVec> heap for sealed                24   (refcount header + ThinVec stack)
+  ASSERT_EQ(72, index_memsize);
   ASSERT_TRUE(!(InvertedIndex_Flags(w) & Index_StoreTermOffsets));
   ASSERT_TRUE(!(InvertedIndex_Flags(w) & Index_StoreFieldFlags));
   sz = InvertedIndex_WriteForwardIndexEntry(w, &h).mem_growth;
-  ASSERT_EQ(59, sz);
+  ASSERT_EQ(75, sz);
   InvertedIndex_Free(w);
 
   flags |= Index_StoreFieldFlags | Index_WideSchema;
   w = NewInvertedIndex(IndexFlags(flags), &index_memsize);
-  ASSERT_EQ(64, index_memsize);
+  ASSERT_EQ(88, index_memsize);
   ASSERT_TRUE((InvertedIndex_Flags(w) & Index_WideSchema));
   ASSERT_TRUE((InvertedIndex_Flags(w) & Index_StoreFieldFlags));
   h.fieldMask = 0xffffffffffff;
   sz = InvertedIndex_WriteForwardIndexEntry(w, &h).mem_growth;
-  ASSERT_EQ(67, sz);
+  ASSERT_EQ(83, sz);
   InvertedIndex_Free(w);
 
   VVW_Free(h.vw);
