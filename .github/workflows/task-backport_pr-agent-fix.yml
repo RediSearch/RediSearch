@@ -57,6 +57,10 @@ jobs:
           client-id: ${{ vars.GH_PR_APP_ID }}
           private-key: ${{ secrets.GH_PR_APP_PRIVATE_KEY }}
           owner: RediSearch
+          # Scope the installation token to THIS repo only (see the create
+          # workflow for rationale) — without `repositories`, the token covers
+          # every repo the App can access in the org.
+          repositories: ${{ github.event.repository.name }}
           # Hard-cap the minted token to exactly what this flow needs, so it
           # stays least-privilege even if the redis-pr-app App is granted more
           # at the installation level. Without these, the token inherits the

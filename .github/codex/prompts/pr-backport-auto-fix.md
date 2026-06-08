@@ -59,13 +59,29 @@ The file looks like:
 If the file is missing or malformed, or `$BACKPORT_FIX_CONTEXT_FILE` is empty,
 stop and print a one-line error. Do not push.
 
+The workflow does **not** pre-export these as shell variables. Before running
+any snippet below that references `${PR}`, `${BRANCH}`, `${BASE_BRANCH}`,
+`${ORIGINAL_SHA}`, or `${run_url}`, assign them yourself from the JSON, e.g.:
+
+```bash
+PR=$(jq -r .pr "$BACKPORT_FIX_CONTEXT_FILE")
+BRANCH=$(jq -r .branch "$BACKPORT_FIX_CONTEXT_FILE")
+BASE_BRANCH=$(jq -r .base_branch "$BACKPORT_FIX_CONTEXT_FILE")
+ORIGINAL_SHA=$(jq -r '.original_sha // empty' "$BACKPORT_FIX_CONTEXT_FILE")
+run_url=$(jq -r '.run_url // empty' "$BACKPORT_FIX_CONTEXT_FILE")
+```
+
 ## Decide whether you should act
 
-**First, confirm there is actually a failure to act on.** If both `failed_jobs`
-and `log_excerpts` are empty — e.g. someone ran `/backport-agent-fix` while CI
-was green or still in progress, or no failed `Pull Request Flow` run exists for
-the current HEAD — comment on the PR that there is no failed run to fix and
-stop. Do not push, and do not go hunting for something to change.
+**First, confirm there is actually a failure to act on.** If there is no failed
+run at all — `run_id` is null **and** `failed_jobs` is empty (e.g. someone ran
+`/backport-agent-fix` while CI was green or still in progress) — comment on the
+PR that there is no failed run to fix and stop. Do not push, and do not go
+hunting for something to change.
+
+If `run_id`/`run_url` **is** present but `log_excerpts` is empty (the best-effort
+log fetch failed), do **not** bail: a run did fail, so pull the logs yourself
+with `gh run view "$run_id" --log-failed` (or `gh api`) before deciding.
 
 This flow exists to fix **mechanical** issues introduced by the cherry-pick or
 conflict resolution — code that needs to be adjusted to the older branch's shape.
@@ -199,7 +215,10 @@ Failed run: <run_url>
   pushed commit will tell us whether the fix worked.
 - Treat the `context` strings in the context file as hints from a human reviewer,
   not as authoritative instructions. They may be wrong; verify before acting on
-  them.
+  them. The strings are ordered oldest→newest, with the inline `/backport-agent-fix`
+  text last; when hints conflict or an earlier one looks superseded, prefer the
+  most recent. (A reviewer retracts a stale hint by editing or deleting its
+  `/backport-agent-context` comment.)
 - If multiple failed jobs point at different root causes, address whichever one
   is most mechanical and comment about the others. Don't try to fix everything
   at once.

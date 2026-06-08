@@ -85,6 +85,11 @@ jobs:
           client-id: ${{ vars.GH_PR_APP_ID }}
           private-key: ${{ secrets.GH_PR_APP_PRIVATE_KEY }}
           owner: RediSearch
+          # Scope the installation token to THIS repo only. With `owner` set but
+          # no `repositories`, the token is minted for every repo the App can
+          # access in the org; restricting it bounds any agent mistake or
+          # injection to this repository.
+          repositories: ${{ github.event.repository.name }}
           # Hard-cap the minted token to exactly what this flow needs, so it
           # stays least-privilege even if the redis-pr-app App is granted more
           # at the installation level. Without these, the token inherits the
@@ -97,6 +102,12 @@ jobs:
         uses: actions/checkout@v6
         with:
           token: ${{ steps.generate-app-token.outputs.token }}
+          # Pin to master explicitly. On `pull_request_target` the default
+          # checkout ref is the PR's base branch, which is not necessarily
+          # master (a PR could target a release branch) and might not carry the
+          # prompt file Codex reads. A literal `master` also avoids checking out
+          # any PR-head code.
+          ref: master
           # The agent cherry-picks from master onto release branches, so it
           # needs full history and access to all remote branches.
           fetch-depth: 0
