@@ -355,13 +355,18 @@ TEST_F(FGCTestTag, testRemoveAllBlocksWhileUpdateLast) {
   ASSERT_EQ(1, sctx.spec->stats.scoring.numDocuments);
   // But the last block deletion was skipped.
   ASSERT_EQ(2, sctx.spec->stats.numRecords);
-  // 48 bytes is the base size of the InvertedIndex struct (now including the
-  // `pending: Vec<Arc<IndexBlock>>` triple-pointer field), and 24 bytes is the
-  // Arc<ThinVec> heap allocation for the empty `sealed` region (Arc refcount
-  // header + ThinVec stack representation). The single remaining block in
-  // `pending` is already covered by `lastBlockMemory` via PER_NEW_BLOCK_BYTES
-  // (Arc header + IndexBlock inline + one pending Vec slot).
-  ASSERT_EQ(lastBlockMemory + 48 + 24, sctx.spec->stats.invertedSize);
+  // After GC, the surviving last block lives in `in_progress` (the slot that
+  // got the in-runGC write) — `pending` is empty, `sealed` is empty. The
+  // invariant residual is:
+  //   96  sizeof InvertedIndex (sealed Arc + pending Vec + Option<IndexBlock>
+  //                             + small fields)
+  //   24  Arc<ThinVec> heap for the empty `sealed`
+  //    2  encoded buffer in `in_progress` (2 entries: 1 from the pre-runGC
+  //       tail write + 1 from the in-runGC add)
+  // The Option<IndexBlock> slot itself is counted in `size_of::<Self>()` —
+  // `lastBlockMemory` (the per-add `mem_growth` for an in_progress write) is
+  // only buffer growth and is not part of the residual.
+  ASSERT_EQ(96 + 24 + 2, sctx.spec->stats.invertedSize);
   ASSERT_EQ(1, TotalIIBlocks() - startValue);
 }
 
