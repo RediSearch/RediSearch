@@ -105,8 +105,14 @@ jobs:
           # Pin to master explicitly. On `pull_request_target` the default
           # checkout ref is the PR's base branch, which is not necessarily
           # master (a PR could target a release branch) and might not carry the
-          # prompt file Codex reads. A literal `master` also avoids checking out
-          # any PR-head code.
+          # prompt file Codex reads.
+          #
+          # The literal `master` (no `${{ }}` expression, no PR-head ref) is also
+          # what keeps this safe under `pull_request_target`: no fork/PR-head code
+          # is ever checked out. SonarCloud's githubactions:S7631 ("Forked
+          # repository code should not be checked out in privileged workflow
+          # contexts") flags every checkout in such workflows heuristically; it
+          # is a false positive here for that reason.
           ref: master
           # The agent cherry-picks from master onto release branches, so it
           # needs full history and access to all remote branches.
