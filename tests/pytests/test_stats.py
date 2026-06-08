@@ -40,11 +40,14 @@ def runTestWithSeed(env, s=None):
 
     expected_inv_idx_size = (
         443  # buffer size after writing 4 bytes 100 times.
-        + 8  # thin vector header (cap + len) for the inline blocks Vec
-        + 32 # size of the InvertedIndex struct on the stack
-        + 48 # block buffer capacity (IndexBlock inline in the ThinVec)
-        + 24 # Arc<ThinVec> heap allocation for `sealed` blocks
+        + 48 # size of the InvertedIndex struct on the stack (now includes the
+             # `pending: Vec<Arc<IndexBlock>>` triple-pointer field)
+        + 24 # Arc<ThinVec> heap allocation for the empty `sealed` blocks
              # (Arc refcount header 16 + ThinVec stack representation 8)
+        + 64 # Arc<IndexBlock> for the single rolled-over block in `pending`
+             # (Arc refcount header 16 + IndexBlock STACK_SIZE 48)
+        + 8  # one pointer slot in the `pending` Vec (reserve_exact strategy)
+        + 8  # per-inverted-index metadata (numeric tree node overhead)
     ) / (1024 * 1024)
     check_index_info(env, idx, count, expected_inv_idx_size, "after insert")
 
