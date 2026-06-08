@@ -163,8 +163,10 @@ jobs:
               print(f"PR #{pr_number}: triaging failed run {run_id} (attempt {run_attempt}, {head_sha}).")
               emit(True, pr_number, run_id, run_attempt)
 
-          # workflow_run path
-          if os.environ.get("WORKFLOW_RUN_CONCLUSION") not in ("failure", "cancelled", "timed_out"):
+          # workflow_run path. `cancelled` is excluded because the log
+          # collector only fetches logs from `failure`/`timed_out` jobs, so a
+          # cancelled-only run would produce an empty triage comment.
+          if os.environ.get("WORKFLOW_RUN_CONCLUSION") not in ("failure", "timed_out"):
               print(f"Source run conclusion '{os.environ.get('WORKFLOW_RUN_CONCLUSION')}' is not a failure; skipping.")
               emit(False)
           pr_number = os.environ.get("WORKFLOW_RUN_PR_NUMBER", "")
@@ -187,8 +189,17 @@ jobs:
                       and (not run_head_repo or ((p.get("head") or {}).get("repo") or {}).get("full_name") == run_head_repo)
                       and (not run_head_branch or (p.get("head") or {}).get("ref") == run_head_branch)
                   ]
-                  if candidates:
+                  # If exactly one PR matches, use it. If multiple match (e.g.
+                  # parallel PRs from the same fork branch against different
+                  # base branches), workflow_run doesn't expose enough info to
+                  # pick the right one — skip and let the labeled trigger handle
+                  # it, which has the explicit PR number from the event payload.
+                  if len(candidates) == 1:
                       pr_number = str(candidates[0]["number"])
+                  elif len(candidates) > 1:
+                      ids = ", ".join(f"#{p['number']}" for p in candidates)
+                      print(f"Multiple PRs share head SHA {head_sha} ({ids}); skipping workflow_run triage.")
+                      emit(False)
           if not pr_number:
               print("Could not resolve PR number from workflow_run event; skipping.")
               emit(False)
@@ -235,6 +246,11 @@ jobs:
         uses: actions/checkout@v6
 
       - name: Download focused Failed Test Logs artifacts
+        # Fork PRs that keep the `triage-pr` label can produce arbitrarily
+        # large `Failed Test Logs *` artifacts. Bound the download so a
+        # contributor can't waste runner time / disk before fetch-failed-run-logs
+        # applies its 200 KB truncation.
+        timeout-minutes: 5
         env:
           GH_TOKEN: ${{ github.token }}
           SOURCE_RUN_ID: ${{ needs.resolve.outputs.run-id }}
