@@ -124,11 +124,30 @@ runs:
         # Higher-priority focused "Failed Test Logs *" artifacts (per-test
         # logs produced by task-test.yml) are appended after the per-job
         # logs so they survive the tail-cap below.
+        #
+        # `gh run download` cannot filter by attempt; artifacts are run-scoped
+        # in the GitHub API, so a downloaded artifact may be from any past
+        # attempt of the same run id. Filter what we keep by creation time
+        # relative to the current attempt's start so stale per-test logs from
+        # a prior failed attempt don't get reported as the current failure.
+        # Per-job logs are still correct because fetch-failed-run-logs queries
+        # the attempt-scoped jobs endpoint directly.
         mkdir -p downloaded-failed-logs
         gh run download "$GITHUB_RUN_ID" \
           --repo "$GITHUB_REPOSITORY" \
           --pattern "$ARTIFACT_PATTERN" \
           --dir downloaded-failed-logs 2>/dev/null
+
+        # Drop downloaded files whose mtime predates the current attempt.
+        # `gh run download` writes each file with the artifact's created_at
+        # as its mtime, so a simple `find -newermt` filter is enough.
+        ATTEMPT_DATA=$(gh api \
+          "repos/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}/attempts/${GITHUB_RUN_ATTEMPT}" 2>/dev/null)
+        ATTEMPT_START=$(printf '%s' "$ATTEMPT_DATA" | jq -r '.run_started_at // empty' 2>/dev/null)
+        if [ -n "$ATTEMPT_START" ] && [ -d downloaded-failed-logs ]; then
+          find downloaded-failed-logs -type f ! -newermt "$ATTEMPT_START" -print -delete 2>/dev/null | \
+            sed 's|^|Dropping stale artifact file: |'
+        fi
 
         if [ -n "$(find downloaded-failed-logs -type f 2>/dev/null)" ]; then
           echo "Including focused Failed Test Logs artifacts."
