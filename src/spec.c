@@ -3831,7 +3831,10 @@ void *IndexSpec_LegacyRdbLoad(RedisModuleIO *rdb, int encver) {
   for (int i = 0; i < sp->numFields; i++) {
     FieldSpec *fs = sp->fields + i;
     initializeFieldSpec(fs, i);
-    FieldSpec_RdbLoad(rdb, fs, spec_ref, encver, false);
+    if (FieldSpec_RdbLoad(rdb, fs, spec_ref, encver, false) != REDISMODULE_OK) {
+      StrongRef_Release(spec_ref);
+      return NULL;
+    }
     if (FieldSpec_IsSortable(fs)) {
       sp->numSortableFields++;
     }
