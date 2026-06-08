@@ -13,17 +13,19 @@ use crate::{TrieMap, iter, str::iter::iter_::key_to_string};
 /// in lexicographical key order.
 ///
 /// Empty `target` yields zero matches (mirrors the C `Trie_IterateContains`
-/// short-circuit). The wrapped `Option` is `None` for the empty-target case.
+/// short-circuit) by delegating to an empty inner iterator.
 ///
 /// See [`crate::iter::ContainsIter`] for the underlying traversal.
-pub struct ContainsIter<'tm, 'p, Data: 'tm>(Option<iter::ContainsIter<'tm, 'p, Data>>);
+pub struct ContainsIter<'tm, 'p, Data: 'tm>(iter::ContainsIter<'tm, 'p, Data>);
 
 impl<'tm, 'p, Data: 'tm> ContainsIter<'tm, 'p, Data> {
     pub(crate) fn new(trie: &'tm TrieMap<Data>, target: &'p str) -> Self {
-        if target.is_empty() {
-            return Self(None);
-        }
-        Self(Some(trie.contains_iter(target.as_bytes())))
+        let inner = if target.is_empty() {
+            iter::ContainsIter::empty()
+        } else {
+            trie.contains_iter(target.as_bytes())
+        };
+        Self(inner)
     }
 }
 
@@ -31,6 +33,6 @@ impl<'tm, 'p, Data: 'tm> Iterator for ContainsIter<'tm, 'p, Data> {
     type Item = (String, &'tm Data);
 
     fn next(&mut self) -> Option<Self::Item> {
-        self.0.as_mut()?.next().map(|(k, v)| (key_to_string(k), v))
+        self.0.next().map(|(k, v)| (key_to_string(k), v))
     }
 }

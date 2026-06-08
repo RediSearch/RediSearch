@@ -51,6 +51,18 @@ impl<'tm, 't, Data> ContainsIter<'tm, 't, Data> {
             finder,
         }
     }
+
+    /// Creates a new empty contains iterator, that yields no entries.
+    ///
+    /// The `finder` is initialized to an unused empty needle; the empty
+    /// `stack` causes `advance` to return `None` before consulting it.
+    pub(crate) fn empty() -> Self {
+        Self {
+            stack: vec![],
+            key: vec![],
+            finder: Finder::new(b""),
+        }
+    }
 }
 
 impl<'tm, 't, Data> ContainsIter<'tm, 't, Data> {
