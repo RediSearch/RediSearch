@@ -93,7 +93,11 @@ jobs:
         run: ./install_script.sh sudo
       - name: Setup tests dependencies
         if: steps.benchmark-filter.outputs.skip != 'true'
-        run: .install/test_deps/common_installations.sh sudo
+        # Wrapped in retry-command so a transient GitHub outage during the
+        # dependency downloads is retried instead of failing the whole job.
+        uses: ./.github/actions/retry-command
+        with:
+          command: .install/test_deps/common_installations.sh sudo
       - name: Download prebuilt redisearch.so
         if: steps.benchmark-filter.outputs.skip != 'true'
         uses: actions/download-artifact@v7
