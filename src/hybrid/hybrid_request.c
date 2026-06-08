@@ -14,6 +14,7 @@
 #include "cursor.h"
 #include "info/info_redis/block_client.h"
 #include "query_error_ffi.h"
+#include "search_ctx.h"
 #include "spec.h"
 #include "module.h"
 #include "profile/profile.h"
@@ -41,6 +42,11 @@ int HybridRequest_BuildDepletionPipeline(HybridRequest *req, const HybridPipelin
           // Set initClock right before parsing this specific subquery
           rs_wall_clock_init(&areq->profileClocks.initClock);
         }
+
+        // Pin the per-subquery disk view to the same point in time as the in-memory
+        // trie/stats that QAST_Iterate is about to consult. Callers hold the spec read
+        // lock at this point (matching AREQ_Execute_Callback / HREQ_Execute_Callback).
+        SearchCtx_TakeDiskSnapshot(AREQ_SearchCtx(areq));
 
         // Parse subquery: Convert AST to iterator tree
         areq->rootiter = QAST_Iterate(&areq->ast, &areq->searchopts, AREQ_SearchCtx(areq), areq->reqflags, areq, &req->errors[i]);

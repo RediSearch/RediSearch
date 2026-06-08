@@ -1255,9 +1255,12 @@ void AREQ_Execute_Callback(blockedClientReqCtx *BCRctx) {
 
   // For disk indexes, release the spec lock immediately after iterator creation.
   // This is fine, since the disk iterators use snapshots. This allows the main
-  // thread to write while the query iterates over disk data.
+  // thread to write while the query iterates over disk data. Gated on
+  // `diskSnapshot` (not just `diskSpec`) so that if SearchDisk_CreateSnapshot
+  // returned NULL during planning we keep the read lock for the duration of
+  // the query rather than fall back to live disk reads under concurrent writes.
   // NOTE: Revisit as more index types are supported.
-  if (sctx->spec->diskSpec) {
+  if (sctx->diskSnapshot) {
     RedisSearchCtx_UnlockSpec(sctx);
   }
 
