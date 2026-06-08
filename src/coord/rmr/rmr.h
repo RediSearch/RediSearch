@@ -28,6 +28,11 @@ extern "C" {
 
 typedef struct QueryError QueryError;
 
+// Error detail returned to the client when a query cannot be dispatched to the
+// cluster (pre-fanout connection-validation / send failure). Shared by the MR
+// iterator no-reply path (rmr.c) and the hybrid cursor-mapping error callback;
+// tests assert on this substring, so keep them in sync via this single macro.
+#define CLUSTER_QUERY_ERROR "Could not send query to cluster"
 
 struct MRCtx;
 struct RedisModuleCtx;
@@ -129,7 +134,22 @@ typedef struct MRIteratorCallbackCtx MRIteratorCallbackCtx;
 typedef struct MRIteratorCtx MRIteratorCtx;
 typedef struct MRIterator MRIterator;
 
+/**
+ * Per-reply callback, invoked on the IO thread for every shard reply.
+ * Owns the iterator's completion bookkeeping: it must call
+ * MRIteratorCallback_Done once the shard has no more replies to drive the
+ * iterator toward depletion. Contrast with MRIteratorErrorCallback, which is
+ * notify-only and must not touch the Done state.
+ */
 typedef void (*MRIteratorCallback)(MRIteratorCallbackCtx *ctx, MRReply *rep);
+
+/**
+ * Invoked on the IO thread when a shard command terminates without a reply
+ * (NULL async reply or synchronous send failure). Notify-only: must not free
+ * the iterator nor call MRIteratorCallback_Done — the MR layer does that next.
+ * Optional; NULL preserves the historical depletion-only behavior.
+ */
+typedef void (*MRIteratorErrorCallback)(MRIteratorCallbackCtx *ctx);
 
 /**
  * Callback type for modifying commands before they are sent to shards.
@@ -142,6 +162,30 @@ typedef void (*MRIteratorCallback)(MRIteratorCallbackCtx *ctx, MRReply *rep);
  * @param privateData The private data passed to MR_IterateWithPrivateData
  */
 typedef void (*MRCommandModifier)(MRCommand *cmd, size_t numShards, void *privateData);
+
+/**
+ * Bundles the optional callbacks and private data for MR_IterateWithPrivateData.
+ * Only `successCB` is required; every other field may be NULL to opt out of that hook.
+ *
+ * @param successCB              Per-reply callback (required).
+ * @param errorCB                No-reply termination callback (optional).
+ * @param cbPrivateData          Private data handed to `successCB` via the callback ctx.
+ * @param cbPrivateDataDestructor Frees `cbPrivateData` when the iterator is freed.
+ * @param cbPrivateDataInit      Runs once on the IO thread after numShards is known.
+ * @param commandModifier        Rewrites the command per-shard before sending.
+ * @param iterStartCb            Scheduled on the IO thread to trigger the first send.
+ * @param iterStartCbPrivateData StrongRef demoted and passed to `iterStartCb`.
+ */
+typedef struct {
+  MRIteratorCallback successCB;
+  MRIteratorErrorCallback errorCB;
+  void *cbPrivateData;
+  void (*cbPrivateDataDestructor)(void *);
+  void (*cbPrivateDataInit)(void *, const MRIterator *);
+  MRCommandModifier commandModifier;
+  void (*iterStartCb)(void *);
+  StrongRef *iterStartCbPrivateData;
+} MRIteratorConfig;
 
 // Trigger all the commands in the iterator to be sent.
 // Returns true if there may be more replies to come, false if we are done.
@@ -160,11 +204,7 @@ MRReply *MRIterator_NextWithTimeout(MRIterator *it, const struct timespec *absti
  * invoke MRChannel_WakeAbort directly (e.g. from a timeout callback on another thread). */
 struct MRChannel *MRIterator_GetChannel(MRIterator *it);
 
-MRIterator *MR_IterateWithPrivateData(const MRCommand *cmd, MRIteratorCallback cb, void *cbPrivateData,
-                                      void (*cbPrivateDataDestructor)(void *),
-                                      void (*cbPrivateDataInit)(void *, const MRIterator *),
-                                      MRCommandModifier commandModifier,
-                                      void (*iterStartCb)(void *), StrongRef *iterStartCbPrivateData);
+MRIterator *MR_IterateWithPrivateData(const MRCommand *cmd, const MRIteratorConfig *config);
 
 MRCommand *MRIteratorCallback_GetCommand(MRIteratorCallbackCtx *ctx);
 
