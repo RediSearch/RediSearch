@@ -23,14 +23,14 @@ use crate::{QueryError, QueryReply, ReplyOrder};
 /// The lifetime parameters prevent the iterator from outliving the C state it
 /// borrows:
 ///
-/// - `'idx`: the VecSim index the iterator was created from. HNSW batch
+/// - `'index`: the VecSim index the iterator was created from. HNSW batch
 ///   iterators store a raw index pointer and dereference it on every
 ///   [`next`](Self::next) and [`Drop`] call.
 /// - `'params`: the `VecSimQueryParams` borrow passed at construction. The
 ///   iterator copies `queryParams->timeoutCtx` and reads that pointer on every
 ///   [`next`](Self::next) call; `'params` acts as a conservative lower bound
 ///   on the lifetime of the timeout-context object.
-pub struct BatchIterator<'idx, 'params> {
+pub struct BatchIterator<'index, 'params> {
     /// Owned VecSim batch iterator handle.
     ///
     /// # Invariant
@@ -38,19 +38,20 @@ pub struct BatchIterator<'idx, 'params> {
     /// Valid (returned by `VecSimBatchIterator_New`) and not yet freed, from
     /// construction until [`Drop`].
     inner: NonNull<VecSimBatchIterator>,
-    _idx: PhantomData<&'idx VecSimIndex>,
+    _idx: PhantomData<&'index VecSimIndex>,
     _params: PhantomData<&'params mut VecSimQueryParams>,
 }
 
-impl<'idx, 'params> BatchIterator<'idx, 'params> {
+impl<'index, 'params> BatchIterator<'index, 'params> {
     /// Wrap a non-null batch iterator obtained from
     /// `VecSimBatchIterator_New`.
     ///
     /// # Safety
     ///
-    /// The caller must establish the [`inner`](Self::inner) field invariant
-    /// and choose `'idx` and `'params` so that they are bounded by the index
-    /// lifetime and the timeout-context lifetime respectively.
+    /// The caller must:
+    /// 1. establish the [`inner`](Self::inner) field invariant;
+    /// 2. choose `'index` so it is bounded by the index lifetime;
+    /// 3. choose `'params` so it is bounded by the timeout-context lifetime.
     ///
     /// The query blob passed to `VecSimBatchIterator_New` needs no lifetime: it
     /// is copied into the iterator at construction, so the caller's buffer may
