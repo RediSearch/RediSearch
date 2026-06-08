@@ -260,8 +260,7 @@ impl<E: Encoder> InvertedIndex<E> {
         // The Arc's heap allocation: refcount header + the inlined ThinVec stack
         // representation. The `ThinVec` itself moves from `InvertedIndex`'s stack
         // (in PR4) to the Arc's heap allocation here.
-        let arc_heap =
-            ARC_HEADER_BYTES + std::mem::size_of::<ThinVec<IndexBlock, BlockCapacity>>();
+        let arc_heap = ARC_HEADER_BYTES + std::mem::size_of::<ThinVec<IndexBlock, BlockCapacity>>();
         let stack = std::mem::size_of::<Self>();
 
         blocks_heap + blocks_buffers + arc_heap + stack

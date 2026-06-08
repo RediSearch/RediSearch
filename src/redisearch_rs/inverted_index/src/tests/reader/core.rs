@@ -280,7 +280,6 @@ fn reader_needs_revalidation_detects_appends_without_gc_marker_bump() {
     }
 }
 
-
 #[test]
 fn reader_unique_docs() {
     let blocks = medium_thin_vec![

@@ -276,10 +276,8 @@ impl<E: Encoder + DecodedBy> InvertedIndex<E> {
         // If a reader holds an outstanding snapshot, the previous Arc keeps the
         // pre-GC blocks alive for that snapshot; we clone-out a fresh ThinVec.
         // When no snapshot is alive, `try_unwrap` extracts in place.
-        let old_arc =
-            std::mem::replace(&mut self.blocks, Arc::new(ThinVec::with_capacity(0)));
-        let tmp_blocks: ThinVec<IndexBlock, BlockCapacity> = match Arc::try_unwrap(old_arc)
-        {
+        let old_arc = std::mem::replace(&mut self.blocks, Arc::new(ThinVec::with_capacity(0)));
+        let tmp_blocks: ThinVec<IndexBlock, BlockCapacity> = match Arc::try_unwrap(old_arc) {
             Ok(v) => v,
             Err(shared) => {
                 let mut v = ThinVec::with_capacity(shared.len());
