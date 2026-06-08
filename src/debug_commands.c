@@ -569,11 +569,16 @@ DEBUG_COMMAND(DumpInvertedIndex) {
     goto end;
   }
   decoderCtx = (IndexDecoderCtx){.fieldmask_tag = IndexDecoderCtx_FieldMask, .fieldmask = RS_FIELDMASK_ALL};
+  // NewIndexReader snapshots `pending`/`in_progress` non-atomically. Hold the spec
+  // read lock so the snapshot doesn't race with `add_record` running under the
+  // write lock during background indexing.
+  RedisSearchCtx_LockSpecRead(sctx);
   reader = NewIndexReader(invidx, decoderCtx);
   res = NewTokenRecord(NULL, 1);
   res->freq = 1;
   res->fieldMask = RS_FIELDMASK_ALL;
   ReplyReaderResultsIDs(reader, res, sctx->redisCtx);
+  RedisSearchCtx_UnlockSpec(sctx);
 
 end:
   SearchCtx_Free(sctx);
@@ -764,6 +769,10 @@ DEBUG_COMMAND(DumpTagIndex) {
 
   iter = TrieMap_Iterate(tagIndex->values);
   RedisModule_ReplyWithArray(sctx->redisCtx, REDISMODULE_POSTPONED_ARRAY_LEN);
+  // NewIndexReader snapshots `pending`/`in_progress` non-atomically. Hold the spec
+  // read lock across the iteration so we don't race with `add_record` running
+  // under the write lock during background indexing.
+  RedisSearchCtx_LockSpecRead(sctx);
   while (TrieMapIterator_Next(iter, &tag, &len, (void **)&iv)) {
     RedisModule_ReplyWithArray(sctx->redisCtx, 2);
     RedisModule_ReplyWithStringBuffer(sctx->redisCtx, tag, len);
@@ -775,6 +784,7 @@ DEBUG_COMMAND(DumpTagIndex) {
     ReplyReaderResultsIDs(reader, res, sctx->redisCtx);
     ++resultSize;
   }
+  RedisSearchCtx_UnlockSpec(sctx);
   RedisModule_ReplySetArrayLength(sctx->redisCtx, resultSize);
   TrieMapIterator_Free(iter);
 
