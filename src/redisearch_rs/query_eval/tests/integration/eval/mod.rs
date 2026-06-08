@@ -14,6 +14,24 @@ use rqe_iterators::{IteratorType, RQEIterator};
 use query::mock::{MockQueryEvalCtx, MockQueryNode};
 
 // ---------------------------------------------------------------------------
+// QAST_Iterate
+// ---------------------------------------------------------------------------
+
+#[test]
+fn qast_iterate_evaluates_root_node() {
+    let mut mock_ctx = MockQueryEvalCtx::new();
+    let mut ctx = unsafe { QueryEvalContext::new(mock_ctx.as_non_null()) };
+    let mock_node = MockQueryNode::new(QueryNodeType::Null);
+    let node = unsafe { QueryNodeRef::new(mock_node.as_non_null()) };
+
+    let mut it = eval::qast_iterate(&mut ctx, &node);
+
+    assert_eq!(it.type_(), IteratorType::Empty);
+    assert!(it.at_eof());
+    assert!(matches!(it.read(), Ok(None)));
+}
+
+// ---------------------------------------------------------------------------
 // QN_NULL → Empty
 // ---------------------------------------------------------------------------
 
@@ -253,6 +271,27 @@ mod missing {
             eval::eval_node(&mut ctx, &node).is_none(),
             "no missing values for the field, so eval should return None"
         );
+    }
+
+    #[test]
+    fn qast_iterate_substitutes_empty_for_none() {
+        let _guard = GlobalGuard::default();
+        // Term context: the field has no entry in `missingFieldDict`, so a
+        // QN_MISSING node makes `eval_node` return `None`. `qast_iterate` must
+        // substitute an `Empty` iterator instead of propagating that `None`.
+        let context = TestContext::term(IndexFlags_Index_StoreFreqs, std::iter::empty(), false);
+
+        let mut ctx = unsafe { QueryEvalContext::new(context.qctx()) };
+
+        let mut mock_node = MockQueryNode::new(QueryNodeType::Missing);
+        mock_node.set_missing_field(context.field_spec());
+        let node = unsafe { QueryNodeRef::new(mock_node.as_non_null()) };
+
+        let mut it = eval::qast_iterate(&mut ctx, &node);
+
+        assert_eq!(it.type_(), IteratorType::Empty);
+        assert!(it.at_eof());
+        assert!(matches!(it.read(), Ok(None)));
     }
 }
 

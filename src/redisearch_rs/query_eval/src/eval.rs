@@ -27,6 +27,17 @@ use crate::{QueryEvalContext, QueryNode, QueryNodeRef};
 /// [`ProfilePrint`](rqe_iterators::profile_print::ProfilePrint).
 pub type EvalResult<'index> = Box<dyn RQEIteratorPrintable<'index> + 'index>;
 
+/// Build the executable iterator tree for a parsed query AST.
+///
+/// The `root` node is evaluated via [`eval_node`]. When evaluation yields no
+/// iterator (`None`), an [`Empty`] iterator is returned.
+pub fn qast_iterate<'index>(
+    ctx: &'index mut QueryEvalContext,
+    root: &QueryNodeRef,
+) -> EvalResult<'index> {
+    eval_node(ctx, root).unwrap_or_else(|| Box::new(Empty))
+}
+
 /// Evaluate a single query node, producing the corresponding iterator.
 ///
 /// Returns `None` when the node produces no results.
