@@ -56,8 +56,8 @@ impl QueryReply {
     /// Convert a raw reply pointer into a [`Result`], translating the VecSim
     /// reply code into [`QueryError::TimedOut`] when applicable.
     ///
-    /// Frees the reply on the error and `Ok(None)` paths so the caller never
-    /// has to worry about leaks.
+    /// The caller never has to free: a null `raw` yields `Ok(None)`, and a
+    /// timed-out reply is freed before returning [`QueryError::TimedOut`].
     ///
     /// `order` must be the sort order requested from the VecSim query call that
     /// produced `raw`.
@@ -86,10 +86,6 @@ impl QueryReply {
     }
 
     /// Consume the reply and produce an iterator over its results.
-    ///
-    /// Returns `None` if VecSim does not provide an iterator for this reply
-    /// (i.e. `VecSimQueryReply_GetIterator` returned null), in which case the
-    /// reply itself is freed.
     pub fn into_results(self) -> Option<ReplyResults> {
         // SAFETY: `self.inner` upholds its invariant.
         let iter = unsafe { VecSimQueryReply_GetIterator(self.inner.as_ptr()) };
@@ -113,8 +109,7 @@ impl Drop for QueryReply {
 /// Iterator over the results of a [`QueryReply`].
 ///
 /// Holds the owning [`QueryReply`] so the reply lives at least as long as the
-/// iterator. On drop the VecSim iterator handle is freed first, then the
-/// reply (via `QueryReply::Drop`) — the order required by VecSim.
+/// iterator.
 pub struct ReplyResults {
     /// Owned VecSim reply iterator handle.
     ///
@@ -150,12 +145,7 @@ impl ReplyResults {
     ///
     /// # Precondition
     ///
-    /// Only valid on [`ReplyOrder::ById`] replies. The linear scan discards
-    /// every result until it sees an id `>= target`, which assumes ids arrive
-    /// in increasing order. On a [`ReplyOrder::ByScore`] reply ids are
-    /// unordered, so this would silently skip valid results with smaller ids;
-    /// callers must check [`order`](Self::order) first. Debug builds assert
-    /// the precondition.
+    /// Only valid on [`ReplyOrder::ById`] replies.
     pub fn skip_to(&mut self, target: DocId) -> Option<(DocId, f64)> {
         debug_assert_eq!(
             self.order,
