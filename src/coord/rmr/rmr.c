@@ -47,8 +47,6 @@
 
 #define CEIL_DIV(a, b) ((a + b - 1) / b)
 
-// CLUSTER_QUERY_ERROR is defined in rmr.h and shared with the hybrid error path.
-
 /* A cluster is a pool of IORuntimes. It is owned by the main thread and accessed in the coordinator threads */
 static MRCluster *cluster_g = NULL;
 
@@ -614,8 +612,8 @@ void MR_ReplyClusterInfo(RedisModuleCtx *ctx, MRClusterTopology *topo) {
 
 struct MRIteratorCtx {
   MRChannel *chan;
-  MRIteratorCallback cb;
-  MRIteratorErrorCallback errorCB;  // Optional: notify caller on no-reply termination
+  MRIteratorCallback successCB;
+  MRIteratorErrorCallback errorCB;  // Optional: callback to execute on error
   short pending;    // Number of shards with more results (not depleted)
   short inProcess;  // Number of currently running commands on shards
   bool timedOut;    // whether the coordinator experienced a timeout
@@ -655,7 +653,7 @@ static void mrIteratorRedisCB(redisAsyncContext *c, void *r, void *privdata) {
   if (!r) {
     mrIteratorCallback_Error(ctx);
   } else {
-    ctx->it->ctx.cb(ctx, r);
+    ctx->it->ctx.successCB(ctx, r);
   }
 }
 
@@ -763,7 +761,7 @@ void iterStartCb(void *p) {
         it->ctx.privateDataInit(privateData, it);
       }
       MRReply *err = MRReply_CreateError(CLUSTER_QUERY_ERROR, sizeof(CLUSTER_QUERY_ERROR) - 1);
-      it->ctx.cb(&it->cbxs[0], err);
+      it->ctx.successCB(&it->cbxs[0], err);
       rm_free(data);
       return;
     }
@@ -947,7 +945,7 @@ MRIterator *MR_IterateWithPrivateData(const MRCommand *cmd, const MRIteratorConf
   *ret = (MRIterator){
     .ctx = {
       .chan = MR_NewChannel(),
-      .cb = config->cb,
+      .successCB = config->successCB,
       .errorCB = config->errorCB,
       .pending = 1,
       .inProcess = 1,

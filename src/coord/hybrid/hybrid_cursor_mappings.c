@@ -310,7 +310,7 @@ bool ProcessHybridCursorMappings(const MRCommand *cmd, StrongRef searchMappingsR
     // with the actual shard count from the live topology, preventing use-after-free
     // when topology changes during shard migration.
     MRIterator *it = MR_IterateWithPrivateData(cmd, &(MRIteratorConfig){
-        .cb = processCursorMappingCallback,
+        .successCB = processCursorMappingCallback,
         .errorCB = processCursorMappingErrorCallback,
         .cbPrivateData = ctx,
         .cbPrivateDataInit = processCursorMappingInit,

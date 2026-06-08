@@ -180,7 +180,7 @@ static int rpnetNext_Start(ResultProcessor *rp, SearchResult *r) {
   // Use aggregateNetCursorCallback to properly extract ShardResponseBarrier
   // from AggregateIteratorContext
   MRIterator *it = MR_IterateWithPrivateData(&nc->cmd, &(MRIteratorConfig){
-    .cb = aggregateNetCursorCallback,
+    .successCB = aggregateNetCursorCallback,
     .cbPrivateData = iterCtx,
     .cbPrivateDataDestructor = aggregateIteratorContext_Free,
     .cbPrivateDataInit = aggregateIteratorContext_Init,

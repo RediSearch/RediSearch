@@ -134,6 +134,13 @@ typedef struct MRIteratorCallbackCtx MRIteratorCallbackCtx;
 typedef struct MRIteratorCtx MRIteratorCtx;
 typedef struct MRIterator MRIterator;
 
+/**
+ * Per-reply callback, invoked on the IO thread for every shard reply.
+ * Owns the iterator's completion bookkeeping: it must call
+ * MRIteratorCallback_Done once the shard has no more replies to drive the
+ * iterator toward depletion. Contrast with MRIteratorErrorCallback, which is
+ * notify-only and must not touch the Done state.
+ */
 typedef void (*MRIteratorCallback)(MRIteratorCallbackCtx *ctx, MRReply *rep);
 
 /**
@@ -158,11 +165,11 @@ typedef void (*MRCommandModifier)(MRCommand *cmd, size_t numShards, void *privat
 
 /**
  * Bundles the optional callbacks and private data for MR_IterateWithPrivateData.
- * Only `cb` is required; every other field may be NULL to opt out of that hook.
+ * Only `successCB` is required; every other field may be NULL to opt out of that hook.
  *
- * @param cb                     Per-reply callback (required).
+ * @param successCB              Per-reply callback (required).
  * @param errorCB                No-reply termination callback (optional).
- * @param cbPrivateData          Private data handed to `cb` via the callback ctx.
+ * @param cbPrivateData          Private data handed to `successCB` via the callback ctx.
  * @param cbPrivateDataDestructor Frees `cbPrivateData` when the iterator is freed.
  * @param cbPrivateDataInit      Runs once on the IO thread after numShards is known.
  * @param commandModifier        Rewrites the command per-shard before sending.
@@ -170,7 +177,7 @@ typedef void (*MRCommandModifier)(MRCommand *cmd, size_t numShards, void *privat
  * @param iterStartCbPrivateData StrongRef demoted and passed to `iterStartCb`.
  */
 typedef struct {
-  MRIteratorCallback cb;
+  MRIteratorCallback successCB;
   MRIteratorErrorCallback errorCB;
   void *cbPrivateData;
   void (*cbPrivateDataDestructor)(void *);

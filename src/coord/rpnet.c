@@ -402,7 +402,7 @@ int rpnetNext_StartWithMappings(ResultProcessor *rp, SearchResult *r) {
     rm_free(idx_copy);
 
     nc->it = MR_IterateWithPrivateData(&nc->cmd, &(MRIteratorConfig){
-      .cb = netCursorCallback,
+      .successCB = netCursorCallback,
       .iterStartCb = iterCursorMappingCb,
       .iterStartCbPrivateData = &nc->mappings,
     });
