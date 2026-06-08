@@ -12,7 +12,7 @@
 
 #include <stdlib.h>
 #include "rq.h"
-#include "debug_commands.h"  // DebugSendError_Consume
+#include "debug_commands.h"
 
 /* Initialize the MapReduce engine with a node provider */
 MRCluster *MR_NewCluster(MRClusterTopology *initialTopology, size_t conn_pool_size, size_t num_io_threads) {
