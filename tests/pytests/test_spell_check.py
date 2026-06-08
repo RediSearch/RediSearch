@@ -85,6 +85,21 @@ def testSpellCheckWithIncludeDict(env):
     compare_lists(env, res, [['TERM', 'name', [['0.66666666666666663', 'name2'], ['0.33333333333333331', 'name1'],
                                                ['0', 'name3'], ['0', 'name4'], ['0', 'name5']]]])
 
+def testSpellCheckZeroScoreFromIncludeDict(env):
+    # Candidate term comes from an FT.DICTADD include dict but has no inverted
+    # index in the spec (not present in any indexed doc) → SpellCheck_GetScore
+    # returns 0 → RS_SuggestionsAdd stores it as a score=0 terminal. Verifies
+    # the suggestion still appears in the reply at score 0.
+    env.cmd('ft.dictadd', 'dict', 'xyzzy')
+    env.cmd('ft.create', 'idx', 'ON', 'HASH', 'SCHEMA', 'name', 'TEXT')
+    with env.getClusterConnectionIfNeeded() as r:
+        r.execute_command('hset', 'doc1', 'name', 'unrelated')
+    waitForIndex(env, 'idx')
+
+    # Misspelling within edit distance 1 of "xyzzy".
+    res = env.cmd('ft.spellcheck', 'idx', 'xyzzx', 'TERMS', 'INCLUDE', 'dict')
+    env.assertEqual(res, [['TERM', 'xyzzx', [['0', 'xyzzy']]]])
+
 def testSpellCheckWithDuplications(env):
     env.cmd('ft.dictadd', 'dict', 'name1', 'name4', 'name5')
     env.cmd('ft.create', 'idx', 'ON', 'HASH', 'SCHEMA', 'name', 'TEXT', 'body', 'TEXT')

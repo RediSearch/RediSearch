@@ -90,7 +90,6 @@ int RSSuggestAddCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc)
     RedisModule_ReplyWithError(ctx, "ERR invalid score");
     goto end;
   }
-
   /* Create an empty value object if the key is currently empty. */
   if (type == REDISMODULE_KEYTYPE_EMPTY) {
     tree = NewTrie(NULL, Trie_Sort_Score);
