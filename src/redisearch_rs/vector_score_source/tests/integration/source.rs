@@ -23,8 +23,11 @@ use ffi::{
     VecSimIndex_Free, VecSimIndex_New, VecSimMetric_VecSimMetric_L2, VecSimParams,
     VecSimQueryParams, VecSimType_VecSimType_FLOAT32, t_docId, timespec,
 };
+use std::collections::HashSet;
+
 use index_result::RSResultKind;
-use rqe_iterators::{IdList, RQEIterator};
+use rqe_iterators::{ExpirationChecker, FieldExpirationChecker, IdList, RQEIterator};
+use rqe_iterators_test_utils::MockExpirationChecker;
 use top_k::{TopKIterator, TopKMode};
 use vector_score_source::{
     VectorScoreSource, new_vector_top_k_filtered, new_vector_top_k_unfiltered,
@@ -96,6 +99,22 @@ unsafe fn make_source(
     k: usize,
     child_est: usize,
 ) -> VectorScoreSource<'static> {
+    // SAFETY: caller-upheld `index` lifetime; no expiration filter.
+    unsafe { make_source_with_expiration(index, n, k, child_est, None::<FieldExpirationChecker>) }
+}
+
+/// As [`make_source`], but installs an optional expiration filter.
+///
+/// # Safety
+///
+/// `index` must outlive the returned source.
+unsafe fn make_source_with_expiration<E: ExpirationChecker>(
+    index: NonNull<VecSimIndex>,
+    n: usize,
+    k: usize,
+    child_est: usize,
+    expiration: Option<E>,
+) -> VectorScoreSource<'static, E> {
     // SAFETY: zeroed is a valid bit pattern for this POD-with-union config
     // struct; we then set the only field VecSim reads for an HNSW query.
     let mut query_params: VecSimQueryParams = unsafe { std::mem::zeroed() };
@@ -119,7 +138,7 @@ unsafe fn make_source(
             false,
             child_est,
             0,
-            None,
+            expiration,
         )
     }
 }
@@ -401,6 +420,28 @@ fn disjoint_child_yields_nothing() {
 
     assert!(it.read().unwrap().is_none());
     assert!(it.at_eof());
+
+    drop(it);
+    // SAFETY: no live references to the index remain.
+    unsafe { VecSimIndex_Free(index.as_ptr()) };
+}
+
+#[test]
+fn unfiltered_skips_expired_docs() {
+    let n = 100;
+    let k = 10;
+    let index = build_hnsw_index(n);
+
+    // Mark the two nearest neighbours (ids 100, 99) expired.
+    let checker = MockExpirationChecker::new(HashSet::from([100, 99]));
+    // SAFETY: index outlives the iterator (freed at end of scope).
+    let source = unsafe { make_source_with_expiration(index, n, k, n, Some(checker)) };
+    let mut it = new_vector_top_k_unfiltered(source, NonZeroUsize::new(k).unwrap());
+
+    // Top-k by score is ids 100..=91; the two expired nearest neighbours are
+    // dropped without refill, leaving 98..=91.
+    let ids = collect_ids(&mut it);
+    assert_eq!(ids, (91..=98).rev().collect::<Vec<_>>());
 
     drop(it);
     // SAFETY: no live references to the index remain.

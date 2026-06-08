@@ -17,15 +17,18 @@ use top_k::ScoreBatch;
 use vecsim::ReplyResults;
 
 /// A [`ScoreBatch`] cursor over a single VecSim batch reply.
-pub struct VecSimScoreBatchCursor {
+///
+/// `E` is the [`ExpirationChecker`] strategy, defaulting to the production
+/// [`FieldExpirationChecker`]; see [`VectorScoreSource`](crate::VectorScoreSource).
+pub struct VecSimScoreBatchCursor<E: ExpirationChecker = FieldExpirationChecker> {
     results: ReplyResults,
     /// Optional per-doc field-expiration filter; when present, expired docs
     /// are skipped during iteration so they never reach the heap or yield path.
-    expiration: Option<FieldExpirationChecker>,
+    expiration: Option<E>,
 }
 
-impl VecSimScoreBatchCursor {
-    pub(crate) fn new(results: ReplyResults, expiration: Option<FieldExpirationChecker>) -> Self {
+impl<E: ExpirationChecker> VecSimScoreBatchCursor<E> {
+    pub(crate) fn new(results: ReplyResults, expiration: Option<E>) -> Self {
         Self {
             results,
             expiration,
@@ -33,7 +36,7 @@ impl VecSimScoreBatchCursor {
     }
 }
 
-impl ScoreBatch for VecSimScoreBatchCursor {
+impl<E: ExpirationChecker> ScoreBatch for VecSimScoreBatchCursor<E> {
     fn next(&mut self) -> Option<(DocId, f64)> {
         loop {
             // SAFETY: `self.iter` is valid until dropped.

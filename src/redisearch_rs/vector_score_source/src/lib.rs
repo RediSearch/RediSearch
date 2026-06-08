@@ -23,14 +23,18 @@ pub use source::VectorScoreSource;
 use std::{cmp::Ordering, num::NonZeroUsize};
 
 use ffi::{VecSearchMode_HYBRID_ADHOC_BF, VecSearchMode_HYBRID_BATCHES};
-use rqe_iterators::RQEIterator;
+use rqe_iterators::{ExpirationChecker, FieldExpirationChecker, RQEIterator};
 use top_k::{TopKIterator, TopKMode};
 
 /// A [`TopKIterator`] parameterised over [`VectorScoreSource`].
 ///
 /// Use [`new_vector_top_k_unfiltered`] or [`new_vector_top_k_filtered`]
 /// to construct one; these constructors encode the mode-selection logic.
-pub type VectorTopKIterator<'index> = TopKIterator<'index, VectorScoreSource<'index>>;
+///
+/// `E` is the [`ExpirationChecker`] strategy, defaulting to the production
+/// [`FieldExpirationChecker`].
+pub type VectorTopKIterator<'index, E = FieldExpirationChecker> =
+    TopKIterator<'index, VectorScoreSource<'index, E>>;
 
 /// Ascending comparator — lower distance score is better (vector L2/IP/Cosine).
 fn asc_cmp(a: f64, b: f64) -> Ordering {
@@ -41,10 +45,10 @@ fn asc_cmp(a: f64, b: f64) -> Ordering {
 ///
 /// Results are streamed directly from the VecSim batch without a heap,
 /// using the [`TopKMode::Unfiltered`] path.
-pub fn new_vector_top_k_unfiltered<'index>(
-    source: VectorScoreSource<'index>,
+pub fn new_vector_top_k_unfiltered<'index, E: ExpirationChecker + Clone + 'index>(
+    source: VectorScoreSource<'index, E>,
     k: NonZeroUsize,
-) -> VectorTopKIterator<'index> {
+) -> VectorTopKIterator<'index, E> {
     TopKIterator::new_with_mode(source, None, k, asc_cmp, TopKMode::Unfiltered)
 }
 
@@ -63,11 +67,11 @@ pub fn new_vector_top_k_unfiltered<'index>(
 /// [`VectorScoreSource::requested_search_mode`]: source::VectorScoreSource::requested_search_mode
 /// [`VecSimIndex_PreferAdHocSearch`]: ffi::VecSimIndex_PreferAdHocSearch
 /// [`BatchStrategy::SwitchToAdhoc`]: top_k::BatchStrategy::SwitchToAdhoc
-pub fn new_vector_top_k_filtered<'index>(
-    source: VectorScoreSource<'index>,
+pub fn new_vector_top_k_filtered<'index, E: ExpirationChecker + Clone + 'index>(
+    source: VectorScoreSource<'index, E>,
     child: impl RQEIterator<'index> + 'index,
     k: NonZeroUsize,
-) -> VectorTopKIterator<'index> {
+) -> VectorTopKIterator<'index, E> {
     new_vector_top_k_filtered_boxed(source, Box::new(child), k)
 }
 
@@ -81,11 +85,11 @@ pub fn new_vector_top_k_filtered<'index>(
 /// [`VecSimIndex_PreferAdHocSearch`] cost heuristic.
 ///
 /// [`VecSimIndex_PreferAdHocSearch`]: ffi::VecSimIndex_PreferAdHocSearch
-pub fn new_vector_top_k_filtered_boxed<'index>(
-    source: VectorScoreSource<'index>,
+pub fn new_vector_top_k_filtered_boxed<'index, E: ExpirationChecker + Clone + 'index>(
+    source: VectorScoreSource<'index, E>,
     child: Box<dyn RQEIterator<'index> + 'index>,
     k: NonZeroUsize,
-) -> VectorTopKIterator<'index> {
+) -> VectorTopKIterator<'index, E> {
     // The user pinned a policy via HYBRID_POLICY: honor it verbatim. HYBRID_BATCHES
     // also suppresses the mid-run switch to adhoc — the C reader's
     // `reviewHybridSearchPolicy` returns false for it — which is exactly what
