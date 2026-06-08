@@ -45,8 +45,10 @@ TEST_F(TagIndexTest, testCreate) {
   size_t buffer_cap = 1106;
   size_t num_blocks = N / 1000;
 
-  // The size of the inverted index structure is 24 bytes
-  size_t iv_index_size = 24;
+  // The base size of an inverted index is 48 bytes: 24 bytes for the struct itself
+  // plus 24 bytes for the Arc<ThinVec> heap allocation (Arc refcount header + ThinVec
+  // stack representation).
+  size_t iv_index_size = 48;
 
   // Each index block is 48 bytes + its buffer capacity + the header of the block vector
   size_t expectedTotalSZ = v.size() * (iv_index_size + (8 + (buffer_cap + 48) * num_blocks));
@@ -55,11 +57,11 @@ TEST_F(TagIndexTest, testCreate) {
   // Add a new entry to and check the last block size
   std::vector<const char *> v2{"bye"};
   TagIndex_Index(NULL, idx, NULL, &v2[0], v2.size(), ++d, &stats);
-  // A base inverted index is 24 bytes
+  // A base inverted index is 48 bytes (24 struct + 24 Arc<ThinVec> heap)
   // The header of the block vector is 8 bytes
   // An index block is 48 bytes
   // And after the first insert the buffer capacity is 1 byte
-  size_t last_block_size = 24 + 8 + 48 + 1;
+  size_t last_block_size = 48 + 8 + 48 + 1;
   ASSERT_EQ(expectedTotalSZ + last_block_size, stats.invertedSize);
 
   MockQueryEvalCtx mockQctx(N, N);
