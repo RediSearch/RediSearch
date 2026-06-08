@@ -169,6 +169,7 @@ fn test_create_and_populate() {
     assert!(table.is_empty());
 }
 
+#[cfg(not(miri))]
 #[test]
 fn test_create_and_populate_c() {
     // SAFETY: inputs is empty, so no array ownership is transferred.

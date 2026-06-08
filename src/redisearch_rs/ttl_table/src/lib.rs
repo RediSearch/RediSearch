@@ -714,8 +714,7 @@ fn verify_mask<M: BitMask>(
         // - `bit_index <= highest_bit_plus_one - 1`
         // - `highest_bit_plus_one <= ft_id_to_field_index.len()`
         // hence `bit_index < ft_id_to_field_index.len()`.
-        let field_index_to_check =
-            unsafe { *get_unchecked(ft_id_to_field_index, bit_index) };
+        let field_index_to_check = unsafe { *get_unchecked(ft_id_to_field_index, bit_index) };
 
         // Advance the cursor over fields strictly less than the one
         // we are checking.
