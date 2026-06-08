@@ -36,6 +36,7 @@ auto CPPQueryIterator::base() noexcept -> QueryIterator * {
 
 IteratorStatus CPPQueryIterator::read_single() noexcept {
   if (!has_next()) {
+    base_.atEOF = true;
     return ITERATOR_EOF;
   }
   t_docId docId = iter_[index_++];
@@ -74,14 +75,33 @@ IteratorStatus CPPQueryIterator::skip_to(t_docId docId) {
   const auto it = std::ranges::lower_bound(std::ranges::next(std::ranges::begin(iter_), index_),
                                            std::ranges::end(iter_), docId);
   index_ = std::ranges::distance(std::ranges::begin(iter_), it + 1);
+
+  const t_docId found = *it;
+  if (check_field_expiration_
+      && !DocTable_CheckFieldExpirationPredicate(&sctx_->spec->docs, found,
+                                                 filterCtx_.field.index,
+                                                 filterCtx_.predicate, &sctx_->time.current)) {
+    // The matched entry's field has expired. Fall back to read(), which loops
+    // past expired entries to the next valid one (updating current/lastDocId,
+    // and setting atEOF on EOF), so the iterator never settles on an expired
+    // doc. read() resumes from index_, i.e. the entry right after this expired
+    // match.
+    const IteratorStatus rc = read();
+    if (rc == ITERATOR_OK) {
+      // A valid entry beyond docId was found; the target itself did not match.
+      return ITERATOR_NOTFOUND;
+    }
+    return rc;
+  }
+
   if (!has_next()) {
     base_.atEOF = true;
   }
 
-  base_.current->docId = *it;
-  base_.lastDocId = *it;
+  base_.current->docId = found;
+  base_.lastDocId = found;
 
-  if (*it == docId) {
+  if (found == docId) {
     return ITERATOR_OK;
   }
   return ITERATOR_NOTFOUND;
