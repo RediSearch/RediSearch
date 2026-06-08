@@ -5,6 +5,25 @@ The codebase is primarily C, with an ongoing effort to port modules to Rust in `
 
 For human contributor instructions, see `CONTRIBUTING.md`. This file is optimized for coding agents and internal automation workflows.
 
+## Proposing Features and Large Changes
+
+External and automated contributors are welcome to propose new features and improvements — not just fix bugs. Keep the friction proportional to the change:
+
+- **Small changes** (bug fixes, refactors, tests, docs) go straight to a normal PR. See `CONTRIBUTING.md`.
+- **Large changes** — a new `FT.*` command or option, a new field/index type, a behavior or persistence-format change, or a cross-cutting C/Rust refactor — go through a lightweight **spec-driven workflow** so the design is reviewed *before* code is written.
+
+The spec-driven workflow is gated but **framework-neutral**. What is reviewed is a set of artifacts, not any particular tool:
+
+1. **Proposal** — *why* (problem, who is affected) and *what changes* (the user-visible surface). No code.
+2. **Design** — *how*: subsystems touched, data model, edge cases, alternatives considered and rejected.
+3. **Tasks** — an implementation checklist; one item ≈ one reviewable commit or PR.
+4. **Spec delta** — the durable behavior spec for the new or changed surface.
+5. **Tests** — the change is **not done** until new or changed behavior is covered (C unit, Rust, and/or Python end-to-end as appropriate) and the build, lint, and test suites are green.
+
+You may author these artifacts however you like — by hand in Markdown, with [OpenSpec](https://github.com/Fission-AI/OpenSpec) (this repo ships an `openspec/` setup with worked examples), with [GitHub Spec Kit](https://github.com/github/spec-kit), or another spec framework. The artifacts and maintainer review are the contract; the framework is optional.
+
+The **gate is maintainer review at each stage** (proposal → design → implementation), not CI: open a GitHub issue first, get directional agreement, then iterate on the artifacts in a draft PR. See [`docs/CONTRIBUTING-specs.md`](docs/CONTRIBUTING-specs.md) for the full workflow and where artifacts live.
+
 ## Build Commands
 
 ```bash
