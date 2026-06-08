@@ -460,7 +460,12 @@ int rpnetNext_StartWithMappings(ResultProcessor *rp, SearchResult *r) {
     nc->cmd.protocol = 3;
     rm_free(idx_copy);
 
-    nc->it = MR_IterateWithPrivateData(&nc->cmd, netCursorCallback, NULL, NULL, NULL, iterCursorMappingCb, &nc->mappings);
+    nc->it = MR_IterateWithPrivateData(&nc->cmd, &(MRIteratorConfig){
+      .successCB = netCursorCallback,
+      .iterStartCb = iterCursorMappingCb,
+      .iterStartCbPrivateData = &nc->mappings,
+    });
+
     // Register the iterator's channel so the main-thread timeout callback can wake a
     // blocked reader after flipping AREQ's `timedOut` flag. Paired with
     // RequestSyncCtx_UnregisterAbortWakeChannel in rpnetFree.
