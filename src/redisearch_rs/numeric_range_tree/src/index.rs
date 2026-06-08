@@ -117,25 +117,22 @@ impl NumericIndex {
         }
     }
 
-    /// Get a reference to the last block in this index, if any.
-    pub(crate) fn last_block(&self) -> Option<&IndexBlock> {
-        let n = self.num_blocks();
-        if n == 0 {
-            return None;
-        }
-        match self {
-            NumericIndex::Uncompressed(idx) => idx.block_ref(n - 1),
-            NumericIndex::Compressed(idx) => idx.block_ref(n - 1),
-        }
-    }
-
     /// Get the first document ID in a specific block.
     ///
-    /// Returns `None` if the block index is out of bounds.
+    /// Returns `None` if the block index is out of bounds. Takes a transient snapshot
+    /// of the underlying inverted index, extracts the `DocId` (which is `Copy`), and
+    /// drops the snapshot before returning — safe even though the snapshot is
+    /// short-lived.
     pub(crate) fn block_first_id(&self, block_idx: usize) -> Option<DocId> {
         match self {
-            NumericIndex::Uncompressed(idx) => idx.block_ref(block_idx).map(|b| b.first_block_id()),
-            NumericIndex::Compressed(idx) => idx.block_ref(block_idx).map(|b| b.first_block_id()),
+            NumericIndex::Uncompressed(idx) => idx
+                .snapshot()
+                .block_ref(block_idx)
+                .map(|b| b.first_block_id()),
+            NumericIndex::Compressed(idx) => idx
+                .snapshot()
+                .block_ref(block_idx)
+                .map(|b| b.first_block_id()),
         }
     }
 
@@ -159,7 +156,7 @@ impl NumericIndex {
         repair_fn: Option<F>,
     ) -> std::io::Result<Option<inverted_index::GcScanDelta>>
     where
-        F: for<'index> FnMut(&RSIndexResult<'index>, &IndexBlock),
+        F: for<'index> FnMut(&RSIndexResult<'index>, &IndexBlock, usize),
     {
         match self {
             NumericIndex::Uncompressed(idx) => idx.scan_gc(doc_exist, repair_fn),

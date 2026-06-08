@@ -29,13 +29,13 @@ pub const TIMEOUT_CHECK_GRANULARITY: u32 = 5_000;
 
 /// The result of [`not_iterator_reducer`].
 ///
-/// The `ReducedWildcard` variant is intentionally large (contains an inline
-/// [`NewWildcardIterator`]) to avoid an extra heap allocation on a per-query
-/// construction path. This enum is short-lived and never stored.
-#[expect(
-    clippy::large_enum_variant,
-    reason = "short-lived reducer result; boxing would add a needless allocation"
-)]
+/// The `ReducedWildcard` variant contains an inline [`NewWildcardIterator`] (rather than
+/// a boxed one) to avoid an extra heap allocation on a per-query construction path.
+/// This enum is short-lived and never stored, so the variant-size disparity doesn't
+/// cost much in practice — and after the Epic 1 inverted-index refactor (Story 1.2
+/// shrunk `IndexReaderCore`) the disparity is small enough that
+/// `clippy::large_enum_variant` no longer fires, so the previous `#[expect(...)]`
+/// suppression has been removed.
 enum NotReduction<'index, I> {
     /// The child is empty → NOT matches everything → wildcard.
     ReducedWildcard(NewWildcardIterator<'index>),

@@ -41,8 +41,9 @@ fn index_block_repair_delete() {
 
     let repair_status = block
         .repair(
+            0,
             cb,
-            None::<fn(&RSIndexResult, &IndexBlock)>,
+            None::<fn(&RSIndexResult, &IndexBlock, usize)>,
             PhantomData::<Dummy>::default(),
         )
         .unwrap();
@@ -71,8 +72,9 @@ fn index_block_repair_unchanged() {
 
     let repair_status = block
         .repair(
+            0,
             cb,
-            None::<fn(&RSIndexResult, &IndexBlock)>,
+            None::<fn(&RSIndexResult, &IndexBlock, usize)>,
             PhantomData::<Dummy>::default(),
         )
         .unwrap();
@@ -96,8 +98,9 @@ fn index_block_repair_some_deletions() {
 
     let repair_status = block
         .repair(
+            0,
             cb,
-            None::<fn(&RSIndexResult, &IndexBlock)>,
+            None::<fn(&RSIndexResult, &IndexBlock, usize)>,
             PhantomData::<Dummy>::default(),
         )
         .unwrap();
@@ -205,8 +208,9 @@ fn index_block_repair_delta_too_big() {
 
     let repair_status = block
         .repair(
+            0,
             cb,
-            None::<fn(&RSIndexResult, &IndexBlock)>,
+            None::<fn(&RSIndexResult, &IndexBlock, usize)>,
             PhantomData::<SmallDeltaDummy>::default(),
         )
         .unwrap();
@@ -294,7 +298,7 @@ fn ii_scan_gc() {
     }
 
     let gc_result = ii
-        .scan_gc(cb, None::<fn(&RSIndexResult, &IndexBlock)>)
+        .scan_gc(cb, None::<fn(&RSIndexResult, &IndexBlock, usize)>)
         .unwrap()
         .unwrap();
 
@@ -351,7 +355,7 @@ fn ii_scan_gc_no_change() {
     }
 
     let gc_result = ii
-        .scan_gc(cb, None::<fn(&RSIndexResult, &IndexBlock)>)
+        .scan_gc(cb, None::<fn(&RSIndexResult, &IndexBlock, usize)>)
         .unwrap();
 
     assert_eq!(gc_result, None, "there should be no changes");
@@ -393,15 +397,20 @@ fn ii_apply_gc() {
     ];
     let mut ii = InvertedIndex::<Dummy>::from_blocks(IndexFlags_Index_DocIdsOnly, blocks);
 
+    // PRE-GC layout:
+    //   - Empty `InvertedIndex` overhead: 120 bytes (96 stack incl. inlined
+    //     Option<IndexBlock> + 24 sealed Arc overhead).
+    //   - `from_blocks` puts the first 3 blocks into `pending` (Vec capacity 4 → 32 bytes
+    //     of pointer slots) and the last block into `in_progress`.
+    //   - Per pending block: ARC_HEADER (16) + STACK_SIZE (48) + buffer.cap.
+    //   - in_progress is owned directly on the struct (no extra Arc), already counted
+    //     in the 120-byte stack; only its buffer.cap adds heap bytes.
     assert_eq!(
         ii.memory_usage(),
-        24// Size of an empty inverted index
-        + 8 // Size of the header of the thinvec storing blocks
-        + IndexBlock::STACK_SIZE * 4 // Size of the index blocks
-        + 8 // Size of the buffer of the first index block
-        + 16 // Size of the buffer of the second index block
-        + 8 // Size of the buffer of the third index block
-        + 16 // Size of the buffer of the fourth index block
+        120 // empty InvertedIndex overhead
+        + 32 // pending Vec heap (cap=4)
+        + (16 + IndexBlock::STACK_SIZE) * 3 // ARC_HEADER + STACK_SIZE for each pending block
+        + 8 + 16 + 8 + 16 // buffer capacities of the 4 blocks
     );
 
     let gc_result = vec![
@@ -457,20 +466,28 @@ fn ii_apply_gc() {
 
     assert_eq!(ii.gc_marker(), 1);
 
+    // POST-GC layout:
+    //   - 3 sealed blocks live in a `ThinVec<IndexBlock>` (capacity = 3 here):
+    //       Replace_block_for_1 (cap=8),
+    //       survivor_of_block_2 (cap=8, preserved by Arc::try_unwrap — the survivor's
+    //       Arc is uniquely owned at compaction time, so its original buffer Vec is
+    //       moved out without cloning),
+    //       Replace_block_for_3a (cap=8).
+    //   - 1 in_progress block, owned directly on the struct: Replace_block_for_3b
+    //     (cap=8). Its IndexBlock stack bytes are in the 120-byte overhead already.
+    //   - pending is empty (drained, no heap allocation).
     assert_eq!(
         ii.memory_usage(),
-        24// Size of an empty inverted index
-        + 8 // Size of the header of the thinvec storing blocks
-        + IndexBlock::STACK_SIZE * 4 // Size of the index blocks
-        + 8 // Size of the buffer of the first index block
-        + 8 // Size of the buffer of the second index block
-        + 8 // Size of the buffer of the third index block
-        + 8 // Size of the buffer of the fourth index block
+        120 // empty InvertedIndex overhead
+        + 8 // sealed ThinVec heap header (4-byte length + 4-byte capacity)
+        + IndexBlock::STACK_SIZE * 3 // sealed slots (in-line IndexBlocks)
+        + 8 + 8 + 8 // sealed buffer capacities
+        + 8 // in_progress buffer capacity (block itself is in the 120 overhead)
     );
 
     assert_eq!(ii.unique_docs(), 4);
     assert_eq!(
-        ii.blocks,
+        ii.blocks_snapshot(),
         vec![
             IndexBlock {
                 buffer: encode_ids!(Dummy, 21),
@@ -533,13 +550,15 @@ fn ii_apply_gc_last_block_updated() {
 
     let mut ii = InvertedIndex::<Dummy>::from_blocks(IndexFlags_Index_DocIdsOnly, blocks);
 
+    // PRE-GC layout: 1 pending block + 1 in_progress. See `ii_apply_gc` for the
+    // breakdown — in_progress is owned directly on the struct (already in the 120
+    // overhead), so only its buffer.cap is added.
     assert_eq!(
         ii.memory_usage(),
-        24// Size of an empty inverted index
-        + 8 // Size of the header of the thinvec storing blocks
-        + IndexBlock::STACK_SIZE * 2 // Size of the index blocks
-        + 8 // Size of the buffer of the first index block
-        + 16 // Size of the buffer of the second index block
+        120 // empty InvertedIndex overhead
+        + 32 // pending Vec heap (cap=4)
+        + (16 + IndexBlock::STACK_SIZE) // pending block (Arc<IndexBlock>)
+        + 8 + 16 // buffer capacities of the two blocks
     );
 
     let gc_result = vec![
@@ -577,17 +596,19 @@ fn ii_apply_gc_last_block_updated() {
 
     assert_eq!(ii.gc_marker(), 1);
 
+    // POST-GC: block 0 deleted, block 1 (in_progress) survives unchanged (last-block
+    // delta dropped because num_entries grew since the scan). The surviving block
+    // becomes the new directly-owned `in_progress` (no Arc overhead — IndexBlock stack
+    // is in the 120 overhead). sealed and pending are both empty.
     assert_eq!(
         ii.memory_usage(),
-        24 // Size of an empty inverted index
-        + 8 // Size of the header of the thinvec storing blocks
-        + IndexBlock::STACK_SIZE * 1 // Size of the index blocks
-        + 16 // Size of the buffer of the first index block
+        120 // empty InvertedIndex overhead
+        + 16 // in_progress buffer capacity (block 1's original cap=16)
     );
 
     assert_eq!(ii.unique_docs(), 3);
     assert_eq!(
-        ii.blocks,
+        ii.blocks_snapshot(),
         vec![IndexBlock {
             buffer: encode_ids!(Dummy, 20, 21, 22),
             num_entries: 3,
@@ -667,7 +688,7 @@ fn ii_apply_gc_last_block_updated_no_delta() {
 
     // Block 0 was deleted, block 1 (unchanged) remains.
     assert_eq!(
-        ii.blocks,
+        ii.blocks_snapshot(),
         vec![IndexBlock {
             buffer: encode_ids!(Dummy, 20, 21, 22),
             num_entries: 3,
@@ -759,7 +780,8 @@ fn ii_apply_gc_entries_tracking_index() {
 
     let mut repaired = Vec::new();
 
-    let repair = |result: &RSIndexResult, _ib: &IndexBlock| repaired.push(result.doc_id);
+    let repair =
+        |result: &RSIndexResult, _ib: &IndexBlock, _block_idx: usize| repaired.push(result.doc_id);
 
     assert_eq!(
         ii.scan_gc(doc_exist, Some(repair)).unwrap().unwrap(),
@@ -775,7 +797,7 @@ fn ii_apply_gc_entries_tracking_index() {
     assert_eq!(ii.unique_docs(), 1);
     assert_eq!(repaired, vec![15, 15]);
     assert_eq!(
-        ii.inner().blocks,
+        ii.inner().blocks_snapshot(),
         vec![IndexBlock {
             buffer: encode_ids!(AllowDupsDummy, 15, 15),
             num_entries: 2,
@@ -786,6 +808,8 @@ fn ii_apply_gc_entries_tracking_index() {
     assert_eq!(
         apply_info,
         GcApplyInfo {
+            // bytes_freed = freed block's STACK_SIZE (48) + buffer.cap (17 after 4
+            // in-place ControlledCursor writes) = 65.
             bytes_freed: 65,
             bytes_allocated: 56,
             entries_removed: 2,
@@ -796,34 +820,35 @@ fn ii_apply_gc_entries_tracking_index() {
 }
 #[cfg_attr(miri, ignore = "the memory hack below raises error in miri")]
 #[test]
-fn test_refresh_buffer_pointers_after_reallocation() {
+fn reader_snapshot_is_frozen_against_concurrent_writes() {
+    // Epic 1, Story 1.2: the reader holds an `Arc<State>` snapshot taken at construction
+    // time and reads through it. Writes that happen afterwards are invisible until the
+    // caller `reset()`s, which re-snapshots. `refresh_buffer_pointers` is a no-op in this
+    // model — pre-snapshot it existed to handle in-place buffer reallocation, but
+    // snapshot block buffers are immutable.
     use crate::IndexReader as _;
 
     let mut ii = InvertedIndex::<Dummy>::new(IndexFlags_Index_DocIdsOnly);
 
-    // Add initial records
     ii.add_record(&RSIndexResult::build_virt().doc_id(10).build())
         .unwrap();
     ii.add_record(&RSIndexResult::build_virt().doc_id(11).build())
         .unwrap();
 
-    // SAFETY: We need to bypass Rust's borrowing rules to simulate the real-world
-    // scenario where buffer reallocation happens while a reader is active.
-    // This is safe because:
-    // 1. We're not accessing the reader during the mutation
-    // 2. The InvertedIndex structure remains valid
-    // 3. We call refresh_buffer_pointers before using the reader again
+    // Bypass Rust's borrow rules to simulate the real-world scenario where writes happen
+    // concurrently with a reader. In production these are on different threads under the
+    // spec lock; here we use a raw pointer so we can mutate the index while a reader
+    // borrow is live.
     let ii_ptr = &mut ii as *mut InvertedIndex<Dummy>;
 
     let mut reader: crate::IndexReaderCore<'_, Dummy> = ii.reader();
     let mut result = RSIndexResult::build_virt().build();
 
-    // Read first record
     assert!(reader.next_record(&mut result).unwrap());
     assert_eq!(result.doc_id, 10);
 
-    // Force buffer reallocation by adding many records to the same block
-    // This should cause the buffer to grow and potentially move
+    // Add many more records — these go into `ii.blocks` and into a new `state` revision,
+    // but the reader's snapshot still references the original revision.
     unsafe {
         for i in 12..1000 {
             (*ii_ptr)
@@ -832,20 +857,24 @@ fn test_refresh_buffer_pointers_after_reallocation() {
         }
     }
 
-    // Buffer was reallocated - test refresh_buffer_pointers
+    // No-op in the snapshot model. The reader continues to see its frozen view.
     reader.refresh_buffer_pointers();
 
-    // Verify we can still read correctly from the new buffer
-    let mut doc_count = 1; // Already read doc_id 10
-    let mut expected_doc_id = 11;
+    // From the frozen snapshot, the reader sees only doc_id 11 (the second record at
+    // snapshot time), then EOF.
+    assert!(reader.next_record(&mut result).unwrap());
+    assert_eq!(result.doc_id, 11);
+    assert!(!reader.next_record(&mut result).unwrap());
 
+    // `reset()` takes a fresh snapshot — now the reader sees everything.
+    reader.reset();
+    let mut count = 0;
+    let mut expected = 10;
     while reader.next_record(&mut result).unwrap() {
-        assert_eq!(result.doc_id, expected_doc_id);
-        doc_count += 1;
-        expected_doc_id += 1;
+        assert_eq!(result.doc_id, expected);
+        count += 1;
+        expected += 1;
     }
-
-    // Should have read all 990 documents (10, 11, 12..999)
-    assert_eq!(doc_count, 990);
-    assert_eq!(expected_doc_id, 1000);
+    // Initial 2 records + 988 added = 990.
+    assert_eq!(count, 990);
 }

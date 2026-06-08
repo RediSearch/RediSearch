@@ -38,6 +38,20 @@ typedef struct IndexBlock IndexBlock;
 typedef struct InvertedIndex InvertedIndex;
 
 /**
+ * An owned snapshot of an [`InvertedIndex`](super::core::InvertedIndex)'s block storage.
+ *
+ * Holds an internal [`Arc`] to the [`State`] that was current when the snapshot was
+ * taken, so the contained blocks remain alive for the snapshot's entire lifetime —
+ * regardless of writes to the source index. Use this to hand block references across
+ * boundaries where the borrow checker can't prove the source index outlives the
+ * reference (FFI, threads, callbacks).
+ *
+ * The snapshot does **not** see writes made after it was taken; if a fresh view is
+ * needed, take a new snapshot.
+ */
+typedef struct InvertedIndexSnapshot InvertedIndexSnapshot;
+
+/**
  * Summary information about an inverted index containing all key metrics
  */
 typedef struct IISummary {

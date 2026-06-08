@@ -93,9 +93,9 @@ impl<E: Encoder> FieldMaskTrackingIndex<E> {
         self.index.number_of_blocks()
     }
 
-    /// Get a reference to the block at the given index, if it exists. This is only used by some C tests.
-    pub fn block_ref(&self, index: usize) -> Option<&IndexBlock> {
-        self.index.block_ref(index)
+    /// Take an owned snapshot. See [`InvertedIndex::snapshot`].
+    pub fn snapshot(&self) -> crate::InvertedIndexSnapshot {
+        self.index.snapshot()
     }
 
     /// Get the current GC marker of this index. This is only used by the some C tests.
@@ -134,10 +134,10 @@ impl<E: Encoder + DecodedBy> FieldMaskTrackingIndex<E> {
     /// If a doc does exist, then `repair` is called with it to run any repair calculations needed.
     ///
     /// This function returns a delta if GC is needed, or `None` if no GC is needed.
-    pub fn scan_gc<'index>(
-        &'index self,
+    pub fn scan_gc(
+        &self,
         doc_exist: impl Fn(DocId) -> bool,
-        repair: Option<impl FnMut(&RSIndexResult<'index>, &IndexBlock)>,
+        repair: Option<impl for<'snap> FnMut(&RSIndexResult<'snap>, &IndexBlock, usize)>,
     ) -> std::io::Result<Option<GcScanDelta>> {
         self.index.scan_gc(doc_exist, repair)
     }

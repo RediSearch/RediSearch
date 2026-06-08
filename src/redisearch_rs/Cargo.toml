@@ -153,6 +153,7 @@ rqe_wildcard = { path = "./rqe_wildcard" }
 workspace_hack = { path = "./workspace_hack" }
 
 ahash = "0.8"
+arc-swap = "1.7"
 bumpalo = "3"
 anstyle-query = "1.1.5"
 anyhow = "1"

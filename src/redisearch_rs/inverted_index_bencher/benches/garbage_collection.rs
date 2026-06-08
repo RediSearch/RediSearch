@@ -67,7 +67,7 @@ fn benchmark_gc_pattern(
             }
 
             b.iter(|| {
-                ii.scan_gc(&doc_exist, None::<fn(&RSIndexResult, &IndexBlock)>)
+                ii.scan_gc(&doc_exist, None::<fn(&RSIndexResult, &IndexBlock, usize)>)
                     .unwrap();
             })
         },
@@ -89,7 +89,7 @@ fn benchmark_gc_pattern(
                         .unwrap();
                     }
                     let scan_deltas = ii
-                        .scan_gc(&doc_exist, None::<fn(&RSIndexResult, &IndexBlock)>)
+                        .scan_gc(&doc_exist, None::<fn(&RSIndexResult, &IndexBlock, usize)>)
                         .unwrap()
                         .unwrap();
 
@@ -140,7 +140,7 @@ fn benchmark_large_delta_pattern(group: &mut BenchmarkGroup<'_, WallTime>) {
             }
 
             b.iter(|| {
-                ii.scan_gc(&doc_exist, None::<fn(&RSIndexResult, &IndexBlock)>)
+                ii.scan_gc(&doc_exist, None::<fn(&RSIndexResult, &IndexBlock, usize)>)
                     .unwrap();
             })
         },
@@ -163,7 +163,7 @@ fn benchmark_large_delta_pattern(group: &mut BenchmarkGroup<'_, WallTime>) {
                         .unwrap();
                     }
                     let scan_deltas = ii
-                        .scan_gc(&doc_exist, None::<fn(&RSIndexResult, &IndexBlock)>)
+                        .scan_gc(&doc_exist, None::<fn(&RSIndexResult, &IndexBlock, usize)>)
                         .unwrap()
                         .unwrap();
 

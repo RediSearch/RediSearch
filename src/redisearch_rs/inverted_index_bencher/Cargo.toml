@@ -20,6 +20,10 @@ harness = false
 name = "garbage_collection"
 harness = false
 
+[[bench]]
+name = "add_record"
+harness = false
+
 [dependencies]
 buffer.workspace = true
 criterion.workspace = true
