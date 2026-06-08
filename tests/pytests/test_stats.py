@@ -40,7 +40,7 @@ def runTestWithSeed(env, s=None):
 
     expected_inv_idx_size = (
         443  # buffer size after writing 4 bytes 100 times.
-        + 8  # per-inverted-index metadata (numeric tree node overhead)
+        + 8   # per-inverted-index metadata (numeric tree node overhead)
         + 96  # size of the InvertedIndex struct on the stack — includes
               # `Option<IndexBlock>` in_progress, so the active block is
               # already counted here.
