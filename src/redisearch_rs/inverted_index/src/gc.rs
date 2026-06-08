@@ -263,17 +263,23 @@ impl<E: Encoder + DecodedBy> InvertedIndex<E> {
         let n_pending = self.pending.len();
         let blocks_before = n_sealed + n_pending;
 
-        // Check if the actively-mutated tail (last entry of `pending`, when present) has
-        // changed since the scan was performed. Sealed blocks and non-tail pending blocks
-        // are immutable, so they cannot have changed.
-        let tail_idx = blocks_before.saturating_sub(1);
-        let last_block_changed = if last_block_idx == tail_idx && n_pending > 0 {
-            self.pending
-                .last()
-                .is_some_and(|arc| arc.num_entries != last_block_num_entries)
+        // Check whether the block scanned as the tail has changed since the scan.
+        // Between the fork-side scan and this apply, the parent may have appended to
+        // that block (in-place tail mutation) and then rolled over to a new tail,
+        // so by the time we get here the scanned block can sit at a non-tail
+        // position inside `pending`. It is still reachable at `last_block_idx`
+        // because `pending` only grows between scan and apply (`apply_gc` is the
+        // only path that drains pending and runs serially under the spec write
+        // lock). Sealed blocks remain immutable.
+        let last_block_changed = if last_block_idx >= n_sealed && last_block_idx < blocks_before {
+            let pending_idx = last_block_idx - n_sealed;
+            self.pending[pending_idx].num_entries != last_block_num_entries
         } else {
-            // Either the scan recorded a block that's not the tail (immutable), or
-            // pending is empty so the tail lives in `sealed` (also immutable).
+            // `last_block_idx < n_sealed` is not reachable: only `apply_gc` moves
+            // blocks into `sealed`, and it runs serially, so `n_sealed` cannot have
+            // grown between scan and apply. `last_block_idx >= blocks_before` is
+            // also unreachable: pending only grows. Treat both as "nothing to
+            // validate" defensively.
             false
         };
 

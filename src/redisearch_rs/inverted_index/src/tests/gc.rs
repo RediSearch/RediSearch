@@ -705,6 +705,96 @@ fn ii_apply_gc_last_block_updated_no_delta() {
 }
 
 #[test]
+fn ii_apply_gc_last_block_updated_after_rollover() {
+    // The fork-side scan saw block 1 as the tail with 2 entries. Before
+    // `apply_gc` runs, the parent appends a third entry to that block and then
+    // rolls over to a brand-new tail (block 2). The scanned block is therefore
+    // no longer the current tail, but its contents differ from what the scan
+    // observed — `apply_gc` must still detect the change and drop the stale
+    // delta for it.
+    let blocks = medium_thin_vec![
+        IndexBlock {
+            buffer: encode_ids!(Dummy, 10, 11),
+            num_entries: 2,
+            first_doc_id: 10,
+            last_doc_id: 11,
+        },
+        // Block 1: post-append, pre-rollover state — scan saw 2 entries here.
+        IndexBlock {
+            buffer: encode_ids!(Dummy, 20, 21, 22),
+            num_entries: 3,
+            first_doc_id: 20,
+            last_doc_id: 22,
+        },
+        // Block 2: brand-new tail added by the parent after the scan.
+        IndexBlock {
+            buffer: encode_ids!(Dummy, 30),
+            num_entries: 1,
+            first_doc_id: 30,
+            last_doc_id: 30,
+        },
+    ];
+
+    let mut ii = InvertedIndex::<Dummy>::from_blocks(IndexFlags_Index_DocIdsOnly, blocks);
+
+    // Stale deltas computed by the fork-side scan. Block 0 has real deletions;
+    // block 1's `Replace` was computed from the pre-append contents and must be
+    // dropped. The scan never observed block 2 so no delta exists for it.
+    let gc_result = vec![
+        BlockGcScanResult {
+            index: 0,
+            repair: RepairType::Delete {
+                n_unique_docs_removed: 2,
+            },
+        },
+        BlockGcScanResult {
+            index: 1,
+            repair: RepairType::Replace {
+                blocks: smallvec![IndexBlock {
+                    buffer: encode_ids!(Dummy, 21),
+                    num_entries: 1,
+                    first_doc_id: 21,
+                    last_doc_id: 21,
+                }],
+                n_unique_docs_removed: 2,
+            },
+        },
+    ];
+
+    let delta = GcScanDelta {
+        last_block_idx: 1,
+        // Scan saw 2 entries on block 1; the parent has since added a third.
+        last_block_num_entries: 2,
+        deltas: gc_result,
+    };
+
+    let apply_info = ii.apply_gc(delta);
+
+    // Block 0's delta applies; block 1's stale `Replace` is dropped; block 2 is
+    // preserved untouched.
+    assert_eq!(
+        ii.blocks_snapshot(),
+        vec![
+            IndexBlock {
+                buffer: encode_ids!(Dummy, 20, 21, 22),
+                num_entries: 3,
+                first_doc_id: 20,
+                last_doc_id: 22,
+            },
+            IndexBlock {
+                buffer: encode_ids!(Dummy, 30),
+                num_entries: 1,
+                first_doc_id: 30,
+                last_doc_id: 30,
+            },
+        ]
+    );
+    assert!(apply_info.ignored_last_block);
+    assert_eq!(apply_info.entries_removed, 2);
+    assert_eq!(apply_info.block_count_delta, -1);
+}
+
+#[test]
 fn ii_apply_gc_entries_tracking_index() {
     // Make a dummy encoder which allows duplicates
     #[derive(Clone)]
