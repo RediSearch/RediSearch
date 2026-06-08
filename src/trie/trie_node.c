@@ -7,7 +7,7 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 #include <sys/param.h>
-#include "trie_node.h"
+#include "trie_node_internal.h"
 #include "util/bsearch.h"
 #include "sparse_vector.h"
 #include "redisearch.h"
@@ -65,7 +65,7 @@ static void __trieNode_sortChildren(TrieNode *n);
 #define updateScore(n, value)                             \
 do {                                                      \
   if (n->sortMode == Trie_Sort_Score) {                   \
-    n->maxChildScore = MAX(n->maxChildScore, value);      \
+    n->subtreeMaxScore = MAX(n->subtreeMaxScore, value);      \
   }                                                       \
 } while(0)
 
@@ -115,6 +115,38 @@ static void triePayload_Free(TriePayload *payload, TrieFreeCallback freecb) {
   rm_free(payload);
 }
 
+/* Opaque accessors. Definitions for the declarations in trie_node.h. With LTO
+ * these are inlined back at external call sites; without LTO they stay as
+ * regular function calls. */
+t_len TrieNode_NumChildren(const TrieNode *n) {
+  return n->numChildren;
+}
+
+bool TrieNode_IsTerminal(const TrieNode *n) {
+  return (n->flags & TRIENODE_TERMINAL) != 0;
+}
+
+size_t TrieNode_NumDocs(const TrieNode *n) {
+  return n->numDocs;
+}
+
+TrieNode **TrieNode_Children(const TrieNode *n) {
+  return (TrieNode **)((char *)n + sizeof(TrieNode) +
+                       ((n->len + 1) + n->numChildren) * sizeof(rune));
+}
+
+TrieNode *TrieNode_ChildAt(const TrieNode *n, t_len i) {
+  return TrieNode_Children(n)[i];
+}
+
+char *TrieNode_GetPayloadData(const TrieNode *n) {
+  return (n && n->payload) ? n->payload->data : NULL;
+}
+
+char *TriePayload_Data(TriePayload *p) {
+  return p ? p->data : NULL;
+}
+
 TrieNode *__newTrieNode(const rune *str, t_len offset, t_len len, const char *payload, size_t plen,
                         t_len numChildren, float score, int terminal, TrieSortMode sortMode,
                         size_t numDocs) {
@@ -124,7 +156,7 @@ TrieNode *__newTrieNode(const rune *str, t_len offset, t_len len, const char *pa
   n->score = score;
   n->sortMode = sortMode;
   n->flags = 0 | (terminal ? TRIENODE_TERMINAL : 0);
-  n->maxChildScore = score;
+  n->subtreeMaxScore = score;
   n->numDocs = numDocs;
   memcpy(n->str, str + offset, sizeof(rune) * (len - offset));
   if (payload != NULL && plen > 0) {
@@ -167,7 +199,7 @@ static TrieNode *__trie_SplitNode(TrieNode *n, t_len offset) {
   // Copy the current node's data and children to a new child node
   TrieNode *newChild = __newTrieNode(n->str, offset, n->len, NULL, 0, n->numChildren, n->score,
                                      TrieNode_IsTerminal(n), n->sortMode, n->numDocs);
-  newChild->maxChildScore = n->maxChildScore;
+  newChild->subtreeMaxScore = n->subtreeMaxScore;
   newChild->flags = n->flags;
   newChild->payload = n->payload;
   n->payload = NULL;
@@ -208,7 +240,7 @@ static TrieNode *__trieNode_MergeWithSingleChild(TrieNode *n, TrieFreeCallback f
   TrieNode *merged = __newTrieNode(
       nstr, 0, n->len + ch->len, NULL, 0, ch->numChildren,
       ch->score, TrieNode_IsTerminal(ch), n->sortMode, ch->numDocs);
-  merged->maxChildScore = ch->maxChildScore;
+  merged->subtreeMaxScore = ch->subtreeMaxScore;
   merged->numChildren = ch->numChildren;
   merged->payload = ch->payload;
   ch->payload = NULL;
@@ -226,6 +258,84 @@ static TrieNode *__trieNode_MergeWithSingleChild(TrieNode *n, TrieFreeCallback f
   rm_free(ch);
 
   return merged;
+}
+
+// Return value of the per-mode add-child helpers below: the (possibly reallocated)
+// node and the status code that should be propagated up the recursion.
+typedef struct {
+  TrieNode *node;
+  int rc;
+} TrieAddChildResult;
+
+static int __trieNode_Add(TrieNode **np, const rune *str, t_len len, RSPayload *payload, float score,
+                          TrieAddOp op, TrieFreeCallback freecb, size_t numDocs);
+
+// Lex-mode child placement. Children are kept sorted by their first rune; the
+// scan can early-exit at the first key that exceeds the inserted rune. A recursed
+// update never changes a child's first rune, so no resort is required.
+static TrieAddChildResult __trieNode_addChild_lex(
+    TrieNode *n, const rune *str, t_len len, t_len offset, RSPayload *payload, float score,
+    TrieAddOp op, TrieFreeCallback freecb, size_t numDocs) {
+  int idx = 0;
+  for (; idx < n->numChildren; idx++) {
+    const rune *childKey = __trieNode_childKey(n, idx);
+    TrieNode *child = TrieNode_Children(n)[idx];
+    if (str[offset] == *childKey) {
+      // Payload is validated at the entry point (TrieNode_Add), so
+      // TRIE_ERR_PAYLOAD_OVERFLOW cannot occur here.
+      int rc = __trieNode_Add(&child, str + offset, len - offset, payload, score, op, freecb,
+                              numDocs);
+      *__trieNode_childKey(n, idx) = str[offset];
+      TrieNode_Children(n)[idx] = child;
+      return (TrieAddChildResult){.node = n, .rc = rc};
+    }
+    // break if new node has lex value higher than current child
+    if (str[offset] < *childKey) {
+      break;
+    }
+  }
+  n = __trie_AddChildIdx(n, str, offset, len, payload, score, idx, numDocs);
+  return (TrieAddChildResult){.node = n, .rc = TRIE_OK_NEW};
+}
+
+// Score-mode child placement. Children are kept sorted by descending
+// subtreeMaxScore; a recursed update may invalidate that order, so we check the
+// two neighbours and re-sort if needed.
+static TrieAddChildResult __trieNode_addChild_score(
+    TrieNode *n, const rune *str, t_len len, t_len offset, RSPayload *payload, float score,
+    TrieAddOp op, TrieFreeCallback freecb, size_t numDocs) {
+  int idx = 0;
+  int scoreIdx = REDISEARCH_UNINITIALIZED;
+  for (; idx < n->numChildren; idx++) {
+    const rune *childKey = __trieNode_childKey(n, idx);
+    TrieNode *child = TrieNode_Children(n)[idx];
+    if (str[offset] == *childKey) {
+      // Payload is validated at the entry point (TrieNode_Add), so
+      // TRIE_ERR_PAYLOAD_OVERFLOW cannot occur here.
+      int rc = __trieNode_Add(&child, str + offset, len - offset, payload, score, op, freecb,
+                              numDocs);
+      *__trieNode_childKey(n, idx) = str[offset];
+      TrieNode_Children(n)[idx] = child;
+      // check if the order was kept and fix as necessary
+      if (n->numChildren > 1) {
+        if ((idx > 0 && child->subtreeMaxScore > TrieNode_Children(n)[idx - 1]->subtreeMaxScore) ||
+            (idx < n->numChildren - 2 && child->subtreeMaxScore < TrieNode_Children(n)[idx + 1]->subtreeMaxScore)) {
+          __trieNode_sortChildren(n);
+        }
+      }
+      return (TrieAddChildResult){.node = n, .rc = rc};
+    }
+    // keep the index that fits the score
+    if (child->subtreeMaxScore < score && scoreIdx == REDISEARCH_UNINITIALIZED) {
+      scoreIdx = idx;
+    }
+  }
+  // if there is an index that fit the score, use it, else, place at the end
+  if (scoreIdx != REDISEARCH_UNINITIALIZED) {
+    idx = scoreIdx;
+  }
+  n = __trie_AddChildIdx(n, str, offset, len, payload, score, idx, numDocs);
+  return (TrieAddChildResult){.node = n, .rc = TRIE_OK_NEW};
 }
 
 static int __trieNode_Add(TrieNode **np, const rune *str, t_len len, RSPayload *payload, float score,
@@ -309,44 +419,14 @@ static int __trieNode_Add(TrieNode **np, const rune *str, t_len len, RSPayload *
     return (term && !deleted) ? TRIE_OK_UPDATED : TRIE_OK_NEW;
   }
 
-  // proceed to the next child or add a new child for the current rune
-  int idx = 0;
-  int scoreIdx = REDISEARCH_UNINITIALIZED;
-  for (; idx < n->numChildren; idx++) {
-    const rune *childKey = __trieNode_childKey(n, idx);
-    TrieNode *child = TrieNode_Children(n)[idx];
-    if (str[offset] == *childKey) {
-      // Payload is validated at the entry point (TrieNode_Add), so
-      // TRIE_ERR_PAYLOAD_OVERFLOW cannot occur here.
-      int rc = __trieNode_Add(&child, str + offset, len - offset, payload, score, op, freecb,
-                            numDocs);
-      *__trieNode_childKey(n, idx) = str[offset];
-      TrieNode_Children(n)[idx] = child;
-      // In score mode, check if the order was kept and fix as necessary
-      if (n->sortMode == Trie_Sort_Score && n->numChildren > 1) {
-        if ((idx > 0 && child->maxChildScore > TrieNode_Children(n)[idx - 1]->maxChildScore) ||
-            (idx < n->numChildren - 2 && child->maxChildScore < TrieNode_Children(n)[idx + 1]->maxChildScore)) {
-          __trieNode_sortChildren(n);
-        }
-      }
-      return rc;
-    }
-    // break if new node has lex value higher than current child
-    if (n->sortMode == Trie_Sort_Lex && str[offset] < *childKey) {
-      break;
-    }
-    // keep the index that fits the score
-    if (n->sortMode == Trie_Sort_Score && child->maxChildScore < score &&
-        scoreIdx == REDISEARCH_UNINITIALIZED) {
-      scoreIdx = idx;
-    }
-  }
-  // if there is an index that fit the score, use it, else, place at the end
-  if (n->sortMode == Trie_Sort_Score && scoreIdx != REDISEARCH_UNINITIALIZED) {
-    idx = scoreIdx;
-  }
-  *np = __trie_AddChildIdx(n, str, offset, len, payload, score, idx, numDocs);
-  return TRIE_OK_NEW;
+  // proceed to the next child or add a new child for the current rune.
+  // Each sort mode has its own helper to keep the per-mode invariants local
+  // and the inner loop free of `sortMode` branches.
+  TrieAddChildResult r = (n->sortMode == Trie_Sort_Lex)
+      ? __trieNode_addChild_lex(n, str, len, offset, payload, score, op, freecb, numDocs)
+      : __trieNode_addChild_score(n, str, len, offset, payload, score, op, freecb, numDocs);
+  *np = r.node;
+  return r.rc;
 }
 
 int TrieNode_Add(TrieNode **np, const rune *str, t_len len, RSPayload *payload, float score,
@@ -364,7 +444,38 @@ int TrieNode_Add(TrieNode **np, const rune *str, t_len len, RSPayload *payload, 
   return __trieNode_Add(np, str, len, payload, score, op, freecb, numDocs);
 }
 
+// Find a child by its leading rune. Lex mode can early-exit once the scan
+// passes the key; score mode has to scan the whole list (children are sorted
+// by score, not by rune).
+static TrieNode *__trieNode_findChild_lex(TrieNode *n, rune key) {
+  rune *childKeys = __trieNode_childKey(n, 0);
+  for (t_len i = 0; i < n->numChildren; i++) {
+    if (key == childKeys[i]) {
+      return TrieNode_Children(n)[i];
+    }
+    if (key < childKeys[i]) {
+      return NULL;
+    }
+  }
+  return NULL;
+}
+
+static TrieNode *__trieNode_findChild_score(TrieNode *n, rune key) {
+  rune *childKeys = __trieNode_childKey(n, 0);
+  for (t_len i = 0; i < n->numChildren; i++) {
+    if (key == childKeys[i]) {
+      return TrieNode_Children(n)[i];
+    }
+  }
+  return NULL;
+}
+
 TrieNode *TrieNode_Get(TrieNode *n, const rune *str, t_len len, bool exact, int *offsetOut) {
+  if (!n) return NULL;
+  // sortMode is uniform across all nodes in a trie (set once per __newTrieNode
+  // and never mutated), and `n->sortMode` is a 1-bit bitfield — the compiler
+  // can't hoist it past the `n = ...` reassignment below, so cache it once.
+  const TrieSortMode mode = n->sortMode;
   t_len offset = 0;
   while (n && offset < len) {
     t_len localOffset = 0;
@@ -387,21 +498,8 @@ TrieNode *TrieNode_Get(TrieNode *n, const rune *str, t_len len, bool exact, int 
     } else if (localOffset == n->len) {
       // we've reached the end of the node's string but not the search string
       // let's find a child to continue to
-      t_len i = 0;
-      TrieNode *nextChild = NULL;
-      rune *childKeys = __trieNode_childKey(n, 0);
-      for (; i < n->numChildren; i++) {
-        if (str[offset] == childKeys[i]) {
-          nextChild = TrieNode_Children(n)[i];
-          break;
-        }
-        if (n->sortMode == Trie_Sort_Lex && str[offset] < childKeys[i]) {
-          break;
-        }
-      }
-
-      // we couldn't find a matching child
-      n = nextChild;
+      n = (mode == Trie_Sort_Lex) ? __trieNode_findChild_lex(n, str[offset])
+                                  : __trieNode_findChild_score(n, str[offset]);
 
     } else {
       return NULL;
@@ -420,7 +518,7 @@ static int __trieNode_optimizeChildren(TrieNode *n, TrieFreeCallback freecb) {
   int rc = 0;
   int i = 0;
   TrieNode **nodes = TrieNode_Children(n);
-  n->maxChildScore = n->score;
+  n->subtreeMaxScore = n->score;
   // free deleted terminal nodes
   while (i < n->numChildren) {
 
@@ -434,7 +532,7 @@ static int __trieNode_optimizeChildren(TrieNode *n, TrieFreeCallback freecb) {
       while (i < n->numChildren - 1) {
         nodes[i] = nodes[i + 1];
         *nk = *(nk + 1);
-        updateScore(n, nodes[i]->maxChildScore);
+        updateScore(n, nodes[i]->subtreeMaxScore);
         i++;
         nk++;
       }
@@ -450,7 +548,7 @@ static int __trieNode_optimizeChildren(TrieNode *n, TrieFreeCallback freecb) {
         nodes[i] = __trieNode_MergeWithSingleChild(nodes[i], freecb);
         rc++;
       }
-      updateScore(n, nodes[i]->maxChildScore);
+      updateScore(n, nodes[i]->subtreeMaxScore);
     }
     i++;
   }
@@ -565,9 +663,9 @@ inline static int __trieNode_Cmp_Score(const void *p1, const void *p2) {
   TrieNode *n1 = *(TrieNode **)p1;
   TrieNode *n2 = *(TrieNode **)p2;
 
-  if (n1->maxChildScore < n2->maxChildScore) {
+  if (n1->subtreeMaxScore < n2->subtreeMaxScore) {
     return 1;
-  } else if (n1->maxChildScore > n2->maxChildScore) {
+  } else if (n1->subtreeMaxScore > n2->subtreeMaxScore) {
     return -1;
   }
   return __trieNode_Cmp_Lex(&n1, &n2);
@@ -676,7 +774,7 @@ inline int __ti_step(TrieIterator *it, void *matchCtx) {
       // push the next child
       if (current->childOffset < current->n->numChildren) {
         TrieNode *ch = TrieNode_Children(current->n)[current->childOffset++];
-        if (ch->maxChildScore >= it->minScore || ch->score >= it->minScore) {
+        if (ch->subtreeMaxScore >= it->kthBestScore || ch->score >= it->kthBestScore) {
           __ti_Push(it, ch, 0);
           it->nodesConsumed++;
         } else {
@@ -696,7 +794,7 @@ TrieIterator *TrieNode_Iterate(TrieNode *n, StepFilter f, StackPopCallback pf, v
   TrieIterator *it = rm_calloc(1, sizeof(TrieIterator));
   it->filter = f;
   it->popCallback = pf;
-  it->minScore = INT_MIN;    // terms from dictionary which are not in term trie get a valid score INT_MIN
+  it->kthBestScore = INT_MIN;
   it->ctx = ctx;
   __ti_Push(it, n, 0);
 
@@ -964,7 +1062,17 @@ static void rangeIterate(TrieNode *n, const rune *min, int nmin, const rune *max
     endIdx = rsb_lt(arr, arrlen, sizeof(*arr), &h, rsbCompareExact);
   }
 
-  // we need to iterate (without any checking) on all the subtree from beginIdx to endIdx
+  // we need to iterate (without any checking) on all the subtree from beginIdx
+  // to endIdx, excluding the prefix-boundary children that the blocks above
+  // and below recurse on separately. Without these guards, when the min (or
+  // max) is a proper prefix of the boundary child's label, `rsb_gt`/`rsb_lt`
+  // include that child here as well, double-emitting the entire subtree.
+  if (beginEqIdx != -1 && beginIdx <= beginEqIdx) {
+    beginIdx = beginEqIdx + 1;
+  }
+  if (endEqIdx != -1 && endIdx >= endEqIdx) {
+    endIdx = endEqIdx - 1;
+  }
   for (int ii = beginIdx; ii <= endIdx; ++ii) {
     rangeIterateSubTree(arr[ii], r);
   }

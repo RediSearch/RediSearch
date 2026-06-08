@@ -19,6 +19,7 @@ use inverted_index::{
     debug::Summary,
     numeric::{Numeric, NumericFloatCompression},
 };
+use rqe_core::DocId;
 
 /// Enum to hold either compressed or uncompressed numeric index.
 #[cheadergen::config(rename = "InvertedIndexNumeric")]
@@ -131,7 +132,7 @@ impl NumericIndex {
     /// Get the first document ID in a specific block.
     ///
     /// Returns `None` if the block index is out of bounds.
-    pub(crate) fn block_first_id(&self, block_idx: usize) -> Option<ffi::t_docId> {
+    pub(crate) fn block_first_id(&self, block_idx: usize) -> Option<DocId> {
         match self {
             NumericIndex::Uncompressed(idx) => idx.block_ref(block_idx).map(|b| b.first_block_id()),
             NumericIndex::Compressed(idx) => idx.block_ref(block_idx).map(|b| b.first_block_id()),
@@ -154,7 +155,7 @@ impl NumericIndex {
     /// Returns `Ok(Some(delta))` if GC is needed, `Ok(None)` otherwise.
     pub fn scan_gc<F>(
         &self,
-        doc_exist: impl Fn(ffi::t_docId) -> bool,
+        doc_exist: impl Fn(DocId) -> bool,
         repair_fn: Option<F>,
     ) -> std::io::Result<Option<inverted_index::GcScanDelta>>
     where
@@ -190,7 +191,7 @@ impl<'a> IndexReader<'a> for NumericIndexReader<'a> {
 
     fn seek_record(
         &mut self,
-        doc_id: ffi::t_docId,
+        doc_id: DocId,
         result: &mut RSIndexResult<'a>,
     ) -> std::io::Result<bool> {
         match self {
@@ -199,7 +200,7 @@ impl<'a> IndexReader<'a> for NumericIndexReader<'a> {
         }
     }
 
-    fn skip_to(&mut self, doc_id: ffi::t_docId) -> bool {
+    fn skip_to(&mut self, doc_id: DocId) -> bool {
         match self {
             Self::Uncompressed(r) => r.skip_to(doc_id),
             Self::Compressed(r) => r.skip_to(doc_id),

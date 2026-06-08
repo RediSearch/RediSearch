@@ -207,7 +207,7 @@ static int SpellCheckDictAuxLoad(RedisModuleIO *rdb, int encver, int when) {
   size_t len = LoadUnsigned_IOError(rdb, goto cleanup);
   for (size_t i = 0; i < len; i++) {
     char *key = LoadStringBuffer_IOError(rdb, NULL, goto cleanup);
-    Trie *val = TrieType_GenericLoad(rdb, false, false);
+    Trie *val = TrieType_GenericLoad(rdb, false, false, Trie_Sort_Lex);
     if (val == NULL) {
       RedisModule_Free(key);
       goto cleanup;

@@ -17,8 +17,9 @@ use std::ffi::{c_char, c_void};
 use ffi::{
     DocTable_Exists, IndexFlags, IndexFlags_Index_DocIdsOnly, IndexFlags_Index_StoreFieldFlags,
     IndexFlags_Index_StoreFreqs, IndexFlags_Index_StoreNumeric, IndexFlags_Index_StoreTermOffsets,
-    IndexFlags_Index_WideSchema, RedisSearchCtx, t_docId, t_fieldMask,
+    IndexFlags_Index_WideSchema, RedisSearchCtx,
 };
+use rqe_core::{DocId, FieldMask};
 
 use fork_gc::{InvertedIndexGCCallback, InvertedIndexGCReader, InvertedIndexGCWriter};
 use index_result::RSIndexResult;
@@ -227,7 +228,7 @@ pub unsafe extern "C" fn InvertedIndex_MemUsage(ii: *const InvertedIndex) -> usi
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn InvertedIndex_WriteNumericEntry(
     ii: *mut InvertedIndex,
-    doc_id: t_docId,
+    doc_id: DocId,
     value: f64,
 ) -> AddRecordOutcome {
     debug_assert!(!ii.is_null(), "ii must not be null");
@@ -374,7 +375,7 @@ pub unsafe extern "C" fn InvertedIndex_BlocksSummaryFree(blocks: *mut BlockSumma
 /// The following invariant must be upheld when calling this function:
 /// - `ii` must be a valid pointer to an `InvertedIndex` instance and cannot be NULL.
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn InvertedIndex_FieldMask(ii: *const InvertedIndex) -> t_fieldMask {
+pub unsafe extern "C" fn InvertedIndex_FieldMask(ii: *const InvertedIndex) -> FieldMask {
     debug_assert!(!ii.is_null(), "ii must not be null");
 
     // SAFETY: The caller must ensure that `ii` is a valid pointer to an `InvertedIndex`
@@ -456,7 +457,7 @@ pub unsafe extern "C" fn InvertedIndex_BlockRef<'index>(
 /// The following invariant must be upheld when calling this function:
 /// - `ii` must be a valid pointer to an `InvertedIndex` instance and cannot be NULL.
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn InvertedIndex_LastId(ii: *const InvertedIndex) -> t_docId {
+pub unsafe extern "C" fn InvertedIndex_LastId(ii: *const InvertedIndex) -> DocId {
     debug_assert!(!ii.is_null(), "ii must not be null");
 
     // SAFETY: The caller must ensure that `ii` is a valid pointer to an `InvertedIndex`
@@ -682,7 +683,7 @@ pub unsafe extern "C" fn GcScanDelta_LastBlockIdx(gc_scan_delta: *const GcScanDe
 /// The following invariant must be upheld when calling this function:
 /// - `ib` must be a valid pointer to an `IndexBlock` instance and cannot be NULL.
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn IndexBlock_FirstId(ib: *const IndexBlock) -> t_docId {
+pub unsafe extern "C" fn IndexBlock_FirstId(ib: *const IndexBlock) -> DocId {
     debug_assert!(!ib.is_null(), "ib must not be null");
 
     // SAFETY: The caller must ensure that `ib` is a valid pointer to an `IndexBlock`
@@ -698,7 +699,7 @@ pub unsafe extern "C" fn IndexBlock_FirstId(ib: *const IndexBlock) -> t_docId {
 /// The following invariant must be upheld when calling this function:
 /// - `ib` must be a valid pointer to an `IndexBlock` instance and cannot be NULL.
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn IndexBlock_LastId(ib: *const IndexBlock) -> t_docId {
+pub unsafe extern "C" fn IndexBlock_LastId(ib: *const IndexBlock) -> DocId {
     debug_assert!(!ib.is_null(), "ib must not be null");
 
     // SAFETY: The caller must ensure that `ib` is a valid pointer to an `IndexBlock`
@@ -1108,7 +1109,7 @@ pub unsafe extern "C" fn IndexReader_Next<'index>(
 /// The following invariant must be upheld when calling this function:
 /// - `ir` must be a valid, non NULL, pointer to an `IndexReader` instance.
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn IndexReader_SkipTo(ir: *mut IndexReader, doc_id: t_docId) -> bool {
+pub unsafe extern "C" fn IndexReader_SkipTo(ir: *mut IndexReader, doc_id: DocId) -> bool {
     debug_assert!(!ir.is_null(), "ir must not be null");
 
     // SAFETY: The caller must ensure that `ir` is a valid pointer to an `IndexReader`
@@ -1130,7 +1131,7 @@ pub unsafe extern "C" fn IndexReader_SkipTo(ir: *mut IndexReader, doc_id: t_docI
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn IndexReader_Seek<'index>(
     ir: *mut IndexReader<'index>,
-    doc_id: t_docId,
+    doc_id: DocId,
     res: *mut RSIndexResult<'index>,
 ) -> bool {
     debug_assert!(!ir.is_null(), "ir must not be null");

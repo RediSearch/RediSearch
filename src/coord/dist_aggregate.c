@@ -44,6 +44,82 @@ static const RLookupKey *keyForField(RPNet *nc, const char *s) {
   return NULL;
 }
 
+// Context for SHARD_K_RATIO optimization in FT.AGGREGATE.
+// Stores information needed to modify the KNN K value in the command
+typedef struct {
+  size_t queryArgIndex;    // Index of the query argument in the MRCommand
+  size_t originalK;        // K value from the parsed query
+  double shardWindowRatio; // SHARD_K_RATIO
+  size_t kTokenPos;        // Byte offset of K within the query string
+  size_t kTokenLen;        // Length of K token in bytes
+} AggregateKnnContext;
+
+// Combined context for MR_IterateWithPrivateData in FT.AGGREGATE
+// Contains optional barrier (for WITHCOUNT) and optional KNN context (for SHARD_K_RATIO)
+//
+// Ownership: once MR_IterateWithPrivateData succeeds the MRIterator owns this
+// struct and is responsible for freeing it via aggregateIteratorContext_Free.
+// The struct in turn owns its `barrier` and `knnCtx` allocations. knnCtx is
+// a self-contained scalar snapshot (no borrowed pointers).
+typedef struct {
+  ShardResponseBarrier *barrier;  // May be NULL if WITHCOUNT not enabled
+  AggregateKnnContext *knnCtx;    // May be NULL if no KNN optimization needed
+} AggregateIteratorContext;
+
+// Free the AggregateIteratorContext and its contents
+static void aggregateIteratorContext_Free(void *ptr) {
+  AggregateIteratorContext *ctx = (AggregateIteratorContext *)ptr;
+  if (ctx) {
+    if (ctx->barrier) {
+      shardResponseBarrier_Free(ctx->barrier);
+    }
+    rm_free(ctx->knnCtx);
+    rm_free(ctx);
+  }
+}
+
+// Initialize the barrier in AggregateIteratorContext (called from iterStartCb)
+static void aggregateIteratorContext_Init(void *ptr, const MRIterator *it) {
+  AggregateIteratorContext *ctx = (AggregateIteratorContext *)ptr;
+  if (ctx && ctx->barrier) {
+    shardResponseBarrier_Init(ctx->barrier, it);
+  }
+}
+
+// Command modifier callback for SHARD_K_RATIO optimization in FT.AGGREGATE
+// Called from iterStartCb on IO thread before commands are sent to shards.
+static void aggregateKnnCommandModifier(MRCommand *cmd, size_t numShards, void *privateData) {
+  RS_ASSERT(privateData && cmd);
+  AggregateIteratorContext *ctx = (AggregateIteratorContext *)privateData;
+  AggregateKnnContext *knnCtx = ctx->knnCtx;
+  RS_ASSERT(knnCtx);
+  // Only apply optimization for multi-shard deployments with valid ratio
+  if (numShards <= 1 || knnCtx->shardWindowRatio >= MAX_SHARD_WINDOW_RATIO) {
+    return;
+  }
+  size_t effectiveK = calculateEffectiveK(knnCtx->originalK, knnCtx->shardWindowRatio, numShards);
+  if (effectiveK == knnCtx->originalK) {
+    return;
+  }
+
+  // Modify the command to replace KNN k
+  modifyKNNCommand(cmd, knnCtx->queryArgIndex, knnCtx->originalK, effectiveK,
+                   knnCtx->kTokenPos, knnCtx->kTokenLen);
+}
+
+// Aggregate-specific cursor callback that extracts ShardResponseBarrier from
+// AggregateIteratorContext
+// This wraps the common netCursorCallback logic but correctly handles the
+// wrapper context type
+static void aggregateNetCursorCallback(MRIteratorCallbackCtx *ctx, MRReply *rep) {
+  // Extract the actual ShardResponseBarrier from the AggregateIteratorContext wrapper
+  AggregateIteratorContext *iterCtx = (AggregateIteratorContext *)MRIteratorCallback_GetPrivateData(ctx);
+  ShardResponseBarrier *barrier = iterCtx ? iterCtx->barrier : NULL;
+
+  // Call the common cursor callback logic with the extracted barrier
+  netCursorCallbackWithBarrier(ctx, rep, barrier);
+}
+
 void processResultFormat(uint32_t *flags, MRReply *map) {
   // Logic of which format to use is done by the shards
   MRReply *format = MRReply_MapElement(map, "format");
@@ -69,31 +145,51 @@ static int rpnetNext_Start(ResultProcessor *rp, SearchResult *r) {
     return RS_RESULT_TIMEDOUT;
   }
 
-  // Initialize shard response barrier if WITHCOUNT is enabled
+  // Create the iterator context wrapper for privateData
+  // This holds both optional barrier (for WITHCOUNT) and optional KNN context (for SHARD_K_RATIO)
+  AggregateIteratorContext *iterCtx = rm_calloc(1, sizeof(AggregateIteratorContext));
+
+  // Initialize shard response barrier if WITHCOUNT is enabled.
+  // The barrier is owned by iterCtx (and thus by the MRIterator after
+  // MR_IterateWithPrivateData below); nc->shardResponseBarrier is a non-owning
+  // alias for use by the coord thread in getNextReply. rpnetFree releases the
+  // iterator and then frees nc without touching the alias again.
   if (HasWithCount(nc->areq) && IsAggregate(nc->areq)) {
     ShardResponseBarrier *barrier = shardResponseBarrier_New();
-    if (!barrier) {
-      return RS_RESULT_ERROR;
-    }
-    nc->shardResponseBarrier = barrier;
+    iterCtx->barrier = barrier;
+    nc->shardResponseBarrier = barrier;  // non-owning alias for getNextReply
   }
 
-  // Pass barrier as private data to callback (only if WITHCOUNT enabled)
-  // The barrier is freed by MRIterator via shardResponseBarrier_Free destructor
-  // shardResponseBarrier_Init is called from iterStartCb when numShards is known from topology
-  MRIterator *it = nc->shardResponseBarrier
-                   ? MR_IterateWithPrivateData(&nc->cmd, netCursorCallback, nc->shardResponseBarrier,
-                                               shardResponseBarrier_Free, shardResponseBarrier_Init,
-                                               iterStartCb, NULL)
-                   : MR_Iterate(&nc->cmd, netCursorCallback);
+  // Initialize KNN context if SHARD_K_RATIO optimization is needed.
+  if (nc->hasKnnContext) {
+    AggregateKnnContext *knnCtx = rm_calloc(1, sizeof(AggregateKnnContext));
+    knnCtx->queryArgIndex    = nc->knnQueryArgIndex;
+    knnCtx->originalK        = nc->knnOriginalK;
+    knnCtx->shardWindowRatio = nc->knnShardWindowRatio;
+    knnCtx->kTokenPos        = nc->knnKTokenPos;
+    knnCtx->kTokenLen        = nc->knnKTokenLen;
+    iterCtx->knnCtx = knnCtx;
+  }
+
+  // Determine if we need the command modifier callback
+  MRCommandModifier cmdModifier = iterCtx->knnCtx ? &aggregateKnnCommandModifier : NULL;
+
+  // Always use MR_IterateWithPrivateData with the wrapper context
+  // The iterator takes ownership of iterCtx and will free it via
+  // aggregateIteratorContext_Free
+  // Use aggregateNetCursorCallback to properly extract ShardResponseBarrier
+  // from AggregateIteratorContext
+  MRIterator *it = MR_IterateWithPrivateData(&nc->cmd, aggregateNetCursorCallback, iterCtx,
+                                              aggregateIteratorContext_Free,
+                                              aggregateIteratorContext_Init,
+                                              cmdModifier, iterStartCb, NULL);
 
   if (!it) {
-    // Clean up on error - iterator never started so no callbacks running
-    // Must free manually since iterator didn't take ownership
-    if (nc->shardResponseBarrier) {
-      shardResponseBarrier_Free(nc->shardResponseBarrier);
-      nc->shardResponseBarrier = NULL;
-    }
+    // Iterator never started, so no callbacks are running and the iterator did
+    // not take ownership of iterCtx. Drop the non-owning alias on nc and free
+    // iterCtx, which in turn frees the barrier it owns.
+    nc->shardResponseBarrier = NULL;
+    aggregateIteratorContext_Free(iterCtx);
     return RS_RESULT_ERROR;
   }
 
@@ -110,26 +206,61 @@ static int rpnetNext_Start(ResultProcessor *rp, SearchResult *r) {
   return rpnetNext(rp, r);
 }
 
+// Helper to calculate the number of profile arguments
+static inline int getProfileArgs(ProfileOptions profileOptions) {
+  int profileArgs = 0;
+  if (profileOptions != EXEC_NO_FLAGS) {
+    profileArgs += 2; // SEARCH/AGGREGATE + QUERY
+    if (profileOptions & EXEC_WITH_PROFILE_LIMITED) {
+      profileArgs++;
+    }
+  }
+  return profileArgs;
+}
+
+// Extract a scalar KNN snapshot for SHARD_K_RATIO optimization if applicable.
+// Reads the parsed VectorQuery on the main thread (while specialCaseCtx is
+// still alive) and copies the fields the IO-thread command modifier needs
+// into outSnapshot. Returns true if the snapshot is populated.
+static bool extractKnnOptimizationContext(specialCaseCtx *knnCtx, ProfileOptions profileOptions,
+                                          AggregateKnnContext *outSnapshot) {
+  RS_ASSERT(outSnapshot != NULL);
+
+  const KNNVectorQuery *knn_query = &knnCtx->knn.queryNode->vn.vq->knn;
+  double ratio = knn_query->shardWindowRatio;
+
+  if (ratio >= MAX_SHARD_WINDOW_RATIO) {
+    return false;
+  }
+
+  int profileArgs = getProfileArgs(profileOptions);
+  outSnapshot->queryArgIndex    = 2 + profileArgs;  // Query is at index 2 + profileArgs
+  outSnapshot->originalK        = knn_query->k;
+  outSnapshot->shardWindowRatio = ratio;
+  outSnapshot->kTokenPos        = knn_query->k_token_pos;
+  outSnapshot->kTokenLen        = knn_query->k_token_len;
+  return true;
+}
+
+// Build the distributed MR command for FT.AGGREGATE
 static void buildMRCommand(RedisModuleString **argv, int argc, ProfileOptions profileOptions,
-                           AREQDIST_UpstreamInfo *us, MRCommand *xcmd, IndexSpec *sp, specialCaseCtx *knnCtx) {
+                           AREQDIST_UpstreamInfo *us, MRCommand *xcmd, IndexSpec *sp) {
   // We need to prepend the array with the command, index, and query that
   // we want to use.
   const char **tmparr = array_new(const char *, array_len(us->serialized));
 
   const char *index_name = RedisModule_StringPtrLen(argv[1], NULL);
 
-  int profileArgs = 0;
+  int profileArgs = getProfileArgs(profileOptions);
   if (profileOptions == EXEC_NO_FLAGS) {
     array_append(tmparr, RS_AGGREGATE_CMD);                         // Command
     array_append(tmparr, index_name);  // Index name
   } else {
-    profileArgs += 2; // SEARCH/AGGREGATE + QUERY
     array_append(tmparr, RS_PROFILE_CMD);
     array_append(tmparr, index_name);  // Index name
     array_append(tmparr, "AGGREGATE");
     if (profileOptions & EXEC_WITH_PROFILE_LIMITED) {
       array_append(tmparr, "LIMITED");
-      profileArgs++;
     }
     array_append(tmparr, "QUERY");
   }
@@ -209,22 +340,6 @@ static void buildMRCommand(RedisModuleString **argv, int argc, ProfileOptions pr
     }
   }
 
-  // Handle KNN with shard ratio optimization for both multi-shard and standalone
-  if (knnCtx) {
-    KNNVectorQuery *knn_query = &knnCtx->knn.queryNode->vn.vq->knn;
-    double ratio = knn_query->shardWindowRatio;
-
-    if (ratio < MAX_SHARD_WINDOW_RATIO) {
-      // Apply optimization only if ratio is valid and < 1.0 (ratio = 1.0 means no optimization)
-      // Calculate effective K based on deployment mode
-      size_t numShards = GetNumShards_UnSafe();
-      size_t effectiveK = calculateEffectiveK(knn_query->k, ratio, numShards);
-
-      // Modify the command to replace KNN k (shards will ignore $SHARD_K_RATIO)
-      modifyKNNCommand(xcmd, 2 + profileArgs, effectiveK, knnCtx->knn.queryNode->vn.vq);
-    }
-  }
-
   // check for timeout argument and append it to the command.
   // If TIMEOUT exists, it was already validated at AREQ_Compile.
   int timeout_index = RMUtil_ArgIndex("TIMEOUT", argv + 3 + profileArgs, argc - 4 - profileArgs);
@@ -246,13 +361,27 @@ static void buildMRCommand(RedisModuleString **argv, int argc, ProfileOptions pr
   array_free(tmparr);
 }
 
-static void buildDistRPChain(AREQ *r, MRCommand *xcmd, AREQDIST_UpstreamInfo *us, int (*nextFunc)(ResultProcessor *, SearchResult *)) {
+
+static void buildDistRPChain(AREQ *r, MRCommand *xcmd, AREQDIST_UpstreamInfo *us,
+                             int (*nextFunc)(ResultProcessor *, SearchResult *),
+                             const AggregateKnnContext *knnSnapshot) {
   // Establish our root processor, which is the distributed processor
   RPNet *rpRoot = RPNet_New(xcmd, nextFunc); // This will take ownership of the command
   QueryProcessingCtx *qctx = AREQ_QueryProcessingCtx(r);
   rpRoot->base.parent = qctx;
   rpRoot->lookup = us->lookup;
   rpRoot->areq = r;
+
+  // Store KNN scalar snapshot for SHARD_K_RATIO optimization (used by
+  // rpnetNext_Start to build the iterator-owned AggregateKnnContext)
+  if (knnSnapshot) {
+    rpRoot->hasKnnContext      = true;
+    rpRoot->knnQueryArgIndex   = knnSnapshot->queryArgIndex;
+    rpRoot->knnOriginalK       = knnSnapshot->originalK;
+    rpRoot->knnShardWindowRatio = knnSnapshot->shardWindowRatio;
+    rpRoot->knnKTokenPos       = knnSnapshot->kTokenPos;
+    rpRoot->knnKTokenLen       = knnSnapshot->kTokenLen;
+  }
 
   ResultProcessor *rpProfile = NULL;
   if (IsProfile(r)) {
@@ -350,7 +479,8 @@ static bool shouldCheckInPipelineTimeoutCoord(AREQ *req) {
 }
 
 static int prepareForExecution(AREQ *r, RedisModuleCtx *ctx, RedisModuleString **argv, int argc,
-                         IndexSpec *sp, specialCaseCtx **knnCtx_ptr, QueryError *status) {
+                               IndexSpec *sp, specialCaseCtx **knnCtx_ptr, size_t numShards,
+                               QueryError *status) {
   AREQ_QueryProcessingCtx(r)->err = status;
   AREQ_AddRequestFlags(r, QEXEC_F_IS_AGGREGATE | QEXEC_F_BUILDPIPELINE_NO_ROOT);
   rs_wall_clock_init(&r->profileClocks.initClock);
@@ -399,21 +529,32 @@ static int prepareForExecution(AREQ *r, RedisModuleCtx *ctx, RedisModuleString *
   rc = AGGPLN_Distribute(AREQ_AGGPlan(r), status);
   if (rc != REDISMODULE_OK) return REDISMODULE_ERR;
 
+  // The coordinator merges shard-local groups, so allow one configured cap per shard.
+  AggregationPipelineParams aggregationParams = AREQ_MakeAggregationPipelineParams(
+      r, GroupByLimits_ForCoordinator(RSGlobalConfig.maxAggregateGroups, numShards));
+
   AREQDIST_UpstreamInfo us = {NULL};
-  rc = AREQ_BuildDistributedPipeline(r, &us, status);
+  rc = AREQ_BuildDistributedPipeline(r, &us, &aggregationParams, status);
   if (rc != REDISMODULE_OK) return REDISMODULE_ERR;
 
   // Construct the command string
   MRCommand xcmd;
-  buildMRCommand(argv , argc, profileOptions, &us, &xcmd, sp, knnCtx);
+  AggregateKnnContext knnSnapshot;
+  bool hasKnnSnapshot = false;
+  buildMRCommand(argv, argc, profileOptions, &us, &xcmd, sp);
+
+  if (knnCtx) {
+    hasKnnSnapshot = extractKnnOptimizationContext(knnCtx, profileOptions, &knnSnapshot);
+  }
+
   xcmd.protocol = is_resp3(ctx) ? 3 : 2;
   xcmd.forCursor = AREQ_RequestFlags(r) & QEXEC_F_IS_CURSOR;
   xcmd.forProfiling = IsProfile(r);
   xcmd.rootCommand = C_AGG;  // Response is equivalent to a `CURSOR READ` response
   xcmd.coordStartTime = r->profileClocks.coordStartTime;
 
-  // Build the result processor chain
-  buildDistRPChain(r, &xcmd, &us, rpnetNext_Start);
+  // Build the result processor chain (pass KNN snapshot for SHARD_K_RATIO optimization)
+  buildDistRPChain(r, &xcmd, &us, rpnetNext_Start, hasKnnSnapshot ? &knnSnapshot : NULL);
 
   if (IsProfile(r)) r->profileClocks.profileParseTime = rs_wall_clock_elapsed_ns(&r->profileClocks.initClock);
 
@@ -522,6 +663,7 @@ void RSExecDistAggregate(RedisModuleCtx *ctx, RedisModuleString **argv, int argc
 
   // Store coordinator start time for dispatch time tracking
   r->profileClocks.coordStartTime = ConcurrentCmdCtx_GetCoordStartTime(cmdCtx);
+  size_t numShards = ConcurrentCmdCtx_GetNumShards(cmdCtx);
 
   // Check if the index still exists, and promote the ref accordingly
   StrongRef strong_ref = IndexSpecRef_Promote(ConcurrentCmdCtx_GetWeakRef(cmdCtx));
@@ -531,7 +673,7 @@ void RSExecDistAggregate(RedisModuleCtx *ctx, RedisModuleString **argv, int argc
     goto err;
   }
 
-  if (prepareForExecution(r, ctx, argv, argc, sp, &knnCtx, &status) != REDISMODULE_OK) {
+  if (prepareForExecution(r, ctx, argv, argc, sp, &knnCtx, numShards, &status) != REDISMODULE_OK) {
     goto err;
   }
 
@@ -621,6 +763,9 @@ int DistAggregateTimeoutReturnStrictClient(RedisModuleCtx *ctx, RedisModuleStrin
   if (!req || AREQ_TryClaimAggregateResults(req)) {
     // Either the request is NULL or We were able to claim the aggregation results.
     // That means that the background thread didn't reach the aggregation phase (startPipelineCommon) yet.
+    // Intentionally claim as worker-owned here: query-level coord aggregate timeouts do not use
+    // the cursor-read timeout-owner cleanup path, and the worker must still observe a claimed
+    // aggregation phase so it stores/signals the timed-out state for partial-result handling.
     // Reply with empty results
     coord_aggregate_query_reply_empty(ctx, argv, argc, QUERY_ERROR_CODE_TIMED_OUT);
     return REDISMODULE_OK;
@@ -776,6 +921,8 @@ void DEBUG_RSExecDistAggregate(RedisModuleCtx *ctx, RedisModuleString **argv, in
   StrongRef strong_ref = {0};
   int debug_argv_count = 0;
   MRCommand *cmd = NULL;
+  size_t numShards = 0;
+  RPNet *rpnet = NULL;
 
   // debug_req and &debug_req->r are allocated in the same memory block, so it will be freed
   // when AREQ_Free is called
@@ -809,6 +956,7 @@ void DEBUG_RSExecDistAggregate(RedisModuleCtx *ctx, RedisModuleString **argv, in
 
   // Store coordinator start time for dispatch time tracking
   r->profileClocks.coordStartTime = ConcurrentCmdCtx_GetCoordStartTime(cmdCtx);
+  numShards = ConcurrentCmdCtx_GetNumShards(cmdCtx);
   debug_params = debug_req->debug_params;
   // Check if the index still exists, and promote the ref accordingly
   strong_ref = IndexSpecRef_Promote(ConcurrentCmdCtx_GetWeakRef(cmdCtx));
@@ -819,14 +967,20 @@ void DEBUG_RSExecDistAggregate(RedisModuleCtx *ctx, RedisModuleString **argv, in
   }
 
   debug_argv_count = debug_params.debug_params_count + 2;  // account for `DEBUG_PARAMS_COUNT` `<count>` strings
-  if (prepareForExecution(r, ctx, argv, argc - debug_argv_count, sp, &knnCtx, &status) != REDISMODULE_OK) {
+  if (prepareForExecution(r, ctx, argv, argc - debug_argv_count, sp, &knnCtx, numShards,
+                          &status) != REDISMODULE_OK) {
     goto err;
   }
 
   // rpnet now owns the command
-  cmd = &(((RPNet *)AREQ_QueryProcessingCtx(r)->rootProc)->cmd);
+  rpnet = (RPNet *)AREQ_QueryProcessingCtx(r)->rootProc;
+  cmd = &rpnet->cmd;
 
   MRCommand_Insert(cmd, 0, "_FT.DEBUG", sizeof("_FT.DEBUG") - 1);
+  // The _FT.DEBUG prefix shifts every existing argument by one; adjust the
+  // saved KNN query argument index so the SHARD_K_RATIO modifier rewrites the
+  // right slot.
+  if (rpnet->hasKnnContext) rpnet->knnQueryArgIndex += 1;
   // insert also debug params at the end
   for (size_t i = 0; i < debug_argv_count; i++) {
     size_t n;

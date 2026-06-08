@@ -13,9 +13,7 @@
 extern "C" {
 #endif
 
-#include "hybrid/hybrid_request.h"
 #include "rmr/command.h"
-#include "dist_plan.h"
 #include "profile/options.h"
 #include "vector_index.h"
 
@@ -25,16 +23,14 @@ void DEBUG_RSExecDistHybrid(RedisModuleCtx *ctx, RedisModuleString **argv, int a
                             struct ConcurrentCmdCtx *cmdCtx);
 
 int DistHybridTimeoutFailClient(RedisModuleCtx *ctx, RedisModuleString **argv, int argc);
+int DistHybridTimeoutReturnStrictClient(RedisModuleCtx *ctx, RedisModuleString **argv, int argc);
 int DistHybridReplyCallback(RedisModuleCtx *ctx, RedisModuleString **argv, int argc);
 
 // For testing purposes
-// numShards is passed from the main thread to ensure thread-safe access
 void HybridRequest_buildMRCommand(RedisModuleString **argv, int argc,
                             ProfileOptions profileOptions,
                             MRCommand *xcmd, arrayof(char*) serialized,
-                            IndexSpec *sp,
-                            const VectorQuery *vq,
-                            size_t numShards);
+                            IndexSpec *sp, int *outKArgIndex);
 
 #ifdef __cplusplus
 }

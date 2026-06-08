@@ -163,6 +163,11 @@ typedef enum {
    * keeps draining other shards (the coord has its own deadline check) and the
    * reply emitters surface the TIMEOUT warning to the user via this flag. */
   QEXEC_S_SHARD_TIMED_OUT_WARNING = 0x08,
+  /* The per-query TIMEOUT (or the global default) exceeded
+   * search-_max-foreground-timeout-limit while search-workers is 0, so it
+   * was capped to the limit. Surfaced as a RESP3 warning by the reply
+   * emitters. */
+  QEXEC_S_MAX_TIMEOUT_CAPPED = 0x10,
 } QEStateFlags;
 
 
@@ -186,6 +191,7 @@ typedef struct RequestSyncCtx {
    * Gated by `requiresAggregateResultsSync`. */
   bool requiresAggregateResultsSync;     // Enable CAS/Signal/Wait around AggregateResults
   RS_Atomic(bool) aggregatingResults;    // CAS claim: BG winner runs the pipeline; timeout-callback winner skips it and replies empty
+  bool aggregateResultsClaimLost;        // BG lost the CAS claim to the timeout callback
   bool aggregateResultsDone;             // Set at completion; guarded by aggregateResultsLock
   pthread_mutex_t aggregateResultsLock;
   pthread_cond_t aggregateResultsCond;
@@ -203,6 +209,7 @@ static inline void RequestSyncCtx_Init(RequestSyncCtx *ctx) {
   ctx->refcount = 1;
   ctx->requiresAggregateResultsSync = false;
   ctx->aggregatingResults = false;
+  ctx->aggregateResultsClaimLost = false;
   ctx->aggregateResultsDone = false;
   pthread_mutex_init(&ctx->aggregateResultsLock, NULL);
   pthread_cond_init(&ctx->aggregateResultsCond, NULL);
@@ -376,10 +383,17 @@ void initializeAREQ(AREQ *req);
  */
 int AREQ_ApplyContext(AREQ *req, RedisSearchCtx *sctx, QueryError *status);
 
+/** Creates the aggregation pipeline parameters derived from the request. */
+AggregationPipelineParams AREQ_MakeAggregationPipelineParams(AREQ *req,
+                                                             GroupByLimits groupByLimits);
+
 /**
  * Constructs the pipeline objects needed to actually start processing
  * the requests. This does not yet start iterating over the objects
  */
+int AREQ_BuildPipelineWithAggregationParams(AREQ *req,
+                                            const AggregationPipelineParams *aggregationParams,
+                                            QueryError *status);
 int AREQ_BuildPipeline(AREQ *req, QueryError *status);
 
 /**
@@ -465,7 +479,8 @@ static inline AGGPlan *AREQ_AGGPlan(AREQ *req) {
  * ResultProcessors (and a grouper is a ResultProcessor) before the grouper
  * should write their data using `lksrc` as a reference point.
  */
-Grouper *Grouper_New(const RLookupKey **srckeys, const RLookupKey **dstkeys, size_t n);
+Grouper *Grouper_New(const RLookupKey **srckeys, const RLookupKey **dstkeys, size_t n,
+                     GroupByLimits groupByLimits);
 
 void Grouper_Free(Grouper *g);
 
@@ -567,8 +582,9 @@ bool areq_timed_out(void *arg);
 bool AREQ_CheckTimedOut(AREQ *areq);
 
 /* True when this AREQ uses the BG-thread / timeout-callback claim handshake
- * around AggregateResults (TryClaim/Signal/Wait). Currently set only on the
- * coordinator AREQ under RETURN-STRICT; all other paths skip the protocol. */
+ * around AggregateResults (TryClaim/Signal/Wait). Set on coordinator AREQs
+ * under RETURN_STRICT, and on shard/standalone AREQs for RETURN_STRICT
+ * cursor reads; all other paths skip the protocol. */
 static inline bool AREQ_RequiresThreadsSyncResults(const AREQ *req) {
   return req->syncCtx.requiresAggregateResultsSync;
 }

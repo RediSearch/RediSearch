@@ -15,8 +15,6 @@
 #include <errno.h>
 #include <string.h>
 
-void *RECV_BUFFER_EMPTY = (void *)0x0deadbeef;
-
 // Assumes the spec is locked.
 void FGC_updateStats(ForkGC *gc, RedisSearchCtx *sctx,
                      size_t recordsRemoved, size_t bytesCollected,

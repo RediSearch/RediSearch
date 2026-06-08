@@ -11,8 +11,9 @@ use serde::{Deserialize, Serialize};
 use std::marker::PhantomData;
 
 use crate::{BlockCapacity, DecodedBy, Decoder, Encoder, IndexBlock, InvertedIndex};
-use ffi::{IndexFlags_Index_DocIdsOnly, t_docId};
+use ffi::IndexFlags_Index_DocIdsOnly;
 use index_result::RSIndexResult;
+use rqe_core::DocId;
 use smallvec::SmallVec;
 use thin_vec::{Header, ThinVec};
 
@@ -102,7 +103,7 @@ impl IndexBlock {
     /// `None` is returned when there is nothing to repair in this block.
     pub(crate) fn repair<'index, E: Encoder + DecodedBy<Decoder = D>, D: Decoder>(
         &'index self,
-        doc_exist: impl Fn(t_docId) -> bool,
+        doc_exist: impl Fn(DocId) -> bool,
         mut repair: Option<impl FnMut(&RSIndexResult<'index>, &IndexBlock)>,
         _encoder: PhantomData<E>,
     ) -> std::io::Result<Option<RepairType>> {
@@ -166,7 +167,7 @@ impl<E: Encoder + DecodedBy> InvertedIndex<E> {
     /// This function returns a delta if GC is needed, or `None` if no GC is needed.
     pub fn scan_gc<'index>(
         &'index self,
-        doc_exist: impl Fn(t_docId) -> bool,
+        doc_exist: impl Fn(DocId) -> bool,
         mut repair: Option<impl FnMut(&RSIndexResult<'index>, &IndexBlock)>,
     ) -> std::io::Result<Option<GcScanDelta>> {
         let mut results = Vec::new();

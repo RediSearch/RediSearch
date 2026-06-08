@@ -56,60 +56,21 @@ static timespec getTimespecCb(void *) {
   return ts;
 }
 
-typedef struct {
-  void *fgc;
-  RefManager *ism;
-  volatile bool runGc;
-} args_t;
-
-void *cbWrapper(void *args) {
-  args_t *fgcArgs = (args_t *)args;
-  GCContext *gc = get_spec(fgcArgs->ism)->gc;
-  ForkGC *fgc = reinterpret_cast<ForkGC *>(gc->gcCtx);
-
-  while (true) {
-    // sync thread
-    while (fgcArgs->runGc && fgc->pauseState != FGC_PAUSED_CHILD) {
-      usleep(500);
-    }
-    if (!fgcArgs->runGc) {
-      break;
-    }
-
-    // run ForkGC
-    gc->callbacks.periodicCallback(fgc, false);
-  }
-  return NULL;
-}
-
 class FGCTest : public ::testing::Test {
  protected:
   RMCK::Context ctx;
   RefManager *ism;
   ForkGC *fgc;
-  args_t args;
-  pthread_t thread;
 
   void SetUp() override {
     Initialize_KeyspaceNotifications();
     ism = createSpec(ctx);
     RSGlobalConfig.gcConfigParams.gcSettings.forkGcCleanThreshold = 0;
     RSGlobalStats.totalStats.logically_deleted = 0;
-    runGcThread();
-  }
-
-  void runGcThread() {
     fgc = reinterpret_cast<ForkGC *>(get_spec(ism)->gc->gcCtx);
-    thread = {0};
-    args = {.fgc = fgc, .ism = ism, .runGc = true};
-
-    pthread_create(&thread, NULL, cbWrapper, &args);
   }
 
   void TearDown() override {
-    args.runGc = false;
-    // wait for the gc thread to finish current loop and exit the thread
-    pthread_join(thread, NULL);
     freeSpec(ism);
   }
 
@@ -119,6 +80,14 @@ class FGCTest : public ::testing::Test {
 
   size_t totalSpecBlocks() {
     return __atomic_load_n(&get_spec(ism)->stats.totalInvertedIndexBlocks, __ATOMIC_RELAXED);
+  }
+
+  void runGC(std::function<void()> beforeApply = {}) {
+    FGCHook hook{
+      [](void *p) { if (auto &f = *static_cast<std::function<void()>*>(p)) f(); },
+      &beforeApply
+    };
+    FGC_RunCycle(fgc, true, beforeApply ? &hook : nullptr);
   }
 };
 
@@ -178,23 +147,20 @@ TEST_F(FGCTestNumeric, testNumeric) {
   ASSERT_EQ(total_mem, numeric_tree_mem);
   ASSERT_EQ(total_mem, spec_inv_index_mem_stats);
 
-  // Delete some docs
-  FGC_WaitBeforeFork(fgc);
   size_t deleted_docs = num_docs / 4;
   std::mt19937 gen(42);
   std::uniform_int_distribution<size_t> dis(0, num_docs - 1);
   std::unordered_set<size_t> generated_numbers;
+
   for (size_t i = 0; i < deleted_docs; ++i) {
     size_t random_id = dis(gen);
-    while (generated_numbers.find(random_id) != generated_numbers.end()) {
-        random_id = dis(gen);
-    }
+    while (generated_numbers.find(random_id) != generated_numbers.end())
+      random_id = dis(gen);
     generated_numbers.insert(random_id);
-    auto rv = RS::deleteDocument(ctx, ism, numToDocStr(random_id).c_str());
-    ASSERT_TRUE(rv) << "Failed to delete doc " << random_id << " at iteration " << i;
+    ASSERT_TRUE(RS::deleteDocument(ctx, ism, numToDocStr(random_id).c_str()))
+        << "Failed to delete doc " << random_id << " at iteration " << i;
   }
-  FGC_ForkAndWaitBeforeApply(fgc);
-  FGC_Apply(fgc);
+  runGC();
 
   size_t spec_inv_index_mem_stats_after_delete = (get_spec(ism))->stats.invertedSize;
   size_t numeric_tree_mem_after_delete = NumericRangeTree_GetInvertedIndexesSize(rt);
@@ -219,20 +185,12 @@ TEST_F(FGCTestTag, testRemoveEntryFromLastBlock) {
    * To properly test this; we must ensure that the gc is forked AFTER
    * the deletion, but BEFORE the addition.
    */
-  FGC_WaitBeforeFork(fgc);
-  auto rv = RS::deleteDocument(ctx, ism, "doc1");
-  ASSERT_TRUE(rv);
-
-  /**
-   * This function allows the GC to perform fork(2), but makes it wait
-   * before it begins receiving results.
-   */
-  FGC_ForkAndWaitBeforeApply(fgc);
-  rv = RS::deleteDocument(ctx, ism, "doc2");
-
-  size_t invertedSizeBeforeApply = (get_spec(ism))->stats.invertedSize;
-  /** This function allows the gc to receive the results */
-  FGC_Apply(fgc);
+  ASSERT_TRUE(RS::deleteDocument(ctx, ism, "doc1"));
+  size_t invertedSizeBeforeApply;
+  runGC([&]() {
+    RS::deleteDocument(ctx, ism, "doc2");
+    invertedSizeBeforeApply = (get_spec(ism))->stats.invertedSize;
+  });
 
   // gc stats
   ASSERT_EQ(0, fgc->stats.gcBlocksDenied);
@@ -260,20 +218,12 @@ TEST_F(FGCTestTag, testRemoveLastBlockWhileUpdate) {
    * To properly test this; we must ensure that the gc is forked AFTER
    * the deletion, but BEFORE the addition.
    */
-  FGC_WaitBeforeFork(fgc);
-  auto rv = RS::deleteDocument(ctx, ism, "doc1");
-  ASSERT_TRUE(rv);
-
-  /**
-   * This function allows the GC to perform fork(2), but makes it wait
-   * before it begins receiving results.
-   */
-  FGC_ForkAndWaitBeforeApply(fgc);
-  ASSERT_TRUE(RS::addDocument(ctx, ism, "doc2", "f1", "hello"));
-
-  size_t invertedSizeBeforeApply = (get_spec(ism))->stats.invertedSize;
-  /** This function allows the gc to receive the results */
-  FGC_Apply(fgc);
+  ASSERT_TRUE(RS::deleteDocument(ctx, ism, "doc1"));
+  size_t invertedSizeBeforeApply;
+  runGC([&]() {
+    ASSERT_TRUE(RS::addDocument(ctx, ism, "doc2", "f1", "hello"));
+    invertedSizeBeforeApply = (get_spec(ism))->stats.invertedSize;
+  });
 
   // gc stats
   ASSERT_EQ(1, fgc->stats.gcBlocksDenied);
@@ -304,25 +254,19 @@ TEST_F(FGCTestTag, testModifyLastBlockWhileAddingNewBlocks) {
   // Delete one of the documents.
   ASSERT_TRUE(RS::deleteDocument(ctx, ism, "doc1"));
 
-  FGC_WaitBeforeFork(fgc);
-
-  // The fork will see one block of 2 docs with 1 deleted doc.
-  FGC_ForkAndWaitBeforeApply(fgc);
-
-  // Now add documents until we have new blocks added.
   RedisSearchCtx sctx = SEARCH_CTX_STATIC(ctx, get_spec(ism));
   sctx.spec->monitorDocumentExpiration = false;
-  auto iv = getTagInvidx(&sctx,  "f1", "hello");
-  while (InvertedIndex_NumBlocks(iv) < 3) {
-    ASSERT_TRUE(RS::addDocument(ctx, ism, numToDocStr(curId++).c_str(), "f1", "hello"));
-  }
-  ASSERT_EQ(3, totalSpecBlocks() - startValue);
+  auto iv = getTagInvidx(&sctx, "f1", "hello");
+  const char *originalData;
+  size_t invertedSizeBeforeApply;
 
-  // Save the pointer to the original block data.
-  const char *originalData = IndexBlock_Data(InvertedIndex_BlockRef(iv, 0));
-  // The fork will return an array of one block with one entry, but we will ignore it.
-  size_t invertedSizeBeforeApply = (get_spec(ism))->stats.invertedSize;
-  FGC_Apply(fgc);
+  runGC([&]() {
+    while (InvertedIndex_NumBlocks(iv) < 3)
+      ASSERT_TRUE(RS::addDocument(ctx, ism, numToDocStr(curId++).c_str(), "f1", "hello"));
+    ASSERT_EQ(3, totalSpecBlocks() - startValue);
+    originalData = IndexBlock_Data(InvertedIndex_BlockRef(iv, 0));
+    invertedSizeBeforeApply = (get_spec(ism))->stats.invertedSize;
+  });
 
   const char *afterGcData = IndexBlock_Data(InvertedIndex_BlockRef(iv, 0));
   ASSERT_EQ(afterGcData, originalData);
@@ -363,40 +307,24 @@ TEST_F(FGCTestTag, testRemoveAllBlocksWhileUpdateLast) {
 
   ASSERT_EQ(2, totalSpecBlocks() - startValue);
 
-  FGC_WaitBeforeFork(fgc);
-  // Delete all.
+  size_t invertedSizeBeforeApply;
+  const char *originalData;
+
   for (unsigned i = 1; i < curId; i++) {
     size_t n = snprintf(buf, sizeof(buf), "doc%u", i);
     ASSERT_TRUE(RS::deleteDocument(ctx, ism, buf));
   }
-
   ASSERT_EQ(0, sctx.spec->stats.scoring.numDocuments);
-
-  /**
-   * This function allows the GC to perform fork(2), but makes it wait
-   * before it begins receiving results. From this point any changes made by the
-   * main process are not part of the forked process.
-   */
-  FGC_ForkAndWaitBeforeApply(fgc);
-
-  size_t invertedSizeBeforeApply = sctx.spec->stats.invertedSize;
-  // Add a new document so the last block's is different from the the one copied to the fork.
-  size_t n = snprintf(buf, sizeof(buf), "doc%u", curId);
-  lastBlockMemory += this->addDocumentWrapper(buf, "f1", "hello");
-
-  // Save the pointer to the original last block data.
-  const IndexBlock *lastBlock = InvertedIndex_BlockRef(iv, InvertedIndex_NumBlocks(iv) - 1);
-  const char *originalData = IndexBlock_Data(lastBlock);
-
-  /** Apply the child changes. All the entries the child has seen are marked as deleted,
-   * but since the last block was modified by the main the process, we keep it, assuming it
-   * will be deleted in the next gc run (where the fork is not running during modifications,
-   * or the we opened a new block and this block is no longer the last)
-   */
-  FGC_Apply(fgc);
+  runGC([&]() {
+      invertedSizeBeforeApply = sctx.spec->stats.invertedSize;
+      size_t n = snprintf(buf, sizeof(buf), "doc%u", curId);
+      lastBlockMemory += this->addDocumentWrapper(buf, "f1", "hello");
+      const IndexBlock *lastBlock = InvertedIndex_BlockRef(iv, InvertedIndex_NumBlocks(iv) - 1);
+      originalData = IndexBlock_Data(lastBlock);
+    });
 
   // gc stats - make sure we skipped the last block
-  lastBlock = InvertedIndex_BlockRef(iv, InvertedIndex_NumBlocks(iv) - 1);
+  const IndexBlock *lastBlock = InvertedIndex_BlockRef(iv, InvertedIndex_NumBlocks(iv) - 1);
   const char *afterGcData = IndexBlock_Data(lastBlock);
   ASSERT_EQ(afterGcData, originalData);
   ASSERT_EQ(1, fgc->stats.gcBlocksDenied);
@@ -448,34 +376,26 @@ TEST_F(FGCTestTag, testRepairLastBlockWhileRemovingMiddle) {
   snprintf(buf, sizeof(buf), "doc%u", curId++);
   RS::addDocument(ctx, ism, buf, "f1", "hello");
 
-  // Wait before we fork so the next updates will copied to the child memory.
-  FGC_WaitBeforeFork(fgc);
+  unsigned total_deletions;
+  size_t valid_docs;
+  size_t lastBlockEntries;
 
-  // Delete the second entry of the last block
   ASSERT_TRUE(RS::deleteDocument(ctx, ism, buf));
-  // Delete first entry in the index
   ASSERT_TRUE(RS::deleteDocument(ctx, ism, "doc1"));
-  unsigned total_deletions = 2;
-
-  // Delete the second block (out of 3 blocks)
+  total_deletions = 2;
   for (unsigned i = middleBlockFirstId; i < lastBlockFirstId; ++i) {
     snprintf(buf, sizeof(buf), "doc%u", i);
     ASSERT_TRUE(RS::deleteDocument(ctx, ism, buf));
     ++total_deletions;
   }
-
-  // curId - 1 = total added documents
-  size_t valid_docs = curId - 1 - total_deletions;
+  valid_docs = curId - 1 - total_deletions;
   ASSERT_EQ(valid_docs, sctx.spec->stats.scoring.numDocuments);
-
-  size_t lastBlockEntries = IndexBlock_NumEntries(InvertedIndex_BlockRef(iv, 2));
-  FGC_ForkAndWaitBeforeApply(fgc);
-
-  // Add a document -- this one is to keep
-  snprintf(buf, sizeof(buf), "doc%u", curId);
-  RS::addDocument(ctx, ism, buf, "f1", "hello");
-  ++valid_docs;
-  FGC_Apply(fgc);
+  lastBlockEntries = IndexBlock_NumEntries(InvertedIndex_BlockRef(iv, 2));
+  runGC([&]() {
+      snprintf(buf, sizeof(buf), "doc%u", curId);
+      RS::addDocument(ctx, ism, buf, "f1", "hello");
+      ++valid_docs;
+    });
 
   // Since we added entries to the last block after the fork, we ignore the fork updates in the last block
   ASSERT_EQ(1, fgc->stats.gcBlocksDenied);
@@ -516,17 +436,11 @@ TEST_F(FGCTestTag, testRepairLastBlock) {
   snprintf(buf, sizeof(buf), "doc%u", curId++);
   RS::addDocument(ctx, ism, buf, "f1", "hello");
 
-  FGC_WaitBeforeFork(fgc);
-
-  // Delete the doc we have just added.
   ASSERT_TRUE(RS::deleteDocument(ctx, ism, buf));
-
-  FGC_ForkAndWaitBeforeApply(fgc);
-
-  // Add a document to the last block. This change is not known to the child.
-  snprintf(buf, sizeof(buf), "doc%u", curId);
-  RS::addDocument(ctx, ism, buf, "f1", "hello");
-  FGC_Apply(fgc);
+  runGC([&]() {
+      snprintf(buf, sizeof(buf), "doc%u", curId);
+      RS::addDocument(ctx, ism, buf, "f1", "hello");
+    });
   // since the block size in the main process doesn't equal to its original size as seen by the child,
   // we ignore the fork collection - the last block changes should be discarded.
   ASSERT_EQ(1, fgc->stats.gcBlocksDenied);
@@ -558,19 +472,14 @@ TEST_F(FGCTestTag, testRepairMiddleRemoveLast) {
    * In this case, we want to keep `curId`, but we want to delete a 'middle' entry
    * while appending documents to it..
    **/
-  FGC_WaitBeforeFork(fgc);
-
   while (curId > 100) {
     snprintf(buf, sizeof(buf), "doc%u", --curId);
     ASSERT_TRUE(RS::deleteDocument(ctx, ism, buf));
   }
-
-  FGC_ForkAndWaitBeforeApply(fgc);
-
-  snprintf(buf, sizeof(buf), "doc%u", next_id);
-  ASSERT_TRUE(RS::addDocument(ctx, ism, buf, "f1", "hello"));
-
-  FGC_Apply(fgc);
+  runGC([&]() {
+      snprintf(buf, sizeof(buf), "doc%u", next_id);
+      ASSERT_TRUE(RS::addDocument(ctx, ism, buf, "f1", "hello"));
+    });
   ASSERT_EQ(2, InvertedIndex_NumBlocks(iv));
 }
 
@@ -598,35 +507,27 @@ TEST_F(FGCTestTag, testRemoveMiddleBlock) {
   unsigned lastMidId = curId - 1;
   ASSERT_EQ(3, totalSpecBlocks() - startValue);
 
-  FGC_WaitBeforeFork(fgc);
+  unsigned newLastBlockId = 0;
+  unsigned lastLastBlockId = 0;
+  const char *pp = nullptr;
 
-  // Delete the middle block
-  for (size_t ii = firstMidId; ii < firstLastBlockId; ++ii) {
+  for (size_t ii = firstMidId; ii < firstLastBlockId; ++ii)
     RS::deleteDocument(ctx, ism, numToDocStr(ii).c_str());
-  }
-
-  FGC_ForkAndWaitBeforeApply(fgc);
-
-  // While the child is running, fill the last block and add another block.
-  unsigned newLastBlockId = curId + 1;
-  while (InvertedIndex_NumBlocks(iv) < 4) {
-    ASSERT_TRUE(RS::addDocument(ctx, ism, numToDocStr(++curId).c_str(), "f1", "hello"));
-  }
-  unsigned lastLastBlockId = curId - 1;
-
-  // Get the previous pointer, i.e. the one we expect to have the updated
-  // info. We do -2 and not -1 because we have one new document in the
-  // fourth block (as a sentinel)
-  const IndexBlock *secondLastBlock = InvertedIndex_BlockRef(iv, InvertedIndex_NumBlocks(iv) - 2);
-  const char *pp = IndexBlock_Data(secondLastBlock);
-  FGC_Apply(fgc);
+  runGC([&]() {
+      newLastBlockId = curId + 1;
+      while (InvertedIndex_NumBlocks(iv) < 4)
+        ASSERT_TRUE(RS::addDocument(ctx, ism, numToDocStr(++curId).c_str(), "f1", "hello"));
+      lastLastBlockId = curId - 1;
+      const IndexBlock *secondLastBlock = InvertedIndex_BlockRef(iv, InvertedIndex_NumBlocks(iv) - 2);
+      pp = IndexBlock_Data(secondLastBlock);
+    });
 
   // We add new documents to the last block after the fork, so we expect the GC to deny it.
   ASSERT_EQ(1, fgc->stats.gcBlocksDenied);
   ASSERT_EQ(3, InvertedIndex_NumBlocks(iv));
 
   // The pointer to the last gc-block, received from the fork
-  secondLastBlock = InvertedIndex_BlockRef(iv, InvertedIndex_NumBlocks(iv) - 2);
+  const IndexBlock *secondLastBlock = InvertedIndex_BlockRef(iv, InvertedIndex_NumBlocks(iv) - 2);
   const char *gcpp = IndexBlock_Data(secondLastBlock);
   ASSERT_EQ(pp, gcpp);
 
@@ -652,15 +553,9 @@ TEST_F(FGCTestTag, testDeleteDuringGCCleanup) {
   RS::deleteDocument(ctx, ism, numToDocStr(1).c_str());
   ASSERT_EQ(RSGlobalStats.totalStats.logically_deleted, 1);
 
-  FGC_WaitBeforeFork(fgc);
-
-  // Delete the second document while fGC is waiting before the fork. If we were storing the number
-  // of document to delete at this point, we wouldn't have accounted for this deletion later on
-  // after the GC is done.
   RS::deleteDocument(ctx, ism, numToDocStr(2).c_str());
   ASSERT_EQ(fgc->deletedOrUpdatedDocsFromLastRun, 2);
-
-  FGC_Apply(fgc);
+  runGC();
 
   ASSERT_EQ(RSGlobalStats.totalStats.logically_deleted, 0);
 }
@@ -675,22 +570,14 @@ TEST_F(FGCTestTag, testPipeErrorDuringGC) {
   ASSERT_TRUE(RS::addDocument(ctx, ism, "doc2", "f1", "hello"));
   ASSERT_TRUE(RS::addDocument(ctx, ism, "doc3", "f1", "hello"));
 
-  FGC_WaitBeforeFork(fgc);
-
-  // Delete documents to trigger GC work
   ASSERT_TRUE(RS::deleteDocument(ctx, ism, "doc1"));
   ASSERT_TRUE(RS::deleteDocument(ctx, ism, "doc2"));
-
-  FGC_ForkAndWaitBeforeApply(fgc);
-
-  // Close the read end of the pipe from the parent's perspective
-  // This will cause poll() to immediately return an error (POLLNVAL),
-  // simulating a pipe failure scenario without waiting 3 minutes
-  close(fgc->pipe_read_fd);
-  fgc->pipe_read_fd = -1;  // Invalidate the fd to prevent accidental use or double-close
-
-  // This should handle the error gracefully without crashes or double-frees
-  FGC_Apply(fgc);
+  runGC([&]() {
+    // Close the read end of the pipe to trigger a poll() error (POLLNVAL),
+    // simulating a pipe failure without waiting 3 minutes.
+    close(fgc->pipe_read_fd);
+    fgc->pipe_read_fd = -1;
+  });
 
   // The GC should have failed, so no bytes should be collected
   // (or at least the operation should complete without crashing)
@@ -734,20 +621,12 @@ TEST_F(FGCTestTag, testPipeErrorDuringApply) {
     ASSERT_TRUE(RS::addDocument(ctx, ism, doc2.c_str(), "f1", "hello"));
     ASSERT_TRUE(RS::addDocument(ctx, ism, doc3.c_str(), "f1", "hello"));
 
-    FGC_WaitBeforeFork(fgc);
-
-    // Delete documents to trigger GC work
     ASSERT_TRUE(RS::deleteDocument(ctx, ism, doc1.c_str()));
     ASSERT_TRUE(RS::deleteDocument(ctx, ism, doc2.c_str()));
-
-    FGC_ForkAndWaitBeforeApply(fgc);
-
-    // Signal the closer thread to close the pipe after a variable delay
-    delay_usec = iteration * 2;
-    should_close = true;
-
-    // Apply should handle the pipe closure gracefully without crashing
-    FGC_Apply(fgc);
+    runGC([&]() {
+      delay_usec = iteration * 2;
+      should_close = true;
+    });
 
     // Wait for the closer to finish this iteration
     while (should_close) {
@@ -789,24 +668,14 @@ TEST_F(FGCTestNumeric, testNumericBlocksSinceFork) {
   EXPECT_EQ(totalSpecBlocks() - startValue, expected_total_blocks);
   ASSERT_TRUE(rootRange);
   EXPECT_EQ(cur_cardinality, NumericRange_GetCardinality(rootRange));
-  FGC_WaitBeforeFork(fgc);
-
-  // Delete some docs from the blocks
-  for (size_t i = expected_total_blocks; i < cur_id; i += 10) {
-    auto rv = RS::deleteDocument(ctx, ism, numToDocStr(i).c_str());
-    ASSERT_TRUE(rv) << "Failed to delete doc " << i;
-  }
-
-  FGC_ForkAndWaitBeforeApply(fgc);
-
-  // Add a half block worth of documents to the index with a different value. The fork is not aware of these changes.
-  ASSERT_LT(++cur_cardinality, first_split_card);
-  expected_total_blocks++;
-  for (size_t i = 0; i < docs_per_block / 2; i++) {
-    this->addDocumentWrapper(numToDocStr(cur_id++).c_str(), numeric_field_name, std::to_string(1.4142).c_str());
-  }
-
-  FGC_Apply(fgc);
+  for (size_t i = expected_total_blocks; i < cur_id; i += 10)
+    ASSERT_TRUE(RS::deleteDocument(ctx, ism, numToDocStr(i).c_str())) << "Failed to delete doc " << i;
+  runGC([&]() {
+    ASSERT_LT(++cur_cardinality, first_split_card);
+    expected_total_blocks++;
+    for (size_t i = 0; i < docs_per_block / 2; i++)
+      this->addDocumentWrapper(numToDocStr(cur_id++).c_str(), numeric_field_name, std::to_string(1.4142).c_str());
+  });
 
   EXPECT_EQ(totalSpecBlocks() - startValue, expected_total_blocks);
   // Refresh root/range references as tree may have changed
@@ -821,55 +690,34 @@ TEST_F(FGCTestNumeric, testNumericBlocksSinceFork) {
    * Scenario 2: Not taking the child last block, and need to address the parent's changes (ignored + last block).
    */
 
-  FGC_WaitBeforeFork(fgc);
-
-  // Delete some docs from the blocks
-  for (size_t i = expected_total_blocks; i < cur_id; i += 10) {
-    auto rv = RS::deleteDocument(ctx, ism, numToDocStr(i).c_str());
-    ASSERT_TRUE(rv) << "Failed to delete doc " << i;
-  }
-
-  FGC_ForkAndWaitBeforeApply(fgc);
-
-  // Add a half block worth of documents to the index with a different value. The fork is not aware of these changes.
-  ASSERT_LT(++cur_cardinality, first_split_card);
-  for (size_t i = 0; i < docs_per_block / 2; i++) {
-    this->addDocumentWrapper(numToDocStr(cur_id++).c_str(), numeric_field_name, std::to_string(2.718).c_str());
-  }
-  EXPECT_EQ(totalSpecBlocks() - startValue, expected_total_blocks) << "Number of blocks should not change";
-  // Add another half block worth of documents to the index with a different value.
-  ASSERT_LT(++cur_cardinality, first_split_card);
-  expected_total_blocks++;
-  for (size_t i = 0; i < docs_per_block / 2; i++) {
-    this->addDocumentWrapper(numToDocStr(cur_id++).c_str(), numeric_field_name, std::to_string(1.618).c_str());
-  }
-  EXPECT_EQ(totalSpecBlocks() - startValue, expected_total_blocks);
-
-  FGC_Apply(fgc);
+  for (size_t i = expected_total_blocks; i < cur_id; i += 10)
+    ASSERT_TRUE(RS::deleteDocument(ctx, ism, numToDocStr(i).c_str())) << "Failed to delete doc " << i;
+  runGC([&]() {
+    ASSERT_LT(++cur_cardinality, first_split_card);
+    for (size_t i = 0; i < docs_per_block / 2; i++)
+      this->addDocumentWrapper(numToDocStr(cur_id++).c_str(), numeric_field_name, std::to_string(2.718).c_str());
+    EXPECT_EQ(totalSpecBlocks() - startValue, expected_total_blocks) << "Number of blocks should not change";
+    ASSERT_LT(++cur_cardinality, first_split_card);
+    expected_total_blocks++;
+    for (size_t i = 0; i < docs_per_block / 2; i++)
+      this->addDocumentWrapper(numToDocStr(cur_id++).c_str(), numeric_field_name, std::to_string(1.618).c_str());
+    EXPECT_EQ(totalSpecBlocks() - startValue, expected_total_blocks);
+  });
 
   EXPECT_EQ(totalSpecBlocks() - startValue, expected_total_blocks);
-  // Refresh root/range references as tree may have changed
   root = NumericRangeTree_GetRoot(rt);
   rootRange = NumericRangeNode_GetRange(root);
   ASSERT_TRUE(rootRange);
-  // The child is aware of 1 value in the first block and one in the second,
-  // while the parent is aware of a third value in the second block and a fourth in the third.
   EXPECT_EQ(cur_cardinality, NumericRange_GetCardinality(rootRange));
 
   /*
    * Scenario 3: Taking the child last block, without any parent changes.
    */
 
-  FGC_WaitBeforeFork(fgc);
-
-  // Delete the entire second block of documents.
-  for (size_t i = docs_per_block + 1; i <= 2 * docs_per_block; i++) {
+  for (size_t i = docs_per_block + 1; i <= 2 * docs_per_block; i++)
     RS::deleteDocument(ctx, ism, numToDocStr(i).c_str());
-  }
   EXPECT_EQ(totalSpecBlocks() - startValue, expected_total_blocks);
-
-  FGC_ForkAndWaitBeforeApply(fgc);
-  FGC_Apply(fgc);
+  runGC();
 
   expected_total_blocks--;
   EXPECT_EQ(totalSpecBlocks() - startValue, expected_total_blocks);

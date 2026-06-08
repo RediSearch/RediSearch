@@ -9,7 +9,7 @@
 
 //! Integration tests for the Intersection iterator.
 
-use ffi::t_docId;
+use rqe_core::DocId;
 use rqe_iterators::{
     IteratorType, RQEIterator, RQEValidateStatus, SkipToOutcome, id_list::IdListSorted,
     intersection::Intersection, profile::Profile,
@@ -25,9 +25,9 @@ use crate::utils::{Mock, MockRevalidateResult};
 /// - Some unique document IDs specific to that child
 ///
 /// This ensures the intersection of all children equals exactly the result set.
-fn create_children(num_children: usize, result_set: &[t_docId]) -> Vec<IdListSorted<'static>> {
+fn create_children(num_children: usize, result_set: &[DocId]) -> Vec<IdListSorted<'static>> {
     let mut children = Vec::with_capacity(num_children);
-    let mut next_unique_id: t_docId = 1;
+    let mut next_unique_id: DocId = 1;
 
     for _ in 0..num_children {
         // Start with the result set as base
@@ -63,7 +63,7 @@ fn type_() {
 const NUM_CHILDREN_CASES: &[usize] = &[2, 5, 25];
 
 /// Result sets to test with
-const RESULT_SET_CASES: &[&[t_docId]] = &[
+const RESULT_SET_CASES: &[&[DocId]] = &[
     &[1, 2, 3, 40, 50],
     &[
         5, 6, 7, 24, 25, 46, 47, 48, 49, 50, 51, 234, 2345, 3456, 4567, 5678, 6789, 7890, 8901,
@@ -85,7 +85,7 @@ fn read_all_combinations() {
     }
 }
 
-fn read_test_case(num_children: usize, result_set: &[t_docId]) {
+fn read_test_case(num_children: usize, result_set: &[DocId]) {
     let children = create_children(num_children, result_set);
 
     // Compute expected num_estimated (minimum of all children's sizes)
@@ -154,12 +154,12 @@ fn skip_to_all_combinations() {
     }
 }
 
-fn skip_to_test_case(num_children: usize, result_set: &[t_docId]) {
+fn skip_to_test_case(num_children: usize, result_set: &[DocId]) {
     let children = create_children(num_children, result_set);
     let mut ii = Intersection::new(children, 1.0, false);
 
     // Test skipping to any id between 1 and the last id
-    let mut i: t_docId = 1;
+    let mut i: DocId = 1;
     for &id in result_set {
         // Skip to IDs that don't exist in result set (should return NotFound)
         while i < id {
@@ -280,7 +280,7 @@ fn rewind_all_combinations() {
     }
 }
 
-fn rewind_test_case(num_children: usize, result_set: &[t_docId]) {
+fn rewind_test_case(num_children: usize, result_set: &[DocId]) {
     let children = create_children(num_children, result_set);
     let mut ii = Intersection::new(children, 1.0, false);
 
@@ -527,7 +527,7 @@ fn many_children() {
         .map(|i| {
             // Each child has the common docs + some unique ones
             let mut ids = doc_ids.clone();
-            ids.push(i as t_docId + 1); // Unique to this child
+            ids.push(i as DocId + 1); // Unique to this child
             ids.sort();
             IdListSorted::new(ids)
         })
@@ -1054,7 +1054,7 @@ fn num_estimated_is_minimum_in_order() {
 fn children_sorted_by_estimated() {
     // Create children where the smallest (by count) would lead to fastest termination
     // Large child: has docs 1-1000
-    let large_child: Vec<t_docId> = (1..=1000).collect();
+    let large_child: Vec<DocId> = (1..=1000).collect();
     // Small child: only has doc 500
     let small_child = vec![500];
     // Medium child: has docs 100, 200, 300, 400, 500, 600, 700
@@ -1372,7 +1372,7 @@ mod slop_and_order {
 /// reduced `1/num_children` weight is preserved even through the wrapper.
 #[test]
 fn sort_weight_profile_wrapped_nested_intersection_sorts_first() {
-    let docs: Vec<t_docId> = (1..=10).collect();
+    let docs: Vec<DocId> = (1..=10).collect();
 
     // Inner intersection: 5 children, num_estimated = 10 → sort key 10 * (1/5) = 2.0.
     // Wrapped in Profile → intersection_sort_weight forwards to child, so sort key is still 2.0.
@@ -1407,7 +1407,7 @@ fn sort_weight_profile_wrapped_nested_intersection_sorts_first() {
 /// plain child with equal `num_estimated` (sort key `num_estimated * 1.0`).
 #[test]
 fn sort_weight_nested_intersection_sorts_first() {
-    let docs: Vec<t_docId> = (1..=10).collect();
+    let docs: Vec<DocId> = (1..=10).collect();
 
     // Inner intersection: 5 children, num_estimated = 10 → sort key 10 * (1/5) = 2.0.
     let inner_children_count = 5;

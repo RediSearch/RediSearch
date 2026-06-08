@@ -725,6 +725,15 @@ static int parseQueryArgs(ArgsCursor *ac, AREQ *req, RSSearchOptions *searchOpts
     AREQ_AddRequestFlags(req, QEXEC_OPTIMIZE);
   }
 
+  // QEXEC_OPTIMIZE can be set either by the dialect-4 default above or by an
+  // explicit WITHOUTCOUNT token earlier in this function. Either way, the
+  // QOptimizer pipeline reads from the RAM DocTable / NumericRangeTree, which
+  // aren't populated on disk specs. Force-disable so QOptimizer_Iterators is
+  // never entered for disk specs (it asserts the same).
+  if (isDiskIndex) {
+    AREQ_RemoveRequestFlags(req, QEXEC_OPTIMIZE);
+  }
+
   QEFlags reqFlags = AREQ_RequestFlags(req);
   if ((reqFlags & QEXEC_F_SEND_SCOREEXPLAIN) && !(reqFlags & QEXEC_F_SEND_SCORES)) {
     QueryError_SetError(status, QUERY_ERROR_CODE_PARSE_ARGS, "EXPLAINSCORE must be accompanied with WITHSCORES");
@@ -1134,6 +1143,7 @@ void AREQ_WaitForAggregateResultsComplete(AREQ *req) {
 
 void AREQ_ResetForCursorReadReturnStrict(AREQ *req) {
   RS_AtomicBoolStoreRelaxed(&req->syncCtx.aggregatingResults, false);
+  req->syncCtx.aggregateResultsClaimLost = false;
   pthread_mutex_lock(&req->syncCtx.aggregateResultsLock);
   req->syncCtx.aggregateResultsDone = false;
   pthread_mutex_unlock(&req->syncCtx.aggregateResultsLock);
@@ -1273,6 +1283,12 @@ int AREQ_Compile(AREQ *req, RedisModuleCtx *ctx, RedisModuleString **argv, int a
   };
   if (parseAggPlan(&papCtx, &ac, isDiskIndex, status) != REDISMODULE_OK) {
     goto error;
+  }
+
+  // Cap the per-query timeout to _MAX_FOREGROUND_TIMEOUT_LIMIT when workers
+  // are disabled; the state flag drives the RESP3 MaxTimeoutCapped warning.
+  if (RSConfig_CapQueryTimeoutToForegroundLimit(&req->reqConfig.queryTimeoutMS)) {
+    req->stateflags |= QEXEC_S_MAX_TIMEOUT_CAPPED;
   }
 
   if (IsInternal(req) &&
@@ -1737,7 +1753,26 @@ void AREQ_CleanUpStoredCursor(AREQ *req) {
   }
 }
 
-int AREQ_BuildPipeline(AREQ *req, QueryError *status) {
+AggregationPipelineParams AREQ_MakeAggregationPipelineParams(AREQ *req,
+                                                             GroupByLimits groupByLimits) {
+  return (AggregationPipelineParams){
+    .common = {
+      .sctx = req->sctx,
+      .reqflags = req->reqflags,
+      .optimizer = req->optimizer,
+      // Score alias is not supposed to be used in the aggregation pipeline
+      .scoreAlias = NULL,
+    },
+    .outFields = &req->outFields,
+    .maxResultsLimit = IsSearch(req) ? req->maxSearchResults : req->maxAggregateResults,
+    .groupByLimits = groupByLimits,
+    .language = req->searchopts.language,
+  };
+}
+
+int AREQ_BuildPipelineWithAggregationParams(AREQ *req,
+                                            const AggregationPipelineParams *aggregationParams,
+                                            QueryError *status) {
   Pipeline_Initialize(&req->pipeline, req->reqConfig.timeoutPolicy, status);
   if (!(AREQ_RequestFlags(req) & QEXEC_F_BUILDPIPELINE_NO_ROOT)) {
     QueryPipelineParams params = {
@@ -1761,21 +1796,16 @@ int AREQ_BuildPipeline(AREQ *req, QueryError *status) {
       return REDISMODULE_ERR;
     }
   }
-  AggregationPipelineParams params = {
-    .common = {
-      .sctx = req->sctx,
-      .reqflags = req->reqflags,
-      .optimizer = req->optimizer,
-      // Right now score alias is not supposed to be used in the aggregation pipeline
-      .scoreAlias = NULL,
-    },
-    .outFields = &req->outFields,
-    .maxResultsLimit = IsSearch(req) ? req->maxSearchResults : req->maxAggregateResults,
-    .language = req->searchopts.language,
-  };
-  int rc = Pipeline_BuildAggregationPart(&req->pipeline, &params, &req->stateflags, status);
+  int rc = Pipeline_BuildAggregationPart(&req->pipeline, aggregationParams, &req->stateflags, status);
   if (rc == REDISMODULE_OK) {
     AREQ_SetCanYieldPartialResults(req);
   }
   return rc;
+}
+
+int AREQ_BuildPipeline(AREQ *req, QueryError *status) {
+  AggregationPipelineParams aggregationParams =
+      AREQ_MakeAggregationPipelineParams(
+          req, GroupByLimits_Default(RSGlobalConfig.maxAggregateGroups));
+  return AREQ_BuildPipelineWithAggregationParams(req, &aggregationParams, status);
 }

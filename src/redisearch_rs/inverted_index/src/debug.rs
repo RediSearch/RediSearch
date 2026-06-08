@@ -9,8 +9,8 @@
 
 //! This module contains the debug information for an inverted index.
 
-use ffi::t_docId;
 use redis_reply::ArrayBuilder;
+use rqe_core::DocId;
 
 /// Summary information about an inverted index containing all key metrics
 #[cheadergen::config(export, rename = "IISummary")]
@@ -19,7 +19,7 @@ use redis_reply::ArrayBuilder;
 pub struct Summary {
     pub number_of_docs: u32,
     pub number_of_entries: usize,
-    pub last_doc_id: t_docId,
+    pub last_doc_id: DocId,
     pub flags: u64,
     pub number_of_blocks: usize,
     pub block_efficiency: f64,
@@ -53,7 +53,7 @@ impl Summary {
 #[repr(C)]
 #[derive(Debug, PartialEq)]
 pub struct BlockSummary {
-    pub first_doc_id: t_docId,
-    pub last_doc_id: t_docId,
+    pub first_doc_id: DocId,
+    pub last_doc_id: DocId,
     pub number_of_entries: u16,
 }
