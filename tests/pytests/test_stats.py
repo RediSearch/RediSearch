@@ -39,10 +39,13 @@ def runTestWithSeed(env, s=None):
         conn.execute_command('HSET', 'doc%d' % i, 'n', (i % num_values) + value_offset)
 
     expected_inv_idx_size = (
-        443 # buffer size after writing 4 bytes 100 times.
-        + 8 # thin vector header
-        + 32 # size of the inverted index structure on the stack
-        + 48 # block buffer capacity
+        443  # buffer size after writing 4 bytes 100 times.
+        + 8  # per-inverted-index metadata (numeric tree node overhead)
+        + 96  # size of the InvertedIndex struct on the stack — includes
+              # `Option<IndexBlock>` in_progress, so the active block is
+              # already counted here.
+        + 24  # `Arc<ThinVec>` heap for the empty `sealed` region
+              # (Arc refcount header 16 + ThinVec stack 8)
     ) / (1024 * 1024)
     check_index_info(env, idx, count, expected_inv_idx_size, "after insert")
 
