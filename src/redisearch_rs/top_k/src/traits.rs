@@ -57,28 +57,14 @@ pub enum BatchStrategy {
     Stop,
 }
 
-/// Decision returned by [`ScoreSource::adhoc_strategy`] after each adhoc
-/// lookup, telling [`TopKIterator`] whether to keep walking the child iterator.
-///
-/// [`TopKIterator`]: crate::TopKIterator
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum AdhocStrategy {
-    /// Keep walking the child iterator.
-    Continue,
-
-    /// Collection is complete — stop and yield whatever is in the heap.
-    Stop,
-}
-
 /// The score-producing half of a [`TopKIterator`].
 ///
 /// A [`ScoreSource`] knows how to:
 /// 1. Produce score-ordered batches ([`next_batch`]).
-/// 2. Produce all results in a single shot ([`next_batch_unfiltered`]), used in Unfiltered mode.
+/// 2. Produce all results in a single shot ([`all_results_unfiltered_batch`]), used in Unfiltered mode.
 /// 3. Look up the score for an individual document ([`lookup_score`]), used in Adhoc-BF mode.
 /// 4. Build the final [`RSIndexResult`] for a `(doc_id, score)` pair ([`build_result`]).
 /// 5. Decide, after each batch, whether to continue or switch strategy ([`batch_strategy`]).
-/// 6. Decide, after each adhoc lookup, whether to keep walking the child ([`adhoc_strategy`]).
 ///
 /// # Result lifetime
 ///
@@ -92,11 +78,10 @@ pub enum AdhocStrategy {
 ///
 /// [`TopKIterator`]: crate::TopKIterator
 /// [`next_batch`]: ScoreSource::next_batch
-/// [`next_batch_unfiltered`]: ScoreSource::next_batch_unfiltered
+/// [`all_results_unfiltered_batch`]: ScoreSource::all_results_unfiltered_batch
 /// [`lookup_score`]: ScoreSource::lookup_score
 /// [`build_result`]: ScoreSource::build_result
 /// [`batch_strategy`]: ScoreSource::batch_strategy
-/// [`adhoc_strategy`]: ScoreSource::adhoc_strategy
 pub trait ScoreSource {
     /// The type of batch cursor this source produces.
     type Batch: ScoreBatch;
@@ -122,7 +107,7 @@ pub trait ScoreSource {
     /// [`next_batch`](Self::next_batch).
     ///
     /// [`TopKIterator`]: crate::TopKIterator
-    fn next_batch_unfiltered(&mut self) -> Result<Option<Self::Batch>, RQEIteratorError> {
+    fn all_results_unfiltered_batch(&mut self) -> Result<Option<Self::Batch>, RQEIteratorError> {
         self.next_batch()
     }
 
@@ -165,28 +150,6 @@ pub trait ScoreSource {
     /// - `heap_count` — number of results currently in the heap.
     /// - `k` — the target number of results.
     fn batch_strategy(&mut self, heap_count: usize, k: usize) -> BatchStrategy;
-
-    /// Called after each adhoc lookup (Adhoc-BF mode only) to decide whether
-    /// collection should continue.
-    ///
-    /// The default implementation always returns [`AdhocStrategy::Continue`]
-    /// because child iterators yield documents in doc-ID order, not score
-    /// order — early termination would produce an incorrect top-k.  Override
-    /// to implement early-stop heuristics when the caller can guarantee
-    /// correctness (e.g., after accumulating enough high-scoring results).
-    ///
-    /// Must **not** be called from Batches mode.
-    ///
-    /// # Arguments
-    /// - `heap_count` — number of results currently in the heap.
-    /// - `k` — the target number of results.
-    fn adhoc_strategy(&mut self, _heap_count: usize, _k: usize) -> AdhocStrategy {
-        // The child yields documents in doc-ID order, not score order, so we
-        // must scan every match to guarantee a correct top-k — stopping when
-        // the heap fills would freeze the answer at the first k child docs.
-        // The bounded `TopKHeap` keeps the result set at k entries regardless.
-        AdhocStrategy::Continue
-    }
 
     /// The [`IteratorType`] that the wrapping [`TopKIterator`] should report.
     ///
