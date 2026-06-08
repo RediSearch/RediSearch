@@ -10,7 +10,7 @@
 use serde::{Deserialize, Serialize};
 use std::{
     marker::PhantomData,
-    sync::atomic::{self, AtomicU32, AtomicUsize},
+    sync::atomic::{self, AtomicU32},
 };
 use thin_vec::ThinVec;
 
@@ -71,7 +71,7 @@ pub struct AddRecordOutcome {
 /// last entry has the highest document ID. The block also contains a buffer that is used to
 /// store the encoded entries. The buffer is dynamically resized as needed when new entries are
 /// added to the block.
-#[derive(Debug, Eq, PartialEq, Serialize)]
+#[derive(Debug, Eq, PartialEq, Serialize, Deserialize)]
 pub struct IndexBlock {
     /// The first document ID in this block. This is used to determine the range of document IDs
     /// that this block covers.
@@ -88,53 +88,18 @@ pub struct IndexBlock {
     pub(crate) buffer: Vec<u8>,
 }
 
-static TOTAL_BLOCKS: AtomicUsize = AtomicUsize::new(0);
-
-/// Custom deserialization for `IndexBlock` to track the total number of blocks correctly.
-impl<'de> Deserialize<'de> for IndexBlock {
-    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
-    where
-        D: serde::Deserializer<'de>,
-    {
-        #[derive(Deserialize)]
-        struct IB {
-            first_doc_id: DocId,
-            last_doc_id: DocId,
-            num_entries: u16,
-            buffer: Vec<u8>,
-        }
-
-        let ib = IB::deserialize(deserializer)?;
-
-        // We are about to create a new `IndexBlock` object, so be sure to increment the global
-        // counter correctly. Without this the `Drop` implementation will eventually cause an
-        // underflow of the counter. This correctly counter balances the decrement in the `Drop`.
-        TOTAL_BLOCKS.fetch_add(1, atomic::Ordering::Relaxed);
-
-        Ok(IndexBlock {
-            first_doc_id: ib.first_doc_id,
-            last_doc_id: ib.last_doc_id,
-            num_entries: ib.num_entries,
-            buffer: ib.buffer,
-        })
-    }
-}
-
 impl IndexBlock {
     pub(crate) const STACK_SIZE: usize = std::mem::size_of::<Self>();
 
     /// Make a new index block with primed with the initial doc ID. The next entry written into
     /// the block should be for this doc ID else the block will contain incoherent data.
-    pub(crate) fn new(doc_id: DocId) -> Self {
-        let this = Self {
+    pub(crate) const fn new(doc_id: DocId) -> Self {
+        Self {
             first_doc_id: doc_id,
             last_doc_id: doc_id,
             num_entries: 0,
             buffer: Vec::new(),
-        };
-        TOTAL_BLOCKS.fetch_add(1, atomic::Ordering::Relaxed);
-
-        this
+        }
     }
 
     /// Get the memory usage of this block, including the stack size and the capacity of the bytes buffer.
@@ -164,17 +129,6 @@ impl IndexBlock {
 
     pub(crate) const fn writer(&mut self) -> ControlledCursor<'_> {
         ControlledCursor::new(&mut self.buffer)
-    }
-
-    /// Returns the total number of index blocks in existence.
-    pub fn total_blocks() -> usize {
-        TOTAL_BLOCKS.load(atomic::Ordering::Relaxed)
-    }
-}
-
-impl Drop for IndexBlock {
-    fn drop(&mut self) {
-        TOTAL_BLOCKS.fetch_sub(1, atomic::Ordering::Relaxed);
     }
 }
 

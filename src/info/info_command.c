@@ -272,8 +272,8 @@ void fillReplyWithIndexInfo(RedisSearchCtx* sctx, RedisModule_Reply *reply, bool
   // tied to any single index (e.g. the shared SVS thread pool singleton).
   size_t vector_indexes_size = IndexSpec_VectorIndexesSize(specForOpeningIndexes) +
                                VecSim_GetSharedMemory();
-  // FT.INFO reports per-spec block counts, not the process-global TotalIIBlocks (the latter
-  // is still exposed via Redis `INFO modules` for cluster-wide aggregation in spec.c).
+  // FT.INFO reports the per-spec block count. `INFO modules` aggregates the same per-spec
+  // counter across all specs in `IndexesInfo_TotalInfo`.
   size_t total_ii_blocks = isDisk ? SearchDisk_GetInvertedIndexTotalBlocks(sp->diskSpec)
       : __atomic_load_n(&sp->stats.totalInvertedIndexBlocks, __ATOMIC_RELAXED);
   size_t offset_vecs_size = isDisk ? 0 : sp->stats.offsetVecsSize;
