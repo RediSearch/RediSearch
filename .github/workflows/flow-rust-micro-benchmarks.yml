@@ -32,7 +32,7 @@ jobs:
       - name: Build RediSearch
         env:
           # Use committed Rust C headers; cheadergen is not installed on the
-          # benchmark EC2 runner (mirrors flow-micro-benchmarks-runner.yml).
+          # benchmark EC2 runner (see redis/redis#15220 for the same pattern).
           REDISEARCH_GENERATE_HEADERS: "0"
         run: make build LTO=1
       - name: Download Latest Baseline Artifact from master
