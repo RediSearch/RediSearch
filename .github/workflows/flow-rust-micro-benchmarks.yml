@@ -56,11 +56,11 @@ jobs:
           fi
       - name: Run benchmark on PR with baseline from master
         if: github.event_name == 'pull_request' && steps.check_baseline.outputs.baseline_exists == 'true'
-        run: cargo bench --workspace -- --baseline master
+        run: cargo bench -p trie_bencher
         working-directory: src/redisearch_rs
       - name: Run benchmark on PR without baseline
         if: github.event_name == 'pull_request' && steps.check_baseline.outputs.baseline_exists == 'false'
-        run: cargo bench --workspace
+        run: cargo bench -p trie_bencher
         working-directory: src/redisearch_rs
       - name: Run benchmark on master
         if: github.ref == 'refs/heads/master' && github.event_name == 'push' && success()
