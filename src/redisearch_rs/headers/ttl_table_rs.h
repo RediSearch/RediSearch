@@ -37,17 +37,28 @@ typedef struct FieldExpiration {
   t_expirationTimePoint point;
 } FieldExpiration;
 
-#ifndef THINVEC_FIELDEXPIRATION__U64_DEFINED
-#define THINVEC_FIELDEXPIRATION__U64_DEFINED
+#ifndef THINVEC_FIELDEXPIRATION__U32_DEFINED
+#define THINVEC_FIELDEXPIRATION__U32_DEFINED
 /**
  * See the crate's top level documentation for a description of this type.
  */
-typedef struct ThinVec_FieldExpiration__u64 {
-  struct Header_u64 *ptr;
-} ThinVec_FieldExpiration__u64;
-#endif /* THINVEC_FIELDEXPIRATION__U64_DEFINED */
+typedef struct ThinVec_FieldExpiration__u32 {
+  struct Header_u32 *ptr;
+} ThinVec_FieldExpiration__u32;
+#endif /* THINVEC_FIELDEXPIRATION__U32_DEFINED */
+
+#ifndef MEDIUMTHINVEC_FIELDEXPIRATION_DEFINED
+#define MEDIUMTHINVEC_FIELDEXPIRATION_DEFINED
+/**
+ * A [`ThinVec`] with `u32` capacity, supporting up to ~4 billion elements.
+ *
+ * This is useful when you want a balance between capacity and header size
+ * (8 bytes instead of 16).
+ */
+typedef struct ThinVec_FieldExpiration__u32 MediumThinVec_FieldExpiration;
+#endif /* MEDIUMTHINVEC_FIELDEXPIRATION_DEFINED */
 
 /**
  * An ascending-by-`index`, duplicate-free list of [`FieldExpiration`] entries.
  */
-typedef struct ThinVec_FieldExpiration__u64 FieldExpirations;
+typedef MediumThinVec_FieldExpiration FieldExpirations;
