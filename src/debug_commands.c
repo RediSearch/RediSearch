@@ -33,6 +33,8 @@
 #include "obfuscation/obfuscation_api.h"
 #include "info/info_command.h"
 #include "iterators/inverted_index_iterator.h"
+#include <stdatomic.h>
+#include <limits.h>
 
 DebugCTX globalDebugCtx = {0};
 
@@ -56,6 +58,27 @@ void QueryDebugCtx_SetDebugRP(ResultProcessor* debugRP) {
 bool QueryDebugCtx_HasDebugRP(void) {
   return globalDebugCtx.query.debugRP != NULL;
 }
+
+#ifdef ENABLE_ASSERT
+// Shard dispatch fault injection (test-only, see DebugSendError_* in header).
+// Set from the main thread via FT.DEBUG SEND_ERROR, consumed from the IO threads.
+static _Atomic int g_debugSendErrorCount = 0;
+
+void DebugSendError_Arm(int count) {
+  atomic_store(&g_debugSendErrorCount, count);
+}
+
+bool DebugSendError_Consume(void) {
+  int cur = atomic_load(&g_debugSendErrorCount);
+  while (cur > 0) {
+    if (atomic_compare_exchange_weak(&g_debugSendErrorCount, &cur, cur - 1)) {
+      return true;
+    }
+  }
+  return false;
+}
+
+#endif
 
 void validateDebugMode(DebugCTX *debugCtx) {
   // Debug mode is enabled if any of its field is non-default
@@ -2050,6 +2073,25 @@ DEBUG_COMMAND(printRPStream) {
   return REDISMODULE_OK;
 }
 
+#ifdef ENABLE_ASSERT
+/**
+ * FT.DEBUG SEND_ERROR <count>
+ * Arm the next <count> MRCluster_SendCommand dispatches to return REDIS_ERR,
+ * simulating a no-reply shard failure.
+ */
+DEBUG_COMMAND(sendError) {
+  if (!debugCommandsEnabled(ctx)) return RedisModule_ReplyWithError(ctx, NODEBUG_ERR);
+  if (argc != 3) return RedisModule_WrongArity(ctx);
+  long long count;
+  if (RedisModule_StringToLongLong(argv[2], &count) != REDISMODULE_OK || count < 0 ||
+      count > INT_MAX) {
+    return RedisModule_ReplyWithError(ctx,
+        "SEND_ERROR count must be a non-negative integer no greater than INT_MAX");
+  }
+  DebugSendError_Arm((int)count);
+  return RedisModule_ReplyWithSimpleString(ctx, "OK");
+}
+#endif
 /**
  * FT.DEBUG QUERY_CONTROLLER <command> [options]
  */
@@ -2236,6 +2278,14 @@ DebugCommandType commands[] = {{"DUMP_INVIDX", DumpInvertedIndex}, // Print all 
                                */
                                {NULL, NULL}};
 
+#ifdef ENABLE_ASSERT
+// Debug commands only available with ENABLE_ASSERT (debug/test builds)
+// Add new assert-only commands to this array instead of hard-coding #ifdef blocks
+static DebugCommandType assertOnlyCommands[] = {
+    {"SEND_ERROR", sendError},
+    {NULL, NULL}};
+#endif
+
 int DebugHelpCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
   RedisModule_ReplyWithArray(ctx, REDISMODULE_POSTPONED_ARRAY_LEN);
   size_t len = 0;
@@ -2247,6 +2297,12 @@ int DebugHelpCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
     RedisModule_ReplyWithCString(ctx, coordCommandsNames[i]);
     ++len;
   }
+#ifdef ENABLE_ASSERT
+  for (DebugCommandType *c = &assertOnlyCommands[0]; c->name != NULL; c++) {
+    RedisModule_ReplyWithCString(ctx, c->name);
+    ++len;
+  }
+#endif
   RedisModule_ReplySetArrayLength(ctx, len);
   return REDISMODULE_OK;
 }
@@ -2258,6 +2314,14 @@ int RegisterDebugCommands(RedisModuleCommand *debugCommand) {
               RS_DEBUG_FLAGS);
     if (rc != REDISMODULE_OK) return rc;
   }
+#ifdef ENABLE_ASSERT
+  for (DebugCommandType *c = &assertOnlyCommands[0]; c->name != NULL; c++) {
+    int rc = RedisModule_CreateSubcommand(debugCommand, c->name, c->callback,
+              IsEnterprise() ? "readonly " CMD_PROXY_FILTERED : "readonly",
+              RS_DEBUG_FLAGS);
+    if (rc != REDISMODULE_OK) return rc;
+  }
+#endif
   return RedisModule_CreateSubcommand(debugCommand, "HELP", DebugHelpCommand,
           IsEnterprise() ? "readonly " CMD_PROXY_FILTERED : "readonly",
           RS_DEBUG_FLAGS);
