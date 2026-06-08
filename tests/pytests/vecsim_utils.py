@@ -73,7 +73,17 @@ def get_tiered_backend_debug_info(env, index_name, field_name) -> dict:
     return to_dict(tiered_index_info['BACKEND_INDEX'])
 
 def get_vecsim_memory(env, index_key, field_name):
-    return float(to_dict(env.cmd(debug_cmd(), "VECSIM_INFO", index_key, field_name))["MEMORY"])/0x100000
+    # Returns the vector-related memory in MB for a SINGLE field: the per-index
+    # allocator (MEMORY) plus the process-wide VecSim shared memory (SHARED_MEMORY,
+    # e.g. the shared SVS thread pool).
+    #
+    # NOTE: SHARED_MEMORY is process-wide, so it is included on every call. Do not
+    # sum this across multiple vector fields of the same index/process — that would
+    # count the shared term once per field. Compare per single field only (matching
+    # how FT.INFO vector_index_sz_mb folds the shared term in exactly once).
+    info = to_dict(env.cmd(debug_cmd(), "VECSIM_INFO", index_key, field_name))
+    total = float(info["MEMORY"]) + float(info.get("SHARED_MEMORY", 0))
+    return total / 0x100000
 
 def get_vecsim_index_size(env, index_key, field_name):
     return int(to_dict(env.cmd(debug_cmd(), "VECSIM_INFO", index_key, field_name))["INDEX_SIZE"])
