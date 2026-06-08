@@ -262,7 +262,10 @@ void fillReplyWithIndexInfo(RedisSearchCtx* sctx, RedisModule_Reply *reply, bool
   size_t inverted_size = isDisk ? 0 : sp->stats.invertedSize;
   // Vector indexes (e.g. HNSW) remain in memory even when the rest of the
   // index is stored on disk, so their memory must always be reported.
-  size_t vector_indexes_size = IndexSpec_VectorIndexesSize(specForOpeningIndexes);
+  // VecSim_GetSharedMemory() returns process-wide vector-related allocations not
+  // tied to any single index (e.g. the shared SVS thread pool singleton).
+  size_t vector_indexes_size = IndexSpec_VectorIndexesSize(specForOpeningIndexes) +
+                               VecSim_GetSharedMemory();
   size_t total_ii_blocks = isDisk ? 0 : TotalIIBlocks();
   size_t offset_vecs_size = isDisk ? 0 : sp->stats.offsetVecsSize;
   size_t doc_table_size = isDisk ? 0 : sp->docs.memsize;
