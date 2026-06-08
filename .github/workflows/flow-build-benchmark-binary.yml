@@ -45,9 +45,12 @@ jobs:
       - name: Setup tests dependencies
         # Wrapped in retry-command so a transient GitHub outage during the
         # dependency downloads is retried instead of failing the whole job.
+        # github_token (scoped to this step) lets cargo-binstall use
+        # authenticated GitHub API calls (5000 req/hr vs 60/hr).
         uses: ./.github/actions/retry-command
         with:
           command: .install/test_deps/common_installations.sh sudo
+          github_token: ${{ github.token }}
       - name: Install Boost
         working-directory: .install
         run: ./install_boost.sh
