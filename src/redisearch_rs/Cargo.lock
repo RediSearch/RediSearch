@@ -3082,6 +3082,23 @@ dependencies = [
 ]
 
 [[package]]
+name = "ttl_table_bencher"
+version = "0.0.1"
+dependencies = [
+ "build_utils",
+ "criterion",
+ "ffi",
+ "libc",
+ "rand 0.10.1",
+ "redis_mock",
+ "redisearch_rs",
+ "rqe_core",
+ "thin_vec",
+ "ttl_table",
+ "workspace_hack",
+]
+
+[[package]]
 name = "ttl_table_ffi"
 version = "0.0.1"
 dependencies = [
