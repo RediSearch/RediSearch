@@ -265,6 +265,15 @@ jobs:
     steps:
       - name: Checkout repository
         uses: actions/checkout@v6
+        with:
+          # Don't persist the default GITHUB_TOKEN in .git/config. The
+          # downstream steps (`gh run download`, fetch-failed-run-logs,
+          # codex-ci-triage, the upsert step) all set `GH_TOKEN` /
+          # `github-token` explicitly, so nothing in this job relies on
+          # the stored credential. Dropping it removes a vector where
+          # attacker-controlled fork-PR logs piped into Codex could reach
+          # the token via the working tree.
+          persist-credentials: false
 
       - name: Download focused Failed Test Logs artifacts
         # Fork PRs that keep the `triage-pr` label can produce arbitrarily
