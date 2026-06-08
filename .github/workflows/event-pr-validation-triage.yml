@@ -140,6 +140,12 @@ jobs:
                   pulls = run.get("pull_requests") or []
                   if any(p.get("number") == int(pr_number) for p in pulls):
                       return True
+                  # The run identifies its PR(s) explicitly and ours isn't
+                  # listed — don't fall through to the head-only fallback,
+                  # which would pick up a sibling PR's run (same head SHA but
+                  # different base branch).
+                  if pulls:
+                      return False
                   # Fork PRs: run.pull_requests is empty. Match on head repo
                   # AND head branch — matching on repo alone picks up sibling
                   # fork PRs (e.g. parallel PRs from the same fork against
@@ -151,6 +157,17 @@ jobs:
                       and bool(pr_head_ref) and pr_head_ref == run_head_branch
                   )
               runs_list = [r for r in runs.get("workflow_runs", []) if run_matches_pr(r)]
+              # If the fork fallback matched more than one run (parallel fork
+              # PRs against different base branches share head_repo + head_ref),
+              # we can't tell which run belongs to this PR; skip rather than
+              # risk attaching another PR's triage to this one.
+              fork_fallback_matches = [
+                  r for r in runs_list if not (r.get("pull_requests") or [])
+              ]
+              if len(fork_fallback_matches) > 1:
+                  ids = ", ".join(str(r.get("id")) for r in fork_fallback_matches)
+                  print(f"Ambiguous fork-fallback match for PR #{pr_number} at {head_sha} (runs {ids}); skipping.")
+                  emit(False, pr_number)
               if not runs_list:
                   print(f"No Pull Request Flow run for PR #{pr_number} at {head_sha}.")
                   emit(False, pr_number)
