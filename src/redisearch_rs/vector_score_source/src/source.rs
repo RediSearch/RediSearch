@@ -13,7 +13,7 @@ use std::{ffi::c_void, num::NonZeroUsize, ptr::NonNull};
 
 use ffi::{TimeoutCtx, VecSearchMode, VecSimIndex, VecSimQueryParams, t_docId, timespec};
 use index_result::RSIndexResult;
-use rqe_iterators::RQEIteratorError;
+use rqe_iterators::{ExpirationChecker as _, FieldExpirationChecker, RQEIteratorError};
 use top_k::{BatchStrategy, ScoreSource, ScoredResult};
 use vecsim::{
     AdhocBfCtx, BatchIterator, IndexRef, QueryError, QueryVector, ReplyOrder, SharedLockGuard,
@@ -90,6 +90,9 @@ pub struct VectorScoreSource<'index> {
     child_num_estimated: usize,
     /// `k - heap_count`, updated by `batch_strategy`. Reset on rewind.
     k_remaining: usize,
+
+    /// Optional field-expiration filter for the vector field.
+    expiration: Option<FieldExpirationChecker>,
 }
 
 // SAFETY: VectorScoreSource is used from a single thread (the query execution
@@ -132,6 +135,7 @@ impl<'index> VectorScoreSource<'index> {
         should_rerank: bool,
         child_num_estimated: usize,
         fixed_batch_size: usize,
+        expiration: Option<FieldExpirationChecker>,
     ) -> Self {
         // SAFETY: caller-upheld: `index` is valid for the struct's lifetime.
         let index = unsafe { IndexRef::from_raw(index) };
@@ -165,6 +169,7 @@ impl<'index> VectorScoreSource<'index> {
             child_num_estimated,
             initial_child_num_estimated: child_num_estimated,
             k_remaining: k.get(),
+            expiration,
         }
     }
 
@@ -227,7 +232,7 @@ impl<'index> ScoreSource for VectorScoreSource<'index> {
             .map_err(|QueryError::TimedOut| RQEIteratorError::TimedOut)?;
         Ok(reply
             .and_then(|r| r.into_results())
-            .map(VecSimScoreBatchCursor::new))
+            .map(|results| VecSimScoreBatchCursor::new(results, self.expiration)))
     }
 
     fn next_batch(&mut self) -> Result<Option<Self::Batch>, RQEIteratorError> {
@@ -278,10 +283,20 @@ impl<'index> ScoreSource for VectorScoreSource<'index> {
             .map_err(|QueryError::TimedOut| RQEIteratorError::TimedOut)?;
         Ok(reply
             .and_then(|r| r.into_results())
-            .map(VecSimScoreBatchCursor::new))
+            .map(|results| VecSimScoreBatchCursor::new(results, self.expiration)))
     }
 
     fn lookup_score(&mut self, doc_id: t_docId) -> Option<f64> {
+        if let Some(checker) = self.expiration.as_ref()
+            && checker.has_expiration()
+        {
+            // Mirror the C `HybridIterator`'s post-yield expiration check:
+            // expired docs are excluded from the Adhoc-BF result set.
+            let probe = RSIndexResult::build_virt().doc_id(doc_id).build();
+            if checker.is_expired(&probe) {
+                return None;
+            }
+        }
         match &self.adhoc_state {
             AdhocPathState::Ram { guard: Some(g) } => g.get_distance_from(doc_id),
             AdhocPathState::Ram { guard: None } => None,
@@ -525,6 +540,7 @@ mod tests {
                 false,
                 child_num_estimated,
                 0,
+                None,
             )
         }
     }

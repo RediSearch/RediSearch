@@ -183,6 +183,7 @@ mod tests {
                 false, // should_rerank — disk-only, N/A on RAM
                 child_num_estimated,
                 0,
+                None,
             )
         }
     }

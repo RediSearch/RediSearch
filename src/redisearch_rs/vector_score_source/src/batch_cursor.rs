@@ -10,27 +10,47 @@
 //! [`VecSimScoreBatchCursor`] — [`ScoreBatch`] adapter over a VecSim query
 //! reply.
 
-use ffi::t_docId;
+use index_result::RSIndexResult;
+use rqe_core::DocId;
+use rqe_iterators::{ExpirationChecker, FieldExpirationChecker};
 use top_k::ScoreBatch;
 use vecsim::ReplyResults;
 
 /// A [`ScoreBatch`] cursor over a single VecSim batch reply.
 pub struct VecSimScoreBatchCursor {
     results: ReplyResults,
+    /// Optional per-doc field-expiration filter; when present, expired docs
+    /// are skipped during iteration so they never reach the heap or yield path.
+    expiration: Option<FieldExpirationChecker>,
 }
 
 impl VecSimScoreBatchCursor {
-    pub(crate) fn new(results: ReplyResults) -> Self {
-        Self { results }
+    pub(crate) fn new(results: ReplyResults, expiration: Option<FieldExpirationChecker>) -> Self {
+        Self {
+            results,
+            expiration,
+        }
     }
 }
 
 impl ScoreBatch for VecSimScoreBatchCursor {
-    fn next(&mut self) -> Option<(t_docId, f64)> {
-        Iterator::next(&mut self.results)
+    fn next(&mut self) -> Option<(DocId, f64)> {
+        loop {
+            // SAFETY: `self.iter` is valid until dropped.
+            let (id, score) = self.results.next()?;
+            if let Some(checker) = self.expiration.as_ref()
+                && checker.has_expiration()
+            {
+                let probe = RSIndexResult::build_virt().doc_id(id).build();
+                if checker.is_expired(&probe) {
+                    continue;
+                }
+            }
+            return Some((id, score));
+        }
     }
 
-    fn skip_to(&mut self, target: t_docId) -> Option<(t_docId, f64)> {
+    fn skip_to(&mut self, target: DocId) -> Option<(DocId, f64)> {
         self.results.skip_to(target)
     }
 }

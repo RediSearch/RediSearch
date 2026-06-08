@@ -16,6 +16,7 @@ build_utils = { path = "../build_utils" }
 [dependencies]
 ffi.workspace = true
 inverted_index.workspace = true
+rqe_core.workspace = true
 rqe_iterators.workspace = true
 top_k = { path = "../top_k" }
 tracing.workspace = true
