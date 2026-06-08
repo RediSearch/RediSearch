@@ -29,49 +29,42 @@ use rqe_core::DocId;
 
 /// A non-owning reference to a `VecSimIndex`.
 ///
-/// The C side owns the index and must keep it live for at least `'idx`.
+/// The C side owns the index and must keep it live for at least `'index`.
 #[derive(Clone, Copy)]
 #[repr(transparent)]
-pub struct IndexRef<'idx> {
+pub struct IndexRef<'index> {
     /// Borrowed VecSim index pointer.
     ///
     /// # Invariant
     ///
-    /// Valid and not freed for the entire `'idx` lifetime.
+    /// Valid and not freed for the entire `'index` lifetime.
     inner: NonNull<VecSimIndex>,
-    _marker: PhantomData<&'idx VecSimIndex>,
+    _marker: PhantomData<&'index VecSimIndex>,
 }
 
 /// A query blob whose length matches the index it was built for: exactly
-/// `dim × bytes-per-element` bytes (`dim` and the per-element size both come
-/// from the index's immutable metadata).
+/// `dim × bytes-per-element` bytes, both taken from the index's immutable
+/// metadata.
 ///
-/// The length match is a type invariant: every safe method taking a
-/// `QueryVector` (e.g. [`IndexRef::top_k_query`], [`IndexRef::batch_iterator`])
-/// hands the blob to VecSim, which reads exactly that many bytes, and none of
-/// them re-validate. Constructing the value is therefore the sole checkpoint,
-/// and [`QueryVector::new`] is `unsafe` for that reason.
+/// The length match is a type invariant that safe query methods rely on
+/// without re-validating, so [`QueryVector::new`] is `unsafe`.
 ///
-/// Note: `'idx` brands the blob with the index *lifetime*, not its *identity*.
-/// A `QueryVector` built for one index is accepted by any other index of the
-/// same layout, so the caller must use it with the intended index.
-pub struct QueryVector<'idx> {
+/// `'index` ties the blob to the index *lifetime*, not its *identity*: it does
+/// not prevent using the blob with a different index of the same lifetime.
+pub struct QueryVector<'index> {
     /// Query blob, laid out as the index expects.
     blob: Vec<u8>,
-    _marker: PhantomData<&'idx VecSimIndex>,
+    _marker: PhantomData<&'index VecSimIndex>,
 }
 
-impl<'idx> QueryVector<'idx> {
+impl<'index> QueryVector<'index> {
     /// Wrap `blob` as a query vector for `index`.
     ///
     /// # Safety
     ///
     /// `blob` must have the length required by [`QueryVector`] for `index`, laid
-    /// out as the index expects (e.g. `f32`s for a float32 index). A shorter
-    /// blob is read out of bounds by VecSim in every safe query method that
-    /// consumes the returned value. A `debug_assert!` checks the length in debug
-    /// builds only; release builds trust this precondition.
-    pub unsafe fn new(index: IndexRef<'idx>, blob: Vec<u8>) -> Self {
+    /// out as the index expects (e.g. `f32`s for a 32-bit-float index).
+    pub unsafe fn new(index: IndexRef<'index>, blob: Vec<u8>) -> Self {
         debug_assert_eq!(
             blob.len(),
             expected_blob_len(index.inner),
@@ -110,17 +103,10 @@ fn expected_blob_len(ptr: NonNull<VecSimIndex>) -> usize {
     info.dim * bytes_per_elem
 }
 
-/// Prepare a query vector for direct distance lookups against this index.
+/// Returns a query blob ready for direct distance lookups against this index.
 ///
-/// Unlike a top-k or batch query, a direct distance lookup applies no
-/// preprocessing to the query: it compares the bytes as given. Cosine indexes
-/// assume both vectors are normalized, so an un-normalized query would produce
-/// wrong distances. We therefore normalize the query once, up front, and reuse
-/// the result for every per-document lookup.
-///
-/// For non-cosine metrics the query is returned unchanged. For cosine the
-/// result may be slightly larger than the input, because normalization can
-/// append bookkeeping (e.g. the precomputed norm) that the index expects.
+/// Cosine indexes require normalized queries, so cosine inputs are normalized
+/// (see [`VecSim_Normalize`]); all other metrics are returned unchanged.
 fn prepare_query(ptr: NonNull<VecSimIndex>, query_vector: &[u8]) -> Vec<u8> {
     // SAFETY: `ptr` is a valid VecSimIndex for at least as long as the caller's borrow.
     let info = unsafe { VecSimIndex_BasicInfo(ptr.as_ptr()) };
@@ -136,21 +122,21 @@ fn prepare_query(ptr: NonNull<VecSimIndex>, query_vector: &[u8]) -> Vec<u8> {
     let mut blob = vec![0u8; blob_len.max(query_vector.len())];
     blob[..query_vector.len()].copy_from_slice(query_vector);
     // SAFETY:
-    // - `blob` is `blob_len` bytes, the size VecSim requires for a normalized
-    //   query of this `dim`/`type`, so the in-place normalization (and any
-    //   appended norm) stays in bounds.
-    // - `info.dim` and `info.type_` come from this index's own metadata.
+    // 1. `blob` is `blob_len` bytes, the size VecSim requires for a normalized
+    //    query of this `dim`/`type`, so the in-place normalization (and any
+    //    appended norm) stays in bounds.
+    // 2. `info.dim` and `info.type_` come from this index's own metadata.
     unsafe { VecSim_Normalize(blob.as_mut_ptr().cast::<c_void>(), info.dim, info.type_) };
     blob
 }
 
-impl<'idx> IndexRef<'idx> {
+impl<'index> IndexRef<'index> {
     /// Create an `IndexRef` from a non-null pointer.
     ///
     /// # Safety
     ///
     /// The caller must establish the [`inner`](Self::inner) field invariant
-    /// for the chosen `'idx` lifetime.
+    /// for the chosen `'index` lifetime.
     pub const unsafe fn from_raw(ptr: NonNull<VecSimIndex>) -> Self {
         Self {
             inner: ptr,
@@ -177,16 +163,16 @@ impl<'idx> IndexRef<'idx> {
     /// [`QueryReply::from_raw_checked`] for the timeout/null handling contract.
     pub fn top_k_query(
         &self,
-        query_vector: &QueryVector<'idx>,
+        query_vector: &QueryVector<'index>,
         k: NonZeroUsize,
         params: &mut VecSimQueryParams,
         order: ReplyOrder,
     ) -> Result<Option<QueryReply>, QueryError> {
         // SAFETY:
-        // - `self.inner` upholds its invariant.
-        // - `query_vector`'s blob is sized to the index by the `QueryVector`
-        //   invariant, so the pointer is valid for the bytes VecSim reads.
-        // - `params` is exclusively borrowed for this call.
+        // 1. `self.inner` upholds its invariant.
+        // 2. `query_vector`'s blob is sized to the index by the `QueryVector`
+        //    invariant, so the pointer is valid for the bytes VecSim reads.
+        // 3. `params` is exclusively borrowed for this call.
         let raw = unsafe {
             VecSimIndex_TopKQuery(
                 self.inner.as_ptr(),
@@ -200,49 +186,9 @@ impl<'idx> IndexRef<'idx> {
         unsafe { QueryReply::from_raw_checked(raw, order) }
     }
 
-    /// Create a batch iterator scoped to `query_vector` and `params`.
-    ///
-    /// Returns `None` if VecSim returns a null iterator pointer.
-    ///
-    /// The returned [`BatchIterator`] is bounded by both `'idx` (the index
-    /// must remain valid) and `'params` (the `timeoutCtx` referenced inside
-    /// `params` must remain valid for the full lifetime of the iterator).
-    pub fn batch_iterator<'params>(
-        &self,
-        query_vector: &QueryVector<'idx>,
-        params: &'params mut VecSimQueryParams,
-    ) -> Option<BatchIterator<'idx, 'params>> {
-        // SAFETY: same argument as `top_k_query`.
-        let raw = unsafe {
-            ffi::VecSimBatchIterator_New(
-                self.inner.as_ptr(),
-                query_vector.as_bytes().as_ptr().cast::<c_void>(),
-                params,
-            )
-        };
-        let ptr = NonNull::new(raw)?;
-        // SAFETY:
-        // - `ptr` is non-null and freshly returned by `VecSimBatchIterator_New`,
-        //   so the `BatchIterator::inner` invariant holds.
-        // - `'idx` is the index lifetime from `IndexRef<'idx>`; the HNSW batch
-        //   iterator stores the raw index pointer and uses it on every Next call.
-        // - `'params` is bounded by the exclusive borrow of `params`; the iterator
-        //   copies `params.timeoutCtx` at construction and reads it on every Next
-        //   call, so the timeout-context referent must outlive the iterator.
-        // - `query_vector` needs no lifetime tracking: VecSimBatchIterator_New
-        //   force-copies the blob (see `BatchIterator::from_raw` safety docs).
-        Some(unsafe { BatchIterator::from_raw(ptr) })
-    }
-
-    /// Like [`batch_iterator`](Self::batch_iterator), but takes the query
-    /// params as a raw pointer so the caller chooses `'params` instead of
-    /// borrowing the params storage.
-    ///
-    /// This is the escape hatch for owners that store the returned iterator
-    /// alongside the `VecSimQueryParams` it was built from: a safe
-    /// `&'params mut` borrow would tie `'params` to that owner's own fields,
-    /// which Rust cannot express. Here the caller picks `'params` and takes on
-    /// the obligation below.
+    /// Create a batch iterator, taking `params` as a raw pointer so the caller
+    /// picks `'params`. Use this to store the iterator alongside the
+    /// `VecSimQueryParams` it was built from.
     ///
     /// # Safety
     ///
@@ -252,14 +198,14 @@ impl<'idx> IndexRef<'idx> {
     ///   [`BatchIterator::next`] call.
     pub unsafe fn batch_iterator_unchecked<'params>(
         &self,
-        query_vector: &QueryVector<'idx>,
+        query_vector: &QueryVector<'index>,
         params: *mut VecSimQueryParams,
-    ) -> Option<BatchIterator<'idx, 'params>> {
+    ) -> Option<BatchIterator<'index, 'params>> {
         // SAFETY:
-        // - `self.inner` upholds its invariant.
-        // - `query_vector`'s blob is sized to the index by the `QueryVector`
-        //   invariant, so the pointer is valid for the bytes VecSim reads.
-        // - `params` is a valid pointer for this call per the caller's obligation.
+        // 1. `self.inner` upholds its invariant.
+        // 2. `query_vector`'s blob is sized to the index by the `QueryVector`
+        //    invariant, so the pointer is valid for the bytes VecSim reads.
+        // 3. `params` is a valid pointer for this call per the caller's obligation.
         let raw = unsafe {
             ffi::VecSimBatchIterator_New(
                 self.inner.as_ptr(),
@@ -268,38 +214,28 @@ impl<'idx> IndexRef<'idx> {
             )
         };
         let ptr = NonNull::new(raw)?;
-        // SAFETY:
-        // - `ptr` is non-null and freshly returned by `VecSimBatchIterator_New`,
-        //   so the `BatchIterator::inner` invariant holds.
-        // - `'idx` is the index lifetime from `IndexRef<'idx>`; the HNSW batch
-        //   iterator stores the raw index pointer and uses it on every Next call.
-        // - `'params` is chosen by the caller, who guarantees the `timeoutCtx`
-        //   referent outlives it.
-        // - `query_vector` needs no lifetime tracking: VecSimBatchIterator_New
-        //   force-copies the blob (see `BatchIterator::from_raw` safety docs).
+        // SAFETY: satisfies `BatchIterator::from_raw`:
+        // 1. `inner` invariant: `ptr` is non-null and freshly returned by
+        //    `VecSimBatchIterator_New`.
+        // 2. `'index` is bounded by the index lifetime.
+        // 3. `'params` is caller-chosen; the caller guarantees the `timeoutCtx`
+        //    referent outlives it.
         Some(unsafe { BatchIterator::from_raw(ptr) })
     }
 
-    /// Acquire the tiered-index shared locks required for unsafe RAM adhoc
-    /// distance lookups against `query_vector`. The returned guard releases the
-    /// locks on drop.
+    /// Acquire the shared locks for RAM adhoc distance lookups against
+    /// `query_vector`, returning a [`SharedLockGuard`].
     ///
-    /// RAM/tiered indexes only: the guard's lookups use the RAM-only distance
-    /// path. Disk indexes must use [`adhoc_bf_ctx`](Self::adhoc_bf_ctx) instead,
-    /// which preprocesses the query and registers the marker disk lookups need.
+    /// RAM/tiered indexes only; disk indexes must use
+    /// [`adhoc_bf_ctx`](Self::adhoc_bf_ctx) instead.
     ///
-    /// `query_vector` is normalized once here for cosine indexes (see
-    /// [`prepare_query`]) and the prepared blob is reused by every
-    /// [`get_distance_from`](SharedLockGuard::get_distance_from) call, so the
-    /// caller passes a plain (un-normalized) query just like for
+    /// The query is normalized for cosine indexes (see [`prepare_query`]), so
+    /// the caller passes a plain query just like for
     /// [`top_k_query`](Self::top_k_query).
-    ///
-    /// The guard's lifetime is the index's `'idx`, not the borrow of `self`,
-    /// so it can be stored alongside the [`IndexRef`].
     pub fn acquire_ram_shared_locks(
         &self,
-        query_vector: &QueryVector<'idx>,
-    ) -> SharedLockGuard<'idx> {
+        query_vector: &QueryVector<'index>,
+    ) -> SharedLockGuard<'index> {
         debug_assert!(
             // SAFETY: `self.inner` upholds its invariant.
             !unsafe { VecSimIndex_BasicInfo(self.inner.as_ptr()) }.isDisk,
@@ -314,18 +250,16 @@ impl<'idx> IndexRef<'idx> {
         }
     }
 
-    /// Create a disk-index adhoc-BF context that preprocesses `query_vector`
-    /// once for repeated distance lookups.
+    /// Create an [`AdhocBfCtx`] that preprocesses `query_vector` once for
+    /// repeated disk-index distance lookups.
     ///
     /// Returns `None` when VecSim does not support adhoc-BF for this index
-    /// type (e.g. RAM indexes) and yields a null context.
-    ///
-    /// The context's lifetime is the index's `'idx`, not the borrow of `self`,
-    /// so it can be stored alongside the [`IndexRef`]. For disk indexes the
-    /// context keeps performing label distance lookups against the backing
-    /// index, so it must not outlive it.
-    pub fn adhoc_bf_ctx(&self, query_vector: &QueryVector<'idx>) -> Option<AdhocBfCtx<'idx>> {
-        // SAFETY: same argument as `top_k_query`.
+    /// type (e.g. RAM indexes).
+    pub fn adhoc_bf_ctx(&self, query_vector: &QueryVector<'index>) -> Option<AdhocBfCtx<'index>> {
+        // SAFETY:
+        // 1. `self.inner` upholds its invariant.
+        // 2. `query_vector`'s blob is sized to the index by the `QueryVector`
+        //    invariant, so the pointer is valid for the bytes VecSim reads.
         let raw = unsafe {
             VecSimIndex_AdhocBfCtx_New(
                 self.inner.as_ptr(),
@@ -347,8 +281,8 @@ impl<'idx> IndexRef<'idx> {
 /// While the guard exists, [`get_distance_from`](Self::get_distance_from) is
 /// safe to call; the locks are released when the guard is dropped.
 #[must_use = "the shared locks are released when the guard is dropped"]
-pub struct SharedLockGuard<'idx> {
-    index: IndexRef<'idx>,
+pub struct SharedLockGuard<'index> {
+    index: IndexRef<'index>,
     /// Query blob, normalized once for cosine indexes at construction, reused
     /// by every [`get_distance_from`](Self::get_distance_from) call.
     query: Vec<u8>,
@@ -360,11 +294,11 @@ impl SharedLockGuard<'_> {
     /// returns `NaN` (label not found).
     pub fn get_distance_from(&self, doc_id: DocId) -> Option<f64> {
         // SAFETY:
-        // - `self.index.inner` upholds its invariant.
-        // - The tiered-index shared locks are held for the lifetime of
-        //   `self`, satisfying the `_Unsafe` precondition.
-        // - `self.query` was sized and (for cosine) normalized to match the
-        //   index in `acquire_ram_shared_locks`.
+        // 1. `self.index.inner` upholds its invariant.
+        // 2. The tiered-index shared locks are held for the lifetime of
+        //    `self`, satisfying the `_Unsafe` precondition.
+        // 3. `self.query` was sized and (for cosine) normalized to match the
+        //    index in `acquire_ram_shared_locks`.
         let distance = unsafe {
             VecSimIndex_GetDistanceFrom_Unsafe(
                 self.index.inner.as_ptr(),
@@ -385,8 +319,8 @@ impl Drop for SharedLockGuard<'_> {
 }
 
 /// Owned disk-index adhoc-BF context, borrowing the index it was created from
-/// for `'idx`. Freed on [`Drop`].
-pub struct AdhocBfCtx<'idx> {
+/// for `'index`. Freed on [`Drop`].
+pub struct AdhocBfCtx<'index> {
     /// Owned VecSim adhoc-BF context handle.
     ///
     /// # Invariant
@@ -394,19 +328,20 @@ pub struct AdhocBfCtx<'idx> {
     /// Valid (returned by `VecSimIndex_AdhocBfCtx_New`) and not yet freed,
     /// from construction until [`Drop`].
     inner: NonNull<VecSimAdhocBfCtx>,
-    /// Ties the context to the `'idx` lifetime of the index it was created
+    /// Ties the context to the `'index` lifetime of the index it was created
     /// from: disk contexts perform label distance lookups against that index
     /// on every [`get_distance_from`](Self::get_distance_from) call, so the
     /// index must outlive the context.
-    _marker: PhantomData<&'idx VecSimIndex>,
+    _marker: PhantomData<&'index VecSimIndex>,
 }
 
-impl<'idx> AdhocBfCtx<'idx> {
+impl<'index> AdhocBfCtx<'index> {
     /// # Safety
     ///
-    /// The caller must establish the [`inner`](Self::inner) field invariant,
-    /// and the index `ptr` was created from must stay valid for the chosen
-    /// `'idx` lifetime.
+    /// The caller must:
+    /// 1. establish the [`inner`](Self::inner) field invariant;
+    /// 2. ensure the index `ptr` was created from stays valid for the chosen
+    ///    `'index` lifetime.
     const unsafe fn from_raw(ptr: NonNull<VecSimAdhocBfCtx>) -> Self {
         Self {
             inner: ptr,
