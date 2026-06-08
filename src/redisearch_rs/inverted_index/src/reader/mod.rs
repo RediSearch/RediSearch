@@ -43,7 +43,7 @@ pub trait IndexReader<'index> {
     /// Reset the reader to the beginning of the index, refreshing any cached snapshot.
     ///
     /// # Caller obligation (unenforced by the type system)
-    /// Implementors backed by an owned snapshot (e.g. [`IndexReaderCore`])
+    /// Implementers backed by an owned snapshot (e.g. [`IndexReaderCore`])
     /// drop the previous snapshot here. Any [`RSIndexResult`] previously yielded by
     /// `next_record` / `seek_record` and not yet dropped will be left with dangling
     /// slices into the discarded snapshot — safe Rust does NOT catch this. Drop every
