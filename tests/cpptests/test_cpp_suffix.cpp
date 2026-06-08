@@ -111,6 +111,8 @@ TEST_F(SuffixChooseTokenTest, multipleStarsSelectByTokenOrdinal) {
   // the split ordinal, not an offset.
   EXPECT_EQ(chooseRune("a*b*cd*ef*ghij").tokenOrdinal, 4);
   EXPECT_EQ(chooseRune("a*b*cd*ef*ghij").len, 4u);
+  EXPECT_EQ(chooseRune("ab*cd*longestmiddle*ef").tokenOrdinal, 2);
+  EXPECT_EQ(chooseRune("ab*cd*longestmiddle*ef").len, 13u);
 }
 
 // The rune scorer must agree with the char scorer on the chosen token ordinal.
@@ -137,4 +139,11 @@ TEST_F(SuffixChooseTokenTest, noQualifyingTokenIsUninitialized) {
   EXPECT_EQ(chooseTokenRune("?"), REDISEARCH_UNINITIALIZED);      // single '?'
   EXPECT_EQ(chooseTokenRune("*?*"), REDISEARCH_UNINITIALIZED);    // token "?" len 1
   EXPECT_EQ(chooseTokenRune("a*?*b"), REDISEARCH_UNINITIALIZED);  // "a","?","b" all len 1
+}
+
+TEST_F(SuffixChooseTokenTest, multiByteCharsScoredByRune) {
+  EXPECT_EQ(chooseRune("αβγ*δεζη").tokenOrdinal, 1);
+  EXPECT_EQ(chooseRune("αβγ*δεζη").len, 4u);
+  EXPECT_EQ(chooseRune("αβγδε").tokenOrdinal, 0);
+  EXPECT_EQ(chooseRune("αβγδε").len, 5u);
 }
