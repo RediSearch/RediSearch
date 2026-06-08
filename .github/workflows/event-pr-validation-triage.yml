@@ -17,18 +17,19 @@ on:
     types: [labeled]
 
 concurrency:
-  # Serialize per PR so two triggers (workflow_run + labeled) racing on the
-  # same PR don't both try to upsert the same comment. For fork-PR
-  # workflow_run events, `workflow_run.pull_requests[0].number` is empty and
-  # `pull_request.number` is undefined; fall through to the source run's
-  # head_sha so unrelated fork-PR triage runs don't collide on a constant
-  # `pr-triage-` group key.
+  # Serialize per commit so the two triggers (workflow_run + labeled) racing
+  # on the same PR don't both try to upsert the same comment. Keyed on
+  # `head_sha` rather than PR number because for fork-PR `workflow_run`
+  # events `pull_requests[0].number` is empty — keying on number there
+  # would mean the two triggers land in different groups and run
+  # concurrently, producing duplicate sticky comments. `head_sha` is
+  # available in both events for the same commit and aligns the keys.
   #
   # `pull_request_target: labeled` fires for *any* label (the trigger has no
   # label-name filter). For non-`triage-pr` labels we give each run its own
   # group keyed by `github.run_id`, so `cancel-in-progress` can't cancel an
   # in-flight opted-in triage before the no-op label check inside resolve.
-  group: ${{ (github.event_name == 'pull_request_target' && github.event.label.name != 'triage-pr') && format('pr-triage-noop-{0}', github.run_id) || format('pr-triage-{0}', github.event.workflow_run.pull_requests[0].number || github.event.pull_request.number || github.event.workflow_run.head_sha) }}
+  group: ${{ (github.event_name == 'pull_request_target' && github.event.label.name != 'triage-pr') && format('pr-triage-noop-{0}', github.run_id) || format('pr-triage-{0}', github.event.workflow_run.head_sha || github.event.pull_request.head.sha) }}
   cancel-in-progress: true
 
 jobs:
