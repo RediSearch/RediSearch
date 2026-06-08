@@ -155,7 +155,11 @@ jobs:
                   print(f"No Pull Request Flow run for PR #{pr_number} at {head_sha}.")
                   emit(False, pr_number)
               latest = runs_list[0]
-              if latest.get("conclusion") not in ("failure", "cancelled", "timed_out"):
+              # `cancelled` excluded for the same reason as the workflow_run
+              # path: fetch-failed-run-logs only fetches logs from
+              # failure/timed_out jobs, so cancelled-only runs produce empty
+              # triage output.
+              if latest.get("conclusion") not in ("failure", "timed_out"):
                   print(f"Latest Pull Request Flow run for PR #{pr_number} at {head_sha} concluded as '{latest.get('conclusion')}'; skipping.")
                   emit(False, pr_number)
               run_id = latest["id"]
