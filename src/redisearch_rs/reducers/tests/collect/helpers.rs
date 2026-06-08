@@ -112,7 +112,7 @@ pub(super) fn run_collect(
     let mut ctx = RemoteCollectCtx::new(&r);
     for (projected, sort_vals) in rows {
         let row = make_row(&field_keys, &sort_keys, &projected, &sort_vals);
-        ctx.add(&r, &row);
+        ctx.add(&r, &row, 0);
     }
     ctx.finalize(&r)
 }

@@ -149,8 +149,8 @@ void *collectRemoteNewInstance(Reducer *r);
 void collectRemoteFreeInstance(Reducer *_r, void *ctx);
 
 /**
- * Processes the provided [`ffi::RLookupRow`] with the shard collect reducer
- * instance.
+ * Processes the provided [`ffi::RLookupRow`] and document id with the shard
+ * collect reducer instance.
  *
  * # Safety
  *
@@ -160,7 +160,7 @@ void collectRemoteFreeInstance(Reducer *_r, void *ctx);
  *
  * [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
  */
-int collectRemoteAdd(Reducer *r, void *ctx, const RLookupRow *srcrow);
+int collectRemoteAddWithDocId(Reducer *r, void *ctx, const RLookupRow *srcrow, t_docId doc_id);
 
 /**
  * Finalizes the shard collect reducer instance result into an `RSValue`.
