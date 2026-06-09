@@ -17,8 +17,8 @@
 
 class QueryValidationTest : public ::testing::Test {};
 
-QAST_ValidationFlags hybridVectorFilterValidationFlags = (QAST_ValidationFlags)(QAST_NO_VECTOR | QAST_NO_WEIGHT);
-QAST_ValidationFlags hybridSearchValidationFlags = QAST_NO_VECTOR;
+QASTValidationFlagsSet hybridVectorFilterValidationFlags = (QASTValidationFlagsSet)(QAST_NO_VECTOR | QAST_NO_WEIGHT);
+QASTValidationFlagsSet hybridSearchValidationFlags = QAST_NO_VECTOR;
 
 bool isValidAsHybridVectorFilter(const char *qt, RedisSearchCtx &ctx) {
   QASTCXX ast;
@@ -35,7 +35,7 @@ bool isValidAsHybridSearch(const char *qt, RedisSearchCtx &ctx) {
 }
 
 bool isInvalidHybridSearch(const char *qt, RedisSearchCtx &ctx,
-  QAST_ValidationFlags validationFlags, QueryErrorCode error) {
+  QASTValidationFlagsSet validationFlags, QueryErrorCode error) {
   QASTCXX ast;
   ast.setContext(&ctx);
   ast.isValidQuery(qt, validationFlags);

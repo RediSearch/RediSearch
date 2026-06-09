@@ -196,6 +196,9 @@ void fillReplyWithIndexInfo(RedisSearchCtx* sctx, RedisModule_Reply *reply, bool
           REPLY_KVSTR("distance_metric", VecSimMetric_ToString(hnsw_params.metric));
           REPLY_KVINT("M", hnsw_params.M);
           REPLY_KVINT("ef_construction", hnsw_params.efConstruction);
+          if (fs->vectorOpts.diskCtx.indexName) {
+            REPLY_KVSTR("rerank", fs->vectorOpts.diskCtx.rerank ? "true" : "false");
+          }
         } else if (primary_params->algo == VecSimAlgo_SVS) {
           REPLY_KVSTR("algorithm", VecSimAlgorithm_ToString(primary_params->algo));
           SVSParams svs_params = primary_params->algoParams.svsParams;
@@ -265,10 +268,13 @@ void fillReplyWithIndexInfo(RedisSearchCtx* sctx, RedisModule_Reply *reply, bool
   size_t num_records = isDisk ? SearchDisk_GetNumRecords(sp->diskSpec) : sp->stats.numRecords;
   // Vector indexes (e.g. HNSW) remain in memory even when the rest of the
   // index is stored on disk, so their memory must always be reported.
-  size_t vector_indexes_size = IndexSpec_VectorIndexesSize(specForOpeningIndexes);
-  // FT.INFO reports per-spec block counts, not the process-global TotalIIBlocks (the latter
-  // is still exposed via Redis `INFO modules` for cluster-wide aggregation in spec.c).
-  size_t total_ii_blocks = isDisk ? 0
+  // VecSim_GetSharedMemory() returns process-wide vector-related allocations not
+  // tied to any single index (e.g. the shared SVS thread pool singleton).
+  size_t vector_indexes_size = IndexSpec_VectorIndexesSize(specForOpeningIndexes) +
+                               VecSim_GetSharedMemory();
+  // FT.INFO reports the per-spec block count. `INFO modules` aggregates the same per-spec
+  // counter across all specs in `IndexesInfo_TotalInfo`.
+  size_t total_ii_blocks = isDisk ? SearchDisk_GetInvertedIndexTotalBlocks(sp->diskSpec)
       : __atomic_load_n(&sp->stats.totalInvertedIndexBlocks, __ATOMIC_RELAXED);
   size_t offset_vecs_size = isDisk ? 0 : sp->stats.offsetVecsSize;
   size_t sortables_size = isDisk ? 0 : sp->docs.sortablesSize;

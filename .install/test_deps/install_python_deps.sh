@@ -29,8 +29,10 @@ activate_venv() {
 	fi
 }
 
-# Create a virtual environment for Python tests, with `pip` pre-installed (--seed)
-uv venv --seed
+# Create a virtual environment for Python tests, with `pip` pre-installed (--seed).
+# --clear ensures a partial .venv left behind by a failed (e.g. network-timed-out)
+# attempt is replaced rather than causing "virtual environment already exists" on retry.
+uv venv --seed --clear
 activate_venv
 source .venv/bin/activate
 uv sync --locked --all-packages

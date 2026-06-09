@@ -10,10 +10,9 @@
 #ifndef TTL_TABLE_H
 #define TTL_TABLE_H
 #include "redisearch.h"
-#include "field.h"
-#include "util/dict/dict.h"
 #include "stdbool.h"
 #include "util/arr.h"
+#include "field.h"
 
 #ifdef __cplusplus
 extern "C" {

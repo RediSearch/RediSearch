@@ -10,12 +10,12 @@
 use ffi::{
     IndexFlags, IndexFlags_Index_StoreByteOffsets, IndexFlags_Index_StoreFieldFlags,
     IndexFlags_Index_StoreFreqs, IndexFlags_Index_StoreTermOffsets, IndexFlags_Index_WideSchema,
-    t_docId,
 };
 use field::FieldMaskOrIndex;
 use index_result::{RSIndexResult, RSResultKind};
 use inverted_index::{DecodedBy, Encoder, InvertedIndex, test_utils::TermRecordCompare};
 use numeric_range_tree::NumericIndex;
+use rqe_core::{DocId, FieldMask};
 use rqe_iterators::{ExpirationChecker, RQEIterator, RQEValidateStatus, SkipToOutcome};
 use rqe_iterators_test_utils::MockContext;
 use std::collections::HashSet;
@@ -25,9 +25,9 @@ pub use rqe_iterators_test_utils::{GlobalGuard, TestContext};
 
 /// Test basic read and skip_to functionality for a given iterator.
 pub(super) struct BaseTest<E> {
-    doc_ids: Vec<t_docId>,
+    doc_ids: Vec<DocId>,
     pub(super) ii: InvertedIndex<E>,
-    expected_record: Box<dyn Fn(t_docId) -> RSIndexResult<'static>>,
+    expected_record: Box<dyn Fn(DocId) -> RSIndexResult<'static>>,
     pub(super) mock_ctx: MockContext,
 }
 
@@ -44,13 +44,13 @@ pub fn check_record(record: &RSIndexResult, expected: &RSIndexResult) {
 impl<E: Encoder> BaseTest<E> {
     pub(super) fn new(
         ii_flags: IndexFlags,
-        expected_record: Box<dyn Fn(t_docId) -> RSIndexResult<'static>>,
+        expected_record: Box<dyn Fn(DocId) -> RSIndexResult<'static>>,
         n_docs: u64,
     ) -> Self {
         let create_record = &*expected_record;
         // Generate a set of odd document IDs for testing, starting from 1.
         let doc_ids = (0..=n_docs)
-            .map(|i| (2 * i + 1) as t_docId)
+            .map(|i| (2 * i + 1) as DocId)
             .collect::<Vec<_>>();
 
         let mut ii = InvertedIndex::<E>::new(ii_flags);
@@ -195,15 +195,15 @@ impl<E: Encoder> BaseTest<E> {
 /// instead of in the TTL tables.
 #[derive(Debug, Clone)]
 pub struct MockExpirationChecker {
-    expired_docs: HashSet<t_docId>,
+    expired_docs: HashSet<DocId>,
 }
 
 impl MockExpirationChecker {
-    pub fn new(expired_docs: HashSet<t_docId>) -> Self {
+    pub fn new(expired_docs: HashSet<DocId>) -> Self {
         Self { expired_docs }
     }
 
-    pub fn mark_expired(&mut self, doc_id: t_docId) {
+    pub fn mark_expired(&mut self, doc_id: DocId) {
         self.expired_docs.insert(doc_id);
     }
 }
@@ -229,8 +229,8 @@ enum ExpirationIndexType {
 /// Supports both numeric and term index types.
 /// Uses a `MockExpirationChecker` instead of TTL tables for expiration tracking.
 pub struct ExpirationTest {
-    pub(crate) doc_ids: Vec<t_docId>,
-    expected_record: Box<dyn Fn(t_docId) -> RSIndexResult<'static>>,
+    pub(crate) doc_ids: Vec<DocId>,
+    expected_record: Box<dyn Fn(DocId) -> RSIndexResult<'static>>,
     pub(crate) context: TestContext,
     index_type: ExpirationIndexType,
     mock_checker: MockExpirationChecker,
@@ -240,13 +240,13 @@ pub struct ExpirationTest {
 impl ExpirationTest {
     /// Create a new numeric expiration test.
     pub(crate) fn numeric(
-        expected_record: Box<dyn Fn(t_docId) -> RSIndexResult<'static>>,
+        expected_record: Box<dyn Fn(DocId) -> RSIndexResult<'static>>,
         n_docs: u64,
         multi: bool,
     ) -> Self {
         let create_record = &*expected_record;
         // Generate a set of document IDs for testing.
-        let doc_ids = (1..=n_docs).map(|i| i as t_docId).collect::<Vec<_>>();
+        let doc_ids = (1..=n_docs).map(|i| i as DocId).collect::<Vec<_>>();
 
         // Create a TestContext which creates the inverted index via NumericRangeTree
         let context = TestContext::numeric(doc_ids.iter().map(|id| create_record(*id)), multi);
@@ -264,13 +264,13 @@ impl ExpirationTest {
     /// Create a new term expiration test.
     pub(crate) fn term(
         ii_flags: IndexFlags,
-        expected_record: Box<dyn Fn(t_docId) -> RSIndexResult<'static>>,
+        expected_record: Box<dyn Fn(DocId) -> RSIndexResult<'static>>,
         n_docs: u64,
         multi: bool,
     ) -> Self {
         let create_record = &*expected_record;
         // Generate a set of document IDs for testing.
-        let doc_ids = (1..=n_docs).map(|i| i as t_docId).collect::<Vec<_>>();
+        let doc_ids = (1..=n_docs).map(|i| i as DocId).collect::<Vec<_>>();
 
         // Create a TestContext which creates the inverted index
         let context =
@@ -315,7 +315,7 @@ impl ExpirationTest {
     }
 
     /// Get the text field bit from the TestContext.
-    pub(crate) fn text_field_bit(&self) -> ffi::t_fieldMask {
+    pub(crate) fn text_field_bit(&self) -> FieldMask {
         self.context.text_field_bit()
     }
 
@@ -336,7 +336,7 @@ impl ExpirationTest {
 
     /// Mark the index as expired for the given document IDs.
     /// This updates the mock expiration checker instead of the TTL tables.
-    pub(crate) fn mark_index_expired(&mut self, ids: Vec<t_docId>, _field: FieldMaskOrIndex) {
+    pub(crate) fn mark_index_expired(&mut self, ids: Vec<DocId>, _field: FieldMaskOrIndex) {
         for id in ids {
             self.mock_checker.mark_expired(id);
         }
@@ -451,7 +451,7 @@ pub enum RevalidateIndexType {
 /// Test the revalidation of the iterator.
 pub struct RevalidateTest {
     #[allow(dead_code)]
-    doc_ids: Vec<t_docId>,
+    doc_ids: Vec<DocId>,
     pub context: TestContext,
     _guard: GlobalGuard,
 }
@@ -459,12 +459,12 @@ pub struct RevalidateTest {
 impl RevalidateTest {
     pub fn new(
         index_type: RevalidateIndexType,
-        expected_record: Box<dyn Fn(t_docId) -> RSIndexResult<'static>>,
+        expected_record: Box<dyn Fn(DocId) -> RSIndexResult<'static>>,
         n_docs: u64,
     ) -> Self {
         // Generate a set of odd document IDs for testing, starting from 1.
         let doc_ids = (0..=n_docs)
-            .map(|i| (2 * i + 1) as t_docId)
+            .map(|i| (2 * i + 1) as DocId)
             .collect::<Vec<_>>();
 
         let context = match index_type {
@@ -524,7 +524,7 @@ impl RevalidateTest {
     pub fn remove_document<E: Encoder + DecodedBy>(
         &self,
         ii: &mut InvertedIndex<E>,
-        doc_id: t_docId,
+        doc_id: DocId,
     ) {
         let scan_delta = ii
             .scan_gc(
@@ -538,7 +538,7 @@ impl RevalidateTest {
     }
 
     /// Remove the document with the given id from a numeric inverted index.
-    pub fn remove_document_numeric(&self, ii: &mut NumericIndex, doc_id: t_docId) {
+    pub fn remove_document_numeric(&self, ii: &mut NumericIndex, doc_id: DocId) {
         match ii {
             NumericIndex::Uncompressed(ii) => self.remove_document(ii.inner_mut(), doc_id),
             NumericIndex::Compressed(ii) => self.remove_document(ii.inner_mut(), doc_id),

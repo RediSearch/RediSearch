@@ -31,7 +31,6 @@ typedef uint16_t t_fieldId;
 #define RS_INVALID_FIELD_ID (t_fieldId)-1
 #define RS_INVALID_FIELD_INDEX (t_fieldIndex)0xFFFF
 struct timespec;
-typedef struct timespec t_expirationTimePoint;
 
 typedef uint64_t t_uniqueId;
 #define SIGN_CHAR_LENGTH 0 // t_uniqueId is unsigned

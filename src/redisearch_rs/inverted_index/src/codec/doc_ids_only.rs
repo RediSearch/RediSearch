@@ -9,7 +9,7 @@
 
 use std::io::{Cursor, Seek, Write};
 
-use ffi::t_docId;
+use rqe_core::DocId;
 use varint::VarintEncode;
 
 use crate::{Decoder, DocIdsDecoder, Encoder, TermDecoder};
@@ -39,12 +39,12 @@ impl Decoder for DocIdsOnly {
     #[inline(always)]
     fn decode<'index>(
         cursor: &mut Cursor<&'index [u8]>,
-        base: t_docId,
+        base: DocId,
         result: &mut RSIndexResult<'index>,
     ) -> std::io::Result<()> {
         let delta = u32::read_as_varint(cursor)?;
 
-        result.doc_id = base + delta as t_docId;
+        result.doc_id = base + delta as DocId;
         Ok(())
     }
 

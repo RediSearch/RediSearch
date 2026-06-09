@@ -121,6 +121,10 @@ If the original PR includes specific test files, run those:
 
 ### 6. Create the backport PR
 
+Before publishing anything, summarize the source PR/commit, target branch, backport branch,
+files changed, validation results, and PR title/body. Ask the user to confirm before running
+`git push` or `gh pr create`.
+
 ```bash
 cd .worktrees/backport-<branch>
 git push -u origin backport/pr-<number>-to-<branch>

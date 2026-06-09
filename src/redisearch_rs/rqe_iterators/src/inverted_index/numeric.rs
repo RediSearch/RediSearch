@@ -13,14 +13,16 @@ use crate::{
     FieldExpirationChecker, IteratorType, RQEIterator, RQEIteratorError, RQEValidateStatus,
     SkipToOutcome,
     expiration_checker::{ExpirationChecker, NoOpChecker},
+    profile_print::{ProfilePrint, ProfilePrintCtx, format_g},
 };
-use ffi::{FieldType_INDEXFLD_T_GEO, FieldType_INDEXFLD_T_NUMERIC, IndexFlags, t_docId};
+use ffi::{FieldType_INDEXFLD_T_GEO, FieldType_INDEXFLD_T_NUMERIC, IndexFlags};
 use index_result::RSIndexResult;
 use index_spec::IndexSpecReadGuard;
 use inverted_index::{
     FilterGeoReader, FilterNumericReader, IndexReader, NumericFilter, NumericReader,
 };
 use numeric_range_tree::{NumericIndexReader, NumericRangeTree};
+use rqe_core::DocId;
 
 use super::core::InvIndIterator;
 
@@ -157,7 +159,7 @@ where
     #[inline(always)]
     fn skip_to(
         &mut self,
-        doc_id: t_docId,
+        doc_id: DocId,
     ) -> Result<Option<SkipToOutcome<'_, 'index>>, RQEIteratorError> {
         self.it.skip_to(doc_id)
     }
@@ -173,7 +175,7 @@ where
     }
 
     #[inline(always)]
-    fn last_doc_id(&self) -> t_docId {
+    fn last_doc_id(&self) -> DocId {
         self.it.last_doc_id()
     }
 
@@ -201,6 +203,25 @@ where
 
     fn intersection_sort_weight(&self, _prioritize_union_children: bool) -> f64 {
         1.0
+    }
+}
+
+impl<'index, R, E> ProfilePrint for Numeric<'index, R, E>
+where
+    R: NumericReader<'index>,
+    E: ExpirationChecker,
+{
+    fn print_profile(&self, map: &mut redis_reply::MapBuilder<'_>, ctx: &mut ProfilePrintCtx<'_>) {
+        map.kv_simple_string(c"Type", c"NUMERIC");
+        let term_str = format!(
+            "{} - {}",
+            format_g(self.range_min),
+            format_g(self.range_max),
+        );
+        let term_cstr = std::ffi::CString::new(term_str).unwrap();
+        map.kv_simple_string(c"Term", &term_cstr);
+        ctx.print_optional_counters(map);
+        map.kv_long_long(c"Estimated number of matches", self.num_estimated() as i64);
     }
 }
 
@@ -452,7 +473,7 @@ impl<'index> RQEIterator<'index> for NumericIteratorVariant<'index> {
     #[inline(always)]
     fn skip_to(
         &mut self,
-        doc_id: t_docId,
+        doc_id: DocId,
     ) -> Result<Option<SkipToOutcome<'_, 'index>>, RQEIteratorError> {
         match self {
             Self::Unfiltered(iter) => iter.skip_to(doc_id),
@@ -480,7 +501,7 @@ impl<'index> RQEIterator<'index> for NumericIteratorVariant<'index> {
     }
 
     #[inline(always)]
-    fn last_doc_id(&self) -> t_docId {
+    fn last_doc_id(&self) -> DocId {
         match self {
             Self::Unfiltered(iter) => iter.last_doc_id(),
             Self::Filtered(iter) => iter.last_doc_id(),
@@ -516,5 +537,42 @@ impl<'index> RQEIterator<'index> for NumericIteratorVariant<'index> {
 
     fn intersection_sort_weight(&self, _prioritize_union_children: bool) -> f64 {
         1.0
+    }
+}
+
+impl ProfilePrint for NumericIteratorVariant<'_> {
+    fn print_profile(&self, map: &mut redis_reply::MapBuilder<'_>, ctx: &mut ProfilePrintCtx<'_>) {
+        match self {
+            Self::Unfiltered(it) => it.print_profile(map, ctx),
+            Self::Filtered(it) => it.print_profile(map, ctx),
+            Self::Geo(it) => {
+                use crate::RQEIterator as _;
+
+                let se_hash = geo::hash::GeoHashBits {
+                    bits: it.range_min() as u64,
+                    step: geo::hash::GEO_STEP_MAX,
+                };
+                let nw_hash = geo::hash::GeoHashBits {
+                    bits: it.range_max() as u64,
+                    step: geo::hash::GEO_STEP_MAX,
+                };
+                let (se_lon, se_lat) = geo::hash::decode_to_lon_lat(se_hash);
+                let (nw_lon, nw_lat) = geo::hash::decode_to_lon_lat(nw_hash);
+                map.kv_simple_string(c"Type", c"GEO");
+                let se = [se_lon.into_inner(), se_lat.into_inner()];
+                let nw = [nw_lon.into_inner(), nw_lat.into_inner()];
+                let term_str = format!(
+                    "{},{} - {},{}",
+                    format_g(se[0]),
+                    format_g(se[1]),
+                    format_g(nw[0]),
+                    format_g(nw[1]),
+                );
+                let term_cstr = std::ffi::CString::new(term_str).unwrap();
+                map.kv_simple_string(c"Term", &term_cstr);
+                ctx.print_optional_counters(map);
+                map.kv_long_long(c"Estimated number of matches", it.num_estimated() as i64);
+            }
+        }
     }
 }

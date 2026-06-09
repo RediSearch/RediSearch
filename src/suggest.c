@@ -90,7 +90,6 @@ int RSSuggestAddCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc)
     RedisModule_ReplyWithError(ctx, "ERR invalid score");
     goto end;
   }
-
   /* Create an empty value object if the key is currently empty. */
   if (type == REDISMODULE_KEYTYPE_EMPTY) {
     tree = NewTrie(NULL, Trie_Sort_Score);
@@ -294,7 +293,7 @@ int RSSuggestGetCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc)
   // get the string to search for
   size_t len = 0;
   const char *s = RedisModule_StringPtrLen(argv[2], &len);
-  if (len >= TRIE_MAX_PREFIX * sizeof(rune)) {
+  if (len > TRIE_MAX_PREFIX * sizeof(rune)) {
     return RedisModule_ReplyWithError(ctx, "Invalid query length");
   }
 

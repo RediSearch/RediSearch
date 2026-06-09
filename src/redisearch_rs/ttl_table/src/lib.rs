@@ -14,7 +14,7 @@
 //! - A direct-modulo bucket array (`slot = doc_id % max_size`) — no hashing,
 //!   so monotonically allocated docIds map to sequential slots and the CPU
 //!   prefetcher can stream upcoming bucket headers into L1.
-//! - Per-bucket contiguous-vec collision chains (a [`ThinVec`] of entries).
+//! - Per-bucket contiguous-vec collision chains (a [`MediumThinVec`] of entries).
 //! - Lazy growth: the bucket array starts empty and grows geometrically
 //!   (+1.5×, capped at `1 << 20` and clamped to `max_size`) only as `add`
 //!   demands more slots.
@@ -31,18 +31,35 @@ pub mod test_utils;
 
 use std::{iter::Chain, num::NonZeroUsize, ops::Deref};
 
-pub use ffi::FieldExpiration;
-use ffi::{FieldMask, t_expirationTimePoint as timespec};
+use ffi::t_expirationTimePoint as timespec;
 pub use field::FieldExpirationPredicate;
-use thin_vec::ThinVec;
+use rqe_core::{DocId, FieldIndex, FieldMask};
+use thin_vec::MediumThinVec;
 
-use ffi::t_docId;
+/// A single field's expiration record.
+///
+/// Pairs a field identifier ([`index`](Self::index)) with the
+/// wall-clock instant ([`point`](Self::point)) at which that field expires.
+#[repr(C)]
+#[derive(Debug, Clone)]
+pub struct FieldExpiration {
+    /// The zero-based field index identifying which field carries this expiration.
+    pub index: FieldIndex,
+    /// The absolute wall-clock instant at which the field expires.
+    ///
+    /// When both `tv_sec` and `tv_nsec` are `0` the entry is treated as
+    /// "never expires".
+    pub point: timespec,
+}
 
 /// An ascending-by-`index`, duplicate-free list of [`FieldExpiration`] entries.
 #[repr(transparent)]
 #[derive(Debug, Clone)]
 pub struct FieldExpirations {
-    inner: ThinVec<FieldExpiration>,
+    /// Backing store for the field list.
+    ///
+    /// We use [`MediumThinVec`] rather than the default `ThinVec` for performance reason.
+    inner: MediumThinVec<FieldExpiration>,
 }
 
 impl FieldExpirations {
@@ -51,7 +68,7 @@ impl FieldExpirations {
     /// No heap allocation is performed until the first insertion.
     pub const fn new() -> Self {
         Self {
-            inner: ThinVec::new(),
+            inner: MediumThinVec::new(),
         }
     }
 
@@ -59,7 +76,7 @@ impl FieldExpirations {
     /// at least `cap` entries.
     pub fn with_capacity(cap: usize) -> Self {
         Self {
-            inner: ThinVec::with_capacity(cap),
+            inner: MediumThinVec::with_capacity(cap),
         }
     }
 
@@ -129,6 +146,12 @@ impl FieldExpirations {
                 );
             }
         }
+
+        // Grow the collision chain linearly if needed.
+        if self.inner.capacity() == self.inner.len() {
+            self.inner.reserve_exact(1);
+        }
+
         self.inner.push(fe);
     }
 }
@@ -139,9 +162,9 @@ impl Default for FieldExpirations {
     }
 }
 
-/// Read-only access to the underlying `ThinVec`.
+/// Read-only access to the underlying data.
 impl Deref for FieldExpirations {
-    type Target = ThinVec<FieldExpiration>;
+    type Target = [FieldExpiration];
 
     fn deref(&self) -> &Self::Target {
         &self.inner
@@ -165,7 +188,7 @@ const TTL_BUCKET_MAX_GROW_STEP: usize = 1 << 20;
 #[derive(Debug)]
 pub struct TimeToLiveEntry {
     /// The document id
-    pub doc_id: t_docId,
+    pub doc_id: DocId,
     /// Owned, sorted by field index, never empty.
     pub field_expirations: FieldExpirations,
 }
@@ -176,8 +199,8 @@ pub struct TimeToLiveEntry {
 /// length (`buckets.len()`) always satisfies `buckets.len() <= max_size`.
 #[derive(Debug)]
 pub struct TimeToLiveTable {
-    /// The bucket
-    buckets: Vec<ThinVec<TimeToLiveEntry>>,
+    /// The bucket array.
+    buckets: Vec<MediumThinVec<TimeToLiveEntry>>,
     /// Modulus for the slot formula. Captured at construction and never
     /// changes.
     max_size: usize,
@@ -209,7 +232,7 @@ impl TimeToLiveTable {
     ///
     /// Panics if `field_expirations` is empty or if `doc_id` is already present
     /// in the table.
-    pub fn add(&mut self, doc_id: t_docId, field_expirations: FieldExpirations) {
+    pub fn add(&mut self, doc_id: DocId, field_expirations: FieldExpirations) {
         assert!(
             !field_expirations.is_empty(),
             "TTL table add requires at least one field expiration"
@@ -237,7 +260,7 @@ impl TimeToLiveTable {
     /// [`verify_doc_and_wide_field_mask`](Self::verify_doc_and_wide_field_mask)),
     /// which assume them when scanning the per-bucket chain and the
     /// per-entry field-expiration list.
-    pub unsafe fn add_unchecked(&mut self, doc_id: t_docId, field_expirations: FieldExpirations) {
+    pub unsafe fn add_unchecked(&mut self, doc_id: DocId, field_expirations: FieldExpirations) {
         debug_assert!(
             !field_expirations.is_empty(),
             "TTL table add requires at least one field expiration"
@@ -246,12 +269,18 @@ impl TimeToLiveTable {
         let slot = self.slot(doc_id);
         self.grow_to(slot);
 
+        let slot = &mut self.buckets[slot];
+
         debug_assert!(
-            !self.buckets[slot].iter().any(|e| e.doc_id == doc_id),
+            !slot.iter().any(|e| e.doc_id == doc_id),
             "duplicate docId in TTL table"
         );
 
-        self.buckets[slot].push(TimeToLiveEntry {
+        // Grow the collision chain linearly if needed.
+        if slot.capacity() == slot.len() {
+            slot.reserve_exact(1);
+        }
+        slot.push(TimeToLiveEntry {
             doc_id,
             field_expirations,
         });
@@ -260,9 +289,9 @@ impl TimeToLiveTable {
 
     /// Removes the entry for `doc_id`, if any. No-op if absent.
     ///
-    /// Uses swap-last deletion (O(1)) and does not shrink the bucket — the
-    /// allocation is kept at its high-water mark to avoid realloc churn.
-    pub fn remove(&mut self, doc_id: t_docId) -> Option<TimeToLiveEntry> {
+    /// Uses swap-last deletion (O(1)) and does not shrink the bucket, unless
+    /// it is empty.
+    pub fn remove(&mut self, doc_id: DocId) -> Option<TimeToLiveEntry> {
         let slot = self.slot(doc_id);
         if slot >= self.buckets.len() {
             return None;
@@ -271,6 +300,11 @@ impl TimeToLiveTable {
         if let Some(pos) = bucket.iter().position(|e| e.doc_id == doc_id) {
             let removed = bucket.swap_remove(pos);
             self.count -= 1;
+
+            // Remove allocated memory. This frees the old buffer.
+            if bucket.is_empty() {
+                *bucket = MediumThinVec::new();
+            }
 
             Some(removed)
         } else {
@@ -289,7 +323,7 @@ impl TimeToLiveTable {
     /// The slice aliases storage owned by the table and is invalidated by any
     /// subsequent [`add`](Self::add) / [`add_unchecked`](Self::add_unchecked) /
     /// [`remove`](Self::remove) on this table.
-    pub fn field_expirations(&self, doc_id: t_docId) -> Option<&FieldExpirations> {
+    pub fn field_expirations(&self, doc_id: DocId) -> Option<&FieldExpirations> {
         self.find_entry(doc_id).map(|e| &e.field_expirations)
     }
 
@@ -313,7 +347,7 @@ impl TimeToLiveTable {
     /// under either predicate.
     pub fn verify_doc_and_field(
         &self,
-        doc_id: t_docId,
+        doc_id: DocId,
         field: u16,
         predicate: FieldExpirationPredicate,
         expiration_point: &timespec,
@@ -354,7 +388,7 @@ impl TimeToLiveTable {
     /// 32-bit `field_mask`.
     ///
     /// `ft_id_to_field_index[bit]` translates a bit position in the mask
-    /// into the `t_fieldIndex` recorded in the table; it must contain at
+    /// into the `FieldIndex` recorded in the table; it must contain at
     /// least as many entries as the highest set bit of `field_mask`. The
     /// translation is required to be monotonic, bits scanned low-to-high
     /// must produce non-decreasing field indices.
@@ -369,7 +403,7 @@ impl TimeToLiveTable {
     /// violating the bound is undefined behavior in release builds.
     pub fn verify_doc_and_field_mask(
         &self,
-        doc_id: t_docId,
+        doc_id: DocId,
         field_mask: u32,
         predicate: FieldExpirationPredicate,
         expiration_point: &timespec,
@@ -399,7 +433,7 @@ impl TimeToLiveTable {
     /// See [`TimeToLiveTable::verify_doc_and_field_mask`].
     pub fn verify_doc_and_wide_field_mask(
         &self,
-        doc_id: t_docId,
+        doc_id: DocId,
         field_mask: FieldMask,
         predicate: FieldExpirationPredicate,
         expiration_point: &timespec,
@@ -415,7 +449,7 @@ impl TimeToLiveTable {
     }
 
     /// Direct-modulo slot formula
-    const fn slot(&self, doc_id: t_docId) -> usize {
+    const fn slot(&self, doc_id: DocId) -> usize {
         if doc_id < self.max_size as u64 {
             doc_id as usize
         } else {
@@ -448,10 +482,10 @@ impl TimeToLiveTable {
             newcap = slot + 1;
         }
 
-        self.buckets.resize_with(newcap, ThinVec::new);
+        self.buckets.resize_with(newcap, MediumThinVec::new);
     }
 
-    fn find_entry(&self, doc_id: t_docId) -> Option<&TimeToLiveEntry> {
+    fn find_entry(&self, doc_id: DocId) -> Option<&TimeToLiveEntry> {
         let slot = self.slot(doc_id);
         let bucket = self.buckets.get(slot)?;
         bucket.iter().find(|e| e.doc_id == doc_id)
@@ -632,9 +666,9 @@ fn verify_mask<M: BitMask>(
         !entry.field_expirations.is_empty(),
         "field_expirations is guaranteed to not be empty"
     );
-    let field_with_expiration_length = field_expirations.len();
+    let field_with_expiration_length = field_expirations.len() as u16;
 
-    let field_count: usize = mask.count_ones();
+    let field_count: u16 = mask.count_ones() as u16;
     if field_with_expiration_length < field_count && predicate == FieldExpirationPredicate::Default
     {
         // The document has less fields with expiration times than the fields we are checking.
@@ -655,18 +689,18 @@ fn verify_mask<M: BitMask>(
     ///
     /// The caller must guarantee `index < arr.len()`.
     #[inline]
-    unsafe fn get_unchecked<T>(arr: &[T], index: usize) -> &T {
+    unsafe fn get_unchecked<T>(arr: &[T], index: u32) -> &T {
         debug_assert!(
-            index < arr.len(),
+            index < arr.len() as u32,
             "Safety violation: try to access to an out-of-bounds index, {index}. Length {}",
             arr.len(),
         );
         // SAFETY: Function safety guarantees
-        unsafe { arr.get_unchecked(index) }
+        unsafe { arr.get_unchecked(index as usize) }
     }
 
-    let mut predicate_misses: usize = 0;
-    let mut current_field_index: usize = 0;
+    let mut predicate_misses: u16 = 0;
+    let mut current_field_index: u16 = 0;
 
     // Visits set bits low-to-high. Order matters: `current_field_index` only
     // moves forward, so monotonic field indices amortize the cursor walk
@@ -680,15 +714,14 @@ fn verify_mask<M: BitMask>(
         // - `bit_index <= highest_bit_plus_one - 1`
         // - `highest_bit_plus_one <= ft_id_to_field_index.len()`
         // hence `bit_index < ft_id_to_field_index.len()`.
-        let field_index_to_check =
-            unsafe { *get_unchecked(ft_id_to_field_index, bit_index as usize) };
+        let field_index_to_check = unsafe { *get_unchecked(ft_id_to_field_index, bit_index) };
 
         // Advance the cursor over fields strictly less than the one
         // we are checking.
         while current_field_index < field_with_expiration_length {
             // SAFETY: the `while` condition above proves it
             let candidate_index =
-                unsafe { get_unchecked(field_expirations, current_field_index).index };
+                unsafe { get_unchecked(field_expirations, current_field_index as u32).index };
             if field_index_to_check <= candidate_index {
                 break;
             }
@@ -701,7 +734,7 @@ fn verify_mask<M: BitMask>(
 
         // SAFETY: the `if … break` above ensures we only get
         // here when `current_field_index < field_with_expiration_length`
-        let entry_field = unsafe { get_unchecked(field_expirations, current_field_index) };
+        let entry_field = unsafe { get_unchecked(field_expirations, current_field_index as u32) };
         if field_index_to_check < entry_field.index {
             // Field not tracked by this entry — treat as absent.
             continue;
@@ -837,6 +870,82 @@ mod tests {
             FieldExpirationPredicate::Default,
             &NOW,
         ));
+    }
+
+    #[test]
+    fn remove_reclaims_emptied_bucket_allocation() {
+        const MAX: usize = 8;
+        let mut t = TimeToLiveTable::new(NonZeroUsize::new(MAX).unwrap());
+
+        let slot = t.slot(DOC_ID_1);
+
+        t.add(DOC_ID_1, fes([fe(FIELD_INDEX_1, FUTURE)]));
+        // The single insert allocated the chain buffer.
+        assert!(t.buckets[slot].capacity() > 0);
+
+        t.remove(DOC_ID_1);
+        // Draining the chain to empty must release the buffer, not just drop
+        // `len` to 0. `MediumThinVec::new()` is the non-allocating sentinel, so
+        // capacity == 0.
+        assert!(t.is_empty());
+        assert_eq!(t.buckets[slot].capacity(), 0);
+    }
+
+    #[test]
+    fn slot_reallocates_only_when_needed() {
+        const MAX: usize = 8;
+        let mut t = TimeToLiveTable::new(NonZeroUsize::new(MAX).unwrap());
+
+        let slot = t.slot(DOC_ID_1);
+
+        t.add(DOC_ID_1, fes([fe(FIELD_INDEX_1, FUTURE)]));
+        assert_eq!(t.buckets[slot].capacity(), 1);
+
+        // Same bucket
+        const DOC_ID_2: DocId = DOC_ID_1 + MAX as DocId;
+        assert_eq!(slot, t.slot(DOC_ID_2));
+
+        // Increase the bucket capacity
+        t.add(DOC_ID_2, fes([fe(FIELD_INDEX_1, FUTURE)]));
+        assert_eq!(t.buckets[slot].capacity(), 2);
+
+        t.remove(DOC_ID_1);
+
+        // Same bucket
+        const DOC_ID_3: DocId = DOC_ID_1 + 2 * MAX as DocId;
+        assert_eq!(slot, t.slot(DOC_ID_3));
+
+        // Don't increase the bucket capacity
+        t.add(DOC_ID_3, fes([fe(FIELD_INDEX_1, FUTURE)]));
+        assert_eq!(t.buckets[slot].capacity(), 2);
+    }
+
+    #[test]
+    fn remove_keeps_allocation_until_bucket_fully_drains() {
+        // Confirms the deliberate two-way split: a chain that still holds
+        // entries keeps its capacity at the high-water mark (no realloc churn);
+        // only a fully drained chain is freed.
+        const MAX: usize = 8;
+        const COLLIDER: u64 = DOC_ID_1 + MAX as u64;
+
+        let mut t = TimeToLiveTable::new(NonZeroUsize::new(MAX).unwrap());
+        let slot = t.slot(DOC_ID_1);
+        assert_eq!(slot, t.slot(COLLIDER)); // same bucket
+
+        t.add(DOC_ID_1, fes([fe(FIELD_INDEX_1, FUTURE)]));
+        t.add(COLLIDER, fes([fe(FIELD_INDEX_1, PAST)]));
+        let peak_cap = t.buckets[slot].capacity();
+        assert_eq!(peak_cap, t.buckets[slot].len());
+
+        // One entry left: allocation is retained at the high-water mark.
+        t.remove(DOC_ID_1);
+        assert!(!t.buckets[slot].is_empty());
+        assert_eq!(t.buckets[slot].capacity(), peak_cap);
+
+        // Last entry gone: allocation is released.
+        t.remove(COLLIDER);
+        assert!(t.is_empty());
+        assert_eq!(t.buckets[slot].capacity(), 0);
     }
 
     #[test]

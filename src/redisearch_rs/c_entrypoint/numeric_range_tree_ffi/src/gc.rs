@@ -15,6 +15,7 @@ use numeric_range_tree::{
     CompactIfSparseResult, IndexedReversePreOrderDfsIterator, NodeGcDelta, NodeIndex,
     NumericRangeTree, SingleNodeGcResult,
 };
+use rqe_core::DocId;
 use serde::{Deserialize, Serialize};
 
 /// Conditionally trim empty leaves and compact the node slab.
@@ -75,7 +76,7 @@ pub struct NumericGcNodeEntry {
 /// avoiding buffering all deltas in memory.
 pub struct NumericGcScanner<'tree> {
     iter: IndexedReversePreOrderDfsIterator<'tree>,
-    doc_exists: Box<dyn Fn(ffi::t_docId) -> bool>,
+    doc_exists: Box<dyn Fn(DocId) -> bool>,
     /// Reusable buffer for serializing the current entry.
     buffer: Vec<u8>,
 }
@@ -108,7 +109,7 @@ pub unsafe extern "C" fn NumericGcScanner_New<'tree>(
     // SAFETY: tree is a valid pointer; caller guarantees it outlives the scanner
     let tree_ref = unsafe { &*tree };
 
-    let doc_exists: Box<dyn Fn(ffi::t_docId) -> bool> = Box::new(move |id| {
+    let doc_exists: Box<dyn Fn(DocId) -> bool> = Box::new(move |id| {
         // SAFETY: doc_table is valid from spec for the lifetime of the scanner
         unsafe { DocTable_Exists(&spec.docs, id) }
     });

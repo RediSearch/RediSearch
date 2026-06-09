@@ -655,6 +655,7 @@ version = "0.0.1"
 dependencies = [
  "cheadergen",
  "ffi",
+ "rqe_core",
  "workspace_hack",
 ]
 
@@ -1056,6 +1057,7 @@ dependencies = [
  "enumflags2",
  "ffi",
  "query_term",
+ "rqe_core",
  "thin_vec",
  "varint",
  "workspace_hack",
@@ -1144,6 +1146,7 @@ dependencies = [
  "query_term",
  "redis-module",
  "redis_mock",
+ "rqe_core",
  "workspace_hack",
 ]
 
@@ -1157,6 +1160,7 @@ dependencies = [
  "inverted_index",
  "libc",
  "rmp-serde",
+ "rqe_core",
  "serde",
  "workspace_hack",
 ]
@@ -1175,6 +1179,8 @@ dependencies = [
  "numeric_range_tree",
  "numeric_range_tree_ffi",
  "query_node_type",
+ "redis_reply",
+ "rqe_core",
  "rqe_iterator_type",
  "rqe_iterators",
  "workspace_hack",
@@ -1481,6 +1487,7 @@ dependencies = [
  "redis_mock",
  "redis_reply",
  "redisearch_rs",
+ "rqe_core",
  "rstest",
  "tracing",
  "workspace_hack",
@@ -1500,6 +1507,7 @@ dependencies = [
  "redis-module",
  "redis_mock",
  "rmp-serde",
+ "rqe_core",
  "serde",
  "tracing",
  "workspace_hack",
@@ -1691,6 +1699,25 @@ dependencies = [
  "proptest",
  "proptest-derive",
  "rand 0.10.1",
+ "workspace_hack",
+]
+
+[[package]]
+name = "query"
+version = "0.0.1"
+dependencies = [
+ "build_utils",
+ "ffi",
+ "inverted_index",
+ "query",
+ "query_error",
+ "query_flags",
+ "query_node_type",
+ "redis_mock",
+ "redisearch_rs",
+ "rlookup",
+ "rqe_core",
+ "rqe_iterators",
  "workspace_hack",
 ]
 
@@ -2222,12 +2249,14 @@ dependencies = [
  "approx 0.6.0-rc2",
  "build_utils",
  "cheadergen",
+ "decorum",
  "ffi",
  "field",
  "geo",
  "idf",
  "index_result",
  "index_spec",
+ "insta",
  "inverted_index",
  "libc",
  "numeric_range_tree",
@@ -2237,7 +2266,9 @@ dependencies = [
  "query_term",
  "query_term_ffi",
  "redis_mock",
+ "redis_reply",
  "redisearch_rs",
+ "rqe_core",
  "rqe_iterator_type",
  "rqe_iterators",
  "rqe_iterators_test_utils",
@@ -2271,6 +2302,7 @@ dependencies = [
  "rand 0.10.1",
  "redis_mock",
  "redisearch_rs",
+ "rqe_core",
  "rqe_iterators",
  "rqe_iterators_test_utils",
  "workspace_hack",
@@ -2291,6 +2323,7 @@ dependencies = [
  "numeric_range_tree_ffi",
  "query_error",
  "redis_mock",
+ "rqe_core",
  "rqe_iterators",
  "varint_ffi",
  "workspace_hack",
@@ -2492,6 +2525,7 @@ dependencies = [
  "index_result",
  "inverted_index",
  "rlookup",
+ "rqe_core",
  "workspace_hack",
 ]
 
@@ -2649,6 +2683,7 @@ dependencies = [
  "cheadergen",
  "ffi",
  "libc",
+ "query_error",
  "sorting_vector",
  "thin_vec",
  "value",
@@ -2875,6 +2910,7 @@ dependencies = [
  "inverted_index",
  "redis_mock",
  "redisearch_rs",
+ "rqe_core",
  "rqe_iterator_type",
  "rqe_iterators",
  "rqe_iterators_test_utils",
@@ -3039,6 +3075,24 @@ dependencies = [
  "ffi",
  "field",
  "libc",
+ "rqe_core",
+ "thin_vec",
+ "ttl_table",
+ "workspace_hack",
+]
+
+[[package]]
+name = "ttl_table_bencher"
+version = "0.0.1"
+dependencies = [
+ "build_utils",
+ "criterion",
+ "ffi",
+ "libc",
+ "rand 0.10.1",
+ "redis_mock",
+ "redisearch_rs",
+ "rqe_core",
  "thin_vec",
  "ttl_table",
  "workspace_hack",
@@ -3054,6 +3108,7 @@ dependencies = [
  "libc",
  "redis-module",
  "redis_mock",
+ "rqe_core",
  "thin_vec",
  "ttl_table",
  "workspace_hack",
@@ -3228,6 +3283,7 @@ dependencies = [
  "buffer",
  "cheadergen",
  "ffi",
+ "rqe_core",
  "varint",
  "workspace_hack",
 ]

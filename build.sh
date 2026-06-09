@@ -54,7 +54,7 @@ RUST_TOOLCHAIN_MODIFIER="" # Rust toolchain to use (e.g., +nightly)
 
 # Rust code is built first, so exclude benchmarking crates that link C code,
 # since the static libraries they depend on haven't been built yet.
-EXCLUDE_RUST_BENCHING_CRATES_LINKING_C="--exclude inverted_index_bencher --exclude rqe_iterators_bencher --exclude iterators_ffi --exclude top_k_bencher --exclude trie_bencher --exclude triemap_ffi"
+EXCLUDE_RUST_BENCHING_CRATES_LINKING_C="--exclude inverted_index_bencher --exclude rqe_iterators_bencher --exclude iterators_ffi --exclude top_k_bencher --exclude trie_bencher --exclude triemap_ffi --exclude ttl_table_bencher"
 
 # Retrieve our pinned nightly version.
 NIGHTLY_VERSION=$(cat ${ROOT}/.rust-nightly)
@@ -321,6 +321,7 @@ prepare_coverage_capture() {
   start_group "Code Coverage Preparation"
   lcov --zerocounters      --directory $BINROOT --base-directory $ROOT
   lcov --capture --initial --directory $BINROOT --base-directory $ROOT -o $BINROOT/base.info \
+    --ignore-errors mismatch \
     --exclude '*/_deps/*'
   end_group
 }
@@ -334,20 +335,27 @@ capture_coverage() {
 
   start_group "Code Coverage Capture ($NAME)"
 
-  # Capture coverage collected while running tests previously
+  # Capture coverage collected while running tests previously.
+  # Threaded code (e.g. tiered SVS index) can produce gcov data where a function
+  # is reported "not hit" while its line is hit; lcov 2.0 treats this as a fatal
+  # "mismatch" error by default. Demote it to a warning so coverage
+  # post-processing doesn't flake the job.
   lcov --capture --directory $BINROOT --base-directory $ROOT -o $BINROOT/test.info \
+    --ignore-errors mismatch \
     --exclude '*/_deps/*'
 
   # Accumulate results with the baseline captured before the test
-  lcov --add-tracefile $BINROOT/base.info --add-tracefile $BINROOT/test.info -o $BINROOT/full.info
+  lcov --add-tracefile $BINROOT/base.info --add-tracefile $BINROOT/test.info -o $BINROOT/full.info \
+    --ignore-errors mismatch
 
   # Extract only the coverage of the project source files
   lcov --output-file $BINROOT/source.info --extract $BINROOT/full.info \
+    --ignore-errors mismatch \
     "$ROOT/src/*" \
     "$ROOT/deps/thpool/*" \
 
   # Remove coverage for directories we don't want (ignore if no file matches)
-  lcov -o $BINROOT/$NAME.info --ignore-errors unused --remove $BINROOT/source.info \
+  lcov -o $BINROOT/$NAME.info --ignore-errors mismatch,unused --remove $BINROOT/source.info \
     "*/tests/*" \
 
   end_group
@@ -581,8 +589,25 @@ prepare_cmake_arguments() {
   # Prefer SCCACHE_PATH (set by sccache-action in CI with the full path), otherwise look on PATH.
   SCCACHE="${SCCACHE_PATH:-$(command -v sccache 2>/dev/null || true)}"
   if [[ -n "$SCCACHE" && -x "$SCCACHE" ]]; then
-    CMAKE_BASIC_ARGS="$CMAKE_BASIC_ARGS -DCMAKE_C_COMPILER_LAUNCHER=$SCCACHE -DCMAKE_CXX_COMPILER_LAUNCHER=$SCCACHE"
-    echo "Using sccache for C/C++ compilation caching"
+    # The binary being present is not enough: if the sccache server fails to
+    # start (e.g. the remote S3 cache is unreachable), every compile invocation
+    # errors out and the whole build fails. Probe that the server actually
+    # comes up first, and fall back to a regular uncached build if it does not.
+    # --show-stats is idempotent: it spawns the server if needed, connects to
+    # an already-running one otherwise, and fails only if it cannot start.
+    if SCCACHE_PROBE_OUTPUT=$("$SCCACHE" --show-stats 2>&1); then
+      CMAKE_BASIC_ARGS="$CMAKE_BASIC_ARGS -DCMAKE_C_COMPILER_LAUNCHER=$SCCACHE -DCMAKE_CXX_COMPILER_LAUNCHER=$SCCACHE"
+      echo "Using sccache for C/C++ compilation caching"
+    else
+      # Surface the underlying sccache error (e.g. "Timed out waiting for
+      # server startup") so the cause is visible in CI logs.
+      echo "WARNING: sccache server failed to start; building without sccache" >&2
+      echo "$SCCACHE_PROBE_OUTPUT" >&2
+      # run_cmake() reuses an existing build directory unless FORCE=1, so a
+      # previously cached CMAKE_*_COMPILER_LAUNCHER would otherwise keep the
+      # broken sccache active on reconfigure. Pass empty values to clear it.
+      CMAKE_BASIC_ARGS="$CMAKE_BASIC_ARGS -DCMAKE_C_COMPILER_LAUNCHER= -DCMAKE_CXX_COMPILER_LAUNCHER="
+    fi
   fi
 
   # Add caching flags to prevent using old configurations
@@ -707,18 +732,16 @@ run_cmake() {
   echo "Configuring CMake..."
   echo "Build directory: $BINDIR"
 
-  # Run CMake with all the flags
-  if [[ "$FORCE" == "1" || ! -f "$BINDIR/Makefile" ]]; then
-    CMAKE_CMD="cmake $ROOT $CMAKE_BASIC_ARGS $CMAKE_ARGS"
-    echo "$CMAKE_CMD"
+  # Always reconfigure so -D changes (BUILD_SEARCH_UNIT_TESTS, DEBUG, COV, SAN, ...)
+  # take effect on subsequent invocations without requiring FORCE.
+  CMAKE_CMD="cmake $ROOT $CMAKE_BASIC_ARGS $CMAKE_ARGS"
+  echo "$CMAKE_CMD"
 
-    # If verbose, dump all CMake variables before and after configuration
-    if [[ "$VERBOSE" == "1" ]]; then
-      echo "Running CMake with verbose output..."
-      RUSTFLAGS="$RUSTFLAGS" $CMAKE_CMD --trace-expand
-    else
-      RUSTFLAGS="$RUSTFLAGS" $CMAKE_CMD
-    fi
+  if [[ "$VERBOSE" == "1" ]]; then
+    echo "Running CMake with verbose output..."
+    RUSTFLAGS="$RUSTFLAGS" $CMAKE_CMD --trace-expand
+  else
+    RUSTFLAGS="$RUSTFLAGS" $CMAKE_CMD
   fi
 }
 

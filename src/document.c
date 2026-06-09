@@ -426,7 +426,9 @@ FIELD_PREPROCESSOR(fulltextPreprocessor) {
       if (is_normalized) {
           RSSortingVector_PutStr(&aCtx->sv, fs->sortIdx, c);
       } else {
-          RSSortingVector_PutStrNormalize(&aCtx->sv, fs->sortIdx, c);
+          if (!RSSortingVector_PutStrNormalize(&aCtx->sv, fs->sortIdx, c, status)) {
+              return -1;
+          }
       }
     } else if (field->multisv) {
       RSSortingVector_PutRSVal(&aCtx->sv, fs->sortIdx, field->multisv);
@@ -613,9 +615,30 @@ FIELD_BULK_INDEXER(geometryIndexer) {
 #define NumericRangeTree_Add(t, docId, value, isMulti) \
   _NumericRangeTree_Add((t), (docId), (value), (isMulti), RSGlobalConfig.numericTreeMaxDepthRange)
 
+static int indexNumericOnDiskBatch(RSAddDocumentCtx *aCtx, RedisSearchCtx *ctx,
+                                   const FieldSpec *fs, const FieldIndexerData *fdata,
+                                   QueryError *status) {
+  const double *values = fdata->isMulti ? fdata->arrNumeric : &fdata->numeric;
+  const uint32_t count = fdata->isMulti ? array_len(fdata->arrNumeric) : 1;
+  for (uint32_t i = 0; i < count; ++i) {
+    if (!SearchDisk_IndexNumeric(ctx->redisCtx, ctx->spec->diskSpec, aCtx->disk.batch,
+                                 aCtx->doc->docId, values[i], fs->index)) {
+      QueryError_SetError(status, QUERY_ERROR_CODE_GENERIC, "Numeric indexing failed");
+      return -1;
+    }
+  }
+  return 0;
+}
+
 FIELD_BULK_INDEXER(numericIndexer) {
-  RS_LOG_ASSERT_ALWAYS(!SearchDisk_IsEnabled(),
-                       "numericIndexer is not commit-batched; disk-mode numeric/geo is not supported");
+  if (aCtx->disk.batch) {
+    // The dispatcher in `IndexerBulkAdd` routes both IXFLDPOS_NUMERIC and
+    // IXFLDPOS_GEO through this indexer; only the numeric path rides the
+    // disk batch today.
+    RS_LOG_ASSERT_ALWAYS(!(fs->types & INDEXFLD_T_GEO),
+                         "disk-mode geo is not supported yet");
+    return indexNumericOnDiskBatch(aCtx, ctx, fs, fdata, status);
+  }
 
   NumericRangeTree *rt = openNumericOrGeoIndex(ctx->spec, &ctx->spec->fields[fs->index], CREATE_INDEX);
   if (!rt) {
@@ -763,7 +786,9 @@ FIELD_PREPROCESSOR(geoPreprocessor) {
       if (is_normalized) {
           RSSortingVector_PutStr(&aCtx->sv, fs->sortIdx, str);
       } else {
-          RSSortingVector_PutStrNormalize(&aCtx->sv, fs->sortIdx, str);
+          if (!RSSortingVector_PutStrNormalize(&aCtx->sv, fs->sortIdx, str, status)) {
+              return -1;
+          }
       }
     } else if (field->multisv) {
       RSSortingVector_PutRSVal(&aCtx->sv, fs->sortIdx, field->multisv);
@@ -783,7 +808,9 @@ FIELD_PREPROCESSOR(tagPreprocessor) {
         if (is_normalized) {
             RSSortingVector_PutStr(&aCtx->sv, fs->sortIdx, str);
         } else {
-            RSSortingVector_PutStrNormalize(&aCtx->sv, fs->sortIdx, str);
+            if (!RSSortingVector_PutStrNormalize(&aCtx->sv, fs->sortIdx, str, status)) {
+                return -1;
+            }
         }
       } else if (field->multisv) {
         RSSortingVector_PutRSVal(&aCtx->sv, fs->sortIdx, field->multisv);
@@ -837,10 +864,8 @@ FIELD_BULK_APPLIER(vectorApplier) {
 }
 
 FIELD_BULK_APPLIER(numericApplier) {
-  // TODO: when numeric lands on the per-document disk write batch, move the
-  // `spec->stats.invertedSize` / `numRecords` deltas and the `NumericRangeTree`
-  // mutation here. Today both are done inline in `numericIndexer`, which
-  // asserts disk-mode is disabled.
+  // Per-spec numeric stats are bumped by `numericIndexer` in both modes.
+  // The applier only handles the global field-docs counter.
   (void)aCtx; (void)field; (void)fs; (void)fdata;
   FieldsGlobalStats_UpdateFieldDocsIndexed(INDEXFLD_T_NUMERIC, 1);
 }
@@ -1098,7 +1123,9 @@ static void AddDocumentCtx_UpdateNoIndex(RSAddDocumentCtx *aCtx, RedisSearchCtx 
           if (is_normalized) {
               RSSortingVector_PutStr(&md->sortVector, idx, str);
           } else {
-              RSSortingVector_PutStrNormalize(&md->sortVector, idx, str);
+              if (!RSSortingVector_PutStrNormalize(&md->sortVector, idx, str, &aCtx->status)) {
+                BAIL("Invalid UTF8");
+              }
           }
 
           break;

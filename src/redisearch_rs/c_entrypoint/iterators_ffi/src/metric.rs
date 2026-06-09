@@ -7,7 +7,8 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 
-use ffi::{QueryIterator, RLookupKey, RLookupKeyHandle, t_docId};
+use ffi::{QueryIterator, RLookupKey, RLookupKeyHandle};
+use rqe_core::DocId;
 use rqe_iterator_type::IteratorType;
 use rqe_iterators::interop::RQEIteratorWrapper;
 use rqe_iterators::{
@@ -20,14 +21,14 @@ use rqe_iterators::{
 ///
 /// # Safety
 ///
-/// 1. `ids` must be a valid pointer to an array of `t_docId` with at least `num` elements.
+/// 1. `ids` must be a valid pointer to an array of `DocId` with at least `num` elements.
 ///    The array must be sorted in ascending order.
 /// 2. `metric_list` must be a valid pointer to an array of `f64` with at least `num` elements.
 /// 3. The caller must ensure that `ids` and `metric_list` are not null unless `num` is zero.
 /// 4. The memory pointed to by `ids` and `metric_list` will be freed using `RedisModule_Free`,
 ///    so the caller must ensure that these pointers were allocated in a compatible manner.
 pub unsafe extern "C" fn NewMetricIteratorSortedById(
-    ids: *mut t_docId,
+    ids: *mut DocId,
     metric_list: *mut f64,
     num: usize,
     type_: MetricType,
@@ -41,13 +42,13 @@ pub unsafe extern "C" fn NewMetricIteratorSortedById(
 ///
 /// # Safety
 ///
-/// 1. `ids` must be a valid pointer to an array of `t_docId` with at least `num` elements.
+/// 1. `ids` must be a valid pointer to an array of `DocId` with at least `num` elements.
 /// 2. `metric_list` must be a valid pointer to an array of `f64` with at least `num` elements.
 /// 3. The caller must ensure that `ids` and `metric_list` are not null unless `num` is zero.
 /// 4. The memory pointed to by `ids` and `metric_list` will be freed using `RedisModule_Free`,
 ///    so the caller must ensure that these pointers were allocated in a compatible manner.
 pub unsafe extern "C" fn NewMetricIteratorSortedByScore(
-    ids: *mut t_docId,
+    ids: *mut DocId,
     metric_list: *mut f64,
     num: usize,
     type_: MetricType,
@@ -58,13 +59,13 @@ pub unsafe extern "C" fn NewMetricIteratorSortedByScore(
 
 /// # Safety
 ///
-/// 1. `ids` must be a valid pointer to an array of `t_docId` with at least `num` elements.
+/// 1. `ids` must be a valid pointer to an array of `DocId` with at least `num` elements.
 /// 2. `metric_list` must be a valid pointer to an array of `f64` with at least `num` elements.
 /// 3. The caller must ensure that `ids` and `metric_list` are not null unless `num` is zero.
 /// 4. The memory pointed to by `ids` and `metric_list` will be freed using `RedisModule_Free`,
 ///    so the caller must ensure that these pointers were allocated in a compatible manner.
 unsafe fn new_metric_iterator<const SORTED_BY_ID: bool>(
-    ids: *mut t_docId,
+    ids: *mut DocId,
     metrics: *mut f64,
     num: usize,
     _type: MetricType,
@@ -159,38 +160,6 @@ pub unsafe extern "C" fn GetMetricOwnKeyRef(header: *mut QueryIterator) -> *mut 
                 RQEIteratorWrapper::<MetricSortedByScore>::mut_ref_from_header_ptr(header)
             };
             wrapper.inner.key_mut_ref() as *mut _
-        }
-        _ => unreachable!(
-            "expected a metric iterator, either sorted by ID or Score (metric value): unexpected type: {iterator_type}"
-        ),
-    }
-}
-
-/// Get the metric type used by this metric iterator.
-///
-/// # Safety
-///
-/// 1. `header` is a valid non-null pointer to a [`QueryIterator`].
-/// 2. `header` was built via [`NewMetricIteratorSortedByScore`] or [`NewMetricIteratorSortedById`].
-#[unsafe(no_mangle)]
-pub unsafe extern "C" fn GetMetricType(header: *const QueryIterator) -> MetricType {
-    debug_assert!(!header.is_null());
-
-    // SAFETY: Safe thanks to 1.
-    let iterator_type = unsafe { (*header).type_ };
-
-    match iterator_type {
-        IteratorType::MetricSortedById => {
-            // SAFETY: Safe thanks to 1 + 2.
-            let wrapper =
-                unsafe { RQEIteratorWrapper::<MetricSortedById>::ref_from_header_ptr(header) };
-            wrapper.inner.metric_type()
-        }
-        IteratorType::MetricSortedByScore => {
-            // SAFETY: Safe thanks to 1 + 2.
-            let wrapper =
-                unsafe { RQEIteratorWrapper::<MetricSortedByScore>::ref_from_header_ptr(header) };
-            wrapper.inner.metric_type()
         }
         _ => unreachable!(
             "expected a metric iterator, either sorted by ID or Score (metric value): unexpected type: {iterator_type}"

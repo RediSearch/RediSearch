@@ -62,17 +62,11 @@ pub unsafe extern "C" fn NewGeoRangeIterator(
         return ptr::null_mut();
     };
 
-    // Each NumericIterator must carry its NumericFilter so that
-    // `NumericInvIndIterator_GetNumericFilter` can hand it back to C profiling code, which uses
-    // the embedded `geo_filter` pointer to display the geo term as coordinates instead of raw
-    // geohash values. Once profiling is fully ported to Rust, this wrapper can be dropped and
-    // the variants can be used directly.
-    // TODO: simplify once profile.c is ported to Rust.
     let children: Vec<CRQEIterator> = groups
         .into_iter()
-        .flat_map(|(filter_nn, variants)| {
+        .flat_map(|(_, variants)| {
             variants.into_iter().map(move |v| {
-                let ptr = RQEIteratorWrapper::boxed_new(NumericIterator::with_filter(filter_nn, v));
+                let ptr = RQEIteratorWrapper::boxed_new(NumericIterator::new(v));
                 // SAFETY: `boxed_new` uses `Box::into_raw`, which is guaranteed non-null.
                 let ptr = unsafe { NonNull::new_unchecked(ptr) };
                 // SAFETY: `ptr` is a valid, uniquely-owned `QueryIterator`.

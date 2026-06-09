@@ -9,8 +9,9 @@
 
 use super::{IndexReader, IndexReaderCore, NumericFilter, NumericReader};
 use crate::{DecodedBy, Decoder, InvertedIndex};
-use ffi::{GeoFilter, IndexFlags, t_docId};
+use ffi::{GeoFilter, IndexFlags};
 use index_result::RSIndexResult;
+use rqe_core::DocId;
 
 // Manually define some C functions, because we'll create a circular dependency if we use the FFI
 // crate to make them automatically.
@@ -116,7 +117,7 @@ impl<'index, IR: NumericReader<'index>> IndexReader<'index> for FilterGeoReader<
     #[inline(always)]
     fn seek_record(
         &mut self,
-        doc_id: t_docId,
+        doc_id: DocId,
         result: &mut RSIndexResult<'index>,
     ) -> std::io::Result<bool> {
         let success = self.inner.seek_record(doc_id, result)?;
@@ -138,7 +139,7 @@ impl<'index, IR: NumericReader<'index>> IndexReader<'index> for FilterGeoReader<
         }
     }
 
-    fn skip_to(&mut self, doc_id: t_docId) -> bool {
+    fn skip_to(&mut self, doc_id: DocId) -> bool {
         self.inner.skip_to(doc_id)
     }
 

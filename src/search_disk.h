@@ -74,9 +74,11 @@ void SearchDisk_UpdateLogObfuscation();
  * @param type Document type
  * @param deleteBeforeOpen If true, delete any existing data before opening (used when loading
  *        without SST persistence to ensure stale data is cleared)
+ * @param c_index_spec Pointer to the C IndexSpec used as private callback data for
+ *        compaction. Must outlive the returned RedisSearchDiskIndexSpec.
  * @return Pointer to the index, or NULL if it does not exist
  */
-RedisSearchDiskIndexSpec* SearchDisk_OpenIndex(RedisModuleCtx *ctx, const HiddenString *indexName, const char *obfuscatedName, DocumentType type, bool deleteBeforeOpen);
+RedisSearchDiskIndexSpec* SearchDisk_OpenIndex(RedisModuleCtx *ctx, const HiddenString *indexName, const char *obfuscatedName, DocumentType type, bool deleteBeforeOpen, IndexSpec *c_index_spec);
 
 /**
  * @brief Mark an index for deletion, the index will be deleted from the disk only after SearchDisk_CloseIndex is called
@@ -125,9 +127,11 @@ void SearchDisk_CloseIndex(RedisSearchDiskIndexSpec *index);
 /**
  * @brief Save the disk-related data of the index to the rdb file
  *
+ * Per-field vector blobs are saved inline by FieldSpec_RdbSave and are NOT
+ * part of this payload.
+ *
  * @param rdb Redis module rdb file
  * @param index Pointer to the index
- * @return true if successful, false otherwise
  */
 void SearchDisk_IndexSpecRdbSave(RedisModuleIO *rdb, RedisSearchDiskIndexSpec *index);
 
@@ -135,39 +139,49 @@ void SearchDisk_IndexSpecRdbSave(RedisModuleIO *rdb, RedisSearchDiskIndexSpec *i
  * @brief Load disk-related RDB data into a temporary in-memory object.
  *
  * Called during RDB load when the IndexSpec cannot be created yet (e.g., during replication
- * before SST files arrive). The returned state must later be passed to
- * SearchDisk_OpenIndexWithRdbState or freed with SearchDisk_FreeRdbState.
+ * before SST files arrive). The returned state is consumed by ownership in
+ * SearchDisk_OpenIndexWithRdbState, or freed on abort paths with
+ * SearchDisk_FreeRdbState.
+ *
+ * Per-field vector blobs are NOT carried here — they ride inline with each
+ * field's own RDB encoding (FieldSpec_RdbLoad).
  *
  * @param rdb Redis module rdb file
- * @return Pointer to temporary RDB state, or NULL on error
+ * @return Pointer to the temporary RDB state, or NULL on error
  */
 RedisSearchDiskRdbState* SearchDisk_LoadRdbToTempObject(RedisModuleIO *rdb);
 
 /**
- * @brief Create an IndexSpec and restore state from a previously loaded RDB state.
+ * @brief Create an IndexSpec from a previously loaded RDB state.
  *
  * Called after SST files are ready (e.g., after FULL_REPLICATION_FINISHED event).
- * Takes ownership of rdbState - it will be consumed and freed.
  *
-* @param ctx Redis module context for BigModule APIs
+ * Consumes `rdbState` unconditionally — the state is freed by this call
+ * regardless of whether IndexSpec creation succeeds or fails. The caller
+ * MUST null its pointer after this call, on both paths.
+ *
+ * @param ctx Redis module context for BigModule APIs
  * @param indexName Name of the index
  * @param obfuscatedName Obfuscated name of the index (for logging)
  * @param type Document type for this index
  * @param rdbState Temporary RDB state from SearchDisk_LoadRdbToTempObject (will be consumed)
+ * @param c_index_spec Pointer to the C IndexSpec used as private callback data for
+ *        compaction. Must outlive the returned RedisSearchDiskIndexSpec.
  * @return Pointer to the created IndexSpec, or NULL on error
  */
 RedisSearchDiskIndexSpec* SearchDisk_OpenIndexWithRdbState(RedisModuleCtx *ctx,
                                                             const HiddenString *indexName,
                                                             const char *obfuscatedName,
                                                             DocumentType type,
-                                                            RedisSearchDiskRdbState *rdbState);
+                                                            RedisSearchDiskRdbState *rdbState,
+                                                            IndexSpec *c_index_spec);
 
 /**
- * @brief Free a temporary RDB state object without creating an IndexSpec.
+ * @brief Free a temporary RDB state object.
  *
- * Use if index creation fails or is cancelled.
+ * Use on abort paths where SearchDisk_OpenIndexWithRdbState was never called.
  *
- * @param rdbState The temporary RDB state to free (may be NULL)
+ * @param rdbState The state to free (may be NULL)
  */
 void SearchDisk_FreeRdbState(RedisSearchDiskRdbState *rdbState);
 
@@ -201,6 +215,26 @@ bool SearchDisk_IndexTerm(RedisSearchDiskIndexSpec *index, SearchDiskWriteBatchH
  * @return true if successful, false otherwise
  */
 bool SearchDisk_IndexTags(RedisModuleCtx *ctx, RedisSearchDiskIndexSpec *index, SearchDiskWriteBatchHandle *batch, const char **values, size_t numValues, t_docId docId, t_fieldIndex fieldIndex);
+
+/**
+ * @brief Stage a numeric value for a document on a write batch.
+ *
+ * Called once per `(doc, value)`. Multi-value numeric fields loop in the
+ * OSS bulk indexer. The write is not durable until `batch` is committed via
+ * `SearchDisk_CommitWriteBatch`.
+ *
+ * The CF is created and registered with Redis BigModule via `ctx` on the
+ * first call per field, mirroring `SearchDisk_IndexTags`.
+ *
+ * @param ctx Redis module context for BigModule APIs (used to register new CFs)
+ * @param index Pointer to the index
+ * @param batch Open write batch the numeric write is staged into
+ * @param docId Document ID to index
+ * @param value Numeric value to associate with the document
+ * @param fieldIndex Field index for the numeric field
+ * @return true if successful, false otherwise
+ */
+bool SearchDisk_IndexNumeric(RedisModuleCtx *ctx, RedisSearchDiskIndexSpec *index, SearchDiskWriteBatchHandle *batch, t_docId docId, double value, t_fieldIndex fieldIndex);
 
 /**
  * @brief Open a new write batch bound to the given disk index.
@@ -265,15 +299,14 @@ bool SearchDisk_DeleteDocumentById(RedisSearchDiskIndexSpec *handle, t_docId doc
  * @brief Run a GC compaction cycle on the disk index
  *
  * Synchronously runs a full compaction on the inverted index column family,
- * removing entries for deleted documents. Applies the compaction delta to
- * update in-memory structures via callbacks derived from the provided C
- * IndexSpec, taking the IndexSpec write lock while those updates are applied.
+ * removing entries for deleted documents. The in-memory delta is applied via
+ * the compaction callback table that was bound to the IndexSpec at open time;
+ * those callbacks take the IndexSpec write lock around the update window.
  *
  * @param index Pointer to the disk index
- * @param c_index_spec Pointer to the C IndexSpec used as private callback data
  * @return Number of deleted document IDs removed from the disk index
  */
-size_t SearchDisk_RunGC(RedisSearchDiskIndexSpec *index, IndexSpec *c_index_spec);
+size_t SearchDisk_RunGC(RedisSearchDiskIndexSpec *index);
 
 /**
  * @brief Create an IndexIterator for a term in the inverted index
@@ -333,6 +366,20 @@ RedisSearchDiskSnapshot* SearchDisk_CreateSnapshot(RedisSearchDiskIndexSpec *ind
  * @param snapshot Snapshot handle returned by `SearchDisk_CreateSnapshot`
  */
 void SearchDisk_FreeSnapshot(RedisSearchDiskSnapshot *snapshot);
+
+/**
+ * @brief Create a numeric range IndexIterator over the disk-backed index
+ *
+ * Wraps the disk API's per-bucket readers in a union iterator that yields
+ * doc-ids matching `filter`'s range. The iterator captures a Speedb snapshot
+ * and is independent of subsequent writes.
+ *
+ * @param index Pointer to the index
+ * @param filter Pointer to the numeric filter (min, max, inclusivity, field spec)
+ * @param fieldIndex Field index for the numeric field
+ * @return Pointer to the IndexIterator, or NULL if no buckets overlap the filter
+ */
+QueryIterator* SearchDisk_NewNumericIterator(RedisSearchDiskIndexSpec *index, const NumericFilter *filter, t_fieldIndex fieldIndex);
 
 // DocTable API wrappers
 
@@ -554,6 +601,58 @@ void* SearchDisk_CreateVectorIndex(RedisModuleCtx *ctx, RedisSearchDiskIndexSpec
  */
 void SearchDisk_FreeVectorIndex(void *vecIndex);
 
+/**
+ * @brief Stream the in-memory state of a quiesced VecSimIndex* directly into
+ *        the field's RedisModuleIO RDB stream.
+ *
+ * Drives the vecsim_disk serialization callbacks straight against
+ * RedisModuleIO without buffering the payload in a heap-allocated blob.
+ *
+ * @param vecIndex VecSimIndex* handle
+ * @param rdb RedisModuleIO stream to write into
+ * @return true on success, false otherwise
+ */
+bool SearchDisk_SaveVectorIndexToRDB(void *vecIndex, RedisModuleIO *rdb);
+
+/**
+ * @brief Create a VecSimIndex with no SpeedB storage bound.
+ *
+ * The returned handle holds in-memory graph state only and is NOT connected
+ * to a column family. It can accept SearchDisk_LoadVectorIndexFromRDB but
+ * MUST NOT be queried or have vectors added until
+ * SearchDisk_BindVectorIndexStorage has been called on it.
+ *
+ * @param params Vector index parameters
+ * @return VecSimIndex* handle, or NULL on error
+ */
+void* SearchDisk_CreateUnboundVectorIndex(const VecSimParamsDisk *params);
+
+/**
+ * @brief Stream the in-memory state for a VecSimIndex* directly from a
+ *        RedisModuleIO RDB stream into a previously unbound index.
+ *
+ * @param vecIndex Unbound VecSimIndex* from SearchDisk_CreateUnboundVectorIndex
+ * @param rdb RedisModuleIO stream to read from
+ * @return true on success, false otherwise
+ */
+bool SearchDisk_LoadVectorIndexFromRDB(void *vecIndex, RedisModuleIO *rdb);
+
+/**
+ * @brief Attach SpeedB storage to a previously unbound VecSimIndex.
+ *
+ * Creates and registers the field's column family if needed, then binds the
+ * resulting storage handles to `vecIndex`. After a successful return the
+ * index can be queried and mutated.
+ *
+ * @param ctx Redis module context for BigModule APIs
+ * @param index Pointer to the index spec (provides storage context)
+ * @param vecIndex Handle returned by SearchDisk_CreateUnboundVectorIndex
+ * @param params Vector index parameters (used to look up the field name)
+ * @return true on success, false on storage setup failure
+ */
+bool SearchDisk_BindVectorIndexStorage(RedisModuleCtx *ctx, RedisSearchDiskIndexSpec *index,
+                                       void *vecIndex, const VecSimParamsDisk *params);
+
 // Metrics API wrappers
 
 /*
@@ -622,6 +721,19 @@ uint64_t SearchDisk_GetVectorIndexTotalMemory(RedisSearchDiskIndexSpec* index);
  * @return Number of records in the index
  */
 uint64_t SearchDisk_GetNumRecords(RedisSearchDiskIndexSpec* index);
+
+/**
+ * @brief Get the absolute total number of inverted-index blocks for a disk index
+ *
+ * Returns the current absolute block count across the index's inverted-index storage
+ * (text + tag), reported by FT.INFO as `total_inverted_index_blocks`. The value is
+ * read on demand and does not require a prior SearchDisk_CollectIndexMetrics call.
+ * Requires initialized SearchDisk and non-null index (RS_ASSERT).
+ *
+ * @param index Pointer to the disk index spec
+ * @return Total number of inverted-index blocks owned by the index
+ */
+uint64_t SearchDisk_GetInvertedIndexTotalBlocks(RedisSearchDiskIndexSpec* index);
 
 /**
  * @brief Output aggregated disk metrics to Redis INFO

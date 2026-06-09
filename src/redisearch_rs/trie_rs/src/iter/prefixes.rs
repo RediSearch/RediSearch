@@ -13,16 +13,16 @@ use memchr::arch::all::is_prefix;
 /// Iterate over all trie entries whose key is a prefix of `target`.
 ///
 /// It can be instantiated by calling [`TrieMap::prefixes_iter`](crate::TrieMap::prefixes_iter).
-pub struct PrefixesIter<'tm, Data> {
+pub struct PrefixesIter<'tm, 't, Data> {
     /// The term whose prefixes we are looking for.
-    target: &'tm [u8],
+    target: &'t [u8],
     /// The node we are currently examining.
     current_node: Option<&'tm Node<Data>>,
 }
 
-impl<'tm, Data> PrefixesIter<'tm, Data> {
+impl<'tm, 't, Data> PrefixesIter<'tm, 't, Data> {
     /// Creates a new iterator over the entries of a [`TrieMap`](crate::TrieMap).
-    pub(crate) const fn new(root: Option<&'tm Node<Data>>, target: &'tm [u8]) -> Self {
+    pub(crate) const fn new(root: Option<&'tm Node<Data>>, target: &'t [u8]) -> Self {
         Self {
             current_node: root,
             target,
@@ -30,7 +30,7 @@ impl<'tm, Data> PrefixesIter<'tm, Data> {
     }
 }
 
-impl<'tm, Data> Iterator for PrefixesIter<'tm, Data> {
+impl<'tm, 't, Data> Iterator for PrefixesIter<'tm, 't, Data> {
     type Item = &'tm Data;
 
     fn next(&mut self) -> Option<Self::Item> {
