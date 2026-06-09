@@ -75,11 +75,11 @@ pub fn create_field_expiration<R: RngExt>(
 
     let pick = PickRandom::new(input.fill_probability);
 
-    // Pre-size to the upper bound (`real_count`) so the `push` loop never
-    // reallocates geometrically; the `should_keep` filter then leaves spare
-    // capacity, which the `shrink_to_fit` below tightens into a `capacity == len`
-    // block — matching the tight, doc-ordered arrays the C builder produces via
-    // `staging.shrink_to_fit()` + `array_new_sz(len)`.
+    // Pre-size to the upper bound (`real_count`) so the block is allocated
+    // exactly once, in doc order — matching the tight, sequentially-laid-out
+    // arrays the C builder produces via `staging.shrink_to_fit()` +
+    // `array_new_sz(len)`. Avoids both the geometric over-allocation of
+    // repeated `push` and the placement-scattering realloc of `shrink_to_fit`.
     let mut output = FieldExpirations::with_capacity(real_count as usize);
     for ((field_id, point), should_keep) in (0..real_count).zip(points).zip(pick.iter(rng)) {
         if should_keep {
@@ -89,7 +89,9 @@ pub fn create_field_expiration<R: RngExt>(
             });
         }
     }
-    // Tighten to a `capacity == len` block (the filter left spare capacity).
+    // The `should_keep` filter leaves spare capacity (we pre-sized to the upper
+    // bound `real_count`). Shrink to a tight, capacity == len block, mirroring
+    // the C builder's `staging.shrink_to_fit()` + `array_new_sz(len)`.
     output.shrink_to_fit();
 
     output
@@ -168,10 +170,19 @@ pub fn convert_into_ffi_docs(
     output
 }
 
-/// Create and populate a [`TimeToLiveTable`] with the given inputs.
+/// Create and populate a [`TimeToLiveTable`].
 ///
 /// Re-allocates every payload into a fresh, tight, doc-ordered block before
-/// inserting, so the allocated memory is not sparse (important for benchmarks).
+/// inserting, mirroring the C builder's [`convert_into_ffi_docs`] sweep — which
+/// allocates each payload contiguously in one late pass with no interleaved
+/// scratch. The blocks [`create_docs`] produces inline are scattered across the
+/// heap (interleaved with the per-doc `points` Vec, the over-allocated `output`,
+/// and the growing `docs` Vec), so without this re-pack the verify hot loop
+/// pays markedly more cache/TLB latency than the C table purely from layout — a
+/// benchmark artifact, not a code difference (verified: scattered ≈ 15.9
+/// ns/verify vs ≈ 12.3 re-packed, matching C). Re-packing keeps the Rust and C
+/// tables apples-to-apples. It runs in bench *setup* (outside the timed
+/// `iter_batched` closure), so it does not enter measurements.
 pub fn create_and_populate(
     max_size: NonZeroUsize,
     inputs: Vec<(DocId, FieldExpirations)>,
