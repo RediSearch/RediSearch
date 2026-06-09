@@ -200,7 +200,7 @@ fn iter_suffix_yields_one_hit_per_matching_term() {
 
 // --- Proptest fuzz
 
-#[cfg(not(miri))] // these proptests are too slow to run under miri
+#[cfg_attr(miri, ignore = "These proptests are too slow to run under miri")]
 mod fuzz {
     use super::*;
 
