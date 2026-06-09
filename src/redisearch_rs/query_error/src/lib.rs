@@ -104,6 +104,7 @@ pub enum QueryErrorCode {
     FlexUnsupportedArgument,
     SafeDepleterFailure,
     FlexUnsupportedQuery,
+    DiskIteratorCreation,
 }
 
 impl Debug for QueryErrorCode {
@@ -495,7 +496,12 @@ impl QueryErrorCode {
                 prefix: c"SEARCH_FLEX_UNSUPPORTED_QUERY ",
                 default_msg: c"Unsupported query type for Flex indexes",
                 default_full_msg: c"SEARCH_FLEX_UNSUPPORTED_QUERY Unsupported query type for Flex indexes",
-            }
+            },
+            Self::DiskIteratorCreation => ErrorCodeStrings {
+                prefix: c"SEARCH_DISK_ITERATOR_CREATION ",
+                default_msg: c"Could not create disk iterator",
+                default_full_msg: c"SEARCH_DISK_ITERATOR_CREATION Could not create disk iterator",
+            },
         }
     }
 }

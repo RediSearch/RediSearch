@@ -15,6 +15,7 @@ use index_result::RSIndexResult;
 use index_spec::IndexSpecReadGuard;
 use inverted_index::codec::{doc_ids_only::DocIdsOnly, raw_doc_ids_only::RawDocIdsOnly};
 use inverted_index::{DocIdsDecoder, opaque};
+use query_error::{QueryError, QueryErrorCode};
 
 use rqe_core::{DocId, RS_FIELDMASK_ALL};
 
@@ -366,23 +367,44 @@ pub unsafe fn new_wildcard_iterator_optimized<'index>(
     }
 }
 
+/// Records a failure to create a disk iterator on `status`, when provided.
+///
+/// The returned empty iterator alone would surface as a silent empty result,
+/// since the query pipeline only aborts when the [`QueryError`] is set.
+/// Populating it turns the failure into a proper query error with a
+/// cause-specific message.
+///
+/// # Safety
+///
+/// `status`, when non-null, must point to a valid `QueryError` (the evaluating
+/// query's `q->status`).
+unsafe fn set_disk_iterator_error(status: *mut ffi::QueryError, message: &str) {
+    // SAFETY: caller guarantees `status`, when non-null, points to a valid `QueryError`.
+    if let Some(query_error) = unsafe { QueryError::from_opaque_mut_ptr(status.cast()) } {
+        query_error.set_error(QueryErrorCode::DiskIteratorCreation, message);
+    }
+}
+
 /// Create a [`WildcardIterator`] backed by an on-disk index implementation.
 ///
 /// This delegates to [`SEARCH_ENTERPRISE_ITERATORS`]'s
 /// [`new_wildcard_on_disk`](crate::SearchEnterpriseIterators::new_wildcard_on_disk)
 /// and wraps the resulting iterator in a [`DiskWildcardIterator`].
 ///
-/// If the enterprise iterator cannot be created, this function logs a warning
-/// and falls back to an empty iterator.
+/// If the enterprise iterator cannot be created, this function populates
+/// `status` (when non-null) with the cause and falls back to an empty iterator;
+/// the query then aborts with an error rather than returning empty results.
 ///
 /// # Safety
 ///
 /// 1. `disk_spec` must reference a valid [`RedisSearchDiskIndexSpec`](ffi::RedisSearchDiskIndexSpec)
 ///    that remains valid for `'index`.
 /// 2. [`SEARCH_ENTERPRISE_ITERATORS`] must be initialized before calling this function.
+/// 3. `status`, when non-null, must point to a valid [`QueryError`](ffi::QueryError).
 pub unsafe fn new_wildcard_iterator_on_disk<'index>(
     disk_spec: &'index mut ffi::RedisSearchDiskIndexSpec,
     weight: f64,
+    status: *mut ffi::QueryError,
 ) -> NewWildcardIterator<'index> {
     // SAFETY: Caller guarantees `SEARCH_ENTERPRISE_ITERATORS` is
     // initialized when `spec.diskSpec` is non-null (8).
@@ -395,6 +417,13 @@ pub unsafe fn new_wildcard_iterator_on_disk<'index>(
             tracing::warn!(
                 "Failed to create a disk wildcard iterator ({err}); falling back to empty iterator."
             );
+            // SAFETY: see safety point 3.
+            unsafe {
+                set_disk_iterator_error(
+                    status,
+                    &format!("Failed to create disk wildcard iterator: {err}"),
+                )
+            };
             NewWildcardIterator::Empty(Empty)
         }
     }
@@ -449,8 +478,9 @@ pub unsafe fn new_wildcard_iterator<'index>(
         // `'index` (7).
         let disk_spec = unsafe { &mut *spec.diskSpec };
         // SAFETY: Caller guarantees all preconditions of
-        // `new_wildcard_iterator_on_disk` hold (7, 8).
-        return unsafe { new_wildcard_iterator_on_disk(disk_spec, weight) };
+        // `new_wildcard_iterator_on_disk` hold (7, 8); `query.status` is the
+        // valid `QueryError` of the evaluating query.
+        return unsafe { new_wildcard_iterator_on_disk(disk_spec, weight, query.status) };
     }
 
     let index_all = NonNull::new(spec.rule)

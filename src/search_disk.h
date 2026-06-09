@@ -323,9 +323,10 @@ size_t SearchDisk_RunGC(RedisSearchDiskIndexSpec *index);
  * @param idf Inverse document frequency for the term
  * @param bm25_idf BM25 inverse document frequency for the term
  * @param needsOffsets Whether the query needs term offset data (for scoring or phrase matching)
+ * @param status QueryError to populate with the cause when creation fails (may be NULL)
  * @return Pointer to the IndexIterator, or NULL on error
  */
-QueryIterator* SearchDisk_NewTermIterator(RedisSearchDiskIndexSpec *index, RSToken *tok, int tokenId, t_fieldMask fieldMask, double weight, double idf, double bm25_idf, bool needsOffsets);
+QueryIterator* SearchDisk_NewTermIterator(RedisSearchDiskIndexSpec *index, RSToken *tok, int tokenId, t_fieldMask fieldMask, double weight, double idf, double bm25_idf, bool needsOffsets, QueryError *status);
 
 /**
  * @brief Create a tag IndexIterator for a specific tag value
@@ -337,9 +338,10 @@ QueryIterator* SearchDisk_NewTermIterator(RedisSearchDiskIndexSpec *index, RSTok
  * @param tok Pointer to the token (contains tag value string)
  * @param fieldIndex Field index for the tag field
  * @param weight Weight for the term (used in scoring)
+ * @param status QueryError to populate with the cause when creation fails (may be NULL)
  * @return Pointer to the IndexIterator, or NULL on error
  */
-QueryIterator* SearchDisk_NewTagIterator(RedisSearchDiskIndexSpec *index, const RSToken *tok, t_fieldIndex fieldIndex, double weight);
+QueryIterator* SearchDisk_NewTagIterator(RedisSearchDiskIndexSpec *index, const RSToken *tok, t_fieldIndex fieldIndex, double weight, QueryError *status);
 
 /**
  * @brief Create a numeric range IndexIterator over the disk-backed index

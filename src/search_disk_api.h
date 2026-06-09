@@ -19,6 +19,7 @@ extern "C" {
 // Forward declarations to avoid circular dependencies
 typedef struct QueryIterator QueryIterator;
 typedef struct NumericFilter NumericFilter;
+typedef struct QueryError QueryError;
 
 // Forward declaration for HiddenString
 typedef struct HiddenString HiddenString;
@@ -428,9 +429,10 @@ typedef struct IndexDiskAPI {
    * @param fieldMask Field mask indicating which fields are present in the document
    * @param weight Weight for the iterator (used in scoring)
    * @param needsOffsets Whether the query needs term offset data (for scoring or phrase matching)
+   * @param status QueryError to populate with the cause when creation fails (may be NULL)
    * @return Pointer to the created iterator, or NULL if creation failed
    */
-  QueryIterator *(*newTermIterator)(RedisSearchDiskIndexSpec* index, RSQueryTerm* term, t_fieldMask fieldMask, double weight, bool needsOffsets);
+  QueryIterator *(*newTermIterator)(RedisSearchDiskIndexSpec* index, RSQueryTerm* term, t_fieldMask fieldMask, double weight, bool needsOffsets, QueryError* status);
 
   /**
    * @brief Creates a new iterator for a tag index
@@ -439,9 +441,10 @@ typedef struct IndexDiskAPI {
    * @param tok Pointer to the token (contains tag string and length)
    * @param fieldIndex Field index for the tag field
    * @param weight Weight for the iterator (used in scoring)
+   * @param status QueryError to populate with the cause when creation fails (may be NULL)
    * @return Pointer to the created iterator, or NULL if creation failed
    */
-  QueryIterator *(*newTagIterator)(RedisSearchDiskIndexSpec* index, const RSToken* tok, t_fieldIndex fieldIndex, double weight);
+  QueryIterator *(*newTagIterator)(RedisSearchDiskIndexSpec* index, const RSToken* tok, t_fieldIndex fieldIndex, double weight, QueryError* status);
 
   /**
    * @brief Creates a new iterator over a numeric range on the disk-backed index
