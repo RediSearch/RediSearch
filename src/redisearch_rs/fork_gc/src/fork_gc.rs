@@ -11,14 +11,13 @@ use std::{
     io::{self, Read, Write},
     marker::PhantomData,
     mem::ManuallyDrop,
-    ops::{Deref, DerefMut},
     os::fd::FromRawFd,
     time::Duration,
 };
 
 use crate::util::read_with_timeout;
 
-use index_spec::IndexSpecWeakRefMut;
+use index_spec::IndexSpecWeakRef;
 
 /// Poll timeout used by the parent-side pipe reader.
 const POLL_TIMEOUT: Duration = Duration::from_mins(3);
@@ -98,93 +97,25 @@ impl ForkGC {
 
     /// Return a weak reference to the GC's index spec.
     ///
-    /// Takes `&mut self` so that the returned [`IndexSpecWeakRefMut`] (and any
-    /// [`IndexSpecStrongRefMut`] promoted from it) carries an exclusive borrow
-    /// of this `ForkGC`, preventing a second strong reference from being
-    /// created while the first is still alive.
-    pub const fn index_spec(&mut self) -> IndexSpecWeakRefMut<'_> {
+    /// `WeakRef` is a plain `Copy` value, so this just copies it out of the
+    /// struct. The returned [`IndexSpecWeakRef`] does not borrow `self`.
+    pub const fn index_spec(&self) -> IndexSpecWeakRef {
         // SAFETY: `self.0.index` is a valid WeakRef for the lifetime of this ForkGC.
-        unsafe { IndexSpecWeakRefMut::from_raw(self.0.index) }
+        unsafe { IndexSpecWeakRef::from_raw(self.0.index) }
     }
 
-    /// Split `self` into three non-overlapping views, each borrowing `self`
-    /// for the same lifetime.
+    /// Update the GC-level statistics after applying a garbage collection delta.
     ///
-    /// - `&mut ForkGCLite` — access to GC-level statistics.
-    /// - [`IndexSpecWeakRefMut`] — weak reference to the index spec.
-    /// - [`ForkGCPipeReader`] — read end of the GC pipe.
-    ///
-    /// # Why this is safe
-    ///
-    /// [`IndexSpecWeakRefMut`] stores a *copy* of the `WeakRef` value (not a
-    /// pointer into `ffi::ForkGC` memory), and [`ForkGCPipeReader`] stores a
-    /// copy of the `pipe_read_fd` integer. The only live reference into
-    /// `ffi::ForkGC` memory is `&mut ForkGCLite`. Soundness therefore requires
-    /// that every method on [`ForkGCLite`] only accesses the `stats` fields and
-    /// never touches `index` or `pipe_read_fd`.
-    pub fn split(
+    /// This is the GC-side half of `FGC_updateStats`.
+    pub const fn update_gc_stats(
         &mut self,
-    ) -> (
-        &mut ForkGCLite,
-        IndexSpecWeakRefMut<'_>,
-        ForkGCPipeReader<'_>,
+        bytes_collected: usize,
+        bytes_allocated: usize,
+        ignored_last_block: bool,
     ) {
-        // Use a raw pointer to read out the fields we need before creating the
-        // &mut ForkGCLite, so the borrow checker doesn't see a conflict.
-        // SAFETY: Derived from &mut self, so valid and exclusively owned.
-        let ptr: *mut ffi::ForkGC = &raw mut self.0;
-
-        // Copy the fields out while we have sole access and before any
-        // references to the struct are created.
-        // SAFETY: ptr is valid and non-null (derived from &mut self).
-        let index = unsafe { (*ptr).index };
-        let fd = unsafe { (*ptr).pipe_read_fd };
-
-        // SAFETY: ForkGCLite is #[repr(transparent)] over ffi::ForkGC (same
-        // layout as ForkGC). The returned reference borrows self for the same
-        // lifetime. Callers must uphold the invariant described in the doc
-        // comment above: every ForkGCLite method must only access stats fields.
-        let lite = unsafe { &mut *(ptr.cast::<ForkGCLite>()) };
-
-        // IndexSpecWeakRefMut stores a copy of the WeakRef value, so it does
-        // not alias with &mut ForkGCLite.
-        // SAFETY: self.0.index is a valid WeakRef for the lifetime of this ForkGC.
-        let index_spec = unsafe { IndexSpecWeakRefMut::from_raw(index) };
-
-        // ForkGCPipeReader stores a copy of the fd integer, so it does not
-        // alias with &mut ForkGCLite.
-        let pipe_reader = (fd >= 0).then(|| {
-            // SAFETY: fd is non-negative (checked above) and refers to an open
-            // readable fd maintained by the C side's Fork GC state machine.
-            ManuallyDrop::new(unsafe { io::PipeReader::from_raw_fd(fd) })
-        });
-
-        (
-            lite,
-            index_spec,
-            ForkGCPipeReader {
-                pipe_reader,
-                timeout: POLL_TIMEOUT,
-                _borrow: PhantomData,
-            },
-        )
-    }
-}
-
-impl Deref for ForkGC {
-    type Target = ForkGCLite;
-
-    fn deref(&self) -> &ForkGCLite {
-        // SAFETY: ForkGC and ForkGCLite are both #[repr(transparent)] over
-        // ffi::ForkGC and therefore have identical layout.
-        unsafe { &*(&raw const *self).cast::<ForkGCLite>() }
-    }
-}
-
-impl DerefMut for ForkGC {
-    fn deref_mut(&mut self) -> &mut ForkGCLite {
-        // SAFETY: Same as Deref. Derived from &mut self so no aliasing occurs.
-        unsafe { &mut *(&raw mut *self).cast::<ForkGCLite>() }
+        self.0.stats.totalCollected += bytes_collected as isize;
+        self.0.stats.totalCollected -= bytes_allocated as isize;
+        self.0.stats.gcBlocksDenied += ignored_last_block as u64;
     }
 }
 
@@ -225,26 +156,5 @@ impl Read for ForkGCPipeReader<'_> {
             Some(pr) => read_with_timeout(&mut **pr, buf, self.timeout),
             None => Err(io::Error::from_raw_os_error(libc::EBADF)),
         }
-    }
-}
-
-/// Safe lite wrapper around [`ffi::ForkGC`] which only allows access to it's
-/// own fields and not other structs and stuff.
-#[repr(transparent)]
-pub struct ForkGCLite(ffi::ForkGC);
-
-impl ForkGCLite {
-    /// Update the GC-level statistics after applying a garbage collection delta.
-    ///
-    /// This is the GC-side half of `FGC_updateStats`.
-    pub const fn update_gc_stats(
-        &mut self,
-        bytes_collected: usize,
-        bytes_allocated: usize,
-        ignored_last_block: bool,
-    ) {
-        self.0.stats.totalCollected += bytes_collected as isize;
-        self.0.stats.totalCollected -= bytes_allocated as isize;
-        self.0.stats.gcBlocksDenied += ignored_last_block as u64;
     }
 }

@@ -15,7 +15,7 @@ use index_spec::{IndexSpecReadGuard, IndexSpecWriteGuard};
 use inverted_index::GcScanDelta;
 use serde::Serialize as _;
 
-use crate::{ForkGC, ForkGCLite, Frame};
+use crate::{ForkGC, Frame};
 
 /// Successful outcome of [`handle_existing_docs`].
 pub enum HandleOutcome {
@@ -40,7 +40,7 @@ pub enum HandleError {
 }
 
 /// Statistics produced by [`apply_existing_docs`], forwarded by
-/// [`handle_existing_docs`] to [`crate::fork_gc::ForkGCLite::update_gc_stats`].
+/// [`handle_existing_docs`] to [`ForkGC::update_gc_stats`].
 pub struct ApplyInfo {
     /// Added block count
     pub added_block_count: i64,
@@ -97,7 +97,7 @@ pub fn receive_existing_docs(reader: &mut impl Read) -> Result<Option<GcScanDelt
 /// Apply a pre-decoded GC delta to the spec's `existingDocs` inverted index.
 ///
 /// Returns [`ApplyInfo`] with counters the caller can forward to
-/// [`crate::fork_gc::ForkGCLite::update_gc_stats`].
+/// [`ForkGC::update_gc_stats`].
 ///
 /// Returns `Err(HandleError::ExistingDocsDeleted)` when the spec has no
 /// `existingDocs` index, which can happen if the index was removed between
@@ -132,14 +132,13 @@ pub fn apply_existing_docs(
 /// Update both the spec-level and GC-level statistics after applying a GC delta.
 ///
 /// Combines the spec stats update (done under the write lock) and the GC stats
-/// update (done via [`ForkGCLite`]) that always go together after a successful
-/// [`apply_existing_docs`] call.
-pub fn update_stats(info: &ApplyInfo, guard: &mut IndexSpecWriteGuard<'_>, lite: &mut ForkGCLite) {
+/// update that always go together after a successful [`apply_existing_docs`] call.
+pub fn update_stats(info: &ApplyInfo, guard: &mut IndexSpecWriteGuard<'_>, fgc: &mut ForkGC) {
     guard.add_block_count(info.added_block_count);
     // entries_removed is 0: existingDocs entries are not counted on insertion
     // (they are internal duplicates), so we do not count them on removal either.
     guard.update_gc_stats(0, info.bytes_freed, info.bytes_allocated);
-    lite.update_gc_stats(
+    fgc.update_gc_stats(
         info.bytes_freed,
         info.bytes_allocated,
         info.ignored_last_block,
@@ -155,17 +154,15 @@ pub fn update_stats(info: &ApplyInfo, guard: &mut IndexSpecWriteGuard<'_>, lite:
 /// Returns `Ok(HandleOutcome::Done)` when the child sent no data (empty
 /// index or no GC needed).
 pub fn handle_existing_docs(fgc: &mut ForkGC) -> Result<HandleOutcome, HandleError> {
-    let (lite, index_spec, mut reader) = fgc.split();
-
-    let Some(delta) = receive_existing_docs(&mut reader)? else {
+    let Some(delta) = receive_existing_docs(&mut fgc.reader())? else {
         return Ok(HandleOutcome::Done);
     };
 
-    let mut spec_ref = index_spec.promote().ok_or(HandleError::SpecDeleted)?;
+    let mut spec_ref = fgc.index_spec().promote().ok_or(HandleError::SpecDeleted)?;
     let mut guard = spec_ref.write();
 
     let info = apply_existing_docs(delta, &mut guard)?;
-    update_stats(&info, &mut guard, lite);
+    update_stats(&info, &mut guard, fgc);
 
     Ok(HandleOutcome::Collected)
 }

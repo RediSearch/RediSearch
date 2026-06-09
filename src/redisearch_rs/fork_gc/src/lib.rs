@@ -21,5 +21,5 @@ pub mod frame;
 pub mod io_result_ext;
 pub mod util;
 
-pub use fork_gc::{ForkGC, ForkGCLite, ForkGCPipeReader};
+pub use fork_gc::{ForkGC, ForkGCPipeReader};
 pub use frame::Frame;

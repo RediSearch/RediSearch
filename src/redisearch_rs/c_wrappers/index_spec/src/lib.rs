@@ -11,8 +11,7 @@
 
 use std::{
     ffi::c_char,
-    marker::PhantomData,
-    ops::{Deref, DerefMut},
+    ops::Deref,
     ptr,
     ptr::NonNull,
     slice,
@@ -375,33 +374,28 @@ impl Drop for IndexSpecReadGuard<'_> {
     }
 }
 
-/// A weak reference to an [`IndexSpec`] that carries an exclusive borrow of
-/// its owner for lifetime `'a`.
+/// A weak reference to an [`IndexSpec`].
 ///
-/// Does not prevent the spec from being deleted. Call [`promote`](Self::promote)
-/// to attempt promotion to an [`IndexSpecStrongRefMut`], which keeps the spec
-/// alive. The exclusive borrow is passed through to the strong ref, ensuring
-/// at most one [`IndexSpecStrongRefMut`] can exist from a given owner at a time.
-pub struct IndexSpecWeakRefMut<'a>(ffi::WeakRef, PhantomData<&'a mut ()>);
+/// Just a copy of the underlying [`ffi::WeakRef`] handle — does not borrow any
+/// owner and can be freely copied. Does not prevent the spec from being deleted.
+/// Call [`promote`](Self::promote) to attempt promotion to an
+/// [`IndexSpecStrongRef`], which keeps the spec alive via C-side refcounting.
+pub struct IndexSpecWeakRef(ffi::WeakRef);
 
-impl<'a> IndexSpecWeakRefMut<'a> {
-    /// Wrap a raw [`ffi::WeakRef`], tying it to the exclusive borrow `'a` of
-    /// its owner.
+impl IndexSpecWeakRef {
+    /// Wrap a raw [`ffi::WeakRef`].
     ///
     /// # Safety
     ///
-    /// `weak` must be a valid weak reference whose owner is exclusively borrowed
-    /// for `'a`.
+    /// `weak` must be a valid weak reference.
     pub const unsafe fn from_raw(weak: ffi::WeakRef) -> Self {
-        Self(weak, PhantomData)
+        Self(weak)
     }
 
     /// Attempt to promote to a strong reference.
     ///
-    /// Returns `None` if the spec has been deleted since the weak ref was
-    /// obtained. The returned [`IndexSpecStrongRefMut`] inherits `'a`, keeping
-    /// the exclusive borrow active and preventing a second promotion.
-    pub fn promote(self) -> Option<IndexSpecStrongRefMut<'a>> {
+    /// Returns `None` if the spec has been deleted since the weak ref was obtained.
+    pub fn promote(self) -> Option<IndexSpecStrongRef> {
         // SAFETY: self.0 is a valid WeakRef (guaranteed by from_raw's caller).
         let strong_ref = unsafe { ffi::IndexSpecRef_Promote(self.0) };
         // SAFETY: StrongRef_Get is always safe to call on a valid StrongRef.
@@ -409,31 +403,32 @@ impl<'a> IndexSpecWeakRefMut<'a> {
 
         // When promotion fails, IndexSpecRef_Promote returns StrongRef { rm: NULL } —
         // no reference was acquired, so there is nothing to release.
-        NonNull::new(raw).map(|spec| IndexSpecStrongRefMut {
-            strong_ref,
-            spec,
-            _phantom: PhantomData,
-        })
+        NonNull::new(raw).map(|spec| IndexSpecStrongRef { strong_ref, spec })
     }
 }
 
-/// A promoted strong reference to an [`IndexSpec`] that carries an exclusive
-/// borrow of its owner for lifetime `'a`.
+/// A promoted strong reference to an [`IndexSpec`].
 ///
-/// Obtained via [`IndexSpecWeakRefMut::promote`]. Keeps the spec alive for the
-/// duration of this value and releases the strong reference on drop. The
-/// exclusive borrow prevents a second strong ref from being created from the
-/// same owner while this one is alive.
+/// Obtained via [`IndexSpecWeakRef::promote`]. Keeps the spec alive for the
+/// duration of this value and releases the strong reference on drop.
 ///
 /// Derefs to [`IndexSpec`] for read-only access. Mutable access requires
-/// acquiring the write lock via [`lock`](Self::lock).
-pub struct IndexSpecStrongRefMut<'a> {
+/// acquiring the write lock via [`IndexSpec::write`].
+pub struct IndexSpecStrongRef {
     strong_ref: ffi::StrongRef,
     spec: NonNull<ffi::IndexSpec>,
-    _phantom: PhantomData<&'a mut ()>,
 }
 
-impl Deref for IndexSpecStrongRefMut<'_> {
+impl IndexSpecStrongRef {
+    /// Acquire the write lock for this `IndexSpec`.
+    pub fn write(&mut self) -> IndexSpecWriteGuard<'_> {
+        // SAFETY: We hold a strong reference so the spec is alive, and the
+        // pointer is non-null (checked in promote).
+        unsafe { IndexSpec::from_raw_mut(self.spec.as_ptr()) }.write()
+    }
+}
+
+impl Deref for IndexSpecStrongRef {
     type Target = IndexSpec;
 
     fn deref(&self) -> &IndexSpec {
@@ -443,17 +438,7 @@ impl Deref for IndexSpecStrongRefMut<'_> {
     }
 }
 
-impl DerefMut for IndexSpecStrongRefMut<'_> {
-    fn deref_mut(&mut self) -> &mut IndexSpec {
-        // SAFETY: We hold a strong reference so the spec is alive, the pointer
-        // is non-null, and the phantom lifetime `'a` guarantees no other
-        // IndexSpecStrongRefMut exists for the same owner — so this is the only
-        // &mut IndexSpec to this object that can exist.
-        unsafe { IndexSpec::from_raw_mut(self.spec.as_ptr()) }
-    }
-}
-
-impl Drop for IndexSpecStrongRefMut<'_> {
+impl Drop for IndexSpecStrongRef {
     fn drop(&mut self) {
         // SAFETY: strong_ref was obtained from IndexSpecRef_Promote and has
         // not yet been released.
