@@ -115,56 +115,92 @@ If `run_id`/`run_url` **is** present but `log_excerpts` is empty (the best-effor
 log fetch failed), do **not** bail: a run did fail, so pull the logs yourself
 with `gh run view "$run_id" --log-failed` (or `gh api`) before deciding.
 
-This flow exists to fix **mechanical** issues introduced by the cherry-pick or
-conflict resolution — code that needs to be adjusted to the older branch's shape.
-It is **not** the right tool for:
+This flow exists to fix failures that arise from porting the original PR to an
+older branch, **as long as you can understand the root cause with confidence
+from the diff, the logs, and the surrounding source**. Two shapes of work are
+in scope:
 
-- Flaky tests (intermittent, timing, ordering — see `.skills/investigate-flaky-test/`).
-- Genuine bugs in the original PR that only manifest on this branch.
-- Infrastructure or runner issues (network, dependency download failures, OOM).
+1. **Mechanical fixes.** Straightforward adjustments to identifiers, function
+   signatures, headers, struct fields, includes, or fixtures that diverged
+   between the branch point and the target release line.
+2. **Scope-adapting fixes.** When the cherry-pick depends on something that
+   landed on master *after* the branch point — a helper, an API, a config
+   field, a test fixture — port or stub the dependency narrowly so the
+   backport stands on its own. Then **record the adaptation in the backport
+   PR's description** so the reviewer can sanity-check the choice (see
+   "Update PR description with caveats" below).
 
-Read the failed-step log excerpts carefully. If the failure looks non-mechanical:
+Bail out only when the failure is something you **genuinely cannot understand
+or shouldn't unilaterally resolve**:
 
-- Comment on the PR explaining what you observed and why you are not making changes.
-- Stop. Do not push.
+- Intermittent flakes (one failed CI run is not enough evidence — see
+  `.skills/investigate-flaky-test/`).
+- Sanitizer (ASan / UBSan / MSan) findings that look like real bugs in the
+  original PR rather than porting artifacts.
+- Two or more equally plausible interpretations of what the failure means.
+- Infrastructure, runner, network, or dependency-download failures.
+- Anything where your hypothesis is a guess rather than a derivation from
+  concrete evidence.
 
-Examples of failures you should fix:
+When you bail, name the **specific** logical or semantic obstacle in your
+comment — not just "I declined." Reviewers need to know which question
+they're being asked to answer.
 
-- Build/compile error referencing a symbol, type, function, header, or macro that
-  was added on master after the branch point and inadvertently slipped into the
-  cherry-pick (e.g., calling `NewThing()` on `8.6` where that helper doesn't exist).
+Examples you should fix:
+
+- Build/compile error referencing a symbol, type, function, header, or macro
+  that was added on master after the branch point and inadvertently slipped
+  into the cherry-pick (e.g., calling `NewThing()` on `8.6` where that helper
+  doesn't exist).
 - Missing include or forward-declaration that exists on master but not on the
   target branch.
 - A renamed identifier (the target branch still uses the old name).
 - A struct field added on master that you referenced but doesn't exist on the
   target branch.
 - A test file using a fixture or helper that exists only on master.
+- **A test that consistently fails because the original PR depends on a helper,
+  API, or behavior introduced on master after the branch point.** Port the
+  helper / API / field minimally onto the backport branch and record the
+  adaptation as a caveat for the reviewer. If porting it would itself require
+  a non-trivial design decision (multiple plausible signatures, behavior
+  trade-offs you can't disambiguate from evidence), bail instead.
 
-Examples you should **not** fix here:
+Examples you should **not** fix — hand back to a human:
 
-- A test that consistently fails because the original PR's behavior depends on
-  something only present on master. That's a backport-scope problem — comment and
-  stop; a human needs to decide whether to scope the backport differently.
-- A timing-sensitive test that occasionally fails. That's a flake — comment and stop.
-- A sanitizer (ASan/UBSan) error that reproduces locally. Real bug; comment and stop.
+- A timing- or order-sensitive test that fails intermittently. That's a flake;
+  one failed run can't disambiguate.
+- A sanitizer error that reproduces against the original-PR semantics. That's
+  likely a real bug in the original PR, not a backport artifact.
+- An assertion or test expectation whose intent isn't recoverable from the
+  diff and the test source alone (e.g., conflicting comments about the
+  invariant, or a check whose meaning hinges on context only the author has).
+- Infrastructure / runner / network / dependency-download failures.
 
 ## Plan
 
 1. Read the context file.
 2. Skim the log excerpts to form a hypothesis about the root cause.
-3. If the hypothesis is "non-mechanical" by the criteria above, comment on the PR
-   and stop.
+3. If the hypothesis falls in the "do not fix" set above (flake, real bug,
+   ambiguous semantics, infra), bail out via the decline template and name
+   the specific obstacle.
 4. Otherwise:
-   - Verify the hypothesis by reading the relevant source files **on the current
-     branch** (you are already checked out on the backport branch).
+   - Verify the hypothesis by reading the relevant source files **on the
+     current branch** (you are already checked out on the backport branch).
    - Compare against the original commit if helpful:
      `git show ${ORIGINAL_SHA} -- <path>`.
    - Compare against the target branch's tip if helpful:
      `git diff origin/${BASE_BRANCH} -- <path>`.
-5. Make the **smallest possible** change that fixes the failure. Prefer one-line
-   adjustments over rewrites.
+5. Make the **smallest possible** change that fixes the failure. Prefer
+   one-line adjustments over rewrites. For scope-adapting fixes, port the
+   minimum surface area needed — don't pull in unrelated helpers or
+   incidental refactors that happen to live nearby on master.
 6. Commit and push.
-7. Comment on the PR explaining what you changed and why.
+7. If the fix is **scope-adapting** (anything beyond pure identifier /
+   signature / include alignment), append a `## Caveats for reviewer`
+   section to the backport PR's description so the adaptation is visible at
+   the top of the PR — see "Update PR description with caveats" below.
+8. Comment on the PR with a short summary of what changed and why
+   (referencing the description section if you added one).
 
 ## Commit and push
 
@@ -185,6 +221,50 @@ git push origin "${BRANCH}"
 Push as a **new commit** on top of the existing backport branch. **Do not amend.
 Do not force-push.** The original cherry-pick commit must stay intact so reviewers
 can see what the agent did at each stage.
+
+## Update PR description with caveats
+
+When the fix involved a **scope adaptation** — porting a helper, providing a
+fallback for an option that doesn't exist on the target branch, stubbing a
+dependency, or any other change beyond mechanical identifier / signature /
+include alignment — append a `## Caveats for reviewer` section to the backport
+PR's description. This keeps the adaptation visible at the top of the PR
+rather than buried in a fix-attempt comment thread, and gives the reviewer a
+checklist of what to verify.
+
+Re-read the current body, append the section, write it back:
+
+```bash
+new_body=$(mktemp)
+gh pr view "${PR}" --json body --jq .body > "$new_body"
+
+# If a "## Caveats for reviewer" heading is already present (from a prior
+# fix attempt), append the new entry under it WITHOUT duplicating the
+# heading. Otherwise add the heading first.
+if ! grep -q '^## Caveats for reviewer' "$new_body"; then
+  {
+    printf '\n## Caveats for reviewer\n\n'
+    printf '> Added by the auto-fix workflow when adapting the cherry-pick to this branch.\n'
+  } >> "$new_body"
+fi
+
+# Append one entry per distinct adaptation in this fix attempt.
+{
+  printf '\n### Adaptation: <short title>\n'
+  printf -- '- **What was different on `%s`:** <one sentence — what existed on master that does not exist on the target branch>\n' "${BASE_BRANCH}"
+  printf -- '- **What I changed in the backport:** <one sentence>\n'
+  printf -- '- **Why this preserves the intent:** <one sentence; reference the master version of the helper / API / field where useful>\n'
+  printf -- '- **What to double-check:** <semantic equivalence, edge cases, perf, thread-safety, …>\n'
+  printf -- '- **Confidence:** <high / medium — and what would change my mind>\n'
+} >> "$new_body"
+
+gh pr edit "${PR}" --body-file "$new_body"
+rm -f "$new_body"
+```
+
+One adaptation entry per distinct change. Pure mechanical fixes (alignment,
+includes, renames) **do not** need a caveat entry — the commit message and
+the fix-attempt comment are enough.
 
 ## Comment on the PR
 
@@ -209,8 +289,9 @@ EOF
 **Files touched:**
 - `<path>:<line-range>` — <why>
 
-**Why this is a backport-mechanic fix and not a real bug:**
-<one or two sentences explaining what was different about this branch>
+**Kind of fix:** <mechanical | scope-adapting>
+<if scope-adapting: "See the 'Caveats for reviewer' section in the PR
+description for what to verify.">
 
 Pushed as <new-commit-short-sha> on top of the existing branch. The original
 cherry-pick commit is unchanged. CI will re-run automatically on the new commit.
@@ -223,11 +304,22 @@ Failed run: <run_url>
 ```markdown
 🤖 Auto-backport fix declined
 
-**What I observed:** <one or two sentences summarizing the failed step(s)>
+**What I observed:** <one or two sentences summarizing the failed step(s),
+with file:line references where relevant>
 
-**Why I did not push a fix:** <one sentence, e.g. "looks like a flaky test,"
-"appears to be a real bug from the original PR that only manifests on this
-branch," "infrastructure / runner failure">
+**Specific obstacle:** <one of:
+- "Intermittent / flaky test — one failed run can't disambiguate."
+- "Sanitizer finding looks like a real bug in the original PR rather than a
+  porting artifact."
+- "Two equally plausible interpretations of <X> — cannot choose without
+  reviewer input."
+- "Infrastructure / runner / network failure — not a code issue."
+- "Ambiguous semantics: <what is ambiguous and why the evidence doesn't
+  resolve it>.">
+
+**What the reviewer needs to decide:** <the specific question only a human
+can answer; e.g., "is field X expected to exist on 8.6, and if not, should
+this test be dropped, stubbed, or have its expectation rewritten?">
 
 A human should take it from here. The original cherry-pick commit and any
 prior auto-fix commits are unchanged.
@@ -241,6 +333,11 @@ Failed run: <run_url>
   `--force` push. Always add new commits on top.
 - **Never** edit files outside the minimal fix. Don't reformat, don't refactor,
   don't add comments that don't address the failure.
+- When making a **scope-adapting** fix (porting a helper, API, or field from
+  master onto the backport branch), port the minimum surface area needed.
+  Don't pull in unrelated helpers, incidental refactors, or "while we're
+  at it" cleanups from the master version. Every line you port is a line
+  the reviewer has to vet.
 - **Never** disable a test, mark it as expected-failure, or `skip_until` to make
   CI green. If a test fails for a real reason, bail out instead.
 - **Never** run `./build.sh`, `cargo`, `make`, or any test runner. The CI on the
