@@ -549,8 +549,47 @@ void ShutdownEvent(RedisModuleCtx *ctx, RedisModuleEvent eid, uint64_t subevent,
   RedisModule_Log(ctx, "notice", "%s", "End releasing RediSearch resources");
 }
 
+// Latched true when a foreground hot-restart save runs (SYNC_RDB_START with SST,
+// see PersistenceEvent). It is never cleared once set: a hot-restart save is
+// immediately followed by process exit, and the shutdown handler below reads it
+// to decide whether the on-disk DBs must be preserved for the restart.
+static bool g_hotRestartSave = false;
+
+// Delete every disk-backed index's on-disk database on a normal shutdown.
+//
+// Why an *explicit* close (and not just a mark) is required here:
+//
+// The actual file deletion lives in the Rust side, in the database's Drop.
+// The catch is *ownership*: the Rust index handle is owned by
+// the C IndexSpec as a raw pointer (sp->diskSpec, a Box::into_raw), and the
+// ONLY thing that ever drops that Box is SearchDisk_CloseIndex.
+static void DeleteDiskIndexesOnShutdown(RedisModuleCtx *ctx) {
+  if (!specDict_g) {
+    return;
+  }
+  dictIterator *iter = dictGetIterator(specDict_g);
+  dictEntry *entry = NULL;
+  while ((entry = dictNext(iter))) {
+    StrongRef spec_ref = dictGetRef(entry);
+    IndexSpec *sp = StrongRef_Get(spec_ref);
+    if (sp && sp->diskSpec) {
+      // Unregister must always precede close (see SearchDisk_CloseIndex docs).
+      SearchDisk_UnregisterIndex(ctx, sp);
+      SearchDisk_MarkIndexForDeletion(sp->diskSpec);
+      SearchDisk_CloseIndex(sp->diskSpec);
+      sp->diskSpec = NULL;
+    }
+  }
+  dictReleaseIterator(iter);
+}
+
 void ShutdownDiskClose(RedisModuleCtx *ctx, RedisModuleEvent eid, uint64_t subevent, void *data) {
   RedisModule_Log(ctx, "notice", "%s", "Begin releasing RediSearch DiskAPI resources on shutdown");
+  if (!g_hotRestartSave) {
+    RedisModule_Log(ctx, "notice", "%s",
+                    "Deleting on-disk search indexes on shutdown (not a hot restart)");
+    DeleteDiskIndexesOnShutdown(ctx);
+  }
   SearchDisk_Close(ctx);
   RedisModule_Log(ctx, "notice", "%s", "End releasing RediSearch DiskAPI resources");
 }
@@ -734,6 +773,8 @@ static void PersistenceEvent(RedisModuleCtx *ctx, RedisModuleEvent eid,
       // SST_REPL_PRE_FORK consistency hook never fires for a foreground save,
       // so open the consistency window here instead (flushing via PreCheckpoint).
       RedisModule_Log(ctx, "notice", "Hot-restart save started (SST + RAM-only RDB)");
+      // Latch so the upcoming shutdown keeps the on-disk DBs (see ShutdownDiskClose).
+      g_hotRestartSave = true;
       DiskConsistencyWindow_Begin(SearchDisk_PreCheckpoint);
     }
     break;
