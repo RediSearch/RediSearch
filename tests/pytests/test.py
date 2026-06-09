@@ -444,6 +444,24 @@ def testStopwords(env):
     env.assertEqual(0, r1[0])
     env.assertEqual(1, r2[0])
 
+def testStopwordParserCaseFold(env):
+    # Stopword detection in the query lexer/parser is case-insensitive: a
+    # mixed-case stopword adjacent to a real term must still collapse out
+    # of the query rather than leak through as a literal TERM (which would
+    # then miss the lowercased term trie and yield 0 docs).
+    env.cmd('FT.CREATE', 'idx', 'STOPWORDS', 1, 'the',
+            'SCHEMA', 't', 'TEXT')
+    conn = getConnectionByEnv(env)
+    conn.execute_command('HSET', 'doc:1', 't', 'The quick brown fox')
+
+    for dialect in (1, 2):
+        for stop in ('the', 'THE', 'The', 'tHe'):
+            env.assertEqual(
+                [1, 'doc:1'],
+                env.cmd('FT.SEARCH', 'idx', f'{stop} quick',
+                        'NOCONTENT', 'DIALECT', dialect),
+                message=f'dialect={dialect} stop={stop!r}')
+
 def testNoStopwords(env):
     # This test taken from Java's test suite
     env.cmd('ft.create', 'idx', 'ON', 'HASH', 'schema', 'title', 'text')
