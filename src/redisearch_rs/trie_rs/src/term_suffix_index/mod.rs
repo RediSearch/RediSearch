@@ -107,10 +107,20 @@ impl TermSuffixIndex {
             .map(|(_, (byte_idx, _))| &term[byte_idx..])
     }
 
-    /// Yield every indexed term containing `needle`. Empty `needle`
-    /// yields nothing. Order unspecified. A term may be yielded more
-    /// than once; dedupe by [`Rc::as_ptr`] if needed.
+    /// Yield every indexed term containing `needle`, in unspecified
+    /// order. Empty `needle` yields nothing. A term may be yielded
+    /// more than once; dedupe by [`Rc::as_ptr`] if needed.
+    ///
+    /// Non-empty `needle` must span at least [`MIN_SUFFIX`] codepoints.
+    /// Shorter needles silently yield a subset of matching terms,
+    /// since suffixes below the threshold aren't indexed; debug
+    /// builds assert this. Production callers filter upstream via
+    /// the query engine's `minTermPrefix` gate.
     pub fn iter_contains(&self, needle: &str) -> impl Iterator<Item = Rc<str>> {
+        debug_assert!(
+            needle.is_empty() || needle.chars().count() >= MIN_SUFFIX,
+            "needle must span at least {MIN_SUFFIX} codepoints; caller must filter shorter needles (production gate: minTermPrefix)",
+        );
         (!needle.is_empty())
             .then_some(needle)
             .into_iter()
@@ -122,7 +132,17 @@ impl TermSuffixIndex {
     /// order. Empty `needle` yields nothing.
     ///
     /// Each matching term is yielded exactly once.
+    ///
+    /// Non-empty `needle` must span at least [`MIN_SUFFIX`] codepoints.
+    /// Shorter needles silently yield a subset of matching terms,
+    /// since suffixes below the threshold aren't indexed; debug
+    /// builds assert this. Production callers filter upstream via
+    /// the query engine's `minTermPrefix` gate.
     pub fn iter_suffix(&self, needle: &str) -> impl Iterator<Item = Rc<str>> {
+        debug_assert!(
+            needle.is_empty() || needle.chars().count() >= MIN_SUFFIX,
+            "needle must span at least {MIN_SUFFIX} codepoints; caller must filter shorter needles (production gate: minTermPrefix)",
+        );
         (!needle.is_empty())
             .then_some(needle)
             .into_iter()
