@@ -142,11 +142,11 @@ RedisSearchCtx *NewSearchCtxC(RedisModuleCtx *ctx, const char *indexName, bool r
 }
 
 int SearchCtx_TakeDiskSnapshot(RedisSearchCtx *sctx, QueryError *status) {
-  // Idempotent: callers funnel through this at iterator-construction time, which
-  // can be reached via more than one entry point on the same sctx.
-  if (!sctx || sctx->diskSnapshot) {
-    return REDISMODULE_OK;
-  }
+  // One snapshot per sctx lifetime. Every caller funnels through this at
+  // iterator-construction time; reaching it twice on the same sctx would mean
+  // a second caller is silently reusing the first one's point-in-time view,
+  // which is a programming bug rather than something to paper over.
+  RS_ASSERT(sctx && !sctx->diskSnapshot);
   IndexSpec *sp = sctx->spec;
   if (!sp || !sp->diskSpec || !SearchDisk_IsInitialized()) {
     // Non-disk index: nothing to snapshot, query proceeds under the spec lock.
