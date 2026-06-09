@@ -110,10 +110,24 @@ def main() -> int:
 
     # `gh pr view --json` exposes `state` (OPEN/CLOSED/MERGED); the
     # boolean `merged` field doesn't exist in current gh CLI.
-    pr_data = common.fetch_pr(pr, ["title", "mergeCommit", "labels", "state", "url"])
+    pr_data = common.fetch_pr(pr, [
+        "title", "mergeCommit", "labels", "state", "url", "isCrossRepository",
+    ])
     state = pr_data.get("state")
     if state != "MERGED":
         common.skip(f"PR #{pr} is not merged (state={state}); skipping.")
+
+    # Refuse cross-repo (fork-sourced) PRs even after merge. The cherry-pick
+    # itself would be safe — the merge SHA lives on master in our own repo —
+    # but the agent reads the original PR title/body as evidence about the
+    # change, and that text is attacker-authored on fork PRs. Send those to
+    # the manual `/pr-backport` skill so a human reviews the input. Mirrors
+    # the same gate in resolve_fix.py.
+    if pr_data.get("isCrossRepository"):
+        common.skip(
+            f"PR #{pr} is cross-repository; the auto-backport flow does not "
+            "operate on fork-sourced PRs. Skipping."
+        )
 
     # Defensive: state=MERGED but mergeCommit can be null briefly
     # (API caching, certain fast-forward / merge-queue sequences). The
