@@ -6,3 +6,11 @@ fail-fast = false
 # `miri` is a _lot_ slower.
 slow-timeout = { period = "10s", terminate-after = 4 }
 fail-fast = false
+
+# diff_proptest_random sweeps 1M generated strings against libnu and ICU;
+# the default 16s kill is far too tight. The test is `#[ignore]` by default
+# and runs only under `--run-ignored`, so this budget applies only when
+# opted in.
+[[profile.default.overrides]]
+filter = 'binary(=diff_proptest_random) & test(=random_unicode_corpus)'
+slow-timeout = { period = "60s", terminate-after = 2 }

@@ -24,6 +24,7 @@ libc = { version = "0.2", features = ["extra_traits"] }
 memchr = { version = "2" }
 nix = { version = "0.26", default-features = false, features = ["poll"] }
 num-traits = { version = "0.2" }
+once_cell = { version = "1" }
 ppv-lite86 = { version = "0.2", default-features = false, features = ["simd", "std"] }
 proc-macro2 = { version = "1", features = ["span-locations"] }
 quote = { version = "1" }
@@ -50,6 +51,7 @@ libc = { version = "0.2", features = ["extra_traits"] }
 memchr = { version = "2" }
 nix = { version = "0.26", default-features = false, features = ["poll"] }
 num-traits = { version = "0.2" }
+once_cell = { version = "1" }
 ppv-lite86 = { version = "0.2", default-features = false, features = ["simd", "std"] }
 proc-macro2 = { version = "1", features = ["span-locations"] }
 quote = { version = "1" }
