@@ -335,7 +335,10 @@ jobs:
 
       - name: Run /pr-backport-auto-fix via Codex
         if: steps.ctx.outputs.skip != 'true'
-        uses: openai/codex-action@v1
+        # Pinned to a commit SHA per Sonar's S7670; see task-backport_pr-agent.yml
+        # for the rationale and the upgrade procedure. Keep this in sync with
+        # the create workflow's pin so both flows run the same Codex version.
+        uses: openai/codex-action@e0fdf01220eb9a88167c4898839d273e3f2609d1 # v1.8
         env:
           GH_TOKEN: ${{ steps.generate-app-token.outputs.token }}
           # The prompt reads this env var to find its context JSON. The file

@@ -236,7 +236,13 @@ jobs:
 
       - name: Run /pr-backport-auto via Codex
         if: steps.ctx.outputs.skip != 'true'
-        uses: openai/codex-action@v1
+        # Pinned to a commit SHA per Sonar's S7670 ("Use full commit SHA hash
+        # for this dependency"): a third-party action referenced by a mutable
+        # tag could be re-pointed at malicious code by a compromised tag push.
+        # The trailing comment records the human-readable version so future
+        # bumps are easy to review. To upgrade: look up `openai/codex-action`
+        # tags, set the SHA the new tag resolves to, and update the comment.
+        uses: openai/codex-action@e0fdf01220eb9a88167c4898839d273e3f2609d1 # v1.8
         env:
           # The agent uses `gh` and `git push` — both need the App token. `gh`
           # picks it up from GH_TOKEN; the checkout step has already wired the
