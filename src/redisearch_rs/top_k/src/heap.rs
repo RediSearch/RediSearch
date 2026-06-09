@@ -13,6 +13,7 @@ use std::cmp::Ordering;
 use std::collections::BinaryHeap;
 use std::num::NonZeroUsize;
 
+use index_result::RSIndexResult;
 use rqe_core::DocId;
 
 /// A (doc_id, score) pair stored in the heap.
@@ -24,6 +25,21 @@ pub struct ScoredResult {
     pub score: f64,
 }
 
+/// A drained heap element: the [`ScoredResult`] used for ordering plus the
+/// optional child record captured at match time.
+///
+/// Filtered modes ([`Batches`](crate::TopKMode::Batches),
+/// [`AdhocBF`](crate::TopKMode::AdhocBF)) attach the child's `RSIndexResult` so
+/// the yield phase can return it directly — without re-walking the child, which
+/// would otherwise inflate the child's profiled read counts. The unfiltered
+/// path leaves `record` as `None` and rebuilds results from the source.
+pub struct HeapResult<'index> {
+    /// The doc id and score that determined heap placement.
+    pub scored: ScoredResult,
+    /// The child's record captured when the document matched, if any.
+    pub record: Option<RSIndexResult<'index>>,
+}
+
 /// Wraps a [`ScoredResult`] so that [`BinaryHeap`] (a max-heap) keeps the *worst*
 /// element at the top, making it cheap to evict.
 ///
@@ -33,27 +49,30 @@ pub struct ScoredResult {
 /// - `compare(a, b) == Greater` → `a` is **worse** than `b` (= heap-max, evicted first).
 ///
 /// Ties on score are broken by doc id: the lower doc id is **better**.
-struct HeapEntry {
+struct HeapEntry<'index> {
     result: ScoredResult,
+    /// The child's record captured at match time, carried alongside the score
+    /// so it survives eviction and rides into the drained output.
+    record: Option<RSIndexResult<'index>>,
     /// Cached comparison function so [`Ord`] can be implemented without extra state.
     compare: fn(f64, f64) -> Ordering,
 }
 
-impl PartialEq for HeapEntry {
+impl PartialEq for HeapEntry<'_> {
     fn eq(&self, other: &Self) -> bool {
         self.cmp(other) == Ordering::Equal
     }
 }
 
-impl Eq for HeapEntry {}
+impl Eq for HeapEntry<'_> {}
 
-impl PartialOrd for HeapEntry {
+impl PartialOrd for HeapEntry<'_> {
     fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
         Some(self.cmp(other))
     }
 }
 
-impl Ord for HeapEntry {
+impl Ord for HeapEntry<'_> {
     fn cmp(&self, other: &Self) -> Ordering {
         // We want the worst element at the top of the heap so eviction is O(log k).
         // `compare(self, other) == Greater` means self is worse.
@@ -84,13 +103,13 @@ impl Ord for HeapEntry {
 ///
 /// For descending order (higher score = better, e.g. numeric SORTBY):
 /// `compare = |a, b| b.partial_cmp(&a).unwrap_or(Ordering::Equal)`
-pub struct TopKHeap {
-    inner: BinaryHeap<HeapEntry>,
+pub struct TopKHeap<'index> {
+    inner: BinaryHeap<HeapEntry<'index>>,
     capacity: usize,
     compare: fn(f64, f64) -> Ordering,
 }
 
-impl TopKHeap {
+impl<'index> TopKHeap<'index> {
     /// Creates a new heap that holds at most `capacity` elements,
     /// using the supplied `compare` function to determine score order.
     pub fn new(capacity: NonZeroUsize, compare: fn(f64, f64) -> Ordering) -> Self {
@@ -132,8 +151,24 @@ impl TopKHeap {
     ///
     /// Returns `true` if the element was inserted.
     pub fn push(&mut self, doc_id: DocId, score: f64) -> bool {
+        self.push_with_record(doc_id, score, None)
+    }
+
+    /// Like [`push`](Self::push), but also stores `record` — the child's result
+    /// captured at match time — alongside the score so the yield phase can
+    /// return it without re-walking the child.
+    ///
+    /// If the element is discarded (heap full and not better than the worst),
+    /// `record` is dropped.
+    pub fn push_with_record(
+        &mut self,
+        doc_id: DocId,
+        score: f64,
+        record: Option<RSIndexResult<'index>>,
+    ) -> bool {
         let entry = HeapEntry {
             result: ScoredResult { doc_id, score },
+            record,
             compare: self.compare,
         };
 
@@ -165,11 +200,15 @@ impl TopKHeap {
     /// The caller must guarantee `results` holds at most `capacity` elements;
     /// unlike [`push`](Self::push) this performs no eviction, so any excess
     /// would silently exceed capacity.
-    pub fn rebuild_from(&mut self, results: impl IntoIterator<Item = ScoredResult>) {
+    pub fn rebuild_from(&mut self, results: impl IntoIterator<Item = HeapResult<'index>>) {
         let compare = self.compare;
         self.inner = results
             .into_iter()
-            .map(|result| HeapEntry { result, compare })
+            .map(|r| HeapEntry {
+                result: r.scored,
+                record: r.record,
+                compare,
+            })
             .collect();
         debug_assert!(self.inner.len() <= self.capacity);
     }
@@ -178,20 +217,26 @@ impl TopKHeap {
     ///
     /// Unlike [`drain_sorted`](Self::drain_sorted) this borrows the heap, so the
     /// caller can rescore the drained entries and push them back.
-    pub fn drain_unsorted(&mut self) -> impl Iterator<Item = ScoredResult> + '_ {
-        self.inner.drain().map(|e| e.result)
+    pub fn drain_unsorted(&mut self) -> impl Iterator<Item = HeapResult<'index>> + use<'index, '_> {
+        self.inner.drain().map(|e| HeapResult {
+            scored: e.result,
+            record: e.record,
+        })
     }
 
     /// Drains all elements and returns them sorted best-first.
     ///
     /// Consumes the heap.
-    pub fn drain_sorted(self) -> Vec<ScoredResult> {
+    pub fn drain_sorted(self) -> Vec<HeapResult<'index>> {
         // BinaryHeap::into_sorted_vec() returns elements in ascending Ord order.
         // In our Ord impl "better" == "Less", so ascending == best-first already.
         self.inner
             .into_sorted_vec()
             .into_iter()
-            .map(|e| e.result)
+            .map(|e| HeapResult {
+                scored: e.result,
+                record: e.record,
+            })
             .collect()
     }
 }
@@ -221,7 +266,8 @@ mod tests {
         heap.push(2, 1.0);
         heap.push(3, 2.0);
 
-        let results = heap.drain_sorted();
+        let results: Vec<ScoredResult> =
+            heap.drain_sorted().into_iter().map(|r| r.scored).collect();
 
         assert_eq!(results.len(), 3);
         assert_eq!(results[0].score, 1.0);
@@ -245,7 +291,8 @@ mod tests {
         let not_inserted = heap.push(5, 6.0);
         assert!(!not_inserted);
 
-        let results = heap.drain_sorted();
+        let results: Vec<ScoredResult> =
+            heap.drain_sorted().into_iter().map(|r| r.scored).collect();
         let scores: Vec<f64> = results.iter().map(|r| r.score).collect();
         assert_eq!(scores, vec![2.0, 3.0, 4.0]);
     }
@@ -265,7 +312,8 @@ mod tests {
         let not_inserted = heap.push(5, 0.5);
         assert!(!not_inserted);
 
-        let results = heap.drain_sorted();
+        let results: Vec<ScoredResult> =
+            heap.drain_sorted().into_iter().map(|r| r.scored).collect();
         let scores: Vec<f64> = results.iter().map(|r| r.score).collect();
         assert_eq!(scores, vec![4.0, 3.0, 2.0]);
     }
@@ -277,7 +325,8 @@ mod tests {
         heap.push(2, 3.0);
         heap.push(3, 4.0);
 
-        let results = heap.drain_sorted();
+        let results: Vec<ScoredResult> =
+            heap.drain_sorted().into_iter().map(|r| r.scored).collect();
 
         assert_eq!(results.len(), 1);
         assert_eq!(results[0].score, 3.0);
@@ -291,7 +340,8 @@ mod tests {
         heap.push(5, 1.0);
         heap.push(3, 1.0); // third tied entry evicts doc_id 10 (highest loses the tie)
 
-        let results = heap.drain_sorted();
+        let results: Vec<ScoredResult> =
+            heap.drain_sorted().into_iter().map(|r| r.scored).collect();
         let ids: Vec<DocId> = results.iter().map(|r| r.doc_id).collect();
 
         assert!(ids.contains(&3));
@@ -309,7 +359,8 @@ mod tests {
 
         assert!(!inserted);
         assert_eq!(heap.len(), 2);
-        let results = heap.drain_sorted();
+        let results: Vec<ScoredResult> =
+            heap.drain_sorted().into_iter().map(|r| r.scored).collect();
         assert_eq!(results.len(), 2);
         assert_eq!(results.iter().filter(|r| r.doc_id == 2).count(), 1);
     }
@@ -321,12 +372,44 @@ mod tests {
         heap.push(5, 1.0);
         heap.push(3, 1.0); // third tied entry evicts doc_id 10 (highest loses the tie, regardless of sort direction)
 
-        let results = heap.drain_sorted();
+        let results: Vec<ScoredResult> =
+            heap.drain_sorted().into_iter().map(|r| r.scored).collect();
         let ids: Vec<DocId> = results.iter().map(|r| r.doc_id).collect();
 
         assert!(ids.contains(&3));
         assert!(ids.contains(&5));
         assert!(!ids.contains(&10));
+    }
+
+    #[test]
+    fn heap_tiebreak_desc_evicts_higher_doc_id() {
+        let mut heap = TopKHeap::new(non_zero_capacity(2), desc);
+        heap.push(5, 1.0);
+        heap.push(10, 1.0);
+        heap.push(3, 1.0);
+
+        let results: Vec<ScoredResult> =
+            heap.drain_sorted().into_iter().map(|r| r.scored).collect();
+        let ids: Vec<DocId> = results.iter().map(|r| r.doc_id).collect();
+
+        assert!(ids.contains(&5));
+        assert!(!ids.contains(&10));
+        assert!(ids.contains(&3));
+    }
+    #[test]
+    fn heap_tiebreak_asc_evicts_higher_doc_id() {
+        let mut heap = TopKHeap::new(non_zero_capacity(2), asc);
+        heap.push(5, 1.0);
+        heap.push(10, 1.0);
+        heap.push(3, 1.0);
+
+        let results: Vec<ScoredResult> =
+            heap.drain_sorted().into_iter().map(|r| r.scored).collect();
+        let ids: Vec<DocId> = results.iter().map(|r| r.doc_id).collect();
+
+        assert!(ids.contains(&5));
+        assert!(!ids.contains(&10));
+        assert!(ids.contains(&3));
     }
 
     #[test]
@@ -346,7 +429,8 @@ mod tests {
             heap.push(id, score);
         }
 
-        let results = heap.drain_sorted();
+        let results: Vec<ScoredResult> =
+            heap.drain_sorted().into_iter().map(|r| r.scored).collect();
 
         let scores: Vec<f64> = results.iter().map(|r| r.score).collect();
         assert_eq!(scores, vec![1.0, 2.0, 3.0, 4.0]);
@@ -359,7 +443,8 @@ mod tests {
             heap.push(id, score);
         }
 
-        let results = heap.drain_sorted();
+        let results: Vec<ScoredResult> =
+            heap.drain_sorted().into_iter().map(|r| r.scored).collect();
 
         let scores: Vec<f64> = results.iter().map(|r| r.score).collect();
         assert_eq!(scores, vec![4.0, 3.0, 2.0, 1.0]);
@@ -425,7 +510,11 @@ mod tests {
         heap.push(2, 5.0);
         heap.push(3, 3.0);
 
-        let mut drained = heap.drain_unsorted().collect::<Vec<_>>();
+        let mut drained: Vec<ScoredResult> = heap
+            .drain_unsorted()
+            .into_iter()
+            .map(|r| r.scored)
+            .collect();
         assert_eq!(drained.len(), 3);
         assert!(heap.is_empty(), "drain_unsorted must leave the heap empty");
 
@@ -438,7 +527,7 @@ mod tests {
         for r in drained {
             heap.push(r.doc_id, r.score);
         }
-        let sorted = heap.drain_sorted();
+        let sorted: Vec<ScoredResult> = heap.drain_sorted().into_iter().map(|r| r.scored).collect();
         assert_eq!(sorted[0].score, 2.0);
         assert_eq!(sorted[2].score, 5.0);
     }
