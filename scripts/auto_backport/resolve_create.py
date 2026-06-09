@@ -38,6 +38,14 @@ import common  # noqa: E402
 # is the release branch to backport to.
 LABEL_RE = re.compile(r"^backport-(.+)-agent$")
 
+# The command token must be exactly `/backport-agent`, optionally followed by
+# whitespace and a target list. Anchored with a trailing boundary so mistyped
+# siblings like `/backport-agentcontext` don't get their suffix parsed as a
+# branch target. (The workflow `if:` gate already excludes the dash-prefixed
+# `/backport-agent-fix` / `/backport-agent-context` commands; this guards the
+# no-dash typos that still slip through `startsWith`.)
+COMMENT_COMMAND_RE = re.compile(r"^/backport-agent(\s|$)")
+
 
 def resolve_pr_number(event_name: str) -> str | None:
     if event_name == "pull_request_target":
@@ -52,12 +60,16 @@ def parse_comment_args(comment_body: str) -> list[str]:
 
     Only the first line of the comment is considered. Anything after the
     command (whitespace- or comma-separated) becomes a target. Returns
-    [] when there are no args (e.g. plain `/backport-agent`) or
-    separator-only args (e.g. `/backport-agent ,`).
+    [] when the first line isn't exactly the `/backport-agent` command
+    (e.g. a typo like `/backport-agentcontext`), when there are no args
+    (plain `/backport-agent`), or for separator-only args
+    (`/backport-agent ,`). An empty result falls back to the PR's labels.
     """
     if not comment_body:
         return []
     first_line = comment_body.splitlines()[0]
+    if not COMMENT_COMMAND_RE.match(first_line):
+        return []
     stripped = re.sub(r"^/backport-agent\s*", "", first_line)
     if not stripped.strip():
         return []
