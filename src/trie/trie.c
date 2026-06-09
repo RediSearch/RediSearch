@@ -331,18 +331,19 @@ Vector *Trie_Search(Trie *tree, const char *s, size_t len, size_t num, int maxDi
       Vector_Get(ret, i, &h);
 
       if (maxScore && h->score < maxScore / SCORE_TRIM_FACTOR) {
-        // TODO: Fix trimming the vector
-        ret->top = i;
         break;
       }
       maxScore = MAX(maxScore, h->score);
     }
 
-    for (; i < n; ++i) {
+    // Free tail entries first; mutating ret->top before reading would make
+    // Vector_Get return 0 without writing h, leaving stack garbage to free.
+    for (int j = i; j < n; ++j) {
       TrieSearchResult *h;
-      Vector_Get(ret, i, &h);
+      Vector_Get(ret, j, &h);
       TrieSearchResult_Free(h);
     }
+    ret->top = i;
   }
 
   rm_free(runes);
