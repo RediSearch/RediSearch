@@ -411,7 +411,13 @@ int SpellCheckCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
                           .distance = distance,
                           .fullScoreInfo = fullScoreInfo};
 
+  // SpellCheck_Reply -> SpellCheck_GetScore calls Redis_OpenInvertedIndex and
+  // NewIndexReader per candidate term; both snapshot `pending`/`in_progress`
+  // non-atomically against the indexer's write lock. Hold the spec read lock
+  // across the whole reply to keep the snapshots consistent.
+  RedisSearchCtx_LockSpecRead(sctx);
   SpellCheck_Reply(&scCtx, &qast);
+  RedisSearchCtx_UnlockSpec(sctx);
 
 end:
   QueryError_ClearError(&status);

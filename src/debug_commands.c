@@ -632,7 +632,12 @@ DEBUG_COMMAND(DumpNumericIndex) {
   with_headers = argc == 5 ? true : false;
 
   rt = openNumericOrGeoIndex(sctx->spec, fs, DONT_CREATE_INDEX);
+  // DebugDumpIndex iterates ranges and calls `range.reader()`, which snapshots
+  // the inverted index `pending`/`in_progress` non-atomically. Hold the spec
+  // read lock across the dump so writers don't tear the snapshot.
+  RedisSearchCtx_LockSpecRead(sctx);
   NumericRangeTree_DebugDumpIndex(sctx->redisCtx, rt, with_headers);
+  RedisSearchCtx_UnlockSpec(sctx);
 end:
   SearchCtx_Free(sctx);
   return REDISMODULE_OK;
@@ -708,7 +713,12 @@ DEBUG_COMMAND(DumpNumericIndexTree) {
   }
   rt = openNumericOrGeoIndex(sctx->spec, fs, DONT_CREATE_INDEX);
   minimal = argc > 4 && !strcasecmp(RedisModule_StringPtrLen(argv[4], NULL), "minimal");
+  // DebugDumpTree walks ranges and calls `index.summary()` on each inverted
+  // index, which snapshots `pending`/`in_progress` non-atomically. Hold the
+  // spec read lock so the summary is consistent against concurrent writers.
+  RedisSearchCtx_LockSpecRead(sctx);
   NumericRangeTree_DebugDumpTree(sctx->redisCtx, rt, minimal);
+  RedisSearchCtx_UnlockSpec(sctx);
 end:
   SearchCtx_Free(sctx);
   return REDISMODULE_OK;
