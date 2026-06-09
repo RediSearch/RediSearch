@@ -42,12 +42,6 @@ use inverted_index::{
 };
 use serde::{Deserialize, Serialize};
 
-/// Get the total number of index blocks allocated across all inverted index instances.
-#[unsafe(no_mangle)]
-pub extern "C" fn TotalIIBlocks() -> usize {
-    IndexBlock::total_blocks()
-}
-
 // Macro to make calling the methods on the inner index easier
 macro_rules! ii_dispatch {
     ($self:expr, $method:ident $(, $args:expr)*) => {

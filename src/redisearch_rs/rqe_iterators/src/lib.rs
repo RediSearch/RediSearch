@@ -316,4 +316,13 @@ pub trait SearchEnterpriseIterators: Send + Sync {
         field_index: FieldIndex,
         weight: f64,
     ) -> Result<Box<dyn RQEIteratorPrintable<'index> + 'index>, Box<dyn std::error::Error>>;
+
+    /// Iterate over the entries of the numeric index at the given field index whose value
+    /// matches `filter`.
+    fn new_numeric_on_disk<'index>(
+        &self,
+        index: &'index mut ffi::RedisSearchDiskIndexSpec,
+        filter: &ffi::NumericFilter,
+        field_index: ffi::t_fieldIndex,
+    ) -> Result<Box<dyn RQEIteratorPrintable<'index> + 'index>, Box<dyn std::error::Error>>;
 }

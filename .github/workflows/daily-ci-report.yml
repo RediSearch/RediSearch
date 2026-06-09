@@ -127,6 +127,5 @@ jobs:
           name: ci-reports-${{ steps.date.outputs.date }}
           path: |
             merge-to-queue_${{ steps.date.outputs.date }}/
-            ai-triage.txt
           retention-days: 30
           if-no-files-found: ignore

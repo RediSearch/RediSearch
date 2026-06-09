@@ -93,9 +93,10 @@ typedef struct HybridRequest {
 static inline bool HybridRequest_TimedOut(HybridRequest *req) {
   return RS_AtomicBoolLoadRelaxed(&req->syncCtx.timedOut);
 }
-static inline void HybridRequest_SetTimedOut(HybridRequest *req) {
-  RS_AtomicBoolStoreRelaxed(&req->syncCtx.timedOut, true);
-}
+// Sets the hybrid request's timedOut flag and propagates it to every subquery
+// AREQ. Propagation flips each subquery's RPNet abort flag so a BG worker
+// blocked in MRChannel_PopWithTimeout exits as soon as the channel is woken.
+void HybridRequest_SetTimedOut(HybridRequest *req);
 
 // Cursor mutex wrappers for synchronizing cursor creation with timeout callback
 static inline void HybridRequest_LockCursors(HybridRequest *req) {
@@ -123,6 +124,16 @@ static inline void HybridRequest_SetSkipTimeoutChecks(HybridRequest *req, bool s
     }
   }
 }
+
+static inline bool HybridRequest_RequiresThreadsSyncResults(HybridRequest *req) {
+  return req->syncCtx.requiresAggregateResultsSync;
+}
+
+bool HybridRequest_TryClaimAggregateResults(HybridRequest *req);
+
+void HybridRequest_SignalAggregateResultsComplete(HybridRequest *req);
+
+void HybridRequest_WaitForAggregateResultsComplete(HybridRequest *req);
 
 // Blocked client context for HybridRequest background execution
 typedef struct blockedClientHybridCtx {

@@ -294,8 +294,8 @@ void QueryError_SetQueryOOMWarning(struct QueryError *query_error);
  * Returns a [`QueryWarningCode`] given an warnings message.
  *
  * This only supports the query error codes [`QueryWarningCode::TimedOut`], [`QueryWarningCode::ReachedMaxPrefixExpansions`],
- * [`QueryWarningCode::OutOfMemoryShard`] and [`QueryWarningCode::OutOfMemoryCoord`]. If another message is provided,
- * [`QueryWarningCode::Ok`] is returned.
+ * [`QueryWarningCode::OutOfMemoryShard`], [`QueryWarningCode::OutOfMemoryCoord`] and [`QueryWarningCode::MaxTimeoutCapped`].
+ * If another message is provided, [`QueryWarningCode::Ok`] is returned.
  *
  * If the message is a null pointer, returns [`QueryWarningCode::Ok`].
  *

@@ -23,6 +23,7 @@ void DEBUG_RSExecDistHybrid(RedisModuleCtx *ctx, RedisModuleString **argv, int a
                             struct ConcurrentCmdCtx *cmdCtx);
 
 int DistHybridTimeoutFailClient(RedisModuleCtx *ctx, RedisModuleString **argv, int argc);
+int DistHybridTimeoutReturnStrictClient(RedisModuleCtx *ctx, RedisModuleString **argv, int argc);
 int DistHybridReplyCallback(RedisModuleCtx *ctx, RedisModuleString **argv, int argc);
 
 // For testing purposes

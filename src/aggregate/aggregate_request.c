@@ -725,6 +725,15 @@ static int parseQueryArgs(ArgsCursor *ac, AREQ *req, RSSearchOptions *searchOpts
     AREQ_AddRequestFlags(req, QEXEC_OPTIMIZE);
   }
 
+  // QEXEC_OPTIMIZE can be set either by the dialect-4 default above or by an
+  // explicit WITHOUTCOUNT token earlier in this function. Either way, the
+  // QOptimizer pipeline reads from the RAM DocTable / NumericRangeTree, which
+  // aren't populated on disk specs. Force-disable so QOptimizer_Iterators is
+  // never entered for disk specs (it asserts the same).
+  if (isDiskIndex) {
+    AREQ_RemoveRequestFlags(req, QEXEC_OPTIMIZE);
+  }
+
   QEFlags reqFlags = AREQ_RequestFlags(req);
   if ((reqFlags & QEXEC_F_SEND_SCOREEXPLAIN) && !(reqFlags & QEXEC_F_SEND_SCORES)) {
     QueryError_SetError(status, QUERY_ERROR_CODE_PARSE_ARGS, "EXPLAINSCORE must be accompanied with WITHSCORES");
@@ -1134,6 +1143,7 @@ void AREQ_WaitForAggregateResultsComplete(AREQ *req) {
 
 void AREQ_ResetForCursorReadReturnStrict(AREQ *req) {
   RS_AtomicBoolStoreRelaxed(&req->syncCtx.aggregatingResults, false);
+  req->syncCtx.aggregateResultsClaimLost = false;
   pthread_mutex_lock(&req->syncCtx.aggregateResultsLock);
   req->syncCtx.aggregateResultsDone = false;
   pthread_mutex_unlock(&req->syncCtx.aggregateResultsLock);
@@ -1273,6 +1283,12 @@ int AREQ_Compile(AREQ *req, RedisModuleCtx *ctx, RedisModuleString **argv, int a
   };
   if (parseAggPlan(&papCtx, &ac, isDiskIndex, status) != REDISMODULE_OK) {
     goto error;
+  }
+
+  // Cap the per-query timeout to _MAX_FOREGROUND_TIMEOUT_LIMIT when workers
+  // are disabled; the state flag drives the RESP3 MaxTimeoutCapped warning.
+  if (RSConfig_CapQueryTimeoutToForegroundLimit(&req->reqConfig.queryTimeoutMS)) {
+    req->stateflags |= QEXEC_S_MAX_TIMEOUT_CAPPED;
   }
 
   if (IsInternal(req) &&
