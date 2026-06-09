@@ -14,8 +14,6 @@
 #include "sorting_vector_ffi.h"
 #include "redismodule.h"
 
-#include <unistd.h>  // usleep, for the debug pause loop in SearchDisk_PreFork
-
 RedisSearchDiskAPI *disk = NULL;
 RedisSearchDisk *disk_db = NULL;
 

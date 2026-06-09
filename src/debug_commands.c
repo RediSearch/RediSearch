@@ -2178,6 +2178,7 @@ DEBUG_COMMAND(debugScannerUpdateConfig) {
 }
 
 
+#ifdef ENABLE_ASSERT
 // ----------------------------------------------------------------------------
 // FT.DEBUG REPL_COMPACTION_COORDINATOR ...
 //
@@ -2298,6 +2299,7 @@ DEBUG_COMMAND(replCompactionCoordinator) {
 
   return RedisModule_ReplyWithError(ctx, "Invalid command for 'REPL_COMPACTION_COORDINATOR'");
 }
+#endif // ENABLE_ASSERT
 
 /**
  * FT.DEBUG BG_SCAN_CONTROLLER <command> [options]
@@ -3372,7 +3374,6 @@ DebugCommandType commands[] = {{"DUMP_INVIDX", DumpInvertedIndex}, // Print all 
                                {"WORKERS", WorkerThreadsSwitch},
                                {"COORD_THREADS", CoordThreadsSwitch},
                                {"BG_SCAN_CONTROLLER", bgScanController},
-                               {"REPL_COMPACTION_COORDINATOR", replCompactionCoordinator},
                                {"INDEXES", ListIndexesSwitch},
                                {"INFO", IndexObfuscatedInfo},
                                {"GET_HIDE_USER_DATA_FROM_LOGS", getHideUserDataFromLogs},
@@ -3411,6 +3412,7 @@ static DebugCommandType assertOnlyCommands[] = {
     {"SYNC_POINT", syncPoint},
     {"BG_PENDING_REPLIES", bgPendingReplies},
     {"SEND_ERROR", sendError},
+    {"REPL_COMPACTION_COORDINATOR", replCompactionCoordinator},
     {NULL, NULL}};
 #endif
 
