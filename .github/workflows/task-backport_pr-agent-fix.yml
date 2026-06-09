@@ -81,6 +81,14 @@ jobs:
         id: ctx
         env:
           GH_TOKEN: ${{ steps.generate-app-token.outputs.token }}
+          # `gh pr view` / `gh run list` infer the target repo from a local
+          # git remote or `GH_REPO`. This step runs before any checkout, so
+          # the local remote doesn't exist yet; set GH_REPO explicitly so
+          # the high-level `gh` subcommands resolve against this repo. The
+          # `gh api repos/${GITHUB_REPOSITORY}/...` calls further down don't
+          # need it (they pass the repo in the URL), but setting it once at
+          # the env level is simpler than per-call `--repo` flags.
+          GH_REPO: ${{ github.repository }}
           PR_NUMBER_FROM_ISSUE: ${{ github.event.issue.number }}
           COMMENT_BODY: ${{ github.event.comment.body }}
         run: |
