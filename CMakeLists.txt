@@ -201,39 +201,44 @@ set(CMAKE_LINKER_FLAGS "${CMAKE_LINKER_FLAGS} ${CMAKE_LD_FLAGS}")
 set(CMAKE_C_FLAGS   "${CMAKE_C_FLAGS} -Wformat")
 set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -Wformat")
 
+# Detect available compiler flags for subsequent use. These flags are global and available
+# throughout the build. Some flags below form GCC/Clang equivalence pairs (only one will be
+# available on a given compiler), others stand alone.
+check_c_compiler_flag("-Werror=discarded-qualifiers" HAS_WERROR_DISCARDED_QUALIFIERS)
+check_c_compiler_flag("-Werror=implicit-function-declaration" HAS_WERROR_IMPLICIT_FUNCTION_DECLARATION)
+check_c_compiler_flag("-Werror=incompatible-pointer-types-discards-qualifiers" HAS_WERROR_INCOMPATIBLE_POINTER_TYPES_DISCARDS_QUALIFIERS)
+check_c_compiler_flag("-Werror=jump-misses-init" HAS_WERROR_JUMP_MISSES_INIT)
+check_c_compiler_flag("-Werror=sometimes-uninitialized" HAS_WERROR_SOMETIMES_UNINITIALIZED)
+
+# Homebrew silently removes '-Werror' flags which breaks the regular form of detection.
+# Instead we specifically check for the '-Wno-error' variants here separately.
+check_c_compiler_flag("-Wno-error=discarded-qualifiers" HAS_WNO_ERROR_DISCARDED_QUALIFIERS)
+check_c_compiler_flag("-Wno-error=incompatible-pointer-types-discards-qualifiers" HAS_WNO_ERROR_INCOMPATIBLE_POINTER_TYPES_DISCARDS_QUALIFIERS)
+
 # Promote specific warnings to errors. These use add_compile_options() which
 # propagates to ALL subdirectories, including deps (libuv, VectorSimilarity, etc.).
 # Each flag is compiler-specific (gcc vs clang), so if a dep needs an override
 # (e.g. -Wno-error=X via target_compile_options), guard it with the same
 # compiler check or a $<C_COMPILER_ID:...> generator expression.
 
-# gcc
-check_c_compiler_flag("-Werror=discarded-qualifiers" HAS_DISCARDED_QUALIFIERS)
-if(HAS_DISCARDED_QUALIFIERS)
+# Promote dropped const/volatile qualifier warnings to errors
+if(HAS_WERROR_DISCARDED_QUALIFIERS)
     add_compile_options($<$<COMPILE_LANGUAGE:C>:-Werror=discarded-qualifiers>)
 endif()
-
-# clang
-check_c_compiler_flag("-Werror=incompatible-pointer-types-discards-qualifiers" HAS_INCOMPATIBLE_POINTER_TYPES_DISCARDS_QUALIFIERS)
-if(HAS_INCOMPATIBLE_POINTER_TYPES_DISCARDS_QUALIFIERS)
+if(HAS_WERROR_INCOMPATIBLE_POINTER_TYPES_DISCARDS_QUALIFIERS)
     add_compile_options($<$<COMPILE_LANGUAGE:C>:-Werror=incompatible-pointer-types-discards-qualifiers>)
 endif()
 
-# Warn when goto jumps over variable initialization
-# gcc: -Werror=jump-misses-init
-check_c_compiler_flag("-Werror=jump-misses-init" HAS_JUMP_MISSES_INIT)
-if(HAS_JUMP_MISSES_INIT)
+# Promote jumps/paths that skip a variable's initialization to errors
+if(HAS_WERROR_JUMP_MISSES_INIT)
     add_compile_options($<$<COMPILE_LANGUAGE:C>:-Werror=jump-misses-init>)
 endif()
-
-# clang: -Werror=sometimes-uninitialized (equivalent protection)
-check_c_compiler_flag("-Werror=sometimes-uninitialized" HAS_SOMETIMES_UNINITIALIZED)
-if(HAS_SOMETIMES_UNINITIALIZED)
+if(HAS_WERROR_SOMETIMES_UNINITIALIZED)
     add_compile_options($<$<COMPILE_LANGUAGE:C>:-Werror=sometimes-uninitialized>)
 endif()
 
-check_c_compiler_flag("-Werror=implicit-function-declaration" HAS_IMPLICIT_FUNCTION_DECLARATION)
-if(HAS_IMPLICIT_FUNCTION_DECLARATION)
+# Promote implicit function declarations to errors
+if(HAS_WERROR_IMPLICIT_FUNCTION_DECLARATION)
     add_compile_options($<$<COMPILE_LANGUAGE:C>:-Werror=implicit-function-declaration>)
 endif()
 
