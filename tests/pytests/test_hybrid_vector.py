@@ -163,6 +163,69 @@ def test_hybrid_vector_invalid_filter_with_weight():
     env.expect('FT.HYBRID', 'idx', 'SEARCH', 'green', 'VSIM' ,'@embedding', '$BLOB',\
                 'KNN', '2', 'K', '2', 'FILTER', '@description:blue => {$weight: 2.0}', 'PARAMS', "2", "BLOB", b"\x9a\x99\x99\x3f\xcd\xcc\x4c\x3e").error().contains('Weight attributes are not allowed in FT.HYBRID VSIM FILTER')
 
+def test_hybrid_vector_params_numeric_args():
+    """Regression test for MOD-12915: VSIM numeric args (K, RADIUS, EF_RUNTIME, EPSILON)
+    must resolve $param placeholders from PARAMS before numeric validation.
+    Prior to the fix, passing e.g. K $k would fail with 'Invalid K value'."""
+    blob = np.array([1.2, 0.2]).astype(np.float32).tobytes()
+
+    # --- KNN K via $param (FLAT index) ---
+    env = Env()
+    setup_basic_index(env)
+    response = env.cmd(
+        'FT.HYBRID', 'idx',
+        'SEARCH', 'green',
+        'VSIM', '@embedding', '$BLOB', 'KNN', '2', 'K', '$k',
+        'PARAMS', '4', 'BLOB', blob, 'k', '1')
+    results, count = get_results_from_hybrid_response(response)
+    env.assertEqual(count, len(results.keys()))
+    # K=1 → nearest doc is doc:2 (distance ~0.05)
+    env.assertTrue('doc:2' in results)
+
+    # --- RANGE RADIUS via $param (FLAT index) ---
+    response = env.cmd(
+        'FT.HYBRID', 'idx',
+        'SEARCH', 'green',
+        'VSIM', '@embedding', '$BLOB', 'RANGE', '2', 'RADIUS', '$r',
+        'PARAMS', '4', 'BLOB', blob, 'r', '1.0')
+    results, count = get_results_from_hybrid_response(response)
+    env.assertEqual(count, len(results.keys()))
+    # radius=1.0 from query vector (1.2,0.2): doc:2 (dist≈0.04), doc:4 (dist≈0.64) are within 1
+    env.assertTrue(len(results) >= 1)
+    env.flush()
+
+    # --- EF_RUNTIME and EPSILON via $param (HNSW index, required for those params) ---
+    conn = env.getClusterConnectionIfNeeded()
+    env.expect(
+        'FT.CREATE', 'hnsw_idx',
+        'SCHEMA', 'description', 'TEXT', 'embedding', 'VECTOR', 'HNSW', '6',
+        'TYPE', 'FLOAT32', 'DIM', '2', 'DISTANCE_METRIC', 'L2'
+    ).ok()
+    for doc_id, doc_data in test_data.items():
+        conn.execute_command(
+            'HSET', doc_id,
+            'description', doc_data['description'],
+            'embedding', doc_data['embedding'])
+
+    # EF_RUNTIME via $param
+    response = env.cmd(
+        'FT.HYBRID', 'hnsw_idx',
+        'SEARCH', 'green',
+        'VSIM', '@embedding', '$BLOB', 'KNN', '4', 'K', '2', 'EF_RUNTIME', '$ef',
+        'PARAMS', '4', 'BLOB', blob, 'ef', '100')
+    results, count = get_results_from_hybrid_response(response)
+    env.assertEqual(count, len(results.keys()))
+
+    # EPSILON via $param (RANGE query on HNSW)
+    response = env.cmd(
+        'FT.HYBRID', 'hnsw_idx',
+        'SEARCH', 'green',
+        'VSIM', '@embedding', '$BLOB', 'RANGE', '4', 'RADIUS', '1.0', 'EPSILON', '$eps',
+        'PARAMS', '4', 'BLOB', blob, 'eps', '0.01')
+    results, count = get_results_from_hybrid_response(response)
+    env.assertEqual(count, len(results.keys()))
+
+
 def test_hybrid_vector_invalid_filter_with_vector():
     """Test that hybrid vector filter fails when it contains vector operations"""
     env = Env(moduleArgs = 'DEFAULT_DIALECT 2')

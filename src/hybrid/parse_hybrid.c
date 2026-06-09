@@ -63,11 +63,135 @@ static VecSimRawParam createVecSimRawParam(const char *name, size_t nameLen, con
   };
 }
 
-static void addVectorQueryParam(VectorQuery *vq, const char *name, size_t nameLen, const char *value, size_t valueLen) {
+static void addVectorQueryParam(VectorQuery *vq, const char *name, size_t nameLen, const char *value,
+                                size_t valueLen) {
   VecSimRawParam rawParam = createVecSimRawParam(name, nameLen, value, valueLen);
   vq->params.params = array_ensure_append_1(vq->params.params, rawParam);
   bool needResolve = false;
   vq->params.needResolve = array_ensure_append_1(vq->params.needResolve, needResolve);
+}
+
+// Variant that marks the param as needing resolution from PARAMS dict (for $param placeholders).
+// Strips the leading '$' from value before storing.
+static void addVectorQueryParamDeferred(VectorQuery *vq, const char *name, size_t nameLen,
+                                        const char *value, size_t valueLen) {
+  // value is expected to start with '$'; skip it
+  if (valueLen > 0 && value[0] == '$') {
+    value++;
+    valueLen--;
+  }
+  VecSimRawParam rawParam = createVecSimRawParam(name, nameLen, value, valueLen);
+  vq->params.params = array_ensure_append_1(vq->params.params, rawParam);
+  bool needResolve = true;
+  vq->params.needResolve = array_ensure_append_1(vq->params.needResolve, needResolve);
+}
+
+// Context shared by KNN ArgParser callbacks
+typedef struct {
+  VectorQuery *vq;
+  ParsedVectorData *pvd;
+  QueryError *status;
+  bool hasEF;
+  bool hasShardKRatio;
+} KNNCallbackCtx;
+
+// Context shared by RANGE ArgParser callbacks
+typedef struct {
+  VectorQuery *vq;
+  ParsedVectorData *pvd;
+  QueryError *status;
+  bool hasEpsilon;
+} RangeCallbackCtx;
+
+// ArgParser callback for KNN K value
+static void handleKNNK(ArgParser *parser, const void *value, void *user_data) {
+  KNNCallbackCtx *ctx = (KNNCallbackCtx*)user_data;
+  const char *val = *(const char**)value;
+  if (val[0] == '$') {
+    // Deferred: store param name (strip '$')
+    ctx->pvd->kParamName = rm_strdup(val + 1);
+    ctx->pvd->hasExplicitK = true;
+  } else {
+    char *end;
+    long long kValue = strtoll(val, &end, 10);
+    if (*end != '\0' || kValue < 1) {
+      QueryError_SetError(ctx->status, QUERY_ERROR_CODE_SYNTAX, "Invalid K value");
+      return;
+    }
+    ctx->vq->knn.k = (size_t)kValue;
+    ctx->pvd->hasExplicitK = true;
+  }
+}
+
+// ArgParser callback for KNN EF_RUNTIME value
+static void handleKNNEFRuntime(ArgParser *parser, const void *value, void *user_data) {
+  KNNCallbackCtx *ctx = (KNNCallbackCtx*)user_data;
+  const char *val = *(const char**)value;
+  size_t valLen = strlen(val);
+  if (ctx->hasEF) {
+    QueryError_SetError(ctx->status, QUERY_ERROR_CODE_DUP_PARAM, "Duplicate EF_RUNTIME argument");
+    return;
+  }
+  ctx->hasEF = true;
+  if (val[0] == '$') {
+    // Deferred: store as VecSim param with needResolve=true
+    addVectorQueryParamDeferred(ctx->vq, VECSIM_EFRUNTIME, strlen(VECSIM_EFRUNTIME), val, valLen);
+  } else {
+    // Validate literal value (must be >= 1)
+    char *end;
+    long long efValue = strtoll(val, &end, 10);
+    if (*end != '\0' || efValue < 1) {
+      QueryError_SetError(ctx->status, QUERY_ERROR_CODE_SYNTAX, "Invalid EF_RUNTIME value");
+      return;
+    }
+    addVectorQueryParam(ctx->vq, VECSIM_EFRUNTIME, strlen(VECSIM_EFRUNTIME), val, valLen);
+  }
+}
+
+// ArgParser callback for RANGE RADIUS value
+static void handleRangeRadius(ArgParser *parser, const void *value, void *user_data) {
+  RangeCallbackCtx *ctx = (RangeCallbackCtx*)user_data;
+  const char *val = *(const char**)value;
+  size_t valLen = strlen(val);
+  if (val[0] == '$') {
+    // Deferred: store param name (strip '$')
+    ctx->pvd->radiusParamName = rm_strdup(val + 1);
+  } else {
+    char *end;
+    double radiusValue = strtod(val, &end);
+    if (*end != '\0' || radiusValue < 0.0) {
+      QueryError_SetError(ctx->status, QUERY_ERROR_CODE_SYNTAX, "Invalid RADIUS value");
+      return;
+    }
+    ctx->vq->range.radius = radiusValue;
+  }
+  (void)valLen; // suppress unused warning
+}
+
+// ArgParser callback for RANGE EPSILON value
+static void handleRangeEpsilon(ArgParser *parser, const void *value, void *user_data) {
+  RangeCallbackCtx *ctx = (RangeCallbackCtx*)user_data;
+  const char *val = *(const char**)value;
+  size_t valLen = strlen(val);
+  if (ctx->hasEpsilon) {
+    QueryError_SetError(ctx->status, QUERY_ERROR_CODE_DUP_PARAM, "Duplicate EPSILON argument");
+    return;
+  }
+  ctx->hasEpsilon = true;
+  if (val[0] == '$') {
+    // Deferred: store as VecSim param with needResolve=true
+    addVectorQueryParamDeferred(ctx->vq, VECSIM_EPSILON, strlen(VECSIM_EPSILON), val, valLen);
+  } else {
+    // Validate literal value (must be > 0)
+    char *end;
+    double epsilonValue = strtod(val, &end);
+    if (*end != '\0' || epsilonValue <= 0.0) {
+      QueryError_SetError(ctx->status, QUERY_ERROR_CODE_SYNTAX, "Invalid EPSILON value");
+      return;
+    }
+    addVectorQueryParam(ctx->vq, VECSIM_EPSILON, strlen(VECSIM_EPSILON), val, valLen);
+  }
+  (void)valLen; // suppress unused warning
 }
 
 static int parseSearchSubquery(ArgsCursor *ac, AREQ *sreq, QueryError *status) {
@@ -151,6 +275,36 @@ static int parseShardKRatioClause(ArgsCursor *ac, ParsedVectorData *pvd,
   return REDISMODULE_OK;
 }
 
+// SHARD_K_RATIO callback context  (ArgParser callback signature expects ArgParser*, value, user_data)
+typedef struct {
+  ArgsCursor *ac;
+  ParsedVectorData *pvd;
+  QueryError *status;
+  bool hasShardKRatio;
+} ShardKRatioCallbackCtx;
+
+static void handleKNNShardKRatio(ArgParser *parser, const void *value, void *user_data) {
+  ShardKRatioCallbackCtx *ctx = (ShardKRatioCallbackCtx*)user_data;
+  if (ctx->hasShardKRatio) {
+    QueryError_SetError(ctx->status, QUERY_ERROR_CODE_DUP_PARAM, "Duplicate SHARD_K_RATIO argument");
+    return;
+  }
+  ctx->hasShardKRatio = true;
+  const char *ratioStr = *(const char**)value;
+  size_t ratioStrLen = strlen(ratioStr);
+  double shardKRatio;
+  if (!validateShardKRatio(ratioStr, &shardKRatio, ctx->status)) {
+    return;
+  }
+  QueryAttribute attr = {
+    .name = SHARD_K_RATIO_ATTR,
+    .namelen = strlen(SHARD_K_RATIO_ATTR),
+    .value = rm_strndup(ratioStr, ratioStrLen),
+    .vallen = ratioStrLen
+  };
+  ctx->pvd->attributes = array_ensure_append_1(ctx->pvd->attributes, attr);
+}
+
 static int parseKNNClause(ArgsCursor *ac, VectorQuery *vq, ParsedVectorData *pvd, QueryError *status) {
   // VSIM @vectorfield vector KNN ...
   //                              ^
@@ -160,73 +314,69 @@ static int parseKNNClause(ArgsCursor *ac, VectorQuery *vq, ParsedVectorData *pvd
   }
   // Try to get number of arguments
   unsigned int argumentCount;
-  if (AC_GetUnsigned(ac, &argumentCount, 0) != AC_OK ) {
+  if (AC_GetUnsigned(ac, &argumentCount, 0) != AC_OK) {
     QueryError_SetError(status, QUERY_ERROR_CODE_PARSE_ARGS, "Invalid argument count: expected an unsigned integer");
     return REDISMODULE_ERR;
   } else if (argumentCount == 0 || argumentCount % 2 != 0) {
-    QueryError_SetWithUserDataFmt(status, QUERY_ERROR_CODE_SYNTAX, "Invalid argument count", ": %u (must be a positive even number for key/value pairs)", argumentCount);
+    QueryError_SetWithUserDataFmt(status, QUERY_ERROR_CODE_SYNTAX, "Invalid argument count",
+                                  ": %u (must be a positive even number for key/value pairs)", argumentCount);
     return REDISMODULE_ERR;
   }
 
-  bool hasEF = false;
-  bool hasShardKRatio = false;
   RS_ASSERT(pvd->vectorScoreFieldAlias == NULL);
 
-  for (int i=0; i<argumentCount; i+=2) {
-    if (AC_IsAtEnd(ac)) {
-      setExpectedArgumentsError(status, argumentCount, i);
-      return REDISMODULE_ERR;
-    }
-
-    if (AC_AdvanceIfMatch(ac, "K")) {
-      if (pvd->hasExplicitK) { // codespell:ignore
-        QueryError_SetError(status, QUERY_ERROR_CODE_DUP_PARAM, "Duplicate K argument");
-        return REDISMODULE_ERR;
-      }
-      if (CheckEnd(ac, "K", status) == REDISMODULE_ERR) return REDISMODULE_ERR;
-      long long kValue;
-      if (AC_GetLongLong(ac, &kValue, AC_F_GE1) != AC_OK) {
-        QueryError_SetError(status, QUERY_ERROR_CODE_SYNTAX, "Invalid K value");
-        return REDISMODULE_ERR;
-      }
-      vq->knn.k = (size_t)kValue;
-      pvd->hasExplicitK = true;
-
-    } else if (AC_AdvanceIfMatch(ac, "EF_RUNTIME")) {
-      if (hasEF) {
-        QueryError_SetError(status, QUERY_ERROR_CODE_DUP_PARAM, "Duplicate EF_RUNTIME argument");
-        return REDISMODULE_ERR;
-      }
-      if (CheckEnd(ac, "EF_RUNTIME", status) == REDISMODULE_ERR) return REDISMODULE_ERR;
-      long long efValue;
-      if (AC_GetLongLong(ac, &efValue, AC_F_GE1 | AC_F_NOADVANCE) != AC_OK) {
-        QueryError_SetError(status, QUERY_ERROR_CODE_SYNTAX, "Invalid EF_RUNTIME value");
-        return REDISMODULE_ERR;
-      }
-      const char *value;
-      size_t valueLen;
-      value = AC_GetStringNC(ac, &valueLen);
-      // Add directly to VectorQuery params
-      addVectorQueryParam(vq, VECSIM_EFRUNTIME, strlen(VECSIM_EFRUNTIME), value, valueLen);
-      hasEF = true;
-
-    } else if (AC_AdvanceIfMatch(ac, "SHARD_K_RATIO")) {
-      if (hasShardKRatio) {
-        QueryError_SetError(status, QUERY_ERROR_CODE_DUP_PARAM, "Duplicate SHARD_K_RATIO argument");
-        return REDISMODULE_ERR;
-      }
-      if (parseShardKRatioClause(ac, pvd, status) != REDISMODULE_OK) {
-        return REDISMODULE_ERR;
-      }
-      hasShardKRatio = true;
-
-    } else {
-      const char *current;
-      AC_GetString(ac, &current, NULL, AC_F_NOADVANCE);
-      QueryError_SetWithUserDataFmt(status, QUERY_ERROR_CODE_ARG_UNRECOGNIZED, "Unknown argument", " `%s` in KNN", current);
-      return REDISMODULE_ERR;
-    }
+  // Slice exactly argumentCount tokens into a sub-cursor so ArgParser sees only KNN args
+  ArgsCursor knnCursor = {0};
+  int sliceRes = AC_GetSlice(ac, &knnCursor, argumentCount);
+  if (sliceRes == AC_ERR_NOARG) {
+    setExpectedArgumentsError(status, argumentCount, (int)AC_NumRemaining(ac));
+    return REDISMODULE_ERR;
+  } else if (sliceRes != AC_OK) {
+    QueryError_SetWithUserDataFmt(status, QUERY_ERROR_CODE_SYNTAX, "Bad arguments", " in KNN: %s",
+                                  AC_Strerror(sliceRes));
+    return REDISMODULE_ERR;
   }
+
+  // Set up ArgParser for KNN key/value pairs
+  KNNCallbackCtx knnCtx = {.vq = vq, .pvd = pvd, .status = status, .hasEF = false, .hasShardKRatio = false};
+  ShardKRatioCallbackCtx shardCtx = {.ac = ac, .pvd = pvd, .status = status, .hasShardKRatio = false};
+
+  const char *kStr = NULL;
+  const char *efRuntimeStr = NULL;
+  const char *shardKRatioStr = NULL;
+
+  ArgParser *parser = ArgParser_New(&knnCursor, "KNN");
+  if (!parser) {
+    QueryError_SetError(status, QUERY_ERROR_CODE_PARSE_ARGS, "Failed to create argument parser for KNN");
+    return REDISMODULE_ERR;
+  }
+
+  ArgParser_AddStringV(parser, "K", "Number of nearest neighbors",
+                       &kStr, ARG_OPT_OPTIONAL,
+                       ARG_OPT_CALLBACK, handleKNNK, &knnCtx,
+                       ARG_OPT_END);
+  ArgParser_AddStringV(parser, "EF_RUNTIME", "Exploration factor at query time",
+                       &efRuntimeStr, ARG_OPT_OPTIONAL,
+                       ARG_OPT_CALLBACK, handleKNNEFRuntime, &knnCtx,
+                       ARG_OPT_END);
+  ArgParser_AddStringV(parser, "SHARD_K_RATIO", "Shard window ratio",
+                       &shardKRatioStr, ARG_OPT_OPTIONAL,
+                       ARG_OPT_CALLBACK, handleKNNShardKRatio, &shardCtx,
+                       ARG_OPT_END);
+
+  ArgParseResult result = ArgParser_Parse(parser);
+  if (!result.success) {
+    QueryError_SetError(status, QUERY_ERROR_CODE_PARSE_ARGS, ArgParser_GetErrorString(parser));
+    ArgParser_Free(parser);
+    return REDISMODULE_ERR;
+  }
+  ArgParser_Free(parser);
+
+  // Propagate any error set by callbacks
+  if (QueryError_HasError(status)) {
+    return REDISMODULE_ERR;
+  }
+
   if (!pvd->hasExplicitK) { // codespell:ignore
     QueryError_SetError(status, QUERY_ERROR_CODE_PARSE_ARGS, "Missing required argument K");
     return REDISMODULE_ERR;
@@ -243,63 +393,64 @@ static int parseRangeClause(ArgsCursor *ac, VectorQuery *vq, ParsedVectorData *p
   }
   // Try to get number of arguments
   unsigned int argumentCount;
-  if (AC_GetUnsigned(ac, &argumentCount, 0) != AC_OK ) {
+  if (AC_GetUnsigned(ac, &argumentCount, 0) != AC_OK) {
     QueryError_SetError(status, QUERY_ERROR_CODE_PARSE_ARGS, "Invalid argument count: expected an unsigned integer");
     return REDISMODULE_ERR;
   } else if (argumentCount == 0 || argumentCount % 2 != 0) {
-    QueryError_SetWithUserDataFmt(status, QUERY_ERROR_CODE_SYNTAX, "Invalid argument count", ": %u (must be a positive even number for key/value pairs)", argumentCount);
+    QueryError_SetWithUserDataFmt(status, QUERY_ERROR_CODE_SYNTAX, "Invalid argument count",
+                                  ": %u (must be a positive even number for key/value pairs)", argumentCount);
     return REDISMODULE_ERR;
   }
 
-  bool hasRadius = false;
-  bool hasEpsilon = false;
   RS_ASSERT(pvd->vectorScoreFieldAlias == NULL);
 
-  for (int i=0; i<argumentCount; i+=2) {
-    if (AC_IsAtEnd(ac)) {
-      setExpectedArgumentsError(status, argumentCount, i);
-      return REDISMODULE_ERR;
-    }
-
-    if (AC_AdvanceIfMatch(ac, "RADIUS")) {
-      if (hasRadius) {
-        QueryError_SetError(status, QUERY_ERROR_CODE_DUP_PARAM, "Duplicate RADIUS argument");
-        return REDISMODULE_ERR;
-      }
-      if (CheckEnd(ac, "RADIUS", status) == REDISMODULE_ERR) return REDISMODULE_ERR;
-      double radiusValue;
-      if (AC_GetDouble(ac, &radiusValue, AC_F_GE0) != AC_OK) {
-        QueryError_SetError(status, QUERY_ERROR_CODE_SYNTAX, "Invalid RADIUS value");
-        return REDISMODULE_ERR;
-      }
-      vq->range.radius = radiusValue;
-      hasRadius = true;
-
-    } else if (AC_AdvanceIfMatch(ac, "EPSILON")) {
-      if (hasEpsilon) {
-        QueryError_SetError(status, QUERY_ERROR_CODE_DUP_PARAM, "Duplicate EPSILON argument");
-        return REDISMODULE_ERR;
-      }
-      if (CheckEnd(ac, "EPSILON", status) == REDISMODULE_ERR) return REDISMODULE_ERR;
-      double epsilonValue;
-      if (AC_GetDouble(ac, &epsilonValue, AC_F_GE0 | AC_F_NOADVANCE) != AC_OK || epsilonValue == 0.0) {
-        QueryError_SetError(status, QUERY_ERROR_CODE_SYNTAX, "Invalid EPSILON value");
-        return REDISMODULE_ERR;
-      }
-      const char *value;
-      size_t valueLen;
-      value = AC_GetStringNC(ac, &valueLen);
-      // Add directly to VectorQuery params
-      addVectorQueryParam(vq, VECSIM_EPSILON, strlen(VECSIM_EPSILON), value, valueLen);
-      hasEpsilon = true;
-
-    } else {
-      const char *current;
-      AC_GetString(ac, &current, NULL, AC_F_NOADVANCE);
-      QueryError_SetWithUserDataFmt(status, QUERY_ERROR_CODE_ARG_UNRECOGNIZED, "Unknown argument", " `%s` in RANGE", current);
-      return REDISMODULE_ERR;
-    }
+  // Slice exactly argumentCount tokens into a sub-cursor so ArgParser sees only RANGE args
+  ArgsCursor rangeCursor = {0};
+  int sliceRes = AC_GetSlice(ac, &rangeCursor, argumentCount);
+  if (sliceRes == AC_ERR_NOARG) {
+    setExpectedArgumentsError(status, argumentCount, (int)AC_NumRemaining(ac));
+    return REDISMODULE_ERR;
+  } else if (sliceRes != AC_OK) {
+    QueryError_SetWithUserDataFmt(status, QUERY_ERROR_CODE_SYNTAX, "Bad arguments", " in RANGE: %s",
+                                  AC_Strerror(sliceRes));
+    return REDISMODULE_ERR;
   }
+
+  RangeCallbackCtx rangeCtx = {.vq = vq, .pvd = pvd, .status = status, .hasEpsilon = false};
+
+  const char *radiusStr = NULL;
+  const char *epsilonStr = NULL;
+
+  ArgParser *parser = ArgParser_New(&rangeCursor, "RANGE");
+  if (!parser) {
+    QueryError_SetError(status, QUERY_ERROR_CODE_PARSE_ARGS, "Failed to create argument parser for RANGE");
+    return REDISMODULE_ERR;
+  }
+
+  ArgParser_AddStringV(parser, "RADIUS", "Search radius",
+                       &radiusStr, ARG_OPT_OPTIONAL,
+                       ARG_OPT_CALLBACK, handleRangeRadius, &rangeCtx,
+                       ARG_OPT_END);
+  ArgParser_AddStringV(parser, "EPSILON", "Exploration epsilon",
+                       &epsilonStr, ARG_OPT_OPTIONAL,
+                       ARG_OPT_CALLBACK, handleRangeEpsilon, &rangeCtx,
+                       ARG_OPT_END);
+
+  ArgParseResult result = ArgParser_Parse(parser);
+  if (!result.success) {
+    QueryError_SetError(status, QUERY_ERROR_CODE_PARSE_ARGS, ArgParser_GetErrorString(parser));
+    ArgParser_Free(parser);
+    return REDISMODULE_ERR;
+  }
+  ArgParser_Free(parser);
+
+  // Propagate any error set by callbacks
+  if (QueryError_HasError(status)) {
+    return REDISMODULE_ERR;
+  }
+
+  // RADIUS is required (either literal or deferred via $param)
+  bool hasRadius = (radiusStr != NULL) || (pvd->radiusParamName != NULL);
   if (!hasRadius) {
     QueryError_SetError(status, QUERY_ERROR_CODE_PARSE_ARGS, "Missing required argument RADIUS");
     return REDISMODULE_ERR;

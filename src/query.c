@@ -2252,13 +2252,25 @@ static int QueryVectorNode_ApplyAttribute(VectorQuery *vq, QueryAttribute *attr,
              STR_EQCASE(attr->name, attr->namelen, VECSIM_RERANK)) {
     // Move ownership on the value string, so it won't get freed when releasing the QueryAttribute.
     // The name string was not copied by the parser (unlike the value) - so we copy and save it.
+    // If the value starts with '$', it is a PARAMS placeholder that must be resolved at query time.
+    bool resolve_required = (attr->vallen > 0 && attr->value[0] == '$');
+    const char *paramValue = attr->value;
+    size_t paramValueLen = attr->vallen;
+    if (resolve_required) {
+      // Strip the leading '$' so VectorQuery_ParamResolve can look up the param name.
+      paramValue++;
+      paramValueLen--;
+    }
     VecSimRawParam param = (VecSimRawParam){ .name = rm_strndup(attr->name, attr->namelen),
                                             .nameLen = attr->namelen,
-                                            .value = attr->value,
-                                            .valLen = attr->vallen };
-    attr->value = NULL;
+                                            .value = resolve_required ? rm_strndup(paramValue, paramValueLen)
+                                                                       : attr->value,
+                                            .valLen = paramValueLen };
+    if (!resolve_required) {
+      // Ownership transferred: prevent double-free on attribute teardown
+      attr->value = NULL;
+    }
     vq->params.params = array_ensure_append_1(vq->params.params, param);
-    bool resolve_required = false;  // at this point, we have the actual value in hand, not the query param.
     vq->params.needResolve = array_ensure_append_1(vq->params.needResolve, resolve_required);
     return 1;
   }
