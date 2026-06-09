@@ -11,8 +11,6 @@
 
 use std::{collections::HashSet, rc::Rc};
 
-#[cfg(not(miri))]
-use proptest::prelude::*;
 use trie_rs::term_suffix_index::TermSuffixIndex;
 
 fn build_index(corpus: &[String]) -> TermSuffixIndex {
@@ -202,6 +200,8 @@ fn iter_suffix_yields_one_hit_per_matching_term() {
 
 #[cfg_attr(miri, ignore = "These proptests are too slow to run under miri")]
 mod fuzz {
+    use proptest::prelude::*;
+
     use super::*;
 
     /// Kept small so fuzz cases land in a regime where suffix collisions are common.
