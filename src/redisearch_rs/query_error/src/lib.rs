@@ -590,6 +590,25 @@ impl QueryError {
         self.private_message = private_message.ok().or(self.public_message.clone());
     }
 
+    /// Records a disk iterator creation failure on `status`, when non-null.
+    ///
+    /// A NULL iterator alone would surface as a silent empty result, since the
+    /// query pipeline only aborts when the [`QueryError`] is set. Populating it
+    /// with [`QueryErrorCode::DiskIteratorCreation`] turns the failure into a
+    /// proper query error carrying `message` as the cause.
+    ///
+    /// Shared by the disk term/tag/numeric (`redisearch_disk`) and wildcard
+    /// (`rqe_iterators`) iterator creation paths.
+    ///
+    /// # Safety
+    /// `status`, when non-null, must point to a valid `QueryError`.
+    pub unsafe fn set_disk_iterator_error(status: *mut opaque::OpaqueQueryError, message: &str) {
+        // SAFETY: caller guarantees `status`, when non-null, points to a valid `QueryError`.
+        if let Some(query_error) = unsafe { Self::from_opaque_mut_ptr(status) } {
+            query_error.set_error(QueryErrorCode::DiskIteratorCreation, message);
+        }
+    }
+
     /// Sets code, public message, and private message independently.
     /// The public message is for obfuscated display; the private message
     /// (typically prefix + detail) is what gets sent to the client and

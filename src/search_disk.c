@@ -316,9 +316,9 @@ QueryIterator* SearchDisk_NewTagIterator(RedisSearchDiskIndexSpec *index, const 
     return disk->index.newTagIterator(index, tok, fieldIndex, weight, status);
 }
 
-QueryIterator* SearchDisk_NewNumericIterator(RedisSearchDiskIndexSpec *index, const NumericFilter *filter, t_fieldIndex fieldIndex) {
+QueryIterator* SearchDisk_NewNumericIterator(RedisSearchDiskIndexSpec *index, const NumericFilter *filter, t_fieldIndex fieldIndex, QueryError *status) {
     RS_ASSERT(disk && index && filter);
-    return disk->index.newNumericIterator(index, filter, fieldIndex);
+    return disk->index.newNumericIterator(index, filter, fieldIndex, status);
 }
 
 size_t SearchDisk_RunGC(RedisSearchDiskIndexSpec *index) {

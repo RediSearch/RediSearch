@@ -15,7 +15,7 @@ use index_result::RSIndexResult;
 use index_spec::IndexSpecReadGuard;
 use inverted_index::codec::{doc_ids_only::DocIdsOnly, raw_doc_ids_only::RawDocIdsOnly};
 use inverted_index::{DocIdsDecoder, opaque};
-use query_error::{QueryError, QueryErrorCode};
+use query_error::QueryError;
 
 use rqe_core::{DocId, RS_FIELDMASK_ALL};
 
@@ -367,24 +367,6 @@ pub unsafe fn new_wildcard_iterator_optimized<'index>(
     }
 }
 
-/// Records a failure to create a disk iterator on `status`, when provided.
-///
-/// The returned empty iterator alone would surface as a silent empty result,
-/// since the query pipeline only aborts when the [`QueryError`] is set.
-/// Populating it turns the failure into a proper query error with a
-/// cause-specific message.
-///
-/// # Safety
-///
-/// `status`, when non-null, must point to a valid `QueryError` (the evaluating
-/// query's `q->status`).
-unsafe fn set_disk_iterator_error(status: *mut ffi::QueryError, message: &str) {
-    // SAFETY: caller guarantees `status`, when non-null, points to a valid `QueryError`.
-    if let Some(query_error) = unsafe { QueryError::from_opaque_mut_ptr(status.cast()) } {
-        query_error.set_error(QueryErrorCode::DiskIteratorCreation, message);
-    }
-}
-
 /// Create a [`WildcardIterator`] backed by an on-disk index implementation.
 ///
 /// This delegates to [`SEARCH_ENTERPRISE_ITERATORS`]'s
@@ -419,8 +401,8 @@ pub unsafe fn new_wildcard_iterator_on_disk<'index>(
             );
             // SAFETY: see safety point 3.
             unsafe {
-                set_disk_iterator_error(
-                    status,
+                QueryError::set_disk_iterator_error(
+                    status.cast(),
                     &format!("Failed to create disk wildcard iterator: {err}"),
                 )
             };

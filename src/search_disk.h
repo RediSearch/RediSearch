@@ -353,9 +353,10 @@ QueryIterator* SearchDisk_NewTagIterator(RedisSearchDiskIndexSpec *index, const 
  * @param index Pointer to the index
  * @param filter Pointer to the numeric filter (min, max, inclusivity, field spec)
  * @param fieldIndex Field index for the numeric field
+ * @param status QueryError to populate with the cause when creation fails (may be NULL)
  * @return Pointer to the IndexIterator, or NULL if no buckets overlap the filter
  */
-QueryIterator* SearchDisk_NewNumericIterator(RedisSearchDiskIndexSpec *index, const NumericFilter *filter, t_fieldIndex fieldIndex);
+QueryIterator* SearchDisk_NewNumericIterator(RedisSearchDiskIndexSpec *index, const NumericFilter *filter, t_fieldIndex fieldIndex, QueryError *status);
 
 // DocTable API wrappers
 
