@@ -304,7 +304,7 @@ bool SearchDisk_IndexNumeric(RedisModuleCtx *ctx, RedisSearchDiskIndexSpec *inde
 }
 
 QueryIterator* SearchDisk_NewTermIterator(RedisSearchDiskIndexSpec *index, const RedisSearchCtx *sctx, RSToken *tok, int tokenId, t_fieldMask fieldMask, double weight, double idf, double bm25_idf, bool needsOffsets) {
-    RS_ASSERT(disk && index && sctx && tok);
+    RS_ASSERT(disk && index && sctx && sctx->diskSnapshot && tok);
     RSQueryTerm *term = NewQueryTerm(tok, tokenId);
     QueryTerm_SetIDFs(term, idf, bm25_idf);
     // Ownership of `term` is transferred to Rust, which handles cleanup on all paths
@@ -312,7 +312,7 @@ QueryIterator* SearchDisk_NewTermIterator(RedisSearchDiskIndexSpec *index, const
 }
 
 QueryIterator* SearchDisk_NewTagIterator(RedisSearchDiskIndexSpec *index, const RedisSearchCtx *sctx, const RSToken *tok, t_fieldIndex fieldIndex, double weight) {
-    RS_ASSERT(disk && index && sctx && tok);
+    RS_ASSERT(disk && index && sctx && sctx->diskSnapshot && tok);
     return disk->index.newTagIterator(index, tok, fieldIndex, weight, sctx->diskSnapshot);
 }
 
@@ -330,7 +330,7 @@ void SearchDisk_FreeSnapshot(RedisSearchDiskSnapshot *snapshot) {
 }
 
 QueryIterator* SearchDisk_NewNumericIterator(RedisSearchDiskIndexSpec *index, const RedisSearchCtx *sctx, const NumericFilter *filter, t_fieldIndex fieldIndex) {
-    RS_ASSERT(disk && index && sctx && filter);
+    RS_ASSERT(disk && index && sctx && sctx->diskSnapshot && filter);
     return disk->index.newNumericIterator(index, filter, fieldIndex, sctx->diskSnapshot);
 }
 

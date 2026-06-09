@@ -435,9 +435,8 @@ typedef struct IndexDiskAPI {
    * @param fieldMask Field mask indicating which fields are present in the document
    * @param weight Weight for the iterator (used in scoring)
    * @param needsOffsets Whether the query needs term offset data (for scoring or phrase matching)
-   * @param snapshot Optional snapshot for a consistent read view, or NULL to read the live database.
-   *                 When non-NULL, must have been returned by `createSnapshot(index)` and must remain
-   *                 valid until the returned iterator is freed.
+   * @param snapshot Required snapshot for the read view. Must have been returned by
+   *                 `createSnapshot(index)` and must remain valid until the returned iterator is freed.
    * @return Pointer to the created iterator, or NULL if creation failed
    */
   QueryIterator *(*newTermIterator)(RedisSearchDiskIndexSpec* index, RSQueryTerm* term, t_fieldMask fieldMask, double weight, bool needsOffsets, RedisSearchDiskSnapshot *snapshot);
@@ -449,9 +448,8 @@ typedef struct IndexDiskAPI {
    * @param tok Pointer to the token (contains tag string and length)
    * @param fieldIndex Field index for the tag field
    * @param weight Weight for the iterator (used in scoring)
-   * @param snapshot Optional snapshot for a consistent read view, or NULL to read the live database.
-   *                 When non-NULL, must have been returned by `createSnapshot(index)` and must remain
-   *                 valid until the returned iterator is freed.
+   * @param snapshot Required snapshot for the read view. Must have been returned by
+   *                 `createSnapshot(index)` and must remain valid until the returned iterator is freed.
    * @return Pointer to the created iterator, or NULL if creation failed
    */
   QueryIterator *(*newTagIterator)(RedisSearchDiskIndexSpec* index, const RSToken* tok, t_fieldIndex fieldIndex, double weight, RedisSearchDiskSnapshot *snapshot);
@@ -491,9 +489,8 @@ typedef struct IndexDiskAPI {
    * @param index Pointer to the index
    * @param filter Pointer to the numeric filter (min, max, inclusivity flags, field spec)
    * @param fieldIndex Field index for the numeric field
-   * @param snapshot Optional snapshot for a consistent read view, or NULL to read the live database.
-   *                 When non-NULL, must have been returned by `createSnapshot(index)` and must remain
-   *                 valid until the returned iterator is freed.
+   * @param snapshot Required snapshot for the read view. Must have been returned by
+   *                 `createSnapshot(index)` and must remain valid until the returned iterator is freed.
    * @return Pointer to the created iterator, or NULL if no buckets overlap the filter
    */
   QueryIterator *(*newNumericIterator)(RedisSearchDiskIndexSpec *index, const NumericFilter *filter, t_fieldIndex fieldIndex, RedisSearchDiskSnapshot *snapshot);

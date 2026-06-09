@@ -197,11 +197,19 @@ mod optional_reducer_tests {
         let mut disk_spec_storage: ffi::RedisSearchDiskIndexSpec = std::ptr::null();
         // `disk_spec_storage` outlives all iterators created below.
         ctx.spec_write().set_disk_spec(&mut disk_spec_storage);
+        // Disk-backed iterators now require a non-null snapshot. The mock
+        // enterprise iterator never dereferences the snapshot, so any non-null
+        // address works; reuse the `disk_spec_storage` address.
+        // SAFETY: `disk_spec_storage` outlives every iterator created here.
+        unsafe {
+            ctx.set_disk_snapshot(&mut disk_spec_storage as *mut _ as *mut _);
+        }
 
         let child = Mock::new(DOCS);
 
         // SAFETY: `ctx` provides a valid `QueryEvalCtx`; `spec.diskSpec` is
         // non-null so `new_wildcard_iterator_on_disk` is called;
+        // `sctx.diskSnapshot` is set to a non-null sentinel;
         // `SEARCH_ENTERPRISE_ITERATORS` is initialized above.
         let result = unsafe { new_optional_iterator(child, WEIGHT, ctx.qctx(), MAX_DOC_ID) };
 

@@ -380,12 +380,12 @@ pub unsafe fn new_wildcard_iterator_optimized<'index>(
 /// 1. `disk_spec` must reference a valid [`RedisSearchDiskIndexSpec`](ffi::RedisSearchDiskIndexSpec)
 ///    that remains valid for `'index`.
 /// 2. [`SEARCH_ENTERPRISE_ITERATORS`] must be initialized before calling this function.
-/// 3. `snapshot`, when non-null, must be a [`RedisSearchDiskSnapshot`](ffi::RedisSearchDiskSnapshot)
-///    handle for `disk_spec` and must remain valid for `'index`.
+/// 3. `snapshot` must be a [`RedisSearchDiskSnapshot`](ffi::RedisSearchDiskSnapshot) handle
+///    for `disk_spec` and must remain valid for `'index`.
 pub unsafe fn new_wildcard_iterator_on_disk<'index>(
     disk_spec: &'index mut ffi::RedisSearchDiskIndexSpec,
     weight: f64,
-    snapshot: *mut ffi::RedisSearchDiskSnapshot,
+    snapshot: std::ptr::NonNull<ffi::RedisSearchDiskSnapshot>,
 ) -> NewWildcardIterator<'index> {
     // SAFETY: Caller guarantees `SEARCH_ENTERPRISE_ITERATORS` is
     // initialized when `spec.diskSpec` is non-null (8).
@@ -434,8 +434,9 @@ pub unsafe fn new_wildcard_iterator_on_disk<'index>(
 ///    [`RedisSearchDiskIndexSpec`](ffi::RedisSearchDiskIndexSpec) that remains valid for `'index`.
 /// 8. When `query.sctx.spec.diskSpec` is non-null, [`SEARCH_ENTERPRISE_ITERATORS`] must be
 ///    initialized.
-/// 9. `query.sctx.diskSnapshot`, when non-null, must be a [`RedisSearchDiskSnapshot`](ffi::RedisSearchDiskSnapshot)
-///    handle for `query.sctx.spec.diskSpec` and must remain valid for `'index`.
+/// 9. When `query.sctx.spec.diskSpec` is non-null, `query.sctx.diskSnapshot` must be a
+///    non-null [`RedisSearchDiskSnapshot`](ffi::RedisSearchDiskSnapshot) handle for
+///    `query.sctx.spec.diskSpec` and must remain valid for `'index`.
 pub unsafe fn new_wildcard_iterator<'index>(
     query: NonNull<ffi::QueryEvalCtx>,
     weight: f64,
@@ -453,7 +454,8 @@ pub unsafe fn new_wildcard_iterator<'index>(
         // pointer to a `RedisSearchDiskIndexSpec` that remains valid for
         // `'index` (7).
         let disk_spec = unsafe { &mut *spec.diskSpec };
-        let snapshot = sctx_ref.diskSnapshot;
+        let snapshot = NonNull::new(sctx_ref.diskSnapshot)
+            .expect("query.sctx.diskSnapshot is null for a disk-backed wildcard query");
         // SAFETY: Caller guarantees all preconditions of
         // `new_wildcard_iterator_on_disk` hold (7, 8, 9).
         return unsafe { new_wildcard_iterator_on_disk(disk_spec, weight, snapshot) };

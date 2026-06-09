@@ -170,4 +170,20 @@ impl MockContext {
     pub const fn tag_index(&self) -> NonNull<ffi::TagIndex> {
         NonNull::new(self.tag_index).expect("TagIndex should not be null")
     }
+
+    /// Set `sctx.diskSnapshot` to `snapshot` so disk-backed paths that now
+    /// require a non-null snapshot can run against the mock context. The
+    /// snapshot value itself is opaque to the rqe-iterators layer; the mock
+    /// enterprise iterators never dereference it.
+    ///
+    /// # Safety
+    /// `snapshot` must outlive every iterator created against this
+    /// `MockContext`.
+    pub const unsafe fn set_disk_snapshot(
+        &self,
+        snapshot: *mut ffi::RedisSearchDiskSnapshot,
+    ) {
+        // SAFETY: `self.sctx` is a valid `RedisSearchCtx` allocated in `Self::new`.
+        unsafe { (*self.sctx).diskSnapshot = snapshot };
+    }
 }

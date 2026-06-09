@@ -103,12 +103,12 @@ where
                     // SAFETY: We checked `disk_index_available` (i.e. `!spec.diskSpec.is_null()`)
                     // above, and (6) guarantees the pointer is valid for `'index`.
                     let disk_spec = unsafe { &mut *spec.diskSpec };
-                    // SAFETY: (6). The snapshot (if any) is read from `sctx_ref.diskSnapshot`
-                    // so the optional-optimized path observes the same view as the rest of
-                    // the query.
-                    unsafe {
-                        new_wildcard_iterator_on_disk(disk_spec, weight, sctx_ref.diskSnapshot)
-                    }
+                    let snapshot = NonNull::new(sctx_ref.diskSnapshot).expect(
+                        "query.sctx.diskSnapshot is null for a disk-backed optional iterator",
+                    );
+                    // SAFETY: (6). The snapshot is read from `sctx_ref.diskSnapshot` so the
+                    // optional-optimized path observes the same view as the rest of the query.
+                    unsafe { new_wildcard_iterator_on_disk(disk_spec, weight, snapshot) }
                 } else {
                     // SAFETY: (2) guarantees `sctx` is valid; (7) covers all remaining
                     // preconditions of `new_wildcard_iterator_optimized`.

@@ -17,6 +17,7 @@ unsafe extern "C" fn AREQ_CheckTimedOut(_areq: *mut ffi::AREQ) -> bool {
     false
 }
 
+use std::ptr::NonNull;
 use std::sync::OnceLock;
 
 use index_spec::IndexSpecReadGuard;
@@ -271,10 +272,11 @@ pub static SEARCH_ENTERPRISE_ITERATORS: OnceLock<Box<dyn SearchEnterpriseIterato
 /// A trait to allow SearchEnterprise to provide iterators for on-disk search. The actual
 /// implementation will provide iterators `rqe_iterators` does not know about.
 ///
-/// Each iterator constructor accepts an optional `snapshot` raw pointer. When non-null, it must
-/// be a [`RedisSearchDiskSnapshot`](ffi::RedisSearchDiskSnapshot) handle returned from the
-/// disk API's `createSnapshot` for the same `index`, and it must remain valid for the lifetime
-/// of the returned iterator. When null, the iterator reads from the live database.
+/// Each iterator constructor requires a `snapshot` handle. It must be a
+/// [`RedisSearchDiskSnapshot`](ffi::RedisSearchDiskSnapshot) returned from the disk API's
+/// `createSnapshot` for the same `index`, and it must remain valid for the lifetime of the
+/// returned iterator. This is what guarantees every iterator created for one query observes
+/// the same database state — there is no live-database fallback.
 pub trait SearchEnterpriseIterators: Send + Sync {
     /// Iterate over all the documents in the index. Each document in the iterator will have the
     /// given weight.
@@ -282,7 +284,7 @@ pub trait SearchEnterpriseIterators: Send + Sync {
         &self,
         index: &'index mut ffi::RedisSearchDiskIndexSpec,
         weight: f64,
-        snapshot: *mut ffi::RedisSearchDiskSnapshot,
+        snapshot: NonNull<ffi::RedisSearchDiskSnapshot>,
     ) -> Result<Box<dyn RQEIteratorPrintable<'index> + 'index>, Box<dyn std::error::Error>>;
 
     /// Iterate over all the terms in the index, loading offset data for each document.
@@ -297,7 +299,7 @@ pub trait SearchEnterpriseIterators: Send + Sync {
         query_term: Box<RSQueryTerm>,
         field_mask: FieldMask,
         weight: f64,
-        snapshot: *mut ffi::RedisSearchDiskSnapshot,
+        snapshot: NonNull<ffi::RedisSearchDiskSnapshot>,
     ) -> Result<Box<dyn RQEIteratorPrintable<'index> + 'index>, Box<dyn std::error::Error>>;
 
     /// Iterate over all the terms in the index, skipping offset data for efficiency.
@@ -312,7 +314,7 @@ pub trait SearchEnterpriseIterators: Send + Sync {
         query_term: Box<RSQueryTerm>,
         field_mask: FieldMask,
         weight: f64,
-        snapshot: *mut ffi::RedisSearchDiskSnapshot,
+        snapshot: NonNull<ffi::RedisSearchDiskSnapshot>,
     ) -> Result<Box<dyn RQEIteratorPrintable<'index> + 'index>, Box<dyn std::error::Error>>;
 
     /// Iterate over all the tags (tokens) in the index at the given field index. Each document in
@@ -323,7 +325,7 @@ pub trait SearchEnterpriseIterators: Send + Sync {
         token: &ffi::RSToken,
         field_index: FieldIndex,
         weight: f64,
-        snapshot: *mut ffi::RedisSearchDiskSnapshot,
+        snapshot: NonNull<ffi::RedisSearchDiskSnapshot>,
     ) -> Result<Box<dyn RQEIteratorPrintable<'index> + 'index>, Box<dyn std::error::Error>>;
 
     /// Iterate over the entries of the numeric index at the given field index whose value
@@ -333,6 +335,6 @@ pub trait SearchEnterpriseIterators: Send + Sync {
         index: &'index mut ffi::RedisSearchDiskIndexSpec,
         filter: &ffi::NumericFilter,
         field_index: ffi::t_fieldIndex,
-        snapshot: *mut ffi::RedisSearchDiskSnapshot,
+        snapshot: NonNull<ffi::RedisSearchDiskSnapshot>,
     ) -> Result<Box<dyn RQEIteratorPrintable<'index> + 'index>, Box<dyn std::error::Error>>;
 }

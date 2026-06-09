@@ -313,12 +313,13 @@ size_t SearchDisk_RunGC(RedisSearchDiskIndexSpec *index);
  *
  * This function creates a full IndexIterator that wraps the disk API and can be used
  * in RediSearch query execution pipelines. It allocates the RSQueryTerm internally
- * and handles cleanup on failure. The disk snapshot (if any) is taken from
- * `sctx->diskSnapshot`, so the same snapshot is shared by every iterator created during
- * one query without having to thread it through each call site.
+ * and handles cleanup on failure. The disk snapshot is taken from `sctx->diskSnapshot`
+ * (which must be non-NULL), so the same snapshot is shared by every iterator created
+ * during one query without having to thread it through each call site.
  *
  * @param index Pointer to the index
- * @param sctx Search context whose `diskSnapshot` field selects the read view (may be NULL on `diskSnapshot`)
+ * @param sctx Search context whose `diskSnapshot` field selects the read view. The
+ *             `diskSnapshot` field is required to be non-NULL.
  * @param tok Pointer to the token (contains term string) (token information is copied into the term, caller keeps ownership of the token)
  * @param tokenId Token ID for the term
  * @param fieldMask Field mask indicating which fields are present
@@ -334,11 +335,12 @@ QueryIterator* SearchDisk_NewTermIterator(RedisSearchDiskIndexSpec *index, const
  * @brief Create a tag IndexIterator for a specific tag value
  *
  * This function creates a tag IndexIterator that wraps the disk API and can be used
- * in RediSearch query execution pipelines. The disk snapshot (if any) is taken from
- * `sctx->diskSnapshot`.
+ * in RediSearch query execution pipelines. The disk snapshot is taken from
+ * `sctx->diskSnapshot` (which must be non-NULL).
  *
  * @param index Pointer to the index
- * @param sctx Search context whose `diskSnapshot` field selects the read view
+ * @param sctx Search context whose `diskSnapshot` field selects the read view. The
+ *             `diskSnapshot` field is required to be non-NULL.
  * @param tok Pointer to the token (contains tag value string)
  * @param fieldIndex Field index for the tag field
  * @param weight Weight for the term (used in scoring)
@@ -371,12 +373,13 @@ void SearchDisk_FreeSnapshot(RedisSearchDiskSnapshot *snapshot);
  * @brief Create a numeric range IndexIterator over the disk-backed index
  *
  * Wraps the disk API's per-bucket readers in a union iterator that yields
- * doc-ids matching `filter`'s range. The disk snapshot (if any) is taken from
- * `sctx->diskSnapshot` so the buckets are read at the same point in time as
- * sibling iterators in the same query.
+ * doc-ids matching `filter`'s range. The disk snapshot is taken from
+ * `sctx->diskSnapshot` (which must be non-NULL) so the buckets are read at
+ * the same point in time as sibling iterators in the same query.
  *
  * @param index Pointer to the index
- * @param sctx Search context whose `diskSnapshot` field selects the read view
+ * @param sctx Search context whose `diskSnapshot` field selects the read view. The
+ *             `diskSnapshot` field is required to be non-NULL.
  * @param filter Pointer to the numeric filter (min, max, inclusivity, field spec)
  * @param fieldIndex Field index for the numeric field
  * @return Pointer to the IndexIterator, or NULL if no buckets overlap the filter
