@@ -340,7 +340,7 @@ static TrieAddChildResult __trieNode_addChild_score(
 
 static int __trieNode_Add(TrieNode **np, const rune *str, t_len len, RSPayload *payload, float score,
                    TrieAddOp op, TrieFreeCallback freecb, size_t numDocs) {
-  if (score == 0 || len == 0) {
+  if (len == 0) {
     return TRIE_OK_UPDATED;
   }
   TrieNode *n = *np;
@@ -431,7 +431,7 @@ static int __trieNode_Add(TrieNode **np, const rune *str, t_len len, RSPayload *
 
 int TrieNode_Add(TrieNode **np, const rune *str, t_len len, RSPayload *payload, float score,
                  TrieAddOp op, TrieFreeCallback freecb, size_t numDocs) {
-  if (score == 0 || len == 0) {
+  if (len == 0) {
     return TRIE_OK_UPDATED;
   }
 
@@ -1114,7 +1114,7 @@ void TrieNode_IterateRange(TrieNode *n, const rune *min, int nmin, bool includeM
       // min = max, we should just search for min and check for its existence
       if (includeMin || includeMax) {
         TrieNode *node = TrieNode_Get(n, (rune *)min, nmin, true, NULL);
-        if (node && node->score != 0) {
+        if (node && TrieNode_IsTerminal(node)) {
           callback(min, nmin, ctx, NULL, node->numDocs);
         }
       }
@@ -1145,7 +1145,7 @@ void TrieNode_IterateContains(TrieNode *n, const rune *str, int nstr, bool prefi
   // exact match - should not be used. change to assert
   if (!prefix && !suffix) {
     TrieNode *node = TrieNode_Get(n, (rune *)str, nstr, true, NULL);
-    if (node && node->score != 0) {
+    if (node && TrieNode_IsTerminal(node)) {
       callback(str, nstr, ctx, NULL, node->numDocs);
     }
     return;

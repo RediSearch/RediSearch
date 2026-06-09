@@ -257,3 +257,56 @@ def testWrongType(env):
         env.assertTrue(False)
     except Exception as e:
         env.assertContains(errMsg, str(e))
+
+def testSuggestZeroScoreAdd(env):
+    # FT.SUGADD key string 0 — direct insert with score 0.
+    # SUGGET queries use a strict prefix to avoid the (float)INT_MAX exact-match
+    # boost applied to whole-term matches in Trie_Search.
+    skipOnCrdtEnv(env)
+    conn = env.getClusterConnectionIfNeeded()
+
+    env.assertEqual(1, conn.execute_command('ft.sugadd', 'ac', 'foo', 0))
+    env.assertEqual(1, conn.execute_command('ft.suglen', 'ac'))
+    env.assertEqual(['foo'], conn.execute_command('ft.sugget', 'ac', 'fo'))
+    res = conn.execute_command('ft.sugget', 'ac', 'fo', 'WITHSCORES')
+    env.assertEqual('foo', res[0])
+    env.assertEqual(0.0, float(res[1]))
+
+def testSuggestZeroScoreIncrOnMissing(env):
+    # FT.SUGADD key string 0 INCR on an absent term — terminal at 0.
+    skipOnCrdtEnv(env)
+    conn = env.getClusterConnectionIfNeeded()
+
+    env.assertEqual(1, conn.execute_command('ft.sugadd', 'ac', 'foo', 0, 'INCR'))
+    env.assertEqual(1, conn.execute_command('ft.suglen', 'ac'))
+    res = conn.execute_command('ft.sugget', 'ac', 'fo', 'WITHSCORES')
+    env.assertEqual('foo', res[0])
+    env.assertEqual(0.0, float(res[1]))
+
+def testSuggestIncrToZero(env):
+    # FT.SUGADD key string N, then FT.SUGADD key string -N INCR — net score 0
+    # on a pre-existing node; entry must remain terminal and visible to SUGGET.
+    skipOnCrdtEnv(env)
+    conn = env.getClusterConnectionIfNeeded()
+
+    env.assertEqual(1, conn.execute_command('ft.sugadd', 'ac', 'foo', 2))
+    env.assertEqual(1, conn.execute_command('ft.sugadd', 'ac', 'foo', -2, 'INCR'))
+    env.assertEqual(1, conn.execute_command('ft.suglen', 'ac'))
+    res = conn.execute_command('ft.sugget', 'ac', 'fo', 'WITHSCORES')
+    env.assertEqual('foo', res[0])
+    env.assertEqual(0.0, float(res[1]))
+
+    # Still deletable after collapsing to score 0.
+    env.assertEqual(1, conn.execute_command('ft.sugdel', 'ac', 'foo'))
+    env.assertEqual(0, conn.execute_command('ft.suglen', 'ac'))
+
+def testSuggestZeroScoreSortsLast(env):
+    # Score-0 entries must rank below positively-scored peers in SUGGET.
+    skipOnCrdtEnv(env)
+    conn = env.getClusterConnectionIfNeeded()
+
+    conn.execute_command('ft.sugadd', 'ac', 'foo zero', 0)
+    conn.execute_command('ft.sugadd', 'ac', 'foo one', 1)
+    conn.execute_command('ft.sugadd', 'ac', 'foo two', 2)
+    res = conn.execute_command('ft.sugget', 'ac', 'foo')
+    env.assertEqual(['foo two', 'foo one', 'foo zero'], res)

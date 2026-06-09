@@ -321,6 +321,7 @@ prepare_coverage_capture() {
   start_group "Code Coverage Preparation"
   lcov --zerocounters      --directory $BINROOT --base-directory $ROOT
   lcov --capture --initial --directory $BINROOT --base-directory $ROOT -o $BINROOT/base.info \
+    --ignore-errors mismatch \
     --exclude '*/_deps/*'
   end_group
 }
@@ -334,20 +335,27 @@ capture_coverage() {
 
   start_group "Code Coverage Capture ($NAME)"
 
-  # Capture coverage collected while running tests previously
+  # Capture coverage collected while running tests previously.
+  # Threaded code (e.g. tiered SVS index) can produce gcov data where a function
+  # is reported "not hit" while its line is hit; lcov 2.0 treats this as a fatal
+  # "mismatch" error by default. Demote it to a warning so coverage
+  # post-processing doesn't flake the job.
   lcov --capture --directory $BINROOT --base-directory $ROOT -o $BINROOT/test.info \
+    --ignore-errors mismatch \
     --exclude '*/_deps/*'
 
   # Accumulate results with the baseline captured before the test
-  lcov --add-tracefile $BINROOT/base.info --add-tracefile $BINROOT/test.info -o $BINROOT/full.info
+  lcov --add-tracefile $BINROOT/base.info --add-tracefile $BINROOT/test.info -o $BINROOT/full.info \
+    --ignore-errors mismatch
 
   # Extract only the coverage of the project source files
   lcov --output-file $BINROOT/source.info --extract $BINROOT/full.info \
+    --ignore-errors mismatch \
     "$ROOT/src/*" \
     "$ROOT/deps/thpool/*" \
 
   # Remove coverage for directories we don't want (ignore if no file matches)
-  lcov -o $BINROOT/$NAME.info --ignore-errors unused --remove $BINROOT/source.info \
+  lcov -o $BINROOT/$NAME.info --ignore-errors mismatch,unused --remove $BINROOT/source.info \
     "*/tests/*" \
 
   end_group

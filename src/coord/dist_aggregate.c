@@ -179,10 +179,14 @@ static int rpnetNext_Start(ResultProcessor *rp, SearchResult *r) {
   // aggregateIteratorContext_Free
   // Use aggregateNetCursorCallback to properly extract ShardResponseBarrier
   // from AggregateIteratorContext
-  MRIterator *it = MR_IterateWithPrivateData(&nc->cmd, aggregateNetCursorCallback, iterCtx,
-                                              aggregateIteratorContext_Free,
-                                              aggregateIteratorContext_Init,
-                                              cmdModifier, iterStartCb, NULL);
+  MRIterator *it = MR_IterateWithPrivateData(&nc->cmd, &(MRIteratorConfig){
+    .successCB = aggregateNetCursorCallback,
+    .cbPrivateData = iterCtx,
+    .cbPrivateDataDestructor = aggregateIteratorContext_Free,
+    .cbPrivateDataInit = aggregateIteratorContext_Init,
+    .commandModifier = cmdModifier,
+    .iterStartCb = iterStartCb,
+  });
 
   if (!it) {
     // Iterator never started, so no callbacks are running and the iterator did
