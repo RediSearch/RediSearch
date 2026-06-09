@@ -99,8 +99,38 @@ mod capacity;
 pub mod header;
 pub mod layout;
 
-pub use capacity::VecCapacity;
+pub use capacity::{AlignedU8, AlignedU16, AlignedU32, AlignedU64, VecCapacity};
 pub use header::Header;
+
+/// Returns `true` when `ThinVec<T, S>`'s data-pointer computation needs no
+/// runtime empty-singleton alignment guard — i.e. element accesses
+/// ([`as_slice`](ThinVec::as_slice), iteration, indexing, …) compile to a
+/// branch-free offset from the header pointer with no `capacity == 0` check.
+///
+/// This holds exactly when the element layout requires no header padding
+/// (`header_field_padding::<T, S>() == 0`) *and* the empty-header singleton (see
+/// [`VecCapacity::SINGLETON_ALIGN`]) is sufficiently aligned for `T`.
+///
+/// The primitive capacity types (`u8`/`u16`/`u32`/`u64`) use the *natural* header
+/// alignment for their singleton, so the guard is only elided for element types
+/// no more aligned than the header. The opt-in [`AlignedU8`]/[`AlignedU16`]/
+/// [`AlignedU32`]/[`AlignedU64`] types over-align their singleton to the full
+/// header size, widening the set of `T` for which the guard is elided.
+///
+/// It is a `const fn` so performance-critical callers can lock in the
+/// branch-free hot path for their concrete element type:
+///
+/// ```
+/// # use thin_vec::{data_ptr_guard_elided, AlignedU32};
+/// // Plain `u32` keeps the guard for 8-byte-aligned elements: the natural
+/// // header alignment of `Header<u32>` is only 4.
+/// const _: () = assert!(!data_ptr_guard_elided::<[u64; 2], u32>());
+/// // The opt-in `AlignedU32` over-aligns the empty singleton, eliding the guard.
+/// const _: () = assert!(data_ptr_guard_elided::<[u64; 2], AlignedU32>());
+/// ```
+pub const fn data_ptr_guard_elided<T, S: VecCapacity>() -> bool {
+    S::SINGLETON_ALIGN >= mem::align_of::<T>() && header_field_padding::<T, S>() == 0
+}
 
 /// Allocates a header (and array) for a `ThinVec<T, S>` with the given capacity.
 ///
@@ -395,15 +425,7 @@ impl<T, S: VecCapacity> ThinVec<T, S> {
         // compile-time constants. Ideally this should result in the branch
         // only be included for types with excessive alignment, since all
         // operations are `const`.
-        let singleton_header_is_aligned =
-            // If the Header is at
-            // least as aligned as T *and* the padding would have
-            // been 0, then one-past-the-end of the empty singleton
-            // *is* a valid data pointer and we can remove the
-            // `dangling` special case.
-            mem::align_of::<Header<S>>() >= mem::align_of::<T>() && header_field_padding == 0;
-
-        if !singleton_header_is_aligned && self.header_ref().capacity() == S::ZERO {
+        if !data_ptr_guard_elided::<T, S>() && self.header_ref().capacity() == S::ZERO {
             NonNull::dangling().as_ptr()
         } else {
             // This could technically result in overflow, but padding
