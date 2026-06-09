@@ -898,6 +898,11 @@ void RDB_LoadingEvent(RedisModuleCtx *ctx, RedisModuleEvent eid, uint64_t subeve
 
   switch (subevent) {
   case REDISMODULE_SUBEVENT_LOADING_RDB_START:
+    if (useSst) {
+      // Latch that a partial-RDB (SST) load is staged; the flag is reliably ON
+      // here but may be cleared before LOADING_ENDED (hot restart).
+      g_partialRdbLoadStaged = true;
+    }
   case REDISMODULE_SUBEVENT_LOADING_AOF_START:
   case REDISMODULE_SUBEVENT_LOADING_REPL_START:
     // Symmetric counterpart to the save-side decision in PersistenceEvent.
@@ -907,11 +912,6 @@ void RDB_LoadingEvent(RedisModuleCtx *ctx, RedisModuleEvent eid, uint64_t subeve
     // load (plain RDB / AOF / legacy RDB-only replication) the index is rebuilt
     // from the keyspace and the stale docIds are meaningless, so we FORGET.
     DocIdMeta_SetForgetDocIdMetadata(!useSst);
-    if (useSst) {
-      // Latch that a partial-RDB (SST) load is staged; the flag is reliably ON
-      // here but may be cleared before LOADING_ENDED (hot restart).
-      g_partialRdbLoadStaged = true;
-    }
     Indexes_StartRDBLoadingEvent(ctx);
     workersThreadPool_OnEventStart();
     RedisModule_Log(RSDummyContext, "notice", "Loading RDB event started");
