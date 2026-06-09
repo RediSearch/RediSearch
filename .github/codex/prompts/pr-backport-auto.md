@@ -131,7 +131,13 @@ fi
 #    fork PR with a predictable branch name (`backport-agent/pr-<n>-to-X`)
 #    and trick us into treating the slot as taken. Filter to PRs whose head
 #    is in THIS repo (`isCrossRepository == false`) before checking.
-existing=$(gh pr list --head "${BRANCH}" --state all \
+#
+#    `--limit` is passed explicitly: `gh pr list` defaults to 30, and that cap
+#    is applied *before* the `isCrossRepository` filter below. On a public repo
+#    with many fork PRs reusing the predictable head-branch name, the real
+#    same-repo backport PR could be paged out of the first 30 and missed,
+#    causing a duplicate. A high limit keeps it in the result set.
+existing=$(gh pr list --head "${BRANCH}" --state all --limit 100 \
   --json url,state,isCrossRepository \
   --jq '[.[] | select(.isCrossRepository == false)] | .[0] | select(.) | "\(.state) \(.url)"')
 if [ -n "${existing}" ]; then

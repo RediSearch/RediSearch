@@ -45,6 +45,25 @@ TRUSTED_ASSOCIATIONS = {"OWNER", "MEMBER", "COLLABORATOR"}
 # ---- helpers -----------------------------------------------------------------
 
 
+# The first line must be exactly `/backport-agent-fix`, optionally followed by
+# whitespace and inline context. Anchored so longer words don't match.
+FIX_COMMAND_RE = re.compile(r"^/backport-agent-fix(\s|$)")
+
+
+def is_fix_command(comment_body: str) -> bool:
+    """True iff the first line's command token is exactly `/backport-agent-fix`.
+
+    The workflow's `if:` gate uses `startsWith(body, '/backport-agent-fix')`,
+    which also matches longer words like `/backport-agent-fixes`. Those are not
+    our command; without this check `strip_inline_context` would strip the
+    `/backport-agent-fix` prefix and feed the mangled remainder (`es ...`) to
+    the agent as inline context. Require an exact command token instead.
+    """
+    if not comment_body:
+        return False
+    return FIX_COMMAND_RE.match(comment_body.splitlines()[0]) is not None
+
+
 def strip_inline_context(comment_body: str) -> str:
     """Return everything after `/backport-agent-fix` on the first line."""
     if not comment_body:
@@ -177,7 +196,15 @@ def main() -> int:
         common.set_output("skip", "true")
         return 0
 
-    inline_context = strip_inline_context(os.environ.get("COMMENT_BODY", ""))
+    comment_body = os.environ.get("COMMENT_BODY", "")
+    if not is_fix_command(comment_body):
+        # The workflow `if:` gate is a cheap `startsWith` pre-filter that also
+        # admits siblings like `/backport-agent-fixes`. Reject anything whose
+        # command token isn't exactly `/backport-agent-fix` so we never spin up
+        # Codex on a mistyped/unrelated command.
+        common.skip("Comment is not exactly the /backport-agent-fix command; skipping.")
+
+    inline_context = strip_inline_context(comment_body)
 
     pr_data = common.fetch_pr(pr, [
         "number", "headRefName", "baseRefName", "labels", "state",
