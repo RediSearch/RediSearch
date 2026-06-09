@@ -29,15 +29,17 @@ pub mod source;
 #[cfg(feature = "unittest")]
 pub mod test_utils;
 
+use rqe_iterators::c2rust::CRQEIterator;
+use rqe_iterators::profile_print::ProfilePrint;
 pub use score_batch::VecSimScoreBatch;
 pub use source::VectorScoreSource;
 
-use std::{cmp::Ordering, ffi::CStr, num::NonZeroUsize, ptr::NonNull};
+use std::{cmp::Ordering, ffi::CStr, num::NonZeroUsize};
 
 use ffi::{VecSearchMode_HYBRID_ADHOC_BF, VecSearchMode_HYBRID_BATCHES};
 use redis_reply::MapBuilder;
+use rqe_iterators::profile_print::ProfilePrintCtx;
 use rqe_iterators::{ExpirationChecker, FieldExpirationChecker, RQEIterator};
-use rqe_iterators::{c2rust::call_print_profile, profile_print::ProfilePrintCtx};
 use top_k::{TopKIterator, TopKMode, TopKSourceProfile};
 
 /// A [`TopKIterator`] parameterised over [`VectorScoreSource`].
@@ -47,8 +49,12 @@ use top_k::{TopKIterator, TopKMode, TopKSourceProfile};
 ///
 /// `E` is the [`ExpirationChecker`] strategy, defaulting to the production
 /// [`FieldExpirationChecker`].
-pub type VectorTopKIterator<'index, E = FieldExpirationChecker> =
-    TopKIterator<'index, VectorScoreSource<'index, E>>;
+///
+/// `I` is the filter child iterator type.
+/// A pure-KNN iterator carries no child, so `I` is then an unused
+/// phantom.
+pub type VectorTopKIterator<'index, E = FieldExpirationChecker, I = CRQEIterator> =
+    TopKIterator<'index, VectorScoreSource<'index, E>, I>;
 
 /// Ascending comparator — lower distance score is better (vector L2/IP/Cosine).
 fn asc_cmp(a: f64, b: f64) -> Ordering {
@@ -66,7 +72,8 @@ pub fn new_vector_top_k_unfiltered<'index, E: ExpirationChecker + 'index>(
     TopKIterator::new_with_mode(source, None, k, asc_cmp, TopKMode::Unfiltered)
 }
 
-/// Construct a hybrid [`VectorTopKIterator`] with a filter child.
+/// Construct a hybrid [`TopKIterator`] with a filter child, preserving the
+/// child's concrete type `C`.
 ///
 /// When the user pinned a policy via the `HYBRID_POLICY` query attribute
 /// (reflected in [`VectorScoreSource::requested_search_mode`]), that policy is
@@ -75,33 +82,23 @@ pub fn new_vector_top_k_unfiltered<'index, E: ExpirationChecker + 'index>(
 /// and the source may switch modes mid-execution via
 /// [`BatchStrategy::SwitchToAdhoc`].
 ///
-/// The child is boxed.
-/// Use [`new_vector_top_k_filtered_boxed`] when you already have a `Box`.
+/// Pass a [`CRQEIterator`] for the production FFI path (yielding a
+/// [`VectorTopKIterator`]); tests may pass any [`RQEIterator`].
+///
+/// Delegates mode selection to source.
 ///
 /// [`VectorScoreSource::requested_search_mode`]: source::VectorScoreSource::requested_search_mode
 /// [`VecSimIndex_PreferAdHocSearch`]: ffi::VecSimIndex_PreferAdHocSearch
 /// [`BatchStrategy::SwitchToAdhoc`]: top_k::BatchStrategy::SwitchToAdhoc
-pub fn new_vector_top_k_filtered<'index, E: ExpirationChecker + 'index>(
+pub fn new_vector_top_k_filtered<'index, E, C>(
     source: VectorScoreSource<'index, E>,
-    child: impl RQEIterator<'index> + 'index,
+    child: C,
     k: NonZeroUsize,
-) -> VectorTopKIterator<'index, E> {
-    new_vector_top_k_filtered_boxed(source, Box::new(child), k)
-}
-
-/// Construct a hybrid [`VectorTopKIterator`] with a boxed filter child.
-///
-/// Accepts an already-boxed `Box<dyn RQEIterator>`, avoiding an extra
-/// allocation when the caller already holds one.
-///
-/// Delegates mode selection to source.
-///
-/// [`VecSimIndex_PreferAdHocSearch`]: ffi::VecSimIndex_PreferAdHocSearch
-pub fn new_vector_top_k_filtered_boxed<'index, E: ExpirationChecker + 'index>(
-    source: VectorScoreSource<'index, E>,
-    child: Box<dyn RQEIterator<'index> + 'index>,
-    k: NonZeroUsize,
-) -> VectorTopKIterator<'index, E> {
+) -> TopKIterator<'index, VectorScoreSource<'index, E>, C>
+where
+    E: ExpirationChecker + 'index,
+    C: RQEIterator<'index> + 'index,
+{
     // The user pinned a policy via HYBRID_POLICY: honor it verbatim. HYBRID_BATCHES
     // also suppresses the mid-run switch to adhoc — the C reader's
     // `reviewHybridSearchPolicy` returns false for it — which is exactly what
@@ -130,6 +127,7 @@ impl<E: ExpirationChecker> TopKSourceProfile for VectorScoreSource<'_, E> {
         switches: usize,
         map: &mut MapBuilder<'_>,
         ctx: &mut ProfilePrintCtx<'_>,
+        child: Option<&dyn ProfilePrint>,
     ) {
         map.kv_simple_string(c"Type", c"VECTOR");
         ctx.print_optional_counters(map);
@@ -153,13 +151,13 @@ impl<E: ExpirationChecker> TopKSourceProfile for VectorScoreSource<'_, E> {
             );
         }
 
-        if let Some(child) = NonNull::new(self.child_raw) {
+        // Render the filter subtree through the iterator's own (profile-wrapped)
+        // child, so its reported read counts reflect what we actually read —
+        // not a separate unprofiled handle.
+        if let Some(child) = child {
             let mut child_map = map.kv_map(c"Child iterator");
             let mut child_ctx = ctx.child_ctx();
-            // SAFETY: `child_raw` was preserved at construction and points to a
-            // valid `QueryIterator` whose `PrintProfile` vtable entry was set
-            // by `Profile_AddIters` before this call.
-            unsafe { call_print_profile(child, &mut child_map, &mut child_ctx) };
+            child.print_profile(&mut child_map, &mut child_ctx);
         }
     }
 }
