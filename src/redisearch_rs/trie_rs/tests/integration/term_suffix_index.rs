@@ -198,7 +198,7 @@ fn iter_suffix_yields_one_hit_per_matching_term() {
 
 // --- Proptest fuzz
 
-#[cfg_attr(miri, ignore = "These proptests are too slow to run under miri")]
+#[cfg(not(miri))]
 mod fuzz {
     use proptest::prelude::*;
 
