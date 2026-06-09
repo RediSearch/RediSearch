@@ -89,12 +89,6 @@ jobs:
         # nightly + `rust-docs-json` component + cheadergen binary that the
         # `Stale headers check` step below needs. The cached container image
         # already runs this script in its Dockerfile.
-        #
-        # Wrapped in retry-command so a transient GitHub outage (e.g. a 504 on
-        # the cargo-binstall release download) is retried instead of failing the
-        # whole job. The token is passed via the action's github_token input so
-        # it is scoped to this step only, letting cargo-binstall use
-        # authenticated GitHub API calls (5000 req/hr vs 60/hr).
         if: needs.build-image.outputs.succeeded != 'true'
         uses: ./.github/actions/retry-command
         with:

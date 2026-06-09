@@ -155,7 +155,6 @@ jobs:
       - name: Setup test dependencies
         # github_token (scoped to this step) lets cargo-binstall, invoked via
         # common_installations.sh, use authenticated GitHub API calls
-        # (5000 req/hr vs 60/hr).
         uses: ./.github/actions/retry-command
         with:
           command: .install/test_deps/common_installations.sh ${{ needs.get-config.outputs.install_mode }}
