@@ -9,7 +9,7 @@
 
 use fork_gc::{
     ForkGC,
-    existing_docs::{HandleResult, collect_existing_docs, handle_existing_docs},
+    existing_docs::{HandleError, HandleOutcome, collect_existing_docs, handle_existing_docs},
     io_result_ext::IoResultExt,
 };
 use index_spec::IndexSpecReadGuard;
@@ -67,9 +67,10 @@ pub unsafe extern "C" fn FGC_parentHandleExistingDocs(gc: *mut ffi::ForkGC) -> F
     let fgc = unsafe { ForkGC::from_ptr_mut(gc) };
 
     match handle_existing_docs(fgc) {
-        HandleResult::Collected => FGCError::Collected,
-        HandleResult::Done => FGCError::Done,
-        HandleResult::ChildError => FGCError::ChildError,
-        HandleResult::SpecDeleted => FGCError::SpecDeleted,
+        Ok(HandleOutcome::Collected) => FGCError::Collected,
+        Ok(HandleOutcome::Done) => FGCError::Done,
+        Err(HandleError::ChildError) => FGCError::ChildError,
+        Err(HandleError::SpecDeleted) => FGCError::SpecDeleted,
+        Err(HandleError::ExistingDocsDeleted) => FGCError::ChildError,
     }
 }
