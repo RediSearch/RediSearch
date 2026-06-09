@@ -159,6 +159,17 @@ jobs:
           title=$(jq -r '.title' <<<"$pr_data")
           url=$(jq -r '.url' <<<"$pr_data")
 
+          # Defensive: state=MERGED but mergeCommit can still be null briefly
+          # (API caching, certain merge-queue / fast-forward sequences). The
+          # agent would otherwise try to cherry-pick the literal "null" and
+          # fail opaquely. Skip cleanly so the run can be re-triggered later
+          # (e.g. by re-adding a label or commenting `/backport-agent`).
+          if [ -z "$sha" ] || [ "$sha" = "null" ]; then
+            echo "PR #$pr is MERGED but mergeCommit.oid is not available yet; skipping. Re-trigger later."
+            echo "skip=true" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
           # 3) Determine target branches.
           #    - issue_comment with args:   parse args from the comment first line
           #    - issue_comment, no args:    fall back to labels
