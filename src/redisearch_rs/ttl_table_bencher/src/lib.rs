@@ -80,7 +80,7 @@ pub fn create_field_expiration(
     // arrays the C builder produces via `staging.shrink_to_fit()` +
     // `array_new_sz(len)`. Avoids both the geometric over-allocation of
     // repeated `push` and the placement-scattering realloc of `shrink_to_fit`.
-    let mut output = FieldExpirations::new();
+    let mut output = FieldExpirations::with_capacity(real_count as usize);
     for ((field_id, point), should_keep) in (0..real_count).zip(points).zip(pick.iter(rng)) {
         if should_keep {
             output.push(FieldExpiration {
@@ -89,13 +89,18 @@ pub fn create_field_expiration(
             });
         }
     }
+    // The `should_keep` filter leaves spare capacity (we pre-sized to the upper
+    // bound `real_count`). Shrink to a tight, capacity == len block, mirroring
+    // the C builder's `staging.shrink_to_fit()` + `array_new_sz(len)`.
+    output.shrink_to_fit();
 
     output
 }
 
 pub fn create_docs(input: DocsInput, mut rng: ThreadRng) -> Vec<(DocId, FieldExpirations)> {
     let pick = PickRandom::new(input.fill_probability);
-    (input.start_doc_id_from..(input.start_doc_id_from + input.count as DocId))
+    let mut docs: Vec<(DocId, FieldExpirations)> = (input.start_doc_id_from
+        ..(input.start_doc_id_from + input.count as DocId))
         .filter_map(move |doc_id| {
             pick.should_keep(&mut rng).then(|| {
                 (
@@ -105,14 +110,18 @@ pub fn create_docs(input: DocsInput, mut rng: ThreadRng) -> Vec<(DocId, FieldExp
             })
         })
         .filter(|(_, f)| !f.is_empty())
-        .collect()
+        .collect();
+    // `filter_map`/`filter` report a `0` lower size hint, so `collect` over-allocates.
+    // Shrink to capacity == len so `convert_into_ffi_docs` sees a tight block.
+    docs.shrink_to_fit();
+    docs
 }
 
 /// Project the shared Rust dataset produced by [`create_docs`] into the C
 /// `arrayof(FieldExpiration)` payloads the C table consumes, so both
 /// implementations benchmark byte-for-byte identical data.
 pub fn convert_into_ffi_docs(
-    docs: &[(DocId, FieldExpirations)],
+    docs: &Vec<(DocId, FieldExpirations)>,
 ) -> Vec<(DocId, *mut ffi::FieldExpiration)> {
     let mut output = Vec::with_capacity(docs.len());
     for (doc_id, fes) in docs {
@@ -132,6 +141,8 @@ pub fn convert_into_ffi_docs(
             !staging.is_empty(),
             "convert_into_ffi_docs: empty payload (create_docs should have filtered it)"
         );
+        assert_eq!(staging.len(), fes.len());
+        assert_eq!(staging.capacity(), fes.capacity());
 
         // SAFETY: `array_new_sz` is FFI but otherwise pure — given valid args it
         // returns a freshly allocated buffer with `array_len(buf) == staging.len()`.
@@ -153,16 +164,37 @@ pub fn convert_into_ffi_docs(
         output.push((*doc_id, raw));
     }
 
+    assert_eq!(output.len(), docs.len());
+    assert_eq!(output.capacity(), docs.capacity());
+
     output
 }
 
-/// Create and populate TimeToLiveTable
+/// Create and populate a [`TimeToLiveTable`].
+///
+/// Re-allocates every payload into a fresh, tight, doc-ordered block before
+/// inserting, mirroring the C builder's [`convert_into_ffi_docs`] sweep — which
+/// allocates each payload contiguously in one late pass with no interleaved
+/// scratch. The blocks [`create_docs`] produces inline are scattered across the
+/// heap (interleaved with the per-doc `points` Vec, the over-allocated `output`,
+/// and the growing `docs` Vec), so without this re-pack the verify hot loop
+/// pays markedly more cache/TLB latency than the C table purely from layout — a
+/// benchmark artifact, not a code difference (verified: scattered ≈ 15.9
+/// ns/verify vs ≈ 12.3 re-packed, matching C). Re-packing keeps the Rust and C
+/// tables apples-to-apples. It runs in bench *setup* (outside the timed
+/// `iter_batched` closure), so it does not enter measurements.
 pub fn create_and_populate(
     max_size: NonZeroUsize,
     inputs: Vec<(DocId, FieldExpirations)>,
 ) -> TimeToLiveTable {
+    let mut repacked: Vec<(DocId, FieldExpirations)> = Vec::with_capacity(inputs.len());
+    for (doc_id, fields) in &inputs {
+        repacked.push((*doc_id, fields.clone()));
+    }
+    drop(inputs);
+
     let mut t = TimeToLiveTable::new(max_size);
-    for (doc_id, fields) in inputs {
+    for (doc_id, fields) in repacked {
         t.add(doc_id, fields);
     }
     t
