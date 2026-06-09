@@ -25,6 +25,7 @@
 #include "resp3.h"
 #include "obfuscation/hidden.h"
 #include "hybrid/vector_query_utils.h"
+#include "param.h"
 #include "vector_index.h"
 #include "slots_tracker_ffi.h"
 #include "asm_state_machine.h"
@@ -1431,6 +1432,46 @@ static int applyVectorQuery(AREQ *req, RedisSearchCtx *sctx, QueryAST *ast, Quer
   ParsedVectorData *pvd = req->parsedVectorData;
   VectorQuery *vq = pvd->query;
   const char *fieldName = pvd->fieldName;
+
+  // Resolve deferred numeric K param (KNN K $paramName)
+  if (pvd->kParamName) {
+    dict *params = req->searchopts.params;
+    size_t valLen;
+    const char *val = params ? Param_DictGet(params, pvd->kParamName, &valLen, status) : NULL;
+    if (!val) {
+      if (!QueryError_HasError(status)) {
+        QueryError_SetWithUserDataFmt(status, QUERY_ERROR_CODE_NO_PARAM, "Missing PARAMS value", " for K parameter `%s`", pvd->kParamName);
+      }
+      return REDISMODULE_ERR;
+    }
+    char *end;
+    long long kValue = strtoll(val, &end, 10);
+    if (end == val || *end != '\0' || kValue < 1) {
+      QueryError_SetError(status, QUERY_ERROR_CODE_SYNTAX, "Invalid K value");
+      return REDISMODULE_ERR;
+    }
+    vq->knn.k = (size_t)kValue;
+  }
+
+  // Resolve deferred numeric RADIUS param (RANGE RADIUS $paramName)
+  if (pvd->radiusParamName) {
+    dict *params = req->searchopts.params;
+    size_t valLen;
+    const char *val = params ? Param_DictGet(params, pvd->radiusParamName, &valLen, status) : NULL;
+    if (!val) {
+      if (!QueryError_HasError(status)) {
+        QueryError_SetWithUserDataFmt(status, QUERY_ERROR_CODE_NO_PARAM, "Missing PARAMS value", " for RADIUS parameter `%s`", pvd->radiusParamName);
+      }
+      return REDISMODULE_ERR;
+    }
+    char *end;
+    double radiusValue = strtod(val, &end);
+    if (end == val || *end != '\0' || radiusValue < 0) {
+      QueryError_SetError(status, QUERY_ERROR_CODE_SYNTAX, "Invalid RADIUS value");
+      return REDISMODULE_ERR;
+    }
+    vq->range.radius = radiusValue;
+  }
 
   // Resolve field spec
   const FieldSpec *vectorField = IndexSpec_GetFieldWithLength(sctx->spec, fieldName, strlen(fieldName));

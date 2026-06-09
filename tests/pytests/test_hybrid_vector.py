@@ -173,3 +173,109 @@ def test_hybrid_vector_invalid_filter_with_vector():
                 'FILTER', '@embedding:[VECTOR_RANGE 0.01 $BLOB]','PARAMS', "2", "BLOB", b"\x9a\x99\x99\x3f\xcd\xcc\x4c\x3e").error().contains('Vector expressions are not allowed in FT.HYBRID VSIM FILTER')
 
 
+def setup_hnsw_index(env):
+    """Setup HNSW index with test data (needed for EF_RUNTIME and EPSILON params)"""
+    conn = env.getClusterConnectionIfNeeded()
+    env.expect(
+        'FT.CREATE', 'idx_hnsw', 'SCHEMA', 'description', 'TEXT',
+        'embedding', 'VECTOR', 'HNSW', 6, 'TYPE', 'FLOAT32', 'DIM', 2,
+        'DISTANCE_METRIC', 'L2').ok()
+    for doc_id, doc_data in test_data.items():
+        conn.execute_command(
+            'HSET', doc_id, 'description', doc_data['description'],
+            'embedding', doc_data['embedding'])
+
+
+def test_hybrid_vector_params_numeric_args():
+    """MOD-12915 regression: numeric VSIM args (K, EF_RUNTIME, RADIUS, EPSILON,
+    FILTER BATCH_SIZE) must be resolvable via PARAMS placeholders.
+
+    Before the fix, passing a '$param' token for any of these args was rejected
+    at parse time with a syntax error because the parser tried to convert the
+    raw '$param' string to a number immediately.
+
+    Each sub-test asserts that the command SUCCEEDS (no exception) and returns a
+    well-formed response with the expected document count.
+    """
+    blob = np.array([1.2, 0.2]).astype(np.float32).tobytes()
+
+    # -----------------------------------------------------------------------
+    # 1.  KNN K via $param   (FLAT index)
+    # -----------------------------------------------------------------------
+    env = Env()
+    setup_basic_index(env)
+    response = env.cmd(
+        'FT.HYBRID', 'idx',
+        'SEARCH', 'green',
+        'VSIM', '@embedding', '$BLOB',
+        'KNN', '2', 'K', '$K',
+        'PARAMS', '4', 'BLOB', blob, 'K', '1')
+    results, count = get_results_from_hybrid_response(response)
+    env.assertEqual(count, len(results.keys()))
+    env.assertGreaterEqual(count, 1)
+    env.flush()
+
+    # -----------------------------------------------------------------------
+    # 2.  RANGE RADIUS via $param   (FLAT index)
+    # -----------------------------------------------------------------------
+    setup_basic_index(env)
+    response = env.cmd(
+        'FT.HYBRID', 'idx',
+        'SEARCH', 'green',
+        'VSIM', '@embedding', '$BLOB',
+        'RANGE', '2', 'RADIUS', '$R',
+        'PARAMS', '4', 'BLOB', blob, 'R', '1')
+    results, count = get_results_from_hybrid_response(response)
+    env.assertEqual(count, len(results.keys()))
+    env.assertGreaterEqual(count, 1)
+    env.flush()
+
+    # -----------------------------------------------------------------------
+    # 3.  KNN EF_RUNTIME via $param   (HNSW index only)
+    #     KNN argument count must include K+value AND EF_RUNTIME+value = 4
+    # -----------------------------------------------------------------------
+    setup_hnsw_index(env)
+    response = env.cmd(
+        'FT.HYBRID', 'idx_hnsw',
+        'SEARCH', 'green',
+        'VSIM', '@embedding', '$BLOB',
+        'KNN', '4', 'K', '2', 'EF_RUNTIME', '$EF',
+        'PARAMS', '4', 'BLOB', blob, 'EF', '100')
+    results, count = get_results_from_hybrid_response(response)
+    env.assertEqual(count, len(results.keys()))
+    env.assertGreaterEqual(count, 1)
+    env.flush()
+
+    # -----------------------------------------------------------------------
+    # 4.  RANGE EPSILON via $param   (HNSW index only)
+    #     RANGE argument count must include RADIUS+value AND EPSILON+value = 4
+    # -----------------------------------------------------------------------
+    setup_hnsw_index(env)
+    response = env.cmd(
+        'FT.HYBRID', 'idx_hnsw',
+        'SEARCH', 'green',
+        'VSIM', '@embedding', '$BLOB',
+        'RANGE', '4', 'RADIUS', '1', 'EPSILON', '$EPS',
+        'PARAMS', '4', 'BLOB', blob, 'EPS', '0.01')
+    results, count = get_results_from_hybrid_response(response)
+    env.assertEqual(count, len(results.keys()))
+    env.assertGreaterEqual(count, 1)
+    env.flush()
+
+    # -----------------------------------------------------------------------
+    # 5.  FILTER BATCH_SIZE via $param
+    #     BATCH_SIZE is passed inside the FILTER count-based form.
+    #     POLICY must be BATCHES (not ADHOC) to make BATCH_SIZE valid.
+    #     We use the FLAT index and a KNN query with an explicit FILTER clause.
+    # -----------------------------------------------------------------------
+    setup_basic_index(env)
+    response = env.cmd(
+        'FT.HYBRID', 'idx',
+        'SEARCH', 'green',
+        'VSIM', '@embedding', '$BLOB',
+        'KNN', '2', 'K', '2',
+        'FILTER', '5', '@description:shoes', 'POLICY', 'BATCHES', 'BATCH_SIZE', '$BS',
+        'PARAMS', '4', 'BLOB', blob, 'BS', '10')
+    results, count = get_results_from_hybrid_response(response)
+    env.assertEqual(count, len(results.keys()))
+    env.flush()

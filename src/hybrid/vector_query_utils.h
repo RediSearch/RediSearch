@@ -31,6 +31,11 @@ typedef struct {
   char *vectorScoreFieldAlias; // Alias for the vector score field (OWNED) - NULL if not explicitly set
   uint32_t queryNodeFlags;     // QueryNode flags to be applied when creating the vector node
   bool skipFilterIntegration;  // true to make vector node root without filter wrapping (RANGE without explicit FILTER)
+  // Deferred numeric params: when KNN K or RANGE RADIUS is supplied as a $param
+  // placeholder, the param name (without the leading $) is stored here and resolved
+  // in applyVectorQuery after the PARAMS dict is available.
+  char *kParamName;            // OWNED - non-NULL when K was given as $param
+  char *radiusParamName;       // OWNED - non-NULL when RADIUS was given as $param
 } ParsedVectorData;
 
 void ParsedVectorData_Free(ParsedVectorData *pvd);

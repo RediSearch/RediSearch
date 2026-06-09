@@ -70,6 +70,52 @@ static void addVectorQueryParam(VectorQuery *vq, const char *name, size_t nameLe
   vq->params.needResolve = array_ensure_append_1(vq->params.needResolve, needResolve);
 }
 
+// Like addVectorQueryParam but marks the entry as a deferred $param that must be
+// resolved from the PARAMS dict before being passed to VecSim.  The value stored
+// is the param name (without the leading '$').
+static void addVectorQueryParamDeferred(VectorQuery *vq, const char *name, size_t nameLen,
+                                        const char *paramName, size_t paramNameLen) {
+  VecSimRawParam rawParam = createVecSimRawParam(name, nameLen, paramName, paramNameLen);
+  vq->params.params = array_ensure_append_1(vq->params.params, rawParam);
+  bool needResolve = true;
+  vq->params.needResolve = array_ensure_append_1(vq->params.needResolve, needResolve);
+}
+
+// Shared param-resolver helper used by all five numeric VSIM args.
+//
+// Peeks at the current ArgsCursor position and decides whether the upcoming
+// token is a literal value or a '$'-prefixed PARAMS placeholder:
+//
+//   VSIM_NUMERIC_LITERAL  - the token is a plain string; *outStr / *outLen
+//                           point to the raw token (cursor NOT advanced).
+//   VSIM_NUMERIC_PARAM    - the token starts with '$'; *outStr / *outLen
+//                           point to the param name WITHOUT the leading '$'
+//                           (cursor NOT advanced — caller must advance after
+//                           deciding what to do with the token).
+//   VSIM_NUMERIC_ERR      - cursor error (end-of-args or read failure).
+//
+// In all success cases the cursor is NOT advanced; the caller is responsible
+// for advancing it (typically via AC_GetStringNC) once it has handled the value.
+#define VSIM_NUMERIC_LITERAL 0
+#define VSIM_NUMERIC_PARAM   1
+#define VSIM_NUMERIC_ERR     (-1)
+
+static int peekNumericArgOrParam(ArgsCursor *ac, const char **outStr, size_t *outLen) {
+  const char *tok;
+  size_t tokLen;
+  if (AC_GetString(ac, &tok, &tokLen, AC_F_NOADVANCE) != AC_OK) {
+    return VSIM_NUMERIC_ERR;
+  }
+  if (tokLen > 0 && tok[0] == '$') {
+    *outStr = tok + 1;       // skip '$'
+    *outLen = tokLen - 1;
+    return VSIM_NUMERIC_PARAM;
+  }
+  *outStr = tok;
+  *outLen = tokLen;
+  return VSIM_NUMERIC_LITERAL;
+}
+
 static int parseSearchSubquery(ArgsCursor *ac, AREQ *sreq, QueryError *status) {
   if (AC_IsAtEnd(ac)) {
     QueryError_SetError(status, QUERY_ERROR_CODE_PARSE_ARGS, "No query string provided for SEARCH");
@@ -184,12 +230,25 @@ static int parseKNNClause(ArgsCursor *ac, VectorQuery *vq, ParsedVectorData *pvd
         return REDISMODULE_ERR;
       }
       if (CheckEnd(ac, "K", status) == REDISMODULE_ERR) return REDISMODULE_ERR;
-      long long kValue;
-      if (AC_GetLongLong(ac, &kValue, AC_F_GE1) != AC_OK) {
+      const char *kStr;
+      size_t kStrLen;
+      int kKind = peekNumericArgOrParam(ac, &kStr, &kStrLen);
+      if (kKind == VSIM_NUMERIC_ERR) {
         QueryError_SetError(status, QUERY_ERROR_CODE_SYNTAX, "Invalid K value");
         return REDISMODULE_ERR;
+      } else if (kKind == VSIM_NUMERIC_PARAM) {
+        // Deferred: store param name; resolve after PARAMS dict is populated.
+        AC_GetStringNC(ac, NULL);  // advance past the $param token
+        pvd->kParamName = rm_strndup(kStr, kStrLen);
+      } else {
+        // Literal: validate and set immediately.
+        long long kValue;
+        if (AC_GetLongLong(ac, &kValue, AC_F_GE1) != AC_OK) {
+          QueryError_SetError(status, QUERY_ERROR_CODE_SYNTAX, "Invalid K value");
+          return REDISMODULE_ERR;
+        }
+        vq->knn.k = (size_t)kValue;
       }
-      vq->knn.k = (size_t)kValue;
       pvd->hasExplicitK = true;
 
     } else if (AC_AdvanceIfMatch(ac, "EF_RUNTIME")) {
@@ -198,16 +257,28 @@ static int parseKNNClause(ArgsCursor *ac, VectorQuery *vq, ParsedVectorData *pvd
         return REDISMODULE_ERR;
       }
       if (CheckEnd(ac, "EF_RUNTIME", status) == REDISMODULE_ERR) return REDISMODULE_ERR;
-      long long efValue;
-      if (AC_GetLongLong(ac, &efValue, AC_F_GE1 | AC_F_NOADVANCE) != AC_OK) {
+      const char *efStr;
+      size_t efStrLen;
+      int efKind = peekNumericArgOrParam(ac, &efStr, &efStrLen);
+      if (efKind == VSIM_NUMERIC_ERR) {
         QueryError_SetError(status, QUERY_ERROR_CODE_SYNTAX, "Invalid EF_RUNTIME value");
         return REDISMODULE_ERR;
+      } else if (efKind == VSIM_NUMERIC_PARAM) {
+        // Deferred: store in VectorQuery params with needResolve=true.
+        AC_GetStringNC(ac, NULL);  // advance past the $param token
+        addVectorQueryParamDeferred(vq, VECSIM_EFRUNTIME, strlen(VECSIM_EFRUNTIME), efStr, efStrLen);
+      } else {
+        // Literal: validate then store raw string for VecSim.
+        long long efValue;
+        if (AC_GetLongLong(ac, &efValue, AC_F_GE1 | AC_F_NOADVANCE) != AC_OK) {
+          QueryError_SetError(status, QUERY_ERROR_CODE_SYNTAX, "Invalid EF_RUNTIME value");
+          return REDISMODULE_ERR;
+        }
+        const char *value;
+        size_t valueLen;
+        value = AC_GetStringNC(ac, &valueLen);
+        addVectorQueryParam(vq, VECSIM_EFRUNTIME, strlen(VECSIM_EFRUNTIME), value, valueLen);
       }
-      const char *value;
-      size_t valueLen;
-      value = AC_GetStringNC(ac, &valueLen);
-      // Add directly to VectorQuery params
-      addVectorQueryParam(vq, VECSIM_EFRUNTIME, strlen(VECSIM_EFRUNTIME), value, valueLen);
       hasEF = true;
 
     } else if (AC_AdvanceIfMatch(ac, "SHARD_K_RATIO")) {
@@ -267,12 +338,25 @@ static int parseRangeClause(ArgsCursor *ac, VectorQuery *vq, ParsedVectorData *p
         return REDISMODULE_ERR;
       }
       if (CheckEnd(ac, "RADIUS", status) == REDISMODULE_ERR) return REDISMODULE_ERR;
-      double radiusValue;
-      if (AC_GetDouble(ac, &radiusValue, AC_F_GE0) != AC_OK) {
+      const char *rStr;
+      size_t rStrLen;
+      int rKind = peekNumericArgOrParam(ac, &rStr, &rStrLen);
+      if (rKind == VSIM_NUMERIC_ERR) {
         QueryError_SetError(status, QUERY_ERROR_CODE_SYNTAX, "Invalid RADIUS value");
         return REDISMODULE_ERR;
+      } else if (rKind == VSIM_NUMERIC_PARAM) {
+        // Deferred: store param name; resolve after PARAMS dict is populated.
+        AC_GetStringNC(ac, NULL);  // advance past the $param token
+        pvd->radiusParamName = rm_strndup(rStr, rStrLen);
+      } else {
+        // Literal: validate and set immediately.
+        double radiusValue;
+        if (AC_GetDouble(ac, &radiusValue, AC_F_GE0) != AC_OK) {
+          QueryError_SetError(status, QUERY_ERROR_CODE_SYNTAX, "Invalid RADIUS value");
+          return REDISMODULE_ERR;
+        }
+        vq->range.radius = radiusValue;
       }
-      vq->range.radius = radiusValue;
       hasRadius = true;
 
     } else if (AC_AdvanceIfMatch(ac, "EPSILON")) {
@@ -281,16 +365,28 @@ static int parseRangeClause(ArgsCursor *ac, VectorQuery *vq, ParsedVectorData *p
         return REDISMODULE_ERR;
       }
       if (CheckEnd(ac, "EPSILON", status) == REDISMODULE_ERR) return REDISMODULE_ERR;
-      double epsilonValue;
-      if (AC_GetDouble(ac, &epsilonValue, AC_F_GE0 | AC_F_NOADVANCE) != AC_OK || epsilonValue == 0.0) {
+      const char *epStr;
+      size_t epStrLen;
+      int epKind = peekNumericArgOrParam(ac, &epStr, &epStrLen);
+      if (epKind == VSIM_NUMERIC_ERR) {
         QueryError_SetError(status, QUERY_ERROR_CODE_SYNTAX, "Invalid EPSILON value");
         return REDISMODULE_ERR;
+      } else if (epKind == VSIM_NUMERIC_PARAM) {
+        // Deferred: store in VectorQuery params with needResolve=true.
+        AC_GetStringNC(ac, NULL);  // advance past the $param token
+        addVectorQueryParamDeferred(vq, VECSIM_EPSILON, strlen(VECSIM_EPSILON), epStr, epStrLen);
+      } else {
+        // Literal: validate then store raw string for VecSim.
+        double epsilonValue;
+        if (AC_GetDouble(ac, &epsilonValue, AC_F_GE0 | AC_F_NOADVANCE) != AC_OK || epsilonValue == 0.0) {
+          QueryError_SetError(status, QUERY_ERROR_CODE_SYNTAX, "Invalid EPSILON value");
+          return REDISMODULE_ERR;
+        }
+        const char *value;
+        size_t valueLen;
+        value = AC_GetStringNC(ac, &valueLen);
+        addVectorQueryParam(vq, VECSIM_EPSILON, strlen(VECSIM_EPSILON), value, valueLen);
       }
-      const char *value;
-      size_t valueLen;
-      value = AC_GetStringNC(ac, &valueLen);
-      // Add directly to VectorQuery params
-      addVectorQueryParam(vq, VECSIM_EPSILON, strlen(VECSIM_EPSILON), value, valueLen);
       hasEpsilon = true;
 
     } else {
