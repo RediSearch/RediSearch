@@ -221,17 +221,29 @@ jobs:
           # entries get silently dropped without it. The per-page `--jq`
           # emits one filtered array per page; `jq -sc 'add // []'` stitches
           # them into a single array (or `[]` when there are no matches).
-          comments=$(gh api -X GET "repos/${GITHUB_REPOSITORY}/issues/${pr}/comments" \
-                      --paginate \
-                      --jq '[
-                        .[]
-                        | select(.body | startswith("/backport-agent-context"))
-                        | select(.author_association == "OWNER"
-                              or .author_association == "MEMBER"
-                              or .author_association == "COLLABORATOR")
-                        | .body
-                      ]' \
-                      2>/dev/null | jq -sc 'add // []' || echo "[]")
+          #
+          # `gh api ... || true` keeps the pipeline exit code clean even when
+          # the API call fails (transient network, perms, etc.). Without that,
+          # `pipefail` would mark the pipeline failed and a `|| echo "[]"`
+          # fallback would emit a *second* `[]` document on top of jq's `[]`,
+          # leaving `$comments` with two JSON values — which then breaks the
+          # downstream `--argjson context "$context"` call. By forcing the
+          # producer to exit 0, jq is always the sole emitter and we get a
+          # single, well-formed JSON array.
+          comments=$(
+            (gh api -X GET "repos/${GITHUB_REPOSITORY}/issues/${pr}/comments" \
+                --paginate \
+                --jq '[
+                  .[]
+                  | select(.body | startswith("/backport-agent-context"))
+                  | select(.author_association == "OWNER"
+                        or .author_association == "MEMBER"
+                        or .author_association == "COLLABORATOR")
+                  | .body
+                ]' \
+                2>/dev/null || true) \
+            | jq -sc 'add // []'
+          )
           context=$(jq -c \
                      --arg inline "$inline_context" \
                      '[ .[] | sub("^/backport-agent-context[ \t]*"; "") | select(length > 0) ]
