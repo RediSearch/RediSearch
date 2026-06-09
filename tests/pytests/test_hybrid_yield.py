@@ -274,6 +274,21 @@ def test_hybrid_combine_duplicate_yield_score_as_error():
         'PARAMS', '2', 'BLOB', query_vector)\
             .error().contains('Duplicate YIELD_SCORE_AS argument')
 
+def test_hybrid_combine_missing_argument():
+    """Test that missing argument value for YIELD_SCORE_AS after COMBINE clause
+    results in an error"""
+    env = Env()
+    setup_basic_index(env)
+    query_vector = np.array([0.0, 0.0]).astype(np.float32).tobytes()
+
+    env.expect(
+        'FT.HYBRID', 'idx',
+        'SEARCH', 'shoes',
+        'VSIM', '@embedding', '$BLOB',
+        'COMBINE', 'RRF', '2', 'CONSTANT', '60',
+            'YIELD_SCORE_AS')\
+            .error().contains('Missing argument value for YIELD_SCORE_AS')
+
 def test_hybrid_combine_without_fusion():
     """Test that COMBINE without a fusion method fails"""
     env = Env()
