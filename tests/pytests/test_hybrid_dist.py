@@ -109,3 +109,81 @@ def test_dist_hybrid_shard_dispatch_failure_does_not_hang(env):
     env.assertEqual(len(error_holder), 1,
                     message=f'Expected a communication error, got results: {result_holder}')
     env.assertContains('Could not send query to cluster', str(error_holder[0]))
+
+
+def _extract_docs_and_scores(result):
+    """Extract an ordered [(key, score), ...] list from an FT.HYBRID reply."""
+    results_list = None
+    for i in range(len(result) - 1):
+        if result[i] == 'results':
+            results_list = result[i + 1]
+            break
+    if results_list is None:
+        return []
+    docs = []
+    for doc_result in results_list:
+        doc_key = None
+        score = None
+        for i in range(0, len(doc_result) - 1, 2):
+            if doc_result[i] == '__key':
+                doc_key = doc_result[i + 1]
+            elif doc_result[i] == '__score':
+                score = float(doc_result[i + 1])
+        if doc_key is not None and score is not None:
+            docs.append((doc_key, score))
+    return docs
+
+
+@skip(cluster=False)
+def test_dist_hybrid_tiebreak_deterministic_across_coordinators(env):
+    """MOD-12438: when hybrid scores are equal, the result order must be
+    deterministic (broken by the __key string) regardless of which master
+    shard coordinates the query, for both RRF and LINEAR. Before the fix the
+    equal-score tiebreak used the per-shard docId (always 0 on the coordinator),
+    so ordering differed depending on which shard was the coordinator."""
+    n_docs = 512
+    env.expect('FT.CREATE', 'idx', 'SCHEMA',
+               'n', 'NUMERIC', 'SORTABLE',
+               'text', 'TEXT',
+               'tag', 'TAG',
+               'vector', 'VECTOR', 'FLAT', '6', 'TYPE', 'FLOAT32',
+               'DIM', '3', 'DISTANCE_METRIC', 'L2').ok()
+
+    # Modulo-based vectors make many docs share identical distances, and the
+    # numeric-filter SEARCH side yields a 0 text score for every match, so the
+    # RRF/LINEAR fused scores tie pervasively -- the condition that exposed the bug.
+    with env.getClusterConnectionIfNeeded() as con:
+        for i in range(n_docs):
+            vector = np.array([float(i % 10), float((i * 2) % 10), float((i * 3) % 10)],
+                              dtype=np.float32)
+            con.execute_command('HSET', f'doc:{i}',
+                                 'n', i,
+                                 'text', f'document {i} content',
+                                 'tag', 'even' if i % 2 == 0 else 'odd',
+                                 'vector', vector.tobytes())
+
+    query_vector = np.array([5.0, 5.0, 5.0], dtype=np.float32).tobytes()
+
+    for combine in (['RRF', '2', 'CONSTANT', '60'],
+                    ['LINEAR', '4', 'ALPHA', '0.5', 'BETA', '0.5']):
+        label = combine[0]
+        query = ('FT.HYBRID', 'idx',
+                 'SEARCH', '@n:[69 1420]',
+                 'VSIM', '@vector', '$BLOB', 'KNN', '2', 'K', str(n_docs),
+                 'COMBINE', *combine,
+                 'PARAMS', '2', 'BLOB', query_vector)
+
+        expected = _extract_docs_and_scores(env.cmd(*query))
+        env.assertGreater(len(expected), 0, message=f'{label}: query returned no results')
+
+        # Pin the tiebreak direction: within an equal-score run, keys ascend (strcmp).
+        for a, b in zip(expected, expected[1:]):
+            if a[1] == b[1]:
+                env.assertLess(a[0], b[0],
+                               message=f'{label}: keys not ascending within score tie: {a} vs {b}')
+
+        # Every master shard, acting as coordinator, must return identical ordering.
+        for idx, shard in enumerate(env.getOSSMasterNodesConnectionList()):
+            got = _extract_docs_and_scores(shard.execute_command(*query))
+            env.assertEqual(got, expected,
+                            message=f'{label}: shard {idx} ordering differs from coordinator')

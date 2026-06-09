@@ -6,6 +6,7 @@
 #include "iterators/hybrid_reader.h"
 #include "iterators_ffi.h"
 #include "util/misc.h"
+#include "document.h"
 
 #ifdef __cplusplus
 extern "C" {
@@ -240,7 +241,18 @@ static ResultProcessor *getArrangeRP(Pipeline *pipeline, const AggregationPipeli
               HasScorer(&params->common)) {
       // No sort? then it must be sort by score, which is the default.
       // In optimize mode, add sorter for queries with a scorer.
-      rp = RPSorter_NewByScore(maxResults);
+      if (IsHybrid(&params->common)) {
+        // Use the __key tiebreak sorter for every hybrid sorter -- the subqueries as
+        // well as the tail, not just the final merge. RRF derives the fused score from
+        // each subquery's rank, so the subquery ordering must itself be deterministic
+        // across coordinators. (cmpByScore explains why the default docId tiebreak is
+        // not, on coordinator results.)
+        RLookup *lk = AGPLN_GetLookup(&pipeline->ap, NULL, AGPLN_GETLOOKUP_FIRST);
+        const RLookupKey *tieBreakKey = RLookup_GetKey_Read(lk, UNDERSCORE_KEY, RLOOKUP_F_HIDDEN);
+        rp = RPSorter_NewByScoreWithTiebreak(maxResults, tieBreakKey);
+      } else {
+        rp = RPSorter_NewByScore(maxResults);
+      }
       up = pushRP(&pipeline->qctx, rp, up);
     }
   }

@@ -623,6 +623,11 @@ typedef struct {
     uint64_t ascendMap;
   } fieldcmp;
 
+  // Optional tiebreak key for hybrid queries: when scores are equal, resolve the
+  // document key string and break ties lexicographically. NULL for non-hybrid sorters
+  // so that FT.AGGREGATE / FT.SEARCH ordering is unaffected.
+  const RLookupKey *tieBreakKey;
+
   // Whether a timeout warning needs to be propagated down the downstream
   bool timedOut;
 } RPSorter;
@@ -730,7 +735,36 @@ static int rpsortNext_Accum(ResultProcessor *rp, SearchResult *r) {
   return rc;
 }
 
-/* Compare results for the heap by score */
+/* Resolve the document key string for a result.
+ *
+ * Mirrors the dual-path logic in hybridMergerStoreUpstreamResult:
+ *   - standalone: dmd->keyPtr is set and preferred (no row lookup needed).
+ *   - coordinator: dmd is NULL; fall back to the __key RLookup value (written
+ *     into the row by RPNet for subqueries and by the hybrid merger for the tail).
+ *
+ * Returns NULL when neither source is available (the caller then uses the docId
+ * tiebreak as a last resort). */
+static inline const char *resolveDocKey(const SearchResult *r, const RLookupKey *tieBreakKey) {
+  const RSDocumentMetadata *dmd = SearchResult_GetDocumentMetadata(r);
+  if (dmd) {
+    return dmd->keyPtr;
+  }
+  if (tieBreakKey) {
+    RSValue *v = RLookupRow_Get(tieBreakKey, SearchResult_GetRowData(r));
+    if (v) {
+      return RSValue_StringPtrLen(v, NULL);
+    }
+  }
+  return NULL;
+}
+
+/* Compare results for the heap by score.
+ *
+ * Equal-score tiebreak: when the RPSorter has a tieBreakKey (set only for hybrid
+ * queries), resolve each document's key string and compare lexicographically so
+ * results are deterministic across coordinator shards (which assign docId=0 and
+ * have no dmd). When no tieBreakKey is set the original docId tiebreak is kept,
+ * leaving FT.SEARCH / FT.AGGREGATE ordering unchanged. */
 static inline int cmpByScore(const void *e1, const void *e2, const void *udata) {
   const SearchResult *h1 = e1, *h2 = e2;
 
@@ -739,6 +773,24 @@ static inline int cmpByScore(const void *e1, const void *e2, const void *udata) 
   } else if (SearchResult_GetScore(h1) > SearchResult_GetScore(h2)) {
     return 1;
   }
+
+  // Scores are equal: apply the document-key tiebreak when available.
+  const RPSorter *self = udata;
+  if (self && self->tieBreakKey) {
+    const char *k1 = resolveDocKey(h1, self->tieBreakKey);
+    const char *k2 = resolveDocKey(h2, self->tieBreakKey);
+    if (k1 && k2) {
+      int cmp = strcmp(k1, k2);
+      if (cmp != 0) {
+        // Yield pops the heap max first (mmh_pop_max) and this comparator returns
+        // +1 when h1 should rank first. For a deterministic ascending key order
+        // (doc:1 before doc:2) the smaller key must rank first, so k1 < k2 returns
+        // +1 — mirroring the existing ascending-docId tiebreak below.
+        return cmp < 0 ? 1 : -1;
+      }
+    }
+  }
+
   return SearchResult_GetDocId(h1) > SearchResult_GetDocId(h2) ? -1 : 1;
 }
 
@@ -788,6 +840,12 @@ ResultProcessor *RPSorter_NewByFields(size_t maxresults, const RLookupKey **keys
 
 ResultProcessor *RPSorter_NewByScore(size_t maxresults) {
   return RPSorter_NewByFields(maxresults, NULL, 0, 0);
+}
+
+ResultProcessor *RPSorter_NewByScoreWithTiebreak(size_t maxresults, const RLookupKey *tieBreakKey) {
+  RPSorter *ret = (RPSorter *)RPSorter_NewByScore(maxresults);
+  ret->tieBreakKey = tieBreakKey;
+  return &ret->base;
 }
 
 /*******************************************************************************************************************
@@ -2288,6 +2346,18 @@ static int RPHybridMerger_Yield(ResultProcessor *rp, SearchResult *r) {
   // Add score as field if scoreKey is provided
   if (self->scoreKey) {
     RLookup_WriteOwnKey(self->scoreKey, SearchResult_GetRowDataMut(r), RSValue_NewNumber(SearchResult_GetScore(r)));
+  }
+
+  // Materialize the document key as a row field so the tail score-sorter can read
+  // it for the equal-score tiebreak. Coordinator results already carry __key
+  // (parsed from the shard reply by RPNet); standalone results have it only in the
+  // dmd, so copy it from there when the row doesn't already hold it.
+  if (self->docKey && !RLookupRow_Get(self->docKey, SearchResult_GetRowData(r))) {
+    const RSDocumentMetadata *dmd = SearchResult_GetDocumentMetadata(r);
+    if (dmd && dmd->keyPtr) {
+      RLookup_WriteOwnKey(self->docKey, SearchResult_GetRowDataMut(r),
+                          RSValue_NewCopiedString(dmd->keyPtr, sdslen(dmd->keyPtr)));
+    }
   }
 
   return RS_RESULT_OK;

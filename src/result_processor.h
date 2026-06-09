@@ -171,6 +171,16 @@ ResultProcessor *RPSorter_NewByFields(size_t maxresults, const RLookupKey **keys
 
 ResultProcessor *RPSorter_NewByScore(size_t maxresults);
 
+/**
+ * Like RPSorter_NewByScore, but breaks equal-score ties on the document key string
+ * instead of the docId, so hybrid results are deterministic across coordinator shards.
+ * See cmpByScore for the tiebreak semantics.
+ *
+ * @param maxresults Maximum number of results to keep in the heap.
+ * @param tieBreakKey RLookupKey for "__key"; NULL falls back to the docId tiebreak.
+ */
+ResultProcessor *RPSorter_NewByScoreWithTiebreak(size_t maxresults, const RLookupKey *tieBreakKey);
+
 ResultProcessor *RPPager_New(size_t offset, size_t limit);
 
 /*******************************************************************************************************************
