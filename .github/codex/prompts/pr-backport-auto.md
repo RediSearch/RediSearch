@@ -124,8 +124,16 @@ fi
 #    handled. Check ALL states (not just open): a prior backport PR may have
 #    already been merged or closed, and reusing its branch would create a
 #    duplicate or fail on push.
+#
+#    `gh pr list --head` filters by branch name only — `<owner>:<branch>`
+#    syntax is not supported, so on a public repo the query also matches
+#    PRs whose head branch lives in a fork. An external user could open a
+#    fork PR with a predictable branch name (`backport-agent/pr-<n>-to-X`)
+#    and trick us into treating the slot as taken. Filter to PRs whose head
+#    is in THIS repo (`isCrossRepository == false`) before checking.
 existing=$(gh pr list --head "${BRANCH}" --state all \
-  --json url,state --jq '.[0] | select(.) | "\(.state) \(.url)"')
+  --json url,state,isCrossRepository \
+  --jq '[.[] | select(.isCrossRepository == false)] | .[0] | select(.) | "\(.state) \(.url)"')
 if [ -n "${existing}" ]; then
   # Record `already <state> — <url>` in the summary and continue to the next
   # target. Do not re-open or force-push over an existing backport PR; a

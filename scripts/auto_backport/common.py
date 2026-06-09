@@ -145,9 +145,33 @@ def fetch_pr(pr_number: int | str, fields: Iterable[str]) -> dict:
 
 def write_context(path: str, payload: dict) -> None:
     """Write `payload` as a single-line JSON document to `path` and echo
-    it back to the workflow log for traceability."""
+    a *compact summary* (not the full content) to the workflow log.
+
+    Echoing the full file is undesirable for the fix flow: `log_excerpts[]`
+    carries tails of failed CI step logs, which may include non-masked
+    sensitive output (env values, runner internals, etc.). The agent reads
+    the file directly via `$BACKPORT_*_CONTEXT_FILE`, so the log echo is
+    purely for human traceability — the path + a summary of the keys is
+    enough; full content stays in the file in $RUNNER_TEMP. GitHub Actions
+    auto-redacts any value that came through `${{ secrets.* }}` regardless
+    of where it appears in the log, but we keep CI output off this surface
+    on principle.
+    """
     with open(path, "w") as f:
         json.dump(payload, f)
-    log(f"Context written to {path}:")
-    with open(path) as f:
-        log(f.read())
+
+    # Build a redacted summary for the log: keep small scalar/list fields,
+    # replace bulky bytes-of-CI fields with a one-line digest.
+    summary: dict = {}
+    for k, v in payload.items():
+        if k == "log_excerpts" and isinstance(v, list):
+            summary[k] = f"<{len(v)} entries; tails omitted from log>"
+        elif k == "context" and isinstance(v, list):
+            # Human hints are short and useful to see, but cap the length
+            # just in case a reviewer pastes a wall of text.
+            summary[k] = f"<{len(v)} entries>"
+        else:
+            summary[k] = v
+
+    log(f"Context written to {path}")
+    log(json.dumps(summary))

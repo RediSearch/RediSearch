@@ -70,26 +70,39 @@ def parse_canonical_backport_refs(body: str) -> tuple[int | None, str]:
 
 
 def fetch_failed_run(branch: str, head_sha: str) -> dict | None:
-    """Most recent failed `Pull Request Flow` run on (branch, head_sha).
+    """Most recent `Pull Request Flow` run on (branch, head_sha), iff it
+    actually failed.
 
     Filtering by `--commit head_sha` (not just `--branch`) is important:
     after a new commit lands, the previous failed run is stale and we
     don't want to feed its logs to the agent.
+
+    We deliberately do NOT pre-filter with `--status failure`. A failed
+    run that was later rerun successfully on the same commit would still
+    match `--status failure --limit 1`, which would feed the agent stale
+    logs and tempt it to push an unnecessary "fix" on top of a now-green
+    branch. Instead, fetch the latest run regardless of conclusion, then
+    return it only if its `conclusion` is `failure` (and `status` is
+    `completed`). Anything else — in-progress, success, cancelled,
+    timed_out — means there's no failure for us to act on.
     """
     out = common.gh(
         "run", "list",
         "--branch", branch,
         "--commit", head_sha,
         "--workflow", "Pull Request Flow",
-        "--status", "failure",
         "--limit", "1",
-        "--json", "databaseId,url",
+        "--json", "databaseId,url,status,conclusion",
         "--jq", ".[0] // empty",
     )
     s = out.strip()
     if not s:
         return None
-    return json.loads(s)
+    run = json.loads(s)
+    if run.get("status") != "completed" or run.get("conclusion") != "failure":
+        return None
+    # Keep the shape stable for callers — they only need databaseId/url.
+    return {"databaseId": run["databaseId"], "url": run["url"]}
 
 
 def fetch_failed_jobs_and_excerpts(run_id: int) -> tuple[list[str], list[dict]]:
@@ -98,15 +111,19 @@ def fetch_failed_jobs_and_excerpts(run_id: int) -> tuple[list[str], list[dict]]:
     Best-effort: gh API hiccups give us an empty list rather than an
     abort — the agent can call `gh run view "$run_id" --log-failed`
     itself if needed.
+
+    `actions/runs/{id}/jobs` is paginated (30 per page by default), and
+    `Pull Request Flow` runs many matrix jobs. Without `--paginate`,
+    failures on later pages are dropped from both `failed_jobs` and
+    `log_excerpts`, which would silently hide the actual failing job.
+    Use `gh_paginated_array` (the same helper we use for
+    /backport-agent-context comments) to stitch pages.
     """
     repo = os.environ["GITHUB_REPOSITORY"]
-    try:
-        jobs = common.gh_json(
-            "api", "-X", "GET", f"repos/{repo}/actions/runs/{run_id}/jobs",
-            "--jq", '[.jobs[] | select(.conclusion=="failure") | {name, id}]',
-        ) or []
-    except Exception:
-        jobs = []
+    jobs = common.gh_paginated_array(
+        "api", "-X", "GET", f"repos/{repo}/actions/runs/{run_id}/jobs",
+        "--jq", '[.jobs[] | select(.conclusion=="failure") | {name, id}]',
+    )
 
     failed_jobs = [j["name"] for j in jobs]
     excerpts: list[dict] = []
