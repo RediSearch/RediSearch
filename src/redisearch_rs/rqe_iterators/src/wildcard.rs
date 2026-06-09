@@ -9,13 +9,14 @@
 
 //! Supporting types for [`Wildcard`].
 
+use std::ffi::CString;
 use std::ptr::NonNull;
 
 use index_result::RSIndexResult;
 use index_spec::IndexSpecReadGuard;
 use inverted_index::codec::{doc_ids_only::DocIdsOnly, raw_doc_ids_only::RawDocIdsOnly};
 use inverted_index::{DocIdsDecoder, opaque};
-use query_error::QueryError;
+use query_error::{QueryError, QueryErrorCode};
 
 use rqe_core::{DocId, RS_FIELDMASK_ALL};
 
@@ -399,13 +400,19 @@ pub unsafe fn new_wildcard_iterator_on_disk<'index>(
             tracing::warn!(
                 "Failed to create a disk wildcard iterator ({err}); falling back to empty iterator."
             );
+            // Keep the user-controlled cause out of the obfuscated public
+            // message: `message` is safe; `err` goes in the private message only.
             // SAFETY: see safety point 3.
-            unsafe {
-                QueryError::set_disk_iterator_error(
-                    status.cast(),
-                    &format!("Failed to create disk wildcard iterator: {err}"),
-                )
-            };
+            if let Some(query_error) = unsafe { QueryError::from_opaque_mut_ptr(status.cast()) } {
+                let code = QueryErrorCode::DiskIteratorCreation;
+                let prefix = code.prefix_c_str().to_str().unwrap_or("");
+                let message = "Failed to create disk wildcard iterator";
+                query_error.set_code_and_messages(
+                    code,
+                    CString::new(message).ok(),
+                    CString::new(format!("{prefix}{message}: {err}")).ok(),
+                );
+            }
             NewWildcardIterator::Empty(Empty)
         }
     }
