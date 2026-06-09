@@ -9,7 +9,7 @@ more release branches. The triggering workflow has already:
   this repo's contents and pull requests.
 - Written a small context file describing what to backport.
 
-You do not need to install tools, switch accounts, or configure credentials.
+Do not install tools, switch accounts, or configure credentials.
 
 ## Read the context file
 
@@ -276,7 +276,8 @@ the gap to a human.
 ## Guardrails
 
 - Do **not** force-push, amend, or rewrite history on any `origin/<target>` branch.
-  Only push to `backport-agent/...` branches you create.
+  ONLY push to `backport-agent/...` branches YOU create. Any other branch is off
+  limits for you for any commit/push operation (only read from other branches).
 - Do **not** push or open PRs for targets you skipped.
 - Do **not** copy `backport-<branch>-agent` or `backport <branch>` labels from the
   original PR. They would re-trigger the backport workflows.
