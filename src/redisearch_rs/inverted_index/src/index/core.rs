@@ -379,6 +379,19 @@ impl<E: Encoder> InvertedIndex<E> {
             blocks_added += 1;
         }
 
+        // Capture the live tail's buffer capacity BEFORE `Arc::make_mut`. If a reader
+        // snapshot pins the current tail (refcount > 1), `make_mut` deep-clones it and
+        // the clone starts with `capacity == len` — measuring the post-`make_mut`
+        // capacity would diff against the clone's smaller starting capacity and
+        // overcount growth on the COW path. See [`Vec::clone`] for the capacity
+        // contract on the cloned buffer.
+        let buf_cap_before = self
+            .pending
+            .last()
+            .expect("just ensured non-empty")
+            .buffer
+            .capacity();
+
         // First encode attempt: mutate the current tail in place via `Arc::make_mut`. If the
         // delta is too large for the encoder, we leave the tail untouched and push another
         // fresh block below.
@@ -393,12 +406,17 @@ impl<E: Encoder> InvertedIndex<E> {
             let delta = doc_id.wrapping_sub(delta_base);
             match E::Delta::from_u64(delta) {
                 Some(d) => {
-                    let buf_cap = working_block.buffer.capacity();
                     E::encode(working_block.writer(), d, record)?;
                     // We don't use the bytes-written reported by the encoder for memory
-                    // growth: the buffer may have had spare capacity. Instead diff the
-                    // capacity before/after the write.
-                    mem_growth += working_block.buffer.capacity() - buf_cap;
+                    // growth: the buffer may have had spare capacity. Diff against the
+                    // live tail's capacity captured above. `saturating_sub` handles the
+                    // rare COW case where the clone's post-write capacity ends up below
+                    // the original (live index shrunk; we'd want a signed delta to
+                    // reflect that, but `mem_growth` is unsigned — clamp at 0 instead).
+                    mem_growth += working_block
+                        .buffer
+                        .capacity()
+                        .saturating_sub(buf_cap_before);
 
                     debug_assert!(working_block.num_entries.saturating_add(1) < u16::MAX);
                     working_block.num_entries += 1;
