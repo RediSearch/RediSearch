@@ -29,9 +29,13 @@ pub const TIMEOUT_CHECK_GRANULARITY: u32 = 5_000;
 
 /// The result of [`not_iterator_reducer`].
 ///
-/// The `ReducedWildcard` variant carries an inline [`NewWildcardIterator`] to
-/// avoid an extra heap allocation on a per-query construction path. This enum
-/// is short-lived and never stored.
+/// The `ReducedWildcard` variant is intentionally large (carries an inline
+/// [`NewWildcardIterator`]) to avoid an extra heap allocation on a per-query
+/// construction path. This enum is short-lived and never stored.
+#[expect(
+    clippy::large_enum_variant,
+    reason = "short-lived reducer result; boxing would add a needless allocation"
+)]
 enum NotReduction<'index, I> {
     /// The child is empty → NOT matches everything → wildcard.
     ReducedWildcard(NewWildcardIterator<'index>),
