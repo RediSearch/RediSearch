@@ -28,5 +28,13 @@ void ParsedVectorData_Free(ParsedVectorData *pvd) {
     rm_free(pvd->vectorScoreFieldAlias);
   }
 
+  if (pvd->kParamName) {
+    rm_free(pvd->kParamName);
+  }
+
+  if (pvd->radiusParamName) {
+    rm_free(pvd->radiusParamName);
+  }
+
   rm_free(pvd);
 }

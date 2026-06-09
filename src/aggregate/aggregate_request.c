@@ -1451,27 +1451,68 @@ static int applyVectorQuery(AREQ *req, RedisSearchCtx *sctx, QueryAST *ast, Quer
   // Apply the flags that were set during parsing
   vecNode->opts.flags |= pvd->queryNodeFlags;
 
-  if (pvd->isParameter) {
-    // PARAMETER CASE: Set up parameter for evalnode to resolve later
-    QueryToken vecToken = {
-      .type = QT_PARAM_VEC,
-      .s = (vq->type == VECSIM_QT_KNN) ? vq->knn.vector : vq->range.vector,
-      .len = (vq->type == VECSIM_QT_KNN) ? vq->knn.vecLen : vq->range.vecLen,
-      .pos = 0,
-      .numval = 0,
-      .sign = 0
-    };
+  // Count how many deferred params this node needs
+  int numDeferredParams = 0;
+  if (pvd->isParameter) numDeferredParams++;
+  if (pvd->kParamName) numDeferredParams++;
+  if (pvd->radiusParamName) numDeferredParams++;
 
+  if (numDeferredParams > 0) {
     QueryParseCtx q = {0};
-    QueryNode_InitParams(vecNode, 1);
-    switch (vq->type) {
-      case VECSIM_QT_KNN:
-        QueryNode_SetParam(&q, &vecNode->params[0], &vq->knn.vector, &vq->knn.vecLen, &vecToken);
-        break;
-      case VECSIM_QT_RANGE:
-        QueryNode_SetParam(&q, &vecNode->params[0], &vq->range.vector, &vq->range.vecLen, &vecToken);
-        break;
+    QueryNode_InitParams(vecNode, numDeferredParams);
+    int paramIdx = 0;
+
+    if (pvd->isParameter) {
+      // PARAMETER CASE: Set up parameter for evalnode to resolve the vector blob later
+      QueryToken vecToken = {
+        .type = QT_PARAM_VEC,
+        .s = (vq->type == VECSIM_QT_KNN) ? vq->knn.vector : vq->range.vector,
+        .len = (vq->type == VECSIM_QT_KNN) ? vq->knn.vecLen : vq->range.vecLen,
+        .pos = 0,
+        .numval = 0,
+        .sign = 0
+      };
+      switch (vq->type) {
+        case VECSIM_QT_KNN:
+          QueryNode_SetParam(&q, &vecNode->params[paramIdx], &vq->knn.vector, &vq->knn.vecLen,
+                             &vecToken);
+          break;
+        case VECSIM_QT_RANGE:
+          QueryNode_SetParam(&q, &vecNode->params[paramIdx], &vq->range.vector, &vq->range.vecLen,
+                             &vecToken);
+          break;
+      }
+      paramIdx++;
     }
+
+    if (pvd->kParamName) {
+      // Deferred K: resolve at query-eval time and write into vq->knn.k
+      QueryToken kToken = {
+        .type = QT_PARAM_SIZE,
+        .s = pvd->kParamName,
+        .len = strlen(pvd->kParamName),
+        .pos = 0,
+        .numval = 0,
+        .sign = 0
+      };
+      QueryNode_SetParam(&q, &vecNode->params[paramIdx], &vq->knn.k, NULL, &kToken);
+      paramIdx++;
+    }
+
+    if (pvd->radiusParamName) {
+      // Deferred RADIUS: resolve at query-eval time and write into vq->range.radius
+      QueryToken radiusToken = {
+        .type = QT_PARAM_NUMERIC,
+        .s = pvd->radiusParamName,
+        .len = strlen(pvd->radiusParamName),
+        .pos = 0,
+        .numval = 0,
+        .sign = 0
+      };
+      QueryNode_SetParam(&q, &vecNode->params[paramIdx], &vq->range.radius, NULL, &radiusToken);
+      paramIdx++;
+    }
+
     // Update AST's numParams since we used a local QueryParseCtx
     ast->numParams += q.numParams;
   }

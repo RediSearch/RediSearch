@@ -154,6 +154,75 @@ def test_hybrid_vector_range_with_filter():
 
         env.flush()
 
+def test_hybrid_vector_params_numeric_args():
+    """Regression test for MOD-12915: numeric VSIM args must accept $param
+    placeholders via PARAMS, not just literal values. Before the fix these were
+    validated as numbers during parsing (e.g. "Invalid K value") before PARAMS
+    substitution, so a $param was rejected.
+
+    Approach A (surgical) covers K and RADIUS (deferred via ParsedVectorData) and
+    EF_RUNTIME and EPSILON (deferred via the VectorQuery needResolve mechanism).
+    BATCH_SIZE goes through parseFilterClause/ArgParser and is NOT addressed by
+    this surgical pass — it is intentionally out of scope here (see the PR body).
+    """
+    env = Env()
+    blob = np.array([1.2, 0.2]).astype(np.float32).tobytes()
+
+    # --- FLAT index: K (KNN) and RADIUS (RANGE) ---
+    setup_basic_index(env)
+
+    # K via $param: with K=1 the KNN side keeps only the single nearest vector.
+    response = env.cmd(
+        'FT.HYBRID', 'idx',
+        'SEARCH', 'green',
+        'VSIM', '@embedding', '$BLOB', 'KNN', '2', 'K', '$k',
+        'PARAMS', '4', 'BLOB', blob, 'k', '1')
+    results, count = get_results_from_hybrid_response(response)
+    env.assertEqual(count, len(results.keys()))
+    env.assertEqual(set(results.keys()), {"doc:2"})
+
+    # RADIUS via $param: command must parse and return a well-formed response
+    # (the bug was a parse-time rejection of the $param value).
+    response = env.cmd(
+        'FT.HYBRID', 'idx',
+        'SEARCH', 'green',
+        'VSIM', '@embedding', '$BLOB', 'RANGE', '2', 'RADIUS', '$r',
+        'PARAMS', '4', 'BLOB', blob, 'r', '1')
+    results, count = get_results_from_hybrid_response(response)
+    env.assertEqual(count, len(results.keys()))
+
+    env.flush()
+
+    # --- HNSW index: EF_RUNTIME (KNN) and EPSILON (RANGE) are HNSW-only args ---
+    env.expect('FT.CREATE', 'idx', 'SCHEMA', 'description', 'TEXT',
+               'embedding', 'VECTOR', 'HNSW', '6', 'TYPE', 'FLOAT32',
+               'DIM', '2', 'DISTANCE_METRIC', 'L2').ok()
+    conn = env.getClusterConnectionIfNeeded()
+    for doc_id, doc_data in test_data.items():
+        conn.execute_command('HSET', doc_id, 'description', doc_data['description'],
+                              'embedding', doc_data['embedding'])
+
+    # EF_RUNTIME via $param
+    response = env.cmd(
+        'FT.HYBRID', 'idx',
+        'SEARCH', 'green',
+        'VSIM', '@embedding', '$BLOB', 'KNN', '4', 'K', '1', 'EF_RUNTIME', '$ef',
+        'PARAMS', '4', 'BLOB', blob, 'ef', '10')
+    results, count = get_results_from_hybrid_response(response)
+    env.assertEqual(count, len(results.keys()))
+
+    # EPSILON via $param
+    response = env.cmd(
+        'FT.HYBRID', 'idx',
+        'SEARCH', 'green',
+        'VSIM', '@embedding', '$BLOB', 'RANGE', '4', 'RADIUS', '1', 'EPSILON', '$e',
+        'PARAMS', '4', 'BLOB', blob, 'e', '0.5')
+    results, count = get_results_from_hybrid_response(response)
+    env.assertEqual(count, len(results.keys()))
+
+    env.flush()
+
+
 def test_hybrid_vector_invalid_filter_with_weight():
     """Test that hybrid vector filter fails when it contains weight attribute"""
     env = Env()

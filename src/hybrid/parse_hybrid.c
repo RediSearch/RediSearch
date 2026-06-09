@@ -63,10 +63,21 @@ static VecSimRawParam createVecSimRawParam(const char *name, size_t nameLen, con
   };
 }
 
-static void addVectorQueryParam(VectorQuery *vq, const char *name, size_t nameLen, const char *value, size_t valueLen) {
+static void addVectorQueryParam(VectorQuery *vq, const char *name, size_t nameLen, const char *value,
+                                size_t valueLen) {
   VecSimRawParam rawParam = createVecSimRawParam(name, nameLen, value, valueLen);
   vq->params.params = array_ensure_append_1(vq->params.params, rawParam);
   bool needResolve = false;
+  vq->params.needResolve = array_ensure_append_1(vq->params.needResolve, needResolve);
+}
+
+// Like addVectorQueryParam but marks the entry as needing $param resolution.
+// The value must be a param name (without '$').
+static void addVectorQueryParamDeferred(VectorQuery *vq, const char *name, size_t nameLen,
+                                        const char *paramName, size_t paramNameLen) {
+  VecSimRawParam rawParam = createVecSimRawParam(name, nameLen, paramName, paramNameLen);
+  vq->params.params = array_ensure_append_1(vq->params.params, rawParam);
+  bool needResolve = true;
   vq->params.needResolve = array_ensure_append_1(vq->params.needResolve, needResolve);
 }
 
@@ -184,12 +195,23 @@ static int parseKNNClause(ArgsCursor *ac, VectorQuery *vq, ParsedVectorData *pvd
         return REDISMODULE_ERR;
       }
       if (CheckEnd(ac, "K", status) == REDISMODULE_ERR) return REDISMODULE_ERR;
-      long long kValue;
-      if (AC_GetLongLong(ac, &kValue, AC_F_GE1) != AC_OK) {
-        QueryError_SetError(status, QUERY_ERROR_CODE_SYNTAX, "Invalid K value");
-        return REDISMODULE_ERR;
+      const char *kStr;
+      size_t kStrLen;
+      AC_GetString(ac, &kStr, &kStrLen, AC_F_NOADVANCE);
+      if (kStr[0] == '$') {
+        // PARAMETER CASE: defer resolution; skip the '$' prefix
+        kStr++;
+        kStrLen--;
+        pvd->kParamName = rm_strndup(kStr, kStrLen);
+        AC_Advance(ac);
+      } else {
+        long long kValue;
+        if (AC_GetLongLong(ac, &kValue, AC_F_GE1) != AC_OK) {
+          QueryError_SetError(status, QUERY_ERROR_CODE_SYNTAX, "Invalid K value");
+          return REDISMODULE_ERR;
+        }
+        vq->knn.k = (size_t)kValue;
       }
-      vq->knn.k = (size_t)kValue;
       pvd->hasExplicitK = true;
 
     } else if (AC_AdvanceIfMatch(ac, "EF_RUNTIME")) {
@@ -198,16 +220,24 @@ static int parseKNNClause(ArgsCursor *ac, VectorQuery *vq, ParsedVectorData *pvd
         return REDISMODULE_ERR;
       }
       if (CheckEnd(ac, "EF_RUNTIME", status) == REDISMODULE_ERR) return REDISMODULE_ERR;
-      long long efValue;
-      if (AC_GetLongLong(ac, &efValue, AC_F_GE1 | AC_F_NOADVANCE) != AC_OK) {
-        QueryError_SetError(status, QUERY_ERROR_CODE_SYNTAX, "Invalid EF_RUNTIME value");
-        return REDISMODULE_ERR;
-      }
       const char *value;
       size_t valueLen;
-      value = AC_GetStringNC(ac, &valueLen);
-      // Add directly to VectorQuery params
-      addVectorQueryParam(vq, VECSIM_EFRUNTIME, strlen(VECSIM_EFRUNTIME), value, valueLen);
+      AC_GetString(ac, &value, &valueLen, AC_F_NOADVANCE);
+      if (value[0] == '$') {
+        // PARAMETER CASE: defer resolution; skip the '$' prefix
+        AC_Advance(ac);
+        addVectorQueryParamDeferred(vq, VECSIM_EFRUNTIME, strlen(VECSIM_EFRUNTIME), value + 1,
+                                    valueLen - 1);
+      } else {
+        long long efValue;
+        if (AC_GetLongLong(ac, &efValue, AC_F_GE1 | AC_F_NOADVANCE) != AC_OK) {
+          QueryError_SetError(status, QUERY_ERROR_CODE_SYNTAX, "Invalid EF_RUNTIME value");
+          return REDISMODULE_ERR;
+        }
+        value = AC_GetStringNC(ac, &valueLen);
+        // Add directly to VectorQuery params
+        addVectorQueryParam(vq, VECSIM_EFRUNTIME, strlen(VECSIM_EFRUNTIME), value, valueLen);
+      }
       hasEF = true;
 
     } else if (AC_AdvanceIfMatch(ac, "SHARD_K_RATIO")) {
@@ -267,12 +297,23 @@ static int parseRangeClause(ArgsCursor *ac, VectorQuery *vq, ParsedVectorData *p
         return REDISMODULE_ERR;
       }
       if (CheckEnd(ac, "RADIUS", status) == REDISMODULE_ERR) return REDISMODULE_ERR;
-      double radiusValue;
-      if (AC_GetDouble(ac, &radiusValue, AC_F_GE0) != AC_OK) {
-        QueryError_SetError(status, QUERY_ERROR_CODE_SYNTAX, "Invalid RADIUS value");
-        return REDISMODULE_ERR;
+      const char *radiusStr;
+      size_t radiusStrLen;
+      AC_GetString(ac, &radiusStr, &radiusStrLen, AC_F_NOADVANCE);
+      if (radiusStr[0] == '$') {
+        // PARAMETER CASE: defer resolution; skip the '$' prefix
+        radiusStr++;
+        radiusStrLen--;
+        pvd->radiusParamName = rm_strndup(radiusStr, radiusStrLen);
+        AC_Advance(ac);
+      } else {
+        double radiusValue;
+        if (AC_GetDouble(ac, &radiusValue, AC_F_GE0) != AC_OK) {
+          QueryError_SetError(status, QUERY_ERROR_CODE_SYNTAX, "Invalid RADIUS value");
+          return REDISMODULE_ERR;
+        }
+        vq->range.radius = radiusValue;
       }
-      vq->range.radius = radiusValue;
       hasRadius = true;
 
     } else if (AC_AdvanceIfMatch(ac, "EPSILON")) {
@@ -281,16 +322,25 @@ static int parseRangeClause(ArgsCursor *ac, VectorQuery *vq, ParsedVectorData *p
         return REDISMODULE_ERR;
       }
       if (CheckEnd(ac, "EPSILON", status) == REDISMODULE_ERR) return REDISMODULE_ERR;
-      double epsilonValue;
-      if (AC_GetDouble(ac, &epsilonValue, AC_F_GE0 | AC_F_NOADVANCE) != AC_OK || epsilonValue == 0.0) {
-        QueryError_SetError(status, QUERY_ERROR_CODE_SYNTAX, "Invalid EPSILON value");
-        return REDISMODULE_ERR;
-      }
       const char *value;
       size_t valueLen;
-      value = AC_GetStringNC(ac, &valueLen);
-      // Add directly to VectorQuery params
-      addVectorQueryParam(vq, VECSIM_EPSILON, strlen(VECSIM_EPSILON), value, valueLen);
+      AC_GetString(ac, &value, &valueLen, AC_F_NOADVANCE);
+      if (value[0] == '$') {
+        // PARAMETER CASE: defer resolution; skip the '$' prefix
+        AC_Advance(ac);
+        addVectorQueryParamDeferred(vq, VECSIM_EPSILON, strlen(VECSIM_EPSILON), value + 1,
+                                    valueLen - 1);
+      } else {
+        double epsilonValue;
+        if (AC_GetDouble(ac, &epsilonValue, AC_F_GE0 | AC_F_NOADVANCE) != AC_OK ||
+            epsilonValue == 0.0) {
+          QueryError_SetError(status, QUERY_ERROR_CODE_SYNTAX, "Invalid EPSILON value");
+          return REDISMODULE_ERR;
+        }
+        value = AC_GetStringNC(ac, &valueLen);
+        // Add directly to VectorQuery params
+        addVectorQueryParam(vq, VECSIM_EPSILON, strlen(VECSIM_EPSILON), value, valueLen);
+      }
       hasEpsilon = true;
 
     } else {
