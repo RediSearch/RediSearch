@@ -87,7 +87,10 @@ jobs:
         run: ./install_script.sh sudo
       - name: Setup tests dependencies
         if: steps.benchmark-filter.outputs.skip != 'true'
-        run: .install/test_deps/common_installations.sh sudo
+        uses: ./.github/actions/retry-command
+        with:
+          command: .install/test_deps/common_installations.sh sudo
+          github_token: ${{ github.token }}
       - name: Install Boost
         if: steps.benchmark-filter.outputs.skip != 'true'
         working-directory: .install

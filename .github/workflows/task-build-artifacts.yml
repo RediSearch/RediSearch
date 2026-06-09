@@ -184,9 +184,12 @@ jobs:
           command: ./install_aws.sh ${{ needs.get-config.outputs.install_mode }}
           working_directory: .install
       - name: Setup test dependencies
+        # github_token (scoped to this step) lets cargo-binstall, invoked via
+        # common_installations.sh, use authenticated GitHub API calls
         uses: ./.github/actions/retry-command
         with:
           command: .install/test_deps/common_installations.sh ${{ needs.get-config.outputs.install_mode }}
+          github_token: ${{ github.token }}
       - name: install build artifacts req
         uses: ./.github/actions/retry-command
         with:
