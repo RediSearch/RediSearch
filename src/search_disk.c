@@ -329,9 +329,9 @@ void SearchDisk_FreeSnapshot(RedisSearchDiskSnapshot *snapshot) {
     disk->index.freeSnapshot(snapshot);
 }
 
-QueryIterator* SearchDisk_NewNumericIterator(RedisSearchDiskIndexSpec *index, const NumericFilter *filter, t_fieldIndex fieldIndex) {
-    RS_ASSERT(disk && index && filter);
-    return disk->index.newNumericIterator(index, filter, fieldIndex);
+QueryIterator* SearchDisk_NewNumericIterator(RedisSearchDiskIndexSpec *index, const RedisSearchCtx *sctx, const NumericFilter *filter, t_fieldIndex fieldIndex) {
+    RS_ASSERT(disk && index && sctx && filter);
+    return disk->index.newNumericIterator(index, filter, fieldIndex, sctx->diskSnapshot);
 }
 
 size_t SearchDisk_RunGC(RedisSearchDiskIndexSpec *index) {

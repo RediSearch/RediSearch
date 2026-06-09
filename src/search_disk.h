@@ -371,15 +371,17 @@ void SearchDisk_FreeSnapshot(RedisSearchDiskSnapshot *snapshot);
  * @brief Create a numeric range IndexIterator over the disk-backed index
  *
  * Wraps the disk API's per-bucket readers in a union iterator that yields
- * doc-ids matching `filter`'s range. The iterator captures a Speedb snapshot
- * and is independent of subsequent writes.
+ * doc-ids matching `filter`'s range. The disk snapshot (if any) is taken from
+ * `sctx->diskSnapshot` so the buckets are read at the same point in time as
+ * sibling iterators in the same query.
  *
  * @param index Pointer to the index
+ * @param sctx Search context whose `diskSnapshot` field selects the read view
  * @param filter Pointer to the numeric filter (min, max, inclusivity, field spec)
  * @param fieldIndex Field index for the numeric field
  * @return Pointer to the IndexIterator, or NULL if no buckets overlap the filter
  */
-QueryIterator* SearchDisk_NewNumericIterator(RedisSearchDiskIndexSpec *index, const NumericFilter *filter, t_fieldIndex fieldIndex);
+QueryIterator* SearchDisk_NewNumericIterator(RedisSearchDiskIndexSpec *index, const RedisSearchCtx *sctx, const NumericFilter *filter, t_fieldIndex fieldIndex);
 
 // DocTable API wrappers
 

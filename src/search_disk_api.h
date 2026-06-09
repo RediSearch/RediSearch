@@ -459,10 +459,10 @@ typedef struct IndexDiskAPI {
   /**
    * @brief Take a point-in-time snapshot of the disk database for this index.
    *
-   * The returned snapshot can be passed to `newTermIterator`, `newTagIterator`, and the
-   * Rust-side wildcard iterator entry point so that every iterator created for one query
-   * observes the same database state. Must be released by `freeSnapshot` when no iterator
-   * is still using it.
+   * The returned snapshot can be passed to `newTermIterator`, `newTagIterator`,
+   * `newNumericIterator`, and the Rust-side wildcard iterator entry point so that every
+   * iterator created for one query observes the same database state. Must be released by
+   * `freeSnapshot` when no iterator is still using it.
    *
    * @param index Pointer to the index spec
    * @return Snapshot handle, or NULL on error (e.g. index is NULL)
@@ -491,9 +491,12 @@ typedef struct IndexDiskAPI {
    * @param index Pointer to the index
    * @param filter Pointer to the numeric filter (min, max, inclusivity flags, field spec)
    * @param fieldIndex Field index for the numeric field
+   * @param snapshot Optional snapshot for a consistent read view, or NULL to read the live database.
+   *                 When non-NULL, must have been returned by `createSnapshot(index)` and must remain
+   *                 valid until the returned iterator is freed.
    * @return Pointer to the created iterator, or NULL if no buckets overlap the filter
    */
-  QueryIterator *(*newNumericIterator)(RedisSearchDiskIndexSpec *index, const NumericFilter *filter, t_fieldIndex fieldIndex);
+  QueryIterator *(*newNumericIterator)(RedisSearchDiskIndexSpec *index, const NumericFilter *filter, t_fieldIndex fieldIndex, RedisSearchDiskSnapshot *snapshot);
 
   /**
    * @brief Run a GC compaction cycle on the disk index.

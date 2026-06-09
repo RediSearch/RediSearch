@@ -333,5 +333,6 @@ pub trait SearchEnterpriseIterators: Send + Sync {
         index: &'index mut ffi::RedisSearchDiskIndexSpec,
         filter: &ffi::NumericFilter,
         field_index: ffi::t_fieldIndex,
+        snapshot: *mut ffi::RedisSearchDiskSnapshot,
     ) -> Result<Box<dyn RQEIteratorPrintable<'index> + 'index>, Box<dyn std::error::Error>>;
 }
