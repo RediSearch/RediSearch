@@ -14,6 +14,7 @@
 #include "inverted_index_ffi.h"
 #include "query_term_ffi.h"
 #include "search_disk.h"
+#include "query_error_ffi.h"
 #include "rmutil/strings.h"
 #include "rmutil/util.h"
 #include "util/logging.h"
@@ -140,16 +141,25 @@ RedisSearchCtx *NewSearchCtxC(RedisModuleCtx *ctx, const char *indexName, bool r
   return sctx;
 }
 
-void SearchCtx_TakeDiskSnapshot(RedisSearchCtx *sctx) {
+int SearchCtx_TakeDiskSnapshot(RedisSearchCtx *sctx, QueryError *status) {
   // Idempotent: callers funnel through this at iterator-construction time, which
   // can be reached via more than one entry point on the same sctx.
   if (!sctx || sctx->diskSnapshot) {
-    return;
+    return REDISMODULE_OK;
   }
   IndexSpec *sp = sctx->spec;
-  if (sp && sp->diskSpec && SearchDisk_IsInitialized()) {
-    sctx->diskSnapshot = SearchDisk_CreateSnapshot(sp->diskSpec);
+  if (!sp || !sp->diskSpec || !SearchDisk_IsInitialized()) {
+    // Non-disk index: nothing to snapshot, query proceeds under the spec lock.
+    return REDISMODULE_OK;
   }
+  sctx->diskSnapshot = SearchDisk_CreateSnapshot(sp->diskSpec);
+  if (!sctx->diskSnapshot) {
+    QueryError_SetWithoutUserDataFmt(status, QUERY_ERROR_CODE_GENERIC,
+                                     "Failed to create disk snapshot for index '%s'",
+                                     IndexSpec_FormatName(sp, false));
+    return REDISMODULE_ERR;
+  }
+  return REDISMODULE_OK;
 }
 
 RedisSearchCtx *NewSearchCtx(RedisModuleCtx *ctx, RedisModuleString *indexName, bool resetTTL) {

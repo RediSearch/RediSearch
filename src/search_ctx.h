@@ -89,12 +89,22 @@ static inline RedisSearchCtx SEARCH_CTX_STATIC(RedisModuleCtx *ctx, IndexSpec *s
 
 void SearchCtx_UpdateTime(RedisSearchCtx *sctx, int32_t durationNS);
 
+typedef struct QueryError QueryError;
+
 // Open a disk snapshot on `sctx` for the duration of one query, so every iterator
 // built from `sctx` (and any snapshot-aware disk read on the same sctx) observes the
 // same point-in-time view. Must be called while holding the spec read lock so the
 // in-memory trie/stats consulted by query planning are coherent with the snapshot.
-// Idempotent and a no-op when the index has no disk component.
-void SearchCtx_TakeDiskSnapshot(RedisSearchCtx *sctx);
+//
+// Returns REDISMODULE_OK in two cases:
+//   - the index has no disk component (no snapshot needed), or
+//   - the disk snapshot was successfully created.
+// Returns REDISMODULE_ERR and sets `status` if the index is disk-backed but
+// the underlying `SearchDisk_CreateSnapshot` returned NULL. Callers must abort
+// the query in that case rather than fall back to live disk reads. Idempotent:
+// if a snapshot is already attached to `sctx` the call returns OK without
+// touching `status`.
+int SearchCtx_TakeDiskSnapshot(RedisSearchCtx *sctx, QueryError *status);
 
 void SearchCtx_CleanUp(RedisSearchCtx * sctx);
 
