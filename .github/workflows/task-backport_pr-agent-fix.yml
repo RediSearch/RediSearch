@@ -208,7 +208,13 @@ jobs:
           #    Inline text from `/backport-agent-fix <text>` is already gated
           #    by the job-level `if:` author-association check and is appended
           #    further below.
+          # `--paginate` is required: GitHub's issue-comments API returns 30
+          # per page by default, so on busy PRs older /backport-agent-context
+          # entries get silently dropped without it. The per-page `--jq`
+          # emits one filtered array per page; `jq -sc 'add // []'` stitches
+          # them into a single array (or `[]` when there are no matches).
           comments=$(gh api -X GET "repos/${GITHUB_REPOSITORY}/issues/${pr}/comments" \
+                      --paginate \
                       --jq '[
                         .[]
                         | select(.body | startswith("/backport-agent-context"))
@@ -217,7 +223,7 @@ jobs:
                               or .author_association == "COLLABORATOR")
                         | .body
                       ]' \
-                      2>/dev/null || echo "[]")
+                      2>/dev/null | jq -sc 'add // []' || echo "[]")
           context=$(jq -c \
                      --arg inline "$inline_context" \
                      '[ .[] | sub("^/backport-agent-context[ \t]*"; "") | select(length > 0) ]
