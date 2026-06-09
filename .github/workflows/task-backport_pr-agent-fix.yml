@@ -56,7 +56,7 @@ jobs:
         with:
           client-id: ${{ vars.GH_PR_APP_ID }}
           private-key: ${{ secrets.GH_PR_APP_PRIVATE_KEY }}
-          owner: RediSearch
+          owner: ${{ github.repository_owner }}
           # Scope the installation token to THIS repo only (see the create
           # workflow for rationale) — without `repositories`, the token covers
           # every repo the App can access in the org.
@@ -70,242 +70,17 @@ jobs:
           permission-pull-requests: write  # comment on the backport PR
           permission-actions: read         # read failed-run logs via gh api
 
-      # Resolves which PR (and which branch) this run is for, extracts CI failure
-      # logs, and gathers any human-supplied context comments. Outputs `skip=true`
-      # whenever the trigger doesn't correspond to an auto-backport PR that
-      # should be fixed.
-      #
-      # The context JSON is written to $RUNNER_TEMP so a later `git add -A` by
-      # the agent cannot accidentally stage it into the fix commit.
-      - name: Resolve PR, eligibility, and failure context
-        id: ctx
-        env:
-          GH_TOKEN: ${{ steps.generate-app-token.outputs.token }}
-          # `gh pr view` / `gh run list` infer the target repo from a local
-          # git remote or `GH_REPO`. This step runs before any checkout, so
-          # the local remote doesn't exist yet; set GH_REPO explicitly so
-          # the high-level `gh` subcommands resolve against this repo. The
-          # `gh api repos/${GITHUB_REPOSITORY}/...` calls further down don't
-          # need it (they pass the repo in the URL), but setting it once at
-          # the env level is simpler than per-call `--repo` flags.
-          GH_REPO: ${{ github.repository }}
-          PR_NUMBER_FROM_ISSUE: ${{ github.event.issue.number }}
-          COMMENT_BODY: ${{ github.event.comment.body }}
-        run: |
-          set -euo pipefail
-
-          pr="$PR_NUMBER_FROM_ISSUE"
-          # Inline context: everything after `/backport-agent-fix` on the
-          # first line of the comment.
-          inline_context=$(printf '%s\n' "$COMMENT_BODY" \
-            | head -n1 \
-            | sed -E 's|^/backport-agent-fix[[:space:]]*||')
-
-          # 1) Pull PR details and check eligibility.
-          pr_data=$(gh pr view "$pr" --json number,headRefName,baseRefName,labels,state,title,body,headRefOid,isCrossRepository)
-          state=$(jq -r '.state' <<<"$pr_data")
-          if [ "$state" != "OPEN" ]; then
-            echo "PR #$pr is not open (state=$state); skipping."
-            echo "skip=true" >> "$GITHUB_OUTPUT"
-            exit 0
-          fi
-
-          # Refuse cross-repo PRs. Our auto-backport PRs are always opened by the
-          # App with the head branch in this repo, so `isCrossRepository` should
-          # be false; bail otherwise rather than check out a fork branch in a
-          # privileged context.
-          cross_repo=$(jq -r '.isCrossRepository' <<<"$pr_data")
-          if [ "$cross_repo" = "true" ]; then
-            echo "PR #$pr is cross-repository; the auto-fix flow does not touch fork branches. Skipping."
-            echo "skip=true" >> "$GITHUB_OUTPUT"
-            exit 0
-          fi
-
-          labels=$(jq -r '.labels[].name' <<<"$pr_data")
-          # Use grep -F -x with `|| true` so the script does not crash under
-          # `set -euo pipefail` when the label is absent.
-          if ! grep -Fxq "auto-backport" <<<"$labels"; then
-            echo "PR #$pr does not have the auto-backport label; skipping."
-            echo "skip=true" >> "$GITHUB_OUTPUT"
-            exit 0
-          fi
-
-          branch=$(jq -r '.headRefName' <<<"$pr_data")
-          base=$(jq -r '.baseRefName' <<<"$pr_data")
-          body=$(jq -r '.body' <<<"$pr_data")
-          head_sha=$(jq -r '.headRefOid' <<<"$pr_data")
-
-          # Defensive: the branch we are about to check out must be in our
-          # namespace.
-          case "$branch" in
-            backport-agent/*) : ;;
-            *)
-              echo "PR #$pr branch ($branch) is outside the backport-agent/ namespace; skipping."
-              echo "skip=true" >> "$GITHUB_OUTPUT"
-              exit 0
-              ;;
-          esac
-
-          # 2) Extract the original PR number and merge SHA from the backport
-          #    PR's body. The auto-backport workflow always writes them in a
-          #    canonical form ("Backport of #<n>" and "Merge commit: `<sha>`").
-          original_pr=$(grep -oE 'Backport of #[0-9]+' <<<"$body" \
-                        | head -n1 \
-                        | grep -oE '[0-9]+' || true)
-          original_sha=$(grep -oE 'Merge commit: `[0-9a-f]{7,}`' <<<"$body" \
-                         | head -n1 \
-                         | grep -oE '[0-9a-f]{7,}' || true)
-
-          # 3) Look up the most recent failed CI run *on the current HEAD commit*
-          #    so the agent's logs match the code on the branch. Filtering only
-          #    by branch can hand back a stale run from before a newer push.
-          run_id=""
-          run_url=""
-          run_info=$(gh run list \
-                      --branch "$branch" \
-                      --commit "$head_sha" \
-                      --workflow "Pull Request Flow" \
-                      --status failure \
-                      --limit 1 \
-                      --json databaseId,url \
-                      --jq '.[0] // empty')
-          if [ -n "$run_info" ]; then
-            run_id=$(jq -r '.databaseId' <<<"$run_info")
-            run_url=$(jq -r '.url' <<<"$run_info")
-          fi
-
-          # 4) Pull failed-step logs. Tail each to ~200 lines so the prompt
-          #    stays bounded. Best-effort: if the API doesn't return logs the
-          #    agent can still call `gh run view` itself.
-          excerpts="[]"
-          failed_jobs="[]"
-          if [ -n "$run_id" ]; then
-            jobs_json=$(gh api -X GET "repos/${GITHUB_REPOSITORY}/actions/runs/${run_id}/jobs" \
-                         --jq '[.jobs[] | select(.conclusion=="failure") | {name, id}]' \
-                         2>/dev/null || echo "[]")
-            failed_jobs=$(jq -c '[.[].name]' <<<"$jobs_json")
-
-            tmpdir=$(mktemp -d)
-            entries=()
-            while IFS= read -r row; do
-              jid=$(jq -r '.id' <<<"$row")
-              jname=$(jq -r '.name' <<<"$row")
-              logfile="${tmpdir}/${jid}.log"
-              if gh api "repos/${GITHUB_REPOSITORY}/actions/jobs/${jid}/logs" \
-                   > "$logfile" 2>/dev/null; then
-                tail_text=$(tail -n 200 "$logfile")
-                entry=$(jq -nc \
-                  --arg job "$jname" \
-                  --arg tail "$tail_text" \
-                  '{job: $job, step: "(see log)", tail: $tail}')
-                entries+=("$entry")
-              fi
-            done < <(jq -c '.[]' <<<"$jobs_json")
-            if [ "${#entries[@]}" -gt 0 ]; then
-              excerpts=$(printf '%s\n' "${entries[@]}" | jq -sc '.')
-            fi
-            rm -rf "$tmpdir"
-          fi
-
-          # 5) Collect human-supplied context. Any PR comment beginning with
-          #    `/backport-agent-context` contributes its remaining body, but
-          #    only when its author is a write-level collaborator. Without
-          #    that filter, any GitHub user could plant prompt-injection text
-          #    on the PR that the Codex agent (running with a write-capable
-          #    App token) would consume.
-          #    Inline text from `/backport-agent-fix <text>` is already gated
-          #    by the job-level `if:` author-association check and is appended
-          #    further below.
-          # `--paginate` is required: GitHub's issue-comments API returns 30
-          # per page by default, so on busy PRs older /backport-agent-context
-          # entries get silently dropped without it. The per-page `--jq`
-          # emits one filtered array per page; `jq -sc 'add // []'` stitches
-          # them into a single array (or `[]` when there are no matches).
-          #
-          # `gh api ... || true` keeps the pipeline exit code clean even when
-          # the API call fails (transient network, perms, etc.). Without that,
-          # `pipefail` would mark the pipeline failed and a `|| echo "[]"`
-          # fallback would emit a *second* `[]` document on top of jq's `[]`,
-          # leaving `$comments` with two JSON values — which then breaks the
-          # downstream `--argjson context "$context"` call. By forcing the
-          # producer to exit 0, jq is always the sole emitter and we get a
-          # single, well-formed JSON array.
-          comments=$(
-            (gh api -X GET "repos/${GITHUB_REPOSITORY}/issues/${pr}/comments" \
-                --paginate \
-                --jq '[
-                  .[]
-                  | select(.body | startswith("/backport-agent-context"))
-                  | select(.author_association == "OWNER"
-                        or .author_association == "MEMBER"
-                        or .author_association == "COLLABORATOR")
-                  | .body
-                ]' \
-                2>/dev/null || true) \
-            | jq -sc 'add // []'
-          )
-          context=$(jq -c \
-                     --arg inline "$inline_context" \
-                     '[ .[] | sub("^/backport-agent-context[ \t]*"; "") | select(length > 0) ]
-                      + ( if $inline == "" then [] else [$inline] end )' \
-                     <<<"$comments")
-
-          # 6) Write the context file to $RUNNER_TEMP, NOT into the workspace.
-          #    The agent runs `git add -A` to stage its fix; if the context
-          #    JSON sat next to the source tree it would land inside the fix
-          #    commit (CI log excerpts and backport metadata leaking into a
-          #    release-branch PR).
-          context_file="${RUNNER_TEMP}/auto-backport-fix-context.json"
-          jq -nc \
-            --argjson pr "$pr" \
-            --arg branch "$branch" \
-            --arg base_branch "$base" \
-            --arg head_sha "$head_sha" \
-            --argjson original_pr "${original_pr:-null}" \
-            --arg original_sha "${original_sha:-}" \
-            --argjson run_id "${run_id:-null}" \
-            --arg run_url "$run_url" \
-            --argjson failed_jobs "$failed_jobs" \
-            --argjson log_excerpts "$excerpts" \
-            --argjson context "$context" \
-            '{
-               pr: $pr,
-               branch: $branch,
-               base_branch: $base_branch,
-               head_sha: $head_sha,
-               original_pr: $original_pr,
-               original_sha: $original_sha,
-               run_id: $run_id,
-               run_url: $run_url,
-               failed_jobs: $failed_jobs,
-               log_excerpts: $log_excerpts,
-               context: $context
-             }' \
-            > "$context_file"
-
-          {
-            echo "skip=false"
-            echo "pr=$pr"
-            echo "branch=$branch"
-            echo "base=$base"
-            echo "original_sha=${original_sha:-}"
-            echo "context_file=$context_file"
-          } >> "$GITHUB_OUTPUT"
-
-          echo "Resolved fix context (written to $context_file):"
-          cat "$context_file"
-
-      # Check out master first so the auto-fix prompt file is present on
-      # the working tree — the backport branch (an older release line) may
-      # not yet contain `.github/codex/prompts/pr-backport-auto-fix.md`.
+      # Check out master first so the resolve script in
+      # `scripts/auto_backport/` and the auto-fix prompt file in
+      # `.github/codex/prompts/` are both present on the working tree.
+      # The backport branch (an older release line) may not carry either.
       #
       # Using a literal `ref: master` (no `${{ }}` expression) also avoids
       # the SonarCloud `githubactions:S7631` pattern that flags a checkout
       # in a privileged workflow when `ref:` is driven by a workflow output.
-      # The actual branch switch happens in the next step using validated
-      # inputs and explicit git commands.
-      - name: Checkout master (for the prompt)
-        if: steps.ctx.outputs.skip != 'true'
+      # The actual branch switch happens later via explicit git commands
+      # against validated inputs.
+      - name: Checkout master
         uses: actions/checkout@v6
         with:
           token: ${{ steps.generate-app-token.outputs.token }}
@@ -313,10 +88,25 @@ jobs:
           fetch-depth: 0
 
       - name: Configure git identity
-        if: steps.ctx.outputs.skip != 'true'
         run: |
           git config user.name "redis-pr-app[bot]"
           git config user.email "redis-pr-app[bot]@users.noreply.github.com"
+
+      # The script in scripts/auto_backport/resolve_fix.py is the source of
+      # truth for the resolve logic — eligibility (state, isCrossRepository,
+      # auto-backport label, backport-agent/ branch namespace), failed-run
+      # lookup pinned to the current HEAD, log-excerpt tailing, and
+      # write-level `/backport-agent-context` collection. Bash plumbing is
+      # intentionally minimal here so the logic stays testable and shared
+      # with the create workflow.
+      - name: Resolve PR, eligibility, and failure context
+        id: ctx
+        env:
+          GH_TOKEN: ${{ steps.generate-app-token.outputs.token }}
+          GH_REPO: ${{ github.repository }}
+          PR_NUMBER_FROM_ISSUE: ${{ github.event.issue.number }}
+          COMMENT_BODY: ${{ github.event.comment.body }}
+        run: python3 scripts/auto_backport/resolve_fix.py
 
       # Stash the prompt outside the worktree before we switch branches —
       # otherwise `git checkout` of the older branch will remove it.

@@ -84,7 +84,7 @@ jobs:
         with:
           client-id: ${{ vars.GH_PR_APP_ID }}
           private-key: ${{ secrets.GH_PR_APP_PRIVATE_KEY }}
-          owner: RediSearch
+          owner: ${{ github.repository_owner }}
           # Scope the installation token to THIS repo only. With `owner` set but
           # no `repositories`, the token is minted for every repo the App can
           # access in the org; restricting it bounds any agent mistake or
@@ -123,6 +123,13 @@ jobs:
           git config user.name "redis-pr-app[bot]"
           git config user.email "redis-pr-app[bot]@users.noreply.github.com"
 
+      # The script in scripts/auto_backport/resolve_create.py is the source
+      # of truth for the resolve logic — it derives the target-branch list
+      # from the event (closed-merged labels, single labeled event, or
+      # `/backport-agent <list>` comment args), confirms the PR is merged
+      # with a valid mergeCommit.oid, and writes the context JSON for the
+      # agent. Bash plumbing is intentionally minimal here so the logic
+      # stays testable and shared with the fix workflow.
       - name: Resolve PR context and target branches
         id: ctx
         env:
@@ -133,106 +140,7 @@ jobs:
           PR_NUMBER_FROM_ISSUE: ${{ github.event.issue.number }}
           LABEL_NAME: ${{ github.event.label.name }}
           COMMENT_BODY: ${{ github.event.comment.body }}
-        run: |
-          set -euo pipefail
-
-          # 1) Resolve PR number from whichever event we're handling.
-          case "$EVENT_NAME" in
-            pull_request_target) pr="$PR_NUMBER_FROM_PR" ;;
-            issue_comment)       pr="$PR_NUMBER_FROM_ISSUE" ;;
-            *) echo "Unhandled event: $EVENT_NAME"; exit 1 ;;
-          esac
-
-          # 2) Pull PR details and confirm it was actually merged. The label
-          #    and comment triggers can fire on closed-but-not-merged PRs.
-          #    `gh pr view --json` exposes `state` (one of OPEN/CLOSED/MERGED)
-          #    and `mergedAt`; there is no boolean `merged` field, so use state.
-          pr_data=$(gh pr view "$pr" --json title,mergeCommit,labels,state,url)
-          state=$(jq -r '.state' <<<"$pr_data")
-          if [ "$state" != "MERGED" ]; then
-            echo "PR #$pr is not merged (state=$state); skipping."
-            echo "skip=true" >> "$GITHUB_OUTPUT"
-            exit 0
-          fi
-
-          sha=$(jq -r '.mergeCommit.oid' <<<"$pr_data")
-          title=$(jq -r '.title' <<<"$pr_data")
-          url=$(jq -r '.url' <<<"$pr_data")
-
-          # Defensive: state=MERGED but mergeCommit can still be null briefly
-          # (API caching, certain merge-queue / fast-forward sequences). The
-          # agent would otherwise try to cherry-pick the literal "null" and
-          # fail opaquely. Skip cleanly so the run can be re-triggered later
-          # (e.g. by re-adding a label or commenting `/backport-agent`).
-          if [ -z "$sha" ] || [ "$sha" = "null" ]; then
-            echo "PR #$pr is MERGED but mergeCommit.oid is not available yet; skipping. Re-trigger later."
-            echo "skip=true" >> "$GITHUB_OUTPUT"
-            exit 0
-          fi
-
-          # 3) Determine target branches.
-          #    - issue_comment with args:   parse args from the comment first line
-          #    - issue_comment, no args:    fall back to labels
-          #    - pull_request_target labeled: just the one label that fired
-          #    - pull_request_target closed:  all matching labels on the PR
-          targets_json="[]"
-          if [ "$EVENT_NAME" = "issue_comment" ]; then
-            args=$(printf '%s\n' "$COMMENT_BODY" | head -n1 | sed -E 's|^/backport-agent[[:space:]]*||')
-            if [ -n "$args" ]; then
-              # Use jq-only splitting on whitespace/comma. The previous
-              # `tr | grep -v '^$' | jq` pipeline crashed under set -euo
-              # pipefail when the args were separator-only (e.g.
-              # `/backport-agent ,`) because grep matched nothing.
-              targets_json=$(jq -nc --arg s "$args" \
-                '[ $s | split("[\\s,]+"; "g") | .[] | select(length > 0) ]
-                 | unique')
-            fi
-          elif [ "$EVENT_NAME" = "pull_request_target" ] && [ "$EVENT_ACTION" = "labeled" ]; then
-            if [[ "$LABEL_NAME" =~ ^backport-(.+)-agent$ ]]; then
-              targets_json=$(jq -nc --arg t "${BASH_REMATCH[1]}" '[$t]')
-            fi
-          fi
-
-          if [ "$targets_json" = "[]" ]; then
-            # Use jq-only filtering to avoid set -euo pipefail / grep-no-match
-            # crashes on unlabeled PRs. The previous version piped jq->grep->sed,
-            # which under pipefail aborted the script when grep produced no
-            # output, so every merged PR without a `backport-*-agent` label
-            # surfaced as a failed Actions run.
-            targets_json=$(jq -c '
-              [ .labels[].name
-                | capture("^backport-(?<t>.+)-agent$")
-                | .t ]
-              | unique
-            ' <<<"$pr_data")
-          fi
-
-          if [ "$targets_json" = "[]" ]; then
-            echo "No backport-<branch>-agent targets resolved for PR #$pr; nothing to do."
-            echo "skip=true" >> "$GITHUB_OUTPUT"
-            exit 0
-          fi
-
-          # 4) Persist context for the Codex agent to read. We write to
-          #    $RUNNER_TEMP rather than the workspace so the agent's
-          #    `git add -A` during cherry-pick conflict resolution can't
-          #    stage the context JSON into the backport commit.
-          context_file="${RUNNER_TEMP}/auto-backport-context.json"
-          jq -nc \
-            --argjson pr "$pr" \
-            --arg sha "$sha" \
-            --arg title "$title" \
-            --arg url "$url" \
-            --argjson targets "$targets_json" \
-            '{pr: $pr, sha: $sha, title: $title, url: $url, targets: $targets}' \
-            > "$context_file"
-
-          echo "Resolved context (written to $context_file):"
-          cat "$context_file"
-          {
-            echo "skip=false"
-            echo "context_file=$context_file"
-          } >> "$GITHUB_OUTPUT"
+        run: python3 scripts/auto_backport/resolve_create.py
 
       - name: Run /pr-backport-auto via Codex
         if: steps.ctx.outputs.skip != 'true'
