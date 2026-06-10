@@ -354,7 +354,6 @@ def testContainsMixedWithSuffix(env):
 def testSuffixTrieIncludesShortTagValue(env):
   # A 1-char tag value is stored in the suffix triemap and removed cleanly
   # after the document is deleted and the GC runs.
-  env.expect(config_cmd() + ' set FORK_GC_CLEAN_THRESHOLD 0').ok()
   conn = getConnectionByEnv(env)
   conn.execute_command('FT.CREATE', 'idx', 'SCHEMA', 't', 'TAG', 'WITHSUFFIXTRIE')
 
