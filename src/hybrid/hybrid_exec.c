@@ -1029,7 +1029,7 @@ static int HybridRequest_BuildPipelineAndExecute(StrongRef hybrid_ref, HybridPip
     // trie/stats consulted by QAST_Iterate are shared state that GC can mutate
     // concurrently, so reading them unlocked here can race with GC. UnlockSpec is
     // idempotent — the depletion / cursor-start paths inside buildPipelineAndExecute
-    // may already have released the lock (see WaitForDepletionToStart).
+    // may already have released the lock.
     RedisSearchCtx_LockSpecRead(sctx);
     int rc = buildPipelineAndExecute(hybrid_ref, hybridParams, ctx, sctx, status, internal, false);
     RedisSearchCtx_UnlockSpec(sctx);
