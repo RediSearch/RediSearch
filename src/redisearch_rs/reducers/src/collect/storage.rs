@@ -20,17 +20,17 @@
 //!   projected fields, keeping the best representative per sort key (the
 //!   `COLLECT … SORTBY DISTINCT` path).
 
-use std::cmp::Ordering;
+use std::cmp::Reverse;
 
 use std::marker::PhantomData;
 
 use itertools::Either;
 use min_max_heap::MinMaxHeap;
-use priority_queue::DoublePriorityQueue;
+use priority_queue::PriorityQueue;
 use rlookup::RLookupRow;
 use value::SharedValue;
 
-use super::distinct::DistinctRow;
+use super::distinct::DistinctKey;
 use super::heap::{EntryKey, HeapEntry};
 
 /// Default count for `SORTBY` results when no explicit `LIMIT` is provided,
@@ -79,10 +79,12 @@ pub enum Storage<D: Ord> {
         count: usize,
     },
     DistinctHeap {
-        /// Item = projected payload (hashed/compared by [`DistinctRow`]'s
-        /// FNV digest); priority = the sort-key comparator
-        /// ([`EntryKey`], best = `Greater`).
-        pq: DoublePriorityQueue<DistinctRow, EntryKey<D>>,
+        /// Item = [`DistinctKey`] (FNV digest of the projected fields);
+        /// priority = `Reverse<HeapEntry<…>>`.
+        /// The [`Reverse`] makes the queue *worst-first*: the single end
+        /// exposed by [`PriorityQueue::peek`]/[`PriorityQueue::pop`]
+        /// is the worst survivor, the one cap eviction removes.
+        pq: PriorityQueue<DistinctKey, Reverse<HeapEntry<D, RLookupRow<'static>>>>,
         sort_asc_map: u64,
         offset: usize,
         count: usize,
@@ -116,7 +118,7 @@ impl<D: Ord> Storage<D> {
                 count,
             },
             StorageMode::DistinctHeap => Self::DistinctHeap {
-                pq: DoublePriorityQueue::with_capacity(initial_capacity),
+                pq: PriorityQueue::with_capacity(initial_capacity),
                 sort_asc_map,
                 offset,
                 count,
@@ -209,37 +211,23 @@ impl<D: Ord> Storage<D> {
                     return;
                 }
                 let cand_key = EntryKey::new(sort_vals(), *sort_asc_map, doc_id);
-                // If the heap is full and the candidate is no better than the
-                // current worst, drop it.
+                // If the queue is full and the candidate is no better than the
+                // current worst, drop it before projecting.
                 if pq.len() >= max_size {
-                    let worst_key = pq.peek_min().expect("pq at cap is non-empty").1;
-                    if cand_key <= *worst_key {
+                    let worst = pq.peek().expect("pq at cap is non-empty").1;
+                    if cand_key <= *worst.0.key() {
                         return;
                     }
                 }
-                // Project and derive its dedup identity from the projected row.
+                // Survivor: project, derive its dedup identity from the
+                // projected row, and pair the ranking key with the row.
                 let row = project();
-                let hash = dedup_from_row(&row);
-                let item = DistinctRow::from_parts(row, hash);
+                let item = DistinctKey::new(dedup_from_row(&row));
+                let priority = Reverse(HeapEntry::new(cand_key, row));
 
                 // Dedup-keep-best.
-                match pq
-                    .get_priority(&item)
-                    .map(|existing| cand_key.cmp(existing))
-                {
-                    Some(Ordering::Greater) => {
-                        pq.remove(&item);
-                        pq.push(item, cand_key);
-                    }
-                    // Worse-or-equal duplicate: keep the current item.
-                    Some(_) => {}
-                    // No duplicate: a genuinely new insert.
-                    None => {
-                        pq.push(item, cand_key);
-                        if pq.len() > max_size {
-                            pq.pop_min();
-                        }
-                    }
+                if pq.push_decrease(item, priority).is_none() && pq.len() > max_size {
+                    pq.pop();
                 }
             }
             Self::Array { .. } | Self::Heap { .. } => {
@@ -281,18 +269,17 @@ impl<D: Ord> Storage<D> {
                     .map(HeapEntry::into_projected),
             ),
             Self::DistinctHeap {
-                mut pq,
-                offset,
-                count,
-                ..
+                pq, offset, count, ..
             } => {
-                // Drain best→worst via repeated `pop_max` (best = max), the
-                // DEPQ analogue of `MinMaxHeap::into_vec_desc`. Shares the
+                // The queue is worst-first, so `into_sorted_iter` yields
+                // worst→best; reverse into a `Vec` so the final order is
+                // best→worst (matching the heap path). Shares the
                 // `Vec<RLookupRow>` iterator shape with the array path.
-                let mut rows = Vec::with_capacity(pq.len());
-                while let Some((entry, _key)) = pq.pop_max() {
-                    rows.push(entry.into_row());
-                }
+                let mut rows: Vec<RLookupRow<'static>> = pq
+                    .into_sorted_iter()
+                    .map(|(_key, priority)| priority.0.into_projected())
+                    .collect();
+                rows.reverse();
                 Either::Left(rows.into_iter().skip(offset).take(count))
             }
         }

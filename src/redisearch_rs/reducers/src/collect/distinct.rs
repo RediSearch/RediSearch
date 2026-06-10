@@ -7,6 +7,14 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 
+//! Deduplication identity for the `COLLECT … SORTBY DISTINCT` path.
+//!
+//! [`DistinctKey`] is the digest-only identity that keys the single-ended
+//! `PriorityQueue` used by [`Storage::DistinctHeap`][super::storage::Storage].
+//! The projected row it deduplicates lives in the queue's *priority/value*
+//! half (a [`HeapEntry`][super::heap::HeapEntry] compared by sort key only), so
+//! a winning duplicate replaces both the ranking key and the emitted row.
+
 use std::hash::{Hash, Hasher};
 
 use rlookup::{RLookupKey, RLookupRow};
@@ -14,44 +22,35 @@ use value::Value;
 
 use super::dedup_hash::DistinctHasher;
 
-/// A projected row paired with its precomputed dedup digest.
+/// The DISTINCT dedup identity: a precomputed FNV-1a digest of the projected
+/// fields.
 ///
-/// The wrapped [`RLookupRow`] is the payload yielded at finalize; `hash` is the
-/// FNV-1a digest (built once by the caller via [`dedup_hash`] /
-/// [`dedup_hash_row`]) that drives both [`Hash`] and [`Eq`], so neither
-/// hashing nor comparison in the priority queue ever re-walks the row.
-///
-/// The caller — not `DistinctRow` — chooses *which* slots the digest covers,
-/// because the dedup identity is the **projected fields only** and the stored
-/// row may also carry sort-key columns in some configs.
-pub struct DistinctRow {
-    row: RLookupRow<'static>,
-    hash: u64,
-}
+/// Built once by the caller via [`dedup_hash`] / [`dedup_hash_row`] and used as
+/// the queue *item*, so neither hashing nor equality in the priority queue ever
+/// re-walks a row. The caller — not `DistinctKey` — chooses *which* fields the
+/// digest covers, because the identity is the **projected fields only** while
+/// the stored row may also carry sort-key columns in some configs.
+#[derive(Clone, Copy)]
+pub struct DistinctKey(u64);
 
-impl DistinctRow {
-    /// Pair a projected `row` with its precomputed dedup digest.
-    pub const fn from_parts(row: RLookupRow<'static>, hash: u64) -> Self {
-        Self { row, hash }
-    }
-
-    /// The projected row, consumed at finalize.
-    pub fn into_row(self) -> RLookupRow<'static> {
-        self.row
+impl DistinctKey {
+    /// Wrap a precomputed dedup digest.
+    pub const fn new(hash: u64) -> Self {
+        Self(hash)
     }
 }
 
-impl PartialEq for DistinctRow {
+impl PartialEq for DistinctKey {
     fn eq(&self, other: &Self) -> bool {
-        self.hash == other.hash
+        self.0 == other.0
     }
 }
 
-impl Eq for DistinctRow {}
+impl Eq for DistinctKey {}
 
-impl Hash for DistinctRow {
+impl Hash for DistinctKey {
     fn hash<H: Hasher>(&self, state: &mut H) {
-        state.write_u64(self.hash);
+        state.write_u64(self.0);
     }
 }
 

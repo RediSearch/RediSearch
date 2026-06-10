@@ -9,7 +9,7 @@
 
 //! Unit tests for the DISTINCT dedup key
 //! ([`reducers::collect::distinct`]): the FNV-1a digest that backs
-//! `DistinctRow`'s `Hash`/`Eq`, and the `Hash`/`Eq` contract over real rows.
+//! `DistinctKey`'s `Hash`/`Eq`, and the `Hash`/`Eq` contract over real rows.
 
 extern crate redisearch_rs;
 
@@ -19,7 +19,7 @@ use std::hash::{Hash, Hasher};
 use std::cell::Cell;
 use std::ffi::CStr;
 
-use reducers::collect::distinct::{DistinctRow, dedup_hash, dedup_hash_row};
+use reducers::collect::distinct::{DistinctKey, dedup_hash, dedup_hash_row};
 use reducers::collect::storage::{Storage, StorageMode};
 use reducers::collect::{RemoteCollectCtx, RemoteCollectReducer};
 use rlookup::{RLookupKey, RLookupKeyFlags, RLookupRow};
@@ -87,10 +87,7 @@ fn same_value_under_different_field_names_differs() {
 
 #[test]
 fn field_name_prevents_boundary_ambiguity() {
-    // (@a="ab", @b="c") must not collide with (@a="a", @b="bc"): the length-
-    // prefixed field NAME folded ahead of each value keeps adjacent fields from
-    // bleeding together. (This is the GROUP BY collision DISTINCT avoids — see
-    // `test_groupby_multikey_hash_collision_merges_distinct_groups`.)
+    // (@a="ab", @b="c") must not collide with (@a="a", @b="bc").
     let (ab, c, a, bc) = (s("ab"), s("c"), s("a"), s("bc"));
     assert_ne!(
         h(&[("a", Some(&ab)), ("b", Some(&c))]),
@@ -172,27 +169,26 @@ fn arrays_hash_elementwise() {
     miri,
     ignore = "encodes a number via `num_to_str`, which calls C `snprintf`"
 )]
-fn distinct_row_eq_and_hash_agree_over_real_rows() {
-    fn distinct_row(key: &RLookupKey<'static>, v: f64) -> DistinctRow {
+fn distinct_key_eq_and_hash_agree_over_real_rows() {
+    fn distinct_key(key: &RLookupKey<'static>, v: f64) -> DistinctKey {
         let mut row = RLookupRow::new();
         row.write_key(key, SharedValue::new_num(v));
-        let hash = dedup_hash_row(&row, std::iter::once(key));
-        DistinctRow::from_parts(row, hash)
+        DistinctKey::new(dedup_hash_row(&row, std::iter::once(key)))
     }
 
-    fn hash_of(dr: &DistinctRow) -> u64 {
+    fn hash_of(dk: &DistinctKey) -> u64 {
         let mut hasher = DefaultHasher::new();
-        dr.hash(&mut hasher);
+        dk.hash(&mut hasher);
         hasher.finish()
     }
 
     let key = RLookupKey::new(c"v", RLookupKeyFlags::empty());
-    let a = distinct_row(&key, 7.0);
-    let b = distinct_row(&key, 7.0);
-    let c = distinct_row(&key, 8.0);
+    let a = distinct_key(&key, 7.0);
+    let b = distinct_key(&key, 7.0);
+    let c = distinct_key(&key, 8.0);
 
-    // Equal projected value ⇒ equal and same hash (Hash/Eq contract).
-    // `DistinctRow` intentionally has no `Debug`, so compare with `==`/`!=`
+    // Equal projected value ⇒ equal digest and same hash (Hash/Eq contract).
+    // `DistinctKey` intentionally has no `Debug`, so compare with `==`/`!=`
     // rather than `assert_eq!`/`assert_ne!`.
     assert!(a == b);
     assert_eq!(hash_of(&a), hash_of(&b));
@@ -281,8 +277,10 @@ fn distinct_keeps_best_representative_per_sort_key() {
 fn distinct_keeps_best_when_better_arrives_first() {
     // Mirror of `distinct_keeps_best_representative_per_sort_key` but with the
     // BETTER representative inserted FIRST, then the worse duplicate. This is
-    // the arrival order the coordinator sees, and exercises whether
-    // `push_increase` correctly *keeps* the incumbent when the new key is worse.
+    // the arrival order the coordinator sees, and exercises whether the
+    // worst-first `push_decrease` correctly *keeps* the incumbent when the new
+    // key is worse (a worse duplicate is a *higher* priority, so the monotonic
+    // `push_decrease` leaves the stored entry untouched).
     let g = make_key(c"g", 0);
     let s = make_key(c"s", 1);
     let mut storage = Storage::new(StorageMode::DistinctHeap, Some((0, 2)), SORT_DESC);
@@ -459,12 +457,7 @@ fn reducer_distinct_dedups_on_field_excluding_sort_key() {
     ignore = "encodes a number via `num_to_str`, which calls C `snprintf`"
 )]
 fn reducer_distinct_internal_emits_winning_sort_value() {
-    // Regression: on the shard→coordinator path (`is_internal`) the emitted
-    // payload carries the SORTBY columns. When a better duplicate replaces an
-    // earlier one, the emitted sort value must be the WINNER's, not the
-    // first-seen loser's — otherwise the coordinator re-sorts/dedups on a stale
-    // value. (Plain `push_increase` updates only the priority and would leave
-    // the loser's row, so this guards the remove+push replacement.)
+    // Internal shard results must emit the winning duplicate.
     let cat = make_key(c"cat", 0);
     let score = make_key(c"score", 1);
     let reducer = RemoteCollectReducer::new(
