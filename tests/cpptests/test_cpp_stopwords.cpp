@@ -48,7 +48,6 @@ TEST_F(StopwordsInfoTest, testInfoEmptyList) {
   ASSERT_EQ(info.fields[0].second, "");
 
   StopWordList_Unref(sl);
-  StopWordList_FreeGlobals();
 }
 
 TEST_F(StopwordsInfoTest, testInfoTerm) {
@@ -67,7 +66,6 @@ TEST_F(StopwordsInfoTest, testInfoTerm) {
   ASSERT_EQ(info.fields[0].second, "\"foo\"");
 
   StopWordList_Unref(sl);
-  StopWordList_FreeGlobals();
 }
 
 TEST_F(StopwordsInfoTest, testInfoNullList) {
