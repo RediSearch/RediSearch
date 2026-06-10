@@ -1024,8 +1024,16 @@ static int HybridRequest_BuildPipelineAndExecute(StrongRef hybrid_ref, HybridPip
 
     return REDISMODULE_OK;
   } else {
-    // Single-threaded execution path
-    return buildPipelineAndExecute(hybrid_ref, hybridParams, ctx, sctx, status, internal, false);
+    // Single-threaded execution path. Acquire the spec read lock around pipeline
+    // building, matching the background callback path (HREQ_Execute_Callback): the
+    // trie/stats consulted by QAST_Iterate are shared state that GC can mutate
+    // concurrently, so reading them unlocked here can race with GC. UnlockSpec is
+    // idempotent — the depletion / cursor-start paths inside buildPipelineAndExecute
+    // may already have released the lock (see WaitForDepletionToStart).
+    RedisSearchCtx_LockSpecRead(sctx);
+    int rc = buildPipelineAndExecute(hybrid_ref, hybridParams, ctx, sctx, status, internal, false);
+    RedisSearchCtx_UnlockSpec(sctx);
+    return rc;
   }
 }
 
