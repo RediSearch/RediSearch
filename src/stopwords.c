@@ -258,7 +258,12 @@ void AddStopWordsListToInfo(RedisModuleInfoCtx *ctx, struct StopWordList *sl) {
     stopwords = array_ensure_append_n(stopwords, str, len);
     stopwords = array_ensure_append_n(stopwords, "\",", 2);
   }
-  stopwords[array_len(stopwords)-1] = '\0';
+  // NUL-terminate: an empty list gets a fresh NUL, otherwise the trailing comma becomes one.
+  if (array_len(stopwords) == 0) {
+    stopwords = array_ensure_append_1(stopwords, "\0");
+  } else {
+    stopwords[array_len(stopwords) - 1] = '\0';
+  }
   RedisModule_InfoAddFieldCString(ctx, "stop_words", stopwords);
   array_free(stopwords);
   TrieMapIterator_Free(it);
