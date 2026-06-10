@@ -240,7 +240,13 @@ static ResultProcessor *getArrangeRP(Pipeline *pipeline, const AggregationPipeli
               HasScorer(&params->common)) {
       // No sort? then it must be sort by score, which is the default.
       // In optimize mode, add sorter for queries with a scorer.
-      rp = RPSorter_NewByScore(maxResults);
+      // Resolve the score-tie-break field if one was requested (see setupCoordinatorArrangeSteps).
+      const RLookupKey *scoreTieBreakKey = NULL;
+      if (astp->scoreTieBreakField) {
+        RLookup *lk = AGPLN_GetLookup(&pipeline->ap, stp, AGPLN_GETLOOKUP_PREV);
+        scoreTieBreakKey = RLookup_GetKey_Read(lk, astp->scoreTieBreakField, RLOOKUP_F_HIDDEN);
+      }
+      rp = RPSorter_NewByScore(maxResults, scoreTieBreakKey);
       up = pushRP(&pipeline->qctx, rp, up);
     }
   }

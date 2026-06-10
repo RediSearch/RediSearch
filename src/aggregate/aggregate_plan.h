@@ -101,6 +101,8 @@ typedef struct {
   uint64_t sortAscMap;            // Mapping of ascending/descending. Bitwise
   bool isLimited;                 // Flag if `LIMIT` keyword was used.
   bool runLocal;                  // Indicator that this step should run only local (not in shards)
+  const char *scoreTieBreakField; // If set, sort-by-score breaks ties by this field, not the doc
+                                  // id (see setupCoordinatorArrangeSteps).
   uint64_t offset;                // Seek results. If 0, then no paging is applied
   uint64_t limit;                 // Number of rows to output
 } PLN_ArrangeStep;

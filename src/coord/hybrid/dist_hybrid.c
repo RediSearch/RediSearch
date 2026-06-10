@@ -27,6 +27,7 @@
 #include "debug_commands.h"
 #include "result_processor.h"
 #include "concurrent_ctx.h"
+#include "document.h"
 #include "info/info_redis/threads/current_thread.h"
 #include "aggregate/reply_empty.h"
 
@@ -410,7 +411,14 @@ static void HybridRequest_buildDistRPChain(AREQ *r, MRCommand *xcmd,
 }
 
 static void setupCoordinatorArrangeSteps(AREQ *searchRequest, AREQ *vectorRequest, HybridPipelineParams *hybridParams) {
-  const size_t window = hybridParams->scoringCtx->scoringType == HYBRID_SCORING_RRF ? hybridParams->scoringCtx->rrfCtx.window : hybridParams->scoringCtx->linearCtx.window;
+  const bool isRRF = hybridParams->scoringCtx->scoringType == HYBRID_SCORING_RRF;
+  const size_t window =
+      isRRF ? hybridParams->scoringCtx->rrfCtx.window : hybridParams->scoringCtx->linearCtx.window;
+
+  // RRF scores a doc from its rank within a branch, so per-branch ties ordered differently across
+  // shards yield different RRF scores. Break ties by `__key` (stable across shards, unlike doc id).
+  // Only reached on the multi-shard path, so standalone keeps the cheaper doc-id tiebreak.
+  const char *scoreTieBreakField = isRRF ? UNDERSCORE_KEY : NULL;
 
   // TODO: would be better to look for a vector node (recursive search on the ast) and decide according to its query type (knn/range)
   const bool isKNN = vectorRequest->ast.root->type == QN_VECTOR;
@@ -418,8 +426,10 @@ static void setupCoordinatorArrangeSteps(AREQ *searchRequest, AREQ *vectorReques
 
   PLN_ArrangeStep *searchArrangeStep = AGPLN_GetOrCreateArrangeStep(AREQ_AGGPlan(searchRequest));
   searchArrangeStep->limit = window;
+  searchArrangeStep->scoreTieBreakField = scoreTieBreakField;
 
   PLN_ArrangeStep *vectorArrangeStep = AGPLN_GetOrCreateArrangeStep(AREQ_AGGPlan(vectorRequest));
+  vectorArrangeStep->scoreTieBreakField = scoreTieBreakField;
   if (isKNN) {
     // Vector subquery is a KNN query
     // Heapsize should be min(window, KNN K)
