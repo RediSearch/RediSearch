@@ -8,6 +8,8 @@
 */
 
 use libc::size_t;
+use query_error::opaque::OpaqueQueryError;
+use query_error::{QueryError, QueryErrorCode};
 use sorting_vector::RSSortingVector;
 use std::slice;
 use std::{
@@ -116,15 +118,18 @@ pub unsafe extern "C" fn RSSortingVector_PutStr(
 
 /// Puts a string at the given index in the sorting vector, the string is normalized before being set.
 ///
+/// Returns `true` if the string was successfully normalized and added to the sorting vector.
+/// Returns `false` is the string was malformed and was not inserted; the `QueryError` has been set to reflect this.
+///
 /// # Panics
 ///
-/// - Panics if the provided string is invalid UTF-8
 /// - Panics if the `idx` is out of bounds for the vector.
 ///
 /// # Safety
 ///
 /// 1. `vec` must be a [valid], non-null pointer to an [`RSSortingVector`] created by [`RSSortingVector_New`] or equivalent.
 /// 2. `str` must be a [valid], non-null pointer to a C string (null-terminated).
+/// 3. `status` must have been created by `QueryError_Default`.
 ///
 /// [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
 #[unsafe(no_mangle)]
@@ -132,19 +137,28 @@ pub unsafe extern "C" fn RSSortingVector_PutStrNormalize(
     vec: Option<NonNull<RSSortingVector>>,
     idx: libc::size_t,
     str: *const c_char,
-) {
+    status: Option<NonNull<OpaqueQueryError>>,
+) -> bool {
     // Safety: The caller must ensure that the pointer is valid (1.)
     let vec = unsafe { vec.expect("vec must not be null").as_mut() };
 
     // Safety: The caller must ensure str points to a valid C string (2.)
     let str = unsafe { CStr::from_ptr(str) };
 
-    let str = str.to_str().expect("value is invalid UTF-8");
+    // Safety: The caller must ensure status points to a valid query error (3.)
+    let status = unsafe { QueryError::from_opaque_non_null(status.unwrap()) };
+
+    let Ok(str) = str.to_str() else {
+        status.set_code_and_message(QueryErrorCode::BadVal, Some(c"Invalid UTF-8".to_owned()));
+        return false;
+    };
 
     vec.try_insert_string_normalize(idx, str)
         .unwrap_or_else(|_| {
             panic!("Index out of bounds: {} >= {}", idx, vec.len());
         });
+
+    true
 }
 
 /// Puts a value at the given index in the sorting vector. If a out of bounds occurs it returns silently.

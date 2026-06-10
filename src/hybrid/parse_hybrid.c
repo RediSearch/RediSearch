@@ -833,6 +833,15 @@ int parseHybridCommand(RedisModuleCtx *ctx, ArgsCursor *ac,
     goto error;
   }
 
+  // Cap the effective query timeout to search-_max-foreground-timeout-limit
+  // when the limit is active. The hybrid request shares a single reqConfig
+  // that is later copied into both subqueries through copyHybridConfigToSubquery.
+  // finishSendChunkReply_hybrid reads the cap flag from the search subquery
+  // only, so the flag is set on searchRequest alone.
+  if (RSConfig_CapQueryTimeoutToForegroundLimit(&parsedCmdCtx->reqConfig->queryTimeoutMS)) {
+    searchRequest->stateflags |= QEXEC_S_MAX_TIMEOUT_CAPPED;
+  }
+
   // Set slots info in both subqueries
   if (internal) {
     RS_ASSERT(requestSlotRanges != NULL);

@@ -256,17 +256,17 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v6
 
-      - name: Fetch failed-job logs
+      - name: Collect focused test-failure artifacts
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          set +e
           # Prefer the focused "Failed Test Logs *" artifacts produced by
           # task-test.yml — they contain only logs for tests that actually
           # failed, which is much higher signal than the full job stdout.
-          # Always also include `gh run view --log-failed` so non-pytest
-          # failures (build, sanitizer, Rust, etc.) still have context in
-          # mixed-failure runs.
+          # Job-level logs are appended afterwards (via fetch-failed-run-logs)
+          # so non-pytest failures (build, sanitizer, Rust, etc.) still have
+          # context in mixed-failure runs.
+          set +e
           mkdir -p downloaded-failed-logs
           gh run download "$GITHUB_RUN_ID" \
             --repo "$GITHUB_REPOSITORY" \
@@ -286,22 +286,12 @@ jobs:
           else
             echo "No Failed Test Logs artifacts found."
           fi
-
-          # Also append job-level failed logs to cover non-pytest failures.
-          {
-            printf '\n##[group]gh run view --log-failed\n'
-            gh run view "$GITHUB_RUN_ID" --repo "$GITHUB_REPOSITORY" --log-failed 2>&1
-            printf '\n##[endgroup]\n'
-          } >> failed-logs.txt
-
-          # Cap at 200KB to bound Codex token spend
-          if [ "$(wc -c < failed-logs.txt 2>/dev/null || echo 0)" -gt 204800 ]; then
-            tail -c 204800 failed-logs.txt > failed-logs.txt.tmp
-            printf '[truncated to last 200KB]\n' > failed-logs.txt
-            cat failed-logs.txt.tmp >> failed-logs.txt
-            rm failed-logs.txt.tmp
-          fi
           exit 0
+
+      - uses: ./.github/actions/fetch-failed-run-logs
+        with:
+          github-token: ${{ github.token }}
+          append: 'true'
 
       - name: Run Codex triage
         id: ai_triage

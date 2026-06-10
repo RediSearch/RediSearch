@@ -103,11 +103,12 @@ int FGC_recvFixed(ForkGC *fgc, void *buf, size_t len);
 /**
  * Read a length-prefixed buffer frame from the FGC pipe.
  *
- * On receipt of a `SIZE_MAX` length prefix, writes `SIZE_MAX` to
- * `*len` and the `RECV_BUFFER_EMPTY` sentinel pointer to `*buf`. On a
- * zero-length prefix, writes `0` and a null pointer. Otherwise leaks a
- * boxed payload slice, writing its pointer and length to `*buf` / `*len`;
- * the caller is responsible for releasing it with [`FGC_freeBuffer`].
+ * On receipt of a `SIZE_MAX` length prefix (end-of-stream terminator), writes
+ * `SIZE_MAX` to `*len` and a null pointer to `*buf`. Callers detect
+ * end-of-stream by checking `*len == SIZE_MAX`. On a zero-length prefix,
+ * writes `0` and a null pointer. Otherwise leaks a boxed payload slice,
+ * writing its pointer and length to `*buf` / `*len`; the caller is
+ * responsible for releasing it with [`FGC_freeBuffer`].
  *
  * On read error (timeout, short stream, ...), returns `REDISMODULE_ERR`
  * and leaves `*buf` / `*len` unchanged.
@@ -140,7 +141,7 @@ enum FGCError recvFieldHeader(ForkGC *fgc, char * *field_name, size_t *field_nam
 /**
  * Free a buffer previously returned by [`FGC_recvBuffer`] or [`recvFieldHeader`].
  *
- * No-ops for the `RECV_BUFFER_EMPTY` sentinel and null pointers.
+ * No-ops for null pointers (returned for both the terminator and empty-frame cases).
  *
  * # Safety
  *

@@ -240,6 +240,7 @@ void AddToInfo_Indexes(RedisModuleInfoCtx *ctx, TotalIndexesInfo *total_info) {
   RedisModule_InfoAddFieldULongLong(ctx, "total_active_write_threads", total_info->total_active_write_threads);
   RedisModule_InfoAddFieldDouble(ctx, "total_indexing_time", (float)total_info->indexing_time / (float)CLOCKS_PER_MILLISEC);
   RedisModule_InfoAddFieldULongLong(ctx, "total_num_docs_in_indexes", total_info->total_num_docs_in_indexes);
+  RedisModule_InfoAddFieldULongLong(ctx, "total_inverted_index_blocks", total_info->total_inverted_index_blocks);
 }
 
 static inline void AddToInfo_IndexesEmpty(RedisModuleInfoCtx *ctx) {
@@ -251,6 +252,7 @@ static inline void AddToInfo_IndexesEmpty(RedisModuleInfoCtx *ctx) {
   RedisModule_InfoAddFieldULongLong(ctx, "total_active_write_threads", 0);
   RedisModule_InfoAddFieldDouble(ctx, "total_indexing_time", 0);
   RedisModule_InfoAddFieldULongLong(ctx, "total_num_docs_in_indexes", 0);
+  RedisModule_InfoAddFieldULongLong(ctx, "total_inverted_index_blocks", 0);
 }
 
 void AddToInfo_Memory(RedisModuleInfoCtx *ctx, TotalIndexesInfo *total_info) {

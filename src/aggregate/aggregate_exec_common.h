@@ -10,6 +10,7 @@
 #pragma once
 #include "redismodule.h"
 #include "result_processor.h"
+#include "aggregate.h"  // ChunkReplyState (anonymous-struct typedef, not forward-declarable)
 
 typedef struct QueryError QueryError;
 
@@ -82,6 +83,19 @@ void startPipelineCommon(CommonPipelineCtx *ctx, ResultProcessor *rp, SearchResu
  * RETURN-STRICT drain.
  */
 bool pipelineCanYieldPartialResults(struct AREQ *r);
+
+/**
+ * Drain results buffered post-timeout into `stored->results`. Generic
+ * primitive shared by AREQ and HybridRequest paths -- callers gate on the
+ * appropriate `qctx->canYieldPartialResults` flag and perform any
+ * root-specific pre-drain setup (such as flipping RPNet's `drainOnly` mode
+ * on the coordinator) before invoking this function.
+ *
+ * `qctx->resultLimit` (and any RPPager_Limiter's internal `remaining`)
+ * reflect the post-abort budget, so this loop naturally respects the
+ * user's LIMIT and terminates at EOF.
+ */
+void Pipeline_DrainStoredResultsAfterTimeout(QueryProcessingCtx *qctx, ChunkReplyState *stored);
 
 /**
  * Drain results buffered post-timeout into `req->storedReplyState.results`.

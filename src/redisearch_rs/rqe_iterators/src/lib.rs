@@ -25,6 +25,7 @@ use thiserror::Error;
 
 use ::inverted_index::FieldMask;
 use index_result::RSIndexResult;
+pub use query_error::QueryError;
 use query_term::RSQueryTerm;
 
 pub mod c2rust;
@@ -273,11 +274,15 @@ pub static SEARCH_ENTERPRISE_ITERATORS: OnceLock<Box<dyn SearchEnterpriseIterato
 pub trait SearchEnterpriseIterators: Send + Sync {
     /// Iterate over all the documents in the index. Each document in the iterator will have the
     /// given weight.
+    ///
+    /// On failure, the implementation populates `status` (when present) with the cause before
+    /// returning `Err`.
     fn new_wildcard_on_disk<'index>(
         &self,
         index: &'index mut ffi::RedisSearchDiskIndexSpec,
         weight: f64,
-    ) -> Result<Box<dyn RQEIterator<'index> + 'index>, Box<dyn std::error::Error>>;
+        status: Option<&mut QueryError>,
+    ) -> Result<Box<dyn RQEIteratorPrintable<'index> + 'index>, Box<dyn std::error::Error>>;
 
     /// Iterate over all the terms in the index, loading offset data for each document.
     ///
@@ -315,5 +320,14 @@ pub trait SearchEnterpriseIterators: Send + Sync {
         token: &ffi::RSToken,
         field_index: FieldIndex,
         weight: f64,
+    ) -> Result<Box<dyn RQEIteratorPrintable<'index> + 'index>, Box<dyn std::error::Error>>;
+
+    /// Iterate over the entries of the numeric index at the given field index whose value
+    /// matches `filter`.
+    fn new_numeric_on_disk<'index>(
+        &self,
+        index: &'index mut ffi::RedisSearchDiskIndexSpec,
+        filter: &ffi::NumericFilter,
+        field_index: ffi::t_fieldIndex,
     ) -> Result<Box<dyn RQEIteratorPrintable<'index> + 'index>, Box<dyn std::error::Error>>;
 }

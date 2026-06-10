@@ -64,7 +64,7 @@ FGCError FGC_parentHandleFromChild(ForkGC *gc) {
   // Wait for the final terminator from the child, so it can finish post-processing chores before we kill it
   size_t terminator_check;
   int rc = FGC_recvFixed(gc, &terminator_check, sizeof(terminator_check)); // final status from child
-  if (rc != REDISMODULE_OK || terminator_check != SIZE_MAX) {
+  if (rc != REDISMODULE_OK || terminator_check != NO_MORE_DATA) {
     return FGC_CHILD_ERROR;
   }
   RedisModule_Log(gc->ctx, "debug", "ForkGC - parent ends applying changes");
@@ -111,8 +111,7 @@ static void reap_child_blocking(RedisModuleCtx *ctx, pid_t cpid, int timeout_sec
   }
 }
 
-static bool periodicCb(void *privdata, bool force) {
-  ForkGC *gc = privdata;
+bool FGC_RunCycle(ForkGC *gc, bool force, const FGCHook *hook) {
   RedisModuleCtx *ctx = gc->ctx;
 
   // This check must be done first, because some values (like `deletedDocsFromLastRun`) that are used for
@@ -139,12 +138,6 @@ static bool periodicCb(void *privdata, bool force) {
   bool gcrv = true;
   pid_t cpid;
   TimeSample ts;
-
-  while (gc->pauseState == FGC_PAUSED_CHILD) {
-    gc->execState = FGC_STATE_WAIT_FORK;
-    // spin or sleep
-    usleep(500);
-  }
 
   TimeSampler_Start(&ts);
   int pipefd[2];
@@ -173,8 +166,6 @@ static bool periodicCb(void *privdata, bool force) {
     close(gc->pipe_write_fd);
     return true;
   }
-
-  gc->execState = FGC_STATE_SCANNING;
 
   cpid = RedisModule_Fork(NULL, NULL);  // duplicate the current process
 
@@ -215,13 +206,10 @@ static bool periodicCb(void *privdata, bool force) {
     // release the strong reference to the index for the main process (see comment above)
     IndexSpecRef_Release(early_check);
     close(gc->pipe_write_fd);
-    while (gc->pauseState == FGC_PAUSED_PARENT) {
-      gc->execState = FGC_STATE_WAIT_APPLY;
-      // spin
-      usleep(500);
-    }
 
-    gc->execState = FGC_STATE_APPLYING;
+    // Test hook: lets tests inject mutations after fork (invisible to child) before results are applied.
+    if (hook && hook->beforeApply) hook->beforeApply(hook->privdata);
+
     gc->cleanNumericEmptyNodes = RSGlobalConfig.gcConfigParams.gcSettings.forkGCCleanNumericEmptyNodes;
     if (FGC_parentHandleFromChild(gc) == FGC_SPEC_DELETED) {
       gcrv = false;
@@ -249,7 +237,6 @@ static bool periodicCb(void *privdata, bool force) {
   }
 
   IndexsGlobalStats_DecreaseLogicallyDeleted(num_docs_to_clean);
-  gc->execState = FGC_STATE_IDLE;
   TimeSampler_End(&ts);
   long long msRun = TimeSampler_DurationMS(&ts);
 
@@ -260,40 +247,8 @@ static bool periodicCb(void *privdata, bool force) {
   return gcrv;
 }
 
-#if defined(__has_feature)
-#if __has_feature(thread_sanitizer)
-#define NO_TSAN_CHECK __attribute__((no_sanitize("thread")))
-#endif
-#endif
-#ifndef NO_TSAN_CHECK
-#define NO_TSAN_CHECK
-#endif
-
-void FGC_WaitBeforeFork(ForkGC *gc) NO_TSAN_CHECK {
-  RS_LOG_ASSERT(gc->pauseState == 0, "FGC pause state should be 0");
-  gc->pauseState = FGC_PAUSED_CHILD;
-
-  while (gc->execState != FGC_STATE_WAIT_FORK) {
-    usleep(500);
-  }
-}
-
-void FGC_ForkAndWaitBeforeApply(ForkGC *gc) NO_TSAN_CHECK {
-  // Ensure that we're waiting for the child to begin
-  RS_LOG_ASSERT(gc->pauseState == FGC_PAUSED_CHILD, "FGC pause state should be CHILD");
-  RS_LOG_ASSERT(gc->execState == FGC_STATE_WAIT_FORK, "FGC exec state should be WAIT_FORK");
-
-  gc->pauseState = FGC_PAUSED_PARENT;
-  while (gc->execState != FGC_STATE_WAIT_APPLY) {
-    usleep(500);
-  }
-}
-
-void FGC_Apply(ForkGC *gc) NO_TSAN_CHECK {
-  gc->pauseState = FGC_PAUSED_UNPAUSED;
-  while (gc->execState != FGC_STATE_IDLE) {
-    usleep(500);
-  }
+static bool periodicCb(void *privdata, bool force) {
+  return FGC_RunCycle(privdata, force, NULL);
 }
 
 static void onTerminateCb(void *privdata) {

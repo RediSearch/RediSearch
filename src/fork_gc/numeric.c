@@ -86,8 +86,7 @@ FGCError FGC_parentHandleNumeric(ForkGC *gc) {
       status = FGC_CHILD_ERROR;
       goto loop_cleanup;
     }
-    // Check if we received the sentinel terminator value
-    if (nodeLen == SIZE_MAX) {
+    if (nodeLen == NO_MORE_DATA) {
       break;
     }
 

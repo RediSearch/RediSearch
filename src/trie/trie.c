@@ -14,6 +14,7 @@
 #include "util/misc.h"
 #include "rune_util.h"
 #include "trie.h"
+#include "trie_node_internal.h"
 #include "rmalloc.h"
 #include "rdb.h"
 
@@ -234,7 +235,7 @@ Vector *Trie_Search(Trie *tree, const char *s, size_t len, size_t num, int maxDi
   size_t rlen;
   rune *runes = strToSingleCodepointFoldedRunes(s, len, &rlen);
   // make sure query length does not overflow
-  if (!runes || rlen >= TRIE_MAX_PREFIX) {
+  if (!runes || rlen > TRIE_MAX_PREFIX) {
     rm_free(runes);
     return NULL;
   }
@@ -282,11 +283,11 @@ Vector *Trie_Search(Trie *tree, const char *s, size_t len, size_t num, int maxDi
 
       if (heap_count(pq) == heap_size(pq)) {
         TrieSearchResult *qe = heap_peek(pq);
-        it->minScore = qe->score;
+        it->kthBestScore = qe->score;
       }
 
     } else {
-      if (ent->score > it->minScore) {
+      if (ent->score > it->kthBestScore) {
         pooledEntry = heap_poll(pq);
         rm_free(pooledEntry->str);
         pooledEntry->str = NULL;
@@ -295,10 +296,10 @@ Vector *Trie_Search(Trie *tree, const char *s, size_t len, size_t num, int maxDi
         ent->plen = payload.len;
         heap_offerx(pq, ent);
 
-        // get the new minimal score
+        // get the new kth-best score
         TrieSearchResult *qe = heap_peek(pq);
-        if (qe->score > it->minScore) {
-          it->minScore = qe->score;
+        if (qe->score > it->kthBestScore) {
+          it->kthBestScore = qe->score;
         }
 
       } else {
@@ -330,18 +331,19 @@ Vector *Trie_Search(Trie *tree, const char *s, size_t len, size_t num, int maxDi
       Vector_Get(ret, i, &h);
 
       if (maxScore && h->score < maxScore / SCORE_TRIM_FACTOR) {
-        // TODO: Fix trimming the vector
-        ret->top = i;
         break;
       }
       maxScore = MAX(maxScore, h->score);
     }
 
-    for (; i < n; ++i) {
+    // Free tail entries first; mutating ret->top before reading would make
+    // Vector_Get return 0 without writing h, leaving stack garbage to free.
+    for (int j = i; j < n; ++j) {
       TrieSearchResult *h;
-      Vector_Get(ret, i, &h);
+      Vector_Get(ret, j, &h);
       TrieSearchResult_Free(h);
     }
+    ret->top = i;
   }
 
   rm_free(runes);

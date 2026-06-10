@@ -84,11 +84,6 @@ extern "C" {
 #endif // __cplusplus
 
 /**
- * Get the total number of index blocks allocated across all inverted index instances.
- */
-size_t TotalIIBlocks(void);
-
-/**
  * Create a new inverted index instance based on the provided flags and options. `raw_doc_encoding`
  * controls whether document IDs only encoding should use raw encoding (true) or varint encoding
  * (false). `compress_floats` controls whether numeric encoding should have its floating point

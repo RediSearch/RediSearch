@@ -11,7 +11,7 @@
 //! top-K path.
 //!
 //! Wraps an `Ord`-driven [`MinMaxHeap`][min_max_heap::MinMaxHeap] over
-//! [`HeapEntry<T>`], where the comparator only reads the [`EntryKey`] half. The
+//! [`HeapEntry<D, T>`], where the comparator only reads the [`EntryKey`] half. The
 //! split lets the heap defer payload projection until a candidate's survival is
 //! confirmed.
 //!
@@ -32,35 +32,37 @@ use value::comparison::cmp_fields;
 ///
 /// Bit `i` of `sort_asc_map` (LSB-first) selects ASC for the `i`-th key
 /// (set) or DESC (clear), matching `SORTASCMAP_GETASC` / `cmp_fields`.
-pub struct EntryKey {
+pub struct EntryKey<D: Ord> {
     sort_vals: Box<[Option<SharedValue>]>,
     sort_asc_map: u64,
+    doc_id: D,
 }
 
-impl EntryKey {
-    pub const fn new(sort_vals: Box<[Option<SharedValue>]>, sort_asc_map: u64) -> Self {
+impl<D: Ord> EntryKey<D> {
+    pub const fn new(sort_vals: Box<[Option<SharedValue>]>, sort_asc_map: u64, doc_id: D) -> Self {
         Self {
             sort_vals,
             sort_asc_map,
+            doc_id,
         }
     }
 }
 
-impl PartialEq for EntryKey {
+impl<D: Ord> PartialEq for EntryKey<D> {
     fn eq(&self, other: &Self) -> bool {
         self.cmp(other) == Ordering::Equal
     }
 }
 
-impl Eq for EntryKey {}
+impl<D: Ord> Eq for EntryKey<D> {}
 
-impl PartialOrd for EntryKey {
+impl<D: Ord> PartialOrd for EntryKey<D> {
     fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
         Some(self.cmp(other))
     }
 }
 
-impl Ord for EntryKey {
+impl<D: Ord> Ord for EntryKey<D> {
     fn cmp(&self, other: &Self) -> Ordering {
         debug_assert_eq!(
             self.sort_vals.len(),
@@ -76,7 +78,11 @@ impl Ord for EntryKey {
         // `Ordering::Greater` for the "better" side, matching the
         // "best = max" convention in `SearchResult_CmpByFields` and the
         // C `RPSorter`'s `mmh_pop_max` consumer.
+        //
+        // On a tie, break by doc id. Reversing the comparison makes a
+        // smaller doc id "stronger" (greater), so the heap prefers it.
         cmp_fields(pairs, self.sort_asc_map, None)
+            .then_with(|| self.doc_id.cmp(&other.doc_id).reverse())
     }
 }
 
@@ -85,17 +91,17 @@ impl Ord for EntryKey {
 /// `T` is the per-row payload the consumer (`Storage::Heap`) yields at
 /// finalize. Comparing only reads `key`, so the choice of `T` does not
 /// affect ranking.
-pub struct HeapEntry<T> {
-    key: EntryKey,
+pub struct HeapEntry<D: Ord, T> {
+    key: EntryKey<D>,
     projected: T,
 }
 
-impl<T> HeapEntry<T> {
-    pub const fn new(key: EntryKey, projected: T) -> Self {
+impl<D: Ord, T> HeapEntry<D, T> {
+    pub const fn new(key: EntryKey<D>, projected: T) -> Self {
         Self { key, projected }
     }
 
-    pub const fn key(&self) -> &EntryKey {
+    pub const fn key(&self) -> &EntryKey<D> {
         &self.key
     }
 
@@ -109,21 +115,21 @@ impl<T> HeapEntry<T> {
     }
 }
 
-impl<T> PartialEq for HeapEntry<T> {
+impl<D: Ord, T> PartialEq for HeapEntry<D, T> {
     fn eq(&self, other: &Self) -> bool {
         self.key == other.key
     }
 }
 
-impl<T> Eq for HeapEntry<T> {}
+impl<D: Ord, T> Eq for HeapEntry<D, T> {}
 
-impl<T> PartialOrd for HeapEntry<T> {
+impl<D: Ord, T> PartialOrd for HeapEntry<D, T> {
     fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
         Some(self.cmp(other))
     }
 }
 
-impl<T> Ord for HeapEntry<T> {
+impl<D: Ord, T> Ord for HeapEntry<D, T> {
     fn cmp(&self, other: &Self) -> Ordering {
         self.key.cmp(&other.key)
     }

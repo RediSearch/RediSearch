@@ -74,9 +74,11 @@ void SearchDisk_UpdateLogObfuscation();
  * @param type Document type
  * @param deleteBeforeOpen If true, delete any existing data before opening (used when loading
  *        without SST persistence to ensure stale data is cleared)
+ * @param c_index_spec Pointer to the C IndexSpec used as private callback data for
+ *        compaction. Must outlive the returned RedisSearchDiskIndexSpec.
  * @return Pointer to the index, or NULL if it does not exist
  */
-RedisSearchDiskIndexSpec* SearchDisk_OpenIndex(RedisModuleCtx *ctx, const HiddenString *indexName, const char *obfuscatedName, DocumentType type, bool deleteBeforeOpen);
+RedisSearchDiskIndexSpec* SearchDisk_OpenIndex(RedisModuleCtx *ctx, const HiddenString *indexName, const char *obfuscatedName, DocumentType type, bool deleteBeforeOpen, IndexSpec *c_index_spec);
 
 /**
  * @brief Mark an index for deletion, the index will be deleted from the disk only after SearchDisk_CloseIndex is called
@@ -162,14 +164,17 @@ RedisSearchDiskRdbState* SearchDisk_LoadRdbToTempObject(RedisModuleIO *rdb);
  * @param indexName Name of the index
  * @param obfuscatedName Obfuscated name of the index (for logging)
  * @param type Document type for this index
- * @param rdbState The RDB state (consumed)
+ * @param rdbState Temporary RDB state from SearchDisk_LoadRdbToTempObject (will be consumed)
+ * @param c_index_spec Pointer to the C IndexSpec used as private callback data for
+ *        compaction. Must outlive the returned RedisSearchDiskIndexSpec.
  * @return Pointer to the created IndexSpec, or NULL on error
  */
 RedisSearchDiskIndexSpec* SearchDisk_OpenIndexWithRdbState(RedisModuleCtx *ctx,
                                                             const HiddenString *indexName,
                                                             const char *obfuscatedName,
                                                             DocumentType type,
-                                                            RedisSearchDiskRdbState *rdbState);
+                                                            RedisSearchDiskRdbState *rdbState,
+                                                            IndexSpec *c_index_spec);
 
 /**
  * @brief Free a temporary RDB state object.
@@ -210,6 +215,26 @@ bool SearchDisk_IndexTerm(RedisSearchDiskIndexSpec *index, SearchDiskWriteBatchH
  * @return true if successful, false otherwise
  */
 bool SearchDisk_IndexTags(RedisModuleCtx *ctx, RedisSearchDiskIndexSpec *index, SearchDiskWriteBatchHandle *batch, const char **values, size_t numValues, t_docId docId, t_fieldIndex fieldIndex);
+
+/**
+ * @brief Stage a numeric value for a document on a write batch.
+ *
+ * Called once per `(doc, value)`. Multi-value numeric fields loop in the
+ * OSS bulk indexer. The write is not durable until `batch` is committed via
+ * `SearchDisk_CommitWriteBatch`.
+ *
+ * The CF is created and registered with Redis BigModule via `ctx` on the
+ * first call per field, mirroring `SearchDisk_IndexTags`.
+ *
+ * @param ctx Redis module context for BigModule APIs (used to register new CFs)
+ * @param index Pointer to the index
+ * @param batch Open write batch the numeric write is staged into
+ * @param docId Document ID to index
+ * @param value Numeric value to associate with the document
+ * @param fieldIndex Field index for the numeric field
+ * @return true if successful, false otherwise
+ */
+bool SearchDisk_IndexNumeric(RedisModuleCtx *ctx, RedisSearchDiskIndexSpec *index, SearchDiskWriteBatchHandle *batch, t_docId docId, double value, t_fieldIndex fieldIndex);
 
 /**
  * @brief Open a new write batch bound to the given disk index.
@@ -274,15 +299,14 @@ bool SearchDisk_DeleteDocumentById(RedisSearchDiskIndexSpec *handle, t_docId doc
  * @brief Run a GC compaction cycle on the disk index
  *
  * Synchronously runs a full compaction on the inverted index column family,
- * removing entries for deleted documents. Applies the compaction delta to
- * update in-memory structures via callbacks derived from the provided C
- * IndexSpec, taking the IndexSpec write lock while those updates are applied.
+ * removing entries for deleted documents. The in-memory delta is applied via
+ * the compaction callback table that was bound to the IndexSpec at open time;
+ * those callbacks take the IndexSpec write lock around the update window.
  *
  * @param index Pointer to the disk index
- * @param c_index_spec Pointer to the C IndexSpec used as private callback data
  * @return Number of deleted document IDs removed from the disk index
  */
-size_t SearchDisk_RunGC(RedisSearchDiskIndexSpec *index, IndexSpec *c_index_spec);
+size_t SearchDisk_RunGC(RedisSearchDiskIndexSpec *index);
 
 /**
  * @brief Create an IndexIterator for a term in the inverted index
@@ -299,9 +323,10 @@ size_t SearchDisk_RunGC(RedisSearchDiskIndexSpec *index, IndexSpec *c_index_spec
  * @param idf Inverse document frequency for the term
  * @param bm25_idf BM25 inverse document frequency for the term
  * @param needsOffsets Whether the query needs term offset data (for scoring or phrase matching)
+ * @param status QueryError to populate with the cause when creation fails (may be NULL)
  * @return Pointer to the IndexIterator, or NULL on error
  */
-QueryIterator* SearchDisk_NewTermIterator(RedisSearchDiskIndexSpec *index, RSToken *tok, int tokenId, t_fieldMask fieldMask, double weight, double idf, double bm25_idf, bool needsOffsets);
+QueryIterator* SearchDisk_NewTermIterator(RedisSearchDiskIndexSpec *index, RSToken *tok, int tokenId, t_fieldMask fieldMask, double weight, double idf, double bm25_idf, bool needsOffsets, QueryError *status);
 
 /**
  * @brief Create a tag IndexIterator for a specific tag value
@@ -313,9 +338,25 @@ QueryIterator* SearchDisk_NewTermIterator(RedisSearchDiskIndexSpec *index, RSTok
  * @param tok Pointer to the token (contains tag value string)
  * @param fieldIndex Field index for the tag field
  * @param weight Weight for the term (used in scoring)
+ * @param status QueryError to populate with the cause when creation fails (may be NULL)
  * @return Pointer to the IndexIterator, or NULL on error
  */
-QueryIterator* SearchDisk_NewTagIterator(RedisSearchDiskIndexSpec *index, const RSToken *tok, t_fieldIndex fieldIndex, double weight);
+QueryIterator* SearchDisk_NewTagIterator(RedisSearchDiskIndexSpec *index, const RSToken *tok, t_fieldIndex fieldIndex, double weight, QueryError *status);
+
+/**
+ * @brief Create a numeric range IndexIterator over the disk-backed index
+ *
+ * Wraps the disk API's per-bucket readers in a union iterator that yields
+ * doc-ids matching `filter`'s range. The iterator captures a Speedb snapshot
+ * and is independent of subsequent writes.
+ *
+ * @param index Pointer to the index
+ * @param filter Pointer to the numeric filter (min, max, inclusivity, field spec)
+ * @param fieldIndex Field index for the numeric field
+ * @param status QueryError to populate with the cause when creation fails (may be NULL)
+ * @return Pointer to the IndexIterator, or NULL if no buckets overlap the filter
+ */
+QueryIterator* SearchDisk_NewNumericIterator(RedisSearchDiskIndexSpec *index, const NumericFilter *filter, t_fieldIndex fieldIndex, QueryError *status);
 
 // DocTable API wrappers
 
@@ -698,8 +739,7 @@ void SearchDisk_PreCheckpoint(IndexSpec *sp);
 /**
  * @brief Master-side SST replication PRE_FORK hook for a single index.
  *
- * Acquires the per-spec fork lock, then the IndexSpec read lock, then
- * dispatches to the disk-side preFork hook.
+ * Dispatches to the disk-side preFork hook.
  *
  * @param sp Pointer to the IndexSpec (must have a non-NULL diskSpec)
  */
@@ -708,8 +748,7 @@ void SearchDisk_PreFork(IndexSpec *sp);
 /**
  * @brief Master-side SST replication POST_FORK hook for a single index.
  *
- * Dispatches to the disk-side postFork hook, then releases the read lock and
- * the fork lock acquired in SearchDisk_PreFork.
+ * Dispatches to the disk-side postFork hook.
  *
  * @param sp Pointer to the IndexSpec
  */
@@ -736,3 +775,56 @@ void SearchDisk_ReplicationAbort(IndexSpec *sp);
  * @param percentage Percentage of available memory to request (0-100)
  */
 void SearchDisk_UpdateBufferBudget(RedisModuleCtx *ctx, int percentage);
+
+// ---------------------------------------------------------------------------
+// Fork × compaction debug coordinator (FT.DEBUG REPL_COMPACTION_COORDINATOR)
+// Declared via search_disk_api.h; redeclared here so debug_commands.c only
+// needs to include "search_disk.h". See redisearch_disk/src/compaction/debug.rs
+// for semantics. Site values must match `compaction::Site`.
+// ---------------------------------------------------------------------------
+
+// Lifecycle rendezvous sites; mirrors the Rust `compaction::Site` repr(i32).
+typedef enum {
+  SEARCH_DISK_SITE_COMPACTION_BEGIN = 0,
+  SEARCH_DISK_SITE_COMPACTION_COMPLETED = 1,
+  SEARCH_DISK_SITE_PRE_CHECKPOINT = 2,
+} SearchDiskCompactionSite;
+
+/**
+ * @brief Arms or disarms a single-shot pause at `site`.
+ *
+ * When armed, the next time that lifecycle site is reached its thread parks
+ * until released (by a cross-wake, an explicit release, or a bounded
+ * backstop timeout). The arm is consumed by the parked thread.
+ */
+void SearchDisk_DebugCoordinatorArmPause(int site, bool armed);
+
+/**
+ * @brief Configures a cross-wake: reaching `trigger` releases `target`.
+ *
+ * This is what breaks the replication-vs-compaction deadlock — a main-thread
+ * site (e.g. PRE_CHECKPOINT) can release a background compaction it is about
+ * to block on. A `target` of -1 clears the link.
+ */
+void SearchDisk_DebugCoordinatorSetWake(int trigger, int target);
+
+/**
+ * @brief Releases a parked site (or pre-arms a release for the next park).
+ *
+ * Safe to call when nothing is parked. Used for RDB-only replication, where
+ * the main thread is never blocked so a plain release works.
+ */
+void SearchDisk_DebugCoordinatorRelease(int site);
+
+/**
+ * @brief Returns how many times `site` has been reached since the last reset.
+ */
+unsigned int SearchDisk_DebugCoordinatorReached(int site);
+
+/**
+ * @brief Resets the coordinator.
+ *
+ * Clears arrivals, arming, and cross-wakes, and frees any parked waiter.
+ * Intended for test teardown so a stuck pause can't poison the next test.
+ */
+void SearchDisk_DebugResetCompactionController(void);

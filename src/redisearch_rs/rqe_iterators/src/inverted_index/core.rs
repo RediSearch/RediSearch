@@ -84,6 +84,15 @@ where
         }
     }
 
+    /// Returns the current query term bytes, if available.
+    ///
+    /// The term is stored in the iterator's result and is set during
+    /// construction. Returns [`None`] if the result is not a term result
+    /// or the term has no string representation.
+    pub fn query_term_bytes(&self) -> Option<&[u8]> {
+        self.result.as_term()?.query_term()?.as_bytes()
+    }
+
     /// Default read implementation, without any additional filtering.
     fn read_default(&mut self) -> Result<Option<&mut RSIndexResult<'index>>, RQEIteratorError> {
         if self.at_eos {

@@ -1703,6 +1703,25 @@ dependencies = [
 ]
 
 [[package]]
+name = "query"
+version = "0.0.1"
+dependencies = [
+ "build_utils",
+ "ffi",
+ "inverted_index",
+ "query",
+ "query_error",
+ "query_flags",
+ "query_node_type",
+ "redis_mock",
+ "redisearch_rs",
+ "rlookup",
+ "rqe_core",
+ "rqe_iterators",
+ "workspace_hack",
+]
+
+[[package]]
 name = "query_error"
 version = "0.0.1"
 dependencies = [
@@ -2664,6 +2683,7 @@ dependencies = [
  "cheadergen",
  "ffi",
  "libc",
+ "query_error",
  "sorting_vector",
  "thin_vec",
  "value",
@@ -3055,6 +3075,23 @@ dependencies = [
  "ffi",
  "field",
  "libc",
+ "rqe_core",
+ "thin_vec",
+ "ttl_table",
+ "workspace_hack",
+]
+
+[[package]]
+name = "ttl_table_bencher"
+version = "0.0.1"
+dependencies = [
+ "build_utils",
+ "criterion",
+ "ffi",
+ "libc",
+ "rand 0.10.1",
+ "redis_mock",
+ "redisearch_rs",
  "rqe_core",
  "thin_vec",
  "ttl_table",

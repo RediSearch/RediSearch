@@ -314,7 +314,7 @@ int Suffix_ChooseToken_rune(const rune *str, size_t len, size_t *tokenIdx, size_
     // this branching is heavy
     for (int j = tokenIdx[i]; j < tokenIdx[i] + tokenLen[i]; ++j) {
       if (str[j] == (rune)'?') {
-        --score;
+        --curScore;
       }
     }
 
@@ -334,7 +334,7 @@ int Suffix_CB_Wildcard(const rune *rune, size_t len, void *p, void *payload, siz
     return REDISMODULE_OK;
   }
 
-  suffixData *data = (suffixData *)pl->data;
+  suffixData *data = (suffixData *)TriePayload_Data(pl);
   arrayof(char *) array = data->array;
   for (int i = 0; i < array_len(array); ++i) {
     if (Wildcard_MatchChar(sufCtx->cstr, sufCtx->cstrlen, array[i], strlen(array[i]))

@@ -49,6 +49,23 @@ void VecSimDisk_AcquireConsistencyLock(void) {}
 __attribute__((weak))
 void VecSimDisk_ReleaseConsistencyLock(void) {}
 
+__attribute__((weak))
+void SearchDisk_DebugCoordinatorArmPause(int site, bool armed) {}
+
+__attribute__((weak))
+void SearchDisk_DebugCoordinatorSetWake(int trigger, int target) {}
+
+__attribute__((weak))
+void SearchDisk_DebugCoordinatorRelease(int site) {}
+
+__attribute__((weak))
+unsigned int SearchDisk_DebugCoordinatorReached(int site) {
+  return 0;
+}
+
+__attribute__((weak))
+void SearchDisk_DebugResetCompactionController(void) {}
+
 bool SearchDisk_Initialize(RedisModuleCtx *ctx) {
   if (!SearchDisk_HasAPI()) {
     RedisModule_Log(ctx, "notice", "RediSearch_Disk API not available");
@@ -135,10 +152,54 @@ void SearchDisk_Close(RedisModuleCtx *ctx) {
   }
 }
 
+static void* Compaction_BeginUpdate(void *private_data) {
+    IndexSpec *sp = private_data;
+    RS_ASSERT(sp);
+    IndexSpec_AcquireWriteLock(sp);
+    return sp;
+}
+
+static bool Compaction_DecrementTrieTermCount(void *update_ctx,
+                                              const char *term,
+                                              size_t term_len,
+                                              size_t doc_count_decrement) {
+    IndexSpec *sp = update_ctx;
+    RS_ASSERT(sp);
+
+    return IndexSpec_DecrementTrieTermCount(sp, term, term_len, doc_count_decrement);
+}
+
+static void Compaction_DecrementNumTerms(void *update_ctx, uint64_t num_terms_removed) {
+    IndexSpec *sp = update_ctx;
+    RS_ASSERT(sp);
+
+    IndexSpec_DecrementNumTerms(sp, num_terms_removed);
+}
+
+static void Compaction_EndUpdate(void *update_ctx) {
+    IndexSpec *sp = update_ctx;
+    RS_ASSERT(sp);
+
+    IndexSpec_ReleaseWriteLock(sp);
+}
+
+// Built once per IndexSpec at openIndexSpec time and copied into the Rust
+// IndexSpec's compaction listener; the C-side struct itself does not need to
+// outlive the openIndexSpec call.
+static SearchDiskCompactionCallbacks SearchDisk_CompactionCallbacks(void) {
+    return (SearchDiskCompactionCallbacks) {
+        .beginUpdate = Compaction_BeginUpdate,
+        .decrementTrieTermCount = Compaction_DecrementTrieTermCount,
+        .decrementNumTerms = Compaction_DecrementNumTerms,
+        .endUpdate = Compaction_EndUpdate,
+    };
+}
+
 // Basic API wrappers
-RedisSearchDiskIndexSpec* SearchDisk_OpenIndex(RedisModuleCtx *ctx, const HiddenString *indexName, const char *obfuscatedName, DocumentType type, bool deleteBeforeOpen) {
-    RS_ASSERT(disk_db);
-    return disk->basic.openIndexSpec(ctx, disk_db, indexName, obfuscatedName, strlen(obfuscatedName), type, deleteBeforeOpen);
+RedisSearchDiskIndexSpec* SearchDisk_OpenIndex(RedisModuleCtx *ctx, const HiddenString *indexName, const char *obfuscatedName, DocumentType type, bool deleteBeforeOpen, IndexSpec *c_index_spec) {
+    RS_ASSERT(disk_db && c_index_spec);
+    SearchDiskCompactionCallbacks callbacks = SearchDisk_CompactionCallbacks();
+    return disk->basic.openIndexSpec(ctx, disk_db, indexName, obfuscatedName, strlen(obfuscatedName), type, deleteBeforeOpen, &callbacks, c_index_spec);
 }
 
 void SearchDisk_UpdateLogObfuscation() {
@@ -187,9 +248,11 @@ RedisSearchDiskIndexSpec* SearchDisk_OpenIndexWithRdbState(RedisModuleCtx *ctx,
                                                             const HiddenString *indexName,
                                                             const char *obfuscatedName,
                                                             DocumentType type,
-                                                            RedisSearchDiskRdbState *rdbState) {
-  RS_ASSERT(disk && disk_db && indexName && rdbState);
-  return disk->basic.openIndexSpecWithRdbState(ctx, disk_db, indexName, obfuscatedName, strlen(obfuscatedName), type, rdbState);
+                                                            RedisSearchDiskRdbState *rdbState,
+                                                            IndexSpec *c_index_spec) {
+  RS_ASSERT(disk && disk_db && indexName && rdbState && c_index_spec);
+  SearchDiskCompactionCallbacks callbacks = SearchDisk_CompactionCallbacks();
+  return disk->basic.openIndexSpecWithRdbState(ctx, disk_db, indexName, obfuscatedName, strlen(obfuscatedName), type, rdbState, &callbacks, c_index_spec);
 }
 
 void SearchDisk_FreeRdbState(RedisSearchDiskRdbState *rdbState) {
@@ -235,66 +298,32 @@ bool SearchDisk_IndexTags(RedisModuleCtx *ctx, RedisSearchDiskIndexSpec *index, 
     return disk->index.indexTags(ctx, index, batch, values, numValues, docId, fieldIndex);
 }
 
-QueryIterator* SearchDisk_NewTermIterator(RedisSearchDiskIndexSpec *index, RSToken *tok, int tokenId, t_fieldMask fieldMask, double weight, double idf, double bm25_idf, bool needsOffsets) {
+bool SearchDisk_IndexNumeric(RedisModuleCtx *ctx, RedisSearchDiskIndexSpec *index, SearchDiskWriteBatchHandle *batch, t_docId docId, double value, t_fieldIndex fieldIndex) {
+    RS_ASSERT(disk && index && batch);
+    return disk->index.indexNumeric(ctx, index, batch, docId, value, fieldIndex);
+}
+
+QueryIterator* SearchDisk_NewTermIterator(RedisSearchDiskIndexSpec *index, RSToken *tok, int tokenId, t_fieldMask fieldMask, double weight, double idf, double bm25_idf, bool needsOffsets, QueryError *status) {
     RS_ASSERT(disk && index && tok);
     RSQueryTerm *term = NewQueryTerm(tok, tokenId);
     QueryTerm_SetIDFs(term, idf, bm25_idf);
     // Ownership of `term` is transferred to Rust, which handles cleanup on all paths
-    return disk->index.newTermIterator(index, term, fieldMask, weight, needsOffsets);
+    return disk->index.newTermIterator(index, term, fieldMask, weight, needsOffsets, status);
 }
 
-QueryIterator* SearchDisk_NewTagIterator(RedisSearchDiskIndexSpec *index, const RSToken *tok, t_fieldIndex fieldIndex, double weight) {
+QueryIterator* SearchDisk_NewTagIterator(RedisSearchDiskIndexSpec *index, const RSToken *tok, t_fieldIndex fieldIndex, double weight, QueryError *status) {
     RS_ASSERT(disk && index && tok);
-    return disk->index.newTagIterator(index, tok, fieldIndex, weight);
+    return disk->index.newTagIterator(index, tok, fieldIndex, weight, status);
 }
 
-static void* Compaction_BeginUpdate(void *private_data) {
-    IndexSpec *sp = private_data;
-    RS_ASSERT(sp);
-    // Lock order: block-fork then wrlock - must match the order in
-    // SearchDisk_PreFork (protect-fork then rdlock).
-    // TODO: move the block-fork acquisition to a start callback once the Job-ID based compaction is there.
-    IndexSpec_BlockDiskFork(sp);
-    IndexSpec_AcquireWriteLock(sp);
-    return sp;
+QueryIterator* SearchDisk_NewNumericIterator(RedisSearchDiskIndexSpec *index, const NumericFilter *filter, t_fieldIndex fieldIndex, QueryError *status) {
+    RS_ASSERT(disk && index && filter);
+    return disk->index.newNumericIterator(index, filter, fieldIndex, status);
 }
 
-static bool Compaction_DecrementTrieTermCount(void *update_ctx,
-                                              const char *term,
-                                              size_t term_len,
-                                              size_t doc_count_decrement) {
-    IndexSpec *sp = update_ctx;
-    RS_ASSERT(sp);
-
-    return IndexSpec_DecrementTrieTermCount(sp, term, term_len, doc_count_decrement);
-}
-
-static void Compaction_DecrementNumTerms(void *update_ctx, uint64_t num_terms_removed) {
-    IndexSpec *sp = update_ctx;
-    RS_ASSERT(sp);
-
-    IndexSpec_DecrementNumTerms(sp, num_terms_removed);
-}
-
-static void Compaction_EndUpdate(void *update_ctx) {
-    IndexSpec *sp = update_ctx;
-    RS_ASSERT(sp);
-
-    // Release in reverse order of acquisition (wrlock first, then fork gate).
-    IndexSpec_ReleaseWriteLock(sp);
-    IndexSpec_EnableDiskForkIfPossible(sp);
-}
-size_t SearchDisk_RunGC(RedisSearchDiskIndexSpec *index, IndexSpec *spec) {
-    RS_ASSERT(disk && index && spec);
-
-    SearchDiskCompactionCallbacks callbacks = {
-        .beginUpdate = Compaction_BeginUpdate,
-        .decrementTrieTermCount = Compaction_DecrementTrieTermCount,
-        .decrementNumTerms = Compaction_DecrementNumTerms,
-        .endUpdate = Compaction_EndUpdate,
-    };
-
-    return disk->index.runGC(index, &callbacks, spec);
+size_t SearchDisk_RunGC(RedisSearchDiskIndexSpec *index) {
+    RS_ASSERT(disk && index);
+    return disk->index.runGC(index);
 }
 
 t_docId SearchDisk_PutDocument(RedisSearchDiskIndexSpec *handle, SearchDiskWriteBatchHandle *batch, const char *key, size_t keyLen, float score, uint32_t flags, uint32_t maxTermFreq, uint32_t docLen, uint32_t *oldLen, t_expirationTimePoint documentTtl, t_docId oldDocId) {
@@ -513,26 +542,17 @@ void SearchDisk_PreCheckpoint(IndexSpec *sp) {
 
 void SearchDisk_PreFork(IndexSpec *sp) {
   RS_ASSERT(disk && sp && sp->diskSpec);
-  // Lock order: protect-fork then rdlock. The disk side must use the same
-  // ordering for any critical section that gates the fork to avoid deadlock
-  // with this handler.
-  IndexSpec_ProtectDiskFork(sp);
   disk->index.preFork(sp->diskSpec);
 }
 
 void SearchDisk_PostFork(IndexSpec *sp) {
   RS_ASSERT(disk && sp && sp->diskSpec);
-  RS_ASSERT(sp->repl_flags & REPL_LOCK_DISK_FORK_PROTECTED);
   disk->index.postFork(sp->diskSpec);
-  IndexSpec_UnProtectDiskFork(sp);
 }
 
 void SearchDisk_ReplicationAbort(IndexSpec *sp) {
   RS_ASSERT(disk && sp && sp->diskSpec);
   disk->index.replicationAbort(sp->diskSpec);
-  if (sp->repl_flags & REPL_LOCK_DISK_FORK_PROTECTED) {
-    IndexSpec_UnProtectDiskFork(sp);
-  }
 }
 
 void SearchDisk_UpdateBufferBudget(RedisModuleCtx *ctx, int percentage) {

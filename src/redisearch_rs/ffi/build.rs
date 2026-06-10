@@ -148,6 +148,28 @@ const HEADERS: &[HeaderAllowlist] = &[
         vars: &[],
     },
     HeaderAllowlist {
+        path: "src/query_node.h",
+        fns: &[],
+        types: &[
+            "QueryFuzzyNode",
+            "QueryGeofilterNode",
+            "QueryGeometryNode",
+            "QueryIdFilterNode",
+            "QueryLexRangeNode",
+            "QueryMissingNode",
+            "QueryNullNode",
+            "QueryNumericNode",
+            "QueryPhraseNode",
+            "QueryPrefixNode",
+            "QueryTagNode",
+            "QueryTokenNode",
+            "QueryVectorNode",
+            "QueryVerbatimNode",
+            "RSQueryNode",
+        ],
+        vars: &[],
+    },
+    HeaderAllowlist {
         path: "src/redis_index.h",
         fns: &["Redis_OpenInvertedIndex"],
         types: &[],
@@ -302,6 +324,9 @@ const HEADERS: &[HeaderAllowlist] = &[
             "TimeToLiveTable_VerifyDocAndFieldMask",
             "TimeToLiveTable_VerifyDocAndWideFieldMask",
             "TimeToLiveTable_VerifyInit",
+            // Used by bench.
+            "TimeToLiveTable_Destroy",
+            "TimeToLiveTable_IsEmpty",
         ],
         types: &[],
         vars: &[],
@@ -471,7 +496,7 @@ fn main() {
     let includes = [
         src.clone(),
         deps.clone(),
-        permitted_dir,
+        permitted_dir.clone(),
         src.join("inverted_index"),
         deps.join("VectorSimilarity").join("src"),
         src.join("buffer"),
@@ -499,7 +524,13 @@ fn main() {
     }
     for include in &includes {
         bindings = bindings.clang_arg(format!("-I{}", include.display()));
-        let _ = rerun_if_c_changes(include);
+        // Don't watch the staged copies under OUT_DIR: the build script writes
+        // them itself, so their mtimes will always be post-date cargo's fingerprint
+        // reference and would force a rebuild on every invocation. The source
+        // generated headers are already watched above.
+        if include != &permitted_dir {
+            let _ = rerun_if_c_changes(include);
+        }
     }
     // `_GNU_SOURCE` makes `<stdio.h>` declare `asprintf`/`vasprintf`, which
     // `deps/rmalloc/rmalloc.h` uses.
