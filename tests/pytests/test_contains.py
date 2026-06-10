@@ -571,6 +571,54 @@ def testSuffixTrieFindsMultiTokenShortPatternTag(env):
   env.expect('FT.SEARCH', 'idx_w',  "@t:{w'*x*y*'}", 'NOCONTENT').equal([0])
   env.expect('FT.SEARCH', 'idx_no', "@t:{w'*x*y*'}", 'NOCONTENT').equal([0])
 
+@skip(cluster=True)
+def testSuffixTrieNoEmptyDriftUnderIndexEmpty(env):
+  # Regression for the INDEXEMPTY drift concern on PR #9945: the suffix DS gates
+  # adds on `len == 0`, so an empty value is never stored in the suffix trie.
+  # This must NOT change recall relative to an INDEXEMPTY field *without*
+  # WITHSUFFIXTRIE: empty values are reachable only via exact match (which
+  # bypasses the suffix DS), and `?`/`*` wildcards must treat the empty value
+  # identically on both. We compare a suffix-trie field against a plain field,
+  # both INDEXEMPTY, for exact-empty match and for `*`, `?*`, `*?*`, `*?`.
+  env.expect(config_cmd(), 'set', 'DEFAULT_DIALECT', 2).ok()
+  env.expect(config_cmd(), 'set', 'MINPREFIX', 1).ok()
+  conn = getConnectionByEnv(env)
+  conn.execute_command('FT.CREATE', 'idx_w',  'SCHEMA',
+                       't',  'TAG',  'INDEXEMPTY', 'WITHSUFFIXTRIE',
+                       'tx', 'TEXT', 'INDEXEMPTY', 'WITHSUFFIXTRIE')
+  conn.execute_command('FT.CREATE', 'idx_no', 'SCHEMA',
+                       't',  'TAG',  'INDEXEMPTY',
+                       'tx', 'TEXT', 'INDEXEMPTY')
+
+  conn.execute_command('HSET', 'doc:empty', 't', '',       'tx', '')
+  conn.execute_command('HSET', 'doc:val',   't', 'banana', 'tx', 'banana')
+
+  def search(idx, query):
+    res = conn.execute_command('FT.SEARCH', idx, query, 'NOCONTENT')
+    return [res[0], *sorted(res[1:])]
+
+  # (query, expected) pairs. The empty value is matched only by exact-empty and
+  # by the bare `*` / TAG `w'*'` match-all; every `?`-bearing wildcard requires
+  # at least one character and so must exclude doc:empty.
+  cases = [
+    ('@t:{""}',      [1, 'doc:empty']),               # TAG exact empty
+    ("@t:{w'*'}",    [2, 'doc:empty', 'doc:val']),    # TAG match-all incl. empty
+    ("@t:{w'?*'}",   [1, 'doc:val']),                 # >=1 char, excludes empty
+    ("@t:{w'*?*'}",  [1, 'doc:val']),
+    ("@t:{w'*?'}",   [1, 'doc:val']),
+    ('@tx:""',       [1, 'doc:empty']),               # TEXT exact empty
+    ("@tx:w'?*'",    [1, 'doc:val']),
+    ("@tx:w'*?*'",   [1, 'doc:val']),
+    ("@tx:w'*?'",    [1, 'doc:val']),
+  ]
+  for query, expected in cases:
+    res_w  = search('idx_w',  query)
+    res_no = search('idx_no', query)
+    # No drift: suffix-trie field agrees with the plain INDEXEMPTY field ...
+    env.assertEqual(res_w, res_no, message=f'drift for {query}')
+    # ... and both match the expected recall.
+    env.assertEqual(res_w, expected, message=f'recall for {query}')
+
 def test_params(env):
   env = Env(moduleArgs = 'DEFAULT_DIALECT 2')
   # this test check that `\*` is escaped correctly on contains queries
