@@ -550,9 +550,12 @@ void ShutdownEvent(RedisModuleCtx *ctx, RedisModuleEvent eid, uint64_t subevent,
 }
 
 // Latched true when a foreground hot-restart save runs (SYNC_RDB_START with SST,
-// see PersistenceEvent). It is never cleared once set: a hot-restart save is
-// immediately followed by process exit, and the shutdown handler below reads it
-// to decide whether the on-disk DBs must be preserved for the restart.
+// see PersistenceEvent). On a successful save it stays set, because the save is
+// immediately followed by process exit and the shutdown handler below reads it
+// to decide whether the on-disk DBs must be preserved for the restart. It is
+// cleared again if the save fails (PERSISTENCE_FAILED): the process keeps
+// running after a failed save, so a later ordinary shutdown must not mistake the
+// stale latch for a successful hot restart and skip the on-disk index deletion.
 static bool g_hotRestartSave = false;
 
 // Delete every disk-backed index's on-disk database on a normal shutdown.
@@ -794,6 +797,10 @@ static void PersistenceEvent(RedisModuleCtx *ctx, RedisModuleEvent eid,
       // Unwind the hot-restart consistency window opened at SYNC_RDB_START,
       // re-enabling compactions defensively via ReplicationAbort on failure.
       DiskConsistencyWindow_End(SearchDisk_ReplicationAbort);
+      // Clear the latch: the save failed, so the process keeps running and a
+      // later ordinary shutdown must still delete the on-disk indexes rather
+      // than treat this as a successful hot restart (see ShutdownDiskClose).
+      g_hotRestartSave = false;
       RedisModule_Log(ctx, "warning", "Hot-restart save failed");
     } else if (!useSst) {
       RedisModule_Log(ctx, "notice", "Persistence ended");
