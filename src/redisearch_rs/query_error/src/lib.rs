@@ -590,6 +590,30 @@ impl QueryError {
         self.private_message = private_message.ok().or(self.public_message.clone());
     }
 
+    /// Sets the error code and a message split by user data, the Rust analogue of
+    /// `QueryError_SetWithUserDataFmt`.
+    ///
+    /// `message` (which must not contain user data) becomes the public message,
+    /// shown even under obfuscation. `user_data` is appended verbatim after
+    /// `message`, behind the error-code prefix, to form the private message, so
+    /// any user-controlled content it carries is hidden when the error is
+    /// displayed obfuscated.
+    ///
+    /// This does not mutate the error if it already has one set.
+    pub fn set_with_user_data(&mut self, code: QueryErrorCode, message: &str, user_data: &str) {
+        if !self.is_ok() {
+            return;
+        }
+
+        let public_message = CString::new(message.to_owned());
+        let prefix = code.prefix_c_str().to_str().unwrap_or("");
+        let private_message = CString::new(format!("{prefix}{message}{user_data}"));
+
+        self.code = code;
+        self.public_message = public_message.ok();
+        self.private_message = private_message.ok().or(self.public_message.clone());
+    }
+
     /// Sets code, public message, and private message independently.
     /// The public message is for obfuscated display; the private message
     /// (typically prefix + detail) is what gets sent to the client and
