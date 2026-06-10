@@ -803,6 +803,9 @@ MRIterator *MR_Iterate(const MRCommand *cmd, MRIteratorCallback cb) {
 }
 
 MRIterator *MR_IterateWithPrivateData(const MRCommand *cmd, const MRIteratorConfig *config) {
+  // successCB and iterStartCb are required: the per-reply path dereferences
+  // successCB and we unconditionally schedule iterStartCb below.
+  RS_ASSERT(config && config->successCB && config->iterStartCb);
   MRIterator *ret = rm_new(MRIterator);
   // Initial initialization of the iterator.
   // The rest of the initialization is done in the iterator start callback.
