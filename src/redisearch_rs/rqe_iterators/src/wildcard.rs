@@ -23,7 +23,7 @@ use crate::{
     SkipToOutcome,
     profile_print::{ProfilePrint, ProfilePrintCtx},
 };
-use crate::{IteratorType, RQEIteratorPrintable};
+use crate::{IteratorType, QueryError, RQEIteratorPrintable};
 
 /// An iterator that yields all ids within a given range, from 1 to max id (inclusive) in an index.
 #[derive(Default)]
@@ -392,6 +392,8 @@ pub unsafe fn new_wildcard_iterator_on_disk<'index>(
     let enterprise_iters_api = SEARCH_ENTERPRISE_ITERATORS
         .get()
         .expect("SEARCH_ENTERPRISE_ITERATORS not initialized");
+    // SAFETY: caller guarantees `status`, when non-null, points to a valid `QueryError` (3).
+    let status = unsafe { QueryError::from_opaque_mut_ptr(status.cast()) };
     // On failure the enterprise implementation populates `status` with the
     // cause; we just fall back to an empty iterator so the query aborts via the
     // existing `QueryError_HasError` check rather than returning empty results.
