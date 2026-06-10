@@ -8,9 +8,9 @@
 */
 
 use fnv::Fnv64;
-use std::hash::{Hash, Hasher};
+use std::hash::Hasher;
 use value::hash::hash_value;
-use value::{Array, Map, SharedValue, String, Trio, Value};
+use value::{Array, Map, RedisString, SharedValue, String, Trio, Value};
 
 fn hash(value: &Value) -> u64 {
     let mut hasher = Fnv64::default();
@@ -30,6 +30,25 @@ fn same_strings_produce_same_hash() {
     let a = Value::String(String::from_vec(b"hello".to_vec()));
     let b = Value::String(String::from_vec(b"hello".to_vec()));
     assert_eq!(hash(&a), hash(&b));
+}
+
+#[test]
+fn string_and_redis_string_with_same_bytes_hash_equal() {
+    // `compare()` treats `String` and `RedisString` as equal when their bytes
+    // match, so they must hash equally too - otherwise GROUPBY/COUNT_DISTINCT
+    // would split a single logical value across two hash buckets.
+    redis_mock::init_redis_module_mock();
+
+    let bytes: &'static [u8] = b"hello";
+    let create_string = unsafe { redis_module::raw::RedisModule_CreateString }
+        .expect("mock registers RedisModule_CreateString");
+    let raw =
+        unsafe { create_string(std::ptr::null_mut(), bytes.as_ptr().cast(), bytes.len()) };
+    let redis_string = Value::RedisString(unsafe { RedisString::from_raw(raw.cast()) });
+
+    let plain_string = Value::String(String::from_vec(bytes.to_vec()));
+
+    assert_eq!(hash(&redis_string), hash(&plain_string));
 }
 
 #[test]
@@ -91,37 +110,33 @@ fn ref_hashes_same_as_inner_value() {
 }
 
 #[test]
-fn array_hashes_elements_sequentially() {
-    // An array of [x, y] should give the same result as hashing the Array
-    // discriminant followed by x and y sequentially.
-    let arr = Value::Array(Array::new(Box::new([
-        SharedValue::new(Value::Number(1.0)),
-        SharedValue::new(Value::Number(2.0)),
-    ])));
+fn array_hash_depends_on_element_order() {
+    // Rebuilding the same sequence of elements reproduces the same hash, but
+    // swapping the order of distinct elements changes it.
+    let arr = |a: f64, b: f64| {
+        Value::Array(Array::new(Box::new([
+            SharedValue::new(Value::Number(a)),
+            SharedValue::new(Value::Number(b)),
+        ])))
+    };
 
-    let mut expected_hasher = Fnv64::default();
-    core::mem::discriminant(&arr).hash(&mut expected_hasher);
-    hash_value(&Value::Number(1.0), &mut expected_hasher);
-    hash_value(&Value::Number(2.0), &mut expected_hasher);
-
-    assert_eq!(hash(&arr), expected_hasher.finish());
+    assert_eq!(hash(&arr(1.0, 2.0)), hash(&arr(1.0, 2.0)));
+    assert_ne!(hash(&arr(1.0, 2.0)), hash(&arr(2.0, 1.0)));
 }
 
 #[test]
-fn map_hashes_keys_and_values() {
-    // A map with one entry {key: val} should give the same result as hashing
-    // the Map discriminant followed by key and value sequentially.
-    let map = Value::Map(Map::new(Box::new([(
-        SharedValue::new(Value::Number(3.0)),
-        SharedValue::new(Value::Number(4.0)),
-    )])));
+fn map_hash_depends_on_keys_and_values() {
+    // Rebuilding the same {key: val} entry reproduces the same hash, but
+    // swapping key and value changes it.
+    let map = |k: f64, v: f64| {
+        Value::Map(Map::new(Box::new([(
+            SharedValue::new(Value::Number(k)),
+            SharedValue::new(Value::Number(v)),
+        )])))
+    };
 
-    let mut expected_hasher = Fnv64::default();
-    core::mem::discriminant(&map).hash(&mut expected_hasher);
-    hash_value(&Value::Number(3.0), &mut expected_hasher);
-    hash_value(&Value::Number(4.0), &mut expected_hasher);
-
-    assert_eq!(hash(&map), expected_hasher.finish());
+    assert_eq!(hash(&map(3.0, 4.0)), hash(&map(3.0, 4.0)));
+    assert_ne!(hash(&map(3.0, 4.0)), hash(&map(4.0, 3.0)));
 }
 
 #[test]
