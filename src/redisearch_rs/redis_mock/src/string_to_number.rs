@@ -187,6 +187,7 @@ mod tests {
     }
 
     #[test]
+    #[cfg_attr(miri, ignore)] // can't call FFI function RedisModule_CreateString under miri
     fn test_string2d() {
         // Valid hexadecimal value.
         assert_eq!(string2d(b"0x0p+0"), Some(0.0));

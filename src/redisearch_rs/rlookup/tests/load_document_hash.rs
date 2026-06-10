@@ -16,8 +16,8 @@ use proptest::prelude::{Strategy, any};
 use proptest::proptest;
 use redis_module::{KeyType, RedisString};
 use rlookup::{
-    DocumentFormat, HashDocumentFormat, LoadFieldError, RLookup, RLookupKeyFlag, RLookupKeyFlags,
-    RLookupRow,
+    DocumentFormat, HashDocumentFormat, LoadAllError, LoadFieldError, RLookup, RLookupKeyFlag,
+    RLookupKeyFlags, RLookupRow,
 };
 use std::ffi::CString;
 use std::ptr::NonNull;
@@ -253,6 +253,6 @@ fn load_all_returns_err_without_setting_status_for_wrong_type() {
         let mut row = RLookupRow::new();
         let res = format.load_all(&mut rlookup, &mut row, &key_name);
 
-        assert!(res.is_err());
+        assert!(matches!(res, Err(LoadAllError::OpenKeyFailed)));
     })
 }

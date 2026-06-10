@@ -72,7 +72,7 @@ impl DocumentFormat for HashDocumentFormat {
         key_name: &'key RedisString,
     ) -> Result<Self::FieldLoader<'key>, LoadFieldError> {
         let key = self.open_hash_key(key_name).map_err(|e| match e {
-            HashOpenError::NotFound => LoadFieldError::OpenKeyFailed,
+            HashOpenError::NotFound => LoadFieldError::KeyNotFound,
             HashOpenError::WrongType => LoadFieldError::WrongKeyType,
         })?;
 

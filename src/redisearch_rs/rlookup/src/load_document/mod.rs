@@ -37,8 +37,8 @@ const DOCUMENT_OPEN_KEY_QUERY_FLAGS: KeyFlags = KeyFlags::from_bits_retain(
 #[derive(Debug, thiserror::Error)]
 pub enum LoadFieldError {
     /// `RedisModule_OpenKey` / `japi->openKeyWithFlags` returned NULL.
-    #[error("document key could not be opened")]
-    OpenKeyFailed,
+    #[error("document key does not exist")]
+    KeyNotFound,
 
     /// Key exists but is of the wrong type.
     #[error("document key has the wrong type")]
@@ -60,7 +60,7 @@ impl From<redis_module::RedisError> for LoadFieldError {
 impl LoadFieldError {
     pub const fn to_query_error_code(&self) -> QueryErrorCode {
         match self {
-            Self::OpenKeyFailed => QueryErrorCode::NoDoc,
+            Self::KeyNotFound => QueryErrorCode::NoDoc,
             Self::WrongKeyType => QueryErrorCode::RedisKeyType,
             Self::Redis(_) => QueryErrorCode::Generic,
         }
