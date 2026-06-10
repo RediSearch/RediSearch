@@ -1187,6 +1187,15 @@ static void blockedClientHybridCtx_destroy(blockedClientHybridCtx *BCHCtx) {
  * @param BCHCtx The blocked client context containing the request
  */
 static void HREQ_Execute_Callback(blockedClientHybridCtx *BCHCtx) {
+#ifdef ENABLE_ASSERT
+  // Test hook (MOD-16145): stall a shard's internal cursor-mapping reply on the
+  // worker thread, leaving the shard's main thread responsive. The coordinator
+  // then blocks in ProcessHybridCursorMappings waiting for a reply that never
+  // comes (no disconnect), reproducing the unbounded-wait hang.
+  if (BCHCtx->internal) {
+    SyncPoint_Wait(SYNC_POINT_BEFORE_HYBRID_SHARD_REPLY);
+  }
+#endif
   StrongRef hybrid_ref = BCHCtx->hybrid_ref;
   HybridRequest *hreq = StrongRef_Get(hybrid_ref);
   HybridPipelineParams *hybridParams = BCHCtx->hybridParams;
