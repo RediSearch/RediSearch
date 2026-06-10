@@ -32,7 +32,6 @@ use rlookup::{RLookup, RLookupKey, RLookupKeyFlag, RLookupRow};
 use value::{SharedValue, Value};
 
 use crate::Reducer;
-use crate::collect::UNDERSCORE_KEY;
 use crate::collect::distinct::dedup_hash;
 use crate::collect::storage::{Storage, StorageMode};
 
@@ -82,20 +81,6 @@ impl Fields {
     fn sort_key_names(&self) -> &[CString] {
         match self {
             Self::All { sort_key_names } | Self::Specific { sort_key_names, .. } => sort_key_names,
-        }
-    }
-
-    /// Whether `@__key` is among the projected fields, making DISTINCT a no-op
-    /// For [`Fields::All`] the projected set is discovered from
-    /// shard payloads at runtime, so the skip is not resolvable at
-    /// construction — it returns `false` and the (still correct) `DistinctHeap`
-    /// path is used.
-    fn projects_key_field(&self) -> bool {
-        match self {
-            Self::All { .. } => false,
-            Self::Specific { requested, .. } => {
-                requested.iter().any(|n| n.as_c_str() == UNDERSCORE_KEY)
-            }
         }
     }
 
@@ -245,8 +230,7 @@ impl<'a> LocalCollectReducer<'a> {
             },
             None => Fields::All { sort_key_names },
         };
-        let uses_distinct_storage =
-            distinct && !fields.sort_key_names().is_empty() && !fields.projects_key_field();
+        let uses_distinct_storage = distinct && !fields.sort_key_names().is_empty();
         Self {
             reducer: Reducer::new(),
             arena: Bump::new(),

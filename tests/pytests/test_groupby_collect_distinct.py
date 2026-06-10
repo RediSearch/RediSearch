@@ -159,7 +159,7 @@ def test_collect_distinct_with_limit():
     env.assertEqual(cats, [{'cat': 'a'}])
 
 
-def test_collect_distinct_key_field_no_op():
+def test_collect_distinct_with_key_field():
     env = Env(protocol=3)
     enable_unstable_features(env)
     _setup_distinct(env)

@@ -392,8 +392,8 @@ fn distinct_drain_applies_offset_and_count() {
 
 // ---------------------------------------------------------------------------
 // Reducer-level wiring: DISTINCT through the real `RemoteCollectReducer`
-// `add` → `finalize` path, exercising the `distinct` flag, storage selection, the
-// projected-only dedup identity, and the `@__key` skip.
+// `add` → `finalize` path, exercising the `distinct` flag, storage selection,
+// and the projected-only dedup identity.
 // ---------------------------------------------------------------------------
 
 /// Extract a string field from each row of a `finalize` output (`[Map, …]`).
@@ -495,38 +495,3 @@ fn reducer_distinct_internal_emits_winning_sort_value() {
     assert_eq!(m.get(b"score").and_then(|v| v.as_num()), Some(5.0));
 }
 
-#[test]
-fn reducer_distinct_skipped_when_key_field_projected() {
-    // FIELDS include @__key ⇒ DISTINCT is a provable no-op (design doc §6), so
-    // the reducer keeps the plain Heap and does NOT collapse rows that share
-    // all projected fields.
-    let g = make_key(c"g", 0);
-    let key_field = make_key(c"__key", 1);
-    let sweetness = make_key(c"sweetness", 2);
-    let reducer = RemoteCollectReducer::new(
-        Box::new([&g, &key_field]),
-        None,
-        Box::new([&sweetness]),
-        SORT_DESC,
-        None,
-        /* is_internal */ false,
-        true,
-    );
-
-    let mut ctx = RemoteCollectCtx::new(&reducer);
-    // Two rows identical across all projected fields. DistinctHeap would
-    // collapse them to one; with the @__key skip the Heap keeps both.
-    for doc_id in 0..2 {
-        let mut row = RLookupRow::new();
-        row.write_key(&g, SharedValue::new_string(b"x".to_vec()));
-        row.write_key(&key_field, SharedValue::new_string(b"doc:1".to_vec()));
-        row.write_key(&sweetness, SharedValue::new_num(5.0));
-        ctx.add(&reducer, &row, doc_id as ffi::t_docId);
-    }
-
-    let out = ctx.finalize(&reducer);
-    assert_eq!(
-        output_field(&out, b"g"),
-        vec!["x".to_string(), "x".to_string()]
-    );
-}

@@ -23,19 +23,8 @@ use rlookup::{RLookup, RLookupKey, RLookupKeyFlag, RLookupRow};
 use value::SharedValue;
 
 use crate::Reducer;
-use crate::collect::UNDERSCORE_KEY;
 use crate::collect::distinct::dedup_hash_row;
 use crate::collect::storage::{Storage, StorageMode};
-
-/// Whether `key` projects the document key (`@__key`), comparing the resolved
-/// path (falling back to the name) like the C `RLookupKey_GetPath` check.
-fn is_key_field(key: &RLookupKey<'_>) -> bool {
-    let path = key
-        .path()
-        .as_ref()
-        .map_or_else(|| key.name().as_ref(), |p| p.as_ref());
-    path == UNDERSCORE_KEY
-}
 
 /// Field-selection state: `FIELDS *` vs explicit list.
 ///
@@ -92,17 +81,6 @@ impl<'a> Fields<'a> {
                     .filter(|k| !k.flags.contains(RLookupKeyFlag::Hidden)),
             ),
             Self::Specific { field_keys, .. } => Either::Right(field_keys.iter().copied()),
-        }
-    }
-
-    /// Whether `@__key` is among the projected fields, which makes DISTINCT a
-    /// no-op. Scans the same keys [`Fields::dedup_keys`] uses.
-    fn projects_key_field(&self) -> bool {
-        match self {
-            Self::All { src_lookup, .. } => src_lookup
-                .iter()
-                .any(|k| !k.flags.contains(RLookupKeyFlag::Hidden) && is_key_field(k)),
-            Self::Specific { field_keys, .. } => field_keys.iter().any(|k| is_key_field(k)),
         }
     }
 
@@ -189,11 +167,9 @@ impl<'a> RemoteCollectReducer<'a> {
                 sort_keys,
             },
         };
-        // DISTINCT needs SORTBY, and when the document key is projected every
-        // tuple is unique, so dedup is a no-op and we keep the cheaper plain
-        // `Heap`.
-        let uses_distinct_storage =
-            distinct && !fields.sort_keys().is_empty() && !fields.projects_key_field();
+        // DISTINCT needs SORTBY: it keeps the best representative per sort key,
+        // which is undefined without sort keys.
+        let uses_distinct_storage = distinct && !fields.sort_keys().is_empty();
         Self {
             reducer: Reducer::new(),
             arena: Bump::new(),
