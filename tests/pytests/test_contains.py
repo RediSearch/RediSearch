@@ -572,13 +572,9 @@ def testSuffixTrieFindsMultiTokenShortPatternTag(env):
 
 @skip(cluster=True)
 def testSuffixTrieNoEmptyDriftUnderIndexEmpty(env):
-  # Regression for the INDEXEMPTY drift concern on PR #9945: the suffix DS gates
-  # adds on `len == 0`, so an empty value is never stored in the suffix trie.
-  # This must NOT change recall relative to an INDEXEMPTY field *without*
-  # WITHSUFFIXTRIE: empty values are reachable only via exact match (which
-  # bypasses the suffix DS), and `?`/`*` wildcards must treat the empty value
-  # identically on both. We compare a suffix-trie field against a plain field,
-  # both INDEXEMPTY, for exact-empty match and for `*`, `?*`, `*?*`, `*?`.
+  # WITHSUFFIXTRIE must not affect queries that can match empty strings
+  # (INDEXEMPTY): a suffix-trie field and a plain field must return the same
+  # results for exact-empty match and for `*`, `?*`, `*?*`, `*?`.
   env.expect(config_cmd(), 'set', 'DEFAULT_DIALECT', 2).ok()
   env.expect(config_cmd(), 'set', 'MINPREFIX', 1).ok()
   conn = getConnectionByEnv(env)
