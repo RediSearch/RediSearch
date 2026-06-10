@@ -217,8 +217,17 @@ const HEADERS: &[HeaderAllowlist] = &[
             "RedisModule_ReplyWithMap",
             "RedisModule_ReplyWithSimpleString",
             "RedisModule_ReplyWithStringBuffer",
+            "RedisModule_IsKeyInRam",
             "RedisModule_StringPtrLen",
+            "RedisModule_ThreadSafeContextLock",
+            "RedisModule_ThreadSafeContextUnlock",
         ],
+    },
+    HeaderAllowlist {
+        path: "src/doc_id_meta.h",
+        fns: &["DocIdMeta_Get"],
+        types: &[],
+        vars: &[],
     },
     HeaderAllowlist {
         path: "src/result_processor.h",
@@ -228,8 +237,13 @@ const HEADERS: &[HeaderAllowlist] = &[
     },
     HeaderAllowlist {
         path: "src/rlookup_load_document.h",
-        fns: &["loadIndividualKeys", "sdslen_rust"],
-        types: &[],
+        fns: &[
+            "loadIndividualKeys",
+            "RLookup_LoadDocumentAll",
+            "RLookup_LoadDocumentIndividual",
+            "sdslen_rust",
+        ],
+        types: &["RLookupLoadOptions"],
         vars: &[],
     },
     HeaderAllowlist {
@@ -246,7 +260,15 @@ const HEADERS: &[HeaderAllowlist] = &[
     },
     HeaderAllowlist {
         path: "src/search_ctx.h",
-        fns: &["NewSearchCtxC", "SearchCtx_Free"],
+        fns: &[
+            "NewSearchCtxC",
+            "RedisSearchCtx_LockSpecRead",
+            "RedisSearchCtx_UnlockSpec",
+            "SearchCtx_Free",
+            // RSE: the disk async loader checks request timeout between disk
+            // reads via this main-thread-owned flag accessor.
+            "SearchTime_IsTimedOut",
+        ],
         types: &[],
         vars: &[],
     },
