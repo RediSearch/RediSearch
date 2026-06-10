@@ -739,8 +739,7 @@ void SearchDisk_PreCheckpoint(IndexSpec *sp);
 /**
  * @brief Master-side SST replication PRE_FORK hook for a single index.
  *
- * Acquires the per-spec fork lock, then the IndexSpec read lock, then
- * dispatches to the disk-side preFork hook.
+ * Dispatches to the disk-side preFork hook.
  *
  * @param sp Pointer to the IndexSpec (must have a non-NULL diskSpec)
  */
@@ -749,8 +748,7 @@ void SearchDisk_PreFork(IndexSpec *sp);
 /**
  * @brief Master-side SST replication POST_FORK hook for a single index.
  *
- * Dispatches to the disk-side postFork hook, then releases the read lock and
- * the fork lock acquired in SearchDisk_PreFork.
+ * Dispatches to the disk-side postFork hook.
  *
  * @param sp Pointer to the IndexSpec
  */
@@ -777,3 +775,56 @@ void SearchDisk_ReplicationAbort(IndexSpec *sp);
  * @param percentage Percentage of available memory to request (0-100)
  */
 void SearchDisk_UpdateBufferBudget(RedisModuleCtx *ctx, int percentage);
+
+// ---------------------------------------------------------------------------
+// Fork × compaction debug coordinator (FT.DEBUG REPL_COMPACTION_COORDINATOR)
+// Declared via search_disk_api.h; redeclared here so debug_commands.c only
+// needs to include "search_disk.h". See redisearch_disk/src/compaction/debug.rs
+// for semantics. Site values must match `compaction::Site`.
+// ---------------------------------------------------------------------------
+
+// Lifecycle rendezvous sites; mirrors the Rust `compaction::Site` repr(i32).
+typedef enum {
+  SEARCH_DISK_SITE_COMPACTION_BEGIN = 0,
+  SEARCH_DISK_SITE_COMPACTION_COMPLETED = 1,
+  SEARCH_DISK_SITE_PRE_CHECKPOINT = 2,
+} SearchDiskCompactionSite;
+
+/**
+ * @brief Arms or disarms a single-shot pause at `site`.
+ *
+ * When armed, the next time that lifecycle site is reached its thread parks
+ * until released (by a cross-wake, an explicit release, or a bounded
+ * backstop timeout). The arm is consumed by the parked thread.
+ */
+void SearchDisk_DebugCoordinatorArmPause(int site, bool armed);
+
+/**
+ * @brief Configures a cross-wake: reaching `trigger` releases `target`.
+ *
+ * This is what breaks the replication-vs-compaction deadlock — a main-thread
+ * site (e.g. PRE_CHECKPOINT) can release a background compaction it is about
+ * to block on. A `target` of -1 clears the link.
+ */
+void SearchDisk_DebugCoordinatorSetWake(int trigger, int target);
+
+/**
+ * @brief Releases a parked site (or pre-arms a release for the next park).
+ *
+ * Safe to call when nothing is parked. Used for RDB-only replication, where
+ * the main thread is never blocked so a plain release works.
+ */
+void SearchDisk_DebugCoordinatorRelease(int site);
+
+/**
+ * @brief Returns how many times `site` has been reached since the last reset.
+ */
+unsigned int SearchDisk_DebugCoordinatorReached(int site);
+
+/**
+ * @brief Resets the coordinator.
+ *
+ * Clears arrivals, arming, and cross-wakes, and frees any parked waiter.
+ * Intended for test teardown so a stuck pause can't poison the next test.
+ */
+void SearchDisk_DebugResetCompactionController(void);

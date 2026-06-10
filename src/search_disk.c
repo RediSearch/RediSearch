@@ -49,6 +49,23 @@ void VecSimDisk_AcquireConsistencyLock(void) {}
 __attribute__((weak))
 void VecSimDisk_ReleaseConsistencyLock(void) {}
 
+__attribute__((weak))
+void SearchDisk_DebugCoordinatorArmPause(int site, bool armed) {}
+
+__attribute__((weak))
+void SearchDisk_DebugCoordinatorSetWake(int trigger, int target) {}
+
+__attribute__((weak))
+void SearchDisk_DebugCoordinatorRelease(int site) {}
+
+__attribute__((weak))
+unsigned int SearchDisk_DebugCoordinatorReached(int site) {
+  return 0;
+}
+
+__attribute__((weak))
+void SearchDisk_DebugResetCompactionController(void) {}
+
 bool SearchDisk_Initialize(RedisModuleCtx *ctx) {
   if (!SearchDisk_HasAPI()) {
     RedisModule_Log(ctx, "notice", "RediSearch_Disk API not available");
@@ -135,14 +152,6 @@ void SearchDisk_Close(RedisModuleCtx *ctx) {
   }
 }
 
-// Called once at the start of a parent compaction. Blocks the snapshot fork
-// for the full duration of compaction (released in Compaction_Completed).
-static void Compaction_Started(void *private_data) {
-    IndexSpec *sp = private_data;
-    RS_ASSERT(sp);
-    IndexSpec_BlockDiskFork(sp);
-}
-
 static void* Compaction_BeginUpdate(void *private_data) {
     IndexSpec *sp = private_data;
     RS_ASSERT(sp);
@@ -174,24 +183,15 @@ static void Compaction_EndUpdate(void *update_ctx) {
     IndexSpec_ReleaseWriteLock(sp);
 }
 
-// Called once at the end of a parent compaction. Pairs with Compaction_Started.
-static void Compaction_Completed(void *private_data) {
-    IndexSpec *sp = private_data;
-    RS_ASSERT(sp);
-    IndexSpec_EnableDiskForkIfPossible(sp);
-}
-
 // Built once per IndexSpec at openIndexSpec time and copied into the Rust
 // IndexSpec's compaction listener; the C-side struct itself does not need to
 // outlive the openIndexSpec call.
 static SearchDiskCompactionCallbacks SearchDisk_CompactionCallbacks(void) {
     return (SearchDiskCompactionCallbacks) {
-        .compactionStarted = Compaction_Started,
         .beginUpdate = Compaction_BeginUpdate,
         .decrementTrieTermCount = Compaction_DecrementTrieTermCount,
         .decrementNumTerms = Compaction_DecrementNumTerms,
         .endUpdate = Compaction_EndUpdate,
-        .compactionCompleted = Compaction_Completed,
     };
 }
 
@@ -542,26 +542,17 @@ void SearchDisk_PreCheckpoint(IndexSpec *sp) {
 
 void SearchDisk_PreFork(IndexSpec *sp) {
   RS_ASSERT(disk && sp && sp->diskSpec);
-  // Lock order: protect-fork then rdlock. The disk side must use the same
-  // ordering for any critical section that gates the fork to avoid deadlock
-  // with this handler.
-  IndexSpec_ProtectDiskFork(sp);
   disk->index.preFork(sp->diskSpec);
 }
 
 void SearchDisk_PostFork(IndexSpec *sp) {
   RS_ASSERT(disk && sp && sp->diskSpec);
-  RS_ASSERT(sp->repl_flags & REPL_LOCK_DISK_FORK_PROTECTED);
   disk->index.postFork(sp->diskSpec);
-  IndexSpec_UnProtectDiskFork(sp);
 }
 
 void SearchDisk_ReplicationAbort(IndexSpec *sp) {
   RS_ASSERT(disk && sp && sp->diskSpec);
   disk->index.replicationAbort(sp->diskSpec);
-  if (sp->repl_flags & REPL_LOCK_DISK_FORK_PROTECTED) {
-    IndexSpec_UnProtectDiskFork(sp);
-  }
 }
 
 void SearchDisk_UpdateBufferBudget(RedisModuleCtx *ctx, int percentage) {
