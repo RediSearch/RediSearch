@@ -314,7 +314,7 @@ int Suffix_ChooseToken_rune(const rune *str, size_t len, size_t *tokenIdx, size_
     // this branching is heavy
     for (int j = tokenIdx[i]; j < tokenIdx[i] + tokenLen[i]; ++j) {
       if (str[j] == (rune)'?') {
-        --curScore;
+        --score;
       }
     }
 
