@@ -32,7 +32,7 @@ typedef struct StopWordList StopWordList;
 struct StopWordList;
 #endif
 
-/* Check if a stopword list contains a term. The term must be already lowercased */
+/* Check if a stopword list contains a term (case-insensitive lookup). */
 int StopWordList_Contains(const struct StopWordList *sl, const char *term, size_t len);
 
 struct StopWordList *DefaultStopWordList();
