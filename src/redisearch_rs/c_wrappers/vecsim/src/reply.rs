@@ -7,8 +7,7 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 
-//! [`QueryReply`] (owned reply) and [`ReplyResults`] (iterator that keeps the
-//! reply alive).
+//! Iteration over a VecSim query's results, freed automatically when done.
 
 use std::ptr::NonNull;
 
@@ -32,7 +31,7 @@ pub struct QueryReply {
     /// `VecSimBatchIterator_Next`) and not yet freed, from construction until
     /// [`Drop`].
     inner: NonNull<VecSimQueryReply>,
-    /// Order the reply's results are sorted in, as requested when the query
+    /// The Order the reply's results are sorted in, as requested when the query
     /// was issued. VecSim does not expose this on the reply, so we record the
     /// caller-supplied order to keep order-sensitive consumers (e.g.
     /// [`ReplyResults::skip_to`]) correct.
@@ -64,8 +63,9 @@ impl QueryReply {
     ///
     /// # Safety
     ///
-    /// `raw` must be a freshly returned pointer from a VecSim query call
-    /// (or null). If non-null, ownership is consumed by this call.
+    /// `raw` must be a pointer returned by a VecSim query call that has not yet
+    /// been consumed or freed (or null). If non-null, ownership is transferred
+    /// to this call.
     pub(crate) unsafe fn from_raw_checked(
         raw: *mut VecSimQueryReply,
         order: ReplyOrder,
@@ -73,8 +73,8 @@ impl QueryReply {
         let Some(reply) = NonNull::new(raw) else {
             return Ok(None);
         };
-        // SAFETY: `reply` is non-null and freshly returned by VecSim, so the
-        // `QueryReply::inner` invariant is upheld.
+        // SAFETY: `reply` is non-null and returned by VecSim without being
+        // consumed yet, so the `QueryReply::inner` invariant is upheld.
         let reply = unsafe { Self::from_raw(reply, order) };
         // SAFETY: `reply.inner` upholds its invariant.
         let code = unsafe { VecSimQueryReply_GetCode(reply.inner.as_ptr()) };
@@ -90,10 +90,9 @@ impl QueryReply {
         // SAFETY: `self.inner` upholds its invariant.
         let iter = unsafe { VecSimQueryReply_GetIterator(self.inner.as_ptr()) };
         let iter = NonNull::new(iter)?;
-        let order = self.order;
         Some(ReplyResults {
             iter,
-            order,
+            order: self.order,
             reply: self,
         })
     }
@@ -152,12 +151,7 @@ impl ReplyResults {
             ReplyOrder::ById,
             "skip_to requires an id-ordered reply; ByScore replies are not monotonic in doc id"
         );
-        loop {
-            let (id, score) = self.next()?;
-            if id >= target {
-                return Some((id, score));
-            }
-        }
+        self.find(|&(id, _)| id >= target)
     }
 }
 
