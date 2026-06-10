@@ -143,15 +143,17 @@ typedef void (*MRIteratorCallback)(MRIteratorCallbackCtx *ctx, MRReply *rep);
 typedef void (*MRIteratorErrorCallback)(MRIteratorCallbackCtx *ctx);
 
 /**
- * Bundles the optional callbacks and private data for MR_IterateWithPrivateData.
- * Only `successCB` is required; every other field may be NULL to opt out of that hook.
+ * Bundles the callbacks and private data for MR_IterateWithPrivateData.
+ * `successCB` and `iterStartCb` are required (MR_IterateWithPrivateData
+ * unconditionally schedules `iterStartCb`); every other field may be NULL to
+ * opt out of that hook.
  *
  * @param successCB              Per-reply callback (required).
  * @param errorCB                No-reply termination callback (optional).
  * @param cbPrivateData          Private data handed to `successCB` via the callback ctx.
  * @param cbPrivateDataDestructor Frees `cbPrivateData` when the iterator is freed.
  * @param cbPrivateDataInit      Runs once on the IO thread after numShards is known.
- * @param iterStartCb            Scheduled on the IO thread to trigger the first send.
+ * @param iterStartCb            Scheduled on the IO thread to trigger the first send (required).
  * @param iterStartCbPrivateData StrongRef demoted and passed to `iterStartCb`.
  */
 typedef struct {
