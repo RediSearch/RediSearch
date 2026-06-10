@@ -61,12 +61,29 @@ stop and print a one-line error. Do not push.
 
 The workflow does **not** pre-export these as shell variables. Before running
 any snippet below that references `${PR}`, `${BRANCH}`, `${BASE_BRANCH}`,
-`${ORIGINAL_SHA}`, or `${run_url}`, assign them yourself from the JSON, e.g.:
+`${ORIGINAL_SHA}`, or `${run_url}`, validate the required fields and assign
+them yourself from the JSON. Plain `jq -r` prints `null` (exit 0) for a missing
+key, so guard with `jq -e` first — otherwise a corrupt context could leave you
+running e.g. `gh pr comment null …`:
 
 ```bash
+if ! jq -e '
+  (.pr | type == "number") and
+  (.branch | type == "string" and length > 0) and
+  (.base_branch | type == "string" and length > 0) and
+  (.head_sha | type == "string" and length > 0) and
+  (.failed_jobs | type == "array") and
+  (.log_excerpts | type == "array") and
+  (.context | type == "array")
+' "$BACKPORT_FIX_CONTEXT_FILE" >/dev/null; then
+  echo "Invalid backport fix context: missing or malformed required fields"
+  exit 0
+fi
+
 PR=$(jq -r .pr "$BACKPORT_FIX_CONTEXT_FILE")
 BRANCH=$(jq -r .branch "$BACKPORT_FIX_CONTEXT_FILE")
 BASE_BRANCH=$(jq -r .base_branch "$BACKPORT_FIX_CONTEXT_FILE")
+# original_sha and run_url are intentionally optional.
 ORIGINAL_SHA=$(jq -r '.original_sha // empty' "$BACKPORT_FIX_CONTEXT_FILE")
 run_url=$(jq -r '.run_url // empty' "$BACKPORT_FIX_CONTEXT_FILE")
 ```

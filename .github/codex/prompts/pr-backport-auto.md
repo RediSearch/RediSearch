@@ -46,11 +46,23 @@ Fields:
 - `url` — the original PR URL.
 - `targets` — the list of release branches to backport to, already deduplicated.
 
-The workflow does **not** pre-export these as shell variables. Assign them
-yourself from the JSON before running any snippet below that references
-`${PR}` / `${SHA}` (and `${TARGET}`, which is set per-iteration in the loop):
+The workflow does **not** pre-export these as shell variables. Validate the
+required fields and assign them yourself from the JSON before running any
+snippet below that references `${PR}` / `${SHA}` (and `${TARGET}`, which is set
+per-iteration in the loop). Plain `jq -r` prints `null` (exit 0) for a missing
+key, so guard with `jq -e` first:
 
 ```bash
+if ! jq -e '
+  (.pr | type == "number") and
+  (.sha | type == "string" and length > 0) and
+  (.title | type == "string") and
+  (.targets | type == "array" and length > 0)
+' "$BACKPORT_CONTEXT_FILE" >/dev/null; then
+  echo "Invalid backport context: missing or malformed required fields"
+  exit 0
+fi
+
 PR=$(jq -r .pr "$BACKPORT_CONTEXT_FILE")
 SHA=$(jq -r .sha "$BACKPORT_CONTEXT_FILE")
 ```

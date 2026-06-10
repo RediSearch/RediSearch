@@ -27,9 +27,11 @@ on:
   issue_comment:
     types: [created]
 
+# The default GITHUB_TOKEN stays read-only: every write (checkout, `gh`,
+# `git push`, PR open/label/comment) goes through the scoped App token
+# minted below, whose `permission-*` inputs carry the write grants.
 permissions:
-  contents: write
-  pull-requests: write
+  contents: read
 
 # Serialize per-PR so the `closed`, `labeled`, and `/backport-agent` triggers
 # can't run concurrently against the same `backport-agent/pr-<n>-to-<branch>`
