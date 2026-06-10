@@ -9,14 +9,12 @@
 
 //! Supporting types for [`Wildcard`].
 
-use std::ffi::CString;
 use std::ptr::NonNull;
 
 use index_result::RSIndexResult;
 use index_spec::IndexSpecReadGuard;
 use inverted_index::codec::{doc_ids_only::DocIdsOnly, raw_doc_ids_only::RawDocIdsOnly};
 use inverted_index::{DocIdsDecoder, opaque};
-use query_error::{QueryError, QueryErrorCode};
 
 use rqe_core::{DocId, RS_FIELDMASK_ALL};
 
@@ -394,25 +392,15 @@ pub unsafe fn new_wildcard_iterator_on_disk<'index>(
     let enterprise_iters_api = SEARCH_ENTERPRISE_ITERATORS
         .get()
         .expect("SEARCH_ENTERPRISE_ITERATORS not initialized");
-    match enterprise_iters_api.new_wildcard_on_disk(disk_spec, weight) {
+    // On failure the enterprise implementation populates `status` with the
+    // cause; we just fall back to an empty iterator so the query aborts via the
+    // existing `QueryError_HasError` check rather than returning empty results.
+    match enterprise_iters_api.new_wildcard_on_disk(disk_spec, weight, status) {
         Ok(it) => NewWildcardIterator::Disk(it),
         Err(err) => {
             tracing::warn!(
                 "Failed to create a disk wildcard iterator ({err}); falling back to empty iterator."
             );
-            // Keep the user-controlled cause out of the obfuscated public
-            // message: `message` is safe; `err` goes in the private message only.
-            // SAFETY: see safety point 3.
-            if let Some(query_error) = unsafe { QueryError::from_opaque_mut_ptr(status.cast()) } {
-                let code = QueryErrorCode::DiskIteratorCreation;
-                let prefix = code.prefix_c_str().to_str().unwrap_or("");
-                let message = "Failed to create disk wildcard iterator";
-                query_error.set_code_and_messages(
-                    code,
-                    CString::new(message).ok(),
-                    CString::new(format!("{prefix}{message}: {err}")).ok(),
-                );
-            }
             NewWildcardIterator::Empty(Empty)
         }
     }

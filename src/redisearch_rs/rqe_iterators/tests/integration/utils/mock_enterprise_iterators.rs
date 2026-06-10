@@ -41,6 +41,7 @@ impl SearchEnterpriseIterators for MockEnterpriseIterators {
         &self,
         _index: &'index mut ffi::RedisSearchDiskIndexSpec,
         weight: f64,
+        _status: *mut ffi::QueryError,
     ) -> Result<Box<dyn RQEIteratorPrintable<'index> + 'index>, Box<dyn std::error::Error>> {
         Ok(Box::new(Wildcard::new(MOCK_DISK_WILDCARD_TOP_ID, weight)))
     }
