@@ -12,7 +12,10 @@
 
 #include <stdlib.h>
 #include "rq.h"
+#ifdef ENABLE_ASSERT
+// Only needed for the test-only DebugSendError_Consume() fault injection below.
 #include "debug_commands.h"
+#endif
 
 /* Initialize the MapReduce engine with a node provider */
 MRCluster *MR_NewCluster(MRClusterTopology *initialTopology, size_t conn_pool_size, size_t num_io_threads) {
