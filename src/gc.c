@@ -181,14 +181,14 @@ void GCContext_ForceBGInvoke(GCContext* gc) {
   GCContext_CommonForceInvoke(gc, NULL);
 }
 
-static void GCContext_UnblockCallback(void* data) {
+static void GCContext_UnblockClient(void* data) {
   RedisModuleBlockedClient *bc = data;
   RedisModule_BlockedClientMeasureTimeEnd(bc);
   RedisModule_UnblockClient(bc, NULL);
 }
 
 void GCContext_WaitForAllOperations(RedisModuleBlockedClient* bc) {
-  redisearch_thpool_add_work(gcThreadpool_g, GCContext_UnblockCallback, bc, THPOOL_PRIORITY_HIGH);
+  redisearch_thpool_add_work(gcThreadpool_g, GCContext_UnblockClient, bc, THPOOL_PRIORITY_HIGH);
 }
 
 void GC_ThreadPoolStart() {
