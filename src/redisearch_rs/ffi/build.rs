@@ -324,6 +324,9 @@ const HEADERS: &[HeaderAllowlist] = &[
             "TimeToLiveTable_VerifyDocAndFieldMask",
             "TimeToLiveTable_VerifyDocAndWideFieldMask",
             "TimeToLiveTable_VerifyInit",
+            // Used by bench.
+            "TimeToLiveTable_Destroy",
+            "TimeToLiveTable_IsEmpty",
         ],
         types: &[],
         vars: &[],

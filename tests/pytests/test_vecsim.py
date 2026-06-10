@@ -339,8 +339,8 @@ def test_create():
         conn.execute_command('FT.CREATE', 'idx2', 'SCHEMA', 'v_FLAT', 'VECTOR', 'FLAT', '8', 'TYPE', data_type,
                              'DIM', '1024', 'DISTANCE_METRIC', 'L2', 'INITIAL_CAP', '10')
 
-        expected_HNSW = ['ALGORITHM', 'TIERED', 'TYPE', data_type, 'DIMENSION', 1024, 'METRIC', 'COSINE', 'IS_MULTI_VALUE', 0, 'IS_DISK', 0, 'INDEX_SIZE', 0, 'INDEX_LABEL_COUNT', 0, 'MEMORY', dummy_val, 'LAST_SEARCH_MODE', 'EMPTY_MODE', 'MANAGEMENT_LAYER_MEMORY', dummy_val, 'BACKGROUND_INDEXING', 0, 'TIERED_BUFFER_LIMIT', 1024, 'FRONTEND_INDEX', ['ALGORITHM', 'FLAT', 'TYPE', data_type, 'DIMENSION', 1024, 'METRIC', 'COSINE', 'IS_MULTI_VALUE', 0, 'IS_DISK', 0, 'INDEX_SIZE', 0, 'INDEX_LABEL_COUNT', 0, 'MEMORY', dummy_val, 'LAST_SEARCH_MODE', 'EMPTY_MODE', 'BLOCK_SIZE', 1024], 'BACKEND_INDEX', ['ALGORITHM', 'HNSW', 'TYPE', data_type, 'DIMENSION', 1024, 'METRIC', 'COSINE', 'IS_MULTI_VALUE', 0, 'IS_DISK', 0, 'INDEX_SIZE', 0, 'INDEX_LABEL_COUNT', 0, 'MEMORY', dummy_val, 'LAST_SEARCH_MODE', 'EMPTY_MODE', 'BLOCK_SIZE', 1024, 'M', 16, 'EF_CONSTRUCTION', 200, 'EF_RUNTIME', 10, 'MAX_LEVEL', -1, 'ENTRYPOINT', -1, 'EPSILON', '0.01', 'NUMBER_OF_MARKED_DELETED', 0], 'TIERED_HNSW_SWAP_JOBS_THRESHOLD', 1024]
-        expected_FLAT = ['ALGORITHM', 'FLAT', 'TYPE', data_type, 'DIMENSION', 1024, 'METRIC', 'L2', 'IS_MULTI_VALUE', 0, 'IS_DISK', 0, 'INDEX_SIZE', 0, 'INDEX_LABEL_COUNT', 0, 'MEMORY', dummy_val, 'LAST_SEARCH_MODE', 'EMPTY_MODE', 'BLOCK_SIZE', 1024]
+        expected_HNSW = ['ALGORITHM', 'TIERED', 'TYPE', data_type, 'DIMENSION', 1024, 'METRIC', 'COSINE', 'IS_MULTI_VALUE', 0, 'IS_DISK', 0, 'INDEX_SIZE', 0, 'INDEX_LABEL_COUNT', 0, 'MEMORY', dummy_val, 'LAST_SEARCH_MODE', 'EMPTY_MODE', 'MANAGEMENT_LAYER_MEMORY', dummy_val, 'BACKGROUND_INDEXING', 0, 'TIERED_BUFFER_LIMIT', 1024, 'FRONTEND_INDEX', ['ALGORITHM', 'FLAT', 'TYPE', data_type, 'DIMENSION', 1024, 'METRIC', 'COSINE', 'IS_MULTI_VALUE', 0, 'IS_DISK', 0, 'INDEX_SIZE', 0, 'INDEX_LABEL_COUNT', 0, 'MEMORY', dummy_val, 'LAST_SEARCH_MODE', 'EMPTY_MODE', 'BLOCK_SIZE', 1024], 'BACKEND_INDEX', ['ALGORITHM', 'HNSW', 'TYPE', data_type, 'DIMENSION', 1024, 'METRIC', 'COSINE', 'IS_MULTI_VALUE', 0, 'IS_DISK', 0, 'INDEX_SIZE', 0, 'INDEX_LABEL_COUNT', 0, 'MEMORY', dummy_val, 'LAST_SEARCH_MODE', 'EMPTY_MODE', 'BLOCK_SIZE', 1024, 'M', 16, 'EF_CONSTRUCTION', 200, 'EF_RUNTIME', 10, 'MAX_LEVEL', -1, 'ENTRYPOINT', -1, 'EPSILON', '0.01', 'NUMBER_OF_MARKED_DELETED', 0], 'TIERED_HNSW_SWAP_JOBS_THRESHOLD', 1024, 'SHARED_MEMORY', dummy_val]
+        expected_FLAT = ['ALGORITHM', 'FLAT', 'TYPE', data_type, 'DIMENSION', 1024, 'METRIC', 'L2', 'IS_MULTI_VALUE', 0, 'IS_DISK', 0, 'INDEX_SIZE', 0, 'INDEX_LABEL_COUNT', 0, 'MEMORY', dummy_val, 'LAST_SEARCH_MODE', 'EMPTY_MODE', 'BLOCK_SIZE', 1024, 'SHARED_MEMORY', dummy_val]
 
         # SVS-VAMANA only supports FLOAT32 and FLOAT16 data types
         if data_type in ('FLOAT32', 'FLOAT16'):
@@ -357,15 +357,18 @@ def test_create():
                                                       'BLOCK_SIZE', 1024, 'QUANT_BITS', 'NONE', 'ALPHA', 1.2, 'GRAPH_MAX_DEGREE', 32, 'CONSTRUCTION_WINDOW_SIZE', 200,
                                                       'MAX_CANDIDATE_POOL_SIZE', 600, 'PRUNE_TO', 28, 'USE_SEARCH_HISTORY', 1, 'NUM_THREADS', 1, 'LAST_RESERVED_NUM_THREADS', 1,
                                                       'NUMBER_OF_MARKED_DELETED', 0, 'SEARCH_WINDOW_SIZE', 10, 'SEARCH_BUFFER_CAPACITY', 10, 'LEANVEC_DIMENSION', 0, 'EPSILON', 0.01],
-                                                      'TIERED_SVS_TRAINING_THRESHOLD', 1024, 'TIERED_SVS_UPDATE_THRESHOLD', 1024, 'TIERED_SVS_THREADS_RESERVE_TIMEOUT', 5000]
+                                                      'TIERED_SVS_TRAINING_THRESHOLD', 1024, 'TIERED_SVS_UPDATE_THRESHOLD', 1024, 'TIERED_SVS_THREADS_RESERVE_TIMEOUT', 5000,
+                                                      'SHARED_MEMORY', dummy_val]
 
         for _ in env.reloadingIterator():
             info = ['identifier', 'v_HNSW', 'attribute', 'v_HNSW', 'type', 'VECTOR']
             env.assertEqual(index_info(env, 'idx1')['attributes'][0][:len(info)], info)
+
             info_data_HNSW = conn.execute_command(debug_cmd(), "VECSIM_INFO", "idx1", "v_HNSW")
             # replace memory values with a dummy value - irrelevant for the test
             info_data_HNSW[info_data_HNSW.index('MEMORY') + 1] = dummy_val
             info_data_HNSW[info_data_HNSW.index('MANAGEMENT_LAYER_MEMORY') + 1] = dummy_val
+            info_data_HNSW[info_data_HNSW.index('SHARED_MEMORY') + 1] = dummy_val
             front = info_data_HNSW[info_data_HNSW.index('FRONTEND_INDEX') + 1]
             front[front.index('MEMORY') + 1] = dummy_val
             back = info_data_HNSW[info_data_HNSW.index('BACKEND_INDEX') + 1]
@@ -376,6 +379,7 @@ def test_create():
             info_data_FLAT = conn.execute_command(debug_cmd(), "VECSIM_INFO", "idx2", "v_FLAT")
             # replace memory value with a dummy value - irrelevant for the test
             info_data_FLAT[info_data_FLAT.index('MEMORY') + 1] = dummy_val
+            info_data_FLAT[info_data_FLAT.index('SHARED_MEMORY') + 1] = dummy_val
 
             env.assertEqual(info_data_FLAT, expected_FLAT)
 
@@ -387,6 +391,7 @@ def test_create():
                 # replace memory values with a dummy value - irrelevant for the test
                 info_data_SVS_VAMANA[info_data_SVS_VAMANA.index('MEMORY') + 1] = dummy_val
                 info_data_SVS_VAMANA[info_data_SVS_VAMANA.index('MANAGEMENT_LAYER_MEMORY') + 1] = dummy_val
+                info_data_SVS_VAMANA[info_data_SVS_VAMANA.index('SHARED_MEMORY') + 1] = dummy_val
                 front_svs = info_data_SVS_VAMANA[info_data_SVS_VAMANA.index('FRONTEND_INDEX') + 1]
                 front_svs[front_svs.index('MEMORY') + 1] = dummy_val
                 back_svs = info_data_SVS_VAMANA[info_data_SVS_VAMANA.index('BACKEND_INDEX') + 1]

@@ -89,8 +89,8 @@ static void OPT_Rewind(QueryIterator *self) {
     optIt->lastLimitEstimate = nf->limit = limitEstimate * successRatio;
   }
 
-  FieldFilterContext filterCtx = {.field = {.index_tag = FieldMaskOrIndex_Index, .index = optIt->numericFieldIndex}, .predicate = FIELD_EXPIRATION_PREDICATE_DEFAULT};
   // create new numeric filter
+  FieldFilterContext filterCtx = {.field = {.index_tag = FieldMaskOrIndex_Index, .index = optIt->numericFieldIndex}, .predicate = FIELD_EXPIRATION_PREDICATE_DEFAULT};
   optIt->numericIter = NewNumericFilterIterator(qOpt->sctx, qOpt->nf, INDEXFLD_T_NUMERIC, optIt->config, &filterCtx);
 
   optIt->heapOldSize = heap_count(heap);
@@ -269,6 +269,9 @@ QueryIterator *NewOptimizerIterator(QOptimizer *qOpt, QueryIterator *root, Itera
 
   FieldFilterContext filterCtx = {.field = {.index_tag = FieldMaskOrIndex_Index, .index = field->index}, .predicate = FIELD_EXPIRATION_PREDICATE_DEFAULT};
   oi->numericFieldIndex = field->index;
+  // Disk specs are filtered out in QOptimizer_Iterators — OPT_Read and
+  // numDocs both consult spec->docs, which is empty on disk.
+  RS_ASSERT(!qOpt->sctx->spec->diskSpec);
   oi->numericIter = NewNumericFilterIterator(qOpt->sctx, qOpt->nf, INDEXFLD_T_NUMERIC, config, &filterCtx);
   if (!oi->numericIter) {
     OptimizerIterator_Free(&oi->base);

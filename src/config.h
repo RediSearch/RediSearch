@@ -136,6 +136,11 @@ typedef struct {
   size_t maxAggregateResults;
   size_t maxAggregateGroups;
 
+  // Maximum allowed value (in ms) for the global search-timeout and per-query
+  // TIMEOUT argument when numWorkerThreads == 0 (foreground execution). When
+  // workers are enabled this limit is not enforced. 0 means unlimited.
+  long long maxForegroundTimeoutLimitMS;
+
   // MT configuration
   size_t numWorkerThreads;
   size_t minOperationWorkers;
@@ -349,6 +354,7 @@ long long getRedisConfigNumeric(RedisModuleCtx *ctx, const char *confName, long 
 #define DEFAULT_MIN_STEM_LENGTH 4
 #define DEFAULT_MULTI_TEXT_SLOP 100
 #define DEFAULT_QUERY_TIMEOUT_MS 500
+#define DEFAULT_MAX_FOREGROUND_TIMEOUT_LIMIT_MS 60000
 #define DEFAULT_UNION_ITERATOR_HEAP 20
 #define DEFAULT_VSS_MAX_RESIZE 0
 
@@ -386,6 +392,7 @@ long long getRedisConfigNumeric(RedisModuleCtx *ctx, const char *confName, long 
     .iteratorsConfigParams.maxPrefixExpansions = DEFAULT_MAX_PREFIX_EXPANSIONS,\
     .requestConfigParams.queryTimeoutMS = DEFAULT_QUERY_TIMEOUT_MS,            \
     .requestConfigParams.timeoutPolicy = TimeoutPolicy_Return,                 \
+    .maxForegroundTimeoutLimitMS = DEFAULT_MAX_FOREGROUND_TIMEOUT_LIMIT_MS,    \
     .cursorReadSize = 1000,                                                    \
     .cursorMaxIdle = DEFAULT_MAX_CURSOR_IDLE,                                  \
     .maxDocTableSize = DEFAULT_DOC_TABLE_SIZE,                                 \
@@ -457,6 +464,12 @@ void iteratorsConfig_init(IteratorsConfig *config);
 
 void LogWarningDeprecatedFTConfig(RedisModuleCtx *ctx, const char *action,
                                   const char *name);
+
+/* Caps `*timeoutMS` to RSGlobalConfig.maxForegroundTimeoutLimitMS when the
+ * limit is active (workers disabled and limit > 0) and the current value
+ * exceeds it. Returns true iff capping occurred, in which case `*timeoutMS`
+ * was updated. */
+bool RSConfig_CapQueryTimeoutToForegroundLimit(long long *timeoutMS);
 
 #ifdef __cplusplus
 }

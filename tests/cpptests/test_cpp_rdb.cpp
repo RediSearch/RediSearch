@@ -918,3 +918,66 @@ TEST_F(RdbMockTest, testDocTableLegacyRdbLoadOverflow) {
     EXPECT_TRUE(t.buckets == nullptr) << "buckets should be NULL after overflow error";
     EXPECT_EQ(0, t.cap) << "cap should be 0 after overflow error";
 }
+
+// Returns the index of the (single) vector field in `spec`, or -1 if not found.
+static int findVectorField(const IndexSpec *spec) {
+    for (int i = 0; i < spec->numFields; i++) {
+        if (FIELD_IS(&spec->fields[i], INDEXFLD_T_VECTOR)) {
+            return i;
+        }
+    }
+    return -1;
+}
+
+// Round-trip an HNSW field's diskCtx.rerank through IndexSpec_RdbSave +
+// IndexSpec_RdbLoad and check both possible values survive. Flow tests can't
+// reach this path because diskCtx.indexName is only set when isFlex==true
+// (Enterprise-only), so this is the only place we exercise the new
+// INDEX_VECTOR_RERANK_VERSION byte end-to-end in OSS CI.
+TEST_F(RdbMockTest, testHnswRerankRdbRoundtrip) {
+    const char *args[] = {
+        "SCHEMA", "v", "VECTOR", "HNSW", "6",
+        "TYPE", "FLOAT32", "DIM", "2", "DISTANCE_METRIC", "L2",
+    };
+    for (bool initialRerank : {true, false}) {
+        QueryError err = QueryError_Default();
+        StrongRef original_ref = IndexSpec_ParseC(
+            NULL, "rerank_idx", args, sizeof(args) / sizeof(const char *), &err);
+        ASSERT_FALSE(QueryError_HasError(&err)) << QueryError_GetUserError(&err);
+        IndexSpec *spec = (IndexSpec *)StrongRef_Get(original_ref);
+        ASSERT_TRUE(spec != nullptr);
+        std::unique_ptr<IndexSpec, std::function<void(IndexSpec *)>> specPtr(
+            spec, [](IndexSpec *s) { StrongRef_Release(s->own_ref); });
+
+        // FT.CREATE only stores rerank into diskCtx when sp->diskSpec is set
+        // (i.e. isFlex). isFlex is false here, so set the field directly so
+        // RdbSave has a known value to persist.
+        int vfIdx = findVectorField(spec);
+        ASSERT_GE(vfIdx, 0) << "vector field not found in parsed spec";
+        spec->fields[vfIdx].vectorOpts.diskCtx.rerank = initialRerank;
+
+        RedisModuleIO *io = RMCK_CreateRdbIO();
+        std::unique_ptr<RedisModuleIO, std::function<void(RedisModuleIO *)>> ioPtr(
+            io, [](RedisModuleIO *x) { RMCK_FreeRdbIO(x); });
+        ASSERT_TRUE(io != nullptr);
+
+        IndexSpec_RdbSave(io, spec, 0);
+        EXPECT_EQ(0, RMCK_IsIOError(io));
+
+        io->read_pos = 0;
+        QueryError status = QueryError_Default();
+        IndexSpec *loaded = IndexSpec_RdbLoad(io, INDEX_CURRENT_VERSION, false, &status);
+        ASSERT_TRUE(loaded != nullptr)
+            << "load failed for rerank=" << initialRerank
+            << ": " << QueryError_GetUserError(&status);
+        std::unique_ptr<IndexSpec, std::function<void(IndexSpec *)>> loadedPtr(
+            loaded, [](IndexSpec *s) { StrongRef_Release(s->own_ref); });
+        EXPECT_FALSE(QueryError_HasError(&status)) << QueryError_GetUserError(&status);
+        EXPECT_EQ(0, RMCK_IsIOError(io));
+
+        int loadedVfIdx = findVectorField(loaded);
+        ASSERT_GE(loadedVfIdx, 0) << "vector field not found in loaded spec";
+        EXPECT_EQ(initialRerank, loaded->fields[loadedVfIdx].vectorOpts.diskCtx.rerank)
+            << "rerank did not round-trip (expected " << initialRerank << ")";
+    }
+}

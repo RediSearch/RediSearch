@@ -10,6 +10,7 @@
 #include "util/dict.h"
 #include "spec.h"
 #include "field_spec_info.h"
+#include "VecSim/vec_sim.h"
 #include <string.h>  // Add this for strerror
 
 // Assuming the GIL is held by the caller
@@ -33,7 +34,7 @@ TotalIndexesInfo IndexesInfo_TotalInfo() {
     // Lock for read
     int rc = pthread_rwlock_rdlock(&sp->rwlock);
     if (rc != 0) {
-      RedisModule_Log(RSDummyContext, "warning", "Failed to acquire read lock on index %s: rc=%d (%s). Cannot continue getting Index info", HiddenString_GetUnsafe(sp->specName, NULL), rc, strerror(rc));
+      RedisModule_Log(RSDummyContext, "warning", "Failed to acquire read lock on index %s: rc=%d (%s). Cannot continue getting Index info", IndexSpec_FormatName(sp, RSGlobalConfig.hideUserDataFromLog), rc, strerror(rc));
       continue;
     }
 
@@ -66,6 +67,8 @@ TotalIndexesInfo IndexesInfo_TotalInfo() {
     info.total_active_write_threads += activeWrites;
     BGIndexerInProgress |= sp->scan_in_progress;
     info.total_num_docs_in_indexes += sp->stats.scoring.numDocuments;
+    info.total_inverted_index_blocks +=
+        __atomic_load_n(&sp->stats.totalInvertedIndexBlocks, __ATOMIC_RELAXED);
 
     // Index errors metrics
     size_t index_error_count = IndexSpec_GetIndexErrorCount(sp);
@@ -85,5 +88,11 @@ TotalIndexesInfo IndexesInfo_TotalInfo() {
   dictReleaseIterator(iter);
   if (info.min_mem == -1) info.min_mem = 0;             // No index found
   if (BGIndexerInProgress) info.total_active_write_threads++;  // BG indexer is currently active
+
+  // Process-wide vector memory not tied to any specific spec (e.g. the shared SVS
+  // thread pool singleton).
+  size_t shared_vector_mem = VecSim_GetSharedMemory();
+  info.fields_stats.total_vector_idx_mem += shared_vector_mem;
+  info.total_mem += shared_vector_mem;
   return info;
 }

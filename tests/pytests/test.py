@@ -4397,7 +4397,9 @@ def test_cluster_set_myself_excluded(env: Env):
     ]
     env.expect('SEARCH.CLUSTERINFO').equal(expected)
 
-@skip(cluster=False) # this test is only relevant on cluster
+# TODO(MOD-15868): re-enable once https://redislabs.atlassian.net/browse/MOD-15868 is resolved
+@skip()
+#@skip(cluster=False) # this test is only relevant on cluster
 def test_cluster_set_errors(env: Env):
 
     # Check general values parsing

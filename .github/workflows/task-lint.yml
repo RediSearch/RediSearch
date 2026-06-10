@@ -90,9 +90,10 @@ jobs:
         # `Stale headers check` step below needs. The cached container image
         # already runs this script in its Dockerfile.
         if: needs.build-image.outputs.succeeded != 'true'
-        env:
-          GITHUB_TOKEN: ${{ github.token }}
-        run: .install/test_deps/install_rust_deps.sh ${{ steps.mode.outputs.mode }}
+        uses: ./.github/actions/retry-command
+        with:
+          command: .install/test_deps/install_rust_deps.sh ${{ steps.mode.outputs.mode }}
+          github_token: ${{ github.token }}
       # Cache Rust packages and binaries
       - uses: Swatinem/rust-cache@v2
         with:

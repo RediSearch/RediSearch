@@ -668,16 +668,18 @@ mod revalidate {
             InvertedIndex::<DocIdsOnly>::new(IndexFlags_Index_DocIdsOnly),
         )));
         // We temporarily swap `existingDocs` to trigger a wildcard abort.
-        let old_existing_docs = context.spec_read().existing_docs();
+        let old_existing_docs = context.spec_read().existing_docs_ptr();
 
-        context.spec_write().set_existing_docs(new_ii.cast());
+        context.spec_write().set_existing_docs_ptr(new_ii.cast());
 
         let status = it.revalidate(&*context.spec_read()).unwrap();
         assert_eq!(status, RQEValidateStatus::Aborted);
 
         // Restoring the original `existingDocs` pointer and dropping
         // `new_ii` which was created via `Box::into_raw` above.
-        context.spec_write().set_existing_docs(old_existing_docs);
+        context
+            .spec_write()
+            .set_existing_docs_ptr(old_existing_docs);
         // SAFETY: Dropping Box from raw pointer.
         unsafe {
             drop(Box::from_raw(new_ii));

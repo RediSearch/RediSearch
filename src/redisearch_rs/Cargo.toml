@@ -46,6 +46,7 @@ members = [
     "top_k_bencher",
     "trie_rs",
     "ttl_table",
+    "ttl_table_bencher",
     "value",
     "varint",
     "varint_bencher",

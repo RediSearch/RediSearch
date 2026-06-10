@@ -73,7 +73,7 @@ TEST_F(ExpireTest, testSkipTo) {
 
   TagIndex *idx = TagIndex_Open(fs);
   ASSERT_NE(idx, nullptr);
-  QueryIterator *it = TagIndex_OpenReader(idx, sctx, "one", strlen("one"), 1.0, 0);
+  QueryIterator *it = TagIndex_OpenReader(idx, sctx, "one", strlen("one"), 1.0, 0, NULL);
   ASSERT_EQ(it->lastDocId, 0);
   // should skip to last document, we index every doc twice so we should have 2 * maxDocId entries in the inverted index
   for (t_docId doc = 2; doc < (2 * maxDocId); doc += 2) {

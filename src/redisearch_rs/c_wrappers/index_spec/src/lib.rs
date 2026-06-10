@@ -9,9 +9,10 @@
 
 //! Safe wrapper around [`ffi::IndexSpec`].
 
-use std::{ffi::c_char, slice};
+use std::{ffi::c_char, ptr::NonNull, slice};
 
 use field_spec::FieldSpec;
+use inverted_index::opaque::InvertedIndex;
 use schema_rule::SchemaRule;
 
 /// A safe wrapper around an `ffi::IndexSpec`.
@@ -148,7 +149,7 @@ impl<'lock> IndexSpecWriteGuard<'lock> {
     }
 
     /// Sets the existing documents inverted index pointer.
-    pub const fn set_existing_docs(&mut self, existing_docs: *mut ffi::InvertedIndex) {
+    pub const fn set_existing_docs_ptr(&mut self, existing_docs: *mut ffi::InvertedIndex) {
         self.0.existingDocs = existing_docs;
     }
 
@@ -218,6 +219,23 @@ impl<'lock> IndexSpecReadGuard<'lock> {
         std::mem::ManuallyDrop::new(Self(index_spec))
     }
 
+    /// Check whether the document with the given id exists in this spec's document table.
+    pub fn doc_exists(&self, id: ffi::t_docId) -> bool {
+        // SAFETY: docs is a valid DocTable for a properly initialised IndexSpec.
+        unsafe { ffi::DocTable_Exists(&self.0.docs, id) }
+    }
+
+    /// Return the inverted index tracking all existing (live) document IDs, if present.
+    ///
+    /// This index is only populated when the spec's schema rule has
+    /// [`index_all`](ffi::SchemaRule::index_all) set.
+    pub fn existing_docs(&self) -> Option<&InvertedIndex> {
+        NonNull::new(self.0.existingDocs).map(|existing_docs| {
+            // SAFETY: existingDocs is a valid, non-null pointer to an opaque InvertedIndex.
+            unsafe { existing_docs.cast::<InvertedIndex>().as_ref() }
+        })
+    }
+
     /// Returns whether the keys dictionary is available.
     ///
     /// The keys dictionary maps TEXT terms to their inverted indexes.
@@ -238,7 +256,7 @@ impl<'lock> IndexSpecReadGuard<'lock> {
     /// Returns a pointer to the existing documents inverted index.
     ///
     /// May be null if all documents have been garbage collected.
-    pub const fn existing_docs(&self) -> *mut ffi::InvertedIndex {
+    pub const fn existing_docs_ptr(&self) -> *mut ffi::InvertedIndex {
         self.0.existingDocs
     }
 

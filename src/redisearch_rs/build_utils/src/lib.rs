@@ -71,14 +71,15 @@ pub fn rerun_if_c_changes(dir: &Path) -> std::io::Result<()> {
 /// all C code and dependencies together. The combined library is created by CMake
 /// during the build process.
 pub fn bind_foreign_c_symbols() {
+    let bin_root = bin_root();
     force_link_time_symbol_resolution();
-    link_redisearch_all();
-    link_mkl();
+    link_redisearch_all(&bin_root).unwrap_or_else(|e| panic!("{e}"));
+    link_mkl(&bin_root.join("_deps/svs-src/lib"));
     link_c_plusplus();
 }
 
 /// Require all symbols to be resolved at link time.
-fn force_link_time_symbol_resolution() {
+pub fn force_link_time_symbol_resolution() {
     let target_os = env::var("CARGO_CFG_TARGET_OS").unwrap_or_else(|_| "linux".to_string());
     if target_os == "macos" {
         println!("cargo::rustc-link-arg=-Wl,-undefined,error");
@@ -116,7 +117,8 @@ fn bin_root() -> PathBuf {
     }
 }
 
-/// Link `libredisearch_all.a` using the `-bundle` modifier.
+/// Link `libredisearch_all.a` using the `-bundle` modifier, returning an error if the
+/// library is not found.
 ///
 /// The `-bundle` modifier prevents the (very large) C archive from being
 /// embedded into every Rust rlib in the dependency tree. Instead, the linker
@@ -129,16 +131,20 @@ fn bin_root() -> PathBuf {
 ///    errors in unrelated workspace members.
 /// 2. Archive member counts exceeding `u16::MAX` in rustc's
 ///    `ar_archive_writer` when MKL or other large archives are involved.
-fn link_redisearch_all() {
-    let bin_root = bin_root();
+///
+/// Callers that need soft-fail behaviour (e.g. lint-only runs where the
+/// library has not been built) can inspect the returned `Err` and emit a
+/// `cargo::warning` instead of panicking.
+pub fn link_redisearch_all(bin_root: &Path) -> Result<PathBuf, Box<dyn std::error::Error>> {
     let lib_dir = bin_root.join("src");
     let lib = lib_dir.join("libredisearch_all.a");
     if std::fs::exists(&lib).unwrap_or(false) {
         println!("cargo::rustc-link-lib=static:-bundle=redisearch_all");
         println!("cargo::rerun-if-changed={}", lib.display());
         println!("cargo::rustc-link-search=native={}", lib_dir.display());
+        Ok(lib)
     } else {
-        panic!("Static library not found: {}", lib.display());
+        Err(format!("Static library not found: {}", lib.display()).into())
     }
 }
 
@@ -147,8 +153,11 @@ fn link_redisearch_all() {
 /// MKL is excluded from `libredisearch_all.a` because its ~42K object files
 /// overflow the `u16` archive member index in rustc's `ar_archive_writer`.
 /// Like `redisearch_all`, we link with `-bundle` to avoid rlib bloat.
-fn link_mkl() {
-    let svs_lib_dir = bin_root().join("_deps/svs-src/lib");
+///
+/// `svs_lib_dir` is the directory that contains `libmkl_static_library.a`.
+/// Its location varies across build configurations, so callers are responsible
+/// for supplying the correct path.
+pub fn link_mkl(svs_lib_dir: &Path) {
     let mkl = svs_lib_dir.join("libmkl_static_library.a");
     if std::fs::exists(&mkl).unwrap_or(false) {
         println!("cargo::rerun-if-changed={}", mkl.display());
