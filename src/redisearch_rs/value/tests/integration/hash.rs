@@ -8,7 +8,7 @@
 */
 
 use fnv::Fnv64;
-use std::hash::Hasher;
+use std::hash::{Hash, Hasher};
 use value::hash::hash_value;
 use value::{Array, Map, SharedValue, String, Trio, Value};
 
@@ -47,28 +47,40 @@ fn same_numbers_produce_same_hash() {
 }
 
 #[test]
-fn undefined_resets_hasher_to_zero_basis() {
-    // Hashing Undefined should reset the hasher state to offset basis 0,
-    // regardless of prior state.
-    let mut hasher = Fnv64::default();
-    hash_value(&Value::Number(123.0), &mut hasher);
-    hash_value(&Value::Undefined, &mut hasher);
-
-    let fresh = Fnv64::with_offset_basis(0);
-    // Finish on a fresh hasher with basis 0 should match.
-    assert_eq!(hasher.finish(), fresh.finish());
+fn undefined_and_null_are_deterministic() {
+    assert_eq!(hash(&Value::Undefined), hash(&Value::Undefined));
+    assert_eq!(hash(&Value::Null), hash(&Value::Null));
 }
 
 #[test]
-fn null_advances_hasher_state() {
-    // Hashing Null should set offset basis to current hash + 1.
-    let mut hasher = Fnv64::default();
-    let before = hasher.finish();
-    hash_value(&Value::Null, &mut hasher);
-    let actual = hasher.finish();
+fn undefined_and_null_do_not_collide() {
+    // Undefined and Null carry no payload, but their discriminants keep them
+    // distinct from each other and from Number(0.0)'s all-zero bytes.
+    assert_ne!(hash(&Value::Undefined), hash(&Value::Null));
+    assert_ne!(hash(&Value::Undefined), hash(&Value::Number(0.0)));
+    assert_ne!(hash(&Value::Null), hash(&Value::Number(0.0)));
+}
 
-    let expected = Fnv64::with_offset_basis(before + 1).finish();
-    assert_eq!(actual, expected);
+#[test]
+fn undefined_and_null_do_not_reset_prior_state() {
+    // Hashing Undefined/Null no longer wipes out whatever was hashed before
+    // them - they just mix their own discriminant into the running state.
+    let mut with_undefined = Fnv64::default();
+    hash_value(&Value::Number(123.0), &mut with_undefined);
+    hash_value(&Value::Undefined, &mut with_undefined);
+
+    let mut without_undefined = Fnv64::default();
+    hash_value(&Value::Number(123.0), &mut without_undefined);
+
+    assert_ne!(with_undefined.finish(), hash(&Value::Undefined));
+    assert_ne!(with_undefined.finish(), without_undefined.finish());
+
+    let mut with_null = Fnv64::default();
+    hash_value(&Value::Number(123.0), &mut with_null);
+    hash_value(&Value::Null, &mut with_null);
+
+    assert_ne!(with_null.finish(), hash(&Value::Null));
+    assert_ne!(with_null.finish(), without_undefined.finish());
 }
 
 #[test]
@@ -80,13 +92,15 @@ fn ref_hashes_same_as_inner_value() {
 
 #[test]
 fn array_hashes_elements_sequentially() {
-    // An array of [x, y] should give the same result as hashing x and y sequentially.
+    // An array of [x, y] should give the same result as hashing the Array
+    // discriminant followed by x and y sequentially.
     let arr = Value::Array(Array::new(Box::new([
         SharedValue::new(Value::Number(1.0)),
         SharedValue::new(Value::Number(2.0)),
     ])));
 
     let mut expected_hasher = Fnv64::default();
+    core::mem::discriminant(&arr).hash(&mut expected_hasher);
     hash_value(&Value::Number(1.0), &mut expected_hasher);
     hash_value(&Value::Number(2.0), &mut expected_hasher);
 
@@ -95,13 +109,15 @@ fn array_hashes_elements_sequentially() {
 
 #[test]
 fn map_hashes_keys_and_values() {
-    // A map with one entry {key: val} should give the same result as hashing key and value sequentially.
+    // A map with one entry {key: val} should give the same result as hashing
+    // the Map discriminant followed by key and value sequentially.
     let map = Value::Map(Map::new(Box::new([(
         SharedValue::new(Value::Number(3.0)),
         SharedValue::new(Value::Number(4.0)),
     )])));
 
     let mut expected_hasher = Fnv64::default();
+    core::mem::discriminant(&map).hash(&mut expected_hasher);
     hash_value(&Value::Number(3.0), &mut expected_hasher);
     hash_value(&Value::Number(4.0), &mut expected_hasher);
 
