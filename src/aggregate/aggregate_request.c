@@ -1141,11 +1141,49 @@ void AREQ_WaitForAggregateResultsComplete(AREQ *req) {
   pthread_mutex_unlock(&req->syncCtx.aggregateResultsLock);
 }
 
+/* See aggregate.h for the full handshake contract. The aggregateResultsLock
+ * serializes the worker's "set holding, then check timedOut" against the main
+ * thread's "set timedOut, then check holding", making the two race-free. */
+bool RequestSyncCtx_SafeLoaderEnterGIL(RequestSyncCtx *sync) {
+  // Gate: only requests using the aggregate-results sync protocol take part in
+  // the handshake. For all other policies this is a no-op (take the GIL as usual).
+  if (!sync->requiresAggregateResultsSync) return true;
+  bool proceed;
+  pthread_mutex_lock(&sync->aggregateResultsLock);
+  if (RS_AtomicBoolLoadRelaxed(&sync->timedOut)) {
+    // Timeout callback already fired: do NOT mark holding, bail so the worker
+    // does not block on the GIL the main thread is holding while it waits.
+    proceed = false;
+  } else {
+    sync->safeLoaderHoldingGIL = true;
+    proceed = true;
+  }
+  pthread_mutex_unlock(&sync->aggregateResultsLock);
+  return proceed;
+}
+
+void RequestSyncCtx_SafeLoaderExitGIL(RequestSyncCtx *sync) {
+  if (!sync->requiresAggregateResultsSync) return;
+  pthread_mutex_lock(&sync->aggregateResultsLock);
+  sync->safeLoaderHoldingGIL = false;
+  pthread_mutex_unlock(&sync->aggregateResultsLock);
+}
+
+bool RequestSyncCtx_TimeoutPreemptSafeLoaderGIL(RequestSyncCtx *sync) {
+  if (!sync->requiresAggregateResultsSync) return false;
+  bool holding;
+  pthread_mutex_lock(&sync->aggregateResultsLock);
+  holding = sync->safeLoaderHoldingGIL;
+  pthread_mutex_unlock(&sync->aggregateResultsLock);
+  return holding;
+}
+
 void AREQ_ResetForCursorReadReturnStrict(AREQ *req) {
   RS_AtomicBoolStoreRelaxed(&req->syncCtx.aggregatingResults, false);
   req->syncCtx.aggregateResultsClaimLost = false;
   pthread_mutex_lock(&req->syncCtx.aggregateResultsLock);
   req->syncCtx.aggregateResultsDone = false;
+  req->syncCtx.safeLoaderHoldingGIL = false;
   pthread_mutex_unlock(&req->syncCtx.aggregateResultsLock);
   RS_AtomicBoolStoreRelaxed(&req->syncCtx.timedOut, false);
   ResultProcessor *root = AREQ_QueryProcessingCtx(req)->rootProc;

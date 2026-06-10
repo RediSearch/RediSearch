@@ -193,6 +193,12 @@ typedef struct RequestSyncCtx {
   RS_Atomic(bool) aggregatingResults;    // CAS claim: BG winner runs the pipeline; timeout-callback winner skips it and replies empty
   bool aggregateResultsClaimLost;        // BG lost the CAS claim to the timeout callback
   bool aggregateResultsDone;             // Set at completion; guarded by aggregateResultsLock
+  /* Deadlock-avoidance handshake for the RP_SAFE_LOADER. Set true by the BG
+   * worker just before it tries to acquire the GIL, cleared after it releases
+   * the GIL; guarded by aggregateResultsLock. The main-thread timeout callback
+   * reads it (under the same lock) to detect a worker parked at the GIL gate and
+   * preempt it (reply empty) instead of deadlocking in Wait while holding the GIL. */
+  bool safeLoaderHoldingGIL;
   pthread_mutex_t aggregateResultsLock;
   pthread_cond_t aggregateResultsCond;
 
@@ -211,6 +217,7 @@ static inline void RequestSyncCtx_Init(RequestSyncCtx *ctx) {
   ctx->aggregatingResults = false;
   ctx->aggregateResultsClaimLost = false;
   ctx->aggregateResultsDone = false;
+  ctx->safeLoaderHoldingGIL = false;
   pthread_mutex_init(&ctx->aggregateResultsLock, NULL);
   pthread_cond_init(&ctx->aggregateResultsCond, NULL);
   ctx->abortWakeChannel = NULL;
@@ -595,6 +602,28 @@ static inline bool AREQ_RequiresThreadsSyncResults(const AREQ *req) {
 bool AREQ_TryClaimAggregateResults(AREQ *req);
 void AREQ_SignalAggregateResultsComplete(AREQ *req);
 void AREQ_WaitForAggregateResultsComplete(AREQ *req);
+
+/* RP_SAFE_LOADER GIL handshake (deadlock avoidance for RETURN_STRICT).
+ *
+ * All three helpers are gated on `requiresAggregateResultsSync`: when the
+ * request does not use the aggregate-results sync protocol (FAIL/RETURN
+ * policies) they are no-ops (EnterGIL returns true, Preempt returns false), so
+ * the safe loader takes the GIL exactly as before.
+ *
+ * EnterGIL: called by the BG worker under aggregateResultsLock just before it
+ *   acquires the GIL. If the timeout callback already fired (timedOut), returns
+ *   false WITHOUT marking the worker as holding the GIL, so the worker bails
+ *   (returns RS_RESULT_TIMEDOUT) instead of blocking on a GIL the main thread
+ *   holds while waiting. Otherwise marks safeLoaderHoldingGIL and returns true.
+ * ExitGIL: called by the worker after it releases the GIL; clears the flag.
+ * TimeoutPreemptSafeLoaderGIL: called by the main-thread timeout callback after
+ *   it loses the claim and before Wait; returns true if the worker is parked at
+ *   the GIL gate (safeLoaderHoldingGIL), telling the callback to reply empty and
+ *   return instead of deadlocking. Reads/writes timedOut+holding under the lock
+ *   so the worker's EnterGIL and this check form a race-free Dekker handshake. */
+bool RequestSyncCtx_SafeLoaderEnterGIL(RequestSyncCtx *sync);
+void RequestSyncCtx_SafeLoaderExitGIL(RequestSyncCtx *sync);
+bool RequestSyncCtx_TimeoutPreemptSafeLoaderGIL(RequestSyncCtx *sync);
 
 /* Reset the per-cursor-read sync state on a coordinator RETURN_STRICT cursor
  * read so the next chunk starts from a clean slate. Resets:
