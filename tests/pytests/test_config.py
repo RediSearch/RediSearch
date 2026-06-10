@@ -790,12 +790,10 @@ def _registerModuleLoadexNumericParamTests():
     # cluster-only configs were never exercised here; we preserve that.
     for cfg in numericConfigs:
         configName, argName, default, minValue, maxValue, _immutable, clusterConfig = cfg
-        if clusterConfig:
-            continue
         testName = f'testModuleLoadexNumericParams_{argName}'
 
         def _makeTest(configName, argName, default, minValue, maxValue, testName):
-            @skip(cluster=True, redis_less_than='7.9.227')
+            @skip(redis_less_than='7.9.227')
             def _test():
                 _testModuleLoadexNumericParam(configName, argName, default, minValue, maxValue)
             _test.__name__ = testName
@@ -1004,12 +1002,10 @@ def _testModuleLoadexNumericParamLastWins(configName, argName, default, minValue
 def _registerModuleLoadexNumericParamLastWinsTests():
     for cfg in numericConfigs:
         configName, argName, default, minValue, maxValue, _immutable, clusterConfig = cfg
-        if clusterConfig:
-            continue
         testName = f'testModuleLoadexNumericParamsLastWins_{argName}'
 
         def _makeTest(configName, argName, default, minValue, maxValue, testName):
-            @skip(cluster=True, redis_less_than='7.9.227')
+            @skip(redis_less_than='7.9.227')
             def _test():
                 _testModuleLoadexNumericParamLastWins(configName, argName, default, minValue, maxValue)
             _test.__name__ = testName
@@ -1349,7 +1345,7 @@ def _registerModuleLoadexStringParamTests():
         testName = f'testModuleLoadexStringParams_{argName}'
 
         def _makeTest(configName, argName, testValueRel, testName):
-            @skip(cluster=True, redis_less_than='7.9.227')
+            @skip(redis_less_than='7.9.227')
             def _test():
                 _testModuleLoadexStringParam(configName, argName, testValueRel)
             _test.__name__ = testName
@@ -1656,7 +1652,7 @@ def _registerModuleLoadexBooleanParamTests():
         testName = f'testModuleLoadexBooleanParams_{argName}'
 
         def _makeTest(configName, argName, defaultValue, isFlag, testName):
-            @skip(cluster=True, redis_less_than='7.9.227')
+            @skip(redis_less_than='7.9.227')
             def _test():
                 _testModuleLoadexBooleanParam(configName, argName, defaultValue, isFlag)
             _test.__name__ = testName
