@@ -51,6 +51,10 @@ Distinguish facts from inference. Use "the logs show" for facts, "likely" or
 function names, or commit SHAs — if you can't see it in the logs, don't write
 it.
 
+When the logs make the run mode clear, note whether the failure is in
+**standalone** or **coordinator** (cluster) mode — it tells the author where to
+look (`src/` vs `src/coord/`). Only state it when the logs show it; don't guess.
+
 ### Output format
 
 Markdown (GitHub PR comment). Keep the whole output under ~25 lines.

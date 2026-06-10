@@ -309,27 +309,40 @@ jobs:
           # the token via the working tree.
           persist-credentials: false
 
-      - name: Download focused Failed Test Logs artifacts
+      - name: Fetch failed-job logs from source run
+        # Lower-signal job-level logs go in first so the final tail-cap
+        # (applied in the next step) absorbs them rather than the focused
+        # per-test artifacts appended after. `cap: 'false'` defers truncation
+        # to that step so the higher-signal artifacts survive. Mirrors the
+        # ordering in #9930's ci-failure-context action.
+        uses: ./.github/actions/fetch-failed-run-logs
+        with:
+          github-token: ${{ github.token }}
+          run-id: ${{ needs.resolve.outputs.run-id }}
+          run-attempt: ${{ needs.resolve.outputs.run-attempt }}
+          cap: 'false'
+
+      - name: Append focused Failed Test Logs artifacts and cap
         # Fork PRs that keep the `triage-pr` label can produce arbitrarily
         # large `Failed Test Logs *` artifacts. Bound the download so a
-        # contributor can't waste runner time / disk before fetch-failed-run-logs
-        # applies its 200 KB truncation.
+        # contributor can't waste runner time / disk before the cap applies.
         timeout-minutes: 5
         env:
           GH_TOKEN: ${{ github.token }}
           SOURCE_RUN_ID: ${{ needs.resolve.outputs.run-id }}
+          MAX_BYTES: '204800'
         run: |
           set +e
-          # Prefer focused "Failed Test Logs *" artifacts (per-test logs).
-          # Build / lint / sanitizer logs are appended below by
-          # fetch-failed-run-logs so mixed-failure runs still have context.
+          # Higher-signal focused "Failed Test Logs *" artifacts (per-test
+          # logs) are appended after the per-job logs so they survive the
+          # tail-cap below. Build / lint / sanitizer context already sits in
+          # the per-job logs written by the previous step.
           mkdir -p downloaded-failed-logs
           gh run download "$SOURCE_RUN_ID" \
             --repo "$GITHUB_REPOSITORY" \
             --pattern "Failed Test Logs *" \
             --dir downloaded-failed-logs 2>/dev/null
 
-          : > failed-logs.txt
           if [ -n "$(find downloaded-failed-logs -type f 2>/dev/null)" ]; then
             echo "Including focused Failed Test Logs artifacts."
             find downloaded-failed-logs -type f \
@@ -342,15 +355,16 @@ jobs:
           else
             echo "No Failed Test Logs artifacts found."
           fi
-          exit 0
 
-      - name: Append failed-job logs from source run
-        uses: ./.github/actions/fetch-failed-run-logs
-        with:
-          github-token: ${{ github.token }}
-          run-id: ${{ needs.resolve.outputs.run-id }}
-          run-attempt: ${{ needs.resolve.outputs.run-attempt }}
-          append: 'true'
+          # Single final cap: focused artifacts are last, so they survive;
+          # the per-job logs written earlier absorb the truncation.
+          if [ "$(wc -c < failed-logs.txt 2>/dev/null || echo 0)" -gt "$MAX_BYTES" ]; then
+            tail -c "$MAX_BYTES" failed-logs.txt > failed-logs.txt.tmp
+            printf '[truncated to last %s bytes]\n' "$MAX_BYTES" > failed-logs.txt
+            cat failed-logs.txt.tmp >> failed-logs.txt
+            rm failed-logs.txt.tmp
+          fi
+          exit 0
 
       - name: Run Codex triage
         id: ai_triage
