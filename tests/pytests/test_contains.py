@@ -592,9 +592,6 @@ def testSuffixTrieNoEmptyDriftUnderIndexEmpty(env):
     res = conn.execute_command('FT.SEARCH', idx, query, 'NOCONTENT')
     return [res[0], *sorted(res[1:])]
 
-  # (query, expected) pairs. The empty value is matched only by exact-empty and
-  # by the bare `*` / TAG `w'*'` match-all; every `?`-bearing wildcard requires
-  # at least one character and so must exclude doc:empty.
   cases = [
     ('@t:{""}',      [1, 'doc:empty']),               # TAG exact empty
     ("@t:{w'*'}",    [2, 'doc:empty', 'doc:val']),    # TAG match-all incl. empty
