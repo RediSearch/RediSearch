@@ -188,3 +188,70 @@ def test_collect_sortby_over_max_keys_errors():
             'AS', 'rows'
     ).error().contains(
         f'SORTBY exceeds maximum of {COLLECT_MAX_SORT_KEYS} fields')
+
+
+# ---------------------------------------------------------------------------
+# COLLECT LIMIT count/offset bounds track the configurable result caps
+# ---------------------------------------------------------------------------
+def _create_collect_limit_index(env):
+    """One group (@color) with two members so a LIMIT is meaningful."""
+    env.expect('FT.CREATE', 'idx', 'ON', 'HASH', 'SCHEMA',
+               'color', 'TAG', 'name', 'TEXT').ok()
+    conn = getConnectionByEnv(env)
+    conn.execute_command('HSET', 'doc:1', 'color', 'yellow', 'name', 'a')
+    conn.execute_command('HSET', 'doc:2', 'color', 'yellow', 'name', 'b')
+
+
+def test_collect_limit_count_over_configured_max_errors():
+    """COLLECT LIMIT count above the lowered search-max-aggregate-results is
+    rejected, even though it stays below the MAX_AGGREGATE_REQUEST_RESULTS
+    ceiling (regression: the cap used to ignore the configurable value)."""
+    env = Env(protocol=3)
+    enable_unstable_features(env)
+    env.expect(config_cmd(), 'set', 'MAXAGGREGATERESULTS', 2).ok()
+    _create_collect_limit_index(env)
+
+    env.expect(
+        'FT.AGGREGATE', 'idx', '*',
+        'GROUPBY', '1', '@color',
+            'REDUCE', 'COLLECT', '6',
+                'FIELDS', '1', '@name',
+                'LIMIT', '0', '3',
+            'AS', 'rows'
+    ).error().contains('LIMIT count exceeds maximum of 2')
+
+
+def test_collect_limit_offset_over_configured_max_errors():
+    """COLLECT LIMIT offset above the lowered search-max-results is rejected."""
+    env = Env(protocol=3)
+    enable_unstable_features(env)
+    env.expect(config_cmd(), 'set', 'MAXSEARCHRESULTS', 2).ok()
+    _create_collect_limit_index(env)
+
+    env.expect(
+        'FT.AGGREGATE', 'idx', '*',
+        'GROUPBY', '1', '@color',
+            'REDUCE', 'COLLECT', '6',
+                'FIELDS', '1', '@name',
+                'LIMIT', '3', '1',
+            'AS', 'rows'
+    ).error().contains('LIMIT offset exceeds maximum of 2')
+
+
+def test_collect_limit_at_configured_max_succeeds():
+    """COLLECT LIMIT count == search-max-aggregate-results is accepted."""
+    env = Env(protocol=3)
+    enable_unstable_features(env)
+    env.expect(config_cmd(), 'set', 'MAXAGGREGATERESULTS', 2).ok()
+    _create_collect_limit_index(env)
+
+    res = env.cmd(
+        'FT.AGGREGATE', 'idx', '*',
+        'GROUPBY', '1', '@color',
+            'REDUCE', 'COLLECT', '6',
+                'FIELDS', '1', '@name',
+                'LIMIT', '0', '2',
+            'AS', 'rows')
+
+    env.assertEqual(len(res['results']), 1)
+    env.assertEqual(len(res['results'][0]['extra_attributes']['rows']), 2)

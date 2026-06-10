@@ -275,7 +275,11 @@ static void handleCollectSortByRemote(ArgParser *parser, const void *value, void
 }
 
 // Parses: LIMIT <offset> <count>
-//   Both values must be non-negative integers <= MAX_AGGREGATE_REQUEST_RESULTS.
+//   Bounds mirror the top-level FT.AGGREGATE LIMIT clause (see handleCommonArgs
+//   in aggregate_request.c): count is capped by the configurable
+//   search-max-aggregate-results, offset by search-max-results. Using the live
+//   RSGlobalConfig values (rather than the MAX_AGGREGATE_REQUEST_RESULTS ceiling)
+//   keeps COLLECT honoring an operator-lowered limit.
 static void handleCollectLimit(ArgParser *parser, const void *value, void *user_data) {
   CollectParseCtx *pctx = (CollectParseCtx *)user_data;
   CollectParseData *data = pctx->data;
@@ -294,14 +298,14 @@ static void handleCollectLimit(ArgParser *parser, const void *value, void *user_
       "LIMIT count must be a positive integer");
     return;
   }
-  if (offset > MAX_AGGREGATE_REQUEST_RESULTS) {
+  if (offset > RSGlobalConfig.maxSearchResults) {
     QueryError_SetWithoutUserDataFmt(status, QUERY_ERROR_CODE_LIMIT,
-      "LIMIT offset exceeds maximum of %llu", MAX_AGGREGATE_REQUEST_RESULTS);
+      "LIMIT offset exceeds maximum of %zu", RSGlobalConfig.maxSearchResults);
     return;
   }
-  if (count > MAX_AGGREGATE_REQUEST_RESULTS) {
+  if (count > RSGlobalConfig.maxAggregateResults) {
     QueryError_SetWithoutUserDataFmt(status, QUERY_ERROR_CODE_LIMIT,
-      "LIMIT count exceeds maximum of %llu", MAX_AGGREGATE_REQUEST_RESULTS);
+      "LIMIT count exceeds maximum of %zu", RSGlobalConfig.maxAggregateResults);
     return;
   }
   if (offset > LLONG_MAX - count) {
