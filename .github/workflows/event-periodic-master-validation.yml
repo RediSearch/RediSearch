@@ -214,6 +214,11 @@ jobs:
 
       - name: Checkout repository
         uses: actions/checkout@v6
+        with:
+          # Triage only needs the local workflow/action files. Codex then reads
+          # untrusted CI logs and emits external output, so don't leave a usable
+          # git credential available to later steps.
+          persist-credentials: false
 
       - name: Collect failure context
         id: failure-context
