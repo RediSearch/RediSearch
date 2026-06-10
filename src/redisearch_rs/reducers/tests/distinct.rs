@@ -8,7 +8,7 @@
 */
 
 //! Unit tests for the DISTINCT dedup key
-//! ([`reducers::collect::distinct`]): the canonical byte encoding that backs
+//! ([`reducers::collect::distinct`]): the FNV-1a digest that backs
 //! `DistinctRow`'s `Hash`/`Eq`, and the `Hash`/`Eq` contract over real rows.
 
 extern crate redisearch_rs;
@@ -19,7 +19,7 @@ use std::hash::{Hash, Hasher};
 use std::cell::Cell;
 use std::ffi::CStr;
 
-use reducers::collect::distinct::{DistinctRow, encode_value_refs, encode_values};
+use reducers::collect::distinct::{DistinctRow, dedup_hash, dedup_hash_row};
 use reducers::collect::storage::{Storage, StorageMode};
 use reducers::collect::{RemoteCollectCtx, RemoteCollectReducer};
 use rlookup::{RLookupKey, RLookupKeyFlags, RLookupRow};
@@ -31,16 +31,21 @@ redis_mock::mock_or_stub_missing_redis_c_symbols!();
 /// is "better" (ranks first).
 const SORT_DESC: u64 = 0b0;
 
-fn s(bytes: &str) -> Option<SharedValue> {
-    Some(SharedValue::new_string(bytes.as_bytes().to_vec()))
+fn s(bytes: &str) -> SharedValue {
+    SharedValue::new_string(bytes.as_bytes().to_vec())
 }
 
-fn n(v: f64) -> Option<SharedValue> {
-    Some(SharedValue::new_num(v))
+fn n(v: f64) -> SharedValue {
+    SharedValue::new_num(v)
 }
 
-fn enc(values: &[Option<SharedValue>]) -> Box<[u8]> {
-    encode_values(values)
+/// Hash a set of named projected fields. `None` value = field absent.
+fn h(fields: &[(&str, Option<&SharedValue>)]) -> u64 {
+    dedup_hash(
+        fields
+            .iter()
+            .map(|(name, v)| (name.as_bytes(), v.map(|sv| &**sv))),
+    )
 }
 
 #[test]
@@ -49,12 +54,17 @@ fn enc(values: &[Option<SharedValue>]) -> Box<[u8]> {
     ignore = "encodes a number via `num_to_str`, which calls C `snprintf`"
 )]
 fn identical_rows_collapse() {
-    assert_eq!(enc(&[s("apple"), n(5.0)]), enc(&[s("apple"), n(5.0)]));
+    let (a, m) = (s("apple"), n(5.0));
+    assert_eq!(
+        h(&[("cat", Some(&a)), ("score", Some(&m))]),
+        h(&[("cat", Some(&a)), ("score", Some(&m))]),
+    );
 }
 
 #[test]
 fn differing_strings_do_not_collapse() {
-    assert_ne!(enc(&[s("apple")]), enc(&[s("banana")]));
+    let (a, b) = (s("apple"), s("banana"));
+    assert_ne!(h(&[("cat", Some(&a))]), h(&[("cat", Some(&b))]));
 }
 
 #[test]
@@ -63,26 +73,42 @@ fn differing_strings_do_not_collapse() {
     ignore = "encodes a number via `num_to_str`, which calls C `snprintf`"
 )]
 fn differing_numbers_do_not_collapse() {
-    assert_ne!(enc(&[n(5.0)]), enc(&[n(6.0)]));
+    let (x, y) = (n(5.0), n(6.0));
+    assert_ne!(h(&[("score", Some(&x))]), h(&[("score", Some(&y))]));
 }
 
 #[test]
-fn field_order_matters() {
-    assert_ne!(enc(&[s("a"), s("b")]), enc(&[s("b"), s("a")]));
+fn same_value_under_different_field_names_differs() {
+    // The field name is part of the identity: the same value under field `a`
+    // vs field `b` must not collide.
+    let v = s("x");
+    assert_ne!(h(&[("a", Some(&v))]), h(&[("b", Some(&v))]));
 }
 
 #[test]
-fn length_prefix_prevents_boundary_ambiguity() {
-    // "ab" | "c"  must not collide with  "a" | "bc".
-    assert_ne!(enc(&[s("ab"), s("c")]), enc(&[s("a"), s("bc")]));
+fn field_name_prevents_boundary_ambiguity() {
+    // (@a="ab", @b="c") must not collide with (@a="a", @b="bc"): the length-
+    // prefixed field NAME folded ahead of each value keeps adjacent fields from
+    // bleeding together. (This is the GROUP BY collision DISTINCT avoids — see
+    // `test_groupby_multikey_hash_collision_merges_distinct_groups`.)
+    let (ab, c, a, bc) = (s("ab"), s("c"), s("a"), s("bc"));
+    assert_ne!(
+        h(&[("a", Some(&ab)), ("b", Some(&c))]),
+        h(&[("a", Some(&a)), ("b", Some(&bc))]),
+    );
 }
 
 #[test]
-fn absent_null_and_empty_string_are_distinct() {
-    let absent = enc(&[None]);
-    let null = enc(&[Some(SharedValue::null_static())]);
-    let empty = enc(&[s("")]);
-    assert_ne!(absent, null);
+fn absent_and_null_collide_but_empty_string_is_distinct() {
+    // ACCEPTED: an absent field and an explicit `Null` fold the field name only,
+    // so they share a digest. The empty string is a present value and stays
+    // distinct from both.
+    let null = SharedValue::null_static();
+    let empty = s("");
+    let absent = h(&[("f", None)]);
+    let null = h(&[("f", Some(&null))]);
+    let empty = h(&[("f", Some(&empty))]);
+    assert_eq!(absent, null); // absent ≡ null, by design
     assert_ne!(absent, empty);
     assert_ne!(null, empty);
 }
@@ -94,7 +120,8 @@ fn absent_null_and_empty_string_are_distinct() {
 )]
 fn number_and_numeric_string_are_distinct() {
     // Accepted divergence from RSValue_Cmp: no number↔string coercion.
-    assert_ne!(enc(&[n(5.0)]), enc(&[s("5")]));
+    let (num, str5) = (n(5.0), s("5"));
+    assert_ne!(h(&[("f", Some(&num))]), h(&[("f", Some(&str5))]));
 }
 
 #[test]
@@ -103,29 +130,28 @@ fn number_and_numeric_string_are_distinct() {
     ignore = "encodes a number via `num_to_str`, which calls C `snprintf`"
 )]
 fn integral_floats_normalize() {
-    // 5 and 5.0 are the same f64 and num_to_str renders both as "5".
-    assert_eq!(enc(&[n(5.0)]), enc(&[n(5.0)]));
-    // Distinct numbers stay distinct.
-    assert_ne!(enc(&[n(5.0)]), enc(&[n(5.5)]));
+    let (five, five2, half) = (n(5.0), n(5.0), n(5.5));
+    assert_eq!(h(&[("f", Some(&five))]), h(&[("f", Some(&five2))]));
+    assert_ne!(h(&[("f", Some(&five))]), h(&[("f", Some(&half))]));
 }
 
 #[test]
 fn maps_dedup_by_content_not_all_collapse() {
-    // The `compare` map-stub treats all maps as equal; our encoding must not.
-    let m1 = Some(SharedValue::new_map(vec![(
+    // The `compare` map-stub treats all maps as equal; our digest must not.
+    let m1 = SharedValue::new_map(vec![(
         SharedValue::new_string(b"k".to_vec()),
         SharedValue::new_string(b"v1".to_vec()),
-    )]));
-    let m2 = Some(SharedValue::new_map(vec![(
+    )]);
+    let m2 = SharedValue::new_map(vec![(
         SharedValue::new_string(b"k".to_vec()),
         SharedValue::new_string(b"v2".to_vec()),
-    )]));
-    let m1b = Some(SharedValue::new_map(vec![(
+    )]);
+    let m1b = SharedValue::new_map(vec![(
         SharedValue::new_string(b"k".to_vec()),
         SharedValue::new_string(b"v1".to_vec()),
-    )]));
-    assert_ne!(enc(std::slice::from_ref(&m1)), enc(&[m2]));
-    assert_eq!(enc(&[m1]), enc(&[m1b]));
+    )]);
+    assert_ne!(h(&[("f", Some(&m1))]), h(&[("f", Some(&m2))]));
+    assert_eq!(h(&[("f", Some(&m1))]), h(&[("f", Some(&m1b))]));
 }
 
 #[test]
@@ -133,21 +159,12 @@ fn maps_dedup_by_content_not_all_collapse() {
     miri,
     ignore = "encodes numbers via `num_to_str`, which calls C `snprintf`"
 )]
-fn arrays_encode_elementwise() {
-    let a1 = Some(SharedValue::new_array(vec![
-        SharedValue::new_num(1.0),
-        SharedValue::new_num(2.0),
-    ]));
-    let a2 = Some(SharedValue::new_array(vec![
-        SharedValue::new_num(1.0),
-        SharedValue::new_num(2.0),
-    ]));
-    let a3 = Some(SharedValue::new_array(vec![
-        SharedValue::new_num(2.0),
-        SharedValue::new_num(1.0),
-    ]));
-    assert_eq!(enc(std::slice::from_ref(&a1)), enc(&[a2]));
-    assert_ne!(enc(&[a1]), enc(&[a3]));
+fn arrays_hash_elementwise() {
+    let a1 = SharedValue::new_array(vec![n(1.0), n(2.0)]);
+    let a2 = SharedValue::new_array(vec![n(1.0), n(2.0)]);
+    let a3 = SharedValue::new_array(vec![n(2.0), n(1.0)]);
+    assert_eq!(h(&[("f", Some(&a1))]), h(&[("f", Some(&a2))]));
+    assert_ne!(h(&[("f", Some(&a1))]), h(&[("f", Some(&a3))]));
 }
 
 #[test]
@@ -156,11 +173,11 @@ fn arrays_encode_elementwise() {
     ignore = "encodes a number via `num_to_str`, which calls C `snprintf`"
 )]
 fn distinct_row_eq_and_hash_agree_over_real_rows() {
-    fn distinct_row(key: &RLookupKey<'_>, v: f64) -> DistinctRow {
+    fn distinct_row(key: &RLookupKey<'static>, v: f64) -> DistinctRow {
         let mut row = RLookupRow::new();
         row.write_key(key, SharedValue::new_num(v));
-        let canon = encode_values(row.dyn_values());
-        DistinctRow::from_parts(row, canon)
+        let hash = dedup_hash_row(&row, std::iter::once(key));
+        DistinctRow::from_parts(row, hash)
     }
 
     fn hash_of(dr: &DistinctRow) -> u64 {
@@ -229,7 +246,7 @@ fn distinct_insert(
         || vec![Some(SharedValue::new_num(sort))].into_boxed_slice(),
         (),
         || group_row(g, &group, s, sort),
-        |row| encode_value_refs([row.get(g).map(|v| &**v)]),
+        |row| dedup_hash_row(row, std::iter::once(g)),
     );
 }
 
@@ -346,7 +363,7 @@ fn distinct_doomed_candidate_skips_projection() {
         },
         |row| {
             dedup_called.set(true);
-            encode_value_refs([row.get(&g).map(|v| &**v)])
+            dedup_hash_row(row, std::iter::once(&g))
         },
     );
 

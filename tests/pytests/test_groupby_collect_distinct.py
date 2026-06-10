@@ -97,7 +97,7 @@ def _setup_distinct_json_object(env):
 
 
 @skip(no_json=True)
-def test_collect_distinct_json_dedups_by_string_not_structure():
+def test_collect_distinct_json_object_not_structurally_deduped():
     env = Env(protocol=3)
     enable_unstable_features(env)
     _setup_distinct_json_object(env)
@@ -114,8 +114,10 @@ def test_collect_distinct_json_dedups_by_string_not_structure():
 
     env.assertEqual(len(res['results']), 1)
     payloads = res['results'][0]['extra_attributes']['payloads']
-    # Same-content payloads with different key order are NOT canonicalized, so
-    # both survive (no collapse).
+    # DISTINCT is NOT deep structural equality: two same-content objects with a
+    # different key order are treated as distinct and both survive. (DISTINCT
+    # hashes a JSON field like every other reducer — by the value's first
+    # element, matching GROUP BY — never by deep structure.)
     env.assertEqual(len(payloads), 2)
 
 
@@ -257,10 +259,11 @@ def test_collect_distinct_cluster_cross_shard_json_dedups_identical():
 @skip(cluster=False, no_json=True)
 def test_collect_distinct_cluster_cross_shard_json_dedups_by_string_not_structure():
     # Two docs on DIFFERENT shards carry the SAME logical `payload` object but
-    # with keys in a DIFFERENT order. BY DESIGN dedup is string comparison, not
-    # structural equality: the two serialize to different strings, so the
-    # coordinator keeps BOTH — exactly matching the single-shard semantics
-    # (`test_collect_distinct_json_dedups_by_string_not_structure`). This pins
+    # with keys in a DIFFERENT order. Dedup is not deep structural equality: on
+    # the coordinator the payload arrives wire-serialized, and the two serialize
+    # to different strings, so the coordinator keeps BOTH — the same
+    # not-structurally-deduped outcome as the single-shard
+    # `test_collect_distinct_json_object_not_structurally_deduped`. This pins
     # that the cross-shard path does not diverge from the single-shard one.
     env = Env(shardsCount=3, protocol=3)
     enable_unstable_features(env)

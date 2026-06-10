@@ -80,7 +80,7 @@ pub enum Storage<D: Ord> {
     },
     DistinctHeap {
         /// Item = projected payload (hashed/compared by [`DistinctRow`]'s
-        /// canonical encoding); priority = the sort-key comparator
+        /// FNV digest); priority = the sort-key comparator
         /// ([`EntryKey`], best = `Greater`).
         pq: DoublePriorityQueue<DistinctRow, EntryKey<D>>,
         sort_asc_map: u64,
@@ -195,7 +195,7 @@ impl<D: Ord> Storage<D> {
     ) where
         S: FnOnce() -> Box<[Option<SharedValue>]>,
         P: FnOnce() -> RLookupRow<'static>,
-        K: FnOnce(&RLookupRow<'static>) -> Box<[u8]>,
+        K: FnOnce(&RLookupRow<'static>) -> u64,
     {
         match self {
             Self::DistinctHeap {
@@ -219,8 +219,8 @@ impl<D: Ord> Storage<D> {
                 }
                 // Project and derive its dedup identity from the projected row.
                 let row = project();
-                let canon = dedup_from_row(&row);
-                let item = DistinctRow::from_parts(row, canon);
+                let hash = dedup_from_row(&row);
+                let item = DistinctRow::from_parts(row, hash);
 
                 // Dedup-keep-best.
                 match pq

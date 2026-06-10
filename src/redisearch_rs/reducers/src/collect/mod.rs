@@ -22,6 +22,7 @@
 
 use std::ffi::CStr;
 
+pub mod dedup_hash;
 pub mod distinct;
 pub mod heap;
 pub mod local;

@@ -24,7 +24,7 @@ use value::SharedValue;
 
 use crate::Reducer;
 use crate::collect::UNDERSCORE_KEY;
-use crate::collect::distinct::encode_value_refs;
+use crate::collect::distinct::dedup_hash_row;
 use crate::collect::storage::{Storage, StorageMode};
 
 /// Whether `key` projects the document key (`@__key`), comparing the resolved
@@ -307,14 +307,9 @@ impl RemoteCollectCtx {
             }
             dst
         };
-        // DISTINCT dedup identity: the projected fields only.
-        let dedup_from_row = |projected: &RLookupRow<'static>| {
-            encode_value_refs(
-                r.fields
-                    .dedup_keys()
-                    .map(|k| projected.get(k).map(|v| &**v)),
-            )
-        };
+        // DISTINCT dedup identity: the projected fields only, hashed by name.
+        let dedup_from_row =
+            |projected: &RLookupRow<'static>| dedup_hash_row(projected, r.fields.dedup_keys());
         if r.uses_distinct_storage {
             self.storage
                 .insert_distinct_entry(sort_vals, doc_id, project, dedup_from_row);

@@ -33,7 +33,7 @@ use value::{SharedValue, Value};
 
 use crate::Reducer;
 use crate::collect::UNDERSCORE_KEY;
-use crate::collect::distinct::encode_values;
+use crate::collect::distinct::dedup_hash;
 use crate::collect::storage::{Storage, StorageMode};
 
 /// Look up `name` in a shard-payload item (`Map` or flat `Array`).
@@ -46,6 +46,18 @@ fn get_field<'a>(item: &'a Value, name: &[u8]) -> Option<&'a SharedValue> {
     match item {
         Value::Map(m) => m.get(name),
         Value::Array(a) => a.map_get(name),
+        _ => unreachable!("shard payload item must be a Map or Array"),
+    }
+}
+
+/// Iterate the `(name, value)` fields of a shard-payload `item`, which is
+/// either a RESP3 `Map` or a flat RESP2 `Array` of alternating key/value pairs.
+fn payload_fields(item: &Value) -> impl Iterator<Item = (&SharedValue, &SharedValue)> {
+    match item {
+        Value::Map(m) => itertools::Either::Left(m.iter().map(|(k, v)| (k, v))),
+        Value::Array(a) => {
+            itertools::Either::Right(a.as_chunks::<2>().0.iter().map(|[k, v]| (k, v)))
+        }
         _ => unreachable!("shard payload item must be a Map or Array"),
     }
 }
@@ -83,6 +95,28 @@ impl Fields {
             Self::All { .. } => false,
             Self::Specific { requested, .. } => {
                 requested.iter().any(|n| n.as_c_str() == UNDERSCORE_KEY)
+            }
+        }
+    }
+
+    /// DISTINCT dedup digest of the projected fields of one shard-payload
+    /// `item`, computed directly from the payload (the built row keys its values
+    /// by `dstidx`, not by name, so we hash from the source where names are
+    /// available).
+    fn dedup_hash_item(&self, item: &Value) -> u64 {
+        match self {
+            Self::Specific { requested, .. } => dedup_hash(requested.iter().map(|name| {
+                (
+                    name.to_bytes(),
+                    get_field(item, name.to_bytes()).map(|v| &**v),
+                )
+            })),
+            Self::All { .. } => {
+                let mut fields: Vec<(&[u8], &Value)> = payload_fields(item)
+                    .filter_map(|(k, v)| k.as_str_bytes().map(|name| (name, &**v)))
+                    .collect();
+                fields.sort_by_key(|(name, _)| *name);
+                dedup_hash(fields.into_iter().map(|(name, v)| (name, Some(v))))
             }
         }
     }
@@ -273,7 +307,9 @@ impl LocalCollectCtx {
                     || snapshot_sort_keys(r.fields.sort_key_names(), item),
                     (),
                     || r.fields.prepare_row(item, &mut self.lookup),
-                    |row| encode_values(row.dyn_values()),
+                    // Dedup digest is computed from the source `item`, not the
+                    // projected row.
+                    |_row| r.fields.dedup_hash_item(item),
                 );
             } else {
                 self.storage.insert_entry(
