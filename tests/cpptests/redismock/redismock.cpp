@@ -769,6 +769,11 @@ void RMCK_LogIOError(RedisModuleIO *io, const char *levelstr, const char *fmt, .
   va_end(ap);
 }
 
+int RMCK_InfoAddFieldCString(RedisModuleInfoCtx *ctx, const char *field, const char *value) {
+  ctx->fields.emplace_back(field, value);
+  return REDISMODULE_OK;
+}
+
 void *RMCK_LoadDataTypeFromStringEncver(const RedisModuleString *str,
                                         const RedisModuleType *mt,
                                         int encver) {
@@ -1795,6 +1800,9 @@ static void registerApis() {
   REGISTER_API(IsIOError);
   REGISTER_API(LogIOError);
   REGISTER_API(GetContextFromIO);
+
+  // Info
+  REGISTER_API(InfoAddFieldCString);
   // Serialization
   REGISTER_API(LoadDataTypeFromStringEncver);
   REGISTER_API(SaveDataTypeToString);

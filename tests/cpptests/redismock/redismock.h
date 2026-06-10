@@ -23,6 +23,12 @@ struct RedisModuleIO {
   bool error_flag = false;
 };
 
+// Minimal INFO-context recorder: RMCK_InfoAddFieldCString appends the
+// (field, value) pairs a module writes, so tests can assert on them.
+struct RedisModuleInfoCtx {
+  std::vector<std::pair<std::string, std::string>> fields;
+};
+
 std::vector<std::vector<std::string>> &RMCK_GetPropagatedCommands(RedisModuleCtx *ctx);
 
 // External interface for clearing KeyMeta storage
