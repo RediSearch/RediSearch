@@ -7,6 +7,8 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 
-mod iter;
-mod str;
-mod trie;
+mod empty_short_circuits;
+mod range_iter;
+mod return_value_contracts;
+mod suffixed_iter;
+mod utf8_boundary;
