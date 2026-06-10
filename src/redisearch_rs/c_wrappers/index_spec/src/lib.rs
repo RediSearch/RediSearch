@@ -11,7 +11,6 @@
 
 use std::{
     ffi::c_char,
-    ops::Deref,
     ptr,
     ptr::NonNull,
     slice,
@@ -207,16 +206,17 @@ impl<'lock> IndexSpecWriteGuard<'lock> {
             // SAFETY: totalInvertedIndexBlocks is documented in spec.h to require
             // atomic access (relaxed writes, relaxed reads). We hold the write lock
             // so we are the only writer; concurrent readers use atomic loads.
-            let atomic = unsafe {
-                &*(&self.0.stats.totalInvertedIndexBlocks as *const usize as *const AtomicUsize)
-            };
+            let atomic =
+                unsafe { AtomicUsize::from_ptr(&raw mut self.0.stats.totalInvertedIndexBlocks) };
+
+            // `as usize` reinterprets the two's-complement bits of a negative `delta`,
+            // and `fetch_add` wraps on overflow, so a negative `delta` is effectively
+            // subtracted.
             atomic.fetch_add(delta as usize, Ordering::Relaxed);
         }
     }
 
     /// Update the spec-level statistics after applying a GC delta.
-    ///
-    /// Must be called while holding the write lock.
     pub const fn update_gc_stats(
         &mut self,
         entries_removed: usize,
@@ -411,9 +411,6 @@ impl IndexSpecWeakRef {
 ///
 /// Obtained via [`IndexSpecWeakRef::promote`]. Keeps the spec alive for the
 /// duration of this value and releases the strong reference on drop.
-///
-/// Derefs to [`IndexSpec`] for read-only access. Mutable access requires
-/// acquiring the write lock via [`IndexSpec::write`].
 pub struct IndexSpecStrongRef {
     strong_ref: ffi::StrongRef,
     spec: NonNull<ffi::IndexSpec>,
@@ -425,16 +422,6 @@ impl IndexSpecStrongRef {
         // SAFETY: We hold a strong reference so the spec is alive, and the
         // pointer is non-null (checked in promote).
         unsafe { IndexSpec::from_raw_mut(self.spec.as_ptr()) }.write()
-    }
-}
-
-impl Deref for IndexSpecStrongRef {
-    type Target = IndexSpec;
-
-    fn deref(&self) -> &IndexSpec {
-        // SAFETY: We hold a strong reference so the spec is alive for at least
-        // as long as `self`, and the pointer is non-null (checked in promote).
-        unsafe { IndexSpec::from_raw(self.spec.as_ptr()) }
     }
 }
 
