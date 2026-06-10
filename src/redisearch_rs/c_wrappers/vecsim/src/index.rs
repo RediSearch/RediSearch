@@ -136,7 +136,8 @@ impl<'index> IndexRef<'index> {
     /// # Safety
     ///
     /// The caller must establish the [`inner`](Self::inner) field invariant
-    /// for the chosen `'index` lifetime.
+    /// for the chosen `'index` lifetime: `ptr` must point to a valid VecSim
+    /// index that is not freed for the entire `'index` lifetime.
     pub const unsafe fn from_raw(ptr: NonNull<VecSimIndex>) -> Self {
         Self {
             inner: ptr,
@@ -223,24 +224,19 @@ impl<'index> IndexRef<'index> {
         Some(unsafe { BatchIterator::from_raw(ptr) })
     }
 
-    /// Acquire the shared locks for RAM adhoc distance lookups against
+    /// Acquire VecSim's shared read locks for ad-hoc distance lookups against
     /// `query_vector`, returning a [`SharedLockGuard`].
     ///
-    /// RAM/tiered indexes only; disk indexes must use
-    /// [`adhoc_bf_ctx`](Self::adhoc_bf_ctx) instead.
+    /// VecSim only takes real locks for tiered indexes; on any other index the
+    /// underlying `VecSimTieredIndex_AcquireSharedLocks` is a no-op.
     ///
     /// The query is normalized for cosine indexes (see [`prepare_query`]), so
     /// the caller passes a plain query just like for
     /// [`top_k_query`](Self::top_k_query).
-    pub fn acquire_ram_shared_locks(
+    pub fn acquire_shared_locks(
         &self,
         query_vector: &QueryVector<'index>,
     ) -> SharedLockGuard<'index> {
-        debug_assert!(
-            // SAFETY: `self.inner` upholds its invariant.
-            !unsafe { VecSimIndex_BasicInfo(self.inner.as_ptr()) }.isDisk,
-            "acquire_ram_shared_locks called on a disk index; use adhoc_bf_ctx instead"
-        );
         let query = prepare_query(self.inner, query_vector.as_bytes());
         // SAFETY: `self.inner` upholds its invariant.
         unsafe { VecSimTieredIndex_AcquireSharedLocks(self.inner.as_ptr()) };
@@ -251,10 +247,10 @@ impl<'index> IndexRef<'index> {
     }
 
     /// Create an [`AdhocBfCtx`] that preprocesses `query_vector` once for
-    /// repeated disk-index distance lookups.
+    /// repeated ad-hoc distance lookups.
     ///
-    /// Returns `None` when VecSim does not support adhoc-BF for this index
-    /// type (e.g. RAM indexes).
+    /// Returns `None` when the index type does not implement ad-hoc BF, i.e.
+    /// VecSim's `newAdhocBfCtx` returns null.
     pub fn adhoc_bf_ctx(&self, query_vector: &QueryVector<'index>) -> Option<AdhocBfCtx<'index>> {
         // SAFETY:
         // 1. `self.inner` upholds its invariant.
@@ -275,7 +271,7 @@ impl<'index> IndexRef<'index> {
 }
 
 /// RAII guard holding the tiered-index shared locks acquired by
-/// [`IndexRef::acquire_ram_shared_locks`], bound to the query vector it was
+/// [`IndexRef::acquire_shared_locks`], bound to the query vector it was
 /// acquired for.
 ///
 /// While the guard exists, [`get_distance_from`](Self::get_distance_from) is
@@ -298,7 +294,7 @@ impl SharedLockGuard<'_> {
         // 2. The tiered-index shared locks are held for the lifetime of
         //    `self`, satisfying the `_Unsafe` precondition.
         // 3. `self.query` was sized and (for cosine) normalized to match the
-        //    index in `acquire_ram_shared_locks`.
+        //    index in `acquire_shared_locks`.
         let distance = unsafe {
             VecSimIndex_GetDistanceFrom_Unsafe(
                 self.index.inner.as_ptr(),
@@ -313,7 +309,7 @@ impl SharedLockGuard<'_> {
 impl Drop for SharedLockGuard<'_> {
     fn drop(&mut self) {
         // SAFETY: `self.index.inner` upholds its invariant; the locks were
-        // acquired in `IndexRef::acquire_ram_shared_locks`.
+        // acquired in `IndexRef::acquire_shared_locks`.
         unsafe { VecSimTieredIndex_ReleaseSharedLocks(self.index.inner.as_ptr()) };
     }
 }
