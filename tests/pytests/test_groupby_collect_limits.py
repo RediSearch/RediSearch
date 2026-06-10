@@ -222,10 +222,11 @@ def test_collect_limit_count_over_configured_max_errors():
 
 
 def test_collect_limit_offset_over_configured_max_errors():
-    """COLLECT LIMIT offset above the lowered search-max-results is rejected."""
+    """COLLECT LIMIT offset above the lowered search-max-aggregate-results is
+    rejected."""
     env = Env(protocol=3)
     enable_unstable_features(env)
-    env.expect(config_cmd(), 'set', 'MAXSEARCHRESULTS', 2).ok()
+    env.expect(config_cmd(), 'set', 'MAXAGGREGATERESULTS', 2).ok()
     _create_collect_limit_index(env)
 
     env.expect(
