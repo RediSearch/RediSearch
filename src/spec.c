@@ -99,8 +99,6 @@ static redisearch_thpool_t *cleanPool = NULL;
 
 extern DebugCTX globalDebugCtx;
 
-
-
 // Forward declaration for disk validation
 inline static bool isSpecOnDiskForValidation(const IndexSpec *sp);
 
@@ -114,8 +112,6 @@ bool CheckRdbSstPersistence(RedisModuleCtx *ctx, const char* prefix) {
 }
 
 //---------------------------------------------------------------------------------------------
-
-// This function should be called after the first background scan OOM error
 
 static void setMemoryInfo(RedisModuleCtx *ctx) {
   #define MIN_NOT_0(a,b) (((a)&&(b))?MIN((a),(b)):MAX((a),(b)))
@@ -384,7 +380,6 @@ void Indexes_SetTempSpecsTimers(TimerOp op) {
   }
   dictReleaseIterator(iter);
 }
-
 
 size_t IndexSpec_collect_numeric_overhead(IndexSpec *sp) {
   // Traverse the fields and calculates the overhead of the numeric tree index
@@ -2928,7 +2923,6 @@ void IndexSpec_AddToInfo(RedisModuleInfoCtx *ctx, IndexSpec *sp, bool obfuscate,
   }
 }
 
-
 // only used on "RDB load finished" event (before the server is ready to accept commands)
 // so it threadsafe
 void IndexSpec_DropLegacyIndexFromKeySpace(IndexSpec *sp) {
@@ -2994,7 +2988,6 @@ void Indexes_UpgradeLegacyIndexes() {
 }
 
 ///////////////////////////////////////////////////////////////////////////////////////////////
-
 
 // Populate diskCtx for all HNSW vector fields in the spec.
 // This must be called after sp->diskSpec is set.
