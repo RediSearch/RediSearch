@@ -213,7 +213,11 @@ bool CollectArgs_Parse(const ReducerOptions *options, CollectArgs *out) {
     return false;
   }
 
-  CollectParseCtx pctx = {.args = out, .options = options};
+  // COLLECT always requires field/sort names to carry an `@` prefix.
+  ReducerOptions strict_opts = *options;
+  strict_opts.strictPrefix = true;
+
+  CollectParseCtx pctx = {.args = out, .options = &strict_opts};
 
   ArgsCursor *ac = options->args;
   ArgParser *parser = ArgParser_New(ac, NULL);
