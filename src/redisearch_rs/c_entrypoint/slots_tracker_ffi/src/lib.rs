@@ -319,6 +319,48 @@ pub unsafe extern "C" fn slots_tracker_has_fully_available_overlap(
     with_tracker(|tracker| tracker.has_fully_available_overlap(ranges))
 }
 
+/// Returns the current local slot ranges as a newly allocated array.
+///
+/// The returned array is allocated with the Rust global allocator, which in the
+/// RediSearch module build forwards to `RedisModule_Alloc`. The caller owns the
+/// returned pointer and must free it with `RedisModule_Free` (`rm_free`).
+///
+/// # Safety
+///
+/// This function must be called from the main thread only.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn slots_tracker_get_local_slots() -> *mut SlotRangeArray {
+    with_tracker(|tracker| {
+        let local = tracker.local_slot_ranges();
+        let num_ranges =
+            i32::try_from(local.len()).expect("local slot ranges count must fit in i32");
+
+        let layout = local_slots_array_layout(local.len());
+        // SAFETY: layout has a non-zero size (it includes the num_ranges header)
+        let array = unsafe { std::alloc::alloc(layout) }.cast::<SlotRangeArray>();
+        if array.is_null() {
+            std::alloc::handle_alloc_error(layout);
+        }
+
+        // SAFETY: array points to a live allocation large enough for the header
+        // and `local.len()` ranges, per the layout above.
+        unsafe {
+            (&raw mut (*array).num_ranges).write(num_ranges);
+            let ranges = (&raw mut (*array).ranges).cast::<SlotRange>();
+            std::ptr::copy_nonoverlapping(local.as_ptr(), ranges, local.len());
+        }
+        array
+    })
+}
+
+/// Computes the allocation layout of a `SlotRangeArray` holding `num_ranges` ranges.
+fn local_slots_array_layout(num_ranges: usize) -> std::alloc::Layout {
+    let (layout, _) = std::alloc::Layout::new::<SlotRangeArray>()
+        .extend(std::alloc::Layout::array::<SlotRange>(num_ranges).expect("layout overflow"))
+        .expect("layout overflow");
+    layout.pad_to_align()
+}
+
 /// Checks if all requested slots are available and returns version information.
 ///
 /// Return values (via OptionSlotTrackerVersion):
