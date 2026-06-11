@@ -240,7 +240,7 @@ static ResultProcessor *getArrangeRP(Pipeline *pipeline, const AggregationPipeli
               HasScorer(&params->common)) {
       // No sort? then it must be sort by score, which is the default.
       // In optimize mode, add sorter for queries with a scorer.
-      // Resolve the score-tie-break field if one was requested (see setupCoordinatorArrangeSteps).
+      // Resolve the score-tie-break field if one was requested.
       const RLookupKey *scoreTieBreakKey = NULL;
       if (astp->scoreTieBreakField) {
         RLookup *lk = AGPLN_GetLookup(&pipeline->ap, stp, AGPLN_GETLOOKUP_PREV);

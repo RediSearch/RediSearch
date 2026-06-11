@@ -623,7 +623,7 @@ typedef struct {
     uint64_t ascendMap;
   } fieldcmp;
 
-  // When set, score ties are broken by this key's value instead of the doc id. NULL by default.
+  // When set, score ties are broken by this key's value instead of the doc id.
   const RLookupKey *scoreTieBreakKey;
 
   // Whether a timeout warning needs to be propagated down the downstream
@@ -743,9 +743,8 @@ static inline int cmpByScore(const void *e1, const void *e2, const void *udata) 
   } else if (SearchResult_GetScore(h1) > SearchResult_GetScore(h2)) {
     return 1;
   }
-  // Score tie: with a tie-break key, defer to the by-fields comparator over that single key so the
-  // missing-value and doc-id sub-tiebreaks match sort-by-field. ascendMap=1 gives ascending key
-  // order and a lower-doc-id-first fallback, matching the no-key path below.
+  // Tie-break via the by-fields comparator over the key (ascendMap=1 -> ascending key,
+  // lower-doc-id-first, matching the no-key path below).
   if (self->scoreTieBreakKey) {
     QueryError *qerr = (self->base.parent) ? self->base.parent->err : NULL;
     return SearchResult_CmpByFields(&self->scoreTieBreakKey, 1, h1, h2, /*ascendMap=*/1, qerr);

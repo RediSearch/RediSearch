@@ -172,7 +172,6 @@ ResultProcessor *RPSorter_NewByFields(size_t maxresults, const RLookupKey **keys
 /**
  * Creates a sorter result processor that sorts by score.
  * @param scoreTieBreakKey if non-NULL, score ties break by this key's value, not the doc id.
- *   Used on the coordinator for hybrid RRF where doc ids are not comparable across shards.
  */
 ResultProcessor *RPSorter_NewByScore(size_t maxresults, const RLookupKey *scoreTieBreakKey);
 
