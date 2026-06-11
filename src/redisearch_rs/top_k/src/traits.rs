@@ -118,6 +118,20 @@ pub trait ScoreSource {
     /// Used in Adhoc-BF mode where the child iterator drives traversal.
     fn lookup_score(&mut self, doc_id: DocId) -> Option<f64>;
 
+    /// Whether `doc_id` must be dropped at yield time (e.g. its field expired).
+    ///
+    /// [`TopKIterator`] consults this for each result it is about to yield,
+    /// after collection has finished. A `true` answer drops the result without
+    /// replacement: the document still occupied its top-k slot during
+    /// collection, so expiration reduces the number of yielded results rather
+    /// than letting lower-scored candidates take its place. The default never
+    /// expires.
+    ///
+    /// [`TopKIterator`]: crate::TopKIterator
+    fn is_expired(&self, _doc_id: DocId) -> bool {
+        false
+    }
+
     /// Called at the start of an adhoc scan, before any
     /// [`lookup_score`](Self::lookup_score) call in that scan.
     ///

@@ -356,6 +356,49 @@ fn batches_multiple_batches() {
 }
 
 #[test]
+fn batches_expired_doc_shrinks_results_without_refill() {
+    // Doc 1 expires after collection. It still fills the heap to k=2 during
+    // batch 1 (so the strategy sees a full heap and stops — batch 2's better
+    // candidate 3 is never pulled), and is dropped only at yield. Expiration
+    // must shrink the result count, not refill from candidate 3.
+    let source = MockScoreSource::new(
+        vec![vec![(1, 1.0), (2, 2.0)], vec![(3, 0.5)]],
+        vec![],
+        |count, k| {
+            if count >= k {
+                BatchStrategy::Stop
+            } else {
+                BatchStrategy::Continue
+            }
+        },
+    )
+    .with_expired([1]);
+    let mut it = TopKIterator::new(
+        source,
+        make_child(vec![1, 2, 3]),
+        NonZeroUsize::new(2).unwrap(),
+        asc,
+    );
+    let doc_ids: Vec<_> = std::iter::from_fn(|| it.read().unwrap().map(|r| r.doc_id)).collect();
+    assert_eq!(doc_ids, vec![2]);
+    assert!(it.at_eof());
+}
+
+#[test]
+fn unfiltered_expired_docs_dropped_at_yield() {
+    // The single direct batch is the complete result set; expired entries are
+    // skipped while streaming, shrinking the yielded count.
+    let source = MockScoreSource::new(vec![vec![(1, 0.1), (2, 0.2), (3, 0.3)]], vec![], |_, _| {
+        BatchStrategy::Continue
+    })
+    .with_expired([1, 3]);
+    let mut it = TopKIterator::new_unfiltered(source, NonZeroUsize::new(3).unwrap(), asc);
+    let doc_ids: Vec<_> = std::iter::from_fn(|| it.read().unwrap().map(|r| r.doc_id)).collect();
+    assert_eq!(doc_ids, vec![2]);
+    assert!(it.at_eof());
+}
+
+#[test]
 fn strategy_stop_stops_after_first_batch() {
     let source = MockScoreSource::new(
         vec![
@@ -573,6 +616,28 @@ fn adhoc_child_eof_returns_what_was_found() {
     );
     let doc_ids: Vec<_> = std::iter::from_fn(|| it.read().unwrap().map(|r| r.doc_id)).collect();
     assert_eq!(doc_ids, vec![1, 2]);
+}
+
+#[test]
+fn adhoc_expired_doc_shrinks_results_without_refill() {
+    // k=2; the best two scores are docs 1 (0.1) and 2 (0.2), so doc 3 (0.3)
+    // never enters the heap. Doc 1 expires after collection: it is dropped at
+    // yield without refilling from doc 3, mirroring the C HybridIterator's
+    // pop-time check.
+    let source = MockScoreSource::new(vec![], vec![(1, 0.1), (2, 0.2), (3, 0.3)], |_, _| {
+        BatchStrategy::Continue
+    })
+    .with_expired([1]);
+    let mut it = TopKIterator::new_with_mode(
+        source,
+        Some(make_child(vec![1, 2, 3])),
+        NonZeroUsize::new(2).unwrap(),
+        asc,
+        TopKMode::AdhocBF,
+    );
+    let doc_ids: Vec<_> = std::iter::from_fn(|| it.read().unwrap().map(|r| r.doc_id)).collect();
+    assert_eq!(doc_ids, vec![2]);
+    assert!(it.at_eof());
 }
 
 #[test]
