@@ -39,6 +39,26 @@ typedef struct TrieMap TrieMap;
 typedef struct TrieMapIterator TrieMapIterator;
 
 /**
+ * A set of indexed terms supporting substring (`*foo*`), ends-with
+ * (`*foo`) and exact lookups, used to accelerate contains/suffix/
+ * wildcard queries on `WITHSUFFIXTRIE` fields.
+ *
+ * Opaque to C; obtained from [`NewTermSuffixIndex`] and freed with
+ * [`TermSuffixIndex_Free`].
+ */
+typedef struct TermSuffixIndex TermSuffixIndex;
+
+/**
+ * Yields the terms (or keys, for [`TermSuffixIndex_IterateAll`])
+ * matched by an iteration over a [`TermSuffixIndex`].
+ *
+ * Opaque to C; obtained from one of the `TermSuffixIndex_Iterate*`
+ * functions, advanced with [`TermSuffixIndexIterator_Next`], and
+ * freed with [`TermSuffixIndexIterator_Free`].
+ */
+typedef struct TermSuffixIndexIterator TermSuffixIndexIterator;
+
+/**
  * Callback type for passing to [`TrieMap_IterateRange`].
  */
 typedef void (*TrieMapRangeCallback)(const char *, size_t, void *, void *);
@@ -156,9 +176,29 @@ void TrieMap_IterateRange(const struct TrieMap *trie, const char *min, int minle
 struct TrieMapIterator *TrieMap_Iterate(struct TrieMap *t);
 
 /**
+ * Create a new, empty [`TermSuffixIndex`].
+ *
+ * Free it with [`TermSuffixIndex_Free`].
+ */
+struct TermSuffixIndex *NewTermSuffixIndex(void);
+
+/**
  * Free the [`TrieMapResultBuf`] and its contents.
  */
 void TrieMapResultBuf_Free(TrieMapResultBuf buf);
+
+/**
+ * Free a [`TermSuffixIndex`] and all terms it owns.
+ *
+ * # Safety
+ *
+ * The following invariants must be upheld when calling this function:
+ * - `t` must point to a valid [`TermSuffixIndex`] obtained from
+ *   [`NewTermSuffixIndex`] and cannot be NULL.
+ * - No iterator obtained from `t` may be alive.
+ * - `t` must not be used after this call.
+ */
+void TermSuffixIndex_Free(struct TermSuffixIndex *t);
 
 /**
  * Add a new string to a trie. Returns 1 if the key is new to the trie or 0 if
@@ -217,6 +257,21 @@ void *TrieMapResultBuf_GetByIndex(TrieMapResultBuf *buf, size_t index);
 struct TrieMapIterator *TrieMap_IterateWithFilter(struct TrieMap *t, const char *prefix, tm_len_t prefix_len, enum tm_iter_mode iter_mode);
 
 /**
+ * Add `term` (a UTF-8 string of `len` bytes) to the index. Adding a
+ * term that is already a member is a no-op, as is adding an empty or
+ * non-UTF-8 term.
+ *
+ * # Safety
+ *
+ * The following invariants must be upheld when calling this function:
+ * - `t` must point to a valid [`TermSuffixIndex`] obtained from
+ *   [`NewTermSuffixIndex`] and cannot be NULL.
+ * - `term` must point to a valid byte sequence of length `len`.
+ * - No iterator obtained from `t` may be alive.
+ */
+void TermSuffixIndex_Add(struct TermSuffixIndex *t, const char *term, size_t len);
+
+/**
  * Get the length of the TrieMapResultBuf.
  *
  * # Safety
@@ -225,6 +280,21 @@ struct TrieMapIterator *TrieMap_IterateWithFilter(struct TrieMap *t, const char 
  * - `buf` must point to a valid TrieMapResultBuf initialized by [`TrieMap_FindPrefixes`] and cannot be NULL.
  */
 size_t TrieMapResultBuf_Len(TrieMapResultBuf *buf);
+
+/**
+ * Remove `term` (a UTF-8 string of `len` bytes) from the index.
+ * Removing a term that is not a member is a no-op, as is removing an
+ * empty or non-UTF-8 term.
+ *
+ * # Safety
+ *
+ * The following invariants must be upheld when calling this function:
+ * - `t` must point to a valid [`TermSuffixIndex`] obtained from
+ *   [`NewTermSuffixIndex`] and cannot be NULL.
+ * - `term` must point to a valid byte sequence of length `len`.
+ * - No iterator obtained from `t` may be alive.
+ */
+void TermSuffixIndex_Remove(struct TermSuffixIndex *t, const char *term, size_t len);
 
 /**
  * Set timeout limit used for affix queries. This timeout is checked in
@@ -263,6 +333,19 @@ void TrieMapIterator_SetTimeout(struct TrieMapIterator *it, timespec timeout);
 void *TrieMap_Find(const struct TrieMap *t, const char *str, tm_len_t len);
 
 /**
+ * Estimated heap memory currently held by the index, in bytes.
+ * Counts the trie structure only; term buffers are excluded, matching
+ * the node-count estimate of the C `TrieType_MemUsage`.
+ *
+ * # Safety
+ *
+ * The following invariants must be upheld when calling this function:
+ * - `t` must point to a valid [`TermSuffixIndex`] obtained from
+ *   [`NewTermSuffixIndex`] and cannot be NULL.
+ */
+size_t TermSuffixIndex_MemUsage(const struct TermSuffixIndex *t);
+
+/**
  * Free a trie iterator
  *
  * # Safety
@@ -271,6 +354,28 @@ void *TrieMap_Find(const struct TrieMap *t, const char *str, tm_len_t len);
  *   [`TrieMap_IterateWithFilter`] and cannot be NULL.
  */
 void TrieMapIterator_Free(struct TrieMapIterator *it);
+
+/**
+ * Iterate over every member term containing the UTF-8 needle
+ * `(str, len)` as a substring. A term may be yielded more than once.
+ *
+ * An empty or non-UTF-8 needle yields no matches. A needle shorter
+ * than `MIN_SUFFIX` codepoints silently yields a subset of the
+ * matching terms; callers must enforce the minimum query length
+ * upstream (the query engine's `minTermPrefix` gate).
+ *
+ * Invoke [`TermSuffixIndexIterator_Next`] to get the results from the
+ * iteration.
+ *
+ * # Safety
+ *
+ * The following invariants must be upheld when calling this function:
+ * - `t` must point to a valid [`TermSuffixIndex`] obtained from
+ *   [`NewTermSuffixIndex`] and cannot be NULL.
+ * - `str` must point to a valid byte sequence of length `len`.
+ * - `t` must not be modified or freed while the iterator lives.
+ */
+struct TermSuffixIndexIterator *TermSuffixIndex_IterateContains(const struct TermSuffixIndex *t, const char *str, size_t len);
 
 /**
  * Iterate to the next matching entry in the trie. Returns 1 if we can continue,
@@ -303,6 +408,28 @@ int TrieMapIterator_Next(struct TrieMapIterator *it, char * *ptr, tm_len_t *len,
 int TrieMap_Delete(struct TrieMap *t, const char *str, tm_len_t len, freeCB func);
 
 /**
+ * Iterate over every member term ending with the UTF-8 needle
+ * `(str, len)`. Each matching term is yielded exactly once.
+ *
+ * An empty or non-UTF-8 needle yields no matches. A needle shorter
+ * than `MIN_SUFFIX` codepoints silently yields a subset of the
+ * matching terms; callers must enforce the minimum query length
+ * upstream (the query engine's `minTermPrefix` gate).
+ *
+ * Invoke [`TermSuffixIndexIterator_Next`] to get the results from the
+ * iteration.
+ *
+ * # Safety
+ *
+ * The following invariants must be upheld when calling this function:
+ * - `t` must point to a valid [`TermSuffixIndex`] obtained from
+ *   [`NewTermSuffixIndex`] and cannot be NULL.
+ * - `str` must point to a valid byte sequence of length `len`.
+ * - `t` must not be modified or freed while the iterator lives.
+ */
+struct TermSuffixIndexIterator *TermSuffixIndex_IterateSuffix(const struct TermSuffixIndex *t, const char *str, size_t len);
+
+/**
  * Free the trie's root and all its children recursively. If freeCB is given, we
  * call it to free individual payload values (not the nodes). If not, free() is used instead.
  *
@@ -313,6 +440,44 @@ int TrieMap_Delete(struct TrieMap *t, const char *str, tm_len_t len, freeCB func
  *   and `RedisModule_Free` must not get mutated while running this function.
  */
 void TrieMap_Free(struct TrieMap *t, freeCB func);
+
+/**
+ * Iterate over every key stored in the index — each member term plus
+ * every indexed proper suffix — in lexicographical order.
+ * Introspection aid for `FT.DEBUG DUMP_SUFFIX_TRIE`.
+ *
+ * Invoke [`TermSuffixIndexIterator_Next`] to get the results from the
+ * iteration.
+ *
+ * # Safety
+ *
+ * The following invariants must be upheld when calling this function:
+ * - `t` must point to a valid [`TermSuffixIndex`] obtained from
+ *   [`NewTermSuffixIndex`] and cannot be NULL.
+ * - `t` must not be modified or freed while the iterator lives.
+ */
+struct TermSuffixIndexIterator *TermSuffixIndex_IterateAll(const struct TermSuffixIndex *t);
+
+/**
+ * Advance the iterator. Returns 1 and stores the next string into
+ * `(*str, *len)` if there is one, or returns 0 once exhausted.
+ *
+ * The string written to `*str` is NOT NUL-terminated, owned by the
+ * iterator, and only valid until the next call to
+ * [`TermSuffixIndexIterator_Next`] or [`TermSuffixIndexIterator_Free`].
+ *
+ * # Safety
+ *
+ * The following invariants must be upheld when calling this function:
+ * - `it` must point to a valid [`TermSuffixIndexIterator`] obtained
+ *   from one of the `TermSuffixIndex_Iterate*` functions and cannot
+ *   be NULL.
+ * - `str` and `len` must be valid, non-NULL pointers to writable
+ *   locations.
+ * - The [`TermSuffixIndex`] the iterator was obtained from must still
+ *   be alive and unmodified since the iterator was created.
+ */
+int TermSuffixIndexIterator_Next(struct TermSuffixIndexIterator *it, const char * *str, size_t *len);
 
 /**
  * Determines the amount of memory used by the trie in bytes.
@@ -332,6 +497,21 @@ size_t TrieMap_MemUsage(struct TrieMap *t);
  * - `t` must point to a valid TrieMap obtained from [`NewTrieMap`] and cannot be NULL.
  */
 size_t TrieMap_NUniqueKeys(const struct TrieMap *t);
+
+/**
+ * Free an iterator obtained from one of the `TermSuffixIndex_Iterate*`
+ * functions. Invalidates any string pointer previously returned by
+ * [`TermSuffixIndexIterator_Next`].
+ *
+ * # Safety
+ *
+ * The following invariants must be upheld when calling this function:
+ * - `it` must point to a valid [`TermSuffixIndexIterator`] obtained
+ *   from one of the `TermSuffixIndex_Iterate*` functions and cannot
+ *   be NULL.
+ * - `it` must not be used after this call.
+ */
+void TermSuffixIndexIterator_Free(struct TermSuffixIndexIterator *it);
 
 /**
  * The number of nodes stored in the provided triemap.

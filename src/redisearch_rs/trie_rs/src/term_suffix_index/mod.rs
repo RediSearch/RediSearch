@@ -52,8 +52,15 @@ impl TermSuffixIndex {
         }
     }
 
-    pub fn mem_usage(&self) -> usize {
-        todo!("FT.INFO memory accounting for the suffix index")
+    /// Estimated heap memory currently held by the index — O(1).
+    ///
+    /// Counts the underlying trie structure only (see
+    /// [`StrTrieMap::mem_usage`]); the shared term buffers and
+    /// per-entry back-reference vectors are not included. The C
+    /// counterpart (`TrieType_MemUsage`) likewise estimates from node
+    /// count alone, ignoring payloads.
+    pub const fn mem_usage(&self) -> usize {
+        self.inner.mem_usage()
     }
 
     pub fn add(&mut self, term: &str) {
@@ -116,15 +123,15 @@ impl TermSuffixIndex {
     /// since suffixes below the threshold aren't indexed; debug
     /// builds assert this. Production callers filter upstream via
     /// the query engine's `minTermPrefix` gate.
-    pub fn iter_contains(&self, needle: &str) -> impl Iterator<Item = Rc<str>> {
+    pub fn iter_contains<'tm>(&'tm self, needle: &str) -> impl Iterator<Item = Rc<str>> + use<'tm> {
         debug_assert!(
             needle.is_empty() || needle.chars().count() >= MIN_SUFFIX,
             "needle must span at least {MIN_SUFFIX} codepoints; caller must filter shorter needles (production gate: minTermPrefix)",
         );
-        (!needle.is_empty())
-            .then_some(needle)
+        let entries = (!needle.is_empty()).then(|| self.inner.prefixed_iter(needle));
+        entries
             .into_iter()
-            .flat_map(|n| self.inner.prefixed_iter(n))
+            .flatten()
             .flat_map(|(_key, data)| data.terms().cloned())
     }
 
@@ -138,15 +145,26 @@ impl TermSuffixIndex {
     /// since suffixes below the threshold aren't indexed; debug
     /// builds assert this. Production callers filter upstream via
     /// the query engine's `minTermPrefix` gate.
-    pub fn iter_suffix(&self, needle: &str) -> impl Iterator<Item = Rc<str>> {
+    pub fn iter_suffix<'tm>(&'tm self, needle: &str) -> impl Iterator<Item = Rc<str>> + use<'tm> {
         debug_assert!(
             needle.is_empty() || needle.chars().count() >= MIN_SUFFIX,
             "needle must span at least {MIN_SUFFIX} codepoints; caller must filter shorter needles (production gate: minTermPrefix)",
         );
-        (!needle.is_empty())
-            .then_some(needle)
-            .into_iter()
-            .flat_map(|n| self.inner.get(n))
-            .flat_map(|data| data.terms().cloned())
+        let data = if needle.is_empty() {
+            None
+        } else {
+            self.inner.get(needle)
+        };
+        data.into_iter().flat_map(|data| data.terms().cloned())
+    }
+
+    /// Yield every key stored in the underlying trie — each indexed
+    /// term plus every proper suffix of length ≥ [`MIN_SUFFIX`] — in
+    /// lexicographical order.
+    ///
+    /// Introspection aid (powers `FT.DEBUG DUMP_SUFFIX_TRIE`); query
+    /// paths use [`Self::iter_contains`] / [`Self::iter_suffix`].
+    pub fn keys<'tm>(&'tm self) -> impl Iterator<Item = String> + use<'tm> {
+        self.inner.iter().map(|(key, _)| key)
     }
 }
