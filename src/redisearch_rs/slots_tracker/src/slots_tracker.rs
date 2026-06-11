@@ -353,23 +353,35 @@ mod tests {
         // A new tracker owns the full slot range
         assert_eq!(
             tracker.local_slot_ranges(),
-            &[SlotRange { start: 0, end: 16383 }]
+            &[SlotRange {
+                start: 0,
+                end: 16383
+            }]
         );
 
         tracker.set_local_slots(&[
             SlotRange { start: 0, end: 100 },
-            SlotRange { start: 200, end: 300 },
+            SlotRange {
+                start: 200,
+                end: 300,
+            },
         ]);
         assert_eq!(
             tracker.local_slot_ranges(),
             &[
                 SlotRange { start: 0, end: 100 },
-                SlotRange { start: 200, end: 300 },
+                SlotRange {
+                    start: 200,
+                    end: 300
+                },
             ]
         );
 
         // Migrated-away slots are no longer local
-        tracker.mark_fully_available_slots(&[SlotRange { start: 200, end: 300 }]);
+        tracker.mark_fully_available_slots(&[SlotRange {
+            start: 200,
+            end: 300,
+        }]);
         assert_eq!(
             tracker.local_slot_ranges(),
             &[SlotRange { start: 0, end: 100 }]
