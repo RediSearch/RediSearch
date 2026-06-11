@@ -336,17 +336,25 @@ pub unsafe extern "C" fn slots_tracker_get_local_slots() -> *mut SlotRangeArray 
             i32::try_from(local.len()).expect("local slot ranges count must fit in i32");
 
         let layout = local_slots_array_layout(local.len());
-        // SAFETY: layout has a non-zero size (it includes the num_ranges header)
+        // SAFETY: `layout` has a non-zero size (it includes the `num_ranges` header).
         let array = unsafe { std::alloc::alloc(layout) }.cast::<SlotRangeArray>();
         if array.is_null() {
             std::alloc::handle_alloc_error(layout);
         }
 
-        // SAFETY: array points to a live allocation large enough for the header
-        // and `local.len()` ranges, per the layout above.
+        // SAFETY: `array` is a fresh, properly-aligned allocation for a SlotRangeArray
+        // header (per `layout`), so writing its `num_ranges` field is in bounds.
         unsafe {
-            (&raw mut (*array).num_ranges).write(num_ranges);
-            let ranges = (&raw mut (*array).ranges).cast::<SlotRange>();
+            (*array).num_ranges = num_ranges;
+        }
+
+        // SAFETY: `&raw mut` only computes the address of the trailing flexible array; the
+        // deref of `array` is sound because it points to the live allocation above.
+        let ranges = unsafe { &raw mut (*array).ranges }.cast::<SlotRange>();
+
+        // SAFETY: the allocation has room for `local.len()` ranges right after the header
+        // (per `layout`), and `local` cannot overlap the freshly allocated `array`.
+        unsafe {
             std::ptr::copy_nonoverlapping(local.as_ptr(), ranges, local.len());
         }
         array
