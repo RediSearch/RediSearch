@@ -32,6 +32,7 @@ pub mod c2rust;
 pub mod config;
 pub mod empty;
 pub mod expiration_checker;
+pub mod geo_shape;
 pub mod id_list;
 pub mod interop;
 pub mod intersection;
@@ -58,6 +59,7 @@ pub mod wildcard;
 pub use config::IteratorsConfig;
 pub use empty::Empty;
 pub use expiration_checker::{ExpirationChecker, FieldExpirationChecker, NoOpChecker};
+pub use geo_shape::{GeoShape, MemTracker, NoTracker};
 pub use id_list::IdList;
 pub use intersection::{Intersection, NewIntersectionIterator, new_intersection_iterator};
 pub use inverted_index::{
