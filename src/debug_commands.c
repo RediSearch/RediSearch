@@ -26,6 +26,7 @@
 #include "gc.h"
 #include "module.h"
 #include "suffix.h"
+#include "trie/trie.h"
 #include "triemap_ffi.h"
 #include "util/workers.h"
 #include "cursor.h"

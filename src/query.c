@@ -20,6 +20,7 @@
 #include "redis_index.h"
 #include "iterators_ffi.h"
 #include "tokenize.h"
+#include "trie/trie.h"
 #include "triemap_ffi.h"
 #include "util/logging.h"
 #include "extension.h"
