@@ -11,7 +11,7 @@
 // and invokes caller-supplied callbacks per key, handling GIL management, the
 // background-indexing memory limit (OOM), cancellation, yielding, and the FT.DEBUG
 // pause/step scanner. It knows nothing about index specs — the spec-specific reindex
-// logic lives in spec_scan.c, which drives this engine through IndexScanCallbacks.
+// logic lives in spec.c, which drives this engine through IndexScanCallbacks.
 
 #ifndef INDEX_SCAN_H__
 #define INDEX_SCAN_H__

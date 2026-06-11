@@ -11,7 +11,6 @@
 
 #include "triemap_ffi.h"
 #include "spec.h"
-#include "spec_scan.h"
 #include "inverted_index_ffi.h"
 #include "vector_index.h"
 #include "cursor.h"

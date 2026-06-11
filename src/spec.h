@@ -131,8 +131,9 @@ extern dict *specIdDict_g;  // Maps specId (uint64_t) → RefManager* (same as s
 #define dictGetRef(he) ((StrongRef){dictGetVal(he)})
 #define dictFetchRef(dict, key) ((StrongRef){dictFetchValue((dict), (key))})
 
-// The background index-scan subsystem (scanner types, DebugIndexScannerCode,
-// global_spec_scanner, scan/reindex API) lives in index_scan.h.
+// The generic background scan engine (scanner types, DebugIndexScannerCode, the
+// IndexScan_* API) lives in index_scan.h. The spec-side scan/reindex API that drives
+// it is declared further below (IndexSpec_ScanAndReindex etc.).
 
 extern size_t pending_global_indexing_ops;
 extern dict *legacySpecRules;
@@ -561,8 +562,18 @@ void IndexSpec_DeleteDoc_Unsafe(IndexSpec *spec, RedisModuleCtx *ctx, RedisModul
 void IndexSpec_DeleteDocById(IndexSpec *spec, t_docId docId);
 
 // Load (or reload) a document into the index, with DOCUMENT_ADD_REPLACE semantics.
-// Used by the background scan (index_scan.c) and the keyspace-notification path.
+// Used by the background scan and the keyspace-notification path.
 int IndexSpec_UpdateDoc(IndexSpec *spec, RedisModuleCtx *ctx, RedisModuleString *key, DocumentType type);
+
+// Background scan / reindex of existing keys, driven on the generic index_scan engine.
+// Schedule a scan+reindex for one index (safe to set a scanner on it — write lock or
+// main thread) or across all indexes (single global scanner).
+void IndexSpec_ScanAndReindex(RedisModuleCtx *ctx, StrongRef spec_ref);
+void Indexes_ScanAndReindex(void);
+// FT.INFO helpers: whether a scan (global or this spec's) is in progress, and the
+// fraction (0..1) of the keyspace already scanned (1.0 when none is in progress).
+bool Indexes_IsScanInProgress(const IndexSpec *sp);
+double Indexes_ScanIndexedPercent(RedisModuleCtx *ctx, const IndexSpec *sp);
 
 /**
  * Indicate that the index spec should use an internal dictionary,rather than
