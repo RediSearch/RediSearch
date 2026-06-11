@@ -17,18 +17,19 @@ use crate::{
 /// in lexicographical key order.
 ///
 /// Empty `prefix` yields zero matches — differs from
-/// [`TrieMap::prefixed_iter`] which yields every entry on `&[]`. The wrapped
-/// `Option` carries the short-circuit: `None` when the prefix was empty.
+/// [`TrieMap::prefixed_iter`] which yields every entry on `&[]`. The
+/// short-circuit is encoded by delegating to an empty inner iterator.
 ///
 /// See [`crate::iter::Iter`] for the underlying traversal.
-pub struct PrefixedIter<'tm, Data: 'tm>(Option<iter::Iter<'tm, Data, filter::VisitAll>>);
+pub struct PrefixedIter<'tm, Data: 'tm>(iter::Iter<'tm, Data, filter::VisitAll>);
 
 impl<'tm, Data: 'tm> PrefixedIter<'tm, Data> {
     pub(crate) fn new(trie: &'tm TrieMap<Data>, prefix: &str) -> Self {
         if prefix.is_empty() {
-            return Self(None);
+            Self(iter::Iter::empty())
+        } else {
+            Self(trie.prefixed_iter(prefix.as_bytes()))
         }
-        Self(Some(trie.prefixed_iter(prefix.as_bytes())))
     }
 }
 
@@ -36,6 +37,6 @@ impl<'tm, Data: 'tm> Iterator for PrefixedIter<'tm, Data> {
     type Item = (String, &'tm Data);
 
     fn next(&mut self) -> Option<Self::Item> {
-        self.0.as_mut()?.next().map(|(k, v)| (key_to_string(k), v))
+        self.0.next().map(|(k, v)| (key_to_string(k), v))
     }
 }

@@ -19,12 +19,13 @@ use crate::{
 /// Wrapper-only — [`crate::iter`] has no suffix iterator. Byte `ends_with`
 /// on UTF-8 keys agrees with `&str::ends_with` because UTF-8 is
 /// self-synchronizing: a multibyte sequence cannot be a suffix of another
-/// codepoint. Empty `suffix` yields zero matches.
+/// codepoint. Empty `suffix` yields zero matches by delegating to an empty
+/// inner iterator.
 ///
 /// See [`crate::iter::Iter`] for the underlying traversal.
 pub struct SuffixedIter<'tm, Data: 'tm> {
     target_bytes: Box<[u8]>,
-    iter: Option<iter::Iter<'tm, Data, filter::VisitAll>>,
+    iter: iter::Iter<'tm, Data, filter::VisitAll>,
 }
 
 impl<'tm, Data: 'tm> SuffixedIter<'tm, Data> {
@@ -32,12 +33,12 @@ impl<'tm, Data: 'tm> SuffixedIter<'tm, Data> {
         if suffix.is_empty() {
             return Self {
                 target_bytes: Box::new([]),
-                iter: None,
+                iter: iter::Iter::empty(),
             };
         }
         Self {
             target_bytes: suffix.as_bytes().to_vec().into_boxed_slice(),
-            iter: Some(trie.iter()),
+            iter: trie.iter(),
         }
     }
 }
@@ -46,9 +47,8 @@ impl<'tm, Data: 'tm> Iterator for SuffixedIter<'tm, Data> {
     type Item = (String, &'tm Data);
 
     fn next(&mut self) -> Option<Self::Item> {
-        let iter = self.iter.as_mut()?;
         loop {
-            let (k, v) = iter.next()?;
+            let (k, v) = self.iter.next()?;
             if k.ends_with(&self.target_bytes) {
                 return Some((key_to_string(k), v));
             }
