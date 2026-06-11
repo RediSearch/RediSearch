@@ -666,25 +666,27 @@ typedef struct DocTableDiskAPI {
    * The pool allows adding async read requests up to a maximum concurrency limit,
    * and polling for completed results. This enables I/O parallelism for query processing.
    *
-   * The optional `snapshot` pins the pool to a consistent read view: every read issued
+   * The `snapshot` pins the pool to a consistent read view: every read issued
    * through this pool (via `addAsyncRead` / `pollAsyncReads`) observes that snapshot,
    * matching the on-disk view the iterators built from the same snapshot are reading.
    *
    * The snapshot must outlive every async read issued through the pool — not just the
    * pool handle itself. SpeedB captures the snapshot pointer when each read is
    * enqueued and dereferences it when the I/O completion fires; `freeAsyncReadPool`
-   * does not cancel or wait for in-flight reads. The caller must therefore either
-   * drain the pool (poll until pending == 0) before calling `freeAsyncReadPool`, or
-   * otherwise guarantee the snapshot stays alive until every in-flight callback has
-   * run.
+   * does not cancel or wait for in-flight reads. The caller must therefore drain the
+   * pool (poll until pending == 0) before calling `freeAsyncReadPool`, so the snapshot
+   * stays valid until every in-flight callback has run.
    *
    * @param handle Handle to the index
    * @param max_concurrent Maximum number of concurrent pending reads
-   * @param snapshot Optional snapshot for a consistent read view, or NULL to read the live state.
-   *                 When non-NULL, must have been returned by `IndexDiskAPI.createSnapshot(index)`
-   *                 (where `index` is the same index this `handle` belongs to) and must remain
-   *                 valid for the lifetime of every in-flight read, as described above.
-   * @return Opaque handle to the pool, or NULL on error. Must be freed with freeAsyncReadPool.
+   * @param snapshot Snapshot for the consistent read view. Must have been returned by
+   *                 `IndexDiskAPI.createSnapshot(index)` (where `index` is the same index
+   *                 this `handle` belongs to) and must remain valid for the lifetime of
+   *                 every in-flight read, as described above. A NULL snapshot is rejected:
+   *                 the function returns NULL and no pool is created (the caller is expected
+   *                 to fall back to synchronous reads).
+   * @return Opaque handle to the pool, or NULL on error or when `snapshot` is NULL. Must be
+   *         freed with freeAsyncReadPool.
    */
   RedisSearchDiskAsyncReadPool (*createAsyncReadPool)(RedisSearchDiskIndexSpec* handle, uint16_t max_concurrent, RedisSearchDiskSnapshot *snapshot);
 
