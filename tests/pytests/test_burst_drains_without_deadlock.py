@@ -92,12 +92,7 @@ def _print_debug_stats(label, env, coord_initial_jobs_done, coord_initial_pendin
     )
 
 
-# Skipped on macOS: the test drives the coordinator into RQ saturation by firing
-# a large burst of concurrent connections, then polls FT.DEBUG COORD_THREADS for
-# saturation. On the slow, single-IO-thread macOS CI runners (kern.ipc.somaxconn
-# defaults to 128 < burst size) the monitoring poll gets starved by the burst it
-# is measuring and the saturation wait times out. The drain/deadlock behavior
-# under test is platform-independent, so Linux cluster coverage is sufficient.
+# Skipped on macOS: the saturation burst times out on the slow macOS CI runners.
 @skip(cluster=False, macos=True)
 def test_search_and_aggregate_burst():
     env = Env(
