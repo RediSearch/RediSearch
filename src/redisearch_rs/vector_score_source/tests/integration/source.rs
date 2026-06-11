@@ -18,9 +18,12 @@
 
 use std::{num::NonZeroUsize, ptr::NonNull};
 
+use std::collections::HashSet;
+
 use ffi::{VecSimIndex, VecSimIndex_Free, t_docId};
 use index_result::RSResultKind;
-use rqe_iterators::RQEIterator;
+use rqe_iterators::{ExpirationChecker, FieldExpirationChecker, RQEIterator};
+use rqe_iterators_test_utils::MockExpirationChecker;
 use top_k::{TopKIterator, TopKMode};
 use vector_score_source::test_utils::{self, asc, collect_ids, make_child, uniform_blob};
 use vector_score_source::{
@@ -46,8 +49,34 @@ unsafe fn make_source(
     k: usize,
     child_est: usize,
 ) -> VectorScoreSource<'static> {
+    // SAFETY: caller-upheld `index` lifetime; no expiration filter.
+    unsafe { make_source_with_expiration(index, n, k, child_est, None::<FieldExpirationChecker>) }
+}
+
+/// Same as [`make_source`], but installs an optional field-expiration filter,
+/// consulted at yield time.
+///
+/// # Safety
+///
+/// `index` must outlive the returned source (and any iterator built from it).
+unsafe fn make_source_with_expiration<E: ExpirationChecker>(
+    index: NonNull<VecSimIndex>,
+    n: usize,
+    k: usize,
+    child_est: usize,
+    expiration: Option<E>,
+) -> VectorScoreSource<'static, E> {
     // SAFETY: caller upholds the `index` lifetime contract.
-    unsafe { test_utils::make_source(index, uniform_blob(n as f32, DIM), n, k, child_est) }
+    unsafe {
+        test_utils::make_source_with_expiration(
+            index,
+            uniform_blob(n as f32, DIM),
+            n,
+            k,
+            child_est,
+            expiration,
+        )
+    }
 }
 
 #[test]
@@ -327,6 +356,93 @@ fn disjoint_child_yields_nothing() {
 
     assert!(it.read().unwrap().is_none());
     assert!(it.at_eof());
+
+    drop(it);
+    // SAFETY: no live references to the index remain.
+    unsafe { VecSimIndex_Free(index.as_ptr()) };
+}
+
+#[test]
+#[cfg_attr(miri, ignore = "requires C FFI (VecSim)")]
+fn unfiltered_skips_expired_docs() {
+    let n = 100;
+    let k = 10;
+    let index = build_hnsw_index(n);
+
+    // Mark the two nearest neighbours (ids 100, 99) expired.
+    let checker = MockExpirationChecker::new(HashSet::from([100, 99]));
+    // SAFETY: index outlives the iterator (freed at end of scope).
+    let source = unsafe { make_source_with_expiration(index, n, k, n, Some(checker)) };
+    let mut it = new_vector_top_k_unfiltered(source, NonZeroUsize::new(k).unwrap());
+
+    // Top-k by score is ids 100..=91; the two expired nearest neighbours are
+    // dropped without refill, leaving 98..=91.
+    let ids = collect_ids(&mut it);
+    assert_eq!(ids, (91..=98).rev().collect::<Vec<_>>());
+
+    drop(it);
+    // SAFETY: no live references to the index remain.
+    unsafe { VecSimIndex_Free(index.as_ptr()) };
+}
+
+#[test]
+#[cfg_attr(miri, ignore = "requires C FFI (VecSim)")]
+fn filtered_batches_drops_expired_without_refill() {
+    let n = 100;
+    let k = 3;
+    let index = build_hnsw_index(n);
+
+    // Child filter passes 90..=100, so the best k are [100, 99, 98]. Doc 100
+    // is expired: it still occupies its heap slot during collection (stopping
+    // batch refill), and is dropped at yield — leaving [99, 98], not [99, 98, 97].
+    let child_ids: Vec<t_docId> = (90..=100).collect();
+    let checker = MockExpirationChecker::new(HashSet::from([100]));
+    // SAFETY: index outlives the iterator (freed at end of scope).
+    let source =
+        unsafe { make_source_with_expiration(index, n, k, child_ids.len(), Some(checker)) };
+    let child = make_child(child_ids);
+    let mut it = TopKIterator::new_with_mode(
+        source,
+        Some(child),
+        NonZeroUsize::new(k).unwrap(),
+        asc,
+        TopKMode::ForcedBatches,
+    );
+
+    let ids = collect_ids(&mut it);
+    assert_eq!(ids, vec![99, 98]);
+
+    drop(it);
+    // SAFETY: no live references to the index remain.
+    unsafe { VecSimIndex_Free(index.as_ptr()) };
+}
+
+#[test]
+#[cfg_attr(miri, ignore = "requires C FFI (VecSim)")]
+fn filtered_adhoc_drops_expired_without_refill() {
+    let n = 100;
+    let k = 3;
+    let index = build_hnsw_index(n);
+
+    // Same shape as the batches test, on the adhoc-BF path: expired doc 100
+    // claims a heap slot during the child scan and is dropped at yield, so the
+    // count shrinks instead of refilling from doc 97.
+    let child_ids: Vec<t_docId> = (90..=100).collect();
+    let checker = MockExpirationChecker::new(HashSet::from([100]));
+    // SAFETY: index outlives the iterator (freed at end of scope).
+    let source =
+        unsafe { make_source_with_expiration(index, n, k, child_ids.len(), Some(checker)) };
+    let child = make_child(child_ids);
+    let mut it = TopKIterator::new_with_mode(
+        source,
+        Some(child),
+        NonZeroUsize::new(k).unwrap(),
+        asc,
+        TopKMode::AdhocBF,
+    );
+
+    let ids = collect_ids(&mut it);
+    assert_eq!(ids, vec![99, 98]);
 
     drop(it);
     // SAFETY: no live references to the index remain.

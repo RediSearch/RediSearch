@@ -21,7 +21,7 @@ use ffi::{
     VecSimIndex_New, VecSimMetric, VecSimMetric_VecSimMetric_Cosine, VecSimMetric_VecSimMetric_L2,
     VecSimParams, VecSimQueryParams, VecSimType_VecSimType_FLOAT32, t_docId,
 };
-use rqe_iterators::{IdList, RQEIterator};
+use rqe_iterators::{ExpirationChecker, FieldExpirationChecker, IdList, RQEIterator};
 
 use crate::VectorScoreSource;
 
@@ -113,8 +113,7 @@ fn new_index(
     params: &VecSimParams,
     fill: impl FnOnce(&mut dyn FnMut(t_docId, &[f32])),
 ) -> NonNull<VecSimIndex> {
-    // SAFETY: `params` is fully initialised; `VecSimIndex_New` copies what it
-    // needs and returns an owned index handle.
+    // SAFETY: `params` is fully initialised.
     let index = unsafe { VecSimIndex_New(params) };
     let index = NonNull::new(index).expect("VecSimIndex_New returned null");
 
@@ -166,6 +165,62 @@ pub unsafe fn make_source_with_mode(
     k: usize,
     child_est: usize,
 ) -> VectorScoreSource<'static> {
+    // SAFETY: caller guarantees `index` outlives the returned source.
+    unsafe {
+        make_source_inner(
+            index,
+            query,
+            ef,
+            search_mode,
+            k,
+            child_est,
+            None::<FieldExpirationChecker>,
+        )
+    }
+}
+
+/// [`make_source`] with an optional field-`expiration` filter, consulted at
+/// yield time. `EMPTY_MODE` lets VecSim pick the search strategy.
+///
+/// # Safety
+///
+/// `index` must outlive the returned source (and any iterator built from it).
+pub unsafe fn make_source_with_expiration<E: ExpirationChecker>(
+    index: NonNull<VecSimIndex>,
+    query: Vec<u8>,
+    ef: usize,
+    k: usize,
+    child_est: usize,
+    expiration: Option<E>,
+) -> VectorScoreSource<'static, E> {
+    // SAFETY: caller guarantees `index` outlives the returned source.
+    unsafe {
+        make_source_inner(
+            index,
+            query,
+            ef,
+            VecSearchMode_EMPTY_MODE,
+            k,
+            child_est,
+            expiration,
+        )
+    }
+}
+
+/// Shared builder behind the `make_source*` fixtures.
+///
+/// # Safety
+///
+/// `index` must outlive the returned source (and any iterator built from it).
+unsafe fn make_source_inner<E: ExpirationChecker>(
+    index: NonNull<VecSimIndex>,
+    query: Vec<u8>,
+    ef: usize,
+    search_mode: VecSearchMode,
+    k: usize,
+    child_est: usize,
+    expiration: Option<E>,
+) -> VectorScoreSource<'static, E> {
     // SAFETY: zeroed is a valid bit pattern for this config; we then set only
     // the fields VecSim reads.
     let mut query_params: VecSimQueryParams = unsafe { std::mem::zeroed() };
@@ -185,6 +240,7 @@ pub unsafe fn make_source_with_mode(
             true,
             child_est,
             0,
+            expiration,
         )
     }
 }

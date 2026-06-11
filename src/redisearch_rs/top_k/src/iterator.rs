@@ -303,40 +303,58 @@ impl<'index, S: ScoreSource + 'index, C: RQEIterator<'index> + 'index> TopKItera
     }
 
     /// Yield the next result from the unfiltered direct batch.
+    ///
+    /// Results whose document expired ([`ScoreSource::is_expired`]) are dropped
+    /// without replacement: the batch holds at most k entries, so skipping
+    /// shrinks the yielded count.
     fn advance_unfiltered_direct(
         &mut self,
     ) -> Result<Option<&mut RSIndexResult<'index>>, RQEIteratorError> {
-        let item = self.direct_batch.as_mut().and_then(S::Batch::next);
+        loop {
+            let item = self.direct_batch.as_mut().and_then(S::Batch::next);
 
-        match item {
-            Some((doc_id, score)) => {
-                let result = self.source.build_result(doc_id, score);
-                self.current = Some(result);
-                self.last_doc_id = doc_id;
-                Ok(self.current.as_mut())
-            }
-            None => {
-                self.at_eof = true;
-                self.current = None;
-                Ok(None)
+            match item {
+                Some((doc_id, _)) if self.source.is_expired(doc_id) => continue,
+                Some((doc_id, score)) => {
+                    let result = self.source.build_result(doc_id, score);
+                    self.current = Some(result);
+                    self.last_doc_id = doc_id;
+                    return Ok(self.current.as_mut());
+                }
+                None => {
+                    self.at_eof = true;
+                    self.current = None;
+                    return Ok(None);
+                }
             }
         }
     }
 
     /// Yield the next result from the pre-sorted `results` vec.
+    ///
+    /// Results whose document expired ([`ScoreSource::is_expired`]) since
+    /// collection are dropped without replacement, mirroring the C
+    /// `HybridIterator`'s pop-time expiration check: expired docs occupied
+    /// their top-k slots during collection, so they shrink the yielded count
+    /// rather than being refilled from lower-scored candidates.
     fn advance_from_results(
         &mut self,
     ) -> Result<Option<&mut RSIndexResult<'index>>, RQEIteratorError> {
-        if self.yield_pos >= self.results.len() {
-            self.at_eof = true;
-            return Ok(None);
+        loop {
+            if self.yield_pos >= self.results.len() {
+                self.at_eof = true;
+                return Ok(None);
+            }
+            let ScoredResult { doc_id, score } = self.results[self.yield_pos];
+            self.yield_pos += 1;
+            if self.source.is_expired(doc_id) {
+                continue;
+            }
+            let result = self.source.build_result(doc_id, score);
+            self.current = Some(result);
+            self.last_doc_id = doc_id;
+            return Ok(self.current.as_mut());
         }
-        let ScoredResult { doc_id, score } = self.results[self.yield_pos];
-        self.yield_pos += 1;
-        let result = self.source.build_result(doc_id, score);
-        self.current = Some(result);
-        self.last_doc_id = doc_id;
-        Ok(self.current.as_mut())
     }
 }
 
