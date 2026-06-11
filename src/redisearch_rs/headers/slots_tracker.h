@@ -134,6 +134,19 @@ void slots_tracker_remove_deleted_slots(const RedisModuleSlotRangeArray *ranges)
 bool slots_tracker_has_fully_available_overlap(const RedisModuleSlotRangeArray *ranges);
 
 /**
+ * Returns the current local slot ranges as a newly allocated array.
+ *
+ * The returned array is allocated with the Rust global allocator, which in the
+ * RediSearch module build forwards to `RedisModule_Alloc`. The caller owns the
+ * returned pointer and must free it with `RedisModule_Free` (`rm_free`).
+ *
+ * # Safety
+ *
+ * This function must be called from the main thread only.
+ */
+struct RedisModuleSlotRangeArray *slots_tracker_get_local_slots(void);
+
+/**
  * Checks if all requested slots are available and returns version information.
  *
  * Return values (via OptionSlotTrackerVersion):
