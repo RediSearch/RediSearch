@@ -145,20 +145,12 @@ impl<D: Ord> Storage<D> {
         }
     }
 
-    /// Drain buffered rows.
+    /// Drain buffered rows, sliced as `skip(offset).take(count)`.
     ///
     /// - **Array path** yields rows in insertion order.
     /// - **Heap path** yields rows best→worst (matching the SORTBY result
     ///   order).
-    ///
-    /// When `apply_limit` is `true`, the yielded sequence is sliced as
-    /// `skip(offset).take(count)`. When `false`, every buffered row is
-    /// yielded — used by the remote reducer when `is_internal` is set,
-    /// where the coordinator owns the global offset.
-    pub fn drain(
-        &mut self,
-        apply_limit: bool,
-    ) -> impl ExactSizeIterator<Item = RLookupRow<'static>> {
+    pub fn drain(&mut self) -> impl ExactSizeIterator<Item = RLookupRow<'static>> {
         // Sentinel left in place of `*self`. Empty Array, no allocation.
         let taken = std::mem::replace(
             self,
@@ -172,33 +164,19 @@ impl<D: Ord> Storage<D> {
         match taken {
             Self::Array {
                 buf, offset, count, ..
-            } => {
-                let (offset, count) = limit_window(apply_limit, offset, count);
-                Either::Left(buf.into_iter().skip(offset).take(count))
-            }
+            } => Either::Left(buf.into_iter().skip(offset).take(count)),
             Self::Heap {
                 heap,
                 offset,
                 count,
                 ..
-            } => {
-                let (offset, count) = limit_window(apply_limit, offset, count);
-                Either::Right(
-                    heap.into_vec_desc()
-                        .into_iter()
-                        .skip(offset)
-                        .take(count)
-                        .map(HeapEntry::into_projected),
-                )
-            }
+            } => Either::Right(
+                heap.into_vec_desc()
+                    .into_iter()
+                    .skip(offset)
+                    .take(count)
+                    .map(HeapEntry::into_projected),
+            ),
         }
-    }
-}
-
-const fn limit_window(apply_limit: bool, offset: usize, count: usize) -> (usize, usize) {
-    if apply_limit {
-        (offset, count)
-    } else {
-        (0, usize::MAX)
     }
 }
