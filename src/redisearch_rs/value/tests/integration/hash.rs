@@ -33,6 +33,10 @@ fn same_strings_produce_same_hash() {
 }
 
 #[test]
+#[cfg_attr(
+    miri,
+    ignore = "extern static `RedisModule_CreateString` is not supported by Miri"
+)]
 fn string_and_redis_string_with_same_bytes_hash_equal() {
     // `compare()` treats `String` and `RedisString` as equal when their bytes
     // match, so they must hash equally too - otherwise GROUPBY/COUNT_DISTINCT
