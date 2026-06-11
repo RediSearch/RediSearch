@@ -472,13 +472,12 @@ DEBUG_COMMAND(DumpTerms) {
   rune *rstr = NULL;
   t_len slen = 0;
   float score = 0;
-  int dist = 0;
   size_t termLen;
 
   RedisModule_ReplyWithArray(ctx, Trie_Size(sctx->spec->terms));
 
-  TrieIterator *it = Trie_Iterate(sctx->spec->terms, "", 0, 0, 1);
-  while (TrieIterator_Next(it, &rstr, &slen, NULL, &score, NULL, &dist)) {
+  TrieIterator *it = Trie_IterateAll(sctx->spec->terms);
+  while (TrieIterator_Next(it, &rstr, &slen, NULL, &score, NULL, NULL)) {
     char *res = runesToStr(rstr, slen, &termLen);
     RedisModule_ReplyWithStringBuffer(ctx, res, termLen);
     rm_free(res);
