@@ -20,12 +20,11 @@ pub struct ContainsIter<'tm, 'p, Data: 'tm>(iter::ContainsIter<'tm, 'p, Data>);
 
 impl<'tm, 'p, Data: 'tm> ContainsIter<'tm, 'p, Data> {
     pub(crate) fn new(trie: &'tm TrieMap<Data>, target: &'p str) -> Self {
-        let inner = if target.is_empty() {
-            iter::ContainsIter::empty()
+        if target.is_empty() {
+            Self(iter::ContainsIter::empty())
         } else {
-            trie.contains_iter(target.as_bytes())
-        };
-        Self(inner)
+            Self(trie.contains_iter(target.as_bytes()))
+        }
     }
 }
 

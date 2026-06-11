@@ -25,12 +25,11 @@ pub struct PrefixedIter<'tm, Data: 'tm>(iter::Iter<'tm, Data, filter::VisitAll>)
 
 impl<'tm, Data: 'tm> PrefixedIter<'tm, Data> {
     pub(crate) fn new(trie: &'tm TrieMap<Data>, prefix: &str) -> Self {
-        let inner = if prefix.is_empty() {
-            iter::Iter::empty()
+        if prefix.is_empty() {
+            Self(iter::Iter::empty())
         } else {
-            trie.prefixed_iter(prefix.as_bytes())
-        };
-        Self(inner)
+            Self(trie.prefixed_iter(prefix.as_bytes()))
+        }
     }
 }
 
