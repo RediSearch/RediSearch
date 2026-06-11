@@ -58,6 +58,21 @@ extern "C" {
 void FGC_childCollectExistingDocs(ForkGC *gc, RedisSearchCtx *sctx);
 
 /**
+ * Receive and apply the GC delta for the spec's `existingDocs` inverted index.
+ *
+ * Reads one protocol frame from the pipe. Returns [`FGCError::Done`] when
+ * the child sent no data (index absent or nothing to collect),
+ * [`FGCError::Collected`] after successfully applying a delta, or an
+ * error variant on pipe or spec failure.
+ *
+ * # Safety
+ *
+ * 1. `gc` must point to a valid [`ffi::ForkGC`] whose `pipe_read_fd` is an
+ *    open, readable file descriptor.
+ */
+enum FGCError FGC_parentHandleExistingDocs(ForkGC *gc);
+
+/**
  * Write exactly `len` bytes from `buff` to the FGC pipe.
  *
  * On error, logs the failure and terminates the child process via

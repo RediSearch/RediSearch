@@ -7,8 +7,14 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 
-use fork_gc::{ForkGC, existing_docs::collect_existing_docs, io_result_ext::IoResultExt};
+use fork_gc::{
+    ForkGC,
+    existing_docs::{HandleError, HandleOutcome, collect_existing_docs, handle_existing_docs},
+    io_result_ext::IoResultExt,
+};
 use index_spec::IndexSpecReadGuard;
+
+use crate::FGCError;
 
 /// Collect GC delta data for the spec's `existingDocs` inverted index and
 /// send it to the parent process over the pipe.
@@ -42,4 +48,29 @@ pub unsafe extern "C" fn FGC_childCollectExistingDocs(
     let guard = unsafe { IndexSpecReadGuard::from_locked(spec) };
 
     collect_existing_docs(&mut fgc.writer(), &guard).unwrap_or_exit();
+}
+
+/// Receive and apply the GC delta for the spec's `existingDocs` inverted index.
+///
+/// Reads one protocol frame from the pipe. Returns [`FGCError::Done`] when
+/// the child sent no data (index absent or nothing to collect),
+/// [`FGCError::Collected`] after successfully applying a delta, or an
+/// error variant on pipe or spec failure.
+///
+/// # Safety
+///
+/// 1. `gc` must point to a valid [`ffi::ForkGC`] whose `pipe_read_fd` is an
+///    open, readable file descriptor.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn FGC_parentHandleExistingDocs(gc: *mut ffi::ForkGC) -> FGCError {
+    // SAFETY: caller guarantees (1).
+    let fgc = unsafe { ForkGC::from_ptr_mut(gc) };
+
+    match handle_existing_docs(fgc) {
+        Ok(HandleOutcome::Collected) => FGCError::Collected,
+        Ok(HandleOutcome::Done) => FGCError::Done,
+        Err(HandleError::ChildError) => FGCError::ChildError,
+        Err(HandleError::SpecDeleted) => FGCError::SpecDeleted,
+        Err(HandleError::ExistingDocsDeleted) => FGCError::ChildError,
+    }
 }

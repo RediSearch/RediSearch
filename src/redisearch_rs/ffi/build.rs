@@ -286,6 +286,8 @@ const HEADERS: &[HeaderAllowlist] = &[
             "IndexSpec_ReleaseWriteLock",
             "IndexSpec_RemoveFromGlobals",
             "IndexSpecCache_Decref",
+            "IndexSpecRef_Promote",
+            "IndexSpecRef_Release",
             "Indexes_Init",
             "Spec_AddToDict",
         ],
