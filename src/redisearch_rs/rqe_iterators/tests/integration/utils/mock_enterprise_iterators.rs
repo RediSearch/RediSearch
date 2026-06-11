@@ -16,7 +16,7 @@
 
 use rqe_core::{DocId, FieldIndex};
 use rqe_iterators::{
-    RQEIteratorPrintable, SEARCH_ENTERPRISE_ITERATORS, SearchEnterpriseIterators,
+    QueryError, RQEIteratorPrintable, SEARCH_ENTERPRISE_ITERATORS, SearchEnterpriseIterators,
     wildcard::Wildcard,
 };
 
@@ -42,6 +42,7 @@ impl SearchEnterpriseIterators for MockEnterpriseIterators {
         _index: &'index mut ffi::RedisSearchDiskIndexSpec,
         weight: f64,
         _snapshot: std::ptr::NonNull<ffi::RedisSearchDiskSnapshot>,
+        _status: Option<&mut QueryError>,
     ) -> Result<Box<dyn RQEIteratorPrintable<'index> + 'index>, Box<dyn std::error::Error>> {
         Ok(Box::new(Wildcard::new(MOCK_DISK_WILDCARD_TOP_ID, weight)))
     }

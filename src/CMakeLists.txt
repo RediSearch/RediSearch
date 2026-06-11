@@ -38,13 +38,7 @@ set(LIBUV_BUILD_BENCH OFF CACHE BOOL "Build libuv benchmarks" FORCE)
 set(LIBUV_BUILD_SHARED OFF CACHE BOOL "Build shared libuv library" FORCE)
 add_subdirectory(${root}/deps/libuv ${CMAKE_CURRENT_BINARY_DIR}/libuv)
 
-# Homebrew silently removes '-Werror' flags which breaks the regular form of detection.
-# Instead we specifically check for the '-Wno-error' variants here before using them.
-check_c_compiler_flag("-Wno-error=discarded-qualifiers" HAS_WNO_ERROR_DISCARDED_QUALIFIERS)
-check_c_compiler_flag("-Wno-error=incompatible-pointer-types-discards-qualifiers" HAS_WNO_ERROR_INCOMPATIBLE_POINTER_TYPES_DISCARDS_QUALIFIERS)
-
 # libuv has const-correctness issues that trigger warnings-as-errors on newer compilers.
-# gcc 16+: -Werror=discarded-qualifiers; clang 21+: -Werror=incompatible-pointer-types-discards-qualifiers.
 # Turn off flags set in the top-level CMakeLists.txt.
 if(HAS_WNO_ERROR_DISCARDED_QUALIFIERS)
     target_compile_options(uv_a PRIVATE $<$<COMPILE_LANGUAGE:C>:-Wno-error=discarded-qualifiers>)

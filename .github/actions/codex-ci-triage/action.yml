@@ -39,7 +39,12 @@ runs:
         prompt-file: ${{ inputs.prompt-file }}
         working-directory: ${{ inputs.working-directory }}
         sandbox: read-only
-        safety-strategy: read-only
+        # `drop-sudo` keeps the read-only sandbox but also drops sudo capabilities
+        # from the Codex subprocess. Required when CI logs (which Codex reads)
+        # carry attacker-controlled content — for fork-PR triage especially — so a
+        # prompt injection in the logs cannot escalate to running privileged
+        # commands and exfiltrating `CI_TRIAGE_OPENAI_API_KEY`.
+        safety-strategy: drop-sudo
         # Triage runs on post-merge/scheduled events whose actor is a bot
         # (github-merge-queue, github-actions[bot]); allow them past the
         # action's collaborator gate. Sandbox + safety remain read-only.

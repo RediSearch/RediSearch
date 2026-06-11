@@ -23,7 +23,7 @@ use crate::{
     SkipToOutcome,
     profile_print::{ProfilePrint, ProfilePrintCtx},
 };
-use crate::{IteratorType, RQEIteratorPrintable};
+use crate::{IteratorType, QueryError, RQEIteratorPrintable};
 
 /// An iterator that yields all ids within a given range, from 1 to max id (inclusive) in an index.
 #[derive(Default)]
@@ -372,8 +372,9 @@ pub unsafe fn new_wildcard_iterator_optimized<'index>(
 /// [`new_wildcard_on_disk`](crate::SearchEnterpriseIterators::new_wildcard_on_disk)
 /// and wraps the resulting iterator in a [`DiskWildcardIterator`].
 ///
-/// If the enterprise iterator cannot be created, this function logs a warning
-/// and falls back to an empty iterator.
+/// If the enterprise iterator cannot be created, this function populates
+/// `status` (when non-null) with the cause and falls back to an empty iterator;
+/// the query then aborts with an error rather than returning empty results.
 ///
 /// # Safety
 ///
@@ -382,17 +383,24 @@ pub unsafe fn new_wildcard_iterator_optimized<'index>(
 /// 2. [`SEARCH_ENTERPRISE_ITERATORS`] must be initialized before calling this function.
 /// 3. `snapshot` must be a [`RedisSearchDiskSnapshot`](ffi::RedisSearchDiskSnapshot) handle
 ///    for `disk_spec` and must remain valid for `'index`.
+/// 4. `status`, when non-null, must point to a valid [`QueryError`](ffi::QueryError).
 pub unsafe fn new_wildcard_iterator_on_disk<'index>(
     disk_spec: &'index mut ffi::RedisSearchDiskIndexSpec,
     weight: f64,
     snapshot: std::ptr::NonNull<ffi::RedisSearchDiskSnapshot>,
+    status: *mut ffi::QueryError,
 ) -> NewWildcardIterator<'index> {
     // SAFETY: Caller guarantees `SEARCH_ENTERPRISE_ITERATORS` is
     // initialized when `spec.diskSpec` is non-null (8).
     let enterprise_iters_api = SEARCH_ENTERPRISE_ITERATORS
         .get()
         .expect("SEARCH_ENTERPRISE_ITERATORS not initialized");
-    match enterprise_iters_api.new_wildcard_on_disk(disk_spec, weight, snapshot) {
+    // SAFETY: caller guarantees `status`, when non-null, points to a valid `QueryError` (4).
+    let status = unsafe { QueryError::from_opaque_mut_ptr(status.cast()) };
+    // On failure the enterprise implementation populates `status` with the
+    // cause; we just fall back to an empty iterator so the query aborts via the
+    // existing `QueryError_HasError` check rather than returning empty results.
+    match enterprise_iters_api.new_wildcard_on_disk(disk_spec, weight, snapshot, status) {
         Ok(it) => NewWildcardIterator::Disk(it),
         Err(err) => {
             tracing::warn!(
@@ -457,8 +465,9 @@ pub unsafe fn new_wildcard_iterator<'index>(
         let snapshot = NonNull::new(sctx_ref.diskSnapshot)
             .expect("query.sctx.diskSnapshot is null for a disk-backed wildcard query");
         // SAFETY: Caller guarantees all preconditions of
-        // `new_wildcard_iterator_on_disk` hold (7, 8, 9).
-        return unsafe { new_wildcard_iterator_on_disk(disk_spec, weight, snapshot) };
+        // `new_wildcard_iterator_on_disk` hold (7, 8, 9); `query.status` is the
+        // valid `QueryError` of the evaluating query.
+        return unsafe { new_wildcard_iterator_on_disk(disk_spec, weight, snapshot, query.status) };
     }
 
     let index_all = NonNull::new(spec.rule)

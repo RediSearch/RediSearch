@@ -19,6 +19,7 @@ extern "C" {
 // Forward declarations to avoid circular dependencies
 typedef struct QueryIterator QueryIterator;
 typedef struct NumericFilter NumericFilter;
+typedef struct QueryError QueryError;
 
 // Forward declaration for HiddenString
 typedef struct HiddenString HiddenString;
@@ -65,24 +66,15 @@ typedef RSDocumentMetadata* (*AllocateDMDCallback)(const void* key_data, size_t 
 //
 // Lifecycle, per compaction, in calling order:
 //
-//   compactionStarted(private_data)            // once at compaction start
 //   beginUpdate(private_data) -> update_ctx    // once before delta apply
 //   decrementTrieTermCount(update_ctx, ...)    // 0..N times
 //   decrementNumTerms(update_ctx, ...)         // 0 or 1 time
 //   endUpdate(update_ctx)                      // once after delta apply
-//   compactionCompleted(private_data)          // once at compaction end
 //
-// `compactionStarted` / `compactionCompleted` bracket the whole compaction
-// and are intended for coarse-grained protection that must hold for its full
-// duration (e.g. blocking the snapshot fork). `beginUpdate` / `endUpdate`
-// bracket just the delta-apply window and are intended for fine-grained
-// protection (e.g. the IndexSpec wrlock around the trie/numTerms updates).
+// `beginUpdate` / `endUpdate` bracket just the delta-apply window and are
+// intended for fine-grained protection (e.g. the IndexSpec wrlock around the
+// trie/numTerms updates).
 typedef struct SearchDiskCompactionCallbacks {
-  // Called once at the start of a parent compaction, before any
-  // beginUpdate/endUpdate pair. Implementations may take long-lived locks
-  // here; the matching release goes in `compactionCompleted`.
-  void (*compactionStarted)(void *private_data);
-
   // Opens an update session and returns opaque update context.
   // Implementations may acquire internal locks here.
   void *(*beginUpdate)(void *private_data);
@@ -100,10 +92,6 @@ typedef struct SearchDiskCompactionCallbacks {
   // Closes an update session.
   // Implementations may release internal locks here.
   void (*endUpdate)(void *update_ctx);
-
-  // Called once at the end of a parent compaction, after every
-  // beginUpdate/endUpdate pair has returned. Pairs with `compactionStarted`.
-  void (*compactionCompleted)(void *private_data);
 } SearchDiskCompactionCallbacks;
 
 // Result of polling the async read pool
@@ -437,9 +425,10 @@ typedef struct IndexDiskAPI {
    * @param needsOffsets Whether the query needs term offset data (for scoring or phrase matching)
    * @param snapshot Required snapshot for the read view. Must have been returned by
    *                 `createSnapshot(index)` and must remain valid until the returned iterator is freed.
+   * @param status QueryError to populate with the cause when creation fails (may be NULL)
    * @return Pointer to the created iterator, or NULL if creation failed
    */
-  QueryIterator *(*newTermIterator)(RedisSearchDiskIndexSpec* index, RSQueryTerm* term, t_fieldMask fieldMask, double weight, bool needsOffsets, RedisSearchDiskSnapshot *snapshot);
+  QueryIterator *(*newTermIterator)(RedisSearchDiskIndexSpec* index, RSQueryTerm* term, t_fieldMask fieldMask, double weight, bool needsOffsets, RedisSearchDiskSnapshot *snapshot, QueryError* status);
 
   /**
    * @brief Creates a new iterator for a tag index
@@ -450,9 +439,10 @@ typedef struct IndexDiskAPI {
    * @param weight Weight for the iterator (used in scoring)
    * @param snapshot Required snapshot for the read view. Must have been returned by
    *                 `createSnapshot(index)` and must remain valid until the returned iterator is freed.
+   * @param status QueryError to populate with the cause when creation fails (may be NULL)
    * @return Pointer to the created iterator, or NULL if creation failed
    */
-  QueryIterator *(*newTagIterator)(RedisSearchDiskIndexSpec* index, const RSToken* tok, t_fieldIndex fieldIndex, double weight, RedisSearchDiskSnapshot *snapshot);
+  QueryIterator *(*newTagIterator)(RedisSearchDiskIndexSpec* index, const RSToken* tok, t_fieldIndex fieldIndex, double weight, RedisSearchDiskSnapshot *snapshot, QueryError* status);
 
   /**
    * @brief Take a point-in-time snapshot of the disk database for this index.
@@ -491,9 +481,10 @@ typedef struct IndexDiskAPI {
    * @param fieldIndex Field index for the numeric field
    * @param snapshot Required snapshot for the read view. Must have been returned by
    *                 `createSnapshot(index)` and must remain valid until the returned iterator is freed.
+   * @param status QueryError to populate with the cause when creation fails (may be NULL)
    * @return Pointer to the created iterator, or NULL if no buckets overlap the filter
    */
-  QueryIterator *(*newNumericIterator)(RedisSearchDiskIndexSpec *index, const NumericFilter *filter, t_fieldIndex fieldIndex, RedisSearchDiskSnapshot *snapshot);
+  QueryIterator *(*newNumericIterator)(RedisSearchDiskIndexSpec *index, const NumericFilter *filter, t_fieldIndex fieldIndex, RedisSearchDiskSnapshot *snapshot, QueryError* status);
 
   /**
    * @brief Run a GC compaction cycle on the disk index.
@@ -553,9 +544,7 @@ typedef struct IndexDiskAPI {
   /**
    * @brief Master-side SST replication PRE_FORK hook.
    *
-   * Called once per index before the replication snapshot fork. Caller holds
-   * both the per-spec fork lock and the IndexSpec read lock for the duration
-   * of this call.
+   * Called once per index before the replication snapshot fork.
    *
    * @param index Pointer to the disk index spec
    */
@@ -564,8 +553,7 @@ typedef struct IndexDiskAPI {
   /**
    * @brief Master-side SST replication POST_FORK hook.
    *
-   * Called once per index after the snapshot fork. Caller releases the fork lock
-   * and the read lock after this call returns.
+   * Called once per index after the snapshot fork.
    *
    * @param index Pointer to the disk index spec
    */
@@ -576,8 +564,7 @@ typedef struct IndexDiskAPI {
    *
    * Called once per index when the replication cycle is aborted at any point
    * between PRE_CHECKPOINT and POST_FORK. The disk implementation is free to
-   * undo whatever state it set up in the preceding `pre*` hook. Caller releases
-   * any locks still held for the cycle after this call returns.
+   * undo whatever state it set up in the preceding `pre*` hook.
    *
    * @param index Pointer to the disk index spec
    */
@@ -938,6 +925,28 @@ typedef struct RedisSearchDiskAPI {
 // types); resolved at link time.
 extern void VecSimDisk_AcquireConsistencyLock(void);
 extern void VecSimDisk_ReleaseConsistencyLock(void);
+
+// ---------------------------------------------------------------------------
+// Fork × compaction debug coordinator (FT.DEBUG REPL_COMPACTION_COORDINATOR)
+//
+// Implemented on the Rust side in `redisearch_disk::compaction::debug`. Each
+// lifecycle site (compaction begin/completed, pre_checkpoint; `int` values
+// matching `compaction::Site`) calls `reach` when it executes. A test can:
+//   - `ArmPause(site, true)`  park a site when it is next reached.
+//   - `SetWake(trigger, target)`  release `target` when `trigger` is reached
+//       (the cross-wake that lets a main-thread site unblock a parked
+//       background compaction; target -1 clears the link).
+//   - `Release(site)`  release a parked site out-of-band.
+//   - `Reached(site)`  read the arrival count.
+//   - `ResetCompactionController()`  clear all state and free waiters.
+// All entry points are no-ops if nothing is armed and are safe to call from
+// arbitrary threads.
+// ---------------------------------------------------------------------------
+extern void SearchDisk_DebugCoordinatorArmPause(int site, bool armed);
+extern void SearchDisk_DebugCoordinatorSetWake(int trigger, int target);
+extern void SearchDisk_DebugCoordinatorRelease(int site);
+extern unsigned int SearchDisk_DebugCoordinatorReached(int site);
+extern void SearchDisk_DebugResetCompactionController(void);
 
 #ifdef __cplusplus
 }

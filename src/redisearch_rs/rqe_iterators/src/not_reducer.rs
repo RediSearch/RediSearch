@@ -182,8 +182,9 @@ where
                 .expect("query.sctx.diskSnapshot is null for a disk-backed NOT iterator");
             // SAFETY: Caller guarantees all preconditions of `new_wildcard_iterator_on_disk` hold (5).
             // The snapshot is read from `query.sctx.diskSnapshot` so the NOT-optimized path
-            // observes the same view as the rest of the query.
-            unsafe { new_wildcard_iterator_on_disk(disk_spec, weight, snapshot) }
+            // observes the same view as the rest of the query; `query.status` is the valid
+            // `QueryError` of the evaluating query.
+            unsafe { new_wildcard_iterator_on_disk(disk_spec, weight, snapshot, query_ref.status) }
         } else {
             // SAFETY: Caller guarantees `query.sctx` is a valid, non-null pointer (2)
             // and all preconditions of `new_wildcard_iterator_optimized` hold (5).
