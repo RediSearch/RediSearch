@@ -11,7 +11,7 @@
 
 #include "triemap_ffi.h"
 #include "spec.h"
-#include "index_scan.h"
+#include "spec_scan.h"
 #include "inverted_index_ffi.h"
 #include "vector_index.h"
 #include "cursor.h"
@@ -321,10 +321,9 @@ void fillReplyWithIndexInfo(RedisSearchCtx* sctx, RedisModule_Reply *reply, bool
   // Legacy for not breaking changes
   REPLY_KVINT("hash_indexing_failures", sp->stats.indexError.error_count);
   REPLY_KVNUM("total_indexing_time", rs_wall_clock_convert_ns_to_ms_d(sp->stats.totalIndexTime));
-  REPLY_KVINT("indexing", !!global_spec_scanner || sp->scan_in_progress);
+  REPLY_KVINT("indexing", Indexes_IsScanInProgress(sp));
 
-  IndexesScanner *scanner = global_spec_scanner ? global_spec_scanner : sp->scanner;
-  double percent_indexed = IndexesScanner_IndexedPercent(sctx->redisCtx, scanner, sp);
+  double percent_indexed = Indexes_ScanIndexedPercent(sctx->redisCtx, sp);
   REPLY_KVNUM("percent_indexed", percent_indexed);
 
   REPLY_KVINT("number_of_uses", sp->counter);

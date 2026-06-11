@@ -7,15 +7,19 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 
-// Background index scan / reindex subsystem. Owns the keyspace scan that populates
-// an index on FT.CREATE-over-existing-data: the scanner lifecycle, the per-key
-// indexing callback, the background-indexing memory-limit handling, the reindex
-// thread pool, and the debug scanner used by FT.DEBUG. Extracted from spec.c.
+// Generic background keyspace-scan engine. Walks the keyspace on a background thread
+// and invokes caller-supplied callbacks per key, handling GIL management, the
+// background-indexing memory limit (OOM), cancellation, yielding, and the FT.DEBUG
+// pause/step scanner. It knows nothing about index specs — the spec-specific reindex
+// logic lives in spec_scan.c, which drives this engine through IndexScanCallbacks.
 
 #ifndef INDEX_SCAN_H__
 #define INDEX_SCAN_H__
 
-#include "spec.h"
+#include <stdbool.h>
+#include <stddef.h>
+
+#include "redismodule.h"
 
 #ifdef __cplusplus
 extern "C" {
@@ -40,19 +44,39 @@ typedef enum {
 
 extern const char *DEBUG_INDEX_SCANNER_STATUS_STRS[];
 
-// The single global scanner used by Indexes_ScanAndReindex (scan-all). NULL when no
-// global scan is in progress.
-extern struct IndexesScanner *global_spec_scanner;
+// Outcome of handling one scanned key, returned by the process_key callback.
+typedef enum {
+  INDEX_SCAN_CONTINUE,  // key handled — count it towards progress
+  INDEX_SCAN_SKIP,      // key not applicable (e.g. unsupported type) — do not count
+  INDEX_SCAN_STOP,      // stop the whole scan (e.g. the target is gone)
+} IndexScanResult;
+
+struct IndexesScanner;  // defined below; referenced by the on_finished callback
+
+// Callbacks the engine invokes. All run on the scan thread with the GIL held.
+typedef struct IndexScanCallbacks {
+  // Index one scanned key. `key` is best-effort (may be NULL); resolve it if needed.
+  IndexScanResult (*process_key)(void *privdata, RedisModuleCtx *ctx,
+                                 RedisModuleString *keyname, RedisModuleKey *key);
+  // The memory limit was hit and the scan is stopping. Optional (NULL for scans with
+  // no single target to attach the error to). `error` is engine-owned and transient.
+  void (*on_oom)(void *privdata, RedisModuleCtx *ctx, const char *error,
+                 RedisModuleString *oom_key);
+  // Fires exactly once when the scan finishes (completed or cancelled), before the
+  // scanner is freed, so the caller can drop its reference and free privdata.
+  void (*on_finished)(void *privdata, struct IndexesScanner *scanner);
+} IndexScanCallbacks;
 
 typedef struct IndexesScanner {
   bool global;
   bool cancelled;
   bool isDebug;
   bool scanFailedOnOOM;
-  WeakRef spec_ref;
-  char *spec_name_for_logs;
+  char *name;                 // for logs (owned); NULL for global scans
   size_t scannedKeys;
-  RedisModuleString *OOMkey; // The key that caused the OOM
+  RedisModuleString *OOMkey;  // last key that tripped the memory limit
+  IndexScanCallbacks cbs;
+  void *privdata;
 } IndexesScanner;
 
 typedef struct DebugIndexesScanner {
@@ -65,22 +89,19 @@ typedef struct DebugIndexesScanner {
   bool pauseBeforeOOMRetry;
 } DebugIndexesScanner;
 
-void IndexesScanner_Cancel(IndexesScanner *scanner);
-void IndexesScanner_ResetProgression(IndexesScanner *scanner);
-void IndexesScanner_Free(IndexesScanner *scanner);
+// Start a background scan. Copies `name`, allocates a scanner (a debug scanner when
+// FT.DEBUG mode is on and `global` is false), submits it to the reindex thread pool,
+// and returns it. `global` selects scan-all semantics: no debug scanner and no
+// per-target OOM record. The returned scanner is owned by the engine and freed when
+// the scan finishes (on_finished fires first).
+IndexesScanner *IndexScan_Start(const char *name, bool global,
+                                const IndexScanCallbacks *cbs, void *privdata);
 
-// Fraction (0..1) of the keyspace already scanned for this spec; 1.0 when no scan is
-// in progress. Used by FT.INFO.
-double IndexesScanner_IndexedPercent(RedisModuleCtx *ctx, IndexesScanner *scanner, const IndexSpec *sp);
+void IndexScan_Cancel(IndexesScanner *scanner);
+bool IndexScan_IsCancelled(const IndexesScanner *scanner);
+size_t IndexScan_ScannedKeys(const IndexesScanner *scanner);
 
-// Schedule a background scan+reindex of existing keys for a single index. Assumes the
-// spec is in a safe state to set a scanner on it (write lock or main thread).
-void IndexSpec_ScanAndReindex(RedisModuleCtx *ctx, StrongRef spec_ref);
-
-// Schedule a background scan+reindex across all indexes (single global scanner).
-void Indexes_ScanAndReindex(void);
-
-// Tear down the reindex thread pool (on shutdown / FT.DEBUG).
+// Tear down the reindex thread pool (shutdown / FT.DEBUG).
 void ReindexPool_ThreadPoolDestroy(void);
 
 #ifdef __cplusplus

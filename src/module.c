@@ -29,6 +29,7 @@
 #include "rmutil/args.h"
 #include "spec.h"
 #include "index_scan.h"
+#include "spec_scan.h"
 #include "util/logging.h"
 #include "util/workers.h"
 #include "util/references.h"

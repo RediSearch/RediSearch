@@ -55,7 +55,7 @@
 #include "search_disk.h"
 #include "search_disk_utils.h"
 #include "iterators_ffi.h"
-#include "index_scan.h"
+#include "spec_scan.h"
 
 #define INITIAL_DOC_TABLE_SIZE 1000
 
@@ -2910,7 +2910,7 @@ void IndexSpec_AddToInfo(RedisModuleInfoCtx *ctx, IndexSpec *sp, bool obfuscate,
 
   RedisModule_InfoBeginDictField(ctx, "index_failures");
   RedisModule_InfoAddFieldLongLong(ctx, "hash_indexing_failures", sp->stats.indexError.error_count);
-  RedisModule_InfoAddFieldLongLong(ctx, "indexing", !!global_spec_scanner || sp->scan_in_progress);
+  RedisModule_InfoAddFieldLongLong(ctx, "indexing", Indexes_IsScanInProgress(sp));
   RedisModule_InfoEndDictField(ctx);
 
   // Garbage collector - safe to call, just reads struct fields
