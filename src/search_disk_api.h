@@ -725,7 +725,11 @@ typedef struct DocTableDiskAPI {
                                     AllocateDMDCallback allocate_dmd);
 
   /**
-   * @brief Frees the async read pool and cancels any pending reads
+   * @brief Frees the async read pool.
+   *
+   * Does NOT cancel or wait for in-flight reads (see `createAsyncReadPool`): the
+   * caller must have drained the pool (polled until pending == 0) before calling
+   * this, or otherwise guaranteed the snapshot outlives every in-flight read.
    *
    * @param pool Pool handle from createAsyncReadPool
    */

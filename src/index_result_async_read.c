@@ -37,11 +37,43 @@ void IndexResultAsyncRead_SetupAsyncPool(IndexResultAsyncReadState *state,
   state->failedUserData = array_new(uint64_t, state->poolSize);
 }
 
+// Timeout (ms) for each blocking poll while draining in-flight reads at teardown.
+// Async reads always complete (their callback fires exactly once), so the drain
+// loop terminates; the timeout only bounds how long a single poll waits per turn.
+#define ASYNC_DRAIN_POLL_TIMEOUT_MS 1000
+
+// Wait for every in-flight async read to complete and discard its result.
+//
+// The disk-side pool does NOT cancel or wait for pending reads when freed (see
+// `IndexDiskAPI.createAsyncReadPool`): each in-flight read borrows the query
+// snapshot and dereferences it on I/O completion, so the snapshot must outlive
+// them. Releasing the pool (and, shortly after, the snapshot in SearchCtx_CleanUp)
+// while reads are still pending is a use-after-free. Draining to `pending == 0`
+// here upholds that contract; on the normal EOF path `pending` is already 0 so
+// this returns immediately.
+static void IndexResultAsyncRead_Drain(IndexResultAsyncReadState *state) {
+  // Value is irrelevant: drained results are discarded regardless of expiration.
+  const t_expirationTimePoint expiration = {0};
+  size_t pending;
+  do {
+    pending = IndexResultAsyncRead_Poll(state, ASYNC_DRAIN_POLL_TIMEOUT_MS, &expiration);
+    RSIndexResult *r;
+    while ((r = IndexResultAsyncRead_PopReadyResult(state)) != NULL) {
+      if (r->dmd) {
+        DMD_Return(r->dmd);
+      }
+      IndexResult_Free(r);
+    }
+  } while (pending > 0);
+}
+
 void IndexResultAsyncRead_Free(IndexResultAsyncReadState *state) {
   if (!state) return;
 
-  // Free async pool (tracking array handles cleanup of pending reads)
+  // Drain in-flight reads before freeing the pool: they borrow the query
+  // snapshot and deref it on completion, and the pool does not wait on free.
   if (state->asyncPool) {
+    IndexResultAsyncRead_Drain(state);
     SearchDisk_FreeAsyncReadPool(state->asyncPool);
     state->asyncPool = NULL;
   }
