@@ -415,8 +415,8 @@ static void setupCoordinatorArrangeSteps(AREQ *searchRequest, AREQ *vectorReques
   const size_t window =
       isRRF ? hybridParams->scoringCtx->rrfCtx.window : hybridParams->scoringCtx->linearCtx.window;
 
-  // RRF scores a doc by its rank, so tied branch scores become distinct RRF scores by position.
-  // Use a cross-shard-stable tiebreaker (`__key`) on the coordinator; a single shard uses doc id.
+  // RRF scores a doc by its rank, so tied branch scores need a tiebreaker; otherwise their order
+  // follows non-deterministic shard arrival order. Break ties by `__key` (multi-shard path only).
   const char *scoreTieBreakField = isRRF ? UNDERSCORE_KEY : NULL;
 
   // TODO: would be better to look for a vector node (recursive search on the ast) and decide according to its query type (knn/range)
