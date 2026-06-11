@@ -720,16 +720,22 @@ static QueryIterator *Query_EvalPrefixNode(QueryEvalCtx *q, QueryNode *qn) {
     // all modifier fields are supported
     if (qn->opts.fieldMask == RS_FIELDMASK_ALL ||
        (spec->suffixMask & qn->opts.fieldMask) == qn->opts.fieldMask) {
-      SuffixCtx sufCtx = {
-        .trie = spec->suffix,
-        .rune = str,
-        .runelen = nstr,
-        .type = qn->pfx.prefix ? SUFFIX_TYPE_CONTAINS : SUFFIX_TYPE_SUFFIX,
-        .callback = charIterCb,
-        .cbCtx = &ctx,
-
-      };
-      Suffix_IterateContains(&sufCtx);
+      // The suffix index stores folded UTF-8 terms; fold the needle the same
+      // way by lowering its runes and converting back.
+      size_t needleLen;
+      char *needle = runesToStr(str, nstr, &needleLen);
+      TermSuffixIndexIterator *it =
+          qn->pfx.prefix ? TermSuffixIndex_IterateContains(spec->suffix, needle, needleLen)
+                         : TermSuffixIndex_IterateSuffix(spec->suffix, needle, needleLen);
+      const char *term;
+      size_t termLen;
+      while (TermSuffixIndexIterator_Next(it, &term, &termLen)) {
+        if (charIterCb(term, termLen, &ctx, NULL) != REDISEARCH_OK) {
+          break;
+        }
+      }
+      TermSuffixIndexIterator_Free(it);
+      rm_free(needle);
     } else {
       QueryError_SetError(q->status, QUERY_ERROR_CODE_GENERIC, "Contains query on fields without WITHSUFFIXTRIE support");
     }
@@ -771,34 +777,14 @@ static QueryIterator *Query_EvalWildcardQueryNode(QueryEvalCtx *q, QueryNode *qn
   ctx.its = rm_malloc(sizeof(*ctx.its) * ctx.cap);
   ctx.nits = 0;
 
-  bool fallbackBruteForce = false;
-  // spec support using suffix trie
-  if (spec->suffix) {
-    // all modifier fields are supported
-    if (qn->opts.fieldMask == RS_FIELDMASK_ALL ||
-       (spec->suffixMask & qn->opts.fieldMask) == qn->opts.fieldMask) {
-      SuffixCtx sufCtx = {
-        .trie = spec->suffix,
-        .rune = str,
-        .runelen = nstr,
-        .cstr = token->str,
-        .cstrlen = token->len,
-        .type = SUFFIX_TYPE_WILDCARD,
-        .callback = charIterCb, // the difference is weather the function receives char or rune
-        .cbCtx = &ctx,
-        .timeout = &q->sctx->time.timeout,
-        .skipTimeoutChecks = q->sctx->time.skipTimeoutChecks,
-      };
-      if (Suffix_IterateWildcard(&sufCtx) == 0) {
-        // if suffix trie cannot be used, use brute force
-        fallbackBruteForce = true;
-      }
-    } else {
-      QueryError_SetError(q->status, QUERY_ERROR_CODE_GENERIC, "Contains query on fields without WITHSUFFIXTRIE support");
-    }
-  }
-
-  if (!spec->suffix || fallbackBruteForce) {
+  // The suffix index does not support wildcard iteration; wildcard queries
+  // always scan the terms trie. The field-mask check is kept so querying a
+  // field without WITHSUFFIXTRIE support errors the same way it always has.
+  if (spec->suffix && !(qn->opts.fieldMask == RS_FIELDMASK_ALL ||
+                        (spec->suffixMask & qn->opts.fieldMask) == qn->opts.fieldMask)) {
+    QueryError_SetError(q->status, QUERY_ERROR_CODE_GENERIC,
+                        "Contains query on fields without WITHSUFFIXTRIE support");
+  } else {
     Trie_IterateWildcard(t, str, nstr, runeIterCb, &ctx, &q->sctx->time.timeout,
                          q->sctx->time.skipTimeoutChecks);
   }

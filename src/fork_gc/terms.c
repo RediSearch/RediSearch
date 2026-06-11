@@ -123,7 +123,7 @@ FGCError FGC_parentHandleTerms(ForkGC *gc) {
     sctx->spec->stats.scoring.numTerms--;
     sctx->spec->stats.termsSize -= len;
     if (sctx->spec->suffix) {
-      deleteSuffixTrie(sctx->spec->suffix, term, len);
+      TermSuffixIndex_Remove(sctx->spec->suffix, term, len);
     }
   }
 

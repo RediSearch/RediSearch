@@ -505,7 +505,7 @@ size_t IndexSpec_collect_text_overhead(const IndexSpec *sp) {
   // Collect overhead from sp->suffix
   if (sp->suffix) {
     // TODO: Count the values' memory as well
-    overhead += TrieType_MemUsage(sp->suffix);
+    overhead += TermSuffixIndex_MemUsage(sp->suffix);
   }
   return overhead;
 }
@@ -1665,7 +1665,7 @@ static int IndexSpec_AddFieldsInternal(IndexSpec *sp, StrongRef spec_ref, ArgsCu
       sp->suffixMask |= FIELD_BIT(fs);
       if (!sp->suffix) {
         sp->flags |= Index_HasSuffixTrie;
-        sp->suffix = NewTrie(suffixTrie_freeCallback, Trie_Sort_Lex);
+        sp->suffix = NewTermSuffixIndex();
       }
     }
   }
@@ -2087,9 +2087,9 @@ static void IndexSpec_FreeUnlinkedData(IndexSpec *spec) {
   array_free(spec->fieldIdToIndex);
   spec->fieldIdToIndex = NULL;
 
-  // Free suffix trie
+  // Free suffix index
   if (spec->suffix) {
-    TrieType_Free(spec->suffix);
+    TermSuffixIndex_Free(spec->suffix);
   }
 
   // Free spec name
@@ -3631,7 +3631,7 @@ IndexSpec *IndexSpec_RdbLoad(RedisModuleIO *rdb, int encver, bool useSst, QueryE
       sp->flags |= Index_HasSuffixTrie;
       sp->suffixMask |= FIELD_BIT(fs);
       if (!sp->suffix) {
-        sp->suffix = NewTrie(suffixTrie_freeCallback, Trie_Sort_Lex);
+        sp->suffix = NewTermSuffixIndex();
       }
     }
   }
