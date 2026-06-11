@@ -14,7 +14,6 @@
 #include "deps/rmutil/rm_assert.h"
 #include "rmalloc.h"
 #include <stdlib.h>
-#include <time.h>
 #include <pthread.h>
 
 // Sanitizer detection for leak tracking
@@ -268,12 +267,12 @@ static int ASM_AccountRequestFinished(uint32_t keySpaceVersion, size_t innerQuer
 static inline const RedisModuleSlotRangeArray *ASM_FallbackToLocalSlots(RedisModuleCtx *ctx,
                                                                         uint32_t *keySpaceVersion) {
   // Expected only while a rolling upgrade is in progress, but fires on every internal
-  // query for its duration - throttle to at most one log line per second.
-  static time_t lastLogged = 0;
-  time_t now = time(NULL);
-  time_t prev = __atomic_load_n(&lastLogged, __ATOMIC_RELAXED);
-  if (now != prev &&
-      __atomic_compare_exchange_n(&lastLogged, &prev, now, false, __ATOMIC_RELAXED, __ATOMIC_RELAXED)) {
+  // query for its duration - log the first occurrence and then every 100th to avoid
+  // flooding the log. Like the rest of this function (and the slots tracker access
+  // below), this runs on the main thread at query parse time, so the static counter
+  // needs no synchronization.
+  static uint64_t fallbackCount = 0;
+  if (fallbackCount++ % 100 == 0) {
     RedisModule_Log(ctx, "notice",
                     "Internal query received without " SLOTS_STR
                     " (sent by a coordinator older than 8.4?). "
