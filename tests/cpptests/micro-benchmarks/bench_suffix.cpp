@@ -166,38 +166,46 @@ BENCHMARK_DEFINE_F(BM_Suffix, Remove)(benchmark::State &state) {
 
 // Contains query: *ab*
 BENCHMARK_DEFINE_F(BM_Suffix, IterateContains)(benchmark::State &state) {
+    size_t hits = 0;
     for (auto _ : state) {
-        size_t hits = IterateNeedle(suffix, "ab", 2, /*contains=*/true);
+        hits = IterateNeedle(suffix, "ab", 2, /*contains=*/true);
         benchmark::DoNotOptimize(hits);
     }
+    state.counters["hits"] = static_cast<double>(hits);
 }
 
 // Suffix query: *ab
 BENCHMARK_DEFINE_F(BM_Suffix, IterateSuffix)(benchmark::State &state) {
+    size_t hits = 0;
     for (auto _ : state) {
-        size_t hits = IterateNeedle(suffix, "ab", 2, /*contains=*/false);
+        hits = IterateNeedle(suffix, "ab", 2, /*contains=*/false);
         benchmark::DoNotOptimize(hits);
     }
+    state.counters["hits"] = static_cast<double>(hits);
 }
 
 // Wildcard with a usable token ("cd", len >= MIN_SUFFIX): on the baseline
 // this is the suffix-assisted path; on the candidate it brute-force scans
 // the terms trie. This is the user-visible algorithmic change of the port.
 BENCHMARK_DEFINE_F(BM_Suffix, WildcardTokenized)(benchmark::State &state) {
+    size_t hits = 0;
     for (auto _ : state) {
-        size_t hits = IterateWildcardPattern(suffix, terms, "ab*cd", 5);
+        hits = IterateWildcardPattern(suffix, terms, "ab*cd", 5);
         benchmark::DoNotOptimize(hits);
     }
+    state.counters["hits"] = static_cast<double>(hits);
 }
 
 // Wildcard whose tokens are all shorter than MIN_SUFFIX: both flavors
 // brute-force the terms trie, so this pair should compare flat. Sanity
 // anchor for the harness.
 BENCHMARK_DEFINE_F(BM_Suffix, WildcardFallback)(benchmark::State &state) {
+    size_t hits = 0;
     for (auto _ : state) {
-        size_t hits = IterateWildcardPattern(suffix, terms, "a*z", 3);
+        hits = IterateWildcardPattern(suffix, terms, "a*z", 3);
         benchmark::DoNotOptimize(hits);
     }
+    state.counters["hits"] = static_cast<double>(hits);
 }
 
 BENCHMARK_REGISTER_F(BM_Suffix, Add)->SUFFIX_WRITE_SCENARIO();
