@@ -269,7 +269,7 @@ def test_svs_threadpool_lazy_init():
     SVS index attach.
 
     Observed via the top-level SHARED_MEMORY field in FT.DEBUG VECSIM_INFO, which
-    mirrors VecSim_GetGlobalMemory() — currently sourced exclusively from the
+    mirrors VecSim_GetSharedMemory() — currently sourced exclusively from the
     shared SVS thread pool's allocation size.
     """
     workers = 4
@@ -277,7 +277,7 @@ def test_svs_threadpool_lazy_init():
 
     # A non-SVS (HNSW) index exercises FT.DEBUG VECSIM_INFO without involving SVS
     # at all. With lazy init no worker slots have been allocated yet, so
-    # SHARED_MEMORY (== VecSim_GetGlobalMemory()) equals only the allocator's
+    # SHARED_MEMORY (== VecSim_GetSharedMemory()) equals only the allocator's
     # self-accounting baseline (sizeof(VecSimAllocator) — a single
     # std::atomic_uint64_t, 8 bytes on standard platforms, see VecSimAllocator()
     # ctor). The 32-byte threshold leaves headroom for platform variation but is
