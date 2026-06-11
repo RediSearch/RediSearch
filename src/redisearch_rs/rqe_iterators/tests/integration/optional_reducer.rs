@@ -198,12 +198,8 @@ mod optional_reducer_tests {
         // `disk_spec_storage` outlives all iterators created below.
         ctx.spec_write().set_disk_spec(&mut disk_spec_storage);
         // Disk-backed iterators now require a non-null snapshot. The mock
-        // enterprise iterator never dereferences the snapshot, so any non-null
-        // address works; reuse the `disk_spec_storage` address.
-        // SAFETY: `disk_spec_storage` outlives every iterator created here.
-        unsafe {
-            ctx.set_disk_snapshot(&mut disk_spec_storage as *mut _ as *mut _);
-        }
+        // enterprise iterator never dereferences it, so a sentinel suffices.
+        ctx.set_dummy_disk_snapshot();
 
         let child = Mock::new(DOCS);
 
