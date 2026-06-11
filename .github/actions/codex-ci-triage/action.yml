@@ -15,6 +15,15 @@ inputs:
     description: Working directory for Codex execution.
     required: false
     default: .
+  allow-users:
+    description: >
+      Additional non-collaborator usernames to allow past
+      `openai/codex-action`'s actor gate. Use with care: the caller must
+      have an out-of-band gate (e.g. a maintainer-applied label) before
+      whitelisting a non-collaborator, since this lets that user
+      indirectly consume Codex API quota. Empty by default.
+    required: false
+    default: ''
 
 outputs:
   triage-exists:
@@ -59,6 +68,7 @@ runs:
         allow-bots: true
         allow-users: github-merge-queue
         allow-bot-users: github-merge-queue[bot]
+        allow-users: ${{ inputs.allow-users }}
 
     - name: Read triage output
       id: read
