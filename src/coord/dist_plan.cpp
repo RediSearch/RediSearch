@@ -413,6 +413,8 @@ static int distributeCollect(ReducerDistCtx *rdctx, QueryError *status) {
       rdctx->alloc, sizeof(char *) * remoteTotal,
       std::max(sizeof(char *) * remoteTotal, DIST_REDUCER_BLOCK_SIZE));
   remoteObjs[0] = distAllocU64Str(rdctx->alloc, srcArgc);  // <nargs> = reducer args only
+  // Shallow copy: only pointers are copied; the strings stay owned by src->args.
+  // Overwriting a slot below replaces the pointer, it does not free the string.
   memcpy(remoteObjs + 1, srcObjs, srcArgc * sizeof(char *));
   if (args.has_limit) {
     remoteObjs[1 + limitValIdx] = distAllocU64Str(rdctx->alloc, 0);
