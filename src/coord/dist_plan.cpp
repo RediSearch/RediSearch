@@ -415,7 +415,7 @@ static int distributeCollect(ReducerDistCtx *rdctx, QueryError *status) {
   ArgsCursor_InitCString(&remoteArgs, remoteObjs, (int)remoteTotal);
 
   const char *alias = nullptr;
-  if (!rdctx->addRemote("COLLECT", &alias, status, &remoteArgs)) {
+  if (!rdctx->add(rdctx->remoteGroup, "COLLECT", &alias, status, &remoteArgs)) {
     CollectArgs_Free(&args);
     return REDISMODULE_ERR;
   }
