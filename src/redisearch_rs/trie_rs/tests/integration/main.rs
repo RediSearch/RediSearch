@@ -9,4 +9,5 @@
 
 mod iter;
 mod str;
+mod term_suffix_index;
 mod trie;

@@ -3038,6 +3038,7 @@ dependencies = [
 name = "trie_rs"
 version = "0.0.1"
 dependencies = [
+ "ffi",
  "fs-err",
  "insta",
  "lending-iterator",
