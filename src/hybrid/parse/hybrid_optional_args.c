@@ -141,13 +141,12 @@ int HybridParseOptionalArgs(HybridParseContext *ctx, ArgsCursor *ac, bool intern
                             ARG_OPT_CALLBACK, handleSlotsInfo, ctx,
                             ARG_OPT_END);
 
-        // _COORD_DISPATCH_TIME argument for internal requests. Optional: coordinators older
-        // than 8.6 do not send it
+        // Mandatory _COORD_DISPATCH_TIME argument for internal requests
         static_assert(sizeof(unsigned long long) == sizeof(rs_wall_clock_ns_t),
                       "rs_wall_clock_ns_t must be the same size as unsigned long long");
         ArgParser_AddULongLongV(parser, COORD_DISPATCH_TIME_STR, "Coordinator dispatch time",
                             (unsigned long long *)ctx->coordDispatchTime,
-                            ARG_OPT_OPTIONAL,
+                            ARG_OPT_REQUIRED,
                             ARG_OPT_END);
 
     }

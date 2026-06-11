@@ -216,14 +216,15 @@ def test_basic_hybrid_internal_withcursor(env):
 
 
 def test_hybrid_internal_without_slots_info(env):
-    """_FT.HYBRID without _SLOTS_INFO and _COORD_DISPATCH_TIME (as sent by older
-    coordinators) must not fail; the shard falls back to its local slots (MOD-16047)."""
+    """_FT.HYBRID without _SLOTS_INFO (as sent by coordinators older than 8.4) must not
+    fail; the shard falls back to its local slots (MOD-16047)."""
     setup_hybrid_test_data(env)
 
     query_vec = create_np_array_typed([0.0, 0.0], 'FLOAT32')
     query = ('_FT.HYBRID', 'idx', 'SEARCH', '@description:running',
              'VSIM', '@embedding', '$BLOB',
-             'WITHCURSOR', 'PARAMS', '2', 'BLOB', query_vec.tobytes())
+             'WITHCURSOR', 'PARAMS', '2', 'BLOB', query_vec.tobytes(),
+             '_COORD_DISPATCH_TIME', COORD_DISPATCH_TIME)
 
     for shard_id, _ in get_shard_slot_ranges(env):
         if env.isCluster():
