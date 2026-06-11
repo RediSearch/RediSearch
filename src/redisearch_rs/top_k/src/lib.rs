@@ -17,10 +17,8 @@
 //!
 //! - **Unfiltered** — no child filter; stream results directly from the source's batch.
 //! - **Batches** — intersect score-ordered batches with a child filter (merge-join).
-//!
-//! The score-producing logic is abstracted behind the [`ScoreSource`] / [`ScoreBatch`]
-//! traits.
-//!
+//! - **Adhoc-BF** — walk the child filter and call [`ScoreSource::lookup_score`]
+//!   for each document.
 
 pub mod heap;
 pub mod iterator;
@@ -36,4 +34,4 @@ pub mod mock;
 
 pub use heap::{ScoredResult, TopKHeap};
 pub use iterator::{TopKIterator, TopKMode};
-pub use traits::{CollectionStrategy, ScoreBatch, ScoreSource};
+pub use traits::{BatchStrategy, ScoreBatch, ScoreSource};
