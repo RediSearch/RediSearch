@@ -3249,7 +3249,6 @@ version = "0.0.1"
 dependencies = [
  "cheadergen",
  "ffi",
- "fnv",
  "libc",
  "query_error",
  "redis_mock",

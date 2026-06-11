@@ -79,19 +79,6 @@ struct RSValue * *RSValue_NewArrayBuilder(uint32_t len);
 struct RSValue *RSValue_NewUndefined(void);
 
 /**
- * Computes a 64-bit FNV-1a hash of an [`RSValue`], using `hval` as the initial offset basis.
- *
- * The hashing is recursive for composite types (arrays, maps, references, trios).
- *
- * # Safety
- *
- * 1. `value` must be a [valid], non-null pointer to an [`RSValue`].
- *
- * [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
- */
-uint64_t RSValue_Hash(const struct RSValue *value, uint64_t hval);
-
-/**
  * Convert the [`RSValue`] to a number. Returns `true` when this value is a number
  * or a numeric string that can be converted and writes the number to `d`. If
  * the value cannot be converted `false` is returned and nothing is written to `d`.
@@ -218,6 +205,21 @@ enum RSValueType RSValue_Type(const struct RSValue *value);
  * [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
  */
 struct RSValue *RSValue_Dereference(const struct RSValue *value);
+
+/**
+ * Computes a HashDoS-resistant 64-bit hash of an [`RSValue`], mixing in `hval` so that
+ * the hashes of multiple values (e.g. the fields making up a GROUPBY key) can be
+ * combined into a single hash by chaining: `RSValue_Hash(b, RSValue_Hash(a, hval))`.
+ *
+ * The hashing is recursive for composite types (arrays, maps, references, trios).
+ *
+ * # Safety
+ *
+ * 1. `value` must be a [valid], non-null pointer to an [`RSValue`].
+ *
+ * [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
+ */
+uint64_t RSValue_Hash(const struct RSValue *value, uint64_t hval);
 
 /**
  * Creates a heap-allocated array [`RSValue`] from existing values.

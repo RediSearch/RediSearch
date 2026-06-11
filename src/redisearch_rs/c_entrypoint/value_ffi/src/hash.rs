@@ -9,10 +9,27 @@
 
 use crate::RSValue;
 use crate::util::expect_value;
-use fnv::Fnv64;
-use std::hash::Hasher;
+use std::collections::hash_map::RandomState;
+use std::hash::{BuildHasher, Hasher};
+use std::sync::LazyLock;
 
-/// Computes a 64-bit FNV-1a hash of an [`RSValue`], using `hval` as the initial offset basis.
+/// Per-process random keys used to seed [`RSValue_Hash`]'s hasher.
+///
+/// Generated once from OS randomness on first use. Without a secret,
+/// unpredictable key, an attacker who controls indexed field values (and
+/// therefore the inputs hashed into the GROUPBY/COUNT_DISTINCT/TOLIST hash
+/// tables) could craft values that collide under a known hash function,
+/// degrading those hash tables to linked lists (a "HashDoS" attack). Keying
+/// the hash with a value the attacker cannot know prevents this.
+///
+/// The seed is fixed for the lifetime of the process, so hashes remain
+/// stable within and across queries on the same instance, but differ across
+/// restarts.
+static HASH_SEED: LazyLock<RandomState> = LazyLock::new(RandomState::new);
+
+/// Computes a HashDoS-resistant 64-bit hash of an [`RSValue`], mixing in `hval` so that
+/// the hashes of multiple values (e.g. the fields making up a GROUPBY key) can be
+/// combined into a single hash by chaining: `RSValue_Hash(b, RSValue_Hash(a, hval))`.
 ///
 /// The hashing is recursive for composite types (arrays, maps, references, trios).
 ///
@@ -26,7 +43,8 @@ pub unsafe extern "C" fn RSValue_Hash(value: *const RSValue, hval: u64) -> u64 {
     // Safety: ensured by caller (1.)
     let value = unsafe { expect_value(value) };
 
-    let mut hasher = Fnv64::with_offset_basis(hval);
+    let mut hasher = HASH_SEED.build_hasher();
+    hasher.write_u64(hval);
     value::hash::hash_value(value, &mut hasher);
     hasher.finish()
 }
