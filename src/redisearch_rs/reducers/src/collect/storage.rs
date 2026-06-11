@@ -7,7 +7,7 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 
-//! Bounded storage shared by the COLLECT reducer variants. Three modes:
+//! Bounded storage shared by the COLLECT reducer variants. Four modes:
 //!
 //! - [`Storage::Array`] — preserves arrival order under an `offset + count`
 //!   cap and drops excess inserts in O(1) without paying any projection
@@ -19,9 +19,13 @@
 //! - [`Storage::DistinctHeap`] — like [`Storage::Heap`] but deduplicates by
 //!   projected fields, keeping the best representative per sort key (the
 //!   `COLLECT … SORTBY DISTINCT` path).
+//! - [`Storage::DistinctArray`] — like [`Storage::Array`] but deduplicates by
+//!   projected fields, keeping the first arrival per identity (the
+//!   `COLLECT … DISTINCT` path without `SORTBY`).
 
 use std::cmp::Reverse;
 
+use std::collections::HashSet;
 use std::marker::PhantomData;
 
 use itertools::Either;
@@ -47,20 +51,19 @@ pub enum StorageMode {
     Array,
     Heap,
     DistinctHeap,
+    DistinctArray,
 }
 
 impl StorageMode {
-    pub fn from_flags(sortby: bool, uses_distinct_storage: bool) -> Self {
-        debug_assert!(
-            !uses_distinct_storage || sortby,
-            "DISTINCT storage requires SORTBY"
-        );
-        if uses_distinct_storage {
-            Self::DistinctHeap
-        } else if sortby {
-            Self::Heap
-        } else {
-            Self::Array
+    pub const fn from_flags(sortby: bool, uses_distinct_storage: bool) -> Self {
+        match (uses_distinct_storage, sortby) {
+            // DISTINCT keeps the best representative per sort key.
+            (true, true) => Self::DistinctHeap,
+            // DISTINCT without SORTBY: keep the first arrival per projected
+            // identity, in arrival order, under the same cap as `Array`.
+            (true, false) => Self::DistinctArray,
+            (false, true) => Self::Heap,
+            (false, false) => Self::Array,
         }
     }
 }
@@ -88,6 +91,13 @@ pub enum Storage<D: Ord> {
         sort_asc_map: u64,
         offset: usize,
         count: usize,
+    },
+    DistinctArray {
+        seen: HashSet<u64>,
+        buf: Vec<RLookupRow<'static>>,
+        offset: usize,
+        count: usize,
+        _marker: PhantomData<D>,
     },
 }
 
@@ -122,6 +132,13 @@ impl<D: Ord> Storage<D> {
                 sort_asc_map,
                 offset,
                 count,
+            },
+            StorageMode::DistinctArray => Self::DistinctArray {
+                seen: HashSet::with_capacity(initial_capacity),
+                buf: Vec::with_capacity(initial_capacity),
+                offset,
+                count,
+                _marker: PhantomData,
             },
         }
     }
@@ -183,7 +200,9 @@ impl<D: Ord> Storage<D> {
                     }
                 }
             }
-            Self::DistinctHeap { .. } => unreachable!("insert_entry called on DISTINCT storage"),
+            Self::DistinctHeap { .. } | Self::DistinctArray { .. } => {
+                unreachable!("insert_entry called on DISTINCT storage")
+            }
         }
     }
 
@@ -230,6 +249,27 @@ impl<D: Ord> Storage<D> {
                     pq.pop();
                 }
             }
+            Self::DistinctArray {
+                seen,
+                buf,
+                offset,
+                count,
+                ..
+            } => {
+                let max_size = offset.saturating_add(*count);
+                // At the cap, every candidate is dropped.
+                if buf.len() >= max_size {
+                    return;
+                }
+                // Below the cap we must project to derive the dedup identity.
+                // `sort_vals` and `doc_id` are unused: there is no ranking.
+                let row = project();
+                let digest = dedup_from_row(&row);
+                // First arrival wins: store only a digest not seen before.
+                if seen.insert(digest) {
+                    buf.push(row);
+                }
+            }
             Self::Array { .. } | Self::Heap { .. } => {
                 unreachable!("insert_distinct_entry called on non-DISTINCT storage")
             }
@@ -254,6 +294,9 @@ impl<D: Ord> Storage<D> {
         );
         match taken {
             Self::Array {
+                buf, offset, count, ..
+            }
+            | Self::DistinctArray {
                 buf, offset, count, ..
             } => Either::Left(buf.into_iter().skip(offset).take(count)),
             Self::Heap {

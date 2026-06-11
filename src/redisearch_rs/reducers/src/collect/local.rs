@@ -194,7 +194,7 @@ pub struct LocalCollectReducer<'a> {
     input_key: &'a RLookupKey<'a>,
     fields: Fields,
     limit: Option<(u64, u64)>,
-    uses_distinct_storage: bool,
+    distinct: bool,
 }
 
 const _: () = assert!(core::mem::offset_of!(LocalCollectReducer<'_>, reducer) == 0);
@@ -230,7 +230,6 @@ impl<'a> LocalCollectReducer<'a> {
             },
             None => Fields::All { sort_key_names },
         };
-        let uses_distinct_storage = distinct && !fields.sort_key_names().is_empty();
         Self {
             reducer: Reducer::new(),
             arena: Bump::new(),
@@ -238,7 +237,7 @@ impl<'a> LocalCollectReducer<'a> {
             input_key,
             fields,
             limit,
-            uses_distinct_storage,
+            distinct,
         }
     }
 
@@ -259,7 +258,7 @@ impl<'a> LocalCollectReducer<'a> {
 impl LocalCollectCtx {
     pub fn new(r: &LocalCollectReducer) -> Self {
         let sortby = !r.fields.sort_key_names().is_empty();
-        let mode = StorageMode::from_flags(sortby, r.uses_distinct_storage);
+        let mode = StorageMode::from_flags(sortby, r.distinct);
         let storage = Storage::new(mode, r.limit, r.sort_asc_map);
         Self {
             lookup: RLookup::new(),
@@ -286,7 +285,7 @@ impl LocalCollectCtx {
                 );
                 continue;
             }
-            if r.uses_distinct_storage {
+            if r.distinct {
                 self.storage.insert_distinct_entry(
                     || snapshot_sort_keys(r.fields.sort_key_names(), item),
                     (),

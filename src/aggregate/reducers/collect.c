@@ -249,7 +249,7 @@ bool CollectArgs_Parse(const ReducerOptions *options, CollectArgs *out) {
     ARG_OPT_END);
 
   ArgParser_AddFlag(parser, "DISTINCT",
-    "Deduplicate by projected fields, keeping the best representative per sort key",
+    "Deduplicate by projected fields",
     &pctx.args->distinct);
 
   ArgParseResult result = ArgParser_Parse(parser);

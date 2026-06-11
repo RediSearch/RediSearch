@@ -159,6 +159,46 @@ def test_collect_distinct_with_limit():
     env.assertEqual(cats, [{'cat': 'a'}])
 
 
+def test_collect_distinct_without_sortby():
+    env = Env(protocol=3)
+    enable_unstable_features(env)
+    _setup_distinct(env)
+
+    # DISTINCT without SORTBY: dedup by @cat, keeping one occurrence per value.
+    # Without a sort key there is no defined order (especially across shards),
+    # so assert on the set of distinct values rather than their order.
+    res = env.cmd(
+        'FT.AGGREGATE', 'didx', '*',
+        'GROUPBY', '1', '@grp',
+        'REDUCE', 'COLLECT', '4', 'FIELDS', '1', '@cat', 'DISTINCT',
+        'AS', 'cats')
+
+    env.assertEqual(len(res['results']), 1)
+    cats = res['results'][0]['extra_attributes']['cats']
+    env.assertEqual(len(cats), 2)
+    env.assertEqual({c['cat'] for c in cats}, {'a', 'b'})
+
+
+def test_collect_distinct_without_sortby_limit():
+    env = Env(protocol=3)
+    enable_unstable_features(env)
+    _setup_distinct(env)
+
+    # LIMIT bounds the distinct output: two distinct cats exist, LIMIT 0 1
+    # keeps one.
+    res = env.cmd(
+        'FT.AGGREGATE', 'didx', '*',
+        'GROUPBY', '1', '@grp',
+        'REDUCE', 'COLLECT', '7', 'FIELDS', '1', '@cat', 'LIMIT', '0', '1',
+            'DISTINCT',
+        'AS', 'cats')
+
+    env.assertEqual(len(res['results']), 1)
+    cats = res['results'][0]['extra_attributes']['cats']
+    env.assertEqual(len(cats), 1)
+    env.assertTrue(cats[0]['cat'] in ('a', 'b'))
+
+
 def test_collect_distinct_with_key_field():
     env = Env(protocol=3)
     enable_unstable_features(env)

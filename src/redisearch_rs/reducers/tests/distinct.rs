@@ -391,6 +391,106 @@ fn distinct_drain_applies_offset_and_count() {
 }
 
 // ---------------------------------------------------------------------------
+// `Storage::DistinctArray` integration: DISTINCT without SORTBY.
+// ---------------------------------------------------------------------------
+
+/// Drive one DISTINCT-without-SORTBY insert: no ranking; the dedup identity is
+/// the projected field `g`.
+fn distinct_array_insert(storage: &mut Storage<()>, g: &RLookupKey<'static>, group: &str) {
+    let group = group.to_owned();
+    storage.insert_distinct_entry(
+        // No sort values: DistinctArray never invokes this closure.
+        || Vec::new().into_boxed_slice(),
+        (),
+        || {
+            let mut row = RLookupRow::new();
+            row.write_key(g, SharedValue::new_string(group.as_bytes().to_vec()));
+            row
+        },
+        |row| dedup_hash_row(row, std::iter::once(g)),
+    );
+}
+
+#[test]
+fn distinct_array_preserves_arrival_order_and_collapses_duplicates() {
+    let g = make_key(c"g", 0);
+    let mut storage = Storage::new(StorageMode::DistinctArray, Some((0, 10)), SORT_DESC);
+
+    // Arrival A, B, A, C, B → distinct survivors in arrival order: A, B, C.
+    for group in ["A", "B", "A", "C", "B"] {
+        distinct_array_insert(&mut storage, &g, group);
+    }
+
+    let drained: Vec<_> = storage.drain().collect();
+    let groups: Vec<String> = drained.iter().map(|r| group_of(&g, r)).collect();
+    assert_eq!(
+        groups,
+        vec!["A".to_string(), "B".to_string(), "C".to_string()]
+    );
+}
+
+#[test]
+fn distinct_array_keeps_first_arrival_row() {
+    // Dedup identity is `g` only; a non-identity column `tag` distinguishes the
+    // two arrivals of `X`. First-arrival-wins ⇒ the survivor carries `first`.
+    let g = make_key(c"g", 0);
+    let tag = make_key(c"tag", 1);
+    let mut storage = Storage::new(StorageMode::DistinctArray, Some((0, 10)), SORT_DESC);
+
+    for t in ["first", "second"] {
+        let t = t.to_owned();
+        storage.insert_distinct_entry(
+            || Vec::new().into_boxed_slice(),
+            (),
+            || {
+                let mut row = RLookupRow::new();
+                row.write_key(&g, SharedValue::new_string(b"X".to_vec()));
+                row.write_key(&tag, SharedValue::new_string(t.as_bytes().to_vec()));
+                row
+            },
+            // Identity excludes `tag`, so both arrivals collide on `g`.
+            |row| dedup_hash_row(row, std::iter::once(&g)),
+        );
+    }
+
+    let drained: Vec<_> = storage.drain().collect();
+    assert_eq!(drained.len(), 1, "the two `X` rows must dedup to one");
+    assert_eq!(group_of(&tag, &drained[0]), "first");
+}
+
+#[test]
+fn distinct_array_caps_distinct_rows_in_arrival_order() {
+    let g = make_key(c"g", 0);
+    // cap = offset + count = 2.
+    let mut storage = Storage::new(StorageMode::DistinctArray, Some((0, 2)), SORT_DESC);
+
+    for group in ["A", "B", "C"] {
+        distinct_array_insert(&mut storage, &g, group);
+    }
+
+    // C arrives after the cap is reached and is dropped.
+    let drained: Vec<_> = storage.drain().collect();
+    let groups: Vec<String> = drained.iter().map(|r| group_of(&g, r)).collect();
+    assert_eq!(groups, vec!["A".to_string(), "B".to_string()]);
+}
+
+#[test]
+fn distinct_array_drain_applies_offset_and_count() {
+    let g = make_key(c"g", 0);
+    // offset 1, count 2 → cap 3 retained, window skips the first.
+    let mut storage = Storage::new(StorageMode::DistinctArray, Some((1, 2)), SORT_DESC);
+
+    for group in ["A", "B", "C", "D"] {
+        distinct_array_insert(&mut storage, &g, group);
+    }
+
+    // Retained in arrival order A, B, C (D exceeds the cap); skip(1).take(2).
+    let drained: Vec<_> = storage.drain().collect();
+    let groups: Vec<String> = drained.iter().map(|r| group_of(&g, r)).collect();
+    assert_eq!(groups, vec!["B".to_string(), "C".to_string()]);
+}
+
+// ---------------------------------------------------------------------------
 // Reducer-level wiring: DISTINCT through the real `RemoteCollectReducer`
 // `add` → `finalize` path, exercising the `distinct` flag, storage selection,
 // and the projected-only dedup identity.
@@ -494,4 +594,3 @@ fn reducer_distinct_internal_emits_winning_sort_value() {
     // The surviving row must carry the winning score 5, not the loser's 1.
     assert_eq!(m.get(b"score").and_then(|v| v.as_num()), Some(5.0));
 }
-

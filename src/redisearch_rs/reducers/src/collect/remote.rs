@@ -124,7 +124,7 @@ pub struct RemoteCollectReducer<'a> {
     fields: Fields<'a>,
     limit: Option<(u64, u64)>,
     is_internal: bool,
-    uses_distinct_storage: bool,
+    distinct: bool,
 }
 
 const _: () = assert!(core::mem::offset_of!(RemoteCollectReducer<'_>, reducer) == 0);
@@ -167,9 +167,6 @@ impl<'a> RemoteCollectReducer<'a> {
                 sort_keys,
             },
         };
-        // DISTINCT needs SORTBY: it keeps the best representative per sort key,
-        // which is undefined without sort keys.
-        let uses_distinct_storage = distinct && !fields.sort_keys().is_empty();
         Self {
             reducer: Reducer::new(),
             arena: Bump::new(),
@@ -177,7 +174,7 @@ impl<'a> RemoteCollectReducer<'a> {
             fields,
             limit,
             is_internal,
-            uses_distinct_storage,
+            distinct,
         }
     }
 
@@ -250,7 +247,7 @@ fn dedup_by_dstidx<'a>(
 impl RemoteCollectCtx {
     pub fn new(r: &RemoteCollectReducer<'_>) -> Self {
         let sortby = !r.fields.sort_keys().is_empty();
-        let mode = StorageMode::from_flags(sortby, r.uses_distinct_storage);
+        let mode = StorageMode::from_flags(sortby, r.distinct);
         let storage = Storage::new(mode, r.limit, r.sort_asc_map);
         Self { storage }
     }
@@ -283,10 +280,10 @@ impl RemoteCollectCtx {
             }
             dst
         };
-        // DISTINCT dedup identity: the projected fields only, hashed by name.
-        let dedup_from_row =
-            |projected: &RLookupRow<'static>| dedup_hash_row(projected, r.fields.dedup_keys());
-        if r.uses_distinct_storage {
+        if r.distinct {
+            // DISTINCT dedup identity: the projected fields only, hashed by name.
+            let dedup_from_row =
+                |projected: &RLookupRow<'static>| dedup_hash_row(projected, r.fields.dedup_keys());
             self.storage
                 .insert_distinct_entry(sort_vals, doc_id, project, dedup_from_row);
         } else {
