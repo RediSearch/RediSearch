@@ -43,3 +43,9 @@ endforeach()
 # Standalone micro-benchmarks (no iterator/index_utils dependency).
 add_executable(benchmark_unicode_tolower benchmark_unicode_tolower.cpp)
 target_link_libraries(benchmark_unicode_tolower redisearch redismock benchmark::benchmark)
+
+# Local-only suffix-index microbenchmark. Named `bench_*` (not `benchmark_*`) so
+# build.sh's `for benchmark in benchmark_*` auto-runner does not pick it up,
+# keeping it out of `make micro-benchmarks` and the nightly CI pipeline.
+add_executable(bench_suffix bench_suffix.cpp)
+target_link_libraries(bench_suffix redisearch redismock benchmark::benchmark)
