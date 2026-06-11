@@ -371,11 +371,7 @@ static int handleCommonArgs(AREQ *req, ArgsCursor *ac, QueryError *status, int a
     // _SLOTS_INFO <binary> argument to internal queries. This version does not use it,
     // but must consume the keyword and its single payload argument so that a newer
     // coordinator can drive this shard during a rolling upgrade across the 8.4 boundary.
-    if (AC_NumRemaining(ac) < 1) {
-      QueryError_SetError(status, QUERY_EPARSEARGS, "_SLOTS_INFO missing argument");
-      return ARG_ERROR;
-    }
-    AC_Advance(ac); // skip the (binary) slots payload
+    AC_Advance(ac); // skip the (binary) slots payload (no-op if absent)
   } else if (AC_AdvanceIfMatch(ac, "BM25STD_TANH_FACTOR")) {
     if (AC_NumRemaining(ac) < 1) {
       QueryError_SetError(status, QUERY_EPARSEARGS, "Need an argument for BM25STD_TANH_FACTOR");

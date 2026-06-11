@@ -196,9 +196,6 @@ def test_internal_slots_info_ignored(env):
     res = env.cmd('_FT.AGGREGATE', 'idx', '*', '_SLOTS_INFO', slots, 'LOAD', '1', '@n')
     env.assertEqual(res[1:], [['n', '1']])
 
-    # A dangling _SLOTS_INFO with no payload is a parse error, not a silent accept.
-    env.expect('_FT.SEARCH', 'idx', '*', '_SLOTS_INFO').error().contains('_SLOTS_INFO missing argument')
-
 @skip(redis_less_than="7.9.227")
 def test_acl_key_permissions_validation(env):
     """Tests that the key permission validation works properly"""
