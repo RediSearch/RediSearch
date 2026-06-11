@@ -107,34 +107,47 @@ class TestAggregate():
             self.env.assertContains('avg_price', row)
 
         # Test aliasing
+        # The order of the groups themselves is not guaranteed without SORTBY, so sort by
+        # avgPrice to get the same deterministic group as in the first part of this test.
         cmd = ['FT.AGGREGATE', 'games', 'sony', 'GROUPBY', '1', '@brand',
-               'REDUCE', 'avg', '1', '@price', 'AS', 'avgPrice']
+               'REDUCE', 'avg', '1', '@price', 'AS', 'avgPrice',
+               'SORTBY', '2', '@avgPrice', 'DESC']
         res = self.env.cmd(*cmd)
         first_row = to_dict(res[1])
-        self.env.assertEqual(17, int(float(first_row['avgPrice'])))
+        self.env.assertEqual(109, int(float(first_row['avgPrice'])))
         _test_withcount(self.env, cmd)
 
     def testCountDistinct(self):
+        # The order of the groups themselves is not guaranteed without SORTBY, so sort by
+        # count_distinct(title) to get a deterministic group (the one with the most documents).
         cmd = ['FT.AGGREGATE', 'games', '*',
                'GROUPBY', '1', '@brand',
                'REDUCE', 'COUNT_DISTINCT', '1', '@title', 'AS', 'count_distinct(title)',
-               'REDUCE', 'COUNT', '0'
+               'REDUCE', 'COUNT', '0',
+               'SORTBY', '2', '@count_distinct(title)', 'DESC'
                ]
         res = self.env.cmd(*cmd)[1:]
         # print res
         row = to_dict(res[0])
-        self.env.assertEqual(1484, int(row['count_distinct(title)']))
+        exact_count = int(row['count_distinct(title)'])
+        self.env.assertEqual(1484, exact_count)
         _test_withcount(self.env, cmd)
 
+        # Same as above, but for the approximate COUNT_DISTINCTISH reducer. COUNT_DISTINCTISH
+        # is a HyperLogLog estimate (HLL_PRECISION_BITS == 8, i.e. 256 registers, so a
+        # standard error of ~1/sqrt(256) == ~6.5% per estimate), and its exact value depends
+        # on the hash function used internally; allow ~3 standard errors of slack and just
+        # check that it is close to the exact count above.
         cmd = ['FT.AGGREGATE', 'games', '*',
                'GROUPBY', '1', '@brand',
                'REDUCE', 'COUNT_DISTINCTISH', '1', '@title', 'AS', 'count_distinctish(title)',
-               'REDUCE', 'COUNT', '0'
+               'REDUCE', 'COUNT', '0',
+               'SORTBY', '2', '@count_distinctish(title)', 'DESC'
                ]
         res = self.env.cmd(*cmd)[1:]
         # print res
         row = to_dict(res[0])
-        self.env.assertEqual(1461, int(row['count_distinctish(title)']))
+        self.env.assertAlmostEqual(exact_count, int(row['count_distinctish(title)']), delta=exact_count * 0.20)
         _test_withcount(self.env, cmd)
 
     def testQuantile(self):
@@ -179,11 +192,15 @@ class TestAggregate():
         expected = ['brand', '', 'count', '1518', 'dt', '2018-01-31T16:45:44Z',
                     'parsed_dt', '1517417144']
 
+        # The order of the groups themselves is not guaranteed without SORTBY, so sort by
+        # count to get a deterministic group (the one with the most documents).
+
         # Skip on Alpine Linux, as its strptime() doesn't support '%FT%TZ' format
         if distro_name != 'alpine linux':
             cmd = ['FT.AGGREGATE', 'games', '*',
                 'GROUPBY', '1', '@brand',
                 'REDUCE', 'COUNT', '0', 'AS', 'count',
+                'SORTBY', '2', '@count', 'DESC',
                 'APPLY', 'timefmt(1517417144)', 'AS', 'dt',
                 'APPLY', 'parsetime(@dt, "%FT%TZ")', 'as', 'parsed_dt',
                 'LIMIT', '0', '1']
@@ -197,6 +214,7 @@ class TestAggregate():
         cmd = ['FT.AGGREGATE', 'games', '*',
                 'GROUPBY', '1', '@brand',
                 'REDUCE', 'COUNT', '0', 'AS', 'count',
+                'SORTBY', '2', '@count', 'DESC',
                 'APPLY', 'timefmt(1517417144)', 'AS', 'dt',
                 'APPLY', 'parsetime(@dt, "%Y-%m-%dT%H:%M:%SZ")', 'as',
                 'parsed_dt', 'LIMIT', '0', '1']
@@ -588,7 +606,10 @@ class TestAggregate():
                           'GROUPBY', 1, '@brand',
                           'REDUCE', 'MIN', 1, '@price',
                           'LIMIT', 0, 1)
-        self.env.assertEqual([292, ['brand', '', '__generated_aliasminprice', '0']], rv)
+        # The order of the groups themselves is not guaranteed without SORTBY, so just check
+        # the auto-generated reducer alias name, regardless of which group ends up first.
+        self.env.assertEqual(292, rv[0])
+        self.env.assertEqual('__generated_aliasminprice', rv[1][2])
 
         rv = self.env.cmd('ft.aggregate', 'games', '@brand:(sony|matias|beyerdynamic|(mad catz))',
                           'GROUPBY', 1, '@brand',
@@ -1329,7 +1350,9 @@ def testGroupAfterSort(env):
     #
     # and since `n` is not in the scope when we get to the second sorter, the query fails. ([0] is returned)
 
-    env.assertEqual(res, expected)
+    # The order of the groups themselves is not guaranteed, so compare the group rows regardless of order.
+    env.assertEqual(res[0], expected[0])
+    env.assertEqual(sorted(res[1:]), sorted(expected[1:]))
 
     # CASE 2 #
     conn.execute_command('HSET', 'doc5', 't', 'AAAA', 'n', '0')
@@ -1362,7 +1385,9 @@ def testGroupAfterSort(env):
     #    with `n == 1` will get the the last aggregation and the final result will include 3 row:
     #    one for (t == AAAA, n == 0), one for (t == BBBB, n == 0), and one for (t == ????, n == 1)
 
-    env.assertEqual(res, expected)
+    # The order of the groups themselves is not guaranteed, so compare the group rows regardless of order.
+    env.assertEqual(res[0], expected[0])
+    env.assertEqual(sorted(res[1:]), sorted(expected[1:]))
 
 
 def testWithKNN(env):
@@ -1479,7 +1504,11 @@ def test_aggregate_filter_on_missing_indexed_values():
 def test_aggregate_group_by_on_missing_values():
     env = setup_missing_values_index(False)
     # Search for the documents with the indexed fields (sanity)
-    env.expect('FT.AGGREGATE', 'idx', '@tag:{val}', 'GROUPBY', '1', '@num1').equal([2, ['num1', '3'], ['num1', None]])
+    res = env.cmd('FT.AGGREGATE', 'idx', '@tag:{val}', 'GROUPBY', '1', '@num1')
+    expected = [2, ['num1', '3'], ['num1', None]]
+    # The order of the groups themselves is not guaranteed, so compare the group rows regardless of order.
+    env.assertEqual(res[0], expected[0])
+    env.assertEqual(sorted(res[1:], key=str), sorted(expected[1:], key=str))
     env.flush()
 
 def test_aggregate_group_by_on_missing_indexed_values():

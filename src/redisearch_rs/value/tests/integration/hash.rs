@@ -42,8 +42,7 @@ fn string_and_redis_string_with_same_bytes_hash_equal() {
     let bytes: &'static [u8] = b"hello";
     let create_string = unsafe { redis_module::raw::RedisModule_CreateString }
         .expect("mock registers RedisModule_CreateString");
-    let raw =
-        unsafe { create_string(std::ptr::null_mut(), bytes.as_ptr().cast(), bytes.len()) };
+    let raw = unsafe { create_string(std::ptr::null_mut(), bytes.as_ptr().cast(), bytes.len()) };
     let redis_string = Value::RedisString(unsafe { RedisString::from_raw(raw.cast()) });
 
     let plain_string = Value::String(String::from_vec(bytes.to_vec()));
