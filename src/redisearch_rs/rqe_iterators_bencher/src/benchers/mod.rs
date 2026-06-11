@@ -8,6 +8,7 @@
 */
 
 pub mod empty;
+pub mod geo_shape;
 pub mod id_list;
 pub mod intersection;
 pub mod inverted_index;
