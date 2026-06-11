@@ -12,7 +12,7 @@
 //!
 //! Gated behind the `test-utils` feature.
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 
 use index_result::RSIndexResult;
 use rqe_core::DocId;
@@ -88,6 +88,8 @@ pub struct MockScoreSource {
     /// reranking (the default); `Some` map rescores any retained doc it
     /// contains and leaves the rest untouched.
     rerank_scores: Option<HashMap<DocId, f64>>,
+    /// Doc ids reported expired by [`ScoreSource::is_expired`]. Empty by default.
+    expired: HashSet<DocId>,
 }
 
 impl MockScoreSource {
@@ -113,6 +115,7 @@ impl MockScoreSource {
             batch_strategy: Box::new(batch_strategy),
             num_estimated,
             rerank_scores: None,
+            expired: HashSet::new(),
         }
     }
 
@@ -128,6 +131,12 @@ impl MockScoreSource {
     /// of labels with no exact distance.
     pub fn with_rerank(mut self, scores: Vec<(DocId, f64)>) -> Self {
         self.rerank_scores = Some(scores.into_iter().collect());
+        self
+    }
+
+    /// Report the given doc ids as expired from [`ScoreSource::is_expired`].
+    pub fn with_expired(mut self, docs: impl IntoIterator<Item = DocId>) -> Self {
+        self.expired = docs.into_iter().collect();
         self
     }
 }
@@ -149,6 +158,10 @@ impl ScoreSource for MockScoreSource {
 
     fn lookup_score(&mut self, doc_id: DocId) -> Option<f64> {
         self.scores.get(&doc_id).copied()
+    }
+
+    fn is_expired(&self, doc_id: DocId) -> bool {
+        self.expired.contains(&doc_id)
     }
 
     fn num_estimated(&self) -> usize {

@@ -17,7 +17,7 @@ use ffi::{
 };
 use index_result::RSIndexResult;
 use rqe_core::DocId;
-use rqe_iterators::RQEIteratorError;
+use rqe_iterators::{ExpirationChecker, FieldExpirationChecker, RQEIteratorError};
 use top_k::{BatchStrategy, ScoreSource, ScoredResult};
 use vecsim::{
     AdhocBfCtx, BatchIterator, IndexRef, QueryError, QueryVector, ReplyOrder, SharedLockGuard,
@@ -50,7 +50,7 @@ enum AdhocPathState<'index> {
 ///
 /// - RAM uses the unsafe RAM distance lookup under shared locks
 /// - Disk uses a preprocessed [`AdhocBfCtx`] per scan.
-pub struct VectorScoreSource<'index> {
+pub struct VectorScoreSource<'index, E: ExpirationChecker = FieldExpirationChecker> {
     /// Non-owning reference to the VecSim index.
     ///
     /// `'index` reflects the [`VectorScoreSource::new`] safety contract: the C
@@ -94,15 +94,19 @@ pub struct VectorScoreSource<'index> {
     child_num_estimated: usize,
     /// `k - heap_count`, updated by `batch_strategy`. Reset on rewind.
     k_remaining: usize,
+
+    /// Optional field-expiration filter for the vector field, consulted at
+    /// yield time via [`ScoreSource::is_expired`].
+    expiration: Option<E>,
 }
 
 // SAFETY: VectorScoreSource is used from a single thread (the query execution
 // thread). The `index` pointer is non-owning; everything else is owned and
 // managed by the struct itself (timeout_ctx, batch_iter). It is the caller's
 // responsibility to ensure the index outlives the iterator.
-unsafe impl Send for VectorScoreSource<'_> {}
+unsafe impl<E: ExpirationChecker> Send for VectorScoreSource<'_, E> {}
 
-impl<'index> VectorScoreSource<'index> {
+impl<'index, E: ExpirationChecker> VectorScoreSource<'index, E> {
     /// Create a new `VectorScoreSource`.
     ///
     /// `timeout` is the query deadline as an absolute `timespec`.
@@ -127,6 +131,7 @@ impl<'index> VectorScoreSource<'index> {
         skip_timeout_checks: bool,
         child_num_estimated: usize,
         fixed_batch_size: usize,
+        expiration: Option<E>,
     ) -> Self {
         // SAFETY: caller-upheld: `index` is valid for the struct's lifetime.
         let index = unsafe { IndexRef::from_raw(index) };
@@ -161,6 +166,7 @@ impl<'index> VectorScoreSource<'index> {
             child_num_estimated,
             initial_child_num_estimated: child_num_estimated,
             k_remaining: k,
+            expiration,
         }
     }
 
@@ -205,9 +211,8 @@ impl<'index> VectorScoreSource<'index> {
     }
 }
 
-impl<'index> ScoreSource for VectorScoreSource<'index> {
+impl<'index, E: ExpirationChecker> ScoreSource for VectorScoreSource<'index, E> {
     type Batch = VecSimScoreBatch;
-
     fn all_results_unfiltered_batch(&mut self) -> Result<Option<Self::Batch>, RQEIteratorError> {
         // Single-shot top-k query for the unfiltered path; called exactly once
         // per evaluation by `prepare_unfiltered_direct`.
@@ -285,6 +290,17 @@ impl<'index> ScoreSource for VectorScoreSource<'index> {
             AdhocPathState::Disk { ctx: Some(ctx) } => ctx.get_distance_from(doc_id),
             AdhocPathState::Disk { ctx: None } => None,
         }
+    }
+
+    fn is_expired(&self, doc_id: DocId) -> bool {
+        let Some(checker) = self.expiration.as_ref() else {
+            return false;
+        };
+        if !checker.has_expiration() {
+            return false;
+        }
+        let probe = RSIndexResult::build_virt().doc_id(doc_id).build();
+        checker.is_expired(&probe)
     }
 
     fn begin_adhoc(&mut self) {

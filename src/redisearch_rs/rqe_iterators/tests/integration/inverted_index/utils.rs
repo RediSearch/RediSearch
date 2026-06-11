@@ -16,7 +16,7 @@ use index_result::{RSIndexResult, RSResultKind};
 use inverted_index::{DecodedBy, Encoder, InvertedIndex, test_utils::TermRecordCompare};
 use numeric_range_tree::NumericIndex;
 use rqe_core::{DocId, FieldMask};
-use rqe_iterators::{ExpirationChecker, RQEIterator, RQEValidateStatus, SkipToOutcome};
+use rqe_iterators::{RQEIterator, RQEValidateStatus, SkipToOutcome};
 use rqe_iterators_test_utils::MockContext;
 use std::collections::HashSet;
 
@@ -188,35 +188,7 @@ impl<E: Encoder> BaseTest<E> {
 
 /// ---------- Expiration Tests ----------
 
-/// A mock expiration checker for testing.
-///
-/// This allows testing expiration logic without requiring TTL tables.
-/// The `ExpirationTest` will mark documents as expired in this mock checker
-/// instead of in the TTL tables.
-#[derive(Debug, Clone)]
-pub struct MockExpirationChecker {
-    expired_docs: HashSet<DocId>,
-}
-
-impl MockExpirationChecker {
-    pub fn new(expired_docs: HashSet<DocId>) -> Self {
-        Self { expired_docs }
-    }
-
-    pub fn mark_expired(&mut self, doc_id: DocId) {
-        self.expired_docs.insert(doc_id);
-    }
-}
-
-impl ExpirationChecker for MockExpirationChecker {
-    fn has_expiration(&self) -> bool {
-        !self.expired_docs.is_empty()
-    }
-
-    fn is_expired(&self, result: &RSIndexResult) -> bool {
-        self.expired_docs.contains(&result.doc_id)
-    }
-}
+pub use rqe_iterators_test_utils::MockExpirationChecker;
 
 /// The type of index used in the expiration test.
 enum ExpirationIndexType {
