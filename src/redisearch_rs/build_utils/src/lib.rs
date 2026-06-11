@@ -48,7 +48,7 @@ fn is_redisearch_root(path: &Path) -> bool {
             .join("redisearch_rs")
             .join("Cargo.toml")
             .is_file()
-        && path.join("deps").join("VectorSimilarity").exists()
+        && path.join("src").join("version.h").is_file()
 }
 
 fn rerun_if_changes(dir: &Path, extensions: &[&str]) -> std::io::Result<()> {
