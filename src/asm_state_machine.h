@@ -9,10 +9,12 @@
 #pragma once
 
 #include "slots_tracker.h"
+#include "slot_ranges.h"
 #include "util/khash.h"
 #include "rmutil/rm_assert.h"
 #include "rmalloc.h"
 #include <stdlib.h>
+#include <time.h>
 #include <pthread.h>
 
 // Sanitizer detection for leak tracking
@@ -247,6 +249,44 @@ static int ASM_AccountRequestFinished(uint32_t keySpaceVersion, size_t innerQuer
     }
   }
   return REDISMODULE_OK;
+}
+
+/**
+ * Fallback for internal queries that arrived without a slots specification. Coordinators
+ * older than 8.4 predate the SLOTS_STR protocol argument, so during a rolling upgrade
+ * across the 8.4 boundary an old coordinator may still drive queries to this shard.
+ * Assume such queries target this shard's current local slots (the pre-8.4 semantics).
+ *
+ * Writes the captured keyspace version to `keySpaceVersion`. The caller is responsible for
+ * registering the query in the keyspace version tracker, exactly as it does for a
+ * coordinator-provided slots specification.
+ *
+ * @note Must be called from the slots tracker owner thread (main thread), like any other
+ * slots tracker access.
+ * @return The current local slots. The caller is responsible for freeing them with rm_free.
+ */
+static inline const RedisModuleSlotRangeArray *ASM_FallbackToLocalSlots(RedisModuleCtx *ctx,
+                                                                        uint32_t *keySpaceVersion) {
+  // Expected only while a rolling upgrade is in progress, but fires on every internal
+  // query for its duration - throttle to at most one log line per second.
+  static time_t lastLogged = 0;
+  time_t now = time(NULL);
+  time_t prev = __atomic_load_n(&lastLogged, __ATOMIC_RELAXED);
+  if (now != prev &&
+      __atomic_compare_exchange_n(&lastLogged, &prev, now, false, __ATOMIC_RELAXED, __ATOMIC_RELAXED)) {
+    RedisModule_Log(ctx, "notice",
+                    "Internal query received without " SLOTS_STR
+                    " (sent by a coordinator older than 8.4?). "
+                    "Falling back to the shard's current local slots");
+  }
+
+  RedisModuleSlotRangeArray *slots = slots_tracker_get_local_slots();
+  OptionSlotTrackerVersion version = slots_tracker_check_availability(slots);
+  // The local slots are trivially available (possibly with an unstable version during
+  // slot migrations, like any other query)
+  RS_LOG_ASSERT(version.is_some, "local slots must be available");
+  *keySpaceVersion = version.version;
+  return slots;
 }
 
 // END KEY SPACE VERSION QUERY TRACKER IMPLEMENTATION
