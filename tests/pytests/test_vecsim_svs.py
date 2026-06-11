@@ -269,30 +269,28 @@ def test_svs_threadpool_lazy_init():
     SVS index attach.
 
     Observed via the top-level SHARED_MEMORY field in FT.DEBUG VECSIM_INFO, which
-    mirrors VecSim_GetSharedMemory() — currently sourced exclusively from the
-    shared SVS thread pool's allocation size.
+    mirrors VecSim_GetSharedMemory(). That value is sourced exclusively from the
+    shared SVS thread pool and (VectorSimilarity #979) reports 0 until the first SVS
+    index attaches — so a server with no SVS index reports exactly 0.
     """
     workers = 4
     env = Env(moduleArgs=f'DEFAULT_DIALECT 2 WORKERS {workers}')
 
     # A non-SVS (HNSW) index exercises FT.DEBUG VECSIM_INFO without involving SVS
-    # at all. With lazy init no worker slots have been allocated yet, so
-    # SHARED_MEMORY (== VecSim_GetSharedMemory()) equals only the allocator's
-    # self-accounting baseline (sizeof(VecSimAllocator) — a single
-    # std::atomic_uint64_t, 8 bytes on standard platforms, see VecSimAllocator()
-    # ctor). The 32-byte threshold leaves headroom for platform variation but is
-    # well below the smallest realistic single ThreadSlot allocation
-    # (sizeof(svs::threads::Thread) + atomic<bool> + shared_ptr control block +
-    # allocation header).
+    # at all. No SVS index has attached, so the shared pool reports no memory:
+    # VecSim_GetSharedMemory() is gated on the pool's has_attached_index_ flag and
+    # returns exactly 0 until the first SVS index attaches (VectorSimilarity #979),
+    # even though VecSim_UpdateThreadPoolSize already recorded the requested size at
+    # module init.
     create_vector_index(env, dim=4, alg='HNSW')
     hnsw_info = get_tiered_debug_info(env, DEFAULT_INDEX_NAME, DEFAULT_FIELD_NAME)
     env.assertTrue('SHARED_MEMORY' in hnsw_info,
                    message=f"SHARED_MEMORY field must be present in VECSIM_INFO: {hnsw_info}")
     hnsw_baseline = int(hnsw_info['SHARED_MEMORY'])
-    env.assertLess(hnsw_baseline, 32,
-                   message=f"SHARED_MEMORY exceeds the allocator self-accounting baseline — "
-                           f"suggests SVS thread slots were allocated despite no SVS index: "
-                           f"got {hnsw_baseline}, info={hnsw_info}")
+    env.assertEqual(hnsw_baseline, 0,
+                    message=f"SHARED_MEMORY must be 0 before any SVS index attaches — "
+                            f"nonzero suggests SVS thread slots were allocated despite "
+                            f"no SVS index: got {hnsw_baseline}, info={hnsw_info}")
     env.execute_command('FT.DROPINDEX', DEFAULT_INDEX_NAME)
 
     # Creating the first SVS index triggers the lazy thread spawn at the size most
