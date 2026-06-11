@@ -4230,7 +4230,7 @@ class TestCoordinatorTimeout:
         env.assertFalse(t_query.is_alive(), message="Cursor read thread should have finished")
         # Timer replied with the original cid even though the cursor was
         # already freed by the concurrent DEL — this is the documented
-        # behavior of ``DistCursorReadTimeoutReturnStrictClient``.
+        # behavior of ``DistCursorReadTimeoutReturnStrictCallback``.
         _assert_return_strict_cursor_timeout_reply(
             env, result[0], cursor_id, expected_results=0,
             message_prefix='RETURN_STRICT cursor-deleted+timeout pre-pickup')

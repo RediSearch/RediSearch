@@ -218,6 +218,24 @@ static void processCursorMappingCallback(MRIteratorCallbackCtx *ctx, MRReply *re
     MRReply_Free(rep);
 }
 
+// No-reply error callback: bumps responseCount and records a communication
+// error so the wait loop below (which keys completion off responseCount, not
+// iterator depletion) unblocks instead of hanging.
+static void processCursorMappingErrorCallback(MRIteratorCallbackCtx *ctx) {
+    processCursorMappingCallbackContext *cb_ctx = (processCursorMappingCallbackContext *)MRIteratorCallback_GetPrivateData(ctx);
+    RS_ASSERT(cb_ctx);
+
+    pthread_mutex_lock(cb_ctx->mutex);
+    cb_ctx->responseCount++;
+    QueryError error = QueryError_Default();
+    QueryError_SetCode(&error, QUERY_ERROR_CODE_GENERIC);
+    // Shared with the MR iterator no-reply path (pre-fanout connection-validation failure).
+    QueryError_SetDetail(&error, CLUSTER_QUERY_ERROR);
+    cb_ctx->errors = array_ensure_append_1(cb_ctx->errors, error);
+    pthread_cond_signal(cb_ctx->completionCond);
+    pthread_mutex_unlock(cb_ctx->mutex);
+}
+
 // Init callback for the private data, so that numShards is set to the actual number of shards in the cluster, and the expected responses.
 static void processCursorMappingInit(void *privateData, const MRIterator *it) {
     processCursorMappingCallbackContext *ctx = (processCursorMappingCallbackContext *)privateData;
@@ -296,9 +314,14 @@ bool ProcessHybridCursorMappings(const MRCommand *cmd, StrongRef searchMappingsR
     // processCursorMappingInit is called from iterStartCb to update ctx->numShards
     // with the actual shard count from the live topology, preventing use-after-free
     // when topology changes during shard migration.
-    MRIterator *it = MR_IterateWithPrivateData(cmd, processCursorMappingCallback,
-                                               ctx, NULL, processCursorMappingInit,
-                                               cmdModifier, iterStartCb, NULL);
+    MRIterator *it = MR_IterateWithPrivateData(cmd, &(MRIteratorConfig){
+        .successCB = processCursorMappingCallback,
+        .errorCB = processCursorMappingErrorCallback,
+        .cbPrivateData = ctx,
+        .cbPrivateDataInit = processCursorMappingInit,
+        .commandModifier = cmdModifier,
+        .iterStartCb = iterStartCb,
+    });
     if (!it) {
         // Cleanup on error
         QueryError_SetWithoutUserDataFmt(status, QUERY_ERROR_CODE_GENERIC, "Failed to communicate with shards");

@@ -33,8 +33,18 @@ inputs:
   max-bytes:
     description: >
       Truncate the final file to its last N bytes. Bounds Codex token spend.
+      Ignored when `cap` is `false`.
     required: false
     default: '204800'
+  cap:
+    description: >
+      If `true` (default), truncate `output-file` to its last `max-bytes`
+      bytes after writing. Callers that intend to append higher-signal
+      content after this action (so the tail-cap should absorb job logs,
+      not those later entries) should pass `cap: 'false'` and apply their
+      own cap once they have written everything.
+    required: false
+    default: 'true'
 
 runs:
   using: composite
@@ -48,6 +58,7 @@ runs:
         OUTPUT_FILE: ${{ inputs.output-file }}
         APPEND: ${{ inputs.append }}
         MAX_BYTES: ${{ inputs.max-bytes }}
+        CAP: ${{ inputs.cap }}
       run: |
         set +e
         if [ "$APPEND" != "true" ]; then
@@ -64,7 +75,7 @@ runs:
             gh api "repos/${GITHUB_REPOSITORY}/actions/jobs/${job_id}/logs" >> "$OUTPUT_FILE" 2>&1
             printf '\n##[endgroup]\n' >> "$OUTPUT_FILE"
           done
-        if [ "$(wc -c < "$OUTPUT_FILE" 2>/dev/null || echo 0)" -gt "$MAX_BYTES" ]; then
+        if [ "$CAP" = "true" ] && [ "$(wc -c < "$OUTPUT_FILE" 2>/dev/null || echo 0)" -gt "$MAX_BYTES" ]; then
           tail -c "$MAX_BYTES" "$OUTPUT_FILE" > "${OUTPUT_FILE}.tmp"
           printf '[truncated to last %s bytes]\n' "$MAX_BYTES" > "$OUTPUT_FILE"
           cat "${OUTPUT_FILE}.tmp" >> "$OUTPUT_FILE"

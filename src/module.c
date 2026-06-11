@@ -3677,9 +3677,9 @@ void RSExecDistAggregate(RedisModuleCtx *ctx, RedisModuleString **argv, int argc
 int RSAggregateCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc);
 
 int DistAggregateReplyCallback(RedisModuleCtx *ctx, RedisModuleString **argv, int argc);
-int DistAggregateTimeoutFailClient(RedisModuleCtx *ctx, RedisModuleString **argv, int argc);
-int DistAggregateTimeoutReturnStrictClient(RedisModuleCtx *ctx, RedisModuleString **argv, int argc);
-int DistCursorReadTimeoutReturnStrictClient(RedisModuleCtx *ctx, RedisModuleString **argv, int argc);
+int DistAggregateTimeoutFailCallback(RedisModuleCtx *ctx, RedisModuleString **argv, int argc);
+int DistAggregateTimeoutReturnStrictCallback(RedisModuleCtx *ctx, RedisModuleString **argv, int argc);
+int DistCursorReadTimeoutReturnStrictCallback(RedisModuleCtx *ctx, RedisModuleString **argv, int argc);
 
 // Free privdata callback for distributed aggregate and hybrid query
 static void DistCoordReqFreePrivData(RedisModuleCtx *ctx, void *privdata) {
@@ -3790,8 +3790,8 @@ int DistAggregateCommandImp(RedisModuleCtx *ctx, RedisModuleString **argv, int a
   if (policy == TimeoutPolicy_Fail || policy == TimeoutPolicy_ReturnStrict) {
     handlerCtx.bcCtx.reply_callback = DistAggregateReplyCallback;
     handlerCtx.bcCtx.timeout_callback = (policy == TimeoutPolicy_Fail)
-        ? DistAggregateTimeoutFailClient
-        : DistAggregateTimeoutReturnStrictClient;
+        ? DistAggregateTimeoutFailCallback
+        : DistAggregateTimeoutReturnStrictCallback;
     handlerCtx.bcCtx.timeoutMS = queryTimeoutMS;
     CoordRequestCtx_SetUseReplyCallback(reqCtx, true);
   }
@@ -3885,8 +3885,8 @@ int DistHybridCommandInternal(RedisModuleCtx *ctx, RedisModuleString **argv, int
   if (policy != TimeoutPolicy_Return) {
     handlerCtx.bcCtx.reply_callback = DistHybridReplyCallback;
     handlerCtx.bcCtx.timeout_callback = (policy == TimeoutPolicy_Fail)
-        ? DistHybridTimeoutFailClient
-        : DistHybridTimeoutReturnStrictClient;
+        ? DistHybridTimeoutFailCallback
+        : DistHybridTimeoutReturnStrictCallback;
     handlerCtx.bcCtx.timeoutMS = queryTimeoutMS;
     CoordRequestCtx_SetUseReplyCallback(reqCtx, true);
   }
@@ -3984,9 +3984,9 @@ static inline int CursorCommand(RedisModuleCtx *ctx, RedisModuleString **argv, i
       handlerCtx.bcCtx.timeoutMS = (size_t)capped;
       CoordRequestCtx_SetUseReplyCallback(reqCtx, true);
       if (info.queryTimeoutPolicy == TimeoutPolicy_Fail) {
-        handlerCtx.bcCtx.timeout_callback = DistAggregateTimeoutFailClient;
+        handlerCtx.bcCtx.timeout_callback = DistAggregateTimeoutFailCallback;
       } else {
-        handlerCtx.bcCtx.timeout_callback = DistCursorReadTimeoutReturnStrictClient;
+        handlerCtx.bcCtx.timeout_callback = DistCursorReadTimeoutReturnStrictCallback;
         CoordRequestCtx_SetCursorReadReturnStrict(reqCtx, true);
       }
     }
@@ -4285,7 +4285,7 @@ static void DistSearchCommandHandler(void* pd) {
 // Reply callback for distributed search.
 // Called on the main thread when the client is unblocked.
 // The free_privdata callback (DistSearchFreePrivData) will be called automatically after this to clean up.
-static int DistSearchUnblockClient(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
+static int DistSearchReplyCallback(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
   UNUSED(argv);
   UNUSED(argc);
   struct MRCtx *mrctx = RedisModule_GetBlockedClientPrivateData(ctx);
@@ -4398,7 +4398,7 @@ static int initQueryTimeout(size_t *timeout, RedisModuleString **argv, int argc,
 // Timeout callback for FT.SEARCH in coordinator mode.
 // Called on the main thread when the blocking client times out.
 // For FAIL policy
-static int DistSearchTimeoutFailClient(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
+static int DistSearchTimeoutFailCallback(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
   UNUSED(argv);
   UNUSED(argc);
 
@@ -4425,7 +4425,7 @@ static int DistSearchTimeoutFailClient(RedisModuleCtx *ctx, RedisModuleString **
 // Timeout callback for FT.SEARCH in coordinator mode.
 // Called on the main thread when the blocking client times out.
 // Used for RETURN-STRICT policy - returns partial results using the blocked client timeout mechanism instead of error
-static int DistSearchTimeoutPartialClient(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
+static int DistSearchTimeoutPartialCallback(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
 
   struct MRCtx *mrctx = RedisModule_GetBlockedClientPrivateData(ctx);
   if (!mrctx) {
@@ -4493,14 +4493,14 @@ static RedisModuleBlockedClient* DistSearchBlockClientWithTimeout(RedisModuleCtx
   BlockedClientFreePrivDataCB freePrivDataCallback = DistSearchFreePrivData;
 
   if (RSGlobalConfig.requestConfigParams.timeoutPolicy == TimeoutPolicy_Fail) {
-    timeoutCallback = DistSearchTimeoutFailClient;
+    timeoutCallback = DistSearchTimeoutFailCallback;
   } else if (RSGlobalConfig.requestConfigParams.timeoutPolicy == TimeoutPolicy_ReturnStrict) {
-    timeoutCallback = DistSearchTimeoutPartialClient;
+    timeoutCallback = DistSearchTimeoutPartialCallback;
   } else {
     queryTimeout = 0;
   }
 
-  return RedisModule_BlockClient(ctx, DistSearchUnblockClient, timeoutCallback, freePrivDataCallback, queryTimeout);
+  return RedisModule_BlockClient(ctx, DistSearchReplyCallback, timeoutCallback, freePrivDataCallback, queryTimeout);
 }
 
 int RSSearchCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc);

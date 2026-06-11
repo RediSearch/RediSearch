@@ -23,6 +23,9 @@ build_utils.workspace = true
 
 [features]
 unittest = []
+# Exposes `test_utils` (the `Chain` harness) as a public module so downstream crates
+# can drive result processors in pure-Rust tests. See `src/lib.rs`.
+test-utils = []
 
 [lints]
 workspace = true

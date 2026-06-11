@@ -808,7 +808,7 @@ static int parseVectorField_hnsw(IndexSpec *sp, FieldSpec *fs, VecSimParams *par
   bool mandM = false;
   bool mandEfConstruction = false;
   bool mandEfRuntime = false;
-  *rerank = false;
+  bool rerank_seen = false;
 
   // Get number of parameters and create a sub-cursor for them
   size_t expNumParam;
@@ -871,7 +871,7 @@ static int parseVectorField_hnsw(IndexSpec *sp, FieldSpec *fs, VecSimParams *par
         return 0;
       }
     } else if (AC_AdvanceIfMatch(&subAc, VECSIM_RERANK)) {
-      if (*rerank) {
+      if (rerank_seen) {
         QueryError_SetWithoutUserDataFmt(status, QUERY_ERROR_CODE_INVAL,
           "Duplicate RERANK parameter");
         return 0;
@@ -882,12 +882,16 @@ static int parseVectorField_hnsw(IndexSpec *sp, FieldSpec *fs, VecSimParams *par
       }
       size_t rerank_len;
       const char *rerank_value = AC_GetStringNC(&subAc, &rerank_len);
-      if (!STR_EQCASE(rerank_value, rerank_len, "TRUE")) {
+      if (STR_EQCASE(rerank_value, rerank_len, "TRUE")) {
+        *rerank = true;
+      } else if (STR_EQCASE(rerank_value, rerank_len, "FALSE")) {
+        *rerank = false;
+      } else {
         QueryError_SetError(status, QUERY_ERROR_CODE_PARSE_ARGS,
-          "Syntax error: RERANK only supports TRUE currently");
+          "Syntax error: RERANK value must be TRUE or FALSE");
         return 0;
       }
-      *rerank = true;
+      rerank_seen = true;
     } else {
       QueryError_SetWithUserDataFmt(status, QUERY_ERROR_CODE_PARSE_ARGS, "Bad arguments for algorithm", " %s: %s", VECSIM_ALGORITHM_HNSW, AC_GetStringNC(&subAc, NULL));
       return 0;
@@ -934,7 +938,7 @@ static int parseVectorField_hnsw(IndexSpec *sp, FieldSpec *fs, VecSimParams *par
         "Disk HNSW index requires EF_RUNTIME parameter");
       return 0;
     }
-    if (!*rerank) {
+    if (!rerank_seen) {
       QueryError_SetWithoutUserDataFmt(status, QUERY_ERROR_CODE_INVAL,
         "Disk HNSW index requires RERANK parameter");
       return 0;
@@ -1419,7 +1423,6 @@ static int parseFieldSpec(ArgsCursor *ac, IndexSpec *sp, StrongRef sp_ref, Field
     // Skip SORTABLE and NOINDEX options
     return 1;
   } else if (AC_AdvanceIfMatch(ac, SPEC_NUMERIC_STR)) {  // numeric field
-    if (!SearchDisk_MarkUnsupportedFieldIfDiskEnabled(SPEC_NUMERIC_STR, fs, status)) goto error;
     fs->types |= INDEXFLD_T_NUMERIC;
     if (AC_AdvanceIfMatch(ac, SPEC_INDEXMISSING_STR)) {
       fs->options |= FieldSpec_IndexMissing;
@@ -1567,8 +1570,8 @@ static int IndexSpec_AddFieldsInternal(IndexSpec *sp, StrongRef spec_ref, ArgsCu
 
     if (isSpecOnDiskForValidation(sp))
     {
-      if (!FIELD_IS(fs, INDEXFLD_T_FULLTEXT) && !FIELD_IS(fs, INDEXFLD_T_VECTOR) && !FIELD_IS(fs, INDEXFLD_T_TAG)) {
-        QueryError_SetWithoutUserDataFmt(status, QUERY_ERROR_CODE_INVAL, "Disk index does not support non-TEXT/VECTOR/TAG fields");
+      if (!FIELD_IS(fs, INDEXFLD_T_FULLTEXT) && !FIELD_IS(fs, INDEXFLD_T_VECTOR) && !FIELD_IS(fs, INDEXFLD_T_TAG) && !FIELD_IS(fs, INDEXFLD_T_NUMERIC)) {
+        QueryError_SetWithoutUserDataFmt(status, QUERY_ERROR_CODE_INVAL, "Disk index does not support non-TEXT/VECTOR/TAG/NUMERIC fields");
         goto reset;
       }
       if (fs->options & FieldSpec_NotIndexable) {
@@ -2037,7 +2040,7 @@ static void IndexSpec_FreeUnlinkedData(IndexSpec *spec) {
   // Close the disk index right after the fields are cleaned up, while the rest
   // of the spec's state and locks are still fully alive. Background jobs
   // bound at open time hold this IndexSpec as their private data and may call
-  // back into it (IndexSpec_AcquireWriteLock, IndexSpec_BlockDiskFork,
+  // back into it (IndexSpec_AcquireWriteLock,
   // IndexSpec_DecrementTrieTermCount, ...) while the backend drains them during close.
   //  Closing here — before any of the trie/dict/lock
   // teardown below — keeps every field those callbacks might touch valid.
@@ -2096,7 +2099,6 @@ static void IndexSpec_FreeUnlinkedData(IndexSpec *spec) {
   // Destroy the spec's lock. Safe now: the disk index was already closed above,
   // so no compaction listener can reference these locks.
   pthread_rwlock_destroy(&spec->rwlock);
-  pthread_rwlock_destroy(&spec->disk_fork_rwlock);
 
   // Free spec struct
   rm_free(spec);
@@ -2340,18 +2342,14 @@ static void IndexSpec_InitLock(IndexSpec *sp) {
   res = pthread_rwlockattr_init(&attr);
   RS_ASSERT(res == 0);
 #if !defined(__APPLE__) && !defined(__FreeBSD__) && defined(__GLIBC__)
-  // Writer-preferring: avoids fork-writer starvation when blockers (rdlock
-  // holders such as compaction) arrive in a steady stream. Same rationale
-  // applies to both rwlocks below.
+  // Writer-preferring: avoids writer starvation when readers arrive in a
+  // steady stream.
   int pref = PTHREAD_RWLOCK_PREFER_WRITER_NONRECURSIVE_NP;
   res = pthread_rwlockattr_setkind_np(&attr, pref);
   RS_ASSERT(res == 0);
 #endif
 
   pthread_rwlock_init(&sp->rwlock, &attr);
-  pthread_rwlock_init(&sp->disk_fork_rwlock, &attr);
-
-  sp->repl_flags = REPL_LOCK_NONE;
 }
 
 // Helper function for initializing a field spec
@@ -2408,8 +2406,6 @@ static void initializeIndexSpec(IndexSpec *sp, const HiddenString *name, IndexFl
 
 IndexSpec *NewIndexSpec(const HiddenString *name) {
   IndexSpec *sp = rm_calloc(1, sizeof(IndexSpec));
-  // Explicit init for SST replication state on top of rm_calloc's zero-init.
-  sp->repl_flags = REPL_LOCK_NONE;
   initializeIndexSpec(sp, name, INDEX_DEFAULT_FLAGS, 0);
   sp->stopwords = DefaultStopWordList();
   return sp;
@@ -2581,6 +2577,13 @@ static void FieldSpec_RdbSave(RedisModuleIO *rdb, FieldSpec *f, int contextFlags
   if (FIELD_IS(f, INDEXFLD_T_VECTOR)) {
     RedisModule_SaveUnsigned(rdb, f->vectorOpts.expBlobSize);
     VecSim_RdbSave(rdb, &f->vectorOpts.vecSimParams);
+    // RERANK applies to HNSW (TIERED+HNSWLIB) only — BF/SVS streams stay
+    // unchanged. The byte is written for every HNSW field regardless of disk
+    // mode so the config survives RDB save/load uniformly.
+    if (f->vectorOpts.vecSimParams.algo == VecSimAlgo_TIERED &&
+        f->vectorOpts.vecSimParams.algoParams.tieredParams.primaryIndexParams->algo == VecSimAlgo_HNSWLIB) {
+      RedisModule_SaveUnsigned(rdb, f->vectorOpts.diskCtx.rerank ? 1 : 0);
+    }
     // Disk-backed vector fields ride their in-memory state inline with the field's RDB encoding so the
     // load path can deserialize it directly into an unbound VecSimIndex and
     // bind storage later. Only emit the payload during SST
@@ -2719,6 +2722,15 @@ static int FieldSpec_RdbLoad(RedisModuleIO *rdb, FieldSpec *f, StrongRef sp_ref,
         goto fail;  // svs is not supported in old encvers
       }
     }
+    // RERANK byte was added in INDEX_VECTOR_RERANK_VERSION for every
+    // TIERED+HNSWLIB field. Older RDBs and non-HNSW fields default to TRUE.
+    if (encver >= INDEX_VECTOR_RERANK_VERSION &&
+        f->vectorOpts.vecSimParams.algo == VecSimAlgo_TIERED &&
+        f->vectorOpts.vecSimParams.algoParams.tieredParams.primaryIndexParams->algo == VecSimAlgo_HNSWLIB) {
+      f->vectorOpts.diskCtx.rerank = LoadUnsigned_IOError(rdb, goto fail) != 0;
+    } else {
+      f->vectorOpts.diskCtx.rerank = true;
+    }
     // Disk-backed vector field's in-memory state rides inline with the
     // field's RDB encoding. We deserialize directly into a freshly-created
     // unbound VecSimIndex. The resulting handle is stored on
@@ -2733,13 +2745,13 @@ static int FieldSpec_RdbLoad(RedisModuleIO *rdb, FieldSpec *f, StrongRef sp_ref,
         // Populate diskCtx.indexName early so cleanup uses the disk free
         // path. storage is NULL until IndexSpec_SSTRdbOpenAndApply runs
         // PopulateVectorDiskParams (which frees and reallocates indexName
-        // before binding storage).
+        // before binding storage). diskCtx.rerank was already set above
+        // from the persisted byte.
         size_t nameLen = 0;
         const char *namePtr = HiddenString_GetUnsafe(f->fieldName, &nameLen);
         f->vectorOpts.diskCtx.storage = NULL;
         f->vectorOpts.diskCtx.indexName = rm_strndup(namePtr, nameLen);
         f->vectorOpts.diskCtx.indexNameLen = nameLen;
-        f->vectorOpts.diskCtx.rerank = true;
 
         VecSimParamsDisk paramsDisk = {
             .indexParams = &f->vectorOpts.vecSimParams,
@@ -3238,9 +3250,8 @@ void IndexSpec_AddToInfo(RedisModuleInfoCtx *ctx, IndexSpec *sp, bool obfuscate,
     RedisModule_InfoAddFieldDouble(ctx, "total_index_memory_sz_mb", IndexSpec_TotalMemUsage(sp, 0, 0, 0, 0) / (float)0x100000);
   }
   RedisModule_InfoEndDictField(ctx);
-
-  // TotalIIBlocks is safe - just an atomic read, no locks or allocations
-  RedisModule_InfoAddFieldULongLong(ctx, "total_inverted_index_blocks", TotalIIBlocks());
+  
+  RedisModule_InfoAddFieldULongLong(ctx, "total_inverted_index_blocks", sp->stats.totalInvertedIndexBlocks);
 
   RedisModule_InfoBeginDictField(ctx, "index_properties_averages");
   RedisModule_InfoAddFieldDouble(ctx, "records_per_doc_avg",(float)num_records / (float)sp->stats.scoring.numDocuments);
@@ -3391,12 +3402,14 @@ static void IndexSpec_PopulateVectorDiskParams(IndexSpec *sp) {
       rm_free((void*)fs->vectorOpts.diskCtx.indexName);
     }
 
-    // TODO: rerank is not persisted in RDB, defaulting to true on load.
+    // Preserve rerank loaded by FieldSpec_RdbLoad — runtime fields below
+    // are repopulated from the freshly opened disk handle.
+    const bool rerank = fs->vectorOpts.diskCtx.rerank;
     fs->vectorOpts.diskCtx = (VecSimDiskContext){
       .storage = sp->diskSpec,
       .indexName = rm_strndup(namePtr, nameLen),
       .indexNameLen = nameLen,
-      .rerank = true,
+      .rerank = rerank,
     };
   }
 }
@@ -3577,10 +3590,6 @@ IndexSpec *IndexSpec_RdbLoad(RedisModuleIO *rdb, int encver, bool useSst, QueryE
   RedisModule_Free(rawName);
 
   sp = rm_calloc(1, sizeof(IndexSpec));
-  // Explicit init for SST replication state: defense-in-depth on top of
-  // rm_calloc's zero-init, since the abort handler may run before
-  // initializeIndexSpec / IndexSpec_InitLock if an RDB read fails below.
-  sp->repl_flags = REPL_LOCK_NONE;
   spec_ref = StrongRef_New(sp, (RefManager_Free)IndexSpec_Free);
   sp->own_ref = spec_ref;
 
@@ -3774,8 +3783,6 @@ void *IndexSpec_LegacyRdbLoad(RedisModuleIO *rdb, int encver) {
 
   RedisModuleCtx *ctx = RedisModule_GetContextFromIO(rdb);
   IndexSpec *sp = rm_calloc(1, sizeof(IndexSpec));
-  // Explicit init for SST replication state on top of rm_calloc's zero-init.
-  sp->repl_flags = REPL_LOCK_NONE;
   IndexSpec_InitLock(sp);
   StrongRef spec_ref = StrongRef_New(sp, (RefManager_Free)IndexSpec_Free);
   sp->own_ref = spec_ref;
@@ -3810,7 +3817,10 @@ void *IndexSpec_LegacyRdbLoad(RedisModuleIO *rdb, int encver) {
   for (int i = 0; i < sp->numFields; i++) {
     FieldSpec *fs = sp->fields + i;
     initializeFieldSpec(fs, i);
-    FieldSpec_RdbLoad(rdb, fs, spec_ref, encver, false);
+    if (FieldSpec_RdbLoad(rdb, fs, spec_ref, encver, false) != REDISMODULE_OK) {
+      StrongRef_Release(spec_ref);
+      return NULL;
+    }
     if (FieldSpec_IsSortable(fs)) {
       sp->numSortableFields++;
     }
@@ -4947,31 +4957,6 @@ void IndexSpec_ReleaseWriteLock(IndexSpec* sp) {
   pthread_rwlock_unlock(&sp->rwlock);
 }
 
-// Block the snapshot fork from starting (shared/read side of the fork rwlock).
-void IndexSpec_BlockDiskFork(IndexSpec *sp) {
-  pthread_rwlock_rdlock(&sp->disk_fork_rwlock);
-}
-
-// Release a prior IndexSpec_BlockDiskFork. The fork becomes eligible only
-// after the last blocker releases.
-void IndexSpec_EnableDiskForkIfPossible(IndexSpec *sp) {
-  pthread_rwlock_unlock(&sp->disk_fork_rwlock);
-}
-
-// Enter the exclusive fork window (write side of the fork rwlock). Blocks
-// until every IndexSpec_BlockDiskFork blocker has released.
-void IndexSpec_ProtectDiskFork(IndexSpec *sp) {
-  RS_ASSERT(!(sp->repl_flags & REPL_LOCK_DISK_FORK_PROTECTED));
-  pthread_rwlock_wrlock(&sp->disk_fork_rwlock);
-  sp->repl_flags |= REPL_LOCK_DISK_FORK_PROTECTED;
-}
-
-// Leave the exclusive fork window.
-void IndexSpec_UnProtectDiskFork(IndexSpec *sp) {
-  RS_ASSERT(sp->repl_flags & REPL_LOCK_DISK_FORK_PROTECTED);
-  pthread_rwlock_unlock(&sp->disk_fork_rwlock);
-  sp->repl_flags &= ~REPL_LOCK_DISK_FORK_PROTECTED;
-}
 
 // Update a term's document count in the Serving Trie
 // Note: term is NOT null-terminated; term_len specifies the length

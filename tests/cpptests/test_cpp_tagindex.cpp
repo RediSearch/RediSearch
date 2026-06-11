@@ -63,7 +63,7 @@ TEST_F(TagIndexTest, testCreate) {
   ASSERT_EQ(expectedTotalSZ + last_block_size, stats.invertedSize);
 
   MockQueryEvalCtx mockQctx(N, N);
-  QueryIterator *it = TagIndex_OpenReader(idx, &mockQctx.sctx, "hello", 5, 1, RS_INVALID_FIELD_INDEX);
+  QueryIterator *it = TagIndex_OpenReader(idx, &mockQctx.sctx, "hello", 5, 1, RS_INVALID_FIELD_INDEX, NULL);
   ASSERT_TRUE(it != NULL);
   t_docId n = 1;
 
@@ -91,7 +91,7 @@ TEST_F(TagIndexTest, testSkipToLastId) {
   IndexStats stats = {0};
   TagIndex_Index(NULL, idx, NULL, &v[0], v.size(), docId, &stats);
   MockQueryEvalCtx mockQctx(1, 1);
-  QueryIterator *it = TagIndex_OpenReader(idx, &mockQctx.sctx, "hello", 5, 1, RS_INVALID_FIELD_INDEX);
+  QueryIterator *it = TagIndex_OpenReader(idx, &mockQctx.sctx, "hello", 5, 1, RS_INVALID_FIELD_INDEX, NULL);
   IteratorStatus rc = it->Read(it);
   ASSERT_EQ(rc, ITERATOR_OK);
   ASSERT_EQ(it->lastDocId, docId);
