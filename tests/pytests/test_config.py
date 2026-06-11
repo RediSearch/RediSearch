@@ -850,6 +850,102 @@ def _registerConfigAPILoadTimeNumericParamTests():
 
 _registerConfigAPILoadTimeNumericParamTests()
 
+def _testClusterModuleLoadexNumericParam(configName, argName, default, minValue, maxValue):
+    """Cluster-mode MODULE LOADEX scenarios for a single numeric config.
+
+    Mirrors _testModuleLoadexNumericParam, but each scenario is applied to
+    every master shard individually because MODULE LOADEX is node-local.
+    The cluster is started without RediSearch (module='') so each scenario
+    can load it fresh via MODULE LOADEX, then the cluster is stopped and the
+    per-shard RDB files are unlinked before the next scenario."""
+    env = Env(noDefaultModuleArgs=True, module='', moduleArgs='')
+    redisearch_module_path = os.getenv('MODULE')
+    if redisearch_module_path is None:
+        env.debugPrint('MODULE environment variable is not set. Skipping test')
+        env.skip()
+
+    if minValue != default:
+        configValue = str(minValue)
+        argValue = str(minValue + 1)
+    else:
+        configValue = str(minValue + 1)
+        argValue = str(minValue + 2)
+    env.assertNotEqual(configValue, str(default))
+
+    # Capture per-shard RDB paths once, while the cluster is up, so we can
+    # unlink them between scenarios to start each scenario fresh.
+    env.start()
+    rdbFilePaths = []
+    for conn in env.getOSSMasterNodesConnectionList():
+        dbDir = conn.execute_command('config', 'get', 'dir')[1]
+        dbFile = conn.execute_command('config', 'get', 'dbfilename')[1]
+        rdbFilePaths.append(os.path.join(dbDir, dbFile))
+    env.stop()
+    for p in rdbFilePaths:
+        if os.path.isfile(p):
+            os.unlink(p)
+
+    def runScenario(loadexArgs, expectedConfigVal, expectedArgVal):
+        env.start()
+        for conn in env.getOSSMasterNodesConnectionList():
+            env.assertEqual(conn.execute_command('MODULE', 'LIST'), default_module_list)
+            conn.execute_command('MODULE', 'LOADEX', redisearch_module_path, *loadexArgs)
+            env.assertEqual(conn.execute_command('CONFIG', 'GET', configName),
+                            [configName, expectedConfigVal])
+            env.assertEqual(conn.execute_command(config_cmd(), 'GET', argName),
+                            [[argName, expectedArgVal]])
+        env.stop()
+        for p in rdbFilePaths:
+            if os.path.isfile(p):
+                os.unlink(p)
+
+    # Load module using module arguments
+    runScenario(['ARGS', argName, argValue], argValue, argValue)
+    # Load module using CONFIG
+    runScenario(['CONFIG', configName, configValue], configValue, configValue)
+    # Load module using CONFIG and module ARGS; CONFIG takes precedence
+    runScenario(['CONFIG', configName, configValue,
+                 'ARGS', argName, argValue],
+                configValue, configValue)
+    # Load module using CONFIG multiple times with the same parameter; the
+    # last value should take precedence
+    runScenario(['CONFIG', configName, str(minValue),
+                 'CONFIG', configName, str(maxValue),
+                 'CONFIG', configName, configValue],
+                configValue, configValue)
+    # Load module using ARGS multiple times with the same parameter; the
+    # last value should take precedence
+    runScenario(['ARGS', argName, str(minValue),
+                 argName, str(maxValue),
+                 argName, argValue],
+                argValue, argValue)
+
+
+def _registerClusterModuleLoadexNumericParamTests():
+    # Emit one zero-arg test per cluster-only numeric config so each is
+    # exercised individually in cluster mode (mirrors the per-config
+    # registration done for non-cluster configs above).
+    for cfg in numericConfigs:
+        configName, argName, default, minValue, maxValue, _immutable, clusterConfig = cfg
+        if not clusterConfig:
+            continue
+        testName = f'testClusterModuleLoadexNumericParams_{argName}'
+
+        def _makeTest(configName, argName, default, minValue, maxValue, testName):
+            @skip(cluster=False, redis_less_than='7.9.227')
+            def _test():
+                _testClusterModuleLoadexNumericParam(
+                    configName, argName, default, minValue, maxValue)
+            _test.__name__ = testName
+            _test.__qualname__ = testName
+            return _test
+
+        globals()[testName] = _makeTest(
+            configName, argName, default, minValue, maxValue, testName)
+
+
+_registerClusterModuleLoadexNumericParamTests()
+
 @skip(cluster=True, redis_less_than='7.9.227')
 def testConfigFileNumericParams():
     # Test using only redis config file
