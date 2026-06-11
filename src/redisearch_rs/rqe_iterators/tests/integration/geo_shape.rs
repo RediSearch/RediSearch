@@ -23,13 +23,7 @@ use crate::id_cases;
 /// Builds a `GeoShape` iterator with no timeout, no expiration, and no memory
 /// tracking — the simplest configuration, used by the sorted-id-list tests.
 fn plain(ids: Vec<u64>) -> GeoShape<'static, NoTimeout, NoOpChecker, NoTracker> {
-    GeoShape::new(
-        ids,
-        RSIndexResult::build_virt().build(),
-        NoTimeout,
-        NoOpChecker,
-        NoTracker,
-    )
+    GeoShape::new(ids, NoTimeout, NoOpChecker, NoTracker)
 }
 
 /// A safe [`MemTracker`] backed by a shared cell, letting a test observe the
@@ -253,13 +247,7 @@ fn expired_documents_are_skipped() {
         has_expiration: true,
         expired: vec![2, 4],
     };
-    let mut it = GeoShape::new(
-        vec![1, 2, 3, 4, 5],
-        RSIndexResult::build_virt().build(),
-        NoTimeout,
-        checker,
-        NoTracker,
-    );
+    let mut it = GeoShape::new(vec![1, 2, 3, 4, 5], NoTimeout, checker, NoTracker);
 
     // 2 and 4 are filtered out.
     for expected in [1u64, 3, 5] {
@@ -280,13 +268,7 @@ fn with_expired(
         has_expiration: true,
         expired,
     };
-    GeoShape::new(
-        ids,
-        RSIndexResult::build_virt().build(),
-        NoTimeout,
-        checker,
-        NoTracker,
-    )
+    GeoShape::new(ids, NoTimeout, checker, NoTracker)
 }
 
 #[test]
@@ -396,13 +378,7 @@ fn timeout_aborts_read() {
     // A deadline already in the past with a granularity of 1 makes the very
     // first probe report a timeout.
     let timeout = TimeoutContextClock::new(Duration::from_nanos(1), 1);
-    let mut it = GeoShape::new(
-        vec![1, 2, 3],
-        RSIndexResult::build_virt().build(),
-        timeout,
-        NoOpChecker,
-        NoTracker,
-    );
+    let mut it = GeoShape::new(vec![1, 2, 3], timeout, NoOpChecker, NoTracker);
 
     assert!(matches!(it.read(), Err(RQEIteratorError::TimedOut)));
 }
@@ -412,13 +388,7 @@ fn memory_tracking_adds_and_subtracts() {
     let tracker = CellTracker::default();
 
     {
-        let it = GeoShape::new(
-            vec![3u64, 1, 2],
-            RSIndexResult::build_virt().build(),
-            NoTimeout,
-            NoOpChecker,
-            tracker.clone(),
-        );
+        let it = GeoShape::new(vec![3u64, 1, 2], NoTimeout, NoOpChecker, tracker.clone());
 
         // The tracker reflects exactly what the iterator reports.
         assert_eq!(tracker.get(), it.mem_usage());

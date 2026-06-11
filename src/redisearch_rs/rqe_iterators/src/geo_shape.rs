@@ -33,7 +33,7 @@
 
 use index_result::RSIndexResult;
 use index_spec::IndexSpecReadGuard;
-use rqe_core::DocId;
+use rqe_core::{DocId, RS_FIELDMASK_ALL};
 
 use crate::{
     IteratorType, RQEIterator, RQEIteratorError, RQEValidateStatus, SkipToOutcome,
@@ -120,19 +120,20 @@ where
     /// Creates a new geometry-query iterator.
     ///
     /// `ids` is sorted in place on construction (the geometry index returns
-    /// matches in spatial order). `result` is the reusable result object;
-    /// callers typically pass a virtual result carrying the query weight.
+    /// matches in spatial order).
     ///
     /// The byte size of this iterator is reported to `mem_tracker` immediately
     /// (via [`MemTracker::add`]) and reversed when the iterator is dropped (via
     /// [`MemTracker::sub`]). Pass [`NoTracker`] to opt out of accounting.
     pub fn new(
         ids: impl Into<OwnedSlice<DocId>>,
-        result: RSIndexResult<'index>,
         timeout_ctx: T,
         expiration_checker: E,
         mem_tracker: M,
     ) -> Self {
+        let result = RSIndexResult::build_virt()
+            .field_mask(RS_FIELDMASK_ALL)
+            .build();
         let mut ids = ids.into();
         // The geometry index yields matches in R-tree order; the query engine
         // expects ascending document IDs.
