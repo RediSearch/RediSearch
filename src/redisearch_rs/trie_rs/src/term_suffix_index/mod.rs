@@ -118,21 +118,22 @@ impl TermSuffixIndex {
 
     /// Yield every indexed term containing `needle`, in unspecified
     /// order. Empty `needle` yields nothing. A term may be yielded
-    /// more than once; dedupe by [`Rc::as_ptr`] if needed.
+    /// more than once; duplicates share an allocation, so dedupe by
+    /// [`str::as_ptr`] if needed.
     ///
     /// Non-empty `needle` must span at least [`MIN_SUFFIX`] codepoints.
     /// Shorter needles silently yield a subset of matching terms,
     /// since suffixes below the threshold aren't indexed; debug
     /// builds assert this. Production callers filter upstream via
     /// the query engine's `minTermPrefix` gate.
-    pub fn iter_contains<'tm>(&'tm self, needle: &str) -> impl Iterator<Item = Rc<str>> + use<'tm> {
+    pub fn iter_contains<'tm>(&'tm self, needle: &str) -> impl Iterator<Item = &'tm str> + use<'tm> {
         debug_assert!(
             needle.is_empty() || needle.chars().count() >= MIN_SUFFIX,
             "needle must span at least {MIN_SUFFIX} codepoints; caller must filter shorter needles (production gate: minTermPrefix)",
         );
         self.inner
             .prefixed_values(needle)
-            .flat_map(|data| data.terms().cloned())
+            .flat_map(|data| data.terms().map(|term| &**term))
     }
 
     /// Yield every indexed term that ends with `needle`, in unspecified
@@ -145,7 +146,7 @@ impl TermSuffixIndex {
     /// since suffixes below the threshold aren't indexed; debug
     /// builds assert this. Production callers filter upstream via
     /// the query engine's `minTermPrefix` gate.
-    pub fn iter_suffix<'tm>(&'tm self, needle: &str) -> impl Iterator<Item = Rc<str>> + use<'tm> {
+    pub fn iter_suffix<'tm>(&'tm self, needle: &str) -> impl Iterator<Item = &'tm str> + use<'tm> {
         debug_assert!(
             needle.is_empty() || needle.chars().count() >= MIN_SUFFIX,
             "needle must span at least {MIN_SUFFIX} codepoints; caller must filter shorter needles (production gate: minTermPrefix)",
@@ -155,7 +156,7 @@ impl TermSuffixIndex {
         } else {
             self.inner.get(needle)
         };
-        data.into_iter().flat_map(|data| data.terms().cloned())
+        data.into_iter().flat_map(|data| data.terms().map(|term| &**term))
     }
 
     /// Yield every indexed term matching the wildcard `pattern`
