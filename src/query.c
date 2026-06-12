@@ -724,17 +724,11 @@ static QueryIterator *Query_EvalPrefixNode(QueryEvalCtx *q, QueryNode *qn) {
       // way by lowering its runes and converting back.
       size_t needleLen;
       char *needle = runesToStr(str, nstr, &needleLen);
-      TermSuffixIndexIterator *it =
-          qn->pfx.prefix ? TermSuffixIndex_IterateContains(spec->suffix, needle, needleLen)
-                         : TermSuffixIndex_IterateSuffix(spec->suffix, needle, needleLen);
-      const char *term;
-      size_t termLen;
-      while (TermSuffixIndexIterator_Next(it, &term, &termLen)) {
-        if (charIterCb(term, termLen, &ctx, NULL) != REDISEARCH_OK) {
-          break;
-        }
+      if (qn->pfx.prefix) {
+        TermSuffixIndex_IterateContains(spec->suffix, needle, needleLen, charIterCb, &ctx);
+      } else {
+        TermSuffixIndex_IterateSuffix(spec->suffix, needle, needleLen, charIterCb, &ctx);
       }
-      TermSuffixIndexIterator_Free(it);
       rm_free(needle);
     } else {
       QueryError_SetError(q->status, QUERY_ERROR_CODE_GENERIC, "Contains query on fields without WITHSUFFIXTRIE support");

@@ -17,10 +17,24 @@
 //! from UTF-8 input. Invalid UTF-8 is rejected — mutations become
 //! no-ops and lookups yield no matches — and trips a debug assertion.
 
-use std::ffi::{c_char, c_int};
+use std::ffi::{c_char, c_int, c_void};
 use std::rc::Rc;
 
 use trie_rs::term_suffix_index::TermSuffixIndex as TermSuffixIndexImpl;
+
+/// Callback invoked once per term yielded by
+/// [`TermSuffixIndex_IterateContains`] or
+/// [`TermSuffixIndex_IterateSuffix`].
+///
+/// `term` points to `len` UTF-8 bytes, NOT NUL-terminated, valid only
+/// for the duration of the call. `ctx` is the caller context passed to
+/// the iterate function; `payload` is always NULL (kept for signature
+/// compatibility with the C term-trie callbacks). Return
+/// `REDISEARCH_OK` (0) to continue the iteration; any other value
+/// stops it.
+pub type TermSuffixIterateCallback = Option<
+    unsafe extern "C" fn(term: *const c_char, len: usize, ctx: *mut c_void, payload: *mut c_void) -> c_int,
+>;
 
 /// A set of indexed terms supporting substring (`*foo*`), ends-with
 /// (`*foo`) and exact lookups, used to accelerate contains/suffix/
@@ -154,16 +168,15 @@ pub unsafe extern "C" fn TermSuffixIndex_MemUsage(t: *const TermSuffixIndex) -> 
     index.mem_usage()
 }
 
-/// Iterate over every member term containing the UTF-8 needle
-/// `(str, len)` as a substring. A term may be yielded more than once.
+/// Invoke `callback` once per member term containing the UTF-8 needle
+/// `(str, len)` as a substring. A term may be reported more than once.
+/// The iteration stops early when the callback returns a value other
+/// than `REDISEARCH_OK` (0).
 ///
-/// An empty or non-UTF-8 needle yields no matches. A needle shorter
-/// than `MIN_SUFFIX` codepoints silently yields a subset of the
+/// An empty or non-UTF-8 needle reports no matches. A needle shorter
+/// than `MIN_SUFFIX` codepoints silently reports a subset of the
 /// matching terms; callers must enforce the minimum query length
 /// upstream (the query engine's `minTermPrefix` gate).
-///
-/// Invoke [`TermSuffixIndexIterator_Next`] to get the results from the
-/// iteration.
 ///
 /// # Safety
 ///
@@ -171,45 +184,54 @@ pub unsafe extern "C" fn TermSuffixIndex_MemUsage(t: *const TermSuffixIndex) -> 
 /// - `t` must point to a valid [`TermSuffixIndex`] obtained from
 ///   [`NewTermSuffixIndex`] and cannot be NULL.
 /// - `str` must point to a valid byte sequence of length `len`.
-/// - `t` must not be modified or freed while the iterator lives.
+/// - `callback` cannot be NULL and must not modify or free `t`, nor
+///   retain the term pointer beyond the call.
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn TermSuffixIndex_IterateContains<'si>(
+pub unsafe extern "C" fn TermSuffixIndex_IterateContains(
     t: *const TermSuffixIndex,
     str: *const c_char,
     len: usize,
-) -> *mut TermSuffixIndexIterator<'si> {
+    callback: TermSuffixIterateCallback,
+    ctx: *mut c_void,
+) {
     debug_assert!(!t.is_null(), "t cannot be NULL");
     debug_assert!(!str.is_null(), "str cannot be NULL");
+    let Some(callback) = callback else {
+        debug_assert!(false, "callback cannot be NULL");
+        return;
+    };
 
     // SAFETY: caller is to ensure `t` is a valid, non-null pointer to a
-    // TermSuffixIndex that outlives the iterator.
+    // TermSuffixIndex not modified for the duration of this call.
     let TermSuffixIndex(index) = unsafe { &*t };
     // SAFETY: caller is to ensure `str` points to `len` valid bytes.
     let bytes = unsafe { std::slice::from_raw_parts(str.cast::<u8>(), len) };
 
-    let iter: Box<dyn Iterator<Item = Rc<str>>> = match std::str::from_utf8(bytes) {
-        Ok(needle) => Box::new(index.iter_contains(needle)),
-        Err(_) => {
-            debug_assert!(false, "needle must be valid UTF-8");
-            Box::new(std::iter::empty())
-        }
+    let Ok(needle) = std::str::from_utf8(bytes) else {
+        debug_assert!(false, "needle must be valid UTF-8");
+        return;
     };
-    Box::into_raw(Box::new(TermSuffixIndexIterator {
-        iter,
-        current: None,
-    }))
+    for term in index.iter_contains(needle) {
+        // SAFETY: caller is to ensure `callback` tolerates a
+        // non-NUL-terminated term pointer valid for the call.
+        let outcome = unsafe {
+            callback(term.as_ptr().cast::<c_char>(), term.len(), ctx, std::ptr::null_mut())
+        };
+        if outcome != 0 {
+            break;
+        }
+    }
 }
 
-/// Iterate over every member term ending with the UTF-8 needle
-/// `(str, len)`. Each matching term is yielded exactly once.
+/// Invoke `callback` once per member term ending with the UTF-8 needle
+/// `(str, len)`. Each matching term is reported exactly once. The
+/// iteration stops early when the callback returns a value other than
+/// `REDISEARCH_OK` (0).
 ///
-/// An empty or non-UTF-8 needle yields no matches. A needle shorter
-/// than `MIN_SUFFIX` codepoints silently yields a subset of the
+/// An empty or non-UTF-8 needle reports no matches. A needle shorter
+/// than `MIN_SUFFIX` codepoints silently reports a subset of the
 /// matching terms; callers must enforce the minimum query length
 /// upstream (the query engine's `minTermPrefix` gate).
-///
-/// Invoke [`TermSuffixIndexIterator_Next`] to get the results from the
-/// iteration.
 ///
 /// # Safety
 ///
@@ -217,33 +239,43 @@ pub unsafe extern "C" fn TermSuffixIndex_IterateContains<'si>(
 /// - `t` must point to a valid [`TermSuffixIndex`] obtained from
 ///   [`NewTermSuffixIndex`] and cannot be NULL.
 /// - `str` must point to a valid byte sequence of length `len`.
-/// - `t` must not be modified or freed while the iterator lives.
+/// - `callback` cannot be NULL and must not modify or free `t`, nor
+///   retain the term pointer beyond the call.
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn TermSuffixIndex_IterateSuffix<'si>(
+pub unsafe extern "C" fn TermSuffixIndex_IterateSuffix(
     t: *const TermSuffixIndex,
     str: *const c_char,
     len: usize,
-) -> *mut TermSuffixIndexIterator<'si> {
+    callback: TermSuffixIterateCallback,
+    ctx: *mut c_void,
+) {
     debug_assert!(!t.is_null(), "t cannot be NULL");
     debug_assert!(!str.is_null(), "str cannot be NULL");
+    let Some(callback) = callback else {
+        debug_assert!(false, "callback cannot be NULL");
+        return;
+    };
 
     // SAFETY: caller is to ensure `t` is a valid, non-null pointer to a
-    // TermSuffixIndex that outlives the iterator.
+    // TermSuffixIndex not modified for the duration of this call.
     let TermSuffixIndex(index) = unsafe { &*t };
     // SAFETY: caller is to ensure `str` points to `len` valid bytes.
     let bytes = unsafe { std::slice::from_raw_parts(str.cast::<u8>(), len) };
 
-    let iter: Box<dyn Iterator<Item = Rc<str>>> = match std::str::from_utf8(bytes) {
-        Ok(needle) => Box::new(index.iter_suffix(needle)),
-        Err(_) => {
-            debug_assert!(false, "needle must be valid UTF-8");
-            Box::new(std::iter::empty())
-        }
+    let Ok(needle) = std::str::from_utf8(bytes) else {
+        debug_assert!(false, "needle must be valid UTF-8");
+        return;
     };
-    Box::into_raw(Box::new(TermSuffixIndexIterator {
-        iter,
-        current: None,
-    }))
+    for term in index.iter_suffix(needle) {
+        // SAFETY: caller is to ensure `callback` tolerates a
+        // non-NUL-terminated term pointer valid for the call.
+        let outcome = unsafe {
+            callback(term.as_ptr().cast::<c_char>(), term.len(), ctx, std::ptr::null_mut())
+        };
+        if outcome != 0 {
+            break;
+        }
+    }
 }
 
 /// Iterate over every member term matching the wildcard pattern

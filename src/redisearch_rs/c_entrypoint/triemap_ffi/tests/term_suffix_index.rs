@@ -8,55 +8,67 @@
 */
 use redis_mock::mock_or_stub_missing_redis_c_symbols;
 use std::collections::HashSet;
-use std::ffi::c_char;
+use std::ffi::{c_char, c_int, c_void};
 use triemap_ffi::*;
 
 mock_or_stub_missing_redis_c_symbols!();
 
 #[test]
-fn iterate_contains_yields_terms_containing_needle() {
+fn iterate_contains_reports_terms_containing_needle() {
     with_index(&["bike", "biker", "trike", "cool"], |t| {
-        let needle = "ike";
-
-        // Safety: `t` is valid, `needle` points to valid UTF-8 bytes,
-        // and `t` outlives the iterator.
-        let it =
-            unsafe { TermSuffixIndex_IterateContains(t, needle.as_ptr().cast(), needle.len()) };
-        let actual = drain(it);
+        let actual = collect(t, "ike", TermSuffixIndex_IterateContains);
 
         assert_eq!(actual, to_set(&["bike", "biker", "trike"]));
     });
 }
 
 #[test]
-fn iterate_suffix_yields_terms_ending_with_needle() {
+fn iterate_suffix_reports_terms_ending_with_needle() {
     with_index(&["bike", "biker", "trike", "cool"], |t| {
-        let needle = "ike";
-
-        // Safety: `t` is valid, `needle` points to valid UTF-8 bytes,
-        // and `t` outlives the iterator.
-        let it = unsafe { TermSuffixIndex_IterateSuffix(t, needle.as_ptr().cast(), needle.len()) };
-        let actual = drain(it);
+        let actual = collect(t, "ike", TermSuffixIndex_IterateSuffix);
 
         assert_eq!(actual, to_set(&["bike", "trike"]));
     });
 }
 
 #[test]
-fn empty_needle_yields_no_matches() {
+fn empty_needle_reports_no_matches() {
     with_index(&["bike"], |t| {
-        let needle = "";
+        assert!(collect(t, "", TermSuffixIndex_IterateContains).is_empty());
+        assert!(collect(t, "", TermSuffixIndex_IterateSuffix).is_empty());
+    });
+}
 
-        // Safety: `t` is valid, the dangling needle pointer is never
-        // dereferenced for a zero-length slice, and `t` outlives the
-        // iterator.
-        let contains =
-            unsafe { TermSuffixIndex_IterateContains(t, needle.as_ptr().cast(), needle.len()) };
-        let suffix =
-            unsafe { TermSuffixIndex_IterateSuffix(t, needle.as_ptr().cast(), needle.len()) };
+#[test]
+fn nonzero_callback_return_stops_iteration() {
+    with_index(&["bike", "biker", "trike"], |t| {
+        unsafe extern "C" fn stop_after_first(
+            _term: *const c_char,
+            _len: usize,
+            ctx: *mut c_void,
+            _payload: *mut c_void,
+        ) -> c_int {
+            // Safety: `ctx` points at the local counter below.
+            let count = unsafe { &mut *ctx.cast::<usize>() };
+            *count += 1;
+            1
+        }
 
-        assert!(drain(contains).is_empty());
-        assert!(drain(suffix).is_empty());
+        let needle = "ike";
+        let mut count = 0_usize;
+        // Safety: `t` is valid, `needle` points to valid UTF-8 bytes,
+        // and `ctx` points at a live counter.
+        unsafe {
+            TermSuffixIndex_IterateContains(
+                t,
+                needle.as_ptr().cast(),
+                needle.len(),
+                Some(stop_after_first),
+                (&raw mut count).cast(),
+            )
+        };
+
+        assert_eq!(count, 1, "iteration must stop on the first non-zero return");
     });
 }
 
@@ -64,16 +76,11 @@ fn empty_needle_yields_no_matches() {
 fn remove_drops_term_from_results() {
     with_index(&["bike", "biker"], |t| {
         let term = "biker";
-        // Safety: `term` points to valid UTF-8 bytes and no iterator
-        // on `t` is alive.
+        // Safety: `term` points to valid UTF-8 bytes and no iteration
+        // on `t` is in progress.
         unsafe { TermSuffixIndex_Remove(t, term.as_ptr().cast(), term.len()) };
 
-        let needle = "ike";
-        // Safety: `t` is valid, `needle` points to valid UTF-8 bytes,
-        // and `t` outlives the iterator.
-        let it =
-            unsafe { TermSuffixIndex_IterateContains(t, needle.as_ptr().cast(), needle.len()) };
-        let actual = drain(it);
+        let actual = collect(t, "ike", TermSuffixIndex_IterateContains);
 
         assert_eq!(actual, to_set(&["bike"]));
     });
@@ -94,12 +101,7 @@ fn iterate_all_yields_terms_and_proper_suffixes() {
 #[test]
 fn multibyte_terms_roundtrip() {
     with_index(&["żółć", "köln"], |t| {
-        let needle = "ółć";
-
-        // Safety: `t` is valid, `needle` points to valid UTF-8 bytes,
-        // and `t` outlives the iterator.
-        let it = unsafe { TermSuffixIndex_IterateSuffix(t, needle.as_ptr().cast(), needle.len()) };
-        let actual = drain(it);
+        let actual = collect(t, "ółć", TermSuffixIndex_IterateSuffix);
 
         assert_eq!(actual, to_set(&["żółć"]));
     });
@@ -171,6 +173,48 @@ where
     // Safety: `t` was obtained from `NewTermSuffixIndex` and all
     // iterators have been freed by the callback.
     unsafe { TermSuffixIndex_Free(t) };
+}
+
+/// Drive a callback-based iterate function with `needle` and collect
+/// every reported term into a set.
+fn collect(
+    t: *mut TermSuffixIndex,
+    needle: &str,
+    iterate: unsafe extern "C" fn(
+        *const TermSuffixIndex,
+        *const c_char,
+        usize,
+        TermSuffixIterateCallback,
+        *mut c_void,
+    ),
+) -> HashSet<String> {
+    unsafe extern "C" fn collect_cb(
+        term: *const c_char,
+        len: usize,
+        ctx: *mut c_void,
+        _payload: *mut c_void,
+    ) -> c_int {
+        // Safety: `term` points to `len` valid UTF-8 bytes for the
+        // duration of this call, and `ctx` points at the set below.
+        let bytes = unsafe { std::slice::from_raw_parts(term.cast::<u8>(), len) };
+        let yielded = unsafe { &mut *ctx.cast::<HashSet<String>>() };
+        yielded.insert(String::from_utf8(bytes.to_vec()).unwrap());
+        0
+    }
+
+    let mut yielded = HashSet::new();
+    // Safety: `t` is valid, `needle` points to valid UTF-8 bytes, and
+    // `ctx` points at a live set.
+    unsafe {
+        iterate(
+            t,
+            needle.as_ptr().cast(),
+            needle.len(),
+            Some(collect_cb),
+            (&raw mut yielded).cast(),
+        )
+    };
+    yielded
 }
 
 /// Drain an iterator into the set of strings it yields, then free it.
