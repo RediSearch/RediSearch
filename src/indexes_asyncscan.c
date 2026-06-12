@@ -20,6 +20,10 @@
 #include "doc_id_meta.h"
 #include "rmutil/rm_assert.h"
 
+// Emit a throttled progress line roughly every this many scanned keys, so a long
+// backfill is observable in the logs without a line per batch.
+#define ASYNC_SCAN_PROGRESS_LOG_KEYS 100000
+
 // Per-cursor driver state, shared between the reindexPool worker (which owns the
 // cursor lifecycle) and the callbacks (which run on the main thread under the GIL).
 // done_cb signals the condvar the worker waits on; the engine provides no waiter.
@@ -56,15 +60,6 @@ static void Indexes_AsyncScanKeyCB(RedisModuleCtx *ctx, RedisModuleScanCursor *c
     return;
   }
 
-  if (isBgIndexingMemoryOverLimit(ctx)) {
-    scanner->scanFailedOnOOM = true;
-    if (scanner->OOMkey) {
-      RedisModule_FreeString(RSDummyContext, scanner->OOMkey);
-    }
-    scanner->OOMkey = RedisModule_HoldString(RSDummyContext, name);
-    return;
-  }
-
   DocumentType type = getDocType(key);
   if (type == DocumentType_Unsupported) {
     return;
@@ -72,9 +67,14 @@ static void Indexes_AsyncScanKeyCB(RedisModuleCtx *ctx, RedisModuleScanCursor *c
 
   StrongRef curr_run_ref = IndexSpecRef_Promote(scanner->spec_ref);
   IndexSpec *sp = StrongRef_Get(curr_run_ref);
-  if (sp) {
-    // Safe to read without locking the spec: we hold the GIL, so the main thread
-    // is not mutating it and GC is not touching the relevant data.
+  // If IndexSpec was dropped mid-scan, cancel.
+  scanner->cancelled |= !sp;
+  if (!sp) {
+    RedisModule_Log(ctx, "notice",
+                    "AsyncScan: index %s dropped mid-scan; cancelling (scanned=%zu)",
+                    scanner->spec_name_for_logs, scanner->scannedKeys);
+  }
+  if (!scanner->cancelled) {
     if (SchemaRule_ShouldIndex(sp, name, type)) {
       uint64_t docId = 0;
       if (DocIdMeta_Get(ctx, name, sp->specId, &docId) == REDISMODULE_OK && docId != 0) {
@@ -86,8 +86,7 @@ static void Indexes_AsyncScanKeyCB(RedisModuleCtx *ctx, RedisModuleScanCursor *c
     }
     IndexSpecRef_Release(curr_run_ref);
   } else {
-    // Spec was dropped mid-scan; cancel.
-    scanner->cancelled = true;
+    RedisModule_AsyncScanAbort(cursor);
   }
   ++scanner->scannedKeys;
 }
@@ -120,10 +119,16 @@ void Indexes_AsyncScanAndReindexTask(IndexesScanner *scanner) {
   pthread_mutex_init(&driver.mutex, NULL);
   pthread_cond_init(&driver.cond, NULL);
 
+  // Progress accounting for the throttled progress log in the drive loop.
+  size_t batchesDone = 0;
+  size_t lastProgressKeys = 0;
+
   RedisModule_Log(ctx, "notice", "AsyncScan: scanning index %s in background",
                   scanner->spec_name_for_logs);
 
   if (scanner->cancelled) {
+    RedisModule_Log(ctx, "notice", "AsyncScan: index %s cancelled before scan started",
+                    scanner->spec_name_for_logs);
     goto done;
   }
 
@@ -145,6 +150,8 @@ void Indexes_AsyncScanAndReindexTask(IndexesScanner *scanner) {
     // Cancelled while retrying: the cursor was never bound, so there is nothing to
     // abort — just tear down.
     if (scanner->cancelled) {
+      RedisModule_Log(ctx, "notice", "AsyncScan: index %s cancelled while starting",
+                      scanner->spec_name_for_logs);
       goto done;
     }
     usleep(1000);
@@ -158,16 +165,23 @@ void Indexes_AsyncScanAndReindexTask(IndexesScanner *scanner) {
     case REDISMODULE_ASYNCSCAN_OK:
       // Batch queued. Wait (GIL released) for done_cb to fire on the main thread.
       Indexes_AsyncScanWaitForDone(&driver);
+      ++batchesDone;
 
-      // Module-side stop conditions (not engine-terminal): a key_cb hit the memory
-      // limit, or the scan was cancelled (FT.DROP / FT.ALTER). Abort the sweep
-      // rather than requesting another batch. OOM pause/retry is Phase 2.
-      if (scanner->scanFailedOnOOM && !scanner->cancelled) {
-        RedisModule_ThreadSafeContextLock(ctx);
-        scanStopAfterOOM(ctx, scanner);
-        RedisModule_ThreadSafeContextUnlock(ctx);
+      // Throttled progress: one line every ASYNC_SCAN_PROGRESS_LOG_KEYS keys so a
+      // long backfill is observable without a line per batch.
+      if (scanner->scannedKeys - lastProgressKeys >= ASYNC_SCAN_PROGRESS_LOG_KEYS) {
+        lastProgressKeys = scanner->scannedKeys;
+        RedisModule_Log(ctx, "notice",
+                        "AsyncScan: index %s progress: scanned=%zu keys, batches=%zu",
+                        scanner->spec_name_for_logs, scanner->scannedKeys, batchesDone);
       }
+
+      // Cancelled (FT.DROP / FT.ALTER, detected per-key): abort the sweep instead of
+      // requesting another batch.
       if (scanner->cancelled) {
+        RedisModule_Log(ctx, "notice",
+                        "AsyncScan: aborting scan of index %s (cancelled, scanned=%zu)",
+                        scanner->spec_name_for_logs, scanner->scannedKeys);
         RedisModule_ThreadSafeContextLock(ctx);
         RedisModule_AsyncScanAbort(cursor);
         RedisModule_ThreadSafeContextUnlock(ctx);
@@ -181,6 +195,8 @@ void Indexes_AsyncScanAndReindexTask(IndexesScanner *scanner) {
 
     case REDISMODULE_ASYNCSCAN_BUSY:
       // Concurrency cap full; back off (GIL released) and retry the same NextBatch.
+      RedisModule_Log(ctx, "debug", "AsyncScan: index %s throttled (max-inflight); backing off",
+                      scanner->spec_name_for_logs);
       usleep(1000);
       RedisModule_ThreadSafeContextLock(ctx);
       rc = RedisModule_AsyncScanNextBatch(ctx, cursor);
@@ -189,18 +205,39 @@ void Indexes_AsyncScanAndReindexTask(IndexesScanner *scanner) {
 
     case REDISMODULE_ASYNCSCAN_EXHAUSTED:
       // Natural completion: the full keyspace was swept.
+      RedisModule_Log(ctx, "notice",
+                      "AsyncScan: index %s completed: scanned=%zu keys in %zu batches",
+                      scanner->spec_name_for_logs, scanner->scannedKeys, batchesDone);
       goto done;
 
     case REDISMODULE_ASYNCSCAN_DATASET_RESET:
+      // The sweep ended early: FLUSHALL / DEBUG RELOAD (dataset reset) or an abort.
+      // The cursor is no longer usable.
+      RedisModule_Log(ctx, "notice", "AsyncScan: scan of index %s ended early (dataset reset, scanned=%zu)",
+                      scanner->spec_name_for_logs,
+                      scanner->scannedKeys);
+      goto done;
     case REDISMODULE_ASYNCSCAN_ABORTED:
+      // The sweep ended early: FLUSHALL / DEBUG RELOAD (dataset reset) or an abort.
+      // The cursor is no longer usable.
+      RedisModule_Log(ctx, "notice", "AsyncScan: scan of index %s ended early (aborted, scanned=%zu)",
+                      scanner->spec_name_for_logs,
+                      scanner->scannedKeys);
+      goto done;
+
     case REDISMODULE_ASYNCSCAN_OUT_OF_MEMORY:
-      // Terminal: the sweep ended early (FLUSHALL / DEBUG RELOAD, an abort, or
-      // engine memory pressure). The cursor is no longer usable; resuming after
-      // OUT_OF_MEMORY with a fresh cursor is Phase 2.
+      // Engine memory pressure cut the sweep short. The index may be incomplete; the
+      // engine does not resume transparently (a fresh cursor is Phase 2).
+      RedisModule_Log(ctx, "warning",
+                      "AsyncScan: engine OOM during scan of index %s; index may be incomplete (scanned=%zu)",
+                      scanner->spec_name_for_logs, scanner->scannedKeys);
       goto done;
 
     case REDISMODULE_ASYNCSCAN_IN_PROGRESS:
       // Should not happen: we never reissue before done_cb fires.
+      RedisModule_Log(ctx, "warning", "AsyncScan: unexpected IN_PROGRESS for index %s (caller bug)",
+                      scanner->spec_name_for_logs);
+      RS_ASSERT(false);
       goto done;
 
     case REDISMODULE_ASYNCSCAN_UNSUPPORTED:
@@ -208,18 +245,22 @@ void Indexes_AsyncScanAndReindexTask(IndexesScanner *scanner) {
       // here, where it is guaranteed present; an RM_Scan fallback is Phase 2.
       RedisModule_Log(ctx, "warning", "AsyncScan: unsupported for index %s",
                       scanner->spec_name_for_logs);
+      RS_ASSERT(false);
       goto done;
 
     case REDISMODULE_ASYNCSCAN_INVALID:
       // Bad argument — programming error. Cursor state is unchanged; no done_cb.
       RedisModule_Log(ctx, "warning", "AsyncScan: invalid argument for index %s",
                       scanner->spec_name_for_logs);
+      RS_ASSERT(false);
       goto done;
     }
   }
 
 done:
-  RedisModule_Log(ctx, "notice", "AsyncScan: scanning index %s in background: done (scanned=%zu)",
+  // Each exit path above logs its own outcome (completed / cancelled / ended early /
+  // OOM / error); this is just the teardown marker.
+  RedisModule_Log(ctx, "debug", "AsyncScan: index %s scan task exiting (scanned=%zu)",
                   scanner->spec_name_for_logs, scanner->scannedKeys);
 
   IndexesScanner_Free(scanner);
