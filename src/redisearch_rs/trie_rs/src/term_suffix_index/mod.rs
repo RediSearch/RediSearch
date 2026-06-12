@@ -266,8 +266,8 @@ mod tests {
 
     #[rstest]
     #[case::score_tie_prefers_later_token("ab*cd*", Some(("cd", true)))]
-    #[case::final_short_token_beats_mid_token_within_dock("abcdef*gh", Some(("gh", false)))]
-    #[case::mid_token_longer_than_dock_beats_final_token("abcdefgh*ij", Some(("abcdefgh", true)))]
+    #[case::subtree_penalty_outweighs_small_length_lead("abcdef*gh", Some(("gh", false)))]
+    #[case::length_lead_above_subtree_penalty_wins("abcdefgh*ij", Some(("abcdefgh", true)))]
     #[case::tokens_below_min_suffix_ineligible("a*b", None)]
     #[case::tokens_with_question_mark_or_backslash_ineligible("a?cd*\\ab*ef", Some(("ef", false)))]
     #[case::length_counts_codepoints_not_bytes("日本語*ab", Some(("ab", false)))]
