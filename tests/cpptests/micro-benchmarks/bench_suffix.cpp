@@ -59,16 +59,14 @@ int CountingCharCb(const char *, size_t, void *ctx, void *) {
 }
 
 // Call-site-faithful contains/suffix iteration, mirroring
-// Query_EvalPrefixNode: the query string arrives as chars, is lowered to
-// runes by the shared prefix-node code, and the suffix block then folds it
-// back to UTF-8 for the char-keyed Rust index.
+// Query_EvalPrefixNode: the query string arrives as chars and is folded
+// directly in UTF-8 for the char-keyed Rust index, skipping the rune
+// representation only the trie path needs.
 size_t IterateNeedle(TermSuffixIndex *suffix, const char *needle, size_t needleLen,
                      bool contains) {
-    size_t nstr;
-    rune *str = strToLowerRunes(needle, needleLen, &nstr);
     size_t foldedLen;
     utf8Buf foldedBuf;
-    char *folded = runesToStrBuf(str, nstr, &foldedBuf, &foldedLen);
+    char *folded = strToLowerStr(needle, needleLen, &foldedBuf, &foldedLen);
     size_t hits = 0;
     if (contains) {
         TermSuffixIndex_IterateContains(suffix, folded, foldedLen, CountingCharCb, &hits);
@@ -76,7 +74,6 @@ size_t IterateNeedle(TermSuffixIndex *suffix, const char *needle, size_t needleL
         TermSuffixIndex_IterateSuffix(suffix, folded, foldedLen, CountingCharCb, &hits);
     }
     utf8BufFree(&foldedBuf);
-    rm_free(str);
     return hits;
 }
 
@@ -86,12 +83,10 @@ size_t IterateNeedle(TermSuffixIndex *suffix, const char *needle, size_t needleL
 // brute-force scanned instead.
 size_t IterateWildcardPattern(TermSuffixIndex *suffix, Trie *terms, const char *pattern,
                               size_t patternLen) {
-    size_t nstr;
-    rune *str = strToLowerRunes(pattern, patternLen, &nstr);
     size_t hits = 0;
     size_t foldedLen;
     utf8Buf foldedBuf;
-    char *folded = runesToStrBuf(str, nstr, &foldedBuf, &foldedLen);
+    char *folded = strToLowerStr(pattern, patternLen, &foldedBuf, &foldedLen);
     TermSuffixIndexIterator *it = TermSuffixIndex_IterateWildcard(suffix, folded, foldedLen);
     if (it) {
         const char *term;
@@ -101,11 +96,15 @@ size_t IterateWildcardPattern(TermSuffixIndex *suffix, Trie *terms, const char *
         }
         TermSuffixIndexIterator_Free(it);
     } else {
+        // The brute-force fallback scans the rune-keyed terms trie; the
+        // post-port call site computes the runes lazily only on this path.
+        size_t nstr;
+        rune *str = strToLowerRunes(pattern, patternLen, &nstr);
         Trie_IterateWildcard(terms, str, nstr, CountingRuneCb, &hits, NULL,
                              /*skipTimeoutChecks=*/true);
+        rm_free(str);
     }
     utf8BufFree(&foldedBuf);
-    rm_free(str);
     return hits;
 }
 
