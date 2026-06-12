@@ -86,7 +86,11 @@ const HEADERS: &[HeaderAllowlist] = &[
     },
     HeaderAllowlist {
         path: "src/indexes.h",
-        fns: &["Indexes_Init", "Indexes_RemoveFromGlobals", "Spec_AddToDict"],
+        fns: &[
+            "Indexes_Init",
+            "Indexes_RemoveFromGlobals",
+            "Spec_AddToDict",
+        ],
         types: &[],
         vars: &["specDict_g", "specIdDict_g"],
     },

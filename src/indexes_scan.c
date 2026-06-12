@@ -60,7 +60,6 @@ static_assert(
 
 // Debug scanner functions
 static DebugIndexesScanner *DebugIndexesScanner_New(StrongRef global_ref);
-static void DebugIndexesScanner_Free(DebugIndexesScanner *dScanner);
 static void DebugIndexes_ScanProc(RedisModuleCtx *ctx, RedisModuleString *keyname, RedisModuleKey *key,
                              DebugIndexesScanner *dScanner);
 static void DebugIndexesScanner_pauseCheck(DebugIndexesScanner* dScanner, RedisModuleCtx *ctx, bool pauseField, DebugIndexScannerCode code);
@@ -581,4 +580,3 @@ static inline void DebugIndexesScanner_pauseCheck(DebugIndexesScanner* dScanner,
   dScanner->status = DEBUG_INDEX_SCANNER_CODE_RESUMED;
   RedisModule_ThreadSafeContextLock(ctx);
 }
-
