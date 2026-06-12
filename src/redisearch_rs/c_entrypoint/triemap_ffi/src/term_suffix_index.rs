@@ -47,9 +47,10 @@ pub struct TermSuffixIndex(TermSuffixIndexImpl);
 /// Yields the terms (or keys, for [`TermSuffixIndex_IterateAll`])
 /// matched by an iteration over a [`TermSuffixIndex`].
 ///
-/// Opaque to C; obtained from one of the `TermSuffixIndex_Iterate*`
-/// functions, advanced with [`TermSuffixIndexIterator_Next`], and
-/// freed with [`TermSuffixIndexIterator_Free`].
+/// Opaque to C; obtained from [`TermSuffixIndex_IterateWildcard`] or
+/// [`TermSuffixIndex_IterateAll`], advanced with
+/// [`TermSuffixIndexIterator_Next`], and freed with
+/// [`TermSuffixIndexIterator_Free`].
 pub struct TermSuffixIndexIterator<'si> {
     iter: Box<dyn Iterator<Item = Rc<str>> + 'si>,
     /// Keeps the most recently yielded string alive so the pointer
@@ -374,7 +375,7 @@ pub unsafe extern "C" fn TermSuffixIndex_IterateAll<'si>(
 ///
 /// The following invariants must be upheld when calling this function:
 /// - `it` must point to a valid [`TermSuffixIndexIterator`] obtained
-///   from one of the `TermSuffixIndex_Iterate*` functions and cannot
+///   from [`TermSuffixIndex_IterateWildcard`] or [`TermSuffixIndex_IterateAll`] and cannot
 ///   be NULL.
 /// - `str` and `len` must be valid, non-NULL pointers to writable
 ///   locations.
@@ -418,7 +419,7 @@ pub unsafe extern "C" fn TermSuffixIndexIterator_Next(
 ///
 /// The following invariants must be upheld when calling this function:
 /// - `it` must point to a valid [`TermSuffixIndexIterator`] obtained
-///   from one of the `TermSuffixIndex_Iterate*` functions and cannot
+///   from [`TermSuffixIndex_IterateWildcard`] or [`TermSuffixIndex_IterateAll`] and cannot
 ///   be NULL.
 /// - `it` must not be used after this call.
 #[unsafe(no_mangle)]
@@ -426,6 +427,6 @@ pub unsafe extern "C" fn TermSuffixIndexIterator_Free(it: *mut TermSuffixIndexIt
     debug_assert!(!it.is_null(), "it cannot be NULL");
 
     // SAFETY: caller is to ensure `it` is a valid, non-null pointer
-    // obtained from a `TermSuffixIndex_Iterate*` function.
+    // obtained from `TermSuffixIndex_IterateWildcard` or `TermSuffixIndex_IterateAll`.
     drop(unsafe { Box::from_raw(it) });
 }
