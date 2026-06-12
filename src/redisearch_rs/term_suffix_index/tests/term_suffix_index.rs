@@ -11,7 +11,7 @@
 
 use std::{collections::HashSet, rc::Rc};
 
-use trie_rs::term_suffix_index::TermSuffixIndex;
+use term_suffix_index::TermSuffixIndex;
 
 fn build_index(corpus: &[String]) -> TermSuffixIndex {
     let mut sut = TermSuffixIndex::new();

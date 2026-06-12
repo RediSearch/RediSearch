@@ -30,8 +30,8 @@ mod term_refs;
 
 use std::rc::Rc;
 
-use crate::str::StrTrieMap;
 use term_refs::{Outcome, TermRefs};
+use trie_rs::str::StrTrieMap;
 
 const MIN_SUFFIX: usize = ffi::MIN_SUFFIX as usize;
 
