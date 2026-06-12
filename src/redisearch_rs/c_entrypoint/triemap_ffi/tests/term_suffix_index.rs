@@ -122,6 +122,37 @@ fn mem_usage_grows_with_content() {
     });
 }
 
+#[test]
+fn iterate_wildcard_yields_matching_terms() {
+    with_index(&["bike", "biker", "trike", "cool"], |t| {
+        let pattern = "*ike*";
+
+        // Safety: `t` is valid, `pattern` points to valid UTF-8 bytes
+        // that outlive the iterator, and `t` outlives the iterator.
+        let it =
+            unsafe { TermSuffixIndex_IterateWildcard(t, pattern.as_ptr().cast(), pattern.len()) };
+        assert!(!it.is_null(), "'ike' anchors the search");
+        let actual = drain(it);
+
+        assert_eq!(actual, to_set(&["bike", "biker", "trike"]));
+    });
+}
+
+#[test]
+fn iterate_wildcard_without_anchor_returns_null() {
+    with_index(&["bike"], |t| {
+        // Both tokens are single characters — too short to anchor.
+        let pattern = "b*e";
+
+        // Safety: `t` is valid and `pattern` points to valid UTF-8
+        // bytes.
+        let it =
+            unsafe { TermSuffixIndex_IterateWildcard(t, pattern.as_ptr().cast(), pattern.len()) };
+
+        assert!(it.is_null(), "caller must fall back to a full scan");
+    });
+}
+
 /// Create a [`TermSuffixIndex`], add `terms` to it, call the callback
 /// with the index pointer, and free the index.
 fn with_index<F>(terms: &[&str], f: F)

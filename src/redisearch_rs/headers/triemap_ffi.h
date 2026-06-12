@@ -442,6 +442,42 @@ struct TermSuffixIndexIterator *TermSuffixIndex_IterateSuffix(const struct TermS
 void TrieMap_Free(struct TrieMap *t, freeCB func);
 
 /**
+ * Iterate over every member term matching the wildcard pattern
+ * `(str, len)` (`*` matches any run of characters, `?` exactly one).
+ * A term may be yielded more than once.
+ *
+ * Returns NULL when the pattern has no literal token that can anchor
+ * the search (e.g. every `*`-separated token is shorter than
+ * `MIN_SUFFIX` codepoints or contains `?`); the caller must then fall
+ * back to scanning the full term dictionary. A non-UTF-8 pattern
+ * yields no matches.
+ *
+ * Invoke [`TermSuffixIndexIterator_Next`] to get the results from the
+ * iteration.
+ *
+ * # Safety
+ *
+ * The following invariants must be upheld when calling this function:
+ * - `t` must point to a valid [`TermSuffixIndex`] obtained from
+ *   [`NewTermSuffixIndex`] and cannot be NULL.
+ * - `str` must point to a valid byte sequence of length `len`.
+ * - `t` must not be modified or freed while the iterator lives.
+ * - The pattern bytes `(str, len)` must stay valid and unmodified
+ *   while the iterator lives — the iterator filters candidates
+ *   against them on every advance.
+ */
+struct TermSuffixIndexIterator *TermSuffixIndex_IterateWildcard(const struct TermSuffixIndex *t, const char *str, size_t len);
+
+/**
+ * Determines the amount of memory used by the trie in bytes.
+ *
+ * # Safety
+ * The following invariants must be upheld when calling this function:
+ * - `t` must point to a valid TrieMap obtained from [`NewTrieMap`] and cannot be NULL.
+ */
+size_t TrieMap_MemUsage(struct TrieMap *t);
+
+/**
  * Iterate over every key stored in the index — each member term plus
  * every indexed proper suffix — in lexicographical order.
  * Introspection aid for `FT.DEBUG DUMP_SUFFIX_TRIE`.
@@ -457,6 +493,28 @@ void TrieMap_Free(struct TrieMap *t, freeCB func);
  * - `t` must not be modified or freed while the iterator lives.
  */
 struct TermSuffixIndexIterator *TermSuffixIndex_IterateAll(const struct TermSuffixIndex *t);
+
+/**
+ * The number of unique keys stored in the provided triemap.
+ *
+ * # Safety
+ *
+ * The following invariants must be upheld when calling this function:
+ * - `t` must point to a valid TrieMap obtained from [`NewTrieMap`] and cannot be NULL.
+ */
+size_t TrieMap_NUniqueKeys(const struct TrieMap *t);
+
+/**
+ * The number of nodes stored in the provided triemap.
+ *
+ * It's greater or equal to the number returned by [`TrieMap_NUniqueKeys`].
+ *
+ * # Safety
+ *
+ * The following invariants must be upheld when calling this function:
+ * - `t` must point to a valid TrieMap obtained from [`NewTrieMap`] and cannot be NULL.
+ */
+size_t TrieMap_NNodes(const struct TrieMap *t);
 
 /**
  * Advance the iterator. Returns 1 and stores the next string into
@@ -480,25 +538,6 @@ struct TermSuffixIndexIterator *TermSuffixIndex_IterateAll(const struct TermSuff
 int TermSuffixIndexIterator_Next(struct TermSuffixIndexIterator *it, const char * *str, size_t *len);
 
 /**
- * Determines the amount of memory used by the trie in bytes.
- *
- * # Safety
- * The following invariants must be upheld when calling this function:
- * - `t` must point to a valid TrieMap obtained from [`NewTrieMap`] and cannot be NULL.
- */
-size_t TrieMap_MemUsage(struct TrieMap *t);
-
-/**
- * The number of unique keys stored in the provided triemap.
- *
- * # Safety
- *
- * The following invariants must be upheld when calling this function:
- * - `t` must point to a valid TrieMap obtained from [`NewTrieMap`] and cannot be NULL.
- */
-size_t TrieMap_NUniqueKeys(const struct TrieMap *t);
-
-/**
  * Free an iterator obtained from one of the `TermSuffixIndex_Iterate*`
  * functions. Invalidates any string pointer previously returned by
  * [`TermSuffixIndexIterator_Next`].
@@ -512,18 +551,6 @@ size_t TrieMap_NUniqueKeys(const struct TrieMap *t);
  * - `it` must not be used after this call.
  */
 void TermSuffixIndexIterator_Free(struct TermSuffixIndexIterator *it);
-
-/**
- * The number of nodes stored in the provided triemap.
- *
- * It's greater or equal to the number returned by [`TrieMap_NUniqueKeys`].
- *
- * # Safety
- *
- * The following invariants must be upheld when calling this function:
- * - `t` must point to a valid TrieMap obtained from [`NewTrieMap`] and cannot be NULL.
- */
-size_t TrieMap_NNodes(const struct TrieMap *t);
 
 #ifdef __cplusplus
 }  // extern "C"

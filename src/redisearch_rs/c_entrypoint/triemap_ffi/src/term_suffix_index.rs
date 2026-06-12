@@ -246,6 +246,61 @@ pub unsafe extern "C" fn TermSuffixIndex_IterateSuffix<'si>(
     }))
 }
 
+/// Iterate over every member term matching the wildcard pattern
+/// `(str, len)` (`*` matches any run of characters, `?` exactly one).
+/// A term may be yielded more than once.
+///
+/// Returns NULL when the pattern has no literal token that can anchor
+/// the search (e.g. every `*`-separated token is shorter than
+/// `MIN_SUFFIX` codepoints or contains `?`); the caller must then fall
+/// back to scanning the full term dictionary. A non-UTF-8 pattern
+/// yields no matches.
+///
+/// Invoke [`TermSuffixIndexIterator_Next`] to get the results from the
+/// iteration.
+///
+/// # Safety
+///
+/// The following invariants must be upheld when calling this function:
+/// - `t` must point to a valid [`TermSuffixIndex`] obtained from
+///   [`NewTermSuffixIndex`] and cannot be NULL.
+/// - `str` must point to a valid byte sequence of length `len`.
+/// - `t` must not be modified or freed while the iterator lives.
+/// - The pattern bytes `(str, len)` must stay valid and unmodified
+///   while the iterator lives — the iterator filters candidates
+///   against them on every advance.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn TermSuffixIndex_IterateWildcard<'si>(
+    t: *const TermSuffixIndex,
+    str: *const c_char,
+    len: usize,
+) -> *mut TermSuffixIndexIterator<'si> {
+    debug_assert!(!t.is_null(), "t cannot be NULL");
+    debug_assert!(!str.is_null(), "str cannot be NULL");
+
+    // SAFETY: caller is to ensure `t` is a valid, non-null pointer to a
+    // TermSuffixIndex that outlives the iterator.
+    let TermSuffixIndex(index) = unsafe { &*t };
+    // SAFETY: caller is to ensure `str` points to `len` valid bytes
+    // that outlive the iterator.
+    let bytes = unsafe { std::slice::from_raw_parts(str.cast::<u8>(), len) };
+
+    let iter: Box<dyn Iterator<Item = Rc<str>>> = match std::str::from_utf8(bytes) {
+        Ok(pattern) => match index.iter_wildcard(pattern) {
+            Some(matches) => Box::new(matches),
+            None => return std::ptr::null_mut(),
+        },
+        Err(_) => {
+            debug_assert!(false, "pattern must be valid UTF-8");
+            Box::new(std::iter::empty())
+        }
+    };
+    Box::into_raw(Box::new(TermSuffixIndexIterator {
+        iter,
+        current: None,
+    }))
+}
+
 /// Iterate over every key stored in the index — each member term plus
 /// every indexed proper suffix — in lexicographical order.
 /// Introspection aid for `FT.DEBUG DUMP_SUFFIX_TRIE`.
