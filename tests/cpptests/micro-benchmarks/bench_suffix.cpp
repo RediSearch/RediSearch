@@ -67,14 +67,15 @@ size_t IterateNeedle(TermSuffixIndex *suffix, const char *needle, size_t needleL
     size_t nstr;
     rune *str = strToLowerRunes(needle, needleLen, &nstr);
     size_t foldedLen;
-    char *folded = runesToStr(str, nstr, &foldedLen);
+    utf8Buf foldedBuf;
+    char *folded = runesToStrBuf(str, nstr, &foldedBuf, &foldedLen);
     size_t hits = 0;
     if (contains) {
         TermSuffixIndex_IterateContains(suffix, folded, foldedLen, CountingCharCb, &hits);
     } else {
         TermSuffixIndex_IterateSuffix(suffix, folded, foldedLen, CountingCharCb, &hits);
     }
-    rm_free(folded);
+    utf8BufFree(&foldedBuf);
     rm_free(str);
     return hits;
 }
@@ -89,7 +90,8 @@ size_t IterateWildcardPattern(TermSuffixIndex *suffix, Trie *terms, const char *
     rune *str = strToLowerRunes(pattern, patternLen, &nstr);
     size_t hits = 0;
     size_t foldedLen;
-    char *folded = runesToStr(str, nstr, &foldedLen);
+    utf8Buf foldedBuf;
+    char *folded = runesToStrBuf(str, nstr, &foldedBuf, &foldedLen);
     TermSuffixIndexIterator *it = TermSuffixIndex_IterateWildcard(suffix, folded, foldedLen);
     if (it) {
         const char *term;
@@ -102,7 +104,7 @@ size_t IterateWildcardPattern(TermSuffixIndex *suffix, Trie *terms, const char *
         Trie_IterateWildcard(terms, str, nstr, CountingRuneCb, &hits, NULL,
                              /*skipTimeoutChecks=*/true);
     }
-    rm_free(folded);
+    utf8BufFree(&foldedBuf);
     rm_free(str);
     return hits;
 }
