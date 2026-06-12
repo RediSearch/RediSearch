@@ -14,7 +14,7 @@
 
 #include "redismodule.h"
 #include "spec.h"
-#include "indexes_scan.h"
+#include "indexes_scanner.h"
 #include "rules.h"
 #include "doc_types.h"
 #include "doc_id_meta.h"

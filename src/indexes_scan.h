@@ -9,9 +9,6 @@
 #ifndef __INDEXES_SCAN_H__
 #define __INDEXES_SCAN_H__
 
-#include <stdbool.h>
-#include <stddef.h>
-
 #include "redismodule.h"
 #include "util/references.h"
 
@@ -19,67 +16,12 @@
 extern "C" {
 #endif
 
-// Forward declaration: the IndexSpec lifecycle lives in spec.{c,h}. The scanner
-// only needs IndexSpec by pointer, so a forward declaration keeps the
-// dependency one-directional (indexes_scan.c -> spec.h, never the reverse).
-typedef struct IndexSpec IndexSpec;
+// The IndexesScanner type, its lifecycle, and the shared OOM helpers live in the
+// scanner core indexes_scanner.h. This header declares only the reindex
+// dispatch/entry points; includers that touch the scanner type include
+// indexes_scanner.h directly.
 
 ///////////////////////////////////////////////////////////////////////////////////////////////
-
-typedef enum {
-    DEBUG_INDEX_SCANNER_CODE_NEW,
-    DEBUG_INDEX_SCANNER_CODE_RUNNING,
-    DEBUG_INDEX_SCANNER_CODE_DONE,
-    DEBUG_INDEX_SCANNER_CODE_CANCELLED,
-    DEBUG_INDEX_SCANNER_CODE_PAUSED,
-    DEBUG_INDEX_SCANNER_CODE_RESUMED,
-    DEBUG_INDEX_SCANNER_CODE_PAUSED_ON_OOM,
-    DEBUG_INDEX_SCANNER_CODE_PAUSED_BEFORE_OOM_RETRY,
-
-    //Insert new codes here (before COUNT)
-    DEBUG_INDEX_SCANNER_CODE_COUNT  // Helps with array size checks
-    //Do not add new codes after COUNT
-} DebugIndexScannerCode;
-
-extern const char *DEBUG_INDEX_SCANNER_STATUS_STRS[];
-
-extern size_t pending_global_indexing_ops;
-extern struct IndexesScanner *global_spec_scanner;
-
-typedef struct IndexesScanner {
-  bool global;
-  bool cancelled;
-  bool isDebug;
-  bool scanFailedOnOOM;
-  WeakRef spec_ref;
-  char *spec_name_for_logs;
-  size_t scannedKeys;
-  RedisModuleString *OOMkey; // The key that caused the OOM
-} IndexesScanner;
-
-typedef struct DebugIndexesScanner {
-  IndexesScanner base;
-  int maxDocsTBscanned;
-  int maxDocsTBscannedPause;
-  bool wasPaused;
-  bool pauseOnOOM;
-  int status;
-  bool pauseBeforeOOMRetry;
-} DebugIndexesScanner;
-
-// Cancel the scan and record an OOM failure on the spec (FT.INFO error + log).
-// Shared with the AsyncScan driver in indexes_asyncscan.c.
-void scanStopAfterOOM(RedisModuleCtx *ctx, IndexesScanner *scanner);
-
-// Return true if used_memory exceeds (indexingMemoryLimit % × memoryLimit);
-// false if within bounds or the limit is 0. Shared with indexes_asyncscan.c.
-bool isBgIndexingMemoryOverLimit(RedisModuleCtx *ctx);
-
-void IndexesScanner_Cancel(struct IndexesScanner *scanner);
-void IndexesScanner_ResetProgression(struct IndexesScanner *scanner);
-void IndexesScanner_Free(IndexesScanner *scanner);
-
-double IndexesScanner_IndexedPercent(RedisModuleCtx *ctx, IndexesScanner *scanner, const IndexSpec *sp);
 
 // Schedule a background scan + reindex of the keyspace into the given spec.
 // Assumes that the spec is in a safe state to set a scanner on it (write lock
