@@ -408,6 +408,32 @@ def test_collect_requires_unstable_features():
 
 
 # ---------------------------------------------------------------------------
+# COLLECT FIELDS with a JSON-path token ($..)
+# ---------------------------------------------------------------------------
+@skip(no_json=True, cluster=False)
+def test_collect_json_path_in_fields_cluster():
+    env = Env(shardsCount=3, protocol=3)
+    enable_unstable_features(env)
+    _setup_json(env)
+
+    # Reference the JSON path directly in LOAD and in COLLECT FIELDS.
+    res = env.cmd(
+        'FT.AGGREGATE', 'idx', '*',
+        'LOAD', '1', '$.name',
+        'GROUPBY', '1', '@color',
+        'REDUCE', 'COLLECT', '3', 'FIELDS', '1', '$.name',
+        'AS', 'names')
+
+    groups = _sort_by(res['results'], 'color')
+    env.assertEqual(_sort_collected(groups[0]['extra_attributes']['names'], '$.name'),
+                    [{'$.name': 'kiwi'}, {'$.name': 'lime'}])
+    env.assertEqual(_sort_collected(groups[1]['extra_attributes']['names'], '$.name'),
+                    [{'$.name': 'apple'}, {'$.name': 'strawberry'}])
+    env.assertEqual(_sort_collected(groups[2]['extra_attributes']['names'], '$.name'),
+                    [{'$.name': 'banana'}, {'$.name': 'lemon'}])
+
+
+# ---------------------------------------------------------------------------
 # COLLECT with LOAD json path aliased field
 # ---------------------------------------------------------------------------
 @skip(no_json=True)

@@ -16,7 +16,7 @@
 
 use rqe_core::{DocId, FieldIndex};
 use rqe_iterators::{
-    RQEIteratorPrintable, SEARCH_ENTERPRISE_ITERATORS, SearchEnterpriseIterators,
+    QueryError, RQEIteratorPrintable, SEARCH_ENTERPRISE_ITERATORS, SearchEnterpriseIterators,
     wildcard::Wildcard,
 };
 
@@ -41,6 +41,7 @@ impl SearchEnterpriseIterators for MockEnterpriseIterators {
         &self,
         _index: &'index mut ffi::RedisSearchDiskIndexSpec,
         weight: f64,
+        _status: Option<&mut QueryError>,
     ) -> Result<Box<dyn RQEIteratorPrintable<'index> + 'index>, Box<dyn std::error::Error>> {
         Ok(Box::new(Wildcard::new(MOCK_DISK_WILDCARD_TOP_ID, weight)))
     }
@@ -77,6 +78,15 @@ impl SearchEnterpriseIterators for MockEnterpriseIterators {
         _weight: f64,
     ) -> Result<Box<dyn RQEIteratorPrintable<'index> + 'index>, Box<dyn std::error::Error>> {
         unimplemented!("MockEnterpriseIterators::new_tag_on_disk not used in these tests")
+    }
+
+    fn new_numeric_on_disk<'index>(
+        &self,
+        _index: &'index mut ffi::RedisSearchDiskIndexSpec,
+        _filter: &ffi::NumericFilter,
+        _field_index: ffi::t_fieldIndex,
+    ) -> Result<Box<dyn RQEIteratorPrintable<'index> + 'index>, Box<dyn std::error::Error>> {
+        unimplemented!("MockEnterpriseIterators::new_numeric_on_disk not used in these tests")
     }
 }
 

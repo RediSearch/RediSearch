@@ -178,8 +178,9 @@ where
             // SAFETY: Caller guarantees `spec.diskSpec` is valid, non-null and
             // remains valid for `'index` (5).
             let disk_spec = unsafe { &mut *spec.diskSpec };
-            // SAFETY: Caller guarantees all preconditions of `new_wildcard_iterator_on_disk` hold (5).
-            unsafe { new_wildcard_iterator_on_disk(disk_spec, weight) }
+            // SAFETY: Caller guarantees all preconditions of `new_wildcard_iterator_on_disk` hold (5);
+            // `query.status` is the valid `QueryError` of the evaluating query.
+            unsafe { new_wildcard_iterator_on_disk(disk_spec, weight, query_ref.status) }
         } else {
             // SAFETY: Caller guarantees `query.sctx` is a valid, non-null pointer (2)
             // and all preconditions of `new_wildcard_iterator_optimized` hold (5).

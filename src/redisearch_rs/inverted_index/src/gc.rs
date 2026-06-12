@@ -78,6 +78,19 @@ impl GcScanDelta {
     }
 }
 
+#[cfg(feature = "test_utils")]
+impl GcScanDelta {
+    /// Returns a no-op delta with no block repairs, for use in tests that need
+    /// to encode/decode the wire protocol without exercising GC logic.
+    pub const fn empty_for_testing() -> Self {
+        Self {
+            last_block_idx: 0,
+            last_block_num_entries: 0,
+            deltas: vec![],
+        }
+    }
+}
+
 /// Result of scanning a block for garbage collection
 #[derive(Debug, Eq, PartialEq, Deserialize, Serialize)]
 pub(crate) struct BlockGcScanResult {

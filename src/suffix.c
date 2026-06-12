@@ -7,6 +7,7 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 #include "suffix.h"
+#include "trie/trie.h"
 #include "triemap_ffi.h"
 #include "rmutil/rm_assert.h"
 #include "config.h"
@@ -312,7 +313,7 @@ int Suffix_ChooseToken_rune(const rune *str, size_t len, size_t *tokenIdx, size_
     // this branching is heavy
     for (int j = tokenIdx[i]; j < tokenIdx[i] + tokenLen[i]; ++j) {
       if (str[j] == (rune)'?') {
-        --score;
+        --curScore;
       }
     }
 

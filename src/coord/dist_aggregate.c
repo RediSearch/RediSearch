@@ -179,10 +179,14 @@ static int rpnetNext_Start(ResultProcessor *rp, SearchResult *r) {
   // aggregateIteratorContext_Free
   // Use aggregateNetCursorCallback to properly extract ShardResponseBarrier
   // from AggregateIteratorContext
-  MRIterator *it = MR_IterateWithPrivateData(&nc->cmd, aggregateNetCursorCallback, iterCtx,
-                                              aggregateIteratorContext_Free,
-                                              aggregateIteratorContext_Init,
-                                              cmdModifier, iterStartCb, NULL);
+  MRIterator *it = MR_IterateWithPrivateData(&nc->cmd, &(MRIteratorConfig){
+    .successCB = aggregateNetCursorCallback,
+    .cbPrivateData = iterCtx,
+    .cbPrivateDataDestructor = aggregateIteratorContext_Free,
+    .cbPrivateDataInit = aggregateIteratorContext_Init,
+    .commandModifier = cmdModifier,
+    .iterStartCb = iterStartCb,
+  });
 
   if (!it) {
     // Iterator never started, so no callbacks are running and the iterator did
@@ -695,7 +699,7 @@ err:
 
 // Timeout callback for Coordinator AREQ execution
 // Called on the main thread when the blocking client times out (FAIL policy only).
-int DistAggregateTimeoutFailClient(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
+int DistAggregateTimeoutFailCallback(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
   UNUSED(argv);
   UNUSED(argc);
 
@@ -740,7 +744,7 @@ static void drainPartialResultsAfterTimeout(AREQ *req) {
 
 // Timeout callback for Coordinator AREQ execution
 // Called on the main thread when the blocking client times out (RETURN-STRICT policy only).
-int DistAggregateTimeoutReturnStrictClient(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
+int DistAggregateTimeoutReturnStrictCallback(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
 
   CoordRequestCtx *CoordReqCtx = RedisModule_GetBlockedClientPrivateData(ctx);
   if (!CoordReqCtx) {
@@ -834,7 +838,7 @@ int DistAggregateReplyCallback(RedisModuleCtx *ctx, RedisModuleString **argv, in
   // draining the remaining shards and the warning is surfaced via the
   // QEXEC_S_SHARD_TIMED_OUT_WARNING flag. The only RETURN-STRICT path that
   // still produces rc=TIMEDOUT is the coord's own deadline firing, which
-  // routes through DistAggregateTimeoutReturnStrictClient -- not this
+  // routes through DistAggregateTimeoutReturnStrictCallback -- not this
   // callback. Under FAIL, a shard timeout still bails the coord pipeline
   // early; the BG thread stores the resulting error in storedReplyState.err
   // and the early-error branch above replies with it.
@@ -850,7 +854,7 @@ int DistAggregateReplyCallback(RedisModuleCtx *ctx, RedisModuleString **argv, in
 // check at startPipelineCommon handles pipeline-side bails, and pre-pipeline
 // bails are signaled via AREQ_ReplyOrStoreError. The timer waits and branches
 // on `hasStoredResults`.
-int DistCursorReadTimeoutReturnStrictClient(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
+int DistCursorReadTimeoutReturnStrictCallback(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
   CoordRequestCtx *reqCtx = RedisModule_GetBlockedClientPrivateData(ctx);
   if (!reqCtx) {
     return RedisModule_ReplyWithError(ctx, "Internal error: timeout with no context");

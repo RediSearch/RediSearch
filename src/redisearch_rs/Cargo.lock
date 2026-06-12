@@ -716,9 +716,14 @@ name = "fork_gc"
 version = "0.0.1"
 dependencies = [
  "ffi",
+ "index_result",
+ "index_spec",
+ "inverted_index",
  "libc",
  "nix",
  "redis-module",
+ "rmp-serde",
+ "serde",
  "tracing",
  "workspace_hack",
 ]
@@ -730,6 +735,7 @@ dependencies = [
  "cheadergen",
  "ffi",
  "fork_gc",
+ "index_spec",
  "tracing",
  "tracing_log_error",
  "workspace_hack",
@@ -1069,6 +1075,7 @@ version = "0.0.1"
 dependencies = [
  "ffi",
  "field_spec",
+ "inverted_index",
  "pretty_assertions",
  "redis_mock",
  "redisearch_rs",
@@ -3031,6 +3038,7 @@ dependencies = [
 name = "trie_rs"
 version = "0.0.1"
 dependencies = [
+ "ffi",
  "fs-err",
  "insta",
  "lending-iterator",
@@ -3075,6 +3083,23 @@ dependencies = [
  "ffi",
  "field",
  "libc",
+ "rqe_core",
+ "thin_vec",
+ "ttl_table",
+ "workspace_hack",
+]
+
+[[package]]
+name = "ttl_table_bencher"
+version = "0.0.1"
+dependencies = [
+ "build_utils",
+ "criterion",
+ "ffi",
+ "libc",
+ "rand 0.10.1",
+ "redis_mock",
+ "redisearch_rs",
  "rqe_core",
  "thin_vec",
  "ttl_table",
