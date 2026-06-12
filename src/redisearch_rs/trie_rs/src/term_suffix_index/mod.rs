@@ -253,17 +253,14 @@ impl TermSuffixIndex {
     }
 }
 
-/// Direct tests for the [`TermSuffixIndex::choose_token`] heuristic.
-///
-/// Anchor choice affects performance, never the result set — the
-/// public-API wildcard tests (including the full-scan proptest
-/// oracle) pass regardless of which token is chosen, so the scoring
-/// rules are pinned here instead.
 #[cfg(test)]
 mod tests {
-    use super::TermSuffixIndex;
     use rstest::rstest;
 
+    use super::*;
+
+    /// Anchor choice affects performance, never the result set,
+    /// so the scoring rules are pinned here instead.
     #[rstest]
     #[case::score_tie_prefers_later_token("ab*cd*", Some(("cd", true)))]
     #[case::subtree_penalty_outweighs_small_length_lead("abcdef*gh", Some(("gh", false)))]
