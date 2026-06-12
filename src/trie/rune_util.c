@@ -145,6 +145,53 @@ rune *strToLowerRunes(const char *str, size_t utf8_len, size_t *unicode_len) {
   return ret;
 }
 
+char *strToLowerStr(const char *str, size_t utf8_len, utf8Buf *buf, size_t *outlen) {
+  buf->isDynamic = 0;
+
+  // Same length gate as strToLowerRunes, so a token rejected as too
+  // long by one representation is rejected by the other as well.
+  ssize_t rlen = nu_strtransformnlen(str, utf8_len, nu_utf8_read,
+                                     nu_tolower, nu_casemap_read);
+  if (rlen < 0 || rlen > MAX_RUNE_STR_LEN) {
+    *outlen = 0;
+    return NULL;
+  }
+
+  // A UTF-8 codepoint encodes to at most 4 bytes.
+  size_t maxBytes = (size_t)rlen * 4;
+  char *ret;
+  if (maxBytes > UTF8_STATIC_ALLOC_SIZE) {
+    buf->isDynamic = 1;
+    ret = buf->u.p = rm_malloc(maxBytes + 1);
+  } else {
+    ret = buf->u.s;
+  }
+
+  const char *encoded_char = str;
+  char *w = ret;
+  uint32_t codepoint;
+  while (encoded_char < str + utf8_len) {
+    encoded_char = nu_utf8_read(encoded_char, &codepoint);
+    const char *map = nu_tolower(codepoint);
+
+    if (map != NULL) {
+      uint32_t mu;
+      while (1) {
+        map = nu_casemap_read(map, &mu);
+        if (mu == 0) {
+          break;
+        }
+        w = nu_utf8_write(mu, w);
+      }
+    } else {
+      w = nu_utf8_write(codepoint, w);
+    }
+  }
+  *w = '\0';
+  *outlen = w - ret;
+  return ret;
+}
+
 /* implementation is identical to that of strToRunes except for line where
  * __fold is called.
  * If the folded rune occupies more than 1 codepoint, only the first

@@ -704,9 +704,23 @@ static QueryIterator *Query_EvalPrefixNode(QueryEvalCtx *q, QueryNode *qn) {
   // terms trie always exists when prefix queries reach evaluation
   RS_ASSERT(t);
 
+  // spec support contains queries
+  bool useSuffixIndex = spec->suffix && qn->pfx.suffix;
   size_t nstr;
-  rune *str = qn->pfx.tok.str ? strToLowerRunes(qn->pfx.tok.str, qn->pfx.tok.len, &nstr) : NULL;
-  if (!str) {
+  rune *str = NULL;
+  size_t needleLen;
+  utf8Buf needleBuf;
+  char *needle = NULL;
+  if (qn->pfx.tok.str) {
+    if (useSuffixIndex) {
+      // The suffix index stores folded UTF-8 terms; fold the needle directly
+      // in UTF-8, skipping the rune representation only the trie path needs.
+      needle = strToLowerStr(qn->pfx.tok.str, qn->pfx.tok.len, &needleBuf, &needleLen);
+    } else {
+      str = strToLowerRunes(qn->pfx.tok.str, qn->pfx.tok.len, &nstr);
+    }
+  }
+  if (!str && !needle) {
     QueryError_SetWithoutUserDataFmt(q->status, QUERY_ERROR_CODE_LIMIT, "%s " TRIE_STR_TOO_LONG_MSG, PrefixNode_GetTypeString(&qn->pfx));
     return NULL;
   }
@@ -715,32 +729,25 @@ static QueryIterator *Query_EvalPrefixNode(QueryEvalCtx *q, QueryNode *qn) {
   ctx.its = rm_malloc(sizeof(*ctx.its) * ctx.cap);
   ctx.nits = 0;
 
-  // spec support contains queries
-  if (spec->suffix && qn->pfx.suffix) {
+  if (useSuffixIndex) {
     // all modifier fields are supported
     if (qn->opts.fieldMask == RS_FIELDMASK_ALL ||
        (spec->suffixMask & qn->opts.fieldMask) == qn->opts.fieldMask) {
-      // The suffix index stores folded UTF-8 terms; fold the needle the same
-      // way by lowering its runes and converting back.
-      size_t needleLen;
-      utf8Buf needleBuf;
-      char *needle = runesToStrBuf(str, nstr, &needleBuf, &needleLen);
       if (qn->pfx.prefix) {
         TermSuffixIndex_IterateContains(spec->suffix, needle, needleLen, charIterCb, &ctx);
       } else {
         TermSuffixIndex_IterateSuffix(spec->suffix, needle, needleLen, charIterCb, &ctx);
       }
-      utf8BufFree(&needleBuf);
     } else {
       QueryError_SetError(q->status, QUERY_ERROR_CODE_GENERIC, "Contains query on fields without WITHSUFFIXTRIE support");
     }
+    utf8BufFree(&needleBuf);
   } else {
     Trie_IterateContains(t, str, nstr, qn->pfx.prefix, qn->pfx.suffix,
                          runeIterCb, &ctx, &q->sctx->time.timeout,
                          q->sctx->time.skipTimeoutChecks);
+    rm_free(str);
   }
-
-  rm_free(str);
 
   return NewUnionIterator(ctx.its, ctx.nits, true, qn->opts.weight, QN_PREFIX, qn->pfx.tok.str, q->config);
 }
@@ -762,8 +769,18 @@ static QueryIterator *Query_EvalWildcardQueryNode(QueryEvalCtx *q, QueryNode *qn
 
   token->len = Wildcard_RemoveEscape(token->str, token->len);
   size_t nstr;
-  rune *str = strToLowerRunes(token->str, token->len, &nstr);
-  if (!str) {
+  rune *str = NULL;
+  size_t patternLen;
+  utf8Buf patternBuf;
+  char *pattern = NULL;
+  if (spec->suffix) {
+    // The suffix index stores folded UTF-8 terms; fold the pattern directly
+    // in UTF-8, skipping the rune representation only the trie path needs.
+    pattern = strToLowerStr(token->str, token->len, &patternBuf, &patternLen);
+  } else {
+    str = strToLowerRunes(token->str, token->len, &nstr);
+  }
+  if (!str && !pattern) {
     QueryError_SetError(q->status, QUERY_ERROR_CODE_LIMIT, "Wildcard " TRIE_STR_TOO_LONG_MSG);
     return NULL;
   }
@@ -778,11 +795,6 @@ static QueryIterator *Query_EvalWildcardQueryNode(QueryEvalCtx *q, QueryNode *qn
     // all modifier fields are supported
     if (qn->opts.fieldMask == RS_FIELDMASK_ALL ||
         (spec->suffixMask & qn->opts.fieldMask) == qn->opts.fieldMask) {
-      // The suffix index stores folded UTF-8 terms; fold the pattern the same
-      // way by lowering its runes and converting back.
-      size_t patternLen;
-      utf8Buf patternBuf;
-      char *pattern = runesToStrBuf(str, nstr, &patternBuf, &patternLen);
       TermSuffixIndexIterator *it =
           TermSuffixIndex_IterateWildcard(spec->suffix, pattern, patternLen);
       if (it) {
@@ -798,19 +810,26 @@ static QueryIterator *Query_EvalWildcardQueryNode(QueryEvalCtx *q, QueryNode *qn
         // no pattern token can anchor the suffix index, use brute force
         fallbackBruteForce = true;
       }
-      utf8BufFree(&patternBuf);
     } else {
       QueryError_SetError(q->status, QUERY_ERROR_CODE_GENERIC,
                           "Contains query on fields without WITHSUFFIXTRIE support");
     }
+    utf8BufFree(&patternBuf);
   }
 
   if (!spec->suffix || fallbackBruteForce) {
+    if (!str) {
+      // Cannot fail: strToLowerStr applies the same length gate, so a pattern
+      // it accepted is accepted here as well.
+      str = strToLowerRunes(token->str, token->len, &nstr);
+    }
     Trie_IterateWildcard(t, str, nstr, runeIterCb, &ctx, &q->sctx->time.timeout,
                          q->sctx->time.skipTimeoutChecks);
   }
 
-  rm_free(str);
+  if (str) {
+    rm_free(str);
+  }
 
   return NewUnionIterator(ctx.its, ctx.nits, true, qn->opts.weight, QN_WILDCARD_QUERY, qn->verb.tok.str, q->config);
 }

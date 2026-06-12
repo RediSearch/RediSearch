@@ -79,6 +79,18 @@ static inline void utf8BufFree(utf8Buf *buf) {
  */
 rune *strToLowerRunes(const char *str, size_t utf8_len, size_t *unicode_len);
 
+/* Lowercase a UTF-8 string of `utf8_len` bytes directly into `buf`,
+ * using its static storage when the encoding fits and heap storage
+ * otherwise. Applies the same lowering as strToLowerRunes (including
+ * multi-codepoint expansions) without the intermediate rune
+ * representation, so codepoints beyond the Basic Multilingual Plane
+ * are preserved rather than truncated. Returns the NUL-terminated
+ * string (owned by `buf`), or NULL with *outlen = 0 when the lowered
+ * form exceeds MAX_RUNE_STR_LEN codepoints — the same gate as
+ * strToLowerRunes. Release with utf8BufFree, which is safe to call on
+ * every outcome, including NULL. */
+char *strToLowerStr(const char *str, size_t utf8_len, utf8Buf *buf, size_t *outlen);
+
 /* Convert a UTF-8 byte buffer to runes, fold them and return the folded
  * runes. If a folded rune contains more than one codepoint, only the
  * first codepoint is taken, the rest are ignored.
