@@ -449,32 +449,19 @@ char *IndexSpec_FormatObfuscatedName(const HiddenString *specName) {
   return rm_strdup(buffer);
 }
 
-static bool checkIfSpecExists(const char *rawSpecName) {
-  bool found = false;
-  HiddenString* specName = NewHiddenString(rawSpecName, strlen(rawSpecName), false);
-  found = dictFetchValue(specDict_g, specName);
-  HiddenString_Free(specName, false);
-  return found;
-}
-
-//---------------------------------------------------------------------------------------------
-
-/* Create a new index spec from a redis command */
+/* Build a new IndexSpec from a redis command, wiring up its GC, cursors and
+ * (for temporary indexes) timeout timer.
+ *
+ * This is the IndexSpec core: it does NOT publish the spec into the global
+ * registry (specDict_g/specIdDict_g) and does NOT start the initial scan. The
+ * caller-facing entry point Indexes_CreateNew (indexes.c) performs the
+ * existence/limit checks, registers the spec, and schedules the scan around
+ * this call. Keeping registry access out of spec.c preserves the one-way
+ * indexes -> spec dependency. */
 // TODO: multithreaded: use global metadata locks to protect global data structures
 IndexSpec *IndexSpec_CreateNew(RedisModuleCtx *ctx, RedisModuleString **argv, int argc,
                                QueryError *status) {
-  const char *rawSpecName = RedisModule_StringPtrLen(argv[1], NULL);
   setMemoryInfo(ctx);
-  if (checkIfSpecExists(rawSpecName)) {
-    QueryError_SetCode(status, QUERY_ERROR_CODE_INDEX_EXISTS);
-    return NULL;
-  }
-  if (dictSize(specDict_g) >= maxIndexes_g) {
-    QueryError_SetWithoutUserDataFmt(
-      status, QUERY_ERROR_CODE_LIMIT,
-      "Maximum number of indexes (%u) reached", maxIndexes_g);
-    return NULL;
-  }
   size_t nameLen;
   const char *rawName = RedisModule_StringPtrLen(argv[1], &nameLen);
   HiddenString *name = NewHiddenString(rawName, nameLen, true);
@@ -485,20 +472,6 @@ IndexSpec *IndexSpec_CreateNew(RedisModuleCtx *ctx, RedisModuleString **argv, in
     return NULL;
   }
 
-  // Add the spec to the global spec dictionaries (by name and by specId)
-  if (dictAdd(specDict_g, name, spec_ref.rm) != DICT_OK) {
-    RedisModule_Log(ctx, "warning", "Failed adding index to global dictionary");
-    StrongRef_Release(spec_ref);
-    RS_ABORT("dictAdd shouldn't fail here - index shouldn't exists in the dictionary");
-    return NULL;
-  }
-  if (dictAdd(specIdDict_g, (void*)(uintptr_t)sp->specId, spec_ref.rm) != DICT_OK) {
-    dictDelete(specDict_g, name);
-    RedisModule_Log(ctx, "warning", "Failed adding index to global spec ID dictionary");
-    StrongRef_Release(spec_ref);
-    RS_ABORT("dictAdd shouldn't fail here - index shouldn't exists in the dictionary");
-    return NULL;
-  }
   // Start the garbage collector
   IndexSpec_StartGC(spec_ref, sp, sp->diskSpec ? GCPolicy_Disk : GCPolicy_Fork);
 
@@ -513,9 +486,6 @@ IndexSpec *IndexSpec_CreateNew(RedisModuleCtx *ctx, RedisModuleString **argv, in
   // spec
   Initialize_KeyspaceNotifications();
 
-  // NOTE: kicking off the initial background scan is the caller's responsibility
-  // (see Indexes_CreateNew in indexes.c). Keeping it out of the IndexSpec core
-  // removes the spec -> scanner dependency.
   return sp;
 }
 
@@ -1829,13 +1799,6 @@ void IndexSpec_AddTerm(IndexSpec *sp, const char *term, size_t len) {
     sp->stats.scoring.numTerms++;
     sp->stats.termsSize += len;
   }
-}
-
-// For testing purposes only
-void Spec_AddToDict(RefManager *rm) {
-  IndexSpec* spec = ((IndexSpec*)__RefManager_Get_Object(rm));
-  dictAdd(specDict_g, (void*)spec->specName, (void *)rm);
-  dictAdd(specIdDict_g, (void*)(uintptr_t)spec->specId, (void *)rm);
 }
 
 static void IndexSpecCache_Free(IndexSpecCache *c) {

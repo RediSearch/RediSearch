@@ -33,6 +33,11 @@ extern "C" {
 IndexSpec *Indexes_CreateNew(RedisModuleCtx *ctx, RedisModuleString **argv, int argc,
                              QueryError *status);
 
+/**
+ * Add an already-built spec to the global registry directly. For testing only.
+ */
+void Spec_AddToDict(RefManager *w_spec);
+
 void Indexes_Init(RedisModuleCtx *ctx);
 /*
  * Free all indexes.

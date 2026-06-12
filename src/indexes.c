@@ -63,15 +63,64 @@ extern dict *legacySpecDict;
 extern dict *legacySpecRules;
 extern uint32_t maxIndexes_g;
 
+static bool checkIfSpecExists(const char *rawSpecName) {
+  HiddenString *specName = NewHiddenString(rawSpecName, strlen(rawSpecName), false);
+  bool found = dictFetchValue(specDict_g, specName) != NULL;
+  HiddenString_Free(specName, false);
+  return found;
+}
+
+// Caller-facing entry point for FT.CREATE: enforce the registry preconditions
+// (name uniqueness, index-count limit), build the spec via the IndexSpec core,
+// publish it into the global registry, and schedule its initial scan. All
+// specDict_g / specIdDict_g access lives here, not in spec.c.
 IndexSpec *Indexes_CreateNew(RedisModuleCtx *ctx, RedisModuleString **argv, int argc,
                              QueryError *status) {
+  const char *rawSpecName = RedisModule_StringPtrLen(argv[1], NULL);
+  if (checkIfSpecExists(rawSpecName)) {
+    QueryError_SetCode(status, QUERY_ERROR_CODE_INDEX_EXISTS);
+    return NULL;
+  }
+  if (Indexes_Count() >= maxIndexes_g) {
+    QueryError_SetWithoutUserDataFmt(status, QUERY_ERROR_CODE_LIMIT,
+                                     "Maximum number of indexes (%u) reached", maxIndexes_g);
+    return NULL;
+  }
+
   IndexSpec *sp = IndexSpec_CreateNew(ctx, argv, argc, status);
-  if (sp && !(sp->flags & Index_SkipInitialScan)) {
-    // The spec was just created on the main thread and is published in the
-    // registry, so it is in a safe state to attach a scanner to.
-    IndexSpec_ScanAndReindex(ctx, IndexSpec_GetStrongRefUnsafe(sp));
+  if (sp == NULL) {
+    return NULL;
+  }
+  // IndexSpec_CreateNew leaves the single owning reference in sp->own_ref; the
+  // registry entries take over ownership of it below.
+  StrongRef spec_ref = IndexSpec_GetStrongRefUnsafe(sp);
+
+  // Add the spec to the global spec dictionaries (by name and by specId)
+  if (dictAdd(specDict_g, (void *)sp->specName, spec_ref.rm) != DICT_OK) {
+    RedisModule_Log(ctx, "warning", "Failed adding index to global dictionary");
+    StrongRef_Release(spec_ref);
+    RS_ABORT("dictAdd shouldn't fail here - index shouldn't exists in the dictionary");
+    return NULL;
+  }
+  if (dictAdd(specIdDict_g, (void *)(uintptr_t)sp->specId, spec_ref.rm) != DICT_OK) {
+    dictDelete(specDict_g, sp->specName);
+    RedisModule_Log(ctx, "warning", "Failed adding index to global spec ID dictionary");
+    StrongRef_Release(spec_ref);
+    RS_ABORT("dictAdd shouldn't fail here - index shouldn't exists in the dictionary");
+    return NULL;
+  }
+
+  if (!(sp->flags & Index_SkipInitialScan)) {
+    IndexSpec_ScanAndReindex(ctx, spec_ref);
   }
   return sp;
+}
+
+// For testing purposes only
+void Spec_AddToDict(RefManager *rm) {
+  IndexSpec *spec = ((IndexSpec *)__RefManager_Get_Object(rm));
+  dictAdd(specDict_g, (void *)spec->specName, (void *)rm);
+  dictAdd(specIdDict_g, (void *)(uintptr_t)spec->specId, (void *)rm);
 }
 
 // Assuming the GIL is locked before calling this function.

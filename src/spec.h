@@ -426,11 +426,6 @@ typedef struct IndexSpecCache {
 } IndexSpecCache;
 
 /**
- * For testing only
- */
-void Spec_AddToDict(RefManager *w_spec);
-
-/**
  * Compare redis versions
  */
 int CompareVersions(Version v1, Version v2);
@@ -511,7 +506,9 @@ StrongRef IndexSpec_ParseRedisArgs(RedisModuleCtx *ctx, const HiddenString *name
 arrayof(FieldSpec *) getFieldsByType(IndexSpec *spec, FieldType type);
 int isRdbLoading(RedisModuleCtx *ctx);
 
-/* Create a new index spec from redis arguments, set it in a redis key and start its GC.
+/* Build a new index spec from redis arguments and start its GC. Does NOT add it
+ * to the global registry or start the initial scan - the caller-facing
+ * Indexes_CreateNew (indexes.h) wraps those registry concerns around this call.
  * If an error occurred - we set an error string in err and return NULL.
  */
 IndexSpec *IndexSpec_CreateNew(RedisModuleCtx *ctx, RedisModuleString **argv, int argc,
