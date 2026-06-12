@@ -3246,6 +3246,19 @@ def testMatchedTerms(env):
     env.expect('ft.aggregate', 'idx', 'foo', 'LOAD', '1', '@test', 'APPLY', 'matched_terms(-100)', 'as', 'a').equal([1, ['test', 'foo', 'a', ['foo']]])
     env.expect('ft.aggregate', 'idx', 'foo', 'LOAD', '1', '@test', 'APPLY', 'matched_terms("test")', 'as', 'a').equal([1, ['test', 'foo', 'a', ['foo']]])
 
+def testMatchedTermsAfterSort(env):
+    # matched_terms() reads the index result. When it runs after a buffering step
+    # (SORTBY/GROUPBY) the buffering RP must keep the index result alive, even
+    # without scores or highlighting. Regression guard for the deep-copy gating.
+    env.expect('FT.CREATE', 'idx', 'ON', 'HASH', 'SCHEMA', 'test', 'TEXT', 'n', 'NUMERIC').equal('OK')
+    env.assertOk(env.getClusterConnectionIfNeeded().execute_command('ft.add', 'idx', 'd1', '1.0', 'FIELDS', 'test', 'foo', 'n', '1'))
+    env.assertOk(env.getClusterConnectionIfNeeded().execute_command('ft.add', 'idx', 'd2', '1.0', 'FIELDS', 'test', 'foo', 'n', '2'))
+    # matched_terms() AFTER SORTBY
+    res = env.cmd('ft.aggregate', 'idx', 'foo', 'LOAD', '2', '@test', '@n', 'SORTBY', '2', '@n', 'ASC',
+                  'APPLY', 'matched_terms()', 'as', 'a')
+    for row in res[1:]:
+        env.assertEqual(row[-1], ['foo'])
+
 def testStrFormatError(env):
     env.expect('FT.CREATE', 'idx', 'ON', 'HASH', 'SCHEMA', 'test', 'TEXT').equal('OK')
     env.assertOk(env.getClusterConnectionIfNeeded().execute_command('ft.add', 'idx', 'doc1', '1.0', 'FIELDS', 'test', 'foo'))
