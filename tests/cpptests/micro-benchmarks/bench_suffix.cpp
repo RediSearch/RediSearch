@@ -53,6 +53,11 @@ int CountingRuneCb(const rune *, size_t, void *ctx, void *, size_t) {
     return REDISEARCH_OK;
 }
 
+int CountingCharCb(const char *, size_t, void *ctx, void *) {
+    ++*static_cast<size_t *>(ctx);
+    return REDISEARCH_OK;
+}
+
 // Call-site-faithful contains/suffix iteration, mirroring
 // Query_EvalPrefixNode: the query string arrives as chars, is lowered to
 // runes by the shared prefix-node code, and the suffix block then folds it
@@ -63,16 +68,12 @@ size_t IterateNeedle(TermSuffixIndex *suffix, const char *needle, size_t needleL
     rune *str = strToLowerRunes(needle, needleLen, &nstr);
     size_t foldedLen;
     char *folded = runesToStr(str, nstr, &foldedLen);
-    TermSuffixIndexIterator *it =
-        contains ? TermSuffixIndex_IterateContains(suffix, folded, foldedLen)
-                 : TermSuffixIndex_IterateSuffix(suffix, folded, foldedLen);
-    const char *term;
-    size_t termLen;
     size_t hits = 0;
-    while (TermSuffixIndexIterator_Next(it, &term, &termLen)) {
-        ++hits;
+    if (contains) {
+        TermSuffixIndex_IterateContains(suffix, folded, foldedLen, CountingCharCb, &hits);
+    } else {
+        TermSuffixIndex_IterateSuffix(suffix, folded, foldedLen, CountingCharCb, &hits);
     }
-    TermSuffixIndexIterator_Free(it);
     rm_free(folded);
     rm_free(str);
     return hits;
