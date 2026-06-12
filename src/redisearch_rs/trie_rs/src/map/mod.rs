@@ -7,9 +7,15 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 
+//! The byte-keyed trie map: [`TrieMap`] and its iterators.
+
+pub mod iter;
+mod node;
+mod utils;
+
 use rqe_wildcard::WildcardPattern;
 
-use crate::{
+use crate::map::{
     iter::{
         ContainsIter, IntoValues, Iter, LendingIter, PrefixesIter, RangeFilter, RangeIter, Values,
         WildcardIter, filter::VisitAll,

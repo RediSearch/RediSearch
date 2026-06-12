@@ -7,7 +7,7 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 
-use crate::{TrieMap, iter, str::iter::iter_::key_to_string};
+use crate::{TrieMap, iter, str::iter::unfiltered::key_to_string};
 
 /// Substring-filtered iterator over a [`StrTrieMap`](crate::str::StrTrieMap),
 /// in lexicographical key order.

@@ -10,7 +10,7 @@
 use crate::{
     TrieMap,
     iter::{self, RangeBoundary as InnerBoundary, RangeFilter as InnerFilter},
-    str::iter::iter_::key_to_string,
+    str::iter::unfiltered::key_to_string,
 };
 
 /// One of the bounds for a [`RangeFilter`].

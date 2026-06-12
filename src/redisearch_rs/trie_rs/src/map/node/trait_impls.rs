@@ -8,7 +8,7 @@
 */
 
 //! Implementation of various standard traits for [`Node`].
-use crate::node::Node;
+use crate::map::node::Node;
 use std::fmt;
 
 use super::metadata::DeallocOptions;

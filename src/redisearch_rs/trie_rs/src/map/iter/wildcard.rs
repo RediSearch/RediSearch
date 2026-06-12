@@ -7,7 +7,7 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 
-use crate::node::Node;
+use crate::map::node::Node;
 
 use super::{
     Iter, LendingIter,

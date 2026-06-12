@@ -10,7 +10,7 @@
 use crate::{
     TrieMap,
     iter::{self, filter},
-    str::iter::iter_::key_to_string,
+    str::iter::unfiltered::key_to_string,
 };
 
 /// Suffix-filtered iterator over a [`StrTrieMap`](crate::str::StrTrieMap),

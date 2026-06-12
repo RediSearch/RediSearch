@@ -8,7 +8,7 @@
 */
 
 use super::filter::{TraversalFilter, VisitAll};
-use crate::node::Node;
+use crate::map::node::Node;
 
 /// Iterates over the entries of a [`TrieMap`](crate::TrieMap) in lexicographical order.
 ///

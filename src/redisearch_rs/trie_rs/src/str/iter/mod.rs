@@ -10,13 +10,13 @@
 //! Different iterators to traverse a [`StrTrieMap`](crate::str::StrTrieMap).
 
 mod contains;
-mod iter_;
 mod prefixed;
 mod range;
 mod suffixed;
+mod unfiltered;
 
 pub use contains::ContainsIter;
-pub use iter_::Iter;
 pub use prefixed::PrefixedIter;
 pub use range::{RangeBoundary, RangeFilter, RangeIter};
 pub use suffixed::SuffixedIter;
+pub use unfiltered::Iter;
