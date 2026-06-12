@@ -11,15 +11,14 @@
 
 #include "redismodule.h"
 #include "util/references.h"
+// The IndexesScanner type, its lifecycle, and the OOM helpers are shared with the
+// AsyncScan strategy and live in the scanner core. Re-exported here so existing
+// includers of indexes_scan.h keep seeing the scanner types.
+#include "indexes_scanner.h"
 
 #ifdef __cplusplus
 extern "C" {
 #endif
-
-// The IndexesScanner type, its lifecycle, and the shared OOM helpers live in the
-// scanner core indexes_scanner.h. This header declares only the reindex
-// dispatch/entry points; includers that touch the scanner type include
-// indexes_scanner.h directly.
 
 ///////////////////////////////////////////////////////////////////////////////////////////////
 
