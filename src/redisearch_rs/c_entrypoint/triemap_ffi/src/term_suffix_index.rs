@@ -33,7 +33,12 @@ use trie_rs::term_suffix_index::TermSuffixIndex as TermSuffixIndexImpl;
 /// `REDISEARCH_OK` (0) to continue the iteration; any other value
 /// stops it.
 pub type TermSuffixIterateCallback = Option<
-    unsafe extern "C" fn(term: *const c_char, len: usize, ctx: *mut c_void, payload: *mut c_void) -> c_int,
+    unsafe extern "C" fn(
+        term: *const c_char,
+        len: usize,
+        ctx: *mut c_void,
+        payload: *mut c_void,
+    ) -> c_int,
 >;
 
 /// A set of indexed terms supporting substring (`*foo*`), ends-with
@@ -216,7 +221,12 @@ pub unsafe extern "C" fn TermSuffixIndex_IterateContains(
         // SAFETY: caller is to ensure `callback` tolerates a
         // non-NUL-terminated term pointer valid for the call.
         let outcome = unsafe {
-            callback(term.as_ptr().cast::<c_char>(), term.len(), ctx, std::ptr::null_mut())
+            callback(
+                term.as_ptr().cast::<c_char>(),
+                term.len(),
+                ctx,
+                std::ptr::null_mut(),
+            )
         };
         if outcome != 0 {
             break;
@@ -271,7 +281,12 @@ pub unsafe extern "C" fn TermSuffixIndex_IterateSuffix(
         // SAFETY: caller is to ensure `callback` tolerates a
         // non-NUL-terminated term pointer valid for the call.
         let outcome = unsafe {
-            callback(term.as_ptr().cast::<c_char>(), term.len(), ctx, std::ptr::null_mut())
+            callback(
+                term.as_ptr().cast::<c_char>(),
+                term.len(),
+                ctx,
+                std::ptr::null_mut(),
+            )
         };
         if outcome != 0 {
             break;

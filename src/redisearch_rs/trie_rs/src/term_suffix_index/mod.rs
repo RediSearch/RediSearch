@@ -126,7 +126,10 @@ impl TermSuffixIndex {
     /// since suffixes below the threshold aren't indexed; debug
     /// builds assert this. Production callers filter upstream via
     /// the query engine's `minTermPrefix` gate.
-    pub fn iter_contains<'tm>(&'tm self, needle: &str) -> impl Iterator<Item = &'tm str> + use<'tm> {
+    pub fn iter_contains<'tm>(
+        &'tm self,
+        needle: &str,
+    ) -> impl Iterator<Item = &'tm str> + use<'tm> {
         debug_assert!(
             needle.is_empty() || needle.chars().count() >= MIN_SUFFIX,
             "needle must span at least {MIN_SUFFIX} codepoints; caller must filter shorter needles (production gate: minTermPrefix)",
@@ -156,7 +159,8 @@ impl TermSuffixIndex {
         } else {
             self.inner.get(needle)
         };
-        data.into_iter().flat_map(|data| data.terms().map(|term| &**term))
+        data.into_iter()
+            .flat_map(|data| data.terms().map(|term| &**term))
     }
 
     /// Yield every indexed term matching the wildcard `pattern`
