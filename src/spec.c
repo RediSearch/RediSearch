@@ -7,8 +7,6 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 #include "spec.h"
-#include "indexes.h"
-#include "indexes_scan.h"
 #include "document.h"
 #include "inverted_index_ffi.h"
 #include "numeric_range_tree_ffi.h"
@@ -2663,7 +2661,8 @@ static void IndexStats_RdbLoad(RedisModuleIO *rdb, IndexStats *stats, int encver
 
 //---------------------------------------------------------------------------------------------
 
-void IndexSpec_AddToInfo(RedisModuleInfoCtx *ctx, IndexSpec *sp, bool obfuscate, bool skip_unsafe_ops) {
+void IndexSpec_AddToInfo(RedisModuleInfoCtx *ctx, IndexSpec *sp, bool obfuscate, bool skip_unsafe_ops,
+                         bool globalScanActive) {
   const char* indexName = IndexSpec_FormatName(sp, obfuscate);
   RedisModule_InfoAddSection(ctx, indexName);
 
@@ -2827,7 +2826,7 @@ void IndexSpec_AddToInfo(RedisModuleInfoCtx *ctx, IndexSpec *sp, bool obfuscate,
 
   RedisModule_InfoBeginDictField(ctx, "index_failures");
   RedisModule_InfoAddFieldLongLong(ctx, "hash_indexing_failures", sp->stats.indexError.error_count);
-  RedisModule_InfoAddFieldLongLong(ctx, "indexing", !!global_spec_scanner || sp->scan_in_progress);
+  RedisModule_InfoAddFieldLongLong(ctx, "indexing", globalScanActive || sp->scan_in_progress);
   RedisModule_InfoEndDictField(ctx);
 
   // Garbage collector - safe to call, just reads struct fields
@@ -3083,8 +3082,6 @@ IndexSpec *IndexSpec_RdbLoad(RedisModuleIO *rdb, int encver, bool useSst, QueryE
 
   initializeIndexSpec(sp, specName, flags, numFields_u64);
 
-  sp->isDuplicate = dictFetchValue(specDict_g, sp->specName) != NULL;
-
   IndexSpec_MakeKeyless(sp);
   for (int i = 0; i < sp->numFields; i++) {
     FieldSpec *fs = sp->fields + i;
@@ -3143,6 +3140,8 @@ IndexSpec *IndexSpec_RdbLoad(RedisModuleIO *rdb, int encver, bool useSst, QueryE
       RedisModule_Log(RSDummyContext, "notice", "Loading existing alias failed");
     }
   }
+
+  sp->isDuplicate = dictFetchValue(specDict_g, sp->specName) != NULL;
 
   if (isSpecOnDisk(sp) && useSst) {
     // Load the disk-related index data if we are on disk and the save flow used
@@ -3337,9 +3336,11 @@ void IndexSpec_LegacyRdbSave(RedisModuleIO *rdb, void *value) {
   return;
 }
 
-
-
-
+void IndexSpec_RdbSave_Wrapper(RedisModuleIO *rdb, void *value) {
+  RedisModuleCtx *ctx = RedisModule_GetContextFromIO(rdb);
+  const int contextFlags = RedisModule_GetContextFlags(ctx);
+  IndexSpec_RdbSave(rdb, value, contextFlags);
+}
 
 void *IndexSpec_RdbLoad_Logic(RedisModuleIO *rdb, int encver) {
   const bool useSst = CheckRdbSstPersistence(RedisModule_GetContextFromIO(rdb), "RDB Load Logic");
@@ -3404,33 +3405,6 @@ int CompareVersions(Version v1, Version v2) {
   return 0;
 }
 
-
-static void IndexSpec_RdbSave_Wrapper(RedisModuleIO *rdb, void *value) {
-  RedisModuleCtx *ctx = RedisModule_GetContextFromIO(rdb);
-  const int contextFlags = RedisModule_GetContextFlags(ctx);
-  IndexSpec_RdbSave(rdb, value, contextFlags);
-}
-
-int IndexSpec_RegisterType(RedisModuleCtx *ctx) {
-  RedisModuleTypeMethods tm = {
-      .version = REDISMODULE_TYPE_METHOD_VERSION,
-      .rdb_load = IndexSpec_RdbLoad_Logic,    // We don't store the index spec in the key space,
-      .rdb_save = IndexSpec_RdbSave_Wrapper,  // but these are useful for serialization/deserialization (and legacy loading)
-      .aux_load = Indexes_RdbLoad,
-      .aux_save = Indexes_RdbSave,
-      .free = IndexSpec_LegacyFree,
-      .aof_rewrite = GenericAofRewrite_DisabledHandler,
-      .aux_save_triggers = REDISMODULE_AUX_BEFORE_RDB,
-      .aux_save2 = Indexes_RdbSave2,
-  };
-
-  IndexSpecType = RedisModule_CreateDataType(ctx, "ft_index0", INDEX_CURRENT_VERSION, &tm);
-  if (IndexSpecType == NULL) {
-    RedisModule_Log(ctx, "warning", "Could not create index spec type");
-    return REDISMODULE_ERR;
-  }
-  return REDISMODULE_OK;
-}
 
 int IndexSpec_UpdateDoc(IndexSpec *spec, RedisModuleCtx *ctx, RedisModuleString *key, DocumentType type) {
   RedisSearchCtx sctx = SEARCH_CTX_STATIC(ctx, spec);

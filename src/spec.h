@@ -581,8 +581,12 @@ void IndexSpec_MakeKeyless(IndexSpec *sp);
  * @param sp - the index spec
  * @param obfuscate - if true, obfuscate the index name and field names
  * @param skip_unsafe_ops - if true, skips operations unsafe in signal handler context (allocations, locks)
+ * @param globalScanActive - whether a global background scan is currently running
+ *        (the registry/scanner state lives in indexes_scan.c; the caller passes it in
+ *        so the IndexSpec core does not depend on the scanner)
  */
-void IndexSpec_AddToInfo(RedisModuleInfoCtx *ctx, IndexSpec *sp, bool obfuscate, bool skip_unsafe_ops);
+void IndexSpec_AddToInfo(RedisModuleInfoCtx *ctx, IndexSpec *sp, bool obfuscate, bool skip_unsafe_ops,
+                         bool globalScanActive);
 
 /**
  * Gets the next text id from the index. This does not currently
@@ -690,7 +694,12 @@ void IndexSpec_AddTerm(IndexSpec *sp, const char *term, size_t len);
 IndexSpec *NewIndexSpec(const HiddenString *name);
 IndexSpec *IndexSpec_RdbLoad(RedisModuleIO *rdb, int encver, bool useSst, QueryError *status);
 void IndexSpec_RdbSave(RedisModuleIO *rdb, IndexSpec *sp, int contextFlags);
-int IndexSpec_RegisterType(RedisModuleCtx *ctx);
+
+// Per-spec RDB callbacks for the IndexSpecType module type. Defined in spec.c;
+// wired into the type by Indexes_RegisterType (indexes.c).
+void *IndexSpec_RdbLoad_Logic(RedisModuleIO *rdb, int encver);
+void IndexSpec_RdbSave_Wrapper(RedisModuleIO *rdb, void *value);
+void IndexSpec_LegacyFree(void *spec);
 // int IndexSpec_UpdateWithHash(IndexSpec *spec, RedisModuleCtx *ctx, RedisModuleString *key);
 void IndexSpec_ClearAliases(StrongRef ref);
 

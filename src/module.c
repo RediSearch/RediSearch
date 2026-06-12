@@ -1772,7 +1772,7 @@ int RediSearch_InitModuleInternal(RedisModuleCtx *ctx) {
   // register the trie type (half-legacy, still used by `FT.SUG*` commands)
   RM_TRY_F(TrieType_Register, ctx);
 
-  RM_TRY_F(IndexSpec_RegisterType, ctx);
+  RM_TRY_F(Indexes_RegisterType, ctx);
 
   RM_TRY_F(RegisterLegacyTypes, ctx);
 

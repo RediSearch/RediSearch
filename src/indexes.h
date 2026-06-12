@@ -48,6 +48,10 @@ void Spec_AddToDict(RefManager *w_spec);
  */
 void Indexes_RemoveFromGlobals(StrongRef spec_ref, bool removeActive);
 
+// Register the IndexSpecType module type (wires the registry-wide RDB aux
+// callbacks together with the per-spec callbacks defined in spec.c).
+int Indexes_RegisterType(RedisModuleCtx *ctx);
+
 void Indexes_Init(RedisModuleCtx *ctx);
 /*
  * Free all indexes.

@@ -306,6 +306,30 @@ void Indexes_RdbSave2(RedisModuleIO *rdb, int when) {
   }
 }
 
+// Register the IndexSpecType module type. Its aux callbacks serialize the whole
+// registry (Indexes_RdbLoad/Save), while its per-key callbacks serialize a single
+// spec (defined in spec.c); wiring them together is a registry-layer concern.
+int Indexes_RegisterType(RedisModuleCtx *ctx) {
+  RedisModuleTypeMethods tm = {
+      .version = REDISMODULE_TYPE_METHOD_VERSION,
+      .rdb_load = IndexSpec_RdbLoad_Logic,    // We don't store the index spec in the key space,
+      .rdb_save = IndexSpec_RdbSave_Wrapper,  // but these are useful for serialization/deserialization (and legacy loading)
+      .aux_load = Indexes_RdbLoad,
+      .aux_save = Indexes_RdbSave,
+      .free = IndexSpec_LegacyFree,
+      .aof_rewrite = GenericAofRewrite_DisabledHandler,
+      .aux_save_triggers = REDISMODULE_AUX_BEFORE_RDB,
+      .aux_save2 = Indexes_RdbSave2,
+  };
+
+  IndexSpecType = RedisModule_CreateDataType(ctx, "ft_index0", INDEX_CURRENT_VERSION, &tm);
+  if (IndexSpecType == NULL) {
+    RedisModule_Log(ctx, "warning", "Could not create index spec type");
+    return REDISMODULE_ERR;
+  }
+  return REDISMODULE_OK;
+}
+
 void Indexes_Propagate(RedisModuleCtx *ctx) {
   dictIterator *iter = dictGetIterator(specDict_g);
   dictEntry *entry;
