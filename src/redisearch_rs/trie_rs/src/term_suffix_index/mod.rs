@@ -259,8 +259,9 @@ mod tests {
 
     use super::*;
 
-    /// Anchor choice affects performance, never the result set,
-    /// so the scoring rules are pinned here instead.
+    /// Anchor choice affects performance, never the result set, so
+    /// no test going through the public API can observe it; the
+    /// scoring rules are pinned against the private heuristic.
     #[rstest]
     #[case::score_tie_prefers_later_token("ab*cd*", Some(("cd", true)))]
     #[case::subtree_penalty_outweighs_small_length_lead("abcdef*gh", Some(("gh", false)))]
