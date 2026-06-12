@@ -288,13 +288,13 @@ TEST_F(RdbMockTest, testIndexSpecStringSerialize) {
 
     // Drop the original spec from globals
     Indexes_RemoveFromGlobals(original_spec_ref, false);
-    ASSERT_TRUE(IndexSpec_LoadUnsafe("test_rdb_idx").rm == NULL);
+    ASSERT_TRUE(Indexes_LoadIndexSpecUnsafe("test_rdb_idx").rm == NULL);
 
     // Deserialize
     IndexSpec *deserialized = IndexSpec_Deserialize(serialized, encver);
     int res = Indexes_StoreAfterRdbLoad(deserialized);
     ASSERT_EQ(REDISMODULE_OK, res);
-    StrongRef loaded_spec_ref = IndexSpec_LoadUnsafe("test_rdb_idx");
+    StrongRef loaded_spec_ref = Indexes_LoadIndexSpecUnsafe("test_rdb_idx");
     spec = (IndexSpec *)StrongRef_Get(loaded_spec_ref);
 
     // Sanity checks that the spec is loaded correctly
@@ -342,7 +342,7 @@ TEST_F(RdbMockTest, testDuplicateIndexRdbLoad) {
 
     // Remove the original spec from globals before loading from RDB
     Indexes_RemoveFromGlobals(spec_ref, false);
-    ASSERT_TRUE(IndexSpec_LoadUnsafe("test_duplicate_idx").rm == NULL);
+    ASSERT_TRUE(Indexes_LoadIndexSpecUnsafe("test_duplicate_idx").rm == NULL);
 
     // Reset read position to load from RDB
     io->read_pos = 0;
@@ -354,7 +354,7 @@ TEST_F(RdbMockTest, testDuplicateIndexRdbLoad) {
 
 
     // Verify the loaded index exists and has the correct name
-    StrongRef loaded_spec_ref = IndexSpec_LoadUnsafe("test_duplicate_idx");
+    StrongRef loaded_spec_ref = Indexes_LoadIndexSpecUnsafe("test_duplicate_idx");
     IndexSpec *loaded_spec = (IndexSpec *)StrongRef_Get(loaded_spec_ref);
     ASSERT_TRUE(loaded_spec != nullptr);
     ASSERT_STREQ(HiddenString_GetUnsafe(loaded_spec->specName, NULL), "test_duplicate_idx");

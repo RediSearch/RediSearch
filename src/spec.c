@@ -2091,30 +2091,12 @@ inline static void IndexSpec_IncreasCounter(IndexSpec *sp) {
 
 ///////////////////////////////////////////////////////////////////////////////////////////////
 
-StrongRef IndexSpec_LoadUnsafe(const char *name) {
-  IndexLoadOptions lopts = {.nameC = name};
-  return IndexSpec_LoadUnsafeEx(&lopts);
-}
-
-StrongRef IndexSpec_LoadUnsafeEx(IndexLoadOptions *options) {
-  const char *ixname = NULL;
-  if (options->flags & INDEXSPEC_LOAD_KEY_RSTRING) {
-    ixname = RedisModule_StringPtrLen(options->nameR, NULL);
-  } else {
-    ixname = options->nameC;
-  }
-
-  HiddenString *specNameOrAlias = NewHiddenString(ixname, strlen(ixname), false);
-  StrongRef spec_ref = {dictFetchValue(specDict_g, specNameOrAlias)};
+// Per-spec bookkeeping for a spec the registry layer has already resolved
+// (Indexes_LoadIndexSpecUnsafeEx owns the specDict_g lookup and calls this):
+// bump the usage counter and refresh the temporary-index timeout timer.
+// `spec_ref` must be a valid, non-NULL strong reference. Touches no globals.
+void IndexSpec_LoadUnsafeEx(StrongRef spec_ref, IndexLoadOptions *options) {
   IndexSpec *sp = StrongRef_Get(spec_ref);
-  if (!sp && !(options->flags & INDEXSPEC_LOAD_NOALIAS)) {
-    spec_ref = IndexAlias_Get(specNameOrAlias);
-    sp = StrongRef_Get(spec_ref);
-  }
-  HiddenString_Free(specNameOrAlias, false);
-  if (!sp) {
-    return spec_ref;
-  }
 
   if (!(options->flags & INDEXSPEC_LOAD_NOCOUNTERINC)){
     // Increment the number of uses.
@@ -2124,7 +2106,6 @@ StrongRef IndexSpec_LoadUnsafeEx(IndexLoadOptions *options) {
   if (!RS_IsMock && (sp->flags & Index_Temporary) && !(options->flags & INDEXSPEC_LOAD_NOTIMERUPDATE)) {
     IndexSpec_SetTimeoutTimer(sp, StrongRef_Demote(spec_ref));
   }
-  return spec_ref;
 }
 
 StrongRef IndexSpec_GetStrongRefUnsafe(const IndexSpec *spec) {

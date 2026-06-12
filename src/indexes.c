@@ -54,7 +54,7 @@
 #include "search_disk_utils.h"
 
 // The global index registry, keyed by name and by spec id. Other translation
-// units read these as externs (declared in spec.h).
+// units read these as externs (declared in indexes.h).
 dict *specDict_g = NULL;
 dict *specIdDict_g = NULL;
 
@@ -135,6 +135,39 @@ void Indexes_RemoveFromGlobals(StrongRef spec_ref, bool removeActive) {
 
   // Unwind the spec's remaining global state and consume the reference.
   IndexSpec_Unlink(spec_ref, removeActive);
+}
+
+// Look up a spec by name (or alias) in the global registry - the specDict_g
+// access - then run the per-spec post-load bookkeeping via IndexSpec_LoadUnsafeEx.
+// The call does not increase the spec's strong reference counter (the returned
+// StrongRef is a borrow; NULL payload if the index does not exist).
+StrongRef Indexes_LoadIndexSpecUnsafeEx(IndexLoadOptions *options) {
+  const char *ixname = NULL;
+  if (options->flags & INDEXSPEC_LOAD_KEY_RSTRING) {
+    ixname = RedisModule_StringPtrLen(options->nameR, NULL);
+  } else {
+    ixname = options->nameC;
+  }
+
+  HiddenString *specNameOrAlias = NewHiddenString(ixname, strlen(ixname), false);
+  StrongRef spec_ref = {dictFetchValue(specDict_g, specNameOrAlias)};
+  IndexSpec *sp = StrongRef_Get(spec_ref);
+  if (!sp && !(options->flags & INDEXSPEC_LOAD_NOALIAS)) {
+    spec_ref = IndexAlias_Get(specNameOrAlias);
+    sp = StrongRef_Get(spec_ref);
+  }
+  HiddenString_Free(specNameOrAlias, false);
+  if (!sp) {
+    return spec_ref;
+  }
+
+  IndexSpec_LoadUnsafeEx(spec_ref, options);
+  return spec_ref;
+}
+
+StrongRef Indexes_LoadIndexSpecUnsafe(const char *name) {
+  IndexLoadOptions lopts = {.nameC = name};
+  return Indexes_LoadIndexSpecUnsafeEx(&lopts);
 }
 
 // Assuming the GIL is locked before calling this function.

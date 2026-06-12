@@ -9,6 +9,7 @@
 #include "indexes_info.h"
 #include "util/dict.h"
 #include "spec.h"
+#include "indexes.h"
 #include "field_spec_info.h"
 #include "VecSim/vec_sim.h"
 #include <string.h>  // Add this for strerror

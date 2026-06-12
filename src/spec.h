@@ -129,8 +129,9 @@ struct IndexesScanner;
 #define MIN_DIALECT_VERSION 1 // MIN_DIALECT_VERSION is expected to change over time as dialects become deprecated.
 #define MAX_DIALECT_VERSION 4 // MAX_DIALECT_VERSION may not exceed MIN_DIALECT_VERSION + 7.
 
-extern dict *specDict_g;
-extern dict *specIdDict_g;  // Maps specId (uint64_t) → RefManager* (same as specDict_g values)
+// The global index registry dictionaries (specDict_g / specIdDict_g) are owned
+// by indexes.c; their extern declarations live in indexes.h. spec.h only keeps
+// these generic StrongRef-from-dict-entry helpers, which are not registry-specific.
 #define dictGetRef(he) ((StrongRef){dictGetVal(he)})
 #define dictFetchRef(dict, key) ((StrongRef){dictFetchValue((dict), (key))})
 
@@ -627,19 +628,13 @@ typedef struct {
 //---------------------------------------------------------------------------------------------
 
 /**
- * Find and load the index using the specified parameters.
- * @return the strong reference to the index spec owned by RediSearch (a borrow), or NULL if the index does not exist.
- * If an owned reference is needed, use StrongRef API to create one.
+ * Per-spec bookkeeping run after the registry layer resolves a spec: bumps the
+ * usage counter and refreshes the temporary-index timeout timer (subject to the
+ * NOCOUNTERINC / NOTIMERUPDATE option flags). Touches no global structures.
+ * `spec_ref` must be a valid, non-NULL strong reference. The registry lookup
+ * lives in Indexes_LoadIndexSpecUnsafeEx (indexes.h), which calls this.
  */
-// TODO: Remove the context from this function!
-StrongRef IndexSpec_LoadUnsafe(const char *name);
-
-/**
- * Find and load the index using the specified parameters. The call does not increase the spec reference counter
- * (only the weak reference counter).
- * @return the index spec, or NULL if the index does not exist
- */
-StrongRef IndexSpec_LoadUnsafeEx(IndexLoadOptions *options);
+void IndexSpec_LoadUnsafeEx(StrongRef spec_ref, IndexLoadOptions *options);
 
 /**
  * Quick access to the spec's strong reference. This function should be called only if

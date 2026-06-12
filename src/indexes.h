@@ -11,15 +11,19 @@
 
 // indexes.h -- the global index registry and keyspace dispatch API.
 //
-// These functions operate over the global spec dictionaries (specDict_g /
-// specIdDict_g, defined in indexes.c). Their extern declarations and the shared
-// SpecOp* / TimerOp types live in spec.h, which this header includes.
+// Owns the global spec dictionaries (specDict_g / specIdDict_g), defined in
+// indexes.c and declared here. The shared SpecOp* / TimerOp types live in
+// spec.h, which this header includes.
 
 #include "spec.h"
 
 #ifdef __cplusplus
 extern "C" {
 #endif
+
+// The global index registry, keyed by name and by spec id (defined in indexes.c).
+extern dict *specDict_g;
+extern dict *specIdDict_g;  // Maps specId (uint64_t) -> RefManager* (same as specDict_g values)
 
 //---------------------------------------------------------------------------------------------
 
@@ -47,6 +51,17 @@ void Spec_AddToDict(RefManager *w_spec);
  * @param removeActive - should we call CurrentThread_ClearIndexSpec on the released spec
  */
 void Indexes_RemoveFromGlobals(StrongRef spec_ref, bool removeActive);
+
+/**
+ * Find and load an index from the global registry, by name
+ * (Indexes_LoadIndexSpecUnsafe) or by IndexLoadOptions (Indexes_LoadIndexSpecUnsafeEx).
+ * Performs the specDict_g lookup (with alias fallback unless INDEXSPEC_LOAD_NOALIAS)
+ * then runs the per-spec post-load bookkeeping (IndexSpec_LoadUnsafeEx). The call
+ * does not increase the spec's strong reference counter.
+ * @return a borrowed strong reference to the spec, or NULL if it does not exist.
+ */
+StrongRef Indexes_LoadIndexSpecUnsafe(const char *name);
+StrongRef Indexes_LoadIndexSpecUnsafeEx(IndexLoadOptions *options);
 
 // Register the IndexSpecType module type (wires the registry-wide RDB aux
 // callbacks together with the per-spec callbacks defined in spec.c).
