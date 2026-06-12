@@ -18,6 +18,7 @@
 #include "rules.h"
 #include "doc_types.h"
 #include "doc_id_meta.h"
+#include "debug_commands.h"
 #include "rmutil/rm_assert.h"
 
 // Emit a throttled progress line roughly every this many scanned keys, so a long
@@ -131,6 +132,11 @@ void Indexes_AsyncScanAndReindexTask(IndexesScanner *scanner) {
                     scanner->spec_name_for_logs);
     goto done;
   }
+
+  // Test hook: park the driver before any batch is queued (no GIL held here), so a
+  // test can deterministically drop the index / cancel the scan mid-flight. No-op
+  // unless armed via _FT.DEBUG SYNC_POINT (ENABLE_ASSERT builds).
+  SyncPoint_Wait(SYNC_POINT_ASYNC_SCAN_BEFORE_FIRST_BATCH);
 
   // First call: bind all parameters to the cursor and queue the first batch. Start
   // is subject to the same max-inflight cap as NextBatch and can return BUSY, so we
