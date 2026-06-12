@@ -14,11 +14,12 @@ use std::{ffi::c_void, ptr::NonNull};
 /// Opaque type wrapping a [`TrieMap<*mut c_void>`](crate::TrieMap) for FFI use.
 ///
 /// This type is intended to be passed across the FFI boundary as an opaque
-/// pointer. It can be instantiated with `TrieMap(crate::TrieMap::new())` and
-/// the inner [`crate::TrieMap`] can be accessed via the public field.
-pub struct TrieMap(pub crate::TrieMap<*mut c_void>);
+/// pointer. It can be instantiated with `TrieMapOpaque(crate::TrieMap::new())`
+/// and the inner [`crate::TrieMap`] can be accessed via the public field.
+#[cheadergen::config(rename = "TrieMap")]
+pub struct TrieMapOpaque(pub crate::TrieMap<*mut c_void>);
 
-impl TrieMap {
+impl TrieMapOpaque {
     /// Find the value associated with a key in the trie.
     ///
     /// Returns `None` if the key does not exist or if the stored value is

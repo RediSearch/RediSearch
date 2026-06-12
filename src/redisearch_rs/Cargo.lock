@@ -3048,6 +3048,7 @@ dependencies = [
 name = "trie_rs"
 version = "0.0.1"
 dependencies = [
+ "cheadergen",
  "ffi",
  "fs-err",
  "insta",
