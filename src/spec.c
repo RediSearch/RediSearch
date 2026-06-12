@@ -3141,8 +3141,10 @@ IndexSpec *IndexSpec_RdbLoad(RedisModuleIO *rdb, int encver, bool useSst, QueryE
     }
   }
 
-  sp->isDuplicate = dictFetchValue(specDict_g, sp->specName) != NULL;
-
+  // NOTE: duplicate detection (a specDict_g read) and the non-SST on-disk index
+  // open that depends on it are handled by the registry layer after this returns
+  // (see IndexSpec_RdbLoadOpenDisk + the loaders in indexes.c). The SST branch
+  // below must run here regardless, since it consumes RDB stream data.
   if (isSpecOnDisk(sp) && useSst) {
     // Load the disk-related index data if we are on disk and the save flow used
     // sst-files. We load it into a temporary in-memory object first, then use it
@@ -3165,16 +3167,6 @@ IndexSpec *IndexSpec_RdbLoad(RedisModuleIO *rdb, int encver, bool useSst, QueryE
     if (!sp->pendingDiskRdbState) {
       goto cleanup;
     }
-  } else if (isSpecOnDisk(sp) && !sp->isDuplicate) {
-    // If the regular RDB method is used, just open an Index without any populated data.
-    RS_ASSERT(!useSst);
-    sp->diskSpec = SearchDisk_OpenIndex(ctx, sp->specName, sp->obfuscatedName, sp->rule->type, false, sp);
-    if (!sp->diskSpec) {
-      goto cleanup;
-    }
-    IndexSpec_PopulateVectorDiskParams(sp);
-    IndexSpec_EnsureTagDiskIndexes(sp);
-    SearchDisk_RegisterIndex(ctx, sp);
   }
 
   return sp;
@@ -3188,6 +3180,25 @@ cleanup:
 cleanup_no_index:
   QueryError_SetError(status, QUERY_ERROR_CODE_PARSE_ARGS, "while reading an index");
   return NULL;
+}
+
+// Open the on-disk index for a spec just parsed by IndexSpec_RdbLoad, for the
+// non-SST RDB path. No-op for SST loads, memory-only specs, or duplicates -
+// `sp->isDuplicate` must already be resolved by the caller (the registry layer).
+// Returns REDISMODULE_OK (including the nothing-to-do case) or REDISMODULE_ERR.
+int IndexSpec_RdbLoadOpenDisk(RedisModuleCtx *ctx, IndexSpec *sp, bool useSst, QueryError *status) {
+  if (isSpecOnDisk(sp) && !useSst && !sp->isDuplicate) {
+    // If the regular RDB method is used, just open an Index without any populated data.
+    sp->diskSpec = SearchDisk_OpenIndex(ctx, sp->specName, sp->obfuscatedName, sp->rule->type, false, sp);
+    if (!sp->diskSpec) {
+      QueryError_SetError(status, QUERY_ERROR_CODE_PARSE_ARGS, "while reading an index");
+      return REDISMODULE_ERR;
+    }
+    IndexSpec_PopulateVectorDiskParams(sp);
+    IndexSpec_EnsureTagDiskIndexes(sp);
+    SearchDisk_RegisterIndex(ctx, sp);
+  }
+  return REDISMODULE_OK;
 }
 
 
@@ -3340,31 +3351,6 @@ void IndexSpec_RdbSave_Wrapper(RedisModuleIO *rdb, void *value) {
   RedisModuleCtx *ctx = RedisModule_GetContextFromIO(rdb);
   const int contextFlags = RedisModule_GetContextFlags(ctx);
   IndexSpec_RdbSave(rdb, value, contextFlags);
-}
-
-void *IndexSpec_RdbLoad_Logic(RedisModuleIO *rdb, int encver) {
-  const bool useSst = CheckRdbSstPersistence(RedisModule_GetContextFromIO(rdb), "RDB Load Logic");
-  if (encver <= LEGACY_INDEX_MAX_VERSION) {
-    // Legacy index, loaded in order to upgrade from an old version
-    return IndexSpec_LegacyRdbLoad(rdb, encver);
-  } else {
-    // New index, loaded normally.
-    // Even though we don't actually load or save the index spec in the key space, this implementation is useful
-    // because it allows us to serialize and deserialize the index spec in a clean way.
-    // Required to support loading during ASM migration.
-    RS_ASSERT(encver >= INDEX_ASM_PROPAGATE_DEFINITIONS_VERSION);
-    if (encver < INDEX_ASM_PROPAGATE_DEFINITIONS_VERSION) {
-      RedisModule_LogIOError(rdb, "warning", "RDB Load: Unexpected encver %d found in RDB_Load, encver not expected to be lower than %d", encver, INDEX_ASM_PROPAGATE_DEFINITIONS_VERSION);
-      return NULL;
-    }
-    QueryError status = QueryError_Default();
-    IndexSpec *sp = IndexSpec_RdbLoad(rdb, encver, useSst, &status);
-    if (!sp) {
-      RedisModule_LogIOError(rdb, "warning", "RDB Load: %s", QueryError_GetDisplayableError(&status, RSGlobalConfig.hideUserDataFromLog));
-      QueryError_ClearError(&status);
-    }
-    return sp;
-  }
 }
 
 /**
@@ -3609,11 +3595,6 @@ void IndexSpecRef_Release(StrongRef ref) {
   CurrentThread_ClearIndexSpec();
   StrongRef_Release(ref);
 }
-
-
-
-
-
 
 
 // =============================================================================

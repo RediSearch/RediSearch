@@ -692,12 +692,19 @@ void addPendingIndexDrop();
 void IndexSpec_AddTerm(IndexSpec *sp, const char *term, size_t len);
 
 IndexSpec *NewIndexSpec(const HiddenString *name);
+// Parse a single spec from the RDB stream. Does NOT consult the registry or open
+// the non-SST on-disk index (both depend on duplicate detection, which the
+// registry layer resolves); callers follow up with IndexSpec_RdbLoadOpenDisk.
 IndexSpec *IndexSpec_RdbLoad(RedisModuleIO *rdb, int encver, bool useSst, QueryError *status);
+// Open the non-SST on-disk index for a spec from IndexSpec_RdbLoad, once the
+// caller has resolved sp->isDuplicate. No-op for SST/memory/duplicate specs.
+int IndexSpec_RdbLoadOpenDisk(RedisModuleCtx *ctx, IndexSpec *sp, bool useSst, QueryError *status);
 void IndexSpec_RdbSave(RedisModuleIO *rdb, IndexSpec *sp, int contextFlags);
 
 // Per-spec RDB callbacks for the IndexSpecType module type. Defined in spec.c;
-// wired into the type by Indexes_RegisterType (indexes.c).
-void *IndexSpec_RdbLoad_Logic(RedisModuleIO *rdb, int encver);
+// wired into the type by Indexes_RegisterType (indexes.c). IndexSpec_LegacyRdbLoad
+// loads a pre-event legacy index for upgrade.
+void *IndexSpec_LegacyRdbLoad(RedisModuleIO *rdb, int encver);
 void IndexSpec_RdbSave_Wrapper(RedisModuleIO *rdb, void *value);
 void IndexSpec_LegacyFree(void *spec);
 // int IndexSpec_UpdateWithHash(IndexSpec *spec, RedisModuleCtx *ctx, RedisModuleString *key);

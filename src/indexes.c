@@ -188,6 +188,25 @@ void Indexes_Free(RedisModuleCtx *ctx, dict *d, bool deleteDiskData) {
   array_free(specs);
 }
 
+// Load one spec from the RDB stream and resolve its registry-dependent state:
+// parse it (IndexSpec core), detect a duplicate against the registry, then open
+// its on-disk index if appropriate. Returns the spec (not yet registered - the
+// caller passes it to Indexes_StoreAfterRdbLoad), or NULL on failure.
+static IndexSpec *Indexes_LoadSpecFromRdb(RedisModuleIO *rdb, int encver, bool useSst, QueryError *status) {
+  IndexSpec *sp = IndexSpec_RdbLoad(rdb, encver, useSst, status);
+  if (!sp) {
+    return NULL;
+  }
+  // Duplicate detection is a registry read, so it lives here rather than in the
+  // IndexSpec core. It also gates the non-SST on-disk index open below.
+  sp->isDuplicate = dictFetchValue(specDict_g, sp->specName) != NULL;
+  if (IndexSpec_RdbLoadOpenDisk(RedisModule_GetContextFromIO(rdb), sp, useSst, status) != REDISMODULE_OK) {
+    StrongRef_Release(sp->own_ref);
+    return NULL;
+  }
+  return sp;
+}
+
 int Indexes_RdbLoad(RedisModuleIO *rdb, int encver, int when) {
   const bool useSst = CheckRdbSstPersistence(RedisModule_GetContextFromIO(rdb), "RDB Load");
   size_t nIndexes = 0;
@@ -211,9 +230,9 @@ int Indexes_RdbLoad(RedisModuleIO *rdb, int encver, int when) {
     return REDISMODULE_ERR;
   }
   for (size_t i = 0; i < nIndexes; ++i) {
-    // Parse one spec from the stream (IndexSpec core), then publish it into the
-    // registry (Indexes layer).
-    IndexSpec *sp = IndexSpec_RdbLoad(rdb, encver, useSst, &status);
+    // Load one spec (parse + duplicate detection + disk open), then publish it
+    // into the registry.
+    IndexSpec *sp = Indexes_LoadSpecFromRdb(rdb, encver, useSst, &status);
     if (Indexes_StoreAfterRdbLoad(sp) != REDISMODULE_OK) {
       RedisModule_LogIOError(rdb, "warning", "RDB Load: %s", QueryError_GetDisplayableError(&status, RSGlobalConfig.hideUserDataFromLog));
       QueryError_ClearError(&status);
@@ -306,13 +325,39 @@ void Indexes_RdbSave2(RedisModuleIO *rdb, int when) {
   }
 }
 
+// Per-key rdb_load callback for the IndexSpecType module type: load a single
+// spec (legacy or current) and resolve its registry-dependent state. Used for
+// serialization/deserialization and ASM migration; does not register the spec
+// (that is the caller's job, e.g. via Indexes_StoreAfterRdbLoad).
+static void *IndexSpecType_RdbLoad(RedisModuleIO *rdb, int encver) {
+  const bool useSst = CheckRdbSstPersistence(RedisModule_GetContextFromIO(rdb), "RDB Load Logic");
+  if (encver <= LEGACY_INDEX_MAX_VERSION) {
+    // Legacy index, loaded in order to upgrade from an old version
+    return IndexSpec_LegacyRdbLoad(rdb, encver);
+  }
+  // New index, loaded normally. Even though we don't store the index spec in the
+  // key space, this is useful for clean serialize/deserialize (and ASM migration).
+  RS_ASSERT(encver >= INDEX_ASM_PROPAGATE_DEFINITIONS_VERSION);
+  if (encver < INDEX_ASM_PROPAGATE_DEFINITIONS_VERSION) {
+    RedisModule_LogIOError(rdb, "warning", "RDB Load: Unexpected encver %d found in RDB_Load, encver not expected to be lower than %d", encver, INDEX_ASM_PROPAGATE_DEFINITIONS_VERSION);
+    return NULL;
+  }
+  QueryError status = QueryError_Default();
+  IndexSpec *sp = Indexes_LoadSpecFromRdb(rdb, encver, useSst, &status);
+  if (!sp) {
+    RedisModule_LogIOError(rdb, "warning", "RDB Load: %s", QueryError_GetDisplayableError(&status, RSGlobalConfig.hideUserDataFromLog));
+    QueryError_ClearError(&status);
+  }
+  return sp;
+}
+
 // Register the IndexSpecType module type. Its aux callbacks serialize the whole
 // registry (Indexes_RdbLoad/Save), while its per-key callbacks serialize a single
 // spec (defined in spec.c); wiring them together is a registry-layer concern.
 int Indexes_RegisterType(RedisModuleCtx *ctx) {
   RedisModuleTypeMethods tm = {
       .version = REDISMODULE_TYPE_METHOD_VERSION,
-      .rdb_load = IndexSpec_RdbLoad_Logic,    // We don't store the index spec in the key space,
+      .rdb_load = IndexSpecType_RdbLoad,       // We don't store the index spec in the key space,
       .rdb_save = IndexSpec_RdbSave_Wrapper,  // but these are useful for serialization/deserialization (and legacy loading)
       .aux_load = Indexes_RdbLoad,
       .aux_save = Indexes_RdbSave,
