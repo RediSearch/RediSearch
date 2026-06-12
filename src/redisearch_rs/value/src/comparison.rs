@@ -11,7 +11,6 @@ use crate::Value;
 use crate::util::{num_to_str, str_to_float};
 use query_error::{QueryError, QueryErrorCode};
 use std::cmp::Ordering;
-use std::ops::Deref;
 
 /// Errors that can occur when comparing two [`Value`]s.
 #[derive(Debug, PartialEq, Eq)]
@@ -120,10 +119,6 @@ pub fn cmp_fields<'a>(
 /// - `true` - the number is formatted as a string and a byte-wise
 ///   comparison is performed.
 /// - `false` - returns [`CompareError::NoNumberToStringFallback`].
-///
-/// [`Value::Trio`] values are compared by their left element.
-/// [`Value::Array`] values are compared lexicographically.
-/// [`Value::Map`] values cannot be compared and yield [`CompareError::MapComparison`].
 pub fn compare(
     v1: &Value,
     v2: &Value,
@@ -141,18 +136,23 @@ pub fn compare(
         (Value::RedisString(rs1), Value::RedisString(rs2)) => {
             Ok(rs1.as_bytes().cmp(rs2.as_bytes()))
         }
+        // Trio values are compared by their left element.
         (Value::Trio(t1), Value::Trio(t2)) => {
             compare(t1.left(), t2.left(), num_to_str_cmp_fallback)
         }
-        (Value::Array(a1), Value::Array(a2)) => {
-            for (i1, i2) in a1.iter().zip(a2.deref()) {
-                let cmp = compare(i1, i2, num_to_str_cmp_fallback)?;
-                if cmp != Ordering::Equal {
-                    return Ok(cmp);
-                }
-            }
-            Ok(a1.len().cmp(&a2.len()))
-        }
+        // Arrays are compared by their first element only: if both arrays are
+        // non-empty, the result is the comparison of their first elements
+        // (regardless of how the remaining elements or lengths compare); if
+        // either array is empty, the result is the comparison of their
+        // lengths — i.e. equal if both are empty, otherwise the empty one is
+        // `Ordering::Less`. The actual lengths beyond "empty vs. non-empty"
+        // never matter, since two non-empty arrays always fall into the
+        // first case.
+        (Value::Array(a1), Value::Array(a2)) => match (a1.first(), a2.first()) {
+            (Some(i1), Some(i2)) => compare(i1, i2, num_to_str_cmp_fallback),
+            _ => Ok(a1.len().cmp(&a2.len())),
+        },
+        // Maps cannot be compared.
         (Value::Map(_), Value::Map(_)) => Err(CompareError::MapComparison),
         (Value::Number(n1), Value::String(s2)) => {
             compare_number_to_string(*n1, s2.as_bytes(), num_to_str_cmp_fallback)
@@ -170,6 +170,19 @@ pub fn compare(
         }
         (Value::String(s1), Value::RedisString(rs2)) => Ok(s1.as_bytes().cmp(rs2.as_bytes())),
         (Value::RedisString(rs1), Value::String(s2)) => Ok(rs1.as_bytes().cmp(s2.as_bytes())),
+        // A number compared against a trio recurses into the trio's left element.
+        (Value::Number(_), Value::Trio(t2)) => compare(v1, t2.left(), num_to_str_cmp_fallback),
+        (Value::Trio(t1), Value::Number(_)) => compare(t1.left(), v2, num_to_str_cmp_fallback),
+        // A number compared against an array, map, or undefined is treated as a
+        // number-to-string comparison where the other side is the empty string:
+        // with the fallback enabled the number always wins (it never formats to
+        // an empty string); without it, `NoNumberToStringFallback` is returned.
+        (Value::Number(_), _) => {
+            compare_number_to_unconvertible(num_to_str_cmp_fallback, Ordering::Greater)
+        }
+        (_, Value::Number(_)) => {
+            compare_number_to_unconvertible(num_to_str_cmp_fallback, Ordering::Less)
+        }
         (Value::String(s1), _) => Err(CompareError::IncompatibleAgainstString(
             s1.as_bytes().cmp(b""),
         )),
@@ -204,6 +217,23 @@ fn compare_number_to_string(
         let mut buf = [0; 32];
         let n = num_to_str(number, &mut buf);
         Ok(buf[0..n].cmp(slice))
+    } else {
+        Err(CompareError::NoNumberToStringFallback)
+    }
+}
+
+/// Compare a number to a value that cannot be converted to a number nor formatted
+/// as a non-empty string ([`Value::Array`], [`Value::Map`], or [`Value::Undefined`]).
+///
+/// Such values are treated as the empty string, against which a formatted number
+/// always compares as non-empty. `if_number_first` is the resulting [`Ordering`]
+/// from the perspective of the number-typed operand.
+const fn compare_number_to_unconvertible(
+    num_to_str_cmp_fallback: bool,
+    if_number_first: Ordering,
+) -> Result<Ordering, CompareError> {
+    if num_to_str_cmp_fallback {
+        Ok(if_number_first)
     } else {
         Err(CompareError::NoNumberToStringFallback)
     }
