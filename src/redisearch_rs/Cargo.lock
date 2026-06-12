@@ -3047,6 +3047,7 @@ dependencies = [
  "proptest",
  "proptest-derive",
  "rqe_wildcard",
+ "rstest",
  "trie_rs",
  "workspace_hack",
 ]
