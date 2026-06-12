@@ -135,7 +135,7 @@ static void setMemoryInfo(RedisModuleCtx *ctx) {
  * Initialize the spec's fields that are related to the cursors.
  */
 
-static void Cursors_initSpec(IndexSpec *spec) {
+void Cursors_initSpec(IndexSpec *spec) {
   spec->activeCursors = 0;
 }
 
@@ -3191,60 +3191,6 @@ cleanup_no_index:
   return NULL;
 }
 
-static int IndexSpec_StoreAfterRdbLoad(IndexSpec *sp) {
-  if (!sp) {
-    addPendingIndexDrop();
-    return REDISMODULE_ERR;
-  }
-
-  StrongRef spec_ref = sp->own_ref;
-
-  Cursors_initSpec(sp);
-
-  // setting isDuplicate to true will make sure index will not be removed from aliases container.
-  // It may have already been set.
-  if (!sp->isDuplicate && dictFetchValue(specDict_g, sp->specName) != NULL) {
-    sp->isDuplicate = true;
-  }
-
-  if (sp->isDuplicate) {
-    // spec already exists, however we need to finish consuming the rdb so redis won't issue an error(expecting an eof but seeing remaining data)
-    // right now this can cause nasty side effects, to avoid them we will set isDuplicate to true
-    RedisModule_Log(RSDummyContext, "notice", "Loading an already existing index, will just ignore.");
-
-    // spec already exists lets just free this one
-    // Remove the new spec from the global prefixes dictionary.
-    // This is the only global structure that we added the new spec to at this point
-    SchemaPrefixes_RemoveSpec(spec_ref);
-    addPendingIndexDrop();
-    StrongRef_Release(spec_ref);
-  } else {
-    // In the SST replication path diskSpec is still NULL here — it's opened
-    // later by Indexes_FinishSSTReplication, which also starts the Disk GC.
-    // Start GC eagerly only when the spec is fully ready: memory mode, or a
-    // disk spec whose diskSpec was opened during IndexSpec_RdbLoad (non-SST
-    // RDB path).
-    if (!SearchDisk_IsEnabled()) {
-      IndexSpec_StartGC(spec_ref, sp, GCPolicy_Fork);
-    } else if (sp->diskSpec) {
-      RS_ASSERT(!IS_SST_RDB_IN_PROCESS(RSDummyContext));
-      IndexSpec_StartGC(spec_ref, sp, GCPolicy_Disk);
-    }
-    dictAdd(specDict_g, (void*)sp->specName, spec_ref.rm);
-    dictAdd(specIdDict_g, (void*)(uintptr_t)sp->specId, spec_ref.rm);
-
-    for (int i = 0; i < sp->numFields; i++) {
-      FieldsGlobalStats_UpdateStats(sp->fields + i, 1);
-    }
-  }
-  return REDISMODULE_OK;
-}
-
-int IndexSpec_CreateFromRdb(RedisModuleIO *rdb, int encver, bool useSst, QueryError *status) {
-  // Load the index spec using the new function
-  IndexSpec *sp = IndexSpec_RdbLoad(rdb, encver, useSst, status);
-  return IndexSpec_StoreAfterRdbLoad(sp);
-}
 
 void *IndexSpec_LegacyRdbLoad(RedisModuleIO *rdb, int encver) {
   if (encver < LEGACY_INDEX_MIN_VERSION || encver > LEGACY_INDEX_MAX_VERSION) {
@@ -3429,18 +3375,12 @@ RedisModuleString * IndexSpec_Serialize(IndexSpec *sp) {
   return RedisModule_SaveDataTypeToString(NULL, sp, IndexSpecType);
 }
 
-/**
- * Deserialize an IndexSpec from its RDB serialized form, by calling the `IndexSpecType` rdb_load function.
- * Note that this function also stores the index spec in the global spec dictionary, as if it was loaded
- * from the RDB file.
- * Returns REDISMODULE_OK on success, REDISMODULE_ERR on failure.
- * Does not consume the serialized string, the caller is responsible for freeing it.
-*/
-int IndexSpec_Deserialize(const RedisModuleString *serialized, int encver) {
+IndexSpec *IndexSpec_Deserialize(const RedisModuleString *serialized, int encver) {
   IndexSpec *sp = RedisModule_LoadDataTypeFromStringEncver(serialized, IndexSpecType, encver);
   if (sp) Initialize_KeyspaceNotifications();
-  return IndexSpec_StoreAfterRdbLoad(sp);
+  return sp;
 }
+
 
 int CompareVersions(Version v1, Version v2) {
   if (v1.majorVersion < v2.majorVersion) {

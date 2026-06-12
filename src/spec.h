@@ -524,12 +524,12 @@ RedisModuleString *IndexSpec_Serialize(IndexSpec *sp);
 
 /**
  * Deserialize an IndexSpec from its RDB serialized form, by calling the `IndexSpecType` rdb_load function.
- * Note that this function also stores the index spec in the global spec dictionary, as if it was loaded
- * from the RDB file.
- * Returns REDISMODULE_OK on success, REDISMODULE_ERR on failure.
+ * Returns the loaded spec (its single owning reference in sp->own_ref), or NULL on failure.
+ * Does NOT publish the spec into the global registry - the caller must pass the
+ * result to Indexes_StoreAfterRdbLoad (see indexes.h).
  * Does not consume the serialized string, the caller is responsible for freeing it.
 */
-int IndexSpec_Deserialize(const RedisModuleString *serialized, int encver);
+IndexSpec *IndexSpec_Deserialize(const RedisModuleString *serialized, int encver);
 
 /* Start the garbage collection loop on the index spec */
 void IndexSpec_StartGC(StrongRef spec_ref, IndexSpec *sp, GCPolicy gcPolicy);
@@ -677,9 +677,13 @@ void IndexSpec_ResetTimeoutTimer(IndexSpec *sp);
 // fields. Defined in spec.c; used by Indexes_FinishSSTReplication in indexes.c.
 bool IndexSpec_SSTRdbOpenAndApply(RedisModuleCtx *ctx, IndexSpec *sp);
 
-// Load a single IndexSpec from the RDB stream and publish it into the global
-// registry. Defined in spec.c; used by Indexes_RdbLoad in indexes.c.
-int IndexSpec_CreateFromRdb(RedisModuleIO *rdb, int encver, bool useSst, QueryError *status);
+// Initialize the spec's cursor-related fields. Defined in spec.c; used by the
+// registry RDB store path (Indexes_StoreAfterRdbLoad) in indexes.c.
+void Cursors_initSpec(IndexSpec *spec);
+
+// Record that an index drop is pending. Defined in spec.c; used by the registry
+// RDB store path (Indexes_StoreAfterRdbLoad) in indexes.c.
+void addPendingIndexDrop();
 
 void IndexSpec_AddTerm(IndexSpec *sp, const char *term, size_t len);
 

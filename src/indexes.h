@@ -96,6 +96,13 @@ int Indexes_RdbLoad(RedisModuleIO *rdb, int encver, int when);
 void Indexes_RdbSave(RedisModuleIO *rdb, int when);
 void Indexes_RdbSave2(RedisModuleIO *rdb, int when);
 
+// Finalize a spec just loaded from RDB by publishing it into the global registry
+// (specDict_g/specIdDict_g) and starting its GC, or discarding it if a spec with
+// the same name already exists. Consumes the spec's reference on the duplicate
+// path. Accepts NULL (returns REDISMODULE_ERR). Callers obtain the spec from the
+// IndexSpec core (e.g. IndexSpec_RdbLoad / IndexSpec_Deserialize) and pass it here.
+int Indexes_StoreAfterRdbLoad(IndexSpec *sp);
+
 // This function is called in case the server starts RDB loading.
 void Indexes_StartRDBLoadingEvent(RedisModuleCtx *ctx);
 
