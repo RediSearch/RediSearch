@@ -130,11 +130,9 @@ impl TermSuffixIndex {
             needle.is_empty() || needle.chars().count() >= MIN_SUFFIX,
             "needle must span at least {MIN_SUFFIX} codepoints; caller must filter shorter needles (production gate: minTermPrefix)",
         );
-        let entries = (!needle.is_empty()).then(|| self.inner.prefixed_iter(needle));
-        entries
-            .into_iter()
-            .flatten()
-            .flat_map(|(_key, data)| data.terms().cloned())
+        self.inner
+            .prefixed_values(needle)
+            .flat_map(|data| data.terms().cloned())
     }
 
     /// Yield every indexed term that ends with `needle`, in unspecified
@@ -187,7 +185,7 @@ impl TermSuffixIndex {
         // match, so only terms ending with it — exactly its own
         // suffix entry — qualify.
         let (subtree, exact) = if followed_by_star {
-            (Some(self.inner.prefixed_iter(token)), None)
+            (Some(self.inner.prefixed_values(token)), None)
         } else {
             (None, self.inner.get(token))
         };
@@ -196,7 +194,6 @@ impl TermSuffixIndex {
         let iter = subtree
             .into_iter()
             .flatten()
-            .map(|(_key, data)| data)
             .chain(exact)
             .flat_map(|data| data.terms().cloned())
             .filter(move |term| pattern.matches(term.as_bytes()) == MatchOutcome::Match);
