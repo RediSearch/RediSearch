@@ -270,7 +270,13 @@ StrongRef IndexSpec_ParseRedisArgs(RedisModuleCtx *ctx, const HiddenString *name
                                     RedisModuleString **argv, int argc, QueryError *status) {
   ArgsCursor ac = {0};
   ArgsCursor_InitRString(&ac, argv, argc);
-  return IndexSpec_ParseFromArgCursor(ctx, name, &ac, status);
+  StrongRef spec_ref = IndexSpec_ParseFromArgCursor(ctx, name, &ac, status);
+  if (QueryError_HasError(status)) {
+    // Parsing failed; the spec was never registered, so tear it down here.
+    IndexSpec_Unlink(spec_ref, false);
+    return INVALID_STRONG_REF;
+  }
+  return spec_ref;
 }
 
 arrayof(FieldSpec *) getFieldsByType(IndexSpec *spec, FieldType type) {
@@ -1759,20 +1765,26 @@ static StrongRef IndexSpec_ParseFromArgCursor(RedisModuleCtx *ctx, const HiddenS
 
   return spec_ref;
 
-failure:  // on failure free the spec fields array and return an error
+failure:  // on failure return the partially-built spec with the error set in `status`;
+          // the caller is responsible for tearing it down (it was never registered).
   spec->flags &= ~Index_Temporary;
   if (spec->diskSpec) {
     SearchDisk_UnregisterIndex(ctx, spec);
   }
-  IndexSpec_RemoveFromGlobals(spec_ref, false);
-  return INVALID_STRONG_REF;
+  return spec_ref;
 }
 
 StrongRef IndexSpec_ParseC(RedisModuleCtx *ctx, const char *name, const char **argv, int argc, QueryError *status) {
   HiddenString *hidden = NewHiddenString(name, strlen(name), true);
   ArgsCursor ac = {0};
   ArgsCursor_InitCString(&ac, argv, argc);
-  return IndexSpec_ParseFromArgCursor(ctx, hidden, &ac, status);
+  StrongRef spec_ref = IndexSpec_ParseFromArgCursor(ctx, hidden, &ac, status);
+  if (QueryError_HasError(status)) {
+    // Parsing failed; the spec was never registered, so tear it down here.
+    IndexSpec_Unlink(spec_ref, false);
+    return INVALID_STRONG_REF;
+  }
+  return spec_ref;
 }
 
 static void RSIndexStats_FromScoringStats(const ScoringIndexStats *scoring, RSIndexStats *stats) {
@@ -2016,15 +2028,15 @@ void IndexSpec_Free(IndexSpec *spec) {
 
 //---------------------------------------------------------------------------------------------
 
-// Assumes this is called from the main thread with no competing threads
-// Also assumes that the spec is existing in the global dictionary, so
-// we use the global reference as our guard and access the spec directly.
-// This function consumes the Strong reference it gets
-void IndexSpec_RemoveFromGlobals(StrongRef spec_ref, bool removeActive) {
+// Tear down a spec's non-registry global state: aliases, schema prefixes, the
+// temporary-index timer, and global field statistics, then consume the strong
+// reference it is given. Does NOT remove the spec from the global registry
+// (specDict_g/specIdDict_g) - that is owned by indexes.c. Indexes_RemoveFromGlobals
+// calls this after deleting the registry entries; the create/parse failure path
+// calls it directly (the spec was never registered there).
+// Assumes this is called from the main thread with no competing threads.
+void IndexSpec_Unlink(StrongRef spec_ref, bool removeActive) {
   IndexSpec *spec = StrongRef_Get(spec_ref);
-  // Remove spec from global index lists (by name and by specId)
-  dictDelete(specDict_g, spec->specName);
-  dictDelete(specIdDict_g, (void*)(uintptr_t)spec->specId);
 
   if (!spec->isDuplicate) {
     // Remove spec from global aliases list
@@ -2793,7 +2805,7 @@ void IndexSpec_AddToInfo(RedisModuleInfoCtx *ctx, IndexSpec *sp, bool obfuscate,
     RedisModule_InfoAddFieldDouble(ctx, "total_index_memory_sz_mb", IndexSpec_TotalMemUsage(sp, 0, 0, 0, 0) / (float)0x100000);
   }
   RedisModule_InfoEndDictField(ctx);
-  
+
   RedisModule_InfoAddFieldULongLong(ctx, "total_inverted_index_blocks", sp->stats.totalInvertedIndexBlocks);
 
   RedisModule_InfoBeginDictField(ctx, "index_properties_averages");

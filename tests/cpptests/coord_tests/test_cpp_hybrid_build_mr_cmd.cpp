@@ -38,7 +38,7 @@ protected:
 
     void TearDown() override {
         if (testIndexSpec) {
-            IndexSpec_RemoveFromGlobals(testIndexSpec->own_ref, false);
+            Indexes_RemoveFromGlobals(testIndexSpec->own_ref, false);
         }
         if (ctx) {
             RedisModule_FreeThreadSafeContext(ctx);

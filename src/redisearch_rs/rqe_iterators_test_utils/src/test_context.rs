@@ -846,7 +846,7 @@ impl Drop for TestContext {
         // This matches the lock acquired during creation.
         let _lock = CONTEXT_MUTEX.lock().unwrap();
 
-        // Note: the wildcard inverted index is freed by IndexSpec_RemoveFromGlobals
+        // Note: the wildcard inverted index is freed by Indexes_RemoveFromGlobals
         // below, via spec->existingDocs. No explicit free needed here.
 
         unsafe {
@@ -861,7 +861,7 @@ impl Drop for TestContext {
         // Remove spec from globals (this may free associated indices)
         let guard = self.spec_read();
         unsafe {
-            ffi::IndexSpec_RemoveFromGlobals(guard.own_ref(), false);
+            ffi::Indexes_RemoveFromGlobals(guard.own_ref(), false);
         }
     }
 }

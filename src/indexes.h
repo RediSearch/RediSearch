@@ -38,6 +38,16 @@ IndexSpec *Indexes_CreateNew(RedisModuleCtx *ctx, RedisModuleString **argv, int 
  */
 void Spec_AddToDict(RefManager *w_spec);
 
+/**
+ * @brief Remove the spec from the global registry (specDict_g/specIdDict_g) and
+ * tear down its remaining global state. Delegates the non-registry teardown to
+ * IndexSpec_Unlink. This function consumes the strong reference it gets.
+ *
+ * @param ref a strong reference to the spec
+ * @param removeActive - should we call CurrentThread_ClearIndexSpec on the released spec
+ */
+void Indexes_RemoveFromGlobals(StrongRef spec_ref, bool removeActive);
+
 void Indexes_Init(RedisModuleCtx *ctx);
 /*
  * Free all indexes.

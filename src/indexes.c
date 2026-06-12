@@ -123,6 +123,20 @@ void Spec_AddToDict(RefManager *rm) {
   dictAdd(specIdDict_g, (void *)(uintptr_t)spec->specId, (void *)rm);
 }
 
+// Assumes this is called from the main thread with no competing threads.
+// Also assumes that the spec exists in the global dictionary, so we use the
+// global reference as our guard and access the spec directly.
+// This function consumes the Strong reference it gets.
+void Indexes_RemoveFromGlobals(StrongRef spec_ref, bool removeActive) {
+  IndexSpec *spec = StrongRef_Get(spec_ref);
+  // Remove spec from the global index registry (by name and by specId)
+  dictDelete(specDict_g, spec->specName);
+  dictDelete(specIdDict_g, (void *)(uintptr_t)spec->specId);
+
+  // Unwind the spec's remaining global state and consume the reference.
+  IndexSpec_Unlink(spec_ref, removeActive);
+}
+
 // Assuming the GIL is locked before calling this function.
 void Indexes_SetTempSpecsTimers(TimerOp op) {
   dictIterator *iter = dictGetIterator(specDict_g);
@@ -163,13 +177,13 @@ void Indexes_Free(RedisModuleCtx *ctx, dict *d, bool deleteDiskData) {
   for (size_t i = 0; i < array_len(specs); ++i) {
     IndexSpec *spec = StrongRef_Get(specs[i]);
     if (spec && spec->diskSpec) {
-      // Unregister must always precede close (triggered by IndexSpec_RemoveFromGlobals)
+      // Unregister must always precede close (triggered by Indexes_RemoveFromGlobals)
       SearchDisk_UnregisterIndex(ctx, spec);
       if (deleteDiskData) {
         SearchDisk_MarkIndexForDeletion(spec->diskSpec);
       }
     }
-    IndexSpec_RemoveFromGlobals(specs[i], false);
+    Indexes_RemoveFromGlobals(specs[i], false);
   }
   array_free(specs);
 }
@@ -805,7 +819,7 @@ void Indexes_AbortSSTReplicationLoading(RedisModuleCtx *ctx) {
                   "SST replication aborted; tearing down %lu staged index(es)",
                   (unsigned long)dictSize(specDict_g));
 
-  // Snapshot the refs first since IndexSpec_RemoveFromGlobals mutates specDict_g.
+  // Snapshot the refs first since Indexes_RemoveFromGlobals mutates specDict_g.
   arrayof(StrongRef) specs = array_new(StrongRef, dictSize(specDict_g));
   dictIterator *iter = dictGetIterator(specDict_g);
   dictEntry *entry = NULL;
@@ -828,7 +842,7 @@ void Indexes_AbortSSTReplicationLoading(RedisModuleCtx *ctx) {
     }
     // pendingDiskRdbState and diskSpec are freed by IndexSpec_FreeUnlinkedData
     // once the last StrongRef is dropped below.
-    IndexSpec_RemoveFromGlobals(specs[i], false);
+    Indexes_RemoveFromGlobals(specs[i], false);
   }
   array_free(specs);
 }

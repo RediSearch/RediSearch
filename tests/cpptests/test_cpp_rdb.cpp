@@ -122,7 +122,7 @@ TEST_F(RdbMockTest, testCreateIndexSpec) {
     EXPECT_EQ(0, lock_result);
 
     // Clean up
-    IndexSpec_RemoveFromGlobals(spec_ref, false);
+    Indexes_RemoveFromGlobals(spec_ref, false);
 }
 
 // Helper function to test lock state
@@ -287,7 +287,7 @@ TEST_F(RdbMockTest, testIndexSpecStringSerialize) {
     ASSERT_TRUE(serialized != nullptr);
 
     // Drop the original spec from globals
-    IndexSpec_RemoveFromGlobals(original_spec_ref, false);
+    Indexes_RemoveFromGlobals(original_spec_ref, false);
     ASSERT_TRUE(IndexSpec_LoadUnsafe("test_rdb_idx").rm == NULL);
 
     // Deserialize
@@ -307,7 +307,7 @@ TEST_F(RdbMockTest, testIndexSpecStringSerialize) {
     ASSERT_STREQ(HiddenString_GetUnsafe(spec->fields[2].fieldName, NULL), "price");
 
     // Clean up
-    IndexSpec_RemoveFromGlobals(loaded_spec_ref, false);
+    Indexes_RemoveFromGlobals(loaded_spec_ref, false);
     RedisModule_FreeString(NULL, serialized);
 }
 
@@ -340,7 +340,7 @@ TEST_F(RdbMockTest, testDuplicateIndexRdbLoad) {
     EXPECT_EQ(0, RMCK_IsIOError(io));
 
     // Remove the original spec from globals before loading from RDB
-    IndexSpec_RemoveFromGlobals(spec_ref, false);
+    Indexes_RemoveFromGlobals(spec_ref, false);
     ASSERT_TRUE(IndexSpec_LoadUnsafe("test_duplicate_idx").rm == NULL);
 
     // Reset read position to load from RDB
@@ -360,7 +360,7 @@ TEST_F(RdbMockTest, testDuplicateIndexRdbLoad) {
     ASSERT_EQ(loaded_spec->numFields, 1);
 
     // Clean up
-    IndexSpec_RemoveFromGlobals(loaded_spec_ref, false);
+    Indexes_RemoveFromGlobals(loaded_spec_ref, false);
 }
 
 TEST_F(RdbMockTest, testSynonymMapRdbSerialization) {

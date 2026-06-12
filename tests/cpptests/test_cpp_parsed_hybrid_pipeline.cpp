@@ -195,7 +195,7 @@ HybridRequest* ParseAndBuildHybridRequest(RedisModuleCtx *ctx, const char* index
     IndexSpec* sp; \
     ~HybridTestCleanup() { \
       if (req) HybridRequest_DecrRef(req); \
-      if (sp) IndexSpec_RemoveFromGlobals(sp->own_ref, false); \
+      if (sp) Indexes_RemoveFromGlobals(sp->own_ref, false); \
     } \
   } cleanup{hybridReq, spec};
 

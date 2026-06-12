@@ -646,12 +646,16 @@ StrongRef IndexSpec_LoadUnsafeEx(IndexLoadOptions *options);
 StrongRef IndexSpec_GetStrongRefUnsafe(const IndexSpec *spec);
 
 /**
- * @brief Removes the spec from the global data structures
+ * @brief Tears down a spec's non-registry global state (aliases, schema
+ * prefixes, timeout timer, global field stats) and consumes the strong
+ * reference. Does NOT touch the global registry (specDict_g/specIdDict_g).
+ * Used on the create/parse failure path, where the spec was never registered;
+ * Indexes_RemoveFromGlobals (indexes.h) calls it after the registry deletion.
  *
  * @param ref a strong reference to the spec
  * @param removeActive - should we call CurrentThread_ClearIndexSpec on the released spec
  */
-void IndexSpec_RemoveFromGlobals(StrongRef spec_ref, bool removeActive);
+void IndexSpec_Unlink(StrongRef spec_ref, bool removeActive);
 
 /*
  * Free an indexSpec. For LLAPI

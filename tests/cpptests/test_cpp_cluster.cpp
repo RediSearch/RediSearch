@@ -32,7 +32,7 @@ protected:
             ctx = nullptr;
         }
         for (auto &spec_ref : specs) {
-            IndexSpec_RemoveFromGlobals(spec_ref, false);
+            Indexes_RemoveFromGlobals(spec_ref, false);
         }
         specs.clear();
     }
