@@ -7,6 +7,5 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 
-mod iter;
 mod str_trie_map;
 mod trie_map;

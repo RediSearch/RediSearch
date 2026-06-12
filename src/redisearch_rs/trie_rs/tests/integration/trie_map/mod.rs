@@ -7,6 +7,8 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 
+mod iter;
+
 use std::{ffi::c_void, ptr::NonNull};
 use trie_rs::TrieMap;
 
