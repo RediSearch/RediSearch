@@ -2811,6 +2811,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "term_suffix_index"
+version = "0.0.1"
+dependencies = [
+ "ffi",
+ "proptest",
+ "trie_rs",
+ "workspace_hack",
+]
+
+[[package]]
 name = "thin_vec"
 version = "0.0.1"
 dependencies = [
@@ -3038,6 +3048,7 @@ dependencies = [
 name = "trie_rs"
 version = "0.0.1"
 dependencies = [
+ "cheadergen",
  "ffi",
  "fs-err",
  "insta",
