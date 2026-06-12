@@ -130,11 +130,9 @@ impl TermSuffixIndex {
             needle.is_empty() || needle.chars().count() >= MIN_SUFFIX,
             "needle must span at least {MIN_SUFFIX} codepoints; caller must filter shorter needles (production gate: minTermPrefix)",
         );
-        let entries = (!needle.is_empty()).then(|| self.inner.prefixed_iter(needle));
-        entries
-            .into_iter()
-            .flatten()
-            .flat_map(|(_key, data)| data.terms().cloned())
+        self.inner
+            .prefixed_values(needle)
+            .flat_map(|data| data.terms().cloned())
     }
 
     /// Yield every indexed term that ends with `needle`, in unspecified
@@ -187,7 +185,7 @@ impl TermSuffixIndex {
         // match, so only terms ending with it — exactly its own
         // suffix entry — qualify.
         let (subtree, exact) = if followed_by_star {
-            (Some(self.inner.prefixed_iter(token)), None)
+            (Some(self.inner.prefixed_values(token)), None)
         } else {
             (None, self.inner.get(token))
         };
@@ -196,7 +194,6 @@ impl TermSuffixIndex {
         let iter = subtree
             .into_iter()
             .flatten()
-            .map(|(_key, data)| data)
             .chain(exact)
             .flat_map(|data| data.terms().cloned())
             .filter(move |term| pattern.matches(term.as_bytes()) == MatchOutcome::Match);
@@ -250,5 +247,26 @@ impl TermSuffixIndex {
     /// paths use [`Self::iter_contains`] / [`Self::iter_suffix`].
     pub fn keys<'tm>(&'tm self) -> impl Iterator<Item = String> + use<'tm> {
         self.inner.iter().map(|(key, _)| key)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use rstest::rstest;
+
+    use super::*;
+
+    /// Anchor choice affects performance, never the result set, so
+    /// no test going through the public API can observe it; the
+    /// scoring rules are pinned against the private heuristic.
+    #[rstest]
+    #[case::score_tie_prefers_later_token("ab*cd*", Some(("cd", true)))]
+    #[case::subtree_penalty_outweighs_small_length_lead("abcdef*gh", Some(("gh", false)))]
+    #[case::length_lead_above_subtree_penalty_wins("abcdefgh*ij", Some(("abcdefgh", true)))]
+    #[case::tokens_below_min_suffix_ineligible("a*b", None)]
+    #[case::tokens_with_question_mark_or_backslash_ineligible("a?cd*\\ab*ef", Some(("ef", false)))]
+    #[case::length_counts_codepoints_not_bytes("日本語*ab", Some(("ab", false)))]
+    fn choose_token(#[case] pattern: &str, #[case] expected: Option<(&str, bool)>) {
+        assert_eq!(TermSuffixIndex::choose_token(pattern), expected);
     }
 }

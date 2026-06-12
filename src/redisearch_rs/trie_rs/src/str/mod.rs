@@ -106,6 +106,22 @@ impl<Data> StrTrieMap<Data> {
         iter::PrefixedIter::new(&self.inner, prefix)
     }
 
+    /// Yield the value of every entry whose key starts with `prefix`, in
+    /// lexicographical key order, without materializing the keys. See
+    /// [`TrieMap::prefixed_values`].
+    ///
+    /// Prefer this over [`Self::prefixed_iter`] when keys are discarded:
+    /// it skips the per-entry key allocation and UTF-8 decode. Empty
+    /// `prefix` yields zero matches (this differs from the inner method,
+    /// which would yield all entries).
+    pub fn prefixed_values(&self, prefix: &str) -> crate::iter::Values<'_, Data> {
+        if prefix.is_empty() {
+            crate::iter::Values::empty()
+        } else {
+            self.inner.prefixed_values(prefix.as_bytes())
+        }
+    }
+
     /// Yield every entry whose key ends with `suffix`. Filters by byte
     /// `ends_with` — correct because UTF-8 is self-synchronizing (a
     /// multibyte sequence cannot be a suffix of another codepoint). Empty

@@ -27,5 +27,6 @@ workspace_hack.workspace = true
 insta.workspace = true
 proptest = { workspace = true, features = ["std"] }
 proptest-derive.workspace = true
+rstest.workspace = true
 trie_rs = { workspace = true, features = ["test_utils"] }
 fs-err.workspace = true
