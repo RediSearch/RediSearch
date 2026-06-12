@@ -99,7 +99,10 @@ static int distinctishAdd(Reducer *parent, void *instance, const RLookupRow *src
     return 1;
   }
 
-  uint64_t hval = RSValue_Hash(val, 0x5f61767a);
+  // Use the stable (non-randomized) hash here: COUNT_DISTINCTISH's per-shard HLL
+  // registers are merged across shards by HLL_SUM, which requires every shard to
+  // map the same value to the same register/rank pair.
+  uint64_t hval = RSValue_HashStable(val, 0x5f61767a);
   uint32_t val32 = (uint32_t)hval ^ (uint32_t)(hval >> 32);
   hll_add_hash(&ctr->hll, val32);
   return 1;

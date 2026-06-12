@@ -3230,7 +3230,6 @@ dependencies = [
  "c_ffi_utils",
  "cheadergen",
  "ffi",
- "fnv",
  "libc",
  "query_error",
  "redis-module",

@@ -7,13 +7,13 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 
-use fnv::Fnv64;
+use std::collections::hash_map::DefaultHasher;
 use std::hash::Hasher;
-use value::hash::hash_value;
+use value::hash::{hash_stable, hash_value};
 use value::{Array, Map, RedisString, SharedValue, String, Trio, Value};
 
 fn hash(value: &Value) -> u64 {
-    let mut hasher = Fnv64::default();
+    let mut hasher = DefaultHasher::new();
     hash_value(value, &mut hasher);
     hasher.finish()
 }
@@ -87,17 +87,17 @@ fn undefined_and_null_do_not_collide() {
 fn undefined_and_null_do_not_reset_prior_state() {
     // Hashing Undefined/Null no longer wipes out whatever was hashed before
     // them - they just mix their own discriminant into the running state.
-    let mut with_undefined = Fnv64::default();
+    let mut with_undefined = DefaultHasher::new();
     hash_value(&Value::Number(123.0), &mut with_undefined);
     hash_value(&Value::Undefined, &mut with_undefined);
 
-    let mut without_undefined = Fnv64::default();
+    let mut without_undefined = DefaultHasher::new();
     hash_value(&Value::Number(123.0), &mut without_undefined);
 
     assert_ne!(with_undefined.finish(), hash(&Value::Undefined));
     assert_ne!(with_undefined.finish(), without_undefined.finish());
 
-    let mut with_null = Fnv64::default();
+    let mut with_null = DefaultHasher::new();
     hash_value(&Value::Number(123.0), &mut with_null);
     hash_value(&Value::Null, &mut with_null);
 
@@ -167,4 +167,41 @@ fn trio_ignores_middle_and_right() {
         SharedValue::new(Value::Number(100.0)),
     ));
     assert_eq!(hash(&a), hash(&b));
+}
+
+#[test]
+fn hash_stable_is_deterministic_across_calls() {
+    let a = Value::String(String::from_vec(b"world".to_vec()));
+    let b = Value::String(String::from_vec(b"world".to_vec()));
+
+    assert_eq!(hash_stable(&a, 0), hash_stable(&b, 0));
+}
+
+#[test]
+fn hash_stable_does_not_depend_on_the_per_process_seed() {
+    // `hash_stable` must be reproducible from the value alone, with no
+    // hidden per-process state - unlike `hash`, whose seed differs across
+    // processes. Cross-checking against an independently-built
+    // `DefaultHasher` (the algorithm `hash_stable` uses) confirms that no
+    // per-process secret is mixed in.
+    let value = Value::String(String::from_vec(b"hello".to_vec()));
+    let hval = 0x5f61767a;
+
+    let actual = hash_stable(&value, hval);
+
+    let mut hasher = DefaultHasher::new();
+    hasher.write_u64(hval);
+    hash_value(&value, &mut hasher);
+    let expected = hasher.finish();
+
+    assert_eq!(actual, expected);
+}
+
+#[test]
+fn hash_and_hash_stable_both_distinguish_different_values() {
+    let a = Value::String(String::from_vec(b"foo".to_vec()));
+    let b = Value::String(String::from_vec(b"bar".to_vec()));
+
+    assert_ne!(value::hash::hash(&a, 0), value::hash::hash(&b, 0));
+    assert_ne!(hash_stable(&a, 0), hash_stable(&b, 0));
 }
