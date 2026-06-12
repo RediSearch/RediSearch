@@ -69,7 +69,7 @@ class ParseHybridTest : public ::testing::Test {
     QueryError qerr = QueryError_Default();
     RMCK::ArgvList args(ctx, "FT.CREATE", index_name.c_str(), "ON", "HASH",
                         "SCHEMA", "title", "TEXT", "content", "TEXT", "vector", "VECTOR", "FLAT", "6", "TYPE", "FLOAT32", "DIM", "3", "DISTANCE_METRIC", "COSINE");
-    spec = IndexSpec_CreateNew(ctx, args, args.size(), &qerr);
+    spec = Indexes_CreateNew(ctx, args, args.size(), &qerr);
     if (!spec) {
       printf("Failed to create index '%s': code=%d, detail='%s'\n",
              index_name.c_str(), QueryError_GetCode(&qerr), QueryError_GetUserError(&qerr));

@@ -51,7 +51,7 @@ IndexSpec* CreateTestIndexSpec(RedisModuleCtx *ctx, const char* indexName, Query
                             "SCHEMA", "title", "TEXT", "score", "NUMERIC",
                             "category", "TEXT", "vector_field", "VECTOR", "FLAT", "6",
                             "TYPE", "FLOAT32", "DIM", "4", "DISTANCE_METRIC", "COSINE");
-  return IndexSpec_CreateNew(ctx, createArgs, createArgs.size(), status);
+  return Indexes_CreateNew(ctx, createArgs, createArgs.size(), status);
 }
 
 // ============================================================================

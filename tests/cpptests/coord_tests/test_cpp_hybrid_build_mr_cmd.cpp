@@ -32,7 +32,7 @@ protected:
         RMCK::ArgvList createArgs(ctx, "FT.CREATE", "test_idx", "ON", "HASH",
                                   "SCHEMA", "title", "TEXT", "vector_field", "VECTOR", "FLAT", "6",
                                   "TYPE", "FLOAT32", "DIM", "3", "DISTANCE_METRIC", "COSINE");
-        testIndexSpec = IndexSpec_CreateNew(ctx, createArgs, createArgs.size(), &qerr);
+        testIndexSpec = Indexes_CreateNew(ctx, createArgs, createArgs.size(), &qerr);
         ASSERT_NE(testIndexSpec, nullptr) << "Failed to create index: " << QueryError_GetDisplayableError(&qerr, false);
     }
 

@@ -10,6 +10,8 @@
 #include "commands.h"
 #include "types_ffi.h"
 #include "debug_commands.h"
+#include "indexes.h"
+#include "indexes_scan.h"
 #include "coord/debug_command_names.h"
 #include "VecSim/vec_sim_debug.h"
 #include "inverted_index.h"

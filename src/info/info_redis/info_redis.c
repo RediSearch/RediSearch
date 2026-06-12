@@ -20,6 +20,7 @@
 #include "info/info_redis/threads/main_thread.h"
 #include "search_disk.h"
 #include "spec.h"
+#include "indexes.h"
 
 /* ========================== PROTOTYPES ============================ */
 // Fields statistics

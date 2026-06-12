@@ -76,7 +76,7 @@ protected:
       QueryError err = QueryError_Default();
       RedisModuleCtx *ctx = redisContexts[0];
       RMCK::ArgvList argv(ctx, "FT.CREATE", index_name.c_str(), "SKIPINITIALSCAN", "SCHEMA", "field1", "TEXT");
-      mockSpec = IndexSpec_CreateNew(ctx, argv, argv.size(), &err);
+      mockSpec = Indexes_CreateNew(ctx, argv, argv.size(), &err);
       if (!mockSpec) {
         printf("Failed to create index spec. Error code: %d, Error message: %s\n",
                QueryError_GetCode(&err), QueryError_GetUserError(&err));

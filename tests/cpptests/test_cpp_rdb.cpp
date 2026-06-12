@@ -17,6 +17,7 @@
 
 extern "C" {
 #include "spec.h"
+#include "indexes.h"
 #include "query_error_ffi.h"
 #include "rules.h"
 #include "stopwords.h"

@@ -43,6 +43,9 @@ struct IndexesScanner;
 // Initial capacity (in bytes) of a new block
 #define INDEX_BLOCK_INITIAL_CAP 6
 
+// Initial number of slots in a spec's document table
+#define INITIAL_DOC_TABLE_SIZE 1000
+
 #define SPEC_GEO_STR "GEO"
 #define SPEC_GEOMETRY_STR "GEOSHAPE"
 #define SPEC_TAG_STR "TAG"
@@ -131,25 +134,10 @@ extern dict *specIdDict_g;  // Maps specId (uint64_t) → RefManager* (same as s
 #define dictGetRef(he) ((StrongRef){dictGetVal(he)})
 #define dictFetchRef(dict, key) ((StrongRef){dictFetchValue((dict), (key))})
 
-typedef enum {
-    DEBUG_INDEX_SCANNER_CODE_NEW,
-    DEBUG_INDEX_SCANNER_CODE_RUNNING,
-    DEBUG_INDEX_SCANNER_CODE_DONE,
-    DEBUG_INDEX_SCANNER_CODE_CANCELLED,
-    DEBUG_INDEX_SCANNER_CODE_PAUSED,
-    DEBUG_INDEX_SCANNER_CODE_RESUMED,
-    DEBUG_INDEX_SCANNER_CODE_PAUSED_ON_OOM,
-    DEBUG_INDEX_SCANNER_CODE_PAUSED_BEFORE_OOM_RETRY,
+// The background scanner subsystem (IndexesScanner / DebugIndexesScanner, the
+// DebugIndexScannerCode enum, the global scanner and reindex entry points) lives
+// in indexes_scan.{c,h}. Include that header where those symbols are needed.
 
-    //Insert new codes here (before COUNT)
-    DEBUG_INDEX_SCANNER_CODE_COUNT  // Helps with array size checks
-    //Do not add new codes after COUNT
-} DebugIndexScannerCode;
-
-extern const char *DEBUG_INDEX_SCANNER_STATUS_STRS[];
-
-extern size_t pending_global_indexing_ops;
-extern struct IndexesScanner *global_spec_scanner;
 extern dict *legacySpecRules;
 
 typedef struct {
@@ -575,16 +563,21 @@ void IndexSpec_DeleteDoc_Unsafe(IndexSpec *spec, RedisModuleCtx *ctx, RedisModul
 // NOT clean up DocIdMeta on the key. This is called from the metadata unlink callback
 void IndexSpec_DeleteDocById(IndexSpec *spec, t_docId docId);
 
+// (Re)index a single document into the spec. Defined in spec.c; used by the
+// background scanner in indexes_scan.c.
+int IndexSpec_UpdateDoc(IndexSpec *spec, RedisModuleCtx *ctx, RedisModuleString *key, DocumentType type);
+
+// Format the legacy (separate-key) Redis key name for a numeric/tag/geo field.
+// Defined in spec.c; used by the legacy index upgrade path in indexes_scan.c.
+RedisModuleString *IndexSpec_LegacyGetFormattedKey(IndexSpec *sp, const FieldSpec *fs,
+                                                   FieldType forType);
+
 /**
  * Indicate that the index spec should use an internal dictionary,rather than
  * the Redis keyspace
  */
 void IndexSpec_MakeKeyless(IndexSpec *sp);
 
-void IndexesScanner_Cancel(struct IndexesScanner *scanner);
-void IndexesScanner_ResetProgression(struct IndexesScanner *scanner);
-
-void IndexSpec_ScanAndReindex(RedisModuleCtx *ctx, StrongRef ref);
 /**
  * Exposing all the fields of the index to INFO command.
  * @param ctx - the redis module info context
@@ -600,8 +593,10 @@ void IndexSpec_AddToInfo(RedisModuleInfoCtx *ctx, IndexSpec *sp, bool obfuscate,
  */
 int IndexSpec_CreateTextId(IndexSpec *sp, t_fieldIndex index);
 
-/* Add fields to a redis schema */
-int IndexSpec_AddFields(StrongRef ref, IndexSpec *sp, RedisModuleCtx *ctx, ArgsCursor *ac, bool initialScan,
+/* Add fields to a redis schema.
+ * Does not schedule the post-alter background scan; the caller is responsible
+ * for that (see CreateIndexAlterCommand in module.c). */
+int IndexSpec_AddFields(StrongRef ref, IndexSpec *sp, RedisModuleCtx *ctx, ArgsCursor *ac,
                         QueryError *status);
 
 bool IndexSpec_IsCoherent(IndexSpec *sp, sds* prefixes, size_t n_prefixes);
@@ -668,6 +663,23 @@ void IndexSpec_Free(IndexSpec *spec);
 
 //---------------------------------------------------------------------------------------------
 
+// Whether RDB load/save should use the SST (disk) persistence path for the
+// given context. Defined in spec.c; used by the registry RDB load in indexes.c.
+bool CheckRdbSstPersistence(RedisModuleCtx *ctx, const char *prefix);
+
+// Temporary-index timeout timer management for a single spec. Defined in spec.c;
+// used by Indexes_SetTempSpecsTimers in indexes.c.
+void IndexSpec_SetTimeoutTimer(IndexSpec *sp, WeakRef spec_ref);
+void IndexSpec_ResetTimeoutTimer(IndexSpec *sp);
+
+// Open a disk index from its pending SST/RDB state and materialize its disk-backed
+// fields. Defined in spec.c; used by Indexes_FinishSSTReplication in indexes.c.
+bool IndexSpec_SSTRdbOpenAndApply(RedisModuleCtx *ctx, IndexSpec *sp);
+
+// Load a single IndexSpec from the RDB stream and publish it into the global
+// registry. Defined in spec.c; used by Indexes_RdbLoad in indexes.c.
+int IndexSpec_CreateFromRdb(RedisModuleIO *rdb, int encver, bool useSst, QueryError *status);
+
 void IndexSpec_AddTerm(IndexSpec *sp, const char *term, size_t len);
 
 IndexSpec *NewIndexSpec(const HiddenString *name);
@@ -678,33 +690,8 @@ int IndexSpec_RegisterType(RedisModuleCtx *ctx);
 void IndexSpec_ClearAliases(StrongRef ref);
 
 void IndexSpec_InitializeSynonym(IndexSpec *sp);
-void Indexes_SetTempSpecsTimers(TimerOp op);
 
 //---------------------------------------------------------------------------------------------
-
-typedef struct IndexesScanner {
-  bool global;
-  bool cancelled;
-  bool isDebug;
-  bool scanFailedOnOOM;
-  WeakRef spec_ref;
-  char *spec_name_for_logs;
-  size_t scannedKeys;
-  RedisModuleString *OOMkey; // The key that caused the OOM
-} IndexesScanner;
-
-typedef struct DebugIndexesScanner {
-  IndexesScanner base;
-  int maxDocsTBscanned;
-  int maxDocsTBscannedPause;
-  bool wasPaused;
-  bool pauseOnOOM;
-  int status;
-  bool pauseBeforeOOMRetry;
-} DebugIndexesScanner;
-
-
-double IndexesScanner_IndexedPercent(RedisModuleCtx *ctx, IndexesScanner *scanner, const IndexSpec *sp);
 
 /**
  * @return the overhead used by the TAG fields in `sp`, i.e., the size of the
@@ -747,44 +734,14 @@ char *IndexSpec_FormatObfuscatedName(const HiddenString *specName);
 
 //---------------------------------------------------------------------------------------------
 
-void Indexes_Init(RedisModuleCtx *ctx);
-/*
- * Free all indexes.
- * @param deleteDiskData - delete the disk data
-*/
-void Indexes_Free(RedisModuleCtx *ctx, dict *d, bool deleteDiskData);
-size_t Indexes_Count();
-void Indexes_Propagate(RedisModuleCtx *ctx);
-void Indexes_UpdateMatchingWithSchemaRules(RedisModuleCtx *ctx, RedisModuleString *key, DocumentType type,
-                                           RedisModuleString **hashFields);
-// Refresh the per-field TTL entries on every spec that indexes `key`: reads
-// the hash's current per-field expiration timestamps and writes them onto
-// the matching specs' TTL tables, without re-tokenizing the document or
-// rebuilding inverted indexes. In-memory flow only; callers must use
-// Indexes_UpdateMatchingWithSchemaRules for disk-backed indexes.
-void Indexes_UpdateMatchingHashFieldExpiration(RedisModuleCtx *ctx, RedisModuleString *key,
-                                               DocumentType type);
-// Fast path for keyspace events that only change the document-level TTL
-// (EXPIRE/PERSIST): re-reads the key's absolute expiration and writes it
-// directly onto the matching DMDs, without re-running schema-rule filters or
-// re-indexing the document. In-memory flow only; callers must fall back to
-// Indexes_UpdateMatchingWithSchemaRules for disk-backed indexes.
-void Indexes_UpdateMatchingDocExpiration(RedisModuleCtx *ctx, RedisModuleString *key, DocumentType type);
-void Indexes_DeleteMatchingWithSchemaRules(RedisModuleCtx *ctx, RedisModuleString *key,
-                                           DocumentType type,
-                                           RedisModuleString **hashFields);
-void Indexes_ReplaceMatchingWithSchemaRules(RedisModuleCtx *ctx, RedisModuleString *from_key,
-                                            RedisModuleString *to_key);
-void Indexes_List(RedisModule_Reply* reply, bool obfuscate);
-
-//---------------------------------------------------------------------------------------------
+// The global index registry + keyspace-dispatch API (Indexes_Init/Free/Count/
+// Propagate, the Indexes_*MatchingWithSchemaRules family, Indexes_List, RDB
+// load/save and the RDB-load lifecycle events) lives in indexes.{c,h}. Include
+// that header where those functions are called.
 
 void CleanPool_ThreadPoolStart();
 void CleanPool_ThreadPoolDestroy();
 size_t CleanInProgressOrPending();
-
-// Expose reindexpool for debug
-void ReindexPool_ThreadPoolDestroy();
 
 
 ///////////////////////////////////////////////////////////////////////////////////////////////
@@ -796,29 +753,6 @@ StrongRef IndexSpecRef_Promote(WeakRef ref);
 // Must only be called if the spec was promoted successfully
 // Will also clear the current thread's active spec
 void IndexSpecRef_Release(StrongRef ref);
-
-// This function is called in case the server starts RDB loading.
-void Indexes_StartRDBLoadingEvent(RedisModuleCtx *ctx);
-
-// This function is called in case the server ends RDB loading.
-void Indexes_EndRDBLoadingEvent(RedisModuleCtx *ctx);
-
-// This function is to be called when loading finishes (failed or not)
-void Indexes_EndLoading();
-
-// Replica-side SST replication completion.
-//
-// Upon SST and RDB replication ending, complete the binding
-void Indexes_FinishSSTReplication(RedisModuleCtx *ctx);
-
-// Replica-side SST replication abort.
-//
-// Tear down everything staged for SST replication. Frees any pending disk RDB
-// state, closes any opened-but-unregistered disk specs, and unregisters +
-// closes any specs that had already been registered. Removes the affected
-// specs from specDict_g. Called from the REDISMODULE_SUBEVENT_SST_REPL_ABORT
-// handler.
-void Indexes_AbortSSTReplicationLoading(RedisModuleCtx *ctx);
 
 // =============================================================================
 // Compaction FFI Functions (called by Rust during GC)

@@ -28,6 +28,8 @@
 #include "rmutil/util.h"
 #include "rmutil/args.h"
 #include "spec.h"
+#include "indexes.h"
+#include "indexes_scan.h"
 #include "util/logging.h"
 #include "util/workers.h"
 #include "util/references.h"
@@ -623,7 +625,7 @@ int CreateIndexCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) 
     return REDISMODULE_OK;
   }
 
-  IndexSpec *sp = IndexSpec_CreateNew(ctx, argv, argc, &status);
+  IndexSpec *sp = Indexes_CreateNew(ctx, argv, argc, &status);
   if (sp == NULL) {
     RedisModule_ReplyWithError(ctx, QueryError_GetUserError(&status));
     QueryError_ClearError(&status);
@@ -972,13 +974,19 @@ static int AlterIndexInternalCommand(RedisModuleCtx *ctx, RedisModuleString **ar
     }
   }
   RedisSearchCtx_LockSpecWrite(&sctx);
-  IndexSpec_AddFields(ref, sp, ctx, &ac, initialScan, &status);
+  int addFieldsOk = IndexSpec_AddFields(ref, sp, ctx, &ac, &status);
 
   // if adding the fields has failed we return without updating statistics.
   if (QueryError_HasError(&status)) {
     RedisSearchCtx_UnlockSpec(&sctx);
     CurrentThread_ClearIndexSpec();
     return QueryError_ReplyAndClear(ctx, &status);
+  }
+
+  // Schedule the initial background scan for the new fields. Hoisted out of
+  // IndexSpec_AddFields so spec.c has no dependency on the scanner.
+  if (addFieldsOk && initialScan) {
+    IndexSpec_ScanAndReindex(ctx, ref);
   }
 
   RedisSearchCtx_UnlockSpec(&sctx);

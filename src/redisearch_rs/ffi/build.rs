@@ -85,6 +85,12 @@ const HEADERS: &[HeaderAllowlist] = &[
         vars: &[],
     },
     HeaderAllowlist {
+        path: "src/indexes.h",
+        fns: &["Indexes_Init"],
+        types: &[],
+        vars: &[],
+    },
+    HeaderAllowlist {
         path: "src/iterators/hybrid_reader.h",
         fns: &[
             "HybridIterator_GetChild",
@@ -288,7 +294,6 @@ const HEADERS: &[HeaderAllowlist] = &[
             "IndexSpecCache_Decref",
             "IndexSpecRef_Promote",
             "IndexSpecRef_Release",
-            "Indexes_Init",
             "Spec_AddToDict",
         ],
         types: &[],

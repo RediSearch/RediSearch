@@ -9,6 +9,7 @@
 
 #include "gtest/gtest.h"
 #include "common.h"
+#include "indexes.h"
 #include "redismock/redismock.h"
 
 #include "trie/trie.h"
