@@ -723,13 +723,14 @@ static QueryIterator *Query_EvalPrefixNode(QueryEvalCtx *q, QueryNode *qn) {
       // The suffix index stores folded UTF-8 terms; fold the needle the same
       // way by lowering its runes and converting back.
       size_t needleLen;
-      char *needle = runesToStr(str, nstr, &needleLen);
+      utf8Buf needleBuf;
+      char *needle = runesToStrBuf(str, nstr, &needleBuf, &needleLen);
       if (qn->pfx.prefix) {
         TermSuffixIndex_IterateContains(spec->suffix, needle, needleLen, charIterCb, &ctx);
       } else {
         TermSuffixIndex_IterateSuffix(spec->suffix, needle, needleLen, charIterCb, &ctx);
       }
-      rm_free(needle);
+      utf8BufFree(&needleBuf);
     } else {
       QueryError_SetError(q->status, QUERY_ERROR_CODE_GENERIC, "Contains query on fields without WITHSUFFIXTRIE support");
     }
@@ -780,7 +781,8 @@ static QueryIterator *Query_EvalWildcardQueryNode(QueryEvalCtx *q, QueryNode *qn
       // The suffix index stores folded UTF-8 terms; fold the pattern the same
       // way by lowering its runes and converting back.
       size_t patternLen;
-      char *pattern = runesToStr(str, nstr, &patternLen);
+      utf8Buf patternBuf;
+      char *pattern = runesToStrBuf(str, nstr, &patternBuf, &patternLen);
       TermSuffixIndexIterator *it =
           TermSuffixIndex_IterateWildcard(spec->suffix, pattern, patternLen);
       if (it) {
@@ -796,7 +798,7 @@ static QueryIterator *Query_EvalWildcardQueryNode(QueryEvalCtx *q, QueryNode *qn
         // no pattern token can anchor the suffix index, use brute force
         fallbackBruteForce = true;
       }
-      rm_free(pattern);
+      utf8BufFree(&patternBuf);
     } else {
       QueryError_SetError(q->status, QUERY_ERROR_CODE_GENERIC,
                           "Contains query on fields without WITHSUFFIXTRIE support");
