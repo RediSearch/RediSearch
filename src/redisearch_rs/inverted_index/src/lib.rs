@@ -23,7 +23,7 @@ pub use codec::*;
 pub use index::*;
 
 // Re-export GC types.
-pub use gc::{GcApplyInfo, GcScanDelta};
+pub use gc::{GcApplyInfo, GcScanDelta, RepairContext};
 
 // Re-export reader types.
 pub use reader::{IndexReader, IndexReaderCore, NumericFilter, NumericReader, TermReader};

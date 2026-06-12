@@ -13,7 +13,7 @@
 //! include these utilities.
 
 use index_result::RSIndexResult;
-use inverted_index::{Encoder, IndexBlock, numeric::Numeric};
+use inverted_index::{Encoder, numeric::Numeric};
 
 use crate::{NodeGcDelta, NodeIndex, NumericRangeNode, NumericRangeTree};
 
@@ -136,7 +136,12 @@ pub fn scan_node_delta_with_hll(
                 .entries()
                 .scan_gc(
                     doc_exist,
-                    None::<for<'index> fn(&RSIndexResult<'index>, &IndexBlock)>,
+                    None::<
+                        for<'index> fn(
+                            &RSIndexResult<'index>,
+                            &inverted_index::RepairContext<'index>,
+                        ),
+                    >,
                 )
                 .expect("scan_gc should not fail")
         })
