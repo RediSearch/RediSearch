@@ -272,6 +272,63 @@ impl<Data> TrieMap<Data> {
             None => Values::new(None),
         }
     }
+
+    /// Call `f` on the value of every entry whose key starts with the given
+    /// prefix, in lexicographical key order. `f` returns `false` to stop the
+    /// walk early. Returns `false` iff the walk was stopped.
+    ///
+    /// Visits the same values as [`Self::prefixed_values`], but recursively,
+    /// without allocating a traversal stack. Prefer it on hot paths where the
+    /// walk is short enough for the iterator's per-call heap allocation to
+    /// dominate.
+    pub fn visit_prefixed_values<F: FnMut(&Data) -> bool>(&self, prefix: &[u8], f: &mut F) -> bool {
+        match self.find_root_for_prefix(prefix) {
+            Some((root, _)) => visit_values(root, 0, f),
+            None => true,
+        }
+    }
+}
+
+/// Recursion ceiling for [`visit_values`]. Trie depth grows with key length,
+/// and keys come from indexed input, so an adversarially long term could
+/// otherwise overflow the machine stack. Subtrees deeper than this finish on
+/// a heap-allocated stack instead (see [`visit_values_heap`]).
+const MAX_VISIT_DEPTH: usize = 1024;
+
+/// Recursive engine of [`TrieMap::visit_prefixed_values`]: pre-order walk of
+/// the subtree rooted at `node`, on the machine stack. Returns `false` iff
+/// `f` stopped the walk.
+fn visit_values<Data, F: FnMut(&Data) -> bool>(node: &Node<Data>, depth: usize, f: &mut F) -> bool {
+    if depth >= MAX_VISIT_DEPTH {
+        return visit_values_heap(node, f);
+    }
+    if let Some(data) = node.data()
+        && !f(data)
+    {
+        return false;
+    }
+    for child in node.children() {
+        if !visit_values(child, depth + 1, f) {
+            return false;
+        }
+    }
+    true
+}
+
+/// Heap-stack continuation of [`visit_values`] for subtrees deeper than
+/// [`MAX_VISIT_DEPTH`]. Children are pushed in reverse so popping preserves
+/// the pre-order (lexicographical) visit order of the recursive walk.
+fn visit_values_heap<Data, F: FnMut(&Data) -> bool>(root: &Node<Data>, f: &mut F) -> bool {
+    let mut stack = vec![root];
+    while let Some(node) = stack.pop() {
+        if let Some(data) = node.data()
+            && !f(data)
+        {
+            return false;
+        }
+        stack.extend(node.children().iter().rev());
+    }
+    true
 }
 
 impl<Data: std::fmt::Debug> std::fmt::Debug for TrieMap<Data> {

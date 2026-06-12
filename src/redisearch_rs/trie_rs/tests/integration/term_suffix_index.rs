@@ -63,6 +63,54 @@ fn iter_contains_yields_terms_containing_needle() {
 }
 
 #[test]
+fn visit_contains_reports_terms_containing_needle() {
+    let corpus = ["cat", "catalog", "category", "concat", "scat", "scatter"]
+        .iter()
+        .map(|s| s.to_string())
+        .collect::<Vec<_>>();
+    let sut = build_index(&corpus);
+    let expected = corpus.iter().cloned().collect::<HashSet<_>>();
+
+    let mut actual = HashSet::new();
+    sut.visit_contains("cat", |term| {
+        actual.insert(term.to_string());
+        true
+    });
+
+    assert_eq!(actual, expected, "visit_contains('cat')");
+}
+
+#[test]
+fn visit_contains_stops_when_callback_returns_false() {
+    let corpus = ["cat", "catalog", "category", "concat", "scat", "scatter"]
+        .iter()
+        .map(|s| s.to_string())
+        .collect::<Vec<_>>();
+    let sut = build_index(&corpus);
+
+    let mut visited = Vec::new();
+    sut.visit_contains("cat", |term| {
+        visited.push(term.to_string());
+        false
+    });
+
+    assert_eq!(visited.len(), 1, "walk stops after the first reported term");
+}
+
+#[test]
+fn visit_contains_empty_needle_visits_nothing() {
+    let sut = build_index(&["cat".to_string(), "dog".to_string()]);
+
+    let mut visited = 0;
+    sut.visit_contains("", |_| {
+        visited += 1;
+        true
+    });
+
+    assert_eq!(visited, 0);
+}
+
+#[test]
 fn empty_needle_yields_no_matches() {
     let corpus = ["cat", "dog"]
         .iter()
@@ -316,7 +364,16 @@ mod fuzz {
 
             let actual = collect_set(sut.iter_contains(&needle));
 
-            prop_assert_eq!(actual, expected, "needle={:?} corpus={:?}", needle, corpus);
+            prop_assert_eq!(&actual, &expected, "needle={:?} corpus={:?}", needle, corpus);
+
+            // The visitor twin must report the same term set.
+            let mut visited = HashSet::new();
+            sut.visit_contains(&needle, |term| {
+                visited.insert(term.to_string());
+                true
+            });
+            prop_assert_eq!(visited, expected,
+                "visit_contains needle={:?} corpus={:?}", needle, corpus);
         }
 
         #[test]

@@ -122,6 +122,21 @@ impl<Data> StrTrieMap<Data> {
         }
     }
 
+    /// Call `f` on the value of every entry whose key starts with `prefix`,
+    /// in lexicographical key order. `f` returns `false` to stop the walk
+    /// early. Returns `false` iff the walk was stopped.
+    ///
+    /// Visitor twin of [`Self::prefixed_values`]: same values, same order,
+    /// same empty-`prefix` semantics, but recursive and allocation-free.
+    /// See [`TrieMap::visit_prefixed_values`].
+    pub fn visit_prefixed_values<F: FnMut(&Data) -> bool>(&self, prefix: &str, f: &mut F) -> bool {
+        if prefix.is_empty() {
+            true
+        } else {
+            self.inner.visit_prefixed_values(prefix.as_bytes(), f)
+        }
+    }
+
     /// Yield every entry whose key ends with `suffix`. Filters by byte
     /// `ends_with` — correct because UTF-8 is self-synchronizing (a
     /// multibyte sequence cannot be a suffix of another codepoint). Empty
