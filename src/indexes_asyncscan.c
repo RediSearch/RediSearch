@@ -27,9 +27,19 @@ typedef struct {
   IndexesScanner *scanner;
   pthread_mutex_t mutex;
   pthread_cond_t cond;
-  bool batch_done;                          // set by done_cb, cleared by the driver
-  RedisModuleAsyncScanDoneReason reason;    // reason from the last done_cb
+  bool call_done;   // set by done_cb, consumed by the driver's wait
 } AsyncReindexDriver;
+
+// Wait (GIL released) until done_cb signals this call's completion, then consume
+// the flag. Mirrors wait_for_call_done in the Async Scan requirements §3.1.1.
+static void Indexes_AsyncScanWaitForDone(AsyncReindexDriver *driver) {
+  pthread_mutex_lock(&driver->mutex);
+  while (!driver->call_done) {
+    pthread_cond_wait(&driver->cond, &driver->mutex);
+  }
+  driver->call_done = false;
+  pthread_mutex_unlock(&driver->mutex);
+}
 
 // Per-key callback. Runs on the main thread, GIL held, value pinned for the call.
 // Mirrors the per-spec branch of Indexes_ScanProc, with an idempotency guard: at
@@ -83,44 +93,19 @@ static void Indexes_AsyncScanKeyCB(RedisModuleCtx *ctx, RedisModuleScanCursor *c
 }
 
 // Call-completion callback. Runs on the main thread, GIL held, once per
-// Start/NextBatch that returned OK. Records the terminal reason and wakes the
-// driver waiting on the condvar.
+// Start/NextBatch that returned OK. The loop discovers terminal state from the
+// return code of the next AsyncScanNextBatch (§3.1.1), so we ignore `reason` here
+// and only wake the driver waiting on the condvar.
 static void Indexes_AsyncScanDoneCB(RedisModuleCtx *ctx, RedisModuleScanCursor *cursor,
                                     void *privdata, RedisModuleAsyncScanDoneReason reason) {
   REDISMODULE_NOT_USED(ctx);
   REDISMODULE_NOT_USED(cursor);
+  REDISMODULE_NOT_USED(reason);
   AsyncReindexDriver *driver = privdata;
   pthread_mutex_lock(&driver->mutex);
-  driver->reason = reason;
-  driver->batch_done = true;
+  driver->call_done = true;
   pthread_cond_signal(&driver->cond);
   pthread_mutex_unlock(&driver->mutex);
-}
-
-// Issue Start (first==true) or NextBatch, retrying transient BUSY. The caller must
-// NOT hold the GIL; we take it for the call and release it immediately after
-// (required by the API), arming batch_done before queuing the drain. Returns the
-// first non-BUSY result, or BUSY if the scan was cancelled while retrying.
-static RedisModuleAsyncScanResult Indexes_AsyncScanIssue(RedisModuleCtx *ctx,
-                                                         RedisModuleScanCursor *cursor,
-                                                         AsyncReindexDriver *driver, bool first) {
-  for (;;) {
-    RedisModule_ThreadSafeContextLock(ctx);
-    // Arm before queuing: done_cb can only run once we release the GIL.
-    pthread_mutex_lock(&driver->mutex);
-    driver->batch_done = false;
-    pthread_mutex_unlock(&driver->mutex);
-    RedisModuleAsyncScanResult rc =
-        first ? RedisModule_AsyncScanStart(ctx, cursor, NULL,
-                                           REDISMODULE_ASYNCSCAN_MODE_META_AND_VALUE, NULL,
-                                           Indexes_AsyncScanKeyCB, Indexes_AsyncScanDoneCB, driver)
-              : RedisModule_AsyncScanNextBatch(ctx, cursor);
-    RedisModule_ThreadSafeContextUnlock(ctx);
-    if (rc != REDISMODULE_ASYNCSCAN_BUSY || driver->scanner->cancelled) {
-      return rc;
-    }
-    usleep(1000);
-  }
 }
 
 void Indexes_AsyncScanAndReindexTask(IndexesScanner *scanner) {
@@ -138,49 +123,105 @@ void Indexes_AsyncScanAndReindexTask(IndexesScanner *scanner) {
   RedisModule_Log(ctx, "notice", "AsyncScan: scanning index %s in background",
                   scanner->spec_name_for_logs);
 
-  RedisModuleAsyncScanResult rc = REDISMODULE_ASYNCSCAN_OK;
   if (scanner->cancelled) {
-    goto cleanup;
+    goto done;
   }
 
-  rc = Indexes_AsyncScanIssue(ctx, cursor, &driver, true);
-  while (rc == REDISMODULE_ASYNCSCAN_OK) {
-    // Wait for this batch's done_cb (fires on the main thread under the GIL).
-    pthread_mutex_lock(&driver.mutex);
-    while (!driver.batch_done) {
-      pthread_cond_wait(&driver.cond, &driver.mutex);
-    }
-    RedisModuleAsyncScanDoneReason reason = driver.reason;
-    pthread_mutex_unlock(&driver.mutex);
-
-    // COMPLETED, or a terminal ABORTED / DATASET_RESET / OUT_OF_MEMORY — the
-    // cursor is finished and no further batch can be requested.
-    if (reason != REDISMODULE_ASYNCSCAN_DONE_BATCH_DONE) {
+  // First call: bind all parameters to the cursor and queue the first batch. Start
+  // is subject to the same max-inflight cap as NextBatch and can return BUSY, so we
+  // retry the *same* call (no binding exists yet) until it is accepted. The GIL is
+  // held only for the call and released immediately; the backoff sleeps with it
+  // released. (Async Scan requirements §3.1.1.)
+  RedisModuleAsyncScanResult rc;
+  for (;;) {
+    RedisModule_ThreadSafeContextLock(ctx);
+    rc = RedisModule_AsyncScanStart(ctx, cursor, NULL,
+                                    REDISMODULE_ASYNCSCAN_MODE_META_AND_VALUE, NULL,
+                                    Indexes_AsyncScanKeyCB, Indexes_AsyncScanDoneCB, &driver);
+    RedisModule_ThreadSafeContextUnlock(ctx);
+    if (rc != REDISMODULE_ASYNCSCAN_BUSY) {
       break;
     }
-
-    // Minimal OOM handling (pause/retry is Phase 2): a key_cb hit the memory
-    // limit. Record the failure and fall through to the cancellation/abort path.
-    if (scanner->scanFailedOnOOM && !scanner->cancelled) {
-      RedisModule_ThreadSafeContextLock(ctx);
-      scanStopAfterOOM(ctx, scanner);
-      RedisModule_ThreadSafeContextUnlock(ctx);
-    }
-
+    // Cancelled while retrying: the cursor was never bound, so there is nothing to
+    // abort — just tear down.
     if (scanner->cancelled) {
-      RedisModule_ThreadSafeContextLock(ctx);
-      RedisModule_AsyncScanAbort(cursor);
-      RedisModule_ThreadSafeContextUnlock(ctx);
-      break;
+      goto done;
     }
-
-    rc = Indexes_AsyncScanIssue(ctx, cursor, &driver, false);
+    usleep(1000);
   }
 
+  // Drive the cursor one batch at a time, switching on the result code exactly as
+  // the canonical indexer loop in the Async Scan requirements §3.1.1. done_cb only
+  // wakes us; terminal state arrives as the return code of the next NextBatch.
+  for (;;) {
+    switch (rc) {
+    case REDISMODULE_ASYNCSCAN_OK:
+      // Batch queued. Wait (GIL released) for done_cb to fire on the main thread.
+      Indexes_AsyncScanWaitForDone(&driver);
+
+      // Module-side stop conditions (not engine-terminal): a key_cb hit the memory
+      // limit, or the scan was cancelled (FT.DROP / FT.ALTER). Abort the sweep
+      // rather than requesting another batch. OOM pause/retry is Phase 2.
+      if (scanner->scanFailedOnOOM && !scanner->cancelled) {
+        RedisModule_ThreadSafeContextLock(ctx);
+        scanStopAfterOOM(ctx, scanner);
+        RedisModule_ThreadSafeContextUnlock(ctx);
+      }
+      if (scanner->cancelled) {
+        RedisModule_ThreadSafeContextLock(ctx);
+        RedisModule_AsyncScanAbort(cursor);
+        RedisModule_ThreadSafeContextUnlock(ctx);
+        goto done;
+      }
+
+      RedisModule_ThreadSafeContextLock(ctx);
+      rc = RedisModule_AsyncScanNextBatch(ctx, cursor);
+      RedisModule_ThreadSafeContextUnlock(ctx);
+      break;
+
+    case REDISMODULE_ASYNCSCAN_BUSY:
+      // Concurrency cap full; back off (GIL released) and retry the same NextBatch.
+      usleep(1000);
+      RedisModule_ThreadSafeContextLock(ctx);
+      rc = RedisModule_AsyncScanNextBatch(ctx, cursor);
+      RedisModule_ThreadSafeContextUnlock(ctx);
+      break;
+
+    case REDISMODULE_ASYNCSCAN_EXHAUSTED:
+      // Natural completion: the full keyspace was swept.
+      goto done;
+
+    case REDISMODULE_ASYNCSCAN_DATASET_RESET:
+    case REDISMODULE_ASYNCSCAN_ABORTED:
+    case REDISMODULE_ASYNCSCAN_OUT_OF_MEMORY:
+      // Terminal: the sweep ended early (FLUSHALL / DEBUG RELOAD, an abort, or
+      // engine memory pressure). The cursor is no longer usable; resuming after
+      // OUT_OF_MEMORY with a fresh cursor is Phase 2.
+      goto done;
+
+    case REDISMODULE_ASYNCSCAN_IN_PROGRESS:
+      // Should not happen: we never reissue before done_cb fires.
+      goto done;
+
+    case REDISMODULE_ASYNCSCAN_UNSUPPORTED:
+      // AsyncScan unavailable in this build/runtime. We only route disk indexes
+      // here, where it is guaranteed present; an RM_Scan fallback is Phase 2.
+      RedisModule_Log(ctx, "warning", "AsyncScan: unsupported for index %s",
+                      scanner->spec_name_for_logs);
+      goto done;
+
+    case REDISMODULE_ASYNCSCAN_INVALID:
+      // Bad argument — programming error. Cursor state is unchanged; no done_cb.
+      RedisModule_Log(ctx, "warning", "AsyncScan: invalid argument for index %s",
+                      scanner->spec_name_for_logs);
+      goto done;
+    }
+  }
+
+done:
   RedisModule_Log(ctx, "notice", "AsyncScan: scanning index %s in background: done (scanned=%zu)",
                   scanner->spec_name_for_logs, scanner->scannedKeys);
 
-cleanup:
   IndexesScanner_Free(scanner);
   pthread_cond_destroy(&driver.cond);
   pthread_mutex_destroy(&driver.mutex);
