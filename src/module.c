@@ -983,8 +983,7 @@ static int AlterIndexInternalCommand(RedisModuleCtx *ctx, RedisModuleString **ar
     return QueryError_ReplyAndClear(ctx, &status);
   }
 
-  // Schedule the initial background scan for the new fields. Hoisted out of
-  // IndexSpec_AddFields so spec.c has no dependency on the scanner.
+  // Schedule the initial background scan for the new fields.
   if (addFieldsOk && initialScan) {
     IndexSpec_ScanAndReindex(ctx, ref);
   }

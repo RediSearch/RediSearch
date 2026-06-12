@@ -70,10 +70,9 @@ static bool checkIfSpecExists(const char *rawSpecName) {
   return found;
 }
 
-// Caller-facing entry point for FT.CREATE: enforce the registry preconditions
-// (name uniqueness, index-count limit), build the spec via the IndexSpec core,
-// publish it into the global registry, and schedule its initial scan. All
-// specDict_g / specIdDict_g access lives here, not in spec.c.
+// Entry point for FT.CREATE: enforce the registry preconditions (name
+// uniqueness, index-count limit), build the spec via the IndexSpec core, publish
+// it into the global registry, and schedule its initial scan.
 IndexSpec *Indexes_CreateNew(RedisModuleCtx *ctx, RedisModuleString **argv, int argc,
                              QueryError *status) {
   const char *rawSpecName = RedisModule_StringPtrLen(argv[1], NULL);

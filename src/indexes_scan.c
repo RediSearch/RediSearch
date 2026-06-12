@@ -10,10 +10,9 @@
 // indexes_scan.c -- background scanner / reindex subsystem.
 //
 // Owns the IndexesScanner family, the debug scanner, the reindex thread pool,
-// and the full-rescan / legacy-upgrade entry points. Extracted from spec.c so
-// the scanner is a self-contained subsystem with a one-directional dependency
-// on the IndexSpec core (spec.h) and a data-only read of the global registry
-// (specDict_g, declared in indexes.h / spec.h).
+// and the full-rescan / legacy-upgrade entry points. A self-contained subsystem
+// with a one-directional dependency on the IndexSpec core (spec.h) and a
+// data-only read of the global registry (specDict_g, declared in indexes.h).
 
 #include <assert.h>
 #include <unistd.h>
@@ -43,7 +42,8 @@ extern DebugCTX globalDebugCtx;
 IndexesScanner *global_spec_scanner = NULL;
 size_t pending_global_indexing_ops = 0;
 
-// Registry globals owned by spec.c (data-only dependency; see indexes.h).
+// Registry globals (data-only dependency): specDict_g/specIdDict_g are defined
+// in indexes.c, legacySpecDict in spec.c.
 extern dict *specDict_g;
 extern dict *specIdDict_g;
 extern dict *legacySpecDict;

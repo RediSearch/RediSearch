@@ -129,15 +129,10 @@ struct IndexesScanner;
 #define MIN_DIALECT_VERSION 1 // MIN_DIALECT_VERSION is expected to change over time as dialects become deprecated.
 #define MAX_DIALECT_VERSION 4 // MAX_DIALECT_VERSION may not exceed MIN_DIALECT_VERSION + 7.
 
-// The global index registry dictionaries (specDict_g / specIdDict_g) are owned
-// by indexes.c; their extern declarations live in indexes.h. spec.h only keeps
-// these generic StrongRef-from-dict-entry helpers, which are not registry-specific.
+// Generic helpers to read a StrongRef out of a dict entry. (The global index
+// registry dictionaries specDict_g / specIdDict_g are declared in indexes.h.)
 #define dictGetRef(he) ((StrongRef){dictGetVal(he)})
 #define dictFetchRef(dict, key) ((StrongRef){dictFetchValue((dict), (key))})
-
-// The background scanner subsystem (IndexesScanner / DebugIndexesScanner, the
-// DebugIndexScannerCode enum, the global scanner and reindex entry points) lives
-// in indexes_scan.{c,h}. Include that header where those symbols are needed.
 
 extern dict *legacySpecRules;
 
@@ -561,12 +556,10 @@ void IndexSpec_DeleteDoc_Unsafe(IndexSpec *spec, RedisModuleCtx *ctx, RedisModul
 // NOT clean up DocIdMeta on the key. This is called from the metadata unlink callback
 void IndexSpec_DeleteDocById(IndexSpec *spec, t_docId docId);
 
-// (Re)index a single document into the spec. Defined in spec.c; used by the
-// background scanner in indexes_scan.c.
+// (Re)index a single document into the spec.
 int IndexSpec_UpdateDoc(IndexSpec *spec, RedisModuleCtx *ctx, RedisModuleString *key, DocumentType type);
 
 // Format the legacy (separate-key) Redis key name for a numeric/tag/geo field.
-// Defined in spec.c; used by the legacy index upgrade path in indexes_scan.c.
 RedisModuleString *IndexSpec_LegacyGetFormattedKey(IndexSpec *sp, const FieldSpec *fs,
                                                    FieldType forType);
 
@@ -583,8 +576,6 @@ void IndexSpec_MakeKeyless(IndexSpec *sp);
  * @param obfuscate - if true, obfuscate the index name and field names
  * @param skip_unsafe_ops - if true, skips operations unsafe in signal handler context (allocations, locks)
  * @param globalScanActive - whether a global background scan is currently running
- *        (the registry/scanner state lives in indexes_scan.c; the caller passes it in
- *        so the IndexSpec core does not depend on the scanner)
  */
 void IndexSpec_AddToInfo(RedisModuleInfoCtx *ctx, IndexSpec *sp, bool obfuscate, bool skip_unsafe_ops,
                          bool globalScanActive);
@@ -628,11 +619,11 @@ typedef struct {
 //---------------------------------------------------------------------------------------------
 
 /**
- * Per-spec bookkeeping run after the registry layer resolves a spec: bumps the
- * usage counter and refreshes the temporary-index timeout timer (subject to the
- * NOCOUNTERINC / NOTIMERUPDATE option flags). Touches no global structures.
- * `spec_ref` must be a valid, non-NULL strong reference. The registry lookup
- * lives in Indexes_LoadIndexSpecUnsafeEx (indexes.h), which calls this.
+ * Per-spec bookkeeping for an already-resolved spec: bumps the usage counter and
+ * refreshes the temporary-index timeout timer (subject to the NOCOUNTERINC /
+ * NOTIMERUPDATE option flags). Touches no global structures. `spec_ref` must be a
+ * valid, non-NULL strong reference. To look up a spec by name and run this, use
+ * Indexes_LoadIndexSpecUnsafeEx (indexes.h).
  */
 void IndexSpec_LoadUnsafeEx(StrongRef spec_ref, IndexLoadOptions *options);
 
@@ -664,41 +655,37 @@ void IndexSpec_Free(IndexSpec *spec);
 //---------------------------------------------------------------------------------------------
 
 // Whether RDB load/save should use the SST (disk) persistence path for the
-// given context. Defined in spec.c; used by the registry RDB load in indexes.c.
+// given context.
 bool CheckRdbSstPersistence(RedisModuleCtx *ctx, const char *prefix);
 
-// Temporary-index timeout timer management for a single spec. Defined in spec.c;
-// used by Indexes_SetTempSpecsTimers in indexes.c.
+// Temporary-index timeout timer management for a single spec.
 void IndexSpec_SetTimeoutTimer(IndexSpec *sp, WeakRef spec_ref);
 void IndexSpec_ResetTimeoutTimer(IndexSpec *sp);
 
-// Open a disk index from its pending SST/RDB state and materialize its disk-backed
-// fields. Defined in spec.c; used by Indexes_FinishSSTReplication in indexes.c.
+// Open a disk index from its pending SST/RDB state and materialize its
+// disk-backed fields.
 bool IndexSpec_SSTRdbOpenAndApply(RedisModuleCtx *ctx, IndexSpec *sp);
 
-// Initialize the spec's cursor-related fields. Defined in spec.c; used by the
-// registry RDB store path (Indexes_StoreAfterRdbLoad) in indexes.c.
+// Initialize the spec's cursor-related fields.
 void Cursors_initSpec(IndexSpec *spec);
 
-// Record that an index drop is pending. Defined in spec.c; used by the registry
-// RDB store path (Indexes_StoreAfterRdbLoad) in indexes.c.
+// Record that an index drop is pending.
 void addPendingIndexDrop();
 
 void IndexSpec_AddTerm(IndexSpec *sp, const char *term, size_t len);
 
 IndexSpec *NewIndexSpec(const HiddenString *name);
-// Parse a single spec from the RDB stream. Does NOT consult the registry or open
-// the non-SST on-disk index (both depend on duplicate detection, which the
-// registry layer resolves); callers follow up with IndexSpec_RdbLoadOpenDisk.
+// Parse a single spec from the RDB stream. Does not consult the registry or open
+// the non-SST on-disk index; the caller resolves duplicate status and then calls
+// IndexSpec_RdbLoadOpenDisk.
 IndexSpec *IndexSpec_RdbLoad(RedisModuleIO *rdb, int encver, bool useSst, QueryError *status);
-// Open the non-SST on-disk index for a spec from IndexSpec_RdbLoad, once the
+// Open the non-SST on-disk index for a spec parsed by IndexSpec_RdbLoad, once the
 // caller has resolved sp->isDuplicate. No-op for SST/memory/duplicate specs.
 int IndexSpec_RdbLoadOpenDisk(RedisModuleCtx *ctx, IndexSpec *sp, bool useSst, QueryError *status);
 void IndexSpec_RdbSave(RedisModuleIO *rdb, IndexSpec *sp, int contextFlags);
 
-// Per-spec RDB callbacks for the IndexSpecType module type. Defined in spec.c;
-// wired into the type by Indexes_RegisterType (indexes.c). IndexSpec_LegacyRdbLoad
-// loads a pre-event legacy index for upgrade.
+// Per-spec callbacks for the IndexSpecType module type. IndexSpec_LegacyRdbLoad
+// loads a legacy (pre-RDB-event) index for upgrade.
 void *IndexSpec_LegacyRdbLoad(RedisModuleIO *rdb, int encver);
 void IndexSpec_RdbSave_Wrapper(RedisModuleIO *rdb, void *value);
 void IndexSpec_LegacyFree(void *spec);
@@ -749,11 +736,6 @@ const char *IndexSpec_FormatName(const IndexSpec *sp, bool obfuscate);
 char *IndexSpec_FormatObfuscatedName(const HiddenString *specName);
 
 //---------------------------------------------------------------------------------------------
-
-// The global index registry + keyspace-dispatch API (Indexes_Init/Free/Count/
-// Propagate, the Indexes_*MatchingWithSchemaRules family, Indexes_List, RDB
-// load/save and the RDB-load lifecycle events) lives in indexes.{c,h}. Include
-// that header where those functions are called.
 
 void CleanPool_ThreadPoolStart();
 void CleanPool_ThreadPoolDestroy();

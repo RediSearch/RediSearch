@@ -62,10 +62,6 @@ const char *(*IndexAlias_GetUserTableName)(RedisModuleCtx *, const char *) = NUL
 
 RedisModuleType *IndexSpecType;
 
-// The global index registry (specDict_g / specIdDict_g) is defined in indexes.c.
-// Its extern declarations live in spec.h, since the IndexSpec lifecycle functions
-// here read it as a data dependency.
-
 // Maximum number of indexes that can be created.
 // Can be modified via FT.DEBUG for testing.
 uint32_t maxIndexes_g = DEFAULT_MAX_INDEXES;
@@ -456,12 +452,10 @@ char *IndexSpec_FormatObfuscatedName(const HiddenString *specName) {
 /* Build a new IndexSpec from a redis command, wiring up its GC, cursors and
  * (for temporary indexes) timeout timer.
  *
- * This is the IndexSpec core: it does NOT publish the spec into the global
- * registry (specDict_g/specIdDict_g) and does NOT start the initial scan. The
- * caller-facing entry point Indexes_CreateNew (indexes.c) performs the
- * existence/limit checks, registers the spec, and schedules the scan around
- * this call. Keeping registry access out of spec.c preserves the one-way
- * indexes -> spec dependency. */
+ * Builds the spec only: it does not publish it into the global registry or start
+ * the initial scan. Use Indexes_CreateNew (indexes.h) as the FT.CREATE entry
+ * point - it performs the existence/limit checks, registers the spec, and
+ * schedules the initial scan around this call. */
 // TODO: multithreaded: use global metadata locks to protect global data structures
 IndexSpec *IndexSpec_CreateNew(RedisModuleCtx *ctx, RedisModuleString **argv, int argc,
                                QueryError *status) {
@@ -1570,9 +1564,9 @@ reset:
   return 0;
 }
 
-// Assumes the spec is locked for write.
-// NOTE: scheduling the post-alter background scan is the caller's responsibility
-// (see CreateIndexAlterCommand in module.c), keeping spec.c free of a scanner edge.
+// Assumes the spec is locked for write. Adds the fields only; scheduling the
+// post-alter background scan is the caller's job (see CreateIndexAlterCommand in
+// module.c).
 int IndexSpec_AddFields(StrongRef spec_ref, IndexSpec *sp, RedisModuleCtx *ctx, ArgsCursor *ac,
                         QueryError *status) {
   setMemoryInfo(ctx);
