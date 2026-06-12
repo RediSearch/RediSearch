@@ -67,6 +67,14 @@ typedef struct DebugIndexesScanner {
   bool pauseBeforeOOMRetry;
 } DebugIndexesScanner;
 
+// Cancel the scan and record an OOM failure on the spec (FT.INFO error + log).
+// Shared with the AsyncScan driver in indexes_asyncscan.c.
+void scanStopAfterOOM(RedisModuleCtx *ctx, IndexesScanner *scanner);
+
+// Return true if used_memory exceeds (indexingMemoryLimit % × memoryLimit);
+// false if within bounds or the limit is 0. Shared with indexes_asyncscan.c.
+bool isBgIndexingMemoryOverLimit(RedisModuleCtx *ctx);
+
 void IndexesScanner_Cancel(struct IndexesScanner *scanner);
 void IndexesScanner_ResetProgression(struct IndexesScanner *scanner);
 void IndexesScanner_Free(IndexesScanner *scanner);

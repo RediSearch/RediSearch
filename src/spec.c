@@ -1750,11 +1750,6 @@ static StrongRef IndexSpec_ParseFromArgCursor(RedisModuleCtx *ctx, const HiddenS
     SchemaRule_FilterFields(spec);
   }
 
-  if (isSpecOnDiskForValidation(spec) && !(spec->flags & Index_SkipInitialScan)) {
-    QueryError_SetError(status, QUERY_ERROR_CODE_FLEX_SKIP_INITIAL_SCAN_MISSING_ARGUMENT, "Flex index requires SKIPINITIALSCAN argument");
-    goto failure;
-  }
-
   return spec_ref;
 
 failure:  // on failure return the partially-built spec with the error set in `status`;

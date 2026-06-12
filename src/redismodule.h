@@ -1169,6 +1169,74 @@ typedef void (*RedisModuleAppendOnlySyncCallback)(RedisModuleCtx *ctx, void *pri
 typedef void (*RedisModuleForkDoneHandler) (int exitcode, int bysignal, void *user_data);
 typedef void (*RedisModuleScanCB)(RedisModuleCtx *ctx, RedisModuleString *keyname, RedisModuleKey *key, void *privdata);
 typedef void (*RedisModuleScanKeyCB)(RedisModuleKey *key, RedisModuleString *field, RedisModuleString *value, void *privdata);
+
+/* ----- RedisModule_AsyncScan: enums, filter struct, callbacks -----
+ * Synced from redis-flex src/redismodule.h. These slots are optional: on a
+ * non-Flex server the corresponding RedisModule_AsyncScan* pointers stay NULL
+ * (REDISMODULE_GET_API does not abort Init), so callers must probe before use. */
+
+/* Scan mode (mutually exclusive). */
+typedef enum RedisModuleAsyncScanMode {
+    REDISMODULE_ASYNCSCAN_MODE_META_ONLY      = 0,
+    REDISMODULE_ASYNCSCAN_MODE_META_AND_VALUE = 1,
+} RedisModuleAsyncScanMode;
+
+/* Return code from RedisModule_AsyncScanStart and _AsyncScanNextBatch. */
+typedef enum RedisModuleAsyncScanResult {
+    REDISMODULE_ASYNCSCAN_OK            = 0,
+    REDISMODULE_ASYNCSCAN_BUSY          = 1,
+    REDISMODULE_ASYNCSCAN_EXHAUSTED     = 2,
+    REDISMODULE_ASYNCSCAN_IN_PROGRESS   = 3,
+    REDISMODULE_ASYNCSCAN_INVALID       = 4,
+    REDISMODULE_ASYNCSCAN_UNSUPPORTED   = 5,
+    REDISMODULE_ASYNCSCAN_OUT_OF_MEMORY = 6,
+    REDISMODULE_ASYNCSCAN_ABORTED       = 7,
+    REDISMODULE_ASYNCSCAN_DATASET_RESET = 8,
+} RedisModuleAsyncScanResult;
+
+/* Reason passed to done_cb. */
+typedef enum RedisModuleAsyncScanDoneReason {
+    REDISMODULE_ASYNCSCAN_DONE_BATCH_DONE    = 0,
+    REDISMODULE_ASYNCSCAN_DONE_COMPLETED     = 1,
+    REDISMODULE_ASYNCSCAN_DONE_ABORTED       = 2,
+    REDISMODULE_ASYNCSCAN_DONE_DATASET_RESET = 3,
+    REDISMODULE_ASYNCSCAN_DONE_OUT_OF_MEMORY = 4,
+} RedisModuleAsyncScanDoneReason;
+
+/* Result of RedisModule_AsyncScanAbort. */
+typedef enum RedisModuleAsyncScanAbortResult {
+    REDISMODULE_ASYNCSCAN_ABORT_TRIGGERED = 0,
+    REDISMODULE_ASYNCSCAN_ABORT_NOOP      = 1,
+} RedisModuleAsyncScanAbortResult;
+
+/* Filter spec for RedisModule_AsyncScanStart. Prefix-set and type-set are
+ * AND-ed; entries within each set are OR-ed. Input-only — the engine
+ * deep-copies prefixes and resolves type names at Start; the caller may free
+ * or reuse everything as soon as the call returns. */
+typedef struct RedisModuleAsyncScanFilter {
+    const char **prefixes;
+    size_t       num_prefixes;
+    const char **types;
+    size_t       num_types;
+} RedisModuleAsyncScanFilter;
+
+/* Per-key callback. Fires once per delivered key on the main thread, GIL held;
+ * in META_AND_VALUE the value is pinned in RAM for the duration of this call. */
+typedef void (*RedisModuleAsyncScanKeyCB)(
+    RedisModuleCtx        *ctx,
+    RedisModuleScanCursor *cursor,
+    RedisModuleKey        *key,
+    RedisModuleString     *name,
+    void                  *privdata);
+
+/* Call-completion callback. Fires exactly once per Start/NextBatch call that
+ * returned OK, after every per-key callback for that batch has returned. */
+typedef void (*RedisModuleAsyncScanCallDoneCB)(
+    RedisModuleCtx                  *ctx,
+    RedisModuleScanCursor           *cursor,
+    void                            *privdata,
+    RedisModuleAsyncScanDoneReason   reason);
+
 typedef RedisModuleString * (*RedisModuleConfigGetStringFunc)(const char *name, void *privdata);
 typedef long long (*RedisModuleConfigGetNumericFunc)(const char *name, void *privdata);
 typedef int (*RedisModuleConfigGetBoolFunc)(const char *name, void *privdata);
@@ -1522,6 +1590,10 @@ REDISMODULE_API void (*RedisModule_ScanCursorRestart)(RedisModuleScanCursor *cur
 REDISMODULE_API void (*RedisModule_ScanCursorDestroy)(RedisModuleScanCursor *cursor) REDISMODULE_ATTR;
 REDISMODULE_API int (*RedisModule_Scan)(RedisModuleCtx *ctx, RedisModuleScanCursor *cursor, RedisModuleScanCB fn, void *privdata) REDISMODULE_ATTR;
 REDISMODULE_API int (*RedisModule_ScanKey)(RedisModuleKey *key, RedisModuleScanCursor *cursor, RedisModuleScanKeyCB fn, void *privdata) REDISMODULE_ATTR;
+REDISMODULE_API RedisModuleScanCursor * (*RedisModule_ScanCursorCreateWithName)(const char *name) REDISMODULE_ATTR;
+REDISMODULE_API RedisModuleAsyncScanResult (*RedisModule_AsyncScanStart)(RedisModuleCtx *ctx, RedisModuleScanCursor *cursor, RedisModuleAsyncScanFilter *filter, RedisModuleAsyncScanMode scan_mode, const int *open_mode, RedisModuleAsyncScanKeyCB key_cb, RedisModuleAsyncScanCallDoneCB done_cb, void *privdata) REDISMODULE_ATTR;
+REDISMODULE_API RedisModuleAsyncScanResult (*RedisModule_AsyncScanNextBatch)(RedisModuleCtx *ctx, RedisModuleScanCursor *cursor) REDISMODULE_ATTR;
+REDISMODULE_API RedisModuleAsyncScanAbortResult (*RedisModule_AsyncScanAbort)(RedisModuleScanCursor *cursor) REDISMODULE_ATTR;
 REDISMODULE_API int (*RedisModule_GetContextFlagsAll)(void) REDISMODULE_ATTR;
 REDISMODULE_API int (*RedisModule_GetModuleOptionsAll)(void) REDISMODULE_ATTR;
 REDISMODULE_API int (*RedisModule_GetKeyspaceNotificationFlagsAll)(void) REDISMODULE_ATTR;
@@ -1988,6 +2060,12 @@ static int RedisModule_Init(RedisModuleCtx *ctx, const char *name, int ver, int 
     REDISMODULE_GET_API(ScanCursorDestroy);
     REDISMODULE_GET_API(Scan);
     REDISMODULE_GET_API(ScanKey);
+    /* Optional on non-Flex servers — pointer stays NULL if absent (the
+     * GET_API macro here does not abort Init). Probe before use. */
+    REDISMODULE_GET_API(ScanCursorCreateWithName);
+    REDISMODULE_GET_API(AsyncScanStart);
+    REDISMODULE_GET_API(AsyncScanNextBatch);
+    REDISMODULE_GET_API(AsyncScanAbort);
     REDISMODULE_GET_API(GetContextFlagsAll);
     REDISMODULE_GET_API(GetModuleOptionsAll);
     REDISMODULE_GET_API(GetKeyspaceNotificationFlagsAll);

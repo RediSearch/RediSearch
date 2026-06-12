@@ -20,6 +20,8 @@
 #include "spec.h"
 #include "indexes.h"
 #include "indexes_scan.h"
+#include "indexes_asyncscan.h"
+#include "search_disk.h"
 #include "document.h"
 #include "util/logging.h"
 #include "util/misc.h"
@@ -80,7 +82,8 @@ static inline void threadSleepByConfigTime(RedisModuleCtx *ctx, IndexesScanner *
 
 // This function should be called after the second background scan OOM error
 // It will stop the background scan process
-static inline void scanStopAfterOOM(RedisModuleCtx *ctx, IndexesScanner *scanner) {
+// Shared with indexes_asyncscan.c — declared in indexes_scan.h.
+void scanStopAfterOOM(RedisModuleCtx *ctx, IndexesScanner *scanner) {
   char* error;
   rm_asprintf(&error, "Used memory is more than %u percent of max memory, cancelling the scan", RSGlobalConfig.indexingMemoryLimit);
   RedisModule_Log(ctx, "warning", "%s", error);
@@ -106,7 +109,8 @@ static inline void scanStopAfterOOM(RedisModuleCtx *ctx, IndexesScanner *scanner
 }
 
 // Return true if used_memory exceeds (indexingMemoryLimit % × memoryLimit); false if within bounds or limit is 0.
-static inline bool isBgIndexingMemoryOverLimit(RedisModuleCtx *ctx) {
+// Shared with indexes_asyncscan.c — declared in indexes_scan.h.
+bool isBgIndexingMemoryOverLimit(RedisModuleCtx *ctx) {
   // if memory limit is set to 0, we don't need to check for memory usage
   if(RSGlobalConfig.indexingMemoryLimit == 0) {
     return false;
@@ -406,7 +410,14 @@ static void IndexSpec_ScanAndReindexAsync(StrongRef spec_ref) {
     scanner = IndexesScanner_New(spec_ref);
   }
 
-  redisearch_thpool_add_work(reindexPool, (redisearch_thpool_proc)Indexes_ScanAndReindexTask, scanner, THPOOL_PRIORITY_HIGH);
+  // Route disk indexes to the AsyncScan driver; RAM keeps the synchronous scan
+  // (in-RAM key loads are cheap and gain nothing from offloading the read). The
+  // disk AsyncScan API is guaranteed present when SearchDisk_IsEnabled().
+  redisearch_thpool_proc reindexTask = SearchDisk_IsEnabled()
+      ? (redisearch_thpool_proc)Indexes_AsyncScanAndReindexTask
+      : (redisearch_thpool_proc)Indexes_ScanAndReindexTask;
+
+  redisearch_thpool_add_work(reindexPool, reindexTask, scanner, THPOOL_PRIORITY_HIGH);
 }
 
 void ReindexPool_ThreadPoolDestroy() {
