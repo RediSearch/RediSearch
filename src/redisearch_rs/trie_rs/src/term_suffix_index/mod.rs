@@ -252,3 +252,55 @@ impl TermSuffixIndex {
         self.inner.iter().map(|(key, _)| key)
     }
 }
+
+/// Direct tests for the [`TermSuffixIndex::choose_token`] heuristic.
+///
+/// Anchor choice affects performance, never the result set — the
+/// public-API wildcard tests (including the full-scan proptest
+/// oracle) pass regardless of which token is chosen, so the scoring
+/// rules are pinned here instead.
+#[cfg(test)]
+mod tests {
+    use super::TermSuffixIndex;
+
+    fn choose(pattern: &str) -> Option<(&str, bool)> {
+        TermSuffixIndex::choose_token(pattern)
+    }
+
+    #[test]
+    fn tie_at_equal_score_prefers_the_later_token() {
+        // Both two-char tokens need a subtree walk and score 2 - 5.
+        assert_eq!(choose("ab*cd*"), Some(("cd", true)));
+    }
+
+    #[test]
+    fn pattern_final_token_avoids_the_subtree_dock() {
+        // "abcdef" scores 6 - 5 = 1; pattern-final "gh" scores 2.
+        assert_eq!(choose("abcdef*gh"), Some(("gh", false)));
+    }
+
+    #[test]
+    fn mid_token_longer_by_more_than_the_dock_wins() {
+        // "abcdefgh" scores 8 - 5 = 3, beating pattern-final "ij" at 2.
+        assert_eq!(choose("abcdefgh*ij"), Some(("abcdefgh", true)));
+    }
+
+    #[test]
+    fn tokens_shorter_than_min_suffix_are_ineligible() {
+        assert_eq!(choose("a*b"), None);
+    }
+
+    #[test]
+    fn tokens_containing_wildcard_chars_are_ineligible() {
+        // "a?cd" and "\\ab" cannot anchor a literal lookup; the search
+        // falls through to the only clean token.
+        assert_eq!(choose("a?cd*\\ab*ef"), Some(("ef", false)));
+    }
+
+    #[test]
+    fn token_length_is_counted_in_codepoints_not_bytes() {
+        // Byte counting would score "日本語" 9 - 5 = 4 and pick it over
+        // "ab" at 2; codepoint counting scores it 3 - 5 = -2.
+        assert_eq!(choose("日本語*ab"), Some(("ab", false)));
+    }
+}
