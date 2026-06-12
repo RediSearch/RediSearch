@@ -777,14 +777,39 @@ static QueryIterator *Query_EvalWildcardQueryNode(QueryEvalCtx *q, QueryNode *qn
   ctx.its = rm_malloc(sizeof(*ctx.its) * ctx.cap);
   ctx.nits = 0;
 
-  // The suffix index does not support wildcard iteration; wildcard queries
-  // always scan the terms trie. The field-mask check is kept so querying a
-  // field without WITHSUFFIXTRIE support errors the same way it always has.
-  if (spec->suffix && !(qn->opts.fieldMask == RS_FIELDMASK_ALL ||
-                        (spec->suffixMask & qn->opts.fieldMask) == qn->opts.fieldMask)) {
-    QueryError_SetError(q->status, QUERY_ERROR_CODE_GENERIC,
-                        "Contains query on fields without WITHSUFFIXTRIE support");
-  } else {
+  bool fallbackBruteForce = false;
+  // spec support using suffix trie
+  if (spec->suffix) {
+    // all modifier fields are supported
+    if (qn->opts.fieldMask == RS_FIELDMASK_ALL ||
+        (spec->suffixMask & qn->opts.fieldMask) == qn->opts.fieldMask) {
+      // The suffix index stores folded UTF-8 terms; fold the pattern the same
+      // way by lowering its runes and converting back.
+      size_t patternLen;
+      char *pattern = runesToStr(str, nstr, &patternLen);
+      TermSuffixIndexIterator *it =
+          TermSuffixIndex_IterateWildcard(spec->suffix, pattern, patternLen);
+      if (it) {
+        const char *term;
+        size_t termLen;
+        while (TermSuffixIndexIterator_Next(it, &term, &termLen)) {
+          if (charIterCb(term, termLen, &ctx, NULL) != REDISEARCH_OK) {
+            break;
+          }
+        }
+        TermSuffixIndexIterator_Free(it);
+      } else {
+        // no pattern token can anchor the suffix index, use brute force
+        fallbackBruteForce = true;
+      }
+      rm_free(pattern);
+    } else {
+      QueryError_SetError(q->status, QUERY_ERROR_CODE_GENERIC,
+                          "Contains query on fields without WITHSUFFIXTRIE support");
+    }
+  }
+
+  if (!spec->suffix || fallbackBruteForce) {
     Trie_IterateWildcard(t, str, nstr, runeIterCb, &ctx, &q->sctx->time.timeout,
                          q->sctx->time.skipTimeoutChecks);
   }

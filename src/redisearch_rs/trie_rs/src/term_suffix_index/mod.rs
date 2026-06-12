@@ -30,6 +30,8 @@ mod term_refs;
 
 use std::rc::Rc;
 
+use rqe_wildcard::{MatchOutcome, WildcardPattern};
+
 use crate::str::StrTrieMap;
 use term_refs::{Outcome, TermRefs};
 
@@ -156,6 +158,88 @@ impl TermSuffixIndex {
             self.inner.get(needle)
         };
         data.into_iter().flat_map(|data| data.terms().cloned())
+    }
+
+    /// Yield every indexed term matching the wildcard `pattern`
+    /// (`*` matches any run of characters, `?` exactly one), in
+    /// unspecified order — or `None` when the pattern has no literal
+    /// token that can anchor the search, in which case the caller
+    /// must fall back to scanning the full term dictionary.
+    ///
+    /// A term may be yielded more than once; dedupe by
+    /// [`Rc::as_ptr`] if needed.
+    ///
+    /// The search is anchored on the pattern's best literal token
+    /// (see [`Self::choose_token`]): every term containing that
+    /// token is pulled from the token's suffix entries, then
+    /// filtered against the full pattern. Anchoring only narrows
+    /// the candidate set — the filter alone decides membership — so
+    /// `Some` and the fallback scan agree on the result set.
+    pub fn iter_wildcard<'tm, 'p>(
+        &'tm self,
+        pattern: &'p str,
+    ) -> Option<impl Iterator<Item = Rc<str>> + use<'tm, 'p>> {
+        let (token, followed_by_star) = Self::choose_token(pattern)?;
+
+        // A token followed by `*` can sit anywhere inside a match,
+        // so every suffix entry starting with it is a candidate. A
+        // token at the very end of the pattern must terminate the
+        // match, so only terms ending with it — exactly its own
+        // suffix entry — qualify.
+        let (subtree, exact) = if followed_by_star {
+            (Some(self.inner.prefixed_iter(token)), None)
+        } else {
+            (None, self.inner.get(token))
+        };
+
+        let pattern = WildcardPattern::parse(pattern.as_bytes());
+        let iter = subtree
+            .into_iter()
+            .flatten()
+            .map(|(_key, data)| data)
+            .chain(exact)
+            .flat_map(|data| data.terms().cloned())
+            .filter(move |term| pattern.matches(term.as_bytes()) == MatchOutcome::Match);
+        Some(iter)
+    }
+
+    /// Pick the literal token of `pattern` (a maximal `*`-free run)
+    /// that most narrows the candidate set, mirroring the scoring of
+    /// the C `Suffix_ChooseToken_rune`: longer tokens win, a token
+    /// that needs a subtree walk (followed by `*`) is docked 5
+    /// points, and later tokens win ties.
+    ///
+    /// Tokens spanning fewer than [`MIN_SUFFIX`] codepoints are
+    /// ineligible, as are tokens containing `?` or `\` — those are
+    /// not literally matchable, so they cannot anchor a trie lookup.
+    /// (The C heuristic could still anchor on a `?` token via a
+    /// wildcard-aware trie walk; here such patterns report no anchor
+    /// and take the fallback scan instead, which only affects speed,
+    /// never the result set.)
+    ///
+    /// Returns the token and whether it is followed by `*` (when not,
+    /// the token ends the pattern).
+    fn choose_token(pattern: &str) -> Option<(&str, bool)> {
+        let tokens: Vec<&str> = pattern.split('*').collect();
+        let last = tokens.len() - 1;
+
+        let mut best = None;
+        let mut best_score = i32::MIN;
+        for (i, token) in tokens.into_iter().enumerate() {
+            if token.chars().count() < MIN_SUFFIX || token.contains(['?', '\\']) {
+                continue;
+            }
+            let followed_by_star = i < last;
+            let mut score = token.chars().count() as i32;
+            if followed_by_star {
+                score -= 5;
+            }
+            if score >= best_score {
+                best_score = score;
+                best = Some((token, followed_by_star));
+            }
+        }
+        best
     }
 
     /// Yield every key stored in the underlying trie — each indexed
