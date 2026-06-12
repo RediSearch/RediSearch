@@ -136,8 +136,9 @@ void Indexes_AsyncScanAndReindexTask(IndexesScanner *scanner) {
   // Test hook: park the driver before any batch is queued (no GIL held here), so a
   // test can deterministically drop the index / cancel the scan mid-flight. No-op
   // unless armed via _FT.DEBUG SYNC_POINT (ENABLE_ASSERT builds).
+#ifdef ENABLE_ASSERT
   SyncPoint_Wait(SYNC_POINT_ASYNC_SCAN_BEFORE_FIRST_BATCH);
-
+#endif
   // First call: bind all parameters to the cursor and queue the first batch. Start
   // is subject to the same max-inflight cap as NextBatch and can return BUSY, so we
   // retry the *same* call (no binding exists yet) until it is accepted. The GIL is
