@@ -9,7 +9,7 @@
 
 //! Property tests for [`TermSuffixIndex`].
 
-use std::{collections::HashSet, rc::Rc};
+use std::collections::HashSet;
 
 use trie_rs::term_suffix_index::TermSuffixIndex;
 
@@ -21,7 +21,11 @@ fn build_index(corpus: &[String]) -> TermSuffixIndex {
     sut
 }
 
-fn collect_set<I: Iterator<Item = Rc<str>>>(it: I) -> HashSet<String> {
+fn collect_set<I>(it: I) -> HashSet<String>
+where
+    I: Iterator,
+    I::Item: AsRef<str>,
+{
     it.map(|r| r.as_ref().to_string()).collect()
 }
 
@@ -100,7 +104,7 @@ fn add_same_term_twice_is_noop() {
     let actual = sut.iter_contains("apple").collect::<Vec<_>>();
 
     assert_eq!(actual.len(), 1, "apple inserted twice yields one hit");
-    assert_eq!(actual[0].as_ref(), "apple");
+    assert_eq!(actual[0], "apple");
 }
 
 #[test]
@@ -183,7 +187,7 @@ fn iter_suffix_yields_one_hit_per_matching_term() {
 
     let actual = sut
         .iter_suffix("abc")
-        .map(|r| r.as_ref().to_string())
+        .map(str::to_string)
         .collect::<Vec<_>>();
 
     assert_eq!(actual.len(), 2, "each match yielded exactly once");
