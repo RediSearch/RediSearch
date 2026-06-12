@@ -9,7 +9,7 @@
 
 use std::{cmp::Ordering, fmt::Write};
 
-use crate::map::{node::Node, utils::longest_common_prefix};
+use crate::trie_map::{node::Node, utils::longest_common_prefix};
 
 /// Iterates over the entries of a [`TrieMap`](crate::TrieMap) between the specified `min` and `max`,
 /// in lexicographical order.

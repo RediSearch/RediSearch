@@ -10,7 +10,7 @@
 //! Primitives to manage the expected memory layout of the heap-allocated buffer for each [`Node`].
 //!
 //! Check out [`PtrMetadata`]'s documentation for more details.
-use crate::map::node::Node;
+use crate::trie_map::node::Node;
 use std::{alloc::Layout, marker::PhantomData, num::NonZeroUsize, ptr::NonNull};
 
 #[repr(C)]

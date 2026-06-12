@@ -7,7 +7,7 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 
-use trie_rs::str::StrTrieMap;
+use trie_rs::str_trie_map::StrTrieMap;
 
 #[test]
 fn iter_round_trips_multi_byte_utf8_keys() {

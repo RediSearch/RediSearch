@@ -7,7 +7,7 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 
-use crate::map::node::Node;
+use crate::trie_map::node::Node;
 
 /// Iterate over the values stored in a [`TrieMap`](crate::TrieMap), in lexicographical order.
 ///

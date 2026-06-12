@@ -7,7 +7,7 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 
-use trie_rs::str::StrTrieMap;
+use trie_rs::str_trie_map::StrTrieMap;
 
 #[test]
 fn insert_returns_none_on_new_and_some_on_update() {

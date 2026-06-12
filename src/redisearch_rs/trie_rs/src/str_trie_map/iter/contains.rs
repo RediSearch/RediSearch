@@ -7,9 +7,9 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 
-use crate::{TrieMap, iter, str::iter::unfiltered::key_to_string};
+use crate::{TrieMap, iter, str_trie_map::iter::unfiltered::key_to_string};
 
-/// Substring-filtered iterator over a [`StrTrieMap`](crate::str::StrTrieMap),
+/// Substring-filtered iterator over a [`StrTrieMap`](crate::str_trie_map::StrTrieMap),
 /// in lexicographical key order.
 ///
 /// Empty `target` yields zero matches (mirrors the C `Trie_IterateContains`

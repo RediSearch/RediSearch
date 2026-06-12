@@ -11,11 +11,11 @@
 //!
 //! Check [`TrieMap`]'s documentation for more details.
 
-mod map;
 pub mod opaque;
-pub mod str;
+pub mod str_trie_map;
 mod trie_count;
+mod trie_map;
 
-pub use map::TrieMap;
-pub use map::iter;
 pub use trie_count::TrieCount;
+pub use trie_map::TrieMap;
+pub use trie_map::iter;

@@ -7,7 +7,7 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 
-//! Different iterators to traverse a [`StrTrieMap`](crate::str::StrTrieMap).
+//! Different iterators to traverse a [`StrTrieMap`](crate::str_trie_map::StrTrieMap).
 
 mod contains;
 mod prefixed;

@@ -15,7 +15,7 @@ mod utils;
 
 use rqe_wildcard::WildcardPattern;
 
-use crate::map::{
+use crate::trie_map::{
     iter::{
         ContainsIter, IntoValues, Iter, LendingIter, PrefixesIter, RangeFilter, RangeIter, Values,
         WildcardIter, filter::VisitAll,

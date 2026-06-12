@@ -10,13 +10,13 @@
 use crate::{
     TrieMap,
     iter::{self, RangeBoundary as InnerBoundary, RangeFilter as InnerFilter},
-    str::iter::unfiltered::key_to_string,
+    str_trie_map::iter::unfiltered::key_to_string,
 };
 
 /// One of the bounds for a [`RangeFilter`].
 ///
 /// Mirrors [`crate::iter::RangeBoundary`] but carries a UTF-8 [`str`] value
-/// instead of raw bytes, so the [`StrTrieMap`](crate::str::StrTrieMap) invariant
+/// instead of raw bytes, so the [`StrTrieMap`](crate::str_trie_map::StrTrieMap) invariant
 /// extends through the range API.
 #[derive(Clone, Copy, Debug)]
 pub struct RangeBoundary<'f> {
@@ -81,7 +81,7 @@ impl<'f> From<RangeFilter<'f>> for InnerFilter<'f> {
     }
 }
 
-/// Range-filtered iterator over a [`StrTrieMap`](crate::str::StrTrieMap),
+/// Range-filtered iterator over a [`StrTrieMap`](crate::str_trie_map::StrTrieMap),
 /// in lexicographical key order.
 ///
 /// See [`crate::iter::RangeIter`] for the underlying traversal.

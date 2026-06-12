@@ -7,7 +7,7 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 
-use trie_rs::str::StrTrieMap;
+use trie_rs::str_trie_map::StrTrieMap;
 
 #[test]
 fn suffixed_iter_matches_keys_ending_with_target() {

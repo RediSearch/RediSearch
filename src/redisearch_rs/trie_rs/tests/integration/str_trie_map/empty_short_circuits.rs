@@ -12,7 +12,7 @@
 //! [`prefixed_iter(&[])`](trie_rs::TrieMap::prefixed_iter) yields every
 //! entry).
 
-use trie_rs::str::StrTrieMap;
+use trie_rs::str_trie_map::StrTrieMap;
 
 fn populated() -> StrTrieMap<i32> {
     let mut trie = StrTrieMap::new();

@@ -10,10 +10,10 @@
 use crate::{
     TrieMap,
     iter::{self, filter},
-    str::iter::unfiltered::key_to_string,
+    str_trie_map::iter::unfiltered::key_to_string,
 };
 
-/// Prefix-filtered iterator over a [`StrTrieMap`](crate::str::StrTrieMap),
+/// Prefix-filtered iterator over a [`StrTrieMap`](crate::str_trie_map::StrTrieMap),
 /// in lexicographical key order.
 ///
 /// Empty `prefix` yields zero matches — differs from

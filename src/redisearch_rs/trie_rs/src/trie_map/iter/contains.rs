@@ -7,7 +7,7 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 
-use crate::map::node::Node;
+use crate::trie_map::node::Node;
 use memchr::memmem::Finder;
 
 /// Iterates over all the entries in a [`TrieMap`](crate::TrieMap) that contain the target fragment,

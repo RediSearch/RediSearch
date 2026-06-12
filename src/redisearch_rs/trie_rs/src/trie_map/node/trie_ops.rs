@@ -9,7 +9,7 @@
 
 //! Trie operations.
 use super::{Node, metadata::DeallocOptions};
-use crate::map::utils::{longest_common_prefix, strip_prefix};
+use crate::trie_map::utils::{longest_common_prefix, strip_prefix};
 use std::cmp::Ordering;
 
 impl<Data> Node<Data> {

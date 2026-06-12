@@ -10,10 +10,10 @@
 use crate::{
     TrieMap,
     iter::{self, filter},
-    str::iter::unfiltered::key_to_string,
+    str_trie_map::iter::unfiltered::key_to_string,
 };
 
-/// Suffix-filtered iterator over a [`StrTrieMap`](crate::str::StrTrieMap),
+/// Suffix-filtered iterator over a [`StrTrieMap`](crate::str_trie_map::StrTrieMap),
 /// in lexicographical key order.
 ///
 /// Wrapper-only — [`crate::iter`] has no suffix iterator. Byte `ends_with`

@@ -7,8 +7,8 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 
-use trie_rs::str::StrTrieMap;
-use trie_rs::str::iter::{RangeBoundary, RangeFilter};
+use trie_rs::str_trie_map::StrTrieMap;
+use trie_rs::str_trie_map::iter::{RangeBoundary, RangeFilter};
 
 fn populated() -> StrTrieMap<i32> {
     let mut trie = StrTrieMap::new();

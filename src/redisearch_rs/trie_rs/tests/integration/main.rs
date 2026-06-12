@@ -8,5 +8,5 @@
 */
 
 mod iter;
-mod str;
-mod trie;
+mod str_trie_map;
+mod trie_map;
