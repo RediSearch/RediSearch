@@ -14,7 +14,7 @@ extern "C" {
 #endif
 
 // AsyncScan-driven background reindex (disk), a sibling of the synchronous
-// scanner in indexes_scan.{c,h}.
+// scanner in indexes_scan.{c,h}; both build on the shared core indexes_scanner.{c,h}.
 //
 // On disk the per-key value load is a synchronous blocking disk read; the
 // synchronous RM_Scan path performs it on the scanning thread while it holds the
@@ -23,9 +23,10 @@ extern "C" {
 // thread under a single continuous GIL hold. We index inside that callback exactly
 // as a live keyspace notification would.
 
-// Forward declaration: the scanner type lives in indexes_scan.{c,h}. The async
-// driver only needs it by pointer, keeping the dependency one-directional
-// (indexes_asyncscan.c -> indexes_scan.h, never the reverse).
+// Forward declaration: the scanner type lives in the shared core indexes_scanner.{c,h}.
+// The async driver only needs it by pointer here; the .c includes indexes_scanner.h
+// for the full definition. It never depends on indexes_scan.h, so the synchronous and
+// AsyncScan strategies stay siblings with no dependency cycle between them.
 typedef struct IndexesScanner IndexesScanner;
 
 // Entry point for the reindexPool worker. Runs the full cursor lifecycle for a
