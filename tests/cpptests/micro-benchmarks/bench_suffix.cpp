@@ -79,15 +79,29 @@ size_t IterateNeedle(TermSuffixIndex *suffix, const char *needle, size_t needleL
 }
 
 // Call-site-faithful wildcard, mirroring Query_EvalWildcardQueryNode after
-// the port: the suffix index no longer assists wildcard queries, so the
-// terms trie is always brute-force scanned.
-size_t IterateWildcardPattern(TermSuffixIndex *, Trie *terms, const char *pattern,
+// the port: the folded pattern is offered to the suffix index first; a NULL
+// iterator means no token can anchor the search and the terms trie is
+// brute-force scanned instead.
+size_t IterateWildcardPattern(TermSuffixIndex *suffix, Trie *terms, const char *pattern,
                               size_t patternLen) {
     size_t nstr;
     rune *str = strToLowerRunes(pattern, patternLen, &nstr);
     size_t hits = 0;
-    Trie_IterateWildcard(terms, str, nstr, CountingRuneCb, &hits, NULL,
-                         /*skipTimeoutChecks=*/true);
+    size_t foldedLen;
+    char *folded = runesToStr(str, nstr, &foldedLen);
+    TermSuffixIndexIterator *it = TermSuffixIndex_IterateWildcard(suffix, folded, foldedLen);
+    if (it) {
+        const char *term;
+        size_t termLen;
+        while (TermSuffixIndexIterator_Next(it, &term, &termLen)) {
+            ++hits;
+        }
+        TermSuffixIndexIterator_Free(it);
+    } else {
+        Trie_IterateWildcard(terms, str, nstr, CountingRuneCb, &hits, NULL,
+                             /*skipTimeoutChecks=*/true);
+    }
+    rm_free(folded);
     rm_free(str);
     return hits;
 }
@@ -184,9 +198,8 @@ BENCHMARK_DEFINE_F(BM_Suffix, IterateSuffix)(benchmark::State &state) {
     state.counters["hits"] = static_cast<double>(hits);
 }
 
-// Wildcard with a usable token ("cd", len >= MIN_SUFFIX): on the baseline
-// this is the suffix-assisted path; on the candidate it brute-force scans
-// the terms trie. This is the user-visible algorithmic change of the port.
+// Wildcard with a usable token ("cd", len >= MIN_SUFFIX): the
+// suffix-assisted path on both flavors.
 BENCHMARK_DEFINE_F(BM_Suffix, WildcardTokenized)(benchmark::State &state) {
     size_t hits = 0;
     for (auto _ : state) {
