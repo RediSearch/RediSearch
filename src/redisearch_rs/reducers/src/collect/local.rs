@@ -84,24 +84,20 @@ impl Fields {
         }
     }
 
-    /// DISTINCT dedup digest of the projected fields of one shard-payload
-    /// `item`, computed directly from the payload (the built row keys its values
-    /// by `dstidx`, not by name, so we hash from the source where names are
-    /// available).
+    /// DISTINCT dedup digest of the projected fields of one shard-payload `item`.
     fn dedup_hash_item(&self, item: &Value) -> u64 {
         match self {
-            Self::Specific { requested, .. } => dedup_hash(requested.iter().map(|name| {
-                (
-                    name.to_bytes(),
-                    get_field(item, name.to_bytes()).map(|v| &**v),
-                )
-            })),
+            Self::Specific { requested, .. } => dedup_hash(
+                requested
+                    .iter()
+                    .map(|name| get_field(item, name.to_bytes()).map(|v| &**v)),
+            ),
             Self::All { .. } => {
                 let mut fields: Vec<(&[u8], &Value)> = payload_fields(item)
                     .filter_map(|(k, v)| k.as_str_bytes().map(|name| (name, &**v)))
                     .collect();
                 fields.sort_by_key(|(name, _)| *name);
-                dedup_hash(fields.into_iter().map(|(name, v)| (name, Some(v))))
+                dedup_hash(fields.into_iter().map(|(_name, v)| Some(v)))
             }
         }
     }

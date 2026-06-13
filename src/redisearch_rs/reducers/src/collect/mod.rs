@@ -20,7 +20,6 @@
 //! "local to the merge step", not "the local node". See [`local`] and
 //! [`remote`] for per-variant details.
 
-pub mod dedup_hash;
 pub mod distinct;
 pub mod heap;
 pub mod local;

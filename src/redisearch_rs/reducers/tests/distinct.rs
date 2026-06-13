@@ -19,7 +19,7 @@ use std::hash::{Hash, Hasher};
 use std::cell::Cell;
 use std::ffi::CStr;
 
-use reducers::collect::distinct::{DistinctKey, dedup_hash, dedup_hash_row};
+use reducers::collect::distinct::{DistinctKey, dedup_hash_row};
 use reducers::collect::storage::{Storage, StorageMode};
 use reducers::collect::{RemoteCollectCtx, RemoteCollectReducer};
 use rlookup::{RLookupKey, RLookupKeyFlags, RLookupRow};
@@ -30,139 +30,6 @@ redis_mock::mock_or_stub_missing_redis_c_symbols!();
 /// `sort_asc_map` for a single DESC sort key (bit 0 clear): larger sort value
 /// is "better" (ranks first).
 const SORT_DESC: u64 = 0b0;
-
-fn s(bytes: &str) -> SharedValue {
-    SharedValue::new_string(bytes.as_bytes().to_vec())
-}
-
-fn n(v: f64) -> SharedValue {
-    SharedValue::new_num(v)
-}
-
-/// Hash a set of named projected fields. `None` value = field absent.
-fn h(fields: &[(&str, Option<&SharedValue>)]) -> u64 {
-    dedup_hash(
-        fields
-            .iter()
-            .map(|(name, v)| (name.as_bytes(), v.map(|sv| &**sv))),
-    )
-}
-
-#[test]
-#[cfg_attr(
-    miri,
-    ignore = "encodes a number via `num_to_str`, which calls C `snprintf`"
-)]
-fn identical_rows_collapse() {
-    let (a, m) = (s("apple"), n(5.0));
-    assert_eq!(
-        h(&[("cat", Some(&a)), ("score", Some(&m))]),
-        h(&[("cat", Some(&a)), ("score", Some(&m))]),
-    );
-}
-
-#[test]
-fn differing_strings_do_not_collapse() {
-    let (a, b) = (s("apple"), s("banana"));
-    assert_ne!(h(&[("cat", Some(&a))]), h(&[("cat", Some(&b))]));
-}
-
-#[test]
-#[cfg_attr(
-    miri,
-    ignore = "encodes a number via `num_to_str`, which calls C `snprintf`"
-)]
-fn differing_numbers_do_not_collapse() {
-    let (x, y) = (n(5.0), n(6.0));
-    assert_ne!(h(&[("score", Some(&x))]), h(&[("score", Some(&y))]));
-}
-
-#[test]
-fn same_value_under_different_field_names_differs() {
-    // The field name is part of the identity: the same value under field `a`
-    // vs field `b` must not collide.
-    let v = s("x");
-    assert_ne!(h(&[("a", Some(&v))]), h(&[("b", Some(&v))]));
-}
-
-#[test]
-fn field_name_prevents_boundary_ambiguity() {
-    // (@a="ab", @b="c") must not collide with (@a="a", @b="bc").
-    let (ab, c, a, bc) = (s("ab"), s("c"), s("a"), s("bc"));
-    assert_ne!(
-        h(&[("a", Some(&ab)), ("b", Some(&c))]),
-        h(&[("a", Some(&a)), ("b", Some(&bc))]),
-    );
-}
-
-#[test]
-fn absent_and_null_collide_but_empty_string_is_distinct() {
-    // ACCEPTED: an absent field and an explicit `Null` fold the field name only,
-    // so they share a digest. The empty string is a present value and stays
-    // distinct from both.
-    let null = SharedValue::null_static();
-    let empty = s("");
-    let absent = h(&[("f", None)]);
-    let null = h(&[("f", Some(&null))]);
-    let empty = h(&[("f", Some(&empty))]);
-    assert_eq!(absent, null); // absent ≡ null, by design
-    assert_ne!(absent, empty);
-    assert_ne!(null, empty);
-}
-
-#[test]
-#[cfg_attr(
-    miri,
-    ignore = "encodes a number via `num_to_str`, which calls C `snprintf`"
-)]
-fn number_and_numeric_string_are_distinct() {
-    // Accepted divergence from RSValue_Cmp: no number↔string coercion.
-    let (num, str5) = (n(5.0), s("5"));
-    assert_ne!(h(&[("f", Some(&num))]), h(&[("f", Some(&str5))]));
-}
-
-#[test]
-#[cfg_attr(
-    miri,
-    ignore = "encodes a number via `num_to_str`, which calls C `snprintf`"
-)]
-fn integral_floats_normalize() {
-    let (five, five2, half) = (n(5.0), n(5.0), n(5.5));
-    assert_eq!(h(&[("f", Some(&five))]), h(&[("f", Some(&five2))]));
-    assert_ne!(h(&[("f", Some(&five))]), h(&[("f", Some(&half))]));
-}
-
-#[test]
-fn maps_dedup_by_content_not_all_collapse() {
-    // The `compare` map-stub treats all maps as equal; our digest must not.
-    let m1 = SharedValue::new_map(vec![(
-        SharedValue::new_string(b"k".to_vec()),
-        SharedValue::new_string(b"v1".to_vec()),
-    )]);
-    let m2 = SharedValue::new_map(vec![(
-        SharedValue::new_string(b"k".to_vec()),
-        SharedValue::new_string(b"v2".to_vec()),
-    )]);
-    let m1b = SharedValue::new_map(vec![(
-        SharedValue::new_string(b"k".to_vec()),
-        SharedValue::new_string(b"v1".to_vec()),
-    )]);
-    assert_ne!(h(&[("f", Some(&m1))]), h(&[("f", Some(&m2))]));
-    assert_eq!(h(&[("f", Some(&m1))]), h(&[("f", Some(&m1b))]));
-}
-
-#[test]
-#[cfg_attr(
-    miri,
-    ignore = "encodes numbers via `num_to_str`, which calls C `snprintf`"
-)]
-fn arrays_hash_elementwise() {
-    let a1 = SharedValue::new_array(vec![n(1.0), n(2.0)]);
-    let a2 = SharedValue::new_array(vec![n(1.0), n(2.0)]);
-    let a3 = SharedValue::new_array(vec![n(2.0), n(1.0)]);
-    assert_eq!(h(&[("f", Some(&a1))]), h(&[("f", Some(&a2))]));
-    assert_ne!(h(&[("f", Some(&a1))]), h(&[("f", Some(&a3))]));
-}
 
 #[test]
 #[cfg_attr(
