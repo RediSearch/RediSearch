@@ -1512,7 +1512,7 @@ static bool validateDiskJsonSinglePath(const IndexSpec *sp, const FieldSpec *fs,
   return true;
 }
 
-static void IndexSpec_EnableSuffixForField(IndexSpec *sp, const FieldSpec *fs) {
+static void IndexSpec_EnsureSuffixForField(IndexSpec *sp, const FieldSpec *fs) {
   if (FIELD_IS(fs, INDEXFLD_T_FULLTEXT) && FieldSpec_HasSuffixTrie(fs)) {
     sp->suffixMask |= FIELD_BIT(fs);
     sp->flags |= Index_HasSuffixTrie;
@@ -1671,7 +1671,7 @@ static int IndexSpec_AddFieldsInternal(IndexSpec *sp, StrongRef spec_ref, ArgsCu
     if (FieldSpec_IsPhonetics(fs)) {
       sp->flags |= Index_HasPhonetic;
     }
-    IndexSpec_EnableSuffixForField(sp, fs);
+    IndexSpec_EnsureSuffixForField(sp, fs);
   }
 
   // If we successfully modified the schema, we need to update the spec cache
@@ -3636,7 +3636,7 @@ IndexSpec *IndexSpec_RdbLoad(RedisModuleIO *rdb, int encver, bool useSst, QueryE
     if (FieldSpec_IsSortable(fs)) {
       sp->numSortableFields++;
     }
-    IndexSpec_EnableSuffixForField(sp, fs);
+    IndexSpec_EnsureSuffixForField(sp, fs);
   }
   // After loading all the fields, we can build the spec cache
   sp->spcache = IndexSpec_BuildSpecCache(sp);
