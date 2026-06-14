@@ -109,3 +109,83 @@ def test_dist_hybrid_shard_dispatch_failure_does_not_hang(env):
     env.assertEqual(len(error_holder), 1,
                     message=f'Expected a communication error, got results: {result_holder}')
     env.assertContains('Could not send query to cluster', str(error_holder[0]))
+
+
+@skip(cluster=False)
+@require_enable_assert
+def test_dist_hybrid_unresponsive_shard_does_not_hang(env):
+    """A shard that received _FT.HYBRID and stays connected but never produces its
+    cursor-mapping reply must not hang FT.HYBRID. The coordinator's setup-phase
+    wait (ProcessHybridCursorMappings) must be bounded by the request timeout
+    rather than blocking on the missing reply indefinitely.
+
+    Distinct from test_dist_hybrid_shard_dispatch_failure_does_not_hang, where the
+    shard never replies because the dispatch itself fails (the MR layer drives
+    completion via the error callback). Here the shard is alive and the dispatch
+    succeeds; only the bounded wait can unblock the coordinator.
+
+    The BeforeHybridShardReply sync point parks the internal _FT.HYBRID worker
+    before it emits the cursor-mapping reply; the shard's main thread stays
+    responsive so IS_WAITING / SIGNAL still work."""
+    conn, query_vec, doc_vec = _setup_hybrid_index(env)
+    for i in range(20):
+        conn.execute_command('HSET', f'doc{i}', 'name', 'hello', 'embedding', doc_vec)
+
+    # Bound the request with a finite timeout. The test harness defaults to
+    # TIMEOUT 0 (unlimited); under the default RETURN policy a finite timeout is
+    # what arms the coordinator's cursor-setup deadline. (Bounding the unlimited
+    # case is tracked separately.)
+    env.expect(config_cmd(), 'SET', 'TIMEOUT', '500').ok()
+
+    sync_point = 'BeforeHybridShardReply'
+    # Arm every shard: the cursor-mapping fan-out may land the internal _FT.HYBRID
+    # on any subset of shards (incl. the coordinator's own). Whichever shard runs
+    # it parks on its worker thread before replying.
+    shard_conns = [env.getConnection(s) for s in range(1, env.shardsCount + 1)]
+    for sc in shard_conns:
+        sc.execute_command(debug_cmd(), 'SYNC_POINT', 'CLEAR')
+        sc.execute_command(debug_cmd(), 'SYNC_POINT', 'ARM', sync_point)
+
+    def any_shard_waiting():
+        return any(sc.execute_command(debug_cmd(), 'SYNC_POINT', 'IS_WAITING', sync_point) == 1
+                   for sc in shard_conns)
+
+    error_holder = []
+    result_holder = []
+    def run_hybrid_query(c, errors, results):
+        try:
+            results.append(c.execute_command(
+                'FT.HYBRID', 'idx',
+                'SEARCH', '*',
+                'VSIM', '@embedding', '$BLOB',
+                'PARAMS', '2', 'BLOB', query_vec
+            ))
+        except Exception as e:
+            errors.append(e)
+
+    query_conn = env.getConnection()
+    query_thread = threading.Thread(
+        target=run_hybrid_query,
+        args=(query_conn, error_holder, result_holder),
+        daemon=True
+    )
+    query_thread.start()
+    try:
+        # Confirm a shard is parked before emitting its cursor-mapping reply.
+        wait_for_condition(
+            lambda: (any_shard_waiting(), {}),
+            f'Timeout waiting for {sync_point} sync point on any shard'
+        )
+
+        # The coordinator must bound the wait and return instead of blocking
+        # forever on the missing shard reply.
+        query_thread.join(timeout=10)
+        env.assertFalse(query_thread.is_alive(),
+                        message='FT.HYBRID hung waiting for an unresponsive shard')
+    finally:
+        # Release the parked shard(s) so the background reply drains and the env
+        # tears down cleanly, regardless of whether the assertion above passed.
+        for sc in shard_conns:
+            sc.execute_command(debug_cmd(), 'SYNC_POINT', 'SIGNAL', sync_point)
+            sc.execute_command(debug_cmd(), 'SYNC_POINT', 'CLEAR')
+        query_thread.join(timeout=10)

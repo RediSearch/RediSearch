@@ -1223,6 +1223,15 @@ static void blockedClientHybridCtx_destroy(blockedClientHybridCtx *BCHCtx) {
  * @param BCHCtx The blocked client context containing the request
  */
 static void HREQ_Execute_Callback(blockedClientHybridCtx *BCHCtx) {
+#ifdef ENABLE_ASSERT
+  // Test hook: stall a shard's internal cursor-mapping reply on the worker
+  // thread while its main thread stays responsive, so the coordinator blocks in
+  // ProcessHybridCursorMappings waiting for a reply that never arrives (no
+  // disconnect). Exercises the bounded-wait timeout path.
+  if (BCHCtx->internal) {
+    SyncPoint_Wait(SYNC_POINT_BEFORE_HYBRID_SHARD_REPLY);
+  }
+#endif
   StrongRef hybrid_ref = BCHCtx->hybrid_ref;
   HybridRequest *hreq = StrongRef_Get(hybrid_ref);
   HybridPipelineParams *hybridParams = BCHCtx->hybridParams;

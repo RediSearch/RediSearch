@@ -152,6 +152,10 @@ void StoreResultsDebugCtx_SetPause(bool pause);
 #define SYNC_POINT_RPNET_WAITING_FOR_REPLY              "RpnetWaitingForReply"
 #define SYNC_POINT_BEFORE_QI_TIMEOUT_CHECK              "BeforeQITimeoutCheck"
 #define SYNC_POINT_AFTER_SCHEDULE_DEPLETERS             "AfterScheduleDepleters"
+// Stalls a shard's internal (_FT.HYBRID) background execution before it produces
+// its cursor-mapping reply, so the coordinator's ProcessHybridCursorMappings sees
+// an alive-but-unresponsive shard (no reply, no disconnect).
+#define SYNC_POINT_BEFORE_HYBRID_SHARD_REPLY            "BeforeHybridShardReply"
 
 // SyncPoint API function declarations
 // Arm a sync point - subsequent calls to SyncPoint_Wait will block
