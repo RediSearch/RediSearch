@@ -261,8 +261,8 @@ jobs:
               # Configure the safe directory
               git config --global --add safe.directory "/__w/$GITHUB_REPO"
 
-              # Checkout
-              REPO_URL="https://github.com/$GITHUB_REPO.git"
+              # Checkout with authentication for private repositories.
+              REPO_URL="https://x-access-token:${GITHUB_TOKEN}@github.com/$GITHUB_REPO.git"
 
               # Initialize a Git repository
               git init
