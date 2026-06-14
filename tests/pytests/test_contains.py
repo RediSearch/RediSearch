@@ -398,3 +398,31 @@ def testTextSuffixTrieMaxPrefixExpansions():
 
     # Restore default
     run_command_on_all_shards(env, config_cmd(), 'SET', 'MAXPREFIXEXPANSIONS', '200')
+
+@skip(cluster=True)
+def testSuffixTrieWildcardCaseInsensitiveText():
+    """MOD-16259: wildcard queries on a WITHSUFFIXTRIE TEXT field match
+    case-insensitively, identically to a plain TEXT field."""
+    env = Env(moduleArgs='DEFAULT_DIALECT 2')
+    env.expect(config_cmd(), 'set', 'MINPREFIX', 1).ok()
+    conn = getConnectionByEnv(env)
+    conn.execute_command('FT.CREATE', 'idx_w',  'SCHEMA', 't', 'TEXT', 'WITHSUFFIXTRIE')
+    conn.execute_command('FT.CREATE', 'idx_no', 'SCHEMA', 't', 'TEXT')
+    conn.execute_command('HSET', 'doc:1', 't', 'apple')
+
+    # The suffix trie must not change which docs a wildcard query returns.
+    for q in ("w'ap*'", "w'AP*'", "w'A*'", "w'*PL*'", "w'*LE'", "w'XY*'"):
+        with_suffix = env.cmd('FT.SEARCH', 'idx_w',  q, 'NOCONTENT')
+        plain       = env.cmd('FT.SEARCH', 'idx_no', q, 'NOCONTENT')
+        env.assertEqual(with_suffix, plain, message=q)
+
+@skip(cluster=True)
+def testSuffixTrieWildcardCaseSensitiveTag():
+    """MOD-16259: CASESENSITIVE TAG wildcard matching stays byte-exact."""
+    env = Env(moduleArgs='DEFAULT_DIALECT 2')
+    env.expect(config_cmd(), 'set', 'MINPREFIX', 1).ok()
+    conn = getConnectionByEnv(env)
+    conn.execute_command('FT.CREATE', 'idx', 'SCHEMA', 't', 'TAG', 'WITHSUFFIXTRIE', 'CASESENSITIVE')
+    conn.execute_command('HSET', 'doc:1', 't', 'Apple')
+    env.expect('FT.SEARCH', 'idx', "@t:{w'A*'}", 'NOCONTENT').equal([1, 'doc:1'])
+    env.expect('FT.SEARCH', 'idx', "@t:{w'a*'}", 'NOCONTENT').equal([0])
