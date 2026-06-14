@@ -1,0 +1,58 @@
+name: Jira Fix-Version on PR
+
+# Design: https://redislabs.atlassian.net/wiki/spaces/DX/pages/6346178605
+# Event-driven path (design §5.1): low-latency fix-version assignment when a PR
+# is opened/updated/closed. Resolves the MOD ticket(s) the PR references and
+# appends the matching fixVersions. Idempotent and overlaps harmlessly with the
+# scheduled reconciliation (event-periodic-jira-fixversion.yml).
+#
+# Uses `pull_request_target` so the JIRA_* secrets are available (including for
+# fork PRs) and the trusted workflow definition from the base branch runs. We do
+# NOT check out or execute PR head code — the agent only reads metadata and
+# src/version.h through the GitHub API at the PR's head SHA.
+#
+# NOTE: this workflow only fires for RediSearch PRs. To cover the
+# RediSearchEnterprise repository, add the same workflow there.
+
+on:
+  pull_request_target:
+    types: [opened, synchronize, edited, reopened, closed]
+
+permissions:
+  contents: read
+  pull-requests: read
+
+concurrency:
+  group: jfv-pr-${{ github.event.pull_request.number }}
+  cancel-in-progress: false
+
+jobs:
+  fixversion:
+    runs-on: ubuntu-latest
+    steps:
+      # Checks out the base branch (default for pull_request_target), i.e. the
+      # trusted script — never the PR head code.
+      - name: Checkout repository
+        uses: actions/checkout@v6
+
+      - name: Set up Python
+        uses: actions/setup-python@v6
+        with:
+          python-version: '3.x'
+
+      - name: Install dependencies
+        run: pip install -r dev_automation/jira_fixversion/requirements.txt
+
+      - name: Apply fix version for this PR
+        env:
+          JIRA_BASE_URL: ${{ secrets.JIRA_BASE_URL }}
+          JIRA_USER_EMAIL: ${{ secrets.JIRA_USER_EMAIL }}
+          JIRA_API_TOKEN: ${{ secrets.JIRA_API_TOKEN }}
+          # github.token can read this repo. For RediSearchEnterprise reads set
+          # GH_FIXVERSION_TOKEN to a cross-repo token (contents+pull_requests read).
+          GH_TOKEN: ${{ secrets.GH_FIXVERSION_TOKEN || github.token }}
+          # Slack alerting (design §9): Workflow Builder webhook expecting a
+          # {"payload": ...} body. Absent -> stub mode (logs instead of posting).
+          SLACK_WEBHOOK_URL_FIX_VERSION: ${{ secrets.SLACK_WEBHOOK_URL_FIX_VERSION }}
+        # GITHUB_EVENT_PATH is set by Actions; handle_event reads it by default.
+        run: python -m dev_automation.jira_fixversion.handle_event --log-level INFO

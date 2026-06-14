@@ -1,0 +1,73 @@
+name: Jira Fix-Version Reconciliation
+
+# Design: https://redislabs.atlassian.net/wiki/spaces/DX/pages/6346178605
+# Scheduled "safety net" reconciliation (design §5.2): walks every eligible MOD
+# ticket, re-resolves its linked PRs and fills any fixVersions the event path
+# missed. Every write is idempotent so re-runs are harmless.
+
+on:
+  schedule:
+    # Every 6 hours (design recommends 6-24h).
+    - cron: '0 */6 * * *'
+  workflow_dispatch:
+    inputs:
+      dry_run:
+        description: 'Log intended writes without modifying Jira'
+        type: boolean
+        default: false
+      ticket:
+        description: 'Process a single ticket key (e.g. MOD-123). Empty = full reconciliation.'
+        type: string
+        required: false
+      log_level:
+        description: 'Log level'
+        type: choice
+        options: [INFO, DEBUG, WARNING]
+        default: INFO
+      redisearch_release_template:
+        description: 'Override the RediSearch release-name template (testing only, e.g. "RediSearch v{X}.{Y}.{Z} dummy")'
+        type: string
+        required: false
+
+permissions:
+  contents: read
+
+concurrency:
+  group: jira-fixversion-reconcile
+  cancel-in-progress: false
+
+jobs:
+  reconcile:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v6
+
+      - name: Set up Python
+        uses: actions/setup-python@v6
+        with:
+          python-version: '3.x'
+
+      - name: Install dependencies
+        run: pip install -r dev_automation/jira_fixversion/requirements.txt
+
+      - name: Run reconciliation
+        env:
+          JIRA_BASE_URL: ${{ secrets.JIRA_BASE_URL }}
+          JIRA_USER_EMAIL: ${{ secrets.JIRA_USER_EMAIL }}
+          JIRA_API_TOKEN: ${{ secrets.JIRA_API_TOKEN }}
+          # Token used to read src/version.h and PR metadata. github.token can
+          # read this repo (RediSearch); reading RediSearchEnterprise requires a
+          # cross-repo token — set GH_FIXVERSION_TOKEN to a PAT/App token with
+          # contents:read + pull_requests:read on both repos.
+          GH_TOKEN: ${{ secrets.GH_FIXVERSION_TOKEN || github.token }}
+          # Slack alerting (design §9): Workflow Builder webhook expecting a
+          # {"payload": ...} body. Absent -> stub mode (logs instead of posting).
+          SLACK_WEBHOOK_URL_FIX_VERSION: ${{ secrets.SLACK_WEBHOOK_URL_FIX_VERSION }}
+          # Testing-only override; empty in scheduled runs.
+          JFV_REDISEARCH_RELEASE_TEMPLATE: ${{ inputs.redisearch_release_template }}
+        run: |
+          python -m dev_automation.jira_fixversion.reconcile \
+            ${{ inputs.dry_run && '--dry-run' || '' }} \
+            ${{ inputs.ticket && format('--ticket {0}', inputs.ticket) || '' }} \
+            --log-level "${{ inputs.log_level || 'INFO' }}"
