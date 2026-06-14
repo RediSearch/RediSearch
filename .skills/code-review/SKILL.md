@@ -228,13 +228,18 @@ Acceptable compatibility patterns:
 - Keep legacy aliases while supported callers may still use them.
 - Preserve prior internal execution paths when adding ACL checks, or prove the caller
   still runs under the intended user/context.
+- Add compatibility tests for changed producer/consumer pairs. Cover old producer to
+  new consumer and new producer to old consumer when both versions can coexist, or
+  document why one direction cannot happen.
 - Add focused before/after corpus tests for dependency changes that affect parsing,
   normalization, tokenization, sorting, matching, or serialization.
 - Version serialized data and retain old-version readers.
 
-When an interface is tightened, require tests or documented verification that old and
-new callers both work, or explicitly call out the change as breaking with its intended
-release and upgrade impact.
+When an interface is tightened, require automated tests for old and new forms, including
+mixed-version producer/consumer interaction when the system can run mixed versions. If
+automated mixed-version coverage is impractical, require a documented manual verification
+plan with exact versions and commands, or explicitly call out the change as breaking with
+its intended release and upgrade impact.
 
 #### 2k. PR description
 
