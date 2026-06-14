@@ -382,9 +382,7 @@ static int handleCommonArgs(ParseAggPlanContext *papCtx, ArgsCursor *ac, QueryEr
     *papCtx->prefixesOffset = ac->offset - 1;
 
     ArgsCursor tmp = {0};
-    if (AC_GetVarArgs(ac, &tmp) != AC_OK) {
-      RS_LOG_ASSERT(false, "Bad arguments for _INDEX_PREFIXES (coordinator)");
-    }
+    AC_GetVarArgs(ac, &tmp);
   } else if (AC_AdvanceIfMatch(ac, "BM25STD_TANH_FACTOR")) {
     if (AC_NumRemaining(ac) < 1) {
       QueryError_SetError(status, QUERY_ERROR_CODE_PARSE_ARGS, "Need an argument for BM25STD_TANH_FACTOR");
