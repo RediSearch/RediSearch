@@ -2721,6 +2721,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "spellcheck_dict"
+version = "0.0.1"
+dependencies = [
+ "proptest",
+ "rstest",
+ "trie_rs",
+ "workspace_hack",
+]
+
+[[package]]
 name = "stable_deref_trait"
 version = "1.2.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"

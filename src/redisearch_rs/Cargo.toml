@@ -37,6 +37,7 @@ members = [
     "search_result",
     "slots_tracker",
     "sorting_vector",
+    "spellcheck_dict",
     "term_suffix_index",
     "tools/license_header_linter",
     "tools/ffi_geiger",
@@ -150,6 +151,7 @@ thin_vec = { path = "./thin_vec" }
 top_k = { path = "./top_k" }
 tracing_assert = { path = "./tracing_assert" }
 tracing_redismodule = { path = "./tracing_redismodule" }
+spellcheck_dict = { path = "./spellcheck_dict" }
 trie_rs = { path = "./trie_rs" }
 ttl_table = { path = "./ttl_table" }
 value = { path = "./value" }
