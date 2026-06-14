@@ -835,7 +835,11 @@ int parseHybridCommand(RedisModuleCtx *ctx, ArgsCursor *ac,
 
   // Set slots info in both subqueries
   if (internal) {
-    RS_ASSERT(requestSlotRanges != NULL);
+    if (!requestSlotRanges) {
+      // Coordinators older than 8.4 do not send a slots specification. Fall back to the
+      // current local slots so rolling upgrades across the 8.4 boundary keep working.
+      requestSlotRanges = ASM_FallbackToLocalSlots(ctx, &keySpaceVersion);
+    }
     vectorRequest->querySlots = SlotRangeArray_Clone(requestSlotRanges);
     vectorRequest->keySpaceVersion = keySpaceVersion;
     if (vectorRequest->keySpaceVersion != INVALID_KEYSPACE_VERSION) {
