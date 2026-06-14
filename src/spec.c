@@ -24,6 +24,7 @@
 #include "rmutil/util.h"
 #include "rmutil/rm_assert.h"
 #include "trie/trie.h"
+#include "term_store.h"
 #include "rmalloc.h"
 #include "config.h"
 #include "cursor.h"
@@ -501,7 +502,7 @@ size_t IndexSpec_collect_text_overhead(const IndexSpec *sp) {
   // Traverse the fields and calculates the overhead of the text suffixes
   size_t overhead = 0;
   // Collect overhead from sp->terms
-  overhead += TrieType_MemUsage(sp->terms);
+  overhead += TermStore_TermsMemUsage(sp->terms);
   // Collect overhead from sp->suffix
   if (sp->suffix) {
     // TODO: Count the values' memory as well
@@ -1928,11 +1929,10 @@ size_t IndexSpec_TotalBlockCount(IndexSpec *sp) {
 
 // Assuming the spec is properly locked for writing before calling this function.
 void IndexSpec_AddTerm(IndexSpec *sp, const char *term, size_t len) {
-  // Payload is NULL so TRIE_ERR_PAYLOAD_OVERFLOW cannot occur
-  int isNew = Trie_InsertStringBuffer(sp->terms, (char *)term, len, 1, 1, NULL, 1);
-  if (isNew == TRIE_OK_NEW) {
+  size_t addedBytes;
+  if (TermStore_AddTerm(sp->terms, term, len, &addedBytes)) {
     sp->stats.scoring.numTerms++;
-    sp->stats.termsSize += len;
+    sp->stats.termsSize += addedBytes;
   }
 }
 
@@ -2399,7 +2399,7 @@ static void initializeIndexSpec(IndexSpec *sp, const HiddenString *name, IndexFl
   sp->stats.indexError = IndexError_Init();
 
   sp->fieldIdToIndex = array_new(t_fieldIndex, 0);
-  sp->terms = NewTrie(NULL, Trie_Sort_Lex);
+  sp->terms = TermStore_NewTermsTrie();
 
   IndexSpec_InitLock(sp);
   // First, initialise fields IndexError for every field
@@ -3560,7 +3560,7 @@ void IndexSpec_RdbSave(RedisModuleIO *rdb, IndexSpec *sp, int contextFlags) {
   // assume it was not set in when the RDB will be loaded as well
   if (sp->diskSpec && storeDiskRdbData) {
     IndexScoringStats_RdbSave(rdb, &sp->stats.scoring);
-    TrieType_GenericSave(rdb, sp->terms, false, true);
+    TermStore_RdbSaveTerms(rdb, sp->terms);
     SearchDisk_IndexSpecRdbSave(rdb, sp->diskSpec);
   }
 
@@ -3689,7 +3689,7 @@ IndexSpec *IndexSpec_RdbLoad(RedisModuleIO *rdb, int encver, bool useSst, QueryE
     if (sp->terms) {
       TrieType_Free(sp->terms);
     }
-    sp->terms = TrieType_GenericLoad(rdb, false, true, Trie_Sort_Lex);
+    sp->terms = TermStore_RdbLoadTerms(rdb, true);
     RS_LOG_ASSERT(sp->terms, "Failed to load terms trie");
 
     // Load disk metadata (max_doc_id, deleted_ids) into the spec. Stashed
@@ -3841,13 +3841,13 @@ void *IndexSpec_LegacyRdbLoad(RedisModuleIO *rdb, int encver) {
   }
   /* For version 3 or up - load the generic trie */
   if (encver >= 3) {
-    sp->terms = TrieType_GenericLoad(rdb, false, false, Trie_Sort_Lex);
+    sp->terms = TermStore_RdbLoadTerms(rdb, false);
     if (sp->terms == NULL) {
       StrongRef_Release(spec_ref);
       return NULL;
     }
   } else {
-    sp->terms = NewTrie(NULL, Trie_Sort_Lex);
+    sp->terms = TermStore_NewTermsTrie();
   }
 
   if (sp->flags & Index_HasCustomStopwords) {
@@ -4968,14 +4968,7 @@ void IndexSpec_ReleaseWriteLock(IndexSpec* sp) {
 // Returns true if the term was completely emptied and deleted from the trie.
 bool IndexSpec_DecrementTrieTermCount(IndexSpec* sp, const char* term, size_t term_len,
                                   size_t doc_count_decrement) {
-  if (!sp->terms || doc_count_decrement == 0) {
-    return false;
-  }
-  // Decrement the numDocs count for this term in the trie
-  // If numDocs reaches 0, the node will be deleted
-  TrieDecrResult result = Trie_DecrementNumDocs(sp->terms, term, term_len, doc_count_decrement);
-  RS_ASSERT(result != TRIE_DECR_NOT_FOUND);
-  return result == TRIE_DECR_DELETED;
+  return TermStore_DecrTerm(sp->terms, term, term_len, doc_count_decrement);
 }
 
 // Update IndexScoringStats based on compaction delta
