@@ -17,7 +17,8 @@
 //! [`RdbError::InvalidUtf8`] rather than silently materializing as an
 //! ill-formed `String`.
 
-use super::{RdbError, RdbOpts, RdbRead, RdbWrite, TrieEntry, byte, load_nul_terminated};
+use super::{RdbError, RdbOpts, RdbRead, RdbWrite, byte, load_with};
+use crate::TrieEntry;
 use crate::str_trie_map::StrTrieMap;
 
 /// Serialize a [`StrTrieMap<TrieEntry>`] to `writer` in the trie RDB wire
@@ -35,31 +36,15 @@ pub fn save<W: RdbWrite>(map: &StrTrieMap<TrieEntry>, writer: &mut W, opts: RdbO
 /// buffer is UTF-8 validated; on failure the load aborts with
 /// [`RdbError::InvalidUtf8`].
 pub fn load<R: RdbRead>(reader: &mut R, opts: RdbOpts) -> Result<StrTrieMap<TrieEntry>, RdbError> {
-    let count = reader.load_u64()?;
     let mut map = StrTrieMap::new();
-    for _ in 0..count {
-        let key_bytes = load_nul_terminated(reader)?;
-        let key = std::str::from_utf8(&key_bytes).map_err(|_| RdbError::InvalidUtf8)?;
-        let score = reader.load_f64()?;
-        let payload = opts
-            .payloads
-            .then(|| load_nul_terminated(reader))
-            .transpose()?
-            .filter(|b| !b.is_empty());
-        let num_docs = if opts.num_docs {
-            reader.load_u64()?
-        } else {
-            0
-        };
-        map.insert(
-            key,
-            TrieEntry {
-                score,
-                payload,
-                num_docs,
-            },
-        );
-    }
+    load_with(
+        reader,
+        opts,
+        |bytes| String::from_utf8(bytes).map_err(|_| RdbError::InvalidUtf8),
+        |key, entry| {
+            map.insert(&key, entry);
+        },
+    )?;
     Ok(map)
 }
 
@@ -96,11 +81,7 @@ mod tests {
     #[test]
     fn invalid_utf8_key_errors() {
         // count=1, key=<two stray high bytes + NUL>, score=1.0
-        let ops = vec![
-            Op::U64(1),
-            Op::Bytes(b"\xff\xfe\0".to_vec()),
-            Op::F64(1.0),
-        ];
+        let ops = vec![Op::U64(1), Op::Bytes(b"\xff\xfe\0".to_vec()), Op::F64(1.0)];
         // Use `match` rather than `unwrap_err`: `StrTrieMap` doesn't impl
         // `Debug`, and adding it just to satisfy the test would force a
         // `Data: Debug` bound on every map instantiation.

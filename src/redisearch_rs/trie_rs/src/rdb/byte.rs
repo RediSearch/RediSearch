@@ -13,10 +13,8 @@
 //! wrapper delegates to it. The wire format and framing rules are documented
 //! on the parent module [`crate::rdb`].
 
-use super::{
-    RdbError, RdbOpts, RdbRead, RdbWrite, TrieEntry, load_nul_terminated, save_nul_terminated,
-};
-use crate::TrieMap;
+use super::{RdbError, RdbOpts, RdbRead, RdbWrite, load_with, save_nul_terminated};
+use crate::{TrieEntry, TrieMap};
 
 /// Serialize a [`TrieMap<TrieEntry>`] to `writer` in the trie RDB wire format.
 ///
@@ -52,30 +50,10 @@ pub fn save<W: RdbWrite>(map: &TrieMap<TrieEntry>, writer: &mut W, opts: RdbOpts
 /// when [`RdbOpts::payloads`] is set). An empty payload (i.e. a single-NUL
 /// buffer, `"\0"`) is normalized to `payload: None`.
 pub fn load<R: RdbRead>(reader: &mut R, opts: RdbOpts) -> Result<TrieMap<TrieEntry>, RdbError> {
-    let count = reader.load_u64()?;
     let mut map = TrieMap::new();
-    for _ in 0..count {
-        let key = load_nul_terminated(reader)?;
-        let score = reader.load_f64()?;
-        let payload = opts
-            .payloads
-            .then(|| load_nul_terminated(reader))
-            .transpose()?
-            .filter(|b| !b.is_empty());
-        let num_docs = if opts.num_docs {
-            reader.load_u64()?
-        } else {
-            0
-        };
-        map.insert(
-            &key,
-            TrieEntry {
-                score,
-                payload,
-                num_docs,
-            },
-        );
-    }
+    load_with(reader, opts, Ok, |key, entry| {
+        map.insert(&key, entry);
+    })?;
     Ok(map)
 }
 

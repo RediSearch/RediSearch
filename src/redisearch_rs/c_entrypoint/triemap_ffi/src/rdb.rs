@@ -21,8 +21,9 @@
 
 use ffi::RedisModuleIO;
 use redis_module::raw;
-use trie_rs::rdb::{RdbError, RdbOpts, RdbRead, RdbWrite, TrieEntry};
+use trie_rs::TrieEntry;
 use trie_rs::rdb::str as str_rdb;
+use trie_rs::rdb::{RdbError, RdbOpts, RdbRead, RdbWrite};
 use trie_rs::str_trie_map::StrTrieMap;
 
 /// Opaque FFI handle for a [`StrTrieMap<TrieEntry>`].

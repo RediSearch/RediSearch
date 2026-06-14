@@ -11,8 +11,9 @@
 //!
 //! Mirrors the wire format produced by the C functions `TrieType_GenericSave`
 //! and `TrieType_GenericLoad`. This parent module owns the shared substrate —
-//! the [`TrieEntry`] value type, the [`RdbWrite`] / [`RdbRead`] IO traits,
-//! [`RdbOpts`], [`RdbError`], and the NUL-framing helpers. The two concrete
+//! the [`RdbWrite`] / [`RdbRead`] IO traits, [`RdbOpts`], [`RdbError`], the
+//! NUL-framing helpers, and the [`load_with`] entry-stream reader — and
+//! serializes the [`crate::TrieEntry`] value type. The two concrete
 //! serializers live alongside it:
 //!
 //! - [`byte`] — for the byte-keyed [`crate::TrieMap<TrieEntry>`].
@@ -61,6 +62,48 @@
 pub mod byte;
 pub mod str;
 
+use crate::TrieEntry;
+
+/// Read the entry stream shared by both key flavors and feed each decoded
+/// entry to `insert`.
+///
+/// Owns the count framing and the per-entry field layout (key, score, and
+/// the optional payload / `num_docs` selected by `opts`) so the byte- and
+/// str-keyed loaders cannot drift apart. The two flavors differ only in how
+/// raw key bytes become a key: `key_from_bytes` maps the NUL-stripped buffer
+/// into the caller's key type (identity for bytes, UTF-8 validation for str),
+/// and `insert` places the finished `(key, entry)` into the caller's map.
+pub(crate) fn load_with<R, K>(
+    reader: &mut R,
+    opts: RdbOpts,
+    mut key_from_bytes: impl FnMut(Vec<u8>) -> Result<K, RdbError>,
+    mut insert: impl FnMut(K, TrieEntry),
+) -> Result<(), RdbError>
+where
+    R: RdbRead,
+{
+    let count = reader.load_u64()?;
+    for _ in 0..count {
+        let key = key_from_bytes(load_nul_terminated(reader)?)?;
+        let score = reader.load_f64()?;
+        let payload = opts
+            .payloads
+            .then(|| load_nul_terminated(reader))
+            .transpose()?
+            .filter(|b| !b.is_empty());
+        let num_docs = if opts.num_docs { reader.load_u64()? } else { 0 };
+        insert(
+            key,
+            TrieEntry {
+                score,
+                payload,
+                num_docs,
+            },
+        );
+    }
+    Ok(())
+}
+
 /// Write `b` followed by one trailing NUL byte as a single length-prefixed
 /// record, reusing `scratch` as the temporary contiguous buffer. The saved
 /// buffer is `b.len() + 1` bytes long, matching the C wire format
@@ -99,28 +142,6 @@ pub struct RdbOpts {
     pub payloads: bool,
     /// Persist each entry's `num_docs`.
     pub num_docs: bool,
-}
-
-/// One trie entry: score, optional opaque payload, and a per-entry counter.
-///
-/// `payload: None` and `payload: Some(vec![])` are wire-indistinguishable
-/// when payloads are persisted — both round-trip as `None`. See
-/// [`RdbOpts::payloads`].
-#[derive(Clone, Debug, PartialEq)]
-pub struct TrieEntry {
-    /// Score associated with the entry. Semantics are caller-defined (e.g.
-    /// suggestion weight, or a constant for index-term tries) and may be
-    /// mutated by callers after the initial insert. The C trie stores this
-    /// as `float`; the RDB wire format widens it to `f64` (via
-    /// `RedisModule_SaveDouble`).
-    pub score: f64,
-    /// Optional opaque payload bytes.
-    pub payload: Option<Vec<u8>>,
-    /// Per-entry counter, persisted only when [`RdbOpts::num_docs`] is set.
-    /// Semantics are caller-defined (e.g. document frequency for an index's
-    /// term trie); this type does not enforce a meaning. Loads with
-    /// `num_docs = false` materialize this as `0`.
-    pub num_docs: u64,
 }
 
 /// Sink for the typed RDB save primitives.
