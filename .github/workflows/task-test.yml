@@ -110,12 +110,21 @@ jobs:
           aws-access-key-id: ${{ secrets.PERFORMANCE_EC2_ACCESS_KEY }}
           aws-secret-access-key: ${{ secrets.PERFORMANCE_EC2_SECRET_KEY }}
           aws-region: ${{ secrets.PERFORMANCE_EC2_AWS_REGION }}
+      - name: Generate GitHub App token
+        id: generate-app-token
+        uses: actions/create-github-app-token@v3
+        with:
+          client-id: ${{ vars.GH_PR_APP_ID }}
+          private-key: ${{ secrets.GH_PR_APP_PRIVATE_KEY }}
+          owner: ${{ github.repository_owner }}
+          repositories: ${{ github.event.repository.name }}
+          permission-administration: write
       - name: Start EC2 runner
         id: start-ec2-runner
-        uses: machulav/ec2-github-runner@v2.4.2
+        uses: machulav/ec2-github-runner@v2.6.1
         with:
           mode: start
-          github-token: ${{ secrets.CI_GH_P_TOKEN }}
+          github-token: ${{ steps.generate-app-token.outputs.token }}
           ec2-image-id: ${{ needs.get-config.outputs.ec2_image_id }}
           ec2-instance-type: ${{ needs.get-config.outputs.ec2_instance_type }}
           subnet-id: ${{ secrets.AWS_EC2_SUBNET_ID_BENCHMARK }}
@@ -250,7 +259,6 @@ jobs:
         env:
           GITHUB_REF: ${{ github.ref }}
           GITHUB_REPO: ${{ github.repository }}
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         if: steps.node20.outputs.supported == 'false'
         run: |
           # Execute the logic based on the detected platform
@@ -262,8 +270,8 @@ jobs:
               # Configure the safe directory
               git config --global --add safe.directory "/__w/$GITHUB_REPO"
 
-              # Checkout with authentication for private repositories.
-              REPO_URL="https://x-access-token:${GITHUB_TOKEN}@github.com/$GITHUB_REPO.git"
+              # Checkout
+              REPO_URL="https://github.com/$GITHUB_REPO.git"
 
               # Initialize a Git repository
               git init
@@ -420,6 +428,20 @@ jobs:
           CLEAR_LOGS: 0
           ENABLE_ASSERT: 1
         run: make rust-tests
+      - name: Build TESTFILE excluding flaky tests (standalone)
+        id: standalone_testfile
+        if: ${{ inputs.standalone && env.IS_FORK_PR != 'true' }}
+        continue-on-error: true
+        uses: ./.github/actions/flaky-build-testfile
+        with:
+          redis-url: ${{ secrets.FLAKY_TESTS_REDIS_URL }}
+          variant: standalone
+          redis-standalone: "1"
+          test-config: ${{ inputs.test-config }}
+          rejson: ${{ env.REJSON }}
+          rejson-branch: ${{ inputs.rejson-branch }}
+          san: ${{ inputs.san }}
+
       - name: Flow tests (standalone)
         timeout-minutes: ${{ fromJSON(inputs.test-timeout) }}
         id: standalone_tests
@@ -433,7 +455,36 @@ jobs:
           REJSON: ${{ env.REJSON }}
           REJSON_BRANCH: ${{ inputs.rejson-branch }}
           ENABLE_ASSERT: 1
-        run: make pytest ${{ inputs.test-config }}
+          TEST_CONFIG: ${{ inputs.test-config }}
+          # Relative path: ${{ github.workspace }} resolves to the runner host
+          # path, which is unreachable when the step runs in a container.
+          # runtests.sh prepends $ROOT for non-absolute FAILEDFILE values.
+          FAILEDFILE: .failed_standalone.txt
+          TESTFILE: ${{ steps.standalone_testfile.outputs.testfile }}
+        run: make pytest $TEST_CONFIG
+
+      - name: Record standalone failures to flaky DB
+        if: ${{ always() && inputs.standalone && env.IS_FORK_PR != 'true' }}
+        continue-on-error: true
+        uses: ./.github/actions/flaky-record-results
+        with:
+          redis-url: ${{ secrets.FLAKY_TESTS_REDIS_URL }}
+          failed-file: .failed_standalone.txt
+          job-name: ${{ needs.get-config.outputs.name }} standalone
+
+      - name: Build TESTFILE excluding flaky tests (coordinator)
+        id: coordinator_testfile
+        if: ${{ inputs.coordinator && env.IS_FORK_PR != 'true' }}
+        continue-on-error: true
+        uses: ./.github/actions/flaky-build-testfile
+        with:
+          redis-url: ${{ secrets.FLAKY_TESTS_REDIS_URL }}
+          variant: coordinator
+          redis-standalone: "0"
+          test-config: ${{ inputs.test-config }}
+          rejson: ${{ env.REJSON }}
+          rejson-branch: ${{ inputs.rejson-branch }}
+          san: ${{ inputs.san }}
 
       - name: Flow tests (coordinator)
         timeout-minutes: ${{ fromJSON(inputs.test-timeout) }}
@@ -448,7 +499,19 @@ jobs:
           REJSON: ${{ env.REJSON }}
           REJSON_BRANCH: ${{ inputs.rejson-branch }}
           ENABLE_ASSERT: 1
-        run: make pytest ${{ inputs.test-config }}
+          TEST_CONFIG: ${{ inputs.test-config }}
+          FAILEDFILE: .failed_coordinator.txt
+          TESTFILE: ${{ steps.coordinator_testfile.outputs.testfile }}
+        run: make pytest $TEST_CONFIG
+
+      - name: Record coordinator failures to flaky DB
+        if: ${{ always() && inputs.coordinator && env.IS_FORK_PR != 'true' }}
+        continue-on-error: true
+        uses: ./.github/actions/flaky-record-results
+        with:
+          redis-url: ${{ secrets.FLAKY_TESTS_REDIS_URL }}
+          failed-file: .failed_coordinator.txt
+          job-name: ${{ needs.get-config.outputs.name }} coordinator
 
       - name: Rust tests (MIRI)
         if: inputs.san == 'address' && inputs.unit-tests
@@ -528,7 +591,7 @@ jobs:
             steps.standalone_tests.outcome == 'failure' ||
             steps.coordinator_tests.outcome == 'failure'
           )
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: Test Logs ${{ steps.artifact-names.outputs.name }}
           path: |
@@ -604,10 +667,19 @@ jobs:
           aws-access-key-id: ${{ secrets.PERFORMANCE_EC2_ACCESS_KEY }}
           aws-secret-access-key: ${{ secrets.PERFORMANCE_EC2_SECRET_KEY }}
           aws-region: ${{ secrets.PERFORMANCE_EC2_AWS_REGION }}
+      - name: Generate GitHub App token
+        id: generate-app-token
+        uses: actions/create-github-app-token@v3
+        with:
+          client-id: ${{ vars.GH_PR_APP_ID }}
+          private-key: ${{ secrets.GH_PR_APP_PRIVATE_KEY }}
+          owner: ${{ github.repository_owner }}
+          repositories: ${{ github.event.repository.name }}
+          permission-administration: write
       - name: Stop EC2 runner
-        uses: machulav/ec2-github-runner@v2.4.2
+        uses: machulav/ec2-github-runner@v2.6.1
         with:
           mode: stop
-          github-token: ${{ secrets.CI_GH_P_TOKEN }}
+          github-token: ${{ steps.generate-app-token.outputs.token }}
           label: ${{ needs.start-runner.outputs.label }}
           ec2-instance-id: ${{ needs.start-runner.outputs.ec2-instance-id }}

@@ -63,6 +63,7 @@ configPair_t __configPairs[] = {
   {"GC_POLICY",                       ""},
   {"GCSCANSIZE",                      "search-gc-scan-size"},
   {"INDEX_CURSOR_LIMIT",              "search-index-cursor-limit"},
+  {"MAX_AGGREGATE_GROUPS",            "search-max-aggregate-groups"},
   {"MAXAGGREGATERESULTS",             "search-max-aggregate-results"},
   {"MAXDOCTABLESIZE",                 "search-max-doctablesize"},
   {"MAXPREFIXEXPANSIONS",             "search-max-prefix-expansions"},
@@ -466,6 +467,25 @@ CONFIG_GETTER(getMaxAggregateResults) {
     return sdscatprintf(ss, "unlimited");
   }
   return sdscatprintf(ss, "%lu", config->maxAggregateResults);
+}
+
+// MAX_AGGREGATE_GROUPS
+CONFIG_SETTER(setMaxAggregateGroups) {
+  long long newSize = 0;
+  int acrc = AC_GetLongLong(ac, &newSize, AC_F_GE1);
+  CHECK_RETURN_PARSE_ERROR(acrc)
+  if (newSize > MAX_AGGREGATE_GROUPS) {
+    QueryError_SetError(status, QUERY_ELIMIT,
+                        "Value exceeds maximum possible aggregate groups");
+    return REDISMODULE_ERR;
+  }
+  config->maxAggregateGroups = newSize;
+  return REDISMODULE_OK;
+}
+
+CONFIG_GETTER(getMaxAggregateGroups) {
+  sds ss = sdsempty();
+  return sdscatprintf(ss, "%lu", config->maxAggregateGroups);
 }
 
 // MAXEXPANSIONS MAXPREFIXEXPANSIONS
@@ -1385,6 +1405,10 @@ RSConfigOptions RSGlobalConfigOptions = {
          .helpText = "Maximum number of results from ft.aggregate command",
          .setValue = setMaxAggregateResults,
          .getValue = getMaxAggregateResults},
+        {.name = "MAX_AGGREGATE_GROUPS",
+         .helpText = "Maximum number of GROUPBY groups materialized by ft.aggregate command",
+         .setValue = setMaxAggregateGroups,
+         .getValue = getMaxAggregateGroups},
         {.name = "MAXEXPANSIONS",
          .helpText = "Maximum prefix expansions to be used in a query",
          .setValue = setMaxExpansions,
@@ -1954,6 +1978,15 @@ int RegisterModuleConfig(RedisModuleCtx *ctx) {
       REDISMODULE_CONFIG_UNPREFIXED, 0,
       MAX_AGGREGATE_REQUEST_RESULTS, get_size_t_numeric_config, set_size_t_numeric_config,
       NULL, (void *)&(RSGlobalConfig.maxAggregateResults)
+    )
+  )
+
+  RM_TRY(
+    RedisModule_RegisterNumericConfig(
+      ctx, "search-max-aggregate-groups", DEFAULT_MAX_AGGREGATE_GROUPS,
+      REDISMODULE_CONFIG_UNPREFIXED, 1,
+      MAX_AGGREGATE_GROUPS, get_size_t_numeric_config, set_size_t_numeric_config,
+      NULL, (void *)&(RSGlobalConfig.maxAggregateGroups)
     )
   )
 

@@ -130,13 +130,21 @@ int HybridParseOptionalArgs(HybridParseContext *ctx, ArgsCursor *ac, bool intern
                              ARG_OPT_CALLBACK, handleIndexPrefixes, ctx,
                              ARG_OPT_END);
 
-        // Mandatory SLOTS_STR argument for internal requests
+        // SLOTS_STR argument for internal requests. Optional: coordinators older than 8.4
+        // do not send it, and the caller falls back to the current local slots (MOD-16047)
         ArgParser_AddSubArgsV(parser, SLOTS_STR, "Requested slots from coordinator",
                             &subArgs, 1, 1,
-                            ARG_OPT_REQUIRED,
+                            ARG_OPT_OPTIONAL,
                             ARG_OPT_CALLBACK, handleSlotsInfo, ctx,
                             ARG_OPT_END);
 
+        // Forward compatibility: coordinators on RediSearch >= 8.6 append
+        // _COORD_DISPATCH_TIME <ns> to internal queries. This version does not use it,
+        // but must consume it during rolling upgrades.
+        ArgParser_AddSubArgsV(parser, "_COORD_DISPATCH_TIME", "Coordinator dispatch time",
+                            &subArgs, 1, 1,
+                            ARG_OPT_OPTIONAL,
+                            ARG_OPT_END);
     }
     // EXPLAINSCORE flag - sets QEXEC_F_SEND_SCOREEXPLAIN
     ArgParser_AddBitflagV(parser, "EXPLAINSCORE", "Include score explanations in results",

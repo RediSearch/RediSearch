@@ -777,10 +777,32 @@ def test_slots_info_errors(env: Env):
     env.expect('FT.CREATE', 'idx', 'SCHEMA', 'n', 'NUMERIC', 'SORTABLE').ok()
     env.expect('DEBUG', 'MARK-INTERNAL-CLIENT').ok()
 
-    env.expect('_FT.SEARCH', 'idx', '*').error().contains('Internal query missing slots specification')
     env.expect('_FT.SEARCH', 'idx', '*', '_SLOTS_INFO', 'invalid_slots_data').error().contains('Failed to deserialize _SLOTS_INFO data')
     env.expect('_FT.SEARCH', 'idx', '*', '_SLOTS_INFO', generate_slots(range(0, 0)), '_SLOTS_INFO', generate_slots(range(0, 0))).error().contains('_SLOTS_INFO already specified')
     env.expect('_FT.HYBRID', 'idx', 'SEARCH', '*', 'VSIM', '@n', '$BLOB', '_SLOTS_INFO', generate_slots(range(0, 0)), '_SLOTS_INFO', generate_slots(range(0, 0)), 'PARAMS', '2', 'BLOB', b'\x00\x00\x00\x00').error().contains('_SLOTS_INFO: Argument specified multiple times')
+
+@skip(cluster=True)
+def test_missing_slots_info_fallback(env: Env):
+    """Internal queries that arrive without _SLOTS_INFO (as sent by coordinators older
+    than 8.4) must not fail; the shard falls back to its current local slots (MOD-16047)."""
+    env.expect('FT.CREATE', 'idx', 'SCHEMA', 'n', 'NUMERIC', 'SORTABLE').ok()
+    conn = getConnectionByEnv(env)
+    conn.execute_command('HSET', 'doc:1', 'n', '1')
+    env.expect('DEBUG', 'MARK-INTERNAL-CLIENT').ok()
+
+    dispatch_time = '1000000'
+
+    # _FT.SEARCH without _SLOTS_INFO falls back to the local slots and returns results.
+    # _COORD_DISPATCH_TIME is from newer coordinators and is consumed/ignored.
+    res = env.cmd('_FT.SEARCH', 'idx', '*', '_COORD_DISPATCH_TIME', dispatch_time)
+    env.assertEqual(res[0], 1)
+    env.assertEqual(res[1], 'doc:1')
+
+    # Same for _FT.AGGREGATE
+    res = env.cmd('_FT.AGGREGATE', 'idx', '*',
+                  '_COORD_DISPATCH_TIME', dispatch_time, 'LOAD', '1', '@n')
+    env.assertEqual(res[1:], [['n', '1']])
+
 
 def info_modules_to_dict(conn):
     res = conn.execute_command('INFO MODULES')
