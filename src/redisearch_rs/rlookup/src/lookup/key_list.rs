@@ -367,10 +367,8 @@ impl<'list, 'a> CursorMut<'list, 'a> {
     ///
     /// The old key remains as a hidden tombstone in the linked list.
     //
-    // The returned reference's lifetime `'b` is decoupled from the `&'list mut KeyList` borrow held by
-    // this cursor, mirroring `KeyList::push`. The replacement key is heap-pinned and owned by the list,
-    // so its lifetime is soundly independent of the cursor borrow; this lets callers bind the returned
-    // key and reborrow the list afterwards without tripping the borrow checker (rust-lang/rust#54663).
+    // `'b` is decoupled from the cursor's `&mut KeyList` borrow so callers can hold the returned key
+    // and reborrow the list (rust-lang/rust#54663). Sound because the key is heap-pinned and list-owned.
     // TODO remove this lifetime hack when we refactor this code. refer to Jira ticket MOD-13907.
     pub fn override_current<'b>(
         mut self,
