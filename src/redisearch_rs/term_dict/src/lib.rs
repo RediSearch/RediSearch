@@ -91,7 +91,7 @@ fn fold(term: &str) -> Cow<'_, str> {
 }
 
 impl TermDictionary {
-    pub fn new() -> Self {
+    pub const fn new() -> Self {
         Self {
             inner: StrTrieMap::new(),
         }

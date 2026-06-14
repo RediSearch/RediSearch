@@ -20,12 +20,14 @@ mod iter;
 mod iter_types;
 mod range;
 mod rdb;
+mod term_dictionary;
 mod term_suffix_index;
 
 pub use find_prefixes::*;
 pub use iter::*;
 pub use range::*;
 pub use rdb::*;
+pub use term_dictionary::*;
 pub use term_suffix_index::*;
 
 /// The length of a key string in the trie.

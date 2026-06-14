@@ -3128,6 +3128,7 @@ dependencies = [
  "redis-module",
  "redis_mock",
  "rqe_wildcard",
+ "term_dict",
  "term_suffix_index",
  "thin_vec",
  "trie_rs",
