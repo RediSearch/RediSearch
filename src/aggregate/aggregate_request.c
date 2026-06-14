@@ -415,6 +415,11 @@ static int handleCommonArgs(ParseAggPlanContext *papCtx, ArgsCursor *ac, QueryEr
       ASM_KeySpaceVersionTracker_IncreaseQueryCount(*papCtx->keySpaceVersion);
     }
     *papCtx->querySlots = slot_array;
+  } else if ((*papCtx->reqflags & QEXEC_F_INTERNAL) && AC_AdvanceIfMatch(ac, "_COORD_DISPATCH_TIME")) {
+    // Forward compatibility: coordinators on RediSearch >= 8.6 append
+    // _COORD_DISPATCH_TIME <ns> to internal queries. This version does not use it, but
+    // must consume it so newer coordinators can drive this shard during rolling upgrades.
+    AC_Advance(ac);
   } else {
     return ARG_UNKNOWN;
   }
@@ -1129,8 +1134,12 @@ int AREQ_Compile(AREQ *req, RedisModuleString **argv, int argc, QueryError *stat
 
   // Verify we got slots requested if needed
   if (IsInternal(req) && !req->querySlots) {
-    QueryError_SetError(status, QUERY_EMISSING, "Internal query missing slots specification");
-    goto error;
+    // Coordinators older than 8.4 do not send a slots specification. Fall back to the
+    // current local slots so rolling upgrades across the 8.4 boundary keep working.
+    req->querySlots = ASM_FallbackToLocalSlots(&req->keySpaceVersion);
+    if (req->keySpaceVersion != INVALID_KEYSPACE_VERSION) {
+      ASM_KeySpaceVersionTracker_IncreaseQueryCount(req->keySpaceVersion);
+    }
   }
 
   // Define if we need a depleter in the pipeline to get accurate total results
