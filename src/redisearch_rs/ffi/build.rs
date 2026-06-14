@@ -286,6 +286,8 @@ const HEADERS: &[HeaderAllowlist] = &[
             "IndexSpec_ReleaseWriteLock",
             "IndexSpec_RemoveFromGlobals",
             "IndexSpecCache_Decref",
+            "IndexSpecRef_Promote",
+            "IndexSpecRef_Release",
             "Indexes_Init",
             "Spec_AddToDict",
         ],
@@ -297,6 +299,12 @@ const HEADERS: &[HeaderAllowlist] = &[
         fns: &["StopWordList_FreeGlobals"],
         types: &[],
         vars: &[],
+    },
+    HeaderAllowlist {
+        path: "src/suffix.h",
+        fns: &[],
+        types: &[],
+        vars: &["MIN_SUFFIX"],
     },
     HeaderAllowlist {
         path: "src/tag_index.h",

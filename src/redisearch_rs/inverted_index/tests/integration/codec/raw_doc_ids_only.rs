@@ -130,7 +130,7 @@ fn test_seek_raw_doc_ids_only() {
 #[cfg_attr(miri, ignore = "Too slow to be run under miri.")]
 fn test_inverted_index_raw_doc_ids_gc() {
     use ffi::IndexFlags_Index_DocIdsOnly;
-    use inverted_index::{IndexBlock, IndexReader, InvertedIndex, raw_doc_ids_only::RawDocIdsOnly};
+    use inverted_index::{IndexReader, InvertedIndex, raw_doc_ids_only::RawDocIdsOnly};
     use rqe_core::DocId;
 
     let mut ii = InvertedIndex::<RawDocIdsOnly>::new(IndexFlags_Index_DocIdsOnly);
@@ -161,7 +161,7 @@ fn test_inverted_index_raw_doc_ids_gc() {
     let delta = ii
         .scan_gc(
             |doc_id| doc_id >= 2_000,
-            None::<fn(&RSIndexResult, &IndexBlock)>,
+            None::<fn(&RSIndexResult, &inverted_index::RepairContext<'_>)>,
         )
         .expect("scan_gc should not fail for valid index")
         .expect("scan_gc should return Some delta when entries are removed");
@@ -188,7 +188,7 @@ fn test_inverted_index_raw_doc_ids_gc() {
     let delta = ii
         .scan_gc(
             |doc_id| doc_id < 3_000,
-            None::<fn(&RSIndexResult, &IndexBlock)>,
+            None::<fn(&RSIndexResult, &inverted_index::RepairContext<'_>)>,
         )
         .expect("scan_gc should not fail for valid index")
         .expect("scan_gc should return Some delta when entries are removed");
@@ -199,7 +199,10 @@ fn test_inverted_index_raw_doc_ids_gc() {
 
     // Test GC: Remove all remaining records
     let delta = ii
-        .scan_gc(|_| false, None::<fn(&RSIndexResult, &IndexBlock)>)
+        .scan_gc(
+            |_| false,
+            None::<fn(&RSIndexResult, &inverted_index::RepairContext<'_>)>,
+        )
         .expect("scan_gc should not fail for valid index")
         .expect("scan_gc should return Some delta when entries are removed");
     let apply_info = ii.apply_gc(delta);
@@ -235,7 +238,7 @@ fn test_inverted_index_raw_doc_ids_gc() {
     let delta = ii
         .scan_gc(
             |doc_id| doc_id % (u32::MAX as DocId * 2) == 0,
-            None::<fn(&RSIndexResult, &IndexBlock)>,
+            None::<fn(&RSIndexResult, &inverted_index::RepairContext<'_>)>,
         )
         .expect("scan_gc should not fail for valid index")
         .expect("scan_gc should return Some delta when entries are removed");

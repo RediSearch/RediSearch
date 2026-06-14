@@ -9,7 +9,8 @@
 
 #include "pipe.h"
 #include "inverted_index_ffi.h"
-#include "triemap_ffi.h"
+#include "trie/trie.h"
+#include "trie/trie_node.h"
 #include "redis_index.h"
 #include "suffix.h"
 #include "rmutil/rm_assert.h"
@@ -34,10 +35,7 @@ void FGC_childCollectTerms(ForkGC *gc, RedisSearchCtx *sctx) {
 
       II_GCWriter wr = { .ctx = gc, .write = pipe_write_cb };
 
-      InvertedIndex_GcDelta_Scan(
-          &wr, sctx, idx,
-          &cb, NULL
-      );
+      InvertedIndex_GcDelta_Scan(&wr, sctx, idx, &cb);
     }
     rm_free(term);
   }

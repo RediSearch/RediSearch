@@ -7,6 +7,7 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 #include "suffix.h"
+#include "trie/trie.h"
 #include "triemap_ffi.h"
 #include "rmutil/rm_assert.h"
 #include "config.h"

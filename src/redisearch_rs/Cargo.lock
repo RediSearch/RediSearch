@@ -716,9 +716,14 @@ name = "fork_gc"
 version = "0.0.1"
 dependencies = [
  "ffi",
+ "index_result",
+ "index_spec",
+ "inverted_index",
  "libc",
  "nix",
  "redis-module",
+ "rmp-serde",
+ "serde",
  "tracing",
  "workspace_hack",
 ]
@@ -730,6 +735,7 @@ dependencies = [
  "cheadergen",
  "ffi",
  "fork_gc",
+ "index_spec",
  "tracing",
  "tracing_log_error",
  "workspace_hack",
@@ -1069,6 +1075,7 @@ version = "0.0.1"
 dependencies = [
  "ffi",
  "field_spec",
+ "inverted_index",
  "pretty_assertions",
  "redis_mock",
  "redisearch_rs",
@@ -2804,6 +2811,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "term_suffix_index"
+version = "0.0.1"
+dependencies = [
+ "ffi",
+ "proptest",
+ "trie_rs",
+ "workspace_hack",
+]
+
+[[package]]
 name = "thin_vec"
 version = "0.0.1"
 dependencies = [
@@ -3031,6 +3048,8 @@ dependencies = [
 name = "trie_rs"
 version = "0.0.1"
 dependencies = [
+ "cheadergen",
+ "ffi",
  "fs-err",
  "insta",
  "lending-iterator",
