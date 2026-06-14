@@ -245,6 +245,45 @@ void HybridKnnCommandModifier(MRCommand *cmd, size_t numShards, void *privateDat
     HybridKnnApplyShardKRatio(cmd, numShards, ctx->knnCtx);
 }
 
+// Fold collected shard errors into `status` and the max-prefix flags per the OOM
+// and timeout policies. Returns false on a fatal error (first one wins).
+static bool resolveCursorMappingErrors(arrayof(QueryError) errors, QueryError *status,
+                                       RSOomPolicy oomPolicy, RSTimeoutPolicy timeoutPolicy,
+                                       bool *maxPrefixSearch, bool *maxPrefixVsim) {
+    for (size_t i = 0; i < array_len(errors); i++) {
+        QueryErrorCode code = QueryError_GetCode(&errors[i]);
+        if (code == QUERY_ERROR_CODE_OUT_OF_MEMORY && oomPolicy == OomPolicy_Return) {
+            QueryError_SetQueryOOMWarning(status);
+        } else if (code == QUERY_ERROR_CODE_TIMED_OUT && timeoutPolicy != TimeoutPolicy_Fail) {
+            // RETURN / RETURN-STRICT policy: acknowledge the shard timeout but don't set
+            // it on qctx->err. The timeout propagates through cursor reads (RPNet detects
+            // it from the depleter's last_rc), and replyWarningsWithSuffixes emits the
+            // properly-suffixed warning (e.g. "(SEARCH)" / "(VSIM)").
+            // Note: the _FT.DEBUG FT.HYBRID path rejects RETURN-STRICT in
+            // parseHybridDebugParams, so only RETURN reaches here in debug mode.
+        } else if (code == QUERY_ERROR_CODE_TIMED_OUT) {
+            // FAIL policy: forward the standard timeout error directly.
+            QueryError_SetCode(status, QUERY_ERROR_CODE_TIMED_OUT);
+            return false;
+        } else {
+            const char *msg = QueryError_GetUserError(&errors[i]);
+            if (msg && strncmp(msg, QUERY_WMAXPREFIXEXPANSIONS, strlen(QUERY_WMAXPREFIXEXPANSIONS)) == 0) {
+                if (strstr(msg, SEARCH_SUFFIX)) {
+                    *maxPrefixSearch = true;
+                } else if (strstr(msg, VSIM_SUFFIX)) {
+                    *maxPrefixVsim = true;
+                }
+            } else {
+                QueryError_SetWithoutUserDataFmt(status, code,
+                    "Failed to process shard responses, first error: %s, total error count: %zu",
+                    msg, array_len(errors));
+                return false;
+            }
+        }
+    }
+    return true;
+}
+
 bool ProcessHybridCursorMappings(const MRCommand *cmd, StrongRef searchMappingsRef, StrongRef vsimMappingsRef, HybridKnnContext *knnCtx, QueryError *status, const RSOomPolicy oomPolicy, const RSTimeoutPolicy timeoutPolicy, bool *maxPrefixSearch, bool *maxPrefixVsim, const struct timespec *deadline, RequestSyncCtx *syncCtx) {
     CursorMappings *searchMappings = StrongRef_Get(searchMappingsRef);
     CursorMappings *vsimMappings = StrongRef_Get(vsimMappingsRef);
@@ -309,44 +348,8 @@ bool ProcessHybridCursorMappings(const MRCommand *cmd, StrongRef searchMappingsR
     // them in lockstep); catches a malformed reply that slipped past it.
     RS_ASSERT(array_len(searchMappings->mappings) == array_len(vsimMappings->mappings));
 
-    bool success = true;
-    if (array_len(ctx->errors)) {
-        for (size_t i = 0; i < array_len(ctx->errors); i++) {
-            if (QueryError_GetCode(&ctx->errors[i]) == QUERY_ERROR_CODE_OUT_OF_MEMORY && oomPolicy == OomPolicy_Return ) {
-                QueryError_SetQueryOOMWarning(status);
-            } else if (QueryError_GetCode(&ctx->errors[i]) == QUERY_ERROR_CODE_TIMED_OUT && timeoutPolicy != TimeoutPolicy_Fail) {
-                // RETURN / RETURN-STRICT policy: acknowledge the shard timeout but
-                // don't set it on qctx->err. The timeout will propagate through cursor
-                // reads (RPNet detects it from the depleter's last_rc), and
-                // replyWarningsWithSuffixes emits the properly-suffixed warning
-                // (e.g., "(SEARCH)" / "(VSIM)").
-                // Note: for the _FT.DEBUG FT.HYBRID path, RETURN-STRICT is rejected
-                // earlier in parseHybridDebugParams, so only RETURN reaches here in
-                // debug mode.
-            } else if (QueryError_GetCode(&ctx->errors[i]) == QUERY_ERROR_CODE_TIMED_OUT) {
-                // FAIL policy: forward the standard timeout error directly,
-                // matching the standalone path which uses QueryError_Strerror().
-                QueryError_SetCode(status, QUERY_ERROR_CODE_TIMED_OUT);
-                success = false;
-                break;
-            } else {
-                const char *msg = QueryError_GetUserError(&ctx->errors[i]);
-                if (msg && strncmp(msg, QUERY_WMAXPREFIXEXPANSIONS, strlen(QUERY_WMAXPREFIXEXPANSIONS)) == 0) {
-                    if (strstr(msg, SEARCH_SUFFIX)) {
-                        *maxPrefixSearch = true;
-                    } else if (strstr(msg, VSIM_SUFFIX)) {
-                        *maxPrefixVsim = true;
-                    }
-                    continue;
-                } else {
-                    QueryError_SetWithoutUserDataFmt(status, QueryError_GetCode(&ctx->errors[i]), "Failed to process shard responses, first error: %s, total error count: %zu",
-                        msg, array_len(ctx->errors));
-                    success = false;
-                    break;
-                }
-            }
-        }
-    }
+    bool success = resolveCursorMappingErrors(ctx->errors, status, oomPolicy, timeoutPolicy,
+                                              maxPrefixSearch, maxPrefixVsim);
     MRIterator_Release(it);
 
     return success;
