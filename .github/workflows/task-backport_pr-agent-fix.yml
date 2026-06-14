@@ -18,6 +18,13 @@ name: Fix CI failures on auto-backport PR (Codex agent)
 # relax) and removes the need for a once-per-PR throttle label.
 #
 # Behavior is defined by .github/codex/prompts/pr-backport-auto-fix.md.
+#
+# Expected "skipped" runs — this is normal, not a misconfiguration:
+#   GitHub creates a workflow run for EVERY comment (the `on:` trigger cannot
+#   filter on comment body) and only then evaluates the job `if:` below, so any
+#   comment that isn't `/backport-agent-fix` produces a run whose single job is
+#   skipped. These `issue_comment` skips live only in the Actions tab — they are
+#   never attached to a PR as a check and never block merging.
 
 on:
   issue_comment:
