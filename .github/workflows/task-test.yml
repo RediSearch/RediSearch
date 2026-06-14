@@ -258,8 +258,8 @@ jobs:
               # Configure the safe directory
               git config --global --add safe.directory "/__w/$GITHUB_REPO"
 
-              # Checkout
-              REPO_URL="https://github.com/$GITHUB_REPO.git"
+              # Checkout with authentication for private repositories.
+              REPO_URL="https://x-access-token:${GITHUB_TOKEN}@github.com/$GITHUB_REPO.git"
 
               # Initialize a Git repository
               git init
@@ -404,7 +404,7 @@ jobs:
         run: make rust-tests
       - name: Build TESTFILE excluding flaky tests (standalone)
         id: standalone_testfile
-        if: ${{ inputs.standalone && env.IS_FORK_PR != 'true' }}
+        if: ${{ inputs.standalone && env.IS_FORK_PR != 'true' && steps.node20.outputs.supported == 'true' }}
         continue-on-error: true
         uses: ./.github/actions/flaky-build-testfile
         with:
@@ -448,7 +448,7 @@ jobs:
 
       - name: Build TESTFILE excluding flaky tests (coordinator)
         id: coordinator_testfile
-        if: ${{ inputs.coordinator && env.IS_FORK_PR != 'true' }}
+        if: ${{ inputs.coordinator && env.IS_FORK_PR != 'true' && steps.node20.outputs.supported == 'true' }}
         continue-on-error: true
         uses: ./.github/actions/flaky-build-testfile
         with:
