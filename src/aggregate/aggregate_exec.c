@@ -425,9 +425,8 @@ static void startPipeline(AREQ *req, ResultProcessor *rp, SearchResult ***result
       *rc = RS_RESULT_TIMEDOUT;
       return;
     }
-    // We own the production phase: link this request's sync context into the safe
-    // loaders so they perform the GIL deadlock-avoidance handshake with the
-    // timeout callback.
+    // We own the production phase: link the sync context into the safe loaders so
+    // they perform the GIL deadlock-avoidance handshake with the timeout callback.
     RPSafeLoader_SetSyncCtx(AREQ_QueryProcessingCtx(req), &req->syncCtx);
   }
 
@@ -1611,9 +1610,8 @@ static int QueryTimeoutReturnStrictCallback(RedisModuleCtx *ctx, RedisModuleStri
   }
 
   // Deadlock avoidance: if the BG worker is parked at the safe-loader GIL gate,
-  // it cannot progress while this callback holds the GIL, so Wait would deadlock.
-  // Preempt it and reply empty; the worker finishes once we release the GIL and
-  // teardown frees its unconsumed results. See the handshake contract in aggregate.h.
+  // Wait would deadlock (it needs the GIL we hold). Preempt it and reply empty;
+  // the worker finishes once we release the GIL. See aggregate.h.
   if (RequestSyncCtx_TimeoutPreemptSafeLoaderGIL(&req->syncCtx)) {
     single_shard_common_query_reply_empty(ctx, argv, argc, 0, QUERY_ERROR_CODE_TIMED_OUT);
     return REDISMODULE_OK;
@@ -1773,9 +1771,8 @@ static int CursorReadTimeoutReturnStrictCallback(RedisModuleCtx *ctx, RedisModul
   }
 
   // Deadlock avoidance: if the BG worker is parked at the safe-loader GIL gate,
-  // Wait would deadlock (the worker needs the GIL this callback holds). Preempt
-  // it and reply with an exhausted cursor (id 0); the worker finishes once we
-  // release the GIL and teardown frees its stashed cursor and results.
+  // Wait would deadlock (it needs the GIL we hold). Preempt it and reply with an
+  // exhausted cursor (id 0); the worker finishes once we release the GIL.
   if (RequestSyncCtx_TimeoutPreemptSafeLoaderGIL(&req->syncCtx)) {
     return cursor_read_empty_reply_timeout(ctx, 0, IsInternal(req));
   }

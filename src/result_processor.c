@@ -1020,10 +1020,9 @@ typedef struct RPSafeLoader {
   // Search context
   RedisSearchCtx *sctx;
 
-  // Request sync context, set only for requests that use the BG/timeout-callback
-  // aggregate-results sync (NULL otherwise). When set, the loader performs the
-  // GIL deadlock-avoidance handshake before/after the GIL. The handshake is
-  // additionally gated on requiresAggregateResultsSync inside the helpers.
+  // Request sync context; non-NULL only for RETURN_STRICT requests that use the
+  // aggregate-results sync. When set, the loader performs the GIL deadlock-
+  // avoidance handshake around the GIL (see aggregate.h).
   RequestSyncCtx *syncCtx;
 } RPSafeLoader;
 
@@ -1182,20 +1181,15 @@ static int rpSafeLoaderNext_Accumulate(ResultProcessor *rp, SearchResult *res) {
   if (isQueryProfile) rs_wall_clock_init(&rpStartTime);
 
 #ifdef ENABLE_ASSERT
-  // Sync point (debug): pause after the safe loader has buffered all results
-  // (and won the aggregate-results claim) but before acquiring the GIL. The
-  // RETURN-STRICT cursor-read deadlock test parks the worker here, fires the
-  // main-thread timeout callback (which loses the claim and blocks in
-  // AREQ_WaitForAggregateResultsComplete while holding the GIL), then relies on
-  // the predicate to release the worker so it proceeds into the GIL lock below.
+  // Sync point (debug): pause after buffering all results but before taking the
+  // GIL. The RETURN_STRICT deadlock tests park the worker here, fire the timeout
+  // callback, then release it via the predicate.
   SyncPoint_WaitUntil(SYNC_POINT_BEFORE_SAFE_LOADER_GIL_LOCK, SearchTime_IsTimedOut, &sctx->time);
 #endif
 
-  // Deadlock-avoidance handshake (RETURN_STRICT only; syncCtx is NULL otherwise
-  // and the helpers no-op for non-sync policies). Mark that we are about to take
-  // the GIL so the main-thread timeout callback can preempt us; if it already
-  // timed out, bail without taking the GIL the main thread may be holding while
-  // it waits. See aggregate.h for the contract.
+  // Deadlock-avoidance handshake (syncCtx non-NULL only for RETURN_STRICT). Mark
+  // that we are about to take the GIL so the timeout callback can preempt us; if
+  // it already timed out, bail instead of blocking. See aggregate.h.
   if (self->syncCtx && !RequestSyncCtx_SafeLoaderEnterGIL(self->syncCtx)) {
     return RS_RESULT_TIMEDOUT;
   }

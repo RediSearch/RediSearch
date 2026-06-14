@@ -1145,14 +1145,11 @@ void AREQ_WaitForAggregateResultsComplete(AREQ *req) {
  * serializes the worker's "set holding, then check timedOut" against the main
  * thread's "set timedOut, then check holding", making the two race-free. */
 bool RequestSyncCtx_SafeLoaderEnterGIL(RequestSyncCtx *sync) {
-  // Gate: only requests using the aggregate-results sync protocol take part in
-  // the handshake. For all other policies this is a no-op (take the GIL as usual).
-  if (!sync->requiresAggregateResultsSync) return true;
   bool proceed;
   pthread_mutex_lock(&sync->aggregateResultsLock);
   if (RS_AtomicBoolLoadRelaxed(&sync->timedOut)) {
-    // Timeout callback already fired: do NOT mark holding, bail so the worker
-    // does not block on the GIL the main thread is holding while it waits.
+    // Timeout already fired: do not mark holding, bail instead of blocking on the
+    // GIL the main thread holds while it waits.
     proceed = false;
   } else {
     sync->safeLoaderHoldingGIL = true;
@@ -1163,14 +1160,12 @@ bool RequestSyncCtx_SafeLoaderEnterGIL(RequestSyncCtx *sync) {
 }
 
 void RequestSyncCtx_SafeLoaderExitGIL(RequestSyncCtx *sync) {
-  if (!sync->requiresAggregateResultsSync) return;
   pthread_mutex_lock(&sync->aggregateResultsLock);
   sync->safeLoaderHoldingGIL = false;
   pthread_mutex_unlock(&sync->aggregateResultsLock);
 }
 
 bool RequestSyncCtx_TimeoutPreemptSafeLoaderGIL(RequestSyncCtx *sync) {
-  if (!sync->requiresAggregateResultsSync) return false;
   bool holding;
   pthread_mutex_lock(&sync->aggregateResultsLock);
   holding = sync->safeLoaderHoldingGIL;
