@@ -144,7 +144,7 @@ bool slots_tracker_has_fully_available_overlap(const RedisModuleSlotRangeArray *
  *
  * This function must be called from the main thread only.
  */
-struct RedisModuleSlotRangeArray *slots_tracker_get_local_slots(void);
+RedisModuleSlotRangeArray *slots_tracker_get_local_slots(void);
 
 /**
  * Checks if all requested slots are available and returns version information.
