@@ -407,12 +407,11 @@ TEST_F(CollectParserTest, FieldWithoutAtPrefixRejectedAtParseEvenWhenCallerNotSt
   ArgsCursor ac;
   ArgsCursor_InitCString(&ac, args.data(), args.size());
   QueryError status = QueryError_Default();
-  ReducerOptions opts = REDUCEROPTS_INIT(
-    "COLLECT", &ac, &lk, NULL, &status,
-    false, // caller says non-strict
-    false, NULL, 0);
+  ReducerOptions opts = REDUCEROPTS_INIT("COLLECT", &ac, &lk, nullptr, &status,
+                                         false,  // caller says non-strict
+                                         false, nullptr, 0);
 
-  CollectArgs parsed = {0};
+  CollectArgs parsed = {};
   EXPECT_FALSE(CollectArgs_Parse(&opts, &parsed))
       << "Expected parse failure but got success";
   const char *user_error = QueryError_GetUserError(&status);
