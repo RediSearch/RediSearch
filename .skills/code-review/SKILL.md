@@ -71,6 +71,10 @@ git diff origin/master...FETCH_HEAD -- '*.c' '*.h'
 Read the full source of every C file that was added or significantly modified so that you
 have complete context (not just the diff hunks).
 
+If the diff changes accepted input syntax, command registration, internal command
+construction, serialized formats, or reply shapes, inspect both the producer and
+consumer sides of that interface.
+
 **When reviewing source files or directories**, read the full source of every `.c` and `.h`
 file and review them in their entirety.
 
@@ -186,7 +190,46 @@ Check especially for:
 For any security-sensitive finding, state the concrete impact and the input or code path
 that can trigger it.
 
-#### 2j. PR description
+#### 2j. Interface and compatibility changes
+
+Treat every accepted input/output boundary as a compatibility contract. This includes
+public commands, internal commands, coordinator-to-shard commands, replication/restore
+commands, debug commands, cursor/profile/config subcommands, serialized payloads, RDB
+formats, RESP reply shapes, reducer inputs, and command registration metadata.
+
+Internal commands count. A command being `_FT.*`, `FT._*`, proxy-filtered, debug-only,
+or not documented for users does not make incompatible changes safe.
+
+Flag as blocking unless the PR has an explicit compatibility story when it:
+- Adds a new mandatory argument, token, subcommand field, or serialized field.
+- Makes an optional argument required.
+- Removes or renames an accepted command, alias, argument, token, reply field, or
+  serialized field.
+- Rejects input that was previously accepted.
+- Changes argument order, arity, parser strictness, type requirements, defaults, or
+  error behavior.
+- Changes RESP2/RESP3 reply shape consumed by another component.
+- Changes command registration names, aliases, key specs, ACL categories,
+  internal/proxy flags, or arity.
+- Changes who can execute a command or access an index/keyspace, including ACL
+  category changes, key-spec changes, user-context changes in `RedisModule_Call`, or
+  newly added permission checks.
+- Changes serialized formats without versioning and old-format readers.
+
+Acceptable compatibility patterns:
+- Accept both old and new forms during a transition period.
+- Parse new fields optionally and use fallback behavior when absent.
+- Gate new syntax by explicit version or capability negotiation.
+- Keep legacy aliases while supported callers may still use them.
+- Preserve prior internal execution paths when adding ACL checks, or prove the caller
+  still runs under the intended user/context.
+- Version serialized data and retain old-version readers.
+
+When an interface is tightened, require tests or documented verification that old and
+new callers both work, or explicitly call out the change as breaking with its intended
+release and upgrade impact.
+
+#### 2k. PR description
 
 Only applies when reviewing a PR (not files or commits directly):
 - Exactly one release notes checkbox is checked (`This PR requires release notes`
