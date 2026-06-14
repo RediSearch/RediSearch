@@ -19,8 +19,8 @@ use crate::{TrieMap, iter, str_trie_map::iter::unfiltered::key_to_string};
 ///
 /// - [`WildcardIter::Borrowed`] wraps a lazy inner iterator that borrows
 ///   the caller's pattern directly. Used for the common case (e.g. a
-///   pre-lowercased pattern from
-///   [`TermDictionary::wildcard_iter`](crate::str_trie_map::term_dict::TermDictionary::wildcard_iter)).
+///   pre-lowercased pattern handed to
+///   [`StrTrieMap::wildcard_iter_owned`](super::super::StrTrieMap::wildcard_iter_owned)).
 /// - [`WildcardIter::Drained`] returns an iterator over a pre-collected
 ///   `Vec`. Used when the caller passes a [`Cow::Owned`] pattern: the
 ///   inner iterator is built and drained inside [`Self::new_cow`] under

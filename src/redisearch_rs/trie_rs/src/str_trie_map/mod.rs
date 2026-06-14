@@ -7,6 +7,7 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 
+use std::borrow::Cow;
 use std::fmt;
 
 use crate::TrieMap;
@@ -14,7 +15,6 @@ use crate::TrieMap;
 pub mod dfa;
 pub mod iter;
 pub mod rdb;
-pub mod term_dict;
 pub mod utf8_decoder;
 
 /// UTF-8 keyed view over [`TrieMap`].
@@ -181,6 +181,40 @@ impl<Data> StrTrieMap<Data> {
         pattern: &'p str,
     ) -> iter::WildcardIter<'tm, 'p, Data> {
         iter::WildcardIter::new(&self.inner, pattern)
+    }
+
+    /// Owned-pattern variant of [`Self::contains_iter`]. Accepts a
+    /// [`Cow`] so callers that transform the pattern (e.g. case-folding)
+    /// can hand the freshly allocated buffer to the iterator instead of
+    /// lending a local that would dangle. A [`Cow::Borrowed`] keeps the
+    /// caller's lifetime; a [`Cow::Owned`] is moved into the iterator.
+    pub fn contains_iter_owned<'tm, 'p>(
+        &'tm self,
+        target: Cow<'p, str>,
+    ) -> iter::ContainsIter<'tm, 'p, Data> {
+        iter::ContainsIter::new_cow(&self.inner, target)
+    }
+
+    /// Owned-bound variant of [`Self::range_iter`]. Each bound may borrow
+    /// the caller's bytes or own a transformed buffer; see
+    /// [`Self::contains_iter_owned`] for the rationale.
+    pub fn range_iter_owned<'tm, 'p>(
+        &'tm self,
+        min: Option<Cow<'p, str>>,
+        include_min: bool,
+        max: Option<Cow<'p, str>>,
+        include_max: bool,
+    ) -> iter::RangeIter<'tm, 'p, Data> {
+        iter::RangeIter::build_from_cow(&self.inner, min, include_min, max, include_max)
+    }
+
+    /// Owned-pattern variant of [`Self::wildcard_iter`]; see
+    /// [`Self::contains_iter_owned`] for the rationale.
+    pub fn wildcard_iter_owned<'tm, 'p>(
+        &'tm self,
+        pattern: Cow<'p, str>,
+    ) -> iter::WildcardIter<'tm, 'p, Data> {
+        iter::WildcardIter::new_cow(&self.inner, pattern)
     }
 }
 

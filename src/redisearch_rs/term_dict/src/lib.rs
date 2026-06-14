@@ -35,7 +35,7 @@ use std::borrow::Cow;
 
 use icu_casemap::CaseMapper;
 
-use crate::str_trie_map::{
+use trie_rs::str_trie_map::{
     StrTrieMap,
     iter::{ContainsIter, Iter, PrefixedIter, RangeIter, SuffixedIter, WildcardIter},
 };
@@ -177,7 +177,7 @@ impl TermDictionary {
     /// Case-folds `target`; see [`StrTrieMap::contains_iter`]. When
     /// folding allocates, the iterator owns the folded buffer internally.
     pub fn contains_iter<'tm, 'p>(&'tm self, target: &'p str) -> ContainsIter<'tm, 'p, TermEntry> {
-        ContainsIter::new_cow(self.inner.byte_trie(), fold(target))
+        self.inner.contains_iter_owned(fold(target))
     }
 
     /// Case-folds the bounds; see [`StrTrieMap::range_iter`]. `None` on
@@ -190,24 +190,19 @@ impl TermDictionary {
         max: Option<&'p str>,
         include_max: bool,
     ) -> RangeIter<'tm, 'p, TermEntry> {
-        RangeIter::build_from_cow(
-            self.inner.byte_trie(),
-            min.map(fold),
-            include_min,
-            max.map(fold),
-            include_max,
-        )
+        self.inner
+            .range_iter_owned(min.map(fold), include_min, max.map(fold), include_max)
     }
 
     /// Case-folds `pattern`; see [`StrTrieMap::wildcard_iter`]. `?` and
     /// `*` are ASCII so wildcard semantics survive folding. When folding
     /// allocates, the iterator owns the folded buffer internally.
     pub fn wildcard_iter<'tm, 'p>(&'tm self, pattern: &'p str) -> WildcardIter<'tm, 'p, TermEntry> {
-        WildcardIter::new_cow(self.inner.byte_trie(), fold(pattern))
+        self.inner.wildcard_iter_owned(fold(pattern))
     }
 
     /// Case-folds `prefix` then runs [`StrTrieMap::iterate_dfa`]; see
-    /// that method and [`crate::str_trie_map::dfa`] for the running-min distance
+    /// that method and [`trie_rs::str_trie_map::dfa`] for the running-min distance
     /// and prefix-mode-freeze semantics.
     pub fn iterate_dfa<'tm>(
         &'tm self,

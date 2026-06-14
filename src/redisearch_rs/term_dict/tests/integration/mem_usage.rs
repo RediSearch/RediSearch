@@ -17,7 +17,7 @@
 //! correctly surfaces the counter and that it moves in the expected
 //! direction across the [`TermDictionary`] mutation surface.
 
-use trie_rs::str_trie_map::term_dict::TermDictionary;
+use term_dict::TermDictionary;
 
 #[test]
 fn mem_usage_increases_with_terms() {

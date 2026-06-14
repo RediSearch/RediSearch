@@ -19,7 +19,7 @@
 //! byte-exact; tests in sibling files exercise its raw byte semantics
 //! and must continue to pass.
 
-use trie_rs::str_trie_map::term_dict::{DecrResult, TermDictionary, TermEntry};
+use term_dict::{DecrResult, TermDictionary, TermEntry};
 
 fn seed(dict: &mut TermDictionary, terms: &[&str]) {
     for term in terms {
@@ -72,7 +72,12 @@ fn collect_wildcard(dict: &TermDictionary, pattern: &str) -> Vec<String> {
     keys
 }
 
-fn collect_dfa(dict: &TermDictionary, prefix: &str, max_dist: u32, prefix_mode: bool) -> Vec<String> {
+fn collect_dfa(
+    dict: &TermDictionary,
+    prefix: &str,
+    max_dist: u32,
+    prefix_mode: bool,
+) -> Vec<String> {
     let mut keys: Vec<String> = dict
         .iterate_dfa(prefix, max_dist, prefix_mode)
         .map(|(k, _, _)| k)
@@ -91,7 +96,9 @@ fn insert_uppercase_then_get_lowercase() {
             num_docs: 3,
         },
     );
-    let entry = dict.get("foo").expect("get(\"foo\") should find folded key");
+    let entry = dict
+        .get("foo")
+        .expect("get(\"foo\") should find folded key");
     assert_eq!(entry.score, 2.0);
     assert_eq!(entry.num_docs, 3);
 }
@@ -106,8 +113,14 @@ fn insert_lowercase_then_get_uppercase() {
             num_docs: 1,
         },
     );
-    assert!(dict.get("FOO").is_some(), "get(\"FOO\") should fold to \"foo\"");
-    assert!(dict.get("Foo").is_some(), "get(\"Foo\") should fold to \"foo\"");
+    assert!(
+        dict.get("FOO").is_some(),
+        "get(\"FOO\") should fold to \"foo\""
+    );
+    assert!(
+        dict.get("Foo").is_some(),
+        "get(\"Foo\") should fold to \"foo\""
+    );
 }
 
 #[test]
@@ -320,5 +333,9 @@ fn dfa_iter_handles_multibyte_lowercase_expansion() {
         .iterate_dfa("İstanbul", 0, false)
         .map(|(k, _, _)| k)
         .collect();
-    assert_eq!(hits.len(), 1, "DFA must round-trip the multi-codepoint fold");
+    assert_eq!(
+        hits.len(),
+        1,
+        "DFA must round-trip the multi-codepoint fold"
+    );
 }
