@@ -332,8 +332,7 @@ pub unsafe extern "C" fn slots_tracker_has_fully_available_overlap(
 pub unsafe extern "C" fn slots_tracker_get_local_slots() -> *mut SlotRangeArray {
     with_tracker(|tracker| {
         let local = tracker.local_slot_ranges();
-        let num_ranges =
-            i32::try_from(local.len()).expect("local slot ranges count must fit in i32");
+        let num_ranges = local.len() as i32;
 
         let layout = local_slots_array_layout(local.len());
         // SAFETY: `layout` has a non-zero size (it includes the `num_ranges` header).
