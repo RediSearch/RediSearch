@@ -366,6 +366,18 @@ static int handleCommonArgs(AREQ *req, ArgsCursor *ac, QueryError *status, int a
     if (AC_GetVarArgs(ac, &tmp) != AC_OK) {
       RS_LOG_ASSERT(false, "Bad arguments for _INDEX_PREFIXES (coordinator)");
     }
+  } else if (AC_AdvanceIfMatch(ac, "_SLOTS_INFO")) {
+    // Forward compatibility (MOD-16047): coordinators on RediSearch >= 8.4 append a
+    // _SLOTS_INFO <binary> argument to internal queries. This version does not use it,
+    // but must consume the keyword and its single payload argument so that a newer
+    // coordinator can drive this shard during a rolling upgrade across the 8.4 boundary.
+    AC_Advance(ac); // skip the (binary) slots payload (no-op if absent)
+  } else if (AC_AdvanceIfMatch(ac, "_COORD_DISPATCH_TIME")) {
+    // Forward compatibility (MOD-16047): coordinators on RediSearch >= 8.6 append a
+    // _COORD_DISPATCH_TIME <ns> argument to internal queries. This version does not use
+    // it, but must consume it so newer coordinators can drive this shard during rolling
+    // upgrades.
+    AC_Advance(ac); // skip the dispatch-time payload (no-op if absent)
   } else if (AC_AdvanceIfMatch(ac, "BM25STD_TANH_FACTOR")) {
     if (AC_NumRemaining(ac) < 1) {
       QueryError_SetError(status, QUERY_EPARSEARGS, "Need an argument for BM25STD_TANH_FACTOR");
