@@ -144,6 +144,21 @@ impl TermSuffixIndex {
             .flat_map(|data| data.terms().map(|term| &**term))
     }
 
+    pub fn visit_contains<F: FnMut(&str) -> bool>(&self, needle: &str, mut f: F) {
+        debug_assert!(
+            needle.is_empty() || needle.chars().count() >= MIN_SUFFIX,
+            "needle must span at least {MIN_SUFFIX} codepoints; caller must filter shorter needles (production gate: minTermPrefix)",
+        );
+        self.inner.visit_prefixed_values(needle, &mut |data| {
+            for term in data.terms() {
+                if !f(term) {
+                    return false;
+                }
+            }
+            true
+        });
+    }
+
     /// Yield every indexed term that ends with `needle`, in unspecified
     /// order. Empty `needle` yields nothing.
     ///

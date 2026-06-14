@@ -217,7 +217,7 @@ pub unsafe extern "C" fn TermSuffixIndex_IterateContains(
         debug_assert!(false, "needle must be valid UTF-8");
         return;
     };
-    for term in index.iter_contains(needle) {
+    index.visit_contains(needle, |term| {
         // SAFETY: caller is to ensure `callback` tolerates a
         // non-NUL-terminated term pointer valid for the call.
         let outcome = unsafe {
@@ -228,10 +228,8 @@ pub unsafe extern "C" fn TermSuffixIndex_IterateContains(
                 std::ptr::null_mut(),
             )
         };
-        if outcome != 0 {
-            break;
-        }
-    }
+        outcome == 0
+    });
 }
 
 /// Invoke `callback` once per member term ending with the UTF-8 needle

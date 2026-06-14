@@ -297,6 +297,38 @@ impl<Data> TrieMap<Data> {
             None => Values::new(None),
         }
     }
+
+    /// Call `f` on the value of every entry whose key starts with the given
+    /// prefix, in lexicographical key order. `f` returns `false` to stop the
+    /// walk early. Returns `false` iff the walk was stopped.
+    ///
+    /// Visits the same values as [`Self::prefixed_values`], but recursively,
+    /// without allocating a traversal stack. Prefer it on hot paths where the
+    /// walk is short enough for the iterator's per-call heap allocation to
+    /// dominate.
+    pub fn visit_prefixed_values<F: FnMut(&Data) -> bool>(&self, prefix: &[u8], f: &mut F) -> bool {
+        match self.find_root_for_prefix(prefix) {
+            Some((root, _)) => visit_values(root, f),
+            None => true,
+        }
+    }
+}
+
+/// Recursive engine of [`TrieMap::visit_prefixed_values`]: pre-order walk of
+/// the subtree rooted at `node`, on the machine stack. Returns `false` iff
+/// `f` stopped the walk.
+fn visit_values<Data, F: FnMut(&Data) -> bool>(node: &Node<Data>, f: &mut F) -> bool {
+    if let Some(data) = node.data()
+        && !f(data)
+    {
+        return false;
+    }
+    for child in node.children() {
+        if !visit_values(child, f) {
+            return false;
+        }
+    }
+    true
 }
 
 impl<Data: std::fmt::Debug> std::fmt::Debug for TrieMap<Data> {
