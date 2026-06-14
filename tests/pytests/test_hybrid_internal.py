@@ -245,12 +245,13 @@ def test_hybrid_internal_without_coord_dispatch_time(env):
     setup_hybrid_test_data(env)
 
     query_vec = create_np_array_typed([0.0, 0.0], 'FLOAT32')
-    query = ('_FT.HYBRID', 'idx', 'SEARCH', '@description:running',
-             'VSIM', '@embedding', '$BLOB',
-             'WITHCURSOR', '_SLOTS_INFO', generate_slots(),
-             'PARAMS', '2', 'BLOB', query_vec.tobytes())
 
-    for shard_id, _ in get_shard_slot_ranges(env):
+    for shard_id, slots_data in get_shard_slot_ranges(env):
+        query = ('_FT.HYBRID', 'idx', 'SEARCH', '@description:running',
+                 'VSIM', '@embedding', '$BLOB',
+                 'WITHCURSOR', '_SLOTS_INFO', slots_data,
+                 'PARAMS', '2', 'BLOB', query_vec.tobytes())
+
         if env.isCluster():
             shard_conn = env.getConnection(shardId=shard_id)
             shard_conn.execute_command('DEBUG', 'MARK-INTERNAL-CLIENT')
