@@ -247,6 +247,20 @@ static int handleCommonArgs(AREQ *req, ArgsCursor *ac, QueryError *status, int a
     if (parseDialect(&req->dialectVersion, ac, status) != REDISMODULE_OK) {
       return ARG_ERROR;
     }
+  } else if (IsInternal(req) && AC_AdvanceIfMatch(ac, "_INDEX_PREFIXES")) {
+    // Forward compatibility (MOD-16047): coordinators on RediSearch >= 8.0 append
+    // _INDEX_PREFIXES <count> <prefix...>. This version does not use it, but must
+    // consume it so newer coordinators can drive this shard during rolling upgrades.
+    ArgsCursor tmp = {0};
+    AC_GetVarArgs(ac, &tmp);
+  } else if (IsInternal(req) && AC_AdvanceIfMatch(ac, "_SLOTS_INFO")) {
+    // Forward compatibility (MOD-16047): coordinators on RediSearch >= 8.4 append
+    // _SLOTS_INFO <binary>. Consume and ignore the opaque payload.
+    AC_Advance(ac);
+  } else if (IsInternal(req) && AC_AdvanceIfMatch(ac, "_COORD_DISPATCH_TIME")) {
+    // Forward compatibility (MOD-16047): coordinators on RediSearch >= 8.6 append
+    // _COORD_DISPATCH_TIME <ns>. Consume and ignore the payload.
+    AC_Advance(ac);
   } else {
     return ARG_UNKNOWN;
   }
