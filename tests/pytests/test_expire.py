@@ -776,6 +776,44 @@ def testFastPathGeoshapeFieldExpiration(env):
     env.expect('FT.SEARCH', 'idx', '@geom:[within $poly]', 'PARAMS', 2, 'poly', query, 'NOCONTENT', 'DIALECT', 3).equal([1, 'doc:2'])
 
 
+# Regression for the GEOSHAPE query iterator: read_single() applies the
+# field-expiration predicate (DocTable_CheckFieldExpirationPredicate),
+# but skip_to() historically did not.
+# A bare `@geom:[within ...]` query only ever drives the iterator via Read, so
+# the gap is invisible there. To reach skip_to(), the geoshape must be the
+# NON-leading child of an intersection: an intersection sorts children by
+# estimated result count and leads with the smallest via Read, driving the rest
+# via SkipTo. Here `@txt:hello` matches only 2 docs while the geoshape matches
+# all 12, so the text term leads and the geoshape is skipped to each candidate.
+# doc:1's geom field is expired, so it must be filtered out. Before the fix
+# skip_to() skipped the expiration check and doc:1 leaked into the results.
+@skip(cluster=True, redis_less_than='8.0')
+def testGeoshapeFieldExpirationSkipToPath(env):
+    conn = getConnectionByEnv(env)
+    conn.execute_command('DEBUG', 'SET-ACTIVE-EXPIRE', '0')
+    env.expect('FT.CREATE', 'idx', 'SCHEMA', 'txt', 'TEXT', 'geom', 'GEOSHAPE', 'FLAT').ok()
+    env.cmd(debug_cmd(), 'SET_MONITOR_EXPIRATION', 'idx', 'fields')
+
+    shape = 'POLYGON((1 1, 1 100, 100 100, 100 1, 1 1))'
+    # doc:1 and doc:2 carry the 'hello' term (2 estimated results) so the text
+    # term leads the intersection; doc:1's geom field is the one that expires.
+    conn.execute_command('HSET', 'doc:1', 'txt', 'hello', 'geom', shape)
+    conn.execute_command('HSET', 'doc:2', 'txt', 'hello', 'geom', shape)
+    # Filler docs inflate the geoshape iterator's estimate well above the text
+    # term so the geoshape is the non-leading child driven via SkipTo.
+    for i in range(3, 13):
+        conn.execute_command('HSET', f'doc:{i}', 'txt', 'world', 'geom', shape)
+    conn.execute_command('HPEXPIRE', 'doc:1', '1', 'FIELDS', '1', 'geom')
+    # https://www.kernel.org/doc/html/latest/core-api/timekeeping.html (CLOCK_REALTIME_COARSE may be off by 10ms)
+    time.sleep(0.015)
+
+    query = 'POLYGON((0 0, 0 150, 150 150, 150 0, 0 0))'
+    # The text term 'hello' leads and drives the geoshape via SkipTo. doc:1's
+    # geom field is expired, so only doc:2 must survive the intersection.
+    env.expect('FT.SEARCH', 'idx', '@txt:hello @geom:[within $poly]',
+               'PARAMS', 2, 'poly', query, 'NOCONTENT').equal([1, 'doc:2'])
+
+
 @skip(cluster=True, redis_less_than='8.0')
 def testHashFieldExpirationWithNonMatchingIndexes(env):
     # Cover Indexes_UpdateMatchingHashFieldExpiration (src/spec.c) when several

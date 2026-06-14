@@ -18,7 +18,10 @@ use rqe_iterators::{
     not::Not,
     not_optimized::NotOptimized,
     not_reducer::{NewNotIterator, TIMEOUT_CHECK_GRANULARITY, new_not_iterator},
-    utils::{AnyTimeoutContext, NoTimeout, TimeoutContextBlockedClient, TimeoutContextClock},
+    utils::{
+        AnyTimeoutContext, NoTimeout, TimeoutContextBlockedClient, TimeoutContextClock,
+        duration_from_redis_timespec,
+    },
 };
 
 type NotFfi<'index> = Not<'index, CRQEIterator, AnyTimeoutContext>;
@@ -187,7 +190,7 @@ unsafe fn build_timeout_context(
             if sctx.time.skipTimeoutChecks {
                 return AnyTimeoutContext::NoTimeout(NoTimeout);
             }
-            match crate::timespec::duration_from_redis_timespec(timeout) {
+            match duration_from_redis_timespec(timeout) {
                 Some(duration) => AnyTimeoutContext::Clock(TimeoutContextClock::new(
                     duration,
                     TIMEOUT_CHECK_GRANULARITY,

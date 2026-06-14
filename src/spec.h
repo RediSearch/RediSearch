@@ -213,13 +213,6 @@ typedef enum {
   Index_HasNonEmpty = 0x80000,  // Index has at least one field that does not indexes empty values
 } IndexFlags;
 
-// SST replication lock state held by an IndexSpec. PRE_FORK sets
-// DISK_FORK_PROTECTED; POST_FORK and the replication abort handler clear it.
-typedef enum {
-  REPL_LOCK_NONE                = 0x00,
-  REPL_LOCK_DISK_FORK_PROTECTED = 0x01,
-} ReplicationLockFlags;
-
 // redis version (its here because most file include it with no problem,
 // we should introduce proper common.h file)
 
@@ -247,7 +240,8 @@ typedef uint16_t FieldSpecDedupeArray[SPEC_MAX_FIELDS];
 #define INDEX_DEFAULT_FLAGS \
   Index_StoreFreqs | Index_StoreTermOffsets | Index_StoreFieldFlags | Index_StoreByteOffsets
 
-#define INDEX_CURRENT_VERSION 26
+#define INDEX_CURRENT_VERSION 27
+#define INDEX_VECTOR_RERANK_VERSION 27
 #define INDEX_DISK_VERSION 26
 #define INDEX_VECSIM_SVS_VAMANA_VERSION 25
 #define INDEX_ASM_PROPAGATE_DEFINITIONS_VERSION INDEX_VECSIM_SVS_VAMANA_VERSION
@@ -389,10 +383,6 @@ typedef struct IndexSpec {
   // replication ending. Vector index state is stored inline in each field.
   RedisSearchDiskRdbState *pendingDiskRdbState;
   bool diskRegistered;
-  pthread_rwlock_t disk_fork_rwlock;
-  // Flags indicating state of the replication process. Needed to abort replication process
-  // in a healthy way
-  ReplicationLockFlags repl_flags;
 } IndexSpec;
 
 typedef enum SpecOp { SpecOp_Add, SpecOp_Del } SpecOp;
@@ -520,6 +510,9 @@ void IndexSpec_GetStats(IndexSpec *sp, RSIndexStats *stats);
 /* Get the number of indexing failures */
 size_t IndexSpec_GetIndexErrorCount(const IndexSpec *sp);
 
+/* Get the count of total blocks*/
+size_t IndexSpec_TotalBlockCount(IndexSpec *sp);
+
 /*
  * Parse an index spec from redis command arguments.
  * Returns REDISMODULE_ERR if there's a parsing error.
@@ -568,8 +561,10 @@ StrongRef IndexSpec_ParseC(RedisModuleCtx *ctx, const char *name, const char **a
 FieldSpec *IndexSpec_CreateField(IndexSpec *sp, const char *name, const char *path);
 
 // Delete a document from the index by its key name.
-// Looks up the docId via DocIdMeta_Get on the key, then removes the document
-// from the DocTable and cleans up associated metadata (DocIdMeta_Delete).
+// In disk mode, looks up the docId via DocIdMeta_Get on the key, removes the
+// document from disk by that id, and deletes the DocIdMeta key→docId mapping so
+// it stays authoritative (an entry exists iff the doc is indexed). In memory
+// mode, pops the document metadata from the DocTable.
 // Requires a RedisModuleCtx to access the key's metadata.
 // This function locks the spec for writing.
 int IndexSpec_DeleteDoc(IndexSpec *spec, RedisModuleCtx *ctx, RedisModuleString *key);
@@ -843,56 +838,6 @@ void IndexSpec_AcquireWriteLock(IndexSpec* sp);
  * @param sp Pointer to the IndexSpec
  */
 void IndexSpec_ReleaseWriteLock(IndexSpec* sp);
-
-/**
- * @brief Block the SST replication snapshot fork from starting.
- *
- * Takes a shared (read) lock on the per-spec fork rwlock. Multiple callers
- * may block the fork concurrently; the fork can proceed only once every
- * blocker has released via IndexSpec_EnableDiskForkIfPossible. Used by
- * critical sections (e.g. compaction) that must be ordered with respect to
- * the snapshot fork.
- *
- * Lock order: must be acquired before the IndexSpec rwlock by any caller
- * that takes both.
- *
- * @param sp Pointer to the IndexSpec
- */
-void IndexSpec_BlockDiskFork(IndexSpec *sp);
-
-/**
- * @brief Release a prior IndexSpec_BlockDiskFork.
- *
- * The fork becomes eligible to start only after the last outstanding blocker
- * releases — hence "IfPossible".
- *
- * @param sp Pointer to the IndexSpec
- */
-void IndexSpec_EnableDiskForkIfPossible(IndexSpec *sp);
-
-/**
- * @brief Enter the protected fork window.
- *
- * Takes an exclusive (write) lock on the per-spec fork rwlock and blocks
- * until every outstanding IndexSpec_BlockDiskFork blocker has released.
- * Used by the SST replication PRE_FORK callback.
- *
- * Lock order: must be acquired before the IndexSpec rwlock by any caller
- * that takes both.
- *
- * @param sp Pointer to the IndexSpec
- */
-void IndexSpec_ProtectDiskFork(IndexSpec *sp);
-
-/**
- * @brief Leave the protected fork window.
- *
- * Releases the exclusive lock taken by IndexSpec_ProtectDiskFork, allowing
- * pending blockers to proceed.
- *
- * @param sp Pointer to the IndexSpec
- */
-void IndexSpec_UnProtectDiskFork(IndexSpec *sp);
 
 /**
  * @brief Update a term's document count in the Serving Trie

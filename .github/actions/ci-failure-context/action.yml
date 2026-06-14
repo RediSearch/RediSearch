@@ -1,0 +1,174 @@
+name: CI Failure Context
+description: >
+  Collect failure context for Codex triage: a paginated list of failed
+  jobs and a budgeted log file (failed-logs.txt) combining focused
+  "Failed Test Logs *" artifacts with fallback gh-run-view output.
+  Assumes the caller has already checked out the repository.
+
+inputs:
+  artifact-pattern:
+    description: Artifact name pattern to download for focused per-test logs.
+    required: false
+    default: 'Failed Test Logs *'
+  max-bytes:
+    description: Maximum size of failed-logs.txt in bytes (default 200KB).
+    required: false
+    default: '204800'
+  working-directory:
+    description: Directory to write failed-logs.txt and download artifacts into.
+    required: false
+    default: '.'
+
+outputs:
+  failed-jobs:
+    description: >
+      Multi-line text listing failed jobs as "<name> (<conclusion>)\n<html_url>",
+      or a no-data marker pointing at the run URL.
+    value: ${{ steps.failure-jobs.outputs.failed_jobs }}
+
+runs:
+  using: composite
+  steps:
+    - name: Compute failed-jobs list
+      id: failure-jobs
+      shell: python3 {0}
+      env:
+        GH_TOKEN: ${{ github.token }}
+        REPOSITORY: ${{ github.repository }}
+        RUN_ID: ${{ github.run_id }}
+        RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}/attempts/${{ github.run_attempt }}
+      run: |
+        import json
+        import os
+        import subprocess
+        import sys
+        import time
+        import uuid
+
+        FAILED_CONCLUSIONS = {"failure", "cancelled", "timed_out", "action_required"}
+
+        def append_output(name, value):
+            delimiter = f"EOF_{name}_{uuid.uuid4().hex}"
+            with open(os.environ["GITHUB_OUTPUT"], "a", encoding="utf-8") as output:
+                output.write(f"{name}<<{delimiter}\n{value}\n{delimiter}\n")
+
+        def gh_api(path, attempts=5):
+            # The Actions REST API (esp. /actions/runs/{id}/jobs) occasionally
+            # returns transient HTTP 404 / 5xx for resources that exist; retry
+            # with short backoff before giving up.
+            for attempt in range(1, attempts + 1):
+                result = subprocess.run(
+                    ["gh", "api", path],
+                    capture_output=True, text=True, check=False,
+                )
+                if result.returncode == 0:
+                    return json.loads(result.stdout)
+                if attempt == attempts:
+                    sys.stderr.write(result.stderr)
+                    result.check_returncode()
+                time.sleep(2 * attempt)
+
+        def list_run_jobs(repository, run_id, per_page=100):
+            # The Actions API caps a single page at 100 entries; large
+            # matrix runs (all platforms × architectures) fan out past
+            # that, so iterate until a short page signals the end.
+            base = f"/repos/{repository}/actions/runs/{run_id}/jobs"
+            aggregated = []
+            page = 1
+            while True:
+                payload = gh_api(f"{base}?per_page={per_page}&page={page}")
+                page_jobs = payload.get("jobs", [])
+                aggregated.extend(page_jobs)
+                if len(page_jobs) < per_page:
+                    break
+                page += 1
+            return aggregated
+
+        repository = os.environ["REPOSITORY"]
+        run_id = os.environ["RUN_ID"]
+        jobs = list_run_jobs(repository, run_id)
+        failed_jobs = [
+            job for job in jobs
+            if (job.get("conclusion") or "").lower() in FAILED_CONCLUSIONS
+        ]
+
+        if failed_jobs:
+            failed_jobs_text = "\n".join(
+                f"{job.get('name')} ({job.get('conclusion')})\n{job.get('html_url')}"
+                for job in failed_jobs
+            )
+        else:
+            failed_jobs_text = f"No failed jobs were available yet. See {os.environ['RUN_URL']}"
+
+        append_output("failed_jobs", failed_jobs_text)
+
+    # Lower-priority job-level logs go in first so the tail-cap below
+    # absorbs them rather than the focused per-test artifacts appended
+    # after. `cap: 'false'` defers truncation to the final step.
+    - name: Fetch per-job logs
+      uses: ./.github/actions/fetch-failed-run-logs
+      with:
+        github-token: ${{ github.token }}
+        output-file: ${{ inputs.working-directory }}/failed-logs.txt
+        cap: 'false'
+
+    - name: Append focused test-failure artifacts and cap
+      shell: bash
+      working-directory: ${{ inputs.working-directory }}
+      env:
+        GH_TOKEN: ${{ github.token }}
+        ARTIFACT_PATTERN: ${{ inputs.artifact-pattern }}
+        MAX_BYTES: ${{ inputs.max-bytes }}
+      run: |
+        set +e
+        # Higher-priority focused "Failed Test Logs *" artifacts (per-test
+        # logs produced by task-test.yml) are appended after the per-job
+        # logs so they survive the tail-cap below.
+        #
+        # `gh run download` cannot filter by attempt; artifacts are run-scoped
+        # in the GitHub API, so a downloaded artifact may be from any past
+        # attempt of the same run id. Filter what we keep by creation time
+        # relative to the current attempt's start so stale per-test logs from
+        # a prior failed attempt don't get reported as the current failure.
+        # Per-job logs are still correct because fetch-failed-run-logs queries
+        # the attempt-scoped jobs endpoint directly.
+        mkdir -p downloaded-failed-logs
+        gh run download "$GITHUB_RUN_ID" \
+          --repo "$GITHUB_REPOSITORY" \
+          --pattern "$ARTIFACT_PATTERN" \
+          --dir downloaded-failed-logs 2>/dev/null
+
+        # Drop downloaded files whose mtime predates the current attempt.
+        # `gh run download` writes each file with the artifact's created_at
+        # as its mtime, so a simple `find -newermt` filter is enough.
+        ATTEMPT_DATA=$(gh api \
+          "repos/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}/attempts/${GITHUB_RUN_ATTEMPT}" 2>/dev/null)
+        ATTEMPT_START=$(printf '%s' "$ATTEMPT_DATA" | jq -r '.run_started_at // empty' 2>/dev/null)
+        if [ -n "$ATTEMPT_START" ] && [ -d downloaded-failed-logs ]; then
+          find downloaded-failed-logs -type f ! -newermt "$ATTEMPT_START" -print -delete 2>/dev/null | \
+            sed 's|^|Dropping stale artifact file: |'
+        fi
+
+        if [ -n "$(find downloaded-failed-logs -type f 2>/dev/null)" ]; then
+          echo "Including focused Failed Test Logs artifacts."
+          find downloaded-failed-logs -type f \
+            \( -name '*.log' -o -name '*.txt' \) -print0 |
+          while IFS= read -r -d '' f; do
+            printf '\n##[group]%s\n' "${f#downloaded-failed-logs/}"
+            cat "$f"
+            printf '\n##[endgroup]\n'
+          done >> failed-logs.txt
+        else
+          echo "No Failed Test Logs artifacts found."
+        fi
+
+        # Cap to MAX_BYTES to bound Codex token spend. Focused logs are
+        # appended last, so they survive truncation; the per-job logs
+        # written by fetch-failed-run-logs absorb it.
+        if [ "$(wc -c < failed-logs.txt 2>/dev/null || echo 0)" -gt "$MAX_BYTES" ]; then
+          tail -c "$MAX_BYTES" failed-logs.txt > failed-logs.txt.tmp
+          printf '[truncated to last %d bytes]\n' "$MAX_BYTES" > failed-logs.txt
+          cat failed-logs.txt.tmp >> failed-logs.txt
+          rm failed-logs.txt.tmp
+        fi
+        exit 0

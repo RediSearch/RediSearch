@@ -149,7 +149,7 @@ define HELPTEXT
 RediSearch Build System
 
 Setup:
-  make deps          Install build-time system dependencies.
+  make bootstrap     Install build-time system dependencies.
                      Auto-prefixes `sudo` when not root.
     SUDO=cmd           Override the privilege-escalation command (default: auto)
   make fetch         Download and prepare dependent modules
@@ -224,7 +224,7 @@ help:
 # or to force no prefix.
 SUDO ?= $(shell [ "$$(id -u)" -eq 0 ] || echo sudo)
 
-deps:
+bootstrap:
 	@echo "Installing build dependencies..."
 	@cd $(ROOT)/.install && ./install_script.sh $(SUDO)
 
@@ -469,7 +469,7 @@ test-linkcheck:
 	fi
 	@python3 scripts/test_link_checker.py
 
-.PHONY: help deps fetch build clean test unit-tests rust-tests pytest
+.PHONY: help bootstrap fetch build clean test unit-tests rust-tests pytest
 .PHONY: run lint fmt license-check pack upload-artifacts
 .PHONY: benchmark micro-benchmarks vecsim-bench callgrind parsers verify-deps
 .PHONY: check-links check-links-verbose test-linkcheck

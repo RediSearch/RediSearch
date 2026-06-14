@@ -1,0 +1,222 @@
+name: Backport merged pull request (Codex agent)
+
+# Agent-driven counterpart of `task-backport_pr.yml`. The two flows are decoupled
+# by label namespace so you can roll the agent flow forward or back without
+# touching the existing `korthout/backport-action` path.
+#
+#   `backport <branch>`           -> handled by task-backport_pr.yml (korthout action)
+#   `backport-<branch>-agent`     -> handled by this workflow (Codex agent)
+#
+# Trigger ways:
+#   - PR is closed and merged with at least one `backport-<branch>-agent` label.
+#   - A `backport-<branch>-agent` label is added to an already-merged PR.
+#   - A repo collaborator/member/owner comments `/backport-agent` on a merged PR.
+#       Optional args: `/backport-agent 8.6 8.2` overrides the labels for this run.
+#       Only a target-branch list is accepted here (no free-form context): the
+#       create step is mechanical, and keeping the trigger payload constrained
+#       minimizes what a comment can feed the agent. The command intentionally
+#       does not share the `/backport` prefix with the legacy
+#       `task-backport_pr.yml` workflow.
+#
+# Behavior is defined by .github/codex/prompts/pr-backport-auto.md. This workflow
+# only resolves inputs, writes a small context file, and invokes Codex.
+#
+# Expected "skipped" runs — this is normal, not a misconfiguration:
+#   GitHub creates a workflow run for EVERY matching event and only then
+#   evaluates the job `if:` below. There is no `on:`-level filter for label
+#   name, comment body, or merged state, so any non-matching event (a label
+#   added to an unrelated PR, an ordinary comment, a closed-but-unmerged PR)
+#   produces a run whose single job is skipped. Skipped jobs report success and
+#   never block merging. The `issue_comment` skips live only in the Actions tab;
+#   the `pull_request_target: labeled` skips show as a grey check on the PR.
+#   Suppressing them entirely would mean dropping the `labeled` trigger (losing
+#   the "label an already-merged PR" auto-path, which `/backport-agent` already
+#   covers) — a deliberate trade-off we have chosen NOT to make here.
+
+on:
+  pull_request_target:
+    types: [closed, labeled]
+  issue_comment:
+    types: [created]
+
+# The default GITHUB_TOKEN stays read-only: every write (checkout, `gh`,
+# `git push`, PR open/label/comment) goes through the scoped App token
+# minted below, whose `permission-*` inputs carry the write grants. That
+# includes `workflows: write`, since a backport can re-merge a
+# .github/workflows/* file into a blob GitHub will not let a `workflows`-less
+# App push (see the token step for the full rationale).
+permissions:
+  contents: read
+
+# Serialize per-PR so the `closed`, `labeled`, and `/backport-agent` triggers
+# can't run concurrently against the same `backport-agent/pr-<n>-to-<branch>`
+# branches and race on push / PR creation. Do not cancel an in-flight run — it
+# may already have opened some target PRs.
+concurrency:
+  group: backport-agent-create-${{ github.event.pull_request.number || github.event.issue.number }}
+  cancel-in-progress: false
+
+jobs:
+  backport-agent:
+    name: Auto-backport via Codex
+    runs-on: ubuntu-slim
+    timeout-minutes: 60
+
+    # Fire when:
+    #   * PR is closed and merged with at least one `backport-...-agent` label
+    #     (the JSON-serialized labels-array check is a coarse pre-filter; the
+    #     script step revalidates against `^backport-(.+)-agent$`).
+    #   * A `backport-<branch>-agent`-style label is added to a merged PR.
+    #   * A write-level user comments `/backport-agent` (and not the longer
+    #     `/backport-agent-fix` / `/backport-agent-context` sibling commands,
+    #     which belong to the fix workflow).
+    #
+    # The `author_association` allow-list (OWNER/MEMBER/COLLABORATOR) is required
+    # because `!= 'NONE'` would also admit CONTRIBUTOR/FIRST_TIME_CONTRIBUTOR —
+    # users who merged a prior PR but do not have repo write access.
+    if: >
+      (
+        github.event_name == 'pull_request_target' &&
+        github.event.action == 'closed' &&
+        github.event.pull_request.merged &&
+        contains(toJSON(github.event.pull_request.labels.*.name), '"backport-')
+      ) || (
+        github.event_name == 'pull_request_target' &&
+        github.event.action == 'labeled' &&
+        github.event.pull_request.merged &&
+        startsWith(github.event.label.name, 'backport-') &&
+        endsWith(github.event.label.name, '-agent')
+      ) || (
+        github.event_name == 'issue_comment' &&
+        github.event.issue.pull_request &&
+        contains(fromJSON('["OWNER","MEMBER","COLLABORATOR"]'), github.event.comment.author_association) &&
+        startsWith(github.event.comment.body, '/backport-agent') &&
+        !startsWith(github.event.comment.body, '/backport-agent-')
+      )
+
+    steps:
+      - name: 🔑 Generate GitHub App Token
+        id: generate-app-token
+        uses: actions/create-github-app-token@v3
+        with:
+          client-id: ${{ vars.GH_PR_APP_ID }}
+          private-key: ${{ secrets.GH_PR_APP_PRIVATE_KEY }}
+          owner: ${{ github.repository_owner }}
+          # Scope the installation token to THIS repo only. With `owner` set but
+          # no `repositories`, the token is minted for every repo the App can
+          # access in the org; restricting it bounds any agent mistake or
+          # injection to this repository.
+          repositories: ${{ github.event.repository.name }}
+          # Hard-cap the minted token to exactly what this flow needs, so it
+          # stays least-privilege even if the redis-pr-app App is granted more
+          # at the installation level. Without these, the token inherits the
+          # App's full installed permission set, not the `permissions:` block
+          # above (which only governs the unused default GITHUB_TOKEN).
+          permission-contents: write       # push backport-agent/* branches
+          permission-pull-requests: write  # open / label / comment on PRs
+          # A backport that re-merges a file under .github/workflows/ (e.g. a
+          # three-way auto-merge of task-backport_pr.yml onto a release branch
+          # whose copy has diverged from master) produces a workflow blob that
+          # does not already exist in the repo. GitHub then refuses the push from
+          # a GitHub App token unless it carries the `workflows` grant — even
+          # though `contents: write` would otherwise allow it, and even when the
+          # cherry-pick is clean. Clean-apply backports whose resulting workflow
+          # blobs match an existing one (e.g. onto a branch level with master) do
+          # not need this, but we cannot know that before pushing.
+          # `permission-*` can only attenuate the App's installed grants.
+          permission-workflows: write
+
+      - name: Checkout master (with full history)
+        uses: actions/checkout@v6
+        with:
+          token: ${{ steps.generate-app-token.outputs.token }}
+          # Pin to master explicitly. On `pull_request_target` the default
+          # checkout ref is the PR's base branch, which is not necessarily
+          # master (a PR could target a release branch) and might not carry the
+          # prompt file Codex reads.
+          #
+          # The literal `master` (no `${{ }}` expression, no PR-head ref) is also
+          # what keeps this safe under `pull_request_target`: no fork/PR-head code
+          # is ever checked out. SonarCloud's githubactions:S7631 ("Forked
+          # repository code should not be checked out in privileged workflow
+          # contexts") flags every checkout in such workflows heuristically; it
+          # is a false positive here for that reason.
+          ref: master
+          # The agent cherry-picks from master onto release branches, so it
+          # needs full history and access to all remote branches.
+          fetch-depth: 0
+
+      - name: Configure git identity
+        run: |
+          git config user.name "redis-pr-app[bot]"
+          git config user.email "redis-pr-app[bot]@users.noreply.github.com"
+
+      # The script in scripts/auto_backport/resolve_create.py is the source
+      # of truth for the resolve logic — it derives the target-branch list
+      # from the event (closed-merged labels, single labeled event, or
+      # `/backport-agent <list>` comment args), confirms the PR is merged
+      # with a valid mergeCommit.oid, and writes the context JSON for the
+      # agent. Bash plumbing is intentionally minimal here so the logic
+      # stays testable and shared with the fix workflow.
+      - name: Resolve PR context and target branches
+        id: ctx
+        env:
+          GH_TOKEN: ${{ steps.generate-app-token.outputs.token }}
+          EVENT_NAME: ${{ github.event_name }}
+          EVENT_ACTION: ${{ github.event.action }}
+          PR_NUMBER_FROM_PR: ${{ github.event.pull_request.number }}
+          PR_NUMBER_FROM_ISSUE: ${{ github.event.issue.number }}
+          LABEL_NAME: ${{ github.event.label.name }}
+          COMMENT_BODY: ${{ github.event.comment.body }}
+        run: python3 scripts/auto_backport/resolve_create.py
+
+      - name: Run /pr-backport-auto via Codex
+        if: steps.ctx.outputs.skip != 'true'
+        # Pinned to a commit SHA per Sonar's S7670 ("Use full commit SHA hash
+        # for this dependency"): a third-party action referenced by a mutable
+        # tag could be re-pointed at malicious code by a compromised tag push.
+        # The trailing comment records the human-readable version so future
+        # bumps are easy to review. To upgrade: look up `openai/codex-action`
+        # tags, set the SHA the new tag resolves to, and update the comment.
+        uses: openai/codex-action@e0fdf01220eb9a88167c4898839d273e3f2609d1 # v1.8
+        env:
+          # The agent uses `gh` and `git push` — both need the App token. `gh`
+          # picks it up from GH_TOKEN; the checkout step has already wired the
+          # remote to use it for git operations.
+          GH_TOKEN: ${{ steps.generate-app-token.outputs.token }}
+          # The prompt reads this env var to find its context JSON. The file
+          # lives in $RUNNER_TEMP rather than the workspace so it can never be
+          # accidentally staged into a cherry-pick commit by `git add -A`.
+          BACKPORT_CONTEXT_FILE: ${{ steps.ctx.outputs.context_file }}
+        with:
+          openai-api-key: ${{ secrets.OPEN_AI_BACKPORT_AGENT_KEY }}
+          prompt-file: .github/codex/prompts/pr-backport-auto.md
+          # Sandbox posture: keep the filesystem confined to the checkout
+          # (`workspace-write`) and punch out only the one capability the agent
+          # genuinely needs — outbound network for `git push` / `gh` — via the
+          # codex `sandbox_workspace_write.network_access` config override. This
+          # is far narrower than `danger-full-access`, which would also hand the
+          # agent write access to the rest of the runner filesystem. The runners
+          # are Linux (ubuntu-slim), whose Landlock sandbox honors this override
+          # (the macOS Seatbelt caveat does not apply). `safety-strategy:
+          # drop-sudo` is the action default and keeps the agent from escalating
+          # privileges on the runner; `codex exec` is non-interactive, so no
+          # approval prompts are involved regardless. The agent remains bounded
+          # by:
+          #   - the App token's scope (only this repo, only contents+PRs)
+          #   - the prompt's guardrails (do not force-push, do not skip targets
+          #     it can't resolve, etc.)
+          sandbox: workspace-write
+          safety-strategy: drop-sudo
+          codex-args: -c sandbox_workspace_write.network_access=true
+          # RediSearch merges through GitHub's merge queue, so a PR merged that
+          # way fires this workflow with `github.actor = github-merge-queue[bot]`
+          # — a bot. codex-action's default actor gate rejects bot actors, which
+          # would silently skip auto-backport for every queue-merged PR. Trust
+          # the queue bot specifically (it only acts after a human approved and
+          # queued the PR, and our `if:` still requires a human-applied
+          # `backport-<branch>-agent` label). The comment/label triggers come
+          # from humans and pass the gate without this. Mirrors
+          # .github/actions/codex-ci-triage/action.yml.
+          allow-bots: true
+          allow-bot-users: github-merge-queue[bot]
