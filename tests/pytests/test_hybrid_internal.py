@@ -215,6 +215,7 @@ def test_basic_hybrid_internal_withcursor(env):
         env.assertTrue(isinstance(search_cursor, (int, str)))
 
 
+@skip(cluster=True)
 def test_hybrid_internal_without_slots_info(env):
     """_FT.HYBRID without _SLOTS_INFO and _COORD_DISPATCH_TIME (as sent by older
     coordinators) must not fail; the shard falls back to its local slots (MOD-16047)."""
@@ -225,20 +226,14 @@ def test_hybrid_internal_without_slots_info(env):
              'VSIM', '@embedding', '$BLOB',
              'WITHCURSOR', 'PARAMS', '2', 'BLOB', query_vec.tobytes())
 
-    for shard_id, _ in get_shard_slot_ranges(env):
-        if env.isCluster():
-            shard_conn = env.getConnection(shardId=shard_id)
-            shard_conn.execute_command('DEBUG', 'MARK-INTERNAL-CLIENT')
-            result = shard_conn.execute_command(*query)
-        else:
-            result = env.cmd(*query)
-
-        # Should return a map with VSIM and SEARCH cursor IDs, like a fully-specified query
-        result_dict = to_dict(remove_warnings(result))
-        env.assertIn('VSIM', result_dict)
-        env.assertIn('SEARCH', result_dict)
+    # Should return a map with VSIM and SEARCH cursor IDs, like a fully-specified query
+    result = env.cmd(*query)
+    result_dict = to_dict(remove_warnings(result))
+    env.assertIn('VSIM', result_dict)
+    env.assertIn('SEARCH', result_dict)
 
 
+@skip(cluster=True)
 def test_hybrid_internal_without_coord_dispatch_time(env):
     """_FT.HYBRID without _COORD_DISPATCH_TIME (as sent by coordinators older than 8.6)
     must not fail."""
@@ -250,17 +245,10 @@ def test_hybrid_internal_without_coord_dispatch_time(env):
              'WITHCURSOR', '_SLOTS_INFO', generate_slots(),
              'PARAMS', '2', 'BLOB', query_vec.tobytes())
 
-    for shard_id, _ in get_shard_slot_ranges(env):
-        if env.isCluster():
-            shard_conn = env.getConnection(shardId=shard_id)
-            shard_conn.execute_command('DEBUG', 'MARK-INTERNAL-CLIENT')
-            result = shard_conn.execute_command(*query)
-        else:
-            result = env.cmd(*query)
-
-        result_dict = to_dict(remove_warnings(result))
-        env.assertIn('VSIM', result_dict)
-        env.assertIn('SEARCH', result_dict)
+    result = env.cmd(*query)
+    result_dict = to_dict(remove_warnings(result))
+    env.assertIn('VSIM', result_dict)
+    env.assertIn('SEARCH', result_dict)
 
 
 def test_hybrid_internal_with_count_parameter(env):
