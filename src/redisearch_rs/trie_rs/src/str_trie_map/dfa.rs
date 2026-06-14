@@ -34,7 +34,7 @@
 //! This is what "lift it to bytes, mixed NFA" means in practice: the
 //! codepoint NFA's transitions are expanded into byte chains, but the
 //! chains share intermediate states wherever they don't carry query-
-//! relevant information. Without the [`OffQuery`] collapse, a 4-byte lead
+//! relevant information. Without the [`OffQuery`](LiftedDecoderState::OffQuery) collapse, a 4-byte lead
 //! produces ~4096 distinct mid-codepoint states per sparse-row variant —
 //! the DFA build blows up. With it, the build is O(query-trie-size +
 //! sparse-row-variants).
