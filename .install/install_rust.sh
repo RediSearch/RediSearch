@@ -30,9 +30,10 @@ cargo -vV
 # Print where `cargo` is located for debugging purposes
 echo "Cargo binary location: $(which cargo)"
 
-# Update to the latest stable toolchain (idempotent - rustup reports
-# "unchanged" if already current). Cheap network round-trip on hot path.
-rustup update
+# Install/update the stable toolchain explicitly (idempotent - rustup reports
+# "unchanged" if already current). This also covers pre-existing rustup setups
+# that do not yet have stable installed.
+rustup update stable
 # Ensure we have both clippy and rustfmt installed for the stable toolchain
 # (rustup is also idempotent here - reports "up to date" if installed).
 rustup component add --toolchain stable clippy rustfmt

@@ -1,8 +1,6 @@
 cmake_minimum_required(VERSION 3.15)
 
-if(NOT DEFINED root)
-  get_filename_component(root "${CMAKE_CURRENT_SOURCE_DIR}/../.." ABSOLUTE)
-endif()
+get_filename_component(REDISEARCH_SOURCE_ROOT "${CMAKE_CURRENT_SOURCE_DIR}/../.." ABSOLUTE)
 
 # Find Cargo
 find_program(CARGO_EXECUTABLE cargo REQUIRED)
@@ -72,7 +70,7 @@ if(NOT TARGET redisearch_rs_build)
         COMMAND ${CMAKE_COMMAND} -E env
             "RUSTFLAGS=${RUST_FLAGS}"
             "CARGO_TARGET_DIR=${RUST_TARGET_DIR}"
-            "REDISEARCH_REPO_ROOT=${root}"
+            "REDISEARCH_REPO_ROOT=${REDISEARCH_SOURCE_ROOT}"
             ${CARGO_EXECUTABLE} ${TOOLCHAIN_MODIFIER} ${CARGO_BUILD_FLAGS}
             build
             --package redisearch_rs
