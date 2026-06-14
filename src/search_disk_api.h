@@ -112,6 +112,23 @@ typedef struct AsyncReadResult {
   uint64_t user_data;       // Generic user data passed to addAsyncRead (e.g., index, pointer, flags)
 } AsyncReadResult;
 
+// Stats reported by a single GC compaction cycle.
+//
+// Populated by `IndexDiskAPI::runGC`. The caller MUST zero-initialize the
+// struct before the call; the implementation fills the fields it knows about
+// and leaves unknown / future fields at their zero default. This lets new
+// fields be added at the tail without breaking existing callers — readers see
+// 0 for fields the disk side does not yet populate.
+typedef struct DiskGCRunStats {
+  // Number of deleted document IDs removed in this cycle.
+  size_t num_cleaned_docs;
+  // Bytes freed by the compaction (storage layer's view). Signed because
+  // future compaction strategies (e.g. block splitting) may transiently
+  // allocate more than they free; matches the `InfoGCStats::totalCollectedBytes`
+  // convention.
+  ssize_t bytes_collected;
+} DiskGCRunStats;
+
 typedef struct BasicDiskAPI {
   /**
    * @brief Open the disk storage context
@@ -468,11 +485,16 @@ typedef struct IndexDiskAPI {
    * the `SearchDiskCompactionCallbacks` table bound to the IndexSpec at
    * openIndexSpec time.
    *
-   * @param index Pointer to the disk index
+   * On return, `stats` is populated with per-cycle counters
+   * (see `DiskGCRunStats`). Caller MUST zero-initialize `stats` before the
+   * call; the implementation only writes fields it knows about, leaving any
+   * future tail fields at their zero default.
    *
-   * @return Number of deletedIDs removed from the disk index
+   * @param index Pointer to the disk index
+   * @param stats Caller-allocated, zero-initialized stats out-parameter
+   *              (MUST NOT be NULL)
    */
-  size_t (*runGC)(RedisSearchDiskIndexSpec *index);
+  void (*runGC)(RedisSearchDiskIndexSpec *index, DiskGCRunStats *stats);
 
   /**
    * @brief Get the total disk usage for this index.

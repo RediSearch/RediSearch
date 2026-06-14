@@ -962,7 +962,8 @@ DEBUG_COMMAND(GCForceInvoke) {
   }
 
   if (sp->diskSpec) {
-    SearchDisk_RunGC(sp->diskSpec);
+    DiskGCRunStats stats = {0};
+    SearchDisk_RunGC(sp->diskSpec, &stats);
     RedisModule_ReplyWithSimpleString(ctx, "DONE");
     return REDISMODULE_OK;
   } else if (sp->gc) {

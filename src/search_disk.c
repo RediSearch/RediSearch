@@ -321,9 +321,9 @@ QueryIterator* SearchDisk_NewNumericIterator(RedisSearchDiskIndexSpec *index, co
     return disk->index.newNumericIterator(index, filter, fieldIndex);
 }
 
-size_t SearchDisk_RunGC(RedisSearchDiskIndexSpec *index) {
-    RS_ASSERT(disk && index);
-    return disk->index.runGC(index);
+void SearchDisk_RunGC(RedisSearchDiskIndexSpec *index, DiskGCRunStats *stats) {
+    RS_ASSERT(disk && index && stats);
+    disk->index.runGC(index, stats);
 }
 
 t_docId SearchDisk_PutDocument(RedisSearchDiskIndexSpec *handle, SearchDiskWriteBatchHandle *batch, const char *key, size_t keyLen, float score, uint32_t flags, uint32_t maxTermFreq, uint32_t docLen, uint32_t *oldLen, t_expirationTimePoint documentTtl, t_docId oldDocId) {
