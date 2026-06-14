@@ -9,24 +9,24 @@
 
 //! RDB serialization for [`StrTrieMap<TrieEntry>`].
 //!
-//! Wraps the byte-keyed [`crate::rdb`] surface for callers whose keys are
-//! UTF-8 by type. The wire format is byte-identical to the byte-keyed API:
-//! save just delegates after handing over the inner [`crate::TrieMap`], and
-//! load funnels each key buffer through [`std::str::from_utf8`] before
+//! Wraps the byte-keyed [`crate::rdb::byte`] surface for callers whose keys
+//! are UTF-8 by type. The wire format is byte-identical to the byte-keyed
+//! API: save just delegates after handing over the inner [`crate::TrieMap`],
+//! and load funnels each key buffer through [`std::str::from_utf8`] before
 //! inserting via [`StrTrieMap::insert`]. Non-UTF-8 input surfaces as
 //! [`RdbError::InvalidUtf8`] rather than silently materializing as an
 //! ill-formed `String`.
 
-use crate::rdb::{self, RdbError, RdbOpts, RdbRead, RdbWrite, TrieEntry, load_nul_terminated};
+use super::{RdbError, RdbOpts, RdbRead, RdbWrite, TrieEntry, byte, load_nul_terminated};
 use crate::str_trie_map::StrTrieMap;
 
 /// Serialize a [`StrTrieMap<TrieEntry>`] to `writer` in the trie RDB wire
 /// format.
 ///
-/// Delegates to [`crate::rdb::save`] on the inner byte-keyed
+/// Delegates to [`crate::rdb::byte::save`] on the inner byte-keyed
 /// [`crate::TrieMap`]; the wire output is byte-identical.
 pub fn save<W: RdbWrite>(map: &StrTrieMap<TrieEntry>, writer: &mut W, opts: RdbOpts) {
-    rdb::save(map.byte_trie(), writer, opts);
+    byte::save(map.byte_trie(), writer, opts);
 }
 
 /// Deserialize a [`StrTrieMap<TrieEntry>`] from `reader`.
@@ -114,7 +114,7 @@ mod tests {
     #[test]
     fn save_wire_matches_byte_api() {
         // Sanity-check: the wrapper produces the same Op trace as the byte API
-        // for an ASCII key set, since it delegates to crate::rdb::save.
+        // for an ASCII key set, since it delegates to crate::rdb::byte::save.
         let mut str_map = StrTrieMap::new();
         str_map.insert("x", entry(1.0, Some(b"pay"), 7));
 
@@ -128,7 +128,7 @@ mod tests {
         let mut rec_str = Recorder::default();
         let mut rec_bytes = Recorder::default();
         save(&str_map, &mut rec_str, opts);
-        rdb::save(&byte_map, &mut rec_bytes, opts);
+        byte::save(&byte_map, &mut rec_bytes, opts);
         assert_eq!(rec_str.0, rec_bytes.0);
     }
 }

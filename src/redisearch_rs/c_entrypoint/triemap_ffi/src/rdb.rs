@@ -22,8 +22,8 @@
 use ffi::RedisModuleIO;
 use redis_module::raw;
 use trie_rs::rdb::{RdbError, RdbOpts, RdbRead, RdbWrite, TrieEntry};
+use trie_rs::rdb::str as str_rdb;
 use trie_rs::str_trie_map::StrTrieMap;
-use trie_rs::str_trie_map::rdb as str_rdb;
 
 /// Opaque FFI handle for a [`StrTrieMap<TrieEntry>`].
 ///
@@ -39,7 +39,7 @@ pub struct LexTrieRs(pub StrTrieMap<TrieEntry>);
 /// The pointer is captured at construction and never stored anywhere else.
 /// Validity is the caller's responsibility (see the `Safety` blocks on the
 /// `extern "C"` entry points below). NUL framing and the scratch buffer
-/// that amortizes its allocation are owned by [`trie_rs::rdb::save`]; this
+/// that amortizes its allocation are owned by [`trie_rs::rdb::byte::save`]; this
 /// impl just forwards each slice straight to `RedisModule_SaveStringBuffer`.
 struct RmIoWriter {
     io: *mut raw::RedisModuleIO,

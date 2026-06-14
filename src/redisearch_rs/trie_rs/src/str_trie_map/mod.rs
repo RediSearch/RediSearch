@@ -14,7 +14,6 @@ use crate::TrieMap;
 
 pub mod dfa;
 pub mod iter;
-pub mod rdb;
 pub mod utf8_decoder;
 
 /// UTF-8 keyed view over [`TrieMap`].
