@@ -29,7 +29,10 @@ on:
 
 # The default GITHUB_TOKEN stays read-only: every write (checkout, `gh`,
 # `git push`, PR open/label/comment) goes through the scoped App token
-# minted below, whose `permission-*` inputs carry the write grants.
+# minted below, whose `permission-*` inputs carry the write grants. That
+# includes `workflows: write`, since a backport can re-merge a
+# .github/workflows/* file into a blob GitHub will not let a `workflows`-less
+# App push (see the token step for the full rationale).
 permissions:
   contents: read
 
@@ -99,6 +102,17 @@ jobs:
           # above (which only governs the unused default GITHUB_TOKEN).
           permission-contents: write       # push backport-agent/* branches
           permission-pull-requests: write  # open / label / comment on PRs
+          # A backport that re-merges a file under .github/workflows/ (e.g. a
+          # three-way auto-merge of task-backport_pr.yml onto a release branch
+          # whose copy has diverged from master) produces a workflow blob that
+          # does not already exist in the repo. GitHub then refuses the push from
+          # a GitHub App token unless it carries the `workflows` grant — even
+          # though `contents: write` would otherwise allow it, and even when the
+          # cherry-pick is clean. Clean-apply backports whose resulting workflow
+          # blobs match an existing one (e.g. onto a branch level with master) do
+          # not need this, but we cannot know that before pushing.
+          # `permission-*` can only attenuate the App's installed grants.
+          permission-workflows: write
 
       - name: Checkout master (with full history)
         uses: actions/checkout@v6

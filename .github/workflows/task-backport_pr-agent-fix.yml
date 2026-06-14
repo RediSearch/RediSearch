@@ -25,7 +25,9 @@ on:
 
 # The default GITHUB_TOKEN stays read-only: every write (checkout, `gh`,
 # `git push`, PR comment) goes through the scoped App token minted below,
-# whose `permission-*` inputs carry the write grants.
+# whose `permission-*` inputs carry the write grants. That includes
+# `workflows: write`, so a fix commit touching .github/workflows/* can be
+# pushed (see the token step for the full rationale).
 permissions:
   contents: read
   actions: read
@@ -71,6 +73,11 @@ jobs:
           permission-contents: write       # push fix commits to the PR branch
           permission-pull-requests: write  # comment on the backport PR
           permission-actions: read         # read failed-run logs via gh api
+          # A fix commit that edits a file under .github/workflows/ produces a
+          # workflow blob GitHub will not let a `workflows`-less App push (see
+          # the create workflow's token step for the full rationale). Requires
+          # the redis-pr-app App itself to be granted the "Workflows" permission.
+          permission-workflows: write
 
       # Check out master first so the resolve script in
       # `scripts/auto_backport/` and the auto-fix prompt file in
