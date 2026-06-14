@@ -14,6 +14,7 @@
 #include "gtest/gtest.h"
 
 #include "aggregate/reducer.h"
+#include "aggregate/reducers/collect_parse.h"
 #include "reducers_ffi.h"
 #include "spec.h"
 #include "config.h"
@@ -399,6 +400,28 @@ TEST_F(CollectParserTest, LocalFieldWithoutAtPrefix) {
   const RLookupKey *inputKey = RLookup_GetKey_Write(&lk, "remote_collect", RLOOKUP_F_NOFLAGS);
   expectErrorLocal({"FIELDS", "1", "price"}, inputKey,
       "Missing prefix: name requires '@' prefix");
+}
+
+TEST_F(CollectParserTest, FieldWithoutAtPrefixRejectedAtParseEvenWhenCallerNotStrict) {
+  std::vector<const char *> args = {"FIELDS", "1", "price"};
+  ArgsCursor ac;
+  ArgsCursor_InitCString(&ac, args.data(), args.size());
+  QueryError status = QueryError_Default();
+  ReducerOptions opts = REDUCEROPTS_INIT(
+    "COLLECT", &ac, &lk, NULL, &status,
+    false, // caller says non-strict
+    false, NULL, 0);
+
+  CollectArgs parsed = {0};
+  EXPECT_FALSE(CollectArgs_Parse(&opts, &parsed))
+      << "Expected parse failure but got success";
+  const char *user_error = QueryError_GetUserError(&status);
+  ASSERT_NE(user_error, nullptr);
+  EXPECT_TRUE(std::string(user_error).find("Missing prefix") != std::string::npos)
+      << "Expected error containing 'Missing prefix', got: " << user_error;
+
+  CollectArgs_Free(&parsed);
+  QueryError_ClearError(&status);
 }
 
 TEST_F(CollectParserTest, FieldEmptyAfterAt) {
