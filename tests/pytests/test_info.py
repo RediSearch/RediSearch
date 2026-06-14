@@ -55,6 +55,10 @@ def test_vecsim_info():
                      "dim": dim, "flags": []}
     additional_params = {"M": 12, "ef_construction": 100} if alg == "HNSW" else {}
     info_expected.update(additional_params)
+    # EF_RUNTIME is not set at creation here, so FT.INFO must report the default
+    # (HNSW_DEFAULT_EF_RT). FLAT has no EF_RUNTIME.
+    if alg == "HNSW":
+      info_expected["ef_runtime"] = 10
     # for each data type
     for type in ["FLOAT32", "FLOAT64"]:
       info_expected["data_type"] = type
@@ -74,6 +78,15 @@ def test_vecsim_info():
 
         # drop index
         env.expect('FT.DROPINDEX', 'idx').ok()
+
+  # A non-default EF_RUNTIME set at creation must be surfaced in FT.INFO. This is the incident
+  # scenario (MOD-16147): a CRDB member's index was recreated with a different ef_runtime than its
+  # peer, causing a latency mismatch that was invisible because FT.INFO did not expose the value.
+  env.expect('FT.CREATE', 'idx_efr', 'SCHEMA', 'vec', 'VECTOR', 'HNSW', 8,
+             'TYPE', 'FLOAT32', 'DIM', dim, 'DISTANCE_METRIC', 'L2', 'EF_RUNTIME', 200).ok()
+  info = env.executeCommand('ft.info', 'idx_efr')
+  env.assertEqual(info["attributes"][0]["ef_runtime"], 200)
+  env.expect('FT.DROPINDEX', 'idx_efr').ok()
 
 def test_numeric_info(env):
   env.cmd('ft.create', 'idx1', 'SCHEMA', 'n', 'numeric')
