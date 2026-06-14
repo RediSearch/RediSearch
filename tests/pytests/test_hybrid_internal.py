@@ -234,6 +234,31 @@ def test_hybrid_internal_without_slots_info(env):
         env.assertIn('SEARCH', result_dict)
 
 
+def test_hybrid_internal_ignores_coord_dispatch_time(env):
+    """8.4 predates _COORD_DISPATCH_TIME, but must consume and ignore it on internal
+    hybrid queries from newer coordinators."""
+    setup_hybrid_test_data(env)
+
+    query_vec = create_np_array_typed([0.0, 0.0], 'FLOAT32')
+    query = ('_FT.HYBRID', 'idx', 'SEARCH', '@description:running',
+             'VSIM', '@embedding', '$BLOB',
+             'WITHCURSOR', '_SLOTS_INFO', generate_slots(),
+             'PARAMS', '2', 'BLOB', query_vec.tobytes(),
+             '_COORD_DISPATCH_TIME', '1000000')
+
+    for shard_id, _ in get_shard_slot_ranges(env):
+        if env.isCluster():
+            shard_conn = env.getConnection(shardId=shard_id)
+            shard_conn.execute_command('DEBUG', 'MARK-INTERNAL-CLIENT')
+            result = shard_conn.execute_command(*query)
+        else:
+            result = env.cmd(*query)
+
+        result_dict = to_dict(remove_warnings(result))
+        env.assertIn('VSIM', result_dict)
+        env.assertIn('SEARCH', result_dict)
+
+
 def test_hybrid_internal_with_count_parameter(env):
     """Test _FT.HYBRID with WITHCURSOR and COUNT parameter"""
     setup_hybrid_test_data(env)

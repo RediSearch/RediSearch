@@ -790,13 +790,17 @@ def test_missing_slots_info_fallback(env: Env):
     conn.execute_command('HSET', 'doc:1', 'n', '1')
     env.expect('DEBUG', 'MARK-INTERNAL-CLIENT').ok()
 
-    # _FT.SEARCH without _SLOTS_INFO falls back to the local slots and returns results
-    res = env.cmd('_FT.SEARCH', 'idx', '*')
+    dispatch_time = '1000000'
+
+    # _FT.SEARCH without _SLOTS_INFO falls back to the local slots and returns results.
+    # _COORD_DISPATCH_TIME is from newer coordinators and is consumed/ignored.
+    res = env.cmd('_FT.SEARCH', 'idx', '*', '_COORD_DISPATCH_TIME', dispatch_time)
     env.assertEqual(res[0], 1)
     env.assertEqual(res[1], 'doc:1')
 
     # Same for _FT.AGGREGATE
-    res = env.cmd('_FT.AGGREGATE', 'idx', '*', 'LOAD', '1', '@n')
+    res = env.cmd('_FT.AGGREGATE', 'idx', '*',
+                  '_COORD_DISPATCH_TIME', dispatch_time, 'LOAD', '1', '@n')
     env.assertEqual(res[1:], [['n', '1']])
 
 
