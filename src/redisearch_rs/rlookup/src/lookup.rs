@@ -290,8 +290,8 @@ impl<'a> RLookup<'a> {
                 .push(RLookupKey::new(name, flags | RLookupKeyFlag::QuerySrc))
         };
 
-        // Safety: We treat the pointer as pinned internally and safe Rust cannot move out of the returned immutable reference.
-        Some(unsafe { Pin::into_inner_unchecked(key.into_ref()) })
+        // `Pin::get_ref` is safe: a shared reference cannot move the pinned key out.
+        Some(key.into_ref().get_ref())
     }
 
     // ===== Load key from redis keyspace (include known information on the key, fail if already loaded) =====
