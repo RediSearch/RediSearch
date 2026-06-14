@@ -252,9 +252,7 @@ static int handleCommonArgs(AREQ *req, ArgsCursor *ac, QueryError *status, int a
     // _INDEX_PREFIXES <count> <prefix...>. This version does not use it, but must
     // consume it so newer coordinators can drive this shard during rolling upgrades.
     ArgsCursor tmp = {0};
-    if (AC_GetVarArgs(ac, &tmp) != AC_OK) {
-      RS_LOG_ASSERT(false, "Bad arguments for _INDEX_PREFIXES (coordinator)");
-    }
+    AC_GetVarArgs(ac, &tmp);
   } else if (IsInternal(req) && AC_AdvanceIfMatch(ac, "_SLOTS_INFO")) {
     // Forward compatibility (MOD-16047): coordinators on RediSearch >= 8.4 append
     // _SLOTS_INFO <binary>. Consume and ignore the opaque payload.
