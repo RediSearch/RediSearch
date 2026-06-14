@@ -109,7 +109,9 @@ where
                     // SAFETY: (6). The snapshot is read from `sctx_ref.diskSnapshot` so the
                     // optional-optimized path observes the same view as the rest of the query;
                     // `query.status` is the valid `QueryError` of the evaluating query.
-                    unsafe { new_wildcard_iterator_on_disk(disk_spec, weight, snapshot, query_ref.status) }
+                    unsafe {
+                        new_wildcard_iterator_on_disk(disk_spec, weight, snapshot, query_ref.status)
+                    }
                 } else {
                     // SAFETY: (2) guarantees `sctx` is valid; (7) covers all remaining
                     // preconditions of `new_wildcard_iterator_optimized`.

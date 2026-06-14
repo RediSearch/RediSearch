@@ -179,10 +179,7 @@ impl MockContext {
     /// # Safety
     /// `snapshot` must outlive every iterator created against this
     /// `MockContext`.
-    pub const unsafe fn set_disk_snapshot(
-        &self,
-        snapshot: *mut ffi::RedisSearchDiskSnapshot,
-    ) {
+    pub const unsafe fn set_disk_snapshot(&self, snapshot: *mut ffi::RedisSearchDiskSnapshot) {
         // SAFETY: `self.sctx` is a valid `RedisSearchCtx` allocated in `Self::new`.
         unsafe { (*self.sctx).diskSnapshot = snapshot };
     }
