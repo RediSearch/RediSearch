@@ -1200,8 +1200,12 @@ int AREQ_Compile(AREQ *req, RedisModuleString **argv, int argc, bool isDiskIndex
 
   // Verify we got slots requested if needed
   if (IsInternal(req) && !req->querySlots) {
-    QueryError_SetError(status, QUERY_ERROR_CODE_MISSING, "Internal query missing slots specification");
-    goto error;
+    // Coordinators older than 8.4 do not send a slots specification. Fall back to the
+    // current local slots so rolling upgrades across the 8.4 boundary keep working.
+    req->querySlots = ASM_FallbackToLocalSlots(&req->keySpaceVersion);
+    if (req->keySpaceVersion != INVALID_KEYSPACE_VERSION) {
+      ASM_KeySpaceVersionTracker_IncreaseQueryCount(req->keySpaceVersion);
+    }
   }
 
   // Define if we need a depleter in the pipeline to get accurate total results
