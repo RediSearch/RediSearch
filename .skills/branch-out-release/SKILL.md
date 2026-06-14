@@ -33,8 +33,9 @@ Use this for RediSearch OSS release branch creation from `master`.
 4. Adapt release-branch CI.
    - Do this as a normal PR after protection is enabled.
    - Compare the new branch against the previous release branch under `.github/workflows/`.
-   - The important release-branch behavior is:
-     - PR flow stays lightweight: Ubuntu quick tests; coverage and sanitize only when forced by labels.
+   - The important release-branch CI invariants are:
+     - PR flow stays lightweight: Ubuntu quick tests by default. Coverage and sanitize are label-conditioned: they run only when a non-draft PR workflow event sees `enforce:coverage` or `enforce:sanitize`.
+       Adding those labels alone may not start a run; add the label before a push/update or rerun the workflow.
      - Merge queue is the release gate: full supported platform/architecture matrix, full tests, coverage/sanitize, fail-fast, separate coordinator jobs.
      - Nightly is less critical than master: full matrix but `QUICK=1`, pinned Redis SHA, not Redis `unstable`.
    - Pin Redis to the current release-branch SHA until there is a better release/pre-release line. For `8.8` and the initial `8.10` branch-out, this SHA was `3cd464263b03b425ffae2e23db24df3dc9346871`.
