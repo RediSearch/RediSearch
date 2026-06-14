@@ -36,9 +36,7 @@ typedef struct {
 // forward declaration of QueryError
 typedef struct QueryError QueryError;
 
-// forward declaration of RequestSyncCtx (defined in aggregate/aggregate.h). Used
-// to bound the cursor-setup wait: its `timedOut` atomic is the abort flag and its
-// abort-wake channel slot lets an external timeout/cancel wake the wait.
+// forward declaration of RequestSyncCtx (defined in aggregate/aggregate.h)
 typedef struct RequestSyncCtx RequestSyncCtx;
 struct timespec;
 

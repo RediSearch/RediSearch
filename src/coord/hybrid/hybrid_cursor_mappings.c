@@ -16,14 +16,11 @@
 #include "shard_window_ratio.h"
 #include <string.h>
 #include "info/global_stats.h"
-#include "aggregate/aggregate.h"  // RequestSyncCtx + abort-wake channel API
+#include "aggregate/aggregate.h"
 
 #define INTERNAL_HYBRID_RESP3_LENGTH 6
 #define INTERNAL_HYBRID_RESP2_LENGTH 6
 
-// Lock-free: every field is written only by the single IO thread that runs this
-// iterator's callbacks (each MRIterator is pinned to one ioRuntime). Completion and
-// timeout are the MRChannel's job, so no mutex or counter lives here.
 typedef struct {
     StrongRef searchMappings;
     StrongRef vsimMappings;
@@ -206,16 +203,10 @@ static void processCursorMappingCallback(MRIteratorCallbackCtx *ctx, MRReply *re
         processHybridUnknownReplyType(cb_ctx, replyType);
     }
 
-    // The mapping writes above happen-before this Done; on the last shard it drops
-    // inProcess to 0 and unblocks the channel, publishing them to the waiting
-    // coordinator. The callback never pushes a reply — the channel is purely the
-    // completion/timeout signal.
     MRIteratorCallback_Done(ctx, 0);
     MRReply_Free(rep);
 }
 
-// No-reply termination hook (see MRIteratorErrorCallback): just record the comms
-// error. The MR layer drives completion via MRIteratorCallback_Done next.
 static void processCursorMappingErrorCallback(MRIteratorCallbackCtx *ctx) {
     processCursorMappingCallbackContext *cb_ctx = (processCursorMappingCallbackContext *)MRIteratorCallback_GetPrivateData(ctx);
     RS_ASSERT(cb_ctx);
@@ -227,10 +218,6 @@ static void processCursorMappingErrorCallback(MRIteratorCallbackCtx *ctx) {
     cb_ctx->errors = array_ensure_append_1(cb_ctx->errors, error);
 }
 
-// Frees the callback context. Registered as the iterator's cbPrivateDataDestructor,
-// so MRIterator_Free runs it only after the last writer finishes (inProcess == 0).
-// That lets the coordinator release the iterator on the timeout path without racing
-// late callbacks: ctx and the cloned mapping refs outlive every writer.
 static void freeCursorMappingCtx(void *privateData) {
     processCursorMappingCallbackContext *ctx = (processCursorMappingCallbackContext *)privateData;
     StrongRef_Release(ctx->searchMappings);
@@ -277,8 +264,6 @@ bool ProcessHybridCursorMappings(const MRCommand *cmd, StrongRef searchMappingsR
     // optimization)
     MRCommandModifier cmdModifier = knnCtx ? &HybridKnnCommandModifier : NULL;
 
-    // No cbPrivateDataInit: the iterator owns the expected-response count (it->len /
-    // inProcess), so completion is simply inProcess == 0 — no hybrid-local mirror.
     MRIterator *it = MR_IterateWithPrivateData(cmd, &(MRIteratorConfig){
         .successCB = processCursorMappingCallback,
         .errorCB = processCursorMappingErrorCallback,
@@ -363,9 +348,6 @@ bool ProcessHybridCursorMappings(const MRCommand *cmd, StrongRef searchMappingsR
             }
         }
     }
-    // Errors consumed; release drops the reader ref. Setup always depletes on
-    // completion (pending == 0), so this frees the iterator (and ctx) outright with
-    // no FT.CURSOR DEL fan-out.
     MRIterator_Release(it);
 
     return success;
