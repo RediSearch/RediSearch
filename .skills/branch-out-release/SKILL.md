@@ -31,11 +31,13 @@ Use this for RediSearch OSS release branch creation from `master`.
    - Read back both source and target protection rules and compare. Only ids, URLs, pattern, and matching refs should differ.
 
 4. Enable merge queue.
-   - Treat merge queue as a separate configuration surface from classic branch protection.
+   - For parity with existing release branches, enable the classic branch protection checkbox:
+     Settings -> Branches -> Branch protection rules -> edit the exact target branch rule -> Require merge queue.
+   - Do not use repository rulesets as the normal copy path. A ruleset `merge_queue` rule can make `repository.mergeQueue` non-null, but it is a different surface and does not check the classic branch protection UI box.
    - Read the previous release branch queue with `repository.mergeQueue(branch: "<source-branch>")`.
-   - Enable a queue for the new branch only, using a branch-scoped rule or settings entry for `refs/heads/<target-branch>`.
-   - Copy all queue parameters from the source branch. For `8.8` to initial `8.10`, the effective values were `mergeMethod=SQUASH`, `mergingStrategy=ALLGREEN`, `maximumEntriesToBuild=5`, `maximumEntriesToMerge=5`, `minimumEntriesToMerge=1`, `minimumEntriesToMergeWaitTime=300`, and `checkResponseTimeout=21600`.
-   - Read back `repository.mergeQueue(branch: "<target-branch>")` and compare. Only ids, URLs, labels/names, target refs, and current queue entries should differ.
+   - In the UI, copy every queue value that is exposed from the source branch to the target branch. For `8.8` to initial `8.10`, the effective values were `mergeMethod=SQUASH`, `mergingStrategy=ALLGREEN`, `maximumEntriesToBuild=5`, `maximumEntriesToMerge=5`, `minimumEntriesToMerge=1`, `minimumEntriesToMergeWaitTime=300`, and `checkResponseTimeout=21600`.
+   - Read back `repository.mergeQueue(branch: "<target-branch>")` and compare. Only ids, URLs, labels/names, target refs, and current queue entries should differ. If GitHub hides some queue fields in the UI, save the visible fields first, then use this readback to detect whether hidden defaults match the source branch.
+   - Do not enqueue release CI PRs until the target branch reports `isMergeQueueEnabled: true` for that PR.
 
 5. Adapt release-branch CI.
    - Do this as a normal PR after protection is enabled.
