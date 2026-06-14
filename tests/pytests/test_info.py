@@ -84,8 +84,11 @@ def test_vecsim_info():
   # peer, causing a latency mismatch that was invisible because FT.INFO did not expose the value.
   env.expect('FT.CREATE', 'idx_efr', 'SCHEMA', 'vec', 'VECTOR', 'HNSW', 8,
              'TYPE', 'FLOAT32', 'DIM', dim, 'DISTANCE_METRIC', 'L2', 'EF_RUNTIME', 200).ok()
-  info = env.executeCommand('ft.info', 'idx_efr')
-  env.assertEqual(info["attributes"][0]["ef_runtime"], 200)
+  # The non-default value must also survive an RDB save/reload (serialization round-trip), so it
+  # stays visible after a restart/replica load - the exact context of the CRDB incident.
+  for _ in env.reloadingIterator():
+    info = env.executeCommand('ft.info', 'idx_efr')
+    env.assertEqual(info["attributes"][0]["ef_runtime"], 200)
   env.expect('FT.DROPINDEX', 'idx_efr').ok()
 
 def test_numeric_info(env):
