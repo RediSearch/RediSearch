@@ -12,9 +12,12 @@ concurrency:
 
 jobs:
   get-latest-redis-tag:
-    uses: ./.github/workflows/task-get-latest-tag.yml
-    with:
-      repo: redis/redis
+    # TODO: Switch to the latest 8.10 release/pre-release line once it is ready.
+    runs-on: ubuntu-slim
+    outputs:
+      tag: 3cd464263b03b425ffae2e23db24df3dc9346871
+    steps:
+      - run: echo "Dummy step to set output"
 
   check-what-changed:
     uses: ./.github/workflows/task-check-changes.yml
@@ -41,8 +44,9 @@ jobs:
     uses: ./.github/workflows/generate-basic-matrix.yml
     with:
       include-basic-test: ${{ needs.check-what-changed.outputs.CODE_CHANGED == 'true' || needs.check-what-changed.outputs.TESTS_CHANGED == 'true' || contains(github.event.pull_request.labels.*.name, 'enforce:test') }}
-      include-coverage: ${{ vars.ENABLE_CODE_COVERAGE != 'false' && ((!github.event.pull_request.draft && needs.check-what-changed.outputs.CODE_CHANGED == 'true') || (!github.event.pull_request.draft && needs.check-what-changed.outputs.TESTS_CHANGED == 'true') || contains(github.event.pull_request.labels.*.name, 'enforce:coverage')) }}
-      include-sanitize: ${{ (!github.event.pull_request.draft && needs.check-what-changed.outputs.CODE_CHANGED == 'true') || (!github.event.pull_request.draft && needs.check-what-changed.outputs.TESTS_CHANGED == 'true') || contains(github.event.pull_request.labels.*.name, 'enforce:sanitize') }}
+      # Keep version-branch PRs lightweight: coverage/sanitize are label-forced and draft-skipped.
+      include-coverage: ${{ vars.ENABLE_CODE_COVERAGE != 'false' && !github.event.pull_request.draft && contains(github.event.pull_request.labels.*.name, 'enforce:coverage') }}
+      include-sanitize: ${{ !github.event.pull_request.draft && contains(github.event.pull_request.labels.*.name, 'enforce:sanitize') }}
       separate-coordinator-job: true
 
   test-matrix:

@@ -15,9 +15,15 @@ concurrency:
 
 jobs:
   get-latest-redis-tag:
-    uses: ./.github/workflows/task-get-latest-tag.yml
-    with:
-      repo: redis/redis
+    # TODO: Switch to the latest 8.10 release/pre-release line once it is ready.
+    runs-on: ubuntu-slim
+    outputs:
+      tag: 3cd464263b03b425ffae2e23db24df3dc9346871
+    steps:
+      - run: echo "Dummy step to set output"
+    # uses: ./.github/workflows/task-get-latest-tag.yml
+    # with:
+    #   repo: redis/redis
 
   lint:
     permissions:
@@ -31,8 +37,10 @@ jobs:
       compare-advisories-to-base: true
       advisories-base-ref: ${{ github.event.merge_group.base_sha }}
 
-  build-unique-oses:
-    needs: get-latest-redis-tag
+  test-matrix:
+    # MQ is the 8.10 release gate, so run the full supported matrix with full tests.
+    needs: [get-latest-redis-tag, lint]
+    if: ${{ !cancelled() && !failure() }}
     permissions:
       contents: read
       packages: write
@@ -41,37 +49,20 @@ jobs:
     uses: ./.github/workflows/flow-test.yml
     secrets: inherit
     with:
-      platform: 'macos-26,alpine:3.23,intel'
+      platform: all
       architecture: all
       redis-ref: ${{ needs.get-latest-redis-tag.outputs.tag }}
-      options: skip-tests,fail-fast
-      rejson-branch: master
-
-  test-ubuntu:
-    # Always run tests for merge queue submissions, including text-only PRs.
-    needs: get-latest-redis-tag
-    permissions:
-      contents: read
-      packages: write
-      id-token: write # OIDC role assumption for sccache S3 (used inside task-test.yml)
-      actions: write  # Swatinem/rust-cache read/write of GH cache (used inside task-test.yml)
-    uses: ./.github/workflows/flow-test.yml
-    secrets: inherit
-    with:
-      platform: ubuntu:noble
-      architecture: x86_64
-      redis-ref: ${{ needs.get-latest-redis-tag.outputs.tag }}
-      job-test-config: '{"test": "QUICK=1", "coverage": "QUICK=1", "sanitize": "QUICK=1"}'
-      options: unit-tests,coordinator,standalone,rejson,fail-fast
+      job-test-config: '{"test": "", "coverage": "", "sanitize": ""}'
+      options: ${{ vars.ENABLE_CODE_COVERAGE != 'false' && 'unit-tests,coordinator,standalone,rejson,fail-fast,coverage,sanitize' || 'unit-tests,coordinator,standalone,rejson,fail-fast,sanitize' }}
       separate-coordinator-job: true
+      # TODO: Switch to '8.10' once RedisJSON has a matching release branch.
       rejson-branch: master
 
   pr-validation:
     needs:
       - get-latest-redis-tag
       - lint
-      - build-unique-oses
-      - test-ubuntu
+      - test-matrix
     runs-on: ubuntu-slim
     if: ${{ !cancelled() }}
     steps:
