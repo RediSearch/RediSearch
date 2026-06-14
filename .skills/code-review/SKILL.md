@@ -201,17 +201,22 @@ behavior that affects accepted input or observable output.
 Internal commands count. A command being `_FT.*`, `FT._*`, proxy-filtered, debug-only,
 or not documented for users does not make incompatible changes safe.
 
-Review both backward and forward compatibility on every changed interface. Backward
-compatibility means new code can consume input, replies, or data produced by older
-supported versions. Forward compatibility means older supported consumers can tolerate
-what new producers send on mixed-version or independently upgraded paths. This usually
-requires keeping the old form until a version/capability gate allows the new form, or
-ensuring old consumers already ignore unknown optional fields.
+Review mixed-version compatibility on every changed interface. New code must stay
+compatible with older supported versions in both roles:
+- As a consumer, new code must continue to accept input, replies, and persisted data
+  produced by older versions.
+- As a producer, new code must not send or write a new form to older supported consumers
+  unless the change is gated by version/capability negotiation, older consumers are
+  known to ignore it, or the upgrade path guarantees they cannot observe it.
+
+Do not assume that making a new field optional in the new parser is enough. If the new
+producer sends that field to an older parser that rejects unknown arguments, the change
+is still breaking.
 
 Flag as blocking unless the PR has an explicit compatibility story when it:
 - Adds a new mandatory argument, token, subcommand field, or serialized field.
 - Sends a new optional argument, token, reply element, or serialized field to a consumer
-  that may be old or independently upgraded and does not ignore unknown fields.
+  that may be an older supported version and is not known to ignore unknown fields.
 - Makes an optional argument required.
 - Removes or renames an accepted command, alias, argument, token, reply field, or
   serialized field.
@@ -237,9 +242,9 @@ Acceptable compatibility patterns:
 - Keep legacy aliases while supported callers may still use them.
 - Preserve prior internal execution paths when adding ACL checks, or prove the caller
   still runs under the intended user/context.
-- Add compatibility tests for changed producer/consumer pairs. Cover old producer to
-  new consumer and new producer to old consumer when both versions can coexist, or
-  document why one direction cannot happen.
+- Add compatibility tests for changed producer/consumer pairs. Cover new consumers with
+  old producer output and new producers against older supported consumers when both
+  versions can coexist, or document why one direction cannot happen.
 - Add focused before/after corpus tests for dependency changes that affect parsing,
   normalization, tokenization, sorting, matching, or serialization.
 - Version serialized data and retain old-version readers.
