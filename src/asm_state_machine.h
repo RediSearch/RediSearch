@@ -70,6 +70,7 @@ static void ASM_Sanitizer_Alloc_Deallocate() {
 
 // Global version counter for the key space state.
 extern uint32_t key_space_version;
+extern RedisModuleCtx *RSDummyContext;
 
 /**
  * Initialize the ASM state machine with the local slots.
@@ -272,7 +273,7 @@ static inline const RedisModuleSlotRangeArray *ASM_FallbackToLocalSlots(uint32_t
   // needs no synchronization.
   static uint64_t fallbackCount = 0;
   if (fallbackCount++ % 100 == 0) {
-    RedisModule_Log(NULL, "notice",
+    RedisModule_Log(RSDummyContext, "notice",
                     "Internal query received without " SLOTS_STR
                     " (sent by a coordinator older than 8.4?). "
                     "Falling back to the shard's current local slots");
