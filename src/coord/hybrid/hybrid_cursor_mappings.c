@@ -24,7 +24,7 @@
 typedef struct {
     StrongRef searchMappings;
     StrongRef vsimMappings;
-    arrayof(QueryError) errors;       // NULL until the first IO-thread append
+    arrayof(QueryError) errors;
     HybridKnnContext *knnCtx;         // KNN context for SHARD_K_RATIO optimization (may be NULL)
 } processCursorMappingCallbackContext;
 
@@ -256,7 +256,7 @@ bool ProcessHybridCursorMappings(const MRCommand *cmd, StrongRef searchMappingsR
     *ctx = (processCursorMappingCallbackContext) {
         .searchMappings = StrongRef_Clone(searchMappingsRef),
         .vsimMappings = StrongRef_Clone(vsimMappingsRef),
-        .errors = NULL,
+        .errors = array_new(QueryError, 0),
         .knnCtx = knnCtx,  // Store KNN context for command modifier callback
       };
 

@@ -770,10 +770,8 @@ static int HybridRequest_prepareCursors(HybridRequest *hreq, QueryError *status)
     bool maxPrefixSearch = false;
     bool maxPrefixVsim = false;
 
-    // Bound the cursor-setup wait the same way the read phase does (getAbsTimeout +
-    // the syncCtx abort flag). The deadline is NULL when timeout checks are disabled
-    // (e.g. RETURN-STRICT); the search subquery's abort flag/channel then unblocks the
-    // wait, woken by DistHybridTimeoutReturnStrictCallback / client disconnect.
+    // Deadline for the setup wait, mirroring the read phase's getAbsTimeout; paired
+    // with the syncCtx abort flag in ProcessHybridCursorMappings.
     AREQ *searchReq = hreq->requests[SEARCH_INDEX];
     RedisSearchCtx *searchSctx = AREQ_SearchCtx(searchReq);
     const struct timespec *deadline =
