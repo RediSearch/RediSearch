@@ -7,6 +7,7 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 #include <aggregate/reducer.h>
+#include "aggregate/reducers/collect_parse.h"
 #include "util/arg_parser.h"
 #include "util/arr_rm_alloc.h"
 #include "util/misc.h"
@@ -24,46 +25,10 @@
 #define SORT_DIR_ASC "ASC"
 #define SORT_DIR_DESC "DESC"
 
-// Temporary storage for parsed COLLECT arguments. The data is handed off to
-// Rust via the appropriate `CollectReducer_Create*` factory once parsing
-// succeeds. Remote reducers keep `RLookupKey *`; local reducers keep raw names
-// because they cannot resolve fields through remote lookup tables.
-//
-// Exactly one population pattern is used per parse, selected by
-// `options->is_local`:
-//   - is_local == true  : `field_names`, `sort_names`, `input_key` are set;
-//                          `field_keys`, `sort_keys` are not.
-//   - is_local == false : `field_keys`, `sort_keys` are set;
-//                          `field_names`, `sort_names`, `input_key` are not.
-// `load_all`, `sortAscMap`, and the `limit_*` triple are shared across
-// both modes.
 typedef struct {
-  arrayof(const RLookupKey *) field_keys;   // remote-only
-  arrayof(const RLookupKey *) sort_keys;    // remote-only
-  // Coord-mode names alias `options->args` and omit the leading `@`.
-  arrayof(const char *) field_names;        // local-only
-  arrayof(const char *) sort_names;         // local-only
-  const RLookupKey *input_key;              // local-only
-
-  bool load_all;                            // shared
-  uint64_t sortAscMap;                      // shared
-
-  bool has_limit;                           // shared
-  uint64_t limit_offset;                    // shared
-  uint64_t limit_count;                     // shared
-} CollectParseData;
-
-typedef struct {
-  CollectParseData *data;
+  CollectArgs *args;
   const ReducerOptions *options;
 } CollectParseCtx;
-
-static void CollectParseData_Free(CollectParseData *data) {
-  array_free(data->field_keys);
-  array_free(data->sort_keys);
-  array_free(data->field_names);
-  array_free(data->sort_names);
-}
 
 // Validates a `@`-prefixed name argument and returns the name with the leading
 // `@` stripped. On error, sets `status` and returns NULL.
@@ -78,72 +43,31 @@ static const char *parseAtPrefixedName(const char *s, size_t len, QueryError *st
   return s + 1;
 }
 
-// ===== ArgParser callbacks =====
+// ===== ArgParser callbacks (pure: populate CollectArgs only) =====
 
 // ----- FIELDS -----
-
-// Drains `<num_fields>` `@field` tokens into `data->field_names`.
-// The local reducer strips `@` and later matches against map keys carried by
-// the remote payload.
-static void handleCollectFieldsLocal(ArgsCursor *ac, CollectParseData *data,
-                                     const ReducerOptions *opts) {
-  data->field_names = array_new(const char *, AC_NumRemaining(ac));
-  while (!AC_IsAtEnd(ac)) {
-    const char *s;
-    size_t len;
-    int rv = AC_GetString(ac, &s, &len, 0);
-    // The slice is sized exactly to `<num_fields>`, so every iteration succeeds.
-    RS_ASSERT(rv == AC_OK);
-    // `s` aliases the original argv and is NUL-terminated.
-    const char *name = ExtractKeyName(s, &len, opts->status, opts->strictPrefix, "FIELDS");
-    if (!name) return;
-    array_append(data->field_names, name);
-  }
-}
-
-// Drains `<num_fields>` `@field` tokens into `data->field_keys`. Remote (shard)
-// mode resolves each field against the source lookup via `ReducerOpts_GetKey`.
-static void handleCollectFieldsRemote(ArgsCursor *ac, CollectParseData *data,
-                                      const ReducerOptions *opts) {
-  ReducerOptions sub_opts = *opts;
-  sub_opts.args = ac;
-  sub_opts.name = "FIELDS";
-
-  data->field_keys = array_new(const RLookupKey *, AC_NumRemaining(ac));
-  while (!AC_IsAtEnd(ac)) {
-    const RLookupKey *key = NULL;
-    if (!ReducerOpts_GetKey(&sub_opts, &key)) {
-      return;
-    }
-    array_append(data->field_keys, key);
-  }
-}
 
 // Parses: FIELDS ( * | <num_fields> @field [@field ...] )
 //   <num_fields>: 1..COLLECT_MAX_FIELD_ARGS
 //
 // The first token after `FIELDS` is consumed by `ArgParser_AddStringV` and
-// passed in via `value`; the remainder is read directly from the parser's
-// underlying cursor. On load-all the callback returns immediately; otherwise
-// it slices `<num_fields>` tokens and dispatches to the per-mode drainer.
+// passed via `value`; the remainder is read directly from the parser's
+// underlying cursor.
 static void handleCollectFields(ArgParser *parser, const void *value, void *user_data) {
   CollectParseCtx *pctx = (CollectParseCtx *)user_data;
-  CollectParseData *data = pctx->data;
+  CollectArgs *args = pctx->args;
   const ReducerOptions *opts = pctx->options;
   ArgsCursor *ac = parser->cursor;
   const char *firstArg = *(const char **)value;
 
-  // Load-all branch: `*` consumes nothing else from FIELDS. If the next token
-  // begins with `@` or `$` it's a stray field reference and we reject it here;
-  // other tokens (SORTBY, LIMIT, ...) are left for the outer parser to dispatch.
+  // Load-all branch: `*` consumes nothing else from FIELDS.
   if (strcmp(firstArg, "*") == 0) {
-    data->load_all = true;
+    args->load_all = true;
     return;
   }
 
   // Count branch: validate <num_fields> then carve a slice of that size and
-  // hand it off to the mode-specific drain. `firstArg` was already extracted
-  // by `ArgParser_AddStringV` and is NUL-terminated, so parse it directly.
+  // strip the `@` prefix from each name.
   char *end;
   errno = 0;
   long long count = strtoll(firstArg, &end, 10);
@@ -164,17 +88,21 @@ static void handleCollectFields(ArgParser *parser, const void *value, void *user
     return;
   }
 
-  if (opts->is_local) {
-    handleCollectFieldsLocal(&sub, data, opts);
-  } else {
-    handleCollectFieldsRemote(&sub, data, opts);
+  args->field_names = array_new(const char *, (size_t)count);
+  while (!AC_IsAtEnd(&sub)) {
+    const char *s;
+    size_t len;
+    int rv = AC_GetString(&sub, &s, &len, 0);
+    // The slice is sized exactly to `<num_fields>`, so every iteration succeeds.
+    RS_ASSERT(rv == AC_OK);
+    const char *name = ExtractKeyName(s, &len, opts->status, opts->strictPrefix, "FIELDS");
+    if (!name) return;
+    array_append(args->field_names, name);
   }
 }
 
-// Parses: SORTBY nargs <@field [ASC|DESC]> [<@field [ASC|DESC]> ...]
-//   nargs: 1..COLLECT_MAX_SORT_KEYS*2
-//   Direction defaults to ASC when omitted.
-//
+// ----- SORTBY -----
+
 static void handleCollectSortDirection(ArgsCursor *ac, uint64_t *sortAscMap, size_t dir_idx) {
   if (AC_AdvanceIfMatch(ac, SORT_DIR_ASC)) {
     // ASC is the default; nothing to do.
@@ -183,16 +111,18 @@ static void handleCollectSortDirection(ArgsCursor *ac, uint64_t *sortAscMap, siz
   }
 }
 
-// The local reducer stores raw names that match remote payload map keys.
-static void handleCollectSortByLocal(ArgParser *parser, const void *value, void *user_data) {
+// Parses: SORTBY nargs <@field [ASC|DESC]> [<@field [ASC|DESC]> ...]
+//   nargs: 1..COLLECT_MAX_SORT_KEYS*2
+//   Direction defaults to ASC when omitted.
+static void handleCollectSortBy(const ArgParser *parser, const void *value, void *user_data) {
   (void)parser;
   CollectParseCtx *pctx = (CollectParseCtx *)user_data;
-  CollectParseData *data = pctx->data;
+  CollectArgs *args = pctx->args;
   const ReducerOptions *opts = pctx->options;
   ArgsCursor *ac = (ArgsCursor *)value;
 
-  data->sort_names = array_new(const char *, 4);
-  data->sortAscMap = SORTASCMAP_INIT;
+  args->sort_names = array_new(const char *, 4);
+  args->sortAscMap = SORTASCMAP_INIT;
 
   while (!AC_IsAtEnd(ac)) {
     const char *s;
@@ -200,85 +130,39 @@ static void handleCollectSortByLocal(ArgParser *parser, const void *value, void 
 
     int rv = AC_GetString(ac, &s, &len, 0);
     // ArgParser already validated `count` and provided a sub-cursor with
-    // exactly `count` so each iteration is guaranteed to succeed.
+    // exactly `count` tokens, so each iteration is guaranteed to succeed.
     RS_ASSERT(rv == AC_OK);
 
     const char *name = parseAtPrefixedName(s, len, opts->status);
     if (!name) return;
 
-    if (array_len(data->sort_names) >= COLLECT_MAX_SORT_KEYS) {
+    if (array_len(args->sort_names) >= COLLECT_MAX_SORT_KEYS) {
       QueryError_SetWithoutUserDataFmt(opts->status, QUERY_ERROR_CODE_LIMIT,
         "SORTBY exceeds maximum of %d fields", COLLECT_MAX_SORT_KEYS);
       return;
     }
 
-    // Store the raw name alias, then expose the optional ASC/DESC token.
-    array_append(data->sort_names, name);
+    array_append(args->sort_names, name);
 
-    size_t dir_idx = array_len(data->sort_names) - 1;
-    handleCollectSortDirection(ac, &data->sortAscMap, dir_idx);
+    size_t dir_idx = array_len(args->sort_names) - 1;
+    handleCollectSortDirection(ac, &args->sortAscMap, dir_idx);
   }
 
-  if (array_len(data->sort_names) == 0) {
+  if (array_len(args->sort_names) == 0) {
     QueryError_SetError(opts->status, QUERY_ERROR_CODE_PARSE_ARGS,
       "SORTBY requires at least one sort field");
     return;
   }
 }
 
-// Shards resolve keys against the source lookup.
-static void handleCollectSortByRemote(ArgParser *parser, const void *value, void *user_data) {
-  (void)parser;
-  CollectParseCtx *pctx = (CollectParseCtx *)user_data;
-  CollectParseData *data = pctx->data;
-  const ReducerOptions *opts = pctx->options;
-  ArgsCursor *ac = (ArgsCursor *)value;
-
-  data->sort_keys = array_new(const RLookupKey *, 4);
-  data->sortAscMap = SORTASCMAP_INIT;
-
-  ReducerOptions key_opts = *opts;
-  key_opts.args = ac;
-  key_opts.name = "SORTBY";
-
-  while (!AC_IsAtEnd(ac)) {
-    // Peek-only: `ReducerOpts_GetKey` below consumes this arg via its own
-    // `AC_GetString`. Pass AC_F_NOADVANCE so we don't double-advance the
-    // cursor. The loop guard makes AC_ERR_NOARG unreachable.
-    const char *s;
-    size_t len;
-    int rv = AC_GetString(ac, &s, &len, AC_F_NOADVANCE);
-    RS_ASSERT(rv == AC_OK);
-    if (!parseAtPrefixedName(s, len, opts->status)) return;
-
-    if (array_len(data->sort_keys) >= COLLECT_MAX_SORT_KEYS) {
-      QueryError_SetWithoutUserDataFmt(opts->status, QUERY_ERROR_CODE_LIMIT,
-        "SORTBY exceeds maximum of %d fields", COLLECT_MAX_SORT_KEYS);
-      return;
-    }
-
-    const RLookupKey *key = NULL;
-    if (!ReducerOpts_GetKey(&key_opts, &key)) {
-      return;
-    }
-    array_append(data->sort_keys, key);
-
-    size_t dir_idx = array_len(data->sort_keys) - 1;
-    handleCollectSortDirection(ac, &data->sortAscMap, dir_idx);
-  }
-
-  if (array_len(data->sort_keys) == 0) {
-    QueryError_SetError(opts->status, QUERY_ERROR_CODE_PARSE_ARGS,
-      "SORTBY requires at least one sort field");
-    return;
-  }
-}
+// ----- LIMIT -----
 
 // Parses: LIMIT <offset> <count>
 //   Both must be non-negative integers <= search-max-aggregate-results.
-static void handleCollectLimit(ArgParser *parser, const void *value, void *user_data) {
+static void handleCollectLimit(const ArgParser *parser, const void *value, void *user_data) {
+  (void)parser;
   CollectParseCtx *pctx = (CollectParseCtx *)user_data;
-  CollectParseData *data = pctx->data;
+  CollectArgs *args = pctx->args;
   QueryError *status = pctx->options->status;
   ArgsCursor *ac = (ArgsCursor *)value;
 
@@ -305,47 +189,47 @@ static void handleCollectLimit(ArgParser *parser, const void *value, void *user_
       "LIMIT count exceeds maximum of %zu", maxResults);
     return;
   }
+  // Overflow guard for `offset + count`. Redundant given the individual bounds
+  // above and a sane MAX, but cheap insurance against future MAX changes.
   if (offset > LLONG_MAX - count) {
     QueryError_SetError(status, QUERY_ERROR_CODE_PARSE_ARGS,
       "Invalid LIMIT offset + count value");
     return;
   }
 
-  data->has_limit = true;
-  data->limit_offset = offset;
-  data->limit_count = count;
+  args->has_limit = true;
+  args->limit_offset = offset;
+  args->limit_count = count;
 }
 
-// ===== Factory =====
+// ===== Pure parser API =====
 
-Reducer *RDCRCollect_New(const ReducerOptions *options) {
+bool CollectArgs_Parse(const ReducerOptions *options, CollectArgs *out) {
+  RS_ASSERT(options && out);
+  out->sortAscMap = SORTASCMAP_INIT;
+
   if (!RSGlobalConfig.enableUnstableFeatures) {
     QueryError_SetError(options->status, QUERY_ERROR_CODE_INVAL,
       "`COLLECT` is unavailable when `ENABLE_UNSTABLE_FEATURES` is off. "
       "Enable it with `CONFIG SET search-enable-unstable-features yes`");
-    return NULL;
+    return false;
   }
 
-  CollectParseData data = {0};
-  data.sortAscMap = SORTASCMAP_INIT;
-
-  CollectParseCtx pctx = {.data = &data, .options = options};
+  CollectParseCtx pctx = {.args = out, .options = options};
 
   ArgsCursor *ac = options->args;
   ArgParser *parser = ArgParser_New(ac, NULL);
   if (!parser) {
     QueryError_SetError(options->status, QUERY_ERROR_CODE_PARSE_ARGS,
       "Failed to create argument parser for COLLECT");
-    return NULL;
+    return false;
   }
 
   ArgsCursor subArgs = {0};
-  ArgCallback handleSortBy =
-    options->is_local ? handleCollectSortByLocal : handleCollectSortByRemote;
 
   // FIELDS accepts either `*` or `<num_fields> @field [@field ...]`. The first
   // token is consumed as a string; `handleCollectFields` branches on `*` vs.
-  // count and dispatches to the mode-specific drain.
+  // count.
   const char *fieldsTarget = NULL;
   ArgParser_AddStringV(parser, "FIELDS", "Projected fields",
     &fieldsTarget,
@@ -357,7 +241,7 @@ Reducer *RDCRCollect_New(const ReducerOptions *options) {
   ArgParser_AddSubArgsV(parser, "SORTBY", "In-group sort keys",
     &subArgs, 1, COLLECT_MAX_SORT_TOKENS,
     ARG_OPT_OPTIONAL,
-    ARG_OPT_CALLBACK, handleSortBy, &pctx,
+    ARG_OPT_CALLBACK, handleCollectSortBy, &pctx,
     ARG_OPT_END);
 
   ArgParser_AddSubArgsV(parser, "LIMIT", "Per-group limit",
@@ -370,62 +254,120 @@ Reducer *RDCRCollect_New(const ReducerOptions *options) {
 
   if (QueryError_HasError(options->status)) {
     ArgParser_Free(parser);
-    CollectParseData_Free(&data);
-    return NULL;
+    return false;
   }
 
   if (!result.success) {
     QueryError_SetWithUserDataFmt(options->status, QUERY_ERROR_CODE_PARSE_ARGS,
       "Bad arguments for COLLECT", ": %s", ArgParser_GetErrorString(parser));
     ArgParser_Free(parser);
-    CollectParseData_Free(&data);
-    return NULL;
+    return false;
   }
 
   ArgParser_Free(parser);
+  return true;
+}
 
-  if (options->is_local) {
-    if (!options->input_key) {
-      QueryError_SetError(options->status, QUERY_ERROR_CODE_PARSE_ARGS,
-        "COLLECT input key was not provided");
-      CollectParseData_Free(&data);
-      return NULL;
+void CollectArgs_Free(CollectArgs *args) {
+  if (!args) return;
+  array_free(args->field_names);
+  args->field_names = NULL;
+  array_free(args->sort_names);
+  args->sort_names = NULL;
+}
+
+// ===== Post-parse key resolution (side-effectful: opens RLookupKeys) =====
+
+// Resolves stripped names into a freshly-allocated `arrayof(const RLookupKey *)`.
+// Caller owns the result and must `array_free` it.
+// On failure, frees the partial array and returns false.
+static bool resolveKeyNames(const ReducerOptions *options,
+                            arrayof(const char *) names,
+                            arrayof(const RLookupKey *) *out_keys) {
+  const size_t n = array_len(names);
+  *out_keys = array_new(const RLookupKey *, n);
+  for (size_t i = 0; i < n; i++) {
+    const RLookupKey *key = NULL;
+    if (!ReducerOpts_ResolveKey(options, names[i], &key)) {
+      array_free(*out_keys);
+      *out_keys = NULL;
+      return false;
     }
-    data.input_key = options->input_key;
+    array_append(*out_keys, key);
+  }
+  return true;
+}
+
+static bool resolveFieldKeys(const ReducerOptions *options, const CollectArgs *args,
+                             arrayof(const RLookupKey *) *out_keys) {
+  return resolveKeyNames(options, args->field_names, out_keys);
+}
+
+static bool resolveSortKeys(const ReducerOptions *options, const CollectArgs *args,
+                            arrayof(const RLookupKey *) *out_keys) {
+  return resolveKeyNames(options, args->sort_names, out_keys);
+}
+
+// ===== Factory =====
+
+Reducer *RDCRCollect_New(const ReducerOptions *options) {
+  CollectArgs args = {0};
+  if (!CollectArgs_Parse(options, &args)) {
+    CollectArgs_Free(&args);
+    return NULL;
   }
 
-  // Rust copies the mode-specific parsed data and wires the vtable.
-  Reducer *rbase;
+  Reducer *rbase = NULL;
+
   if (options->is_local) {
+    RS_ASSERT(options->input_key);
     rbase = CollectReducer_CreateLocal(
-      data.input_key,
-      (const char *const *)data.field_names,
-      data.field_names ? array_len(data.field_names) : 0,
-      data.load_all,
-      (const char *const *)data.sort_names,
-      data.sort_names ? array_len(data.sort_names) : 0,
-      data.sortAscMap,
-      data.has_limit,
-      data.limit_offset,
-      data.limit_count
+      options->input_key,
+      (const char *const *)args.field_names,
+      array_len(args.field_names),
+      args.load_all,
+      (const char *const *)args.sort_names,
+      array_len(args.sort_names),
+      args.sortAscMap,
+      args.has_limit,
+      args.limit_offset,
+      args.limit_count
     );
   } else {
+    arrayof(const RLookupKey *) field_keys = NULL;
+    arrayof(const RLookupKey *) sort_keys = NULL;
+
+    if (!args.load_all) {
+      RS_ASSERT(array_len(args.field_names) > 0);
+      if (!resolveFieldKeys(options, &args, &field_keys)) {
+        CollectArgs_Free(&args);
+        return NULL;
+      }
+    }
+
+    if (args.sort_names && array_len(args.sort_names) > 0 &&
+          !resolveSortKeys(options, &args, &sort_keys)) {
+      array_free(field_keys);
+      CollectArgs_Free(&args);
+      return NULL;
+    }
+
     rbase = CollectReducer_CreateRemote(
-      data.field_keys,
-      data.field_keys ? array_len(data.field_keys) : 0,
-      data.load_all ? options->srclookup : NULL,
-      data.sort_keys,
-      data.sort_keys ? array_len(data.sort_keys) : 0,
-      data.sortAscMap,
-      data.has_limit,
-      data.limit_offset,
-      data.limit_count,
+      field_keys,
+      field_keys ? array_len(field_keys) : 0,
+      args.load_all ? options->srclookup : NULL,
+      sort_keys,
+      sort_keys ? array_len(sort_keys) : 0,
+      args.sortAscMap,
+      args.has_limit,
+      args.limit_offset,
+      args.limit_count,
       ReducerOpts_IsInternal(options)
     );
+    array_free(field_keys);
+    array_free(sort_keys);
   }
 
-  // Free the C arrays; Rust has copied the pointer values.
-  CollectParseData_Free(&data);
-
+  CollectArgs_Free(&args);
   return rbase;
 }

@@ -210,7 +210,7 @@ mod not_miri {
         // `points_to_ii` (`std::ptr::eq`) without dereferencing it.
         // SAFETY: `tag_index` is valid (created by `TagIndex_Ensure`), `values`
         // is a valid TrieMap.
-        let trie = unsafe { &mut *tag_index.as_ref().values.cast::<trie_rs::opaque::TrieMap>() };
+        let trie = unsafe { &mut *tag_index.as_ref().values.cast::<trie_rs::TrieMapOpaque>() };
         let old_val = trie.remove(b"test_tag");
         assert!(old_val.is_some(), "test_tag should exist in the TrieMap");
         let prev = trie.insert(b"test_tag", new_ii as *mut c_void);
@@ -263,7 +263,7 @@ mod not_miri {
         let tag_index = test.test.context.tag_index();
         // SAFETY: `tag_index` is valid (created by `TagIndex_Ensure`), `values`
         // is a valid TrieMap.
-        let trie = unsafe { &mut *tag_index.as_ref().values.cast::<trie_rs::opaque::TrieMap>() };
+        let trie = unsafe { &mut *tag_index.as_ref().values.cast::<trie_rs::TrieMapOpaque>() };
         let old_val = trie.remove(b"test_tag");
         assert!(old_val.is_some(), "test_tag should exist in the TrieMap");
 

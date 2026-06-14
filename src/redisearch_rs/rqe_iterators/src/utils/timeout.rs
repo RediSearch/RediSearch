@@ -12,9 +12,9 @@ use std::{
     time::{Duration, Instant},
 };
 
-use ffi::{AREQ, AREQ_CheckTimedOut};
+use ffi::{AREQ, AREQ_CheckTimedOut, RedisSearchCtx};
 
-use crate::RQEIteratorError;
+use crate::{RQEIteratorError, utils::duration_from_redis_timespec};
 
 /// Abstraction over the different ways a query iterator can detect that the
 /// surrounding query has run out of time.
@@ -185,6 +185,26 @@ pub enum AnyTimeoutContext {
     Clock(TimeoutContextClock),
     /// Blocked Client Timeout: relaxed atomic load against the AREQ flag.
     BlockedClient(TimeoutContextBlockedClient),
+}
+
+impl AnyTimeoutContext {
+    /// Builds the timeout context from a search context's time settings.
+    ///
+    /// `skipTimeoutChecks` (or the absence of a deadline) opts out of timeout
+    /// checks entirely, yielding [`NoTimeout`]; otherwise the deadline drives an
+    /// amortized [`TimeoutContextClock`] that probes the clock once every
+    /// `granularity` checks. A search context carries no Blocked Client Timeout
+    /// source, so the [`BlockedClient`](Self::BlockedClient) variant is never
+    /// produced here.
+    pub fn from_sctx(sctx: &RedisSearchCtx, granularity: u32) -> Self {
+        if sctx.time.skipTimeoutChecks {
+            return Self::NoTimeout(NoTimeout);
+        }
+        match duration_from_redis_timespec(sctx.time.timeout) {
+            Some(duration) => Self::Clock(TimeoutContextClock::new(duration, granularity)),
+            None => Self::NoTimeout(NoTimeout),
+        }
+    }
 }
 
 impl TimeoutContext for AnyTimeoutContext {
