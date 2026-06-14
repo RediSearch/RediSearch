@@ -367,9 +367,7 @@ impl<'list, 'a> CursorMut<'list, 'a> {
     ///
     /// The old key remains as a hidden tombstone in the linked list.
     //
-    // `'b` is decoupled from the cursor's `&mut KeyList` borrow so callers can hold the returned key
-    // and reborrow the list (rust-lang/rust#54663). Sound because the key is heap-pinned and list-owned.
-    // TODO remove this lifetime hack when we refactor this code. refer to Jira ticket MOD-13907.
+    // TODO remove the 'a and 'b lifetimes borrow-checker hack when we refactor this code. refer to Jira ticket MOD-13907.
     pub fn override_current<'b>(
         mut self,
         flags: RLookupKeyFlags,
