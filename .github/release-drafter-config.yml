@@ -20,8 +20,7 @@ categories:
     labels:
       - 'x:docs'
   - title: 'Maintenance'
-    labels:
-      - 'chore'
+    label: 'chore'
 change-template: '- $TITLE (#$NUMBER)'
 exclude-labels:
   - 'skip-changelog'
