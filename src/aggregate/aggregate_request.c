@@ -363,9 +363,7 @@ static int handleCommonArgs(AREQ *req, ArgsCursor *ac, QueryError *status, int a
     req->prefixesOffset = ac->offset - 1;
 
     ArgsCursor tmp = {0};
-    if (AC_GetVarArgs(ac, &tmp) != AC_OK) {
-      RS_LOG_ASSERT(false, "Bad arguments for _INDEX_PREFIXES (coordinator)");
-    }
+    AC_GetVarArgs(ac, &tmp);
   } else if (AC_AdvanceIfMatch(ac, "_SLOTS_INFO")) {
     // Forward compatibility (MOD-16047): coordinators on RediSearch >= 8.4 append a
     // _SLOTS_INFO <binary> argument to internal queries. This version does not use it,
