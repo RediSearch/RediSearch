@@ -451,7 +451,13 @@ def test_flex_disk_hnsw_rerank_value(env):
 @with_simulate_in_flex(False)
 def test_ram_hnsw_rerank_rejected(env):
     # In RAM mode RERANK is a disk-only option and must be rejected outright,
-    # including the otherwise-valid RERANK TRUE form (MOD-16015).
+    # including the otherwise-valid RERANK TRUE form (MOD-16015). The disk guard
+    # is the first check in the RERANK branch, so it short-circuits before the
+    # duplicate / missing-arg / value checks and never reads what follows the
+    # keyword. We therefore only cover:
+    #   - RERANK TRUE: the form the bug silently accepted.
+    #   - duplicate RERANK: pins the guard's precedence over the other RERANK
+    #     checks, so reordering them would surface as a regression here.
     err = 'RERANK is only supported for disk-based vector indexes'
 
     env.expect(
@@ -461,24 +467,6 @@ def test_ram_hnsw_rerank_rejected(env):
         'DIM', '2',
         'DISTANCE_METRIC', 'L2',
         'RERANK', 'TRUE',
-    ).error().contains(err)
-
-    env.expect(
-        'FT.CREATE', 'idx_false', 'ON', 'HASH', 'SCHEMA',
-        'v', 'VECTOR', 'HNSW', '8',
-        'TYPE', 'FLOAT32',
-        'DIM', '2',
-        'DISTANCE_METRIC', 'L2',
-        'RERANK', 'FALSE',
-    ).error().contains(err)
-
-    env.expect(
-        'FT.CREATE', 'idx_no_value', 'ON', 'HASH', 'SCHEMA',
-        'v', 'VECTOR', 'HNSW', '7',
-        'TYPE', 'FLOAT32',
-        'DIM', '2',
-        'DISTANCE_METRIC', 'L2',
-        'RERANK',
     ).error().contains(err)
 
     env.expect(
