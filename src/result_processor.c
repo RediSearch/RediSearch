@@ -1194,17 +1194,39 @@ static int rpSafeLoaderNext_Accumulate(ResultProcessor *rp, SearchResult *res) {
     return RS_RESULT_TIMEDOUT;
   }
 
+#ifdef ENABLE_ASSERT
+  // Sync point (debug): pause after the handshake marked us as holding the GIL
+  // gate (safeLoaderHoldingGIL == true) but before we take the Redis lock. The
+  // RETURN_STRICT preempt repro tests park the worker here so the timeout
+  // callback observes holding == true and takes the preempt branch.
+  SyncPoint_Wait(SYNC_POINT_AFTER_SAFE_LOADER_GIL_HANDSHAKE);
+#endif
+
   // Then, lock Redis to guarantee safe access to Redis keyspace
   RedisModule_ThreadSafeContextLock(sctx->redisCtx);
 
   rpSafeLoader_Load(self);
 
-  // Done loading. Unlock Redis
-  RedisModule_ThreadSafeContextUnlock(sctx->redisCtx);
-
+  // Clear the GIL-gate handshake flag while we still hold the Redis lock. The
+  // timeout callback only runs on the main thread while it holds the GIL, so it
+  // cannot observe the flag during this window; clearing before the unlock
+  // closes the race where a timeout landing in the unlock->clear gap sees a
+  // stale safeLoaderHoldingGIL == true and preempts, dropping already-loaded
+  // results. See aggregate.h.
   if (self->syncCtx) {
     RequestSyncCtx_SafeLoaderExitGIL(self->syncCtx);
   }
+
+  // Done loading. Unlock Redis
+  RedisModule_ThreadSafeContextUnlock(sctx->redisCtx);
+
+#ifdef ENABLE_ASSERT
+  // Sync point (debug): pause after clearing the handshake flag and releasing
+  // the Redis lock. The P2b regression test parks the worker here (interruptible
+  // via the timedOut predicate); the flag is already false, so a timeout
+  // callback waits for the stored results instead of preempting.
+  SyncPoint_WaitUntil(SYNC_POINT_BEFORE_SAFE_LOADER_EXIT_GIL, SearchTime_IsTimedOut, &sctx->time);
+#endif
 
   if (isQueryProfile) {
     // Add 1ns as epsilon value so we can verify that the GIL time is greater than 0.

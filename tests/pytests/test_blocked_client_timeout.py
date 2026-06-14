@@ -6267,6 +6267,199 @@ class TestShardTimeout:
         self._run_return_strict_no_deadlock_at_safe_loader_gil(
             ['FT.AGGREGATE', 'idx', '*', 'LOAD', '1', '@name'], 'FT.AGGREGATE')
 
+    def test_return_strict_cursor_read_preempt_no_use_after_free(self):
+        """P1: RETURN_STRICT FT.CURSOR READ must not free the cursor under the worker.
+
+        The cursor was created with LOAD, so the BG cursor-read pipeline runs the
+        safe loader. The worker wins the claim, marks itself at the GIL gate
+        (safeLoaderHoldingGIL == true), and parks at AfterSafeLoaderGILHandshake -
+        after the handshake but before taking the Redis lock. The timeout callback
+        loses the claim, observes holding == true, and takes the preempt branch:
+        it replies with an exhausted cursor (id 0) and returns immediately. The
+        blocked-client free callback (ShardCursorBlockClient_FreeAREQ) then drains
+        req->storedReplyState.cursor - freeing the cursor (stashed before
+        sendChunk) and dropping its AREQ reference - while the worker is still
+        parked. Releasing the worker makes it resume sendChunk and keep using the
+        freed cursor/AREQ: a use-after-free (caught under SAN, otherwise a crash).
+
+        Detects the bug: releasing the worker after the cursor was freed must not
+        corrupt memory; the cursor-read thread finishes and the server survives.
+        """
+        env = self.env
+        skipIfNoEnableAssert(env)
+        sync_point = 'AfterSafeLoaderGILHandshake'
+
+        prev_policy, cursor_id, _, _, _, _ = _setup_return_strict_cursor_state(env)
+
+        try:
+            env.expect(debug_cmd(), 'SYNC_POINT', 'CLEAR').ok()
+            env.expect(debug_cmd(), 'SYNC_POINT', 'ARM', sync_point).ok()
+
+            result = []
+            try:
+                t_query = threading.Thread(
+                    target=call_and_store,
+                    args=(env.cmd, ['FT.CURSOR', 'READ', 'idx', str(cursor_id)], result),
+                    daemon=True,
+                )
+                t_query.start()
+                blocked_client_id = wait_for_blocked_query_client(
+                    env, 'FT.CURSOR|READ', 'Client for FT.CURSOR|READ not found')
+                # Worker won the claim, set safeLoaderHoldingGIL, and parked after
+                # the handshake (before taking the GIL).
+                wait_for_condition(
+                    lambda: (env.cmd(debug_cmd(), 'SYNC_POINT', 'IS_WAITING', sync_point) == 1, {}),
+                    f'worker never reached {sync_point}'
+                )
+                # Fire the deadline: the callback preempts (holding == true), replies
+                # cursor id 0, and the free callback frees the cursor while the
+                # worker is still parked.
+                env.expect('CLIENT', 'UNBLOCK', blocked_client_id, 'TIMEOUT').equal(1)
+                wait_for_client_unblocked(env, blocked_client_id)
+            finally:
+                # Release the parked worker: it resumes sendChunk and (pre-fix)
+                # touches the freed cursor/AREQ.
+                env.expect(debug_cmd(), 'SYNC_POINT', 'SIGNAL', sync_point).ok()
+                env.expect(debug_cmd(), 'SYNC_POINT', 'CLEAR').ok()
+
+            t_query.join(timeout=10)
+            env.assertFalse(t_query.is_alive(),
+                            message="Cursor read thread hung after preempt")
+            env.assertEqual(len(result), 1, message="Expected one cursor read result")
+            # Server must still be responsive (no UAF crash).
+            env.expect('PING').true()
+        finally:
+            env.expect(debug_cmd(), 'SYNC_POINT', 'CLEAR').ok()
+            env.expect('CONFIG', 'SET', ON_TIMEOUT_CONFIG, prev_policy).ok()
+
+    def test_return_strict_initial_withcursor_preempt_no_cursor_leak(self):
+        """P2a: initial RETURN_STRICT FT.AGGREGATE WITHCURSOR must not orphan its cursor.
+
+        The initial WITHCURSOR query reserves a cursor and stashes it in
+        storedReplyState.cursor before sendChunk. The worker wins the claim, marks
+        itself at the GIL gate, and parks at AfterSafeLoaderGILHandshake. The
+        timeout callback loses the claim, observes holding == true, and preempts:
+        it sends an empty cursor-id-0 reply and returns, skipping the normal
+        AREQ_ReplyWithStoredResults path that would pause/free the reserved cursor.
+        The query blocked-client free callback only decrefs the AREQ, so the cursor
+        stays in the global lookup with pos == -1: unreachable by FT.CURSOR READ
+        and not idle-GC eligible, i.e. leaked on every such timeout.
+
+        Detects the bug: after the worker finishes, the global cursor count must
+        return to the pre-query baseline (no orphaned cursor).
+        """
+        env = self.env
+        skipIfNoEnableAssert(env)
+        sync_point = 'AfterSafeLoaderGILHandshake'
+
+        prev_policy = env.cmd('CONFIG', 'GET', ON_TIMEOUT_CONFIG)[ON_TIMEOUT_CONFIG]
+        env.expect('CONFIG', 'SET', ON_TIMEOUT_CONFIG, 'return-strict').ok()
+        baseline_total = _coord_cursor_total(env)
+
+        try:
+            env.expect(debug_cmd(), 'SYNC_POINT', 'CLEAR').ok()
+            env.expect(debug_cmd(), 'SYNC_POINT', 'ARM', sync_point).ok()
+
+            result = []
+            try:
+                t_query = threading.Thread(
+                    target=call_and_store,
+                    args=(env.cmd, ['FT.AGGREGATE', 'idx', '*', 'LOAD', '1', '@name',
+                                    'WITHCURSOR', 'COUNT', '10'], result),
+                    daemon=True,
+                )
+                t_query.start()
+                blocked_client_id = wait_for_blocked_query_client(env, 'FT.AGGREGATE')
+                # Worker reserved the cursor, set safeLoaderHoldingGIL, and parked.
+                wait_for_condition(
+                    lambda: (env.cmd(debug_cmd(), 'SYNC_POINT', 'IS_WAITING', sync_point) == 1, {}),
+                    f'worker never reached {sync_point}'
+                )
+                # Fire the deadline: the callback preempts with an empty cursor-id-0
+                # reply, skipping the cursor pause/free path.
+                env.expect('CLIENT', 'UNBLOCK', blocked_client_id, 'TIMEOUT').equal(1)
+                wait_for_client_unblocked(env, blocked_client_id)
+            finally:
+                env.expect(debug_cmd(), 'SYNC_POINT', 'SIGNAL', sync_point).ok()
+                env.expect(debug_cmd(), 'SYNC_POINT', 'CLEAR').ok()
+
+            t_query.join(timeout=10)
+            env.assertFalse(t_query.is_alive(), message="Aggregate thread hung after preempt")
+            env.assertEqual(len(result), 1, message="Expected one aggregate result")
+            _, reply_cursor_id = result[0]
+            env.assertEqual(reply_cursor_id, 0,
+                            message="Preempted WITHCURSOR reply must advertise an exhausted cursor")
+            # The reserved cursor must not be orphaned: the global count returns to
+            # baseline once the worker finishes (pre-fix it stays at baseline + 1).
+            _wait_for_cursor_cleanup(env, baseline_total + 1,
+                                     'initial WITHCURSOR preempt timeout')
+        finally:
+            env.expect(debug_cmd(), 'SYNC_POINT', 'CLEAR').ok()
+            env.expect('CONFIG', 'SET', ON_TIMEOUT_CONFIG, prev_policy).ok()
+
+    def test_return_strict_stale_holding_flag_after_unlock_keeps_results(self):
+        """P2b: a timeout in the unlock->clear-flag window must not drop loaded results.
+
+        The worker wins the claim, takes the GIL gate, loads under the Redis lock,
+        and unlocks - but parks at BeforeSafeLoaderExitGIL before clearing
+        safeLoaderHoldingGIL. With the GIL already released, the worker no longer
+        needs it, yet the handshake flag is still set. The timeout callback loses
+        the claim, observes the stale holding == true, and takes the preempt
+        branch: it returns an empty reply instead of waiting for the already-loaded
+        partial results, losing data the RETURN_STRICT contract promises.
+
+        The park is interruptible via the timedOut predicate so the post-fix path
+        (flag cleared before unlock) does not deadlock; pre-fix the synchronous
+        callback observes the stale flag before the worker's poll clears it.
+
+        Detects the bug: the reply must carry the loaded rows (pre-fix it is empty).
+        """
+        env = self.env
+        skipIfNoEnableAssert(env)
+        sync_point = 'BeforeSafeLoaderExitGIL'
+
+        prev_policy = env.cmd('CONFIG', 'GET', ON_TIMEOUT_CONFIG)[ON_TIMEOUT_CONFIG]
+        env.expect('CONFIG', 'SET', ON_TIMEOUT_CONFIG, 'return-strict').ok()
+
+        try:
+            env.expect(debug_cmd(), 'SYNC_POINT', 'CLEAR').ok()
+            env.expect(debug_cmd(), 'SYNC_POINT', 'ARM', sync_point).ok()
+
+            result = []
+            try:
+                t_query = threading.Thread(
+                    target=call_and_store,
+                    args=(env.cmd, ['FT.AGGREGATE', 'idx', '*', 'LOAD', '1', '@name',
+                                    'LIMIT', '0', str(self.n_docs)], result),
+                    daemon=True,
+                )
+                t_query.start()
+                blocked_client_id = wait_for_blocked_query_client(env, 'FT.AGGREGATE')
+                # Worker loaded under the lock, unlocked, and parked before clearing
+                # the handshake flag (holding still true, GIL no longer held).
+                wait_for_condition(
+                    lambda: (env.cmd(debug_cmd(), 'SYNC_POINT', 'IS_WAITING', sync_point) == 1, {}),
+                    f'worker never reached {sync_point}'
+                )
+                # Fire the deadline: pre-fix the callback observes the stale flag and
+                # preempts, dropping the loaded rows.
+                env.expect('CLIENT', 'UNBLOCK', blocked_client_id, 'TIMEOUT').equal(1)
+                wait_for_client_unblocked(env, blocked_client_id)
+            finally:
+                env.expect(debug_cmd(), 'SYNC_POINT', 'SIGNAL', sync_point).ok()
+                env.expect(debug_cmd(), 'SYNC_POINT', 'CLEAR').ok()
+
+            t_query.join(timeout=10)
+            env.assertFalse(t_query.is_alive(), message="Aggregate thread hung after preempt")
+            env.assertEqual(len(result), 1, message="Expected one aggregate result")
+            reply = result[0]
+            env.assertGreater(len(reply.get('results', [])), 0,
+                              message="Loaded rows must survive a timeout in the "
+                                      "unlock->clear-flag window, got an empty reply")
+        finally:
+            env.expect(debug_cmd(), 'SYNC_POINT', 'CLEAR').ok()
+            env.expect('CONFIG', 'SET', ON_TIMEOUT_CONFIG, prev_policy).ok()
+
     def test_fail_dropped_index_during_queued_cursor_read(self):
         """FAIL cursor-read replies the stored error when the index is dropped while queued.
 

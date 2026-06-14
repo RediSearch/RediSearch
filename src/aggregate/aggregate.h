@@ -610,7 +610,11 @@ void AREQ_WaitForAggregateResultsComplete(AREQ *req);
  * EnterGIL (BG worker, before taking the GIL): if the timeout already fired,
  *   returns false without marking holding so the worker bails instead of blocking
  *   on the GIL the main thread holds; otherwise marks safeLoaderHoldingGIL.
- * ExitGIL (BG worker, after releasing the GIL): clears the flag.
+ * ExitGIL (BG worker, while still holding the GIL, before releasing it): clears
+ *   the flag. The timeout callback only runs on the main thread while it holds
+ *   the GIL, so it cannot observe the flag while the worker holds it; clearing
+ *   before the release prevents a timeout in the release->clear gap from seeing
+ *   a stale holding == true and preempting away already-loaded results.
  * TimeoutPreemptSafeLoaderGIL (main-thread timeout callback, before Wait): returns
  *   true if the worker is parked at the GIL gate, so the callback replies empty
  *   instead of deadlocking. The shared aggregateResultsLock makes EnterGIL and
