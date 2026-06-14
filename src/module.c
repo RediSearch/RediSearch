@@ -3263,9 +3263,9 @@ int DistAggregateCommandImp(RedisModuleCtx *ctx, RedisModuleString **argv, int a
     return ReplyBlockDeny(ctx, argv[0]);
   }
 
-  return ConcurrentSearch_HandleRedisCommandEx(DIST_THREADPOOL, CMDCTX_NO_GIL,
-                                               dist_callback, ctx, argv, argc,
-                                               StrongRef_Demote(spec_ref));
+  return ConcurrentSearch_HandleRedisCommandExWithNumShards(
+      DIST_THREADPOOL, CMDCTX_NO_GIL, dist_callback, ctx, argv, argc, StrongRef_Demote(spec_ref),
+      NumShards);
 }
 
 static void CursorCommandInternal(RedisModuleCtx *ctx, RedisModuleString **argv, int argc, struct ConcurrentCmdCtx *cmdCtx) {
