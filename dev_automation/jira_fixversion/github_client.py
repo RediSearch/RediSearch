@@ -30,6 +30,7 @@ class PRMeta:
     head_sha: str
     state: str
     url: str
+    is_fork: bool = False  # head repo differs from base repo
 
 
 class GitHubClient:
@@ -60,12 +61,15 @@ class GitHubClient:
         resp = self._request("GET", f"/repos/{self.org}/{repo}/pulls/{number}")
         resp.raise_for_status()
         pr = resp.json()
+        head_repo = ((pr.get("head") or {}).get("repo") or {}).get("full_name", "")
+        base_repo = ((pr.get("base") or {}).get("repo") or {}).get("full_name", "")
         return PRMeta(
             base_branch=pr["base"]["ref"],
             head_branch=pr["head"]["ref"],
             head_sha=pr["head"]["sha"],
             state=("MERGED" if pr.get("merged_at") else pr.get("state", "").upper()),
             url=pr.get("html_url", ""),
+            is_fork=bool(head_repo and base_repo and head_repo != base_repo),
         )
 
     def read_version_h(self, repo: str, ref: str, path: str = "src/version.h") -> str:

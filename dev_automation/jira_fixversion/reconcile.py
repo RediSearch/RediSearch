@@ -24,6 +24,7 @@ from __future__ import annotations
 
 import argparse
 import logging
+import re
 import sys
 
 import requests
@@ -76,7 +77,11 @@ class Agent:
     def run_event(self, event: PrEvent) -> None:
         """Event-driven path (design §5.1): act on a single PR's linked tickets.
 
-        Entry point is the MOD issue key(s) the PR references (branch/title/body).
+        Entry point is the MOD issue key(s) the PR references in the **branch name
+        and PR title** — the fields the GitHub-for-Jira app uses to associate a PR
+        with a ticket. The PR *body* is intentionally not scanned: a free-form
+        mention like "depends on MOD-123" must not cause a write to MOD-123.
+
         For each eligible ticket we run the same per-PR matching as the scheduled
         path, against authoritative GitHub data. Unlinked / ineligible / out-of-repo
         PRs are silent no-ops.
@@ -84,12 +89,12 @@ class Agent:
         if event.repo not in RULED_REPOS:
             log.info("PR repo %r has no rule; no-op", event.repo)
             return
-        if self.cfg.event_internal_prs_only and event.is_fork:
-            log.info("Skipping fork PR %s#%s in event path (internal-only); the "
-                     "scheduled reconciliation will cover it", event.repo, event.number)
+        if self.cfg.skip_fork_prs and event.is_fork:
+            log.info("Skipping fork PR %s#%s in event path; the scheduled "
+                     "reconciliation will cover it", event.repo, event.number)
             return
 
-        keys = extract_issue_keys(event.head_ref, event.title, event.body)
+        keys = extract_issue_keys(event.head_ref, event.title)
         if not keys:
             log.info("No MOD issue keys referenced by %s#%s; no-op", event.repo, event.number)
             return
@@ -134,6 +139,21 @@ class Agent:
         meta = self.github.get_pull_request(link.repo, link.number)
         handler = handlers_for_repo(link.repo)
         if handler is None:
+            return
+
+        # Fork guard for BOTH paths: GitHub-for-Jira links a PR from an issue key
+        # in its branch/title, so a fork PR can reach the scheduled path too. Skip
+        # it unless forks are explicitly allowed, so an external contributor cannot
+        # write fixVersions with the bot's credentials.
+        if self.cfg.skip_fork_prs and meta.is_fork:
+            log.info("%s: skipping fork PR %s/#%s", ticket.key, link.repo, link.number)
+            return
+
+        # A PR closed without merging (declined/abandoned) never landed, so it must
+        # not mark the ticket as fixed. Open and merged PRs are still processed.
+        if meta.state == "CLOSED":
+            log.info("%s: PR %s/#%s closed without merge; skipping",
+                     ticket.key, link.repo, link.number)
             return
 
         pr = PullRequest(
@@ -222,6 +242,9 @@ def main(argv=None) -> int:
     cfg = Config.from_env()
     agent = Agent(cfg, dry_run=args.dry_run)
     if args.ticket:
+        # Defense in depth: --ticket may originate from a workflow_dispatch input.
+        if not re.fullmatch(r"MOD-\d+", args.ticket):
+            parser.error(f"--ticket must be a MOD issue key (got {args.ticket!r})")
         agent.run_single(args.ticket)
     else:
         agent.run_reconciliation()

@@ -66,8 +66,18 @@ jobs:
           SLACK_WEBHOOK_URL_FIX_VERSION: ${{ secrets.SLACK_WEBHOOK_URL_FIX_VERSION }}
           # Testing-only override; empty in scheduled runs.
           JFV_REDISEARCH_RELEASE_TEMPLATE: ${{ inputs.redisearch_release_template }}
+          # workflow_dispatch inputs are passed via env (never interpolated into
+          # the run script) to avoid shell injection from user-controlled values.
+          INPUT_DRY_RUN: ${{ inputs.dry_run }}
+          INPUT_TICKET: ${{ inputs.ticket }}
+          INPUT_LOG_LEVEL: ${{ inputs.log_level }}
         run: |
-          python -m dev_automation.jira_fixversion.reconcile \
-            ${{ inputs.dry_run && '--dry-run' || '' }} \
-            ${{ inputs.ticket && format('--ticket {0}', inputs.ticket) || '' }} \
-            --log-level "${{ inputs.log_level || 'INFO' }}"
+          set -euo pipefail
+          args=(--log-level "${INPUT_LOG_LEVEL:-INFO}")
+          if [ "${INPUT_DRY_RUN:-false}" = "true" ]; then
+            args+=(--dry-run)
+          fi
+          if [ -n "${INPUT_TICKET:-}" ]; then
+            args+=(--ticket "${INPUT_TICKET}")
+          fi
+          python -m dev_automation.jira_fixversion.reconcile "${args[@]}"

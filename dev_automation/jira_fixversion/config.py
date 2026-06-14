@@ -75,10 +75,10 @@ class Config:
     redisearch_template: str = "RediSearch v{X}.{Y}.{Z}"
     enterprise_template: str = "RediSearchEnterprise v{X}.{Y}.{Z}"
 
-    # Event path: by default skip fork PRs (head repo != base repo) so an
-    # external contributor cannot write fixVersions to MOD tickets they
-    # reference. Forks are still covered by the trusted scheduled reconciliation.
-    event_internal_prs_only: bool = True
+    # Skip fork PRs (head repo != base repo) in BOTH the event and scheduled
+    # paths, so an external contributor cannot cause fixVersions to be written
+    # with the bot's credentials by referencing a MOD key. Set false to opt in.
+    skip_fork_prs: bool = True
 
     @classmethod
     def from_env(cls) -> "Config":
@@ -96,5 +96,5 @@ class Config:
                                  or "RediSearch v{X}.{Y}.{Z}"),
             enterprise_template=(os.environ.get("JFV_ENTERPRISE_RELEASE_TEMPLATE", "").strip()
                                  or "RediSearchEnterprise v{X}.{Y}.{Z}"),
-            event_internal_prs_only=_env_bool("JFV_EVENT_INTERNAL_PRS_ONLY", True),
+            skip_fork_prs=_env_bool("JFV_SKIP_FORK_PRS", True),
         )

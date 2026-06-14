@@ -40,8 +40,16 @@ The matching engine is side-effect-free and fully unit-tested offline.
 `event-pr-jira-fixversion.yml` uses `pull_request_target` (secrets available, runs
 the trusted base-branch workflow; PR head code is never checked out or run). To
 stop an external contributor writing fixVersions to MOD tickets they merely
-reference, the event path **skips fork PRs by default** (`JFV_EVENT_INTERNAL_PRS_ONLY`,
-default `true`); fork PRs are still covered by the trusted scheduled reconciliation.
+reference:
+
+- **Fork PRs are skipped in both paths by default** (`JFV_SKIP_FORK_PRS`, default
+  `true`) — a fork PR can otherwise be linked by GitHub-for-Jira (issue key in the
+  branch/title) and reach the scheduled path too.
+- The event path resolves the ticket only from the **branch name and PR title**
+  (not the PR body), so a "depends on MOD-123" mention does not trigger a write.
+- A PR **closed without merging** is skipped (never marks a ticket as fixed).
+- `workflow_dispatch` inputs are passed via env vars, never interpolated into the
+  shell, and `--ticket` is validated against `MOD-\d+` (no script injection).
 
 ## Configuration (environment variables)
 
@@ -52,7 +60,7 @@ default `true`); fork PRs are still covered by the trusted scheduled reconciliat
 | `GITHUB_ORG` | Owner org for the repos (default `RediSearch`) |
 | `SLACK_WEBHOOK_URL_FIX_VERSION` | Slack Workflow Builder webhook; alert text is sent as the `payload` variable. Absent → stub mode (logs only) |
 | `SLACK_BOT_TOKEN`, `SLACK_RELEASES_CHANNEL_ID` | Fallback `chat.postMessage` alerting if no webhook is set |
-| `JFV_EVENT_INTERNAL_PRS_ONLY` | Event path skips fork PRs (default `true`) |
+| `JFV_SKIP_FORK_PRS` | Skip fork PRs in both paths (default `true`) |
 | `JFV_REDISEARCH_RELEASE_TEMPLATE`, `JFV_ENTERPRISE_RELEASE_TEMPLATE` | Override exact release-name templates (testing) |
 
 ## Running

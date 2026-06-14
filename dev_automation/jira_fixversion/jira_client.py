@@ -10,6 +10,7 @@
 from __future__ import annotations
 
 import logging
+import re
 import time
 from dataclasses import dataclass, field
 from typing import Optional
@@ -135,12 +136,21 @@ class JiraClient:
         links: list[PRLink] = []
         for detail in data.get("detail", []):
             for pr in detail.get("pullRequests", []):
+                url = pr.get("url", "")
+                # The PR `url` is the stable GitHub field. `id` is a provider
+                # entity id (e.g. "#123" or a database id) and repositoryName may
+                # be absent, so prefer parsing the url for repo + number.
+                repo, number = _parse_pr_url(url)
+                if not repo:
+                    repo = _repo_name(pr.get("repositoryName") or pr.get("repositoryUrl", ""))
+                if not number:
+                    number = _pr_number(pr.get("id", ""))
                 links.append(
                     PRLink(
-                        repo=_repo_name(pr.get("repositoryName") or pr.get("repositoryUrl", "")),
-                        number=_pr_number(pr.get("id", "")),
+                        repo=repo,
+                        number=number,
                         state=(pr.get("status") or "").upper(),
-                        url=pr.get("url", ""),
+                        url=url,
                     )
                 )
         return links
@@ -150,6 +160,17 @@ class JiraClient:
     def add_fix_version(self, issue_key: str, version_id: str) -> None:
         body = {"update": {"fixVersions": [{"add": {"id": version_id}}]}}
         self._request("PUT", f"/rest/api/3/issue/{issue_key}", json=body)
+
+
+_PR_URL_RE = re.compile(r"github\.com/[^/]+/([^/]+)/pull/(\d+)")
+
+
+def _parse_pr_url(url: str) -> tuple[str, int]:
+    """Extract ``(repo, number)`` from a GitHub PR URL; ``("", 0)`` if it doesn't match."""
+    m = _PR_URL_RE.search(url or "")
+    if not m:
+        return "", 0
+    return m.group(1), int(m.group(2))
 
 
 def _repo_name(repo_field: str) -> str:

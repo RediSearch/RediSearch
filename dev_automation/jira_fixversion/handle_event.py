@@ -65,7 +65,7 @@ def main(argv=None) -> int:
 
     cfg = Config.from_env()
     if args.include_forks:
-        cfg.event_internal_prs_only = False
+        cfg.skip_fork_prs = False
     agent = Agent(cfg, dry_run=args.dry_run)
     agent.run_event(event)
     return 0
