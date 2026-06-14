@@ -261,8 +261,7 @@ def test_collect_limit_at_configured_max_succeeds():
 def test_collect_limit_offset_plus_count_over_max_succeeds():
     """offset and count are each within the cap, but their sum exceeds it. In
     cluster mode the shard LIMIT is rewritten to `0 (offset+count)`, which must
-    not be re-rejected against the cap (regression: valid query failed on shards
-    with 'LIMIT count exceeds maximum')."""
+    not be re-rejected against the cap."""
     env = Env(protocol=3)
     enable_unstable_features(env)
     env.expect(config_cmd(), 'set', 'MAXAGGREGATERESULTS', 2).ok()
