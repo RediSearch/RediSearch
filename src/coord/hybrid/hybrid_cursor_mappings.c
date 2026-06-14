@@ -16,19 +16,18 @@
 #include "shard_window_ratio.h"
 #include <string.h>
 #include "info/global_stats.h"
+#include "aggregate/aggregate.h"  // RequestSyncCtx + abort-wake channel API
 
 #define INTERNAL_HYBRID_RESP3_LENGTH 6
 #define INTERNAL_HYBRID_RESP2_LENGTH 6
 
+// Lock-free: every field is written only by the single IO thread that runs this
+// iterator's callbacks (each MRIterator is pinned to one ioRuntime). Completion and
+// timeout are the MRChannel's job, so no mutex or counter lives here.
 typedef struct {
     StrongRef searchMappings;
     StrongRef vsimMappings;
-    arrayof(QueryError) errors;
-    size_t responseCount;
-    pthread_mutex_t *mutex;           // Mutex for array access and completion tracking
-    pthread_cond_t *completionCond;   // Condition variable for completion signaling
-    int numShards;                    // Total number of expected shards
-    bool initialized;                 // Whether numShards has been set by the IO thread
+    arrayof(QueryError) errors;       // NULL until the first IO-thread append
     HybridKnnContext *knnCtx;         // KNN context for SHARD_K_RATIO optimization (may be NULL)
 } processCursorMappingCallbackContext;
 
@@ -195,9 +194,6 @@ static void processCursorMappingCallback(MRIteratorCallbackCtx *ctx, MRReply *re
     MRCommand *cmd = MRIteratorCallback_GetCommand(ctx);
 
     const int replyType = MRReply_Type(rep);
-    pthread_mutex_lock(cb_ctx->mutex);
-    // add under a lock, allows the coordinator to know when all responses have arrived
-    cb_ctx->responseCount++;
     if (replyType == MR_REPLY_ERROR) {
         processHybridError(cb_ctx, rep);
     } else if (replyType == MR_REPLY_MAP) {
@@ -210,50 +206,33 @@ static void processCursorMappingCallback(MRIteratorCallbackCtx *ctx, MRReply *re
         processHybridUnknownReplyType(cb_ctx, replyType);
     }
 
-    // we must notify the coordinator a response has arrived, even if it's an error
-    pthread_cond_signal(cb_ctx->completionCond);
-    pthread_mutex_unlock(cb_ctx->mutex);
-
+    // The mapping writes above happen-before this Done; on the last shard it drops
+    // inProcess to 0 and unblocks the channel, publishing them to the waiting
+    // coordinator. The callback never pushes a reply — the channel is purely the
+    // completion/timeout signal.
     MRIteratorCallback_Done(ctx, 0);
     MRReply_Free(rep);
 }
 
-// No-reply error callback: bumps responseCount and records a communication
-// error so the wait loop below (which keys completion off responseCount, not
-// iterator depletion) unblocks instead of hanging.
+// No-reply termination hook (see MRIteratorErrorCallback): just record the comms
+// error. The MR layer drives completion via MRIteratorCallback_Done next.
 static void processCursorMappingErrorCallback(MRIteratorCallbackCtx *ctx) {
     processCursorMappingCallbackContext *cb_ctx = (processCursorMappingCallbackContext *)MRIteratorCallback_GetPrivateData(ctx);
     RS_ASSERT(cb_ctx);
 
-    pthread_mutex_lock(cb_ctx->mutex);
-    cb_ctx->responseCount++;
     QueryError error = QueryError_Default();
     QueryError_SetCode(&error, QUERY_ERROR_CODE_GENERIC);
     // Shared with the MR iterator no-reply path (pre-fanout connection-validation failure).
     QueryError_SetDetail(&error, CLUSTER_QUERY_ERROR);
     cb_ctx->errors = array_ensure_append_1(cb_ctx->errors, error);
-    pthread_cond_signal(cb_ctx->completionCond);
-    pthread_mutex_unlock(cb_ctx->mutex);
 }
 
-// Init callback for the private data, so that numShards is set to the actual number of shards in the cluster, and the expected responses.
-static void processCursorMappingInit(void *privateData, const MRIterator *it) {
+// Frees the callback context. Registered as the iterator's cbPrivateDataDestructor,
+// so MRIterator_Free runs it only after the last writer finishes (inProcess == 0).
+// That lets the coordinator release the iterator on the timeout path without racing
+// late callbacks: ctx and the cloned mapping refs outlive every writer.
+static void freeCursorMappingCtx(void *privateData) {
     processCursorMappingCallbackContext *ctx = (processCursorMappingCallbackContext *)privateData;
-    int actualNumShards = (int)MRIterator_GetNumShards(it);
-    pthread_mutex_lock(ctx->mutex);
-    ctx->numShards = actualNumShards;
-    ctx->initialized = true;
-    ctx->errors = array_new(QueryError, actualNumShards);
-    // Signal so the coordinator can re-check the wait condition.
-    pthread_cond_signal(ctx->completionCond);
-    pthread_mutex_unlock(ctx->mutex);
-}
-
-static inline void cleanupCtx(processCursorMappingCallbackContext *ctx) {
-    pthread_mutex_destroy(ctx->mutex);
-    pthread_cond_destroy(ctx->completionCond);
-    rm_free(ctx->mutex);
-    rm_free(ctx->completionCond);
     StrongRef_Release(ctx->searchMappings);
     StrongRef_Release(ctx->vsimMappings);
     array_free_ex(ctx->errors, QueryError_ClearError((QueryError*)ptr));
@@ -279,30 +258,18 @@ void HybridKnnCommandModifier(MRCommand *cmd, size_t numShards, void *privateDat
     HybridKnnApplyShardKRatio(cmd, numShards, ctx->knnCtx);
 }
 
-bool ProcessHybridCursorMappings(const MRCommand *cmd, StrongRef searchMappingsRef, StrongRef vsimMappingsRef, HybridKnnContext *knnCtx, QueryError *status, const RSOomPolicy oomPolicy, const RSTimeoutPolicy timeoutPolicy, bool *maxPrefixSearch, bool *maxPrefixVsim) {
+bool ProcessHybridCursorMappings(const MRCommand *cmd, StrongRef searchMappingsRef, StrongRef vsimMappingsRef, HybridKnnContext *knnCtx, QueryError *status, const RSOomPolicy oomPolicy, const RSTimeoutPolicy timeoutPolicy, bool *maxPrefixSearch, bool *maxPrefixVsim, const struct timespec *deadline, RequestSyncCtx *syncCtx) {
     CursorMappings *searchMappings = StrongRef_Get(searchMappingsRef);
     CursorMappings *vsimMappings = StrongRef_Get(vsimMappingsRef);
     RS_ASSERT(array_len(searchMappings->mappings) == 0 && array_len(vsimMappings->mappings) == 0);
 
-    // Allocate callback context on heap (since MR_IterateWithPrivateData is asynchronous)
+    // Heap-allocated because the iterator runs asynchronously; freed by
+    // freeCursorMappingCtx (the iterator's destructor).
     processCursorMappingCallbackContext *ctx = rm_malloc(sizeof(processCursorMappingCallbackContext));
-
-    // Initialize synchronization primitives on heap
-    ctx->mutex = rm_malloc(sizeof(pthread_mutex_t));
-    ctx->completionCond = rm_malloc(sizeof(pthread_cond_t));
-    pthread_mutex_init(ctx->mutex, NULL);
-    pthread_cond_init(ctx->completionCond, NULL);
-
-    // Setup callback context
     *ctx = (processCursorMappingCallbackContext) {
         .searchMappings = StrongRef_Clone(searchMappingsRef),
         .vsimMappings = StrongRef_Clone(vsimMappingsRef),
         .errors = NULL,
-        .responseCount = 0,
-        .mutex = ctx->mutex,
-        .completionCond = ctx->completionCond,
-        .numShards = 0,
-        .initialized = false,
         .knnCtx = knnCtx,  // Store KNN context for command modifier callback
       };
 
@@ -310,34 +277,53 @@ bool ProcessHybridCursorMappings(const MRCommand *cmd, StrongRef searchMappingsR
     // optimization)
     MRCommandModifier cmdModifier = knnCtx ? &HybridKnnCommandModifier : NULL;
 
-    // Start iteration (ctx is cleaned up manually in cleanupCtx, no destructor needed)
-    // processCursorMappingInit is called from iterStartCb to update ctx->numShards
-    // with the actual shard count from the live topology, preventing use-after-free
-    // when topology changes during shard migration.
+    // No cbPrivateDataInit: the iterator owns the expected-response count (it->len /
+    // inProcess), so completion is simply inProcess == 0 — no hybrid-local mirror.
     MRIterator *it = MR_IterateWithPrivateData(cmd, &(MRIteratorConfig){
         .successCB = processCursorMappingCallback,
         .errorCB = processCursorMappingErrorCallback,
         .cbPrivateData = ctx,
-        .cbPrivateDataInit = processCursorMappingInit,
+        .cbPrivateDataDestructor = freeCursorMappingCtx,
         .commandModifier = cmdModifier,
         .iterStartCb = iterStartCb,
     });
     if (!it) {
         // Cleanup on error
         QueryError_SetWithoutUserDataFmt(status, QUERY_ERROR_CODE_GENERIC, "Failed to communicate with shards");
-        cleanupCtx(ctx);
+        freeCursorMappingCtx(ctx);
         return false;
     }
-    // Wait for all callbacks to complete
-    pthread_mutex_lock(ctx->mutex);
-    // Wait until either:
-    // 1. Normal completion: IO thread initialized numShards and all responses arrived
-    // 2. Early failure: We got a response before initialization (e.g., connection validation failed)
-    //    In this case, responseCount > 0 but initialized is false - we should unblock.
-    while (ctx->responseCount == 0 || (ctx->initialized && ctx->responseCount < ctx->numShards)) {
-        pthread_cond_wait(ctx->completionCond, ctx->mutex);
+
+    // Register the iterator's channel so an external abort - the coordinator timeout
+    // callback (RequestSyncCtx_WakeAbortChannel) or a client disconnect - can wake
+    // this wait promptly. Unregistered below before the iterator is released; mirrors
+    // the RPNet read path.
+    RequestSyncCtx_RegisterAbortWakeChannel(syncCtx, MRIterator_GetChannel(it));
+
+    // Wait on the channel: it unblocks when inProcess hits 0 (normal completion) or
+    // when the deadline/abort fires. Both are passed because `deadline` is NULL under
+    // RETURN-STRICT / disabled timeout checks, where syncCtx->timedOut is the only
+    // wake; passing neither re-introduces the unbounded wait — the MOD-15394/16145
+    // hang (chan.c asserts at least one is non-NULL).
+    bool timedOut = false;
+    MRReply *r = MRIterator_NextWithTimeout(it, deadline, &syncCtx->timedOut, &timedOut);
+    RS_ASSERT(r == NULL);  // the callbacks never AddReply; a non-NULL reply is a bug
+
+    RequestSyncCtx_UnregisterAbortWakeChannel(syncCtx);
+
+    if (timedOut || RS_AtomicBoolLoadRelaxed(&syncCtx->timedOut)) {
+        // Terminal: a shard never replied (the MOD-16145 hang) or the request was
+        // aborted. Late callbacks may still be writing mappings/errors, so do NOT
+        // read them — just release (freeCursorMappingCtx frees ctx once they finish).
+        QueryError_SetCode(status, QUERY_ERROR_CODE_TIMED_OUT);
+        MRIterator_Release(it);
+        return false;
     }
-    pthread_mutex_unlock(ctx->mutex);
+
+    // Normal completion: inProcess hit 0, so every callback has run. Postcondition —
+    // search/vsim mappings are paired index-for-index (the early-bailout logic keeps
+    // them in lockstep); catches a malformed reply that slipped past it.
+    RS_ASSERT(array_len(searchMappings->mappings) == array_len(vsimMappings->mappings));
 
     bool success = true;
     if (array_len(ctx->errors)) {
@@ -377,9 +363,10 @@ bool ProcessHybridCursorMappings(const MRCommand *cmd, StrongRef searchMappingsR
             }
         }
     }
-    // Cleanup
+    // Errors consumed; release drops the reader ref. Setup always depletes on
+    // completion (pending == 0), so this frees the iterator (and ctx) outright with
+    // no FT.CURSOR DEL fan-out.
     MRIterator_Release(it);
-    cleanupCtx(ctx);
 
     return success;
 }

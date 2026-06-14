@@ -769,9 +769,21 @@ static int HybridRequest_prepareCursors(HybridRequest *hreq, QueryError *status)
     const RSTimeoutPolicy timeoutPolicy = hreq->reqConfig.timeoutPolicy;
     bool maxPrefixSearch = false;
     bool maxPrefixVsim = false;
+
+    // Bound the cursor-setup wait the same way the read phase does (getAbsTimeout +
+    // the syncCtx abort flag). The deadline is NULL when timeout checks are disabled
+    // (e.g. RETURN-STRICT); the search subquery's abort flag/channel then unblocks the
+    // wait, woken by DistHybridTimeoutReturnStrictCallback / client disconnect.
+    AREQ *searchReq = hreq->requests[SEARCH_INDEX];
+    RedisSearchCtx *searchSctx = AREQ_SearchCtx(searchReq);
+    const struct timespec *deadline =
+        (searchSctx && AREQ_ShouldCheckTimeout(searchReq))
+            ? (const struct timespec *)&searchSctx->time.timeout
+            : NULL;
+
     // Errors from cursor establishment go into the dispatcher's `status` so
     // DistHybridCleanups can reply with them.
-    if (!ProcessHybridCursorMappings(cmd, searchMappingsRef, vsimMappingsRef, knnCtx, status, oomPolicy, timeoutPolicy, &maxPrefixSearch, &maxPrefixVsim)) {
+    if (!ProcessHybridCursorMappings(cmd, searchMappingsRef, vsimMappingsRef, knnCtx, status, oomPolicy, timeoutPolicy, &maxPrefixSearch, &maxPrefixVsim, deadline, &searchReq->syncCtx)) {
         // Handle error
         StrongRef_Release(searchMappingsRef);
         StrongRef_Release(vsimMappingsRef);
