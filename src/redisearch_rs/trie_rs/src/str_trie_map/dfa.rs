@@ -52,8 +52,8 @@
 //! `Between`. Mid-codepoint positions are never accepting — that's the
 //! invariant that fixes the mid-codepoint panic in the char-keyed iterator.
 
-use crate::trie_map::node::Node;
 use crate::str_trie_map::StrTrieMap;
+use crate::trie_map::node::Node;
 
 // ---------------------------------------------------------------------------
 // Query byte-prefix trie
@@ -335,7 +335,9 @@ impl SparseAutomaton {
             return (
                 JointState {
                     sparse: sparse.clone(),
-                    decoder: LiftedDecoderState::OnQueryPrefix { trie_idx: child_idx },
+                    decoder: LiftedDecoderState::OnQueryPrefix {
+                        trie_idx: child_idx,
+                    },
                 },
                 ByteStep::Pending,
             );
@@ -392,7 +394,9 @@ impl SparseAutomaton {
             return (
                 JointState {
                     sparse: sparse.clone(),
-                    decoder: LiftedDecoderState::OnQueryPrefix { trie_idx: child_idx },
+                    decoder: LiftedDecoderState::OnQueryPrefix {
+                        trie_idx: child_idx,
+                    },
                 },
                 ByteStep::Pending,
             );
@@ -1310,10 +1314,18 @@ mod tests {
     #[test]
     fn dfa_node_count_is_bounded() {
         let dfa = Dfa::build("abc", 1);
-        assert!(dfa.node_count() < 100, "ASCII DFA too large: {}", dfa.node_count());
+        assert!(
+            dfa.node_count() < 100,
+            "ASCII DFA too large: {}",
+            dfa.node_count()
+        );
 
         let dfa = Dfa::build("é", 0);
-        assert!(dfa.node_count() < 50, "single multi-byte DFA too large: {}", dfa.node_count());
+        assert!(
+            dfa.node_count() < 50,
+            "single multi-byte DFA too large: {}",
+            dfa.node_count()
+        );
 
         // Heavier query: multi-codepoint mixed widths, larger max.
         let dfa = Dfa::build("café中文", 2);

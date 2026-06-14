@@ -276,13 +276,13 @@ mod tests {
             "中文",
             "日本語",
             "Ωμέγα",
-            "𝄞𝄢",         // U+1D11E G clef + U+1D122 F clef (4-byte)
+            "𝄞𝄢",           // U+1D11E G clef + U+1D122 F clef (4-byte)
             "🦀🚀🔥",       // emoji
-            "a\u{0800}b",  // smallest 3-byte after ASCII flip-flop
-            "a\u{D7FF}b",  // just below surrogate range
-            "a\u{E000}b",  // just above surrogate range
-            "a\u{FFFF}b",  // BMP max
-            "a\u{10000}b", // smallest supplementary
+            "a\u{0800}b",   // smallest 3-byte after ASCII flip-flop
+            "a\u{D7FF}b",   // just below surrogate range
+            "a\u{E000}b",   // just above surrogate range
+            "a\u{FFFF}b",   // BMP max
+            "a\u{10000}b",  // smallest supplementary
             "a\u{10FFFF}b", // largest codepoint
         ];
         for s in inputs {
