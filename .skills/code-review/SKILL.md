@@ -201,8 +201,17 @@ behavior that affects accepted input or observable output.
 Internal commands count. A command being `_FT.*`, `FT._*`, proxy-filtered, debug-only,
 or not documented for users does not make incompatible changes safe.
 
+Review both backward and forward compatibility on every changed interface. Backward
+compatibility means new code can consume input, replies, or data produced by older
+supported versions. Forward compatibility means older supported consumers can tolerate
+what new producers send on mixed-version or independently upgraded paths. This usually
+requires keeping the old form until a version/capability gate allows the new form, or
+ensuring old consumers already ignore unknown optional fields.
+
 Flag as blocking unless the PR has an explicit compatibility story when it:
 - Adds a new mandatory argument, token, subcommand field, or serialized field.
+- Sends a new optional argument, token, reply element, or serialized field to a consumer
+  that may be old or independently upgraded and does not ignore unknown fields.
 - Makes an optional argument required.
 - Removes or renames an accepted command, alias, argument, token, reply field, or
   serialized field.
