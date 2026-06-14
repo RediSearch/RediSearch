@@ -36,7 +36,6 @@ typedef struct {
 // forward declaration of QueryError
 typedef struct QueryError QueryError;
 
-// forward declaration of RequestSyncCtx (defined in aggregate/aggregate.h)
 typedef struct RequestSyncCtx RequestSyncCtx;
 struct timespec;
 

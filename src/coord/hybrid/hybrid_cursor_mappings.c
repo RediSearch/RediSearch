@@ -281,8 +281,7 @@ bool ProcessHybridCursorMappings(const MRCommand *cmd, StrongRef searchMappingsR
 
     // Register the iterator's channel so an external abort - the coordinator timeout
     // callback (RequestSyncCtx_WakeAbortChannel) or a client disconnect - can wake
-    // this wait promptly. Unregistered below before the iterator is released; mirrors
-    // the RPNet read path.
+    // this wait promptly. Unregistered below before the iterator is released.
     RequestSyncCtx_RegisterAbortWakeChannel(syncCtx, MRIterator_GetChannel(it));
 
     // Wait on the channel: it unblocks when inProcess hits 0 (normal completion) or
