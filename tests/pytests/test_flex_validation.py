@@ -438,6 +438,51 @@ def test_flex_disk_hnsw_rerank_requires_true_value(env):
 
 
 @skip(cluster=True)
+@with_simulate_in_flex(False)
+def test_ram_hnsw_rerank_rejected(env):
+    # In RAM mode RERANK is a disk-only option and must be rejected outright,
+    # including the otherwise-valid RERANK TRUE form (MOD-16015).
+    err = 'RERANK is only supported for disk-based vector indexes'
+
+    env.expect(
+        'FT.CREATE', 'idx_true', 'ON', 'HASH', 'SCHEMA',
+        'v', 'VECTOR', 'HNSW', '8',
+        'TYPE', 'FLOAT32',
+        'DIM', '2',
+        'DISTANCE_METRIC', 'L2',
+        'RERANK', 'TRUE',
+    ).error().contains(err)
+
+    env.expect(
+        'FT.CREATE', 'idx_false', 'ON', 'HASH', 'SCHEMA',
+        'v', 'VECTOR', 'HNSW', '8',
+        'TYPE', 'FLOAT32',
+        'DIM', '2',
+        'DISTANCE_METRIC', 'L2',
+        'RERANK', 'FALSE',
+    ).error().contains(err)
+
+    env.expect(
+        'FT.CREATE', 'idx_no_value', 'ON', 'HASH', 'SCHEMA',
+        'v', 'VECTOR', 'HNSW', '7',
+        'TYPE', 'FLOAT32',
+        'DIM', '2',
+        'DISTANCE_METRIC', 'L2',
+        'RERANK',
+    ).error().contains(err)
+
+    env.expect(
+        'FT.CREATE', 'idx_dup', 'ON', 'HASH', 'SCHEMA',
+        'v', 'VECTOR', 'HNSW', '10',
+        'TYPE', 'FLOAT32',
+        'DIM', '2',
+        'DISTANCE_METRIC', 'L2',
+        'RERANK', 'TRUE',
+        'RERANK', 'TRUE',
+    ).error().contains(err)
+
+
+@skip(cluster=True)
 @with_simulate_in_flex(True)
 def test_disk_vector_query_validation(env: Env):
 
