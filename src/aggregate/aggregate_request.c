@@ -1136,7 +1136,7 @@ int AREQ_Compile(AREQ *req, RedisModuleString **argv, int argc, QueryError *stat
   if (IsInternal(req) && !req->querySlots) {
     // Coordinators older than 8.4 do not send a slots specification. Fall back to the
     // current local slots so rolling upgrades across the 8.4 boundary keep working.
-    req->querySlots = ASM_FallbackToLocalSlots(ctx, &req->keySpaceVersion);
+    req->querySlots = ASM_FallbackToLocalSlots(&req->keySpaceVersion);
     if (req->keySpaceVersion != INVALID_KEYSPACE_VERSION) {
       ASM_KeySpaceVersionTracker_IncreaseQueryCount(req->keySpaceVersion);
     }

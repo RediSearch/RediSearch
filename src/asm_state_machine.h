@@ -264,8 +264,7 @@ static int ASM_AccountRequestFinished(uint32_t keySpaceVersion, size_t innerQuer
  * slots tracker access.
  * @return The current local slots. The caller is responsible for freeing them with rm_free.
  */
-static inline const RedisModuleSlotRangeArray *ASM_FallbackToLocalSlots(RedisModuleCtx *ctx,
-                                                                        uint32_t *keySpaceVersion) {
+static inline const RedisModuleSlotRangeArray *ASM_FallbackToLocalSlots(uint32_t *keySpaceVersion) {
   // Expected only while a rolling upgrade is in progress, but fires on every internal
   // query for its duration - log the first occurrence and then every 100th to avoid
   // flooding the log. Like the rest of this function (and the slots tracker access
@@ -273,7 +272,7 @@ static inline const RedisModuleSlotRangeArray *ASM_FallbackToLocalSlots(RedisMod
   // needs no synchronization.
   static uint64_t fallbackCount = 0;
   if (fallbackCount++ % 100 == 0) {
-    RedisModule_Log(ctx, "notice",
+    RedisModule_Log(NULL, "notice",
                     "Internal query received without " SLOTS_STR
                     " (sent by a coordinator older than 8.4?). "
                     "Falling back to the shard's current local slots");
