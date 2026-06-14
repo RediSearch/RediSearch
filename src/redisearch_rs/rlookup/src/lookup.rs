@@ -290,7 +290,6 @@ impl<'a> RLookup<'a> {
                 .push(RLookupKey::new(name, flags | RLookupKeyFlag::QuerySrc))
         };
 
-        // `Pin::get_ref` is safe: a shared reference cannot move the pinned key out.
         Some(key.into_ref().get_ref())
     }
 
