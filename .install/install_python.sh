@@ -4,6 +4,7 @@ set -exo pipefail
 processor=$(uname -m)
 OS_TYPE=$(uname -s)
 MIN_UV_VERSION=0.9.13
+source "$(dirname "${BASH_SOURCE[0]}")/version_compare.sh"
 
 # Always install to the current user's HOME directory
 # In containers: HOME=/root (running as root)
@@ -18,7 +19,7 @@ export PATH="$UV_INSTALL_DIR:$PATH"
 # repo. This keeps bootstrap idempotent without accepting stale uv binaries
 # from the system or a previous manual install.
 have_ver="$(uv --version 2>/dev/null | awk '/^uv / {print $2; exit}' || true)"
-if [[ -n "$have_ver" && "$(printf '%s\n' "$MIN_UV_VERSION" "$have_ver" | sort -V | head -1)" == "$MIN_UV_VERSION" ]]; then
+if [[ -n "$have_ver" ]] && version_ge "$have_ver" "$MIN_UV_VERSION"; then
     echo "uv $have_ver already installed (>= required $MIN_UV_VERSION) at $(command -v uv) - skipping installer"
 else
     if [[ -n "$have_ver" ]]; then

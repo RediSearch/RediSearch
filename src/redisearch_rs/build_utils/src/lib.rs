@@ -16,39 +16,13 @@ use std::{
 };
 
 /// Return the root folder of the repository.
-pub fn repository_root() -> Result<std::path::PathBuf, Box<dyn std::error::Error>> {
-    if let Ok(root) = env::var("REDISEARCH_REPO_ROOT") {
-        let root = PathBuf::from(root);
-        if is_redisearch_root(&root) {
-            return Ok(root);
-        }
-        return Err(format!(
-            "REDISEARCH_REPO_ROOT does not point to a RediSearch source root: {}",
-            root.display()
-        )
-        .into());
-    }
-
-    let mut path = std::env::current_dir()?;
-    // Jujutsu (`jj`) doesn't colocate with `git` when using `jj workspace add`,
-    // so looking for `.git` won't be enough.
-    while !(path.join(".git").exists() || path.join(".jj").exists() || is_redisearch_root(&path)) {
-        path = path
-            .parent()
-            .ok_or("Could not find RediSearch source root")?
-            .to_path_buf();
-    }
-    Ok(path)
-}
-
-fn is_redisearch_root(path: &Path) -> bool {
-    path.join("CMakeLists.txt").is_file()
-        && path
-            .join("src")
-            .join("redisearch_rs")
-            .join("Cargo.toml")
-            .is_file()
-        && path.join("src").join("version.h").is_file()
+///
+/// `build_utils` lives at `src/redisearch_rs/build_utils`, so its Cargo manifest
+/// directory is a stable anchor even when source archives omit VCS metadata.
+pub fn repository_root() -> Result<PathBuf, Box<dyn std::error::Error>> {
+    Ok(PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+        .join("../../..")
+        .canonicalize()?)
 }
 
 fn rerun_if_changes(dir: &Path, extensions: &[&str]) -> std::io::Result<()> {
