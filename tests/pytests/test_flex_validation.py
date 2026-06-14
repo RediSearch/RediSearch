@@ -475,6 +475,9 @@ def test_ram_hnsw_rerank_rejected(env):
         'TYPE', 'FLOAT32',
         'DIM', '2',
         'DISTANCE_METRIC', 'L2',
+        # RERANK supplied twice on purpose: the guard must reject it before the
+        # duplicate-detection check, so the error is the disk-only one (not
+        # "Duplicate RERANK parameter").
         'RERANK', 'TRUE',
         'RERANK', 'TRUE',
     ).error().contains(err)
