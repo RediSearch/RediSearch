@@ -4135,6 +4135,20 @@ def test_internal_commands(env):
         fail_eval_call(r, env, ['SEARCH.CLUSTERREFRESH'])
         fail_eval_call(r, env, ['SEARCH.CLUSTERINFO'])
 
+@skip(cluster=False)
+def test_internal_protocol_args_ignored(env):
+    """Forward compatibility (MOD-16047): newer coordinators inject internal
+    arguments that this branch does not use, but old shards must consume them."""
+    env.expect('FT.CREATE', 'idx', 'SCHEMA', 'n', 'NUMERIC').ok()
+
+    prefixes = ('_INDEX_PREFIXES', '1', 'doc:')
+    slots_info = ('_SLOTS_INFO', b'\x01\x00\x00\x00\x00\x00\xff\x3f')
+    dispatch_time = ('_COORD_DISPATCH_TIME', '1000000')
+
+    env.expect('_FT.SEARCH', 'idx', '*', *prefixes, *slots_info, *dispatch_time).noError()
+    env.expect('_FT.AGGREGATE', 'idx', '*', *prefixes, *slots_info, *dispatch_time,
+               'LOAD', '1', '@n').noError()
+
 def test_timeout_non_strict_policy(env):
     """Tests that we get the wanted behavior for the non-strict timeout policy.
     `ON_TIMEOUT RETURN` - return partial results.
