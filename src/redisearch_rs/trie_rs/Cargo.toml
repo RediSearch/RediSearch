@@ -23,6 +23,8 @@ lending-iterator.workspace = true
 libc.workspace = true
 memchr.workspace = true
 rqe_wildcard.workspace = true
+serde.workspace = true
+serde_bytes.workspace = true
 thiserror.workspace = true
 workspace_hack.workspace = true
 
