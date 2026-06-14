@@ -42,6 +42,18 @@ void IndexResultAsyncRead_SetupAsyncPool(IndexResultAsyncReadState *state,
 // loop terminates; the timeout only bounds how long a single poll waits per turn.
 #define ASYNC_DRAIN_POLL_TIMEOUT_MS 1000
 
+// Pop and free every result currently buffered in `readyResults`, returning
+// each result's DMD. Used by the drain path, where the results are discarded.
+static void IndexResultAsyncRead_DiscardReadyResults(IndexResultAsyncReadState *state) {
+  RSIndexResult *r;
+  while ((r = IndexResultAsyncRead_PopReadyResult(state)) != NULL) {
+    if (r->dmd) {
+      DMD_Return(r->dmd);
+    }
+    IndexResult_Free(r);
+  }
+}
+
 // Wait for every in-flight async read to complete and discard its result.
 //
 // The disk-side pool does NOT cancel or wait for pending reads when freed (see
@@ -54,16 +66,15 @@ void IndexResultAsyncRead_SetupAsyncPool(IndexResultAsyncReadState *state,
 static void IndexResultAsyncRead_Drain(IndexResultAsyncReadState *state) {
   // Value is irrelevant: drained results are discarded regardless of expiration.
   const t_expirationTimePoint expiration = {0};
+  // Consume results already buffered from a prior poll *before* polling again:
+  // IndexResultAsyncRead_Poll fills `readyResults` in place and resets the read
+  // index, so any un-popped entries (readyResultsIndex < len) would otherwise be
+  // overwritten and have their DMDs orphaned and leaked.
+  IndexResultAsyncRead_DiscardReadyResults(state);
   size_t pending;
   do {
     pending = IndexResultAsyncRead_Poll(state, ASYNC_DRAIN_POLL_TIMEOUT_MS, &expiration);
-    RSIndexResult *r;
-    while ((r = IndexResultAsyncRead_PopReadyResult(state)) != NULL) {
-      if (r->dmd) {
-        DMD_Return(r->dmd);
-      }
-      IndexResult_Free(r);
-    }
+    IndexResultAsyncRead_DiscardReadyResults(state);
   } while (pending > 0);
 }
 
@@ -100,7 +111,7 @@ void IndexResultAsyncRead_Free(IndexResultAsyncReadState *state) {
   if (state->readyResults) {
     // Free any remaining DMD data that wasn't consumed
     array_free_ex(state->readyResults, {
-      AsyncReadResult *result = (AsyncReadResult*)ptr;
+      AsyncReadResult *result = (AsyncReadResult *)ptr;
       if (result->dmd) {
         DMD_Return(result->dmd);
       }
@@ -138,7 +149,8 @@ void IndexResultAsyncRead_RefillPool(IndexResultAsyncReadState *state) {
       break;
     }
 
-    // Successfully added to async pool - now remove from iteratorResults and add to pendingResults list
+    // Successfully added to async pool - now remove from iteratorResults and add to pendingResults
+    // list
     dllist_delete(dlnode);
     dllist_append(&state->pendingResults, dlnode);
     state->iteratorResultCount--;
@@ -164,11 +176,11 @@ static void IndexResultAsyncRead_CleanupFailedReads(IndexResultAsyncReadState *s
   }
 }
 
-size_t IndexResultAsyncRead_Poll(IndexResultAsyncReadState *state, uint32_t timeout_ms, const t_expirationTimePoint *expiration_point) {
+size_t IndexResultAsyncRead_Poll(IndexResultAsyncReadState *state, uint32_t timeout_ms,
+                                 const t_expirationTimePoint *expiration_point) {
   // Poll writes directly to the arrays (capacity is poolSize)
   const size_t pendingCount = SearchDisk_PollAsyncReads(
-      state->asyncPool, timeout_ms,
-      state->readyResults, state->failedUserData, expiration_point);
+      state->asyncPool, timeout_ms, state->readyResults, state->failedUserData, expiration_point);
 
   // Reset index to start consuming from the beginning of readyResults
   state->readyResultsIndex = 0;
@@ -179,7 +191,7 @@ size_t IndexResultAsyncRead_Poll(IndexResultAsyncReadState *state, uint32_t time
   return pendingCount;
 }
 
-RSIndexResult* IndexResultAsyncRead_PopReadyResult(IndexResultAsyncReadState *state) {
+RSIndexResult *IndexResultAsyncRead_PopReadyResult(IndexResultAsyncReadState *state) {
   if (state->readyResultsIndex >= array_len(state->readyResults)) {
     return NULL;  // No more ready results
   }
@@ -205,13 +217,9 @@ RSIndexResult* IndexResultAsyncRead_PopReadyResult(IndexResultAsyncReadState *st
 }
 
 bool IndexResultAsyncRead_IsIterationComplete(const IndexResultAsyncReadState *state,
-                                     bool iteratorAtEOF,
-                                     size_t pendingCount) {
+                                              bool iteratorAtEOF, size_t pendingCount) {
   // We're done only if: iterator is at EOF, no ready results, no in-flight async reads,
   // and no buffered results waiting to be submitted
-  return iteratorAtEOF &&
-         array_len(state->readyResults) == 0 &&
-         pendingCount == 0 &&
+  return iteratorAtEOF && array_len(state->readyResults) == 0 && pendingCount == 0 &&
          DLLIST_IS_EMPTY(&state->iteratorResults);
 }
-

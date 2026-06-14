@@ -66,10 +66,12 @@ pub const unsafe extern "C" fn IsWildcardIterator(it: *const QueryIterator) -> b
 ///    [`rqe_iterators::wildcard::new_wildcard_iterator_optimized`] must also hold.
 /// 6. `q.docTable` must be a non-null pointer to a valid [`DocTable`](ffi::DocTable).
 /// 7. `q.sctx.spec.diskSpec`, when non-null, must point to a valid
-///    [`RedisSearchDiskIndexSpec`](ffi::RedisSearchDiskIndexSpec). `SearchDisk_NewWildcardIterator` must return
-///    a valid, owning `QueryIterator` pointer with all required callbacks set.
-/// 8. `q.sctx.diskSnapshot`, when non-null, must be a [`RedisSearchDiskSnapshot`](ffi::RedisSearchDiskSnapshot)
-///    handle for `q.sctx.spec.diskSpec` and must remain valid for the lifetime of the returned iterator.
+///    [`RedisSearchDiskIndexSpec`](ffi::RedisSearchDiskIndexSpec) that remains valid for the
+///    lifetime of the returned iterator, and the disk iterator backend must be initialized.
+/// 8. When `q.sctx.spec.diskSpec` is non-null, `q.sctx.diskSnapshot` must be a **non-null**
+///    [`RedisSearchDiskSnapshot`](ffi::RedisSearchDiskSnapshot) handle for `q.sctx.spec.diskSpec`
+///    that remains valid for the lifetime of the returned iterator. The disk path requires a
+///    point-in-time view: a null snapshot alongside a non-null `diskSpec` makes the call panic.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn NewWildcardIterator(
     q: *const ffi::QueryEvalCtx,

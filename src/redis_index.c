@@ -5,7 +5,7 @@
  * Licensed under your choice of the Redis Source Available License 2.0
  * (RSALv2); or (b) the Server Side Public License v1 (SSPLv1); or (c) the
  * GNU Affero General Public License v3 (AGPLv3).
-*/
+ */
 #include "redis_index.h"
 #include "doc_table.h"
 #include "redismodule.h"
@@ -32,9 +32,8 @@ static inline void updateTime(SearchTime *searchTime, int32_t durationNS) {
     durationNS = INT32_MAX;
   }
 
-
-  struct timespec duration = { .tv_sec = durationNS / 1000,
-                               .tv_nsec = ((durationNS % 1000) * 1000000) };
+  struct timespec duration = {.tv_sec = durationNS / 1000,
+                              .tv_nsec = ((durationNS % 1000) * 1000000)};
 #ifdef CLOCK_REALTIME_COARSE
   clock_gettime(CLOCK_REALTIME_COARSE, &searchTime->current);
 #else
@@ -43,8 +42,7 @@ static inline void updateTime(SearchTime *searchTime, int32_t durationNS) {
 #endif
 
   // The timeout mechanism is based on the monotonic clock, so we need another clock_gettime call
-  timespec monotoicNow = { .tv_sec = 0,
-                           .tv_nsec = 0 };
+  timespec monotoicNow = {.tv_sec = 0, .tv_nsec = 0};
   clock_gettime(CLOCK_MONOTONIC_RAW, &monotoicNow);
   rs_timeradd(&monotoicNow, &duration, &searchTime->timeout);
 }
@@ -56,7 +54,7 @@ RedisModuleString *Legacy_fmtRedisTermKey(const RedisSearchCtx *ctx, const char 
   char buf_s[1024] = {"ft:"};
   size_t offset = 3;
   size_t nameLen = 0;
-  const char* name = HiddenString_GetUnsafe(ctx->spec->specName, &nameLen);
+  const char *name = HiddenString_GetUnsafe(ctx->spec->specName, &nameLen);
   char *buf, *bufDyn = NULL;
   if (nameLen + len + 10 > sizeof(buf_s)) {
     buf = bufDyn = rm_calloc(1, nameLen + len + 10);
@@ -78,14 +76,18 @@ RedisModuleString *Legacy_fmtRedisTermKey(const RedisSearchCtx *ctx, const char 
 #define SKIPINDEX_KEY_FORMAT "si:%s/%.*s"
 #define SCOREINDEX_KEY_FORMAT "ss:%s/%.*s"
 
-RedisModuleString *Legacy_fmtRedisSkipIndexKey(const RedisSearchCtx *ctx, const char *term, size_t len) {
-  return RedisModule_CreateStringPrintf(ctx->redisCtx, SKIPINDEX_KEY_FORMAT, HiddenString_GetUnsafe(ctx->spec->specName, NULL),
-                                        (int)len, term);
+RedisModuleString *Legacy_fmtRedisSkipIndexKey(const RedisSearchCtx *ctx, const char *term,
+                                               size_t len) {
+  return RedisModule_CreateStringPrintf(ctx->redisCtx, SKIPINDEX_KEY_FORMAT,
+                                        HiddenString_GetUnsafe(ctx->spec->specName, NULL), (int)len,
+                                        term);
 }
 
-RedisModuleString *Legacy_fmtRedisScoreIndexKey(const RedisSearchCtx *ctx, const char *term, size_t len) {
-  return RedisModule_CreateStringPrintf(ctx->redisCtx, SCOREINDEX_KEY_FORMAT, HiddenString_GetUnsafe(ctx->spec->specName, NULL),
-                                        (int)len, term);
+RedisModuleString *Legacy_fmtRedisScoreIndexKey(const RedisSearchCtx *ctx, const char *term,
+                                                size_t len) {
+  return RedisModule_CreateStringPrintf(ctx->redisCtx, SCOREINDEX_KEY_FORMAT,
+                                        HiddenString_GetUnsafe(ctx->spec->specName, NULL), (int)len,
+                                        term);
 }
 
 void RedisSearchCtx_LockSpecRead(RedisSearchCtx *ctx) {
@@ -148,10 +150,14 @@ int SearchCtx_TakeDiskSnapshot(RedisSearchCtx *sctx, QueryError *status) {
   // which is a programming bug rather than something to paper over.
   RS_ASSERT(sctx && !sctx->diskSnapshot);
   IndexSpec *sp = sctx->spec;
-  if (!sp || !sp->diskSpec || !SearchDisk_IsInitialized()) {
-    // Non-disk index: nothing to snapshot, query proceeds under the spec lock.
+  // Snapshots only exist in Flex/disk deployments. Gate on SearchDisk_IsEnabled()
+  // to match how the rest of the module guards disk-only paths; a non-disk index
+  // in a disk deployment simply has no diskSpec and reads live under the spec lock.
+  if (!SearchDisk_IsEnabled() || !sp || !sp->diskSpec) {
     return REDISMODULE_OK;
   }
+  // Disk is enabled and this index is disk-backed, so the backend must be up.
+  RS_ASSERT(SearchDisk_IsInitialized());
   sctx->diskSnapshot = SearchDisk_CreateSnapshot(sp->diskSpec);
   if (!sctx->diskSnapshot) {
     QueryError_SetWithoutUserDataFmt(status, QUERY_ERROR_CODE_GENERIC,
@@ -184,7 +190,7 @@ void SearchCtx_UpdateTime(RedisSearchCtx *sctx, int32_t durationNS) {
   updateTime(&sctx->time, durationNS);
 }
 
-void SearchCtx_CleanUp(RedisSearchCtx * sctx) {
+void SearchCtx_CleanUp(RedisSearchCtx *sctx) {
   if (sctx->key_) {
     RedisModule_CloseKey(sctx->key_);
     sctx->key_ = NULL;
@@ -204,8 +210,8 @@ void SearchCtx_Free(RedisSearchCtx *sctx) {
   rm_free(sctx);
 }
 
-static InvertedIndex *openIndexKeysDict(IndexSpec *spec, CharBuf *termKey,
-                                        bool write, bool *outIsNew) {
+static InvertedIndex *openIndexKeysDict(IndexSpec *spec, CharBuf *termKey, bool write,
+                                        bool *outIsNew) {
   InvertedIndex *idx = dictFetchValue(spec->keysDict, termKey);
   if (outIsNew) {
     *outIsNew = idx == NULL;
@@ -219,7 +225,8 @@ static InvertedIndex *openIndexKeysDict(IndexSpec *spec, CharBuf *termKey,
   return idx;
 }
 
-InvertedIndex *Redis_OpenInvertedIndex(IndexSpec *spec, const char *term, size_t len, bool write, bool *outIsNew) {
+InvertedIndex *Redis_OpenInvertedIndex(IndexSpec *spec, const char *term, size_t len, bool write,
+                                       bool *outIsNew) {
   CharBuf termKeyBuf = {
       .buf = (char *)term,
       .len = len,
@@ -239,7 +246,7 @@ QueryIterator *Redis_OpenReader(const RedisSearchCtx *ctx, RSToken *tok, int tok
   }
 
   if (!InvertedIndex_NumDocs(idx) ||
-     (Index_StoreFieldMask(ctx->spec) && !(InvertedIndex_FieldMask(idx) & fieldMask))) {
+      (Index_StoreFieldMask(ctx->spec) && !(InvertedIndex_FieldMask(idx) & fieldMask))) {
     // empty index! or index does not have results from requested field.
     return NULL;
   }
