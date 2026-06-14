@@ -262,10 +262,10 @@ fn test_trie_merge() {
 /// Used for in the proptest below.
 enum TrieOperation<Data> {
     Insert(
-        #[proptest(strategy = "proptest::collection::vec(97..122 as u8, 0..10)")] Vec<u8>,
+        #[proptest(strategy = "proptest::collection::vec(97u8..122, 0..10)")] Vec<u8>,
         Data,
     ),
-    Remove(#[proptest(strategy = "proptest::collection::vec(97..122 as u8, 0..10)")] Vec<u8>),
+    Remove(#[proptest(strategy = "proptest::collection::vec(97u8..122, 0..10)")] Vec<u8>),
 }
 
 // Disable the proptest when testing with Miri,
