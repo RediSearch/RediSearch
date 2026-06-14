@@ -195,7 +195,8 @@ that can trigger it.
 Treat every accepted input/output boundary as a compatibility contract. This includes
 public commands, internal commands, coordinator-to-shard commands, replication/restore
 commands, debug commands, cursor/profile/config subcommands, serialized payloads, RDB
-formats, RESP reply shapes, reducer inputs, and command registration metadata.
+formats, RESP reply shapes, reducer inputs, command registration metadata, and library
+behavior that affects accepted input or observable output.
 
 Internal commands count. A command being `_FT.*`, `FT._*`, proxy-filtered, debug-only,
 or not documented for users does not make incompatible changes safe.
@@ -214,6 +215,10 @@ Flag as blocking unless the PR has an explicit compatibility story when it:
 - Changes who can execute a command or access an index/keyspace, including ACL
   category changes, key-spec changes, user-context changes in `RedisModule_Call`, or
   newly added permission checks.
+- Changes or upgrades a dependency in a way that may alter parsing, normalization,
+  tokenization, case-folding, collation/sort order, matching, scoring, or
+  serialization behavior. For example, a Unicode library change can affect indexed
+  terms, query matching, and results for existing data.
 - Changes serialized formats without versioning and old-format readers.
 
 Acceptable compatibility patterns:
@@ -223,6 +228,8 @@ Acceptable compatibility patterns:
 - Keep legacy aliases while supported callers may still use them.
 - Preserve prior internal execution paths when adding ACL checks, or prove the caller
   still runs under the intended user/context.
+- Add focused before/after corpus tests for dependency changes that affect parsing,
+  normalization, tokenization, sorting, matching, or serialization.
 - Version serialized data and retain old-version readers.
 
 When an interface is tightened, require tests or documented verification that old and
