@@ -401,7 +401,7 @@ def testTextSuffixTrieMaxPrefixExpansions():
 
 @skip(cluster=True)
 def testSuffixTrieWildcardCaseInsensitiveText():
-    """MOD-16259: wildcard queries on a WITHSUFFIXTRIE TEXT field match
+    """Wildcard queries on a WITHSUFFIXTRIE TEXT field match
     case-insensitively, identically to a plain TEXT field."""
     env = Env(moduleArgs='DEFAULT_DIALECT 2')
     env.expect(config_cmd(), 'set', 'MINPREFIX', 1).ok()
@@ -418,7 +418,7 @@ def testSuffixTrieWildcardCaseInsensitiveText():
 
 @skip(cluster=True)
 def testSuffixTrieWildcardCaseSensitiveTag():
-    """MOD-16259: CASESENSITIVE TAG wildcard matching stays byte-exact."""
+    """CASESENSITIVE TAG wildcard matching stays byte-exact."""
     env = Env(moduleArgs='DEFAULT_DIALECT 2')
     env.expect(config_cmd(), 'set', 'MINPREFIX', 1).ok()
     conn = getConnectionByEnv(env)
