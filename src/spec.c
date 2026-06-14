@@ -1513,13 +1513,12 @@ static bool validateDiskJsonSinglePath(const IndexSpec *sp, const FieldSpec *fs,
 }
 
 static void IndexSpec_EnableSuffixForField(IndexSpec *sp, const FieldSpec *fs) {
-  if (!(FIELD_IS(fs, INDEXFLD_T_FULLTEXT) && FieldSpec_HasSuffixTrie(fs))) {
-    return;
-  }
-  sp->suffixMask |= FIELD_BIT(fs);
-  sp->flags |= Index_HasSuffixTrie;
-  if (!sp->suffix) {
-    sp->suffix = NewTrie(suffixTrie_freeCallback, Trie_Sort_Lex);
+  if (FIELD_IS(fs, INDEXFLD_T_FULLTEXT) && FieldSpec_HasSuffixTrie(fs)) {
+    sp->suffixMask |= FIELD_BIT(fs);
+    sp->flags |= Index_HasSuffixTrie;
+    if (!sp->suffix) {
+      sp->suffix = NewTrie(suffixTrie_freeCallback, Trie_Sort_Lex);
+    }
   }
 }
 
