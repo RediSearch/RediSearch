@@ -196,6 +196,7 @@ void fillReplyWithIndexInfo(RedisSearchCtx* sctx, RedisModule_Reply *reply, bool
           REPLY_KVSTR("distance_metric", VecSimMetric_ToString(hnsw_params.metric));
           REPLY_KVINT("M", hnsw_params.M);
           REPLY_KVINT("ef_construction", hnsw_params.efConstruction);
+          REPLY_KVINT("ef_runtime", hnsw_params.efRuntime);
           if (fs->vectorOpts.diskCtx.indexName) {
             REPLY_KVSTR("rerank", fs->vectorOpts.diskCtx.rerank ? "true" : "false");
           }
