@@ -287,8 +287,8 @@ bool ProcessHybridCursorMappings(const MRCommand *cmd, StrongRef searchMappingsR
     // Wait on the channel: it unblocks when inProcess hits 0 (normal completion) or
     // when the deadline/abort fires. Both are passed because `deadline` is NULL under
     // RETURN-STRICT / disabled timeout checks, where syncCtx->timedOut is the only
-    // wake; passing neither re-introduces the unbounded wait — the MOD-15394/16145
-    // hang (chan.c asserts at least one is non-NULL).
+    // wake; passing neither leaves the wait unbounded (chan.c asserts at least one is
+    // non-NULL).
     bool timedOut = false;
     MRReply *r = MRIterator_NextWithTimeout(it, deadline, &syncCtx->timedOut, &timedOut);
     RS_ASSERT(r == NULL);  // the callbacks never AddReply; a non-NULL reply is a bug
@@ -296,9 +296,9 @@ bool ProcessHybridCursorMappings(const MRCommand *cmd, StrongRef searchMappingsR
     RequestSyncCtx_UnregisterAbortWakeChannel(syncCtx);
 
     if (timedOut || RS_AtomicBoolLoadRelaxed(&syncCtx->timedOut)) {
-        // Terminal: a shard never replied (the MOD-16145 hang) or the request was
-        // aborted. Late callbacks may still be writing mappings/errors, so do NOT
-        // read them — just release (freeCursorMappingCtx frees ctx once they finish).
+        // Terminal: a shard never replied or the request was aborted. Late callbacks
+        // may still be writing mappings/errors, so do NOT read them — just release
+        // (freeCursorMappingCtx frees ctx once they finish).
         QueryError_SetCode(status, QUERY_ERROR_CODE_TIMED_OUT);
         MRIterator_Release(it);
         return false;
