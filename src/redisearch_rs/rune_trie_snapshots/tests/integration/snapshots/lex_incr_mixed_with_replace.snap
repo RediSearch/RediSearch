@@ -1,0 +1,16 @@
+---
+source: rune_trie_snapshots/tests/integration/incr_mode.rs
+expression: out
+---
+--- insert("foo", mode=INCR, score=1, numDocs=1) -> OK_NEW — first insert — creates leaf ---
+size: 1
+entries:
+  foo         score=1  numDocs=1
+--- insert("foo", mode=REPLACE, score=10, numDocs=5) -> OK_UPDATED — score overwritten to 10; numDocs += 5 -> 6 (always additive) ---
+size: 1
+entries:
+  foo         score=10  numDocs=6
+--- insert("foo", mode=INCR, score=2, numDocs=1) -> OK_UPDATED — score += 2 -> 12; numDocs += 1 -> 7 ---
+size: 1
+entries:
+  foo         score=12  numDocs=7

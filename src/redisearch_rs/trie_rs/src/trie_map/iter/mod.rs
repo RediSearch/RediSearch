@@ -29,4 +29,4 @@ pub use prefixes::PrefixesIter;
 pub use range::{RangeBoundary, RangeFilter, RangeIter};
 pub use unfiltered::Iter;
 pub use values::Values;
-pub use wildcard::{WildcardFilter, WildcardIter};
+pub use wildcard::{Utf8WildcardFilter, Utf8WildcardIter, WildcardFilter, WildcardIter};

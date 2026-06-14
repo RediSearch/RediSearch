@@ -1,0 +1,8 @@
+---
+source: rune_trie_snapshots/tests/integration/range_iteration.rs
+expression: dump
+---
+size: 7
+
+query: [ze, zz]  min="ze" (inc=true)  max="zz" (inc=true)
+  <no matches>

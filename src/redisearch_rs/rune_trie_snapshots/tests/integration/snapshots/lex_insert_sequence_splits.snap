@@ -1,0 +1,42 @@
+---
+source: rune_trie_snapshots/tests/integration/splits.rs
+expression: out
+---
+--- after insert("apple", score=1, numDocs=1) — first insert into empty trie ---
+size: 1
+entries:
+  apple         score=1  numDocs=1
+--- after insert("apply", score=2, numDocs=1) — split leaf at shared prefix 'appl' ---
+size: 2
+entries:
+  apple         score=1  numDocs=1
+  apply         score=2  numDocs=1
+--- after insert("appl", score=3, numDocs=1) — exact-prefix insert -> terminal at internal ---
+size: 3
+entries:
+  appl          score=3  numDocs=1
+  apple         score=1  numDocs=1
+  apply         score=2  numDocs=1
+--- after insert("ape", score=4, numDocs=1) — deep split below internal 'appl' ---
+size: 4
+entries:
+  ape           score=4  numDocs=1
+  appl          score=3  numDocs=1
+  apple         score=1  numDocs=1
+  apply         score=2  numDocs=1
+--- after insert("b", score=5, numDocs=1) — disjoint first rune -> new root child ---
+size: 5
+entries:
+  ape           score=4  numDocs=1
+  appl          score=3  numDocs=1
+  apple         score=1  numDocs=1
+  apply         score=2  numDocs=1
+  b             score=5  numDocs=1
+--- after insert("b", score=6, numDocs=2) — re-insert existing terminal (REPLACE) ---
+size: 5
+entries:
+  ape           score=4  numDocs=1
+  appl          score=3  numDocs=1
+  apple         score=1  numDocs=1
+  apply         score=2  numDocs=1
+  b             score=6  numDocs=3

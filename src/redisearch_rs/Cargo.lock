@@ -2417,6 +2417,21 @@ dependencies = [
 ]
 
 [[package]]
+name = "rune_trie_snapshots"
+version = "0.0.1"
+dependencies = [
+ "build_utils",
+ "ffi",
+ "insta",
+ "libc",
+ "redis_mock",
+ "redisearch_rs",
+ "rune_trie_snapshots",
+ "trie_rs",
+ "workspace_hack",
+]
+
+[[package]]
 name = "rustc-demangle"
 version = "0.1.27"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2823,6 +2838,8 @@ version = "0.0.1"
 dependencies = [
  "ffi",
  "proptest",
+ "rqe_wildcard",
+ "rstest",
  "trie_rs",
  "workspace_hack",
 ]
@@ -3058,6 +3075,7 @@ dependencies = [
  "cheadergen",
  "ffi",
  "fs-err",
+ "icu_casemap",
  "insta",
  "lending-iterator",
  "libc",
@@ -3065,6 +3083,8 @@ dependencies = [
  "proptest",
  "proptest-derive",
  "rqe_wildcard",
+ "rstest",
+ "thiserror",
  "trie_rs",
  "workspace_hack",
 ]
@@ -3074,11 +3094,13 @@ name = "triemap_ffi"
 version = "0.0.1"
 dependencies = [
  "cheadergen",
+ "ffi",
  "lending-iterator",
  "libc",
  "redis-module",
  "redis_mock",
  "rqe_wildcard",
+ "term_suffix_index",
  "thin_vec",
  "trie_rs",
  "workspace_hack",

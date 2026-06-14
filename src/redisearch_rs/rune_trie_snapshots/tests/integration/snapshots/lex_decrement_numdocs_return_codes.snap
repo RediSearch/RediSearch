@@ -1,0 +1,81 @@
+---
+source: rune_trie_snapshots/tests/integration/delete_and_decrement.rs
+expression: out
+---
+=== base ===
+size: 7
+entries:
+  ape         score=1  numDocs=1
+  appl        score=1  numDocs=4
+  apple       score=1  numDocs=3
+  apply       score=1  numDocs=2
+  b           score=1  numDocs=5
+  banana      score=1  numDocs=2
+  band        score=1  numDocs=1
+
+--- decrement non-existent "zzz" ---
+Trie_DecrementNumDocs("zzz", delta=1) -> NOT_FOUND (TrieNode_Get returns NULL)
+size: 7
+entries:
+  ape         score=1  numDocs=1
+  appl        score=1  numDocs=4
+  apple       score=1  numDocs=3
+  apply       score=1  numDocs=2
+  b           score=1  numDocs=5
+  banana      score=1  numDocs=2
+  band        score=1  numDocs=1
+
+--- decrement "ban" — exact match on internal non-terminal split node ---
+Trie_DecrementNumDocs("ban", delta=1) -> NOT_FOUND (Trie_DecrementNumDocs rejects non-terminals (not a real term))
+size: 7
+entries:
+  ape         score=1  numDocs=1
+  appl        score=1  numDocs=4
+  apple       score=1  numDocs=3
+  apply       score=1  numDocs=2
+  b           score=1  numDocs=5
+  banana      score=1  numDocs=2
+  band        score=1  numDocs=1
+
+--- decrement "apple" by 1 (numDocs 3 -> 2) ---
+Trie_DecrementNumDocs("apple", delta=1) -> UPDATED (delta < numDocs)
+size: 7
+entries:
+  ape         score=1  numDocs=1
+  appl        score=1  numDocs=4
+  apple       score=1  numDocs=2
+  apply       score=1  numDocs=2
+  b           score=1  numDocs=5
+  banana      score=1  numDocs=2
+  band        score=1  numDocs=1
+
+--- decrement "apple" by 2 (numDocs 2 -> 0, triggers delete) ---
+Trie_DecrementNumDocs("apple", delta=2) -> DELETED (delta == numDocs)
+size: 6
+entries:
+  ape         score=1  numDocs=1
+  appl        score=1  numDocs=4
+  apply       score=1  numDocs=2
+  b           score=1  numDocs=5
+  banana      score=1  numDocs=2
+  band        score=1  numDocs=1
+
+--- decrement "apply" by 100 (delta clamped to numDocs, triggers delete) ---
+Trie_DecrementNumDocs("apply", delta=100) -> DELETED (delta > numDocs — clamped to 0, not underflow)
+size: 5
+entries:
+  ape         score=1  numDocs=1
+  appl        score=1  numDocs=4
+  b           score=1  numDocs=5
+  banana      score=1  numDocs=2
+  band        score=1  numDocs=1
+
+--- decrement "apple" again — node was just deleted ---
+Trie_DecrementNumDocs("apple", delta=1) -> NOT_FOUND (TrieNode_Get skips deleted nodes (returns NULL))
+size: 5
+entries:
+  ape         score=1  numDocs=1
+  appl        score=1  numDocs=4
+  b           score=1  numDocs=5
+  banana      score=1  numDocs=2
+  band        score=1  numDocs=1

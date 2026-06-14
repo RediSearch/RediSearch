@@ -29,19 +29,16 @@ rune runeFold(rune r) {
   return __fold((uint32_t)r);
 }
 
-char *runesToStr(const rune *in, size_t len, size_t *utflen) {
-  if (len > MAX_RUNE_STR_LEN) {
-    if (utflen) *utflen = 0;
-    return NULL;
-  }
-
-  uint32_t u_stack_buffer[SSO_MAX_LENGTH];
-  uint32_t *unicode = u_stack_buffer;
+/* Widen runes to a NUL-terminated uint32 codepoint array, using
+ * `stackbuf` (of SSO_MAX_LENGTH entries) when len fits and heap storage
+ * otherwise. Returns the array to use, or NULL on allocation failure;
+ * the caller frees the result only when it differs from `stackbuf`. */
+static uint32_t *widenRunes(const rune *in, size_t len, uint32_t *stackbuf) {
+  uint32_t *unicode = stackbuf;
 
   if (len > SSO_MAX_LENGTH - 1) {
     unicode = rm_malloc((len + 1) * sizeof(*unicode));
     if (!unicode) {
-      *utflen = 0;
       return NULL;
     }
   }
@@ -50,11 +47,58 @@ char *runesToStr(const rune *in, size_t len, size_t *utflen) {
     unicode[i] = (uint32_t)in[i];
   }
   unicode[len] = 0;
+  return unicode;
+}
+
+char *runesToStr(const rune *in, size_t len, size_t *utflen) {
+  if (len > MAX_RUNE_STR_LEN) {
+    if (utflen) *utflen = 0;
+    return NULL;
+  }
+
+  uint32_t u_stack_buffer[SSO_MAX_LENGTH];
+  uint32_t *unicode = widenRunes(in, len, u_stack_buffer);
+  if (!unicode) {
+    *utflen = 0;
+    return NULL;
+  }
 
   size_t bytelen = nu_bytelen(unicode, nu_utf8_write);
   char *ret = rm_calloc(1, bytelen + 1);
 
   nu_writestr(unicode, ret, nu_utf8_write);
+  if (unicode != u_stack_buffer) {
+    rm_free(unicode);
+  }
+  *utflen = bytelen;
+  return ret;
+}
+
+char *runesToStrBuf(const rune *in, size_t len, utf8Buf *buf, size_t *utflen) {
+  buf->isDynamic = 0;
+  if (len > MAX_RUNE_STR_LEN) {
+    *utflen = 0;
+    return NULL;
+  }
+
+  uint32_t u_stack_buffer[SSO_MAX_LENGTH];
+  uint32_t *unicode = widenRunes(in, len, u_stack_buffer);
+  if (!unicode) {
+    *utflen = 0;
+    return NULL;
+  }
+
+  size_t bytelen = nu_bytelen(unicode, nu_utf8_write);
+  char *ret;
+  if (bytelen > UTF8_STATIC_ALLOC_SIZE) {
+    buf->isDynamic = 1;
+    ret = buf->u.p = rm_malloc(bytelen + 1);
+  } else {
+    ret = buf->u.s;
+  }
+
+  nu_writestr(unicode, ret, nu_utf8_write);
+  ret[bytelen] = '\0';
   if (unicode != u_stack_buffer) {
     rm_free(unicode);
   }
@@ -98,6 +142,53 @@ rune *strToLowerRunes(const char *str, size_t utf8_len, size_t *unicode_len) {
   }
   *unicode_len = rlen;
 
+  return ret;
+}
+
+char *strToLowerStr(const char *str, size_t utf8_len, utf8Buf *buf, size_t *outlen) {
+  buf->isDynamic = 0;
+
+  // Same length gate as strToLowerRunes, so a token rejected as too
+  // long by one representation is rejected by the other as well.
+  ssize_t rlen = nu_strtransformnlen(str, utf8_len, nu_utf8_read,
+                                     nu_tolower, nu_casemap_read);
+  if (rlen < 0 || rlen > MAX_RUNE_STR_LEN) {
+    *outlen = 0;
+    return NULL;
+  }
+
+  // A UTF-8 codepoint encodes to at most 4 bytes.
+  size_t maxBytes = (size_t)rlen * 4;
+  char *ret;
+  if (maxBytes > UTF8_STATIC_ALLOC_SIZE) {
+    buf->isDynamic = 1;
+    ret = buf->u.p = rm_malloc(maxBytes + 1);
+  } else {
+    ret = buf->u.s;
+  }
+
+  const char *encoded_char = str;
+  char *w = ret;
+  uint32_t codepoint;
+  while (encoded_char < str + utf8_len) {
+    encoded_char = nu_utf8_read(encoded_char, &codepoint);
+    const char *map = nu_tolower(codepoint);
+
+    if (map != NULL) {
+      uint32_t mu;
+      while (1) {
+        map = nu_casemap_read(map, &mu);
+        if (mu == 0) {
+          break;
+        }
+        w = nu_utf8_write(mu, w);
+      }
+    } else {
+      w = nu_utf8_write(codepoint, w);
+    }
+  }
+  *w = '\0';
+  *outlen = w - ret;
   return ret;
 }
 

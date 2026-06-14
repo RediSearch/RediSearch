@@ -9,7 +9,7 @@
 
 //! Property tests for [`TermSuffixIndex`].
 
-use std::{collections::HashSet, rc::Rc};
+use std::collections::HashSet;
 
 use term_suffix_index::TermSuffixIndex;
 
@@ -21,7 +21,11 @@ fn build_index(corpus: &[String]) -> TermSuffixIndex {
     sut
 }
 
-fn collect_set<I: Iterator<Item = Rc<str>>>(it: I) -> HashSet<String> {
+fn collect_set<I>(it: I) -> HashSet<String>
+where
+    I: Iterator,
+    I::Item: AsRef<str>,
+{
     it.map(|r| r.as_ref().to_string()).collect()
 }
 
@@ -100,7 +104,7 @@ fn add_same_term_twice_is_noop() {
     let actual = sut.iter_contains("apple").collect::<Vec<_>>();
 
     assert_eq!(actual.len(), 1, "apple inserted twice yields one hit");
-    assert_eq!(actual[0].as_ref(), "apple");
+    assert_eq!(actual[0], "apple");
 }
 
 #[test]
@@ -183,13 +187,103 @@ fn iter_suffix_yields_one_hit_per_matching_term() {
 
     let actual = sut
         .iter_suffix("abc")
-        .map(|r| r.as_ref().to_string())
+        .map(str::to_string)
         .collect::<Vec<_>>();
 
     assert_eq!(actual.len(), 2, "each match yielded exactly once");
     let actual_set = actual.into_iter().collect::<HashSet<_>>();
     let expected = HashSet::from(["abc".to_string(), "xabc".to_string()]);
     assert_eq!(actual_set, expected);
+}
+
+#[test]
+fn iter_wildcard_middle_tokens_anchor_on_best_literal() {
+    let corpus = ["abide", "abcde", "abxxcd", "abandoned", "cdrom"]
+        .iter()
+        .map(|s| s.to_string())
+        .collect::<Vec<_>>();
+    let sut = build_index(&corpus);
+
+    let actual = collect_set(
+        sut.iter_wildcard("ab*cd")
+            .expect("'ab' and 'cd' are anchorable"),
+    );
+
+    let expected = HashSet::from(["abxxcd".to_string()]);
+    assert_eq!(actual, expected);
+}
+
+#[test]
+fn iter_wildcard_trailing_star_uses_contains_semantics() {
+    let corpus = ["scatter", "category", "dog"]
+        .iter()
+        .map(|s| s.to_string())
+        .collect::<Vec<_>>();
+    let sut = build_index(&corpus);
+
+    let actual = collect_set(sut.iter_wildcard("*cat*").expect("'cat' is anchorable"));
+
+    let expected = HashSet::from(["scatter".to_string(), "category".to_string()]);
+    assert_eq!(actual, expected);
+}
+
+#[test]
+fn iter_wildcard_end_token_uses_suffix_semantics() {
+    let corpus = ["concat", "scat", "catalog", "cat"]
+        .iter()
+        .map(|s| s.to_string())
+        .collect::<Vec<_>>();
+    let sut = build_index(&corpus);
+
+    let actual = collect_set(sut.iter_wildcard("*cat").expect("'cat' is anchorable"));
+
+    let expected = HashSet::from(["concat".to_string(), "scat".to_string(), "cat".to_string()]);
+    assert_eq!(actual, expected);
+}
+
+#[test]
+fn iter_wildcard_question_mark_outside_anchor_is_honored() {
+    let corpus = ["abcd", "bcd", "zbxcd"]
+        .iter()
+        .map(|s| s.to_string())
+        .collect::<Vec<_>>();
+    let sut = build_index(&corpus);
+
+    // The `?b` token cannot anchor (contains `?`), so `cd` is chosen;
+    // the full-pattern filter must still enforce that `?` consumes
+    // exactly one character.
+    let actual = collect_set(sut.iter_wildcard("?b*cd").expect("'cd' is anchorable"));
+
+    let expected = HashSet::from(["abcd".to_string(), "zbxcd".to_string()]);
+    assert_eq!(actual, expected);
+}
+
+#[test]
+fn iter_wildcard_without_anchorable_token_reports_none() {
+    let sut = build_index(&["abc".to_string()]);
+
+    // Single-char tokens, `?`-bearing tokens, and bare stars cannot
+    // anchor a literal trie lookup.
+    for pattern in ["*", "a*b", "a?c", "??*", ""] {
+        assert!(
+            sut.iter_wildcard(pattern).is_none(),
+            "pattern={pattern:?} must request the fallback scan"
+        );
+    }
+}
+
+#[test]
+fn iter_wildcard_multibyte_anchor() {
+    let corpus = ["日本語", "日本酒", "本語"]
+        .iter()
+        .map(|s| s.to_string())
+        .collect::<Vec<_>>();
+    let sut = build_index(&corpus);
+
+    let actual = collect_set(sut.iter_wildcard("*本語").expect("two codepoints anchor"));
+
+    let expected = HashSet::from(["日本語".to_string(), "本語".to_string()]);
+    assert_eq!(actual, expected);
 }
 
 // --- Proptest fuzz
@@ -240,6 +334,31 @@ mod fuzz {
             let actual = collect_set(sut.iter_suffix(&needle));
 
             prop_assert_eq!(actual, expected, "needle={:?} corpus={:?}", needle, corpus);
+        }
+
+        #[test]
+        fn iter_wildcard_matches_full_scan_oracle(
+            corpus in proptest::collection::vec(term_strategy(), 1..=20),
+            pattern in "[ab*?]{0,8}",
+        ) {
+            use rqe_wildcard::{MatchOutcome, WildcardPattern};
+
+            let sut = build_index(&corpus);
+
+            // `None` requests the fallback scan — out of scope here.
+            if let Some(matches) = sut.iter_wildcard(&pattern) {
+                let parsed = WildcardPattern::parse(pattern.as_bytes());
+                let expected = corpus
+                    .iter()
+                    .filter(|t| parsed.matches(t.as_bytes()) == MatchOutcome::Match)
+                    .cloned()
+                    .collect::<HashSet<_>>();
+
+                let actual = collect_set(matches);
+
+                prop_assert_eq!(actual, expected,
+                    "pattern={:?} corpus={:?}", pattern, corpus);
+            }
         }
 
         #[test]

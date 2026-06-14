@@ -31,6 +31,7 @@
 #include "rs_wall_clock.h"
 
 typedef struct QueryError QueryError;
+typedef struct TermSuffixIndex TermSuffixIndex;
 
 #ifdef __cplusplus
 extern "C" {
@@ -323,7 +324,7 @@ typedef struct IndexSpec {
   IndexStats stats;               // Statistics of memory used and quantities
 
   Trie *terms;                    // Trie of all TEXT terms. Used for GC and fuzzy queries
-  Trie *suffix;                   // Trie of TEXT suffix tokens of terms. Used for contains queries
+  TermSuffixIndex *suffix;        // Suffix index of TEXT terms. Used for contains queries
   t_fieldMask suffixMask;         // Mask of all fields that support contains query
   dict *keysDict;                 // Inverted indexes dictionary of all TEXT terms
 
@@ -717,7 +718,7 @@ size_t IndexSpec_collect_tags_overhead(const IndexSpec *sp);
 
 /**
  * @return the overhead used by the TEXT fields in `sp`, i.e., the size of the
- * sp->terms and sp->suffix Tries.
+ * sp->terms Trie and the sp->suffix term suffix index.
  */
 size_t IndexSpec_collect_text_overhead(const IndexSpec *sp);
 

@@ -30,10 +30,16 @@ mod term_refs;
 
 use std::rc::Rc;
 
+use rqe_wildcard::{MatchOutcome, WildcardPattern};
 use term_refs::{Outcome, TermRefs};
 use trie_rs::str_trie_map::StrTrieMap;
 
 const MIN_SUFFIX: usize = ffi::MIN_SUFFIX as usize;
+
+/// Score handicap for anchor tokens followed by `*`: matching them
+/// scans a whole subtree instead of a single exact entry, so they
+/// must out-length an exact token by this many codepoints to win.
+const STARRED_ANCHOR_PENALTY: i32 = 5;
 
 pub struct TermSuffixIndex {
     inner: StrTrieMap<TermRefs>,
@@ -52,8 +58,15 @@ impl TermSuffixIndex {
         }
     }
 
-    pub fn mem_usage(&self) -> usize {
-        todo!("FT.INFO memory accounting for the suffix index")
+    /// Estimated heap memory currently held by the index — O(1).
+    ///
+    /// Counts the underlying trie structure only (see
+    /// [`StrTrieMap::mem_usage`]); the shared term buffers and
+    /// per-entry back-reference vectors are not included. The C
+    /// counterpart (`TrieType_MemUsage`) likewise estimates from node
+    /// count alone, ignoring payloads.
+    pub const fn mem_usage(&self) -> usize {
+        self.inner.mem_usage()
     }
 
     pub fn add(&mut self, term: &str) {
@@ -98,6 +111,10 @@ impl TermSuffixIndex {
         }
     }
 
+    pub fn keys(&self) -> impl Iterator<Item = String> {
+        self.inner.iter().map(|(key, _)| key)
+    }
+
     fn suffixes_of(term: &str) -> impl Iterator<Item = &str> {
         let total_chars = term.chars().count();
         term.char_indices()
@@ -109,23 +126,22 @@ impl TermSuffixIndex {
 
     /// Yield every indexed term containing `needle`, in unspecified
     /// order. Empty `needle` yields nothing. A term may be yielded
-    /// more than once; dedupe by [`Rc::as_ptr`] if needed.
+    /// more than once; dedupe by the returned `&str`'s pointer
+    /// ([`str::as_ptr`]) if needed.
     ///
     /// Non-empty `needle` must span at least [`MIN_SUFFIX`] codepoints.
     /// Shorter needles silently yield a subset of matching terms,
     /// since suffixes below the threshold aren't indexed; debug
     /// builds assert this. Production callers filter upstream via
     /// the query engine's `minTermPrefix` gate.
-    pub fn iter_contains(&self, needle: &str) -> impl Iterator<Item = Rc<str>> {
+    pub fn iter_contains(&self, needle: &str) -> impl Iterator<Item = &str> {
         debug_assert!(
             needle.is_empty() || needle.chars().count() >= MIN_SUFFIX,
             "needle must span at least {MIN_SUFFIX} codepoints; caller must filter shorter needles (production gate: minTermPrefix)",
         );
-        (!needle.is_empty())
-            .then_some(needle)
-            .into_iter()
-            .flat_map(|n| self.inner.prefixed_iter(n))
-            .flat_map(|(_key, data)| data.terms().cloned())
+        self.inner
+            .prefixed_values(needle)
+            .flat_map(|data| data.terms().map(|term| &**term))
     }
 
     /// Yield every indexed term that ends with `needle`, in unspecified
@@ -138,15 +154,87 @@ impl TermSuffixIndex {
     /// since suffixes below the threshold aren't indexed; debug
     /// builds assert this. Production callers filter upstream via
     /// the query engine's `minTermPrefix` gate.
-    pub fn iter_suffix(&self, needle: &str) -> impl Iterator<Item = Rc<str>> {
+    pub fn iter_suffix(&self, needle: &str) -> impl Iterator<Item = &str> {
         debug_assert!(
             needle.is_empty() || needle.chars().count() >= MIN_SUFFIX,
             "needle must span at least {MIN_SUFFIX} codepoints; caller must filter shorter needles (production gate: minTermPrefix)",
         );
-        (!needle.is_empty())
-            .then_some(needle)
+        let data = if needle.is_empty() {
+            None
+        } else {
+            self.inner.get(needle)
+        };
+        data.into_iter()
+            .flat_map(|data| data.terms().map(|term| &**term))
+    }
+
+    pub fn iter_wildcard(&self, pattern: &str) -> Option<impl Iterator<Item = Rc<str>>> {
+        let (token, followed_by_star) = choose_token(pattern)?;
+
+        // A token followed by `*` can sit anywhere inside a match,
+        // so every suffix entry starting with it is a candidate. A
+        // token at the very end of the pattern must terminate the
+        // match, so only terms ending with it — exactly its own
+        // suffix entry — qualify.
+        let (subtree, exact) = if followed_by_star {
+            (Some(self.inner.prefixed_values(token)), None)
+        } else {
+            (None, self.inner.get(token))
+        };
+
+        let pattern = WildcardPattern::parse(pattern.as_bytes());
+        let iter = subtree
             .into_iter()
-            .flat_map(|n| self.inner.get(n))
+            .flatten()
+            .chain(exact)
             .flat_map(|data| data.terms().cloned())
+            .filter(move |term| pattern.matches(term.as_bytes()) == MatchOutcome::Match);
+        Some(iter)
+    }
+}
+
+/// Returns the anchor token to look up for a wildcard `pattern`
+/// (e.g. `"ab*cd"`), paired with whether a `*` follows it.
+///
+/// The anchor is the `*`-separated token expected to narrow the
+/// candidate set the most. Returns [`None`] if no token is
+/// eligible, i.e. every token is shorter than [`MIN_SUFFIX`] or
+/// contains `?` or `\`.
+fn choose_token(pattern: &str) -> Option<(&str, bool)> {
+    pattern
+        .split_inclusive('*')
+        .map(|token| match token.strip_suffix('*') {
+            Some(stripped) => (stripped, true),
+            None => (token, false),
+        })
+        .filter(|(token, _)| token.chars().count() >= MIN_SUFFIX && !token.contains(['?', '\\']))
+        .max_by_key(|&(token, followed_by_star)| {
+            token.chars().count() as i32
+                - if followed_by_star {
+                    STARRED_ANCHOR_PENALTY
+                } else {
+                    0
+                }
+        })
+}
+
+#[cfg(test)]
+mod tests {
+    use rstest::rstest;
+
+    use super::*;
+
+    /// Anchor choice affects performance, never the result set, so
+    /// no test going through the public API can observe it; the
+    /// scoring rules are pinned against the private heuristic.
+    #[rstest]
+    #[case::score_tie_prefers_later_token("ab*cd*", Some(("cd", true)))]
+    #[case::starred_anchor_penalty_outweighs_small_length_lead("abcdef*gh", Some(("gh", false)))]
+    #[case::length_lead_above_starred_anchor_penalty_wins("abcdefgh*ij", Some(("abcdefgh", true)))]
+    #[case::tokens_below_min_suffix_ineligible("a*b", None)]
+    #[case::tokens_with_question_mark_or_backslash_ineligible("a?cd*\\ab*ef", Some(("ef", false)))]
+    #[case::length_counts_codepoints_not_bytes("日本語*ab", Some(("ab", false)))]
+    fn choose_token_test(#[case] pattern: &str, #[case] expected: Option<(&str, bool)>) {
+        assert_eq!(choose_token(pattern), expected);
     }
 }

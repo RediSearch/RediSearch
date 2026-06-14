@@ -10,15 +10,15 @@
 //! The byte-keyed trie map: [`TrieMap`] and its iterators.
 
 pub mod iter;
-mod node;
+pub(crate) mod node;
 mod utils;
 
 use rqe_wildcard::WildcardPattern;
 
 use crate::trie_map::{
     iter::{
-        ContainsIter, IntoValues, Iter, LendingIter, PrefixesIter, RangeFilter, RangeIter, Values,
-        WildcardIter, filter::VisitAll,
+        ContainsIter, IntoValues, Iter, LendingIter, PrefixesIter, RangeFilter, RangeIter,
+        Utf8WildcardIter, Values, WildcardIter, filter::VisitAll,
     },
     node::Node,
     utils::strip_prefix,
@@ -106,6 +106,14 @@ impl<Data> TrieMap<Data> {
             self.n_unique_keys -= 1;
         }
         data
+    }
+
+    /// Get a reference to the root node, if any.
+    ///
+    /// Used by tree-walking iterators (e.g. the DFA iterator) that need to
+    /// start their traversal at the root.
+    pub(crate) const fn root(&self) -> Option<&Node<Data>> {
+        self.root.as_ref()
     }
 
     /// Get a reference to the value associated with a key.
@@ -223,6 +231,17 @@ impl<Data> TrieMap<Data> {
         pattern: WildcardPattern<'p>,
     ) -> WildcardIter<'tm, 'p, Data> {
         WildcardIter::new(self.root.as_ref(), pattern)
+    }
+
+    /// Codepoint-aware sibling of [`Self::wildcard_iter`]: matches the
+    /// pattern against keys as UTF-8 (`?` = one codepoint, not one byte) via
+    /// [`Utf8WildcardIter`]. The caller is responsible for the keys (and
+    /// pattern) being valid UTF-8.
+    pub fn wildcard_iter_utf8<'tm, 'p>(
+        &'tm self,
+        pattern: WildcardPattern<'p>,
+    ) -> Utf8WildcardIter<'tm, 'p, Data> {
+        Utf8WildcardIter::new(self.root.as_ref(), pattern)
     }
 
     /// Iterate over the entries that start with the given prefix, in lexicographical key order.

@@ -26,6 +26,11 @@ impl<'tm, Data> Values<'tm, Data> {
             stack: root.into_iter().collect(),
         }
     }
+
+    /// Create a [`Values`] iterator that yields nothing.
+    pub(crate) fn empty() -> Self {
+        Self::new(None)
+    }
 }
 
 impl<'tm, Data> Iterator for Values<'tm, Data> {

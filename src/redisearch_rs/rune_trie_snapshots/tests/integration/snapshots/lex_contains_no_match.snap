@@ -1,0 +1,17 @@
+---
+source: rune_trie_snapshots/tests/integration/contains_iteration.rs
+expression: dump
+---
+size: 6
+
+query: starts-with "zzz"  str="zzz"  prefix=true  suffix=false
+  <no matches>
+
+query: ends-with "zzz"  str="zzz"  prefix=false  suffix=true
+  <no matches>
+
+query: substring "zzz"  str="zzz"  prefix=true  suffix=true
+  <no matches>
+
+query: exact "zzz"  str="zzz"  prefix=false  suffix=false
+  <no matches>

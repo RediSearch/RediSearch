@@ -1,0 +1,33 @@
+[package]
+name = "rune_trie_snapshots"
+version.workspace = true
+edition.workspace = true
+license-file.workspace = true
+publish.workspace = true
+
+[lib]
+# See https://bheisler.github.io/criterion.rs/book/faq.html#cargo-bench-gives-unrecognized-option-errors-for-valid-command-line-options
+bench = false
+
+[features]
+# Enabled when building tests so build.rs links the C static library.
+# See https://github.com/rust-lang/cargo/issues/4789#issuecomment-2308131243
+unittest = []
+
+[lints]
+workspace = true
+
+[build-dependencies]
+build_utils = { path = "../build_utils" }
+
+[dependencies]
+ffi.workspace = true
+workspace_hack.workspace = true
+
+[dev-dependencies]
+insta.workspace = true
+libc.workspace = true
+redis_mock.workspace = true
+redisearch_rs = { path = "../c_entrypoint/redisearch_rs", features = ["mock_allocator"] }
+rune_trie_snapshots = { path = ".", features = ["unittest"] }
+trie_rs = { path = "../trie_rs" }

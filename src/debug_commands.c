@@ -801,8 +801,8 @@ DEBUG_COMMAND(DumpSuffix) {
     return RedisModule_WrongArity(ctx);
   }
   GET_SEARCH_CTX(argv[2]);
-  if (argc == 3) { // suffix trie of global text field
-    Trie *suffix = sctx->spec->suffix;
+  if (argc == 3) {  // suffix index of global text field
+    TermSuffixIndex *suffix = sctx->spec->suffix;
     if (!suffix) {
       RedisModule_ReplyWithError(ctx, "Index does not have suffix trie");
       goto end;
@@ -811,25 +811,21 @@ DEBUG_COMMAND(DumpSuffix) {
     RedisModule_ReplyWithArray(ctx, REDISMODULE_POSTPONED_ARRAY_LEN);
     long resultSize = 0;
 
-    // iterate trie and reply with terms
-    TrieIterator *it = Trie_IterateAll(suffix);
-    rune *rstr;
-    t_len len;
-    float score;
+    // iterate the suffix index and reply with its keys
+    TermSuffixIndexIterator *it = TermSuffixIndex_IterateAll(suffix);
+    const char *s;
+    size_t slen;
 
-    while (TrieIterator_Next(it, &rstr, &len, NULL, &score, NULL, NULL)) {
-      size_t slen;
-      char *s = runesToStr(rstr, len, &slen);
+    while (TermSuffixIndexIterator_Next(it, &s, &slen)) {
       RedisModule_ReplyWithStringBuffer(ctx, s, slen);
-      rm_free(s);
       ++resultSize;
     }
 
-    TrieIterator_Free(it);
+    TermSuffixIndexIterator_Free(it);
 
     RedisModule_ReplySetArrayLength(ctx, resultSize);
 
-  } else { // suffix triemap of tag field
+  } else {  // suffix triemap of tag field
     FieldSpec *fs = getFieldByNameAndType(sctx->spec, argv[3], INDEXFLD_T_TAG);
     if (!fs) {
       RedisModule_ReplyWithError(sctx->redisCtx, "Could not find given field in index spec");

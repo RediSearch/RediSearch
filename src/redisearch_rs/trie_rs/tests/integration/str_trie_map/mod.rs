@@ -8,7 +8,9 @@
 */
 
 mod empty_short_circuits;
+mod mem_usage;
 mod range_iter;
 mod return_value_contracts;
 mod suffixed_iter;
+mod term_dict_case;
 mod utf8_boundary;

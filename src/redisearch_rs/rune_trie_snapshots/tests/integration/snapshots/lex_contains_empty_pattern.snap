@@ -1,0 +1,8 @@
+---
+source: rune_trie_snapshots/tests/integration/contains_iteration.rs
+expression: dump
+---
+size: 6
+
+query: empty-prefix  str=""  prefix=true  suffix=false
+  <no matches>

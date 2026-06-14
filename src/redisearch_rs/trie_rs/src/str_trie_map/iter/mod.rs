@@ -14,9 +14,11 @@ mod prefixed;
 mod range;
 mod suffixed;
 mod unfiltered;
+mod wildcard;
 
 pub use contains::ContainsIter;
 pub use prefixed::PrefixedIter;
 pub use range::{RangeBoundary, RangeFilter, RangeIter};
 pub use suffixed::SuffixedIter;
 pub use unfiltered::Iter;
+pub use wildcard::WildcardIter;
