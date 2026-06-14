@@ -277,8 +277,6 @@ impl<'a> RLookup<'a> {
             // A. we found the key in the lookup table:
             if flags.contains(RLookupKeyFlag::Override) {
                 // We are in create mode, overwrite the key (remove schema related data, mark with new flags).
-                // `override_current` returns the freshly-created replacement key, so there is no need to
-                // look it up again.
                 c.override_current(flags | RLookupKeyFlag::QuerySrc)
                     .unwrap()
             } else {
@@ -287,8 +285,7 @@ impl<'a> RLookup<'a> {
             }
         } else {
             // B. we didn't find the key in the lookup table:
-            // create a new key with the name and flags. `push` returns the inserted key, so there is no
-            // need to look it up again.
+            // create a new key with the name and flags.
             self.keys
                 .push(RLookupKey::new(name, flags | RLookupKeyFlag::QuerySrc))
         };
