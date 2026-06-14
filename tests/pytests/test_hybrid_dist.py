@@ -131,61 +131,36 @@ def test_dist_hybrid_unresponsive_shard_does_not_hang(env):
     for i in range(20):
         conn.execute_command('HSET', f'doc{i}', 'name', 'hello', 'embedding', doc_vec)
 
-    # Bound the request with a finite timeout. The test harness defaults to
-    # TIMEOUT 0 (unlimited); under the default RETURN policy a finite timeout is
-    # what arms the coordinator's cursor-setup deadline. (Bounding the unlimited
-    # case is tracked separately.)
+    # A finite timeout arms the coordinator's cursor-setup deadline; the harness
+    # defaults to TIMEOUT 0 (unlimited). (Bounding the unlimited case is separate.)
     env.expect(config_cmd(), 'SET', 'TIMEOUT', '500').ok()
 
+    # Arm on every shard: the fan-out may land the internal _FT.HYBRID on any of
+    # them (incl. the coordinator's own).
     sync_point = 'BeforeHybridShardReply'
-    # Arm every shard: the cursor-mapping fan-out may land the internal _FT.HYBRID
-    # on any subset of shards (incl. the coordinator's own). Whichever shard runs
-    # it parks on its worker thread before replying.
-    shard_conns = [env.getConnection(s) for s in range(1, env.shardsCount + 1)]
-    for sc in shard_conns:
-        sc.execute_command(debug_cmd(), 'SYNC_POINT', 'CLEAR')
-        sc.execute_command(debug_cmd(), 'SYNC_POINT', 'ARM', sync_point)
-
-    def any_shard_waiting():
-        return any(sc.execute_command(debug_cmd(), 'SYNC_POINT', 'IS_WAITING', sync_point) == 1
-                   for sc in shard_conns)
-
-    error_holder = []
-    result_holder = []
-    def run_hybrid_query(c, errors, results):
-        try:
-            results.append(c.execute_command(
-                'FT.HYBRID', 'idx',
-                'SEARCH', '*',
-                'VSIM', '@embedding', '$BLOB',
-                'PARAMS', '2', 'BLOB', query_vec
-            ))
-        except Exception as e:
-            errors.append(e)
-
-    query_conn = env.getConnection()
-    query_thread = threading.Thread(
-        target=run_hybrid_query,
-        args=(query_conn, error_holder, result_holder),
-        daemon=True
-    )
-    query_thread.start()
+    run_command_on_all_shards(env, debug_cmd(), 'SYNC_POINT', 'ARM', sync_point)
     try:
-        # Confirm a shard is parked before emitting its cursor-mapping reply.
-        wait_for_condition(
-            lambda: (any_shard_waiting(), {}),
-            f'Timeout waiting for {sync_point} sync point on any shard'
-        )
+        done = threading.Event()
+        def run_query():
+            try:
+                env.getConnection().execute_command(
+                    'FT.HYBRID', 'idx', 'SEARCH', '*',
+                    'VSIM', '@embedding', '$BLOB', 'PARAMS', '2', 'BLOB', query_vec)
+            except Exception:
+                pass  # a timeout error is the expected outcome; we only assert it returns
+            finally:
+                done.set()
+        threading.Thread(target=run_query, daemon=True).start()
 
-        # The coordinator must bound the wait and return instead of blocking
-        # forever on the missing shard reply.
-        query_thread.join(timeout=10)
-        env.assertFalse(query_thread.is_alive(),
-                        message='FT.HYBRID hung waiting for an unresponsive shard')
+        # Confirm the stall is actually exercised, then require the query to
+        # return at the deadline rather than block on the missing reply.
+        wait_for_condition(
+            lambda: (1 in run_command_on_all_shards(env, debug_cmd(), 'SYNC_POINT', 'IS_WAITING', sync_point), {}),
+            f'Timeout waiting for {sync_point} sync point on any shard')
+        env.assertTrue(done.wait(timeout=10),
+                       message='FT.HYBRID hung waiting for an unresponsive shard')
     finally:
-        # Release the parked shard(s) so the background reply drains and the env
-        # tears down cleanly, regardless of whether the assertion above passed.
-        for sc in shard_conns:
-            sc.execute_command(debug_cmd(), 'SYNC_POINT', 'SIGNAL', sync_point)
-            sc.execute_command(debug_cmd(), 'SYNC_POINT', 'CLEAR')
-        query_thread.join(timeout=10)
+        # SIGNAL wakes a parked worker; CLEAR disarms so a worker arriving late
+        # doesn't park, letting the background reply drain and the env tear down.
+        run_command_on_all_shards(env, debug_cmd(), 'SYNC_POINT', 'SIGNAL', sync_point)
+        run_command_on_all_shards(env, debug_cmd(), 'SYNC_POINT', 'CLEAR')
