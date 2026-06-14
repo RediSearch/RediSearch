@@ -48,15 +48,42 @@ impl SpellCheckDictionary {
             .any(|(key, ())| unicode_tolower(&key) == needle)
     }
 
-    pub fn fuzzy_matches(&self, _term: &str, _max_dist: u32) -> impl Iterator<Item = String> + '_ {
-        todo!("needs fold-aware edit-distance iteration on StrTrieMap (shared with sp->terms)");
-        #[expect(unreachable_code, reason = "establishes the return type for the stub")]
-        std::iter::empty()
+    /// Yield every stored term whose case-folded form is within Levenshtein
+    /// edit distance `max_dist` (in codepoints) of `term`. Matching is
+    /// case-insensitive — both the query and each candidate are folded via
+    /// [`unicode_tolower`] before the distance is measured — but the yielded
+    /// terms keep their original stored case, mirroring the C spellcheck path
+    /// (`Trie_Iterate` with `LoweringFilterFunc`, which folds only for the DFA
+    /// comparison and returns the trie's original runes).
+    pub fn fuzzy_matches(&self, term: &str, max_dist: u32) -> impl Iterator<Item = String> + '_ {
+        let needle = unicode_tolower(term);
+        self.trie.iter().filter_map(move |(key, ())| {
+            (levenshtein(&unicode_tolower(&key), &needle) <= max_dist).then_some(key)
+        })
     }
 }
 
 fn unicode_tolower(s: &str) -> String {
     s.chars().flat_map(char::to_lowercase).collect()
+}
+
+/// Codepoint-level Levenshtein distance between two strings.
+fn levenshtein(a: &str, b: &str) -> u32 {
+    let a: Vec<char> = a.chars().collect();
+    let b: Vec<char> = b.chars().collect();
+    let (m, n) = (a.len(), b.len());
+
+    let mut prev: Vec<u32> = (0..=n as u32).collect();
+    let mut curr = vec![0u32; n + 1];
+    for i in 1..=m {
+        curr[0] = i as u32;
+        for j in 1..=n {
+            let cost = u32::from(a[i - 1] != b[j - 1]);
+            curr[j] = (curr[j - 1] + 1).min(prev[j] + 1).min(prev[j - 1] + cost);
+        }
+        std::mem::swap(&mut prev, &mut curr);
+    }
+    prev[n]
 }
 
 #[cfg(test)]
@@ -92,6 +119,74 @@ mod tests {
 
         assert!(sut.remove("Foo"));
         assert!(!sut.contains("foo"));
+    }
+
+    fn fuzzy(dict: &SpellCheckDictionary, query: &str, max_dist: u32) -> BTreeSet<String> {
+        dict.fuzzy_matches(query, max_dist).collect()
+    }
+
+    #[test]
+    fn fuzzy_matches_within_distance() {
+        let mut sut = SpellCheckDictionary::new();
+        for term in ["apple", "apply", "ample", "orange"] {
+            sut.add(term);
+        }
+
+        // dist 0 finds only the exact term.
+        assert_eq!(fuzzy(&sut, "apple", 0), BTreeSet::from(["apple".into()]));
+
+        // dist 1: "aple" -> "apple"/"ample" (insert), "apply"/"ample" within 1
+        // of "apple"? "apple" vs "aple" = 1, "ample" vs "aple" = 1.
+        assert_eq!(
+            fuzzy(&sut, "aple", 1),
+            BTreeSet::from(["apple".into(), "ample".into()])
+        );
+
+        // far term never appears.
+        assert!(!fuzzy(&sut, "aple", 2).contains("orange"));
+    }
+
+    #[test]
+    fn fuzzy_is_case_insensitive_but_preserves_stored_case() {
+        let mut sut = SpellCheckDictionary::new();
+        sut.add("Apple");
+
+        // Upper-case query still matches; result keeps the stored case.
+        assert_eq!(fuzzy(&sut, "APPLE", 0), BTreeSet::from(["Apple".into()]));
+        assert_eq!(fuzzy(&sut, "aple", 1), BTreeSet::from(["Apple".into()]));
+    }
+
+    #[test]
+    fn fuzzy_folds_multibyte() {
+        let mut sut = SpellCheckDictionary::new();
+        sut.add("Fußball");
+
+        assert_eq!(fuzzy(&sut, "fußball", 0), BTreeSet::from(["Fußball".into()]));
+    }
+
+    proptest! {
+        #[test]
+        fn fuzzy_matches_model(
+            stored in prop::collection::vec("[a-zA-Z]{1,5}", 0..20),
+            query in "[a-zA-Z]{1,5}",
+            max_dist in 0u32..=3,
+        ) {
+            let mut sut = SpellCheckDictionary::new();
+            for term in &stored {
+                sut.add(term);
+            }
+
+            // Brute-force oracle: a stored term matches iff its folded form is
+            // within `max_dist` of the folded query.
+            let folded_query = unicode_tolower(&query);
+            let expected: BTreeSet<String> = stored
+                .iter()
+                .filter(|t| levenshtein(&unicode_tolower(t), &folded_query) <= max_dist)
+                .cloned()
+                .collect();
+
+            prop_assert_eq!(fuzzy(&sut, &query, max_dist), expected);
+        }
     }
 
     proptest! {
