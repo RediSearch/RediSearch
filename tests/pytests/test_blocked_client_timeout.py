@@ -3155,6 +3155,82 @@ class TestCoordinatorTimeout:
         env.cmd(debug_cmd(), 'SYNC_POINT', 'CLEAR')
         env.cmd('CONFIG', 'SET', ON_TIMEOUT_CONFIG, prev_on_timeout_policy)
 
+    def test_return_strict_timeout_at_claim_sync_point_profile_hybrid(self):
+        """RETURN_STRICT FT.PROFILE HYBRID early-timeout preserves the profile envelope.
+
+        Profile counterpart of test_return_strict_timeout_at_claim_sync_point_hybrid.
+        The main-thread timeout callback wins TryClaim while BG is
+        parked before HybridRequest_TryClaimAggregateResults and replies empty via
+        the coordinator fast path. coord_hybrid_query_reply_empty must derive the
+        profile flag from the command (FT.PROFILE prefix) so the reply keeps the
+        {Results, Profile} envelope instead of a bare empty result.
+        """
+        env = self.env
+        skipIfNoEnableAssert(env)
+
+        prev_on_timeout_policy = env.cmd('CONFIG', 'GET', ON_TIMEOUT_CONFIG)[ON_TIMEOUT_CONFIG]
+        env.cmd('CONFIG', 'SET', ON_TIMEOUT_CONFIG, 'return-strict')
+
+        before_info = info_modules_to_dict(env)
+        base_warn_coord = int(before_info[COORD_WARN_ERR_SECTION][TIMEOUT_WARNING_COORD_METRIC])
+
+        sync_point = 'BeforeHybridResultsClaim'
+        env.cmd(debug_cmd(), 'SYNC_POINT', 'CLEAR')
+        env.cmd(debug_cmd(), 'SYNC_POINT', 'ARM', sync_point)
+
+        query_args = [
+            'FT.PROFILE', 'hybrid_idx', 'HYBRID', 'QUERY',
+            'SEARCH', '*',
+            'VSIM', '@embedding', '$BLOB',
+            'PARAMS', '2', 'BLOB', self.hybrid_query_vec
+        ]
+        query_result = []
+        t_query = threading.Thread(
+            target=call_and_store,
+            args=(env.cmd, query_args, query_result),
+            daemon=True
+        )
+        t_query.start()
+
+        # Wait for BG to park at the sync point (before TryClaim).
+        wait_for_condition(
+            lambda: (env.cmd(debug_cmd(), 'SYNC_POINT', 'IS_WAITING', sync_point) == 1, {}),
+            f'Timeout waiting for {sync_point} sync point'
+        )
+
+        # Fire the blocked-client timeout on the main thread while BG is parked.
+        # Main-thread callback wins TryClaim and replies empty + TIMEOUT warning.
+        blocked_client_id = wait_for_blocked_query_client(env, 'FT.PROFILE')
+        env.cmd('CLIENT', 'UNBLOCK', blocked_client_id, 'TIMEOUT')
+        wait_for_client_unblocked(env, blocked_client_id)
+
+        # Release BG so it can observe the lost claim and return from startPipelineHybrid.
+        env.cmd(debug_cmd(), 'SYNC_POINT', 'SIGNAL', sync_point)
+
+        t_query.join(timeout=10)
+        env.assertFalse(t_query.is_alive(), message="Query thread should have finished")
+
+        env.assertEqual(len(query_result), 1, message="Expected 1 result from query thread")
+        result = query_result[0]
+        # The profile envelope must survive the early-timeout fast path.
+        env.assertContains('Results', result, message=f"Profile envelope dropped, got: {result}")
+        env.assertContains('Profile', result, message=f"Profile envelope dropped, got: {result}")
+        inner = result['Results']
+        env.assertEqual(inner['total_results'], 0, message=f"Expected 0 results, got: {inner}")
+        env.assertEqual(inner.get('results', []), [],
+                        message=f"Expected no rows, got {inner.get('results')}")
+        assert_timeout_warning(env, inner,
+                               message=f"FT.PROFILE HYBRID return-strict at claim sync point, got: {result}")
+
+        after_info = info_modules_to_dict(env)
+        env.assertEqual(after_info[COORD_WARN_ERR_SECTION][TIMEOUT_WARNING_COORD_METRIC],
+                        str(base_warn_coord + 1),
+                        message="Coordinator timeout warning should be +1")
+        _verify_metrics_not_changed(env, env, before_info, [TIMEOUT_WARNING_COORD_METRIC])
+
+        env.cmd(debug_cmd(), 'SYNC_POINT', 'CLEAR')
+        env.cmd('CONFIG', 'SET', ON_TIMEOUT_CONFIG, prev_on_timeout_policy)
+
     def test_return_strict_timeout_after_store_hybrid(self):
         """RETURN_STRICT timeout race after the BG hybrid pipeline has stored results.
 
@@ -4781,6 +4857,27 @@ class TestCoordinatorTimeoutReturnStrictResp2:
         for i in range(self.n_docs):
             conn.execute_command('HSET', f'doc{i}', 'name', f'hello{i}')
 
+        # Index with a vector field for FT.HYBRID tests (different prefix).
+        self.env.expect(
+            'FT.CREATE', 'hybrid_idx', 'PREFIX', '1', 'hybrid_doc', 'SCHEMA',
+            'name', 'TEXT',
+            'embedding', 'VECTOR', 'FLAT', '6', 'TYPE', 'FLOAT32', 'DIM', '2',
+            'DISTANCE_METRIC', 'L2'
+        ).ok()
+        for i in range(self.n_docs):
+            vec = np.array([float(i), float(i)], dtype=np.float32).tobytes()
+            conn.execute_command('HSET', f'hybrid_doc{i}', 'name', f'hello{i}',
+                                 'embedding', vec)
+
+        # Warmup hybrid query and store the query vector for tests.
+        self.hybrid_query_vec = np.array([0.0, 0.0], dtype=np.float32).tobytes()
+        self.env.expect(
+            'FT.HYBRID', 'hybrid_idx',
+            'SEARCH', '*',
+            'VSIM', '@embedding', '$BLOB',
+            'PARAMS', '2', 'BLOB', self.hybrid_query_vec
+        ).noError()
+
     def _run_one_shard_timesout_resp2(self, *, coord_cmd_list, shard_cmd,
                                       assert_reply):
         """Drive a one-shard-timesout RESP2 query under RETURN_STRICT.
@@ -4865,8 +4962,8 @@ class TestCoordinatorTimeoutReturnStrictResp2:
             env.assertTrue(isinstance(result, list),
                            message=f"RESP2 reply type ({type(result).__name__})")
             row_count = len(result) - 1
-            # Temporary until MOD-15971 defines deterministic internal cursor
-            # draining after RETURN_STRICT shard timeouts.
+            # Temporary until deterministic internal cursor draining after
+            # RETURN_STRICT shard timeouts is defined.
             env.assertGreaterEqual(row_count, expected_rows,
                                    message="trailing row count")
 
@@ -4901,8 +4998,8 @@ class TestCoordinatorTimeoutReturnStrictResp2:
             env.assertTrue(profile_array,
                            message="RESP2 profile array must be non-empty")
             row_count = len(results_array) - 1
-            # Temporary until MOD-15971 defines deterministic internal cursor
-            # draining after RETURN_STRICT shard timeouts.
+            # Temporary until deterministic internal cursor draining after
+            # RETURN_STRICT shard timeouts is defined.
             env.assertGreaterEqual(row_count, expected_rows,
                                    message="trailing row count")
 
@@ -4912,6 +5009,105 @@ class TestCoordinatorTimeoutReturnStrictResp2:
                             'LIMIT', '0', str(self.n_docs)],
             shard_cmd='_FT.PROFILE',
             assert_reply=assert_profile_reply)
+
+    def test_return_strict_timeout_at_claim_sync_point_profile_hybrid_resp2(self):
+        """RESP2 FT.PROFILE HYBRID early-timeout preserves the profile envelope.
+
+        RESP2 counterpart of TestCoordinatorTimeout.
+        test_return_strict_timeout_at_claim_sync_point_profile_hybrid.
+        The main-thread timeout callback wins TryClaim while BG is
+        parked before HybridRequest_TryClaimAggregateResults and replies empty
+        via the coordinator fast path. coord_hybrid_query_reply_empty derives
+        the profile flag from the FT.PROFILE prefix, so the RESP2 reply must be
+        the two-element ``[results_array, profile_array]`` envelope rather than a
+        bare empty results map. Unlike the one-shard-timesout RESP2 case the
+        coordinator itself generates the timeout, so the coord warning metric
+        increments by 1.
+        """
+        env = self.env
+        skipIfNoEnableAssert(env)
+
+        prev_on_timeout_policy = env.cmd('CONFIG', 'GET', ON_TIMEOUT_CONFIG)[1]
+        run_command_on_all_shards(env, 'CONFIG', 'SET',
+                                  ON_TIMEOUT_CONFIG, 'return-strict')
+
+        before_info = info_modules_to_dict(env)
+        base_warn_coord = int(
+            before_info[COORD_WARN_ERR_SECTION][TIMEOUT_WARNING_COORD_METRIC])
+
+        sync_point = 'BeforeHybridResultsClaim'
+        env.cmd(debug_cmd(), 'SYNC_POINT', 'CLEAR')
+        env.cmd(debug_cmd(), 'SYNC_POINT', 'ARM', sync_point)
+
+        query_args = [
+            'FT.PROFILE', 'hybrid_idx', 'HYBRID', 'QUERY',
+            'SEARCH', '*',
+            'VSIM', '@embedding', '$BLOB',
+            'PARAMS', '2', 'BLOB', self.hybrid_query_vec
+        ]
+        query_result = []
+        t_query = threading.Thread(
+            target=call_and_store,
+            args=(env.cmd, query_args, query_result),
+            daemon=True
+        )
+        t_query.start()
+
+        # Wait for BG to park at the sync point (before TryClaim).
+        wait_for_condition(
+            lambda: (env.cmd(debug_cmd(), 'SYNC_POINT', 'IS_WAITING', sync_point) == 1, {}),
+            f'Timeout waiting for {sync_point} sync point'
+        )
+
+        # Fire the blocked-client timeout on the main thread while BG is parked.
+        # Main-thread callback wins TryClaim and replies empty + TIMEOUT warning.
+        blocked_client_id = wait_for_blocked_query_client(env, 'FT.PROFILE')
+        env.cmd('CLIENT', 'UNBLOCK', blocked_client_id, 'TIMEOUT')
+        wait_for_client_unblocked(env, blocked_client_id)
+
+        # Release BG so it can observe the lost claim and exit cleanly.
+        env.cmd(debug_cmd(), 'SYNC_POINT', 'SIGNAL', sync_point)
+
+        t_query.join(timeout=10)
+        env.assertFalse(t_query.is_alive(), message="Query thread should have finished")
+
+        env.assertEqual(len(query_result), 1, message="Expected 1 result from query thread")
+        result = query_result[0]
+
+        # RESP2 profile reply: [results_array, profile_array].
+        env.assertTrue(isinstance(result, list),
+                       message=f"RESP2 reply type ({type(result).__name__}): {result!r}")
+        env.assertEqual(len(result), 2,
+                        message=f"RESP2 profile envelope shape: {result!r}")
+        results_array, profile_array = result[0], result[1]
+        env.assertTrue(isinstance(results_array, list),
+                       message=f"RESP2 results_array type: {results_array!r}")
+        env.assertTrue(profile_array,
+                       message="RESP2 profile array must be non-empty")
+
+        # The RESP2 results map flattens to a [key, value, ...] list.
+        inner = dict(zip(results_array[0::2], results_array[1::2]))
+        env.assertEqual(inner.get('total_results'), 0,
+                        message=f"Expected 0 results, got: {inner}")
+        env.assertEqual(inner.get('results', []), [],
+                        message=f"Expected no rows, got {inner.get('results')}")
+        warnings = inner.get('warnings', [])
+        env.assertTrue(warnings,
+                       message=f"inner results must carry a warning, got: {inner}")
+        env.assertContains('Timeout', warnings[0],
+                           message=f"inner results must carry the TIMEOUT warning, got: {inner}")
+
+        # The coordinator generated the timeout itself, so the coord warning
+        # metric increments by 1 (it is not relying on RESP2 shard propagation).
+        after_info = info_modules_to_dict(env)
+        env.assertEqual(after_info[COORD_WARN_ERR_SECTION][TIMEOUT_WARNING_COORD_METRIC],
+                        str(base_warn_coord + 1),
+                        message="Coordinator timeout warning should be +1")
+        _verify_metrics_not_changed(env, env, before_info, [TIMEOUT_WARNING_COORD_METRIC])
+
+        env.cmd(debug_cmd(), 'SYNC_POINT', 'CLEAR')
+        run_command_on_all_shards(env, 'CONFIG', 'SET',
+                                  ON_TIMEOUT_CONFIG, prev_on_timeout_policy)
 
 class TestCoordinatorTimeoutCursorReadResp2:
     """RESP2 coverage for RETURN_STRICT FT.CURSOR READ timeout reply shape.

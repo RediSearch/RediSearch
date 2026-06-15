@@ -174,6 +174,16 @@ int common_hybrid_query_reply_empty(RedisModuleCtx *ctx, QueryErrorCode errCode,
     return REDISMODULE_OK;
 }
 
+int coord_hybrid_query_reply_empty(RedisModuleCtx *ctx, RedisModuleString **argv, int argc, QueryErrorCode errCode) {
+    // Derive the profile flag from the command (argv[0] == "FT.PROFILE"), the
+    // same way parseProfileArgs detects it for aggregate. This keeps the empty
+    // reply envelope consistent with a successful FT.PROFILE ... HYBRID without
+    // the caller having to thread isProfile through, removing a foot-gun where
+    // the profile envelope could be dropped on the timeout fast path.
+    const bool isProfile = RMUtil_ArgIndex("FT.PROFILE", argv, 1) != -1;
+    return common_hybrid_query_reply_empty(ctx, errCode, false, isProfile);
+}
+
 // Single-shard empty reply for both SEARCH and AGGREGATE commands. Currently used during OOM conditions.
 // Uses the common helper which compiles the query and works for both command types.
 int single_shard_common_query_reply_empty(RedisModuleCtx *ctx, RedisModuleString **argv, int argc, int execOptions, QueryErrorCode errCode) {
