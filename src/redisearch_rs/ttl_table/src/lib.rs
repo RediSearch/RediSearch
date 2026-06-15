@@ -788,6 +788,24 @@ mod tests {
     use super::*;
 
     #[test]
+    fn field_expirations_capacity_and_shrink_to_fit() {
+        let mut fields = FieldExpirations::new();
+        assert_eq!(fields.len(), 0);
+        assert_eq!(fields.capacity(), 0);
+
+        // The first push seeds the backing store's native exponential growth,
+        // leaving spare capacity beyond `len`.
+        fields.push(fe(FIELD_INDEX_1, FUTURE));
+        assert_eq!(fields.len(), 1);
+        assert!(fields.capacity() > fields.len());
+
+        // Shrinking releases the spare capacity so it matches `len`.
+        fields.shrink_to_fit();
+        assert_eq!(fields.capacity(), fields.len());
+        assert_eq!(fields.len(), 1);
+    }
+
+    #[test]
     fn verify_field_returns_true_for_doc_colliding_with_a_known_doc() {
         // doc_id 1 is in the table; doc_id 9 also hashes to slot 1 but is
         // absent. Per docs: if the document has no entry, both predicates
