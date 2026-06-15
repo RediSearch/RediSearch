@@ -429,7 +429,6 @@ def testSuffixTrieWildcardCaseInsensitiveText():
     for q, exp in expected.items():
         with_suffix = env.cmd('FT.SEARCH', 'idx_w',  q, 'NOCONTENT')
         plain       = env.cmd('FT.SEARCH', 'idx_no', q, 'NOCONTENT')
-        # Tightly assert the answer, and that the suffix trie does not change it.
         env.assertEqual(with_suffix, exp,   message=q)
         env.assertEqual(plain,       exp,   message=q)
         env.assertEqual(with_suffix, plain, message=q)
