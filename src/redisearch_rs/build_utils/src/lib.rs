@@ -247,3 +247,25 @@ pub fn generate_c_bindings(
 
     Ok(())
 }
+
+#[cfg(test)]
+mod tests {
+    use super::repository_root;
+
+    #[test]
+    fn repository_root_resolves_to_redisearch_source_root() -> Result<(), Box<dyn std::error::Error>>
+    {
+        let root = repository_root()?;
+
+        assert!(root.join("CMakeLists.txt").is_file());
+        assert!(
+            root.join("src")
+                .join("redisearch_rs")
+                .join("Cargo.toml")
+                .is_file()
+        );
+        assert!(root.join("src").join("version.h").is_file());
+
+        Ok(())
+    }
+}
