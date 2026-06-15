@@ -152,6 +152,9 @@ void ConcurrentCmdCtx_KeepRedisCtx(struct ConcurrentCmdCtx *ctx);
 // Returns the WeakRef held in the context.
 WeakRef ConcurrentCmdCtx_GetWeakRef(struct ConcurrentCmdCtx *cctx);
 
+// Returns the number of shards captured for this command on the main thread.
+size_t ConcurrentCmdCtx_GetNumShards(const struct ConcurrentCmdCtx *cctx);
+
 int ConcurrentSearch_HandleRedisCommand(int poolType, ConcurrentCmdHandler handler,
                                         RedisModuleCtx *ctx, RedisModuleString **argv, int argc);
 
@@ -159,6 +162,12 @@ int ConcurrentSearch_HandleRedisCommand(int poolType, ConcurrentCmdHandler handl
 int ConcurrentSearch_HandleRedisCommandEx(int poolType, int options, ConcurrentCmdHandler handler,
                                           RedisModuleCtx *ctx, RedisModuleString **argv, int argc,
                                           WeakRef spec_ref);
+
+int ConcurrentSearch_HandleRedisCommandExWithNumShards(int poolType, int options,
+                                                       ConcurrentCmdHandler handler,
+                                                       RedisModuleCtx *ctx,
+                                                       RedisModuleString **argv, int argc,
+                                                       WeakRef spec_ref, size_t numShards);
 
 /********************************************* for debugging **********************************/
 

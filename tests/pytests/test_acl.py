@@ -175,6 +175,30 @@ def test_internal_commands(env):
     env.expect('DEBUG', 'MARK-INTERNAL-CLIENT').ok()
     env.expect('_FT.SEARCH', 'idx', '*').equal([0])
 
+@skip(cluster=True)
+def test_internal_slots_info_ignored(env):
+    """Forward compatibility (MOD-16047): a newer (>=8.4) coordinator appends a
+    _SLOTS_INFO <binary> argument to internal queries. This version does not use it but
+    must accept and ignore it, so it can serve as a query target during a rolling upgrade
+    across the 8.4 boundary."""
+    env.expect('FT.CREATE', 'idx', 'SCHEMA', 'n', 'NUMERIC').ok()
+    conn = getConnectionByEnv(env)
+    conn.execute_command('HSET', 'doc:1', 'n', '1')
+    env.expect('DEBUG', 'MARK-INTERNAL-CLIENT').ok()
+
+    # The payload is opaque to this version; arbitrary bytes must be consumed and ignored.
+    slots = b'\x01\x00\x00\x00\x00\x00\xff\x3f'
+    dispatch_time = '1000000'
+    res = env.cmd('_FT.SEARCH', 'idx', '*', '_SLOTS_INFO', slots,
+                  '_COORD_DISPATCH_TIME', dispatch_time)
+    env.assertEqual(res[0], 1)
+    env.assertEqual(res[1], 'doc:1')
+
+    # Also when _SLOTS_INFO is followed by further arguments, and for _FT.AGGREGATE.
+    res = env.cmd('_FT.AGGREGATE', 'idx', '*', '_SLOTS_INFO', slots,
+                  '_COORD_DISPATCH_TIME', dispatch_time, 'LOAD', '1', '@n')
+    env.assertEqual(res[1:], [['n', '1']])
+
 @skip(redis_less_than="7.9.227")
 def test_acl_key_permissions_validation(env):
     """Tests that the key permission validation works properly"""
