@@ -334,6 +334,24 @@ fn iter_wildcard_multibyte_anchor() {
     assert_eq!(actual, expected);
 }
 
+#[test]
+fn iter_wildcard_question_mark_matches_one_multibyte_codepoint() {
+    // `é` (U+00E9) is two UTF-8 bytes. `?` must consume the whole
+    // codepoint: a byte-wise `?` lands mid-`é`, the trailing `c?` fails
+    // to terminate the match, and the term is wrongly dropped.
+    let corpus = ["abxc\u{e9}"]
+        .iter()
+        .map(|s| s.to_string())
+        .collect::<Vec<_>>();
+    let sut = build_index(&corpus);
+
+    // `ab` anchors (>= MIN_SUFFIX, no `?`); the trailing `?` must match
+    // the 2-byte `é`.
+    let actual = collect_set(sut.iter_wildcard("ab*c?").expect("'ab' is anchorable"));
+
+    assert_eq!(actual, HashSet::from(["abxc\u{e9}".to_string()]));
+}
+
 // --- Proptest fuzz
 
 #[cfg(not(miri))]
@@ -343,8 +361,9 @@ mod fuzz {
     use super::*;
 
     /// Kept small so fuzz cases land in a regime where suffix collisions are common.
+    /// Includes `é` (multibyte) so `?` patterns exercise codepoint-aware matching.
     fn term_strategy() -> impl Strategy<Value = String> {
-        "[a-z]{1,8}"
+        "[a-zé]{1,8}"
     }
 
     proptest! {
@@ -407,7 +426,7 @@ mod fuzz {
                 let parsed = WildcardPattern::parse(pattern.as_bytes());
                 let expected = corpus
                     .iter()
-                    .filter(|t| parsed.matches(t.as_bytes()) == MatchOutcome::Match)
+                    .filter(|t| parsed.matches_utf8(t.as_bytes()) == MatchOutcome::Match)
                     .cloned()
                     .collect::<HashSet<_>>();
 

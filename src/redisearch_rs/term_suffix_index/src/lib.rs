@@ -198,12 +198,16 @@ impl TermSuffixIndex {
         };
 
         let pattern = WildcardPattern::parse(pattern.as_bytes());
+        // Terms are UTF-8, so `?` must consume a whole codepoint, not a
+        // single byte — `matches_utf8`, not `matches`. A byte-wise `?`
+        // would split a multibyte codepoint and drop terms that contain
+        // one (e.g. `caf?` would never match `café`).
         let iter = subtree
             .into_iter()
             .flatten()
             .chain(exact)
             .flat_map(|data| data.terms().cloned())
-            .filter(move |term| pattern.matches(term.as_bytes()) == MatchOutcome::Match);
+            .filter(move |term| pattern.matches_utf8(term.as_bytes()) == MatchOutcome::Match);
         Some(iter)
     }
 }
