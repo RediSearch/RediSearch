@@ -208,10 +208,18 @@ fi
 ```
 
 Then, from inside the writable clone (`$WORK`), cherry-pick onto a fresh branch.
-The clone already has every `origin/<target>` ref and the squash commit, so no
-extra fetch is needed:
+**Refresh the target tip first.** The clone is a point-in-time snapshot, and a
+release branch can advance mid-run — an earlier target's backport merges, or a
+concurrent backport lands — so cherry-picking onto the clone-time
+`origin/${TARGET}` could miss conflicts (and CI coverage) against the actual
+tip. Re-fetch with a forced refspec so the remote-tracking ref moves in place (a
+plain `git fetch origin "${TARGET}"` only updates `FETCH_HEAD`, leaving
+`origin/${TARGET}` — used both here and in the conflict diffs below — stale).
+The squash commit `${SHA}` is already present from the clone, so it needs no
+refetch:
 
 ```bash
+git fetch --no-tags origin "+refs/heads/${TARGET}:refs/remotes/origin/${TARGET}"
 git checkout -B "${BRANCH}" "origin/${TARGET}"
 git cherry-pick "${SHA}"
 ```
