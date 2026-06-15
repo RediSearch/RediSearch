@@ -398,3 +398,47 @@ def testTextSuffixTrieMaxPrefixExpansions():
 
     # Restore default
     run_command_on_all_shards(env, config_cmd(), 'SET', 'MAXPREFIXEXPANSIONS', '200')
+
+@skip(cluster=True)
+def testSuffixTrieWildcardCaseInsensitiveText():
+    """Wildcard queries on a WITHSUFFIXTRIE TEXT field match
+    case-insensitively, identically to a plain TEXT field."""
+    env = Env(moduleArgs='DEFAULT_DIALECT 2')
+    env.expect(config_cmd(), 'set', 'MINPREFIX', 1).ok()
+    conn = getConnectionByEnv(env)
+    conn.execute_command('FT.CREATE', 'idx_w',  'SCHEMA', 't', 'TEXT', 'WITHSUFFIXTRIE')
+    conn.execute_command('FT.CREATE', 'idx_no', 'SCHEMA', 't', 'TEXT')
+    conn.execute_command('HSET', 'doc:1', 't', 'apple')
+
+    match = [1, 'doc:1']
+    miss  = [0]
+    # query -> expected result. Covers '*' and '?' wildcards in both cases.
+    expected = {
+        "w'ap*'":   match,
+        "w'AP*'":   match,
+        "w'A*'":    match,
+        "w'*PL*'":  match,
+        "w'*LE'":   match,
+        "w'appl?'": match,
+        "w'?pple'": match,
+        "w'?PPL?'": match,
+        "w'AP?LE'": match,
+        "w'XY*'":   miss,
+        "w'?Z*'":   miss,
+    }
+    for q, exp in expected.items():
+        with_suffix = env.cmd('FT.SEARCH', 'idx_w',  q, 'NOCONTENT')
+        plain       = env.cmd('FT.SEARCH', 'idx_no', q, 'NOCONTENT')
+        env.assertEqual(with_suffix, exp, message=q)
+        env.assertEqual(plain,       exp, message=q)
+
+@skip(cluster=True)
+def testSuffixTrieWildcardCaseSensitiveTag():
+    """CASESENSITIVE TAG wildcard matching stays byte-exact."""
+    env = Env(moduleArgs='DEFAULT_DIALECT 2')
+    env.expect(config_cmd(), 'set', 'MINPREFIX', 1).ok()
+    conn = getConnectionByEnv(env)
+    conn.execute_command('FT.CREATE', 'idx', 'SCHEMA', 't', 'TAG', 'WITHSUFFIXTRIE', 'CASESENSITIVE')
+    conn.execute_command('HSET', 'doc:1', 't', 'Apple')
+    env.expect('FT.SEARCH', 'idx', "@t:{w'A*'}", 'NOCONTENT').equal([1, 'doc:1'])
+    env.expect('FT.SEARCH', 'idx', "@t:{w'a*'}", 'NOCONTENT').equal([0])

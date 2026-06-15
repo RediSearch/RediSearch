@@ -7,7 +7,5 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 
-mod iter;
-mod str;
-mod term_suffix_index;
-mod trie;
+mod str_trie_map;
+mod trie_map;

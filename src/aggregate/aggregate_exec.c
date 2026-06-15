@@ -1279,9 +1279,12 @@ void AREQ_Execute_Callback(blockedClientReqCtx *BCRctx) {
 
   // For disk indexes, release the spec lock immediately after iterator creation.
   // This is fine, since the disk iterators use snapshots. This allows the main
-  // thread to write while the query iterates over disk data.
+  // thread to write while the query iterates over disk data. `diskSnapshot` is
+  // guaranteed non-NULL here for disk-backed indexes — `prepareExecutionPlan`
+  // bails out if SearchDisk_CreateSnapshot fails — so this check distinguishes
+  // disk indexes (snapshot present, can unlock) from RAM-only ones (keep lock).
   // NOTE: Revisit as more index types are supported.
-  if (sctx->spec->diskSpec) {
+  if (sctx->diskSnapshot) {
     RedisSearchCtx_UnlockSpec(sctx);
   }
 
@@ -1380,6 +1383,15 @@ int prepareExecutionPlan(AREQ *req, QueryError *status) {
   RedisSearchCtx *sctx = AREQ_SearchCtx(req);
   RSSearchOptions *opts = &req->searchopts;
   QueryAST *ast = &req->ast;
+
+  // Open the per-query disk snapshot here, under the spec read lock the caller is holding.
+  // This pins the on-disk view to the same point in time as the in-memory trie/stats that
+  // QAST_Iterate is about to consult for term expansion and IDF/doc-count lookups.
+  // For disk-backed indexes this MUST succeed: we cannot safely degrade to live reads
+  // because the cursor read path drops the spec lock between chunks.
+  if (SearchCtx_TakeDiskSnapshot(sctx, status) != REDISMODULE_OK) {
+    return REDISMODULE_ERR;
+  }
 
   // Set timeout for the query execution
   // TODO: this should be done in `AREQ_execute`, but some of the iterators needs the timeout's
@@ -1859,9 +1871,12 @@ static int buildPipelineAndExecute(AREQ *r, RedisModuleCtx *ctx, QueryError *sta
 
     // For disk indexes, release the spec lock immediately after iterator creation.
     // This is fine, since the disk iterators use snapshots. This allows the main
-    // thread to write while the query iterates over disk data.
+    // thread to write while the query iterates over disk data. `diskSnapshot` is
+    // guaranteed non-NULL here for disk-backed indexes — `prepareExecutionPlan`
+    // bails out if SearchDisk_CreateSnapshot fails — so this check distinguishes
+    // disk indexes (snapshot present, can unlock) from RAM-only ones (keep lock).
     // NOTE: Revisit as more index types are supported.
-    if (sctx->spec->diskSpec) {
+    if (sctx->diskSnapshot) {
       RedisSearchCtx_UnlockSpec(sctx);
     }
 

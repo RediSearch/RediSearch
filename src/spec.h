@@ -489,6 +489,9 @@ void IndexSpec_GetStats(IndexSpec *sp, RSIndexStats *stats);
 /* Get the number of indexing failures */
 size_t IndexSpec_GetIndexErrorCount(const IndexSpec *sp);
 
+/* Get the count of total blocks*/
+size_t IndexSpec_TotalBlockCount(IndexSpec *sp);
+
 /*
  * Parse an index spec from redis command arguments.
  * Returns REDISMODULE_ERR if there's a parsing error.

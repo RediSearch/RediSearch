@@ -475,13 +475,12 @@ DEBUG_COMMAND(DumpTerms) {
   rune *rstr = NULL;
   t_len slen = 0;
   float score = 0;
-  int dist = 0;
   size_t termLen;
 
   RedisModule_ReplyWithArray(ctx, Trie_Size(sctx->spec->terms));
 
-  TrieIterator *it = Trie_Iterate(sctx->spec->terms, "", 0, 0, 1);
-  while (TrieIterator_Next(it, &rstr, &slen, NULL, &score, NULL, &dist)) {
+  TrieIterator *it = Trie_IterateAll(sctx->spec->terms);
+  while (TrieIterator_Next(it, &rstr, &slen, NULL, &score, NULL, NULL)) {
     char *res = runesToStr(rstr, slen, &termLen);
     RedisModule_ReplyWithStringBuffer(ctx, res, termLen);
     rm_free(res);
@@ -1520,7 +1519,7 @@ DEBUG_COMMAND(DocInfo) {
       RSDocumentMetadata *dmd_disk = rm_calloc(1, sizeof(RSDocumentMetadata));
       dmd_disk->sortVector = RSSortingVector_Empty();
       dmd_disk->ref_count = 1;
-      if (SearchDisk_GetDocumentMetadata(sctx->spec->diskSpec, docId, dmd_disk, NULL)) {
+      if (SearchDisk_GetDocumentMetadata(sctx->spec->diskSpec, sctx, docId, dmd_disk, NULL)) {
         dmd = dmd_disk;
       } else {
         DMD_Return(dmd_disk);
