@@ -11,7 +11,7 @@
 //! adhoc-BF helpers it can produce: [`SharedLockGuard`] for RAM indexes and
 //! [`AdhocBfCtx`] for disk indexes.
 
-use std::{ffi::c_void, marker::PhantomData, num::NonZeroUsize, ptr::NonNull};
+use std::{ffi::c_void, marker::PhantomData, ptr::NonNull};
 
 use crate::{BatchIterator, QueryError, QueryReply, ReplyOrder};
 use ffi::{
@@ -165,7 +165,7 @@ impl<'index> IndexRef<'index> {
     pub fn top_k_query(
         &self,
         query_vector: &QueryVector<'index>,
-        k: NonZeroUsize,
+        k: usize,
         params: &mut VecSimQueryParams,
         order: ReplyOrder,
     ) -> Result<Option<QueryReply>, QueryError> {
@@ -178,7 +178,7 @@ impl<'index> IndexRef<'index> {
             VecSimIndex_TopKQuery(
                 self.inner.as_ptr(),
                 query_vector.as_bytes().as_ptr().cast::<c_void>(),
-                k.get(),
+                k,
                 params,
                 order.as_raw(),
             )
