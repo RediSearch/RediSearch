@@ -29,6 +29,7 @@
 #include "concurrent_ctx.h"
 #include "info/info_redis/threads/current_thread.h"
 #include "aggregate/reply_empty.h"
+#include "aggregate/aggregate_exec_common.h"
 
 // We mainly need the resp protocol to be three in order to easily extract the "score" key from the response
 #define HYBRID_RESP_PROTOCOL_VERSION 3
@@ -975,6 +976,13 @@ static void DistHybridCleanups(RedisModuleCtx *ctx,
 
     if (!hreq) {
       CoordRequestCtx_ReplyOrStoreError(reqCtx, ctx, status);
+    } else if (!ShouldReplyWithError(QueryError_GetCode(status),
+                                     hreq->reqConfig.timeoutPolicy, IsProfile(hreq))) {
+      // No partial results exist yet at setup, so a non-fail-policy timeout replies
+      // an empty result set with the timeout warning rather than an error.
+      common_hybrid_query_reply_empty(ctx, QueryError_GetCode(status),
+                                      IsInternal(hreq), IsProfile(hreq));
+      QueryError_ClearError(status);
     } else {
       HREQ_ReplyOrStoreError(hreq, ctx, status);
     }
