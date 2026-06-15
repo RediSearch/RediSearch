@@ -771,8 +771,6 @@ static int HybridRequest_prepareCursors(HybridRequest *hreq, QueryError *status)
     bool maxPrefixSearch = false;
     bool maxPrefixVsim = false;
 
-    // Deadline for the setup wait, mirroring the read phase's getAbsTimeout; paired
-    // with the hybrid request's abort flag in ProcessHybridCursorMappings.
     const struct timespec *deadline =
         (hreq->sctx && HybridRequest_ShouldCheckTimeout(hreq))
             ? (const struct timespec *)&hreq->sctx->time.timeout

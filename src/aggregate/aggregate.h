@@ -217,7 +217,6 @@ static inline void RequestSyncCtx_Init(RequestSyncCtx *ctx) {
   pthread_mutex_init(&ctx->abortWakeLock, NULL);
 }
 
-// Canonical accessors for syncCtx.timedOut; AREQ_* and HybridRequest_* delegate here.
 static inline bool RequestSyncCtx_GetTimedOut(RequestSyncCtx *ctx) {
   return RS_AtomicBoolLoadRelaxed(&ctx->timedOut);
 }
