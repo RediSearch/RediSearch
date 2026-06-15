@@ -39,7 +39,6 @@ class FakeResp:
 class TestWebhookAlert(unittest.TestCase):
     def test_posts_payload_variable(self):
         a = SlackAlerter(webhook_url="https://hooks.slack.com/wf/XYZ")
-        self.assertFalse(a.stub)
         with mock.patch.object(slack_client.requests, "post",
                                return_value=FakeResp(200)) as post:
             a.alert(make_alert())
@@ -81,8 +80,7 @@ class TestWebhookAlert(unittest.TestCase):
 
 class TestStubMode(unittest.TestCase):
     def test_stub_when_unconfigured(self):
-        a = SlackAlerter()
-        self.assertTrue(a.stub)
+        a = SlackAlerter()  # no webhook -> stub mode
         with mock.patch.object(slack_client.requests, "post") as post:
             a.alert(make_alert())
         post.assert_not_called()

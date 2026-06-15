@@ -29,9 +29,12 @@ Both triggers feed the same per-PR matching:
   eligible MOD ticket, resolves PRs via the Jira dev panel (the association of
   record, design §6).
 - **Event-driven** (`handle_event.py`, `event-pr-jira-fixversion.yml`): on a
-  `pull_request` event, extracts the MOD key(s) the PR references (branch / title /
-  body) and applies matching to that PR. Lower latency; the scheduled path is the
+  `pull_request` event, extracts the MOD key(s) the PR references (branch + title)
+  and applies matching to that PR. Lower latency; the scheduled path is the
   safety net for anything it misses.
+
+Only the **RediSearch** repo is handled here; RediSearchEnterprise is implemented
+separately in its own repository.
 
 The matching engine is side-effect-free and fully unit-tested offline.
 
@@ -61,7 +64,7 @@ reference:
 | `SLACK_WEBHOOK_URL_FIX_VERSION` | Slack Workflow Builder webhook; alert text is sent as the `payload` variable. Absent → stub mode (logs only) |
 | `SLACK_BOT_TOKEN`, `SLACK_RELEASES_CHANNEL_ID` | Fallback `chat.postMessage` alerting if no webhook is set |
 | `JFV_SKIP_FORK_PRS` | Skip fork PRs in both paths (default `true`) |
-| `JFV_REDISEARCH_RELEASE_TEMPLATE`, `JFV_ENTERPRISE_RELEASE_TEMPLATE` | Override exact release-name templates (testing) |
+| `JFV_REDISEARCH_RELEASE_TEMPLATE` | Override the RediSearch release-name template (testing) |
 
 ## Running
 
@@ -86,10 +89,8 @@ The matching engine uses these release-name forms:
 
 - `RediSearch v{X}.{Y}.{Z}` — exact (version-branch case).
 - `Open Source {X}.{Y}` — **two-part** (major.minor); Open Source releases carry
-  no patch, so a concrete `X.Y.Z` maps to `Open Source X.Y` (deviation from the
-  design doc §8.2 step 5, which wrote `Open Source X.Y.Z`; the doc's master case
-  §8.2 step 4 already used the two-part form).
-- `RediSearchEnterprise v{X}.{Y}.{Z}` — exact.
+  no patch, so a concrete `X.Y.Z` maps to `Open Source X.Y`. Released and archived
+  versions are excluded.
 
 Real MOD releases also use variants the strict match will *miss* and therefore
 alert on, e.g. `RediSearch v8.2.10-priv`, `Redis Open Source 8.4.1 - maint.`,

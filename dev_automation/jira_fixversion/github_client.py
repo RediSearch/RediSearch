@@ -46,15 +46,29 @@ class GitHubClient:
         url = f"https://api.github.com{path}"
         for attempt in range(5):
             resp = self.session.request(method, url, timeout=self.timeout, **kwargs)
-            # Secondary/primary rate limit handling (design §12).
-            if resp.status_code in (403, 429) and resp.headers.get("X-RateLimit-Remaining") == "0":
-                reset = int(resp.headers.get("X-RateLimit-Reset", "0"))
-                wait = max(1, reset - int(time.time())) if reset else 2 ** attempt
-                log.warning("GitHub rate limited; sleeping %ss", wait)
-                time.sleep(min(wait, 60))
-                continue
-            return resp
+            wait = self._rate_limit_wait(resp, attempt)  # design §12
+            if wait is None:
+                return resp
+            log.warning("GitHub rate limited; sleeping %ss", wait)
+            time.sleep(wait)
         return resp
+
+    @staticmethod
+    def _rate_limit_wait(resp: requests.Response, attempt: int):
+        """Seconds to back off for a rate-limited 403/429, or None to proceed.
+
+        Covers both the primary limit (`X-RateLimit-Remaining: 0` + reset time)
+        and secondary limits (a `Retry-After` header with remaining still > 0).
+        """
+        if resp.status_code not in (403, 429):
+            return None
+        retry_after = resp.headers.get("Retry-After")
+        if retry_after and retry_after.isdigit():
+            return min(int(retry_after), 60)
+        if resp.headers.get("X-RateLimit-Remaining") == "0":
+            reset = int(resp.headers.get("X-RateLimit-Reset", "0"))
+            return min(max(1, reset - int(time.time())) if reset else 2 ** attempt, 60)
+        return None
 
     def get_pull_request(self, repo: str, number: int) -> PRMeta:
         """Authoritative PR base branch + head SHA (robust for merged PRs)."""

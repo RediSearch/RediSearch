@@ -1,14 +1,11 @@
 name: Jira Fix-Version Reconciliation
 
-# Design: https://redislabs.atlassian.net/wiki/spaces/DX/pages/6346178605
-# Scheduled "safety net" reconciliation (design §5.2): walks every eligible MOD
-# ticket, re-resolves its linked PRs and fills any fixVersions the event path
-# missed. Every write is idempotent so re-runs are harmless.
+# Scheduled safety-net reconciliation (design §5.2): walks every eligible MOD
+# ticket and fills any fixVersions the event path missed. Writes are idempotent.
 
 on:
   schedule:
-    # Every 6 hours (design recommends 6-24h).
-    - cron: '0 */6 * * *'
+    - cron: '0 */6 * * *'  # every 6h (design recommends 6-24h)
   workflow_dispatch:
     inputs:
       dry_run:
@@ -31,6 +28,7 @@ on:
 
 permissions:
   contents: read
+  pull-requests: read  # get_pull_request() is called for every linked PR
 
 concurrency:
   group: jira-fixversion-reconcile
@@ -56,18 +54,11 @@ jobs:
           JIRA_BASE_URL: ${{ secrets.JIRA_BASE_URL }}
           JIRA_USER_EMAIL: ${{ secrets.JIRA_USER_EMAIL }}
           JIRA_API_TOKEN: ${{ secrets.JIRA_API_TOKEN }}
-          # Token used to read src/version.h and PR metadata. github.token can
-          # read this repo (RediSearch); reading RediSearchEnterprise requires a
-          # cross-repo token — set GH_FIXVERSION_TOKEN to a PAT/App token with
-          # contents:read + pull_requests:read on both repos.
-          GH_TOKEN: ${{ secrets.GH_FIXVERSION_TOKEN || github.token }}
-          # Slack alerting (design §9): Workflow Builder webhook expecting a
-          # {"payload": ...} body. Absent -> stub mode (logs instead of posting).
+          GH_TOKEN: ${{ github.token }}  # reads src/version.h + PR metadata
           SLACK_WEBHOOK_URL_FIX_VERSION: ${{ secrets.SLACK_WEBHOOK_URL_FIX_VERSION }}
-          # Testing-only override; empty in scheduled runs.
-          JFV_REDISEARCH_RELEASE_TEMPLATE: ${{ inputs.redisearch_release_template }}
-          # workflow_dispatch inputs are passed via env (never interpolated into
-          # the run script) to avoid shell injection from user-controlled values.
+          JFV_REDISEARCH_RELEASE_TEMPLATE: ${{ inputs.redisearch_release_template }}  # testing only
+          # Inputs go via env (never interpolated into the run script) to avoid
+          # shell injection from user-controlled workflow_dispatch values.
           INPUT_DRY_RUN: ${{ inputs.dry_run }}
           INPUT_TICKET: ${{ inputs.ticket }}
           INPUT_LOG_LEVEL: ${{ inputs.log_level }}

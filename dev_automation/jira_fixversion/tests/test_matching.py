@@ -16,7 +16,6 @@ from dev_automation.jira_fixversion.matching import (
     PullRequest,
     ReleaseTemplates,
     find_release_exact,
-    handle_enterprise,
     handle_redisearch,
     handlers_for_repo,
     is_version_branch,
@@ -47,8 +46,8 @@ VERSIONS = [
     {"id": "5", "name": "Open Source 8.8", "released": False},
     {"id": "6", "name": "Open Source 8.10", "released": False},   # highest two-part
     {"id": "7", "name": "Open Source 9.0", "released": True},     # highest but released -> ignored
-    {"id": "8", "name": "RediSearchEnterprise v6.6.0", "released": False},
     {"id": "9", "name": "Open Source 6.4", "released": True},     # released -> excluded
+    {"id": "10", "name": "Open Source 7.2", "released": False, "archived": True},  # archived -> excluded
 ]
 
 
@@ -90,6 +89,10 @@ class TestSelectionHelpers(unittest.TestCase):
     def test_open_source_minor_released_excluded(self):
         # "Open Source 6.4" exists but is released -> not a candidate
         self.assertIsNone(open_source_minor_unreleased(VERSIONS, 6, 4))
+
+    def test_open_source_minor_archived_excluded(self):
+        # "Open Source 7.2" is unreleased but archived -> not a candidate
+        self.assertIsNone(open_source_minor_unreleased(VERSIONS, 7, 2))
 
     def test_open_source_highest_numeric_order(self):
         # 8.10 > 8.8 numerically; 9.0 is released and excluded
@@ -147,24 +150,13 @@ class TestConfigurableTemplates(unittest.TestCase):
         self.assertIsNone(lookups[1].release)
 
 
-class TestEnterpriseHandler(unittest.TestCase):
-    def test_version_branch_exact(self):
-        pr = PullRequest(repo="RediSearchEnterprise", head_branch="x", base_branch="6.6", pr_number=5)
-        lookups = handle_enterprise(pr, VERSIONS, vh(6, 6, 0))
-        self.assertEqual(len(lookups), 1)
-        self.assertEqual(lookups[0].release["id"], "8")
-
-    def test_master_skipped(self):
-        pr = PullRequest(repo="RediSearchEnterprise", head_branch="x", base_branch="master", pr_number=6)
-        self.assertEqual(handle_enterprise(pr, VERSIONS, vh(99, 99, 99)), [])
-
-
 class TestRepoDispatch(unittest.TestCase):
-    def test_known_repos(self):
+    def test_redisearch(self):
         self.assertIs(handlers_for_repo("RediSearch"), handle_redisearch)
-        self.assertIs(handlers_for_repo("RediSearchEnterprise"), handle_enterprise)
 
-    def test_unknown_repo(self):
+    def test_unruled_repos(self):
+        # RediSearchEnterprise is handled in its own repo, not here.
+        self.assertIsNone(handlers_for_repo("RediSearchEnterprise"))
         self.assertIsNone(handlers_for_repo("RedisJSON"))
 
 
