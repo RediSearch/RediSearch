@@ -429,9 +429,8 @@ def testSuffixTrieWildcardCaseInsensitiveText():
     for q, exp in expected.items():
         with_suffix = env.cmd('FT.SEARCH', 'idx_w',  q, 'NOCONTENT')
         plain       = env.cmd('FT.SEARCH', 'idx_no', q, 'NOCONTENT')
-        env.assertEqual(with_suffix, exp,   message=q)
-        env.assertEqual(plain,       exp,   message=q)
-        env.assertEqual(with_suffix, plain, message=q)
+        env.assertEqual(with_suffix, exp, message=q)
+        env.assertEqual(plain,       exp, message=q)
 
 @skip(cluster=True)
 def testSuffixTrieWildcardCaseSensitiveTag():
