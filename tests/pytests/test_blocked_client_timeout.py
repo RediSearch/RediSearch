@@ -499,6 +499,60 @@ class TestCoordinatorTimeout:
             'PARAMS', '2', 'BLOB', self.hybrid_query_vec
         ])
 
+    def test_return_timeout_setup_phase_hybrid(self):
+        """RETURN-policy FT.HYBRID timeout during cursor-mapping setup (Phase 1)
+        with one shard suspended.
+
+        Suspending a non-coordinator shard before the query stalls the
+        coordinator's ProcessHybridCursorMappings wait: the stopped process keeps
+        its TCP connection (so the dispatch succeeds) but never sends its
+        cursor-mapping reply. Under RETURN policy with a finite timeout the setup
+        wait's deadline fires and DistHybridCleanups replies an empty result set
+        carrying the timeout warning -- not a hard error, and without hanging.
+
+        Complements the read-phase one-shard-paused tests, which deliberately let
+        Phase 1 finish before suspending because the setup wait would otherwise
+        block forever.
+        """
+        env = self.env
+
+        prev_on_timeout_policy = env.cmd('CONFIG', 'GET', ON_TIMEOUT_CONFIG)[ON_TIMEOUT_CONFIG]
+        env.cmd('CONFIG', 'SET', ON_TIMEOUT_CONFIG, 'return')
+
+        _, _, paused_pid, _ = _split_shards_pick_one_paused(env)
+        shard_to_pause_p = psutil.Process(paused_pid)
+
+        # Per-query TIMEOUT arms the coordinator's cursor-setup deadline under
+        # RETURN policy (in-band timeout checking).
+        query_args = [
+            'FT.HYBRID', 'hybrid_idx',
+            'SEARCH', '*',
+            'VSIM', '@embedding', '$BLOB',
+            'PARAMS', '2', 'BLOB', self.hybrid_query_vec,
+            'TIMEOUT', '200',
+        ]
+
+        shard_to_pause_p.suspend()
+        try:
+            wait_for_condition(
+                lambda: (shard_to_pause_p.status() == psutil.STATUS_STOPPED,
+                         {'status': shard_to_pause_p.status()}),
+                'Timeout while waiting for shard to pause'
+            )
+
+            # The deadline fires in the setup wait; RETURN policy yields an empty
+            # result set with a timeout warning rather than an error (a hang would
+            # trip the harness test timeout).
+            result = env.cmd(*query_args)
+            env.assertEqual(result['total_results'], 0,
+                            message=f"Expected 0 results, got {result}")
+            assert_timeout_warning(env, result, message="RETURN-policy setup-phase timeout")
+        finally:
+            # Resume so the shard drains the queued _FT.HYBRID / CURSOR DEL and frees
+            # its cursors before later tests run.
+            shard_to_pause_p.resume()
+            env.cmd('CONFIG', 'SET', ON_TIMEOUT_CONFIG, prev_on_timeout_policy)
+
     def _test_fail_timeout_before_coord_pickup_impl(self, query_args):
         """Test timeout occurring before coordinator picks up the query job."""
         env = self.env
