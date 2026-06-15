@@ -20,6 +20,14 @@
 use term_dict::TermDictionary;
 
 #[test]
+fn empty_dictionary_reports_zero() {
+    // Mirrors C `TrieType_MemUsage` (== 0 at `size == 0`) so `FT.INFO`'s
+    // `text_overhead_sz_mb` reads 0 for an index with no indexed terms.
+    let d = TermDictionary::new();
+    assert_eq!(d.mem_usage(), 0);
+}
+
+#[test]
 fn mem_usage_increases_with_terms() {
     let mut d = TermDictionary::new();
     let initial = d.mem_usage();

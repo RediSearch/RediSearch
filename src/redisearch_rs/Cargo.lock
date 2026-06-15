@@ -2855,7 +2855,6 @@ dependencies = [
 name = "term_dict"
 version = "0.0.1"
 dependencies = [
- "icu_casemap",
  "trie_rs",
  "workspace_hack",
 ]

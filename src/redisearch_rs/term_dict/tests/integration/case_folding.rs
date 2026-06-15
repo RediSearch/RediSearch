@@ -267,7 +267,7 @@ fn dfa_iter_folds_prefix() {
 }
 
 #[test]
-fn fold_expands_sharp_s_to_ss() {
+fn fold_preserves_sharp_s() {
     let mut dict = TermDictionary::new();
     dict.insert(
         "Straße",
@@ -276,14 +276,18 @@ fn fold_expands_sharp_s_to_ss() {
             num_docs: 1,
         },
     );
-    assert!(dict.get("strasse").is_some());
-    assert!(dict.get("STRASSE").is_some());
+    // `char::to_lowercase` keeps `ß` as `ß` (matching C `unicode_tolower`),
+    // so the stored key is "straße". It must NOT be default-folded to
+    // "strasse", which would split the term from its C-indexed form.
+    assert!(dict.get("straße").is_some());
+    assert!(dict.get("STRAßE").is_some(), "ASCII letters still fold");
+    assert!(dict.get("strasse").is_none(), "ß must not expand to ss");
     let keys: Vec<String> = dict.iter().map(|(k, _)| k).collect();
-    assert_eq!(keys, vec!["strasse".to_string()]);
+    assert_eq!(keys, vec!["straße".to_string()]);
 }
 
 #[test]
-fn fold_collapses_final_sigma_to_lowercase_sigma() {
+fn fold_lowercases_uppercase_sigma() {
     let mut dict = TermDictionary::new();
     dict.insert(
         "ΟΔΥΣΣΕΥΣ",
@@ -292,6 +296,9 @@ fn fold_collapses_final_sigma_to_lowercase_sigma() {
             num_docs: 1,
         },
     );
+    // Per-char lowering maps every uppercase Σ to σ (no context-sensitive
+    // final-sigma rule at the codepoint level), so the all-caps input folds
+    // to "οδυσσευσ".
     assert!(dict.get("οδυσσευσ").is_some());
 }
 
@@ -305,16 +312,20 @@ fn dfa_iter_round_trips_sharp_s_through_fold() {
             num_docs: 1,
         },
     );
+    // ß is preserved by the fold, so the stored key is "straße". An exact
+    // DFA over the same input round-trips at distance 0.
     let exact: Vec<(String, u32)> = dict
-        .iterate_dfa("Strasse", 0, false)
+        .iterate_dfa("Straße", 0, false)
         .map(|(k, _, d)| (k, d))
         .collect();
-    assert_eq!(exact, vec![("strasse".to_string(), 0)]);
+    assert_eq!(exact, vec![("straße".to_string(), 0)]);
+    // A single leading-letter substitution (ASCII, so byte/codepoint
+    // counting agree) is one edit away.
     let fuzzy: Vec<(String, u32)> = dict
-        .iterate_dfa("Strasze", 1, false)
+        .iterate_dfa("Xtraße", 1, false)
         .map(|(k, _, d)| (k, d))
         .collect();
-    assert_eq!(fuzzy, vec![("strasse".to_string(), 1)]);
+    assert_eq!(fuzzy, vec![("straße".to_string(), 1)]);
 }
 
 #[test]

@@ -9,6 +9,5 @@ publish.workspace = true
 workspace = true
 
 [dependencies]
-icu_casemap.workspace = true
 trie_rs.workspace = true
 workspace_hack.workspace = true

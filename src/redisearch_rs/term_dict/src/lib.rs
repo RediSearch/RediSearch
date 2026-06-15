@@ -15,25 +15,26 @@
 //!
 //! ## Case-folding contract
 //!
-//! All keys and patterns are case-folded on the way in via
-//! `icu_casemap::CaseMapper::fold_string` before reaching the underlying
-//! [`StrTrieMap`], so the trie itself only ever holds folded keys. Moving
-//! the fold inside `TermDictionary` lets future C-to-Rust call sites stop
-//! repeating the obligation.
+//! All keys and patterns are case-folded on the way in before reaching the
+//! underlying [`StrTrieMap`], so the trie itself only ever holds folded
+//! keys. Moving the fold inside `TermDictionary` lets future C-to-Rust call
+//! sites stop repeating the obligation.
+//!
+//! Folding lower-cases each [`char`] independently via [`char::to_lowercase`],
+//! exactly matching RediSearch's C `unicode_tolower` (libnu-backed,
+//! context-free per-codepoint). This is intentionally *not* Unicode default
+//! case folding: terms enter the dictionary already lower-cased by the C
+//! tokenizer, and re-folding must be byte-identical so the Rust and C paths
+//! agree on the stored key. Default folding would diverge on codepoints like
+//! `ß` (→ `ss`) or `ς` (→ `σ`), splitting a term across two keys.
 //!
 //! Iteration outputs are already folded by construction — the keys were
 //! folded at insert — and are returned as-is.
 //!
 //! The underlying [`StrTrieMap`] stays byte-exact; case-folding is a
 //! property of `TermDictionary` alone.
-//!
-//! ICU folding differs from C's `nu_tolower` on a few codepoints (e.g.
-//! `ß` folds to `ss`, `ς` folds to `σ`), so the two paths can store
-//! different keys for the same input.
 
 use std::borrow::Cow;
-
-use icu_casemap::CaseMapper;
 
 use trie_rs::str_trie_map::{
     StrTrieMap,
@@ -78,16 +79,28 @@ pub enum InsertOutcome {
 /// mode applies.
 ///
 /// All terms and lookup patterns are case-folded internally via
-/// [`icu_casemap::CaseMapper`] — see the module docs for the case-folding
+/// [`char::to_lowercase`] — see the module docs for the case-folding
 /// contract.
 pub struct TermDictionary {
     inner: StrTrieMap<TermEntry>,
 }
 
-/// Case-fold a term using Unicode default case folding. Borrows when
-/// the input is already folded.
+/// Lower-case a term the way RediSearch's C tokenizer does: each [`char`]
+/// independently via [`char::to_lowercase`], matching the libnu-backed C
+/// `unicode_tolower`. Borrows when the input is already lower-cased (the
+/// common case — terms arrive pre-folded from the tokenizer), allocating
+/// only when a codepoint actually changes.
 fn fold(term: &str) -> Cow<'_, str> {
-    CaseMapper::new().fold_string(term)
+    // 1:1, identity lower-casing for every char ⇒ nothing to change.
+    let unchanged = term.chars().all(|c| {
+        let mut lower = c.to_lowercase();
+        lower.next() == Some(c) && lower.next().is_none()
+    });
+    if unchanged {
+        Cow::Borrowed(term)
+    } else {
+        Cow::Owned(term.chars().flat_map(char::to_lowercase).collect())
+    }
 }
 
 impl TermDictionary {
@@ -110,8 +123,19 @@ impl TermDictionary {
     /// terms-memory line. Counts trie node and key storage; the
     /// [`TermEntry`] payload is included only insofar as the underlying
     /// [`StrTrieMap`] already accounts for it.
+    ///
+    /// An empty dictionary reports `0`, matching the C `TrieType_MemUsage`
+    /// (`t->size * per_node_bytes`, which is exactly `0` at `size == 0`).
+    /// The underlying [`StrTrieMap`] counter instead includes the trie's
+    /// own struct footprint as a fixed baseline; reporting that as
+    /// `text_overhead` would make `FT.INFO` show nonzero overhead for an
+    /// index with no indexed terms.
     pub const fn mem_usage(&self) -> usize {
-        self.inner.mem_usage()
+        if self.inner.is_empty() {
+            0
+        } else {
+            self.inner.mem_usage()
+        }
     }
 
     /// Primitive overwrite — distinct from [`Self::replace_term`] in that
