@@ -125,6 +125,45 @@ fn skip_to_lands_on_first_of_duplicates() {
     assert!(matches!(it.read(), Ok(None)));
 }
 
+#[test]
+fn skip_to_handles_long_duplicate_runs() {
+    // IDs spaced 10 apart, each repeated three times. With duplicates present,
+    // `skip_to` cannot bound its search by `doc_id - last_doc_id`, so it brackets
+    // the match by galloping; this exercises targets that land inside a long run
+    // of equal IDs and targets that fall in the gap between runs — neither is
+    // reached by the small shared fixtures.
+    let ids: Vec<u64> = (1..=100u64)
+        .flat_map(|v| {
+            let id = v * 10;
+            [id, id, id]
+        })
+        .collect();
+
+    // Target equal to a present ID: lands on the first of its three copies, and
+    // the other two are still yielded by the following reads.
+    let mut it = plain(ids.clone());
+    let Ok(Some(SkipToOutcome::Found(res))) = it.skip_to(500) else {
+        panic!("expected Found(500)");
+    };
+    assert_eq!(res.doc_id, 500);
+    assert_eq!(it.last_doc_id(), 500);
+    assert_eq!(it.read().unwrap().unwrap().doc_id, 500);
+    assert_eq!(it.read().unwrap().unwrap().doc_id, 500);
+    assert_eq!(it.read().unwrap().unwrap().doc_id, 510);
+
+    // Target in the gap between two runs: lands on the first copy of the next
+    // run (NotFound), which is then consumed by the following reads.
+    let mut it = plain(ids);
+    let Ok(Some(SkipToOutcome::NotFound(res))) = it.skip_to(505) else {
+        panic!("expected NotFound landing on 510");
+    };
+    assert_eq!(res.doc_id, 510);
+    assert_eq!(it.last_doc_id(), 510);
+    assert_eq!(it.read().unwrap().unwrap().doc_id, 510);
+    assert_eq!(it.read().unwrap().unwrap().doc_id, 510);
+    assert_eq!(it.read().unwrap().unwrap().doc_id, 520);
+}
+
 #[apply(id_cases)]
 fn read(#[case] case: &[u64]) {
     let mut it = plain(case.to_vec());
