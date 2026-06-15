@@ -482,7 +482,7 @@ def test_ram_hnsw_rerank_rejected(env):
 
     env.expect(
         'FT.CREATE', 'idx_no_value', 'ON', 'HASH', 'SCHEMA',
-        'v', 'VECTOR', 'HNSW', '8',
+        'v', 'VECTOR', 'HNSW', '7',
         'TYPE', 'FLOAT32',
         'DIM', '2',
         'DISTANCE_METRIC', 'L2',
