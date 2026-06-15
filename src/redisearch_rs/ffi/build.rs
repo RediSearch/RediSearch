@@ -243,9 +243,6 @@ const HEADERS: &[HeaderAllowlist] = &[
         path: "src/rlookup_load_document.h",
         fns: &[
             "loadIndividualKeys",
-            // Disk async loader calls this to activate the 'no-expire-check'
-            // / 'hash-only' load flags on the lookup before iterating.
-            "RLookup_EnableOptions",
             "RLookup_LoadDocumentAll",
             "RLookup_LoadDocumentIndividual",
             "sdslen_rust",
@@ -307,9 +304,6 @@ const HEADERS: &[HeaderAllowlist] = &[
     HeaderAllowlist {
         path: "src/spec.h",
         fns: &[
-            // Disk async loader clears the per-loader QueryError on each
-            // document load failure, mirroring rpLoader_loadDocument.
-            "QueryError_ClearError",
             "IndexSpec_AcquireWriteLock",
             "IndexSpec_DecrementNumTerms",
             "IndexSpec_DecrementTrieTermCount",
