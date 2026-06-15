@@ -415,6 +415,11 @@ static int handleCommonArgs(ParseAggPlanContext *papCtx, ArgsCursor *ac, QueryEr
       ASM_KeySpaceVersionTracker_IncreaseQueryCount(*papCtx->keySpaceVersion);
     }
     *papCtx->querySlots = slot_array;
+  } else if ((*papCtx->reqflags & QEXEC_F_INTERNAL) && AC_AdvanceIfMatch(ac, "_COORD_DISPATCH_TIME")) {
+    // Forward compatibility: coordinators on RediSearch >= 8.6 append
+    // _COORD_DISPATCH_TIME <ns> to internal queries. This version does not use it, but
+    // must consume it so newer coordinators can drive this shard during rolling upgrades.
+    AC_Advance(ac);
   } else {
     return ARG_UNKNOWN;
   }
@@ -1129,8 +1134,12 @@ int AREQ_Compile(AREQ *req, RedisModuleString **argv, int argc, QueryError *stat
 
   // Verify we got slots requested if needed
   if (IsInternal(req) && !req->querySlots) {
-    QueryError_SetError(status, QUERY_EMISSING, "Internal query missing slots specification");
-    goto error;
+    // Coordinators older than 8.4 do not send a slots specification. Fall back to the
+    // current local slots so rolling upgrades across the 8.4 boundary keep working.
+    req->querySlots = ASM_FallbackToLocalSlots(&req->keySpaceVersion);
+    if (req->keySpaceVersion != INVALID_KEYSPACE_VERSION) {
+      ASM_KeySpaceVersionTracker_IncreaseQueryCount(req->keySpaceVersion);
+    }
   }
 
   // Define if we need a depleter in the pipeline to get accurate total results
@@ -1506,7 +1515,26 @@ void AREQ_Free(AREQ *req) {
 
 
 
-int AREQ_BuildPipeline(AREQ *req, QueryError *status) {
+AggregationPipelineParams AREQ_MakeAggregationPipelineParams(AREQ *req,
+                                                             GroupByLimits groupByLimits) {
+  return (AggregationPipelineParams){
+    .common = {
+      .sctx = req->sctx,
+      .reqflags = req->reqflags,
+      .optimizer = req->optimizer,
+      // Score alias is not supposed to be used in the aggregation pipeline
+      .scoreAlias = NULL,
+    },
+    .outFields = &req->outFields,
+    .maxResultsLimit = IsSearch(req) ? req->maxSearchResults : req->maxAggregateResults,
+    .groupByLimits = groupByLimits,
+    .language = req->searchopts.language,
+  };
+}
+
+int AREQ_BuildPipelineWithAggregationParams(AREQ *req,
+                                            const AggregationPipelineParams *aggregationParams,
+                                            QueryError *status) {
   Pipeline_Initialize(&req->pipeline, req->reqConfig.timeoutPolicy, status);
   if (!(AREQ_RequestFlags(req) & QEXEC_F_BUILDPIPELINE_NO_ROOT)) {
     QueryPipelineParams params = {
@@ -1530,17 +1558,12 @@ int AREQ_BuildPipeline(AREQ *req, QueryError *status) {
       return REDISMODULE_ERR;
     }
   }
-  AggregationPipelineParams params = {
-    .common = {
-      .sctx = req->sctx,
-      .reqflags = req->reqflags,
-      .optimizer = req->optimizer,
-      // Right now score alias is not supposed to be used in the aggregation pipeline
-      .scoreAlias = NULL,
-    },
-    .outFields = &req->outFields,
-    .maxResultsLimit = IsSearch(req) ? req->maxSearchResults : req->maxAggregateResults,
-    .language = req->searchopts.language,
-  };
-  return Pipeline_BuildAggregationPart(&req->pipeline, &params, &req->stateflags);
+  return Pipeline_BuildAggregationPart(&req->pipeline, aggregationParams, &req->stateflags);
+}
+
+int AREQ_BuildPipeline(AREQ *req, QueryError *status) {
+  AggregationPipelineParams aggregationParams =
+      AREQ_MakeAggregationPipelineParams(
+          req, GroupByLimits_Default(RSGlobalConfig.maxAggregateGroups));
+  return AREQ_BuildPipelineWithAggregationParams(req, &aggregationParams, status);
 }
