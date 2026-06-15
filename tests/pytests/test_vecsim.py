@@ -1901,7 +1901,7 @@ def test_create_multi_value_json():
 def test_index_multi_value_json():
     # Flaky under coverage (MOD-15571); skip only on coverage runs until the date below.
     if CODE_COVERAGE:
-        skipTestUntil("2026-06-12", reason="Flaky test under coverage, see MOD-15571")
+        skipTestUntil("2026-07-15", reason="Flaky test under coverage, see MOD-15571")
     env = Env(moduleArgs='DEFAULT_DIALECT 2 MIN_OPERATION_WORKERS 0')
     conn = getConnectionByEnv(env)
     dim = 4
