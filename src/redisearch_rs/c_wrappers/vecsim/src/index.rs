@@ -119,7 +119,7 @@ fn prepare_query(ptr: NonNull<VecSimIndex>, query_vector: &[u8]) -> Vec<u8> {
     // The normalized blob is at least as large as the input; the extra tail (if
     // any) is the appended norm slot, left zeroed for `VecSim_Normalize` to fill.
     debug_assert!(blob_len >= query_vector.len());
-    let mut blob = vec![0u8; blob_len.max(query_vector.len())];
+    let mut blob = vec![0u8; blob_len];
     blob[..query_vector.len()].copy_from_slice(query_vector);
     // SAFETY:
     // 1. `blob` is `blob_len` bytes, the size VecSim requires for a normalized
