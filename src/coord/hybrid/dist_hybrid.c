@@ -1158,6 +1158,18 @@ void DEBUG_RSExecDistHybrid(RedisModuleCtx *ctx, RedisModuleString **argv, int a
     CurrentThread_ClearIndexSpec();
 }
 
+// A parked MR pop may be blocked on the hybrid request's own channel (setup
+// phase) or a subquery's channel (read phase); wake all of them.
+static void wakeHybridAbortChannels(HybridRequest *hreq) {
+  if (!hreq) return;
+  RequestSyncCtx_WakeAbortChannel(&hreq->syncCtx);
+  for (size_t i = 0; i < hreq->nrequests; i++) {
+    if (hreq->requests[i]) {
+      RequestSyncCtx_WakeAbortChannel(&hreq->requests[i]->syncCtx);
+    }
+  }
+}
+
 // Timeout callback for Coordinator HybridRequest execution
 // Called on the main thread when the blocking client times out (FAIL policy only).
 int DistHybridTimeoutFailCallback(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
@@ -1179,6 +1191,11 @@ int DistHybridTimeoutFailCallback(RedisModuleCtx *ctx, RedisModuleString **argv,
   CoordRequestCtx_SetTimedOut(CoordReqCtx);
 
   CoordRequestCtx_UnlockSetRequest(CoordReqCtx);
+
+  // SetTimedOut flipped the abort flag above; wake any parked pop so the BG
+  // thread (e.g. the cursor-setup wait) exits instead of blocking on a missing
+  // shard reply after the client already got its error.
+  wakeHybridAbortChannels((HybridRequest *)CoordRequestCtx_GetRequest(CoordReqCtx));
 
   // Reply with timeout error
   QueryErrorsGlobalStats_UpdateError(QUERY_ERROR_CODE_TIMED_OUT, 1, COORD_ERR_WARN);
@@ -1211,17 +1228,9 @@ int DistHybridTimeoutReturnStrictCallback(RedisModuleCtx *ctx, RedisModuleString
 
   HybridRequest *hreq = (HybridRequest *)CoordRequestCtx_GetRequest(CoordReqCtx);
 
-  // Wake every subquery's abort channel so any depleter parked in
-  // MRIterator_NextWithTimeout observes the propagated `timedOut` flag and exits
-  // promptly. WakeAbortChannel is a no-op when no channel is registered yet, in
-  // which case the depleter instead observes `timedOut` on entry to the pop.
-  if (hreq) {
-    for (size_t i = 0; i < hreq->nrequests; i++) {
-      if (hreq->requests[i]) {
-        RequestSyncCtx_WakeAbortChannel(&hreq->requests[i]->syncCtx);
-      }
-    }
-  }
+  // Wake any abort channel a parked pop (setup-phase or per-subquery read) is
+  // blocked on so it observes the propagated `timedOut` flag and exits promptly.
+  wakeHybridAbortChannels(hreq);
 
   if (!hreq || HybridRequest_TryClaimAggregateResults(hreq)) {
     // Either the request is NULL or we were able to claim the aggregation results.
