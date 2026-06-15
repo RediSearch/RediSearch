@@ -28,7 +28,7 @@ use ttl_table::{
 // Some of the missing C symbols are actually Rust-provided.
 redis_mock::mock_or_stub_missing_redis_c_symbols!();
 
-fn random_around_mean(mean: usize, absolute_variance: usize, rng: &mut ThreadRng) -> usize {
+fn random_around_mean<R: RngExt>(mean: usize, absolute_variance: usize, rng: &mut R) -> usize {
     let min = mean.saturating_sub(absolute_variance);
     let max = mean.saturating_add(absolute_variance);
 
@@ -52,10 +52,10 @@ pub struct DocsInput {
     pub field_expiration_input: FieldExpirationInput,
 }
 
-pub fn create_field_expiration(
+pub fn create_field_expiration<R: RngExt>(
     _doc_id: DocId,
     input: &FieldExpirationInput,
-    rng: &mut ThreadRng,
+    rng: &mut R,
 ) -> FieldExpirations {
     let real_count = random_around_mean(input.count_mean, input.count_variation, rng) as u16;
     // FieldExpiration array cannot be empty by design
@@ -228,18 +228,18 @@ impl PickRandom {
         Self(dist)
     }
 
-    fn should_keep(&self, rng: &mut ThreadRng) -> bool {
+    fn should_keep<R: RngExt>(&self, rng: &mut R) -> bool {
         self.0.sample(rng)
     }
 
-    const fn iter<'s, 'rand>(&'s self, rng: &'rand mut ThreadRng) -> PickRandomIter<'s, 'rand> {
+    fn iter<'s, 'rand, R: RngExt>(&'s self, rng: &'rand mut R) -> PickRandomIter<'s, 'rand, R> {
         PickRandomIter(self, rng)
     }
 }
 
-struct PickRandomIter<'pick, 'rand>(&'pick PickRandom, &'rand mut ThreadRng);
+struct PickRandomIter<'pick, 'rand, R: RngExt>(&'pick PickRandom, &'rand mut R);
 
-impl<'pick, 'rand> Iterator for PickRandomIter<'pick, 'rand> {
+impl<'pick, 'rand, R: RngExt> Iterator for PickRandomIter<'pick, 'rand, R> {
     type Item = bool;
 
     fn next(&mut self) -> Option<Self::Item> {
