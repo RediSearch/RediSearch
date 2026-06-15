@@ -1181,9 +1181,8 @@ static int rpSafeLoaderNext_Accumulate(ResultProcessor *rp, SearchResult *res) {
   if (isQueryProfile) rs_wall_clock_init(&rpStartTime);
 
 #ifdef ENABLE_ASSERT
-  // Sync point (debug): pause after buffering all results but before taking the
-  // GIL. The RETURN_STRICT deadlock tests park the worker here, fire the timeout
-  // callback, then release it via the predicate.
+  // Sync point: pause after buffering, before taking the GIL.
+  // Interruptible so a fired timeout callback can release the worker.
   SyncPoint_WaitUntil(SYNC_POINT_BEFORE_SAFE_LOADER_GIL_LOCK, SearchTime_IsTimedOut, &sctx->time);
 #endif
 
@@ -1195,10 +1194,8 @@ static int rpSafeLoaderNext_Accumulate(ResultProcessor *rp, SearchResult *res) {
   }
 
 #ifdef ENABLE_ASSERT
-  // Sync point (debug): pause after the handshake marked us as holding the GIL
-  // gate (safeLoaderHoldingGIL == true) but before we take the Redis lock. The
-  // RETURN_STRICT preempt repro tests park the worker here so the timeout
-  // callback observes holding == true and takes the preempt branch.
+  // Sync point: pause holding the GIL gate (safeLoaderHoldingGIL == true),
+  // before the Redis lock, so a timeout callback observes it and preempts.
   SyncPoint_Wait(SYNC_POINT_AFTER_SAFE_LOADER_GIL_HANDSHAKE);
 #endif
 
@@ -1221,10 +1218,8 @@ static int rpSafeLoaderNext_Accumulate(ResultProcessor *rp, SearchResult *res) {
   RedisModule_ThreadSafeContextUnlock(sctx->redisCtx);
 
 #ifdef ENABLE_ASSERT
-  // Sync point (debug): pause after clearing the handshake flag and releasing
-  // the Redis lock. The P2b regression test parks the worker here (interruptible
-  // via the timedOut predicate); the flag is already false, so a timeout
-  // callback waits for the stored results instead of preempting.
+  // Sync point: pause after clearing the flag and unlocking Redis. The
+  // flag is already false, so a timeout callback waits for results, not preempts.
   SyncPoint_WaitUntil(SYNC_POINT_BEFORE_SAFE_LOADER_EXIT_GIL, SearchTime_IsTimedOut, &sctx->time);
 #endif
 

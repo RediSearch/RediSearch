@@ -6268,7 +6268,7 @@ class TestShardTimeout:
             ['FT.AGGREGATE', 'idx', '*', 'LOAD', '1', '@name'], 'FT.AGGREGATE')
 
     def test_return_strict_cursor_read_preempt_no_use_after_free(self):
-        """P1: RETURN_STRICT FT.CURSOR READ must not free the cursor under the worker.
+        """RETURN_STRICT FT.CURSOR READ must not free the cursor under the worker.
 
         The cursor was created with LOAD, so the BG cursor-read pipeline runs the
         safe loader. The worker wins the claim, marks itself at the GIL gate
@@ -6333,7 +6333,7 @@ class TestShardTimeout:
             env.expect('CONFIG', 'SET', ON_TIMEOUT_CONFIG, prev_policy).ok()
 
     def test_return_strict_initial_withcursor_preempt_no_cursor_leak(self):
-        """P2a: initial RETURN_STRICT FT.AGGREGATE WITHCURSOR must not orphan its cursor.
+        """Initial RETURN_STRICT FT.AGGREGATE WITHCURSOR must not orphan its cursor.
 
         The initial WITHCURSOR query reserves a cursor and stashes it in
         storedReplyState.cursor before sendChunk. The worker wins the claim, marks
@@ -6398,7 +6398,7 @@ class TestShardTimeout:
             env.expect('CONFIG', 'SET', ON_TIMEOUT_CONFIG, prev_policy).ok()
 
     def test_return_strict_stale_holding_flag_after_unlock_keeps_results(self):
-        """P2b: a timeout in the unlock->clear-flag window must not drop loaded results.
+        """A timeout in the unlock->clear-flag window must not drop loaded results.
 
         The worker wins the claim, takes the GIL gate, loads under the Redis lock,
         and unlocks - but parks at BeforeSafeLoaderExitGIL before clearing
