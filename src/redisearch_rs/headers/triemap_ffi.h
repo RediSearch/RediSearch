@@ -946,6 +946,34 @@ struct TermDictionaryIterator *TermDictionary_IterateWildcard(const struct TermD
 struct TermDictionaryIterator *TermDictionary_IterateDfa(const struct TermDictionary *t, const char *str, size_t len, uint32_t max_dist, bool prefix_mode);
 
 /**
+ * Iterate over every term in the lexicographic range bounded by `min`
+ * and `max`, in lexicographical order. Both bounds are case-folded
+ * internally.
+ *
+ * A NULL `min` pointer leaves the lower side unbounded; a NULL `max`
+ * pointer leaves the upper side unbounded (a non-NULL pointer with
+ * `len == 0` is the empty-string bound, which is distinct from NULL).
+ * `include_min` / `include_max` choose closed vs. open bounds. This
+ * mirrors the C `Trie_IterateRange` used for `FT.SEARCH` LEXRANGE
+ * queries.
+ *
+ * Invoke [`TermDictionaryIterator_Next`] to get the results.
+ *
+ * # Safety
+ *
+ * The following invariants must be upheld when calling this function:
+ * - `t` must point to a valid [`TermDictionary`] obtained from
+ *   [`NewTermDictionary`] and cannot be NULL.
+ * - `min` must be NULL or point to a valid byte sequence of length
+ *   `min_len`; likewise `max` / `max_len`.
+ * - `t` must not be modified or freed while the iterator lives.
+ * - Any non-NULL bound bytes must stay valid and unmodified while the
+ *   iterator lives — the iterator compares candidates against them on
+ *   every advance.
+ */
+struct TermDictionaryIterator *TermDictionary_IterateRange(const struct TermDictionary *t, const char *min, size_t min_len, bool include_min, const char *max, size_t max_len, bool include_max);
+
+/**
  * Advance the iterator. Returns 1 and stores the next term and its
  * payload into the out-pointers if there is one, or returns 0 once
  * exhausted.

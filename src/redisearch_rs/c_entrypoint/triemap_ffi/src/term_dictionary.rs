@@ -608,6 +608,73 @@ pub unsafe extern "C" fn TermDictionary_IterateDfa<'td>(
     }))
 }
 
+/// Iterate over every term in the lexicographic range bounded by `min`
+/// and `max`, in lexicographical order. Both bounds are case-folded
+/// internally.
+///
+/// A NULL `min` pointer leaves the lower side unbounded; a NULL `max`
+/// pointer leaves the upper side unbounded (a non-NULL pointer with
+/// `len == 0` is the empty-string bound, which is distinct from NULL).
+/// `include_min` / `include_max` choose closed vs. open bounds. This
+/// mirrors the C `Trie_IterateRange` used for `FT.SEARCH` LEXRANGE
+/// queries.
+///
+/// Invoke [`TermDictionaryIterator_Next`] to get the results.
+///
+/// # Safety
+///
+/// The following invariants must be upheld when calling this function:
+/// - `t` must point to a valid [`TermDictionary`] obtained from
+///   [`NewTermDictionary`] and cannot be NULL.
+/// - `min` must be NULL or point to a valid byte sequence of length
+///   `min_len`; likewise `max` / `max_len`.
+/// - `t` must not be modified or freed while the iterator lives.
+/// - Any non-NULL bound bytes must stay valid and unmodified while the
+///   iterator lives — the iterator compares candidates against them on
+///   every advance.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn TermDictionary_IterateRange<'td>(
+    t: *const TermDictionary,
+    min: *const c_char,
+    min_len: usize,
+    include_min: bool,
+    max: *const c_char,
+    max_len: usize,
+    include_max: bool,
+) -> *mut TermDictionaryIterator<'td> {
+    debug_assert!(!t.is_null(), "t cannot be NULL");
+
+    // SAFETY: caller is to ensure `t` is a valid, non-null pointer to a
+    // TermDictionary that outlives the iterator.
+    let TermDictionary(dict) = unsafe { &*t };
+
+    // A NULL pointer means "no bound on this side". A non-NULL pointer
+    // holding invalid UTF-8 yields an empty iterator, matching the other
+    // iterator constructors.
+    let min_bound = if min.is_null() {
+        None
+    } else {
+        // SAFETY: caller is to ensure `min` points to `min_len` valid
+        // bytes that outlive the iterator.
+        match unsafe { term_arg::<'td>(min, min_len) } {
+            Some(bound) => Some(bound),
+            None => return wrap_iter(std::iter::empty()),
+        }
+    };
+    let max_bound = if max.is_null() {
+        None
+    } else {
+        // SAFETY: caller is to ensure `max` points to `max_len` valid
+        // bytes that outlive the iterator.
+        match unsafe { term_arg::<'td>(max, max_len) } {
+            Some(bound) => Some(bound),
+            None => return wrap_iter(std::iter::empty()),
+        }
+    };
+
+    wrap_iter(dict.range_iter(min_bound, include_min, max_bound, include_max))
+}
+
 /// Advance the iterator. Returns 1 and stores the next term and its
 /// payload into the out-pointers if there is one, or returns 0 once
 /// exhausted.

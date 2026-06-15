@@ -235,6 +235,109 @@ fn iterate_wildcard_filters_by_pattern() {
 }
 
 #[test]
+fn iterate_range_closed_bounds_are_inclusive() {
+    let t = NewTermDictionary();
+    for term in ["apple", "banana", "cherry", "date", "fig"] {
+        add(t, term, 1.0, 1);
+    }
+
+    // [banana, date] with both ends included.
+    let actual = keys(drain(range(
+        t,
+        Some(("banana", true)),
+        Some(("date", true)),
+    )));
+
+    assert_eq!(actual, to_set(&["banana", "cherry", "date"]));
+
+    free(t);
+}
+
+#[test]
+fn iterate_range_open_bounds_exclude_endpoints() {
+    let t = NewTermDictionary();
+    for term in ["apple", "banana", "cherry", "date", "fig"] {
+        add(t, term, 1.0, 1);
+    }
+
+    // (banana, date) with both ends excluded.
+    let actual = keys(drain(range(
+        t,
+        Some(("banana", false)),
+        Some(("date", false)),
+    )));
+
+    assert_eq!(actual, to_set(&["cherry"]));
+
+    free(t);
+}
+
+#[test]
+fn iterate_range_null_bounds_are_unbounded() {
+    let t = NewTermDictionary();
+    for term in ["apple", "banana", "cherry"] {
+        add(t, term, 1.0, 1);
+    }
+
+    // NULL lower bound -> everything up to and including "banana".
+    let upto = keys(drain(range(t, None, Some(("banana", true)))));
+    assert_eq!(upto, to_set(&["apple", "banana"]));
+
+    // NULL upper bound -> everything from "banana" onwards.
+    let from = keys(drain(range(t, Some(("banana", true)), None)));
+    assert_eq!(from, to_set(&["banana", "cherry"]));
+
+    // Both NULL -> the whole dictionary.
+    let all = keys(drain(range(t, None, None)));
+    assert_eq!(all, to_set(&["apple", "banana", "cherry"]));
+
+    free(t);
+}
+
+#[test]
+fn iterate_range_empty_string_lower_bound_differs_from_null() {
+    let t = NewTermDictionary();
+    for term in ["", "apple", "banana"] {
+        add(t, term, 1.0, 1);
+    }
+
+    // An empty-string lower bound is a real bound: excluding it drops the
+    // empty term while keeping the rest (distinct from a NULL pointer).
+    // Safety: the lower bound points to valid (empty) UTF-8; the upper bound
+    // is NULL; `t` is a live dictionary not modified while the iterator lives.
+    let it = unsafe {
+        TermDictionary_IterateRange(t, "".as_ptr().cast(), 0, false, std::ptr::null(), 0, false)
+    };
+    let actual = keys(drain(it));
+    assert_eq!(actual, to_set(&["apple", "banana"]));
+
+    // Including the empty-string bound keeps it.
+    let with_empty = keys(drain(range(t, Some(("", true)), None)));
+    assert_eq!(with_empty, to_set(&["", "apple", "banana"]));
+
+    free(t);
+}
+
+#[test]
+fn iterate_range_case_folds_bounds() {
+    let t = NewTermDictionary();
+    for term in ["Apple", "Banana", "Cherry"] {
+        add(t, term, 1.0, 1);
+    }
+
+    // Bounds given in a different case still match the folded keys.
+    let actual = keys(drain(range(
+        t,
+        Some(("APPLE", true)),
+        Some(("BANANA", true)),
+    )));
+
+    assert_eq!(actual, to_set(&["apple", "banana"]));
+
+    free(t);
+}
+
+#[test]
 fn iterate_dfa_reports_terms_and_distance_within_budget() {
     let t = NewTermDictionary();
     for term in ["bike", "bake", "trike"] {
@@ -325,6 +428,36 @@ fn get(t: *mut TermDictionary, term: &str) -> Option<(f32, usize)> {
 fn decr(t: *mut TermDictionary, term: &str, delta: usize) -> TermDictionaryDecrResult {
     // Safety: `term` points to valid UTF-8 bytes and no iterator on `t` is alive.
     unsafe { TermDictionary_DecrementNumDocs(t, term.as_ptr().cast(), term.len(), delta) }
+}
+
+/// Build a range iterator. Each bound is `Some((value, inclusive))` or
+/// `None` for an unbounded side (passed to C as a NULL pointer).
+fn range<'a>(
+    t: *mut TermDictionary,
+    min: Option<(&'a str, bool)>,
+    max: Option<(&'a str, bool)>,
+) -> *mut TermDictionaryIterator<'a> {
+    let (min_ptr, min_len, include_min) = match min {
+        Some((s, inc)) => (s.as_ptr().cast::<c_char>(), s.len(), inc),
+        None => (std::ptr::null(), 0, false),
+    };
+    let (max_ptr, max_len, include_max) = match max {
+        Some((s, inc)) => (s.as_ptr().cast::<c_char>(), s.len(), inc),
+        None => (std::ptr::null(), 0, false),
+    };
+    // Safety: bound pointers are NULL or point to valid UTF-8 that outlives
+    // the iterator; `t` is a live dictionary not modified while it lives.
+    unsafe {
+        TermDictionary_IterateRange(
+            t,
+            min_ptr,
+            min_len,
+            include_min,
+            max_ptr,
+            max_len,
+            include_max,
+        )
+    }
 }
 
 fn free(t: *mut TermDictionary) {
