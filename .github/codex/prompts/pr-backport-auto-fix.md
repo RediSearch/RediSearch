@@ -5,13 +5,25 @@ backport pull request that was originally opened by the auto-backport workflow
 (see `.github/codex/prompts/pr-backport-auto.md`). The triggering workflow has
 already:
 
-- Checked out the **backport branch** (not master) with full history.
-- Configured `git` with a committer identity for the bot.
-- Set `GH_TOKEN` so `gh` and `git push` are authenticated.
+- Fetched the **backport branch** (not master) with full history.
+- Configured a **global** `git` committer identity for the bot (so any clone you
+  create inherits it).
+- Set `GH_TOKEN` so `gh` is authenticated.
 - Written a context file that describes which PR you are fixing, which CI run
   failed, and any human-supplied hints.
 
 You do not need to install tools, switch accounts, or configure credentials.
+
+> **Where git writes go — and why.** The Codex sandbox **intentionally** mounts
+> `.git` read-only even though the workspace around it is writable: it is a
+> deliberate protection so an agent cannot rewrite history, refs, or hooks.
+> Reading `.git` is fine; only writes are blocked. As a result, editing files
+> and then `git add`/`commit`/`push` cannot operate on this checkout's `.git`.
+> The sanctioned place for git writes is a writable root, so you do all git work
+> in a clone under `/tmp` (see "Set up a writable working copy" below). This is
+> the normal pattern for this sandbox, not a workaround for a bug. `gh` reads
+> `GH_TOKEN` from the environment and works from anywhere; only `git push` needs
+> the explicit auth header the setup step configures.
 
 ## Read the context file
 
@@ -87,6 +99,40 @@ BASE_BRANCH=$(jq -r .base_branch "$BACKPORT_FIX_CONTEXT_FILE")
 ORIGINAL_SHA=$(jq -r '.original_sha // empty' "$BACKPORT_FIX_CONTEXT_FILE")
 run_url=$(jq -r '.run_url // empty' "$BACKPORT_FIX_CONTEXT_FILE")
 ```
+
+## Set up a writable working copy
+
+Because the sandbox protects this checkout's `.git` (read-only by design), do
+your inspection, editing, committing, and pushing in a clone under `/tmp` — a
+writable root.
+
+```bash
+CHECKOUT="$PWD"
+WORK="/tmp/auto-backport-fix-${PR}"
+rm -rf "$WORK"
+
+# Clone from GitHub so origin/${BASE_BRANCH} and origin/master are present for
+# the `git show`/`git diff` comparisons below. `--reference-if-able` reuses
+# objects already in the read-only checkout, so this stays fast and mostly
+# offline. Do NOT use `--single-branch`.
+git clone --no-tags --reference-if-able "${CHECKOUT}/.git" \
+  "https://github.com/${GITHUB_REPOSITORY}" "$WORK"
+cd "$WORK"
+
+# Check out the exact backport branch tip you are fixing.
+git fetch --no-tags origin "$BRANCH"
+git checkout -B "$BRANCH" "origin/$BRANCH"
+
+# Authenticate pushes. GitHub *App* tokens (this is one) must be presented as
+# HTTP basic auth in the `x-access-token:<token>` form; a `bearer <token>`
+# header is rejected ("could not read Username for 'https://github.com'").
+git config http."https://github.com/".extraheader \
+  "AUTHORIZATION: basic $(printf 'x-access-token:%s' "$GH_TOKEN" | base64 | tr -d '\n')"
+```
+
+The bot committer identity is configured globally by the workflow, so the fix
+commit you make in this clone is attributed correctly without extra `git config`.
+Run every `git` command in the rest of this prompt from inside `$WORK`.
 
 ## Inputs and trust
 
@@ -202,7 +248,8 @@ Examples you should **not** fix — hand back to a human:
    the specific obstacle.
 4. Otherwise:
    - Verify the hypothesis by reading the relevant source files **on the
-     current branch** (you are already checked out on the backport branch).
+     backport branch** (the writable clone you set up is already checked out
+     on it).
    - Compare against the original commit if helpful:
      `git show ${ORIGINAL_SHA} -- <path>`.
    - Compare against the target branch's tip if helpful:
