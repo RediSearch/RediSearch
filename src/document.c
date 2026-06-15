@@ -198,6 +198,7 @@ RSAddDocumentCtx *NewAddDocumentCtx(IndexSpec *sp, Document *doc, QueryError *st
   aCtx->disk.batch = NULL;
   aCtx->disk.oldDocId = 0;
   aCtx->disk.oldDocLen = 0;
+  aCtx->disk.openKey = NULL;
   if (aCtx->specFlags & Index_Async) {
     HiddenString_Clone(sp->specName, &aCtx->specName);
   }

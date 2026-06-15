@@ -560,7 +560,14 @@ void IndexSpec_DeleteDoc_Unsafe(IndexSpec *spec, RedisModuleCtx *ctx, RedisModul
 void IndexSpec_DeleteDocById(IndexSpec *spec, t_docId docId);
 
 // (Re)index a single document into the spec.
-int IndexSpec_UpdateDoc(IndexSpec *spec, RedisModuleCtx *ctx, RedisModuleString *key, DocumentType type);
+//
+// `openKey` is an optional already-open handle for `key`. Pass it when the
+// caller already holds the key open and pinned (e.g. the async scan key
+// callback) so the DocIdMeta update can reuse the handle instead of reopening
+// the key by name; pass NULL otherwise. The caller retains ownership of
+// `openKey` and must keep it valid for the duration of the call.
+int IndexSpec_UpdateDoc(IndexSpec *spec, RedisModuleCtx *ctx, RedisModuleString *key,
+                        DocumentType type, RedisModuleKey *openKey);
 
 // Format the legacy (separate-key) Redis key name for a numeric/tag/geo field.
 RedisModuleString *IndexSpec_LegacyGetFormattedKey(IndexSpec *sp, const FieldSpec *fs,

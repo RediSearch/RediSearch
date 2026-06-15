@@ -597,7 +597,7 @@ void Indexes_UpdateMatchingWithSchemaRules(RedisModuleCtx *ctx, RedisModuleStrin
 
     if (hashFieldChanged(specOp->spec, hashFields)) {
       if (specOp->op == SpecOp_Add) {
-        IndexSpec_UpdateDoc(specOp->spec, ctx, key, type);
+        IndexSpec_UpdateDoc(specOp->spec, ctx, key, type, NULL);
       } else {
         // specOp->op is SpecOp_Del when the key matches the index prefix but
         // the filter expression fails (e.g. a field value changed so the filter
@@ -766,7 +766,7 @@ void Indexes_UpdateMatchingHashFieldExpiration(RedisModuleCtx *ctx, RedisModuleS
     // produces in Indexes_UpdateMatchingWithSchemaRules.
     if (specHasIndexMissing(spec)) {
       if (SchemaRule_ShouldIndex(spec, key, type)) {
-        IndexSpec_UpdateDoc(spec, ctx, key, type);
+        IndexSpec_UpdateDoc(spec, ctx, key, type, NULL);
       } else {
         IndexSpec_DeleteDoc(spec, ctx, key);
       }
@@ -884,7 +884,7 @@ void Indexes_ReplaceMatchingWithSchemaRules(RedisModuleCtx *ctx, RedisModuleStri
       // on the spec from section.
       continue;
     }
-    IndexSpec_UpdateDoc(specOp->spec, ctx, to_key, type);
+    IndexSpec_UpdateDoc(specOp->spec, ctx, to_key, type, NULL);
   }
   Indexes_SpecOpsIndexingCtxFree(from_specs);
   Indexes_SpecOpsIndexingCtxFree(to_specs);

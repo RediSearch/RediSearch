@@ -250,9 +250,9 @@ void DocIdMeta_Init(RedisModuleCtx *ctx) {
 }
 
 
-// Internal function that works with RedisModuleKey
-static int DocIdMeta_SetInternal(RedisModuleKey *key, uint64_t specId,
-                                  uint64_t docId) {
+// Set docId on an already-open key. The caller owns `key` and must have opened
+// it with read+write access. The name-based DocIdMeta_Set delegates here.
+int DocIdMeta_SetWithKey(RedisModuleKey *key, uint64_t specId, uint64_t docId) {
   RS_ASSERT(docId != DOCID_META_INVALID);
   uint64_t meta = 0;
 
@@ -262,7 +262,7 @@ static int DocIdMeta_SetInternal(RedisModuleKey *key, uint64_t specId,
 
     int result = RedisModule_SetKeyMeta(docIdKeyMetaClassId, key, (uint64_t)d);
     if (result != REDISMODULE_OK) {
-      RedisModule_Log(RSDummyContext, "warning", "DocIdMeta: failed to set metadata for key during DocIdMeta_SetInternal");
+      RedisModule_Log(RSDummyContext, "warning", "DocIdMeta: failed to set metadata for key during DocIdMeta_SetWithKey");
       dictRelease(d);
       return result;
     }
@@ -275,8 +275,9 @@ static int DocIdMeta_SetInternal(RedisModuleKey *key, uint64_t specId,
   return REDISMODULE_OK;
 }
 
-static int DocIdMeta_GetInternal(RedisModuleKey *key, uint64_t specId,
-                                  uint64_t *docId) {
+// Get docId from an already-open key. The caller owns `key` and must have opened
+// it with read access. The name-based DocIdMeta_Get delegates here.
+int DocIdMeta_GetWithKey(RedisModuleKey *key, uint64_t specId, uint64_t *docId) {
   uint64_t meta = 0;
   if (RedisModule_GetKeyMeta(docIdKeyMetaClassId, key, &meta) != REDISMODULE_OK) {
     return REDISMODULE_ERR;
@@ -297,7 +298,10 @@ static int DocIdMeta_GetInternal(RedisModuleKey *key, uint64_t specId,
   return REDISMODULE_OK;
 }
 
-static int DocIdMeta_DeleteInternal(RedisModuleKey *key, uint64_t specId) {
+// Delete the specId entry from an already-open key. The caller owns `key` and
+// must have opened it with read+write access. The name-based DocIdMeta_Delete
+// delegates here.
+int DocIdMeta_DeleteWithKey(RedisModuleKey *key, uint64_t specId) {
   uint64_t meta = 0;
   if (RedisModule_GetKeyMeta(docIdKeyMetaClassId, key, &meta) != REDISMODULE_OK) {
     return REDISMODULE_ERR;
@@ -318,7 +322,7 @@ int DocIdMeta_Set(RedisModuleCtx *ctx, RedisModuleString *keyName,
   if (!key) {
     return REDISMODULE_ERR;
   }
-  int result = DocIdMeta_SetInternal(key, specId, docId);
+  int result = DocIdMeta_SetWithKey(key, specId, docId);
   RedisModule_CloseKey(key);
   return result;
 }
@@ -330,7 +334,7 @@ int DocIdMeta_Get(RedisModuleCtx *ctx, RedisModuleString *keyName,
   if (!key) {
     return REDISMODULE_ERR;
   }
-  int result = DocIdMeta_GetInternal(key, specId, docId);
+  int result = DocIdMeta_GetWithKey(key, specId, docId);
   RedisModule_CloseKey(key);
   return result;
 }
@@ -340,7 +344,7 @@ int DocIdMeta_Delete(RedisModuleCtx *ctx, RedisModuleString *keyName, uint64_t s
   if (!key) {
     return REDISMODULE_ERR;
   }
-  int result = DocIdMeta_DeleteInternal(key, specId);
+  int result = DocIdMeta_DeleteWithKey(key, specId);
   RedisModule_CloseKey(key);
   return result;
 }

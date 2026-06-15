@@ -78,11 +78,16 @@ static void Indexes_AsyncScanKeyCB(RedisModuleCtx *ctx, RedisModuleScanCursor *c
   if (!scanner->cancelled) {
     if (SchemaRule_ShouldIndex(sp, name, type)) {
       uint64_t docId = 0;
-      if (DocIdMeta_Get(ctx, name, sp->specId, &docId) == REDISMODULE_OK && docId != 0) {
+      // The engine hands us `key` already open and pinned for this call, so use
+      // the open-key variant instead of DocIdMeta_Get, which would redundantly
+      // reopen the same key by name.
+      if (DocIdMeta_GetWithKey(key, sp->specId, &docId) == REDISMODULE_OK && docId != 0) {
         // Already indexed in this spec (earlier delivery or a live notification);
         // skip to stay idempotent and avoid clobbering a fresher version.
       } else {
-        IndexSpec_UpdateDoc(sp, ctx, name, type);
+        // Pass the already-open, pinned `key` so the DocIdMeta update reuses it
+        // instead of reopening the same key by name.
+        IndexSpec_UpdateDoc(sp, ctx, name, type, key);
       }
     }
     IndexSpecRef_Release(curr_run_ref);

@@ -272,6 +272,25 @@ static RSDocumentMetadata *makeDocumentId(RedisModuleCtx *ctx, RSAddDocumentCtx 
   return dmd;
 }
 
+// DocIdMeta access from the indexing pipeline. When the add-document context
+// carries an already-open key handle (supplied by callers that hold the key
+// open and pinned, e.g. the async scan key callback), these reuse it via the
+// *WithKey variants instead of reopening the key by name; otherwise they fall
+// back to the name-based variants, which open and close the key themselves.
+// Centralizing the openKey check here keeps every DocIdMeta access on the
+// indexing path consistent.
+static int actxDocIdMetaGet(RSAddDocumentCtx *aCtx, RedisSearchCtx *ctx, uint64_t *docId) {
+  return aCtx->disk.openKey
+             ? DocIdMeta_GetWithKey(aCtx->disk.openKey, ctx->spec->specId, docId)
+             : DocIdMeta_Get(ctx->redisCtx, aCtx->doc->docKey, ctx->spec->specId, docId);
+}
+
+static int actxDocIdMetaSet(RSAddDocumentCtx *aCtx, RedisSearchCtx *ctx, uint64_t docId) {
+  return aCtx->disk.openKey
+             ? DocIdMeta_SetWithKey(aCtx->disk.openKey, ctx->spec->specId, docId)
+             : DocIdMeta_Set(ctx->redisCtx, aCtx->doc->docKey, ctx->spec->specId, docId);
+}
+
 /**
  * Performs bulk document ID assignment to all items in the queue.
  * If one item cannot be assigned an ID, it is marked as being errored.
@@ -310,7 +329,7 @@ static void doAssignIds(RSAddDocumentCtx *cur, RedisSearchCtx *ctx) {
       // once the batch has committed.
       // TODO: Consider calling this from SearchDisk_PutDocument
       uint64_t oldDocId = 0;
-      DocIdMeta_Get(ctx->redisCtx, cur->doc->docKey, spec->specId, &oldDocId);
+      actxDocIdMetaGet(cur, ctx, &oldDocId);
       cur->disk.oldDocId = oldDocId;
 
       // Open a per-document write batch that doc-table / inverted-index / tag-index writes
@@ -409,7 +428,7 @@ static void doAssignIds(RSAddDocumentCtx *cur, RedisSearchCtx *ctx) {
  */
 static void applyDocTable(RSAddDocumentCtx *aCtx, RedisSearchCtx *ctx) {
   IndexSpec *spec = ctx->spec;
-  int rc = DocIdMeta_Set(ctx->redisCtx, aCtx->doc->docKey, spec->specId, aCtx->doc->docId);
+  int rc = actxDocIdMetaSet(aCtx, ctx, aCtx->doc->docId);
   RS_LOG_ASSERT_ALWAYS(rc == REDISMODULE_OK, "DocIdMeta_Set failed after a successful disk commit");
 
   // `oldDocId` comes from the key→docId mapping in Redis. The de-index path
