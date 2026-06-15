@@ -18,6 +18,13 @@ name: Fix CI failures on auto-backport PR (Codex agent)
 # relax) and removes the need for a once-per-PR throttle label.
 #
 # Behavior is defined by .github/codex/prompts/pr-backport-auto-fix.md.
+#
+# Expected "skipped" runs — this is normal, not a misconfiguration:
+#   GitHub creates a workflow run for EVERY comment (the `on:` trigger cannot
+#   filter on comment body) and only then evaluates the job `if:` below, so any
+#   comment that isn't `/backport-agent-fix` produces a run whose single job is
+#   skipped. These `issue_comment` skips live only in the Actions tab — they are
+#   never attached to a PR as a check and never block merging.
 
 on:
   issue_comment:
@@ -25,7 +32,9 @@ on:
 
 # The default GITHUB_TOKEN stays read-only: every write (checkout, `gh`,
 # `git push`, PR comment) goes through the scoped App token minted below,
-# whose `permission-*` inputs carry the write grants.
+# whose `permission-*` inputs carry the write grants. That includes
+# `workflows: write`, so a fix commit touching .github/workflows/* can be
+# pushed (see the token step for the full rationale).
 permissions:
   contents: read
   actions: read
@@ -71,6 +80,11 @@ jobs:
           permission-contents: write       # push fix commits to the PR branch
           permission-pull-requests: write  # comment on the backport PR
           permission-actions: read         # read failed-run logs via gh api
+          # A fix commit that edits a file under .github/workflows/ produces a
+          # workflow blob GitHub will not let a `workflows`-less App push (see
+          # the create workflow's token step for the full rationale). Requires
+          # the redis-pr-app App itself to be granted the "Workflows" permission.
+          permission-workflows: write
 
       # Check out master first so the resolve script in
       # `scripts/auto_backport/` and the auto-fix prompt file in

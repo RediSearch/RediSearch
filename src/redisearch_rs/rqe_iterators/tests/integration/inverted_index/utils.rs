@@ -529,7 +529,7 @@ impl RevalidateTest {
         let scan_delta = ii
             .scan_gc(
                 |d| d != doc_id,
-                None::<fn(&RSIndexResult, &inverted_index::IndexBlock)>,
+                None::<fn(&RSIndexResult, &inverted_index::RepairContext<'_>)>,
             )
             .expect("scan GC failed")
             .expect("no GC scan delta");

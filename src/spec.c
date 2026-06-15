@@ -742,6 +742,11 @@ static int parseVectorField_hnsw(IndexSpec *sp, FieldSpec *fs, VecSimParams *par
         return 0;
       }
     } else if (AC_AdvanceIfMatch(&subAc, VECSIM_RERANK)) {
+      if (!isSpecOnDiskForValidation(sp)) {
+        QueryError_SetError(status, QUERY_ERROR_CODE_INVAL,
+          "RERANK is only supported for disk-based vector indexes");
+        return 0;
+      }
       if (rerank_seen) {
         QueryError_SetWithoutUserDataFmt(status, QUERY_ERROR_CODE_INVAL,
           "Duplicate RERANK parameter");
@@ -1383,6 +1388,16 @@ static bool validateDiskJsonSinglePath(const IndexSpec *sp, const FieldSpec *fs,
   return true;
 }
 
+static void IndexSpec_EnsureSuffixForField(IndexSpec *sp, const FieldSpec *fs) {
+  if (FIELD_IS(fs, INDEXFLD_T_FULLTEXT) && FieldSpec_HasSuffixTrie(fs)) {
+    sp->suffixMask |= FIELD_BIT(fs);
+    sp->flags |= Index_HasSuffixTrie;
+    if (!sp->suffix) {
+      sp->suffix = NewTrie(suffixTrie_freeCallback, Trie_Sort_Lex);
+    }
+  }
+}
+
 /**
  * Add fields to an existing (or newly created) index. If the addition fails,
  */
@@ -1532,13 +1547,7 @@ static int IndexSpec_AddFieldsInternal(IndexSpec *sp, StrongRef spec_ref, ArgsCu
     if (FieldSpec_IsPhonetics(fs)) {
       sp->flags |= Index_HasPhonetic;
     }
-    if (FIELD_IS(fs, INDEXFLD_T_FULLTEXT) && FieldSpec_HasSuffixTrie(fs)) {
-      sp->suffixMask |= FIELD_BIT(fs);
-      if (!sp->suffix) {
-        sp->flags |= Index_HasSuffixTrie;
-        sp->suffix = NewTrie(suffixTrie_freeCallback, Trie_Sort_Lex);
-      }
-    }
+    IndexSpec_EnsureSuffixForField(sp, fs);
   }
 
   // If we successfully modified the schema, we need to update the spec cache
@@ -1788,6 +1797,11 @@ void IndexSpec_GetStats(IndexSpec *sp, RSIndexStats *stats) {
 
 size_t IndexSpec_GetIndexErrorCount(const IndexSpec *sp) {
   return IndexError_ErrorCount(&sp->stats.indexError);
+}
+
+size_t IndexSpec_TotalBlockCount(IndexSpec *sp) {
+  return sp->diskSpec ? SearchDisk_GetInvertedIndexTotalBlocks(sp->diskSpec)
+      : __atomic_load_n(&sp->stats.totalInvertedIndexBlocks, __ATOMIC_RELAXED);
 }
 
 // Assuming the spec is properly locked for writing before calling this function.
@@ -2815,7 +2829,6 @@ void IndexSpec_AddToInfo(RedisModuleInfoCtx *ctx, IndexSpec *sp, bool obfuscate,
 }
 
 
-
 ///////////////////////////////////////////////////////////////////////////////////////////////
 
 
@@ -3066,13 +3079,7 @@ IndexSpec *IndexSpec_RdbLoad(RedisModuleIO *rdb, int encver, bool useSst, QueryE
     if (FieldSpec_IsSortable(fs)) {
       sp->numSortableFields++;
     }
-    if (FieldSpec_HasSuffixTrie(fs) && FIELD_IS(fs, INDEXFLD_T_FULLTEXT)) {
-      sp->flags |= Index_HasSuffixTrie;
-      sp->suffixMask |= FIELD_BIT(fs);
-      if (!sp->suffix) {
-        sp->suffix = NewTrie(suffixTrie_freeCallback, Trie_Sort_Lex);
-      }
-    }
+    IndexSpec_EnsureSuffixForField(sp, fs);
   }
   // After loading all the fields, we can build the spec cache
   sp->spcache = IndexSpec_BuildSpecCache(sp);

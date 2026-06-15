@@ -18,12 +18,11 @@
 #include "obfuscation/hidden.h"
 
 void FGC_childCollectTerms(ForkGC *gc, RedisSearchCtx *sctx) {
-  TrieIterator *iter = Trie_Iterate(sctx->spec->terms, "", 0, 0, 1);
+  TrieIterator *iter = Trie_IterateAll(sctx->spec->terms);
   rune *rstr = NULL;
   t_len slen = 0;
   float score = 0;
-  int dist = 0;
-  while (TrieIterator_Next(iter, &rstr, &slen, NULL, &score, NULL, &dist)) {
+  while (TrieIterator_Next(iter, &rstr, &slen, NULL, &score, NULL, NULL)) {
     size_t termLen;
     char *term = runesToStr(rstr, slen, &termLen);
     InvertedIndex *idx = Redis_OpenInvertedIndex(sctx->spec, term, termLen, DONT_CREATE_INDEX, NULL);

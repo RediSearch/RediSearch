@@ -38,7 +38,7 @@ const HEADERS: &[HeaderAllowlist] = &[
     },
     HeaderAllowlist {
         path: "deps/hiredis/sds.h",
-        fns: &["sdscatlen"],
+        fns: &["sdscatlen", "sdsnewlen", "sdsfree"],
         types: &[],
         vars: &[],
     },
@@ -68,7 +68,12 @@ const HEADERS: &[HeaderAllowlist] = &[
     },
     HeaderAllowlist {
         path: "src/doc_table.h",
-        fns: &["DMD_Free", "DocTable_Exists"],
+        fns: &[
+            "DMD_Free",
+            "DocTable_Exists",
+            "DocTable_GetId",
+            "DocTable_Put",
+        ],
         types: &[],
         vars: &[],
     },
@@ -279,6 +284,7 @@ const HEADERS: &[HeaderAllowlist] = &[
             "RedisSearchDiskAPI",
             "RedisSearchDiskAsyncReadPool",
             "RedisSearchDiskRdbState",
+            "RedisSearchDiskSnapshot",
             "SearchDiskCompactionCallbacks",
             "SearchDiskWriteBatchHandle",
             "VectorDiskAPI",
