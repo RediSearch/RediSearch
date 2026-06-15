@@ -299,8 +299,8 @@ static int rpnetCreateIterator(RPNet *nc) {
   nc->it = it;
   // Register the iterator's channel so the main-thread timeout callback can wake
   // this reader if it blocks in MRIterator_NextWithTimeout after AREQ timed out.
-  // Paired with RequestSyncCtx_UnregisterAbortWakeChannel in rpnetFree.
-  RequestSyncCtx_RegisterAbortWakeChannel(&nc->areq->syncCtx, MRIterator_GetChannel(it));
+  // Paired with RequestSyncState_UnregisterAbortWakeChannel in rpnetFree.
+  RequestSyncState_RegisterAbortWakeChannel(&nc->areq->syncCtx, MRIterator_GetChannel(it));
 #ifdef ENABLE_ASSERT
   // Expose the iterator to FT.DEBUG BG_PENDING_REPLIES; cleared in rpnetFree.
   DebugBgIterator_Set(it);
@@ -937,12 +937,13 @@ void RSExecDistAggregate(RedisModuleCtx *ctx, RedisModuleString **argv, int argc
 
   // CMD, index, expr, args...
   AREQ *r = AREQ_New();
+  RequestSyncCtx_NewAREQ(r);
 
   // The global timeout policy may change before this background job is picked up.
   // Use the policy captured from the original request.
   RSTimeoutPolicy requestTimeoutPolicy = CoordRequestCtx_GetTimeoutPolicy(reqCtx);
   if (requestTimeoutPolicy == TimeoutPolicy_ReturnStrict) {
-    r->syncCtx.requiresAggregateResultsSync = true;
+    r->rsc->requiresAggregateResultsSync = true;
   }
   CoordRequestCtx_SetRequest(reqCtx, r);
   CoordRequestCtx_UnlockSetRequest(reqCtx);
@@ -1074,7 +1075,7 @@ int DistAggregateTimeoutReturnStrictCallback(RedisModuleCtx *ctx, RedisModuleStr
 
   // Losing TryClaim means BG owns the claim, it may be blocked in MRIterator_NextWithTimeout.
   // Wake it so it observes the Timeout and exits the pipeline promptly.
-  RequestSyncCtx_WakeAbortChannel(&req->syncCtx);
+  RequestSyncState_WakeAbortChannel(&req->syncCtx);
 
   // Sync with the background thread
   AREQ_WaitForAggregateResultsComplete(req);
@@ -1186,7 +1187,7 @@ int DistCursorReadTimeoutReturnStrictCallback(RedisModuleCtx *ctx, RedisModuleSt
 
   // BG has taken the cursor. Wake the abort channel — unblocks BG from
   // MRIterator_NextWithTimeout if it's mid-pipeline; no-op otherwise.
-  RequestSyncCtx_WakeAbortChannel(&req->syncCtx);
+  RequestSyncState_WakeAbortChannel(&req->syncCtx);
 
   // Sync with BG.
   AREQ_WaitForAggregateResultsComplete(req);
@@ -1262,7 +1263,7 @@ void DEBUG_RSExecDistAggregate(RedisModuleCtx *ctx, RedisModuleString **argv, in
   r = &debug_req->r;
 
   if (requestTimeoutPolicy == TimeoutPolicy_ReturnStrict) {
-    r->syncCtx.requiresAggregateResultsSync = true;
+    r->rsc->requiresAggregateResultsSync = true;
   }
   CoordRequestCtx_SetRequest(reqCtx, r);
   CoordRequestCtx_UnlockSetRequest(reqCtx);

@@ -1238,7 +1238,7 @@ static int rpSafeLoaderNext_Accumulate(ResultProcessor *rp, SearchResult *res) {
   }
 
 #ifdef ENABLE_ASSERT
-  // Sync point: pause holding the GIL gate (safeLoaderHoldingGIL == true),
+  // Sync point: pause holding the GIL gate (safeLoadersHoldingGIL > 0),
   // before the Redis lock, so a timeout callback observes it and preempts.
   SyncPoint_WaitUntil(SYNC_POINT_AFTER_SAFE_LOADER_GIL_HANDSHAKE, SearchTime_IsTimedOut, &sctx->time);
 #endif
@@ -1252,7 +1252,7 @@ static int rpSafeLoaderNext_Accumulate(ResultProcessor *rp, SearchResult *res) {
   // timeout callback only runs on the main thread while it holds the GIL, so it
   // cannot observe the flag during this window; clearing before the unlock
   // closes the race where a timeout landing in the unlock->clear gap sees a
-  // stale safeLoaderHoldingGIL == true and preempts, dropping already-loaded
+  // stale safeLoadersHoldingGIL count and preempts, dropping already-loaded
   // results. See aggregate.h.
   if (self->syncCtx) {
     RequestSyncCtx_SafeLoaderExitGIL(self->syncCtx);

@@ -1202,10 +1202,10 @@ void DEBUG_RSExecDistHybrid(RedisModuleCtx *ctx, RedisModuleString **argv, int a
 // phase) or a subquery's channel (read phase); wake all of them.
 static void wakeHybridAbortChannels(HybridRequest *hreq) {
   if (!hreq) return;
-  RequestSyncCtx_WakeAbortChannel(&hreq->syncCtx);
+  RequestSyncState_WakeAbortChannel(&hreq->syncCtx);
   for (size_t i = 0; i < hreq->nrequests; i++) {
     if (hreq->requests[i]) {
-      RequestSyncCtx_WakeAbortChannel(&hreq->requests[i]->syncCtx);
+      RequestSyncState_WakeAbortChannel(&hreq->requests[i]->syncCtx);
     }
   }
 }
