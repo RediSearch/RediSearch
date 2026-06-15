@@ -31,6 +31,7 @@
 #include "concurrent_ctx.h"
 #include "numeric_filter.h"
 #include "util/strconv.h"
+#include "util/timeout.h"
 #include "util/arr.h"
 #include "rmutil/rm_assert.h"
 #include "module.h"
@@ -563,13 +564,9 @@ QueryIterator *Query_EvalTokenNode(QueryEvalCtx *q, QueryNode *qn) {
   RS_LOG_ASSERT(qn->type == QN_TOKEN, "query node type should be token")
 
   if (q->sctx->spec->diskSpec) {
-    RS_LOG_ASSERT(q->sctx->spec->terms, "terms trie should be initialized");
-    size_t rlen = 0;
-    runeBuf buf;
-    rune *runes = runeBufFill(qn->tn.str, qn->tn.len, &buf, &rlen);
-    TrieNode *trienode = Trie_GetNode(q->sctx->spec->terms, runes, rlen, true, NULL);
-    runeBufFree(&buf);
-    size_t numDocsInTerm = trienode ? TrieNode_NumDocs(trienode) : 0;
+    RS_LOG_ASSERT(q->sctx->spec->terms, "terms dictionary should be initialized");
+    size_t numDocsInTerm = 0;
+    TermDictionary_Get(q->sctx->spec->terms, qn->tn.str, qn->tn.len, NULL, &numDocsInTerm);
     double idf = CalculateIDF(q->sctx->spec->stats.scoring.numDocuments, numDocsInTerm);
     double bm25_idf = CalculateIDF_BM25(q->sctx->spec->stats.scoring.numDocuments, numDocsInTerm);
     bool needsOffsets = queryNeedsOffsets(q->opts->scorerName, &qn->opts);
@@ -613,32 +610,28 @@ static inline void addTerm(char *str, size_t tok_len, size_t numDocsInTerm, Quer
   }
 }
 
-static QueryIterator *iterateExpandedTerms(QueryEvalCtx *q, Trie *terms, const char *str,
+static QueryIterator *iterateExpandedTerms(QueryEvalCtx *q, TermDictionary *terms, const char *str,
                                            size_t len, int maxDist, int prefixMode,
                                            QueryNodeOptions *opts) {
-  TrieIterator *it = Trie_Iterate(terms, str, len, maxDist, prefixMode);
+  TermDictionaryIterator *it = TermDictionary_IterateDfa(terms, str, len, maxDist, prefixMode);
   if (!it) return NULL;
 
   size_t itsSz = 0, itsCap = 8;
   QueryIterator **its = rm_calloc(itsCap, sizeof(*its));
 
-  rune *rstr = NULL;
-  char *target_str = NULL;
+  const char *term = NULL;
   size_t tok_len = 0;
-  t_len slen = 0;
   float score = 0;
-  int dist = 0;
+  uint32_t dist = 0;
 
   // an upper limit on the number of expansions is enforced to avoid stuff like "*"
   int hasNext;
   size_t numDocsInTerm = 0;
-  while ((hasNext = TrieIterator_Next(it, &rstr, &slen, NULL, &score, &numDocsInTerm, &dist)) &&
+  while ((hasNext = TermDictionaryIterator_Next(it, &term, &tok_len, &score, &numDocsInTerm, &dist)) &&
          (itsSz < q->config->maxPrefixExpansions)) {
-    target_str = runesToStr(rstr, slen, &tok_len);
-    addTerm(target_str, tok_len, numDocsInTerm, q, opts, &its, &itsSz, &itsCap);
-    rm_free(target_str);
+    addTerm((char *)term, tok_len, numDocsInTerm, q, opts, &its, &itsSz, &itsCap);
   }
-  TrieIterator_Free(it);
+  TermDictionaryIterator_Free(it);
 
   if (hasNext && itsSz == q->config->maxPrefixExpansions) {
     QueryError_SetReachedMaxPrefixExpansionsWarning(q->status);
@@ -646,17 +639,46 @@ static QueryIterator *iterateExpandedTerms(QueryEvalCtx *q, Trie *terms, const c
 
   // Add an iterator over the inverted index of the empty string for fuzzy search
   if (!prefixMode && q->sctx->apiVersion >= 2 && len <= maxDist) {
-    size_t rlen = 0;
-    runeBuf buf;
-    rune *runes = runeBufFill("", 1, &buf, &rlen);
-    TrieNode *emptyNode = Trie_GetNode(terms, runes, rlen, true, NULL);
-    runeBufFree(&buf);
-    size_t numDocsInEmpty = emptyNode ? TrieNode_NumDocs(emptyNode) : 0;
+    size_t numDocsInEmpty = 0;
+    TermDictionary_Get(terms, "", 0, NULL, &numDocsInEmpty);
     addTerm("", 0, numDocsInEmpty, q, opts, &its, &itsSz, &itsCap);
   }
 
   QueryNodeType type = prefixMode ? QN_PREFIX : QN_FUZZY;
   return NewUnionIterator(its, itsSz, true, opts->weight, type, str, q->config);
+}
+
+/* Drain a TermDictionary iterator into the `its` array, opening one index
+ * reader per matched term. Enforces the maxPrefixExpansions cap and, when a
+ * `timeout` is provided, bails out periodically via the shared timeout counter.
+ * Frees the iterator before returning. Tolerates a NULL iterator (no-op).
+ */
+static void expandTermDictIterator(QueryEvalCtx *q, TermDictionaryIterator *it,
+                                   QueryNodeOptions *opts, QueryIterator ***its,
+                                   size_t *itsSz, size_t *itsCap,
+                                   const struct timespec *timeout, bool skipTimeoutChecks) {
+  if (!it) return;
+
+  const char *term = NULL;
+  size_t len = 0;
+  float score = 0;
+  size_t numDocsInTerm = 0;
+  uint32_t dist = 0;
+  uint32_t timeoutCounter = 0;
+
+  // `term` is borrowed from the iterator, valid until the next _Next call; it is
+  // consumed synchronously by addTerm (which copies into its own token).
+  while (TermDictionaryIterator_Next(it, &term, &len, &score, &numDocsInTerm, &dist)) {
+    if (!RS_IsMock && *itsSz >= q->config->maxPrefixExpansions) {
+      QueryError_SetReachedMaxPrefixExpansionsWarning(q->status);
+      break;
+    }
+    if (timeout && !skipTimeoutChecks && TimedOut_WithCounter(timeout, &timeoutCounter)) {
+      break;
+    }
+    addTerm((char *)term, len, numDocsInTerm, q, opts, its, itsSz, itsCap);
+  }
+  TermDictionaryIterator_Free(it);
 }
 
 typedef struct {
@@ -670,7 +692,6 @@ typedef struct {
   TagIndex *tagIdx;
 } TrieCallbackCtx;
 
-static int runeIterCb(const rune *r, size_t n, void *p, void *payload, size_t numDocsInTerm);
 static int charIterCb(const char *s, size_t n, void *p, void *payload);
 
 static const char *PrefixNode_GetTypeString(const QueryPrefixNode *pfx) {
@@ -698,29 +719,23 @@ static QueryIterator *Query_EvalPrefixNode(QueryEvalCtx *q, QueryNode *qn) {
   }
 
   IndexSpec *spec = q->sctx->spec;
-  Trie *t = spec->terms;
+  TermDictionary *t = spec->terms;
   TrieCallbackCtx ctx = {.q = q, .opts = &qn->opts};
 
-  // terms trie always exists when prefix queries reach evaluation
+  // terms dictionary always exists when prefix queries reach evaluation
   RS_ASSERT(t);
 
   // spec support contains queries
   bool useSuffixIndex = spec->suffix && qn->pfx.suffix;
-  size_t nstr;
-  rune *str = NULL;
+  // The terms dictionary and suffix index both store folded UTF-8 terms; fold
+  // the needle directly in UTF-8 (TermDictionary keys on UTF-8, not runes).
   size_t needleLen;
   utf8Buf needleBuf;
   char *needle = NULL;
   if (qn->pfx.tok.str) {
-    if (useSuffixIndex) {
-      // The suffix index stores folded UTF-8 terms; fold the needle directly
-      // in UTF-8, skipping the rune representation only the trie path needs.
-      needle = strToLowerStr(qn->pfx.tok.str, qn->pfx.tok.len, &needleBuf, &needleLen);
-    } else {
-      str = strToLowerRunes(qn->pfx.tok.str, qn->pfx.tok.len, &nstr);
-    }
+    needle = strToLowerStr(qn->pfx.tok.str, qn->pfx.tok.len, &needleBuf, &needleLen);
   }
-  if (!str && !needle) {
+  if (!needle) {
     QueryError_SetWithoutUserDataFmt(q->status, QUERY_ERROR_CODE_LIMIT, "%s " TRIE_STR_TOO_LONG_MSG, PrefixNode_GetTypeString(&qn->pfx));
     return NULL;
   }
@@ -741,13 +756,19 @@ static QueryIterator *Query_EvalPrefixNode(QueryEvalCtx *q, QueryNode *qn) {
     } else {
       QueryError_SetError(q->status, QUERY_ERROR_CODE_GENERIC, "Contains query on fields without WITHSUFFIXTRIE support");
     }
-    utf8BufFree(&needleBuf);
   } else {
-    Trie_IterateContains(t, str, nstr, qn->pfx.prefix, qn->pfx.suffix,
-                         runeIterCb, &ctx, &q->sctx->time.timeout,
-                         q->sctx->time.skipTimeoutChecks);
-    rm_free(str);
+    TermDictionaryIterator *it;
+    if (qn->pfx.prefix && qn->pfx.suffix) {
+      it = TermDictionary_IterateContains(t, needle, needleLen);
+    } else if (qn->pfx.prefix) {
+      it = TermDictionary_IteratePrefix(t, needle, needleLen);
+    } else {
+      it = TermDictionary_IterateSuffix(t, needle, needleLen);
+    }
+    expandTermDictIterator(q, it, &qn->opts, &ctx.its, &ctx.nits, &ctx.cap,
+                           &q->sctx->time.timeout, q->sctx->time.skipTimeoutChecks);
   }
+  utf8BufFree(&needleBuf);
 
   return NewUnionIterator(ctx.its, ctx.nits, true, qn->opts.weight, QN_PREFIX, qn->pfx.tok.str, q->config);
 }
@@ -760,29 +781,49 @@ static QueryIterator *Query_EvalWildcardQueryNode(QueryEvalCtx *q, QueryNode *qn
   RS_LOG_ASSERT(qn->type == QN_WILDCARD_QUERY, "query node type should be wildcard query");
 
   IndexSpec *spec = q->sctx->spec;
-  Trie *t = spec->terms;
+  TermDictionary *t = spec->terms;
   TrieCallbackCtx ctx = {.q = q, .opts = &qn->opts};
   RSToken *token = &qn->verb.tok;
 
-  // terms trie and token always exist when wildcard queries reach evaluation
+  // terms dictionary and token always exist when wildcard queries reach evaluation
   RS_ASSERT(t && token->str);
 
+  // A wildcard pattern matches a literal backslash only when '*'/'?' stay bare
+  // (wildcards) while every other backslash is a plain literal. Run one
+  // backslash-stripping pass: this de-escapes the token (also producing the
+  // string the query node prints) and collapses '\*'/'\?' to bare wildcards.
   token->len = Wildcard_RemoveEscape(token->str, token->len);
-  size_t nstr;
-  rune *str = NULL;
+
+  // Fold the de-escaped token to UTF-8; both the terms dictionary and the
+  // suffix index key on folded terms. The length gate applies to this logical
+  // pattern, before backslash re-encoding below.
   size_t patternLen;
   utf8Buf patternBuf;
-  char *pattern = NULL;
-  if (spec->suffix) {
-    // The suffix index stores folded UTF-8 terms; fold the pattern directly
-    // in UTF-8, skipping the rune representation only the trie path needs.
-    pattern = strToLowerStr(token->str, token->len, &patternBuf, &patternLen);
-  } else {
-    str = strToLowerRunes(token->str, token->len, &nstr);
-  }
-  if (!str && !pattern) {
+  char *folded = strToLowerStr(token->str, token->len, &patternBuf, &patternLen);
+  if (!folded) {
     QueryError_SetError(q->status, QUERY_ERROR_CODE_LIMIT, "Wildcard " TRIE_STR_TOO_LONG_MSG);
     return NULL;
+  }
+
+  // The Rust wildcard engine re-reads backslashes as escapes, so each surviving
+  // literal backslash must be doubled to "\\" to match a literal backslash.
+  // Patterns without backslashes (the common case) feed the folded buffer as-is.
+  char *pattern = folded;
+  size_t patternEncLen = patternLen;
+  char *encoded = NULL;
+  size_t numBackslashes = 0;
+  for (size_t i = 0; i < patternLen; i++) {
+    if (folded[i] == '\\') numBackslashes++;
+  }
+  if (numBackslashes) {
+    encoded = rm_malloc(patternLen + numBackslashes);
+    size_t j = 0;
+    for (size_t i = 0; i < patternLen; i++) {
+      if (folded[i] == '\\') encoded[j++] = '\\';
+      encoded[j++] = folded[i];
+    }
+    pattern = encoded;
+    patternEncLen = j;
   }
 
   ctx.cap = 8;
@@ -796,7 +837,7 @@ static QueryIterator *Query_EvalWildcardQueryNode(QueryEvalCtx *q, QueryNode *qn
     if (qn->opts.fieldMask == RS_FIELDMASK_ALL ||
         (spec->suffixMask & qn->opts.fieldMask) == qn->opts.fieldMask) {
       TermSuffixIndexIterator *it =
-          TermSuffixIndex_IterateWildcard(spec->suffix, pattern, patternLen);
+          TermSuffixIndex_IterateWildcard(spec->suffix, pattern, patternEncLen);
       if (it) {
         const char *term;
         size_t termLen;
@@ -814,22 +855,18 @@ static QueryIterator *Query_EvalWildcardQueryNode(QueryEvalCtx *q, QueryNode *qn
       QueryError_SetError(q->status, QUERY_ERROR_CODE_GENERIC,
                           "Contains query on fields without WITHSUFFIXTRIE support");
     }
-    utf8BufFree(&patternBuf);
   }
 
   if (!spec->suffix || fallbackBruteForce) {
-    if (!str) {
-      // Cannot fail: strToLowerStr applies the same length gate, so a pattern
-      // it accepted is accepted here as well.
-      str = strToLowerRunes(token->str, token->len, &nstr);
-    }
-    Trie_IterateWildcard(t, str, nstr, runeIterCb, &ctx, &q->sctx->time.timeout,
-                         q->sctx->time.skipTimeoutChecks);
+    TermDictionaryIterator *it = TermDictionary_IterateWildcard(t, pattern, patternEncLen);
+    expandTermDictIterator(q, it, &qn->opts, &ctx.its, &ctx.nits, &ctx.cap,
+                           &q->sctx->time.timeout, q->sctx->time.skipTimeoutChecks);
   }
 
-  if (str) {
-    rm_free(str);
+  if (encoded) {
+    rm_free(encoded);
   }
+  utf8BufFree(&patternBuf);
 
   return NewUnionIterator(ctx.its, ctx.nits, true, qn->opts.weight, QN_WILDCARD_QUERY, qn->verb.tok.str, q->config);
 }
@@ -855,33 +892,6 @@ static void tagRangeIterCb(const char *r, size_t n, void *p, void *invidx) {
   }
 }
 
-static int runeIterCb(const rune *r, size_t n, void *p, void *payload, size_t numDocsInTerm) {
-  TrieCallbackCtx *ctx = p;
-  QueryEvalCtx *q = ctx->q;
-  if (!RS_IsMock && ctx->nits >= q->config->maxPrefixExpansions) {
-    QueryError_SetReachedMaxPrefixExpansionsWarning(q->status);
-    return REDISEARCH_ERR;
-  }
-  RSToken tok = {0};
-  tok.str = runesToStr(r, n, &tok.len);
-  QueryIterator *ir = NULL;
-  if (q->sctx->spec->diskSpec) {
-    double idf = CalculateIDF(q->sctx->spec->stats.scoring.numDocuments, numDocsInTerm);
-    double bm25_idf = CalculateIDF_BM25(q->sctx->spec->stats.scoring.numDocuments, numDocsInTerm);
-    bool needsOffsets = queryNeedsOffsets(q->opts->scorerName, ctx->opts);
-    ir = SearchDisk_NewTermIterator(q->sctx->spec->diskSpec, q->sctx, &tok, ctx->q->tokenId++, q->opts->fieldmask & ctx->opts->fieldMask, 1, idf, bm25_idf, needsOffsets, q->status);
-  } else {
-    ir = Redis_OpenReader(q->sctx, &tok, ctx->q->tokenId++, &q->sctx->spec->docs,
-                                        q->opts->fieldmask & ctx->opts->fieldMask, 1);
-  }
-  rm_free(tok.str);
-  if (ir) {
-    rangeItersAddIterator(ctx, ir);
-  }
-
-  return REDISEARCH_OK;
-}
-
 static int charIterCb(const char *s, size_t n, void *p, void *payload) {
   TrieCallbackCtx *ctx = p;
   QueryEvalCtx *q = ctx->q;
@@ -892,14 +902,11 @@ static int charIterCb(const char *s, size_t n, void *p, void *payload) {
   RSToken tok = {.str = (char *)s, .len = n};
   QueryIterator *ir = NULL;
   if (q->sctx->spec->diskSpec) {
-    RS_LOG_ASSERT(q->sctx->spec->terms, "terms trie is NULL");
-    // The iterator comes from the Suffix Trie, but the actual number of documents is stored in the Terms Trie.
-    size_t rlen = 0;
-    runeBuf buf;
-    rune *runes = runeBufFill(tok.str, tok.len, &buf, &rlen);
-    TrieNode *trienode = Trie_GetNode(q->sctx->spec->terms, runes, rlen, true, NULL);
-    runeBufFree(&buf);
-    size_t numDocsInTerm = trienode ? TrieNode_NumDocs(trienode) : 0;
+    RS_LOG_ASSERT(q->sctx->spec->terms, "terms dictionary is NULL");
+    // The iterator comes from the Suffix Trie, but the actual number of documents
+    // is stored in the terms dictionary.
+    size_t numDocsInTerm = 0;
+    TermDictionary_Get(q->sctx->spec->terms, tok.str, tok.len, NULL, &numDocsInTerm);
     double idf = CalculateIDF(q->sctx->spec->stats.scoring.numDocuments, numDocsInTerm);
     double bm25_idf = CalculateIDF_BM25(q->sctx->spec->stats.scoring.numDocuments, numDocsInTerm);
     bool needsOffsets = queryNeedsOffsets(q->opts->scorerName, ctx->opts);
@@ -918,7 +925,7 @@ static int charIterCb(const char *s, size_t n, void *p, void *payload) {
 static QueryIterator *Query_EvalLexRangeNode(QueryEvalCtx *q, QueryNode *lx) {
   RS_LOG_ASSERT(lx->type == QN_LEXRANGE, "query node type should be lexrange");
 
-  Trie *t = q->sctx->spec->terms;
+  TermDictionary *t = q->sctx->spec->terms;
   TrieCallbackCtx ctx = {.q = q, .opts = &lx->opts};
 
   if (!t) {
@@ -929,19 +936,25 @@ static QueryIterator *Query_EvalLexRangeNode(QueryEvalCtx *q, QueryNode *lx) {
   ctx.its = rm_malloc(sizeof(*ctx.its) * ctx.cap);
   ctx.nits = 0;
 
-  rune *begin = NULL, *end = NULL;
-  size_t nbegin, nend;
+  // Fold bounds to UTF-8; an absent bound is passed as NULL, which
+  // TermDictionary_IterateRange treats as unbounded on that end.
+  size_t nbegin = 0, nend = 0;
+  utf8Buf beginBuf, endBuf;
+  char *begin = NULL, *end = NULL;
   if (lx->lxrng.begin) {
-    begin = strToLowerRunes(lx->lxrng.begin, strlen(lx->lxrng.begin), &nbegin);
+    begin = strToLowerStr(lx->lxrng.begin, strlen(lx->lxrng.begin), &beginBuf, &nbegin);
   }
   if (lx->lxrng.end) {
-    end = strToLowerRunes(lx->lxrng.end, strlen(lx->lxrng.end), &nend);
+    end = strToLowerStr(lx->lxrng.end, strlen(lx->lxrng.end), &endBuf, &nend);
   }
 
-  Trie_IterateRange(t, begin, begin ? nbegin : -1, lx->lxrng.includeBegin, end,
-                    end ? nend : -1, lx->lxrng.includeEnd, runeIterCb, &ctx);
-  rm_free(begin);
-  rm_free(end);
+  TermDictionaryIterator *it = TermDictionary_IterateRange(
+      t, begin, nbegin, lx->lxrng.includeBegin, end, nend, lx->lxrng.includeEnd);
+  // Range queries are not subject to timeout checks (matching the prior trie path).
+  expandTermDictIterator(q, it, &lx->opts, &ctx.its, &ctx.nits, &ctx.cap, NULL, false);
+
+  if (lx->lxrng.begin) utf8BufFree(&beginBuf);
+  if (lx->lxrng.end) utf8BufFree(&endBuf);
 
   return NewUnionIterator(ctx.its, ctx.nits, true, lx->opts.weight, QN_LEXRANGE, NULL, q->config);
 }
@@ -949,7 +962,7 @@ static QueryIterator *Query_EvalLexRangeNode(QueryEvalCtx *q, QueryNode *lx) {
 static QueryIterator *Query_EvalFuzzyNode(QueryEvalCtx *q, QueryNode *qn) {
   RS_LOG_ASSERT(qn->type == QN_FUZZY, "query node type should be fuzzy");
 
-  Trie *terms = q->sctx->spec->terms;
+  TermDictionary *terms = q->sctx->spec->terms;
 
   if (!terms) return NULL;
 

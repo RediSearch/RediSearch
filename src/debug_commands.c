@@ -470,20 +470,19 @@ DEBUG_COMMAND(DumpTerms) {
   }
   GET_SEARCH_CTX(argv[2])
 
-  rune *rstr = NULL;
-  t_len slen = 0;
+  const char *term = NULL;
+  size_t termLen = 0;
   float score = 0;
-  size_t termLen;
+  size_t numDocs = 0;
+  uint32_t dist = 0;
 
-  RedisModule_ReplyWithArray(ctx, Trie_Size(sctx->spec->terms));
+  RedisModule_ReplyWithArray(ctx, TermDictionary_Len(sctx->spec->terms));
 
-  TrieIterator *it = Trie_IterateAll(sctx->spec->terms);
-  while (TrieIterator_Next(it, &rstr, &slen, NULL, &score, NULL, NULL)) {
-    char *res = runesToStr(rstr, slen, &termLen);
-    RedisModule_ReplyWithStringBuffer(ctx, res, termLen);
-    rm_free(res);
+  TermDictionaryIterator *it = TermDictionary_Iterate(sctx->spec->terms);
+  while (TermDictionaryIterator_Next(it, &term, &termLen, &score, &numDocs, &dist)) {
+    RedisModule_ReplyWithStringBuffer(ctx, term, termLen);
   }
-  TrieIterator_Free(it);
+  TermDictionaryIterator_Free(it);
 
   SearchCtx_Free(sctx);
   return REDISMODULE_OK;

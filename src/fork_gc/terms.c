@@ -19,13 +19,15 @@
 #include "obfuscation/hidden.h"
 
 void FGC_childCollectTerms(ForkGC *gc, RedisSearchCtx *sctx) {
-  TrieIterator *iter = Trie_IterateAll(sctx->spec->terms);
-  rune *rstr = NULL;
-  t_len slen = 0;
+  TermDictionaryIterator *iter = TermDictionary_Iterate(sctx->spec->terms);
+  const char *term = NULL;
+  size_t termLen = 0;
   float score = 0;
-  while (TrieIterator_Next(iter, &rstr, &slen, NULL, &score, NULL, NULL)) {
-    size_t termLen;
-    char *term = runesToStr(rstr, slen, &termLen);
+  size_t numDocs = 0;
+  uint32_t dist = 0;
+  // `term` is borrowed from the iterator and stays valid until the next
+  // TermDictionaryIterator_Next; it is consumed synchronously below.
+  while (TermDictionaryIterator_Next(iter, &term, &termLen, &score, &numDocs, &dist)) {
     InvertedIndex *idx = Redis_OpenInvertedIndex(sctx->spec, term, termLen, DONT_CREATE_INDEX, NULL);
     if (idx) {
       struct iovec iov = {.iov_base = (void *)term, termLen};
@@ -37,9 +39,8 @@ void FGC_childCollectTerms(ForkGC *gc, RedisSearchCtx *sctx) {
 
       InvertedIndex_GcDelta_Scan(&wr, sctx, idx, &cb);
     }
-    rm_free(term);
   }
-  TrieIterator_Free(iter);
+  TermDictionaryIterator_Free(iter);
 
   // we are done with terms
   FGC_sendTerminator(gc);
@@ -113,7 +114,7 @@ FGCError FGC_parentHandleTerms(ForkGC *gc) {
       }
     }
 
-    if (!Trie_Delete(sctx->spec->terms, term, len)) {
+    if (!TermDictionary_Remove(sctx->spec->terms, term, len)) {
       const char* name = IndexSpec_FormatName(sctx->spec, RSGlobalConfig.hideUserDataFromLog);
       const char* term_str = RSGlobalConfig.hideUserDataFromLog ? Obfuscate_Text(term) : term;
       int term_display_len = RSGlobalConfig.hideUserDataFromLog ? (int)strlen(term_str) : (int)len;

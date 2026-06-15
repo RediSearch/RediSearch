@@ -501,7 +501,7 @@ size_t IndexSpec_collect_text_overhead(const IndexSpec *sp) {
   // Traverse the fields and calculates the overhead of the text suffixes
   size_t overhead = 0;
   // Collect overhead from sp->terms
-  overhead += TrieType_MemUsage(sp->terms);
+  overhead += TermDictionary_MemUsage(sp->terms);
   // Collect overhead from sp->suffix
   if (sp->suffix) {
     // TODO: Count the values' memory as well
@@ -1937,9 +1937,9 @@ size_t IndexSpec_TotalBlockCount(IndexSpec *sp) {
 
 // Assuming the spec is properly locked for writing before calling this function.
 void IndexSpec_AddTerm(IndexSpec *sp, const char *term, size_t len) {
-  // Payload is NULL so TRIE_ERR_PAYLOAD_OVERFLOW cannot occur
-  int isNew = Trie_InsertStringBuffer(sp->terms, (char *)term, len, 1, 1, NULL, 1);
-  if (isNew == TRIE_OK_NEW) {
+  // ADD_INCR semantics: score 1, numDocs 1 per occurrence.
+  TermDictionaryInsertOutcome outcome = TermDictionary_AddTerm(sp->terms, term, len, 1, 1);
+  if (outcome == TermDictionaryInsertOutcome_New) {
     sp->stats.scoring.numTerms++;
     sp->stats.termsSize += len;
   }
@@ -2071,7 +2071,12 @@ static void IndexSpec_FreeUnlinkedData(IndexSpec *spec) {
   DocTable_Free(&spec->docs);
   // Free TEXT field trie and inverted indexes
   if (spec->terms) {
-    TrieType_Free(spec->terms);
+    TermDictionary_Free(spec->terms);
+  }
+  // Normally cleared by IndexSpec_DropLegacyIndexFromKeySpace; freed here for
+  // legacy specs discarded before the upgrade cleanup runs.
+  if (spec->legacyTerms) {
+    TrieType_Free(spec->legacyTerms);
   }
   // Free TEXT TAG NUMERIC VECTOR and GEOSHAPE fields trie and inverted indexes
   if (spec->keysDict) {
@@ -2408,7 +2413,7 @@ static void initializeIndexSpec(IndexSpec *sp, const HiddenString *name, IndexFl
   sp->stats.indexError = IndexError_Init();
 
   sp->fieldIdToIndex = array_new(t_fieldIndex, 0);
-  sp->terms = NewTrie(NULL, Trie_Sort_Lex);
+  sp->terms = NewTermDictionary();
 
   IndexSpec_InitLock(sp);
   // First, initialise fields IndexError for every field
@@ -3317,20 +3322,26 @@ void IndexSpec_ScanAndReindex(RedisModuleCtx *ctx, StrongRef spec_ref) {
 void IndexSpec_DropLegacyIndexFromKeySpace(IndexSpec *sp) {
   RedisSearchCtx ctx = SEARCH_CTX_STATIC(RSDummyContext, sp);
 
-  rune *rstr = NULL;
-  t_len slen = 0;
-  float score = 0;
-  size_t termLen;
-
-  TrieIterator *it = Trie_IterateAll(ctx.spec->terms);
-  while (TrieIterator_Next(it, &rstr, &slen, NULL, &score, NULL, NULL)) {
-    char *res = runesToStr(rstr, slen, &termLen);
-    RedisModuleString *keyName = Legacy_fmtRedisTermKey(&ctx, res, strlen(res));
-    Redis_LegacyDropScanHandler(ctx.redisCtx, keyName, &ctx);
-    RedisModule_FreeString(ctx.redisCtx, keyName);
-    rm_free(res);
+  // Legacy ft:<idx>/<term> keys are named with the verbatim term bytes preserved
+  // in legacyTerms (see IndexSpec_LegacyRdbLoad). Reconstruct each name from those
+  // bytes so the keys match and can be deleted.
+  if (ctx.spec->legacyTerms) {
+    rune *rstr = NULL;
+    t_len slen = 0;
+    float score = 0;
+    TrieIterator *it = Trie_IterateAll(ctx.spec->legacyTerms);
+    while (TrieIterator_Next(it, &rstr, &slen, NULL, &score, NULL, NULL)) {
+      size_t termLen;
+      char *term = runesToStr(rstr, slen, &termLen);
+      RedisModuleString *keyName = Legacy_fmtRedisTermKey(&ctx, term, termLen);
+      Redis_LegacyDropScanHandler(ctx.redisCtx, keyName, &ctx);
+      RedisModule_FreeString(ctx.redisCtx, keyName);
+      rm_free(term);
+    }
+    TrieIterator_Free(it);
+    TrieType_Free(ctx.spec->legacyTerms);
+    ctx.spec->legacyTerms = NULL;
   }
-  TrieIterator_Free(it);
 
   // Delete the numeric, tag, and geo indexes which reside on separate keys
   for (size_t i = 0; i < ctx.spec->numFields; i++) {
@@ -3512,6 +3523,51 @@ static bool IndexSpec_SSTRdbOpenAndApply(RedisModuleCtx *ctx, IndexSpec *sp) {
   return true;
 }
 
+// The terms dictionary is a Rust TermDictionary, but its on-disk representation
+// is still the legacy C-trie TrieType wire format. These two helpers bridge the
+// gap by round-tripping through a transient C Trie, so existing RDBs keep loading
+// and new RDBs stay byte-compatible with readers that predate the Rust port.
+static void termDictRdbSave(RedisModuleIO *rdb, const TermDictionary *td, bool saveNumDocs) {
+  Trie *tmp = NewTrie(NULL, Trie_Sort_Lex);
+  TermDictionaryIterator *it = TermDictionary_Iterate(td);
+  const char *term = NULL;
+  size_t len = 0;
+  float score = 0;
+  size_t numDocs = 0;
+  uint32_t dist = 0;
+  while (TermDictionaryIterator_Next(it, &term, &len, &score, &numDocs, &dist)) {
+    // ADD_REPLACE into a fresh node sets score and accumulates numDocs from 0,
+    // so the transient trie mirrors the dictionary exactly.
+    Trie_InsertStringBuffer(tmp, term, len, score, 0, NULL, numDocs);
+  }
+  TermDictionaryIterator_Free(it);
+  TrieType_GenericSave(rdb, tmp, false, saveNumDocs);
+  TrieType_Free(tmp);
+}
+
+static TermDictionary *termDictRdbLoad(RedisModuleIO *rdb, bool loadNumDocs) {
+  Trie *tmp = TrieType_GenericLoad(rdb, false, loadNumDocs, Trie_Sort_Lex);
+  if (!tmp) {
+    return NULL;
+  }
+  TermDictionary *td = NewTermDictionary();
+  rune *rstr = NULL;
+  t_len slen = 0;
+  float score = 0;
+  int dist = 0;
+  size_t numDocs = 0;
+  TrieIterator *it = Trie_Iterate(tmp, "", 0, 0, 1);
+  while (TrieIterator_Next(it, &rstr, &slen, NULL, &score, &numDocs, &dist)) {
+    size_t termLen;
+    char *term = runesToStr(rstr, slen, &termLen);
+    TermDictionary_Insert(td, term, termLen, score, numDocs);
+    rm_free(term);
+  }
+  TrieIterator_Free(it);
+  TrieType_Free(tmp);
+  return td;
+}
+
 void IndexSpec_RdbSave(RedisModuleIO *rdb, IndexSpec *sp, int contextFlags) {
   // When saving disk-backed state from the main process, acquire the spec
   // read lock before serializing any field state. FieldSpec_RdbSave
@@ -3568,7 +3624,7 @@ void IndexSpec_RdbSave(RedisModuleIO *rdb, IndexSpec *sp, int contextFlags) {
   // assume it was not set in when the RDB will be loaded as well
   if (sp->diskSpec && storeDiskRdbData) {
     IndexScoringStats_RdbSave(rdb, &sp->stats.scoring);
-    TrieType_GenericSave(rdb, sp->terms, false, true);
+    termDictRdbSave(rdb, sp->terms, true);
     SearchDisk_IndexSpecRdbSave(rdb, sp->diskSpec);
   }
 
@@ -3689,9 +3745,9 @@ IndexSpec *IndexSpec_RdbLoad(RedisModuleIO *rdb, int encver, bool useSst, QueryE
     RS_ASSERT(disk_db);
     IndexScoringStats_RdbLoad(rdb, &sp->stats.scoring, encver);
     if (sp->terms) {
-      TrieType_Free(sp->terms);
+      TermDictionary_Free(sp->terms);
     }
-    sp->terms = TrieType_GenericLoad(rdb, false, true, Trie_Sort_Lex);
+    sp->terms = termDictRdbLoad(rdb, true);
     RS_LOG_ASSERT(sp->terms, "Failed to load terms trie");
 
     // Load disk metadata (max_doc_id, deleted_ids) into the spec. Stashed
@@ -3843,14 +3899,18 @@ void *IndexSpec_LegacyRdbLoad(RedisModuleIO *rdb, int encver) {
   }
   /* For version 3 or up - load the generic trie */
   if (encver >= 3) {
-    sp->terms = TrieType_GenericLoad(rdb, false, false, Trie_Sort_Lex);
-    if (sp->terms == NULL) {
+    // Keep the verbatim term bytes: legacy ft:<idx>/<term> keys are named with
+    // the original (libnu-folded) bytes, and IndexSpec_DropLegacyIndexFromKeySpace
+    // must reconstruct those exact names to delete them. Inserting into the terms
+    // dictionary would ICU-fold the bytes and break the match, so the dictionary
+    // (rebuilt by the post-upgrade reindex anyway) starts empty here.
+    sp->legacyTerms = TrieType_GenericLoad(rdb, false, false, Trie_Sort_Lex);
+    if (sp->legacyTerms == NULL) {
       StrongRef_Release(spec_ref);
       return NULL;
     }
-  } else {
-    sp->terms = NewTrie(NULL, Trie_Sort_Lex);
   }
+  sp->terms = NewTermDictionary();
 
   if (sp->flags & Index_HasCustomStopwords) {
     sp->stopwords = StopWordList_RdbLoad(rdb, encver);
@@ -4973,11 +5033,12 @@ bool IndexSpec_DecrementTrieTermCount(IndexSpec* sp, const char* term, size_t te
   if (!sp->terms || doc_count_decrement == 0) {
     return false;
   }
-  // Decrement the numDocs count for this term in the trie
-  // If numDocs reaches 0, the node will be deleted
-  TrieDecrResult result = Trie_DecrementNumDocs(sp->terms, term, term_len, doc_count_decrement);
-  RS_ASSERT(result != TRIE_DECR_NOT_FOUND);
-  return result == TRIE_DECR_DELETED;
+  // Decrement the numDocs count for this term in the dictionary
+  // If numDocs reaches 0, the entry will be deleted
+  TermDictionaryDecrResult result =
+      TermDictionary_DecrementNumDocs(sp->terms, term, term_len, doc_count_decrement);
+  RS_ASSERT(result != TermDictionaryDecrResult_NotFound);
+  return result == TermDictionaryDecrResult_Deleted;
 }
 
 // Update IndexScoringStats based on compaction delta

@@ -11,6 +11,7 @@
 #include "util/arr.h"
 #include "dictionary.h"
 #include "trie/trie.h"
+#include "triemap_ffi.h"
 #include "reply.h"
 #include "inverted_index.h"
 #include "inverted_index_ffi.h"
@@ -18,6 +19,8 @@
 
 /** Forward declaration **/
 static bool SpellCheck_IsTermExistsInTrie(Trie *t, const char *term, size_t len, double *outScore);
+static bool SpellCheck_IsTermExistsInTermDict(TermDictionary *t, const char *term, size_t len,
+                                              double *outScore);
 
 
 int RS_SuggestionCompare(const void *val1, const void *val2) {
@@ -134,28 +137,37 @@ static bool SpellCheck_IsTermExistsInTrie(Trie *t, const char *term, size_t len,
   return retVal;
 }
 
-static void SpellCheck_FindSuggestions(SpellCheckCtx *scCtx, Trie *t, const char *term, size_t len,
-                                       t_fieldMask fieldMask, RS_Suggestions *s, int incr) {
-  rune *rstr = NULL;
-  t_len slen = 0;
+// Term-dictionary counterpart of SpellCheck_IsTermExistsInTrie: a case-folded
+// exact existence check against the index term dictionary.
+static bool SpellCheck_IsTermExistsInTermDict(TermDictionary *t, const char *term, size_t len,
+                                              double *outScore) {
   float score = 0;
-  int dist = 0;
-  size_t suggestionLen;
+  bool retVal = TermDictionary_Get(t, term, len, &score, NULL);
+  if (outScore) {
+    *outScore = score;
+  }
+  return retVal;
+}
 
-  TrieIterator *it = Trie_Iterate(t, term, len, (int)scCtx->distance, 0);
-  // TrieIterator can be NULL when rune length exceed TRIE_MAX_PREFIX
+static void SpellCheck_FindSuggestions(SpellCheckCtx *scCtx, TermDictionary *t, const char *term,
+                                       size_t len, t_fieldMask fieldMask, RS_Suggestions *s,
+                                       int incr) {
+  const char *suggestion = NULL;
+  size_t suggestionLen = 0;
+
+  TermDictionaryIterator *it = TermDictionary_IterateDfa(t, term, len, (uint32_t)scCtx->distance, 0);
   if (it == NULL) {
     return;
   }
-  while (TrieIterator_Next(it, &rstr, &slen, NULL, &score, NULL, &dist)) {
-    char *res = runesToStr(rstr, slen, &suggestionLen);
+  while (TermDictionaryIterator_Next(it, &suggestion, &suggestionLen, NULL, NULL, NULL)) {
+    // The suggestion buffer is borrowed from the iterator and only valid until
+    // the next step; RS_SuggestionsAdd copies it, so this stays sound.
     double score;
-    if ((score = SpellCheck_GetScore(scCtx, res, suggestionLen, fieldMask)) != -1) {
-      RS_SuggestionsAdd(s, res, suggestionLen, score, incr);
+    if ((score = SpellCheck_GetScore(scCtx, (char *)suggestion, suggestionLen, fieldMask)) != -1) {
+      RS_SuggestionsAdd(s, (char *)suggestion, suggestionLen, score, incr);
     }
-    rm_free(res);
   }
-  TrieIterator_Free(it);
+  TermDictionaryIterator_Free(it);
 }
 
 // Same as SpellCheck_FindSuggestions, but sourcing candidates from a
@@ -255,7 +267,7 @@ static bool SpellCheck_ReplyTermSuggestions(SpellCheckCtx *scCtx, char *term, si
 
   // searching the term on the term trie, if its there we just return false
   // because there is no need to return suggestions on it.
-  if (SpellCheck_IsTermExistsInTrie(scCtx->sctx->spec->terms, term, len, NULL)) {
+  if (SpellCheck_IsTermExistsInTermDict(scCtx->sctx->spec->terms, term, len, NULL)) {
     if (!scCtx->fullScoreInfo) {
       return false;
     }
