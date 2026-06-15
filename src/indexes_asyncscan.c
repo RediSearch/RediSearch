@@ -81,7 +81,7 @@ static void Indexes_AsyncScanKeyCB(RedisModuleCtx *ctx, RedisModuleScanCursor *c
       // The engine hands us `key` already open and pinned for this call, so use
       // the open-key variant instead of DocIdMeta_Get, which would redundantly
       // reopen the same key by name.
-      if (DocIdMeta_GetWithKey(key, sp->specId, &docId) == REDISMODULE_OK && docId != 0) {
+      if (DocIdMeta_GetWithOpenKey(key, sp->specId, &docId) == REDISMODULE_OK && docId != 0) {
         // Already indexed in this spec (earlier delivery or a live notification);
         // skip to stay idempotent and avoid clobbering a fresher version.
       } else {

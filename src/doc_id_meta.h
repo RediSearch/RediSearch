@@ -64,9 +64,9 @@ int DocIdMeta_Delete(RedisModuleCtx *ctx, RedisModuleString *keyName, uint64_t s
  * The name-based variants above are thin wrappers that open the key and delegate
  * to these.
  */
-int DocIdMeta_SetWithKey(RedisModuleKey *key, uint64_t specId, uint64_t docId);
-int DocIdMeta_GetWithKey(RedisModuleKey *key, uint64_t specId, uint64_t *docId);
-int DocIdMeta_DeleteWithKey(RedisModuleKey *key, uint64_t specId);
+int DocIdMeta_SetWithOpenKey(RedisModuleKey *key, uint64_t specId, uint64_t docId);
+int DocIdMeta_GetWithOpenKey(RedisModuleKey *key, uint64_t specId, uint64_t *docId);
+int DocIdMeta_DeleteWithOpenKey(RedisModuleKey *key, uint64_t specId);
 
 // Set the persistence-in-progress flag. When true, RDB save/load callbacks
 // become no-ops. Called from notifications.c during persistence events.

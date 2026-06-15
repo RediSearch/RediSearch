@@ -326,7 +326,7 @@ typedef struct RSAddDocumentCtx {
     // Optional already-open key handle for the document, supplied by the caller
     // (e.g. the async scan key callback, where the engine hands us an open,
     // pinned key). When non-NULL, applyDocTable updates the DocIdMeta mapping
-    // through this handle (DocIdMeta_SetWithKey) instead of reopening the key by
+    // through this handle (DocIdMeta_SetWithOpenKey) instead of reopening the key by
     // name. The caller retains ownership; it must outlive AddDocumentCtx_Submit.
     RedisModuleKey *openKey;
   } disk;

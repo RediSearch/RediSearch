@@ -281,13 +281,13 @@ static RSDocumentMetadata *makeDocumentId(RedisModuleCtx *ctx, RSAddDocumentCtx 
 // indexing path consistent.
 static int actxDocIdMetaGet(RSAddDocumentCtx *aCtx, RedisSearchCtx *ctx, uint64_t *docId) {
   return aCtx->disk.openKey
-             ? DocIdMeta_GetWithKey(aCtx->disk.openKey, ctx->spec->specId, docId)
+             ? DocIdMeta_GetWithOpenKey(aCtx->disk.openKey, ctx->spec->specId, docId)
              : DocIdMeta_Get(ctx->redisCtx, aCtx->doc->docKey, ctx->spec->specId, docId);
 }
 
 static int actxDocIdMetaSet(RSAddDocumentCtx *aCtx, RedisSearchCtx *ctx, uint64_t docId) {
   return aCtx->disk.openKey
-             ? DocIdMeta_SetWithKey(aCtx->disk.openKey, ctx->spec->specId, docId)
+             ? DocIdMeta_SetWithOpenKey(aCtx->disk.openKey, ctx->spec->specId, docId)
              : DocIdMeta_Set(ctx->redisCtx, aCtx->doc->docKey, ctx->spec->specId, docId);
 }
 
