@@ -1754,10 +1754,17 @@ version = "0.0.1"
 dependencies = [
  "build_utils",
  "ffi",
+ "index_result",
+ "inverted_index",
  "proptest",
+ "query",
  "query_eval",
+ "query_node_type",
  "redis_mock",
  "redisearch_rs",
+ "rqe_core",
+ "rqe_iterators",
+ "rqe_iterators_test_utils",
  "thiserror",
  "workspace_hack",
 ]
