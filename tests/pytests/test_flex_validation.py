@@ -293,11 +293,39 @@ def _create_flex_search(env):
     env.expect('HSET', 'doc:1', 't', 'hello world').equal(1)
 
 
+def _create_flex_search_json(env):
+    env.expect('FT.CREATE', 'idx', 'ON', 'JSON', 'SKIPINITIALSCAN', 'SCHEMA',
+               '$.t', 'AS', 't', 'TEXT').ok()
+
+
 @skip(cluster=True)
 @with_simulate_in_flex(True)
-def test_flex_search_requires_nocontent_or_return_0(env):
-    """In Flex mode, FT.SEARCH must use NOCONTENT (explicit) or RETURN 0."""
+def test_flex_search_hash_allows_default_return(env):
+    """On a HASH (flex) index, FT.SEARCH loads fields from disk via the async
+    loader, so NOCONTENT / RETURN 0 are no longer required."""
     _create_flex_search(env)
+
+    env.expect('FT.SEARCH', 'idx', 'hello').equal([1, 'doc:1', ['t', 'hello world']])
+
+
+@skip(cluster=True)
+@with_simulate_in_flex(True)
+def test_flex_search_json_requires_nocontent_or_return_0(env):
+    """JSON-on-disk field loading is unsupported, so FT.SEARCH on a JSON (flex)
+    index must still use NOCONTENT (explicit) or RETURN 0."""
+    _create_flex_search_json(env)
+
+    env.expect('FT.SEARCH', 'idx', 'hello') \
+        .error().contains('NOCONTENT or RETURN 0 must be provided in Redis Flex')
+
+
+@with_simulate_in_flex(True)
+def test_flex_search_json_requires_nocontent_or_return_0_on_coordinator(env):
+    """The coordinator rejects JSON-on-disk field return before fanning out to
+    shards (it cannot tell HASH from JSON until the spec is bound). Runs on
+    cluster to exercise prepareForExecution; harmlessly re-checks the standalone
+    path otherwise."""
+    _create_flex_search_json(env)
 
     env.expect('FT.SEARCH', 'idx', 'hello') \
         .error().contains('NOCONTENT or RETURN 0 must be provided in Redis Flex')

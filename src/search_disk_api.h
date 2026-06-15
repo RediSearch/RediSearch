@@ -20,6 +20,13 @@ extern "C" {
 typedef struct QueryIterator QueryIterator;
 typedef struct NumericFilter NumericFilter;
 typedef struct QueryError QueryError;
+// Forward declarations for the async field loader fn-ptr below. These are
+// compatible redeclarations of the canonical typedefs (result_processor.h,
+// search_ctx.h, rlookup.h) and avoid pulling those headers in here.
+typedef struct ResultProcessor ResultProcessor;
+typedef struct RedisSearchCtx RedisSearchCtx;
+typedef struct RLookup RLookup;
+typedef struct RLookupKey RLookupKey;
 
 // Forward declaration for HiddenString
 typedef struct HiddenString HiddenString;
@@ -264,6 +271,28 @@ typedef struct BasicDiskAPI {
    *         existing indexes via updateWriteBufferSize.
    */
   size_t (*updateBufferBudget)(RedisModuleCtx *ctx, RedisSearchDisk *disk, int percentage);
+
+  /**
+   * Create a result processor that loads document fields from disk asynchronously.
+   *
+   * Drop-in replacement for RPLoader_New on disk (flex) HASH indexes: the C
+   * pipeline calls this instead of RPLoader_New when the spec is backed by disk.
+   * The returned ResultProcessor must set QEXEC_S_HAS_LOAD in *outStateFlags when
+   * it will load fields, mirroring RPLoader_New, so downstream cursor handling
+   * (HasLoader) treats it as a loader.
+   *
+   * @param sctx          Search context (owns the spec and the disk handle)
+   * @param reqflags      Request flags (QEXEC_F_*)
+   * @param lk            Lookup the loaded fields are written into
+   * @param keys          Keys to load; NULL with nkeys 0 means "load all"
+   * @param nkeys         Number of entries in `keys`
+   * @param forceLoad     JSON multi-value compatibility flag; always false for HASH
+   * @param outStateFlags Out: OR'd with QEXEC_S_HAS_LOAD when loading is scheduled
+   * @return A new ResultProcessor, or NULL on allocation failure
+   */
+  ResultProcessor *(*newAsyncLoader)(RedisSearchCtx *sctx, uint32_t reqflags, RLookup *lk,
+                                     const RLookupKey **keys, size_t nkeys, bool forceLoad,
+                                     uint32_t *outStateFlags);
 } BasicDiskAPI;
 
 typedef struct IndexDiskAPI {
