@@ -415,13 +415,6 @@ void LexTrieRs_RdbSave(RedisModuleIO *io, const struct LexTrieRs *map, bool save
 void TermSuffixIndex_Remove(struct TermSuffixIndex *t, const char *term, size_t len);
 
 /**
- * Create a new, empty [`TermDictionary`].
- *
- * Free it with [`TermDictionary_Free`].
- */
-struct TermDictionary *NewTermDictionary(void);
-
-/**
  * Set timeout limit used for affix queries. This timeout is checked in
  * [`TrieMapIterator_Next`], which will return `0` if the timeout is reached.
  *
@@ -433,6 +426,13 @@ struct TermDictionary *NewTermDictionary(void);
  *   [`TrieMap_IterateWithFilter`] and cannot be NULL.
  */
 void TrieMapIterator_SetTimeout(struct TrieMapIterator *it, timespec timeout);
+
+/**
+ * Create a new, empty [`TermDictionary`].
+ *
+ * Free it with [`TermDictionary_Free`].
+ */
+struct TermDictionary *NewTermDictionary(void);
 
 /**
  * Find the entry with a given string and length, and return its value, even if
@@ -499,17 +499,6 @@ void TrieMapIterator_Free(struct TrieMapIterator *it);
 struct LexTrieRs *LexTrieRs_RdbLoad(RedisModuleIO *io, bool load_payloads, bool load_num_docs);
 
 /**
- * The number of unique terms stored in the dictionary.
- *
- * # Safety
- *
- * The following invariants must be upheld when calling this function:
- * - `t` must point to a valid [`TermDictionary`] obtained from
- *   [`NewTermDictionary`] and cannot be NULL.
- */
-size_t TermDictionary_Len(const struct TermDictionary *t);
-
-/**
  * Estimated heap memory currently held by the index, in bytes.
  * Counts the trie structure only; term buffers are excluded, matching
  * the node-count estimate of the C `TrieType_MemUsage`.
@@ -523,9 +512,7 @@ size_t TermDictionary_Len(const struct TermDictionary *t);
 size_t TermSuffixIndex_MemUsage(const struct TermSuffixIndex *t);
 
 /**
- * Estimated heap memory currently held by the dictionary, in bytes.
- * Counts the trie node and key storage, matching the role of the C
- * `TrieType_MemUsage`.
+ * The number of unique terms stored in the dictionary.
  *
  * # Safety
  *
@@ -533,7 +520,7 @@ size_t TermSuffixIndex_MemUsage(const struct TermSuffixIndex *t);
  * - `t` must point to a valid [`TermDictionary`] obtained from
  *   [`NewTermDictionary`] and cannot be NULL.
  */
-size_t TermDictionary_MemUsage(const struct TermDictionary *t);
+size_t TermDictionary_Len(const struct TermDictionary *t);
 
 /**
  * Iterate to the next matching entry in the trie. Returns 1 if we can continue,
@@ -549,6 +536,19 @@ size_t TermDictionary_MemUsage(const struct TermDictionary *t);
  * - `value` must point to a valid pointer, which will be set to the value of the current key.
  */
 int TrieMapIterator_Next(struct TrieMapIterator *it, char * *ptr, tm_len_t *len, void * *value);
+
+/**
+ * Estimated heap memory currently held by the dictionary, in bytes.
+ * Counts the trie node and key storage, matching the role of the C
+ * `TrieType_MemUsage`.
+ *
+ * # Safety
+ *
+ * The following invariants must be upheld when calling this function:
+ * - `t` must point to a valid [`TermDictionary`] obtained from
+ *   [`NewTermDictionary`] and cannot be NULL.
+ */
+size_t TermDictionary_MemUsage(const struct TermDictionary *t);
 
 /**
  * Invoke `callback` once per member term containing the UTF-8 needle
