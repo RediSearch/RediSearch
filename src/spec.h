@@ -628,7 +628,7 @@ typedef struct {
  * valid, non-NULL strong reference. To look up a spec by name and run this, use
  * Indexes_LoadIndexSpecUnsafeEx (indexes.h).
  */
-void IndexSpec_LoadUnsafeEx(StrongRef spec_ref, IndexLoadOptions *options);
+void IndexSpec_OnAcquire(StrongRef spec_ref, IndexLoadOptions *options);
 
 /**
  * Quick access to the spec's strong reference. This function should be called only if
@@ -668,9 +668,6 @@ void IndexSpec_ResetTimeoutTimer(IndexSpec *sp);
 // Open a disk index from its pending SST/RDB state and materialize its
 // disk-backed fields.
 bool IndexSpec_SSTRdbOpenAndApply(RedisModuleCtx *ctx, IndexSpec *sp);
-
-// Initialize the spec's cursor-related fields.
-void Cursors_initSpec(IndexSpec *spec);
 
 // Record that an index drop is pending.
 void addPendingIndexDrop();

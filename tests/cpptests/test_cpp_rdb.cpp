@@ -24,7 +24,6 @@ extern "C" {
 #include "doc_table.h"
 
 // Forward declarations for RDB functions
-extern void Indexes_RdbSave(RedisModuleIO *rdb, int when);
 extern int Indexes_RdbLoad(RedisModuleIO *rdb, int encver, int when);
 extern void Spec_AddToDict(RefManager *rm);  // Helper to add spec to global dict
 }

@@ -63,8 +63,8 @@ extern dict *legacySpecDict;
 extern dict *legacySpecRules;
 extern uint32_t maxIndexes_g;
 
-static bool checkIfSpecExists(const char *rawSpecName) {
-  HiddenString *specName = NewHiddenString(rawSpecName, strlen(rawSpecName), false);
+static bool checkIfSpecExists(const char *rawSpecName, size_t rawSpecNameLen) {
+  HiddenString *specName = NewHiddenString(rawSpecName, rawSpecNameLen, false);
   bool found = dictFetchValue(specDict_g, specName) != NULL;
   HiddenString_Free(specName, false);
   return found;
@@ -75,8 +75,9 @@ static bool checkIfSpecExists(const char *rawSpecName) {
 // it into the global registry, and schedule its initial scan.
 IndexSpec *Indexes_CreateNew(RedisModuleCtx *ctx, RedisModuleString **argv, int argc,
                              QueryError *status) {
-  const char *rawSpecName = RedisModule_StringPtrLen(argv[1], NULL);
-  if (checkIfSpecExists(rawSpecName)) {
+  size_t rawSpecNameLen = 0;
+  const char *rawSpecName = RedisModule_StringPtrLen(argv[1], &rawSpecNameLen);
+  if (checkIfSpecExists(rawSpecName, rawSpecNameLen)) {
     QueryError_SetCode(status, QUERY_ERROR_CODE_INDEX_EXISTS);
     return NULL;
   }
@@ -137,7 +138,7 @@ void Indexes_RemoveFromGlobals(StrongRef spec_ref, bool removeActive) {
 }
 
 // Look up a spec by name (or alias) in the global registry - the specDict_g
-// access - then run the per-spec post-load bookkeeping via IndexSpec_LoadUnsafeEx.
+// access - then run the per-spec post-load bookkeeping via IndexSpec_OnAcquire.
 // The call does not increase the spec's strong reference counter (the returned
 // StrongRef is a borrow; NULL payload if the index does not exist).
 StrongRef Indexes_LoadIndexSpecUnsafeEx(IndexLoadOptions *options) {
@@ -160,7 +161,7 @@ StrongRef Indexes_LoadIndexSpecUnsafeEx(IndexLoadOptions *options) {
     return spec_ref;
   }
 
-  IndexSpec_LoadUnsafeEx(spec_ref, options);
+  IndexSpec_OnAcquire(spec_ref, options);
   return spec_ref;
 }
 
@@ -248,7 +249,7 @@ int Indexes_RdbLoad(RedisModuleIO *rdb, int encver, int when) {
     return REDISMODULE_ERR;
   }
 
-  nIndexes = LoadUnsigned_IOError(rdb, goto cleanup);
+  nIndexes = LoadUnsigned_IOError(rdb, return REDISMODULE_ERR);
 
   if (unlikely(nIndexes > maxIndexes_g)) {
     RedisModule_LogIOError(
@@ -277,9 +278,6 @@ int Indexes_RdbLoad(RedisModuleIO *rdb, int encver, int when) {
   Initialize_KeyspaceNotifications();
 
   return REDISMODULE_OK;
-
-cleanup:
-  return REDISMODULE_ERR;
 }
 
 // Finalize a spec loaded from RDB: detect a name collision against the registry,
@@ -293,7 +291,8 @@ int Indexes_StoreAfterRdbLoad(IndexSpec *sp) {
 
   StrongRef spec_ref = sp->own_ref;
 
-  Cursors_initSpec(sp);
+  // Initialize the spec's cursor-related fields.
+  sp->activeCursors = 0;
 
   // setting isDuplicate to true will make sure index will not be removed from aliases container.
   // It may have already been set.
@@ -334,7 +333,7 @@ int Indexes_StoreAfterRdbLoad(IndexSpec *sp) {
   return REDISMODULE_OK;
 }
 
-void Indexes_RdbSave(RedisModuleIO *rdb, int when) {
+static void Indexes_RdbSave(RedisModuleIO *rdb, int when) {
   RedisModuleCtx *ctx = RedisModule_GetContextFromIO(rdb);
   const int contextFlags = RedisModule_GetContextFlags(ctx);
 
@@ -351,7 +350,7 @@ void Indexes_RdbSave(RedisModuleIO *rdb, int when) {
   dictReleaseIterator(iter);
 }
 
-void Indexes_RdbSave2(RedisModuleIO *rdb, int when) {
+static void Indexes_RdbSave2(RedisModuleIO *rdb, int when) {
   if (dictSize(specDict_g)) {
     Indexes_RdbSave(rdb, when);
   }

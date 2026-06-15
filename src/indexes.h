@@ -56,7 +56,7 @@ void Indexes_RemoveFromGlobals(StrongRef spec_ref, bool removeActive);
  * Find and load an index from the global registry, by name
  * (Indexes_LoadIndexSpecUnsafe) or by IndexLoadOptions (Indexes_LoadIndexSpecUnsafeEx).
  * Performs the specDict_g lookup (with alias fallback unless INDEXSPEC_LOAD_NOALIAS)
- * then runs the per-spec post-load bookkeeping (IndexSpec_LoadUnsafeEx). The call
+ * then runs the per-spec post-load bookkeeping (IndexSpec_OnAcquire). The call
  * does not increase the spec's strong reference counter.
  * @return a borrowed strong reference to the spec, or NULL if it does not exist.
  */
@@ -112,8 +112,6 @@ void Indexes_SpecOpsIndexingCtxFree(SpecOpIndexingCtx *specs);
 //---------------------------------------------------------------------------------------------
 
 int Indexes_RdbLoad(RedisModuleIO *rdb, int encver, int when);
-void Indexes_RdbSave(RedisModuleIO *rdb, int when);
-void Indexes_RdbSave2(RedisModuleIO *rdb, int when);
 
 // Finalize a spec just loaded from RDB by publishing it into the global registry
 // (specDict_g/specIdDict_g) and starting its GC, or discarding it if a spec with

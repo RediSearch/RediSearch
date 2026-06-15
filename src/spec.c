@@ -126,14 +126,6 @@ static void setMemoryInfo(RedisModuleCtx *ctx) {
 }
 
 /*
- * Initialize the spec's fields that are related to the cursors.
- */
-
-void Cursors_initSpec(IndexSpec *spec) {
-  spec->activeCursors = 0;
-}
-
-/*
  * Get a field spec by field name. Case sensitive!
  * Return the field spec if found, NULL if not.
  * Assuming the spec is properly locked before calling this function.
@@ -473,7 +465,8 @@ IndexSpec *IndexSpec_CreateNew(RedisModuleCtx *ctx, RedisModuleString **argv, in
   // Start the garbage collector
   IndexSpec_StartGC(spec_ref, sp, sp->diskSpec ? GCPolicy_Disk : GCPolicy_Fork);
 
-  Cursors_initSpec(sp);
+  // Initialize the spec's cursor-related fields.
+  sp->activeCursors = 0;
 
   // set timeout for temporary index on master
   if ((sp->flags & Index_Temporary) && IsMaster()) {
@@ -2103,7 +2096,7 @@ inline static void IndexSpec_IncreasCounter(IndexSpec *sp) {
 // (Indexes_LoadIndexSpecUnsafeEx owns the specDict_g lookup and calls this):
 // bump the usage counter and refresh the temporary-index timeout timer.
 // `spec_ref` must be a valid, non-NULL strong reference. Touches no globals.
-void IndexSpec_LoadUnsafeEx(StrongRef spec_ref, IndexLoadOptions *options) {
+void IndexSpec_OnAcquire(StrongRef spec_ref, IndexLoadOptions *options) {
   IndexSpec *sp = StrongRef_Get(spec_ref);
 
   if (!(options->flags & INDEXSPEC_LOAD_NOCOUNTERINC)){
@@ -3316,7 +3309,8 @@ void *IndexSpec_LegacyRdbLoad(RedisModuleIO *rdb, int encver) {
   }
 
   IndexSpec_StartGC(spec_ref, sp, GCPolicy_Fork);
-  Cursors_initSpec(sp);
+  // Initialize the spec's cursor-related fields.
+  sp->activeCursors = 0;
 
   dictAdd(legacySpecDict, (void*)sp->specName, spec_ref.rm);
   // Subscribe to keyspace notifications
