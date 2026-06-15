@@ -410,10 +410,28 @@ def testSuffixTrieWildcardCaseInsensitiveText():
     conn.execute_command('FT.CREATE', 'idx_no', 'SCHEMA', 't', 'TEXT')
     conn.execute_command('HSET', 'doc:1', 't', 'apple')
 
-    # The suffix trie must not change which docs a wildcard query returns.
-    for q in ("w'ap*'", "w'AP*'", "w'A*'", "w'*PL*'", "w'*LE'", "w'XY*'"):
+    match = [1, 'doc:1']
+    miss  = [0]
+    # query -> expected result. Covers '*' and '?' wildcards in both cases.
+    expected = {
+        "w'ap*'":   match,
+        "w'AP*'":   match,
+        "w'A*'":    match,
+        "w'*PL*'":  match,
+        "w'*LE'":   match,
+        "w'appl?'": match,
+        "w'?pple'": match,
+        "w'?PPL?'": match,
+        "w'AP?LE'": match,
+        "w'XY*'":   miss,
+        "w'?Z*'":   miss,
+    }
+    for q, exp in expected.items():
         with_suffix = env.cmd('FT.SEARCH', 'idx_w',  q, 'NOCONTENT')
         plain       = env.cmd('FT.SEARCH', 'idx_no', q, 'NOCONTENT')
+        # Tightly assert the answer, and that the suffix trie does not change it.
+        env.assertEqual(with_suffix, exp,   message=q)
+        env.assertEqual(plain,       exp,   message=q)
         env.assertEqual(with_suffix, plain, message=q)
 
 @skip(cluster=True)
