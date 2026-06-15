@@ -20,9 +20,10 @@ use std::{
 /// `build_utils` lives at `src/redisearch_rs/build_utils`, so its Cargo manifest
 /// directory is a stable anchor even when source archives omit VCS metadata.
 pub fn repository_root() -> Result<PathBuf, Box<dyn std::error::Error>> {
-    Ok(PathBuf::from(env!("CARGO_MANIFEST_DIR"))
-        .join("../../..")
-        .canonicalize()?)
+    // Keep this lexical rather than canonicalizing it. Callers only join paths
+    // below this root, and `canonicalize` requires `realpath`, which Miri does
+    // not support with filesystem isolation enabled.
+    Ok(PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../.."))
 }
 
 fn rerun_if_changes(dir: &Path, extensions: &[&str]) -> std::io::Result<()> {
@@ -251,20 +252,33 @@ pub fn generate_c_bindings(
 #[cfg(test)]
 mod tests {
     use super::repository_root;
+    use std::path::PathBuf;
 
     #[test]
     fn repository_root_resolves_to_redisearch_source_root() -> Result<(), Box<dyn std::error::Error>>
     {
         let root = repository_root()?;
 
-        assert!(root.join("CMakeLists.txt").is_file());
-        assert!(
-            root.join("src")
-                .join("redisearch_rs")
-                .join("Cargo.toml")
-                .is_file()
+        assert_eq!(
+            root,
+            PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../..")
         );
-        assert!(root.join("src").join("version.h").is_file());
+
+        // Miri runs with filesystem isolation enabled, so metadata checks such
+        // as `is_file` are unavailable there. The path construction above is
+        // still covered by Miri; the source-root marker checks run in normal
+        // test execution.
+        #[cfg(not(miri))]
+        {
+            assert!(root.join("CMakeLists.txt").is_file());
+            assert!(
+                root.join("src")
+                    .join("redisearch_rs")
+                    .join("Cargo.toml")
+                    .is_file()
+            );
+            assert!(root.join("src").join("version.h").is_file());
+        }
 
         Ok(())
     }
