@@ -187,7 +187,6 @@ impl<E: Encoder> BaseTest<E> {
 }
 
 /// ---------- Expiration Tests ----------
-
 pub use rqe_iterators_test_utils::MockExpirationChecker;
 
 /// The type of index used in the expiration test.

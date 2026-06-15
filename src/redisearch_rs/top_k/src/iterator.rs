@@ -404,8 +404,13 @@ impl<'index, S: ScoreSource + 'index, C: RQEIterator<'index> + 'index> RQEIterat
         &mut self,
         spec: &IndexSpecReadGuard,
     ) -> Result<RQEValidateStatus<'_, 'index>, RQEIteratorError> {
+        // Only a child abort aborts us. Results come from our own score-ordered
+        // buffer, so a moved child does not move our cursor: collapse it to Ok.
         if let Some(child) = &mut self.child {
-            return child.revalidate(spec);
+            match child.revalidate(spec)? {
+                RQEValidateStatus::Aborted => return Ok(RQEValidateStatus::Aborted),
+                RQEValidateStatus::Ok | RQEValidateStatus::Moved { .. } => {}
+            }
         }
         Ok(RQEValidateStatus::Ok)
     }

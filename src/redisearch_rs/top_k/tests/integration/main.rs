@@ -14,3 +14,4 @@ extern crate redisearch_rs;
 
 mod adhoc_lifecycle;
 mod iterator;
+mod revalidation;
