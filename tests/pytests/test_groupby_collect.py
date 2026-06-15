@@ -2006,3 +2006,53 @@ def test_chained_groupby_outer_collect_sortby_partial_ties():
     env.assertEqual(len(rows), 4)
     counts = [int(r['n']) for r in rows]
     env.assertEqual(counts, [2, 2, 1, 1])
+
+# ---------------------------------------------------------------------------
+# COLLECT requires prefixed field names
+# ---------------------------------------------------------------------------
+def test_collect_requires_prefixed_fields():
+    env = Env(protocol=3)
+    enable_unstable_features(env)
+    _setup_hash(env)
+
+    error_msg = "SEARCH_PARSE_ARGS Missing prefix"
+    # Missing '@' prefix on field name.
+    env.expect(
+        'FT.AGGREGATE', 'idx', '*',
+        'GROUPBY', '1', '@color',
+            'REDUCE', 'COLLECT', '3',
+                'FIELDS', '1', 'name',
+            'AS', 'names').error().contains(error_msg)
+
+    # Missing '@' prefix on field name in SORTBY.
+    env.expect(
+        'FT.AGGREGATE', 'idx', '*',
+        'GROUPBY', '1', '@color',
+            'REDUCE', 'COLLECT', '6',
+                'FIELDS', '1', '@name',
+                'SORTBY', '1', 'name',
+            'AS', 'names').error().contains(error_msg)
+
+@skip(no_json=True)
+def test_json_collect_requires_prefixed_fields():
+    env = Env(protocol=3)
+    enable_unstable_features(env)
+    _setup_priced_json(env)
+
+    error_msg = "SEARCH_PARSE_ARGS Missing prefix"
+    # Missing '@' prefix on field name.
+    env.expect(
+        'FT.AGGREGATE', 'idx', '*',
+        'GROUPBY', '1', '@color',
+            'REDUCE', 'COLLECT', '3',
+                'FIELDS', '1', 'name',
+            'AS', 'names').error().contains(error_msg)
+
+    # Missing '@' prefix on field name in SORTBY.
+    env.expect(
+        'FT.AGGREGATE', 'idx', '*',
+        'GROUPBY', '1', '@color',
+            'REDUCE', 'COLLECT', '6',
+                'FIELDS', '1', '@name',
+                'SORTBY', '1', 'name',
+            'AS', 'names').error().contains(error_msg)

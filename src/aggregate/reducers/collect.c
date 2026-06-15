@@ -328,7 +328,11 @@ Reducer *RDCRCollect_New(const ReducerOptions *options) {
   CollectParseData data = {0};
   data.sortAscMap = SORTASCMAP_INIT;
 
-  CollectParseCtx pctx = {.data = &data, .options = options};
+  // COLLECT always requires field/sort names to carry an `@` prefix.
+  ReducerOptions strict_opts = *options;
+  strict_opts.strictPrefix = true;
+
+  CollectParseCtx pctx = {.data = &data, .options = &strict_opts};
 
   ArgsCursor *ac = options->args;
   ArgParser *parser = ArgParser_New(ac, NULL);
