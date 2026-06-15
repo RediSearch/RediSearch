@@ -871,6 +871,11 @@ static int parseVectorField_hnsw(IndexSpec *sp, FieldSpec *fs, VecSimParams *par
         return 0;
       }
     } else if (AC_AdvanceIfMatch(&subAc, VECSIM_RERANK)) {
+      if (!isSpecOnDiskForValidation(sp)) {
+        QueryError_SetError(status, QUERY_ERROR_CODE_INVAL,
+          "RERANK is only supported for disk-based vector indexes");
+        return 0;
+      }
       if (rerank_seen) {
         QueryError_SetWithoutUserDataFmt(status, QUERY_ERROR_CODE_INVAL,
           "Duplicate RERANK parameter");
