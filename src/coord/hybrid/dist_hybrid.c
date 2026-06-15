@@ -333,6 +333,13 @@ void HybridRequest_buildMRCommand(RedisModuleString **argv, int argc,
     MRCommand_AppendRstr(xcmd, argv[argOffset + 1]);
   }
 
+  // Forward EXPLAINSCORE so the shard's text scorer produces an RSScoreExplain
+  // tree and the shard's merger wraps it. The coordinator reassembles the
+  // results as-is.
+  if (RMUtil_ArgIndex("EXPLAINSCORE", argv, argc) != -1) {
+    MRCommand_Append(xcmd, "EXPLAINSCORE", strlen("EXPLAINSCORE"));
+  }
+
   // Add WITHCURSOR
   MRCommand_Append(xcmd, "WITHCURSOR", strlen("WITHCURSOR"));
 

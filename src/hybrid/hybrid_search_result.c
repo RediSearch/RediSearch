@@ -14,8 +14,53 @@
 #include "query_error_ffi.h"
 #include "score_explain.h"
 #include "hybrid_scoring.h"
+#include "hybrid_request.h"
+#include "aggregate/aggregate.h"
+#include "vector_index.h"
+#include "config.h"
 #include <string.h>
+#include <stdio.h>
 #include <assert.h>
+
+void HybridExplainContext_Free(HybridExplainContext *ctx) {
+  if (!ctx) return;
+  rm_free(ctx->vectorBranchEnvelope);
+  rm_free(ctx);
+}
+
+HybridExplainContext *HybridExplainContext_Build(struct AREQ *searchReq, struct AREQ *vectorReq) {
+  RS_ASSERT(searchReq && vectorReq);
+
+  HybridExplainContext *ctx = rm_calloc(1, sizeof(HybridExplainContext));
+
+  // Borrowed: the string is owned by searchopts (or by RSGlobalConfig).
+  // AREQ_ApplyContext resolves scorerName to the configured default before
+  // we get here, but we fall back defensively in case that ever changes.
+  ctx->textScorerName = searchReq->searchopts.scorerName;
+  if (!ctx->textScorerName) {
+    ctx->textScorerName = RSGlobalConfig.defaultScorer;
+  }
+
+  // Vector branch envelope: identify the retrieval mode and any salient params.
+  // Read from the parsed-time snapshot on ParsedVectorData, since the live
+  // VectorQuery has already been transferred into the AST by AREQ_ApplyContext.
+  const ParsedVectorData *pvd = vectorReq->parsedVectorData;
+  ctx->vectorMode = pvd ? pvd->explainQueryType : VECSIM_QT_KNN;
+
+  if (pvd && pvd->explainQueryType == VECSIM_QT_RANGE) {
+    if (pvd->explainRangeEpsilon) {
+      rm_asprintf(&ctx->vectorBranchEnvelope,
+                  "vector branch (RANGE: radius=%.4f, epsilon=%s)",
+                  pvd->explainRangeRadius, pvd->explainRangeEpsilon);
+    } else {
+      rm_asprintf(&ctx->vectorBranchEnvelope,
+                  "vector branch (RANGE: radius=%.4f)", pvd->explainRangeRadius);
+    }
+  } else {
+    rm_asprintf(&ctx->vectorBranchEnvelope, "vector branch (KNN)");
+  }
+  return ctx;
+}
 
 /**
  * Constructor for HybridSearchResult.
@@ -120,20 +165,192 @@ static void mergeRLookupRowsFromSourcesIntoTarget(HybridSearchResult *hybridResu
   }
 }
 
-/**
- * Main function to merge SearchResults from multiple upstreams into a single comprehensive result.
- *
- * PRIMARY RESULT SELECTION:
- * The "primary result" is the first non-null SearchResult found in index order (0, 1, 2...).
- * This prefers search results (index 0) over vector results (index 1) when both exist for RSIndexResult.
- *
- * The primary result is the SearchResult we merge into and return to the downstream processor.
- * This function transfers ownership of the primary result from the HybridSearchResult to the caller.
- */
-SearchResult* mergeSearchResults(HybridSearchResult *hybridResult, HybridScoringContext *scoringCtx, HybridLookupContext *lookupCtx) {
+// Shallow-copy `src`'s root struct into `dst` and free the now-empty `src`
+// container. The string + children pointers are transferred; `src` must not
+// be used after this call.
+static void moveScoreExplainInto(RSScoreExplain *dst, RSScoreExplain *src) {
+  *dst = *src;
+  rm_free(src);
+}
+
+// Build the text branch sub-tree.
+//
+//   RRF:    "text rank = N"
+//             └── "Text scorer: <NAME>"
+//                  └── <existing scorer subtree>
+//
+//   LINEAR: "text contribution = alpha * X = alpha*X"
+//             └── "Text scorer: <NAME>"
+//                  ├── "normalized text score = X"
+//                  └── <existing scorer subtree>
+//
+// When the text sub-result is absent (no match), emit a leaf placeholder.
+static RSScoreExplain *buildTextBranch(HybridSearchResult *hybridResult,
+                                       HybridScoringContext *scoringCtx,
+                                       const HybridExplainContext *explainCtx,
+                                       const double *values) {
+  const bool hasText = hybridResult->hasResults[SEARCH_INDEX];
+  const bool isRRF = (scoringCtx->scoringType == HYBRID_SCORING_RRF);
+
+  RSScoreExplain *parent = rm_calloc(1, sizeof(RSScoreExplain));
+
+  if (!hasText) {
+    rm_asprintf(&parent->str, isRRF ? "text rank = <no match>"
+                                    : "text contribution = <no match>");
+    return parent;
+  }
+
+  if (isRRF) {
+    rm_asprintf(&parent->str, "text rank = %.0f", values[SEARCH_INDEX]);
+  } else {
+    const double alpha = scoringCtx->linearCtx.numWeights > 0
+                             ? scoringCtx->linearCtx.linearWeights[0]
+                             : 0.0;
+    const double x = values[SEARCH_INDEX];
+    rm_asprintf(&parent->str, "text contribution = %.4f * %.4f = %.4f",
+                alpha, x, alpha * x);
+  }
+
+  // Inner scorer node, always present (per MOD-10044: "explicitly include the
+  // scorer name").
+  RSScoreExplain *scorerNode = rm_calloc(1, sizeof(RSScoreExplain));
+  rm_asprintf(&scorerNode->str, "Text scorer: %s",
+              explainCtx->textScorerName ? explainCtx->textScorerName : "<default>");
+
+  // Take ownership of the text sub-result's score_explain (if any).
+  SearchResult *textResult = hybridResult->searchResults[SEARCH_INDEX];
+  RSScoreExplain *scorerSubtree = SearchResult_GetScoreExplainMut(textResult);
+  if (scorerSubtree) {
+    SearchResult_SetScoreExplain(textResult, NULL);
+  }
+
+  if (isRRF) {
+    if (scorerSubtree) {
+      scorerNode->numChildren = 1;
+      scorerNode->children = rm_calloc(1, sizeof(RSScoreExplain));
+      moveScoreExplainInto(&scorerNode->children[0], scorerSubtree);
+    }
+  } else {
+    // LINEAR: extra "normalized text score = X" sibling so the formula in the
+    // parent line is fully derivable from the children.
+    const int n = scorerSubtree ? 2 : 1;
+    scorerNode->numChildren = n;
+    scorerNode->children = rm_calloc(n, sizeof(RSScoreExplain));
+    rm_asprintf(&scorerNode->children[0].str, "normalized text score = %.4f",
+                values[SEARCH_INDEX]);
+    if (scorerSubtree) {
+      moveScoreExplainInto(&scorerNode->children[1], scorerSubtree);
+    }
+  }
+
+  parent->numChildren = 1;
+  parent->children = rm_calloc(1, sizeof(RSScoreExplain));
+  moveScoreExplainInto(&parent->children[0], scorerNode);
+  return parent;
+}
+
+// Build the vector branch sub-tree.
+//
+//   RRF:    "vector branch (KNN)" or "vector branch (RANGE: …)"
+//             ├── "matched within radius = true/false"   # RANGE only
+//             └── "vector rank = M"                     # or "<no match>"
+//
+//   LINEAR: "vector branch (KNN)" or "vector branch (RANGE: …)"
+//             ├── "matched within radius = true/false"   # RANGE only
+//             ├── "vector contribution = beta * Y = beta*Y"
+//             └── "normalized vector score = Y"
+static RSScoreExplain *buildVectorBranch(HybridSearchResult *hybridResult,
+                                         HybridScoringContext *scoringCtx,
+                                         const HybridExplainContext *explainCtx,
+                                         const double *values) {
+  const bool hasVector = hybridResult->hasResults[VECTOR_INDEX];
+  const bool isRRF = (scoringCtx->scoringType == HYBRID_SCORING_RRF);
+  const bool isRange = (explainCtx->vectorMode == VECSIM_QT_RANGE);
+
+  RSScoreExplain *parent = rm_calloc(1, sizeof(RSScoreExplain));
+  parent->str = rm_strdup(explainCtx->vectorBranchEnvelope);
+
+  // Compute child slots:
+  //   RANGE: + "matched within radius = …"
+  //   RRF: + "vector rank = M" / "<no match>"
+  //   LINEAR: + "vector contribution = …" + "normalized vector score = …" (when matched)
+  //   LINEAR no-match: + single placeholder
+  size_t slot = 0;
+  RSScoreExplain children[3] = {0};
+
+  if (isRange) {
+    rm_asprintf(&children[slot++].str, "matched within radius = %s",
+                hasVector ? "true" : "false");
+  }
+
+  if (isRRF) {
+    if (hasVector) {
+      rm_asprintf(&children[slot++].str, "vector rank = %.0f", values[VECTOR_INDEX]);
+    } else {
+      rm_asprintf(&children[slot++].str, "vector rank = <no match>");
+    }
+  } else {
+    if (hasVector) {
+      const double beta = scoringCtx->linearCtx.numWeights > 1
+                              ? scoringCtx->linearCtx.linearWeights[1]
+                              : 0.0;
+      const double y = values[VECTOR_INDEX];
+      rm_asprintf(&children[slot++].str,
+                  "vector contribution = %.4f * %.4f = %.4f", beta, y, beta * y);
+      rm_asprintf(&children[slot++].str, "normalized vector score = %.4f", y);
+    } else {
+      rm_asprintf(&children[slot++].str, "vector contribution = <no match>");
+    }
+  }
+
+  parent->numChildren = (int)slot;
+  parent->children = rm_calloc(slot, sizeof(RSScoreExplain));
+  for (size_t i = 0; i < slot; i++) {
+    parent->children[i] = children[i];
+  }
+  return parent;
+}
+
+// Build the per-document RSScoreExplain wrapper for a hybrid result.
+//
+// Layout (MOD-10044):
+//   "final score: <S>"
+//     └── envelope from HybridScoring_FormatEnvelope
+//           ├── text branch sub-tree
+//           └── vector branch sub-tree
+static RSScoreExplain *buildHybridScoreExplain(HybridSearchResult *hybridResult,
+                                               HybridScoringContext *scoringCtx,
+                                               const HybridExplainContext *explainCtx,
+                                               const double *values,
+                                               double finalScore) {
+  RSScoreExplain *outer = rm_calloc(1, sizeof(RSScoreExplain));
+  rm_asprintf(&outer->str, "final score: %.17g", finalScore);
+
+  RSScoreExplain *envelope = rm_calloc(1, sizeof(RSScoreExplain));
+  envelope->str = HybridScoring_FormatEnvelope(scoringCtx);
+
+  RSScoreExplain *textBranch = buildTextBranch(hybridResult, scoringCtx, explainCtx, values);
+  RSScoreExplain *vectorBranch = buildVectorBranch(hybridResult, scoringCtx, explainCtx, values);
+
+  envelope->numChildren = 2;
+  envelope->children = rm_calloc(2, sizeof(RSScoreExplain));
+  moveScoreExplainInto(&envelope->children[0], textBranch);
+  moveScoreExplainInto(&envelope->children[1], vectorBranch);
+
+  outer->numChildren = 1;
+  outer->children = rm_calloc(1, sizeof(RSScoreExplain));
+  moveScoreExplainInto(&outer->children[0], envelope);
+
+  return outer;
+}
+
+SearchResult* mergeSearchResults(HybridSearchResult *hybridResult, HybridScoringContext *scoringCtx,
+                                 HybridLookupContext *lookupCtx, const HybridExplainContext *explainCtx) {
   RS_ASSERT(hybridResult && scoringCtx);
 
-  // Find the primary result (first non-null result)
+  // Pick the "primary" — first non-null source in index order. This biases
+  // toward the text branch (SEARCH_INDEX=0) when both branches matched, so
+  // the merged result keeps the search-side RSIndexResult.
   SearchResult *primary = NULL;
   int8_t targetIndex = -1;
   for (size_t i = 0; i < hybridResult->numSources; i++) {
@@ -147,21 +364,42 @@ SearchResult* mergeSearchResults(HybridSearchResult *hybridResult, HybridScoring
 
   RS_ASSERT(primary && targetIndex != -1);
 
-  // Calculate hybrid score by combining scores from all sources
-  SearchResult_SetScore(primary, calculateHybridScore(hybridResult, scoringCtx));
+  // Snapshot per-source values before calculateHybridScore overwrites the
+  // primary. For RRF these are 1-based ranks; for LINEAR they are raw scores.
+  double *values = NULL;
+  if (explainCtx) {
+    values = rm_calloc(hybridResult->numSources, sizeof(double));
+    for (size_t i = 0; i < hybridResult->numSources; i++) {
+      values[i] = hybridResult->hasResults[i]
+                      ? SearchResult_GetScore(hybridResult->searchResults[i])
+                      : 0.0;
+    }
+  }
 
-  // Merge flags from all upstreams
+  double finalScore = calculateHybridScore(hybridResult, scoringCtx);
+  SearchResult_SetScore(primary, finalScore);
+
   for (size_t i = 0; i < hybridResult->numSources; i++) {
     if (hybridResult->hasResults[i] && i != targetIndex) {
       RS_ASSERT(hybridResult->searchResults[i]);
       SearchResult_MergeFlags(primary, hybridResult->searchResults[i]);
     }
   }
-  // Transfer ownership: Remove primary result from HybridSearchResult to prevent double-free
+
+  // Build the wrapper before transferring ownership: it moves the search
+  // sub-result's RSScoreExplain (if any) into one of its children.
+  if (explainCtx) {
+    RSScoreExplain *wrapper = buildHybridScoreExplain(hybridResult, scoringCtx, explainCtx, values, finalScore);
+    SearchResult_SetScoreExplain(primary, wrapper);
+    rm_free(values);
+  }
+
+  // Detach the primary so the dict destructor (HybridSearchResult_Free) does
+  // not double-free it.
   hybridResult->searchResults[targetIndex] = NULL;
   hybridResult->hasResults[targetIndex] = false;
-  // Merge field data into primary result's rowdata
-  // Create temporary row for merging (avoids modifying primary while reading from it)
+  // Use a temporary row in the merge to avoid modifying `primary` while we
+  // still read from it.
   mergeRLookupRowsFromSourcesIntoTarget(hybridResult, lookupCtx, primary);
   return primary;
 }

@@ -536,6 +536,24 @@ final:
   // Set default scoreField using vector field name (can be done during parsing)
   VectorQuery_SetDefaultScoreField(vq, pvd->fieldName, strlen(pvd->fieldName));
 
+  // Snapshot the fields used by EXPLAINSCORE wrapper rendering. applyVectorQuery
+  // (called later by AREQ_ApplyContext) transfers `vq` ownership into the AST and
+  // nulls pvd->query, so the explain plumbing reads from these copies instead.
+  pvd->explainQueryType = vq->type;
+  if (vq->type == VECSIM_QT_RANGE) {
+    pvd->explainRangeRadius = vq->range.radius;
+  }
+  for (size_t i = 0; i < array_len(vq->params.params); i++) {
+    const VecSimRawParam *p = &vq->params.params[i];
+    if (p->name && p->nameLen == strlen(VECSIM_EPSILON) &&
+        !strncasecmp(p->name, VECSIM_EPSILON, p->nameLen)) {
+      pvd->explainRangeEpsilon = rm_malloc(p->valLen + 1);
+      memcpy(pvd->explainRangeEpsilon, p->value, p->valLen);
+      pvd->explainRangeEpsilon[p->valLen] = '\0';
+      break;
+    }
+  }
+
   // Store the completed ParsedVectorData in AREQ
   vreq->parsedVectorData = pvd;
 
@@ -583,6 +601,14 @@ static void copyHybridConfigToSubquery(AREQ *subqueryRequest,
   // Copy score sending flags if enabled
   if (mergeReqflags & QEXEC_F_SEND_SCORES) {
     subqueryRequest->reqflags |= QEXEC_F_SEND_SCORES;
+  }
+
+  // EXPLAINSCORE only makes sense on the text branch: the search scorer is
+  // what allocates the per-result RSScoreExplain that the hybrid merger
+  // wraps. The vector branch has no equivalent producer.
+  if ((mergeReqflags & QEXEC_F_SEND_SCOREEXPLAIN) &&
+      (subqueryRequest->reqflags & QEXEC_F_IS_HYBRID_SEARCH_SUBQUERY)) {
+    subqueryRequest->reqflags |= QEXEC_F_SEND_SCOREEXPLAIN;
   }
 
   // Copy request configuration using the helper function

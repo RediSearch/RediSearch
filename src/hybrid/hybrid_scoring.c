@@ -1,6 +1,9 @@
 #include "hybrid/hybrid_scoring.h"
 #include "rmutil/rm_assert.h"
 #include "rmalloc.h"
+#include <stdarg.h>
+#include <stdio.h>
+#include <string.h>
 
  /* Get scoring function based on scoring type */
  HybridScoringFunction GetScoringFunction(HybridScoringType scoringType) {
@@ -136,6 +139,24 @@ HybridScoringContext* HybridScoringContext_NewLinear(const double *weights, size
  */
 HybridScoringContext* HybridScoringContext_NewDefault(void) {
     return HybridScoringContext_NewRRF(HYBRID_DEFAULT_RRF_CONSTANT, HYBRID_DEFAULT_WINDOW, false);
+}
+
+char *HybridScoring_FormatEnvelope(const HybridScoringContext *scoringCtx) {
+  RS_ASSERT(scoringCtx);
+  char *buf = NULL;
+  if (scoringCtx->scoringType == HYBRID_SCORING_RRF) {
+    rm_asprintf(&buf, "Hybrid score (RRF: window=%zu, constant=%.2f)",
+                scoringCtx->rrfCtx.window, scoringCtx->rrfCtx.constant);
+  } else {
+    RS_ASSERT(scoringCtx->scoringType == HYBRID_SCORING_LINEAR);
+    const double *w = scoringCtx->linearCtx.linearWeights;
+    const size_t numWeights = scoringCtx->linearCtx.numWeights;
+    const double alpha = numWeights > 0 ? w[0] : 0.0;
+    const double beta = numWeights > 1 ? w[1] : 0.0;
+    rm_asprintf(&buf, "Hybrid score (LINEAR: alpha=%.4f, beta=%.4f, window=%zu)",
+                alpha, beta, scoringCtx->linearCtx.window);
+  }
+  return buf;
 }
 
 /**

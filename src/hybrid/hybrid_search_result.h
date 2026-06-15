@@ -13,11 +13,42 @@
 #include "result_processor.h"
 #include "hybrid_scoring.h"
 #include "hybrid_lookup_context.h"
+#include "vector_index.h"
 #include "util/arr/arr.h"
 
 #ifdef __cplusplus
 extern "C" {
 #endif
+
+/**
+ * Per-query info needed to render the EXPLAINSCORE wrapper. Built once at
+ * pipeline construction (when EXPLAINSCORE is set) and stored on the merger.
+ * The fields here describe context that is constant across all yielded rows
+ * — per-doc values (ranks, scores, scorer subtree) are filled in by the
+ * merger as it runs.
+ */
+typedef struct HybridExplainContext {
+  // Borrowed: lifetime tied to the search sub-AREQ's searchopts.
+  const char *textScorerName;
+  // Owned: e.g. "vector branch (KNN)" or "vector branch (RANGE: radius=…, epsilon=…)".
+  char *vectorBranchEnvelope;
+  // Vector retrieval mode of the VSIM sub-query.
+  VectorQueryType vectorMode;
+} HybridExplainContext;
+
+void HybridExplainContext_Free(HybridExplainContext *ctx);
+
+/**
+ * Build an EXPLAINSCORE context from the two hybrid sub-AREQs.
+ *
+ * Reads the search sub-query's resolved scorer name and the vector
+ * sub-query's retrieval mode (and, for RANGE, radius + optional epsilon
+ * QueryAttribute) and freezes them into strings the merger reuses per row.
+ *
+ * Returned context is owned by the caller (the hybrid merger).
+ */
+struct AREQ;
+HybridExplainContext *HybridExplainContext_Build(struct AREQ *searchReq, struct AREQ *vectorReq);
 
 /**
  * HybridSearchResult structure that stores SearchResults from multiple sources.
@@ -59,8 +90,16 @@ double calculateHybridScore(HybridSearchResult *hybridResult, HybridScoringConte
  *
  * The primary result is the SearchResult we merge into and return to the downstream processor.
  * This function transfers ownership of the primary result from the HybridSearchResult to the caller.
+ *
+ * When `explainCtx` is non-NULL, an RSScoreExplain wrapper describing the
+ * hybrid combine is attached to the merged result. The wrapper shape is
+ * specified in MOD-10044: an outer "final score" node, a per-method envelope
+ * (RRF/LINEAR with the fusion parameters), and per-branch sub-trees that
+ * graft the text scorer's existing explanation under a "Text scorer:" node
+ * and label the vector branch by retrieval mode.
  */
-SearchResult* mergeSearchResults(HybridSearchResult *hybridResult, HybridScoringContext *scoringCtx, HybridLookupContext *lookupCtx);
+SearchResult* mergeSearchResults(HybridSearchResult *hybridResult, HybridScoringContext *scoringCtx,
+                                 HybridLookupContext *lookupCtx, const HybridExplainContext *explainCtx);
 
 #ifdef __cplusplus
 }

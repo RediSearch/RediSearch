@@ -15,10 +15,79 @@
 #include "hiredis/sds.h"
 #include "coord/dist_utils.h"
 #include "debug_commands.h"
+#include "score_explain.h"
+#include "rmalloc.h"
 
 
 #define CURSOR_EOF 0
 
+
+// Duplicate a string MRReply into a heap-allocated NUL-terminated buffer via
+// rm_malloc (so SEDestroy's rm_free is balanced).
+static char *mrReplyDupString(const MRReply *r) {
+  size_t len = 0;
+  const char *s = MRReply_String(r, &len);
+  if (!s) {
+    char *empty = rm_malloc(1);
+    empty[0] = '\0';
+    return empty;
+  }
+  char *out = rm_malloc(len + 1);
+  memcpy(out, s, len);
+  out[len] = '\0';
+  return out;
+}
+
+// Recursively fill an RSScoreExplain node from a wire-format MRReply.
+//
+// The shard-side serializer (SEReply / recExplainReply) emits each non-leaf
+// node as a 2-element array [str, [children...]] and each leaf as a bare
+// string. Reconstruct the same tree so the coordinator-side SEReply produces
+// identical output downstream.
+static void mrReplyFillScoreExplain(RSScoreExplain *node, const MRReply *r) {
+  if (!r) {
+    node->str = rm_strdup("");
+    node->numChildren = 0;
+    node->children = NULL;
+    return;
+  }
+  const int type = MRReply_Type(r);
+  if (type == MR_REPLY_STRING || type == MR_REPLY_STATUS) {
+    node->str = mrReplyDupString(r);
+    node->numChildren = 0;
+    node->children = NULL;
+    return;
+  }
+  if (type == MR_REPLY_ARRAY && MRReply_Length(r) == 2) {
+    node->str = mrReplyDupString(MRReply_ArrayElement(r, 0));
+    const MRReply *childArr = MRReply_ArrayElement(r, 1);
+    if (childArr && MRReply_Type(childArr) == MR_REPLY_ARRAY) {
+      const size_t n = MRReply_Length(childArr);
+      node->numChildren = (int)n;
+      node->children = n ? rm_calloc(n, sizeof(RSScoreExplain)) : NULL;
+      for (size_t i = 0; i < n; i++) {
+        mrReplyFillScoreExplain(&node->children[i], MRReply_ArrayElement(childArr, i));
+      }
+    } else {
+      node->numChildren = 0;
+      node->children = NULL;
+    }
+    return;
+  }
+  // Unexpected shape: fall back to a placeholder leaf so the tree stays
+  // well-formed and SEDestroy will free it cleanly.
+  node->str = rm_strdup("<malformed explain>");
+  node->numChildren = 0;
+  node->children = NULL;
+}
+
+// Build an RSScoreExplain tree from the shard's wire-format explain reply.
+// Returns a heap-allocated root suitable for SearchResult_SetScoreExplain.
+static RSScoreExplain *mrReplyToScoreExplain(const MRReply *r) {
+  RSScoreExplain *root = rm_calloc(1, sizeof(RSScoreExplain));
+  mrReplyFillScoreExplain(root, r);
+  return root;
+}
 
 static RSValue *MRReply_ToValue(MRReply *r) {
   if (!r) return RSValue_NullStatic();
@@ -637,10 +706,27 @@ int rpnetNext(ResultProcessor *self, SearchResult *r) {
 
   // The score is optional, in hybrid we need the score for the sorter and hybrid merger
   // We expect for it to exist in hybrid since we send WITHSCORES to the shard and we should use resp3
-  // when opening shard connections
+  // when opening shard connections.
+  //
+  // With EXPLAINSCORE the shard wraps the score as a 2-element array
+  // [score, explain-tree]. Reconstruct the RSScoreExplain so the
+  // coordinator's hybrid merger can wrap it.
   if (score) {
-    RS_LOG_ASSERT(MRReply_Type(score) == MR_REPLY_DOUBLE, "invalid score record");
-    SearchResult_SetScore(r, MRReply_Double(score));
+    const int scoreType = MRReply_Type(score);
+    if (scoreType == MR_REPLY_DOUBLE) {
+      SearchResult_SetScore(r, MRReply_Double(score));
+    } else if (scoreType == MR_REPLY_ARRAY && MRReply_Length(score) == 2) {
+      MRReply *scoreValue = MRReply_ArrayElement(score, 0);
+      MRReply *explainReply = MRReply_ArrayElement(score, 1);
+      RS_LOG_ASSERT(scoreValue && MRReply_Type(scoreValue) == MR_REPLY_DOUBLE,
+                    "invalid score record");
+      SearchResult_SetScore(r, MRReply_Double(scoreValue));
+      if (explainReply) {
+        SearchResult_SetScoreExplain(r, mrReplyToScoreExplain(explainReply));
+      }
+    } else {
+      RS_LOG_ASSERT(0, "invalid score record");
+    }
   }
 
   for (size_t i = 0; i < fields_length; i += 2) {

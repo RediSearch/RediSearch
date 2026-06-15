@@ -218,9 +218,12 @@ int HybridParseOptionalArgs(HybridParseContext *ctx, ArgsCursor *ac, bool intern
 
     ArgParser_Free(parser);
 
+    // EXPLAINSCORE implies emitting the per-result score: the reply path pairs
+    // the score with its explanation, so without QEXEC_F_SEND_SCORES neither
+    // would be written. FT.HYBRID does not expose a user-facing WITHSCORES, so
+    // we set the flag here on the user's behalf.
     if ((*(ctx->reqFlags) & QEXEC_F_SEND_SCOREEXPLAIN)) {
-        QueryError_SetError(status, QUERY_ERROR_CODE_PARSE_ARGS, "EXPLAINSCORE is not yet supported by FT.HYBRID");
-        return REDISMODULE_ERR;
+        *(ctx->reqFlags) |= QEXEC_F_SEND_SCORES;
     }
 
     // Apply optimization for skipping rich results collection when possible

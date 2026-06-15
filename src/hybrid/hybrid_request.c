@@ -7,6 +7,7 @@
 #include "hybrid/hybrid_scoring.h"
 #include "hybrid/hybrid_lookup_context.h"
 #include "hybrid/hybrid_lookup_context.h"
+#include "hybrid/hybrid_search_result.h"
 #include "document.h"
 #include "aggregate/aggregate_plan.h"
 #include "aggregate/aggregate.h"
@@ -157,9 +158,14 @@ int HybridRequest_BuildMergePipeline(HybridRequest *req, const RLookupKey *score
     // to create missing keys
     bool createMissingKeys = (req->reqflags & QEXEC_AGG_LOAD_ALL) != 0;
     HybridLookupContext *lookupCtx = HybridLookupContext_New(req->requests, tailLookup, createMissingKeys);
+    HybridExplainContext *explainCtx = NULL;
+    if (req->reqflags & QEXEC_F_SEND_SCOREEXPLAIN) {
+      explainCtx = HybridExplainContext_Build(req->requests[SEARCH_INDEX], req->requests[VECTOR_INDEX]);
+    }
     ResultProcessor *merger = RPHybridMerger_New(params->aggregationParams.common.sctx,
                                                  params->scoringCtx, upstreams, req->nrequests,
-                                                 docKey, scoreKey, req->subqueriesReturnCodes, lookupCtx);
+                                                 docKey, scoreKey, req->subqueriesReturnCodes, lookupCtx,
+                                                 explainCtx);
     params->scoringCtx = NULL; // ownership transferred to merger
     QITR_PushRP(&req->tailPipeline->qctx, merger);
     // Build the aggregation part of the tail pipeline for final result processing
