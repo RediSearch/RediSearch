@@ -366,6 +366,32 @@ def collectKeys(env, pattern='*'):
 def debug_cmd():
     return '_FT.DEBUG'
 
+def isEnableAssertEnabled(env):
+    """
+    Check if ENABLE_ASSERT is enabled in the build.
+    Returns True if ENABLE_ASSERT commands are available, False otherwise.
+    """
+    try:
+        # SEND_ERROR 0 arms zero failures (a no-op) and only exists in ENABLE_ASSERT builds.
+        env.cmd(debug_cmd(), 'SEND_ERROR', '0')
+        return True
+    except Exception:
+        return False
+
+def require_enable_assert(f):
+    """
+    Decorator to skip tests if ENABLE_ASSERT is not enabled in the build.
+    Usage: @require_enable_assert
+    """
+    @wraps(f)
+    def wrapper(env, *args, **kwargs):
+        if not isEnableAssertEnabled(env):
+            env.debugPrint(f"Skipping {f.__name__}: ENABLE_ASSERT is not enabled", force=True)
+            env.skip()
+            return
+        return f(env, *args, **kwargs)
+    return wrapper
+
 def config_cmd():
     return '_FT.CONFIG'
 
