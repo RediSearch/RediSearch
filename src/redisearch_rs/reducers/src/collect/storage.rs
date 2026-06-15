@@ -207,16 +207,10 @@ impl<D: Ord> Storage<D> {
     }
 
     /// Insert an entry into DISTINCT storage.
-    pub fn insert_distinct_entry<S, P, K>(
-        &mut self,
-        sort_vals: S,
-        doc_id: D,
-        project: P,
-        dedup_from_row: K,
-    ) where
+    pub fn insert_distinct_entry<S, M>(&mut self, sort_vals: S, doc_id: D, make_entry: M)
+    where
         S: FnOnce() -> Box<[Option<SharedValue>]>,
-        P: FnOnce() -> RLookupRow<'static>,
-        K: FnOnce(&RLookupRow<'static>) -> u64,
+        M: FnOnce() -> (RLookupRow<'static>, u64),
     {
         match self {
             Self::DistinctHeap {
@@ -238,10 +232,10 @@ impl<D: Ord> Storage<D> {
                         return;
                     }
                 }
-                // Survivor: project, derive its dedup identity from the
-                // projected row, and pair the ranking key with the row.
-                let row = project();
-                let item = DistinctKey::new(dedup_from_row(&row));
+                // Survivor: project the row and its dedup identity, then pair
+                // the ranking key with the row.
+                let (row, digest) = make_entry();
+                let item = DistinctKey::new(digest);
                 let priority = Reverse(HeapEntry::new(cand_key, row));
 
                 // Dedup-keep-best.
@@ -263,8 +257,7 @@ impl<D: Ord> Storage<D> {
                 }
                 // Below the cap we must project to derive the dedup identity.
                 // `sort_vals` and `doc_id` are unused: there is no ranking.
-                let row = project();
-                let digest = dedup_from_row(&row);
+                let (row, digest) = make_entry();
                 // First arrival wins: store only a digest not seen before.
                 if seen.insert(digest) {
                     buf.push(row);

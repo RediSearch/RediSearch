@@ -54,9 +54,7 @@ fn distinct_key_eq_and_hash_agree_over_real_rows() {
     let b = distinct_key(&key, 7.0);
     let c = distinct_key(&key, 8.0);
 
-    // Equal projected value ⇒ equal digest and same hash (Hash/Eq contract).
-    // `DistinctKey` intentionally has no `Debug`, so compare with `==`/`!=`
-    // rather than `assert_eq!`/`assert_ne!`.
+    // Equal projected value ⇒ equal key and same `Hash` output (Hash/Eq contract).
     assert!(a == b);
     assert_eq!(hash_of(&a), hash_of(&b));
     // Different value ⇒ not equal.
@@ -108,8 +106,11 @@ fn distinct_insert(
     storage.insert_distinct_entry(
         || vec![Some(SharedValue::new_num(sort))].into_boxed_slice(),
         (),
-        || group_row(g, &group, s, sort),
-        |row| dedup_hash_row(row, std::iter::once(g)),
+        || {
+            let row = group_row(g, &group, s, sort);
+            let digest = dedup_hash_row(&row, std::iter::once(g));
+            (row, digest)
+        },
     );
 }
 
@@ -215,8 +216,8 @@ fn distinct_doomed_candidate_skips_projection() {
     // Seed the single slot with a strong sort key.
     distinct_insert(&mut storage, &g, &s, "A", 5.0);
 
-    // A candidate worse than the current worst (1 < 5) is doomed: neither
-    // `project` nor `dedup_from_row` may run (deferred projection).
+    // A candidate worse than the current worst (1 < 5) is doomed: neither the
+    // projection nor the dedup hash may run (deferred projection).
     let projected = Cell::new(false);
     let dedup_called = Cell::new(false);
     storage.insert_distinct_entry(
@@ -224,11 +225,10 @@ fn distinct_doomed_candidate_skips_projection() {
         (),
         || {
             projected.set(true);
-            group_row(&g, "B", &s, 1.0)
-        },
-        |row| {
+            let row = group_row(&g, "B", &s, 1.0);
             dedup_called.set(true);
-            dedup_hash_row(row, std::iter::once(&g))
+            let digest = dedup_hash_row(&row, std::iter::once(&g));
+            (row, digest)
         },
     );
 
@@ -272,9 +272,9 @@ fn distinct_array_insert(storage: &mut Storage<()>, g: &RLookupKey<'static>, gro
         || {
             let mut row = RLookupRow::new();
             row.write_key(g, SharedValue::new_string(group.as_bytes().to_vec()));
-            row
+            let digest = dedup_hash_row(&row, std::iter::once(g));
+            (row, digest)
         },
-        |row| dedup_hash_row(row, std::iter::once(g)),
     );
 }
 
@@ -313,10 +313,9 @@ fn distinct_array_keeps_first_arrival_row() {
                 let mut row = RLookupRow::new();
                 row.write_key(&g, SharedValue::new_string(b"X".to_vec()));
                 row.write_key(&tag, SharedValue::new_string(t.as_bytes().to_vec()));
-                row
+                let digest = dedup_hash_row(&row, std::iter::once(&g));
+                (row, digest)
             },
-            // Identity excludes `tag`, so both arrivals collide on `g`.
-            |row| dedup_hash_row(row, std::iter::once(&g)),
         );
     }
 

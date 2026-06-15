@@ -281,11 +281,16 @@ impl RemoteCollectCtx {
             dst
         };
         if r.distinct {
-            // DISTINCT dedup identity: the projected fields only, hashed by name.
-            let dedup_from_row =
-                |projected: &RLookupRow<'static>| dedup_hash_row(projected, r.fields.dedup_keys());
-            self.storage
-                .insert_distinct_entry(sort_vals, doc_id, project, dedup_from_row);
+            self.storage.insert_distinct_entry(
+                sort_vals,
+                doc_id,
+                // DISTINCT dedup identity: a digest of the projected field values.
+                || {
+                    let row = project();
+                    let digest = dedup_hash_row(&row, r.fields.dedup_keys());
+                    (row, digest)
+                },
+            );
         } else {
             self.storage.insert_entry(sort_vals, doc_id, project);
         }

@@ -285,10 +285,13 @@ impl LocalCollectCtx {
                 self.storage.insert_distinct_entry(
                     || snapshot_sort_keys(r.fields.sort_key_names(), item),
                     (),
-                    || r.fields.prepare_row(item, &mut self.lookup),
                     // Dedup digest is computed from the source `item`, not the
                     // projected row.
-                    |_row| r.fields.dedup_hash_item(item),
+                    || {
+                        let row = r.fields.prepare_row(item, &mut self.lookup);
+                        let digest = r.fields.dedup_hash_item(item);
+                        (row, digest)
+                    },
                 );
             } else {
                 self.storage.insert_entry(
