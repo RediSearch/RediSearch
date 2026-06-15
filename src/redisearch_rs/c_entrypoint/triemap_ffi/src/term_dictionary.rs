@@ -54,6 +54,7 @@ pub struct TermDictionaryIterator<'td> {
 /// and [`TermDictionary_Insert`].
 #[repr(C)]
 #[derive(Debug, PartialEq, Eq)]
+#[cheadergen::config(prefix_with_name)]
 pub enum TermDictionaryInsertOutcome {
     /// No prior entry existed; a new terminal was created.
     New = 0,
@@ -73,6 +74,7 @@ impl From<InsertOutcomeImpl> for TermDictionaryInsertOutcome {
 /// Outcome of [`TermDictionary_DecrementNumDocs`].
 #[repr(C)]
 #[derive(Debug, PartialEq, Eq)]
+#[cheadergen::config(prefix_with_name)]
 pub enum TermDictionaryDecrResult {
     /// No terminal entry exists for the given term.
     NotFound = 0,

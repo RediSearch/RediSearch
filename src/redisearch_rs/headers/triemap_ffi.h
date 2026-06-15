@@ -32,11 +32,11 @@ typedef enum TermDictionaryInsertOutcome {
   /**
    * No prior entry existed; a new terminal was created.
    */
-  New = 0,
+  TermDictionaryInsertOutcome_New = 0,
   /**
    * An existing entry was modified in place.
    */
-  Updated = 1,
+  TermDictionaryInsertOutcome_Updated = 1,
 } TermDictionaryInsertOutcome;
 
 /**
@@ -46,15 +46,15 @@ typedef enum TermDictionaryDecrResult {
   /**
    * No terminal entry exists for the given term.
    */
-  NotFound = 0,
+  TermDictionaryDecrResult_NotFound = 0,
   /**
    * `num_docs` was decremented and is still `> 0`.
    */
-  Updated = 1,
+  TermDictionaryDecrResult_Updated = 1,
   /**
    * `num_docs` reached `0`; the entry was removed.
    */
-  Deleted = 2,
+  TermDictionaryDecrResult_Deleted = 2,
 } TermDictionaryDecrResult;
 
 /**
