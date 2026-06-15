@@ -65,10 +65,14 @@ runs:
         # bare form and never consults `allow-bot-users`, so we list
         # the bare form under `allow-users` and the suffixed form under
         # `allow-bot-users`.
+        #
+        # `codex-action` parses `allow-users` as a comma-separated list
+        # (it splits on "," then trims each entry), so the built-in
+        # merge-queue actor and the caller input must be joined with a
+        # comma, NOT a newline. A trailing comma (empty `inputs.allow-users`)
+        # is harmless: the action filters out empty entries.
         allow-bots: true
-        allow-users: |
-          github-merge-queue
-          ${{ inputs.allow-users }}
+        allow-users: github-merge-queue,${{ inputs.allow-users }}
         allow-bot-users: github-merge-queue[bot]
 
     - name: Read triage output
