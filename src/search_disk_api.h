@@ -288,7 +288,9 @@ typedef struct BasicDiskAPI {
    * @param nkeys         Number of entries in `keys`
    * @param forceLoad     JSON multi-value compatibility flag; always false for HASH
    * @param outStateFlags Out: OR'd with QEXEC_S_HAS_LOAD when loading is scheduled
-   * @return A new ResultProcessor, or NULL on allocation failure
+   * @return A valid ResultProcessor. Like RPLoader_New, construction is infallible:
+   *         allocation goes through the module allocator (aborts on OOM), so this
+   *         must not return NULL. Disk-read failures surface later, at RP execution.
    */
   ResultProcessor *(*newAsyncLoader)(RedisSearchCtx *sctx, uint32_t reqflags, RLookup *lk,
                                      const RLookupKey **keys, size_t nkeys, bool forceLoad,
