@@ -1200,8 +1200,8 @@ int DistHybridTimeoutFailCallback(RedisModuleCtx *ctx, RedisModuleString **argv,
 
   CoordRequestCtx_UnlockSetRequest(CoordReqCtx);
 
-  // FAIL previously set the flag but never woke, leaving a parked setup-phase
-  // pop blocked on the missing reply after the client already got its error.
+  // The BG dispatcher may be parked in the cursor-setup wait; wake it so it
+  // exits, even though this callback replies the error itself.
   wakeHybridAbortChannels((HybridRequest *)CoordRequestCtx_GetRequest(CoordReqCtx));
 
   // Reply with timeout error

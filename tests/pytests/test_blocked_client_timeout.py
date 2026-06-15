@@ -510,9 +510,9 @@ class TestCoordinatorTimeout:
         wait's deadline fires and DistHybridCleanups replies an empty result set
         carrying the timeout warning -- not a hard error, and without hanging.
 
-        Complements the read-phase one-shard-paused tests, which deliberately let
-        Phase 1 finish before suspending because the setup wait would otherwise
-        block forever.
+        Complements the read-phase one-shard-paused tests, which suspend only
+        after Phase 1 completes; this one suspends during Phase 1 to exercise the
+        bounded cursor-setup wait.
         """
         env = self.env
 
