@@ -1517,6 +1517,16 @@ static bool validateDiskJsonSinglePath(const IndexSpec *sp, const FieldSpec *fs,
   return true;
 }
 
+static void IndexSpec_EnsureSuffixForField(IndexSpec *sp, const FieldSpec *fs) {
+  if (FIELD_IS(fs, INDEXFLD_T_FULLTEXT) && FieldSpec_HasSuffixTrie(fs)) {
+    sp->suffixMask |= FIELD_BIT(fs);
+    sp->flags |= Index_HasSuffixTrie;
+    if (!sp->suffix) {
+      sp->suffix = NewTrie(suffixTrie_freeCallback, Trie_Sort_Lex);
+    }
+  }
+}
+
 /**
  * Add fields to an existing (or newly created) index. If the addition fails,
  */
@@ -1666,13 +1676,7 @@ static int IndexSpec_AddFieldsInternal(IndexSpec *sp, StrongRef spec_ref, ArgsCu
     if (FieldSpec_IsPhonetics(fs)) {
       sp->flags |= Index_HasPhonetic;
     }
-    if (FIELD_IS(fs, INDEXFLD_T_FULLTEXT) && FieldSpec_HasSuffixTrie(fs)) {
-      sp->suffixMask |= FIELD_BIT(fs);
-      if (!sp->suffix) {
-        sp->flags |= Index_HasSuffixTrie;
-        sp->suffix = NewTrie(suffixTrie_freeCallback, Trie_Sort_Lex);
-      }
-    }
+    IndexSpec_EnsureSuffixForField(sp, fs);
   }
 
   // If we successfully modified the schema, we need to update the spec cache
@@ -3637,13 +3641,7 @@ IndexSpec *IndexSpec_RdbLoad(RedisModuleIO *rdb, int encver, bool useSst, QueryE
     if (FieldSpec_IsSortable(fs)) {
       sp->numSortableFields++;
     }
-    if (FieldSpec_HasSuffixTrie(fs) && FIELD_IS(fs, INDEXFLD_T_FULLTEXT)) {
-      sp->flags |= Index_HasSuffixTrie;
-      sp->suffixMask |= FIELD_BIT(fs);
-      if (!sp->suffix) {
-        sp->suffix = NewTrie(suffixTrie_freeCallback, Trie_Sort_Lex);
-      }
-    }
+    IndexSpec_EnsureSuffixForField(sp, fs);
   }
   // After loading all the fields, we can build the spec cache
   sp->spcache = IndexSpec_BuildSpecCache(sp);
