@@ -89,6 +89,14 @@ void SyncPoint_ClearAll(void);
 // If the named point is armed, blocks until signaled
 void SyncPoint_Wait(const char *name);
 
+// Shard dispatch fault injection (test-only, ENABLE_ASSERT builds): arm the next
+// `count` MRCluster_SendCommand calls to return REDIS_ERR, so DebugSendError_Consume
+// returns true that many times. Exercises the no-reply error path.
+void DebugSendError_Arm(int count);
+// Consume one armed failure; returns true if the caller should treat the send as
+// failed. Thread-safe.
+bool DebugSendError_Consume(void);
+
 #endif  // ENABLE_ASSERT
 
 // Yield counter functions
