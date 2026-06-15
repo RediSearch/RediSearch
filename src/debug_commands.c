@@ -38,6 +38,7 @@
 #include "ext/debug_scorers.h"
 #include "query_error.h"
 #include "doc_id_meta.h"
+#include <limits.h>
 
 DebugCTX globalDebugCtx = {0};
 
@@ -235,6 +236,24 @@ void SyncPoint_Wait(const char *name) {
     usleep(1000);  // Spin-wait with 1ms sleep (matches existing pattern)
   }
   atomic_fetch_sub(&sp->waiting, 1);  // Decrement waiting counter
+}
+
+// Shard dispatch fault injection (test-only, see DebugSendError_* in header).
+// Set from the main thread via FT.DEBUG SEND_ERROR, consumed from the IO threads.
+static _Atomic int g_debugSendErrorCount = 0;
+
+void DebugSendError_Arm(int count) {
+  atomic_store(&g_debugSendErrorCount, count);
+}
+
+bool DebugSendError_Consume(void) {
+  int cur = atomic_load(&g_debugSendErrorCount);
+  while (cur > 0) {
+    if (atomic_compare_exchange_weak(&g_debugSendErrorCount, &cur, cur - 1)) {
+      return true;
+    }
+  }
+  return false;
 }
 #endif
 
@@ -2421,6 +2440,24 @@ DEBUG_COMMAND(syncPoint) {
   }
   return RedisModule_ReplyWithError(ctx, "Unknown SYNC_POINT subcommand. Valid: ARM, SIGNAL, IS_WAITING, IS_ARMED, CLEAR");
 }
+
+/**
+ * FT.DEBUG SEND_ERROR <count>
+ * Arm the next <count> MRCluster_SendCommand dispatches to return REDIS_ERR,
+ * simulating a no-reply shard failure.
+ */
+DEBUG_COMMAND(sendError) {
+  if (!debugCommandsEnabled(ctx)) return RedisModule_ReplyWithError(ctx, NODEBUG_ERR);
+  if (argc != 3) return RedisModule_WrongArity(ctx);
+  long long count;
+  if (RedisModule_StringToLongLong(argv[2], &count) != REDISMODULE_OK || count < 0 ||
+      count > INT_MAX) {
+    return RedisModule_ReplyWithError(ctx,
+        "SEND_ERROR count must be a non-negative integer no greater than INT_MAX");
+  }
+  DebugSendError_Arm((int)count);
+  return RedisModule_ReplyWithSimpleString(ctx, "OK");
+}
 #endif
 
 /**
@@ -2780,6 +2817,7 @@ DebugCommandType commands[] = {{"DUMP_INVIDX", DumpInvertedIndex}, // Print all 
 // Add new assert-only commands to this array instead of hard-coding #ifdef blocks
 static DebugCommandType assertOnlyCommands[] = {
     {"SYNC_POINT", syncPoint},
+    {"SEND_ERROR", sendError},
     {NULL, NULL}};
 #endif
 

@@ -17,6 +17,13 @@
 #include "util/references.h"
 #include <unistd.h>
 
+typedef struct QueryError QueryError;
+
+// Error detail returned to the client when a query cannot be dispatched to the
+// cluster (pre-fanout connection-validation / send failure). Shared by the MR
+// iterator no-reply path (rmr.c) and the hybrid cursor-mapping error callback;
+// tests assert on this substring, so keep them in sync via this single macro.
+#define CLUSTER_QUERY_ERROR "Could not send query to cluster"
 
 struct MRCtx;
 struct RedisModuleCtx;
@@ -118,7 +125,46 @@ typedef struct MRIteratorCallbackCtx MRIteratorCallbackCtx;
 typedef struct MRIteratorCtx MRIteratorCtx;
 typedef struct MRIterator MRIterator;
 
+/**
+ * Per-reply callback, invoked on the IO thread for every shard reply.
+ * Owns the iterator's completion bookkeeping: it must call
+ * MRIteratorCallback_Done once the shard has no more replies to drive the
+ * iterator toward depletion. Contrast with MRIteratorErrorCallback, which is
+ * notify-only and must not touch the Done state.
+ */
 typedef void (*MRIteratorCallback)(MRIteratorCallbackCtx *ctx, MRReply *rep);
+
+/**
+ * Invoked on the IO thread when a shard command terminates without a reply
+ * (NULL async reply or synchronous send failure). Notify-only: must not free
+ * the iterator nor call MRIteratorCallback_Done — the MR layer does that next.
+ * Optional; NULL preserves the historical depletion-only behavior.
+ */
+typedef void (*MRIteratorErrorCallback)(MRIteratorCallbackCtx *ctx);
+
+/**
+ * Bundles the callbacks and private data for MR_IterateWithPrivateData.
+ * `successCB` and `iterStartCb` are required (MR_IterateWithPrivateData
+ * unconditionally schedules `iterStartCb`); every other field may be NULL to
+ * opt out of that hook.
+ *
+ * @param successCB              Per-reply callback (required).
+ * @param errorCB                No-reply termination callback (optional).
+ * @param cbPrivateData          Private data handed to `successCB` via the callback ctx.
+ * @param cbPrivateDataDestructor Frees `cbPrivateData` when the iterator is freed.
+ * @param cbPrivateDataInit      Runs once on the IO thread after numShards is known.
+ * @param iterStartCb            Scheduled on the IO thread to trigger the first send (required).
+ * @param iterStartCbPrivateData StrongRef demoted and passed to `iterStartCb`.
+ */
+typedef struct {
+  MRIteratorCallback successCB;
+  MRIteratorErrorCallback errorCB;
+  void *cbPrivateData;
+  void (*cbPrivateDataDestructor)(void *);
+  void (*cbPrivateDataInit)(void *, MRIterator *);
+  void (*iterStartCb)(void *);
+  StrongRef *iterStartCbPrivateData;
+} MRIteratorConfig;
 
 // Trigger all the commands in the iterator to be sent.
 // Returns true if there may be more replies to come, false if we are done.
@@ -136,10 +182,7 @@ MRReply *MRIterator_NextWithTimeout(MRIterator *it, const struct timespec *absti
 
 MRIterator *MR_Iterate(const MRCommand *cmd, MRIteratorCallback cb);
 
-MRIterator *MR_IterateWithPrivateData(const MRCommand *cmd, MRIteratorCallback cb, void *cbPrivateData,
-                                      void (*cbPrivateDataDestructor)(void *),
-                                      void (*cbPrivateDataInit)(void *, MRIterator *),
-                                      void (*iterStartCb)(void *), StrongRef *iterStartCbPrivateData);
+MRIterator *MR_IterateWithPrivateData(const MRCommand *cmd, const MRIteratorConfig *config);
 
 MRCommand *MRIteratorCallback_GetCommand(MRIteratorCallbackCtx *ctx);
 
