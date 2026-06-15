@@ -10,6 +10,7 @@
 #include "types_ffi.h"
 #include "util/arr.h"
 #include "dictionary.h"
+#include "trie/trie.h"
 #include "reply.h"
 #include "inverted_index.h"
 #include "inverted_index_ffi.h"
@@ -157,6 +158,28 @@ static void SpellCheck_FindSuggestions(SpellCheckCtx *scCtx, Trie *t, const char
   TrieIterator_Free(it);
 }
 
+// Same as SpellCheck_FindSuggestions, but sourcing candidates from a
+// user-managed spell-check dictionary (FT.DICTADD) instead of the index term
+// trie. Fuzzy matching is delegated to the Rust SpellCheckDictionary.
+static void SpellCheck_FindSuggestionsInDict(SpellCheckCtx *scCtx, SpellCheckDictionary *dict,
+                                             const char *term, size_t len, t_fieldMask fieldMask,
+                                             RS_Suggestions *s, int incr) {
+  const char *suggestion = NULL;
+  size_t suggestionLen = 0;
+
+  SpellCheckDictionaryIterator *it =
+      SpellCheckDictionary_IterateFuzzy(dict, term, len, (uint32_t)scCtx->distance);
+  while (SpellCheckDictionaryIterator_Next(it, &suggestion, &suggestionLen)) {
+    // The suggestion buffer is borrowed from the iterator and only valid until
+    // the next step; RS_SuggestionsAdd copies it, so this stays sound.
+    double score;
+    if ((score = SpellCheck_GetScore(scCtx, (char *)suggestion, suggestionLen, fieldMask)) != -1) {
+      RS_SuggestionsAdd(s, (char *)suggestion, suggestionLen, score, incr);
+    }
+  }
+  SpellCheckDictionaryIterator_Free(it);
+}
+
 RS_Suggestion **spellCheck_GetSuggestions(RS_Suggestions *s) {
   TrieIterator *iter = Trie_IterateAll(s->suggestionsTrie);
   RS_Suggestion **ret = array_new(RS_Suggestion *, Trie_Size(s->suggestionsTrie));
@@ -256,11 +279,11 @@ static bool SpellCheck_ReplyTermSuggestions(SpellCheckCtx *scCtx, char *term, si
   // searching the term on the exclude list, if its there we just return false
   // because there is no need to return suggestions on it.
   for (int i = 0; i < array_len(scCtx->excludeDict); ++i) {
-    Trie *t = SpellCheck_OpenDict(scCtx->sctx->redisCtx, scCtx->excludeDict[i], REDISMODULE_READ);
+    SpellCheckDictionary *t = SpellCheck_OpenDict(scCtx->sctx->redisCtx, scCtx->excludeDict[i], REDISMODULE_READ);
     if (t == NULL) {
       continue;
     }
-    if (SpellCheck_IsTermExistsInTrie(t, term, len, NULL)) {
+    if (SpellCheckDictionary_Contains(t, term, len)) {
       return false;
     }
   }
@@ -273,11 +296,11 @@ static bool SpellCheck_ReplyTermSuggestions(SpellCheckCtx *scCtx, char *term, si
 
   // searching the term on the include list for more suggestions.
   for (int i = 0; i < array_len(scCtx->includeDict); ++i) {
-    Trie *t = SpellCheck_OpenDict(scCtx->sctx->redisCtx, scCtx->includeDict[i], REDISMODULE_READ);
+    SpellCheckDictionary *t = SpellCheck_OpenDict(scCtx->sctx->redisCtx, scCtx->includeDict[i], REDISMODULE_READ);
     if (t == NULL) {
       continue;
     }
-    SpellCheck_FindSuggestions(scCtx, t, term, len, fieldMask, s, 0);
+    SpellCheck_FindSuggestionsInDict(scCtx, t, term, len, fieldMask, s, 0);
   }
 
   SpellCheck_SendReplyOnTerm(reply, term, len, s,
@@ -290,7 +313,7 @@ static bool SpellCheck_ReplyTermSuggestions(SpellCheckCtx *scCtx, char *term, si
 
 static bool SpellCheck_CheckDictExistence(SpellCheckCtx *scCtx, const char *dict) {
 #define BUFF_SIZE 1000
-  Trie *t = SpellCheck_OpenDict(scCtx->sctx->redisCtx, dict, REDISMODULE_READ);
+  SpellCheckDictionary *t = SpellCheck_OpenDict(scCtx->sctx->redisCtx, dict, REDISMODULE_READ);
   if (t == NULL) {
     char buff[BUFF_SIZE];
     snprintf(buff, BUFF_SIZE, "Dict does not exist: %s", dict);

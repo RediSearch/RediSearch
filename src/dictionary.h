@@ -9,9 +9,10 @@
 #ifndef SRC_DICTIONARY_H_
 #define SRC_DICTIONARY_H_
 
-#include "trie/trie.h"
+#include "redismodule.h"
+#include "spellcheck_dict_ffi.h"
 
-Trie* SpellCheck_OpenDict(RedisModuleCtx* ctx, const char* dictName, int mode);
+SpellCheckDictionary* SpellCheck_OpenDict(RedisModuleCtx* ctx, const char* dictName, int mode);
 
 int Dictionary_Add(RedisModuleCtx* ctx, const char* dictName, RedisModuleString** values, int len);
 
