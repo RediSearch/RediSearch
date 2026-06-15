@@ -66,9 +66,10 @@ runs:
         # the bare form under `allow-users` and the suffixed form under
         # `allow-bot-users`.
         allow-bots: true
-        allow-users: github-merge-queue
+        allow-users: |
+          github-merge-queue
+          ${{ inputs.allow-users }}
         allow-bot-users: github-merge-queue[bot]
-        allow-users: ${{ inputs.allow-users }}
 
     - name: Read triage output
       id: read
