@@ -1200,9 +1200,8 @@ int DistHybridTimeoutFailCallback(RedisModuleCtx *ctx, RedisModuleString **argv,
 
   CoordRequestCtx_UnlockSetRequest(CoordReqCtx);
 
-  // SetTimedOut flipped the abort flag above; wake any parked pop so the BG
-  // thread (e.g. the cursor-setup wait) exits instead of blocking on a missing
-  // shard reply after the client already got its error.
+  // FAIL previously set the flag but never woke, leaving a parked setup-phase
+  // pop blocked on the missing reply after the client already got its error.
   wakeHybridAbortChannels((HybridRequest *)CoordRequestCtx_GetRequest(CoordReqCtx));
 
   // Reply with timeout error
@@ -1236,8 +1235,6 @@ int DistHybridTimeoutReturnStrictCallback(RedisModuleCtx *ctx, RedisModuleString
 
   HybridRequest *hreq = (HybridRequest *)CoordRequestCtx_GetRequest(CoordReqCtx);
 
-  // Wake any abort channel a parked pop (setup-phase or per-subquery read) is
-  // blocked on so it observes the propagated `timedOut` flag and exits promptly.
   wakeHybridAbortChannels(hreq);
 
   if (!hreq || HybridRequest_TryClaimAggregateResults(hreq)) {
