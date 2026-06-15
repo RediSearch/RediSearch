@@ -771,17 +771,15 @@ static int HybridRequest_prepareCursors(HybridRequest *hreq, QueryError *status)
     bool maxPrefixVsim = false;
 
     // Deadline for the setup wait, mirroring the read phase's getAbsTimeout; paired
-    // with the syncCtx abort flag in ProcessHybridCursorMappings.
-    AREQ *searchReq = hreq->requests[SEARCH_INDEX];
-    RedisSearchCtx *searchSctx = AREQ_SearchCtx(searchReq);
+    // with the hybrid request's abort flag in ProcessHybridCursorMappings.
     const struct timespec *deadline =
-        (searchSctx && AREQ_ShouldCheckTimeout(searchReq))
-            ? (const struct timespec *)&searchSctx->time.timeout
+        (hreq->sctx && HybridRequest_ShouldCheckTimeout(hreq))
+            ? (const struct timespec *)&hreq->sctx->time.timeout
             : NULL;
 
     // Errors from cursor establishment go into the dispatcher's `status` so
     // DistHybridCleanups can reply with them.
-    if (!ProcessHybridCursorMappings(cmd, searchMappingsRef, vsimMappingsRef, knnCtx, status, oomPolicy, timeoutPolicy, &maxPrefixSearch, &maxPrefixVsim, deadline, &searchReq->syncCtx)) {
+    if (!ProcessHybridCursorMappings(cmd, searchMappingsRef, vsimMappingsRef, knnCtx, status, oomPolicy, timeoutPolicy, &maxPrefixSearch, &maxPrefixVsim, deadline, &hreq->syncCtx)) {
         // Handle error
         StrongRef_Release(searchMappingsRef);
         StrongRef_Release(vsimMappingsRef);
