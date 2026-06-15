@@ -334,7 +334,7 @@ bool ProcessHybridCursorMappings(const MRCommand *cmd, StrongRef searchMappingsR
 
     RequestSyncCtx_UnregisterAbortWakeChannel(syncCtx);
 
-    if (timedOut || RS_AtomicBoolLoadRelaxed(&syncCtx->timedOut)) {
+    if (timedOut || RequestSyncCtx_GetTimedOut(syncCtx)) {
         // Terminal: a shard never replied or the request was aborted. Late callbacks
         // may still be writing mappings/errors, so do NOT read them — just release
         // (freeCursorMappingCtx frees ctx once they finish).

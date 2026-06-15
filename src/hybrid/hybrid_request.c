@@ -481,7 +481,7 @@ void AddValidationErrorContext(AREQ *req, QueryError *status) {
 }
 
 void HybridRequest_SetTimedOut(HybridRequest *req) {
-  RS_AtomicBoolStoreRelaxed(&req->syncCtx.timedOut, true);
+  RequestSyncCtx_SetTimedOut(&req->syncCtx);
   // Propagate to each subquery AREQ so its RPNet's MRChannel_PopWithTimeout
   // abort flag (&areq->syncCtx.timedOut) is flipped. Without this the BG
   // worker can stay parked on the channel even after the hybrid-level flag
