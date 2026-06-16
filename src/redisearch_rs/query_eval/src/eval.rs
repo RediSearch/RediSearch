@@ -17,7 +17,8 @@ use std::ptr::NonNull;
 use index_result::RSIndexResult;
 use rqe_core::DocId;
 use rqe_iterators::{
-    Empty, RQEIteratorPrintable, id_list::IdListSorted, inverted_index::new_missing_iterator,
+    Empty, RQEIteratorPrintable, c2rust::CRQEIterator, id_list::IdListSorted,
+    interop::RQEIteratorWrapper, inverted_index::new_missing_iterator,
 };
 
 use crate::{QueryEvalContext, QueryNode, QueryNodeRef};
@@ -27,6 +28,52 @@ use crate::{QueryEvalContext, QueryNode, QueryNodeRef};
 /// [`ProfilePrint`](rqe_iterators::profile_print::ProfilePrint).
 pub type EvalResult<'index> = Box<dyn RQEIteratorPrintable<'index> + 'index>;
 
+/// The outcome of evaluating a query node.
+///
+/// A node is either built by Rust ([`Evaluated::Rust`]) or, while the dispatcher
+/// is only partially ported, by the C `Query_EvalNode` ([`Evaluated::C`]).
+/// Keeping the two apart means a C iterator can be handed straight back to C —
+/// without an intermediate Rust wrapper that would hide it from the C-side
+/// optimizer/profiler, and without a throwaway heap allocation.
+// TODO: Remove this enum once all the nodes types have been ported to Rust
+// and C `Query_EvalNode` has been removed.
+#[must_use = "an unconsumed `Evaluated::C` leaks its owning C iterator; consume it via `into_c_iterator` or `into_boxed`"]
+pub enum Evaluated<'index> {
+    /// An iterator implemented in Rust.
+    Rust(EvalResult<'index>),
+    /// An owning C iterator handle returned by [`ffi::Query_EvalNode`].
+    C(NonNull<ffi::QueryIterator>),
+}
+
+impl<'index> Evaluated<'index> {
+    /// Consume into an owning C [`QueryIterator`](ffi::QueryIterator) pointer.
+    ///
+    /// A Rust iterator is wrapped via [`RQEIteratorWrapper::boxed_new`]; a C
+    /// iterator is returned as-is, so C-side introspection (optimizer, profiler)
+    /// keeps seeing the original C iterator.
+    pub fn into_c_iterator(self) -> *mut ffi::QueryIterator {
+        match self {
+            Evaluated::Rust(it) => RQEIteratorWrapper::boxed_new(it),
+            Evaluated::C(it) => it.as_ptr(),
+        }
+    }
+
+    /// Consume into a boxed Rust iterator, wrapping a C iterator in a
+    /// [`CRQEIterator`] shim so it satisfies the Rust iterator trait.
+    ///
+    /// Used by Rust consumers that compose evaluated children as trait objects.
+    pub fn into_boxed(self) -> EvalResult<'index> {
+        match self {
+            Evaluated::Rust(it) => it,
+            // SAFETY: `Evaluated::C` always holds a valid, owning `QueryIterator`
+            // with all required callbacks populated (it came from
+            // `ffi::Query_EvalNode`) — exactly the preconditions of
+            // `CRQEIterator::new`.
+            Evaluated::C(it) => Box::new(unsafe { CRQEIterator::new(it) }),
+        }
+    }
+}
+
 /// Build the executable iterator tree for a parsed query AST.
 ///
 /// The `root` node is evaluated via [`eval_node`]. When evaluation yields no
@@ -34,8 +81,8 @@ pub type EvalResult<'index> = Box<dyn RQEIteratorPrintable<'index> + 'index>;
 pub fn qast_iterate<'index>(
     ctx: &'index mut QueryEvalContext,
     root: &QueryNodeRef,
-) -> EvalResult<'index> {
-    eval_node(ctx, root).unwrap_or_else(|| Box::new(Empty))
+) -> Evaluated<'index> {
+    eval_node(ctx, root).unwrap_or_else(|| Evaluated::Rust(Box::new(Empty)))
 }
 
 /// Evaluate a single query node, producing the corresponding iterator.
@@ -44,14 +91,35 @@ pub fn qast_iterate<'index>(
 pub fn eval_node<'index>(
     ctx: &'index mut QueryEvalContext,
     node: &QueryNodeRef,
-) -> Option<EvalResult<'index>> {
+) -> Option<Evaluated<'index>> {
     match node.as_enum() {
-        QueryNode::Null => Some(eval_null()),
-        QueryNode::Wildcard => Some(eval_wildcard(ctx, node)),
-        QueryNode::Ids { keys, doc_ids } => Some(eval_ids(ctx, keys, doc_ids)),
-        QueryNode::Missing { field } => eval_missing(ctx, field),
-        _ => unimplemented!("eval for {:?} is not yet ported", node.node_type()),
+        QueryNode::Null => Some(Evaluated::Rust(eval_null())),
+        QueryNode::Wildcard => Some(Evaluated::Rust(eval_wildcard(ctx, node))),
+        QueryNode::Ids { keys, doc_ids } => Some(Evaluated::Rust(eval_ids(ctx, keys, doc_ids))),
+        QueryNode::Missing { field } => eval_missing(ctx, field).map(Evaluated::Rust),
+        // Node types not yet ported to Rust are delegated back to the C
+        // dispatcher.
+        _ => eval_node_c(ctx, node),
     }
+}
+
+/// Evaluate a not-yet-ported node by delegating to the C [`ffi::Query_EvalNode`]
+/// dispatcher, returning its C iterator as [`Evaluated::C`].
+///
+/// Returns `None` when `Query_EvalNode` produces no iterator (NULL), preserving
+/// the C semantics where some nodes (e.g. an empty expansion) yield no results.
+fn eval_node_c<'index>(
+    ctx: &'index mut QueryEvalContext,
+    node: &QueryNodeRef,
+) -> Option<Evaluated<'index>> {
+    let q = ctx.as_non_null().as_ptr();
+    let n = node.as_non_null().as_ptr();
+    // SAFETY: `q` comes from a live `QueryEvalContext` (a valid `QueryEvalCtx`
+    // with exclusive access, since `ctx` is `&mut`) and `n` from a live
+    // `QueryNodeRef` (a valid `RSQueryNode`), satisfying `Query_EvalNode`'s
+    // contract.
+    let it = unsafe { ffi::Query_EvalNode(q, n) };
+    NonNull::new(it).map(Evaluated::C)
 }
 
 /// `QN_NULL` — stopword queries produce an empty iterator.

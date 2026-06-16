@@ -1770,6 +1770,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "query_eval_ffi"
+version = "0.0.1"
+dependencies = [
+ "ffi",
+ "query_eval",
+ "rqe_iterators",
+ "workspace_hack",
+]
+
+[[package]]
 name = "query_flags"
 version = "0.0.1"
 dependencies = [
@@ -2027,6 +2037,7 @@ dependencies = [
  "module_init_ffi",
  "numeric_range_tree_ffi",
  "query_error_ffi",
+ "query_eval_ffi",
  "query_term_ffi",
  "quote 1.0.45",
  "redis-module",
@@ -2362,6 +2373,7 @@ dependencies = [
  "numeric_range_tree_ffi",
  "proptest",
  "query_error_ffi",
+ "query_eval_ffi",
  "query_term_ffi",
  "redis_mock",
  "reducers_ffi",

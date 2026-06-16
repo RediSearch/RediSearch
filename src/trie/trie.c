@@ -209,9 +209,10 @@ TrieIterator *Trie_IterateAll(Trie *t) {
   return TrieNode_Iterate(t->root, NULL, NULL, NULL);
 }
 
-TrieIterator *Trie_Iterate(Trie *t, const char *prefix, size_t len, int maxDist, int prefixMode) {
+TrieIterator *Trie_IterateFuzzy(Trie *t, const char *str, size_t len, int maxDist,
+                                TrieMatchMode mode) {
   size_t rlen;
-  rune *runes = strToLowerRunes(prefix, len, &rlen);
+  rune *runes = strToLowerRunes(str, len, &rlen);
   if (!runes || rlen > TRIE_MAX_PREFIX) {
     if (runes) {
       rm_free(runes);
@@ -219,21 +220,21 @@ TrieIterator *Trie_Iterate(Trie *t, const char *prefix, size_t len, int maxDist,
     return NULL;
   }
 
-  DFAFilter *fc = NewDFAFilter(runes, rlen, maxDist, prefixMode);
+  DFAFilter *fc = NewDFAFilter(runes, rlen, maxDist, mode);
 
   TrieIterator *it = TrieNode_Iterate(t->root, LoweringFilterFunc, StackPop, fc);
   rm_free(runes);
   return it;
 }
 
-Vector *Trie_Search(Trie *tree, const char *s, size_t len, size_t num, int maxDist, int prefixMode,
-                    int trim, int optimize) {
+Vector *Trie_CollectFuzzy(Trie *t, const char *str, size_t len, size_t num, int maxDist,
+                          TrieMatchMode mode, int trim, int optimize) {
 
   if (len > TRIE_MAX_PREFIX * sizeof(rune)) {
     return NULL;
   }
   size_t rlen;
-  rune *runes = strToSingleCodepointFoldedRunes(s, len, &rlen);
+  rune *runes = strToSingleCodepointFoldedRunes(str, len, &rlen);
   // make sure query length does not overflow
   if (!runes || rlen > TRIE_MAX_PREFIX) {
     rm_free(runes);
@@ -243,10 +244,10 @@ Vector *Trie_Search(Trie *tree, const char *s, size_t len, size_t num, int maxDi
   heap_t *pq = rm_malloc(heap_sizeof(num));
   heap_init(pq, cmpEntries, NULL, num);
 
-  DFAFilter *fc = NewDFAFilter(runes, rlen, maxDist, prefixMode);
+  DFAFilter *fc = NewDFAFilter(runes, rlen, maxDist, mode);
 
-  TrieIterator *it = TrieNode_Iterate(tree->root, FoldingFilterFunc, StackPop, fc);
-  // TrieIterator *it = TrieNode_Iterate(tree->root,NULL, NULL, NULL);
+  TrieIterator *it = TrieNode_Iterate(t->root, FoldingFilterFunc, StackPop, fc);
+  // TrieIterator *it = TrieNode_Iterate(t->root,NULL, NULL, NULL);
   rune *rstr;
   t_len slen;
   float score;
@@ -270,7 +271,7 @@ Vector *Trie_Search(Trie *tree, const char *s, size_t len, size_t num, int maxDi
       ent->score *= exp((double)-(2 * dist));
     }
     // in prefix mode we also factor in the total length of the suffix
-    if (prefixMode) {
+    if (mode == TRIE_MATCH_PREFIX) {
       ent->score /= sqrt(1 + (slen >= len ? slen - len : len - slen));
     }
 
