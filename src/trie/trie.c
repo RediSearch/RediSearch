@@ -209,10 +209,10 @@ TrieIterator *Trie_IterateAll(Trie *t) {
   return TrieNode_Iterate(t->root, NULL, NULL, NULL);
 }
 
-TrieIterator *Trie_IterateFuzzy(Trie *t, const char *prefix, size_t len, int maxDist,
+TrieIterator *Trie_IterateFuzzy(Trie *t, const char *str, size_t len, int maxDist,
                                 TrieMatchMode mode) {
   size_t rlen;
-  rune *runes = strToLowerRunes(prefix, len, &rlen);
+  rune *runes = strToLowerRunes(str, len, &rlen);
   if (!runes || rlen > TRIE_MAX_PREFIX) {
     if (runes) {
       rm_free(runes);
@@ -227,14 +227,14 @@ TrieIterator *Trie_IterateFuzzy(Trie *t, const char *prefix, size_t len, int max
   return it;
 }
 
-Vector *Trie_CollectFuzzy(Trie *tree, const char *s, size_t len, size_t num, int maxDist,
+Vector *Trie_CollectFuzzy(Trie *t, const char *str, size_t len, size_t num, int maxDist,
                           TrieMatchMode mode, int trim, int optimize) {
 
   if (len > TRIE_MAX_PREFIX * sizeof(rune)) {
     return NULL;
   }
   size_t rlen;
-  rune *runes = strToSingleCodepointFoldedRunes(s, len, &rlen);
+  rune *runes = strToSingleCodepointFoldedRunes(str, len, &rlen);
   // make sure query length does not overflow
   if (!runes || rlen > TRIE_MAX_PREFIX) {
     rm_free(runes);
@@ -246,8 +246,8 @@ Vector *Trie_CollectFuzzy(Trie *tree, const char *s, size_t len, size_t num, int
 
   DFAFilter *fc = NewDFAFilter(runes, rlen, maxDist, mode);
 
-  TrieIterator *it = TrieNode_Iterate(tree->root, FoldingFilterFunc, StackPop, fc);
-  // TrieIterator *it = TrieNode_Iterate(tree->root,NULL, NULL, NULL);
+  TrieIterator *it = TrieNode_Iterate(t->root, FoldingFilterFunc, StackPop, fc);
+  // TrieIterator *it = TrieNode_Iterate(t->root,NULL, NULL, NULL);
   rune *rstr;
   t_len slen;
   float score;
