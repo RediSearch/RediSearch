@@ -147,9 +147,16 @@ jobs:
           fetch-depth: 0
 
       - name: Configure git identity
+        # Set the identity GLOBALLY (not just in this checkout). The Codex
+        # sandbox mounts this checkout's `.git` read-only by design (it blocks
+        # an agent from rewriting history/refs), so the agent does its git
+        # writes (fetch/cherry-pick/commit/push) inside a fresh clone under
+        # /tmp; a repo-local identity would not be inherited there and the
+        # cherry-pick would abort with "Committer identity unknown". A global
+        # identity is picked up by any clone the agent creates.
         run: |
-          git config user.name "redis-pr-app[bot]"
-          git config user.email "redis-pr-app[bot]@users.noreply.github.com"
+          git config --global user.name "redis-pr-app[bot]"
+          git config --global user.email "redis-pr-app[bot]@users.noreply.github.com"
 
       # The script in scripts/auto_backport/resolve_create.py is the source
       # of truth for the resolve logic — it derives the target-branch list

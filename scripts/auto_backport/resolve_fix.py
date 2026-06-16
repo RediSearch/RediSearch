@@ -127,9 +127,11 @@ def fetch_failed_run(branch: str, head_sha: str) -> dict | None:
 def fetch_failed_jobs_and_excerpts(run_id: int) -> tuple[list[str], list[dict]]:
     """Return (failed_job_names, [{job, step, tail}]) for `run_id`.
 
-    Best-effort: gh API hiccups give us an empty list rather than an
-    abort — the agent can call `gh run view "$run_id" --log-failed`
-    itself if needed.
+    Best-effort: gh API hiccups give us an empty list rather than an abort.
+    Note this resolve-time capture is the *only* CI-log source the agent
+    gets: it runs on the default GITHUB_TOKEN (which has actions:read),
+    whereas the agent's App token does not, so the agent cannot re-fetch
+    logs itself via `gh run view --log-failed`.
 
     `actions/runs/{id}/jobs` is paginated (30 per page by default), and
     `Pull Request Flow` runs many matrix jobs. Without `--paginate`,
@@ -207,7 +209,7 @@ def main() -> int:
     inline_context = strip_inline_context(comment_body)
 
     pr_data = common.fetch_pr(pr, [
-        "number", "headRefName", "baseRefName", "labels", "state",
+        "number", "headRefName", "baseRefName", "state",
         "title", "body", "headRefOid", "isCrossRepository",
     ])
 
@@ -224,15 +226,20 @@ def main() -> int:
             "touch fork branches. Skipping."
         )
 
-    labels = [(l.get("name") or "") for l in (pr_data.get("labels") or [])]
-    if "auto-backport" not in labels:
-        common.skip(f"PR #{pr} does not have the auto-backport label; skipping.")
-
     branch = pr_data["headRefName"]
     base = pr_data["baseRefName"]
     head_sha = pr_data["headRefOid"]
 
-    # Belt-and-suspenders: branches the agent edits must be ours.
+    # The `backport-agent/` branch namespace is the authoritative signal that
+    # this PR was opened by our create flow: only that flow, holding the App
+    # token, ever pushes these branches — and it does so only after confirming
+    # the source PR was merged and refusing fork-sourced PRs. We intentionally
+    # do NOT also hard-require the `auto-backport` label: that label is
+    # provisioned out-of-band and a create run may legitimately fail to attach
+    # it (e.g. the label definition is missing from the repo). Gating on a label
+    # the create flow couldn't apply would lock a human out of
+    # `/backport-agent-fix` on an otherwise-valid backport PR, which is exactly
+    # the case where the fix flow is most useful.
     if not branch.startswith(BRANCH_PREFIX):
         common.skip(
             f"PR #{pr} branch ({branch}) is outside the backport-agent/ "

@@ -4,12 +4,24 @@ You are running inside GitHub Actions to backport a merged RediSearch PR to one 
 more release branches. The triggering workflow has already:
 
 - Checked out the repository at master with full history (`fetch-depth: 0`).
-- Configured `git` with a committer identity for the bot.
-- Set `GH_TOKEN` so `gh` and `git push` are authenticated with write access to
-  this repo's contents and pull requests.
+- Configured a **global** `git` committer identity for the bot (so any clone you
+  create inherits it).
+- Set `GH_TOKEN` so `gh` is authenticated with write access to this repo's
+  contents and pull requests.
 - Written a small context file describing what to backport.
 
 Do not install tools, switch accounts, or configure credentials.
+
+> **Where git writes go — and why.** The Codex sandbox **intentionally** mounts
+> `.git` read-only even though the workspace around it is writable: it is a
+> deliberate protection so an agent cannot rewrite history, refs, or hooks.
+> Reading `.git` is fine; only writes are blocked. As a result `git fetch`,
+> `checkout -B`, `cherry-pick`, `commit`, and `push` cannot operate on this
+> checkout's `.git`. The sanctioned place for git writes is a writable root, so
+> you do all git work in a clone under `/tmp` (see "Set up a writable working
+> copy" below). This is the normal pattern for this sandbox, not a workaround
+> for a bug. `gh` reads `GH_TOKEN` from the environment and works from anywhere;
+> only `git push` needs the explicit auth header the setup step configures.
 
 ## Read the context file
 
@@ -76,8 +88,8 @@ The manual `pr-backport` workflow that humans use locally is in
 `.skills/pr-backport/SKILL.md`. Read it if you need additional background on the
 project's conflict patterns. This automated flow is different in three ways:
 
-- **No worktrees.** You operate in a single CI checkout; `git checkout -B` switches
-  between target branches in place.
+- **No worktrees.** You operate in a single writable clone (see below);
+  `git checkout -B` switches between target branches in place within it.
 - **No local build or tests.** The backport PR's own CI runs the full build and
   test matrix. Do not invoke `./build.sh`, `cargo`, `make`, or any test runner.
 - **Multi-branch in one run.** You process every target in `targets` sequentially
@@ -110,6 +122,41 @@ project's conflict patterns. This automated flow is different in three ways:
 4. For each target in that order, perform the per-branch loop below.
 5. At the end, print the **final summary** in the exact format shown at the bottom
    of this prompt so the workflow log captures it.
+
+Before the per-branch loop, set up the writable working copy described next; run
+every `git` command below from inside it.
+
+## Set up a writable working copy
+
+Because the sandbox protects this checkout's `.git` (read-only by design), do
+your git work in a clone under `/tmp` — a writable root. Set it up **once**,
+before the per-branch loop; a single clone serves every target.
+
+```bash
+CHECKOUT="$PWD"
+WORK="/tmp/auto-backport-${PR}"
+rm -rf "$WORK"
+
+# Clone from GitHub so every release-branch ref (origin/8.x, origin/master) and
+# all objects are present — the cherry-pick base, `git log origin/<target>..origin/master`
+# conflict diffs, and the squash commit all need them. `--reference-if-able`
+# reuses objects already in the read-only checkout, so this stays fast and mostly
+# offline. Do NOT use `--single-branch`: conflict resolution compares against
+# origin/master, which a single-branch clone would not have.
+git clone --no-tags --reference-if-able "${CHECKOUT}/.git" \
+  "https://github.com/${GITHUB_REPOSITORY}" "$WORK"
+cd "$WORK"
+
+# Authenticate pushes. GitHub *App* tokens (this is one) must be presented as
+# HTTP basic auth in the `x-access-token:<token>` form; a `bearer <token>`
+# header is rejected ("could not read Username for 'https://github.com'").
+# With this header set, a plain `git push` over https is authenticated.
+git config http."https://github.com/".extraheader \
+  "AUTHORIZATION: basic $(printf 'x-access-token:%s' "$GH_TOKEN" | base64 | tr -d '\n')"
+```
+
+The bot committer identity is configured globally by the workflow, so commits
+made in this clone are attributed correctly without any extra `git config`.
 
 ## Per-branch loop
 
@@ -160,10 +207,19 @@ if [ -n "${existing}" ]; then
 fi
 ```
 
-Then cherry-pick onto a fresh branch:
+Then, from inside the writable clone (`$WORK`), cherry-pick onto a fresh branch.
+**Refresh the target tip first.** The clone is a point-in-time snapshot, and a
+release branch can advance mid-run — an earlier target's backport merges, or a
+concurrent backport lands — so cherry-picking onto the clone-time
+`origin/${TARGET}` could miss conflicts (and CI coverage) against the actual
+tip. Re-fetch with a forced refspec so the remote-tracking ref moves in place (a
+plain `git fetch origin "${TARGET}"` only updates `FETCH_HEAD`, leaving
+`origin/${TARGET}` — used both here and in the conflict diffs below — stale).
+The squash commit `${SHA}` is already present from the clone, so it needs no
+refetch:
 
 ```bash
-git fetch origin "${TARGET}"
+git fetch --no-tags origin "+refs/heads/${TARGET}:refs/remotes/origin/${TARGET}"
 git checkout -B "${BRANCH}" "origin/${TARGET}"
 git cherry-pick "${SHA}"
 ```
@@ -236,11 +292,20 @@ EOF
 ```
 
 After creating the PR, set labels with `gh pr edit "<new-pr-url>" --add-label "<label>"`.
-All labels you need already exist in the repo — do **not** run `gh label create`
-(the token cannot create label definitions, and labels are provisioned ahead of time):
+Do **not** run `gh label create` (the token cannot create label definitions, and
+labels are provisioned ahead of time):
 
 - Add `auto-backport` to every PR you open.
 - Add `auto-backport-conflicts` to PRs where you resolved any conflict.
+
+These labels are provisioned out-of-band and may be missing in a freshly
+configured repo, in which case `gh pr edit --add-label` fails with
+`'<label>' not found`. **Treat that as non-fatal:** the PR has already been
+created and is the real deliverable. Note the missing label in your summary and
+move on — never `gh label create` to work around it, and never let a failed
+label edit abort the run or block the remaining targets. (The fix flow no longer
+depends on the `auto-backport` label, so a missing label does not break
+`/backport-agent-fix`.)
 
 **Do not copy labels from the original PR.** Reviewers can re-label the
 backport PR if categorization is needed; copying everything propagates
