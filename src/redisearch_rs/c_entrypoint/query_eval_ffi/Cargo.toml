@@ -1,0 +1,20 @@
+[package]
+name = "query_eval_ffi"
+version.workspace = true
+edition.workspace = true
+license-file.workspace = true
+publish.workspace = true
+
+[lints]
+workspace = true
+
+[lib]
+test = false
+# See https://bheisler.github.io/criterion.rs/book/faq.html#cargo-bench-gives-unrecognized-option-errors-for-valid-command-line-options
+bench = false
+
+[dependencies]
+ffi.workspace = true
+query_eval.workspace = true
+rqe_iterators.workspace = true
+workspace_hack.workspace = true

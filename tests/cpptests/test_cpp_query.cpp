@@ -21,6 +21,7 @@ extern "C" {
 #include "common.h"
 #include "query_test_utils.h"
 #include "iterators_ffi.h"
+#include "query_eval_ffi.h"
 
 #include "gtest/gtest.h"
 
