@@ -233,7 +233,7 @@ const FieldSpec *IndexSpec_GetField(const IndexSpec *spec, const HiddenString *n
 // Assuming the spec is properly locked before calling this function.
 t_fieldMask IndexSpec_GetFieldBit(IndexSpec *spec, const char *name, size_t len) {
   const FieldSpec *fs = IndexSpec_GetFieldWithLength(spec, name, len);
-  if (!fs || !FIELD_IS(fs, INDEXFLD_T_FULLTEXT) || !FieldSpec_IsIndexable(fs)) return 0;
+  if (!fs || !FieldSpec_IsIndexableText(fs)) return 0;
 
   return FIELD_BIT(fs);
 }
@@ -244,17 +244,15 @@ int IndexSpec_CheckPhoneticEnabled(const IndexSpec *sp, t_fieldMask fm) {
     return 0;
   }
 
-  if (fm == 0 || fm == (t_fieldMask)-1) {
+  if (fm == 0 || fm == RS_FIELDMASK_ALL) {
     // No fields -- implicit phonetic match!
     return 1;
   }
 
   for (size_t ii = 0; ii < sp->numFields; ++ii) {
-    if (fm & ((t_fieldMask)1 << ii)) {
-      const FieldSpec *fs = sp->fields + ii;
-      if (FIELD_IS(fs, INDEXFLD_T_FULLTEXT) && (FieldSpec_IsPhonetics(fs))) {
-        return 1;
-      }
+    const FieldSpec *fs = sp->fields + ii;
+    if (FieldSpec_IsIndexableTextInMask(fs, fm) && FieldSpec_IsPhonetics(fs)) {
+      return 1;
     }
   }
   return 0;
@@ -263,13 +261,13 @@ int IndexSpec_CheckPhoneticEnabled(const IndexSpec *sp, t_fieldMask fm) {
 // Assuming the spec is properly locked before calling this function.
 int IndexSpec_CheckAllowSlopAndInorder(const IndexSpec *spec, t_fieldMask fm, QueryError *status) {
   for (size_t ii = 0; ii < spec->numFields; ++ii) {
-    if (fm & ((t_fieldMask)1 << ii)) {
-      const FieldSpec *fs = spec->fields + ii;
-      if (FIELD_IS(fs, INDEXFLD_T_FULLTEXT) && (FieldSpec_IsUndefinedOrder(fs))) {
-        QueryError_SetWithUserDataFmt(status, QUERY_ERROR_CODE_BAD_ORDER_OPTION,
-                               "slop/inorder are not supported for field with undefined ordering", " `%s`", HiddenString_GetUnsafe(fs->fieldName, NULL));
-        return 0;
-      }
+    const FieldSpec *fs = spec->fields + ii;
+    if (FieldSpec_IsIndexableTextInMask(fs, fm) && FieldSpec_IsUndefinedOrder(fs)) {
+      QueryError_SetWithUserDataFmt(
+          status, QUERY_ERROR_CODE_BAD_ORDER_OPTION,
+          "slop/inorder are not supported for field with undefined ordering", " `%s`",
+          HiddenString_GetUnsafe(fs->fieldName, NULL));
+      return 0;
     }
   }
   return 1;
@@ -288,8 +286,7 @@ const FieldSpec *IndexSpec_GetFieldBySortingIndex(const IndexSpec *sp, uint16_t 
 // Assuming the spec is properly locked before calling this function.
 const char *IndexSpec_GetFieldNameByBit(const IndexSpec *sp, t_fieldMask id) {
   for (int i = 0; i < sp->numFields; i++) {
-    if (FIELD_BIT(&sp->fields[i]) == id && FIELD_IS(&sp->fields[i], INDEXFLD_T_FULLTEXT) &&
-      FieldSpec_IsIndexable(&sp->fields[i])) {
+    if (FieldSpec_IsIndexableText(&sp->fields[i]) && FIELD_BIT(&sp->fields[i]) == id) {
       return HiddenString_GetUnsafe(sp->fields[i].fieldName, NULL);
     }
   }
@@ -299,8 +296,7 @@ const char *IndexSpec_GetFieldNameByBit(const IndexSpec *sp, t_fieldMask id) {
 // Get the field spec by the field mask.
 const FieldSpec *IndexSpec_GetFieldByBit(const IndexSpec *sp, t_fieldMask id) {
   for (int i = 0; i < sp->numFields; i++) {
-    if (FIELD_BIT(&sp->fields[i]) == id && FIELD_IS(&sp->fields[i], INDEXFLD_T_FULLTEXT) &&
-        FieldSpec_IsIndexable(&sp->fields[i])) {
+    if (FieldSpec_IsIndexableText(&sp->fields[i]) && FIELD_BIT(&sp->fields[i]) == id) {
       return &sp->fields[i];
     }
   }
@@ -311,7 +307,7 @@ const FieldSpec *IndexSpec_GetFieldByBit(const IndexSpec *sp, t_fieldMask id) {
 arrayof(FieldSpec *) IndexSpec_GetFieldsByMask(const IndexSpec *sp, t_fieldMask mask) {
   arrayof(FieldSpec *) res = array_new(FieldSpec *, 2);
   for (int i = 0; i < sp->numFields; i++) {
-    if (mask & FIELD_BIT(sp->fields + i) && FIELD_IS(sp->fields + i, INDEXFLD_T_FULLTEXT)) {
+    if (FieldSpec_IsIndexableTextInMask(sp->fields + i, mask)) {
       array_append(res, sp->fields + i);
     }
   }
@@ -1660,7 +1656,7 @@ static int IndexSpec_AddFieldsInternal(IndexSpec *sp, StrongRef spec_ref, ArgsCu
     if (FieldSpec_IsPhonetics(fs)) {
       sp->flags |= Index_HasPhonetic;
     }
-    if (FIELD_IS(fs, INDEXFLD_T_FULLTEXT) && FieldSpec_HasSuffixTrie(fs)) {
+    if (FieldSpec_IsIndexableText(fs) && FieldSpec_HasSuffixTrie(fs)) {
       sp->suffixMask |= FIELD_BIT(fs);
       if (!sp->suffix) {
         sp->flags |= Index_HasSuffixTrie;
@@ -3448,7 +3444,7 @@ IndexSpec *IndexSpec_RdbLoad(RedisModuleIO *rdb, int encver, bool useSst, QueryE
     if (FieldSpec_IsSortable(fs)) {
       sp->numSortableFields++;
     }
-    if (FieldSpec_HasSuffixTrie(fs) && FIELD_IS(fs, INDEXFLD_T_FULLTEXT)) {
+    if (FieldSpec_HasSuffixTrie(fs) && FieldSpec_IsIndexableText(fs)) {
       sp->flags |= Index_HasSuffixTrie;
       sp->suffixMask |= FIELD_BIT(fs);
       if (!sp->suffix) {
