@@ -185,9 +185,18 @@ pub fn compare(
         (Value::Trio(t1), Value::Trio(t2)) => {
             compare(t1.left(), t2.left(), num_to_str_cmp_fallback)
         }
-        // A number compared against a trio recurses into the trio's left element.
-        (Value::Number(_), Value::Trio(t2)) => compare(v1, t2.left(), num_to_str_cmp_fallback),
-        (Value::Trio(t1), Value::Number(_)) => compare(t1.left(), v2, num_to_str_cmp_fallback),
+        // A number compared against a trio attempts numeric conversion of the trio's left
+        // element (following the same recursion as C's `RSValue_ToNumber`). On success,
+        // compare numerically; if conversion fails, the trio as a whole is treated as an
+        // empty string — identical to the Array/Map/Undefined arms above.
+        (Value::Number(n1), Value::Trio(t2)) => match try_value_as_number(t2.left()) {
+            Some(n2) => n1.partial_cmp(&n2).ok_or(CompareError::NaNFloat),
+            None => compare_number_to_unconvertible(num_to_str_cmp_fallback, Ordering::Greater),
+        },
+        (Value::Trio(t1), Value::Number(n2)) => match try_value_as_number(t1.left()) {
+            Some(n1) => n1.partial_cmp(n2).ok_or(CompareError::NaNFloat),
+            None => compare_number_to_unconvertible(num_to_str_cmp_fallback, Ordering::Less),
+        },
         // A number compared against an array, map, or undefined is treated as a
         // number-to-string comparison where the other side is the empty string:
         // with the fallback enabled the number always wins (it never formats to
@@ -268,5 +277,21 @@ const fn compare_number_to_unconvertible(
         Ok(if_number_first)
     } else {
         Err(CompareError::NoNumberToStringFallback)
+    }
+}
+
+/// Try to extract a numeric value from a [`Value`], mirroring C's `RSValue_ToNumber`.
+///
+/// Numbers are returned directly, strings are parsed with [`str_to_float`], trios
+/// recurse into their left element, and references are transparently followed.
+/// All other types (null, array, map, undefined) yield `None`.
+fn try_value_as_number(v: &Value) -> Option<f64> {
+    match v {
+        Value::Ref(r) => try_value_as_number(r),
+        Value::Number(n) => Some(*n),
+        Value::String(s) => str_to_float(s.as_bytes()),
+        Value::RedisString(s) => str_to_float(s.as_bytes()),
+        Value::Trio(t) => try_value_as_number(t.left()),
+        _ => None,
     }
 }
