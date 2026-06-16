@@ -324,7 +324,11 @@ static RSScoreExplain *buildHybridScoreExplain(HybridSearchResult *hybridResult,
                                                const double *values,
                                                double finalScore) {
   RSScoreExplain *outer = rm_calloc(1, sizeof(RSScoreExplain));
-  rm_asprintf(&outer->str, "final score: %.17g", finalScore);
+  // Outer line is a formula, not just the value — matches the existing TEXT
+  // EXPLAINSCORE convention (e.g. "(0.29 = Weight 1.00 * IDF 0.29 * …)").
+  outer->str = HybridScoring_FormatFinalScoreLine(
+      scoringCtx, values, hybridResult->hasResults,
+      hybridResult->numSources, finalScore);
 
   RSScoreExplain *envelope = rm_calloc(1, sizeof(RSScoreExplain));
   envelope->str = HybridScoring_FormatEnvelope(scoringCtx);

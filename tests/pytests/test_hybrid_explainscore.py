@@ -75,7 +75,8 @@ def _score_and_tokens(env, fields, key):
 
 
 def test_hybrid_explainscore_rrf_knn():
-    """RRF + KNN: per-branch rank lines, KNN envelope, BM25STD default scorer."""
+    """RRF + KNN: per-branch rank lines, KNN envelope, BM25STD default scorer.
+    The outer "final score:" line carries the RRF formula (1/(K+rank))."""
     env = Env(moduleArgs='DEFAULT_DIALECT 2')
     setup_index(env)
     blob = np.array([0.5, 0.5]).astype(np.float32).tobytes()
@@ -91,8 +92,10 @@ def test_hybrid_explainscore_rrf_knn():
         _, _, tokens = _score_and_tokens(env, fields, key)
         joined = ' | '.join(tokens)
 
-        env.assertTrue(any('final score:' in t for t in tokens),
-                       message=f'missing outer "final score:" in {joined!r}')
+        # Outer line is a formula, not just the value.
+        env.assertTrue(any(t.startswith('final score: 1 / (constant ')
+                           and ' + 1 / (constant ' in t and ' = ' in t for t in tokens),
+                       message=f'missing RRF formula in outer line, got {joined!r}')
         env.assertTrue(any('Hybrid score (RRF: window=' in t and 'constant=' in t for t in tokens),
                        message=f'missing RRF envelope in {joined!r}')
         env.assertTrue(any(t.startswith('text rank = ') for t in tokens),
@@ -134,7 +137,8 @@ def test_hybrid_explainscore_rrf_range():
 
 
 def test_hybrid_explainscore_linear_knn():
-    """LINEAR + KNN: envelope shows alpha/beta/window, contribution formula visible."""
+    """LINEAR + KNN: envelope shows alpha/beta/window, contribution formula visible.
+    The outer "final score:" line shows the weighted-sum formula."""
     env = Env(moduleArgs='DEFAULT_DIALECT 2')
     setup_index(env)
     blob = np.array([0.5, 0.5]).astype(np.float32).tobytes()
@@ -151,6 +155,10 @@ def test_hybrid_explainscore_linear_knn():
         _, _, tokens = _score_and_tokens(env, fields, key)
         joined = ' | '.join(tokens)
 
+        # Outer line: "final score: 0.7000 * X + 0.3000 * Y = S"
+        env.assertTrue(any(t.startswith('final score: 0.7000 * ')
+                           and ' + 0.3000 * ' in t and ' = ' in t for t in tokens),
+                       message=f'missing LINEAR formula in outer line, got {joined!r}')
         env.assertTrue(any('Hybrid score (LINEAR: alpha=0.7000' in t
                            and 'beta=0.3000' in t and 'window=' in t for t in tokens),
                        message=f'missing LINEAR envelope in {joined!r}')
@@ -215,7 +223,9 @@ def test_hybrid_explainscore_scorer_name_propagates():
 
 def test_hybrid_explainscore_text_only_match_branch_placeholder():
     """When a doc matches text but not the vector RANGE, the vector branch
-    shows "matched within radius = false" and a missing-match placeholder."""
+    shows "matched within radius = false", the per-branch sub-tree carries
+    a "<no match>" placeholder, and the outer formula records the dropped
+    term as "0 [vector: no match]"."""
     env = Env(moduleArgs='DEFAULT_DIALECT 2')
     setup_index(env, vec_algo='HNSW')
     # A very small radius so no vector match exists for any doc, but text matches.
@@ -236,6 +246,9 @@ def test_hybrid_explainscore_text_only_match_branch_placeholder():
             saw_no_match = True
             env.assertTrue(any('<no match>' in t for t in tokens),
                            message=f'expected "<no match>" placeholder in {tokens!r}')
+            env.assertTrue(any(t.startswith('final score: ')
+                               and '0 [vector: no match]' in t for t in tokens),
+                           message=f'expected dropped term in outer formula, got {tokens!r}')
             break
     env.assertTrue(saw_no_match,
                    message='expected at least one doc with vector branch missing')

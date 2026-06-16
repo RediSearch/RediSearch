@@ -66,6 +66,27 @@ double HybridLinearScore(HybridScoringContext *scoringCtx, const double *scores,
  */
 char *HybridScoring_FormatEnvelope(const HybridScoringContext *scoringCtx);
 
+/**
+ * Format the outer "final score: …" line as a formula, mirroring the style
+ * of existing TEXT EXPLAINSCORE lines (which show how the score was
+ * computed, not just its value).
+ *
+ *   RRF, both matched:
+ *     "final score: 1 / (constant K + rank N1) + 1 / (constant K + rank N2) = S"
+ *   RRF, text-only:
+ *     "final score: 1 / (constant K + rank N1) + 0 [vector: no match] = S"
+ *   LINEAR, both matched:
+ *     "final score: A * X + B * Y = S"
+ *   LINEAR, text-only:
+ *     "final score: A * X + 0 [vector: no match] = S"
+ *
+ * The returned string is heap-allocated with rm_malloc and must be freed by
+ * the caller (or transferred to an RSScoreExplain node, which frees it).
+ */
+char *HybridScoring_FormatFinalScoreLine(const HybridScoringContext *scoringCtx,
+                                         const double *values, const bool *has_value,
+                                         size_t num_sources, double finalScore);
+
 
 
 #ifdef __cplusplus
