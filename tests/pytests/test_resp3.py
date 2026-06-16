@@ -1278,7 +1278,10 @@ def test_ft_info():
       initial_doc_table_size_mb = 8072 / (1024 * 1024)
       # Size of an empty TrieMap
       key_table_sz_mb = 24 / (1024 * 1024)
-      per_node_index_memory_sz_mb = initial_doc_table_size_mb + key_table_sz_mb
+      # The term dictionary (text overhead) is allocated eagerly at FT.CREATE and
+      # reports its 24-byte struct baseline even with no terms.
+      text_overhead_sz_mb = 24 / (1024 * 1024)
+      per_node_index_memory_sz_mb = initial_doc_table_size_mb + key_table_sz_mb + text_overhead_sz_mb
 
       res = order_dict(r.execute_command('ft.info', 'idx'))
 
@@ -1348,7 +1351,7 @@ def test_ft_info():
         'inverted_sz_mb': 0.0,
         'key_table_size_mb': key_table_sz_mb,
         'tag_overhead_sz_mb': 0.0,
-        'text_overhead_sz_mb': 0.0,
+        'text_overhead_sz_mb': text_overhead_sz_mb,
         'total_index_memory_sz_mb': total_index_memory_sz_mb,
         'max_doc_id': 0.0,
         'num_docs': 0.0,
@@ -1428,7 +1431,7 @@ def test_ft_info():
         'inverted_sz_mb': 0.0,
         'key_table_size_mb': nodes * key_table_sz_mb,
         'tag_overhead_sz_mb': 0.0,
-        'text_overhead_sz_mb': 0.0,
+        'text_overhead_sz_mb': text_overhead_sz_mb,
         # global_vector_mem_mb is already aggregated across shards (FT.INFO sums
         # vector_index_sz_mb from each shard), so it's added once — not multiplied
         # by `nodes` — to the per-node base * nodes.
