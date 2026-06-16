@@ -99,6 +99,20 @@ typedef struct timespec timespec;
 typedef struct AREQ AREQ;
 """
 
+[header.query_eval_ffi]
+includes = ["redisearch.h", "query_ctx.h", "iterators/iterator_api.h", "query.h"]
+after_includes = """
+// `RSQueryNode` is defined in `query_node.h` as `typedef struct RSQueryNode { ... } QueryNode;`,
+// i.e. the typedef name is `QueryNode`, not `RSQueryNode`. cheadergen emits the
+// Rust type name `RSQueryNode` as a bare reference, so we surface a matching
+// typedef here for the C compiler.
+typedef struct RSQueryNode RSQueryNode;
+// `AREQ` is defined in `aggregate/aggregate.h`, a heavy header we avoid pulling
+// in here. `QAST_Iterate` only takes an `AREQ *`, so a forward typedef (matching
+// the full `typedef struct AREQ { ... } AREQ;` definition) is sufficient.
+typedef struct AREQ AREQ;
+"""
+
 [header.module_init_ffi]
 includes = ["redismodule.h"]
 

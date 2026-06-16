@@ -19,6 +19,7 @@
 #include "query_error_ffi.h"
 #include "redis_index.h"
 #include "iterators_ffi.h"
+#include "query_eval_ffi.h"
 #include "tokenize.h"
 #include "trie/trie.h"
 #include "triemap_ffi.h"
@@ -976,14 +977,14 @@ static QueryIterator *Query_EvalPhraseNode(QueryEvalCtx *q, QueryNode *qn) {
   // return it
   if (QueryNode_NumChildren(qn) == 1) {
     qn->children[0]->opts.fieldMask &= qn->opts.fieldMask;
-    return Query_EvalNode(q, qn->children[0]);
+    return Query_EvalNode_Rs(q, qn->children[0]);
   }
 
   // recursively eval the children
   QueryIterator **iters = rm_calloc(QueryNode_NumChildren(qn), sizeof(QueryIterator *));
   for (size_t ii = 0; ii < QueryNode_NumChildren(qn); ++ii) {
     qn->children[ii]->opts.fieldMask &= qn->opts.fieldMask;
-    iters[ii] = Query_EvalNode(q, qn->children[ii]);
+    iters[ii] = Query_EvalNode_Rs(q, qn->children[ii]);
   }
   QueryIterator *ret;
 
@@ -1000,13 +1001,6 @@ static QueryIterator *Query_EvalPhraseNode(QueryEvalCtx *q, QueryNode *qn) {
     ret = NewIntersectionIterator(iters, QueryNode_NumChildren(qn), slop, inOrder, qn->opts.weight);
   }
   return ret;
-}
-
-static QueryIterator *Query_EvalWildcardNode(QueryEvalCtx *q, QueryNode *qn) {
-  RS_LOG_ASSERT(qn->type == QN_WILDCARD, "query node type should be wildcard");
-  RS_LOG_ASSERT(q->docTable, "DocTable is NULL");
-
-  return NewWildcardIterator(q, qn->opts.weight);
 }
 
 // Probe the Blocked Client Timeout flag for a query iterator. Called from
@@ -1026,7 +1020,7 @@ static QueryIterator *Query_EvalNotNode(QueryEvalCtx *q, QueryNode *qn) {
   QueryIterator *child = NULL;
   bool currently_notSubtree = q->notSubtree;
   q->notSubtree = true;
-  child = Query_EvalNode(q, qn->children[0]);
+  child = Query_EvalNode_Rs(q, qn->children[0]);
   q->notSubtree = currently_notSubtree;
 
   t_docId maxDocId = q->sctx->spec->diskSpec ? SearchDisk_GetMaxDocId(q->sctx->spec->diskSpec) : q->docTable->maxDocId;
@@ -1038,7 +1032,7 @@ static QueryIterator *Query_EvalOptionalNode(QueryEvalCtx *q, QueryNode *qn) {
   RS_LOG_ASSERT(qn->type == QN_OPTIONAL, "query node type should be optional");
   RS_LOG_ASSERT(QueryNode_NumChildren(qn) == 1, "Optional node must have a single child");
   t_docId maxDocId = q->sctx->spec->diskSpec ? SearchDisk_GetMaxDocId(q->sctx->spec->diskSpec) : q->docTable->maxDocId;
-  return NewOptionalIterator(Query_EvalNode(q, qn->children[0]), q, maxDocId, qn->opts.weight);
+  return NewOptionalIterator(Query_EvalNode_Rs(q, qn->children[0]), q, maxDocId, qn->opts.weight);
 }
 
 static QueryIterator *Query_EvalNumericNode(QueryEvalCtx *q, QueryNode *node) {
@@ -1120,7 +1114,7 @@ static QueryIterator *Query_EvalVectorNode(QueryEvalCtx *q, QueryNode *qn) {
   QueryIterator *child_it = NULL;
   if (QueryNode_NumChildren(qn) > 0) {
     RS_ASSERT(QueryNode_NumChildren(qn) == 1);
-    child_it = Query_EvalNode(q, qn->children[0]);
+    child_it = Query_EvalNode_Rs(q, qn->children[0]);
     // If child iterator is in valid or empty, the hybrid iterator is empty as well.
     if (child_it == NULL) {
       return NULL;
@@ -1154,53 +1148,6 @@ static QueryIterator *Query_EvalVectorNode(QueryEvalCtx *q, QueryNode *qn) {
   return it;
 }
 
-static int cmp_docids(const void *p1, const void *p2) {
-  const t_docId *d1 = p1, *d2 = p2;
-  return (int)(*d1 - *d2);
-}
-
-static inline size_t deduplicateDocIdsFrom(t_docId *ids, size_t num, size_t start) {
-  size_t j = start - 1;
-  for (size_t i = start + 1; i < num; ++i) {
-    if (ids[i] != ids[j]) {
-      ids[++j] = ids[i];
-    }
-  }
-  return j + 1;
-}
-
-static inline size_t deduplicateDocIds(t_docId *ids, size_t num) {
-  for (size_t i = 1; i < num; ++i) {
-    if (ids[i] == ids[i - 1]) {
-      return deduplicateDocIdsFrom(ids, num, i);
-    }
-  }
-  return num;
-}
-
-static QueryIterator *Query_EvalIdFilterNode(QueryEvalCtx *q, QueryIdFilterNode *node) {
-  size_t num = 0;
-  t_docId* it_ids = rm_malloc(sizeof(*it_ids) * node->len);
-  for (size_t ii = 0; ii < node->len; ++ii) {
-    t_docId did = 0;
-    if (node->docIds) {
-      RS_ASSERT(SearchDisk_IsEnabled());
-      did = node->docIds[ii];
-    } else {
-      did = DocTable_GetId(&q->sctx->spec->docs, node->keys[ii], sdslen(node->keys[ii]));
-    }
-    if (did) {
-      it_ids[num++] = did;
-    }
-  }
-  if (num) {
-    qsort(it_ids, num, sizeof(t_docId), cmp_docids);
-    num = deduplicateDocIds(it_ids, num);
-  }
-  // Passing the ownership of the ids to the iterator.
-  return NewSortedIdListIterator(it_ids, num, 1);
-}
-
 static QueryIterator *Query_EvalUnionNode(QueryEvalCtx *q, QueryNode *qn) {
   RS_LOG_ASSERT(qn->type == QN_UNION, "query node type should be union")
   // Parsers and expanders always create unions with 2+ children.
@@ -1210,7 +1157,7 @@ static QueryIterator *Query_EvalUnionNode(QueryEvalCtx *q, QueryNode *qn) {
   QueryIterator **iters = rm_malloc(QueryNode_NumChildren(qn) * sizeof(QueryIterator *));
   for (size_t i = 0; i < QueryNode_NumChildren(qn); ++i) {
     qn->children[i]->opts.fieldMask &= qn->opts.fieldMask;
-    iters[i] = Query_EvalNode(q, qn->children[i]);
+    iters[i] = Query_EvalNode_Rs(q, qn->children[i]);
   }
 
   // We want to get results with all the matching children (`quickExit == false`), unless:
@@ -1555,24 +1502,14 @@ static QueryIterator *Query_EvalTagNode(QueryEvalCtx *q, QueryNode *qn) {
   return NewUnionIterator(iters, QueryNode_NumChildren(qn), quickExit, qn->opts.weight, QN_TAG, NULL, q->config);
 }
 
-static QueryIterator *Query_EvalMissingNode(QueryEvalCtx *q, QueryNode *qn) {
-  RS_LOG_ASSERT(qn->type == QN_MISSING, "query qn type should be missing")
-  const FieldSpec *fs = qn->miss.field;
-
-  // Get the InvertedIndex corresponding to the queried field.
-  InvertedIndex *missingII = dictFetchValue(q->sctx->spec->missingFieldDict, fs->fieldName);
-
-  if (!missingII) {
-    // There are no missing values for this field.
-    return NULL;
-  }
-
-  // Create an iterator for the missing values InvertedIndex.
-  return NewInvIndIterator_MissingQuery(missingII, q->sctx, fs->index);
-}
-
 QueryIterator *Query_EvalNode(QueryEvalCtx *q, QueryNode *n) {
   switch (n->type) {
+    case QN_IDS:
+    case QN_WILDCARD:
+    case QN_NULL:
+    case QN_MISSING:
+      // These node types have been ported to Rust.
+      return Query_EvalNode_Rs(q, n);
     case QN_TOKEN:
       return Query_EvalTokenNode(q, n);
     case QN_PHRASE:
@@ -1597,18 +1534,10 @@ QueryIterator *Query_EvalNode(QueryEvalCtx *q, QueryNode *n) {
       return Query_EvalGeofilterNode(q, n, n->opts.weight);
     case QN_VECTOR:
       return Query_EvalVectorNode(q, n);
-    case QN_IDS:
-      return Query_EvalIdFilterNode(q, &n->fn);
-    case QN_WILDCARD:
-      return Query_EvalWildcardNode(q, n);
     case QN_WILDCARD_QUERY:
       return Query_EvalWildcardQueryNode(q,n);
     case QN_GEOMETRY:
       return Query_EvalGeometryNode(q, n);
-    case QN_NULL:
-      return NewEmptyIterator();
-    case QN_MISSING:
-      return Query_EvalMissingNode(q, n);
     case QN_MAX: // LCOV_EXCL_LINE — exhaustive switch: all valid QN types handled above
       RS_ABORT("Invalid query node type"); // LCOV_EXCL_LINE
   }
@@ -1655,27 +1584,6 @@ int QAST_Parse(QueryAST *dst, const RedisSearchCtx *sctx, const RSSearchOptions 
   dst->numTokens = qpCtx.numTokens;
   dst->numParams = qpCtx.numParams;
   return REDISMODULE_OK;
-}
-
-QueryIterator *QAST_Iterate(QueryAST *qast, const RSSearchOptions *opts, RedisSearchCtx *sctx,
-                            uint32_t reqflags, struct AREQ *areq, QueryError *status) {
-  QueryEvalCtx qectx = {
-      .opts = opts,
-      .docTable = &sctx->spec->docs,
-      .sctx = sctx,
-      .status = status,
-      .metricRequestsP = &qast->metricRequests,
-      .reqFlags = reqflags,
-      .config = &qast->config,
-      .notSubtree = false,
-      .bcTimeoutAreq = AREQ_TimeoutAreqOrNull(areq),
-  };
-  QueryIterator *root = Query_EvalNode(&qectx, qast->root);
-  if (!root) {
-    // Return the dummy iterator
-    root = NewEmptyIterator();
-  }
-  return root;
 }
 
 void QAST_Destroy(QueryAST *q) {

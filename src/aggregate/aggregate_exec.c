@@ -22,6 +22,7 @@
 #include "query_optimizer.h"
 #include "resp3.h"
 #include "query_error_ffi.h"
+#include "query_eval_ffi.h"
 #include "info/global_stats.h"
 #include "aggregate_debug.h"
 #include "debug_commands.h"
