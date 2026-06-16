@@ -75,6 +75,36 @@ class testOomStandaloneBehavior:
         res = self.env.cmd('FT.AGGREGATE', 'idx', '*', 'LOAD', 1, '@name')
         self.env.assertEqual(res, [0])
 
+def _query_oom_warning_total(conn):
+    # Sum the global OOM query-warning counters (shard + coord buckets) from INFO MODULES.
+    # An `on-oom return` empty reply must bump one of these, otherwise the silently-emptied
+    # query leaves no trace in INFO and is undiagnosable from stats alone.
+    info = conn.execute_command('INFO MODULES')
+    total = 0
+    for line in info.splitlines():
+        key = line.split(':', 1)[0]
+        if key.endswith('total_query_warnings_oom') and ('shard' in key or 'coord' in key):
+            total += int(line.split(':', 1)[1])
+    return total
+
+@skip(cluster=True)
+@env_spec(protocol=3)
+def test_oom_return_increments_query_warning_stats(env):
+    # An `on-oom return` empty reply must be recorded in the global query-warning stats
+    # (search_*_total_query_warnings_oom), so an operator can tell queries are being
+    # silently emptied by the OOM guardrail.
+    _common_test_scenario(env)
+    verify_shard_init(env.getConnection())
+    change_oom_policy(env, 'return')
+
+    conn = env.getConnection()
+    before = _query_oom_warning_total(conn)
+    env.assertEqual(env.cmd('FT.SEARCH', 'idx', '*'), [0])
+    env.assertEqual(env.cmd('FT.AGGREGATE', 'idx', '*', 'LOAD', 1, '@name'), [0])
+    after = _query_oom_warning_total(conn)
+    env.assertEqual(after - before, 2,
+                    message=f"expected +2 OOM query warnings, before={before} after={after}")
+
 @skip(cluster=True)
 @env_spec(protocol=3)
 def test_oom_verbosity_standalone(env):

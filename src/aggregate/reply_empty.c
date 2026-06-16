@@ -50,6 +50,18 @@ static int empty_sendChunk_common(RedisModuleCtx *ctx, AREQ *req) {
     return REDISMODULE_OK;
 }
 
+// Records the empty-reply condition (OOM or timeout) in the global query-warning
+// stats. Without this, an `oom`/`timeout` policy of `return` would reply with empty
+// results and leave no trace in INFO (search_*_total_query_warnings_oom/timeout),
+// making a silently-emptied query impossible to diagnose from stats alone.
+static void updateEmptyReplyWarningStats(QueryErrorCode errCode) {
+    if (errCode == QUERY_ERROR_CODE_OUT_OF_MEMORY) {
+        QueryWarningsGlobalStats_UpdateWarning(QUERY_WARNING_CODE_OUT_OF_MEMORY_COORD, 1, COORD_ERR_WARN);
+    } else if (errCode == QUERY_ERROR_CODE_TIMED_OUT) {
+        QueryWarningsGlobalStats_UpdateWarning(QUERY_WARNING_CODE_TIMED_OUT, 1, COORD_ERR_WARN);
+    }
+}
+
 // Coordinator empty reply for FT.SEARCH commands. Currently used during OOM conditions.
 // Creates a minimal searchRequestCtx with OOM flag and uses sendSearchResults_EmptyResults.
 int coord_search_query_reply_empty(RedisModuleCtx *ctx, RedisModuleString **argv, int argc, QueryErrorCode errCode) {
@@ -69,6 +81,7 @@ int coord_search_query_reply_empty(RedisModuleCtx *ctx, RedisModuleString **argv
     // Handle known errors supported by empty reply module
     req.queryOOM = errCode == QUERY_ERROR_CODE_OUT_OF_MEMORY;
     req.timedOut = errCode == QUERY_ERROR_CODE_TIMED_OUT;
+    updateEmptyReplyWarningStats(errCode);
 
     sendSearchResults_EmptyResults(reply, &req);
 
@@ -99,6 +112,7 @@ int coord_aggregate_query_reply_empty(RedisModuleCtx *ctx, RedisModuleString **a
     if (errCode == QUERY_ERROR_CODE_OUT_OF_MEMORY) {
         QueryError_SetQueryOOMWarning(&status);
     }
+    updateEmptyReplyWarningStats(errCode);
 
     int ret = empty_sendChunk_common(ctx, req);
     QueryError_ClearError(&status);
@@ -215,6 +229,7 @@ int single_shard_common_query_reply_empty(RedisModuleCtx *ctx, RedisModuleString
     if (errCode == QUERY_ERROR_CODE_OUT_OF_MEMORY) {
         QueryError_SetQueryOOMWarning(&status);
     }
+    updateEmptyReplyWarningStats(errCode);
 
     int ret = empty_sendChunk_common(ctx, req);
     QueryError_ClearError(&status);
