@@ -123,17 +123,15 @@ TrieDecrResult Trie_DecrementNumDocs(Trie *t, const char *s, size_t len, size_t 
 
 void TrieSearchResult_Free(TrieSearchResult *e);
 
-/* Collect up to `num` best-scoring entries within maxDist edit distance of `str`, ranked
- * by score, into a newly allocated Vector the caller must free. Eager counterpart to
- * Trie_IterateFuzzy: it materializes a ranked top-N rather than streaming. If mode is
- * TRIE_MATCH_PREFIX we match `str` as a prefix; otherwise we match strings within maxDist
- * Levenshtein distance. */
+/* Collect the top `num` entries matching `str` within maxDist edit distance, ranked by score,
+ * into a newly allocated Vector the caller must free. mode TRIE_MATCH_PREFIX matches `str` as a
+ * prefix (tail unconstrained); otherwise the whole string within maxDist Levenshtein distance. */
 Vector *Trie_CollectFuzzy(Trie *t, const char *str, size_t len, size_t num, int maxDist,
                           TrieMatchMode mode, int trim, int optimize);
 
-/* Iterate the trie, using maxDist edit distance, returning a trie iterator that the
- * caller needs to free. If mode is TRIE_MATCH_PREFIX we treat the string as only a prefix to
- * iterate. Otherwise we return an iterator to all strings within maxDist Levenshtein distance. */
+/* Iterate entries matching `str` within maxDist edit distance, returning a TrieIterator the
+ * caller must free. mode TRIE_MATCH_PREFIX matches `str` as a prefix (tail unconstrained);
+ * otherwise the whole string within maxDist Levenshtein distance. */
 TrieIterator *Trie_IterateFuzzy(Trie *t, const char *str, size_t len, int maxDist,
                                 TrieMatchMode mode);
 
