@@ -22,7 +22,7 @@ use vecsim::{
     AdhocBfCtx, BatchIterator, IndexRef, QueryError, QueryVector, ReplyOrder, SharedLockGuard,
 };
 
-use crate::batch_cursor::VecSimScoreBatchCursor;
+use crate::score_batch::VecSimScoreBatch;
 
 /// Adhoc-BF path selection and the scan-scoped state owned by each path.
 ///
@@ -82,8 +82,8 @@ pub struct VectorScoreSource<'index> {
     /// on rewind.
     ///
     /// Both lifetime slots are `'index`: the iterator borrows the index (`'index`)
-    /// and reads the `timeoutCtx` referent, which [`new`](Self::new) requires
-    /// to stay valid for `'index` as well.
+    /// and reads the `timeoutCtx` referent, the `timeout_ctx` field, dropped no
+    /// earlier than this iterator.
     batch_iter: Option<BatchIterator<'index, 'index>>,
     /// Number of batches consumed so far. Reset on rewind.
     num_iterations: usize,
@@ -96,9 +96,9 @@ pub struct VectorScoreSource<'index> {
 }
 
 // SAFETY: VectorScoreSource is used from a single thread (the query execution
-// thread). The raw pointers are non-owning (index, timeout_ctx) or are managed
-// by the struct itself (batch_iter). It is the caller's responsibility to
-// ensure the index outlives the iterator.
+// thread). The `index` pointer is non-owning; everything else is owned and
+// managed by the struct itself (timeout_ctx, batch_iter). It is the caller's
+// responsibility to ensure the index outlives the iterator.
 unsafe impl Send for VectorScoreSource<'_> {}
 
 impl<'index> VectorScoreSource<'index> {
@@ -113,9 +113,7 @@ impl<'index> VectorScoreSource<'index> {
     ///
     /// 1. `index` must remain valid for `'index`, which outlives the returned
     ///    `VectorScoreSource<'index>`.
-    /// 2. `timeout_ctx` must be null or remain valid for `'index`; the lazily
-    ///    created batch iterator copies it and reads it on every batch.
-    /// 3. `query_vector` must satisfy the [`QueryVector`] length invariant for
+    /// 2. `query_vector` must satisfy the [`QueryVector`] length invariant for
     ///    `index`, which VecSim reads in full on every query path (a shorter
     ///    blob is read out of bounds).
     #[expect(clippy::too_many_arguments)]
@@ -200,8 +198,8 @@ impl<'index> VectorScoreSource<'index> {
         self.query_params.searchMode
     }
 
-    /// Compute the next batch size.
-    fn compute_batch_size(&self) -> NonZeroUsize {
+    /// Returns the estimated size of the next batch.
+    fn compute_next_batch_size(&self) -> NonZeroUsize {
         if let Some(fixed) = NonZeroUsize::new(self.fixed_batch_size) {
             return fixed;
         }
@@ -216,7 +214,7 @@ impl<'index> VectorScoreSource<'index> {
 }
 
 impl<'index> ScoreSource for VectorScoreSource<'index> {
-    type Batch = VecSimScoreBatchCursor;
+    type Batch = VecSimScoreBatch;
 
     fn all_results_unfiltered_batch(&mut self) -> Result<Option<Self::Batch>, RQEIteratorError> {
         // Single-shot top-k query for the unfiltered path; called exactly once
@@ -233,7 +231,7 @@ impl<'index> ScoreSource for VectorScoreSource<'index> {
             .map_err(|QueryError::TimedOut| RQEIteratorError::TimedOut)?;
         Ok(reply
             .and_then(|r| r.into_results())
-            .map(VecSimScoreBatchCursor::new))
+            .map(VecSimScoreBatch::new))
     }
 
     fn next_batch(&mut self) -> Result<Option<Self::Batch>, RQEIteratorError> {
@@ -255,8 +253,9 @@ impl<'index> ScoreSource for VectorScoreSource<'index> {
             // SAFETY:
             // - `params` points to `self.query_params`, valid for this call.
             // - The returned iterator's `'params` is unified with `'index`. Its
-            //   `timeoutCtx` is `self.timeout_ctx`, which `new` requires to stay
-            //   valid for `'index`, so the referent outlives the iterator.
+            //   `timeoutCtx` is the `timeout_ctx` field, dropped no earlier than
+            //   `self.batch_iter`, so the referent outlives the iterator despite
+            //   the widened `'index`.
             self.batch_iter = unsafe {
                 self.index
                     .batch_iterator_unchecked(&self.query_vector, params)
@@ -275,7 +274,7 @@ impl<'index> ScoreSource for VectorScoreSource<'index> {
             return Ok(None);
         }
 
-        let batch_size = self.compute_batch_size();
+        let batch_size = self.compute_next_batch_size();
         self.num_iterations += 1;
 
         let batch_iter = self.batch_iter.as_mut().expect("just initialised above");
@@ -284,7 +283,7 @@ impl<'index> ScoreSource for VectorScoreSource<'index> {
             .map_err(|QueryError::TimedOut| RQEIteratorError::TimedOut)?;
         Ok(reply
             .and_then(|r| r.into_results())
-            .map(VecSimScoreBatchCursor::new))
+            .map(VecSimScoreBatch::new))
     }
 
     fn lookup_score(&mut self, doc_id: t_docId) -> Option<f64> {
@@ -380,12 +379,12 @@ impl<'index> ScoreSource for VectorScoreSource<'index> {
     }
 
     fn rewind(&mut self) {
-        // Drop the batch iterator, which frees it via `BatchIterator::Drop`.
         self.batch_iter = None;
         self.num_iterations = 0;
         self.k_remaining = self.k;
         self.child_num_estimated = self.initial_child_num_estimated;
     }
+
     fn build_result<'r>(&self, doc_id: t_docId, score: f64) -> RSIndexResult<'r>
     where
         Self: 'r,
@@ -406,6 +405,7 @@ impl<'index> ScoreSource for VectorScoreSource<'index> {
         if heap_count >= k {
             return BatchStrategy::Stop;
         }
+
         // Refine `child_num_estimated` from actual batch hit rate so subsequent heuristic
         // calls reflect observed selectivity rather than the initial guess. This runs in
         // forced-batches mode too: the C reader's `reviewHybridSearchPolicy` updates the
@@ -434,7 +434,7 @@ impl<'index> ScoreSource for VectorScoreSource<'index> {
 
 /// Smoothed update of the child-results estimate, averaging the previous
 /// estimate with the one implied by this batch's hit rate. Capped at `old_est`,
-/// so the estimate is monotonically non-increasing across batches.
+/// so the estimate never increases across batches.
 fn refine_child_estimated(
     old_est: usize,
     new_results_cur_batch: usize,

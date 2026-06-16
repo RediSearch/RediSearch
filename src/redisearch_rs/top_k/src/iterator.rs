@@ -185,7 +185,7 @@ impl<'index, S: ScoreSource + 'index, C: RQEIterator<'index> + 'index> TopKItera
     /// Set up the unfiltered direct-yield path.
     ///
     /// Calls [`ScoreSource::all_results_unfiltered_batch`] exactly once. Results are streamed
-    /// directly from the batch cursor — no heap is involved.
+    /// directly from the batch iterator — no heap is involved.
     ///
     /// # Invariants
     ///
@@ -444,7 +444,7 @@ fn intersect_batch_with_child<'index, C: RQEIterator<'index>>(
 ) -> Result<(), RQEIteratorError> {
     child.rewind();
 
-    // Prime both cursors.
+    // Prime both iterators.
     let Some((mut batch_doc, mut batch_score)) = batch.next() else {
         return Ok(());
     };
@@ -457,7 +457,7 @@ fn intersect_batch_with_child<'index, C: RQEIterator<'index>>(
         match batch_doc.cmp(&child_doc) {
             Ordering::Equal => {
                 heap.push(batch_doc, batch_score);
-                // Advance both cursors.
+                // Advance both iterators.
                 match batch.next() {
                     Some((d, s)) => {
                         batch_doc = d;

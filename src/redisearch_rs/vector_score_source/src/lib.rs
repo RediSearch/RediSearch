@@ -14,10 +14,10 @@
 //! This crate provides the concrete [`VectorScoreSource`] implementation of
 //! [`top_k::ScoreSource`] that drives [`TopKIterator`] against a VecSim index.
 
-pub mod batch_cursor;
+pub mod score_batch;
 pub mod source;
 
-pub use batch_cursor::VecSimScoreBatchCursor;
+pub use score_batch::VecSimScoreBatch;
 pub use source::VectorScoreSource;
 
 use std::{cmp::Ordering, num::NonZeroUsize};
