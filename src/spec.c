@@ -254,7 +254,7 @@ int IndexSpec_CheckPhoneticEnabled(const IndexSpec *sp, t_fieldMask fm) {
 
   for (size_t ii = 0; ii < sp->numFields; ++ii) {
     const FieldSpec *fs = sp->fields + ii;
-    if (FieldSpec_IsIndexableText(fs) && (fm & FIELD_BIT(fs)) && FieldSpec_IsPhonetics(fs)) {
+    if (FieldSpec_IsIndexableTextInMask(fs, fm) && FieldSpec_IsPhonetics(fs)) {
       return 1;
     }
   }
@@ -265,7 +265,7 @@ int IndexSpec_CheckPhoneticEnabled(const IndexSpec *sp, t_fieldMask fm) {
 int IndexSpec_CheckAllowSlopAndInorder(const IndexSpec *spec, t_fieldMask fm, QueryError *status) {
   for (size_t ii = 0; ii < spec->numFields; ++ii) {
     const FieldSpec *fs = spec->fields + ii;
-    if (FieldSpec_IsIndexableText(fs) && (fm & FIELD_BIT(fs)) && FieldSpec_IsUndefinedOrder(fs)) {
+    if (FieldSpec_IsIndexableTextInMask(fs, fm) && FieldSpec_IsUndefinedOrder(fs)) {
       QueryError_SetWithUserDataFmt(
           status, QUERY_ERROR_CODE_BAD_ORDER_OPTION,
           "slop/inorder are not supported for field with undefined ordering", " `%s`",
@@ -310,7 +310,7 @@ const FieldSpec *IndexSpec_GetFieldByBit(const IndexSpec *sp, t_fieldMask id) {
 arrayof(FieldSpec *) IndexSpec_GetFieldsByMask(const IndexSpec *sp, t_fieldMask mask) {
   arrayof(FieldSpec *) res = array_new(FieldSpec *, 2);
   for (int i = 0; i < sp->numFields; i++) {
-    if (FieldSpec_IsIndexableText(sp->fields + i) && (mask & FIELD_BIT(sp->fields + i))) {
+    if (FieldSpec_IsIndexableTextInMask(sp->fields + i, mask)) {
       array_append(res, sp->fields + i);
     }
   }
