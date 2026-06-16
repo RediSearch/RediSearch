@@ -114,31 +114,58 @@ pub fn cmp_fields<'a>(
 
 /// Compare two [`Value`]s, returning their [`Ordering`].
 ///
-/// When a number is compared to a string, the string is first parsed as a
-/// number. If parsing fails, behaviour depends on `num_to_str_cmp_fallback`:
-/// - `true` - the number is formatted as a string and a byte-wise
-///   comparison is performed.
-/// - `false` - returns [`CompareError::NoNumberToStringFallback`].
+/// The match arms and their precedence are dictated by compatibility with the C implementation
+/// (`RSValue_Cmp` in `value.c`). Notably:
+/// - References are always unwrapped first.
+/// - Null is less than everything else.
+/// - When a number meets a string, the string is attempted as a number before falling back.
+/// - String types (String and RedisString) are interchangeable and compare byte-wise.
+/// - Non-string, non-numeric types (Trio, Array, Map, Undefined) are treated as empty string
+///   when compared against a string type, and as incomparable against each other.
+///
+/// `num_to_str_cmp_fallback` controls what happens when a number meets a non-numeric string:
+/// - `true` — format the number as a string and compare byte-wise (used when no `QueryError`
+///   is available, i.e. in sorting paths).
+/// - `false` — return [`CompareError::NoNumberToStringFallback`] so the caller can record the
+///   error (used when a [`QueryError`] is present).
 pub fn compare(
     v1: &Value,
     v2: &Value,
     num_to_str_cmp_fallback: bool,
 ) -> Result<Ordering, CompareError> {
     match (v1, v2) {
+        // References are transparent — unwrap before comparing.
         (Value::Ref(r1), Value::Ref(r2)) => compare(r1, r2, num_to_str_cmp_fallback),
         (Value::Ref(r1), _) => compare(r1, v2, num_to_str_cmp_fallback),
         (_, Value::Ref(r2)) => compare(v1, r2, num_to_str_cmp_fallback),
+        // Null is less than every other value; two nulls are equal.
         (Value::Null, Value::Null) => Ok(Ordering::Equal),
         (Value::Null, _) => Ok(Ordering::Less),
         (_, Value::Null) => Ok(Ordering::Greater),
+        // NaN has no defined order; callers map `NaNFloat` to equal.
         (Value::Number(n1), Value::Number(n2)) => n1.partial_cmp(n2).ok_or(CompareError::NaNFloat),
+        // All string types compare byte-wise, including cross-type String/RedisString pairs.
         (Value::String(s1), Value::String(s2)) => Ok(s1.as_bytes().cmp(s2.as_bytes())),
         (Value::RedisString(rs1), Value::RedisString(rs2)) => {
             Ok(rs1.as_bytes().cmp(rs2.as_bytes()))
         }
-        // Trio values are compared by their left element.
-        (Value::Trio(t1), Value::Trio(t2)) => {
-            compare(t1.left(), t2.left(), num_to_str_cmp_fallback)
+        (Value::String(s1), Value::RedisString(rs2)) => Ok(s1.as_bytes().cmp(rs2.as_bytes())),
+        (Value::RedisString(rs1), Value::String(s2)) => Ok(rs1.as_bytes().cmp(s2.as_bytes())),
+        // When a number meets a string type, the string is first parsed as a number and
+        // compared numerically. If parsing fails, the fallback applies (see compare_number_to_string).
+        (Value::Number(n1), Value::String(s2)) => {
+            compare_number_to_string(*n1, s2.as_bytes(), num_to_str_cmp_fallback)
+        }
+        (Value::Number(n1), Value::RedisString(s2)) => {
+            compare_number_to_string(*n1, s2.as_bytes(), num_to_str_cmp_fallback)
+        }
+        (Value::String(s1), Value::Number(n2)) => {
+            compare_number_to_string(*n2, s1.as_bytes(), num_to_str_cmp_fallback)
+                .map(Ordering::reverse)
+        }
+        (Value::RedisString(s1), Value::Number(n2)) => {
+            compare_number_to_string(*n2, s1.as_bytes(), num_to_str_cmp_fallback)
+                .map(Ordering::reverse)
         }
         // Arrays are compared by their first element only: if both arrays are
         // non-empty, the result is the comparison of their first elements
@@ -154,22 +181,10 @@ pub fn compare(
         },
         // Maps cannot be compared.
         (Value::Map(_), Value::Map(_)) => Err(CompareError::MapComparison),
-        (Value::Number(n1), Value::String(s2)) => {
-            compare_number_to_string(*n1, s2.as_bytes(), num_to_str_cmp_fallback)
+        // Trio values are compared by their left element.
+        (Value::Trio(t1), Value::Trio(t2)) => {
+            compare(t1.left(), t2.left(), num_to_str_cmp_fallback)
         }
-        (Value::Number(n1), Value::RedisString(s2)) => {
-            compare_number_to_string(*n1, s2.as_bytes(), num_to_str_cmp_fallback)
-        }
-        (Value::String(s1), Value::Number(n2)) => {
-            compare_number_to_string(*n2, s1.as_bytes(), num_to_str_cmp_fallback)
-                .map(Ordering::reverse)
-        }
-        (Value::RedisString(s1), Value::Number(n2)) => {
-            compare_number_to_string(*n2, s1.as_bytes(), num_to_str_cmp_fallback)
-                .map(Ordering::reverse)
-        }
-        (Value::String(s1), Value::RedisString(rs2)) => Ok(s1.as_bytes().cmp(rs2.as_bytes())),
-        (Value::RedisString(rs1), Value::String(s2)) => Ok(rs1.as_bytes().cmp(s2.as_bytes())),
         // A number compared against a trio recurses into the trio's left element.
         (Value::Number(_), Value::Trio(t2)) => compare(v1, t2.left(), num_to_str_cmp_fallback),
         (Value::Trio(t1), Value::Number(_)) => compare(t1.left(), v2, num_to_str_cmp_fallback),
@@ -177,25 +192,42 @@ pub fn compare(
         // number-to-string comparison where the other side is the empty string:
         // with the fallback enabled the number always wins (it never formats to
         // an empty string); without it, `NoNumberToStringFallback` is returned.
-        (Value::Number(_), _) => {
+        (Value::Number(_), Value::Array(_) | Value::Map(_) | Value::Undefined) => {
             compare_number_to_unconvertible(num_to_str_cmp_fallback, Ordering::Greater)
         }
-        (_, Value::Number(_)) => {
+        (Value::Array(_) | Value::Map(_) | Value::Undefined, Value::Number(_)) => {
             compare_number_to_unconvertible(num_to_str_cmp_fallback, Ordering::Less)
         }
-        (Value::String(s1), _) => Err(CompareError::IncompatibleAgainstString(
+        // A string type compared against an incompatible type treats the other side as empty string.
+        (
+            Value::String(s1),
+            Value::Trio(_) | Value::Array(_) | Value::Map(_) | Value::Undefined,
+        ) => Err(CompareError::IncompatibleAgainstString(
             s1.as_bytes().cmp(b""),
         )),
-        (_, Value::String(s2)) => Err(CompareError::IncompatibleAgainstString(
+        (
+            Value::Trio(_) | Value::Array(_) | Value::Map(_) | Value::Undefined,
+            Value::String(s2),
+        ) => Err(CompareError::IncompatibleAgainstString(
             b""[..].cmp(s2.as_bytes()),
         )),
-        (Value::RedisString(rs1), _) => Err(CompareError::IncompatibleAgainstString(
+        (
+            Value::RedisString(rs1),
+            Value::Trio(_) | Value::Array(_) | Value::Map(_) | Value::Undefined,
+        ) => Err(CompareError::IncompatibleAgainstString(
             rs1.as_bytes().cmp(b""),
         )),
-        (_, Value::RedisString(rs2)) => Err(CompareError::IncompatibleAgainstString(
+        (
+            Value::Trio(_) | Value::Array(_) | Value::Map(_) | Value::Undefined,
+            Value::RedisString(rs2),
+        ) => Err(CompareError::IncompatibleAgainstString(
             b""[..].cmp(rs2.as_bytes()),
         )),
-        _ => Err(CompareError::IncompatibleTypes),
+        // All remaining pairs have no defined ordering.
+        (
+            Value::Trio(_) | Value::Array(_) | Value::Map(_) | Value::Undefined,
+            Value::Trio(_) | Value::Array(_) | Value::Map(_) | Value::Undefined,
+        ) => Err(CompareError::IncompatibleTypes),
     }
 }
 
