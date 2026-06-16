@@ -154,6 +154,8 @@ int hll_load(struct HLL *hll, const void *registers, uint32_t size) {
   for (uint32_t i = 0; i < size; i++) {
     if (regs[i] > max_rank) {
       hll_destroy(hll);
+      *hll = (struct HLL){0}; // reset bits/size/rank_bits so callers that ignore the
+                               // return value don't call hll_count on a NULL registers
       return -1;
     }
   }
