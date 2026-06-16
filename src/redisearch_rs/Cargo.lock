@@ -2047,7 +2047,7 @@ dependencies = [
  "search_result_ffi",
  "slots_tracker_ffi",
  "sorting_vector_ffi",
- "spellcheck_dict_ffi",
+ "spellcheck_dictionary_ffi",
  "syn 2.0.117",
  "toml",
  "triemap_ffi",
@@ -2734,7 +2734,7 @@ dependencies = [
 ]
 
 [[package]]
-name = "spellcheck_dict"
+name = "spellcheck_dictionary"
 version = "0.0.1"
 dependencies = [
  "proptest",
@@ -2744,10 +2744,10 @@ dependencies = [
 ]
 
 [[package]]
-name = "spellcheck_dict_ffi"
+name = "spellcheck_dictionary_ffi"
 version = "0.0.1"
 dependencies = [
- "spellcheck_dict",
+ "spellcheck_dictionary",
  "workspace_hack",
 ]
 

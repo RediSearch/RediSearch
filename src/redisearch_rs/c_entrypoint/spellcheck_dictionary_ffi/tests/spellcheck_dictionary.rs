@@ -9,7 +9,7 @@
 use std::collections::BTreeSet;
 use std::ffi::{c_char, c_int};
 
-use spellcheck_dict_ffi::*;
+use spellcheck_dictionary_ffi::*;
 
 /// Create a [`SpellCheckDictionary`], add `terms` to it, run the callback,
 /// then free it.

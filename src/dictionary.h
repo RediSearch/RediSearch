@@ -10,7 +10,7 @@
 #define SRC_DICTIONARY_H_
 
 #include "redismodule.h"
-#include "spellcheck_dict_ffi.h"
+#include "spellcheck_dictionary_ffi.h"
 
 SpellCheckDictionary* SpellCheck_OpenDict(RedisModuleCtx* ctx, const char* dictName, int mode);
 

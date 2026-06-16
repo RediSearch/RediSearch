@@ -7,7 +7,7 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 
-//! C entry points for [`spellcheck_dict::SpellCheckDictionary`], the Rust
+//! C entry points for [`spellcheck_dictionary::SpellCheckDictionary`], the Rust
 //! replacement for the per-name `Trie *` dictionaries behind `FT.DICTADD`,
 //! `FT.DICTDEL` and `FT.DICTDUMP` (`dictionary.c`) and consumed by the spell
 //! checker (`spell_check.c`).
@@ -18,7 +18,7 @@
 //! that report "nothing changed", lookups report "not found" — and trips a
 //! debug assertion.
 //!
-//! Case folding lives inside [`spellcheck_dict::SpellCheckDictionary`]:
+//! Case folding lives inside [`spellcheck_dictionary::SpellCheckDictionary`]:
 //! membership ([`SpellCheckDictionary_Contains`]) and fuzzy matching
 //! ([`SpellCheckDictionary_IterateFuzzy`]) are case-insensitive, while
 //! insertion and removal are case-sensitive and preserve the stored case
@@ -28,7 +28,7 @@
 
 use std::ffi::{c_char, c_int};
 
-use spellcheck_dict::SpellCheckDictionary as SpellCheckDictionaryImpl;
+use spellcheck_dictionary::SpellCheckDictionary as SpellCheckDictionaryImpl;
 
 /// A set of dictionary terms supporting exact membership, fuzzy
 /// (edit-distance) lookup and full enumeration.

@@ -1,5 +1,5 @@
 [package]
-name = "spellcheck_dict_ffi"
+name = "spellcheck_dictionary"
 version.workspace = true
 edition.workspace = true
 license-file.workspace = true
@@ -9,5 +9,9 @@ publish.workspace = true
 workspace = true
 
 [dependencies]
-spellcheck_dict = { workspace = true }
+trie_rs.workspace = true
 workspace_hack.workspace = true
+
+[dev-dependencies]
+proptest = { workspace = true, features = ["std"] }
+rstest.workspace = true
