@@ -252,13 +252,9 @@ StrongRef IndexSpec_ParseRedisArgs(RedisModuleCtx *ctx, const HiddenString *name
                                     RedisModuleString **argv, int argc, QueryError *status) {
   ArgsCursor ac = {0};
   ArgsCursor_InitRString(&ac, argv, argc);
-  StrongRef spec_ref = IndexSpec_ParseFromArgCursor(ctx, name, &ac, status);
-  if (QueryError_HasError(status)) {
-    // Parsing failed; the spec was never registered, so tear it down here.
-    IndexSpec_Unlink(spec_ref, false);
-    return INVALID_STRONG_REF;
-  }
-  return spec_ref;
+  // IndexSpec_ParseFromArgCursor returns a valid spec, or sets the error and
+  // returns INVALID_STRONG_REF after tearing down its partial state.
+  return IndexSpec_ParseFromArgCursor(ctx, name, &ac, status);
 }
 
 arrayof(FieldSpec *) getFieldsByType(IndexSpec *spec, FieldType type) {
@@ -1755,26 +1751,24 @@ static StrongRef IndexSpec_ParseFromArgCursor(RedisModuleCtx *ctx, const HiddenS
 
   return spec_ref;
 
-failure:  // on failure return the partially-built spec with the error set in `status`;
-          // the caller is responsible for tearing it down (it was never registered).
+failure:  // Result-like contract: on failure the error is set in `status`, the
+          // partially-built spec (never registered) is torn down here, and
+          // INVALID_STRONG_REF is returned. On success a valid spec is returned.
   spec->flags &= ~Index_Temporary;
   if (spec->diskSpec) {
     SearchDisk_UnregisterIndex(ctx, spec);
   }
-  return spec_ref;
+  IndexSpec_Unlink(spec_ref, false);
+  return INVALID_STRONG_REF;
 }
 
 StrongRef IndexSpec_ParseC(RedisModuleCtx *ctx, const char *name, const char **argv, int argc, QueryError *status) {
   HiddenString *hidden = NewHiddenString(name, strlen(name), true);
   ArgsCursor ac = {0};
   ArgsCursor_InitCString(&ac, argv, argc);
-  StrongRef spec_ref = IndexSpec_ParseFromArgCursor(ctx, hidden, &ac, status);
-  if (QueryError_HasError(status)) {
-    // Parsing failed; the spec was never registered, so tear it down here.
-    IndexSpec_Unlink(spec_ref, false);
-    return INVALID_STRONG_REF;
-  }
-  return spec_ref;
+  // IndexSpec_ParseFromArgCursor returns a valid spec, or sets the error and
+  // returns INVALID_STRONG_REF after tearing down its partial state.
+  return IndexSpec_ParseFromArgCursor(ctx, hidden, &ac, status);
 }
 
 static void RSIndexStats_FromScoringStats(const ScoringIndexStats *scoring, RSIndexStats *stats) {
