@@ -91,7 +91,7 @@ size_t hll_count(const struct HLL *hll) {
 
   double sum = 0;
   for (uint32_t i = 0; i < hll->size; i++) {
-    sum += 1.0 / (1u << hll->registers[i]);
+    sum += 1.0 / (1 << hll->registers[i]);
   }
 
   double estimate = alpha_mm / sum;
@@ -119,15 +119,6 @@ int hll_merge(struct HLL *dst, const struct HLL *src) {
     return -1;
   }
 
-  // Validate source registers before merging; an impossible rank (e.g. from
-  // untrusted external data) would propagate into dst and cause UB in hll_count.
-  uint8_t max_rank = dst->rank_bits + 1;
-  for (uint32_t i = 0; i < src->size; i++) {
-    if (src->registers[i] > max_rank) {
-      return -1;
-    }
-  }
-
   for (uint32_t i = 0; i < src->size; i++) {
     if (dst->registers[i] < src->registers[i]) {
       dst->registers[i] = src->registers[i];
@@ -146,20 +137,7 @@ int hll_load(struct HLL *hll, const void *registers, uint32_t size) {
   // Since `size` is a power of 2, the number of trailing zeros is the log2 of `size`
   if (hll_init(hll, __builtin_ctz(size)) == -1) return -1;
 
-  // Reject impossible rank values before they can reach hll_count's shift expression.
-  // Valid ranks are in [0, rank_bits+1]; anything higher cannot be produced by _hll_rank
-  // and would cause undefined behaviour (shift count >= 32) in hll_count.
-  uint8_t max_rank = hll->rank_bits + 1;
-  const uint8_t *regs = (const uint8_t *)registers;
-  for (uint32_t i = 0; i < size; i++) {
-    if (regs[i] > max_rank) {
-      hll_destroy(hll);
-      return -1;
-    }
-  }
-
   memcpy(hll->registers, registers, size * sizeof(*hll->registers));
-  hll->cachedCard = INVALID_CACHE_CARDINALITY; // Invalidate the cache populated by hll_init
 
   return 0;
 }
