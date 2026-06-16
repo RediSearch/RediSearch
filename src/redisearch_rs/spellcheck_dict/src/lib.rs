@@ -161,7 +161,28 @@ mod tests {
         let mut sut = SpellCheckDictionary::new();
         sut.add("Fußball");
 
-        assert_eq!(fuzzy(&sut, "fußball", 0), BTreeSet::from(["Fußball".into()]));
+        assert_eq!(
+            fuzzy(&sut, "fußball", 0),
+            BTreeSet::from(["Fußball".into()])
+        );
+    }
+
+    // Known-answer cases pin `levenshtein` to an independent definition.
+    // The `fuzzy_matches_model` proptest below uses `levenshtein` as its
+    // own oracle, so it cannot catch a bug in the function itself; these
+    // can.
+    #[rstest]
+    #[case("", "", 0)]
+    #[case("abc", "abc", 0)]
+    #[case("", "abc", 3)] // pure insertions
+    #[case("abc", "", 3)] // pure deletions
+    #[case("abc", "abd", 1)] // single substitution
+    #[case("kitten", "sitting", 3)] // classic: e>i, +s, +g
+    #[case("ab", "ba", 2)] // transposition costs 2 (not Damerau)
+    #[case("café", "cafe", 1)] // multibyte codepoint substitution
+    fn levenshtein_known_distances(#[case] a: &str, #[case] b: &str, #[case] expected: u32) {
+        assert_eq!(levenshtein(a, b), expected);
+        assert_eq!(levenshtein(b, a), expected, "distance must be symmetric");
     }
 
     proptest! {
