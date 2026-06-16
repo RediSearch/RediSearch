@@ -107,7 +107,13 @@ size_t hll_count(const struct HLL *hll) {
       estimate = hll->size * log((double)hll->size / zeros);
 
   } else if (estimate > (1.0 / 30.0) * 4294967296.0) {
-    estimate = -4294967296.0 * log(1.0 - (estimate / 4294967296.0));
+    double x = 1.0 - estimate / 4294967296.0;
+    if (x > 0.0) {
+      estimate = -4294967296.0 * log(x);
+    }
+    // x <= 0 means estimate >= 2^32: the large-range correction is out of domain
+    // (log of a non-positive value is undefined). Keep the raw estimate; it already
+    // saturates the 32-bit hash space and no correction can improve it.
   }
 
   ((struct HLL*)hll)->cachedCard = estimate; // cache the current estimate
