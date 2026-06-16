@@ -16,6 +16,7 @@ def pr_payload(*, action="opened", number=10, head_ref="MOD-1-foo", base_ref="ma
                title="t", body="b", head_repo="RediSearch/RediSearch",
                base_repo="RediSearch/RediSearch", merged=False, state="open",
                repo_name="RediSearch"):
+    # head_repo=None simulates GitHub's null head.repo (fork source deleted).
     return {
         "action": action,
         "repository": {"name": repo_name},
@@ -26,7 +27,8 @@ def pr_payload(*, action="opened", number=10, head_ref="MOD-1-foo", base_ref="ma
             "merged": merged,
             "state": state,
             "html_url": f"https://github.com/{base_repo}/pull/{number}",
-            "head": {"ref": head_ref, "sha": "deadbeef", "repo": {"full_name": head_repo}},
+            "head": {"ref": head_ref, "sha": "deadbeef",
+                     "repo": {"full_name": head_repo} if head_repo is not None else None},
             "base": {"ref": base_ref, "repo": {"full_name": base_repo}},
         },
     }
@@ -62,6 +64,11 @@ class TestParsePrEvent(unittest.TestCase):
         ev = parse_pr_event(pr_payload(head_repo="someuser/RediSearch",
                                        base_repo="RediSearch/RediSearch"))
         self.assertTrue(ev.is_fork)
+
+    def test_null_head_repo_is_fork(self):
+        # GitHub returns head.repo=null for a fork whose source was deleted.
+        ev = parse_pr_event(pr_payload(head_repo=None))
+        self.assertTrue(ev.is_fork)  # fail closed
 
     def test_not_a_pr_event(self):
         self.assertIsNone(parse_pr_event({"action": "created", "issue": {}}))

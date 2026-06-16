@@ -124,6 +124,21 @@ class TestRediSearchHandler(unittest.TestCase):
         pr = PullRequest(repo="RediSearch", head_branch="x", base_branch="feature/foo", pr_number=4)
         self.assertEqual(handle_redisearch(pr, VERSIONS, vh(6, 6, 0)), [])
 
+    def test_oss_released_emits_no_oss_lookup(self):
+        # "Open Source 9.0" exists but is released -> shipped; no OSS lookup/alert.
+        pr = PullRequest(repo="RediSearch", head_branch="x", base_branch="9.0", pr_number=7)
+        lookups = handle_redisearch(pr, VERSIONS, vh(9, 0, 0))
+        self.assertEqual(len(lookups), 1)  # only RediSearch v9.0.0
+        self.assertEqual(lookups[0].searched_name, "RediSearch v9.0.0")
+
+    def test_oss_genuinely_missing_alerts(self):
+        # No "Open Source 7.7" at all -> the OSS lookup is emitted (release None).
+        pr = PullRequest(repo="RediSearch", head_branch="x", base_branch="7.7", pr_number=8)
+        lookups = handle_redisearch(pr, VERSIONS, vh(7, 7, 0))
+        self.assertEqual(len(lookups), 2)
+        self.assertIsNone(lookups[1].release)
+        self.assertEqual(lookups[1].searched_name, "Open Source 7.7")
+
 
 class TestConfigurableTemplates(unittest.TestCase):
     """The exact-name templates are overridable so a test can target the live

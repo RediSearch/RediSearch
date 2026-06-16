@@ -50,7 +50,8 @@ reference:
   branch/title) and reach the scheduled path too.
 - The event path resolves the ticket only from the **branch name and PR title**
   (not the PR body), so a "depends on MOD-123" mention does not trigger a write.
-- A PR **closed without merging** is skipped (never marks a ticket as fixed).
+- A PR **closed without merging** never landed, so its matching fix versions are
+  **removed** from the ticket (rollback) instead of added.
 - `workflow_dispatch` inputs are passed via env vars, never interpolated into the
   shell, and `--ticket` is validated against `MOD-\d+` (no script injection).
 
@@ -62,7 +63,6 @@ reference:
 | `GITHUB_TOKEN` / `GH_TOKEN` | Read `src/version.h` + PR metadata (needs both repos) |
 | `GITHUB_ORG` | Owner org for the repos (default `RediSearch`) |
 | `SLACK_WEBHOOK_URL_FIX_VERSION` | Slack Workflow Builder webhook; alert text is sent as the `payload` variable. Absent → stub mode (logs only) |
-| `SLACK_BOT_TOKEN`, `SLACK_RELEASES_CHANNEL_ID` | Fallback `chat.postMessage` alerting if no webhook is set |
 | `JFV_SKIP_FORK_PRS` | Skip fork PRs in both paths (default `true`) |
 | `JFV_REDISEARCH_RELEASE_TEMPLATE` | Override the RediSearch release-name template (testing) |
 

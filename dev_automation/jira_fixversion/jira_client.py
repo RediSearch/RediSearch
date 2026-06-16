@@ -100,6 +100,10 @@ class JiraClient:
         self._request("PUT", f"/rest/api/3/issue/{issue_key}",
                       json={"update": {"fixVersions": [{"add": {"id": version_id}}]}})
 
+    def remove_fix_version(self, issue_key: str, version_id: str) -> None:
+        self._request("PUT", f"/rest/api/3/issue/{issue_key}",
+                      json={"update": {"fixVersions": [{"remove": {"id": version_id}}]}})
+
 
 def _ticket(issue: dict) -> Ticket:
     f = issue.get("fields", {})

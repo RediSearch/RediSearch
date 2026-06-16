@@ -13,6 +13,8 @@ import re
 from dataclasses import dataclass
 from typing import Optional
 
+from .github_client import is_fork
+
 _ISSUE_KEY_RE = re.compile(r"\bMOD-\d+\b", re.IGNORECASE)
 
 
@@ -55,5 +57,5 @@ def parse_pr_event(payload: dict) -> Optional[PrEvent]:
         title=pr.get("title") or "",
         html_url=pr.get("html_url") or "",
         state="MERGED" if pr.get("merged") else (pr.get("state") or "").upper(),
-        is_fork=bool(head_repo and base_repo and head_repo != base_repo),
+        is_fork=is_fork(head_repo, base_repo),
     )

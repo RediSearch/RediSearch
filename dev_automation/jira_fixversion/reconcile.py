@@ -46,7 +46,7 @@ class Agent:
         self.slack = SlackAlerter(cfg.slack_webhook_url)
         self.templates = ReleaseTemplates(redisearch=cfg.redisearch_template)
         self.versions: list[dict] = []
-        self.stats = {"tickets": 0, "prs": 0, "added": 0, "alerts": 0, "errors": 0}
+        self.stats = {"tickets": 0, "prs": 0, "added": 0, "removed": 0, "alerts": 0, "errors": 0}
 
     # -- entrypoints ---------------------------------------------------------
 
@@ -128,15 +128,14 @@ class Agent:
         meta = self.github.get_pull_request(link.repo, link.number)
 
         # A fork PR (linked via a MOD key in its branch/title) could write
-        # fixVersions with our credentials; a PR closed without merging never
-        # landed. Skip both.
+        # fixVersions with our credentials — never touch it.
         if self.cfg.skip_fork_prs and meta.is_fork:
             log.info("%s: skipping fork PR %s/#%s", ticket.key, link.repo, link.number)
             return
-        if meta.state == "CLOSED":
-            log.info("%s: PR %s/#%s closed without merge; skipping",
-                     ticket.key, link.repo, link.number)
-            return
+
+        # A PR closed without merging never landed, so roll back its fix versions
+        # instead of adding them. Open and merged PRs add (idempotently).
+        remove_mode = meta.state == "CLOSED"
 
         pr = PullRequest(repo=link.repo, head_branch=meta.head_branch,
                          base_branch=meta.base_branch, pr_number=link.number,
@@ -146,17 +145,22 @@ class Agent:
         try:
             version_text = self.github.read_version_h(link.repo, meta.head_sha, VERSION_FILE_PATH)
         except VersionFileNotFound:
-            self._alert(ticket, pr, f"<{VERSION_FILE_PATH} missing>", "version.h not found")
+            if not remove_mode:
+                self._alert(ticket, pr, f"<{VERSION_FILE_PATH} missing>", "version.h not found")
             return
         try:
             lookups = handlers_for_repo(link.repo)(pr, self.versions, version_text, self.templates)
         except VersionParseError as exc:
-            self._alert(ticket, pr, f"<{VERSION_FILE_PATH} unparsable>", str(exc))
+            if not remove_mode:
+                self._alert(ticket, pr, f"<{VERSION_FILE_PATH} unparsable>", str(exc))
             return
 
         for lk in lookups:
             if lk.release is None:
-                self._alert(ticket, pr, lk.searched_name, lk.rule)
+                if not remove_mode:  # nothing to roll back for a missing release
+                    self._alert(ticket, pr, lk.searched_name, lk.rule)
+            elif remove_mode:
+                self._remove(ticket, lk.release)
             else:
                 self._apply(ticket, lk.release)
 
@@ -171,6 +175,17 @@ class Agent:
         self.stats["added"] += 1
         log.info("Added fixVersion %s to %s", release["name"], ticket.key)
 
+    def _remove(self, ticket: Ticket, release: dict) -> None:
+        if release["id"] not in ticket.fix_version_ids:
+            return  # nothing to roll back
+        if self.dry_run:
+            log.info("[DRY-RUN] would remove fixVersion %s from %s", release["name"], ticket.key)
+            return
+        self.jira.remove_fix_version(ticket.key, release["id"])
+        ticket.fix_version_ids.discard(release["id"])
+        self.stats["removed"] += 1
+        log.info("Removed fixVersion %s from %s (PR closed unmerged)", release["name"], ticket.key)
+
     def _alert(self, ticket: Ticket, pr: PullRequest, searched_name: str, rule: str) -> None:
         self.stats["alerts"] += 1
         self.slack.alert(MissingReleaseAlert(
@@ -182,7 +197,7 @@ class Agent:
     def _log_summary(self) -> None:
         s = self.stats
         log.info("Done: %(tickets)d tickets, %(prs)d PRs, %(added)d added, "
-                 "%(alerts)d alerts, %(errors)d errors", s)
+                 "%(removed)d removed, %(alerts)d alerts, %(errors)d errors", s)
 
 
 def main(argv=None) -> int:

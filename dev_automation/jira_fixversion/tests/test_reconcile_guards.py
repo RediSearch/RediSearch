@@ -48,9 +48,13 @@ class FakeGitHub:
 class FakeJira:
     def __init__(self):
         self.added = []
+        self.removed = []
 
     def add_fix_version(self, key, version_id):
         self.added.append((key, version_id))
+
+    def remove_fix_version(self, key, version_id):
+        self.removed.append((key, version_id))
 
 
 class FakeSlack:
@@ -79,9 +83,10 @@ def meta(state="MERGED", is_fork=False):
 LINK = PRLink(repo="RediSearch", number=1)
 
 
-def fresh_ticket():
-    # A fresh ticket per test: _apply mutates fix_version_ids, so it must not be shared.
-    return Ticket(key="MOD-1", issue_id="1", components={"RediSearch"})
+def fresh_ticket(fix_version_ids=None):
+    # A fresh ticket per test: _apply/_remove mutate fix_version_ids, so it must not be shared.
+    return Ticket(key="MOD-1", issue_id="1", components={"RediSearch"},
+                  fix_version_ids=set(fix_version_ids or ()))
 
 
 class TestProcessPrGuards(unittest.TestCase):
@@ -91,9 +96,19 @@ class TestProcessPrGuards(unittest.TestCase):
         # Both RediSearch v6.6.0 and Open Source 6.6 found and added.
         self.assertEqual({v for _, v in agent.jira.added}, {"1", "2"})
 
-    def test_closed_unmerged_skipped(self):
+    def test_closed_unmerged_removes_present_fixversions(self):
+        # Closed without merge -> roll back the fix versions this PR maps to.
+        agent = make_agent(meta(state="CLOSED"))
+        agent._process_pr(fresh_ticket(fix_version_ids={"1", "2"}), LINK)
+        self.assertEqual({v for _, v in agent.jira.removed}, {"1", "2"})
+        self.assertEqual(agent.jira.added, [])
+        self.assertEqual(agent.slack.alerts, [])
+
+    def test_closed_unmerged_noop_when_absent(self):
+        # Nothing on the ticket to roll back -> no writes, no alerts.
         agent = make_agent(meta(state="CLOSED"))
         agent._process_pr(fresh_ticket(), LINK)
+        self.assertEqual(agent.jira.removed, [])
         self.assertEqual(agent.jira.added, [])
         self.assertEqual(agent.slack.alerts, [])
 

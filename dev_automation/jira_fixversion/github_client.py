@@ -23,6 +23,13 @@ class VersionFileNotFound(Exception):
     """src/version.h does not exist at the requested ref."""
 
 
+def is_fork(head_repo: str, base_repo: str) -> bool:
+    """Whether a PR comes from a fork. Fails closed: a PR is treated as a fork
+    unless its head repo is present and equals the base repo. GitHub returns a
+    null head repo for forks whose source was deleted/made inaccessible."""
+    return not (head_repo and head_repo == base_repo)
+
+
 @dataclass
 class PRMeta:
     base_branch: str
@@ -83,7 +90,7 @@ class GitHubClient:
             head_sha=pr["head"]["sha"],
             state=("MERGED" if pr.get("merged_at") else pr.get("state", "").upper()),
             url=pr.get("html_url", ""),
-            is_fork=bool(head_repo and base_repo and head_repo != base_repo),
+            is_fork=is_fork(head_repo, base_repo),
         )
 
     def read_version_h(self, repo: str, ref: str, path: str = "src/version.h") -> str:
