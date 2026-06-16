@@ -18,6 +18,7 @@ from dev_automation.jira_fixversion.matching import (
     find_release_exact,
     handle_redisearch,
     handlers_for_repo,
+    is_agent_managed_release,
     is_version_branch,
     open_source_highest_version,
     open_source_minor_unreleased,
@@ -97,6 +98,14 @@ class TestSelectionHelpers(unittest.TestCase):
     def test_open_source_highest_numeric_order(self):
         # 8.10 > 8.8 numerically; 9.0 is released and excluded
         self.assertEqual(open_source_highest_version(VERSIONS)["id"], "6")
+
+    def test_is_agent_managed_release(self):
+        self.assertTrue(is_agent_managed_release("RediSearch v6.6.0"))
+        self.assertTrue(is_agent_managed_release("Open Source 8.10"))
+        # Not agent-managed: test-suffixed, manual, or other release-name shapes.
+        self.assertFalse(is_agent_managed_release("RediSearch v6.6.0 dummy"))
+        self.assertFalse(is_agent_managed_release("Open Source 8.2.4 - maintenance"))
+        self.assertFalse(is_agent_managed_release("Some Manual Release"))
 
 
 class TestRediSearchHandler(unittest.TestCase):

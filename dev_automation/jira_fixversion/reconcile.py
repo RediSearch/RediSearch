@@ -30,7 +30,12 @@ from .config import RULED_REPOS, VERSION_FILE_PATH, Config
 from .events import PrEvent, extract_issue_keys
 from .github_client import GitHubClient, VersionFileNotFound
 from .jira_client import JiraClient, PRLink, Ticket
-from .matching import PullRequest, ReleaseTemplates, handlers_for_repo
+from .matching import (
+    PullRequest,
+    ReleaseTemplates,
+    handlers_for_repo,
+    is_agent_managed_release,
+)
 from .slack_client import MissingReleaseAlert, SlackAlerter
 from .version_parse import VersionParseError
 
@@ -110,8 +115,12 @@ class Agent:
 
     def process_ticket(self, ticket: Ticket) -> None:
         self.stats["tickets"] += 1
-        for link in self.jira.get_linked_prs(ticket.issue_id):
+        links = self.jira.get_linked_prs(ticket.issue_id)
+        for link in links:
             self._process_pr_safe(ticket, link)
+        # Drop agent-managed releases no longer justified by any live linked PR
+        # (e.g. a PR that remapped its version.h while open, leaving a stale one).
+        self._prune_stale_releases(ticket, links)
 
     def _eligible(self, key: str) -> Optional[Ticket]:
         """Fetch a ticket, returning None (with a log line) if absent or ineligible."""
@@ -192,40 +201,63 @@ class Agent:
             return
 
         # In remove mode, only drop releases that no other live (open/merged) linked
-        # PR still maps to — otherwise an abandoned PR could delete a release another
-        # PR justifies.
-        still_needed = self._releases_needed_by_others(ticket, link) if remove_mode else set()
+        # PR still maps to. `needed is None` means a sibling couldn't be read, so we
+        # fail closed and preserve everything rather than risk deleting a justified one.
+        if remove_mode:
+            needed = self._live_release_ids(self.jira.get_linked_prs(ticket.issue_id), exclude=link)
         for lk in lookups:
             if lk.release is None:
                 if not remove_mode:  # nothing to roll back for a missing release
                     self._alert(ticket, pr, lk.searched_name, lk.rule)
             elif remove_mode:
-                if lk.release["id"] in still_needed:
-                    log.info("%s: keeping %s (still mapped by another linked PR)",
+                if needed is None or lk.release["id"] in needed:
+                    log.info("%s: keeping %s (still needed / unverified)",
                              ticket.key, lk.release["name"])
                 else:
                     self._remove(ticket, lk.release)
             else:
                 self._apply(ticket, lk.release)
 
-    def _releases_needed_by_others(self, ticket: Ticket, closing: PRLink) -> set:
-        """Release ids still mapped by the ticket's other live (open/merged) PRs."""
-        needed: set = set()
-        for link in self.jira.get_linked_prs(ticket.issue_id):
+    def _norm_owner(self, owner: str) -> str:
+        return owner or self.cfg.github_org
+
+    def _same_pr(self, a: PRLink, b: PRLink) -> bool:
+        return a.number == b.number and self._norm_owner(a.owner) == self._norm_owner(b.owner)
+
+    def _live_release_ids(self, links, *, exclude: Optional[PRLink] = None) -> Optional[set]:
+        """Release ids mapped by live (open/merged, in-org, non-fork) linked PRs.
+
+        Returns ``None`` if any such PR can't be read — callers deciding whether to
+        delete data from Jira must fail closed on that uncertainty.
+        """
+        ids: set = set()
+        for link in links:
             if link.repo not in RULED_REPOS:
                 continue
             if link.owner and link.owner != self.cfg.github_org:
                 continue  # external repo — not a trusted justification
-            if link.number == closing.number and (link.owner or "") == (closing.owner or ""):
-                continue  # the PR being closed
+            if exclude is not None and self._same_pr(link, exclude):
+                continue
             try:
                 meta, lookups = self._lookups_for(link)
             except Exception:
-                continue  # ignore siblings we can't read; conservative on the remove side
+                return None  # unreadable live sibling -> fail closed
             if meta.state == "CLOSED" or (self.cfg.skip_fork_prs and meta.is_fork) or not lookups:
                 continue
-            needed |= {lk.release["id"] for lk in lookups if lk.release}
-        return needed
+            ids |= {lk.release["id"] for lk in lookups if lk.release}
+        return ids
+
+    def _prune_stale_releases(self, ticket: Ticket, links) -> None:
+        """Remove agent-managed releases on the ticket no longer justified by any
+        live linked PR. Skipped if the live set can't be determined (fail closed)."""
+        desired = self._live_release_ids(links)
+        if desired is None:
+            return
+        by_id = {v["id"]: v for v in self.versions}
+        for vid in list(ticket.fix_version_ids):
+            v = by_id.get(vid)
+            if v and vid not in desired and is_agent_managed_release(v["name"]):
+                self._remove(ticket, v)
 
     def _apply(self, ticket: Ticket, release: dict) -> None:
         if release["id"] in ticket.fix_version_ids:
@@ -247,7 +279,7 @@ class Agent:
         self.jira.remove_fix_version(ticket.key, release["id"])
         ticket.fix_version_ids.discard(release["id"])
         self.stats["removed"] += 1
-        log.info("Removed fixVersion %s from %s (PR closed unmerged)", release["name"], ticket.key)
+        log.info("Removed fixVersion %s from %s (no longer justified)", release["name"], ticket.key)
 
     def _alert(self, ticket: Ticket, pr: PullRequest, searched_name: str, rule: str) -> None:
         self.stats["alerts"] += 1

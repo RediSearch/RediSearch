@@ -63,6 +63,15 @@ def find_release_exact(versions: list[dict], name: str) -> Optional[dict]:
     return next((v for v in versions if v.get("name") == name), None)
 
 
+# Release names this agent assigns (so pruning only ever removes its own kind,
+# never a differently-named release a human set manually).
+_AGENT_RELEASE_RE = re.compile(r"RediSearch v\d+\.\d+\.\d+|Open Source \d+\.\d+")
+
+
+def is_agent_managed_release(name: str) -> bool:
+    return bool(_AGENT_RELEASE_RE.fullmatch(name or ""))
+
+
 def _active(v: dict) -> bool:
     """A version usable as a fix version: neither released nor archived."""
     return not v.get("released", False) and not v.get("archived", False)

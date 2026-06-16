@@ -18,6 +18,8 @@ from dev_automation.jira_fixversion.reconcile import Agent
 VERSIONS = [
     {"id": "1", "name": "RediSearch v6.6.0", "released": False},
     {"id": "2", "name": "Open Source 6.6", "released": False},
+    {"id": "8", "name": "Open Source 8.10", "released": False},  # agent-managed, unrelated to 6.6
+    {"id": "9", "name": "Some Manual Release", "released": False},  # not agent-managed
 ]
 
 
@@ -35,13 +37,16 @@ def vh(x, y, z):
 
 
 class FakeGitHub:
-    def __init__(self, meta, by_number=None):
+    def __init__(self, meta, by_number=None, raise_for=None):
         self.meta = meta            # default meta for any PR
         self.by_number = by_number or {}  # optional per-PR-number override
+        self.raise_for = set(raise_for or ())  # PR numbers that error on fetch
         self.calls = 0
 
     def get_pull_request(self, repo, number, owner=""):
         self.calls += 1
+        if number in self.raise_for:
+            raise RuntimeError("transient GitHub error")
         return self.by_number.get(number, self.meta)
 
     def read_version_h(self, repo, ref, path="src/version.h", owner=""):
@@ -153,6 +158,33 @@ class TestProcessPrGuards(unittest.TestCase):
         agent._process_pr(fresh_ticket(fix_version_ids={"1", "2"}), LINK, force_remove=True)
         self.assertEqual({v for _, v in agent.jira.removed}, {"1", "2"})
         self.assertEqual(agent.jira.added, [])
+
+    def test_force_remove_excludes_self_via_normalized_owner(self):
+        # The closing link (event path, owner="") and the dev-panel link (owner=
+        # "RediSearch") are the SAME PR — it must be excluded from "still needed".
+        agent = make_agent(meta(state="MERGED"))
+        agent.jira.links = [PRLink(repo="RediSearch", number=1, owner="RediSearch")]
+        agent._process_pr(fresh_ticket(fix_version_ids={"1", "2"}),
+                          PRLink(repo="RediSearch", number=1, owner=""), force_remove=True)
+        self.assertEqual({v for _, v in agent.jira.removed}, {"1", "2"})
+
+    def test_remove_fails_closed_on_sibling_error(self):
+        # #1 closed; sibling #2 unreadable -> can't verify -> preserve (no removal).
+        agent = make_agent(meta(state="CLOSED"))
+        agent.github.raise_for = {2}
+        agent.jira.links = [PRLink(repo="RediSearch", number=1),
+                            PRLink(repo="RediSearch", number=2)]
+        agent._process_pr(fresh_ticket(fix_version_ids={"1", "2"}), LINK)
+        self.assertEqual(agent.jira.removed, [])
+
+    def test_prune_removes_stale_agent_release_keeps_manual(self):
+        # Live PR #1 justifies {1,2}; ticket also has agent release 8 (stale) and a
+        # manual release 9. Prune removes 8, keeps 1,2 and the manual 9.
+        agent = make_agent(meta(state="MERGED"))
+        agent.jira.links = [PRLink(repo="RediSearch", number=1)]
+        ticket = fresh_ticket(fix_version_ids={"1", "2", "8", "9"})
+        agent.process_ticket(ticket)  # scheduled path: process links, then prune
+        self.assertEqual({v for _, v in agent.jira.removed}, {"8"})
 
 
 class TestParsePrUrl(unittest.TestCase):

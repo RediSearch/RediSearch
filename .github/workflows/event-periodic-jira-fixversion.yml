@@ -21,10 +21,6 @@ on:
         type: choice
         options: [INFO, DEBUG, WARNING]
         default: INFO
-      redisearch_release_template:
-        description: 'Override the RediSearch release-name template (testing only, e.g. "RediSearch v{X}.{Y}.{Z} dummy")'
-        type: string
-        required: false
 
 permissions:
   contents: read
@@ -56,7 +52,6 @@ jobs:
           JIRA_API_TOKEN: ${{ secrets.JIRA_API_TOKEN }}
           GH_TOKEN: ${{ github.token }}  # reads src/version.h + PR metadata
           SLACK_WEBHOOK_URL_FIX_VERSION: ${{ secrets.SLACK_WEBHOOK_URL_FIX_VERSION }}
-          JFV_REDISEARCH_RELEASE_TEMPLATE: ${{ inputs.redisearch_release_template }}  # testing only
           # Inputs go via env (never interpolated into the run script) to avoid
           # shell injection from user-controlled workflow_dispatch values.
           INPUT_DRY_RUN: ${{ inputs.dry_run }}
