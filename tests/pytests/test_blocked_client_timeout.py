@@ -492,15 +492,6 @@ class TestCoordinatorTimeout:
         ])
 
     def test_fail_timeout_hybrid(self):
-        """FAIL-policy FT.HYBRID timeout during cursor-mapping setup (Phase 1).
-
-        The shard is suspended before the query, so the coordinator parks in the
-        ProcessHybridCursorMappings setup wait (deadline is NULL under FAIL). The
-        blocked-client CLIENT UNBLOCK ... TIMEOUT fires DistHybridTimeoutFailCallback,
-        which wakes the parked pop and replies a timeout error. Companion to
-        test_return_strict_timeout_setup_phase_hybrid (RETURN-STRICT variant) and
-        test_return_timeout_setup_phase_hybrid (RETURN in-band-deadline variant).
-        """
         self._test_fail_timeout_impl([
             'FT.HYBRID', 'hybrid_idx',
             'SEARCH', '*',
@@ -509,20 +500,7 @@ class TestCoordinatorTimeout:
         ])
 
     def test_return_timeout_setup_phase_hybrid(self):
-        """RETURN-policy FT.HYBRID timeout during cursor-mapping setup (Phase 1)
-        with one shard suspended.
-
-        Suspending a non-coordinator shard before the query stalls the
-        coordinator's ProcessHybridCursorMappings wait: the stopped process keeps
-        its TCP connection (so the dispatch succeeds) but never sends its
-        cursor-mapping reply. Under RETURN policy with a finite timeout the setup
-        wait's deadline fires and DistHybridCleanups replies an empty result set
-        carrying the timeout warning -- not a hard error, and without hanging.
-
-        Complements the read-phase one-shard-paused tests, which suspend only
-        after Phase 1 completes; this one suspends during Phase 1 to exercise the
-        bounded cursor-setup wait.
-        """
+        """RETURN setup-phase timeout, one shard suspended: the in-band deadline fires; reply is empty + warning."""
         env = self.env
 
         prev_on_timeout_policy = env.cmd('CONFIG', 'GET', ON_TIMEOUT_CONFIG)[ON_TIMEOUT_CONFIG]
@@ -563,18 +541,7 @@ class TestCoordinatorTimeout:
             env.cmd('CONFIG', 'SET', ON_TIMEOUT_CONFIG, prev_on_timeout_policy)
 
     def test_return_strict_timeout_setup_phase_hybrid(self):
-        """RETURN-STRICT FT.HYBRID timeout during cursor-mapping setup (Phase 1),
-        driven by the blocked-client deadline.
-
-        Under RETURN-STRICT the setup wait has no in-band deadline (it is NULL), so
-        unlike the RETURN variant the only wake path is the coordinator's
-        blocked-client timeout callback. With one shard suspended the coordinator
-        parks in ProcessHybridCursorMappings; firing CLIENT UNBLOCK ... TIMEOUT
-        invokes DistHybridTimeoutReturnStrictCallback, which wakes the parked pop
-        (wakeHybridAbortChannels) and replies an empty result set with the timeout
-        warning. Companion to test_return_timeout_setup_phase_hybrid, which drives
-        the same setup wait through the in-band RETURN deadline instead.
-        """
+        """RETURN-STRICT setup-phase timeout, one shard suspended: no in-band deadline, so CLIENT UNBLOCK fires the timeout callback; reply is empty + warning."""
         env = self.env
 
         prev_on_timeout_policy = env.cmd('CONFIG', 'GET', ON_TIMEOUT_CONFIG)[ON_TIMEOUT_CONFIG]

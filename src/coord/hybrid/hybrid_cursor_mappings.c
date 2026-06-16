@@ -323,11 +323,9 @@ bool ProcessHybridCursorMappings(const MRCommand *cmd, StrongRef searchMappingsR
     // this wait promptly. Unregistered below before the iterator is released.
     RequestSyncCtx_RegisterAbortWakeChannel(syncCtx, MRIterator_GetChannel(it));
 
-    // Wait on the channel: it unblocks when inProcess hits 0 (normal completion) or
-    // when the deadline/abort fires. Both are passed because `deadline` is NULL under
-    // RETURN-STRICT / disabled timeout checks, where syncCtx->timedOut is the only
-    // wake; passing neither leaves the wait unbounded (chan.c asserts at least one is
-    // non-NULL).
+    // Pass both the deadline and the abort flag: `deadline` is NULL under RETURN-STRICT /
+    // disabled timeout checks, where the abort flag is the only wake (chan.c requires
+    // at least one non-NULL).
     bool timedOut = false;
     MRReply *r = MRIterator_NextWithTimeout(it, deadline, &syncCtx->timedOut, &timedOut);
     RS_ASSERT(r == NULL);  // the callbacks never AddReply; a non-NULL reply is a bug
@@ -335,17 +333,12 @@ bool ProcessHybridCursorMappings(const MRCommand *cmd, StrongRef searchMappingsR
     RequestSyncCtx_UnregisterAbortWakeChannel(syncCtx);
 
     if (timedOut || RequestSyncCtx_GetTimedOut(syncCtx)) {
-        // Terminal: a shard never replied or the request was aborted. Late callbacks
-        // may still be writing mappings/errors, so do NOT read them — just release
-        // (freeCursorMappingCtx frees ctx once they finish).
         QueryError_SetCode(status, QUERY_ERROR_CODE_TIMED_OUT);
         MRIterator_Release(it);
         return false;
     }
 
-    // Normal completion: inProcess hit 0, so every callback has run. Postcondition —
-    // search/vsim mappings are paired index-for-index (the early-bailout logic keeps
-    // them in lockstep); catches a malformed reply that slipped past it.
+    // Normal completion: inProcess hit 0, so every callback has run.
     RS_ASSERT(array_len(searchMappings->mappings) == array_len(vsimMappings->mappings));
 
     bool success = resolveCursorMappingErrors(ctx->errors, status, oomPolicy, timeoutPolicy,
