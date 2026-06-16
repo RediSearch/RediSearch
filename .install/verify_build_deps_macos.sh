@@ -7,17 +7,22 @@ BLUE='\033[0;34m'
 YELLOW='\033[1;33m'
 NC='\033[0m' # No Color
 
+SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
+REPO_ROOT="$(cd -- "$SCRIPT_DIR/.." && pwd)"
+REQUIRED_CHEADERGEN_VERSION=$(cat "$REPO_ROOT/.cheadergen-version")
+
 # ============================================
 # Dependencies
 # ============================================
 # Define dependencies and their corresponding check methods
-mac_os_deps=("make" "uv" "python3" "cmake" "cargo" "clang" "openssl" "brew")
+mac_os_deps=("make" "uv" "python3" "cmake" "cargo" "cheadergen" "clang" "openssl" "brew")
 mac_os_deps_types=(
     "check_command" # Check for "make"
     "check_command" # Check for "uv"
     "check_command" # Check for "python3"
     "check_command" # Check for "cmake"
     "check_command" # Check for "cargo"
+    "check_cheadergen" # Check for "cheadergen"
     "check_clang"   # Check for "clang"
     "check_command" # Check for "openssl"
     "check_command" # Check for "brew"
@@ -49,6 +54,26 @@ check_clang() {
     else
         echo -e "${RED}✗${NC}"
     fi
+}
+
+check_cheadergen() {
+  local cmd=$1
+  printf "%-20s" "$cmd"
+
+  if ! command -v "$cmd" &>/dev/null; then
+    echo -e "${RED}✗${NC}"
+    missing_deps=true
+    return
+  fi
+
+  local actual_version
+  actual_version=$("$cmd" --version 2>/dev/null | awk '{print $NF}' || echo "unknown")
+  if [[ "$actual_version" == "$REQUIRED_CHEADERGEN_VERSION" ]]; then
+    echo -e "${GREEN}✓${NC}"
+  else
+    echo -e "${YELLOW}✗ (need version $REQUIRED_CHEADERGEN_VERSION, found version $actual_version)${NC}"
+    missing_deps=true
+  fi
 }
 
 # ============================================
