@@ -17,7 +17,7 @@ import re
 from dataclasses import dataclass
 from typing import Optional
 
-from .version_parse import MASTER_SENTINEL, parse_version_h
+from .version_parse import parse_version_h
 
 REPO_REDISEARCH = "RediSearch"
 MASTER_BRANCH = "master"
@@ -101,14 +101,16 @@ def handle_redisearch(pr: PullRequest, versions: list[dict], version_text: str,
         return [Lookup(rel["name"] if rel else "Open Source <highest unreleased X.Y>",
                        "RediSearch/master -> highest unreleased Open Source X.Y", rel)]
 
-    # Version branch. The sentinel here means the head was not rebased onto the
-    # release line (e.g. a backport branched off master) -> mismatch; alert rather
-    # than assign the wrong line. (The master rule is gated on base == master above.)
-    if (X, Y, Z) == MASTER_SENTINEL:
-        return [Lookup(f"<version.h is 99.99.99 on base {base}>",
-                       "RediSearch/version-branch -> head carries master sentinel (mismatch)", None)]
+    # Version branch: the head's version.h must match the X.Y of the base branch.
+    # A mismatch (the 99.99.99 master sentinel, or a different concrete line like
+    # 8.0 on base 6.6) means the head was not rebased onto the release line -> alert
+    # rather than assign the wrong release. (The master rule is gated above.)
+    bx, by = (int(n) for n in base.split("."))
+    if (X, Y) != (bx, by):
+        return [Lookup(f"<version.h {X}.{Y}.{Z} does not match base branch {base}>",
+                       "RediSearch/version-branch -> version.h does not match base branch", None)]
 
-    # Concrete version: exact RediSearch vX.Y.Z + the two-part Open Source X.Y.
+    # Concrete version (X.Y matches base): exact RediSearch vX.Y.Z + Open Source X.Y.
     rs = templates.redisearch.format(X=X, Y=Y, Z=Z)
     oss_rule = "RediSearch/version-branch -> unreleased Open Source X.Y"
     lookups = [Lookup(rs, "RediSearch/version-branch -> exact RediSearch vX.Y.Z",

@@ -38,8 +38,10 @@ class FakeGitHub:
     def __init__(self, meta, by_number=None):
         self.meta = meta            # default meta for any PR
         self.by_number = by_number or {}  # optional per-PR-number override
+        self.calls = 0
 
     def get_pull_request(self, repo, number, owner=""):
+        self.calls += 1
         return self.by_number.get(number, self.meta)
 
     def read_version_h(self, repo, ref, path="src/version.h", owner=""):
@@ -137,6 +139,20 @@ class TestProcessPrGuards(unittest.TestCase):
         agent = make_agent(meta(state="MERGED", is_fork=True), skip_fork_prs=False)
         agent._process_pr(fresh_ticket(), LINK)
         self.assertEqual({v for _, v in agent.jira.added}, {"1", "2"})
+
+    def test_external_owner_skipped_without_fetch(self):
+        # A dev-panel link to another org's repo must be skipped before any fetch.
+        agent = make_agent(meta(state="MERGED"))
+        agent._process_pr_safe(fresh_ticket(), PRLink(repo="RediSearch", number=7, owner="alice"))
+        self.assertEqual(agent.github.calls, 0)
+        self.assertEqual(agent.jira.added, [])
+
+    def test_force_remove_rolls_back_even_when_open(self):
+        # e.g. a MOD key edited out of the title -> roll back regardless of PR state.
+        agent = make_agent(meta(state="MERGED"))
+        agent._process_pr(fresh_ticket(fix_version_ids={"1", "2"}), LINK, force_remove=True)
+        self.assertEqual({v for _, v in agent.jira.removed}, {"1", "2"})
+        self.assertEqual(agent.jira.added, [])
 
 
 class TestParsePrUrl(unittest.TestCase):

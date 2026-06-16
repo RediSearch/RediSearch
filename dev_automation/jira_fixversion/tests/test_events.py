@@ -70,6 +70,12 @@ class TestParsePrEvent(unittest.TestCase):
         ev = parse_pr_event(pr_payload(head_repo=None))
         self.assertTrue(ev.is_fork)  # fail closed
 
+    def test_edited_captures_previous_title(self):
+        payload = pr_payload(action="edited", title="MOD-1 keep")
+        payload["changes"] = {"title": {"from": "MOD-1 keep and MOD-2 drop"}}
+        ev = parse_pr_event(payload)
+        self.assertEqual(ev.prev_title, "MOD-1 keep and MOD-2 drop")
+
     def test_not_a_pr_event(self):
         self.assertIsNone(parse_pr_event({"action": "created", "issue": {}}))
 

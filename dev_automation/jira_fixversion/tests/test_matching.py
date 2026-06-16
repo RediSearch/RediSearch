@@ -114,6 +114,14 @@ class TestRediSearchHandler(unittest.TestCase):
         self.assertIsNone(lookups[0].release)  # mismatch -> alert
         self.assertIn("99.99.99", lookups[0].searched_name)
 
+    def test_concrete_version_mismatch_base_alerts(self):
+        # base 6.6 but version.h says 8.0.0 -> mismatch -> alert (not RediSearch v8.0.0).
+        pr = PullRequest(repo="RediSearch", head_branch="bp", base_branch="6.6", pr_number=11)
+        lookups = handle_redisearch(pr, VERSIONS, vh(8, 0, 0))
+        self.assertEqual(len(lookups), 1)
+        self.assertIsNone(lookups[0].release)
+        self.assertIn("does not match base", lookups[0].searched_name)
+
     def test_version_branch_both_lookups_found(self):
         pr = PullRequest(repo="RediSearch", head_branch="fix", base_branch="6.6", pr_number=2)
         lookups = handle_redisearch(pr, VERSIONS, vh(6, 6, 0))

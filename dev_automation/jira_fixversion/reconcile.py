@@ -72,6 +72,9 @@ class Agent:
         Tickets are resolved from the PR branch and title only (the fields
         GitHub-for-Jira uses) — not the body, so a "depends on MOD-123" mention
         doesn't trigger a write. Fork PRs are skipped (see _process_pr).
+
+        On an ``edited`` event, MOD keys that were dropped from the title since the
+        previous version are rolled back on their (now-unreferenced) tickets.
         """
         if event.repo not in RULED_REPOS:
             return
@@ -79,18 +82,28 @@ class Agent:
             log.info("Skipping fork PR %s#%s; reconciliation will cover it",
                      event.repo, event.number)
             return
-        keys = extract_issue_keys(event.head_ref, event.title)
-        if not keys:
+        current = extract_issue_keys(event.head_ref, event.title)
+        removed = []
+        if event.action == "edited" and event.prev_title:
+            removed = [k for k in extract_issue_keys(event.prev_title) if k not in current]
+        if not current and not removed:
             log.info("No MOD keys on %s#%s; no-op", event.repo, event.number)
             return
 
         self.versions = self.jira.list_project_versions(self.cfg.project_key)
         link = PRLink(repo=event.repo, number=event.number, state=event.state, url=event.html_url)
-        for key in keys:
+        for key in current:
             ticket = self._eligible(key)
             if ticket:
                 self.stats["tickets"] += 1
                 self._process_pr_safe(ticket, link)
+        for key in removed:  # key no longer referenced -> roll back what this PR added
+            ticket = self._eligible(key)
+            if ticket:
+                self.stats["tickets"] += 1
+                log.info("%s no longer referenced by %s#%s; rolling back", key,
+                         event.repo, event.number)
+                self._process_pr_safe(ticket, link, force_remove=True)
         self._log_summary()
 
     # -- core ----------------------------------------------------------------
@@ -114,11 +127,17 @@ class Agent:
             return None
         return ticket
 
-    def _process_pr_safe(self, ticket: Ticket, link: PRLink) -> None:
+    def _process_pr_safe(self, ticket: Ticket, link: PRLink, *, force_remove: bool = False) -> None:
         if link.repo not in RULED_REPOS:
             return
+        # A dev-panel link whose owner is not our org points at an external repo;
+        # acting on it would use the bot's credentials on an untrusted PR. Skip it.
+        if link.owner and link.owner != self.cfg.github_org:
+            log.info("%s: skipping PR %s/%s#%s outside org %s",
+                     ticket.key, link.owner, link.repo, link.number, self.cfg.github_org)
+            return
         try:
-            self._process_pr(ticket, link)
+            self._process_pr(ticket, link, force_remove=force_remove)
         except Exception as exc:  # one PR must not abort the run
             self.stats["errors"] += 1
             log.exception("Error on %s PR %s/#%s: %s", ticket.key, link.repo, link.number, exc)
@@ -140,7 +159,7 @@ class Agent:
         except VersionParseError:
             return meta, None
 
-    def _process_pr(self, ticket: Ticket, link: PRLink) -> None:
+    def _process_pr(self, ticket: Ticket, link: PRLink, *, force_remove: bool = False) -> None:
         self.stats["prs"] += 1
         meta = self.github.get_pull_request(link.repo, link.number, owner=link.owner)
 
@@ -150,7 +169,9 @@ class Agent:
             log.info("%s: skipping fork PR %s/#%s", ticket.key, link.repo, link.number)
             return
 
-        remove_mode = meta.state == "CLOSED"  # closed without merging -> roll back
+        # Roll back when the PR closed without merging, or when the ticket is no
+        # longer referenced (force_remove, e.g. a MOD key edited out of the title).
+        remove_mode = force_remove or meta.state == "CLOSED"
         pr = PullRequest(repo=link.repo, head_branch=meta.head_branch,
                          base_branch=meta.base_branch, pr_number=link.number,
                          state=meta.state, head_sha=meta.head_sha, url=meta.url or link.url)
@@ -193,6 +214,8 @@ class Agent:
         for link in self.jira.get_linked_prs(ticket.issue_id):
             if link.repo not in RULED_REPOS:
                 continue
+            if link.owner and link.owner != self.cfg.github_org:
+                continue  # external repo — not a trusted justification
             if link.number == closing.number and (link.owner or "") == (closing.owner or ""):
                 continue  # the PR being closed
             try:

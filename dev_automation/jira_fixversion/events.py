@@ -38,6 +38,7 @@ class PrEvent:
     html_url: str
     state: str  # OPEN | CLOSED | MERGED
     is_fork: bool
+    prev_title: str = ""  # previous title on an `edited` event (changes.title.from)
 
 
 def parse_pr_event(payload: dict) -> Optional[PrEvent]:
@@ -58,4 +59,5 @@ def parse_pr_event(payload: dict) -> Optional[PrEvent]:
         html_url=pr.get("html_url") or "",
         state="MERGED" if pr.get("merged") else (pr.get("state") or "").upper(),
         is_fork=is_fork(head_repo, base_repo),
+        prev_title=((payload.get("changes") or {}).get("title") or {}).get("from") or "",
     )
