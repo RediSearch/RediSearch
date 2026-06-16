@@ -22,7 +22,7 @@ def testInfo(env):
     env.assertGreater(float(idx_info['vector_index_sz_mb']), 0)
 
 @skip(cluster=False)
-def testCountDistinctishAcrossShards():
+def test_count_distinctish_across_shards():
     """COUNT_DISTINCTISH is distributed as a per-shard HLL reducer (REDUCER_T_HLL),
     merged on the coordinator by HLL_SUM (a register-wise max of the per-shard
     HLL registers, see `distributeCountDistinctish` in `src/coord/dist_plan.cpp`).
