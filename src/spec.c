@@ -17,6 +17,7 @@
 #include <limits.h>
 
 #include "triemap_ffi.h"
+#include "term_dictionary_ffi.h"
 #include "util/logging.h"
 #include "util/likely.h"
 #include "util/misc.h"

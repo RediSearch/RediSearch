@@ -11,7 +11,7 @@
 #include "util/arr.h"
 #include "dictionary.h"
 #include "trie/trie.h"
-#include "triemap_ffi.h"
+#include "term_dictionary_ffi.h"
 #include "reply.h"
 #include "inverted_index.h"
 #include "inverted_index_ffi.h"

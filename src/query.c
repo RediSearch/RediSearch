@@ -23,6 +23,7 @@
 #include "tokenize.h"
 #include "trie/trie.h"
 #include "triemap_ffi.h"
+#include "term_dictionary_ffi.h"
 #include "util/logging.h"
 #include "extension.h"
 #include "ext/default.h"

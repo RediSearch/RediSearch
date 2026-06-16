@@ -2049,6 +2049,7 @@ dependencies = [
  "sorting_vector_ffi",
  "spellcheck_dictionary_ffi",
  "syn 2.0.117",
+ "term_dictionary_ffi",
  "toml",
  "triemap_ffi",
  "types_ffi",
@@ -2872,6 +2873,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "term_dictionary_ffi"
+version = "0.0.1"
+dependencies = [
+ "cheadergen",
+ "redis_mock",
+ "term_dictionary",
+ "workspace_hack",
+]
+
+[[package]]
 name = "term_suffix_index"
 version = "0.0.1"
 dependencies = [
@@ -3139,7 +3150,6 @@ dependencies = [
  "redis-module",
  "redis_mock",
  "rqe_wildcard",
- "term_dictionary",
  "term_suffix_index",
  "thin_vec",
  "trie_rs",

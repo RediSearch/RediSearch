@@ -9,7 +9,7 @@
 use redis_mock::mock_or_stub_missing_redis_c_symbols;
 use std::collections::HashMap;
 use std::ffi::c_char;
-use triemap_ffi::*;
+use term_dictionary_ffi::*;
 
 mock_or_stub_missing_redis_c_symbols!();
 

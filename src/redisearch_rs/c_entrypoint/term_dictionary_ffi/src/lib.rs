@@ -20,6 +20,8 @@
 //! mutations become no-ops, lookups report "not found", and iterator
 //! constructors yield nothing — and trips a debug assertion.
 
+#![allow(non_camel_case_types, non_snake_case)]
+
 use std::ffi::{c_char, c_int};
 use std::slice;
 

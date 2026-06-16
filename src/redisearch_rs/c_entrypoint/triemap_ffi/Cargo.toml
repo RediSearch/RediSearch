@@ -15,7 +15,6 @@ ffi.workspace = true
 lending-iterator.workspace = true
 libc.workspace = true
 thin_vec.workspace = true
-term_dictionary = { workspace = true }
 term_suffix_index = { workspace = true }
 trie_rs = { workspace = true }
 rqe_wildcard = { workspace = true }

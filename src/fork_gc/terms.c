@@ -14,6 +14,7 @@
 #include "redis_index.h"
 #include "suffix.h"
 #include "triemap_ffi.h"
+#include "term_dictionary_ffi.h"
 #include "rmutil/rm_assert.h"
 #include "obfuscation/obfuscation_api.h"
 #include "obfuscation/hidden.h"

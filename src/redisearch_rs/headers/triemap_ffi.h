@@ -25,39 +25,6 @@ typedef enum tm_iter_mode {
 } tm_iter_mode;
 
 /**
- * Outcome of [`TermDictionary_AddTerm`], [`TermDictionary_ReplaceTerm`]
- * and [`TermDictionary_Insert`].
- */
-typedef enum TermDictionaryInsertOutcome {
-  /**
-   * No prior entry existed; a new terminal was created.
-   */
-  TermDictionaryInsertOutcome_New = 0,
-  /**
-   * An existing entry was modified in place.
-   */
-  TermDictionaryInsertOutcome_Updated = 1,
-} TermDictionaryInsertOutcome;
-
-/**
- * Outcome of [`TermDictionary_DecrementNumDocs`].
- */
-typedef enum TermDictionaryDecrResult {
-  /**
-   * No terminal entry exists for the given term.
-   */
-  TermDictionaryDecrResult_NotFound = 0,
-  /**
-   * `num_docs` was decremented and is still `> 0`.
-   */
-  TermDictionaryDecrResult_Updated = 1,
-  /**
-   * `num_docs` reached `0`; the entry was removed.
-   */
-  TermDictionaryDecrResult_Deleted = 2,
-} TermDictionaryDecrResult;
-
-/**
  * Opaque type wrapping a [`TrieMap<*mut c_void>`](crate::TrieMap) for FFI use.
  *
  * This type is intended to be passed across the FFI boundary as an opaque
@@ -82,27 +49,6 @@ typedef struct TrieMapIterator TrieMapIterator;
  * [`LexTrieRs_New`] or [`LexTrieRs_RdbLoad`]; free via [`LexTrieRs_Free`].
  */
 typedef struct LexTrieRs LexTrieRs;
-
-/**
- * Term dictionary mapping each indexed term to its score and the
- * number of documents containing it. Backs the FT.SEARCH terms trie
- * (`sp->terms`) used for GC, exact lookups, and prefix/fuzzy/wildcard
- * query expansion.
- *
- * Opaque to C; obtained from [`NewTermDictionary`] and freed with
- * [`TermDictionary_Free`].
- */
-typedef struct TermDictionary TermDictionary;
-
-/**
- * Yields the matching terms (and their payloads) of an iteration over
- * a [`TermDictionary`].
- *
- * Opaque to C; obtained from one of the `TermDictionary_Iterate*`
- * functions, advanced with [`TermDictionaryIterator_Next`], and freed
- * with [`TermDictionaryIterator_Free`].
- */
-typedef struct TermDictionaryIterator TermDictionaryIterator;
 
 /**
  * A set of indexed terms supporting substring (`*foo*`), ends-with
@@ -164,6 +110,11 @@ typedef struct ThinVec_c_void__u16 {
 } ThinVec_c_void__u16;
 #endif /* THINVEC_C_VOID__U16_DEFINED */
 
+/**
+ * Callback type for passing to [`TrieMap_Delete`].
+ */
+typedef void (*freeCB)(void *);
+
 #ifndef SMALLTHINVEC_C_VOID_DEFINED
 #define SMALLTHINVEC_C_VOID_DEFINED
 /**
@@ -179,11 +130,6 @@ typedef struct ThinVec_c_void__u16 SmallThinVec_c_void;
  * Opaque type TrieMapResultBuf. Holds the results of [`TrieMap_FindPrefixes`].
  */
 typedef SmallThinVec_c_void TrieMapResultBuf;
-
-/**
- * Callback type for passing to [`TrieMap_Delete`].
- */
-typedef void (*freeCB)(void *);
 
 #ifdef __cplusplus
 extern "C" {
@@ -269,18 +215,6 @@ void TrieMapResultBuf_Free(TrieMapResultBuf buf);
 struct TermSuffixIndex *NewTermSuffixIndex(void);
 
 /**
- * Retrieve an element from the buffer, via a 0-initialized index.
- *
- * It returns `NULL` if the index is out of bounds.
- *
- * # Safety
- *
- * The following invariants must be upheld when calling this function:
- * - `buf` must point to a valid TrieMapResultBuf initialized by [`TrieMap_FindPrefixes`] and cannot be NULL.
- */
-void *TrieMapResultBuf_GetByIndex(TrieMapResultBuf *buf, size_t index);
-
-/**
  * Add a new string to a trie. Returns 1 if the key is new to the trie or 0 if
  * it already existed.
  *
@@ -301,6 +235,18 @@ void *TrieMapResultBuf_GetByIndex(TrieMapResultBuf *buf, size_t index);
  *    and `RedisModule_Free` must not get mutated while running this function.
  */
 int TrieMap_Add(struct TrieMap *t, const char *str, tm_len_t len, void *value, TrieMapReplaceFunc cb);
+
+/**
+ * Retrieve an element from the buffer, via a 0-initialized index.
+ *
+ * It returns `NULL` if the index is out of bounds.
+ *
+ * # Safety
+ *
+ * The following invariants must be upheld when calling this function:
+ * - `buf` must point to a valid TrieMapResultBuf initialized by [`TrieMap_FindPrefixes`] and cannot be NULL.
+ */
+void *TrieMapResultBuf_GetByIndex(TrieMapResultBuf *buf, size_t index);
 
 /**
  * Iterate over the trie entries that match the given predicate.
@@ -428,13 +374,6 @@ void TermSuffixIndex_Remove(struct TermSuffixIndex *t, const char *term, size_t 
 void TrieMapIterator_SetTimeout(struct TrieMapIterator *it, timespec timeout);
 
 /**
- * Create a new, empty [`TermDictionary`].
- *
- * Free it with [`TermDictionary_Free`].
- */
-struct TermDictionary *NewTermDictionary(void);
-
-/**
  * Find the entry with a given string and length, and return its value, even if
  * that was NULL.
  *
@@ -456,19 +395,6 @@ struct TermDictionary *NewTermDictionary(void);
  *   and the pointer must not be dereferenced.
  */
 void *TrieMap_Find(const struct TrieMap *t, const char *str, tm_len_t len);
-
-/**
- * Free a [`TermDictionary`] and all terms it owns.
- *
- * # Safety
- *
- * The following invariants must be upheld when calling this function:
- * - `t` must point to a valid [`TermDictionary`] obtained from
- *   [`NewTermDictionary`] and cannot be NULL.
- * - No iterator obtained from `t` may be alive.
- * - `t` must not be used after this call.
- */
-void TermDictionary_Free(struct TermDictionary *t);
 
 /**
  * Free a trie iterator
@@ -512,17 +438,6 @@ struct LexTrieRs *LexTrieRs_RdbLoad(RedisModuleIO *io, bool load_payloads, bool 
 size_t TermSuffixIndex_MemUsage(const struct TermSuffixIndex *t);
 
 /**
- * The number of unique terms stored in the dictionary.
- *
- * # Safety
- *
- * The following invariants must be upheld when calling this function:
- * - `t` must point to a valid [`TermDictionary`] obtained from
- *   [`NewTermDictionary`] and cannot be NULL.
- */
-size_t TermDictionary_Len(const struct TermDictionary *t);
-
-/**
  * Iterate to the next matching entry in the trie. Returns 1 if we can continue,
  * or 0 if we're done and should exit
  *
@@ -536,19 +451,6 @@ size_t TermDictionary_Len(const struct TermDictionary *t);
  * - `value` must point to a valid pointer, which will be set to the value of the current key.
  */
 int TrieMapIterator_Next(struct TrieMapIterator *it, char * *ptr, tm_len_t *len, void * *value);
-
-/**
- * Estimated heap memory currently held by the dictionary, in bytes.
- * Counts the trie node and key storage, matching the role of the C
- * `TrieType_MemUsage`.
- *
- * # Safety
- *
- * The following invariants must be upheld when calling this function:
- * - `t` must point to a valid [`TermDictionary`] obtained from
- *   [`NewTermDictionary`] and cannot be NULL.
- */
-size_t TermDictionary_MemUsage(const struct TermDictionary *t);
 
 /**
  * Invoke `callback` once per member term containing the UTF-8 needle
@@ -588,42 +490,6 @@ void TermSuffixIndex_IterateContains(const struct TermSuffixIndex *t, const char
 int TrieMap_Delete(struct TrieMap *t, const char *str, tm_len_t len, freeCB func);
 
 /**
- * ADD_INCR insert: accumulate both `score` and `num_docs` onto the
- * existing entry for `(term, len)`, or create a fresh terminal if
- * absent. The term is case-folded internally.
- *
- * A non-UTF-8 term is a no-op and reports
- * [`TermDictionaryInsertOutcome::New`].
- *
- * # Safety
- *
- * The following invariants must be upheld when calling this function:
- * - `t` must point to a valid [`TermDictionary`] obtained from
- *   [`NewTermDictionary`] and cannot be NULL.
- * - `term` must point to a valid byte sequence of length `len`.
- * - No iterator obtained from `t` may be alive.
- */
-enum TermDictionaryInsertOutcome TermDictionary_AddTerm(struct TermDictionary *t, const char *term, size_t len, float score, size_t num_docs);
-
-/**
- * ADD_REPLACE insert: overwrite `score`, but still accumulate
- * `num_docs` onto the existing count for `(term, len)`. Creates a fresh
- * terminal if absent. The term is case-folded internally.
- *
- * A non-UTF-8 term is a no-op and reports
- * [`TermDictionaryInsertOutcome::New`].
- *
- * # Safety
- *
- * The following invariants must be upheld when calling this function:
- * - `t` must point to a valid [`TermDictionary`] obtained from
- *   [`NewTermDictionary`] and cannot be NULL.
- * - `term` must point to a valid byte sequence of length `len`.
- * - No iterator obtained from `t` may be alive.
- */
-enum TermDictionaryInsertOutcome TermDictionary_ReplaceTerm(struct TermDictionary *t, const char *term, size_t len, float score, size_t num_docs);
-
-/**
  * Invoke `callback` once per member term ending with the UTF-8 needle
  * `(str, len)`. Each matching term is reported exactly once. The
  * iteration stops early when the callback returns a value other than
@@ -658,27 +524,6 @@ void TermSuffixIndex_IterateSuffix(const struct TermSuffixIndex *t, const char *
 void TrieMap_Free(struct TrieMap *t, freeCB func);
 
 /**
- * Primitive overwrite: install `(score, num_docs)` for `(term, len)`,
- * replacing any prior entry without accumulating. Intended for bulk
- * seeding; production indexing should use [`TermDictionary_AddTerm`] /
- * [`TermDictionary_ReplaceTerm`]. The term is case-folded internally.
- *
- * Reports [`TermDictionaryInsertOutcome::Updated`] when a prior entry
- * was overwritten, [`TermDictionaryInsertOutcome::New`] otherwise. A
- * non-UTF-8 term is a no-op and reports
- * [`TermDictionaryInsertOutcome::New`].
- *
- * # Safety
- *
- * The following invariants must be upheld when calling this function:
- * - `t` must point to a valid [`TermDictionary`] obtained from
- *   [`NewTermDictionary`] and cannot be NULL.
- * - `term` must point to a valid byte sequence of length `len`.
- * - No iterator obtained from `t` may be alive.
- */
-enum TermDictionaryInsertOutcome TermDictionary_Insert(struct TermDictionary *t, const char *term, size_t len, float score, size_t num_docs);
-
-/**
  * Determines the amount of memory used by the trie in bytes.
  *
  * # Safety
@@ -686,21 +531,6 @@ enum TermDictionaryInsertOutcome TermDictionary_Insert(struct TermDictionary *t,
  * - `t` must point to a valid TrieMap obtained from [`NewTrieMap`] and cannot be NULL.
  */
 size_t TrieMap_MemUsage(struct TrieMap *t);
-
-/**
- * Remove the entry for `(term, len)`. Returns 1 if a term was removed,
- * 0 if it was absent or not valid UTF-8. The term is case-folded
- * internally.
- *
- * # Safety
- *
- * The following invariants must be upheld when calling this function:
- * - `t` must point to a valid [`TermDictionary`] obtained from
- *   [`NewTermDictionary`] and cannot be NULL.
- * - `term` must point to a valid byte sequence of length `len`.
- * - No iterator obtained from `t` may be alive.
- */
-int TermDictionary_Remove(struct TermDictionary *t, const char *term, size_t len);
 
 /**
  * Iterate over every member term matching the wildcard pattern
@@ -740,24 +570,6 @@ struct TermSuffixIndexIterator *TermSuffixIndex_IterateWildcard(const struct Ter
 size_t TrieMap_NUniqueKeys(const struct TrieMap *t);
 
 /**
- * Look up the entry for `(term, len)`. Returns 1 and writes the entry's
- * `score`/`num_docs` into the (optional, may be NULL) out-pointers if
- * the term is present; returns 0 otherwise (absent or not valid UTF-8),
- * leaving the out-pointers untouched. The term is case-folded
- * internally.
- *
- * # Safety
- *
- * The following invariants must be upheld when calling this function:
- * - `t` must point to a valid [`TermDictionary`] obtained from
- *   [`NewTermDictionary`] and cannot be NULL.
- * - `term` must point to a valid byte sequence of length `len`.
- * - `out_score` and `out_num_docs` must each be NULL or point to a
- *   writable location.
- */
-int TermDictionary_Get(const struct TermDictionary *t, const char *term, size_t len, float *out_score, size_t *out_num_docs);
-
-/**
  * The number of nodes stored in the provided triemap.
  *
  * It's greater or equal to the number returned by [`TrieMap_NUniqueKeys`].
@@ -787,24 +599,6 @@ size_t TrieMap_NNodes(const struct TrieMap *t);
 struct TermSuffixIndexIterator *TermSuffixIndex_IterateAll(const struct TermSuffixIndex *t);
 
 /**
- * Decrement the `num_docs` count for `(term, len)` by `delta`
- * (saturating — when the count reaches zero the entry is removed). The
- * term is case-folded internally.
- *
- * Reports [`TermDictionaryDecrResult::NotFound`] when no entry exists
- * for the term or it is not valid UTF-8.
- *
- * # Safety
- *
- * The following invariants must be upheld when calling this function:
- * - `t` must point to a valid [`TermDictionary`] obtained from
- *   [`NewTermDictionary`] and cannot be NULL.
- * - `term` must point to a valid byte sequence of length `len`.
- * - No iterator obtained from `t` may be alive.
- */
-enum TermDictionaryDecrResult TermDictionary_DecrementNumDocs(struct TermDictionary *t, const char *term, size_t len, size_t delta);
-
-/**
  * Advance the iterator. Returns 1 and stores the next string into
  * `(*str, *len)` if there is one, or returns 0 once exhausted.
  *
@@ -826,20 +620,6 @@ enum TermDictionaryDecrResult TermDictionary_DecrementNumDocs(struct TermDiction
 int TermSuffixIndexIterator_Next(struct TermSuffixIndexIterator *it, const char * *str, size_t *len);
 
 /**
- * Iterate over every term in the dictionary in lexicographical order.
- *
- * Invoke [`TermDictionaryIterator_Next`] to get the results.
- *
- * # Safety
- *
- * The following invariants must be upheld when calling this function:
- * - `t` must point to a valid [`TermDictionary`] obtained from
- *   [`NewTermDictionary`] and cannot be NULL.
- * - `t` must not be modified or freed while the iterator lives.
- */
-struct TermDictionaryIterator *TermDictionary_Iterate(const struct TermDictionary *t);
-
-/**
  * Free an iterator obtained from one of the `TermSuffixIndex_Iterate*`
  * functions. Invalidates any string pointer previously returned by
  * [`TermSuffixIndexIterator_Next`].
@@ -853,164 +633,6 @@ struct TermDictionaryIterator *TermDictionary_Iterate(const struct TermDictionar
  * - `it` must not be used after this call.
  */
 void TermSuffixIndexIterator_Free(struct TermSuffixIndexIterator *it);
-
-/**
- * Iterate over every term sharing the case-folded prefix `(str, len)`,
- * in lexicographical order.
- *
- * Invoke [`TermDictionaryIterator_Next`] to get the results.
- *
- * # Safety
- *
- * The following invariants must be upheld when calling this function:
- * - `t` must point to a valid [`TermDictionary`] obtained from
- *   [`NewTermDictionary`] and cannot be NULL.
- * - `str` must point to a valid byte sequence of length `len`.
- * - `t` must not be modified or freed while the iterator lives.
- */
-struct TermDictionaryIterator *TermDictionary_IteratePrefix(const struct TermDictionary *t, const char *str, size_t len);
-
-/**
- * Iterate over every term ending with the case-folded suffix
- * `(str, len)`, in lexicographical order.
- *
- * Invoke [`TermDictionaryIterator_Next`] to get the results.
- *
- * # Safety
- *
- * The following invariants must be upheld when calling this function:
- * - `t` must point to a valid [`TermDictionary`] obtained from
- *   [`NewTermDictionary`] and cannot be NULL.
- * - `str` must point to a valid byte sequence of length `len`.
- * - `t` must not be modified or freed while the iterator lives.
- */
-struct TermDictionaryIterator *TermDictionary_IterateSuffix(const struct TermDictionary *t, const char *str, size_t len);
-
-/**
- * Iterate over every term containing the case-folded substring
- * `(str, len)`, in lexicographical order.
- *
- * Invoke [`TermDictionaryIterator_Next`] to get the results.
- *
- * # Safety
- *
- * The following invariants must be upheld when calling this function:
- * - `t` must point to a valid [`TermDictionary`] obtained from
- *   [`NewTermDictionary`] and cannot be NULL.
- * - `str` must point to a valid byte sequence of length `len`.
- * - `t` must not be modified or freed while the iterator lives.
- * - The substring bytes `(str, len)` must stay valid and unmodified
- *   while the iterator lives — the iterator matches candidates against
- *   them on every advance.
- */
-struct TermDictionaryIterator *TermDictionary_IterateContains(const struct TermDictionary *t, const char *str, size_t len);
-
-/**
- * Iterate over every term matching the case-folded wildcard pattern
- * `(str, len)` (`*` matches any run of characters, `?` exactly one), in
- * lexicographical order.
- *
- * Invoke [`TermDictionaryIterator_Next`] to get the results.
- *
- * # Safety
- *
- * The following invariants must be upheld when calling this function:
- * - `t` must point to a valid [`TermDictionary`] obtained from
- *   [`NewTermDictionary`] and cannot be NULL.
- * - `str` must point to a valid byte sequence of length `len`.
- * - `t` must not be modified or freed while the iterator lives.
- * - The pattern bytes `(str, len)` must stay valid and unmodified while
- *   the iterator lives — the iterator matches candidates against them
- *   on every advance.
- */
-struct TermDictionaryIterator *TermDictionary_IterateWildcard(const struct TermDictionary *t, const char *str, size_t len);
-
-/**
- * Iterate over every term within Levenshtein edit distance `max_dist`
- * (in codepoints) of the case-folded prefix `(str, len)`. With
- * `prefix_mode` set, a term matches when any prefix of it is within
- * `max_dist`; otherwise the whole term must be. The reported `dist`
- * out-parameter of [`TermDictionaryIterator_Next`] carries the matched
- * distance for each term.
- *
- * Invoke [`TermDictionaryIterator_Next`] to get the results.
- *
- * # Safety
- *
- * The following invariants must be upheld when calling this function:
- * - `t` must point to a valid [`TermDictionary`] obtained from
- *   [`NewTermDictionary`] and cannot be NULL.
- * - `str` must point to a valid byte sequence of length `len`.
- * - `t` must not be modified or freed while the iterator lives.
- */
-struct TermDictionaryIterator *TermDictionary_IterateDfa(const struct TermDictionary *t, const char *str, size_t len, uint32_t max_dist, bool prefix_mode);
-
-/**
- * Iterate over every term in the lexicographic range bounded by `min`
- * and `max`, in lexicographical order. Both bounds are case-folded
- * internally.
- *
- * A NULL `min` pointer leaves the lower side unbounded; a NULL `max`
- * pointer leaves the upper side unbounded (a non-NULL pointer with
- * `len == 0` is the empty-string bound, which is distinct from NULL).
- * `include_min` / `include_max` choose closed vs. open bounds. This
- * mirrors the C `Trie_IterateRange` used for `FT.SEARCH` LEXRANGE
- * queries.
- *
- * Invoke [`TermDictionaryIterator_Next`] to get the results.
- *
- * # Safety
- *
- * The following invariants must be upheld when calling this function:
- * - `t` must point to a valid [`TermDictionary`] obtained from
- *   [`NewTermDictionary`] and cannot be NULL.
- * - `min` must be NULL or point to a valid byte sequence of length
- *   `min_len`; likewise `max` / `max_len`.
- * - `t` must not be modified or freed while the iterator lives.
- * - Any non-NULL bound bytes must stay valid and unmodified while the
- *   iterator lives — the iterator compares candidates against them on
- *   every advance.
- */
-struct TermDictionaryIterator *TermDictionary_IterateRange(const struct TermDictionary *t, const char *min, size_t min_len, bool include_min, const char *max, size_t max_len, bool include_max);
-
-/**
- * Advance the iterator. Returns 1 and stores the next term and its
- * payload into the out-pointers if there is one, or returns 0 once
- * exhausted.
- *
- * The term written to `*term` is NOT NUL-terminated, owned by the
- * iterator, and only valid until the next call to
- * [`TermDictionaryIterator_Next`] or [`TermDictionaryIterator_Free`].
- * `score`, `num_docs` and `dist` are optional (may be NULL); `dist` is
- * the matched edit distance for iterators created by
- * [`TermDictionary_IterateDfa`] and `0` for all other iterators.
- *
- * # Safety
- *
- * The following invariants must be upheld when calling this function:
- * - `it` must point to a valid [`TermDictionaryIterator`] obtained from
- *   one of the `TermDictionary_Iterate*` functions and cannot be NULL.
- * - `term` and `len` must be valid, non-NULL pointers to writable
- *   locations; `score`, `num_docs` and `dist` must each be NULL or
- *   point to a writable location.
- * - The [`TermDictionary`] the iterator was obtained from must still be
- *   alive and unmodified since the iterator was created.
- */
-int TermDictionaryIterator_Next(struct TermDictionaryIterator *it, const char * *term, size_t *len, float *score, size_t *num_docs, uint32_t *dist);
-
-/**
- * Free an iterator obtained from one of the `TermDictionary_Iterate*`
- * functions. Invalidates any term pointer previously returned by
- * [`TermDictionaryIterator_Next`].
- *
- * # Safety
- *
- * The following invariants must be upheld when calling this function:
- * - `it` must point to a valid [`TermDictionaryIterator`] obtained from
- *   one of the `TermDictionary_Iterate*` functions and cannot be NULL.
- * - `it` must not be used after this call.
- */
-void TermDictionaryIterator_Free(struct TermDictionaryIterator *it);
 
 #ifdef __cplusplus
 }  // extern "C"
