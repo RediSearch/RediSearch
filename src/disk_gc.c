@@ -14,6 +14,7 @@
 #include "redismodule.h"
 #include "rmalloc.h"
 #include "info/global_stats.h"
+#include "util/timeout.h"
 #include <stdatomic.h>
 #include <time.h>
 
@@ -49,7 +50,9 @@ static bool periodicCb(void *privdata, bool force) {
   SearchDisk_RunGC(sp->diskSpec, &stats);
   clock_gettime(CLOCK_MONOTONIC, &end);
 
-  long elapsed_ms = (end.tv_sec - start.tv_sec) * 1000L + (end.tv_nsec - start.tv_nsec) / 1000000L;
+  struct timespec elapsed;
+  rs_timersub(&end, &start, &elapsed);
+  long elapsed_ms = (long)rs_timer_ms(&elapsed);
   if (elapsed_ms < 0) elapsed_ms = 0;
 
   atomic_fetch_add(&gc->totalCollectedBytes, stats.bytes_collected);
