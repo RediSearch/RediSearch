@@ -36,6 +36,22 @@ def test_10140_phonetic_after_noindex_text_field(env):
      .equal([1, 'phonetic:1'])
 
 @skip(cluster=True)
+def test_10140_empty_query_after_noindex_text_field(env):
+  env.expect('FT.CREATE', 'idx', 'SCHEMA', 'ignored', 'TEXT', 'NOINDEX', 'text', 'TEXT').ok()
+
+  env.expect('FT.SEARCH', 'idx', '@text:("")') \
+     .error().contains('Use `INDEXEMPTY` in field creation')
+
+@skip(cluster=True, no_json=True)
+def test_10140_slop_after_noindex_text_field(env):
+  env.expect('FT.CREATE', 'idx', 'ON', 'JSON', 'SCHEMA',
+             '$.ignored', 'AS', 'ignored', 'TEXT', 'NOINDEX',
+             '$.text[*]', 'AS', 'text', 'TEXT').ok()
+
+  env.expect('FT.SEARCH', 'idx', '@text:(hello world)=>{$slop:1}') \
+     .error().contains('with undefined ordering')
+
+@skip(cluster=True)
 def test_1414(env):
   env.expect('FT.CREATE idx SCHEMA txt1 TEXT').equal('OK')
   env.cmd('hset', 'doc', 'foo', 'hello', 'bar', 'world')
