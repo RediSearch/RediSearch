@@ -1929,7 +1929,7 @@ size_t IndexSpec_GetIndexErrorCount(const IndexSpec *sp) {
 }
 
 size_t IndexSpec_TotalBlockCount(IndexSpec *sp) {
-  return sp->diskSpec ? SearchDisk_GetInvertedIndexTotalBlocks(sp->diskSpec)
+  return sp->diskSpec ? SearchDisk_GetInvertedIndexTotalBlocks(sp->diskSpec) 
       : __atomic_load_n(&sp->stats.totalInvertedIndexBlocks, __ATOMIC_RELAXED);
 }
 
@@ -3262,7 +3262,7 @@ void IndexSpec_AddToInfo(RedisModuleInfoCtx *ctx, IndexSpec *sp, bool obfuscate,
     RedisModule_InfoAddFieldDouble(ctx, "total_index_memory_sz_mb", IndexSpec_TotalMemUsage(sp, 0, 0, 0, 0) / (float)0x100000);
   }
   RedisModule_InfoEndDictField(ctx);
-
+  
   RedisModule_InfoAddFieldULongLong(ctx, "total_inverted_index_blocks", sp->stats.totalInvertedIndexBlocks);
 
   RedisModule_InfoBeginDictField(ctx, "index_properties_averages");
