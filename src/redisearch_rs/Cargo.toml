@@ -36,6 +36,7 @@ members = [
     "search_result",
     "slots_tracker",
     "sorting_vector",
+    "spellcheck_dictionary",
     "string_utils",
     "term_suffix_index",
     "tools/license_header_linter",
