@@ -151,7 +151,7 @@ class Agent:
         try:
             lookups = handlers_for_repo(link.repo)(pr, self.versions, version_text, self.templates)
         except VersionParseError as exc:
-            self._alert(ticket, pr, f"<{VERSION_FILE_PATH} unparseable>", str(exc))
+            self._alert(ticket, pr, f"<{VERSION_FILE_PATH} unparsable>", str(exc))
             return
 
         for lk in lookups:
