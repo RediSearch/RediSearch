@@ -28,7 +28,7 @@ use crate::util::expect_value;
 /// [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn RSValue_Hash(value: *const RSValue, hval: u64) -> u64 {
-    // Safety: ensured by caller (1.)
+    // SAFETY: caller guarantees `value` is a valid, non-null pointer to an RSValue (1.)
     let value = unsafe { expect_value(value) };
 
     value::hash::hash(value, hval)
@@ -51,7 +51,7 @@ pub unsafe extern "C" fn RSValue_Hash(value: *const RSValue, hval: u64) -> u64 {
 /// [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn RSValue_HashStable(value: *const RSValue, hval: u64) -> u64 {
-    // Safety: ensured by caller (1.)
+    // SAFETY: caller guarantees `value` is a valid, non-null pointer to an RSValue (1.)
     let value = unsafe { expect_value(value) };
 
     value::hash::hash_stable(value, hval)
