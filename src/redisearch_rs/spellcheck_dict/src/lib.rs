@@ -42,25 +42,21 @@ impl SpellCheckDictionary {
     }
 
     pub fn contains(&self, term: &str) -> bool {
-        let needle = unicode_tolower(term);
+        let needle = term.to_lowercase();
         self.trie
             .iter()
-            .any(|(key, ())| unicode_tolower(&key) == needle)
+            .any(|(key, ())| key.to_lowercase() == needle)
     }
 
     /// Yield every stored term whose case-folded form is within Levenshtein
     /// edit distance `max_dist` (in codepoints) of `term`. Matching is
     /// case-insensitive — but the yielded terms keep their original stored case.
     pub fn fuzzy_matches(&self, term: &str, max_dist: u32) -> impl Iterator<Item = String> + '_ {
-        let needle = unicode_tolower(term);
+        let needle = term.to_lowercase();
         self.trie.iter().filter_map(move |(key, ())| {
-            (levenshtein(&unicode_tolower(&key), &needle) <= max_dist).then_some(key)
+            (levenshtein(&key.to_lowercase(), &needle) <= max_dist).then_some(key)
         })
     }
-}
-
-fn unicode_tolower(s: &str) -> String {
-    s.chars().flat_map(char::to_lowercase).collect()
 }
 
 fn levenshtein(a: &str, b: &str) -> u32 {
@@ -194,10 +190,10 @@ mod tests {
 
             // Brute-force oracle: a stored term matches iff its folded form is
             // within `max_dist` of the folded query.
-            let folded_query = unicode_tolower(&query);
+            let folded_query = query.to_lowercase();
             let expected: BTreeSet<String> = stored
                 .iter()
-                .filter(|t| levenshtein(&unicode_tolower(t), &folded_query) <= max_dist)
+                .filter(|t| levenshtein(&t.to_lowercase(), &folded_query) <= max_dist)
                 .cloned()
                 .collect();
 
