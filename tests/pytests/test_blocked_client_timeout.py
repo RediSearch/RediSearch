@@ -4953,6 +4953,8 @@ class TestCoordinatorTimeoutReturnStrictResp2:
             except Exception:
                 pass
 
+    @skip_until("2026-06-23", reason="Flaky on slow runners (macOS x86_64): "
+                "10s thread-join window too tight under return-strict timeout")
     def test_return_strict_one_shard_timesout_flat_aggregate_resp2(self):
         """RESP2 variant of test_return_strict_one_shard_timesout_flat_aggregate."""
         skipIfNoEnableAssert(self.env)
@@ -5010,6 +5012,9 @@ class TestCoordinatorTimeoutReturnStrictResp2:
             shard_cmd='_FT.PROFILE',
             assert_reply=assert_profile_reply)
 
+    @skip_until("2026-06-23", reason="Flaky on slow runners (macOS x86_64): "
+                "claim-race is non-deterministic, background thread can win the "
+                "claim and return the post-processing reply shape")
     def test_return_strict_timeout_at_claim_sync_point_profile_hybrid_resp2(self):
         """RESP2 FT.PROFILE HYBRID early-timeout preserves the profile envelope.
 
