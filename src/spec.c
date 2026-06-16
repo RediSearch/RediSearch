@@ -265,8 +265,7 @@ int IndexSpec_CheckPhoneticEnabled(const IndexSpec *sp, t_fieldMask fm) {
 int IndexSpec_CheckAllowSlopAndInorder(const IndexSpec *spec, t_fieldMask fm, QueryError *status) {
   for (size_t ii = 0; ii < spec->numFields; ++ii) {
     const FieldSpec *fs = spec->fields + ii;
-    if (FIELD_IS(fs, INDEXFLD_T_FULLTEXT) && (fm & FIELD_BIT(fs)) &&
-        FieldSpec_IsUndefinedOrder(fs)) {
+    if (FIELD_IS(fs, INDEXFLD_T_FULLTEXT) && (fm & FIELD_BIT(fs)) && FieldSpec_IsUndefinedOrder(fs)) {
       QueryError_SetWithUserDataFmt(
           status, QUERY_ERROR_CODE_BAD_ORDER_OPTION,
           "slop/inorder are not supported for field with undefined ordering", " `%s`",
@@ -1930,7 +1929,7 @@ size_t IndexSpec_GetIndexErrorCount(const IndexSpec *sp) {
 }
 
 size_t IndexSpec_TotalBlockCount(IndexSpec *sp) {
-  return sp->diskSpec ? SearchDisk_GetInvertedIndexTotalBlocks(sp->diskSpec) 
+  return sp->diskSpec ? SearchDisk_GetInvertedIndexTotalBlocks(sp->diskSpec)
       : __atomic_load_n(&sp->stats.totalInvertedIndexBlocks, __ATOMIC_RELAXED);
 }
 
@@ -3263,7 +3262,7 @@ void IndexSpec_AddToInfo(RedisModuleInfoCtx *ctx, IndexSpec *sp, bool obfuscate,
     RedisModule_InfoAddFieldDouble(ctx, "total_index_memory_sz_mb", IndexSpec_TotalMemUsage(sp, 0, 0, 0, 0) / (float)0x100000);
   }
   RedisModule_InfoEndDictField(ctx);
-  
+
   RedisModule_InfoAddFieldULongLong(ctx, "total_inverted_index_blocks", sp->stats.totalInvertedIndexBlocks);
 
   RedisModule_InfoBeginDictField(ctx, "index_properties_averages");
