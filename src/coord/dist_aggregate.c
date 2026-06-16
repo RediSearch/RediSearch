@@ -669,8 +669,11 @@ void RSExecDistAggregate(RedisModuleCtx *ctx, RedisModuleString **argv, int argc
   AREQ *r = AREQ_New();
 
   // Sticky dispatch-time policy (CoordRequestCtx), not AREQ_New's RSGlobalConfig
-  // re-read; CoordRequestCtx_SetRequest derives requiresAggregateResultsSync from it.
+  // re-read, so the BG sync wiring agrees with the armed timeout callbacks.
   RSTimeoutPolicy stickyTimeoutPolicy = CoordRequestCtx_GetTimeoutPolicy(reqCtx);
+  if (stickyTimeoutPolicy == TimeoutPolicy_ReturnStrict) {
+    r->syncCtx.requiresAggregateResultsSync = true;
+  }
   CoordRequestCtx_SetRequest(reqCtx, r);
   CoordRequestCtx_UnlockSetRequest(reqCtx);
 
@@ -968,6 +971,9 @@ void DEBUG_RSExecDistAggregate(RedisModuleCtx *ctx, RedisModuleString **argv, in
   // CMD, index, expr, args...
   r = &debug_req->r;
 
+  if (stickyTimeoutPolicy == TimeoutPolicy_ReturnStrict) {
+    r->syncCtx.requiresAggregateResultsSync = true;
+  }
   CoordRequestCtx_SetRequest(reqCtx, r);
   CoordRequestCtx_UnlockSetRequest(reqCtx);
 

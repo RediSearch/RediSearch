@@ -86,10 +86,12 @@ void CoordRequestCtx_SetRequest(CoordRequestCtx *ctx, void *req) {
     hreq->syncCtx.requiresAggregateResultsSync =
         (ctx->timeoutPolicy == TimeoutPolicy_ReturnStrict);
   } else if (ctx->type == COMMAND_AGGREGATE) {
-    AREQ *areq = (AREQ *)req;
-    areq->useReplyCallback = ctx->useReplyCallback;
-    areq->syncCtx.requiresAggregateResultsSync =
-        (ctx->timeoutPolicy == TimeoutPolicy_ReturnStrict);
+    // NB: do not derive requiresAggregateResultsSync here. The FT.CURSOR READ
+    // path attaches an existing cursor AREQ (aggregate_exec.c) via a ctx whose
+    // timeoutPolicy is left at the default, so deriving it here would clear the
+    // flag the cursor set at WITHCURSOR time. The query exec path sets it
+    // explicitly from the sticky policy instead.
+    ((AREQ *)req)->useReplyCallback = ctx->useReplyCallback;
   } else {
     COORD_REQUEST_CTX_UNSUPPORTED_TYPE();
   }
