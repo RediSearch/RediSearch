@@ -264,10 +264,7 @@ mod tests {
         sut.add(&term);
 
         assert_eq!(sut.contains(&term), expected_match);
-        assert_eq!(
-            sut.fuzzy_matches(&term, 0).next().is_some(),
-            expected_match
-        );
+        assert_eq!(sut.fuzzy_matches(&term, 0).next().is_some(), expected_match);
     }
 
     #[test]
