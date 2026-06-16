@@ -171,7 +171,7 @@ mod tests {
     #[case("abc", "abc", 0)]
     #[case("", "abc", 3)] // pure insertions
     #[case("abc", "", 3)] // pure deletions
-    #[case("abc", "abd", 1)] // single substitution
+    #[case("abc", "abe", 1)] // single substitution
     #[case("kitten", "sitting", 3)] // classic: e>i, +s, +g
     #[case("ab", "ba", 2)] // transposition costs 2 (not Damerau)
     #[case("café", "cafe", 1)] // multibyte codepoint substitution
