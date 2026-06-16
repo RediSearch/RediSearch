@@ -674,12 +674,11 @@ void RSExecDistAggregate(RedisModuleCtx *ctx, RedisModuleString **argv, int argc
   AREQ *r = AREQ_New();
 
   // Use the policy captured at dispatch (sticky on CoordRequestCtx), not the
-  // value AREQ_New just re-read from RSGlobalConfig, so the sync wiring agrees
+  // value AREQ_New just re-read from RSGlobalConfig, so the tail pipeline agrees
   // with the armed timeout callbacks even if FT.CONFIG SET raced dispatch.
+  // CoordRequestCtx_SetRequest derives requiresAggregateResultsSync from the
+  // same sticky policy.
   RSTimeoutPolicy stickyTimeoutPolicy = CoordRequestCtx_GetTimeoutPolicy(reqCtx);
-  if (stickyTimeoutPolicy == TimeoutPolicy_ReturnStrict) {
-    r->syncCtx.requiresAggregateResultsSync = true;
-  }
   CoordRequestCtx_SetRequest(reqCtx, r);
   CoordRequestCtx_UnlockSetRequest(reqCtx);
 
@@ -950,9 +949,10 @@ void DEBUG_RSExecDistAggregate(RedisModuleCtx *ctx, RedisModuleString **argv, in
   size_t numShards = 0;
   RPNet *rpnet = NULL;
   // Use the policy captured at dispatch (sticky on CoordRequestCtx), not the
-  // value AREQ_New re-reads from RSGlobalConfig, so the sync wiring agrees with
-  // the armed timeout callbacks even if FT.CONFIG SET raced dispatch. Declared
-  // here (before any `goto err`) to avoid jumping over its initialization.
+  // value AREQ_New re-reads from RSGlobalConfig, so the tail pipeline agrees with
+  // the armed timeout callbacks even if FT.CONFIG SET raced dispatch (the sync
+  // flag is derived from the same sticky policy in CoordRequestCtx_SetRequest).
+  // Declared here (before any `goto err`) to avoid jumping over its initialization.
   RSTimeoutPolicy stickyTimeoutPolicy = CoordRequestCtx_GetTimeoutPolicy(reqCtx);
 
   // debug_req and &debug_req->r are allocated in the same memory block, so it will be freed
@@ -979,9 +979,6 @@ void DEBUG_RSExecDistAggregate(RedisModuleCtx *ctx, RedisModuleString **argv, in
   // CMD, index, expr, args...
   r = &debug_req->r;
 
-  if (stickyTimeoutPolicy == TimeoutPolicy_ReturnStrict) {
-    r->syncCtx.requiresAggregateResultsSync = true;
-  }
   CoordRequestCtx_SetRequest(reqCtx, r);
   CoordRequestCtx_UnlockSetRequest(reqCtx);
 

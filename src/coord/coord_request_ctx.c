@@ -86,7 +86,10 @@ void CoordRequestCtx_SetRequest(CoordRequestCtx *ctx, void *req) {
     hreq->syncCtx.requiresAggregateResultsSync =
         (ctx->timeoutPolicy == TimeoutPolicy_ReturnStrict);
   } else if (ctx->type == COMMAND_AGGREGATE) {
-    ((AREQ *)req)->useReplyCallback = ctx->useReplyCallback;
+    AREQ *areq = (AREQ *)req;
+    areq->useReplyCallback = ctx->useReplyCallback;
+    areq->syncCtx.requiresAggregateResultsSync =
+        (ctx->timeoutPolicy == TimeoutPolicy_ReturnStrict);
   } else {
     COORD_REQUEST_CTX_UNSUPPORTED_TYPE();
   }
