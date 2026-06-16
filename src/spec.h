@@ -43,9 +43,6 @@ struct IndexesScanner;
 // Initial capacity (in bytes) of a new block
 #define INDEX_BLOCK_INITIAL_CAP 6
 
-// Initial number of slots in a spec's document table
-#define INITIAL_DOC_TABLE_SIZE 1000
-
 #define SPEC_GEO_STR "GEO"
 #define SPEC_GEOMETRY_STR "GEOSHAPE"
 #define SPEC_TAG_STR "TAG"
@@ -508,7 +505,7 @@ int isRdbLoading(RedisModuleCtx *ctx);
 
 /* Build a new index spec from redis arguments and start its GC. Does NOT add it
  * to the global registry or start the initial scan - the caller-facing
- * Indexes_CreateNew (indexes.h) wraps those registry concerns around this call.
+ * Indexes_CreateNewSpec (indexes.h) wraps those registry concerns around this call.
  * If an error occurred - we set an error string in err and return NULL.
  */
 IndexSpec *IndexSpec_CreateNew(RedisModuleCtx *ctx, RedisModuleString **argv, int argc,
@@ -526,7 +523,7 @@ RedisModuleString *IndexSpec_Serialize(IndexSpec *sp);
  * Deserialize an IndexSpec from its RDB serialized form, by calling the `IndexSpecType` rdb_load function.
  * Returns the loaded spec (its single owning reference in sp->own_ref), or NULL on failure.
  * Does NOT publish the spec into the global registry - the caller must pass the
- * result to Indexes_StoreAfterRdbLoad (see indexes.h).
+ * result to Indexes_StoreSpecAfterRdbLoad (see indexes.h).
  * Does not consume the serialized string, the caller is responsible for freeing it.
 */
 IndexSpec *IndexSpec_Deserialize(const RedisModuleString *serialized, int encver);
@@ -644,7 +641,7 @@ StrongRef IndexSpec_GetStrongRefUnsafe(const IndexSpec *spec);
  * prefixes, timeout timer, global field stats) and consumes the strong
  * reference. Does NOT touch the global registry (specDict_g/specIdDict_g).
  * Used on the create/parse failure path, where the spec was never registered;
- * Indexes_RemoveFromGlobals (indexes.h) calls it after the registry deletion.
+ * Indexes_RemoveSpecFromGlobals (indexes.h) calls it after the registry deletion.
  *
  * @param ref a strong reference to the spec
  * @param removeActive - should we call CurrentThread_ClearIndexSpec on the released spec

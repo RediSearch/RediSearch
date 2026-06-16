@@ -101,7 +101,7 @@ const HEADERS: &[HeaderAllowlist] = &[
         path: "src/indexes.h",
         fns: &[
             "Indexes_Init",
-            "Indexes_RemoveFromGlobals",
+            "Indexes_RemoveSpecFromGlobals",
             "Spec_AddToDict",
         ],
         types: &[],

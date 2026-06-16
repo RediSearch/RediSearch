@@ -106,7 +106,7 @@ IndexSpec* CreateStandardTestIndexSpec(RedisModuleCtx *ctx, const char* indexNam
                             "SCHEMA", "title", "TEXT", "score", "NUMERIC",
                             "category", "TEXT", "vector_field", "VECTOR", "FLAT", "6",
                             "TYPE", "FLOAT32", "DIM", "4", "DISTANCE_METRIC", "COSINE");
-  return Indexes_CreateNew(ctx, createArgs, createArgs.size(), status);
+  return Indexes_CreateNewSpec(ctx, createArgs, createArgs.size(), status);
 }
 
 /**
@@ -195,7 +195,7 @@ HybridRequest* ParseAndBuildHybridRequest(RedisModuleCtx *ctx, const char* index
     IndexSpec* sp; \
     ~HybridTestCleanup() { \
       if (req) HybridRequest_DecrRef(req); \
-      if (sp) Indexes_RemoveFromGlobals(sp->own_ref, false); \
+      if (sp) Indexes_RemoveSpecFromGlobals(sp->own_ref, false); \
     } \
   } cleanup{hybridReq, spec};
 

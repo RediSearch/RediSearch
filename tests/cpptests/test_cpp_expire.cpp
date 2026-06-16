@@ -38,7 +38,7 @@ TEST_F(ExpireTest, testSkipTo) {
 
   RMCK::ArgvList args(ctx, "FT.CREATE", "expire_idx", "ON", "HASH", "SKIPINITIALSCAN",
                       "SCHEMA", "t1", "TAG");
-  IndexSpec *spec = Indexes_CreateNew(ctx, args, args.size(), &qerr);
+  IndexSpec *spec = Indexes_CreateNewSpec(ctx, args, args.size(), &qerr);
   CurrentThread_SetIndexSpec(spec->own_ref);
   ASSERT_NE(spec, nullptr);
   const FieldSpec *fs = IndexSpec_GetFieldWithLength(spec, "t1", 2);
@@ -88,7 +88,7 @@ TEST_F(ExpireTest, testSkipTo) {
   }
   it->Free(it);
   SearchCtx_Free(sctx);
-  Indexes_RemoveFromGlobals(spec->own_ref, true);
+  Indexes_RemoveSpecFromGlobals(spec->own_ref, true);
   args.clear();
   RedisModule_FreeThreadSafeContext(ctx);
 }

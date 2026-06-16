@@ -52,7 +52,7 @@ IndexSpec* CreateTestIndexSpec(RedisModuleCtx *ctx, const char* indexName, Query
                             "SCHEMA", "title", "TEXT", "score", "NUMERIC",
                             "category", "TEXT", "vector_field", "VECTOR", "FLAT", "6",
                             "TYPE", "FLOAT32", "DIM", "4", "DISTANCE_METRIC", "COSINE");
-  return Indexes_CreateNew(ctx, createArgs, createArgs.size(), status);
+  return Indexes_CreateNewSpec(ctx, createArgs, createArgs.size(), status);
 }
 
 // ============================================================================
@@ -78,7 +78,7 @@ struct HybridIteratorTestCtx {
       if (rootiter) rootiter->Free(rootiter);
       if (hybridReq) HybridRequest_DecrRef(hybridReq);
       if (hybridParams.scoringCtx) HybridScoringContext_Free(hybridParams.scoringCtx);
-      if (spec) Indexes_RemoveFromGlobals(spec->own_ref, false);
+      if (spec) Indexes_RemoveSpecFromGlobals(spec->own_ref, false);
     }
   };
 

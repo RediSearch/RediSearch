@@ -34,7 +34,7 @@ extern dict *specIdDict_g;  // Maps specId (uint64_t) -> RefManager* (same as sp
 // callers should use it rather than IndexSpec_CreateNew directly so the initial
 // scan is not silently skipped.
 // Returns the new spec, or NULL on error (with `status` set).
-IndexSpec *Indexes_CreateNew(RedisModuleCtx *ctx, RedisModuleString **argv, int argc,
+IndexSpec *Indexes_CreateNewSpec(RedisModuleCtx *ctx, RedisModuleString **argv, int argc,
                              QueryError *status);
 
 /**
@@ -50,7 +50,7 @@ void Spec_AddToDict(RefManager *w_spec);
  * @param ref a strong reference to the spec
  * @param removeActive - should we call CurrentThread_ClearIndexSpec on the released spec
  */
-void Indexes_RemoveFromGlobals(StrongRef spec_ref, bool removeActive);
+void Indexes_RemoveSpecFromGlobals(StrongRef spec_ref, bool removeActive);
 
 /**
  * Find and load an index from the global registry, by name
@@ -118,7 +118,7 @@ int Indexes_RdbLoad(RedisModuleIO *rdb, int encver, int when);
 // the same name already exists. Consumes the spec's reference on the duplicate
 // path. Accepts NULL (returns REDISMODULE_ERR). Callers obtain the spec from the
 // IndexSpec core (e.g. IndexSpec_RdbLoad / IndexSpec_Deserialize) and pass it here.
-int Indexes_StoreAfterRdbLoad(IndexSpec *sp);
+int Indexes_StoreSpecAfterRdbLoad(IndexSpec *sp);
 
 // This function is called in case the server starts RDB loading.
 void Indexes_StartRDBLoadingEvent(RedisModuleCtx *ctx);

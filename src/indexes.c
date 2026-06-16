@@ -73,7 +73,7 @@ static bool checkIfSpecExists(const char *rawSpecName, size_t rawSpecNameLen) {
 // Entry point for FT.CREATE: enforce the registry preconditions (name
 // uniqueness, index-count limit), build the spec via the IndexSpec core, publish
 // it into the global registry, and schedule its initial scan.
-IndexSpec *Indexes_CreateNew(RedisModuleCtx *ctx, RedisModuleString **argv, int argc,
+IndexSpec *Indexes_CreateNewSpec(RedisModuleCtx *ctx, RedisModuleString **argv, int argc,
                              QueryError *status) {
   size_t rawSpecNameLen = 0;
   const char *rawSpecName = RedisModule_StringPtrLen(argv[1], &rawSpecNameLen);
@@ -127,7 +127,7 @@ void Spec_AddToDict(RefManager *rm) {
 // Also assumes that the spec exists in the global dictionary, so we use the
 // global reference as our guard and access the spec directly.
 // This function consumes the Strong reference it gets.
-void Indexes_RemoveFromGlobals(StrongRef spec_ref, bool removeActive) {
+void Indexes_RemoveSpecFromGlobals(StrongRef spec_ref, bool removeActive) {
   IndexSpec *spec = StrongRef_Get(spec_ref);
   // Remove spec from the global index registry (by name and by specId)
   dictDelete(specDict_g, spec->specName);
@@ -210,13 +210,13 @@ void Indexes_Free(RedisModuleCtx *ctx, dict *d, bool deleteDiskData) {
   for (size_t i = 0; i < array_len(specs); ++i) {
     IndexSpec *spec = StrongRef_Get(specs[i]);
     if (spec && spec->diskSpec) {
-      // Unregister must always precede close (triggered by Indexes_RemoveFromGlobals)
+      // Unregister must always precede close (triggered by Indexes_RemoveSpecFromGlobals)
       SearchDisk_UnregisterIndex(ctx, spec);
       if (deleteDiskData) {
         SearchDisk_MarkIndexForDeletion(spec->diskSpec);
       }
     }
-    Indexes_RemoveFromGlobals(specs[i], false);
+    Indexes_RemoveSpecFromGlobals(specs[i], false);
   }
   array_free(specs);
 }
@@ -224,7 +224,7 @@ void Indexes_Free(RedisModuleCtx *ctx, dict *d, bool deleteDiskData) {
 // Load one spec from the RDB stream and resolve its registry-dependent state:
 // parse it (IndexSpec core), detect a duplicate against the registry, then open
 // its on-disk index if appropriate. Returns the spec (not yet registered - the
-// caller passes it to Indexes_StoreAfterRdbLoad), or NULL on failure.
+// caller passes it to Indexes_StoreSpecAfterRdbLoad), or NULL on failure.
 static IndexSpec *Indexes_LoadSpecFromRdb(RedisModuleIO *rdb, int encver, bool useSst, QueryError *status) {
   IndexSpec *sp = IndexSpec_RdbLoad(rdb, encver, useSst, status);
   if (!sp) {
@@ -266,7 +266,7 @@ int Indexes_RdbLoad(RedisModuleIO *rdb, int encver, int when) {
     // Load one spec (parse + duplicate detection + disk open), then publish it
     // into the registry.
     IndexSpec *sp = Indexes_LoadSpecFromRdb(rdb, encver, useSst, &status);
-    if (Indexes_StoreAfterRdbLoad(sp) != REDISMODULE_OK) {
+    if (Indexes_StoreSpecAfterRdbLoad(sp) != REDISMODULE_OK) {
       RedisModule_LogIOError(rdb, "warning", "RDB Load: %s", QueryError_GetDisplayableError(&status, RSGlobalConfig.hideUserDataFromLog));
       QueryError_ClearError(&status);
       return REDISMODULE_ERR;
@@ -283,7 +283,7 @@ int Indexes_RdbLoad(RedisModuleIO *rdb, int encver, int when) {
 // Finalize a spec loaded from RDB: detect a name collision against the registry,
 // then either discard the duplicate or publish the spec into specDict_g/
 // specIdDict_g and start its GC. Owns the registry writes for the load path.
-int Indexes_StoreAfterRdbLoad(IndexSpec *sp) {
+int Indexes_StoreSpecAfterRdbLoad(IndexSpec *sp) {
   if (!sp) {
     addPendingIndexDrop();
     return REDISMODULE_ERR;
@@ -359,7 +359,7 @@ static void Indexes_RdbSave2(RedisModuleIO *rdb, int when) {
 // Per-key rdb_load callback for the IndexSpecType module type: load a single
 // spec (legacy or current) and resolve its registry-dependent state. Used for
 // serialization/deserialization and ASM migration; does not register the spec
-// (that is the caller's job, e.g. via Indexes_StoreAfterRdbLoad).
+// (that is the caller's job, e.g. via Indexes_StoreSpecAfterRdbLoad).
 static void *IndexSpecType_RdbLoad(RedisModuleIO *rdb, int encver) {
   const bool useSst = CheckRdbSstPersistence(RedisModule_GetContextFromIO(rdb), "RDB Load Logic");
   if (encver <= LEGACY_INDEX_MAX_VERSION) {
@@ -974,7 +974,7 @@ void Indexes_AbortSSTReplicationLoading(RedisModuleCtx *ctx) {
                   "SST replication aborted; tearing down %lu staged index(es)",
                   (unsigned long)dictSize(specDict_g));
 
-  // Snapshot the refs first since Indexes_RemoveFromGlobals mutates specDict_g.
+  // Snapshot the refs first since Indexes_RemoveSpecFromGlobals mutates specDict_g.
   arrayof(StrongRef) specs = array_new(StrongRef, dictSize(specDict_g));
   dictIterator *iter = dictGetIterator(specDict_g);
   dictEntry *entry = NULL;
@@ -997,7 +997,7 @@ void Indexes_AbortSSTReplicationLoading(RedisModuleCtx *ctx) {
     }
     // pendingDiskRdbState and diskSpec are freed by IndexSpec_FreeUnlinkedData
     // once the last StrongRef is dropped below.
-    Indexes_RemoveFromGlobals(specs[i], false);
+    Indexes_RemoveSpecFromGlobals(specs[i], false);
   }
   array_free(specs);
 }

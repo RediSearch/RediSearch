@@ -441,7 +441,7 @@ char *IndexSpec_FormatObfuscatedName(const HiddenString *specName) {
  * (for temporary indexes) timeout timer.
  *
  * Builds the spec only: it does not publish it into the global registry or start
- * the initial scan. Use Indexes_CreateNew (indexes.h) as the FT.CREATE entry
+ * the initial scan. Use Indexes_CreateNewSpec (indexes.h) as the FT.CREATE entry
  * point - it performs the existence/limit checks, registers the spec, and
  * schedules the initial scan around this call. */
 // TODO: multithreaded: use global metadata locks to protect global data structures
@@ -2026,7 +2026,7 @@ void IndexSpec_Free(IndexSpec *spec) {
 // Tear down a spec's non-registry global state: aliases, schema prefixes, the
 // temporary-index timer, and global field statistics, then consume the strong
 // reference it is given. Does NOT remove the spec from the global registry
-// (specDict_g/specIdDict_g) - that is owned by indexes.c. Indexes_RemoveFromGlobals
+// (specDict_g/specIdDict_g) - that is owned by indexes.c. Indexes_RemoveSpecFromGlobals
 // calls this after deleting the registry entries; the create/parse failure path
 // calls it directly (the spec was never registered there).
 // Assumes this is called from the main thread with no competing threads.

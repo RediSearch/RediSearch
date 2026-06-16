@@ -83,7 +83,7 @@ TEST_F(DocumentTest, testLoadSchema) {
   // Create a database
   QueryError status = QueryError_Default();
   RMCK::ArgvList args(ctx, "FT.CREATE", "idx", "ON", "HASH", "SCHEMA", "t1", "TEXT", "t2", "TEXT");
-  auto spec = Indexes_CreateNew(ctx, args, args.size(), &status);
+  auto spec = Indexes_CreateNewSpec(ctx, args, args.size(), &status);
   ASSERT_FALSE(spec == NULL);
 
   Document d = {0};
