@@ -152,6 +152,10 @@ void StoreResultsDebugCtx_SetPause(bool pause);
 #define SYNC_POINT_RPNET_WAITING_FOR_REPLY              "RpnetWaitingForReply"
 #define SYNC_POINT_BEFORE_QI_TIMEOUT_CHECK              "BeforeQITimeoutCheck"
 #define SYNC_POINT_AFTER_SCHEDULE_DEPLETERS             "AfterScheduleDepleters"
+// Disk async loader: parked after the spec read-lock is released and before the GIL is taken
+// (RSE redisearch_disk). Lets a test update a key while a load batch is staged, and is the point
+// the deadlock test (MOD-15306) uses to hold a writer against the loader.
+#define SYNC_POINT_BEFORE_LOADER_GIL                    "BeforeLoaderGil"
 
 // SyncPoint API function declarations
 // Arm a sync point - subsequent calls to SyncPoint_Wait will block

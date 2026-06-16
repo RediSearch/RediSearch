@@ -145,6 +145,28 @@ impl Context<'_> {
         // set to an appropriate structure.
         unsafe { query_processing_context_ptr.as_ref() }
     }
+
+    /// Decrease the pipeline's running total result count by `n`.
+    ///
+    /// A result is counted (`totalResults++`) by the index processor as soon as it is produced
+    /// upstream (`setSearchResult`, `result_processor.c`). A processor that later drops a result it
+    /// received must subtract it back, exactly as the C scorer does on `RS_SCORE_FILTEROUT`
+    /// (`result_processor.c`'s `totalResults--`). The disk async loader uses this when it skips a
+    /// document (non-resident key, or a docid that changed under the query).
+    ///
+    /// No-op when the processor has no parent.
+    pub fn subtract_total_results(&mut self, n: u32) {
+        // Safety: the parent pointer, if non-null, is the `QueryProcessingCtx` the C pipeline
+        // installed on this result processor; it outlives the processor, the chain runs on a single
+        // thread, and the C pipeline mutates this same field. Provenance comes from the raw pointer
+        // C provided, so writing through it is sound.
+        let parent = unsafe { self.ptr.as_ref() }.parent.cast_mut();
+        if !parent.is_null() {
+            unsafe {
+                (*parent).totalResults = (*parent).totalResults.saturating_sub(n);
+            }
+        }
+    }
 }
 
 /// The previous result processor in the pipeline.
