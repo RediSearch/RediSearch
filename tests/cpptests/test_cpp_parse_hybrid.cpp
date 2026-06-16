@@ -1310,12 +1310,6 @@ TEST_F(ParseHybridTest, testCombineRRFWithOddArgumentCount) {
   testErrorCode(args, QUERY_ERROR_CODE_PARSE_ARGS, "RRF expects pairs of key value arguments, argument count must be an even number");
 }
 
-TEST_F(ParseHybridTest, testExplainScore) {
-  // Test EXPLAINSCORE - currently should fail with specific error
-  RMCK::ArgvList args(ctx, "FT.HYBRID", index_name.c_str(), "SEARCH", "hello", "VSIM", "@vector", "$BLOB", "EXPLAINSCORE", "PARAMS", "2", "BLOB", TEST_BLOB_DATA);
-  testErrorCode(args, QUERY_ERROR_CODE_PARSE_ARGS, "EXPLAINSCORE is not yet supported by FT.HYBRID");
-}
-
 // ============================================================================
 // DIALECT ERROR TESTS - Testing DIALECT is not supported
 // ============================================================================

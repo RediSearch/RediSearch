@@ -1,7 +1,7 @@
 #include "hybrid/hybrid_scoring.h"
 #include "rmutil/rm_assert.h"
 #include "rmalloc.h"
-#include <stdarg.h>
+#include "hiredis/sds.h"
 #include <stdio.h>
 #include <string.h>
 
@@ -141,36 +141,6 @@ HybridScoringContext* HybridScoringContext_NewDefault(void) {
     return HybridScoringContext_NewRRF(HYBRID_DEFAULT_RRF_CONSTANT, HYBRID_DEFAULT_WINDOW, false);
 }
 
-// Grow `buf` so writing `need + 1` bytes at offset `len` fits.
-static char *ensureCap(char *buf, size_t *cap, size_t len, size_t need) {
-  if (len + need + 1 > *cap) {
-    size_t newCap = *cap ? *cap * 2 : 128;
-    while (newCap < len + need + 1) newCap *= 2;
-    buf = rm_realloc(buf, newCap);
-    *cap = newCap;
-  }
-  return buf;
-}
-
-// Append a printf-formatted chunk to a growable rm_malloc buffer; bumps `*len`.
-static char *appendFmt(char *buf, size_t *len, size_t *cap, const char *fmt, ...) {
-  va_list ap;
-  va_start(ap, fmt);
-  va_list ap2;
-  va_copy(ap2, ap);
-  int n = vsnprintf(NULL, 0, fmt, ap);
-  va_end(ap);
-  if (n < 0) {
-    va_end(ap2);
-    return buf;
-  }
-  buf = ensureCap(buf, cap, *len, (size_t)n);
-  vsnprintf(buf + *len, *cap - *len, fmt, ap2);
-  va_end(ap2);
-  *len += (size_t)n;
-  return buf;
-}
-
 // Branch labels used by the formula formatter's "no match" placeholders.
 static const char *sourceLabelForIndex(size_t i) {
   if (i == 0) return "text";
@@ -183,20 +153,18 @@ char *HybridScoring_FormatFinalScoreLine(const HybridScoringContext *scoringCtx,
                                          size_t num_sources, double finalScore) {
   RS_ASSERT(scoringCtx && values && has_value && num_sources > 0);
 
-  size_t len = 0, cap = 0;
-  char *buf = NULL;
-
-  buf = appendFmt(buf, &len, &cap, "final score: ");
+  // sds owns growth + formatting; we convert to rm_malloc at the end so the
+  // caller (RSScoreExplain wrapper) can free it with rm_free.
+  sds buf = sdsnew("final score: ");
 
   if (scoringCtx->scoringType == HYBRID_SCORING_RRF) {
     const double k = scoringCtx->rrfCtx.constant;
     for (size_t i = 0; i < num_sources; i++) {
-      if (i > 0) buf = appendFmt(buf, &len, &cap, " + ");
+      if (i > 0) buf = sdscat(buf, " + ");
       if (has_value[i]) {
-        buf = appendFmt(buf, &len, &cap,
-                        "1 / (constant %.2f + rank %.0f)", k, values[i]);
+        buf = sdscatprintf(buf, "1 / (constant %.2f + rank %.0f)", k, values[i]);
       } else {
-        buf = appendFmt(buf, &len, &cap, "0 [%s: no match]", sourceLabelForIndex(i));
+        buf = sdscatprintf(buf, "0 [%s: no match]", sourceLabelForIndex(i));
       }
     }
   } else {
@@ -204,18 +172,21 @@ char *HybridScoring_FormatFinalScoreLine(const HybridScoringContext *scoringCtx,
     const double *w = scoringCtx->linearCtx.linearWeights;
     const size_t numWeights = scoringCtx->linearCtx.numWeights;
     for (size_t i = 0; i < num_sources; i++) {
-      if (i > 0) buf = appendFmt(buf, &len, &cap, " + ");
+      if (i > 0) buf = sdscat(buf, " + ");
       if (has_value[i]) {
         const double wi = i < numWeights ? w[i] : 0.0;
-        buf = appendFmt(buf, &len, &cap, "%.4f * %.4f", wi, values[i]);
+        buf = sdscatprintf(buf, "%.4f * %.4f", wi, values[i]);
       } else {
-        buf = appendFmt(buf, &len, &cap, "0 [%s: no match]", sourceLabelForIndex(i));
+        buf = sdscatprintf(buf, "0 [%s: no match]", sourceLabelForIndex(i));
       }
     }
   }
 
-  buf = appendFmt(buf, &len, &cap, " = %.17g", finalScore);
-  return buf;
+  buf = sdscatprintf(buf, " = %.17g", finalScore);
+
+  char *result = rm_strdup(buf);
+  sdsfree(buf);
+  return result;
 }
 
 char *HybridScoring_FormatEnvelope(const HybridScoringContext *scoringCtx) {

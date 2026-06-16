@@ -18,8 +18,10 @@ import json
 import re
 
 from RLTest import Env
-from includes import *
-from common import *
+# `includes` configures RLTest defaults as a side effect (e.g. decode_responses);
+# the import is required even though we don't reference its names directly.
+import includes  # noqa: F401
+from common import get_results_from_hybrid_response, np
 
 
 def setup_index(env, vec_algo='FLAT'):

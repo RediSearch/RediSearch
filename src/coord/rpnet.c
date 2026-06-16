@@ -716,8 +716,8 @@ int rpnetNext(ResultProcessor *self, SearchResult *r) {
     if (scoreType == MR_REPLY_DOUBLE) {
       SearchResult_SetScore(r, MRReply_Double(score));
     } else if (scoreType == MR_REPLY_ARRAY && MRReply_Length(score) == 2) {
-      MRReply *scoreValue = MRReply_ArrayElement(score, 0);
-      MRReply *explainReply = MRReply_ArrayElement(score, 1);
+      const MRReply *scoreValue = MRReply_ArrayElement(score, 0);
+      const MRReply *explainReply = MRReply_ArrayElement(score, 1);
       RS_LOG_ASSERT(scoreValue && MRReply_Type(scoreValue) == MR_REPLY_DOUBLE,
                     "invalid score record");
       SearchResult_SetScore(r, MRReply_Double(scoreValue));

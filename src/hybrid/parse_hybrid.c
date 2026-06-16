@@ -776,6 +776,7 @@ static bool parseSubqueriesCount(ArgsCursor *ac, QueryError *status) {
 int parseHybridCommand(RedisModuleCtx *ctx, ArgsCursor *ac,
                        RedisSearchCtx *sctx, ParseHybridCommandCtx *parsedCmdCtx,
                        QueryError *status, bool internal, ProfileOptions profileOptions) {
+  REDISMODULE_NOT_USED(ctx);
   HybridPipelineParams *hybridParams = parsedCmdCtx->hybridParams;
   hybridParams->scoringCtx = HybridScoringContext_NewDefault();
 
