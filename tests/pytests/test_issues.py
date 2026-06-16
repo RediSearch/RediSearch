@@ -17,6 +17,14 @@ def test_1304(env):
   env.expect('FT.EXPLAIN idx -\\20*').equal('NOT{\n  PREFIX{20*}\n}\n')
 
 @skip(cluster=True)
+def test_10140_phonetic_after_non_text_field(env):
+  env.expect('FT.CREATE', 'idx', 'ON', 'HASH', 'PREFIX', '1', 'phonetic:',
+             'SCHEMA', 'filingDate', 'TAG', 'chunkText', 'TEXT', 'PHONETIC', 'dm:en').ok()
+  env.cmd('HSET', 'phonetic:1', 'chunkText', 'cash', 'filingDate', '2026-06-15')
+
+  env.expect('FT.SEARCH', 'idx', '@chunkText:kash', 'NOCONTENT').equal([1, 'phonetic:1'])
+
+@skip(cluster=True)
 def test_1414(env):
   env.expect('FT.CREATE idx SCHEMA txt1 TEXT').equal('OK')
   env.cmd('hset', 'doc', 'foo', 'hello', 'bar', 'world')

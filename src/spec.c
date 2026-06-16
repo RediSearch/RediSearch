@@ -247,17 +247,15 @@ int IndexSpec_CheckPhoneticEnabled(const IndexSpec *sp, t_fieldMask fm) {
     return 0;
   }
 
-  if (fm == 0 || fm == (t_fieldMask)-1) {
+  if (fm == 0 || fm == RS_FIELDMASK_ALL) {
     // No fields -- implicit phonetic match!
     return 1;
   }
 
   for (size_t ii = 0; ii < sp->numFields; ++ii) {
-    if (fm & ((t_fieldMask)1 << ii)) {
-      const FieldSpec *fs = sp->fields + ii;
-      if (FIELD_IS(fs, INDEXFLD_T_FULLTEXT) && (FieldSpec_IsPhonetics(fs))) {
-        return 1;
-      }
+    const FieldSpec *fs = sp->fields + ii;
+    if (FIELD_IS(fs, INDEXFLD_T_FULLTEXT) && (fm & FIELD_BIT(fs)) && FieldSpec_IsPhonetics(fs)) {
+      return 1;
     }
   }
   return 0;
@@ -266,13 +264,14 @@ int IndexSpec_CheckPhoneticEnabled(const IndexSpec *sp, t_fieldMask fm) {
 // Assuming the spec is properly locked before calling this function.
 int IndexSpec_CheckAllowSlopAndInorder(const IndexSpec *spec, t_fieldMask fm, QueryError *status) {
   for (size_t ii = 0; ii < spec->numFields; ++ii) {
-    if (fm & ((t_fieldMask)1 << ii)) {
-      const FieldSpec *fs = spec->fields + ii;
-      if (FIELD_IS(fs, INDEXFLD_T_FULLTEXT) && (FieldSpec_IsUndefinedOrder(fs))) {
-        QueryError_SetWithUserDataFmt(status, QUERY_ERROR_CODE_BAD_ORDER_OPTION,
-                               "slop/inorder are not supported for field with undefined ordering", " `%s`", HiddenString_GetUnsafe(fs->fieldName, NULL));
-        return 0;
-      }
+    const FieldSpec *fs = spec->fields + ii;
+    if (FIELD_IS(fs, INDEXFLD_T_FULLTEXT) && (fm & FIELD_BIT(fs)) &&
+        FieldSpec_IsUndefinedOrder(fs)) {
+      QueryError_SetWithUserDataFmt(
+          status, QUERY_ERROR_CODE_BAD_ORDER_OPTION,
+          "slop/inorder are not supported for field with undefined ordering", " `%s`",
+          HiddenString_GetUnsafe(fs->fieldName, NULL));
+      return 0;
     }
   }
   return 1;
