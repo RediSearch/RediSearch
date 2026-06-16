@@ -38,14 +38,14 @@ impl SpellCheckDictionary {
     }
 
     pub fn dump(&self) -> impl Iterator<Item = String> {
-        self.trie.iter().map(|(term, ())| term)
+        self.trie.iter().map(|(term, _)| term)
     }
 
     pub fn contains(&self, term: &str) -> bool {
         let needle = term.to_lowercase();
         self.trie
             .iter()
-            .any(|(key, ())| key.to_lowercase() == needle)
+            .any(|(key, _)| key.to_lowercase() == needle)
     }
 
     /// Yield every stored term whose case-folded form is within Levenshtein
@@ -53,7 +53,7 @@ impl SpellCheckDictionary {
     /// case-insensitive — but the yielded terms keep their original stored case.
     pub fn fuzzy_matches(&self, term: &str, max_dist: u32) -> impl Iterator<Item = String> + '_ {
         let needle = term.to_lowercase();
-        self.trie.iter().filter_map(move |(key, ())| {
+        self.trie.iter().filter_map(move |(key, _)| {
             (levenshtein(&key.to_lowercase(), &needle) <= max_dist).then_some(key)
         })
     }
