@@ -186,8 +186,6 @@ void dfa_build(dfaNode *parent, SparseAutomaton *a, Vector *cache) {
     }
   }
   sparseVector_free(nv);
-
-  //}
 }
 
 DFAFilter *NewDFAFilter(rune *str, size_t len, int maxDist, TrieMatchMode mode) {
@@ -273,7 +271,6 @@ FilterCode FilterFunc(rune b, void *ctx, int *matched, void *matchCtx, runeTrans
       if (pdist) {
         *pdist = MIN(next->distance, minDist);
       }
-      //    if (fc->mode == TRIE_MATCH_PREFIX) next = NULL;
     }
     Vector_Push(fc->stack, next);
     Vector_Push(fc->distStack, MIN(next->distance, minDist));
