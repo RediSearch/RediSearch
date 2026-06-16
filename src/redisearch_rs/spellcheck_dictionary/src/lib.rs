@@ -9,6 +9,13 @@
 
 use trie_rs::str_trie_map::StrTrieMap;
 
+/// Maximum query length, in Unicode codepoints, that the dictionary will match
+/// against. C's `Trie_IterateFuzzy` returns no iterator once the lowercased
+/// rune length exceeds this, so an over-long term yields no matches rather than
+/// scanning every stored entry. Sourced from the C `#define` so the two stay in
+/// lockstep.
+const TRIE_MAX_PREFIX: usize = ffi::TRIE_MAX_PREFIX as usize;
+
 #[derive(Debug, Default)]
 pub struct SpellCheckDictionary {
     trie: StrTrieMap<()>,
@@ -43,6 +50,9 @@ impl SpellCheckDictionary {
 
     pub fn contains(&self, term: &str) -> bool {
         let needle = term.to_lowercase();
+        if needle.chars().count() > TRIE_MAX_PREFIX {
+            return false;
+        }
         self.trie
             .iter()
             .any(|(key, _)| key.to_lowercase() == needle)
@@ -51,10 +61,16 @@ impl SpellCheckDictionary {
     /// Yield every stored term whose lowercased form is within Levenshtein
     /// edit distance `max_dist` (in codepoints) of `term`. Matching is
     /// case-insensitive — but the yielded terms keep their original stored case.
+    ///
+    /// A `term` longer than [`TRIE_MAX_PREFIX`] (after lowercasing) yields
+    /// nothing, matching C's `Trie_IterateFuzzy` length cutoff.
     pub fn fuzzy_matches(&self, term: &str, max_dist: u32) -> impl Iterator<Item = String> + '_ {
         let needle = term.to_lowercase();
-        self.trie.iter().filter_map(move |(key, _)| {
-            (levenshtein(&key.to_lowercase(), &needle) <= max_dist).then_some(key)
+        let needle = (needle.chars().count() <= TRIE_MAX_PREFIX).then_some(needle);
+        needle.into_iter().flat_map(move |needle| {
+            self.trie.iter().filter_map(move |(key, _)| {
+                (levenshtein(&key.to_lowercase(), &needle) <= max_dist).then_some(key)
+            })
         })
     }
 }
@@ -184,6 +200,36 @@ mod tests {
             fuzzy(&sut, "fußball", 0),
             BTreeSet::from(["Fußball".into()])
         );
+    }
+
+    #[rstest]
+    #[case(TRIE_MAX_PREFIX, true)] // at the limit: still matches
+    #[case(TRIE_MAX_PREFIX + 1, false)] // one over: ignored, like C
+    fn query_length_cutoff(#[case] query_len: usize, #[case] expected_match: bool) {
+        let term: String = "a".repeat(query_len);
+        let mut sut = SpellCheckDictionary::new();
+        sut.add(&term);
+
+        assert_eq!(sut.contains(&term), expected_match);
+        assert_eq!(
+            sut.fuzzy_matches(&term, 0).next().is_some(),
+            expected_match
+        );
+    }
+
+    #[test]
+    fn cutoff_measures_lowercased_codepoints() {
+        // 'İ' (U+0130) lowercases to two codepoints ("i̇"), so 51 of them
+        // exceed the 100-codepoint limit only after lowercasing.
+        let term: String = "İ".repeat(51);
+        assert_eq!(term.chars().count(), 51);
+        assert!(term.to_lowercase().chars().count() > TRIE_MAX_PREFIX);
+
+        let mut sut = SpellCheckDictionary::new();
+        sut.add(&term);
+
+        assert!(!sut.contains(&term));
+        assert!(sut.fuzzy_matches(&term, 0).next().is_none());
     }
 
     // Known-answer cases pin `levenshtein` to an independent definition.
