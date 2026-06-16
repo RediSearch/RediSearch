@@ -85,21 +85,9 @@ pub struct TermDictionary {
     inner: StrTrieMap<TermEntry>,
 }
 
-/// Lower-case a term the way RediSearch's C tokenizer does: each [`char`]
-/// independently via [`char::to_lowercase`], matching the libnu-backed C
-/// `unicode_tolower`. Borrows when the input is already lower-cased (the
-/// common case — terms arrive pre-folded from the tokenizer), allocating
-/// only when a codepoint actually changes.
-fn fold(term: &str) -> Cow<'_, str> {
-    // 1:1, identity lower-casing for every char ⇒ nothing to change.
-    let unchanged = term.chars().all(|c| {
-        let mut lower = c.to_lowercase();
-        lower.next() == Some(c) && lower.next().is_none()
-    });
-    if unchanged {
-        Cow::Borrowed(term)
-    } else {
-        Cow::Owned(term.chars().flat_map(char::to_lowercase).collect())
+impl Default for TermDictionary {
+    fn default() -> Self {
+        Self::new()
     }
 }
 
@@ -256,8 +244,17 @@ impl TermDictionary {
     }
 }
 
-impl Default for TermDictionary {
-    fn default() -> Self {
-        Self::new()
+/// Lower-case a term the way RediSearch's C tokenizer does: each [`char`]
+/// independently via [`char::to_lowercase`], matching the libnu-backed C
+/// `unicode_tolower`.
+fn fold(term: &str) -> Cow<'_, str> {
+    let unchanged = term.chars().all(|c| {
+        let mut lower = c.to_lowercase();
+        lower.next() == Some(c) && lower.next().is_none()
+    });
+    if unchanged {
+        Cow::Borrowed(term)
+    } else {
+        Cow::Owned(term.chars().flat_map(char::to_lowercase).collect())
     }
 }
