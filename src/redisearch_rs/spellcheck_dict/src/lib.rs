@@ -50,11 +50,7 @@ impl SpellCheckDictionary {
 
     /// Yield every stored term whose case-folded form is within Levenshtein
     /// edit distance `max_dist` (in codepoints) of `term`. Matching is
-    /// case-insensitive — both the query and each candidate are folded via
-    /// [`unicode_tolower`] before the distance is measured — but the yielded
-    /// terms keep their original stored case, mirroring the C spellcheck path
-    /// (`Trie_Iterate` with `LoweringFilterFunc`, which folds only for the DFA
-    /// comparison and returns the trie's original runes).
+    /// case-insensitive — but the yielded terms keep their original stored case.
     pub fn fuzzy_matches(&self, term: &str, max_dist: u32) -> impl Iterator<Item = String> + '_ {
         let needle = unicode_tolower(term);
         self.trie.iter().filter_map(move |(key, ())| {
@@ -67,7 +63,6 @@ fn unicode_tolower(s: &str) -> String {
     s.chars().flat_map(char::to_lowercase).collect()
 }
 
-/// Codepoint-level Levenshtein distance between two strings.
 fn levenshtein(a: &str, b: &str) -> u32 {
     let a: Vec<char> = a.chars().collect();
     let b: Vec<char> = b.chars().collect();
