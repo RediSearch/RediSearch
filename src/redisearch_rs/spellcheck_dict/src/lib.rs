@@ -199,9 +199,7 @@ mod tests {
 
             prop_assert_eq!(fuzzy(&sut, &query, max_dist), expected);
         }
-    }
 
-    proptest! {
         #[test]
         fn add_then_contains_roundtrip(term in "\\PC{1,8}") {
             let mut sut = SpellCheckDictionary::new();
