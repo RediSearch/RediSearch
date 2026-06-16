@@ -107,20 +107,20 @@ TrieNode *Trie_GetNode(Trie *t, const rune *str, t_len len, bool exact, int *off
   return TrieNode_Get(t->root, str, len, exact, offsetOut);
 }
 
-void Trie_IterateRange(Trie *t, const rune *min, int minlen, bool includeMin,
+void Trie_IterateRange(const Trie *t, const rune *min, int minlen, bool includeMin,
                        const rune *max, int maxlen, bool includeMax,
                        TrieRangeCallback callback, void *ctx) {
   TrieNode_IterateRange(t->root, min, minlen, includeMin, max, maxlen, includeMax, callback, ctx);
 }
 
-void Trie_IterateContains(Trie *t, const rune *str, int nstr, bool prefix, bool suffix,
+void Trie_IterateContains(const Trie *t, const rune *str, int nstr, bool prefix, bool suffix,
                           TrieRangeCallback callback, void *ctx, struct timespec *timeout,
                           bool skipTimeoutChecks) {
   TrieNode_IterateContains(t->root, str, nstr, prefix, suffix, callback, ctx, timeout,
                            skipTimeoutChecks);
 }
 
-void Trie_IterateWildcard(Trie *t, const rune *str, int nstr,
+void Trie_IterateWildcard(const Trie *t, const rune *str, int nstr,
                           TrieRangeCallback callback, void *ctx, struct timespec *timeout,
                           bool skipTimeoutChecks) {
   TrieNode_IterateWildcard(t->root, str, nstr, callback, ctx, timeout, skipTimeoutChecks);
@@ -227,7 +227,7 @@ TrieIterator *Trie_IterateFuzzy(Trie *t, const char *str, size_t len, int maxDis
   return it;
 }
 
-Vector *Trie_CollectFuzzy(Trie *t, const char *str, size_t len, size_t num, int maxDist,
+Vector *Trie_CollectFuzzy(const Trie *t, const char *str, size_t len, size_t num, int maxDist,
                           TrieMatchMode mode, int trim, int optimize) {
 
   if (len > TRIE_MAX_PREFIX * sizeof(rune)) {
@@ -449,7 +449,7 @@ void TrieType_RdbSave(RedisModuleIO *rdb, void *value) {
   TrieType_GenericSave(rdb, (Trie *)value, true, true);
 }
 
-void TrieType_GenericSave(RedisModuleIO *rdb, Trie *tree, bool savePayloads, bool saveNumDocs) {
+void TrieType_GenericSave(RedisModuleIO *rdb, const Trie *tree, bool savePayloads, bool saveNumDocs) {
   RedisModule_SaveUnsigned(rdb, tree->size);
   RedisModuleCtx *ctx = RedisModule_GetContextFromIO(rdb);
   //  RedisModule_Log(ctx, "notice", "Trie: saving %zd nodes.", tree->size);
