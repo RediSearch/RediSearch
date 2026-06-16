@@ -35,26 +35,31 @@ def vh(x, y, z):
 
 
 class FakeGitHub:
-    def __init__(self, meta):
-        self.meta = meta
+    def __init__(self, meta, by_number=None):
+        self.meta = meta            # default meta for any PR
+        self.by_number = by_number or {}  # optional per-PR-number override
 
-    def get_pull_request(self, repo, number):
-        return self.meta
+    def get_pull_request(self, repo, number, owner=""):
+        return self.by_number.get(number, self.meta)
 
-    def read_version_h(self, repo, ref, path="src/version.h"):
+    def read_version_h(self, repo, ref, path="src/version.h", owner=""):
         return vh(6, 6, 0)
 
 
 class FakeJira:
-    def __init__(self):
+    def __init__(self, links=None):
         self.added = []
         self.removed = []
+        self.links = links or []  # returned by get_linked_prs
 
     def add_fix_version(self, key, version_id):
         self.added.append((key, version_id))
 
     def remove_fix_version(self, key, version_id):
         self.removed.append((key, version_id))
+
+    def get_linked_prs(self, issue_id):
+        return self.links
 
 
 class FakeSlack:
@@ -112,6 +117,17 @@ class TestProcessPrGuards(unittest.TestCase):
         self.assertEqual(agent.jira.added, [])
         self.assertEqual(agent.slack.alerts, [])
 
+    def test_closed_unmerged_keeps_releases_other_pr_needs(self):
+        # PR #1 closed-unmerged maps to {1,2}; sibling #2 is MERGED and maps to the
+        # same releases -> nothing removed (another live PR still justifies them).
+        agent = make_agent(meta(state="CLOSED"),
+                           )  # default meta = CLOSED for #1
+        agent.github.by_number = {2: meta(state="MERGED")}
+        agent.jira.links = [PRLink(repo="RediSearch", number=1),
+                            PRLink(repo="RediSearch", number=2)]
+        agent._process_pr(fresh_ticket(fix_version_ids={"1", "2"}), LINK)
+        self.assertEqual(agent.jira.removed, [])
+
     def test_fork_skipped_by_default(self):
         agent = make_agent(meta(state="MERGED", is_fork=True))
         agent._process_pr(fresh_ticket(), LINK)
@@ -127,18 +143,19 @@ class TestParsePrUrl(unittest.TestCase):
     def test_standard_url(self):
         self.assertEqual(
             _parse_pr_url("https://github.com/RediSearch/RediSearch/pull/10116"),
-            ("RediSearch", 10116),
+            ("RediSearch", "RediSearch", 10116),
         )
 
-    def test_enterprise_owner(self):
+    def test_fork_owner_preserved(self):
+        # A fork URL keeps its owner so it isn't queried under our org.
         self.assertEqual(
-            _parse_pr_url("https://github.com/RediSearch/RediSearchEnterprise/pull/42"),
-            ("RediSearchEnterprise", 42),
+            _parse_pr_url("https://github.com/alice/RediSearch/pull/7"),
+            ("alice", "RediSearch", 7),
         )
 
     def test_non_matching(self):
-        self.assertEqual(_parse_pr_url(""), ("", 0))
-        self.assertEqual(_parse_pr_url("https://example.com/foo"), ("", 0))
+        self.assertEqual(_parse_pr_url(""), ("", "", 0))
+        self.assertEqual(_parse_pr_url("https://example.com/foo"), ("", "", 0))
 
 
 if __name__ == "__main__":

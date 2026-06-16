@@ -123,27 +123,42 @@ class Agent:
             self.stats["errors"] += 1
             log.exception("Error on %s PR %s/#%s: %s", ticket.key, link.repo, link.number, exc)
 
+    def _lookups_for(self, link: PRLink):
+        """(meta, lookups) for a linked PR, or (meta, None) if version.h is
+        missing/unparsable. Raises on transport errors."""
+        meta = self.github.get_pull_request(link.repo, link.number, owner=link.owner)
+        try:
+            text = self.github.read_version_h(link.repo, meta.head_sha,
+                                              VERSION_FILE_PATH, owner=link.owner)
+        except VersionFileNotFound:
+            return meta, None
+        pr = PullRequest(repo=link.repo, head_branch=meta.head_branch,
+                         base_branch=meta.base_branch, pr_number=link.number,
+                         state=meta.state, head_sha=meta.head_sha, url=meta.url or link.url)
+        try:
+            return meta, handlers_for_repo(link.repo)(pr, self.versions, text, self.templates)
+        except VersionParseError:
+            return meta, None
+
     def _process_pr(self, ticket: Ticket, link: PRLink) -> None:
         self.stats["prs"] += 1
-        meta = self.github.get_pull_request(link.repo, link.number)
+        meta = self.github.get_pull_request(link.repo, link.number, owner=link.owner)
 
-        # A fork PR (linked via a MOD key in its branch/title) could write
-        # fixVersions with our credentials — never touch it.
+        # A fork PR (linked via a MOD key in its branch/title, or via a fork dev-panel
+        # URL) could write fixVersions with our credentials — never touch it.
         if self.cfg.skip_fork_prs and meta.is_fork:
             log.info("%s: skipping fork PR %s/#%s", ticket.key, link.repo, link.number)
             return
 
-        # A PR closed without merging never landed, so roll back its fix versions
-        # instead of adding them. Open and merged PRs add (idempotently).
-        remove_mode = meta.state == "CLOSED"
-
+        remove_mode = meta.state == "CLOSED"  # closed without merging -> roll back
         pr = PullRequest(repo=link.repo, head_branch=meta.head_branch,
                          base_branch=meta.base_branch, pr_number=link.number,
                          state=meta.state, head_sha=meta.head_sha, url=meta.url or link.url)
 
         # Read version.h at the head SHA (works even after a merged branch is gone).
         try:
-            version_text = self.github.read_version_h(link.repo, meta.head_sha, VERSION_FILE_PATH)
+            version_text = self.github.read_version_h(link.repo, meta.head_sha,
+                                                      VERSION_FILE_PATH, owner=link.owner)
         except VersionFileNotFound:
             if not remove_mode:
                 self._alert(ticket, pr, f"<{VERSION_FILE_PATH} missing>", "version.h not found")
@@ -155,14 +170,39 @@ class Agent:
                 self._alert(ticket, pr, f"<{VERSION_FILE_PATH} unparsable>", str(exc))
             return
 
+        # In remove mode, only drop releases that no other live (open/merged) linked
+        # PR still maps to — otherwise an abandoned PR could delete a release another
+        # PR justifies.
+        still_needed = self._releases_needed_by_others(ticket, link) if remove_mode else set()
         for lk in lookups:
             if lk.release is None:
                 if not remove_mode:  # nothing to roll back for a missing release
                     self._alert(ticket, pr, lk.searched_name, lk.rule)
             elif remove_mode:
-                self._remove(ticket, lk.release)
+                if lk.release["id"] in still_needed:
+                    log.info("%s: keeping %s (still mapped by another linked PR)",
+                             ticket.key, lk.release["name"])
+                else:
+                    self._remove(ticket, lk.release)
             else:
                 self._apply(ticket, lk.release)
+
+    def _releases_needed_by_others(self, ticket: Ticket, closing: PRLink) -> set:
+        """Release ids still mapped by the ticket's other live (open/merged) PRs."""
+        needed: set = set()
+        for link in self.jira.get_linked_prs(ticket.issue_id):
+            if link.repo not in RULED_REPOS:
+                continue
+            if link.number == closing.number and (link.owner or "") == (closing.owner or ""):
+                continue  # the PR being closed
+            try:
+                meta, lookups = self._lookups_for(link)
+            except Exception:
+                continue  # ignore siblings we can't read; conservative on the remove side
+            if meta.state == "CLOSED" or (self.cfg.skip_fork_prs and meta.is_fork) or not lookups:
+                continue
+            needed |= {lk.release["id"] for lk in lookups if lk.release}
+        return needed
 
     def _apply(self, ticket: Ticket, release: dict) -> None:
         if release["id"] in ticket.fix_version_ids:

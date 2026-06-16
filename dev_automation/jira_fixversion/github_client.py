@@ -77,9 +77,14 @@ class GitHubClient:
             return min(max(1, reset - int(time.time())) if reset else 2 ** attempt, 60)
         return None
 
-    def get_pull_request(self, repo: str, number: int) -> PRMeta:
-        """Authoritative PR base branch + head SHA (robust for merged PRs)."""
-        resp = self._request("GET", f"/repos/{self.org}/{repo}/pulls/{number}")
+    def get_pull_request(self, repo: str, number: int, owner: str = "") -> PRMeta:
+        """Authoritative PR base branch + head SHA (robust for merged PRs).
+
+        `owner` defaults to the configured org; pass the dev-panel URL's owner so a
+        fork PR is fetched from its real repo (the fork guard then skips it) instead
+        of querying the same number under our org.
+        """
+        resp = self._request("GET", f"/repos/{owner or self.org}/{repo}/pulls/{number}")
         resp.raise_for_status()
         pr = resp.json()
         head_repo = ((pr.get("head") or {}).get("repo") or {}).get("full_name", "")
@@ -93,10 +98,11 @@ class GitHubClient:
             is_fork=is_fork(head_repo, base_repo),
         )
 
-    def read_version_h(self, repo: str, ref: str, path: str = "src/version.h") -> str:
+    def read_version_h(self, repo: str, ref: str, path: str = "src/version.h",
+                       owner: str = "") -> str:
         """Fetch a file at ``ref`` via the Contents API and return its text."""
         resp = self._request(
-            "GET", f"/repos/{self.org}/{repo}/contents/{path}",
+            "GET", f"/repos/{owner or self.org}/{repo}/contents/{path}",
             params={"ref": ref},
         )
         if resp.status_code == 404:

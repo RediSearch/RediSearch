@@ -106,6 +106,14 @@ class TestRediSearchHandler(unittest.TestCase):
         self.assertEqual(len(lookups), 1)
         self.assertEqual(lookups[0].release["id"], "6")  # Open Source 8.10
 
+    def test_sentinel_on_version_branch_is_mismatch_alert(self):
+        # 99.99.99 on a version branch (un-rebased backport) -> alert, not master rule.
+        pr = PullRequest(repo="RediSearch", head_branch="bp", base_branch="6.6", pr_number=9)
+        lookups = handle_redisearch(pr, VERSIONS, vh(99, 99, 99))
+        self.assertEqual(len(lookups), 1)
+        self.assertIsNone(lookups[0].release)  # mismatch -> alert
+        self.assertIn("99.99.99", lookups[0].searched_name)
+
     def test_version_branch_both_lookups_found(self):
         pr = PullRequest(repo="RediSearch", head_branch="fix", base_branch="6.6", pr_number=2)
         lookups = handle_redisearch(pr, VERSIONS, vh(6, 6, 0))

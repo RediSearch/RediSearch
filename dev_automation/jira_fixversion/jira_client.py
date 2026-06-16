@@ -34,6 +34,7 @@ class PRLink:
     number: int
     state: str = ""
     url: str = ""
+    owner: str = ""  # repo owner from the dev-panel URL (may differ from our org for forks)
 
 
 class JiraClient:
@@ -87,13 +88,14 @@ class JiraClient:
         links = []
         for detail in data.get("detail", []):
             for pr in detail.get("pullRequests", []):
-                # Prefer the stable `url`; `id` is a provider entity id and
-                # repositoryName may be absent.
+                # Prefer the stable `url` (keeps the owner, which matters for forks);
+                # `id` is a provider entity id and repositoryName may be absent.
                 url = pr.get("url", "")
-                repo, number = _parse_pr_url(url)
+                owner, repo, number = _parse_pr_url(url)
                 repo = repo or _repo_name(pr.get("repositoryName") or pr.get("repositoryUrl", ""))
                 number = number or _pr_number(pr.get("id", ""))
-                links.append(PRLink(repo, number, (pr.get("status") or "").upper(), url))
+                links.append(PRLink(repo=repo, number=number, owner=owner,
+                                    state=(pr.get("status") or "").upper(), url=url))
         return links
 
     def add_fix_version(self, issue_key: str, version_id: str) -> None:
@@ -112,12 +114,13 @@ def _ticket(issue: dict) -> Ticket:
                   fix_version_ids={v["id"] for v in (f.get("fixVersions") or [])})
 
 
-_PR_URL_RE = re.compile(r"github\.com/[^/]+/([^/]+)/pull/(\d+)")
+_PR_URL_RE = re.compile(r"github\.com/([^/]+)/([^/]+)/pull/(\d+)")
 
 
-def _parse_pr_url(url: str) -> tuple[str, int]:
+def _parse_pr_url(url: str) -> tuple[str, str, int]:
+    """Extract (owner, repo, number) from a GitHub PR URL; ('', '', 0) if no match."""
     m = _PR_URL_RE.search(url or "")
-    return (m.group(1), int(m.group(2))) if m else ("", 0)
+    return (m.group(1), m.group(2), int(m.group(3))) if m else ("", "", 0)
 
 
 def _repo_name(repo_field: str) -> str:
