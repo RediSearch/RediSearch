@@ -64,11 +64,11 @@ impl SpellCheckDictionary {
 /// two-row (rolling array) space optimization, i.e. O(m·n) time and O(n) space.
 /// See <https://en.wikipedia.org/wiki/Wagner%E2%80%93Fischer_algorithm>.
 fn levenshtein(a: &str, b: &str) -> u32 {
-    let a: Vec<char> = a.chars().collect();
-    let b: Vec<char> = b.chars().collect();
+    let a = a.chars().collect::<Vec<_>>();
+    let b = b.chars().collect::<Vec<_>>();
     let (m, n) = (a.len(), b.len());
 
-    let mut prev: Vec<u32> = (0..=n as u32).collect();
+    let mut prev = (0..=n as u32).collect::<Vec<_>>();
     let mut curr = vec![0u32; n + 1];
     for i in 1..=m {
         curr[0] = i as u32;
