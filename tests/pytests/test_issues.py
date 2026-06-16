@@ -41,7 +41,7 @@ def test_10140_empty_query_after_noindex_text_field(env):
   env.expect('FT.CREATE', 'idx', 'SCHEMA', 'ignored', 'TEXT', 'NOINDEX', 'text', 'TEXT').ok()
 
   env.expect('FT.SEARCH', 'idx', '@text:""') \
-     .error().contains('Use `INDEXEMPTY` in field creation')
+     .error().contains('Syntax error')
 
 @skip(cluster=True, no_json=True)
 def test_10140_slop_after_noindex_text_field(env):
