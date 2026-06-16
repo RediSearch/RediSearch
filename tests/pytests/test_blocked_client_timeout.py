@@ -492,6 +492,15 @@ class TestCoordinatorTimeout:
         ])
 
     def test_fail_timeout_hybrid(self):
+        """FAIL-policy FT.HYBRID timeout during cursor-mapping setup (Phase 1).
+
+        The shard is suspended before the query, so the coordinator parks in the
+        ProcessHybridCursorMappings setup wait (deadline is NULL under FAIL). The
+        blocked-client CLIENT UNBLOCK ... TIMEOUT fires DistHybridTimeoutFailCallback,
+        which wakes the parked pop and replies a timeout error. Companion to
+        test_return_strict_timeout_setup_phase_hybrid (RETURN-STRICT variant) and
+        test_return_timeout_setup_phase_hybrid (RETURN in-band-deadline variant).
+        """
         self._test_fail_timeout_impl([
             'FT.HYBRID', 'hybrid_idx',
             'SEARCH', '*',
@@ -552,6 +561,84 @@ class TestCoordinatorTimeout:
             # its cursors before later tests run.
             shard_to_pause_p.resume()
             env.cmd('CONFIG', 'SET', ON_TIMEOUT_CONFIG, prev_on_timeout_policy)
+
+    def test_return_strict_timeout_setup_phase_hybrid(self):
+        """RETURN-STRICT FT.HYBRID timeout during cursor-mapping setup (Phase 1),
+        driven by the blocked-client deadline.
+
+        Under RETURN-STRICT the setup wait has no in-band deadline (it is NULL), so
+        unlike the RETURN variant the only wake path is the coordinator's
+        blocked-client timeout callback. With one shard suspended the coordinator
+        parks in ProcessHybridCursorMappings; firing CLIENT UNBLOCK ... TIMEOUT
+        invokes DistHybridTimeoutReturnStrictCallback, which wakes the parked pop
+        (wakeHybridAbortChannels) and replies an empty result set with the timeout
+        warning. Companion to test_return_timeout_setup_phase_hybrid, which drives
+        the same setup wait through the in-band RETURN deadline instead.
+        """
+        env = self.env
+
+        prev_on_timeout_policy = env.cmd('CONFIG', 'GET', ON_TIMEOUT_CONFIG)[ON_TIMEOUT_CONFIG]
+        env.expect('CONFIG', 'SET', ON_TIMEOUT_CONFIG, 'return-strict').ok()
+
+        before_info = info_modules_to_dict(env)
+        base_warn_coord = int(before_info[COORD_WARN_ERR_SECTION][TIMEOUT_WARNING_COORD_METRIC])
+        initial_jobs_done = getWorkersThpoolStats(env)['totalJobsDone']
+
+        _, _, paused_pid, _ = _split_shards_pick_one_paused(env)
+        shard_to_pause_p = psutil.Process(paused_pid)
+
+        # No per-query TIMEOUT: under RETURN-STRICT the deadline is NULL, and the
+        # blocked-client CLIENT UNBLOCK below is what fires the timeout callback.
+        query_args = [
+            'FT.HYBRID', 'hybrid_idx',
+            'SEARCH', '*',
+            'VSIM', '@embedding', '$BLOB',
+            'PARAMS', '2', 'BLOB', self.hybrid_query_vec,
+        ]
+
+        reply = []
+        shard_to_pause_p.suspend()
+        try:
+            wait_for_condition(
+                lambda: (shard_to_pause_p.status() == psutil.STATUS_STOPPED,
+                         {'status': shard_to_pause_p.status()}),
+                'Timeout while waiting for shard to pause'
+            )
+
+            t_query = threading.Thread(
+                target=call_and_store, args=(env.cmd, query_args, reply), daemon=True)
+            t_query.start()
+
+            # Park the coordinator in the setup wait: the dispatch job must have run
+            # before we fire the blocked-client deadline.
+            blocked_client_id = wait_for_blocked_query_client(
+                env, 'FT.HYBRID', 'Client for FT.HYBRID not found')
+            wait_for_condition(
+                lambda: (getWorkersThpoolStats(env)['totalJobsDone'] > initial_jobs_done,
+                         {'totalJobsDone': getWorkersThpoolStats(env)['totalJobsDone']}),
+                'Timeout while waiting for worker to finish dispatch job'
+            )
+
+            env.expect('CLIENT', 'UNBLOCK', blocked_client_id, 'TIMEOUT').equal(1)
+            wait_for_client_unblocked(env, blocked_client_id)
+
+            t_query.join(timeout=10)
+            env.assertFalse(t_query.is_alive(), message="Query thread should have finished")
+        finally:
+            shard_to_pause_p.resume()
+            env.cmd('CONFIG', 'SET', ON_TIMEOUT_CONFIG, prev_on_timeout_policy)
+
+        env.assertEqual(len(reply), 1, message=f"Expected one reply, got {reply}")
+        result = reply[0]
+        env.assertEqual(result['total_results'], 0,
+                        message=f"Expected 0 results, got {result}")
+        assert_timeout_warning(env, result, message="RETURN-STRICT setup-phase timeout")
+
+        after_info = info_modules_to_dict(env)
+        env.assertEqual(after_info[COORD_WARN_ERR_SECTION][TIMEOUT_WARNING_COORD_METRIC],
+                        str(base_warn_coord + 1),
+                        message="Coordinator timeout warning should be +1 after "
+                                "RETURN-STRICT setup-phase timeout")
 
     def _test_fail_timeout_before_coord_pickup_impl(self, query_args):
         """Test timeout occurring before coordinator picks up the query job."""
