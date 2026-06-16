@@ -10,14 +10,11 @@
 use trie_rs::str_trie_map::StrTrieMap;
 
 /// Maximum query length, in Unicode codepoints, that the dictionary will match
-/// against. C's `Trie_IterateFuzzy` returns no iterator once the lowercased
-/// rune length exceeds this, so an over-long term yields no matches rather than
-/// scanning every stored entry. Sourced from the C `#define` so the two stay in
-/// lockstep.
+/// against. An over-long term yields no matches rather than
+/// scanning every stored entry.
 const TRIE_MAX_PREFIX: usize = ffi::TRIE_MAX_PREFIX as usize;
 
-/// Upper bound on insertable term length, in runes (codepoints), enforced by
-/// C's `Trie_Insert`. Sourced from the C `#define` so the two stay in lockstep.
+/// Upper bound on insertable term length, in runes (codepoints).
 const TRIE_INITIAL_STRING_LEN: usize = ffi::TRIE_INITIAL_STRING_LEN as usize;
 
 #[derive(Debug, Default)]
@@ -33,11 +30,6 @@ impl SpellCheckDictionary {
     }
 
     /// Insert `term`, returning `true` only if it was newly added.
-    ///
-    /// Mirrors C's `Trie_Insert` accept rule: empty terms, terms whose byte
-    /// length exceeds `TRIE_INITIAL_STRING_LEN` runes' worth of bytes, and
-    /// terms of `TRIE_INITIAL_STRING_LEN` or more codepoints are silently
-    /// rejected (returning `false`) rather than stored.
     pub fn add(&mut self, term: &str) -> bool {
         // C runes are `uint16_t`; the byte gate is `TRIE_INITIAL_STRING_LEN *
         // sizeof(rune)`, matching `Trie_InsertStringBuffer`.
