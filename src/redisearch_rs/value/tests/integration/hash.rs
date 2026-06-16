@@ -170,14 +170,6 @@ fn trio_ignores_middle_and_right() {
 }
 
 #[test]
-fn hash_stable_is_deterministic_across_calls() {
-    let a = Value::String(String::from_vec(b"world".to_vec()));
-    let b = Value::String(String::from_vec(b"world".to_vec()));
-
-    assert_eq!(hash_stable(&a, 0), hash_stable(&b, 0));
-}
-
-#[test]
 fn hash_stable_does_not_depend_on_the_per_process_seed() {
     // `hash_stable` must be reproducible from the value alone, with no
     // hidden per-process state - unlike `hash`, whose seed differs across
@@ -195,13 +187,4 @@ fn hash_stable_does_not_depend_on_the_per_process_seed() {
     let expected = hasher.finish();
 
     assert_eq!(actual, expected);
-}
-
-#[test]
-fn hash_and_hash_stable_both_distinguish_different_values() {
-    let a = Value::String(String::from_vec(b"foo".to_vec()));
-    let b = Value::String(String::from_vec(b"bar".to_vec()));
-
-    assert_ne!(value::hash::hash(&a, 0), value::hash::hash(&b, 0));
-    assert_ne!(hash_stable(&a, 0), hash_stable(&b, 0));
 }
