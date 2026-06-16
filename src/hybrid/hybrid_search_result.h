@@ -92,11 +92,7 @@ double calculateHybridScore(HybridSearchResult *hybridResult, HybridScoringConte
  * This function transfers ownership of the primary result from the HybridSearchResult to the caller.
  *
  * When `explainCtx` is non-NULL, an RSScoreExplain wrapper describing the
- * hybrid combine is attached to the merged result. The wrapper shape is
- * specified in MOD-10044: an outer "final score" node, a per-method envelope
- * (RRF/LINEAR with the fusion parameters), and per-branch sub-trees that
- * graft the text scorer's existing explanation under a "Text scorer:" node
- * and label the vector branch by retrieval mode.
+ * hybrid combine is attached to the merged result.
  */
 SearchResult* mergeSearchResults(HybridSearchResult *hybridResult, HybridScoringContext *scoringCtx,
                                  HybridLookupContext *lookupCtx, const HybridExplainContext *explainCtx);
