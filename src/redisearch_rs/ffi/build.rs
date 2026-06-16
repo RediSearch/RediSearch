@@ -98,6 +98,16 @@ const HEADERS: &[HeaderAllowlist] = &[
         vars: &[],
     },
     HeaderAllowlist {
+        path: "src/indexes.h",
+        fns: &[
+            "Indexes_Init",
+            "Indexes_RemoveSpecFromGlobals",
+            "Spec_AddToDict",
+        ],
+        types: &[],
+        vars: &["specDict_g", "specIdDict_g"],
+    },
+    HeaderAllowlist {
         path: "src/iterators/hybrid_reader.h",
         fns: &[
             "HybridIterator_GetChild",
@@ -298,15 +308,12 @@ const HEADERS: &[HeaderAllowlist] = &[
             "IndexSpec_GetFieldWithLength",
             "IndexSpec_ParseC",
             "IndexSpec_ReleaseWriteLock",
-            "IndexSpec_RemoveFromGlobals",
             "IndexSpecCache_Decref",
             "IndexSpecRef_Promote",
             "IndexSpecRef_Release",
-            "Indexes_Init",
-            "Spec_AddToDict",
         ],
         types: &[],
-        vars: &["isCrdt", "specDict_g", "specIdDict_g"],
+        vars: &["isCrdt"],
     },
     HeaderAllowlist {
         path: "src/stopwords.h",
