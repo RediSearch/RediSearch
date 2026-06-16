@@ -8,4 +8,3 @@
 */
 
 mod case_folding;
-mod mem_usage;
