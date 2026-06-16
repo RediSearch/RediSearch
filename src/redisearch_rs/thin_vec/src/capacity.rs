@@ -146,9 +146,9 @@ impl VecCapacity for u64 {
 //
 // Each `Header<AlignedU*>` is byte-identical to `Header<u*>`.
 // The `EMPTY_ALIGNED_*` singletons are aligned to the full header size (rather than
-// just the header's natural alignment), so [`ThinVec::data_raw`](crate::ThinVec)
-// elides its empty-singleton alignment guard for more element types — see
-// [`data_ptr_guard_elided`](crate::data_ptr_guard_elided).
+// just the header's natural alignment), reported via [`SINGLETON_ALIGN`](VecCapacity::SINGLETON_ALIGN),
+// so [`ThinVec::data_raw`](crate::ThinVec) elides its empty-singleton alignment
+// guard for more element types.
 
 #[repr(transparent)]
 #[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]

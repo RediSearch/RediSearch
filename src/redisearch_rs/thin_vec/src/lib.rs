@@ -102,25 +102,6 @@ pub mod layout;
 pub use capacity::{AlignedU8, AlignedU16, AlignedU32, AlignedU64, VecCapacity};
 pub use header::Header;
 
-/// Returns `true` when an empty `ThinVec<T, S>` computes its data pointer
-/// with no runtime `capacity == 0` check, so element accesses
-/// ([`as_slice`](ThinVec::as_slice), iteration, indexing, …) are branch-free.
-///
-/// # Background
-///
-/// Empty `ThinVec` isn't heap-allocated. They points to a static HEADER. That header can or cannot be aligned with T.
-/// If `VecCapacity` has that alignment, the guard in `data_raw` is drop at compile time.
-///
-/// The guard is dropped when the singleton's data pointer is *always* aligned
-/// for `T`, which needs both:
-/// - [`SINGLETON_ALIGN`](VecCapacity::SINGLETON_ALIGN)` >= align_of::<T>()` —
-///   the singleton's address is aligned for `T` (the aligned start), and
-/// - `header_field_padding::<T, S>() == 0` — the header size is a multiple of
-///   `align_of::<T>()`, so adding it keeps the pointer aligned.
-const fn data_ptr_guard_elided<T, S: VecCapacity>() -> bool {
-    S::SINGLETON_ALIGN >= mem::align_of::<T>() && header_field_padding::<T, S>() == 0
-}
-
 /// Allocates a header (and array) for a `ThinVec<T, S>` with the given capacity.
 ///
 /// # Panics
@@ -414,7 +395,19 @@ impl<T, S: VecCapacity> ThinVec<T, S> {
         // compile-time constants. Ideally this should result in the branch
         // only be included for types with excessive alignment, since all
         // operations are `const`.
-        if !data_ptr_guard_elided::<T, S>() && self.header_ref().capacity() == S::ZERO {
+        let singleton_header_is_aligned =
+            // If the singleton is at
+            // least as aligned as T *and* the padding would have
+            // been 0, then one-past-the-end of the empty singleton
+            // *is* a valid data pointer and we can remove the
+            // `dangling` special case. We read the singleton's
+            // alignment from `SINGLETON_ALIGN` rather than
+            // `align_of::<Header<S>>()`, as the `AlignedU*` capacities
+            // over-align their singleton beyond the header's natural
+            // alignment.
+            S::SINGLETON_ALIGN >= mem::align_of::<T>() && header_field_padding == 0;
+
+        if !singleton_header_is_aligned && self.header_ref().capacity() == S::ZERO {
             NonNull::dangling().as_ptr()
         } else {
             // This could technically result in overflow, but padding
