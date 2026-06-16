@@ -162,6 +162,12 @@ impl TermDictionary {
         self.inner.iter()
     }
 
+    /// Case-folds `target`; see [`StrTrieMap::contains_iter`]. When
+    /// folding allocates, the iterator owns the folded buffer internally.
+    pub fn contains_iter<'tm, 'p>(&'tm self, target: &'p str) -> ContainsIter<'tm, 'p, TermEntry> {
+        self.inner.contains_iter_owned(fold(target))
+    }
+
     /// Case-folds `prefix`; see [`StrTrieMap::prefixed_iter`].
     pub fn prefixed_iter(&self, prefix: &str) -> PrefixedIter<'_, TermEntry> {
         self.inner.prefixed_iter(&fold(prefix))
@@ -170,12 +176,6 @@ impl TermDictionary {
     /// Case-folds `suffix`; see [`StrTrieMap::suffixed_iter`].
     pub fn suffixed_iter(&self, suffix: &str) -> SuffixedIter<'_, TermEntry> {
         self.inner.suffixed_iter(&fold(suffix))
-    }
-
-    /// Case-folds `target`; see [`StrTrieMap::contains_iter`]. When
-    /// folding allocates, the iterator owns the folded buffer internally.
-    pub fn contains_iter<'tm, 'p>(&'tm self, target: &'p str) -> ContainsIter<'tm, 'p, TermEntry> {
-        self.inner.contains_iter_owned(fold(target))
     }
 
     /// Case-folds the bounds; see [`StrTrieMap::range_iter`]. `None` on
