@@ -14,6 +14,9 @@ These tests assert the salient tokens in each variant rather than the full
 tree, so the existing TEXT-scorer subtree can evolve without breaking us.
 """
 
+import json
+import re
+
 from RLTest import Env
 from includes import *
 from common import *
@@ -252,3 +255,165 @@ def test_hybrid_explainscore_text_only_match_branch_placeholder():
             break
     env.assertTrue(saw_no_match,
                    message='expected at least one doc with vector branch missing')
+
+
+# ----------------------------------------------------------------------------
+# Structural snapshot helpers
+#
+# These let one test pin down the entire reply shape for a chosen document
+# while staying robust against scorer-internal value drift. The template is a
+# tree of literals + regex/predicate matchers; mismatches are reported with
+# their JSON path and the offending actual fragment.
+# ----------------------------------------------------------------------------
+
+
+class _Re:
+    """Regex matcher for a string (or bytes) leaf in a shape template."""
+    def __init__(self, pattern):
+        self.pattern = re.compile(pattern)
+
+    def __call__(self, x):
+        if isinstance(x, (bytes, bytearray)):
+            x = x.decode('utf-8', errors='replace')
+        return isinstance(x, str) and self.pattern.fullmatch(x) is not None
+
+    def __repr__(self):
+        return f'_Re({self.pattern.pattern!r})'
+
+
+class _Near:
+    """Predicate matcher for a numeric leaf (RESP2 sends doubles as strings).
+    Wrapped in a class so mismatch reports get a useful repr."""
+    def __init__(self, expected, tol=1e-9):
+        self.expected = expected
+        self.tol = tol
+
+    def __call__(self, x):
+        s = x.decode('utf-8', errors='replace') if isinstance(x, (bytes, bytearray)) else x
+        try:
+            return abs(float(s) - self.expected) <= self.tol
+        except (TypeError, ValueError):
+            return False
+
+    def __repr__(self):
+        return f'_Near({self.expected!r}, tol={self.tol!r})'
+
+
+def _near(expected, tol=1e-9):
+    return _Near(expected, tol)
+
+
+def _norm(x):
+    return x.decode('utf-8', errors='replace') if isinstance(x, (bytes, bytearray)) else x
+
+
+def _to_jsonable(x):
+    if isinstance(x, (bytes, bytearray)):
+        return x.decode('utf-8', errors='replace')
+    if isinstance(x, (list, tuple)):
+        return [_to_jsonable(c) for c in x]
+    return x
+
+
+def _shape_errors(template, actual, path='$'):
+    """Return a list of human-readable mismatches between template and actual."""
+    # Order matters: strings and lists are also callables in Python's terms,
+    # so check them first.
+    if isinstance(template, str):
+        return [] if _norm(actual) == template else [f'{path}: expected {template!r}, got {_norm(actual)!r}']
+    if isinstance(template, list):
+        if not isinstance(actual, (list, tuple)):
+            return [f'{path}: expected list of len {len(template)}, got {type(actual).__name__}']
+        errs = []
+        if len(template) != len(actual):
+            errs.append(f'{path}: expected list len {len(template)}, got len {len(actual)}')
+        for i, (t, a) in enumerate(zip(template, actual)):
+            errs.extend(_shape_errors(t, a, path=f'{path}[{i}]'))
+        return errs
+    if callable(template):
+        if not template(actual):
+            return [f'{path}: {_norm(actual)!r} did not satisfy {template!r}']
+        return []
+    return [f'{path}: unsupported template {template!r}']
+
+
+def test_hybrid_explainscore_full_shape_rrf_knn_doc1():
+    """Locked-down structural shape for an RRF+KNN reply.
+
+    For the four-doc deterministic corpus, doc:1 ("red shoes" with vector
+    [0,0]) lands at text rank 1 (BM25 ties broken by docID) and vector rank
+    1 (all docs equidistant from query vector [0.5,0.5]; ties broken by
+    docID). The template below pins down every node in the wrapper; the BM25
+    sub-tree leaves use regex so the existing FT.SEARCH-side scorer numerics
+    can evolve without breaking us.
+    """
+    env = Env(moduleArgs='DEFAULT_DIALECT 2')
+    # Per-doc ranks aren't stable across shards (the hybrid merger assigns
+    # ranks from its own consumption order, which depends on cursor reads).
+    if env.isCluster():
+        env.skip()
+    setup_index(env)
+
+    blob = np.array([0.5, 0.5]).astype(np.float32).tobytes()
+    response = env.cmd('FT.HYBRID', 'idx',
+                       'SEARCH', 'shoes',
+                       'VSIM', '@embedding', '$BLOB',
+                       'EXPLAINSCORE',
+                       'PARAMS', '2', 'BLOB', blob)
+    results, _ = get_results_from_hybrid_response(response)
+    env.assertTrue('doc:1' in results, message=f'doc:1 missing from {list(results)}')
+    fields = results['doc:1']
+    env.assertTrue('score' in fields, message=f'no score field on doc:1: {fields}')
+
+    # Expected RRF score: 1/(60+1) + 1/(60+1) = 2/61 = 0.0327868852…
+    expected_rrf_score = 2.0 / 61.0
+    decimal = r'[0-9]+(?:\.[0-9]+)?'
+
+    expected_score_field = [
+        _near(expected_rrf_score),                                  # raw score
+        [                                                            # explain tree
+            _Re(rf'final score: 1 / \(constant 60\.00 \+ rank 1\) \+ '
+                rf'1 / \(constant 60\.00 \+ rank 1\) = {decimal}'),
+            [
+                [
+                    'Hybrid score (RRF: window=20, constant=60.00)',
+                    [
+                        [   # text branch
+                            'text rank = 1',
+                            [
+                                [
+                                    'Text scorer: BM25STD',
+                                    [
+                                        [
+                                            _Re(rf'Final BM25 : words BM25 {decimal} \* document score {decimal}'),
+                                            [
+                                                [
+                                                    _Re(rf'\(Weight {decimal} \* children BM25 {decimal}\)'),
+                                                    [
+                                                        _Re(r'shoes: \(.+\)'),
+                                                        _Re(r'\+shoe: \(.+\)'),
+                                                    ],
+                                                ],
+                                            ],
+                                        ],
+                                    ],
+                                ],
+                            ],
+                        ],
+                        [   # vector branch
+                            'vector branch (KNN)',
+                            ['vector rank = 1'],
+                        ],
+                    ],
+                ],
+            ],
+        ],
+    ]
+
+    errors = _shape_errors(expected_score_field, fields['score'])
+    if errors:
+        actual_pretty = json.dumps(_to_jsonable(fields['score']), indent=2)
+        env.assertTrue(
+            False,
+            message='shape mismatch:\n  ' + '\n  '.join(errors) +
+                    f'\n\nactual score field:\n{actual_pretty}')

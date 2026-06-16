@@ -48,7 +48,7 @@ void HybridExplainContext_Free(HybridExplainContext *ctx);
  * Returned context is owned by the caller (the hybrid merger).
  */
 struct AREQ;
-HybridExplainContext *HybridExplainContext_Build(struct AREQ *searchReq, struct AREQ *vectorReq);
+HybridExplainContext *HybridExplainContext_Build(const struct AREQ *searchReq, const struct AREQ *vectorReq);
 
 /**
  * HybridSearchResult structure that stores SearchResults from multiple sources.
