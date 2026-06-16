@@ -58,13 +58,8 @@ impl TermSuffixIndex {
         }
     }
 
-    /// Estimated heap memory currently held by the index — O(1).
-    ///
-    /// Counts the underlying trie structure only (see
-    /// [`StrTrieMap::mem_usage`]); the shared term buffers and
-    /// per-entry back-reference vectors are not included. The C
-    /// counterpart (`TrieType_MemUsage`) likewise estimates from node
-    /// count alone, ignoring payloads.
+    /// Estimated heap memory currently held by this index. Mirrors the cached
+    /// counter on the underlying StrTrieMap — O(1). See [`StrTrieMap::mem_usage`].
     pub const fn mem_usage(&self) -> usize {
         self.inner.mem_usage()
     }

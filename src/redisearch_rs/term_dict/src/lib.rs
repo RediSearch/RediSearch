@@ -106,24 +106,10 @@ impl TermDictionary {
         self.inner.is_empty()
     }
 
-    /// Estimated heap bytes held by the dictionary's internal trie.
-    /// Backs `IndexSpec_TotalMemUsage`, which feeds `FT.INFO`'s per-spec
-    /// terms-memory line. Counts trie node and key storage; the
-    /// [`TermEntry`] payload is included only insofar as the underlying
-    /// [`StrTrieMap`] already accounts for it.
-    ///
-    /// An empty dictionary reports `0`, matching the C `TrieType_MemUsage`
-    /// (`t->size * per_node_bytes`, which is exactly `0` at `size == 0`).
-    /// The underlying [`StrTrieMap`] counter instead includes the trie's
-    /// own struct footprint as a fixed baseline; reporting that as
-    /// `text_overhead` would make `FT.INFO` show nonzero overhead for an
-    /// index with no indexed terms.
+    /// Estimated heap memory currently held by this index. Mirrors the cached
+    /// counter on the underlying StrTrieMap — O(1). See [`StrTrieMap::mem_usage`].
     pub const fn mem_usage(&self) -> usize {
-        if self.inner.is_empty() {
-            0
-        } else {
-            self.inner.mem_usage()
-        }
+        self.inner.mem_usage()
     }
 
     /// Primitive overwrite — distinct from [`Self::replace_term`] in that
