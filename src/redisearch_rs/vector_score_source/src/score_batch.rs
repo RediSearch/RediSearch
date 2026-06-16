@@ -7,25 +7,24 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 
-//! [`VecSimScoreBatchCursor`] — [`ScoreBatch`] adapter over a VecSim query
-//! reply.
+//! [`VecSimScoreBatch`] — a [`ScoreBatch`] over a single VecSim query reply.
 
 use ffi::t_docId;
 use top_k::ScoreBatch;
 use vecsim::ReplyResults;
 
-/// A [`ScoreBatch`] cursor over a single VecSim batch reply.
-pub struct VecSimScoreBatchCursor {
+/// Adapts [`ReplyResults`] to the [`ScoreBatch`] interface.
+pub struct VecSimScoreBatch {
     results: ReplyResults,
 }
 
-impl VecSimScoreBatchCursor {
+impl VecSimScoreBatch {
     pub(crate) fn new(results: ReplyResults) -> Self {
         Self { results }
     }
 }
 
-impl ScoreBatch for VecSimScoreBatchCursor {
+impl ScoreBatch for VecSimScoreBatch {
     fn next(&mut self) -> Option<(t_docId, f64)> {
         Iterator::next(&mut self.results)
     }

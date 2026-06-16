@@ -17,7 +17,7 @@ use rqe_iterator_type::IteratorType;
 use rqe_iterators::RQEIteratorError;
 
 use crate::heap::ScoredResult;
-/// A cursor over a single score-ordered batch of `(doc_id, score)` pairs.
+/// A forward iterator over a single score-ordered batch of `(doc_id, score)` pairs.
 ///
 /// Batches are produced by [`ScoreSource::next_batch`] and consumed by the
 /// [`TopKIterator`]'s intersection engine.  Doc IDs within a batch must be
@@ -84,7 +84,7 @@ pub enum BatchStrategy {
 /// [`build_result`]: ScoreSource::build_result
 /// [`batch_strategy`]: ScoreSource::batch_strategy
 pub trait ScoreSource {
-    /// The type of batch cursor this source produces.
+    /// The type of batch iterator this source produces.
     type Batch: ScoreBatch;
 
     /// Fetch the next score-ordered batch.
