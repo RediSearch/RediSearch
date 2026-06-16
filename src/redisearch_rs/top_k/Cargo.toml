@@ -32,6 +32,7 @@ index_spec.workspace = true
 [dev-dependencies]
 top_k = { path = ".", features = ["unittest", "test-utils"] }
 redis_mock.workspace = true
+rstest.workspace = true
 rqe_iterators = { workspace = true, features = ["unittest"] }
 rqe_iterators_test_utils.workspace = true
 redisearch_rs = { path = "../c_entrypoint/redisearch_rs", features = [
