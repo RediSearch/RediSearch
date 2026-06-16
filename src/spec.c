@@ -3556,7 +3556,7 @@ static TermDictionary *termDictRdbLoad(RedisModuleIO *rdb, bool loadNumDocs) {
   float score = 0;
   int dist = 0;
   size_t numDocs = 0;
-  TrieIterator *it = Trie_Iterate(tmp, "", 0, 0, 1);
+  TrieIterator *it = Trie_IterateAll(tmp);
   while (TrieIterator_Next(it, &rstr, &slen, NULL, &score, &numDocs, &dist)) {
     size_t termLen;
     char *term = runesToStr(rstr, slen, &termLen);

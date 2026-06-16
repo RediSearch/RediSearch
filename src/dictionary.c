@@ -222,7 +222,7 @@ static SpellCheckDictionary *SpellCheckDict_FromTrie(Trie *t) {
   int dist = 0;
   size_t termLen;
 
-  TrieIterator *it = Trie_Iterate(t, "", 0, 0, 1);
+  TrieIterator *it = Trie_IterateAll(t);
   while (TrieIterator_Next(it, &rstr, &slen, NULL, &score, NULL, &dist)) {
     char *res = runesToStr(rstr, slen, &termLen);
     SpellCheckDictionary_Add(scDict, res, termLen);

@@ -7,9 +7,9 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 
-//! Snapshot the C rune-trie's DFA-filtered iteration path (`Trie_Iterate`).
+//! Snapshot the C rune-trie's DFA-filtered iteration path (`Trie_IterateFuzzy`).
 //!
-//! `Trie_Iterate(t, prefix, len, maxDist, prefixMode)` builds a `DFAFilter`
+//! `Trie_IterateFuzzy(t, prefix, len, maxDist, mode)` builds a `DFAFilter`
 //! over the lowered runes of `prefix` and hands it to `TrieNode_Iterate` as
 //! the per-edge `StepFilter` (`LoweringFilterFunc`) plus the matching
 //! `StackPop` callback (see `src/trie/trie.c:212-227`). This is the entry
@@ -30,7 +30,7 @@
 //! `dfaNode->distance` (clamped by `minDist` from the dist-stack), giving the
 //! caller the edit distance of the term that was just yielded
 //! (`src/trie/levenshtein.c:258-278`). We pass an `&mut i32` pre-seeded to
-//! `maxDist + 1` — the same sentinel `Trie_Search` uses (`src/trie/trie.c:256`)
+//! `maxDist + 1` — the same sentinel `Trie_CollectFuzzy` uses
 //! — and dump it alongside each result so a port whose DFA scoring diverges
 //! produces a snapshot diff. For the `maxDist=0` regimes the column is still
 //! captured: every match should land at distance 0, and capturing the value
@@ -41,8 +41,8 @@ use std::fmt::Write as _;
 use std::ptr;
 
 use ffi::{
-    NewTrie, RSPayload, Trie, Trie_Iterate, Trie_Size, TrieIterator_Free, TrieIterator_Next,
-    TrieSortMode_Trie_Sort_Lex, TrieType_Free, rune, t_len,
+    NewTrie, RSPayload, Trie, TrieMatchMode, Trie_IterateFuzzy, Trie_Size, TrieIterator_Free,
+    TrieIterator_Next, TrieSortMode_Trie_Sort_Lex, TrieType_Free, rune, t_len,
 };
 use libc::{c_char, c_int};
 
@@ -71,7 +71,7 @@ fn build_fixture(trie: *mut Trie) {
     }
 }
 
-/// Run a single `Trie_Iterate` query and append its results to `out`.
+/// Run a single `Trie_IterateFuzzy` query and append its results to `out`.
 ///
 /// Format:
 ///
@@ -91,7 +91,7 @@ fn dump_filtered(trie: *mut Trie, prefix: &str, max_dist: i32, prefix_mode: i32,
     )
     .unwrap();
 
-    // `Trie_Iterate` -> `strToLowerRunes` -> `nu_readstr` walks the input
+    // `Trie_IterateFuzzy` -> `strToLowerRunes` -> `nu_readstr` walks the input
     // until it hits a NUL terminator (`src/trie/rune_util.c:82`), ignoring the
     // explicit `len` parameter that bounds the *outer* loop. Production
     // callers happen to pass NUL-terminated buffers; we have to do the same
@@ -102,17 +102,17 @@ fn dump_filtered(trie: *mut Trie, prefix: &str, max_dist: i32, prefix_mode: i32,
     // lives until the iterator is constructed (the C trie copies / consumes
     // the runes before returning).
     let it = unsafe {
-        Trie_Iterate(
+        Trie_IterateFuzzy(
             trie,
             c_prefix.as_ptr() as *const c_char,
             prefix.len(),
             max_dist,
-            prefix_mode,
+            prefix_mode as TrieMatchMode,
         )
     };
 
     if it.is_null() {
-        writeln!(out, "  <Trie_Iterate returned NULL>").unwrap();
+        writeln!(out, "  <Trie_IterateFuzzy returned NULL>").unwrap();
         return;
     }
 
@@ -124,7 +124,7 @@ fn dump_filtered(trie: *mut Trie, prefix: &str, max_dist: i32, prefix_mode: i32,
     };
     let mut score: f32 = 0.0;
     let mut num_docs: usize = 0;
-    // Seed identically to `Trie_Search` (src/trie/trie.c:256). The filter only
+    // Seed identically to `Trie_CollectFuzzy`. The filter only
     // writes on match; reading it back on a miss would be undefined, but we
     // only read it inside the loop body where a match just fired.
     let mut dist: c_int = max_dist + 1;
@@ -158,7 +158,7 @@ fn dump_filtered(trie: *mut Trie, prefix: &str, max_dist: i32, prefix_mode: i32,
         writeln!(out, "  <no matches>").unwrap();
     }
 
-    // SAFETY: `it` was produced by `Trie_Iterate` above and not freed yet.
+    // SAFETY: `it` was produced by `Trie_IterateFuzzy` above and not freed yet.
     unsafe { TrieIterator_Free(it) };
 }
 

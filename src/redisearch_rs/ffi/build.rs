@@ -331,7 +331,7 @@ const HEADERS: &[HeaderAllowlist] = &[
             "Trie_DecrementNumDocs",
             "Trie_Delete",
             "Trie_InsertStringBuffer",
-            "Trie_Iterate",
+            "Trie_IterateFuzzy",
             "Trie_IterateAll",
             "Trie_IterateContains",
             "Trie_IterateRange",

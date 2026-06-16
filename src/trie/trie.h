@@ -95,7 +95,7 @@ size_t Trie_Size(const Trie *t);
 
 /* Iterate every node in the trie with no filter or distance constraint. Wraps
  * TrieNode_Iterate on the trie's root with no filter. Prefer this over
- * Trie_Iterate with an empty prefix: both visit every terminal node in the
+ * Trie_IterateFuzzy with an empty prefix: both visit every terminal node in the
  * same order, but the empty-prefix DFA filter pays per-node stack maintenance
  * for a filter that accepts everything. */
 TrieIterator *Trie_IterateAll(Trie *t);
@@ -122,13 +122,18 @@ typedef enum {
 TrieDecrResult Trie_DecrementNumDocs(Trie *t, const char *s, size_t len, size_t delta);
 
 void TrieSearchResult_Free(TrieSearchResult *e);
-Vector *Trie_Search(Trie *tree, const char *s, size_t len, size_t num, int maxDist, int prefixMode,
-                    int trim, int optimize);
 
-/* Iterate  the trie, using maxDist edit distance, returning a trie iterator that the
- * caller needs to free. If prefixmode is 1 we treat the string as only a prefix to iterate.
- * Otherwise we return an iterator to all strings within maxDist Levenshtein distance */
-TrieIterator *Trie_Iterate(Trie *t, const char *prefix, size_t len, int maxDist, int prefixMode);
+/* Collect the top `num` entries matching `str` within maxDist edit distance, ranked by score,
+ * into a newly allocated Vector the caller must free. mode TRIE_MATCH_PREFIX matches `str` as a
+ * prefix (tail unconstrained); otherwise the whole string within maxDist Levenshtein distance. */
+Vector *Trie_CollectFuzzy(Trie *t, const char *str, size_t len, size_t num, int maxDist,
+                          TrieMatchMode mode, int trim, int optimize);
+
+/* Iterate entries matching `str` within maxDist edit distance, returning a TrieIterator the
+ * caller must free. mode TRIE_MATCH_PREFIX matches `str` as a prefix (tail unconstrained);
+ * otherwise the whole string within maxDist Levenshtein distance. */
+TrieIterator *Trie_IterateFuzzy(Trie *t, const char *str, size_t len, int maxDist,
+                                TrieMatchMode mode);
 
 /* Get a random key from the trie, and put the node's score in the score pointer. Returns 0 if the
  * trie is empty and we cannot do that */

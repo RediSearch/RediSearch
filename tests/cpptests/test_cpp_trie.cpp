@@ -324,7 +324,7 @@ TEST_F(TrieTest, testLexOrder) {
   trieInsert(t, "bar");
   trieInsert(t, "help");
 
-  TrieIterator *iter = Trie_Iterate(t, "", 0, 0, 1);
+  TrieIterator *iter = Trie_IterateFuzzy(t, "", 0, 0, TRIE_MATCH_PREFIX);
   checkNext(iter, "bar");
   checkNext(iter, "foo");
   checkNext(iter, "helen");
@@ -337,7 +337,7 @@ TEST_F(TrieTest, testLexOrder) {
   Trie_Delete(t, "hello", 5);
   Trie_Delete(t, "world", 5);
 
-  iter = Trie_Iterate(t, "", 0, 0, 1);
+  iter = Trie_IterateFuzzy(t, "", 0, 0, TRIE_MATCH_PREFIX);
   checkNext(iter, "foo");
   checkNext(iter, "helen");
   checkNext(iter, "help");
@@ -372,7 +372,7 @@ TEST_F(TrieTest, testScoreOrder) {
   trieInsertByScore(t, "help", 3);
   trieInsertByScore(t, "helen", 5);
 
-  TrieIterator *iter = Trie_Iterate(t, "", 0, 0, 1);
+  TrieIterator *iter = Trie_IterateFuzzy(t, "", 0, 0, TRIE_MATCH_PREFIX);
   checkNext(iter, "foo");
   checkNext(iter, "helen");
   checkNext(iter, "hello");
@@ -385,7 +385,7 @@ TEST_F(TrieTest, testScoreOrder) {
   Trie_Delete(t, "world", 5);
   Trie_Delete(t, "bar", 3);
 
-  iter = Trie_Iterate(t, "", 0, 0, 1);
+  iter = Trie_IterateFuzzy(t, "", 0, 0, TRIE_MATCH_PREFIX);
   checkNext(iter, "foo");
   checkNext(iter, "helen");
   checkNext(iter, "help");
@@ -415,8 +415,8 @@ static bool compareTrieContents(Trie *original, Trie *loaded) {
   }
 
   // Compare all entries using iterators
-  TrieIterator *origIter = Trie_Iterate(original, "", 0, 0, 1);
-  TrieIterator *loadedIter = Trie_Iterate(loaded, "", 0, 0, 1);
+  TrieIterator *origIter = Trie_IterateFuzzy(original, "", 0, 0, TRIE_MATCH_PREFIX);
+  TrieIterator *loadedIter = Trie_IterateFuzzy(loaded, "", 0, 0, TRIE_MATCH_PREFIX);
 
   std::unique_ptr<TrieIterator, std::function<void(TrieIterator *)>> origIterPtr(origIter, [](TrieIterator *iter) {
     TrieIterator_Free(iter);
@@ -1017,7 +1017,7 @@ TEST_F(TrieTest, testRdbSaveLoadWithNumDocs) {
   TrieIterator_Free(it);
 }
 
-// Regression: Trie_Search(trim=1) used to mutate ret->top before reading the
+// Regression: Trie_CollectFuzzy(trim=1) used to mutate ret->top before reading the
 // tail entries it was about to free. Vector_Get then returned 0 without
 // touching the out pointer, so TrieSearchResult_Free(h) ran on stack garbage
 // and the allocator aborted. This test forces the trim drop branch (one entry
@@ -1032,8 +1032,8 @@ TEST_F(TrieTest, testSearchTrimDropsTail) {
   trieInsertByScore(t, "hd", 1.0f);
   trieInsertByScore(t, "he", 1.0f);
 
-  // num=10, maxDist=0, prefixMode=1, trim=1, optimize=0
-  Vector *res = Trie_Search(t, "h", 1, 10, 0, 1, 1, 0);
+  // num=10, maxDist=0, mode=TRIE_MATCH_PREFIX, trim=1, optimize=0
+  Vector *res = Trie_CollectFuzzy(t, "h", 1, 10, 0, TRIE_MATCH_PREFIX, 1, 0);
   ASSERT_TRUE(res != NULL);
 
   // Only the dominant entry should survive the trim: 1.0 < 100.0 / 10.0.

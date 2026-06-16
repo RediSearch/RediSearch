@@ -966,7 +966,8 @@ static QueryIterator *Query_EvalFuzzyNode(QueryEvalCtx *q, QueryNode *qn) {
 
   if (!terms) return NULL;
 
-  return iterateExpandedTerms(q, terms, qn->pfx.tok.str, strlen(qn->pfx.tok.str), qn->fz.maxDist, 0, &qn->opts);
+  return iterateExpandedTerms(q, terms, qn->pfx.tok.str, strlen(qn->pfx.tok.str), qn->fz.maxDist, 0,
+                              &qn->opts);
 }
 
 static QueryIterator *Query_EvalPhraseNode(QueryEvalCtx *q, QueryNode *qn) {

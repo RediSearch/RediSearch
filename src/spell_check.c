@@ -122,7 +122,7 @@ static bool SpellCheck_IsTermExistsInTrie(Trie *t, const char *term, size_t len,
   float score = 0;
   int dist = 0;
   bool retVal = false;
-  TrieIterator *it = Trie_Iterate(t, term, len, 0, 0);
+  TrieIterator *it = Trie_IterateFuzzy(t, term, len, 0, TRIE_MATCH_EDIT_DISTANCE);
   // TrieIterator can be NULL when rune length exceed TRIE_MAX_PREFIX
   if (it == NULL) {
     return retVal;
