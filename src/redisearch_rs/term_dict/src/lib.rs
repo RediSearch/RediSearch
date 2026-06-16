@@ -38,7 +38,10 @@ use std::borrow::Cow;
 
 use trie_rs::str_trie_map::{
     StrTrieMap,
-    iter::{ContainsIter, Iter, PrefixedIter, RangeIter, SuffixedIter, WildcardIter},
+    iter::{
+        ContainsIter as StrContainsIter, Iter, PrefixedIter, RangeBoundary, RangeFilter,
+        RangeIter as StrRangeIter, SuffixedIter, WildcardIter as StrWildcardIter,
+    },
 };
 
 /// Per-term metadata stored at each terminal in the term dictionary.
@@ -162,10 +165,17 @@ impl TermDictionary {
         self.inner.iter()
     }
 
-    /// Case-folds `target`; see [`StrTrieMap::contains_iter`]. When
-    /// folding allocates, the iterator owns the folded buffer internally.
-    pub fn contains_iter<'tm, 'p>(&'tm self, target: &'p str) -> ContainsIter<'tm, 'p, TermEntry> {
-        self.inner.contains_iter_owned(fold(target))
+    /// Case-folds `target`; see [`StrTrieMap::contains_iter`] and
+    /// [`ContainsIter`] for the lazy-vs-drained behaviour when folding
+    /// allocates.
+    pub fn contains_iter<'tm, 'p>(&'tm self, target: &'p str) -> ContainsIter<'tm, 'p> {
+        match fold(target) {
+            Cow::Borrowed(s) => ContainsIter::Lazy(self.inner.contains_iter(s)),
+            Cow::Owned(s) => {
+                let drained: Vec<(String, &'tm TermEntry)> = self.inner.contains_iter(&s).collect();
+                ContainsIter::Drained(drained.into_iter())
+            }
+        }
     }
 
     /// Case-folds `prefix`; see [`StrTrieMap::prefixed_iter`].
@@ -178,25 +188,74 @@ impl TermDictionary {
         self.inner.suffixed_iter(&fold(suffix))
     }
 
-    /// Case-folds the bounds; see [`StrTrieMap::range_iter`]. `None` on
-    /// either side disables that bound. When folding allocates, the
-    /// iterator owns the folded buffers internally.
+    /// Case-folds the bounds; see [`StrTrieMap::range_iter`] and
+    /// [`RangeIter`] for the lazy-vs-drained behaviour. `None` on either
+    /// side disables that bound.
     pub fn range_iter<'tm, 'p>(
         &'tm self,
         min: Option<&'p str>,
         include_min: bool,
         max: Option<&'p str>,
         include_max: bool,
-    ) -> RangeIter<'tm, 'p, TermEntry> {
-        self.inner
-            .range_iter_owned(min.map(fold), include_min, max.map(fold), include_max)
+    ) -> RangeIter<'tm, 'p> {
+        let min = min.map(fold);
+        let max = max.map(fold);
+        let min_owns = matches!(min, Some(Cow::Owned(_)));
+        let max_owns = matches!(max, Some(Cow::Owned(_)));
+
+        if !min_owns && !max_owns {
+            // Both bounds absent or borrowed — stay lazy, carrying the
+            // caller's `'p` lifetime rather than a borrow of the locals here.
+            let min_ref: Option<&'p str> = match min {
+                Some(Cow::Borrowed(s)) => Some(s),
+                _ => None,
+            };
+            let max_ref: Option<&'p str> = match max {
+                Some(Cow::Borrowed(s)) => Some(s),
+                _ => None,
+            };
+            let filter = RangeFilter {
+                min: min_ref.map(|value| RangeBoundary {
+                    value,
+                    is_included: include_min,
+                }),
+                max: max_ref.map(|value| RangeBoundary {
+                    value,
+                    is_included: include_max,
+                }),
+            };
+            return RangeIter::Lazy(self.inner.range_iter(filter));
+        }
+
+        // A bound owns its folded buffer, which cannot outlive this call,
+        // so drain the matches eagerly before the buffers drop.
+        let min_buf: Option<String> = min.map(Cow::into_owned);
+        let max_buf: Option<String> = max.map(Cow::into_owned);
+        let filter = RangeFilter {
+            min: min_buf.as_deref().map(|value| RangeBoundary {
+                value,
+                is_included: include_min,
+            }),
+            max: max_buf.as_deref().map(|value| RangeBoundary {
+                value,
+                is_included: include_max,
+            }),
+        };
+        let drained: Vec<(String, &'tm TermEntry)> = self.inner.range_iter(filter).collect();
+        RangeIter::Drained(drained.into_iter())
     }
 
-    /// Case-folds `pattern`; see [`StrTrieMap::wildcard_iter`]. `?` and
-    /// `*` are ASCII so wildcard semantics survive folding. When folding
-    /// allocates, the iterator owns the folded buffer internally.
-    pub fn wildcard_iter<'tm, 'p>(&'tm self, pattern: &'p str) -> WildcardIter<'tm, 'p, TermEntry> {
-        self.inner.wildcard_iter_owned(fold(pattern))
+    /// Case-folds `pattern`; see [`StrTrieMap::wildcard_iter`] and
+    /// [`WildcardIter`] for the lazy-vs-drained behaviour. `?` and `*` are
+    /// ASCII so wildcard semantics survive folding.
+    pub fn wildcard_iter<'tm, 'p>(&'tm self, pattern: &'p str) -> WildcardIter<'tm, 'p> {
+        match fold(pattern) {
+            Cow::Borrowed(s) => WildcardIter::Lazy(self.inner.wildcard_iter(s)),
+            Cow::Owned(s) => {
+                let drained: Vec<(String, &'tm TermEntry)> = self.inner.wildcard_iter(&s).collect();
+                WildcardIter::Drained(drained.into_iter())
+            }
+        }
     }
 
     /// Case-folds `prefix` then runs [`StrTrieMap::iterate_dfa`]; see
@@ -226,6 +285,66 @@ impl TermDictionary {
         } else {
             self.inner.remove(&term);
             DecrResult::Deleted
+        }
+    }
+}
+
+/// Iterator returned by [`TermDictionary::contains_iter`].
+///
+/// Case-folding the target may allocate. When it does (mixed-case input),
+/// the folded buffer cannot outlive this iterator, so the matches are
+/// drained eagerly into a `Vec` at construction ([`Self::Drained`]). When
+/// folding borrows (already-folded input) the iterator stays lazy
+/// ([`Self::Lazy`]) and streams directly from the trie. Both yield the same
+/// items in the same order.
+pub enum ContainsIter<'tm, 'p> {
+    Lazy(StrContainsIter<'tm, 'p, TermEntry>),
+    Drained(std::vec::IntoIter<(String, &'tm TermEntry)>),
+}
+
+impl<'tm, 'p> Iterator for ContainsIter<'tm, 'p> {
+    type Item = (String, &'tm TermEntry);
+
+    fn next(&mut self) -> Option<Self::Item> {
+        match self {
+            Self::Lazy(it) => it.next(),
+            Self::Drained(it) => it.next(),
+        }
+    }
+}
+
+/// Iterator returned by [`TermDictionary::range_iter`]. Drains eagerly when
+/// either folded bound allocates; see [`ContainsIter`] for the rationale.
+pub enum RangeIter<'tm, 'p> {
+    Lazy(StrRangeIter<'tm, 'p, TermEntry>),
+    Drained(std::vec::IntoIter<(String, &'tm TermEntry)>),
+}
+
+impl<'tm, 'p> Iterator for RangeIter<'tm, 'p> {
+    type Item = (String, &'tm TermEntry);
+
+    fn next(&mut self) -> Option<Self::Item> {
+        match self {
+            Self::Lazy(it) => it.next(),
+            Self::Drained(it) => it.next(),
+        }
+    }
+}
+
+/// Iterator returned by [`TermDictionary::wildcard_iter`]. Drains eagerly
+/// when the folded pattern allocates; see [`ContainsIter`] for the rationale.
+pub enum WildcardIter<'tm, 'p> {
+    Lazy(StrWildcardIter<'tm, 'p, TermEntry>),
+    Drained(std::vec::IntoIter<(String, &'tm TermEntry)>),
+}
+
+impl<'tm, 'p> Iterator for WildcardIter<'tm, 'p> {
+    type Item = (String, &'tm TermEntry);
+
+    fn next(&mut self) -> Option<Self::Item> {
+        match self {
+            Self::Lazy(it) => it.next(),
+            Self::Drained(it) => it.next(),
         }
     }
 }
