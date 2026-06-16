@@ -209,7 +209,8 @@ TrieIterator *Trie_IterateAll(Trie *t) {
   return TrieNode_Iterate(t->root, NULL, NULL, NULL);
 }
 
-TrieIterator *Trie_Iterate(Trie *t, const char *prefix, size_t len, int maxDist, int prefixMode) {
+TrieIterator *Trie_IterateFuzzy(Trie *t, const char *prefix, size_t len, int maxDist,
+                                int prefixMode) {
   size_t rlen;
   rune *runes = strToLowerRunes(prefix, len, &rlen);
   if (!runes || rlen > TRIE_MAX_PREFIX) {
@@ -226,8 +227,8 @@ TrieIterator *Trie_Iterate(Trie *t, const char *prefix, size_t len, int maxDist,
   return it;
 }
 
-Vector *Trie_Search(Trie *tree, const char *s, size_t len, size_t num, int maxDist, int prefixMode,
-                    int trim, int optimize) {
+Vector *Trie_CollectFuzzy(Trie *tree, const char *s, size_t len, size_t num, int maxDist,
+                          int prefixMode, int trim, int optimize) {
 
   if (len > TRIE_MAX_PREFIX * sizeof(rune)) {
     return NULL;

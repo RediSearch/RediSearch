@@ -616,7 +616,7 @@ static inline void addTerm(char *str, size_t tok_len, size_t numDocsInTerm, Quer
 static QueryIterator *iterateExpandedTerms(QueryEvalCtx *q, Trie *terms, const char *str,
                                            size_t len, int maxDist, int prefixMode,
                                            QueryNodeOptions *opts) {
-  TrieIterator *it = Trie_Iterate(terms, str, len, maxDist, prefixMode);
+  TrieIterator *it = Trie_IterateFuzzy(terms, str, len, maxDist, prefixMode);
   if (!it) return NULL;
 
   size_t itsSz = 0, itsCap = 8;
