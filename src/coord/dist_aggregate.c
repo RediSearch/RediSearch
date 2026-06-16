@@ -482,9 +482,21 @@ static bool shouldCheckInPipelineTimeoutCoord(AREQ *req) {
          (req->reqConfig.timeoutPolicy == TimeoutPolicy_Return);
 }
 
+// AREQ_New / AREQ_Compile re-read RSGlobalConfig on the BG thread, so once the
+// request is compiled we force the config + pipeline ctx the request consults
+// onto the policy captured at dispatch (CoordRequestCtx). This avoids a TOCTOU
+// against a concurrent FT.CONFIG SET that would otherwise let the BG worker and
+// the armed timeout callbacks disagree on the policy. Mirrors the hybrid path's
+// applyCoordReqConfigTimeoutPolicy. The caller recomputes skipTimeoutChecks
+// (via AREQ_SetSkipTimeoutChecks) after this, so it picks up the sticky value.
+static void applyCoordReqConfigTimeoutPolicy(AREQ *r, RSTimeoutPolicy policy) {
+  r->reqConfig.timeoutPolicy = policy;
+  r->pipeline.qctx.timeoutPolicy = policy;
+}
+
 static int prepareForExecution(AREQ *r, RedisModuleCtx *ctx, RedisModuleString **argv, int argc,
                                IndexSpec *sp, specialCaseCtx **knnCtx_ptr, size_t numShards,
-                               QueryError *status) {
+                               RSTimeoutPolicy stickyTimeoutPolicy, QueryError *status) {
   AREQ_QueryProcessingCtx(r)->err = status;
   AREQ_AddRequestFlags(r, QEXEC_F_IS_AGGREGATE | QEXEC_F_BUILDPIPELINE_NO_ROOT);
   rs_wall_clock_init(&r->profileClocks.initClock);
@@ -506,6 +518,11 @@ static int prepareForExecution(AREQ *r, RedisModuleCtx *ctx, RedisModuleString *
 
   rc = AREQ_Compile(r, ctx, argv + ac.offset, argc - ac.offset, SearchDisk_IsEnabledForValidation(), status);
   if (rc != REDISMODULE_OK) return REDISMODULE_ERR;
+
+  // AREQ_Compile re-read the timeout policy from RSGlobalConfig on this BG
+  // thread; pin it back to the dispatch-time value before the pipeline ctx and
+  // skipTimeoutChecks are derived from it below.
+  applyCoordReqConfigTimeoutPolicy(r, stickyTimeoutPolicy);
 
   r->profile = printAggProfile;
 
@@ -656,7 +673,11 @@ void RSExecDistAggregate(RedisModuleCtx *ctx, RedisModuleString **argv, int argc
   // CMD, index, expr, args...
   AREQ *r = AREQ_New();
 
-  if (r->reqConfig.timeoutPolicy == TimeoutPolicy_ReturnStrict) {
+  // Use the policy captured at dispatch (sticky on CoordRequestCtx), not the
+  // value AREQ_New just re-read from RSGlobalConfig, so the sync wiring agrees
+  // with the armed timeout callbacks even if FT.CONFIG SET raced dispatch.
+  RSTimeoutPolicy stickyTimeoutPolicy = CoordRequestCtx_GetTimeoutPolicy(reqCtx);
+  if (stickyTimeoutPolicy == TimeoutPolicy_ReturnStrict) {
     r->syncCtx.requiresAggregateResultsSync = true;
   }
   CoordRequestCtx_SetRequest(reqCtx, r);
@@ -677,7 +698,8 @@ void RSExecDistAggregate(RedisModuleCtx *ctx, RedisModuleString **argv, int argc
     goto err;
   }
 
-  if (prepareForExecution(r, ctx, argv, argc, sp, &knnCtx, numShards, &status) != REDISMODULE_OK) {
+  if (prepareForExecution(r, ctx, argv, argc, sp, &knnCtx, numShards, stickyTimeoutPolicy,
+                          &status) != REDISMODULE_OK) {
     goto err;
   }
 
@@ -927,6 +949,11 @@ void DEBUG_RSExecDistAggregate(RedisModuleCtx *ctx, RedisModuleString **argv, in
   MRCommand *cmd = NULL;
   size_t numShards = 0;
   RPNet *rpnet = NULL;
+  // Use the policy captured at dispatch (sticky on CoordRequestCtx), not the
+  // value AREQ_New re-reads from RSGlobalConfig, so the sync wiring agrees with
+  // the armed timeout callbacks even if FT.CONFIG SET raced dispatch. Declared
+  // here (before any `goto err`) to avoid jumping over its initialization.
+  RSTimeoutPolicy stickyTimeoutPolicy = CoordRequestCtx_GetTimeoutPolicy(reqCtx);
 
   // debug_req and &debug_req->r are allocated in the same memory block, so it will be freed
   // when AREQ_Free is called
@@ -952,7 +979,7 @@ void DEBUG_RSExecDistAggregate(RedisModuleCtx *ctx, RedisModuleString **argv, in
   // CMD, index, expr, args...
   r = &debug_req->r;
 
-  if (r->reqConfig.timeoutPolicy == TimeoutPolicy_ReturnStrict) {
+  if (stickyTimeoutPolicy == TimeoutPolicy_ReturnStrict) {
     r->syncCtx.requiresAggregateResultsSync = true;
   }
   CoordRequestCtx_SetRequest(reqCtx, r);
@@ -972,7 +999,7 @@ void DEBUG_RSExecDistAggregate(RedisModuleCtx *ctx, RedisModuleString **argv, in
 
   debug_argv_count = debug_params.debug_params_count + 2;  // account for `DEBUG_PARAMS_COUNT` `<count>` strings
   if (prepareForExecution(r, ctx, argv, argc - debug_argv_count, sp, &knnCtx, numShards,
-                          &status) != REDISMODULE_OK) {
+                          stickyTimeoutPolicy, &status) != REDISMODULE_OK) {
     goto err;
   }
 

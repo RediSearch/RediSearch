@@ -3786,7 +3786,10 @@ int DistAggregateCommandImp(RedisModuleCtx *ctx, RedisModuleString **argv, int a
   handlerCtx.bcCtx.privdata = reqCtx;
   handlerCtx.bcCtx.free_privdata = DistCoordReqFreePrivData;
 
+  // Capture the policy on the main thread so BG and the timeout callback agree
+  // on one value (avoids a TOCTOU against a concurrent FT.CONFIG SET).
   RSTimeoutPolicy policy = RSGlobalConfig.requestConfigParams.timeoutPolicy;
+  CoordRequestCtx_SetTimeoutPolicy(reqCtx, policy);
   if (policy == TimeoutPolicy_Fail || policy == TimeoutPolicy_ReturnStrict) {
     handlerCtx.bcCtx.reply_callback = DistAggregateReplyCallback;
     handlerCtx.bcCtx.timeout_callback = (policy == TimeoutPolicy_Fail)
