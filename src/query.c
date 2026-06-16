@@ -614,9 +614,9 @@ static inline void addTerm(char *str, size_t tok_len, size_t numDocsInTerm, Quer
 }
 
 static QueryIterator *iterateExpandedTerms(QueryEvalCtx *q, Trie *terms, const char *str,
-                                           size_t len, int maxDist, int prefixMode,
+                                           size_t len, int maxDist, TrieMatchMode mode,
                                            QueryNodeOptions *opts) {
-  TrieIterator *it = Trie_IterateFuzzy(terms, str, len, maxDist, prefixMode);
+  TrieIterator *it = Trie_IterateFuzzy(terms, str, len, maxDist, mode);
   if (!it) return NULL;
 
   size_t itsSz = 0, itsCap = 8;
@@ -645,7 +645,7 @@ static QueryIterator *iterateExpandedTerms(QueryEvalCtx *q, Trie *terms, const c
   }
 
   // Add an iterator over the inverted index of the empty string for fuzzy search
-  if (!prefixMode && q->sctx->apiVersion >= 2 && len <= maxDist) {
+  if (mode == TRIE_MATCH_EDIT_DISTANCE && q->sctx->apiVersion >= 2 && len <= maxDist) {
     size_t rlen = 0;
     runeBuf buf;
     rune *runes = runeBufFill("", 1, &buf, &rlen);
@@ -655,7 +655,7 @@ static QueryIterator *iterateExpandedTerms(QueryEvalCtx *q, Trie *terms, const c
     addTerm("", 0, numDocsInEmpty, q, opts, &its, &itsSz, &itsCap);
   }
 
-  QueryNodeType type = prefixMode ? QN_PREFIX : QN_FUZZY;
+  QueryNodeType type = mode == TRIE_MATCH_PREFIX ? QN_PREFIX : QN_FUZZY;
   return NewUnionIterator(its, itsSz, true, opts->weight, type, str, q->config);
 }
 
@@ -932,7 +932,8 @@ static QueryIterator *Query_EvalFuzzyNode(QueryEvalCtx *q, QueryNode *qn) {
 
   if (!terms) return NULL;
 
-  return iterateExpandedTerms(q, terms, qn->pfx.tok.str, strlen(qn->pfx.tok.str), qn->fz.maxDist, 0, &qn->opts);
+  return iterateExpandedTerms(q, terms, qn->pfx.tok.str, strlen(qn->pfx.tok.str), qn->fz.maxDist,
+                              TRIE_MATCH_EDIT_DISTANCE, &qn->opts);
 }
 
 static QueryIterator *Query_EvalPhraseNode(QueryEvalCtx *q, QueryNode *qn) {

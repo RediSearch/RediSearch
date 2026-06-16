@@ -328,8 +328,8 @@ parse_error:
     goto end;
   }
 
-  res = Trie_CollectFuzzy(tree, s, len, options.numResults, options.maxDistance, 1, options.trim,
-                          options.optimize);
+  res = Trie_CollectFuzzy(tree, s, len, options.numResults, options.maxDistance, TRIE_MATCH_PREFIX,
+                          options.trim, options.optimize);
   if (!res) {
     RedisModule_ReplyWithError(ctx, "Invalid query");
     goto end;

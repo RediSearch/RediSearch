@@ -210,7 +210,7 @@ TrieIterator *Trie_IterateAll(Trie *t) {
 }
 
 TrieIterator *Trie_IterateFuzzy(Trie *t, const char *prefix, size_t len, int maxDist,
-                                int prefixMode) {
+                                TrieMatchMode mode) {
   size_t rlen;
   rune *runes = strToLowerRunes(prefix, len, &rlen);
   if (!runes || rlen > TRIE_MAX_PREFIX) {
@@ -220,7 +220,7 @@ TrieIterator *Trie_IterateFuzzy(Trie *t, const char *prefix, size_t len, int max
     return NULL;
   }
 
-  DFAFilter *fc = NewDFAFilter(runes, rlen, maxDist, prefixMode);
+  DFAFilter *fc = NewDFAFilter(runes, rlen, maxDist, mode);
 
   TrieIterator *it = TrieNode_Iterate(t->root, LoweringFilterFunc, StackPop, fc);
   rm_free(runes);
@@ -228,7 +228,7 @@ TrieIterator *Trie_IterateFuzzy(Trie *t, const char *prefix, size_t len, int max
 }
 
 Vector *Trie_CollectFuzzy(Trie *tree, const char *s, size_t len, size_t num, int maxDist,
-                          int prefixMode, int trim, int optimize) {
+                          TrieMatchMode mode, int trim, int optimize) {
 
   if (len > TRIE_MAX_PREFIX * sizeof(rune)) {
     return NULL;
@@ -244,7 +244,7 @@ Vector *Trie_CollectFuzzy(Trie *tree, const char *s, size_t len, size_t num, int
   heap_t *pq = rm_malloc(heap_sizeof(num));
   heap_init(pq, cmpEntries, NULL, num);
 
-  DFAFilter *fc = NewDFAFilter(runes, rlen, maxDist, prefixMode);
+  DFAFilter *fc = NewDFAFilter(runes, rlen, maxDist, mode);
 
   TrieIterator *it = TrieNode_Iterate(tree->root, FoldingFilterFunc, StackPop, fc);
   // TrieIterator *it = TrieNode_Iterate(tree->root,NULL, NULL, NULL);
@@ -271,7 +271,7 @@ Vector *Trie_CollectFuzzy(Trie *tree, const char *s, size_t len, size_t num, int
       ent->score *= exp((double)-(2 * dist));
     }
     // in prefix mode we also factor in the total length of the suffix
-    if (prefixMode) {
+    if (mode == TRIE_MATCH_PREFIX) {
       ent->score /= sqrt(1 + (slen >= len ? slen - len : len - slen));
     }
 
