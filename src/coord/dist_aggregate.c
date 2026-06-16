@@ -482,13 +482,9 @@ static bool shouldCheckInPipelineTimeoutCoord(AREQ *req) {
          (req->reqConfig.timeoutPolicy == TimeoutPolicy_Return);
 }
 
-// AREQ_New / AREQ_Compile re-read RSGlobalConfig on the BG thread, so once the
-// request is compiled we force the config + pipeline ctx the request consults
-// onto the policy captured at dispatch (CoordRequestCtx). This avoids a TOCTOU
-// against a concurrent FT.CONFIG SET that would otherwise let the BG worker and
-// the armed timeout callbacks disagree on the policy. Mirrors the hybrid path's
-// applyCoordReqConfigTimeoutPolicy. The caller recomputes skipTimeoutChecks
-// (via AREQ_SetSkipTimeoutChecks) after this, so it picks up the sticky value.
+// Pin the request's config + tail-pipeline policy to the dispatch-time value
+// (CoordRequestCtx), undoing AREQ_New/AREQ_Compile's RSGlobalConfig re-read on
+// the BG thread. Avoids a TOCTOU with a concurrent FT.CONFIG SET (mirrors hybrid).
 static void applyCoordReqConfigTimeoutPolicy(AREQ *r, RSTimeoutPolicy policy) {
   r->reqConfig.timeoutPolicy = policy;
   r->pipeline.qctx.timeoutPolicy = policy;
@@ -519,9 +515,8 @@ static int prepareForExecution(AREQ *r, RedisModuleCtx *ctx, RedisModuleString *
   rc = AREQ_Compile(r, ctx, argv + ac.offset, argc - ac.offset, SearchDisk_IsEnabledForValidation(), status);
   if (rc != REDISMODULE_OK) return REDISMODULE_ERR;
 
-  // AREQ_Compile re-read the timeout policy from RSGlobalConfig on this BG
-  // thread; pin it back to the dispatch-time value before the pipeline ctx and
-  // skipTimeoutChecks are derived from it below.
+  // Pin back to the dispatch-time policy before skipTimeoutChecks / the pipeline
+  // ctx are derived from it below.
   applyCoordReqConfigTimeoutPolicy(r, stickyTimeoutPolicy);
 
   r->profile = printAggProfile;
@@ -673,11 +668,8 @@ void RSExecDistAggregate(RedisModuleCtx *ctx, RedisModuleString **argv, int argc
   // CMD, index, expr, args...
   AREQ *r = AREQ_New();
 
-  // Use the policy captured at dispatch (sticky on CoordRequestCtx), not the
-  // value AREQ_New just re-read from RSGlobalConfig, so the tail pipeline agrees
-  // with the armed timeout callbacks even if FT.CONFIG SET raced dispatch.
-  // CoordRequestCtx_SetRequest derives requiresAggregateResultsSync from the
-  // same sticky policy.
+  // Sticky dispatch-time policy (CoordRequestCtx), not AREQ_New's RSGlobalConfig
+  // re-read; CoordRequestCtx_SetRequest derives requiresAggregateResultsSync from it.
   RSTimeoutPolicy stickyTimeoutPolicy = CoordRequestCtx_GetTimeoutPolicy(reqCtx);
   CoordRequestCtx_SetRequest(reqCtx, r);
   CoordRequestCtx_UnlockSetRequest(reqCtx);
@@ -948,11 +940,8 @@ void DEBUG_RSExecDistAggregate(RedisModuleCtx *ctx, RedisModuleString **argv, in
   MRCommand *cmd = NULL;
   size_t numShards = 0;
   RPNet *rpnet = NULL;
-  // Use the policy captured at dispatch (sticky on CoordRequestCtx), not the
-  // value AREQ_New re-reads from RSGlobalConfig, so the tail pipeline agrees with
-  // the armed timeout callbacks even if FT.CONFIG SET raced dispatch (the sync
-  // flag is derived from the same sticky policy in CoordRequestCtx_SetRequest).
-  // Declared here (before any `goto err`) to avoid jumping over its initialization.
+  // Sticky dispatch-time policy (see RSExecDistAggregate). Declared here, before
+  // any `goto err`, to avoid jumping over its initialization.
   RSTimeoutPolicy stickyTimeoutPolicy = CoordRequestCtx_GetTimeoutPolicy(reqCtx);
 
   // debug_req and &debug_req->r are allocated in the same memory block, so it will be freed
