@@ -16,6 +16,10 @@ use trie_rs::str_trie_map::StrTrieMap;
 /// lockstep.
 const TRIE_MAX_PREFIX: usize = ffi::TRIE_MAX_PREFIX as usize;
 
+/// Upper bound on insertable term length, in runes (codepoints), enforced by
+/// C's `Trie_Insert`. Sourced from the C `#define` so the two stay in lockstep.
+const TRIE_INITIAL_STRING_LEN: usize = ffi::TRIE_INITIAL_STRING_LEN as usize;
+
 #[derive(Debug, Default)]
 pub struct SpellCheckDictionary {
     trie: StrTrieMap<()>,
@@ -28,7 +32,21 @@ impl SpellCheckDictionary {
         }
     }
 
+    /// Insert `term`, returning `true` only if it was newly added.
+    ///
+    /// Mirrors C's `Trie_Insert` accept rule: empty terms, terms whose byte
+    /// length exceeds `TRIE_INITIAL_STRING_LEN` runes' worth of bytes, and
+    /// terms of `TRIE_INITIAL_STRING_LEN` or more codepoints are silently
+    /// rejected (returning `false`) rather than stored.
     pub fn add(&mut self, term: &str) -> bool {
+        // C runes are `uint16_t`; the byte gate is `TRIE_INITIAL_STRING_LEN *
+        // sizeof(rune)`, matching `Trie_InsertStringBuffer`.
+        if term.is_empty()
+            || term.len() > TRIE_INITIAL_STRING_LEN * size_of::<u16>()
+            || term.chars().count() >= TRIE_INITIAL_STRING_LEN
+        {
+            return false;
+        }
         self.trie.insert(term, ()).is_none()
     }
 
@@ -154,6 +172,41 @@ mod tests {
 
         assert!(sut.remove("Foo"));
         assert!(!sut.contains("foo"));
+    }
+
+    #[test]
+    fn add_rejects_empty_term() {
+        let mut sut = SpellCheckDictionary::new();
+
+        assert!(!sut.add(""));
+        assert_eq!(sut.len(), 0);
+        assert!(!sut.contains(""));
+    }
+
+    #[rstest]
+    #[case(TRIE_INITIAL_STRING_LEN - 1, true)] // 255 codepoints: accepted
+    #[case(TRIE_INITIAL_STRING_LEN, false)] // 256 codepoints: rejected, like C
+    fn add_enforces_codepoint_limit(#[case] codepoints: usize, #[case] accepted: bool) {
+        let term: String = "a".repeat(codepoints);
+        let mut sut = SpellCheckDictionary::new();
+
+        assert_eq!(sut.add(&term), accepted);
+        assert_eq!(sut.len(), usize::from(accepted));
+    }
+
+    #[test]
+    fn add_enforces_byte_limit_for_multibyte() {
+        // 'あ' is 3 UTF-8 bytes / 1 codepoint. 200 of them = 600 bytes (over the
+        // 512-byte gate) but only 200 codepoints (under 256): C rejects it via
+        // the byte gate, before the codepoint gate is reached.
+        let term: String = "あ".repeat(200);
+        assert!(term.len() > TRIE_INITIAL_STRING_LEN * size_of::<u16>());
+        assert!(term.chars().count() < TRIE_INITIAL_STRING_LEN);
+
+        let mut sut = SpellCheckDictionary::new();
+
+        assert!(!sut.add(&term));
+        assert_eq!(sut.len(), 0);
     }
 
     fn fuzzy(dict: &SpellCheckDictionary, query: &str, max_dist: u32) -> BTreeSet<String> {

@@ -349,7 +349,7 @@ const HEADERS: &[HeaderAllowlist] = &[
         path: "src/trie/trie_node.h",
         fns: &[],
         types: &[],
-        vars: &["TRIE_MAX_PREFIX"],
+        vars: &["TRIE_INITIAL_STRING_LEN", "TRIE_MAX_PREFIX"],
     },
     HeaderAllowlist {
         path: "src/ttl_table/ttl_table.h",
