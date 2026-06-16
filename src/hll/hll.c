@@ -106,14 +106,8 @@ size_t hll_count(const struct HLL *hll) {
     if (zeros)
       estimate = hll->size * log((double)hll->size / zeros);
 
-  } else if (estimate > (1.0 / 30.0) * 4294967296.0) {
-    double x = 1.0 - estimate / 4294967296.0;
-    if (x > 0.0) {
-      estimate = -4294967296.0 * log(x);
-    }
-    // x <= 0 means estimate >= 2^32: the large-range correction is out of domain
-    // (log of a non-positive value is undefined). Keep the raw estimate; it already
-    // saturates the 32-bit hash space and no correction can improve it.
+  } else if (estimate > (1.0 / 30.0) * 4294967296.0 && estimate < 4294967296.0) {
+    estimate = -4294967296.0 * log(1.0 - estimate / 4294967296.0);
   }
 
   ((struct HLL*)hll)->cachedCard = estimate; // cache the current estimate
@@ -149,22 +143,21 @@ int hll_load(struct HLL *hll, const void *registers, uint32_t size) {
     return -1; // size must be a power of 2 - a single bit set
   }
 
-  // Since `size` is a power of 2, the number of trailing zeros is the log2 of `size`
-  if (hll_init(hll, __builtin_ctz(size)) == -1) return -1;
-
-  // Reject impossible rank values before they can reach hll_count's shift expression.
-  // Valid ranks are in [0, rank_bits+1]; anything higher cannot be produced by _hll_rank
-  // and would cause undefined behaviour (shift count >= 32) in hll_count.
-  uint8_t max_rank = hll->rank_bits + 1;
+  // Reject impossible rank values before allocating, consistent with the rest of this
+  // function's failure paths (all of which return before any allocation). Valid ranks are
+  // in [0, rank_bits+1]; anything higher cannot be produced by _hll_rank and would cause
+  // undefined behaviour (shift count >= 32) in hll_count.
+  uint8_t bits = __builtin_ctz(size); // log2(size), since size is a power of 2
+  if (bits < 4 || bits > 20) return -1; // same constraint as hll_init; check before dereferencing registers
+  uint8_t max_rank = (32 - bits) + 1;
   const uint8_t *regs = (const uint8_t *)registers;
   for (uint32_t i = 0; i < size; i++) {
     if (regs[i] > max_rank) {
-      hll_destroy(hll);
-      *hll = (struct HLL){0}; // reset bits/size/rank_bits so callers that ignore the
-                               // return value don't call hll_count on a NULL registers
       return -1;
     }
   }
+
+  if (hll_init(hll, bits) == -1) return -1;
 
   memcpy(hll->registers, registers, size * sizeof(*hll->registers));
   hll->cachedCard = INVALID_CACHE_CARDINALITY; // Invalidate the cache populated by hll_init
