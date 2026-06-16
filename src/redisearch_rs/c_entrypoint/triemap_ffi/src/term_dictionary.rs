@@ -7,7 +7,7 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 
-//! C entry points for [`term_dict::TermDictionary`], the Rust
+//! C entry points for [`term_dictionary::TermDictionary`], the Rust
 //! replacement for the C terms trie behind `sp->terms` (the
 //! `NewTrie`/`Trie_InsertStringBuffer`/`Trie_GetNode`/`Trie_Iterate`
 //! family in `trie.c`).
@@ -23,7 +23,7 @@
 use std::ffi::{c_char, c_int};
 use std::slice;
 
-use term_dict::{
+use term_dictionary::{
     DecrResult as DecrResultImpl, InsertOutcome as InsertOutcomeImpl,
     TermDictionary as TermDictionaryImpl, TermEntry,
 };

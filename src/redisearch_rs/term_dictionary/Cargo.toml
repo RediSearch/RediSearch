@@ -1,5 +1,5 @@
 [package]
-name = "term_dict"
+name = "term_dictionary"
 version.workspace = true
 edition.workspace = true
 license-file.workspace = true

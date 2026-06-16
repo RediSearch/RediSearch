@@ -2864,7 +2864,7 @@ dependencies = [
 ]
 
 [[package]]
-name = "term_dict"
+name = "term_dictionary"
 version = "0.0.1"
 dependencies = [
  "trie_rs",
@@ -3139,7 +3139,7 @@ dependencies = [
  "redis-module",
  "redis_mock",
  "rqe_wildcard",
- "term_dict",
+ "term_dictionary",
  "term_suffix_index",
  "thin_vec",
  "trie_rs",

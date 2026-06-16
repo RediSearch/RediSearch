@@ -38,7 +38,7 @@ members = [
     "slots_tracker",
     "sorting_vector",
     "spellcheck_dict",
-    "term_dict",
+    "term_dictionary",
     "term_suffix_index",
     "tools/license_header_linter",
     "tools/ffi_geiger",
@@ -147,7 +147,7 @@ schema_rule = { path = "./c_wrappers/schema_rule" }
 search_result = { path = "./search_result" }
 slots_tracker = { path = "./slots_tracker" }
 sorting_vector = { path = "./sorting_vector" }
-term_dict = { path = "./term_dict" }
+term_dictionary = { path = "./term_dictionary" }
 term_suffix_index = { path = "./term_suffix_index" }
 thin_vec = { path = "./thin_vec" }
 top_k = { path = "./top_k" }

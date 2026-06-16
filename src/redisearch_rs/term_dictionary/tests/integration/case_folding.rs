@@ -19,7 +19,7 @@
 //! byte-exact; tests in sibling files exercise its raw byte semantics
 //! and must continue to pass.
 
-use term_dict::{DecrResult, TermDictionary, TermEntry};
+use term_dictionary::{DecrResult, TermDictionary, TermEntry};
 
 fn seed(dict: &mut TermDictionary, terms: &[&str]) {
     for term in terms {
