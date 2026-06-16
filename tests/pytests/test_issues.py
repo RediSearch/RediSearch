@@ -25,6 +25,17 @@ def test_10140_phonetic_after_non_text_field(env):
   env.expect('FT.SEARCH', 'idx', '@chunkText:kash', 'NOCONTENT').equal([1, 'phonetic:1'])
 
 @skip(cluster=True)
+def test_10140_phonetic_after_noindex_text_field(env):
+  env.expect('FT.CREATE', 'idx', 'ON', 'HASH', 'PREFIX', '1', 'phonetic:',
+             'SCHEMA', 'ignored', 'TEXT', 'NOINDEX',
+             'chunkText', 'TEXT', 'PHONETIC', 'dm:en').ok()
+  env.cmd('HSET', 'phonetic:1', 'ignored', 'skip me', 'chunkText', 'cash')
+
+  env.expect('FT.SEARCH', 'idx', '@chunkText:kash', 'NOCONTENT').equal([1, 'phonetic:1'])
+  env.expect('FT.SEARCH', 'idx', '@chunkText:(kash)=>{$phonetic:true}', 'NOCONTENT') \
+     .equal([1, 'phonetic:1'])
+
+@skip(cluster=True)
 def test_1414(env):
   env.expect('FT.CREATE idx SCHEMA txt1 TEXT').equal('OK')
   env.cmd('hset', 'doc', 'foo', 'hello', 'bar', 'world')

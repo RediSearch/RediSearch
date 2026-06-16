@@ -236,7 +236,7 @@ const FieldSpec *IndexSpec_GetField(const IndexSpec *spec, const HiddenString *n
 // Assuming the spec is properly locked before calling this function.
 t_fieldMask IndexSpec_GetFieldBit(IndexSpec *spec, const char *name, size_t len) {
   const FieldSpec *fs = IndexSpec_GetFieldWithLength(spec, name, len);
-  if (!fs || !FIELD_IS(fs, INDEXFLD_T_FULLTEXT) || !FieldSpec_IsIndexable(fs)) return 0;
+  if (!fs || !FieldSpec_IsIndexableText(fs)) return 0;
 
   return FIELD_BIT(fs);
 }
@@ -254,7 +254,7 @@ int IndexSpec_CheckPhoneticEnabled(const IndexSpec *sp, t_fieldMask fm) {
 
   for (size_t ii = 0; ii < sp->numFields; ++ii) {
     const FieldSpec *fs = sp->fields + ii;
-    if (FIELD_IS(fs, INDEXFLD_T_FULLTEXT) && (fm & FIELD_BIT(fs)) && FieldSpec_IsPhonetics(fs)) {
+    if (FieldSpec_IsIndexableText(fs) && (fm & FIELD_BIT(fs)) && FieldSpec_IsPhonetics(fs)) {
       return 1;
     }
   }
@@ -265,7 +265,7 @@ int IndexSpec_CheckPhoneticEnabled(const IndexSpec *sp, t_fieldMask fm) {
 int IndexSpec_CheckAllowSlopAndInorder(const IndexSpec *spec, t_fieldMask fm, QueryError *status) {
   for (size_t ii = 0; ii < spec->numFields; ++ii) {
     const FieldSpec *fs = spec->fields + ii;
-    if (FIELD_IS(fs, INDEXFLD_T_FULLTEXT) && (fm & FIELD_BIT(fs)) && FieldSpec_IsUndefinedOrder(fs)) {
+    if (FieldSpec_IsIndexableText(fs) && (fm & FIELD_BIT(fs)) && FieldSpec_IsUndefinedOrder(fs)) {
       QueryError_SetWithUserDataFmt(
           status, QUERY_ERROR_CODE_BAD_ORDER_OPTION,
           "slop/inorder are not supported for field with undefined ordering", " `%s`",
@@ -289,8 +289,7 @@ const FieldSpec *IndexSpec_GetFieldBySortingIndex(const IndexSpec *sp, uint16_t 
 // Assuming the spec is properly locked before calling this function.
 const char *IndexSpec_GetFieldNameByBit(const IndexSpec *sp, t_fieldMask id) {
   for (int i = 0; i < sp->numFields; i++) {
-    if (FIELD_BIT(&sp->fields[i]) == id && FIELD_IS(&sp->fields[i], INDEXFLD_T_FULLTEXT) &&
-      FieldSpec_IsIndexable(&sp->fields[i])) {
+    if (FieldSpec_IsIndexableText(&sp->fields[i]) && FIELD_BIT(&sp->fields[i]) == id) {
       return HiddenString_GetUnsafe(sp->fields[i].fieldName, NULL);
     }
   }
@@ -300,8 +299,7 @@ const char *IndexSpec_GetFieldNameByBit(const IndexSpec *sp, t_fieldMask id) {
 // Get the field spec by the field mask.
 const FieldSpec *IndexSpec_GetFieldByBit(const IndexSpec *sp, t_fieldMask id) {
   for (int i = 0; i < sp->numFields; i++) {
-    if (FIELD_BIT(&sp->fields[i]) == id && FIELD_IS(&sp->fields[i], INDEXFLD_T_FULLTEXT) &&
-        FieldSpec_IsIndexable(&sp->fields[i])) {
+    if (FieldSpec_IsIndexableText(&sp->fields[i]) && FIELD_BIT(&sp->fields[i]) == id) {
       return &sp->fields[i];
     }
   }
@@ -312,7 +310,7 @@ const FieldSpec *IndexSpec_GetFieldByBit(const IndexSpec *sp, t_fieldMask id) {
 arrayof(FieldSpec *) IndexSpec_GetFieldsByMask(const IndexSpec *sp, t_fieldMask mask) {
   arrayof(FieldSpec *) res = array_new(FieldSpec *, 2);
   for (int i = 0; i < sp->numFields; i++) {
-    if (mask & FIELD_BIT(sp->fields + i) && FIELD_IS(sp->fields + i, INDEXFLD_T_FULLTEXT)) {
+    if (FieldSpec_IsIndexableText(sp->fields + i) && (mask & FIELD_BIT(sp->fields + i))) {
       array_append(res, sp->fields + i);
     }
   }
@@ -1516,7 +1514,7 @@ static bool validateDiskJsonSinglePath(const IndexSpec *sp, const FieldSpec *fs,
 }
 
 static void IndexSpec_EnsureSuffixForField(IndexSpec *sp, const FieldSpec *fs) {
-  if (FIELD_IS(fs, INDEXFLD_T_FULLTEXT) && FieldSpec_HasSuffixTrie(fs)) {
+  if (FieldSpec_IsIndexableText(fs) && FieldSpec_HasSuffixTrie(fs)) {
     sp->suffixMask |= FIELD_BIT(fs);
     sp->flags |= Index_HasSuffixTrie;
     if (!sp->suffix) {
