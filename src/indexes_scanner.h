@@ -93,20 +93,23 @@ void IndexesScanner_ResetProgression(struct IndexesScanner *scanner);
 
 double IndexesScanner_IndexedPercent(RedisModuleCtx *ctx, IndexesScanner *scanner, const IndexSpec *sp);
 
-// Record a background-indexing OOM failure on the scanner's spec so it is visible
-// to clients: sets the spec's scan_failed_OOM flag (consulted at query time to warn
-// that results may be incomplete, and aggregated in FT.INFO), records `error` as the
-// spec's last indexing error, and raises the background-index failure flag (the
-// FT.INFO "background indexing status" field). `error` must carry no user data. The
-// offending key is taken from scanner->OOMkey, which may be NULL when no single key
-// is to blame (the async engine-OOM case). No-op for the global scanner or a spec
-// that has since been dropped. Does not touch scanner->cancelled — callers own their
-// control flow. Callers MUST hold the GIL: the spec's IndexError is read by FT.INFO on
-// the main thread, and — crucially — IndexError_AddError mutates the refcount of the
-// shared, non-atomic NA_rstr sentinel, which a per-spec lock cannot serialize (see the
-// definition for the full rationale). Shared by both reindex strategies.
-void IndexesScanner_RecordBackgroundOOMFailure(RedisModuleCtx *ctx, IndexesScanner *scanner,
-                                               const char *error);
+// Record a background-indexing failure on the scanner's spec so it is visible to
+// clients: records `error` as the spec's last indexing error (surfaced in FT.INFO
+// "Index Errors"), so a partially-built index is not silently treated as complete.
+// `error` must carry no user data. The offending key is taken from scanner->OOMkey, which
+// may be NULL when no single key is to blame (the async engine-OOM case, or an I/O
+// error). When `oom` is true it additionally sets the spec's scan_failed_OOM flag
+// (consulted at query time to warn results may be incomplete, aggregated in FT.INFO) and
+// raises the OOM background-index status flag; pass false for non-OOM failures (e.g. a
+// disk I/O error) so they are not mislabelled as out-of-memory. No-op for the global
+// scanner or a spec that has since been dropped. Does not touch scanner->cancelled —
+// callers own their control flow. Callers MUST hold the GIL: the spec's IndexError is
+// read by FT.INFO on the main thread, and — crucially — IndexError_AddError mutates the
+// refcount of the shared, non-atomic NA_rstr sentinel, which a per-spec lock cannot
+// serialize (see the definition for the full rationale). Shared by both reindex
+// strategies.
+void IndexesScanner_RecordBackgroundFailure(RedisModuleCtx *ctx, IndexesScanner *scanner,
+                                            const char *error, bool oom);
 
 // Cancel the scan and record an OOM failure on the spec (FT.INFO error + log).
 // Used by the synchronous strategy's module-side memory check.

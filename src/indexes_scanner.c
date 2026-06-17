@@ -37,25 +37,31 @@ static_assert(
     "Mismatch between DebugIndexScannerCode enum and DEBUG_INDEX_SCANNER_STATUS_STRS array"
 );
 
-// Record a background-indexing OOM failure on the scanner's spec so clients see it.
-// See the header for the full contract. Caller must hold the GIL.
+// Record a background-indexing failure on the scanner's spec so clients see it. See the
+// header for the full contract. Promotes the scanner's spec and, while it is alive,
+// records `error` as the spec's last indexing error (visible in FT.INFO "Index Errors"),
+// so a partially-built index is not silently treated as complete. When `oom` is set it
+// additionally marks the failure as out-of-memory: it sets the spec's scan_failed_OOM
+// flag (consulted at query time to warn results may be incomplete, aggregated in
+// FT.INFO) and raises the OOM background-index status flag — pass false for non-OOM
+// failures (e.g. a disk I/O error) so they are not mislabelled as out-of-memory.
 //
-// Why the GIL and not the IndexSpec write lock: the write lock *would* be enough to
-// serialize the sp->stats.indexError struct itself — FT.INFO reads it under the spec
-// read lock, and the other stats.indexError writers (the early returns in
+// Caller MUST hold the GIL. Why the GIL and not the IndexSpec write lock: the write lock
+// *would* serialize the sp->stats.indexError struct itself — FT.INFO reads it under the
+// spec read lock, and the other stats.indexError writers (the early returns in
 // IndexSpec_UpdateDoc) could be made to take the write lock too. But that is not the
 // whole story. IndexError_AddError calls RedisModule_HoldString / RedisModule_FreeString
-// on error->key, and when scanner->OOMkey is NULL it falls back to the process-global
-// NA_rstr sentinel (the default key of *every* spec's IndexError). Hold/Free mutate
-// that object's refcount, which is a plain non-atomic int (decrRefCount does
+// on error->key, and when the key is NULL it falls back to the process-global NA_rstr
+// sentinel (the default key of *every* spec's IndexError). Hold/Free mutate that
+// object's refcount, which is a plain non-atomic int (decrRefCount does
 // `--(o->refcount)` and frees at 0). Because NA_rstr is shared across all specs, a
 // per-spec write lock cannot serialize our refcount op against another spec's FT.INFO
 // touching the same NA_rstr — only a global lock can. So the GIL is load-bearing here
 // independently of the spec lock: it is the only thing that serializes the shared
 // RedisModuleString refcount churn. (To drop the GIL we would have to stop touching
 // NA_rstr off-thread, e.g. record flag-only with no AddError, or hold a per-spec key.)
-void IndexesScanner_RecordBackgroundOOMFailure(RedisModuleCtx *ctx, IndexesScanner *scanner,
-                                               const char *error) {
+void IndexesScanner_RecordBackgroundFailure(RedisModuleCtx *ctx, IndexesScanner *scanner,
+                                            const char *error, bool oom) {
   // The global scanner has no single spec to annotate.
   if (scanner->global) {
     return;
@@ -64,18 +70,20 @@ void IndexesScanner_RecordBackgroundOOMFailure(RedisModuleCtx *ctx, IndexesScann
   StrongRef curr_run_ref = WeakRef_Promote(scanner->spec_ref);
   IndexSpec *sp = StrongRef_Get(curr_run_ref);
   if (sp) {
-    sp->scan_failed_OOM = true;
     // Error message does not contain user data. scanner->OOMkey may be NULL when no
-    // single key is to blame (engine-OOM on the async path); IndexError_AddError
-    // falls back to the NA sentinel in that case.
+    // single key is to blame; IndexError_AddError falls back to the NA sentinel then.
     IndexError_AddError(&sp->stats.indexError, error, error, scanner->OOMkey);
-    IndexError_RaiseBackgroundIndexFailureFlag(&sp->stats.indexError);
+    if (oom) {
+      sp->scan_failed_OOM = true;
+      IndexError_RaiseBackgroundIndexFailureFlag(&sp->stats.indexError);
+    }
     StrongRef_Release(curr_run_ref);
   } else {
     // spec was deleted
     RedisModule_Log(ctx, "notice",
-                    "Scanning index %s in background: cancelled due to OOM and index was dropped",
-                    scanner->spec_name_for_logs);
+                    "Scanning index %s in background: %s and index was dropped",
+                    scanner->spec_name_for_logs,
+                    oom ? "cancelled due to OOM" : "failed");
   }
 }
 
@@ -89,7 +97,7 @@ void scanStopAfterOOM(RedisModuleCtx *ctx, IndexesScanner *scanner) {
   if (!scanner->global) {
     scanner->cancelled = true;
   }
-  IndexesScanner_RecordBackgroundOOMFailure(ctx, scanner, error);
+  IndexesScanner_RecordBackgroundFailure(ctx, scanner, error, /*oom=*/true);
   rm_free(error);
 }
 

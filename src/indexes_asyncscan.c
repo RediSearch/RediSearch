@@ -396,10 +396,11 @@ void Indexes_AsyncScanAndReindexTask(IndexesScanner *scanner) {
       // Take the GIL around the record: IndexError_AddError mutates the shared NA_rstr
       // sentinel's refcount via RedisModule_HoldString/FreeString, which require the GIL.
       RedisModule_ThreadSafeContextLock(ctx);
-      IndexesScanner_RecordBackgroundOOMFailure(
+      IndexesScanner_RecordBackgroundFailure(
           ctx, scanner,
           "Background indexing cancelled: the server reported out of memory; the index may be "
-          "incomplete");
+          "incomplete",
+          /*oom=*/true);
       RedisModule_ThreadSafeContextUnlock(ctx);
       goto done;
 
@@ -430,6 +431,17 @@ void Indexes_AsyncScanAndReindexTask(IndexesScanner *scanner) {
         "AsyncScan: I/O error for index %s; index may be incomplete. The scan is not retried automatically; "
         "resolve the underlying disk/I/O condition, then drop and recreate the index to rebuild it",
         scanner->spec_name_for_logs);
+      // Surface the failure so clients don't treat the partial index as fully built:
+      // record it as the spec's last indexing error (visible in FT.INFO). Pass oom=false
+      // so it is not mislabelled as out-of-memory. Take the GIL around the record, as the
+      // OOM branch does (shared NA_rstr refcount churn).
+      RedisModule_ThreadSafeContextLock(ctx);
+      IndexesScanner_RecordBackgroundFailure(
+          ctx, scanner,
+          "Background indexing failed: the server reported an I/O error; the index may be "
+          "incomplete",
+          /*oom=*/false);
+      RedisModule_ThreadSafeContextUnlock(ctx);
       goto done;
     }
   }
@@ -442,7 +454,28 @@ done:
 
   Indexes_AsyncScanFreeFilter(&filter_ctx);
 
+  // Take the GIL around IndexesScanner_Free: it clears sp->scanner /
+  // sp->scan_in_progress and frees scanner->OOMkey, all of which FT.INFO reads on the
+  // main thread (fillReplyWithIndexInfo). Unlike the synchronous scanner — which holds
+  // the GIL through teardown — this task runs with the GIL released between batches, so
+  // an initial scan finishing concurrently with INFO would otherwise race or leave INFO
+  // dereferencing a freed scanner. Mirror the sync path: lock, free, unlock.
+  //
+  // Taking the IndexSpec lock instead is not enough, for two reasons:
+  //   1. IndexesScanner_Free also reads and clears `global_spec_scanner`, which is
+  //      process-global state owned by no single spec; fillReplyWithIndexInfo reads that
+  //      same global. A per-spec lock cannot serialize an access to it.
+  //   2. fillReplyWithIndexInfo loads `sp->scanner` into a local and then dereferences it
+  //      (IndexesScanner_IndexedPercent reads scanner->scannedKeys) without taking any
+  //      per-spec lock — it relies on the GIL. So even if this worker held the spec write
+  //      lock, the reader takes no matching read lock; the lock would not actually
+  //      serialize the two, and the free could leave INFO with a dangling pointer.
+  // The GIL is therefore the real synchronization contract here, the same one the
+  // synchronous scanner relies on.
+  RedisModule_ThreadSafeContextLock(ctx);
   IndexesScanner_Free(scanner);
+  RedisModule_ThreadSafeContextUnlock(ctx);
+
   pthread_cond_destroy(&driver.cond);
   pthread_mutex_destroy(&driver.mutex);
   // Safe: by here the cursor is terminal or never started (not in the in-flight
