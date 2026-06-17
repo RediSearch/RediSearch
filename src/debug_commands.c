@@ -961,12 +961,13 @@ DEBUG_COMMAND(GCForceInvoke) {
     return RedisModule_ReplyWithErrorFormat(ctx, "%s: %s", QueryError_Strerror(QUERY_ERROR_CODE_NO_INDEX), idx);
   }
 
-  // Both fork and disk indexes own a GCContext (`sp->gc`). Routing the forced
-  // invoke through it runs the periodic callback with force=true, which for the
-  // disk path performs the compaction *and* accumulates the per-cycle GC stats
+  // Indexes normally own a GCContext (`sp->gc`). Routing the forced invoke
+  // through it runs the periodic callback with force=true, which for the disk
+  // path performs the compaction *and* accumulates the per-cycle GC stats
   // (bytes_collected, cycles, timing). Calling SearchDisk_RunGC directly here
   // would bypass that accounting and leave FT.INFO/INFO reporting stale stats
-  // after a forced GC.
+  // after a forced GC. The fallback below covers the only case where a disk
+  // index has no GCContext (GC globally disabled or a temporary index).
   if (sp->gc) {
     RedisModuleBlockedClient *bc = RedisModule_BlockClient(
         ctx, GCForceInvokeReply, GCForceInvokeReplyTimeout, NULL, timeout);

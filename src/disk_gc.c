@@ -18,6 +18,22 @@
 #include <stdatomic.h>
 #include <time.h>
 
+// Fold one completed cycle's results into the cumulative per-index counters.
+// Every path that runs a disk GC cycle must funnel its (stats, elapsed) pair
+// through here so the accounting stays identical regardless of how the cycle
+// was triggered — background tick, forced invoke, or an enterprise/RoR
+// scheduler that drives compaction on its own. Keeping the per-cycle numbers
+// (bytes, docs, time) in one place is also what lets FT.INFO/INFO report a
+// single coherent view.
+static void accumulateCycleStats(DiskGC *gc, const DiskGCRunStats *stats, long elapsed_ms) {
+  if (elapsed_ms < 0) elapsed_ms = 0;
+  atomic_fetch_add(&gc->totalCollectedBytes, stats->bytes_collected);
+  atomic_fetch_add(&gc->totalCycles, (size_t)1);
+  atomic_fetch_add(&gc->totalTimeMs, (size_t)elapsed_ms);
+  atomic_store(&gc->lastRunTimeMs, (size_t)elapsed_ms);
+  IndexsGlobalStats_DecreaseLogicallyDeleted(stats->num_cleaned_docs);
+}
+
 static bool periodicCb(void *privdata, bool force) {
   DiskGC *gc = privdata;
   StrongRef spec_ref = IndexSpecRef_Promote(gc->index);
@@ -53,14 +69,8 @@ static bool periodicCb(void *privdata, bool force) {
   struct timespec elapsed;
   rs_timersub(&end, &start, &elapsed);
   long elapsed_ms = (long)rs_timer_ms(&elapsed);
-  if (elapsed_ms < 0) elapsed_ms = 0;
 
-  atomic_fetch_add(&gc->totalCollectedBytes, stats.bytes_collected);
-  atomic_fetch_add(&gc->totalCycles, (size_t)1);
-  atomic_fetch_add(&gc->totalTimeMs, (size_t)elapsed_ms);
-  atomic_store(&gc->lastRunTimeMs, (size_t)elapsed_ms);
-
-  IndexsGlobalStats_DecreaseLogicallyDeleted(stats.num_cleaned_docs);
+  accumulateCycleStats(gc, &stats, elapsed_ms);
 
   gc->intervalSec = RSGlobalConfig.gcConfigParams.gcSettings.forkGcRunIntervalSec;
 
@@ -80,7 +90,7 @@ static void onTerminateCb(void *privdata) {
 static void statsCb(RedisModule_Reply *reply, void *gcCtx) {
 #define REPLY_KVNUM(k, v) RedisModule_ReplyKV_Double(reply, (k), (v))
   DiskGC *gc = gcCtx;
-  if (!gc) return;
+  RS_LOG_ASSERT(gc, "DiskGC stats callback invoked with NULL context");
   ssize_t bytes = atomic_load(&gc->totalCollectedBytes);
   size_t total_ms = atomic_load(&gc->totalTimeMs);
   size_t cycles = atomic_load(&gc->totalCycles);
@@ -95,7 +105,7 @@ static void statsCb(RedisModule_Reply *reply, void *gcCtx) {
 
 static void statsForInfoCb(RedisModuleInfoCtx *ctx, void *gcCtx) {
   DiskGC *gc = gcCtx;
-  if (!gc) return;
+  RS_LOG_ASSERT(gc, "DiskGC stats callback invoked with NULL context");
   ssize_t bytes = atomic_load(&gc->totalCollectedBytes);
   size_t total_ms = atomic_load(&gc->totalTimeMs);
   size_t cycles = atomic_load(&gc->totalCycles);
