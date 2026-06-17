@@ -2139,6 +2139,39 @@ DEBUG_COMMAND(setPauseBeforeOOMretry) {
 }
 
 /**
+ * FT.DEBUG BG_SCAN_CONTROLLER SET_SIMULATE_ASYNC_OOM <true/false>
+ *
+ * Test hook: force the AsyncScan reindex driver to take its OOM terminal branch after
+ * the next batch, so the OOM-surfacing path (scan_failed_OOM + FT.INFO "background
+ * indexing status") can be exercised deterministically. Engine OOM is otherwise not
+ * reproducible from the module side. Only effective in ENABLE_ASSERT builds.
+ */
+DEBUG_COMMAND(setSimulateAsyncOOM) {
+  if (!debugCommandsEnabled(ctx)) {
+    return RedisModule_ReplyWithError(ctx, NODEBUG_ERR);
+  }
+  if (argc != 3) {
+    return RedisModule_WrongArity(ctx);
+  }
+  // The AsyncScan reindex driver only runs in disk mode, so the OOM hook is a no-op
+  // elsewhere — reject rather than silently accept a flag that will never fire.
+  if (!SearchDisk_IsEnabled()) {
+    return RedisModule_ReplyWithError(ctx, "SET_SIMULATE_ASYNC_OOM is only supported in disk mode");
+  }
+  const char* op = RedisModule_StringPtrLen(argv[2], NULL);
+
+  if (!strcasecmp(op, "true")) {
+    globalDebugCtx.bgIndexing.simulateAsyncOOM = true;
+  } else if (!strcasecmp(op, "false")) {
+    globalDebugCtx.bgIndexing.simulateAsyncOOM = false;
+  } else {
+    return RedisModule_ReplyWithError(ctx, "Invalid argument for 'SET_SIMULATE_ASYNC_OOM'");
+  }
+
+  return RedisModule_ReplyWithSimpleString(ctx, "OK");
+}
+
+/**
  * FT.DEBUG BG_SCAN_CONTROLLER DEBUG_SCANNER_UPDATE_CONFIG <index_name>
  */
 DEBUG_COMMAND(debugScannerUpdateConfig) {
@@ -2340,6 +2373,9 @@ DEBUG_COMMAND(bgScanController) {
   }
   if (!strcmp("SET_PAUSE_BEFORE_OOM_RETRY", op)) {
     return setPauseBeforeOOMretry(ctx, argv+1, argc-1);
+  }
+  if (!strcmp("SET_SIMULATE_ASYNC_OOM", op)) {
+    return setSimulateAsyncOOM(ctx, argv+1, argc-1);
   }
   if (!strcmp("DEBUG_SCANNER_UPDATE_CONFIG", op)) {
     return debugScannerUpdateConfig(ctx, argv+1, argc-1);

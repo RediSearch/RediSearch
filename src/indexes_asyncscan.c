@@ -21,6 +21,10 @@
 #include "debug_commands.h"
 #include "rmutil/rm_assert.h"
 
+// The background-indexing debug context, owned by debug_commands.c. Read here only
+// for the SET_SIMULATE_ASYNC_OOM test hook (ENABLE_ASSERT builds).
+extern DebugCTX globalDebugCtx;
+
 // Emit a throttled progress line roughly every this many scanned keys, so a long
 // backfill is observable in the logs without a line per batch.
 #define ASYNC_SCAN_PROGRESS_LOG_KEYS 100000
@@ -203,6 +207,20 @@ void Indexes_AsyncScanAndReindexTask(IndexesScanner *scanner) {
         goto done;
       }
 
+      // Test hook: force the OOM terminal branch after a batch has been processed, so a
+      // flow test can exercise the OOM-surfacing path deterministically (the engine's
+      // terminal OUT_OF_MEMORY is not reproducible from the module side). No-op unless
+      // armed via _FT.DEBUG BG_SCAN_CONTROLLER SET_SIMULATE_ASYNC_OOM true.
+#ifdef ENABLE_ASSERT
+      if (globalDebugCtx.bgIndexing.simulateAsyncOOM) {
+        RedisModule_Log(ctx, "warning",
+                        "AsyncScan: SIMULATE_ASYNC_OOM hook forcing OOM for index %s",
+                        scanner->spec_name_for_logs);
+        rc = REDISMODULE_ASYNCSCAN_OUT_OF_MEMORY;
+        break;
+      }
+#endif
+
       RedisModule_ThreadSafeContextLock(ctx);
       rc = RedisModule_AsyncScanNextBatch(ctx, cursor);
       RedisModule_ThreadSafeContextUnlock(ctx);
@@ -285,6 +303,12 @@ void Indexes_AsyncScanAndReindexTask(IndexesScanner *scanner) {
       RedisModule_Log(ctx, "warning", "AsyncScan: invalid argument for index %s",
                       scanner->spec_name_for_logs);
       RS_ASSERT(false);
+      goto done;
+    case REDISMODULE_ASYNCSCAN_IO_ERROR:
+      //Unrecoverable error
+      // Bad argument — programming error. Cursor state is unchanged; no done_cb.
+      RedisModule_Log(ctx, "warning", "AsyncScan: I/O error for index %s",
+        scanner->spec_name_for_logs);
       goto done;
     }
   }

@@ -1192,6 +1192,7 @@ typedef enum RedisModuleAsyncScanResult {
     REDISMODULE_ASYNCSCAN_OUT_OF_MEMORY = 6,
     REDISMODULE_ASYNCSCAN_ABORTED       = 7,
     REDISMODULE_ASYNCSCAN_DATASET_RESET = 8,
+    REDISMODULE_ASYNCSCAN_IO_ERROR      = 9,
 } RedisModuleAsyncScanResult;
 
 /* Reason passed to done_cb. */
