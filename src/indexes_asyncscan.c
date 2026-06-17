@@ -83,6 +83,17 @@ static void Indexes_AsyncScanKeyCB(RedisModuleCtx *ctx, RedisModuleScanCursor *c
     // Concurrency against SP is protected because key_cb runs in main thread, Sync counter parts
     // also relies on GIL locking to make sure no writer changes sp while checking ShouldIndex.
     // Same will apply to DocIdMeta writing.
+    //
+    // ShouldIndex stays the source of truth even though the engine pre-filter
+    // (Indexes_AsyncScanBuildFilter) already enforces the index type and prefixes:
+    // its type and prefix checks are byte-for-byte equivalent to the engine filter,
+    // so they are redundant here. We accept that redundancy deliberately because
+    // ShouldIndex additionally evaluates the index FILTER expression, which the
+    // engine filter cannot express, and because it is the single predicate shared
+    // with the synchronous scan and keyspace notifications (neither of which has an
+    // engine pre-filter). The duplicated type/prefix work is one cheap comparison per
+    // delivered key — negligible next to IndexSpec_UpdateDoc — and keeping a single
+    // authority is more robust than splitting it across the engine and this callback.
     if (SchemaRule_ShouldIndex(sp, name, type)) {
       uint64_t docId = 0;
       // The engine hands us `key` already open and pinned for this call, so use
@@ -120,6 +131,122 @@ static void Indexes_AsyncScanDoneCB(RedisModuleCtx *ctx, RedisModuleScanCursor *
   pthread_mutex_unlock(&driver->mutex);
 }
 
+// Engine-side AsyncScan pre-filter derived from an index's immutable document type
+// and key prefixes. The filter points into this context: `type_name` (a static
+// literal) backs `filter.types`, and `prefix_copies` (our own NUL-terminated copies
+// of the index prefixes) backs `filter.prefixes`. The context must outlive the
+// AsyncScanStart call and is torn down with Indexes_AsyncScanFreeFilter.
+//
+// Tradeoff — we copy the prefixes even though the engine deep-copies the whole filter
+// again at Start (see RedisModuleAsyncScanFilter), so each prefix is copied twice. We
+// accept that: an index has very few, short prefixes, so the extra copy is trivial,
+// and owning the strings keeps this self-contained. The alternative — pointing the
+// filter straight at the spec's own prefix bytes — would avoid the copy but force us
+// to hold the spec's StrongRef across the entire Start retry loop (the bytes must stay
+// alive until Start copies them), coupling the filter's lifetime to the spec refcount
+// for no meaningful saving. Type names need no copy: they are static string literals.
+typedef struct {
+  RedisModuleAsyncScanFilter filter;
+  const char *type_name;   // static literal backing filter.types (single entry)
+  char **prefix_copies;    // owned NUL-terminated copies of the prefixes backing filter.prefixes
+} AsyncScanFilterCtx;
+
+// Build an engine-side pre-filter from the scanner's index so the engine never
+// delivers a key that cannot belong to it. Every delivered key is handled on the
+// main thread under the GIL with its value pinned in RAM, so pre-filtering in the
+// engine is a pure win. This is only a coarse pre-filter: key_cb's
+// SchemaRule_ShouldIndex stays the source of truth (it additionally evaluates the
+// index FILTER expression, which this filter cannot express).
+//
+// No spec read lock is needed even though this runs on the reindex worker thread
+// without the GIL: the index type and prefix list are immutable for the spec's
+// lifetime (written only at FT.CREATE / RDB-load, cleared only at free; FT.ALTER does
+// not touch them), and the spec's rwlock guards mutable index contents, not the schema
+// rule. Promoting the WeakRef to a StrongRef for the duration of the read keeps the
+// spec alive while we copy the prefixes; we release it before returning, so nothing is
+// held across Start (see the copy-vs-borrow tradeoff on AsyncScanFilterCtx).
+//
+// Fills `*ctx` and returns the filter to pass to AsyncScanStart, or NULL when the
+// index needs no pre-filter (scan everything) — including when the spec was already
+// dropped, in which case key_cb detects the drop and cancels. The caller must call
+// Indexes_AsyncScanFreeFilter(ctx) at teardown regardless of the return value.
+static RedisModuleAsyncScanFilter *Indexes_AsyncScanBuildFilter(IndexesScanner *scanner,
+                                                                AsyncScanFilterCtx *ctx) {
+  StrongRef ref = IndexSpecRef_Promote(scanner->spec_ref);
+  IndexSpec *sp = StrongRef_Get(ref);
+  if (!sp) {
+    return NULL;  // promote failed: nothing to release, no filter
+  }
+
+  // Type set: an index targets exactly one document type. "hash" is the core type
+  // name; "ReJSON-RL" is RedisJSON's module type name (the engine resolves it to its
+  // type id). An unexpected type is left unfiltered so ShouldIndex stays the sole
+  // arbiter.
+  switch (sp->rule->type) {
+  case DocumentType_Hash:
+    ctx->type_name = "hash";
+    break;
+  case DocumentType_Json:
+    ctx->type_name = "ReJSON-RL";
+    break;
+  default:
+    break;
+  }
+  if (ctx->type_name) {
+    ctx->filter.types = &ctx->type_name;
+    ctx->filter.num_types = 1;
+  }
+
+  // Prefix set: copy the index prefixes unless the index matches every key — its sole
+  // prefix is the empty string, the default when FT.CREATE omits PREFIX. For a
+  // match-all index the engine's no-filter fast path beats a per-key empty-prefix
+  // comparison, so we leave the prefix set empty. The engine's byte-prefix match has
+  // the same semantics as ShouldIndex's strncmp (neither is glob), so this never drops
+  // a key ShouldIndex would have indexed.
+  HiddenUnicodeString **prefixes = sp->rule->prefixes;
+  size_t nprefixes = array_len(prefixes);
+  bool match_all = false;
+  for (size_t i = 0; i < nprefixes; ++i) {
+    size_t len = 0;
+    HiddenUnicodeString_GetUnsafe(prefixes[i], &len);
+    if (len == 0) {  // empty-string prefix is a prefix of every key
+      match_all = true;
+      break;
+    }
+  }
+  if (nprefixes > 0 && !match_all) {
+    ctx->prefix_copies = rm_malloc(nprefixes * sizeof(*ctx->prefix_copies));
+    for (size_t i = 0; i < nprefixes; ++i) {
+      size_t len = 0;
+      const char *p = HiddenUnicodeString_GetUnsafe(prefixes[i], &len);
+      ctx->prefix_copies[i] = rm_strndup(p, len);
+    }
+    ctx->filter.prefixes = (const char **)ctx->prefix_copies;
+    ctx->filter.num_prefixes = nprefixes;
+  }
+
+  // Done reading the spec — release the ref. The copies above are self-owned, so
+  // nothing is held across Start.
+  IndexSpecRef_Release(ref);
+
+  // Pass NULL (not an empty struct) when there is nothing to filter, so the engine
+  // takes its no-filter fast path.
+  return (ctx->filter.num_types || ctx->filter.num_prefixes) ? &ctx->filter : NULL;
+}
+
+// Free the prefix copies the filter owns. The engine deep-copies the filter at Start,
+// so these are unreferenced by the time the scan tears down, regardless of how it
+// ended. Idempotent and safe on a zero-initialized context.
+static void Indexes_AsyncScanFreeFilter(AsyncScanFilterCtx *ctx) {
+  if (ctx->prefix_copies) {
+    for (size_t i = 0; i < ctx->filter.num_prefixes; ++i) {
+      rm_free(ctx->prefix_copies[i]);
+    }
+    rm_free(ctx->prefix_copies);
+    ctx->prefix_copies = NULL;
+  }
+}
+
 void Indexes_AsyncScanAndReindexTask(IndexesScanner *scanner) {
   RS_LOG_ASSERT(scanner, "invalid IndexesScanner");
 
@@ -136,6 +263,12 @@ void Indexes_AsyncScanAndReindexTask(IndexesScanner *scanner) {
   size_t batchesDone = 0;
   size_t lastProgressKeys = 0;
 
+  // Engine-side pre-filter for the sweep, built just before the first Start.
+  // Zero-initialized here (before any `goto done`) so every teardown path can free
+  // it; `filter_ptr` stays NULL until built, which means "scan everything".
+  AsyncScanFilterCtx filter_ctx = {0};
+  RedisModuleAsyncScanFilter *filter_ptr = NULL;
+
   RedisModule_Log(ctx, "notice", "AsyncScan: scanning index %s in background",
                   scanner->spec_name_for_logs);
 
@@ -151,6 +284,13 @@ void Indexes_AsyncScanAndReindexTask(IndexesScanner *scanner) {
 #ifdef ENABLE_ASSERT
   SyncPoint_Wait(SYNC_POINT_ASYNC_SCAN_BEFORE_FIRST_BATCH);
 #endif
+
+  // Build the engine-side pre-filter (type + prefixes) once, before the first Start.
+  // NULL means "scan everything"; key_cb's SchemaRule_ShouldIndex stays the source of
+  // truth. Built outside the retry loop so a BUSY retry reuses it rather than
+  // rebuilding (and leaking) it.
+  filter_ptr = Indexes_AsyncScanBuildFilter(scanner, &filter_ctx);
+
   // First call: bind all parameters to the cursor and queue the first batch. Start
   // is subject to the same max-inflight cap as NextBatch and can return BUSY, so we
   // retry the *same* call (no binding exists yet) until it is accepted. The GIL is
@@ -159,7 +299,7 @@ void Indexes_AsyncScanAndReindexTask(IndexesScanner *scanner) {
   RedisModuleAsyncScanResult rc;
   for (;;) {
     RedisModule_ThreadSafeContextLock(ctx);
-    rc = RedisModule_AsyncScanStart(ctx, cursor, NULL,
+    rc = RedisModule_AsyncScanStart(ctx, cursor, filter_ptr,
                                     REDISMODULE_ASYNCSCAN_MODE_META_AND_VALUE, NULL,
                                     Indexes_AsyncScanKeyCB, Indexes_AsyncScanDoneCB, &driver);
     RedisModule_ThreadSafeContextUnlock(ctx);
@@ -175,6 +315,13 @@ void Indexes_AsyncScanAndReindexTask(IndexesScanner *scanner) {
     }
     usleep(1000);
   }
+
+  // Start has bound the filter — the engine deep-copies prefixes and resolves type
+  // names during the call (see RedisModuleAsyncScanFilter) — so our copies are
+  // unreferenced from here on and we free them now rather than holding them for the
+  // whole sweep. Teardown calls this too (it is idempotent) for the
+  // cancelled-while-starting path above.
+  Indexes_AsyncScanFreeFilter(&filter_ctx);
 
   // Drive the cursor one batch at a time, switching on the result code exactly as
   // the canonical indexer loop in the Async Scan requirements §3.1.1. done_cb only
@@ -322,6 +469,8 @@ done:
   // OOM / error); this is just the teardown marker.
   RedisModule_Log(ctx, "debug", "AsyncScan: index %s scan task exiting (scanned=%zu)",
                   scanner->spec_name_for_logs, scanner->scannedKeys);
+
+  Indexes_AsyncScanFreeFilter(&filter_ctx);
 
   IndexesScanner_Free(scanner);
   pthread_cond_destroy(&driver.cond);
