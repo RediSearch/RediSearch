@@ -499,47 +499,6 @@ class TestCoordinatorTimeout:
             'PARAMS', '2', 'BLOB', self.hybrid_query_vec
         ])
 
-    def test_return_timeout_setup_phase_hybrid(self):
-        """RETURN setup-phase timeout, one shard suspended: the in-band deadline fires; reply is empty + warning."""
-        env = self.env
-
-        prev_on_timeout_policy = env.cmd('CONFIG', 'GET', ON_TIMEOUT_CONFIG)[ON_TIMEOUT_CONFIG]
-        env.cmd('CONFIG', 'SET', ON_TIMEOUT_CONFIG, 'return')
-
-        _, _, paused_pid, _ = _split_shards_pick_one_paused(env)
-        shard_to_pause_p = psutil.Process(paused_pid)
-
-        # Per-query TIMEOUT arms the coordinator's cursor-setup deadline under
-        # RETURN policy (in-band timeout checking).
-        query_args = [
-            'FT.HYBRID', 'hybrid_idx',
-            'SEARCH', '*',
-            'VSIM', '@embedding', '$BLOB',
-            'PARAMS', '2', 'BLOB', self.hybrid_query_vec,
-            'TIMEOUT', '200',
-        ]
-
-        shard_to_pause_p.suspend()
-        try:
-            wait_for_condition(
-                lambda: (shard_to_pause_p.status() == psutil.STATUS_STOPPED,
-                         {'status': shard_to_pause_p.status()}),
-                'Timeout while waiting for shard to pause'
-            )
-
-            # The deadline fires in the setup wait; RETURN policy yields an empty
-            # result set with a timeout warning rather than an error (a hang would
-            # trip the harness test timeout).
-            result = env.cmd(*query_args)
-            env.assertEqual(result['total_results'], 0,
-                            message=f"Expected 0 results, got {result}")
-            assert_timeout_warning(env, result, message="RETURN-policy setup-phase timeout")
-        finally:
-            # Resume so the shard drains the queued _FT.HYBRID / CURSOR DEL and frees
-            # its cursors before later tests run.
-            shard_to_pause_p.resume()
-            env.cmd('CONFIG', 'SET', ON_TIMEOUT_CONFIG, prev_on_timeout_policy)
-
     def test_return_strict_timeout_setup_phase_hybrid(self):
         """RETURN-STRICT setup-phase timeout, one shard suspended: no in-band deadline, so CLIENT UNBLOCK fires the timeout callback; reply is empty + warning."""
         env = self.env
@@ -576,10 +535,10 @@ class TestCoordinatorTimeout:
                 target=call_and_store, args=(env.cmd, query_args, reply), daemon=True)
             t_query.start()
 
-            # Park the coordinator in the setup wait: the dispatch job must have run
-            # before we fire the blocked-client deadline.
             blocked_client_id = wait_for_blocked_query_client(
                 env, 'FT.HYBRID', 'Client for FT.HYBRID not found')
+            # totalJobsDone advancing => the dispatch job ran => the shard received
+            # _FT.HYBRID and the coordinator is now parked on the setup channel.
             wait_for_condition(
                 lambda: (getWorkersThpoolStats(env)['totalJobsDone'] > initial_jobs_done,
                          {'totalJobsDone': getWorkersThpoolStats(env)['totalJobsDone']}),

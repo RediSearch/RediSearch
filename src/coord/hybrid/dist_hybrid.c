@@ -1200,7 +1200,8 @@ int DistHybridTimeoutFailCallback(RedisModuleCtx *ctx, RedisModuleString **argv,
 
   // The BG dispatcher may be parked in the cursor-setup wait; wake it so it
   // exits, even though this callback replies the error itself.
-  wakeHybridAbortChannels((HybridRequest *)CoordRequestCtx_GetRequest(CoordReqCtx));
+  HybridRequest *hreq = (HybridRequest *)CoordRequestCtx_GetRequest(CoordReqCtx);
+  wakeHybridAbortChannels(hreq);
 
   // Reply with timeout error
   QueryErrorsGlobalStats_UpdateError(QUERY_ERROR_CODE_TIMED_OUT, 1, COORD_ERR_WARN);
