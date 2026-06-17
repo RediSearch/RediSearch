@@ -88,9 +88,8 @@ typedef struct {
   int poolId;
 } AggregateIteratorContext;
 
-// Free the AggregateIteratorContext and its contents.
-// Phase B fields (bc, areq, strong_ref, knnSpecialCtx) are managed by
-// aggregatePhaseBExecute and must not be freed here.
+// Free the AggregateIteratorContext. Phase B fields (bc, areq, strong_ref,
+// knnSpecialCtx) are owned by aggregatePhaseBExecute.
 static void aggregateIteratorContext_Free(void *ptr) {
   AggregateIteratorContext *ctx = (AggregateIteratorContext *)ptr;
   if (ctx) {
@@ -122,78 +121,41 @@ static void aggregateKnnCommandModifier(MRCommand *cmd, size_t numShards, void *
 
 static void aggregatePhaseBExecute(void *arg);  // forward declaration
 
-// IO-thread: finalize Phase A and (on the eager async path only) post Phase B.
-// Called once from collectCountCb when every shard has delivered its first
-// reply; swaps the callback to netCursorCallback so any subsequent reply
-// (C_READ batches, or a late first-reply from a slow shard) takes the
-// steady-state path instead of re-entering the Phase A accounting.
-//
-// Phase B is only posted on the eager async path (RSExecDistAggregate sets bc/areq/
-// strong_ref before MR_StartIterator). On the lazy path (profile+WITHCOUNT,
-// cursor+WITHCOUNT) iterCtx->bc is NULL: the calling thread reads results directly
-// via rpnetNext and the WITHCOUNT total is surfaced from iterCtx by
-// rpnetSurfaceWithCountTotal at EOF / timeout, so no Phase B handoff is required.
-//
-// Silent shards: there is no timer here. If a shard never replies, this
-// function is never called and Phase B is never posted; the request stays
-// blocked until the main-thread BC timeout (FAIL / RETURN_STRICT policies)
-// unblocks the client and the eventual shard reply or shutdown drives
-// aggregateIteratorContext free. RETURN policy waits indefinitely, matching
-// the FT.SEARCH coord handler behavior.
+// IO-thread Phase A -> Phase B handoff. Swaps the callback so any later
+// reply takes the steady-state path, and on the eager async path schedules
+// aggregatePhaseBExecute on the coordinator pool. Lazy path (bc == NULL):
+// rpnetNext drives reads itself, no handoff.
 static void barrierTrip(AggregateIteratorContext *iterCtx, MRIterator *it) {
-  // Swap to the regular cursor callback for any subsequent reply (late first-reply
-  // from a slow shard, or any C_READ reply).
   MRIterator_SetCallback(it, netCursorCallback);
-
-  // Lazy path: no Phase B context was wired up; rpnetNext owns the read loop.
   if (!iterCtx->bc) return;
-
-  // Eager async path: hand off to the coordinator pool. The blocked client stays
-  // blocked until aggregatePhaseBExecute unblocks it.
   ConcurrentSearch_ThreadPoolRun(aggregatePhaseBExecute, iterCtx, iterCtx->poolId);
 }
 
-// Phase A callback: extracts the WITHCOUNT total from each shard's initial (C_AGG)
-// reply, then delegates the rest of the cursor bookkeeping (push to channel,
-// rewrite cmd to C_READ, dispatch next read or mark depleted) to netCursorCallback.
-//
-// When every shard has delivered its first reply (numResponded == numShards),
-// hands off to barrierTrip, which swaps the callback to netCursorCallback and
-// (on the eager async path) posts Phase B.
-//
-// NULL reply (shard disconnected) and error replies are forwarded to
-// netCursorCallback, which calls MRIteratorCallback_Done; they still count
-// toward numResponded so Phase B is always posted eventually.
+// Phase A callback (WITHCOUNT only): sums each shard's total_results from its
+// first reply, delegates the cursor bookkeeping to netCursorCallback, and
+// calls barrierTrip once every shard has responded (NULL / error replies
+// count toward numResponded).
 static void collectCountCb(MRIteratorCallbackCtx *ctx, MRReply *rep) {
   AggregateIteratorContext *iterCtx =
       (AggregateIteratorContext *)MRIteratorCallback_GetPrivateData(ctx);
   MRIterator *it = MRIteratorCallback_GetIterator(ctx);
   MRCommand *cmd = MRIteratorCallback_GetCommand(ctx);
-  // The per-shard first reply is the only one whose cmd is still the original
-  // C_AGG (getCursorCommand rewrites it to C_READ on the way out). Subsequent
-  // C_READ replies routed back through this callback (when a fast shard's next
-  // batch lands before slower shards' first replies) must not re-extract the
-  // count or re-trigger barrier accounting.
+  // First per-shard reply carries C_AGG; getCursorCommand rewrites it to
+  // C_READ before the next dispatch, so subsequent replies skip accounting.
   bool isFirstReply = (cmd->rootCommand == C_AGG);
 
   if (isFirstReply && rep && MRReply_Type(rep) != MR_REPLY_ERROR) {
-    // Accumulate this shard's contribution to the WITHCOUNT total before the
-    // reply is forwarded to netCursorCallback.
     long long shardTotal;
     if (extractTotalResults(rep, cmd, &shardTotal)) {
       iterCtx->totalResults += shardTotal;
     }
   }
 
-  // Drive the cursor exactly like the steady-state callback: push the reply,
-  // rewrite cmd to C_READ, then dispatch the next read (non-cursor) or yield
-  // to client-driven reads (cursor).
   netCursorCallback(ctx, rep);
 
   if (!isFirstReply) return;
   if (++iterCtx->numResponded < MRIterator_GetNumShards(it)) return;
 
-  // All shards have delivered their first reply: swap callback and post Phase B.
   barrierTrip(iterCtx, it);
 }
 
