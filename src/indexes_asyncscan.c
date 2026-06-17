@@ -76,6 +76,9 @@ static void Indexes_AsyncScanKeyCB(RedisModuleCtx *ctx, RedisModuleScanCursor *c
                     scanner->spec_name_for_logs, scanner->scannedKeys);
   }
   if (!scanner->cancelled) {
+    // Concurrency against SP is protected because key_cb runs in main thread, Sync counter parts
+    // also relies on GIL locking to make sure no writer changes sp while checking ShouldIndex.
+    // Same will apply to DocIdMeta writing.
     if (SchemaRule_ShouldIndex(sp, name, type)) {
       uint64_t docId = 0;
       // The engine hands us `key` already open and pinned for this call, so use
@@ -243,6 +246,23 @@ void Indexes_AsyncScanAndReindexTask(IndexesScanner *scanner) {
       RedisModule_Log(ctx, "warning",
                       "AsyncScan: engine OOM during scan of index %s; index may be incomplete (scanned=%zu)",
                       scanner->spec_name_for_logs, scanner->scannedKeys);
+      // Surface the failure to clients exactly as the synchronous scan does: set the
+      // spec's scan_failed_OOM flag (warns at query time + aggregated in FT.INFO) and
+      // raise the background-index failure flag (the FT.INFO "background indexing
+      // status" field). No single key is to blame here — the engine cut delivery for
+      // global memory pressure — so the offending key is NULL.
+      //
+      // Take the GIL around the record. We're between batches here with the GIL
+      // released. The record could in principle be serialized by the IndexSpec write
+      // lock instead, BUT therecord's IndexError_AddError mutates the refcount of the shared NA_rstr
+      // sentinel via RedisModule_HoldString/FreeString — which are unsafe methods to call without GIL being locked
+      // TODO: Check if we can detect OOMKey by detecting OOM in key_cb (not clearly possible)
+      RedisModule_ThreadSafeContextLock(ctx);
+      IndexesScanner_RecordBackgroundOOMFailure(
+          ctx, scanner,
+          "Background indexing cancelled: the server reported out of memory; the index may be "
+          "incomplete");
+      RedisModule_ThreadSafeContextUnlock(ctx);
       goto done;
 
     case REDISMODULE_ASYNCSCAN_IN_PROGRESS:

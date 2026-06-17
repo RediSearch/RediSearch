@@ -37,6 +37,48 @@ static_assert(
     "Mismatch between DebugIndexScannerCode enum and DEBUG_INDEX_SCANNER_STATUS_STRS array"
 );
 
+// Record a background-indexing OOM failure on the scanner's spec so clients see it.
+// See the header for the full contract. Caller must hold the GIL.
+//
+// Why the GIL and not the IndexSpec write lock: the write lock *would* be enough to
+// serialize the sp->stats.indexError struct itself — FT.INFO reads it under the spec
+// read lock, and the other stats.indexError writers (the early returns in
+// IndexSpec_UpdateDoc) could be made to take the write lock too. But that is not the
+// whole story. IndexError_AddError calls RedisModule_HoldString / RedisModule_FreeString
+// on error->key, and when scanner->OOMkey is NULL it falls back to the process-global
+// NA_rstr sentinel (the default key of *every* spec's IndexError). Hold/Free mutate
+// that object's refcount, which is a plain non-atomic int (decrRefCount does
+// `--(o->refcount)` and frees at 0). Because NA_rstr is shared across all specs, a
+// per-spec write lock cannot serialize our refcount op against another spec's FT.INFO
+// touching the same NA_rstr — only a global lock can. So the GIL is load-bearing here
+// independently of the spec lock: it is the only thing that serializes the shared
+// RedisModuleString refcount churn. (To drop the GIL we would have to stop touching
+// NA_rstr off-thread, e.g. record flag-only with no AddError, or hold a per-spec key.)
+void IndexesScanner_RecordBackgroundOOMFailure(RedisModuleCtx *ctx, IndexesScanner *scanner,
+                                               const char *error) {
+  // The global scanner has no single spec to annotate.
+  if (scanner->global) {
+    return;
+  }
+  // We need to report the error message besides the log, so we can show it in FT.INFO.
+  StrongRef curr_run_ref = WeakRef_Promote(scanner->spec_ref);
+  IndexSpec *sp = StrongRef_Get(curr_run_ref);
+  if (sp) {
+    sp->scan_failed_OOM = true;
+    // Error message does not contain user data. scanner->OOMkey may be NULL when no
+    // single key is to blame (engine-OOM on the async path); IndexError_AddError
+    // falls back to the NA sentinel in that case.
+    IndexError_AddError(&sp->stats.indexError, error, error, scanner->OOMkey);
+    IndexError_RaiseBackgroundIndexFailureFlag(&sp->stats.indexError);
+    StrongRef_Release(curr_run_ref);
+  } else {
+    // spec was deleted
+    RedisModule_Log(ctx, "notice",
+                    "Scanning index %s in background: cancelled due to OOM and index was dropped",
+                    scanner->spec_name_for_logs);
+  }
+}
+
 // This function should be called after the second background scan OOM error
 // It will stop the background scan process
 void scanStopAfterOOM(RedisModuleCtx *ctx, IndexesScanner *scanner) {
@@ -44,24 +86,11 @@ void scanStopAfterOOM(RedisModuleCtx *ctx, IndexesScanner *scanner) {
   rm_asprintf(&error, "Used memory is more than %u percent of max memory, cancelling the scan", RSGlobalConfig.indexingMemoryLimit);
   RedisModule_Log(ctx, "warning", "%s", error);
 
-    // We need to report the error message besides the log, so we can show it in FT.INFO
-  if(!scanner->global) {
+  if (!scanner->global) {
     scanner->cancelled = true;
-    StrongRef curr_run_ref = WeakRef_Promote(scanner->spec_ref);
-    IndexSpec *sp = StrongRef_Get(curr_run_ref);
-    if (sp) {
-      sp->scan_failed_OOM = true;
-      // Error message does not contain user data
-      IndexError_AddError(&sp->stats.indexError, error, error, scanner->OOMkey);
-      IndexError_RaiseBackgroundIndexFailureFlag(&sp->stats.indexError);
-      StrongRef_Release(curr_run_ref);
-    } else {
-      // spec was deleted
-      RedisModule_Log(ctx, "notice", "Scanning index %s in background: cancelled due to OOM and index was dropped",
-                    scanner->spec_name_for_logs);
-      }
-    }
-    rm_free(error);
+  }
+  IndexesScanner_RecordBackgroundOOMFailure(ctx, scanner, error);
+  rm_free(error);
 }
 
 // Return true if used_memory exceeds (indexingMemoryLimit % × memoryLimit); false if within bounds or limit is 0.
