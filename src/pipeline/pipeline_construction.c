@@ -509,11 +509,9 @@ int buildOutputPipeline(Pipeline *pipeline, const AggregationPipelineParams* par
       // field loading is rejected earlier (AREQ_ApplyContext / coordinator), so a
       // disk-backed spec here is always HASH. The async loader sets QEXEC_S_HAS_LOAD
       // in outStateFlags itself, mirroring RPLoader_New.
-      RedisSearchDiskAPI *disk = SearchDisk_GetAPI();
-      RS_LOG_ASSERT(disk && disk->basic.newAsyncLoader, "disk async loader API not registered");
-      rp = disk->basic.newAsyncLoader(sctx, params->common.reqflags, lookup, loadkeys,
-                                      array_len(loadkeys), forceLoad, outStateFlags);
-      RS_LOG_ASSERT(rp, "newAsyncLoader failed");  // infallible, like RPLoader_New
+      rp = SearchDisk_NewAsyncLoaderResultProcessor(sctx, params->common.reqflags, lookup, loadkeys,
+                                                    array_len(loadkeys), forceLoad, outStateFlags);
+      RS_LOG_ASSERT(rp, "newAsyncLoaderResultProcessor failed");  // infallible, like RPLoader_New
     } else {
       rp = RPLoader_New(sctx, params->common.reqflags, lookup, loadkeys, array_len(loadkeys),
                         forceLoad, outStateFlags);

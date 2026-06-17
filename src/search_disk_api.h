@@ -292,9 +292,10 @@ typedef struct BasicDiskAPI {
    *         allocation goes through the module allocator (aborts on OOM), so this
    *         must not return NULL. Disk-read failures surface later, at RP execution.
    */
-  ResultProcessor *(*newAsyncLoader)(RedisSearchCtx *sctx, uint32_t reqflags, RLookup *lk,
-                                     const RLookupKey **keys, size_t nkeys, bool forceLoad,
-                                     uint32_t *outStateFlags);
+  ResultProcessor *(*newAsyncLoaderResultProcessor)(RedisSearchCtx *sctx, uint32_t reqflags,
+                                                    RLookup *lk, const RLookupKey **keys,
+                                                    size_t nkeys, bool forceLoad,
+                                                    uint32_t *outStateFlags);
 } BasicDiskAPI;
 
 typedef struct IndexDiskAPI {

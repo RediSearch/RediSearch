@@ -368,10 +368,10 @@ int parseAggPlan(ParseAggPlanContext *ctx, ArgsCursor *ac, bool isDiskIndex, Que
 /**
  * Reject field return on a disk (flex) index when loading is unsupported.
  *
- * For use by the standalone/shard executor (AREQ_ApplyContext), where the spec
- * is bound and QEXEC_F_IS_SEARCH is set: allows field return only for a HASH
- * FT.SEARCH (which loads via the disk async loader). JSON-on-disk and all
- * non-search flex queries must use NOCONTENT / RETURN 0. No-op when flex is off.
+ * Valid once the spec is bound and QEXEC_F_IS_SEARCH is set: allows field
+ * return only for a HASH FT.SEARCH (which loads via the disk async loader).
+ * JSON-on-disk and all non-search flex queries must use NOCONTENT / RETURN 0.
+ * No-op when flex is off.
  */
 int FlexValidation_RejectFieldReturn(const IndexSpec *sp, uint32_t reqflags, QueryError *status);
 

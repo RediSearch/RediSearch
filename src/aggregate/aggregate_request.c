@@ -1488,9 +1488,9 @@ static int applyVectorQuery(AREQ *req, RedisSearchCtx *sctx, QueryAST *ast, Quer
   return REDISMODULE_OK;
 }
 
-// True when a flex query returns no document fields (NOCONTENT, or RETURN 0,
-// both of which set QEXEC_F_SEND_NOFIELDS), so disk field loading is not needed.
-static inline bool flexQueryReturnsNoFields(uint32_t reqflags) {
+// True when a query returns no document fields (NOCONTENT, or RETURN 0, both of
+// which set QEXEC_F_SEND_NOFIELDS), so disk field loading is not needed.
+static inline bool queryReturnsNoFields(uint32_t reqflags) {
   return (reqflags & QEXEC_F_SEND_NOFIELDS) != 0;
 }
 
@@ -1501,7 +1501,7 @@ static inline bool flexQueryReturnsNoFields(uint32_t reqflags) {
 // NOCONTENT / RETURN 0.
 int FlexValidation_RejectFieldReturn(const IndexSpec *sp, uint32_t reqflags, QueryError *status) {
   bool allowed =
-      flexQueryReturnsNoFields(reqflags) || (!isSpecJson(sp) && (reqflags & QEXEC_F_IS_SEARCH));
+      queryReturnsNoFields(reqflags) || (!isSpecJson(sp) && (reqflags & QEXEC_F_IS_SEARCH));
   if (SearchDisk_IsEnabledForValidation() && !allowed) {
     QueryError_SetError(status, QUERY_ERROR_CODE_FLEX_SEARCH_NOCONTENT_OR_RETURN0_REQUIRED, NULL);
     return REDISMODULE_ERR;
@@ -1516,7 +1516,7 @@ int FlexValidation_RejectFieldReturn(const IndexSpec *sp, uint32_t reqflags, Que
 int FlexValidation_RejectJsonFieldReturn(const IndexSpec *sp, uint32_t reqflags,
                                          QueryError *status) {
   if (SearchDisk_IsEnabledForValidation() && isSpecJson(sp) &&
-      !flexQueryReturnsNoFields(reqflags)) {
+      !queryReturnsNoFields(reqflags)) {
     QueryError_SetError(status, QUERY_ERROR_CODE_FLEX_SEARCH_NOCONTENT_OR_RETURN0_REQUIRED, NULL);
     return REDISMODULE_ERR;
   }
