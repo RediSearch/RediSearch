@@ -162,9 +162,11 @@ impl Context<'_> {
         // C provided, so writing through it is sound.
         let parent = unsafe { self.ptr.as_ref() }.parent.cast_mut();
         if !parent.is_null() {
-            unsafe {
-                (*parent).totalResults = (*parent).totalResults.saturating_sub(n);
-            }
+            // SAFETY: `parent` is non-null (checked above) and points to the `QueryProcessingCtx`
+            // the C pipeline installed on this processor; it outlives the processor and the chain
+            // runs on a single thread, so taking a transient `&mut` to update `totalResults` is sound.
+            let parent = unsafe { &mut *parent };
+            parent.totalResults = parent.totalResults.saturating_sub(n);
         }
     }
 }
