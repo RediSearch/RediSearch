@@ -1,0 +1,431 @@
+name: PR Validation Triage
+
+# Posts an AI-generated triage comment on PRs whose `Pull Request Flow` run
+# failed, but only when the PR carries the `triage-pr` label. The comment is
+# upserted (single sticky comment per PR) using the marker
+# `<!-- pr-triage-bot -->`.
+
+on:
+  # Fires when Pull Request Flow finishes. We gate on conclusion=failure and
+  # on the PR carrying the `triage-pr` label inside the job.
+  workflow_run:
+    workflows: ["Pull Request Flow"]
+    types: [completed]
+  # Fires when a maintainer adds the label to an already-failed PR. We gate on
+  # the label name and look up the most recent Pull Request Flow run.
+  pull_request_target:
+    types: [labeled]
+
+concurrency:
+  # Prefer the PR number so unrelated PRs (including sibling PRs that share a
+  # head SHA against different base branches) never share a concurrency group
+  # and accidentally cancel each other. Fall through to `head_sha` only as a
+  # last resort: fork-PR `workflow_run` events strip `pull_requests[0].number`,
+  # and there is no other PR-identifying field available in that event. For
+  # those fork-PR workflow_run rounds the SHA-keyed group can momentarily
+  # collide with a labeled event for the same PR (different key, since the
+  # labeled event has the PR number) — accepted because the upsert lookup
+  # tolerates a bounded race window and the sibling case is more common than
+  # the fork race window.
+  #
+  # `pull_request_target: labeled` fires for *any* label (the trigger has no
+  # label-name filter). For non-`triage-pr` labels we give each run its own
+  # group keyed by `github.run_id`, so `cancel-in-progress` can't cancel an
+  # in-flight opted-in triage before the no-op label check inside resolve.
+  group: ${{ (github.event_name == 'pull_request_target' && github.event.label.name != 'triage-pr') && format('pr-triage-noop-{0}', github.run_id) || format('pr-triage-{0}', github.event.workflow_run.pull_requests[0].number || github.event.pull_request.number || github.event.workflow_run.head_sha) }}
+  cancel-in-progress: true
+
+jobs:
+  resolve:
+    # Resolve PR number, head SHA, label state, and the source-run id.
+    # If the label is missing or the source run didn't fail, skip the rest.
+    runs-on: ubuntu-slim
+    permissions:
+      actions: read       # list workflow runs for the source run lookup
+      pull-requests: read # read labels and head SHA on the candidate PR
+    outputs:
+      should-triage: ${{ steps.resolve.outputs.should-triage }}
+      pr-number: ${{ steps.resolve.outputs.pr-number }}
+      run-id: ${{ steps.resolve.outputs.run-id }}
+      run-attempt: ${{ steps.resolve.outputs.run-attempt }}
+    steps:
+      - name: Resolve PR and source run
+        id: resolve
+        shell: python3 {0}
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPOSITORY: ${{ github.repository }}
+          EVENT_NAME: ${{ github.event_name }}
+          TRIAGE_LABEL: triage-pr
+          # workflow_run inputs (empty for pull_request_target)
+          WORKFLOW_RUN_ID: ${{ github.event.workflow_run.id }}
+          WORKFLOW_RUN_ATTEMPT: ${{ github.event.workflow_run.run_attempt }}
+          WORKFLOW_RUN_CONCLUSION: ${{ github.event.workflow_run.conclusion }}
+          WORKFLOW_RUN_PR_NUMBER: ${{ github.event.workflow_run.pull_requests[0].number }}
+          WORKFLOW_RUN_HEAD_SHA: ${{ github.event.workflow_run.head_sha }}
+          WORKFLOW_RUN_HEAD_REPO: ${{ github.event.workflow_run.head_repository.full_name }}
+          WORKFLOW_RUN_HEAD_BRANCH: ${{ github.event.workflow_run.head_branch }}
+          # pull_request_target inputs (empty for workflow_run)
+          LABELED_PR_NUMBER: ${{ github.event.pull_request.number }}
+          LABELED_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+          LABEL_NAME: ${{ github.event.label.name }}
+        run: |
+          import json
+          import os
+          import subprocess
+          import sys
+
+          def gh_api(path):
+              result = subprocess.run(
+                  ["gh", "api", path],
+                  capture_output=True, text=True, check=False,
+              )
+              if result.returncode != 0:
+                  sys.stderr.write(result.stderr)
+                  return None
+              return json.loads(result.stdout) if result.stdout.strip() else None
+
+          def emit(should, pr="", run_id="", run_attempt=""):
+              with open(os.environ["GITHUB_OUTPUT"], "a", encoding="utf-8") as f:
+                  f.write(f"should-triage={'true' if should else 'false'}\n")
+                  f.write(f"pr-number={pr}\n")
+                  f.write(f"run-id={run_id}\n")
+                  f.write(f"run-attempt={run_attempt}\n")
+              raise SystemExit
+
+          def run_matches_pr(run, pr_number, pr_head_repo, pr_head_ref):
+              # Same-repo PRs: `run.pull_requests` is populated, so the
+              # PR-number check is authoritative. If it's populated but
+              # doesn't list us, this run belongs to a sibling PR sharing
+              # the head SHA (e.g. parallel PRs against different bases) —
+              # don't fall through to the head-only fork fallback.
+              pulls = run.get("pull_requests") or []
+              if any(p.get("number") == int(pr_number) for p in pulls):
+                  return True
+              if pulls:
+                  return False
+              # Fork PRs: GitHub strips `pull_requests`. Match on head repo
+              # AND head branch so sibling fork PRs (same fork branch
+              # against different base branches) don't collide.
+              run_head_repo = (run.get("head_repository") or {}).get("full_name")
+              run_head_branch = run.get("head_branch")
+              return (
+                  bool(pr_head_repo) and pr_head_repo == run_head_repo
+                  and bool(pr_head_ref) and pr_head_ref == run_head_branch
+              )
+
+          repo = os.environ["REPOSITORY"]
+          event = os.environ["EVENT_NAME"]
+          label = os.environ["TRIAGE_LABEL"]
+
+          if event == "pull_request_target":
+              # Only react to additions of our label.
+              if os.environ.get("LABEL_NAME") != label:
+                  print(f"Label '{os.environ.get('LABEL_NAME')}' is not the triage label; skipping.")
+                  emit(False)
+              pr_number = os.environ["LABELED_PR_NUMBER"]
+              head_sha = os.environ["LABELED_HEAD_SHA"]
+              pr_data = gh_api(f"/repos/{repo}/pulls/{pr_number}") or {}
+              # Re-check that the label is still present at job-run time.
+              # The labeled event only tells us the label was *added*; a
+              # maintainer could remove it before this queued job runs, and
+              # we shouldn't post triage on a PR that's no longer opted in.
+              current_labels = {l.get("name") for l in pr_data.get("labels", [])}
+              if label not in current_labels:
+                  print(f"PR #{pr_number} no longer has '{label}' label; skipping.")
+                  emit(False, pr_number)
+              # The label event freezes head_sha at label-application time. If
+              # a new commit lands before this job runs, skip rather than
+              # triage a run the PR has already moved past — same freshness
+              # guarantee as the workflow_run path.
+              current_head_sha = (pr_data.get("head") or {}).get("sha")
+              if current_head_sha and current_head_sha != head_sha:
+                  print(f"PR #{pr_number} has moved from labeled SHA {head_sha} to {current_head_sha}; skipping stale triage.")
+                  emit(False, pr_number)
+              # Look at the most recent Pull Request Flow run for this head
+              # SHA *that belongs to this PR*. The head_sha filter alone can
+              # match unrelated PRs (e.g. parallel PRs against different base
+              # branches from the same fork commit), so filter by the run's
+              # pull_requests list (populated for same-repo PRs) or by the
+              # run's head_repository (for fork PRs where pull_requests is
+              # empty). API returns workflow_runs newest-first, so only
+              # triage if the *latest* matching run is failed.
+              runs = gh_api(
+                  f"/repos/{repo}/actions/workflows/event-pull_request.yml/runs"
+                  f"?head_sha={head_sha}&per_page=20"
+              ) or {}
+              pr_head = pr_data.get("head") or {}
+              pr_head_repo = (pr_head.get("repo") or {}).get("full_name")
+              pr_head_ref = pr_head.get("ref")
+              runs_list = [
+                  r for r in runs.get("workflow_runs", [])
+                  if run_matches_pr(r, pr_number, pr_head_repo, pr_head_ref)
+              ]
+              if not runs_list:
+                  print(f"No Pull Request Flow run for PR #{pr_number} at {head_sha}.")
+                  emit(False, pr_number)
+              latest = runs_list[0]
+              # Fork-ambiguity guard only applies when the *latest* match is
+              # itself a fork fallback (empty pull_requests). If runs_list[0]
+              # explicitly identifies our PR via pull_requests, we have an
+              # unambiguous answer — older fork-fallback duplicates from
+              # same-SHA events (`opened`, `ready_for_review`, …) don't
+              # change which run we want to triage.
+              if not (latest.get("pull_requests") or []):
+                  fork_fallback_matches = [
+                      r for r in runs_list if not (r.get("pull_requests") or [])
+                  ]
+                  if len(fork_fallback_matches) > 1:
+                      ids = ", ".join(str(r.get("id")) for r in fork_fallback_matches)
+                      print(f"Ambiguous fork-fallback match for PR #{pr_number} at {head_sha} (runs {ids}); skipping.")
+                      emit(False, pr_number)
+              # `cancelled` excluded for the same reason as the workflow_run
+              # path: fetch-failed-run-logs only fetches logs from
+              # failure/timed_out jobs, so cancelled-only runs produce empty
+              # triage output.
+              if latest.get("conclusion") not in ("failure", "timed_out"):
+                  print(f"Latest Pull Request Flow run for PR #{pr_number} at {head_sha} concluded as '{latest.get('conclusion')}'; skipping.")
+                  emit(False, pr_number)
+              run_id = latest["id"]
+              run_attempt = latest.get("run_attempt", 1)
+              print(f"PR #{pr_number}: triaging failed run {run_id} (attempt {run_attempt}, {head_sha}).")
+              emit(True, pr_number, run_id, run_attempt)
+
+          # workflow_run path. `cancelled` is excluded because the log
+          # collector only fetches logs from `failure`/`timed_out` jobs, so a
+          # cancelled-only run would produce an empty triage comment.
+          if os.environ.get("WORKFLOW_RUN_CONCLUSION") not in ("failure", "timed_out"):
+              print(f"Source run conclusion '{os.environ.get('WORKFLOW_RUN_CONCLUSION')}' is not a failure; skipping.")
+              emit(False)
+          pr_number = os.environ.get("WORKFLOW_RUN_PR_NUMBER", "")
+          if not pr_number:
+              # Same-repo PRs populate workflow_run.pull_requests; fork PRs
+              # don't. Look up by head_sha as a fallback, scoped to the
+              # source run's fork branch so parallel fork PRs sharing one
+              # commit (e.g. open PRs from the same fork against different
+              # base branches) don't cross-pollinate.
+              head_sha = os.environ.get("WORKFLOW_RUN_HEAD_SHA", "")
+              run_head_repo = os.environ.get("WORKFLOW_RUN_HEAD_REPO", "")
+              run_head_branch = os.environ.get("WORKFLOW_RUN_HEAD_BRANCH", "")
+              if head_sha:
+                  prs = gh_api(
+                      f"/repos/{repo}/commits/{head_sha}/pulls"
+                  ) or []
+                  candidates = [
+                      p for p in prs
+                      if p.get("state") == "open"
+                      and (not run_head_repo or ((p.get("head") or {}).get("repo") or {}).get("full_name") == run_head_repo)
+                      and (not run_head_branch or (p.get("head") or {}).get("ref") == run_head_branch)
+                  ]
+                  # If exactly one PR matches, use it. If multiple match (e.g.
+                  # parallel PRs from the same fork branch against different
+                  # base branches), workflow_run doesn't expose enough info to
+                  # pick the right one — skip and let the labeled trigger handle
+                  # it, which has the explicit PR number from the event payload.
+                  if len(candidates) == 1:
+                      pr_number = str(candidates[0]["number"])
+                  elif len(candidates) > 1:
+                      ids = ", ".join(f"#{p['number']}" for p in candidates)
+                      print(f"Multiple PRs share head SHA {head_sha} ({ids}); skipping workflow_run triage.")
+                      emit(False)
+          if not pr_number:
+              print("Could not resolve PR number from workflow_run event; skipping.")
+              emit(False)
+          # Check the PR carries the triage label.
+          pr_data = gh_api(f"/repos/{repo}/pulls/{pr_number}") or {}
+          labels = {l.get("name") for l in pr_data.get("labels", [])}
+          if label not in labels:
+              print(f"PR #{pr_number} does not have '{label}' label; skipping.")
+              emit(False, pr_number)
+          # Skip if the source run is obsolete: when a new commit lands, Pull
+          # Request Flow auto-cancels the prior run; if we triage that stale
+          # run we'd overwrite the sticky comment with logs from a SHA the PR
+          # has already moved past.
+          current_head_sha = (pr_data.get("head") or {}).get("sha")
+          run_head_sha = os.environ.get("WORKFLOW_RUN_HEAD_SHA", "")
+          if current_head_sha and run_head_sha and current_head_sha != run_head_sha:
+              print(f"PR #{pr_number} has moved to {current_head_sha}; skipping stale run {run_head_sha}.")
+              emit(False, pr_number)
+          # Skip if the source run has been re-run since this event fired.
+          # When a maintainer manually re-runs the failed Pull Request Flow,
+          # GitHub starts attempt N+1 on the same SHA and both attempts emit
+          # a workflow_run completion event. Triaging an older attempt would
+          # post stale logs or get clobbered by N+1's triage a moment later.
+          run_id = os.environ["WORKFLOW_RUN_ID"]
+          run_attempt = os.environ.get("WORKFLOW_RUN_ATTEMPT") or "1"
+          run_data = gh_api(f"/repos/{repo}/actions/runs/{run_id}") or {}
+          latest_attempt = run_data.get("run_attempt", int(run_attempt))
+          if latest_attempt > int(run_attempt):
+              print(f"Run {run_id} has been re-run (attempt {latest_attempt} > this {run_attempt}); skipping stale attempt.")
+              emit(False, pr_number)
+          # Skip if a newer Pull Request Flow *run* exists for the same head
+          # SHA. Manual re-runs bump `run_attempt` (caught above), but events
+          # like `reopened` / `ready_for_review` on the same commit start a
+          # fresh run_id. The labeled path picks runs_list[0] (newest-first)
+          # implicitly; workflow_run fires per run, so we have to check
+          # explicitly. Filter to runs that belong to this PR so a sibling
+          # PR sharing the SHA doesn't make us skip a legitimate triage.
+          pr_head = pr_data.get("head") or {}
+          pr_head_repo = (pr_head.get("repo") or {}).get("full_name")
+          pr_head_ref = pr_head.get("ref")
+          same_sha_runs = (gh_api(
+              f"/repos/{repo}/actions/workflows/event-pull_request.yml/runs"
+              f"?head_sha={run_head_sha}&per_page=20"
+          ) or {}).get("workflow_runs", [])
+          matched_runs = [
+              r for r in same_sha_runs
+              if run_matches_pr(r, pr_number, pr_head_repo, pr_head_ref)
+          ]
+          if matched_runs and matched_runs[0].get("id") != int(run_id):
+              newer = matched_runs[0]
+              print(
+                  f"A newer Pull Request Flow run {newer.get('id')} "
+                  f"(status={newer.get('status')}, conclusion={newer.get('conclusion')}) "
+                  f"exists for PR #{pr_number} at {run_head_sha}; "
+                  f"skipping stale triage of {run_id}."
+              )
+              emit(False, pr_number)
+          print(f"PR #{pr_number}: triaging failed run {run_id} (attempt {run_attempt}).")
+          emit(True, pr_number, run_id, run_attempt)
+
+  triage:
+    needs: resolve
+    if: ${{ needs.resolve.outputs.should-triage == 'true' }}
+    runs-on: ubuntu-slim
+    permissions:
+      contents: read       # checkout (needed by codex-ci-triage action)
+      actions: read        # download focused artifacts + fetch-failed-run-logs
+      pull-requests: write # upsert the sticky triage comment
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v6
+        with:
+          # Don't persist the default GITHUB_TOKEN in .git/config. The
+          # downstream steps (`gh run download`, fetch-failed-run-logs,
+          # codex-ci-triage, the upsert step) all set `GH_TOKEN` /
+          # `github-token` explicitly, so nothing in this job relies on
+          # the stored credential. Dropping it removes a vector where
+          # attacker-controlled fork-PR logs piped into Codex could reach
+          # the token via the working tree.
+          persist-credentials: false
+
+      - name: Fetch failed-job logs from source run
+        # Lower-signal job-level logs go in first so the final tail-cap
+        # (applied in the next step) absorbs them rather than the focused
+        # per-test artifacts appended after. `cap: 'false'` defers truncation
+        # to that step so the higher-signal artifacts survive. Mirrors the
+        # ordering in #9930's ci-failure-context action.
+        uses: ./.github/actions/fetch-failed-run-logs
+        with:
+          github-token: ${{ github.token }}
+          run-id: ${{ needs.resolve.outputs.run-id }}
+          run-attempt: ${{ needs.resolve.outputs.run-attempt }}
+          cap: 'false'
+
+      - name: Append focused Failed Test Logs artifacts and cap
+        # Fork PRs that keep the `triage-pr` label can produce arbitrarily
+        # large `Failed Test Logs *` artifacts. Bound the download so a
+        # contributor can't waste runner time / disk before the cap applies.
+        timeout-minutes: 5
+        env:
+          GH_TOKEN: ${{ github.token }}
+          SOURCE_RUN_ID: ${{ needs.resolve.outputs.run-id }}
+          MAX_BYTES: '204800'
+        run: |
+          set +e
+          # Higher-signal focused "Failed Test Logs *" artifacts (per-test
+          # logs) are appended after the per-job logs so they survive the
+          # tail-cap below. Build / lint / sanitizer context already sits in
+          # the per-job logs written by the previous step.
+          mkdir -p downloaded-failed-logs
+          gh run download "$SOURCE_RUN_ID" \
+            --repo "$GITHUB_REPOSITORY" \
+            --pattern "Failed Test Logs *" \
+            --dir downloaded-failed-logs 2>/dev/null
+
+          if [ -n "$(find downloaded-failed-logs -type f 2>/dev/null)" ]; then
+            echo "Including focused Failed Test Logs artifacts."
+            find downloaded-failed-logs -type f \
+              \( -name '*.log' -o -name '*.txt' \) -print0 |
+            while IFS= read -r -d '' f; do
+              printf '\n##[group]%s\n' "${f#downloaded-failed-logs/}"
+              cat "$f"
+              printf '\n##[endgroup]\n'
+            done >> failed-logs.txt
+          else
+            echo "No Failed Test Logs artifacts found."
+          fi
+
+          # Single final cap: focused artifacts are last, so they survive;
+          # the per-job logs written earlier absorb the truncation.
+          if [ "$(wc -c < failed-logs.txt 2>/dev/null || echo 0)" -gt "$MAX_BYTES" ]; then
+            tail -c "$MAX_BYTES" failed-logs.txt > failed-logs.txt.tmp
+            printf '[truncated to last %s bytes]\n' "$MAX_BYTES" > failed-logs.txt
+            cat failed-logs.txt.tmp >> failed-logs.txt
+            rm failed-logs.txt.tmp
+          fi
+          exit 0
+
+      - name: Run Codex triage
+        id: ai_triage
+        uses: ./.github/actions/codex-ci-triage
+        with:
+          openai-api-key: ${{ secrets.CI_TRIAGE_OPENAI_API_KEY }}
+          prompt-file: .github/codex/prompts/pr-validation-triage.md
+          # Whitelist the source-run actor so fork-PR workflow_run triggers
+          # bypass codex-ci-triage's collaborator gate. Safe because the
+          # maintainer-applied `triage-pr` label is the primary opt-in; if
+          # the label is removed, this workflow's resolve step short-circuits
+          # before Codex ever runs. Empty for pull_request_target events
+          # (the maintainer applying the label is already a collaborator).
+          allow-users: ${{ github.event.workflow_run.actor.login }}
+
+      - name: Upsert PR comment
+        if: ${{ steps.ai_triage.outputs.triage-exists == 'true' }}
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PR_NUMBER: ${{ needs.resolve.outputs.pr-number }}
+          SOURCE_RUN_ID: ${{ needs.resolve.outputs.run-id }}
+          TRIAGE_CONTENT: ${{ steps.ai_triage.outputs.triage-content }}
+        run: |
+          set -euo pipefail
+          MARKER="<!-- pr-triage-bot -->"
+          RUN_URL="${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/actions/runs/${SOURCE_RUN_ID}"
+          BODY=$(cat <<EOF
+          ${MARKER}
+          ### 🤖 PR Validation Triage
+
+          Automated analysis of failed run [#${SOURCE_RUN_ID}](${RUN_URL}). This is a best-effort hint from Codex — verify before acting.
+
+          ---
+
+          ${TRIAGE_CONTENT}
+
+          ---
+
+          <sub>Triggered by the \`triage-pr\` label. Remove the label and re-add to re-run, or push a new commit.</sub>
+          EOF
+          )
+
+          # Capture all matching IDs first, then take the first via parameter
+          # expansion. Piping `gh api --paginate` into `head -1` under
+          # `pipefail` risks SIGPIPE (exit 141) aborting the script when
+          # pagination is still writing after the first match.
+          MATCHING_IDS=$(gh api "repos/${GITHUB_REPOSITORY}/issues/${PR_NUMBER}/comments" --paginate \
+            --jq '.[] | select(.body | startswith("'"${MARKER}"'")) | .id')
+          EXISTING_ID=${MATCHING_IDS%%$'\n'*}
+
+          if [ -n "$EXISTING_ID" ]; then
+            echo "Updating existing comment $EXISTING_ID"
+            gh api --method PATCH "repos/${GITHUB_REPOSITORY}/issues/comments/${EXISTING_ID}" \
+              -f body="$BODY" >/dev/null
+          else
+            echo "Creating new comment on PR #${PR_NUMBER}"
+            gh api --method POST "repos/${GITHUB_REPOSITORY}/issues/${PR_NUMBER}/comments" \
+              -f body="$BODY" >/dev/null
+          fi
+
+      - name: Note skipped triage
+        if: ${{ steps.ai_triage.outputs.triage-exists != 'true' }}
+        run: |
+          echo "::warning::Codex produced no triage output; skipping PR comment."

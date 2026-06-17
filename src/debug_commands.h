@@ -176,6 +176,14 @@ typedef bool (*SyncPointStopFn)(void *arg);
 // true. Lets workers release early when a timeout fires on the main thread.
 void SyncPoint_WaitUntil(const char *name, SyncPointStopFn stop_fn, void *arg);
 
+// Shard dispatch fault injection (test-only, ENABLE_ASSERT builds): arm the next
+// `count` MRCluster_SendCommand calls to return REDIS_ERR, so DebugSendError_Consume
+// returns true that many times. Exercises the no-reply error path.
+void DebugSendError_Arm(int count);
+// Consume one armed failure; returns true if the caller should treat the send as
+// failed. Thread-safe.
+bool DebugSendError_Consume(void);
+
 // Process-wide counter of threads parked in `RedisSearchCtx_LockSpecWrite`
 // waiting on a spec rwlock. Bumped before `pthread_rwlock_wrlock` and
 // decremented once the write lock has been acquired. Used by tests (sync-point

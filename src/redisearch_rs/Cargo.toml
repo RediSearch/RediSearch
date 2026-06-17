@@ -36,6 +36,7 @@ members = [
     "search_result",
     "slots_tracker",
     "sorting_vector",
+    "term_suffix_index",
     "tools/license_header_linter",
     "tools/ffi_geiger",
     "tools/safety_report",
@@ -46,6 +47,7 @@ members = [
     "top_k_bencher",
     "trie_rs",
     "ttl_table",
+    "ttl_table_bencher",
     "value",
     "varint",
     "varint_bencher",
@@ -141,6 +143,7 @@ schema_rule = { path = "./c_wrappers/schema_rule" }
 search_result = { path = "./search_result" }
 slots_tracker = { path = "./slots_tracker" }
 sorting_vector = { path = "./sorting_vector" }
+term_suffix_index = { path = "./term_suffix_index" }
 thin_vec = { path = "./thin_vec" }
 top_k = { path = "./top_k" }
 tracing_assert = { path = "./tracing_assert" }

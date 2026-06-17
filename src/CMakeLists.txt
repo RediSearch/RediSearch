@@ -37,13 +37,13 @@ set(LIBUV_BUILD_TESTS OFF CACHE BOOL "Build libuv tests" FORCE)
 set(LIBUV_BUILD_BENCH OFF CACHE BOOL "Build libuv benchmarks" FORCE)
 set(LIBUV_BUILD_SHARED OFF CACHE BOOL "Build shared libuv library" FORCE)
 add_subdirectory(${root}/deps/libuv ${CMAKE_CURRENT_BINARY_DIR}/libuv)
+
 # libuv has const-correctness issues that trigger warnings-as-errors on newer compilers.
-# gcc 16+: -Werror=discarded-qualifiers; clang 21+: -Werror=incompatible-pointer-types-discards-qualifiers.
-# Mirror the compiler guards from the top-level CMakeLists.txt.
-if(HAS_DISCARDED_QUALIFIERS)
+# Turn off flags set in the top-level CMakeLists.txt.
+if(HAS_WNO_ERROR_DISCARDED_QUALIFIERS)
     target_compile_options(uv_a PRIVATE $<$<COMPILE_LANGUAGE:C>:-Wno-error=discarded-qualifiers>)
 endif()
-if(HAS_INCOMPATIBLE_POINTER_TYPES_DISCARDS_QUALIFIERS)
+if(HAS_WNO_ERROR_INCOMPATIBLE_POINTER_TYPES_DISCARDS_QUALIFIERS)
     target_compile_options(uv_a PRIVATE $<$<COMPILE_LANGUAGE:C>:-Wno-error=incompatible-pointer-types-discards-qualifiers>)
 endif()
 

@@ -1921,6 +1921,11 @@ size_t IndexSpec_GetIndexErrorCount(const IndexSpec *sp) {
   return IndexError_ErrorCount(&sp->stats.indexError);
 }
 
+size_t IndexSpec_TotalBlockCount(IndexSpec *sp) {
+  return sp->diskSpec ? SearchDisk_GetInvertedIndexTotalBlocks(sp->diskSpec) 
+      : __atomic_load_n(&sp->stats.totalInvertedIndexBlocks, __ATOMIC_RELAXED);
+}
+
 // Assuming the spec is properly locked for writing before calling this function.
 void IndexSpec_AddTerm(IndexSpec *sp, const char *term, size_t len) {
   // Payload is NULL so TRIE_ERR_PAYLOAD_OVERFLOW cannot occur
@@ -2040,7 +2045,7 @@ static void IndexSpec_FreeUnlinkedData(IndexSpec *spec) {
   // Close the disk index right after the fields are cleaned up, while the rest
   // of the spec's state and locks are still fully alive. Background jobs
   // bound at open time hold this IndexSpec as their private data and may call
-  // back into it (IndexSpec_AcquireWriteLock, IndexSpec_BlockDiskFork,
+  // back into it (IndexSpec_AcquireWriteLock,
   // IndexSpec_DecrementTrieTermCount, ...) while the backend drains them during close.
   //  Closing here — before any of the trie/dict/lock
   // teardown below — keeps every field those callbacks might touch valid.
@@ -2099,7 +2104,6 @@ static void IndexSpec_FreeUnlinkedData(IndexSpec *spec) {
   // Destroy the spec's lock. Safe now: the disk index was already closed above,
   // so no compaction listener can reference these locks.
   pthread_rwlock_destroy(&spec->rwlock);
-  pthread_rwlock_destroy(&spec->disk_fork_rwlock);
 
   // Free spec struct
   rm_free(spec);
@@ -2343,18 +2347,14 @@ static void IndexSpec_InitLock(IndexSpec *sp) {
   res = pthread_rwlockattr_init(&attr);
   RS_ASSERT(res == 0);
 #if !defined(__APPLE__) && !defined(__FreeBSD__) && defined(__GLIBC__)
-  // Writer-preferring: avoids fork-writer starvation when blockers (rdlock
-  // holders such as compaction) arrive in a steady stream. Same rationale
-  // applies to both rwlocks below.
+  // Writer-preferring: avoids writer starvation when readers arrive in a
+  // steady stream.
   int pref = PTHREAD_RWLOCK_PREFER_WRITER_NONRECURSIVE_NP;
   res = pthread_rwlockattr_setkind_np(&attr, pref);
   RS_ASSERT(res == 0);
 #endif
 
   pthread_rwlock_init(&sp->rwlock, &attr);
-  pthread_rwlock_init(&sp->disk_fork_rwlock, &attr);
-
-  sp->repl_flags = REPL_LOCK_NONE;
 }
 
 // Helper function for initializing a field spec
@@ -2411,8 +2411,6 @@ static void initializeIndexSpec(IndexSpec *sp, const HiddenString *name, IndexFl
 
 IndexSpec *NewIndexSpec(const HiddenString *name) {
   IndexSpec *sp = rm_calloc(1, sizeof(IndexSpec));
-  // Explicit init for SST replication state on top of rm_calloc's zero-init.
-  sp->repl_flags = REPL_LOCK_NONE;
   initializeIndexSpec(sp, name, INDEX_DEFAULT_FLAGS, 0);
   sp->stopwords = DefaultStopWordList();
   return sp;
@@ -3257,9 +3255,8 @@ void IndexSpec_AddToInfo(RedisModuleInfoCtx *ctx, IndexSpec *sp, bool obfuscate,
     RedisModule_InfoAddFieldDouble(ctx, "total_index_memory_sz_mb", IndexSpec_TotalMemUsage(sp, 0, 0, 0, 0) / (float)0x100000);
   }
   RedisModule_InfoEndDictField(ctx);
-
-  // TotalIIBlocks is safe - just an atomic read, no locks or allocations
-  RedisModule_InfoAddFieldULongLong(ctx, "total_inverted_index_blocks", TotalIIBlocks());
+  
+  RedisModule_InfoAddFieldULongLong(ctx, "total_inverted_index_blocks", sp->stats.totalInvertedIndexBlocks);
 
   RedisModule_InfoBeginDictField(ctx, "index_properties_averages");
   RedisModule_InfoAddFieldDouble(ctx, "records_per_doc_avg",(float)num_records / (float)sp->stats.scoring.numDocuments);
@@ -3598,10 +3595,6 @@ IndexSpec *IndexSpec_RdbLoad(RedisModuleIO *rdb, int encver, bool useSst, QueryE
   RedisModule_Free(rawName);
 
   sp = rm_calloc(1, sizeof(IndexSpec));
-  // Explicit init for SST replication state: defense-in-depth on top of
-  // rm_calloc's zero-init, since the abort handler may run before
-  // initializeIndexSpec / IndexSpec_InitLock if an RDB read fails below.
-  sp->repl_flags = REPL_LOCK_NONE;
   spec_ref = StrongRef_New(sp, (RefManager_Free)IndexSpec_Free);
   sp->own_ref = spec_ref;
 
@@ -3795,8 +3788,6 @@ void *IndexSpec_LegacyRdbLoad(RedisModuleIO *rdb, int encver) {
 
   RedisModuleCtx *ctx = RedisModule_GetContextFromIO(rdb);
   IndexSpec *sp = rm_calloc(1, sizeof(IndexSpec));
-  // Explicit init for SST replication state on top of rm_calloc's zero-init.
-  sp->repl_flags = REPL_LOCK_NONE;
   IndexSpec_InitLock(sp);
   StrongRef spec_ref = StrongRef_New(sp, (RefManager_Free)IndexSpec_Free);
   sp->own_ref = spec_ref;
@@ -4971,31 +4962,6 @@ void IndexSpec_ReleaseWriteLock(IndexSpec* sp) {
   pthread_rwlock_unlock(&sp->rwlock);
 }
 
-// Block the snapshot fork from starting (shared/read side of the fork rwlock).
-void IndexSpec_BlockDiskFork(IndexSpec *sp) {
-  pthread_rwlock_rdlock(&sp->disk_fork_rwlock);
-}
-
-// Release a prior IndexSpec_BlockDiskFork. The fork becomes eligible only
-// after the last blocker releases.
-void IndexSpec_EnableDiskForkIfPossible(IndexSpec *sp) {
-  pthread_rwlock_unlock(&sp->disk_fork_rwlock);
-}
-
-// Enter the exclusive fork window (write side of the fork rwlock). Blocks
-// until every IndexSpec_BlockDiskFork blocker has released.
-void IndexSpec_ProtectDiskFork(IndexSpec *sp) {
-  RS_ASSERT(!(sp->repl_flags & REPL_LOCK_DISK_FORK_PROTECTED));
-  pthread_rwlock_wrlock(&sp->disk_fork_rwlock);
-  sp->repl_flags |= REPL_LOCK_DISK_FORK_PROTECTED;
-}
-
-// Leave the exclusive fork window.
-void IndexSpec_UnProtectDiskFork(IndexSpec *sp) {
-  RS_ASSERT(sp->repl_flags & REPL_LOCK_DISK_FORK_PROTECTED);
-  pthread_rwlock_unlock(&sp->disk_fork_rwlock);
-  sp->repl_flags &= ~REPL_LOCK_DISK_FORK_PROTECTED;
-}
 
 // Update a term's document count in the Serving Trie
 // Note: term is NOT null-terminated; term_len specifies the length

@@ -54,7 +54,7 @@ RUST_TOOLCHAIN_MODIFIER="" # Rust toolchain to use (e.g., +nightly)
 
 # Rust code is built first, so exclude benchmarking crates that link C code,
 # since the static libraries they depend on haven't been built yet.
-EXCLUDE_RUST_BENCHING_CRATES_LINKING_C="--exclude inverted_index_bencher --exclude rqe_iterators_bencher --exclude iterators_ffi --exclude top_k_bencher --exclude trie_bencher --exclude triemap_ffi"
+EXCLUDE_RUST_BENCHING_CRATES_LINKING_C="--exclude inverted_index_bencher --exclude rqe_iterators_bencher --exclude iterators_ffi --exclude top_k_bencher --exclude trie_bencher --exclude triemap_ffi --exclude ttl_table_bencher"
 
 # Retrieve our pinned nightly version.
 NIGHTLY_VERSION=$(cat ${ROOT}/.rust-nightly)
@@ -321,6 +321,7 @@ prepare_coverage_capture() {
   start_group "Code Coverage Preparation"
   lcov --zerocounters      --directory $BINROOT --base-directory $ROOT
   lcov --capture --initial --directory $BINROOT --base-directory $ROOT -o $BINROOT/base.info \
+    --ignore-errors inconsistent,corrupt,mismatch \
     --exclude '*/_deps/*'
   end_group
 }
@@ -334,20 +335,29 @@ capture_coverage() {
 
   start_group "Code Coverage Capture ($NAME)"
 
-  # Capture coverage collected while running tests previously
+  # Capture coverage collected while running tests previously.
+  # Threaded code (e.g. tiered SVS index) can produce gcov data where a function
+  # is reported "not hit" while its line is hit; lcov flags this as an
+  # 'inconsistent' data error, which becomes fatal (surfaced as 'corrupt') when a
+  # later command re-reads the affected trace file. Demote these to warnings so
+  # coverage post-processing doesn't flake the job. 'mismatch' is kept as well to
+  # cover lcov versions that classify the same disagreement under that name.
   lcov --capture --directory $BINROOT --base-directory $ROOT -o $BINROOT/test.info \
+    --ignore-errors inconsistent,corrupt,mismatch \
     --exclude '*/_deps/*'
 
   # Accumulate results with the baseline captured before the test
-  lcov --add-tracefile $BINROOT/base.info --add-tracefile $BINROOT/test.info -o $BINROOT/full.info
+  lcov --add-tracefile $BINROOT/base.info --add-tracefile $BINROOT/test.info -o $BINROOT/full.info \
+    --ignore-errors inconsistent,corrupt,mismatch
 
   # Extract only the coverage of the project source files
   lcov --output-file $BINROOT/source.info --extract $BINROOT/full.info \
+    --ignore-errors inconsistent,corrupt,mismatch \
     "$ROOT/src/*" \
     "$ROOT/deps/thpool/*" \
 
   # Remove coverage for directories we don't want (ignore if no file matches)
-  lcov -o $BINROOT/$NAME.info --ignore-errors unused --remove $BINROOT/source.info \
+  lcov -o $BINROOT/$NAME.info --ignore-errors inconsistent,corrupt,mismatch,unused --remove $BINROOT/source.info \
     "*/tests/*" \
 
   end_group

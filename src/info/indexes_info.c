@@ -34,7 +34,7 @@ TotalIndexesInfo IndexesInfo_TotalInfo() {
     // Lock for read
     int rc = pthread_rwlock_rdlock(&sp->rwlock);
     if (rc != 0) {
-      RedisModule_Log(RSDummyContext, "warning", "Failed to acquire read lock on index %s: rc=%d (%s). Cannot continue getting Index info", HiddenString_GetUnsafe(sp->specName, NULL), rc, strerror(rc));
+      RedisModule_Log(RSDummyContext, "warning", "Failed to acquire read lock on index %s: rc=%d (%s). Cannot continue getting Index info", IndexSpec_FormatName(sp, RSGlobalConfig.hideUserDataFromLog), rc, strerror(rc));
       continue;
     }
 
@@ -67,6 +67,7 @@ TotalIndexesInfo IndexesInfo_TotalInfo() {
     info.total_active_write_threads += activeWrites;
     BGIndexerInProgress |= sp->scan_in_progress;
     info.total_num_docs_in_indexes += sp->stats.scoring.numDocuments;
+    info.total_inverted_index_blocks += IndexSpec_TotalBlockCount(sp);
 
     // Index errors metrics
     size_t index_error_count = IndexSpec_GetIndexErrorCount(sp);

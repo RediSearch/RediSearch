@@ -1015,3 +1015,35 @@ TEST_F(TrieTest, testRdbSaveLoadWithNumDocs) {
   EXPECT_EQ(6, count);
   TrieIterator_Free(it);
 }
+
+// Regression: Trie_Search(trim=1) used to mutate ret->top before reading the
+// tail entries it was about to free. Vector_Get then returned 0 without
+// touching the out pointer, so TrieSearchResult_Free(h) ran on stack garbage
+// and the allocator aborted. This test forces the trim drop branch (one entry
+// whose score dominates the rest by > SCORE_TRIM_FACTOR) and asserts both
+// non-abort and the surviving count.
+TEST_F(TrieTest, testSearchTrimDropsTail) {
+  Trie *t = NewTrie(NULL, Trie_Sort_Score);
+
+  trieInsertByScore(t, "ha", 100.0f);
+  trieInsertByScore(t, "hb", 1.0f);
+  trieInsertByScore(t, "hc", 1.0f);
+  trieInsertByScore(t, "hd", 1.0f);
+  trieInsertByScore(t, "he", 1.0f);
+
+  // num=10, maxDist=0, prefixMode=1, trim=1, optimize=0
+  Vector *res = Trie_Search(t, "h", 1, 10, 0, 1, 1, 0);
+  ASSERT_TRUE(res != NULL);
+
+  // Only the dominant entry should survive the trim: 1.0 < 100.0 / 10.0.
+  ASSERT_EQ(1, Vector_Size(res));
+
+  TrieSearchResult *e;
+  ASSERT_EQ(1, Vector_Get(res, 0, &e));
+  ASSERT_EQ(2, e->len);
+  ASSERT_EQ(0, memcmp(e->str, "ha", 2));
+  TrieSearchResult_Free(e);
+  Vector_Free(res);
+
+  TrieType_Free(t);
+}
