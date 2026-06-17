@@ -10,6 +10,7 @@
 use std::num::NonZero;
 
 use ffi::timespec;
+use rand::{SeedableRng as _, rngs::StdRng};
 use rqe_core::DocId;
 use ttl_table::test_utils::*;
 use ttl_table_bencher::*;
@@ -21,7 +22,10 @@ fn assert_timespec_eq(a: timespec, b: timespec) {
 
 #[test]
 fn test_create_field_expiration() {
-    let mut rng = rand::rng();
+    // Seed a deterministic RNG so every assertion below — in particular the
+    // probabilistic "not all are present" case — has a fixed, reproducible
+    // outcome rather than a small chance of spurious failure.
+    let mut rng = StdRng::seed_from_u64(42);
 
     // All items in FAR_IN_THE_FUTURE
     let output = create_field_expiration(
@@ -77,7 +81,7 @@ fn test_create_field_expiration() {
         assert_timespec_eq(field.point, PAST);
     }
 
-    // Not all are present
+    // Not all are present.
     let output = create_field_expiration(
         0,
         &FieldExpirationInput {
@@ -89,7 +93,7 @@ fn test_create_field_expiration() {
         },
         &mut rng,
     );
-    assert_ne!(output.len(), 10);
+    assert!(output.len() < 10);
 
     // Count variation
     let output = create_field_expiration(

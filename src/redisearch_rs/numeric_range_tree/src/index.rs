@@ -15,7 +15,7 @@
 use ffi::IndexFlags_Index_StoreNumeric;
 use index_result::RSIndexResult;
 use inverted_index::{
-    EntriesTrackingIndex, IndexBlock, IndexReader, IndexReaderCore, NumericReader,
+    EntriesTrackingIndex, IndexReader, IndexReaderCore, NumericReader,
     debug::Summary,
     numeric::{Numeric, NumericFloatCompression},
 };
@@ -117,18 +117,6 @@ impl NumericIndex {
         }
     }
 
-    /// Get a reference to the last block in this index, if any.
-    pub(crate) fn last_block(&self) -> Option<&IndexBlock> {
-        let n = self.num_blocks();
-        if n == 0 {
-            return None;
-        }
-        match self {
-            NumericIndex::Uncompressed(idx) => idx.block_ref(n - 1),
-            NumericIndex::Compressed(idx) => idx.block_ref(n - 1),
-        }
-    }
-
     /// Get the first document ID in a specific block.
     ///
     /// Returns `None` if the block index is out of bounds.
@@ -159,7 +147,7 @@ impl NumericIndex {
         repair_fn: Option<F>,
     ) -> std::io::Result<Option<inverted_index::GcScanDelta>>
     where
-        F: for<'index> FnMut(&RSIndexResult<'index>, &IndexBlock),
+        F: for<'index> FnMut(&RSIndexResult<'index>, &inverted_index::RepairContext<'index>),
     {
         match self {
             NumericIndex::Uncompressed(idx) => idx.scan_gc(doc_exist, repair_fn),

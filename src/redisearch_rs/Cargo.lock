@@ -1754,11 +1754,28 @@ version = "0.0.1"
 dependencies = [
  "build_utils",
  "ffi",
+ "index_result",
+ "inverted_index",
  "proptest",
+ "query",
  "query_eval",
+ "query_node_type",
  "redis_mock",
  "redisearch_rs",
+ "rqe_core",
+ "rqe_iterators",
+ "rqe_iterators_test_utils",
  "thiserror",
+ "workspace_hack",
+]
+
+[[package]]
+name = "query_eval_ffi"
+version = "0.0.1"
+dependencies = [
+ "ffi",
+ "query_eval",
+ "rqe_iterators",
  "workspace_hack",
 ]
 
@@ -2020,6 +2037,7 @@ dependencies = [
  "module_init_ffi",
  "numeric_range_tree_ffi",
  "query_error_ffi",
+ "query_eval_ffi",
  "query_term_ffi",
  "quote 1.0.45",
  "redis-module",
@@ -2355,6 +2373,7 @@ dependencies = [
  "numeric_range_tree_ffi",
  "proptest",
  "query_error_ffi",
+ "query_eval_ffi",
  "query_term_ffi",
  "redis_mock",
  "reducers_ffi",
@@ -2811,6 +2830,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "term_suffix_index"
+version = "0.0.1"
+dependencies = [
+ "ffi",
+ "proptest",
+ "trie_rs",
+ "workspace_hack",
+]
+
+[[package]]
 name = "thin_vec"
 version = "0.0.1"
 dependencies = [
@@ -3038,6 +3067,7 @@ dependencies = [
 name = "trie_rs"
 version = "0.0.1"
 dependencies = [
+ "cheadergen",
  "ffi",
  "fs-err",
  "insta",

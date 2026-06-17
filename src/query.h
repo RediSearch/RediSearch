@@ -101,25 +101,6 @@ void QAST_SetGlobalFilters(QueryAST *ast, QAST_GlobalFilterOptions *options);
 void SetFilterNode(QueryAST *q, QueryNode *filterNode);
 
 /**
- * Open the result iterator on the filters. Returns the iterator for the root node.
- *
- * @param ast the parsed tree
- * @param opts options
- * @param sctx the search context. Note that this may be retained by the iterators
- *  for the remainder of the query.
- * @param reqflags Request (AGG/SEARCH) flags
- * @param areq optional borrowed pointer to the owning request. Filtered
- *  through `AREQ_TimeoutAreqOrNull`: when the request has `skipTimeoutChecks`
- *  set, iterators wire the Blocked Client Timeout callback against it;
- *  otherwise (including NULL `areq`) the Clock Based Timeout is used.
- * @param status error detail
- * @return an iterator.
- */
-QueryIterator *QAST_Iterate(QueryAST *ast, const RSSearchOptions *options,
-                            RedisSearchCtx *sctx, uint32_t reqflags,
-                            struct AREQ *areq, QueryError *status);
-
-/**
  * Remove tag escape sequences and optionally lowercase a string.
  * @param pstr pointer to the string (may be reallocated if lowercasing produces a longer result)
  * @param len pointer to the string length (updated on output)

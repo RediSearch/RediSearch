@@ -7,10 +7,7 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 
-mod mock;
-
-use mock::MockQueryEvalCtx;
-use query::QueryEvalContext;
+use query::{QueryEvalContext, mock::MockQueryEvalCtx};
 use query_flags::QEFlag;
 
 #[test]

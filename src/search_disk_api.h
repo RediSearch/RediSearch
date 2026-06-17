@@ -45,6 +45,13 @@ typedef void* RedisSearchDiskAsyncReadPool;
 // fs->vectorOpts.vecSimIndex; storage is bound to that handle in place at
 // LOADING_ENDED.
 typedef const void* RedisSearchDiskRdbState;
+// Opaque handle for a consistent point-in-time view of the disk database.
+//
+// Created via `IndexDiskAPI.createSnapshot`, released via `IndexDiskAPI.freeSnapshot`.
+// Pass the same snapshot to `newTermIterator` / `newTagIterator` / `newWildcardIterator`
+// so all iterators in a query observe the same database state. The snapshot must outlive
+// every iterator created from it, and must not outlive the originating index spec.
+typedef const void* RedisSearchDiskSnapshot;
 
 // Opaque handle for the underlying storage-layer write batch.
 //
@@ -448,10 +455,12 @@ typedef struct IndexDiskAPI {
    * @param fieldMask Field mask indicating which fields are present in the document
    * @param weight Weight for the iterator (used in scoring)
    * @param needsOffsets Whether the query needs term offset data (for scoring or phrase matching)
+   * @param snapshot Required snapshot for the read view. Must have been returned by
+   *                 `createSnapshot(index)` and must remain valid until the returned iterator is freed.
    * @param status QueryError to populate with the cause when creation fails (may be NULL)
    * @return Pointer to the created iterator, or NULL if creation failed
    */
-  QueryIterator *(*newTermIterator)(RedisSearchDiskIndexSpec* index, RSQueryTerm* term, t_fieldMask fieldMask, double weight, bool needsOffsets, QueryError* status);
+  QueryIterator *(*newTermIterator)(RedisSearchDiskIndexSpec* index, RSQueryTerm* term, t_fieldMask fieldMask, double weight, bool needsOffsets, RedisSearchDiskSnapshot *snapshot, QueryError* status);
 
   /**
    * @brief Creates a new iterator for a tag index
@@ -460,10 +469,34 @@ typedef struct IndexDiskAPI {
    * @param tok Pointer to the token (contains tag string and length)
    * @param fieldIndex Field index for the tag field
    * @param weight Weight for the iterator (used in scoring)
+   * @param snapshot Required snapshot for the read view. Must have been returned by
+   *                 `createSnapshot(index)` and must remain valid until the returned iterator is freed.
    * @param status QueryError to populate with the cause when creation fails (may be NULL)
    * @return Pointer to the created iterator, or NULL if creation failed
    */
-  QueryIterator *(*newTagIterator)(RedisSearchDiskIndexSpec* index, const RSToken* tok, t_fieldIndex fieldIndex, double weight, QueryError* status);
+  QueryIterator *(*newTagIterator)(RedisSearchDiskIndexSpec* index, const RSToken* tok, t_fieldIndex fieldIndex, double weight, RedisSearchDiskSnapshot *snapshot, QueryError* status);
+
+  /**
+   * @brief Take a point-in-time snapshot of the disk database for this index.
+   *
+   * The returned snapshot can be passed to `newTermIterator`, `newTagIterator`,
+   * `newNumericIterator`, and the Rust-side wildcard iterator entry point so that every
+   * iterator created for one query observes the same database state. Must be released by
+   * `freeSnapshot` when no iterator is still using it.
+   *
+   * @param index Pointer to the index spec
+   * @return Snapshot handle, or NULL on error (e.g. index is NULL)
+   */
+  RedisSearchDiskSnapshot *(*createSnapshot)(RedisSearchDiskIndexSpec *index);
+
+  /**
+   * @brief Release a snapshot previously returned by `createSnapshot`.
+   *
+   * Safe to call with NULL (no-op). After this call, the snapshot pointer must not be used.
+   *
+   * @param snapshot Snapshot handle returned by `createSnapshot`
+   */
+  void (*freeSnapshot)(RedisSearchDiskSnapshot *snapshot);
 
   /**
    * @brief Creates a new iterator over a numeric range on the disk-backed index
@@ -478,10 +511,12 @@ typedef struct IndexDiskAPI {
    * @param index Pointer to the index
    * @param filter Pointer to the numeric filter (min, max, inclusivity flags, field spec)
    * @param fieldIndex Field index for the numeric field
+   * @param snapshot Required snapshot for the read view. Must have been returned by
+   *                 `createSnapshot(index)` and must remain valid until the returned iterator is freed.
    * @param status QueryError to populate with the cause when creation fails (may be NULL)
    * @return Pointer to the created iterator, or NULL if no buckets overlap the filter
    */
-  QueryIterator *(*newNumericIterator)(RedisSearchDiskIndexSpec *index, const NumericFilter *filter, t_fieldIndex fieldIndex, QueryError* status);
+  QueryIterator *(*newNumericIterator)(RedisSearchDiskIndexSpec *index, const NumericFilter *filter, t_fieldIndex fieldIndex, RedisSearchDiskSnapshot *snapshot, QueryError* status);
 
   /**
    * @brief Run a GC compaction cycle on the disk index.
@@ -602,6 +637,10 @@ typedef struct DocTableDiskAPI {
   /**
    * @brief Returns whether the docId is in the deleted set
    *
+   * Deletions live in the storage layer's in-memory deleted-id bitmap, not in
+   * SpeedB, so this check always reads the live bitmap — there is no snapshot
+   * parameter to pin it to a point-in-time view.
+   *
    * @param handle Handle to the document table
    * @param docId Document ID to check
    * @return true if deleted, false if not deleted or on error
@@ -616,9 +655,13 @@ typedef struct DocTableDiskAPI {
    * @param dmd Pointer to the document metadata structure to populate
    * @param allocate_key Callback to allocate memory for the key
    * @param expiration_point Current time for expiration check, or NULL to skip expiration check.
+   * @param snapshot Optional snapshot for a consistent read view, or NULL to read the live state.
+   *                 When non-NULL, must have been returned by `IndexDiskAPI.createSnapshot(index)`
+   *                 (where `index` is the same index this `handle` belongs to) and must remain
+   *                 valid for the duration of this call.
    * @return true if found and not expired, false if not found, expired, or on error
    */
-  bool (*getDocumentMetadata)(RedisSearchDiskIndexSpec* handle, t_docId docId, RSDocumentMetadata* dmd, AllocateKeyCallback allocate_key, const t_expirationTimePoint* expiration_point);
+  bool (*getDocumentMetadata)(RedisSearchDiskIndexSpec* handle, t_docId docId, RSDocumentMetadata* dmd, AllocateKeyCallback allocate_key, const t_expirationTimePoint* expiration_point, RedisSearchDiskSnapshot *snapshot);
 
   /**
    * @brief Gets the maximum document ID assigned in the index
@@ -655,11 +698,29 @@ typedef struct DocTableDiskAPI {
    * The pool allows adding async read requests up to a maximum concurrency limit,
    * and polling for completed results. This enables I/O parallelism for query processing.
    *
+   * The `snapshot` pins the pool to a consistent read view: every read issued
+   * through this pool (via `addAsyncRead` / `pollAsyncReads`) observes that snapshot,
+   * matching the on-disk view the iterators built from the same snapshot are reading.
+   *
+   * The snapshot must outlive every async read issued through the pool — not just the
+   * pool handle itself. SpeedB captures the snapshot pointer when each read is
+   * enqueued and dereferences it when the I/O completion fires; `freeAsyncReadPool`
+   * does not cancel or wait for in-flight reads. The caller must therefore drain the
+   * pool (poll until pending == 0) before calling `freeAsyncReadPool`, so the snapshot
+   * stays valid until every in-flight callback has run.
+   *
    * @param handle Handle to the index
    * @param max_concurrent Maximum number of concurrent pending reads
-   * @return Opaque handle to the pool, or NULL on error. Must be freed with freeAsyncReadPool.
+   * @param snapshot Snapshot for the consistent read view. Must have been returned by
+   *                 `IndexDiskAPI.createSnapshot(index)` (where `index` is the same index
+   *                 this `handle` belongs to) and must remain valid for the lifetime of
+   *                 every in-flight read, as described above. A NULL snapshot is rejected:
+   *                 the function returns NULL and no pool is created (the caller is expected
+   *                 to fall back to synchronous reads).
+   * @return Opaque handle to the pool, or NULL on error or when `snapshot` is NULL. Must be
+   *         freed with freeAsyncReadPool.
    */
-  RedisSearchDiskAsyncReadPool (*createAsyncReadPool)(RedisSearchDiskIndexSpec* handle, uint16_t max_concurrent);
+  RedisSearchDiskAsyncReadPool (*createAsyncReadPool)(RedisSearchDiskIndexSpec* handle, uint16_t max_concurrent, RedisSearchDiskSnapshot *snapshot);
 
   /**
    * @brief Adds an async read request to the pool for the given document ID
@@ -698,7 +759,11 @@ typedef struct DocTableDiskAPI {
                                     AllocateDMDCallback allocate_dmd);
 
   /**
-   * @brief Frees the async read pool and cancels any pending reads
+   * @brief Frees the async read pool.
+   *
+   * Does NOT cancel or wait for in-flight reads (see `createAsyncReadPool`): the
+   * caller must have drained the pool (polled until pending == 0) before calling
+   * this, or otherwise guaranteed the snapshot outlives every in-flight read.
    *
    * @param pool Pool handle from createAsyncReadPool
    */

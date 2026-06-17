@@ -107,20 +107,20 @@ TrieNode *Trie_GetNode(Trie *t, const rune *str, t_len len, bool exact, int *off
   return TrieNode_Get(t->root, str, len, exact, offsetOut);
 }
 
-void Trie_IterateRange(Trie *t, const rune *min, int minlen, bool includeMin,
+void Trie_IterateRange(const Trie *t, const rune *min, int minlen, bool includeMin,
                        const rune *max, int maxlen, bool includeMax,
                        TrieRangeCallback callback, void *ctx) {
   TrieNode_IterateRange(t->root, min, minlen, includeMin, max, maxlen, includeMax, callback, ctx);
 }
 
-void Trie_IterateContains(Trie *t, const rune *str, int nstr, bool prefix, bool suffix,
+void Trie_IterateContains(const Trie *t, const rune *str, int nstr, bool prefix, bool suffix,
                           TrieRangeCallback callback, void *ctx, struct timespec *timeout,
                           bool skipTimeoutChecks) {
   TrieNode_IterateContains(t->root, str, nstr, prefix, suffix, callback, ctx, timeout,
                            skipTimeoutChecks);
 }
 
-void Trie_IterateWildcard(Trie *t, const rune *str, int nstr,
+void Trie_IterateWildcard(const Trie *t, const rune *str, int nstr,
                           TrieRangeCallback callback, void *ctx, struct timespec *timeout,
                           bool skipTimeoutChecks) {
   TrieNode_IterateWildcard(t->root, str, nstr, callback, ctx, timeout, skipTimeoutChecks);
@@ -209,9 +209,10 @@ TrieIterator *Trie_IterateAll(Trie *t) {
   return TrieNode_Iterate(t->root, NULL, NULL, NULL);
 }
 
-TrieIterator *Trie_Iterate(Trie *t, const char *prefix, size_t len, int maxDist, int prefixMode) {
+TrieIterator *Trie_IterateFuzzy(Trie *t, const char *str, size_t len, int maxDist,
+                                TrieMatchMode mode) {
   size_t rlen;
-  rune *runes = strToLowerRunes(prefix, len, &rlen);
+  rune *runes = strToLowerRunes(str, len, &rlen);
   if (!runes || rlen > TRIE_MAX_PREFIX) {
     if (runes) {
       rm_free(runes);
@@ -219,21 +220,21 @@ TrieIterator *Trie_Iterate(Trie *t, const char *prefix, size_t len, int maxDist,
     return NULL;
   }
 
-  DFAFilter *fc = NewDFAFilter(runes, rlen, maxDist, prefixMode);
+  DFAFilter *fc = NewDFAFilter(runes, rlen, maxDist, mode);
 
   TrieIterator *it = TrieNode_Iterate(t->root, LoweringFilterFunc, StackPop, fc);
   rm_free(runes);
   return it;
 }
 
-Vector *Trie_Search(Trie *tree, const char *s, size_t len, size_t num, int maxDist, int prefixMode,
-                    int trim, int optimize) {
+Vector *Trie_CollectFuzzy(const Trie *t, const char *str, size_t len, size_t num, int maxDist,
+                          TrieMatchMode mode, int trim, int optimize) {
 
   if (len > TRIE_MAX_PREFIX * sizeof(rune)) {
     return NULL;
   }
   size_t rlen;
-  rune *runes = strToSingleCodepointFoldedRunes(s, len, &rlen);
+  rune *runes = strToSingleCodepointFoldedRunes(str, len, &rlen);
   // make sure query length does not overflow
   if (!runes || rlen > TRIE_MAX_PREFIX) {
     rm_free(runes);
@@ -243,10 +244,10 @@ Vector *Trie_Search(Trie *tree, const char *s, size_t len, size_t num, int maxDi
   heap_t *pq = rm_malloc(heap_sizeof(num));
   heap_init(pq, cmpEntries, NULL, num);
 
-  DFAFilter *fc = NewDFAFilter(runes, rlen, maxDist, prefixMode);
+  DFAFilter *fc = NewDFAFilter(runes, rlen, maxDist, mode);
 
-  TrieIterator *it = TrieNode_Iterate(tree->root, FoldingFilterFunc, StackPop, fc);
-  // TrieIterator *it = TrieNode_Iterate(tree->root,NULL, NULL, NULL);
+  TrieIterator *it = TrieNode_Iterate(t->root, FoldingFilterFunc, StackPop, fc);
+  // TrieIterator *it = TrieNode_Iterate(t->root,NULL, NULL, NULL);
   rune *rstr;
   t_len slen;
   float score;
@@ -270,7 +271,7 @@ Vector *Trie_Search(Trie *tree, const char *s, size_t len, size_t num, int maxDi
       ent->score *= exp((double)-(2 * dist));
     }
     // in prefix mode we also factor in the total length of the suffix
-    if (prefixMode) {
+    if (mode == TRIE_MATCH_PREFIX) {
       ent->score /= sqrt(1 + (slen >= len ? slen - len : len - slen));
     }
 
@@ -448,7 +449,7 @@ void TrieType_RdbSave(RedisModuleIO *rdb, void *value) {
   TrieType_GenericSave(rdb, (Trie *)value, true, true);
 }
 
-void TrieType_GenericSave(RedisModuleIO *rdb, Trie *tree, bool savePayloads, bool saveNumDocs) {
+void TrieType_GenericSave(RedisModuleIO *rdb, const Trie *tree, bool savePayloads, bool saveNumDocs) {
   RedisModule_SaveUnsigned(rdb, tree->size);
   RedisModuleCtx *ctx = RedisModule_GetContextFromIO(rdb);
   //  RedisModule_Log(ctx, "notice", "Trie: saving %zd nodes.", tree->size);

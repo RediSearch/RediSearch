@@ -143,7 +143,7 @@ impl<E: Encoder + DecodedBy> EntriesTrackingIndex<E> {
     pub fn scan_gc<'index>(
         &'index self,
         doc_exist: impl Fn(DocId) -> bool,
-        repair: Option<impl FnMut(&RSIndexResult<'index>, &IndexBlock)>,
+        repair: Option<impl FnMut(&RSIndexResult<'index>, &crate::RepairContext<'index>)>,
     ) -> std::io::Result<Option<GcScanDelta>> {
         self.index.scan_gc(doc_exist, repair)
     }

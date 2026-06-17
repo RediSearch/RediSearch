@@ -10,6 +10,7 @@
 #include "search_disk.h"
 #include "config.h"
 #include "spec.h"
+#include "indexes.h"
 #include "query_term_ffi.h"
 #include "sorting_vector_ffi.h"
 #include "redismodule.h"
@@ -311,22 +312,35 @@ bool SearchDisk_IndexNumeric(RedisModuleCtx *ctx, RedisSearchDiskIndexSpec *inde
     return disk->index.indexNumeric(ctx, index, batch, docId, value, fieldIndex);
 }
 
-QueryIterator* SearchDisk_NewTermIterator(RedisSearchDiskIndexSpec *index, RSToken *tok, int tokenId, t_fieldMask fieldMask, double weight, double idf, double bm25_idf, bool needsOffsets, QueryError *status) {
-    RS_ASSERT(disk && index && tok);
+QueryIterator* SearchDisk_NewTermIterator(RedisSearchDiskIndexSpec *index, const RedisSearchCtx *sctx, RSToken *tok, int tokenId, t_fieldMask fieldMask, double weight, double idf, double bm25_idf, bool needsOffsets, QueryError *status) {
+    RS_ASSERT(disk && index && sctx && sctx->diskSnapshot && tok);
     RSQueryTerm *term = NewQueryTerm(tok, tokenId);
     QueryTerm_SetIDFs(term, idf, bm25_idf);
     // Ownership of `term` is transferred to Rust, which handles cleanup on all paths
-    return disk->index.newTermIterator(index, term, fieldMask, weight, needsOffsets, status);
+    return disk->index.newTermIterator(index, term, fieldMask, weight, needsOffsets, sctx->diskSnapshot, status);
 }
 
-QueryIterator* SearchDisk_NewTagIterator(RedisSearchDiskIndexSpec *index, const RSToken *tok, t_fieldIndex fieldIndex, double weight, QueryError *status) {
-    RS_ASSERT(disk && index && tok);
-    return disk->index.newTagIterator(index, tok, fieldIndex, weight, status);
+QueryIterator* SearchDisk_NewTagIterator(RedisSearchDiskIndexSpec *index, const RedisSearchCtx *sctx, const RSToken *tok, t_fieldIndex fieldIndex, double weight, QueryError *status) {
+    RS_ASSERT(disk && index && sctx && sctx->diskSnapshot && tok);
+    return disk->index.newTagIterator(index, tok, fieldIndex, weight, sctx->diskSnapshot, status);
 }
 
-QueryIterator* SearchDisk_NewNumericIterator(RedisSearchDiskIndexSpec *index, const NumericFilter *filter, t_fieldIndex fieldIndex, QueryError *status) {
-    RS_ASSERT(disk && index && filter);
-    return disk->index.newNumericIterator(index, filter, fieldIndex, status);
+RedisSearchDiskSnapshot* SearchDisk_CreateSnapshot(RedisSearchDiskIndexSpec *index) {
+    RS_ASSERT(disk && index);
+    return disk->index.createSnapshot(index);
+}
+
+void SearchDisk_FreeSnapshot(RedisSearchDiskSnapshot *snapshot) {
+    if (!snapshot) {
+        return;
+    }
+    RS_ASSERT(disk);
+    disk->index.freeSnapshot(snapshot);
+}
+
+QueryIterator* SearchDisk_NewNumericIterator(RedisSearchDiskIndexSpec *index, const RedisSearchCtx *sctx, const NumericFilter *filter, t_fieldIndex fieldIndex, QueryError *status) {
+    RS_ASSERT(disk && index && sctx && sctx->diskSnapshot && filter);
+    return disk->index.newNumericIterator(index, filter, fieldIndex, sctx->diskSnapshot, status);
 }
 
 size_t SearchDisk_RunGC(RedisSearchDiskIndexSpec *index) {
@@ -339,9 +353,10 @@ t_docId SearchDisk_PutDocument(RedisSearchDiskIndexSpec *handle, SearchDiskWrite
     return disk->docTable.putDocument(handle, batch, key, keyLen, score, flags, maxTermFreq, docLen, oldLen, documentTtl, oldDocId);
 }
 
-bool SearchDisk_GetDocumentMetadata(RedisSearchDiskIndexSpec *handle, t_docId docId, RSDocumentMetadata *dmd, struct timespec *current_time) {
+bool SearchDisk_GetDocumentMetadata(RedisSearchDiskIndexSpec *handle, const RedisSearchCtx *sctx, t_docId docId, RSDocumentMetadata *dmd, struct timespec *current_time) {
     RS_ASSERT(disk && handle);
-    return disk->docTable.getDocumentMetadata(handle, docId, dmd, &sdsnewlen, current_time);
+    RedisSearchDiskSnapshot *snapshot = sctx ? sctx->diskSnapshot : NULL;
+    return disk->docTable.getDocumentMetadata(handle, docId, dmd, &sdsnewlen, current_time, snapshot);
 }
 
 bool SearchDisk_DocIdDeleted(RedisSearchDiskIndexSpec *handle, t_docId docId) {
@@ -369,9 +384,10 @@ bool SearchDisk_ReplaceKey(RedisSearchDiskIndexSpec *handle, t_docId docId, cons
     return disk->docTable.replaceKey(handle, docId, newKey, newKeyLen);
 }
 
-RedisSearchDiskAsyncReadPool SearchDisk_CreateAsyncReadPool(RedisSearchDiskIndexSpec *handle, uint16_t max_concurrent) {
+RedisSearchDiskAsyncReadPool SearchDisk_CreateAsyncReadPool(RedisSearchDiskIndexSpec *handle, const RedisSearchCtx *sctx, uint16_t max_concurrent) {
     RS_ASSERT(disk && handle);
-    return disk->docTable.createAsyncReadPool(handle, max_concurrent);
+    RedisSearchDiskSnapshot *snapshot = sctx ? sctx->diskSnapshot : NULL;
+    return disk->docTable.createAsyncReadPool(handle, max_concurrent, snapshot);
 }
 
 bool SearchDisk_AddAsyncRead(RedisSearchDiskAsyncReadPool pool, t_docId docId, uint64_t user_data) {

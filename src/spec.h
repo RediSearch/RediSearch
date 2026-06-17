@@ -126,30 +126,11 @@ struct IndexesScanner;
 #define MIN_DIALECT_VERSION 1 // MIN_DIALECT_VERSION is expected to change over time as dialects become deprecated.
 #define MAX_DIALECT_VERSION 4 // MAX_DIALECT_VERSION may not exceed MIN_DIALECT_VERSION + 7.
 
-extern dict *specDict_g;
-extern dict *specIdDict_g;  // Maps specId (uint64_t) → RefManager* (same as specDict_g values)
+// Generic helpers to read a StrongRef out of a dict entry. (The global index
+// registry dictionaries specDict_g / specIdDict_g are declared in indexes.h.)
 #define dictGetRef(he) ((StrongRef){dictGetVal(he)})
 #define dictFetchRef(dict, key) ((StrongRef){dictFetchValue((dict), (key))})
 
-typedef enum {
-    DEBUG_INDEX_SCANNER_CODE_NEW,
-    DEBUG_INDEX_SCANNER_CODE_RUNNING,
-    DEBUG_INDEX_SCANNER_CODE_DONE,
-    DEBUG_INDEX_SCANNER_CODE_CANCELLED,
-    DEBUG_INDEX_SCANNER_CODE_PAUSED,
-    DEBUG_INDEX_SCANNER_CODE_RESUMED,
-    DEBUG_INDEX_SCANNER_CODE_PAUSED_ON_OOM,
-    DEBUG_INDEX_SCANNER_CODE_PAUSED_BEFORE_OOM_RETRY,
-
-    //Insert new codes here (before COUNT)
-    DEBUG_INDEX_SCANNER_CODE_COUNT  // Helps with array size checks
-    //Do not add new codes after COUNT
-} DebugIndexScannerCode;
-
-extern const char *DEBUG_INDEX_SCANNER_STATUS_STRS[];
-
-extern size_t pending_global_indexing_ops;
-extern struct IndexesScanner *global_spec_scanner;
 extern dict *legacySpecRules;
 
 typedef struct {
@@ -299,6 +280,7 @@ typedef uint16_t FieldSpecDedupeArray[SPEC_MAX_FIELDS];
   ((spec)->flags & Index_StoreFieldFlags)
 
 #define FIELD_BIT(fs) (((t_fieldMask)1) << (fs)->ftId)
+#define FieldSpec_IsIndexableTextInMask(fs, fm) (FieldSpec_IsIndexableText(fs) && ((fm) & FIELD_BIT(fs)))
 
 //---------------------------------------------------------------------------------------------
 
@@ -438,11 +420,6 @@ typedef struct IndexSpecCache {
 } IndexSpecCache;
 
 /**
- * For testing only
- */
-void Spec_AddToDict(RefManager *w_spec);
-
-/**
  * Compare redis versions
  */
 int CompareVersions(Version v1, Version v2);
@@ -510,6 +487,9 @@ void IndexSpec_GetStats(IndexSpec *sp, RSIndexStats *stats);
 /* Get the number of indexing failures */
 size_t IndexSpec_GetIndexErrorCount(const IndexSpec *sp);
 
+/* Get the count of total blocks*/
+size_t IndexSpec_TotalBlockCount(IndexSpec *sp);
+
 /*
  * Parse an index spec from redis command arguments.
  * Returns REDISMODULE_ERR if there's a parsing error.
@@ -523,7 +503,9 @@ StrongRef IndexSpec_ParseRedisArgs(RedisModuleCtx *ctx, const HiddenString *name
 arrayof(FieldSpec *) getFieldsByType(IndexSpec *spec, FieldType type);
 int isRdbLoading(RedisModuleCtx *ctx);
 
-/* Create a new index spec from redis arguments, set it in a redis key and start its GC.
+/* Build a new index spec from redis arguments and start its GC. Does NOT add it
+ * to the global registry or start the initial scan - the caller-facing
+ * Indexes_CreateNewSpec (indexes.h) wraps those registry concerns around this call.
  * If an error occurred - we set an error string in err and return NULL.
  */
 IndexSpec *IndexSpec_CreateNew(RedisModuleCtx *ctx, RedisModuleString **argv, int argc,
@@ -539,12 +521,12 @@ RedisModuleString *IndexSpec_Serialize(IndexSpec *sp);
 
 /**
  * Deserialize an IndexSpec from its RDB serialized form, by calling the `IndexSpecType` rdb_load function.
- * Note that this function also stores the index spec in the global spec dictionary, as if it was loaded
- * from the RDB file.
- * Returns REDISMODULE_OK on success, REDISMODULE_ERR on failure.
+ * Returns the loaded spec (its single owning reference in sp->own_ref), or NULL on failure.
+ * Does NOT publish the spec into the global registry - the caller must pass the
+ * result to Indexes_StoreSpecAfterRdbLoad (see indexes.h).
  * Does not consume the serialized string, the caller is responsible for freeing it.
 */
-int IndexSpec_Deserialize(const RedisModuleString *serialized, int encver);
+IndexSpec *IndexSpec_Deserialize(const RedisModuleString *serialized, int encver);
 
 /* Start the garbage collection loop on the index spec */
 void IndexSpec_StartGC(StrongRef spec_ref, IndexSpec *sp, GCPolicy gcPolicy);
@@ -575,24 +557,29 @@ void IndexSpec_DeleteDoc_Unsafe(IndexSpec *spec, RedisModuleCtx *ctx, RedisModul
 // NOT clean up DocIdMeta on the key. This is called from the metadata unlink callback
 void IndexSpec_DeleteDocById(IndexSpec *spec, t_docId docId);
 
+// (Re)index a single document into the spec.
+int IndexSpec_UpdateDoc(IndexSpec *spec, RedisModuleCtx *ctx, RedisModuleString *key, DocumentType type);
+
+// Format the legacy (separate-key) Redis key name for a numeric/tag/geo field.
+RedisModuleString *IndexSpec_LegacyGetFormattedKey(IndexSpec *sp, const FieldSpec *fs,
+                                                   FieldType forType);
+
 /**
  * Indicate that the index spec should use an internal dictionary,rather than
  * the Redis keyspace
  */
 void IndexSpec_MakeKeyless(IndexSpec *sp);
 
-void IndexesScanner_Cancel(struct IndexesScanner *scanner);
-void IndexesScanner_ResetProgression(struct IndexesScanner *scanner);
-
-void IndexSpec_ScanAndReindex(RedisModuleCtx *ctx, StrongRef ref);
 /**
  * Exposing all the fields of the index to INFO command.
  * @param ctx - the redis module info context
  * @param sp - the index spec
  * @param obfuscate - if true, obfuscate the index name and field names
  * @param skip_unsafe_ops - if true, skips operations unsafe in signal handler context (allocations, locks)
+ * @param globalScanActive - whether a global background scan is currently running
  */
-void IndexSpec_AddToInfo(RedisModuleInfoCtx *ctx, IndexSpec *sp, bool obfuscate, bool skip_unsafe_ops);
+void IndexSpec_AddToInfo(RedisModuleInfoCtx *ctx, IndexSpec *sp, bool obfuscate, bool skip_unsafe_ops,
+                         bool globalScanActive);
 
 /**
  * Gets the next text id from the index. This does not currently
@@ -600,8 +587,10 @@ void IndexSpec_AddToInfo(RedisModuleInfoCtx *ctx, IndexSpec *sp, bool obfuscate,
  */
 int IndexSpec_CreateTextId(IndexSpec *sp, t_fieldIndex index);
 
-/* Add fields to a redis schema */
-int IndexSpec_AddFields(StrongRef ref, IndexSpec *sp, RedisModuleCtx *ctx, ArgsCursor *ac, bool initialScan,
+/* Add fields to a redis schema.
+ * Does not schedule the post-alter background scan; the caller is responsible
+ * for that (see CreateIndexAlterCommand in module.c). */
+int IndexSpec_AddFields(StrongRef ref, IndexSpec *sp, RedisModuleCtx *ctx, ArgsCursor *ac,
                         QueryError *status);
 
 bool IndexSpec_IsCoherent(IndexSpec *sp, sds* prefixes, size_t n_prefixes);
@@ -631,19 +620,13 @@ typedef struct {
 //---------------------------------------------------------------------------------------------
 
 /**
- * Find and load the index using the specified parameters.
- * @return the strong reference to the index spec owned by RediSearch (a borrow), or NULL if the index does not exist.
- * If an owned reference is needed, use StrongRef API to create one.
+ * Per-spec bookkeeping for an already-resolved spec: bumps the usage counter and
+ * refreshes the temporary-index timeout timer (subject to the NOCOUNTERINC /
+ * NOTIMERUPDATE option flags). Touches no global structures. `spec_ref` must be a
+ * valid, non-NULL strong reference. To look up a spec by name and run this, use
+ * Indexes_LoadIndexSpecUnsafeEx (indexes.h).
  */
-// TODO: Remove the context from this function!
-StrongRef IndexSpec_LoadUnsafe(const char *name);
-
-/**
- * Find and load the index using the specified parameters. The call does not increase the spec reference counter
- * (only the weak reference counter).
- * @return the index spec, or NULL if the index does not exist
- */
-StrongRef IndexSpec_LoadUnsafeEx(IndexLoadOptions *options);
+void IndexSpec_OnAcquire(StrongRef spec_ref, IndexLoadOptions *options);
 
 /**
  * Quick access to the spec's strong reference. This function should be called only if
@@ -654,12 +637,16 @@ StrongRef IndexSpec_LoadUnsafeEx(IndexLoadOptions *options);
 StrongRef IndexSpec_GetStrongRefUnsafe(const IndexSpec *spec);
 
 /**
- * @brief Removes the spec from the global data structures
+ * @brief Tears down a spec's non-registry global state (aliases, schema
+ * prefixes, timeout timer, global field stats) and consumes the strong
+ * reference. Does NOT touch the global registry (specDict_g/specIdDict_g).
+ * Used on the create/parse failure path, where the spec was never registered;
+ * Indexes_RemoveSpecFromGlobals (indexes.h) calls it after the registry deletion.
  *
  * @param ref a strong reference to the spec
  * @param removeActive - should we call CurrentThread_ClearIndexSpec on the released spec
  */
-void IndexSpec_RemoveFromGlobals(StrongRef spec_ref, bool removeActive);
+void IndexSpec_Unlink(StrongRef spec_ref, bool removeActive);
 
 /*
  * Free an indexSpec. For LLAPI
@@ -668,43 +655,44 @@ void IndexSpec_Free(IndexSpec *spec);
 
 //---------------------------------------------------------------------------------------------
 
+// Whether RDB load/save should use the SST (disk) persistence path for the
+// given context.
+bool CheckRdbSstPersistence(RedisModuleCtx *ctx, const char *prefix);
+
+// Temporary-index timeout timer management for a single spec.
+void IndexSpec_SetTimeoutTimer(IndexSpec *sp, WeakRef spec_ref);
+void IndexSpec_ResetTimeoutTimer(IndexSpec *sp);
+
+// Open a disk index from its pending SST/RDB state and materialize its
+// disk-backed fields.
+bool IndexSpec_SSTRdbOpenAndApply(RedisModuleCtx *ctx, IndexSpec *sp);
+
+// Record that an index drop is pending.
+void addPendingIndexDrop();
+
 void IndexSpec_AddTerm(IndexSpec *sp, const char *term, size_t len);
 
 IndexSpec *NewIndexSpec(const HiddenString *name);
+// Parse a single spec from the RDB stream. Does not consult the registry or open
+// the non-SST on-disk index; the caller resolves duplicate status and then calls
+// IndexSpec_RdbLoadOpenDisk.
 IndexSpec *IndexSpec_RdbLoad(RedisModuleIO *rdb, int encver, bool useSst, QueryError *status);
+// Open the non-SST on-disk index for a spec parsed by IndexSpec_RdbLoad, once the
+// caller has resolved sp->isDuplicate. No-op for SST/memory/duplicate specs.
+int IndexSpec_RdbLoadOpenDisk(RedisModuleCtx *ctx, IndexSpec *sp, bool useSst, QueryError *status);
 void IndexSpec_RdbSave(RedisModuleIO *rdb, IndexSpec *sp, int contextFlags);
-int IndexSpec_RegisterType(RedisModuleCtx *ctx);
+
+// Per-spec callbacks for the IndexSpecType module type. IndexSpec_LegacyRdbLoad
+// loads a legacy (pre-RDB-event) index for upgrade.
+void *IndexSpec_LegacyRdbLoad(RedisModuleIO *rdb, int encver);
+void IndexSpec_RdbSave_Wrapper(RedisModuleIO *rdb, void *value);
+void IndexSpec_LegacyFree(void *spec);
 // int IndexSpec_UpdateWithHash(IndexSpec *spec, RedisModuleCtx *ctx, RedisModuleString *key);
 void IndexSpec_ClearAliases(StrongRef ref);
 
 void IndexSpec_InitializeSynonym(IndexSpec *sp);
-void Indexes_SetTempSpecsTimers(TimerOp op);
 
 //---------------------------------------------------------------------------------------------
-
-typedef struct IndexesScanner {
-  bool global;
-  bool cancelled;
-  bool isDebug;
-  bool scanFailedOnOOM;
-  WeakRef spec_ref;
-  char *spec_name_for_logs;
-  size_t scannedKeys;
-  RedisModuleString *OOMkey; // The key that caused the OOM
-} IndexesScanner;
-
-typedef struct DebugIndexesScanner {
-  IndexesScanner base;
-  int maxDocsTBscanned;
-  int maxDocsTBscannedPause;
-  bool wasPaused;
-  bool pauseOnOOM;
-  int status;
-  bool pauseBeforeOOMRetry;
-} DebugIndexesScanner;
-
-
-double IndexesScanner_IndexedPercent(RedisModuleCtx *ctx, IndexesScanner *scanner, const IndexSpec *sp);
 
 /**
  * @return the overhead used by the TAG fields in `sp`, i.e., the size of the
@@ -747,44 +735,9 @@ char *IndexSpec_FormatObfuscatedName(const HiddenString *specName);
 
 //---------------------------------------------------------------------------------------------
 
-void Indexes_Init(RedisModuleCtx *ctx);
-/*
- * Free all indexes.
- * @param deleteDiskData - delete the disk data
-*/
-void Indexes_Free(RedisModuleCtx *ctx, dict *d, bool deleteDiskData);
-size_t Indexes_Count();
-void Indexes_Propagate(RedisModuleCtx *ctx);
-void Indexes_UpdateMatchingWithSchemaRules(RedisModuleCtx *ctx, RedisModuleString *key, DocumentType type,
-                                           RedisModuleString **hashFields);
-// Refresh the per-field TTL entries on every spec that indexes `key`: reads
-// the hash's current per-field expiration timestamps and writes them onto
-// the matching specs' TTL tables, without re-tokenizing the document or
-// rebuilding inverted indexes. In-memory flow only; callers must use
-// Indexes_UpdateMatchingWithSchemaRules for disk-backed indexes.
-void Indexes_UpdateMatchingHashFieldExpiration(RedisModuleCtx *ctx, RedisModuleString *key,
-                                               DocumentType type);
-// Fast path for keyspace events that only change the document-level TTL
-// (EXPIRE/PERSIST): re-reads the key's absolute expiration and writes it
-// directly onto the matching DMDs, without re-running schema-rule filters or
-// re-indexing the document. In-memory flow only; callers must fall back to
-// Indexes_UpdateMatchingWithSchemaRules for disk-backed indexes.
-void Indexes_UpdateMatchingDocExpiration(RedisModuleCtx *ctx, RedisModuleString *key, DocumentType type);
-void Indexes_DeleteMatchingWithSchemaRules(RedisModuleCtx *ctx, RedisModuleString *key,
-                                           DocumentType type,
-                                           RedisModuleString **hashFields);
-void Indexes_ReplaceMatchingWithSchemaRules(RedisModuleCtx *ctx, RedisModuleString *from_key,
-                                            RedisModuleString *to_key);
-void Indexes_List(RedisModule_Reply* reply, bool obfuscate);
-
-//---------------------------------------------------------------------------------------------
-
 void CleanPool_ThreadPoolStart();
 void CleanPool_ThreadPoolDestroy();
 size_t CleanInProgressOrPending();
-
-// Expose reindexpool for debug
-void ReindexPool_ThreadPoolDestroy();
 
 
 ///////////////////////////////////////////////////////////////////////////////////////////////
@@ -796,29 +749,6 @@ StrongRef IndexSpecRef_Promote(WeakRef ref);
 // Must only be called if the spec was promoted successfully
 // Will also clear the current thread's active spec
 void IndexSpecRef_Release(StrongRef ref);
-
-// This function is called in case the server starts RDB loading.
-void Indexes_StartRDBLoadingEvent(RedisModuleCtx *ctx);
-
-// This function is called in case the server ends RDB loading.
-void Indexes_EndRDBLoadingEvent(RedisModuleCtx *ctx);
-
-// This function is to be called when loading finishes (failed or not)
-void Indexes_EndLoading();
-
-// Replica-side SST replication completion.
-//
-// Upon SST and RDB replication ending, complete the binding
-void Indexes_FinishSSTReplication(RedisModuleCtx *ctx);
-
-// Replica-side SST replication abort.
-//
-// Tear down everything staged for SST replication. Frees any pending disk RDB
-// state, closes any opened-but-unregistered disk specs, and unregisters +
-// closes any specs that had already been registered. Removes the affected
-// specs from specDict_g. Called from the REDISMODULE_SUBEVENT_SST_REPL_ABORT
-// handler.
-void Indexes_AbortSSTReplicationLoading(RedisModuleCtx *ctx);
 
 // =============================================================================
 // Compaction FFI Functions (called by Rust during GC)

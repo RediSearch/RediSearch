@@ -9,6 +9,7 @@
 #include "config.h"
 #include "notifications.h"
 #include "spec.h"
+#include "indexes.h"
 #include "doc_types.h"
 #include "redismodule.h"
 #include "rdb.h"

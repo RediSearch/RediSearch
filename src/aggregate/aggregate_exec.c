@@ -22,6 +22,7 @@
 #include "query_optimizer.h"
 #include "resp3.h"
 #include "query_error_ffi.h"
+#include "query_eval_ffi.h"
 #include "info/global_stats.h"
 #include "aggregate_debug.h"
 #include "debug_commands.h"
@@ -54,15 +55,14 @@ static void runCursor(RedisModule_Reply *reply, Cursor *cursor, size_t num);
 static int prepareExecutionPlan(AREQ *req, QueryError *status);
 static int QueryReplyCallback(RedisModuleCtx *ctx, RedisModuleString **argv, int argc);
 
-// Wrapper for AREQ_DecrRef to match BlockedClientFreePrivDataCB signature
-static void AREQ_DecrRefWrapper(void *privdata) {
-  AREQ_DecrRef((AREQ *)privdata);
-}
-
-// freePrivData for shard/standalone BlockCursorClientWithTimeout. Drains any cursor
-// parked in storedReplyState before releasing our AREQ ref (no-op on the happy
-// path, where CursorReadReplyCallback already cleared it).
-static void ShardCursorBlockClient_FreeAREQ(void *privdata) {
+// freePrivData for the query/cursor-read block clients. Drains any cursor parked
+// in storedReplyState before releasing our AREQ ref, then decrefs the AREQ.
+// AREQ_CleanUpStoredCursor is a guarded no-op on the happy path (the reply
+// callback already cleared the stash) and for queries that never reserved a
+// cursor, so this is safe to use unconditionally for both paths. Disposing the
+// stash here is what prevents the RETURN_STRICT preempt path from leaking the
+// cursor reserved by an initial WITHCURSOR query (see MOD-8477 / PR #10085).
+static void BlockClient_FreeAREQ(void *privdata) {
   AREQ *req = (AREQ *)privdata;
   AREQ_CleanUpStoredCursor(req);
   AREQ_DecrRef(req);
@@ -425,6 +425,9 @@ static void startPipeline(AREQ *req, ResultProcessor *rp, SearchResult ***result
       *rc = RS_RESULT_TIMEDOUT;
       return;
     }
+    // We own the production phase: link the sync context into the safe loaders so
+    // they perform the GIL deadlock-avoidance handshake with the timeout callback.
+    RPSafeLoader_SetSyncCtx(AREQ_QueryProcessingCtx(req), &req->syncCtx);
   }
 
   startPipelineCommon(&ctx, rp, results, r, rc);
@@ -1279,9 +1282,12 @@ void AREQ_Execute_Callback(blockedClientReqCtx *BCRctx) {
 
   // For disk indexes, release the spec lock immediately after iterator creation.
   // This is fine, since the disk iterators use snapshots. This allows the main
-  // thread to write while the query iterates over disk data.
+  // thread to write while the query iterates over disk data. `diskSnapshot` is
+  // guaranteed non-NULL here for disk-backed indexes — `prepareExecutionPlan`
+  // bails out if SearchDisk_CreateSnapshot fails — so this check distinguishes
+  // disk indexes (snapshot present, can unlock) from RAM-only ones (keep lock).
   // NOTE: Revisit as more index types are supported.
-  if (sctx->spec->diskSpec) {
+  if (sctx->diskSnapshot) {
     RedisSearchCtx_UnlockSpec(sctx);
   }
 
@@ -1380,6 +1386,15 @@ int prepareExecutionPlan(AREQ *req, QueryError *status) {
   RedisSearchCtx *sctx = AREQ_SearchCtx(req);
   RSSearchOptions *opts = &req->searchopts;
   QueryAST *ast = &req->ast;
+
+  // Open the per-query disk snapshot here, under the spec read lock the caller is holding.
+  // This pins the on-disk view to the same point in time as the in-memory trie/stats that
+  // QAST_Iterate is about to consult for term expansion and IDF/doc-count lookups.
+  // For disk-backed indexes this MUST succeed: we cannot safely degrade to live reads
+  // because the cursor read path drops the spec lock between chunks.
+  if (SearchCtx_TakeDiskSnapshot(sctx, status) != REDISMODULE_OK) {
+    return REDISMODULE_ERR;
+  }
 
   // Set timeout for the query execution
   // TODO: this should be done in `AREQ_execute`, but some of the iterators needs the timeout's
@@ -1606,6 +1621,14 @@ static int QueryTimeoutReturnStrictCallback(RedisModuleCtx *ctx, RedisModuleStri
     return REDISMODULE_OK;
   }
 
+  // Deadlock avoidance: if the BG worker is parked at the safe-loader GIL gate,
+  // Wait would deadlock (it needs the GIL we hold). Preempt it and reply empty;
+  // the worker finishes once we release the GIL. See aggregate.h.
+  if (RequestSyncCtx_TimeoutPreemptSafeLoaderGIL(&req->syncCtx)) {
+    single_shard_common_query_reply_empty(ctx, argv, argc, 0, QUERY_ERROR_CODE_TIMED_OUT);
+    return REDISMODULE_OK;
+  }
+
   // Sync with the background thread
   AREQ_WaitForAggregateResultsComplete(req);
 
@@ -1759,6 +1782,13 @@ static int CursorReadTimeoutReturnStrictCallback(RedisModuleCtx *ctx, RedisModul
     return cursor_read_empty_reply_timeout(ctx, node->cursorId, IsInternal(req));
   }
 
+  // Deadlock avoidance: if the BG worker is parked at the safe-loader GIL gate,
+  // Wait would deadlock (it needs the GIL we hold). Preempt it and reply with an
+  // exhausted cursor (id 0); the worker finishes once we release the GIL.
+  if (RequestSyncCtx_TimeoutPreemptSafeLoaderGIL(&req->syncCtx)) {
+    return cursor_read_empty_reply_timeout(ctx, 0, IsInternal(req));
+  }
+
   // The worker owns the stored-results phase. Wait for it to store a
   // cursor-shaped reply and park/free the cursor before replying.
   AREQ_WaitForAggregateResultsComplete(req);
@@ -1778,7 +1808,7 @@ static int CursorReadTimeoutReturnStrictCallback(RedisModuleCtx *ctx, RedisModul
 // Shard FT.CURSOR READ FAIL-path reply callback.
 // Mirrors QueryReplyCallbackbut uses a different privdata type (BlockedCursorNode).
 // Not invoked if the timeout fired first.
-// The BlockedCursorNode reference is released by FreeCursorNode → ShardCursorBlockClient_FreeAREQ after this callback.
+// The BlockedCursorNode reference is released by FreeCursorNode → BlockClient_FreeAREQ after this callback.
 // Can be consolidated with QueryReplyCallback - See MOD-15038.
 static int CursorReadReplyCallback(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
   UNUSED(argv);
@@ -1819,7 +1849,7 @@ static int buildPipelineAndExecute(AREQ *r, RedisModuleCtx *ctx, QueryError *sta
 
     // Take a reference for BlockedQueryNode to access in timeout/reply callbacks.
     AREQ_IncrRef(r);
-    blockClientCtx.freePrivData = AREQ_DecrRefWrapper;
+    blockClientCtx.freePrivData = BlockClient_FreeAREQ;
     blockClientCtx.privdata = r;
     blockClientCtx.ast = &r->ast;
     RSTimeoutPolicy policy = r->reqConfig.timeoutPolicy;
@@ -1859,9 +1889,12 @@ static int buildPipelineAndExecute(AREQ *r, RedisModuleCtx *ctx, QueryError *sta
 
     // For disk indexes, release the spec lock immediately after iterator creation.
     // This is fine, since the disk iterators use snapshots. This allows the main
-    // thread to write while the query iterates over disk data.
+    // thread to write while the query iterates over disk data. `diskSnapshot` is
+    // guaranteed non-NULL here for disk-backed indexes — `prepareExecutionPlan`
+    // bails out if SearchDisk_CreateSnapshot fails — so this check distinguishes
+    // disk indexes (snapshot present, can unlock) from RAM-only ones (keep lock).
     // NOTE: Revisit as more index types are supported.
-    if (sctx->spec->diskSpec) {
+    if (sctx->diskSnapshot) {
       RedisSearchCtx_UnlockSpec(sctx);
     }
 
@@ -2291,7 +2324,7 @@ int RSCursorReadCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc)
       // Extra ref owned by the BlockedCursorNode, released in FreeCursorNode.
       AREQ_IncrRef(req);
       blockClientCtx.privdata        = req;
-      blockClientCtx.freePrivData    = ShardCursorBlockClient_FreeAREQ;
+      blockClientCtx.freePrivData    = BlockClient_FreeAREQ;
       blockClientCtx.replyCallback   = CursorReadReplyCallback;
       blockClientCtx.timeoutCallback =
           cursor->queryTimeoutPolicy == TimeoutPolicy_Fail ? CursorReadTimeoutFailCallback

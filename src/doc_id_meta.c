@@ -9,6 +9,7 @@
 
 #include "doc_id_meta.h"
 #include "spec.h"
+#include "indexes.h"
 #include "util/arr/arr.h"
 #include "util/dict.h"
 #include "rdb.h"

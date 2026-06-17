@@ -26,6 +26,7 @@
 #include "query_internal.h"
 #include "suffix.h"
 #include "query.h"
+#include "query_eval_ffi.h"
 #include "extension.h"
 #include "fork_gc.h"
 #include "iterators/iterator_api.h"
