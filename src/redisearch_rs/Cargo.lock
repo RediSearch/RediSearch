@@ -718,13 +718,18 @@ dependencies = [
 name = "fork_gc"
 version = "0.0.1"
 dependencies = [
+ "build_utils",
+ "dict",
  "ffi",
+ "fork_gc",
  "index_result",
  "index_spec",
  "inverted_index",
  "libc",
  "nix",
  "redis-module",
+ "redis_mock",
+ "redisearch_rs",
  "rmp-serde",
  "serde",
  "tracing",

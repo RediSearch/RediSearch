@@ -22,14 +22,6 @@ use inverted_index::opaque::InvertedIndex as OpaqueInvertedIndex;
 use inverted_index::{GcScanDelta, InvertedIndex, doc_ids_only::DocIdsOnly};
 use serde::Serialize as _;
 
-// `collect_existing_docs` calls `spec.doc_exists()`, which calls `DocTable_Exists`
-// from the C library. That symbol is unavailable in pure-Rust test binaries, so we
-// provide a stub that always returns `false` (every doc treated as absent).
-#[unsafe(no_mangle)]
-unsafe extern "C" fn DocTable_Exists(_: *const ffi::DocTable, _: ffi::t_docId) -> bool {
-    false
-}
-
 fn make_spec(existing_docs: *mut ffi::InvertedIndex) -> ffi::IndexSpec {
     // SAFETY: zeroed IndexSpec is valid for read-only access; existingDocs is
     // either null or a caller-managed pointer that outlives this struct.
