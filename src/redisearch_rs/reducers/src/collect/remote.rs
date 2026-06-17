@@ -23,7 +23,7 @@ use rlookup::{RLookup, RLookupKey, RLookupKeyFlag, RLookupRow};
 use value::SharedValue;
 
 use crate::Reducer;
-use crate::collect::storage::Storage;
+use crate::collect::storage::{ProjectedRow, Storage};
 
 /// Field-selection state: `FIELDS *` vs explicit list.
 ///
@@ -267,7 +267,7 @@ impl RemoteCollectCtx {
                     dst.write_key(key, v.clone());
                 }
             }
-            dst
+            ProjectedRow::new(dst)
         };
         match &mut self.storage {
             Storage::Array(a) => a.push(project),
@@ -311,9 +311,12 @@ impl RemoteCollectCtx {
             &[]
         };
         let rows = match &mut self.storage {
-            Storage::Array(a) => Either::Left(a.drain().map(|row| to_map(&row))),
+            Storage::Array(a) => Either::Left(a.drain().map(|projected| to_map(projected.row()))),
             Storage::Heap(h) => Either::Right(h.drain().map(|entry| {
-                let (ranking_key, mut row) = entry.into_parts();
+                let (ranking_key, projected) = entry.into_parts();
+                // Leave the projected-only representation to build the wire row:
+                // projected fields plus the deferred sort columns.
+                let mut row = projected.into_row();
                 // `sort_extras` and the snapshot share SORTBY order, so the
                 // zip pairs each key with its value; a value overlapping a
                 // projected field rewrites the same `dstidx` idempotently.

@@ -13,7 +13,7 @@
 extern crate redisearch_rs;
 
 use reducers::collect::heap::HeapEntry;
-use reducers::collect::storage::{ArrayStorage, DEFAULT_LIMIT, HeapStorage, Storage};
+use reducers::collect::storage::{ArrayStorage, DEFAULT_LIMIT, HeapStorage, ProjectedRow, Storage};
 use rlookup::{RLookupKey, RLookupKeyFlags, RLookupRow};
 use value::SharedValue;
 
@@ -31,10 +31,12 @@ fn sort_vals(v: f64) -> Box<[Option<SharedValue>]> {
     vec![Some(SharedValue::new_num(v))].into_boxed_slice()
 }
 
-fn row(key: &RLookupKey<'_>, v: f64) -> RLookupRow<'static> {
+/// A one-field [`ProjectedRow`] tagged with `v`, as a reducer's `project`
+/// closure would produce.
+fn projected(key: &RLookupKey<'_>, v: f64) -> ProjectedRow {
     let mut r = RLookupRow::new();
     r.write_key(key, SharedValue::new_num(v));
-    r
+    ProjectedRow::new(r)
 }
 
 /// `project` closure that increments `counter` on each call.
@@ -42,17 +44,23 @@ fn counting_project<'a>(
     counter: &'a mut usize,
     key: &'a RLookupKey<'_>,
     tag: f64,
-) -> impl FnOnce() -> RLookupRow<'static> + 'a {
+) -> impl FnOnce() -> ProjectedRow + 'a {
     move || {
         *counter += 1;
-        row(key, tag)
+        projected(key, tag)
     }
 }
 
-fn drained_nums(key: &RLookupKey<'_>, drained: &[RLookupRow<'_>]) -> Vec<f64> {
+fn drained_nums(key: &RLookupKey<'_>, drained: &[ProjectedRow]) -> Vec<f64> {
     drained
         .iter()
-        .map(|r| r.get(key).expect("row missing key").as_num().expect("num"))
+        .map(|pr| {
+            pr.row()
+                .get(key)
+                .expect("row missing key")
+                .as_num()
+                .expect("num")
+        })
         .collect()
 }
 
@@ -78,7 +86,7 @@ fn array_push_caps_at_cap_in_insertion_order() {
     let mut s = Storage::new(false, Some((0, 3)), 0);
     let a = as_array(&mut s);
     for i in 0..5 {
-        a.push(|| row(&key, i as f64));
+        a.push(|| projected(&key, i as f64));
     }
     let drained: Vec<_> = a.drain().collect();
     assert_eq!(drained.len(), 3);
@@ -106,7 +114,7 @@ fn heap_consider_keeps_top_k_under_asc() {
     let mut s = Storage::new(true, Some((0, 3)), SORT_ASC);
     let h = as_heap(&mut s);
     for i in [4.0_f64, 1.0, 5.0, 2.0, 0.0, 3.0] {
-        h.consider(sort_vals(i), (), || row(&key, i));
+        h.consider(sort_vals(i), (), || projected(&key, i));
     }
     let drained: Vec<_> = h.drain().map(HeapEntry::into_projected).collect();
     // ASC: smallest is best; heap drains best→worst.
@@ -119,7 +127,7 @@ fn heap_consider_keeps_top_k_under_desc() {
     let mut s = Storage::new(true, Some((0, 3)), SORT_DESC);
     let h = as_heap(&mut s);
     for i in [4.0_f64, 1.0, 5.0, 2.0, 0.0, 3.0] {
-        h.consider(sort_vals(i), (), || row(&key, i));
+        h.consider(sort_vals(i), (), || projected(&key, i));
     }
     let drained: Vec<_> = h.drain().map(HeapEntry::into_projected).collect();
     // DESC: largest is best; heap drains best→worst.
@@ -167,7 +175,7 @@ fn drain_array_applies_skip_take() {
     let mut s = Storage::new(false, Some((1, 2)), 0);
     let a = as_array(&mut s);
     for i in 0..5 {
-        a.push(|| row(&key, i as f64));
+        a.push(|| projected(&key, i as f64));
     }
     let drained: Vec<_> = a.drain().collect();
     assert_eq!(drained_nums(&key, &drained), vec![1.0, 2.0]);
@@ -179,7 +187,7 @@ fn drain_heap_applies_skip_take_after_best_first_order() {
     let mut s = Storage::new(true, Some((1, 2)), SORT_ASC);
     let h = as_heap(&mut s);
     for i in [4.0_f64, 1.0, 5.0, 2.0, 0.0, 3.0] {
-        h.consider(sort_vals(i), (), || row(&key, i));
+        h.consider(sort_vals(i), (), || projected(&key, i));
     }
     // Top-3 under ASC = [0, 1, 2] best→worst; offset 1, count 2 → [1, 2].
     let drained: Vec<_> = h.drain().map(HeapEntry::into_projected).collect();
@@ -192,7 +200,7 @@ fn heap_uses_default_limit_when_no_explicit_limit() {
     let mut s = Storage::new(true, None, SORT_ASC);
     let h = as_heap(&mut s);
     for i in 0..(DEFAULT_LIMIT as usize + 5) {
-        h.consider(sort_vals(i as f64), (), || row(&key, i as f64));
+        h.consider(sort_vals(i as f64), (), || projected(&key, i as f64));
     }
     let drained: Vec<_> = h.drain().map(HeapEntry::into_projected).collect();
     assert_eq!(drained.len(), DEFAULT_LIMIT as usize);
@@ -200,15 +208,15 @@ fn heap_uses_default_limit_when_no_explicit_limit() {
 
 #[test]
 fn storage_drain_heap_yields_rows_best_first() {
-    // The `Storage::drain` convenience discards each entry's sort snapshot and
-    // yields rows best→worst, which is all the client-facing local reducer
+    // The `Storage::drain` convenience discards each entry's ranking key and
+    // yields values best→worst, which is all the client-facing local reducer
     // needs.
     let key = make_key();
     let mut s = Storage::new(true, Some((0, 3)), SORT_ASC);
     {
         let h = as_heap(&mut s);
         for i in [4.0_f64, 1.0, 5.0, 2.0, 0.0, 3.0] {
-            h.consider(sort_vals(i), (), || row(&key, i));
+            h.consider(sort_vals(i), (), || projected(&key, i));
         }
     }
     let drained: Vec<_> = s.drain().collect();
@@ -217,18 +225,18 @@ fn storage_drain_heap_yields_rows_best_first() {
 
 #[test]
 fn heap_drain_entries_expose_sort_vals_in_best_first_order() {
-    // The heap-family drain keeps each row's ranking key so the remote reducer
+    // The heap-family drain keeps each value's ranking key so the remote reducer
     // can re-attach the deferred SORTBY columns (see `HeapEntry::into_parts`).
     let key = make_key();
     let mut s = Storage::new(true, Some((0, 3)), SORT_ASC);
     let h = as_heap(&mut s);
     for i in [4.0_f64, 1.0, 5.0, 2.0, 0.0, 3.0] {
-        h.consider(sort_vals(i), (), || row(&key, i));
+        h.consider(sort_vals(i), (), || projected(&key, i));
     }
     let snapshots: Vec<f64> = h
         .drain()
         .map(|entry| {
-            let (ranking_key, _row) = entry.into_parts();
+            let (ranking_key, _value) = entry.into_parts();
             ranking_key.sort_vals()[0]
                 .as_ref()
                 .and_then(|v| v.as_num())

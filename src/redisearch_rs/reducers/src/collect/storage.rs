@@ -32,6 +32,33 @@ pub const DEFAULT_LIMIT: u64 = 10;
 /// number of rows we will retain.
 const INITIAL_CAPACITY_CAP: usize = 16_384;
 
+/// The *value* held by the storage: the projected (collected) fields, in a type
+/// distinct from the [`RankingKey`] so the two storage axes stay explicit. The
+/// ranking key decides order; the `ProjectedRow` is the content — hence the unit
+/// any content-based identity would key on.
+///
+/// Naming the role does not prove the row holds *only* projected fields; that is
+/// upheld by the `project` closure each reducer passes to [`ArrayStorage::push`]
+/// / [`HeapStorage::consider`].
+pub struct ProjectedRow(RLookupRow<'static>);
+
+impl ProjectedRow {
+    /// Wrap a freshly projected row.
+    pub const fn new(row: RLookupRow<'static>) -> Self {
+        Self(row)
+    }
+
+    /// Borrow the fields, e.g. to serialize the output map.
+    pub const fn row(&self) -> &RLookupRow<'static> {
+        &self.0
+    }
+
+    /// Consume the wrapper, returning the inner row.
+    pub fn into_row(self) -> RLookupRow<'static> {
+        self.0
+    }
+}
+
 /// Bounded COLLECT storage, selecting one family type by the `SORTBY` axis.
 ///
 /// `D` is the doc-id tie-breaker carried by [`HeapStorage`]; the array path
@@ -62,17 +89,17 @@ impl<D: Ord> Storage<D> {
         }
     }
 
-    /// Drain the retained rows, sliced as `skip(offset).take(count)`.
+    /// Drain the retained values, sliced as `skip(offset).take(count)`.
     ///
-    /// - **Array arm** yields rows in insertion order.
-    /// - **Heap arm** yields rows best→worst (matching the SORTBY result order).
+    /// - **Array arm** yields values in insertion order.
+    /// - **Heap arm** yields values best→worst (matching the SORTBY result order).
     ///
-    /// The heap arm discards each entry's sort-key snapshot
+    /// The heap arm discards each entry's [`RankingKey`]
     /// ([`HeapEntry::into_projected`]) because the client-facing local reducer
     /// never re-emits the sort columns. The remote reducer, which *does* re-emit
     /// them on the shard path, drains [`HeapStorage`] directly instead — see
     /// [`RemoteCollectCtx::finalize`][super::remote::RemoteCollectCtx::finalize].
-    pub fn drain(&mut self) -> impl ExactSizeIterator<Item = RLookupRow<'static>> {
+    pub fn drain(&mut self) -> impl ExactSizeIterator<Item = ProjectedRow> {
         match self {
             Self::Array(a) => Either::Left(a.drain()),
             Self::Heap(h) => Either::Right(h.drain().map(HeapEntry::into_projected)),
@@ -82,10 +109,10 @@ impl<D: Ord> Storage<D> {
 
 /// Arrival-ordered storage for the non-`SORTBY` path.
 ///
-/// Holds at most `offset + count` rows and drops the rest without projecting
-/// them. Has no sort context at all.
+/// Holds at most `offset + count` [`ProjectedRow`]s and drops the rest without
+/// projecting them. Has no sort context at all.
 pub struct ArrayStorage {
-    buf: Vec<RLookupRow<'static>>,
+    buf: Vec<ProjectedRow>,
     offset: usize,
     count: usize,
 }
@@ -103,7 +130,7 @@ impl ArrayStorage {
     /// Buffer one more row, dropping it once the `offset + count` cap is
     /// reached. `project` runs only for a retained row, so a dropped row pays
     /// no projection cost.
-    pub fn push(&mut self, project: impl FnOnce() -> RLookupRow<'static>) {
+    pub fn push(&mut self, project: impl FnOnce() -> ProjectedRow) {
         if self.buf.len() < self.offset.saturating_add(self.count) {
             self.buf.push(project());
         }
@@ -111,7 +138,7 @@ impl ArrayStorage {
 
     /// Drain the buffered rows in insertion order, sliced as
     /// `skip(offset).take(count)`.
-    pub fn drain(&mut self) -> impl ExactSizeIterator<Item = RLookupRow<'static>> {
+    pub fn drain(&mut self) -> impl ExactSizeIterator<Item = ProjectedRow> {
         std::mem::take(&mut self.buf)
             .into_iter()
             .skip(self.offset)
@@ -124,9 +151,10 @@ impl ArrayStorage {
 /// Keeps the best `offset + count` candidates under the [`RankingKey`]
 /// comparator, draining best→worst. Unlike [`ArrayStorage`], it owns the sort
 /// context: each candidate's sort-key snapshot lives in its [`RankingKey`] (which
-/// doubles as the cap-check key), so the projected row never has to carry it.
+/// doubles as the cap-check key), so the paired [`ProjectedRow`] never has to
+/// carry it.
 pub struct HeapStorage<D: Ord> {
-    heap: MinMaxHeap<HeapEntry<D, RLookupRow<'static>>>,
+    heap: MinMaxHeap<HeapEntry<D, ProjectedRow>>,
     sort_asc_map: u64,
     offset: usize,
     count: usize,
@@ -154,7 +182,7 @@ impl<D: Ord> HeapStorage<D> {
         &mut self,
         sort_vals: Box<[Option<SharedValue>]>,
         doc_id: D,
-        project: impl FnOnce() -> RLookupRow<'static>,
+        project: impl FnOnce() -> ProjectedRow,
     ) {
         let max_size = self.offset.saturating_add(self.count);
         if max_size == 0 {
@@ -177,11 +205,12 @@ impl<D: Ord> HeapStorage<D> {
     /// Drain the retained entries best→worst, sliced as
     /// `skip(offset).take(count)`.
     ///
-    /// Each [`HeapEntry`] still pairs the row with its ranking [`RankingKey`]:
-    /// callers that only need rows map with [`HeapEntry::into_projected`], while
-    /// the remote reducer reads [`RankingKey::sort_vals`] (via
-    /// [`HeapEntry::into_parts`]) to rebuild the wire row.
-    pub fn drain(&mut self) -> impl ExactSizeIterator<Item = HeapEntry<D, RLookupRow<'static>>> {
+    /// Each [`HeapEntry`] still pairs the [`ProjectedRow`] with its
+    /// [`RankingKey`]: callers that only need the value map with
+    /// [`HeapEntry::into_projected`], while the remote reducer reads
+    /// [`RankingKey::sort_vals`] (via [`HeapEntry::into_parts`]) to rebuild the
+    /// wire row.
+    pub fn drain(&mut self) -> impl ExactSizeIterator<Item = HeapEntry<D, ProjectedRow>> {
         std::mem::take(&mut self.heap)
             .into_vec_desc()
             .into_iter()

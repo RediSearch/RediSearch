@@ -32,7 +32,7 @@ use rlookup::{RLookup, RLookupKey, RLookupKeyFlag, RLookupRow};
 use value::{SharedValue, Value};
 
 use crate::Reducer;
-use crate::collect::storage::Storage;
+use crate::collect::storage::{ProjectedRow, Storage};
 
 /// Look up `name` in a shard-payload item (`Map` or flat `Array`).
 ///
@@ -250,11 +250,13 @@ impl LocalCollectCtx {
                 continue;
             }
             match &mut self.storage {
-                Storage::Array(a) => a.push(|| r.fields.prepare_row(item, &mut self.lookup)),
+                Storage::Array(a) => {
+                    a.push(|| ProjectedRow::new(r.fields.prepare_row(item, &mut self.lookup)))
+                }
                 Storage::Heap(h) => h.consider(
                     snapshot_sort_keys(r.fields.sort_key_names(), item),
                     (),
-                    || r.fields.prepare_row(item, &mut self.lookup),
+                    || ProjectedRow::new(r.fields.prepare_row(item, &mut self.lookup)),
                 ),
             }
         }
@@ -276,7 +278,8 @@ impl LocalCollectCtx {
             .map(|k| (k, SharedValue::new_string(k.name().to_bytes().to_vec())))
             .collect();
 
-        SharedValue::new_array(self.storage.drain().map(|row| {
+        SharedValue::new_array(self.storage.drain().map(|projected| {
+            let row = projected.row();
             SharedValue::new_map(
                 template
                     .iter()
