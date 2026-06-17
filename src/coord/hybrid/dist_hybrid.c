@@ -975,9 +975,6 @@ static void DistHybridCleanups(RedisModuleCtx *ctx,
     if (!hreq) {
       CoordRequestCtx_ReplyOrStoreError(reqCtx, ctx, status);
     } else {
-      // HREQ_ReplyOrStoreError applies the policy-aware reply: a non-fail-policy
-      // timeout replies an empty result set with the timeout warning (no partial
-      // results exist yet at setup); FAIL/RETURN_STRICT store it for the callback.
       HREQ_ReplyOrStoreError(hreq, ctx, status);
     }
 
