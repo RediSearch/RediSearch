@@ -27,8 +27,11 @@ use crate::collect::storage::Storage;
 
 /// Field-selection state: `FIELDS *` vs explicit list.
 ///
-/// Sort keys live in both variants; they feed the heap comparator and, in
-/// [`Fields::Specific`] mode, append to the per-row projection.
+/// Sort keys live in both variants and feed the heap comparator. In
+/// [`Fields::Specific`] mode they are *not* projected per row: the shard path
+/// re-attaches them at finalize from the ranking-key snapshot (see
+/// [`Fields::deferred_sort_keys`]), so a stored row never duplicates the sort
+/// values already held in the ranking key.
 enum Fields<'a> {
     /// `FIELDS *` mode. Non-[`RLookupKeyFlag::Hidden`] keys in `src_lookup`
     /// are emitted; the lookup is re-walked per call so an upstream
@@ -53,6 +56,10 @@ impl<'a> Fields<'a> {
     }
 
     /// Keys to project per row in [`RemoteCollectCtx::add`].
+    ///
+    /// [`Fields::Specific`] projects only its explicit `field_keys`; the SORTBY
+    /// columns are deferred (see [`Fields::deferred_sort_keys`]) so a stored row
+    /// never duplicates the sort values already held in the ranking key.
     fn get_keys_add(&self) -> impl Iterator<Item = &'a RLookupKey<'a>> + '_ {
         match self {
             Self::All { src_lookup, .. } => Either::Left(
@@ -60,10 +67,22 @@ impl<'a> Fields<'a> {
                     .iter()
                     .filter(|k| !k.flags.contains(RLookupKeyFlag::Hidden)),
             ),
-            Self::Specific {
-                field_keys,
-                sort_keys,
-            } => Either::Right(field_keys.iter().copied().chain(sort_keys.iter().copied())),
+            Self::Specific { field_keys, .. } => Either::Right(field_keys.iter().copied()),
+        }
+    }
+
+    /// SORTBY keys to re-merge into each heap row at finalize, on the shard
+    /// (`is_internal`) path.
+    ///
+    /// Only [`Fields::Specific`] defers them: [`Fields::get_keys_add`] drops the
+    /// sort columns from the per-row projection, but the coordinator's re-sort
+    /// still needs them, so the shard path writes them back from the
+    /// ranking-key snapshot. [`Fields::All`] already projects every non-hidden
+    /// field, so it has nothing to defer.
+    fn deferred_sort_keys(&self) -> &[&'a RLookupKey<'a>] {
+        match self {
+            Self::Specific { sort_keys, .. } => sort_keys,
+            Self::All { .. } => &[],
         }
     }
 
@@ -231,25 +250,18 @@ impl RemoteCollectCtx {
         }
     }
 
-    /// Project the source row's field values into a stored [`RLookupRow`]
-    /// and snapshot the sort-key values for the heap comparator.
+    /// Project the source row's field values into a stored [`RLookupRow`].
     ///
-    /// The array path ignores the snapshot closure entirely. The heap path
-    /// uses the snapshot to drive comparisons, dropping doomed candidates
-    /// without paying the row-projection cost.
+    /// Dispatches on the storage family: the array path simply buffers the row,
+    /// while the heap path additionally snapshots the sort-key values to drive
+    /// the comparator, dropping doomed candidates before paying the
+    /// row-projection cost. The snapshot is built only on the heap path.
     pub fn add(
         &mut self,
         r: &RemoteCollectReducer<'_>,
         row: &RLookupRow<'_>,
         doc_id: ffi::t_docId,
     ) {
-        let sort_vals = || -> Box<[Option<SharedValue>]> {
-            r.fields
-                .sort_keys()
-                .iter()
-                .map(|key| row.get(key).cloned())
-                .collect()
-        };
         let project = || {
             let mut dst = RLookupRow::new();
             for key in r.fields.get_keys_add() {
@@ -259,22 +271,62 @@ impl RemoteCollectCtx {
             }
             dst
         };
-        self.storage.insert_entry(sort_vals, doc_id, project);
+        match &mut self.storage {
+            Storage::Array(a) => a.push(project),
+            Storage::Heap(h) => {
+                let sort_vals = r
+                    .fields
+                    .sort_keys()
+                    .iter()
+                    .map(|key| row.get(key).cloned())
+                    .collect();
+                h.consider(sort_vals, doc_id, project);
+            }
+        }
     }
 
     /// Serialize the buffered rows into an array of maps. Keys absent from a
     /// row are omitted; on the cluster path
     /// [`LocalCollectCtx::finalize`][crate::collect::local::LocalCollectCtx::finalize]
     /// reconstructs the client-facing result from the emitted payload.
+    ///
+    /// On the shard (`is_internal`) heap path the coordinator re-sorts, so the
+    /// SORTBY columns that [`Fields::get_keys_add`] dropped are merged back here
+    /// from each entry's ranking-key snapshot
+    /// ([`EntryKey::sort_vals`][super::heap::EntryKey::sort_vals]). This stays in
+    /// lockstep with [`Fields::build_template`], which adds those same columns to
+    /// the template under the same `is_internal` condition. The client-facing
+    /// path emits only the requested fields and merges nothing.
     pub fn finalize(&mut self, r: &RemoteCollectReducer<'_>) -> SharedValue {
-        let rows = self.storage.drain();
         let template = r.fields.build_template(r.is_internal);
-        SharedValue::new_array(rows.map(|row| {
-            let entries: Vec<_> = template
-                .iter()
-                .filter_map(|(key, name)| row.get(key).map(|v| (name.clone(), v.clone())))
-                .collect();
-            SharedValue::new_map(entries)
-        }))
+        let to_map = |row: &RLookupRow<'static>| {
+            SharedValue::new_map(
+                template
+                    .iter()
+                    .filter_map(|(key, name)| row.get(key).map(|v| (name.clone(), v.clone())))
+                    .collect::<Vec<_>>(),
+            )
+        };
+        let sort_extras: &[&RLookupKey] = if r.is_internal {
+            r.fields.deferred_sort_keys()
+        } else {
+            &[]
+        };
+        let rows = match &mut self.storage {
+            Storage::Array(a) => Either::Left(a.drain().map(|row| to_map(&row))),
+            Storage::Heap(h) => Either::Right(h.drain().map(|entry| {
+                let (ranking_key, mut row) = entry.into_parts();
+                // `sort_extras` and the snapshot share SORTBY order, so the
+                // zip pairs each key with its value; a value overlapping a
+                // projected field rewrites the same `dstidx` idempotently.
+                for (sort_key, val) in sort_extras.iter().zip(ranking_key.sort_vals()) {
+                    if let Some(val) = val {
+                        row.write_key(sort_key, val.clone());
+                    }
+                }
+                to_map(&row)
+            })),
+        };
+        SharedValue::new_array(rows)
     }
 }

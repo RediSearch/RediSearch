@@ -7,17 +7,20 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 
-//! Bounded storage shared by the COLLECT reducer variants. Two modes:
+//! Bounded storage shared by the COLLECT reducer variants, split by the
+//! `SORTBY` axis into two family types:
 //!
-//! - [`Storage::Array`] — preserves arrival order under an `offset + count`
-//!   cap and drops excess inserts in O(1) without paying any projection
-//!   cost. Suitable when ranking is not needed.
-//! - [`Storage::Heap`] — retains the top-`(offset + count)` survivors under
-//!   a comparator driven by `sort_asc_map`, wrapping the [`MinMaxHeap`]
-//!   primitive defined in [`super::heap`] and draining best→worst.
-//!   Suitable when a ranked top-K is needed.
-
-use std::marker::PhantomData;
+//! - [`ArrayStorage`] — preserves arrival order under an `offset + count` cap
+//!   and drops excess inserts in O(1) without paying any projection cost. Used
+//!   when ranking is not needed (no `SORTBY`).
+//! - [`HeapStorage`] — retains the top-`(offset + count)` survivors under a
+//!   comparator driven by `sort_asc_map`, wrapping the [`MinMaxHeap`] primitive
+//!   from [`super::heap`] and draining best→worst. Used for the ranked
+//!   `COLLECT … SORTBY [LIMIT]` path.
+//!
+//! [`Storage`] is a thin enum that selects one family; the reducer dispatches
+//! array-vs-heap once, in its `add` method, so only the heap path ever builds a
+//! sort-key snapshot.
 
 use itertools::Either;
 use min_max_heap::MinMaxHeap;
@@ -36,23 +39,20 @@ pub const DEFAULT_LIMIT: u64 = 10;
 /// number of rows we will retain.
 const INITIAL_CAPACITY_CAP: usize = 16_384;
 
+/// Bounded COLLECT storage, selecting one family type by the `SORTBY` axis.
+///
+/// `D` is the doc-id tie-breaker carried by [`HeapStorage`]; the array path
+/// never ranks, so [`ArrayStorage`] is free of it.
 pub enum Storage<D: Ord> {
-    Array {
-        buf: Vec<RLookupRow<'static>>,
-        offset: usize,
-        count: usize,
-        _marker: PhantomData<D>,
-    },
-    Heap {
-        heap: MinMaxHeap<HeapEntry<D, RLookupRow<'static>>>,
-        sort_asc_map: u64,
-        offset: usize,
-        count: usize,
-    },
+    Array(ArrayStorage),
+    Heap(HeapStorage<D>),
 }
 
 impl<D: Ord> Storage<D> {
-    /// Resolve `(offset, count)` and pre-size the buffer/heap.
+    /// Select the family by `sortby` and resolve `(offset, count)`.
+    ///
+    /// Without an explicit `LIMIT`, the array path falls back to the global
+    /// `maxAggregateResults` and the heap path to [`DEFAULT_LIMIT`].
     pub fn new(sortby: bool, limit: Option<(u64, u64)>, sort_asc_map: u64) -> Self {
         let (offset, count) = match (sortby, limit) {
             (_, Some((o, c))) => (o as usize, c as usize),
@@ -62,121 +62,137 @@ impl<D: Ord> Storage<D> {
             (false, None) => (0, unsafe { ffi::RSGlobalConfig.maxAggregateResults }),
             (true, None) => (0, DEFAULT_LIMIT as usize),
         };
-        let initial_capacity = offset.saturating_add(count).min(INITIAL_CAPACITY_CAP);
         if sortby {
-            Self::Heap {
-                heap: MinMaxHeap::with_capacity(initial_capacity),
-                sort_asc_map,
-                offset,
-                count,
-            }
+            Self::Heap(HeapStorage::new(sort_asc_map, offset, count))
         } else {
-            Self::Array {
-                buf: Vec::with_capacity(initial_capacity),
-                offset,
-                count,
-                _marker: PhantomData,
-            }
+            Self::Array(ArrayStorage::new(offset, count))
         }
     }
 
-    /// Insert an entry under the cap. Two-phase to preserve the
-    /// deferred-projection invariant:
+    /// Drain the retained rows, sliced as `skip(offset).take(count)`.
     ///
-    /// - `sort_vals` is invoked only on the heap path (the array path
-    ///   ignores it).
-    /// - `project` is invoked only when the entry will actually be
-    ///   retained (i.e. on the heap path, only when the candidate beats
-    ///   the current worst).
+    /// - **Array arm** yields rows in insertion order.
+    /// - **Heap arm** yields rows best→worst (matching the SORTBY result order).
     ///
-    /// Returns `true` if the entry was buffered, `false` if it was dropped.
-    ///
-    /// `doc_id` is only consulted on the heap path, where it acts as a
-    /// deterministic tie-breaker when sort keys compare equal. Callers
-    /// that don't need tie-breaking instantiate `Storage<()>` and pass
-    /// `()` here — `()`'s `Ord` impl makes the fallback a no-op.
-    pub fn insert_entry<S, P>(&mut self, sort_vals: S, doc_id: D, project: P) -> bool
-    where
-        S: FnOnce() -> Box<[Option<SharedValue>]>,
-        P: FnOnce() -> RLookupRow<'static>,
-    {
-        match self {
-            Self::Array {
-                buf, offset, count, ..
-            } => {
-                let max_size = offset.saturating_add(*count);
-                if buf.len() < max_size {
-                    buf.push(project());
-                    true
-                } else {
-                    false
-                }
-            }
-            Self::Heap {
-                heap,
-                sort_asc_map,
-                offset,
-                count,
-            } => {
-                let max_size = offset.saturating_add(*count);
-                let make_key = |sort_vals: S| EntryKey::new(sort_vals(), *sort_asc_map, doc_id);
-                if max_size == 0 {
-                    return false;
-                }
-                if heap.len() < max_size {
-                    let key = make_key(sort_vals);
-                    heap.push(HeapEntry::new(key, project()));
-                    true
-                } else {
-                    let cand_key = make_key(sort_vals);
-                    // `peek_min` returns the worst surviving candidate
-                    // under the "best = max" convention (see `heap`).
-                    // The unwrap is sound: `cap > 0` implies the heap is
-                    // non-empty once we've reached the cap.
-                    let worst = heap.peek_min().expect("heap at cap is non-empty");
-                    if cand_key > *worst.key() {
-                        heap.push_pop_min(HeapEntry::new(cand_key, project()));
-                        true
-                    } else {
-                        false
-                    }
-                }
-            }
-        }
-    }
-
-    /// Drain buffered rows, sliced as `skip(offset).take(count)`.
-    ///
-    /// - **Array path** yields rows in insertion order.
-    /// - **Heap path** yields rows best→worst (matching the SORTBY result
-    ///   order).
+    /// The heap arm discards each entry's sort-key snapshot
+    /// ([`HeapEntry::into_projected`]) because the client-facing local reducer
+    /// never re-emits the sort columns. The remote reducer, which *does* re-emit
+    /// them on the shard path, drains [`HeapStorage`] directly instead — see
+    /// [`RemoteCollectCtx::finalize`][super::remote::RemoteCollectCtx::finalize].
     pub fn drain(&mut self) -> impl ExactSizeIterator<Item = RLookupRow<'static>> {
-        // Sentinel left in place of `*self`. Empty Array, no allocation.
-        let taken = std::mem::replace(
-            self,
-            Self::Array {
-                buf: Vec::new(),
-                offset: 0,
-                count: 0,
-                _marker: PhantomData,
-            },
-        );
-        match taken {
-            Self::Array {
-                buf, offset, count, ..
-            } => Either::Left(buf.into_iter().skip(offset).take(count)),
-            Self::Heap {
-                heap,
-                offset,
-                count,
-                ..
-            } => Either::Right(
-                heap.into_vec_desc()
-                    .into_iter()
-                    .skip(offset)
-                    .take(count)
-                    .map(HeapEntry::into_projected),
-            ),
+        match self {
+            Self::Array(a) => Either::Left(a.drain()),
+            Self::Heap(h) => Either::Right(h.drain().map(HeapEntry::into_projected)),
         }
+    }
+}
+
+/// Arrival-ordered storage for the non-`SORTBY` path.
+///
+/// Holds at most `offset + count` rows and drops the rest without projecting
+/// them. Has no sort context at all.
+pub struct ArrayStorage {
+    buf: Vec<RLookupRow<'static>>,
+    offset: usize,
+    count: usize,
+}
+
+impl ArrayStorage {
+    fn new(offset: usize, count: usize) -> Self {
+        let initial_capacity = offset.saturating_add(count).min(INITIAL_CAPACITY_CAP);
+        Self {
+            buf: Vec::with_capacity(initial_capacity),
+            offset,
+            count,
+        }
+    }
+
+    /// Buffer one more row, dropping it once the `offset + count` cap is
+    /// reached. `project` runs only for a retained row, so a dropped row pays
+    /// no projection cost.
+    pub fn push(&mut self, project: impl FnOnce() -> RLookupRow<'static>) {
+        if self.buf.len() < self.offset.saturating_add(self.count) {
+            self.buf.push(project());
+        }
+    }
+
+    /// Drain the buffered rows in insertion order, sliced as
+    /// `skip(offset).take(count)`.
+    pub fn drain(&mut self) -> impl ExactSizeIterator<Item = RLookupRow<'static>> {
+        std::mem::take(&mut self.buf)
+            .into_iter()
+            .skip(self.offset)
+            .take(self.count)
+    }
+}
+
+/// Top-K storage for the `SORTBY` path.
+///
+/// Keeps the best `offset + count` candidates under the [`EntryKey`]
+/// comparator, draining best→worst. Unlike [`ArrayStorage`], it owns the sort
+/// context: each candidate's sort-key snapshot lives in its [`EntryKey`] (which
+/// doubles as the cap-check key), so the projected row never has to carry it.
+pub struct HeapStorage<D: Ord> {
+    heap: MinMaxHeap<HeapEntry<D, RLookupRow<'static>>>,
+    sort_asc_map: u64,
+    offset: usize,
+    count: usize,
+}
+
+impl<D: Ord> HeapStorage<D> {
+    fn new(sort_asc_map: u64, offset: usize, count: usize) -> Self {
+        let initial_capacity = offset.saturating_add(count).min(INITIAL_CAPACITY_CAP);
+        Self {
+            heap: MinMaxHeap::with_capacity(initial_capacity),
+            sort_asc_map,
+            offset,
+            count,
+        }
+    }
+
+    /// Offer a candidate to the bounded top-K.
+    ///
+    /// `sort_vals` is the candidate's sort-key snapshot; it forms the ranking
+    /// [`EntryKey`] and is compared against the current worst survivor *before*
+    /// `project` runs, so `project` is invoked only for a candidate that is
+    /// actually retained. `doc_id` breaks ties when the sort keys compare equal
+    /// (see [`EntryKey`]).
+    pub fn consider(
+        &mut self,
+        sort_vals: Box<[Option<SharedValue>]>,
+        doc_id: D,
+        project: impl FnOnce() -> RLookupRow<'static>,
+    ) {
+        let max_size = self.offset.saturating_add(self.count);
+        if max_size == 0 {
+            return;
+        }
+        let cand_key = EntryKey::new(sort_vals, self.sort_asc_map, doc_id);
+        if self.heap.len() < max_size {
+            self.heap.push(HeapEntry::new(cand_key, project()));
+        } else {
+            // `peek_min` is the worst survivor under the "best = max"
+            // convention (see [`super::heap`]); the unwrap is sound because a
+            // full heap with `max_size > 0` is non-empty.
+            let worst = self.heap.peek_min().expect("heap at cap is non-empty");
+            if cand_key > *worst.key() {
+                self.heap.push_pop_min(HeapEntry::new(cand_key, project()));
+            }
+        }
+    }
+
+    /// Drain the retained entries best→worst, sliced as
+    /// `skip(offset).take(count)`.
+    ///
+    /// Each [`HeapEntry`] still pairs the row with its ranking [`EntryKey`]:
+    /// callers that only need rows map with [`HeapEntry::into_projected`], while
+    /// the remote reducer reads [`EntryKey::sort_vals`] (via
+    /// [`HeapEntry::into_parts`]) to rebuild the wire row.
+    pub fn drain(&mut self) -> impl ExactSizeIterator<Item = HeapEntry<D, RLookupRow<'static>>> {
+        std::mem::take(&mut self.heap)
+            .into_vec_desc()
+            .into_iter()
+            .skip(self.offset)
+            .take(self.count)
     }
 }

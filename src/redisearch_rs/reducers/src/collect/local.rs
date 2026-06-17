@@ -230,7 +230,8 @@ impl LocalCollectCtx {
     }
 
     /// Deserialize the shard payload carried by `row` into [`RLookupRow`]s,
-    /// honouring `LIMIT` via [`Storage::insert_entry`].
+    /// dispatching each item to the array or heap arm of [`Storage`] under the
+    /// configured `LIMIT`.
     pub fn add(&mut self, r: &LocalCollectReducer, row: &RLookupRow) {
         let Some(Value::Array(items)) = row.get(r.input_key).map(|p| &**p) else {
             tracing_assert::debug_assert_warn!(
@@ -248,11 +249,14 @@ impl LocalCollectCtx {
                 );
                 continue;
             }
-            self.storage.insert_entry(
-                || snapshot_sort_keys(r.fields.sort_key_names(), item),
-                (),
-                || r.fields.prepare_row(item, &mut self.lookup),
-            );
+            match &mut self.storage {
+                Storage::Array(a) => a.push(|| r.fields.prepare_row(item, &mut self.lookup)),
+                Storage::Heap(h) => h.consider(
+                    snapshot_sort_keys(r.fields.sort_key_names(), item),
+                    (),
+                    || r.fields.prepare_row(item, &mut self.lookup),
+                ),
+            }
         }
     }
 

@@ -46,6 +46,16 @@ impl<D: Ord> EntryKey<D> {
             doc_id,
         }
     }
+
+    /// The sort-key snapshot, in `SORTBY` order (an absent key is `None`).
+    ///
+    /// The heap keeps these for ranking only, but
+    /// [`HeapStorage`][super::storage::HeapStorage] also exposes them at drain
+    /// time so the remote reducer can re-attach the sort columns it deferred
+    /// during projection.
+    pub fn sort_vals(&self) -> &[Option<SharedValue>] {
+        &self.sort_vals
+    }
 }
 
 impl<D: Ord> PartialEq for EntryKey<D> {
@@ -88,9 +98,9 @@ impl<D: Ord> Ord for EntryKey<D> {
 
 /// Heap slot: the comparator key alongside the projected payload.
 ///
-/// `T` is the per-row payload the consumer (`Storage::Heap`) yields at
-/// finalize. Comparing only reads `key`, so the choice of `T` does not
-/// affect ranking.
+/// `T` is the per-row payload the consumer
+/// ([`HeapStorage`][super::storage::HeapStorage]) yields at finalize. Comparing
+/// only reads `key`, so the choice of `T` does not affect ranking.
 pub struct HeapEntry<D: Ord, T> {
     key: EntryKey<D>,
     projected: T,
@@ -112,6 +122,15 @@ impl<D: Ord, T> HeapEntry<D, T> {
     /// Return the projected payload.
     pub fn into_projected(self) -> T {
         self.projected
+    }
+
+    /// Split into the ranking key and the projected payload.
+    ///
+    /// Unlike [`Self::into_projected`], this keeps the [`EntryKey`] so a
+    /// consumer can read its [`EntryKey::sort_vals`] — needed by the remote
+    /// reducer's deferred sort-key merge.
+    pub fn into_parts(self) -> (EntryKey<D>, T) {
+        (self.key, self.projected)
     }
 }
 
