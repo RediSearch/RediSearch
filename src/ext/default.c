@@ -631,7 +631,7 @@ int DefaultExpander(RSQueryExpanderCtx *ctx, RSToken *token) {
       t_fieldMask fm = (*ctx->currentNode)->opts.fieldMask;
       for (size_t ii = 0; ii < ctx->handle->spec->numFields; ++ii) {
         const FieldSpec *fs = ctx->handle->spec->fields + ii;
-        if (!(fm & FIELD_BIT(fs))) {
+        if (!FieldSpec_IsIndexableTextInMask(fs, fm)) {
           continue;
         }
         if (FieldSpec_IsPhonetics(fs)) {
