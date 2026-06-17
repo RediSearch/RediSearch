@@ -681,10 +681,6 @@ void *MRIterator_GetPrivateData(const MRIterator *it) {
   return it->cbxs[0].privateData;
 }
 
-struct uv_loop_s *MRIterator_GetIOLoop(const MRIterator *it) {
-  return IORuntimeCtx_GetLoop(it->ctx.ioRuntime);
-}
-
 // Use before obtaining `pending` (or any other variable of the iterator) to make sure it's synchronized with other threads
 static short MRIteratorCallback_GetNumInProcess(MRIterator *it) {
   return __atomic_load_n(&it->ctx.inProcess, __ATOMIC_ACQUIRE);
@@ -910,18 +906,6 @@ void iterManualNextCb(void *p) {
       }
     }
   }
-}
-
-// Arm the next batch of cursor reads. Sets inProcess to the current pending count,
-// takes an extra iterator reference (released when the batch's reply callbacks fire),
-// and schedules iterManualNextCb on the IO thread to dispatch the reads.
-// Must only be called when pending > 0 and from the iterator's own IO thread.
-void MRIterator_ArmNextBatch(MRIterator *it) {
-  RS_ASSERT(it->ctx.pending > 0);
-  it->ctx.inProcess = it->ctx.pending;
-  int8_t refCount = MRIterator_IncreaseRefCount(it);
-  REFCOUNT_INCR_MSG("MRIterator_ArmNextBatch", refCount);
-  IORuntimeCtx_Schedule(it->ctx.ioRuntime, iterManualNextCb, it);
 }
 
 // Replace the per-reply callback for all subsequent replies to this iterator.

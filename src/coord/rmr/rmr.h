@@ -26,8 +26,6 @@ extern "C" {
 #include "util/references.h"
 #include <unistd.h>
 
-struct uv_loop_s;
-
 typedef struct QueryError QueryError;
 
 // Error detail returned to the client when a query cannot be dispatched to the
@@ -254,13 +252,6 @@ int MRIteratorCallback_ResendCommand(MRIteratorCallbackCtx *ctx);
 
 MRIteratorCtx *MRIterator_GetCtx(MRIterator *it);
 
-/* Return the libuv loop of the IO runtime that owns this iterator. The loop is
- * owned by the IO runtime, not the iterator. Intended for callbacks that run on
- * the IO thread and need to schedule libuv handles (e.g. a per-iterator timer);
- * libuv handle operations are not thread-safe and must be invoked on the loop
- * thread. */
-struct uv_loop_s *MRIterator_GetIOLoop(const MRIterator *it);
-
 size_t MRIterator_GetChannelSize(const MRIterator *it);
 
 size_t MRIterator_GetNumShards(const MRIterator *it);
@@ -268,12 +259,6 @@ size_t MRIterator_GetNumShards(const MRIterator *it);
 short MRIterator_GetPending(MRIterator *it);
 
 void MRIterator_Release(MRIterator *it);
-
-/* Arm the next batch of cursor reads: sets inProcess = pending, takes an extra
- * iterator reference (released when the batch's reply callbacks fire), and
- * schedules iterManualNextCb to dispatch the reads on the IO thread.
- * Must only be called when pending > 0 and from the iterator's own IO thread. */
-void MRIterator_ArmNextBatch(MRIterator *it);
 
 /* Atomically increment the iterator's reference count and return the new count.
  * Used to take an explicit extra reference that must be paired with a matching
