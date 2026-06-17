@@ -53,13 +53,6 @@ bool extractTotalResults(MRReply *rep, MRCommand *cmd, long long *out_total) {
 // Handles DEL commands, error replies, reply structure assertions,
 // cursor continuation, and reply fan-in to the channel.
 void netCursorCallback(MRIteratorCallbackCtx *ctx, MRReply *rep) {
-  // NULL reply means the shard disconnected or the command failed to send.
-  // Mark this shard as done (with error) so depletion accounting stays correct.
-  if (!rep) {
-    MRIteratorCallback_Done(ctx, 1);
-    return;
-  }
-
   MRCommand *cmd = MRIteratorCallback_GetCommand(ctx);
 
   // If the root command of this reply is a DEL command, we don't want to
