@@ -12,11 +12,11 @@
 #include "util/strconv.h"
 #include "rpnet.h"
 
-static bool getCursorCommand(long long cursorId, MRCommand *cmd, MRIteratorCtx *ctx, bool shardTimedOut);
+bool getCursorCommand(long long cursorId, MRCommand *cmd, MRIteratorCtx *ctx, bool shardTimedOut);
 
 // Helper function to extract total_results from a shard reply
 // Returns true if total_results was found, false otherwise
-static bool extractTotalResults(MRReply *rep, MRCommand *cmd, long long *out_total) {
+bool extractTotalResults(MRReply *rep, MRCommand *cmd, long long *out_total) {
   if (cmd->protocol == 3) {
     // RESP3: [map, cursor]
     MRReply *meta = MRReply_ArrayElement(rep, 0);
@@ -49,14 +49,17 @@ static bool extractTotalResults(MRReply *rep, MRCommand *cmd, long long *out_tot
   return false;
 }
 
-// Original callback that extracts barrier from privateData
+// Cursor callback for network responses.
+// Handles DEL commands, error replies, reply structure assertions,
+// cursor continuation, and reply fan-in to the channel.
 void netCursorCallback(MRIteratorCallbackCtx *ctx, MRReply *rep) {
-  ShardResponseBarrier *barrier = (ShardResponseBarrier *)MRIteratorCallback_GetPrivateData(ctx);
-  netCursorCallbackWithBarrier(ctx, rep, barrier);
-}
+  // NULL reply means the shard disconnected or the command failed to send.
+  // Mark this shard as done (with error) so depletion accounting stays correct.
+  if (!rep) {
+    MRIteratorCallback_Done(ctx, 1);
+    return;
+  }
 
-// Core implementation that takes barrier explicitly
-void netCursorCallbackWithBarrier(MRIteratorCallbackCtx *ctx, MRReply *rep, ShardResponseBarrier *barrier) {
   MRCommand *cmd = MRIteratorCallback_GetCommand(ctx);
 
   // If the root command of this reply is a DEL command, we don't want to
@@ -73,10 +76,6 @@ void netCursorCallbackWithBarrier(MRIteratorCallbackCtx *ctx, MRReply *rep, Shar
     const char* error = MRReply_String(rep, NULL);
     RedisModule_Log(RSDummyContext, "notice", "Coordinator got an error '%.*s' from a shard", GetRedisErrorCodeLength(error), error);
     RedisModule_Log(RSDummyContext, "verbose", "Shard error: %s", error);
-    if (barrier && barrier->notifyCallback) {
-      // Notify an error was received
-      barrier->notifyCallback(cmd->targetShardIdx, 0, true, barrier);
-    }
     MRIteratorCallback_AddReply(ctx, rep); // to be picked up by getNextReply
     MRIteratorCallback_Done(ctx, 1);
     return;
@@ -146,19 +145,6 @@ void netCursorCallbackWithBarrier(MRIteratorCallbackCtx *ctx, MRReply *rep, Shar
     }
   }
 #endif // Reply structure assertions
-
-  // Extract total_results and notify barrier via callback (if registered)
-  if (barrier && barrier->notifyCallback) {
-    long long shardTotal;
-    if (!extractTotalResults(rep, cmd, &shardTotal)) {
-      // If no error was detected earlier, and still we failed to extract total_results,
-      // Response is malformed: log a warning and set total to 0.
-      // Notice: must still call the notify callback since a response was received
-      shardTotal = 0;
-      RedisModule_Log(RSDummyContext, "notice", "Coordinator could not extract total_results from shard %d reply", cmd->targetShardIdx);
-    }
-    barrier->notifyCallback(cmd->targetShardIdx, shardTotal, false, barrier);
-  }
 
   // Check if the shard returned a timeout warning (for profiling commands with RESP3)
   bool shardTimedOut = false;

@@ -190,6 +190,12 @@ static void processHybridResp3(processCursorMappingCallbackContext *ctx, MRReply
 static void processCursorMappingCallback(MRIteratorCallbackCtx *ctx, MRReply *rep) {
     // TODO: add response validation (see netCursorCallback)
     // TODO implement error handling
+    // NULL reply means the shard disconnected or the command failed to send.
+    // Mark this shard as done (with error) so depletion accounting stays correct.
+    if (!rep) {
+        MRIteratorCallback_Done(ctx, 1);
+        return;
+    }
     processCursorMappingCallbackContext *cb_ctx = (processCursorMappingCallbackContext *)MRIteratorCallback_GetPrivateData(ctx);
     RS_ASSERT(cb_ctx);
     MRCommand *cmd = MRIteratorCallback_GetCommand(ctx);

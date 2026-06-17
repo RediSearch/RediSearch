@@ -15,7 +15,6 @@
 #include "rmr/rmr.h"
 #include "aggregate/aggregate.h"
 #include "hybrid/hybrid_cursor_mappings.h"
-#include "shard_barrier.h"
 
 #ifdef __cplusplus
 extern "C" {
@@ -41,12 +40,10 @@ typedef struct {
   // profile vars
   arrayof(MRReply *) shardsProfile;
 
-  // Pointer to shared barrier structure for collecting first responses from all shards (reference-counted)
-  ShardResponseBarrier *shardResponseBarrier;  // NULL if not using WITHCOUNT
-
-  // Pending replies while waiting for all shards' first responses
-  arrayof(MRReply *) pendingReplies;   // Replies accumulated while waiting
-  bool waitedForAllShards;             // True once all shards have sent their first response
+  // True when this is an async WITHCOUNT aggregate; total_results is
+  // accumulated by collectCountCb on the IO thread and exposed
+  // via AggregateIterator_GetTotalResults once the iterator is depleted.
+  bool withCount;
 
   // Drain-only mode: rpnetNext pops already-queued replies without blocking
   // and maps timeouts to EOF. Set by the RETURN-STRICT timeout callback after

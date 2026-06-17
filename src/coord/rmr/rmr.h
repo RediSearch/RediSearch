@@ -26,6 +26,8 @@ extern "C" {
 #include "util/references.h"
 #include <unistd.h>
 
+struct uv_loop_s;
+
 typedef struct QueryError QueryError;
 
 
@@ -160,6 +162,23 @@ MRReply *MRIterator_NextWithTimeout(MRIterator *it, const struct timespec *absti
  * invoke MRChannel_WakeAbort directly (e.g. from a timeout callback on another thread). */
 struct MRChannel *MRIterator_GetChannel(MRIterator *it);
 
+/* Allocate and initialize an iterator without dispatching its fan-out. The
+ * iterator is inert until MR_StartIterator schedules its start callback, so the
+ * caller can safely publish any state the barrier's completion callback depends
+ * on (e.g. store the iterator pointer, register an abort-wake channel) before
+ * any reply can arrive on the IO thread. Pair every MR_CreateIterator with
+ * MR_StartIterator. */
+MRIterator *MR_CreateIterator(const MRCommand *cmd, MRIteratorCallback cb, void *cbPrivateData,
+                              void (*cbPrivateDataDestructor)(void *),
+                              void (*cbPrivateDataInit)(void *, const MRIterator *),
+                              MRCommandModifier commandModifier);
+
+/* Schedule the iterator's start callback on its IO runtime, kicking off the
+ * fan-out to the shards. After this call replies may arrive at any time on the
+ * IO thread. */
+void MR_StartIterator(MRIterator *it, void (*iterStartCb)(void *),
+                      StrongRef *iterStartCbPrivateData);
+
 MRIterator *MR_IterateWithPrivateData(const MRCommand *cmd, MRIteratorCallback cb, void *cbPrivateData,
                                       void (*cbPrivateDataDestructor)(void *),
                                       void (*cbPrivateDataInit)(void *, const MRIterator *),
@@ -169,6 +188,11 @@ MRIterator *MR_IterateWithPrivateData(const MRCommand *cmd, MRIteratorCallback c
 MRCommand *MRIteratorCallback_GetCommand(MRIteratorCallbackCtx *ctx);
 
 MRIteratorCtx *MRIteratorCallback_GetCtx(MRIteratorCallbackCtx *ctx);
+
+/* Return the iterator that owns this callback context. Intended for per-reply
+ * callbacks that need to query iterator-wide state (e.g. the shard count via
+ * MRIterator_GetNumShards). */
+MRIterator *MRIteratorCallback_GetIterator(MRIteratorCallbackCtx *ctx);
 
 void *MRIteratorCallback_GetPrivateData(MRIteratorCallbackCtx *ctx);
 
@@ -188,6 +212,13 @@ int MRIteratorCallback_ResendCommand(MRIteratorCallbackCtx *ctx);
 
 MRIteratorCtx *MRIterator_GetCtx(MRIterator *it);
 
+/* Return the libuv loop of the IO runtime that owns this iterator. The loop is
+ * owned by the IO runtime, not the iterator. Intended for callbacks that run on
+ * the IO thread and need to schedule libuv handles (e.g. a per-iterator timer);
+ * libuv handle operations are not thread-safe and must be invoked on the loop
+ * thread. */
+struct uv_loop_s *MRIterator_GetIOLoop(const MRIterator *it);
+
 size_t MRIterator_GetChannelSize(const MRIterator *it);
 
 size_t MRIterator_GetNumShards(const MRIterator *it);
@@ -195,6 +226,26 @@ size_t MRIterator_GetNumShards(const MRIterator *it);
 short MRIterator_GetPending(MRIterator *it);
 
 void MRIterator_Release(MRIterator *it);
+
+/* Arm the next batch of cursor reads: sets inProcess = pending, takes an extra
+ * iterator reference (released when the batch's reply callbacks fire), and
+ * schedules iterManualNextCb to dispatch the reads on the IO thread.
+ * Must only be called when pending > 0 and from the iterator's own IO thread. */
+void MRIterator_ArmNextBatch(MRIterator *it);
+
+/* Atomically increment the iterator's reference count and return the new count.
+ * Used to take an explicit extra reference that must be paired with a matching
+ * MRIterator_Release. */
+int8_t MRIterator_IncreaseRefCount(MRIterator *it);
+
+/* Replace the per-reply callback for all subsequent replies. Must only be called
+ * from the iterator's own IO thread (the same thread that invokes the callback
+ * via mrIteratorRedisCB); no synchronization is applied. */
+void MRIterator_SetCallback(MRIterator *it, MRIteratorCallback cb);
+
+/* Return the privateData stored in the first callback context of the iterator.
+ * Valid while the iterator is alive (i.e. before the coord ref is released). */
+void *MRIterator_GetPrivateData(const MRIterator *it);
 
 sds MRCommand_SafeToString(const MRCommand *cmd);
 

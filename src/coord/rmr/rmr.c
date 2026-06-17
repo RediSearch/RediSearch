@@ -641,13 +641,10 @@ struct MRIterator {
 
 static void mrIteratorRedisCB(redisAsyncContext *c, void *r, void *privdata) {
   MRIteratorCallbackCtx *ctx = privdata;
-  if (!r) {
-    MRIteratorCallback_Done(ctx, 1);
-    // ctx->numErrored++;
-    // TODO: report error
-  } else {
-    ctx->it->ctx.cb(ctx, r);
-  }
+  // Deliver the reply to the per-iterator callback, including NULL replies
+  // (shard disconnect/error). Each callback handles a NULL reply itself, so
+  // every event that decrements inProcess flows through a single choke point.
+  ctx->it->ctx.cb(ctx, r);
 }
 
 int MRIteratorCallback_ResendCommand(MRIteratorCallbackCtx *ctx) {
@@ -666,6 +663,16 @@ void MRIteratorCallback_ProcessDone(MRIteratorCallbackCtx *ctx) {
     MRIterator_Release(ctx->it);
     IORuntimeCtx_RequestCompleted(ioRuntime);
   }
+}
+
+// Return the privateData associated with the first callback context of this iterator.
+// Valid as long as the iterator is alive (i.e. before rpnetFree releases the coord ref).
+void *MRIterator_GetPrivateData(const MRIterator *it) {
+  return it->cbxs[0].privateData;
+}
+
+struct uv_loop_s *MRIterator_GetIOLoop(const MRIterator *it) {
+  return IORuntimeCtx_GetLoop(it->ctx.ioRuntime);
 }
 
 // Use before obtaining `pending` (or any other variable of the iterator) to make sure it's synchronized with other threads
@@ -691,7 +698,7 @@ void MRIteratorCallback_ResetTimedOut(MRIteratorCtx *ctx) {
   __atomic_store_n(&ctx->timedOut, false, __ATOMIC_RELAXED);
 }
 
-static inline int8_t MRIterator_IncreaseRefCount(MRIterator *it) {
+int8_t MRIterator_IncreaseRefCount(MRIterator *it) {
   return  __atomic_add_fetch(&it->ctx.itRefCount, 1, __ATOMIC_ACQUIRE);
 }
 
@@ -720,6 +727,10 @@ MRIteratorCtx *MRIteratorCallback_GetCtx(MRIteratorCallbackCtx *ctx) {
   return &ctx->it->ctx;
 }
 
+MRIterator *MRIteratorCallback_GetIterator(MRIteratorCallbackCtx *ctx) {
+  return ctx->it;
+}
+
 void MRIteratorCallback_AddReply(MRIteratorCallbackCtx *ctx, MRReply *rep) {
   MRChannel_Push(ctx->it->ctx.chan, rep);
 }
@@ -744,11 +755,8 @@ void iterStartCb(void *p) {
     if (!conn) {
       // At least one connection is not established - fail with a single error.
       // it->len/pending/inProcess remain at their initial value of 1.
-      // Run privateDataInit so ShardResponseBarrier (used by FT.AGGREGATE
-      // WITHCOUNT) accepts the synthetic error notification; otherwise its
-      // numShards stays 0, Notify's bounds check short-circuits, and the real
-      // error gets replaced by a misleading timeout message in
-      // shardResponseBarrier_HandleTimeout.
+      // Run privateDataInit so the private data is properly initialized
+      // before the synthetic error notification is delivered.
       void *privateData = MRIteratorCallback_GetPrivateData(&it->cbxs[0]);
       if (privateData && it->ctx.privateDataInit) {
         it->ctx.privateDataInit(privateData, it);
@@ -765,7 +773,7 @@ void iterStartCb(void *p) {
   it->ctx.pending = numShards;
   it->ctx.inProcess = numShards; // Initially all commands are in process
 
-  // Call privateData init callback if set (e.g., to initialize ShardResponseBarrier)
+  // Call privateData init callback if set
   void *privateData = MRIteratorCallback_GetPrivateData(&it->cbxs[0]);
   if (privateData && it->ctx.privateDataInit) {
     it->ctx.privateDataInit(privateData, it);
@@ -802,7 +810,9 @@ void iterStartCb(void *p) {
   for (size_t i = 0; i < numShards; i++) {
     if (MRCluster_SendCommand(io_runtime_ctx, &it->cbxs[i].cmd, mrIteratorRedisCB, &it->cbxs[i]) ==
         REDIS_ERR) {
-      MRIteratorCallback_Done(&it->cbxs[i], 1);
+      // Route the synthetic failure through cb (NULL reply) so depletion is
+      // detected at the single choke point, like a real disconnect.
+      it->ctx.cb(&it->cbxs[i], NULL);
     }
   }
 
@@ -871,7 +881,8 @@ void iterCursorMappingCb(void *p) {
   for (size_t i = 0; i < numShardsWithMapping; i++) {
     if (MRCluster_SendCommand(io_runtime_ctx, &it->cbxs[i].cmd,
                               mrIteratorRedisCB, &it->cbxs[i]) == REDIS_ERR) {
-      MRIteratorCallback_Done(&it->cbxs[i], 1);
+      // Route the synthetic failure through cb (NULL reply), see iterStartCb.
+      it->ctx.cb(&it->cbxs[i], NULL);
     }
   }
 
@@ -888,10 +899,30 @@ void iterManualNextCb(void *p) {
     if (!it->cbxs[i].cmd.depleted) {
       if (MRCluster_SendCommand(io_runtime_ctx, &it->cbxs[i].cmd,
                                 mrIteratorRedisCB, &it->cbxs[i]) == REDIS_ERR) {
-        MRIteratorCallback_Done(&it->cbxs[i], 1);
+        // Route the synthetic failure through cb (NULL reply), see iterStartCb.
+        it->ctx.cb(&it->cbxs[i], NULL);
       }
     }
   }
+}
+
+// Arm the next batch of cursor reads. Sets inProcess to the current pending count,
+// takes an extra iterator reference (released when the batch's reply callbacks fire),
+// and schedules iterManualNextCb on the IO thread to dispatch the reads.
+// Must only be called when pending > 0 and from the iterator's own IO thread.
+void MRIterator_ArmNextBatch(MRIterator *it) {
+  RS_ASSERT(it->ctx.pending > 0);
+  it->ctx.inProcess = it->ctx.pending;
+  int8_t refCount = MRIterator_IncreaseRefCount(it);
+  REFCOUNT_INCR_MSG("MRIterator_ArmNextBatch", refCount);
+  IORuntimeCtx_Schedule(it->ctx.ioRuntime, iterManualNextCb, it);
+}
+
+// Replace the per-reply callback for all subsequent replies to this iterator.
+// Must only be called from the iterator's own IO thread (the same thread that
+// invokes the callback via mrIteratorRedisCB); no synchronization is applied.
+void MRIterator_SetCallback(MRIterator *it, MRIteratorCallback cb) {
+  it->ctx.cb = cb;
 }
 
 bool MR_ManuallyTriggerNextIfNeeded(MRIterator *it, size_t channelThreshold) {
@@ -925,11 +956,10 @@ bool MR_ManuallyTriggerNextIfNeeded(MRIterator *it, size_t channelThreshold) {
   return channelSize > 0;
 }
 
-MRIterator *MR_IterateWithPrivateData(const MRCommand *cmd, MRIteratorCallback cb, void *cbPrivateData,
-                                      void (*cbPrivateDataDestructor)(void *),
-                                      void (*cbPrivateDataInit)(void *, const MRIterator *),
-                                      MRCommandModifier commandModifier,
-                                      void (*iterStartCb)(void *), StrongRef *iterStartCbPrivateData) {
+MRIterator *MR_CreateIterator(const MRCommand *cmd, MRIteratorCallback cb, void *cbPrivateData,
+                              void (*cbPrivateDataDestructor)(void *),
+                              void (*cbPrivateDataInit)(void *, const MRIterator *),
+                              MRCommandModifier commandModifier) {
   MRIterator *ret = rm_new(MRIterator);
   // Initial initialization of the iterator.
   // The rest of the initialization is done in the iterator start callback.
@@ -961,16 +991,30 @@ MRIterator *MR_IterateWithPrivateData(const MRCommand *cmd, MRIteratorCallback c
     .it = ret,
     .privateData = cbPrivateData,
   };
+  return ret;
+}
 
+void MR_StartIterator(MRIterator *it, void (*iterStartCb)(void *),
+                      StrongRef *iterStartCbPrivateData) {
   // Create data structure with iterator and private data (on heap)
   IteratorData *data = rm_malloc(sizeof(IteratorData));
-  data->it = ret;
+  data->it = it;
   data->privateDataRef = (WeakRef){0};
   if (iterStartCbPrivateData) {
     data->privateDataRef = StrongRef_Demote(*iterStartCbPrivateData);
   }
-  IORuntimeCtx_Schedule(ret->ctx.ioRuntime, iterStartCb, data);
-  return ret;
+  IORuntimeCtx_Schedule(it->ctx.ioRuntime, iterStartCb, data);
+}
+
+MRIterator *MR_IterateWithPrivateData(const MRCommand *cmd, MRIteratorCallback cb, void *cbPrivateData,
+                                      void (*cbPrivateDataDestructor)(void *),
+                                      void (*cbPrivateDataInit)(void *, const MRIterator *),
+                                      MRCommandModifier commandModifier,
+                                      void (*iterStartCb)(void *), StrongRef *iterStartCbPrivateData) {
+  MRIterator *it = MR_CreateIterator(cmd, cb, cbPrivateData, cbPrivateDataDestructor,
+                                     cbPrivateDataInit, commandModifier);
+  MR_StartIterator(it, iterStartCb, iterStartCbPrivateData);
+  return it;
 }
 
 MRIteratorCtx *MRIterator_GetCtx(MRIterator *it) {
@@ -1000,7 +1044,7 @@ size_t MRIterator_GetNumShards(const MRIterator *it) {
 
 // Assumes no other thread is using the iterator, the channel, or any of the commands and contexts
 static void MRIterator_Free(MRIterator *it) {
-  // Free privateData using destructor if provided (e.g., ShardResponseBarrier)
+  // Free privateData using destructor if provided
   if (it->ctx.privateDataDestructor && it->cbxs[0].privateData) {
     it->ctx.privateDataDestructor(it->cbxs[0].privateData);
   }
