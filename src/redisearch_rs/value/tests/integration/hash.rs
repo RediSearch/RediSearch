@@ -106,6 +106,18 @@ fn undefined_and_null_do_not_reset_prior_state() {
 }
 
 #[test]
+fn string_sequences_dont_hash_as_concatenated_strings() {
+    let arr = |a: &str, b: &str| {
+        Value::Array(Array::new(Box::new([
+            SharedValue::new(Value::String(String::from_vec(a.into()))),
+            SharedValue::new(Value::String(String::from_vec(b.into()))),
+        ])))
+    };
+
+    assert_ne!(hash(&arr("a", "bc")), hash(&arr("ab", "c")));
+}
+
+#[test]
 fn ref_hashes_same_as_inner_value() {
     let inner = Value::Number(7.0);
     let wrapped = Value::Ref(SharedValue::new(Value::Number(7.0)));

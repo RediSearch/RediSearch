@@ -1511,6 +1511,21 @@ def test_aggregate_group_by_on_missing_values():
     env.assertEqual(sorted(res[1:], key=str), sorted(expected[1:], key=str))
     env.flush()
 
+def test_aggregate_groupby_two_tag_fields_not_conflated_by_hash_collision(env):
+    # Values are chosen so that a naive list hash that doesn't separate fields would collide:
+    # hash(["ab", "c"]) == hash(["a", "bc"]). The two documents must land in separate groups.
+    env.expect('FT.CREATE', 'idx', 'ON', 'HASH', 'SCHEMA', 't1', 'TAG', 't2', 'TAG').ok()
+    conn = getConnectionByEnv(env)
+    conn.execute_command('HSET', 'doc:0', 't1', 'ab', 't2', 'c')
+    conn.execute_command('HSET', 'doc:1', 't1', 'a', 't2', 'bc')
+    res = env.cmd(
+        'FT.AGGREGATE', 'idx', '*',
+        'GROUPBY', '2', '@t1', '@t2',
+            'REDUCE', 'COUNT', '0', 'AS', 'n',
+        'SORTBY', '4', '@t1', 'ASC', '@t2', 'ASC'
+    )
+    env.assertEqual(res, [2, ['t1', 'a', 't2', 'bc', 'n', '1'], ['t1', 'ab', 't2', 'c', 'n', '1']])
+
 def test_aggregate_group_by_on_missing_indexed_values():
     def group_by_result_to_dict(lst):
         if lst is None or len(lst) == 0:
