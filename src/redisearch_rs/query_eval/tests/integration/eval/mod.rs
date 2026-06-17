@@ -24,7 +24,7 @@ fn qast_iterate_evaluates_root_node() {
     let mock_node = MockQueryNode::new(QueryNodeType::Null);
     let node = unsafe { QueryNodeRef::new(mock_node.as_non_null()) };
 
-    let mut it = eval::qast_iterate(&mut ctx, &node);
+    let mut it = eval::qast_iterate(&mut ctx, &node).into_boxed();
 
     assert_eq!(it.type_(), IteratorType::Empty);
     assert!(it.at_eof());
@@ -42,7 +42,9 @@ fn eval_null_returns_empty_iterator() {
     let mock_node = MockQueryNode::new(QueryNodeType::Null);
     let node = unsafe { QueryNodeRef::new(mock_node.as_non_null()) };
 
-    let mut it = eval::eval_node(&mut ctx, &node).expect("should not be None");
+    let mut it = eval::eval_node(&mut ctx, &node)
+        .expect("should not be None")
+        .into_boxed();
 
     assert_eq!(it.type_(), IteratorType::Empty);
     assert!(it.at_eof());
@@ -63,7 +65,9 @@ fn eval_wildcard_returns_wildcard_iterator() {
     mock_node.opts_mut().weight = 1.0;
     let node = unsafe { QueryNodeRef::new(mock_node.as_non_null()) };
 
-    let mut it = eval::eval_node(&mut ctx, &node).expect("should not be None");
+    let mut it = eval::eval_node(&mut ctx, &node)
+        .expect("should not be None")
+        .into_boxed();
 
     assert_eq!(it.type_(), IteratorType::Wildcard);
     assert!(!it.at_eof());
@@ -80,7 +84,9 @@ fn eval_wildcard_empty_index() {
     let mock_node = MockQueryNode::new(QueryNodeType::Wildcard);
     let node = unsafe { QueryNodeRef::new(mock_node.as_non_null()) };
 
-    let mut it = eval::eval_node(&mut ctx, &node).expect("should not be None");
+    let mut it = eval::eval_node(&mut ctx, &node)
+        .expect("should not be None")
+        .into_boxed();
 
     assert!(it.at_eof());
     assert!(matches!(it.read(), Ok(None)));
@@ -96,7 +102,9 @@ fn eval_wildcard_respects_weight() {
     mock_node.opts_mut().weight = 2.5;
     let node = unsafe { QueryNodeRef::new(mock_node.as_non_null()) };
 
-    let mut it = eval::eval_node(&mut ctx, &node).expect("should not be None");
+    let mut it = eval::eval_node(&mut ctx, &node)
+        .expect("should not be None")
+        .into_boxed();
     let result = it.read().unwrap().expect("should have a result");
     assert_eq!(result.weight, 2.5);
 }
@@ -118,7 +126,9 @@ fn eval_ids_with_pre_resolved_doc_ids() {
     mock_node.set_ids(keys.as_ptr(), doc_ids.as_mut_ptr(), keys.len());
     let node = unsafe { QueryNodeRef::new(mock_node.as_non_null()) };
 
-    let mut it = eval::eval_node(&mut ctx, &node).expect("should not be None");
+    let mut it = eval::eval_node(&mut ctx, &node)
+        .expect("should not be None")
+        .into_boxed();
 
     assert_eq!(it.type_(), IteratorType::IdListSorted);
     assert!(!it.at_eof());
@@ -146,7 +156,9 @@ fn eval_ids_deduplicates() {
     mock_node.set_ids(keys.as_ptr(), doc_ids.as_mut_ptr(), keys.len());
     let node = unsafe { QueryNodeRef::new(mock_node.as_non_null()) };
 
-    let mut it = eval::eval_node(&mut ctx, &node).expect("should not be None");
+    let mut it = eval::eval_node(&mut ctx, &node)
+        .expect("should not be None")
+        .into_boxed();
 
     let r = it.read().unwrap().unwrap();
     assert_eq!(r.doc_id, 3);
@@ -168,7 +180,9 @@ fn eval_ids_filters_zero_doc_ids() {
     mock_node.set_ids(keys.as_ptr(), doc_ids.as_mut_ptr(), keys.len());
     let node = unsafe { QueryNodeRef::new(mock_node.as_non_null()) };
 
-    let mut it = eval::eval_node(&mut ctx, &node).expect("should not be None");
+    let mut it = eval::eval_node(&mut ctx, &node)
+        .expect("should not be None")
+        .into_boxed();
 
     let r = it.read().unwrap().unwrap();
     assert_eq!(r.doc_id, 5);
@@ -188,7 +202,9 @@ fn eval_ids_all_zero_produces_empty_list() {
     mock_node.set_ids(keys.as_ptr(), doc_ids.as_mut_ptr(), keys.len());
     let node = unsafe { QueryNodeRef::new(mock_node.as_non_null()) };
 
-    let mut it = eval::eval_node(&mut ctx, &node).expect("should not be None");
+    let mut it = eval::eval_node(&mut ctx, &node)
+        .expect("should not be None")
+        .into_boxed();
 
     assert!(it.at_eof());
     assert!(matches!(it.read(), Ok(None)));
@@ -203,7 +219,9 @@ fn eval_ids_empty_keys() {
     mock_node.set_ids(std::ptr::null(), std::ptr::null_mut(), 0);
     let node = unsafe { QueryNodeRef::new(mock_node.as_non_null()) };
 
-    let mut it = eval::eval_node(&mut ctx, &node).expect("should not be None");
+    let mut it = eval::eval_node(&mut ctx, &node)
+        .expect("should not be None")
+        .into_boxed();
 
     assert!(it.at_eof());
     assert!(matches!(it.read(), Ok(None)));
@@ -243,7 +261,8 @@ mod missing {
         let node = unsafe { QueryNodeRef::new(mock_node.as_non_null()) };
 
         let mut it = eval::eval_node(&mut ctx, &node)
-            .expect("field has missing values, so should not be None");
+            .expect("field has missing values, so should not be None")
+            .into_boxed();
 
         assert_eq!(it.type_(), IteratorType::InvIdxMissing);
         for expected in [1, 2, 3] {
@@ -287,7 +306,7 @@ mod missing {
         mock_node.set_missing_field(context.field_spec());
         let node = unsafe { QueryNodeRef::new(mock_node.as_non_null()) };
 
-        let mut it = eval::qast_iterate(&mut ctx, &node);
+        let mut it = eval::qast_iterate(&mut ctx, &node).into_boxed();
 
         assert_eq!(it.type_(), IteratorType::Empty);
         assert!(it.at_eof());
@@ -341,7 +360,9 @@ mod ids_doctable {
         mock_node.set_ids(keys.as_ptr(), std::ptr::null_mut(), keys.len());
         let node = unsafe { QueryNodeRef::new(mock_node.as_non_null()) };
 
-        let mut it = eval::eval_node(&mut ctx, &node).expect("should not be None");
+        let mut it = eval::eval_node(&mut ctx, &node)
+            .expect("should not be None")
+            .into_boxed();
 
         assert_eq!(it.type_(), IteratorType::IdListSorted);
         // Results are sorted; the unknown key is dropped.
@@ -372,7 +393,9 @@ mod ids_doctable {
         mock_node.set_ids(keys.as_ptr(), std::ptr::null_mut(), keys.len());
         let node = unsafe { QueryNodeRef::new(mock_node.as_non_null()) };
 
-        let mut it = eval::eval_node(&mut ctx, &node).expect("should not be None");
+        let mut it = eval::eval_node(&mut ctx, &node)
+            .expect("should not be None")
+            .into_boxed();
 
         assert!(it.at_eof());
         assert!(matches!(it.read(), Ok(None)));

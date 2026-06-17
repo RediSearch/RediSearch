@@ -15,7 +15,7 @@ use criterion::{
 };
 use ffi::IndexFlags_Index_DocIdsOnly;
 use index_result::RSIndexResult;
-use inverted_index::{IndexBlock, InvertedIndex, numeric::Numeric};
+use inverted_index::{InvertedIndex, numeric::Numeric};
 
 fn benchmark_garbage_collection(c: &mut Criterion) {
     let mut group = c.benchmark_group("GC");

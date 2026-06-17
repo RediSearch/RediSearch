@@ -27,7 +27,7 @@ protected:
     RMCK::ArgvList createArgs(ctx, "FT.CREATE", index_name.c_str(), "ON", "HASH",
                               "SCHEMA", "title", "TEXT", "content", "TEXT",
                               "vector", "VECTOR", "FLAT", "6", "TYPE", "FLOAT32", "DIM", "3", "DISTANCE_METRIC", "COSINE");
-    IndexSpec *spec = Indexes_CreateNew(ctx, createArgs, createArgs.size(), &qerr);
+    IndexSpec *spec = Indexes_CreateNewSpec(ctx, createArgs, createArgs.size(), &qerr);
     if (!spec) {
       printf("Failed to create index '%s': code=%d, detail='%s'\n",
              index_name.c_str(), QueryError_GetCode(&qerr), QueryError_GetUserError(&qerr));

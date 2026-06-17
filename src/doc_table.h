@@ -96,6 +96,9 @@ DocTable NewDocTable(size_t cap, size_t max_size);
 
 #define DocTable_New(cap) NewDocTable(cap, RSGlobalConfig.maxDocTableSize)
 
+// Initial number of slots in a spec's document table
+#define INITIAL_DOC_TABLE_SIZE 1000
+
 /* Get a reference to the metadata for a doc Id from the DocTable.
  * If docId is not inside the table, we return NULL */
 const RSDocumentMetadata *DocTable_Borrow(const DocTable *t, t_docId docId);

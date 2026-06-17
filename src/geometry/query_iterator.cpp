@@ -7,6 +7,7 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 #include "query_iterator.hpp"
+#include "geometry_api.h"
 #include "doc_table.h"
 #include "iterators_ffi.h"
 #include "search_ctx.h"
@@ -168,3 +169,21 @@ QueryIterator CPPQueryIterator::init_base() {
 }
 }  // namespace GeoShape
 }  // namespace RediSearch
+
+extern "C" QueryIterator *NewGeometryQueryIterator_Bench(const RedisSearchCtx *sctx,
+                                                         const FieldFilterContext *filterCtx,
+                                                         t_docId *ids, std::size_t num,
+                                                         std::size_t *allocated) {
+  using RediSearch::GeoShape::CPPQueryIterator;
+  using alloc_type = RediSearch::Allocator::TrackingAllocator<CPPQueryIterator>;
+  auto alloc = alloc_type{*allocated};
+  const auto qi = std::allocator_traits<alloc_type>::allocate(alloc, 1);
+  // Use REDISEARCH_UNINITIALIZED counter to skip timeout checks when skipTimeoutChecks is set,
+  // mirroring RTree::query.
+  const uint32_t timeoutCounter =
+      (sctx && sctx->time.skipTimeoutChecks) ? REDISEARCH_UNINITIALIZED : 0;
+  const auto range = std::ranges::subrange{ids, ids + num};
+  std::allocator_traits<alloc_type>::construct(alloc, qi, sctx, filterCtx, range, *allocated,
+                                               timeoutCounter);
+  return qi->base();
+}

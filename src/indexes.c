@@ -63,8 +63,8 @@ extern dict *legacySpecDict;
 extern dict *legacySpecRules;
 extern uint32_t maxIndexes_g;
 
-static bool checkIfSpecExists(const char *rawSpecName) {
-  HiddenString *specName = NewHiddenString(rawSpecName, strlen(rawSpecName), false);
+static bool checkIfSpecExists(const char *rawSpecName, size_t rawSpecNameLen) {
+  HiddenString *specName = NewHiddenString(rawSpecName, rawSpecNameLen, false);
   bool found = dictFetchValue(specDict_g, specName) != NULL;
   HiddenString_Free(specName, false);
   return found;
@@ -73,10 +73,11 @@ static bool checkIfSpecExists(const char *rawSpecName) {
 // Entry point for FT.CREATE: enforce the registry preconditions (name
 // uniqueness, index-count limit), build the spec via the IndexSpec core, publish
 // it into the global registry, and schedule its initial scan.
-IndexSpec *Indexes_CreateNew(RedisModuleCtx *ctx, RedisModuleString **argv, int argc,
+IndexSpec *Indexes_CreateNewSpec(RedisModuleCtx *ctx, RedisModuleString **argv, int argc,
                              QueryError *status) {
-  const char *rawSpecName = RedisModule_StringPtrLen(argv[1], NULL);
-  if (checkIfSpecExists(rawSpecName)) {
+  size_t rawSpecNameLen = 0;
+  const char *rawSpecName = RedisModule_StringPtrLen(argv[1], &rawSpecNameLen);
+  if (checkIfSpecExists(rawSpecName, rawSpecNameLen)) {
     QueryError_SetCode(status, QUERY_ERROR_CODE_INDEX_EXISTS);
     return NULL;
   }
@@ -126,7 +127,7 @@ void Spec_AddToDict(RefManager *rm) {
 // Also assumes that the spec exists in the global dictionary, so we use the
 // global reference as our guard and access the spec directly.
 // This function consumes the Strong reference it gets.
-void Indexes_RemoveFromGlobals(StrongRef spec_ref, bool removeActive) {
+void Indexes_RemoveSpecFromGlobals(StrongRef spec_ref, bool removeActive) {
   IndexSpec *spec = StrongRef_Get(spec_ref);
   // Remove spec from the global index registry (by name and by specId)
   dictDelete(specDict_g, spec->specName);
@@ -137,7 +138,7 @@ void Indexes_RemoveFromGlobals(StrongRef spec_ref, bool removeActive) {
 }
 
 // Look up a spec by name (or alias) in the global registry - the specDict_g
-// access - then run the per-spec post-load bookkeeping via IndexSpec_LoadUnsafeEx.
+// access - then run the per-spec post-load bookkeeping via IndexSpec_OnAcquire.
 // The call does not increase the spec's strong reference counter (the returned
 // StrongRef is a borrow; NULL payload if the index does not exist).
 StrongRef Indexes_LoadIndexSpecUnsafeEx(IndexLoadOptions *options) {
@@ -160,7 +161,7 @@ StrongRef Indexes_LoadIndexSpecUnsafeEx(IndexLoadOptions *options) {
     return spec_ref;
   }
 
-  IndexSpec_LoadUnsafeEx(spec_ref, options);
+  IndexSpec_OnAcquire(spec_ref, options);
   return spec_ref;
 }
 
@@ -209,13 +210,13 @@ void Indexes_Free(RedisModuleCtx *ctx, dict *d, bool deleteDiskData) {
   for (size_t i = 0; i < array_len(specs); ++i) {
     IndexSpec *spec = StrongRef_Get(specs[i]);
     if (spec && spec->diskSpec) {
-      // Unregister must always precede close (triggered by Indexes_RemoveFromGlobals)
+      // Unregister must always precede close (triggered by Indexes_RemoveSpecFromGlobals)
       SearchDisk_UnregisterIndex(ctx, spec);
       if (deleteDiskData) {
         SearchDisk_MarkIndexForDeletion(spec->diskSpec);
       }
     }
-    Indexes_RemoveFromGlobals(specs[i], false);
+    Indexes_RemoveSpecFromGlobals(specs[i], false);
   }
   array_free(specs);
 }
@@ -223,7 +224,7 @@ void Indexes_Free(RedisModuleCtx *ctx, dict *d, bool deleteDiskData) {
 // Load one spec from the RDB stream and resolve its registry-dependent state:
 // parse it (IndexSpec core), detect a duplicate against the registry, then open
 // its on-disk index if appropriate. Returns the spec (not yet registered - the
-// caller passes it to Indexes_StoreAfterRdbLoad), or NULL on failure.
+// caller passes it to Indexes_StoreSpecAfterRdbLoad), or NULL on failure.
 static IndexSpec *Indexes_LoadSpecFromRdb(RedisModuleIO *rdb, int encver, bool useSst, QueryError *status) {
   IndexSpec *sp = IndexSpec_RdbLoad(rdb, encver, useSst, status);
   if (!sp) {
@@ -248,7 +249,7 @@ int Indexes_RdbLoad(RedisModuleIO *rdb, int encver, int when) {
     return REDISMODULE_ERR;
   }
 
-  nIndexes = LoadUnsigned_IOError(rdb, goto cleanup);
+  nIndexes = LoadUnsigned_IOError(rdb, return REDISMODULE_ERR);
 
   if (unlikely(nIndexes > maxIndexes_g)) {
     RedisModule_LogIOError(
@@ -265,7 +266,7 @@ int Indexes_RdbLoad(RedisModuleIO *rdb, int encver, int when) {
     // Load one spec (parse + duplicate detection + disk open), then publish it
     // into the registry.
     IndexSpec *sp = Indexes_LoadSpecFromRdb(rdb, encver, useSst, &status);
-    if (Indexes_StoreAfterRdbLoad(sp) != REDISMODULE_OK) {
+    if (Indexes_StoreSpecAfterRdbLoad(sp) != REDISMODULE_OK) {
       RedisModule_LogIOError(rdb, "warning", "RDB Load: %s", QueryError_GetDisplayableError(&status, RSGlobalConfig.hideUserDataFromLog));
       QueryError_ClearError(&status);
       return REDISMODULE_ERR;
@@ -277,15 +278,12 @@ int Indexes_RdbLoad(RedisModuleIO *rdb, int encver, int when) {
   Initialize_KeyspaceNotifications();
 
   return REDISMODULE_OK;
-
-cleanup:
-  return REDISMODULE_ERR;
 }
 
 // Finalize a spec loaded from RDB: detect a name collision against the registry,
 // then either discard the duplicate or publish the spec into specDict_g/
 // specIdDict_g and start its GC. Owns the registry writes for the load path.
-int Indexes_StoreAfterRdbLoad(IndexSpec *sp) {
+int Indexes_StoreSpecAfterRdbLoad(IndexSpec *sp) {
   if (!sp) {
     addPendingIndexDrop();
     return REDISMODULE_ERR;
@@ -293,7 +291,8 @@ int Indexes_StoreAfterRdbLoad(IndexSpec *sp) {
 
   StrongRef spec_ref = sp->own_ref;
 
-  Cursors_initSpec(sp);
+  // Initialize the spec's cursor-related fields.
+  sp->activeCursors = 0;
 
   // setting isDuplicate to true will make sure index will not be removed from aliases container.
   // It may have already been set.
@@ -334,7 +333,7 @@ int Indexes_StoreAfterRdbLoad(IndexSpec *sp) {
   return REDISMODULE_OK;
 }
 
-void Indexes_RdbSave(RedisModuleIO *rdb, int when) {
+static void Indexes_RdbSave(RedisModuleIO *rdb, int when) {
   RedisModuleCtx *ctx = RedisModule_GetContextFromIO(rdb);
   const int contextFlags = RedisModule_GetContextFlags(ctx);
 
@@ -351,7 +350,7 @@ void Indexes_RdbSave(RedisModuleIO *rdb, int when) {
   dictReleaseIterator(iter);
 }
 
-void Indexes_RdbSave2(RedisModuleIO *rdb, int when) {
+static void Indexes_RdbSave2(RedisModuleIO *rdb, int when) {
   if (dictSize(specDict_g)) {
     Indexes_RdbSave(rdb, when);
   }
@@ -360,7 +359,7 @@ void Indexes_RdbSave2(RedisModuleIO *rdb, int when) {
 // Per-key rdb_load callback for the IndexSpecType module type: load a single
 // spec (legacy or current) and resolve its registry-dependent state. Used for
 // serialization/deserialization and ASM migration; does not register the spec
-// (that is the caller's job, e.g. via Indexes_StoreAfterRdbLoad).
+// (that is the caller's job, e.g. via Indexes_StoreSpecAfterRdbLoad).
 static void *IndexSpecType_RdbLoad(RedisModuleIO *rdb, int encver) {
   const bool useSst = CheckRdbSstPersistence(RedisModule_GetContextFromIO(rdb), "RDB Load Logic");
   if (encver <= LEGACY_INDEX_MAX_VERSION) {
@@ -975,7 +974,7 @@ void Indexes_AbortSSTReplicationLoading(RedisModuleCtx *ctx) {
                   "SST replication aborted; tearing down %lu staged index(es)",
                   (unsigned long)dictSize(specDict_g));
 
-  // Snapshot the refs first since Indexes_RemoveFromGlobals mutates specDict_g.
+  // Snapshot the refs first since Indexes_RemoveSpecFromGlobals mutates specDict_g.
   arrayof(StrongRef) specs = array_new(StrongRef, dictSize(specDict_g));
   dictIterator *iter = dictGetIterator(specDict_g);
   dictEntry *entry = NULL;
@@ -998,7 +997,7 @@ void Indexes_AbortSSTReplicationLoading(RedisModuleCtx *ctx) {
     }
     // pendingDiskRdbState and diskSpec are freed by IndexSpec_FreeUnlinkedData
     // once the last StrongRef is dropped below.
-    Indexes_RemoveFromGlobals(specs[i], false);
+    Indexes_RemoveSpecFromGlobals(specs[i], false);
   }
   array_free(specs);
 }

@@ -283,6 +283,7 @@ typedef uint16_t FieldSpecDedupeArray[SPEC_MAX_FIELDS];
   ((spec)->flags & Index_StoreFieldFlags)
 
 #define FIELD_BIT(fs) (((t_fieldMask)1) << (fs)->ftId)
+#define FieldSpec_IsIndexableTextInMask(fs, fm) (FieldSpec_IsIndexableText(fs) && ((fm) & FIELD_BIT(fs)))
 
 //---------------------------------------------------------------------------------------------
 
@@ -507,7 +508,7 @@ int isRdbLoading(RedisModuleCtx *ctx);
 
 /* Build a new index spec from redis arguments and start its GC. Does NOT add it
  * to the global registry or start the initial scan - the caller-facing
- * Indexes_CreateNew (indexes.h) wraps those registry concerns around this call.
+ * Indexes_CreateNewSpec (indexes.h) wraps those registry concerns around this call.
  * If an error occurred - we set an error string in err and return NULL.
  */
 IndexSpec *IndexSpec_CreateNew(RedisModuleCtx *ctx, RedisModuleString **argv, int argc,
@@ -525,7 +526,7 @@ RedisModuleString *IndexSpec_Serialize(IndexSpec *sp);
  * Deserialize an IndexSpec from its RDB serialized form, by calling the `IndexSpecType` rdb_load function.
  * Returns the loaded spec (its single owning reference in sp->own_ref), or NULL on failure.
  * Does NOT publish the spec into the global registry - the caller must pass the
- * result to Indexes_StoreAfterRdbLoad (see indexes.h).
+ * result to Indexes_StoreSpecAfterRdbLoad (see indexes.h).
  * Does not consume the serialized string, the caller is responsible for freeing it.
 */
 IndexSpec *IndexSpec_Deserialize(const RedisModuleString *serialized, int encver);
@@ -635,7 +636,7 @@ typedef struct {
  * valid, non-NULL strong reference. To look up a spec by name and run this, use
  * Indexes_LoadIndexSpecUnsafeEx (indexes.h).
  */
-void IndexSpec_LoadUnsafeEx(StrongRef spec_ref, IndexLoadOptions *options);
+void IndexSpec_OnAcquire(StrongRef spec_ref, IndexLoadOptions *options);
 
 /**
  * Quick access to the spec's strong reference. This function should be called only if
@@ -650,7 +651,7 @@ StrongRef IndexSpec_GetStrongRefUnsafe(const IndexSpec *spec);
  * prefixes, timeout timer, global field stats) and consumes the strong
  * reference. Does NOT touch the global registry (specDict_g/specIdDict_g).
  * Used on the create/parse failure path, where the spec was never registered;
- * Indexes_RemoveFromGlobals (indexes.h) calls it after the registry deletion.
+ * Indexes_RemoveSpecFromGlobals (indexes.h) calls it after the registry deletion.
  *
  * @param ref a strong reference to the spec
  * @param removeActive - should we call CurrentThread_ClearIndexSpec on the released spec
@@ -675,9 +676,6 @@ void IndexSpec_ResetTimeoutTimer(IndexSpec *sp);
 // Open a disk index from its pending SST/RDB state and materialize its
 // disk-backed fields.
 bool IndexSpec_SSTRdbOpenAndApply(RedisModuleCtx *ctx, IndexSpec *sp);
-
-// Initialize the spec's cursor-related fields.
-void Cursors_initSpec(IndexSpec *spec);
 
 // Record that an index drop is pending.
 void addPendingIndexDrop();

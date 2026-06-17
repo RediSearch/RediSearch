@@ -625,7 +625,7 @@ int CreateIndexCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) 
     return REDISMODULE_OK;
   }
 
-  IndexSpec *sp = Indexes_CreateNew(ctx, argv, argc, &status);
+  IndexSpec *sp = Indexes_CreateNewSpec(ctx, argv, argc, &status);
   if (sp == NULL) {
     RedisModule_ReplyWithError(ctx, QueryError_GetUserError(&status));
     QueryError_ClearError(&status);
@@ -729,7 +729,7 @@ int DropIndexCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
     StrongRef own_ref = StrongRef_Clone(global_ref);
     // We remove the index from the globals first, so it will not be found by the
     // delete key notification callbacks.
-    Indexes_RemoveFromGlobals(global_ref, false);
+    Indexes_RemoveSpecFromGlobals(global_ref, false);
 
     DocTable *dt = &sp->docs;
     DOCTABLE_FOREACH(dt, Redis_DeleteKeyC(ctx, dmd->keyPtr));
@@ -739,7 +739,7 @@ int DropIndexCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
     StrongRef_Release(own_ref);
   } else {
     // If we don't delete the docs, we just remove the index from the global dict
-    Indexes_RemoveFromGlobals(global_ref, true);
+    Indexes_RemoveSpecFromGlobals(global_ref, true);
   }
 
   // Log index deletion
@@ -1270,7 +1270,7 @@ int RestoreSchema(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
   }
 
   IndexSpec *sp = IndexSpec_Deserialize(argv[3], encodeVersion);
-  int rc = Indexes_StoreAfterRdbLoad(sp);
+  int rc = Indexes_StoreSpecAfterRdbLoad(sp);
 
   if (rc != REDISMODULE_OK) {
     return RedisModule_ReplyWithError(ctx, "ERRBADVAL Failed to deserialize schema");

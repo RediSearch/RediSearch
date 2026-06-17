@@ -34,7 +34,7 @@ extern dict *specIdDict_g;  // Maps specId (uint64_t) -> RefManager* (same as sp
 // callers should use it rather than IndexSpec_CreateNew directly so the initial
 // scan is not silently skipped.
 // Returns the new spec, or NULL on error (with `status` set).
-IndexSpec *Indexes_CreateNew(RedisModuleCtx *ctx, RedisModuleString **argv, int argc,
+IndexSpec *Indexes_CreateNewSpec(RedisModuleCtx *ctx, RedisModuleString **argv, int argc,
                              QueryError *status);
 
 /**
@@ -50,13 +50,13 @@ void Spec_AddToDict(RefManager *w_spec);
  * @param ref a strong reference to the spec
  * @param removeActive - should we call CurrentThread_ClearIndexSpec on the released spec
  */
-void Indexes_RemoveFromGlobals(StrongRef spec_ref, bool removeActive);
+void Indexes_RemoveSpecFromGlobals(StrongRef spec_ref, bool removeActive);
 
 /**
  * Find and load an index from the global registry, by name
  * (Indexes_LoadIndexSpecUnsafe) or by IndexLoadOptions (Indexes_LoadIndexSpecUnsafeEx).
  * Performs the specDict_g lookup (with alias fallback unless INDEXSPEC_LOAD_NOALIAS)
- * then runs the per-spec post-load bookkeeping (IndexSpec_LoadUnsafeEx). The call
+ * then runs the per-spec post-load bookkeeping (IndexSpec_OnAcquire). The call
  * does not increase the spec's strong reference counter.
  * @return a borrowed strong reference to the spec, or NULL if it does not exist.
  */
@@ -112,15 +112,13 @@ void Indexes_SpecOpsIndexingCtxFree(SpecOpIndexingCtx *specs);
 //---------------------------------------------------------------------------------------------
 
 int Indexes_RdbLoad(RedisModuleIO *rdb, int encver, int when);
-void Indexes_RdbSave(RedisModuleIO *rdb, int when);
-void Indexes_RdbSave2(RedisModuleIO *rdb, int when);
 
 // Finalize a spec just loaded from RDB by publishing it into the global registry
 // (specDict_g/specIdDict_g) and starting its GC, or discarding it if a spec with
 // the same name already exists. Consumes the spec's reference on the duplicate
 // path. Accepts NULL (returns REDISMODULE_ERR). Callers obtain the spec from the
 // IndexSpec core (e.g. IndexSpec_RdbLoad / IndexSpec_Deserialize) and pass it here.
-int Indexes_StoreAfterRdbLoad(IndexSpec *sp);
+int Indexes_StoreSpecAfterRdbLoad(IndexSpec *sp);
 
 // This function is called in case the server starts RDB loading.
 void Indexes_StartRDBLoadingEvent(RedisModuleCtx *ctx);

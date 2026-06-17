@@ -88,7 +88,7 @@ RefManager *createSpec(RedisModuleCtx *ctx, const std::vector<const char*>& pref
 }
 
 void freeSpec(RefManager *ism) {
-    Indexes_RemoveFromGlobals({ism}, false);
+    Indexes_RemoveSpecFromGlobals({ism}, false);
 }
 
 NumericRangeTree *getNumericTree(IndexSpec *spec, const char *field) {

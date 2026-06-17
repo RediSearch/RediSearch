@@ -126,14 +126,6 @@ static void setMemoryInfo(RedisModuleCtx *ctx) {
 }
 
 /*
- * Initialize the spec's fields that are related to the cursors.
- */
-
-void Cursors_initSpec(IndexSpec *spec) {
-  spec->activeCursors = 0;
-}
-
-/*
  * Get a field spec by field name. Case sensitive!
  * Return the field spec if found, NULL if not.
  * Assuming the spec is properly locked before calling this function.
@@ -161,7 +153,7 @@ const FieldSpec *IndexSpec_GetField(const IndexSpec *spec, const HiddenString *n
 // Assuming the spec is properly locked before calling this function.
 t_fieldMask IndexSpec_GetFieldBit(IndexSpec *spec, const char *name, size_t len) {
   const FieldSpec *fs = IndexSpec_GetFieldWithLength(spec, name, len);
-  if (!fs || !FIELD_IS(fs, INDEXFLD_T_FULLTEXT) || !FieldSpec_IsIndexable(fs)) return 0;
+  if (!fs || !FieldSpec_IsIndexableText(fs)) return 0;
 
   return FIELD_BIT(fs);
 }
@@ -172,17 +164,15 @@ int IndexSpec_CheckPhoneticEnabled(const IndexSpec *sp, t_fieldMask fm) {
     return 0;
   }
 
-  if (fm == 0 || fm == (t_fieldMask)-1) {
+  if (fm == 0 || fm == RS_FIELDMASK_ALL) {
     // No fields -- implicit phonetic match!
     return 1;
   }
 
   for (size_t ii = 0; ii < sp->numFields; ++ii) {
-    if (fm & ((t_fieldMask)1 << ii)) {
-      const FieldSpec *fs = sp->fields + ii;
-      if (FIELD_IS(fs, INDEXFLD_T_FULLTEXT) && (FieldSpec_IsPhonetics(fs))) {
-        return 1;
-      }
+    const FieldSpec *fs = sp->fields + ii;
+    if (FieldSpec_IsIndexableTextInMask(fs, fm) && FieldSpec_IsPhonetics(fs)) {
+      return 1;
     }
   }
   return 0;
@@ -191,13 +181,13 @@ int IndexSpec_CheckPhoneticEnabled(const IndexSpec *sp, t_fieldMask fm) {
 // Assuming the spec is properly locked before calling this function.
 int IndexSpec_CheckAllowSlopAndInorder(const IndexSpec *spec, t_fieldMask fm, QueryError *status) {
   for (size_t ii = 0; ii < spec->numFields; ++ii) {
-    if (fm & ((t_fieldMask)1 << ii)) {
-      const FieldSpec *fs = spec->fields + ii;
-      if (FIELD_IS(fs, INDEXFLD_T_FULLTEXT) && (FieldSpec_IsUndefinedOrder(fs))) {
-        QueryError_SetWithUserDataFmt(status, QUERY_ERROR_CODE_BAD_ORDER_OPTION,
-                               "slop/inorder are not supported for field with undefined ordering", " `%s`", HiddenString_GetUnsafe(fs->fieldName, NULL));
-        return 0;
-      }
+    const FieldSpec *fs = spec->fields + ii;
+    if (FieldSpec_IsIndexableTextInMask(fs, fm) && FieldSpec_IsUndefinedOrder(fs)) {
+      QueryError_SetWithUserDataFmt(
+          status, QUERY_ERROR_CODE_BAD_ORDER_OPTION,
+          "slop/inorder are not supported for field with undefined ordering", " `%s`",
+          HiddenString_GetUnsafe(fs->fieldName, NULL));
+      return 0;
     }
   }
   return 1;
@@ -216,8 +206,7 @@ const FieldSpec *IndexSpec_GetFieldBySortingIndex(const IndexSpec *sp, uint16_t 
 // Assuming the spec is properly locked before calling this function.
 const char *IndexSpec_GetFieldNameByBit(const IndexSpec *sp, t_fieldMask id) {
   for (int i = 0; i < sp->numFields; i++) {
-    if (FIELD_BIT(&sp->fields[i]) == id && FIELD_IS(&sp->fields[i], INDEXFLD_T_FULLTEXT) &&
-      FieldSpec_IsIndexable(&sp->fields[i])) {
+    if (FieldSpec_IsIndexableText(&sp->fields[i]) && FIELD_BIT(&sp->fields[i]) == id) {
       return HiddenString_GetUnsafe(sp->fields[i].fieldName, NULL);
     }
   }
@@ -227,8 +216,7 @@ const char *IndexSpec_GetFieldNameByBit(const IndexSpec *sp, t_fieldMask id) {
 // Get the field spec by the field mask.
 const FieldSpec *IndexSpec_GetFieldByBit(const IndexSpec *sp, t_fieldMask id) {
   for (int i = 0; i < sp->numFields; i++) {
-    if (FIELD_BIT(&sp->fields[i]) == id && FIELD_IS(&sp->fields[i], INDEXFLD_T_FULLTEXT) &&
-        FieldSpec_IsIndexable(&sp->fields[i])) {
+    if (FieldSpec_IsIndexableText(&sp->fields[i]) && FIELD_BIT(&sp->fields[i]) == id) {
       return &sp->fields[i];
     }
   }
@@ -239,7 +227,7 @@ const FieldSpec *IndexSpec_GetFieldByBit(const IndexSpec *sp, t_fieldMask id) {
 arrayof(FieldSpec *) IndexSpec_GetFieldsByMask(const IndexSpec *sp, t_fieldMask mask) {
   arrayof(FieldSpec *) res = array_new(FieldSpec *, 2);
   for (int i = 0; i < sp->numFields; i++) {
-    if (mask & FIELD_BIT(sp->fields + i) && FIELD_IS(sp->fields + i, INDEXFLD_T_FULLTEXT)) {
+    if (FieldSpec_IsIndexableTextInMask(sp->fields + i, mask)) {
       array_append(res, sp->fields + i);
     }
   }
@@ -264,13 +252,9 @@ StrongRef IndexSpec_ParseRedisArgs(RedisModuleCtx *ctx, const HiddenString *name
                                     RedisModuleString **argv, int argc, QueryError *status) {
   ArgsCursor ac = {0};
   ArgsCursor_InitRString(&ac, argv, argc);
-  StrongRef spec_ref = IndexSpec_ParseFromArgCursor(ctx, name, &ac, status);
-  if (QueryError_HasError(status)) {
-    // Parsing failed; the spec was never registered, so tear it down here.
-    IndexSpec_Unlink(spec_ref, false);
-    return INVALID_STRONG_REF;
-  }
-  return spec_ref;
+  // IndexSpec_ParseFromArgCursor returns a valid spec, or sets the error and
+  // returns INVALID_STRONG_REF after tearing down its partial state.
+  return IndexSpec_ParseFromArgCursor(ctx, name, &ac, status);
 }
 
 arrayof(FieldSpec *) getFieldsByType(IndexSpec *spec, FieldType type) {
@@ -453,7 +437,7 @@ char *IndexSpec_FormatObfuscatedName(const HiddenString *specName) {
  * (for temporary indexes) timeout timer.
  *
  * Builds the spec only: it does not publish it into the global registry or start
- * the initial scan. Use Indexes_CreateNew (indexes.h) as the FT.CREATE entry
+ * the initial scan. Use Indexes_CreateNewSpec (indexes.h) as the FT.CREATE entry
  * point - it performs the existence/limit checks, registers the spec, and
  * schedules the initial scan around this call. */
 // TODO: multithreaded: use global metadata locks to protect global data structures
@@ -473,7 +457,8 @@ IndexSpec *IndexSpec_CreateNew(RedisModuleCtx *ctx, RedisModuleString **argv, in
   // Start the garbage collector
   IndexSpec_StartGC(spec_ref, sp, sp->diskSpec ? GCPolicy_Disk : GCPolicy_Fork);
 
-  Cursors_initSpec(sp);
+  // Initialize the spec's cursor-related fields.
+  sp->activeCursors = 0;
 
   // set timeout for temporary index on master
   if ((sp->flags & Index_Temporary) && IsMaster()) {
@@ -1389,7 +1374,7 @@ static bool validateDiskJsonSinglePath(const IndexSpec *sp, const FieldSpec *fs,
 }
 
 static void IndexSpec_EnsureSuffixForField(IndexSpec *sp, const FieldSpec *fs) {
-  if (FIELD_IS(fs, INDEXFLD_T_FULLTEXT) && FieldSpec_HasSuffixTrie(fs)) {
+  if (FieldSpec_IsIndexableText(fs) && FieldSpec_HasSuffixTrie(fs)) {
     sp->suffixMask |= FIELD_BIT(fs);
     sp->flags |= Index_HasSuffixTrie;
     if (!sp->suffix) {
@@ -1761,26 +1746,24 @@ static StrongRef IndexSpec_ParseFromArgCursor(RedisModuleCtx *ctx, const HiddenS
 
   return spec_ref;
 
-failure:  // on failure return the partially-built spec with the error set in `status`;
-          // the caller is responsible for tearing it down (it was never registered).
+failure:  // Result-like contract: on failure the error is set in `status`, the
+          // partially-built spec (never registered) is torn down here, and
+          // INVALID_STRONG_REF is returned. On success a valid spec is returned.
   spec->flags &= ~Index_Temporary;
   if (spec->diskSpec) {
     SearchDisk_UnregisterIndex(ctx, spec);
   }
-  return spec_ref;
+  IndexSpec_Unlink(spec_ref, false);
+  return INVALID_STRONG_REF;
 }
 
 StrongRef IndexSpec_ParseC(RedisModuleCtx *ctx, const char *name, const char **argv, int argc, QueryError *status) {
   HiddenString *hidden = NewHiddenString(name, strlen(name), true);
   ArgsCursor ac = {0};
   ArgsCursor_InitCString(&ac, argv, argc);
-  StrongRef spec_ref = IndexSpec_ParseFromArgCursor(ctx, hidden, &ac, status);
-  if (QueryError_HasError(status)) {
-    // Parsing failed; the spec was never registered, so tear it down here.
-    IndexSpec_Unlink(spec_ref, false);
-    return INVALID_STRONG_REF;
-  }
-  return spec_ref;
+  // IndexSpec_ParseFromArgCursor returns a valid spec, or sets the error and
+  // returns INVALID_STRONG_REF after tearing down its partial state.
+  return IndexSpec_ParseFromArgCursor(ctx, hidden, &ac, status);
 }
 
 static void RSIndexStats_FromScoringStats(const ScoringIndexStats *scoring, RSIndexStats *stats) {
@@ -2032,7 +2015,7 @@ void IndexSpec_Free(IndexSpec *spec) {
 // Tear down a spec's non-registry global state: aliases, schema prefixes, the
 // temporary-index timer, and global field statistics, then consume the strong
 // reference it is given. Does NOT remove the spec from the global registry
-// (specDict_g/specIdDict_g) - that is owned by indexes.c. Indexes_RemoveFromGlobals
+// (specDict_g/specIdDict_g) - that is owned by indexes.c. Indexes_RemoveSpecFromGlobals
 // calls this after deleting the registry entries; the create/parse failure path
 // calls it directly (the spec was never registered there).
 // Assumes this is called from the main thread with no competing threads.
@@ -2098,7 +2081,7 @@ inline static void IndexSpec_IncreasCounter(IndexSpec *sp) {
 // (Indexes_LoadIndexSpecUnsafeEx owns the specDict_g lookup and calls this):
 // bump the usage counter and refresh the temporary-index timeout timer.
 // `spec_ref` must be a valid, non-NULL strong reference. Touches no globals.
-void IndexSpec_LoadUnsafeEx(StrongRef spec_ref, IndexLoadOptions *options) {
+void IndexSpec_OnAcquire(StrongRef spec_ref, IndexLoadOptions *options) {
   IndexSpec *sp = StrongRef_Get(spec_ref);
 
   if (!(options->flags & INDEXSPEC_LOAD_NOCOUNTERINC)){
@@ -3311,7 +3294,8 @@ void *IndexSpec_LegacyRdbLoad(RedisModuleIO *rdb, int encver) {
   }
 
   IndexSpec_StartGC(spec_ref, sp, GCPolicy_Fork);
-  Cursors_initSpec(sp);
+  // Initialize the spec's cursor-related fields.
+  sp->activeCursors = 0;
 
   dictAdd(legacySpecDict, (void*)sp->specName, spec_ref.rm);
   // Subscribe to keyspace notifications

@@ -1004,7 +1004,7 @@ impl Drop for TestContext {
         // Remove spec from globals (this may free associated indices)
         let guard = self.spec_read();
         unsafe {
-            ffi::Indexes_RemoveFromGlobals(guard.own_ref(), false);
+            ffi::Indexes_RemoveSpecFromGlobals(guard.own_ref(), false);
         }
     }
 }
