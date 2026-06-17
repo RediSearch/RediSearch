@@ -55,11 +55,9 @@ impl<'a> Fields<'a> {
         }
     }
 
-    /// Keys to project per row in [`RemoteCollectCtx::add`].
-    ///
-    /// [`Fields::Specific`] projects only its explicit `field_keys`; the SORTBY
-    /// columns are deferred (see [`Fields::deferred_sort_keys`]) so a stored row
-    /// never duplicates the sort values already held in the ranking key.
+    /// Keys to project per row in [`RemoteCollectCtx::add`]:
+    /// [`Fields::Specific`] projects only its explicit `field_keys` (the SORTBY
+    /// columns are deferred — see [`Fields::deferred_sort_keys`]).
     fn get_keys_add(&self) -> impl Iterator<Item = &'a RLookupKey<'a>> + '_ {
         match self {
             Self::All { src_lookup, .. } => Either::Left(

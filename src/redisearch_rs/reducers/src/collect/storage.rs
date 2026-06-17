@@ -8,15 +8,8 @@
 */
 
 //! Bounded storage shared by the COLLECT reducer variants, split by the
-//! `SORTBY` axis into two family types:
-//!
-//! - [`ArrayStorage`] — preserves arrival order under an `offset + count` cap
-//!   and drops excess inserts in O(1) without paying any projection cost. Used
-//!   when ranking is not needed (no `SORTBY`).
-//! - [`HeapStorage`] — retains the top-`(offset + count)` survivors under a
-//!   comparator driven by `sort_asc_map`, wrapping the [`MinMaxHeap`] primitive
-//!   from [`super::heap`] and draining best→worst. Used for the ranked
-//!   `COLLECT … SORTBY [LIMIT]` path.
+//! `SORTBY` axis into two family types: [`ArrayStorage`] for the unranked path
+//! and [`HeapStorage`] for the ranked `COLLECT … SORTBY [LIMIT]` path.
 //!
 //! [`Storage`] is a thin enum that selects one family; the reducer dispatches
 //! array-vs-heap once, in its `add` method, so only the heap path ever builds a
