@@ -48,7 +48,7 @@ void addSuffixTrie(Trie *trie, const char *str, uint32_t len) {
   rune *runes = runeBufFill(str, len, &buf, &rlen);
   // Don't insert empty strings into the suffix trie.
   if (rlen == 0) {
-    RS_ABORT("Aborting: likely a mistake at the caller level");
+    RS_ABORT("empty string is likely a caller-level mistake");
     runeBufFree(&buf);
     return;
   }
@@ -129,7 +129,7 @@ void deleteSuffixTrie(Trie *trie, const char *str, uint32_t len) {
   rune *runes = runeBufFill(str, len, &buf, &rlen);
   // Empty strings are never inserted into the suffix trie, so nothing to remove.
   if (rlen == 0) {
-    RS_ABORT("Aborting: likely a mistake at the caller level");
+    RS_ABORT("empty string is likely a caller-level mistake");
     runeBufFree(&buf);
     return;
   }
@@ -388,7 +388,7 @@ void suffixTrie_freeCallback(void *payload) {
 void addSuffixTrieMap(TrieMap *trie, const char *str, uint32_t len) {
   // Don't insert empty strings into the suffix triemap.
   if (len == 0) {
-    RS_ABORT("Aborting: likely a mistake at the caller level");
+    RS_ABORT("empty string is likely a caller-level mistake");
     return;
   }
   suffixData *data = TrieMap_Find(trie, (char *)str, len);
@@ -428,7 +428,7 @@ void addSuffixTrieMap(TrieMap *trie, const char *str, uint32_t len) {
 void deleteSuffixTrieMap(TrieMap *trie, const char *str, uint32_t len) {
   // Empty strings are never inserted into the suffix triemap, so nothing to remove.
   if (len == 0) {
-    RS_ABORT("Aborting: likely a mistake at the caller level");
+    RS_ABORT("empty string is likely a caller-level mistake");
     return;
   }
   char *oldTerm = NULL;

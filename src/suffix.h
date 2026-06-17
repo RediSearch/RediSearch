@@ -48,7 +48,8 @@ typedef struct suffixData {
 
 
 /* Add string to suffix trie. If string already exists, do nothing.
- * Empty strings are silently skipped.
+ * An empty string is a caller-level mistake and triggers an assertion
+ * (no-op in production builds).
  * In case of allocation overflow in TrieNode_Add, log error and return without
  * adding the string.
  */
