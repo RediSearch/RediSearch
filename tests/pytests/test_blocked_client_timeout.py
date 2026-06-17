@@ -13,7 +13,6 @@ import psutil
 
 TIMEOUT_ERROR = "Timeout limit was reached"
 TIMEOUT_WARNING = TIMEOUT_ERROR
-ON_TIMEOUT_CONFIG = 'search-on-timeout'
 
 
 def run_cmd_expect_timeout(env, query_args):
@@ -53,11 +52,6 @@ def _setup_fail_cursor_state(env, chunk_size=10):
     env.assertNotEqual(cursor_id, 0, message="Expected non-zero cursor ID")
     baseline_cursor_total = _coord_cursor_total(env)
     return prev_on_timeout_policy, cursor_id, baseline_cursor_total, before_info, base_err_coord
-
-def assert_timeout_warning(env, res, message=''):
-    warnings = res.get('warning', res.get('warnings', []))
-    env.assertTrue(warnings, message=message + " expected timeout warning")
-    env.assertContains('Timeout', warnings[0], message=message + " expected timeout warning")
 
 def _setup_return_strict_cursor_state(env, chunk_size=10, agg_steps=None):
     """Switch shards to RETURN_STRICT, create a WITHCURSOR aggregate, and return
@@ -196,11 +190,6 @@ def debug_print_hybrid_clients(env, label=""):
         except Exception as e:
             env.debugPrint(f"{prefix}Shard {shardId} CLIENT LIST error: {e}", force=True)
 
-def pid_cmd(conn):
-    """Get the process ID of a Redis connection."""
-    return conn.execute_command('info', 'server')['process_id']
-
-
 def get_all_shards_pid(env):
     """Get PIDs from all environment shards (excluding the coordinator)."""
     for shardId in range(1, env.shardsCount + 1):
@@ -287,33 +276,6 @@ def wait_for_blocked_query_client(env, query, msg='Client for query not found', 
             if client_id:
                 return client_id
             time.sleep(0.1)
-
-
-def _non_coord_shard_conns(env):
-    """Return shard connections whose process id differs from the coordinator's."""
-    coord_pid = pid_cmd(env.con)
-    conns = []
-    for shardId in range(1, env.shardsCount + 1):
-        conn = env.getConnection(shardId)
-        if pid_cmd(conn) != coord_pid:
-            conns.append(conn)
-    return conns
-
-
-def _split_shards_pick_one_paused(env):
-    """Pick one non-coordinator shard to designate as paused and split the rest.
-
-    Returns ``(all_shard_conns, paused_conn, paused_pid, responsive_conns)``.
-    Asserts that at least one non-coordinator shard exists.
-    """
-    all_shard_conns = [env.getConnection(i) for i in range(1, env.shardsCount + 1)]
-    non_coord_conns = _non_coord_shard_conns(env)
-    env.assertGreater(len(non_coord_conns), 0,
-                      message="Test requires at least one non-coordinator shard")
-    paused_conn = non_coord_conns[0]
-    paused_pid = pid_cmd(paused_conn)
-    responsive_conns = [c for c in all_shard_conns if pid_cmd(c) != paused_pid]
-    return all_shard_conns, paused_conn, paused_pid, responsive_conns
 
 
 def _wait_pinned_shard_with_blocked_cmd(shard_conn, sync_point, cmd_name, timeout=30):
@@ -498,6 +460,73 @@ class TestCoordinatorTimeout:
             'VSIM', '@embedding', '$BLOB',
             'PARAMS', '2', 'BLOB', self.hybrid_query_vec
         ])
+
+    def test_return_strict_timeout_setup_phase_hybrid(self):
+        """RETURN-STRICT setup-phase timeout, one shard suspended: no in-band deadline, so CLIENT UNBLOCK fires the timeout callback; reply is empty + warning."""
+        env = self.env
+
+        prev_on_timeout_policy = env.cmd('CONFIG', 'GET', ON_TIMEOUT_CONFIG)[ON_TIMEOUT_CONFIG]
+        env.expect('CONFIG', 'SET', ON_TIMEOUT_CONFIG, 'return-strict').ok()
+
+        before_info = info_modules_to_dict(env)
+        base_warn_coord = int(before_info[COORD_WARN_ERR_SECTION][TIMEOUT_WARNING_COORD_METRIC])
+        initial_jobs_done = getWorkersThpoolStats(env)['totalJobsDone']
+
+        _, _, paused_pid, _ = split_shards_pick_one_paused(env)
+        shard_to_pause_p = psutil.Process(paused_pid)
+
+        # No per-query TIMEOUT: under RETURN-STRICT the deadline is NULL, and the
+        # blocked-client CLIENT UNBLOCK below is what fires the timeout callback.
+        query_args = [
+            'FT.HYBRID', 'hybrid_idx',
+            'SEARCH', '*',
+            'VSIM', '@embedding', '$BLOB',
+            'PARAMS', '2', 'BLOB', self.hybrid_query_vec,
+        ]
+
+        reply = []
+        shard_to_pause_p.suspend()
+        try:
+            wait_for_condition(
+                lambda: (shard_to_pause_p.status() == psutil.STATUS_STOPPED,
+                         {'status': shard_to_pause_p.status()}),
+                'Timeout while waiting for shard to pause'
+            )
+
+            t_query = threading.Thread(
+                target=call_and_store, args=(env.cmd, query_args, reply), daemon=True)
+            t_query.start()
+
+            blocked_client_id = wait_for_blocked_query_client(
+                env, 'FT.HYBRID', 'Client for FT.HYBRID not found')
+            # totalJobsDone advancing => the dispatch job ran => the shard received
+            # _FT.HYBRID and the coordinator is now parked on the setup channel.
+            wait_for_condition(
+                lambda: (getWorkersThpoolStats(env)['totalJobsDone'] > initial_jobs_done,
+                         {'totalJobsDone': getWorkersThpoolStats(env)['totalJobsDone']}),
+                'Timeout while waiting for worker to finish dispatch job'
+            )
+
+            env.expect('CLIENT', 'UNBLOCK', blocked_client_id, 'TIMEOUT').equal(1)
+            wait_for_client_unblocked(env, blocked_client_id)
+
+            t_query.join(timeout=10)
+            env.assertFalse(t_query.is_alive(), message="Query thread should have finished")
+        finally:
+            shard_to_pause_p.resume()
+            env.cmd('CONFIG', 'SET', ON_TIMEOUT_CONFIG, prev_on_timeout_policy)
+
+        env.assertEqual(len(reply), 1, message=f"Expected one reply, got {reply}")
+        result = reply[0]
+        env.assertEqual(result['total_results'], 0,
+                        message=f"Expected 0 results, got {result}")
+        assert_timeout_warning(env, result, message="RETURN-STRICT setup-phase timeout")
+
+        after_info = info_modules_to_dict(env)
+        env.assertEqual(after_info[COORD_WARN_ERR_SECTION][TIMEOUT_WARNING_COORD_METRIC],
+                        str(base_warn_coord + 1),
+                        message="Coordinator timeout warning should be +1 after "
+                                "RETURN-STRICT setup-phase timeout")
 
     def _test_fail_timeout_before_coord_pickup_impl(self, query_args):
         """Test timeout occurring before coordinator picks up the query job."""
@@ -1094,7 +1123,7 @@ class TestCoordinatorTimeout:
         skipIfNoEnableAssert(env)
         sync_point = 'BeforeCursorReadSendChunk'
 
-        non_coord_shards = _non_coord_shard_conns(env)
+        non_coord_shards = non_coord_shard_conns(env)
         env.assertGreater(len(non_coord_shards), 0,
                           message="Test requires at least one shard process distinct "
                                   "from the coordinator to exercise the internal "
@@ -1181,7 +1210,7 @@ class TestCoordinatorTimeout:
         env = self.env
         skipIfNoEnableAssert(env)
 
-        non_coord_shards = _non_coord_shard_conns(env)
+        non_coord_shards = non_coord_shard_conns(env)
         env.assertGreater(len(non_coord_shards), 0,
                           message="Test requires at least one shard process distinct "
                                   "from the coordinator to exercise the internal "
@@ -1272,7 +1301,7 @@ class TestCoordinatorTimeout:
         env = self.env
         skipIfNoEnableAssert(env)
 
-        non_coord_shards = _non_coord_shard_conns(env)
+        non_coord_shards = non_coord_shard_conns(env)
         env.assertGreater(len(non_coord_shards), 0,
                           message="Test requires a non-coordinator shard")
         target_shard = non_coord_shards[0]
@@ -2026,7 +2055,7 @@ class TestCoordinatorTimeout:
         base_warn_coord = int(before_info[COORD_WARN_ERR_SECTION][TIMEOUT_WARNING_COORD_METRIC])
 
         all_shard_conns, paused_conn, paused_pid, responsive_conns = \
-            _split_shards_pick_one_paused(env)
+            split_shards_pick_one_paused(env)
 
         # Docs on responsive shards. The paused shard's docs never reach BG,
         # so this is the exact count BG will emit (one _FT.AGGREGATE reply per
@@ -2166,7 +2195,7 @@ class TestCoordinatorTimeout:
         base_warn_coord = int(before_info[COORD_WARN_ERR_SECTION][TIMEOUT_WARNING_COORD_METRIC])
 
         _, _, paused_pid, responsive_shard_conns = \
-            _split_shards_pick_one_paused(env)
+            split_shards_pick_one_paused(env)
 
         shard_to_pause_p = psutil.Process(paused_pid)
         shard_to_pause_p.suspend()
@@ -2474,7 +2503,7 @@ class TestCoordinatorTimeout:
         base_warn_coord = int(before_info[COORD_WARN_ERR_SECTION][TIMEOUT_WARNING_COORD_METRIC])
 
         all_shard_conns, paused_conn, paused_pid, responsive_conns = \
-            _split_shards_pick_one_paused(env)
+            split_shards_pick_one_paused(env)
 
         # Docs on responsive shards. The paused shard's docs never reach
         # BG, so this is the exact count BG sees as admitted.
@@ -3702,7 +3731,7 @@ class TestCoordinatorTimeout:
         before_info = info_modules_to_dict(env)
         base_warn_coord = int(before_info[COORD_WARN_ERR_SECTION][TIMEOUT_WARNING_COORD_METRIC])
 
-        _, _, paused_pid, responsive_conns = _split_shards_pick_one_paused(env)
+        _, _, paused_pid, responsive_conns = split_shards_pick_one_paused(env)
 
         # Each responsive shard contributes one subquery-0 (SEARCH *)
         # reply to the merger's accumulation dict. SEARCH * matches every
@@ -4394,7 +4423,7 @@ class TestCoordinatorTimeout:
         base_warn_coord = int(before_info[COORD_WARN_ERR_SECTION][TIMEOUT_WARNING_COORD_METRIC])
 
         all_shard_conns, target_conn, _target_pid, other_conns = \
-            _split_shards_pick_one_paused(env)
+            split_shards_pick_one_paused(env)
 
         # Target contributes pause_after_n; other shards contribute their
         # full per-shard share.
@@ -4902,7 +4931,7 @@ class TestCoordinatorTimeoutReturnStrictResp2:
             before_info[COORD_WARN_ERR_SECTION][TIMEOUT_WARNING_COORD_METRIC])
 
         all_shard_conns, target_conn, _target_pid, other_conns = \
-            _split_shards_pick_one_paused(env)
+            split_shards_pick_one_paused(env)
 
         pause_after_n = 2
         other_docs = sum(len(c.execute_command('KEYS', 'doc*'))

@@ -1180,7 +1180,7 @@ void AREQ_ResetForCursorReadReturnStrict(AREQ *req) {
   req->syncCtx.aggregateResultsDone = false;
   req->syncCtx.safeLoaderHoldingGIL = false;
   pthread_mutex_unlock(&req->syncCtx.aggregateResultsLock);
-  RS_AtomicBoolStoreRelaxed(&req->syncCtx.timedOut, false);
+  RequestSyncCtx_ClearTimedOut(&req->syncCtx);
   ResultProcessor *root = AREQ_QueryProcessingCtx(req)->rootProc;
   if (root && root->type == RP_NETWORK) {
     ((RPNet *)root)->drainOnly = false;

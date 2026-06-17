@@ -73,7 +73,7 @@ def test_dist_hybrid_index_drop_after_sctx_allocation(env):
 @require_enable_assert
 def test_dist_hybrid_shard_dispatch_failure_does_not_hang(env):
     """A no-reply shard dispatch failure must surface as an error
-    rather than hanging FT.HYBRID on ProcessHybridCursorMappings' completionCond.
+    rather than hanging FT.HYBRID on ProcessHybridCursorMappings' channel wait.
     FT.DEBUG SEND_ERROR forces the next MRCluster_SendCommand to return REDIS_ERR."""
     conn, query_vec, doc_vec = _setup_hybrid_index(env)
     for i in range(10):
