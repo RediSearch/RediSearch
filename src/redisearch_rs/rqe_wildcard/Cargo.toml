@@ -50,6 +50,7 @@ metrics_ffi = { path = "../c_entrypoint/metrics_ffi" }
 module_init_ffi = { path = "../c_entrypoint/module_init_ffi" }
 numeric_range_tree_ffi = { path = "../c_entrypoint/numeric_range_tree_ffi" }
 query_error_ffi = { path = "../c_entrypoint/query_error_ffi" }
+query_eval_ffi = { path = "../c_entrypoint/query_eval_ffi" }
 query_term_ffi = { path = "../c_entrypoint/query_term_ffi" }
 reducers_ffi = { path = "../c_entrypoint/reducers_ffi" }
 result_processor_ffi = { path = "../c_entrypoint/result_processor_ffi" }

@@ -340,7 +340,7 @@ static TrieAddChildResult __trieNode_addChild_score(
 
 static int __trieNode_Add(TrieNode **np, const rune *str, t_len len, RSPayload *payload, float score,
                    TrieAddOp op, TrieFreeCallback freecb, size_t numDocs) {
-  if (score == 0 || len == 0) {
+  if (len == 0) {
     return TRIE_OK_UPDATED;
   }
   TrieNode *n = *np;
@@ -431,7 +431,7 @@ static int __trieNode_Add(TrieNode **np, const rune *str, t_len len, RSPayload *
 
 int TrieNode_Add(TrieNode **np, const rune *str, t_len len, RSPayload *payload, float score,
                  TrieAddOp op, TrieFreeCallback freecb, size_t numDocs) {
-  if (score == 0 || len == 0) {
+  if (len == 0) {
     return TRIE_OK_UPDATED;
   }
 
@@ -930,7 +930,7 @@ static int rsbComparePrefix(const void *h, const void *e) {
   return rsbCompareCommon(h, e, 1);
 }
 
-static int rangeIterateSubTree(TrieNode *n, RangeCtx *r) {
+static int rangeIterateSubTree(const TrieNode *n, RangeCtx *r) {
   if (r->stop) return REDISEARCH_ERR;
 
   if (TimedOut_WithCounter(&r->timeout, &r->timeoutCounter)) {
@@ -963,7 +963,7 @@ static int rangeIterateSubTree(TrieNode *n, RangeCtx *r) {
  * Try to place as many of the common arguments in rangectx, so that the stack
  * size is not negatively impacted and prone to attack.
  */
-static void rangeIterate(TrieNode *n, const rune *min, int nmin, const rune *max, int nmax,
+static void rangeIterate(const TrieNode *n, const rune *min, int nmin, const rune *max, int nmax,
                          RangeCtx *r) {
   // Push string to stack
   r->buf = array_ensure_append(r->buf, n->str, n->len, rune);
@@ -1114,7 +1114,7 @@ void TrieNode_IterateRange(TrieNode *n, const rune *min, int nmin, bool includeM
       // min = max, we should just search for min and check for its existence
       if (includeMin || includeMax) {
         TrieNode *node = TrieNode_Get(n, (rune *)min, nmin, true, NULL);
-        if (node && node->score != 0) {
+        if (node && TrieNode_IsTerminal(node)) {
           callback(min, nmin, ctx, NULL, node->numDocs);
         }
       }
@@ -1136,7 +1136,7 @@ void TrieNode_IterateRange(TrieNode *n, const rune *min, int nmin, bool includeM
   array_free(r.buf);
 }
 
-static void containsIterate(TrieNode *n, t_len localOffset, t_len globalOffset, RangeCtx *r);
+static void containsIterate(const TrieNode *n, t_len localOffset, t_len globalOffset, RangeCtx *r);
 
 // Contains iteration.
 void TrieNode_IterateContains(TrieNode *n, const rune *str, int nstr, bool prefix, bool suffix,
@@ -1145,7 +1145,7 @@ void TrieNode_IterateContains(TrieNode *n, const rune *str, int nstr, bool prefi
   // exact match - should not be used. change to assert
   if (!prefix && !suffix) {
     TrieNode *node = TrieNode_Get(n, (rune *)str, nstr, true, NULL);
-    if (node && node->score != 0) {
+    if (node && TrieNode_IsTerminal(node)) {
       callback(str, nstr, ctx, NULL, node->numDocs);
     }
     return;
@@ -1186,7 +1186,7 @@ done:
 #define trimOne(n, r)  if (n->len) array_trimm_len(r->buf, 1)
 
 // check next char on node or children
-static void containsNext(TrieNode *n, t_len localOffset, t_len globalOffset, RangeCtx *r) {
+static void containsNext(const TrieNode *n, t_len localOffset, t_len globalOffset, RangeCtx *r) {
   if (n->len == localOffset || n->len == 0 ) {
     TrieNode **children = TrieNode_Children(n);
     for (t_len i = 0; i < n->numChildren && r->stop == 0; ++i) {
@@ -1201,7 +1201,7 @@ static void containsNext(TrieNode *n, t_len localOffset, t_len globalOffset, Ran
  * Try to place as many of the common arguments in rangectx, so that the stack
  * size is not negatively impacted and prone to attack.
  */
-static void containsIterate(TrieNode *n, t_len localOffset, t_len globalOffset, RangeCtx *r) {
+static void containsIterate(const TrieNode *n, t_len localOffset, t_len globalOffset, RangeCtx *r) {
   size_t len;
   char *str;
 
@@ -1252,7 +1252,7 @@ static void containsIterate(TrieNode *n, t_len localOffset, t_len globalOffset, 
   return;
 }
 
-static void wildcardIterate(TrieNode *n, RangeCtx *r) {
+static void wildcardIterate(const TrieNode *n, RangeCtx *r) {
   // timeout check
   if (TimedOut_WithCounter(&r->timeout, &r->timeoutCounter)) {
     r->stop = 1;
@@ -1296,7 +1296,7 @@ static void wildcardIterate(TrieNode *n, RangeCtx *r) {
   array_trimm_len(r->buf, n->len);
 }
 
-void TrieNode_IterateWildcard(TrieNode *n, const rune *str, int nstr,
+void TrieNode_IterateWildcard(const TrieNode *n, const rune *str, int nstr,
                               TrieRangeCallback callback, void *ctx, struct timespec *timeout,
                               bool skipTimeoutChecks) {
   // Use REDISEARCH_UNINITIALIZED counter to skip timeout checks

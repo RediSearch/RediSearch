@@ -53,7 +53,7 @@ typedef uint64_t t_fieldMask;
 [header.field]
 
 [header.fork_gc_ffi]
-includes = ["fork_gc.h"]
+includes = ["fork_gc.h", "search_ctx.h"]
 
 [header.inverted_index]
 # `index_result_rs.h` carries the types historically defined in this header
@@ -96,6 +96,20 @@ typedef struct timespec timespec;
 // `AREQ` is forward-declared as a struct tag in `query.h` (above) but its
 // typedef lives in `aggregate/aggregate.h`. cheadergen emits `*mut ffi::AREQ`
 // as the bare `AREQ *`, so we surface the typedef here for the C compiler.
+typedef struct AREQ AREQ;
+"""
+
+[header.query_eval_ffi]
+includes = ["redisearch.h", "query_ctx.h", "iterators/iterator_api.h", "query.h"]
+after_includes = """
+// `RSQueryNode` is defined in `query_node.h` as `typedef struct RSQueryNode { ... } QueryNode;`,
+// i.e. the typedef name is `QueryNode`, not `RSQueryNode`. cheadergen emits the
+// Rust type name `RSQueryNode` as a bare reference, so we surface a matching
+// typedef here for the C compiler.
+typedef struct RSQueryNode RSQueryNode;
+// `AREQ` is defined in `aggregate/aggregate.h`, a heavy header we avoid pulling
+// in here. `QAST_Iterate` only takes an `AREQ *`, so a forward typedef (matching
+// the full `typedef struct AREQ { ... } AREQ;` definition) is sufficient.
 typedef struct AREQ AREQ;
 """
 

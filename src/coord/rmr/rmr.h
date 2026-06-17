@@ -30,6 +30,11 @@ struct uv_loop_s;
 
 typedef struct QueryError QueryError;
 
+// Error detail returned to the client when a query cannot be dispatched to the
+// cluster (pre-fanout connection-validation / send failure). Shared by the MR
+// iterator no-reply path (rmr.c) and the hybrid cursor-mapping error callback;
+// tests assert on this substring, so keep them in sync via this single macro.
+#define CLUSTER_QUERY_ERROR "Could not send query to cluster"
 
 struct MRCtx;
 struct RedisModuleCtx;
@@ -131,7 +136,22 @@ typedef struct MRIteratorCallbackCtx MRIteratorCallbackCtx;
 typedef struct MRIteratorCtx MRIteratorCtx;
 typedef struct MRIterator MRIterator;
 
+/**
+ * Per-reply callback, invoked on the IO thread for every shard reply.
+ * Owns the iterator's completion bookkeeping: it must call
+ * MRIteratorCallback_Done once the shard has no more replies to drive the
+ * iterator toward depletion. Contrast with MRIteratorErrorCallback, which is
+ * notify-only and must not touch the Done state.
+ */
 typedef void (*MRIteratorCallback)(MRIteratorCallbackCtx *ctx, MRReply *rep);
+
+/**
+ * Invoked on the IO thread when a shard command terminates without a reply
+ * (NULL async reply or synchronous send failure). Notify-only: must not free
+ * the iterator nor call MRIteratorCallback_Done — the MR layer does that next.
+ * Optional; NULL preserves the historical depletion-only behavior.
+ */
+typedef void (*MRIteratorErrorCallback)(MRIteratorCallbackCtx *ctx);
 
 /**
  * Callback type for modifying commands before they are sent to shards.
@@ -144,6 +164,32 @@ typedef void (*MRIteratorCallback)(MRIteratorCallbackCtx *ctx, MRReply *rep);
  * @param privateData The private data passed to MR_IterateWithPrivateData
  */
 typedef void (*MRCommandModifier)(MRCommand *cmd, size_t numShards, void *privateData);
+
+/**
+ * Bundles the callbacks and private data for MR_IterateWithPrivateData.
+ * `successCB` and `iterStartCb` are required (MR_IterateWithPrivateData
+ * unconditionally schedules `iterStartCb`); every other field may be NULL to
+ * opt out of that hook.
+ *
+ * @param successCB              Per-reply callback (required).
+ * @param errorCB                No-reply termination callback (optional).
+ * @param cbPrivateData          Private data handed to `successCB` via the callback ctx.
+ * @param cbPrivateDataDestructor Frees `cbPrivateData` when the iterator is freed.
+ * @param cbPrivateDataInit      Runs once on the IO thread after numShards is known.
+ * @param commandModifier        Rewrites the command per-shard before sending.
+ * @param iterStartCb            Scheduled on the IO thread to trigger the first send (required).
+ * @param iterStartCbPrivateData StrongRef demoted and passed to `iterStartCb`.
+ */
+typedef struct {
+  MRIteratorCallback successCB;
+  MRIteratorErrorCallback errorCB;
+  void *cbPrivateData;
+  void (*cbPrivateDataDestructor)(void *);
+  void (*cbPrivateDataInit)(void *, const MRIterator *);
+  MRCommandModifier commandModifier;
+  void (*iterStartCb)(void *);
+  StrongRef *iterStartCbPrivateData;
+} MRIteratorConfig;
 
 // Trigger all the commands in the iterator to be sent.
 // Returns true if there may be more replies to come, false if we are done.
@@ -164,14 +210,14 @@ struct MRChannel *MRIterator_GetChannel(MRIterator *it);
 
 /* Allocate and initialize an iterator without dispatching its fan-out. The
  * iterator is inert until MR_StartIterator schedules its start callback, so the
- * caller can safely publish any state the barrier's completion callback depends
- * on (e.g. store the iterator pointer, register an abort-wake channel) before
- * any reply can arrive on the IO thread. Pair every MR_CreateIterator with
- * MR_StartIterator. */
-MRIterator *MR_CreateIterator(const MRCommand *cmd, MRIteratorCallback cb, void *cbPrivateData,
-                              void (*cbPrivateDataDestructor)(void *),
-                              void (*cbPrivateDataInit)(void *, const MRIterator *),
-                              MRCommandModifier commandModifier);
+ * caller can safely publish any state the per-reply callback depends on (e.g.
+ * store the iterator pointer, register an abort-wake channel) before any reply
+ * can arrive on the IO thread. Pair every MR_CreateIterator with
+ * MR_StartIterator. Only the dispatch-related fields of `config` are read here
+ * (`successCB`, `errorCB`, `cbPrivateData`, `cbPrivateDataDestructor`,
+ * `cbPrivateDataInit`, `commandModifier`); `iterStartCb` /
+ * `iterStartCbPrivateData` are consumed by MR_StartIterator. */
+MRIterator *MR_CreateIterator(const MRCommand *cmd, const MRIteratorConfig *config);
 
 /* Schedule the iterator's start callback on its IO runtime, kicking off the
  * fan-out to the shards. After this call replies may arrive at any time on the
@@ -179,11 +225,7 @@ MRIterator *MR_CreateIterator(const MRCommand *cmd, MRIteratorCallback cb, void 
 void MR_StartIterator(MRIterator *it, void (*iterStartCb)(void *),
                       StrongRef *iterStartCbPrivateData);
 
-MRIterator *MR_IterateWithPrivateData(const MRCommand *cmd, MRIteratorCallback cb, void *cbPrivateData,
-                                      void (*cbPrivateDataDestructor)(void *),
-                                      void (*cbPrivateDataInit)(void *, const MRIterator *),
-                                      MRCommandModifier commandModifier,
-                                      void (*iterStartCb)(void *), StrongRef *iterStartCbPrivateData);
+MRIterator *MR_IterateWithPrivateData(const MRCommand *cmd, const MRIteratorConfig *config);
 
 MRCommand *MRIteratorCallback_GetCommand(MRIteratorCallbackCtx *ctx);
 

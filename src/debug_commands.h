@@ -144,6 +144,9 @@ void StoreResultsDebugCtx_SetPause(bool pause);
 #define SYNC_POINT_BEFORE_CURSOR_READ_SEND_CHUNK        "BeforeCursorReadSendChunk"
 #define SYNC_POINT_BEFORE_CURSOR_READ_SPEC_PROMOTE      "BeforeCursorReadSpecPromote"
 #define SYNC_POINT_BEFORE_AGGREGATE_RESULTS_CLAIM       "BeforeAggregateResultsClaim"
+#define SYNC_POINT_BEFORE_SAFE_LOADER_GIL_LOCK          "BeforeSafeLoaderGILLock"
+#define SYNC_POINT_AFTER_SAFE_LOADER_GIL_HANDSHAKE      "AfterSafeLoaderGILHandshake"
+#define SYNC_POINT_BEFORE_SAFE_LOADER_EXIT_GIL          "BeforeSafeLoaderExitGIL"
 #define SYNC_POINT_BEFORE_HYBRID_RESULTS_CLAIM          "BeforeHybridResultsClaim"
 #define SYNC_POINT_BEFORE_RPNET_START                   "BeforeRPNetStart"
 #define SYNC_POINT_BEFORE_RPNET_NEXT                    "BeforeRPNetNext"
@@ -175,6 +178,14 @@ typedef bool (*SyncPointStopFn)(void *arg);
 // Like SyncPoint_Wait, but also exits the wait loop when `stop_fn(arg)` returns
 // true. Lets workers release early when a timeout fires on the main thread.
 void SyncPoint_WaitUntil(const char *name, SyncPointStopFn stop_fn, void *arg);
+
+// Shard dispatch fault injection (test-only, ENABLE_ASSERT builds): arm the next
+// `count` MRCluster_SendCommand calls to return REDIS_ERR, so DebugSendError_Consume
+// returns true that many times. Exercises the no-reply error path.
+void DebugSendError_Arm(int count);
+// Consume one armed failure; returns true if the caller should treat the send as
+// failed. Thread-safe.
+bool DebugSendError_Consume(void);
 
 // Process-wide counter of threads parked in `RedisSearchCtx_LockSpecWrite`
 // waiting on a spec rwlock. Bumped before `pthread_rwlock_wrlock` and

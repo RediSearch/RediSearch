@@ -159,14 +159,14 @@ static inline void debugCheckAndPauseAfterAggregateResult(AREQ *areq) {}
   * results path in `serializeAndReplyResults_*`; that path is independent
   * of this classifier.
   *
-  * Profile is excluded: it wraps every RP and is not yet supported under
-  * RETURN-STRICT drain.
+  * Profile (`FT.PROFILE`) interleaves an RP_PROFILE wrapper around every RP,
+  * so the classifier transparently skips RP_PROFILE wrappers while walking
+  * from `endProc`. The root proc type is read from `qctx->rootProc`, which
+  * always points at the real root (RP_INDEX / RP_NETWORK) regardless of
+  * profiling, and the drain itself walks `endProc->Next` which delegates
+  * through the profile wrappers.
   */
  bool pipelineCanYieldPartialResults(AREQ *r) {
-   if (IsProfile(r)) {
-     return false;
-   }
-
    QueryProcessingCtx *qctx = AREQ_QueryProcessingCtx(r);
    ResultProcessor *end = qctx->endProc;
    ResultProcessor *root = qctx->rootProc;
@@ -176,7 +176,8 @@ static inline void debugCheckAndPauseAfterAggregateResult(AREQ *areq) {}
    }
 
    ResultProcessor *rp = end;
-   while (rp->type == RP_PAGER_LIMITER || rp->type == RP_VECTOR_NORMALIZER) {
+   while (rp->type == RP_PROFILE || rp->type == RP_PAGER_LIMITER ||
+          rp->type == RP_VECTOR_NORMALIZER) {
      rp = rp->upstream;
      RS_ASSERT(rp);
    }

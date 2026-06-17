@@ -38,7 +38,7 @@ const HEADERS: &[HeaderAllowlist] = &[
     },
     HeaderAllowlist {
         path: "deps/hiredis/sds.h",
-        fns: &["sdscatlen"],
+        fns: &["sdscatlen", "sdsnewlen", "sdsfree"],
         types: &[],
         vars: &[],
     },
@@ -68,7 +68,12 @@ const HEADERS: &[HeaderAllowlist] = &[
     },
     HeaderAllowlist {
         path: "src/doc_table.h",
-        fns: &["DMD_Free", "DocTable_Exists"],
+        fns: &[
+            "DMD_Free",
+            "DocTable_Exists",
+            "DocTable_GetId",
+            "DocTable_Put",
+        ],
         types: &[],
         vars: &[],
     },
@@ -83,6 +88,24 @@ const HEADERS: &[HeaderAllowlist] = &[
         fns: &["InvertedIndex_WriteForwardIndexEntry"],
         types: &[],
         vars: &[],
+    },
+    HeaderAllowlist {
+        // Benchmark-only GeoShape iterator constructor, used by
+        // `rqe_iterators_bencher` to compare against the Rust implementation.
+        path: "src/geometry/geometry_api.h",
+        fns: &["NewGeometryQueryIterator_Bench"],
+        types: &[],
+        vars: &[],
+    },
+    HeaderAllowlist {
+        path: "src/indexes.h",
+        fns: &[
+            "Indexes_Init",
+            "Indexes_RemoveSpecFromGlobals",
+            "Spec_AddToDict",
+        ],
+        types: &[],
+        vars: &["specDict_g", "specIdDict_g"],
     },
     HeaderAllowlist {
         path: "src/iterators/hybrid_reader.h",
@@ -143,8 +166,8 @@ const HEADERS: &[HeaderAllowlist] = &[
     },
     HeaderAllowlist {
         path: "src/query.h",
-        fns: &["tag_strtolower"],
-        types: &["QueryEvalCtx"],
+        fns: &["Query_EvalNode", "tag_strtolower"],
+        types: &["QueryAST", "QueryEvalCtx"],
         vars: &[],
     },
     HeaderAllowlist {
@@ -269,6 +292,7 @@ const HEADERS: &[HeaderAllowlist] = &[
             "RedisSearchDiskAPI",
             "RedisSearchDiskAsyncReadPool",
             "RedisSearchDiskRdbState",
+            "RedisSearchDiskSnapshot",
             "SearchDiskCompactionCallbacks",
             "SearchDiskWriteBatchHandle",
             "VectorDiskAPI",
@@ -284,19 +308,24 @@ const HEADERS: &[HeaderAllowlist] = &[
             "IndexSpec_GetFieldWithLength",
             "IndexSpec_ParseC",
             "IndexSpec_ReleaseWriteLock",
-            "IndexSpec_RemoveFromGlobals",
             "IndexSpecCache_Decref",
-            "Indexes_Init",
-            "Spec_AddToDict",
+            "IndexSpecRef_Promote",
+            "IndexSpecRef_Release",
         ],
         types: &[],
-        vars: &["isCrdt", "specDict_g", "specIdDict_g"],
+        vars: &["isCrdt"],
     },
     HeaderAllowlist {
         path: "src/stopwords.h",
         fns: &["StopWordList_FreeGlobals"],
         types: &[],
         vars: &[],
+    },
+    HeaderAllowlist {
+        path: "src/suffix.h",
+        fns: &[],
+        types: &[],
+        vars: &["MIN_SUFFIX"],
     },
     HeaderAllowlist {
         path: "src/tag_index.h",
@@ -324,6 +353,9 @@ const HEADERS: &[HeaderAllowlist] = &[
             "TimeToLiveTable_VerifyDocAndFieldMask",
             "TimeToLiveTable_VerifyDocAndWideFieldMask",
             "TimeToLiveTable_VerifyInit",
+            // Used by bench.
+            "TimeToLiveTable_Destroy",
+            "TimeToLiveTable_IsEmpty",
         ],
         types: &[],
         vars: &[],

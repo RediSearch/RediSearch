@@ -11,6 +11,8 @@
 
 #include "triemap_ffi.h"
 #include "spec.h"
+#include "indexes.h"
+#include "indexes_scan.h"
 #include "inverted_index_ffi.h"
 #include "vector_index.h"
 #include "cursor.h"
@@ -196,6 +198,7 @@ void fillReplyWithIndexInfo(RedisSearchCtx* sctx, RedisModule_Reply *reply, bool
           REPLY_KVSTR("distance_metric", VecSimMetric_ToString(hnsw_params.metric));
           REPLY_KVINT("M", hnsw_params.M);
           REPLY_KVINT("ef_construction", hnsw_params.efConstruction);
+          REPLY_KVINT("ef_runtime", hnsw_params.efRuntime);
           if (fs->vectorOpts.diskCtx.indexName) {
             REPLY_KVSTR("rerank", fs->vectorOpts.diskCtx.rerank ? "true" : "false");
           }
@@ -268,9 +271,12 @@ void fillReplyWithIndexInfo(RedisSearchCtx* sctx, RedisModule_Reply *reply, bool
   size_t num_records = isDisk ? SearchDisk_GetNumRecords(sp->diskSpec) : sp->stats.numRecords;
   // Vector indexes (e.g. HNSW) remain in memory even when the rest of the
   // index is stored on disk, so their memory must always be reported.
-  size_t vector_indexes_size = IndexSpec_VectorIndexesSize(specForOpeningIndexes);
-  // FT.INFO reports per-spec block counts, not the process-global TotalIIBlocks (the latter
-  // is still exposed via Redis `INFO modules` for cluster-wide aggregation in spec.c).
+  // VecSim_GetSharedMemory() returns process-wide vector-related allocations not
+  // tied to any single index (e.g. the shared SVS thread pool singleton).
+  size_t vector_indexes_size = IndexSpec_VectorIndexesSize(specForOpeningIndexes) +
+                               VecSim_GetSharedMemory();
+  // FT.INFO reports the per-spec block count. `INFO modules` aggregates the same per-spec
+  // counter across all specs in `IndexesInfo_TotalInfo`.
   size_t total_ii_blocks = isDisk ? SearchDisk_GetInvertedIndexTotalBlocks(sp->diskSpec)
       : __atomic_load_n(&sp->stats.totalInvertedIndexBlocks, __ATOMIC_RELAXED);
   size_t offset_vecs_size = isDisk ? 0 : sp->stats.offsetVecsSize;
@@ -373,7 +379,7 @@ void fillReplyWithIndexInfo(RedisSearchCtx* sctx, RedisModule_Reply *reply, bool
 int IndexInfoCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
   if (argc < 2) return RedisModule_WrongArity(ctx);
 
-  StrongRef ref = IndexSpec_LoadUnsafe(RedisModule_StringPtrLen(argv[1], NULL));
+  StrongRef ref = Indexes_LoadIndexSpecUnsafe(RedisModule_StringPtrLen(argv[1], NULL));
   IndexSpec *sp = StrongRef_Get(ref);
   if (!sp) {
     const char *idx = RedisModule_StringPtrLen(argv[1], NULL);

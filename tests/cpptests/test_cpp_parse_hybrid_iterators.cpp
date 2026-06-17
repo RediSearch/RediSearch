@@ -18,6 +18,7 @@
 #include "spec.h"
 #include "search_ctx.h"
 #include "aggregate/aggregate.h"
+#include "query_eval_ffi.h"
 
 // Macro for BLOB data that all tests using $BLOB should use
 #define TEST_BLOB_DATA "AQIDBAUGBwgJCg=="
@@ -51,7 +52,7 @@ IndexSpec* CreateTestIndexSpec(RedisModuleCtx *ctx, const char* indexName, Query
                             "SCHEMA", "title", "TEXT", "score", "NUMERIC",
                             "category", "TEXT", "vector_field", "VECTOR", "FLAT", "6",
                             "TYPE", "FLOAT32", "DIM", "4", "DISTANCE_METRIC", "COSINE");
-  return IndexSpec_CreateNew(ctx, createArgs, createArgs.size(), status);
+  return Indexes_CreateNewSpec(ctx, createArgs, createArgs.size(), status);
 }
 
 // ============================================================================
@@ -77,7 +78,7 @@ struct HybridIteratorTestCtx {
       if (rootiter) rootiter->Free(rootiter);
       if (hybridReq) HybridRequest_DecrRef(hybridReq);
       if (hybridParams.scoringCtx) HybridScoringContext_Free(hybridParams.scoringCtx);
-      if (spec) IndexSpec_RemoveFromGlobals(spec->own_ref, false);
+      if (spec) Indexes_RemoveSpecFromGlobals(spec->own_ref, false);
     }
   };
 

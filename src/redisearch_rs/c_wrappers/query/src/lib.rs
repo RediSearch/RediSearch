@@ -15,6 +15,11 @@ mod query_node_ref;
 pub use query_eval_ctx::QueryEvalContext;
 pub use query_node_ref::{QueryNode, QueryNodeRef, WildcardMode};
 
+/// Test-only mocks for the query wrapper types, shared with the `query_eval`
+/// crate's evaluation-dispatcher tests.
+#[cfg(feature = "unittest")]
+pub mod mock;
+
 #[cfg(test)]
 mod _test_link {
     extern crate redisearch_rs;

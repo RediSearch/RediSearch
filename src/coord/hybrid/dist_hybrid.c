@@ -1152,7 +1152,7 @@ void DEBUG_RSExecDistHybrid(RedisModuleCtx *ctx, RedisModuleString **argv, int a
 
 // Timeout callback for Coordinator HybridRequest execution
 // Called on the main thread when the blocking client times out (FAIL policy only).
-int DistHybridTimeoutFailClient(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
+int DistHybridTimeoutFailCallback(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
   UNUSED(argv);
   UNUSED(argc);
 
@@ -1181,10 +1181,7 @@ int DistHybridTimeoutFailClient(RedisModuleCtx *ctx, RedisModuleString **argv, i
 
 // Timeout callback for Coordinator HybridRequest execution
 // Called on the main thread when the blocking client times out (RETURN-STRICT policy only).
-int DistHybridTimeoutReturnStrictClient(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
-  UNUSED(argv);
-  UNUSED(argc);
-
+int DistHybridTimeoutReturnStrictCallback(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
   CoordRequestCtx *CoordReqCtx = RedisModule_GetBlockedClientPrivateData(ctx);
   if (!CoordReqCtx) {
     // This shouldn't happen but handle gracefully
@@ -1218,8 +1215,10 @@ int DistHybridTimeoutReturnStrictClient(RedisModuleCtx *ctx, RedisModuleString *
   if (!hreq || HybridRequest_TryClaimAggregateResults(hreq)) {
     // Either the request is NULL or we were able to claim the aggregation results.
     // That means that the background thread didn't reach the aggregation phase
-    // (startPipelineCommon) yet. Reply with empty results.
-    common_hybrid_query_reply_empty(ctx, QUERY_ERROR_CODE_TIMED_OUT, false, false);
+    // (startPipelineCommon) yet. Reply with empty results. coord_hybrid_query_reply_empty
+    // derives isProfile from the command so the profile envelope is preserved for
+    // FT.PROFILE ... HYBRID even on this fast path.
+    coord_hybrid_query_reply_empty(ctx, argv, argc, QUERY_ERROR_CODE_TIMED_OUT);
     return REDISMODULE_OK;
   }
 

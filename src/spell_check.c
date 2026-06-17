@@ -54,11 +54,6 @@ RS_Suggestions *RS_SuggestionsCreate() {
 void RS_SuggestionsAdd(RS_Suggestions *s, char *term, size_t len, double score, int incr) {
   double currScore;
   bool isExists = SpellCheck_IsTermExistsInTrie(s->suggestionsTrie, term, len, &currScore);
-  if (score == 0) {
-    /** we can not add zero score so we set it to -1 instead :\ **/
-    score = -1;
-  }
-
   if (!incr) {
     if (!isExists) {
       // Payload is NULL so TRIE_ERR_PAYLOAD_OVERFLOW cannot occur.
@@ -67,11 +62,11 @@ void RS_SuggestionsAdd(RS_Suggestions *s, char *term, size_t len, double score, 
     return;
   }
 
-  if (isExists && score == -1) {
+  if (isExists && score == 0) {
     return;
   }
 
-  if (!isExists || currScore == -1) {
+  if (!isExists || currScore == 0) {
     incr = 0;
   }
 
@@ -123,7 +118,7 @@ static bool SpellCheck_IsTermExistsInTrie(Trie *t, const char *term, size_t len,
   float score = 0;
   int dist = 0;
   bool retVal = false;
-  TrieIterator *it = Trie_Iterate(t, term, len, 0, 0);
+  TrieIterator *it = Trie_IterateFuzzy(t, term, len, 0, TRIE_MATCH_EDIT_DISTANCE);
   // TrieIterator can be NULL when rune length exceed TRIE_MAX_PREFIX
   if (it == NULL) {
     return retVal;
@@ -146,7 +141,7 @@ static void SpellCheck_FindSuggestions(SpellCheckCtx *scCtx, Trie *t, const char
   int dist = 0;
   size_t suggestionLen;
 
-  TrieIterator *it = Trie_Iterate(t, term, len, (int)scCtx->distance, 0);
+  TrieIterator *it = Trie_IterateFuzzy(t, term, len, (int)scCtx->distance, TRIE_MATCH_EDIT_DISTANCE);
   // TrieIterator can be NULL when rune length exceed TRIE_MAX_PREFIX
   if (it == NULL) {
     return;
@@ -163,14 +158,13 @@ static void SpellCheck_FindSuggestions(SpellCheckCtx *scCtx, Trie *t, const char
 }
 
 RS_Suggestion **spellCheck_GetSuggestions(RS_Suggestions *s) {
-  TrieIterator *iter = Trie_Iterate(s->suggestionsTrie, "", 0, 0, 1);
+  TrieIterator *iter = Trie_IterateAll(s->suggestionsTrie);
   RS_Suggestion **ret = array_new(RS_Suggestion *, Trie_Size(s->suggestionsTrie));
   rune *rstr = NULL;
   t_len slen = 0;
   float score = 0;
-  int dist = 0;
   size_t termLen;
-  while (TrieIterator_Next(iter, &rstr, &slen, NULL, &score, NULL, &dist)) {
+  while (TrieIterator_Next(iter, &rstr, &slen, NULL, &score, NULL, NULL)) {
     char *res = runesToStr(rstr, slen, &termLen);
     array_append(ret, RS_SuggestionCreate(res, termLen, score));
   }
@@ -201,8 +195,7 @@ void SpellCheck_SendReplyOnTerm(RedisModule_Reply *reply, char *term, size_t len
       for (int i = 0; i < n; ++i) {
         RedisModule_Reply_Map(reply);
           RedisModule_Reply_StringBuffer(reply, suggestions[i]->suggestion, suggestions[i]->len);
-          RedisModule_Reply_Double(reply, suggestions[i]->score == -1 ? 0 :
-                                        suggestions[i]->score / totalDocNumber);
+          RedisModule_Reply_Double(reply, suggestions[i]->score / totalDocNumber);
         RedisModule_Reply_MapEnd(reply);
       }
 
@@ -220,8 +213,7 @@ void SpellCheck_SendReplyOnTerm(RedisModule_Reply *reply, char *term, size_t len
         int n = array_len(suggestions);
         for (int i = 0; i < n; ++i) {
           RedisModule_Reply_Array(reply);
-            RedisModule_Reply_Double(reply, suggestions[i]->score == -1 ? 0 :
-                                            suggestions[i]->score / totalDocNumber);
+            RedisModule_Reply_Double(reply, suggestions[i]->score / totalDocNumber);
             RedisModule_Reply_StringBuffer(reply, suggestions[i]->suggestion, suggestions[i]->len);
           RedisModule_Reply_ArrayEnd(reply);
         }
