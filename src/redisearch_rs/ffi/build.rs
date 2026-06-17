@@ -489,6 +489,7 @@ const HEADERS: &[HeaderAllowlist] = &[
         fns: &[
             "dictIterator",
             "RS_dictAdd",
+            "RS_dictCreate",
             "RS_dictDelete",
             "RS_dictFetchValue",
             "RS_dictGetIterator",
@@ -496,8 +497,8 @@ const HEADERS: &[HeaderAllowlist] = &[
             "RS_dictRelease",
             "RS_dictReleaseIterator",
         ],
-        types: &[],
-        vars: &[],
+        types: &["dictType"],
+        vars: &["dictTypeHeapHiddenStrings"],
     },
     HeaderAllowlist {
         path: "src/util/references.h",

@@ -41,6 +41,11 @@ impl<'a> HiddenStringRef<'a> {
         )
     }
 
+    /// Return the raw pointer to the underlying [`ffi::HiddenString`].
+    pub fn as_ptr(self) -> *mut ffi::HiddenString {
+        self.0.as_ptr()
+    }
+
     /// Get the secret (aka. "unsafe" in C land) value from the underlying [`ffi::HiddenString`].
     ///
     /// This is safe **only if** the C function returns a pointer that stays valid
