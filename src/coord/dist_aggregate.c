@@ -73,9 +73,10 @@ typedef struct {
 // `bc`, `areq`, `strong_ref`, and `knnSpecialCtx` carry the Phase B context on
 // the async WITHCOUNT path. They are set in RSExecDistAggregate before
 // MR_StartIterator and consumed by aggregatePhaseBExecute after collectCountCb
-// posts Phase B. aggregatePhaseBExecute copies them to locals before calling
-// executePlan so the iterator (and this struct) may be freed during executePlan
-// without creating a dangling pointer.
+// posts Phase B. The AREQ's reader ref on the iterator keeps iterCtx alive
+// until aggregatePhaseBExecute calls AREQ_DecrRef (via executePlan, or directly
+// on the timeout branch). aggregatePhaseBExecute copies the fields to locals
+// before releasing AREQ so it never reads iterCtx after free.
 typedef struct {
   long long totalResults;           // Sum of each shard's WITHCOUNT total_results
   size_t numResponded;              // How many shards delivered their first reply (C_AGG)
@@ -274,11 +275,10 @@ static void aggregatePhaseBExecute(void *arg) {
 
   CurrentThread_SetIndexSpec(strong_ref);
 
-  // Capture iterator and totalResults before executePlan may free AREQ and nc.
+  // Capture totalResults before executePlan may free AREQ (and with it nc / iterCtx).
   RS_LOG_ASSERT(AREQ_QueryProcessingCtx(r)->rootProc->type == RP_NETWORK,
                 "Expected RP_NETWORK root for distributed aggregate");
   RPNet *nc = (RPNet *)AREQ_QueryProcessingCtx(r)->rootProc;
-  MRIterator *it = nc->it;
   long long totalResults = iterCtx->totalResults;
 
   if (!CoordRequestCtx_TimedOut(reqCtx)) {
@@ -307,6 +307,10 @@ static void aggregatePhaseBExecute(void *arg) {
 
     RedisModule_FreeThreadSafeContext(replyCtx);
     RedisModule_EndReply(reply);
+  } else {
+    // Timeout path skipped executePlan; release the AREQ ourselves so rpnetFree
+    // drops the iterator's reader ref and the iterator (and iterCtx) is freed.
+    AREQ_DecrRef(r);
   }
 
   CurrentThread_ClearIndexSpec();
@@ -315,9 +319,6 @@ static void aggregatePhaseBExecute(void *arg) {
   RedisModule_BlockedClientMeasureTimeEnd(bc);
   void *privdata = RedisModule_BlockClientGetPrivateData(bc);
   RedisModule_UnblockClient(bc, privdata);
-  // Release the Phase A extra ref taken in RSExecDistAggregate.
-  // Iterator (and iterCtx) may be freed here.
-  MRIterator_Release(it);
 }
 
 // Helper to calculate the number of profile arguments
@@ -813,9 +814,6 @@ void RSExecDistAggregate(RedisModuleCtx *ctx, RedisModuleString **argv, int argc
     iterCtx->areq = r;
     iterCtx->strong_ref = strong_ref;
     iterCtx->knnSpecialCtx = knnCtx;
-    // Extra ref for Phase B: keeps the iterator (and iterCtx) alive until
-    // aggregatePhaseBExecute has finished reading its fields.
-    MRIterator_IncreaseRefCount(nc->it);
 
     // Drop the dispatcher's ctx alias; Phase B creates its own thread-safe ctx.
     r->sctx->redisCtx = NULL;
