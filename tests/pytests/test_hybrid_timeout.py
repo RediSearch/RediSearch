@@ -2,11 +2,6 @@ from RLTest import Env
 from includes import *
 from common import *
 import psutil
-from test_blocked_client_timeout import (
-    _split_shards_pick_one_paused,
-    assert_timeout_warning,
-    ON_TIMEOUT_CONFIG,
-)
 
 # Test data with deterministic vectors
 test_data = {
@@ -469,7 +464,7 @@ def test_return_timeout_setup_phase_hybrid():
     prev_on_timeout_policy = env.cmd('CONFIG', 'GET', ON_TIMEOUT_CONFIG)[ON_TIMEOUT_CONFIG]
     env.cmd('CONFIG', 'SET', ON_TIMEOUT_CONFIG, 'return')
 
-    _, _, paused_pid, _ = _split_shards_pick_one_paused(env)
+    _, _, paused_pid, _ = split_shards_pick_one_paused(env)
     shard_to_pause_p = psutil.Process(paused_pid)
 
     # Per-query TIMEOUT arms the coordinator's cursor-setup deadline under
