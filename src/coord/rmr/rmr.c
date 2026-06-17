@@ -612,7 +612,6 @@ void MR_ReplyClusterInfo(RedisModuleCtx *ctx, MRClusterTopology *topo) {
 
 struct MRIteratorCtx {
   MRChannel *chan;
-  MRIteratorCallback successCB;
   MRIteratorErrorCallback errorCB;  // Optional: callback to execute on error
   short pending;    // Number of shards with more results (not depleted)
   short inProcess;  // Number of currently running commands on shards
@@ -630,6 +629,7 @@ struct MRIteratorCallbackCtx {
   MRIterator *it;
   MRCommand cmd;
   void *privateData;
+  MRIteratorCallback successCB;  // Per-shard reply callback; may be swapped in-flight
 };
 
 struct MRIterator {
@@ -653,7 +653,7 @@ static void mrIteratorRedisCB(redisAsyncContext *c, void *r, void *privdata) {
   if (!r) {
     mrIteratorCallback_Error(ctx);
   } else {
-    ctx->it->ctx.successCB(ctx, r);
+    ctx->successCB(ctx, r);
   }
 }
 
@@ -768,7 +768,7 @@ void iterStartCb(void *p) {
         it->ctx.privateDataInit(privateData, it);
       }
       MRReply *err = MRReply_CreateError(CLUSTER_QUERY_ERROR, sizeof(CLUSTER_QUERY_ERROR) - 1);
-      it->ctx.successCB(&it->cbxs[0], err);
+      it->cbxs[0].successCB(&it->cbxs[0], err);
       rm_free(data);
       return;
     }
@@ -805,6 +805,7 @@ void iterStartCb(void *p) {
     MRCommand_SetSlotInfo(&it->cbxs[targetShardIdx].cmd, shards[targetShardIdx].slotRanges);
 
     it->cbxs[targetShardIdx].privateData = MRIteratorCallback_GetPrivateData(&it->cbxs[0]);
+    it->cbxs[targetShardIdx].successCB = it->cbxs[0].successCB;
   }
 
   // Set the first command to target the first shard (while not having copied it)
@@ -865,6 +866,7 @@ void iterCursorMappingCb(void *p) {
   for (size_t i = 1; i < numShardsWithMapping; i++) {
     it->cbxs[i].it = it;
     it->cbxs[i].privateData = MRIteratorCallback_GetPrivateData(&it->cbxs[0]);
+    it->cbxs[i].successCB = it->cbxs[0].successCB;
 
     it->cbxs[i].cmd = MRCommand_Copy(cmd);
 
@@ -908,11 +910,11 @@ void iterManualNextCb(void *p) {
   }
 }
 
-// Replace the per-reply callback for all subsequent replies to this iterator.
-// Must only be called from the iterator's own IO thread (the same thread that
+// Replace the per-reply callback for a single shard's callback context. Must
+// only be called from the iterator's own IO thread (the same thread that
 // invokes the callback via mrIteratorRedisCB); no synchronization is applied.
-void MRIterator_SetCallback(MRIterator *it, MRIteratorCallback cb) {
-  it->ctx.successCB = cb;
+void MRIteratorCallback_SetCallback(MRIteratorCallbackCtx *ctx, MRIteratorCallback cb) {
+  ctx->successCB = cb;
 }
 
 bool MR_ManuallyTriggerNextIfNeeded(MRIterator *it, size_t channelThreshold) {
@@ -961,7 +963,6 @@ MRIterator *MR_CreateIterator(const MRCommand *cmd, const MRIteratorConfig *conf
   *ret = (MRIterator){
     .ctx = {
       .chan = MR_NewChannel(),
-      .successCB = config->successCB,
       .errorCB = config->errorCB,
       .pending = 1,
       .inProcess = 1,
@@ -975,11 +976,13 @@ MRIterator *MR_CreateIterator(const MRCommand *cmd, const MRIteratorConfig *conf
     .cbxs = rm_new(MRIteratorCallbackCtx),
     .len = 1,
   };
-  // Initialize the first command
+  // Initialize the first command. iterStartCb / iterCursorMappingCb propagate
+  // successCB to the rest of the cbxs entries when they fan out.
   *ret->cbxs = (MRIteratorCallbackCtx){
     .cmd = MRCommand_Copy(cmd),
     .it = ret,
     .privateData = config->cbPrivateData,
+    .successCB = config->successCB,
   };
   return ret;
 }

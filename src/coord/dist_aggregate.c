@@ -70,8 +70,8 @@ typedef struct {
 // Once it reaches the iterator's shard count, the WITHCOUNT total is fully known.
 // Written and read only on the IO thread.
 //
-// `bc`, `areq`, `strong_ref`, `knnSpecialCtx`, and `poolId` carry the Phase B
-// context on the async WITHCOUNT path. They are set in RSExecDistAggregate before
+// `bc`, `areq`, `strong_ref`, and `knnSpecialCtx` carry the Phase B context on
+// the async WITHCOUNT path. They are set in RSExecDistAggregate before
 // MR_StartIterator and consumed by aggregatePhaseBExecute after collectCountCb
 // posts Phase B. aggregatePhaseBExecute copies them to locals before calling
 // executePlan so the iterator (and this struct) may be freed during executePlan
@@ -80,12 +80,11 @@ typedef struct {
   long long totalResults;           // Sum of each shard's WITHCOUNT total_results
   size_t numResponded;              // How many shards delivered their first reply (C_AGG)
   AggregateKnnContext *knnCtx;      // May be NULL if no KNN optimization needed
-  // Phase B fields (non-NULL / non-zero on the async WITHCOUNT path):
+  // Phase B fields (non-NULL on the async WITHCOUNT path):
   RedisModuleBlockedClient *bc;
   AREQ *areq;
   StrongRef strong_ref;
   specialCaseCtx *knnSpecialCtx;   // freed by aggregatePhaseBExecute
-  int poolId;
 } AggregateIteratorContext;
 
 // Free the AggregateIteratorContext. Phase B fields (bc, areq, strong_ref,
@@ -121,42 +120,32 @@ static void aggregateKnnCommandModifier(MRCommand *cmd, size_t numShards, void *
 
 static void aggregatePhaseBExecute(void *arg);  // forward declaration
 
-// IO-thread Phase A -> Phase B handoff. Swaps the callback so any later
-// reply takes the steady-state path, and on the eager async path schedules
-// aggregatePhaseBExecute on the coordinator pool. Lazy path (bc == NULL):
-// rpnetNext drives reads itself, no handoff.
-static void barrierTrip(AggregateIteratorContext *iterCtx, MRIterator *it) {
-  MRIterator_SetCallback(it, netCursorCallback);
-  if (!iterCtx->bc) return;
-  ConcurrentSearch_ThreadPoolRun(aggregatePhaseBExecute, iterCtx, iterCtx->poolId);
-}
-
-// Phase A callback (WITHCOUNT only): sums each shard's total_results from its
-// first reply, delegates the cursor bookkeeping to netCursorCallback, and
-// calls barrierTrip once every shard has responded (NULL / error replies
-// count toward numResponded).
+// Phase A callback (WITHCOUNT only): runs once per shard's first reply, sums
+// its total_results, swaps this shard's callback to netCursorCallback so any
+// later reply takes the steady-state path, and posts Phase B on the
+// coordinator pool when the last first-reply arrives. NULL / error replies
+// count toward numResponded. Lazy path (bc == NULL): rpnetNext drives reads
+// itself, no Phase B handoff.
 static void collectCountCb(MRIteratorCallbackCtx *ctx, MRReply *rep) {
   AggregateIteratorContext *iterCtx =
       (AggregateIteratorContext *)MRIteratorCallback_GetPrivateData(ctx);
   MRIterator *it = MRIteratorCallback_GetIterator(ctx);
   MRCommand *cmd = MRIteratorCallback_GetCommand(ctx);
-  // First per-shard reply carries C_AGG; getCursorCommand rewrites it to
-  // C_READ before the next dispatch, so subsequent replies skip accounting.
-  bool isFirstReply = (cmd->rootCommand == C_AGG);
 
-  if (isFirstReply && rep && MRReply_Type(rep) != MR_REPLY_ERROR) {
+  if (rep && MRReply_Type(rep) != MR_REPLY_ERROR) {
     long long shardTotal;
     if (extractTotalResults(rep, cmd, &shardTotal)) {
       iterCtx->totalResults += shardTotal;
     }
   }
 
+  // Steady-state for this shard; subsequent replies skip the WITHCOUNT bookkeeping.
+  MRIteratorCallback_SetCallback(ctx, netCursorCallback);
   netCursorCallback(ctx, rep);
 
-  if (!isFirstReply) return;
   if (++iterCtx->numResponded < MRIterator_GetNumShards(it)) return;
-
-  barrierTrip(iterCtx, it);
+  if (!iterCtx->bc) return;
+  ConcurrentSearch_ThreadPoolRun(aggregatePhaseBExecute, iterCtx, DIST_THREADPOOL);
 }
 
 // Read the accumulated WITHCOUNT total (sum of each shard's total_results) from
@@ -824,7 +813,6 @@ void RSExecDistAggregate(RedisModuleCtx *ctx, RedisModuleString **argv, int argc
     iterCtx->areq = r;
     iterCtx->strong_ref = strong_ref;
     iterCtx->knnSpecialCtx = knnCtx;
-    iterCtx->poolId = ConcurrentCmdCtx_GetPoolId(cmdCtx);
     // Extra ref for Phase B: keeps the iterator (and iterCtx) alive until
     // aggregatePhaseBExecute has finished reading its fields.
     MRIterator_IncreaseRefCount(nc->it);

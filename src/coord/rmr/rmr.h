@@ -265,10 +265,10 @@ void MRIterator_Release(MRIterator *it);
  * MRIterator_Release. */
 int8_t MRIterator_IncreaseRefCount(MRIterator *it);
 
-/* Replace the per-reply callback for all subsequent replies. Must only be called
- * from the iterator's own IO thread (the same thread that invokes the callback
- * via mrIteratorRedisCB); no synchronization is applied. */
-void MRIterator_SetCallback(MRIterator *it, MRIteratorCallback cb);
+/* Replace the per-reply callback for a single shard's callback context. Must
+ * only be called from the iterator's own IO thread (the same thread that
+ * invokes the callback via mrIteratorRedisCB); no synchronization is applied. */
+void MRIteratorCallback_SetCallback(MRIteratorCallbackCtx *ctx, MRIteratorCallback cb);
 
 /* Return the privateData stored in the first callback context of the iterator.
  * Valid while the iterator is alive (i.e. before the coord ref is released). */
