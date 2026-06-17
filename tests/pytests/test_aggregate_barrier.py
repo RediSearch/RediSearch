@@ -269,8 +269,12 @@ def _test_barrier_waits_for_delayed_unbalanced_shard(protocol):
         shard_conn.execute_command(debug_cmd(), 'SYNC_POINT', 'CLEAR')
 
         # ----------------------------------------------------------------------
-        # Case 3: Timeout - ON_TIMEOUT RETURN
+        # Case 3: Silent shard - ON_TIMEOUT RETURN
         # ----------------------------------------------------------------------
+        # RETURN policy has no blocked-client timeout, and the coordinator does
+        # not arm a silent-shard timer in Phase A. The request must therefore
+        # block indefinitely on the silent shard, matching the FT.SEARCH coord
+        # handler behavior, until the shard finally replies.
         shard_conn.execute_command(debug_cmd(), 'SYNC_POINT', 'ARM', sync_point)
 
         verify_command_OK_on_all_shards(env, 'CONFIG', 'SET', 'search-on-timeout', 'RETURN')
@@ -282,33 +286,30 @@ def _test_barrier_waits_for_delayed_unbalanced_shard(protocol):
             daemon=True
         )
         t_query.start()
-        # The coordinator should time out while shard 1 is blocked at the sync point
+
+        # Wait deterministically for shard 1 to reach the sync point.
+        wait_for_condition(
+            lambda: (shard_conn.execute_command(
+                debug_cmd(), 'SYNC_POINT', 'IS_WAITING', sync_point) == 1, {}),
+            'Timeout waiting for shard to reach sync point')
+
+        # Brief wait to confirm the request does NOT return on its own while the
+        # shard stays silent. Even with TIMEOUT=1 expired long ago, the RETURN
+        # policy has no mechanism to fire and the request must keep blocking.
+        t_query.join(timeout=2)
+        env.assertTrue(t_query.is_alive(),
+                       message="Query should still be blocked waiting for the silent shard")
+        env.assertEqual(len(query_result), 0,
+                        message="Query should not have returned while shard is blocked")
+
+        # Release shard 1; the query is expected to complete now.
+        shard_conn.execute_command(debug_cmd(), 'SYNC_POINT', 'SIGNAL', sync_point)
         t_query.join(timeout=10)
 
-        # Verify the barrier timed out: total_results must be 0.
-        # Since RETURN policy has no blocked client timeout (unlike FAIL),
-        # the barrier is the sole timeout mechanism. Shards 0 and 2 (with docs)
-        # are NOT blocked and respond quickly, so total_results == 0 proves
-        # the barrier timed out before accumulating any shard totals.
-        expected = 0
         env.assertEqual(len(query_result), 1,
-                        message="Query should have completed")
+                        message="Query should have completed after shard was released")
         env.assertFalse(isinstance(query_result[0], Exception),
                         message=f"Query failed with: {query_result[0]}")
-        result = query_result[0]
-        total = _get_total_results(result)
-        env.assertEqual(
-            total, 0,
-            message=f"expected total_results:0, got {total}")
-        env.assertEqual(
-            len(_get_results(result)), expected,
-            message=f"Expected {expected} results, got {len(_get_results(result))}")
-        # Verify we got a timeout warning in the response.
-        # RETURN policy has no blocked client timeout, so the barrier is the sole
-        # timeout mechanism and the warning is always the standard message.
-        if isinstance(result, dict):
-            env.assertEqual(result.get('warning', []),
-                            ['Timeout limit was reached'])
     finally:
         shard_conn.execute_command(debug_cmd(), 'SYNC_POINT', 'CLEAR')
 

@@ -7,7 +7,6 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 #include <stdatomic.h>
-#include <uv.h>
 #include "search_result_ffi.h"
 #include "result_processor.h"
 #include "rmr/rmr.h"
@@ -87,26 +86,11 @@ typedef struct {
   StrongRef strong_ref;
   specialCaseCtx *knnSpecialCtx;   // freed by aggregatePhaseBExecute
   int poolId;
-  // Silent-shard barrier timeout. The timer is armed on the IO thread from
-  // barrierInit (if timeoutMS > 0) and fires barrierTimerCb after timeoutMS ms
-  // unless every shard has already reported. Both shard-reply and timer paths
-  // route through barrierTrip, which uses `barrierTripped` to ensure Phase B
-  // is posted at most once. `barrierArmed` distinguishes "timer was started"
-  // from "no timeout configured" so the shard-reply path knows whether it
-  // needs to stop/close the handle.
-  uv_timer_t barrierTimer;
-  MRIterator *it;                  // back-pointer used by the timer callback
-  long long timeoutMS;             // 0 if no barrier timeout configured
-  bool barrierArmed;               // true once uv_timer_start succeeded
-  bool barrierTripped;             // set by barrierTrip; guards Phase B post
-  bool forCursor;                  // cmd->forCursor snapshot for barrierTrip
 } AggregateIteratorContext;
 
 // Free the AggregateIteratorContext and its contents.
 // Phase B fields (bc, areq, strong_ref, knnSpecialCtx) are managed by
-// aggregatePhaseBExecute and must not be freed here. The barrier timer must
-// already be closed by the time we get here (the timer holds an extra
-// iterator ref via barrierInit / released in barrierTimerCloseCb).
+// aggregatePhaseBExecute and must not be freed here.
 static void aggregateIteratorContext_Free(void *ptr) {
   AggregateIteratorContext *ctx = (AggregateIteratorContext *)ptr;
   if (ctx) {
@@ -139,26 +123,26 @@ static void aggregateKnnCommandModifier(MRCommand *cmd, size_t numShards, void *
 static void aggregatePhaseBExecute(void *arg);  // forward declaration
 
 // IO-thread: finalize Phase A and (on the eager async path only) post Phase B.
-// Both the "last shard first-reply" path (collectCountCb) and the silent-shard
-// timeout path (barrierTimerCb) call this. Idempotent via iterCtx->barrierTripped:
-// only the first caller swaps the callback and (if applicable) posts Phase B;
-// later callers are no-ops.
-//
-// After this returns, any in-flight or future shard first-reply will be dispatched
-// to netCursorCallback (its rows still land in the channel) instead of collectCountCb,
-// so the per-shard WITHCOUNT total is no longer accumulated.
+// Called once from collectCountCb when every shard has delivered its first
+// reply; swaps the callback to netCursorCallback so any subsequent reply
+// (C_READ batches, or a late first-reply from a slow shard) takes the
+// steady-state path instead of re-entering the Phase A accounting.
 //
 // Phase B is only posted on the eager async path (RSExecDistAggregate sets bc/areq/
 // strong_ref before MR_StartIterator). On the lazy path (profile+WITHCOUNT,
 // cursor+WITHCOUNT) iterCtx->bc is NULL: the calling thread reads results directly
 // via rpnetNext and the WITHCOUNT total is surfaced from iterCtx by
 // rpnetSurfaceWithCountTotal at EOF / timeout, so no Phase B handoff is required.
+//
+// Silent shards: there is no timer here. If a shard never replies, this
+// function is never called and Phase B is never posted; the request stays
+// blocked until the main-thread BC timeout (FAIL / RETURN_STRICT policies)
+// unblocks the client and the eventual shard reply or shutdown drives
+// aggregateIteratorContext free. RETURN policy waits indefinitely, matching
+// the FT.SEARCH coord handler behavior.
 static void barrierTrip(AggregateIteratorContext *iterCtx, MRIterator *it) {
-  if (iterCtx->barrierTripped) return;
-  iterCtx->barrierTripped = true;
-
   // Swap to the regular cursor callback for any subsequent reply (late first-reply
-  // from a silent shard, or any C_READ reply).
+  // from a slow shard, or any C_READ reply).
   MRIterator_SetCallback(it, netCursorCallback);
 
   // Lazy path: no Phase B context was wired up; rpnetNext owns the read loop.
@@ -166,90 +150,16 @@ static void barrierTrip(AggregateIteratorContext *iterCtx, MRIterator *it) {
 
   // Eager async path: hand off to the coordinator pool. The blocked client stays
   // blocked until aggregatePhaseBExecute unblocks it.
-  // No need to arm the next batch here: collectCountCb already dispatched the next
-  // C_READ for every responded-live shard (non-cursor case) or yielded to
-  // client-driven reads (cursor case). Silent shards still have their original
-  // C_AGG in flight; re-dispatching to them would create a duplicate request and
-  // unbalance the pending/inProcess accounting (see MRIteratorCallback_Done).
   ConcurrentSearch_ThreadPoolRun(aggregatePhaseBExecute, iterCtx, iterCtx->poolId);
-}
-
-// uv_close completion for the barrier timer. The timer held an extra iterator ref
-// (taken in barrierInit) to keep the iterator (and iterCtx, which embeds the timer)
-// alive across the close cycle; release that ref now.
-static void barrierTimerCloseCb(uv_handle_t *handle) {
-  AggregateIteratorContext *iterCtx =
-      (AggregateIteratorContext *)uv_handle_get_data(handle);
-  MRIterator_Release(iterCtx->it);
-}
-
-// uv_timer expiry: silent-shard fallback. Runs on the iterator's IO thread, so it
-// can safely call barrierTrip (also IO-thread) without locks. After tripping, close
-// the timer handle; the iterator ref taken in barrierInit is released in
-// barrierTimerCloseCb.
-//
-// Silent shards leave their per-shard `inProcess`/`pending` slots set, so Phase B's
-// channel reader would otherwise hang forever waiting for them. Flip the AREQ's
-// timeout flag and wake the abort channel BEFORE posting Phase B so the reader
-// bails with RS_RESULT_TIMEDOUT on its next pop. The order matters: once Phase B
-// is posted it owns the AREQ lifetime, so any access from this thread must happen
-// first. Safe to access iterCtx->areq here: collectCountCb (the other path that
-// would have posted Phase B) cancels and closes this timer before tripping, so a
-// fired timer implies Phase B has not yet been posted.
-static void barrierTimerCb(uv_timer_t *timer) {
-  AggregateIteratorContext *iterCtx =
-      (AggregateIteratorContext *)uv_handle_get_data((uv_handle_t *)timer);
-  if (iterCtx->areq) {
-    AREQ_SetTimedOut(iterCtx->areq);
-    RequestSyncCtx_WakeAbortChannel(&iterCtx->areq->syncCtx);
-  }
-  barrierTrip(iterCtx, iterCtx->it);
-  uv_timer_stop(timer);
-  uv_close((uv_handle_t *)timer, barrierTimerCloseCb);
-}
-
-// privateDataInit hook: runs on the IO thread inside iterStartCb, before any shard
-// reply can be delivered. Arms the silent-shard barrier timer if timeoutMS > 0;
-// otherwise no-op (Phase B will only post once all shards report). Takes an extra
-// iterator ref so the iterator (and the embedded uv_timer_t) outlives any in-flight
-// shard reply that races with the timer.
-static void barrierInit(void *privateData, const MRIterator *it) {
-  AggregateIteratorContext *iterCtx = (AggregateIteratorContext *)privateData;
-  iterCtx->it = (MRIterator *)it;
-  if (iterCtx->timeoutMS <= 0) return;
-
-  uv_loop_t *loop = MRIterator_GetIOLoop(it);
-  if (!loop) return;
-
-  if (uv_timer_init(loop, &iterCtx->barrierTimer) != 0) return;
-  uv_handle_set_data((uv_handle_t *)&iterCtx->barrierTimer, iterCtx);
-
-  // Hold an extra iterator ref for the timer; released in barrierTimerCloseCb.
-  MRIterator_IncreaseRefCount(iterCtx->it);
-  if (uv_timer_start(&iterCtx->barrierTimer, barrierTimerCb,
-                     (uint64_t)iterCtx->timeoutMS, 0) != 0) {
-    // start failed: drop the ref we just took and close the handle.
-    MRIterator_Release(iterCtx->it);
-    uv_close((uv_handle_t *)&iterCtx->barrierTimer, NULL);
-    return;
-  }
-  iterCtx->barrierArmed = true;
 }
 
 // Phase A callback: extracts the WITHCOUNT total from each shard's initial (C_AGG)
 // reply, then delegates the rest of the cursor bookkeeping (push to channel,
 // rewrite cmd to C_READ, dispatch next read or mark depleted) to netCursorCallback.
 //
-// Dispatching the next C_READ eagerly per-shard -- instead of batching it after
-// the barrier trips -- keeps the silent-shard timeout path correct: when the
-// timer fires, responded-live shards already have their next read in flight, so
-// barrierTrip never has to dispatch on a silent shard's behalf (which would
-// duplicate the still-in-flight C_AGG and corrupt pending/inProcess accounting).
-//
-// When every shard has delivered its first reply (numResponded == numShards):
-//   - stops/closes the silent-shard barrier timer if it was armed
-//   - hands off to barrierTrip, which swaps the callback to netCursorCallback
-//     and posts Phase B
+// When every shard has delivered its first reply (numResponded == numShards),
+// hands off to barrierTrip, which swaps the callback to netCursorCallback and
+// (on the eager async path) posts Phase B.
 //
 // NULL reply (shard disconnected) and error replies are forwarded to
 // netCursorCallback, which calls MRIteratorCallback_Done; they still count
@@ -277,24 +187,13 @@ static void collectCountCb(MRIteratorCallbackCtx *ctx, MRReply *rep) {
 
   // Drive the cursor exactly like the steady-state callback: push the reply,
   // rewrite cmd to C_READ, then dispatch the next read (non-cursor) or yield
-  // to client-driven reads (cursor). Doing the dispatch here -- instead of
-  // batching it in barrierTrip -- keeps the silent-shard timer path correct:
-  // responded-live shards already have their next C_READ in flight when the
-  // timer fires, so barrierTrip never has to dispatch on their behalf and
-  // silent shards never receive a duplicate C_AGG.
+  // to client-driven reads (cursor).
   netCursorCallback(ctx, rep);
 
   if (!isFirstReply) return;
   if (++iterCtx->numResponded < MRIterator_GetNumShards(it)) return;
 
-  // All shards reported before the silent-shard timer fired: cancel it.
-  if (iterCtx->barrierArmed && !iterCtx->barrierTripped) {
-    uv_timer_stop(&iterCtx->barrierTimer);
-    uv_close((uv_handle_t *)&iterCtx->barrierTimer, barrierTimerCloseCb);
-    iterCtx->barrierArmed = false;
-  }
-
-  // Trip the barrier (idempotent): swaps callback and posts Phase B.
+  // All shards have delivered their first reply: swap callback and post Phase B.
   barrierTrip(iterCtx, it);
 }
 
@@ -358,14 +257,10 @@ static int rpnetCreateIterator(RPNet *nc) {
   MRIteratorCallback cb = nc->withCount ? collectCountCb : netCursorCallback;
 
   // The iterator takes ownership of iterCtx and frees it via aggregateIteratorContext_Free.
-  // barrierInit runs on the IO thread inside iterStartCb (before any reply can arrive)
-  // and arms the silent-shard timer when iterCtx->timeoutMS > 0 (set by the WITHCOUNT
-  // caller in RSExecDistAggregate). It is a no-op on non-WITHCOUNT and timeout==0 paths.
   MRIterator *it = MR_CreateIterator(&nc->cmd, &(MRIteratorConfig){
     .successCB = cb,
     .cbPrivateData = iterCtx,
     .cbPrivateDataDestructor = aggregateIteratorContext_Free,
-    .cbPrivateDataInit = barrierInit,
     .commandModifier = cmdModifier,
   });
 
@@ -968,10 +863,6 @@ void RSExecDistAggregate(RedisModuleCtx *ctx, RedisModuleString **argv, int argc
     iterCtx->strong_ref = strong_ref;
     iterCtx->knnSpecialCtx = knnCtx;
     iterCtx->poolId = ConcurrentCmdCtx_GetPoolId(cmdCtx);
-    // Silent-shard barrier: arm the timer when the request has a query timeout.
-    // barrierInit reads these on the IO thread before any reply can arrive.
-    iterCtx->timeoutMS = r->reqConfig.queryTimeoutMS;
-    iterCtx->forCursor = (AREQ_RequestFlags(r) & QEXEC_F_IS_CURSOR) != 0;
     // Extra ref for Phase B: keeps the iterator (and iterCtx) alive until
     // aggregatePhaseBExecute has finished reading its fields.
     MRIterator_IncreaseRefCount(nc->it);
