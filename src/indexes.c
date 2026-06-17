@@ -428,6 +428,17 @@ static void onFlush(RedisModuleCtx *ctx, RedisModuleEvent eid, uint64_t subevent
   if (subevent != REDISMODULE_SUBEVENT_FLUSHDB_START) {
     return;
   }
+  // Indexes can only be created on DB 0 (enforced in CreateIndexCommand), so a
+  // FLUSHDB targeting any other logical DB must not drop them. dbnum == -1 means
+  // FLUSHALL (which also clears DB 0); dbnum == 0 is the DB the indexes live in.
+  // Any other dbnum is an unrelated DB and must be ignored. If data is missing
+  // we fall through to the conservative "free all" behavior.
+  const RedisModuleFlushInfo *fi = data;
+  if (fi && fi->dbnum != -1 && fi->dbnum != 0) {
+    RedisModule_Log(ctx, "debug", "Ignoring FLUSHDB on db %d: RediSearch indexes live on db 0 only",
+                    fi->dbnum);
+    return;
+  }
   if (specDict_g) {
     Indexes_Free(ctx, specDict_g, true);
     // specDict_g itself is not actually freed
