@@ -134,28 +134,23 @@ typedef struct {
   char **prefix_copies;    // owned NUL-terminated copies of the prefixes backing filter.prefixes
 } AsyncScanFilterCtx;
 
-// Build an engine-side pre-filter from the scanner's index so the engine never delivers a
+// Build an engine-side pre-filter from a live index spec so the engine never delivers a
 // key that cannot belong to it (every delivered key is processed on the main thread under
 // the GIL with its value pinned, so pre-filtering is a pure win). This is only a coarse
 // pre-filter: key_cb's SchemaRule_ShouldIndex stays the source of truth.
 //
+// `sp` must be kept alive by the caller (it holds a StrongRef across this call); we read
+// type and prefixes from it but copy the prefixes, so nothing of sp's is held after Start.
 // No spec read lock is needed even though this runs on the worker thread without the GIL:
 // type and prefixes are immutable for the spec's lifetime (set at FT.CREATE / RDB-load,
-// cleared at free; FT.ALTER does not touch them). Promoting the WeakRef to a StrongRef
-// keeps the spec alive while we copy the prefixes; we release it before returning, so
-// nothing is held across Start.
+// cleared at free; FT.ALTER does not touch them).
 //
-// Returns the filter to pass to AsyncScanStart, or NULL when no pre-filter is needed (scan
-// everything) — including when the spec was already dropped (key_cb then cancels). The
-// caller must call Indexes_AsyncScanFreeFilter(ctx) at teardown regardless.
-static RedisModuleAsyncScanFilter *Indexes_AsyncScanBuildFilter(IndexesScanner *scanner,
+// Detecting a dropped spec is the caller's job, not this function's — it only translates a
+// live spec into a filter. Returns the filter to pass to AsyncScanStart, or NULL when no
+// pre-filter is needed (scan everything). The caller must call
+// Indexes_AsyncScanFreeFilter(ctx) at teardown regardless.
+static RedisModuleAsyncScanFilter *Indexes_AsyncScanBuildFilter(const IndexSpec *sp,
                                                                 AsyncScanFilterCtx *ctx) {
-  StrongRef ref = IndexSpecRef_Promote(scanner->spec_ref);
-  IndexSpec *sp = StrongRef_Get(ref);
-  if (!sp) {
-    return NULL;  // promote failed: nothing to release, no filter
-  }
-
   // Type set: an index targets exactly one document type. "hash" is the core type
   // name; "ReJSON-RL" is RedisJSON's module type name (the engine resolves it to its
   // type id). An unexpected type is left unfiltered so ShouldIndex stays the sole
@@ -203,9 +198,8 @@ static RedisModuleAsyncScanFilter *Indexes_AsyncScanBuildFilter(IndexesScanner *
     ctx->filter.num_prefixes = nprefixes;
   }
 
-  // Done reading the spec — release the ref. The copies above are self-owned, so
-  // nothing is held across Start.
-  IndexSpecRef_Release(ref);
+  // The prefix copies above are self-owned, so nothing of sp's is held across Start; the
+  // caller releases its StrongRef once this returns.
 
   // Pass NULL (not an empty struct) when there is nothing to filter, so the engine
   // takes its no-filter fast path.
@@ -250,12 +244,6 @@ void Indexes_AsyncScanAndReindexTask(IndexesScanner *scanner) {
   RedisModule_Log(ctx, "notice", "AsyncScan: scanning index %s in background",
                   scanner->spec_name_for_logs);
 
-  if (scanner->cancelled) {
-    RedisModule_Log(ctx, "notice", "AsyncScan: index %s cancelled before scan started",
-                    scanner->spec_name_for_logs);
-    goto done;
-  }
-
   // Test hook: park the driver before any batch is queued (no GIL held here), so a
   // test can deterministically drop the index / cancel the scan mid-flight. No-op
   // unless armed via _FT.DEBUG SYNC_POINT (ENABLE_ASSERT builds).
@@ -263,11 +251,28 @@ void Indexes_AsyncScanAndReindexTask(IndexesScanner *scanner) {
   SyncPoint_Wait(SYNC_POINT_ASYNC_SCAN_BEFORE_FIRST_BATCH);
 #endif
 
-  // Build the engine-side pre-filter (type + prefixes) once, before the first Start.
-  // NULL means "scan everything"; key_cb's SchemaRule_ShouldIndex stays the source of
-  // truth. Built outside the retry loop so a BUSY retry reuses it rather than
-  // rebuilding (and leaking) it.
-  filter_ptr = Indexes_AsyncScanBuildFilter(scanner, &filter_ctx);
+  // Promote the weak ref once, before the first Start, to decide whether the sweep should
+  // run at all. If the spec was already dropped (FT.DROPINDEX / FLUSHDB before we got here)
+  // we must not start: key_cb cancels a sweep on a dropped spec, but on an empty DB — or one
+  // holding only unsupported-type keys — it never runs to do so, and a filter built from a
+  // dead spec is impossible anyway, so an unfiltered sweep would otherwise run to
+  // exhaustion for a dead index. Cancel and tear down instead.
+  {
+    StrongRef build_ref = IndexSpecRef_Promote(scanner->spec_ref);
+    IndexSpec *sp = StrongRef_Get(build_ref);
+    if (!sp) {
+      scanner->cancelled = true;
+      RedisModule_Log(ctx, "notice", "AsyncScan: index %s dropped before scan started; skipping",
+                      scanner->spec_name_for_logs);
+      goto done;  // promote failed: nothing to release
+    }
+    // Build the engine-side pre-filter (type + prefixes) once, before the first Start, while
+    // we hold the spec alive. NULL means "scan everything"; key_cb's SchemaRule_ShouldIndex
+    // stays the source of truth. Built outside the retry loop so a BUSY retry reuses it
+    // rather than rebuilding (and leaking) it.
+    filter_ptr = Indexes_AsyncScanBuildFilter(sp, &filter_ctx);
+    IndexSpecRef_Release(build_ref);
+  }
 
   // First call: bind all parameters to the cursor and queue the first batch. Start is
   // subject to the same max-inflight cap as NextBatch and can return BUSY, so we retry the
@@ -478,8 +483,6 @@ done:
 
   pthread_cond_destroy(&driver.cond);
   pthread_mutex_destroy(&driver.mutex);
-  // Safe: by here the cursor is terminal or never started (not in the in-flight
-  // window), which RM_ScanCursorDestroy requires.
   RedisModule_ScanCursorDestroy(cursor);
   RedisModule_FreeThreadSafeContext(ctx);
 }
