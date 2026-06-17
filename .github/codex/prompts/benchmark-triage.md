@@ -17,6 +17,14 @@ directory: `failed-logs.txt`. Each failed job is preceded by a line like:
 
 If the file is missing, empty, or unreadable, output one line saying so and stop.
 
+The body of each job's logs may be **tail-truncated** to bound size. To compensate,
+the file usually opens with a `##[group]KEY FAILURE LINES` block: decisive lines
+(errors, tracebacks, the per-test status table, crash markers) grepped from the
+*full* pre-truncation log, with their original line numbers. **Read this block
+first** — it typically contains the actual root cause even when the truncated body
+below it does not. Only fall back to "cause is past the truncation boundary" if the
+KEY FAILURE LINES block is absent or genuinely uninformative.
+
 ## Task
 
 Classify each distinct failure and produce a Slack-bound triage summary.
@@ -36,6 +44,27 @@ Use exactly one of these labels per failure:
 
 Distinguish facts from inference. Use "the logs show" for facts and "likely" or
 "possible" for hypotheses. Do not invent test names, file paths, or numbers.
+
+### Reading the per-test status table and known infra flakes
+
+- The per-test summary table rows like
+  `|<setup>|<test>|server|exception|...` and `|...|client|exception|...` mean the
+  harness *marked the test failed* — they do **not** by themselves imply the Redis
+  server or client crashed. Always find the line that explains *why* (search the
+  KEY FAILURE LINES block for `CRITICAL:root:`, `Traceback`, `ERROR:root:`,
+  `Failing test....`). Do not report a `benchmark-crash` solely because the status
+  table says `exception`.
+- **Known infra flake — post-benchmark metrics export.** `redisbench_admin` runs
+  the benchmark, then pushes metrics to a central RedisTimeSeries instance. If that
+  export fails it logs `The benchmark itself completed successfully, but the metrics
+  export to RedisTimeSeries failed: ...` and then force-fails the test
+  (`CRITICAL:root:Exception during remote work ... Failing test....`), usually with
+  `Connection reset by peer` / `[Errno 104]` against a masked `***:***` host. This
+  is **not** a RediSearch regression, crash, or timeout — the benchmark passed and
+  only the metrics upload broke. Classify it `environment` with next step
+  `ignore-infra` (or `rerun-and-watch` if it recurs across many tests in one run).
+  Corroborating noise: repeated `WARNING ... Error while inserting datapoint` or
+  `Error while updating secondary data structures TSDB` against the same backend.
 
 ### Output
 
@@ -75,5 +104,6 @@ summarize the long tail in one line.
 
 - Do not propose code changes.
 - Do not include raw log excerpts longer than one line in the output.
-- If logs are truncated and the failure root cause is past the truncation
-  boundary, say `needs-more-evidence` rather than guessing.
+- If logs are truncated, the failure root cause is past the truncation boundary,
+  *and* the KEY FAILURE LINES block (if present) does not explain it, say
+  `needs-more-evidence` rather than guessing.
