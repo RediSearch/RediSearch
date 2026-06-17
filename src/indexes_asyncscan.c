@@ -262,7 +262,9 @@ void Indexes_AsyncScanAndReindexTask(IndexesScanner *scanner) {
       // Engine memory pressure cut the sweep short. The index may be incomplete; the
       // engine does not resume transparently (a fresh cursor is Phase 2).
       RedisModule_Log(ctx, "warning",
-                      "AsyncScan: engine OOM during scan of index %s; index may be incomplete (scanned=%zu)",
+                      "AsyncScan: engine OOM during scan of index %s; index may be incomplete (scanned=%zu). "
+                      "The scan is not retried automatically; once memory pressure is relieved, drop and "
+                      "recreate the index to rebuild it",
                       scanner->spec_name_for_logs, scanner->scannedKeys);
       // Surface the failure to clients exactly as the synchronous scan does: set the
       // spec's scan_failed_OOM flag (warns at query time + aggregated in FT.INFO) and
@@ -307,7 +309,9 @@ void Indexes_AsyncScanAndReindexTask(IndexesScanner *scanner) {
     case REDISMODULE_ASYNCSCAN_IO_ERROR:
       //Unrecoverable error
       // Bad argument — programming error. Cursor state is unchanged; no done_cb.
-      RedisModule_Log(ctx, "warning", "AsyncScan: I/O error for index %s",
+      RedisModule_Log(ctx, "warning",
+        "AsyncScan: I/O error for index %s; index may be incomplete. The scan is not retried automatically; "
+        "resolve the underlying disk/I/O condition, then drop and recreate the index to rebuild it",
         scanner->spec_name_for_logs);
       goto done;
     }
