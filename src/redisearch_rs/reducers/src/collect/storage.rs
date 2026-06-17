@@ -20,7 +20,7 @@ use min_max_heap::MinMaxHeap;
 use rlookup::RLookupRow;
 use value::SharedValue;
 
-use super::heap::{EntryKey, HeapEntry};
+use super::heap::{HeapEntry, RankingKey};
 
 /// Default count for `SORTBY` results when no explicit `LIMIT` is provided,
 /// matching the C implementation's `DEFAULT_LIMIT`.
@@ -121,9 +121,9 @@ impl ArrayStorage {
 
 /// Top-K storage for the `SORTBY` path.
 ///
-/// Keeps the best `offset + count` candidates under the [`EntryKey`]
+/// Keeps the best `offset + count` candidates under the [`RankingKey`]
 /// comparator, draining best→worst. Unlike [`ArrayStorage`], it owns the sort
-/// context: each candidate's sort-key snapshot lives in its [`EntryKey`] (which
+/// context: each candidate's sort-key snapshot lives in its [`RankingKey`] (which
 /// doubles as the cap-check key), so the projected row never has to carry it.
 pub struct HeapStorage<D: Ord> {
     heap: MinMaxHeap<HeapEntry<D, RLookupRow<'static>>>,
@@ -146,10 +146,10 @@ impl<D: Ord> HeapStorage<D> {
     /// Offer a candidate to the bounded top-K.
     ///
     /// `sort_vals` is the candidate's sort-key snapshot; it forms the ranking
-    /// [`EntryKey`] and is compared against the current worst survivor *before*
+    /// [`RankingKey`] and is compared against the current worst survivor *before*
     /// `project` runs, so `project` is invoked only for a candidate that is
     /// actually retained. `doc_id` breaks ties when the sort keys compare equal
-    /// (see [`EntryKey`]).
+    /// (see [`RankingKey`]).
     pub fn consider(
         &mut self,
         sort_vals: Box<[Option<SharedValue>]>,
@@ -160,7 +160,7 @@ impl<D: Ord> HeapStorage<D> {
         if max_size == 0 {
             return;
         }
-        let cand_key = EntryKey::new(sort_vals, self.sort_asc_map, doc_id);
+        let cand_key = RankingKey::new(sort_vals, self.sort_asc_map, doc_id);
         if self.heap.len() < max_size {
             self.heap.push(HeapEntry::new(cand_key, project()));
         } else {
@@ -177,9 +177,9 @@ impl<D: Ord> HeapStorage<D> {
     /// Drain the retained entries best→worst, sliced as
     /// `skip(offset).take(count)`.
     ///
-    /// Each [`HeapEntry`] still pairs the row with its ranking [`EntryKey`]:
+    /// Each [`HeapEntry`] still pairs the row with its ranking [`RankingKey`]:
     /// callers that only need rows map with [`HeapEntry::into_projected`], while
-    /// the remote reducer reads [`EntryKey::sort_vals`] (via
+    /// the remote reducer reads [`RankingKey::sort_vals`] (via
     /// [`HeapEntry::into_parts`]) to rebuild the wire row.
     pub fn drain(&mut self) -> impl ExactSizeIterator<Item = HeapEntry<D, RLookupRow<'static>>> {
         std::mem::take(&mut self.heap)

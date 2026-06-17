@@ -13,15 +13,15 @@
 extern crate redisearch_rs;
 
 use min_max_heap::MinMaxHeap;
-use reducers::collect::heap::{EntryKey, HeapEntry};
+use reducers::collect::heap::{HeapEntry, RankingKey};
 use std::cmp::Ordering;
 use value::SharedValue;
 
 redis_mock::mock_or_stub_missing_redis_c_symbols!();
 
-/// Builds an [`EntryKey`] from `f64`s — `f64::NAN` projects to `None` so tests
+/// Builds an [`RankingKey`] from `f64`s — `f64::NAN` projects to `None` so tests
 /// can exercise the missing-worst policy.
-fn key(vals: &[f64], asc: u64) -> EntryKey<()> {
+fn key(vals: &[f64], asc: u64) -> RankingKey<()> {
     let snapshot: Box<[Option<SharedValue>]> = vals
         .iter()
         .map(|v| {
@@ -32,7 +32,7 @@ fn key(vals: &[f64], asc: u64) -> EntryKey<()> {
             }
         })
         .collect();
-    EntryKey::new(snapshot, asc, ())
+    RankingKey::new(snapshot, asc, ())
 }
 
 /// Bit `i` ASC.
@@ -166,8 +166,8 @@ fn min_max_heap_top_k_under_asc() {
 #[test]
 fn entry_key_compares_doc_id_only_after_sort_values_tie() {
     let primary = Some(SharedValue::new_num(1.0));
-    let a = EntryKey::new(Box::new([primary.clone()]), asc(0), 10u64);
-    let b = EntryKey::new(Box::new([primary]), asc(0), 20u64);
+    let a = RankingKey::new(Box::new([primary.clone()]), asc(0), 10u64);
+    let b = RankingKey::new(Box::new([primary]), asc(0), 20u64);
     // Sort values tie -> smaller doc id is "better".
     assert_eq!(a.cmp(&b), Ordering::Greater);
     assert_eq!(b.cmp(&a), Ordering::Less);
@@ -175,8 +175,8 @@ fn entry_key_compares_doc_id_only_after_sort_values_tie() {
 
 #[test]
 fn entry_key_sort_values_take_precedence_over_doc_id() {
-    let a = EntryKey::new(Box::new([Some(SharedValue::new_num(1.0))]), asc(0), 20u64);
-    let b = EntryKey::new(Box::new([Some(SharedValue::new_num(2.0))]), asc(0), 10u64);
+    let a = RankingKey::new(Box::new([Some(SharedValue::new_num(1.0))]), asc(0), 20u64);
+    let b = RankingKey::new(Box::new([Some(SharedValue::new_num(2.0))]), asc(0), 10u64);
     // Sort value wins first; doc id is only a tie-breaker.
     assert_eq!(a.cmp(&b), Ordering::Greater);
     assert_eq!(b.cmp(&a), Ordering::Less);

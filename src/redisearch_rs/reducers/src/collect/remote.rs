@@ -291,7 +291,7 @@ impl RemoteCollectCtx {
     /// On the shard (`is_internal`) heap path the coordinator re-sorts, so the
     /// SORTBY columns that [`Fields::get_keys_add`] dropped are merged back here
     /// from each entry's ranking-key snapshot
-    /// ([`EntryKey::sort_vals`][super::heap::EntryKey::sort_vals]). This stays in
+    /// ([`RankingKey::sort_vals`][super::heap::RankingKey::sort_vals]). This stays in
     /// lockstep with [`Fields::build_template`], which adds those same columns to
     /// the template under the same `is_internal` condition. The client-facing
     /// path emits only the requested fields and merges nothing.
