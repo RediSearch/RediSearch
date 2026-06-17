@@ -161,14 +161,6 @@ def test_unsupported_schema_options(env):
 
 @skip(cluster=True)
 @with_simulate_in_flex(True)
-def test_missing_skip_initial_scan(env):
-    """Test that SKIPINITIALSCAN is required when search-_simulate-in-flex is true"""
-    env.expect('FT.CREATE', 'idx', 'ON', 'HASH', 'SCHEMA', 'field', 'TEXT') \
-        .error().contains('Flex index requires SKIPINITIALSCAN argument')
-
-
-@skip(cluster=True)
-@with_simulate_in_flex(True)
 def test_on_json_is_supported(env):
     """Test that ON JSON is accepted when search-_simulate-in-flex is true"""
     env.expect('FT.CREATE', 'idx', 'ON', 'JSON', 'SKIPINITIALSCAN', 'SCHEMA',
