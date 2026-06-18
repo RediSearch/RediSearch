@@ -324,15 +324,6 @@ void Indexes_AsyncScanAndReindexTask(IndexesScanner *scanner) {
       Indexes_AsyncScanWaitForDone(&driver);
       ++batchesDone;
 
-      // Throttled progress: one line every ASYNC_SCAN_PROGRESS_LOG_KEYS keys so a
-      // long backfill is observable without a line per batch.
-      if (scanner->scannedKeys - lastProgressKeys >= ASYNC_SCAN_PROGRESS_LOG_KEYS) {
-        lastProgressKeys = scanner->scannedKeys;
-        RedisModule_Log(ctx, "notice",
-                        "AsyncScan: index %s progress: scanned=%zu keys, batches=%zu",
-                        scanner->spec_name_for_logs, scanner->scannedKeys, batchesDone);
-      }
-
       // Inspect shared scanner/spec state and drive the next batch under a single GIL
       // hold — the same synchronization contract the synchronous scanner relies on. This
       // serializes the read of scanner->cancelled against IndexesScanner_Cancel (main
@@ -347,7 +338,7 @@ void Indexes_AsyncScanAndReindexTask(IndexesScanner *scanner) {
       // that no longer exists. Promoting here collapses that case into cancellation.
       // The braces scope live_ref to this block so the later `case` labels do not jump
       // over its initialization (-Werror=jump-misses-init).
-      {
+      if (!scanner->cancelled) {
         StrongRef live_ref = IndexSpecRef_Promote(scanner->spec_ref);
         if (!StrongRef_Get(live_ref)) {
           scanner->cancelled = true;
@@ -370,6 +361,15 @@ void Indexes_AsyncScanAndReindexTask(IndexesScanner *scanner) {
                         "AsyncScan: aborting scan of index %s (cancelled, scanned=%zu)",
                         scanner->spec_name_for_logs, scanner->scannedKeys);
         goto done;
+      }
+
+      // Throttled progress: one line every ASYNC_SCAN_PROGRESS_LOG_KEYS keys so a
+      // long backfill is observable without a line per batch.
+      if (scanner->scannedKeys - lastProgressKeys >= ASYNC_SCAN_PROGRESS_LOG_KEYS) {
+        lastProgressKeys = scanner->scannedKeys;
+        RedisModule_Log(ctx, "notice",
+                        "AsyncScan: index %s progress: scanned=%zu keys, batches=%zu",
+                        scanner->spec_name_for_logs, scanner->scannedKeys, batchesDone);
       }
 
       // Test hook: force the OOM terminal branch after a batch has been processed, so a
