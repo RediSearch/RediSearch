@@ -43,8 +43,6 @@ struct IndexesScanner;
 // Initial capacity (in bytes) of a new block
 #define INDEX_BLOCK_INITIAL_CAP 6
 
-// Initial number of slots in a spec's document table
-#define INITIAL_DOC_TABLE_SIZE 1000
 
 #define SPEC_GEO_STR "GEO"
 #define SPEC_GEOMETRY_STR "GEOSHAPE"
