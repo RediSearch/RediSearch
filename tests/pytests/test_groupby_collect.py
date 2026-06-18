@@ -408,6 +408,32 @@ def test_collect_requires_unstable_features():
 
 
 # ---------------------------------------------------------------------------
+# COLLECT FIELDS with a JSON-path token ($..)
+# ---------------------------------------------------------------------------
+@skip(no_json=True, cluster=False)
+def test_collect_json_path_in_fields_cluster():
+    env = Env(shardsCount=3, protocol=3)
+    enable_unstable_features(env)
+    _setup_json(env)
+
+    # Reference the JSON path directly in LOAD and in COLLECT FIELDS.
+    res = env.cmd(
+        'FT.AGGREGATE', 'idx', '*',
+        'LOAD', '1', '$.name',
+        'GROUPBY', '1', '@color',
+        'REDUCE', 'COLLECT', '3', 'FIELDS', '1', '$.name',
+        'AS', 'names')
+
+    groups = _sort_by(res['results'], 'color')
+    env.assertEqual(_sort_collected(groups[0]['extra_attributes']['names'], '$.name'),
+                    [{'$.name': 'kiwi'}, {'$.name': 'lime'}])
+    env.assertEqual(_sort_collected(groups[1]['extra_attributes']['names'], '$.name'),
+                    [{'$.name': 'apple'}, {'$.name': 'strawberry'}])
+    env.assertEqual(_sort_collected(groups[2]['extra_attributes']['names'], '$.name'),
+                    [{'$.name': 'banana'}, {'$.name': 'lemon'}])
+
+
+# ---------------------------------------------------------------------------
 # COLLECT with LOAD json path aliased field
 # ---------------------------------------------------------------------------
 @skip(no_json=True)
@@ -1520,6 +1546,30 @@ def test_two_collect_reducers_overlapping_fields_cluster():
         attrs = g['extra_attributes']
         env.assertEqual(attrs['all_asc'],   expected_all[attrs['color']])
         env.assertEqual(attrs['last_desc'], expected_last[attrs['color']])
+
+
+def test_two_identical_collect_reducers():
+    # MOD-15816: two REDUCE COLLECT calls over identical (name, args) inside one GROUPBY
+    # should work.
+    env = Env(protocol=3)
+    enable_unstable_features(env)
+    _setup_hash(env)
+
+    res = env.cmd(
+        'FT.AGGREGATE', 'idx', '*',
+        'GROUPBY', '1', '@color',
+            'REDUCE', 'COLLECT', '3', 'FIELDS', '1', '@name', 'AS', 'names_a',
+            'REDUCE', 'COLLECT', '3', 'FIELDS', '1', '@name', 'AS', 'names_b')
+
+    expected = {
+        'green':  [{'name': 'kiwi'},   {'name': 'lime'}],
+        'red':    [{'name': 'apple'},  {'name': 'strawberry'}],
+        'yellow': [{'name': 'banana'}, {'name': 'lemon'}],
+    }
+    for g in res['results']:
+        attrs = g['extra_attributes']
+        env.assertEqual(_sort_collected(attrs['names_a'], 'name'), expected[attrs['color']])
+        env.assertEqual(_sort_collected(attrs['names_b'], 'name'), expected[attrs['color']])
 
 
 # ---------------------------------------------------------------------------

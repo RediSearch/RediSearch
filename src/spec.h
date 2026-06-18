@@ -289,6 +289,7 @@ typedef uint16_t FieldSpecDedupeArray[SPEC_MAX_FIELDS];
   ((spec)->flags & Index_StoreFieldFlags)
 
 #define FIELD_BIT(fs) (((t_fieldMask)1) << (fs)->ftId)
+#define FieldSpec_IsIndexableTextInMask(fs, fm) (FieldSpec_IsIndexableText(fs) && ((fm) & FIELD_BIT(fs)))
 
 //---------------------------------------------------------------------------------------------
 
