@@ -11,22 +11,39 @@ SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd -- "$SCRIPT_DIR/.." && pwd)"
 REQUIRED_CHEADERGEN_VERSION=$(cat "$REPO_ROOT/.cheadergen-version")
 
+should_check_cheadergen() {
+  case "${REDISEARCH_GENERATE_HEADERS:-1}" in
+    0|OFF|off|false|FALSE|False|NO|no)
+      return 1
+      ;;
+    *)
+      return 0
+      ;;
+  esac
+}
+
 # ============================================
 # Dependencies
 # ============================================
 # Define dependencies and their corresponding check methods
-mac_os_deps=("make" "uv" "python3" "cmake" "cargo" "cheadergen" "clang" "openssl" "brew")
+mac_os_deps=("make" "uv" "python3" "cmake" "cargo" "clang" "openssl" "brew")
 mac_os_deps_types=(
     "check_command" # Check for "make"
     "check_command" # Check for "uv"
     "check_command" # Check for "python3"
     "check_command" # Check for "cmake"
     "check_command" # Check for "cargo"
-    "check_cheadergen" # Check for "cheadergen"
     "check_clang"   # Check for "clang"
     "check_command" # Check for "openssl"
     "check_command" # Check for "brew"
 )
+
+# cheadergen is only needed when regenerating Rust C headers.
+# REDISEARCH_GENERATE_HEADERS=0 builds from checked-in headers.
+if should_check_cheadergen; then
+  mac_os_deps+=("cheadergen")
+  mac_os_deps_types+=("check_cheadergen")
+fi
 
 # Function to check if a command is available
 check_command() {

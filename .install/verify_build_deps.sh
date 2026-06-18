@@ -11,6 +11,17 @@ SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd -- "$SCRIPT_DIR/.." && pwd)"
 REQUIRED_CHEADERGEN_VERSION=$(cat "$REPO_ROOT/.cheadergen-version")
 
+should_check_cheadergen() {
+  case "${REDISEARCH_GENERATE_HEADERS:-1}" in
+    0|OFF|off|false|FALSE|False|NO|no)
+      return 1
+      ;;
+    *)
+      return 0
+      ;;
+  esac
+}
+
 # ============================================
 # OS Detection
 # ============================================
@@ -193,8 +204,13 @@ declare -A common_dependencies=(
   ["python3"]="command"    # Verify using command -v
   ["cmake"]="command"      # Verify using command -v
   ["cargo"]="command"      # Verify using command -v
-  ["cheadergen"]="cheadergen" # Verify pinned cheadergen CLI
 )
+
+# cheadergen is only needed when regenerating Rust C headers.
+# REDISEARCH_GENERATE_HEADERS=0 builds from checked-in headers.
+if should_check_cheadergen; then
+  common_dependencies["cheadergen"]="cheadergen"
+fi
 
 # Define OS-specific dependencies
 declare -A ubuntu_dependencies=(
