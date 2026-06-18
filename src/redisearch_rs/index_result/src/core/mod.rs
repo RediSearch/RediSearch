@@ -168,6 +168,7 @@ impl<'index> RSIndexResultBuilder<'index> {
             data: self.data,
             metrics: MetricsVec::new(),
             weight: self.weight,
+            has_field_expiration: false,
         }
     }
 }
@@ -278,6 +279,7 @@ impl<'index> RSTermResultBuilder<'index> {
             data,
             metrics: MetricsVec::new(),
             weight: self.weight,
+            has_field_expiration: false,
         }
     }
 }
@@ -310,6 +312,18 @@ pub struct RSIndexResult<'index> {
 
     /// Relative weight for scoring calculations. This is derived from the result's iterator weight
     pub weight: f64,
+
+    /// Whether the document backing this record has at least one field-level
+    /// expiration (HFE).
+    ///
+    /// Set inline by the inverted-index decoder from a bit packed into the
+    /// entry's delta (see the `inverted_index` codec). Expiration-aware
+    /// iterators use it to skip the TTL-table lookup when it is `false`: that is
+    /// an exact predicate — a `false` value means the document has no TTL-table
+    /// entry, so the lookup would return "not expired" anyway. It is a
+    /// document-level property, so every posting of a given document carries the
+    /// same value.
+    pub has_field_expiration: bool,
 }
 
 impl Default for RSIndexResult<'_> {
@@ -730,6 +744,7 @@ impl<'index> RSIndexResult<'index> {
             data: self.data.to_owned(),
             metrics: self.metrics.clone(),
             weight: self.weight,
+            has_field_expiration: self.has_field_expiration,
         }
     }
 
