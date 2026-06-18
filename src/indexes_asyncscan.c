@@ -227,45 +227,41 @@ static void Indexes_AsyncScanFreeFilter(AsyncScanFilterCtx *ctx) {
   }
 }
 
-void Indexes_AsyncScanAndReindexTask(IndexesScanner *scanner) {
-  RS_LOG_ASSERT(scanner, "invalid IndexesScanner");
+// Record a background-indexing failure under the GIL. Several terminal result codes surface
+// the same way, so they share this helper. The GIL is required because
+// IndexesScanner_RecordBackgroundFailure → IndexError_AddError mutates the shared NA_rstr
+// sentinel's refcount via RedisModule_HoldString/FreeString, which require it. `oom` routes
+// to the spec's scan_failed_OOM flag (warns at query time, aggregated in FT.INFO).
+static void Indexes_AsyncScanRecordFailureLocked(RedisModuleCtx *ctx, IndexesScanner *scanner,
+                                                 const char *msg, bool oom) {
+  RedisModule_ThreadSafeContextLock(ctx);
+  IndexesScanner_RecordBackgroundFailure(ctx, scanner, msg, oom);
+  RedisModule_ThreadSafeContextUnlock(ctx);
+}
 
-  RedisModuleCtx *ctx = RedisModule_GetDetachedThreadSafeContext(RSDummyContext);
-  // Name the cursor after the index, for INFO observability.
-  RedisModuleScanCursor *cursor = RedisModule_ScanCursorCreateWithName(scanner->spec_name_for_logs);
-
-  AsyncReindexDriver driver = {0};
-  driver.scanner = scanner;
-  pthread_mutex_init(&driver.mutex, NULL);
-  pthread_cond_init(&driver.cond, NULL);
-
-  // Progress accounting for the throttled progress log in the drive loop.
-  size_t batchesDone = 0;
-  size_t lastProgressKeys = 0;
-
-  // Engine-side pre-filter for the sweep, built lazily inside the Start loop the first
-  // time we hold the spec alive (see there). Zero-initialized here (before any `goto done`)
-  // so every teardown path can free it. `filter_ptr == NULL` doubles as the "not built yet"
-  // sentinel: a real index always targets a document type, so the build always yields a
-  // non-NULL filter (asserted at the call site), and NULL here is unambiguously "not built".
-  AsyncScanFilterCtx filter_ctx = {0};
+// First call: bind all parameters to the cursor and queue the first batch. Start is
+// subject to the same max-inflight cap as NextBatch and can return BUSY, so we retry the
+// *same* call (no binding exists yet) until it is accepted. The GIL is held only for the
+// call; the backoff sleeps with it released.
+//
+// The engine-side pre-filter (type + prefixes) is built lazily into *filter_ctx the first
+// time we hold the spec alive — it cannot be built from a dropped spec, and building it
+// here reuses the cancellation-check promotion instead of taking the ref a second time. A
+// real index always targets a document type, so the build always yields a non-NULL filter
+// (asserted); a local `filter_ptr == NULL` is the "not built yet" sentinel so a BUSY retry
+// reuses it rather than rebuilding (and leaking) it. The caller frees *filter_ctx at
+// teardown regardless (idempotent).
+//
+// Returns the result code of the accepted Start, to drive from. Sets *out_terminal when the
+// scan must tear down without driving — cancelled/dropped while starting, or the BUSY
+// safety-valve timeout fired (both already logged / recorded here); the returned code is
+// meaningless in that case.
+static RedisModuleAsyncScanResult Indexes_AsyncScanStartWithRetry(
+    RedisModuleCtx *ctx, RedisModuleScanCursor *cursor, IndexesScanner *scanner,
+    AsyncReindexDriver *driver, AsyncScanFilterCtx *filter_ctx, bool *out_terminal) {
+  *out_terminal = false;
   RedisModuleAsyncScanFilter *filter_ptr = NULL;
-
-  RedisModule_Log(ctx, "notice", "AsyncScan: scanning index %s in background",
-                  scanner->spec_name_for_logs);
-
-  // Test hook: park the driver before any batch is queued (no GIL held here), so a
-  // test can deterministically drop the index / cancel the scan mid-flight. No-op
-  // unless armed via _FT.DEBUG SYNC_POINT (ENABLE_ASSERT builds).
-#ifdef ENABLE_ASSERT
-  SyncPoint_Wait(SYNC_POINT_ASYNC_SCAN_BEFORE_FIRST_BATCH);
-#endif
-
-  // First call: bind all parameters to the cursor and queue the first batch. Start is
-  // subject to the same max-inflight cap as NextBatch and can return BUSY, so we retry the
-  // *same* call (no binding exists yet) until it is accepted. The GIL is held only for the
-  // call; the backoff sleeps with it released.
-  RedisModuleAsyncScanResult rc;
+  RedisModuleAsyncScanResult rc = REDISMODULE_ASYNCSCAN_ABORTED;
   rs_wall_clock busy_since;
   rs_wall_clock_init(&busy_since);
   for (;;) {
@@ -288,15 +284,10 @@ void Indexes_AsyncScanAndReindexTask(IndexesScanner *scanner) {
       if (!sp) {
         scanner->cancelled = true;
       } else {
-        // Build the engine-side pre-filter (type + prefixes) lazily, the first time we hold
-        // the spec alive — it cannot be built from a dropped spec, and building it here
-        // reuses the promotion above instead of taking the ref a second time. A real index
-        // always targets a document type, so the build always yields a non-NULL filter
-        // (asserted); we reuse `filter_ptr == NULL` as the "not built yet" sentinel so a
-        // BUSY retry reuses it rather than rebuilding (and leaking) it. key_cb's
-        // SchemaRule_ShouldIndex stays the source of truth.
+        // Build the pre-filter lazily, the first time we hold the spec alive (see the
+        // function comment). key_cb's SchemaRule_ShouldIndex stays the source of truth.
         if (!filter_ptr) {
-          filter_ptr = Indexes_AsyncScanBuildFilter(sp, &filter_ctx);
+          filter_ptr = Indexes_AsyncScanBuildFilter(sp, filter_ctx);
           RS_ASSERT(filter_ptr);
         }
         IndexSpecRef_Release(live_ref);
@@ -307,14 +298,15 @@ void Indexes_AsyncScanAndReindexTask(IndexesScanner *scanner) {
       // Start never bound the cursor, so there is nothing to abort — just tear down.
       RedisModule_Log(ctx, "notice", "AsyncScan: index %s cancelled while starting",
                       scanner->spec_name_for_logs);
-      goto done;
+      *out_terminal = true;
+      return rc;
     }
     rc = RedisModule_AsyncScanStart(ctx, cursor, filter_ptr,
                                     REDISMODULE_ASYNCSCAN_MODE_META_AND_VALUE, NULL,
-                                    Indexes_AsyncScanKeyCB, Indexes_AsyncScanDoneCB, &driver);
+                                    Indexes_AsyncScanKeyCB, Indexes_AsyncScanDoneCB, driver);
     RedisModule_ThreadSafeContextUnlock(ctx);
     if (rc != REDISMODULE_ASYNCSCAN_BUSY) {
-      break;
+      return rc;
     }
     // Safety valve against an unbounded BUSY spin: if Start never gets accepted within
     // the timeout, give up rather than pin this worker forever. The cursor was never
@@ -326,101 +318,162 @@ void Indexes_AsyncScanAndReindexTask(IndexesScanner *scanner) {
                       "AsyncScan: index %s could not start within %dms (max-inflight stayed "
                       "saturated); giving up (rc=BUSY)",
                       scanner->spec_name_for_logs, ASYNC_SCAN_START_BUSY_TIMEOUT_MS);
-      // Take the GIL around the record (shared NA_rstr refcount churn).
-      RedisModule_ThreadSafeContextLock(ctx);
-      IndexesScanner_RecordBackgroundFailure(
+      Indexes_AsyncScanRecordFailureLocked(
           ctx, scanner,
           "Background indexing failed: the background scan could not be started because the "
           "server stayed busy; the index may be incomplete",
           /*oom=*/false);
-      RedisModule_ThreadSafeContextUnlock(ctx);
-      goto done;
+      *out_terminal = true;
+      return rc;
     }
     usleep(1000);
+  }
+}
+
+// Handle one OK batch: wait for done_cb (GIL released), then under a single GIL hold
+// re-check for cancellation / a spec dropped between batches, emit throttled progress, and
+// queue the next batch. Inspecting shared scanner/spec state and driving the next batch
+// under a single GIL hold is the same synchronization contract the synchronous scanner
+// relies on: it serializes the read of scanner->cancelled against IndexesScanner_Cancel
+// (main thread, under the GIL) instead of racing it.
+//
+// Returns the result code of the next NextBatch, to drive from. Sets *out_terminal when the
+// scan was cancelled or the spec was dropped between batches — the cursor has been aborted
+// and the caller must tear down (already logged here); the returned code is meaningless then.
+static RedisModuleAsyncScanResult Indexes_AsyncScanDriveNextBatch(
+    RedisModuleCtx *ctx, RedisModuleScanCursor *cursor, IndexesScanner *scanner,
+    AsyncReindexDriver *driver, size_t *batchesDone, size_t *lastProgressKeys,
+    bool *out_terminal) {
+  *out_terminal = false;
+
+  // Batch queued. Wait (GIL released) for done_cb to fire on the main thread.
+  Indexes_AsyncScanWaitForDone(driver);
+  ++*batchesDone;
+
+  RedisModule_ThreadSafeContextLock(ctx);
+
+  // Re-check for a spec dropped between batches. FT.DROPINDEX / FLUSHDB invalidate the
+  // weak ref but do NOT call IndexesScanner_Cancel; with a selective type/prefix filter no
+  // key_cb may run to observe the drop, so without this re-check the worker would keep
+  // requesting batches until the whole keyspace is exhausted for an index that no longer
+  // exists. Promoting here collapses that case into cancellation.
+  if (!scanner->cancelled) {
+    StrongRef live_ref = IndexSpecRef_Promote(scanner->spec_ref);
+    if (!StrongRef_Get(live_ref)) {
+      scanner->cancelled = true;
+      RedisModule_Log(ctx, "notice",
+                      "AsyncScan: index %s dropped mid-scan; cancelling (scanned=%zu)",
+                      scanner->spec_name_for_logs, scanner->scannedKeys);
+    } else {
+      IndexSpecRef_Release(live_ref);
+    }
+  }
+
+  // Cancelled (FT.DROP / FT.ALTER, detected per-key or just above): abort the sweep
+  // instead of requesting another batch. Abort is safe on a cursor that has already
+  // reached terminal state (it is a NOOP) and on an active one (it publishes terminal
+  // state), so the subsequent ScanCursorDestroy at teardown is always valid.
+  if (scanner->cancelled) {
+    RedisModule_AsyncScanAbort(cursor);
+    RedisModule_ThreadSafeContextUnlock(ctx);
+    RedisModule_Log(ctx, "notice",
+                    "AsyncScan: aborting scan of index %s (cancelled, scanned=%zu)",
+                    scanner->spec_name_for_logs, scanner->scannedKeys);
+    *out_terminal = true;
+    return REDISMODULE_ASYNCSCAN_ABORTED;
+  }
+
+  // Throttled progress: one line every ASYNC_SCAN_PROGRESS_LOG_KEYS keys so a
+  // long backfill is observable without a line per batch.
+  if (scanner->scannedKeys - *lastProgressKeys >= ASYNC_SCAN_PROGRESS_LOG_KEYS) {
+    *lastProgressKeys = scanner->scannedKeys;
+    RedisModule_Log(ctx, "notice",
+                    "AsyncScan: index %s progress: scanned=%zu keys, batches=%zu",
+                    scanner->spec_name_for_logs, scanner->scannedKeys, *batchesDone);
+  }
+
+  // Test hook: force the OOM terminal branch after a batch has been processed, so a
+  // flow test can exercise the OOM-surfacing path deterministically (the engine's
+  // terminal OUT_OF_MEMORY is not reproducible from the module side). No-op unless
+  // armed via _FT.DEBUG BG_SCAN_CONTROLLER SET_SIMULATE_ASYNC_OOM true. The caller's
+  // switch handles the returned OUT_OF_MEMORY on its next iteration.
+#ifdef ENABLE_ASSERT
+  if (globalDebugCtx.bgIndexing.simulateAsyncOOM) {
+    RedisModule_ThreadSafeContextUnlock(ctx);
+    RedisModule_Log(ctx, "warning",
+                    "AsyncScan: SIMULATE_ASYNC_OOM hook forcing OOM for index %s",
+                    scanner->spec_name_for_logs);
+    return REDISMODULE_ASYNCSCAN_OUT_OF_MEMORY;
+  }
+#endif
+
+  RedisModuleAsyncScanResult rc = RedisModule_AsyncScanNextBatch(ctx, cursor);
+  RedisModule_ThreadSafeContextUnlock(ctx);
+  return rc;
+}
+
+void Indexes_AsyncScanAndReindexTask(IndexesScanner *scanner) {
+  RS_LOG_ASSERT(scanner, "invalid IndexesScanner");
+
+  RedisModuleCtx *ctx = RedisModule_GetDetachedThreadSafeContext(RSDummyContext);
+  // Name the cursor after the index, for INFO observability.
+  RedisModuleScanCursor *cursor = RedisModule_ScanCursorCreateWithName(scanner->spec_name_for_logs);
+
+  AsyncReindexDriver driver = {0};
+  driver.scanner = scanner;
+  pthread_mutex_init(&driver.mutex, NULL);
+  pthread_cond_init(&driver.cond, NULL);
+
+  // Progress accounting for the throttled progress log in the drive loop.
+  size_t batchesDone = 0;
+  size_t lastProgressKeys = 0;
+
+  // Engine-side pre-filter for the sweep, built lazily inside the Start loop the first time
+  // we hold the spec alive (see Indexes_AsyncScanStartWithRetry). Zero-initialized here
+  // (before any `goto done`) so every teardown path can free it.
+  AsyncScanFilterCtx filter_ctx = {0};
+
+  RedisModule_Log(ctx, "notice", "AsyncScan: scanning index %s in background",
+                  scanner->spec_name_for_logs);
+
+  // Test hook: park the driver before any batch is queued (no GIL held here), so a
+  // test can deterministically drop the index / cancel the scan mid-flight. No-op
+  // unless armed via _FT.DEBUG SYNC_POINT (ENABLE_ASSERT builds).
+#ifdef ENABLE_ASSERT
+  SyncPoint_Wait(SYNC_POINT_ASYNC_SCAN_BEFORE_FIRST_BATCH);
+#endif
+
+  // Start the scan (binds the cursor, queues the first batch, retries through BUSY). On a
+  // cancelled/dropped start or the BUSY-timeout safety valve this returns terminal — the
+  // cursor was never bound, so we just tear down.
+  bool start_terminal = false;
+  RedisModuleAsyncScanResult rc =
+      Indexes_AsyncScanStartWithRetry(ctx, cursor, scanner, &driver, &filter_ctx, &start_terminal);
+  if (start_terminal) {
+    goto done;
   }
 
   // Start has bound the filter — the engine deep-copies prefixes and resolves type
   // names during the call (see RedisModuleAsyncScanFilter) — so our copies are
   // unreferenced from here on and we free them now rather than holding them for the
-  // whole sweep. Teardown calls this too (it is idempotent) for the
-  // cancelled-while-starting path above.
+  // whole sweep. Teardown calls this too (it is idempotent).
   Indexes_AsyncScanFreeFilter(&filter_ctx);
 
   // Drive the cursor one batch at a time, switching on the result code. done_cb only
   // wakes us; terminal state arrives as the return code of the next NextBatch.
   for (;;) {
     switch (rc) {
-    case REDISMODULE_ASYNCSCAN_OK:
-      // Batch queued. Wait (GIL released) for done_cb to fire on the main thread.
-      Indexes_AsyncScanWaitForDone(&driver);
-      ++batchesDone;
-
-      // Inspect shared scanner/spec state and drive the next batch under a single GIL
-      // hold — the same synchronization contract the synchronous scanner relies on. This
-      // serializes the read of scanner->cancelled against IndexesScanner_Cancel (main
-      // thread, under the GIL) instead of racing it, and lets us promote the weak ref to
-      // notice a spec dropped between batches (see below) before requesting more work.
-      RedisModule_ThreadSafeContextLock(ctx);
-
-      // Re-check for a spec dropped between batches. FT.DROPINDEX / FLUSHDB invalidate the
-      // weak ref but do NOT call IndexesScanner_Cancel; with a selective type/prefix
-      // filter no key_cb may run to observe the drop, so without this re-check the worker
-      // would keep requesting batches until the whole keyspace is exhausted for an index
-      // that no longer exists. Promoting here collapses that case into cancellation.
-      // The braces scope live_ref to this block so the later `case` labels do not jump
-      // over its initialization (-Werror=jump-misses-init).
-      if (!scanner->cancelled) {
-        StrongRef live_ref = IndexSpecRef_Promote(scanner->spec_ref);
-        if (!StrongRef_Get(live_ref)) {
-          scanner->cancelled = true;
-          RedisModule_Log(ctx, "notice",
-                          "AsyncScan: index %s dropped mid-scan; cancelling (scanned=%zu)",
-                          scanner->spec_name_for_logs, scanner->scannedKeys);
-        } else {
-          IndexSpecRef_Release(live_ref);
-        }
-      }
-
-      // Cancelled (FT.DROP / FT.ALTER, detected per-key or just above): abort the sweep
-      // instead of requesting another batch. Abort is safe on a cursor that has already
-      // reached terminal state (it is a NOOP) and on an active one (it publishes terminal
-      // state), so the subsequent ScanCursorDestroy at teardown is always valid.
-      if (scanner->cancelled) {
-        RedisModule_AsyncScanAbort(cursor);
-        RedisModule_ThreadSafeContextUnlock(ctx);
-        RedisModule_Log(ctx, "notice",
-                        "AsyncScan: aborting scan of index %s (cancelled, scanned=%zu)",
-                        scanner->spec_name_for_logs, scanner->scannedKeys);
+    case REDISMODULE_ASYNCSCAN_OK: {
+      // Process the completed batch and queue the next one; bails to teardown if the scan
+      // was cancelled or the spec dropped between batches.
+      bool batch_terminal = false;
+      rc = Indexes_AsyncScanDriveNextBatch(ctx, cursor, scanner, &driver, &batchesDone,
+                                           &lastProgressKeys, &batch_terminal);
+      if (batch_terminal) {
         goto done;
       }
-
-      // Throttled progress: one line every ASYNC_SCAN_PROGRESS_LOG_KEYS keys so a
-      // long backfill is observable without a line per batch.
-      if (scanner->scannedKeys - lastProgressKeys >= ASYNC_SCAN_PROGRESS_LOG_KEYS) {
-        lastProgressKeys = scanner->scannedKeys;
-        RedisModule_Log(ctx, "notice",
-                        "AsyncScan: index %s progress: scanned=%zu keys, batches=%zu",
-                        scanner->spec_name_for_logs, scanner->scannedKeys, batchesDone);
-      }
-
-      // Test hook: force the OOM terminal branch after a batch has been processed, so a
-      // flow test can exercise the OOM-surfacing path deterministically (the engine's
-      // terminal OUT_OF_MEMORY is not reproducible from the module side). No-op unless
-      // armed via _FT.DEBUG BG_SCAN_CONTROLLER SET_SIMULATE_ASYNC_OOM true.
-#ifdef ENABLE_ASSERT
-      if (globalDebugCtx.bgIndexing.simulateAsyncOOM) {
-        RedisModule_ThreadSafeContextUnlock(ctx);
-        RedisModule_Log(ctx, "warning",
-                        "AsyncScan: SIMULATE_ASYNC_OOM hook forcing OOM for index %s",
-                        scanner->spec_name_for_logs);
-        rc = REDISMODULE_ASYNCSCAN_OUT_OF_MEMORY;
-        break;
-      }
-#endif
-
-      rc = RedisModule_AsyncScanNextBatch(ctx, cursor);
-      RedisModule_ThreadSafeContextUnlock(ctx);
       break;
+    }
 
     case REDISMODULE_ASYNCSCAN_BUSY:
       // Concurrency cap full; back off (GIL released) and retry the same NextBatch.
@@ -470,16 +523,11 @@ void Indexes_AsyncScanAndReindexTask(IndexesScanner *scanner) {
       // flag (warns at query time, aggregated in FT.INFO) and raise the background-indexing
       // failure flag. No single key is to blame (the engine cut delivery for global memory
       // pressure), so the offending key is NULL.
-      //
-      // Take the GIL around the record: IndexError_AddError mutates the shared NA_rstr
-      // sentinel's refcount via RedisModule_HoldString/FreeString, which require the GIL.
-      RedisModule_ThreadSafeContextLock(ctx);
-      IndexesScanner_RecordBackgroundFailure(
+      Indexes_AsyncScanRecordFailureLocked(
           ctx, scanner,
           "Background indexing cancelled: the server reported out of memory; the index may be "
           "incomplete",
           /*oom=*/true);
-      RedisModule_ThreadSafeContextUnlock(ctx);
       goto done;
 
     case REDISMODULE_ASYNCSCAN_IN_PROGRESS:
@@ -491,14 +539,11 @@ void Indexes_AsyncScanAndReindexTask(IndexesScanner *scanner) {
                       "was still in flight (done_cb had not fired); driver bug (rc=IN_PROGRESS)",
                       scanner->spec_name_for_logs);
       RS_ASSERT(false);
-      // Take the GIL around the record (shared NA_rstr refcount churn).
-      RedisModule_ThreadSafeContextLock(ctx);
-      IndexesScanner_RecordBackgroundFailure(
+      Indexes_AsyncScanRecordFailureLocked(
           ctx, scanner,
           "Background indexing failed: the background scan reported an unexpected in-progress "
           "state; the index may be incomplete",
           /*oom=*/false);
-      RedisModule_ThreadSafeContextUnlock(ctx);
       goto done;
 
     case REDISMODULE_ASYNCSCAN_UNSUPPORTED:
@@ -507,28 +552,22 @@ void Indexes_AsyncScanAndReindexTask(IndexesScanner *scanner) {
       RedisModule_Log(ctx, "warning", "AsyncScan: unsupported for index %s (rc=UNSUPPORTED)",
                       scanner->spec_name_for_logs);
       RS_ASSERT(false);
-      // Take the GIL around the record (shared NA_rstr refcount churn).
-      RedisModule_ThreadSafeContextLock(ctx);
-      IndexesScanner_RecordBackgroundFailure(
+      Indexes_AsyncScanRecordFailureLocked(
           ctx, scanner,
           "Background indexing failed: the background scan is unsupported in this "
           "configuration; the index may be incomplete",
           /*oom=*/false);
-      RedisModule_ThreadSafeContextUnlock(ctx);
       goto done;
 
     case REDISMODULE_ASYNCSCAN_INVALID:
       // Bad argument — programming error. Cursor state is unchanged; no done_cb.
       RedisModule_Log(ctx, "warning", "AsyncScan: invalid argument for index %s (rc=INVALID)",
                       scanner->spec_name_for_logs);
-      // Take the GIL around the record (shared NA_rstr refcount churn).
-      RedisModule_ThreadSafeContextLock(ctx);
-      IndexesScanner_RecordBackgroundFailure(
+      Indexes_AsyncScanRecordFailureLocked(
           ctx, scanner,
           "Background indexing failed: the background scan was rejected as invalid; the index "
           "may be incomplete",
           /*oom=*/false);
-      RedisModule_ThreadSafeContextUnlock(ctx);
       goto done;
 
     case REDISMODULE_ASYNCSCAN_IO_ERROR:
@@ -538,14 +577,11 @@ void Indexes_AsyncScanAndReindexTask(IndexesScanner *scanner) {
         "retried automatically; resolve the underlying disk/I/O condition, then drop and recreate "
         "the index to rebuild it",
         scanner->spec_name_for_logs);
-      // Take the GIL around the record (shared NA_rstr refcount churn).
-      RedisModule_ThreadSafeContextLock(ctx);
-      IndexesScanner_RecordBackgroundFailure(
+      Indexes_AsyncScanRecordFailureLocked(
           ctx, scanner,
           "Background indexing failed: the server reported an I/O error; the index may be "
           "incomplete",
           /*oom=*/false);
-      RedisModule_ThreadSafeContextUnlock(ctx);
       goto done;
     }
   }
