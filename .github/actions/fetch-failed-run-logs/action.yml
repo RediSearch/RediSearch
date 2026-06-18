@@ -109,9 +109,21 @@ runs:
           # -n: keep line numbers for locatability; cut: bound pathological long
           # lines (some log lines are multi-KB JSON); awk: dedupe preserving
           # order; head: bound total volume.
+          # The dedupe key strips the `grep -n` line-number prefix and the
+          # GH-Actions and Python-logger timestamps, so the same message
+          # repeated on many lines (e.g. recurring "Connection reset by peer"
+          # warnings) collapses to one entry instead of filling the cap and
+          # pushing the decisive CRITICAL/Traceback line out. Only `+` quantifiers
+          # are used (no `{n}` intervals) to stay portable across mawk/gawk.
           grep -nE -f "$PAT_FILE" "$OUTPUT_FILE" 2>/dev/null \
             | cut -c1-500 \
-            | awk '!seen[$0]++' \
+            | awk '{
+                key = $0
+                sub(/^[0-9]+:/, "", key)
+                gsub(/[0-9]+-[0-9]+-[0-9]+T[0-9:.]+Z/, "", key)
+                gsub(/[0-9]+-[0-9]+-[0-9]+ [0-9]+:[0-9]+:[0-9]+,[0-9]+/, "", key)
+                if (!seen[key]++) print
+              }' \
             | head -n "$MAX_KEY_LINES" > "$KEY_FILE"
           rm -f "$PAT_FILE"
           [ -s "$KEY_FILE" ] || { rm -f "$KEY_FILE"; KEY_FILE=""; }
