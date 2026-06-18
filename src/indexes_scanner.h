@@ -119,6 +119,12 @@ void scanStopAfterOOM(RedisModuleCtx *ctx, IndexesScanner *scanner);
 // false if within bounds or the limit is 0. Shared by both reindex strategies.
 bool isBgIndexingMemoryOverLimit(RedisModuleCtx *ctx);
 
+// Like isBgIndexingMemoryOverLimit, but for the async background scan (disk indexes on
+// Flex). Compares the higher of the RAM-only and total (RAM + flash) usage ratios against
+// indexingMemoryLimit %, so indexing backs off when either budget is under pressure.
+// Returns false when the limit is 0.
+bool isAsyncBgIndexingMemoryOverLimit(RedisModuleCtx *ctx);
+
 ///////////////////////////////////////////////////////////////////////////////////////////////
 
 #ifdef __cplusplus

@@ -67,7 +67,17 @@ static void Indexes_AsyncScanKeyCB(RedisModuleCtx *ctx, RedisModuleScanCursor *c
   AsyncReindexDriver *driver = privdata;
   IndexesScanner *scanner = driver->scanner;
 
-  if (scanner->cancelled) {
+  if (scanner->cancelled || scanner->scanFailedOnOOM) {
+    return;
+  }
+
+  if (isAsyncBgIndexingMemoryOverLimit(ctx)) {
+    scanner->scanFailedOnOOM = true;
+    if (scanner->OOMkey) {
+      RedisModule_FreeString(RSDummyContext, scanner->OOMkey);
+    }
+    // Hold the key that triggered OOM in case we need to attach an index error.
+    scanner->OOMkey = RedisModule_HoldString(RSDummyContext, name);
     return;
   }
 
@@ -390,6 +400,30 @@ static RedisModuleAsyncScanResult Indexes_AsyncScanDriveNextBatch(
                     scanner->spec_name_for_logs, scanner->scannedKeys);
     *out_terminal = true;
     return REDISMODULE_ASYNCSCAN_ABORTED;
+  }
+
+  // OOM flagged by key_cb during this batch (mirrors the sync scan's between-iterations
+  // handling in Indexes_ScanAndReindexTask). The configured indexing memory limit was hit;
+  // abort the still-active cursor and surface OOM the same way the engine OUT_OF_MEMORY
+  // branch does. We do not restart the cursor to resume, so the sweep ends here and the
+  // index may be incomplete.
+  if (scanner->scanFailedOnOOM) {
+    RedisModule_AsyncScanAbort(cursor);
+    RedisModule_ThreadSafeContextUnlock(ctx);
+    RedisModule_Log(ctx, "warning",
+                    "AsyncScan: index %s exceeded the indexing memory limit; aborting "
+                    "(scanned=%zu). The index may be incomplete; once memory pressure is "
+                    "relieved, drop and recreate the index to rebuild it",
+                    scanner->spec_name_for_logs, scanner->scannedKeys);
+    // RecordFailure re-acquires the GIL itself, so it must be called unlocked. The offending
+    // key is taken from scanner->OOMkey (held in key_cb).
+    Indexes_AsyncScanRecordFailureLocked(
+        ctx, scanner,
+        "Background indexing cancelled: used memory exceeded the configured indexing memory "
+        "limit; the index may be incomplete",
+        /*oom=*/true);
+    *out_terminal = true;
+    return REDISMODULE_ASYNCSCAN_OUT_OF_MEMORY;
   }
 
   // Throttled progress: one line every ASYNC_SCAN_PROGRESS_LOG_KEYS keys so a

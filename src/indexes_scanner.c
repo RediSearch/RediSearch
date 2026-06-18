@@ -114,6 +114,20 @@ bool isBgIndexingMemoryOverLimit(RedisModuleCtx *ctx) {
   return (used_memory_ratio > memory_limit_ratio) ;
 }
 
+// Async-scan (disk + Flex) counterpart of isBgIndexingMemoryOverLimit: checks the higher of
+// the RAM-only and total usage ratios against indexingMemoryLimit %.
+bool isAsyncBgIndexingMemoryOverLimit(RedisModuleCtx *ctx) {
+  // if memory limit is set to 0, we don't need to check for memory usage
+  if (RSGlobalConfig.indexingMemoryLimit == 0) {
+    return false;
+  }
+
+  float used_memory_ratio = RedisMemory_GetUsedMemoryRatioFlex(ctx);
+  float memory_limit_ratio = (float)RSGlobalConfig.indexingMemoryLimit / 100;
+
+  return (used_memory_ratio > memory_limit_ratio);
+}
+
 double IndexesScanner_IndexedPercent(RedisModuleCtx *ctx, IndexesScanner *scanner, const IndexSpec *sp) {
   if (scanner || sp->scan_in_progress) {
     if (scanner) {
