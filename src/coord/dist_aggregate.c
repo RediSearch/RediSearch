@@ -796,7 +796,7 @@ void RSExecDistAggregate(RedisModuleCtx *ctx, RedisModuleString **argv, int argc
   // returning the dispatcher thread, then hand off to Phase B which runs after
   // all shard first-replies are buffered. Phase B converges on executePlan (the
   // non-cursor branch) just like the synchronous path.
-  if (HasWithCount(r) && !IsProfile(r)) {
+  if (HasWithCount(r)) {
     RS_LOG_ASSERT(AREQ_QueryProcessingCtx(r)->rootProc->type == RP_NETWORK,
                   "Expected RP_NETWORK root for distributed aggregate");
     RPNet *nc = (RPNet *)AREQ_QueryProcessingCtx(r)->rootProc;
