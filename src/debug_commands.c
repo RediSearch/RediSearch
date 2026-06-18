@@ -2107,6 +2107,17 @@ DEBUG_COMMAND(terminateBgPool) {
     return RedisModule_WrongArity(ctx);
   }
 
+  // When disk is enabled, initial indexing runs as async batches whose completion
+  // callback (done_cb) is dispatched on the main thread. ReindexPool_ThreadPoolDestroy()
+  // joins the worker threads from the main thread, but a worker that is mid-batch is
+  // itself blocked waiting for that main-thread done_cb to run. Tearing the pool down
+  // here would therefore deadlock the main thread against the worker. Reject the command
+  // in disk mode instead of risking the deadlock.
+  if (SearchDisk_IsEnabled()) {
+    return RedisModule_ReplyWithError(
+        ctx, "TERMINATE_BG_POOL is not supported when disk is enabled");
+  }
+
   ReindexPool_ThreadPoolDestroy();
   // We do not create a new thread pool here, as it will automatically be created on the next background indexing job
 

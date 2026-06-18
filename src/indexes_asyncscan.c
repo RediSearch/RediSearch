@@ -20,6 +20,7 @@
 #include "doc_id_meta.h"
 #include "debug_commands.h"
 #include "rmutil/rm_assert.h"
+#include "rs_wall_clock.h"
 
 // The background-indexing debug context, owned by debug_commands.c. Read here only
 // for the SET_SIMULATE_ASYNC_OOM test hook (ENABLE_ASSERT builds).
@@ -28,6 +29,13 @@ extern DebugCTX globalDebugCtx;
 // Emit a throttled progress line roughly every this many scanned keys, so a long
 // backfill is observable in the logs without a line per batch.
 #define ASYNC_SCAN_PROGRESS_LOG_KEYS 100000
+
+// Upper bound on how long the initial AsyncScan Start may keep returning BUSY (the
+// max-inflight cap is saturated) before we give up. Under normal load the cap drains as
+// other scans complete and Start is accepted in well under this; the bound is a safety
+// valve so a wedged engine — or a bug where the cap never clears — cannot pin a reindex
+// worker spinning on the retry loop forever.
+#define ASYNC_SCAN_START_BUSY_TIMEOUT_MS 60000
 
 // Per-cursor driver state, shared between the reindexPool worker (which owns the
 // cursor lifecycle) and the callbacks (which run on the main thread under the GIL).
@@ -284,6 +292,8 @@ void Indexes_AsyncScanAndReindexTask(IndexesScanner *scanner) {
   // *same* call (no binding exists yet) until it is accepted. The GIL is held only for the
   // call; the backoff sleeps with it released.
   RedisModuleAsyncScanResult rc;
+  rs_wall_clock busy_since;
+  rs_wall_clock_init(&busy_since);
   for (;;) {
     RedisModule_ThreadSafeContextLock(ctx);
     rc = RedisModule_AsyncScanStart(ctx, cursor, filter_ptr,
@@ -303,6 +313,26 @@ void Indexes_AsyncScanAndReindexTask(IndexesScanner *scanner) {
     if (cancelled) {
       RedisModule_Log(ctx, "notice", "AsyncScan: index %s cancelled while starting",
                       scanner->spec_name_for_logs);
+      goto done;
+    }
+    // Safety valve against an unbounded BUSY spin: if Start never gets accepted within
+    // the timeout, give up rather than pin this worker forever. The cursor was never
+    // bound (Start never succeeded), so there is nothing to abort — record the failure so
+    // the index is flagged incomplete, then tear down.
+    if (rs_wall_clock_convert_ns_to_ms(rs_wall_clock_elapsed_ns(&busy_since)) >=
+        ASYNC_SCAN_START_BUSY_TIMEOUT_MS) {
+      RedisModule_Log(ctx, "warning",
+                      "AsyncScan: index %s could not start within %dms (max-inflight stayed "
+                      "saturated); giving up (rc=BUSY)",
+                      scanner->spec_name_for_logs, ASYNC_SCAN_START_BUSY_TIMEOUT_MS);
+      // Take the GIL around the record (shared NA_rstr refcount churn).
+      RedisModule_ThreadSafeContextLock(ctx);
+      IndexesScanner_RecordBackgroundFailure(
+          ctx, scanner,
+          "Background indexing failed: the background scan could not be started because the "
+          "server stayed busy; the index may be incomplete",
+          /*oom=*/false);
+      RedisModule_ThreadSafeContextUnlock(ctx);
       goto done;
     }
     usleep(1000);
