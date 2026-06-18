@@ -158,6 +158,8 @@ static void handleCollectSortBy(const ArgParser *parser, const void *value, void
 // ----- LIMIT -----
 
 // Parses: LIMIT <offset> <count>
+//   Both must be non-negative integers; on user-facing requests they are also
+//   bounded by search-max-aggregate-results.
 static void handleCollectLimit(const ArgParser *parser, const void *value, void *user_data) {
   (void)parser;
   CollectParseCtx *pctx = (CollectParseCtx *)user_data;
@@ -177,15 +179,24 @@ static void handleCollectLimit(const ArgParser *parser, const void *value, void 
       "LIMIT count must be a positive integer");
     return;
   }
-  if (offset > MAX_AGGREGATE_REQUEST_RESULTS) {
-    QueryError_SetWithoutUserDataFmt(status, QUERY_ERROR_CODE_LIMIT,
-      "LIMIT offset exceeds maximum of %llu", MAX_AGGREGATE_REQUEST_RESULTS);
-    return;
-  }
-  if (count > MAX_AGGREGATE_REQUEST_RESULTS) {
-    QueryError_SetWithoutUserDataFmt(status, QUERY_ERROR_CODE_LIMIT,
-      "LIMIT count exceeds maximum of %llu", MAX_AGGREGATE_REQUEST_RESULTS);
-    return;
+  const size_t maxResults = RSGlobalConfig.maxAggregateResults;
+  if (!ReducerOpts_IsInternal(pctx->options)) {
+    if (offset > maxResults) {
+      QueryError_SetWithoutUserDataFmt(status, QUERY_ERROR_CODE_LIMIT,
+        "LIMIT offset exceeds maximum of %zu", maxResults);
+      return;
+    }
+    if (count > maxResults) {
+      QueryError_SetWithoutUserDataFmt(status, QUERY_ERROR_CODE_LIMIT,
+        "LIMIT count exceeds maximum of %zu", maxResults);
+      return;
+    }
+  } else {
+    // Internal shard requests fetch the full offset+count window from row 0 so
+    // the coordinator can apply the offset and trim; that window may exceed the
+    // cap, so we assert the rewrite's invariants instead of re-checking it.
+    RS_ASSERT(offset == 0);
+    RS_ASSERT(count / 2 <= maxResults);
   }
   // Overflow guard for `offset + count`. Redundant given the individual bounds
   // above and a sane MAX, but cheap insurance against future MAX changes.
