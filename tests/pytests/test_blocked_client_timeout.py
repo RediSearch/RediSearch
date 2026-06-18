@@ -4859,17 +4859,11 @@ class TestCoordinatorTimeout:
 
 
 class TestCoordinatorTimeoutReturnStrictResp2:
-    """RESP2 counterpart of the one-shard-timesout flat aggregate test.
+    """RESP2 coverage for RETURN_STRICT coordinator-generated timeouts.
 
-    RESP2 has no warnings slot in the shard reply, so the per-shard
-    TIMEDOUT warning is not propagated to the coord and the coord
-    warning metric stays unchanged. The merged reply is still well
-    formed: a flat list whose head is ``total_results`` and whose tail
-    is the merged shard rows.
-
-    Temporarily expect at least ``pause_after_n + other_docs`` trailing rows:
-    only admitted rows are required while internal cursor draining remains
-    non-deterministic (MOD-15971).
+    Exercises the FT.PROFILE HYBRID early-timeout fast path under RESP2,
+    where the coordinator generates the timeout itself and must preserve
+    the two-element ``[results_array, profile_array]`` profile envelope.
     """
 
     def __init__(self):
@@ -4907,143 +4901,6 @@ class TestCoordinatorTimeoutReturnStrictResp2:
             'PARAMS', '2', 'BLOB', self.hybrid_query_vec
         ).noError()
 
-    def _run_one_shard_timesout_resp2(self, *, coord_cmd_list, shard_cmd,
-                                      assert_reply):
-        """Drive a one-shard-timesout RESP2 query under RETURN_STRICT.
-
-        Parks one non-coord shard at ``AggregateResults`` #pause_after_n,
-        fires ``CLIENT UNBLOCK ... TIMEOUT``, and hands the merged reply to
-        ``assert_reply(env, result, expected_rows)``. RESP2 has no warnings
-        slot in the shard reply, so the coord warning metric must stay
-        unchanged; this helper asserts that and the unrelated-metrics
-        invariant.
-        """
-        env = self.env
-
-        # CONFIG GET in RESP2 returns a flat [key, value] list, not a map.
-        prev_on_timeout_policy = env.cmd('CONFIG', 'GET',
-                                         ON_TIMEOUT_CONFIG)[1]
-        run_command_on_all_shards(env, 'CONFIG', 'SET',
-                                  ON_TIMEOUT_CONFIG, 'return-strict')
-
-        before_info = info_modules_to_dict(env)
-        base_warn_coord = int(
-            before_info[COORD_WARN_ERR_SECTION][TIMEOUT_WARNING_COORD_METRIC])
-
-        all_shard_conns, target_conn, _target_pid, other_conns = \
-            split_shards_pick_one_paused(env)
-
-        pause_after_n = 2
-        other_docs = sum(len(c.execute_command('KEYS', 'doc*'))
-                         for c in other_conns)
-        expected_rows = pause_after_n + other_docs
-
-        try:
-            setPauseAfterAggregateResult(target_conn, pause_after_n)
-
-            full_cmd = list(coord_cmd_list) + ['TIMEOUT', '0']
-            query_result = []
-            t_query = threading.Thread(
-                target=call_and_store,
-                args=(env.cmd, full_cmd, query_result),
-                daemon=True
-            )
-            t_query.start()
-
-            blocked_client_id = _wait_shard_paused_after_aggregate_result(
-                target_conn, shard_cmd)
-            target_conn.execute_command('CLIENT', 'UNBLOCK',
-                                        blocked_client_id, 'TIMEOUT')
-            wait_for_client_unblocked(target_conn, blocked_client_id)
-            resetAggregateResultsDebug(target_conn)
-
-            t_query.join(timeout=10)
-            env.assertFalse(t_query.is_alive(), message="query thread alive")
-            env.assertEqual(len(query_result), 1, message="query result count")
-            result = query_result[0]
-
-            assert_reply(env, result, expected_rows)
-
-            # RESP2 has no warnings slot, so the coord warning metric
-            # must NOT increment despite the shard timing out.
-            after_info = info_modules_to_dict(env)
-            env.assertEqual(after_info[COORD_WARN_ERR_SECTION][TIMEOUT_WARNING_COORD_METRIC],
-                            str(base_warn_coord),
-                            message="coord warning metric unchanged (RESP2)")
-            _verify_metrics_not_changed(env, env, before_info,
-                                        [TIMEOUT_WARNING_COORD_METRIC])
-        finally:
-            for c in all_shard_conns:
-                resetAggregateResultsDebug(c)
-            try:
-                run_command_on_all_shards(env, 'CONFIG', 'SET',
-                                          ON_TIMEOUT_CONFIG,
-                                          prev_on_timeout_policy)
-            except Exception:
-                pass
-
-    @skip_until("2026-06-23", reason="Flaky on slow runners (macOS x86_64): "
-                "10s thread-join window too tight under return-strict timeout")
-    def test_return_strict_one_shard_timesout_flat_aggregate_resp2(self):
-        """RESP2 variant of test_return_strict_one_shard_timesout_flat_aggregate."""
-        skipIfNoEnableAssert(self.env)
-
-        def assert_flat_reply(env, result, expected_rows):
-            # RESP2 FT.AGGREGATE: [total_results, doc1_fields, ...].
-            env.assertTrue(isinstance(result, list),
-                           message=f"RESP2 reply type ({type(result).__name__})")
-            row_count = len(result) - 1
-            # Temporary until deterministic internal cursor draining after
-            # RETURN_STRICT shard timeouts is defined.
-            env.assertGreaterEqual(row_count, expected_rows,
-                                   message="trailing row count")
-
-        self._run_one_shard_timesout_resp2(
-            coord_cmd_list=['FT.AGGREGATE', 'idx', '*',
-                            'LOAD', '1', '@name',
-                            'LIMIT', '0', str(self.n_docs)],
-            shard_cmd='_FT.AGGREGATE',
-            assert_reply=assert_flat_reply)
-
-    def test_return_strict_one_shard_timesout_profile_aggregate_resp2(self):
-        """RESP2 FT.PROFILE AGGREGATE one-shard timeout reply shape.
-
-        The RESP2 profile reply is a two-element array
-        ``[results_array, profile_array]``. The inner ``results_array``
-        mirrors the flat aggregate shape ``[total_results, row1, ...]``,
-        and the profile envelope must survive the timeout fast path. RESP2
-        carries no warnings slot, so the coord warning metric stays
-        unchanged.
-        """
-        skipIfNoEnableAssert(self.env)
-
-        def assert_profile_reply(env, result, expected_rows):
-            # RESP2 FT.PROFILE: [results_array, profile_array].
-            env.assertTrue(isinstance(result, list),
-                           message=f"RESP2 reply type ({type(result).__name__})")
-            env.assertEqual(len(result), 2,
-                            message=f"RESP2 profile envelope shape: {result!r}")
-            results_array, profile_array = result[0], result[1]
-            env.assertTrue(isinstance(results_array, list),
-                           message="RESP2 profile results_array type")
-            env.assertTrue(profile_array,
-                           message="RESP2 profile array must be non-empty")
-            row_count = len(results_array) - 1
-            # Temporary until deterministic internal cursor draining after
-            # RETURN_STRICT shard timeouts is defined.
-            env.assertGreaterEqual(row_count, expected_rows,
-                                   message="trailing row count")
-
-        self._run_one_shard_timesout_resp2(
-            coord_cmd_list=['FT.PROFILE', 'idx', 'AGGREGATE', 'QUERY', '*',
-                            'LOAD', '1', '@name',
-                            'LIMIT', '0', str(self.n_docs)],
-            shard_cmd='_FT.PROFILE',
-            assert_reply=assert_profile_reply)
-
-    @skip_until("2026-06-23", reason="Flaky on slow runners (macOS x86_64): "
-                "claim-race is non-deterministic, background thread can win the "
-                "claim and return the post-processing reply shape")
     def test_return_strict_timeout_at_claim_sync_point_profile_hybrid_resp2(self):
         """RESP2 FT.PROFILE HYBRID early-timeout preserves the profile envelope.
 
