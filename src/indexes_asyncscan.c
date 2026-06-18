@@ -543,11 +543,11 @@ void Indexes_AsyncScanAndReindexTask(IndexesScanner *scanner) {
       // Should not happen: the driver always waits for done_cb before reissuing, so no
       // batch is ever in flight when we call NextBatch. IN_PROGRESS means we reissued
       // anyway while the previous batch was still running — a driver bug.
+      RS_ASSERT(false);
       RedisModule_Log(ctx, "warning",
                       "AsyncScan: requested the next batch for index %s while a previous batch "
                       "was still in flight (done_cb had not fired); driver bug (rc=IN_PROGRESS)",
                       scanner->spec_name_for_logs);
-      RS_ASSERT(false);
       Indexes_AsyncScanRecordFailureLocked(
           ctx, scanner,
           "Background indexing failed: the background scan reported an unexpected in-progress "
@@ -558,9 +558,9 @@ void Indexes_AsyncScanAndReindexTask(IndexesScanner *scanner) {
     case REDISMODULE_ASYNCSCAN_UNSUPPORTED:
       // AsyncScan unavailable in this build/runtime. We only route disk indexes here,
       // where it is guaranteed present.
+      RS_ASSERT(false);
       RedisModule_Log(ctx, "warning", "AsyncScan: unsupported for index %s (rc=UNSUPPORTED)",
                       scanner->spec_name_for_logs);
-      RS_ASSERT(false);
       Indexes_AsyncScanRecordFailureLocked(
           ctx, scanner,
           "Background indexing failed: the background scan is unsupported in this "
@@ -569,7 +569,7 @@ void Indexes_AsyncScanAndReindexTask(IndexesScanner *scanner) {
       goto done;
 
     case REDISMODULE_ASYNCSCAN_INVALID:
-      // Bad argument — programming error. Cursor state is unchanged; no done_cb.
+      RS_ASSERT(false);
       RedisModule_Log(ctx, "warning", "AsyncScan: invalid argument for index %s (rc=INVALID)",
                       scanner->spec_name_for_logs);
       Indexes_AsyncScanRecordFailureLocked(
