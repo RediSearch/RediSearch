@@ -64,7 +64,13 @@ runs:
 
     - name: Install dependencies
       shell: bash -l -eo pipefail {0}
-      run: pip install 'redis>=6,<7'
+      # Install via `python3 -m pip` (not bare `pip`): on the macOS runners the
+      # `bash -l` login shell re-runs path_helper/Homebrew profile setup, which
+      # can leave bare `pip` and bare `python3` resolving to different
+      # interpreters. `redis` would then land in one interpreter's site-packages
+      # while `python3 flaky_db.py` runs under another, failing with
+      # `ModuleNotFoundError: redis`. Pinning the interpreter keeps them in sync.
+      run: python3 -m pip install 'redis>=6,<7'
 
     - name: Record results
       shell: bash -l -eo pipefail {0}
