@@ -14,9 +14,21 @@
 //! [`Storage`] is a thin enum that selects one family; the reducer dispatches
 //! array-vs-heap once, in its `add` method, so only the heap path ever builds a
 //! sort-key snapshot.
+//!
+//! **DISTINCT spike:** [`HeapStorage`] is backed by a [`PriorityQueue`] whose
+//! *key is the [`ProjectedRow`] itself* and whose *priority is the
+//! [`RankingKey`]*. The row is therefore literally the dedup identity — the
+//! queue dedups via [`ProjectedRow`]'s (naive) [`Hash`]/[`Eq`], and
+//! `push_increase` keeps the best-ranked representative per identity. This is a
+//! prototype to feel out `COLLECT … DISTINCT`; it makes the heap path *always*
+//! deduplicate and drops the deferred-projection optimization. The one deferred
+//! design decision is how to hash/compare a [`ProjectedRow`] — see its
+//! [`Hash`]/[`Eq`] impls.
+
+use std::hash::{Hash, Hasher};
 
 use itertools::Either;
-use min_max_heap::MinMaxHeap;
+use priority_queue::PriorityQueue;
 use rlookup::RLookupRow;
 use value::SharedValue;
 
@@ -35,11 +47,15 @@ const INITIAL_CAPACITY_CAP: usize = 16_384;
 /// The *value* held by the storage: the projected (collected) fields, in a type
 /// distinct from the [`RankingKey`] so the two storage axes stay explicit. The
 /// ranking key decides order; the `ProjectedRow` is the content — hence the unit
-/// any content-based identity would key on.
+/// any content-based identity (such as the DISTINCT dedup) keys on.
 ///
 /// Naming the role does not prove the row holds *only* projected fields; that is
 /// upheld by the `project` closure each reducer passes to [`ArrayStorage::push`]
 /// / [`HeapStorage::consider`].
+///
+/// **DISTINCT spike:** its [`Hash`]/[`Eq`] impls *are* the dedup identity used as
+/// the [`HeapStorage`] queue key. See [`Self::identity_repr`] for the naive
+/// (placeholder) identity and the one deferred design decision.
 pub struct ProjectedRow(RLookupRow<'static>);
 
 impl ProjectedRow {
@@ -56,6 +72,30 @@ impl ProjectedRow {
     /// Consume the wrapper, returning the inner row.
     pub fn into_row(self) -> RLookupRow<'static> {
         self.0
+    }
+
+    /// The naive content identity for the DISTINCT spike: the row's `Debug`
+    /// rendering, used by both [`Hash`] and [`Eq`] so they stay consistent.
+    ///
+    /// TODO(distinct): replace with a field-aware identity. This is the single
+    /// deferred decision of the spike; the `Debug` string is good enough to feel
+    /// out the mechanism but is neither stable nor a real content comparison.
+    fn identity_repr(&self) -> String {
+        format!("{:?}", self.0)
+    }
+}
+
+impl PartialEq for ProjectedRow {
+    fn eq(&self, other: &Self) -> bool {
+        self.identity_repr() == other.identity_repr()
+    }
+}
+
+impl Eq for ProjectedRow {}
+
+impl Hash for ProjectedRow {
+    fn hash<H: Hasher>(&self, state: &mut H) {
+        self.identity_repr().hash(state);
     }
 }
 
@@ -148,13 +188,14 @@ impl ArrayStorage {
 
 /// Top-K storage for the `SORTBY` path.
 ///
-/// Keeps the best `offset + count` candidates under the [`RankingKey`]
-/// comparator, draining best→worst. Unlike [`ArrayStorage`], it owns the sort
-/// context: each candidate's sort-key snapshot lives in its [`RankingKey`] (which
-/// doubles as the cap-check key), so the paired [`ProjectedRow`] never has to
-/// carry it.
+/// **DISTINCT spike:** backed by a [`PriorityQueue`] whose key is the
+/// [`ProjectedRow`] (so identical rows collapse via its [`Hash`]/[`Eq`]) and
+/// whose priority is the [`RankingKey`]. [`PriorityQueue::push_increase`] keeps
+/// the best-ranked representative per identity. The `offset + count` cap is
+/// applied at [`Self::drain`], and projection is eager (the spike trades away the
+/// deferred-projection optimization to materialise each row's identity).
 pub struct HeapStorage<D: Ord> {
-    heap: MinMaxHeap<HeapEntry<D, ProjectedRow>>,
+    pq: PriorityQueue<ProjectedRow, RankingKey<D>>,
     sort_asc_map: u64,
     offset: usize,
     count: usize,
@@ -164,57 +205,45 @@ impl<D: Ord> HeapStorage<D> {
     fn new(sort_asc_map: u64, offset: usize, count: usize) -> Self {
         let initial_capacity = offset.saturating_add(count).min(INITIAL_CAPACITY_CAP);
         Self {
-            heap: MinMaxHeap::with_capacity(initial_capacity),
+            pq: PriorityQueue::with_capacity(initial_capacity),
             sort_asc_map,
             offset,
             count,
         }
     }
 
-    /// Offer a candidate to the bounded top-K.
+    /// Offer a candidate, deduplicating by the [`ProjectedRow`] identity and
+    /// keeping the best-ranked representative per identity.
     ///
-    /// `sort_vals` is the candidate's sort-key snapshot; it forms the ranking
-    /// [`RankingKey`] and is compared against the current worst survivor *before*
-    /// `project` runs, so `project` is invoked only for a candidate that is
-    /// actually retained. `doc_id` breaks ties when the sort keys compare equal
-    /// (see [`RankingKey`]).
+    /// Projects eagerly (the spike needs the row to key the queue), builds the
+    /// ranking [`RankingKey`] from `sort_vals` / `doc_id`, and pushes
+    /// `(row, ranking_key)`: [`PriorityQueue::push_increase`] retains the higher
+    /// [`RankingKey`] on a collision (the queue dedups by the row's
+    /// [`Hash`]/[`Eq`]).
     pub fn consider(
         &mut self,
         sort_vals: Box<[Option<SharedValue>]>,
         doc_id: D,
         project: impl FnOnce() -> ProjectedRow,
     ) {
-        let max_size = self.offset.saturating_add(self.count);
-        if max_size == 0 {
-            return;
-        }
-        let cand_key = RankingKey::new(sort_vals, self.sort_asc_map, doc_id);
-        if self.heap.len() < max_size {
-            self.heap.push(HeapEntry::new(cand_key, project()));
-        } else {
-            // `peek_min` is the worst survivor under the "best = max"
-            // convention (see [`super::heap`]); the unwrap is sound because a
-            // full heap with `max_size > 0` is non-empty.
-            let worst = self.heap.peek_min().expect("heap at cap is non-empty");
-            if cand_key > *worst.key() {
-                self.heap.push_pop_min(HeapEntry::new(cand_key, project()));
-            }
-        }
+        let ranking_key = RankingKey::new(sort_vals, self.sort_asc_map, doc_id);
+        self.pq.push_increase(project(), ranking_key);
     }
 
     /// Drain the retained entries best→worst, sliced as
-    /// `skip(offset).take(count)`.
+    /// `skip(offset).take(count)` (the cap is applied here, not on insert).
     ///
-    /// Each [`HeapEntry`] still pairs the [`ProjectedRow`] with its
-    /// [`RankingKey`]: callers that only need the value map with
-    /// [`HeapEntry::into_projected`], while the remote reducer reads
-    /// [`RankingKey::sort_vals`] (via [`HeapEntry::into_parts`]) to rebuild the
-    /// wire row.
+    /// Re-pairs each `(row, ranking_key)` into a [`HeapEntry`] so callers are
+    /// unchanged: the local reducer maps [`HeapEntry::into_projected`], while the
+    /// remote reducer reads [`RankingKey::sort_vals`] (via
+    /// [`HeapEntry::into_parts`]) to rebuild the wire row.
     pub fn drain(&mut self) -> impl ExactSizeIterator<Item = HeapEntry<D, ProjectedRow>> {
-        std::mem::take(&mut self.heap)
-            .into_vec_desc()
-            .into_iter()
-            .skip(self.offset)
-            .take(self.count)
+        // `into_sorted_iter` yields highest-priority (best) first; collect into a
+        // `Vec` so the result is an `ExactSizeIterator`, like the array path.
+        let best_first: Vec<HeapEntry<D, ProjectedRow>> = std::mem::take(&mut self.pq)
+            .into_sorted_iter()
+            .map(|(row, ranking_key)| HeapEntry::new(ranking_key, row))
+            .collect();
+        best_first.into_iter().skip(self.offset).take(self.count)
     }
 }

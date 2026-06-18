@@ -135,38 +135,22 @@ fn heap_consider_keeps_top_k_under_desc() {
 }
 
 #[test]
-fn heap_consider_skips_project_for_doomed_candidates() {
+fn heap_dedups_by_identity_keeping_best() {
+    // DISTINCT spike: identical projected content collapses to one entry, and
+    // `push_increase` keeps the best-ranked representative per identity.
     let key = make_key();
-    let mut counter = 0;
-    let mut s = Storage::new(true, Some((0, 2)), SORT_ASC);
+    let mut s = Storage::new(true, Some((0, 10)), SORT_ASC);
     let h = as_heap(&mut s);
-    // Fill with the two best candidates first.
-    for v in [0.0_f64, 1.0] {
-        h.consider(sort_vals(v), (), counting_project(&mut counter, &key, v));
-    }
-    // Each subsequent candidate is worse than the worst survivor (1.0)
-    // under ASC, so `project` must not run.
-    for v in [2.0_f64, 3.0, 4.0] {
-        h.consider(sort_vals(v), (), counting_project(&mut counter, &key, v));
-    }
-    assert_eq!(
-        counter, 2,
-        "`project` must not run for candidates worse than the heap's worst"
-    );
-}
-
-#[test]
-fn heap_consider_invokes_project_on_eviction() {
-    let key = make_key();
-    let mut counter = 0;
-    let mut s = Storage::new(true, Some((0, 2)), SORT_ASC);
-    let h = as_heap(&mut s);
-    // Each insert is strictly better than the current worst, so every
-    // candidate must be projected.
-    for v in [5.0_f64, 3.0, 1.0] {
-        h.consider(sort_vals(v), (), counting_project(&mut counter, &key, v));
-    }
-    assert_eq!(counter, 3);
+    // Identity v=1 arrives twice (sort 5 then 1); ASC → best is sort 1.
+    // Identity v=2 arrives once (sort 3).
+    h.consider(sort_vals(5.0), (), || projected(&key, 1.0));
+    h.consider(sort_vals(1.0), (), || projected(&key, 1.0));
+    h.consider(sort_vals(3.0), (), || projected(&key, 2.0));
+    let drained: Vec<_> = h.drain().map(HeapEntry::into_projected).collect();
+    // Deduped to one row per identity. The order proves keep-best: v=1 is kept
+    // at its better sort (1), so under ASC it precedes v=2 (sort 3). Had the
+    // worse v=1 (sort 5) survived, v=2 would sort ahead of it.
+    assert_eq!(drained_nums(&key, &drained), vec![1.0, 2.0]);
 }
 
 #[test]
