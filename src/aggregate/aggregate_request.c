@@ -351,10 +351,6 @@ static int handleCommonArgs(ParseAggPlanContext *papCtx, ArgsCursor *ac, QueryEr
       return ARG_ERROR;
     }
   } else if (AC_AdvanceIfMatch(ac, "WITHCURSOR")) {
-    if (((*papCtx->reqflags) & QEXEC_F_IS_AGGREGATE) && ((*papCtx->reqflags) & QEXEC_F_HAS_WITHCOUNT)) {
-      QueryError_SetError(status, QUERY_ERROR_CODE_PARSE_ARGS, "FT.AGGREGATE does not support using WITHCOUNT and WITHCURSOR together");
-      return ARG_ERROR;
-    }
     if (parseCursorSettings(papCtx->reqflags, papCtx->cursorConfig, ac, status) != REDISMODULE_OK) {
       return ARG_ERROR;
     }
@@ -663,10 +659,6 @@ static int parseQueryArgs(ArgsCursor *ac, AREQ *req, RSSearchOptions *searchOpts
       AREQ_RemoveRequestFlags(req, QEXEC_OPTIMIZE);
       if (IsAggregate(req)) {
         AREQ_AddRequestFlags(req, QEXEC_F_HAS_WITHCOUNT);
-        if (IsCursor(req) && !IsInternal(req)) {
-          QueryError_SetError(status, QUERY_ERROR_CODE_PARSE_ARGS, "FT.AGGREGATE does not support using WITHCOUNT and WITHCURSOR together");
-          return REDISMODULE_ERR;
-        }
       }
       optimization_specified = true;
     } else if (AC_AdvanceIfMatch(ac, "WITHOUTCOUNT")) {
@@ -1258,7 +1250,12 @@ int parseAggPlan(ParseAggPlanContext *papCtx, ArgsCursor *ac, bool isDiskIndex, 
 }
 
 static bool IsNeededDepleter(AREQ *req) {
-  return !HasSortBy(req) && !HasGroupBy(req) && !IsCount(req);
+  // Cursors paginate the pipeline output, so a depleter (which drains all upstream
+  // rows in one go) would defeat pagination on the first FT.CURSOR READ. Internal
+  // (shard-side) cursors still need the depleter when WITHCOUNT is set, so the
+  // shard can compute its full total_results before replying the first chunk.
+  return !HasSortBy(req) && !HasGroupBy(req) && !IsCount(req) &&
+         (!IsCursor(req) || IsInternal(req));
 }
 
 // This function should only be called from the main thread (calling RunInThread() is not thread safe)

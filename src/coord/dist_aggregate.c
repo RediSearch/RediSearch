@@ -283,7 +283,10 @@ static void aggregatePhaseBExecute(void *arg) {
 
   if (!CoordRequestCtx_TimedOut(reqCtx)) {
     // Dedicated thread-safe context for this worker. Aliased into sctx->redisCtx
-    // so any pipeline step that reads it sees a live ctx on this thread.
+    // so any pipeline step that reads it sees a live ctx on this thread. For
+    // cursors the AREQ takes ownership of this ctx (AREQ_Free releases it via
+    // the QEXEC_F_IS_CURSOR branch); for non-cursor requests Phase B frees it
+    // locally after executePlan returns.
     RedisModuleCtx *replyCtx = RedisModule_GetThreadSafeContext(bc);
     r->sctx->redisCtx = replyCtx;
 
@@ -300,12 +303,26 @@ static void aggregatePhaseBExecute(void *arg) {
       qctx->totalResults = totalResults;
     }
 
-    // Converge on the existing non-cursor path: sendChunk + AREQ_DecrRef.
-    // executePlan always returns REDISMODULE_OK in the non-cursor branch.
-    executePlan(r, NULL, reply, &status);
-    // r is freed by AREQ_DecrRef inside executePlan; do not access r after this.
-
-    RedisModule_FreeThreadSafeContext(replyCtx);
+    if (AREQ_RequestFlags(r) & QEXEC_F_IS_CURSOR) {
+      // Cursor path: AREQ_StartCursor stashes the AREQ on the new Cursor and
+      // emits the first chunk via runCursor. We cannot reuse executePlan here
+      // because its cursor branch calls ConcurrentCmdCtx_KeepRedisCtx, and
+      // Phase B has no ConcurrentCmdCtx (the dispatcher already returned).
+      // Cursor ownership of replyCtx: on success the AREQ outlives Phase B and
+      // AREQ_Free frees replyCtx; on failure AREQ_DecrRef below triggers the
+      // same AREQ_Free path. Either way, do not free replyCtx locally.
+      StrongRef dummy_spec_ref = {.rm = NULL};
+      if (AREQ_StartCursor(r, reply, dummy_spec_ref, &status, true) != REDISMODULE_OK) {
+        AREQ_ReplyOrStoreError(r, replyCtx, &status);
+        AREQ_DecrRef(r);
+      }
+    } else {
+      // Converge on the existing non-cursor path: sendChunk + AREQ_DecrRef.
+      // executePlan always returns REDISMODULE_OK in the non-cursor branch.
+      executePlan(r, NULL, reply, &status);
+      // r is freed by AREQ_DecrRef inside executePlan; do not access r after this.
+      RedisModule_FreeThreadSafeContext(replyCtx);
+    }
     RedisModule_EndReply(reply);
   } else {
     // Timeout path skipped executePlan; release the AREQ ourselves so rpnetFree

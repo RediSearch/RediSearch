@@ -375,6 +375,12 @@ int rpnetNext(ResultProcessor *self, SearchResult *r) {
   }
 #endif
 
+  // Pin the running WITHCOUNT total into qctx on every call. finishSendChunk
+  // zeroes qctx->totalResults between cursor chunks, so without this every
+  // FT.CURSOR READ after the first would report 0. Idempotent for the
+  // non-cursor and non-WITHCOUNT paths.
+  rpnetSurfaceWithCountTotal(nc);
+
   // Surface RETURN_STRICT timeouts on follow-up cursor reads where the channel
   // may already hold a buffered reply (the NULL-reply check below wouldn't fire
   // and we'd silently return rows). Skipped during the timer's own drain.

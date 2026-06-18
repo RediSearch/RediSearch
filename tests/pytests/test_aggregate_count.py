@@ -870,27 +870,38 @@ def test_profile_resp2():
 def test_profile_resp3():
     _test_profile(3)
 
-def test_withcursor(env):
-    env = Env()
-    docs = 5
+def _test_withcursor(protocol):
+    env = Env(protocol=protocol)
+    docs = 25
     _setup_index_and_data(env, docs)
 
-    invalid_queries = [
-        ['FT.AGGREGATE', 'idx', '*', 'WITHCOUNT', 'WITHCURSOR', 'COUNT', 10],
-        ['FT.AGGREGATE', 'idx', '*', 'WITHCOUNT', 'WITHCURSOR'],
-        ['FT.AGGREGATE', 'idx', '*', 'WITHCURSOR', 'COUNT', 10, 'WITHCOUNT'],
+    # WITHCOUNT + WITHCURSOR was previously rejected at parse time; make sure
+    # the combination is now accepted and that every chunk reports the same
+    # total_results (the full pipeline count, not the chunk size).
+    queries = [
+        ['FT.AGGREGATE', 'idx', '*', 'WITHCOUNT', 'WITHCURSOR', 'COUNT', 5],
+        ['FT.AGGREGATE', 'idx', '*', 'WITHCURSOR', 'COUNT', 5, 'WITHCOUNT'],
         ['FT.AGGREGATE', 'idx', '*', 'WITHCURSOR', 'WITHCOUNT'],
     ]
-    error_message = 'FT.AGGREGATE does not support using WITHCOUNT and WITHCURSOR together'
-    for query in invalid_queries:
-        env.expect(*query).error().contains(error_message)
+    for query in queries:
+        res, cursor = env.cmd(*query)
+        first_total = _get_total_results(res)
+        env.assertEqual(first_total, docs,
+                        message=f'{query}: first chunk total_results')
+        rows_seen = len(_get_results(res))
+        while cursor != 0:
+            res, cursor = env.cmd('FT.CURSOR', 'READ', 'idx', str(cursor))
+            env.assertEqual(_get_total_results(res), first_total,
+                            message=f'{query}: per-chunk total_results drift')
+            rows_seen += len(_get_results(res))
+        env.assertEqual(rows_seen, docs,
+                        message=f'{query}: total rows across chunks')
 
-    valid_queries = [
-        ['FT.AGGREGATE', 'idx', '*', 'WITHCURSOR', 'COUNT', 10],
-        ['FT.AGGREGATE', 'idx', '*', 'WITHCURSOR'],
-    ]
-    for query in valid_queries:
-        env.expect(*query).notContains(error_message)
+def test_withcursor_resp2():
+    _test_withcursor(2)
+
+def test_withcursor_resp3():
+    _test_withcursor(3)
 
 def _test_pagers(protocol):
     env = Env(protocol=protocol)
