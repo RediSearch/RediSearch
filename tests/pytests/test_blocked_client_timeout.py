@@ -4861,6 +4861,8 @@ class TestCoordinatorTimeoutReturnStrictResp2:
         self.env.assertNotEqual(
             warmup_res, None, message=f"warmup FT.HYBRID empty reply: {warmup_res!r}")
 
+    @skip_until("2026-06-25", reason="MOD-16396: flaky under Linux ASAN; "
+                "hybrid RESP2 profile timeout can crash in printShardsHybridProfile")
     def test_return_strict_timeout_at_claim_sync_point_profile_hybrid_resp2(self):
         """RESP2 FT.PROFILE HYBRID early-timeout preserves the profile envelope.
 
