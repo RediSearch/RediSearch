@@ -9,6 +9,7 @@
 #include "field_spec_info.h"
 #include "reply_macros.h"
 #include "coord/rmr/reply.h"
+#include "search_disk.h"
 
 static FieldType getFieldType(const char *type){
     if (strcmp(type, "vector") == 0) {
@@ -109,6 +110,16 @@ void FieldSpecStats_Reply(const FieldSpecStats* stats, RedisModule_Reply *reply)
             break;
         default:
             break;
+    }
+
+    // Per-field disk metrics (disk-backed indexes only; gated on `available`).
+    if (stats->textDisk.available) {
+        REPLY_KVINT("disk_exclusive_bytes", stats->textDisk.exclusive_bytes);
+        REPLY_KVINT("disk_shared_bytes", stats->textDisk.shared_bytes);
+    }
+    if (stats->cfDisk.available) {
+        REPLY_KVINT("disk_total_bytes", stats->cfDisk.total_bytes);
+        REPLY_KVINT("disk_num_keys", stats->cfDisk.estimate_num_keys);
     }
 }
 
@@ -234,12 +245,33 @@ FieldSpecStats IndexSpec_GetFieldStats(FieldSpec *fs){
   }
 }
 
-// Get the information of the field `fs`.
-FieldSpecInfo FieldSpec_GetInfo(FieldSpec *fs, bool obfuscate) {
+// Populate per-field disk metrics on `stats` for the field `fs` in index `sp`.
+// No-op unless the index is disk-backed. Text fields are keyed by their bit
+// position (`ftId`) in the shared fulltext column family; tag/numeric/vector
+// fields are keyed by their unique field index. The disk wrappers null-guard
+// the underlying callback, so an unavailable metric simply leaves `available`
+// false and nothing is emitted.
+static void FieldSpecStats_PopulateDiskMetrics(FieldSpecStats *stats, const IndexSpec *sp,
+                                               const FieldSpec *fs) {
+  if (!sp->diskSpec) {
+    return;
+  }
+  if (FieldSpec_IsIndexableText(fs)) {
+    stats->textDisk = SearchDisk_GetTextFieldMetrics(sp->diskSpec, fs->ftId);
+  }
+  if (FIELD_IS(fs, INDEXFLD_T_TAG | INDEXFLD_T_NUMERIC | INDEXFLD_T_VECTOR)) {
+    stats->cfDisk = SearchDisk_GetCfFieldMetrics(sp->diskSpec, fs->index);
+  }
+}
+
+// Get the information of the field `fs` in the index `sp`.
+FieldSpecInfo FieldSpec_GetInfo(const IndexSpec *sp, FieldSpec *fs, bool obfuscate) {
   FieldSpecInfo info = {0};
   FieldSpecInfo_SetIdentifier(&info, FieldSpec_FormatPath(fs, obfuscate));
   FieldSpecInfo_SetAttribute(&info, FieldSpec_FormatName(fs, obfuscate));
   FieldSpecInfo_SetIndexError(&info, fs->indexError);
-  FieldSpecInfo_SetStats(&info, IndexSpec_GetFieldStats(fs));
+  FieldSpecStats stats = IndexSpec_GetFieldStats(fs);
+  FieldSpecStats_PopulateDiskMetrics(&stats, sp, fs);
+  FieldSpecInfo_SetStats(&info, stats);
   return info;
 }

@@ -754,6 +754,41 @@ uint64_t SearchDisk_GetInvertedIndexTotalBlocks(RedisSearchDiskIndexSpec* index)
 void SearchDisk_OutputInfoMetrics(RedisModuleInfoCtx* ctx);
 
 /**
+ * @brief Get per-field disk metrics for a TEXT field.
+ *
+ * Text fields share the single `fulltext` column family, so per-field byte
+ * usage is attributed from each posting's field mask. The field is identified
+ * by its bit position in the mask (`FieldSpec.ftId`).
+ *
+ * Safe to call when the disk API or the per-field callback is unavailable: in
+ * that case (and for an unknown bit) it returns `{ .available = false }` rather
+ * than asserting, so callers can degrade gracefully.
+ *
+ * @param index Pointer to the disk index spec
+ * @param ftId  Text field id — the field's bit position in the field mask
+ * @return Per-field text byte metrics; `available` is false when not collected
+ */
+PerFieldTextDiskMetrics SearchDisk_GetTextFieldMetrics(RedisSearchDiskIndexSpec* index,
+                                                       t_fieldId ftId);
+
+/**
+ * @brief Get per-field disk metrics for a TAG, NUMERIC, or VECTOR field.
+ *
+ * These field types each own a dedicated column family named with the field's
+ * unique `fieldIndex`; the metrics are read from that CF.
+ *
+ * Safe to call when the disk API or the per-field callback is unavailable: in
+ * that case (and for an unknown index or unsupported field type) it returns
+ * `{ .available = false }` rather than asserting.
+ *
+ * @param index      Pointer to the disk index spec
+ * @param fieldIndex Unique field index identifying the field's column family
+ * @return Per-field column-family metrics; `available` is false when not collected
+ */
+PerFieldCfDiskMetrics SearchDisk_GetCfFieldMetrics(RedisSearchDiskIndexSpec* index,
+                                                   t_fieldIndex fieldIndex);
+
+/**
  * @brief Get the total disk usage for a disk index
  *
  * Returns the sum of live SST file sizes across all column families.

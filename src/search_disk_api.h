@@ -834,6 +834,40 @@ typedef struct VectorDiskAPI {
                                   void *vecIndex, const VecSimParamsDisk *params);
 } VectorDiskAPI;
 
+/**
+ * @brief Per-field disk metrics for a TEXT field.
+ *
+ * All text fields share the single `fulltext` column family, so per-field byte
+ * usage cannot be read from a dedicated CF. Instead it is attributed from the
+ * `field_mask` carried inside each posting: bytes are bucketed as `exclusive`
+ * (posting belongs to a single field) or `shared` (posting belongs to two or
+ * more fields, charged in full to every participating field). These counters
+ * are maintained on the disk side (write/GC/RDB) — see MOD-16392.
+ *
+ * Bytes are *logical* serialized posting bytes, not physical SST bytes, and are
+ * eventually consistent: deletes are reflected once GC compacts the affected
+ * postings, not at delete time.
+ */
+typedef struct PerFieldTextDiskMetrics {
+  bool available;            // false when the field is unknown or counters are unavailable
+  uint64_t exclusive_bytes;  // logical posting bytes charged solely to this field
+  uint64_t shared_bytes;     // logical posting bytes for postings shared with other fields
+} PerFieldTextDiskMetrics;
+
+/**
+ * @brief Per-field disk metrics for a TAG, NUMERIC, or VECTOR field.
+ *
+ * Each of these field types owns its own column family (`tag_<index>`,
+ * `numeric_<index>`, `vector_<index>`), so per-field metrics are read directly
+ * from that field's CF. No new counters are maintained for this type; the
+ * values come from the storage layer's per-CF statistics on demand.
+ */
+typedef struct PerFieldCfDiskMetrics {
+  bool available;              // false when the field has no CF or data is unavailable
+  uint64_t total_bytes;        // field's byte footprint: estimated live (uncompacted) size of its CF
+  uint64_t estimate_num_keys;  // estimated number of keys in the field's CF
+} PerFieldCfDiskMetrics;
+
 typedef struct MetricsDiskAPI {
   /**
    * @brief Collect metrics for an index and store them in the disk context
@@ -916,6 +950,42 @@ typedef struct MetricsDiskAPI {
    * @param ctx Redis module info context
    */
   void (*outputInfoMetrics)(RedisSearchDisk *disk, RedisModuleInfoCtx *ctx);
+
+  /**
+   * @brief Get per-field disk metrics for a TEXT field.
+   *
+   * Text fields share the single `fulltext` column family; the field is
+   * identified by its bit position in the field mask (`FieldSpec.ftId`), which
+   * is how the disk-side exclusive/shared byte counters are keyed.
+   *
+   * Data-only: performs no Redis reply formatting. Returns `{ .available =
+   * false }` for an unknown bit or when the counters are not available, without
+   * crashing.
+   *
+   * @param index Pointer to the index spec
+   * @param ftId  Text field id — the field's bit position in the field mask
+   * @return Per-field text byte metrics
+   */
+  PerFieldTextDiskMetrics (*getTextFieldMetrics)(RedisSearchDiskIndexSpec *index, t_fieldId ftId);
+
+  /**
+   * @brief Get per-field disk metrics for a TAG, NUMERIC, or VECTOR field.
+   *
+   * These field types each own their own column family, named with the field's
+   * unique `fieldIndex`. The disk side resolves the field's CF from
+   * `fieldIndex` (which is unique across field types) and reads its per-CF
+   * statistics.
+   *
+   * Data-only: performs no Redis reply formatting. Returns `{ .available =
+   * false }` for an unknown index, an unsupported field type, or when no CF
+   * data is available, without crashing.
+   *
+   * @param index      Pointer to the index spec
+   * @param fieldIndex Unique field index identifying the field's column family
+   * @return Per-field column-family metrics
+   */
+  PerFieldCfDiskMetrics (*getCfFieldMetrics)(RedisSearchDiskIndexSpec *index,
+                                             t_fieldIndex fieldIndex);
 } MetricsDiskAPI;
 
 typedef struct RedisSearchDiskAPI {
