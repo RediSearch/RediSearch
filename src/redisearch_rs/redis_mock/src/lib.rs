@@ -217,6 +217,7 @@ pub fn init_redis_module_mock() {
         redis_module::raw::RedisModule_SubscribeToServerEvent =
             Some(RedisModule_SubscribeToServerEvent)
     }
+    unsafe { redis_module::raw::RedisModule_GetSelectedDb = Some(RedisModule_GetSelectedDb) };
 
     // Register reply functions.
     unsafe {
