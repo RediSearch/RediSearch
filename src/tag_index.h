@@ -145,7 +145,8 @@ static inline void TagIndex_FreePreprocessedData(char **s) {
  * @param ctx   RedisModuleCtx pointer (required by BigModule APIs in disk mode)
  * @param batch Open per-document write batch (disk mode only; pass NULL for memory mode) */
 bool TagIndex_Index(RedisModuleCtx *ctx, TagIndex *idx, SearchDiskWriteBatchHandle *batch,
-                    const char **values, size_t n, t_docId docId, IndexStats *stats);
+                    const char **values, size_t n, t_docId docId, bool hasFieldExpiration,
+                    IndexStats *stats);
 
 /* Apply the in-memory tag-trie updates for a vector of tag tokens. Infallible.
  *

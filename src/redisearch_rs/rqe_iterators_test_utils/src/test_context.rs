@@ -332,10 +332,10 @@ impl TestContext {
         // Add numeric data to the range tree
         for record in records {
             let record_val = record.as_numeric().unwrap();
-            numeric_range_tree.add(record.doc_id as DocId, record_val, false, 0);
+            numeric_range_tree.add(record.doc_id as DocId, record_val, false, false, 0);
 
             if multi {
-                numeric_range_tree.add(record.doc_id as DocId, record_val, true, 0);
+                numeric_range_tree.add(record.doc_id as DocId, record_val, false, true, 0);
             }
         }
 
@@ -660,7 +660,7 @@ impl TestContext {
 
         // Write the entry to the inverted index
         unsafe {
-            ffi::InvertedIndex_WriteForwardIndexEntry(idx, &mut entry);
+            ffi::InvertedIndex_WriteForwardIndexEntry(idx, &mut entry, false);
         }
 
         varint_ffi::VVW_Free(Some(vw_nonnull));

@@ -287,12 +287,14 @@ int forwardIndexTokenFunc(ForwardIndexTokenizerCtx *tokCtx, const Token *tokInfo
  * growth and the number of new blocks the write created — callers maintaining per-spec
  * `total_inverted_index_blocks` should add `.blocks_added` to their counter.
  */
-AddRecordOutcome InvertedIndex_WriteForwardIndexEntry(InvertedIndex *idx, ForwardIndexEntry *ent) {
+AddRecordOutcome InvertedIndex_WriteForwardIndexEntry(InvertedIndex *idx, ForwardIndexEntry *ent,
+                                                      bool hasFieldExpiration) {
   RSIndexResult rec = {.data.term_tag = RSResultData_Term,
                        .data.term.borrowed.tag = RSTermRecord_Borrowed,
                        .docId = ent->docId,
                        .freq = ent->freq,
                        .fieldMask = ent->fieldMask,
+                       .hasFieldExpiration = hasFieldExpiration,
                        .metrics = MetricsVec_New()};
 
   if (ent->vw) {

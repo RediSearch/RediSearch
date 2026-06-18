@@ -32,8 +32,9 @@ extern RedisModuleCtx *RSDummyContext;
 
 #include <unistd.h>
 
-static void writeIndexEntry(IndexSpec *spec, InvertedIndex *idx, ForwardIndexEntry *entry) {
-  AddRecordOutcome r = InvertedIndex_WriteForwardIndexEntry(idx, entry);
+static void writeIndexEntry(IndexSpec *spec, InvertedIndex *idx, ForwardIndexEntry *entry,
+                            bool hasFieldExpiration) {
+  AddRecordOutcome r = InvertedIndex_WriteForwardIndexEntry(idx, entry, hasFieldExpiration);
 
   // Update index statistics:
 
@@ -126,6 +127,27 @@ static void applyTextIndex(RSAddDocumentCtx *aCtx, RedisSearchCtx *ctx) {
   FieldsGlobalStats_UpdateFieldDocsIndexed(INDEXFLD_T_FULLTEXT, spec->stats.scoring.numTerms - prevNumTerms);
 }
 
+// Build the mask of this document's TEXT fields that carry a field-level
+// expiration, in FIELD_BIT space (the same space as ForwardIndexEntry.fieldMask).
+// Only text fields participate in term field masks — non-text fields have no
+// `ftId` — so a term posting's inline expiration bit is set iff its field mask
+// intersects this mask.
+static t_fieldMask docExpiringTextFieldMask(const IndexSpec *spec, t_docId docId) {
+  const arrayof(FieldExpiration) fes = DocTable_GetFieldExpirations(&spec->docs, docId);
+  t_fieldMask mask = 0;
+  if (!fes) {
+    return mask;
+  }
+  const size_t n = array_len((arrayof(FieldExpiration))fes);
+  for (size_t i = 0; i < n; ++i) {
+    const FieldSpec *fs = &spec->fields[fes[i].index];
+    if (FieldSpec_IsIndexableText(fs)) {
+      mask |= FIELD_BIT(fs);
+    }
+  }
+  return mask;
+}
+
 /**
  * Memory-mode full-text indexing: in a single pass over the forward index,
  * write each term's posting into the inverted index and apply the matching
@@ -142,6 +164,13 @@ static void applyTextIndex(RSAddDocumentCtx *aCtx, RedisSearchCtx *ctx) {
 static void indexText(RSAddDocumentCtx *aCtx, RedisSearchCtx *ctx) {
   RS_LOG_ASSERT(ctx, "ctx should not be NULL");
   IndexSpec *spec = ctx->spec;
+  // A term posting's inline field-expiration bit is set when the term occurs in
+  // a field that carries a field-level expiration for this document, so that
+  // expiration-aware iterators can skip the TTL-table lookup for postings whose
+  // fields never expire. Build that mask once (text fields only;
+  // `doc->fieldExpirations` was moved into the TTL table by `doAssignIds`, so we
+  // read it back from the doc table), then test each entry's field mask.
+  const t_fieldMask expiringTextFields = docExpiringTextFieldMask(spec, aCtx->doc->docId);
   size_t prevNumTerms = spec->stats.scoring.numTerms;
   ForwardIndexIterator it = ForwardIndex_Iterate(aCtx->fwIdx);
   for (ForwardIndexEntry *entry = ForwardIndexIterator_Next(&it); entry;
@@ -151,7 +180,7 @@ static void indexText(RSAddDocumentCtx *aCtx, RedisSearchCtx *ctx) {
     if (invidx) {
       entry->docId = aCtx->doc->docId;
       RS_LOG_ASSERT(entry->docId, "docId should not be 0");
-      writeIndexEntry(spec, invidx, entry);
+      writeIndexEntry(spec, invidx, entry, (entry->fieldMask & expiringTextFields) != 0);
     }
     if (isNew && strlen(entry->term) != 0) {
       IndexSpec_AddTerm(spec, entry->term, entry->len);

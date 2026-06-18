@@ -709,6 +709,28 @@ static bool specHasIndexMissing(const IndexSpec *spec) {
   return false;
 }
 
+// Returns true if `after` contains a field index that is not present in
+// `before` — i.e. some field gained a field-level expiration. Both arrays are
+// sorted ascending by field index; either may be NULL (treated as empty). Used
+// to decide whether an HEXPIRE/HPERSIST must reindex the document so the inline
+// per-field expiration bit on that field's postings flips from 0 to 1.
+static bool fieldExpirationGained(const arrayof(FieldExpiration) before,
+                                  const arrayof(FieldExpiration) after) {
+  const size_t blen = before ? array_len((arrayof(FieldExpiration))before) : 0;
+  const size_t alen = after ? array_len((arrayof(FieldExpiration))after) : 0;
+  size_t bi = 0;
+  for (size_t ai = 0; ai < alen; ++ai) {
+    const t_fieldIndex idx = after[ai].index;
+    while (bi < blen && before[bi].index < idx) {
+      ++bi;
+    }
+    if (bi >= blen || before[bi].index != idx) {
+      return true;  // `idx` is in `after` but not in `before`
+    }
+  }
+  return false;
+}
+
 void Indexes_UpdateMatchingHashFieldExpiration(RedisModuleCtx *ctx, RedisModuleString *key,
                                                DocumentType type) {
 
@@ -795,6 +817,32 @@ void Indexes_UpdateMatchingHashFieldExpiration(RedisModuleCtx *ctx, RedisModuleS
 
     const RSDocumentMetadata *cdmd = DocTable_BorrowByKeyR(&spec->docs, key);
     if (cdmd) {
+      // Each inverted-index posting carries a per-field "this field has a TTL"
+      // bit, baked at index time, that expiration-aware iterators use to skip
+      // the TTL-table lookup when it is clear. A field that gains its *first*
+      // field-level expiration (presence 0->1 for that field) therefore needs a
+      // reindex: that field's postings still hold bit=0, so iterators would skip
+      // the check and wrongly return the now-expiring field. The reverse 1->0
+      // transition and value-only 1->1 changes stay correct under the cheap
+      // metadata-only refresh below — a stale set bit only costs a harmless extra
+      // TTL lookup that resolves to "not expired" — so only a field gaining its
+      // first expiration falls back to a full reindex.
+      const arrayof(FieldExpiration) before =
+          DocTable_GetFieldExpirations(&spec->docs, cdmd->id);
+
+      if (fieldExpirationGained(before, sorted)) {
+        DMD_Return(cdmd);
+        RedisSearchCtx_UnlockSpec(&sctx);
+        array_free(sorted);
+        // IndexSpec_UpdateDoc manages its own locking and re-reads the hash's
+        // field TTLs, so it rewrites the postings (with the bit set) and
+        // refreshes the TTL table in one pass.
+        if (SchemaRule_ShouldIndex(spec, key, type)) {
+          IndexSpec_UpdateDoc(spec, ctx, key, type);
+        }
+        continue;
+      }
+
       // Hands ownership of `sorted` to the doc table (or frees it if empty).
       DocTable_UpdateFieldExpiration(&spec->docs, (RSDocumentMetadata *)cdmd, sorted);
       sorted = NULL;

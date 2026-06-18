@@ -14,7 +14,7 @@
 use std::ptr::NonNull;
 
 use ffi::{IndexFlags_Index_WideSchema, RedisSearchCtx};
-use field::{FieldFilterContext, FieldMaskOrIndex};
+use field::{FieldExpirationPredicate, FieldFilterContext, FieldMaskOrIndex};
 use index_result::RSIndexResult;
 use rqe_core::RS_INVALID_FIELD_INDEX;
 
@@ -126,6 +126,27 @@ impl ExpirationChecker for FieldExpirationChecker {
         // `DocTable_CheckFieldExpirationPredicate` and treat that as "not
         // expired" — passing NULL into the FFI verifier would deref it.
         if spec.docs.ttl.is_null() {
+            return false;
+        }
+
+        // The reader set this bit from the block's per-entry expiration bitset: it is
+        // set iff one of the fields this entry belongs to has a field-level expiration
+        // for this document.
+        //
+        // We only short-circuit on it for the `Default` predicate. There, a clear bit
+        // means none of the entry's fields can be expired, and a query's matched
+        // fields are always a subset of the entry's fields, so `Verify*` would report
+        // the document as valid (not expired) — we skip the TTL-table lookup entirely.
+        // This removes the per-record probe for entries whose fields never expire (the
+        // common case once any document in the index uses HFE).
+        //
+        // The `Missing` predicate (`ismissing`) is excluded: it reads a per-field
+        // missing-docs index whose postings do not carry this bit, and its `Verify`
+        // semantics differ for documents that *do* have a TTL entry (a clear bit would
+        // not imply "valid"), so it must always run the full check.
+        if self.filter_ctx.predicate == FieldExpirationPredicate::Default
+            && !result.has_field_expiration
+        {
             return false;
         }
 
