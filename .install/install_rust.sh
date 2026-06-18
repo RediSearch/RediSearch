@@ -7,6 +7,17 @@ REPO_ROOT="$(cd -- "$SCRIPT_DIR/.." && pwd)"
 NIGHTLY_VERSION=$(cat "$REPO_ROOT/.rust-nightly")
 REQUIRED_CHEADERGEN_VERSION=$(cat "$REPO_ROOT/.cheadergen-version")
 
+should_generate_headers() {
+    case "${REDISEARCH_GENERATE_HEADERS:-1}" in
+        0|OFF|off|false|FALSE|False|NO|no)
+            return 1
+            ;;
+        *)
+            return 0
+            ;;
+    esac
+}
+
 # Skip the rustup-init download/run if rustup and cargo are already on PATH,
 # or reachable from the standard ~/.cargo install location. A previous run
 # of this script may have installed them in a parent shell whose PATH we
@@ -46,18 +57,22 @@ rustup component add --toolchain stable clippy rustfmt
 # cheadergen is required when REDISEARCH_GENERATE_HEADERS=ON, the default
 # for a top-level RediSearch build. It uses rustdoc JSON from the pinned
 # nightly toolchain to regenerate the Rust C headers.
-rustup toolchain install "$NIGHTLY_VERSION" \
-    --allow-downgrade \
-    --component rust-docs-json
+if should_generate_headers; then
+    rustup toolchain install "$NIGHTLY_VERSION" \
+        --allow-downgrade \
+        --component rust-docs-json
 
-have_cheadergen="$(cheadergen --version 2>/dev/null | awk '{print $NF}' || true)"
-if [[ "$have_cheadergen" == "$REQUIRED_CHEADERGEN_VERSION" ]]; then
-    echo "cheadergen $have_cheadergen already installed - skipping"
-else
-    if [[ -n "$have_cheadergen" ]]; then
-        echo "cheadergen $have_cheadergen does not match required $REQUIRED_CHEADERGEN_VERSION - installing"
+    have_cheadergen="$(cheadergen --version 2>/dev/null | awk '{print $NF}' || true)"
+    if [[ "$have_cheadergen" == "$REQUIRED_CHEADERGEN_VERSION" ]]; then
+        echo "cheadergen $have_cheadergen already installed - skipping"
     else
-        echo "Installing cheadergen $REQUIRED_CHEADERGEN_VERSION"
+        if [[ -n "$have_cheadergen" ]]; then
+            echo "cheadergen $have_cheadergen does not match required $REQUIRED_CHEADERGEN_VERSION - installing"
+        else
+            echo "Installing cheadergen $REQUIRED_CHEADERGEN_VERSION"
+        fi
+        cargo install --locked "cheadergen_cli@${REQUIRED_CHEADERGEN_VERSION}"
     fi
-    cargo install --locked "cheadergen_cli@${REQUIRED_CHEADERGEN_VERSION}"
+else
+    echo "Skipping cheadergen setup because REDISEARCH_GENERATE_HEADERS is disabled"
 fi
