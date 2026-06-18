@@ -260,6 +260,13 @@ void AddDocumentCtx_Finish(RSAddDocumentCtx *aCtx) {
 static void AddDocumentCtx_UpdateNoIndex(RSAddDocumentCtx *aCtx, RedisSearchCtx *sctx);
 
 static int AddDocumentCtx_ReplaceMerge(RSAddDocumentCtx *aCtx, RedisSearchCtx *sctx) {
+  // Partial-update merge is only reached via `handlePartialUpdate`, i.e. the
+  // `FT.ADD ... REPLACE PARTIAL` path, which SearchDisk does not support (disk
+  // indexes documents from the keyspace via `IndexSpec_UpdateDoc`, which submits
+  // `DOCUMENT_ADD_REPLACE` without PARTIAL). Because this never runs under disk,
+  // there is never a pinned key handle to reuse, so the `Document_LoadSchemaField*`
+  // calls below pass `openKey = NULL` and open the key by name.
+  RS_ASSERT(!SearchDisk_IsEnabled());
   /**
    * The REPLACE operation contains fields which must be reindexed. This means
    * that a new document ID needs to be assigned, and as a consequence, all
@@ -273,9 +280,9 @@ static int AddDocumentCtx_ReplaceMerge(RSAddDocumentCtx *aCtx, RedisSearchCtx *s
 
   DocumentType ruleType = sctx->spec->rule->type;
   if (ruleType == DocumentType_Hash) {
-    rv = Document_LoadSchemaFieldHash(aCtx->doc, sctx, &status);
+    rv = Document_LoadSchemaFieldHash(aCtx->doc, sctx, NULL, &status);
   } else if (ruleType == DocumentType_Json) {
-    rv = Document_LoadSchemaFieldJson(aCtx->doc, sctx, &status);
+    rv = Document_LoadSchemaFieldJson(aCtx->doc, sctx, NULL, &status);
   }
   if (rv != REDISMODULE_OK) {
     // Add error to the spec global stats

@@ -212,9 +212,18 @@ void Document_Clear(Document *doc);
  * the document must then be freed using Document_Free().
  *
  * The document must already have the docKey set
+ *
+ * `openKey` is an optional already-open handle for the document key. Pass it when
+ * the caller already holds the key open and pinned (e.g. the async scan key
+ * callback) so the load reuses the handle instead of opening the same key a second
+ * time, which is unsafe while the caller's handle is live; pass NULL otherwise. The
+ * caller retains ownership of `openKey` and must keep it valid for the duration of
+ * the call.
  */
-int Document_LoadSchemaFieldHash(Document *doc, RedisSearchCtx *sctx, QueryError* status);
-int Document_LoadSchemaFieldJson(Document *doc, RedisSearchCtx *sctx, QueryError* status);
+int Document_LoadSchemaFieldHash(Document *doc, RedisSearchCtx *sctx, RedisModuleKey *openKey,
+                                 QueryError* status);
+int Document_LoadSchemaFieldJson(Document *doc, RedisSearchCtx *sctx, RedisModuleKey *openKey,
+                                 QueryError* status);
 
 /**
  * Append a `FieldExpiration` entry for `field` (at position `ii` in

@@ -3381,10 +3381,10 @@ int IndexSpec_UpdateDoc(IndexSpec *spec, RedisModuleCtx *ctx, RedisModuleString 
   int rv = REDISMODULE_ERR;
   switch (type) {
   case DocumentType_Hash:
-    rv = Document_LoadSchemaFieldHash(&doc, &sctx, &status);
+    rv = Document_LoadSchemaFieldHash(&doc, &sctx, openKey, &status);
     break;
   case DocumentType_Json:
-    rv = Document_LoadSchemaFieldJson(&doc, &sctx, &status);
+    rv = Document_LoadSchemaFieldJson(&doc, &sctx, openKey, &status);
     break;
   case DocumentType_Unsupported:
     RS_ABORT("Should receive valid type");
