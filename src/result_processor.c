@@ -92,7 +92,7 @@ static bool getDocumentMetadata(IndexSpec* spec, DocTable* docs, RedisSearchCtx 
     diskDmd->sortVector = RSSortingVector_Empty();
     diskDmd->ref_count = 1;
     // Start from checking the deleted-ids (in memory), then perform IO
-    const bool foundDocument = !SearchDisk_DocIdDeleted(spec->diskSpec, it->current->docId) && SearchDisk_GetDocumentMetadata(spec->diskSpec, it->current->docId, diskDmd, &sctx->time.current);
+    const bool foundDocument = !SearchDisk_DocIdDeleted(spec->diskSpec, it->current->docId) && SearchDisk_GetDocumentMetadata(spec->diskSpec, sctx, it->current->docId, diskDmd, &sctx->time.current);
     if (!foundDocument) {
       DMD_Return(diskDmd);
       return false;
@@ -415,7 +415,7 @@ ResultProcessor *RPQueryIterator_New(QueryIterator *root, const RedisModuleSlotR
       SearchDisk_GetAsyncIOEnabled()) {
     // Create async pool and setup async I/O
     RedisSearchDiskAsyncReadPool asyncPool =
-        SearchDisk_CreateAsyncReadPool(sctx->spec->diskSpec, MAX_ONGOING_READ_SIZE);
+        SearchDisk_CreateAsyncReadPool(sctx->spec->diskSpec, sctx, MAX_ONGOING_READ_SIZE);
 
     if (asyncPool) {
       // Async disk flow with buffering
@@ -1019,6 +1019,11 @@ typedef struct RPSafeLoader {
 
   // Search context
   RedisSearchCtx *sctx;
+
+  // Request sync context; non-NULL only for RETURN_STRICT requests that use the
+  // aggregate-results sync. When set, the loader performs the GIL deadlock-
+  // avoidance handshake around the GIL (see aggregate.h).
+  RequestSyncCtx *syncCtx;
 } RPSafeLoader;
 
 /************************* Safe Loader private functions *************************/
@@ -1174,13 +1179,49 @@ static int rpSafeLoaderNext_Accumulate(ResultProcessor *rp, SearchResult *res) {
   bool isQueryProfile = rp->parent->isProfile;
   rs_wall_clock rpStartTime;
   if (isQueryProfile) rs_wall_clock_init(&rpStartTime);
+
+#ifdef ENABLE_ASSERT
+  // Sync point: pause after buffering, before taking the GIL.
+  // Interruptible so a fired timeout callback can release the worker.
+  SyncPoint_WaitUntil(SYNC_POINT_BEFORE_SAFE_LOADER_GIL_LOCK, SearchTime_IsTimedOut, &sctx->time);
+#endif
+
+  // Deadlock-avoidance handshake (syncCtx non-NULL only for RETURN_STRICT). Mark
+  // that we are about to take the GIL so the timeout callback can preempt us; if
+  // it already timed out, bail instead of blocking. See aggregate.h.
+  if (self->syncCtx && !RequestSyncCtx_SafeLoaderEnterGIL(self->syncCtx)) {
+    return RS_RESULT_TIMEDOUT;
+  }
+
+#ifdef ENABLE_ASSERT
+  // Sync point: pause holding the GIL gate (safeLoaderHoldingGIL == true),
+  // before the Redis lock, so a timeout callback observes it and preempts.
+  SyncPoint_Wait(SYNC_POINT_AFTER_SAFE_LOADER_GIL_HANDSHAKE);
+#endif
+
   // Then, lock Redis to guarantee safe access to Redis keyspace
   RedisModule_ThreadSafeContextLock(sctx->redisCtx);
 
   rpSafeLoader_Load(self);
 
+  // Clear the GIL-gate handshake flag while we still hold the Redis lock. The
+  // timeout callback only runs on the main thread while it holds the GIL, so it
+  // cannot observe the flag during this window; clearing before the unlock
+  // closes the race where a timeout landing in the unlock->clear gap sees a
+  // stale safeLoaderHoldingGIL == true and preempts, dropping already-loaded
+  // results. See aggregate.h.
+  if (self->syncCtx) {
+    RequestSyncCtx_SafeLoaderExitGIL(self->syncCtx);
+  }
+
   // Done loading. Unlock Redis
   RedisModule_ThreadSafeContextUnlock(sctx->redisCtx);
+
+#ifdef ENABLE_ASSERT
+  // Sync point: pause after clearing the flag and unlocking Redis. The
+  // flag is already false, so a timeout callback waits for results, not preempts.
+  SyncPoint_WaitUntil(SYNC_POINT_BEFORE_SAFE_LOADER_EXIT_GIL, SearchTime_IsTimedOut, &sctx->time);
+#endif
 
   if (isQueryProfile) {
     // Add 1ns as epsilon value so we can verify that the GIL time is greater than 0.
@@ -1225,6 +1266,7 @@ static ResultProcessor *RPSafeLoader_New(RedisSearchCtx *sctx, RLookup *lk, cons
 
   sl->last_buffered_rc = RS_RESULT_OK;
   sl->sctx = sctx;
+  sl->syncCtx = NULL;
 
   sl->base_loader.base.Next = rpSafeLoaderNext_Accumulate;
   sl->base_loader.base.Free = rpSafeLoaderFree;
@@ -1302,6 +1344,7 @@ static ResultProcessor *RPSafeLoader_New_FromPlainLoader(RPLoader *loader) {
   sl->curr_result_index = 0;
 
   sl->last_buffered_rc = RS_RESULT_OK;
+  sl->syncCtx = NULL;
 
   sl->base_loader.base.Next = rpSafeLoaderNext_Accumulate;
   sl->base_loader.base.Free = rpSafeLoaderFree;
@@ -1330,6 +1373,19 @@ void SetLoadersForBG(QueryProcessingCtx *qctx) {
   }
   // Update the endProc to the new head in case it was changed
   qctx->endProc = dummyHead.upstream;
+}
+
+// Link the request sync context into every RP_SAFE_LOADER in the pipeline so
+// they can perform the RETURN_STRICT GIL deadlock-avoidance handshake. Called on
+// the BG worker for requests that use the aggregate-results sync protocol.
+void RPSafeLoader_SetSyncCtx(QueryProcessingCtx *qctx, struct RequestSyncCtx *sync) {
+  ResultProcessor *rp = qctx->endProc;
+  while (rp) {
+    if (rp->type == RP_SAFE_LOADER) {
+      ((RPSafeLoader *)rp)->syncCtx = sync;
+    }
+    rp = rp->upstream;
+  }
 }
 
 void SetLoadersForMainThread(QueryProcessingCtx *qctx) {
@@ -1759,6 +1815,13 @@ static void RPSafeDepleter_DepleteFromUpstream(RPSafeDepleter *self, DepleterSyn
     array_append(self->results, r);
     r = rm_calloc(1, sizeof(*r));
     *r = SearchResult_New();
+    // Notice a blocked-client (RETURN_STRICT) timeout promptly: the main-thread
+    // callback flips the borrowed flag, which skipTimeoutChecks does not gate.
+    // The wall-clock deadline is already handled by the upstream's own checks.
+    if (SearchTime_IsTimedOut(&self->depletingThreadCtx->time)) {
+      rc = RS_RESULT_TIMEDOUT;
+      break;
+    }
   }
   rm_free(r);
 
@@ -1780,7 +1843,9 @@ static void RPSafeDepleter_DepleteFromUpstream(RPSafeDepleter *self, DepleterSyn
 /**
  * Background thread function: consumes all results from upstream and stores them in the results array.
  *
- * Checks for timeout before starting execution and relies on upstream timeout detection during processing.
+ * Checks for timeout before starting execution and, while depleting, polls the
+ * blocked-client timeout flag each iteration (the wall-clock deadline is still
+ * handled by the upstream's own checks) so the background thread exits promptly.
  * Signals completion by setting done_depleting to `true` and broadcasting to condition variable.
  */
 static void RPSafeDepleter_Deplete(void *arg) {
@@ -1791,8 +1856,13 @@ static void RPSafeDepleter_Deplete(void *arg) {
   rs_wall_clock depletionStart;
   rs_wall_clock_init(&depletionStart);
 
-  // Check if timeout was exceeded before starting execution (respecting skipTimeoutChecks flag)
-  if (self->depletingThreadCtx->time.skipTimeoutChecks || TimedOut(&self->depletingThreadCtx->time.timeout) == NOT_TIMED_OUT) {
+  // Check if timeout was exceeded before starting execution. The wall-clock
+  // check honors skipTimeoutChecks, but the blocked-client (RETURN_STRICT) flag
+  // is checked unconditionally since skipTimeoutChecks does not gate it.
+  bool timed_out = SearchTime_IsTimedOut(&self->depletingThreadCtx->time) ||
+                   (!self->depletingThreadCtx->time.skipTimeoutChecks &&
+                    TimedOut(&self->depletingThreadCtx->time.timeout) == TIMED_OUT);
+  if (!timed_out) {
     RPSafeDepleter_DepleteFromUpstream(self, sync);
   } else {
     // Timeout before starting - no need to acquire lock or do any work

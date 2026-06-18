@@ -1,4 +1,5 @@
 #include "hybrid/hybrid_request.h"
+#include <stdatomic.h>
 #include "pipeline/pipeline.h"
 #include "pipeline/pipeline_construction.h"
 #include "rlookup.h"
@@ -14,6 +15,8 @@
 #include "cursor.h"
 #include "info/info_redis/block_client.h"
 #include "query_error_ffi.h"
+#include "search_ctx.h"
+#include "query_eval_ffi.h"
 #include "spec.h"
 #include "module.h"
 #include "profile/profile.h"
@@ -40,6 +43,17 @@ int HybridRequest_BuildDepletionPipeline(HybridRequest *req, const HybridPipelin
         if (isProfile) {
           // Set initClock right before parsing this specific subquery
           rs_wall_clock_init(&areq->profileClocks.initClock);
+        }
+
+        // Pin the per-subquery disk view to the same point in time as the in-memory
+        // trie/stats that QAST_Iterate is about to consult. Callers hold the spec read
+        // lock at this point (matching AREQ_Execute_Callback / HREQ_Execute_Callback).
+        // Aborts the hybrid pipeline if any subquery on a disk index can't take a
+        // snapshot — falling back to live reads is unsafe because the parent unlock
+        // is unconditional and subsequent depleter / cursor reads would race with GC.
+        if (SearchCtx_TakeDiskSnapshot(AREQ_SearchCtx(areq), &req->errors[i]) != REDISMODULE_OK) {
+            rc = REDISMODULE_ERR;
+            break;
         }
 
         // Parse subquery: Convert AST to iterator tree
@@ -298,30 +312,44 @@ static void HybridRequest_Free(HybridRequest *req) {
     // If we reach here with cursors still set, it indicates a bug in the cleanup logic.
     RS_ASSERT(req->cursors == NULL);
 
-    // Free all individual AREQ requests and their pipelines
+    // Free all individual AREQ requests and their pipelines.
+    //
+    // Order matters: AREQ_DecrRef → AREQ_Free → Pipeline_Clean must tear down
+    // the subquery's iterators before SearchCtx_Free releases sctx->diskSnapshot,
+    // because disk iterators (term/tag/wildcard) borrow the snapshot pointer at
+    // construction time. Freeing sctx first would dangle those borrows during
+    // iterator teardown. Detach areq->sctx so AREQ_Free leaves it alone, decref
+    // to tear down iterators, then free sctx + thctx ourselves.
     for (size_t i = 0; i < req->nrequests; i++) {
-
-      // Check if we need to manually free the thread-safe context
       AREQ *areq = req->requests[i];
-      if (areq && areq->sctx && areq->sctx->redisCtx) {
-        RedisModuleCtx *thctx = areq->sctx->redisCtx;
-        RedisSearchCtx *sctx = areq->sctx;
+      RedisModuleCtx *thctx = NULL;
+      RedisSearchCtx *sctx = NULL;
+      uint32_t reqflags = 0;
 
-        if (areq->reqflags & QEXEC_F_RUN_IN_BACKGROUND) {
-          // Background thread: schedule async cleanup
+      if (areq && areq->sctx && areq->sctx->redisCtx) {
+        thctx = areq->sctx->redisCtx;
+        sctx = areq->sctx;
+        reqflags = areq->reqflags;
+        areq->sctx = NULL;
+      }
+
+      AREQ_DecrRef(req->requests[i]);
+
+      if (sctx) {
+        if (reqflags & QEXEC_F_RUN_IN_BACKGROUND) {
+          // Background thread: schedule async cleanup. The scheduled callback
+          // runs after the current command completes, so iterator teardown
+          // (which happened inside AREQ_DecrRef above) is already done.
           ScheduleContextCleanup(thctx, sctx);
         } else {
-          // Main thread: safe to free directly
+          // Main thread: iterators are already torn down by the AREQ_DecrRef
+          // above, safe to release the snapshot now.
           SearchCtx_Free(sctx);
           if (thctx) {
             RedisModule_FreeThreadSafeContext(thctx);
           }
         }
-
-        areq->sctx = NULL;
       }
-
-      AREQ_DecrRef(req->requests[i]);
     }
     array_free(req->requests);
 
@@ -477,6 +505,40 @@ void AddValidationErrorContext(AREQ *req, QueryError *status) {
                                        "Weight attributes are not allowed in FT.HYBRID VSIM FILTER");
     }
   }
+}
+
+void HybridRequest_SetTimedOut(HybridRequest *req) {
+  RequestSyncCtx_SetTimedOut(&req->syncCtx);
+  // Propagate to each subquery AREQ so its RPNet's MRChannel_PopWithTimeout
+  // abort flag (&areq->syncCtx.timedOut) is flipped. Without this the BG
+  // worker can stay parked on the channel even after the hybrid-level flag
+  // is set.
+  for (size_t i = 0; i < req->nrequests; i++) {
+    if (req->requests[i]) {
+      AREQ_SetTimedOut(req->requests[i]);
+    }
+  }
+}
+
+bool HybridRequest_TryClaimAggregateResults(HybridRequest *req) {
+  bool expected = false;
+  return atomic_compare_exchange_strong_explicit(&req->syncCtx.aggregatingResults, &expected, true,
+                                                 memory_order_relaxed, memory_order_relaxed);
+}
+
+void HybridRequest_SignalAggregateResultsComplete(HybridRequest *req) {
+  pthread_mutex_lock(&req->syncCtx.aggregateResultsLock);
+  req->syncCtx.aggregateResultsDone = true;
+  pthread_cond_broadcast(&req->syncCtx.aggregateResultsCond);
+  pthread_mutex_unlock(&req->syncCtx.aggregateResultsLock);
+}
+
+void HybridRequest_WaitForAggregateResultsComplete(HybridRequest *req) {
+  pthread_mutex_lock(&req->syncCtx.aggregateResultsLock);
+  while (!req->syncCtx.aggregateResultsDone) {
+    pthread_cond_wait(&req->syncCtx.aggregateResultsCond, &req->syncCtx.aggregateResultsLock);
+  }
+  pthread_mutex_unlock(&req->syncCtx.aggregateResultsLock);
 }
 
 #ifdef __cplusplus

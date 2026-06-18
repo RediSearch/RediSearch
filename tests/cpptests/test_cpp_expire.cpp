@@ -38,7 +38,7 @@ TEST_F(ExpireTest, testSkipTo) {
 
   RMCK::ArgvList args(ctx, "FT.CREATE", "expire_idx", "ON", "HASH", "SKIPINITIALSCAN",
                       "SCHEMA", "t1", "TAG");
-  IndexSpec *spec = IndexSpec_CreateNew(ctx, args, args.size(), &qerr);
+  IndexSpec *spec = Indexes_CreateNewSpec(ctx, args, args.size(), &qerr);
   CurrentThread_SetIndexSpec(spec->own_ref);
   ASSERT_NE(spec, nullptr);
   const FieldSpec *fs = IndexSpec_GetFieldWithLength(spec, "t1", 2);
@@ -73,7 +73,7 @@ TEST_F(ExpireTest, testSkipTo) {
 
   TagIndex *idx = TagIndex_Open(fs);
   ASSERT_NE(idx, nullptr);
-  QueryIterator *it = TagIndex_OpenReader(idx, sctx, "one", strlen("one"), 1.0, 0);
+  QueryIterator *it = TagIndex_OpenReader(idx, sctx, "one", strlen("one"), 1.0, 0, NULL);
   ASSERT_EQ(it->lastDocId, 0);
   // should skip to last document, we index every doc twice so we should have 2 * maxDocId entries in the inverted index
   for (t_docId doc = 2; doc < (2 * maxDocId); doc += 2) {
@@ -88,7 +88,7 @@ TEST_F(ExpireTest, testSkipTo) {
   }
   it->Free(it);
   SearchCtx_Free(sctx);
-  IndexSpec_RemoveFromGlobals(spec->own_ref, true);
+  Indexes_RemoveSpecFromGlobals(spec->own_ref, true);
   args.clear();
   RedisModule_FreeThreadSafeContext(ctx);
 }

@@ -340,20 +340,30 @@ jobs:
       triage-content-json: ${{ steps.triage.outputs.triage-content-json }}
     steps:
       - uses: actions/checkout@v6
-      - name: Fetch failed-job logs
-        env:
-          GH_TOKEN: ${{ github.token }}
-        run: |
-          set +e
-          gh run view "$GITHUB_RUN_ID" --repo "$GITHUB_REPOSITORY" --log-failed > failed-logs.txt 2>&1
-          # Cap at 200KB to bound Codex token spend
-          if [ "$(wc -c < failed-logs.txt 2>/dev/null || echo 0)" -gt 204800 ]; then
-            tail -c 204800 failed-logs.txt > failed-logs.txt.tmp
-            printf '[truncated to last 200KB]\n' > failed-logs.txt
-            cat failed-logs.txt.tmp >> failed-logs.txt
-            rm failed-logs.txt.tmp
-          fi
-          exit 0
+      - uses: ./.github/actions/fetch-failed-run-logs
+        with:
+          github-token: ${{ github.token }}
+          # Benchmarks run sequentially and the runner keeps going after one
+          # fails, so a failing benchmark's root cause lands far above the
+          # tail-capped window (the final per-test summary table only reports a
+          # status, not the cause). Extract the decisive lines from the full log
+          # so they survive truncation. redisbench_admin / ftsb / memtier and
+          # crash markers:
+          highlight-patterns: |
+            CRITICAL:root:Exception during remote work
+            Failing test\.\.\.\.
+            ERROR:root:The benchmark returned an error exit status
+            RedisTimeSeries connection error while pushing metrics
+            The benchmark ran successfully but the post-benchmark metrics export failed
+            The benchmark itself completed successfully
+            Traceback \(most recent call last\)
+            ^Exception:
+            \|(server|client)\|(exception|error)\|
+            (Segmentation fault|signal SIG|core dumped|panicked at|AddressSanitizer|terminate called|Sanitizer)
+            Connection reset by peer
+            Connection refused
+            (Total Errors|Total Timeouts): [1-9]
+            ##\[error\]
       - name: Run Codex triage
         id: triage
         uses: ./.github/actions/codex-ci-triage

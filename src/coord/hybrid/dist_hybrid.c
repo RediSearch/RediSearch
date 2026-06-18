@@ -28,6 +28,8 @@
 #include "result_processor.h"
 #include "concurrent_ctx.h"
 #include "info/info_redis/threads/current_thread.h"
+#include "aggregate/reply_empty.h"
+#include "aggregate/aggregate_exec_common.h"
 
 // We mainly need the resp protocol to be three in order to easily extract the "score" key from the response
 #define HYBRID_RESP_PROTOCOL_VERSION 3
@@ -576,6 +578,20 @@ static bool shouldCheckInPipelineTimeoutCoord(HybridRequest *req) {
          (req->reqConfig.timeoutPolicy == TimeoutPolicy_Return);
 }
 
+// prepareForExecution's parseHybridCommand re-reads RSGlobalConfig on the BG
+// thread, so once the pipelines are built we force every
+// config + pipeline ctx the request consults onto the policy captured at
+// dispatch, and recompute skipTimeoutChecks from it.
+static void applyCoordReqConfigTimeoutPolicy(HybridRequest *hreq, RSTimeoutPolicy policy) {
+    hreq->reqConfig.timeoutPolicy = policy;
+    hreq->tailPipeline->qctx.timeoutPolicy = policy;
+    for (size_t i = 0; i < hreq->nrequests; i++) {
+      hreq->requests[i]->reqConfig.timeoutPolicy = policy;
+      hreq->requests[i]->pipeline.qctx.timeoutPolicy = policy;
+    }
+    HybridRequest_SetSkipTimeoutChecks(hreq, !shouldCheckInPipelineTimeoutCoord(hreq));
+}
+
 static int HybridRequest_prepareForExecution(HybridRequest *hreq,
         RedisModuleCtx *ctx, RedisModuleString **argv, int argc, IndexSpec *sp,
         size_t numShards, QueryError *status,
@@ -754,9 +770,15 @@ static int HybridRequest_prepareCursors(HybridRequest *hreq, QueryError *status)
     const RSTimeoutPolicy timeoutPolicy = hreq->reqConfig.timeoutPolicy;
     bool maxPrefixSearch = false;
     bool maxPrefixVsim = false;
+
+    const struct timespec *deadline =
+        (hreq->sctx && HybridRequest_ShouldCheckTimeout(hreq))
+            ? (const struct timespec *)&hreq->sctx->time.timeout
+            : NULL;
+
     // Errors from cursor establishment go into the dispatcher's `status` so
     // DistHybridCleanups can reply with them.
-    if (!ProcessHybridCursorMappings(cmd, searchMappingsRef, vsimMappingsRef, knnCtx, status, oomPolicy, timeoutPolicy, &maxPrefixSearch, &maxPrefixVsim)) {
+    if (!ProcessHybridCursorMappings(cmd, searchMappingsRef, vsimMappingsRef, knnCtx, status, oomPolicy, timeoutPolicy, &maxPrefixSearch, &maxPrefixVsim, deadline, &hreq->syncCtx)) {
         // Handle error
         StrongRef_Release(searchMappingsRef);
         StrongRef_Release(vsimMappingsRef);
@@ -966,6 +988,7 @@ static void DistHybridCleanups(RedisModuleCtx *ctx,
     }
 }
 
+
 void RSExecDistHybrid(RedisModuleCtx *ctx, RedisModuleString **argv, int argc,
                         struct ConcurrentCmdCtx *cmdCtx) {
 
@@ -1015,6 +1038,7 @@ void RSExecDistHybrid(RedisModuleCtx *ctx, RedisModuleString **argv, int argc,
 
     // Create and set request atomically while holding lock
     HybridRequest *hreq = MakeDefaultHybridRequest(sctx);
+
     CoordRequestCtx_SetRequest(reqCtx, hreq);
     CoordRequestCtx_UnlockSetRequest(reqCtx);
 
@@ -1028,12 +1052,22 @@ void RSExecDistHybrid(RedisModuleCtx *ctx, RedisModuleString **argv, int argc,
       return;
     }
 
+    // Re-pin onto the dispatch-time policy: prepareForExecution re-read
+    // RSGlobalConfig on this BG thread (races FT.CONFIG SET).
+    applyCoordReqConfigTimeoutPolicy(hreq, CoordRequestCtx_GetTimeoutPolicy(reqCtx));
+
     if (HybridRequest_prepareCursors(hreq, &status) != REDISMODULE_OK) {
         DistHybridCleanups(ctx, cmdCtx, sp, &strong_ref, hreq, &status);
         return;
     }
 
     scheduleDepleters(hreq);
+
+#ifdef ENABLE_ASSERT
+    // Lets a test pause the dispatcher between scheduling the depleters and the tail merger.
+    SyncPoint_Wait(SYNC_POINT_AFTER_SCHEDULE_DEPLETERS);
+#endif
+
     scheduleHybridTail(hreq, strong_ref, cmdCtx, &status);
 
     // IndexSpecRef_Promote set the TLS on this (dispatcher) thread.
@@ -1093,6 +1127,7 @@ void DEBUG_RSExecDistHybrid(RedisModuleCtx *ctx, RedisModuleString **argv, int a
     }
 
     HybridRequest *hreq = MakeDefaultHybridRequest(sctx);
+
     CoordRequestCtx_SetRequest(reqCtx, hreq);
     CoordRequestCtx_UnlockSetRequest(reqCtx);
 
@@ -1108,6 +1143,10 @@ void DEBUG_RSExecDistHybrid(RedisModuleCtx *ctx, RedisModuleString **argv, int a
       return;
     }
 
+    // Re-pin onto the dispatch-time policy: prepareForExecution re-read
+    // RSGlobalConfig on this BG thread (races FT.CONFIG SET).
+    applyCoordReqConfigTimeoutPolicy(hreq, CoordRequestCtx_GetTimeoutPolicy(reqCtx));
+
     if (HybridRequest_prepareCursors(hreq, &status) != REDISMODULE_OK) {
         DistHybridCleanups(ctx, cmdCtx, sp, &strong_ref, hreq, &status);
         return;
@@ -1118,9 +1157,21 @@ void DEBUG_RSExecDistHybrid(RedisModuleCtx *ctx, RedisModuleString **argv, int a
     CurrentThread_ClearIndexSpec();
 }
 
+// A parked MR pop may be blocked on the hybrid request's own channel (setup
+// phase) or a subquery's channel (read phase); wake all of them.
+static void wakeHybridAbortChannels(HybridRequest *hreq) {
+  if (!hreq) return;
+  RequestSyncCtx_WakeAbortChannel(&hreq->syncCtx);
+  for (size_t i = 0; i < hreq->nrequests; i++) {
+    if (hreq->requests[i]) {
+      RequestSyncCtx_WakeAbortChannel(&hreq->requests[i]->syncCtx);
+    }
+  }
+}
+
 // Timeout callback for Coordinator HybridRequest execution
 // Called on the main thread when the blocking client times out (FAIL policy only).
-int DistHybridTimeoutFailClient(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
+int DistHybridTimeoutFailCallback(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
   UNUSED(argv);
   UNUSED(argc);
 
@@ -1140,9 +1191,62 @@ int DistHybridTimeoutFailClient(RedisModuleCtx *ctx, RedisModuleString **argv, i
 
   CoordRequestCtx_UnlockSetRequest(CoordReqCtx);
 
+  // The BG dispatcher may be parked in the cursor-setup wait; wake it so it
+  // exits, even though this callback replies the error itself.
+  HybridRequest *hreq = (HybridRequest *)CoordRequestCtx_GetRequest(CoordReqCtx);
+  wakeHybridAbortChannels(hreq);
+
   // Reply with timeout error
   QueryErrorsGlobalStats_UpdateError(QUERY_ERROR_CODE_TIMED_OUT, 1, COORD_ERR_WARN);
   RedisModule_ReplyWithError(ctx, QueryError_Strerror(QUERY_ERROR_CODE_TIMED_OUT));
+
+  return REDISMODULE_OK;
+}
+
+// Timeout callback for Coordinator HybridRequest execution
+// Called on the main thread when the blocking client times out (RETURN-STRICT policy only).
+int DistHybridTimeoutReturnStrictCallback(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
+  CoordRequestCtx *CoordReqCtx = RedisModule_GetBlockedClientPrivateData(ctx);
+  if (!CoordReqCtx) {
+    // This shouldn't happen but handle gracefully
+    return RedisModule_ReplyWithError(ctx, "Internal error: timeout with no context");
+  }
+
+  RS_ASSERT(CoordReqCtx->type == COMMAND_HYBRID);
+
+  // Lock to coordinate with request creation in background thread
+  CoordRequestCtx_LockSetRequest(CoordReqCtx);
+
+  // Signal timeout to the background thread
+  CoordRequestCtx_SetTimedOut(CoordReqCtx);
+
+  CoordRequestCtx_UnlockSetRequest(CoordReqCtx);
+
+  HybridRequest *hreq = (HybridRequest *)CoordRequestCtx_GetRequest(CoordReqCtx);
+
+  wakeHybridAbortChannels(hreq);
+
+  if (!hreq || HybridRequest_TryClaimAggregateResults(hreq)) {
+    // Either the request is NULL or we were able to claim the aggregation results.
+    // That means that the background thread didn't reach the aggregation phase
+    // (startPipelineCommon) yet. Reply with empty results. coord_hybrid_query_reply_empty
+    // derives isProfile from the command so the profile envelope is preserved for
+    // FT.PROFILE ... HYBRID even on this fast path.
+    coord_hybrid_query_reply_empty(ctx, argv, argc, QUERY_ERROR_CODE_TIMED_OUT);
+    return REDISMODULE_OK;
+  }
+
+  // Losing TryClaim means BG owns the claim; wait for it to finish writing
+  // `storedReplyState` (the abort-channel wakes above let it exit promptly).
+  HybridRequest_WaitForAggregateResultsComplete(hreq);
+
+  // The coordinator hybrid pipeline is not drainable: the tail merger and the
+  // per-subquery depleters run on separate coord-pool threads, so a main-thread
+  // drain would re-enter live upstream processors. Reply only with whatever the
+  // tail already accumulated into `storedReplyState.results` before the deadline.
+  RedisModule_Reply _reply = RedisModule_NewReply(ctx), *reply = &_reply;
+  serializeStoredResults_hybrid(hreq, reply);
+  RedisModule_EndReply(reply);
 
   return REDISMODULE_OK;
 }

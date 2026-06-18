@@ -10,6 +10,7 @@
 #include "redismodule.h"
 
 #include "module.h"
+#include "indexes.h"
 #include "config.h"
 #include <assert.h>
 #include <dlfcn.h>

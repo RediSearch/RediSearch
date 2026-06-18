@@ -11,14 +11,19 @@ inputs:
   prompt-file:
     description: Path to the Codex prompt file (markdown).
     required: true
-  output-file:
-    description: File where Codex writes its final message.
-    required: false
-    default: ai-triage.txt
   working-directory:
     description: Working directory for Codex execution.
     required: false
     default: .
+  allow-users:
+    description: >
+      Additional non-collaborator usernames to allow past
+      `openai/codex-action`'s actor gate. Use with care: the caller must
+      have an out-of-band gate (e.g. a maintainer-applied label) before
+      whitelisting a non-collaborator, since this lets that user
+      indirectly consume Codex API quota. Empty by default.
+    required: false
+    default: ''
 
 outputs:
   triage-exists:
@@ -41,41 +46,64 @@ runs:
       with:
         openai-api-key: ${{ inputs.openai-api-key }}
         prompt-file: ${{ inputs.prompt-file }}
-        output-file: ${{ inputs.output-file }}
         working-directory: ${{ inputs.working-directory }}
         sandbox: read-only
-        safety-strategy: read-only
+        # `drop-sudo` keeps the read-only sandbox but also drops sudo capabilities
+        # from the Codex subprocess. Required when CI logs (which Codex reads)
+        # carry attacker-controlled content — for fork-PR triage especially — so a
+        # prompt injection in the logs cannot escalate to running privileged
+        # commands and exfiltrating `CI_TRIAGE_OPENAI_API_KEY`.
+        safety-strategy: drop-sudo
         # Triage runs on post-merge/scheduled events whose actor is a bot
         # (github-merge-queue, github-actions[bot]); allow them past the
         # action's collaborator gate. Sandbox + safety remain read-only.
         # `allow-bots: true` only covers github-actions[bot] (hardcoded in
-        # codex-action's trusted set); other bot actors must be listed
-        # explicitly via `allow-bot-users`.
+        # codex-action's trusted set). For merge-queue, `github.actor`
+        # differs by event: `push` runs see `github-merge-queue[bot]`,
+        # but `schedule` runs see the bare `github-merge-queue`. The
+        # action's `isBotActor` check (endsWith "[bot]") rejects the
+        # bare form and never consults `allow-bot-users`, so we list
+        # the bare form under `allow-users` and the suffixed form under
+        # `allow-bot-users`.
+        #
+        # `codex-action` parses `allow-users` as a comma-separated list
+        # (it splits on "," then trims each entry), so the built-in
+        # merge-queue actor and the caller input must be joined with a
+        # comma, NOT a newline. A trailing comma (empty `inputs.allow-users`)
+        # is harmless: the action filters out empty entries.
         allow-bots: true
+        allow-users: github-merge-queue,${{ inputs.allow-users }}
         allow-bot-users: github-merge-queue[bot]
 
     - name: Read triage output
       id: read
       shell: bash
+      # Read codex's `final-message` step output rather than a workspace file:
+      # under `sandbox: read-only` the workspace is mounted read-only, so any
+      # `--output-last-message` write into it is silently dropped. `final-message`
+      # is populated from a temp file the action creates outside the workspace.
       env:
-        TRIAGE_WORKING_DIRECTORY: ${{ inputs.working-directory }}
-        TRIAGE_OUTPUT_FILE: ${{ inputs.output-file }}
         TRIAGE_CODEX_OUTCOME: ${{ steps.codex.outcome }}
+        TRIAGE_FINAL_MESSAGE: ${{ steps.codex.outputs.final-message }}
       run: |
-        OUTFILE="${TRIAGE_WORKING_DIRECTORY}/${TRIAGE_OUTPUT_FILE}"
-        if [ -f "$OUTFILE" ] && [ -s "$OUTFILE" ] && [ "$TRIAGE_CODEX_OUTCOME" = "success" ]; then
-          echo "triage_exists=true" >> "$GITHUB_OUTPUT"
-          {
-            echo "triage_content<<__EOF__"
-            cat "$OUTFILE"
-            echo "__EOF__"
-          } >> "$GITHUB_OUTPUT"
-          {
-            echo "triage_content_json<<__EOF__"
-            jq -Rs . < "$OUTFILE"
-            echo "__EOF__"
-          } >> "$GITHUB_OUTPUT"
-        else
+        if [ "$TRIAGE_CODEX_OUTCOME" != "success" ]; then
           echo "triage_exists=false" >> "$GITHUB_OUTPUT"
-          echo "⚠️ Codex triage did not produce output (codex outcome=${TRIAGE_CODEX_OUTCOME}, file=${OUTFILE})"
+          echo "⚠️ Codex triage step did not succeed (outcome=${TRIAGE_CODEX_OUTCOME})"
+          exit 0
         fi
+        if [ -z "$TRIAGE_FINAL_MESSAGE" ]; then
+          echo "triage_exists=false" >> "$GITHUB_OUTPUT"
+          echo "⚠️ Codex triage succeeded but produced no final-message output"
+          exit 0
+        fi
+        echo "triage_exists=true" >> "$GITHUB_OUTPUT"
+        {
+          echo "triage_content<<__EOF__"
+          printf '%s\n' "$TRIAGE_FINAL_MESSAGE"
+          echo "__EOF__"
+        } >> "$GITHUB_OUTPUT"
+        {
+          echo "triage_content_json<<__EOF__"
+          printf '%s' "$TRIAGE_FINAL_MESSAGE" | jq -Rs .
+          echo "__EOF__"
+        } >> "$GITHUB_OUTPUT"

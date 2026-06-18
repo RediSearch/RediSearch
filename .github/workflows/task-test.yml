@@ -314,12 +314,11 @@ jobs:
           cache-on-failure: true
       - name: Setup Rust test dependencies
         if: needs.build-image.outputs.succeeded != 'true' # Only run if NOT using custom container
-        # GITHUB_TOKEN lets cargo-binstall use authenticated GitHub API calls
-        # (5000 req/hr vs 60/hr unauthenticated), avoiding 403 rate-limit errors
-        # that force ~18 min source compilations on macOS Intel runners.
-        env:
-          GITHUB_TOKEN: ${{ github.token }}
-        run: .install/test_deps/install_rust_deps.sh ${{ needs.get-config.outputs.install_mode }}
+        # compilations on macOS Intel runners.
+        uses: ./.github/actions/retry-command
+        with:
+          command: .install/test_deps/install_rust_deps.sh ${{ needs.get-config.outputs.install_mode }}
+          github_token: ${{ github.token }}
 
       - name: Setup Python test dependencies
         uses: ./.github/actions/retry-command
@@ -346,6 +345,7 @@ jobs:
           echo "LD=$CLANG_BIN" >> $GITHUB_ENV
           echo "ASAN_SYMBOLIZER_PATH=/usr/lib/llvm-$CLANG_VERSION/bin/llvm-symbolizer" >> $GITHUB_ENV
       - name: Build Redis (cached)
+        if: ${{ !inputs.skip-tests }}
         uses: ./.github/actions/build-redis
         with:
           ref: ${{ inputs.redis-ref }}

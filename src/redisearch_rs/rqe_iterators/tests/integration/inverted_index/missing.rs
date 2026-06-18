@@ -193,7 +193,7 @@ mod not_miri {
         assert_eq!(status, RQEValidateStatus::Aborted);
 
         // No restore needed: the new II will be freed by `dictRelease` during
-        // `IndexSpec_RemoveFromGlobals` in `TestContext::drop`.
+        // `Indexes_RemoveSpecFromGlobals` in `TestContext::drop`.
     }
 
     #[test]
