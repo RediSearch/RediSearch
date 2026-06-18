@@ -99,9 +99,14 @@ impl NumericRange {
     /// write created.
     ///
     /// [`AddRecordOutcome`]: inverted_index::AddRecordOutcome
-    pub fn add(&mut self, doc_id: DocId, value: f64) -> inverted_index::AddRecordOutcome {
+    pub fn add(
+        &mut self,
+        doc_id: DocId,
+        value: f64,
+        has_field_expiration: bool,
+    ) -> inverted_index::AddRecordOutcome {
         self.hll.add(&value.into());
-        self.add_without_cardinality(doc_id, value)
+        self.add_without_cardinality(doc_id, value, has_field_expiration)
     }
 
     /// Add a (docId, value) entry without updating cardinality.
@@ -120,6 +125,7 @@ impl NumericRange {
         &mut self,
         doc_id: DocId,
         value: f64,
+        has_field_expiration: bool,
     ) -> inverted_index::AddRecordOutcome {
         // Update bounds
         if value < self.min_val {
@@ -129,8 +135,10 @@ impl NumericRange {
             self.max_val = value;
         }
 
-        // Add to inverted index
-        let record = RSIndexResult::build_numeric(value).doc_id(doc_id).build();
+        // Add to inverted index. The document-level field-expiration bit is kept in the
+        // block's side bitset (not the encoded entry), so stamp it onto the record here.
+        let mut record = RSIndexResult::build_numeric(value).doc_id(doc_id).build();
+        record.has_field_expiration = has_field_expiration;
         self.entries.add_record(&record)
     }
 
