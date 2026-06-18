@@ -27,7 +27,7 @@
 extern DebugCTX globalDebugCtx;
 
 // Emit a throttled progress line roughly every this many scanned keys, so a long
-// backfill is observable in the logs without a line per batch.
+// background indexing run is observable in the logs without a line per batch.
 #define ASYNC_SCAN_PROGRESS_LOG_KEYS 100000
 
 // Upper bound on how long the initial AsyncScan Start may keep returning BUSY (the
@@ -350,6 +350,15 @@ static RedisModuleAsyncScanResult Indexes_AsyncScanDriveNextBatch(
   Indexes_AsyncScanWaitForDone(driver);
   ++*batchesDone;
 
+  // Test hook: park the driver between batches, with the GIL still released, so a test can
+  // deterministically drop the index / flush the keyspace after a batch has been processed
+  // but before the next is requested — exercising the between-batches drop/reset re-check
+  // below (which the pre-first-batch hook cannot reach). No-op unless armed via
+  // _FT.DEBUG SYNC_POINT (ENABLE_ASSERT builds).
+#ifdef ENABLE_ASSERT
+  SyncPoint_Wait(SYNC_POINT_ASYNC_SCAN_BETWEEN_BATCHES);
+#endif
+
   RedisModule_ThreadSafeContextLock(ctx);
 
   // Re-check for a spec dropped between batches. FT.DROPINDEX / FLUSHDB invalidate the
@@ -384,7 +393,7 @@ static RedisModuleAsyncScanResult Indexes_AsyncScanDriveNextBatch(
   }
 
   // Throttled progress: one line every ASYNC_SCAN_PROGRESS_LOG_KEYS keys so a
-  // long backfill is observable without a line per batch.
+  // long background indexing run is observable without a line per batch.
   if (scanner->scannedKeys - *lastProgressKeys >= ASYNC_SCAN_PROGRESS_LOG_KEYS) {
     *lastProgressKeys = scanner->scannedKeys;
     RedisModule_Log(ctx, "notice",

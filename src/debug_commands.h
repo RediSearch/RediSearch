@@ -157,6 +157,7 @@ void StoreResultsDebugCtx_SetPause(bool pause);
 #define SYNC_POINT_BEFORE_QI_TIMEOUT_CHECK              "BeforeQITimeoutCheck"
 #define SYNC_POINT_AFTER_SCHEDULE_DEPLETERS             "AfterScheduleDepleters"
 #define SYNC_POINT_ASYNC_SCAN_BEFORE_FIRST_BATCH        "AsyncScanBeforeFirstBatch"
+#define SYNC_POINT_ASYNC_SCAN_BETWEEN_BATCHES           "AsyncScanBetweenBatches"
 
 // SyncPoint API function declarations
 // Arm a sync point - subsequent calls to SyncPoint_Wait will block
