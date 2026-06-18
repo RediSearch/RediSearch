@@ -53,19 +53,55 @@
 #include "search_disk.h"
 #include "search_disk_utils.h"
 
-// The global index registry, keyed by name and by spec id. Other translation
-// units read these as externs (declared in indexes.h).
+// The global index registry, keyed by spec id (specIdDict_g) and by a composite
+// (logical DB, name) key (specDict_g). Other translation units read these as
+// externs (declared in indexes.h).
 dict *specDict_g = NULL;
 dict *specIdDict_g = NULL;
+
+// Composite-key dict type for specDict_g: keys are DbSpecKey{dbid, name}. The
+// name half reuses the HiddenString hash/compare from dict.c; the dbid is mixed
+// into the hash so two indexes with the same name on different DBs are distinct
+// entries. Keys are owned by the dict (duplicated on add, freed on remove).
+static uint64_t dbSpecKeyHash(const void *key) {
+  const DbSpecKey *k = key;
+  // Mix dbid into the name hash with a 64-bit odd constant (fibonacci hashing).
+  return hiddenNameHashFunction(k->name) ^ ((uint64_t)(unsigned)k->dbid * 0x9e3779b97f4a7c15ULL);
+}
+static int dbSpecKeyCompare(void *privdata, const void *key1, const void *key2) {
+  const DbSpecKey *a = key1;
+  const DbSpecKey *b = key2;
+  return a->dbid == b->dbid && hiddenNameKeyCompare(privdata, (void *)a->name, (void *)b->name);
+}
+static void *dbSpecKeyDup(void *privdata, const void *key) {
+  const DbSpecKey *k = key;
+  DbSpecKey *dup = rm_malloc(sizeof(*dup));
+  dup->dbid = k->dbid;
+  dup->name = HiddenString_Duplicate(k->name);
+  return dup;
+}
+static void dbSpecKeyDestructor(void *privdata, void *key) {
+  DbSpecKey *k = key;
+  HiddenString_Free((HiddenString *)k->name, true);
+  rm_free(k);
+}
+static dictType dictTypeDbSpec = {
+    .hashFunction = dbSpecKeyHash,
+    .keyDup = dbSpecKeyDup,
+    .valDup = NULL,
+    .keyCompare = dbSpecKeyCompare,
+    .keyDestructor = dbSpecKeyDestructor,
+    .valDestructor = NULL,
+};
 
 // Legacy (pre-RDB-event) spec staging dictionaries are defined in spec.c.
 extern dict *legacySpecDict;
 extern dict *legacySpecRules;
 extern uint32_t maxIndexes_g;
 
-static bool checkIfSpecExists(const char *rawSpecName, size_t rawSpecNameLen) {
+static bool checkIfSpecExists(int dbid, const char *rawSpecName, size_t rawSpecNameLen) {
   HiddenString *specName = NewHiddenString(rawSpecName, rawSpecNameLen, false);
-  bool found = dictFetchValue(specDict_g, specName) != NULL;
+  bool found = dictFetchValue(specDict_g, DB_SPEC_KEY(dbid, specName)) != NULL;
   HiddenString_Free(specName, false);
   return found;
 }
@@ -77,7 +113,9 @@ IndexSpec *Indexes_CreateNewSpec(RedisModuleCtx *ctx, RedisModuleString **argv, 
                              QueryError *status) {
   size_t rawSpecNameLen = 0;
   const char *rawSpecName = RedisModule_StringPtrLen(argv[1], &rawSpecNameLen);
-  if (checkIfSpecExists(rawSpecName, rawSpecNameLen)) {
+  // Uniqueness is per logical DB: the same name may exist on a different DB.
+  const int dbid = RedisModule_GetSelectedDb(ctx);
+  if (checkIfSpecExists(dbid, rawSpecName, rawSpecNameLen)) {
     QueryError_SetCode(status, QUERY_ERROR_CODE_INDEX_EXISTS);
     return NULL;
   }
@@ -95,15 +133,15 @@ IndexSpec *Indexes_CreateNewSpec(RedisModuleCtx *ctx, RedisModuleString **argv, 
   // registry entries take over ownership of it below.
   StrongRef spec_ref = IndexSpec_GetStrongRefUnsafe(sp);
 
-  // Add the spec to the global spec dictionaries (by name and by specId)
-  if (dictAdd(specDict_g, (void *)sp->specName, spec_ref.rm) != DICT_OK) {
+  // Add the spec to the global spec dictionaries (by (db, name) and by specId)
+  if (dictAdd(specDict_g, DB_SPEC_KEY(sp->dbid, sp->specName), spec_ref.rm) != DICT_OK) {
     RedisModule_Log(ctx, "warning", "Failed adding index to global dictionary");
     StrongRef_Release(spec_ref);
     RS_ABORT("dictAdd shouldn't fail here - index shouldn't exists in the dictionary");
     return NULL;
   }
   if (dictAdd(specIdDict_g, (void *)(uintptr_t)sp->specId, spec_ref.rm) != DICT_OK) {
-    dictDelete(specDict_g, sp->specName);
+    dictDelete(specDict_g, DB_SPEC_KEY(sp->dbid, sp->specName));
     RedisModule_Log(ctx, "warning", "Failed adding index to global spec ID dictionary");
     StrongRef_Release(spec_ref);
     RS_ABORT("dictAdd shouldn't fail here - index shouldn't exists in the dictionary");
@@ -119,7 +157,7 @@ IndexSpec *Indexes_CreateNewSpec(RedisModuleCtx *ctx, RedisModuleString **argv, 
 // For testing purposes only
 void Spec_AddToDict(RefManager *rm) {
   IndexSpec *spec = ((IndexSpec *)__RefManager_Get_Object(rm));
-  dictAdd(specDict_g, (void *)spec->specName, (void *)rm);
+  dictAdd(specDict_g, DB_SPEC_KEY(spec->dbid, spec->specName), (void *)rm);
   dictAdd(specIdDict_g, (void *)(uintptr_t)spec->specId, (void *)rm);
 }
 
@@ -129,8 +167,8 @@ void Spec_AddToDict(RefManager *rm) {
 // This function consumes the Strong reference it gets.
 void Indexes_RemoveSpecFromGlobals(StrongRef spec_ref, bool removeActive) {
   IndexSpec *spec = StrongRef_Get(spec_ref);
-  // Remove spec from the global index registry (by name and by specId)
-  dictDelete(specDict_g, spec->specName);
+  // Remove spec from the global index registry (by (db, name) and by specId)
+  dictDelete(specDict_g, DB_SPEC_KEY(spec->dbid, spec->specName));
   dictDelete(specIdDict_g, (void *)(uintptr_t)spec->specId);
 
   // Unwind the spec's remaining global state and consume the reference.
@@ -149,12 +187,24 @@ StrongRef Indexes_LoadIndexSpecUnsafeEx(IndexLoadOptions *options) {
     ixname = options->nameC;
   }
 
+  // Scope the lookup to the caller's logical DB: an index is only visible from
+  // the DB it was created on. options->db defaults to 0 (zero-initialized
+  // callers and internal DB-0 lookups); command handlers acting on a connection
+  // set it to RedisModule_GetSelectedDb(ctx). The composite (db, name) key means
+  // a same-named index on another DB simply isn't found here.
   HiddenString *specNameOrAlias = NewHiddenString(ixname, strlen(ixname), false);
-  StrongRef spec_ref = {dictFetchValue(specDict_g, specNameOrAlias)};
+  StrongRef spec_ref = {dictFetchValue(specDict_g, DB_SPEC_KEY(options->db, specNameOrAlias))};
   IndexSpec *sp = StrongRef_Get(spec_ref);
   if (!sp && !(options->flags & INDEXSPEC_LOAD_NOALIAS)) {
+    // Aliases live in a single global table keyed by name. Resolve, then scope
+    // the resolved spec to the caller's DB so an alias to an index on another DB
+    // is also reported as "not found".
     spec_ref = IndexAlias_Get(specNameOrAlias);
     sp = StrongRef_Get(spec_ref);
+    if (sp && sp->dbid != options->db) {
+      sp = NULL;
+      spec_ref = (StrongRef){0};
+    }
   }
   HiddenString_Free(specNameOrAlias, false);
   if (!sp) {
@@ -165,8 +215,9 @@ StrongRef Indexes_LoadIndexSpecUnsafeEx(IndexLoadOptions *options) {
   return spec_ref;
 }
 
-StrongRef Indexes_LoadIndexSpecUnsafe(const char *name) {
-  IndexLoadOptions lopts = {.nameC = name};
+StrongRef Indexes_LoadIndexSpecUnsafe(RedisModuleCtx *ctx, const char *name) {
+  IndexLoadOptions lopts = {.nameC = name,
+                            .db = ctx ? RedisModule_GetSelectedDb(ctx) : 0};
   return Indexes_LoadIndexSpecUnsafeEx(&lopts);
 }
 
@@ -221,6 +272,43 @@ void Indexes_Free(RedisModuleCtx *ctx, dict *d, bool deleteDiskData) {
   array_free(specs);
 }
 
+// Free only the indexes bound to logical DB `dbnum`, leaving indexes on other
+// DBs (and their prefixes/cursors) intact. Used by FLUSHDB, which clears a
+// single DB. Mirrors the per-spec teardown FT.DROPINDEX performs (the global
+// prefix trie and cursor list are not wiped wholesale, since other DBs' indexes
+// still rely on them).
+void Indexes_FreeByDb(RedisModuleCtx *ctx, int dbnum, bool deleteDiskData) {
+  if (!specDict_g || dictSize(specDict_g) == 0) {
+    return;
+  }
+  // Snapshot the matching refs first, since Indexes_RemoveSpecFromGlobals
+  // mutates specDict_g while we would otherwise be iterating it.
+  arrayof(StrongRef) specs = array_new(StrongRef, dictSize(specDict_g));
+  dictIterator *iter = dictGetIterator(specDict_g);
+  dictEntry *entry = NULL;
+  while ((entry = dictNext(iter))) {
+    StrongRef spec_ref = dictGetRef(entry);
+    IndexSpec *spec = StrongRef_Get(spec_ref);
+    if (spec && spec->dbid == dbnum) {
+      array_append(specs, spec_ref);
+    }
+  }
+  dictReleaseIterator(iter);
+
+  for (size_t i = 0; i < array_len(specs); ++i) {
+    IndexSpec *spec = StrongRef_Get(specs[i]);
+    if (spec && spec->diskSpec) {
+      // Unregister must always precede close (triggered by Indexes_RemoveSpecFromGlobals)
+      SearchDisk_UnregisterIndex(ctx, spec);
+      if (deleteDiskData) {
+        SearchDisk_MarkIndexForDeletion(spec->diskSpec);
+      }
+    }
+    Indexes_RemoveSpecFromGlobals(specs[i], false);
+  }
+  array_free(specs);
+}
+
 // Load one spec from the RDB stream and resolve its registry-dependent state:
 // parse it (IndexSpec core), detect a duplicate against the registry, then open
 // its on-disk index if appropriate. Returns the spec (not yet registered - the
@@ -232,7 +320,7 @@ static IndexSpec *Indexes_LoadSpecFromRdb(RedisModuleIO *rdb, int encver, bool u
   }
   // Duplicate detection is a registry read, so it lives here rather than in the
   // IndexSpec core. It also gates the non-SST on-disk index open below.
-  sp->isDuplicate = dictFetchValue(specDict_g, sp->specName) != NULL;
+  sp->isDuplicate = dictFetchValue(specDict_g, DB_SPEC_KEY(sp->dbid, sp->specName)) != NULL;
   if (IndexSpec_RdbLoadOpenDisk(RedisModule_GetContextFromIO(rdb), sp, useSst, status) != REDISMODULE_OK) {
     StrongRef_Release(sp->own_ref);
     return NULL;
@@ -296,7 +384,7 @@ int Indexes_StoreSpecAfterRdbLoad(IndexSpec *sp) {
 
   // setting isDuplicate to true will make sure index will not be removed from aliases container.
   // It may have already been set.
-  if (!sp->isDuplicate && dictFetchValue(specDict_g, sp->specName) != NULL) {
+  if (!sp->isDuplicate && dictFetchValue(specDict_g, DB_SPEC_KEY(sp->dbid, sp->specName)) != NULL) {
     sp->isDuplicate = true;
   }
 
@@ -323,7 +411,7 @@ int Indexes_StoreSpecAfterRdbLoad(IndexSpec *sp) {
       RS_ASSERT(!IS_SST_RDB_IN_PROCESS(RSDummyContext));
       IndexSpec_StartGC(spec_ref, sp, GCPolicy_Disk);
     }
-    dictAdd(specDict_g, (void *)sp->specName, spec_ref.rm);
+    dictAdd(specDict_g, DB_SPEC_KEY(sp->dbid, sp->specName), spec_ref.rm);
     dictAdd(specIdDict_g, (void *)(uintptr_t)sp->specId, spec_ref.rm);
 
     for (int i = 0; i < sp->numFields; i++) {
@@ -428,15 +516,16 @@ static void onFlush(RedisModuleCtx *ctx, RedisModuleEvent eid, uint64_t subevent
   if (subevent != REDISMODULE_SUBEVENT_FLUSHDB_START) {
     return;
   }
-  // Indexes can only be created on DB 0 (enforced in CreateIndexCommand), so a
-  // FLUSHDB targeting any other logical DB must not drop them. dbnum == -1 means
-  // FLUSHALL (which also clears DB 0); dbnum == 0 is the DB the indexes live in.
-  // Any other dbnum is an unrelated DB and must be ignored. If data is missing
-  // we fall through to the conservative "free all" behavior.
+  // Indexes are bound to the DB they were created on (sp->dbid). A FLUSHDB on a
+  // single logical DB must drop only the indexes living on that DB; indexes on
+  // other DBs survive. dbnum == -1 means FLUSHALL, which clears every DB and so
+  // drops all indexes. If the flush info is missing we fall through to the
+  // conservative "free all" behavior.
   const RedisModuleFlushInfo *fi = data;
-  if (fi && fi->dbnum != -1 && fi->dbnum != 0) {
-    RedisModule_Log(ctx, "debug", "Ignoring FLUSHDB on db %d: RediSearch indexes live on db 0 only",
-                    fi->dbnum);
+  if (fi && fi->dbnum != -1) {
+    Indexes_FreeByDb(ctx, fi->dbnum, true);
+    // Dictionaries and dialect stats are not DB-scoped; a single-DB flush leaves
+    // them untouched (they are only fully reset on FLUSHALL below).
     return;
   }
   if (specDict_g) {
@@ -449,7 +538,7 @@ static void onFlush(RedisModuleCtx *ctx, RedisModuleEvent eid, uint64_t subevent
 
 void Indexes_Init(RedisModuleCtx *ctx) {
   if (!specDict_g) {
-    specDict_g = dictCreate(&dictTypeHeapHiddenStrings, NULL);
+    specDict_g = dictCreate(&dictTypeDbSpec, NULL);
   }
   if (!specIdDict_g) {
     specIdDict_g = dictCreate(&dictTypeUint64, NULL);
@@ -489,6 +578,11 @@ SpecOpIndexingCtx *Indexes_FindMatchingSchemaRules(RedisModuleCtx *ctx, RedisMod
   }
 #endif  // _DEBUG
 
+  // Keyspace events fire in the context of the DB they occurred on. Only
+  // indexes bound to that same DB (spec->dbid) should react to the event - an
+  // index living on DB 5 must ignore a write on DB 0 and vice versa.
+  const int eventDb = RedisModule_GetSelectedDb(ctx);
+
   size_t n;
   const char *key_p = RedisModule_StringPtrLen(key, &n);
   // collect specs that their name is prefixed by the key name
@@ -500,6 +594,10 @@ SpecOpIndexingCtx *Indexes_FindMatchingSchemaRules(RedisModuleCtx *ctx, RedisMod
       StrongRef global = node->index_specs[j];
       IndexSpec *spec = StrongRef_Get(global);
       if (spec && !dictFind(specs, spec->specName)) {
+        // Skip indexes that live on a different logical DB than the event.
+        if (spec->dbid != eventDb) {
+          continue;
+        }
         // skip if document type does not match the index type
         // The unsupported type is needed for crdt empty keys (deleted)
         if (type != DocumentType_Unsupported && type != spec->rule->type) {
@@ -825,7 +923,7 @@ void Indexes_UpdateMatchingHashFieldExpiration(RedisModuleCtx *ctx, RedisModuleS
 
 void Indexes_ReplaceMatchingWithSchemaRules(RedisModuleCtx *ctx, RedisModuleString *from_key,
                                             RedisModuleString *to_key) {
-  DocumentType type = getDocTypeFromString(to_key);
+  DocumentType type = getDocTypeFromString(ctx, to_key);
   if (type == DocumentType_Unsupported) {
     return;
   }
@@ -900,13 +998,18 @@ void Indexes_ReplaceMatchingWithSchemaRules(RedisModuleCtx *ctx, RedisModuleStri
   Indexes_SpecOpsIndexingCtxFree(to_specs);
 }
 
-void Indexes_List(RedisModule_Reply* reply, bool obfuscate) {
+// List index names visible from logical DB `dbid` (FT._LIST). Indexes bound to
+// other DBs are omitted, matching the per-DB visibility of name lookups.
+void Indexes_List(RedisModule_Reply* reply, int dbid, bool obfuscate) {
   RedisModule_Reply_Set(reply);
   dictIterator *iter = dictGetIterator(specDict_g);
   dictEntry *entry = NULL;
   while ((entry = dictNext(iter))) {
     StrongRef ref = dictGetRef(entry);
     IndexSpec *sp = StrongRef_Get(ref);
+    if (sp->dbid != dbid) {
+      continue;
+    }
     CurrentThread_SetIndexSpec(ref);
     const char *specName = IndexSpec_FormatName(sp, obfuscate);
     REPLY_SIMPLE_SAFE(specName);

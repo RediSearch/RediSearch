@@ -454,6 +454,11 @@ IndexSpec *IndexSpec_CreateNew(RedisModuleCtx *ctx, RedisModuleString **argv, in
     return NULL;
   }
 
+  // Bind the index to the logical DB it is being created on. Keyspace
+  // notifications, FLUSHDB, and document-key access are all routed by this id.
+  // In cluster mode only DB 0 exists, so this is always 0 there.
+  sp->dbid = RedisModule_GetSelectedDb(ctx);
+
   // Start the garbage collector
   IndexSpec_StartGC(spec_ref, sp, sp->diskSpec ? GCPolicy_Disk : GCPolicy_Fork);
 
@@ -2988,6 +2993,10 @@ void IndexSpec_RdbSave(RedisModuleIO *rdb, IndexSpec *sp, int contextFlags) {
     RedisModule_SaveUnsigned(rdb, 0);
   }
 
+  // Logical DB the index is bound to (INDEX_DB_ID_VERSION+). Loaders on older
+  // encodings default this to 0.
+  RedisModule_SaveSigned(rdb, sp->dbid);
+
   // Disk index
   // Check if we are using SST files with this RDB. If so, we save the disk-related
   // RAM-based data-structures to the RDB. Both save and load paths go through
@@ -3104,6 +3113,15 @@ IndexSpec *IndexSpec_RdbLoad(RedisModuleIO *rdb, int encver, bool useSst, QueryE
     if (rc != REDISMODULE_OK) {
       RedisModule_Log(RSDummyContext, "notice", "Loading existing alias failed");
     }
+  }
+
+  // Logical DB the index is bound to. Older RDBs (pre-INDEX_DB_ID_VERSION) do
+  // not carry this field; such indexes always lived on DB 0, so default to 0
+  // (already set by rm_calloc, but make the intent explicit).
+  if (encver >= INDEX_DB_ID_VERSION) {
+    sp->dbid = (int)LoadSigned_IOError(rdb, goto cleanup);
+  } else {
+    sp->dbid = 0;
   }
 
   // NOTE: duplicate detection (a specDict_g read) and the non-SST on-disk index
