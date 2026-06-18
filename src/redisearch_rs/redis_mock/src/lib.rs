@@ -347,6 +347,9 @@ macro_rules! mock_or_stub_missing_redis_c_symbols {
             DocIdMeta_Delete,
             DocIdMeta_Init,
             DocIdMeta_SetForgetDocIdMetadata,
+            DocIdMeta_GetWithOpenKey,
+            DocIdMeta_SetWithOpenKey,
+            DocIdMeta_DeleteWithOpenKey,
         }
     };
 }
