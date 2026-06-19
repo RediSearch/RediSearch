@@ -1,3 +1,10 @@
+# Copyright (c) 2006-Present, Redis Ltd.
+# All rights reserved.
+#
+# Licensed under your choice of the Redis Source Available License 2.0
+# (RSALv2); or (b) the Server Side Public License v1 (SSPLv1); or (c) the
+# GNU Affero General Public License v3 (AGPLv3).
+
 """End-to-end shape tests for FT.HYBRID EXPLAINSCORE (MOD-10044).
 
 The explain tree follows a fixed layout:
@@ -114,7 +121,9 @@ def test_hybrid_explainscore_rrf_knn():
 
 
 def test_hybrid_explainscore_rrf_range():
-    """RRF + RANGE: vector branch envelope identifies RANGE with radius/epsilon."""
+    """RRF + RANGE: vector branch envelope identifies RANGE with radius/epsilon.
+    Also assert the outer RRF formula and per-branch rank lines (mirrors what
+    we check for RRF+KNN so each variant locks down its own scoring shape)."""
     env = Env(moduleArgs='DEFAULT_DIALECT 2')
     setup_index(env, vec_algo='HNSW')
     blob = np.array([0.5, 0.5]).astype(np.float32).tobytes()
@@ -131,8 +140,16 @@ def test_hybrid_explainscore_rrf_range():
         _, _, tokens = _score_and_tokens(env, fields, key)
         joined = ' | '.join(tokens)
 
-        env.assertTrue(any('Hybrid score (RRF:' in t for t in tokens),
+        # Outer line is the RRF formula: "1 / (constant K + rank N) + …".
+        env.assertTrue(any(t.startswith('final score: 1 / (constant ')
+                           and ' + 1 / (constant ' in t and ' = ' in t for t in tokens),
+                       message=f'missing RRF formula in outer line, got {joined!r}')
+        env.assertTrue(any('Hybrid score (RRF: window=' in t and 'constant=' in t for t in tokens),
                        message=f'missing RRF envelope in {joined!r}')
+        env.assertTrue(any(t.startswith('text rank = ') for t in tokens),
+                       message=f'missing "text rank = …" in {joined!r}')
+        env.assertTrue(any(t.startswith('vector rank = ') for t in tokens),
+                       message=f'missing "vector rank = …" in {joined!r}')
         # Envelope must call out RANGE and surface radius + epsilon.
         env.assertTrue(any('vector branch (RANGE:' in t and 'radius=0.7000' in t
                            and 'epsilon=0.5' in t for t in tokens),
@@ -178,7 +195,9 @@ def test_hybrid_explainscore_linear_knn():
 
 
 def test_hybrid_explainscore_linear_range():
-    """LINEAR + RANGE: combines the LINEAR envelope with a RANGE vector branch."""
+    """LINEAR + RANGE: combines the LINEAR envelope with a RANGE vector branch.
+    Also assert the outer LINEAR formula and the per-branch contribution lines,
+    so the scoring shape is locked down for this variant too."""
     env = Env(moduleArgs='DEFAULT_DIALECT 2')
     setup_index(env, vec_algo='HNSW')
     blob = np.array([0.5, 0.5]).astype(np.float32).tobytes()
@@ -192,10 +211,18 @@ def test_hybrid_explainscore_linear_range():
     results, total = get_results_from_hybrid_response(response)
     env.assertGreater(total, 0)
 
+    saw_matched = False
     for key, fields in results.items():
         _, _, tokens = _score_and_tokens(env, fields, key)
         joined = ' | '.join(tokens)
 
+        # Outer line: "final score: 0.6000 * X + 0.4000 * Y = S" (or, for
+        # docs that miss the vector branch, "0.6000 * X + 0 [vector: no match] = S").
+        env.assertTrue(any(t.startswith('final score: 0.6000 * ')
+                           and ' = ' in t
+                           and (' + 0.4000 * ' in t or '0 [vector: no match]' in t)
+                           for t in tokens),
+                       message=f'missing LINEAR formula in outer line, got {joined!r}')
         env.assertTrue(any('Hybrid score (LINEAR: alpha=0.6000' in t
                            and 'beta=0.4000' in t for t in tokens),
                        message=f'missing LINEAR envelope in {joined!r}')
@@ -204,6 +231,22 @@ def test_hybrid_explainscore_linear_range():
                        message=f'missing RANGE envelope in {joined!r}')
         env.assertTrue(any('matched within radius = ' in t for t in tokens),
                        message=f'missing "matched within radius" in {joined!r}')
+
+        # text contribution is always present (every result has a text match).
+        env.assertTrue(any('text contribution = 0.6000 *' in t for t in tokens),
+                       message=f'missing text-contribution formula in {joined!r}')
+        env.assertTrue(any(t.startswith('normalized text score = ') for t in tokens),
+                       message=f'missing normalized text score in {joined!r}')
+
+        # vector contribution only when the doc is within the RANGE radius.
+        if any('matched within radius = true' in t for t in tokens):
+            saw_matched = True
+            env.assertTrue(any('vector contribution = 0.4000 *' in t for t in tokens),
+                           message=f'missing vector-contribution formula in {joined!r}')
+            env.assertTrue(any(t.startswith('normalized vector score = ') for t in tokens),
+                           message=f'missing normalized vector score in {joined!r}')
+    env.assertTrue(saw_matched,
+                   message='expected at least one doc inside the RANGE radius')
 
 
 def test_hybrid_explainscore_scorer_name_propagates():
@@ -419,3 +462,230 @@ def test_hybrid_explainscore_full_shape_rrf_knn_doc1():
             False,
             message='shape mismatch:\n  ' + '\n  '.join(errors) +
                     f'\n\nactual score field:\n{actual_pretty}')
+
+
+def _bm25_subtree(decimal):
+    """The standalone-side BM25STD subtree, used as a leaf in shape templates."""
+    return [
+        [
+            _Re(rf'Final BM25 : words BM25 {decimal} \* document score {decimal}'),
+            [
+                [
+                    _Re(rf'\(Weight {decimal} \* children BM25 {decimal}\)'),
+                    [
+                        _Re(r'shoes: \(.+\)'),
+                        _Re(r'\+shoe: \(.+\)'),
+                    ],
+                ],
+            ],
+        ],
+    ]
+
+
+def _assert_shape(env, score_field, expected):
+    errors = _shape_errors(expected, score_field)
+    if errors:
+        actual_pretty = json.dumps(_to_jsonable(score_field), indent=2)
+        env.assertTrue(
+            False,
+            message='shape mismatch:\n  ' + '\n  '.join(errors) +
+                    f'\n\nactual score field:\n{actual_pretty}')
+
+
+def test_hybrid_explainscore_full_shape_rrf_range_doc1():
+    """Locked-down structural shape for an RRF+RANGE reply.
+
+    All four corpus docs sit inside the radius (squared L2 distance 0.5 from
+    query [0.5,0.5] vs radius 0.7), so each doc has both a text and a vector
+    rank. Ranks under HNSW range aren't pinned (the traversal order isn't
+    distance-tied on ties), so the per-rank lines use regex matchers; the
+    nesting itself is fully pinned.
+    """
+    env = Env(moduleArgs='DEFAULT_DIALECT 2')
+    if env.isCluster():
+        env.skip()
+    setup_index(env, vec_algo='HNSW')
+
+    blob = np.array([0.5, 0.5]).astype(np.float32).tobytes()
+    response = env.cmd('FT.HYBRID', 'idx',
+                       'SEARCH', 'shoes',
+                       'VSIM', '@embedding', '$BLOB',
+                       'RANGE', '4', 'RADIUS', '0.7', 'EPSILON', '0.5',
+                       'EXPLAINSCORE',
+                       'PARAMS', '2', 'BLOB', blob)
+    results, _ = get_results_from_hybrid_response(response)
+    env.assertTrue('doc:1' in results, message=f'doc:1 missing from {list(results)}')
+    fields = results['doc:1']
+
+    decimal = r'[0-9]+(?:\.[0-9]+)?'
+
+    expected_score_field = [
+        _Re(rf'{decimal}'),                                              # raw score
+        [
+            _Re(rf'final score: 1 / \(constant 60\.00 \+ rank {decimal}\) \+ '
+                rf'1 / \(constant 60\.00 \+ rank {decimal}\) = {decimal}'),
+            [
+                [
+                    'Hybrid score (RRF: window=20, constant=60.00)',
+                    [
+                        [   # text branch
+                            _Re(rf'text rank = {decimal}'),
+                            [
+                                [
+                                    'Text scorer: BM25STD',
+                                    _bm25_subtree(decimal),
+                                ],
+                            ],
+                        ],
+                        [   # vector branch (RANGE)
+                            'vector branch (RANGE: radius=0.7000, epsilon=0.5)',
+                            [
+                                'matched within radius = true',
+                                _Re(rf'vector rank = {decimal}'),
+                            ],
+                        ],
+                    ],
+                ],
+            ],
+        ],
+    ]
+    _assert_shape(env, fields['score'], expected_score_field)
+
+
+def test_hybrid_explainscore_full_shape_linear_range_doc1():
+    """Locked-down structural shape for a LINEAR+RANGE reply.
+
+    Same matched-by-radius corpus as the RRF+RANGE test. LINEAR adds the
+    "normalized text score" sibling under the scorer node and the explicit
+    "vector contribution" + "normalized vector score" rows under the vector
+    branch — those extra children are what this test pins down.
+    """
+    env = Env(moduleArgs='DEFAULT_DIALECT 2')
+    if env.isCluster():
+        env.skip()
+    setup_index(env, vec_algo='HNSW')
+
+    blob = np.array([0.5, 0.5]).astype(np.float32).tobytes()
+    response = env.cmd('FT.HYBRID', 'idx',
+                       'SEARCH', 'shoes',
+                       'VSIM', '@embedding', '$BLOB',
+                       'RANGE', '4', 'RADIUS', '0.7', 'EPSILON', '0.5',
+                       'COMBINE', 'LINEAR', '4', 'ALPHA', '0.7', 'BETA', '0.3',
+                       'EXPLAINSCORE',
+                       'PARAMS', '2', 'BLOB', blob)
+    results, _ = get_results_from_hybrid_response(response)
+    env.assertTrue('doc:1' in results, message=f'doc:1 missing from {list(results)}')
+    fields = results['doc:1']
+
+    decimal = r'[0-9]+(?:\.[0-9]+)?'
+
+    expected_score_field = [
+        _Re(rf'{decimal}'),                                              # raw score
+        [
+            _Re(rf'final score: 0\.7000 \* {decimal} \+ 0\.3000 \* {decimal} = {decimal}'),
+            [
+                [
+                    'Hybrid score (LINEAR: alpha=0.7000, beta=0.3000, window=20)',
+                    [
+                        [   # text branch
+                            _Re(rf'text contribution = 0\.7000 \* {decimal} = {decimal}'),
+                            [
+                                [
+                                    'Text scorer: BM25STD',
+                                    [
+                                        _Re(rf'normalized text score = {decimal}'),
+                                    ] + _bm25_subtree(decimal),
+                                ],
+                            ],
+                        ],
+                        [   # vector branch (RANGE)
+                            'vector branch (RANGE: radius=0.7000, epsilon=0.5)',
+                            [
+                                'matched within radius = true',
+                                _Re(rf'vector contribution = 0\.3000 \* {decimal} = {decimal}'),
+                                _Re(rf'normalized vector score = {decimal}'),
+                            ],
+                        ],
+                    ],
+                ],
+            ],
+        ],
+    ]
+    _assert_shape(env, fields['score'], expected_score_field)
+
+
+def test_hybrid_explainscore_full_shape_text_only_no_vector():
+    """Single-branch match: text matches but the vector RANGE has no hits.
+
+    Pins down the placeholder shape — the outer formula reports the dropped
+    term as "0 [vector: no match]", and the vector branch carries
+    "matched within radius = false" + "vector rank = <no match>" as siblings.
+    """
+    env = Env(moduleArgs='DEFAULT_DIALECT 2')
+    if env.isCluster():
+        env.skip()
+    setup_index(env, vec_algo='HNSW')
+
+    # Far-away query vector + tiny radius → no doc clears the RANGE filter.
+    blob = np.array([10.0, 10.0]).astype(np.float32).tobytes()
+    response = env.cmd('FT.HYBRID', 'idx',
+                       'SEARCH', 'shoes',
+                       'VSIM', '@embedding', '$BLOB',
+                       'RANGE', '2', 'RADIUS', '0.001',
+                       'EXPLAINSCORE',
+                       'PARAMS', '2', 'BLOB', blob)
+    results, _ = get_results_from_hybrid_response(response)
+    env.assertTrue('doc:1' in results, message=f'doc:1 missing from {list(results)}')
+    fields = results['doc:1']
+
+    decimal = r'[0-9]+(?:\.[0-9]+)?'
+
+    expected_score_field = [
+        _Re(rf'{decimal}'),                                              # raw score
+        [
+            _Re(rf'final score: 1 / \(constant 60\.00 \+ rank {decimal}\) \+ '
+                rf'0 \[vector: no match\] = {decimal}'),
+            [
+                [
+                    'Hybrid score (RRF: window=20, constant=60.00)',
+                    [
+                        [   # text branch (present)
+                            _Re(rf'text rank = {decimal}'),
+                            [
+                                [
+                                    'Text scorer: BM25STD',
+                                    _bm25_subtree(decimal),
+                                ],
+                            ],
+                        ],
+                        [   # vector branch (no match)
+                            _Re(r'vector branch \(RANGE: radius=0\.0010\)'),
+                            [
+                                'matched within radius = false',
+                                'vector rank = <no match>',
+                            ],
+                        ],
+                    ],
+                ],
+            ],
+        ],
+    ]
+    _assert_shape(env, fields['score'], expected_score_field)
+
+
+def test_hybrid_explainscore_rejected_with_groupby():
+    """EXPLAINSCORE is incompatible with GROUPBY: the grouper clears the
+    per-document SearchResult (including the score_explain wrapper) and emits
+    aggregate rows whose score_explain is empty, while the hybrid reply path
+    still opens a [score, explain] array. The combination must be rejected at
+    parse time."""
+    env = Env(moduleArgs='DEFAULT_DIALECT 2')
+    setup_index(env)
+    blob = np.array([0.5, 0.5]).astype(np.float32).tobytes()
+    env.expect('FT.HYBRID', 'idx',
+               'SEARCH', 'shoes',
+               'VSIM', '@embedding', '$BLOB',
+               'EXPLAINSCORE',
+               'GROUPBY', '1', '@description',
+               'PARAMS', '2', 'BLOB', blob).error().contains(
+                   'EXPLAINSCORE is not supported with GROUPBY')

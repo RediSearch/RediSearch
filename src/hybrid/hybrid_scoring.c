@@ -189,7 +189,7 @@ char *HybridScoring_FormatFinalScoreLine(const HybridScoringContext *scoringCtx,
   return result;
 }
 
-char *HybridScoring_FormatEnvelope(const HybridScoringContext *scoringCtx) {
+char *HybridScoring_FormatHybridScoreNode(const HybridScoringContext *scoringCtx) {
   RS_ASSERT(scoringCtx);
   char *buf = NULL;
   if (scoringCtx->scoringType == HYBRID_SCORING_RRF) {

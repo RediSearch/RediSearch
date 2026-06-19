@@ -55,7 +55,8 @@ double HybridRRFScore(HybridScoringContext *scoringCtx, const double *ranks, con
 double HybridLinearScore(HybridScoringContext *scoringCtx, const double *scores, const bool *has_score, const size_t num_sources);
 
 /**
- * Format the hybrid envelope line (root of the EXPLAINSCORE wrapper).
+ * Format the hybrid score node label (the inner node of the EXPLAINSCORE
+ * wrapper that holds the text + vector branches).
  *
  * For RRF: "Hybrid score (RRF: window=W, constant=K)".
  * For LINEAR: "Hybrid score (LINEAR: alpha=A, beta=B, window=W)" (assumes the
@@ -64,7 +65,7 @@ double HybridLinearScore(HybridScoringContext *scoringCtx, const double *scores,
  * The returned string is heap-allocated with rm_malloc and must be freed by
  * the caller (or transferred to an RSScoreExplain node, which frees it).
  */
-char *HybridScoring_FormatEnvelope(const HybridScoringContext *scoringCtx);
+char *HybridScoring_FormatHybridScoreNode(const HybridScoringContext *scoringCtx);
 
 /**
  * Format the outer "final score: …" line as a formula, mirroring the style

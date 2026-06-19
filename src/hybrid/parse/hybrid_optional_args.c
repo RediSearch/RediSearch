@@ -226,6 +226,18 @@ int HybridParseOptionalArgs(HybridParseContext *ctx, ArgsCursor *ac, bool intern
         *(ctx->reqFlags) |= QEXEC_F_SEND_SCORES;
     }
 
+    // EXPLAINSCORE is incompatible with GROUPBY: the grouper consumes per-document
+    // SearchResults (and their score_explain wrappers) and emits aggregate rows
+    // whose score_explain is empty, while the hybrid reply path still opens a
+    // [score, explain] array. Reject the combination at parse time rather than
+    // emit a malformed one-element score array.
+    if ((ctx->specifiedArgs & SPECIFIED_ARG_EXPLAINSCORE) &&
+        (ctx->specifiedArgs & SPECIFIED_ARG_GROUPBY)) {
+        QueryError_SetError(status, QUERY_ERROR_CODE_PARSE_ARGS,
+                            "EXPLAINSCORE is not supported with GROUPBY");
+        return REDISMODULE_ERR;
+    }
+
     // Apply optimization for skipping rich results collection when possible
     applyRichResultsOptimization(ctx);
 

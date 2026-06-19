@@ -24,6 +24,7 @@
 
 void HybridExplainContext_Free(HybridExplainContext *ctx) {
   if (!ctx) return;
+  rm_free(ctx->textScorerName);
   rm_free(ctx->vectorBranchEnvelope);
   rm_free(ctx);
 }
@@ -33,13 +34,14 @@ HybridExplainContext *HybridExplainContext_Build(const struct AREQ *searchReq, c
 
   HybridExplainContext *ctx = rm_calloc(1, sizeof(HybridExplainContext));
 
-  // Borrowed: the string is owned by searchopts (or by RSGlobalConfig).
-  // AREQ_ApplyContext resolves scorerName to the configured default before
-  // we get here, but we fall back defensively in case that ever changes.
-  ctx->textScorerName = searchReq->searchopts.scorerName;
-  if (!ctx->textScorerName) {
-    ctx->textScorerName = RSGlobalConfig.defaultScorer;
-  }
+  // Duplicate the resolved scorer name: searchopts.scorerName may point into
+  // RSGlobalConfig.defaultScorer, which FT.CONFIG SET DEFAULT_SCORER frees and
+  // replaces. AREQ_ApplyContext resolves scorerName to the configured default
+  // before we get here, but we fall back defensively in case that ever changes.
+  const char *resolved = searchReq->searchopts.scorerName
+                             ? searchReq->searchopts.scorerName
+                             : RSGlobalConfig.defaultScorer;
+  ctx->textScorerName = resolved ? rm_strdup(resolved) : NULL;
 
   // Vector branch envelope: identify the retrieval mode and any salient params.
   // Read from the parsed-time snapshot on ParsedVectorData, since the live
@@ -313,7 +315,7 @@ static RSScoreExplain *buildVectorBranch(const HybridSearchResult *hybridResult,
 //
 // Layout (MOD-10044):
 //   "final score: <S>"
-//     └── envelope from HybridScoring_FormatEnvelope
+//     └── hybrid score node from HybridScoring_FormatHybridScoreNode
 //           ├── text branch sub-tree
 //           └── vector branch sub-tree
 static RSScoreExplain *buildHybridScoreExplain(const HybridSearchResult *hybridResult,
@@ -332,20 +334,20 @@ static RSScoreExplain *buildHybridScoreExplain(const HybridSearchResult *hybridR
       scoringCtx, values, hybridResult->hasResults,
       hybridResult->numSources, finalScore);
 
-  RSScoreExplain *envelope = rm_calloc(1, sizeof(RSScoreExplain));
-  envelope->str = HybridScoring_FormatEnvelope(scoringCtx);
+  RSScoreExplain *hybridNode = rm_calloc(1, sizeof(RSScoreExplain));
+  hybridNode->str = HybridScoring_FormatHybridScoreNode(scoringCtx);
 
   RSScoreExplain *textBranch = buildTextBranch(hybridResult, scoringCtx, explainCtx, textValue);
   RSScoreExplain *vectorBranch = buildVectorBranch(hybridResult, scoringCtx, explainCtx, vectorValue);
 
-  envelope->numChildren = 2;
-  envelope->children = rm_calloc(2, sizeof(RSScoreExplain));
-  moveScoreExplainInto(&envelope->children[0], textBranch);
-  moveScoreExplainInto(&envelope->children[1], vectorBranch);
+  hybridNode->numChildren = 2;
+  hybridNode->children = rm_calloc(2, sizeof(RSScoreExplain));
+  moveScoreExplainInto(&hybridNode->children[0], textBranch);
+  moveScoreExplainInto(&hybridNode->children[1], vectorBranch);
 
   outer->numChildren = 1;
   outer->children = rm_calloc(1, sizeof(RSScoreExplain));
-  moveScoreExplainInto(&outer->children[0], envelope);
+  moveScoreExplainInto(&outer->children[0], hybridNode);
 
   return outer;
 }

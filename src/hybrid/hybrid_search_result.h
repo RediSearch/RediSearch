@@ -28,8 +28,11 @@ extern "C" {
  * merger as it runs.
  */
 typedef struct HybridExplainContext {
-  // Borrowed: lifetime tied to the search sub-AREQ's searchopts.
-  const char *textScorerName;
+  // Owned. Resolved scorer name (defaults to RSGlobalConfig.defaultScorer when
+  // the search sub-query did not specify one). Duplicated at build time so a
+  // concurrent FT.CONFIG SET DEFAULT_SCORER cannot pull the string out from
+  // under a long-running query while we render the explain wrapper.
+  char *textScorerName;
   // Owned: e.g. "vector branch (KNN)" or "vector branch (RANGE: radius=…, epsilon=…)".
   char *vectorBranchEnvelope;
   // Vector retrieval mode of the VSIM sub-query.
