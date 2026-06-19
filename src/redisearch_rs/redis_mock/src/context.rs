@@ -40,9 +40,9 @@ pub(crate) unsafe extern "C" fn RedisModule_FreeThreadSafeContext(
 ///
 /// Tests operate on the default logical database, so this always reports DB 0.
 #[expect(non_snake_case)]
-pub(crate) unsafe extern "C" fn RedisModule_GetSelectedDb(
+pub(crate) const unsafe extern "C" fn RedisModule_GetSelectedDb(
     _ctx: *mut redis_module::raw::RedisModuleCtx,
-) -> std::os::raw::c_int {
+) -> i32 {
     0
 }
 

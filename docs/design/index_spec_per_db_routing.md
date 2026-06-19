@@ -229,7 +229,7 @@ Each step is an independently reviewable commit; step 1 is the largest but lowes
 
 ## 5. Testing
 
-- **Python e2e** (extend [`test_flushdb_behavior.py`](../../tests/pytests/test_flushdb_behavior.py)):
+- **Python e2e** ([`test_index_db_scoping.py`](../../tests/pytests/test_index_db_scoping.py)):
   - Create an index on DB 5, `HSET` a doc on DB 5; `FT.SEARCH` from DB 5 returns it, and from
     DB 0 returns **"no such index"** (scoping).
   - Same index name on DB 0 and DB 5 are independent indexes with independent contents.
