@@ -457,6 +457,10 @@ fn create_key_from_data<'a>(
     }
 }
 
+#[expect(
+    clippy::too_many_arguments,
+    reason = "thin wrapper that forwards its distinct inputs into the `RLookupLoadOptions` FFI struct"
+)]
 fn load_specific_keys<'a>(
     lookup: &mut RLookup<'a>,
     search_ctx: &mut ffi::RedisSearchCtx,
