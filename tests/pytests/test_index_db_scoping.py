@@ -258,6 +258,120 @@ def testMoveBetweenDbsUpdatesIndexes(env):
         assert_only((conn0, 'idx0'))
 
 
+@skip(cluster=True)
+def testSwapdbMovesIndexWithItsData(env):
+    """SWAPDB swaps two DBs' keyspaces in bulk. An index follows its data to the
+    other DB: after SWAPDB 1 2 an index created on DB 1 is queryable on DB 2 (and
+    gone from DB 1), still serving the same documents, and new writes on DB 2 feed
+    it."""
+    with _conn_on_db(env, 1) as db1, _conn_on_db(env, 2) as db2:
+        db1.execute_command('FT.CREATE', 'idx', 'PREFIX', '1', 'k:', 'SCHEMA', 't', 'TEXT')
+        db1.execute_command('HSET', 'k:1', 't', 'hello')
+        env.assertEqual(db1.execute_command('FT.SEARCH', 'idx', 'hello', 'NOCONTENT'),
+                        [1, 'k:1'])
+
+        # SWAPDB: the index (and its doc) move from DB 1 to DB 2.
+        db1.execute_command('SWAPDB', 1, 2)
+
+        # Gone from DB 1, present and serving on DB 2.
+        env.assertNotContains('idx', db1.execute_command('FT._LIST'))
+        env.assertRaises(redis.ResponseError, db1.execute_command, 'FT.SEARCH', 'idx', 'hello')
+        env.assertContains('idx', db2.execute_command('FT._LIST'))
+        env.assertEqual(db2.execute_command('FT.SEARCH', 'idx', 'hello', 'NOCONTENT'),
+                        [1, 'k:1'])
+
+        # New write on DB 2 (where the index now lives) is indexed.
+        db2.execute_command('HSET', 'k:2', 't', 'world')
+        env.assertEqual(toSortedFlatList(db2.execute_command('FT.SEARCH', 'idx', '*', 'NOCONTENT')),
+                        toSortedFlatList([2, 'k:1', 'k:2']))
+
+
+@skip(cluster=True)
+def testSwapdbSwapsSameNameIndexesSymmetrically(env):
+    """When both swapped DBs hold a same-named index, SWAPDB swaps them as a clean
+    permutation (the registry re-key must not transiently collide). Each name
+    resolves on the other DB afterwards, serving its original documents."""
+    with _conn_on_db(env, 1) as db1, _conn_on_db(env, 2) as db2:
+        db1.execute_command('FT.CREATE', 'idx', 'PREFIX', '1', 'k:', 'SCHEMA', 't', 'TEXT')
+        db2.execute_command('FT.CREATE', 'idx', 'PREFIX', '1', 'k:', 'SCHEMA', 't', 'TEXT')
+        db1.execute_command('HSET', 'k:one', 't', 'fromone')
+        db2.execute_command('HSET', 'k:two', 't', 'fromtwo')
+
+        db1.execute_command('SWAPDB', 1, 2)
+
+        # The 'idx' reachable from DB 1 now holds what was DB 2's doc, and vice versa.
+        env.assertEqual(db1.execute_command('FT.SEARCH', 'idx', '*', 'NOCONTENT'), [1, 'k:two'])
+        env.assertEqual(db2.execute_command('FT.SEARCH', 'idx', '*', 'NOCONTENT'), [1, 'k:one'])
+
+
+@skip(cluster=True)
+def testSwapdbThenNotificationsAndReload(env):
+    """After SWAPDB, keyspace notifications follow the swapped index, and the new
+    binding survives an RDB reload."""
+    with _conn_on_db(env, 1) as db1, _conn_on_db(env, 2) as db2:
+        db1.execute_command('FT.CREATE', 'idx', 'PREFIX', '1', 'k:', 'SCHEMA', 't', 'TEXT')
+        db1.execute_command('HSET', 'k:1', 't', 'alpha')
+
+        db1.execute_command('SWAPDB', 1, 2)
+
+        # DEL on DB 2 (new home) evicts from the index; a write adds to it.
+        db2.execute_command('DEL', 'k:1')
+        env.assertEqual(toSortedFlatList(db2.execute_command('FT.SEARCH', 'idx', '*', 'NOCONTENT')),
+                        toSortedFlatList([0]))
+        db2.execute_command('HSET', 'k:2', 't', 'beta')
+        env.assertEqual(db2.execute_command('FT.SEARCH', 'idx', 'beta', 'NOCONTENT'), [1, 'k:2'])
+
+        # The DB-2 binding persists across reload.
+        env.dumpAndReload()
+        _wait_for_index(db2, 'idx')
+        env.assertContains('idx', db2.execute_command('FT._LIST'))
+        env.assertNotContains('idx', db1.execute_command('FT._LIST'))
+        env.assertEqual(db2.execute_command('FT.SEARCH', 'idx', 'beta', 'NOCONTENT'), [1, 'k:2'])
+
+
+@skip(cluster=True)
+def testSwapdbMidScanCancelsAndRestarts(env):
+    """If SWAPDB fires while an index's initial scan is still in progress, the
+    stale scan (which selected the pre-swap DB) is cancelled and a fresh scan is
+    run against the new DB, so the index ends up fully and correctly indexed.
+
+    Uses the BG_SCAN_CONTROLLER debug hook to hold the scan in a paused, in-
+    progress state across the SWAPDB. The debug status command resolves the index
+    on the caller's selected DB, so it is issued on the connection for the DB the
+    index currently lives on (DB 1 before the swap, DB 2 after)."""
+    def scanner_status(conn, idx):
+        return conn.execute_command(debug_cmd(), 'BG_SCAN_CONTROLLER',
+                                    'GET_DEBUG_SCANNER_STATUS', idx)
+
+    n = 200
+    with _conn_on_db(env, 1) as db1, _conn_on_db(env, 2) as db2:
+        for i in range(n):
+            db1.execute_command('HSET', f'k:{i}', 't', 'v')
+
+        # Pause before the scan starts: the scanner is created (scan_in_progress)
+        # but has scanned nothing when SWAPDB fires.
+        db1.execute_command(debug_cmd(), 'BG_SCAN_CONTROLLER', 'SET_PAUSE_BEFORE_SCAN', 'true')
+        db1.execute_command('FT.CREATE', 'idx', 'PREFIX', '1', 'k:', 'SCHEMA', 't', 'TEXT')
+        with TimeLimit(30, 'scan did not reach the paused (NEW) state on DB 1'):
+            while scanner_status(db1, 'idx') != 'NEW':
+                time.sleep(0.05)
+
+        # SWAPDB while the scan is in progress: Phase 4 must cancel this scanner
+        # and restart indexing on DB 2 (where the documents now live).
+        db1.execute_command('SWAPDB', 1, 2)
+
+        # Stop pausing future scans, then resume; the restarted scan runs on DB 2.
+        db1.execute_command(debug_cmd(), 'BG_SCAN_CONTROLLER', 'SET_PAUSE_BEFORE_SCAN', 'false')
+        db1.execute_command(debug_cmd(), 'BG_SCAN_CONTROLLER', 'SET_BG_INDEX_RESUME')
+
+        # The index now lives on DB 2 and must contain ALL the documents - proving
+        # the restarted scan walked the new DB to completion, not the stale one.
+        _wait_for_index(db2, 'idx')
+        res = db2.execute_command('FT.SEARCH', 'idx', '*', 'LIMIT', '0', '0')
+        env.assertEqual(res[0], n, message=res)
+        env.assertNotContains('idx', db1.execute_command('FT._LIST'))
+
+
 # =============================================================================
 # Q2 - queries only work on the selected DB
 # =============================================================================
@@ -561,3 +675,26 @@ def testIndexDbSurvivesRdbReload(env):
         db14.execute_command('HSET', 'doc2', 't', 'persisted again')
         res = db14.execute_command('FT.SEARCH', 'idxrdb', 'persisted', 'NOCONTENT')
         env.assertEqual(toSortedFlatList(res), toSortedFlatList([2, 'doc1', 'doc2']), message=res)
+
+
+# =============================================================================
+# Cluster mode (DB-0 only)
+# =============================================================================
+
+@skip(cluster=False)  # cluster-only: the rest of this file is standalone-only
+def testClusterIsDb0Only(env):
+    """In cluster mode there is a single logical DB. Redis core rejects SELECT to
+    any non-zero DB, so every index is necessarily bound to DB 0 and the per-DB
+    machinery (sp->dbid) collapses to DB 0. This pins that the feature degrades
+    safely: non-zero DBs are unreachable, and index creation on DB 0 still works.
+
+    MOVE (cross-DB) and SWAPDB (swaps two DBs) are likewise meaningless with a
+    single DB and are not exercised here."""
+    conn = getConnectionByEnv(env)
+
+    # Redis forbids selecting a non-zero DB in cluster mode.
+    env.assertRaises(redis.ResponseError, conn.execute_command, 'SELECT', 1)
+
+    # Index creation on the only DB (0) works exactly as before.
+    env.expect('FT.CREATE', 'idx', 'SCHEMA', 't', 'TEXT').ok()
+    env.assertContains('idx', env.cmd('FT._LIST'))

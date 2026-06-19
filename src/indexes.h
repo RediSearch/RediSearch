@@ -95,6 +95,11 @@ void Indexes_Free(RedisModuleCtx *ctx, dict *d, bool deleteDiskData);
 // Free only the indexes bound to logical DB `dbnum` (used by FLUSHDB on a
 // single DB). Indexes on other DBs are left intact.
 void Indexes_FreeByDb(RedisModuleCtx *ctx, int dbnum, bool deleteDiskData);
+// Re-bind indexes after SWAPDB swapped logical DBs db_a and db_b: every index on
+// db_a moves to db_b and vice versa (metadata-only; the indexed data is
+// DB-independent). Any in-flight initial scan on an affected index is cancelled
+// and restarted against the new DB. Must be called with the GIL held.
+void Indexes_SwapDb(RedisModuleCtx *ctx, int db_a, int db_b);
 size_t Indexes_Count();
 void Indexes_Propagate(RedisModuleCtx *ctx);
 

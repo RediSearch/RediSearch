@@ -536,6 +536,84 @@ static void onFlush(RedisModuleCtx *ctx, RedisModuleEvent eid, uint64_t subevent
   RSGlobalStats.totalStats.used_dialects = 0;
 }
 
+// Re-bind every index living on db_a to db_b and vice versa. SWAPDB swaps the
+// two DBs' keyspaces in bulk; an index's content (inverted index, doc table) is
+// keyed by document name and doc-ID, both DB-independent, so the documents do
+// not need to move. The only state that must change is the binding itself:
+// flip spec->dbid and re-key the registry, which every DB-scoped behavior
+// (lookup, notification routing, scan, FT._LIST, FLUSHDB) derives from.
+//
+// Must run with the GIL held (it is, being driven by the SwapDB server event):
+// that guarantees any in-flight background scanner is parked between batches and
+// cannot index a key until we return, so cancelling it here stops it before it
+// would scan the now-swapped (wrong) keyspace.
+void Indexes_SwapDb(RedisModuleCtx *ctx, int db_a, int db_b) {
+  if (db_a == db_b || !specDict_g || dictSize(specDict_g) == 0) {
+    return;
+  }
+
+  // Phase 1: collect the affected specs. We must not re-key while iterating the
+  // dict, and we must remove all old entries before adding any new one (a clean
+  // permutation - re-keying one at a time would transiently collide when the
+  // same index name exists on both DBs).
+  arrayof(StrongRef) affected = array_new(StrongRef, 1);
+  dictIterator *iter = dictGetIterator(specDict_g);
+  dictEntry *entry = NULL;
+  while ((entry = dictNext(iter))) {
+    StrongRef ref = dictGetRef(entry);
+    IndexSpec *sp = StrongRef_Get(ref);
+    if (sp && (sp->dbid == db_a || sp->dbid == db_b)) {
+      array_append(affected, ref);
+    }
+  }
+  dictReleaseIterator(iter);
+
+  // Phase 2: detach all affected specs under their OLD key. valDestructor is
+  // NULL, so dictDelete frees only the (dbid, name) key and leaves the
+  // RefManager value intact.
+  for (size_t i = 0; i < array_len(affected); ++i) {
+    IndexSpec *sp = StrongRef_Get(affected[i]);
+    dictDelete(specDict_g, DB_SPEC_KEY(sp->dbid, sp->specName));
+  }
+
+  // Phase 3: flip dbid and re-insert under the NEW key.
+  for (size_t i = 0; i < array_len(affected); ++i) {
+    IndexSpec *sp = StrongRef_Get(affected[i]);
+    sp->dbid = (sp->dbid == db_a) ? db_b : db_a;
+    dictAdd(specDict_g, DB_SPEC_KEY(sp->dbid, sp->specName), affected[i].rm);
+  }
+
+  // Phase 4: a finished index needs nothing more - its data is key-name based
+  // and now resolves against the new DB. But an index whose initial scan is
+  // still running was reading the pre-swap keyspace; cancel that stale scan and
+  // restart it against the new DB so indexing completes correctly.
+  const int savedDb = RedisModule_GetSelectedDb(ctx);
+  for (size_t i = 0; i < array_len(affected); ++i) {
+    IndexSpec *sp = StrongRef_Get(affected[i]);
+    if (!sp->scan_in_progress) {
+      continue;
+    }
+    if (sp->scanner) {
+      IndexesScanner_Cancel(sp->scanner);
+    }
+    // ScanAndReindex gates on RedisModule_DbSize(ctx), so select the index's new
+    // DB; the rescheduled scanner reads sp->dbid (the new value) at run time.
+    RedisModule_SelectDb(ctx, sp->dbid);
+    IndexSpec_ScanAndReindex(ctx, affected[i]);
+  }
+  RedisModule_SelectDb(ctx, savedDb);
+
+  array_free(affected);
+}
+
+static void onSwapDb(RedisModuleCtx *ctx, RedisModuleEvent eid, uint64_t subevent, void *data) {
+  const RedisModuleSwapDbInfo *si = data;
+  if (!si) {
+    return;
+  }
+  Indexes_SwapDb(ctx, si->dbnum_first, si->dbnum_second);
+}
+
 void Indexes_Init(RedisModuleCtx *ctx) {
   if (!specDict_g) {
     specDict_g = dictCreate(&dictTypeDbSpec, NULL);
@@ -544,6 +622,7 @@ void Indexes_Init(RedisModuleCtx *ctx) {
     specIdDict_g = dictCreate(&dictTypeUint64, NULL);
   }
   RedisModule_SubscribeToServerEvent(ctx, RedisModuleEvent_FlushDB, onFlush);
+  RedisModule_SubscribeToServerEvent(ctx, RedisModuleEvent_SwapDB, onSwapDb);
   SchemaPrefixes_Create();
 }
 
