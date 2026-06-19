@@ -218,29 +218,44 @@ def testUpdateOnOtherDbDoesNotMutateIndexedDoc(env):
 
 
 @skip(cluster=True)
-def testMoveAndSwapdbInteraction(env):
-    """MOVE/SWAPDB move keys between logical DBs but do not fire the keyspace
-    notifications RediSearch subscribes to (move_from/move_to are not handled), so
-    the index is NOT updated by the move itself. This test documents that behavior:
-    a key MOVEd into the indexed DB is only reflected after a subsequent write that
-    does fire a handled notification on that DB."""
+def testMoveBetweenDbsUpdatesIndexes(env):
+    """MOVE relocates a key between logical DBs and RediSearch keeps both DBs'
+    indexes consistent: the 'move_from' event (source DB) removes the doc from the
+    source index, and 'move_to' (destination DB) adds it to the destination index.
+
+    The events carry no DB argument; routing relies entirely on the DB Redis
+    selects on the notification context - source DB for move_from, destination DB
+    for move_to (RedisModule_GetSelectedDb in indexes.c). A bystander index on a
+    third DB (same prefix) must therefore stay empty throughout: the move only
+    touches the source and destination DBs, never broadcasts.
+    """
     conn0 = getConnectionByEnv(env)  # DB 0, env-owned
-    with _conn_on_db(env, 14) as db14:
-        db14.execute_command('FT.CREATE', 'idx14', 'SCHEMA', 't', 'TEXT')
+    with _conn_on_db(env, 14) as db14, _conn_on_db(env, 9) as db9:
+        conn0.execute_command('FT.CREATE', 'idx0', 'PREFIX', '1', 'k:', 'SCHEMA', 't', 'TEXT')
+        db14.execute_command('FT.CREATE', 'idx14', 'PREFIX', '1', 'k:', 'SCHEMA', 't', 'TEXT')
+        # Bystander index on an uninvolved DB; must never see the moved doc.
+        db9.execute_command('FT.CREATE', 'idx9', 'PREFIX', '1', 'k:', 'SCHEMA', 't', 'TEXT')
 
-        # Write a matching key on DB 0 (no index there), then MOVE it into DB 14.
-        conn0.execute_command('HSET', 'moved', 't', 'beta')
-        conn0.execute_command('MOVE', 'moved', 14)
-        env.assertEqual(db14.execute_command('EXISTS', 'moved'), 1)
+        def assert_only(idx_conn_with_doc):
+            # Exactly the named (conn, idx) holds the doc; the other two are empty.
+            for conn, idx in ((conn0, 'idx0'), (db14, 'idx14'), (db9, 'idx9')):
+                expected = [1, 'k:x'] if (conn, idx) == idx_conn_with_doc else [0]
+                res = conn.execute_command('FT.SEARCH', idx, 'beta', 'NOCONTENT')
+                env.assertEqual(toSortedFlatList(res), toSortedFlatList(expected), message=(idx, res))
 
-        # MOVE alone does not index the key (no handled notification fired on DB 14).
-        res = db14.execute_command('FT.SEARCH', 'idx14', 'beta', 'NOCONTENT')
-        env.assertEqual(toSortedFlatList(res), toSortedFlatList([0]), message=res)
+        # Doc starts on DB 0 and is indexed by idx0 only.
+        conn0.execute_command('HSET', 'k:x', 't', 'beta')
+        assert_only((conn0, 'idx0'))
 
-        # A subsequent write on DB 14 fires a handled notification and indexes it.
-        db14.execute_command('HSET', 'moved', 't', 'beta')
-        res = db14.execute_command('FT.SEARCH', 'idx14', 'beta', 'NOCONTENT')
-        env.assertEqual(toSortedFlatList(res), toSortedFlatList([1, 'moved']), message=res)
+        # MOVE it to DB 14: move_from clears idx0, move_to indexes it on idx14;
+        # idx9 (DB 9) is untouched.
+        conn0.execute_command('MOVE', 'k:x', 14)
+        env.assertEqual(db14.execute_command('EXISTS', 'k:x'), 1)
+        assert_only((db14, 'idx14'))
+
+        # MOVE it back to DB 0: the indexes swap roles again; idx9 still empty.
+        db14.execute_command('MOVE', 'k:x', 0)
+        assert_only((conn0, 'idx0'))
 
 
 # =============================================================================

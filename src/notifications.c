@@ -42,6 +42,8 @@ RedisModuleString **hashFields = NULL;
   X(set)                                  \
   X(rename_from)                          \
   X(rename_to)                            \
+  X(move_from)                            \
+  X(move_to)                              \
   X(trimmed)                              \
   X(key_trimmed)                          \
   X(restore)                              \
@@ -160,6 +162,12 @@ int HashNotificationCallback(RedisModuleCtx *ctx, int type, const char *event,
 
     case restore_cmd:
     case copy_to_cmd:
+    case move_to_cmd:
+      // move_to fires on the destination DB after MOVE placed the key there.
+      // Index it into this DB's matching indexes, exactly like COPY's copy_to.
+      // (MOVE is cross-DB, so unlike RENAME we cannot reuse the from/to replace
+      // path - the source and destination DBs have independent index sets, each
+      // handled by its own event: move_from deletes, move_to adds.)
       Indexes_UpdateMatchingWithSchemaRules(ctx, key, getDocTypeFromString(ctx, key), hashFields);
       break;
 
@@ -177,7 +185,12 @@ int HashNotificationCallback(RedisModuleCtx *ctx, int type, const char *event,
  ********************************************************/
     case del_cmd:
     case set_cmd:
-      // Deletion handled by keyMetaOnUnlink callback
+    case move_from_cmd:
+      // move_from fires on the source DB after MOVE removed the key from it, so
+      // the key is already gone here (getDocTypeFromString returns Unsupported,
+      // which matches all index types) - delete the doc from this DB's indexes
+      // exactly like del. Deletion handled by keyMetaOnUnlink callback under
+      // SearchDisk.
       if (!SearchDisk_IsEnabled()) {
         Indexes_DeleteMatchingWithSchemaRules(ctx, key, getDocTypeFromString(ctx, key), hashFields);
       }
