@@ -1,0 +1,24 @@
+[package]
+name = "redisearch_core"
+version.workspace = true
+edition.workspace = true
+publish.workspace = true
+
+[lib]
+# The core Redis module `redisearch.so`. A `cdylib` so `rustc` is the final
+# linker and `-C prefer-dynamic` is honoured: it links the shared subgraph
+# dynamically (single instance, in libsearch_shared.so) + dynamic libstd, plus
+# the C core (libredisearch_all.a) statically. NO speedb / disk / vecsim.
+crate-type = ["cdylib"]
+test = false
+bench = false
+
+[dependencies]
+# Single shared instance of the subgraph (dylib, NEEDED at runtime).
+search_shared = { path = "../search_shared" }
+# The core Rust FFI hub: re-exports every `*_ffi` crate so their `extern "C"`
+# symbols (called by the C core in libredisearch_all.a) land in redisearch.so.
+redisearch_rs = { path = "../c_entrypoint/redisearch_rs" }
+
+[build-dependencies]
+build_utils = { path = "../build_utils" }
