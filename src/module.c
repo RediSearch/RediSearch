@@ -4825,8 +4825,15 @@ static int RediSearch_InitModuleConfig(RedisModuleCtx *ctx, RedisModuleString **
   return REDISMODULE_OK;
 }
 
+// Renamed from `RedisModule_OnLoad`: when the module is delivered as a Rust
+// `cdylib` (conditional cdylib disk-plugin architecture), rustc's auto-generated
+// version script localizes every non-Rust-`#[no_mangle]` symbol, which would
+// hide the module entry from Redis' `dlsym(handle, "RedisModule_OnLoad")`. So a
+// thin Rust `#[no_mangle] RedisModule_OnLoad` shim (in the `redisearch_core`
+// crate) is the real exported entry and forwards here. The symbol stays
+// `visibility("default")` so the Rust shim can resolve it.
 int __attribute__((visibility("default")))
-RedisModule_OnLoad(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
+RediSearch_OnLoad_Impl(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
 
   if (RedisModule_Init(ctx, REDISEARCH_MODULE_NAME, REDISEARCH_MODULE_VERSION,
                        REDISMODULE_APIVER_1) == REDISMODULE_ERR) {

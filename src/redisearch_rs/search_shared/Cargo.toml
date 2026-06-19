@@ -1,0 +1,26 @@
+[package]
+name = "search_shared"
+version.workspace = true
+edition.workspace = true
+publish.workspace = true
+
+[lib]
+# `dylib`: the single shared instance (`libsearch_shared.so`) that the two
+#   cdylibs (`redisearch.so`, `redisearch_disk.so`) link under `-C prefer-dynamic`
+#   — one copy of process-global state (`rqe_iterators::SEARCH_ENTERPRISE_ITERATORS`,
+#   `inverted_index`'s id counter) and one allocator/`libstd`.
+# `rlib`: required so crates that still produce `rlib`/`staticlib` outputs (e.g.
+#   `redisearch_disk`'s retained static path, Rust unit tests) can depend on it.
+#   The cdylibs prefer the `dylib` form, so single-instance still holds for them.
+crate-type = ["dylib", "rlib"]
+
+[dependencies]
+# The shared subgraph roots. Their transitive in-repo deps are absorbed into
+# libsearch_shared.so, giving a single instance of every shared process-global.
+rqe_iterators.workspace = true
+inverted_index.workspace = true
+ffi.workspace = true
+query_term.workspace = true
+query_error.workspace = true
+index_result.workspace = true
+index_spec.workspace = true
