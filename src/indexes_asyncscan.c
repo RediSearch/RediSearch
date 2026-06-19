@@ -104,7 +104,10 @@ static void Indexes_AsyncScanKeyCB(RedisModuleCtx *ctx, RedisModuleScanCursor *c
     // FILTER expression, which the filter cannot express, and is the same predicate the
     // synchronous scan and keyspace notifications use. The redundant type/prefix check is
     // one cheap comparison per key.
-    if (SchemaRule_ShouldIndex(sp, name, type)) {
+    // `key` is already open and pinned for this call; pass it through so a FILTER
+    // expression is evaluated against the pinned handle instead of reopening the
+    // document by name, the same handle the open-key variants below reuse.
+    if (SchemaRule_ShouldIndex(sp, name, type, key)) {
       uint64_t docId = 0;
       // `key` is already open and pinned for this call; the open-key variants reuse it
       // instead of reopening by name.

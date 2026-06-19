@@ -590,7 +590,9 @@ pub unsafe extern "C" fn RLookup_Cleanup(lookup: Option<NonNull<OpaqueRLookup>>)
 ///     1. The entire memory range of this `CStr` must be contained within a single allocation!
 ///     2. `key` must be non-null even for a zero-length cstr.
 /// 7. The nul terminator must be within `isize::MAX` from `key`
-/// 8. `status` must be a [valid], non-null pointer to an `ffi::QueryError` that is properly initialized.
+/// 8. `open_key`, if non-null, must be a valid, already-open `ffi::RedisModuleKey` handle for
+///    `key` that outlives this call. It is borrowed, not closed here. Pass null to open by name.
+/// 9. `status` must be a [valid], non-null pointer to an `ffi::QueryError` that is properly initialized.
 ///
 /// [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
 #[unsafe(no_mangle)]
@@ -600,6 +602,7 @@ pub unsafe extern "C" fn RLookup_LoadRuleFields(
     dst_row: Option<NonNull<OpaqueRLookupRow>>,
     index_spec: Option<NonNull<ffi::IndexSpec>>,
     key: *const c_char,
+    open_key: *mut ffi::RedisModuleKey,
     status: Option<NonNull<ffi::QueryError>>,
 ) -> i32 {
     // Safety: ensured by caller (1.)
@@ -624,7 +627,7 @@ pub unsafe extern "C" fn RLookup_LoadRuleFields(
     // Safety: ensured by caller (8.)
     let status = unsafe { status.unwrap().as_mut() };
 
-    lookup.load_rule_fields(search_ctx, dst_row, index_spec, key, status)
+    lookup.load_rule_fields(search_ctx, dst_row, index_spec, key, open_key, status)
 }
 
 /// Return an iterator over an [`RLookup`]'s key list.

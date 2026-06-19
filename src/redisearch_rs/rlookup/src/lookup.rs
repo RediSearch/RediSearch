@@ -410,6 +410,7 @@ impl<'a> RLookup<'a> {
         dst_row: &mut RLookupRow<'a>,
         index_spec: &'a IndexSpec,
         key: &CStr,
+        open_key: *mut ffi::RedisModuleKey,
         status: &mut ffi::QueryError,
     ) -> i32 {
         let keys = create_keys_from_spec(index_spec);
@@ -420,6 +421,7 @@ impl<'a> RLookup<'a> {
             dst_row,
             index_spec,
             key,
+            open_key,
             pushed_keys,
             status,
         )
@@ -461,6 +463,7 @@ fn load_specific_keys<'a>(
     dst_row: &mut RLookupRow<'a>,
     index_spec: &IndexSpec,
     key: &CStr,
+    open_key: *mut ffi::RedisModuleKey,
     keys: Vec<Pin<&mut RLookupKey>>,
     status: &mut ffi::QueryError,
 ) -> i32 {
@@ -481,6 +484,7 @@ fn load_specific_keys<'a>(
         nkeys: keys.len(),
         sctx: ptr::from_mut(search_ctx),
         keyPtr: key.as_ptr(),
+        openKey: open_key,
         type_: index_spec.rule().type_(),
         status: ptr::from_mut(status),
         forceLoad: true,

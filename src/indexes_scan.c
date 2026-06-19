@@ -119,7 +119,7 @@ static void Indexes_ScanProc(RedisModuleCtx *ctx, RedisModuleString *keyname, Re
     if (sp) {
       // This check is performed without locking the spec, but it's ok since we locked the GIL
       // So the main thread is not running and the GC is not touching the relevant data
-      if (SchemaRule_ShouldIndex(sp, keyname, type)) {
+      if (SchemaRule_ShouldIndex(sp, keyname, type, NULL)) {
         IndexSpec_UpdateDoc(sp, ctx, keyname, type, NULL);
       }
       IndexSpecRef_Release(curr_run_ref);
