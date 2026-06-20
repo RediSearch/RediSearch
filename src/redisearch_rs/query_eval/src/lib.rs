@@ -11,7 +11,6 @@
 //! iterator tree.
 
 pub mod eval;
-pub mod string_utils;
 
 // The query wrapper types live in the `query` crate (`c_wrappers/query`); they
 // are re-exported here so `query_eval` (and its FFI crate) can refer to them

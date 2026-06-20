@@ -7,7 +7,7 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 
-use query_eval::string_utils::tag_strtolower;
+use string_utils::tag_strtolower;
 
 #[test]
 fn unescape_punct() {
@@ -74,7 +74,7 @@ fn sigma_lowercased_per_character() {
 
 #[test]
 fn case_insensitive_matches_unicode_tolower() {
-    use query_eval::string_utils::unicode_tolower;
+    use string_utils::unicode_tolower;
 
     for s in ["ΣΣΣΣΣ", "ΝΕΑΝΊΑΣ", "Straße", "HELLO", "σίγμα"] {
         assert_eq!(
@@ -91,7 +91,7 @@ fn case_insensitive_matches_unicode_tolower() {
 #[cfg(not(miri))]
 mod ffi_comparison {
     use proptest::prelude::*;
-    use query_eval::string_utils::tag_strtolower;
+    use string_utils::tag_strtolower;
     use std::ffi::c_void;
 
     /// Call C `tag_strtolower` via FFI and return the resulting string.
@@ -214,7 +214,7 @@ mod ffi_comparison {
 #[cfg(not(miri))]
 mod proptest_checks {
     use proptest::prelude::*;
-    use query_eval::string_utils::{tag_strtolower, unicode_tolower};
+    use string_utils::{tag_strtolower, unicode_tolower};
 
     /// Generate ASCII strings biased toward backslashes and punctuation.
     fn tag_input() -> impl Strategy<Value = String> {
