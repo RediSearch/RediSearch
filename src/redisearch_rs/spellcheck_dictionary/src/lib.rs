@@ -7,8 +7,11 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 
+mod levenshtein;
+
 use std::fmt::{self, Debug};
 
+use levenshtein::levenshtein;
 use string_utils::unicode_tolower;
 use trie_rs::str_trie_map::StrTrieMap;
 
@@ -108,56 +111,9 @@ impl SpellCheckDictionary {
     }
 }
 
-/// Levenshtein edit distance between `s1` and `s2`, counted in Unicode
-/// codepoints. Uses the Wagner–Fischer dynamic-programming algorithm with the
-/// single-column space optimization: one buffer holds the running column and a
-/// `lastdiag` scalar carries the diagonal cell, giving O(m·n) time and O(n)
-/// space. Adapted from
-/// <https://en.wikibooks.org/wiki/Algorithm_Implementation/Strings/Levenshtein_distance#Rust>.
-fn levenshtein(s1: &str, s2: &str) -> u32 {
-    let v1 = s1.chars().collect::<Vec<_>>();
-    let v2 = s2.chars().collect::<Vec<_>>();
-
-    let v1len = v1.len();
-    let v2len = v2.len();
-    if v1len == 0 {
-        return v2len as u32;
-    }
-    if v2len == 0 {
-        return v1len as u32;
-    }
-
-    fn min3<T: Ord>(v1: T, v2: T, v3: T) -> T {
-        std::cmp::min(v1, std::cmp::min(v2, v3))
-    }
-
-    const fn delta(x: char, y: char) -> usize {
-        if x == y { 0 } else { 1 }
-    }
-
-    let mut column = (0..v1len + 1).collect::<Vec<_>>();
-    for x in 1..v2len + 1 {
-        column[0] = x;
-        let mut lastdiag = x - 1;
-
-        for y in 1..v1len + 1 {
-            let olddiag = column[y];
-            column[y] = min3(
-                column[y] + 1,
-                column[y - 1] + 1,
-                lastdiag + delta(v1[y - 1], v2[x - 1]),
-            );
-            lastdiag = olddiag;
-        }
-    }
-
-    column[v1len] as u32
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
-    use proptest::prelude::*;
     use rstest::rstest;
     use std::collections::BTreeSet;
 
@@ -271,65 +227,5 @@ mod tests {
 
         assert!(!sut.contains(&term));
         assert!(sut.fuzzy_matches(&term, 0).next().is_none());
-    }
-
-    // Known-answer cases pin `levenshtein` to an independent definition.
-    // The `fuzzy_matches_model` proptest below uses `levenshtein` as its
-    // own oracle, so it cannot catch a bug in the function itself; these
-    // can.
-    #[rstest]
-    #[case("", "", 0)]
-    #[case("abc", "abc", 0)]
-    #[case("", "abc", 3)] // pure insertions
-    #[case("abc", "", 3)] // pure deletions
-    #[case("abc", "abe", 1)] // single substitution
-    #[case("kitten", "sitting", 3)] // classic: e>i, +s, +g
-    #[case("ab", "ba", 2)] // transposition costs 2 (not Damerau)
-    #[case("café", "cafe", 1)] // multibyte codepoint substitution
-    fn levenshtein_known_distances(#[case] a: &str, #[case] b: &str, #[case] expected: u32) {
-        assert_eq!(levenshtein(a, b), expected);
-        assert_eq!(levenshtein(b, a), expected, "distance must be symmetric");
-    }
-
-    proptest! {
-        #[test]
-        fn fuzzy_matches_model(
-            stored in prop::collection::vec("[a-zA-Z]{1,5}", 0..20),
-            query in "[a-zA-Z]{1,5}",
-            max_dist in 0u32..=3,
-        ) {
-            let mut sut = SpellCheckDictionary::new();
-            for term in &stored {
-                sut.add(term);
-            }
-
-            // Brute-force oracle: a stored term matches iff its lowercased form
-            // is within `max_dist` of the lowercased query.
-            let lowered_query = unicode_tolower(&query);
-            let expected: BTreeSet<String> = stored
-                .iter()
-                .filter(|t| levenshtein(&unicode_tolower(t), &lowered_query) <= max_dist)
-                .cloned()
-                .collect();
-
-            prop_assert_eq!(fuzzy(&sut, &query, max_dist), expected);
-        }
-
-        #[test]
-        fn contains_model(
-            stored in prop::collection::vec("[a-zA-Z]{1,5}", 0..20),
-            query in "[a-zA-Z]{1,5}",
-        ) {
-            let mut sut = SpellCheckDictionary::new();
-            for term in &stored {
-                sut.add(term);
-            }
-
-            // contains(q) iff some stored term lowercases to the same form as q.
-            let lowered_query = unicode_tolower(&query);
-            let expected = stored.iter().any(|t| unicode_tolower(t) == lowered_query);
-
-            prop_assert_eq!(sut.contains(&query), expected);
-        }
     }
 }
