@@ -24,6 +24,20 @@ pub fn unicode_tolower(s: &str) -> String {
     s.chars().flat_map(char::to_lowercase).collect()
 }
 
+/// Lowercase `s` per character (like [`unicode_tolower`]), returning `None`
+/// without allocating the full lowercase copy as soon as the result would
+/// exceed `max` codepoints.
+pub fn unicode_tolower_capped(s: &str, max: usize) -> Option<String> {
+    let mut out = String::new();
+    for (count, c) in s.chars().flat_map(char::to_lowercase).enumerate() {
+        if count == max {
+            return None;
+        }
+        out.push(c);
+    }
+    Some(out)
+}
+
 /// Maximum number of runes (lowercased codepoints) allowed in a single conversion.
 pub const MAX_RUNE_STR_LEN: usize = ffi::MAX_RUNE_STR_LEN as usize;
 

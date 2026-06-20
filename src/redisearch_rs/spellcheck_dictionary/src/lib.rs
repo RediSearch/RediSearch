@@ -9,7 +9,7 @@
 
 use std::fmt::{self, Debug};
 
-use string_utils::unicode_tolower;
+use string_utils::{unicode_tolower, unicode_tolower_capped};
 use trie_rs::str_trie_map::StrTrieMap;
 
 /// Maximum query length, in Unicode codepoints, that the dictionary will match
@@ -83,10 +83,9 @@ impl SpellCheckDictionary {
     ///
     /// Returns `true` if such a term exists.
     pub fn contains(&self, term: &str) -> bool {
-        let needle = unicode_tolower(term);
-        if needle.chars().count() > TRIE_MAX_PREFIX {
+        let Some(needle) = unicode_tolower_capped(term, TRIE_MAX_PREFIX) else {
             return false;
-        }
+        };
         self.trie
             .iter()
             .any(|(key, _)| unicode_tolower(&key) == needle)
@@ -98,8 +97,7 @@ impl SpellCheckDictionary {
     ///
     /// Returns an iterator over the matching terms, each in its stored case.
     pub fn fuzzy_matches(&self, term: &str, max_dist: u32) -> impl Iterator<Item = String> + '_ {
-        let needle = unicode_tolower(term);
-        let needle = (needle.chars().count() <= TRIE_MAX_PREFIX).then_some(needle);
+        let needle = unicode_tolower_capped(term, TRIE_MAX_PREFIX);
         needle.into_iter().flat_map(move |needle| {
             self.trie.iter().filter_map(move |(key, _)| {
                 let dist = strsim::levenshtein(&unicode_tolower(&key), &needle) as u32;
