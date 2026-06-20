@@ -32,13 +32,15 @@ impl Debug for SpellCheckDictionary {
 }
 
 impl SpellCheckDictionary {
+    /// Create a new, empty dictionary.
     pub const fn new() -> Self {
         Self {
             trie: StrTrieMap::new(),
         }
     }
 
-    /// Insert `term`, returning `true` only if it was newly added.
+    /// Insert a term, returning `true` only if it was newly added. Stored
+    /// verbatim, preserving case; empty or over-long terms are rejected.
     pub fn add(&mut self, term: &str) -> bool {
         // C runes are `uint16_t`; the byte gate is `TRIE_INITIAL_STRING_LEN *
         // sizeof(rune)`, matching `Trie_InsertStringBuffer`.
@@ -51,22 +53,30 @@ impl SpellCheckDictionary {
         self.trie.insert(term, ()).is_none()
     }
 
+    /// Remove a term, returning `true` if it was present. Matched verbatim, so
+    /// removal is case-sensitive.
     pub fn remove(&mut self, term: &str) -> bool {
         self.trie.remove(term).is_some()
     }
 
+    /// The number of terms stored.
     pub const fn len(&self) -> usize {
         self.trie.len()
     }
 
+    /// `true` when no terms are stored.
     pub const fn is_empty(&self) -> bool {
         self.trie.is_empty()
     }
 
+    /// Iterate over every stored term, in its original case, in lexicographical
+    /// order.
     pub fn dump(&self) -> impl Iterator<Item = String> {
         self.trie.iter().map(|(term, _)| term)
     }
 
+    /// `true` if a stored term equals `term`, ignoring case. Lowercased on
+    /// lookup; an over-long `term` never matches.
     pub fn contains(&self, term: &str) -> bool {
         let needle = unicode_tolower(term);
         if needle.chars().count() > TRIE_MAX_PREFIX {
@@ -77,12 +87,10 @@ impl SpellCheckDictionary {
             .any(|(key, _)| unicode_tolower(&key) == needle)
     }
 
-    /// Yield every stored term whose lowercased form is within Levenshtein
-    /// edit distance `max_dist` (in codepoints) of `term`. Matching is
-    /// case-insensitive — but the yielded terms keep their original stored case.
-    ///
-    /// A `term` longer than [`TRIE_MAX_PREFIX`] (after lowercasing) yields
-    /// nothing, matching C's `Trie_IterateFuzzy` length cutoff.
+    /// Yield every stored term within Levenshtein edit distance `max_dist`
+    /// (in codepoints) of `term`. Lowercased on lookup, so matching ignores
+    /// case, but yielded terms keep their stored case; an over-long `term`
+    /// yields nothing.
     pub fn fuzzy_matches(&self, term: &str, max_dist: u32) -> impl Iterator<Item = String> + '_ {
         let needle = unicode_tolower(term);
         let needle = (needle.chars().count() <= TRIE_MAX_PREFIX).then_some(needle);
