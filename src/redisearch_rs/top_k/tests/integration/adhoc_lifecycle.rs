@@ -75,8 +75,8 @@ impl ScoreSource for CallCountingScoreSource {
         BatchStrategy::Continue
     }
 
-    fn adhoc_check_timeout(&mut self) -> bool {
-        false
+    fn check_timeout(&mut self) -> Result<(), RQEIteratorError> {
+        Ok(())
     }
 
     fn begin_adhoc(&mut self) {

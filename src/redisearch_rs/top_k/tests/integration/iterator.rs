@@ -57,8 +57,8 @@ impl ScoreSource for TimingOutSource {
         BatchStrategy::Continue
     }
 
-    fn adhoc_check_timeout(&mut self) -> bool {
-        false
+    fn check_timeout(&mut self) -> Result<(), RQEIteratorError> {
+        Ok(())
     }
 
     fn iterator_type(&self) -> rqe_iterator_type::IteratorType {
@@ -306,6 +306,39 @@ fn unfiltered_expired_docs_dropped_at_yield() {
 }
 
 #[test]
+fn unfiltered_timeout_polled_while_skipping_expired() {
+    // A run of expired docs at the front of the direct batch must not drain past
+    // the deadline: the timeout poll on the expired-skip path fires and surfaces
+    // TimedOut instead of skipping ahead to the live doc 3.
+    let source = MockScoreSource::new(vec![vec![(1, 0.1), (2, 0.2), (3, 0.3)]], vec![], |_, _| {
+        BatchStrategy::Continue
+    })
+    .with_expired([1, 2])
+    .with_timeout_after(1);
+    let mut it = TopKIterator::new_unfiltered(source, NonZeroUsize::new(3).unwrap(), asc);
+    assert!(matches!(it.read(), Err(RQEIteratorError::TimedOut)));
+}
+
+#[test]
+fn yield_timeout_polled_while_skipping_expired() {
+    // Collected top-k results that expired must not drain past the deadline at
+    // yield time: the poll fires and surfaces TimedOut instead of skipping ahead
+    // to the live doc 3.
+    let source = MockScoreSource::new(vec![vec![(1, 0.1), (2, 0.2), (3, 0.3)]], vec![], |_, _| {
+        BatchStrategy::Stop
+    })
+    .with_expired([1, 2])
+    .with_timeout_after(1);
+    let mut it = TopKIterator::new(
+        source,
+        make_child(vec![1, 2, 3]),
+        NonZeroUsize::new(3).unwrap(),
+        asc,
+    );
+    assert!(matches!(it.read(), Err(RQEIteratorError::TimedOut)));
+}
+
+#[test]
 fn strategy_stop_stops_after_first_batch() {
     let source = MockScoreSource::new(
         vec![
@@ -383,8 +416,8 @@ fn rewind_after_mid_collect_error_does_not_retain_stale_heap() {
             BatchStrategy::Continue
         }
 
-        fn adhoc_check_timeout(&mut self) -> bool {
-            false
+        fn check_timeout(&mut self) -> Result<(), RQEIteratorError> {
+            Ok(())
         }
 
         fn iterator_type(&self) -> rqe_iterator_type::IteratorType {
@@ -597,9 +630,13 @@ fn adhoc_timeout_propagated() {
         fn batch_strategy(&mut self, _: usize, _: usize) -> BatchStrategy {
             BatchStrategy::Continue
         }
-        fn adhoc_check_timeout(&mut self) -> bool {
+        fn check_timeout(&mut self) -> Result<(), RQEIteratorError> {
             self.adhoc_calls += 1;
-            if self.adhoc_calls >= 2 { true } else { false }
+            if self.adhoc_calls >= 2 {
+                Err(RQEIteratorError::TimedOut)
+            } else {
+                Ok(())
+            }
         }
         fn iterator_type(&self) -> IteratorType {
             IteratorType::Mock

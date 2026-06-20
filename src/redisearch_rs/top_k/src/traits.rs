@@ -118,16 +118,12 @@ pub trait ScoreSource {
     /// Used in Adhoc-BF mode where the child iterator drives traversal.
     fn lookup_score(&mut self, doc_id: DocId) -> Option<f64>;
 
-    /// Whether `doc_id` must be dropped at yield time (e.g. its field expired).
+    /// Whether `doc_id` is no longer valid and must not be surfaced
+    /// (e.g. its field has expired).
     ///
-    /// [`TopKIterator`] consults this for each result it is about to yield,
-    /// after collection has finished. A `true` answer drops the result without
-    /// replacement: the document still occupied its top-k slot during
-    /// collection, so expiration reduces the number of yielded results rather
-    /// than letting lower-scored candidates take its place. The default never
-    /// expires.
-    ///
-    /// [`TopKIterator`]: crate::TopKIterator
+    /// Queried per result as it is about to be yielded, so the answer must
+    /// reflect the document's current state rather than state captured during
+    /// collection. The default never expires.
     fn is_expired(&self, _doc_id: DocId) -> bool {
         false
     }
@@ -221,9 +217,9 @@ pub trait ScoreSource {
     /// - `k` — the target number of results.
     fn batch_strategy(&mut self, heap_count: usize, k: usize) -> BatchStrategy;
 
-    /// Checked only in Adhoc-BF mode, returns `true` if the iteration needs to abort
-    /// completely due to a timeout.
-    fn adhoc_check_timeout(&mut self) -> bool;
+    /// Poll the query deadline, returning [`RQEIteratorError::TimedOut`] once
+    /// it has been reached.
+    fn check_timeout(&mut self) -> Result<(), RQEIteratorError>;
 
     /// The [`IteratorType`] that the wrapping [`TopKIterator`] should report.
     ///
