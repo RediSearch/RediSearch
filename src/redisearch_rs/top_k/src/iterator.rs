@@ -272,15 +272,11 @@ impl<'index, S: ScoreSource + 'index, C: RQEIterator<'index> + 'index> TopKItera
             if let Some(score) = scope.0.lookup_score(doc_id) {
                 self.heap.push(doc_id, score);
             }
-            if scope.0.adhoc_check_timeout() {
-                return Err(RQEIteratorError::TimedOut);
-            }
+            scope.0.check_timeout()?;
         }
 
         // Reached only on a clean scan exit (EOF or `Stop`); a timed-out scan
-        // propagates via `?` or an `AdhocStrategy::TimedOut` return above and
-        // never gets here. Rerank while `scope` is alive, so the source's scan
-        // resources are still held.
+        // propagates earlier.
         if scope.0.should_rerank() && !self.heap.is_empty() {
             let mut entries: Vec<_> = self.heap.drain_unsorted().collect();
             scope.0.rerank(&mut entries);
@@ -318,7 +314,12 @@ impl<'index, S: ScoreSource + 'index, C: RQEIterator<'index> + 'index> TopKItera
             let item = self.direct_batch.as_mut().and_then(S::Batch::next);
 
             match item {
-                Some((doc_id, _)) if self.source.is_expired(doc_id) => continue,
+                Some((doc_id, _)) if self.source.is_expired(doc_id) => {
+                    // Poll the deadline so a long run of expired docs cannot
+                    // drain the batch past the timeout.
+                    self.source.check_timeout()?;
+                    continue;
+                }
                 Some((doc_id, score)) => {
                     let result = self.source.build_result(doc_id, score);
                     self.current = Some(result);
@@ -337,10 +338,9 @@ impl<'index, S: ScoreSource + 'index, C: RQEIterator<'index> + 'index> TopKItera
     /// Yield the next result from the pre-sorted `results` vec.
     ///
     /// Results whose document expired ([`ScoreSource::is_expired`]) since
-    /// collection are dropped without replacement, mirroring the C
-    /// `HybridIterator`'s pop-time expiration check: expired docs occupied
-    /// their top-k slots during collection, so they shrink the yielded count
-    /// rather than being refilled from lower-scored candidates.
+    /// collection are dropped without replacement: they occupied their top-k
+    /// slots during collection, so they shrink the yielded count rather than
+    /// being refilled from lower-scored candidates.
     fn advance_from_results(
         &mut self,
     ) -> Result<Option<&mut RSIndexResult<'index>>, RQEIteratorError> {
@@ -352,6 +352,9 @@ impl<'index, S: ScoreSource + 'index, C: RQEIterator<'index> + 'index> TopKItera
             let ScoredResult { doc_id, score } = self.results[self.yield_pos];
             self.yield_pos += 1;
             if self.source.is_expired(doc_id) {
+                // Poll the deadline so a long run of expired docs cannot
+                // drain the heap past the timeout.
+                self.source.check_timeout()?;
                 continue;
             }
             let result = self.source.build_result(doc_id, score);

@@ -104,7 +104,7 @@ pub struct VectorScoreSource<'index, E: ExpirationChecker = FieldExpirationCheck
 // thread). The `index` pointer is non-owning; everything else is owned and
 // managed by the struct itself (timeout_ctx, batch_iter). It is the caller's
 // responsibility to ensure the index outlives the iterator.
-unsafe impl<E: ExpirationChecker> Send for VectorScoreSource<'_, E> {}
+unsafe impl<E: ExpirationChecker + Send> Send for VectorScoreSource<'_, E> {}
 
 impl<'index, E: ExpirationChecker> VectorScoreSource<'index, E> {
     /// Create a new `VectorScoreSource`.
@@ -406,13 +406,16 @@ impl<'index, E: ExpirationChecker> ScoreSource for VectorScoreSource<'index, E> 
         rqe_iterators::IteratorType::Hybrid
     }
 
-    fn adhoc_check_timeout(&mut self) -> bool {
+    fn check_timeout(&mut self) -> Result<(), RQEIteratorError> {
         // SAFETY: `as_mut()` gives a valid, exclusive borrow for the call; the
         // source is single-threaded so the aliased raw pointer in
         // `query_params.timeoutCtx` is idle. The callee reads the deadline and
         // bumps the counter without retaining the pointer.
         let timeout = unsafe { RS_VecSimCheckTimeout(self.timeout_ctx.as_mut()) };
-        timeout != 0
+        if timeout != 0 {
+            return Err(RQEIteratorError::TimedOut);
+        }
+        Ok(())
     }
 
     fn batch_strategy(&mut self, heap_count: usize, k: usize) -> BatchStrategy {
