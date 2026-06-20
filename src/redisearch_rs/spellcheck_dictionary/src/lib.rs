@@ -168,7 +168,11 @@ mod tests {
     #[case(&["Hello"], "world", false)]
     #[case(&["Fußball"], "fußball", true)]
     #[case(&["И"], "и", true)]
-    fn contains_lowercases(#[case] stored: &[&str], #[case] query: &str, #[case] expected: bool) {
+    fn contains_is_case_insensitive(
+        #[case] stored: &[&str],
+        #[case] query: &str,
+        #[case] expected: bool,
+    ) {
         let mut sut = SpellCheckDictionary::new();
         for term in stored {
             sut.add(term);
@@ -178,13 +182,15 @@ mod tests {
     }
 
     #[test]
-    fn remove_is_case_sensitive_but_contains_is_not() {
+    fn remove_is_case_sensitive() {
         let mut sut = SpellCheckDictionary::new();
         sut.add("Foo");
 
+        // Wrong case is a no-op; the term survives (observed via contains).
         assert!(!sut.remove("foo"));
         assert!(sut.contains("foo"));
 
+        // Exact case removes it.
         assert!(sut.remove("Foo"));
         assert!(!sut.contains("foo"));
     }
@@ -226,27 +232,6 @@ mod tests {
 
     fn fuzzy(dict: &SpellCheckDictionary, query: &str, max_dist: u32) -> BTreeSet<String> {
         dict.fuzzy_matches(query, max_dist).collect()
-    }
-
-    #[test]
-    fn fuzzy_matches_within_distance() {
-        let mut sut = SpellCheckDictionary::new();
-        for term in ["apple", "apply", "ample", "orange"] {
-            sut.add(term);
-        }
-
-        // dist 0 finds only the exact term.
-        assert_eq!(fuzzy(&sut, "apple", 0), BTreeSet::from(["apple".into()]));
-
-        // dist 1: "aple" -> "apple"/"ample" (insert), "apply"/"ample" within 1
-        // of "apple"? "apple" vs "aple" = 1, "ample" vs "aple" = 1.
-        assert_eq!(
-            fuzzy(&sut, "aple", 1),
-            BTreeSet::from(["apple".into(), "ample".into()])
-        );
-
-        // far term never appears.
-        assert!(!fuzzy(&sut, "aple", 2).contains("orange"));
     }
 
     #[test]
@@ -328,6 +313,23 @@ mod tests {
                 .collect();
 
             prop_assert_eq!(fuzzy(&sut, &query, max_dist), expected);
+        }
+
+        #[test]
+        fn contains_model(
+            stored in prop::collection::vec("[a-zA-Z]{1,5}", 0..20),
+            query in "[a-zA-Z]{1,5}",
+        ) {
+            let mut sut = SpellCheckDictionary::new();
+            for term in &stored {
+                sut.add(term);
+            }
+
+            // contains(q) iff some stored term lowercases to the same form as q.
+            let lowered_query = unicode_tolower(&query);
+            let expected = stored.iter().any(|t| unicode_tolower(t) == lowered_query);
+
+            prop_assert_eq!(sut.contains(&query), expected);
         }
     }
 }
