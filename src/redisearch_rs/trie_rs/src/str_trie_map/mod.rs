@@ -7,11 +7,10 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 
-use std::fmt;
+pub mod iter;
 
 use crate::TrieMap;
-
-pub mod iter;
+use std::fmt;
 
 /// UTF-8 keyed view over [`TrieMap`].
 ///
@@ -28,6 +27,12 @@ pub struct StrTrieMap<Data> {
 impl<Data> Default for StrTrieMap<Data> {
     fn default() -> Self {
         Self::new()
+    }
+}
+
+impl<Data: fmt::Debug> fmt::Debug for StrTrieMap<Data> {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        self.inner.fmt(f)
     }
 }
 
@@ -141,11 +146,5 @@ impl<Data> StrTrieMap<Data> {
         todo!("UTF-8 wildcard iteration over StrTrieMap not yet implemented");
         #[expect(unreachable_code)]
         std::iter::empty()
-    }
-}
-
-impl<Data: fmt::Debug> fmt::Debug for StrTrieMap<Data> {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        self.inner.fmt(f)
     }
 }
