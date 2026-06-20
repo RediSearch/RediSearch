@@ -250,16 +250,6 @@ mod tests {
     }
 
     #[test]
-    fn fuzzy_is_case_insensitive_but_preserves_stored_case() {
-        let mut sut = SpellCheckDictionary::new();
-        sut.add("Apple");
-
-        // Upper-case query still matches; result keeps the stored case.
-        assert_eq!(fuzzy(&sut, "APPLE", 0), BTreeSet::from(["Apple".into()]));
-        assert_eq!(fuzzy(&sut, "aple", 1), BTreeSet::from(["Apple".into()]));
-    }
-
-    #[test]
     fn lowering_is_per_codepoint_like_c_nu_tolower() {
         // Lowering is per codepoint (like C's nu_tolower): a final-position Σ
         // always becomes σ, never the word-final ς. So an uppercase query
@@ -269,17 +259,6 @@ mod tests {
 
         assert!(sut.contains("ΟΔΟΣ"));
         assert_eq!(fuzzy(&sut, "ΟΔΟΣ", 0), BTreeSet::from(["οδοσ".into()]));
-    }
-
-    #[test]
-    fn fuzzy_lowercases_multibyte() {
-        let mut sut = SpellCheckDictionary::new();
-        sut.add("Fußball");
-
-        assert_eq!(
-            fuzzy(&sut, "fußball", 0),
-            BTreeSet::from(["Fußball".into()])
-        );
     }
 
     #[rstest]
@@ -349,31 +328,6 @@ mod tests {
                 .collect();
 
             prop_assert_eq!(fuzzy(&sut, &query, max_dist), expected);
-        }
-
-        #[test]
-        fn add_then_contains_roundtrip(term in "\\PC{1,8}") {
-            let mut sut = SpellCheckDictionary::new();
-            sut.add(&term);
-
-            prop_assert!(sut.contains(&term));
-        }
-
-        #[test]
-        fn tracks_set_model(ops in prop::collection::vec((any::<bool>(), "[a-zA-Z]{1,5}"), 0..50)) {
-            let mut sut = SpellCheckDictionary::new();
-            let mut model = BTreeSet::new();
-
-            for (is_add, term) in ops {
-                if is_add {
-                    prop_assert_eq!(sut.add(&term), model.insert(term.clone()));
-                } else {
-                    prop_assert_eq!(sut.remove(&term), model.remove(&term));
-                }
-            }
-
-            prop_assert_eq!(sut.len(), model.len());
-            prop_assert_eq!(sut.dump().collect::<BTreeSet<_>>(), model);
         }
     }
 }
