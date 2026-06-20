@@ -39,8 +39,10 @@ impl SpellCheckDictionary {
         }
     }
 
-    /// Insert a term, returning `true` only if it was newly added. Stored
-    /// verbatim, preserving case; empty or over-long terms are rejected.
+    /// Insert a term, stored verbatim (case-preserving). Empty or over-long
+    /// terms are rejected.
+    ///
+    /// Returns `true` only if the term was newly added.
     pub fn add(&mut self, term: &str) -> bool {
         // C runes are `uint16_t`; the byte gate is `TRIE_INITIAL_STRING_LEN *
         // sizeof(rune)`, matching `Trie_InsertStringBuffer`.
@@ -53,8 +55,9 @@ impl SpellCheckDictionary {
         self.trie.insert(term, ()).is_none()
     }
 
-    /// Remove a term, returning `true` if it was present. Matched verbatim, so
-    /// removal is case-sensitive.
+    /// Remove a term. Matched verbatim, so removal is case-sensitive.
+    ///
+    /// Returns `true` if the term was present.
     pub fn remove(&mut self, term: &str) -> bool {
         self.trie.remove(term).is_some()
     }
@@ -75,8 +78,10 @@ impl SpellCheckDictionary {
         self.trie.iter().map(|(term, _)| term)
     }
 
-    /// `true` if a stored term equals `term`, ignoring case. Lowercased on
+    /// Check whether a stored term equals `term`, ignoring case. Lowercased on
     /// lookup; an over-long `term` never matches.
+    ///
+    /// Returns `true` if such a term exists.
     pub fn contains(&self, term: &str) -> bool {
         let needle = unicode_tolower(term);
         if needle.chars().count() > TRIE_MAX_PREFIX {
@@ -87,10 +92,11 @@ impl SpellCheckDictionary {
             .any(|(key, _)| unicode_tolower(&key) == needle)
     }
 
-    /// Yield every stored term within Levenshtein edit distance `max_dist`
+    /// Find stored terms within Levenshtein edit distance `max_dist`
     /// (in codepoints) of `term`. Lowercased on lookup, so matching ignores
-    /// case, but yielded terms keep their stored case; an over-long `term`
-    /// yields nothing.
+    /// case; an over-long `term` matches nothing.
+    ///
+    /// Returns an iterator over the matching terms, each in its stored case.
     pub fn fuzzy_matches(&self, term: &str, max_dist: u32) -> impl Iterator<Item = String> + '_ {
         let needle = unicode_tolower(term);
         let needle = (needle.chars().count() <= TRIE_MAX_PREFIX).then_some(needle);
