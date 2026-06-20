@@ -10,6 +10,7 @@ workspace = true
 
 [dependencies]
 ffi.workspace = true
+string_utils.workspace = true
 trie_rs.workspace = true
 workspace_hack.workspace = true
 

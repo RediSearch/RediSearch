@@ -9,6 +9,7 @@
 
 use std::fmt::{self, Debug};
 
+use string_utils::unicode_tolower;
 use trie_rs::str_trie_map::StrTrieMap;
 
 /// Maximum query length, in Unicode codepoints, that the dictionary will match
@@ -67,13 +68,13 @@ impl SpellCheckDictionary {
     }
 
     pub fn contains(&self, term: &str) -> bool {
-        let needle = term.to_lowercase();
+        let needle = unicode_tolower(term);
         if needle.chars().count() > TRIE_MAX_PREFIX {
             return false;
         }
         self.trie
             .iter()
-            .any(|(key, _)| key.to_lowercase() == needle)
+            .any(|(key, _)| unicode_tolower(&key) == needle)
     }
 
     /// Yield every stored term whose lowercased form is within Levenshtein
@@ -83,11 +84,11 @@ impl SpellCheckDictionary {
     /// A `term` longer than [`TRIE_MAX_PREFIX`] (after lowercasing) yields
     /// nothing, matching C's `Trie_IterateFuzzy` length cutoff.
     pub fn fuzzy_matches(&self, term: &str, max_dist: u32) -> impl Iterator<Item = String> + '_ {
-        let needle = term.to_lowercase();
+        let needle = unicode_tolower(term);
         let needle = (needle.chars().count() <= TRIE_MAX_PREFIX).then_some(needle);
         needle.into_iter().flat_map(move |needle| {
             self.trie.iter().filter_map(move |(key, _)| {
-                (levenshtein(&key.to_lowercase(), &needle) <= max_dist).then_some(key)
+                (levenshtein(&unicode_tolower(&key), &needle) <= max_dist).then_some(key)
             })
         })
     }
@@ -245,6 +246,18 @@ mod tests {
     }
 
     #[test]
+    fn lowering_is_per_codepoint_like_c_nu_tolower() {
+        // Lowering is per codepoint (like C's nu_tolower): a final-position Σ
+        // always becomes σ, never the word-final ς. So an uppercase query
+        // matches a stored trailing σ.
+        let mut sut = SpellCheckDictionary::new();
+        sut.add("οδοσ"); // stored verbatim, trailing non-final sigma (σ)
+
+        assert!(sut.contains("ΟΔΟΣ"));
+        assert_eq!(fuzzy(&sut, "ΟΔΟΣ", 0), BTreeSet::from(["οδοσ".into()]));
+    }
+
+    #[test]
     fn fuzzy_lowercases_multibyte() {
         let mut sut = SpellCheckDictionary::new();
         sut.add("Fußball");
@@ -273,7 +286,7 @@ mod tests {
         // exceed the 100-codepoint limit only after lowercasing.
         let term: String = "İ".repeat(51);
         assert_eq!(term.chars().count(), 51);
-        assert!(term.to_lowercase().chars().count() > TRIE_MAX_PREFIX);
+        assert!(unicode_tolower(&term).chars().count() > TRIE_MAX_PREFIX);
 
         let mut sut = SpellCheckDictionary::new();
         sut.add(&term);
@@ -314,10 +327,10 @@ mod tests {
 
             // Brute-force oracle: a stored term matches iff its lowercased form
             // is within `max_dist` of the lowercased query.
-            let lowered_query = query.to_lowercase();
+            let lowered_query = unicode_tolower(&query);
             let expected: BTreeSet<String> = stored
                 .iter()
-                .filter(|t| levenshtein(&t.to_lowercase(), &lowered_query) <= max_dist)
+                .filter(|t| levenshtein(&unicode_tolower(t), &lowered_query) <= max_dist)
                 .cloned()
                 .collect();
 
