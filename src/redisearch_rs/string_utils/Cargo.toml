@@ -5,10 +5,24 @@ edition.workspace = true
 license-file.workspace = true
 publish.workspace = true
 
-[lints]
-workspace = true
+[features]
+# feature enabled when building tests so they can link the C code in build.rs
+# see https://github.com/rust-lang/cargo/issues/4789#issuecomment-2308131243
+unittest = []
+
+[build-dependencies]
+build_utils.workspace = true
 
 [dependencies]
 ffi.workspace = true
 thiserror.workspace = true
 workspace_hack.workspace = true
+
+[dev-dependencies]
+proptest = { workspace = true, features = ["std"] }
+redis_mock.workspace = true
+redisearch_rs = { workspace = true, features = ["mock_allocator"] }
+string_utils = { path = ".", features = ["unittest"] }
+
+[lints]
+workspace = true

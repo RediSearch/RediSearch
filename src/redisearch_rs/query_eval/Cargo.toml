@@ -31,7 +31,6 @@ query_eval = { path = ".", features = ["unittest"] }
 redis_mock.workspace = true
 redisearch_rs = { workspace = true, features = ["mock_allocator"] }
 rqe_iterators_test_utils.workspace = true
-string_utils.workspace = true
 
 [lints]
 workspace = true

@@ -55,8 +55,8 @@ fn exceeds_limit() {
 #[cfg(not(miri))]
 mod ffi_comparison {
     use proptest::prelude::*;
-    use string_utils::str_to_lower_runes;
     use std::ffi::{CString, c_void};
+    use string_utils::str_to_lower_runes;
 
     /// Call C `strToLowerRunes` via FFI and return the resulting rune slice.
     fn c_str_to_lower_runes(s: &str) -> Option<Vec<u16>> {

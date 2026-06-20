@@ -91,8 +91,8 @@ fn case_insensitive_matches_unicode_tolower() {
 #[cfg(not(miri))]
 mod ffi_comparison {
     use proptest::prelude::*;
-    use string_utils::tag_strtolower;
     use std::ffi::c_void;
+    use string_utils::tag_strtolower;
 
     /// Call C `tag_strtolower` via FFI and return the resulting string.
     fn c_tag_strtolower(s: &str, case_sensitive: bool) -> String {
