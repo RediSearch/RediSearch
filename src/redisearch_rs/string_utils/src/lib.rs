@@ -24,9 +24,11 @@ pub fn unicode_tolower(s: &str) -> String {
     s.chars().flat_map(char::to_lowercase).collect()
 }
 
-/// Lowercase `s` per character (like [`unicode_tolower`]), returning `None`
-/// without allocating the full lowercase copy as soon as the result would
-/// exceed `max` codepoints.
+/// Convert a UTF-8 string to lowercase per-character, without
+/// context-dependent casing rules.
+///
+/// Returns `None` — without allocating the full lowercase copy — once the
+/// result would exceed `max` codepoints.
 pub fn unicode_tolower_capped(s: &str, max: usize) -> Option<String> {
     let mut out = String::new();
     for (count, c) in s.chars().flat_map(char::to_lowercase).enumerate() {
