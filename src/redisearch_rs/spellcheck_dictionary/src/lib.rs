@@ -7,11 +7,8 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 
-mod levenshtein;
-
 use std::fmt::{self, Debug};
 
-use levenshtein::levenshtein;
 use string_utils::unicode_tolower;
 use trie_rs::str_trie_map::StrTrieMap;
 
@@ -105,7 +102,8 @@ impl SpellCheckDictionary {
         let needle = (needle.chars().count() <= TRIE_MAX_PREFIX).then_some(needle);
         needle.into_iter().flat_map(move |needle| {
             self.trie.iter().filter_map(move |(key, _)| {
-                (levenshtein(&unicode_tolower(&key), &needle) <= max_dist).then_some(key)
+                let dist = strsim::levenshtein(&unicode_tolower(&key), &needle) as u32;
+                (dist <= max_dist).then_some(key)
             })
         })
     }

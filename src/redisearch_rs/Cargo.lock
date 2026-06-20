@@ -2725,6 +2725,7 @@ dependencies = [
  "proptest",
  "rstest",
  "string_utils",
+ "strsim",
  "trie_rs",
  "workspace_hack",
 ]
@@ -2748,6 +2749,12 @@ dependencies = [
  "thiserror",
  "workspace_hack",
 ]
+
+[[package]]
+name = "strsim"
+version = "0.11.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "7da8b5736845d9f2fcb837ea5d9e2628564b3b043a70948a3f0b778838c5fb4f"
 
 [[package]]
 name = "strum"
