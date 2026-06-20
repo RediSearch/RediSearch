@@ -7,6 +7,8 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 
+use std::fmt::{self, Debug};
+
 use trie_rs::str_trie_map::StrTrieMap;
 
 /// Maximum query length, in Unicode codepoints, that the dictionary will match
@@ -17,9 +19,15 @@ const TRIE_MAX_PREFIX: usize = ffi::TRIE_MAX_PREFIX as usize;
 /// Upper bound on insertable term length, in runes (codepoints).
 const TRIE_INITIAL_STRING_LEN: usize = ffi::TRIE_INITIAL_STRING_LEN as usize;
 
-#[derive(Debug, Default)]
+#[derive(Default)]
 pub struct SpellCheckDictionary {
     trie: StrTrieMap<()>,
+}
+
+impl Debug for SpellCheckDictionary {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        self.trie.fmt(f)
+    }
 }
 
 impl SpellCheckDictionary {
