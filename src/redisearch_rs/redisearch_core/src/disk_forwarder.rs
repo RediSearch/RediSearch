@@ -7,6 +7,8 @@
 //! and resolve the plugin's distinct entry points `SearchDiskPlugin_*`.
 
 use std::ffi::{CStr, CString, c_char, c_int, c_void};
+#[cfg(debug_assertions)]
+use std::ffi::c_uint;
 use std::path::PathBuf;
 use std::sync::OnceLock;
 
@@ -51,6 +53,20 @@ type GetApiFn = unsafe extern "C" fn() -> *mut c_void;
 type SetApiFn = unsafe extern "C" fn();
 type InitRedisModuleApiFn = unsafe extern "C" fn(*const c_void);
 
+// Fork × compaction debug coordinator entry-point signatures. Debug builds only,
+// matching the `#[cfg(debug_assertions)]` exports in the plugin and the
+// `FT.DEBUG REPL_COMPACTION_COORDINATOR` call sites in the C core.
+#[cfg(debug_assertions)]
+type DebugCoordinatorArmPauseFn = unsafe extern "C" fn(c_int, bool);
+#[cfg(debug_assertions)]
+type DebugCoordinatorSetWakeFn = unsafe extern "C" fn(c_int, c_int);
+#[cfg(debug_assertions)]
+type DebugCoordinatorReleaseFn = unsafe extern "C" fn(c_int);
+#[cfg(debug_assertions)]
+type DebugCoordinatorReachedFn = unsafe extern "C" fn(c_int) -> c_uint;
+#[cfg(debug_assertions)]
+type DebugResetCompactionControllerFn = unsafe extern "C" fn();
+
 /// Log a `warning`-level diagnostic through the C core's `RedisModule_Log`, so disk
 /// seam failures are visible in the server log instead of silently swallowed.
 fn log_warning(msg: &str) {
@@ -94,6 +110,38 @@ struct PluginEntries {
     has_api: Option<HasApiFn>,
     get_api: Option<GetApiFn>,
     set_api: Option<SetApiFn>,
+    #[cfg(debug_assertions)]
+    debug_arm_pause: Option<DebugCoordinatorArmPauseFn>,
+    #[cfg(debug_assertions)]
+    debug_set_wake: Option<DebugCoordinatorSetWakeFn>,
+    #[cfg(debug_assertions)]
+    debug_release: Option<DebugCoordinatorReleaseFn>,
+    #[cfg(debug_assertions)]
+    debug_reached: Option<DebugCoordinatorReachedFn>,
+    #[cfg(debug_assertions)]
+    debug_reset: Option<DebugResetCompactionControllerFn>,
+}
+
+impl PluginEntries {
+    /// All-`None` value used as the error/early-return default before a
+    /// successful `dlopen` populates the real entry points.
+    const fn empty() -> Self {
+        PluginEntries {
+            has_api: None,
+            get_api: None,
+            set_api: None,
+            #[cfg(debug_assertions)]
+            debug_arm_pause: None,
+            #[cfg(debug_assertions)]
+            debug_set_wake: None,
+            #[cfg(debug_assertions)]
+            debug_release: None,
+            #[cfg(debug_assertions)]
+            debug_reached: None,
+            #[cfg(debug_assertions)]
+            debug_reset: None,
+        }
+    }
 }
 
 // SAFETY: function pointers into a dlopened-RTLD_GLOBAL library that is never
@@ -183,7 +231,7 @@ unsafe fn resolve(handle: *mut c_void, name: &str) -> *mut c_void {
 }
 
 fn load_plugin() -> PluginEntries {
-    let mut entries = PluginEntries { has_api: None, get_api: None, set_api: None };
+    let mut entries = PluginEntries::empty();
     let Some(path) = sibling_plugin_path() else {
         log_warning("could not locate sibling redisearch_disk.so (dladdr failed)");
         return entries;
@@ -243,6 +291,39 @@ fn load_plugin() -> PluginEntries {
             entries.set_api = Some(std::mem::transmute::<*mut c_void, SetApiFn>(sp));
         }
     }
+
+    // Resolve the fork × compaction debug coordinator entry points. Debug builds
+    // only; these back the `FT.DEBUG REPL_COMPACTION_COORDINATOR` subcommands.
+    #[cfg(debug_assertions)]
+    // SAFETY: handle is a valid dlopen handle; the resolved symbols have the
+    // declared `extern "C"` signatures matching the plugin's exports.
+    unsafe {
+        let ap = resolve(handle, "SearchDiskPlugin_DebugCoordinatorArmPause");
+        let sw = resolve(handle, "SearchDiskPlugin_DebugCoordinatorSetWake");
+        let rl = resolve(handle, "SearchDiskPlugin_DebugCoordinatorRelease");
+        let rc = resolve(handle, "SearchDiskPlugin_DebugCoordinatorReached");
+        let rs = resolve(handle, "SearchDiskPlugin_DebugResetCompactionController");
+        if !ap.is_null() {
+            entries.debug_arm_pause =
+                Some(std::mem::transmute::<*mut c_void, DebugCoordinatorArmPauseFn>(ap));
+        }
+        if !sw.is_null() {
+            entries.debug_set_wake =
+                Some(std::mem::transmute::<*mut c_void, DebugCoordinatorSetWakeFn>(sw));
+        }
+        if !rl.is_null() {
+            entries.debug_release =
+                Some(std::mem::transmute::<*mut c_void, DebugCoordinatorReleaseFn>(rl));
+        }
+        if !rc.is_null() {
+            entries.debug_reached =
+                Some(std::mem::transmute::<*mut c_void, DebugCoordinatorReachedFn>(rc));
+        }
+        if !rs.is_null() {
+            entries.debug_reset =
+                Some(std::mem::transmute::<*mut c_void, DebugResetCompactionControllerFn>(rs));
+        }
+    }
     entries
 }
 
@@ -276,6 +357,67 @@ pub extern "C" fn SearchDisk_GetAPI() -> *mut c_void {
 #[unsafe(no_mangle)]
 pub extern "C" fn SearchDisk_SetAPI() {
     if let Some(f) = plugin().set_api {
+        // SAFETY: resolved plugin entry with the declared signature.
+        unsafe { f() }
+    }
+}
+
+// --- Fork × compaction debug coordinator forwarders --------------------------
+//
+// Strong overrides of the weak C stubs in `search_disk.c`, mirroring the main
+// three above. Debug builds only (the C stubs and call sites in
+// `debug_commands.c` are themselves debug-only), so `FT.DEBUG
+// REPL_COMPACTION_COORDINATOR` reaches the plugin's real coordinator instead of
+// the no-op stubs. When the plugin is absent the entry is `None` and these
+// behave like the original weak no-op stubs.
+
+/// Strong override of the weak C stub. Arms a single-shot pause at `site`.
+#[cfg(debug_assertions)]
+#[unsafe(no_mangle)]
+pub extern "C" fn SearchDisk_DebugCoordinatorArmPause(site: c_int, armed: bool) {
+    if let Some(f) = plugin().debug_arm_pause {
+        // SAFETY: resolved plugin entry with the declared signature.
+        unsafe { f(site, armed) }
+    }
+}
+
+/// Strong override of the weak C stub. Configures a cross-wake link.
+#[cfg(debug_assertions)]
+#[unsafe(no_mangle)]
+pub extern "C" fn SearchDisk_DebugCoordinatorSetWake(trigger: c_int, target: c_int) {
+    if let Some(f) = plugin().debug_set_wake {
+        // SAFETY: resolved plugin entry with the declared signature.
+        unsafe { f(trigger, target) }
+    }
+}
+
+/// Strong override of the weak C stub. Releases a parked site.
+#[cfg(debug_assertions)]
+#[unsafe(no_mangle)]
+pub extern "C" fn SearchDisk_DebugCoordinatorRelease(site: c_int) {
+    if let Some(f) = plugin().debug_release {
+        // SAFETY: resolved plugin entry with the declared signature.
+        unsafe { f(site) }
+    }
+}
+
+/// Strong override of the weak C stub. Returns how many times `site` was
+/// reached, or 0 when the plugin is absent.
+#[cfg(debug_assertions)]
+#[unsafe(no_mangle)]
+pub extern "C" fn SearchDisk_DebugCoordinatorReached(site: c_int) -> c_uint {
+    match plugin().debug_reached {
+        // SAFETY: resolved plugin entry with the declared signature.
+        Some(f) => unsafe { f(site) },
+        None => 0,
+    }
+}
+
+/// Strong override of the weak C stub. Resets the compaction coordinator.
+#[cfg(debug_assertions)]
+#[unsafe(no_mangle)]
+pub extern "C" fn SearchDisk_DebugResetCompactionController() {
+    if let Some(f) = plugin().debug_reset {
         // SAFETY: resolved plugin entry with the declared signature.
         unsafe { f() }
     }
