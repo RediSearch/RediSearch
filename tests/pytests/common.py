@@ -26,6 +26,7 @@ import inspect
 import math
 import tempfile
 import faker
+import redis.client
 
 TEST_RDBS_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'test_rdbs')
 REDISEARCH_CACHE_DIR = os.path.join(tempfile.gettempdir(), 'redisearch-rdbs')
@@ -360,6 +361,107 @@ def collectKeys(env, pattern='*'):
         keys.extend(conn.keys(pattern))
     return sorted(keys)
 
+
+# ---------------------------------------------------------------------------
+# Enterprise test-compatibility helpers
+# Gated by RS_TEST_ENTERPRISE=1; default=0 → zero behavior change on OSS CI.
+# ---------------------------------------------------------------------------
+
+# Build the FT.CONFIG-name → redis-config-name mapping from src/config.c
+# __configPairs[].  Only non-empty ConfigName entries have a CONFIG SET/GET
+# twin; entries with "" have none.
+_FT_CONFIG_TO_REDIS: dict = {}
+_FT_CONFIG_NO_TWIN: set = set()
+
+def _build_ft_config_table():
+    """Populate _FT_CONFIG_TO_REDIS and _FT_CONFIG_NO_TWIN by parsing
+    src/config.c relative to this file's repo root."""
+    import re
+    _repo_root = os.path.normpath(
+        os.path.join(os.path.dirname(os.path.abspath(__file__)), '..', '..'))
+    config_c = os.path.join(_repo_root, 'src', 'config.c')
+    try:
+        with open(config_c) as _f:
+            _src = _f.read()
+    except OSError:
+        return  # graceful degradation if run outside the source tree
+    # Match entries like:  {"FT_NAME", "search-redis-name"},
+    _pattern = re.compile(
+        r'\{\s*"([^"]+)"\s*,\s*"([^"]*)"\s*\}')
+    _in_array = False
+    for _line in _src.splitlines():
+        if '__configPairs' in _line and '{' in _line:
+            _in_array = True
+        if not _in_array:
+            continue
+        # Detect end of the array (a line that closes the outer brace)
+        if _in_array and re.match(r'^\s*\};', _line):
+            break
+        for _m in _pattern.finditer(_line):
+            _ft_name = _m.group(1).upper()
+            _redis_name = _m.group(2)
+            if _redis_name:
+                _FT_CONFIG_TO_REDIS[_ft_name] = _redis_name
+            else:
+                _FT_CONFIG_NO_TWIN.add(_ft_name)
+    # Alias: MAXEXPANSIONS is a legacy alias for MAXPREFIXEXPANSIONS
+    if 'MAXPREFIXEXPANSIONS' in _FT_CONFIG_TO_REDIS and 'MAXEXPANSIONS' not in _FT_CONFIG_TO_REDIS:
+        _FT_CONFIG_TO_REDIS['MAXEXPANSIONS'] = _FT_CONFIG_TO_REDIS['MAXPREFIXEXPANSIONS']
+
+_build_ft_config_table()
+
+# --- FIX 1: monkeypatch redis-py to transparently rewrite _FT.CONFIG/FT.CONFIG
+#     SET|GET <PARAM> → CONFIG SET|GET search-<param> when RS_TEST_ENTERPRISE=1.
+
+if RS_TEST_ENTERPRISE:
+    _orig_execute_command = redis.client.Redis.execute_command
+
+    def _enterprise_execute_command(self, *args, **kwargs):
+        """Intercept _FT.CONFIG / FT.CONFIG GET|SET and rewrite to CONFIG GET|SET."""
+        if (len(args) >= 3
+                and str(args[0]).upper() in ('_FT.CONFIG', 'FT.CONFIG')
+                and str(args[1]).upper() in ('SET', 'GET')):
+            op = str(args[1]).upper()
+            param = str(args[2]).upper()
+            redis_name = _FT_CONFIG_TO_REDIS.get(param)
+            if redis_name is not None:
+                # Rewrite: CONFIG <op> <redis_name> [remaining args...]
+                new_args = ('CONFIG', op, redis_name) + tuple(args[3:])
+                raw = _orig_execute_command(self, *new_args, **kwargs)
+                if op == 'GET':
+                    # redis CONFIG GET returns [name, value] (RESP2) or
+                    # {name: value} (RESP3 / dict).  Normalise to the shape
+                    # FT.CONFIG GET returns: [[PARAM, value]].
+                    if isinstance(raw, dict):
+                        value = raw.get(redis_name, raw.get(redis_name.lower()))
+                    elif isinstance(raw, (list, tuple)) and len(raw) == 2:
+                        value = raw[1]
+                    else:
+                        value = raw
+                    # Preserve the original-case param name the test passed
+                    return [[args[2], value]]
+                return raw
+            # No twin (empty ConfigName) or unknown param → pass through
+        return _orig_execute_command(self, *args, **kwargs)
+
+    redis.client.Redis.execute_command = _enterprise_execute_command
+
+# --- FIX 2: strip the enterprise-only 'Shard ID' key from FT.PROFILE replies.
+
+def strip_enterprise_profile_keys(obj):
+    """Recursively remove the enterprise-only 'Shard ID' key from an
+    FT.PROFILE reply so community-shaped expected values still match.
+    No-op unless RS_TEST_ENTERPRISE=1."""
+    if not RS_TEST_ENTERPRISE:
+        return obj
+    if isinstance(obj, dict):
+        return {k: strip_enterprise_profile_keys(v)
+                for k, v in obj.items() if k != 'Shard ID'}
+    if isinstance(obj, list):
+        return [strip_enterprise_profile_keys(v) for v in obj]
+    return obj
+
+# ---------------------------------------------------------------------------
 
 def debug_cmd():
     return '_FT.DEBUG'
