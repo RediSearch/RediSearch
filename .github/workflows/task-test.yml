@@ -593,14 +593,21 @@ jobs:
         # part of the filename. So we key the glob on `<file>_<class-or-func>`,
         # dropping any `.method` suffix from the failed id — otherwise the glob can
         # never match and the focused bundle silently misses the real failure.
+        #
+        # Mirror the "Upload Artifacts" guard: with fail-fast disabled the test
+        # steps are continue-on-error, so a unit-test-only failure never trips
+        # `failure()` here and we must check the step outcomes explicitly —
+        # otherwise no focused bundle is produced for unit-test-only failures.
         if: >
           failure() || (
+            (steps.rust_unit_tests_miri.outcome == 'failure') ||
+            steps.rust_unit_tests.outcome == 'failure' ||
+            steps.c_unit_tests.outcome == 'failure' ||
             steps.standalone_tests.outcome == 'failure' ||
             steps.coordinator_tests.outcome == 'failure'
           )
         env:
           C_UNIT_TESTS_OUTCOME: ${{ steps.c_unit_tests.outcome }}
-          RUST_UNIT_TESTS_OUTCOME: ${{ steps.rust_unit_tests.outcome }}
         run: |
           set +e
           DEST="failed-test-logs"
@@ -630,12 +637,15 @@ jobs:
           copy_for_failed_list ".failed_coordinator.txt"
 
           # The C/C++ CTest summary logs (rstest*.log) are only relevant when the
-          # unit tests themselves failed. Including them unconditionally is
+          # C/C++ unit tests themselves failed. Including them unconditionally is
           # misleading for flow-test failures: they report "100% tests passed" and,
           # when no per-test flow logs match, become the *only* content the triage
-          # sees — making a real failure look like a clean run. Gate on an actual
-          # unit-test failure.
-          if [ "$C_UNIT_TESTS_OUTCOME" = "failure" ] || [ "$RUST_UNIT_TESTS_OUTCOME" = "failure" ]; then
+          # sees — making a real failure look like a clean run. Gate strictly on a
+          # C/C++ unit-test failure: a Rust-only failure leaves these CTest logs
+          # passing, so copying them would recreate the same misleading artifact
+          # (the real Rust failure lives in the job log, surfaced via the triage
+          # KEY FAILURE LINES extraction instead).
+          if [ "$C_UNIT_TESTS_OUTCOME" = "failure" ]; then
             find tests -path '*/logs/rstest*.log' -type f 2>/dev/null | while read -r log; do
               mkdir -p "$DEST/$(dirname "$log")"
               cp "$log" "$DEST/$log"
@@ -655,8 +665,13 @@ jobs:
           exit 0
 
       - name: Upload Failed-Only Test Logs
+        # Keep this guard in lockstep with "Collect failed-test-only logs" above,
+        # otherwise the bundle is built but never uploaded (or vice versa).
         if: >
           failure() || (
+            (steps.rust_unit_tests_miri.outcome == 'failure') ||
+            steps.rust_unit_tests.outcome == 'failure' ||
+            steps.c_unit_tests.outcome == 'failure' ||
             steps.standalone_tests.outcome == 'failure' ||
             steps.coordinator_tests.outcome == 'failure'
           )
