@@ -39,16 +39,6 @@ include!(concat!(env!("OUT_DIR"), "/bindings.rs"));
 /// Access to the RediSearch Module context
 pub mod context;
 
-/// `QEFlag_RunInBackground` (= 0x100) — the pipeline was constructed for
-/// background execution (`RunInThread()` returned true). The disk async loader
-/// uses this to decide whether to take the GIL (background path) or to proceed
-/// without it (main-thread path, Redis lock already held).
-///
-/// This is a manually-defined constant that mirrors the C enum variant
-/// `QEFlag::QEFlag_RunInBackground` from `src/redisearch_rs/headers/query_flags.h`.
-/// Bindgen does not emit unnamed enum variants automatically, so we define it here.
-pub const QEFlag_RunInBackground: QEFlags = 0x100;
-
 /// Use the Rust definitions directly
 pub use document::DocumentType;
 pub use query_node_type::{
