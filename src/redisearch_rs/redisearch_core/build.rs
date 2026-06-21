@@ -27,7 +27,8 @@ fn main() {
 
     let linting_only = std::env::var("LINTING_ONLY").as_deref() == Ok("1");
 
-    // C-only combined RediSearch archive (whole-archive pull at final link).
+    // C-only combined RediSearch archive (linked `static:-bundle`; the linker pulls
+    // only referenced objects, plus any forced via `--undefined` below).
     let redisearch_all = match build_utils::link_redisearch_all(&bin_dir) {
         Ok(path) => Some(path),
         Err(e) if linting_only => {
@@ -69,75 +70,39 @@ fn main() {
     // The robust mechanism is to inject the needed names into the `global:` section
     // of `rustc`'s own version script at link time. A thin linker wrapper
     // (`redisearch_core_linker.sh`, wired in by the superrepo `build.sh`) does this;
-    // here we (a) emit the list of symbols it must inject, and (b) force each to be
+    // here we (a) emit the list of symbols it must inject, and (b) ensure each is
     // pulled from the C archive and kept, so the name actually exists in the link.
+    //
+    // The export set is NOT hand-maintained. It is derived at build time from the
+    // C-only combined archive (`libredisearch_all.a`) itself: every globally-defined
+    // C-core symbol is exported. This way, any future disk/plugin or shared-dylib
+    // code that calls a new C-core function resolves at dlopen with ZERO linker-config
+    // edits — the symbol is already in the archive, so it is already exported. The
+    // alternative (a hand-enumerated list) silently broke `dlopen` whenever a new
+    // cross-`.so` call was added without updating the list.
     //
     // These symbols are genuinely shared: the plugin and core MUST operate on the
     // SAME `IndexSpec` / `DocTable` / config instances, so they are exported from
     // the single core copy rather than duplicated into the plugin.
     println!("cargo::rustc-link-arg=-Wl,--export-dynamic");
 
-    const PLUGIN_EXPORTED_CORE_SYMBOLS: &[&str] = &[
-        // RediSearch C-core functions/globals the disk layer (redisearch_disk +
-        // vecsim_disk) references across the .so boundary, plus the C-core
-        // functions the shared dylib (`libsearch_shared.so`) references back into
-        // the core. Both consumers resolve these from `redisearch.so` at load time:
-        // the plugin via `RTLD_GLOBAL` at `dlopen`, the shared dylib via its
-        // `NEEDED redisearch.so`-equivalent load order (it is a `NEEDED` of
-        // `redisearch.so`, so the core's `.dynsym` must satisfy its undefined
-        // references). Every name here is otherwise localized by `rustc`'s cdylib
-        // `local: *` version script; the linker wrapper promotes exactly this set.
-        "AREQ_CheckTimedOut",
-        "Buffer_Grow",
-        "DMD_Free",
-        "DocTable_Exists",
-        "HiddenString_CompareC",
-        "HiddenString_GetUnsafe",
-        "HybridIterator_GetChild",
-        "HybridIterator_GetMaxBatchIteration",
-        "HybridIterator_GetMaxBatchSize",
-        "HybridIterator_GetNumIterations",
-        "HybridIterator_GetSearchModeString",
-        "HybridIterator_IsBatchMode",
-        "IndexSpecCache_Decref",
-        "Obfuscate_Number",
-        "Obfuscate_Text",
-        "OptimizerIterator_GetChild",
-        "OptimizerIterator_GetOptimizationType",
-        "RPProfile_IncrementCount",
-        "RSDummyContext",
-        "RSGlobalConfig",
-        "Redis_OpenInvertedIndex",
-        "SEDestroy",
-        "isWithinRadius",
-        "loadIndividualKeys",
-        "sdscatlen",
-        // C-core symbols referenced by `libsearch_shared.so` (the shared Rust
-        // subgraph: rqe_iterators / index_spec / ffi / ...). These are undefined
-        // (`U`) in the shared dylib and defined in the C core, so they must be
-        // exported from `redisearch.so` for the shared dylib's references to bind
-        // at module load. Without these, RoR module load fails to resolve them.
-        "IndexSpecRef_Promote",
-        "IndexSpecRef_Release",
-        "IndexSpec_AcquireWriteLock",
-        "IndexSpec_DecrementNumTerms",
-        "IndexSpec_DecrementTrieTermCount",
-        "IndexSpec_ReleaseWriteLock",
-        "NewNumericFilter",
-        "RS_dictFetchValue",
-        "StrongRef_Get",
-        "TimeToLiveTable_VerifyDocAndField",
-        "TimeToLiveTable_VerifyDocAndFieldMask",
-        "TimeToLiveTable_VerifyDocAndWideFieldMask",
-        "array_len_func",
-    ];
-
-    // Pull each symbol from the archive and keep it through GC, so the name is
-    // present in the link for the version-script `global:` injection to promote.
-    if redisearch_all.is_some() {
-        for sym in PLUGIN_EXPORTED_CORE_SYMBOLS {
-            println!("cargo::rustc-link-arg=-Wl,--undefined={sym}");
+    // Derive the full set of C-core globals to export from the archive via `nm`.
+    let plugin_exported_core_symbols: Vec<String> = match &redisearch_all {
+        Some(archive) => {
+            println!("cargo::rerun-if-changed={}", archive.display());
+            collect_c_core_globals(archive)
         }
+        None => Vec::new(),
+    };
+
+    // Force every exported global to be pulled from the archive and kept through GC,
+    // so the name is present in the link for the version-script `global:` injection
+    // to promote. The archive is linked with `static:-bundle`, so the linker only
+    // pulls objects it sees a reference to; `--undefined` provides that reference for
+    // symbols the C core does not itself call (e.g. utility helpers only the plugin
+    // uses), making the blanket export complete and future-proof.
+    for sym in &plugin_exported_core_symbols {
+        println!("cargo::rustc-link-arg=-Wl,--undefined={sym}");
     }
 
     // Hand the symbol list to the linker wrapper via a file. The wrapper injects
@@ -146,7 +111,7 @@ fn main() {
     // superrepo `build.sh`; when unset (e.g. a normal in-submodule `cargo build`)
     // we skip — the C-only static link does not need the wrapper.
     if let Ok(exports_file) = std::env::var("REDISEARCH_PLUGIN_EXPORTS_FILE") {
-        let body = PLUGIN_EXPORTED_CORE_SYMBOLS.join("\n");
+        let body = plugin_exported_core_symbols.join("\n");
         if let Err(e) = std::fs::write(&exports_file, format!("{body}\n")) {
             panic!("failed to write plugin exports file {exports_file}: {e}");
         }
@@ -157,4 +122,57 @@ fn main() {
         // Link the C archive last so its symbols are preferred.
         println!("cargo::rustc-link-arg=-lredisearch_all");
     }
+}
+
+/// Extract every globally-defined C-core symbol from `libredisearch_all.a`.
+///
+/// Runs `nm -g --defined-only` on the combined C archive and keeps the **strong**
+/// defined globals — text (`T`), initialized/uninitialized data (`D`/`B`), and
+/// read-only data (`R`). These are the C-core API surface (functions and globals)
+/// that the dlopened plugin (`redisearch_disk.so`) and the shared dylib
+/// (`libsearch_shared.so`) resolve across the `.so` boundary.
+///
+/// Weak symbols (`W`/`V`) are deliberately excluded: in this archive they are
+/// overwhelmingly C++ template instantiations, inline functions, and vtables from
+/// the embedded C++ (VectorSimilarity, geometry). They are already merged at link
+/// time, are not part of the stable C-core ABI the plugin links against, and
+/// blanket-exporting ~75k of them would bloat the version script and risk ODR /
+/// interposition surprises across the boundary for no benefit. Every symbol the
+/// consumers actually need is a strong global.
+fn collect_c_core_globals(archive: &std::path::Path) -> Vec<String> {
+    let nm = std::env::var("NM").unwrap_or_else(|_| "nm".to_string());
+    let output = std::process::Command::new(&nm)
+        .args(["-g", "--defined-only"])
+        .arg(archive)
+        .output()
+        .unwrap_or_else(|e| panic!("failed to run `{nm}` on {}: {e}", archive.display()));
+    if !output.status.success() {
+        panic!(
+            "`{nm} -g --defined-only {}` failed: {}",
+            archive.display(),
+            String::from_utf8_lossy(&output.stderr)
+        );
+    }
+
+    let mut symbols: Vec<String> = String::from_utf8_lossy(&output.stdout)
+        .lines()
+        .filter_map(|line| {
+            // `nm` output for a defined global: "<addr> <type> <name>". Keep only
+            // strong defined types; skip undefined (`U`) and weak (`W`/`V`/`w`/`v`).
+            let mut fields = line.split_whitespace();
+            let _addr = fields.next()?;
+            let kind = fields.next()?;
+            let name = fields.next()?;
+            matches!(kind, "T" | "D" | "B" | "R").then(|| name.to_string())
+        })
+        .collect();
+    symbols.sort_unstable();
+    symbols.dedup();
+
+    assert!(
+        !symbols.is_empty(),
+        "no strong C-core globals found in {}; refusing to produce an empty export set",
+        archive.display()
+    );
+    symbols
 }
