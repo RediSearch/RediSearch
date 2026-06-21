@@ -2,19 +2,28 @@
 """
 MS MARCO Dataset Generator for RediSearch Benchmarks.
 
-Generates CSV files with Redis HSET commands for data ingestion
+Generates CSV files with Redis HSET or JSON.SET commands for data ingestion
 and FT.SEARCH commands for query benchmarks.
 
 Features:
 - Processes extracted tar shards directly
+- HASH (HSET) or JSON (JSON.SET) document format via --doc-format
 - Adds 64 tags with varying cardinality (HIGH/MEDIUM/LOW)
 - Deterministic tag assignment via CRC32 hash
 - Buffered I/O for fast disk writes
 
 Usage:
+    # HASH dataset (default)
     python3 generate_msmarco_dataset.py \\
         --shards-dir ./extracted/msmarco_v2_doc \\
         --sample-pct 50 \\
+        --output-dir ./output
+
+    # JSON dataset (emits JSON.SET; tags stay a scalar comma-separated string)
+    python3 generate_msmarco_dataset.py \\
+        --shards-dir ./extracted/msmarco_v2_doc \\
+        --sample-pct 50 \\
+        --doc-format json \\
         --output-dir ./output
 """
 
@@ -35,10 +44,16 @@ try:
     import orjson
     def json_loads(s):
         return orjson.loads(s)
+    def json_dumps(obj):
+        # orjson.dumps returns bytes; decode to str for the CSV writer.
+        return orjson.dumps(obj).decode("utf-8")
 except ImportError:
     import json
     def json_loads(s):
         return json.loads(s)
+    def json_dumps(obj):
+        # Compact separators keep the serialized document small (6M docs).
+        return json.dumps(obj, ensure_ascii=False, separators=(",", ":"))
 
 try:
     from tqdm import tqdm
@@ -112,10 +127,23 @@ def generate_tags_for_doc(doc_id: str) -> str:
 
 
 def escape_redis_string(s: str) -> str:
-    """Escape special characters for Redis protocol."""
+    """Escape special characters for Redis protocol (HSET field values)."""
     if s is None:
         return ""
     return s.replace('\\', '\\\\').replace('"', '\\"').replace('\n', ' ').replace('\r', '')
+
+
+def normalize_text(s: str) -> str:
+    """
+    Normalize whitespace for a field value used in a JSON document.
+
+    Mirrors the newline/CR handling of escape_redis_string so the indexed text
+    is identical between the HASH and JSON datasets, but leaves quote/backslash
+    escaping to the JSON serializer (json_dumps), which handles it correctly.
+    """
+    if s is None:
+        return ""
+    return s.replace('\n', ' ').replace('\r', '')
 
 
 def should_sample_doc(doc_id: str, sample_pct: int) -> bool:
@@ -179,10 +207,11 @@ def generate_setup_commands_from_shards(
     output_file: Path,
     doc_limit: int,
     sample_pct: int = 100,
-    key_prefix: str = "doc:"
+    key_prefix: str = "doc:",
+    doc_format: str = "hash"
 ) -> Tuple[int, dict]:
     """
-    Generate SETUP.csv file with HSET commands from tar shards.
+    Generate SETUP.csv file with HSET or JSON.SET commands from tar shards.
     Includes 64 tags with varying cardinality.
 
     Args:
@@ -192,11 +221,15 @@ def generate_setup_commands_from_shards(
         doc_limit: Maximum number of documents to generate
         sample_pct: Percentage of documents to sample (1-100)
         key_prefix: Redis key prefix (default: "doc:")
+        doc_format: "hash" emits HSET commands, "json" emits JSON.SET commands.
+            In "json" mode the same fields are stored under a single JSON
+            document; ``tags`` stays a single comma-separated scalar string
+            (never a JSON array) to honor the no-multivalue constraint.
 
     Returns:
         Tuple of (doc_count, tag_stats dict)
     """
-    print(f"Generating SETUP commands with 64 tags...")
+    print(f"Generating SETUP commands ({doc_format.upper()}) with 64 tags...")
     print(f"  Sample percentage: {sample_pct}%")
     print(f"  Document limit: {doc_limit:,}")
 
@@ -246,22 +279,40 @@ def generate_setup_commands_from_shards(
             # Build Redis key
             doc_key = f"{key_prefix}{doc_id}"
 
-            # Extract fields
-            url = escape_redis_string(doc.get("url", ""))
-            title = escape_redis_string(doc.get("title", ""))
-            headings = escape_redis_string(doc.get("headings", ""))
-            body = escape_redis_string(doc.get("body", ""))
+            if doc_format == "json":
+                # Build a single JSON document. tags stays a scalar
+                # comma-separated string (no JSON array) to honor the
+                # no-multivalue constraint. json_dumps handles escaping;
+                # normalize_text only strips newlines/CR so the indexed text
+                # matches the HASH dataset.
+                json_doc = json_dumps({
+                    "doc_id": doc_id,
+                    "url": normalize_text(doc.get("url", "")),
+                    "title": normalize_text(doc.get("title", "")),
+                    "headings": normalize_text(doc.get("headings", "")),
+                    "body": normalize_text(doc.get("body", "")),
+                    "tags": tags,
+                })
+                writer.writerow([
+                    "WRITE", "W1", "1", "JSON.SET", doc_key, "$", json_doc
+                ])
+            else:
+                # Extract fields
+                url = escape_redis_string(doc.get("url", ""))
+                title = escape_redis_string(doc.get("title", ""))
+                headings = escape_redis_string(doc.get("headings", ""))
+                body = escape_redis_string(doc.get("body", ""))
 
-            # Write HSET command row
-            writer.writerow([
-                "WRITE", "W1", "1", "HSET", doc_key,
-                "doc_id", doc_id,
-                "url", url,
-                "title", title,
-                "headings", headings,
-                "body", body,
-                "tags", tags
-            ])
+                # Write HSET command row
+                writer.writerow([
+                    "WRITE", "W1", "1", "HSET", doc_key,
+                    "doc_id", doc_id,
+                    "url", url,
+                    "title", title,
+                    "headings", headings,
+                    "body", body,
+                    "tags", tags
+                ])
 
             doc_count += 1
 
@@ -457,6 +508,14 @@ def main():
         help="Redis key prefix (default: 'doc:')"
     )
     parser.add_argument(
+        "--doc-format",
+        type=str,
+        default="hash",
+        choices=["hash", "json"],
+        help="Document storage format: 'hash' emits HSET commands, "
+             "'json' emits JSON.SET commands (default: hash)"
+    )
+    parser.add_argument(
         "--num-queries",
         type=int,
         default=100000,
@@ -470,10 +529,13 @@ def main():
 
     args = parser.parse_args()
 
-    # Auto-generate dataset name if not provided
+    # Auto-generate dataset name if not provided. The JSON dataset gets its own
+    # prefix (…-msmarco-json-documents) so it lives under a separate S3 path and
+    # does not collide with the HASH dataset.
     if args.dataset_name is None:
         doc_suffix = f"{args.doc_limit // 1000000}M" if args.doc_limit >= 1000000 else f"{args.doc_limit // 1000}K"
-        args.dataset_name = f"{doc_suffix}-msmarco-documents"
+        format_infix = "json-" if args.doc_format == "json" else ""
+        args.dataset_name = f"{doc_suffix}-msmarco-{format_infix}documents"
 
     # Create output directory
     args.output_dir.mkdir(parents=True, exist_ok=True)
@@ -487,6 +549,7 @@ def main():
     print(f"  Output directory: {args.output_dir}")
     print(f"  Output name prefix: {args.dataset_name}")
     print(f"  Key prefix: {args.key_prefix}")
+    print(f"  Document format: {args.doc_format.upper()}")
     print(f"{'='*70}\n")
 
     # Generate SETUP commands with tags
@@ -497,7 +560,8 @@ def main():
         output_file=setup_file,
         doc_limit=args.doc_limit,
         sample_pct=args.sample_pct,
-        key_prefix=args.key_prefix
+        key_prefix=args.key_prefix,
+        doc_format=args.doc_format
     )
 
     # Print tag statistics
@@ -522,12 +586,20 @@ def main():
         print(f"  - {file.name} ({size_mb:.1f} MB)")
 
     print(f"\nSchema for FT.CREATE:")
-    print(f"  FT.CREATE {args.index_name} ON HASH PREFIX 1 {args.key_prefix} SCHEMA \\")
-    print(f"    url TEXT \\")
-    print(f"    title TEXT \\")
-    print(f"    headings TEXT \\")
-    print(f"    body TEXT \\")
-    print(f'    tags TAG SEPARATOR ","')
+    if args.doc_format == "json":
+        print(f"  FT.CREATE {args.index_name} ON JSON PREFIX 1 {args.key_prefix} SCHEMA \\")
+        print(f"    $.url      AS url      TEXT \\")
+        print(f"    $.title    AS title    TEXT \\")
+        print(f"    $.headings AS headings TEXT \\")
+        print(f"    $.body     AS body     TEXT")
+        print(f"  # tags is a comma-separated scalar string in the JSON doc; not indexed (no multivalue).")
+    else:
+        print(f"  FT.CREATE {args.index_name} ON HASH PREFIX 1 {args.key_prefix} SCHEMA \\")
+        print(f"    url TEXT \\")
+        print(f"    title TEXT \\")
+        print(f"    headings TEXT \\")
+        print(f"    body TEXT \\")
+        print(f'    tags TAG SEPARATOR ","')
 
     print(f"\nNext steps:")
     print(f"  1. Review generated files")
