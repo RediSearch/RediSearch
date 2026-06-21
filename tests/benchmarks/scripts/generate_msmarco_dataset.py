@@ -364,7 +364,8 @@ def generate_query_commands(
     output_file: Path,
     query_category: str,
     index_name: str,
-    num_queries: int = 100000
+    num_queries: int = 100000,
+    include_tag_queries: bool = True
 ) -> int:
     """
     Generate BENCH.QUERY_*.csv file with FT.SEARCH commands.
@@ -375,6 +376,9 @@ def generate_query_commands(
         query_category: Category of queries (baseline, phrase, and, or, not, tag, all)
         index_name: RediSearch index name
         num_queries: Number of queries to generate (cycles through available queries)
+        include_tag_queries: When False, omit queries with @tags:{...} predicates.
+            Used for the JSON dataset, whose schema does not index tags (no
+            multivalue), so such queries would reference an unindexed field.
 
     Returns:
         Number of queries generated
@@ -384,7 +388,9 @@ def generate_query_commands(
     # Get queries for this category
     if query_category == "all":
         queries = []
-        for cat_queries in BENCHMARK_QUERIES.values():
+        for cat_name, cat_queries in BENCHMARK_QUERIES.items():
+            if cat_name == "tag" and not include_tag_queries:
+                continue
             queries.extend(cat_queries)
     elif query_category in BENCHMARK_QUERIES:
         queries = BENCHMARK_QUERIES[query_category]
@@ -570,10 +576,17 @@ def main():
     # Generate query commands
     if not args.skip_queries:
         print("\n")
+        # The JSON schema intentionally does not index tags (no multivalue), so
+        # skip tag-predicate query categories that would reference an unindexed
+        # field and fail at query time.
+        include_tag_queries = args.doc_format != "json"
         query_categories = ["baseline", "phrase", "and", "or", "not", "tag", "all"]
+        if not include_tag_queries:
+            query_categories.remove("tag")
         for category in query_categories:
             query_file = args.output_dir / f"{args.dataset_name}.redisearch.commands.BENCH.QUERY_{category}.csv"
-            generate_query_commands(query_file, category, args.index_name, args.num_queries)
+            generate_query_commands(query_file, category, args.index_name, args.num_queries,
+                                    include_tag_queries=include_tag_queries)
 
     print(f"\n{'='*70}")
     print(f"✓ Dataset generation complete!")
