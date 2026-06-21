@@ -207,7 +207,6 @@ bool ProcessHybridCursorMappings(const MRCommand *cmd, StrongRef searchMappingsR
     *ctx = (processCursorMappingCallbackContext) {
         .searchMappings = StrongRef_Clone(searchMappingsRef),
         .vsimMappings = StrongRef_Clone(vsimMappingsRef),
-        // Allocated up front (race-free: built on the coord thread before IO launches).
         .errors = array_new(QueryError, 0),
       };
 
@@ -252,7 +251,6 @@ bool ProcessHybridCursorMappings(const MRCommand *cmd, StrongRef searchMappingsR
             }
         }
     }
-    // Cleanup (ctx is freed by freeCursorMappingCtx via the iterator destructor).
     MRIterator_Release(it);
 
     return success;
