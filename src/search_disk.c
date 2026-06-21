@@ -10,6 +10,7 @@
 #include "search_disk.h"
 #include "config.h"
 #include "spec.h"
+#include "indexes.h"
 #include "query_term_ffi.h"
 #include "sorting_vector_ffi.h"
 #include "redismodule.h"

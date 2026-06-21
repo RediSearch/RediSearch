@@ -323,7 +323,7 @@ TEST_F(TrieTest, testLexOrder) {
   trieInsert(t, "bar");
   trieInsert(t, "help");
 
-  TrieIterator *iter = Trie_IterateFuzzy(t, "", 0, 0, TRIE_MATCH_PREFIX);
+  TrieIterator *iter = Trie_IterateAll(t);
   checkNext(iter, "bar");
   checkNext(iter, "foo");
   checkNext(iter, "helen");
@@ -336,7 +336,7 @@ TEST_F(TrieTest, testLexOrder) {
   Trie_Delete(t, "hello", 5);
   Trie_Delete(t, "world", 5);
 
-  iter = Trie_IterateFuzzy(t, "", 0, 0, TRIE_MATCH_PREFIX);
+  iter = Trie_IterateAll(t);
   checkNext(iter, "foo");
   checkNext(iter, "helen");
   checkNext(iter, "help");
@@ -371,7 +371,7 @@ TEST_F(TrieTest, testScoreOrder) {
   trieInsertByScore(t, "help", 3);
   trieInsertByScore(t, "helen", 5);
 
-  TrieIterator *iter = Trie_IterateFuzzy(t, "", 0, 0, TRIE_MATCH_PREFIX);
+  TrieIterator *iter = Trie_IterateAll(t);
   checkNext(iter, "foo");
   checkNext(iter, "helen");
   checkNext(iter, "hello");
@@ -384,7 +384,7 @@ TEST_F(TrieTest, testScoreOrder) {
   Trie_Delete(t, "world", 5);
   Trie_Delete(t, "bar", 3);
 
-  iter = Trie_IterateFuzzy(t, "", 0, 0, TRIE_MATCH_PREFIX);
+  iter = Trie_IterateAll(t);
   checkNext(iter, "foo");
   checkNext(iter, "helen");
   checkNext(iter, "help");
@@ -414,8 +414,8 @@ static bool compareTrieContents(Trie *original, Trie *loaded) {
   }
 
   // Compare all entries using iterators
-  TrieIterator *origIter = Trie_IterateFuzzy(original, "", 0, 0, TRIE_MATCH_PREFIX);
-  TrieIterator *loadedIter = Trie_IterateFuzzy(loaded, "", 0, 0, TRIE_MATCH_PREFIX);
+  TrieIterator *origIter = Trie_IterateAll(original);
+  TrieIterator *loadedIter = Trie_IterateAll(loaded);
 
   std::unique_ptr<TrieIterator, std::function<void(TrieIterator *)>> origIterPtr(origIter, [](TrieIterator *iter) {
     TrieIterator_Free(iter);

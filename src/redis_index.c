@@ -7,6 +7,7 @@
  * GNU Affero General Public License v3 (AGPLv3).
  */
 #include "redis_index.h"
+#include "indexes.h"
 #include "doc_table.h"
 #include "redismodule.h"
 #include "inverted_index.h"
@@ -132,7 +133,7 @@ void RedisSearchCtx_LockSpecWrite(RedisSearchCtx *ctx) {
 // DOES NOT INCREMENT REF COUNT
 RedisSearchCtx *NewSearchCtxC(RedisModuleCtx *ctx, const char *indexName, bool resetTTL) {
   IndexLoadOptions loadOpts = {.nameC = indexName};
-  StrongRef ref = IndexSpec_LoadUnsafeEx(&loadOpts);
+  StrongRef ref = Indexes_LoadIndexSpecUnsafeEx(&loadOpts);
   IndexSpec *sp = StrongRef_Get(ref);
   if (!sp) {
     return NULL;

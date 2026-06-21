@@ -169,7 +169,11 @@ ResultProcessor *RPMetricsLoader_New();
  */
 ResultProcessor *RPSorter_NewByFields(size_t maxresults, const RLookupKey **keys, size_t nkeys, uint64_t ascendingMap);
 
-ResultProcessor *RPSorter_NewByScore(size_t maxresults);
+/**
+ * Creates a sorter result processor that sorts by score.
+ * @param scoreTieBreakKey if non-NULL, score ties break by this key's value, not the doc id.
+ */
+ResultProcessor *RPSorter_NewByScore(size_t maxresults, const RLookupKey *scoreTieBreakKey);
 
 ResultProcessor *RPPager_New(size_t offset, size_t limit);
 
@@ -188,10 +192,16 @@ ResultProcessor *RPPager_New(size_t offset, size_t limit);
  *
  *******************************************************************************************************************/
 struct AREQ;
+struct RequestSyncCtx;
 ResultProcessor *RPLoader_New(RedisSearchCtx *sctx, uint32_t reqflags, RLookup *lk, const RLookupKey **keys, size_t nkeys, bool forceLoad, uint32_t *outStateflags);
 
 void SetLoadersForBG(QueryProcessingCtx *qctx);
 void SetLoadersForMainThread(QueryProcessingCtx *qctx);
+
+/* Link the request sync context into every RP_SAFE_LOADER in the pipeline so
+ * they can perform the RETURN_STRICT GIL deadlock-avoidance handshake (see
+ * aggregate.h). No-op for pipelines without safe loaders. */
+void RPSafeLoader_SetSyncCtx(QueryProcessingCtx *qctx, struct RequestSyncCtx *sync);
 
 /** Creates a new Highlight processor */
 ResultProcessor *RPHighlighter_New(RSLanguage language, const FieldList *fields,

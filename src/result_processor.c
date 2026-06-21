@@ -623,6 +623,9 @@ typedef struct {
     uint64_t ascendMap;
   } fieldcmp;
 
+  // When set, score ties are broken by this key's value instead of the doc id.
+  const RLookupKey *scoreTieBreakKey;
+
   // Whether a timeout warning needs to be propagated down the downstream
   bool timedOut;
 } RPSorter;
@@ -732,12 +735,19 @@ static int rpsortNext_Accum(ResultProcessor *rp, SearchResult *r) {
 
 /* Compare results for the heap by score */
 static inline int cmpByScore(const void *e1, const void *e2, const void *udata) {
+  const RPSorter *self = udata;
   const SearchResult *h1 = e1, *h2 = e2;
 
   if (SearchResult_GetScore(h1) < SearchResult_GetScore(h2)) {
     return -1;
   } else if (SearchResult_GetScore(h1) > SearchResult_GetScore(h2)) {
     return 1;
+  }
+  // Tie-break via the by-fields comparator over the key (ascendMap=1 -> ascending key,
+  // lower-doc-id-first, matching the no-key path below).
+  if (self->scoreTieBreakKey) {
+    QueryError *qerr = (self->base.parent) ? self->base.parent->err : NULL;
+    return SearchResult_CmpByFields(&self->scoreTieBreakKey, 1, h1, h2, /*ascendMap=*/1, qerr);
   }
   return SearchResult_GetDocId(h1) > SearchResult_GetDocId(h2) ? -1 : 1;
 }
@@ -786,8 +796,10 @@ ResultProcessor *RPSorter_NewByFields(size_t maxresults, const RLookupKey **keys
   return &ret->base;
 }
 
-ResultProcessor *RPSorter_NewByScore(size_t maxresults) {
-  return RPSorter_NewByFields(maxresults, NULL, 0, 0);
+ResultProcessor *RPSorter_NewByScore(size_t maxresults, const RLookupKey *scoreTieBreakKey) {
+  ResultProcessor *rp = RPSorter_NewByFields(maxresults, NULL, 0, 0);
+  ((RPSorter *)rp)->scoreTieBreakKey = scoreTieBreakKey;
+  return rp;
 }
 
 /*******************************************************************************************************************
@@ -1019,6 +1031,11 @@ typedef struct RPSafeLoader {
 
   // Search context
   RedisSearchCtx *sctx;
+
+  // Request sync context; non-NULL only for RETURN_STRICT requests that use the
+  // aggregate-results sync. When set, the loader performs the GIL deadlock-
+  // avoidance handshake around the GIL (see aggregate.h).
+  RequestSyncCtx *syncCtx;
 } RPSafeLoader;
 
 /************************* Safe Loader private functions *************************/
@@ -1174,13 +1191,49 @@ static int rpSafeLoaderNext_Accumulate(ResultProcessor *rp, SearchResult *res) {
   bool isQueryProfile = rp->parent->isProfile;
   rs_wall_clock rpStartTime;
   if (isQueryProfile) rs_wall_clock_init(&rpStartTime);
+
+#ifdef ENABLE_ASSERT
+  // Sync point: pause after buffering, before taking the GIL.
+  // Interruptible so a fired timeout callback can release the worker.
+  SyncPoint_WaitUntil(SYNC_POINT_BEFORE_SAFE_LOADER_GIL_LOCK, SearchTime_IsTimedOut, &sctx->time);
+#endif
+
+  // Deadlock-avoidance handshake (syncCtx non-NULL only for RETURN_STRICT). Mark
+  // that we are about to take the GIL so the timeout callback can preempt us; if
+  // it already timed out, bail instead of blocking. See aggregate.h.
+  if (self->syncCtx && !RequestSyncCtx_SafeLoaderEnterGIL(self->syncCtx)) {
+    return RS_RESULT_TIMEDOUT;
+  }
+
+#ifdef ENABLE_ASSERT
+  // Sync point: pause holding the GIL gate (safeLoaderHoldingGIL == true),
+  // before the Redis lock, so a timeout callback observes it and preempts.
+  SyncPoint_Wait(SYNC_POINT_AFTER_SAFE_LOADER_GIL_HANDSHAKE);
+#endif
+
   // Then, lock Redis to guarantee safe access to Redis keyspace
   RedisModule_ThreadSafeContextLock(sctx->redisCtx);
 
   rpSafeLoader_Load(self);
 
+  // Clear the GIL-gate handshake flag while we still hold the Redis lock. The
+  // timeout callback only runs on the main thread while it holds the GIL, so it
+  // cannot observe the flag during this window; clearing before the unlock
+  // closes the race where a timeout landing in the unlock->clear gap sees a
+  // stale safeLoaderHoldingGIL == true and preempts, dropping already-loaded
+  // results. See aggregate.h.
+  if (self->syncCtx) {
+    RequestSyncCtx_SafeLoaderExitGIL(self->syncCtx);
+  }
+
   // Done loading. Unlock Redis
   RedisModule_ThreadSafeContextUnlock(sctx->redisCtx);
+
+#ifdef ENABLE_ASSERT
+  // Sync point: pause after clearing the flag and unlocking Redis. The
+  // flag is already false, so a timeout callback waits for results, not preempts.
+  SyncPoint_WaitUntil(SYNC_POINT_BEFORE_SAFE_LOADER_EXIT_GIL, SearchTime_IsTimedOut, &sctx->time);
+#endif
 
   if (isQueryProfile) {
     // Add 1ns as epsilon value so we can verify that the GIL time is greater than 0.
@@ -1225,6 +1278,7 @@ static ResultProcessor *RPSafeLoader_New(RedisSearchCtx *sctx, RLookup *lk, cons
 
   sl->last_buffered_rc = RS_RESULT_OK;
   sl->sctx = sctx;
+  sl->syncCtx = NULL;
 
   sl->base_loader.base.Next = rpSafeLoaderNext_Accumulate;
   sl->base_loader.base.Free = rpSafeLoaderFree;
@@ -1302,6 +1356,7 @@ static ResultProcessor *RPSafeLoader_New_FromPlainLoader(RPLoader *loader) {
   sl->curr_result_index = 0;
 
   sl->last_buffered_rc = RS_RESULT_OK;
+  sl->syncCtx = NULL;
 
   sl->base_loader.base.Next = rpSafeLoaderNext_Accumulate;
   sl->base_loader.base.Free = rpSafeLoaderFree;
@@ -1330,6 +1385,19 @@ void SetLoadersForBG(QueryProcessingCtx *qctx) {
   }
   // Update the endProc to the new head in case it was changed
   qctx->endProc = dummyHead.upstream;
+}
+
+// Link the request sync context into every RP_SAFE_LOADER in the pipeline so
+// they can perform the RETURN_STRICT GIL deadlock-avoidance handshake. Called on
+// the BG worker for requests that use the aggregate-results sync protocol.
+void RPSafeLoader_SetSyncCtx(QueryProcessingCtx *qctx, struct RequestSyncCtx *sync) {
+  ResultProcessor *rp = qctx->endProc;
+  while (rp) {
+    if (rp->type == RP_SAFE_LOADER) {
+      ((RPSafeLoader *)rp)->syncCtx = sync;
+    }
+    rp = rp->upstream;
+  }
 }
 
 void SetLoadersForMainThread(QueryProcessingCtx *qctx) {

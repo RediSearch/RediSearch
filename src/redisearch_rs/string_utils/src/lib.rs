@@ -7,7 +7,7 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 
-//! String utility functions for query evaluation.
+//! Shared string utility functions.
 //!
 //! These are pure-Rust replacements for C helpers that were previously
 //! implemented using `libnu` for Unicode operations.

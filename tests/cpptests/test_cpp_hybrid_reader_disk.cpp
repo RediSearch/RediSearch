@@ -142,12 +142,12 @@ struct TestHybrid {
 // ============================================================================
 
 class HybridReaderDiskTest : public ::testing::Test {
-    std::unique_ptr<MockQueryEvalCtx> mockCtx;
     std::array<float, 4> queryVec = {1.0f, 2.0f, 3.0f, 4.0f};
     // Stable address used as ownKey sentinel. MetricsVec_UpdateValue compares by
     // pointer identity only and never reads the fields, so zero-init is fine.
     RLookupKey scoreKey = {};
 protected:
+    std::unique_ptr<MockQueryEvalCtx> mockCtx;
     void SetUp() override {
         mockCtx = std::make_unique<MockQueryEvalCtx>(100, 10);
         // Sentinel to route the hybrid reader into the disk code path. Safe because:
@@ -162,7 +162,8 @@ protected:
     TestHybrid makeIterator(std::map<labelType, double> sq8,
                             std::map<labelType, double> exact,
                             std::vector<t_docId> docIds,
-                            size_t k) {
+                            size_t k,
+                            t_fieldIndex filterFieldIndex = RS_INVALID_FIELD_INDEX) {
         auto alloc = VecSimAllocator::newVecsimAllocator();
         auto *index = new (alloc) MockDiskVecSimIndex(alloc, std::move(sq8), std::move(exact));
 
@@ -174,7 +175,7 @@ protected:
         qParams.searchMode = HYBRID_ADHOC_BF;
 
         FieldMaskOrIndex fmi = {.index_tag = FieldMaskOrIndex_Index,
-                                .index = RS_INVALID_FIELD_INDEX};
+                                .index = filterFieldIndex};
         FieldFilterContext filterCtx = {.field = fmi,
                                         .predicate = FIELD_EXPIRATION_PREDICATE_DEFAULT};
 
@@ -295,4 +296,50 @@ TEST_F(HybridReaderDiskTest, TimeoutReturnsTimedOut) {
     EXPECT_EQ(it->Read(it), ITERATOR_TIMEOUT);
 
     vecsimTimeoutCallback = saved;
+}
+
+// Pins the CURRENT, unresolved hybrid KNN behavior (see expiration-semantics.md):
+// expired fields are dropped at yield with no refill, so a live candidate just below
+// the top-k is lost and the query under-fills k. Flip the expectation if refill is adopted.
+TEST_F(HybridReaderDiskTest, PinsUnderfillKWhenFieldsExpired) {
+    const t_expirationTimePoint past = {1, 0};
+
+    // Expire field 0 of docs 1 and 2; this also populates spec.docs.ttl, the third gate condition.
+    mockCtx->TTL_Add(1, (t_fieldIndex)0, past);
+    mockCtx->TTL_Add(2, (t_fieldIndex)0, past);
+    mockCtx->sctx.time.current = {2, 0};
+
+    // k=3 heap holds docs 2,1,4; live doc 3 (0.8) ranks just below it. Gate on via field 0.
+    auto [index, it] =
+        makeIterator({{1, 0.5}, {2, 0.1}, {3, 0.8}, {4, 0.6}}, {}, {1, 2, 3, 4}, /*k*/ 3, /*field*/ 0);
+    ASSERT_NE(it, nullptr);
+
+    std::vector<t_docId> yielded;
+    while (it->Read(it) == ITERATOR_OK) {
+        yielded.push_back(it->lastDocId);
+    }
+
+    // Doc 3 is not pulled in to replace the expired docs: only in-heap doc 4 survives.
+    ASSERT_EQ(yielded.size(), 1u);
+    EXPECT_EQ(yielded[0], (t_docId)4);
+}
+
+// Contrast: with no TTL entries the expiration gate is off (ttl == NULL), so the
+// same three candidates all surface in score order. Proves the under-fill above is
+// caused by expiration, not by the mock setup.
+TEST_F(HybridReaderDiskTest, FillsKWhenNoExpiry) {
+    auto [index, it] =
+        makeIterator({{1, 0.5}, {2, 0.1}, {3, 0.8}}, {}, {1, 2, 3}, /*k*/ 3, /*field*/ 0);
+    ASSERT_NE(it, nullptr);
+
+    // Lowest distance first: doc 2 (0.1), doc 1 (0.5), doc 3 (0.8).
+    std::vector<t_docId> yielded;
+    while (it->Read(it) == ITERATOR_OK) {
+        yielded.push_back(it->lastDocId);
+    }
+
+    ASSERT_EQ(yielded.size(), 3u);
+    EXPECT_EQ(yielded[0], (t_docId)2);
+    EXPECT_EQ(yielded[1], (t_docId)1);
+    EXPECT_EQ(yielded[2], (t_docId)3);
 }
