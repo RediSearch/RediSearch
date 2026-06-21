@@ -225,10 +225,7 @@ bool ProcessHybridCursorMappings(const MRCommand *cmd, StrongRef searchMappingsR
         return false;
     }
 
-    // Wait on the iterator's channel, bounded by the request deadline. Completion is
-    // driven by the inProcess countdown reaching 0 (every callback decrements it), so a
-    // non-responding shard times out instead of hanging. `deadline` is NULL when timeout
-    // checking is disabled, in which case the pop waits without a deadline.
+    // Wait on the iterator's channel, bounded by the request deadline.
     bool timedOut = false;
     MRReply *r = MRIterator_NextWithTimeout(it, deadline, &timedOut);
     RS_ASSERT(r == NULL);  // the callbacks never AddReply; a non-NULL reply is a bug
