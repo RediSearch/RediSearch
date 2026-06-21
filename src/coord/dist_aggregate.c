@@ -70,32 +70,38 @@ typedef struct {
 // Once it reaches the iterator's shard count, the WITHCOUNT total is fully known.
 // Written and read only on the IO thread.
 //
-// `bc`, `areq`, `strong_ref`, and `knnSpecialCtx` carry the Phase B context on
-// the async WITHCOUNT path. They are set in RSExecDistAggregate before
-// MR_StartIterator and consumed by aggregatePhaseBExecute after collectCountCb
-// posts Phase B. The AREQ's reader ref on the iterator keeps iterCtx alive
-// until aggregatePhaseBExecute calls AREQ_DecrRef (via executePlan, or directly
-// on the timeout branch). aggregatePhaseBExecute copies the fields to locals
-// before releasing AREQ so it never reads iterCtx after free.
+// `bc`, `areq`, `spec_ref`, and `knnSpecialCtx` carry the deferred-execution
+// context on the async WITHCOUNT path. They are set in dispatchAggregateDeferred
+// before MR_StartIterator and consumed by executeAggregateDeferred after
+// collectCountCb posts the handoff. The AREQ's reader ref on the iterator keeps
+// iterCtx alive until executeAggregateDeferred calls AREQ_DecrRef (via
+// executePlan, or directly on the timeout / spec-dropped branch).
+// executeAggregateDeferred copies the fields to locals before releasing AREQ so
+// it never reads iterCtx after free.
+//
+// `spec_ref` is a WeakRef so the IndexSpec is not pinned across the async wait.
+// executeAggregateDeferred re-promotes it; if the spec was dropped meanwhile
+// (FT.DROPINDEX, RDB load, server reset) it replies with DROPPED_BACKGROUND
+// instead.
 typedef struct {
   long long totalResults;           // Sum of each shard's WITHCOUNT total_results
   size_t numResponded;              // How many shards delivered their first reply (C_AGG)
   AggregateKnnContext *knnCtx;      // May be NULL if no KNN optimization needed
-  // Phase B fields (non-NULL on the async WITHCOUNT path):
+  // Deferred-execution fields (always non-NULL on the WITHCOUNT path; iterator
+  // is only created via dispatchAggregateDeferred when HasWithCount(areq)):
   RedisModuleBlockedClient *bc;
   AREQ *areq;
-  StrongRef strong_ref;
-  specialCaseCtx *knnSpecialCtx;   // freed by aggregatePhaseBExecute
+  WeakRef spec_ref;                // weak ref; re-promoted in executeAggregateDeferred
+  specialCaseCtx *knnSpecialCtx;   // freed by executeAggregateDeferred
 } AggregateIteratorContext;
 
-// Free the AggregateIteratorContext. Phase B fields (bc, areq, strong_ref,
-// knnSpecialCtx) are owned by aggregatePhaseBExecute.
+// Free the AggregateIteratorContext. Deferred-execution fields (bc, areq,
+// spec_ref, knnSpecialCtx) are owned by executeAggregateDeferred.
 static void aggregateIteratorContext_Free(void *ptr) {
   AggregateIteratorContext *ctx = (AggregateIteratorContext *)ptr;
-  if (ctx) {
-    rm_free(ctx->knnCtx);
-    rm_free(ctx);
-  }
+  RS_ASSERT(ctx);
+  rm_free(ctx->knnCtx);
+  rm_free(ctx);
 }
 
 // Command modifier callback for SHARD_K_RATIO optimization in FT.AGGREGATE
@@ -119,14 +125,13 @@ static void aggregateKnnCommandModifier(MRCommand *cmd, size_t numShards, void *
                    knnCtx->kTokenPos, knnCtx->kTokenLen);
 }
 
-static void aggregatePhaseBExecute(void *arg);  // forward declaration
+static void executeAggregateDeferred(void *arg);  // forward declaration
 
-// Phase A callback (WITHCOUNT only): runs once per shard's first reply, sums
-// its total_results, swaps this shard's callback to netCursorCallback so any
-// later reply takes the steady-state path, and posts Phase B on the
-// coordinator pool when the last first-reply arrives. NULL / error replies
-// count toward numResponded. Lazy path (bc == NULL): rpnetNext drives reads
-// itself, no Phase B handoff.
+// First-reply collection callback (WITHCOUNT only): runs once per shard's first
+// reply, sums its total_results, swaps this shard's callback to netCursorCallback
+// so any later reply takes the steady-state path, and posts the deferred
+// execution to the coordinator pool when the last first-reply arrives. NULL /
+// error replies count toward numResponded.
 static void collectCountCb(MRIteratorCallbackCtx *ctx, MRReply *rep) {
   AggregateIteratorContext *iterCtx =
       (AggregateIteratorContext *)MRIteratorCallback_GetPrivateData(ctx);
@@ -145,8 +150,8 @@ static void collectCountCb(MRIteratorCallbackCtx *ctx, MRReply *rep) {
   netCursorCallback(ctx, rep);
 
   if (++iterCtx->numResponded < MRIterator_GetNumShards(it)) return;
-  if (!iterCtx->bc) return;
-  ConcurrentSearch_ThreadPoolRun(aggregatePhaseBExecute, iterCtx, DIST_THREADPOOL);
+  RS_ASSERT(iterCtx->bc);
+  ConcurrentSearch_ThreadPoolRun(executeAggregateDeferred, iterCtx, DIST_THREADPOOL);
 }
 
 // Read the accumulated WITHCOUNT total (sum of each shard's total_results) from
@@ -154,7 +159,8 @@ static void collectCountCb(MRIteratorCallbackCtx *ctx, MRReply *rep) {
 // thread calls this after the pipeline drains, when every shard has reported.
 long long AggregateIterator_GetTotalResults(const MRIterator *it) {
   AggregateIteratorContext *iterCtx = (AggregateIteratorContext *)MRIterator_GetPrivateData(it);
-  return iterCtx ? iterCtx->totalResults : 0;
+  RS_ASSERT(iterCtx);
+  return iterCtx->totalResults;
 }
 
 void processResultFormat(uint32_t *flags, MRReply *map) {
@@ -260,20 +266,26 @@ static int rpnetNext_Start(ResultProcessor *rp, SearchResult *r) {
   return rpnetNext(rp, r);
 }
 
-// Phase B of the distributed FT.AGGREGATE with WITHCOUNT. Runs on a worker
-// thread from the coordinator pool after the fan-in barrier has fired.
+// Deferred execution of the distributed FT.AGGREGATE with WITHCOUNT. Runs on a
+// worker thread from the coordinator pool after the first-reply collection
+// step has gathered each shard's total_results.
 static int executePlan(AREQ *r, struct ConcurrentCmdCtx *cmdCtx, RedisModule_Reply *reply,
                        QueryError *status);
 
-static void aggregatePhaseBExecute(void *arg) {
+static void executeAggregateDeferred(void *arg) {
   AggregateIteratorContext *iterCtx = (AggregateIteratorContext *)arg;
   AREQ *r = iterCtx->areq;
   RedisModuleBlockedClient *bc = iterCtx->bc;
-  StrongRef strong_ref = iterCtx->strong_ref;
+  WeakRef weak_ref = iterCtx->spec_ref;
   specialCaseCtx *knnCtx = iterCtx->knnSpecialCtx;
   CoordRequestCtx *reqCtx = (CoordRequestCtx *)RedisModule_BlockClientGetPrivateData(bc);
 
-  CurrentThread_SetIndexSpec(strong_ref);
+  // Re-promote the WeakRef that the dispatcher stashed in iterCtx. The spec may
+  // have been dropped while first-reply collection was running (FT.DROPINDEX,
+  // RDB load, server reset); in that case we skip plan execution and reply with
+  // DROPPED_BACKGROUND so the client doesn't hang on the blocked reply.
+  StrongRef spec_ref = IndexSpecRef_Promote(weak_ref);
+  IndexSpec *sp = StrongRef_Get(spec_ref);
 
   // Capture totalResults before executePlan may free AREQ (and with it nc / iterCtx).
   RS_LOG_ASSERT(AREQ_QueryProcessingCtx(r)->rootProc->type == RP_NETWORK,
@@ -281,19 +293,25 @@ static void aggregatePhaseBExecute(void *arg) {
   RPNet *nc = (RPNet *)AREQ_QueryProcessingCtx(r)->rootProc;
   long long totalResults = iterCtx->totalResults;
 
-  if (!CoordRequestCtx_TimedOut(reqCtx)) {
+  bool timedOut = CoordRequestCtx_TimedOut(reqCtx);
+
+  if (sp) {
+    CurrentThread_SetIndexSpec(spec_ref);
+  }
+
+  if (sp && !timedOut) {
     // Dedicated thread-safe context for this worker. Aliased into sctx->redisCtx
     // so any pipeline step that reads it sees a live ctx on this thread. For
     // cursors the AREQ takes ownership of this ctx (AREQ_Free releases it via
-    // the QEXEC_F_IS_CURSOR branch); for non-cursor requests Phase B frees it
-    // locally after executePlan returns.
+    // the QEXEC_F_IS_CURSOR branch); for non-cursor requests we free it locally
+    // after executePlan returns.
     RedisModuleCtx *replyCtx = RedisModule_GetThreadSafeContext(bc);
     r->sctx->redisCtx = replyCtx;
 
     RedisModule_Reply _reply = RedisModule_NewReply(replyCtx), *reply = &_reply;
     QueryError status = QueryError_Default();
-    // Re-point the pipeline's err to Phase B's local; the dispatcher's status
-    // went out of scope when RSExecDistAggregate returned.
+    // Re-point the pipeline's err to this function's local status; the
+    // dispatcher's status went out of scope when it returned.
     QueryProcessingCtx *qctx = AREQ_QueryProcessingCtx(r);
     qctx->err = &status;
 
@@ -306,11 +324,11 @@ static void aggregatePhaseBExecute(void *arg) {
     if (AREQ_RequestFlags(r) & QEXEC_F_IS_CURSOR) {
       // Cursor path: AREQ_StartCursor stashes the AREQ on the new Cursor and
       // emits the first chunk via runCursor. We cannot reuse executePlan here
-      // because its cursor branch calls ConcurrentCmdCtx_KeepRedisCtx, and
-      // Phase B has no ConcurrentCmdCtx (the dispatcher already returned).
-      // Cursor ownership of replyCtx: on success the AREQ outlives Phase B and
-      // AREQ_Free frees replyCtx; on failure AREQ_DecrRef below triggers the
-      // same AREQ_Free path. Either way, do not free replyCtx locally.
+      // because its cursor branch calls ConcurrentCmdCtx_KeepRedisCtx, and we
+      // have no ConcurrentCmdCtx (the dispatcher already returned).
+      // Cursor ownership of replyCtx: on success the AREQ outlives this
+      // function and AREQ_Free frees replyCtx; on failure AREQ_DecrRef below
+      // triggers the same AREQ_Free path. Either way, do not free replyCtx locally.
       StrongRef dummy_spec_ref = {.rm = NULL};
       if (AREQ_StartCursor(r, reply, dummy_spec_ref, &status, true) != REDISMODULE_OK) {
         AREQ_ReplyOrStoreError(r, replyCtx, &status);
@@ -324,15 +342,29 @@ static void aggregatePhaseBExecute(void *arg) {
       RedisModule_FreeThreadSafeContext(replyCtx);
     }
     RedisModule_EndReply(reply);
+  } else if (!sp && !timedOut) {
+    // Spec dropped between first-reply collection and deferred execution. Reply
+    // DROPPED_BACKGROUND and release the AREQ so rpnetFree drops the iterator's
+    // reader ref.
+    RedisModuleCtx *replyCtx = RedisModule_GetThreadSafeContext(bc);
+    QueryError status = QueryError_Default();
+    QueryError_SetCode(&status, QUERY_ERROR_CODE_DROPPED_BACKGROUND);
+    AREQ_ReplyOrStoreError(r, replyCtx, &status);
+    QueryError_ClearError(&status);
+    RedisModule_FreeThreadSafeContext(replyCtx);
+    AREQ_DecrRef(r);
   } else {
     // Timeout path skipped executePlan; release the AREQ ourselves so rpnetFree
     // drops the iterator's reader ref and the iterator (and iterCtx) is freed.
     AREQ_DecrRef(r);
   }
 
-  CurrentThread_ClearIndexSpec();
+  if (sp) {
+    CurrentThread_ClearIndexSpec();
+    IndexSpecRef_Release(spec_ref);
+  }
   SpecialCaseCtx_Free(knnCtx);
-  IndexSpecRef_Release(strong_ref);
+  WeakRef_Release(weak_ref);
   RedisModule_BlockedClientMeasureTimeEnd(bc);
   void *privdata = RedisModule_BlockClientGetPrivateData(bc);
   RedisModule_UnblockClient(bc, privdata);
@@ -757,6 +789,53 @@ cleanup:
   return;
 }
 
+// Eagerly create and start the MR iterator for a WITHCOUNT request, transfer
+// ownership of (areq, knnCtx, weak spec ref, blocked client) into the iterator
+// context, and return. The pipeline runs later on the coordinator pool via
+// executeAggregateDeferred, once collectCountCb has summed every shard's
+// total_results.
+//
+// On success: releases strong_ref and ends reply; ownership of r, knnCtx, and
+// the dispatcher's weak ref is transferred to iterCtx. On failure: status is
+// set and the caller cleans up via DistAggregateCleanups (which still owns r,
+// knnCtx, and the refs).
+static int dispatchAggregateDeferred(AREQ *r, struct ConcurrentCmdCtx *cmdCtx,
+                                     specialCaseCtx *knnCtx, StrongRef strong_ref,
+                                     RedisModule_Reply *reply, QueryError *status) {
+  RS_LOG_ASSERT(AREQ_QueryProcessingCtx(r)->rootProc->type == RP_NETWORK,
+                "Expected RP_NETWORK root for distributed aggregate");
+  RPNet *nc = (RPNet *)AREQ_QueryProcessingCtx(r)->rootProc;
+
+  if (rpnetCreateIterator(nc) != RS_RESULT_OK) {
+    QueryError_SetCode(status, QUERY_ERROR_CODE_GENERIC);
+    return REDISMODULE_ERR;
+  }
+  // Wire deferred-execution fields into the iterator's private data before
+  // MR_StartIterator so the IO thread sees them when collectCountCb fires.
+  AggregateIteratorContext *iterCtx =
+      (AggregateIteratorContext *)MRIterator_GetPrivateData(nc->it);
+  iterCtx->bc = ConcurrentCmdCtx_GetBlockedClient(cmdCtx);
+  iterCtx->areq = r;
+  // Transfer the dispatcher's WeakRef into iterCtx; executeAggregateDeferred
+  // promotes it back to a StrongRef (or treats the spec as dropped).
+  iterCtx->spec_ref = ConcurrentCmdCtx_TakeWeakRef(cmdCtx);
+  iterCtx->knnSpecialCtx = knnCtx;
+
+  // Drop the dispatcher's ctx alias; executeAggregateDeferred creates its own
+  // thread-safe ctx on the worker thread.
+  r->sctx->redisCtx = NULL;
+  // Defer the unblock to executeAggregateDeferred.
+  ConcurrentCmdCtx_KeepBlockedClient(cmdCtx);
+  // Start the fan-out; collectCountCb posts executeAggregateDeferred once all
+  // shard first-replies are in.
+  MR_StartIterator(nc->it, iterStartCb, NULL);
+  // Release the dispatcher's StrongRef; the spec is no longer pinned across
+  // the async wait. executeAggregateDeferred re-promotes iterCtx->spec_ref.
+  IndexSpecRef_Release(strong_ref);
+  RedisModule_EndReply(reply);
+  return REDISMODULE_OK;
+}
+
 void RSExecDistAggregate(RedisModuleCtx *ctx, RedisModuleString **argv, int argc,
                          struct ConcurrentCmdCtx *cmdCtx) {
 
@@ -809,41 +888,16 @@ void RSExecDistAggregate(RedisModuleCtx *ctx, RedisModuleString **argv, int argc
     goto err;
   }
 
-  // Async WITHCOUNT path: eagerly create and start the MR iterator before
-  // returning the dispatcher thread, then hand off to Phase B which runs after
-  // all shard first-replies are buffered. Phase B converges on executePlan (the
-  // non-cursor branch) just like the synchronous path.
+  // WITHCOUNT: eagerly create the MR iterator, hand off to deferred execution
+  // (runs on the coordinator pool after all shard first-replies have been
+  // collected, then converges on executePlan's non-cursor branch). Non-WITHCOUNT
+  // requests stay on the synchronous executePlan path below.
   if (HasWithCount(r)) {
-    RS_LOG_ASSERT(AREQ_QueryProcessingCtx(r)->rootProc->type == RP_NETWORK,
-                  "Expected RP_NETWORK root for distributed aggregate");
-    RPNet *nc = (RPNet *)AREQ_QueryProcessingCtx(r)->rootProc;
-
-    if (rpnetCreateIterator(nc) != RS_RESULT_OK) {
-      QueryError_SetCode(&status, QUERY_ERROR_CODE_GENERIC);
+    if (dispatchAggregateDeferred(r, cmdCtx, knnCtx, strong_ref, reply, &status)
+        != REDISMODULE_OK) {
       goto err;
     }
-    // Wire Phase B fields directly into the iterator's private data so that
-    // collectCountCb can post Phase B when the last shard first-reply arrives.
-    // Must be done before MR_StartIterator so the IO thread sees them.
-    AggregateIteratorContext *iterCtx =
-        (AggregateIteratorContext *)MRIterator_GetPrivateData(nc->it);
-    iterCtx->bc = ConcurrentCmdCtx_GetBlockedClient(cmdCtx);
-    iterCtx->areq = r;
-    iterCtx->strong_ref = strong_ref;
-    iterCtx->knnSpecialCtx = knnCtx;
-
-    // Drop the dispatcher's ctx alias; Phase B creates its own thread-safe ctx.
-    r->sctx->redisCtx = NULL;
-    // Defer unblock to aggregatePhaseBExecute.
-    ConcurrentCmdCtx_KeepBlockedClient(cmdCtx);
-    // Start the fan-out; collectCountCb fires per shard and posts Phase B
-    // once all first-replies are in.
-    MR_StartIterator(nc->it, iterStartCb, NULL);
-    // Release the weak ref; iterCtx->strong_ref keeps the spec alive for Phase B.
-    WeakRef_Release(ConcurrentCmdCtx_TakeWeakRef(cmdCtx));
-    RedisModule_EndReply(reply);
     return;
-    // Ownership transferred to iterCtx: strong_ref, knnCtx, areq
   }
 
   if (executePlan(r, cmdCtx, reply, &status) != REDISMODULE_OK) {
@@ -1159,6 +1213,15 @@ void DEBUG_RSExecDistAggregate(RedisModuleCtx *ctx, RedisModuleString **argv, in
 
   if (parseAndCompileDebug(debug_req, &status) != REDISMODULE_OK) {
     goto err;
+  }
+
+  // WITHCOUNT follows the same eager-async path as the non-debug entry point.
+  if (HasWithCount(r)) {
+    if (dispatchAggregateDeferred(r, cmdCtx, knnCtx, strong_ref, reply, &status)
+        != REDISMODULE_OK) {
+      goto err;
+    }
+    return;
   }
 
   if (executePlan(r, cmdCtx, reply, &status) != REDISMODULE_OK) {
