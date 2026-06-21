@@ -231,7 +231,7 @@ int QOptimizer_Iterators(AREQ *req, QOptimizer *opt, QueryError *status) {
   QueryIterator *root = req->rootiter;
 
   // OptimizerIterator and the Q_OPT_UNDECIDED numeric fallback both rely on
-  // the RAM DocTable / NumericRangeTree. parseQueryArgs rejects the queries that
+  // the RAM DocTable / NumericRangeTree. AREQ_Compile rejects the queries that
   // would set QEXEC_OPTIMIZE on disk specs (DIALECT 4 and WITHOUTCOUNT), so this
   // function should never be entered for them.
   RS_ASSERT(!spec->diskSpec);

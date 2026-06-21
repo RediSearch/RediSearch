@@ -719,15 +719,6 @@ static int parseQueryArgs(ArgsCursor *ac, AREQ *req, RSSearchOptions *searchOpts
     }
   }
 
-  // DIALECT 4 enables the query optimizer (QEXEC_OPTIMIZE) by default. The optimizer
-  // relies on RAM-only structures (DocTable / NumericRangeTree) that disk specs don't
-  // populate, so it is unsupported on disk. Reject rather than silently degrade.
-  if (isDiskIndex && req->reqConfig.dialectVersion >= 4) {
-    if (!SearchDisk_MarkUnsupportedArgumentIfDiskEnabled("DIALECT 4", status)) {
-      return REDISMODULE_ERR;
-    }
-  }
-
   // In dialect 2, we require a non empty numeric filter
   if (req->reqConfig.dialectVersion >= 2 && hasEmptyFilterValue){
       QueryError_SetError(status, QUERY_ERROR_CODE_PARSE_ARGS, "Numeric/Geo filter value/s cannot be empty");
@@ -735,8 +726,9 @@ static int parseQueryArgs(ArgsCursor *ac, AREQ *req, RSSearchOptions *searchOpts
   }
 
   if (!optimization_specified && req->reqConfig.dialectVersion >= 4) {
-    // If optimize was not enabled/disabled explicitly, enable it by default starting with dialect 4
-    // (disk indexes reject dialect 4 above, so this is only reached for RAM specs).
+    // If optimize was not enabled/disabled explicitly, enable it by default starting with dialect 4.
+    // Disk specs reject dialect 4 after parseAggPlan (once the dialect is final), so the optimizer
+    // is never actually run for them.
     AREQ_AddRequestFlags(req, QEXEC_OPTIMIZE);
   }
 
@@ -1289,6 +1281,14 @@ int AREQ_Compile(AREQ *req, RedisModuleCtx *ctx, RedisModuleString **argv, int a
   };
   if (parseAggPlan(&papCtx, &ac, isDiskIndex, status) != REDISMODULE_OK) {
     goto error;
+  }
+
+  // DIALECT 4 enables the query optimizer (QEXEC_OPTIMIZE), which is unsupported
+  // on disk.
+  if (isDiskIndex && req->reqConfig.dialectVersion >= 4) {
+    if (!SearchDisk_MarkUnsupportedArgumentIfDiskEnabled("DIALECT 4", status)) {
+      goto error;
+    }
   }
 
   // Cap the per-query timeout to _MAX_FOREGROUND_TIMEOUT_LIMIT when workers
