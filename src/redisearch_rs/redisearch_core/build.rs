@@ -12,12 +12,18 @@ fn main() {
     // output dir (`<superrepo>/build/deps/RediSearch`); fall back to deriving it
     // from the superrepo root only as a last resort. MKL lives at
     // `<superrepo>/build/_deps/svs-src/lib`, so we also need the superrepo build dir.
-    let bin_dir = std::env::var("BINDIR").map(std::path::PathBuf::from).unwrap_or_else(|_| {
-        let root = build_utils::repository_root()
-            .expect("Could not find git root for static library linking");
-        // From deps/RediSearch up to the superrepo, then into build/deps/RediSearch.
-        root.join("..").join("..").join("build").join("deps").join("RediSearch")
-    });
+    let bin_dir = std::env::var("BINDIR")
+        .map(std::path::PathBuf::from)
+        .unwrap_or_else(|_| {
+            let root = build_utils::repository_root()
+                .expect("Could not find git root for static library linking");
+            // From deps/RediSearch up to the superrepo, then into build/deps/RediSearch.
+            root.join("..")
+                .join("..")
+                .join("build")
+                .join("deps")
+                .join("RediSearch")
+        });
     // Superrepo build dir (parent-of-parent of bin_dir's `deps/RediSearch`).
     let superrepo_build = bin_dir
         .parent()
