@@ -700,7 +700,13 @@ static int HybridRequest_executePlan(HybridRequest *hreq, struct ConcurrentCmdCt
     MRCommand *cmd = &searchRPNet->cmd;
 
     const RSOomPolicy oomPolicy = hreq->reqConfig.oomPolicy;
-    if (!ProcessHybridCursorMappings(cmd, searchMappingsRef, vsimMappingsRef, hreq->tailPipeline->qctx.err, oomPolicy)) {
+    // Bound the cursor-setup wait by the request deadline so a non-responding shard
+    // times out instead of hanging the coordinator. time.timeout is populated by
+    // SearchCtx_UpdateTime during prepare (a disabled timeout becomes a far-future
+    // deadline, so the wait is effectively unbounded but never spurious).
+    const struct timespec *deadline =
+        hreq->sctx ? (const struct timespec *)&hreq->sctx->time.timeout : NULL;
+    if (!ProcessHybridCursorMappings(cmd, searchMappingsRef, vsimMappingsRef, hreq->tailPipeline->qctx.err, oomPolicy, deadline)) {
         // Handle error
         StrongRef_Release(searchMappingsRef);
         StrongRef_Release(vsimMappingsRef);
