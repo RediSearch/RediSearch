@@ -1,6 +1,7 @@
 from RLTest import Env
 from includes import *
 from common import *
+import psutil
 
 # Test data with deterministic vectors
 test_data = {
@@ -224,3 +225,62 @@ def test_tail_property_not_loaded_warning_coordinator():
         warnings = []
     env.assertTrue(any('__score' in w for w in warnings),
                    message=f"Expected warning about __score, got: {warnings}")
+
+
+@skip(cluster=False)
+def test_timeout_setup_phase_hybrid():
+    """FT.HYBRID cursor-setup timeout: one shard suspended, the in-band deadline fires.
+
+    Suspending a non-coordinator shard parks the coordinator in
+    ProcessHybridCursorMappings' cursor-mapping wait on a connected-but-silent shard.
+    The per-query TIMEOUT bounds that wait, so the command returns a timeout error at
+    the deadline instead of hanging.
+    """
+    # WORKERS 1 dispatches the query to a BG thread so the cursor-setup wait is
+    # reachable; cluster mode gives us a non-coordinator shard to suspend.
+    env = Env(moduleArgs='WORKERS 1', protocol=3)
+    for i in range(1, env.shardsCount + 1):
+        verify_shard_init(env.getConnection(i))
+    conn = getConnectionByEnv(env)
+
+    env.expect(
+        'FT.CREATE', 'hybrid_idx', 'PREFIX', '1', 'hybrid_doc', 'SCHEMA',
+        'name', 'TEXT',
+        'embedding', 'VECTOR', 'FLAT', '6', 'TYPE', 'FLOAT32', 'DIM', '2', 'DISTANCE_METRIC', 'L2'
+    ).ok()
+    for i in range(100):
+        vec = np.array([float(i), float(i)], dtype=np.float32).tobytes()
+        conn.execute_command('HSET', f'hybrid_doc{i}', 'name', f'hello{i}', 'embedding', vec)
+    query_vec = np.array([0.0, 0.0], dtype=np.float32).tobytes()
+    env.expect(
+        'FT.HYBRID', 'hybrid_idx', 'SEARCH', '*', 'VSIM', '@embedding', '$BLOB',
+        'PARAMS', '2', 'BLOB', query_vec
+    ).noError()
+
+    _, _, paused_pid, _ = split_shards_pick_one_paused(env)
+    shard_to_pause_p = psutil.Process(paused_pid)
+
+    # A finite per-query TIMEOUT arms the coordinator's cursor-setup deadline.
+    query_args = [
+        'FT.HYBRID', 'hybrid_idx',
+        'SEARCH', '*',
+        'VSIM', '@embedding', '$BLOB',
+        'PARAMS', '2', 'BLOB', query_vec,
+        'TIMEOUT', '200',
+    ]
+
+    shard_to_pause_p.suspend()
+    try:
+        wait_for_condition(
+            lambda: (shard_to_pause_p.status() == psutil.STATUS_STOPPED,
+                     {'status': shard_to_pause_p.status()}),
+            'Timeout while waiting for shard to pause'
+        )
+
+        # The deadline fires in the setup wait; the wait is bounded so the command
+        # returns a timeout error rather than hanging (a hang would trip the harness).
+        env.expect(*query_args).error().contains('Timeout')
+    finally:
+        # Resume so the shard drains the queued _FT.HYBRID / CURSOR DEL and frees
+        # its cursors before later tests run.
+        shard_to_pause_p.resume()
