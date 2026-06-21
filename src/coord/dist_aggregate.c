@@ -130,15 +130,15 @@ static void executeAggregateDeferred(void *arg);  // forward declaration
 // First-reply collection callback (WITHCOUNT only): runs once per shard's first
 // reply, sums its total_results, swaps this shard's callback to netCursorCallback
 // so any later reply takes the steady-state path, and posts the deferred
-// execution to the coordinator pool when the last first-reply arrives. NULL /
-// error replies count toward numResponded.
+// execution to the coordinator pool when the last first-reply arrives. Error
+// replies count toward numResponded but do not contribute to totalResults.
 static void collectCountCb(MRIteratorCallbackCtx *ctx, MRReply *rep) {
   AggregateIteratorContext *iterCtx =
       (AggregateIteratorContext *)MRIteratorCallback_GetPrivateData(ctx);
   MRIterator *it = MRIteratorCallback_GetIterator(ctx);
   MRCommand *cmd = MRIteratorCallback_GetCommand(ctx);
 
-  if (rep && MRReply_Type(rep) != MR_REPLY_ERROR) {
+  if (MRReply_Type(rep) != MR_REPLY_ERROR) {
     long long shardTotal;
     if (extractTotalResults(rep, cmd, &shardTotal)) {
       iterCtx->totalResults += shardTotal;
