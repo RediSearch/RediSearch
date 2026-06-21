@@ -22,6 +22,21 @@ extern "C" {
 #endif
 
 struct CursorList;
+struct Cursor;
+
+typedef enum {
+  CURSOR_PENDING_READ_NONE,
+  CURSOR_PENDING_READ_AVAILABLE,
+  CURSOR_PENDING_READ_CLAIMED,
+  CURSOR_PENDING_READ_READY,
+} CursorPendingReadState;
+
+typedef struct CursorTakeInfo {
+  struct Cursor *cursor;
+  AREQ *reqRef;
+  size_t queryTimeoutMS;
+  bool isInternal;
+} CursorTakeInfo;
 
 typedef struct Cursor {
   /**
@@ -46,13 +61,13 @@ typedef struct Cursor {
   /** ID of this cursor */
   uint64_t id;
 
-  /** Initial timeout interval */
-  unsigned timeoutIntervalMs;
-
   /** Query-deadline timeout (ms) copied from the originating AREQ at cursor
    * creation. Write-once before the first Cursor_Pause; read under the
    * cursor-list lock (see Cursors_PeekTimeoutInfo). */
   size_t queryTimeoutMS;
+
+  /** Initial timeout interval */
+  unsigned timeoutIntervalMs;
 
   /** Timeout policy copied from the originating AREQ at cursor creation.
    * Frozen for the life of the cursor: changes to the `search-on-timeout`
@@ -70,6 +85,11 @@ typedef struct Cursor {
   /** If true, a call to `Cursor_Pause` should drop it instead.
    *  Should only be accessed under cursor list lock */
   bool delete_mark;
+
+  /** RETURN_STRICT timeout retry handoff state.
+   *  Should only be accessed under cursor list lock */
+  CursorPendingReadState pendingReadState;
+
 } Cursor;
 
 KHASH_MAP_INIT_INT64(cursors, Cursor *);
@@ -85,6 +105,7 @@ typedef struct CursorList {
   Array idle;
 
   pthread_mutex_t lock;
+  pthread_cond_t pendingReadCond;
 
   /**
    * Counter - this serves two purposes:
@@ -184,11 +205,66 @@ static inline bool cursor_HasSpecWeakRef(const Cursor *cursor) {
 Cursor *Cursors_Reserve(CursorList *cl, StrongRef global_spec_ref, unsigned timeout,
                         QueryError *status);
 
+/** Outcome of `Cursors_TakeForExecution`. */
+typedef enum {
+  /** Cursor was idle. Caller owns it and must release via `Cursor_Pause` /
+   *  `Cursor_Free`. */
+  CURSOR_TAKE_OK,
+  /** No cursor with this id, or it is not currently available to this caller. */
+  CURSOR_TAKE_NOT_FOUND,
+  /** A RETURN_STRICT timeout exposed one pending-reader slot and this call
+   *  claimed it. The caller must wait for the pending handoff before touching
+   *  the cursor execution state. */
+  CURSOR_TAKE_PENDING,
+} CursorTakeStatus;
+
 /**
- * Retrieve a cursor for execution. This locates the cursor, removes it
- * from the idle list, and returns it
+ * Retrieve a cursor for execution, or claim the single pending-reader slot
+ * exposed by `Cursors_MarkForPendingRead`.
+ * `out` must be non-NULL. `out->cursor` is a strong execution handle when this
+ * returns `CURSOR_TAKE_OK`. `CURSOR_TAKE_PENDING` returns a cursor pinned by
+ * `CURSOR_PENDING_READ_CLAIMED`; the caller must wait on it with
+ * `Cursor_WaitForPendingRead` before reading from it.
+ *
+ * When `claimPending` is false, pending-reader slots are ignored and reported as
+ * `CURSOR_TAKE_NOT_FOUND`.
  */
-Cursor *Cursors_TakeForExecution(CursorList *cl, uint64_t cid);
+CursorTakeStatus Cursors_TakeForExecution(CursorList *cl, uint64_t cid, bool claimPending,
+                                          CursorTakeInfo *out);
+
+/**
+ * Mark an active cursor as able to accept one pending reader. Called by a
+ * RETURN_STRICT cursor-read timeout after it replied with `cid` but before
+ * the worker that still owns the cursor has paused/freed it.
+ */
+bool Cursors_MarkForPendingRead(uint64_t cid);
+
+typedef enum {
+  CURSOR_PENDING_WAIT_READY,
+  CURSOR_PENDING_WAIT_TIMED_OUT,
+  CURSOR_PENDING_WAIT_DELETED,
+} CursorPendingWaitResult;
+
+typedef struct CursorPendingTimeoutInfo {
+  bool started;
+  bool deleted;
+} CursorPendingTimeoutInfo;
+
+/**
+ * Wait until a claimed pending cursor is ready for execution, deleted, or the
+ * retry timed out. `timedOut`, `started`, and `deleted` are protected by the
+ * cursor-list lock while this function runs.
+ */
+CursorPendingWaitResult Cursor_WaitForPendingRead(Cursor *cur, bool *timedOut, bool *started,
+                                                  bool *deleted);
+
+/**
+ * Mark a pending retry as timed out and wake its waiting worker. Returns a
+ * snapshot of whether the retry has already started execution or observed
+ * cursor deletion.
+ */
+CursorPendingTimeoutInfo Cursors_TimeoutPendingRead(uint64_t cid, bool *timedOut, bool *started,
+                                                    bool *deleted);
 
 /**
  * Snapshot of an idle cursor's timeout configuration, returned by

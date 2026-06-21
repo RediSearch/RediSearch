@@ -1751,25 +1751,15 @@ static int CursorReadTimeoutFailCallback(RedisModuleCtx *ctx, RedisModuleString 
   return REDISMODULE_OK;
 }
 
-static int CursorReadTimeoutReturnStrictCallback(RedisModuleCtx *ctx, RedisModuleString **argv,
-                                                 int argc) {
-  UNUSED(argv);
-  UNUSED(argc);
-
-  BlockedCursorNode *node = RedisModule_GetBlockedClientPrivateData(ctx);
-  if (!node || !node->privdata) {
-    RedisModule_Log(ctx, "warning", "CursorReadTimeoutReturnStrictCallback: no node or privdata");
-    return shard_cursor_read_empty_reply_timeout(ctx, 0);
-  }
-
-  AREQ *req = (AREQ *)node->privdata;
+static int CursorReadTimeoutReturnStrictReply(RedisModuleCtx *ctx, AREQ *req, uint64_t cursorId) {
   AREQ_SetTimedOut(req);
 
   if (AREQ_TryClaimAggregateResults(req)) {
     // The worker has not entered the stored-results phase yet. Reply in the
-    // normal RETURN_STRICT cursor shape; when the worker observes the failed
-    // claim, it parks the already-taken cursor for the advertised id.
-    return cursor_read_empty_reply_timeout(ctx, node->cursorId, IsInternal(req));
+    // normal RETURN_STRICT cursor shape. Expose a single pending-reader slot
+    // for a retry that arrives before the worker pauses/frees the cursor.
+    Cursors_MarkForPendingRead(cursorId);
+    return cursor_read_empty_reply_timeout(ctx, cursorId, IsInternal(req));
   }
 
   // The worker owns the stored-results phase. Wait for it to store a
@@ -1788,25 +1778,21 @@ static int CursorReadTimeoutReturnStrictCallback(RedisModuleCtx *ctx, RedisModul
   return REDISMODULE_OK;
 }
 
-// Shard FT.CURSOR READ FAIL-path reply callback.
-// Mirrors QueryReplyCallbackbut uses a different privdata type (BlockedCursorNode).
-// Not invoked if the timeout fired first.
-// The BlockedCursorNode reference is released by FreeCursorNode → ShardCursorBlockClient_FreeAREQ after this callback.
-// Can be consolidated with QueryReplyCallback - See MOD-15038.
-static int CursorReadReplyCallback(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
+static int CursorReadTimeoutReturnStrictCallback(RedisModuleCtx *ctx, RedisModuleString **argv,
+                                                 int argc) {
   UNUSED(argv);
   UNUSED(argc);
 
   BlockedCursorNode *node = RedisModule_GetBlockedClientPrivateData(ctx);
   if (!node || !node->privdata) {
-    // Shouldn't happen, but handle gracefully
-    RedisModule_Log(ctx, "warning", "CursorReadReplyCallback: no node or privdata");
-    RedisModule_ReplyWithError(ctx, "ERR Internal error: no request context");
-    return REDISMODULE_OK;
+    RedisModule_Log(ctx, "warning", "CursorReadTimeoutReturnStrictCallback: no node or privdata");
+    return shard_cursor_read_empty_reply_timeout(ctx, 0);
   }
 
-  AREQ *req = (AREQ *)node->privdata;
+  return CursorReadTimeoutReturnStrictReply(ctx, (AREQ *)node->privdata, node->cursorId);
+}
 
+static int CursorReadReply(RedisModuleCtx *ctx, AREQ *req) {
   if (!req->storedReplyState.hasStoredResults) {
     // Background thread didn't store results - some early error occurred.
     if (QueryError_HasError(&req->storedReplyState.err)) {
@@ -1819,8 +1805,28 @@ static int CursorReadReplyCallback(RedisModuleCtx *ctx, RedisModuleString **argv
   }
 
   AREQ_ReplyWithStoredResults(ctx, req);
-
   return REDISMODULE_OK;
+}
+
+// Shard FT.CURSOR READ FAIL-path reply callback.
+// Mirrors QueryReplyCallbackbut uses a different privdata type (BlockedCursorNode).
+// Not invoked if the timeout fired first.
+// The BlockedCursorNode reference is released by FreeCursorNode →
+// ShardCursorBlockClient_FreeAREQ after this callback.
+// Can be consolidated with QueryReplyCallback - See MOD-15038.
+static int CursorReadReplyCallback(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
+  UNUSED(argv);
+  UNUSED(argc);
+
+  BlockedCursorNode *node = RedisModule_GetBlockedClientPrivateData(ctx);
+  if (!node || !node->privdata) {
+    // Shouldn't happen, but handle gracefully
+    RedisModule_Log(ctx, "warning", "CursorReadReplyCallback: no node or privdata");
+    return RedisModule_ReplyWithError(ctx, "ERR Internal error: no request context");
+  }
+
+  AREQ *req = (AREQ *)node->privdata;
+  return CursorReadReply(ctx, req);
 }
 
 static int buildPipelineAndExecute(AREQ *r, RedisModuleCtx *ctx, QueryError *status) {
@@ -2052,7 +2058,8 @@ static void runCursor(RedisModule_Reply *reply, Cursor *cursor, size_t num) {
       // (follow-up FT.CURSOR READ). Keep cursor ownership consistent with the
       // id already returned to the caller.
       req->storedReplyState.cursor = NULL;
-      if (AREQ_RequestFlags(req) & QEXEC_F_IS_AGGREGATE) {
+      if ((AREQ_RequestFlags(req) & QEXEC_F_IS_AGGREGATE) ||
+          (req->stateflags & QEXEC_S_ITERDONE)) {
         Cursor_Free(cursor);
       } else {
         Cursor_Pause(cursor);
@@ -2184,6 +2191,108 @@ static void cursorRead_ctx(CursorReadCtx *cr_ctx) {
   rm_free(cr_ctx);
 }
 
+typedef struct PendingCursorRead {
+  RedisModuleBlockedClient *bc;
+  Cursor *cursor;
+  AREQ *req;
+  uint64_t cursorId;
+  size_t count;
+  bool timedOut;
+  bool started;
+  bool deleted;
+  bool isInternal;
+} PendingCursorRead;
+
+static void PendingCursorRead_Free(void *privdata) {
+  PendingCursorRead *pending = privdata;
+  if (pending->req) {
+    ShardCursorBlockClient_FreeAREQ(pending->req);
+  }
+  rm_free(pending);
+}
+
+static void pendingCursorRead_ctx(PendingCursorRead *pending) {
+  RedisModuleCtx *ctx = RedisModule_GetThreadSafeContext(pending->bc);
+  CursorPendingWaitResult waitStatus =
+      Cursor_WaitForPendingRead(pending->cursor, &pending->timedOut, &pending->started,
+                                &pending->deleted);
+
+  if (waitStatus == CURSOR_PENDING_WAIT_READY) {
+    AREQ *req = pending->req;
+    req->syncCtx.requiresAggregateResultsSync = true;
+    AREQ_ResetForCursorReadReturnStrict(req);
+    req->useReplyCallback = true;
+    cursorRead(ctx, pending->cursor, pending->count, true);
+  }
+
+  RedisModule_FreeThreadSafeContext(ctx);
+  RedisModule_BlockedClientMeasureTimeEnd(pending->bc);
+  void *privdata = RedisModule_BlockClientGetPrivateData(pending->bc);
+  RedisModule_UnblockClient(pending->bc, privdata);
+}
+
+static int PendingCursorRead_TimeoutCallback(RedisModuleCtx *ctx, RedisModuleString **argv,
+                                             int argc) {
+  UNUSED(argv);
+  UNUSED(argc);
+
+  BlockedCursorNode *node = RedisModule_GetBlockedClientPrivateData(ctx);
+  PendingCursorRead *pending = node ? node->privdata : NULL;
+  if (!pending) {
+    return shard_cursor_read_empty_reply_timeout(ctx, 0);
+  }
+
+  CursorPendingTimeoutInfo info = Cursors_TimeoutPendingRead(
+      pending->cursorId, &pending->timedOut, &pending->started, &pending->deleted);
+  if (info.deleted) {
+    return RedisModule_ReplyWithErrorFormat(ctx, "Cursor not found, id: %lld",
+                                            (long long)node->cursorId);
+  }
+  if (info.started) {
+    return CursorReadTimeoutReturnStrictReply(ctx, pending->req, node->cursorId);
+  }
+  return cursor_read_empty_reply_timeout(ctx, node->cursorId, pending->isInternal);
+}
+
+static int PendingCursorRead_ReplyCallback(RedisModuleCtx *ctx, RedisModuleString **argv,
+                                           int argc) {
+  UNUSED(argv);
+  UNUSED(argc);
+
+  BlockedCursorNode *node = RedisModule_GetBlockedClientPrivateData(ctx);
+  PendingCursorRead *pending = node ? node->privdata : NULL;
+  if (!pending) {
+    return RedisModule_ReplyWithError(ctx, "ERR Internal error: no pending cursor read");
+  }
+  if (pending->deleted) {
+    return RedisModule_ReplyWithErrorFormat(ctx, "Cursor not found, id: %lld",
+                                            (long long)node->cursorId);
+  }
+  if (!pending->started) {
+    return RedisModule_ReplyWithError(ctx, "ERR Internal error: pending cursor read not started");
+  }
+  return CursorReadReply(ctx, pending->req);
+}
+
+static int schedulePendingCursorRead(RedisModuleCtx *ctx, PendingCursorRead *pending,
+                                     uint64_t cursorId, size_t count,
+                                     rs_wall_clock_ms_t queryTimeoutMS) {
+  pending->cursorId = cursorId;
+  pending->count = count;
+
+  BlockClientCtx blockClientCtx = {
+      .privdata = pending,
+      .freePrivData = PendingCursorRead_Free,
+      .replyCallback = PendingCursorRead_ReplyCallback,
+      .timeoutCallback = PendingCursorRead_TimeoutCallback,
+      .timeoutMS = queryTimeoutMS,
+  };
+  pending->bc = BlockCursorClientWithTimeout(ctx, pending->cursor, count, &blockClientCtx);
+
+  workersThreadPool_AddWork((redisearch_thpool_proc)pendingCursorRead_ctx, pending);
+  return REDISMODULE_OK;
+}
+
 // Coord+RETURN_STRICT cursor read: take + reset + publish AREQ under a
 // single setRequestLock window so the timer can't observe a half-installed
 // state. Lock-ordering rule: reqCtx -> cursor table; no other path takes
@@ -2196,9 +2305,10 @@ static inline int coordCursorReadReturnStrict(RedisModuleCtx *ctx, CoordRequestC
     CoordRequestCtx_UnlockSetRequest(reqCtx);
     return REDISMODULE_OK;
   }
-  Cursor *cursor = Cursors_TakeForExecution(GetGlobalCursor(cid), cid);
-  if (!cursor) {
-    // Cursor was destroyed between CursorCommand's peek and our take
+  CursorTakeInfo takeInfo = {0};
+  if (Cursors_TakeForExecution(GetGlobalCursor(cid), cid, false, &takeInfo) != CURSOR_TAKE_OK) {
+    // Cursor was destroyed between CursorCommand's peek and our take, or its
+    // pending-reader slot is held by another caller.
     CoordRequestCtx_UnlockSetRequest(reqCtx);
     QueryError err = QueryError_Default();
     QueryError_SetWithoutUserDataFmt(&err, QUERY_ERROR_CODE_GENERIC,
@@ -2206,6 +2316,7 @@ static inline int coordCursorReadReturnStrict(RedisModuleCtx *ctx, CoordRequestC
     CoordRequestCtx_ReplyOrStoreError(reqCtx, ctx, &err);
     return REDISMODULE_OK;
   }
+  Cursor *cursor = takeInfo.cursor;
   AREQ_ResetForCursorReadReturnStrict(cursor->execState);
   CoordRequestCtx_SetRequest(reqCtx, cursor->execState);
   CoordRequestCtx_UnlockSetRequest(reqCtx);
@@ -2275,7 +2386,19 @@ int RSCursorReadCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc)
     return coordCursorReadReturnStrict(ctx, reqCtx, cid, count);
   }
 
-  Cursor *cursor = Cursors_TakeForExecution(GetGlobalCursor(cid), cid);
+  CursorTakeInfo takeInfo = {0};
+  bool claimPending = !reqCtx && !upstreamBC && RunInThread(ctx);
+  CursorTakeStatus takeSt = Cursors_TakeForExecution(GetGlobalCursor(cid), cid,
+                                                     claimPending, &takeInfo);
+  if (takeSt == CURSOR_TAKE_PENDING) {
+    PendingCursorRead *pending = rm_calloc(1, sizeof(*pending));
+    pending->cursor = takeInfo.cursor;
+    pending->req = takeInfo.reqRef;
+    pending->isInternal = takeInfo.isInternal;
+    return schedulePendingCursorRead(ctx, pending, cid, (size_t)count,
+                                     (rs_wall_clock_ms_t)takeInfo.queryTimeoutMS);
+  }
+  Cursor *cursor = takeInfo.cursor;
   if (cursor == NULL) {
     if (reqCtx) {
       QueryError_SetWithoutUserDataFmt(&err, QUERY_ERROR_CODE_GENERIC,
@@ -2367,10 +2490,11 @@ int RSCursorProfileCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int ar
   }
 
   // Return profile
-  Cursor *cursor = Cursors_TakeForExecution(GetGlobalCursor(cid), cid);
-  if (cursor == NULL) {
+  CursorTakeInfo takeInfo = {0};
+  if (Cursors_TakeForExecution(GetGlobalCursor(cid), cid, false, &takeInfo) != CURSOR_TAKE_OK) {
     return RedisModule_ReplyWithErrorFormat(ctx, "Cursor not found, id: %d", cid);
   }
+  Cursor *cursor = takeInfo.cursor;
 
   AREQ *req = cursor->execState;
   if (!IsProfile(req)) {

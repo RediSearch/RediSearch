@@ -48,6 +48,7 @@ static void CursorList_Unlock(CursorList *cl) {
 void CursorList_Init(CursorList *cl, bool is_coord) {
   *cl = (CursorList) {0};
   pthread_mutex_init(&cl->lock, NULL);
+  pthread_cond_init(&cl->pendingReadCond, NULL);
   cl->lookup = kh_init(cursors);
   Array_Init(&cl->idle);
   cl->is_coord = is_coord;
@@ -332,6 +333,28 @@ void CursorList_MarkASMInaccuracy() {
   CursorList_Unlock(cl);
 }
 
+// Append `cur` to the idle list. Updates the
+// nextIdleTimeoutNs cache so the sweep timer fires no later than the new
+// cursor's deadline; the cache invariant matches `Cursors_FindNextTimeoutNsLocked`.
+// Caller must hold the cursor list lock and the cursor must not already be idle.
+static void Cursor_AddToIdleLocked(CursorList *cl, Cursor *cur) {
+  cur->nextTimeoutNs = curTimeNs() + ((uint64_t)cur->timeoutIntervalMs * 1000000);
+  // Maintain the `nextIdleTimeoutNs` cache invariant: when non-zero it must
+  // equal the actual minimum deadline among the idle cursors. Only narrow it
+  // when it is already valid; if it has been invalidated (set to 0 by
+  // `Cursor_RemoveFromIdle` because the previous minimum-holding cursor was
+  // removed), leave it 0 so that `Cursors_FindNextTimeoutNsLocked` will
+  // rescan and recompute the true minimum.
+  if (cl->nextIdleTimeoutNs != 0 && cur->nextTimeoutNs < cl->nextIdleTimeoutNs) {
+    cl->nextIdleTimeoutNs = cur->nextTimeoutNs;
+    Cursors_RequestRescheduleSweep(cl);
+  } else if (cl->nextIdleTimeoutNs == 0) {
+    Cursors_RequestRescheduleSweep(cl);
+  }
+  cur->pos = ARRAY_GETSIZE_AS(&cl->idle, Cursor **);
+  *(Cursor **)(ARRAY_ADD_AS(&cl->idle, Cursor *)) = cur;
+}
+
 Cursor *Cursors_Reserve(CursorList *cl, StrongRef global_spec_ref, unsigned interval,
                         QueryError *status) {
   Cursor *cur = NULL;
@@ -381,55 +404,124 @@ int Cursor_Pause(Cursor *cur) {
   CursorList_Lock(cl);
   CursorList_IncrCounter(cl);
 
-  if (cur->delete_mark) {
-    // Cursor is marked for deletion, we need to free it.
+  if (cur->pendingReadState == CURSOR_PENDING_READ_CLAIMED) {
+    cur->pendingReadState = CURSOR_PENDING_READ_READY;
+    pthread_cond_broadcast(&cl->pendingReadCond);
+  } else if (cur->delete_mark) {
     Cursor_FreeInternal(cur);
   } else {
-    // Cursor is not marked for deletion, we need to pause it.
-
-    // Set the next timeout to be the current time + timeout interval
-    cur->nextTimeoutNs = curTimeNs() + ((uint64_t)cur->timeoutIntervalMs * 1000000);
-    // Maintain the `nextIdleTimeoutNs` cache invariant: when non-zero it must
-    // equal the actual minimum deadline among the idle cursors. Only narrow it when
-    // it is already valid; if it has been invalidated (set to 0 by
-    // `Cursor_RemoveFromIdle` because the previous minimum-holding cursor was
-    // removed), leave it 0 so that `Cursors_FindNextTimeoutNsLocked` will
-    // rescan and recompute the true minimum.
-    if (cl->nextIdleTimeoutNs != 0 && cur->nextTimeoutNs < cl->nextIdleTimeoutNs) {
-      cl->nextIdleTimeoutNs = cur->nextTimeoutNs;
-      Cursors_RequestRescheduleSweep(cl);
-    } else if (cl->nextIdleTimeoutNs == 0) {
-      Cursors_RequestRescheduleSweep(cl);
+    if (cur->pendingReadState == CURSOR_PENDING_READ_AVAILABLE) {
+      cur->pendingReadState = CURSOR_PENDING_READ_NONE;
     }
-
-    /* Add to idle list */
-    cur->pos = ARRAY_GETSIZE_AS(&cl->idle, Cursor **);
-    *(Cursor **)(ARRAY_ADD_AS(&cl->idle, Cursor *)) = cur;
+    Cursor_AddToIdleLocked(cl, cur);
   }
 
   CursorList_Unlock(cl);
   return REDISMODULE_OK;
 }
 
-Cursor *Cursors_TakeForExecution(CursorList *cl, uint64_t cid) {
+CursorTakeStatus Cursors_TakeForExecution(CursorList *cl, uint64_t cid, bool claimPending,
+                                          CursorTakeInfo *out) {
+  RS_LOG_ASSERT(out != NULL, "Cursors_TakeForExecution requires non-NULL out");
+  *out = (CursorTakeInfo){0};
   CursorList_Lock(cl);
   CursorList_IncrCounter(cl);
 
-  Cursor *cur = NULL;
+  CursorTakeStatus status = CURSOR_TAKE_NOT_FOUND;
   khiter_t iter = kh_get(cursors, cl->lookup, cid);
   if (iter != kh_end(cl->lookup)) {
-    cur = kh_value(cl->lookup, iter);
-    if (cur->pos == -1) {
-      // Cursor is not idle!
-      cur = NULL;
-    } else {
-      // Remove from idle
+    Cursor *cur = kh_value(cl->lookup, iter);
+    if (Cursor_IsIdle(cur) && !cur->delete_mark) {
       Cursor_RemoveFromIdle(cur);
+      out->cursor = cur;
+      out->queryTimeoutMS = cur->queryTimeoutMS;
+      out->isInternal = cur->execState && IsInternal(cur->execState);
+      status = CURSOR_TAKE_OK;
+    } else if (claimPending && !cur->delete_mark &&
+               cur->pendingReadState == CURSOR_PENDING_READ_AVAILABLE) {
+      cur->pendingReadState = CURSOR_PENDING_READ_CLAIMED;
+      out->cursor = cur;
+      out->reqRef = cur->execState ? AREQ_IncrRef(cur->execState) : NULL;
+      out->queryTimeoutMS = cur->queryTimeoutMS;
+      out->isInternal = cur->execState && IsInternal(cur->execState);
+      status = CURSOR_TAKE_PENDING;
     }
   }
 
   CursorList_Unlock(cl);
-  return cur;
+  return status;
+}
+
+bool Cursors_MarkForPendingRead(uint64_t cid) {
+  CursorList *cl = GetGlobalCursor(cid);
+  CursorList_Lock(cl);
+  bool marked = false;
+  khiter_t iter = kh_get(cursors, cl->lookup, cid);
+  if (iter != kh_end(cl->lookup)) {
+    Cursor *cur = kh_value(cl->lookup, iter);
+    if (!Cursor_IsIdle(cur) && !cur->delete_mark &&
+        cur->pendingReadState == CURSOR_PENDING_READ_NONE) {
+      cur->pendingReadState = CURSOR_PENDING_READ_AVAILABLE;
+      marked = true;
+      pthread_cond_broadcast(&cl->pendingReadCond);
+    }
+  }
+  CursorList_Unlock(cl);
+  return marked;
+}
+
+CursorPendingWaitResult Cursor_WaitForPendingRead(Cursor *cur, bool *timedOut, bool *started,
+                                                  bool *deleted) {
+  CursorList *cl = getCursorList(cur->is_coord);
+  CursorList_Lock(cl);
+  while (!*timedOut && cur->pendingReadState == CURSOR_PENDING_READ_CLAIMED) {
+    pthread_cond_wait(&cl->pendingReadCond, &cl->lock);
+  }
+
+  CursorPendingWaitResult result = CURSOR_PENDING_WAIT_TIMED_OUT;
+  if (*timedOut) {
+    if (cur->pendingReadState == CURSOR_PENDING_READ_CLAIMED) {
+      cur->pendingReadState =
+          cur->delete_mark ? CURSOR_PENDING_READ_NONE : CURSOR_PENDING_READ_AVAILABLE;
+    } else if (cur->pendingReadState == CURSOR_PENDING_READ_READY) {
+      cur->pendingReadState = CURSOR_PENDING_READ_NONE;
+      if (cur->delete_mark) {
+        Cursor_FreeInternal(cur);
+      } else {
+        Cursor_AddToIdleLocked(cl, cur);
+      }
+    }
+  } else if (cur->delete_mark) {
+    cur->pendingReadState = CURSOR_PENDING_READ_NONE;
+    *deleted = true;
+    Cursor_FreeInternal(cur);
+    result = CURSOR_PENDING_WAIT_DELETED;
+  } else {
+    cur->pendingReadState = CURSOR_PENDING_READ_NONE;
+    *started = true;
+    result = CURSOR_PENDING_WAIT_READY;
+  }
+  pthread_cond_broadcast(&cl->pendingReadCond);
+  CursorList_Unlock(cl);
+  return result;
+}
+
+CursorPendingTimeoutInfo Cursors_TimeoutPendingRead(uint64_t cid, bool *timedOut, bool *started,
+                                                    bool *deleted) {
+  CursorList *cl = GetGlobalCursor(cid);
+  CursorList_Lock(cl);
+  *timedOut = true;
+  CursorPendingTimeoutInfo info = {
+      .started = *started,
+      .deleted = *deleted,
+  };
+  if (!info.started && !info.deleted && kh_get(cursors, cl->lookup, cid) == kh_end(cl->lookup)) {
+    *deleted = true;
+    info.deleted = true;
+  }
+  pthread_cond_broadcast(&cl->pendingReadCond);
+  CursorList_Unlock(cl);
+  return info;
 }
 
 CursorTimeoutInfo Cursors_PeekTimeoutInfo(CursorList *cl, uint64_t cid) {
@@ -482,7 +574,14 @@ int Cursor_Free(Cursor *cur) {
   CursorList *cl = getCursorList(cur->is_coord);
   CursorList_Lock(cl);
   CursorList_IncrCounter(cl);
-  Cursor_FreeInternal(cur);
+  if (cur->pendingReadState == CURSOR_PENDING_READ_CLAIMED) {
+    cur->delete_mark = true;
+    cur->pendingReadState = CURSOR_PENDING_READ_READY;
+    pthread_cond_broadcast(&cl->pendingReadCond);
+  } else {
+    cur->pendingReadState = CURSOR_PENDING_READ_NONE;
+    Cursor_FreeInternal(cur);
+  }
   CursorList_Unlock(cl);
   return REDISMODULE_OK;
 }

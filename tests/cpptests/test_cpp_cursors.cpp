@@ -21,8 +21,6 @@ bool IdInArray(uint64_t id, const uint64_t *arr, int size) {
   return std::find(arr, arr + size, id) != arr + size;
 }
 
-
-
 TEST_F(CursorsTest, BasicAPI) {
   StrongRef dummy = {0};
   Cursor *cur = Cursors_Reserve(&g_CursorsList, dummy, 1000, NULL);
@@ -31,13 +29,18 @@ TEST_F(CursorsTest, BasicAPI) {
   ASSERT_FALSE(is_Idle(cur));
   auto id = cur->id;
 
-  ASSERT_EQ(Cursors_TakeForExecution(&g_CursorsList, id), nullptr) << "Cursor already in use";
+  CursorTakeInfo takeInfo = {0};
+  ASSERT_EQ(Cursors_TakeForExecution(&g_CursorsList, id, false, &takeInfo), CURSOR_TAKE_NOT_FOUND)
+      << "Cursor already in use";
+  ASSERT_EQ(takeInfo.cursor, nullptr);
 
   Cursor_Pause(cur);
   ASSERT_TRUE((cur));
   ASSERT_TRUE(is_Idle(cur));
 
-  Cursor *cur2 = Cursors_TakeForExecution(&g_CursorsList, id);
+  CursorTakeInfo takeInfo2 = {0};
+  ASSERT_EQ(Cursors_TakeForExecution(&g_CursorsList, id, false, &takeInfo2), CURSOR_TAKE_OK);
+  Cursor *cur2 = takeInfo2.cursor;
   ASSERT_TRUE(cur2 != NULL);
   ASSERT_FALSE(is_Idle(cur2));
   ASSERT_FALSE(cur2->delete_mark);
@@ -46,6 +49,114 @@ TEST_F(CursorsTest, BasicAPI) {
 
   Cursor_Free(cur);
 
+}
+
+TEST_F(CursorsTest, PendingReaderAPI) {
+  StrongRef dummy = {0};
+  Cursor *cur = Cursors_Reserve(&g_CursorsList, dummy, 1000, NULL);
+  ASSERT_TRUE(cur != NULL);
+  auto id = cur->id;
+
+  ASSERT_TRUE(Cursors_MarkForPendingRead(id));
+
+  CursorTakeInfo takeInfo = {0};
+  ASSERT_EQ(Cursors_TakeForExecution(&g_CursorsList, id, false, &takeInfo), CURSOR_TAKE_NOT_FOUND);
+  ASSERT_EQ(takeInfo.cursor, nullptr);
+
+  ASSERT_EQ(Cursors_TakeForExecution(&g_CursorsList, id, true, &takeInfo),
+            CURSOR_TAKE_PENDING);
+  ASSERT_EQ(takeInfo.cursor, cur);
+  ASSERT_EQ(takeInfo.queryTimeoutMS, cur->queryTimeoutMS);
+  ASSERT_EQ(cur->pendingReadState, CURSOR_PENDING_READ_CLAIMED);
+
+  takeInfo = {0};
+  ASSERT_EQ(Cursors_TakeForExecution(&g_CursorsList, id, true, &takeInfo),
+            CURSOR_TAKE_NOT_FOUND);
+  ASSERT_EQ(takeInfo.cursor, nullptr);
+
+  ASSERT_EQ(Cursor_Pause(cur), REDISMODULE_OK);
+  ASSERT_EQ(cur->pendingReadState, CURSOR_PENDING_READ_READY);
+
+  bool timedOut = false;
+  bool started = false;
+  bool deleted = false;
+  ASSERT_EQ(Cursor_WaitForPendingRead(cur, &timedOut, &started, &deleted),
+            CURSOR_PENDING_WAIT_READY);
+  ASSERT_TRUE(started);
+  ASSERT_FALSE(deleted);
+  ASSERT_FALSE(timedOut);
+  ASSERT_EQ(cur->pendingReadState, CURSOR_PENDING_READ_NONE);
+  ASSERT_FALSE(is_Idle(cur));
+
+  Cursor_Free(cur);
+}
+
+TEST_F(CursorsTest, PendingReaderDeleteNotification) {
+  StrongRef dummy = {0};
+  Cursor *cur = Cursors_Reserve(&g_CursorsList, dummy, 1000, NULL);
+  ASSERT_TRUE(cur != NULL);
+  auto id = cur->id;
+
+  ASSERT_TRUE(Cursors_MarkForPendingRead(id));
+
+  CursorTakeInfo takeInfo = {0};
+  ASSERT_EQ(Cursors_TakeForExecution(&g_CursorsList, id, true, &takeInfo),
+            CURSOR_TAKE_PENDING);
+  ASSERT_EQ(takeInfo.cursor, cur);
+
+  ASSERT_EQ(Cursors_Purge(&g_CursorsList, id), REDISMODULE_OK);
+  ASSERT_EQ(Cursor_Pause(cur), REDISMODULE_OK);
+
+  bool timedOut = false;
+  bool started = false;
+  bool deleted = false;
+  ASSERT_EQ(Cursor_WaitForPendingRead(cur, &timedOut, &started, &deleted),
+            CURSOR_PENDING_WAIT_DELETED);
+  ASSERT_TRUE(deleted);
+  ASSERT_FALSE(started);
+  ASSERT_FALSE(timedOut);
+  ASSERT_EQ(Cursors_GetInfoStats().total_user, 0);
+}
+
+TEST_F(CursorsTest, PendingReaderTimeoutReleasesClaim) {
+  StrongRef dummy = {0};
+  Cursor *cur = Cursors_Reserve(&g_CursorsList, dummy, 1000, NULL);
+  ASSERT_TRUE(cur != NULL);
+  auto id = cur->id;
+
+  ASSERT_TRUE(Cursors_MarkForPendingRead(id));
+
+  CursorTakeInfo takeInfo = {0};
+  ASSERT_EQ(Cursors_TakeForExecution(&g_CursorsList, id, true, &takeInfo),
+            CURSOR_TAKE_PENDING);
+  ASSERT_EQ(takeInfo.cursor, cur);
+
+  bool timedOut = false;
+  bool started = false;
+  bool deleted = false;
+  CursorPendingTimeoutInfo timeoutInfo =
+      Cursors_TimeoutPendingRead(id, &timedOut, &started, &deleted);
+  ASSERT_FALSE(timeoutInfo.started);
+  ASSERT_FALSE(timeoutInfo.deleted);
+  ASSERT_TRUE(timedOut);
+
+  ASSERT_EQ(Cursor_WaitForPendingRead(cur, &timedOut, &started, &deleted),
+            CURSOR_PENDING_WAIT_TIMED_OUT);
+  ASSERT_EQ(cur->pendingReadState, CURSOR_PENDING_READ_AVAILABLE);
+
+  takeInfo = {0};
+  ASSERT_EQ(Cursors_TakeForExecution(&g_CursorsList, id, true, &takeInfo),
+            CURSOR_TAKE_PENDING);
+  ASSERT_EQ(takeInfo.cursor, cur);
+
+  ASSERT_EQ(Cursor_Free(cur), REDISMODULE_OK);
+  timedOut = false;
+  started = false;
+  deleted = false;
+  ASSERT_EQ(Cursor_WaitForPendingRead(cur, &timedOut, &started, &deleted),
+            CURSOR_PENDING_WAIT_DELETED);
+  ASSERT_TRUE(deleted);
+  ASSERT_EQ(Cursors_GetInfoStats().total_user, 0);
 }
 
 TEST_F(CursorsTest, OwnershipAPI) {
@@ -58,8 +169,11 @@ TEST_F(CursorsTest, OwnershipAPI) {
   ASSERT_FALSE(is_Idle(cur));
 
   auto id = cur->id;
+  CursorTakeInfo takeInfo = {0};
   ASSERT_EQ(Cursors_Purge(&g_CursorsList, id), REDISMODULE_OK) << "Should be able to mark for deletion";
-  ASSERT_EQ(Cursors_TakeForExecution(&g_CursorsList, id), nullptr) << "Cursor already deleted";
+  ASSERT_EQ(Cursors_TakeForExecution(&g_CursorsList, id, false, &takeInfo), CURSOR_TAKE_NOT_FOUND)
+      << "Cursor already deleted";
+  ASSERT_EQ(takeInfo.cursor, nullptr);
   ASSERT_TRUE(cur->delete_mark);
 
   ASSERT_EQ(Cursors_GetInfoStats().total_user, 1) << "Cursor should be alive";
@@ -72,10 +186,14 @@ TEST_F(CursorsTest, OwnershipAPI) {
   ASSERT_FALSE(cur->delete_mark);
   ASSERT_FALSE(is_Idle(cur));
   id = cur->id;
-  ASSERT_EQ(Cursors_TakeForExecution(&g_CursorsList, id), nullptr) << "Cursor already in use";
+  ASSERT_EQ(Cursors_TakeForExecution(&g_CursorsList, id, false, &takeInfo), CURSOR_TAKE_NOT_FOUND)
+      << "Cursor already in use";
+  ASSERT_EQ(takeInfo.cursor, nullptr);
 
   ASSERT_EQ(Cursors_Purge(&g_CursorsList, id), REDISMODULE_OK) << "Should be able to mark for deletion";
-  ASSERT_EQ(Cursors_TakeForExecution(&g_CursorsList, id), nullptr) << "Cursor already deleted";
+  ASSERT_EQ(Cursors_TakeForExecution(&g_CursorsList, id, false, &takeInfo), CURSOR_TAKE_NOT_FOUND)
+      << "Cursor already deleted";
+  ASSERT_EQ(takeInfo.cursor, nullptr);
   ASSERT_TRUE(cur->delete_mark);
 
   ASSERT_EQ(Cursors_GetInfoStats().total_user, 1) << "Cursor should be alive";
@@ -94,7 +212,9 @@ TEST_F(CursorsTest, OwnershipAPI) {
 
   // Cursor should be marked for deletion, not immediately freed
   ASSERT_EQ(Cursors_GetInfoStats().total_user, 1) << "Cursor should still be alive";
-  ASSERT_EQ(Cursors_TakeForExecution(&g_CursorsList, id), nullptr) << "Cursor already deleted";
+  ASSERT_EQ(Cursors_TakeForExecution(&g_CursorsList, id, false, &takeInfo), CURSOR_TAKE_NOT_FOUND)
+      << "Cursor already deleted";
+  ASSERT_EQ(takeInfo.cursor, nullptr);
   ASSERT_TRUE(cur->delete_mark) << "Cursor should be marked for deletion";
 
   // When cursor is paused, it should actually be freed due to delete_mark
