@@ -80,16 +80,6 @@ jobs:
         if: needs.build-image.outputs.succeeded != 'true'
         working-directory: .install
         run: ./install_script.sh ${{ steps.mode.outputs.mode }}
-      - name: Setup Rust test dependencies
-        # Required so the cached-container fallback path also has the pinned
-        # nightly + `rust-docs-json` component + cheadergen binary that the
-        # `Stale headers check` step below needs. The cached container image
-        # already runs this script in its Dockerfile.
-        if: needs.build-image.outputs.succeeded != 'true'
-        uses: ./.github/actions/retry-command
-        with:
-          command: .install/test_deps/install_rust_deps.sh ${{ steps.mode.outputs.mode }}
-          github_token: ${{ github.token }}
       # Cache Rust packages and binaries
       - uses: Swatinem/rust-cache@v2
         with:
