@@ -35,21 +35,6 @@ pub struct TrieMap<Data> {
     memory_usage: usize,
 }
 
-impl<Data> Default for TrieMap<Data> {
-    fn default() -> Self {
-        Self::new()
-    }
-}
-
-impl<Data: fmt::Debug> fmt::Debug for TrieMap<Data> {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        match &self.root {
-            Some(r) => r.fmt(f),
-            None => f.write_str("(empty)"),
-        }
-    }
-}
-
 impl<Data> TrieMap<Data> {
     /// Create a new (empty) [`TrieMap`].
     ///
@@ -284,6 +269,21 @@ impl<Data> TrieMap<Data> {
         match self.find_root_for_prefix(prefix) {
             Some((root, _)) => Values::new(Some(root)),
             None => Values::new(None),
+        }
+    }
+}
+
+impl<Data> Default for TrieMap<Data> {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+impl<Data: fmt::Debug> fmt::Debug for TrieMap<Data> {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match &self.root {
+            Some(r) => r.fmt(f),
+            None => f.write_str("(empty)"),
         }
     }
 }

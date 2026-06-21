@@ -24,18 +24,6 @@ pub struct StrTrieMap<Data> {
     inner: TrieMap<Data>,
 }
 
-impl<Data> Default for StrTrieMap<Data> {
-    fn default() -> Self {
-        Self::new()
-    }
-}
-
-impl<Data: fmt::Debug> fmt::Debug for StrTrieMap<Data> {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        self.inner.fmt(f)
-    }
-}
-
 impl<Data> StrTrieMap<Data> {
     /// Create a new (empty) [`StrTrieMap`]. See [`TrieMap::new`].
     pub const fn new() -> Self {
@@ -146,5 +134,17 @@ impl<Data> StrTrieMap<Data> {
         todo!("UTF-8 wildcard iteration over StrTrieMap not yet implemented");
         #[expect(unreachable_code)]
         std::iter::empty()
+    }
+}
+
+impl<Data> Default for StrTrieMap<Data> {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+impl<Data: fmt::Debug> fmt::Debug for StrTrieMap<Data> {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        self.inner.fmt(f)
     }
 }
