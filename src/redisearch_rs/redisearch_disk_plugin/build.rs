@@ -94,7 +94,10 @@ fn link_speedb_into_plugin() {
     if !std::fs::exists(&lib_path).unwrap_or(false) {
         // No staged library to link against; leave the plugin as-is rather than
         // failing the build (mirrors libspeedb-sys's tolerant behaviour).
-        println!("cargo::warning=SPEEDB_LIB_DIR set but {} not found", lib_path.display());
+        println!(
+            "cargo::warning=SPEEDB_LIB_DIR set but {} not found",
+            lib_path.display()
+        );
         return;
     }
     println!("cargo::rerun-if-changed={}", lib_path.display());
@@ -167,8 +170,14 @@ fn link_vecsim_into_plugin() {
     let group_libs: [(PathBuf, &[&str]); 6] = [
         (vecsim_dir.clone(), &["VectorSimilarity"]),
         (spaces_dir.clone(), &["VectorSimilaritySpaces"]),
-        (spaces_dir.clone(), &["VectorSimilaritySpaces_no_optimization"]),
-        (build_dir.join("_deps/cpu_features-build"), &["cpu_features"]),
+        (
+            spaces_dir.clone(),
+            &["VectorSimilaritySpaces_no_optimization"],
+        ),
+        (
+            build_dir.join("_deps/cpu_features-build"),
+            &["cpu_features"],
+        ),
         (build_dir.join("_deps/spdlog-build"), &["spdlog", "spdlogd"]),
         (build_dir.join("_deps/fmt-build"), &["fmt", "fmtd"]),
     ];

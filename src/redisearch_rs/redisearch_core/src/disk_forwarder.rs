@@ -6,9 +6,9 @@
 //! this module on disk, found via `dladdr`), `dlopen` it `RTLD_NOW|RTLD_GLOBAL`,
 //! and resolve the plugin's distinct entry points `SearchDiskPlugin_*`.
 
-use std::ffi::{CStr, CString, c_char, c_int, c_void};
 #[cfg(debug_assertions)]
 use std::ffi::c_uint;
+use std::ffi::{CStr, CString, c_char, c_int, c_void};
 use std::path::PathBuf;
 use std::sync::OnceLock;
 
@@ -91,7 +91,12 @@ fn log_warning(msg: &str) {
     // accepted (logs without a command context). The format string has exactly one
     // `%s` matching the single C-string argument.
     unsafe {
-        log(std::ptr::null_mut(), level.as_ptr(), fmt.as_ptr(), cmsg.as_ptr());
+        log(
+            std::ptr::null_mut(),
+            level.as_ptr(),
+            fmt.as_ptr(),
+            cmsg.as_ptr(),
+        );
     }
 }
 
@@ -320,8 +325,10 @@ fn load_plugin() -> PluginEntries {
                 Some(std::mem::transmute::<*mut c_void, DebugCoordinatorReachedFn>(rc));
         }
         if !rs.is_null() {
-            entries.debug_reset =
-                Some(std::mem::transmute::<*mut c_void, DebugResetCompactionControllerFn>(rs));
+            entries.debug_reset = Some(std::mem::transmute::<
+                *mut c_void,
+                DebugResetCompactionControllerFn,
+            >(rs));
         }
     }
     entries
