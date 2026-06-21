@@ -197,7 +197,8 @@ def test_profile(env):
         'Coordinator': {}
       }
     }
-    env.expect('FT.PROFILE', 'idx1', 'SEARCH', 'QUERY', '*', "FORMAT", "STRING", 'SCORER', 'TFIDF').equal(exp)
+    res = env.cmd('FT.PROFILE', 'idx1', 'SEARCH', 'QUERY', '*', "FORMAT", "STRING", 'SCORER', 'TFIDF')
+    env.assertEqual(strip_enterprise_profile_keys(res), exp)
 
 @skip(cluster=False, redis_less_than="7.0.0")
 def test_coord_profile():
@@ -675,7 +676,7 @@ def test_profile_crash_mod5323():
        },
     }
     if not env.isCluster():  # on cluster, lack of crash is enough
-        env.assertEqual(res, exp)
+        env.assertEqual(strip_enterprise_profile_keys(res), exp)
 
 def test_profile_child_itrerators_array():
     env = Env(protocol=3)
@@ -724,7 +725,7 @@ def test_profile_child_itrerators_array():
       },
     }
     if not env.isCluster():  # on cluster, lack of crash is enough
-        env.assertEqual(res, exp)
+        env.assertEqual(strip_enterprise_profile_keys(res), exp)
 
     # test INTERSECT
     res = env.cmd('ft.profile', 'idx', 'search', 'query', 'hello world', 'nocontent')
@@ -762,7 +763,7 @@ def test_profile_child_itrerators_array():
       },
     }
     if not env.isCluster():  # on cluster, lack of crash is enough
-        env.assertEqual(res, exp)
+        env.assertEqual(strip_enterprise_profile_keys(res), exp)
 
 @skip(no_json=True)
 def testExpandErrorsResp3():
