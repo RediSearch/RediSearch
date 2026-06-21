@@ -77,14 +77,9 @@ TEST_F(CursorsTest, PendingReaderAPI) {
   ASSERT_EQ(Cursor_Pause(cur), REDISMODULE_OK);
   ASSERT_EQ(cur->pendingReadState, CURSOR_PENDING_READ_READY);
 
-  bool timedOut = false;
-  bool started = false;
-  bool deleted = false;
-  ASSERT_EQ(Cursor_WaitForPendingRead(cur, &timedOut, &started, &deleted),
-            CURSOR_PENDING_WAIT_READY);
-  ASSERT_TRUE(started);
-  ASSERT_FALSE(deleted);
-  ASSERT_FALSE(timedOut);
+  CursorPendingReaderStatus status = CURSOR_PENDING_READER_WAITING;
+  Cursor_WaitForPendingRead(cur, &status);
+  ASSERT_EQ(status, CURSOR_PENDING_READER_STARTED);
   ASSERT_EQ(cur->pendingReadState, CURSOR_PENDING_READ_NONE);
   ASSERT_FALSE(is_Idle(cur));
 
@@ -107,14 +102,9 @@ TEST_F(CursorsTest, PendingReaderDeleteNotification) {
   ASSERT_EQ(Cursors_Purge(&g_CursorsList, id), REDISMODULE_OK);
   ASSERT_EQ(Cursor_Pause(cur), REDISMODULE_OK);
 
-  bool timedOut = false;
-  bool started = false;
-  bool deleted = false;
-  ASSERT_EQ(Cursor_WaitForPendingRead(cur, &timedOut, &started, &deleted),
-            CURSOR_PENDING_WAIT_DELETED);
-  ASSERT_TRUE(deleted);
-  ASSERT_FALSE(started);
-  ASSERT_FALSE(timedOut);
+  CursorPendingReaderStatus status = CURSOR_PENDING_READER_WAITING;
+  Cursor_WaitForPendingRead(cur, &status);
+  ASSERT_EQ(status, CURSOR_PENDING_READER_DELETED);
   ASSERT_EQ(Cursors_GetInfoStats().total_user, 0);
 }
 
@@ -131,17 +121,12 @@ TEST_F(CursorsTest, PendingReaderTimeoutReleasesClaim) {
             CURSOR_TAKE_PENDING);
   ASSERT_EQ(takeInfo.cursor, cur);
 
-  bool timedOut = false;
-  bool started = false;
-  bool deleted = false;
-  CursorPendingTimeoutInfo timeoutInfo =
-      Cursors_TimeoutPendingRead(id, &timedOut, &started, &deleted);
-  ASSERT_FALSE(timeoutInfo.started);
-  ASSERT_FALSE(timeoutInfo.deleted);
-  ASSERT_TRUE(timedOut);
+  CursorPendingReaderStatus status = CURSOR_PENDING_READER_WAITING;
+  Cursors_TimeoutPendingRead(id, &status);
+  ASSERT_EQ(status, CURSOR_PENDING_READER_TIMED_OUT);
 
-  ASSERT_EQ(Cursor_WaitForPendingRead(cur, &timedOut, &started, &deleted),
-            CURSOR_PENDING_WAIT_TIMED_OUT);
+  Cursor_WaitForPendingRead(cur, &status);
+  ASSERT_EQ(status, CURSOR_PENDING_READER_TIMED_OUT);
   ASSERT_EQ(cur->pendingReadState, CURSOR_PENDING_READ_AVAILABLE);
 
   takeInfo = {0};
@@ -150,12 +135,9 @@ TEST_F(CursorsTest, PendingReaderTimeoutReleasesClaim) {
   ASSERT_EQ(takeInfo.cursor, cur);
 
   ASSERT_EQ(Cursor_Free(cur), REDISMODULE_OK);
-  timedOut = false;
-  started = false;
-  deleted = false;
-  ASSERT_EQ(Cursor_WaitForPendingRead(cur, &timedOut, &started, &deleted),
-            CURSOR_PENDING_WAIT_DELETED);
-  ASSERT_TRUE(deleted);
+  status = CURSOR_PENDING_READER_WAITING;
+  Cursor_WaitForPendingRead(cur, &status);
+  ASSERT_EQ(status, CURSOR_PENDING_READER_DELETED);
   ASSERT_EQ(Cursors_GetInfoStats().total_user, 0);
 }
 

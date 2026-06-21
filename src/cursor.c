@@ -470,16 +470,15 @@ bool Cursors_MarkForPendingRead(uint64_t cid) {
   return marked;
 }
 
-CursorPendingWaitResult Cursor_WaitForPendingRead(Cursor *cur, bool *timedOut, bool *started,
-                                                  bool *deleted) {
+void Cursor_WaitForPendingRead(Cursor *cur, CursorPendingReaderStatus *status) {
   CursorList *cl = getCursorList(cur->is_coord);
   CursorList_Lock(cl);
-  while (!*timedOut && cur->pendingReadState == CURSOR_PENDING_READ_CLAIMED) {
+  while (*status == CURSOR_PENDING_READER_WAITING &&
+         cur->pendingReadState == CURSOR_PENDING_READ_CLAIMED) {
     pthread_cond_wait(&cl->pendingReadCond, &cl->lock);
   }
 
-  CursorPendingWaitResult result = CURSOR_PENDING_WAIT_TIMED_OUT;
-  if (*timedOut) {
+  if (*status == CURSOR_PENDING_READER_TIMED_OUT) {
     if (cur->pendingReadState == CURSOR_PENDING_READ_CLAIMED) {
       cur->pendingReadState =
           cur->delete_mark ? CURSOR_PENDING_READ_NONE : CURSOR_PENDING_READ_AVAILABLE;
@@ -491,37 +490,30 @@ CursorPendingWaitResult Cursor_WaitForPendingRead(Cursor *cur, bool *timedOut, b
         Cursor_AddToIdleLocked(cl, cur);
       }
     }
+  } else if (*status == CURSOR_PENDING_READER_DELETED) {
+    // The timeout callback already observed the cursor as deleted.
   } else if (cur->delete_mark) {
     cur->pendingReadState = CURSOR_PENDING_READ_NONE;
-    *deleted = true;
+    *status = CURSOR_PENDING_READER_DELETED;
     Cursor_FreeInternal(cur);
-    result = CURSOR_PENDING_WAIT_DELETED;
   } else {
     cur->pendingReadState = CURSOR_PENDING_READ_NONE;
-    *started = true;
-    result = CURSOR_PENDING_WAIT_READY;
+    *status = CURSOR_PENDING_READER_STARTED;
   }
   pthread_cond_broadcast(&cl->pendingReadCond);
   CursorList_Unlock(cl);
-  return result;
 }
 
-CursorPendingTimeoutInfo Cursors_TimeoutPendingRead(uint64_t cid, bool *timedOut, bool *started,
-                                                    bool *deleted) {
+void Cursors_TimeoutPendingRead(uint64_t cid, CursorPendingReaderStatus *status) {
   CursorList *cl = GetGlobalCursor(cid);
   CursorList_Lock(cl);
-  *timedOut = true;
-  CursorPendingTimeoutInfo info = {
-      .started = *started,
-      .deleted = *deleted,
-  };
-  if (!info.started && !info.deleted && kh_get(cursors, cl->lookup, cid) == kh_end(cl->lookup)) {
-    *deleted = true;
-    info.deleted = true;
+  if (*status == CURSOR_PENDING_READER_WAITING) {
+    *status = kh_get(cursors, cl->lookup, cid) == kh_end(cl->lookup)
+                  ? CURSOR_PENDING_READER_DELETED
+                  : CURSOR_PENDING_READER_TIMED_OUT;
   }
   pthread_cond_broadcast(&cl->pendingReadCond);
   CursorList_Unlock(cl);
-  return info;
 }
 
 CursorTimeoutInfo Cursors_PeekTimeoutInfo(CursorList *cl, uint64_t cid) {

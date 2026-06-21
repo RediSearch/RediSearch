@@ -2214,9 +2214,7 @@ typedef struct PendingCursorRead {
   AREQ *req;
   uint64_t cursorId;
   size_t count;
-  bool timedOut;
-  bool started;
-  bool deleted;
+  CursorPendingReaderStatus status;
   bool isInternal;
 } PendingCursorRead;
 
@@ -2230,11 +2228,9 @@ static void PendingCursorRead_Free(void *privdata) {
 
 static void pendingCursorRead_ctx(PendingCursorRead *pending) {
   RedisModuleCtx *ctx = RedisModule_GetThreadSafeContext(pending->bc);
-  CursorPendingWaitResult waitStatus =
-      Cursor_WaitForPendingRead(pending->cursor, &pending->timedOut, &pending->started,
-                                &pending->deleted);
+  Cursor_WaitForPendingRead(pending->cursor, &pending->status);
 
-  if (waitStatus == CURSOR_PENDING_WAIT_READY) {
+  if (pending->status == CURSOR_PENDING_READER_STARTED) {
     AREQ *req = pending->req;
     req->syncCtx.requiresAggregateResultsSync = true;
     AREQ_ResetForCursorReadReturnStrict(req);
@@ -2259,13 +2255,12 @@ static int PendingCursorRead_TimeoutCallback(RedisModuleCtx *ctx, RedisModuleStr
     return shard_cursor_read_empty_reply_timeout(ctx, 0);
   }
 
-  CursorPendingTimeoutInfo info = Cursors_TimeoutPendingRead(
-      pending->cursorId, &pending->timedOut, &pending->started, &pending->deleted);
-  if (info.deleted) {
+  Cursors_TimeoutPendingRead(pending->cursorId, &pending->status);
+  if (pending->status == CURSOR_PENDING_READER_DELETED) {
     return RedisModule_ReplyWithErrorFormat(ctx, "Cursor not found, id: %lld",
                                             (long long)node->cursorId);
   }
-  if (info.started) {
+  if (pending->status == CURSOR_PENDING_READER_STARTED) {
     return CursorReadTimeoutReturnStrictReply(ctx, pending->req, node->cursorId);
   }
   return cursor_read_empty_reply_timeout(ctx, node->cursorId, pending->isInternal);
@@ -2281,11 +2276,11 @@ static int PendingCursorRead_ReplyCallback(RedisModuleCtx *ctx, RedisModuleStrin
   if (!pending) {
     return RedisModule_ReplyWithError(ctx, "ERR Internal error: no pending cursor read");
   }
-  if (pending->deleted) {
+  if (pending->status == CURSOR_PENDING_READER_DELETED) {
     return RedisModule_ReplyWithErrorFormat(ctx, "Cursor not found, id: %lld",
                                             (long long)node->cursorId);
   }
-  if (!pending->started) {
+  if (pending->status != CURSOR_PENDING_READER_STARTED) {
     return RedisModule_ReplyWithError(ctx, "ERR Internal error: pending cursor read not started");
   }
   return CursorReadReply(ctx, pending->req);
@@ -2411,6 +2406,7 @@ int RSCursorReadCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc)
     PendingCursorRead *pending = rm_calloc(1, sizeof(*pending));
     pending->cursor = takeInfo.cursor;
     pending->req = takeInfo.reqRef;
+    pending->status = CURSOR_PENDING_READER_WAITING;
     pending->isInternal = takeInfo.isInternal;
     return schedulePendingCursorRead(ctx, pending, cid, (size_t)count,
                                      (rs_wall_clock_ms_t)takeInfo.queryTimeoutMS);
