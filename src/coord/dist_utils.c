@@ -12,7 +12,7 @@
 #include "util/strconv.h"
 #include "rpnet.h"
 
-bool getCursorCommand(long long cursorId, MRCommand *cmd, MRIteratorCtx *ctx, bool shardTimedOut);
+static bool getCursorCommand(long long cursorId, MRCommand *cmd, MRIteratorCtx *ctx, bool shardTimedOut);
 
 // Helper function to extract total_results from a shard reply
 // Returns true if total_results was found, false otherwise
@@ -176,7 +176,7 @@ void netCursorCallback(MRIteratorCallbackCtx *ctx, MRReply *rep) {
 
 // Get cursor command using a cursor id and an existing aggregate command
 // Returns true if the cursor is not done (i.e., not depleted)
-bool getCursorCommand(long long cursorId, MRCommand *cmd, MRIteratorCtx *ctx, bool shardTimedOut) {
+static bool getCursorCommand(long long cursorId, MRCommand *cmd, MRIteratorCtx *ctx, bool shardTimedOut) {
   if (cursorId == CURSOR_EOF) {
     // Cursor was set to 0, end of reply chain. cmd->depleted will be set in `MRIteratorCallback_Done`.
     return false;
