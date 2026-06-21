@@ -109,11 +109,8 @@ typedef struct AsyncReadResult {
 
 // Stats reported by a single GC compaction cycle.
 //
-// Populated by `IndexDiskAPI::runGC`. The caller MUST zero-initialize the
-// struct before the call; the implementation fills the fields it knows about
-// and leaves unknown / future fields at their zero default. This lets new
-// fields be added at the tail without breaking existing callers — readers see
-// 0 for fields the disk side does not yet populate.
+// Populated by `IndexDiskAPI::runGC`: the caller zero-initializes the struct
+// and the callee fills the fields it knows about.
 typedef struct DiskGCRunStats {
   // Number of deleted document IDs removed in this cycle.
   size_t num_cleaned_docs;
@@ -513,8 +510,7 @@ typedef struct IndexDiskAPI {
    *
    * On return, `stats` is populated with per-cycle counters
    * (see `DiskGCRunStats`). Caller MUST zero-initialize `stats` before the
-   * call; the implementation only writes fields it knows about, leaving any
-   * future tail fields at their zero default.
+   * call; the implementation only writes the fields it knows about.
    *
    * @param index Pointer to the disk index
    * @param stats Caller-allocated, zero-initialized stats out-parameter
