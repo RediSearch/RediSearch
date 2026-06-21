@@ -704,7 +704,7 @@ void MRIteratorCallback_ResetTimedOut(MRIteratorCtx *ctx) {
   __atomic_store_n(&ctx->timedOut, false, __ATOMIC_RELAXED);
 }
 
-int8_t MRIterator_IncreaseRefCount(MRIterator *it) {
+static inline int8_t MRIterator_IncreaseRefCount(MRIterator *it) {
   return  __atomic_add_fetch(&it->ctx.itRefCount, 1, __ATOMIC_ACQUIRE);
 }
 
