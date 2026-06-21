@@ -66,14 +66,23 @@ typedef struct {
   // only on the IO thread (in collectCountCb) and read on the coord thread before
 // executePlan runs, so no atomics are needed.
 //
-// `numResponded` counts how many shards have delivered their first (C_AGG) reply.
-// Once it reaches the iterator's shard count, the WITHCOUNT total is fully known.
-// Written and read only on the IO thread.
+// `numResponded` counts how many shards have delivered their first response
+// (a C_AGG reply via collectCountCb, or a no-reply termination via
+// collectCountErrorCb). Once it reaches the iterator's shard count, the
+// WITHCOUNT total is fully known. Written and read only on the IO thread.
+//
+// `dispatched` gates posting executeAggregateDeferred to the coord pool: it
+// flips to true exactly once, the first time the IO thread observes a trigger
+// (last first-response OR AREQ_TimedOut). Subsequent IO callbacks must
+// fast-path through and not read the deferred-execution fields below — the
+// worker thread may have already consumed and freed them (areq via
+// AREQ_DecrRef, bc via UnblockClient). Read+written only on the IO thread, so
+// no atomics are needed.
 //
 // `bc`, `areq`, `spec_ref`, and `knnSpecialCtx` carry the deferred-execution
 // context on the async WITHCOUNT path. They are set in dispatchAggregateDeferred
-// before MR_StartIterator and consumed by executeAggregateDeferred after
-// collectCountCb posts the handoff. The AREQ's reader ref on the iterator keeps
+// before MR_StartIterator and consumed by executeAggregateDeferred after the
+// IO thread posts the handoff. The AREQ's reader ref on the iterator keeps
 // iterCtx alive until executeAggregateDeferred calls AREQ_DecrRef (via
 // executePlan, or directly on the timeout / spec-dropped branch).
 // executeAggregateDeferred copies the fields to locals before releasing AREQ so
@@ -85,7 +94,8 @@ typedef struct {
 // instead.
 typedef struct {
   long long totalResults;           // Sum of each shard's WITHCOUNT total_results
-  size_t numResponded;              // How many shards delivered their first reply (C_AGG)
+  size_t numResponded;              // How many shards delivered their first response
+  bool dispatched;                  // True once executeAggregateDeferred has been posted
   AggregateKnnContext *knnCtx;      // May be NULL if no KNN optimization needed
   // Deferred-execution fields (always non-NULL on the WITHCOUNT path; iterator
   // is only created via dispatchAggregateDeferred when HasWithCount(areq)):
@@ -127,17 +137,46 @@ static void aggregateKnnCommandModifier(MRCommand *cmd, size_t numShards, void *
 
 static void executeAggregateDeferred(void *arg);  // forward declaration
 
+// Post executeAggregateDeferred to the coordinator pool if a dispatch trigger
+// has fired (all shards responded, or AREQ_TimedOut set by a main-thread
+// timeout callback). Idempotent: the dispatched flag is checked and set on
+// the same IO thread, so no atomics are needed. Once posted, ownership of
+// areq / bc / spec_ref / knnSpecialCtx transfers to the worker, and IO
+// callbacks must fast-path through their dispatched check without reading
+// any of those fields.
+static void maybeDispatchDeferred(AggregateIteratorContext *iterCtx, MRIterator *it) {
+  if (iterCtx->dispatched) return;
+  if (iterCtx->numResponded < MRIterator_GetNumShards(it) &&
+      !AREQ_TimedOut(iterCtx->areq)) {
+    return;
+  }
+  iterCtx->dispatched = true;
+  RS_ASSERT(iterCtx->bc);
+  ConcurrentSearch_ThreadPoolRun(executeAggregateDeferred, iterCtx, DIST_THREADPOOL);
+}
+
 // First-reply collection callback (WITHCOUNT only): runs once per shard's first
 // reply, sums its total_results, swaps this shard's callback to netCursorCallback
 // so any later reply takes the steady-state path, and posts the deferred
-// execution to the coordinator pool when the last first-reply arrives. Error
-// replies count toward numResponded but do not contribute to totalResults.
+// execution to the coordinator pool when the last first-reply arrives — or
+// earlier, if the AREQ has timed out. Error replies count toward numResponded
+// but do not contribute to totalResults. After dispatch this callback may still
+// fire for other shards' first replies; it fast-paths to netCursorCallback in
+// that case without touching the deferred-execution fields (the worker may
+// have already freed them via AREQ_DecrRef).
 static void collectCountCb(MRIteratorCallbackCtx *ctx, MRReply *rep) {
   AggregateIteratorContext *iterCtx =
       (AggregateIteratorContext *)MRIteratorCallback_GetPrivateData(ctx);
   MRIterator *it = MRIteratorCallback_GetIterator(ctx);
-  MRCommand *cmd = MRIteratorCallback_GetCommand(ctx);
 
+  if (iterCtx->dispatched) {
+    // Worker owns areq / bc; behave as steady-state for the remaining shards.
+    MRIteratorCallback_SetCallback(ctx, netCursorCallback);
+    netCursorCallback(ctx, rep);
+    return;
+  }
+
+  MRCommand *cmd = MRIteratorCallback_GetCommand(ctx);
   if (MRReply_Type(rep) != MR_REPLY_ERROR) {
     long long shardTotal;
     if (extractTotalResults(rep, cmd, &shardTotal)) {
@@ -149,9 +188,22 @@ static void collectCountCb(MRIteratorCallbackCtx *ctx, MRReply *rep) {
   MRIteratorCallback_SetCallback(ctx, netCursorCallback);
   netCursorCallback(ctx, rep);
 
-  if (++iterCtx->numResponded < MRIterator_GetNumShards(it)) return;
-  RS_ASSERT(iterCtx->bc);
-  ConcurrentSearch_ThreadPoolRun(executeAggregateDeferred, iterCtx, DIST_THREADPOOL);
+  iterCtx->numResponded++;
+  maybeDispatchDeferred(iterCtx, it);
+}
+
+// No-reply termination callback (WITHCOUNT only): runs when a shard command
+// terminates without delivering a reply (hard connection failure, synchronous
+// send failure). Notify-only — the MR layer calls MRIteratorCallback_Done
+// immediately after this returns. Counts the shard as responded so a shard
+// that never reaches collectCountCb does not stall the deferred dispatch.
+static void collectCountErrorCb(MRIteratorCallbackCtx *ctx) {
+  AggregateIteratorContext *iterCtx =
+      (AggregateIteratorContext *)MRIteratorCallback_GetPrivateData(ctx);
+  if (iterCtx->dispatched) return;
+  MRIterator *it = MRIteratorCallback_GetIterator(ctx);
+  iterCtx->numResponded++;
+  maybeDispatchDeferred(iterCtx, it);
 }
 
 // Read the accumulated WITHCOUNT total (sum of each shard's total_results) from
@@ -211,12 +263,18 @@ static int rpnetCreateIterator(RPNet *nc) {
   // Use collectCountCb only on the WITHCOUNT path: it holds back cursor reads
   // until all shards deliver their first reply (so the total is finalized) and
   // then transitions to netCursorCallback. For all other paths use netCursorCallback
-  // directly to avoid the unnecessary hold-back latency.
+  // directly to avoid the unnecessary hold-back latency. Pair collectCountCb
+  // with collectCountErrorCb so no-reply terminations (hard connection failures,
+  // synchronous send failures) still count toward the dispatch threshold; the
+  // non-WITHCOUNT path does not wait on a per-shard counter and so does not
+  // need an errorCB.
   MRIteratorCallback cb = nc->withCount ? collectCountCb : netCursorCallback;
+  MRIteratorErrorCallback errCb = nc->withCount ? collectCountErrorCb : NULL;
 
   // The iterator takes ownership of iterCtx and frees it via aggregateIteratorContext_Free.
   MRIterator *it = MR_CreateIterator(&nc->cmd, &(MRIteratorConfig){
     .successCB = cb,
+    .errorCB = errCb,
     .cbPrivateData = iterCtx,
     .cbPrivateDataDestructor = aggregateIteratorContext_Free,
     .commandModifier = cmdModifier,
