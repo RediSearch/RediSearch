@@ -106,3 +106,17 @@ for i in "${!mac_os_deps[@]}"; do
   check_function="${mac_os_deps_types[$i]}"
   $check_function "$dep"
 done
+
+# ============================================
+# Missing Dependencies Handling
+# ============================================
+
+if $missing_deps; then
+  echo -e "\n${YELLOW}WARNING: Some dependencies are missing or do not meet the required version. \nBuild may fail without these dependencies.${NC}"
+  exit_code=1
+else
+  echo -e "\n${GREEN}All required dependencies are met.${NC}"
+  exit_code=0
+fi
+
+return "$exit_code" 2>/dev/null || exit "$exit_code"
