@@ -605,14 +605,15 @@ def main():
         print(f"    $.title    AS title    TEXT \\")
         print(f"    $.headings AS headings TEXT \\")
         print(f"    $.body     AS body     TEXT")
-        print(f"  # tags is a comma-separated scalar string in the JSON doc; not indexed (no multivalue).")
     else:
         print(f"  FT.CREATE {args.index_name} ON HASH PREFIX 1 {args.key_prefix} SCHEMA \\")
         print(f"    url TEXT \\")
         print(f"    title TEXT \\")
         print(f"    headings TEXT \\")
-        print(f"    body TEXT \\")
-        print(f'    tags TAG SEPARATOR ","')
+        print(f"    body TEXT")
+    # tags is carried in the document as a comma-separated scalar string but is
+    # not indexed: the schema is TEXT-only and identical for HASH and JSON.
+    print(f"  # tags: comma-separated scalar string in the doc; not indexed (TEXT-only schema).")
 
     print(f"\nNext steps:")
     print(f"  1. Review generated files")
