@@ -670,6 +670,11 @@ static int parseQueryArgs(ArgsCursor *ac, AREQ *req, RSSearchOptions *searchOpts
       }
       optimization_specified = true;
     } else if (AC_AdvanceIfMatch(ac, "WITHOUTCOUNT")) {
+      // WITHOUTCOUNT enables the query optimizer (QEXEC_OPTIMIZE), which is unsupported
+      // on disk indexes (it relies on RAM-only structures). Reject rather than silently degrade.
+      if (!SearchDisk_MarkUnsupportedArgumentIfDiskEnabled("WITHOUTCOUNT", status)) {
+        return REDISMODULE_ERR;
+      }
       AREQ_AddRequestFlags(req, QEXEC_OPTIMIZE);
       if (IsAggregate(req)) {
         AREQ_RemoveRequestFlags(req, QEXEC_F_HAS_WITHCOUNT);
@@ -714,6 +719,15 @@ static int parseQueryArgs(ArgsCursor *ac, AREQ *req, RSSearchOptions *searchOpts
     }
   }
 
+  // DIALECT 4 enables the query optimizer (QEXEC_OPTIMIZE) by default. The optimizer
+  // relies on RAM-only structures (DocTable / NumericRangeTree) that disk specs don't
+  // populate, so it is unsupported on disk. Reject rather than silently degrade.
+  if (isDiskIndex && req->reqConfig.dialectVersion >= 4) {
+    if (!SearchDisk_MarkUnsupportedArgumentIfDiskEnabled("DIALECT 4", status)) {
+      return REDISMODULE_ERR;
+    }
+  }
+
   // In dialect 2, we require a non empty numeric filter
   if (req->reqConfig.dialectVersion >= 2 && hasEmptyFilterValue){
       QueryError_SetError(status, QUERY_ERROR_CODE_PARSE_ARGS, "Numeric/Geo filter value/s cannot be empty");
@@ -722,16 +736,8 @@ static int parseQueryArgs(ArgsCursor *ac, AREQ *req, RSSearchOptions *searchOpts
 
   if (!optimization_specified && req->reqConfig.dialectVersion >= 4) {
     // If optimize was not enabled/disabled explicitly, enable it by default starting with dialect 4
+    // (disk indexes reject dialect 4 above, so this is only reached for RAM specs).
     AREQ_AddRequestFlags(req, QEXEC_OPTIMIZE);
-  }
-
-  // QEXEC_OPTIMIZE can be set either by the dialect-4 default above or by an
-  // explicit WITHOUTCOUNT token earlier in this function. Either way, the
-  // QOptimizer pipeline reads from the RAM DocTable / NumericRangeTree, which
-  // aren't populated on disk specs. Force-disable so QOptimizer_Iterators is
-  // never entered for disk specs (it asserts the same).
-  if (isDiskIndex) {
-    AREQ_RemoveRequestFlags(req, QEXEC_OPTIMIZE);
   }
 
   QEFlags reqFlags = AREQ_RequestFlags(req);
