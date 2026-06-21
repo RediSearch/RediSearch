@@ -541,19 +541,13 @@ void SearchDisk_OutputInfoMetrics(RedisModuleInfoCtx* ctx) {
 
 PerFieldTextDiskMetrics SearchDisk_GetTextFieldMetrics(RedisSearchDiskIndexSpec* index,
                                                        t_fieldId ftId) {
-  // The per-field callback may be absent on older disk builds; degrade to
-  // "not available" instead of dereferencing a null function pointer.
-  if (!disk || !index || !disk->metrics.getTextFieldMetrics) {
-    return (PerFieldTextDiskMetrics){0};
-  }
+  RS_ASSERT(disk && index);
   return disk->metrics.getTextFieldMetrics(index, ftId);
 }
 
 PerFieldCfDiskMetrics SearchDisk_GetCfFieldMetrics(RedisSearchDiskIndexSpec* index,
                                                    t_fieldIndex fieldIndex) {
-  if (!disk || !index || !disk->metrics.getCfFieldMetrics) {
-    return (PerFieldCfDiskMetrics){0};
-  }
+  RS_ASSERT(disk && index);
   return disk->metrics.getCfFieldMetrics(index, fieldIndex);
 }
 

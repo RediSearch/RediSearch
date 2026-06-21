@@ -760,13 +760,14 @@ void SearchDisk_OutputInfoMetrics(RedisModuleInfoCtx* ctx);
  * usage is attributed from each posting's field mask. The field is identified
  * by its bit position in the mask (`FieldSpec.ftId`).
  *
- * Safe to call when the disk API or the per-field callback is unavailable: in
- * that case (and for an unknown bit) it returns `{ .available = false }` rather
- * than asserting, so callers can degrade gracefully.
+ * Requires initialized SearchDisk and non-null index (RS_ASSERT); the disk API
+ * is always present for a disk-backed index. The returned struct's `available`
+ * flag is a data-level signal: false for an unknown bit or when no counters
+ * exist for the field.
  *
  * @param index Pointer to the disk index spec
  * @param ftId  Text field id — the field's bit position in the field mask
- * @return Per-field text byte metrics; `available` is false when not collected
+ * @return Per-field text byte metrics; `available` is false when no data exists
  */
 PerFieldTextDiskMetrics SearchDisk_GetTextFieldMetrics(RedisSearchDiskIndexSpec* index,
                                                        t_fieldId ftId);
@@ -777,13 +778,14 @@ PerFieldTextDiskMetrics SearchDisk_GetTextFieldMetrics(RedisSearchDiskIndexSpec*
  * These field types each own a dedicated column family named with the field's
  * unique `fieldIndex`; the metrics are read from that CF.
  *
- * Safe to call when the disk API or the per-field callback is unavailable: in
- * that case (and for an unknown index or unsupported field type) it returns
- * `{ .available = false }` rather than asserting.
+ * Requires initialized SearchDisk and non-null index (RS_ASSERT); the disk API
+ * is always present for a disk-backed index. The returned struct's `available`
+ * flag is a data-level signal: false for an unknown index, an unsupported field
+ * type, or when no CF data exists.
  *
  * @param index      Pointer to the disk index spec
  * @param fieldIndex Unique field index identifying the field's column family
- * @return Per-field column-family metrics; `available` is false when not collected
+ * @return Per-field column-family metrics; `available` is false when no data exists
  */
 PerFieldCfDiskMetrics SearchDisk_GetCfFieldMetrics(RedisSearchDiskIndexSpec* index,
                                                    t_fieldIndex fieldIndex);

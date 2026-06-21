@@ -245,17 +245,14 @@ FieldSpecStats IndexSpec_GetFieldStats(FieldSpec *fs){
   }
 }
 
-// Populate per-field disk metrics on `stats` for the field `fs` in index `sp`.
-// No-op unless the index is disk-backed. Text fields are keyed by their bit
-// position (`ftId`) in the shared fulltext column family; tag/numeric/vector
-// fields are keyed by their unique field index. The disk wrappers null-guard
-// the underlying callback, so an unavailable metric simply leaves `available`
-// false and nothing is emitted.
+// Populate per-field disk metrics on `stats` for the disk-backed field `fs`.
+// Callers gate on `sp->diskSpec` before invoking. Text fields are keyed by
+// their bit position (`ftId`) in the shared fulltext column family;
+// tag/numeric/vector fields are keyed by their unique field index. The disk
+// side reports `available = false` for field types or data it cannot serve, so
+// only populated metrics are later emitted.
 static void FieldSpecStats_PopulateDiskMetrics(FieldSpecStats *stats, const IndexSpec *sp,
                                                const FieldSpec *fs) {
-  if (!sp->diskSpec) {
-    return;
-  }
   if (FieldSpec_IsIndexableText(fs)) {
     stats->textDisk = SearchDisk_GetTextFieldMetrics(sp->diskSpec, fs->ftId);
   }
@@ -271,7 +268,10 @@ FieldSpecInfo FieldSpec_GetInfo(const IndexSpec *sp, FieldSpec *fs, bool obfusca
   FieldSpecInfo_SetAttribute(&info, FieldSpec_FormatName(fs, obfuscate));
   FieldSpecInfo_SetIndexError(&info, fs->indexError);
   FieldSpecStats stats = IndexSpec_GetFieldStats(fs);
-  FieldSpecStats_PopulateDiskMetrics(&stats, sp, fs);
+  // Per-field disk metrics only exist for disk-backed indexes.
+  if (sp->diskSpec) {
+    FieldSpecStats_PopulateDiskMetrics(&stats, sp, fs);
+  }
   FieldSpecInfo_SetStats(&info, stats);
   return info;
 }
