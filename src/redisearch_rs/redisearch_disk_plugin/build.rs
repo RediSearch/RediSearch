@@ -47,8 +47,17 @@ fn main() {
     // is left undefined and the plugin `dlopen` aborts (`RTLD_NOW`) with
     // `undefined symbol: __aarch64_ldadd4_acq_rel`. Pin the reference and append
     // `-lgcc` so the helper is pulled from `libgcc.a` into this `.so`.
-    println!("cargo::rustc-link-arg=-Wl,--undefined=__aarch64_ldadd4_acq_rel");
-    println!("cargo::rustc-link-arg=-lgcc");
+    //
+    // These outline-atomics helpers exist ONLY on AArch64; on x86_64 (and other
+    // arches) the symbol does not exist, so pinning `--undefined=__aarch64_*` would
+    // leave an unsatisfiable reference and fail the link. Gate the pin on the build
+    // *target* arch via `CARGO_CFG_TARGET_ARCH` (set by cargo to the value of
+    // `cfg!(target_arch)`), so the same source builds on every arch.
+    let target_arch = std::env::var("CARGO_CFG_TARGET_ARCH").unwrap_or_default();
+    if target_arch == "aarch64" {
+        println!("cargo::rustc-link-arg=-Wl,--undefined=__aarch64_ldadd4_acq_rel");
+        println!("cargo::rustc-link-arg=-lgcc");
+    }
 
     link_speedb_into_plugin();
     link_vecsim_into_plugin();
