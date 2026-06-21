@@ -264,6 +264,52 @@ list(REMOVE_DUPLICATES LIBS_TO_MERGE)
 list(REMOVE_DUPLICATES VISITED_TARGETS)
 message(STATUS "Static libraries for libredisearch_all.a: ${LIBS_TO_MERGE}")
 
+# Export the resolved VecSim / transitive archive set for the conditional disk
+# plugin's cdylib link (see redisearch_disk_plugin/build.rs).
+#
+# The plugin rebuilds the module as a cdylib that does NOT statically link the C
+# core, so it must link the SAME VecSim copy + transitive deps that
+# libredisearch_all.a uses, otherwise its VectorSimilarity objects leave spdlog /
+# fmt / SVS symbols undefined. The exact set is layout- and arch-dependent:
+#   - aarch64: VectorSimilarity, Spaces (+ no_optimization), cpu_features, and
+#     spdlog/fmt under _deps/{spdlog,fmt}-build/.
+#   - x86_64 (SVS): VectorSimilarity, Spaces (+ no_optimization), cpu_features,
+#     plus the precompiled SVS archives (fmt, spdlog, svs_static_library,
+#     svs_x86_objects) under _deps/svs-src/lib/ — a different layout entirely.
+# Rather than have build.rs guess these paths, resolve them here (CMake already
+# knows them) and hand the absolute paths to build.rs via a generated file.
+#
+# `file(GENERATE)` resolves the `$<TARGET_FILE:...>` generator expressions to the
+# real archive paths at build time. The SVS paths (when present) are already
+# absolute from the GLOB above.
+set(PLUGIN_VECSIM_ARCHIVES
+    "$<TARGET_FILE:VectorSimilarity>"
+    "$<TARGET_FILE:VectorSimilaritySpaces>"
+    "$<TARGET_FILE:VectorSimilaritySpaces_no_optimization>"
+    "$<TARGET_FILE:cpu_features>"
+)
+# spdlog/fmt live under _deps/{spdlog,fmt}-build/ when SVS is absent (aarch64); on
+# x86_64 they (and the SVS archives) come from _deps/svs-src/lib/ instead. Append
+# whichever set exists, plus the SVS-only archives when present. spdlog/fmt are
+# FetchContent-built (possibly in a non-local scope), so resolve them by GLOB on
+# their build dirs rather than `$<TARGET_FILE:...>` (which may not be visible
+# here). The `d` suffix appears in Debug builds (libspdlogd.a / libfmtd.a).
+if(EXISTS "${_svs_lib_dir}")
+    # x86_64 / SVS: fmt, spdlog, svs_static_library, svs_x86_objects (MKL already
+    # filtered out of _svs_static_libs above).
+    list(APPEND PLUGIN_VECSIM_ARCHIVES ${_svs_static_libs})
+else()
+    # aarch64 / no SVS: the FetchContent-built spdlog and fmt static archives.
+    file(GLOB _plugin_spdlog_a "${CMAKE_BINARY_DIR}/_deps/spdlog-build/libspdlog*.a")
+    file(GLOB _plugin_fmt_a "${CMAKE_BINARY_DIR}/_deps/fmt-build/libfmt*.a")
+    list(APPEND PLUGIN_VECSIM_ARCHIVES ${_plugin_spdlog_a} ${_plugin_fmt_a})
+endif()
+set(PLUGIN_VECSIM_ARCHIVES_FILE "${CMAKE_BINARY_DIR}/plugin_vecsim_archives.txt")
+string(REPLACE ";" "\n" _plugin_vecsim_archives_lines "${PLUGIN_VECSIM_ARCHIVES}")
+file(GENERATE OUTPUT "${PLUGIN_VECSIM_ARCHIVES_FILE}"
+     CONTENT "${_plugin_vecsim_archives_lines}\n")
+message(STATUS "Plugin VecSim archive list -> ${PLUGIN_VECSIM_ARCHIVES_FILE}")
+
 # Combine targets and library paths for DEPENDS
 set(MERGE_DEPENDS ${VISITED_TARGETS} ${LIBS_TO_MERGE})
 list(REMOVE_DUPLICATES MERGE_DEPENDS)
