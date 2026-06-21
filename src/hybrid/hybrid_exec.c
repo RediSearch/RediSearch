@@ -829,12 +829,10 @@ static int buildPipelineAndExecute(StrongRef hybrid_ref, HybridPipelineParams *h
     RS_LOG_ASSERT(isCursor, "Internal hybrid command must be a cursor request from a coordinator");
     isCursor = true;
     if (HybridRequest_BuildDepletionPipeline(hreq, hybridParams, depleteInBackground) != REDISMODULE_OK) {
-      RedisSearchCtx_UnlockSpec(sctx);
-      return REDISMODULE_ERR;
+      goto error;
     }
   } else if (HybridRequest_BuildPipeline(hreq, hybridParams, depleteInBackground, status) != REDISMODULE_OK) {
-    RedisSearchCtx_UnlockSpec(sctx);
-    return REDISMODULE_ERR;
+    goto error;
   }
 
   // Record pipeline build time if profiling is enabled
@@ -845,8 +843,7 @@ static int buildPipelineAndExecute(StrongRef hybrid_ref, HybridPipelineParams *h
   // Apply debug timeouts after pipeline is built (for _FT.DEBUG FT.HYBRID)
   if (hreq->debugParams && applyHybridDebugTimeout(hreq, hreq->debugParams) != REDISMODULE_OK) {
       QueryError_SetError(status, QUERY_ERROR_CODE_INVAL, "Failed to apply debug timeouts");
-      RedisSearchCtx_UnlockSpec(sctx);
-      return REDISMODULE_ERR;
+      goto error;
   }
 
   // Foreground (WORKERS == 0) depletion runs synchronously on this thread via
@@ -867,10 +864,7 @@ static int buildPipelineAndExecute(StrongRef hybrid_ref, HybridPipelineParams *h
   if (!isCursor) {
     HybridRequest_Execute(hreq, ctx, sctx);
   } else if (HybridRequest_StartCursors(hybrid_ref, ctx, status, depleteInBackground) != REDISMODULE_OK) {
-    // Idempotent: the foreground path already unlocked above; the background
-    // depleter may have released the lock during its handoff before failing.
-    RedisSearchCtx_UnlockSpec(sctx);
-    return REDISMODULE_ERR;
+    goto error;
   }
 
   // Idempotent: releases the lock still held by the background path after a
@@ -879,6 +873,15 @@ static int buildPipelineAndExecute(StrongRef hybrid_ref, HybridPipelineParams *h
   RedisSearchCtx_UnlockSpec(sctx);
   freeHybridParams(hybridParams);
   return REDISMODULE_OK;
+
+error:
+  // Single cleanup path for every build/execute failure above, so a future
+  // early return cannot accidentally leak the read lock. UnlockSpec is
+  // idempotent: the foreground path may have already released the lock before
+  // the failure, and the background depleter may have released it during its
+  // handoff (see RPSafeDepleter_WaitForDepletionToStart).
+  RedisSearchCtx_UnlockSpec(sctx);
+  return REDISMODULE_ERR;
 }
 
 // Timeout callback for HybridRequest execution in Run in Threads mode.
