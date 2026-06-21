@@ -1102,14 +1102,6 @@ AREQ *AREQ_New(void) {
   return req;
 }
 
-bool AREQ_TimedOut(AREQ *req) {
-  return atomic_load_explicit(&req->syncCtx.timedOut, memory_order_acquire);
-}
-
-void AREQ_SetTimedOut(AREQ *req) {
-  atomic_store_explicit(&req->syncCtx.timedOut, true, memory_order_release);
-}
-
 bool AREQ_RequiresThreadsSyncResults(const AREQ *req) {
   return req->syncCtx.requiresAggregateResultsSync;
 }
@@ -1139,6 +1131,11 @@ void AREQ_ResetAggregateResultsClaim(AREQ *req) {
   pthread_mutex_lock(&req->syncCtx.aggregateResultsLock);
   req->syncCtx.aggregateResultsDone = false;
   pthread_mutex_unlock(&req->syncCtx.aggregateResultsLock);
+  RequestSyncCtx_ClearTimedOut(&req->syncCtx);
+  ResultProcessor *root = AREQ_QueryProcessingCtx(req)->rootProc;
+  if (root && root->type == RP_NETWORK) {
+    ((RPNet *)root)->drainOnly = false;
+  }
 }
 
 void RequestSyncCtx_RegisterAbortWakeChannel(RequestSyncCtx *ctx, struct MRChannel *chan) {

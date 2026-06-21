@@ -406,8 +406,11 @@ void HREQ_StoreResults(HybridRequest *hreq, SearchResult **results, int rc, cach
 }
 
 // Helper for error handling in coordinator HREQ execution.
-// For FAIL policy (useReplyCallback=true): stores error for reply_callback to handle.
-// For RETURN policy: replies with error directly.
+// FAIL / RETURN_STRICT (useReplyCallback=true): store the error for the
+//   reply_callback to handle.
+// RETURN (useReplyCallback=false): reply directly - an empty result set with a
+//   timeout warning when the error is a non-fail-policy timeout (no result set
+//   was produced here), otherwise the error itself.
 void HREQ_ReplyOrStoreError(HybridRequest *hreq, RedisModuleCtx *ctx, QueryError *status) {
   if (hreq->useReplyCallback) {
     // Deep copy since QueryError contains heap-allocated strings.
@@ -415,6 +418,13 @@ void HREQ_ReplyOrStoreError(HybridRequest *hreq, RedisModuleCtx *ctx, QueryError
     QueryError_ClearError(&hreq->storedReplyState.err);
     QueryError_CloneFrom(status, &hreq->storedReplyState.err);
     // Clear the original to avoid leaking heap-allocated strings.
+    QueryError_ClearError(status);
+  } else if (!ShouldReplyWithError(QueryError_GetCode(status),
+                                   hreq->reqConfig.timeoutPolicy, IsProfile(hreq))) {
+    // Error is a timeout under a non-fail policy, which must not surface as an
+    // error: reply an empty result set with the timeout warning instead.
+    common_hybrid_query_reply_empty(ctx, QueryError_GetCode(status),
+                                    IsInternal(hreq), IsProfile(hreq));
     QueryError_ClearError(status);
   } else {
     QueryErrorsGlobalStats_UpdateError(QueryError_GetCode(status), 1, !IsInternal(hreq));

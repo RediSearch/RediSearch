@@ -292,6 +292,16 @@ static inline void RequestSyncCtx_Init(RequestSyncCtx *ctx) {
   pthread_mutex_init(&ctx->abortWakeLock, NULL);
 }
 
+static inline bool RequestSyncCtx_GetTimedOut(RequestSyncCtx *ctx) {
+  return RS_AtomicBoolLoadRelaxed(&ctx->timedOut);
+}
+static inline void RequestSyncCtx_SetTimedOut(RequestSyncCtx *ctx) {
+  RS_AtomicBoolStoreRelaxed(&ctx->timedOut, true);
+}
+static inline void RequestSyncCtx_ClearTimedOut(RequestSyncCtx *ctx) {
+  RS_AtomicBoolStoreRelaxed(&ctx->timedOut, false);
+}
+
 // Release resources owned by a RequestSyncCtx. Must be called exactly once
 // per successful Init, from the request's free path.
 static inline void RequestSyncCtx_Destroy(RequestSyncCtx *ctx) {
@@ -631,8 +641,12 @@ void SetSearchCtx(RedisSearchCtx *sctx, const AREQ *req);
 // Allows calling parseProfileArgs from reply_empty.c
 int parseProfileArgs(RedisModuleString **argv, int argc, AREQ *r);
 
-bool AREQ_TimedOut(AREQ *req);
-void AREQ_SetTimedOut(AREQ *req);
+static inline bool AREQ_TimedOut(AREQ *req) {
+  return RequestSyncCtx_GetTimedOut(&req->syncCtx);
+}
+static inline void AREQ_SetTimedOut(AREQ *req) {
+  RequestSyncCtx_SetTimedOut(&req->syncCtx);
+}
 #ifdef ENABLE_ASSERT
 // SyncPointStopFn predicate adapter for AREQ_TimedOut. Pass the AREQ as `arg`
 // to SyncPoint_WaitUntil to release the wait when the request is timed out.
