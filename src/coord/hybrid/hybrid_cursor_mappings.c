@@ -22,11 +22,6 @@ typedef struct {
     StrongRef searchMappings;
     StrongRef vsimMappings;
     arrayof(QueryError) errors;
-    size_t responseCount;
-    pthread_mutex_t *mutex;           // Mutex for array access and completion tracking
-    pthread_cond_t *completionCond;   // Condition variable for completion signaling
-    int numShards;                    // Total number of expected shards
-    bool initialized;                 // Whether numShards has been set by the IO thread
 } processCursorMappingCallbackContext;
 
 void CursorMapping_Release(CursorMapping *mapping) {
@@ -167,9 +162,6 @@ static void processCursorMappingCallback(MRIteratorCallbackCtx *ctx, MRReply *re
     MRCommand *cmd = MRIteratorCallback_GetCommand(ctx);
 
     const int replyType = MRReply_Type(rep);
-    pthread_mutex_lock(cb_ctx->mutex);
-    // add under a lock, allows the coordinator to know when all responses have arrived
-    cb_ctx->responseCount++;
     if (replyType == MR_REPLY_ERROR) {
         processHybridError(cb_ctx, rep);
     } else if (replyType == MR_REPLY_MAP) {
@@ -182,109 +174,75 @@ static void processCursorMappingCallback(MRIteratorCallbackCtx *ctx, MRReply *re
         processHybridUnknownReplyType(cb_ctx, replyType);
     }
 
-    // we must notify the coordinator a response has arrived, even if it's an error
-    pthread_cond_signal(cb_ctx->completionCond);
-    pthread_mutex_unlock(cb_ctx->mutex);
-
     MRIteratorCallback_Done(ctx, 0);
     MRReply_Free(rep);
 }
 
-// No-reply error callback: bumps responseCount and records a communication
-// error so the wait loop below (which keys completion off responseCount, not
-// iterator depletion) unblocks instead of hanging.
+// No-reply error callback: records a communication error. Completion is driven by
+// the iterator's channel (every callback decrements inProcess), so the wait below
+// unblocks once all callbacks have run regardless of this error.
 static void processCursorMappingErrorCallback(MRIteratorCallbackCtx *ctx) {
     processCursorMappingCallbackContext *cb_ctx = (processCursorMappingCallbackContext *)MRIteratorCallback_GetPrivateData(ctx);
     RS_ASSERT(cb_ctx);
 
-    pthread_mutex_lock(cb_ctx->mutex);
-    cb_ctx->responseCount++;
     QueryError error = QueryError_Default();
     QueryError_SetCode(&error, QUERY_ERROR_CODE_GENERIC);
     // Shared with the MR iterator no-reply path (pre-fanout connection-validation failure).
     QueryError_SetDetail(&error, CLUSTER_QUERY_ERROR);
     cb_ctx->errors = array_ensure_append_1(cb_ctx->errors, error);
-    pthread_cond_signal(cb_ctx->completionCond);
-    pthread_mutex_unlock(cb_ctx->mutex);
 }
 
-// Init callback for the private data, so that numShards is set to the actual number of shards in the cluster, and the expected responses.
-static void processCursorMappingInit(void *privateData, MRIterator *it) {
+// Iterator destructor: frees the callback context once the iterator is released.
+static void freeCursorMappingCtx(void *privateData) {
     processCursorMappingCallbackContext *ctx = (processCursorMappingCallbackContext *)privateData;
-    int actualNumShards = (int)MRIterator_GetNumShards(it);
-    pthread_mutex_lock(ctx->mutex);
-    ctx->numShards = actualNumShards;
-    ctx->initialized = true;
-    ctx->errors = array_new(QueryError, actualNumShards);
-    // Signal so the coordinator can re-check the wait condition.
-    pthread_cond_signal(ctx->completionCond);
-    pthread_mutex_unlock(ctx->mutex);
-}
-
-static inline void cleanupCtx(processCursorMappingCallbackContext *ctx) {
-    pthread_mutex_destroy(ctx->mutex);
-    pthread_cond_destroy(ctx->completionCond);
-    rm_free(ctx->mutex);
-    rm_free(ctx->completionCond);
     StrongRef_Release(ctx->searchMappings);
     StrongRef_Release(ctx->vsimMappings);
     array_free_ex(ctx->errors, QueryError_ClearError((QueryError*)ptr));
     rm_free(ctx);
 }
 
-bool ProcessHybridCursorMappings(const MRCommand *cmd, StrongRef searchMappingsRef, StrongRef vsimMappingsRef, QueryError *status, const RSOomPolicy oomPolicy) {
+bool ProcessHybridCursorMappings(const MRCommand *cmd, StrongRef searchMappingsRef, StrongRef vsimMappingsRef, QueryError *status, const RSOomPolicy oomPolicy, const struct timespec *deadline) {
     CursorMappings *searchMappings = StrongRef_Get(searchMappingsRef);
     CursorMappings *vsimMappings = StrongRef_Get(vsimMappingsRef);
     RS_ASSERT(array_len(searchMappings->mappings) == 0 && array_len(vsimMappings->mappings) == 0);
 
-    // Allocate callback context on heap (since MR_IterateWithPrivateData is asynchronous)
+    // Heap-allocated because the iterator runs asynchronously; freed by
+    // freeCursorMappingCtx (the iterator's destructor).
     processCursorMappingCallbackContext *ctx = rm_malloc(sizeof(processCursorMappingCallbackContext));
-
-    // Initialize synchronization primitives on heap
-    ctx->mutex = rm_malloc(sizeof(pthread_mutex_t));
-    ctx->completionCond = rm_malloc(sizeof(pthread_cond_t));
-    pthread_mutex_init(ctx->mutex, NULL);
-    pthread_cond_init(ctx->completionCond, NULL);
-
-    // Setup callback context
     *ctx = (processCursorMappingCallbackContext) {
         .searchMappings = StrongRef_Clone(searchMappingsRef),
         .vsimMappings = StrongRef_Clone(vsimMappingsRef),
-        .errors = NULL,
-        .responseCount = 0,
-        .mutex = ctx->mutex,
-        .completionCond = ctx->completionCond,
-        .numShards = 0,
-        .initialized = false
+        .errors = array_new(QueryError, 0),
       };
 
-    // Start iteration (ctx is cleaned up manually in cleanupCtx, no destructor needed)
-    // processCursorMappingInit is called from iterStartCb to update ctx->numShards
-    // with the actual shard count from the live topology, preventing use-after-free
-    // when topology changes during shard migration.
     MRIterator *it = MR_IterateWithPrivateData(cmd, &(MRIteratorConfig){
         .successCB = processCursorMappingCallback,
         .errorCB = processCursorMappingErrorCallback,
         .cbPrivateData = ctx,
-        .cbPrivateDataInit = processCursorMappingInit,
+        .cbPrivateDataDestructor = freeCursorMappingCtx,
         .iterStartCb = iterStartCb,
     });
     if (!it) {
         // Cleanup on error
         QueryError_SetWithoutUserDataFmt(status, QUERY_ERROR_CODE_GENERIC, "Failed to communicate with shards");
-        cleanupCtx(ctx);
+        freeCursorMappingCtx(ctx);
         return false;
     }
-    // Wait for all callbacks to complete
-    pthread_mutex_lock(ctx->mutex);
-    // Wait until either:
-    // 1. Normal completion: IO thread initialized numShards and all responses arrived
-    // 2. Early failure: We got a response before initialization (e.g., connection validation failed)
-    //    In this case, responseCount > 0 but initialized is false - we should unblock.
-    while (ctx->responseCount == 0 || (ctx->initialized && ctx->responseCount < ctx->numShards)) {
-        pthread_cond_wait(ctx->completionCond, ctx->mutex);
+
+    // Wait on the iterator's channel, bounded by the request deadline.
+    bool timedOut = false;
+    MRReply *r = MRIterator_NextWithTimeout(it, deadline, &timedOut);
+    RS_ASSERT(r == NULL);  // the callbacks never AddReply; a non-NULL reply is a bug
+
+    if (timedOut) {
+        QueryError_SetCode(status, QUERY_ERROR_CODE_TIMED_OUT);
+        MRIterator_Release(it);
+        return false;
     }
-    pthread_mutex_unlock(ctx->mutex);
+
+    // Normal completion: inProcess hit 0, so every callback has run.
+    RS_ASSERT(array_len(searchMappings->mappings) == array_len(vsimMappings->mappings));
+
     bool success = true;
     if (array_len(ctx->errors)) {
         for (size_t i = 0; i < array_len(ctx->errors); i++) {
@@ -298,9 +256,7 @@ bool ProcessHybridCursorMappings(const MRCommand *cmd, StrongRef searchMappingsR
             }
         }
     }
-    // Cleanup
     MRIterator_Release(it);
-    cleanupCtx(ctx);
 
     return success;
 }

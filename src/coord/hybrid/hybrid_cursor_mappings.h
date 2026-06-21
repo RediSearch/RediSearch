@@ -9,6 +9,8 @@
 
 #pragma once
 
+#include <time.h>
+
 #include "rmr/rmr.h"
 #include "util/references.h"
 #include "../../config.h"
@@ -46,9 +48,11 @@ typedef struct QueryError QueryError;
  * @param vsimMappings Empty array to populate with vector similarity cursor mappings
  * @param status QueryError pointer to store warning/error information
  * @param oomPolicy OOM policy to determine error handling behavior
+ * @param deadline Absolute (monotonic) time after which the cursor-setup wait gives up and
+ *                 reports a timeout, or NULL to wait without a deadline (e.g. timeout disabled)
  * @return true if processing completed (even with warnings), false on fatal errors; status will contain error/warning information
  */
-bool ProcessHybridCursorMappings(const MRCommand *cmd, StrongRef searchMappings, StrongRef vsimMappings, QueryError *status, RSOomPolicy oomPolicy);
+bool ProcessHybridCursorMappings(const MRCommand *cmd, StrongRef searchMappings, StrongRef vsimMappings, QueryError *status, RSOomPolicy oomPolicy, const struct timespec *deadline);
 
 /**
  * Release resources associated with a cursor mapping

@@ -111,6 +111,40 @@ def getConnectionByEnv(env):
         conn = env.getConnection()
     return conn
 
+
+# --- Coordinator / cluster timeout test helpers ---
+
+def pid_cmd(conn):
+    """Get the process ID of a Redis connection."""
+    return conn.execute_command('info', 'server')['process_id']
+
+
+def non_coord_shard_conns(env):
+    """Return shard connections whose process id differs from the coordinator's."""
+    coord_pid = pid_cmd(env.con)
+    conns = []
+    for shardId in range(1, env.shardsCount + 1):
+        conn = env.getConnection(shardId)
+        if pid_cmd(conn) != coord_pid:
+            conns.append(conn)
+    return conns
+
+
+def split_shards_pick_one_paused(env):
+    """Pick one non-coordinator shard to designate as paused and split the rest.
+
+    Returns ``(all_shard_conns, paused_conn, paused_pid, responsive_conns)``.
+    Asserts that at least one non-coordinator shard exists.
+    """
+    all_shard_conns = [env.getConnection(i) for i in range(1, env.shardsCount + 1)]
+    non_coord_conns = non_coord_shard_conns(env)
+    env.assertGreater(len(non_coord_conns), 0,
+                      message="Test requires at least one non-coordinator shard")
+    paused_conn = non_coord_conns[0]
+    paused_pid = pid_cmd(paused_conn)
+    responsive_conns = [c for c in all_shard_conns if pid_cmd(c) != paused_pid]
+    return all_shard_conns, paused_conn, paused_pid, responsive_conns
+
 def waitForIndex(env, idx = 'idx'):
     waitForRdbSaveToFinish(env)
     while True:
