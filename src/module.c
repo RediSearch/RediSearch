@@ -3136,20 +3136,20 @@ static void sendSearchResults(RedisModule_Reply *reply, searchReducerCtx *rCtx) 
         MRReply *currentWarning = MRReply_ArrayElement(rCtx->warning, i);
         const char *warning_str = MRReply_String(currentWarning, NULL);
         QueryWarningCode warningCode = QueryWarningCode_GetCodeFromMessage(warning_str);
-        QueryWarningsGlobalStats_UpdateWarning(warningCode, 1, COORD_ERR_WARN);
+        QueryWarningsGlobalStats_UpdateWarning(warningCode, QUERY_TIMEOUT_STAGE_PIPELINE, 1, COORD_ERR_WARN);
 
         // Reply warning
         MR_ReplyWithMRReply(reply, currentWarning);
       }
       RedisModule_Reply_ArrayEnd(reply);
     } else if (req->queryOOM) {
-      QueryWarningsGlobalStats_UpdateWarning(QUERY_WARNING_CODE_OUT_OF_MEMORY_COORD, 1, COORD_ERR_WARN);
+      QueryWarningsGlobalStats_UpdateWarning(QUERY_WARNING_CODE_OUT_OF_MEMORY_COORD, QUERY_TIMEOUT_STAGE_PIPELINE, 1, COORD_ERR_WARN);
       // We use the cluster warning since shard level warning sent via empty reply bailout
       RedisModule_Reply_Array(reply);
         RedisModule_Reply_SimpleString(reply, QUERY_WOOM_COORD);
       RedisModule_Reply_ArrayEnd(reply);
     } else if (req->timedOut) {
-      QueryWarningsGlobalStats_UpdateWarning(QUERY_WARNING_CODE_TIMED_OUT, 1, COORD_ERR_WARN);
+      QueryWarningsGlobalStats_UpdateWarning(QUERY_WARNING_CODE_TIMED_OUT, QUERY_TIMEOUT_STAGE_PIPELINE, 1, COORD_ERR_WARN);
       RedisModule_Reply_Array(reply);
         RedisModule_Reply_SimpleString(reply, QueryWarning_Strwarning(QUERY_WARNING_CODE_TIMED_OUT));
       RedisModule_Reply_ArrayEnd(reply);
@@ -3246,7 +3246,7 @@ static void sendSearchResults(RedisModule_Reply *reply, searchReducerCtx *rCtx) 
   RedisModule_Reply_MapEnd(reply);
 
   if (req->queryOOM) {
-    QueryWarningsGlobalStats_UpdateWarning(QUERY_WARNING_CODE_OUT_OF_MEMORY_COORD, 1, COORD_ERR_WARN);
+    QueryWarningsGlobalStats_UpdateWarning(QUERY_WARNING_CODE_OUT_OF_MEMORY_COORD, QUERY_TIMEOUT_STAGE_PIPELINE, 1, COORD_ERR_WARN);
   }
   //-------------------------------------------------------------------------------------------
 
@@ -3724,7 +3724,7 @@ int DistAggregateCommandImp(RedisModuleCtx *ctx, RedisModuleString **argv, int a
   if (QueryMemoryGuard(ctx)) {
     // If we are in a single shard cluster, we should fail the query if we are out of memory
     if (RSGlobalConfig.requestConfigParams.oomPolicy == OomPolicy_Fail) {
-      QueryErrorsGlobalStats_UpdateError(QUERY_ERROR_CODE_OUT_OF_MEMORY, 1, COORD_ERR_WARN);
+      QueryErrorsGlobalStats_UpdateError(QUERY_ERROR_CODE_OUT_OF_MEMORY, QUERY_TIMEOUT_STAGE_PIPELINE, 1, COORD_ERR_WARN);
       return QueryMemoryGuardFailure_WithReply(ctx);
     }
     // Assuming OOM policy is return since we didn't ignore the memory guardrail
@@ -3778,7 +3778,7 @@ int DistAggregateCommandImp(RedisModuleCtx *ctx, RedisModuleString **argv, int a
   size_t queryTimeoutMS;
   QueryError status = QueryError_Default();
   if (initQueryTimeout(&queryTimeoutMS, argv, argc, &status) != REDISMODULE_OK) {
-    QueryErrorsGlobalStats_UpdateError(QueryError_GetCode(&status), 1, COORD_ERR_WARN);
+    QueryErrorsGlobalStats_UpdateError(QueryError_GetCode(&status), QUERY_TIMEOUT_STAGE_PIPELINE, 1, COORD_ERR_WARN);
     return QueryError_ReplyAndClear(ctx, &status);
   }
 
@@ -3830,7 +3830,7 @@ int DistHybridCommandInternal(RedisModuleCtx *ctx, RedisModuleString **argv, int
   if (QueryMemoryGuard(ctx)) {
     // If we are in a single shard cluster, we should fail the query if we are out of memory
     if (RSGlobalConfig.requestConfigParams.oomPolicy == OomPolicy_Fail) {
-      QueryErrorsGlobalStats_UpdateError(QUERY_ERROR_CODE_OUT_OF_MEMORY, 1, COORD_ERR_WARN);
+      QueryErrorsGlobalStats_UpdateError(QUERY_ERROR_CODE_OUT_OF_MEMORY, QUERY_TIMEOUT_STAGE_PIPELINE, 1, COORD_ERR_WARN);
       return QueryMemoryGuardFailure_WithReply(ctx);
     }
     // Assuming OOM policy is return since we didn't ignore the memory guardrail
@@ -3872,7 +3872,7 @@ int DistHybridCommandInternal(RedisModuleCtx *ctx, RedisModuleString **argv, int
   size_t queryTimeoutMS;
   QueryError status = QueryError_Default();
   if (initQueryTimeout(&queryTimeoutMS, argv, argc, &status) != REDISMODULE_OK) {
-    QueryErrorsGlobalStats_UpdateError(QueryError_GetCode(&status), 1, COORD_ERR_WARN);
+    QueryErrorsGlobalStats_UpdateError(QueryError_GetCode(&status), QUERY_TIMEOUT_STAGE_PIPELINE, 1, COORD_ERR_WARN);
     return QueryError_ReplyAndClear(ctx, &status);
   }
 
@@ -4305,7 +4305,7 @@ static int DistSearchReplyCallback(RedisModuleCtx *ctx, RedisModuleString **argv
     // Check if we have an error and return it
     if (QueryError_HasError(MRCtx_GetStatus(mrctx))) {
       // Track error in global statistics
-      QueryErrorsGlobalStats_UpdateError(QueryError_GetCode(MRCtx_GetStatus(mrctx)), 1, COORD_ERR_WARN);
+      QueryErrorsGlobalStats_UpdateError(QueryError_GetCode(MRCtx_GetStatus(mrctx)), QUERY_TIMEOUT_STAGE_PIPELINE, 1, COORD_ERR_WARN);
       QueryError_ReplyAndClear(ctx, MRCtx_GetStatus(mrctx));
       return REDISMODULE_OK;
     }
@@ -4426,7 +4426,7 @@ static int DistSearchTimeoutFailCallback(RedisModuleCtx *ctx, RedisModuleString 
     }
   }
 
-  QueryErrorsGlobalStats_UpdateError(QUERY_ERROR_CODE_TIMED_OUT, 1, COORD_ERR_WARN);
+  QueryErrorsGlobalStats_UpdateError(QUERY_ERROR_CODE_TIMED_OUT, QUERY_TIMEOUT_STAGE_PIPELINE, 1, COORD_ERR_WARN);
   RedisModule_ReplyWithError(ctx, QueryError_Strerror(QUERY_ERROR_CODE_TIMED_OUT));
 
   return REDISMODULE_OK;
@@ -4471,7 +4471,7 @@ static int DistSearchTimeoutPartialCallback(RedisModuleCtx *ctx, RedisModuleStri
   // Check if bailout set an error (e.g., index dropped before fanout)
   // In this case, reply with the error instead of partial results
   if (QueryError_HasError(MRCtx_GetStatus(mrctx))) {
-    QueryErrorsGlobalStats_UpdateError(QueryError_GetCode(MRCtx_GetStatus(mrctx)), 1, COORD_ERR_WARN);
+    QueryErrorsGlobalStats_UpdateError(QueryError_GetCode(MRCtx_GetStatus(mrctx)), QUERY_TIMEOUT_STAGE_PIPELINE, 1, COORD_ERR_WARN);
     QueryError_ReplyAndClear(ctx, MRCtx_GetStatus(mrctx));
     return REDISMODULE_OK;
   }
@@ -4533,7 +4533,7 @@ int DistSearchCommandImp(RedisModuleCtx *ctx, RedisModuleString **argv, int argc
   // Memory guardrail
   if (QueryMemoryGuard(ctx)) {
     if (RSGlobalConfig.requestConfigParams.oomPolicy == OomPolicy_Fail) {
-      QueryErrorsGlobalStats_UpdateError(QUERY_ERROR_CODE_OUT_OF_MEMORY, 1, COORD_ERR_WARN);
+      QueryErrorsGlobalStats_UpdateError(QUERY_ERROR_CODE_OUT_OF_MEMORY, QUERY_TIMEOUT_STAGE_PIPELINE, 1, COORD_ERR_WARN);
       return QueryMemoryGuardFailure_WithReply(ctx);
     }
     // Assuming policy is return, since we didn't ignore the memory guardrail
@@ -4586,7 +4586,7 @@ int DistSearchCommandImp(RedisModuleCtx *ctx, RedisModuleString **argv, int argc
   size_t queryTimeoutMS;
   QueryError status = QueryError_Default();
   if (initQueryTimeout(&queryTimeoutMS, argv, argc, &status) != REDISMODULE_OK) {
-    QueryErrorsGlobalStats_UpdateError(QueryError_GetCode(&status), 1, COORD_ERR_WARN);
+    QueryErrorsGlobalStats_UpdateError(QueryError_GetCode(&status), QUERY_TIMEOUT_STAGE_PIPELINE, 1, COORD_ERR_WARN);
     return QueryError_ReplyAndClear(ctx, &status);
   }
 
@@ -4597,7 +4597,7 @@ int DistSearchCommandImp(RedisModuleCtx *ctx, RedisModuleString **argv, int argc
   if (isDebug) {
     AREQ_Debug_params debug_params = parseAggregateDebugParamsCount(argv, argc, &status);
     if (QueryError_HasError(&status)) {
-      QueryErrorsGlobalStats_UpdateError(QueryError_GetCode(&status), 1, COORD_ERR_WARN);
+      QueryErrorsGlobalStats_UpdateError(QueryError_GetCode(&status), QUERY_TIMEOUT_STAGE_PIPELINE, 1, COORD_ERR_WARN);
       return QueryError_ReplyAndClear(ctx, &status);
     }
     // Calculate base_argc excluding debug params: argc - (debug_params_count + 2)
@@ -4610,7 +4610,7 @@ int DistSearchCommandImp(RedisModuleCtx *ctx, RedisModuleString **argv, int argc
   // queryString == NULL indicates parsing hasn't completed yet.
   searchRequestCtx *req = rscParseRequest(argv, parse_argc, &status);
   if (!req) {
-    QueryErrorsGlobalStats_UpdateError(QueryError_GetCode(&status), 1, COORD_ERR_WARN);
+    QueryErrorsGlobalStats_UpdateError(QueryError_GetCode(&status), QUERY_TIMEOUT_STAGE_PIPELINE, 1, COORD_ERR_WARN);
     return QueryError_ReplyAndClear(ctx, &status);
   }
 

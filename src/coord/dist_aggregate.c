@@ -736,7 +736,7 @@ int DistAggregateTimeoutFailCallback(RedisModuleCtx *ctx, RedisModuleString **ar
   CoordRequestCtx_UnlockSetRequest(CoordReqCtx);
 
   // Reply with timeout error
-  QueryErrorsGlobalStats_UpdateError(QUERY_ERROR_CODE_TIMED_OUT, 1, COORD_ERR_WARN);
+  QueryErrorsGlobalStats_UpdateError(QUERY_ERROR_CODE_TIMED_OUT, QUERY_TIMEOUT_STAGE_PIPELINE, 1, COORD_ERR_WARN);
   RedisModule_ReplyWithError(ctx, QueryError_Strerror(QUERY_ERROR_CODE_TIMED_OUT));
 
   return REDISMODULE_OK;
@@ -828,7 +828,7 @@ int DistAggregateReplyCallback(RedisModuleCtx *ctx, RedisModuleString **argv, in
   if (!req) {
     // We expect CoordReqCtx to hold the error if req is NULL
     if (QueryError_HasError(&CoordReqCtx->preRequestError)) {
-      QueryErrorsGlobalStats_UpdateError(QueryError_GetCode(&CoordReqCtx->preRequestError), 1, COORD_ERR_WARN);
+      QueryErrorsGlobalStats_UpdateError(QueryError_GetCode(&CoordReqCtx->preRequestError), QUERY_TIMEOUT_STAGE_QUEUE, 1, COORD_ERR_WARN);
       QueryError_ReplyAndClear(ctx, &CoordReqCtx->preRequestError);
       return REDISMODULE_OK;
     }
@@ -841,7 +841,7 @@ int DistAggregateReplyCallback(RedisModuleCtx *ctx, RedisModuleString **argv, in
   if (!req->storedReplyState.hasStoredResults) {
     // Background thread didn't store results - some early error occurred.
     if (QueryError_HasError(&req->storedReplyState.err)) {
-      QueryErrorsGlobalStats_UpdateError(QueryError_GetCode(&req->storedReplyState.err), 1, COORD_ERR_WARN);
+      QueryErrorsGlobalStats_UpdateError(QueryError_GetCode(&req->storedReplyState.err), QUERY_TIMEOUT_STAGE_PIPELINE, 1, COORD_ERR_WARN);
       QueryError_ReplyAndClear(ctx, &req->storedReplyState.err);
     } else {
       RedisModule_ReplyWithError(ctx, "Internal error: no results stored");
@@ -915,7 +915,7 @@ int DistCursorReadTimeoutReturnStrictCallback(RedisModuleCtx *ctx, RedisModuleSt
     // only such bail in cursorRead can't fire); kept for forward-compat.
     QueryError *err = &req->storedReplyState.err;
     RS_ASSERT(QueryError_HasError(err));
-    QueryErrorsGlobalStats_UpdateError(QueryError_GetCode(err), 1, COORD_ERR_WARN);
+    QueryErrorsGlobalStats_UpdateError(QueryError_GetCode(err), QUERY_TIMEOUT_STAGE_PIPELINE, 1, COORD_ERR_WARN);
     QueryError_ReplyAndClear(ctx, err);
   }
   return REDISMODULE_OK;

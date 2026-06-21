@@ -18,6 +18,32 @@
 #define INCR(x) INCR_BY(x, 1)
 #define READ(x) __atomic_load_n(&(x), __ATOMIC_RELAXED)
 
+// Atomically snapshot the three per-stage timeout sub-counters from `src` into `dst`.
+#define READ_TIMEOUT_STAGES(dst, src)      \
+  do {                                     \
+    (dst).queue = READ((src).queue);       \
+    (dst).pipeline = READ((src).pipeline); \
+    (dst).reply = READ((src).reply);       \
+  } while (0)
+
+// Increment the matching per-stage timeout sub-counter of `stages` by `toAdd`.
+static inline void IncrTimeoutStage(QueryTimeoutStageStats *stages, QueryTimeoutStage stage,
+                                    int toAdd) {
+  switch (stage) {
+    case QUERY_TIMEOUT_STAGE_QUEUE:
+      INCR_BY(stages->queue, toAdd);
+      break;
+    case QUERY_TIMEOUT_STAGE_PIPELINE:
+      INCR_BY(stages->pipeline, toAdd);
+      break;
+    case QUERY_TIMEOUT_STAGE_REPLY:
+      INCR_BY(stages->reply, toAdd);
+      break;
+    default:
+      break;
+  }
+}
+
 GlobalStats RSGlobalStats = {0};
 size_t FieldIndexErrorCounter[INDEXFLD_NUM_TYPES] = {0};
 
@@ -103,9 +129,11 @@ QueriesGlobalStats TotalGlobalStats_GetQueryStats() {
   stats.shard_errors.syntax = READ(RSGlobalStats.totalStats.queries.shard_errors.syntax);
   stats.shard_errors.arguments = READ(RSGlobalStats.totalStats.queries.shard_errors.arguments);
   stats.shard_errors.timeout = READ(RSGlobalStats.totalStats.queries.shard_errors.timeout);
+  READ_TIMEOUT_STAGES(stats.shard_errors.timeout_by_stage, RSGlobalStats.totalStats.queries.shard_errors.timeout_by_stage);
   stats.coord_errors.syntax = READ(RSGlobalStats.totalStats.queries.coord_errors.syntax);
   stats.coord_errors.arguments = READ(RSGlobalStats.totalStats.queries.coord_errors.arguments);
   stats.coord_errors.timeout = READ(RSGlobalStats.totalStats.queries.coord_errors.timeout);
+  READ_TIMEOUT_STAGES(stats.coord_errors.timeout_by_stage, RSGlobalStats.totalStats.queries.coord_errors.timeout_by_stage);
   stats.shard_errors.oom = READ(RSGlobalStats.totalStats.queries.shard_errors.oom);
   stats.coord_errors.oom = READ(RSGlobalStats.totalStats.queries.coord_errors.oom);
   stats.shard_errors.unavailableSlots = READ(RSGlobalStats.totalStats.queries.shard_errors.unavailableSlots);
@@ -113,7 +141,9 @@ QueriesGlobalStats TotalGlobalStats_GetQueryStats() {
 
   // Warnings
   stats.shard_warnings.timeout = READ(RSGlobalStats.totalStats.queries.shard_warnings.timeout);
+  READ_TIMEOUT_STAGES(stats.shard_warnings.timeout_by_stage, RSGlobalStats.totalStats.queries.shard_warnings.timeout_by_stage);
   stats.coord_warnings.timeout = READ(RSGlobalStats.totalStats.queries.coord_warnings.timeout);
+  READ_TIMEOUT_STAGES(stats.coord_warnings.timeout_by_stage, RSGlobalStats.totalStats.queries.coord_warnings.timeout_by_stage);
   stats.shard_warnings.oom = READ(RSGlobalStats.totalStats.queries.shard_warnings.oom);
   stats.coord_warnings.oom = READ(RSGlobalStats.totalStats.queries.coord_warnings.oom);
   stats.shard_warnings.maxPrefixExpansion = READ(RSGlobalStats.totalStats.queries.shard_warnings.maxPrefixExpansion);
@@ -139,9 +169,10 @@ size_t IndexesGlobalStats_GetLogicallyDeletedDocs() {
 // `coord` indicates whether the error occurred on the coordinator or on a shard.
 // Standalone shards are considered as coords
 // Will ignore not supported error codes.
-// Currently supports : syntax, parse_args, timeout
+// Currently supports : syntax, parse_args, timeout, oom, unavailable_slots
+// `stage` is only consulted for the timeout code (per-stage breakdown).
 // `toAdd` can be negative to decrease the counter.
-void QueryErrorsGlobalStats_UpdateError(QueryErrorCode code, int toAdd, bool coord) {
+void QueryErrorsGlobalStats_UpdateError(QueryErrorCode code, QueryTimeoutStage stage, int toAdd, bool coord) {
   QueryErrorsGlobalStats *queries_errors = coord ? &RSGlobalStats.totalStats.queries.coord_errors : &RSGlobalStats.totalStats.queries.shard_errors;
   switch (code) {
     case QUERY_ERROR_CODE_SYNTAX:
@@ -153,6 +184,7 @@ void QueryErrorsGlobalStats_UpdateError(QueryErrorCode code, int toAdd, bool coo
       break;
     case QUERY_ERROR_CODE_TIMED_OUT:
       INCR_BY(queries_errors->timeout, toAdd);
+      IncrTimeoutStage(&queries_errors->timeout_by_stage, stage, toAdd);
       break;
     case QUERY_ERROR_CODE_OUT_OF_MEMORY:
       INCR_BY(queries_errors->oom, toAdd);
@@ -167,13 +199,15 @@ void QueryErrorsGlobalStats_UpdateError(QueryErrorCode code, int toAdd, bool coo
 // `coord` indicates whether the warning occurred on the coordinator or on a shard.
 // Standalone shards are considered as coords
 // Will ignore not supported warning codes.
-// Currently supports : timeout
+// Currently supports : timeout, oom, max_prefix_expansion, asm_inaccuracy
+// `stage` is only consulted for the timeout code (per-stage breakdown).
 // `toAdd` can be negative to decrease the counter.
-void QueryWarningsGlobalStats_UpdateWarning(QueryWarningCode code, int toAdd, bool coord) {
+void QueryWarningsGlobalStats_UpdateWarning(QueryWarningCode code, QueryTimeoutStage stage, int toAdd, bool coord) {
   QueryWarningGlobalStats *queries_warnings = coord ? &RSGlobalStats.totalStats.queries.coord_warnings : &RSGlobalStats.totalStats.queries.shard_warnings;
   switch (code) {
     case QUERY_WARNING_CODE_TIMED_OUT:
       INCR_BY(queries_warnings->timeout, toAdd);
+      IncrTimeoutStage(&queries_warnings->timeout_by_stage, stage, toAdd);
       break;
     case QUERY_WARNING_CODE_OUT_OF_MEMORY_SHARD:
       INCR_BY(queries_warnings->oom, toAdd);

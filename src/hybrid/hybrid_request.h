@@ -93,6 +93,14 @@ typedef struct HybridRequest {
 static inline bool HybridRequest_TimedOut(HybridRequest *req) {
   return RequestSyncCtx_GetTimedOut(&req->syncCtx);
 }
+// The pipeline stage the hybrid request had reached, used to attribute a timeout.
+static inline QueryTimeoutStage HybridRequest_TimeoutStage(HybridRequest *req) {
+  return RequestSyncCtx_GetTimeoutStage(&req->syncCtx);
+}
+// Advance the hybrid request's execution-phase marker (QUEUE -> PIPELINE -> REPLY).
+static inline void HybridRequest_SetTimeoutStage(HybridRequest *req, QueryTimeoutStage stage) {
+  RequestSyncCtx_SetTimeoutStage(&req->syncCtx, stage);
+}
 // Sets the hybrid request's timedOut flag and propagates it to every subquery
 // AREQ. Propagation flips each subquery's RPNet abort flag so a BG worker
 // blocked in MRChannel_PopWithTimeout exits as soon as the channel is woken.

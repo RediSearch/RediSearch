@@ -24,6 +24,7 @@
 #include "slot_ranges.h"
 #include "profile/profile.h"
 #include "rs_wall_clock.h"
+#include "query_timeout_stage.h"
 
 #include "rmutil/rm_assert.h"
 
@@ -32,11 +33,15 @@
 #define RS_Atomic(T) std::atomic<T>
 #define RS_AtomicBoolLoadRelaxed(p)     (((std::atomic<bool> *)(p))->load(std::memory_order_relaxed))
 #define RS_AtomicBoolStoreRelaxed(p, v) (((std::atomic<bool> *)(p))->store((v), std::memory_order_relaxed))
+#define RS_AtomicIntLoadRelaxed(p)      (((std::atomic<int> *)(p))->load(std::memory_order_relaxed))
+#define RS_AtomicIntStoreRelaxed(p, v)  (((std::atomic<int> *)(p))->store((v), std::memory_order_relaxed))
 extern "C" {
 #else
 #define RS_Atomic(T) _Atomic(T)
 #define RS_AtomicBoolLoadRelaxed(p)     __atomic_load_n((bool *)(p), __ATOMIC_RELAXED)
 #define RS_AtomicBoolStoreRelaxed(p, v) __atomic_store_n((bool *)(p), (v), __ATOMIC_RELAXED)
+#define RS_AtomicIntLoadRelaxed(p)      __atomic_load_n((int *)(p), __ATOMIC_RELAXED)
+#define RS_AtomicIntStoreRelaxed(p, v)  __atomic_store_n((int *)(p), (v), __ATOMIC_RELAXED)
 #endif
 
 #define DEFAULT_LIMIT 10
@@ -180,6 +185,10 @@ typedef enum { COMMAND_AGGREGATE, COMMAND_SEARCH, COMMAND_EXPLAIN, COMMAND_HYBRI
 typedef struct RequestSyncCtx {
   // Timeout signaling flag set by timeout callback on main thread
   RS_Atomic(bool) timedOut;
+  // Execution-phase marker (QueryTimeoutStage values), advanced monotonically by
+  // the executing thread (QUEUE -> PIPELINE -> REPLY). The main-thread timeout
+  // callbacks read it to attribute a timeout to the pipeline stage it occurred in.
+  RS_Atomic(int) execPhase;
   // Reference count for shared ownership between timeout callback (main thread) and background thread
   uint8_t refcount;
 
@@ -211,6 +220,7 @@ typedef struct RequestSyncCtx {
 // Initialize a RequestSyncCtx with default values
 static inline void RequestSyncCtx_Init(RequestSyncCtx *ctx) {
   ctx->timedOut = false;
+  ctx->execPhase = QUERY_TIMEOUT_STAGE_QUEUE;
   ctx->refcount = 1;
   ctx->requiresAggregateResultsSync = false;
   ctx->aggregatingResults = false;
@@ -231,6 +241,17 @@ static inline void RequestSyncCtx_SetTimedOut(RequestSyncCtx *ctx) {
 }
 static inline void RequestSyncCtx_ClearTimedOut(RequestSyncCtx *ctx) {
   RS_AtomicBoolStoreRelaxed(&ctx->timedOut, false);
+}
+
+// Read the current execution phase as a QueryTimeoutStage. Used to attribute a
+// timeout to the stage the request had reached when the deadline fired.
+static inline QueryTimeoutStage RequestSyncCtx_GetTimeoutStage(RequestSyncCtx *ctx) {
+  return (QueryTimeoutStage)RS_AtomicIntLoadRelaxed(&ctx->execPhase);
+}
+// Advance the execution phase. Called by the executing thread as it progresses;
+// the phase only ever moves forward within a single execution.
+static inline void RequestSyncCtx_SetTimeoutStage(RequestSyncCtx *ctx, QueryTimeoutStage stage) {
+  RS_AtomicIntStoreRelaxed(&ctx->execPhase, (int)stage);
 }
 
 // Release resources owned by a RequestSyncCtx. Must be called exactly once
@@ -585,6 +606,14 @@ static inline bool AREQ_TimedOut(AREQ *req) {
 }
 static inline void AREQ_SetTimedOut(AREQ *req) {
   RequestSyncCtx_SetTimedOut(&req->syncCtx);
+}
+// The pipeline stage the request had reached, used to attribute a timeout.
+static inline QueryTimeoutStage AREQ_TimeoutStage(AREQ *req) {
+  return RequestSyncCtx_GetTimeoutStage(&req->syncCtx);
+}
+// Advance the request's execution-phase marker (QUEUE -> PIPELINE -> REPLY).
+static inline void AREQ_SetTimeoutStage(AREQ *req, QueryTimeoutStage stage) {
+  RequestSyncCtx_SetTimeoutStage(&req->syncCtx, stage);
 }
 #ifdef ENABLE_ASSERT
 // SyncPointStopFn predicate adapter for AREQ_TimedOut. Pass the AREQ as `arg`
