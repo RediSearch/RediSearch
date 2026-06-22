@@ -428,19 +428,22 @@ if RS_TEST_ENTERPRISE:
                 # Rewrite: CONFIG <op> <redis_name> [remaining args...]
                 new_args = ('CONFIG', op, redis_name) + tuple(args[3:])
                 raw = _orig_execute_command(self, *new_args, **kwargs)
-                if op == 'GET':
-                    # redis CONFIG GET returns [name, value] (RESP2) or
-                    # {name: value} (RESP3 / dict).  Normalise to the shape
-                    # FT.CONFIG GET returns: [[PARAM, value]].
-                    if isinstance(raw, dict):
-                        value = raw.get(redis_name, raw.get(redis_name.lower()))
-                    elif isinstance(raw, (list, tuple)) and len(raw) == 2:
-                        value = raw[1]
-                    else:
-                        value = raw
-                    # Preserve the original-case param name the test passed
-                    return [[args[2], value]]
-                return raw
+                if op == 'SET':
+                    # redis CONFIG SET returns True; FT.CONFIG SET returns 'OK'.
+                    return 'OK' if raw is True else raw
+                # op == 'GET': reshape to FT.CONFIG GET's shape, preserving the
+                # RESP version.  RESP3 CONFIG GET returns a {name: value} dict, so
+                # FT.CONFIG GET must return a {PARAM: value} map; RESP2 returns a
+                # flat [name, value] list, so FT.CONFIG GET returns [[PARAM, value]].
+                # Keying off the raw reply type avoids probing the protocol and
+                # never regresses the RESP2 path.
+                if isinstance(raw, dict):
+                    value = raw.get(redis_name, raw.get(redis_name.lower()))
+                    return {args[2]: value}
+                elif isinstance(raw, (list, tuple)) and len(raw) == 2:
+                    return [[args[2], raw[1]]]
+                else:
+                    return [[args[2], raw]]
             # No twin (empty ConfigName) or unknown param → pass through
         return _orig_execute_command(self, *args, **kwargs)
 
