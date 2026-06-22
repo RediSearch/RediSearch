@@ -2083,8 +2083,21 @@ def testConfigIndependence_default():
         # Test max value. Skip for search-conn-per-shard because it may open too many connections
         checkConfigChange(env, configName, argName, maxValue, defaultConfigDict)
 
-        # Reset to default value
-        env.expect('CONFIG', 'SET', configName, default).ok()
+        # Reset to the captured baseline value. The numericConfigs `default`
+        # column encodes the OSS module's default, which can differ from the
+        # actual runtime default (e.g. enterprise defaults WORKERS to 0 while
+        # OSS defaults it to cpu_count). Resetting to the value captured at
+        # startup keeps this independence check self-consistent across builds;
+        # in OSS the captured value equals `default`, so behavior is unchanged.
+        resetValue = defaultConfigDict[argName][0]
+        if resetValue == 'unlimited':
+            # FT.CONFIG reports the result caps' "unlimited" default as the
+            # literal string; the raw CONFIG twin needs the numeric max, which
+            # GET then reports back as 'unlimited'.
+            resetValue = (MAX_AGGREGATE_REQUEST_RESULTS
+                          if argName == 'MAXAGGREGATERESULTS'
+                          else MAX_SEARCH_REQUEST_RESULTS)
+        env.expect('CONFIG', 'SET', configName, resetValue).ok()
         currentConfigDict = getConfigDict(env)
         env.assertEqual(currentConfigDict, defaultConfigDict)
 
