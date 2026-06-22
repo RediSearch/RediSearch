@@ -1137,6 +1137,7 @@ def testNumericArgDeprecationMessage():
         env.assertEqual(matchCount, 1, message=f'argName: {argName}, configName: {configName}')
 
 @skip(redis_less_than='7.9.227')
+@ft_config_passthrough
 def testNumericFTConfigDeprecationMessage():
     '''Test deprecation message of FT.CONFIG using numeric parameters'''
     # create module arguments
@@ -1327,6 +1328,7 @@ def testEnumArgDeprecationMessage():
     env.assertEqual(matchCount, 1, message=f'argName: {argName}, configName: {configName}')
 
 @skip(redis_less_than='7.9.227')
+@ft_config_passthrough
 def testEnumFTConfigDeprecationMessage():
     '''Test deprecation message of FT.CONFIG using enum parameters'''
     # create module arguments
@@ -1941,6 +1943,7 @@ def testDeprecatedModuleArgsMessage():
         env.assertEqual(matchCount, 1, message=f'argName: {argName}')
 
 @skip(redis_less_than='7.9.227')
+@ft_config_passthrough
 def testBooleanFTConfigDeprecationMessage():
     '''Test deprecation message of FT.CONFIG using boolean parameters'''
     # create module arguments

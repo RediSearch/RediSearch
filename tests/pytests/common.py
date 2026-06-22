@@ -504,12 +504,33 @@ def _twin_value_to_ft(param, value):
 # --- FIX 1: monkeypatch redis-py to transparently rewrite _FT.CONFIG/FT.CONFIG
 #     SET|GET <PARAM> → CONFIG SET|GET search-<param> when RS_TEST_ENTERPRISE=1.
 
+# Some tests (the *FTConfigDeprecationMessage tests) deliberately exercise the
+# real FT.CONFIG command to assert the module's "FT.CONFIG is deprecated" log
+# line. The shim below rewrites FT.CONFIG->CONFIG, which would suppress that
+# log, so those tests wrap themselves with @ft_config_passthrough to disable the
+# rewrite for their duration. Defined unconditionally so OSS imports succeed.
+_ft_config_shim_bypass = False
+
+def ft_config_passthrough(fn):
+    import functools
+    @functools.wraps(fn)
+    def _wrapper(*args, **kwargs):
+        global _ft_config_shim_bypass
+        prev = _ft_config_shim_bypass
+        _ft_config_shim_bypass = True
+        try:
+            return fn(*args, **kwargs)
+        finally:
+            _ft_config_shim_bypass = prev
+    return _wrapper
+
 if RS_TEST_ENTERPRISE:
     _orig_execute_command = redis.client.Redis.execute_command
 
     def _enterprise_execute_command(self, *args, **kwargs):
         """Intercept _FT.CONFIG / FT.CONFIG GET|SET and rewrite to CONFIG GET|SET."""
-        if (len(args) >= 3
+        if (not _ft_config_shim_bypass
+                and len(args) >= 3
                 and str(args[0]).upper() in ('_FT.CONFIG', 'FT.CONFIG')
                 and str(args[1]).upper() in ('SET', 'GET')):
             op = str(args[1]).upper()
