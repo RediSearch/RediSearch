@@ -389,11 +389,12 @@ def test_command_info_tips_field():
     failed_tips = []
 
     for cmd_name, expected_data in commands_with_tips.items():
-        if env.isCluster() and cmd_name.startswith('FT.CONFIG'):
-            # We only register this command if we are not in a cluster mode.
-            continue
-
         cmd_upper = cmd_name.upper().replace(' ', '|')
+        if env.isCluster() and cmd_name.startswith('FT.CONFIG'):
+            # In cluster mode the coordinator does not register public FT.CONFIG,
+            # but the local _FT.CONFIG subcommands use the same command info.
+            cmd_upper = '_' + cmd_upper
+
         expected_tips = expected_data['command_tips']
 
         try:
