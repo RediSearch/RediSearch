@@ -994,10 +994,9 @@ DEBUG_COMMAND(GCForceInvoke) {
     GCContext_ForceInvoke(sp->gc, bc);
     return REDISMODULE_OK;
   } else if (sp->diskSpec) {
-    // No GCContext (GC globally disabled or temporary index), so there is no
-    // DiskGC stats context to accumulate into and FT.INFO/INFO render no GC
-    // section. Run the compaction directly; the discarded stats have nowhere
-    // to live in this mode.
+    // Fallback described above: with no GCContext there is no DiskGC stats
+    // context to accumulate into and FT.INFO/INFO render no GC section, so run
+    // the compaction inline and let the stats go nowhere.
     DiskGCRunStats stats = {0};
     SearchDisk_RunGC(sp->diskSpec, &stats);
     return RedisModule_ReplyWithSimpleString(ctx, "DONE");
