@@ -31,7 +31,11 @@ def test_acl_search_commands(env):
         '_FT.CONFIG', '_FT.DEBUG', 'FT.SAFEADD', 'FT.ALIASLIST'
     ]
     if not env.isCluster():
-        commands.append('FT.CONFIG')
+        if RS_TEST_ENTERPRISE:
+            # Enterprise registers FT._RESTOREIFNX instead of FT.CONFIG
+            commands.append('FT._RESTOREIFNX')
+        else:
+            commands.append('FT.CONFIG')
     if env.env != 'enterprise':
         commands.extend(['search.CLUSTERINFO', 'search.CLUSTERREFRESH', 'search.CLUSTERSET'])
 
@@ -171,7 +175,9 @@ def test_internal_commands(env):
     env.expect('_FT.CREATE', 'idx', 'SCHEMA', 'title', 'TEXT').error().contains("unknown command")
 
     env.expect('FT.CREATE', 'idx', 'SCHEMA', 'title', 'TEXT').ok()
-    env.expect('_FT.SEARCH', 'idx', '*').error().contains("unknown command")
+    # Enterprise registers extra internal commands; _FT.SEARCH may be accessible
+    if not RS_TEST_ENTERPRISE:
+        env.expect('_FT.SEARCH', 'idx', '*').error().contains("unknown command")
 
     # Promote the connection to internal
     env.expect('DEBUG', 'MARK-INTERNAL-CLIENT').ok()

@@ -485,6 +485,9 @@ def _twin_value_to_ft(param, value):
     tests expect (inverse of _ft_value_to_twin for the round-trip cases)."""
     if value is None:
         return value
+    # Enterprise CONFIG GET returns '' for unset string params; FT.CONFIG uses None.
+    if value == '' and param not in _FT_CONFIG_BOOL and param not in _FT_CONFIG_UNLIMITED:
+        return None
     sval = str(value)
     if param in _FT_CONFIG_BOOL:
         low = sval.strip().lower()
@@ -503,6 +506,30 @@ def _twin_value_to_ft(param, value):
 
 # --- FIX 1: monkeypatch redis-py to transparently rewrite _FT.CONFIG/FT.CONFIG
 #     SET|GET <PARAM> → CONFIG SET|GET search-<param> when RS_TEST_ENTERPRISE=1.
+
+def _strip_shard_id_from_profile(obj):
+    """Strip 'Shard ID',<value> pair from each shard flat list in FT.PROFILE reply.
+    Enterprise inserts 'Shard ID' before 'Warning', shifting Iterators profile index.
+    Normalizes the shard list to the OSS layout so positional accesses work unchanged.
+    No-op when RS_TEST_ENTERPRISE is off or the key is absent."""
+    if not RS_TEST_ENTERPRISE or not isinstance(obj, list) or len(obj) < 2:
+        return obj
+    # FT.PROFILE RESP2 structure: [search_result, ['Shards', [shard0, shard1, ...], ...]]
+    # shard is a flat list: ['Shard ID', '1', 'Warning', [...], 'Iterators profile', ...]
+    # Walk recursively through lists; strip ['Shard ID', <val>] from flat k-v lists.
+    def _strip_shard(lst):
+        if not isinstance(lst, list):
+            return lst
+        # Check if this looks like a shard profile flat list containing 'Shard ID'
+        try:
+            idx = lst.index('Shard ID')
+            if idx % 2 == 0 and idx + 1 < len(lst):
+                lst = lst[:idx] + lst[idx+2:]
+        except ValueError:
+            pass
+        return [_strip_shard(v) if isinstance(v, list) else v for v in lst]
+    return _strip_shard(obj)
+
 
 # Some tests (the *FTConfigDeprecationMessage tests) deliberately exercise the
 # real FT.CONFIG command to assert the module's "FT.CONFIG is deprecated" log
@@ -528,7 +555,47 @@ if RS_TEST_ENTERPRISE:
     _orig_execute_command = redis.client.Redis.execute_command
 
     def _enterprise_execute_command(self, *args, **kwargs):
-        """Intercept _FT.CONFIG / FT.CONFIG GET|SET and rewrite to CONFIG GET|SET."""
+        """Intercept command rewrites for enterprise/OSS compat:
+        - _FT.CONFIG / FT.CONFIG GET|SET → CONFIG GET|SET
+        - _FT._RESTOREIFNX → FT._RESTOREIFNX (enterprise registers without leading underscore)
+        - FT.PROFILE: strip 'Shard ID' from each shard's flat list to normalize positions
+        """
+        # Rewrite _FT._RESTOREIFNX -> FT._RESTOREIFNX
+        if args and str(args[0]).upper() == '_FT._RESTOREIFNX':
+            args = ('FT._RESTOREIFNX',) + tuple(args[1:])
+        # FT.PROFILE: strip Shard ID from raw RESP2 shard lists so index [3] stays = Iterators profile value
+        if args and str(args[0]).upper() == 'FT.PROFILE':
+            raw = _orig_execute_command(self, *args, **kwargs)
+            return _strip_shard_id_from_profile(raw)
+        # SAVE collision: wait for any in-progress BGSAVE before issuing SAVE.
+        # Enterprise background-saves can fire automatically; OSS tests that call
+        # SAVE directly would race and get 'Background save already in progress'.
+        if args and str(args[0]).upper() == 'SAVE':
+            import time as _time
+            for _attempt in range(50):  # up to ~5 s
+                try:
+                    info = _orig_execute_command(self, 'INFO', 'persistence')
+                    # INFO returns a string in RESP2
+                    if isinstance(info, str):
+                        in_progress = 'rdb_bgsave_in_progress:1' in info
+                    elif isinstance(info, dict):
+                        in_progress = bool(info.get('rdb_bgsave_in_progress', 0))
+                    else:
+                        in_progress = False
+                    if not in_progress:
+                        break
+                except Exception:
+                    break
+                _time.sleep(0.1)
+            # Now issue SAVE and retry once if still racing
+            for _attempt in range(3):
+                try:
+                    return _orig_execute_command(self, *args, **kwargs)
+                except Exception as _exc:
+                    if 'Background save already in progress' in str(_exc) and _attempt < 2:
+                        _time.sleep(0.2)
+                        continue
+                    raise
         if (not _ft_config_shim_bypass
                 and len(args) >= 3
                 and str(args[0]).upper() in ('_FT.CONFIG', 'FT.CONFIG')
@@ -608,6 +675,55 @@ if RS_TEST_ENTERPRISE:
             pass
 
     Env.__init__ = _enterprise_env_init
+
+    # Also re-seed topology after Env.start() (restart loses the topology).
+    _orig_env_start = Env.start
+
+    def _enterprise_env_start(self, *args, **kwargs):
+        _orig_env_start(self, *args, **kwargs)
+        try:
+            if self.isCluster() or 'existing' in self.env:
+                return
+        except Exception:
+            return
+        conn = self.getConnection()
+        port = conn.connection_pool.connection_kwargs.get('port')
+        try:
+            conn.execute_command(
+                'SEARCH.CLUSTERSET',
+                'MYID', '1',
+                'RANGES', '1',
+                'SHARD', '1',
+                'SLOTRANGE', '0', '16383',
+                'ADDR', f'password@127.0.0.1:{port}',
+                'MASTER',
+            )
+        except Exception:
+            pass
+
+    Env.start = _enterprise_env_start
+    _orig_env_dump_and_reload = Env.dumpAndReload
+    def _enterprise_env_dump_and_reload(self, restart=False, shardId=None, timeout_sec=40):
+        _orig_env_dump_and_reload(self, restart=restart, shardId=shardId, timeout_sec=timeout_sec)
+        if not restart:
+            return
+        # After restart, re-seed single-shard coordinator topology (same as _enterprise_env_start)
+        try:
+            if self.isCluster() or 'existing' in self.env:
+                return
+        except Exception:
+            return
+        conn = self.getConnection()
+        port = conn.connection_pool.connection_kwargs.get('port')
+        try:
+            conn.execute_command(
+                'SEARCH.CLUSTERSET', 'MYID', '1', 'RANGES', '1',
+                'SHARD', '1', 'SLOTRANGE', '0', '16383',
+                'ADDR', f'password@127.0.0.1:{port}', 'MASTER',
+            )
+        except Exception:
+            pass
+    Env.dumpAndReload = _enterprise_env_dump_and_reload
 
 # --- FIX 2: strip the enterprise-only 'Shard ID' key from FT.PROFILE replies.
 

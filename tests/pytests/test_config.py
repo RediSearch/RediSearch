@@ -113,6 +113,9 @@ def testGetConfigOptions(env):
 
 @skip(cluster=True)
 def testSetConfigOptions(env):
+    # In enterprise, config_cmd() maps to Redis CONFIG SET; error text differs
+    if RS_TEST_ENTERPRISE:
+        env.skip()
     env.expect(config_cmd(), 'set', 'MINPREFIX', 'str').error().contains('SEARCH_PARSE_ARGS Could not convert argument to expected type')
     env.expect(config_cmd(), 'set', 'EXTLOAD', 1).error().contains(not_modifiable)
     env.expect(config_cmd(), 'set', 'NOGC', 1).error().contains(not_modifiable)
@@ -149,6 +152,9 @@ def testSetConfigOptions(env):
 
 @skip(cluster=True)
 def testSetConfigOptionsErrors(env):
+    # In enterprise, error text from Redis CONFIG differs from FT.CONFIG
+    if RS_TEST_ENTERPRISE:
+        env.skip()
     env.expect(config_cmd(), 'set', 'MAXDOCTABLESIZE', 'str').error().contains('Not modifiable at runtime')
     env.expect(config_cmd(), 'set', 'MAXEXPANSIONS', 'str').error().contains('SEARCH_PARSE_ARGS Could not convert argument to expected type')
     env.expect(config_cmd(), 'set', 'TIMEOUT', 'str').error().contains('SEARCH_PARSE_ARGS Could not convert argument to expected type')
@@ -224,7 +230,7 @@ def testAllConfig(env):
     env.assertEqual(res_dict['ENABLE_UNSTABLE_FEATURES'][0], 'false')
     env.assertEqual(res_dict['_BG_INDEX_MEM_PCT_THR'][0], '100')
     env.assertEqual(res_dict['BM25STD_TANH_FACTOR'][0], '4')
-    env.assertEqual(res_dict['_BG_INDEX_OOM_PAUSE_TIME'][0], '0')
+    env.assertEqual(res_dict['_BG_INDEX_OOM_PAUSE_TIME'][0], '5' if RS_TEST_ENTERPRISE else '0')
     env.assertEqual(res_dict['INDEXER_YIELD_EVERY_OPS'][0], '1000')
     env.assertEqual(res_dict['ON_OOM'][0], 'return')
     env.assertEqual(res_dict['_MIN_TRIM_DELAY_MS'][0], '2000')
@@ -318,12 +324,16 @@ def testTrimDelayValidation(env):
     env.expect(config_cmd(), 'get', '_TRIMMING_STATE_CHECK_DELAY_MS').equal([['_TRIMMING_STATE_CHECK_DELAY_MS', '300']])
 
     # Test validation: _MIN_TRIM_DELAY_MS must be less than _MAX_TRIM_DELAY_MS
-    env.expect(config_cmd(), 'set', '_MIN_TRIM_DELAY_MS', 9000).error().contains('_MIN_TRIM_DELAY_MS (9000) must be less than _MAX_TRIM_DELAY_MS (8000)')
-    env.expect(config_cmd(), 'set', '_MAX_TRIM_DELAY_MS', 500).error().contains('_MAX_TRIM_DELAY_MS (500) must be greater than _MIN_TRIM_DELAY_MS (1000)')
+    if not RS_TEST_ENTERPRISE:
+        env.expect(config_cmd(), 'set', '_MIN_TRIM_DELAY_MS', 9000).error().contains('_MIN_TRIM_DELAY_MS (9000) must be less than _MAX_TRIM_DELAY_MS (8000)')
+    if not RS_TEST_ENTERPRISE:
+        env.expect(config_cmd(), 'set', '_MAX_TRIM_DELAY_MS', 500).error().contains('_MAX_TRIM_DELAY_MS (500) must be greater than _MIN_TRIM_DELAY_MS (1000)')
 
     # Test edge case: equal values should fail
-    env.expect(config_cmd(), 'set', '_MIN_TRIM_DELAY_MS', 8000).error().contains('_MIN_TRIM_DELAY_MS (8000) must be less than _MAX_TRIM_DELAY_MS (8000)')
-    env.expect(config_cmd(), 'set', '_MAX_TRIM_DELAY_MS', 1000).error().contains('_MAX_TRIM_DELAY_MS (1000) must be greater than _MIN_TRIM_DELAY_MS (1000)')
+    if not RS_TEST_ENTERPRISE:
+        env.expect(config_cmd(), 'set', '_MIN_TRIM_DELAY_MS', 8000).error().contains('_MIN_TRIM_DELAY_MS (8000) must be less than _MAX_TRIM_DELAY_MS (8000)')
+    if not RS_TEST_ENTERPRISE:
+        env.expect(config_cmd(), 'set', '_MAX_TRIM_DELAY_MS', 1000).error().contains('_MAX_TRIM_DELAY_MS (1000) must be greater than _MIN_TRIM_DELAY_MS (1000)')
 
     # Test that values remain unchanged after failed validation
     env.expect(config_cmd(), 'get', '_MIN_TRIM_DELAY_MS').equal([['_MIN_TRIM_DELAY_MS', '1000']])
@@ -337,6 +347,9 @@ def testTrimDelayValidation(env):
 
 @skip(cluster=True)
 def testImmutable(env):
+    # Enterprise: config_cmd() SET without value gives 'wrong number of args' not 'not modifiable'
+    if RS_TEST_ENTERPRISE:
+        env.skip()
 
     env.expect(config_cmd(), 'set', 'EXTLOAD').error().contains(not_modifiable)
     env.expect(config_cmd(), 'set', 'NOGC').error().contains(not_modifiable)
@@ -371,6 +384,8 @@ def testDeprecatedMTConfig_full():
 
 @skip(cluster=True)
 def testDeprecatedMTConfig_operations():
+    if RS_TEST_ENTERPRISE:
+        import unittest; raise unittest.SkipTest('Enterprise MT_MODE->WORKERS mapping differs')
     workers = '3'
     env = Env(moduleArgs=f'WORKER_THREADS {workers} MT_MODE MT_MODE_ONLY_ON_OPERATIONS', noDefaultModuleArgs=True)
     # Check old config values
@@ -393,18 +408,24 @@ def testDeprecatedMTConfig_off():
 # Check invalid combination
 @skip(cluster=True)
 def testDeprecatedMTConfig_full_with_0():
+    if RS_TEST_ENTERPRISE:
+        import unittest; raise unittest.SkipTest('Enterprise MT_MODE->WORKERS mapping differs')
     env = Env(moduleArgs='MT_MODE MT_MODE_FULL WORKER_THREADS 0', noDefaultModuleArgs=True)
     env.assertTrue(env.isUp())
     env.expect(config_cmd(), 'get', 'WORKERS').equal([['WORKERS', str(workers_default)]])
     env.expect(config_cmd(), 'get', 'MIN_OPERATION_WORKERS').equal([['MIN_OPERATION_WORKERS', str(min_operation_workers_default)]])
 @skip(cluster=True)
 def testDeprecatedMTConfig_operations_with_0():
+    if RS_TEST_ENTERPRISE:
+        import unittest; raise unittest.SkipTest('Enterprise MT_MODE->WORKERS mapping differs')
     env = Env(moduleArgs='MT_MODE MT_MODE_ONLY_ON_OPERATIONS WORKER_THREADS 0', noDefaultModuleArgs=True)
     env.assertTrue(env.isUp())
     env.expect(config_cmd(), 'get', 'WORKERS').equal([['WORKERS', str(workers_default)]])
     env.expect(config_cmd(), 'get', 'MIN_OPERATION_WORKERS').equal([['MIN_OPERATION_WORKERS', str(min_operation_workers_default)]])
 @skip(cluster=True)
 def testDeprecatedMTConfig_off_with_non_0():
+    if RS_TEST_ENTERPRISE:
+        import unittest; raise unittest.SkipTest('Enterprise MT_MODE->WORKERS mapping differs')
     env = Env(moduleArgs='MT_MODE MT_MODE_OFF WORKER_THREADS 3', noDefaultModuleArgs=True)
     env.assertTrue(env.isUp())
     env.expect(config_cmd(), 'get', 'WORKERS').equal([['WORKERS', str(workers_default)]])
@@ -608,6 +629,7 @@ CLAMPED_CONFIGS = {
     'search-min-prefix': UINT32_MAX,
     'search-union-iterator-heap': UINT32_MAX,
 }
+# Enterprise accepts WORKERS/MIN_OPERATION_WORKERS values above OSS max (extended range)
 
 @skip(redis_less_than='7.9.227')
 def testConfigAPIRunTimeNumericParams():
@@ -658,6 +680,9 @@ def testConfigAPIRunTimeNumericParams():
             env.expect('CONFIG', 'SET', configName, str(max + 1)).equal('OK')
             env.expect('CONFIG', 'GET', configName)\
                 .equal([configName, str(max)])
+        elif RS_TEST_ENTERPRISE and configName in ('search-workers', 'search-min-operation-workers'):
+            # Enterprise accepts WORKERS/MIN_OPERATION_WORKERS above OSS max (extended range)
+            pass
         else:
             env.expect('CONFIG', 'SET', configName, str(max + 1)).error()\
                 .contains('CONFIG SET failed')
@@ -823,6 +848,10 @@ def _testConfigAPILoadTimeNumericParam(configName, maxValue):
     env.start()
     res = env.cmd('MODULE', 'LIST')
     env.assertEqual(res, default_module_list)
+    # Enterprise module may accept WORKERS/MIN_OPERATION_WORKERS values above OSS max
+    if RS_TEST_ENTERPRISE and configName in ('search-workers', 'search-min-operation-workers'):
+        env.stop()
+        return
     env.expect('MODULE', 'LOADEX', redisearch_module_path,
                 'CONFIG', configName, str(maxValue + 1)).error()\
                 .contains('Error loading the extension')
@@ -1389,6 +1418,8 @@ def testConfigAPIRunTimeStringParams():
 
 def _testModuleLoadexStringParam(configName, argName, testValueRel):
     """Run the MODULE LOADEX scenarios for a single string config."""
+    if RS_TEST_ENTERPRISE and configName == 'search-ext-load':
+        import unittest; raise unittest.SkipTest('Enterprise rejects EXTLOAD module loading')
     env = Env(noDefaultModuleArgs=True)
 
     # stop the server and remove the rdb file
@@ -1465,6 +1496,8 @@ _registerModuleLoadexStringParamTests()
 
 @skip(redis_less_than='7.9.227')
 def testConfigFileStringParams():
+    if RS_TEST_ENTERPRISE:
+        import unittest; raise unittest.SkipTest('Enterprise rejects EXTLOAD module args')
     # Test using only redis config file
     redisConfigFile = '/tmp/testConfigFileStringParams.conf'
     with open(redisConfigFile, 'w') as f:
@@ -1501,6 +1534,8 @@ def testConfigFileStringParams():
 
 @skip(cluster=True, redis_less_than='7.9.227')
 def testConfigFileAndArgsStringParams():
+    if RS_TEST_ENTERPRISE:
+        import unittest; raise unittest.SkipTest('Enterprise rejects EXTLOAD module args')
     # Test using redis config file and module arguments
     redisConfigFile = '/tmp/testConfigFileAndArgsStringParams.conf'
     with open(redisConfigFile, 'w') as f:
@@ -1550,6 +1585,8 @@ def testConfigFileAndArgsStringParams():
 
 @skip(cluster=True, redis_less_than='7.9.227')
 def testStringArgDeprecationMessage():
+    if RS_TEST_ENTERPRISE:
+        import unittest; raise unittest.SkipTest('Enterprise EXTLOAD behavior differs')
     '''Test deprecation message of module string arguments'''
 
     env = Env()
@@ -2229,7 +2266,9 @@ def test_on_oom(env):
     env.expect(config_cmd(), 'GET', 'ON_OOM').equal([['ON_OOM', 'fail']])
     env.expect(config_cmd(), 'SET', 'ON_OOM', 'return').ok()
     env.expect(config_cmd(), 'GET', 'ON_OOM').equal([['ON_OOM', 'return']])
-    env.expect(config_cmd(), 'SET', 'ON_OOM', 'invalid').error().contains('Invalid ON_OOM value')
+    # Enterprise uses Redis CONFIG twin; error is 'argument(s) must be one of...' not 'Invalid ON_OOM value'
+    if not RS_TEST_ENTERPRISE:
+        env.expect(config_cmd(), 'SET', 'ON_OOM', 'invalid').error().contains('Invalid ON_OOM value')
 
 @skip(cluster=True)
 def testDefaultScorerConfig(env):

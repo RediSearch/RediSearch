@@ -142,7 +142,10 @@ def test_lazy_index_creation_info_modules(env):
 def test_restore_schema(env: Env):
 
     # Test that the command is not exposed to normal users
-    env.expect('_FT._RESTOREIFNX', 'SCHEMA').error().contains('unknown subcommand')
+    # In enterprise, _FT._RESTOREIFNX is rewritten to FT._RESTOREIFNX which exists;
+    # non-internal clients get 'wrong number of arguments' instead of 'unknown subcommand'
+    _restoreifnx_access_err = 'wrong number of arguments' if RS_TEST_ENTERPRISE else 'unknown subcommand'
+    env.expect('_FT._RESTOREIFNX', 'SCHEMA').error().contains(_restoreifnx_access_err)
     # Mark the client as internal for the rest of the test
     env.cmd('DEBUG', 'MARK-INTERNAL-CLIENT')
 

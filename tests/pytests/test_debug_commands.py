@@ -1035,6 +1035,9 @@ class TestQueryDebugCommands(object):
 # Didn't want to "break" the API by adding a new config parameter
 def test_hideUserDataFromLogs(env):
     env.skipOnCluster()
+    # Enterprise does not yet register 'hide-user-data-from-log' as a Redis CONFIG twin
+    if RS_TEST_ENTERPRISE:
+        env.skip()
     value = env.cmd(debug_cmd(), 'GET_HIDE_USER_DATA_FROM_LOGS')
     env.assertEqual(value, 0)
     env.expect('CONFIG', 'SET', 'hide-user-data-from-log', 'yes').ok()

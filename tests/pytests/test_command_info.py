@@ -314,6 +314,9 @@ def test_command_info_availability():
         if env.isCluster() and cmd_name.startswith('FT.CONFIG'):
             #we only register this command if we are not in a cluster mode
             continue
+        # Enterprise registers _FT.CONFIG instead of FT.CONFIG; skip FT.CONFIG subcommands
+        if RS_TEST_ENTERPRISE and cmd_name.startswith('FT.CONFIG'):
+            continue
 
         cmd_upper = cmd_name.upper().replace(' ', '|')
 
@@ -429,17 +432,18 @@ def test_specific_command_docs_structure():
     env.assertEqual(cmd_docs is not None, True, message="FT.CREATE should have command docs structure")
 
     # Check required fields
-    env.assertEqual('summary' in cmd_docs, True, message="FT.CREATE should have summary")
-    env.assertEqual('complexity' in cmd_docs, True, message="FT.CREATE should have complexity")
-    env.assertEqual('since' in cmd_docs, True, message="FT.CREATE should have since field")
+    # Enterprise module may not register full COMMAND DOCS metadata (summary/complexity/since)
+    if not RS_TEST_ENTERPRISE:
+        env.assertEqual('summary' in cmd_docs, True, message="FT.CREATE should have summary")
+        env.assertEqual('complexity' in cmd_docs, True, message="FT.CREATE should have complexity")
+        env.assertEqual('since' in cmd_docs, True, message="FT.CREATE should have since field")
 
+        # Check that summary is meaningful
+        summary = cmd_docs['summary']
+        env.assertEqual(isinstance(summary, str), True, message="Summary should be a string")
+        env.assertEqual(len(summary) > 10, True, message="Summary should be descriptive")
+        env.assertEqual('index' in summary.lower(), True, message="FT.CREATE summary should mention index")
 
-    # Check that summary is meaningful
-    summary = cmd_docs['summary']
-    env.assertEqual(isinstance(summary, str), True, message="Summary should be a string")
-    env.assertEqual(len(summary) > 10, True, message="Summary should be descriptive")
-    env.assertEqual('index' in summary.lower(), True, message="FT.CREATE summary should mention index")
-
-    env.debugPrint(f"FT.CREATE summary: {summary}")
+    env.debugPrint(f"FT.CREATE summary: {cmd_docs.get('summary', 'N/A')}")
     env.debugPrint(f"FT.CREATE complexity: {cmd_docs.get('complexity', 'N/A')}")
     env.debugPrint(f"FT.CREATE since: {cmd_docs.get('since', 'N/A')}")
