@@ -1994,6 +1994,7 @@ name = "redis_json_api"
 version = "0.0.1"
 dependencies = [
  "ffi",
+ "lending-iterator",
  "redis-module",
  "thiserror",
  "workspace_hack",
