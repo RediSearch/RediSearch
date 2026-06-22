@@ -46,12 +46,8 @@ void addSuffixTrie(Trie *trie, const char *str, uint32_t len) {
   size_t rlen = 0;
   runeBuf buf;
   rune *runes = runeBufFill(str, len, &buf, &rlen);
-  // Don't insert empty strings into the suffix trie.
-  if (rlen == 0) {
-    RS_ABORT("empty string is likely a caller-level mistake");
-    runeBufFree(&buf);
-    return;
-  }
+  // Callers never insert empty strings into the suffix trie (gated outside).
+  RS_LOG_ASSERT(rlen, "empty string is likely a caller-level mistake");
 
   TrieNode *trienode = Trie_GetNode(trie, runes, rlen, true, NULL);
   suffixData *data = NULL;
@@ -127,12 +123,8 @@ void deleteSuffixTrie(Trie *trie, const char *str, uint32_t len) {
   size_t rlen = 0;
   runeBuf buf;
   rune *runes = runeBufFill(str, len, &buf, &rlen);
-  // Empty strings are never inserted into the suffix trie, so nothing to remove.
-  if (rlen == 0) {
-    RS_ABORT("empty string is likely a caller-level mistake");
-    runeBufFree(&buf);
-    return;
-  }
+  // Callers never delete empty strings from the suffix trie (gated outside).
+  RS_LOG_ASSERT(rlen, "empty string is likely a caller-level mistake");
   char *oldTerm = NULL;
 
   // Remove the full-word entry (always inserted by addSuffixTrie).
@@ -386,11 +378,8 @@ void suffixTrie_freeCallback(void *payload) {
 
 
 void addSuffixTrieMap(TrieMap *trie, const char *str, uint32_t len) {
-  // Don't insert empty strings into the suffix triemap.
-  if (len == 0) {
-    RS_ABORT("empty string is likely a caller-level mistake");
-    return;
-  }
+  // Callers never insert empty strings into the suffix triemap (gated outside).
+  RS_LOG_ASSERT(len, "empty string is likely a caller-level mistake");
   suffixData *data = TrieMap_Find(trie, (char *)str, len);
 
   // if we found a node and term exists, we already have the term in the suffix
@@ -426,11 +415,8 @@ void addSuffixTrieMap(TrieMap *trie, const char *str, uint32_t len) {
 }
 
 void deleteSuffixTrieMap(TrieMap *trie, const char *str, uint32_t len) {
-  // Empty strings are never inserted into the suffix triemap, so nothing to remove.
-  if (len == 0) {
-    RS_ABORT("empty string is likely a caller-level mistake");
-    return;
-  }
+  // Callers never delete empty strings from the suffix triemap (gated outside).
+  RS_LOG_ASSERT(len, "empty string is likely a caller-level mistake");
   char *oldTerm = NULL;
 
   for (uint32_t j = 0; j < len; ++j) {
