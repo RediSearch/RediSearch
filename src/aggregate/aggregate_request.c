@@ -1078,16 +1078,6 @@ AREQ *AREQ_New(void) {
   return req;
 }
 
-bool AREQ_TimedOut(AREQ *req) {
-  return atomic_load_explicit(&req->syncCtx.timedOut, memory_order_acquire);
-}
-
-void AREQ_SetTimedOut(AREQ *req) {
-  atomic_store_explicit(&req->syncCtx.timedOut, true, memory_order_release);
-}
-
-
-
 int parseAggPlan(ParseAggPlanContext *papCtx, ArgsCursor *ac, bool isDiskIndex, QueryError *status) {
   while (!AC_IsAtEnd(ac)) {
     int rv = handleCommonArgs(papCtx, ac, status);

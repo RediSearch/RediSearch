@@ -29,10 +29,14 @@
 #ifdef __cplusplus
 #include <atomic>
 #define RS_Atomic(T) std::atomic<T>
+#define RS_AtomicBoolLoadRelaxed(p)     (((std::atomic<bool> *)(p))->load(std::memory_order_relaxed))
+#define RS_AtomicBoolStoreRelaxed(p, v) (((std::atomic<bool> *)(p))->store((v), std::memory_order_relaxed))
 extern "C" {
 #else
 #define RS_Atomic(T) _Atomic(T)
 #include <stdatomic.h>
+#define RS_AtomicBoolLoadRelaxed(p)     __atomic_load_n((bool *)(p), __ATOMIC_RELAXED)
+#define RS_AtomicBoolStoreRelaxed(p, v) __atomic_store_n((bool *)(p), (v), __ATOMIC_RELAXED)
 #endif
 
 #define DEFAULT_LIMIT 10
@@ -586,8 +590,12 @@ void SetSearchCtx(RedisSearchCtx *sctx, const AREQ *req);
 // Allows calling parseProfileArgs from reply_empty.c
 int parseProfileArgs(RedisModuleString **argv, int argc, AREQ *r);
 
-bool AREQ_TimedOut(AREQ *req);
-void AREQ_SetTimedOut(AREQ *req);
+static inline bool AREQ_TimedOut(AREQ *req) {
+  return RS_AtomicBoolLoadRelaxed(&req->syncCtx.timedOut);
+}
+static inline void AREQ_SetTimedOut(AREQ *req) {
+  RS_AtomicBoolStoreRelaxed(&req->syncCtx.timedOut, true);
+}
 
 static inline bool AREQ_ShouldCheckTimeout(AREQ *req) {
   return !req->skipTimeoutChecks;
