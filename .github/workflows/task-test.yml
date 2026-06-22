@@ -331,7 +331,12 @@ jobs:
           workspaces: "src/redisearch_rs -> ../../bin/redisearch_rs"
       - name: Setup Rust test dependencies
         if: needs.build-image.outputs.succeeded != 'true' # Only run if NOT using custom container
-        run: .install/test_deps/install_rust_deps.sh ${{ needs.get-config.outputs.install_mode }}
+        # github_token lets cargo-binstall use authenticated GitHub API calls
+        # while staying scoped to this retry-wrapped setup step.
+        uses: ./.github/actions/retry-command
+        with:
+          command: .install/test_deps/install_rust_deps.sh ${{ needs.get-config.outputs.install_mode }}
+          github_token: ${{ github.token }}
 
       - name: Setup Python test dependencies
         uses: ./.github/actions/retry-command
