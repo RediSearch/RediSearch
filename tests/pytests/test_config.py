@@ -42,6 +42,7 @@ def testConfig(env):
     env.expect(config_cmd(), 'set', 'MINPREFIX', 1).equal('OK')
 
 @skip(cluster=True)
+@ft_config_passthrough
 def testConfigErrors(env):
     env.expect(config_cmd(), 'set', 'MINPREFIX', 1, 2).equal('EXCESSARGS')
     env.expect(config_cmd(), 'no_such_command', 'idx').error().contains("unknown subcommand 'no_such_command'")
