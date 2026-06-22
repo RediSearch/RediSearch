@@ -7,7 +7,10 @@ from common import *
 MAX_WORKER_THREADS = 16
 
 not_modifiable = 'SEARCH_OPTION_BAD Not modifiable at runtime'
-default_module_list = [['name', 'vectorset', 'ver', 1, 'path', '', 'args', []]]
+# The OSS Redis 8 build registers a built-in 'vectorset' module that shows in
+# MODULE LIST; the enterprise rl_8.6 RoR redis-server does not, so its baseline
+# MODULE LIST (no user modules loaded) is empty.
+default_module_list = [] if RS_TEST_ENTERPRISE else [['name', 'vectorset', 'ver', 1, 'path', '', 'args', []]]
 
 def _test_config_str(arg_name, arg_value, ret_value=None):
     if ret_value == None:
