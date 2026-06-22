@@ -191,6 +191,7 @@ typedef struct RequestSyncCtx {
    * Gated by `requiresAggregateResultsSync`. */
   bool requiresAggregateResultsSync;     // Enable CAS/Signal/Wait around AggregateResults
   RS_Atomic(bool) aggregatingResults;    // CAS claim: BG winner runs the pipeline; timeout-callback winner skips it and replies empty
+  RS_Atomic(bool) depleteCursor;         // Timeout callback promised cursor id 0; worker must not pause it
   bool aggregateResultsClaimLost;        // BG lost the CAS claim to the timeout callback
   bool aggregateResultsDone;             // Set at completion; guarded by aggregateResultsLock
   /* RP_SAFE_LOADER deadlock-avoidance handshake. Set by the BG worker just before
@@ -214,6 +215,7 @@ static inline void RequestSyncCtx_Init(RequestSyncCtx *ctx) {
   ctx->refcount = 1;
   ctx->requiresAggregateResultsSync = false;
   ctx->aggregatingResults = false;
+  ctx->depleteCursor = false;
   ctx->aggregateResultsClaimLost = false;
   ctx->aggregateResultsDone = false;
   ctx->safeLoaderHoldingGIL = false;
@@ -231,6 +233,15 @@ static inline void RequestSyncCtx_SetTimedOut(RequestSyncCtx *ctx) {
 }
 static inline void RequestSyncCtx_ClearTimedOut(RequestSyncCtx *ctx) {
   RS_AtomicBoolStoreRelaxed(&ctx->timedOut, false);
+}
+static inline bool RequestSyncCtx_ShouldDepleteCursor(RequestSyncCtx *ctx) {
+  return RS_AtomicBoolLoadRelaxed(&ctx->depleteCursor);
+}
+static inline void RequestSyncCtx_SetDepleteCursor(RequestSyncCtx *ctx) {
+  RS_AtomicBoolStoreRelaxed(&ctx->depleteCursor, true);
+}
+static inline void RequestSyncCtx_ClearDepleteCursor(RequestSyncCtx *ctx) {
+  RS_AtomicBoolStoreRelaxed(&ctx->depleteCursor, false);
 }
 
 // Release resources owned by a RequestSyncCtx. Must be called exactly once

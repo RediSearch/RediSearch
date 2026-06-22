@@ -777,9 +777,11 @@ int DistAggregateTimeoutReturnStrictCallback(RedisModuleCtx *ctx, RedisModuleStr
   // Signal timeout to the background thread
   CoordRequestCtx_SetTimedOut(CoordReqCtx);
 
-  CoordRequestCtx_UnlockSetRequest(CoordReqCtx);
-
   AREQ *req = (AREQ *)CoordRequestCtx_GetRequest(CoordReqCtx);
+  if (req) {
+    RequestSyncCtx_SetDepleteCursor(&req->syncCtx);
+  }
+  CoordRequestCtx_UnlockSetRequest(CoordReqCtx);
 
   if (!req || AREQ_TryClaimAggregateResults(req)) {
     // Either the request is NULL or We were able to claim the aggregation results.
@@ -884,6 +886,9 @@ int DistCursorReadTimeoutReturnStrictCallback(RedisModuleCtx *ctx, RedisModuleSt
   CoordRequestCtx_LockSetRequest(reqCtx);
   CoordRequestCtx_SetTimedOut(reqCtx);
   AREQ *req = (AREQ *)CoordRequestCtx_GetRequest(reqCtx);
+  if (req) {
+    RequestSyncCtx_SetDepleteCursor(&req->syncCtx);
+  }
   CoordRequestCtx_UnlockSetRequest(reqCtx);
 
   if (!req) {
