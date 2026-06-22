@@ -230,6 +230,12 @@ static void startPipelineHybrid(HybridRequest *hreq, ResultProcessor *rp, Search
   HybridRequest_SetTimeoutStage(hreq, QUERY_TIMEOUT_STAGE_PIPELINE);
 
   startPipelineCommon(&ctx, rp, results, r, rc);
+
+  // Pipeline done without timing out; the caller now enters the reply phase
+  // (marker only; never forces a timeout).
+  if (*rc != RS_RESULT_TIMEDOUT) {
+    HybridRequest_SetTimeoutStage(hreq, QUERY_TIMEOUT_STAGE_REPLY);
+  }
 }
 
 static void finishSendChunk_HREQ(HybridRequest *hreq, SearchResult **results, SearchResult *r, rs_wall_clock_ns_t duration, QueryError *err) {
@@ -512,11 +518,6 @@ void sendChunk_hybrid(HybridRequest *hreq, RedisModule_Reply *reply, size_t limi
     }
 
     startPipelineHybrid(hreq, rp, &results, &r, &rc);
-
-    // Entering the reply/serialization phase (marker only; never forces a timeout).
-    if (rc != RS_RESULT_TIMEDOUT) {
-      HybridRequest_SetTimeoutStage(hreq, QUERY_TIMEOUT_STAGE_REPLY);
-    }
 
     if (hreq->useReplyCallback) {
       // Store results for reply_callback (includes cv)

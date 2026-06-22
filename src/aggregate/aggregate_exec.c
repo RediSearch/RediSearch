@@ -436,6 +436,16 @@ static void startPipeline(AREQ *req, ResultProcessor *rp, SearchResult ***result
   AREQ_SetTimeoutStage(req, QUERY_TIMEOUT_STAGE_PIPELINE);
 
   startPipelineCommon(&ctx, rp, results, r, rc);
+
+  // The pipeline produced its results without timing out; the caller now enters
+  // the reply/serialization phase. Advance the marker so a timeout from here on
+  // -- most importantly a blocked-client deadline that fires while a stored reply
+  // is still pending on the main thread -- is attributed to the REPLY stage.
+  // This only moves the marker; it never forces a timeout, so it cannot suppress
+  // streamed (RETURN-policy) results.
+  if (*rc != RS_RESULT_TIMEDOUT) {
+    AREQ_SetTimeoutStage(req, QUERY_TIMEOUT_STAGE_REPLY);
+  }
 }
 
 
@@ -721,18 +731,6 @@ done_2:
     return rc;
 }
 
-// The pipeline produced its results without timing out and we are entering the
-// reply/serialization phase. Advance the execution-phase marker to REPLY so a
-// timeout firing from here on -- most importantly a blocked-client deadline that
-// fires while a stored reply is still pending on the main thread -- is attributed
-// to the REPLY stage. This only moves the marker; it never forces a timeout, so
-// it cannot suppress streamed (RETURN-policy) results.
-static inline void enterReplyPhase(AREQ *req, int rc) {
-  if (rc != RS_RESULT_TIMEDOUT) {
-    AREQ_SetTimeoutStage(req, QUERY_TIMEOUT_STAGE_REPLY);
-  }
-}
-
 /**
  * Sends a chunk of <n> rows in the resp2 format
  */
@@ -752,7 +750,6 @@ static void sendChunk_Resp2(AREQ *req, RedisModule_Reply *reply, size_t limit,
     };
 
     startPipeline(req, rp, &state.results, &r, &rc);
-    enterReplyPhase(req, rc);
 
     if (req->useReplyCallback) {
       if (req->syncCtx.aggregateResultsClaimLost) {
@@ -977,7 +974,6 @@ static void sendChunk_Resp3(AREQ *req, RedisModule_Reply *reply, size_t limit,
     };
 
     startPipeline(req, rp, &state.results, &r, &rc);
-    enterReplyPhase(req, rc);
 
     if (req->useReplyCallback) {
       if (req->syncCtx.aggregateResultsClaimLost) {
