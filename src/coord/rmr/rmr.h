@@ -260,17 +260,12 @@ short MRIterator_GetPending(MRIterator *it);
 
 void MRIterator_Release(MRIterator *it);
 
-/* Replace the per-reply callback for a single shard's callback context. Must
- * only be called from the iterator's own IO thread (the same thread that
- * invokes the callback via mrIteratorRedisCB); no synchronization is applied. */
-void MRIteratorCallback_SetCallback(MRIteratorCallbackCtx *ctx, MRIteratorCallback cb);
-
-/* Replace the per-reply success callback for every shard and the iterator's
- * no-reply errorCB in one shot. Must only be called from the iterator's own IO
- * thread (the same thread that invokes mrIteratorRedisCB / mrIteratorCallback_Error);
- * no synchronization is applied. Passing NULL for errorCB detaches it. */
-void MRIterator_SwapAllCallbacks(MRIterator *it, MRIteratorCallback successCB,
-                                 MRIteratorErrorCallback errorCB);
+/* Replace the iterator's per-reply successCB and no-reply errorCB. Must only
+ * be called from the iterator's own IO thread (the same thread that invokes
+ * mrIteratorRedisCB / mrIteratorCallback_Error); no synchronization is applied.
+ * Passing NULL for errorCB detaches it. */
+void MRIterator_SwapCallbacks(MRIterator *it, MRIteratorCallback successCB,
+                              MRIteratorErrorCallback errorCB);
 
 /* Return the privateData stored in the first callback context of the iterator.
  * Valid while the iterator is alive (i.e. before the coord ref is released). */

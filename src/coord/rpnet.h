@@ -41,7 +41,7 @@ typedef struct {
   arrayof(MRReply *) shardsProfile;
 
   // True when this is an async WITHCOUNT aggregate; total_results is
-  // accumulated by collectCountCb on the IO thread, surfaced into
+  // accumulated by withCountReplyCb on the IO thread, surfaced into
   // qctx->totalResults once at the start of Phase B by
   // executeAggregateDeferred, and preserved across cursor reads by
   // finishSendChunk.
