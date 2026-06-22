@@ -4,6 +4,7 @@ import os
 
 _DONT_CACHE_TIP = 'dont_cache'
 _COMMANDS_WITHOUT_DONT_CACHE = {'FT.SUGGET', 'FT.SUGLEN'}
+_LEGACY_COMMANDS_WITH_DONT_CACHE = {'FT.GET', 'FT.MGET'}
 
 def _load_command_expectations():
     """Load and parse the command info expectations file."""
@@ -464,6 +465,20 @@ def test_command_info_cacheability_tips_policy():
 
     env.assertEqual(runtime_dont_cache, [],
                     message=f"Commands expected without {_DONT_CACHE_TIP} expose it in COMMAND INFO: {runtime_dont_cache}")
+
+    missing_legacy_dont_cache = []
+    for cmd_name in _LEGACY_COMMANDS_WITH_DONT_CACHE:
+        info = conn.execute_command("COMMAND", "INFO", cmd_name)
+        if not info or not isinstance(info, dict) or cmd_name not in info:
+            missing_legacy_dont_cache.append(f"{cmd_name}: No command info returned")
+            continue
+
+        tips = _tolower_list(info[cmd_name].get('tips', []))
+        if _DONT_CACHE_TIP not in tips:
+            missing_legacy_dont_cache.append(cmd_name)
+
+    env.assertEqual(missing_legacy_dont_cache, [],
+                    message=f"Legacy commands expected with {_DONT_CACHE_TIP} do not expose it in COMMAND INFO: {missing_legacy_dont_cache}")
 
 """Test the structure of command info for specific well-known commands."""
 def test_specific_command_docs_structure():

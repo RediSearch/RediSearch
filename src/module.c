@@ -1401,6 +1401,14 @@ typedef union {
   SubscribeSubCommands subscribeSubCommands;
 } MutuallyExclusiveCommandCallbacks;
 
+static int SetDontCacheInfo(RedisModuleCommand *cmd) {
+  const RedisModuleCommandInfo info = {
+    .version = REDISMODULE_COMMAND_INFO_VERSION,
+    .tips = "dont_cache",
+  };
+  return RedisModule_SetCommandInfo(cmd, &info);
+}
+
 typedef struct {
   const char *name;
   const char *flags;
@@ -1835,11 +1843,11 @@ int RediSearch_InitModuleInternal(RedisModuleCtx *ctx) {
     // read only commands
     DEFINE_COMMAND(RS_INFO_CMD,      IndexInfoCommand,         "readonly"                , NULL,                      NONE,                  "",                     true,             indexOnlyCmdArgs, true),
     DEFINE_COMMAND(RS_SEARCH_CMD,    RSSearchCommand,          "readonly"                , SetFtSearchInfo,           SET_COMMAND_INFO,      "",                     true,             indexOnlyCmdArgs, true),
-    DEFINE_COMMAND(RS_GET_CMD,       DiskDisabledCmd(GetSingleDocumentCommand), "readonly"                , NULL,                      NONE,                  "read",                 true,             indexDocCmdArgs,  false),
+    DEFINE_COMMAND(RS_GET_CMD,       DiskDisabledCmd(GetSingleDocumentCommand), "readonly"                , SetDontCacheInfo,          SET_COMMAND_INFO,      "read",                 true,             indexDocCmdArgs,  false),
     DEFINE_COMMAND(RS_HYBRID_CMD,    DiskDisabledCmd(RSShardedHybridCommand),   "readonly"                , SetFtHybridInfo,           SET_COMMAND_INFO,      "",                     true,             indexOnlyCmdArgs, true),
     DEFINE_COMMAND(RS_AGGREGATE_CMD, DiskDisabledCmd(RSAggregateCommand),       "readonly"                , SetFtAggregateInfo,        SET_COMMAND_INFO,      "read",                 true,             indexOnlyCmdArgs, true),
     DEFINE_COMMAND(RS_PROFILE_CMD,   RSProfileCommand,         "readonly"                , SetFtProfileInfo,          SET_COMMAND_INFO,      "read",                 true,             indexOnlyCmdArgs, true),
-    DEFINE_COMMAND(RS_MGET_CMD,      DiskDisabledCmd(GetDocumentsCommand),      "readonly"                , NULL,                      NONE,                  "read",                 true,             indexOnlyCmdArgs, true),
+    DEFINE_COMMAND(RS_MGET_CMD,      DiskDisabledCmd(GetDocumentsCommand),      "readonly"                , SetDontCacheInfo,          SET_COMMAND_INFO,      "read",                 true,             indexOnlyCmdArgs, true),
     DEFINE_COMMAND(RS_TAGVALS_CMD,   DiskDisabledCmd(TagValsCommand),           "readonly"                , SetFtTagvalsInfo,          SET_COMMAND_INFO,      "read slow dangerous",  true,             indexOnlyCmdArgs, true),
     DEFINE_COMMAND(RS_CURSOR_CMD,    NULL,                     "readonly"                , RegisterCursorCommands,    SUBSCRIBE_SUBCOMMANDS, "read",                 true,             indexOnlyCmdArgs, true),
     DEFINE_COMMAND(RS_DEBUG,         NULL,                     RS_READ_ONLY_FLAGS_DEFAULT, RegisterAllDebugCommands,  SUBSCRIBE_SUBCOMMANDS, "admin slow dangerous",                true,             indexOnlyCmdArgs, false),
@@ -4966,7 +4974,7 @@ RedisModule_OnLoad(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
   }
   // Deprecated commands. Grouped here for easy tracking
   SearchCommand deprecatedCommands[] = {
-    DEFINE_COMMAND("FT.MGET",           SafeCmd(DiskDisabledCmd(MGetCommandHandler)),    "readonly", NULL,             NONE,             "read",           true, noKeyArgs, false),
+    DEFINE_COMMAND("FT.MGET",           SafeCmd(DiskDisabledCmd(MGetCommandHandler)),    "readonly", SetDontCacheInfo, SET_COMMAND_INFO, "read",           true, noKeyArgs, false),
     DEFINE_COMMAND("FT.TAGVALS",        SafeCmd(DiskDisabledCmd(TagValsCommandHandler)), "readonly", SetFtTagvalsInfo, SET_COMMAND_INFO, "read slow dangerous", true, noKeyArgs, false)
   };
   if (CreateSearchCommands(ctx, deprecatedCommands, sizeof(deprecatedCommands) / sizeof(SearchCommand)) != REDISMODULE_OK) {
