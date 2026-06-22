@@ -34,18 +34,18 @@ fn make_child<'a>(ids: Vec<DocId>) -> Box<dyn RQEIterator<'a> + 'a> {
 /// Counts `begin_adhoc` / `end_adhoc` calls and tracks whether each
 /// `lookup_score` falls inside the scan window.
 #[derive(Default)]
-struct LifecycleCountingSource {
+struct CallCountingScoreSource {
     begin_calls: u32,
     end_calls: u32,
     lookups_after_begin_before_end: u32,
     lookups_outside_scan: u32,
     /// When set, [`ScoreSource::should_rerank`] returns `true`.
-    force_rerank: bool,
+    rerank: bool,
     /// Number of times [`ScoreSource::rerank`] was invoked.
     rerank_calls: u32,
 }
 
-impl ScoreSource for LifecycleCountingSource {
+impl ScoreSource for CallCountingScoreSource {
     type Batch = MockScoreBatch;
 
     fn next_batch(&mut self) -> Result<Option<Self::Batch>, RQEIteratorError> {
@@ -87,7 +87,7 @@ impl ScoreSource for LifecycleCountingSource {
     }
 
     fn should_rerank(&self) -> bool {
-        self.force_rerank
+        self.rerank
     }
 
     fn rerank(&mut self, _results: &mut [ScoredResult]) {
@@ -107,7 +107,7 @@ impl ScoreSource for LifecycleCountingSource {
 #[test]
 fn hooks_called_once_per_scan_with_lookups_in_between() {
     let mut it = TopKIterator::new_with_mode(
-        LifecycleCountingSource::default(),
+        CallCountingScoreSource::default(),
         Some(make_child(vec![1, 2, 3])),
         NonZeroUsize::new(10).unwrap(),
         asc,
@@ -202,7 +202,7 @@ impl<'index> RQEIterator<'index> for ErrOnSecondRead<'index> {
 fn end_adhoc_runs_when_child_errors_midscan() {
     let child: Box<dyn RQEIterator<'_>> = Box::new(ErrOnSecondRead::new());
     let mut it = TopKIterator::new_with_mode(
-        LifecycleCountingSource::default(),
+        CallCountingScoreSource::default(),
         Some(child),
         NonZeroUsize::new(10).unwrap(),
         asc,
@@ -220,8 +220,8 @@ fn end_adhoc_runs_when_child_errors_midscan() {
 
 #[test]
 fn rerank_runs_once_after_clean_scan() {
-    let source = LifecycleCountingSource {
-        force_rerank: true,
+    let source = CallCountingScoreSource {
+        rerank: true,
         ..Default::default()
     };
     let mut it = TopKIterator::new_with_mode(
@@ -243,8 +243,8 @@ fn rerank_runs_once_after_clean_scan() {
 
 #[test]
 fn rerank_skipped_on_timeout() {
-    let source = LifecycleCountingSource {
-        force_rerank: true,
+    let source = CallCountingScoreSource {
+        rerank: true,
         ..Default::default()
     };
     let child: Box<dyn RQEIterator<'_>> = Box::new(ErrOnSecondRead::new());
