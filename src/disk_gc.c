@@ -14,23 +14,21 @@
 #include "redismodule.h"
 #include "rmalloc.h"
 #include "info/global_stats.h"
-#include "util/timeout.h"
 #include <stdatomic.h>
 #include <time.h>
 
 // Fold one completed cycle's results into the cumulative per-index counters.
-// Every path that runs a disk GC cycle must funnel its (stats, elapsed) pair
-// through here so the accounting stays identical regardless of how the cycle
-// was triggered — background tick, forced invoke, or an enterprise/RoR
-// scheduler that drives compaction on its own. Keeping the per-cycle numbers
-// (bytes, docs, time) in one place is also what lets FT.INFO/INFO report a
-// single coherent view.
-static void accumulateCycleStats(DiskGC *gc, const DiskGCRunStats *stats, long elapsed_ms) {
-  if (elapsed_ms < 0) elapsed_ms = 0;
+// Every path that runs a disk GC cycle must funnel its `DiskGCRunStats` through
+// here so the accounting stays identical regardless of how the cycle was
+// triggered — background tick, forced invoke, or an enterprise/RoR scheduler
+// that drives compaction on its own. All per-cycle numbers (bytes, docs, time)
+// are populated by the disk implementation in `stats`, so this is also what
+// lets FT.INFO/INFO report a single coherent view.
+static void accumulateCycleStats(DiskGC *gc, const DiskGCRunStats *stats) {
   atomic_fetch_add(&gc->totalCollectedBytes, stats->bytes_collected);
   atomic_fetch_add(&gc->totalCycles, (size_t)1);
-  atomic_fetch_add(&gc->totalTimeMs, (size_t)elapsed_ms);
-  atomic_store(&gc->lastRunTimeMs, (size_t)elapsed_ms);
+  atomic_fetch_add(&gc->totalTimeMs, stats->cycle_time_ms);
+  atomic_store(&gc->lastRunTimeMs, stats->cycle_time_ms);
   IndexsGlobalStats_DecreaseLogicallyDeleted(stats->num_cleaned_docs);
 }
 
@@ -60,17 +58,10 @@ static bool periodicCb(void *privdata, bool force) {
   atomic_fetch_sub(&gc->deletesFromLastRun, num_deletes);
   atomic_fetch_sub(&gc->updatesFromLastRun, num_updates);
 
-  struct timespec start, end;
-  clock_gettime(CLOCK_MONOTONIC, &start);
   DiskGCRunStats stats = {0};
   SearchDisk_RunGC(sp->diskSpec, &stats);
-  clock_gettime(CLOCK_MONOTONIC, &end);
 
-  struct timespec elapsed;
-  rs_timersub(&end, &start, &elapsed);
-  long elapsed_ms = (long)rs_timer_ms(&elapsed);
-
-  accumulateCycleStats(gc, &stats, elapsed_ms);
+  accumulateCycleStats(gc, &stats);
 
   gc->intervalSec = RSGlobalConfig.gcConfigParams.gcSettings.forkGcRunIntervalSec;
 

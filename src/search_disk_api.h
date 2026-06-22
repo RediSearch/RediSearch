@@ -119,6 +119,10 @@ typedef struct DiskGCRunStats {
   // allocate more than they free; matches the `InfoGCStats::totalCollectedBytes`
   // convention.
   ssize_t bytes_collected;
+  // Wall-clock duration of this compaction cycle, in milliseconds, measured by
+  // the disk implementation. Keeping it in this struct lets every per-cycle
+  // counter be populated in one place on the disk side.
+  size_t cycle_time_ms;
 } DiskGCRunStats;
 
 typedef struct BasicDiskAPI {
