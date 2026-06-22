@@ -7,5 +7,4 @@ workspace license policy is enforced by `cargo deny check licenses` using
 
 | Package | Version | License | Use |
 | --- | --- | --- | --- |
-| `cbindgen` | `0.28.0`, `0.29.2` | `MPL-2.0` | Generates C and C++ headers from Rust FFI crates in release branches that still use cbindgen. |
 | `priority-queue` | `2.7.0` | `MPL-2.0` | Provides the double-ended priority queue used by `COLLECT DISTINCT` to deduplicate by projected value while retaining the best `SORTBY` representative. |
