@@ -18,14 +18,6 @@
 #define INCR(x) INCR_BY(x, 1)
 #define READ(x) __atomic_load_n(&(x), __ATOMIC_RELAXED)
 
-// Atomically snapshot the three per-stage timeout sub-counters from `src` into `dst`.
-#define READ_TIMEOUT_STAGES(dst, src)      \
-  do {                                     \
-    (dst).queue = READ((src).queue);       \
-    (dst).pipeline = READ((src).pipeline); \
-    (dst).reply = READ((src).reply);       \
-  } while (0)
-
 // Increment the matching per-stage timeout sub-counter of `stages` by `toAdd`.
 static inline void IncrTimeoutStage(QueryTimeoutStageStats *stages, QueryTimeoutStage stage,
                                     int toAdd) {
@@ -129,11 +121,15 @@ QueriesGlobalStats TotalGlobalStats_GetQueryStats() {
   stats.shard_errors.syntax = READ(RSGlobalStats.totalStats.queries.shard_errors.syntax);
   stats.shard_errors.arguments = READ(RSGlobalStats.totalStats.queries.shard_errors.arguments);
   stats.shard_errors.timeout = READ(RSGlobalStats.totalStats.queries.shard_errors.timeout);
-  READ_TIMEOUT_STAGES(stats.shard_errors.timeout_by_stage, RSGlobalStats.totalStats.queries.shard_errors.timeout_by_stage);
+  stats.shard_errors.timeout_by_stage.queue = READ(RSGlobalStats.totalStats.queries.shard_errors.timeout_by_stage.queue);
+  stats.shard_errors.timeout_by_stage.pipeline = READ(RSGlobalStats.totalStats.queries.shard_errors.timeout_by_stage.pipeline);
+  stats.shard_errors.timeout_by_stage.reply = READ(RSGlobalStats.totalStats.queries.shard_errors.timeout_by_stage.reply);
   stats.coord_errors.syntax = READ(RSGlobalStats.totalStats.queries.coord_errors.syntax);
   stats.coord_errors.arguments = READ(RSGlobalStats.totalStats.queries.coord_errors.arguments);
   stats.coord_errors.timeout = READ(RSGlobalStats.totalStats.queries.coord_errors.timeout);
-  READ_TIMEOUT_STAGES(stats.coord_errors.timeout_by_stage, RSGlobalStats.totalStats.queries.coord_errors.timeout_by_stage);
+  stats.coord_errors.timeout_by_stage.queue = READ(RSGlobalStats.totalStats.queries.coord_errors.timeout_by_stage.queue);
+  stats.coord_errors.timeout_by_stage.pipeline = READ(RSGlobalStats.totalStats.queries.coord_errors.timeout_by_stage.pipeline);
+  stats.coord_errors.timeout_by_stage.reply = READ(RSGlobalStats.totalStats.queries.coord_errors.timeout_by_stage.reply);
   stats.shard_errors.oom = READ(RSGlobalStats.totalStats.queries.shard_errors.oom);
   stats.coord_errors.oom = READ(RSGlobalStats.totalStats.queries.coord_errors.oom);
   stats.shard_errors.unavailableSlots = READ(RSGlobalStats.totalStats.queries.shard_errors.unavailableSlots);
@@ -141,9 +137,13 @@ QueriesGlobalStats TotalGlobalStats_GetQueryStats() {
 
   // Warnings
   stats.shard_warnings.timeout = READ(RSGlobalStats.totalStats.queries.shard_warnings.timeout);
-  READ_TIMEOUT_STAGES(stats.shard_warnings.timeout_by_stage, RSGlobalStats.totalStats.queries.shard_warnings.timeout_by_stage);
+  stats.shard_warnings.timeout_by_stage.queue = READ(RSGlobalStats.totalStats.queries.shard_warnings.timeout_by_stage.queue);
+  stats.shard_warnings.timeout_by_stage.pipeline = READ(RSGlobalStats.totalStats.queries.shard_warnings.timeout_by_stage.pipeline);
+  stats.shard_warnings.timeout_by_stage.reply = READ(RSGlobalStats.totalStats.queries.shard_warnings.timeout_by_stage.reply);
   stats.coord_warnings.timeout = READ(RSGlobalStats.totalStats.queries.coord_warnings.timeout);
-  READ_TIMEOUT_STAGES(stats.coord_warnings.timeout_by_stage, RSGlobalStats.totalStats.queries.coord_warnings.timeout_by_stage);
+  stats.coord_warnings.timeout_by_stage.queue = READ(RSGlobalStats.totalStats.queries.coord_warnings.timeout_by_stage.queue);
+  stats.coord_warnings.timeout_by_stage.pipeline = READ(RSGlobalStats.totalStats.queries.coord_warnings.timeout_by_stage.pipeline);
+  stats.coord_warnings.timeout_by_stage.reply = READ(RSGlobalStats.totalStats.queries.coord_warnings.timeout_by_stage.reply);
   stats.shard_warnings.oom = READ(RSGlobalStats.totalStats.queries.shard_warnings.oom);
   stats.coord_warnings.oom = READ(RSGlobalStats.totalStats.queries.coord_warnings.oom);
   stats.shard_warnings.maxPrefixExpansion = READ(RSGlobalStats.totalStats.queries.shard_warnings.maxPrefixExpansion);
