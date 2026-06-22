@@ -20,7 +20,8 @@ use rqe_core::DocId;
 use rqe_iterators::RQEIteratorError;
 use top_k::{BatchStrategy, ScoreSource, ScoredResult};
 use vecsim::{
-    AdhocBfCtx, BatchIterator, IndexRef, QueryError, QueryVector, ReplyOrder, SharedLockGuard,
+    AdhocBfCtx, BatchIterator, DiskRerank, IndexRef, QueryError, QueryVector, ReplyOrder,
+    SharedLockGuard,
 };
 
 use crate::score_batch::VecSimScoreBatch;
@@ -134,16 +135,7 @@ impl<'index> VectorScoreSource<'index> {
         // length invariant for `index`, the layout VecSim reads on every query path.
         let query_vector = unsafe { QueryVector::new(index, query_vector) };
         let is_disk = index.is_disk();
-        let should_rerank = is_disk && {
-            // SAFETY: `is_disk` guarantees the union holds `hnswDiskRuntimeParams`.
-            let rerank = unsafe {
-                query_params
-                    .__bindgen_anon_1
-                    .hnswDiskRuntimeParams
-                    .shouldRerank
-            };
-            rerank == ffi::VecSimBool_VecSimBool_TRUE
-        };
+        let should_rerank = index.disk_rerank(&query_params) == Some(DiskRerank::Enabled);
         let adhoc_state = if is_disk {
             AdhocPathState::Disk { ctx: None }
         } else {

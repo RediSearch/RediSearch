@@ -13,7 +13,7 @@
 
 use std::{ffi::c_void, marker::PhantomData, ptr::NonNull};
 
-use crate::{BatchIterator, QueryError, QueryReply, ReplyOrder};
+use crate::{BatchIterator, DiskRerank, QueryError, QueryReply, ReplyOrder};
 use ffi::{
     VecSim_Normalize, VecSimAdhocBfCtx, VecSimIndex, VecSimIndex_AdhocBfCtx_Free,
     VecSimIndex_AdhocBfCtx_GetDistanceFrom, VecSimIndex_AdhocBfCtx_GetExactDistances,
@@ -155,6 +155,18 @@ impl<'index> IndexRef<'index> {
     pub fn is_disk(&self) -> bool {
         // SAFETY: `self.inner` upholds its invariant.
         unsafe { VecSimIndex_BasicInfo(self.inner.as_ptr()) }.isDisk
+    }
+
+    /// The disk-HNSW reranking preference in `params`, or `None` if this is not
+    /// a disk index.
+    pub fn disk_rerank(&self, params: &VecSimQueryParams) -> Option<DiskRerank> {
+        if !self.is_disk() {
+            return None;
+        }
+        // SAFETY: `is_disk()` holds, so `hnswDiskRuntimeParams` is the live
+        // variant of the runtime-params union.
+        let raw = unsafe { params.__bindgen_anon_1.hnswDiskRuntimeParams.shouldRerank };
+        Some(DiskRerank::from_raw(raw))
     }
 
     /// VecSim heuristic: should adhoc-BF be preferred over batch iteration

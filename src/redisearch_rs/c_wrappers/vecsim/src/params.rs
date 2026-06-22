@@ -9,7 +9,38 @@
 
 //! Plain enums mirroring the VecSim C constants.
 
-use ffi::{VecSimQueryReply_Order, VecSimQueryReply_Order_BY_ID, VecSimQueryReply_Order_BY_SCORE};
+use ffi::{
+    VecSimBool, VecSimBool_VecSimBool_FALSE, VecSimBool_VecSimBool_TRUE, VecSimQueryReply_Order,
+    VecSimQueryReply_Order_BY_ID, VecSimQueryReply_Order_BY_SCORE,
+};
+
+/// The disk-HNSW reranking preference carried in a query's
+/// `hnswDiskRuntimeParams.shouldRerank`.
+///
+/// Mirrors the tri-state `VecSimBool`: a disk query can leave the flag unset
+/// (no preference) or pin it on or off explicitly.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum DiskRerank {
+    /// Rerank the disk adhoc-BF top-k with exact distances (`VecSimBool_TRUE`).
+    Enabled,
+    /// Skip reranking (`VecSimBool_FALSE`).
+    Disabled,
+    /// No preference set by the query (`VecSimBool_UNSET`).
+    Unset,
+}
+
+impl DiskRerank {
+    /// Map a raw `shouldRerank` value. An unrecognised value is treated as
+    /// [`Unset`](Self::Unset), the neutral default.
+    #[expect(nonstandard_style, reason = "VecSimBool_VecSimBool comes from FFI")]
+    pub(crate) const fn from_raw(value: VecSimBool) -> Self {
+        match value {
+            VecSimBool_VecSimBool_TRUE => DiskRerank::Enabled,
+            VecSimBool_VecSimBool_FALSE => DiskRerank::Disabled,
+            _ => DiskRerank::Unset,
+        }
+    }
+}
 
 /// Sort order for results returned by a VecSim query.
 ///
