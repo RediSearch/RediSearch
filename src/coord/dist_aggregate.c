@@ -888,19 +888,19 @@ int DistCursorReadTimeoutReturnStrictCallback(RedisModuleCtx *ctx, RedisModuleSt
   AREQ *req = (AREQ *)CoordRequestCtx_GetRequest(reqCtx);
   if (req) {
     RequestSyncCtx_SetDepleteCursor(&req->syncCtx);
-  }
-  CoordRequestCtx_UnlockSetRequest(reqCtx);
-
-  if (!req) {
+    CoordRequestCtx_UnlockSetRequest(reqCtx);
+  } else {
     // BG never took the cursor (or hit the early TimedOut check and bailed
     // before taking). No condvar signal will arrive; reply directly with
     // a depleted cursor. Cid was validated by CursorCommand on the main thread
-    // before BC arming, so argv[3] is trusted. The cursor is still idle because
-    // BG could not take it after we marked the request timed out.
+    // before BC arming, so argv[3] is trusted. Purge while still holding
+    // setRequestLock: BG cannot pass its TimedOut check and take the cursor
+    // concurrently.
     long long cid;
     int rc = RedisModule_StringToLongLong(argv[3], &cid);
     RS_ASSERT(rc == REDISMODULE_OK);
     Cursors_Purge(GetGlobalCursor((uint64_t)cid), (uint64_t)cid);
+    CoordRequestCtx_UnlockSetRequest(reqCtx);
     return coord_cursor_read_empty_reply_timeout(ctx, 0);
   }
 
