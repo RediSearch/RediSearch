@@ -95,7 +95,7 @@ impl ScoreSource for TimingOutSource {
         Err(RQEIteratorError::TimedOut)
     }
 
-    fn lookup_score(&mut self, _: ffi::t_docId) -> Option<f64> {
+    fn lookup_score(&mut self, _: DocId) -> Option<f64> {
         None
     }
 
@@ -132,9 +132,10 @@ fn make_child<'a>(ids: Vec<DocId>) -> Box<dyn RQEIterator<'a> + 'a> {
     Box::new(IdList::<true>::new(ids))
 }
 
-/// Wrap an [`IdList`] in a [`CRQEIterator`] so the typed-child `TopKIterator`
-/// variant (which supports [`ProfileChildren`]) can be exercised in tests.
-fn make_crqe_child(ids: Vec<ffi::t_docId>) -> CRQEIterator {
+/// Build an [`IdList`] from `ids` and wrap it in a [`CRQEIterator`] so the
+/// typed-child `TopKIterator` variant (which supports [`ProfileChildren`]) can
+/// be exercised in tests.
+fn make_crqe_child(ids: Vec<DocId>) -> CRQEIterator {
     let it = IdList::<true>::new(ids);
     let ptr = RQEIteratorWrapper::boxed_new(it);
     // SAFETY: `boxed_new` returns a non-null `Box::into_raw` pointer.

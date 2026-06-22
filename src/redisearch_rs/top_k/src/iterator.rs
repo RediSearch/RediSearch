@@ -499,19 +499,7 @@ impl<'index, S: ScoreSource + 'index> rqe_iterators::interop::ProfileChildren<'i
             child: self
                 .child
                 .map(rqe_iterators::c2rust::CRQEIterator::into_profiled),
-            source: self.source,
-            mode: self.mode,
-            initial_mode: self.initial_mode,
-            heap: self.heap,
-            direct_batch: self.direct_batch,
-            k: self.k,
-            compare: self.compare,
-            phase: self.phase,
-            results: self.results,
-            yield_pos: self.yield_pos,
-            current: self.current,
-            last_doc_id: self.last_doc_id,
-            at_eof: self.at_eof,
+            ..self
         }
     }
 }
