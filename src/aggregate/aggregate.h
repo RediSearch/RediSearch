@@ -24,7 +24,6 @@
 #include "slot_ranges.h"
 #include "profile/profile.h"
 #include "rs_wall_clock.h"
-#include "query_timeout_stage.h"
 
 #include "rmutil/rm_assert.h"
 

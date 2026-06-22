@@ -10,7 +10,6 @@
 
 #include "spec.h"
 #include "rs_wall_clock.h"
-#include "query_timeout_stage.h"
 
 #ifdef __cplusplus
 extern "C" {

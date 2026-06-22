@@ -25,6 +25,19 @@ typedef enum {
   TimeoutPolicy_Invalid       // Not a real value
 } RSTimeoutPolicy;
 
+// The stage of the query-processing pipeline in which a timeout occurred. Used to
+// break down the query-timeout metric (see info/global_stats.h) by where in the
+// lifecycle the deadline was exceeded. The values double as an "execution phase"
+// marker on RequestSyncCtx: the executing (background) thread advances it
+// monotonically QUEUE -> PIPELINE -> REPLY, and the main-thread timeout callbacks
+// read it to classify a timeout.
+typedef enum {
+  QUERY_TIMEOUT_STAGE_QUEUE = 0,    // before the result-processor pipeline started running
+  QUERY_TIMEOUT_STAGE_PIPELINE = 1, // during result-processor pipeline execution
+  QUERY_TIMEOUT_STAGE_REPLY = 2,    // during reply serialization
+  QUERY_TIMEOUT_STAGE_COUNT
+} QueryTimeoutStage;
+
 static const int on_timeout_enums[3] = {
   TimeoutPolicy_Return,
   TimeoutPolicy_Fail,
