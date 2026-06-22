@@ -474,15 +474,21 @@ if RS_TEST_ENTERPRISE:
             return
         conn = self.getConnection()
         port = conn.connection_pool.connection_kwargs.get('port')
-        conn.execute_command(
-            'SEARCH.CLUSTERSET',
-            'MYID', '1',
-            'RANGES', '1',
-            'SHARD', '1',
-            'SLOTRANGE', '0', '16383',
-            'ADDR', f'password@127.0.0.1:{port}',
-            'MASTER',
-        )
+        try:
+            conn.execute_command(
+                'SEARCH.CLUSTERSET',
+                'MYID', '1',
+                'RANGES', '1',
+                'SHARD', '1',
+                'SLOTRANGE', '0', '16383',
+                'ADDR', f'password@127.0.0.1:{port}',
+                'MASTER',
+            )
+        except redis.exceptions.ResponseError:
+            # Best-effort: some standalone envs load the module without the
+            # coordinator command (SEARCH.CLUSTERSET absent) -> nothing to seed,
+            # and the coordinator NumShards==0 gate isn't active there either.
+            pass
 
     Env.__init__ = _enterprise_env_init
 
