@@ -215,11 +215,10 @@ static void startPipelineHybrid(HybridRequest *hreq, ResultProcessor *rp, Search
   SyncPoint_WaitUntil(SYNC_POINT_BEFORE_HYBRID_RESULTS_CLAIM, hreq_timeout_or_pending_spec_writers, hreq);
 #endif
 
-  // Bail if the RETURN-STRICT timeout callback already claimed (it replies)
-  // or if it signaled timeout in parallel after we won (it will reply with
-  // our stored zero-result state).
+  // Bail if the RETURN-STRICT timeout callback already owns the reply.
+  // The timeout check MUST come first so it short-circuits the CAS.
   if (HybridRequest_RequiresThreadsSyncResults(hreq) &&
-      (!HybridRequest_TryClaimAggregateResults(hreq) || HybridRequest_TimedOut(hreq))) {
+      (HybridRequest_TimedOut(hreq) || !HybridRequest_TryClaimAggregateResults(hreq))) {
     *rc = RS_RESULT_TIMEDOUT;
     return;
   }
