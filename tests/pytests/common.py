@@ -446,6 +446,43 @@ if RS_TEST_ENTERPRISE:
 
     redis.client.Redis.execute_command = _enterprise_execute_command
 
+# --- FIX 1b: seed single-shard coordinator topology on standalone envs.
+#     The enterprise build leaves the search coordinator uninitialized
+#     (NumShards==0) until SEARCH.CLUSTERSET arrives, so coordinator-gated
+#     commands (FT.SEARCH / FT.AGGREGATE / _FT.DEBUG query-debug) reply
+#     "ERRCLUSTER Uninitialized cluster state".  OSS standalone auto-seeds
+#     NumShards=1 at module init; the enterprise build defers it.  Mirror
+#     flow-tests' configure_search_cluster_single_shard(): seed a single-shard
+#     topology (all slots 0-16383) on every standalone env at startup so the
+#     local query pipeline runs exactly as it does on OSS standalone.  Real
+#     cluster envs set their own topology and are left untouched.
+
+if RS_TEST_ENTERPRISE:
+    _orig_env_init = Env.__init__
+
+    def _enterprise_env_init(self, *args, **kwargs):
+        _orig_env_init(self, *args, **kwargs)
+        # Only single-node (non-cluster) envs need seeding; skip real cluster
+        # envs (they set their own topology) and 'existing' external servers.
+        try:
+            if self.isCluster() or 'existing' in self.env:
+                return
+        except Exception:
+            return
+        conn = self.getConnection()
+        port = conn.connection_pool.connection_kwargs.get('port')
+        conn.execute_command(
+            'SEARCH.CLUSTERSET',
+            'MYID', '1',
+            'RANGES', '1',
+            'SHARD', '1',
+            'SLOTRANGE', '0', '16383',
+            'ADDR', f'password@127.0.0.1:{port}',
+            'MASTER',
+        )
+
+    Env.__init__ = _enterprise_env_init
+
 # --- FIX 2: strip the enterprise-only 'Shard ID' key from FT.PROFILE replies.
 
 def strip_enterprise_profile_keys(obj):
