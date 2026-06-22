@@ -8,6 +8,8 @@ from test_info_modules import (
     TIMEOUT_ERROR_COORD_METRIC, TIMEOUT_WARNING_COORD_METRIC,
     TIMEOUT_ERROR_COORD_QUEUE_METRIC, TIMEOUT_ERROR_COORD_PIPELINE_METRIC,
     TIMEOUT_ERROR_COORD_REPLY_METRIC,
+    TIMEOUT_WARNING_COORD_QUEUE_METRIC, TIMEOUT_WARNING_COORD_PIPELINE_METRIC,
+    TIMEOUT_WARNING_COORD_REPLY_METRIC,
     _verify_metrics_not_changed,
 )
 import threading
@@ -30,6 +32,17 @@ def _assert_coord_timeout_error_sum_invariant(env):
         + int(sec[TIMEOUT_ERROR_COORD_PIPELINE_METRIC])
         + int(sec[TIMEOUT_ERROR_COORD_REPLY_METRIC]),
         message="aggregate coord timeout-error counter must equal the sum of its per-stage parts")
+
+def _assert_coord_timeout_warning_sum_invariant(env):
+    """The aggregate coord timeout-warning counter must equal the sum of its
+    per-stage parts (queue + pipeline + reply)."""
+    sec = info_modules_to_dict(env)[COORD_WARN_ERR_SECTION]
+    env.assertEqual(
+        int(sec[TIMEOUT_WARNING_COORD_METRIC]),
+        int(sec[TIMEOUT_WARNING_COORD_QUEUE_METRIC])
+        + int(sec[TIMEOUT_WARNING_COORD_PIPELINE_METRIC])
+        + int(sec[TIMEOUT_WARNING_COORD_REPLY_METRIC]),
+        message="aggregate coord timeout-warning counter must equal the sum of its per-stage parts")
 
 def _coord_cursor_total(env, idx='idx'):
     """Return the coordinator's global cursor count, or 0 if cursor_stats is absent."""
@@ -1959,6 +1972,9 @@ class TestCoordinatorTimeout:
 
         before_info = info_modules_to_dict(env)
         base_warn_coord = int(before_info[COORD_WARN_ERR_SECTION][TIMEOUT_WARNING_COORD_METRIC])
+        # BG is parked before TryClaim (before the pipeline runs), so the timeout
+        # warning is attributed to the QUEUE stage.
+        base_warn_queue = int(before_info[COORD_WARN_ERR_SECTION][TIMEOUT_WARNING_COORD_QUEUE_METRIC])
 
         sync_point = 'BeforeAggregateResultsClaim'
         env.cmd(debug_cmd(), 'SYNC_POINT', 'CLEAR')
@@ -2002,7 +2018,11 @@ class TestCoordinatorTimeout:
         env.assertEqual(after_info[COORD_WARN_ERR_SECTION][TIMEOUT_WARNING_COORD_METRIC],
                         str(base_warn_coord + 1),
                         message="Coordinator timeout warning should be +1")
+        env.assertEqual(int(after_info[COORD_WARN_ERR_SECTION][TIMEOUT_WARNING_COORD_QUEUE_METRIC]),
+                        base_warn_queue + 1,
+                        message="Timeout warning before the pipeline should bump the QUEUE stage")
         _verify_metrics_not_changed(env, env, before_info, [TIMEOUT_WARNING_COORD_METRIC])
+        _assert_coord_timeout_warning_sum_invariant(env)
 
         env.cmd(debug_cmd(), 'SYNC_POINT', 'CLEAR')
         env.cmd('CONFIG', 'SET', ON_TIMEOUT_CONFIG, prev_on_timeout_policy)
