@@ -47,9 +47,10 @@ echo "Rustup binary location: $(which rustup)"
 # that do not yet have stable installed.
 rustup update stable
 # Print where `cargo` is located and verify the stable toolchain is available.
-# Use +stable so this installer is not affected by the repo rust-toolchain override.
+# Use rustup run so this installer is not affected by the repo rust-toolchain
+# override or by a non-rustup cargo earlier on PATH.
 echo "Cargo binary location: $(which cargo)"
-cargo +stable -vV
+rustup run stable cargo -vV
 # Ensure we have both clippy and rustfmt installed for the stable toolchain
 # (rustup is also idempotent here - reports "up to date" if installed).
 rustup component add --toolchain stable clippy rustfmt
@@ -71,7 +72,7 @@ if should_generate_headers; then
         else
             echo "Installing cheadergen $REQUIRED_CHEADERGEN_VERSION"
         fi
-        cargo +stable install --locked "cheadergen_cli@${REQUIRED_CHEADERGEN_VERSION}"
+        rustup run stable cargo install --force --locked "cheadergen_cli@${REQUIRED_CHEADERGEN_VERSION}"
     fi
 else
     echo "Skipping cheadergen setup because REDISEARCH_GENERATE_HEADERS is disabled"
