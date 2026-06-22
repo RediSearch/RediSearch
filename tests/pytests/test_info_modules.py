@@ -770,7 +770,10 @@ def _verify_metrics_not_changed(env, conn, prev_info_dict: dict, ignored_metrics
   info_dict = info_modules_to_dict(conn)
   for section in [WARN_ERR_SECTION, COORD_WARN_ERR_SECTION]:
     for metric in info_dict[section]:
-      if metric in ignored_metrics:
+      # An ignored aggregate timeout metric (e.g. ..._timeout) also exempts its
+      # per-stage children (..._timeout_queue/pipeline/reply), which are
+      # definitionally coupled to it and move together.
+      if any(metric == ig or metric.startswith(ig + '_') for ig in ignored_metrics):
         continue
       env.assertEqual(info_dict[section][metric], prev_info_dict[section][metric], message = f"Metric {metric} changed")
 
@@ -935,12 +938,9 @@ class testWarningsAndErrorsStandalone:
     #### FIX : when the issue is fixed, this should be equal to base_warn + 3
     self.env.assertEqual(info_dict[COORD_WARN_ERR_SECTION][TIMEOUT_WARNING_COORD_METRIC], str(base_warn + 2))
 
-    # Test other metrics not changed. The per-stage timeout breakdown moves together
-    # with the aggregate timeout counters, so it is exempt from the "unchanged" check.
-    tested_in_this_test = [TIMEOUT_WARNING_COORD_METRIC, TIMEOUT_ERROR_COORD_METRIC,
-                           TIMEOUT_ERROR_COORD_QUEUE_METRIC, TIMEOUT_ERROR_COORD_PIPELINE_METRIC,
-                           TIMEOUT_ERROR_COORD_REPLY_METRIC, TIMEOUT_WARNING_COORD_QUEUE_METRIC,
-                           TIMEOUT_WARNING_COORD_PIPELINE_METRIC, TIMEOUT_WARNING_COORD_REPLY_METRIC]
+    # Test other metrics not changed. Ignoring the aggregate timeout metrics also
+    # exempts their per-stage children (see _verify_metrics_not_changed).
+    tested_in_this_test = [TIMEOUT_WARNING_COORD_METRIC, TIMEOUT_ERROR_COORD_METRIC]
     _verify_metrics_not_changed(self.env, self.env, before_info_dict, tested_in_this_test)
 
   def test_oom_errors_SA(self):
@@ -1344,13 +1344,9 @@ class testWarningsAndErrorsCluster:
           + int(info_shard[WARN_ERR_SECTION][TIMEOUT_WARNING_SHARD_REPLY_METRIC]),
           message=f"Shard {shardId} timeout warning aggregate must equal per-stage sum")
 
-    # Test other metrics not changed (on shards). The per-stage timeout breakdown
-    # moves together with the aggregate timeout counters, so it is exempt too.
-    tested_in_this_test = [TIMEOUT_ERROR_SHARD_METRIC, TIMEOUT_WARNING_SHARD_METRIC, TIMEOUT_ERROR_COORD_METRIC, TIMEOUT_WARNING_COORD_METRIC,
-                           TIMEOUT_ERROR_SHARD_QUEUE_METRIC, TIMEOUT_ERROR_SHARD_PIPELINE_METRIC, TIMEOUT_ERROR_SHARD_REPLY_METRIC,
-                           TIMEOUT_WARNING_SHARD_QUEUE_METRIC, TIMEOUT_WARNING_SHARD_PIPELINE_METRIC, TIMEOUT_WARNING_SHARD_REPLY_METRIC,
-                           TIMEOUT_ERROR_COORD_QUEUE_METRIC, TIMEOUT_ERROR_COORD_PIPELINE_METRIC, TIMEOUT_ERROR_COORD_REPLY_METRIC,
-                           TIMEOUT_WARNING_COORD_QUEUE_METRIC, TIMEOUT_WARNING_COORD_PIPELINE_METRIC, TIMEOUT_WARNING_COORD_REPLY_METRIC]
+    # Test other metrics not changed (on shards). Ignoring the aggregate timeout
+    # metrics also exempts their per-stage children (see _verify_metrics_not_changed).
+    tested_in_this_test = [TIMEOUT_ERROR_SHARD_METRIC, TIMEOUT_WARNING_SHARD_METRIC, TIMEOUT_ERROR_COORD_METRIC, TIMEOUT_WARNING_COORD_METRIC]
     self._verify_metrics_not_changes_all_shards(tested_in_this_test)
 
   def test_oom_errors_cluster_in_coord(self):
