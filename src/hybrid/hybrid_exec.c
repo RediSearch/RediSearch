@@ -339,6 +339,11 @@ void sendChunk_ReplyOnly_HybridEmptyResults(RedisModule_Reply *reply, QueryError
         // This function is called by Coordinator or SA
         RedisModule_Reply_SimpleString(reply, QUERY_WOOM_COORD);
         RedisModule_Reply_ArrayEnd(reply);
+    } else if (QueryError_GetCode(err) == QUERY_ETIMEDOUT) {
+        QueryWarningsGlobalStats_UpdateWarning(QUERY_WARNING_CODE_TIMED_OUT, 1, COORD_ERR_WARN);
+        RedisModule_Reply_Array(reply);
+        RedisModule_Reply_SimpleString(reply, QueryError_Strerror(QUERY_ETIMEDOUT));
+        RedisModule_Reply_ArrayEnd(reply);
     } else {
         RedisModule_Reply_EmptyArray(reply);
     }

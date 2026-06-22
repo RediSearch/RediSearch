@@ -195,12 +195,15 @@ def test_tail_property_not_loaded_error():
 
 @skip(cluster=False)
 def test_timeout_setup_phase_hybrid():
-    """FT.HYBRID cursor-setup timeout: one shard suspended, the in-band deadline fires.
+    """FT.HYBRID cursor-setup timeout with one shard suspended, both policies.
 
     Suspending a non-coordinator shard parks the coordinator in
     ProcessHybridCursorMappings' cursor-mapping wait on a connected-but-silent shard.
-    The per-query TIMEOUT bounds that wait, so the command returns a timeout error at
-    the deadline instead of hanging.
+    The per-query TIMEOUT bounds that wait, so instead of hanging the command resolves
+    at the deadline per policy:
+      - FAIL   -> a timeout error.
+      - RETURN -> an empty result set carrying the timeout warning (no cursor mappings
+                  were established, so there is nothing to return).
     """
     # WORKERS 1 dispatches the query to a BG thread so the cursor-setup wait is
     # reachable; cluster mode gives us a non-coordinator shard to suspend.
@@ -223,9 +226,6 @@ def test_timeout_setup_phase_hybrid():
         'PARAMS', '2', 'BLOB', query_vec
     ).noError()
 
-    _, _, paused_pid, _ = split_shards_pick_one_paused(env)
-    shard_to_pause_p = psutil.Process(paused_pid)
-
     # A finite per-query TIMEOUT arms the coordinator's cursor-setup deadline.
     query_args = [
         'FT.HYBRID', 'hybrid_idx',
@@ -235,6 +235,10 @@ def test_timeout_setup_phase_hybrid():
         'TIMEOUT', '200',
     ]
 
+    prev_policy = env.cmd('CONFIG', 'GET', ON_TIMEOUT_CONFIG)[ON_TIMEOUT_CONFIG]
+    _, _, paused_pid, _ = split_shards_pick_one_paused(env)
+    shard_to_pause_p = psutil.Process(paused_pid)
+
     shard_to_pause_p.suspend()
     try:
         wait_for_condition(
@@ -243,11 +247,18 @@ def test_timeout_setup_phase_hybrid():
             'Timeout while waiting for shard to pause'
         )
 
-        # The deadline fires in the setup wait; the wait is bounded so the command
-        # returns a timeout error rather than hanging (a hang would trip the harness).
+        # FAIL policy: the bounded setup wait surfaces a timeout error.
+        env.cmd('CONFIG', 'SET', ON_TIMEOUT_CONFIG, 'fail')
         env.expect(*query_args).error().contains('Timeout')
+
+        # RETURN policy: empty result set + timeout warning instead of an error.
+        env.cmd('CONFIG', 'SET', ON_TIMEOUT_CONFIG, 'return')
+        res = env.cmd(*query_args)
+        env.assertEqual(res['total_results'], 0, message=f"expected 0 results, got {res}")
+        assert_timeout_warning(env, res, message="RETURN-policy setup-phase timeout")
     finally:
         # Resume so the shard drains the queued _FT.HYBRID / CURSOR DEL and frees
         # its cursors before later tests run.
         shard_to_pause_p.resume()
+        env.cmd('CONFIG', 'SET', ON_TIMEOUT_CONFIG, prev_policy)
 

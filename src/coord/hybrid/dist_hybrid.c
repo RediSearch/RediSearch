@@ -754,9 +754,17 @@ static void DistHybridCleanups(RedisModuleCtx *ctx,
 
     RS_ASSERT(QueryError_HasError(status));
 
-    QueryErrorsGlobalStats_UpdateError(QueryError_GetCode(status), 1, COORD_ERR_WARN);
-
-    QueryError_ReplyAndClear(ctx, status);
+    if (hreq && QueryError_GetCode(status) == QUERY_ETIMEDOUT &&
+        hreq->reqConfig.timeoutPolicy != TimeoutPolicy_Fail) {
+        // A cursor-setup timeout under RETURN / RETURN-STRICT must not surface as an
+        // error: no cursor mappings were established, so reply an empty result set
+        // carrying the timeout warning, matching the read-phase RETURN behavior.
+        sendChunk_ReplyOnly_HybridEmptyResults(reply, status);
+        QueryError_ClearError(status);
+    } else {
+        QueryErrorsGlobalStats_UpdateError(QueryError_GetCode(status), 1, COORD_ERR_WARN);
+        QueryError_ReplyAndClear(ctx, status);
+    }
     WeakRef_Release(ConcurrentCmdCtx_GetWeakRef(cmdCtx));
     if (sp) {
         IndexSpecRef_Release(*strong_ref);
