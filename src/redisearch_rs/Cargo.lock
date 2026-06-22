@@ -3362,7 +3362,7 @@ version = "0.0.1"
 dependencies = [
  "ffi",
  "index_result",
- "inverted_index",
+ "rqe_core",
  "rqe_iterators",
  "top_k",
  "tracing",

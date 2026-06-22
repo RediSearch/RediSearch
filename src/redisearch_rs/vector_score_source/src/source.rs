@@ -13,9 +13,10 @@ use std::{ffi::c_void, num::NonZeroUsize, ptr::NonNull};
 
 use ffi::{
     TimeoutCtx, VecSearchMode, VecSearchMode_HYBRID_BATCHES, VecSimIndex, VecSimQueryParams,
-    t_docId, timespec,
+    timespec,
 };
 use index_result::RSIndexResult;
+use rqe_core::DocId;
 use rqe_iterators::RQEIteratorError;
 use top_k::{BatchStrategy, ScoreSource, ScoredResult};
 use vecsim::{
@@ -286,7 +287,7 @@ impl<'index> ScoreSource for VectorScoreSource<'index> {
             .map(VecSimScoreBatch::new))
     }
 
-    fn lookup_score(&mut self, doc_id: t_docId) -> Option<f64> {
+    fn lookup_score(&mut self, doc_id: DocId) -> Option<f64> {
         match &self.adhoc_state {
             AdhocPathState::Ram { guard: Some(g) } => g.get_distance_from(doc_id),
             AdhocPathState::Ram { guard: None } => None,
@@ -385,7 +386,7 @@ impl<'index> ScoreSource for VectorScoreSource<'index> {
         self.child_num_estimated = self.initial_child_num_estimated;
     }
 
-    fn build_result<'r>(&self, doc_id: t_docId, score: f64) -> RSIndexResult<'r>
+    fn build_result<'r>(&self, doc_id: DocId, score: f64) -> RSIndexResult<'r>
     where
         Self: 'r,
     {
