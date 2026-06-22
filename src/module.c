@@ -1841,7 +1841,7 @@ int RediSearch_InitModuleInternal(RedisModuleCtx *ctx) {
     DEFINE_COMMAND(RS_INDEX_LIST_CMD, IndexList,              "readonly",       SetFt_ListInfo,      SET_COMMAND_INFO, "slow admin", true, indexOnlyCmdArgs, false),
     DEFINE_COMMAND(RS_SYNADD_CMD,     DiskDisabledCmd(SynAddCommand),          "write deny-oom", NULL,                NONE,             "",           true, indexOnlyCmdArgs, false),
     // read only commands
-    DEFINE_COMMAND(RS_INFO_CMD,      IndexInfoCommand,         "readonly"                , NULL,                      NONE,                  "",                     true,             indexOnlyCmdArgs, true),
+    DEFINE_COMMAND(RS_INFO_CMD,      IndexInfoCommand,         "readonly"                , SetDontCacheInfo,          SET_COMMAND_INFO,      "",                     true,             indexOnlyCmdArgs, true),
     DEFINE_COMMAND(RS_SEARCH_CMD,    RSSearchCommand,          "readonly"                , SetFtSearchInfo,           SET_COMMAND_INFO,      "",                     true,             indexOnlyCmdArgs, true),
     DEFINE_COMMAND(RS_GET_CMD,       DiskDisabledCmd(GetSingleDocumentCommand), "readonly"                , SetDontCacheInfo,          SET_COMMAND_INFO,      "read",                 true,             indexDocCmdArgs,  false),
     DEFINE_COMMAND(RS_HYBRID_CMD,    DiskDisabledCmd(RSShardedHybridCommand),   "readonly"                , SetFtHybridInfo,           SET_COMMAND_INFO,      "",                     true,             indexOnlyCmdArgs, true),
@@ -4041,10 +4041,10 @@ static int RegisterCursorCommands(RedisModuleCtx* ctx, RedisModuleCommand *curso
      .setCommandInfo = SetFtCursorDelInfo, .position = keys},
     {.name = "PROFILE", .fullName = RS_CURSOR_CMD "|PROFILE", .flags = "readonly",
      .handler = DiskDisabledCmd(RSCursorProfileCommand),
-     .setCommandInfo = NULL, .position = keys},
+     .setCommandInfo = SetDontCacheInfo, .position = keys},
     {.name = "GC",      .fullName = RS_CURSOR_CMD "|GC",      .flags = "readonly",
      .handler = DiskDisabledCmd(RSCursorGCCommand),
-     .setCommandInfo = NULL, .position = keys}
+     .setCommandInfo = SetDontCacheInfo, .position = keys}
     };
 
   return CreateSubCommands(ctx, cursorCommand, subcommands, sizeof(subcommands) / sizeof(SubCommand));
@@ -4063,7 +4063,7 @@ static int RegisterCoordCursorCommands(RedisModuleCtx* ctx, RedisModuleCommand *
      .setCommandInfo = SetFtCursorDelInfo, .position = keys},
     {.name = "GC",      .fullName = "FT.CURSOR|GC",      .flags = "readonly",
      .handler = SafeCmd(DiskDisabledCmd(CursorGCCommand)),
-     .setCommandInfo = NULL, .position = keys}
+     .setCommandInfo = SetDontCacheInfo, .position = keys}
     };
   return CreateSubCommands(ctx, cursorCommand, subcommands, sizeof(subcommands) / sizeof(SubCommand));
 }
@@ -4965,9 +4965,9 @@ RedisModule_OnLoad(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
 
   // cluster set commands
   SearchCommand clusterSetCommands[] = {
-    DEFINE_COMMAND(REDISEARCH_MODULE_NAME ".CLUSTERSET",     SafeCmd(SetClusterCommand),     IsEnterprise() ? "readonly allow-loading deny-script " CMD_PROXY_FILTERED : "readonly allow-loading deny-script", NULL, NONE, "", true, noKeyArgs, false),
-    DEFINE_COMMAND(REDISEARCH_MODULE_NAME ".CLUSTERREFRESH", SafeCmd(RefreshClusterCommand), IsEnterprise() ? "readonly deny-script " CMD_PROXY_FILTERED               : "readonly deny-script",               NULL, NONE, "", true, noKeyArgs, false),
-    DEFINE_COMMAND(REDISEARCH_MODULE_NAME ".CLUSTERINFO",    SafeCmd(ClusterInfoCommand),    IsEnterprise() ? "readonly allow-loading deny-script " CMD_PROXY_FILTERED : "readonly allow-loading deny-script", NULL, NONE, "", true, noKeyArgs, false),
+    DEFINE_COMMAND(REDISEARCH_MODULE_NAME ".CLUSTERSET",     SafeCmd(SetClusterCommand),     IsEnterprise() ? "readonly allow-loading deny-script " CMD_PROXY_FILTERED : "readonly allow-loading deny-script", SetDontCacheInfo, SET_COMMAND_INFO, "", true, noKeyArgs, false),
+    DEFINE_COMMAND(REDISEARCH_MODULE_NAME ".CLUSTERREFRESH", SafeCmd(RefreshClusterCommand), IsEnterprise() ? "readonly deny-script " CMD_PROXY_FILTERED               : "readonly deny-script",               SetDontCacheInfo, SET_COMMAND_INFO, "", true, noKeyArgs, false),
+    DEFINE_COMMAND(REDISEARCH_MODULE_NAME ".CLUSTERINFO",    SafeCmd(ClusterInfoCommand),    IsEnterprise() ? "readonly allow-loading deny-script " CMD_PROXY_FILTERED : "readonly allow-loading deny-script", SetDontCacheInfo, SET_COMMAND_INFO, "", true, noKeyArgs, false),
   };
   if (CreateSearchCommands(ctx, clusterSetCommands, sizeof(clusterSetCommands) / sizeof(SearchCommand)) != REDISMODULE_OK) {
     return REDISMODULE_ERR;
