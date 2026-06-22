@@ -289,8 +289,6 @@ const HEADERS: &[HeaderAllowlist] = &[
         path: "src/search_ctx.h",
         fns: &[
             "NewSearchCtxC",
-            "RedisSearchCtx_LockSpecRead",
-            "RedisSearchCtx_UnlockSpec",
             "SearchCtx_Free",
             // RSE: the disk async loader checks request timeout between disk
             // reads via this main-thread-owned flag accessor.
