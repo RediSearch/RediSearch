@@ -162,7 +162,10 @@ impl Chain {
 
     /// Set the pipeline's `totalResults` count directly (test-only).
     pub fn set_total_results(&mut self, n: u32) {
-        self.query_processing_context.as_mut().get_mut().totalResults = n;
+        self.query_processing_context
+            .as_mut()
+            .get_mut()
+            .totalResults = n;
     }
 
     /// Return a [`Context`] and mutable reference to the inner [`ResultProcessor`] implementation
