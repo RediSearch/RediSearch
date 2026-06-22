@@ -7,49 +7,43 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 
-//! Property tests for [`SpellCheckDictionary`], checked against brute-force
-//! oracles over the public API.
-
-use std::collections::BTreeSet;
-
-use spellcheck_dictionary::SpellCheckDictionary;
-use string_utils::unicode_tolower;
-
-fn build_dict(stored: &[String]) -> SpellCheckDictionary {
-    let mut sut = SpellCheckDictionary::new();
-    for term in stored {
-        sut.add(term);
-    }
-    sut
-}
-
-/// Independent Levenshtein oracle: naive recursion over codepoints. Distinct
-/// from the crate's Wagner–Fischer implementation, so the proptest below is
-/// genuinely cross-checked rather than comparing the function against itself.
-fn edit_distance(a: &[char], b: &[char]) -> u32 {
-    match (a.split_first(), b.split_first()) {
-        (None, _) => b.len() as u32,
-        (_, None) => a.len() as u32,
-        (Some((x, a_rest)), Some((y, b_rest))) if x == y => edit_distance(a_rest, b_rest),
-        (Some((_, a_rest)), Some((_, b_rest))) => {
-            1 + edit_distance(a_rest, b)
-                .min(edit_distance(a, b_rest))
-                .min(edit_distance(a_rest, b_rest))
-        }
-    }
-}
-
-fn distance(a: &str, b: &str) -> u32 {
-    let a = a.chars().collect::<Vec<_>>();
-    let b = b.chars().collect::<Vec<_>>();
-    edit_distance(&a, &b)
-}
-
 #[cfg(not(miri))] // proptest calls getcwd() which is not supported on Miri
 mod fuzz {
     use proptest::prelude::*;
+    use std::collections::BTreeSet;
 
-    use super::*;
+    use spellcheck_dictionary::SpellCheckDictionary;
+    use string_utils::unicode_tolower;
+
+    fn build_dict(stored: &[String]) -> SpellCheckDictionary {
+        let mut sut = SpellCheckDictionary::new();
+        for term in stored {
+            sut.add(term);
+        }
+        sut
+    }
+
+    /// Independent Levenshtein oracle: naive recursion over codepoints. Distinct
+    /// from the crate's Wagner–Fischer implementation, so the proptest below is
+    /// genuinely cross-checked rather than comparing the function against itself.
+    fn edit_distance(a: &[char], b: &[char]) -> u32 {
+        match (a.split_first(), b.split_first()) {
+            (None, _) => b.len() as u32,
+            (_, None) => a.len() as u32,
+            (Some((x, a_rest)), Some((y, b_rest))) if x == y => edit_distance(a_rest, b_rest),
+            (Some((_, a_rest)), Some((_, b_rest))) => {
+                1 + edit_distance(a_rest, b)
+                    .min(edit_distance(a, b_rest))
+                    .min(edit_distance(a_rest, b_rest))
+            }
+        }
+    }
+
+    fn distance(a: &str, b: &str) -> u32 {
+        let a = a.chars().collect::<Vec<_>>();
+        let b = b.chars().collect::<Vec<_>>();
+        edit_distance(&a, &b)
+    }
 
     proptest! {
         #[test]
