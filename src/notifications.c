@@ -183,8 +183,9 @@ int HashNotificationCallback(RedisModuleCtx *ctx, int type, const char *event,
     job->type = type;
     job->redisCommand = redisCommand;
     job->event = event;
-    RS_ASSERT(RedisModule_AddPostNotificationJobForKey(ctx, HandlePerKeyJobFunc, key, job,
-                                                 freeKeyspaceNotificationJob) == REDISMODULE_OK);
+    int rc = RedisModule_AddPostNotificationJobForKey(ctx, HandlePerKeyJobFunc, key, job,
+                                                 freeKeyspaceNotificationJob);
+    RS_ASSERT_ALWAYS_FMT(rc == REDISMODULE_OK, "Failed to add post-notification job for key");
     return REDISMODULE_OK;
   }
   return HandleKeyspaceNotification(ctx, type, event, redisCommand, key);
