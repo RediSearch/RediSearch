@@ -393,6 +393,8 @@ class TestCoordinatorTimeout:
         # Capture baseline metrics
         before_info = info_modules_to_dict(env)
         base_err_coord = int(before_info[COORD_WARN_ERR_SECTION][TIMEOUT_ERROR_COORD_METRIC])
+        # The coordinator times out while fanning out to shards -> PIPELINE stage.
+        base_err_pipeline = int(before_info[COORD_WARN_ERR_SECTION][TIMEOUT_ERROR_COORD_PIPELINE_METRIC])
 
         initial_jobs_done = getWorkersThpoolStats(env)['totalJobsDone']
 
@@ -442,7 +444,16 @@ class TestCoordinatorTimeout:
         env.assertEqual(after_info[COORD_WARN_ERR_SECTION][TIMEOUT_ERROR_COORD_METRIC],
                         str(base_err_coord + 1),
                         message=f"Coordinator timeout error should be +1 after {query_args[0]}")
+        # FT.SEARCH (MR fan-out) and FT.AGGREGATE (coord AREQ in RPNet) are in their
+        # pipeline while waiting for shards -> PIPELINE. FT.HYBRID/FT.PROFILE block in
+        # the subquery depleters before the tail pipeline, so their coord fan-out
+        # stage is approximate; only the sum invariant is checked for them.
+        if query_args[0] in ('FT.SEARCH', 'FT.AGGREGATE'):
+            env.assertEqual(int(after_info[COORD_WARN_ERR_SECTION][TIMEOUT_ERROR_COORD_PIPELINE_METRIC]),
+                            base_err_pipeline + 1,
+                            message=f"Coordinator fan-out timeout should bump the PIPELINE stage after {query_args[0]}")
         _verify_metrics_not_changed(env, env, before_info, [TIMEOUT_ERROR_COORD_METRIC])
+        _assert_coord_timeout_error_sum_invariant(env)
 
         env.expect('CONFIG', 'SET', ON_TIMEOUT_CONFIG, prev_on_timeout_policy).ok()
 
@@ -554,6 +565,11 @@ class TestCoordinatorTimeout:
         # Capture baseline metrics
         before_info = info_modules_to_dict(env)
         base_err_coord = int(before_info[COORD_WARN_ERR_SECTION][TIMEOUT_ERROR_COORD_METRIC])
+        # The coordinator never picks up the job (thread pool paused below), so the
+        # request is still queued -> QUEUE stage. AGGREGATE/HYBRID use the
+        # CoordRequestCtx marker and attribute exactly; FT.SEARCH uses the MR path
+        # (no marker) so only the sum invariant is checked for it.
+        base_err_queue = int(before_info[COORD_WARN_ERR_SECTION][TIMEOUT_ERROR_COORD_QUEUE_METRIC])
 
         # Pause coordinator thread pool to prevent pickup
         env.expect(debug_cmd(), 'COORD_THREADS', 'PAUSE').ok()
@@ -589,7 +605,12 @@ class TestCoordinatorTimeout:
         env.assertEqual(after_info[COORD_WARN_ERR_SECTION][TIMEOUT_ERROR_COORD_METRIC],
                         str(base_err_coord + 1),
                         message=f"Coordinator timeout error should be +1 after {cmd_name}")
+        if cmd_name in ('FT.AGGREGATE', 'FT.HYBRID'):
+            env.assertEqual(int(after_info[COORD_WARN_ERR_SECTION][TIMEOUT_ERROR_COORD_QUEUE_METRIC]),
+                            base_err_queue + 1,
+                            message=f"Timeout before coord pickup should bump the QUEUE stage after {cmd_name}")
         _verify_metrics_not_changed(env, env, before_info, [TIMEOUT_ERROR_COORD_METRIC])
+        _assert_coord_timeout_error_sum_invariant(env)
 
         env.expect('CONFIG', 'SET', ON_TIMEOUT_CONFIG, prev_on_timeout_policy).ok()
 
@@ -1494,6 +1515,8 @@ class TestCoordinatorTimeout:
         # Capture baseline metrics
         before_info = info_modules_to_dict(env)
         base_err_coord = int(before_info[COORD_WARN_ERR_SECTION][TIMEOUT_ERROR_COORD_METRIC])
+        # The coord pipeline finished and the phase advanced to REPLY before the store pause.
+        base_err_reply = int(before_info[COORD_WARN_ERR_SECTION][TIMEOUT_ERROR_COORD_REPLY_METRIC])
 
         # Enable pause before store results
         setPauseBeforeStoreResults(env, True, internal=False)
@@ -1526,7 +1549,11 @@ class TestCoordinatorTimeout:
         env.assertEqual(after_info[COORD_WARN_ERR_SECTION][TIMEOUT_ERROR_COORD_METRIC],
                         str(base_err_coord + 1),
                         message=f"Coordinator timeout error should be +1 after {cmd_name} before coord store")
+        env.assertEqual(int(after_info[COORD_WARN_ERR_SECTION][TIMEOUT_ERROR_COORD_REPLY_METRIC]),
+                        base_err_reply + 1,
+                        message=f"Coordinator timeout before store should bump the REPLY stage after {cmd_name}")
         _verify_metrics_not_changed(env, env, before_info, [TIMEOUT_ERROR_COORD_METRIC])
+        _assert_coord_timeout_error_sum_invariant(env)
 
         # Cleanup
         resetStoreResultsDebug(env)
@@ -1551,6 +1578,8 @@ class TestCoordinatorTimeout:
         # Capture baseline metrics
         before_info = info_modules_to_dict(env)
         base_err_coord = int(before_info[COORD_WARN_ERR_SECTION][TIMEOUT_ERROR_COORD_METRIC])
+        # Still in the REPLY phase (the phase advanced to REPLY before the store).
+        base_err_reply = int(before_info[COORD_WARN_ERR_SECTION][TIMEOUT_ERROR_COORD_REPLY_METRIC])
 
         # Enable pause after store results
         setPauseAfterStoreResults(env, True, internal=False)
@@ -1583,7 +1612,11 @@ class TestCoordinatorTimeout:
         env.assertEqual(after_info[COORD_WARN_ERR_SECTION][TIMEOUT_ERROR_COORD_METRIC],
                         str(base_err_coord + 1),
                         message=f"Coordinator timeout error should be +1 after {cmd_name} after coord store")
+        env.assertEqual(int(after_info[COORD_WARN_ERR_SECTION][TIMEOUT_ERROR_COORD_REPLY_METRIC]),
+                        base_err_reply + 1,
+                        message=f"Coordinator timeout after store should bump the REPLY stage after {cmd_name}")
         _verify_metrics_not_changed(env, env, before_info, [TIMEOUT_ERROR_COORD_METRIC])
+        _assert_coord_timeout_error_sum_invariant(env)
 
         # Cleanup
         resetStoreResultsDebug(env)

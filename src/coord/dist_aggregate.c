@@ -735,8 +735,10 @@ int DistAggregateTimeoutFailCallback(RedisModuleCtx *ctx, RedisModuleString **ar
 
   CoordRequestCtx_UnlockSetRequest(CoordReqCtx);
 
-  // Reply with timeout error
-  QueryErrorsGlobalStats_UpdateError(QUERY_ERROR_CODE_TIMED_OUT, QUERY_TIMEOUT_STAGE_PIPELINE, 1, COORD_ERR_WARN);
+  // Reply with timeout error, attributed to the stage the coord request reached
+  // (QUEUE if it had not been picked up yet, otherwise PIPELINE while fanning out).
+  QueryErrorsGlobalStats_UpdateError(QUERY_ERROR_CODE_TIMED_OUT,
+                                     CoordRequestCtx_TimeoutStage(CoordReqCtx), 1, COORD_ERR_WARN);
   RedisModule_ReplyWithError(ctx, QueryError_Strerror(QUERY_ERROR_CODE_TIMED_OUT));
 
   return REDISMODULE_OK;
@@ -841,7 +843,7 @@ int DistAggregateReplyCallback(RedisModuleCtx *ctx, RedisModuleString **argv, in
   if (!req->storedReplyState.hasStoredResults) {
     // Background thread didn't store results - some early error occurred.
     if (QueryError_HasError(&req->storedReplyState.err)) {
-      QueryErrorsGlobalStats_UpdateError(QueryError_GetCode(&req->storedReplyState.err), QUERY_TIMEOUT_STAGE_PIPELINE, 1, COORD_ERR_WARN);
+      QueryErrorsGlobalStats_UpdateError(QueryError_GetCode(&req->storedReplyState.err), AREQ_TimeoutStage(req), 1, COORD_ERR_WARN);
       QueryError_ReplyAndClear(ctx, &req->storedReplyState.err);
     } else {
       RedisModule_ReplyWithError(ctx, "Internal error: no results stored");
@@ -915,7 +917,7 @@ int DistCursorReadTimeoutReturnStrictCallback(RedisModuleCtx *ctx, RedisModuleSt
     // only such bail in cursorRead can't fire); kept for forward-compat.
     QueryError *err = &req->storedReplyState.err;
     RS_ASSERT(QueryError_HasError(err));
-    QueryErrorsGlobalStats_UpdateError(QueryError_GetCode(err), QUERY_TIMEOUT_STAGE_PIPELINE, 1, COORD_ERR_WARN);
+    QueryErrorsGlobalStats_UpdateError(QueryError_GetCode(err), AREQ_TimeoutStage(req), 1, COORD_ERR_WARN);
     QueryError_ReplyAndClear(ctx, err);
   }
   return REDISMODULE_OK;

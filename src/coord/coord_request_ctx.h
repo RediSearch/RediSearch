@@ -95,6 +95,22 @@ bool CoordRequestCtx_HasRequest(CoordRequestCtx *ctx);
 void *CoordRequestCtx_GetRequest(CoordRequestCtx *ctx);
 
 /**
+ * The pipeline stage the coordinator request had reached, for timeout
+ * attribution. Returns QUEUE when the underlying request has not been created
+ * yet (the coordinator has not picked up the job); otherwise the request's
+ * execution-phase marker (PIPELINE while fanning out / reducing, REPLY while
+ * serializing the reply).
+ */
+static inline QueryTimeoutStage CoordRequestCtx_TimeoutStage(CoordRequestCtx *ctx) {
+  void *req = CoordRequestCtx_GetRequest(ctx);
+  if (!req) {
+    return QUERY_TIMEOUT_STAGE_QUEUE;
+  }
+  return ctx->type == COMMAND_HYBRID ? HybridRequest_TimeoutStage((HybridRequest *)req)
+                                     : AREQ_TimeoutStage((AREQ *)req);
+}
+
+/**
  * Check if the coordinator request has timed out.
  */
 static inline bool CoordRequestCtx_TimedOut(CoordRequestCtx *ctx) {

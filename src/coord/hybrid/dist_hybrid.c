@@ -1196,8 +1196,9 @@ int DistHybridTimeoutFailCallback(RedisModuleCtx *ctx, RedisModuleString **argv,
   HybridRequest *hreq = (HybridRequest *)CoordRequestCtx_GetRequest(CoordReqCtx);
   wakeHybridAbortChannels(hreq);
 
-  // Reply with timeout error
-  QueryErrorsGlobalStats_UpdateError(QUERY_ERROR_CODE_TIMED_OUT, QUERY_TIMEOUT_STAGE_PIPELINE, 1, COORD_ERR_WARN);
+  // Reply with timeout error, attributed to the stage the coord request reached.
+  QueryErrorsGlobalStats_UpdateError(QUERY_ERROR_CODE_TIMED_OUT,
+                                     CoordRequestCtx_TimeoutStage(CoordReqCtx), 1, COORD_ERR_WARN);
   RedisModule_ReplyWithError(ctx, QueryError_Strerror(QUERY_ERROR_CODE_TIMED_OUT));
 
   return REDISMODULE_OK;
@@ -1284,7 +1285,7 @@ int DistHybridReplyCallback(RedisModuleCtx *ctx, RedisModuleString **argv, int a
   if (!hreq->storedReplyState.hasStoredResults) {
     // Background thread didn't store results - some early error occurred.
     if (QueryError_HasError(&hreq->storedReplyState.err)) {
-      QueryErrorsGlobalStats_UpdateError(QueryError_GetCode(&hreq->storedReplyState.err), QUERY_TIMEOUT_STAGE_PIPELINE, 1, COORD_ERR_WARN);
+      QueryErrorsGlobalStats_UpdateError(QueryError_GetCode(&hreq->storedReplyState.err), HybridRequest_TimeoutStage(hreq), 1, COORD_ERR_WARN);
       QueryError_ReplyAndClear(ctx, &hreq->storedReplyState.err);
     } else {
       RedisModule_ReplyWithError(ctx, "Internal error: no results stored");
