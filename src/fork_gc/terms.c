@@ -121,7 +121,8 @@ FGCError FGC_parentHandleTerms(ForkGC *gc) {
     }
     sctx->spec->stats.scoring.numTerms--;
     sctx->spec->stats.termsSize -= len;
-    if (sctx->spec->suffix) {
+    // Empty terms (INDEXEMPTY) are never inserted into the suffix trie, so skip the delete.
+    if (sctx->spec->suffix && len) {
       deleteSuffixTrie(sctx->spec->suffix, term, len);
     }
   }
