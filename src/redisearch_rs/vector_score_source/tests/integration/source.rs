@@ -16,76 +16,26 @@
 //! neighbours are simply the highest ids — making every expected ordering
 //! trivially predictable.
 
-use std::{cmp::Ordering, ffi::c_void, num::NonZeroUsize, ptr, ptr::NonNull};
+use std::{num::NonZeroUsize, ptr::NonNull};
 
-use ffi::{
-    AlgoParams, HNSWParams, VecSimAlgo_VecSimAlgo_HNSWLIB, VecSimIndex, VecSimIndex_AddVector,
-    VecSimIndex_Free, VecSimIndex_New, VecSimMetric_VecSimMetric_L2, VecSimParams,
-    VecSimQueryParams, VecSimType_VecSimType_FLOAT32, t_docId, timespec,
-};
+use ffi::{VecSimIndex, VecSimIndex_Free, t_docId};
 use index_result::RSResultKind;
-use rqe_iterators::{IdList, RQEIterator};
+use rqe_iterators::RQEIterator;
 use top_k::{TopKIterator, TopKMode};
+use vector_score_source::test_support::{self, asc, collect_ids, make_child, uniform_blob};
 use vector_score_source::{
     VectorScoreSource, new_vector_top_k_filtered, new_vector_top_k_unfiltered,
 };
 
 const DIM: usize = 4;
 
-/// Ascending comparator: lower distance score is better (L2/IP/Cosine).
-fn asc(a: f64, b: f64) -> Ordering {
-    a.partial_cmp(&b).unwrap_or(Ordering::Equal)
-}
-
-/// Encode `[value; DIM]` as the little/native-endian f32 byte blob VecSim expects.
-fn query_blob(value: f32) -> Vec<u8> {
-    vec![value; DIM]
-        .iter()
-        .flat_map(|f| f.to_ne_bytes())
-        .collect()
-}
-
-/// Build an HNSW index of `n` vectors where doc `i` (1..=n) is `[i; DIM]`.
+/// HNSW index of `n` vectors `[i; DIM]` at this suite's fixed dimensionality.
 fn build_hnsw_index(n: usize) -> NonNull<VecSimIndex> {
-    let params = VecSimParams {
-        algo: VecSimAlgo_VecSimAlgo_HNSWLIB,
-        algoParams: AlgoParams {
-            hnswParams: HNSWParams {
-                type_: VecSimType_VecSimType_FLOAT32,
-                dim: DIM,
-                metric: VecSimMetric_VecSimMetric_L2,
-                multi: false,
-                initialCapacity: n,
-                blockSize: 0,
-                M: 16,
-                efConstruction: 100,
-                efRuntime: 0,
-                epsilon: 0.0,
-            },
-        },
-        logCtx: ptr::null_mut(),
-    };
-    // SAFETY: `params` is a fully initialised HNSW config; `VecSimIndex_New`
-    // copies what it needs and returns an owned index handle.
-    let index = unsafe { VecSimIndex_New(&params) };
-    let index = NonNull::new(index).expect("VecSimIndex_New returned null");
-
-    for i in 1..=n {
-        let vec = vec![i as f32; DIM];
-        // SAFETY: `vec` holds DIM f32 elements matching the index type/dim;
-        // the pointer is valid for the duration of the call.
-        unsafe {
-            VecSimIndex_AddVector(index.as_ptr(), vec.as_ptr() as *const c_void, i);
-        }
-    }
-    index
+    test_support::build_hnsw_index(n, DIM)
 }
 
-/// Construct a [`VectorScoreSource`] querying for the corner `[n; DIM]` vector.
-///
-/// `child_est` seeds the batch-size heuristic. It must reflect the actual
-/// number of docs the filter child is expected to yield — production passes
-/// `child.num_estimated()` here — otherwise the heuristic mis-sizes batches.
+/// Source querying the corner `[n; DIM]` with `efRuntime = n`. `child_est` seeds
+/// the batch-size heuristic — production passes `child.num_estimated()`.
 ///
 /// # Safety
 ///
@@ -96,38 +46,8 @@ unsafe fn make_source(
     k: usize,
     child_est: usize,
 ) -> VectorScoreSource<'static> {
-    // SAFETY: zeroed is a valid bit pattern for this POD-with-union config
-    // struct; we then set the only field VecSim reads for an HNSW query.
-    let mut query_params: VecSimQueryParams = unsafe { std::mem::zeroed() };
-    query_params.__bindgen_anon_1.hnswRuntimeParams.efRuntime = n;
-
-    // SAFETY: the caller guarantees `index` outlives the source; timeout
-    // checks are skipped (no deadline enforced) and the index is a RAM
-    // (non-disk) HNSW index.
-    unsafe {
-        VectorScoreSource::new(
-            index,
-            query_blob(n as f32),
-            query_params,
-            k,
-            timespec {
-                tv_sec: 0,
-                tv_nsec: 0,
-            },
-            true,
-            child_est,
-            0,
-        )
-    }
-}
-
-fn make_child(ids: Vec<t_docId>) -> Box<dyn RQEIterator<'static>> {
-    Box::new(IdList::<true>::new(ids))
-}
-
-/// Drain an iterator into the doc ids it yields, in read order.
-fn collect_ids<I: RQEIterator<'static>>(it: &mut I) -> Vec<t_docId> {
-    std::iter::from_fn(|| it.read().unwrap().map(|r| r.doc_id)).collect()
+    // SAFETY: caller upholds the `index` lifetime contract.
+    unsafe { test_support::make_source(index, uniform_blob(n as f32, DIM), n, k, child_est) }
 }
 
 #[test]

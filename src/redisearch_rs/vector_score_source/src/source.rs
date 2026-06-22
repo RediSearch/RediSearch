@@ -447,16 +447,16 @@ fn refine_child_estimated(
 
 #[cfg(test)]
 mod tests {
-    use std::{ffi::c_void, ptr, ptr::NonNull};
+    use std::ptr::NonNull;
 
-    use ffi::{
-        AlgoParams, BFParams, VecSimAlgo_VecSimAlgo_BF, VecSimIndex, VecSimIndex_AddVector,
-        VecSimIndex_Free, VecSimIndex_New, VecSimMetric_VecSimMetric_L2, VecSimParams,
-        VecSimType_VecSimType_FLOAT32,
-    };
+    use ffi::{VecSimIndex, VecSimIndex_Free};
     use top_k::ScoreSource;
 
-    use super::{VectorScoreSource, refine_child_estimated};
+    use super::refine_child_estimated;
+    use crate::{
+        VectorScoreSource,
+        test_support::{build_flat_index, make_source, uniform_blob},
+    };
 
     #[test]
     fn never_increases_above_previous() {
@@ -478,61 +478,18 @@ mod tests {
         assert_eq!(refine_child_estimated(0, 1, 10, 1_000), 0);
     }
 
-    /// FLAT L2 index of `n` 1-D vectors: doc `i` (1..=n) is `[i]`.
-    fn build_flat_l2_index(n: usize) -> NonNull<VecSimIndex> {
-        let params = VecSimParams {
-            algo: VecSimAlgo_VecSimAlgo_BF,
-            algoParams: AlgoParams {
-                bfParams: BFParams {
-                    type_: VecSimType_VecSimType_FLOAT32,
-                    dim: 1,
-                    metric: VecSimMetric_VecSimMetric_L2,
-                    multi: false,
-                    initialCapacity: n,
-                    blockSize: 0,
-                },
-            },
-            logCtx: ptr::null_mut(),
-        };
-        // SAFETY: `params` is fully initialised; `VecSimIndex_New` copies what it
-        // needs and returns an owned index handle.
-        let index = NonNull::new(unsafe { VecSimIndex_New(&params) }).expect("index");
-        for i in 1..=n {
-            let v = [i as f32];
-            // SAFETY: `v` is one f32 matching the index dim/type; valid for the call.
-            unsafe { VecSimIndex_AddVector(index.as_ptr(), v.as_ptr().cast::<c_void>(), i) };
-        }
-        index
-    }
-
-    /// Build a [`VectorScoreSource`] over `index` with the shared test defaults:
-    /// a single `0.0f32` query blob, a null timeout ctx, the RAM (non-disk)
-    /// path, and a dynamic batch size. The caller must keep `index` alive until
-    /// the returned source is dropped, then free it.
-    fn make_source(
+    /// A dim-1 FLAT source over `n` docs; `0.0` query blob, no pinned policy.
+    ///
+    /// # Safety
+    ///
+    /// `index` must outlive the returned source (freed only after the drop).
+    unsafe fn flat_source(
         index: NonNull<VecSimIndex>,
         k: usize,
-        child_num_estimated: usize,
+        child_est: usize,
     ) -> VectorScoreSource<'static> {
-        // SAFETY:
-        // - The caller keeps `index` alive for the source's lifetime (it frees
-        //   it only after dropping the source).
-        // - The query blob is one f32, matching the FLAT index dim/type.
-        // - The timeout ctx is null and the index is a RAM (non-disk) index.
-        // - `query_params` is zeroed, a valid bit pattern that the FLAT backend
-        //   ignores.
-        unsafe {
-            VectorScoreSource::new(
-                index,
-                0.0f32.to_ne_bytes().to_vec(),
-                std::mem::zeroed(),
-                k,
-                std::mem::zeroed(),
-                true,
-                child_num_estimated,
-                0,
-            )
-        }
+        // SAFETY: caller upholds the `index` lifetime contract.
+        unsafe { make_source(index, uniform_blob(0.0, 1), 0, k, child_est) }
     }
 
     /// Entering adhoc must release the batch iterator before acquiring the adhoc
@@ -542,8 +499,9 @@ mod tests {
     #[test]
     #[cfg_attr(miri, ignore = "requires C FFI (VecSim)")]
     fn begin_adhoc_releases_batch_iterator() {
-        let index = build_flat_l2_index(3);
-        let mut source = make_source(index, 3, 3);
+        let index = build_flat_index(3, 1);
+        // SAFETY: index is freed after the source is dropped at end of scope.
+        let mut source = unsafe { flat_source(index, 3, 3) };
 
         // Consume one batch so the iterator is lazily created and held.
         source.next_batch().unwrap();
@@ -568,9 +526,10 @@ mod tests {
     #[test]
     #[cfg_attr(miri, ignore = "requires C FFI (VecSim)")]
     fn child_estimate_clamped_to_index_size() {
-        let index = build_flat_l2_index(3);
+        let index = build_flat_index(3, 1);
         // Child estimate (100) exceeds the index size (3).
-        let mut source = make_source(index, 3, 100);
+        // SAFETY: index is freed after the source is dropped at end of scope.
+        let mut source = unsafe { flat_source(index, 3, 100) };
 
         assert_eq!(source.child_num_estimated, 3, "seed clamped to index size");
         assert_eq!(
@@ -595,8 +554,9 @@ mod tests {
     #[test]
     #[cfg_attr(miri, ignore = "requires C FFI (VecSim)")]
     fn zero_child_estimate_skips_batch_iterator() {
-        let index = build_flat_l2_index(3);
-        let mut source = make_source(index, 3, 0);
+        let index = build_flat_index(3, 1);
+        // SAFETY: index is freed after the source is dropped at end of scope.
+        let mut source = unsafe { flat_source(index, 3, 0) };
 
         assert!(source.next_batch().unwrap().is_none(), "expected no batch");
         assert!(
