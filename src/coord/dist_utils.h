@@ -26,10 +26,6 @@ void netCursorCallback(MRIteratorCallbackCtx *ctx, MRReply *rep);
 // Returns true if total_results was found, false otherwise.
 bool extractTotalResults(MRReply *rep, MRCommand *cmd, long long *out_total);
 
-// Read the accumulated WITHCOUNT total (sum of each shard's total_results) from
-// an FT.AGGREGATE iterator's private context. Defined in dist_aggregate.c.
-long long AggregateIterator_GetTotalResults(const MRIterator *it);
-
 #ifdef __cplusplus
 }
 #endif

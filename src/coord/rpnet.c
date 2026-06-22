@@ -350,21 +350,6 @@ void RPNet_resetCurrent(RPNet *nc) {
     nc->current.meta = NULL;
 }
 
-// Surface the lazy WITHCOUNT running total into qctx. On the lazy path
-// (profile+WITHCOUNT, cursor+WITHCOUNT) the total is accumulated into iterCtx by
-// collectCountCb on the IO thread; copy it out whenever the pipeline terminates
-// so the reply reports it. This covers both the final EOF and a RETURN-policy
-// shard timeout that bails the pipeline with partial results (in RESP3 a shard's
-// TIMEDOUT warning short-circuits rpnetNext before EOF, so the EOF copy alone
-// would leave the total at 0). Cheap idempotent read; a no-op for the eager async
-// path (aggregatePhaseBExecute already set qctx->totalResults) and for
-// non-WITHCOUNT queries.
-static void rpnetSurfaceWithCountTotal(RPNet *nc) {
-  if (nc->withCount) {
-    nc->base.parent->totalResults = AggregateIterator_GetTotalResults(nc->it);
-  }
-}
-
 int rpnetNext(ResultProcessor *self, SearchResult *r) {
   RPNet *nc = (RPNet *)self;
   AREQ *areq = nc->areq;
@@ -374,12 +359,6 @@ int rpnetNext(ResultProcessor *self, SearchResult *r) {
     SyncPoint_WaitUntil(SYNC_POINT_BEFORE_RPNET_NEXT, areq_timed_out, areq);
   }
 #endif
-
-  // Pin the running WITHCOUNT total into qctx on every call. finishSendChunk
-  // zeroes qctx->totalResults between cursor chunks, so without this every
-  // FT.CURSOR READ after the first would report 0. Idempotent for the
-  // non-cursor and non-WITHCOUNT paths.
-  rpnetSurfaceWithCountTotal(nc);
 
   // Surface RETURN_STRICT timeouts on follow-up cursor reads where the channel
   // may already hold a buffered reply (the NULL-reply check below wouldn't fire
@@ -411,9 +390,6 @@ int rpnetNext(ResultProcessor *self, SearchResult *r) {
 
     if (nc->curIdx == len) {
       if (processWarningsAndCleanup(nc, resp3) == RS_RESULT_TIMEDOUT) {
-        // RETURN-policy shard timeout (RESP3): surface the partial total before
-        // bailing, so the reply reports the totals of the shards that responded.
-        rpnetSurfaceWithCountTotal(nc);
         return RS_RESULT_TIMEDOUT;
       }
 
@@ -434,9 +410,6 @@ int rpnetNext(ResultProcessor *self, SearchResult *r) {
       // callback so that a `CURSOR DEL` command will be dispatched instead of
       // a `CURSOR READ` command.
       MRIteratorCallback_SetTimedOut(MRIterator_GetCtx(nc->it));
-
-      // Coordinator deadline: surface the partial total accumulated so far.
-      rpnetSurfaceWithCountTotal(nc);
       return RS_RESULT_TIMEDOUT;
     } else if (!nc->drainOnly && MRIteratorCallback_GetTimedOut(MRIterator_GetCtx(nc->it))) {
       // if timeout was set in previous reads, reset it. Drain-only must keep
@@ -446,14 +419,9 @@ int rpnetNext(ResultProcessor *self, SearchResult *r) {
 
     int ret = getNextReply(nc);
     if (ret == RS_RESULT_EOF) {
-      // By EOF every shard has responded so the lazy WITHCOUNT total is final.
-      rpnetSurfaceWithCountTotal(nc);
       return RS_RESULT_EOF;
     } else if (ret == RS_RESULT_TIMEDOUT) {
       MRIteratorCallback_SetTimedOut(MRIterator_GetCtx(nc->it));
-      // getNextReply timed out (incl. RESP3 empty-reply shard timeout under
-      // RETURN policy): surface the partial total before bailing.
-      rpnetSurfaceWithCountTotal(nc);
       return RS_RESULT_TIMEDOUT;
     }
 
@@ -493,8 +461,9 @@ int rpnetNext(ResultProcessor *self, SearchResult *r) {
 #endif
     if (resp3) { // RESP3
       nc->curIdx = 0;
-      // For WITHCOUNT, totalResults is accumulated on the IO thread by collectCountCb
-      // and surfaced into qctx at EOF (below). Skip per-reply accumulation here.
+      // For WITHCOUNT, totalResults was set once at Phase B start by
+      // executeAggregateDeferred from the shard-summed total accumulated on the
+      // IO thread; it is preserved across cursor reads by finishSendChunk.
       if (!nc->withCount) {
         // Without WITHCOUNT, count rows in batch for backward compatibility
         nc->base.parent->totalResults += MRReply_Length(rows);
@@ -502,8 +471,8 @@ int rpnetNext(ResultProcessor *self, SearchResult *r) {
       processResultFormat(&nc->areq->reqflags, nc->current.meta);
     } else { // RESP2
       nc->curIdx = 1;
-      // For WITHCOUNT, totalResults is accumulated on the IO thread by collectCountCb
-      // and surfaced into qctx at EOF (above). Skip per-reply accumulation here.
+      // For WITHCOUNT, totalResults was set once at Phase B start by
+      // executeAggregateDeferred (see RESP3 branch above).
       if (!nc->withCount) {
         // Without WITHCOUNT, accumulate total_results from each shard reply
         nc->base.parent->totalResults += MRReply_Integer(MRReply_ArrayElement(rows, 0));

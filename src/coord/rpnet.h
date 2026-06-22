@@ -41,8 +41,10 @@ typedef struct {
   arrayof(MRReply *) shardsProfile;
 
   // True when this is an async WITHCOUNT aggregate; total_results is
-  // accumulated by collectCountCb on the IO thread and exposed
-  // via AggregateIterator_GetTotalResults once the iterator is depleted.
+  // accumulated by collectCountCb on the IO thread, surfaced into
+  // qctx->totalResults once at the start of Phase B by
+  // executeAggregateDeferred, and preserved across cursor reads by
+  // finishSendChunk.
   bool withCount;
 
   // Drain-only mode: rpnetNext pops already-queued replies without blocking

@@ -265,6 +265,13 @@ void MRIterator_Release(MRIterator *it);
  * invokes the callback via mrIteratorRedisCB); no synchronization is applied. */
 void MRIteratorCallback_SetCallback(MRIteratorCallbackCtx *ctx, MRIteratorCallback cb);
 
+/* Replace the per-reply success callback for every shard and the iterator's
+ * no-reply errorCB in one shot. Must only be called from the iterator's own IO
+ * thread (the same thread that invokes mrIteratorRedisCB / mrIteratorCallback_Error);
+ * no synchronization is applied. Passing NULL for errorCB detaches it. */
+void MRIterator_SwapAllCallbacks(MRIterator *it, MRIteratorCallback successCB,
+                                 MRIteratorErrorCallback errorCB);
+
 /* Return the privateData stored in the first callback context of the iterator.
  * Valid while the iterator is alive (i.e. before the coord ref is released). */
 void *MRIterator_GetPrivateData(const MRIterator *it);

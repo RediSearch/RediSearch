@@ -917,6 +917,17 @@ void MRIteratorCallback_SetCallback(MRIteratorCallbackCtx *ctx, MRIteratorCallba
   ctx->successCB = cb;
 }
 
+// Replace the per-reply success callback for every shard and the iterator's
+// no-reply errorCB in one shot. Must only be called from the iterator's own IO
+// thread; no synchronization is applied.
+void MRIterator_SwapAllCallbacks(MRIterator *it, MRIteratorCallback successCB,
+                                 MRIteratorErrorCallback errorCB) {
+  for (size_t i = 0; i < it->len; i++) {
+    it->cbxs[i].successCB = successCB;
+  }
+  it->ctx.errorCB = errorCB;
+}
+
 bool MR_ManuallyTriggerNextIfNeeded(MRIterator *it, size_t channelThreshold) {
   // We currently trigger the next batch of commands only when no commands are in process,
   // regardless of the number of replies we have in the channel.
