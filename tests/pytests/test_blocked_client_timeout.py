@@ -5616,11 +5616,9 @@ class TestShardTimeout:
         before_info = info_modules_to_dict(env)
         base_err_coord = int(before_info[COORD_WARN_ERR_SECTION][TIMEOUT_ERROR_COORD_METRIC])
         # The worker pool is paused below, so the query times out while still
-        # queued -> the timeout is attributed to the QUEUE stage. (Hybrid stage
-        # attribution is approximate, so the per-stage assertion is restricted to
-        # the AREQ-based commands; the sum invariant still holds for all.)
+        # queued (before its pipeline runs) -> the timeout is attributed to the
+        # QUEUE stage for every query type, including FT.HYBRID.
         base_err_queue = int(before_info[COORD_WARN_ERR_SECTION][TIMEOUT_ERROR_COORD_QUEUE_METRIC])
-        areq_timeouts = 0
 
         for i, query_type in enumerate(['FT.SEARCH', 'FT.AGGREGATE', 'FT.HYBRID']):
 
@@ -5670,13 +5668,11 @@ class TestShardTimeout:
             env.assertEqual(info_dict[COORD_WARN_ERR_SECTION][TIMEOUT_ERROR_COORD_METRIC],
                             str(base_err_coord + i + 1),
                             message=f"Coordinator timeout error should be +{i+1} after {query_type}")
-            # The AREQ-based commands must attribute the queued timeout to the QUEUE stage.
-            if query_type != 'FT.HYBRID':
-                areq_timeouts += 1
-                env.assertEqual(
-                    int(info_dict[COORD_WARN_ERR_SECTION][TIMEOUT_ERROR_COORD_QUEUE_METRIC]),
-                    base_err_queue + areq_timeouts,
-                    message=f"{query_type} queued timeout should bump the QUEUE-stage counter")
+            # A queued timeout is attributed to the QUEUE stage for every query type.
+            env.assertEqual(
+                int(info_dict[COORD_WARN_ERR_SECTION][TIMEOUT_ERROR_COORD_QUEUE_METRIC]),
+                base_err_queue + i + 1,
+                message=f"{query_type} queued timeout should bump the QUEUE-stage counter")
 
         # Verify no other metrics changed, and the aggregate equals the per-stage sum.
         _verify_metrics_not_changed(env, env, before_info, [TIMEOUT_ERROR_COORD_METRIC])
