@@ -301,7 +301,7 @@ bool ProcessHybridCursorMappings(const MRCommand *cmd, StrongRef searchMappingsR
 
     RequestSyncCtx_UnregisterAbortWakeChannel(syncCtx);
 
-    if (timedOut || RequestSyncCtx_GetTimedOut(syncCtx)) {
+    if (timedOut || atomic_load_explicit(&syncCtx->timedOut, memory_order_acquire)) {
         QueryError_SetCode(status, QUERY_ERROR_CODE_TIMED_OUT);
         MRIterator_Release(it);
         return false;

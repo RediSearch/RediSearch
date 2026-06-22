@@ -29,13 +29,9 @@
 #ifdef __cplusplus
 #include <atomic>
 #define RS_Atomic(T) std::atomic<T>
-#define RS_AtomicBoolLoadRelaxed(p)     (((std::atomic<bool> *)(p))->load(std::memory_order_relaxed))
-#define RS_AtomicBoolStoreRelaxed(p, v) (((std::atomic<bool> *)(p))->store((v), std::memory_order_relaxed))
 extern "C" {
 #else
 #define RS_Atomic(T) _Atomic(T)
-#define RS_AtomicBoolLoadRelaxed(p)     __atomic_load_n((bool *)(p), __ATOMIC_RELAXED)
-#define RS_AtomicBoolStoreRelaxed(p, v) __atomic_store_n((bool *)(p), (v), __ATOMIC_RELAXED)
 #include <stdatomic.h>
 #endif
 
@@ -294,16 +290,6 @@ static inline void RequestSyncCtx_Init(RequestSyncCtx *ctx) {
   pthread_cond_init(&ctx->aggregateResultsCond, NULL);
   ctx->abortWakeChannel = NULL;
   pthread_mutex_init(&ctx->abortWakeLock, NULL);
-}
-
-static inline bool RequestSyncCtx_GetTimedOut(RequestSyncCtx *ctx) {
-  return RS_AtomicBoolLoadRelaxed(&ctx->timedOut);
-}
-static inline void RequestSyncCtx_SetTimedOut(RequestSyncCtx *ctx) {
-  RS_AtomicBoolStoreRelaxed(&ctx->timedOut, true);
-}
-static inline void RequestSyncCtx_ClearTimedOut(RequestSyncCtx *ctx) {
-  RS_AtomicBoolStoreRelaxed(&ctx->timedOut, false);
 }
 
 // Release resources owned by a RequestSyncCtx. Must be called exactly once
@@ -645,12 +631,8 @@ void SetSearchCtx(RedisSearchCtx *sctx, const AREQ *req);
 // Allows calling parseProfileArgs from reply_empty.c
 int parseProfileArgs(RedisModuleString **argv, int argc, AREQ *r);
 
-static inline bool AREQ_TimedOut(AREQ *req) {
-  return RequestSyncCtx_GetTimedOut(&req->syncCtx);
-}
-static inline void AREQ_SetTimedOut(AREQ *req) {
-  RequestSyncCtx_SetTimedOut(&req->syncCtx);
-}
+bool AREQ_TimedOut(AREQ *req);
+void AREQ_SetTimedOut(AREQ *req);
 #ifdef ENABLE_ASSERT
 // SyncPointStopFn predicate adapter for AREQ_TimedOut. Pass the AREQ as `arg`
 // to SyncPoint_WaitUntil to release the wait when the request is timed out.
