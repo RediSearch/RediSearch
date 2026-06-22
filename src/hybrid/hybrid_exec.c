@@ -377,6 +377,14 @@ void HREQ_ReplyOrStoreError(HybridRequest *hreq, RedisModuleCtx *ctx, QueryError
     QueryError_CloneFrom(status, &hreq->storedReplyState.err);
     // Clear the original to avoid leaking heap-allocated strings.
     QueryError_ClearError(status);
+  } else if (!ShouldReplyWithError(QueryError_GetCode(status),
+                                   hreq->reqConfig.timeoutPolicy, IsProfile(hreq))) {
+    // A timeout under a non-fail policy must not surface as an error: reply an
+    // empty result set carrying the timeout warning instead (e.g. a cursor-setup
+    // timeout, where no mappings were established).
+    common_hybrid_query_reply_empty(ctx, QueryError_GetCode(status),
+                                    IsInternal(hreq), IsProfile(hreq));
+    QueryError_ClearError(status);
   } else {
     QueryError_ReplyAndClear(ctx, status);
   }
@@ -503,6 +511,11 @@ void sendChunk_ReplyOnly_HybridEmptyResults(RedisModule_Reply *reply, QueryError
         RedisModule_Reply_Array(reply);
         // This function is called by Coordinator or SA
         RedisModule_Reply_SimpleString(reply, QUERY_WOOM_COORD);
+        RedisModule_Reply_ArrayEnd(reply);
+    } else if (QueryError_GetCode(err) == QUERY_ERROR_CODE_TIMED_OUT) {
+        QueryWarningsGlobalStats_UpdateWarning(QUERY_WARNING_CODE_TIMED_OUT, 1, COORD_ERR_WARN);
+        RedisModule_Reply_Array(reply);
+        RedisModule_Reply_SimpleString(reply, QueryWarning_Strwarning(QUERY_WARNING_CODE_TIMED_OUT));
         RedisModule_Reply_ArrayEnd(reply);
     } else {
         RedisModule_Reply_EmptyArray(reply);

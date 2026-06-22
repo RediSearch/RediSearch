@@ -114,6 +114,15 @@ def getConnectionByEnv(env):
 
 # --- Coordinator / cluster timeout test helpers ---
 
+ON_TIMEOUT_CONFIG = 'search-on-timeout'
+
+
+def assert_timeout_warning(env, res, message=''):
+    warnings = res.get('warning', res.get('warnings', []))
+    env.assertTrue(warnings, message=message + " expected timeout warning")
+    env.assertContains('Timeout', warnings[0], message=message + " expected timeout warning")
+
+
 def pid_cmd(conn):
     """Get the process ID of a Redis connection."""
     return conn.execute_command('info', 'server')['process_id']
