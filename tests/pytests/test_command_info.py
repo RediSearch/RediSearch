@@ -2,6 +2,9 @@ from common import *
 import json
 import os
 
+_DONT_CACHE_TIP = 'dont_cache'
+_COMMANDS_WITHOUT_DONT_CACHE = {'FT.SUGGET', 'FT.SUGLEN'}
+
 def _load_command_expectations():
     """Load and parse the command info expectations file."""
     commands_json_path = os.path.join(os.path.dirname(__file__), '..', '..', 'commands.json')
@@ -21,6 +24,9 @@ def _lists_equal_insensitive(a, b):
     Returns True if they contain the same items (ignoring case and order).
     """
     return set(map(str.lower, a)) == set(map(str.lower, b))
+
+def _tolower_list(values):
+    return [value.lower() for value in values]
 
 def _convert_flags_to_boolean_fields(flags_list):
     """
@@ -414,6 +420,30 @@ def test_command_info_tips_field():
     # Strict assertion - all commands with tips should pass
     env.assertEqual(len(failed_tips), 0,
                    message=f"All commands with tips should have correct tips field. Failed: {failed_tips}")
+
+"""Test commands.json DONT_CACHE policy for CSC cacheability."""
+def test_command_info_cacheability_tips_policy():
+    env = Env()
+    try:
+        commands_json = _load_command_expectations()
+    except Exception as e:
+        env.fail(str(e))
+
+    unexpected_dont_cache = []
+    missing_dont_cache = []
+
+    for cmd_name, command_data in commands_json.items():
+        tips = _tolower_list(command_data.get('command_tips', []))
+        if cmd_name in _COMMANDS_WITHOUT_DONT_CACHE:
+            if _DONT_CACHE_TIP in tips:
+                unexpected_dont_cache.append(cmd_name)
+        elif _DONT_CACHE_TIP not in tips:
+            missing_dont_cache.append(cmd_name)
+
+    env.assertEqual(unexpected_dont_cache, [],
+                    message=f"Commands expected without {_DONT_CACHE_TIP} must not have it: {unexpected_dont_cache}")
+    env.assertEqual(missing_dont_cache, [],
+                    message=f"Non-cacheable commands must have {_DONT_CACHE_TIP}: {missing_dont_cache}")
 
 """Test the structure of command info for specific well-known commands."""
 def test_specific_command_docs_structure():
