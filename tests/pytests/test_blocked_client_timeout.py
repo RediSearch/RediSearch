@@ -6,6 +6,8 @@ from test_info_modules import (
     WARN_ERR_SECTION, COORD_WARN_ERR_SECTION,
     TIMEOUT_ERROR_SHARD_METRIC, TIMEOUT_WARNING_SHARD_METRIC,
     TIMEOUT_ERROR_COORD_METRIC, TIMEOUT_WARNING_COORD_METRIC,
+    TIMEOUT_ERROR_COORD_QUEUE_METRIC, TIMEOUT_ERROR_COORD_PIPELINE_METRIC,
+    TIMEOUT_ERROR_COORD_REPLY_METRIC,
     _verify_metrics_not_changed,
 )
 import threading
@@ -17,6 +19,17 @@ TIMEOUT_WARNING = TIMEOUT_ERROR
 
 def run_cmd_expect_timeout(env, query_args):
     env.expect(*query_args).error().contains(TIMEOUT_ERROR)
+
+def _assert_coord_timeout_error_sum_invariant(env):
+    """The aggregate coord timeout-error counter must equal the sum of its
+    per-stage parts (queue + pipeline + reply)."""
+    sec = info_modules_to_dict(env)[COORD_WARN_ERR_SECTION]
+    env.assertEqual(
+        int(sec[TIMEOUT_ERROR_COORD_METRIC]),
+        int(sec[TIMEOUT_ERROR_COORD_QUEUE_METRIC])
+        + int(sec[TIMEOUT_ERROR_COORD_PIPELINE_METRIC])
+        + int(sec[TIMEOUT_ERROR_COORD_REPLY_METRIC]),
+        message="aggregate coord timeout-error counter must equal the sum of its per-stage parts")
 
 def _coord_cursor_total(env, idx='idx'):
     """Return the coordinator's global cursor count, or 0 if cursor_stats is absent."""
@@ -5569,6 +5582,12 @@ class TestShardTimeout:
         # Capture baseline metrics (standalone uses coord metrics)
         before_info = info_modules_to_dict(env)
         base_err_coord = int(before_info[COORD_WARN_ERR_SECTION][TIMEOUT_ERROR_COORD_METRIC])
+        # The worker pool is paused below, so the query times out while still
+        # queued -> the timeout is attributed to the QUEUE stage. (Hybrid stage
+        # attribution is approximate, so the per-stage assertion is restricted to
+        # the AREQ-based commands; the sum invariant still holds for all.)
+        base_err_queue = int(before_info[COORD_WARN_ERR_SECTION][TIMEOUT_ERROR_COORD_QUEUE_METRIC])
+        areq_timeouts = 0
 
         for i, query_type in enumerate(['FT.SEARCH', 'FT.AGGREGATE', 'FT.HYBRID']):
 
@@ -5618,9 +5637,17 @@ class TestShardTimeout:
             env.assertEqual(info_dict[COORD_WARN_ERR_SECTION][TIMEOUT_ERROR_COORD_METRIC],
                             str(base_err_coord + i + 1),
                             message=f"Coordinator timeout error should be +{i+1} after {query_type}")
+            # The AREQ-based commands must attribute the queued timeout to the QUEUE stage.
+            if query_type != 'FT.HYBRID':
+                areq_timeouts += 1
+                env.assertEqual(
+                    int(info_dict[COORD_WARN_ERR_SECTION][TIMEOUT_ERROR_COORD_QUEUE_METRIC]),
+                    base_err_queue + areq_timeouts,
+                    message=f"{query_type} queued timeout should bump the QUEUE-stage counter")
 
-        # Verify no other metrics changed
+        # Verify no other metrics changed, and the aggregate equals the per-stage sum.
         _verify_metrics_not_changed(env, env, before_info, [TIMEOUT_ERROR_COORD_METRIC])
+        _assert_coord_timeout_error_sum_invariant(env)
 
         env.expect('CONFIG', 'SET', ON_TIMEOUT_CONFIG, prev_on_timeout_policy).ok()
 
@@ -5640,6 +5667,9 @@ class TestShardTimeout:
         # Capture baseline metrics (standalone uses coord metrics)
         before_info = info_modules_to_dict(env)
         base_err_coord = int(before_info[COORD_WARN_ERR_SECTION][TIMEOUT_ERROR_COORD_METRIC])
+        # The query is parked inside the result-processor pipeline, so the timeout
+        # is attributed to the PIPELINE stage.
+        base_err_pipeline = int(before_info[COORD_WARN_ERR_SECTION][TIMEOUT_ERROR_COORD_PIPELINE_METRIC])
 
         # Run a query that will be blocked
         # Using PAUSE_BEFORE_RP_N to pause inside the pipeline
@@ -5691,9 +5721,15 @@ class TestShardTimeout:
             env.assertEqual(info_dict[COORD_WARN_ERR_SECTION][TIMEOUT_ERROR_COORD_METRIC],
                             str(base_err_coord + i + 1),
                             message=f"Coordinator timeout error should be +{i+1} after {query_type} in pipeline")
+            # The timeout fired mid-pipeline, so it lands in the PIPELINE stage.
+            env.assertEqual(
+                int(info_dict[COORD_WARN_ERR_SECTION][TIMEOUT_ERROR_COORD_PIPELINE_METRIC]),
+                base_err_pipeline + i + 1,
+                message=f"{query_type} in-pipeline timeout should bump the PIPELINE-stage counter")
 
-        # Verify no other metrics changed
+        # Verify no other metrics changed, and the aggregate equals the per-stage sum.
         _verify_metrics_not_changed(env, env, before_info, [TIMEOUT_ERROR_COORD_METRIC])
+        _assert_coord_timeout_error_sum_invariant(env)
 
         env.expect('CONFIG', 'SET', ON_TIMEOUT_CONFIG, prev_on_timeout_policy).ok()
 
@@ -5775,6 +5811,7 @@ class TestShardTimeout:
         # Capture baseline metrics (standalone uses coord metrics)
         before_info = info_modules_to_dict(env)
         base_err_coord = int(before_info[COORD_WARN_ERR_SECTION][TIMEOUT_ERROR_COORD_METRIC])
+        base_err_reply = int(before_info[COORD_WARN_ERR_SECTION][TIMEOUT_ERROR_COORD_REPLY_METRIC])
 
         # Enable pause before store results
         setPauseBeforeStoreResults(env, True, internal=False)
@@ -5807,7 +5844,17 @@ class TestShardTimeout:
         env.assertEqual(after_info[COORD_WARN_ERR_SECTION][TIMEOUT_ERROR_COORD_METRIC],
                         str(base_err_coord + 1),
                         message=f"Coordinator timeout error should be +1 after {cmd_name} before store")
+        # The pipeline finished and the execution phase advanced to REPLY before the
+        # pause, so the timeout is attributed to the REPLY stage. (Hybrid stage
+        # attribution is approximate, so assert per-stage only for the AREQ commands;
+        # the sum invariant holds for all.)
+        if cmd_name in ('FT.SEARCH', 'FT.AGGREGATE'):
+            env.assertEqual(
+                int(after_info[COORD_WARN_ERR_SECTION][TIMEOUT_ERROR_COORD_REPLY_METRIC]),
+                base_err_reply + 1,
+                message=f"{cmd_name} timeout before store should bump the REPLY-stage counter")
         _verify_metrics_not_changed(env, env, before_info, [TIMEOUT_ERROR_COORD_METRIC])
+        _assert_coord_timeout_error_sum_invariant(env)
 
         # Cleanup
         resetStoreResultsDebug(env)
@@ -5828,6 +5875,7 @@ class TestShardTimeout:
         # Capture baseline metrics (standalone uses coord metrics)
         before_info = info_modules_to_dict(env)
         base_err_coord = int(before_info[COORD_WARN_ERR_SECTION][TIMEOUT_ERROR_COORD_METRIC])
+        base_err_reply = int(before_info[COORD_WARN_ERR_SECTION][TIMEOUT_ERROR_COORD_REPLY_METRIC])
 
         # Enable pause after store results
         setPauseAfterStoreResults(env, True, internal=False)
@@ -5860,7 +5908,14 @@ class TestShardTimeout:
         env.assertEqual(after_info[COORD_WARN_ERR_SECTION][TIMEOUT_ERROR_COORD_METRIC],
                         str(base_err_coord + 1),
                         message=f"Coordinator timeout error should be +1 after {cmd_name} after store")
+        # Still in the REPLY phase (the phase advanced to REPLY before the store).
+        if cmd_name in ('FT.SEARCH', 'FT.AGGREGATE'):
+            env.assertEqual(
+                int(after_info[COORD_WARN_ERR_SECTION][TIMEOUT_ERROR_COORD_REPLY_METRIC]),
+                base_err_reply + 1,
+                message=f"{cmd_name} timeout after store should bump the REPLY-stage counter")
         _verify_metrics_not_changed(env, env, before_info, [TIMEOUT_ERROR_COORD_METRIC])
+        _assert_coord_timeout_error_sum_invariant(env)
 
         # Cleanup
         resetStoreResultsDebug(env)
