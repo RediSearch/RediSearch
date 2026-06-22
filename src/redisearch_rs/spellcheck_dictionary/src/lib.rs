@@ -201,6 +201,8 @@ mod tests {
     #[rstest]
     #[case(TRIE_MAX_PREFIX, true)] // at the limit: still matches
     #[case(TRIE_MAX_PREFIX + 1, false)] // one over: ignored, like C
+    // This test runs too slowly under Miri.
+    #[cfg_attr(miri, ignore)]
     fn query_length_cutoff(#[case] query_len: usize, #[case] expected_match: bool) {
         let term: String = "a".repeat(query_len);
         let mut sut = SpellCheckDictionary::new();
