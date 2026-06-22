@@ -159,6 +159,11 @@ void StoreResultsDebugCtx_SetPause(bool pause);
 // (RSE redisearch_disk). Lets a test update a key while a load batch is staged, and is the point
 // the deadlock test (MOD-15306) uses to hold a writer against the loader.
 #define SYNC_POINT_BEFORE_LOADER_GIL                    "BeforeLoaderGil"
+// Disk async loader: parked right after a swap-prefetch is issued for a non-resident key and
+// before the worker waits for the completion (RSE redisearch_disk). Lets a test mutate or delete
+// the key inside the async swap window so the callback hits the docid-mismatch / expired-doc path,
+// and lets a test hold the load past the query timeout to exercise the ON_TIMEOUT policy.
+#define SYNC_POINT_AFTER_PREFETCH_ISSUE                 "AfterPrefetchIssue"
 
 // SyncPoint API function declarations
 // Arm a sync point - subsequent calls to SyncPoint_Wait will block
