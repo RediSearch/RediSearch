@@ -10,6 +10,7 @@ NC='\033[0m' # No Color
 SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd -- "$SCRIPT_DIR/.." && pwd)"
 REQUIRED_CHEADERGEN_VERSION=$(cat "$REPO_ROOT/.cheadergen-version")
+source "$SCRIPT_DIR/version_compare.sh"
 
 should_check_cheadergen() {
   case "${REDISEARCH_GENERATE_HEADERS:-1}" in
@@ -157,19 +158,11 @@ get_cheadergen_version() {
 # ==== Version Checkers ====
 
 check_min_version() {
-    local actual_version="$1"
-    local min_version="$2"
-
-    # Sort the versions from min to max, expecting the first one to be the minimum
-    [ "$(printf '%s\n' "$min_version" "$actual_version" | sort -V | head -n 1)" = "$min_version" ]
+  version_ge "$1" "$2"
 }
 
 check_max_version() {
-    local actual_version="$1"
-    local max_version="$2"
-
-    # Sort the versions from min to max, expecting the first one to be the actual_version
-    [ "$(printf '%s\n' "$max_version" "$actual_version" | sort -V | head -n 1)" = "$actual_version" ]
+  version_ge "$2" "$1"
 }
 
 # ====  Specialized Checkers ====
