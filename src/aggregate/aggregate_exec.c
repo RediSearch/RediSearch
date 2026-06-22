@@ -655,13 +655,14 @@ static void finishSendChunkReply_Resp2(AREQ *req, RedisModule_Reply *reply, bool
   }
 }
 
-static bool shouldDepleteReturnStrictCursor(AREQ *req) {
+static bool shouldDepleteReturnStrictCursor(AREQ *req, int rc) {
   if (!(AREQ_RequestFlags(req) & QEXEC_F_IS_CURSOR) ||
       req->reqConfig.timeoutPolicy != TimeoutPolicy_ReturnStrict) {
     return false;
   }
 
-  return RequestSyncCtx_ShouldDepleteCursor(&req->syncCtx);
+  return rc == RS_RESULT_TIMEDOUT ||
+         (req->stateflags & QEXEC_S_SHARD_TIMED_OUT_WARNING);
 }
 
 /**
@@ -712,11 +713,12 @@ static int serializeAndReplyResults_Resp2(AREQ *req, RedisModule_Reply *reply, R
 done_2:
     RedisModule_Reply_ArrayEnd(reply);    // </results>
 
-    // Preserve a pre-set cursor_done or a timeout callback's depleted-cursor
-    // promise; otherwise derive it from rc.
+    // Preserve a pre-set cursor_done, deplete RETURN_STRICT cursor timeouts,
+    // otherwise keep the existing RETURN timeout semantics.
     state->cursor_done =
-        state->cursor_done || shouldDepleteReturnStrictCursor(req) ||
-        (rc != RS_RESULT_OK && rc != RS_RESULT_TIMEDOUT);
+        state->cursor_done || shouldDepleteReturnStrictCursor(req, rc) ||
+        (rc != RS_RESULT_OK &&
+         !(rc == RS_RESULT_TIMEDOUT && req->reqConfig.timeoutPolicy != TimeoutPolicy_Fail));
 
     trackWarnings_Resp2(req, qctx, rc);
     finishSendChunkReply_Resp2(req, reply, state->cursor_done);
@@ -937,11 +939,12 @@ static int serializeAndReplyResults_Resp3(AREQ *req, RedisModule_Reply *reply, R
     }
 
 done_3:
-    // Preserve a pre-set cursor_done or a timeout callback's depleted-cursor
-    // promise; otherwise derive it from rc.
+    // Preserve a pre-set cursor_done, deplete RETURN_STRICT cursor timeouts,
+    // otherwise keep the existing RETURN timeout semantics.
     state->cursor_done =
-        state->cursor_done || shouldDepleteReturnStrictCursor(req) ||
-        (rc != RS_RESULT_OK && rc != RS_RESULT_TIMEDOUT);
+        state->cursor_done || shouldDepleteReturnStrictCursor(req, rc) ||
+        (rc != RS_RESULT_OK &&
+         !(rc == RS_RESULT_TIMEDOUT && req->reqConfig.timeoutPolicy != TimeoutPolicy_Fail));
 
     finishSendChunkReply_Resp3(req, reply, qctx, rc, state->cursor_done);
 
@@ -1619,7 +1622,6 @@ static int QueryTimeoutReturnStrictCallback(RedisModuleCtx *ctx, RedisModuleStri
 
   // Signal timeout to background thread
   AREQ_SetTimedOut(req);
-  RequestSyncCtx_SetDepleteCursor(&req->syncCtx);
 
   if (AREQ_TryClaimAggregateResults(req)) {
     // We were able to claim the aggregation results.
@@ -1783,7 +1785,6 @@ static int CursorReadTimeoutReturnStrictCallback(RedisModuleCtx *ctx, RedisModul
 
   AREQ *req = (AREQ *)node->privdata;
   AREQ_SetTimedOut(req);
-  RequestSyncCtx_SetDepleteCursor(&req->syncCtx);
 
   if (AREQ_TryClaimAggregateResults(req)) {
     // The worker has not entered the stored-results phase yet. Reply in the
@@ -2079,7 +2080,7 @@ static void runCursor(RedisModule_Reply *reply, Cursor *cursor, size_t num) {
       // returned to the caller.
       req->storedReplyState.cursor = NULL;
       if ((AREQ_RequestFlags(req) & QEXEC_F_IS_AGGREGATE) ||
-          shouldDepleteReturnStrictCursor(req)) {
+          shouldDepleteReturnStrictCursor(req, RS_RESULT_TIMEDOUT)) {
         Cursor_Free(cursor);
       } else {
         Cursor_Pause(cursor);

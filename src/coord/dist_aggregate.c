@@ -778,9 +778,6 @@ int DistAggregateTimeoutReturnStrictCallback(RedisModuleCtx *ctx, RedisModuleStr
   CoordRequestCtx_SetTimedOut(CoordReqCtx);
 
   AREQ *req = (AREQ *)CoordRequestCtx_GetRequest(CoordReqCtx);
-  if (req) {
-    RequestSyncCtx_SetDepleteCursor(&req->syncCtx);
-  }
   CoordRequestCtx_UnlockSetRequest(CoordReqCtx);
 
   if (!req || AREQ_TryClaimAggregateResults(req)) {
@@ -887,7 +884,6 @@ int DistCursorReadTimeoutReturnStrictCallback(RedisModuleCtx *ctx, RedisModuleSt
   CoordRequestCtx_SetTimedOut(reqCtx);
   AREQ *req = (AREQ *)CoordRequestCtx_GetRequest(reqCtx);
   if (req) {
-    RequestSyncCtx_SetDepleteCursor(&req->syncCtx);
     CoordRequestCtx_UnlockSetRequest(reqCtx);
   } else {
     // BG never took the cursor (or hit the early TimedOut check and bailed
