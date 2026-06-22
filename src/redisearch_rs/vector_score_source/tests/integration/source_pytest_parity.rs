@@ -19,170 +19,17 @@
 //! Data model (shared with `source.rs`): unless noted, doc `i` is `[i; dim]`
 //! under L2, so distance to query `[q; dim]` is `dim*(q-i)^2`.
 
-use std::{cmp::Ordering, ffi::c_void, num::NonZeroUsize, ptr, ptr::NonNull};
+use std::{ffi::c_void, num::NonZeroUsize};
 
-use ffi::{
-    AlgoParams, BFParams, HNSWParams, VecSimAlgo_VecSimAlgo_BF, VecSimAlgo_VecSimAlgo_HNSWLIB,
-    VecSimIndex, VecSimIndex_AddVector, VecSimIndex_Free, VecSimIndex_New,
-    VecSimMetric_VecSimMetric_Cosine, VecSimMetric_VecSimMetric_L2, VecSimParams,
-    VecSimQueryParams, VecSimType_VecSimType_FLOAT32,
-};
+use ffi::VecSimIndex_Free;
 use rqe_core::DocId;
-use rqe_iterators::{IdList, RQEIterator, RQEIteratorError};
+use rqe_iterators::{RQEIterator, RQEIteratorError};
 use top_k::{TopKIterator, TopKMode};
-use vector_score_source::{
-    VectorScoreSource, new_vector_top_k_filtered, new_vector_top_k_unfiltered,
+use vector_score_source::test_support::{
+    asc, build_flat_cosine_index, build_flat_index, build_hnsw_index, collect_ids, make_child,
+    make_source, uniform_blob,
 };
-
-/// Ascending comparator: lower distance score is better (L2/IP/Cosine).
-fn asc(a: f64, b: f64) -> Ordering {
-    a.partial_cmp(&b).unwrap_or(Ordering::Equal)
-}
-
-/// Encode `values` as the native-endian f32 byte blob VecSim expects.
-fn blob(values: &[f32]) -> Vec<u8> {
-    values.iter().flat_map(|f| f.to_ne_bytes()).collect()
-}
-
-/// `[value; dim]` query blob.
-fn uniform_blob(value: f32, dim: usize) -> Vec<u8> {
-    blob(&vec![value; dim])
-}
-
-/// HNSW L2 index of `n` vectors, doc `i` (1..=n) is `[i; dim]`.
-fn build_hnsw_index(n: usize, dim: usize) -> NonNull<VecSimIndex> {
-    let params = VecSimParams {
-        algo: VecSimAlgo_VecSimAlgo_HNSWLIB,
-        algoParams: AlgoParams {
-            hnswParams: HNSWParams {
-                type_: VecSimType_VecSimType_FLOAT32,
-                dim,
-                metric: VecSimMetric_VecSimMetric_L2,
-                multi: false,
-                initialCapacity: n,
-                blockSize: 0,
-                M: 16,
-                efConstruction: 100,
-                efRuntime: 0,
-                epsilon: 0.0,
-            },
-        },
-        logCtx: ptr::null_mut(),
-    };
-    new_index(&params, |add| {
-        for i in 1..=n {
-            add(i as DocId, &vec![i as f32; dim]);
-        }
-    })
-}
-
-/// FLAT (exact brute-force) L2 index of `n` vectors, doc `i` is `[i; dim]`.
-///
-/// FLAT, not HNSW, wherever a non-corner query needs a deterministic ordering.
-fn build_flat_index(n: usize, dim: usize) -> NonNull<VecSimIndex> {
-    let params = flat_params(dim, VecSimMetric_VecSimMetric_L2, n);
-    new_index(&params, |add| {
-        for i in 1..=n {
-            add(i as DocId, &vec![i as f32; dim]);
-        }
-    })
-}
-
-/// FLAT cosine index, doc `i` is `[i/n, 1, 1, ...]`.
-///
-/// Only the first coordinate varies, so doc direction approaches the `[1; dim]`
-/// query as `i` grows; `[i; dim]` would be degenerate (all collinear).
-fn build_flat_cosine_index(n: usize, dim: usize) -> NonNull<VecSimIndex> {
-    let params = flat_params(dim, VecSimMetric_VecSimMetric_Cosine, n);
-    new_index(&params, |add| {
-        for i in 1..=n {
-            let mut v = vec![1.0f32; dim];
-            v[0] = i as f32 / n as f32;
-            add(i as DocId, &v);
-        }
-    })
-}
-
-fn flat_params(dim: usize, metric: ffi::VecSimMetric, n: usize) -> VecSimParams {
-    VecSimParams {
-        algo: VecSimAlgo_VecSimAlgo_BF,
-        algoParams: AlgoParams {
-            bfParams: BFParams {
-                type_: VecSimType_VecSimType_FLOAT32,
-                dim,
-                metric,
-                multi: false,
-                initialCapacity: n,
-                blockSize: 0,
-            },
-        },
-        logCtx: ptr::null_mut(),
-    }
-}
-
-/// Create an index from `params` and populate it via `fill`, handed an
-/// `add(doc_id, &[f32])` closure. Centralises the unsafe VecSim FFI calls.
-fn new_index(
-    params: &VecSimParams,
-    fill: impl FnOnce(&mut dyn FnMut(DocId, &[f32])),
-) -> NonNull<VecSimIndex> {
-    // SAFETY: `params` is a fully initialised config; `VecSimIndex_New` copies
-    // what it needs and returns an owned index handle.
-    let index = unsafe { VecSimIndex_New(params) };
-    let index = NonNull::new(index).expect("VecSimIndex_New returned null");
-
-    let mut add = |id: DocId, v: &[f32]| {
-        // SAFETY: `v` holds `dim` f32 elements matching the index type/dim;
-        // the pointer is valid for the duration of the call.
-        unsafe {
-            VecSimIndex_AddVector(index.as_ptr(), v.as_ptr() as *const c_void, id as usize);
-        }
-    };
-    fill(&mut add);
-    index
-}
-
-/// Construct a [`VectorScoreSource`] for query vector `query`.
-///
-/// # Safety
-///
-/// `index` must outlive the returned source (and any iterator built from it).
-unsafe fn make_source(
-    index: NonNull<VecSimIndex>,
-    query: Vec<u8>,
-    ef: usize,
-    k: usize,
-    child_est: usize,
-) -> VectorScoreSource<'static> {
-    // SAFETY: zeroed is a valid bit pattern for this POD-with-union config;
-    // we then set the only field VecSim reads for an HNSW query (BF ignores it).
-    let mut query_params: VecSimQueryParams = unsafe { std::mem::zeroed() };
-    query_params.__bindgen_anon_1.hnswRuntimeParams.efRuntime = ef;
-
-    // SAFETY: caller guarantees `index` outlives the source; `timeout_ctx` is
-    // null and the index is a RAM (non-disk) index.
-    unsafe {
-        VectorScoreSource::new(
-            index,
-            query,
-            query_params,
-            k,
-            std::mem::zeroed(),
-            true,
-            child_est,
-            0,
-        )
-    }
-}
-
-fn make_child(ids: Vec<DocId>) -> Box<dyn RQEIterator<'static>> {
-    Box::new(IdList::<true>::new(ids))
-}
-
-/// Drain an iterator into the doc ids it yields, in read order.
-fn collect_ids<I: RQEIterator<'static>>(it: &mut I) -> Vec<DocId> {
-    std::iter::from_fn(|| it.read().unwrap().map(|r| r.doc_id)).collect()
-}
+use vector_score_source::{new_vector_top_k_filtered, new_vector_top_k_unfiltered};
 
 // FLAT backend coverage (source.rs only exercises HNSW).
 

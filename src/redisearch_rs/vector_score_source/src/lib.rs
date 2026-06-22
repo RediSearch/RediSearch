@@ -14,8 +14,20 @@
 //! This crate provides the concrete [`VectorScoreSource`] implementation of
 //! [`top_k::ScoreSource`] that drives [`TopKIterator`] against a VecSim index.
 
+// Force-link the umbrella `redisearch_rs` crate so the `QueryError_*` (and other)
+// Rust FFI symbols that `libredisearch_all.a` calls back into are retained in the
+// lib unit-test binary, which links the C archive via the `unittest` feature.
+#[cfg(test)]
+extern crate redisearch_rs;
+// Stub the C symbols (e.g. OpenSSL) that the linked archive references but these
+// unit tests never exercise, so the binary links without pulling in those libs.
+#[cfg(test)]
+redis_mock::mock_or_stub_missing_redis_c_symbols!();
+
 pub mod score_batch;
 pub mod source;
+#[cfg(feature = "unittest")]
+pub mod test_support;
 
 pub use score_batch::VecSimScoreBatch;
 pub use source::VectorScoreSource;
