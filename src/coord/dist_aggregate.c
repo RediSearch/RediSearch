@@ -33,6 +33,7 @@
 #include "coord_request_ctx.h"
 #include "aggregate/reply_empty.h"
 #include "aggregate/aggregate_exec_common.h"
+#include "cursor.h"
 
 static const RLookupKey *keyForField(RPNet *nc, const char *s) {
   RLOOKUP_FOREACH(kk, nc->lookup, {
@@ -888,12 +889,14 @@ int DistCursorReadTimeoutReturnStrictCallback(RedisModuleCtx *ctx, RedisModuleSt
   if (!req) {
     // BG never took the cursor (or hit the early TimedOut check and bailed
     // before taking). No condvar signal will arrive; reply directly with
-    // cursor-shaped empty + cid. Cid was validated by CursorCommand on the
-    // main thread before BC arming, so argv[3] is trusted.
+    // a depleted cursor. Cid was validated by CursorCommand on the main thread
+    // before BC arming, so argv[3] is trusted. The cursor is still idle because
+    // BG could not take it after we marked the request timed out.
     long long cid;
     int rc = RedisModule_StringToLongLong(argv[3], &cid);
     RS_ASSERT(rc == REDISMODULE_OK);
-    return coord_cursor_read_empty_reply_timeout(ctx, cid);
+    Cursors_Purge(GetGlobalCursor((uint64_t)cid), (uint64_t)cid);
+    return coord_cursor_read_empty_reply_timeout(ctx, 0);
   }
 
   // BG has taken the cursor. Wake the abort channel — unblocks BG from
