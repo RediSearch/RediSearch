@@ -423,7 +423,7 @@ def test_command_info_tips_field():
 
 """Test commands.json DONT_CACHE policy for CSC cacheability."""
 def test_command_info_cacheability_tips_policy():
-    env = Env()
+    env = Env(protocol=3)
     try:
         commands_json = _load_command_expectations()
     except Exception as e:
@@ -444,6 +444,22 @@ def test_command_info_cacheability_tips_policy():
                     message=f"Commands expected without {_DONT_CACHE_TIP} must not have it: {unexpected_dont_cache}")
     env.assertEqual(missing_dont_cache, [],
                     message=f"Non-cacheable commands must have {_DONT_CACHE_TIP}: {missing_dont_cache}")
+
+    conn = env.getConnection()
+    runtime_dont_cache = []
+
+    for cmd_name in _COMMANDS_WITHOUT_DONT_CACHE:
+        info = conn.execute_command("COMMAND", "INFO", cmd_name)
+        if not info or not isinstance(info, dict) or cmd_name not in info:
+            runtime_dont_cache.append(f"{cmd_name}: No command info returned")
+            continue
+
+        tips = _tolower_list(info[cmd_name].get('tips', []))
+        if _DONT_CACHE_TIP in tips:
+            runtime_dont_cache.append(cmd_name)
+
+    env.assertEqual(runtime_dont_cache, [],
+                    message=f"Commands expected without {_DONT_CACHE_TIP} expose it in COMMAND INFO: {runtime_dont_cache}")
 
 """Test the structure of command info for specific well-known commands."""
 def test_specific_command_docs_structure():
