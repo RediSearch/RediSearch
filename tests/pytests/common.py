@@ -700,6 +700,21 @@ if RS_TEST_ENTERPRISE:
             )
         except Exception:
             pass
+        # Also seed slave if present (useSlaves=True)
+        try:
+            slave_conn = self.getSlaveConnection()
+            slave_port = slave_conn.connection_pool.connection_kwargs.get('port')
+            slave_conn.execute_command(
+                'SEARCH.CLUSTERSET',
+                'MYID', '1',
+                'RANGES', '1',
+                'SHARD', '1',
+                'SLOTRANGE', '0', '16383',
+                'ADDR', f'password@127.0.0.1:{slave_port}',
+                'MASTER',
+            )
+        except Exception:
+            pass
 
     Env.start = _enterprise_env_start
     _orig_env_dump_and_reload = Env.dumpAndReload
