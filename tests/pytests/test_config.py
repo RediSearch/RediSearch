@@ -384,16 +384,20 @@ def testDeprecatedMTConfig_full():
 
 @skip(cluster=True)
 def testDeprecatedMTConfig_operations():
-    if RS_TEST_ENTERPRISE:
-        import unittest; raise unittest.SkipTest('Enterprise MT_MODE->WORKERS mapping differs')
     workers = '3'
     env = Env(moduleArgs=f'WORKER_THREADS {workers} MT_MODE MT_MODE_ONLY_ON_OPERATIONS', noDefaultModuleArgs=True)
     # Check old config values
     env.expect(config_cmd(), 'get', 'WORKER_THREADS').equal([['WORKER_THREADS', workers]])
     env.expect(config_cmd(), 'get', 'MT_MODE').equal([['MT_MODE', 'MT_MODE_ONLY_ON_OPERATIONS']])
-    # Check new config values
-    env.expect(config_cmd(), 'get', 'WORKERS').equal([['WORKERS', str(workers_default)]])
-    env.expect(config_cmd(), 'get', 'MIN_OPERATION_WORKERS').equal([['MIN_OPERATION_WORKERS', workers]])
+    # Check new config values.
+    # Enterprise: WORKERS pool is disabled (0) when deprecated MT_MODE path is used without
+    # an explicit WORKERS arg; MIN_OPERATION_WORKERS is set to the WORKER_THREADS value.
+    if RS_TEST_ENTERPRISE:
+        env.expect(config_cmd(), 'get', 'WORKERS').equal([['WORKERS', '0']])
+        env.expect(config_cmd(), 'get', 'MIN_OPERATION_WORKERS').equal([['MIN_OPERATION_WORKERS', workers]])
+    else:
+        env.expect(config_cmd(), 'get', 'WORKERS').equal([['WORKERS', str(workers_default)]])
+        env.expect(config_cmd(), 'get', 'MIN_OPERATION_WORKERS').equal([['MIN_OPERATION_WORKERS', workers]])
 
 @skip(cluster=True)
 def testDeprecatedMTConfig_off():
@@ -408,28 +412,40 @@ def testDeprecatedMTConfig_off():
 # Check invalid combination
 @skip(cluster=True)
 def testDeprecatedMTConfig_full_with_0():
-    if RS_TEST_ENTERPRISE:
-        import unittest; raise unittest.SkipTest('Enterprise MT_MODE->WORKERS mapping differs')
     env = Env(moduleArgs='MT_MODE MT_MODE_FULL WORKER_THREADS 0', noDefaultModuleArgs=True)
     env.assertTrue(env.isUp())
-    env.expect(config_cmd(), 'get', 'WORKERS').equal([['WORKERS', str(workers_default)]])
-    env.expect(config_cmd(), 'get', 'MIN_OPERATION_WORKERS').equal([['MIN_OPERATION_WORKERS', str(min_operation_workers_default)]])
+    # Enterprise: WORKERS pool is disabled (0) when WORKER_THREADS 0 is used with MT_MODE_FULL;
+    # MIN_OPERATION_WORKERS falls back to min_operation_workers_default.
+    if RS_TEST_ENTERPRISE:
+        env.expect(config_cmd(), 'get', 'WORKERS').equal([['WORKERS', '0']])
+        env.expect(config_cmd(), 'get', 'MIN_OPERATION_WORKERS').equal([['MIN_OPERATION_WORKERS', str(min_operation_workers_default)]])
+    else:
+        env.expect(config_cmd(), 'get', 'WORKERS').equal([['WORKERS', str(workers_default)]])
+        env.expect(config_cmd(), 'get', 'MIN_OPERATION_WORKERS').equal([['MIN_OPERATION_WORKERS', str(min_operation_workers_default)]])
 @skip(cluster=True)
 def testDeprecatedMTConfig_operations_with_0():
-    if RS_TEST_ENTERPRISE:
-        import unittest; raise unittest.SkipTest('Enterprise MT_MODE->WORKERS mapping differs')
     env = Env(moduleArgs='MT_MODE MT_MODE_ONLY_ON_OPERATIONS WORKER_THREADS 0', noDefaultModuleArgs=True)
     env.assertTrue(env.isUp())
-    env.expect(config_cmd(), 'get', 'WORKERS').equal([['WORKERS', str(workers_default)]])
-    env.expect(config_cmd(), 'get', 'MIN_OPERATION_WORKERS').equal([['MIN_OPERATION_WORKERS', str(min_operation_workers_default)]])
+    # Enterprise: WORKERS pool is disabled (0); MIN_OPERATION_WORKERS falls back to
+    # min_operation_workers_default when WORKER_THREADS 0 is used with MT_MODE_ONLY_ON_OPERATIONS.
+    if RS_TEST_ENTERPRISE:
+        env.expect(config_cmd(), 'get', 'WORKERS').equal([['WORKERS', '0']])
+        env.expect(config_cmd(), 'get', 'MIN_OPERATION_WORKERS').equal([['MIN_OPERATION_WORKERS', str(min_operation_workers_default)]])
+    else:
+        env.expect(config_cmd(), 'get', 'WORKERS').equal([['WORKERS', str(workers_default)]])
+        env.expect(config_cmd(), 'get', 'MIN_OPERATION_WORKERS').equal([['MIN_OPERATION_WORKERS', str(min_operation_workers_default)]])
 @skip(cluster=True)
 def testDeprecatedMTConfig_off_with_non_0():
-    if RS_TEST_ENTERPRISE:
-        import unittest; raise unittest.SkipTest('Enterprise MT_MODE->WORKERS mapping differs')
     env = Env(moduleArgs='MT_MODE MT_MODE_OFF WORKER_THREADS 3', noDefaultModuleArgs=True)
     env.assertTrue(env.isUp())
-    env.expect(config_cmd(), 'get', 'WORKERS').equal([['WORKERS', str(workers_default)]])
-    env.expect(config_cmd(), 'get', 'MIN_OPERATION_WORKERS').equal([['MIN_OPERATION_WORKERS', str(min_operation_workers_default)]])
+    # Enterprise: WORKERS pool is disabled (0) for MT_MODE_OFF regardless of WORKER_THREADS;
+    # MIN_OPERATION_WORKERS falls back to min_operation_workers_default.
+    if RS_TEST_ENTERPRISE:
+        env.expect(config_cmd(), 'get', 'WORKERS').equal([['WORKERS', '0']])
+        env.expect(config_cmd(), 'get', 'MIN_OPERATION_WORKERS').equal([['MIN_OPERATION_WORKERS', str(min_operation_workers_default)]])
+    else:
+        env.expect(config_cmd(), 'get', 'WORKERS').equal([['WORKERS', str(workers_default)]])
+        env.expect(config_cmd(), 'get', 'MIN_OPERATION_WORKERS').equal([['MIN_OPERATION_WORKERS', str(min_operation_workers_default)]])
 
 @skip(cluster=True)
 def testExplicitWorkersOverridesDefault(env):
@@ -681,8 +697,13 @@ def testConfigAPIRunTimeNumericParams():
             env.expect('CONFIG', 'GET', configName)\
                 .equal([configName, str(max)])
         elif RS_TEST_ENTERPRISE and configName in ('search-workers', 'search-min-operation-workers'):
-            # Enterprise accepts WORKERS/MIN_OPERATION_WORKERS above OSS max (extended range)
-            pass
+            # Enterprise allows up to MAX_WORKER_THREADS=8192 (vs OSS max of 16).
+            # Assert: OSS max+1 (17) is accepted; 8192 is accepted; >8192 is rejected.
+            _enterprise_worker_max = 8192
+            env.expect('CONFIG', 'SET', configName, str(max + 1)).equal('OK')
+            env.expect('CONFIG', 'SET', configName, str(_enterprise_worker_max)).equal('OK')
+            env.expect('CONFIG', 'SET', configName, str(_enterprise_worker_max + 1)).error()\
+                .contains('CONFIG SET failed')
         else:
             env.expect('CONFIG', 'SET', configName, str(max + 1)).error()\
                 .contains('CONFIG SET failed')
@@ -848,8 +869,28 @@ def _testConfigAPILoadTimeNumericParam(configName, maxValue):
     env.start()
     res = env.cmd('MODULE', 'LIST')
     env.assertEqual(res, default_module_list)
-    # Enterprise module may accept WORKERS/MIN_OPERATION_WORKERS values above OSS max
     if RS_TEST_ENTERPRISE and configName in ('search-workers', 'search-min-operation-workers'):
+        # Enterprise allows up to MAX_WORKER_THREADS=8192 (vs OSS max of 16).
+        # OSS max+1 (17) and up to 8192 must be ACCEPTED; >8192 must be rejected.
+        _enterprise_worker_max = 8192
+        rdbFilePath = _getRDBFilePath(env)
+        env.expect('MODULE', 'LOADEX', redisearch_module_path,
+                    'CONFIG', configName, str(maxValue + 1)).ok()
+        env.assertTrue(env.isUp())
+        env.stop()
+        os.unlink(rdbFilePath)
+        env.start()
+        rdbFilePath = _getRDBFilePath(env)
+        env.expect('MODULE', 'LOADEX', redisearch_module_path,
+                    'CONFIG', configName, str(_enterprise_worker_max)).ok()
+        env.assertTrue(env.isUp())
+        env.stop()
+        os.unlink(rdbFilePath)
+        env.start()
+        env.expect('MODULE', 'LOADEX', redisearch_module_path,
+                    'CONFIG', configName, str(_enterprise_worker_max + 1)).error()\
+                    .contains('Error loading the extension')
+        env.assertTrue(env.isUp())
         env.stop()
         return
     env.expect('MODULE', 'LOADEX', redisearch_module_path,
@@ -1419,7 +1460,22 @@ def testConfigAPIRunTimeStringParams():
 def _testModuleLoadexStringParam(configName, argName, testValueRel):
     """Run the MODULE LOADEX scenarios for a single string config."""
     if RS_TEST_ENTERPRISE and configName == 'search-ext-load':
-        import unittest; raise unittest.SkipTest('Enterprise rejects EXTLOAD module loading')
+        # Enterprise rejects extension loading via MODULE LOADEX: the server returns
+        # "ERR Error loading the extension. Please check the server logs."
+        # This is the enterprise EXTLOAD-via-MODULE-LOADEX rejection: assert it explicitly.
+        env = Env(noDefaultModuleArgs=True)
+        rdbFilePath = _getRDBFilePath(env)
+        env.stop()
+        if os.path.exists(rdbFilePath):
+            os.unlink(rdbFilePath)
+        redisearch_module_path = env.envRunner.modulePath[0]
+        basedir = os.path.dirname(redisearch_module_path)
+        testValue = os.path.abspath(os.path.join(basedir, testValueRel))
+        env.start()
+        env.expect('MODULE', 'LOADEX', redisearch_module_path,
+                   'CONFIG', configName, testValue).error().contains('Error loading the extension')
+        env.stop()
+        return
     env = Env(noDefaultModuleArgs=True)
 
     # stop the server and remove the rdb file
@@ -1497,7 +1553,10 @@ _registerModuleLoadexStringParamTests()
 @skip(redis_less_than='7.9.227')
 def testConfigFileStringParams():
     if RS_TEST_ENTERPRISE:
-        import unittest; raise unittest.SkipTest('Enterprise rejects EXTLOAD module args')
+        import unittest; raise unittest.SkipTest(
+            'testConfigFileStringParams: enterprise build does not place libexample_extension.so '
+            'at the relative path expected by stringConfigs; server fails to start with EXTLOAD path'
+        )
     # Test using only redis config file
     redisConfigFile = '/tmp/testConfigFileStringParams.conf'
     with open(redisConfigFile, 'w') as f:
@@ -1535,7 +1594,11 @@ def testConfigFileStringParams():
 @skip(cluster=True, redis_less_than='7.9.227')
 def testConfigFileAndArgsStringParams():
     if RS_TEST_ENTERPRISE:
-        import unittest; raise unittest.SkipTest('Enterprise rejects EXTLOAD module args')
+        import unittest; raise unittest.SkipTest(
+            'testConfigFileAndArgsStringParams: enterprise build does not place '
+            'libexample_extension.so at the relative path expected by stringConfigs; '
+            'server fails to start with EXTLOAD path'
+        )
     # Test using redis config file and module arguments
     redisConfigFile = '/tmp/testConfigFileAndArgsStringParams.conf'
     with open(redisConfigFile, 'w') as f:
@@ -1586,7 +1649,11 @@ def testConfigFileAndArgsStringParams():
 @skip(cluster=True, redis_less_than='7.9.227')
 def testStringArgDeprecationMessage():
     if RS_TEST_ENTERPRISE:
-        import unittest; raise unittest.SkipTest('Enterprise EXTLOAD behavior differs')
+        import unittest; raise unittest.SkipTest(
+            'testStringArgDeprecationMessage: enterprise build does not place '
+            'libexample_extension.so at the relative path expected by stringConfigs; '
+            'server fails to start with EXTLOAD path'
+        )
     '''Test deprecation message of module string arguments'''
 
     env = Env()

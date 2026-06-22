@@ -187,12 +187,10 @@ def testOptimizer(env):
     # Search only minimal number of ranges
     env.expect('ft.search', 'idx', '@n:[10 20]', 'SORTBY', 'n', 'limit', 0 , 2, *params).equal([2, '10', '11'])
     env.expect('ft.search', 'idx', '@n:[10 20]', 'SORTBY', 'n', 'ASC', 'limit', 0 , 2, *params).equal([2, '10', '11'])
-    if not RS_TEST_ENTERPRISE:
-        env.expect('ft.search', 'idx', '@n:[10 20]', 'SORTBY', 'n', 'DESC', 'limit', 0 , 2, *params).equal([2, '19921', '19920'])  # enterprise: different due to disk iter scheduling
+    env.expect('ft.search', 'idx', '@n:[10 20]', 'SORTBY', 'n', 'DESC', 'limit', 0 , 2, *params).equal([2, '19921', '19920'])
     env.expect('ft.search', 'idx_sortable', '@n:[10 20]', 'SORTBY', 'n', 'limit', 0 , 2, *params).equal([2, '10', '11'])
     env.expect('ft.search', 'idx_sortable', '@n:[10 20]', 'SORTBY', 'n', 'ASC', 'limit', 0 , 2, *params).equal([2, '10', '11'])
-    if not RS_TEST_ENTERPRISE:
-        env.expect('ft.search', 'idx_sortable', '@n:[10 20]', 'SORTBY', 'n', 'DESC', 'limit', 0 , 2, *params).equal([2, '19921', '19920'])  # enterprise: gated
+    env.expect('ft.search', 'idx_sortable', '@n:[10 20]', 'SORTBY', 'n', 'DESC', 'limit', 0 , 2, *params).equal([2, '19921', '19920'])
 
     profiler =  {'Iterators profile':
                     ['Type', 'NUMERIC', 'Term', '0 - 14', 'Number of reading operations', 1200, 'Estimated number of matches', 3200],
@@ -253,7 +251,7 @@ def testOptimizer(env):
         env.assertEqual(actual_profiler['Result processors profile'], profiler['Result processors profile'])
 
     result = env.cmd('ft.search', 'idx', 'foo', 'SORTBY', 'n', 'limit', 0 , 1500, *params)
-    env.assertEqual(result[0], 1500 if not RS_TEST_ENTERPRISE else result[0])  # enterprise: gated
+    env.assertEqual(result[0], 1500)
 
     ### (8) filter w/o sort (by score) ###
     # search over all matches
@@ -365,10 +363,10 @@ def testOptimizer(env):
         env.assertEqual(actual_profiler['Result processors profile'], profiler['Result processors profile'])
 
     result = env.cmd('ft.search', 'idx', '@tag:{foo}', 'SORTBY', 'n', 'limit', 0 , 1500, *params)
-    env.assertEqual(result[0], 1500 if not RS_TEST_ENTERPRISE else result[0])  # enterprise: gated
+    env.assertEqual(result[0], 1500)
 
     result = env.cmd('ft.search', 'idx', 'foo @n:[10 20]', 'SORTBY', 'n', 'limit', 0 , 1500, *params)
-    env.assertEqual(result[0], 1200 if not RS_TEST_ENTERPRISE else result[0])  # enterprise: gated
+    env.assertEqual(result[0], 1200)
 
 @skip(cluster=True)
 def testWOLimit(env):

@@ -607,6 +607,17 @@ if RS_TEST_ENTERPRISE:
                 # Rewrite: CONFIG <op> <redis_name> [remaining args...]
                 rest = tuple(args[3:])
                 if op == 'SET' and len(rest) >= 1:
+                    # FIX 3a: TIMEOUT 0 (zero-sentinel = unlimited) must NOT be
+                    # rewritten to CONFIG SET search-timeout because search-timeout
+                    # has registered min=1; clamping to 1 would set a 1ms timeout
+                    # rather than unlimited.  Fall through to the raw _FT.CONFIG
+                    # SET path which the enterprise module accepts directly.
+                    if param in _FT_CONFIG_ZERO_TO_MIN:
+                        try:
+                            if int(str(rest[0])) == 0:
+                                return _orig_execute_command(self, *args, **kwargs)
+                        except (TypeError, ValueError):
+                            pass
                     # Translate the FT.CONFIG SET value into the form the CONFIG
                     # twin accepts (true/false->yes/no, unlimited/zero sentinels).
                     rest = (_ft_value_to_twin(param, rest[0]),) + rest[1:]

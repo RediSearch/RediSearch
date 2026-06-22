@@ -431,9 +431,21 @@ def test_specific_command_docs_structure():
     cmd_docs = docs["FT.CREATE"]
     env.assertEqual(cmd_docs is not None, True, message="FT.CREATE should have command docs structure")
 
-    # Check required fields
-    # Enterprise module may not register full COMMAND DOCS metadata (summary/complexity/since)
-    if not RS_TEST_ENTERPRISE:
+    # Check required fields.
+    # Enterprise registers only group+module metadata for COMMAND DOCS (no summary/complexity/since).
+    # Observed enterprise output for `COMMAND DOCS FT.CREATE`:
+    #   {'FT.CREATE': {'group': 'module', 'module': 'search'}}
+    # Assert the enterprise-specific absence and OSS presence explicitly.
+    if RS_TEST_ENTERPRISE:
+        env.assertEqual('summary' in cmd_docs, False,
+                        message="Enterprise FT.CREATE COMMAND DOCS must NOT have summary (known gap)")
+        env.assertEqual('complexity' in cmd_docs, False,
+                        message="Enterprise FT.CREATE COMMAND DOCS must NOT have complexity (known gap)")
+        env.assertEqual('since' in cmd_docs, False,
+                        message="Enterprise FT.CREATE COMMAND DOCS must NOT have since (known gap)")
+        env.assertEqual('group' in cmd_docs, True,
+                        message="Enterprise FT.CREATE COMMAND DOCS should have group")
+    else:
         env.assertEqual('summary' in cmd_docs, True, message="FT.CREATE should have summary")
         env.assertEqual('complexity' in cmd_docs, True, message="FT.CREATE should have complexity")
         env.assertEqual('since' in cmd_docs, True, message="FT.CREATE should have since field")
