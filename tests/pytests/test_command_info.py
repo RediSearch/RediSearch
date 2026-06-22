@@ -388,6 +388,10 @@ def test_command_info_tips_field():
     failed_tips = []
 
     for cmd_name, expected_data in commands_with_tips.items():
+        if env.isCluster() and cmd_name.startswith('FT.CONFIG'):
+            # We only register this command if we are not in a cluster mode.
+            continue
+
         cmd_upper = cmd_name.upper().replace(' ', '|')
         expected_tips = expected_data['command_tips']
 
