@@ -26,10 +26,6 @@
 #include "config.h"
 #include "coord/coord_request_ctx.h"
 #include "debug_commands.h"
-#include "result_processor.h"
-#include "concurrent_ctx.h"
-#include "info/info_redis/threads/current_thread.h"
-#include "aggregate/reply_empty.h"
 #include "aggregate/aggregate_exec_common.h"
 
 // We mainly need the resp protocol to be three in order to easily extract the "score" key from the response
