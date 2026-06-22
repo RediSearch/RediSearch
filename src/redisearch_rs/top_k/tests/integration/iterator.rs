@@ -308,7 +308,7 @@ fn unfiltered_expired_docs_dropped_at_yield() {
 #[test]
 fn unfiltered_timeout_polled_while_skipping_expired() {
     // A run of expired docs at the front of the direct batch must not drain past
-    // the deadline: the timeout poll on the expired-skip path fires and surfaces
+    // the deadline: the per-step poll fires on the expired skip and surfaces
     // TimedOut instead of skipping ahead to the live doc 3.
     let source = MockScoreSource::new(vec![vec![(1, 0.1), (2, 0.2), (3, 0.3)]], vec![], |_, _| {
         BatchStrategy::Continue
@@ -322,8 +322,8 @@ fn unfiltered_timeout_polled_while_skipping_expired() {
 #[test]
 fn yield_timeout_polled_while_skipping_expired() {
     // Collected top-k results that expired must not drain past the deadline at
-    // yield time: the poll fires and surfaces TimedOut instead of skipping ahead
-    // to the live doc 3.
+    // yield time: the per-step poll fires on the expired skip and surfaces
+    // TimedOut instead of skipping ahead to the live doc 3.
     let source = MockScoreSource::new(vec![vec![(1, 0.1), (2, 0.2), (3, 0.3)]], vec![], |_, _| {
         BatchStrategy::Stop
     })
@@ -335,6 +335,38 @@ fn yield_timeout_polled_while_skipping_expired() {
         NonZeroUsize::new(3).unwrap(),
         asc,
     );
+    assert!(matches!(it.read(), Err(RQEIteratorError::TimedOut)));
+}
+
+#[test]
+fn unfiltered_timeout_polled_before_yielding_valid() {
+    // No docs expire, so the deadline is never reached via an expired skip. It
+    // must still stop yielding: the first read returns a live doc, the second
+    // trips the per-step poll instead of streaming the rest of the batch.
+    let source = MockScoreSource::new(vec![vec![(1, 0.1), (2, 0.2), (3, 0.3)]], vec![], |_, _| {
+        BatchStrategy::Continue
+    })
+    .with_timeout_after(2);
+    let mut it = TopKIterator::new_unfiltered(source, NonZeroUsize::new(3).unwrap(), asc);
+    assert_eq!(it.read().unwrap().map(|r| r.doc_id), Some(1));
+    assert!(matches!(it.read(), Err(RQEIteratorError::TimedOut)));
+}
+
+#[test]
+fn yield_timeout_polled_before_yielding_valid() {
+    // Same guarantee on the heap-backed yield path: with no expired docs, the
+    // deadline still halts yielding after the first live result.
+    let source = MockScoreSource::new(vec![vec![(1, 0.1), (2, 0.2), (3, 0.3)]], vec![], |_, _| {
+        BatchStrategy::Stop
+    })
+    .with_timeout_after(2);
+    let mut it = TopKIterator::new(
+        source,
+        make_child(vec![1, 2, 3]),
+        NonZeroUsize::new(3).unwrap(),
+        asc,
+    );
+    assert_eq!(it.read().unwrap().map(|r| r.doc_id), Some(1));
     assert!(matches!(it.read(), Err(RQEIteratorError::TimedOut)));
 }
 

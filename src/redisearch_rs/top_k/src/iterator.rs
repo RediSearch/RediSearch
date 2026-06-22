@@ -269,10 +269,12 @@ impl<'index, S: ScoreSource + 'index, C: RQEIterator<'index> + 'index> TopKItera
             };
             let doc_id = result.doc_id;
 
+            // Poll before the lookup so an expired deadline skips the expensive
+            // VecSim distance lookup.
+            scope.0.check_timeout()?;
             if let Some(score) = scope.0.lookup_score(doc_id) {
                 self.heap.push(doc_id, score);
             }
-            scope.0.check_timeout()?;
         }
 
         // Reached only on a clean scan exit (EOF or `Stop`); a timed-out scan
@@ -311,14 +313,14 @@ impl<'index, S: ScoreSource + 'index, C: RQEIterator<'index> + 'index> TopKItera
     ) -> Result<Option<&mut RSIndexResult<'index>>, RQEIteratorError> {
         loop {
             let item = self.direct_batch.as_mut().and_then(S::Batch::next);
+            let expired = item.is_some_and(|(doc_id, _)| self.source.is_expired(doc_id));
+
+            // Poll once per step, after classifying the entry and before yielding
+            // it — gates valid results, EOF, and expired skips alike.
+            self.source.check_timeout()?;
 
             match item {
-                Some((doc_id, _)) if self.source.is_expired(doc_id) => {
-                    // Poll the deadline so a long run of expired docs cannot
-                    // drain the batch past the timeout.
-                    self.source.check_timeout()?;
-                    continue;
-                }
+                Some(_) if expired => continue,
                 Some((doc_id, score)) => {
                     let result = self.source.build_result(doc_id, score);
                     self.current = Some(result);
@@ -344,22 +346,28 @@ impl<'index, S: ScoreSource + 'index, C: RQEIterator<'index> + 'index> TopKItera
         &mut self,
     ) -> Result<Option<&mut RSIndexResult<'index>>, RQEIteratorError> {
         loop {
-            if self.yield_pos >= self.results.len() {
-                self.at_eof = true;
-                return Ok(None);
-            }
-            let ScoredResult { doc_id, score } = self.results[self.yield_pos];
+            let entry = self.results.get(self.yield_pos).copied();
             self.yield_pos += 1;
-            if self.source.is_expired(doc_id) {
-                // Poll the deadline so a long run of expired docs cannot
-                // drain the heap past the timeout.
-                self.source.check_timeout()?;
-                continue;
+            let expired =
+                entry.is_some_and(|ScoredResult { doc_id, .. }| self.source.is_expired(doc_id));
+
+            // Poll once per step, after classifying the entry and before yielding
+            // it — gates valid results, EOF, and expired skips alike.
+            self.source.check_timeout()?;
+
+            match entry {
+                None => {
+                    self.at_eof = true;
+                    return Ok(None);
+                }
+                Some(_) if expired => continue,
+                Some(ScoredResult { doc_id, score }) => {
+                    let result = self.source.build_result(doc_id, score);
+                    self.current = Some(result);
+                    self.last_doc_id = doc_id;
+                    return Ok(self.current.as_mut());
+                }
             }
-            let result = self.source.build_result(doc_id, score);
-            self.current = Some(result);
-            self.last_doc_id = doc_id;
-            return Ok(self.current.as_mut());
         }
     }
 }
