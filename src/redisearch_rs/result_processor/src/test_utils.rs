@@ -153,6 +153,18 @@ impl Chain {
             .expect("empty result processor chain")
     }
 
+    /// The pipeline's current `totalResults` count (from [`ffi::QueryProcessingCtx`]).
+    ///
+    /// Used in tests to verify that a skipped slot caused `subtract_total_results(1)`.
+    pub fn total_results(&self) -> u32 {
+        self.query_processing_context.totalResults
+    }
+
+    /// Set the pipeline's `totalResults` count directly (test-only).
+    pub fn set_total_results(&mut self, n: u32) {
+        self.query_processing_context.as_mut().get_mut().totalResults = n;
+    }
+
     /// Return a [`Context`] and mutable reference to the inner [`ResultProcessor`] implementation
     /// from the last result processor in the chain.
     ///
