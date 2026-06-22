@@ -45,7 +45,7 @@ fn distance(a: &str, b: &str) -> u32 {
     edit_distance(&a, &b)
 }
 
-#[cfg(not(miri))]
+#[cfg(not(miri))] // proptest calls getcwd() which is not supported on Miri
 mod fuzz {
     use proptest::prelude::*;
 
