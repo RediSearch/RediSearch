@@ -1647,7 +1647,9 @@ static int QueryTimeoutReturnStrictCallback(RedisModuleCtx *ctx, RedisModuleStri
 
   // BG signals only after AREQ_StoreResults
   RS_ASSERT(req->storedReplyState.hasStoredResults);
-  req->storedReplyState.rc = RS_RESULT_TIMEDOUT;
+  if (AREQ_RequestFlags(req) & QEXEC_F_IS_CURSOR) {
+    req->storedReplyState.rc = RS_RESULT_TIMEDOUT;
+  }
 
   // Drain any results buffered post-timeout (e.g. RPSorter heap).
   // No-op for shapes that already accumulated their rows in state.results.

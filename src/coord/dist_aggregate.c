@@ -800,7 +800,9 @@ int DistAggregateTimeoutReturnStrictCallback(RedisModuleCtx *ctx, RedisModuleStr
 
   // BG signals only after AREQ_StoreResults
   RS_ASSERT(req->storedReplyState.hasStoredResults);
-  req->storedReplyState.rc = RS_RESULT_TIMEDOUT;
+  if (AREQ_RequestFlags(req) & QEXEC_F_IS_CURSOR) {
+    req->storedReplyState.rc = RS_RESULT_TIMEDOUT;
+  }
 
   // Harvest any shard replies that landed in the channel before the deadline.
   // No-op for already-complete runs.
