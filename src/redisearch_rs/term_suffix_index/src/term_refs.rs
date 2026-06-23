@@ -24,10 +24,9 @@
 use std::rc::Rc;
 
 /// `Rc<str>` shares one heap allocation across all of a term's
-/// trie entries — one full-term entry plus up to
-/// `N - `[`MIN_SUFFIX`](super::MIN_SUFFIX) proper-suffix entries —
-/// keeping per-term memory `O(N)` instead of `O(N²)`. Bytes drop
-/// with the last reference.
+/// trie entries — one full-term entry plus its `N - 1` proper-suffix
+/// entries — keeping per-term memory `O(N)` instead of `O(N²)`.
+/// Bytes drop with the last reference.
 pub(super) struct TermRefs {
     full_term: Option<Rc<str>>,
     longer_terms: Vec<Rc<str>>,

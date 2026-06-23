@@ -23,8 +23,9 @@
 //! [`TermSuffixIndex::iter_contains`] is the prefix lookup;
 //! [`TermSuffixIndex::iter_suffix`] is the exact lookup.
 //!
-//! Suffixes shorter than [`MIN_SUFFIX`] codepoints aren't indexed —
-//! trades index size for a minimum supported needle length.
+//! Every non-empty member is stored along with all of its proper
+//! suffixes down to the final codepoint, so even a single-codepoint
+//! needle resolves directly against the structure.
 
 mod term_refs;
 
@@ -32,12 +33,6 @@ use std::rc::Rc;
 
 use term_refs::{Outcome, TermRefs};
 use trie_rs::str_trie_map::StrTrieMap;
-
-// TODO(MOD-16185): the C suffix DS dropped its MIN_SUFFIX floor (#9945), so the
-// constant no longer exists in `src/suffix.h`. This Rust port isn't wired into
-// production yet, so it keeps the old floor hardcoded for now; remove it (and
-// the gating logic and assertions below) in the MOD-16185 follow-up.
-const MIN_SUFFIX: usize = 2;
 
 pub struct TermSuffixIndex {
     inner: StrTrieMap<TermRefs>,
@@ -61,9 +56,10 @@ impl TermSuffixIndex {
     }
 
     pub fn add(&mut self, term: &str) {
-        if term.is_empty() {
-            return;
-        }
+        debug_assert!(
+            !term.is_empty(),
+            "empty term is a caller-level mistake; callers gate empty values out before indexing",
+        );
 
         if self.inner.get(term).is_some_and(TermRefs::has_full_term) {
             return;
@@ -82,9 +78,10 @@ impl TermSuffixIndex {
     }
 
     pub fn remove(&mut self, term: &str) {
-        if term.is_empty() {
-            return;
-        }
+        debug_assert!(
+            !term.is_empty(),
+            "empty term is a caller-level mistake; callers gate empty values out before indexing",
+        );
 
         if let Some(data) = self.inner.get_mut(term)
             && data.has_full_term()
@@ -102,29 +99,18 @@ impl TermSuffixIndex {
         }
     }
 
+    /// Every proper suffix of `term`, longest first, down to its final
+    /// codepoint. Empty for a single-codepoint `term`.
     fn suffixes_of(term: &str) -> impl Iterator<Item = &str> {
-        let total_chars = term.chars().count();
         term.char_indices()
-            .enumerate()
             .skip(1)
-            .take_while(move |(char_idx, _)| total_chars - char_idx >= MIN_SUFFIX)
-            .map(|(_, (byte_idx, _))| &term[byte_idx..])
+            .map(|(byte_idx, _)| &term[byte_idx..])
     }
 
     /// Yield every indexed term containing `needle`, in unspecified
     /// order. Empty `needle` yields nothing. A term may be yielded
     /// more than once; dedupe by [`Rc::as_ptr`] if needed.
-    ///
-    /// Non-empty `needle` must span at least [`MIN_SUFFIX`] codepoints.
-    /// Shorter needles silently yield a subset of matching terms,
-    /// since suffixes below the threshold aren't indexed; debug
-    /// builds assert this. Production callers filter upstream via
-    /// the query engine's `minTermPrefix` gate.
     pub fn iter_contains(&self, needle: &str) -> impl Iterator<Item = Rc<str>> {
-        debug_assert!(
-            needle.is_empty() || needle.chars().count() >= MIN_SUFFIX,
-            "needle must span at least {MIN_SUFFIX} codepoints; caller must filter shorter needles (production gate: minTermPrefix)",
-        );
         (!needle.is_empty())
             .then_some(needle)
             .into_iter()
@@ -136,17 +122,7 @@ impl TermSuffixIndex {
     /// order. Empty `needle` yields nothing.
     ///
     /// Each matching term is yielded exactly once.
-    ///
-    /// Non-empty `needle` must span at least [`MIN_SUFFIX`] codepoints.
-    /// Shorter needles silently yield a subset of matching terms,
-    /// since suffixes below the threshold aren't indexed; debug
-    /// builds assert this. Production callers filter upstream via
-    /// the query engine's `minTermPrefix` gate.
     pub fn iter_suffix(&self, needle: &str) -> impl Iterator<Item = Rc<str>> {
-        debug_assert!(
-            needle.is_empty() || needle.chars().count() >= MIN_SUFFIX,
-            "needle must span at least {MIN_SUFFIX} codepoints; caller must filter shorter needles (production gate: minTermPrefix)",
-        );
         (!needle.is_empty())
             .then_some(needle)
             .into_iter()
