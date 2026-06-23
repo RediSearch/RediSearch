@@ -25,30 +25,37 @@
 
 mod term_refs;
 
-use std::rc::Rc;
+use std::{
+    fmt::{self, Debug},
+    rc::Rc,
+};
 
 use term_refs::{Outcome, TermRefs};
 use trie_rs::str_trie_map::StrTrieMap;
 
+#[derive(Default)]
 pub struct TermSuffixIndex {
     inner: StrTrieMap<TermRefs>,
 }
 
-impl Default for TermSuffixIndex {
-    fn default() -> Self {
-        Self::new()
+impl Debug for TermSuffixIndex {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        self.inner.fmt(f)
     }
 }
 
 impl TermSuffixIndex {
+    /// Create a new, empty index.
     pub const fn new() -> Self {
         Self {
             inner: StrTrieMap::new(),
         }
     }
 
-    pub fn mem_usage(&self) -> usize {
-        todo!("FT.INFO memory accounting for the suffix index")
+    /// Estimated heap memory currently held by this index. Mirrors the cached
+    /// counter on the underlying [`StrTrieMap`] — O(1). See [`StrTrieMap::mem_usage`].
+    pub const fn mem_usage(&self) -> usize {
+        self.inner.mem_usage()
     }
 
     pub fn add(&mut self, term: &str) {

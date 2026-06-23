@@ -27,6 +27,7 @@ use std::rc::Rc;
 /// trie entries — one full-term entry plus its `N - 1` proper-suffix
 /// entries — keeping per-term memory `O(N)` instead of `O(N²)`.
 /// Bytes drop with the last reference.
+#[derive(Debug, Default)]
 pub(super) struct TermRefs {
     full_term: Option<Rc<str>>,
     longer_terms: Vec<Rc<str>>,
