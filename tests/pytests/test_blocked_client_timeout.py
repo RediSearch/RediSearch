@@ -4844,6 +4844,12 @@ class TestCoordinatorTimeoutReturnStrictResp2:
             conn.execute_command('HSET', f'hybrid_doc{i}', 'name', f'hello{i}',
                                  'embedding', vec)
 
+        # Wait for background indexing of the docs just written to settle before
+        # the warmup FT.HYBRID. The hybrid background depleter (RP_SAFE_DEPLETER)
+        # try-locks the index; if indexing still holds the write lock the warmup
+        # fails with SEARCH_SAFE_DEPLETER_FAILURE (MOD-16428).
+        waitForIndex(self.env, 'hybrid_idx')
+
         # Warmup hybrid query and store the query vector for tests.
         self.hybrid_query_vec = np.array([0.0, 0.0], dtype=np.float32).tobytes()
         try:
