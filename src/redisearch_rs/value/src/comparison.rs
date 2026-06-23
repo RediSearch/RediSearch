@@ -142,7 +142,7 @@ pub fn compare(
         (Value::Null, Value::Null) => Ok(Ordering::Equal),
         (Value::Null, _) => Ok(Ordering::Less),
         (_, Value::Null) => Ok(Ordering::Greater),
-        // NaN has no defined order; callers map `NaNFloat` to equal.
+        // Compare numbers and surface any NaN values as an error.
         (Value::Number(n1), Value::Number(n2)) => n1.partial_cmp(n2).ok_or(CompareError::NaNFloat),
         // All string types compare byte-wise, including cross-type String/RedisString pairs.
         (Value::String(s1), Value::String(s2)) => Ok(s1.as_bytes().cmp(s2.as_bytes())),
@@ -191,21 +191,19 @@ pub fn compare(
         // empty string — identical to the Array/Map/Undefined arms above.
         (Value::Number(n1), Value::Trio(t2)) => match try_value_as_number(t2.left()) {
             Some(n2) => n1.partial_cmp(&n2).ok_or(CompareError::NaNFloat),
-            None => compare_number_to_unconvertible(num_to_str_cmp_fallback, Ordering::Greater),
+            None => compare_number_to_unconvertible(num_to_str_cmp_fallback),
         },
         (Value::Trio(t1), Value::Number(n2)) => match try_value_as_number(t1.left()) {
             Some(n1) => n1.partial_cmp(n2).ok_or(CompareError::NaNFloat),
-            None => compare_number_to_unconvertible(num_to_str_cmp_fallback, Ordering::Less),
+            None => compare_number_to_unconvertible(num_to_str_cmp_fallback).map(Ordering::reverse),
         },
-        // A number compared against an array, map, or undefined is treated as a
-        // number-to-string comparison where the other side is the empty string:
-        // with the fallback enabled the number always wins (it never formats to
-        // an empty string); without it, `NoNumberToStringFallback` is returned.
+        // Compare a number (regardless of value) to an 'unconvertible' type as if it is a
+        // 'number-to-empty-string' comparison.
         (Value::Number(_), Value::Array(_) | Value::Map(_) | Value::Undefined) => {
-            compare_number_to_unconvertible(num_to_str_cmp_fallback, Ordering::Greater)
+            compare_number_to_unconvertible(num_to_str_cmp_fallback)
         }
         (Value::Array(_) | Value::Map(_) | Value::Undefined, Value::Number(_)) => {
-            compare_number_to_unconvertible(num_to_str_cmp_fallback, Ordering::Less)
+            compare_number_to_unconvertible(num_to_str_cmp_fallback).map(Ordering::reverse)
         }
         // A string type compared against an incompatible type treats the other side as empty string.
         (
@@ -263,18 +261,18 @@ fn compare_number_to_string(
     }
 }
 
-/// Compare a number to a value that cannot be converted to a number nor formatted
-/// as a non-empty string ([`Value::Array`], [`Value::Map`], or [`Value::Undefined`]).
+/// Compare a number type (regardless of the actual value) against an 'unconvertible'
+/// type ([`Value::Array`], [`Value::Map`], or [`Value::Undefined`]) as if it is a
+/// 'number-to-empty-string' comparison.
 ///
-/// Such values are treated as the empty string, against which a formatted number
-/// always compares as non-empty. `if_number_first` is the resulting [`Ordering`]
-/// from the perspective of the number-typed operand.
+/// If `num_to_str_cmp_fallback` is enabled then a string representation of
+/// a number will always be greater, so no need to actually do a comparison.
+/// If `num_to_str_cmp_fallback` is disabled then no comparison is possible.
 const fn compare_number_to_unconvertible(
     num_to_str_cmp_fallback: bool,
-    if_number_first: Ordering,
 ) -> Result<Ordering, CompareError> {
     if num_to_str_cmp_fallback {
-        Ok(if_number_first)
+        Ok(Ordering::Greater)
     } else {
         Err(CompareError::NoNumberToStringFallback)
     }
