@@ -1492,6 +1492,18 @@ dependencies = [
 ]
 
 [[package]]
+name = "numeric_score_source"
+version = "0.0.1"
+dependencies = [
+ "index_result",
+ "rqe_core",
+ "rqe_iterator_type",
+ "rqe_iterators",
+ "top_k",
+ "workspace_hack",
+]
+
+[[package]]
 name = "object"
 version = "0.37.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"

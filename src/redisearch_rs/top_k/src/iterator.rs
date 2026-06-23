@@ -112,7 +112,7 @@ impl<'index, S: ScoreSource + 'index> TopKIterator<'index, S> {
     /// Results are streamed directly from the source's batch — the heap is bypassed.
     /// Use [`new`](Self::new) when a filter child is present.
     pub fn new_unfiltered(source: S, k: NonZeroUsize, compare: fn(f64, f64) -> Ordering) -> Self {
-        Self::_new_with_mode(source, None, k, compare, TopKMode::Unfiltered)
+        Self::new_with_mode(source, None, k, compare, TopKMode::Unfiltered)
     }
 }
 
@@ -121,23 +121,11 @@ impl<'index, S: ScoreSource + 'index, C: RQEIterator<'index> + 'index> TopKItera
     ///
     /// The initial mode defaults to [`TopKMode::Batches`].
     pub fn new(source: S, child: C, k: NonZeroUsize, compare: fn(f64, f64) -> Ordering) -> Self {
-        Self::_new_with_mode(source, Some(child), k, compare, TopKMode::Batches)
+        Self::new_with_mode(source, Some(child), k, compare, TopKMode::Batches)
     }
 
     /// Create a new [`TopKIterator`] with an explicit initial mode.
-    #[cfg(feature = "test-utils")]
     pub fn new_with_mode(
-        source: S,
-        child: Option<C>,
-        k: NonZeroUsize,
-        compare: fn(f64, f64) -> Ordering,
-        mode: TopKMode,
-    ) -> Self {
-        Self::_new_with_mode(source, child, k, compare, mode)
-    }
-
-    /// Create a new [`TopKIterator`] with an explicit initial mode.
-    fn _new_with_mode(
         source: S,
         child: Option<C>,
         k: NonZeroUsize,
