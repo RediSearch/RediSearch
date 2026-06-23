@@ -174,7 +174,7 @@ void DocTable_ClearExpirationData(DocTable *t);
 // missing predicate - one of the fields did expire -> entry is valid in the context of missing
 static inline bool DocTable_CheckFieldExpirationPredicate(const DocTable *t, t_docId docId, t_fieldIndex field, enum FieldExpirationPredicate predicate, const struct timespec* expirationPoint) {
   if (!t->ttl) return true;
-  return TimeToLiveTable_VerifyDocAndField(t->ttl, docId, field, predicate, expirationPoint);
+  return TimeToLiveTable_FieldSatisfiesPredicate(t->ttl, docId, field, predicate, expirationPoint);
 }
 // Same as above, but for a field mask (non-wide schema)
 static inline bool DocTable_CheckFieldMaskExpirationPredicate(const DocTable *t, t_docId docId, uint32_t fieldMask, enum FieldExpirationPredicate predicate, const struct timespec* expirationPoint, const t_fieldIndex* ftIdToFieldIndex) {

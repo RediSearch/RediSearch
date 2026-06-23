@@ -114,30 +114,60 @@ fn remove_absent_doc_is_a_noop() {
 }
 
 #[test]
-fn verify_doc_and_field_present_expired_and_future() {
+fn field_satisfies_predicate_present_expired_and_future() {
     with_table(|t| {
         let v = into_ffi([fe(1, PAST), fe(2, FUTURE)]);
         unsafe { TimeToLiveTable_Add(t, 1, v) };
 
         // Field 1 is in the past at NOW → Default is false, Missing is true.
         assert!(!unsafe {
-            TimeToLiveTable_VerifyDocAndField(t, 1, 1, FieldExpirationPredicate::Default, &NOW)
+            TimeToLiveTable_FieldSatisfiesPredicate(
+                t,
+                1,
+                1,
+                FieldExpirationPredicate::Default,
+                &NOW,
+            )
         });
         assert!(unsafe {
-            TimeToLiveTable_VerifyDocAndField(t, 1, 1, FieldExpirationPredicate::Missing, &NOW)
+            TimeToLiveTable_FieldSatisfiesPredicate(
+                t,
+                1,
+                1,
+                FieldExpirationPredicate::Missing,
+                &NOW,
+            )
         });
 
         // Field 2 is in the future at NOW → Default is true.
         assert!(unsafe {
-            TimeToLiveTable_VerifyDocAndField(t, 1, 2, FieldExpirationPredicate::Default, &NOW)
+            TimeToLiveTable_FieldSatisfiesPredicate(
+                t,
+                1,
+                2,
+                FieldExpirationPredicate::Default,
+                &NOW,
+            )
         });
 
         // Unknown doc id → trivially true under both predicates.
         assert!(unsafe {
-            TimeToLiveTable_VerifyDocAndField(t, 999, 1, FieldExpirationPredicate::Default, &NOW)
+            TimeToLiveTable_FieldSatisfiesPredicate(
+                t,
+                999,
+                1,
+                FieldExpirationPredicate::Default,
+                &NOW,
+            )
         });
         assert!(unsafe {
-            TimeToLiveTable_VerifyDocAndField(t, 999, 1, FieldExpirationPredicate::Missing, &NOW)
+            TimeToLiveTable_FieldSatisfiesPredicate(
+                t,
+                999,
+                1,
+                FieldExpirationPredicate::Missing,
+                &NOW,
+            )
         });
     });
 }

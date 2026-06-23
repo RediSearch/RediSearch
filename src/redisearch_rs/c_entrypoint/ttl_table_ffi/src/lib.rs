@@ -181,7 +181,7 @@ pub unsafe extern "C" fn TimeToLiveTable_GetFieldExpirations<'a>(
 ///  - `table` must point to a valid, initialized [`TimeToLiveTable`].
 ///  - `expiration_point` must be a valid `*const t_expirationTimePoint`.
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn TimeToLiveTable_VerifyDocAndField(
+pub unsafe extern "C" fn TimeToLiveTable_FieldSatisfiesPredicate(
     table: *const TimeToLiveTable,
     doc_id: DocId,
     field_index: u16,
@@ -197,7 +197,7 @@ pub unsafe extern "C" fn TimeToLiveTable_VerifyDocAndField(
     let inner = unsafe { &*table };
     // SAFETY: caller guarantees pointer validity.
     let ep = unsafe { &*expiration_point };
-    inner.verify_doc_and_field(doc_id, field_index, predicate, ep)
+    inner.field_satisfies_predicate(doc_id, field_index, predicate, ep)
 }
 
 /// 32-bit field-mask expiration check.

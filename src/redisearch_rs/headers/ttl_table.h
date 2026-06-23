@@ -120,7 +120,7 @@ struct FieldExpirationSlice TimeToLiveTable_GetFieldExpirations(const struct Tim
  *  - `table` must point to a valid, initialized [`TimeToLiveTable`].
  *  - `expiration_point` must be a valid `*const t_expirationTimePoint`.
  */
-bool TimeToLiveTable_VerifyDocAndField(const struct TimeToLiveTable *table, t_docId doc_id, uint16_t field_index, enum FieldExpirationPredicate predicate, const t_expirationTimePoint *expiration_point);
+bool TimeToLiveTable_FieldSatisfiesPredicate(const struct TimeToLiveTable *table, t_docId doc_id, uint16_t field_index, enum FieldExpirationPredicate predicate, const t_expirationTimePoint *expiration_point);
 
 /**
  * 32-bit field-mask expiration check.

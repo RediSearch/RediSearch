@@ -62,7 +62,7 @@ fn verify_doc_and_field_doc_default(c: &mut Criterion) {
                         |doc_ids| {
                             let mut acc = 0u64;
                             for doc_id in doc_ids {
-                                let ok = table.verify_doc_and_field(
+                                let ok = table.field_satisfies_predicate(
                                     black_box(doc_id as t_docId),
                                     0,
                                     FieldExpirationPredicate::Default,
