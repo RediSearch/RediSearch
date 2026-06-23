@@ -9,7 +9,6 @@ publish.workspace = true
 workspace = true
 
 [dependencies]
-ffi.workspace = true
 trie_rs.workspace = true
 workspace_hack.workspace = true
 
