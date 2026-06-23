@@ -284,6 +284,7 @@ int HandleKeyspaceNotification(RedisModuleCtx *ctx, int type, enum RedisCmd redi
       if (!SearchDisk_IsEnabled()) {
         Indexes_DeleteMatchingWithSchemaRules(ctx, key, getDocTypeFromString(ctx, key), hashFields);
       }
+      break;
     case move_from_cmd:
       RS_ASSERT(!SearchDisk_IsEnabled())
       Indexes_DeleteMatchingWithSchemaRules(ctx, key, getDocTypeFromString(ctx, key), hashFields);
