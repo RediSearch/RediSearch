@@ -155,6 +155,7 @@ fn link_vecsim_into_plugin() {
     };
     println!("cargo::rerun-if-env-changed=REDISEARCH_VECSIM_BUILD_DIR");
     let build_dir = PathBuf::from(build_dir);
+    build_utils::link_mkl(&build_dir.join("_deps/svs-src/lib"));
 
     // `vecsim_disk` is the plugin's payload (it owns disk vector indexes). Its
     // `VecSimDisk_*` C API and C++ objects are referenced from the Rust crate only
