@@ -678,6 +678,36 @@ def testIndexDbSurvivesRdbReload(env):
 
 
 # =============================================================================
+# TEMPORARY index expiry on a non-default DB
+# =============================================================================
+
+@skip(cluster=True)
+def testTemporaryIndexExpiresOnOtherDb(env):
+    """A TEMPORARY index created on a non-zero DB must be dropped by its expiry
+    timer, together with its documents (the timer drops with the "DD" flag).
+
+    Regression: the timer fires IndexSpec_TimedOutProc, which self-calls
+    FT.DROPINDEX through RSDummyContext. That context is pinned to DB 0, but the
+    index lives on DB 14 and lookups are DB-scoped, so the drop used to fail with
+    "no such index" and leak the index plus its documents past the TTL."""
+    with _conn_on_db(env, 14) as db14:
+        db14.execute_command('FT.CREATE', 'idxtmp', 'TEMPORARY', '1',
+                             'SCHEMA', 't', 'TEXT')
+        db14.execute_command('HSET', 'doc1', 't', 'hello world')
+        env.assertContains('idxtmp', db14.execute_command('FT._LIST'))
+
+        # Wait for the timer to expire and drop the index. Do not touch the index
+        # while waiting (a query would reset its timer); poll FT._LIST instead.
+        with TimeLimit(15, 'temporary index was not dropped by its expiry timer'):
+            while 'idxtmp' in db14.execute_command('FT._LIST'):
+                time.sleep(0.1)
+
+        # The "DD" drop also removed the indexed document from DB 14.
+        env.assertEqual(db14.execute_command('FT._LIST'), [])
+        env.assertEqual(db14.execute_command('DBSIZE'), 0)
+
+
+# =============================================================================
 # Cluster mode (DB-0 only)
 # =============================================================================
 
