@@ -80,6 +80,11 @@ impl<Data> StrTrieMap<Data> {
         self.inner.mem_usage()
     }
 
+    /// Access the underlying byte-keyed [`TrieMap`].
+    pub(crate) const fn byte_trie(&self) -> &TrieMap<Data> {
+        &self.inner
+    }
+
     /// Iterate over all entries in lexicographical key order. See [`TrieMap::iter`].
     ///
     /// Yields `(String, &Data)` — keys are decoded back into owned `String`s
