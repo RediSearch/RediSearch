@@ -1998,6 +1998,7 @@ dependencies = [
  "build_utils",
  "redisearch_rs",
  "search_shared",
+ "workspace_hack",
 ]
 
 [[package]]
@@ -2557,6 +2558,7 @@ dependencies = [
  "query_error",
  "query_term",
  "rqe_iterators",
+ "workspace_hack",
 ]
 
 [[package]]

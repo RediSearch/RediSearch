@@ -1,3 +1,12 @@
+/*
+ * Copyright (c) 2006-Present, Redis Ltd.
+ * All rights reserved.
+ *
+ * Licensed under your choice of the Redis Source Available License 2.0
+ * (RSALv2); or (b) the Server Side Public License v1 (SSPLv1); or (c) the
+ * GNU Affero General Public License v3 (AGPLv3).
+*/
+
 //! Link the C search core into `redisearch.so`.
 //!
 //! `rustc` is the final linker for this cdylib, so we attach the C-only combined
@@ -32,12 +41,13 @@ fn main() {
         .unwrap_or_else(|| std::path::PathBuf::from("build"));
 
     let linting_only = std::env::var("LINTING_ONLY").as_deref() == Ok("1");
+    let plugin_exports_file = std::env::var("REDISEARCH_PLUGIN_EXPORTS_FILE").ok();
 
     // C-only combined RediSearch archive (linked `static:-bundle`; the linker pulls
     // only referenced objects, plus any forced via `--undefined` below).
     let redisearch_all = match build_utils::link_redisearch_all(&bin_dir) {
         Ok(path) => Some(path),
-        Err(e) if linting_only => {
+        Err(e) if linting_only || plugin_exports_file.is_none() => {
             println!("cargo::warning={e}");
             None
         }
@@ -116,7 +126,7 @@ fn main() {
     // `libredisearch_core.so`. `REDISEARCH_PLUGIN_EXPORTS_FILE` is set by the
     // superrepo `build.sh`; when unset (e.g. a normal in-submodule `cargo build`)
     // we skip — the C-only static link does not need the wrapper.
-    if let Ok(exports_file) = std::env::var("REDISEARCH_PLUGIN_EXPORTS_FILE") {
+    if let Some(exports_file) = plugin_exports_file {
         let body = plugin_exported_core_symbols.join("\n");
         if let Err(e) = std::fs::write(&exports_file, format!("{body}\n")) {
             panic!("failed to write plugin exports file {exports_file}: {e}");

@@ -19,6 +19,7 @@ search_shared = { path = "../search_shared" }
 # The core Rust FFI hub: re-exports every `*_ffi` crate so their `extern "C"`
 # symbols (called by the C core in libredisearch_all.a) land in redisearch.so.
 redisearch_rs = { path = "../c_entrypoint/redisearch_rs" }
+workspace_hack.workspace = true
 
 [build-dependencies]
 build_utils = { path = "../build_utils" }
