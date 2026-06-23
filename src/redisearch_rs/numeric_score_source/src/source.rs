@@ -48,6 +48,15 @@ unsafe impl<'index, R, E> NumericRecords<'index> for Numeric<'index, R, E> where
 {
 }
 
+/// Default per-batch record cap for [`next_batch`](ScoreSource::next_batch).
+///
+/// At 16 bytes per `(DocId, f64)` pair this caps a batch at ~64 KiB. It is large
+/// enough to amortize the per-batch child rewind in `intersect_batch_with_child`
+/// (the child is rewound and merge-joined once per batch) yet small enough that a
+/// filtered top-k query over a huge numeric field no longer allocates one entry
+/// per record.
+const MATERIALIZE_BATCH_SIZE: usize = 4096;
+
 /// Scores each document by a numeric field, for top-k queries like
 /// `SORTBY <numeric field>`.
 ///
@@ -55,9 +64,20 @@ unsafe impl<'index, R, E> NumericRecords<'index> for Numeric<'index, R, E> where
 /// iterator, so taking the top `k` here means taking the `k` highest values of
 /// that field.
 ///
-/// [`next_batch`](ScoreSource::next_batch) reads the whole source into one
-/// batch, ordered by doc id; the surrounding [`TopKIterator`] then picks the top
-/// `k` with its heap.
+/// The wrapped source yields records in doc-id order, not score order, so the
+/// surrounding [`TopKIterator`] does the top-k selection with its heap. To keep
+/// peak memory bounded, [`next_batch`](ScoreSource::next_batch) drains the source
+/// in chunks of at most `batch_size` records rather than materializing the whole
+/// index at once; the iterator pushes each chunk through the heap (intersecting
+/// with the filter child first, when present) and keeps the running top `k`.
+///
+/// Both the filtered and unfiltered numeric top-k iterators run in
+/// [`TopKMode::Batches`], so every query path flows through
+/// [`next_batch`](ScoreSource::next_batch) and the heap — there is no
+/// heap-bypassing single-batch path here, and bounded batches keep memory
+/// bounded in both cases.
+///
+/// [`TopKMode::Batches`]: top_k::TopKMode::Batches
 ///
 /// Adhoc-BF strategy has not been implemented
 ///
@@ -72,9 +92,9 @@ unsafe impl<'index, R, E> NumericRecords<'index> for Numeric<'index, R, E> where
 pub struct NumericScoreSource<'index, S: NumericRecords<'index>> {
     /// Numeric iterator whose per-document value is used as the score.
     source: S,
-    /// Whether [`next_batch`](ScoreSource::next_batch) has already emitted its
-    /// single batch. Reset by [`rewind`](ScoreSource::rewind).
-    drained: bool,
+    /// Maximum number of records [`next_batch`](ScoreSource::next_batch) reads
+    /// into a single batch. Always `>= 1`.
+    batch_size: usize,
     /// Upper-bound result estimate captured at construction, so it stays stable
     /// after the source is drained.
     num_estimated: usize,
@@ -82,28 +102,34 @@ pub struct NumericScoreSource<'index, S: NumericRecords<'index>> {
 }
 
 impl<'index, S: NumericRecords<'index>> NumericScoreSource<'index, S> {
-    /// Wrap a numeric `source` iterator as a score source.
+    /// Wrap a numeric `source` iterator as a score source, using the default
+    /// `MATERIALIZE_BATCH_SIZE` per-batch cap.
     pub fn new(source: S) -> Self {
+        Self::with_batch_size(source, MATERIALIZE_BATCH_SIZE)
+    }
+
+    /// Like [`new`](Self::new) but with an explicit per-batch record cap, so
+    /// callers (chiefly tests) can force multi-batch behavior on small inputs.
+    /// `batch_size` is clamped to at least `1`.
+    pub fn with_batch_size(source: S, batch_size: usize) -> Self {
         let num_estimated = source.num_estimated();
         Self {
             source,
-            drained: false,
+            batch_size: batch_size.max(1),
             num_estimated,
             _index: PhantomData,
         }
     }
-}
 
-impl<'index, S: NumericRecords<'index>> ScoreSource for NumericScoreSource<'index, S> {
-    type Batch = NumericScoreBatch;
-
-    fn next_batch(&mut self) -> Result<Option<Self::Batch>, RQEIteratorError> {
-        if self.drained {
-            return Ok(None);
-        }
-
-        let mut items = Vec::new();
-        while let Some(result) = self.source.read()? {
+    /// Drain up to [`batch_size`](Self::batch_size) records from the source into a
+    /// doc-id-ordered batch, so a top-k query never materializes the whole numeric
+    /// index at once. Returns `Ok(None)` once the source is exhausted.
+    fn read_batch(&mut self) -> Result<Option<NumericScoreBatch>, RQEIteratorError> {
+        let mut items = Vec::with_capacity(self.batch_size.min(self.num_estimated));
+        while items.len() < self.batch_size {
+            let Some(result) = self.source.read()? else {
+                break;
+            };
             debug_assert!(
                 matches!(result.kind(), RSResultKind::Numeric | RSResultKind::Metric),
                 "NumericScoreSource: wrapped iterator yielded a non-numeric record ({})",
@@ -114,12 +140,19 @@ impl<'index, S: NumericRecords<'index>> ScoreSource for NumericScoreSource<'inde
             let score = unsafe { result.as_numeric_unchecked() };
             items.push((result.doc_id, score));
         }
-        self.drained = true;
 
         if items.is_empty() {
             return Ok(None);
         }
         Ok(Some(NumericScoreBatch::new(items)))
+    }
+}
+
+impl<'index, S: NumericRecords<'index>> ScoreSource for NumericScoreSource<'index, S> {
+    type Batch = NumericScoreBatch;
+
+    fn next_batch(&mut self) -> Result<Option<Self::Batch>, RQEIteratorError> {
+        self.read_batch()
     }
 
     fn lookup_score(&mut self, _doc_id: DocId) -> Option<f64> {
@@ -133,7 +166,6 @@ impl<'index, S: NumericRecords<'index>> ScoreSource for NumericScoreSource<'inde
 
     fn rewind(&mut self) {
         self.source.rewind();
-        self.drained = false;
     }
 
     fn build_result<'r>(&self, doc_id: DocId, score: f64) -> RSIndexResult<'r>
@@ -143,12 +175,15 @@ impl<'index, S: NumericRecords<'index>> ScoreSource for NumericScoreSource<'inde
         RSIndexResult::build_numeric(score).doc_id(doc_id).build()
     }
 
-    fn batch_strategy(&mut self, heap_count: usize, k: usize) -> BatchStrategy {
-        if heap_count >= k {
-            BatchStrategy::Stop
-        } else {
-            BatchStrategy::Continue
-        }
+    fn batch_strategy(&mut self, _heap_count: usize, _k: usize) -> BatchStrategy {
+        // Records arrive in doc-id order, so a batch is an arbitrary doc-id slice,
+        // not a score bracket: a higher score may still appear in a later batch.
+        // The heap can therefore only know the true top-k once every record has
+        // been offered, so always keep pulling until the source reaches EOF
+        // (`next_batch` returns `Ok(None)`). Unlike the vector source — whose
+        // batches are successive score brackets — we must never `Stop` early on a
+        // full heap, or we would drop higher-scored documents from later batches.
+        BatchStrategy::Continue
     }
 
     fn iterator_type(&self) -> IteratorType {
