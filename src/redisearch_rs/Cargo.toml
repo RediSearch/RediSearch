@@ -32,7 +32,6 @@ members = [
     "rqe_core",
     "rqe_iterators",
     "rqe_iterators_bencher",
-    "search_shared",
     "redisearch_core",
     # NOTE: `redisearch_disk_plugin` is intentionally NOT listed here. It produces
     # the dlopened disk plugin `redisearch_disk.so` and depends on the superrepo

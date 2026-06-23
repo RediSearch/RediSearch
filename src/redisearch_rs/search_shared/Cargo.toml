@@ -13,6 +13,8 @@ publish.workspace = true
 #   `redisearch_disk`'s retained static path, Rust unit tests) can depend on it.
 #   The cdylibs prefer the `dylib` form, so single-instance still holds for them.
 crate-type = ["dylib", "rlib"]
+test = false
+bench = false
 
 [dependencies]
 # The shared subgraph roots. Their transitive in-repo deps are absorbed into
@@ -24,4 +26,5 @@ query_term.workspace = true
 query_error.workspace = true
 index_result.workspace = true
 index_spec.workspace = true
+redisearch_rs.workspace = true
 workspace_hack.workspace = true

@@ -2557,6 +2557,7 @@ dependencies = [
  "inverted_index",
  "query_error",
  "query_term",
+ "redisearch_rs",
  "rqe_iterators",
  "workspace_hack",
 ]
