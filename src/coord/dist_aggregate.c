@@ -346,10 +346,6 @@ static void executeAggregateDeferred(void *arg) {
 
   bool timedOut = CoordRequestCtx_TimedOut(reqCtx);
 
-  if (sp) {
-    CurrentThread_SetIndexSpec(spec_ref);
-  }
-
   if (sp && !timedOut) {
     // Dedicated thread-safe context for this worker. Aliased into sctx->redisCtx
     // so any pipeline step that reads it sees a live ctx on this thread. For
