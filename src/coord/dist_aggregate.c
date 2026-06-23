@@ -697,7 +697,7 @@ static int prepareForExecution(AREQ *r, RedisModuleCtx *ctx, RedisModuleString *
                                IndexSpec *sp, specialCaseCtx **knnCtx_ptr, size_t numShards,
                                QueryError *status) {
   AREQ_QueryProcessingCtx(r)->err = status;
-  AREQ_AddRequestFlags(r, QEXEC_F_IS_AGGREGATE | QEXEC_F_BUILDPIPELINE_NO_ROOT);
+  AREQ_AddRequestFlags(r, QEXEC_F_IS_AGGREGATE | QEXEC_F_IS_COORDINATOR);
   rs_wall_clock_init(&r->profileClocks.initClock);
 
   ProfileOptions profileOptions = EXEC_NO_FLAGS;

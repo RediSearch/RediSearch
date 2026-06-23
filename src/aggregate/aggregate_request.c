@@ -1250,12 +1250,20 @@ int parseAggPlan(ParseAggPlanContext *papCtx, ArgsCursor *ac, bool isDiskIndex, 
 }
 
 static bool IsNeededDepleter(AREQ *req) {
-  // Cursors paginate the pipeline output, so a depleter (which drains all upstream
-  // rows in one go) would defeat pagination on the first FT.CURSOR READ. Internal
-  // (shard-side) cursors still need the depleter when WITHCOUNT is set, so the
-  // shard can compute its full total_results before replying the first chunk.
+  // For cursored requests we only want a depleter when this AREQ owns its
+  // local data source and totalResults is computed by counting rows through
+  // the pipeline (RPIndexIterator increments it per row). That covers both a
+  // standalone request (no cluster) and a shard-side internal cursor in a
+  // cluster — i.e. any non-coordinator AREQ. In both cases, draining the
+  // upstream into a buffer up front lets the first FT.CURSOR READ report the
+  // full total before paginating.
+  //
+  // The cluster coordinator AREQ does not own a local data source: it reads
+  // from RPNet and totalResults is set once at Phase B start from accumulated
+  // shard metadata, so a coordinator-side cursor depleter would buffer the
+  // whole cluster stream before the first cursor chunk for no benefit.
   return !HasSortBy(req) && !HasGroupBy(req) && !IsCount(req) &&
-         (!IsCursor(req) || IsInternal(req));
+         (!IsCursor(req) || !IsCoordinator(req));
 }
 
 // This function should only be called from the main thread (calling RunInThread() is not thread safe)
@@ -1808,7 +1816,7 @@ int AREQ_BuildPipelineWithAggregationParams(AREQ *req,
                                             const AggregationPipelineParams *aggregationParams,
                                             QueryError *status) {
   Pipeline_Initialize(&req->pipeline, req->reqConfig.timeoutPolicy, status);
-  if (!(AREQ_RequestFlags(req) & QEXEC_F_BUILDPIPELINE_NO_ROOT)) {
+  if (!(AREQ_RequestFlags(req) & QEXEC_F_IS_COORDINATOR)) {
     QueryPipelineParams params = {
       .common = {
         .sctx = req->sctx,
