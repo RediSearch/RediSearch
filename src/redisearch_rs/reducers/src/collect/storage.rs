@@ -32,14 +32,9 @@ pub const DEFAULT_LIMIT: u64 = 10;
 /// number of rows we will retain.
 const INITIAL_CAPACITY_CAP: usize = 16_384;
 
-/// The *value* held by the storage: the projected (collected) fields, in a type
-/// distinct from the [`RankingKey`] so the two storage axes stay explicit. The
-/// ranking key decides order; the `ProjectedRow` is the content — hence the unit
-/// any content-based identity would key on.
-///
-/// Naming the role does not prove the row holds *only* projected fields; that is
-/// upheld by the `project` closure each reducer passes to [`ArrayStorage::push`]
-/// / [`HeapStorage::consider`].
+/// The *value* held by the storage: the projected (collected) fields, kept in a
+/// type distinct from [`RankingKey`] so that order (the ranking key) and content
+/// (this row) stay explicit.
 pub struct ProjectedRow(RLookupRow<'static>);
 
 impl ProjectedRow {
@@ -89,16 +84,12 @@ impl<D: Ord> Storage<D> {
         }
     }
 
-    /// Drain the retained values, sliced as `skip(offset).take(count)`.
+    /// Drain the retained values, sliced as `skip(offset).take(count)`: the array
+    /// arm in insertion order, the heap arm best→worst.
     ///
-    /// - **Array arm** yields values in insertion order.
-    /// - **Heap arm** yields values best→worst (matching the SORTBY result order).
-    ///
-    /// The heap arm discards each entry's [`RankingKey`]
-    /// ([`HeapEntry::into_projected`]) because the client-facing local reducer
-    /// never re-emits the sort columns. The remote reducer, which *does* re-emit
-    /// them on the shard path, drains [`HeapStorage`] directly instead — see
-    /// [`RemoteCollectCtx::finalize`][super::remote::RemoteCollectCtx::finalize].
+    /// The heap arm discards each entry's [`RankingKey`], which suits the
+    /// client-facing local reducer. The remote reducer, which re-emits the sort
+    /// columns on the shard path, drains [`HeapStorage`] directly instead.
     pub fn drain(&mut self) -> impl ExactSizeIterator<Item = ProjectedRow> {
         match self {
             Self::Array(a) => Either::Left(a.drain()),

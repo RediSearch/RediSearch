@@ -27,11 +27,9 @@ use crate::collect::storage::{ProjectedRow, Storage};
 
 /// Field-selection state: `FIELDS *` vs explicit list.
 ///
-/// Sort keys live in both variants and feed the heap comparator. In
-/// [`Fields::Specific`] mode they are *not* projected per row: the shard path
-/// re-attaches them at finalize from the ranking-key snapshot (see
-/// [`Fields::deferred_sort_keys`]), so a stored row never duplicates the sort
-/// values already held in the ranking key.
+/// Sort keys live in both variants and feed the heap comparator;
+/// [`Fields::deferred_sort_keys`] covers how [`Fields::Specific`] keeps them out
+/// of the per-row projection.
 enum Fields<'a> {
     /// `FIELDS *` mode. Non-[`RLookupKeyFlag::Hidden`] keys in `src_lookup`
     /// are emitted; the lookup is re-walked per call so an upstream
@@ -55,9 +53,9 @@ impl<'a> Fields<'a> {
         }
     }
 
-    /// Keys to project per row in [`RemoteCollectCtx::add`]:
-    /// [`Fields::Specific`] projects only its explicit `field_keys` (the SORTBY
-    /// columns are deferred — see [`Fields::deferred_sort_keys`]).
+    /// Keys to project per row in [`RemoteCollectCtx::add`]. [`Fields::Specific`]
+    /// projects only `field_keys`; its sort columns are deferred (see
+    /// [`Fields::deferred_sort_keys`]).
     fn get_keys_add(&self) -> impl Iterator<Item = &'a RLookupKey<'a>> + '_ {
         match self {
             Self::All { src_lookup, .. } => Either::Left(
@@ -288,13 +286,9 @@ impl RemoteCollectCtx {
     /// [`LocalCollectCtx::finalize`][crate::collect::local::LocalCollectCtx::finalize]
     /// reconstructs the client-facing result from the emitted payload.
     ///
-    /// On the shard (`is_internal`) heap path the coordinator re-sorts, so the
-    /// SORTBY columns that [`Fields::get_keys_add`] dropped are merged back here
-    /// from each entry's ranking-key snapshot
-    /// ([`RankingKey::sort_vals`][super::heap::RankingKey::sort_vals]). This stays in
-    /// lockstep with [`Fields::build_template`], which adds those same columns to
-    /// the template under the same `is_internal` condition. The client-facing
-    /// path emits only the requested fields and merges nothing.
+    /// On the shard (`is_internal`) heap path the [`Fields::deferred_sort_keys`]
+    /// are merged back into each row from its ranking-key snapshot, matching the
+    /// `is_internal` columns [`Fields::build_template`] adds.
     pub fn finalize(&mut self, r: &RemoteCollectReducer<'_>) -> SharedValue {
         let template = r.fields.build_template(r.is_internal);
         let to_map = |row: &RLookupRow<'static>| {
@@ -314,8 +308,8 @@ impl RemoteCollectCtx {
             Storage::Array(a) => Either::Left(a.drain().map(|projected| to_map(projected.row()))),
             Storage::Heap(h) => Either::Right(h.drain().map(|entry| {
                 let (ranking_key, projected) = entry.into_parts();
-                // Leave the projected-only representation to build the wire row:
-                // projected fields plus the deferred sort columns.
+                // Start from the projected fields, then add the deferred sort
+                // columns to form the wire row.
                 let mut row = projected.into_row();
                 // `sort_extras` and the snapshot share SORTBY order, so the
                 // zip pairs each key with its value; a value overlapping a
