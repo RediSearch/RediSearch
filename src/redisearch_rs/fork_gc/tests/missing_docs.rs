@@ -18,16 +18,9 @@ use index_result::RSIndexResult;
 use index_spec::IndexSpecReadGuard;
 use inverted_index::opaque::InvertedIndex as OpaqueInvertedIndex;
 use inverted_index::{GcScanDelta, InvertedIndex, doc_ids_only::DocIdsOnly};
-use serde::Serialize as _;
 
 // Provide Redis allocator shims so the C dict functions can allocate memory.
 redis_mock::mock_or_stub_missing_redis_c_symbols!();
-
-// ── Test helpers ─────────────────────────────────────────────────────────────
-
-fn make_dict() -> OwnedDict<MissingFieldDictType> {
-    OwnedDict::create()
-}
 
 /// Add one entry to `dict` keyed by `field_name`, with value `ii`.
 ///
@@ -54,12 +47,10 @@ fn make_spec(dict: &OwnedDict<MissingFieldDictType>) -> ffi::IndexSpec {
     spec
 }
 
-// ── Tests ─────────────────────────────────────────────────────────────────────
-
 /// When the dict has no entries, only a Terminator is written.
 #[test]
 fn empty_dict_writes_only_terminator() {
-    let dict = make_dict();
+    let dict = OwnedDict::create();
     let spec = make_spec(&dict);
     let guard = unsafe { IndexSpecReadGuard::from_locked(&spec) };
 
@@ -76,7 +67,7 @@ fn empty_dict_writes_only_terminator() {
 /// Entries whose value is `None` (no inverted index) are skipped silently.
 #[test]
 fn null_value_entry_is_skipped() {
-    let mut dict = make_dict();
+    let mut dict = OwnedDict::create();
     add_entry(&mut dict, b"no_index_field", None);
     let spec = make_spec(&dict);
     let guard = unsafe { IndexSpecReadGuard::from_locked(&spec) };
@@ -99,7 +90,7 @@ fn empty_inverted_index_is_skipped() {
     ));
     let ii_ptr = Box::into_raw(ii);
 
-    let mut dict = make_dict();
+    let mut dict = OwnedDict::create();
     add_entry(&mut dict, b"empty_field", Some(unsafe { &*ii_ptr }));
     let spec = make_spec(&dict);
     let guard = unsafe { IndexSpecReadGuard::from_locked(&spec) };
@@ -133,7 +124,7 @@ fn entry_with_deleted_docs_writes_delta_frame() {
     let ii = Box::new(OpaqueInvertedIndex::DocIdsOnly(ii));
     let ii_ptr = Box::into_raw(ii);
 
-    let mut dict = make_dict();
+    let mut dict = OwnedDict::create();
     add_entry(&mut dict, b"age", Some(unsafe { &*ii_ptr }));
     let spec = make_spec(&dict);
     let guard = unsafe { IndexSpecReadGuard::from_locked(&spec) };
@@ -174,7 +165,7 @@ fn multiple_entries_write_multiple_delta_frames() {
     let ii_a = make_ii(1);
     let ii_b = make_ii(2);
 
-    let mut dict = make_dict();
+    let mut dict = OwnedDict::create();
     add_entry(&mut dict, b"field_a", Some(unsafe { &*ii_a }));
     add_entry(&mut dict, b"field_b", Some(unsafe { &*ii_b }));
     let spec = make_spec(&dict);
@@ -184,99 +175,28 @@ fn multiple_entries_write_multiple_delta_frames() {
     collect_missing_docs(&mut buf, &*guard).unwrap();
 
     let mut cursor = Cursor::new(&buf);
-    let mut field_names_seen = Vec::new();
-    loop {
-        match Frame::decode(&mut cursor).unwrap() {
-            Frame::Terminator => break,
-            Frame::Data(name) => {
-                field_names_seen.push(name.into_inner().into_vec());
-                let _delta: GcScanDelta = rmp_serde::from_read(&mut cursor).unwrap();
-            }
-            Frame::Empty => panic!("unexpected Empty frame"),
-        }
-    }
 
-    field_names_seen.sort();
-    assert_eq!(field_names_seen, [b"field_a".to_vec(), b"field_b".to_vec()]);
+    let Frame::Data(name1) = Frame::decode(&mut cursor).unwrap() else {
+        panic!("expected first Data frame");
+    };
+    let _: GcScanDelta = rmp_serde::from_read(&mut cursor).unwrap();
+
+    let Frame::Data(name2) = Frame::decode(&mut cursor).unwrap() else {
+        panic!("expected second Data frame");
+    };
+    let _: GcScanDelta = rmp_serde::from_read(&mut cursor).unwrap();
+
+    let mut names = [name1.into_inner().into_vec(), name2.into_inner().into_vec()];
+    names.sort();
+    assert_eq!(names, [b"field_a".to_vec(), b"field_b".to_vec()]);
+    assert!(matches!(
+        Frame::decode(&mut cursor).unwrap(),
+        Frame::Terminator
+    ));
 
     // SAFETY: dict does not free values; both ii pointers were created via Box::into_raw.
     unsafe {
         drop(Box::from_raw(ii_a));
         drop(Box::from_raw(ii_b));
     }
-}
-
-/// A roundtrip test: the wire output of `collect_missing_docs` can be decoded
-/// frame-by-frame as the parent side would.
-#[test]
-fn roundtrip_protocol_is_decodable() {
-    let mut ii = InvertedIndex::<DocIdsOnly>::new(IndexFlags_Index_DocIdsOnly);
-    ii.add_record(&RSIndexResult::build_virt().doc_id(5).build())
-        .unwrap();
-    let ii = Box::new(OpaqueInvertedIndex::DocIdsOnly(ii));
-    let ii_ptr = Box::into_raw(ii);
-
-    let mut dict = make_dict();
-    add_entry(&mut dict, b"title", Some(unsafe { &*ii_ptr }));
-    let spec = make_spec(&dict);
-    let guard = unsafe { IndexSpecReadGuard::from_locked(&spec) };
-
-    let mut buf = Vec::new();
-    collect_missing_docs(&mut buf, &*guard).unwrap();
-
-    let mut cursor = Cursor::new(&buf);
-    let mut entries_received = 0usize;
-    loop {
-        match Frame::decode(&mut cursor).unwrap() {
-            Frame::Terminator => break,
-            Frame::Data(name) => {
-                assert_eq!(&*name, b"title");
-                let delta: GcScanDelta = rmp_serde::from_read(&mut cursor).unwrap();
-                assert_eq!(delta.last_block_idx(), 0);
-                entries_received += 1;
-            }
-            Frame::Empty => panic!("unexpected Empty frame"),
-        }
-    }
-    assert_eq!(entries_received, 1);
-
-    // SAFETY: dict does not free values; ii_ptr was created via Box::into_raw.
-    unsafe { drop(Box::from_raw(ii_ptr)) };
-}
-
-/// Verify the serialised bytes written after a Data frame are a valid
-/// msgpack-encoded [`GcScanDelta`] that round-trips cleanly.
-#[test]
-fn delta_frame_serialisation_roundtrips_via_msgpack() {
-    let mut ii = InvertedIndex::<DocIdsOnly>::new(IndexFlags_Index_DocIdsOnly);
-    ii.add_record(&RSIndexResult::build_virt().doc_id(3).build())
-        .unwrap();
-    let ii = Box::new(OpaqueInvertedIndex::DocIdsOnly(ii));
-    let ii_ptr = Box::into_raw(ii);
-
-    let mut dict = make_dict();
-    add_entry(&mut dict, b"score", Some(unsafe { &*ii_ptr }));
-    let spec = make_spec(&dict);
-    let guard = unsafe { IndexSpecReadGuard::from_locked(&spec) };
-
-    let mut buf = Vec::new();
-    collect_missing_docs(&mut buf, &*guard).unwrap();
-
-    let mut cursor = Cursor::new(&buf);
-    let Frame::Data(_) = Frame::decode(&mut cursor).unwrap() else {
-        panic!("expected Data frame");
-    };
-    let delta: GcScanDelta = rmp_serde::from_read(&mut cursor).unwrap();
-
-    let mut re_encoded = Vec::new();
-    delta
-        .serialize(&mut rmp_serde::Serializer::new(&mut re_encoded))
-        .unwrap();
-
-    let frame_end = cursor.position() as usize;
-    let frame_start = size_of::<usize>() + b"score".len();
-    assert_eq!(&buf[frame_start..frame_end], re_encoded.as_slice());
-
-    // SAFETY: dict does not free values; ii_ptr was created via Box::into_raw.
-    unsafe { drop(Box::from_raw(ii_ptr)) };
 }

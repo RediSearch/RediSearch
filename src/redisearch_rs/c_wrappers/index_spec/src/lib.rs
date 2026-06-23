@@ -301,7 +301,7 @@ impl<'lock> IndexSpecReadGuard<'lock> {
     ///
     /// Keys are field names ([`HiddenStringRef`]); values are the per-field
     /// missing-doc inverted index (`None` when no such index exists).
-    pub fn missing_field_dict2(&self) -> &Dict<MissingFieldDictType> {
+    pub fn missing_field_dict(&self) -> &Dict<MissingFieldDictType> {
         debug_assert!(
             !self.0.missingFieldDict.is_null(),
             "missingFieldDict must not be null"
@@ -339,7 +339,7 @@ impl<'lock> IndexSpecReadGuard<'lock> {
     /// Returns a pointer to the missing field dictionary.
     ///
     /// This dictionary maps field names to their missing-value inverted indexes.
-    pub const fn missing_field_dict(&self) -> *mut ffi::dict {
+    pub const fn missing_field_dict_ptr(&self) -> *mut ffi::dict {
         self.0.missingFieldDict
     }
 

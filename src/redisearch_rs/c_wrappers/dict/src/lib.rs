@@ -30,7 +30,7 @@ use inverted_index::opaque::InvertedIndex;
 ///
 /// # Safety
 ///
-/// Implementors must ensure that the `*mut c_void` passed to `from_dict_ptr`
+/// Implementers must ensure that the `*mut c_void` passed to `from_dict_ptr`
 /// genuinely points to a value of the type that `Self` represents. Whether
 /// `into_dict_ptr` is safe to call depends on the [`ffi::dictType`] the dict
 /// was created with — the dictType's callbacks determine how the pointer is
@@ -112,7 +112,7 @@ unsafe impl<'a, T: 'a> DictValue<'a> for Option<&'a T> {
 ///
 /// # Safety
 ///
-/// Implementors must ensure that [`as_ptr`](Self::as_ptr) returns a pointer to
+/// Implementers must ensure that [`as_ptr`](Self::as_ptr) returns a pointer to
 /// a valid, live `ffi::dictType` whose callbacks are consistent with `K` and
 /// `V`: e.g. if `K::into_dict_ptr` returns a pointer to a temporary, the
 /// dictType's `keyDup` must copy it before the caller is allowed to free the
@@ -143,7 +143,7 @@ unsafe impl DictType for MissingFieldDictType {
     type V<'a> = Option<&'a InvertedIndex>;
 
     fn as_ptr() -> *mut ffi::dictType {
-        unsafe { std::ptr::addr_of_mut!(ffi::dictTypeHeapHiddenStrings) }
+        std::ptr::addr_of_mut!(ffi::dictTypeHeapHiddenStrings)
     }
 }
 
