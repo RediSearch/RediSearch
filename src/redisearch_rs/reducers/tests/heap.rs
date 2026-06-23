@@ -174,7 +174,7 @@ fn ranking_key_compares_doc_id_only_after_sort_values_tie() {
 }
 
 #[test]
-fn entry_key_sort_values_take_precedence_over_doc_id() {
+fn ranking_key_sort_values_take_precedence_over_doc_id() {
     let a = RankingKey::new(Box::new([Some(SharedValue::new_num(1.0))]), asc(0), 20u64);
     let b = RankingKey::new(Box::new([Some(SharedValue::new_num(2.0))]), asc(0), 10u64);
     // Sort value wins first; doc id is only a tie-breaker.
