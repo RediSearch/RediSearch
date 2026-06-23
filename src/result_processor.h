@@ -169,7 +169,11 @@ ResultProcessor *RPMetricsLoader_New();
  */
 ResultProcessor *RPSorter_NewByFields(size_t maxresults, const RLookupKey **keys, size_t nkeys, uint64_t ascendingMap);
 
-ResultProcessor *RPSorter_NewByScore(size_t maxresults);
+/**
+ * Creates a sorter result processor that sorts by score.
+ * @param scoreTieBreakKey if non-NULL, score ties break by this key's value, not the doc id.
+ */
+ResultProcessor *RPSorter_NewByScore(size_t maxresults, const RLookupKey *scoreTieBreakKey);
 
 ResultProcessor *RPPager_New(size_t offset, size_t limit);
 

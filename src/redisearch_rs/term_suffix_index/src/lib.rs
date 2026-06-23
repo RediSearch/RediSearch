@@ -33,7 +33,11 @@ use std::rc::Rc;
 use term_refs::{Outcome, TermRefs};
 use trie_rs::str_trie_map::StrTrieMap;
 
-const MIN_SUFFIX: usize = ffi::MIN_SUFFIX as usize;
+// TODO(MOD-16185): the C suffix DS dropped its MIN_SUFFIX floor (#9945), so the
+// constant no longer exists in `src/suffix.h`. This Rust port isn't wired into
+// production yet, so it keeps the old floor hardcoded for now; remove it (and
+// the gating logic and assertions below) in the MOD-16185 follow-up.
+const MIN_SUFFIX: usize = 2;
 
 pub struct TermSuffixIndex {
     inner: StrTrieMap<TermRefs>,

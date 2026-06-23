@@ -36,6 +36,8 @@ members = [
     "search_result",
     "slots_tracker",
     "sorting_vector",
+    "spellcheck_dictionary",
+    "string_utils",
     "term_suffix_index",
     "tools/license_header_linter",
     "tools/ffi_geiger",
@@ -144,10 +146,12 @@ schema_rule = { path = "./c_wrappers/schema_rule" }
 search_result = { path = "./search_result" }
 slots_tracker = { path = "./slots_tracker" }
 sorting_vector = { path = "./sorting_vector" }
+string_utils = { path = "./string_utils" }
 term_suffix_index = { path = "./term_suffix_index" }
 thin_vec = { path = "./thin_vec" }
 top_k = { path = "./top_k" }
 tracing_assert = { path = "./tracing_assert" }
+vecsim = { path = "./c_wrappers/vecsim" }
 tracing_redismodule = { path = "./tracing_redismodule" }
 trie_rs = { path = "./trie_rs" }
 ttl_table = { path = "./ttl_table" }
@@ -193,6 +197,7 @@ rmp-serde = "1.3.1"
 rustc-hash = "2.1.1"
 serde = { version = "1.0.228", features = ["derive"] }
 smallvec = "1.15.1"
+strsim = "0.11.1"
 strum = { version = "0.27.2", features = ["derive"] }
 syn = "2"
 # need "unstable" for the "default_log_filter" attribute allowing to override the default level (info).

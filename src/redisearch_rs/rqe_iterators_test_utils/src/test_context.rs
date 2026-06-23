@@ -853,11 +853,18 @@ impl TestContext {
         guard.set_monitor_document_expiration(true);
         guard.set_monitor_field_expiration(true);
 
-        let mut doc_table = guard.doc_table();
+        // `IndexSpecWriteGuard::doc_table()` returns a *copy* of the document
+        // table, so initializing `ttl` through it would leave the spec's real
+        // table untouched (and a later `TimeToLiveTable_Add` would dereference a
+        // NULL `ttl`). Borrow the spec's actual table through the guard instead,
+        // which keeps the guard as the sole mutable path to the spec.
+        let docs = guard.doc_table_mut();
 
-        // SAFETY: doc_table is a valid pointer to the spec's document table, and maxSize is properly initialized.
+        // SAFETY: `&mut docs.ttl` is a valid, writable `*mut *mut TimeToLiveTable`,
+        // and `maxSize` is initialized. The guard holds exclusive access to the
+        // spec, so the initialization does not race.
         unsafe {
-            ffi::TimeToLiveTable_VerifyInit(&mut doc_table.ttl, doc_table.maxSize as usize);
+            ffi::TimeToLiveTable_VerifyInit(&mut docs.ttl, docs.maxSize as usize);
         }
     }
 

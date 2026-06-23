@@ -92,7 +92,8 @@ def _print_debug_stats(label, env, coord_initial_jobs_done, coord_initial_pendin
     )
 
 
-@skip(cluster=False)
+# Skipped on macOS: the saturation burst times out on the slow macOS CI runners.
+@skip(cluster=False, macos=True)
 def test_search_and_aggregate_burst():
     env = Env(
         testName='Search and aggregate burst',

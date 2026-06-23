@@ -2,7 +2,8 @@ use core::mem::size_of;
 use std::format;
 use std::vec;
 use thin_vec::{
-    Header, MediumThinVec, SmallThinVec, ThinVec, TinyThinVec, VecCapacity, small_thin_vec,
+    AlignedU8, AlignedU16, AlignedU32, AlignedU64, Header, MediumThinVec, SmallThinVec, ThinVec,
+    TinyThinVec, VecCapacity, small_thin_vec,
 };
 
 #[test]
@@ -1455,4 +1456,68 @@ fn append_both_empty() {
     a.append(&mut b);
     assert!(a.is_empty());
     assert!(b.is_empty());
+}
+
+// Exercise the over-aligned capacity newtypes (`AlignedU8/16/32/64`). These back a
+// `ThinVec` whose empty singleton is over-aligned so `data_raw` elides its
+// `capacity == 0` guard; the round-trip below drives `from_usize`/`to_usize` and
+// the guard-elided empty-data path for each type.
+fn aligned_roundtrip_generic<S: VecCapacity>() {
+    // Empty vec: data access is branch-free (guard elided) and yields an empty slice.
+    let empty: ThinVec<i32, S> = ThinVec::new();
+    assert_eq!(empty.as_slice(), &[]);
+    assert_eq!(empty.capacity(), 0);
+
+    // `with_capacity` exercises `from_usize` on the non-panicking path.
+    let mut v: ThinVec<i32, S> = ThinVec::with_capacity(4);
+    assert!(v.capacity() >= 4);
+    for i in 0..8 {
+        v.push(i);
+    }
+    // `len`/`capacity` round len/capacity back out through `to_usize`.
+    assert_eq!(v.len(), 8);
+    assert_eq!(v.as_slice(), &[0, 1, 2, 3, 4, 5, 6, 7]);
+    assert_eq!(v[3], 3);
+    assert_eq!(v.iter().copied().sum::<i32>(), 28);
+}
+
+#[test]
+fn test_aligned_u8_roundtrip() {
+    aligned_roundtrip_generic::<AlignedU8>();
+}
+
+#[test]
+fn test_aligned_u16_roundtrip() {
+    aligned_roundtrip_generic::<AlignedU16>();
+}
+
+#[test]
+fn test_aligned_u32_roundtrip() {
+    aligned_roundtrip_generic::<AlignedU32>();
+}
+
+#[test]
+fn test_aligned_u64_roundtrip() {
+    aligned_roundtrip_generic::<AlignedU64>();
+}
+
+// `from_usize` rejects capacities past each type's max with a descriptive panic.
+#[test]
+#[should_panic(expected = "8-bit (aligned)")]
+fn test_aligned_u8_capacity_overflow() {
+    let _: ThinVec<u8, AlignedU8> = ThinVec::with_capacity(256);
+}
+
+#[test]
+#[should_panic(expected = "16-bit (aligned)")]
+fn test_aligned_u16_capacity_overflow() {
+    let _: ThinVec<u8, AlignedU16> = ThinVec::with_capacity(65536);
+}
+
+#[test]
+#[should_panic(expected = "32-bit (aligned)")]
+// `usize` must be wider than `u32` for the requested capacity to overflow it.
+#[cfg(target_pointer_width = "64")]
+fn test_aligned_u32_capacity_overflow() {
+    let _: ThinVec<u8, AlignedU32> = ThinVec::with_capacity((u32::MAX as usize) + 1);
 }

@@ -13,8 +13,6 @@ pub mod iter;
 mod node;
 mod utils;
 
-use rqe_wildcard::WildcardPattern;
-
 use crate::trie_map::{
     iter::{
         ContainsIter, IntoValues, Iter, LendingIter, PrefixesIter, RangeFilter, RangeIter, Values,
@@ -23,6 +21,7 @@ use crate::trie_map::{
     node::Node,
     utils::strip_prefix,
 };
+use rqe_wildcard::WildcardPattern;
 use std::fmt;
 
 #[derive(Clone, PartialEq, Eq)]
@@ -34,12 +33,6 @@ pub struct TrieMap<Data> {
     n_unique_keys: usize,
     /// The memory usage of the whole trie map, in bytes.
     memory_usage: usize,
-}
-
-impl<Data> Default for TrieMap<Data> {
-    fn default() -> Self {
-        Self::new()
-    }
 }
 
 impl<Data> TrieMap<Data> {
@@ -280,7 +273,13 @@ impl<Data> TrieMap<Data> {
     }
 }
 
-impl<Data: std::fmt::Debug> std::fmt::Debug for TrieMap<Data> {
+impl<Data> Default for TrieMap<Data> {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+impl<Data: fmt::Debug> fmt::Debug for TrieMap<Data> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match &self.root {
             Some(r) => r.fmt(f),

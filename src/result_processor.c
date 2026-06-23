@@ -623,6 +623,9 @@ typedef struct {
     uint64_t ascendMap;
   } fieldcmp;
 
+  // When set, score ties are broken by this key's value instead of the doc id.
+  const RLookupKey *scoreTieBreakKey;
+
   // Whether a timeout warning needs to be propagated down the downstream
   bool timedOut;
 } RPSorter;
@@ -732,12 +735,19 @@ static int rpsortNext_Accum(ResultProcessor *rp, SearchResult *r) {
 
 /* Compare results for the heap by score */
 static inline int cmpByScore(const void *e1, const void *e2, const void *udata) {
+  const RPSorter *self = udata;
   const SearchResult *h1 = e1, *h2 = e2;
 
   if (SearchResult_GetScore(h1) < SearchResult_GetScore(h2)) {
     return -1;
   } else if (SearchResult_GetScore(h1) > SearchResult_GetScore(h2)) {
     return 1;
+  }
+  // Tie-break via the by-fields comparator over the key (ascendMap=1 -> ascending key,
+  // lower-doc-id-first, matching the no-key path below).
+  if (self->scoreTieBreakKey) {
+    QueryError *qerr = (self->base.parent) ? self->base.parent->err : NULL;
+    return SearchResult_CmpByFields(&self->scoreTieBreakKey, 1, h1, h2, /*ascendMap=*/1, qerr);
   }
   return SearchResult_GetDocId(h1) > SearchResult_GetDocId(h2) ? -1 : 1;
 }
@@ -786,8 +796,10 @@ ResultProcessor *RPSorter_NewByFields(size_t maxresults, const RLookupKey **keys
   return &ret->base;
 }
 
-ResultProcessor *RPSorter_NewByScore(size_t maxresults) {
-  return RPSorter_NewByFields(maxresults, NULL, 0, 0);
+ResultProcessor *RPSorter_NewByScore(size_t maxresults, const RLookupKey *scoreTieBreakKey) {
+  ResultProcessor *rp = RPSorter_NewByFields(maxresults, NULL, 0, 0);
+  ((RPSorter *)rp)->scoreTieBreakKey = scoreTieBreakKey;
+  return rp;
 }
 
 /*******************************************************************************************************************
