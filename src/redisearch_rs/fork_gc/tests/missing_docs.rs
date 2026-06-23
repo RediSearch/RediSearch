@@ -12,12 +12,16 @@ use std::{io::Cursor, mem};
 use dict::MissingFieldDictType;
 use dict::OwnedDict;
 use ffi::IndexFlags_Index_DocIdsOnly;
-use fork_gc::{Frame, missing_docs::collect_missing_docs};
+use fork_gc::{
+    Frame,
+    missing_docs::{HandleError, apply_missing_docs, collect_missing_docs, receive_missing_docs},
+};
 use hidden_string::HiddenStringRef;
 use index_result::RSIndexResult;
-use index_spec::IndexSpecReadGuard;
+use index_spec::{IndexSpecReadGuard, IndexSpecWriteGuard};
 use inverted_index::opaque::InvertedIndex as OpaqueInvertedIndex;
 use inverted_index::{GcScanDelta, InvertedIndex, doc_ids_only::DocIdsOnly};
+use serde::Serialize as _;
 
 // Link both Rust-provided and C-provided symbols
 extern crate redisearch_rs;
@@ -176,4 +180,87 @@ fn multiple_entries_write_multiple_delta_frames() {
         Frame::Terminator
     ));
     assert_eq!(cursor.position(), buf.len() as u64);
+}
+
+#[test]
+fn receive_terminator_returns_none() {
+    let mut buf = Vec::new();
+    Frame::Terminator.encode(&mut buf).unwrap();
+    let mut cursor = Cursor::new(&buf);
+    assert!(matches!(receive_missing_docs(&mut cursor).unwrap(), None));
+}
+
+#[test]
+fn receive_malformed_frame_returns_child_error() {
+    let mut cursor = Cursor::new(b"garbage");
+    assert!(matches!(
+        receive_missing_docs(&mut cursor),
+        Err(HandleError::ChildError)
+    ));
+}
+
+#[test]
+fn receive_data_frame_returns_field_name_and_delta() {
+    let mut buf = Vec::new();
+    Frame::data(b"age").encode(&mut buf).unwrap();
+    GcScanDelta::empty_for_testing()
+        .serialize(&mut rmp_serde::Serializer::new(&mut buf))
+        .unwrap();
+
+    let mut cursor = Cursor::new(&buf);
+    let (field_name, _delta) = receive_missing_docs(&mut cursor).unwrap().unwrap();
+    assert_eq!(&*field_name, b"age");
+}
+
+#[test]
+fn apply_returns_err_when_field_not_found() {
+    let dict = OwnedDict::<MissingFieldDictType>::create();
+    let mut spec = make_spec(&dict);
+    let delta = GcScanDelta::empty_for_testing();
+
+    let mut write_guard = unsafe { IndexSpecWriteGuard::from_locked_mut(&mut spec) };
+    assert!(matches!(
+        apply_missing_docs(b"nonexistent", delta, &mut *write_guard),
+        Err(HandleError::FieldNotFound)
+    ));
+}
+
+/// Full child-to-parent roundtrip: when all docs are deleted the dict entry is removed.
+#[test]
+fn roundtrip_all_docs_deleted_removes_entry() {
+    let mut ii = InvertedIndex::<DocIdsOnly>::new(IndexFlags_Index_DocIdsOnly);
+    ii.add_record(&RSIndexResult::build_virt().doc_id(1).build())
+        .unwrap();
+    ii.add_record(&RSIndexResult::build_virt().doc_id(2).build())
+        .unwrap();
+    let ii = Box::new(OpaqueInvertedIndex::DocIdsOnly(ii));
+    let ii_ptr = Box::into_raw(ii);
+
+    let mut dict = OwnedDict::create();
+    add_entry(&mut dict, b"age", Some(unsafe { &*ii_ptr }));
+    let mut spec = make_spec(&dict);
+
+    // Child side: collect.
+    let mut buf = Vec::new();
+    {
+        let read_guard = unsafe { IndexSpecReadGuard::from_locked(&spec) };
+        collect_missing_docs(&mut buf, &*read_guard).unwrap();
+    }
+
+    // Parent side: receive.
+    let mut cursor = Cursor::new(&buf);
+    let (field_name, delta) = receive_missing_docs(&mut cursor).unwrap().unwrap();
+    assert_eq!(&*field_name, b"age");
+
+    // Parent side: apply.
+    let mut write_guard = unsafe { IndexSpecWriteGuard::from_locked_mut(&mut spec) };
+    let info = apply_missing_docs(&field_name, delta, &mut *write_guard).unwrap();
+
+    assert!(write_guard.missing_field_mut(b"age").is_none());
+    assert!(info.bytes_freed > 0);
+    assert!(info.entries_removed > 0);
+
+    // The test dict (dictTypeHeapHiddenStrings) has no valDestructor, so the II
+    // is not freed on RS_dictDelete — free it manually here.
+    unsafe { drop(Box::from_raw(ii_ptr)) };
 }
