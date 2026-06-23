@@ -27,9 +27,11 @@ use crate::collect::storage::{ProjectedRow, Storage};
 
 /// Field-selection state: `FIELDS *` vs explicit list.
 ///
-/// Sort keys live in both variants and feed the heap comparator;
-/// [`Fields::deferred_sort_keys`] covers how [`Fields::Specific`] keeps them out
-/// of the per-row projection.
+/// Sort keys feed the heap comparator in both variants. [`Fields::Specific`]
+/// deliberately excludes them from the per-row projection and merges them back at
+/// finalize (see [`Fields::build_template`]); [`Fields::All`] carries them only
+/// because they are non-hidden lookup fields it already projects, not by any
+/// special handling.
 enum Fields<'a> {
     /// `FIELDS *` mode. Non-[`RLookupKeyFlag::Hidden`] keys in `src_lookup`
     /// are emitted; the lookup is re-walked per call so an upstream
@@ -54,8 +56,8 @@ impl<'a> Fields<'a> {
     }
 
     /// Keys to project per row in [`RemoteCollectCtx::add`]. [`Fields::Specific`]
-    /// projects only `field_keys`; its sort columns are deferred (see
-    /// [`Fields::deferred_sort_keys`]).
+    /// projects only `field_keys`; its sort columns are merged back at finalize
+    /// (see [`Fields::build_template`]).
     fn get_keys_add(&self) -> impl Iterator<Item = &'a RLookupKey<'a>> + '_ {
         match self {
             Self::All { src_lookup, .. } => Either::Left(
@@ -67,42 +69,41 @@ impl<'a> Fields<'a> {
         }
     }
 
-    /// SORTBY keys to re-merge into each heap row at finalize, on the shard
-    /// (`is_internal`) path.
+    /// The `(key→name template, sort keys to merge)` pair for
+    /// [`RemoteCollectCtx::finalize`].
     ///
-    /// Only [`Fields::Specific`] defers them: [`Fields::get_keys_add`] drops the
-    /// sort columns from the per-row projection, but the coordinator's re-sort
-    /// still needs them, so the shard path writes them back from the
-    /// ranking-key snapshot. [`Fields::All`] already projects every non-hidden
-    /// field, so it has nothing to defer.
-    fn deferred_sort_keys(&self) -> &[&'a RLookupKey<'a>] {
-        match self {
-            Self::Specific { sort_keys, .. } => sort_keys,
-            Self::All { .. } => &[],
-        }
-    }
-
-    /// Key→name template for [`RemoteCollectCtx::finalize`].
-    ///
-    /// `include_sort_extras` extends the [`Fields::Specific`] projection
-    /// with sort keys (shard path: `true`; client-facing: `false`).
-    fn build_template(&self, include_sort_extras: bool) -> Vec<(&'a RLookupKey<'a>, SharedValue)> {
-        let keys: Vec<&RLookupKey<'a>> = match self {
-            Self::All { src_lookup, .. } => src_lookup
-                .iter()
-                .filter(|k| !k.flags.contains(RLookupKeyFlag::Hidden))
-                .collect(),
+    /// When `include_sort_extras` (the shard path), the [`Fields::Specific`]
+    /// template gains its SORTBY keys and they are returned as the merge set so
+    /// `finalize` re-attaches them from the ranking-key snapshot; otherwise the
+    /// merge set is empty. [`Fields::All`] already projects every field.
+    fn build_template(
+        &self,
+        include_sort_extras: bool,
+    ) -> (
+        Vec<(&'a RLookupKey<'a>, SharedValue)>,
+        &[&'a RLookupKey<'a>],
+    ) {
+        let (keys, sort_extras): (Vec<&RLookupKey<'a>>, &[&RLookupKey<'a>]) = match self {
+            Self::All { src_lookup, .. } => (
+                src_lookup
+                    .iter()
+                    .filter(|k| !k.flags.contains(RLookupKeyFlag::Hidden))
+                    .collect(),
+                &[],
+            ),
             Self::Specific {
                 field_keys,
                 sort_keys,
             } => {
                 let extras: &[&RLookupKey<'a>] = if include_sort_extras { sort_keys } else { &[] };
-                dedup_by_dstidx(field_keys, extras)
+                (dedup_by_dstidx(field_keys, extras), extras)
             }
         };
-        keys.into_iter()
+        let template = keys
+            .into_iter()
             .map(|k| (k, SharedValue::new_string(k.name().to_bytes().to_vec())))
-            .collect()
+            .collect();
+        (template, sort_extras)
     }
 }
 
@@ -286,11 +287,11 @@ impl RemoteCollectCtx {
     /// [`LocalCollectCtx::finalize`][crate::collect::local::LocalCollectCtx::finalize]
     /// reconstructs the client-facing result from the emitted payload.
     ///
-    /// On the shard (`is_internal`) heap path the [`Fields::deferred_sort_keys`]
-    /// are merged back into each row from its ranking-key snapshot, matching the
-    /// `is_internal` columns [`Fields::build_template`] adds.
+    /// On the shard (`is_internal`) heap path the SORTBY columns are re-attached
+    /// from each entry's ranking-key snapshot; the client path emits only the
+    /// requested fields.
     pub fn finalize(&mut self, r: &RemoteCollectReducer<'_>) -> SharedValue {
-        let template = r.fields.build_template(r.is_internal);
+        let (template, sort_extras) = r.fields.build_template(r.is_internal);
         let to_map = |row: &RLookupRow<'static>| {
             SharedValue::new_map(
                 template
@@ -299,24 +300,16 @@ impl RemoteCollectCtx {
                     .collect::<Vec<_>>(),
             )
         };
-        let sort_extras: &[&RLookupKey] = if r.is_internal {
-            r.fields.deferred_sort_keys()
-        } else {
-            &[]
-        };
         let rows = match &mut self.storage {
             Storage::Array(a) => Either::Left(a.drain().map(|projected| to_map(projected.row()))),
             Storage::Heap(h) => Either::Right(h.drain().map(|entry| {
                 let (ranking_key, projected) = entry.into_parts();
-                // Start from the projected fields, then add the deferred sort
-                // columns to form the wire row.
                 let mut row = projected.into_row();
-                // `sort_extras` and the snapshot share SORTBY order, so the
-                // zip pairs each key with its value; a value overlapping a
-                // projected field rewrites the same `dstidx` idempotently.
-                for (sort_key, val) in sort_extras.iter().zip(ranking_key.sort_vals()) {
+                // `sort_extras` (names) and the snapshot (values) share SORTBY
+                // order, so the i-th key takes the i-th value.
+                for (key, val) in sort_extras.iter().zip(ranking_key.sort_vals()) {
                     if let Some(val) = val {
-                        row.write_key(sort_key, val.clone());
+                        row.write_key(key, val.clone());
                     }
                 }
                 to_map(&row)
