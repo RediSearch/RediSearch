@@ -130,7 +130,7 @@ double RSValue_Number_Get(const struct RSValue *value);
  *
  * The hashing is recursive for composite types (arrays, maps, references, trios).
  *
- * Because the hasher is keyed with a per-process secret, the result is only
+ * Since the hasher is keyed with a per-process secret, the result is only
  * meaningful within the current process: it must not be compared, merged, or
  * persisted across processes (e.g. across cluster shards). For that, use
  * [`RSValue_HashStable`] instead.
@@ -271,7 +271,7 @@ const struct RSValue *RSValue_Trio_GetLeft(const struct RSValue *value);
  *
  * Unlike [`RSValue_Hash`], this is *not* keyed with a per-process secret, so
  * the same value hashes identically across processes and restarts. Use this
- * where the hash is compared, merged, or persisted across processes - e.g.
+ * when the hash is compared, merged, or persisted across processes - e.g.
  * the per-shard HyperLogLog registers fed by `COUNT_DISTINCTISH`, which are
  * merged across shards by `HLL_SUM` and therefore must agree on how values
  * map to register/rank pairs.
