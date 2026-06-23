@@ -188,10 +188,6 @@ impl TermSuffixIndex {
             (None, self.inner.get(token))
         };
 
-        // Byte-wise wildcard match against the established matcher. `?`
-        // therefore matches a single *byte*, not a codepoint, so multibyte
-        // terms are matched only approximately — acceptable here, and it
-        // avoids carrying a codepoint-aware matcher of our own.
         let wildcard = WildcardPattern::parse(lowered.as_bytes());
         let matches: Vec<Rc<str>> = subtree
             .into_iter()
