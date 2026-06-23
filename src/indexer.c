@@ -220,10 +220,8 @@ static void doAssignIds(RSAddDocumentCtx *cur, RedisSearchCtx *ctx) {
 
       bool failure = docId == 0;
 
-      // Gate on oldDocId, not oldLen: a vector/tag/numeric-only doc has no
-      // full-text tokens, so its length is 0 and gating on oldLen would miss
-      // those replaces and leak numDocuments. oldLen is still the right amount
-      // to subtract from totalDocsLen (subtracting 0 is a no-op).
+      // Gate on oldDocId, not oldLen: vector/tag/numeric-only docs have length 0,
+      // so oldLen > 0 would miss those replaces and leak numDocuments.
       if (oldDocId != 0) {
         // We deleted a document in the above call, update the stats accordingly
         RS_ASSERT(spec->stats.scoring.numDocuments > 0);
