@@ -626,7 +626,7 @@ if RS_TEST_ENTERPRISE:
                 if op == 'SET':
                     # redis CONFIG SET returns True; FT.CONFIG SET returns 'OK'.
                     return 'OK' if raw is True else raw
-                # op == 'GET': reshape to FT.CONFIG GET's shape, preserving the
+                # op == 'GET': reshape to the FT.CONFIG GET response shape, preserving the
                 # RESP version.  RESP3 CONFIG GET returns a {name: value} dict, so
                 # FT.CONFIG GET must return a {PARAM: value} map; RESP2 returns a
                 # flat [name, value] list, so FT.CONFIG GET returns [[PARAM, value]].
