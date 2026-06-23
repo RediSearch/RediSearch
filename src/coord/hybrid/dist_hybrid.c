@@ -233,6 +233,7 @@ static void MRCommand_appendVsim(MRCommand *xcmd, RedisModuleString **argv,
 // modification by the command modifier callback in SHARD_K_RATIO optimization).
 void HybridRequest_buildMRCommand(RedisModuleString **argv, int argc,
                             ProfileOptions profileOptions,
+                            bool sendExplainScore,
                             MRCommand *xcmd, arrayof(char*) serialized,
                             IndexSpec *sp, int *outKArgIndex) {
   RS_ASSERT(outKArgIndex != NULL);
@@ -335,8 +336,10 @@ void HybridRequest_buildMRCommand(RedisModuleString **argv, int argc,
 
   // Forward EXPLAINSCORE so the shard's text scorer produces an RSScoreExplain
   // tree and the shard's merger wraps it. The coordinator reassembles the
-  // results as-is.
-  if (RMUtil_ArgIndex("EXPLAINSCORE", argv, argc) != -1) {
+  // results as-is. The gate is the parsed top-level flag, not an argv text
+  // scan: a SEARCH query token or PARAMS value equal to "EXPLAINSCORE" must
+  // not look like the user requested the option.
+  if (sendExplainScore) {
     MRCommand_Append(xcmd, "EXPLAINSCORE", strlen("EXPLAINSCORE"));
   }
 
@@ -683,8 +686,9 @@ static int HybridRequest_prepareForExecution(HybridRequest *hreq,
 
     // Construct the command string
     MRCommand xcmd;
-    HybridRequest_buildMRCommand(argv, argc, profileOptions, &xcmd, serialized,
-                                 sp, &hreq->kArgIndex);
+    HybridRequest_buildMRCommand(argv, argc, profileOptions,
+                                 (hreq->reqflags & QEXEC_F_SEND_SCOREEXPLAIN) != 0,
+                                 &xcmd, serialized, sp, &hreq->kArgIndex);
 
     xcmd.protocol = HYBRID_RESP_PROTOCOL_VERSION;
     xcmd.forCursor = hreq->reqflags & QEXEC_F_IS_CURSOR;
