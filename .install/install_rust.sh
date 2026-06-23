@@ -39,8 +39,23 @@ else
     echo "rustup ($(rustup --version 2>/dev/null | head -1)) and cargo already installed - skipping rustup-init"
 fi
 
+rustup_bin="$(command -v rustup)"
+cargo_bin="$(command -v cargo)"
+rustup_bin_dir="$(dirname "$rustup_bin")"
+cargo_bin_dir="$(dirname "$cargo_bin")"
+
+# GitHub Actions runs each step in a fresh shell, so export PATH above is
+# only enough for this script. Persist the verified Rust binary directories
+# for later steps that invoke rustup or cargo directly.
+if [[ -n "${GITHUB_PATH:-}" ]]; then
+    echo "$rustup_bin_dir" >> "$GITHUB_PATH"
+    if [[ "$cargo_bin_dir" != "$rustup_bin_dir" ]]; then
+        echo "$cargo_bin_dir" >> "$GITHUB_PATH"
+    fi
+fi
+
 # Print where `rustup` is located for debugging purposes
-echo "Rustup binary location: $(which rustup)"
+echo "Rustup binary location: $rustup_bin"
 
 # Install/update the stable toolchain explicitly (idempotent - rustup reports
 # "unchanged" if already current). This also covers pre-existing rustup setups
@@ -49,7 +64,7 @@ rustup update stable
 # Print where `cargo` is located and verify the stable toolchain is available.
 # Use rustup run so this installer is not affected by the repo rust-toolchain
 # override or by a non-rustup cargo earlier on PATH.
-echo "Cargo binary location: $(which cargo)"
+echo "Cargo binary location: $cargo_bin"
 rustup run stable cargo -vV
 # Ensure we have both clippy and rustfmt installed for the stable toolchain
 # (rustup is also idempotent here - reports "up to date" if installed).
