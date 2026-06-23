@@ -11,13 +11,13 @@
 
 /// One trie entry: score, optional opaque payload, and a per-entry counter.
 ///
-/// This is the payload a [`crate::TrieMap`] / [`crate::str_trie_map::StrTrieMap`]
+/// This is the payload a [`trie_rs::TrieMap`] / [`trie_rs::str_trie_map::StrTrieMap`]
 /// holds for each key. Its persistence behavior is governed by
-/// [`crate::rdb::RdbOpts`]; the type itself carries no IO concern.
+/// [`crate::RdbOpts`]; the type itself carries no IO concern.
 ///
 /// `payload: None` and `payload: Some(vec![])` are wire-indistinguishable
 /// when payloads are persisted — both round-trip as `None`. See
-/// [`crate::rdb::RdbOpts::payloads`].
+/// [`crate::RdbOpts::payloads`].
 #[derive(Clone, Debug, PartialEq)]
 pub struct TrieEntry {
     /// Score associated with the entry. Semantics are caller-defined (e.g.
@@ -28,7 +28,7 @@ pub struct TrieEntry {
     pub score: f64,
     /// Optional opaque payload bytes.
     pub payload: Option<Vec<u8>>,
-    /// Per-entry counter, persisted only when [`crate::rdb::RdbOpts::num_docs`]
+    /// Per-entry counter, persisted only when [`crate::RdbOpts::num_docs`]
     /// is set. Semantics are caller-defined (e.g. document frequency for an
     /// index's term trie); this type does not enforce a meaning. Loads with
     /// `num_docs = false` materialize this as `0`.

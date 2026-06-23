@@ -12,7 +12,7 @@
 #include "trie/trie_node.h"
 #include "trie/trie.h"
 #include "redismock/redismock.h"
-#include "triemap_ffi.h"
+#include "trie_rdb_ffi.h"
 
 #include <set>
 #include <string>

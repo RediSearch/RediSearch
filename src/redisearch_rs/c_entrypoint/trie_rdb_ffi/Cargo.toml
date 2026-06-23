@@ -1,5 +1,5 @@
 [package]
-name = "triemap_ffi"
+name = "trie_rdb_ffi"
 version.workspace = true
 edition.workspace = true
 license-file.workspace = true
@@ -8,21 +8,12 @@ publish.workspace = true
 [lints]
 workspace = true
 
-
 [dependencies]
 cheadergen.workspace = true
-lending-iterator.workspace = true
-libc.workspace = true
-thin_vec.workspace = true
+ffi.workspace = true
 trie_rs = { workspace = true }
-rqe_wildcard = { workspace = true }
+trie_rdb = { workspace = true }
 workspace_hack.workspace = true
-
-[dev-dependencies]
-redis_mock.workspace = true
-
-[target.'cfg(miri)'.dependencies]
-redis_mock.workspace = true
 
 [target.'cfg(all(target_env="musl", target_os="linux"))'.dependencies.redis-module]
 # Statically link to the libclang on aarch64-unknown-linux-musl,

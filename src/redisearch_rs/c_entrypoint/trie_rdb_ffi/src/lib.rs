@@ -9,27 +9,29 @@
 
 //! FFI transport for the lex-mode trie RDB serialization.
 //!
-//! Bridges the pure-Rust framing in [`trie_rs::rdb`] to Redis' RDB IO
+//! Bridges the pure-Rust framing in [`trie_rdb`] to Redis' RDB IO
 //! primitives (`RedisModule_SaveUnsigned`, `RedisModule_LoadStringBuffer`,
 //! and friends), exposed through the higher-level wrappers in
 //! [`redis_module::raw`].
 //!
-//! The Rust crate models save/load as the [`RdbWrite`]/[`RdbRead`] traits;
-//! this module supplies impls backed by a `*mut RedisModuleIO`. The
+//! [`trie_rdb`] models save/load as the [`RdbWrite`]/[`RdbRead`] traits;
+//! this crate supplies impls backed by a `*mut RedisModuleIO`. The
 //! `extern "C"` entry points below let C callers drive the round-trip
 //! without touching the Rust generics.
 
+#![allow(non_camel_case_types, non_snake_case)]
+
 use ffi::RedisModuleIO;
 use redis_module::raw;
-use trie_rs::TrieEntry;
-use trie_rs::rdb::str as str_rdb;
-use trie_rs::rdb::{RdbError, RdbOpts, RdbRead, RdbWrite};
+use trie_rdb::TrieEntry;
+use trie_rdb::str as str_rdb;
+use trie_rdb::{RdbError, RdbOpts, RdbRead, RdbWrite};
 use trie_rs::str_trie_map::StrTrieMap;
 
 /// Opaque FFI handle for a [`StrTrieMap<TrieEntry>`].
 ///
-/// Distinct from [`crate::TrieMap`] (the void-payload triemap exposed by
-/// this crate) so the two C symbol sets do not collide. Keys flow through
+/// Distinct from the void-payload `TrieMap` exposed by the `triemap_ffi`
+/// crate, so the two C symbol sets do not collide. Keys flow through
 /// the UTF-8-validating [`str_rdb`] loader, so non-UTF-8 RDB payloads
 /// surface as `NULL` from [`LexTrieRs_RdbLoad`]. Construct via
 /// [`LexTrieRs_New`] or [`LexTrieRs_RdbLoad`]; free via [`LexTrieRs_Free`].
@@ -40,7 +42,7 @@ pub struct LexTrieRs(pub StrTrieMap<TrieEntry>);
 /// The pointer is captured at construction and never stored anywhere else.
 /// Validity is the caller's responsibility (see the `Safety` blocks on the
 /// `extern "C"` entry points below). NUL framing and the scratch buffer
-/// that amortizes its allocation are owned by [`trie_rs::rdb::byte::save`]; this
+/// that amortizes its allocation are owned by [`trie_rdb::byte::save`]; this
 /// impl just forwards each slice straight to `RedisModule_SaveStringBuffer`.
 struct RmIoWriter {
     io: *mut raw::RedisModuleIO,

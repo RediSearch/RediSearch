@@ -9,9 +9,9 @@
 
 //! RDB serialization for [`StrTrieMap<TrieEntry>`].
 //!
-//! Wraps the byte-keyed [`crate::rdb::byte`] surface for callers whose keys
+//! Wraps the byte-keyed [`crate::byte`] surface for callers whose keys
 //! are UTF-8 by type. The wire format is byte-identical to the byte-keyed
-//! API: save just delegates after handing over the inner [`crate::TrieMap`],
+//! API: save just delegates after handing over the inner [`trie_rs::TrieMap`],
 //! and load funnels each key buffer through [`std::str::from_utf8`] before
 //! inserting via [`StrTrieMap::insert`]. Non-UTF-8 input surfaces as
 //! [`RdbError::InvalidUtf8`] rather than silently materializing as an
@@ -19,13 +19,13 @@
 
 use super::{RdbError, RdbOpts, RdbRead, RdbWrite, byte, load_with};
 use crate::TrieEntry;
-use crate::str_trie_map::StrTrieMap;
+use trie_rs::str_trie_map::StrTrieMap;
 
 /// Serialize a [`StrTrieMap<TrieEntry>`] to `writer` in the trie RDB wire
 /// format.
 ///
-/// Delegates to [`crate::rdb::byte::save`] on the inner byte-keyed
-/// [`crate::TrieMap`]; the wire output is byte-identical.
+/// Delegates to [`crate::byte::save`] on the inner byte-keyed
+/// [`trie_rs::TrieMap`]; the wire output is byte-identical.
 pub fn save<W: RdbWrite>(map: &StrTrieMap<TrieEntry>, writer: &mut W, opts: RdbOpts) {
     byte::save(map.byte_trie(), writer, opts);
 }
@@ -51,7 +51,7 @@ pub fn load<R: RdbRead>(reader: &mut R, opts: RdbOpts) -> Result<StrTrieMap<Trie
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::rdb::test_helpers::{Op, Recorder, Replayer};
+    use crate::test_helpers::{Op, Recorder, Replayer};
 
     fn entry(score: f64, payload: Option<&[u8]>, num_docs: u64) -> TrieEntry {
         TrieEntry {
@@ -95,11 +95,11 @@ mod tests {
     #[test]
     fn save_wire_matches_byte_api() {
         // Sanity-check: the wrapper produces the same Op trace as the byte API
-        // for an ASCII key set, since it delegates to crate::rdb::byte::save.
+        // for an ASCII key set, since it delegates to crate::byte::save.
         let mut str_map = StrTrieMap::new();
         str_map.insert("x", entry(1.0, Some(b"pay"), 7));
 
-        let mut byte_map = crate::TrieMap::new();
+        let mut byte_map = trie_rs::TrieMap::new();
         byte_map.insert(b"x", entry(1.0, Some(b"pay"), 7));
 
         let opts = RdbOpts {

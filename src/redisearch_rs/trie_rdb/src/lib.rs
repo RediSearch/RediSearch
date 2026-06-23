@@ -7,18 +7,23 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 
-//! RDB serialization for trie maps.
+//! RDB serialization for the [`trie_rs`] trie maps.
 //!
 //! Mirrors the wire format produced by the C functions `TrieType_GenericSave`
-//! and `TrieType_GenericLoad`. This parent module owns the shared substrate —
+//! and `TrieType_GenericLoad`. This crate owns the shared substrate —
 //! the [`RdbWrite`] / [`RdbRead`] IO traits, [`RdbOpts`], [`RdbError`], the
-//! NUL-framing helpers, and the [`load_with`] entry-stream reader — and
-//! serializes the [`crate::TrieEntry`] value type. The two concrete
-//! serializers live alongside it:
+//! NUL-framing helpers, and the [`load_with`] entry-stream reader — plus the
+//! [`TrieEntry`] value type it serializes. The two concrete serializers live
+//! alongside it:
 //!
-//! - [`byte`] — for the byte-keyed [`crate::TrieMap<TrieEntry>`].
-//! - [`mod@str`] — for the UTF-8-keyed [`crate::str_trie_map::StrTrieMap<TrieEntry>`],
+//! - [`byte`] — for the byte-keyed [`trie_rs::TrieMap`]`<TrieEntry>`.
+//! - [`mod@str`] — for the UTF-8-keyed [`trie_rs::str_trie_map::StrTrieMap`]`<TrieEntry>`,
 //!   a thin wrapper that delegates to [`byte`] and is byte-identical on the wire.
+//!
+//! IO is abstracted behind the [`RdbWrite`] / [`RdbRead`] traits so this crate
+//! carries no Redis dependency: the C entrypoints implement them over
+//! `RedisModuleIO` (in the `triemap_ffi` crate), and pure-Rust callers can
+//! implement them over any buffer.
 //!
 //! # Wire format
 //!
@@ -60,9 +65,10 @@
 //! [`RdbError`].
 
 pub mod byte;
+pub mod entry;
 pub mod str;
 
-use crate::TrieEntry;
+pub use entry::TrieEntry;
 
 /// Read the entry stream shared by both key flavors and feed each decoded
 /// entry to `insert`.
@@ -184,14 +190,14 @@ pub enum RdbError {
     #[error("rdb bytes buffer missing trailing NUL")]
     MissingTrailingNul,
     /// A key buffer was not valid UTF-8 when loaded through the
-    /// [`crate::rdb::str`] wrapper that requires UTF-8 keys.
+    /// [`crate::str`] wrapper that requires UTF-8 keys.
     #[error("rdb key bytes not valid UTF-8")]
     InvalidUtf8,
 }
 
 /// In-memory [`RdbWrite`] / [`RdbRead`] mocks shared by the byte-keyed and
 /// str-keyed RDB test suites. Lives here (rather than inside either test
-/// module) so both [`crate::rdb::byte`]'s and [`crate::rdb::str`]'s tests
+/// module) so both [`crate::byte`]'s and [`crate::str`]'s tests
 /// import the same `Op` enum — keeps the wire-shape assertions cross-checkable
 /// against one canonical representation.
 #[cfg(test)]

@@ -2035,6 +2035,7 @@ dependencies = [
  "sorting_vector_ffi",
  "syn 2.0.118",
  "toml",
+ "trie_rdb_ffi",
  "triemap_ffi",
  "ttl_table_ffi",
  "types_ffi",
@@ -3115,6 +3116,27 @@ dependencies = [
 ]
 
 [[package]]
+name = "trie_rdb"
+version = "0.0.1"
+dependencies = [
+ "thiserror",
+ "trie_rs",
+ "workspace_hack",
+]
+
+[[package]]
+name = "trie_rdb_ffi"
+version = "0.0.1"
+dependencies = [
+ "cheadergen",
+ "ffi",
+ "redis-module",
+ "trie_rdb",
+ "trie_rs",
+ "workspace_hack",
+]
+
+[[package]]
 name = "trie_rs"
 version = "0.0.1"
 dependencies = [
@@ -3138,7 +3160,6 @@ name = "triemap_ffi"
 version = "0.0.1"
 dependencies = [
  "cheadergen",
- "ffi",
  "lending-iterator",
  "libc",
  "redis-module",

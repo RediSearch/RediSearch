@@ -80,8 +80,8 @@ impl<Data> StrTrieMap<Data> {
         self.inner.mem_usage()
     }
 
-    /// Access the underlying byte-keyed [`TrieMap`].
-    pub(crate) const fn byte_trie(&self) -> &TrieMap<Data> {
+    /// Borrow the underlying byte-keyed [`TrieMap`] that backs this UTF-8 view.
+    pub const fn byte_trie(&self) -> &TrieMap<Data> {
         &self.inner
     }
 

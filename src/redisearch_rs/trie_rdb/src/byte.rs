@@ -9,12 +9,13 @@
 
 //! RDB serialization for the byte-keyed [`TrieMap<TrieEntry>`].
 //!
-//! This is the canonical serializer; the UTF-8-keyed [`crate::rdb::str`]
+//! This is the canonical serializer; the UTF-8-keyed [`crate::str`]
 //! wrapper delegates to it. The wire format and framing rules are documented
-//! on the parent module [`crate::rdb`].
+//! on the crate root.
 
 use super::{RdbError, RdbOpts, RdbRead, RdbWrite, load_with, save_nul_terminated};
-use crate::{TrieEntry, TrieMap};
+use crate::TrieEntry;
+use trie_rs::TrieMap;
 
 /// Serialize a [`TrieMap<TrieEntry>`] to `writer` in the trie RDB wire format.
 ///
@@ -60,7 +61,7 @@ pub fn load<R: RdbRead>(reader: &mut R, opts: RdbOpts) -> Result<TrieMap<TrieEnt
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::rdb::test_helpers::{Op, Recorder, Replayer};
+    use crate::test_helpers::{Op, Recorder, Replayer};
 
     fn entry(score: f64, payload: Option<&[u8]>, num_docs: u64) -> TrieEntry {
         TrieEntry {
