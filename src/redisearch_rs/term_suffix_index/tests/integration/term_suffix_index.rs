@@ -199,6 +199,114 @@ fn iter_suffix_yields_one_hit_per_matching_term() {
     assert_eq!(actual_set, expected);
 }
 
+#[test]
+fn iter_wildcard_end_token_uses_suffix_semantics() {
+    let corpus = ["concat", "scat", "catalog", "cat"]
+        .iter()
+        .map(|s| s.to_string())
+        .collect::<Vec<_>>();
+    let sut = build_index(&corpus);
+
+    let actual = collect_set(sut.iter_wildcard("*cat").expect("'cat' is anchorable"));
+
+    let expected = HashSet::from(["concat".to_string(), "scat".to_string(), "cat".to_string()]);
+    assert_eq!(actual, expected);
+}
+
+#[test]
+fn iter_wildcard_middle_tokens_anchor_on_best_literal() {
+    let corpus = ["abide", "abcde", "abxxcd", "abandoned", "cdrom"]
+        .iter()
+        .map(|s| s.to_string())
+        .collect::<Vec<_>>();
+    let sut = build_index(&corpus);
+
+    let actual = collect_set(
+        sut.iter_wildcard("ab*cd")
+            .expect("'ab' and 'cd' are anchorable"),
+    );
+
+    let expected = HashSet::from(["abxxcd".to_string()]);
+    assert_eq!(actual, expected);
+}
+
+#[test]
+fn iter_wildcard_multibyte_anchor_matches() {
+    let corpus = ["日本語", "日本酒", "本語"]
+        .iter()
+        .map(|s| s.to_string())
+        .collect::<Vec<_>>();
+    let sut = build_index(&corpus);
+
+    let actual = collect_set(sut.iter_wildcard("*本語").expect("two codepoints anchor"));
+
+    let expected = HashSet::from(["日本語".to_string(), "本語".to_string()]);
+    assert_eq!(actual, expected);
+}
+
+#[test]
+fn iter_wildcard_question_mark_is_byte_wise_for_multibyte() {
+    // The matcher is byte-wise, so `?` consumes one *byte*, not one
+    // codepoint. `é` (U+00E9) is two UTF-8 bytes: `ab*c?` matches only its
+    // first byte, the second has nothing to pair with, and the term is
+    // dropped. This is the accepted approximation — an ASCII tail matches.
+    let corpus = ["abxc\u{e9}", "abxcd"]
+        .iter()
+        .map(|s| s.to_string())
+        .collect::<Vec<_>>();
+    let sut = build_index(&corpus);
+
+    let actual = collect_set(sut.iter_wildcard("ab*c?").expect("'ab' is anchorable"));
+
+    // The ASCII-tailed term matches; the `é`-tailed one is missed.
+    assert_eq!(actual, HashSet::from(["abxcd".to_string()]));
+}
+
+#[test]
+fn iter_wildcard_question_mark_outside_anchor_is_honored() {
+    let corpus = ["abcd", "bcd", "zbxcd"]
+        .iter()
+        .map(|s| s.to_string())
+        .collect::<Vec<_>>();
+    let sut = build_index(&corpus);
+
+    // The `?b` token cannot anchor (contains `?`), so `cd` is chosen;
+    // the full-pattern filter must still enforce that `?` consumes
+    // exactly one character.
+    let actual = collect_set(sut.iter_wildcard("?b*cd").expect("'cd' is anchorable"));
+
+    let expected = HashSet::from(["abcd".to_string(), "zbxcd".to_string()]);
+    assert_eq!(actual, expected);
+}
+
+#[test]
+fn iter_wildcard_trailing_star_uses_contains_semantics() {
+    let corpus = ["scatter", "category", "dog"]
+        .iter()
+        .map(|s| s.to_string())
+        .collect::<Vec<_>>();
+    let sut = build_index(&corpus);
+
+    let actual = collect_set(sut.iter_wildcard("*cat*").expect("'cat' is anchorable"));
+
+    let expected = HashSet::from(["scatter".to_string(), "category".to_string()]);
+    assert_eq!(actual, expected);
+}
+
+#[test]
+fn iter_wildcard_without_anchorable_token_reports_none() {
+    let sut = build_index(&["abc".to_string()]);
+
+    // `?`-bearing tokens and bare stars cannot anchor a literal trie
+    // lookup. (Single-char tokens can, now that the floor is gone.)
+    for pattern in ["*", "a?c", "??*", ""] {
+        assert!(
+            sut.iter_wildcard(pattern).is_none(),
+            "pattern={pattern:?} must request the fallback scan"
+        );
+    }
+}
+
 // --- Proptest fuzz
 
 #[cfg(not(miri))]
@@ -208,8 +316,9 @@ mod fuzz {
     use super::*;
 
     /// Kept small so fuzz cases land in a regime where suffix collisions are common.
+    /// Includes `é` (multibyte) to exercise the index against non-ASCII terms.
     fn term_strategy() -> impl Strategy<Value = String> {
-        "[a-z]{1,8}"
+        "[a-zé]{1,8}"
     }
 
     proptest! {
@@ -247,6 +356,33 @@ mod fuzz {
             let actual = collect_set(sut.iter_suffix(&needle));
 
             prop_assert_eq!(actual, expected, "needle={:?} corpus={:?}", needle, corpus);
+        }
+
+        #[test]
+        fn iter_wildcard_matches_full_scan_oracle(
+            corpus in proptest::collection::vec(term_strategy(), 1..=20),
+            pattern in "[ab*?]{0,8}",
+        ) {
+            use rqe_wildcard::{MatchOutcome, WildcardPattern};
+
+            let sut = build_index(&corpus);
+
+            // `None` requests the fallback scan — out of scope here. The
+            // oracle uses the same byte-wise matcher iter_wildcard does, so
+            // this pins the anchor-selection logic, not the matcher itself.
+            if let Some(matches) = sut.iter_wildcard(&pattern) {
+                let parsed = WildcardPattern::parse(pattern.as_bytes());
+                let expected = corpus
+                    .iter()
+                    .filter(|t| parsed.matches(t.as_bytes()) == MatchOutcome::Match)
+                    .cloned()
+                    .collect::<HashSet<_>>();
+
+                let actual = collect_set(matches);
+
+                prop_assert_eq!(actual, expected,
+                    "pattern={:?} corpus={:?}", pattern, corpus);
+            }
         }
 
         #[test]

@@ -30,8 +30,14 @@ use std::{
     rc::Rc,
 };
 
+use rqe_wildcard::{MatchOutcome, WildcardPattern};
 use term_refs::{Outcome, TermRefs};
 use trie_rs::str_trie_map::StrTrieMap;
+
+/// Score handicap for anchor tokens followed by `*`: matching them
+/// scans a whole subtree instead of a single exact entry, so they
+/// must out-length an exact token by this many codepoints to win.
+const STARRED_ANCHOR_PENALTY: i32 = 5;
 
 #[derive(Default)]
 pub struct TermSuffixIndex {
@@ -123,5 +129,89 @@ impl TermSuffixIndex {
             .into_iter()
             .flat_map(|n| self.inner.get(n))
             .flat_map(|data| data.terms().cloned())
+    }
+
+    /// Iterate over the members matching the glob `pattern`, where `*` matches
+    /// any run of characters and `?` any single byte. Returns `None` when no
+    /// token in the pattern can seed the search (every token is empty or
+    /// contains `?`). A term may be yielded more than once (once per matching
+    /// suffix entry).
+    pub fn iter_wildcard(&self, pattern: &str) -> Option<impl Iterator<Item = Rc<str>>> {
+        let (token, followed_by_star) = choose_token(pattern)?;
+
+        // A token followed by `*` can sit anywhere inside a match,
+        // so every suffix entry starting with it is a candidate. A
+        // token at the very end of the pattern must terminate the
+        // match, so only terms ending with it — exactly its own
+        // suffix entry — qualify.
+        let (subtree, exact) = if followed_by_star {
+            (
+                Some(self.inner.prefixed_iter(token).map(|(_, data)| data)),
+                None,
+            )
+        } else {
+            (None, self.inner.get(token))
+        };
+
+        // Byte-wise wildcard match against the established matcher. `?`
+        // therefore matches a single *byte*, not a codepoint, so multibyte
+        // terms are matched only approximately — acceptable here, and it
+        // avoids carrying a codepoint-aware matcher of our own.
+        let wildcard = WildcardPattern::parse(pattern.as_bytes());
+        let matches: Vec<Rc<str>> = subtree
+            .into_iter()
+            .flatten()
+            .chain(exact)
+            .flat_map(|data| data.terms().cloned())
+            .filter(|term| wildcard.matches(term.as_bytes()) == MatchOutcome::Match)
+            .collect();
+        Some(matches.into_iter())
+    }
+}
+
+/// Returns the anchor token to look up for a wildcard `pattern`
+/// (e.g. `"ab*cd"`), paired with whether a `*` follows it.
+///
+/// The anchor is the `*`-separated token expected to narrow the
+/// candidate set the most. Returns [`None`] if no token is
+/// eligible, i.e. every token is empty (a bare `*`) or contains
+/// `?` or `\`.
+fn choose_token(pattern: &str) -> Option<(&str, bool)> {
+    pattern
+        .split_inclusive('*')
+        .map(|token| match token.strip_suffix('*') {
+            Some(stripped) => (stripped, true),
+            None => (token, false),
+        })
+        .filter(|(token, _)| !token.is_empty() && !token.contains(['?', '\\']))
+        .max_by_key(|&(token, followed_by_star)| {
+            token.chars().count() as i32
+                - if followed_by_star {
+                    STARRED_ANCHOR_PENALTY
+                } else {
+                    0
+                }
+        })
+}
+
+#[cfg(test)]
+mod tests {
+    use rstest::rstest;
+
+    use super::*;
+
+    /// Anchor choice affects performance, never the result set, so
+    /// no test going through the public API can observe it; the
+    /// scoring rules are pinned against the private heuristic.
+    #[rstest]
+    #[case::score_tie_prefers_later_token("ab*cd*", Some(("cd", true)))]
+    #[case::starred_anchor_penalty_outweighs_small_length_lead("abcdef*gh", Some(("gh", false)))]
+    #[case::length_lead_above_starred_anchor_penalty_wins("abcdefgh*ij", Some(("abcdefgh", true)))]
+    #[case::single_char_tokens_are_eligible("a*b", Some(("b", false)))]
+    #[case::all_empty_tokens_ineligible("*", None)]
+    #[case::tokens_with_question_mark_or_backslash_ineligible("a?cd*\\ab*ef", Some(("ef", false)))]
+    #[case::length_counts_codepoints_not_bytes("日本語*ab", Some(("ab", false)))]
+    fn choose_token_test(#[case] pattern: &str, #[case] expected: Option<(&str, bool)>) {
+        assert_eq!(choose_token(pattern), expected);
     }
 }
