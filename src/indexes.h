@@ -86,6 +86,13 @@ StrongRef Indexes_LoadIndexSpecUnsafeEx(IndexLoadOptions *options);
 // callbacks together with the per-spec callbacks defined in spec.c).
 int Indexes_RegisterType(RedisModuleCtx *ctx);
 
+// Create an empty global spec registry dict keyed by the composite (logical DB,
+// name) DbSpecKey. Callers that build a transient stand-in for specDict_g (e.g.
+// the RDB backup/short-read path in rdb.c) MUST use this rather than creating a
+// plain HiddenString-keyed dict, so that DB_SPEC_KEY(...) lookups/inserts hash
+// and compare consistently with the live registry.
+dict *Indexes_CreateSpecDict(void);
+
 void Indexes_Init(RedisModuleCtx *ctx);
 /*
  * Free all indexes.

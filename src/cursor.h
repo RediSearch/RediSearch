@@ -23,6 +23,15 @@ extern "C" {
 
 struct CursorList;
 
+/**
+ * dbid assigned to coordinator-internal cursors, which have no associated spec
+ * and therefore no logical DB of their own. Cluster mode only ever operates on
+ * logical DB 0, and those cursors are always reached from a DB-0 client, so
+ * binding them to 0 lets every cursor be validated with the same
+ * `cursor->dbid == selected_db` rule (no special-casing needed).
+ */
+#define CURSOR_COORDINATOR_DBID 0
+
 typedef struct Cursor {
   /**
    * The cursor is holding a weak reference to spec. When read cursor is called
@@ -63,6 +72,14 @@ typedef struct Cursor {
   /** Position within idle list.
    * Should only be accessed under cursor list lock */
   int pos;
+
+  /** Logical Redis DB of the index that created this cursor, copied from
+   * IndexSpec.dbid at reservation time. A cursor id is global across DBs, so
+   * the FT.CURSOR handlers compare this against the client's selected DB to
+   * prevent a client on one DB from draining a cursor opened on another.
+   * Coordinator-internal cursors (no associated spec) use
+   * CURSOR_COORDINATOR_DBID. */
+  int dbid;
 
   /** Is it an internal coordinator cursor or a user cursor*/
   bool is_coord;
@@ -239,10 +256,13 @@ int Cursor_Pause(Cursor *cur);
 int Cursor_Free(Cursor *cl);
 
 /**
- * Locate and free the cursor with the given ID.
- * If the cursor is found but not idle, it is marked for deletion.
+ * Locate and free the cursor with the given ID, but only when it belongs to
+ * logical DB `dbid`. If the cursor is found and owned by `dbid` but not idle,
+ * it is marked for deletion. When the cursor exists but is owned by a different
+ * DB, returns REDISMODULE_ERR ("cursor not found") without touching it, so a
+ * client on the wrong DB cannot delete another DB's cursor.
  */
-int Cursors_Purge(CursorList *cl, uint64_t cid);
+int Cursors_PurgeForDb(CursorList *cl, uint64_t cid, int dbid);
 
 int Cursors_CollectIdle(CursorList *cl);
 

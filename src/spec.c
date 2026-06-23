@@ -314,10 +314,20 @@ static void IndexSpec_TimedOutProc(RedisModuleCtx *ctx, WeakRef w_ref) {
   } else {
     // called on master shard for temporary indexes and deletes all documents by defaults
     // pass FT.DROPINDEX with "DD" flag to self.
-    RedisModuleCallReply *rep = RedisModule_Call(RSDummyContext, CMD_FOR_ENV(RS_DROP_INDEX_CMD), "cc!", HiddenString_GetUnsafe(sp->specName, NULL), "DD");
+    // The shared RSDummyContext is pinned to DB 0, but the index may live in
+    // another logical DB (sp->dbid) and index lookups are DB-scoped. Drive the
+    // self-call through a private context selected on the index's DB so the drop
+    // resolves the right index (otherwise it fails with "no such index" and leaks
+    // the temporary index and its documents). A private context avoids mutating
+    // the selected DB of the process-global RSDummyContext, which other threads
+    // share for logging and calls.
+    RedisModuleCtx *dropCtx = RedisModule_GetThreadSafeContext(NULL);
+    RedisModule_SelectDb(dropCtx, sp->dbid);
+    RedisModuleCallReply *rep = RedisModule_Call(dropCtx, CMD_FOR_ENV(RS_DROP_INDEX_CMD), "cc!", HiddenString_GetUnsafe(sp->specName, NULL), "DD");
     if (rep) {
       RedisModule_FreeCallReply(rep);
     }
+    RedisModule_FreeThreadSafeContext(dropCtx);
   }
 
   RedisModule_Log(RSDummyContext, REDISMODULE_LOGLEVEL_VERBOSE, "Freeing index '%s' by timer: done", name);

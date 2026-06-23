@@ -565,6 +565,40 @@ def testCursorReadFromWrongDb(env):
         env.assertTrue(len(more) >= 1, message=more)
 
 
+@skip(cluster=True)
+def testCursorReadFromWrongDbSameIndexName(env):
+    """The hard case: an index with the SAME name exists on both DB 0 and DB 14.
+    The DB-0 index passes the by-name ACL/index lookup, but a cursor opened on
+    DB 14 still belongs to DB 14 and must not be drained, deleted, or profiled
+    from DB 0 - the cursor id is global, so only the cursor's own DB binding
+    keeps the two logical DBs isolated."""
+    conn0 = getConnectionByEnv(env)  # DB 0, env-owned
+    conn0.execute_command('FT.CREATE', 'idxc', 'SCHEMA', 't', 'TEXT')
+    with _conn_on_db(env, 14) as db14:
+        db14.execute_command('FT.CREATE', 'idxc', 'SCHEMA', 't', 'TEXT')
+        for i in range(5):
+            db14.execute_command('HSET', f'doc{i}', 't', f'word{i}')
+
+        _rows, cursor = db14.execute_command(
+            'FT.AGGREGATE', 'idxc', '*', 'WITHCURSOR', 'COUNT', '2')
+        env.assertTrue(cursor != 0, message=f'expected an open cursor, got {cursor}')
+
+        # READ / PROFILE / DEL of the DB-14 cursor from DB 0 must all fail, even
+        # though 'idxc' resolves on DB 0.
+        env.assertRaises(redis.ResponseError, conn0.execute_command,
+                         'FT.CURSOR', 'READ', 'idxc', str(cursor))
+        env.assertRaises(redis.ResponseError, conn0.execute_command,
+                         'FT.CURSOR', 'DEL', 'idxc', str(cursor))
+
+        # None of the above drained or freed the cursor: it is still fully
+        # usable from its own DB.
+        more, cursor = db14.execute_command('FT.CURSOR', 'READ', 'idxc', str(cursor))
+        env.assertTrue(len(more) >= 1, message=more)
+
+        # DEL from the right DB still works.
+        env.assertEqual(db14.execute_command('FT.CURSOR', 'DEL', 'idxc', str(cursor)), 'OK')
+
+
 # =============================================================================
 # FLUSHDB / FLUSHALL scoping
 # =============================================================================
@@ -675,6 +709,36 @@ def testIndexDbSurvivesRdbReload(env):
         db14.execute_command('HSET', 'doc2', 't', 'persisted again')
         res = db14.execute_command('FT.SEARCH', 'idxrdb', 'persisted', 'NOCONTENT')
         env.assertEqual(toSortedFlatList(res), toSortedFlatList([2, 'doc1', 'doc2']), message=res)
+
+
+# =============================================================================
+# TEMPORARY index expiry on a non-default DB
+# =============================================================================
+
+@skip(cluster=True)
+def testTemporaryIndexExpiresOnOtherDb(env):
+    """A TEMPORARY index created on a non-zero DB must be dropped by its expiry
+    timer, together with its documents (the timer drops with the "DD" flag).
+
+    Regression: the timer fires IndexSpec_TimedOutProc, which self-calls
+    FT.DROPINDEX through RSDummyContext. That context is pinned to DB 0, but the
+    index lives on DB 14 and lookups are DB-scoped, so the drop used to fail with
+    "no such index" and leak the index plus its documents past the TTL."""
+    with _conn_on_db(env, 14) as db14:
+        db14.execute_command('FT.CREATE', 'idxtmp', 'TEMPORARY', '1',
+                             'SCHEMA', 't', 'TEXT')
+        db14.execute_command('HSET', 'doc1', 't', 'hello world')
+        env.assertContains('idxtmp', db14.execute_command('FT._LIST'))
+
+        # Wait for the timer to expire and drop the index. Do not touch the index
+        # while waiting (a query would reset its timer); poll FT._LIST instead.
+        with TimeLimit(15, 'temporary index was not dropped by its expiry timer'):
+            while 'idxtmp' in db14.execute_command('FT._LIST'):
+                time.sleep(0.1)
+
+        # The "DD" drop also removed the indexed document from DB 14.
+        env.assertEqual(db14.execute_command('FT._LIST'), [])
+        env.assertEqual(db14.execute_command('DBSIZE'), 0)
 
 
 # =============================================================================

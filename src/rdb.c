@@ -18,12 +18,16 @@ AliasTable *AliasTable_g_bkup;
 
 void Backup_Globals() {
   specDict_g_bkup = specDict_g;
-  specDict_g = dictCreate(&dictTypeHeapHiddenStrings, NULL);
+  specDict_g = Indexes_CreateSpecDict();
 
   specIdDict_g_bkup = specIdDict_g;
   specIdDict_g = dictCreate(&dictTypeUint64, NULL);
 
   ScemaPrefixes_g_bkup = SchemaPrefixes_g;
+  // SchemaPrefixes_Create() only allocates when SchemaPrefixes_g is NULL, so we
+  // must clear the pointer first; otherwise the "backup" and the live trie alias
+  // the same object and Restore_Globals/Discard_Globals_Backup double-free it.
+  SchemaPrefixes_g = NULL;
   SchemaPrefixes_Create();
 
   AliasTable_g_bkup = AliasTable_g;
