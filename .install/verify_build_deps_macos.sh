@@ -67,9 +67,11 @@ check_clang() {
             echo -e "${GREEN}✓${NC}"
         else
             echo -e "${YELLOW}✗ Expected LLVM Clang${NC}"
+            missing_deps=true
         fi
     else
         echo -e "${RED}✗${NC}"
+        missing_deps=true
     fi
 }
 

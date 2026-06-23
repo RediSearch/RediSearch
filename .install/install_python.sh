@@ -28,6 +28,7 @@ else
         echo "Installing uv (no existing uv on PATH)..."
     fi
     curl --proto '=https' --tlsv1.2 -LsSf https://astral.sh/uv/install.sh | env UV_INSTALL_DIR="$UV_INSTALL_DIR" sh
+    hash -r
 fi
 
 # Verify uv is in path
