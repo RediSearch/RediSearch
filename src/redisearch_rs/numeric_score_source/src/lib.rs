@@ -49,15 +49,16 @@ fn cmp_for(ascending: bool) -> fn(f64, f64) -> Ordering {
 
 /// Construct an unfiltered [`NumericTopKIterator`] (no filter child).
 ///
-/// Results are streamed directly from the source's single batch without a
-/// heap, via the [`TopKMode::Unfiltered`] path. `ascending` selects the sort
+/// Every record is fed through the heap, which retains the top `k` by numeric
+/// value: a numeric source has no native top-k, so the heap ([`TopKMode::Batches`]
+/// with no child) performs the selection. `ascending` selects the sort
 /// direction (`SORTBY field ASC`/`DESC`).
 pub fn new_numeric_top_k_unfiltered<'index, S: RQEIterator<'index> + 'index>(
     source: NumericScoreSource<'index, S>,
     k: NonZeroUsize,
     ascending: bool,
 ) -> NumericTopKIterator<'index, S> {
-    TopKIterator::new_with_mode(source, None, k, cmp_for(ascending), TopKMode::Unfiltered)
+    TopKIterator::new_with_mode(source, None, k, cmp_for(ascending), TopKMode::Batches)
 }
 
 /// Construct a filtered [`NumericTopKIterator`] with a filter child.
