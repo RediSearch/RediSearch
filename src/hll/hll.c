@@ -19,6 +19,9 @@
 
 #define INVALID_CACHE_CARDINALITY SIZE_MAX
 
+// 2^32 — the size of the 32-bit hash domain, used in the large-range correction
+#define HLL_HASH_SPACE ((double)(1ULL << 32))
+
 static inline uint8_t _hll_rank(uint32_t hash, uint8_t max) {
   uint8_t rank = hash ? __builtin_ctz(hash) : 32; // index of first set bit
   return (rank > max ? max : rank) + 1;
@@ -106,8 +109,8 @@ size_t hll_count(const struct HLL *hll) {
     if (zeros)
       estimate = hll->size * log((double)hll->size / zeros);
 
-  } else if (estimate > (1.0 / 30.0) * 4294967296.0 && estimate < 4294967296.0) {
-    estimate = -4294967296.0 * log(1.0 - estimate / 4294967296.0);
+  } else if (estimate > (1.0 / 30.0) * HLL_HASH_SPACE && estimate < HLL_HASH_SPACE) {
+    estimate = -HLL_HASH_SPACE * log(1.0 - estimate / HLL_HASH_SPACE);
   }
 
   ((struct HLL*)hll)->cachedCard = estimate; // cache the current estimate
