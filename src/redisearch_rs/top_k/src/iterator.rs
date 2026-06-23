@@ -41,7 +41,12 @@ pub enum TopKMode {
     /// lost.  In debug builds, [`TopKIterator`] asserts this invariant.
     Unfiltered,
     /// Fetch score-ordered batches from the source and intersect each one
-    /// with the child filter iterator.
+    /// with the child filter iterator, keeping the top `k` in the heap.
+    ///
+    /// With no child filter every source record is a candidate: the whole
+    /// batch is fed through the heap, which still retains the top `k`. This is
+    /// the mode for a source that has no native top-k and must rely on the heap
+    /// for selection (e.g. a numeric `SORTBY` with no query filter).
     ///
     /// The source's [`ScoreSource::batch_strategy`] may return
     /// [`BatchStrategy::SwitchToAdhoc`] mid-run to switch to
@@ -230,6 +235,12 @@ impl<'index, S: ScoreSource + 'index, C: RQEIterator<'index> + 'index> TopKItera
             // `self.heap.push` at the same time.  Pass fields explicitly.
             if let Some(child) = &mut self.child {
                 intersect_batch_with_child(child, &mut batch, &mut self.heap)?;
+            } else {
+                // No filter child: every source record is a candidate, so feed
+                // the whole batch through the heap, which retains the top k.
+                while let Some((doc_id, score)) = batch.next() {
+                    self.heap.push(doc_id, score);
+                }
             }
             match self.source.batch_strategy(self.heap.len(), self.k.get()) {
                 BatchStrategy::Continue => continue,
@@ -238,6 +249,10 @@ impl<'index, S: ScoreSource + 'index, C: RQEIterator<'index> + 'index> TopKItera
                     if self.mode == TopKMode::ForcedBatches {
                         // Honour the forced-batches contract: never switch
                         // mid-run.
+                        continue;
+                    }
+                    if self.child.is_none() {
+                        // Adhoc-BF requires a child filter iterator.
                         continue;
                     }
                     self.mode = TopKMode::AdhocBF;
