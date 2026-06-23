@@ -614,9 +614,13 @@ static void onSwapDb(RedisModuleCtx *ctx, RedisModuleEvent eid, uint64_t subeven
   Indexes_SwapDb(ctx, si->dbnum_first, si->dbnum_second);
 }
 
+dict *Indexes_CreateSpecDict(void) {
+  return dictCreate(&dictTypeDbSpec, NULL);
+}
+
 void Indexes_Init(RedisModuleCtx *ctx) {
   if (!specDict_g) {
-    specDict_g = dictCreate(&dictTypeDbSpec, NULL);
+    specDict_g = Indexes_CreateSpecDict();
   }
   if (!specIdDict_g) {
     specIdDict_g = dictCreate(&dictTypeUint64, NULL);

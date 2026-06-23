@@ -22,6 +22,7 @@ extern "C" {
 #include "rules.h"
 #include "stopwords.h"
 #include "doc_table.h"
+#include "rdb.h"
 
 // Forward declarations for RDB functions
 extern int Indexes_RdbLoad(RedisModuleIO *rdb, int encver, int when);
@@ -361,6 +362,59 @@ TEST_F(RdbMockTest, testDuplicateIndexRdbLoad) {
 
     // Clean up
     Indexes_RemoveSpecFromGlobals(loaded_spec_ref, false);
+}
+
+// Regression test: the diskless-replication backup path (Backup_Globals /
+// Restore_Globals, driven by ReplicaBackupCallback) swaps a temporary registry
+// in for specDict_g while the replica's RDB is loaded into it. That temporary
+// registry must use the same composite (dbid, name) key type as the live
+// registry; otherwise specs added during the backup via DB_SPEC_KEY(...) are
+// hashed/compared as bare HiddenStrings and become unfindable (or crash) on the
+// subsequent DB_SPEC_KEY(...) lookup. Previously Backup_Globals created the
+// backup dict with dictTypeHeapHiddenStrings, which broke exactly this.
+TEST_F(RdbMockTest, testBackupRegistryUsesCompositeKey) {
+    // Build a spec and serialize it as a single-entry registry RDB blob.
+    const char *args[] = {"ON", "HASH", "SCHEMA", "title", "TEXT"};
+    QueryError err = QueryError_Default();
+
+    StrongRef spec_ref = IndexSpec_ParseC(NULL, "backup_idx", args,
+                                          sizeof(args) / sizeof(const char *), &err);
+    ASSERT_FALSE(QueryError_HasError(&err)) << QueryError_GetUserError(&err);
+    IndexSpec *spec = (IndexSpec *)StrongRef_Get(spec_ref);
+    ASSERT_TRUE(spec != nullptr);
+
+    RedisModuleIO *io = RMCK_CreateRdbIO();
+    std::unique_ptr<RedisModuleIO, std::function<void(RedisModuleIO *)>> ioPtr(io, [](RedisModuleIO *io) {
+        RMCK_FreeRdbIO(io);
+    });
+    ASSERT_TRUE(io != nullptr);
+    RMCK_SaveUnsigned(io, 1);  // one index in the blob
+    IndexSpec_RdbSave(io, spec, 0);
+    EXPECT_EQ(0, RMCK_IsIOError(io));
+
+    // Remove the original so only the backup-path load can satisfy the lookup.
+    Indexes_RemoveSpecFromGlobals(spec_ref, false);
+    ASSERT_TRUE(Indexes_LoadIndexSpecUnsafe(NULL, "backup_idx").rm == nullptr);
+
+    // Swap in the temporary backup registry, mimicking ReplicaBackupCallback.
+    Backup_Globals();
+
+    // Load the spec into the swapped-in registry (uses DB_SPEC_KEY on insert).
+    io->read_pos = 0;
+    int result = Indexes_RdbLoad(io, INDEX_CURRENT_VERSION, REDISMODULE_AUX_BEFORE_RDB);
+    EXPECT_EQ(REDISMODULE_OK, result);
+    EXPECT_EQ(0, RMCK_IsIOError(io));
+
+    // The composite-key lookup must find the spec in the backup registry.
+    StrongRef loaded_spec_ref = Indexes_LoadIndexSpecUnsafe(NULL, "backup_idx");
+    IndexSpec *loaded_spec = (IndexSpec *)StrongRef_Get(loaded_spec_ref);
+    ASSERT_TRUE(loaded_spec != nullptr);
+    ASSERT_STREQ(HiddenString_GetUnsafe(loaded_spec->specName, NULL), "backup_idx");
+
+    // Restore_Globals frees the swapped-in registry (and the spec loaded into it)
+    // and reinstates the original registry.
+    Restore_Globals(ctx);
+    ASSERT_TRUE(Indexes_LoadIndexSpecUnsafe(NULL, "backup_idx").rm == nullptr);
 }
 
 TEST_F(RdbMockTest, testSynonymMapRdbSerialization) {
