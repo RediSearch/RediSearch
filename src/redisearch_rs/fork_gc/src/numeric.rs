@@ -9,7 +9,7 @@
 
 //! GC collection for numeric and geo inverted indexes.
 
-use std::io::{self, Write};
+use std::io::{self, Read, Write};
 use std::mem::size_of_val;
 
 use field_spec::FieldSpecType;
@@ -44,6 +44,45 @@ impl<'a> NumericNodeDelta<&'a [u8]> {
         writer.write_all(self.delta_data)?;
         writer.write_all(&self.registers_with_last_block)?;
         writer.write_all(&self.registers_without_last_block)
+    }
+}
+
+impl NumericNodeDelta<Box<[u8]>> {
+    /// Read one node entry from `reader`.
+    ///
+    /// Returns `Ok(None)` when a [`Frame::Terminator`] is received (end of
+    /// the node stream), or `Ok(Some(node))` for a valid entry.
+    pub fn decode(reader: &mut impl Read) -> io::Result<Option<Self>> {
+        let mut len_bytes = [0u8; size_of::<usize>()];
+        reader.read_exact(&mut len_bytes)?;
+        let node_len = usize::from_ne_bytes(len_bytes);
+
+        if node_len == crate::frame::TERMINATOR {
+            return Ok(None);
+        }
+
+        let delta_data_len = node_len
+            .checked_sub(size_of::<u32>() + size_of::<u32>() + Hll::size() * 2)
+            .ok_or_else(|| io::Error::other("numeric node length too small"))?;
+
+        let mut pos_bytes = [0u8; size_of::<u32>()];
+        reader.read_exact(&mut pos_bytes)?;
+        let mut gen_bytes = [0u8; size_of::<u32>()];
+        reader.read_exact(&mut gen_bytes)?;
+        let mut delta_data = vec![0u8; delta_data_len].into_boxed_slice();
+        reader.read_exact(&mut delta_data)?;
+        let mut registers_with = [0u8; Hll::size()];
+        reader.read_exact(&mut registers_with)?;
+        let mut registers_without = [0u8; Hll::size()];
+        reader.read_exact(&mut registers_without)?;
+
+        Ok(Some(NumericNodeDelta {
+            position: u32::from_ne_bytes(pos_bytes),
+            generation: u32::from_ne_bytes(gen_bytes),
+            delta_data,
+            registers_with_last_block: registers_with,
+            registers_without_last_block: registers_without,
+        }))
     }
 }
 
