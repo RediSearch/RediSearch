@@ -54,14 +54,14 @@ pub extern "C" fn SearchShared_IteratorsApiIsSet() -> std::ffi::c_int {
 static INTEROP_MARKER: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
 
 /// Write side of the allocation-free interop marker. Stores `value` into the
-/// shared `INTEROP_MARKER` in `libsearch_shared.so`. See [`INTEROP_MARKER`].
+/// shared interop marker in `libsearch_shared.so`.
 #[unsafe(no_mangle)]
 pub extern "C" fn SearchShared_InteropMarkerSet(value: u64) {
     INTEROP_MARKER.store(value, std::sync::atomic::Ordering::SeqCst);
 }
 
 /// Read side of the allocation-free interop marker. Returns the current value of
-/// the shared `INTEROP_MARKER` in `libsearch_shared.so`. See [`INTEROP_MARKER`].
+/// the shared interop marker in `libsearch_shared.so`.
 #[unsafe(no_mangle)]
 pub extern "C" fn SearchShared_InteropMarkerGet() -> u64 {
     INTEROP_MARKER.load(std::sync::atomic::Ordering::SeqCst)
