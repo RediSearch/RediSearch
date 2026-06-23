@@ -3971,6 +3971,10 @@ void IndexSpec_DeleteDoc_Unsafe(IndexSpec *spec, RedisModuleCtx *ctx, RedisModul
       // Failed to delete
       return;
     }
+
+    // Delete the key-to-docId mapping now the doc is gone from disk, keeping
+    // DocIdMeta authoritative: an entry exists iff the doc is currently indexed.
+    DocIdMeta_Delete(ctx, key, spec->specId);
   } else {
     RSDocumentMetadata *md = DocTable_PopR(&spec->docs, key);
     if (!md) {
