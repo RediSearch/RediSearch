@@ -1495,7 +1495,11 @@ dependencies = [
 name = "numeric_score_source"
 version = "0.0.1"
 dependencies = [
+ "build_utils",
  "index_result",
+ "numeric_score_source",
+ "redis_mock",
+ "redisearch_rs",
  "rqe_core",
  "rqe_iterator_type",
  "rqe_iterators",

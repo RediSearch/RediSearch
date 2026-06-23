@@ -34,6 +34,7 @@ use crate::score_batch::NumericScoreBatch;
 /// Adhoc-BF strategy has not been implemented
 ///
 /// Not implemented yet:
+/// - TODO: MOD-14207 Proper batching logic through numeric filter
 /// - TODO: MOD-14945 Timeout handling
 /// - TODO: MOD-14946 Profile metrics
 /// - TODO: MOD-14947 Parity tests
@@ -120,11 +121,6 @@ impl<'index, S: RQEIterator<'index>> ScoreSource for NumericScoreSource<'index, 
         } else {
             BatchStrategy::Continue
         }
-    }
-
-    fn check_timeout(&mut self) -> Result<(), RQEIteratorError> {
-        // TODO: MOD-14945: Timeout handling is deferred to a later iteration.
-        Ok(())
     }
 
     fn iterator_type(&self) -> IteratorType {
