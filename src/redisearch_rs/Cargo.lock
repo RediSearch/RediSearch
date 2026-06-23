@@ -497,6 +497,7 @@ version = "0.0.1"
 dependencies = [
  "ffi",
  "hidden_string",
+ "inverted_index",
  "workspace_hack",
 ]
 
@@ -722,6 +723,7 @@ dependencies = [
  "dict",
  "ffi",
  "fork_gc",
+ "hidden_string",
  "index_result",
  "index_spec",
  "inverted_index",
@@ -1068,7 +1070,6 @@ dependencies = [
  "dict",
  "ffi",
  "field_spec",
- "hidden_string",
  "inverted_index",
  "pretty_assertions",
  "redis_mock",

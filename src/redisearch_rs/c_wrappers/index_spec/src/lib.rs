@@ -17,9 +17,8 @@ use std::{
     sync::atomic::{AtomicUsize, Ordering},
 };
 
-use dict::Dict;
+use dict::{Dict, MissingFieldDictType};
 use field_spec::FieldSpec;
-use hidden_string::HiddenStringRef;
 use inverted_index::opaque::InvertedIndex;
 use schema_rule::SchemaRule;
 
@@ -298,17 +297,18 @@ impl<'lock> IndexSpecReadGuard<'lock> {
         })
     }
 
-    /// Return the dict of inverted indexes for fields that are missing from a document.
+    /// Return the spec's `missingFieldDict` as a typed [`Dict`].
     ///
-    /// Keys are [`HiddenStringRef`] wrappers; values are `Option<&InvertedIndex>`,
-    /// where `None` indicates the field has no recorded missing-doc index.
-    pub fn missing_field_dict2(&self) -> &Dict<HiddenStringRef<'_>, Option<&'_ InvertedIndex>> {
+    /// Keys are field names ([`HiddenStringRef`]); values are the per-field
+    /// missing-doc inverted index (`None` when no such index exists).
+    pub fn missing_field_dict2(&self) -> &Dict<MissingFieldDictType> {
         debug_assert!(
             !self.0.missingFieldDict.is_null(),
             "missingFieldDict must not be null"
         );
-        // SAFETY: missingFieldDict is a valid non-null dict* for a properly
-        // initialised IndexSpec (invariant upheld by construction).
+        // SAFETY: missingFieldDict is a valid non-null dict* created with
+        // dictTypeHeapHiddenStrings (MissingFieldDictType::as_ptr()), so
+        // interpreting it as Dict<MissingFieldDictType> is sound.
         unsafe { Dict::from_raw(self.0.missingFieldDict) }
     }
 
