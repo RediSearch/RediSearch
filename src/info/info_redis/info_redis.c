@@ -321,7 +321,13 @@ void AddToInfo_ErrorsAndWarnings(RedisModuleInfoCtx *ctx, TotalIndexesInfo *tota
   RedisModule_InfoAddFieldULongLong(ctx, "shard_total_query_errors_syntax", stats.shard_errors.syntax);
   RedisModule_InfoAddFieldULongLong(ctx, "shard_total_query_errors_arguments", stats.shard_errors.arguments);
   RedisModule_InfoAddFieldULongLong(ctx, "shard_total_query_errors_timeout", stats.shard_errors.timeout);
+  RedisModule_InfoAddFieldULongLong(ctx, "shard_total_query_errors_timeout_queue", stats.shard_errors.timeout_by_stage.queue);
+  RedisModule_InfoAddFieldULongLong(ctx, "shard_total_query_errors_timeout_pipeline", stats.shard_errors.timeout_by_stage.pipeline);
+  RedisModule_InfoAddFieldULongLong(ctx, "shard_total_query_errors_timeout_reply", stats.shard_errors.timeout_by_stage.reply);
   RedisModule_InfoAddFieldULongLong(ctx, "shard_total_query_warnings_timeout", stats.shard_warnings.timeout);
+  RedisModule_InfoAddFieldULongLong(ctx, "shard_total_query_warnings_timeout_queue", stats.shard_warnings.timeout_by_stage.queue);
+  RedisModule_InfoAddFieldULongLong(ctx, "shard_total_query_warnings_timeout_pipeline", stats.shard_warnings.timeout_by_stage.pipeline);
+  RedisModule_InfoAddFieldULongLong(ctx, "shard_total_query_warnings_timeout_reply", stats.shard_warnings.timeout_by_stage.reply);
   RedisModule_InfoAddFieldULongLong(ctx, "shard_total_query_errors_oom", stats.shard_errors.oom);
   RedisModule_InfoAddFieldULongLong(ctx, "shard_total_query_errors_unavailable_slots", stats.shard_errors.unavailableSlots);
   RedisModule_InfoAddFieldULongLong(ctx, "shard_total_query_warnings_oom", stats.shard_warnings.oom);
@@ -333,7 +339,13 @@ void AddToInfo_ErrorsAndWarnings(RedisModuleInfoCtx *ctx, TotalIndexesInfo *tota
   RedisModule_InfoAddFieldULongLong(ctx, "coord_total_query_errors_syntax", stats.coord_errors.syntax);
   RedisModule_InfoAddFieldULongLong(ctx, "coord_total_query_errors_arguments", stats.coord_errors.arguments);
   RedisModule_InfoAddFieldULongLong(ctx, "coord_total_query_errors_timeout", stats.coord_errors.timeout);
+  RedisModule_InfoAddFieldULongLong(ctx, "coord_total_query_errors_timeout_queue", stats.coord_errors.timeout_by_stage.queue);
+  RedisModule_InfoAddFieldULongLong(ctx, "coord_total_query_errors_timeout_pipeline", stats.coord_errors.timeout_by_stage.pipeline);
+  RedisModule_InfoAddFieldULongLong(ctx, "coord_total_query_errors_timeout_reply", stats.coord_errors.timeout_by_stage.reply);
   RedisModule_InfoAddFieldULongLong(ctx, "coord_total_query_warnings_timeout", stats.coord_warnings.timeout);
+  RedisModule_InfoAddFieldULongLong(ctx, "coord_total_query_warnings_timeout_queue", stats.coord_warnings.timeout_by_stage.queue);
+  RedisModule_InfoAddFieldULongLong(ctx, "coord_total_query_warnings_timeout_pipeline", stats.coord_warnings.timeout_by_stage.pipeline);
+  RedisModule_InfoAddFieldULongLong(ctx, "coord_total_query_warnings_timeout_reply", stats.coord_warnings.timeout_by_stage.reply);
   RedisModule_InfoAddFieldULongLong(ctx, "coord_total_query_errors_oom", stats.coord_errors.oom);
   RedisModule_InfoAddFieldULongLong(ctx, "coord_total_query_errors_unavailable_slots", stats.coord_errors.unavailableSlots);
   RedisModule_InfoAddFieldULongLong(ctx, "coord_total_query_warnings_oom", stats.coord_warnings.oom);

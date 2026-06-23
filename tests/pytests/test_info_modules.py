@@ -737,7 +737,13 @@ SEARCH_SHARD_PREFIX = 'search_shard_'
 SYNTAX_ERROR_SHARD_METRIC = f"{SEARCH_SHARD_PREFIX}total_query_errors_syntax"
 ARGS_ERROR_SHARD_METRIC = f"{SEARCH_SHARD_PREFIX}total_query_errors_arguments"
 TIMEOUT_ERROR_SHARD_METRIC = f"{SEARCH_SHARD_PREFIX}total_query_errors_timeout"
+TIMEOUT_ERROR_SHARD_QUEUE_METRIC = f"{SEARCH_SHARD_PREFIX}total_query_errors_timeout_queue"
+TIMEOUT_ERROR_SHARD_PIPELINE_METRIC = f"{SEARCH_SHARD_PREFIX}total_query_errors_timeout_pipeline"
+TIMEOUT_ERROR_SHARD_REPLY_METRIC = f"{SEARCH_SHARD_PREFIX}total_query_errors_timeout_reply"
 TIMEOUT_WARNING_SHARD_METRIC = f"{SEARCH_SHARD_PREFIX}total_query_warnings_timeout"
+TIMEOUT_WARNING_SHARD_QUEUE_METRIC = f"{SEARCH_SHARD_PREFIX}total_query_warnings_timeout_queue"
+TIMEOUT_WARNING_SHARD_PIPELINE_METRIC = f"{SEARCH_SHARD_PREFIX}total_query_warnings_timeout_pipeline"
+TIMEOUT_WARNING_SHARD_REPLY_METRIC = f"{SEARCH_SHARD_PREFIX}total_query_warnings_timeout_reply"
 OOM_ERROR_SHARD_METRIC = f"{SEARCH_SHARD_PREFIX}total_query_errors_oom"
 OOM_WARNING_SHARD_METRIC = f"{SEARCH_SHARD_PREFIX}total_query_warnings_oom"
 MAXPREFIXEXPANSIONS_WARNING_SHARD_METRIC = f"{SEARCH_SHARD_PREFIX}total_query_warnings_max_prefix_expansions"
@@ -748,7 +754,13 @@ SEARCH_COORD_PREFIX = 'search_coord_'
 SYNTAX_ERROR_COORD_METRIC = f"{SEARCH_COORD_PREFIX}total_query_errors_syntax"
 ARGS_ERROR_COORD_METRIC = f"{SEARCH_COORD_PREFIX}total_query_errors_arguments"
 TIMEOUT_ERROR_COORD_METRIC = f"{SEARCH_COORD_PREFIX}total_query_errors_timeout"
+TIMEOUT_ERROR_COORD_QUEUE_METRIC = f"{SEARCH_COORD_PREFIX}total_query_errors_timeout_queue"
+TIMEOUT_ERROR_COORD_PIPELINE_METRIC = f"{SEARCH_COORD_PREFIX}total_query_errors_timeout_pipeline"
+TIMEOUT_ERROR_COORD_REPLY_METRIC = f"{SEARCH_COORD_PREFIX}total_query_errors_timeout_reply"
 TIMEOUT_WARNING_COORD_METRIC = f"{SEARCH_COORD_PREFIX}total_query_warnings_timeout"
+TIMEOUT_WARNING_COORD_QUEUE_METRIC = f"{SEARCH_COORD_PREFIX}total_query_warnings_timeout_queue"
+TIMEOUT_WARNING_COORD_PIPELINE_METRIC = f"{SEARCH_COORD_PREFIX}total_query_warnings_timeout_pipeline"
+TIMEOUT_WARNING_COORD_REPLY_METRIC = f"{SEARCH_COORD_PREFIX}total_query_warnings_timeout_reply"
 OOM_ERROR_COORD_METRIC = f"{SEARCH_COORD_PREFIX}total_query_errors_oom"
 OOM_WARNING_COORD_METRIC = f"{SEARCH_COORD_PREFIX}total_query_warnings_oom"
 MAXPREFIXEXPANSIONS_WARNING_COORD_METRIC = f"{SEARCH_COORD_PREFIX}total_query_warnings_max_prefix_expansions"
@@ -758,7 +770,10 @@ def _verify_metrics_not_changed(env, conn, prev_info_dict: dict, ignored_metrics
   info_dict = info_modules_to_dict(conn)
   for section in [WARN_ERR_SECTION, COORD_WARN_ERR_SECTION]:
     for metric in info_dict[section]:
-      if metric in ignored_metrics:
+      # An ignored aggregate timeout metric (e.g. ..._timeout) also exempts its
+      # per-stage children (..._timeout_queue/pipeline/reply), which are
+      # definitionally coupled to it and move together.
+      if any(metric == ig or metric.startswith(ig + '_') for ig in ignored_metrics):
         continue
       env.assertEqual(info_dict[section][metric], prev_info_dict[section][metric], message = f"Metric {metric} changed")
 
@@ -845,18 +860,30 @@ class testWarningsAndErrorsStandalone:
     self.env.expect(config_cmd(), 'SET', 'ON_TIMEOUT', 'FAIL').ok()
     before_info_dict_err = info_modules_to_dict(self.env)
     base_err = int(before_info_dict_err[COORD_WARN_ERR_SECTION][TIMEOUT_ERROR_COORD_METRIC])
+    # The debug TIMEOUT_AFTER_N hook fires while the result-processor pipeline runs,
+    # so these timeouts are attributed to the PIPELINE stage. The aggregate counter
+    # and the per-stage pipeline counter must move together.
+    base_err_pipeline = int(before_info_dict_err[COORD_WARN_ERR_SECTION][TIMEOUT_ERROR_COORD_PIPELINE_METRIC])
 
     # Test timeout error in FT.SEARCH
     self.env.expect(debug_cmd(), 'FT.SEARCH', 'idx', '*',
                     'TIMEOUT_AFTER_N', 0, 'DEBUG_PARAMS_COUNT', 2).error().contains('SEARCH_TIMEOUT Timeout limit was reached')
     info_dict = info_modules_to_dict(self.env)
     self.env.assertEqual(info_dict[COORD_WARN_ERR_SECTION][TIMEOUT_ERROR_COORD_METRIC], str(base_err + 1))
+    self.env.assertEqual(info_dict[COORD_WARN_ERR_SECTION][TIMEOUT_ERROR_COORD_PIPELINE_METRIC], str(base_err_pipeline + 1))
 
     # Test timeout error in FT.AGGREGATE
     self.env.expect(debug_cmd(), 'FT.AGGREGATE', 'idx', '*',
                     'TIMEOUT_AFTER_N', 0, 'DEBUG_PARAMS_COUNT', 2).error().contains('SEARCH_TIMEOUT Timeout limit was reached')
     info_dict = info_modules_to_dict(self.env)
     self.env.assertEqual(info_dict[COORD_WARN_ERR_SECTION][TIMEOUT_ERROR_COORD_METRIC], str(base_err + 2))
+    self.env.assertEqual(info_dict[COORD_WARN_ERR_SECTION][TIMEOUT_ERROR_COORD_PIPELINE_METRIC], str(base_err_pipeline + 2))
+    # The aggregate timeout counter must always equal the sum of its per-stage parts.
+    self.env.assertEqual(
+        int(info_dict[COORD_WARN_ERR_SECTION][TIMEOUT_ERROR_COORD_METRIC]),
+        int(info_dict[COORD_WARN_ERR_SECTION][TIMEOUT_ERROR_COORD_QUEUE_METRIC])
+        + int(info_dict[COORD_WARN_ERR_SECTION][TIMEOUT_ERROR_COORD_PIPELINE_METRIC])
+        + int(info_dict[COORD_WARN_ERR_SECTION][TIMEOUT_ERROR_COORD_REPLY_METRIC]))
 
     # Test timeout error in FT.HYBRID (single shard debug)
     #### Test needs to be fixed (should return error, metric should increment by 1)
@@ -870,18 +897,27 @@ class testWarningsAndErrorsStandalone:
     self.env.expect(config_cmd(), 'SET', 'ON_TIMEOUT', 'RETURN').ok()
     before_info_dict = info_modules_to_dict(self.env)
     base_warn = int(before_info_dict[COORD_WARN_ERR_SECTION][TIMEOUT_WARNING_COORD_METRIC])
+    base_warn_pipeline = int(before_info_dict[COORD_WARN_ERR_SECTION][TIMEOUT_WARNING_COORD_PIPELINE_METRIC])
 
     # Test timeout warning in FT.SEARCH
     self.env.expect(debug_cmd(), 'FT.SEARCH', 'idx', '*',
                     'TIMEOUT_AFTER_N', 0, 'DEBUG_PARAMS_COUNT', 2).noError()
     info_dict = info_modules_to_dict(self.env)
     self.env.assertEqual(info_dict[COORD_WARN_ERR_SECTION][TIMEOUT_WARNING_COORD_METRIC], str(base_warn + 1))
+    self.env.assertEqual(info_dict[COORD_WARN_ERR_SECTION][TIMEOUT_WARNING_COORD_PIPELINE_METRIC], str(base_warn_pipeline + 1))
 
     # Test timeout warning in FT.AGGREGATE
     self.env.expect(debug_cmd(), 'FT.AGGREGATE', 'idx', '*',
                     'TIMEOUT_AFTER_N', 0, 'DEBUG_PARAMS_COUNT', 2).noError()
     info_dict = info_modules_to_dict(self.env)
     self.env.assertEqual(info_dict[COORD_WARN_ERR_SECTION][TIMEOUT_WARNING_COORD_METRIC], str(base_warn + 2))
+    self.env.assertEqual(info_dict[COORD_WARN_ERR_SECTION][TIMEOUT_WARNING_COORD_PIPELINE_METRIC], str(base_warn_pipeline + 2))
+    # The aggregate timeout warning must equal the sum of its per-stage parts.
+    self.env.assertEqual(
+        int(info_dict[COORD_WARN_ERR_SECTION][TIMEOUT_WARNING_COORD_METRIC]),
+        int(info_dict[COORD_WARN_ERR_SECTION][TIMEOUT_WARNING_COORD_QUEUE_METRIC])
+        + int(info_dict[COORD_WARN_ERR_SECTION][TIMEOUT_WARNING_COORD_PIPELINE_METRIC])
+        + int(info_dict[COORD_WARN_ERR_SECTION][TIMEOUT_WARNING_COORD_REPLY_METRIC]))
 
     # Test timeout warning in FT.HYBRID (single shard debug)
     ### Needs to be fixed
@@ -902,7 +938,8 @@ class testWarningsAndErrorsStandalone:
     #### FIX : when the issue is fixed, this should be equal to base_warn + 3
     self.env.assertEqual(info_dict[COORD_WARN_ERR_SECTION][TIMEOUT_WARNING_COORD_METRIC], str(base_warn + 2))
 
-    # Test other metrics not changed
+    # Test other metrics not changed. Ignoring the aggregate timeout metrics also
+    # exempts their per-stage children (see _verify_metrics_not_changed).
     tested_in_this_test = [TIMEOUT_WARNING_COORD_METRIC, TIMEOUT_ERROR_COORD_METRIC]
     _verify_metrics_not_changed(self.env, self.env, before_info_dict, tested_in_this_test)
 
@@ -1290,7 +1327,25 @@ class testWarningsAndErrorsCluster:
       wait_for_info_metric(shard_conn, [WARN_ERR_SECTION, TIMEOUT_WARNING_SHARD_METRIC], str(base_warn_shards[shardId] + 3),
                            msg=f"Shard {shardId} HYBRID VSIM timeout warning should be +3")
 
-    # Test other metrics not changed (on shards)
+    # The aggregate timeout counters must equal the sum of their per-stage parts,
+    # on the coordinator and on each shard.
+    info_coord = info_modules_to_dict(self.env)
+    self.env.assertEqual(
+        int(info_coord[COORD_WARN_ERR_SECTION][TIMEOUT_ERROR_COORD_METRIC]),
+        int(info_coord[COORD_WARN_ERR_SECTION][TIMEOUT_ERROR_COORD_QUEUE_METRIC])
+        + int(info_coord[COORD_WARN_ERR_SECTION][TIMEOUT_ERROR_COORD_PIPELINE_METRIC])
+        + int(info_coord[COORD_WARN_ERR_SECTION][TIMEOUT_ERROR_COORD_REPLY_METRIC]))
+    for shardId in range(1, self.env.shardsCount + 1):
+      info_shard = info_modules_to_dict(self.env.getConnection(shardId))
+      self.env.assertEqual(
+          int(info_shard[WARN_ERR_SECTION][TIMEOUT_WARNING_SHARD_METRIC]),
+          int(info_shard[WARN_ERR_SECTION][TIMEOUT_WARNING_SHARD_QUEUE_METRIC])
+          + int(info_shard[WARN_ERR_SECTION][TIMEOUT_WARNING_SHARD_PIPELINE_METRIC])
+          + int(info_shard[WARN_ERR_SECTION][TIMEOUT_WARNING_SHARD_REPLY_METRIC]),
+          message=f"Shard {shardId} timeout warning aggregate must equal per-stage sum")
+
+    # Test other metrics not changed (on shards). Ignoring the aggregate timeout
+    # metrics also exempts their per-stage children (see _verify_metrics_not_changed).
     tested_in_this_test = [TIMEOUT_ERROR_SHARD_METRIC, TIMEOUT_WARNING_SHARD_METRIC, TIMEOUT_ERROR_COORD_METRIC, TIMEOUT_WARNING_COORD_METRIC]
     self._verify_metrics_not_changes_all_shards(tested_in_this_test)
 

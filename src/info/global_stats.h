@@ -53,16 +53,26 @@ typedef struct {
   size_t vectorTotalDocsIndexed;
 } FieldsGlobalStats;
 
+// Per-stage breakdown of the query-timeout counter. The sum of the three
+// stages equals the corresponding aggregate `timeout` counter.
+typedef struct {
+  size_t queue;    // timed out before the result-processor pipeline started running
+  size_t pipeline; // timed out during result-processor pipeline execution
+  size_t reply;    // timed out during reply serialization
+} QueryTimeoutStageStats;
+
 typedef struct {
   size_t syntax; // Number of syntax errors
   size_t arguments; // Number of parse arguments errors
-  size_t timeout; // Number of timeout errors
+  size_t timeout; // Number of timeout errors (aggregate; == timeout_by_stage sum)
+  QueryTimeoutStageStats timeout_by_stage; // Per-stage breakdown of timeout errors
   size_t oom; // Number of OOM errors
   size_t unavailableSlots; // Number of ASM inaccuracy errors
 } QueryErrorsGlobalStats;
 
 typedef struct {
-  size_t timeout;
+  size_t timeout; // Aggregate timeout warnings (== timeout_by_stage sum)
+  QueryTimeoutStageStats timeout_by_stage; // Per-stage breakdown of timeout warnings
   size_t oom;
   size_t maxPrefixExpansion;
   size_t asm_inaccuracy;
@@ -161,18 +171,22 @@ size_t IndexesGlobalStats_GetLogicallyDeletedDocs();
 * `coord` indicates whether the error occurred on the coordinator or on a shard.
 * Standalone shards are considered as coords.
 * Will ignore not supported error codes.
-* Currently supports : syntax, parse_args
+* Currently supports : syntax, parse_args, timeout, oom, unavailable_slots
+* `stage` is only consulted for the timeout code, where it additionally
+* increments the matching per-stage counter; it is ignored for other codes.
 * `toAdd` can be negative to decrease the counter.
 */
-void QueryErrorsGlobalStats_UpdateError(QueryErrorCode error, int toAdd, bool coord);
+void QueryErrorsGlobalStats_UpdateError(QueryErrorCode error, QueryTimeoutStage stage, int toAdd, bool coord);
 
 // Updates the global query warnings statistics.
 // `coord` indicates whether the warning occurred on the coordinator or on a shard.
 // Standalone shards are considered as coords
 // Will ignore not supported warning codes.
-// Currently supports : timeout
+// Currently supports : timeout, oom, max_prefix_expansion, asm_inaccuracy
+// `stage` is only consulted for the timeout code, where it additionally
+// increments the matching per-stage counter; it is ignored for other codes.
 // `toAdd` can be negative to decrease the counter.
-void QueryWarningsGlobalStats_UpdateWarning(QueryWarningCode code, int toAdd, bool coord);
+void QueryWarningsGlobalStats_UpdateWarning(QueryWarningCode code, QueryTimeoutStage stage, int toAdd, bool coord);
 
 // Update the number of active io threads.
 void GlobalStats_UpdateUvRunningQueries(int toAdd);

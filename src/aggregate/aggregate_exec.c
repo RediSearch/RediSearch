@@ -430,7 +430,22 @@ static void startPipeline(AREQ *req, ResultProcessor *rp, SearchResult ***result
     RPSafeLoader_SetSyncCtx(AREQ_QueryProcessingCtx(req), &req->syncCtx);
   }
 
+  // The result-processor pipeline is about to run: advance the execution-phase
+  // marker so a timeout from here on is attributed to the PIPELINE stage. The
+  // pre-pipeline bail-outs above intentionally leave the marker at QUEUE.
+  AREQ_SetTimeoutStage(req, QUERY_TIMEOUT_STAGE_PIPELINE);
+
   startPipelineCommon(&ctx, rp, results, r, rc);
+
+  // The pipeline produced its results without timing out; the caller now enters
+  // the reply/serialization phase. Advance the marker so a timeout from here on
+  // -- most importantly a blocked-client deadline that fires while a stored reply
+  // is still pending on the main thread -- is attributed to the REPLY stage.
+  // This only moves the marker; it never forces a timeout, so it cannot suppress
+  // streamed (RETURN-policy) results.
+  if (*rc != RS_RESULT_TIMEDOUT) {
+    AREQ_SetTimeoutStage(req, QUERY_TIMEOUT_STAGE_REPLY);
+  }
 }
 
 
@@ -537,11 +552,11 @@ typedef struct {
 static bool handleSendChunkError(AREQ *req, RedisModule_Reply *reply,
   QueryProcessingCtx *qctx, int rc) {
   if (ShouldReplyWithError(QueryError_GetCode(qctx->err), req->reqConfig.timeoutPolicy, IsProfile(req))) {
-    QueryErrorsGlobalStats_UpdateError(QueryError_GetCode(qctx->err), 1, !IsInternal(req));
+    QueryErrorsGlobalStats_UpdateError(QueryError_GetCode(qctx->err), AREQ_TimeoutStage(req), 1, !IsInternal(req));
     RedisModule_Reply_Error(reply, QueryError_GetUserError(qctx->err));
     return true;
   } else if (ShouldReplyWithTimeoutError(rc, req->reqConfig.timeoutPolicy, IsProfile(req))) {
-    QueryErrorsGlobalStats_UpdateError(QUERY_ERROR_CODE_TIMED_OUT, 1, !IsInternal(req));
+    QueryErrorsGlobalStats_UpdateError(QUERY_ERROR_CODE_TIMED_OUT, AREQ_TimeoutStage(req), 1, !IsInternal(req));
     ReplyWithTimeoutError(reply);
     return true;
   }
@@ -557,7 +572,7 @@ static int replyForPreExecutionTimeout(RedisModuleCtx *ctx, RedisModuleString **
       ShouldReplyWithTimeoutError(RS_RESULT_TIMEDOUT, timeoutPolicy, isProfile);
 
   if (shouldReplyWithError) {
-    QueryErrorsGlobalStats_UpdateError(QUERY_ERROR_CODE_TIMED_OUT, 1, !isInternal);
+    QueryErrorsGlobalStats_UpdateError(QUERY_ERROR_CODE_TIMED_OUT, QUERY_TIMEOUT_STAGE_QUEUE, 1, !isInternal);
     QueryError_SetCode(status, QUERY_ERROR_CODE_TIMED_OUT);
     return QueryError_ReplyAndClear(ctx, status);
   }
@@ -609,19 +624,19 @@ static void trackWarnings_Resp2(AREQ *req, QueryProcessingCtx *qctx, int rc) {
   bool has_timedout = (rc == RS_RESULT_TIMEDOUT) || hasTimeoutError(qctx->err)
                       || (req->stateflags & QEXEC_S_SHARD_TIMED_OUT_WARNING);
   if (has_timedout) {
-    QueryWarningsGlobalStats_UpdateWarning(QUERY_WARNING_CODE_TIMED_OUT, 1, !IsInternal(req));
+    QueryWarningsGlobalStats_UpdateWarning(QUERY_WARNING_CODE_TIMED_OUT, AREQ_TimeoutStage(req), 1, !IsInternal(req));
     ProfileWarnings_Add(&req->profileCtx.warnings, PROFILE_WARNING_TYPE_TIMEOUT);
   }
   if (QueryError_HasQueryOOMWarning(qctx->err)) {
-    QueryWarningsGlobalStats_UpdateWarning(QUERY_WARNING_CODE_OUT_OF_MEMORY_COORD, 1, !IsInternal(req));
+    QueryWarningsGlobalStats_UpdateWarning(QUERY_WARNING_CODE_OUT_OF_MEMORY_COORD, AREQ_TimeoutStage(req), 1, !IsInternal(req));
     ProfileWarnings_Add(&req->profileCtx.warnings, PROFILE_WARNING_TYPE_QUERY_OOM);
   }
   if (QueryError_HasReachedMaxPrefixExpansionsWarning(qctx->err)) {
-    QueryWarningsGlobalStats_UpdateWarning(QUERY_WARNING_CODE_REACHED_MAX_PREFIX_EXPANSIONS, 1, !IsInternal(req));
+    QueryWarningsGlobalStats_UpdateWarning(QUERY_WARNING_CODE_REACHED_MAX_PREFIX_EXPANSIONS, AREQ_TimeoutStage(req), 1, !IsInternal(req));
     ProfileWarnings_Add(&req->profileCtx.warnings, PROFILE_WARNING_TYPE_MAX_PREFIX_EXPANSIONS);
   }
   if (req->stateflags & QEXEC_S_ASM_TRIMMING_DELAY_TIMEOUT) {
-    QueryWarningsGlobalStats_UpdateWarning(QUERY_WARNING_CODE_ASM_INACCURATE_RESULTS, 1, !IsInternal(req));
+    QueryWarningsGlobalStats_UpdateWarning(QUERY_WARNING_CODE_ASM_INACCURATE_RESULTS, AREQ_TimeoutStage(req), 1, !IsInternal(req));
     ProfileWarnings_Add(&req->profileCtx.warnings, PROFILE_WARNING_TYPE_ASM_INACCURATE_RESULTS);
   }
 
@@ -779,7 +794,7 @@ static void _replyWarnings(AREQ *req, RedisModule_Reply *reply, int rc) {
     ProfileWarnings_Add(&profileCtx->warnings, PROFILE_WARNING_TYPE_BG_SCAN_OOM);
   }
   if (QueryError_HasQueryOOMWarning(qctx->err)) {
-    QueryWarningsGlobalStats_UpdateWarning(QUERY_WARNING_CODE_OUT_OF_MEMORY_COORD, 1, !IsInternal(req));
+    QueryWarningsGlobalStats_UpdateWarning(QUERY_WARNING_CODE_OUT_OF_MEMORY_COORD, AREQ_TimeoutStage(req), 1, !IsInternal(req));
     // We use the cluster warning since shard level warning sent via empty reply bailout
     RedisModule_Reply_SimpleString(reply, QUERY_WOOM_COORD);
     ProfileWarnings_Add(&profileCtx->warnings, PROFILE_WARNING_TYPE_QUERY_OOM);
@@ -791,7 +806,7 @@ static void _replyWarnings(AREQ *req, RedisModule_Reply *reply, int rc) {
   if (rc == RS_RESULT_TIMEDOUT
       || (req->stateflags & QEXEC_S_SHARD_TIMED_OUT_WARNING)) {
     // Track warnings in global statistics
-    QueryWarningsGlobalStats_UpdateWarning(QUERY_WARNING_CODE_TIMED_OUT, 1, !IsInternal(req));
+    QueryWarningsGlobalStats_UpdateWarning(QUERY_WARNING_CODE_TIMED_OUT, AREQ_TimeoutStage(req), 1, !IsInternal(req));
     RedisModule_Reply_SimpleString(reply, QueryWarning_Strwarning(QUERY_WARNING_CODE_TIMED_OUT));
     ProfileWarnings_Add(&profileCtx->warnings, PROFILE_WARNING_TYPE_TIMEOUT);
   } else if (rc == RS_RESULT_ERROR) {
@@ -799,12 +814,12 @@ static void _replyWarnings(AREQ *req, RedisModule_Reply *reply, int rc) {
     RedisModule_Reply_SimpleString(reply, QueryError_GetUserError(qctx->err));
   }
   if (QueryError_HasReachedMaxPrefixExpansionsWarning(qctx->err)) {
-    QueryWarningsGlobalStats_UpdateWarning(QUERY_WARNING_CODE_REACHED_MAX_PREFIX_EXPANSIONS, 1, !IsInternal(req));
+    QueryWarningsGlobalStats_UpdateWarning(QUERY_WARNING_CODE_REACHED_MAX_PREFIX_EXPANSIONS, AREQ_TimeoutStage(req), 1, !IsInternal(req));
     RedisModule_Reply_SimpleString(reply, QUERY_WMAXPREFIXEXPANSIONS);
     ProfileWarnings_Add(&profileCtx->warnings, PROFILE_WARNING_TYPE_MAX_PREFIX_EXPANSIONS);
   }
   if (req->stateflags & QEXEC_S_ASM_TRIMMING_DELAY_TIMEOUT) {
-    QueryWarningsGlobalStats_UpdateWarning(QUERY_WARNING_CODE_ASM_INACCURATE_RESULTS, 1, !IsInternal(req));
+    QueryWarningsGlobalStats_UpdateWarning(QUERY_WARNING_CODE_ASM_INACCURATE_RESULTS, AREQ_TimeoutStage(req), 1, !IsInternal(req));
     RedisModule_Reply_SimpleString(reply, QUERY_ASM_INACCURATE_RESULTS);
     ProfileWarnings_Add(&profileCtx->warnings, PROFILE_WARNING_TYPE_ASM_INACCURATE_RESULTS);
   }
@@ -1064,13 +1079,13 @@ void sendChunk(AREQ *req, RedisModule_Reply *reply, size_t limit) {
     // warning
     RedisModule_ReplyKV_Array(reply, "warning"); // >warnings
     if (QueryError_GetCode(err) == QUERY_ERROR_CODE_TIMED_OUT) {
-      QueryWarningsGlobalStats_UpdateWarning(QUERY_WARNING_CODE_TIMED_OUT, 1, !IsInternal(req));
+      QueryWarningsGlobalStats_UpdateWarning(QUERY_WARNING_CODE_TIMED_OUT, AREQ_TimeoutStage(req), 1, !IsInternal(req));
       RedisModule_Reply_SimpleString(reply, QueryWarning_Strwarning(QUERY_WARNING_CODE_TIMED_OUT));
       ProfileWarnings_Add(&req->profileCtx.warnings, PROFILE_WARNING_TYPE_TIMEOUT);
     }
 
     if (QueryError_HasQueryOOMWarning(err)) {
-      QueryWarningsGlobalStats_UpdateWarning(QUERY_WARNING_CODE_OUT_OF_MEMORY_SHARD, 1, !IsInternal(req));
+      QueryWarningsGlobalStats_UpdateWarning(QUERY_WARNING_CODE_OUT_OF_MEMORY_SHARD, AREQ_TimeoutStage(req), 1, !IsInternal(req));
       // Shards should use SHARD warning
       // SA and Coordinator should use COORD warning
       const char *warning = !IsInternal(req) ? QUERY_WOOM_COORD : QUERY_WOOM_SHARD;
@@ -1079,7 +1094,7 @@ void sendChunk(AREQ *req, RedisModule_Reply *reply, size_t limit) {
     }
 
     if (req->stateflags & QEXEC_S_ASM_TRIMMING_DELAY_TIMEOUT) {
-      QueryWarningsGlobalStats_UpdateWarning(QUERY_WARNING_CODE_ASM_INACCURATE_RESULTS, 1, !IsInternal(req));
+      QueryWarningsGlobalStats_UpdateWarning(QUERY_WARNING_CODE_ASM_INACCURATE_RESULTS, AREQ_TimeoutStage(req), 1, !IsInternal(req));
       ProfileWarnings_Add(&req->profileCtx.warnings, PROFILE_WARNING_TYPE_ASM_INACCURATE_RESULTS);
       RedisModule_Reply_SimpleString(reply, QUERY_ASM_INACCURATE_RESULTS);
     }
@@ -1125,12 +1140,12 @@ void sendChunk(AREQ *req, RedisModule_Reply *reply, size_t limit) {
     RedisModule_Reply_ArrayEnd(reply);
 
     if (QueryError_GetCode(err) == QUERY_ERROR_CODE_TIMED_OUT) {
-      QueryWarningsGlobalStats_UpdateWarning(QUERY_WARNING_CODE_TIMED_OUT, 1, !IsInternal(req));
+      QueryWarningsGlobalStats_UpdateWarning(QUERY_WARNING_CODE_TIMED_OUT, AREQ_TimeoutStage(req), 1, !IsInternal(req));
       ProfileWarnings_Add(&AREQ_ProfilePrinterCtx(req)->warnings, PROFILE_WARNING_TYPE_TIMEOUT);
     }
 
     if (QueryError_HasQueryOOMWarning(err)) {
-      QueryWarningsGlobalStats_UpdateWarning(QUERY_WARNING_CODE_OUT_OF_MEMORY_SHARD, 1, !IsInternal(req));
+      QueryWarningsGlobalStats_UpdateWarning(QUERY_WARNING_CODE_OUT_OF_MEMORY_SHARD, AREQ_TimeoutStage(req), 1, !IsInternal(req));
       ProfileWarnings_Add(&AREQ_ProfilePrinterCtx(req)->warnings, PROFILE_WARNING_TYPE_QUERY_OOM);
     }
 
@@ -1141,7 +1156,7 @@ void sendChunk(AREQ *req, RedisModule_Reply *reply, size_t limit) {
     }
 
     if (req->stateflags & QEXEC_S_ASM_TRIMMING_DELAY_TIMEOUT) {
-      QueryWarningsGlobalStats_UpdateWarning(QUERY_WARNING_CODE_ASM_INACCURATE_RESULTS, 1, !IsInternal(req));
+      QueryWarningsGlobalStats_UpdateWarning(QUERY_WARNING_CODE_ASM_INACCURATE_RESULTS, AREQ_TimeoutStage(req), 1, !IsInternal(req));
       ProfileWarnings_Add(&req->profileCtx.warnings, PROFILE_WARNING_TYPE_ASM_INACCURATE_RESULTS);
     }
 
@@ -1226,7 +1241,7 @@ void AREQ_ReplyOrStoreError(AREQ *req, RedisModuleCtx *ctx, QueryError *status) 
       AREQ_SignalAggregateResultsComplete(req);
     }
   } else {
-    QueryErrorsGlobalStats_UpdateError(QueryError_GetCode(status), 1, !IsInternal(req));
+    QueryErrorsGlobalStats_UpdateError(QueryError_GetCode(status), AREQ_TimeoutStage(req), 1, !IsInternal(req));
     QueryError_ReplyAndClear(ctx, status);
   }
 }
@@ -1553,7 +1568,7 @@ static int QueryTimeoutFailCallback(RedisModuleCtx *ctx, RedisModuleString **arg
   if (!node || !node->privdata) {
     // Shouldn't happen, but handle gracefully
     RedisModule_Log(ctx, "warning", "QueryTimeoutFailCallback: no node or privdata");
-    QueryErrorsGlobalStats_UpdateError(QUERY_ERROR_CODE_TIMED_OUT, 1, true);
+    QueryErrorsGlobalStats_UpdateError(QUERY_ERROR_CODE_TIMED_OUT, QUERY_TIMEOUT_STAGE_QUEUE, 1, true);
     RedisModule_ReplyWithError(ctx, QueryError_Strerror(QUERY_ERROR_CODE_TIMED_OUT));
     return REDISMODULE_OK;
   }
@@ -1563,7 +1578,7 @@ static int QueryTimeoutFailCallback(RedisModuleCtx *ctx, RedisModuleString **arg
   AREQ_SetTimedOut(req);
 
   // Reply with timeout error
-  QueryErrorsGlobalStats_UpdateError(QUERY_ERROR_CODE_TIMED_OUT, 1, !IsInternal(req));
+  QueryErrorsGlobalStats_UpdateError(QUERY_ERROR_CODE_TIMED_OUT, AREQ_TimeoutStage(req), 1, !IsInternal(req));
   RedisModule_ReplyWithError(ctx, QueryError_Strerror(QUERY_ERROR_CODE_TIMED_OUT));
 
   return REDISMODULE_OK;
@@ -1603,7 +1618,7 @@ static int QueryTimeoutReturnStrictCallback(RedisModuleCtx *ctx, RedisModuleStri
   if (!node || !node->privdata) {
     // Shouldn't happen, but handle gracefully
     RedisModule_Log(ctx, "warning", "QueryTimeoutReturnStrictCallback: no node or privdata");
-    QueryErrorsGlobalStats_UpdateError(QUERY_ERROR_CODE_TIMED_OUT, 1, true);
+    QueryErrorsGlobalStats_UpdateError(QUERY_ERROR_CODE_TIMED_OUT, QUERY_TIMEOUT_STAGE_QUEUE, 1, true);
     RedisModule_ReplyWithError(ctx, QueryError_Strerror(QUERY_ERROR_CODE_TIMED_OUT));
     return REDISMODULE_OK;
   }
@@ -1721,7 +1736,7 @@ static int QueryReplyCallback(RedisModuleCtx *ctx, RedisModuleString **argv, int
     // Background thread didn't store results - some early error occurred.
     // Use the stored error if available, otherwise generic error.
     if (QueryError_HasError(&req->storedReplyState.err)) {
-      QueryErrorsGlobalStats_UpdateError(QueryError_GetCode(&req->storedReplyState.err), 1, !IsInternal(req));
+      QueryErrorsGlobalStats_UpdateError(QueryError_GetCode(&req->storedReplyState.err), AREQ_TimeoutStage(req), 1, !IsInternal(req));
       QueryError_ReplyAndClear(ctx, &req->storedReplyState.err);
     } else {
       RedisModule_ReplyWithError(ctx, "ERR Internal error: no results stored");
@@ -1746,7 +1761,7 @@ static int CursorReadTimeoutFailCallback(RedisModuleCtx *ctx, RedisModuleString 
   if (!node || !node->privdata) {
     // Shouldn't happen, but handle gracefully
     RedisModule_Log(ctx, "warning", "CursorReadTimeoutFailCallback: no node or privdata");
-    QueryErrorsGlobalStats_UpdateError(QUERY_ERROR_CODE_TIMED_OUT, 1, true);
+    QueryErrorsGlobalStats_UpdateError(QUERY_ERROR_CODE_TIMED_OUT, QUERY_TIMEOUT_STAGE_QUEUE, 1, true);
     RedisModule_ReplyWithError(ctx, QueryError_Strerror(QUERY_ERROR_CODE_TIMED_OUT));
     return REDISMODULE_OK;
   }
@@ -1755,7 +1770,7 @@ static int CursorReadTimeoutFailCallback(RedisModuleCtx *ctx, RedisModuleString 
   // Signal timeout to background thread so it skips storing results.
   AREQ_SetTimedOut(req);
 
-  QueryErrorsGlobalStats_UpdateError(QUERY_ERROR_CODE_TIMED_OUT, 1, !IsInternal(req));
+  QueryErrorsGlobalStats_UpdateError(QUERY_ERROR_CODE_TIMED_OUT, AREQ_TimeoutStage(req), 1, !IsInternal(req));
   RedisModule_ReplyWithError(ctx, QueryError_Strerror(QUERY_ERROR_CODE_TIMED_OUT));
 
   return REDISMODULE_OK;
@@ -1797,7 +1812,7 @@ static int CursorReadTimeoutReturnStrictCallback(RedisModuleCtx *ctx, RedisModul
     drainPartialResultsAfterTimeout(req);
     AREQ_ReplyWithStoredResults(ctx, req);
   } else if (QueryError_HasError(&req->storedReplyState.err)) {
-    QueryErrorsGlobalStats_UpdateError(QueryError_GetCode(&req->storedReplyState.err), 1, !IsInternal(req));
+    QueryErrorsGlobalStats_UpdateError(QueryError_GetCode(&req->storedReplyState.err), AREQ_TimeoutStage(req), 1, !IsInternal(req));
     QueryError_ReplyAndClear(ctx, &req->storedReplyState.err);
   } else {
     RedisModule_ReplyWithError(ctx, "ERR Internal error: no results stored");
@@ -1827,7 +1842,7 @@ static int CursorReadReplyCallback(RedisModuleCtx *ctx, RedisModuleString **argv
   if (!req->storedReplyState.hasStoredResults) {
     // Background thread didn't store results - some early error occurred.
     if (QueryError_HasError(&req->storedReplyState.err)) {
-      QueryErrorsGlobalStats_UpdateError(QueryError_GetCode(&req->storedReplyState.err), 1, !IsInternal(req));
+      QueryErrorsGlobalStats_UpdateError(QueryError_GetCode(&req->storedReplyState.err), AREQ_TimeoutStage(req), 1, !IsInternal(req));
       QueryError_ReplyAndClear(ctx, &req->storedReplyState.err);
     } else {
       RedisModule_ReplyWithError(ctx, "ERR Internal error: no results stored");
@@ -1938,7 +1953,7 @@ int execCommandCommon(RedisModuleCtx *ctx, RedisModuleString **argv, int argc,
   // Memory guardrail
   if (QueryMemoryGuard(ctx)) {
     if (RSGlobalConfig.requestConfigParams.oomPolicy == OomPolicy_Fail) {
-      QueryErrorsGlobalStats_UpdateError(QUERY_ERROR_CODE_OUT_OF_MEMORY, 1, GetNumShards_UnSafe() == 1);
+      QueryErrorsGlobalStats_UpdateError(QUERY_ERROR_CODE_OUT_OF_MEMORY, QUERY_TIMEOUT_STAGE_QUEUE, 1, GetNumShards_UnSafe() == 1);
       return QueryMemoryGuardFailure_WithReply(ctx);
     }
     // Assuming OOM policy is return since we didn't ignore the memory guardrail
@@ -1965,7 +1980,7 @@ int execCommandCommon(RedisModuleCtx *ctx, RedisModuleString **argv, int argc,
 error:
   // Update global query errors statistics
   // If num shards == 1 we are in SA, and we count it as a coord error
-  QueryErrorsGlobalStats_UpdateError(QueryError_GetCode(&status), 1, GetNumShards_UnSafe() == 1);
+  QueryErrorsGlobalStats_UpdateError(QueryError_GetCode(&status), QUERY_TIMEOUT_STAGE_QUEUE, 1, GetNumShards_UnSafe() == 1);
 
   if (r) {
     AREQ_DecrRef(r);
@@ -2309,6 +2324,10 @@ int RSCursorReadCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc)
     // BlockCursorClientWithTimeout requires cursor->execState != NULL (it dereferences it
     // for the AST).
     RS_ASSERT(cursor->execState != NULL);
+    // Fresh execution of a reused cursor AREQ: reset the timeout-stage marker so a
+    // read that times out while still queued is attributed to QUEUE rather than a
+    // stale stage left over from a previous read.
+    AREQ_SetTimeoutStage(cursor->execState, QUERY_TIMEOUT_STAGE_QUEUE);
     BlockClientCtx blockClientCtx = {0};
     if (cursor->queryTimeoutPolicy != TimeoutPolicy_Return) {
       AREQ *req = cursor->execState;
