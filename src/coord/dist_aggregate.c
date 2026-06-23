@@ -777,9 +777,9 @@ int DistAggregateTimeoutReturnStrictCallback(RedisModuleCtx *ctx, RedisModuleStr
   // Signal timeout to the background thread
   CoordRequestCtx_SetTimedOut(CoordReqCtx);
 
-  AREQ *req = (AREQ *)CoordRequestCtx_GetRequest(CoordReqCtx);
   CoordRequestCtx_UnlockSetRequest(CoordReqCtx);
 
+  AREQ *req = (AREQ *)CoordRequestCtx_GetRequest(CoordReqCtx);
   if (!req || AREQ_TryClaimAggregateResults(req)) {
     // Either the request is NULL or We were able to claim the aggregation results.
     // That means that the background thread didn't reach the aggregation phase (startPipelineCommon) yet.
@@ -800,6 +800,7 @@ int DistAggregateTimeoutReturnStrictCallback(RedisModuleCtx *ctx, RedisModuleStr
 
   // BG signals only after AREQ_StoreResults
   RS_ASSERT(req->storedReplyState.hasStoredResults);
+  req->storedReplyState.rc = RS_RESULT_TIMEDOUT;
 
   // Harvest any shard replies that landed in the channel before the deadline.
   // No-op for already-complete runs.
@@ -911,6 +912,7 @@ int DistCursorReadTimeoutReturnStrictCallback(RedisModuleCtx *ctx, RedisModuleSt
     // Drain anything queued before the deadline, then serialize and dispose
     // the stashed cursor (Pause if more rows remain, Free on EOF) inside
     // AREQ_ReplyWithStoredResults.
+    req->storedReplyState.rc = RS_RESULT_TIMEDOUT;
     drainPartialResultsAfterTimeout(req);
     AREQ_ReplyWithStoredResults(ctx, req);
   } else {

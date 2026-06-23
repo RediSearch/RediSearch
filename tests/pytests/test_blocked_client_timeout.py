@@ -6171,6 +6171,72 @@ class TestShardTimeout:
             env.expect(debug_cmd(), 'SYNC_POINT', 'CLEAR').ok()
             env.expect('CONFIG', 'SET', ON_TIMEOUT_CONFIG, prev_policy).ok()
 
+    def _test_return_strict_timeout_shard_cursor_read_store_impl(self, before):
+        """RETURN_STRICT timeout on FT.CURSOR READ paused around AREQ_StoreResults."""
+        env = self.env
+        skipIfNoEnableAssert(env)
+
+        chunk_size = 10
+        prev_policy, cursor_id, baseline, before_info, _, _ = \
+            _setup_return_strict_cursor_state(env, chunk_size=chunk_size)
+        base_err_coord = int(before_info[COORD_WARN_ERR_SECTION][TIMEOUT_ERROR_COORD_METRIC])
+        base_warn_coord = int(before_info[COORD_WARN_ERR_SECTION][TIMEOUT_WARNING_COORD_METRIC])
+
+        if before:
+            setPauseBeforeStoreResults(env, True, internal=False)
+            context = 'standalone RETURN_STRICT cursor-read timeout before store'
+        else:
+            setPauseAfterStoreResults(env, True, internal=False)
+            context = 'standalone RETURN_STRICT cursor-read timeout after store'
+
+        result = []
+        try:
+            t_query = threading.Thread(
+                target=call_and_store,
+                args=(env.cmd, ['FT.CURSOR', 'READ', 'idx', str(cursor_id)], result),
+                daemon=True,
+            )
+            t_query.start()
+
+            blocked_client_id = wait_for_blocked_query_client(
+                env, 'FT.CURSOR|READ', 'Client for FT.CURSOR|READ not found')
+            wait_for_condition(
+                lambda: (getIsStoreResultsPaused(env) == 1,
+                         {'paused': getIsStoreResultsPaused(env)}),
+                f'Timeout while waiting for FT.CURSOR READ to pause around store results')
+
+            env.expect('CLIENT', 'UNBLOCK', blocked_client_id, 'TIMEOUT').equal(1)
+            wait_for_client_unblocked(env, blocked_client_id)
+
+            t_query.join(timeout=10)
+            env.assertFalse(t_query.is_alive(), message="Cursor read thread should have finished")
+            env.assertEqual(len(result), 1, message="Expected one cursor read result")
+            _assert_return_strict_cursor_timeout_reply(
+                env, result[0], cursor_id, expected_results=chunk_size,
+                message_prefix=context)
+
+            after_info = info_modules_to_dict(env)
+            env.assertEqual(after_info[COORD_WARN_ERR_SECTION][TIMEOUT_ERROR_COORD_METRIC],
+                            str(base_err_coord),
+                            message="RETURN_STRICT cursor-read timeout must not bump coord error metric")
+            env.assertEqual(after_info[COORD_WARN_ERR_SECTION][TIMEOUT_WARNING_COORD_METRIC],
+                            str(base_warn_coord + 1),
+                            message="Coord timeout warning should be +1 after cursor-read timeout")
+
+            _wait_for_cursor_cleanup(env, baseline, context)
+            env.expect('FT.CURSOR', 'READ', 'idx', str(cursor_id)).error().contains('Cursor not found')
+        finally:
+            resetStoreResultsDebug(env)
+            env.expect('CONFIG', 'SET', ON_TIMEOUT_CONFIG, prev_policy).ok()
+
+    def test_return_strict_timeout_shard_cursor_read_before_store(self):
+        """RETURN_STRICT timeout on FT.CURSOR READ paused before AREQ_StoreResults."""
+        self._test_return_strict_timeout_shard_cursor_read_store_impl(before=True)
+
+    def test_return_strict_timeout_shard_cursor_read_after_store(self):
+        """RETURN_STRICT timeout on FT.CURSOR READ paused after AREQ_StoreResults."""
+        self._test_return_strict_timeout_shard_cursor_read_store_impl(before=False)
+
     def test_return_strict_timeout_shard_cursor_read_after_aggregate_claim(self):
         """Standalone RETURN_STRICT cursor-read timeout after BG owns results.
 
