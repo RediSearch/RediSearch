@@ -15,6 +15,11 @@
 //! by the tokenizer. The structure itself is content-agnostic — any
 //! `&str` will do.
 //!
+//! Every term and query is lowercased on the way in via
+//! [`unicode_tolower`], so stored terms and matches are always in
+//! lowercase form and lookups are case-insensitive. Callers pass terms
+//! verbatim; the index owns normalization.
+//!
 //! # Why a suffix trie answers substring queries
 //!
 //! Every substring of a string is a prefix of *some* suffix of that
@@ -31,6 +36,7 @@ use std::{
 };
 
 use rqe_wildcard::{MatchOutcome, WildcardPattern};
+use string_utils::unicode_tolower;
 use term_refs::{Outcome, TermRefs};
 use trie_rs::str_trie_map::StrTrieMap;
 
@@ -64,8 +70,15 @@ impl TermSuffixIndex {
         self.inner.mem_usage()
     }
 
+    /// Add a term to the set, registering it under its own key and every
+    /// queryable suffix. Lowercased on entry; re-adding an existing term, or
+    /// adding an empty one, is a no-op.
     pub fn add(&mut self, term: &str) {
-        debug_assert!(!term.is_empty(), "term must not be empty");
+        let lowered = unicode_tolower(term);
+        let term = lowered.as_str();
+        if term.is_empty() {
+            return;
+        }
 
         if self.inner.get(term).is_some_and(TermRefs::has_full_term) {
             return;
@@ -83,8 +96,15 @@ impl TermSuffixIndex {
         }
     }
 
+    /// Remove a term from the set, evicting its own key and any suffix entries
+    /// it was the last referrer to. Lowercased on entry; removing an absent or
+    /// empty term is a no-op.
     pub fn remove(&mut self, term: &str) {
-        debug_assert!(!term.is_empty(), "term must not be empty");
+        let lowered = unicode_tolower(term);
+        let term = lowered.as_str();
+        if term.is_empty() {
+            return;
+        }
 
         if let Some(data) = self.inner.get_mut(term)
             && data.has_full_term()
@@ -108,36 +128,39 @@ impl TermSuffixIndex {
             .map(|(byte_idx, _)| &term[byte_idx..])
     }
 
-    /// Yield every indexed term containing `needle`, in unspecified
-    /// order. Empty `needle` yields nothing. A term may be yielded
-    /// more than once; dedupe by [`Rc::as_ptr`] if needed.
-    pub fn iter_contains(&self, needle: &str) -> impl Iterator<Item = Rc<str>> {
-        (!needle.is_empty())
-            .then_some(needle)
-            .into_iter()
-            .flat_map(|n| self.inner.prefixed_iter(n))
-            .flat_map(|(_key, data)| data.terms().cloned())
+    /// Iterate over the members that contain `needle` as a substring.
+    /// Lowercased on entry, so matching is case-insensitive. Empty
+    /// `needle` yields nothing. A term may be yielded more than once
+    /// (once per matching suffix entry).
+    pub fn iter_contains(&self, needle: &str) -> impl Iterator<Item = &str> {
+        let lowered = unicode_tolower(needle);
+        self.inner
+            .prefixed_iter(&lowered)
+            .flat_map(|(_, data)| data.terms().map(|term| &**term))
     }
 
-    /// Yield every indexed term that ends with `needle`, in unspecified
-    /// order. Empty `needle` yields nothing.
-    ///
-    /// Each matching term is yielded exactly once.
-    pub fn iter_suffix(&self, needle: &str) -> impl Iterator<Item = Rc<str>> {
-        (!needle.is_empty())
-            .then_some(needle)
-            .into_iter()
-            .flat_map(|n| self.inner.get(n))
-            .flat_map(|data| data.terms().cloned())
+    /// Iterate over the members that end with `needle`.
+    /// Lowercased on entry, so matching is case-insensitive. Empty
+    /// `needle` yields nothing.
+    pub fn iter_suffix(&self, needle: &str) -> impl Iterator<Item = &str> {
+        let lowered = unicode_tolower(needle);
+        let data = if lowered.is_empty() {
+            None
+        } else {
+            self.inner.get(&lowered)
+        };
+        data.into_iter()
+            .flat_map(|data| data.terms().map(|term| &**term))
     }
 
     /// Iterate over the members matching the glob `pattern`, where `*` matches
-    /// any run of characters and `?` any single byte. Returns `None` when no
-    /// token in the pattern can seed the search (every token is empty or
-    /// contains `?`). A term may be yielded more than once (once per matching
-    /// suffix entry).
+    /// any run of characters and `?` any single byte. Lowercased on entry, so
+    /// matching is case-insensitive. Returns `None` when no token in the
+    /// pattern can seed the search (every token is empty or contains `?`).
+    /// A term may be yielded more than once (once per matching suffix entry).
     pub fn iter_wildcard(&self, pattern: &str) -> Option<impl Iterator<Item = Rc<str>>> {
-        let (token, followed_by_star) = choose_token(pattern)?;
+        let lowered = unicode_tolower(pattern);
+        let (token, followed_by_star) = choose_token(&lowered)?;
 
         // A token followed by `*` can sit anywhere inside a match,
         // so every suffix entry starting with it is a candidate. A
@@ -157,7 +180,7 @@ impl TermSuffixIndex {
         // therefore matches a single *byte*, not a codepoint, so multibyte
         // terms are matched only approximately — acceptable here, and it
         // avoids carrying a codepoint-aware matcher of our own.
-        let wildcard = WildcardPattern::parse(pattern.as_bytes());
+        let wildcard = WildcardPattern::parse(lowered.as_bytes());
         let matches: Vec<Rc<str>> = subtree
             .into_iter()
             .flatten()

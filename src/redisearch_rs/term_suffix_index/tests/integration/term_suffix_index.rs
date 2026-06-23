@@ -9,68 +9,34 @@
 
 //! Property tests for [`TermSuffixIndex`].
 
-use std::{collections::HashSet, rc::Rc};
+use std::collections::HashSet;
 
 use term_suffix_index::TermSuffixIndex;
 
-fn build_index(corpus: &[String]) -> TermSuffixIndex {
+#[test]
+fn add_promotes_existing_suffix_only_node_to_full_term() {
+    // "longer" leaves "ger" as a suffix-only node; inserting "ger"
+    // must promote it.
     let mut sut = TermSuffixIndex::new();
-    for t in corpus {
-        sut.add(t);
-    }
-    sut
-}
+    sut.add("longer");
+    sut.add("ger");
 
-fn collect_set<I: Iterator<Item = Rc<str>>>(it: I) -> HashSet<String> {
-    it.map(|r| r.as_ref().to_string()).collect()
-}
+    let actual = collect_set(sut.iter_suffix("ger"));
 
-// --- Focused, hand-rolled cases ----------------------------------------
-
-#[test]
-fn iter_suffix_yields_terms_ending_with_needle() {
-    let corpus = ["cat", "catalog", "category", "concat", "scat", "scatter"]
-        .iter()
-        .map(|s| s.to_string())
-        .collect::<Vec<_>>();
-    let sut = build_index(&corpus);
-    let expected = ["cat", "concat", "scat"]
-        .iter()
-        .map(|s| s.to_string())
-        .collect::<HashSet<_>>();
-
-    let actual = collect_set(sut.iter_suffix("cat"));
-
-    assert_eq!(actual, expected, "iter_suffix('cat')");
+    let expected = HashSet::from(["longer".to_string(), "ger".to_string()]);
+    assert_eq!(actual, expected);
 }
 
 #[test]
-fn iter_contains_yields_terms_containing_needle() {
-    let corpus = ["cat", "catalog", "category", "concat", "scat", "scatter"]
-        .iter()
-        .map(|s| s.to_string())
-        .collect::<Vec<_>>();
-    let sut = build_index(&corpus);
-    let expected = corpus.iter().cloned().collect::<HashSet<_>>();
+fn add_same_term_twice_is_noop() {
+    let mut sut = TermSuffixIndex::new();
 
-    let actual = collect_set(sut.iter_contains("cat"));
+    sut.add("apple");
+    sut.add("apple");
+    let actual = sut.iter_contains("apple").collect::<Vec<_>>();
 
-    assert_eq!(actual, expected, "iter_contains('cat')");
-}
-
-#[test]
-fn empty_needle_yields_no_matches() {
-    let corpus = ["cat", "dog"]
-        .iter()
-        .map(|s| s.to_string())
-        .collect::<Vec<_>>();
-    let sut = build_index(&corpus);
-
-    let actual_suffix = sut.iter_suffix("").count();
-    let actual_contains = sut.iter_contains("").count();
-
-    assert_eq!(actual_suffix, 0);
-    assert_eq!(actual_contains, 0);
+    assert_eq!(actual.len(), 1, "apple inserted twice yields one hit");
+    assert_eq!(actual[0], "apple");
 }
 
 #[test]
@@ -92,48 +58,36 @@ fn add_then_remove_clears_the_index() {
 }
 
 #[test]
-fn add_same_term_twice_is_noop() {
-    let mut sut = TermSuffixIndex::new();
+fn iter_contains_yields_terms_containing_needle() {
+    let corpus = ["cat", "catalog", "category", "concat", "scat", "scatter"]
+        .iter()
+        .map(|s| s.to_string())
+        .collect::<Vec<_>>();
+    let sut = build_index(&corpus);
+    let expected = corpus.iter().cloned().collect::<HashSet<_>>();
 
-    sut.add("apple");
-    sut.add("apple");
-    let actual = sut.iter_contains("apple").collect::<Vec<_>>();
+    let actual = collect_set(sut.iter_contains("cat"));
 
-    assert_eq!(actual.len(), 1, "apple inserted twice yields one hit");
-    assert_eq!(actual[0].as_ref(), "apple");
+    assert_eq!(actual, expected, "iter_contains('cat')");
 }
 
 #[test]
-fn add_promotes_existing_suffix_only_node_to_full_term() {
-    // "longer" leaves "ger" as a suffix-only node; inserting "ger"
-    // must promote it.
-    let mut sut = TermSuffixIndex::new();
-    sut.add("longer");
-    sut.add("ger");
+fn iter_suffix_and_iter_contains_empty_needle_yield_no_matches() {
+    let corpus = ["cat", "dog"]
+        .iter()
+        .map(|s| s.to_string())
+        .collect::<Vec<_>>();
+    let sut = build_index(&corpus);
 
-    let actual = collect_set(sut.iter_suffix("ger"));
+    let actual_suffix = sut.iter_suffix("").count();
+    let actual_contains = sut.iter_contains("").count();
 
-    let expected = HashSet::from(["longer".to_string(), "ger".to_string()]);
-    assert_eq!(actual, expected);
+    assert_eq!(actual_suffix, 0);
+    assert_eq!(actual_contains, 0);
 }
 
 #[test]
-fn length_one_proper_suffix_is_indexed() {
-    // "ab" stores its trailing length-1 suffix "b" as a back-reference,
-    // so a 1-char suffix or contains query reaches it.
-    let mut sut = TermSuffixIndex::new();
-    sut.add("ab");
-
-    assert_eq!(
-        collect_set(sut.iter_suffix("ab")),
-        HashSet::from(["ab".to_string()])
-    );
-    assert!(collect_set(sut.iter_suffix("b")).contains("ab"));
-    assert!(collect_set(sut.iter_contains("a")).contains("ab"));
-}
-
-#[test]
-fn multibyte_utf8_suffix_slicing_is_codepoint_aware() {
+fn iter_suffix_multibyte_needle_is_codepoint_aware() {
     // Codepoint-aware suffix slicing: "café" has 4 codepoints, so every
     // proper suffix down to the length-1 "é" is indexed. A byte-stride
     // port would either panic (`&term[3..]` splits the first byte of
@@ -161,25 +115,18 @@ fn multibyte_utf8_suffix_slicing_is_codepoint_aware() {
 }
 
 #[test]
-fn remove_unknown_term_is_noop() {
+fn length_one_proper_suffix_is_indexed() {
+    // "ab" stores its trailing length-1 suffix "b" as a back-reference,
+    // so a 1-char suffix or contains query reaches it.
     let mut sut = TermSuffixIndex::new();
-    sut.add("present");
+    sut.add("ab");
 
-    sut.remove("absent");
-
-    assert!(collect_set(sut.iter_suffix("present")).contains("present"));
-}
-
-#[test]
-fn remove_suffix_only_entry_is_noop() {
-    // "ger" was never `add`ed, but it exists in the trie as a
-    // back-reference key for "longer". Remove must no-op gracefully.
-    let mut sut = TermSuffixIndex::new();
-    sut.add("longer");
-
-    sut.remove("ger");
-
-    assert!(collect_set(sut.iter_suffix("ger")).contains("longer"));
+    assert_eq!(
+        collect_set(sut.iter_suffix("ab")),
+        HashSet::from(["ab".to_string()])
+    );
+    assert!(collect_set(sut.iter_suffix("b")).contains("ab"));
+    assert!(collect_set(sut.iter_contains("a")).contains("ab"));
 }
 
 #[test]
@@ -190,13 +137,30 @@ fn iter_suffix_yields_one_hit_per_matching_term() {
 
     let actual = sut
         .iter_suffix("abc")
-        .map(|r| r.as_ref().to_string())
+        .map(str::to_string)
         .collect::<Vec<_>>();
 
     assert_eq!(actual.len(), 2, "each match yielded exactly once");
     let actual_set = actual.into_iter().collect::<HashSet<_>>();
     let expected = HashSet::from(["abc".to_string(), "xabc".to_string()]);
     assert_eq!(actual_set, expected);
+}
+
+#[test]
+fn iter_suffix_yields_terms_ending_with_needle() {
+    let corpus = ["cat", "catalog", "category", "concat", "scat", "scatter"]
+        .iter()
+        .map(|s| s.to_string())
+        .collect::<Vec<_>>();
+    let sut = build_index(&corpus);
+    let expected = ["cat", "concat", "scat"]
+        .iter()
+        .map(|s| s.to_string())
+        .collect::<HashSet<_>>();
+
+    let actual = collect_set(sut.iter_suffix("cat"));
+
+    assert_eq!(actual, expected, "iter_suffix('cat')");
 }
 
 #[test]
@@ -307,7 +271,98 @@ fn iter_wildcard_without_anchorable_token_reports_none() {
     }
 }
 
-// --- Proptest fuzz
+#[test]
+fn remove_suffix_only_entry_is_noop() {
+    // "ger" was never `add`ed, but it exists in the trie as a
+    // back-reference key for "longer". Remove must no-op gracefully.
+    let mut sut = TermSuffixIndex::new();
+    sut.add("longer");
+
+    sut.remove("ger");
+
+    assert!(collect_set(sut.iter_suffix("ger")).contains("longer"));
+}
+
+#[test]
+fn remove_unknown_term_is_noop() {
+    let mut sut = TermSuffixIndex::new();
+    sut.add("present");
+
+    sut.remove("absent");
+
+    assert!(collect_set(sut.iter_suffix("present")).contains("present"));
+}
+
+#[test]
+fn add_lowercases_terms_and_queries_are_case_insensitive() {
+    let mut sut = TermSuffixIndex::new();
+    sut.add("CataLog");
+
+    // The stored term is lowercased, so it is returned in lowercase
+    // regardless of the casing used on insertion.
+    let stored = collect_set(sut.iter_contains("cat"));
+    assert_eq!(stored, HashSet::from(["catalog".to_string()]));
+
+    // Queries are lowercased too, so any casing of the needle hits.
+    for needle in ["CAT", "Cat", "cAt"] {
+        assert_eq!(
+            collect_set(sut.iter_contains(needle)),
+            HashSet::from(["catalog".to_string()]),
+            "needle={needle}",
+        );
+    }
+}
+
+#[test]
+fn remove_is_case_insensitive() {
+    let mut sut = TermSuffixIndex::new();
+    sut.add("Banana");
+
+    // Removing with a different casing must clear the lowercased entry.
+    sut.remove("baNANa");
+
+    assert_eq!(sut.iter_contains("ana").count(), 0);
+    assert_eq!(sut.iter_suffix("nana").count(), 0);
+}
+
+#[test]
+fn iter_wildcard_is_case_insensitive() {
+    let corpus = ["Concat", "SCAT", "cat"]
+        .iter()
+        .map(|s| s.to_string())
+        .collect::<Vec<_>>();
+    let sut = build_index(&corpus);
+
+    // An uppercased pattern is lowercased before matching the
+    // (lowercased) stored terms.
+    let actual = collect_set(sut.iter_wildcard("*CAT").expect("'cat' is anchorable"));
+
+    let expected = HashSet::from(["concat".to_string(), "scat".to_string(), "cat".to_string()]);
+    assert_eq!(actual, expected);
+}
+
+#[test]
+fn add_lowercases_per_codepoint_not_with_final_sigma() {
+    // Greek "ΟΔΟΣ" (street) ends in a capital sigma. `str::to_lowercase`
+    // would apply the word-final rule and yield "οδος" (final sigma ς),
+    // but the index uses per-codepoint lowering (matching the C
+    // `unicode_tolower`), so the trailing sigma stays σ: "οδοσ".
+    let mut sut = TermSuffixIndex::new();
+    sut.add("ΟΔΟΣ");
+
+    // Probe the stored member through a suffix query: "οσ" is a registered
+    // suffix only if the term was lowered per codepoint.
+    let members = collect_set(sut.iter_suffix("οσ"));
+    assert_eq!(
+        members,
+        HashSet::from(["οδοσ".to_string()]),
+        "expected per-codepoint lowering (οδοσ), got {members:?}",
+    );
+    assert!(
+        !members.iter().any(|m| m.contains('ς')),
+        "final-sigma ς must not appear, got {members:?}",
+    );
+}
 
 #[cfg(not(miri))]
 mod fuzz {
@@ -338,7 +393,7 @@ mod fuzz {
 
             let actual = collect_set(sut.iter_contains(&needle));
 
-            prop_assert_eq!(actual, expected, "needle={:?} corpus={:?}", needle, corpus);
+            prop_assert_eq!(&actual, &expected, "needle={:?} corpus={:?}", needle, corpus);
         }
 
         #[test]
@@ -386,31 +441,6 @@ mod fuzz {
         }
 
         #[test]
-        fn removing_all_added_terms_clears_the_index(
-            corpus in proptest::collection::vec(term_strategy(), 1..=10),
-        ) {
-            let mut sut = TermSuffixIndex::new();
-            for t in &corpus {
-                sut.add(t);
-            }
-
-            // Remove in reverse insertion order — exercises the
-            // suffix-promotion path inside the index more often than
-            // forward removal.
-            for t in corpus.iter().rev() {
-                sut.remove(t);
-            }
-
-            // Every needle of length up to 4 yields zero hits.
-            for sample in ["a", "ab", "abc", "abcd"] {
-                prop_assert_eq!(sut.iter_contains(sample).count(), 0,
-                    "stale entries for needle={:?} corpus={:?}", sample, corpus);
-                prop_assert_eq!(sut.iter_suffix(sample).count(), 0,
-                    "stale entries for needle={:?} corpus={:?}", sample, corpus);
-            }
-        }
-
-        #[test]
         fn mixed_add_remove_matches_hashset_oracle(
             ops in proptest::collection::vec(
                 (any::<bool>(), "[a-z]{1,6}"),
@@ -443,5 +473,46 @@ mod fuzz {
             prop_assert_eq!(actual_suffix, expected_suffix,
                 "iter_suffix needle={:?}", needle);
         }
+
+        #[test]
+        fn removing_all_added_terms_clears_the_index(
+            corpus in proptest::collection::vec(term_strategy(), 1..=10),
+        ) {
+            let mut sut = TermSuffixIndex::new();
+            for t in &corpus {
+                sut.add(t);
+            }
+
+            // Remove in reverse insertion order — exercises the
+            // suffix-promotion path inside the index more often than
+            // forward removal.
+            for t in corpus.iter().rev() {
+                sut.remove(t);
+            }
+
+            // Every needle of length up to 4 yields zero hits.
+            for sample in ["a", "ab", "abc", "abcd"] {
+                prop_assert_eq!(sut.iter_contains(sample).count(), 0,
+                    "stale entries for needle={:?} corpus={:?}", sample, corpus);
+                prop_assert_eq!(sut.iter_suffix(sample).count(), 0,
+                    "stale entries for needle={:?} corpus={:?}", sample, corpus);
+            }
+        }
     }
+}
+
+fn build_index(corpus: &[String]) -> TermSuffixIndex {
+    let mut sut = TermSuffixIndex::new();
+    for t in corpus {
+        sut.add(t);
+    }
+    sut
+}
+
+fn collect_set<I>(it: I) -> HashSet<String>
+where
+    I: Iterator,
+    I::Item: AsRef<str>,
+{
+    it.map(|r| r.as_ref().to_string()).collect()
 }
