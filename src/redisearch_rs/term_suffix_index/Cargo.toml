@@ -9,7 +9,6 @@ publish.workspace = true
 workspace = true
 
 [dependencies]
-ffi.workspace = true
 rqe_wildcard.workspace = true
 string_utils.workspace = true
 trie_rs.workspace = true
