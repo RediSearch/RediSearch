@@ -32,5 +32,15 @@ fi
 
 # Verify uv is in path
 uv -vV
+uv_bin="$(command -v uv)"
+uv_bin_dir="$(dirname "$uv_bin")"
+
+# GitHub Actions runs each step in a fresh shell, so export PATH above is
+# only enough for this script. Persist the verified uv directory for later
+# steps such as .install/test_deps/install_python_deps.sh.
+if [[ -n "${GITHUB_PATH:-}" ]]; then
+    echo "$uv_bin_dir" >> "$GITHUB_PATH"
+fi
+
 # Print where `uv` is located for debugging purposes
-echo "uv binary location: $(which uv)"
+echo "uv binary location: $uv_bin"
