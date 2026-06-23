@@ -181,8 +181,11 @@ static void withCountReplyCb(MRIteratorCallbackCtx *ctx, MRReply *rep) {
       }
     }
     iterCtx->numResponded++;
-    if (AREQ_TimedOut(iterCtx->areq) || isError ||
-        iterCtx->numResponded == MRIterator_GetNumShards(it)) {
+    bool timedOut = AREQ_TimedOut(iterCtx->areq);
+    if (timedOut || isError || iterCtx->numResponded == MRIterator_GetNumShards(it)) {
+      if (timedOut) {
+        MRIteratorCallback_SetTimedOut(MRIterator_GetCtx(it));
+      }
       MRIterator_SwapCallbacks(it, netCursorCallback, NULL);
       dispatchDeferred(iterCtx);
     }
@@ -205,6 +208,9 @@ static void withCountErrorCb(MRIteratorCallbackCtx *ctx) {
       (AggregateIteratorContext *)MRIteratorCallback_GetPrivateData(ctx);
   MRIterator *it = MRIteratorCallback_GetIterator(ctx);
   iterCtx->numResponded++;
+  if (AREQ_TimedOut(iterCtx->areq)) {
+    MRIteratorCallback_SetTimedOut(MRIterator_GetCtx(it));
+  }
   MRIterator_SwapCallbacks(it, netCursorCallback, NULL);
   dispatchDeferred(iterCtx);
 }
