@@ -56,10 +56,7 @@ impl TermSuffixIndex {
     }
 
     pub fn add(&mut self, term: &str) {
-        debug_assert!(
-            !term.is_empty(),
-            "empty term is a caller-level mistake; callers gate empty values out before indexing",
-        );
+        debug_assert!(!term.is_empty(), "term must not be empty");
 
         if self.inner.get(term).is_some_and(TermRefs::has_full_term) {
             return;
@@ -78,10 +75,7 @@ impl TermSuffixIndex {
     }
 
     pub fn remove(&mut self, term: &str) {
-        debug_assert!(
-            !term.is_empty(),
-            "empty term is a caller-level mistake; callers gate empty values out before indexing",
-        );
+        debug_assert!(!term.is_empty(), "term must not be empty");
 
         if let Some(data) = self.inner.get_mut(term)
             && data.has_full_term()
