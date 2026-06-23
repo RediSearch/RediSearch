@@ -330,6 +330,12 @@ long long getRedisConfigNumeric(RedisModuleCtx *ctx, const char *confName, long 
 #ifndef MAX_WORKER_THREADS
 #define MAX_WORKER_THREADS (1 << 4)
 #endif
+
+// Maximum value accepted by the CONFIG API for worker-thread settings.
+// This is distinct from MAX_WORKER_THREADS (which enterprise builds may raise
+// for internal thread-pool capacity) so that the user-visible config bound
+// remains stable at 16 regardless of the build override.
+#define MAX_WORKERS_CONFIG (1 << 4)
 #define DEFAULT_BG_INDEX_SLEEP_GAP 100
 #define DEFAULT_DIALECT_VERSION 1
 #define DEFAULT_DOC_TABLE_SIZE 1000000
