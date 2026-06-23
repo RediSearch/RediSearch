@@ -565,6 +565,40 @@ def testCursorReadFromWrongDb(env):
         env.assertTrue(len(more) >= 1, message=more)
 
 
+@skip(cluster=True)
+def testCursorReadFromWrongDbSameIndexName(env):
+    """The hard case: an index with the SAME name exists on both DB 0 and DB 14.
+    The DB-0 index passes the by-name ACL/index lookup, but a cursor opened on
+    DB 14 still belongs to DB 14 and must not be drained, deleted, or profiled
+    from DB 0 - the cursor id is global, so only the cursor's own DB binding
+    keeps the two logical DBs isolated."""
+    conn0 = getConnectionByEnv(env)  # DB 0, env-owned
+    conn0.execute_command('FT.CREATE', 'idxc', 'SCHEMA', 't', 'TEXT')
+    with _conn_on_db(env, 14) as db14:
+        db14.execute_command('FT.CREATE', 'idxc', 'SCHEMA', 't', 'TEXT')
+        for i in range(5):
+            db14.execute_command('HSET', f'doc{i}', 't', f'word{i}')
+
+        _rows, cursor = db14.execute_command(
+            'FT.AGGREGATE', 'idxc', '*', 'WITHCURSOR', 'COUNT', '2')
+        env.assertTrue(cursor != 0, message=f'expected an open cursor, got {cursor}')
+
+        # READ / PROFILE / DEL of the DB-14 cursor from DB 0 must all fail, even
+        # though 'idxc' resolves on DB 0.
+        env.assertRaises(redis.ResponseError, conn0.execute_command,
+                         'FT.CURSOR', 'READ', 'idxc', str(cursor))
+        env.assertRaises(redis.ResponseError, conn0.execute_command,
+                         'FT.CURSOR', 'DEL', 'idxc', str(cursor))
+
+        # None of the above drained or freed the cursor: it is still fully
+        # usable from its own DB.
+        more, cursor = db14.execute_command('FT.CURSOR', 'READ', 'idxc', str(cursor))
+        env.assertTrue(len(more) >= 1, message=more)
+
+        # DEL from the right DB still works.
+        env.assertEqual(db14.execute_command('FT.CURSOR', 'DEL', 'idxc', str(cursor)), 'OK')
+
+
 # =============================================================================
 # FLUSHDB / FLUSHALL scoping
 # =============================================================================
