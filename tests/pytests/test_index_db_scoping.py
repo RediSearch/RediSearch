@@ -330,6 +330,43 @@ def testSwapdbThenNotificationsAndReload(env):
 
 
 @skip(cluster=True)
+def testSwapdbInvalidatesCursorsForReboundIndex(env):
+    """A cursor open on an index when SWAPDB rebinds that index to another DB must
+    be invalidated. The cursor captured the index's pre-swap dbid and its saved
+    execution state/loaders are tied to the old DB, so afterwards it can be
+    neither drained from the old DB (the index no longer lives there - draining
+    would return results for an index not visible on that DB and could load keys
+    from the wrong DB) nor resolved from the new DB. After SWAPDB the cursor id is
+    gone on BOTH DBs, and the rebound index still serves fresh queries."""
+    with _conn_on_db(env, 1) as db1, _conn_on_db(env, 2) as db2:
+        db1.execute_command('FT.CREATE', 'idx', 'PREFIX', '1', 'k:', 'SCHEMA', 't', 'TEXT')
+        for i in range(10):
+            db1.execute_command('HSET', f'k:{i}', 't', 'v')
+
+        # Open a cursor that does not drain in a single read (COUNT 2 over 10 docs),
+        # so it is parked idle with results still pending when SWAPDB fires.
+        _rows, cursor = db1.execute_command(
+            'FT.AGGREGATE', 'idx', '*', 'WITHCURSOR', 'COUNT', '2')
+        env.assertTrue(cursor != 0, message=f'expected an open cursor, got {cursor}')
+
+        # Swap DB 1 <-> DB 2: 'idx' is rebound from DB 1 to DB 2.
+        db1.execute_command('SWAPDB', 1, 2)
+
+        # Old DB (1): 'idx' no longer lives here, so the stale cursor must not be
+        # drainable - the read errors instead of returning the pending results.
+        env.assertRaises(redis.ResponseError, db1.execute_command,
+                         'FT.CURSOR', 'READ', 'idx', str(cursor))
+        # New DB (2): the cursor was invalidated (not rebound), so its id is
+        # unknown here too - reading it errors rather than resuming on the new DB.
+        env.assertRaises(redis.ResponseError, db2.execute_command,
+                         'FT.CURSOR', 'READ', 'idx', str(cursor))
+
+        # The rebound index is otherwise healthy and serves a fresh query on DB 2.
+        res = db2.execute_command('FT.SEARCH', 'idx', '*', 'LIMIT', '0', '0')
+        env.assertEqual(res[0], 10, message=res)
+
+
+@skip(cluster=True)
 def testSwapdbMidScanCancelsAndRestarts(env):
     """If SWAPDB fires while an index's initial scan is still in progress, the
     stale scan (which selected the pre-swap DB) is cancelled and a fresh scan is

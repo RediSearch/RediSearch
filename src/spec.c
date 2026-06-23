@@ -467,7 +467,11 @@ IndexSpec *IndexSpec_CreateNew(RedisModuleCtx *ctx, RedisModuleString **argv, in
   // Bind the index to the logical DB it is being created on. Keyspace
   // notifications, FLUSHDB, and document-key access are all routed by this id.
   // In cluster mode only DB 0 exists, so this is always 0 there.
-  sp->dbid = RedisModule_GetSelectedDb(ctx);
+  if (SearchDisk_IsEnabled()) {
+    sp->dbid = 0;
+  } else {
+    sp->dbid = RedisModule_GetSelectedDb(ctx);
+  }
 
   // Start the garbage collector
   IndexSpec_StartGC(spec_ref, sp, sp->diskSpec ? GCPolicy_Disk : GCPolicy_Fork);
@@ -3132,6 +3136,14 @@ IndexSpec *IndexSpec_RdbLoad(RedisModuleIO *rdb, int encver, bool useSst, QueryE
     sp->dbid = (int)LoadSigned_IOError(rdb, goto cleanup);
   } else {
     sp->dbid = 0;
+  }
+
+  if (isSpecOnDisk(sp) && sp->dbid != 0) {
+    RedisModule_Log(RSDummyContext, "warning",
+                    "Disk index '%s' loaded with non-zero dbid %d; failing load "
+                    "(disk indexes only exist on DB 0)",
+                    IndexSpec_FormatName(sp, RSGlobalConfig.hideUserDataFromLog), sp->dbid);
+    goto cleanup;
   }
 
   // NOTE: duplicate detection (a specDict_g read) and the non-SST on-disk index

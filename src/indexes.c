@@ -583,7 +583,18 @@ void Indexes_SwapDb(RedisModuleCtx *ctx, int db_a, int db_b) {
     dictAdd(specDict_g, DB_SPEC_KEY(sp->dbid, sp->specName), affected[i].rm);
   }
 
-  // Phase 4: a finished index needs nothing more - its data is key-name based
+  // Phase 4: invalidate cursors of the rebound indexes. A cursor captured the
+  // index's pre-swap dbid and its saved execution state/loaders are tied to the
+  // old DB, so after the rebind it is unreadable from the new DB (the dbid check
+  // rejects it) and unsafe to drain from the old DB (the index no longer lives
+  // there). Drop them rather than attempting to rebind the saved context. Driven
+  // by SWAPDB, which is standalone-only, so only the user cursor list is in play.
+  for (size_t i = 0; i < array_len(affected); ++i) {
+    IndexSpec *sp = StrongRef_Get(affected[i]);
+    Cursors_PurgeForSpec(&g_CursorsList, sp->specId);
+  }
+
+  // Phase 5: a finished index needs nothing more - its data is key-name based
   // and now resolves against the new DB. But an index whose initial scan is
   // still running was reading the pre-swap keyspace; cancel that stale scan and
   // restart it against the new DB so indexing completes correctly.

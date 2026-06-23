@@ -264,6 +264,17 @@ int Cursor_Free(Cursor *cl);
  */
 int Cursors_PurgeForDb(CursorList *cl, uint64_t cid, int dbid);
 
+/**
+ * Invalidate every cursor bound to the index identified by `specId`. Used when
+ * an index is rebound to a different logical DB (SWAPDB): a cursor captured the
+ * index's old `dbid` and its saved execution state and loaders are tied to the
+ * old DB, so it can be neither read from the new DB (the dbid check rejects it)
+ * nor safely drained from the old DB (the index no longer lives there, and
+ * loaders would read keys from the wrong DB). Idle cursors are freed
+ * immediately; in-flight ones are marked for deletion on next access.
+ */
+void Cursors_PurgeForSpec(CursorList *cl, uint64_t specId);
+
 int Cursors_CollectIdle(CursorList *cl);
 
 typedef struct CursorsInfoStats {

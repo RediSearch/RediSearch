@@ -498,6 +498,45 @@ int Cursor_Free(Cursor *cur) {
   return REDISMODULE_OK;
 }
 
+void Cursors_PurgeForSpec(CursorList *cl, uint64_t specId) {
+  CursorList_Lock(cl);
+  CursorList_IncrCounter(cl);
+  // Iterate the lookup hash (not the idle array): freeing a cursor swaps the
+  // last idle entry into the freed slot of the idle array, which would make an
+  // idle-array walk skip cursors, but it never reorders the lookup hash. kh_del
+  // (inside Cursor_FreeInternal) only marks the current slot, so continuing the
+  // index-based scan is safe - same pattern as CursorList_Empty.
+  for (khiter_t ii = kh_begin(cl->lookup); ii != kh_end(cl->lookup); ++ii) {
+    if (!kh_exist(cl->lookup, ii)) {
+      continue;
+    }
+    Cursor *cur = kh_val(cl->lookup, ii);
+    // Coordinator-internal cursors carry no user spec and are not affected.
+    if (!cur->spec_ref.rm) {
+      continue;
+    }
+    StrongRef sref = WeakRef_Promote(cur->spec_ref);
+    IndexSpec *spec = StrongRef_Get(sref);
+    bool match = spec && spec->specId == specId;
+    if (spec) {
+      StrongRef_Release(sref);
+    }
+    if (!match) {
+      continue;
+    }
+    if (Cursor_IsIdle(cur)) {
+      // Idle: free it now so FT.CURSOR READ reports it missing on either DB.
+      Cursor_RemoveFromIdle(cur);
+      Cursor_FreeInternal(cur);
+    } else {
+      // In-flight on another context: mark it so the next access frees it
+      // instead of pausing it back into the idle pool.
+      cur->delete_mark = true;
+    }
+  }
+  CursorList_Unlock(cl);
+}
+
 void Cursors_RenderStats(CursorList *cl, CursorList *cl_coord, const IndexSpec *spec, RedisModule_Reply *reply) {
   CursorList_Lock(cl);
   CursorList_Lock(cl_coord);
