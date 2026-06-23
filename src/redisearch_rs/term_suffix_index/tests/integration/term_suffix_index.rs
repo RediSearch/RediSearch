@@ -119,8 +119,8 @@ fn add_promotes_existing_suffix_only_node_to_full_term() {
 
 #[test]
 fn length_one_proper_suffix_is_indexed() {
-    // No MIN_SUFFIX floor: "ab" stores its trailing length-1 suffix "b"
-    // as a back-reference, so a 1-char suffix or contains query reaches it.
+    // "ab" stores its trailing length-1 suffix "b" as a back-reference,
+    // so a 1-char suffix or contains query reaches it.
     let mut sut = TermSuffixIndex::new();
     sut.add("ab");
 
@@ -141,7 +141,7 @@ fn multibyte_utf8_suffix_slicing_is_codepoint_aware() {
     }
 
     assert!(collect_set(sut.iter_suffix("fé")).contains("café"));
-    // The length-1 suffix "é" is indexed now that the floor is gone.
+    // The length-1 suffix "é" is indexed too.
     assert!(collect_set(sut.iter_suffix("é")).contains("café"));
     // "本語" is a two-codepoint suffix of "日本語" — should be present ...
     assert!(collect_set(sut.iter_suffix("本語")).contains("日本語"));
