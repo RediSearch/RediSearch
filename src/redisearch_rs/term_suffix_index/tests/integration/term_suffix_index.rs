@@ -60,8 +60,8 @@ fn add_then_remove_clears_the_index() {
 #[test]
 fn iter_contains_yields_terms_containing_needle() {
     let corpus = ["cat", "catalog", "category", "concat", "scat", "scatter"]
-        .iter()
-        .map(|s| s.to_string())
+        .into_iter()
+        .map(String::from)
         .collect::<Vec<_>>();
     let sut = build_index(&corpus);
     let expected = corpus.iter().cloned().collect::<HashSet<_>>();
@@ -74,8 +74,8 @@ fn iter_contains_yields_terms_containing_needle() {
 #[test]
 fn iter_suffix_and_iter_contains_empty_needle_yield_no_matches() {
     let corpus = ["cat", "dog"]
-        .iter()
-        .map(|s| s.to_string())
+        .into_iter()
+        .map(String::from)
         .collect::<Vec<_>>();
     let sut = build_index(&corpus);
 
@@ -149,13 +149,13 @@ fn iter_suffix_yields_one_hit_per_matching_term() {
 #[test]
 fn iter_suffix_yields_terms_ending_with_needle() {
     let corpus = ["cat", "catalog", "category", "concat", "scat", "scatter"]
-        .iter()
-        .map(|s| s.to_string())
+        .into_iter()
+        .map(String::from)
         .collect::<Vec<_>>();
     let sut = build_index(&corpus);
     let expected = ["cat", "concat", "scat"]
-        .iter()
-        .map(|s| s.to_string())
+        .into_iter()
+        .map(String::from)
         .collect::<HashSet<_>>();
 
     let actual = collect_set(sut.iter_suffix("cat"));
@@ -166,8 +166,8 @@ fn iter_suffix_yields_terms_ending_with_needle() {
 #[test]
 fn iter_wildcard_end_token_uses_suffix_semantics() {
     let corpus = ["concat", "scat", "catalog", "cat"]
-        .iter()
-        .map(|s| s.to_string())
+        .into_iter()
+        .map(String::from)
         .collect::<Vec<_>>();
     let sut = build_index(&corpus);
 
@@ -180,8 +180,8 @@ fn iter_wildcard_end_token_uses_suffix_semantics() {
 #[test]
 fn iter_wildcard_middle_tokens_anchor_on_best_literal() {
     let corpus = ["abide", "abcde", "abxxcd", "abandoned", "cdrom"]
-        .iter()
-        .map(|s| s.to_string())
+        .into_iter()
+        .map(String::from)
         .collect::<Vec<_>>();
     let sut = build_index(&corpus);
 
@@ -197,8 +197,8 @@ fn iter_wildcard_middle_tokens_anchor_on_best_literal() {
 #[test]
 fn iter_wildcard_multibyte_anchor_matches() {
     let corpus = ["日本語", "日本酒", "本語"]
-        .iter()
-        .map(|s| s.to_string())
+        .into_iter()
+        .map(String::from)
         .collect::<Vec<_>>();
     let sut = build_index(&corpus);
 
@@ -215,8 +215,8 @@ fn iter_wildcard_question_mark_is_byte_wise_for_multibyte() {
     // first byte, the second has nothing to pair with, and the term is
     // dropped. This is the accepted approximation — an ASCII tail matches.
     let corpus = ["abxc\u{e9}", "abxcd"]
-        .iter()
-        .map(|s| s.to_string())
+        .into_iter()
+        .map(String::from)
         .collect::<Vec<_>>();
     let sut = build_index(&corpus);
 
@@ -229,8 +229,8 @@ fn iter_wildcard_question_mark_is_byte_wise_for_multibyte() {
 #[test]
 fn iter_wildcard_question_mark_outside_anchor_is_honored() {
     let corpus = ["abcd", "bcd", "zbxcd"]
-        .iter()
-        .map(|s| s.to_string())
+        .into_iter()
+        .map(String::from)
         .collect::<Vec<_>>();
     let sut = build_index(&corpus);
 
@@ -246,8 +246,8 @@ fn iter_wildcard_question_mark_outside_anchor_is_honored() {
 #[test]
 fn iter_wildcard_trailing_star_uses_contains_semantics() {
     let corpus = ["scatter", "category", "dog"]
-        .iter()
-        .map(|s| s.to_string())
+        .into_iter()
+        .map(String::from)
         .collect::<Vec<_>>();
     let sut = build_index(&corpus);
 
@@ -328,8 +328,8 @@ fn remove_is_case_insensitive() {
 #[test]
 fn iter_wildcard_is_case_insensitive() {
     let corpus = ["Concat", "SCAT", "cat"]
-        .iter()
-        .map(|s| s.to_string())
+        .into_iter()
+        .map(String::from)
         .collect::<Vec<_>>();
     let sut = build_index(&corpus);
 
