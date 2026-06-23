@@ -192,14 +192,10 @@ impl<D: Ord> HeapStorage<D> {
         }
     }
 
-    /// Drain the retained entries best→worst, sliced as
-    /// `skip(offset).take(count)`.
+    /// Drain the retained entries best→worst, sliced as `skip(offset).take(count)`.
     ///
-    /// Each [`HeapEntry`] still pairs the [`ProjectedRow`] with its
-    /// [`RankingKey`]: callers that only need the value map with
-    /// [`HeapEntry::into_projected`], while the remote reducer reads
-    /// [`RankingKey::sort_vals`] (via [`HeapEntry::into_parts`]) to rebuild the
-    /// wire row.
+    /// Yields whole [`HeapEntry`]s, not just the [`ProjectedRow`], so the remote
+    /// reducer can read each [`RankingKey`] to rebuild the wire row.
     pub fn drain(&mut self) -> impl ExactSizeIterator<Item = HeapEntry<D, ProjectedRow>> {
         std::mem::take(&mut self.heap)
             .into_vec_desc()

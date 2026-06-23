@@ -48,11 +48,6 @@ impl<D: Ord> RankingKey<D> {
     }
 
     /// The sort-key snapshot, in `SORTBY` order (an absent key is `None`).
-    ///
-    /// The heap keeps these for ranking only, but
-    /// [`HeapStorage`][super::storage::HeapStorage] also exposes them at drain
-    /// time so the remote reducer can re-attach the sort columns it deferred
-    /// during projection.
     pub fn sort_vals(&self) -> &[Option<SharedValue>] {
         &self.sort_vals
     }
