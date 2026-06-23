@@ -2048,7 +2048,9 @@ dependencies = [
  "search_result_ffi",
  "slots_tracker_ffi",
  "sorting_vector_ffi",
+ "spellcheck_dictionary_ffi",
  "syn 2.0.117",
+ "term_dictionary_ffi",
  "toml",
  "triemap_ffi",
  "types_ffi",
@@ -2430,6 +2432,21 @@ dependencies = [
 ]
 
 [[package]]
+name = "rune_trie_snapshots"
+version = "0.0.1"
+dependencies = [
+ "build_utils",
+ "ffi",
+ "insta",
+ "libc",
+ "redis_mock",
+ "redisearch_rs",
+ "rune_trie_snapshots",
+ "trie_rs",
+ "workspace_hack",
+]
+
+[[package]]
 name = "rustc-demangle"
 version = "0.1.27"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2732,6 +2749,14 @@ dependencies = [
 ]
 
 [[package]]
+name = "spellcheck_dictionary_ffi"
+version = "0.0.1"
+dependencies = [
+ "spellcheck_dictionary",
+ "workspace_hack",
+]
+
+[[package]]
 name = "stable_deref_trait"
 version = "1.2.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2861,6 +2886,24 @@ dependencies = [
  "once_cell",
  "rustix",
  "windows-sys 0.61.2",
+]
+
+[[package]]
+name = "term_dictionary"
+version = "0.0.1"
+dependencies = [
+ "trie_rs",
+ "workspace_hack",
+]
+
+[[package]]
+name = "term_dictionary_ffi"
+version = "0.0.1"
+dependencies = [
+ "cheadergen",
+ "redis_mock",
+ "term_dictionary",
+ "workspace_hack",
 ]
 
 [[package]]
@@ -3105,6 +3148,7 @@ dependencies = [
  "cheadergen",
  "ffi",
  "fs-err",
+ "icu_casemap",
  "insta",
  "lending-iterator",
  "libc",
@@ -3112,6 +3156,7 @@ dependencies = [
  "proptest",
  "proptest-derive",
  "rqe_wildcard",
+ "rstest",
  "trie_rs",
  "workspace_hack",
 ]
@@ -3121,11 +3166,13 @@ name = "triemap_ffi"
 version = "0.0.1"
 dependencies = [
  "cheadergen",
+ "ffi",
  "lending-iterator",
  "libc",
  "redis-module",
  "redis_mock",
  "rqe_wildcard",
+ "term_suffix_index",
  "thin_vec",
  "trie_rs",
  "workspace_hack",

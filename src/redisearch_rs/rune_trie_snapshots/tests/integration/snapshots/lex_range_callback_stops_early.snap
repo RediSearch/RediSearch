@@ -1,0 +1,10 @@
+---
+source: rune_trie_snapshots/tests/integration/range_iteration.rs
+expression: dump
+---
+size: 7
+
+query: (-inf, +inf) stop after 3rd  min="<none>" (inc=true)  max="<none>" (inc=true)
+  apple       numDocs=1
+  apricot     numDocs=1
+  banana      numDocs=1

@@ -1,0 +1,66 @@
+---
+source: rune_trie_snapshots/tests/integration/delete_and_decrement.rs
+expression: out
+---
+=== base ===
+size: 7
+entries:
+  ape         score=1  numDocs=1
+  appl        score=1  numDocs=4
+  apple       score=1  numDocs=3
+  apply       score=1  numDocs=2
+  b           score=1  numDocs=5
+  banana      score=1  numDocs=2
+  band        score=1  numDocs=1
+
+--- delete leaf with sibling "ape" — physical removal + parent single-child merge ---
+Trie_Delete("ape") -> 1
+size: 6
+entries:
+  appl        score=1  numDocs=4
+  apple       score=1  numDocs=3
+  apply       score=1  numDocs=2
+  b           score=1  numDocs=5
+  banana      score=1  numDocs=2
+  band        score=1  numDocs=1
+
+--- delete internal-terminal "appl" — children survive (mark-deleted, not physical) ---
+Trie_Delete("appl") -> 1
+size: 5
+entries:
+  apple       score=1  numDocs=3
+  apply       score=1  numDocs=2
+  b           score=1  numDocs=5
+  banana      score=1  numDocs=2
+  band        score=1  numDocs=1
+
+--- delete non-existent "zzz" — returns 0, size unchanged ---
+Trie_Delete("zzz") -> 0
+size: 5
+entries:
+  apple       score=1  numDocs=3
+  apply       score=1  numDocs=2
+  b           score=1  numDocs=5
+  banana      score=1  numDocs=2
+  band        score=1  numDocs=1
+
+--- delete already-deleted "appl" — second delete is a no-op ---
+Trie_Delete("appl") -> 0
+size: 5
+entries:
+  apple       score=1  numDocs=3
+  apply       score=1  numDocs=2
+  b           score=1  numDocs=5
+  banana      score=1  numDocs=2
+  band        score=1  numDocs=1
+
+--- re-insert "appl" with new score/numDocs — un-deletes the existing slot ---
+Trie_InsertStringBuffer("appl", score=9, numDocs=10, ADD_REPLACE)
+size: 6
+entries:
+  appl        score=9  numDocs=10
+  apple       score=1  numDocs=3
+  apply       score=1  numDocs=2
+  b           score=1  numDocs=5
+  banana      score=1  numDocs=2
+  band        score=1  numDocs=1

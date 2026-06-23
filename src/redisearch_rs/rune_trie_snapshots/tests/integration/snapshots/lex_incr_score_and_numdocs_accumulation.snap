@@ -1,0 +1,31 @@
+---
+source: rune_trie_snapshots/tests/integration/incr_mode.rs
+expression: out
+---
+--- insert("foo", mode=INCR, score=1, numDocs=1) -> OK_NEW — first insert — creates leaf (rc=OK_NEW) ---
+size: 1
+entries:
+  foo         score=1  numDocs=1
+--- insert("foo", mode=INCR, score=0.5, numDocs=1) -> OK_UPDATED — score += 0.5 -> 1.5; numDocs += 1 -> 2 ---
+size: 1
+entries:
+  foo         score=1.5  numDocs=2
+--- insert("foo", mode=INCR, score=2, numDocs=1) -> OK_UPDATED — score += 2.0 -> 3.5; numDocs += 1 -> 3 ---
+size: 1
+entries:
+  foo         score=3.5  numDocs=3
+--- insert("bar", mode=REPLACE, score=1, numDocs=1) -> OK_NEW — first insert — creates leaf (rc=OK_NEW) ---
+size: 2
+entries:
+  bar         score=1  numDocs=1
+  foo         score=3.5  numDocs=3
+--- insert("bar", mode=REPLACE, score=0.5, numDocs=1) -> OK_UPDATED — score = 0.5 (overwrite); numDocs += 1 -> 2 ---
+size: 2
+entries:
+  bar         score=0.5  numDocs=2
+  foo         score=3.5  numDocs=3
+--- insert("bar", mode=REPLACE, score=2, numDocs=1) -> OK_UPDATED — score = 2.0 (overwrite); numDocs += 1 -> 3 ---
+size: 2
+entries:
+  bar         score=2  numDocs=3
+  foo         score=3.5  numDocs=3

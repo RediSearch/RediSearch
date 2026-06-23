@@ -1,0 +1,11 @@
+---
+source: rune_trie_snapshots/tests/integration/range_iteration.rs
+expression: dump
+---
+size: 7
+
+query: (apple, cherry) exclusive  min="apple" (inc=false)  max="cherry" (inc=false)
+  apricot     numDocs=1
+  banana      numDocs=1
+  band        numDocs=1
+  bandana     numDocs=1

@@ -1,0 +1,10 @@
+---
+source: rune_trie_snapshots/tests/integration/contains_iteration.rs
+expression: dump
+---
+size: 6
+
+query: starts-with "cat"  str="cat"  prefix=true  suffix=false
+  cat         numDocs=1
+  catalog     numDocs=1
+  category    numDocs=1

@@ -18,6 +18,7 @@ test_utils = []
 [dependencies]
 cheadergen.workspace = true
 ffi.workspace = true
+icu_casemap.workspace = true
 lending-iterator.workspace = true
 libc.workspace = true
 memchr.workspace = true
@@ -28,5 +29,6 @@ workspace_hack.workspace = true
 insta.workspace = true
 proptest = { workspace = true, features = ["std"] }
 proptest-derive.workspace = true
+rstest.workspace = true
 trie_rs = { workspace = true, features = ["test_utils"] }
 fs-err.workspace = true

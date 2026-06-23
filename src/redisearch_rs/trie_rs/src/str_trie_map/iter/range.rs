@@ -84,6 +84,8 @@ impl<'f> From<RangeFilter<'f>> for InnerFilter<'f> {
 /// Range-filtered iterator over a [`StrTrieMap`](crate::str_trie_map::StrTrieMap),
 /// in lexicographical key order.
 ///
+/// `None` bounds disable the corresponding side of the range.
+///
 /// See [`crate::iter::RangeIter`] for the underlying traversal.
 pub struct RangeIter<'tm, 'p, Data: 'tm>(iter::RangeIter<'tm, 'p, Data>);
 

@@ -33,11 +33,13 @@ members = [
     "rqe_iterators",
     "rqe_iterators_bencher",
     "rqe_iterators_test_utils",
+    "rune_trie_snapshots",
     "search_result",
     "slots_tracker",
     "sorting_vector",
     "spellcheck_dictionary",
     "string_utils",
+    "term_dictionary",
     "term_suffix_index",
     "tools/license_header_linter",
     "tools/ffi_geiger",
@@ -147,12 +149,14 @@ search_result = { path = "./search_result" }
 slots_tracker = { path = "./slots_tracker" }
 sorting_vector = { path = "./sorting_vector" }
 string_utils = { path = "./string_utils" }
+term_dictionary = { path = "./term_dictionary" }
 term_suffix_index = { path = "./term_suffix_index" }
 thin_vec = { path = "./thin_vec" }
 top_k = { path = "./top_k" }
 tracing_assert = { path = "./tracing_assert" }
 vecsim = { path = "./c_wrappers/vecsim" }
 tracing_redismodule = { path = "./tracing_redismodule" }
+spellcheck_dictionary = { path = "./spellcheck_dictionary" }
 trie_rs = { path = "./trie_rs" }
 ttl_table = { path = "./ttl_table" }
 value = { path = "./value" }

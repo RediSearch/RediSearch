@@ -51,15 +51,6 @@ impl<'tm, 't, Data> ContainsIter<'tm, 't, Data> {
             finder,
         }
     }
-
-    /// Creates a new empty contains iterator, that yields no entries.
-    pub(crate) fn empty() -> Self {
-        Self {
-            stack: vec![],
-            key: vec![],
-            finder: Finder::new(b""),
-        }
-    }
 }
 
 impl<'tm, 't, Data> ContainsIter<'tm, 't, Data> {

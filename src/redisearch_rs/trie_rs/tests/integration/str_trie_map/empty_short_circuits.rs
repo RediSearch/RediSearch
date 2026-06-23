@@ -30,6 +30,20 @@ fn prefixed_iter_empty_prefix_yields_nothing() {
 }
 
 #[test]
+fn visit_prefixed_values_empty_prefix_visits_nothing() {
+    let trie = populated();
+
+    let mut visited = Vec::new();
+    let completed = trie.visit_prefixed_values("", &mut |v| {
+        visited.push(*v);
+        true
+    });
+
+    assert!(completed);
+    assert!(visited.is_empty());
+}
+
+#[test]
 fn contains_iter_empty_target_yields_nothing() {
     let trie = populated();
     let hits: Vec<_> = trie.contains_iter("").collect();

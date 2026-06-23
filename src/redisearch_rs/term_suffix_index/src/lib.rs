@@ -198,6 +198,13 @@ impl TermSuffixIndex {
             .collect();
         Some(matches.into_iter())
     }
+
+    /// Iterate over every stored key: each full term and every suffix
+    /// fragment indexed under it, in unspecified order. Backs the
+    /// whole-index dump exposed to C via `TermSuffixIndex_IterateAll`.
+    pub fn keys(&self) -> impl Iterator<Item = String> {
+        self.inner.iter().map(|(key, _)| key)
+    }
 }
 
 /// Returns the anchor token to look up for a wildcard `pattern`

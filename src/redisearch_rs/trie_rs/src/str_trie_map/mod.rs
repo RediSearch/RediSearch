@@ -7,7 +7,9 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 
+pub mod dfa;
 pub mod iter;
+pub mod utf8_decoder;
 
 use crate::TrieMap;
 use std::fmt;
@@ -80,6 +82,13 @@ impl<Data> StrTrieMap<Data> {
         self.inner.mem_usage()
     }
 
+    /// Access the underlying byte-keyed [`TrieMap`].
+    ///
+    /// Used by the DFA iterator, which walks the raw byte trie directly.
+    pub(crate) const fn byte_trie(&self) -> &TrieMap<Data> {
+        &self.inner
+    }
+
     /// Iterate over all entries in lexicographical key order. See [`TrieMap::iter`].
     ///
     /// Yields `(String, &Data)` — keys are decoded back into owned `String`s
@@ -97,6 +106,37 @@ impl<Data> StrTrieMap<Data> {
     /// entries).
     pub fn prefixed_iter(&self, prefix: &str) -> iter::PrefixedIter<'_, Data> {
         iter::PrefixedIter::new(&self.inner, prefix)
+    }
+
+    /// Yield the value of every entry whose key starts with `prefix`, in
+    /// lexicographical key order, without materializing the keys. See
+    /// [`TrieMap::prefixed_values`].
+    ///
+    /// Prefer this over [`Self::prefixed_iter`] when keys are discarded:
+    /// it skips the per-entry key allocation and UTF-8 decode. Empty
+    /// `prefix` yields zero matches (this differs from the inner method,
+    /// which would yield all entries).
+    pub fn prefixed_values(&self, prefix: &str) -> crate::iter::Values<'_, Data> {
+        if prefix.is_empty() {
+            crate::iter::Values::empty()
+        } else {
+            self.inner.prefixed_values(prefix.as_bytes())
+        }
+    }
+
+    /// Call `f` on the value of every entry whose key starts with `prefix`,
+    /// in lexicographical key order. `f` returns `false` to stop the walk
+    /// early. Returns `false` iff the walk was stopped.
+    ///
+    /// Visitor twin of [`Self::prefixed_values`]: same values, same order,
+    /// same empty-`prefix` semantics, but recursive and allocation-free.
+    /// See [`TrieMap::visit_prefixed_values`].
+    pub fn visit_prefixed_values<F: FnMut(&Data) -> bool>(&self, prefix: &str, f: &mut F) -> bool {
+        if prefix.is_empty() {
+            true
+        } else {
+            self.inner.visit_prefixed_values(prefix.as_bytes(), f)
+        }
     }
 
     /// Yield every entry whose key ends with `suffix`. Filters by byte
@@ -127,13 +167,11 @@ impl<Data> StrTrieMap<Data> {
     ///
     /// Differs from [`TrieMap::wildcard_iter`], which matches pattern tokens
     /// against raw bytes — here `?` matches one codepoint, not one byte.
-    pub fn wildcard_iter<'tm>(
+    pub fn wildcard_iter<'tm, 'p>(
         &'tm self,
-        _pattern: &str,
-    ) -> impl Iterator<Item = (String, &'tm Data)> + 'tm {
-        todo!("UTF-8 wildcard iteration over StrTrieMap not yet implemented");
-        #[expect(unreachable_code)]
-        std::iter::empty()
+        pattern: &'p str,
+    ) -> iter::WildcardIter<'tm, 'p, Data> {
+        iter::WildcardIter::new(&self.inner, pattern)
     }
 }
 

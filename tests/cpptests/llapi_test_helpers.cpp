@@ -25,6 +25,7 @@
 #include "search_options.h"
 #include "query_internal.h"
 #include "suffix.h"
+#include "triemap_ffi.h"
 #include "query.h"
 #include "query_eval_ffi.h"
 #include "extension.h"
@@ -127,7 +128,7 @@ RSFieldID RediSearch_CreateField(RefManager* rm, const char* name, unsigned type
     if (fs->types == INDEXFLD_T_FULLTEXT) {
       sp->suffixMask |= FIELD_BIT(fs);
       if (!sp->suffix) {
-        sp->suffix = NewTrie(suffixTrie_freeCallback, Trie_Sort_Lex);
+        sp->suffix = NewTermSuffixIndex();
         sp->flags = (IndexFlags)(sp->flags | Index_HasSuffixTrie);
       }
     }

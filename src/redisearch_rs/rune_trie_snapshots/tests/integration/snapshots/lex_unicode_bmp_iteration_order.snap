@@ -1,0 +1,13 @@
+---
+source: rune_trie_snapshots/tests/integration/unicode.rs
+expression: dump
+---
+size: 7
+entries:
+  U+0061  apple     score=3  numDocs=1
+  U+0063  café      score=6  numDocs=1
+  U+006E  naïve     score=4  numDocs=1
+  U+007A  z         score=7  numDocs=1
+  U+007A  zoé       score=2  numDocs=1
+  U+4E2D  中文        score=1  numDocs=1
+  U+65E5  日本        score=5  numDocs=1

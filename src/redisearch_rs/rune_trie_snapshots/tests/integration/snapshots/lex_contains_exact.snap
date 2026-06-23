@@ -1,0 +1,14 @@
+---
+source: rune_trie_snapshots/tests/integration/contains_iteration.rs
+expression: dump
+---
+size: 6
+
+query: exact "cat"  str="cat"  prefix=false  suffix=false
+  cat         numDocs=1
+
+query: exact "catalo"  str="catalo"  prefix=false  suffix=false
+  <no matches>
+
+query: exact "nope"  str="nope"  prefix=false  suffix=false
+  <no matches>

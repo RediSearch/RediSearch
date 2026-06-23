@@ -73,6 +73,31 @@ pub struct WildcardPattern<'pattern> {
     /// token or a `?` / `*` token. Maintained on the fly by `parse` so callers
     /// (e.g. NFA-size dispatchers) don't have to re-walk `tokens`.
     atom_count: usize,
+    /// Maximum number of input *bytes* the pattern can consume when treated
+    /// as codepoint-aware (i.e. each `?` matches one UTF-8 codepoint, which
+    /// is 1 to 4 bytes). `None` iff any [`Token::Any`] is present (variable
+    /// length); otherwise [`Self::expected_length`] (byte length assuming
+    /// `?` = 1 byte) plus three bytes per `?` for the worst-case
+    /// 4-byte codepoint. Consumed by [`Self::matches_utf8`].
+    max_utf8_byte_length: Option<usize>,
+}
+
+/// UTF-8 lead-byte width table.
+///
+/// Returns the number of bytes in the encoded codepoint that starts with `b`,
+/// or `0` if `b` is a continuation byte or an invalid lead. Lead bytes are
+/// `0x00..=0x7F` (1), `0xC2..=0xDF` (2), `0xE0..=0xEF` (3), `0xF0..=0xF4` (4).
+/// On valid UTF-8 input, a `0` only occurs when an index lands inside a
+/// multi-byte sequence — treated as `NoMatch` by [`WildcardPattern::matches_utf8`].
+#[inline]
+const fn utf8_char_width(b: u8) -> usize {
+    match b {
+        0x00..=0x7F => 1,
+        0xC2..=0xDF => 2,
+        0xE0..=0xEF => 3,
+        0xF0..=0xF4 => 4,
+        _ => 0,
+    }
 }
 
 impl<'pattern> WildcardPattern<'pattern> {
@@ -131,6 +156,9 @@ impl<'pattern> WildcardPattern<'pattern> {
         // it starts a fresh `Literal` or extends an existing one) bumps this
         // by one. `\` and `**` simplifications add nothing.
         let mut atom_count: usize = 0;
+        // Count of `?` tokens. Needed to compute `max_utf8_byte_length`
+        // below: each `?` can consume a 4-byte codepoint in UTF-8.
+        let mut one_count: usize = 0;
         let mut pattern_iter = pattern.iter().copied().enumerate().peekable();
 
         let mut escape_next = false;
@@ -152,6 +180,7 @@ impl<'pattern> WildcardPattern<'pattern> {
                             Some(b'?') => {
                                 tokens.push(Token::One);
                                 atom_count += 1;
+                                one_count += 1;
                             }
                             Some(b'*') => {}
                             _ => break,
@@ -171,6 +200,7 @@ impl<'pattern> WildcardPattern<'pattern> {
                 (b'?', _, false) => {
                     tokens.push(Token::One);
                     atom_count += 1;
+                    one_count += 1;
                 }
                 (_, _, true) => {
                     // Handle escaped characters by starting a new `Literal` token
@@ -213,10 +243,17 @@ impl<'pattern> WildcardPattern<'pattern> {
             );
         }
 
+        // For codepoint-aware (`matches_utf8`) consumers: each `?` can
+        // consume up to a 4-byte UTF-8 codepoint, so the byte cap grows by
+        // 3 per `?` above `expected_length` (which assumed 1 byte per `?`).
+        // Pinned to `None` whenever `*` is present.
+        let max_utf8_byte_length = expected_length.map(|n| n + 3 * one_count);
+
         Self {
             tokens,
             expected_length,
             atom_count,
+            max_utf8_byte_length,
         }
     }
 
@@ -334,12 +371,126 @@ impl<'pattern> WildcardPattern<'pattern> {
         }
     }
 
+    /// Matches a UTF-8 key against the pattern with codepoint-aware
+    /// semantics: `?` consumes exactly one codepoint (1 to 4 bytes), not
+    /// one byte. Literal byte-prefix matching is unchanged — UTF-8 is
+    /// self-synchronizing, so a literal token like `é` (`0xC3 0xA9`) still
+    /// byte-matches the prefix of any key whose first codepoint is `é`.
+    ///
+    /// Callers must supply valid UTF-8: an index landing on a continuation
+    /// byte (lead-width 0) returns [`MatchOutcome::NoMatch`] via the
+    /// backtrack path.
+    ///
+    /// Used by the str-keyed wildcard iterator. Keep in sync with
+    /// [`Self::matches`] — the two share structure; only the `Token::One`
+    /// arm and the early length cap differ.
+    pub fn matches_utf8(&self, key: &[u8]) -> MatchOutcome {
+        if self.tokens.is_empty() {
+            return if key.is_empty() {
+                MatchOutcome::Match
+            } else {
+                MatchOutcome::NoMatch
+            };
+        }
+
+        if let Some(max_bytes) = self.max_utf8_byte_length
+            && key.len() > max_bytes
+        {
+            return MatchOutcome::NoMatch;
+        }
+
+        macro_rules! try_backtrack {
+            ($bt_state:expr, $i_t:ident, $i_k:ident, $label:lifetime) => {
+                if let Some((bt_i_t, bt_i_k)) = &mut $bt_state {
+                    $i_t = *bt_i_t;
+                    $i_k = *bt_i_k + 1;
+                    *bt_i_k = $i_k;
+                    continue $label;
+                } else {
+                    return MatchOutcome::NoMatch;
+                }
+            };
+        }
+
+        let mut i_t = 0;
+        let mut i_k = 0;
+        let mut bt_state = None;
+        'outer: while i_k < key.len() {
+            let Some(curr_token) = self.tokens.get(i_t) else {
+                try_backtrack!(bt_state, i_t, i_k, 'outer);
+            };
+
+            match curr_token {
+                Token::Any => {
+                    i_t += 1;
+                    if self.tokens.get(i_t).is_none() {
+                        return MatchOutcome::Match;
+                    }
+                    bt_state = Some((i_t, i_k));
+                }
+                Token::Literal(chunk) => {
+                    let remaining_key_len = key.len() - i_k;
+                    let (min_len, is_partial_match) = if chunk.len() > remaining_key_len {
+                        (remaining_key_len, true)
+                    } else {
+                        (chunk.len(), false)
+                    };
+                    if !is_prefix(&key[i_k..], &chunk[..min_len]) {
+                        try_backtrack!(bt_state, i_t, i_k, 'outer);
+                    }
+                    if is_partial_match {
+                        return MatchOutcome::PartialMatch;
+                    }
+
+                    i_t += 1;
+                    i_k += chunk.len();
+                }
+                Token::One => {
+                    // Codepoint-aware: advance by the width of the UTF-8
+                    // codepoint that starts at `key[i_k]`. Width 0 means a
+                    // continuation byte landed at the boundary — treat as
+                    // no match and try to backtrack.
+                    let width = utf8_char_width(key[i_k]);
+                    if width == 0 || i_k + width > key.len() {
+                        try_backtrack!(bt_state, i_t, i_k, 'outer);
+                    }
+                    i_t += 1;
+                    i_k += width;
+                }
+            }
+        }
+
+        debug_assert!(
+            i_k >= key.len(),
+            "We should have consumed all bytes in the key by now"
+        );
+
+        // Match when the pattern is exhausted, or when exactly one token
+        // remains and it is a trailing `*` (which can swallow zero chars).
+        let trailing_star = i_t + 1 == self.tokens.len() && self.tokens[i_t] == Token::Any;
+        if i_t == self.tokens.len() || trailing_star {
+            MatchOutcome::Match
+        } else {
+            MatchOutcome::PartialMatch
+        }
+    }
+
     /// The expected length of an input that matches the pattern.
     ///
     /// Returns `None` if the pattern may match inputs of variable length (i.e.
     /// it contains at least one wildcard).
     pub const fn expected_length(&self) -> Option<usize> {
         self.expected_length
+    }
+
+    /// Maximum number of bytes an input UTF-8 key can have and still match
+    /// the pattern under codepoint-aware semantics ([`Self::matches_utf8`]).
+    ///
+    /// `None` iff the pattern contains a `*` (variable length); otherwise
+    /// `Some(expected_length + 3 * count(?))` — worst case where every `?`
+    /// consumes a 4-byte codepoint. Cached during [`Self::parse`].
+    pub const fn max_utf8_byte_length(&self) -> Option<usize> {
+        self.max_utf8_byte_length
     }
 
     /// The number of "atoms" in the pattern: every `?`, every `*`, and one

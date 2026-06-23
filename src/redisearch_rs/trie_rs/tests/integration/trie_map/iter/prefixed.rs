@@ -30,6 +30,15 @@ macro_rules! assert_prefixed_iterators {
         let expected_values: Vec<i32> = $entries.iter().map(|(_, v)| *v).collect();
         let trie_values: Vec<i32> = $trie.prefixed_values($prefix).copied().collect();
         assert_eq!(trie_values, expected_values, "Values iterator failed");
+
+        // Verify the values visitor
+        let mut visited_values: Vec<i32> = Vec::new();
+        let completed = $trie.visit_prefixed_values($prefix, &mut |v| {
+            visited_values.push(*v);
+            true
+        });
+        assert!(completed, "Values visitor reported an early stop");
+        assert_eq!(visited_values, expected_values, "Values visitor failed");
     }};
 }
 
@@ -71,4 +80,65 @@ fn prefix_constraint_is_honored() {
     // If there is no entry matching the prefix, an empty iterator should be returned.
     let expected: Vec<(Vec<u8>, i32)> = vec![];
     assert_prefixed_iterators!(trie, b"xyz", expected);
+}
+
+// Suffix-indexing a single long term stores every suffix as a key, and
+// nested-prefix keys build a chain trie whose depth equals the term length.
+// A pure recursive walk would overflow the machine stack on such input, so
+// the visitor switches to a heap stack past its recursion ceiling; these
+// chains are deep enough (2000 > the ceiling of 1024) to cross over.
+fn deep_chain_trie(depth: usize) -> TrieMap<usize> {
+    let mut trie = TrieMap::new();
+    for k in 1..=depth {
+        trie.insert("a".repeat(k).as_bytes(), k);
+    }
+    trie
+}
+
+#[test]
+fn visitor_handles_chains_deeper_than_the_recursion_ceiling() {
+    let trie = deep_chain_trie(2000);
+
+    let mut visited = Vec::new();
+    let completed = trie.visit_prefixed_values(b"a", &mut |v| {
+        visited.push(*v);
+        true
+    });
+
+    assert!(completed);
+    // Pre-order on a chain of nested prefixes is shortest-first,
+    // which is also lexicographical order for these keys.
+    let expected: Vec<usize> = (1..=2000).collect();
+    assert_eq!(visited, expected);
+}
+
+#[test]
+fn visitor_early_stop_works_past_the_recursion_ceiling() {
+    let trie = deep_chain_trie(2000);
+
+    let mut visited = 0;
+    let completed = trie.visit_prefixed_values(b"a", &mut |_| {
+        visited += 1;
+        visited < 1500
+    });
+
+    assert!(!completed);
+    assert_eq!(visited, 1500);
+}
+
+#[test]
+fn visitor_stops_when_callback_returns_false() {
+    let mut trie = TrieMap::new();
+    trie.insert(b"apple", 1);
+    trie.insert(b"apricot", 2);
+    trie.insert(b"banana", 3);
+
+    let mut visited = Vec::new();
+    let completed = trie.visit_prefixed_values(b"ap", &mut |v| {
+        visited.push(*v);
+        false
+    });
+
+    assert!(!completed);
+    assert_eq!(visited, vec![1]);
 }
