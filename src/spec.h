@@ -548,9 +548,9 @@ StrongRef IndexSpec_ParseC(RedisModuleCtx *ctx, const char *name, const char **a
 
 FieldSpec *IndexSpec_CreateField(IndexSpec *sp, const char *name, const char *path);
 
-// Delete a document from the index by its key name.
-// Looks up the docId via DocIdMeta_Get on the key, then removes the document
-// from the DocTable and cleans up associated metadata (DocIdMeta_Delete).
+// Delete a document from the index by its key name. Looks up the docId via
+// DocIdMeta_Get, removes the doc (from disk, or the DocTable in memory mode),
+// and deletes the DocIdMeta mapping so it stays authoritative.
 // Requires a RedisModuleCtx to access the key's metadata.
 // This function locks the spec for writing.
 int IndexSpec_DeleteDoc(IndexSpec *spec, RedisModuleCtx *ctx, RedisModuleString *key);
