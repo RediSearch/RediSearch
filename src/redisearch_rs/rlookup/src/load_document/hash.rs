@@ -94,6 +94,10 @@ impl DocumentFormat for HashDocumentFormat {
         scan_cursor.for_each(|_key, field, value| {
             let (field_ptr, field_len) = field.as_cstr_ptr_and_len();
 
+            // Field names are treated as C strings here: a name with an interior NUL is
+            // truncated at the first NUL. This matches RediSearch as a whole: schema and
+            // document field names are built with `strlen` (`IndexSpec_CreateField`,
+            // `addFieldCommon`) and HASH lookups use `REDISMODULE_HASH_CFIELDS`.
             let field_cstr = {
                 // SAFETY: `RedisModule_StringPtrLen` returns a pointer to a null-terminated
                 // SDS string.

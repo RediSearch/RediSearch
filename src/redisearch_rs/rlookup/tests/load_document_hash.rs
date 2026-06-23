@@ -16,8 +16,8 @@ use proptest::prelude::{Strategy, any};
 use proptest::proptest;
 use redis_module::{KeyType, RedisString};
 use rlookup::{
-    DocumentFormat, HashDocumentFormat, LoadAllError, LoadFieldError, RLookup, RLookupKeyFlag,
-    RLookupKeyFlags, RLookupRow,
+    DocumentFormat, FieldSpecBuilder, FieldSpecType, HashDocumentFormat, IndexSpecCache,
+    LoadFieldError, RLookup, RLookupKeyFlag, RLookupKeyFlags, RLookupRow,
 };
 use std::ffi::CString;
 use std::ptr::NonNull;
@@ -239,20 +239,139 @@ proptest! {
 
 #[test]
 #[cfg_attr(miri, ignore)] // can't call FFI function RedisModule_CreateString under miri
-fn load_all_returns_err_without_setting_status_for_wrong_type() {
+fn load_all_composes_branches_in_one_pass() {
     redis_mock::init_redis_module_mock();
 
-    // Mirrors `RLookup_HGETALL` in C, which goes straight to `done` without
-    // setting any QueryError on a wrong-type / missing key.
-    with_ctx(KeyType::String, &[], |ctx| {
+    // A single scan pass must compose all three callback branches: an existing
+    // load key is written, a QuerySrc key is skipped, and an unknown field gets
+    // a key created on the fly.
+    let fields = [
+        (CString::new("load").unwrap(), CString::new("L").unwrap()),
+        (CString::new("query").unwrap(), CString::new("Q").unwrap()),
+        (CString::new("unknown").unwrap(), CString::new("U").unwrap()),
+    ];
+
+    with_ctx(KeyType::Hash, &fields, |ctx| {
         let format = HashDocumentFormat::new(ctx, false);
         let key_name_bytes = CString::new("doc:1").unwrap();
         let key_name = make_redis_string(&key_name_bytes);
 
         let mut rlookup = RLookup::new();
-        let mut row = RLookupRow::new();
-        let res = format.load_all(&mut rlookup, &mut row, &key_name);
+        let load_dst = rlookup
+            .get_key_load(
+                fields[0].0.clone(),
+                fields[0].0.as_c_str(),
+                RLookupKeyFlags::empty(),
+            )
+            .unwrap()
+            .dstidx;
+        let query_dst = rlookup
+            .get_key_write(fields[1].0.clone(), RLookupKeyFlags::empty())
+            .unwrap()
+            .dstidx;
 
-        assert!(matches!(res, Err(LoadAllError::OpenKeyFailed)));
+        let mut row = RLookupRow::new();
+        format.load_all(&mut rlookup, &mut row, &key_name).unwrap();
+
+        // Existing load key -> written.
+        assert_eq!(
+            row.dyn_values()[load_dst as usize]
+                .as_ref()
+                .unwrap()
+                .as_str_bytes(),
+            Some(fields[0].1.as_bytes()),
+        );
+        // QuerySrc key -> skipped.
+        assert!(
+            row.dyn_values()
+                .get(query_dst as usize)
+                .is_none_or(Option::is_none),
+            "QuerySrc key should not be written by load_all",
+        );
+        // Unknown field -> key created on the fly and written.
+        let cursor = rlookup
+            .find_key_by_name(&fields[2].0)
+            .expect("load_all should have created the key on the fly");
+        let new_key = cursor.current().unwrap();
+        assert_eq!(
+            row.dyn_values()[new_key.dstidx as usize]
+                .as_ref()
+                .unwrap()
+                .as_str_bytes(),
+            Some(fields[2].1.as_bytes()),
+        );
+    })
+}
+
+#[test]
+#[cfg_attr(miri, ignore)] // can't call FFI function RedisModule_CreateString under miri
+fn load_all_coerces_numeric_keys_unless_force_string() {
+    redis_mock::init_redis_module_mock();
+
+    let fields = [(CString::new("n").unwrap(), CString::new("42.5").unwrap())];
+
+    // `Numeric` cannot be set through a caller flag — both the C `RLOOKUP_GET_KEY_FLAGS`
+    // mask and the Rust `GET_KEY_FLAGS` mask strip it. The flag is only ever applied
+    // from the schema, so the coercion branch is driven through a numeric field spec.
+    let numeric_spec_cache = || {
+        IndexSpecCache::from_fields([FieldSpecBuilder::new(fields[0].0.as_c_str())
+            .with_types(FieldSpecType::Numeric.into())
+            .finish()])
+    };
+
+    // force_string = false: a Numeric key coerces the value to a number.
+    with_ctx(KeyType::Hash, &fields, |ctx| {
+        let format = HashDocumentFormat::new(ctx, false);
+        let key_name_bytes = CString::new("doc:1").unwrap();
+        let key_name = make_redis_string(&key_name_bytes);
+
+        let mut rlookup = RLookup::new();
+        rlookup.set_cache(Some(numeric_spec_cache()));
+        let key = rlookup
+            .get_key_load(
+                fields[0].0.clone(),
+                fields[0].0.as_c_str(),
+                RLookupKeyFlags::empty(),
+            )
+            .unwrap();
+        assert!(key.flags.contains(RLookupKeyFlag::Numeric));
+        let dstidx = key.dstidx;
+
+        let mut row = RLookupRow::new();
+        format.load_all(&mut rlookup, &mut row, &key_name).unwrap();
+
+        assert_eq!(
+            row.dyn_values()[dstidx as usize].as_ref().unwrap().as_num(),
+            Some(42.5),
+        );
+    });
+
+    // force_string = true: even a Numeric key keeps the raw Redis string.
+    with_ctx(KeyType::Hash, &fields, |ctx| {
+        let format = HashDocumentFormat::new(ctx, true);
+        let key_name_bytes = CString::new("doc:1").unwrap();
+        let key_name = make_redis_string(&key_name_bytes);
+
+        let mut rlookup = RLookup::new();
+        rlookup.set_cache(Some(numeric_spec_cache()));
+        let dstidx = rlookup
+            .get_key_load(
+                fields[0].0.clone(),
+                fields[0].0.as_c_str(),
+                RLookupKeyFlags::empty(),
+            )
+            .unwrap()
+            .dstidx;
+
+        let mut row = RLookupRow::new();
+        format.load_all(&mut rlookup, &mut row, &key_name).unwrap();
+
+        assert_eq!(
+            row.dyn_values()[dstidx as usize]
+                .as_ref()
+                .unwrap()
+                .as_str_bytes(),
+            Some(fields[0].1.as_bytes()),
+        );
     })
 }
