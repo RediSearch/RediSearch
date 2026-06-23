@@ -148,6 +148,38 @@ static const char *sourceLabelForIndex(size_t i) {
   return "source";
 }
 
+static sds appendRRFFinalScoreTerms(sds buf, const HybridScoringContext *scoringCtx,
+                                    const double *ranks, const bool *has_rank,
+                                    size_t num_sources) {
+  const double k = scoringCtx->rrfCtx.constant;
+  for (size_t i = 0; i < num_sources; i++) {
+    if (i > 0) buf = sdscat(buf, " + ");
+    if (has_rank[i]) {
+      buf = sdscatprintf(buf, "1 / (constant %.2f + rank %.0f)", k, ranks[i]);
+    } else {
+      buf = sdscatprintf(buf, "0 [%s: no match]", sourceLabelForIndex(i));
+    }
+  }
+  return buf;
+}
+
+static sds appendLinearFinalScoreTerms(sds buf, const HybridScoringContext *scoringCtx,
+                                       const double *scores, const bool *has_score,
+                                       size_t num_sources) {
+  const double *w = scoringCtx->linearCtx.linearWeights;
+  const size_t numWeights = scoringCtx->linearCtx.numWeights;
+  for (size_t i = 0; i < num_sources; i++) {
+    if (i > 0) buf = sdscat(buf, " + ");
+    if (has_score[i]) {
+      const double wi = i < numWeights ? w[i] : 0.0;
+      buf = sdscatprintf(buf, "%.4f * %.4f", wi, scores[i]);
+    } else {
+      buf = sdscatprintf(buf, "0 [%s: no match]", sourceLabelForIndex(i));
+    }
+  }
+  return buf;
+}
+
 char *HybridScoring_FormatFinalScoreLine(const HybridScoringContext *scoringCtx,
                                          const double *values, const bool *has_value,
                                          size_t num_sources, double finalScore) {
@@ -158,28 +190,10 @@ char *HybridScoring_FormatFinalScoreLine(const HybridScoringContext *scoringCtx,
   sds buf = sdsnew("final score: ");
 
   if (scoringCtx->scoringType == HYBRID_SCORING_RRF) {
-    const double k = scoringCtx->rrfCtx.constant;
-    for (size_t i = 0; i < num_sources; i++) {
-      if (i > 0) buf = sdscat(buf, " + ");
-      if (has_value[i]) {
-        buf = sdscatprintf(buf, "1 / (constant %.2f + rank %.0f)", k, values[i]);
-      } else {
-        buf = sdscatprintf(buf, "0 [%s: no match]", sourceLabelForIndex(i));
-      }
-    }
+    buf = appendRRFFinalScoreTerms(buf, scoringCtx, values, has_value, num_sources);
   } else {
     RS_ASSERT(scoringCtx->scoringType == HYBRID_SCORING_LINEAR);
-    const double *w = scoringCtx->linearCtx.linearWeights;
-    const size_t numWeights = scoringCtx->linearCtx.numWeights;
-    for (size_t i = 0; i < num_sources; i++) {
-      if (i > 0) buf = sdscat(buf, " + ");
-      if (has_value[i]) {
-        const double wi = i < numWeights ? w[i] : 0.0;
-        buf = sdscatprintf(buf, "%.4f * %.4f", wi, values[i]);
-      } else {
-        buf = sdscatprintf(buf, "0 [%s: no match]", sourceLabelForIndex(i));
-      }
-    }
+    buf = appendLinearFinalScoreTerms(buf, scoringCtx, values, has_value, num_sources);
   }
 
   buf = sdscatprintf(buf, " = %.17g", finalScore);

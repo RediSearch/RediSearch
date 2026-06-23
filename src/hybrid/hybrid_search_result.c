@@ -175,6 +175,60 @@ static void moveScoreExplainInto(RSScoreExplain *dst, RSScoreExplain *src) {
   rm_free(src);
 }
 
+// Detach and return the search sub-result's RSScoreExplain (or NULL).
+// The caller takes ownership; the source no longer points to it.
+static RSScoreExplain *takeTextSubresultScoreExplain(const HybridSearchResult *hybridResult) {
+  SearchResult *textResult = hybridResult->searchResults[SEARCH_INDEX];
+  RSScoreExplain *scorerSubtree = SearchResult_GetScoreExplainMut(textResult);
+  if (scorerSubtree) {
+    SearchResult_SetScoreExplain(textResult, NULL);
+  }
+  return scorerSubtree;
+}
+
+static char *formatTextBranchLabel(const HybridScoringContext *scoringCtx, bool isRRF,
+                                   double textValue) {
+  char *out = NULL;
+  if (isRRF) {
+    rm_asprintf(&out, "text rank = %.0f", textValue);
+  } else {
+    const double alpha = scoringCtx->linearCtx.numWeights > 0
+                             ? scoringCtx->linearCtx.linearWeights[0]
+                             : 0.0;
+    rm_asprintf(&out, "text contribution = %.4f * %.4f = %.4f",
+                alpha, textValue, alpha * textValue);
+  }
+  return out;
+}
+
+// Takes ownership of `scorerSubtree` (may be NULL).
+static RSScoreExplain *buildTextScorerNode(const HybridExplainContext *explainCtx, bool isRRF,
+                                           double textValue, RSScoreExplain *scorerSubtree) {
+  RSScoreExplain *node = rm_calloc(1, sizeof(RSScoreExplain));
+  rm_asprintf(&node->str, "Text scorer: %s",
+              explainCtx->textScorerName ? explainCtx->textScorerName : "<default>");
+
+  if (isRRF) {
+    if (scorerSubtree) {
+      node->numChildren = 1;
+      node->children = rm_calloc(1, sizeof(RSScoreExplain));
+      moveScoreExplainInto(&node->children[0], scorerSubtree);
+    }
+    return node;
+  }
+
+  // LINEAR: extra "normalized text score = X" sibling so the formula in the
+  // parent line is fully derivable from the children.
+  const int n = scorerSubtree ? 2 : 1;
+  node->numChildren = n;
+  node->children = rm_calloc(n, sizeof(RSScoreExplain));
+  rm_asprintf(&node->children[0].str, "normalized text score = %.4f", textValue);
+  if (scorerSubtree) {
+    moveScoreExplainInto(&node->children[1], scorerSubtree);
+  }
+  return node;
+}
+
 // Build the text branch sub-tree.
 //
 //   RRF:    "text rank = N"
@@ -202,47 +256,11 @@ static RSScoreExplain *buildTextBranch(const HybridSearchResult *hybridResult,
     return parent;
   }
 
-  if (isRRF) {
-    rm_asprintf(&parent->str, "text rank = %.0f", textValue);
-  } else {
-    const double alpha = scoringCtx->linearCtx.numWeights > 0
-                             ? scoringCtx->linearCtx.linearWeights[0]
-                             : 0.0;
-    rm_asprintf(&parent->str, "text contribution = %.4f * %.4f = %.4f",
-                alpha, textValue, alpha * textValue);
-  }
+  parent->str = formatTextBranchLabel(scoringCtx, isRRF, textValue);
 
-  // Inner scorer node, always present (per MOD-10044: "explicitly include the
-  // scorer name").
-  RSScoreExplain *scorerNode = rm_calloc(1, sizeof(RSScoreExplain));
-  rm_asprintf(&scorerNode->str, "Text scorer: %s",
-              explainCtx->textScorerName ? explainCtx->textScorerName : "<default>");
-
-  // Take ownership of the text sub-result's score_explain (if any).
-  SearchResult *textResult = hybridResult->searchResults[SEARCH_INDEX];
-  RSScoreExplain *scorerSubtree = SearchResult_GetScoreExplainMut(textResult);
-  if (scorerSubtree) {
-    SearchResult_SetScoreExplain(textResult, NULL);
-  }
-
-  if (isRRF) {
-    if (scorerSubtree) {
-      scorerNode->numChildren = 1;
-      scorerNode->children = rm_calloc(1, sizeof(RSScoreExplain));
-      moveScoreExplainInto(&scorerNode->children[0], scorerSubtree);
-    }
-  } else {
-    // LINEAR: extra "normalized text score = X" sibling so the formula in the
-    // parent line is fully derivable from the children.
-    const int n = scorerSubtree ? 2 : 1;
-    scorerNode->numChildren = n;
-    scorerNode->children = rm_calloc(n, sizeof(RSScoreExplain));
-    rm_asprintf(&scorerNode->children[0].str, "normalized text score = %.4f",
-                textValue);
-    if (scorerSubtree) {
-      moveScoreExplainInto(&scorerNode->children[1], scorerSubtree);
-    }
-  }
+  RSScoreExplain *scorerSubtree = takeTextSubresultScoreExplain(hybridResult);
+  RSScoreExplain *scorerNode =
+      buildTextScorerNode(explainCtx, isRRF, textValue, scorerSubtree);
 
   parent->numChildren = 1;
   parent->children = rm_calloc(1, sizeof(RSScoreExplain));
