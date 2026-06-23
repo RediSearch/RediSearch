@@ -2974,7 +2974,6 @@ name = "top_k"
 version = "0.0.1"
 dependencies = [
  "build_utils",
- "ffi",
  "index_result",
  "index_spec",
  "inverted_index",
