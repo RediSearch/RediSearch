@@ -164,7 +164,7 @@ fn min_max_heap_top_k_under_asc() {
 }
 
 #[test]
-fn entry_key_compares_doc_id_only_after_sort_values_tie() {
+fn ranking_key_compares_doc_id_only_after_sort_values_tie() {
     let primary = Some(SharedValue::new_num(1.0));
     let a = RankingKey::new(Box::new([primary.clone()]), asc(0), 10u64);
     let b = RankingKey::new(Box::new([primary]), asc(0), 20u64);
