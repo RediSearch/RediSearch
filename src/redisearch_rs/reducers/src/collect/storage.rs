@@ -176,16 +176,15 @@ impl<D: Ord> HeapStorage<D> {
         project: impl FnOnce() -> ProjectedRow,
     ) {
         let max_size = self.offset.saturating_add(self.count);
-        if max_size == 0 {
-            return;
-        }
+        // `LIMIT count` is parse-validated `>= 1`, so a zero cap never reaches here.
+        debug_assert!(max_size > 0, "heap storage built with a zero cap");
         let cand_key = RankingKey::new(sort_vals, self.sort_asc_map, doc_id);
         if self.heap.len() < max_size {
             self.heap.push(HeapEntry::new(cand_key, project()));
         } else {
             // `peek_min` is the worst survivor under the "best = max"
-            // convention (see [`super::heap`]); the unwrap is sound because a
-            // full heap with `max_size > 0` is non-empty.
+            // convention (see [`super::heap`]); a full heap is non-empty per the
+            // `max_size > 0` assertion above, so the unwrap holds.
             let worst = self.heap.peek_min().expect("heap at cap is non-empty");
             if cand_key > *worst.key() {
                 self.heap.push_pop_min(HeapEntry::new(cand_key, project()));
