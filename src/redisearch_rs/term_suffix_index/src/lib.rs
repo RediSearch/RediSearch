@@ -22,10 +22,6 @@
 //! trie for the needle surfaces every member containing it.
 //! [`TermSuffixIndex::iter_contains`] is the prefix lookup;
 //! [`TermSuffixIndex::iter_suffix`] is the exact lookup.
-//!
-//! Every non-empty member is stored along with all of its proper
-//! suffixes down to the final codepoint, so even a single-codepoint
-//! needle resolves directly against the structure.
 
 mod term_refs;
 
