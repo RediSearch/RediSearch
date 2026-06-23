@@ -33,7 +33,7 @@ use crate::Frame;
 pub fn collect_missing_docs(writer: &mut impl Write, spec: &IndexSpecReadGuard) -> io::Result<()> {
     let doc_exists = |id| spec.doc_exists(id);
 
-    for entry in spec.missing_field_dict2().iter() {
+    for entry in spec.missing_field_dict().iter() {
         let Some(ii) = entry.val() else { continue };
 
         let Ok(Some(deltas)) = ii.scan_gc(doc_exists) else {

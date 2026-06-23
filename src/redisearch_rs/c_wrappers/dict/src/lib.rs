@@ -30,7 +30,7 @@ use inverted_index::opaque::InvertedIndex;
 ///
 /// # Safety
 ///
-/// Implementors must ensure that the `*mut c_void` passed to `from_dict_ptr`
+/// Implementers must ensure that the `*mut c_void` passed to `from_dict_ptr`
 /// genuinely points to a value of the type that `Self` represents. Whether
 /// `into_dict_ptr` is safe to call depends on the [`ffi::dictType`] the dict
 /// was created with — the dictType's callbacks determine how the pointer is
@@ -51,14 +51,22 @@ pub unsafe trait DictValue<'a>: Sized + Copy + 'a {
 // SAFETY: pointer casts are always layout-compatible; the caller is responsible
 // for ensuring the pointer actually addresses a T.
 unsafe impl<'a, T: 'a> DictValue<'a> for *mut T {
-    unsafe fn from_dict_ptr(ptr: *mut c_void) -> Self { ptr.cast() }
-    fn into_dict_ptr(self) -> *mut c_void { self.cast() }
+    unsafe fn from_dict_ptr(ptr: *mut c_void) -> Self {
+        ptr.cast()
+    }
+    fn into_dict_ptr(self) -> *mut c_void {
+        self.cast()
+    }
 }
 
 // SAFETY: same as *mut T; const-ness is a Rust concept, not a C one.
 unsafe impl<'a, T: 'a> DictValue<'a> for *const T {
-    unsafe fn from_dict_ptr(ptr: *mut c_void) -> Self { ptr.cast() }
-    fn into_dict_ptr(self) -> *mut c_void { self.cast_mut().cast() }
+    unsafe fn from_dict_ptr(ptr: *mut c_void) -> Self {
+        ptr.cast()
+    }
+    fn into_dict_ptr(self) -> *mut c_void {
+        self.cast_mut().cast()
+    }
 }
 
 // SAFETY: The dict stores *mut HiddenString pointers as *mut c_void.
@@ -69,7 +77,9 @@ unsafe impl<'a> DictValue<'a> for HiddenStringRef<'a> {
         // SAFETY: caller guarantees ptr is a valid *mut HiddenString for 'a.
         unsafe { HiddenStringRef::from_raw(ptr.cast::<ffi::HiddenString>()) }
     }
-    fn into_dict_ptr(self) -> *mut c_void { self.as_ptr().cast() }
+    fn into_dict_ptr(self) -> *mut c_void {
+        self.as_ptr().cast()
+    }
 }
 
 // SAFETY: null pointer → None (absence of a value); non-null *mut c_void →
@@ -77,7 +87,11 @@ unsafe impl<'a> DictValue<'a> for HiddenStringRef<'a> {
 unsafe impl<'a, T: 'a> DictValue<'a> for Option<&'a T> {
     unsafe fn from_dict_ptr(ptr: *mut c_void) -> Self {
         // SAFETY: caller guarantees non-null ptr is a valid *const T for 'a.
-        if ptr.is_null() { None } else { Some(unsafe { &*ptr.cast::<T>() }) }
+        if ptr.is_null() {
+            None
+        } else {
+            Some(unsafe { &*ptr.cast::<T>() })
+        }
     }
     fn into_dict_ptr(self) -> *mut c_void {
         match self {
@@ -98,7 +112,7 @@ unsafe impl<'a, T: 'a> DictValue<'a> for Option<&'a T> {
 ///
 /// # Safety
 ///
-/// Implementors must ensure that [`as_ptr`](Self::as_ptr) returns a pointer to
+/// Implementers must ensure that [`as_ptr`](Self::as_ptr) returns a pointer to
 /// a valid, live `ffi::dictType` whose callbacks are consistent with `K` and
 /// `V`: e.g. if `K::into_dict_ptr` returns a pointer to a temporary, the
 /// dictType's `keyDup` must copy it before the caller is allowed to free the
@@ -129,7 +143,7 @@ unsafe impl DictType for MissingFieldDictType {
     type V<'a> = Option<&'a InvertedIndex>;
 
     fn as_ptr() -> *mut ffi::dictType {
-        unsafe { std::ptr::addr_of_mut!(ffi::dictTypeHeapHiddenStrings) }
+        std::ptr::addr_of_mut!(ffi::dictTypeHeapHiddenStrings)
     }
 }
 
@@ -278,7 +292,10 @@ pub struct DictEntry<'a, DT: DictType> {
 
 impl<'a, DT: DictType> DictEntry<'a, DT> {
     const fn new(entry: *mut ffi::dictEntry) -> Self {
-        Self { entry, _phantom: PhantomData }
+        Self {
+            entry,
+            _phantom: PhantomData,
+        }
     }
 
     /// Return the key of this entry.
@@ -320,7 +337,10 @@ impl<'a, DT: DictType> DictIterator<'a, DT> {
     pub unsafe fn new(dict: *mut ffi::dict) -> Self {
         // SAFETY: caller guarantees dict is valid and non-null.
         let iter = unsafe { ffi::RS_dictGetIterator(dict) };
-        Self { iter, _phantom: PhantomData }
+        Self {
+            iter,
+            _phantom: PhantomData,
+        }
     }
 }
 
@@ -330,7 +350,11 @@ impl<'a, DT: DictType> Iterator for DictIterator<'a, DT> {
     fn next(&mut self) -> Option<Self::Item> {
         // SAFETY: self.iter is a valid iterator obtained during construction.
         let entry = unsafe { ffi::RS_dictNext(self.iter) };
-        if entry.is_null() { None } else { Some(DictEntry::new(entry)) }
+        if entry.is_null() {
+            None
+        } else {
+            Some(DictEntry::new(entry))
+        }
     }
 }
 

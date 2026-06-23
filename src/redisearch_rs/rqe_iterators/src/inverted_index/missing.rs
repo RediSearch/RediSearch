@@ -140,8 +140,8 @@ where
     ///    variant matches `E`.
     fn should_abort(&self, spec: &IndexSpecReadGuard) -> bool {
         debug_assert!(
-            !spec.missing_field_dict().is_null(),
-            "spec.missing_field_dict() must be non-null",
+            !spec.missing_field_dict_ptr().is_null(),
+            "spec.missing_field_dict_ptr() must be non-null",
         );
 
         // SAFETY: field_index is a valid index into spec.fields (guaranteed by constructor pre-conditions).
@@ -149,8 +149,9 @@ where
         // SAFETY: the pointer is valid per the above.
         let field = unsafe { &*field_ptr };
         // SAFETY: The dict is non-null and valid (guaranteed by constructor pre-conditions).
-        let missing_ii_ptr =
-            unsafe { ffi::RS_dictFetchValue(spec.missing_field_dict(), field.fieldName as *mut _) };
+        let missing_ii_ptr = unsafe {
+            ffi::RS_dictFetchValue(spec.missing_field_dict_ptr(), field.fieldName as *mut _)
+        };
 
         if missing_ii_ptr.is_null() {
             // The inverted index was removed from the dict (garbage collected).

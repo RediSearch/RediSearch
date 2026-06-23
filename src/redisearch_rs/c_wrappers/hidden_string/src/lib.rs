@@ -42,7 +42,7 @@ impl<'a> HiddenStringRef<'a> {
     }
 
     /// Return the raw pointer to the underlying [`ffi::HiddenString`].
-    pub fn as_ptr(self) -> *mut ffi::HiddenString {
+    pub const fn as_ptr(self) -> *mut ffi::HiddenString {
         self.0.as_ptr()
     }
 

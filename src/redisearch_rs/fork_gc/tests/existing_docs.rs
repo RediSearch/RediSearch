@@ -22,6 +22,9 @@ use inverted_index::opaque::InvertedIndex as OpaqueInvertedIndex;
 use inverted_index::{GcScanDelta, InvertedIndex, doc_ids_only::DocIdsOnly};
 use serde::Serialize as _;
 
+// Provide Redis allocator shims so the C dict functions can allocate memory.
+redis_mock::mock_or_stub_missing_redis_c_symbols!();
+
 fn make_spec(existing_docs: *mut ffi::InvertedIndex) -> ffi::IndexSpec {
     // SAFETY: zeroed IndexSpec is valid for read-only access; existingDocs is
     // either null or a caller-managed pointer that outlives this struct.
