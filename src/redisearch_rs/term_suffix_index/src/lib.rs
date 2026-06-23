@@ -74,11 +74,12 @@ impl TermSuffixIndex {
     /// queryable suffix. Lowercased on entry; re-adding an existing term, or
     /// adding an empty one, is a no-op.
     pub fn add(&mut self, term: &str) {
-        let lowered = unicode_tolower(term);
-        let term = lowered.as_str();
         if term.is_empty() {
             return;
         }
+
+        let lowered = unicode_tolower(term);
+        let term = lowered.as_str();
 
         if self.inner.get(term).is_some_and(TermRefs::has_full_term) {
             return;
@@ -100,11 +101,12 @@ impl TermSuffixIndex {
     /// it was the last referrer to. Lowercased on entry; removing an absent or
     /// empty term is a no-op.
     pub fn remove(&mut self, term: &str) {
-        let lowered = unicode_tolower(term);
-        let term = lowered.as_str();
         if term.is_empty() {
             return;
         }
+
+        let lowered = unicode_tolower(term);
+        let term = lowered.as_str();
 
         if let Some(data) = self.inner.get_mut(term)
             && data.has_full_term()
