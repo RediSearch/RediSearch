@@ -11,4 +11,5 @@ workspace = true
 [dependencies]
 ffi.workspace = true
 hidden_string.workspace = true
+inverted_index.workspace = true
 workspace_hack.workspace = true

@@ -12,7 +12,6 @@ workspace = true
 dict.workspace = true
 ffi.workspace = true
 field_spec.workspace = true
-hidden_string.workspace = true
 inverted_index.workspace = true
 rqe_core.workspace = true
 schema_rule.workspace = true

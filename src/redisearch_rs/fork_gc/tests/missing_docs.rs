@@ -7,11 +7,13 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 
-use std::{io::Cursor, mem, ptr};
+use std::{io::Cursor, mem};
 
+use dict::MissingFieldDictType;
 use dict::OwnedDict;
 use ffi::IndexFlags_Index_DocIdsOnly;
 use fork_gc::{Frame, missing_docs::collect_missing_docs};
+use hidden_string::HiddenStringRef;
 use index_result::RSIndexResult;
 use index_spec::IndexSpecReadGuard;
 use inverted_index::opaque::InvertedIndex as OpaqueInvertedIndex;
@@ -23,28 +25,29 @@ redis_mock::mock_or_stub_missing_redis_c_symbols!();
 
 // ── Test helpers ─────────────────────────────────────────────────────────────
 
-/// Create an [`OwnedDict`] using `dictTypeHeapHiddenStrings` — the same key
-/// type as a real `missingFieldDict`. The dict is released automatically when
-/// it goes out of scope. Values are NOT freed on drop because
-/// `dictTypeHeapHiddenStrings.valDestructor` is null.
-fn make_dict() -> OwnedDict {
-    // SAFETY: dictTypeHeapHiddenStrings is a valid static dictType.
-    unsafe { OwnedDict::create(ptr::addr_of_mut!(ffi::dictTypeHeapHiddenStrings)) }
+fn make_dict() -> OwnedDict<MissingFieldDictType> {
+    OwnedDict::create()
 }
 
 /// Add one entry to `dict` keyed by `field_name`, with value `ii`.
 ///
-/// `dictTypeHeapHiddenStrings` duplicates the key internally (via `keyDup`),
-/// so the temporary `HiddenString` is freed immediately after insertion.
-fn add_entry(dict: &mut OwnedDict, field_name: &[u8], ii: *mut std::ffi::c_void) {
-    // SAFETY: NewHiddenString copies `field_name` into a heap allocation; the
-    // dict's keyDup makes its own copy, so we free the original immediately.
+/// `MissingFieldDictType` uses `dictTypeHeapHiddenStrings`, which copies the
+/// key via `keyDup`, so the temporary `HiddenString` can be freed immediately
+/// after insertion.
+fn add_entry(
+    dict: &mut OwnedDict<MissingFieldDictType>,
+    field_name: &[u8],
+    ii: Option<&OpaqueInvertedIndex>,
+) {
+    // SAFETY: NewHiddenString copies `field_name`; the dict's keyDup copies
+    // the HiddenString itself, so we free the original immediately after insert.
     let hs = unsafe { ffi::NewHiddenString(field_name.as_ptr().cast(), field_name.len(), false) };
-    dict.insert(hs.cast(), ii);
+    let hs_ref = unsafe { HiddenStringRef::from_raw(hs) };
+    dict.insert(hs_ref, ii);
     unsafe { ffi::HiddenString_Free(hs, false) };
 }
 
-fn make_spec(dict: &OwnedDict) -> ffi::IndexSpec {
+fn make_spec(dict: &OwnedDict<MissingFieldDictType>) -> ffi::IndexSpec {
     // SAFETY: zeroed IndexSpec is valid for read-only field access through the guard.
     let mut spec: ffi::IndexSpec = unsafe { mem::zeroed() };
     spec.missingFieldDict = dict.as_ptr();
@@ -58,7 +61,6 @@ fn make_spec(dict: &OwnedDict) -> ffi::IndexSpec {
 fn empty_dict_writes_only_terminator() {
     let dict = make_dict();
     let spec = make_spec(&dict);
-    // SAFETY: spec borrows dict, which lives for the duration of this test.
     let guard = unsafe { IndexSpecReadGuard::from_locked(&spec) };
 
     let mut buf = Vec::new();
@@ -71,13 +73,12 @@ fn empty_dict_writes_only_terminator() {
     ));
 }
 
-/// Entries whose value is null (no inverted index) are skipped silently.
+/// Entries whose value is `None` (no inverted index) are skipped silently.
 #[test]
 fn null_value_entry_is_skipped() {
     let mut dict = make_dict();
-    add_entry(&mut dict, b"no_index_field", ptr::null_mut());
+    add_entry(&mut dict, b"no_index_field", None);
     let spec = make_spec(&dict);
-    // SAFETY: spec borrows dict, which lives for the duration of this test.
     let guard = unsafe { IndexSpecReadGuard::from_locked(&spec) };
 
     let mut buf = Vec::new();
@@ -99,9 +100,8 @@ fn empty_inverted_index_is_skipped() {
     let ii_ptr = Box::into_raw(ii);
 
     let mut dict = make_dict();
-    add_entry(&mut dict, b"empty_field", ii_ptr.cast());
+    add_entry(&mut dict, b"empty_field", Some(unsafe { &*ii_ptr }));
     let spec = make_spec(&dict);
-    // SAFETY: spec borrows dict; ii_ptr is valid for the duration of this test.
     let guard = unsafe { IndexSpecReadGuard::from_locked(&spec) };
 
     let mut buf = Vec::new();
@@ -134,9 +134,8 @@ fn entry_with_deleted_docs_writes_delta_frame() {
     let ii_ptr = Box::into_raw(ii);
 
     let mut dict = make_dict();
-    add_entry(&mut dict, b"age", ii_ptr.cast());
+    add_entry(&mut dict, b"age", Some(unsafe { &*ii_ptr }));
     let spec = make_spec(&dict);
-    // SAFETY: spec borrows dict; ii_ptr is valid for the duration of this test.
     let guard = unsafe { IndexSpecReadGuard::from_locked(&spec) };
 
     let mut buf = Vec::new();
@@ -176,10 +175,9 @@ fn multiple_entries_write_multiple_delta_frames() {
     let ii_b = make_ii(2);
 
     let mut dict = make_dict();
-    add_entry(&mut dict, b"field_a", ii_a.cast());
-    add_entry(&mut dict, b"field_b", ii_b.cast());
+    add_entry(&mut dict, b"field_a", Some(unsafe { &*ii_a }));
+    add_entry(&mut dict, b"field_b", Some(unsafe { &*ii_b }));
     let spec = make_spec(&dict);
-    // SAFETY: spec borrows dict; both ii pointers are valid for the duration of this test.
     let guard = unsafe { IndexSpecReadGuard::from_locked(&spec) };
 
     let mut buf = Vec::new();
@@ -219,9 +217,8 @@ fn roundtrip_protocol_is_decodable() {
     let ii_ptr = Box::into_raw(ii);
 
     let mut dict = make_dict();
-    add_entry(&mut dict, b"title", ii_ptr.cast());
+    add_entry(&mut dict, b"title", Some(unsafe { &*ii_ptr }));
     let spec = make_spec(&dict);
-    // SAFETY: spec borrows dict; ii_ptr is valid for the duration of this test.
     let guard = unsafe { IndexSpecReadGuard::from_locked(&spec) };
 
     let mut buf = Vec::new();
@@ -258,9 +255,8 @@ fn delta_frame_serialisation_roundtrips_via_msgpack() {
     let ii_ptr = Box::into_raw(ii);
 
     let mut dict = make_dict();
-    add_entry(&mut dict, b"score", ii_ptr.cast());
+    add_entry(&mut dict, b"score", Some(unsafe { &*ii_ptr }));
     let spec = make_spec(&dict);
-    // SAFETY: spec borrows dict; ii_ptr is valid for the duration of this test.
     let guard = unsafe { IndexSpecReadGuard::from_locked(&spec) };
 
     let mut buf = Vec::new();

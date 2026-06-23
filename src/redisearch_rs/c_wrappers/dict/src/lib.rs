@@ -15,6 +15,7 @@ use std::ops::{Deref, DerefMut};
 use std::ptr::NonNull;
 
 use hidden_string::HiddenStringRef;
+use inverted_index::opaque::InvertedIndex;
 
 /// Bidirectional conversion between a Rust type and the raw `*mut c_void`
 /// pointer stored in a dict entry.
@@ -50,14 +51,22 @@ pub unsafe trait DictValue<'a>: Sized + Copy + 'a {
 // SAFETY: pointer casts are always layout-compatible; the caller is responsible
 // for ensuring the pointer actually addresses a T.
 unsafe impl<'a, T: 'a> DictValue<'a> for *mut T {
-    unsafe fn from_dict_ptr(ptr: *mut c_void) -> Self { ptr.cast() }
-    fn into_dict_ptr(self) -> *mut c_void { self.cast() }
+    unsafe fn from_dict_ptr(ptr: *mut c_void) -> Self {
+        ptr.cast()
+    }
+    fn into_dict_ptr(self) -> *mut c_void {
+        self.cast()
+    }
 }
 
 // SAFETY: same as *mut T; const-ness is a Rust concept, not a C one.
 unsafe impl<'a, T: 'a> DictValue<'a> for *const T {
-    unsafe fn from_dict_ptr(ptr: *mut c_void) -> Self { ptr.cast() }
-    fn into_dict_ptr(self) -> *mut c_void { self.cast_mut().cast() }
+    unsafe fn from_dict_ptr(ptr: *mut c_void) -> Self {
+        ptr.cast()
+    }
+    fn into_dict_ptr(self) -> *mut c_void {
+        self.cast_mut().cast()
+    }
 }
 
 // SAFETY: The dict stores *mut HiddenString pointers as *mut c_void.
@@ -68,7 +77,9 @@ unsafe impl<'a> DictValue<'a> for HiddenStringRef<'a> {
         // SAFETY: caller guarantees ptr is a valid *mut HiddenString for 'a.
         unsafe { HiddenStringRef::from_raw(ptr.cast::<ffi::HiddenString>()) }
     }
-    fn into_dict_ptr(self) -> *mut c_void { self.as_ptr().cast() }
+    fn into_dict_ptr(self) -> *mut c_void {
+        self.as_ptr().cast()
+    }
 }
 
 // SAFETY: null pointer → None (absence of a value); non-null *mut c_void →
@@ -76,7 +87,11 @@ unsafe impl<'a> DictValue<'a> for HiddenStringRef<'a> {
 unsafe impl<'a, T: 'a> DictValue<'a> for Option<&'a T> {
     unsafe fn from_dict_ptr(ptr: *mut c_void) -> Self {
         // SAFETY: caller guarantees non-null ptr is a valid *const T for 'a.
-        if ptr.is_null() { None } else { Some(unsafe { &*ptr.cast::<T>() }) }
+        if ptr.is_null() {
+            None
+        } else {
+            Some(unsafe { &*ptr.cast::<T>() })
+        }
     }
     fn into_dict_ptr(self) -> *mut c_void {
         match self {
@@ -86,42 +101,75 @@ unsafe impl<'a, T: 'a> DictValue<'a> for Option<&'a T> {
     }
 }
 
+/// Describes the key type, value type, and underlying C [`ffi::dictType`] for
+/// a particular dict configuration.
+///
+/// Implemented by marker types (e.g. `MissingFieldDictType`) that bind a
+/// specific `ffi::dictType` to typed `K` and `V` parameters. This allows
+/// [`OwnedDict<DT>`] to call [`create`](OwnedDict::create) without a caller-
+/// supplied `dictType` pointer, and ensures that the dict's hash/compare/dup/
+/// destructor callbacks are always consistent with the key and value types.
+///
+/// # Safety
+///
+/// Implementors must ensure that [`as_ptr`](Self::as_ptr) returns a pointer to
+/// a valid, live `ffi::dictType` whose callbacks are consistent with `K` and
+/// `V`: e.g. if `K::into_dict_ptr` returns a pointer to a temporary, the
+/// dictType's `keyDup` must copy it before the caller is allowed to free the
+/// original.
+pub unsafe trait DictType {
+    type K<'a>: DictValue<'a>;
+    type V<'a>: DictValue<'a>;
+
+    /// Return a pointer to the static C `dictType` for this configuration.
+    fn as_ptr() -> *mut ffi::dictType;
+}
+
+/// [`DictType`] marker for the spec's `missingFieldDict`.
+///
+/// Keys are [`HiddenStringRef`] (field names); values are
+/// `Option<&InvertedIndex>` (the per-field missing-doc inverted index, or
+/// `None` when the field has no such index). The underlying C dictType is
+/// `dictTypeHeapHiddenStrings`, which copies keys on insertion via `keyDup`
+/// and does not free values on removal.
+pub struct MissingFieldDictType;
+
+// SAFETY: dictTypeHeapHiddenStrings is a valid static ffi::dictType whose
+// callbacks are compatible with HiddenStringRef keys and Option<&InvertedIndex>
+// values: keyDup copies the HiddenString so callers may free the original after
+// insert; valDestructor is null so callers retain ownership of InvertedIndex.
+unsafe impl DictType for MissingFieldDictType {
+    type K<'a> = HiddenStringRef<'a>;
+    type V<'a> = Option<&'a InvertedIndex>;
+
+    fn as_ptr() -> *mut ffi::dictType {
+        unsafe { std::ptr::addr_of_mut!(ffi::dictTypeHeapHiddenStrings) }
+    }
+}
 
 /// A safe wrapper around a C [`ffi::dict`].
 ///
-/// `K` and `V` are the types returned by [`DictEntry::key`] and
-/// [`DictEntry::val`]; both default to `*mut c_void` for untyped access.
-/// Specifying concrete types eliminates manual casts at call sites and — for
-/// wrapper types such as [`HiddenStringRef`] — the manual construction call:
+/// `DT` is a [`DictType`] marker that fixes the key type ([`DictType::K`]),
+/// value type ([`DictType::V`]), and the underlying C `dictType` callbacks.
 ///
-/// ```text
-/// // typed key, untyped value
-/// let d: &Dict<HiddenStringRef<'_>, *mut c_void> = spec.missing_field_dict();
-/// for entry in d.iter() {
-///     let name: HiddenStringRef<'_> = entry.key(); // no cast, no from_raw
-///     let idx:  *mut c_void         = entry.val();
-/// }
-/// ```
-///
-/// Obtained from a raw `*const`/`*mut ffi::dict` via [`Dict::from_raw`] or
-/// [`Dict::from_raw_mut`].
+/// Obtained from a raw `*const`/`*mut ffi::dict` via [`Dict::from_raw`] /
+/// [`Dict::from_raw_mut`]. For an owned dict that is released on drop, use
+/// [`OwnedDict`].
 #[repr(transparent)]
-pub struct Dict<K = *mut c_void, V = *mut c_void> {
+pub struct Dict<DT: DictType> {
     inner: ffi::dict,
-    _phantom: PhantomData<(K, V)>,
+    _phantom: PhantomData<DT>,
 }
 
-impl<K, V> Dict<K, V> {
+impl<DT: DictType> Dict<DT> {
     /// Borrow a [`Dict`] from a raw const pointer.
     ///
     /// # Safety
     ///
-    /// `ptr` must be a valid, non-null pointer to an `ffi::dict` that is
-    /// properly initialised and remains live for the returned lifetime `'a`.
-    /// The caller must also ensure that the dict's keys and values are
-    /// actually of types `K` and `V`.
+    /// `ptr` must be a valid, non-null pointer to an `ffi::dict` created with
+    /// the `ffi::dictType` described by `DT`, and must remain live for `'a`.
     pub const unsafe fn from_raw<'a>(ptr: *const ffi::dict) -> &'a Self {
-        // SAFETY: #[repr(transparent)] guarantees identical layout for any K, V.
+        // SAFETY: #[repr(transparent)] guarantees identical layout.
         // Validity and liveness are the caller's responsibility.
         unsafe { ptr.cast::<Self>().as_ref().unwrap() }
     }
@@ -130,13 +178,11 @@ impl<K, V> Dict<K, V> {
     ///
     /// # Safety
     ///
-    /// `ptr` must be a valid, non-null pointer to an `ffi::dict` that is
-    /// properly initialised and remains live for the returned lifetime `'a`,
-    /// with no other aliasing references for the duration.  The caller must
-    /// also ensure that the dict's keys and values are actually of types `K`
-    /// and `V`.
+    /// `ptr` must be a valid, non-null pointer to an `ffi::dict` created with
+    /// the `ffi::dictType` described by `DT`, must remain live for `'a`, and
+    /// must have no other aliasing references for the duration.
     pub const unsafe fn from_raw_mut<'a>(ptr: *mut ffi::dict) -> &'a mut Self {
-        // SAFETY: #[repr(transparent)] guarantees identical layout for any K, V.
+        // SAFETY: #[repr(transparent)] guarantees identical layout.
         // Validity, liveness, and exclusivity are the caller's responsibility.
         unsafe { ptr.cast::<Self>().as_mut().unwrap() }
     }
@@ -155,11 +201,7 @@ impl<K, V> Dict<K, V> {
     ///
     /// Returns `true` when the entry was added, `false` when the key already
     /// existed (the existing entry is not updated).
-    pub fn insert<'b>(&mut self, key: K, val: V) -> bool
-    where
-        K: DictValue<'b>,
-        V: DictValue<'b>,
-    {
+    pub fn insert<'b>(&mut self, key: DT::K<'b>, val: DT::V<'b>) -> bool {
         // SAFETY: self points to a valid dict; key and val lifetimes are managed
         // by the dictType's dup/destructor callbacks.
         unsafe { ffi::RS_dictAdd(self.as_mut_ptr(), key.into_dict_ptr(), val.into_dict_ptr()) == 0 }
@@ -173,11 +215,7 @@ impl<K, V> Dict<K, V> {
     ///
     /// The iterator holds a C-side iterator object and releases it on drop,
     /// so it is safe to abandon iteration early.
-    pub fn iter<'a>(&'a self) -> DictIterator<'a, K, V>
-    where
-        K: DictValue<'a>,
-        V: DictValue<'a>,
-    {
+    pub fn iter(&self) -> DictIterator<'_, DT> {
         // SAFETY: `self.inner` is a valid dict (invariant upheld by construction).
         // RS_dictGetIterator does not modify the dict; the cast from *const to
         // *mut is sound because the C function only reads the dict to initialise
@@ -188,33 +226,24 @@ impl<K, V> Dict<K, V> {
 
 /// An owned [`Dict`] that calls `RS_dictRelease` on drop.
 ///
-/// Obtained via [`OwnedDict::create`]. Derefs to [`Dict<K, V>`] so all
+/// Obtained via [`OwnedDict::create`]. Derefs to [`Dict<DT>`] so all
 /// [`Dict`] methods — including [`iter`](Dict::iter) and
 /// [`insert`](Dict::insert) — are available on `&OwnedDict` and
 /// `&mut OwnedDict` respectively.
-///
-/// The `valDestructor` of the supplied [`ffi::dictType`] determines whether
-/// values are freed on drop; callers that need to free values themselves must
-/// use a type with a null `valDestructor`.
-pub struct OwnedDict<K = *mut c_void, V = *mut c_void> {
+pub struct OwnedDict<DT: DictType> {
     ptr: NonNull<ffi::dict>,
-    _phantom: PhantomData<(K, V)>,
+    _phantom: PhantomData<DT>,
 }
 
-impl<K, V> OwnedDict<K, V> {
-    /// Allocate a new C dict with the given type descriptor.
+impl<DT: DictType> OwnedDict<DT> {
+    /// Allocate a new C dict for the configuration described by `DT`.
     ///
-    /// # Safety
-    ///
-    /// `dict_type` must point to a valid, live [`ffi::dictType`] that remains
-    /// live for the lifetime of the returned dict. The dictType's callbacks
-    /// (hash, compare, dup, destructor) must be consistent with how `K` and
-    /// `V` values will be inserted and read back: e.g. if `K::into_dict_ptr`
-    /// returns a pointer to a temporary, the dictType's `keyDup` must copy it.
-    pub unsafe fn create(dict_type: *mut ffi::dictType) -> Self {
-        // SAFETY: dict_type is valid per the caller's contract; null privdata
-        // is always accepted by RS_dictCreate.
-        let ptr = unsafe { ffi::RS_dictCreate(dict_type, std::ptr::null_mut()) };
+    /// The dictType pointer and the guarantee that its callbacks are compatible
+    /// with `DT::K` and `DT::V` are encoded in the `unsafe impl DictType`.
+    pub fn create() -> Self {
+        // SAFETY: DT::as_ptr() is guaranteed by the unsafe DictType impl to
+        // return a valid, compatible ffi::dictType*.
+        let ptr = unsafe { ffi::RS_dictCreate(DT::as_ptr(), std::ptr::null_mut()) };
         Self {
             ptr: NonNull::new(ptr).expect("RS_dictCreate returned null"),
             _phantom: PhantomData,
@@ -227,25 +256,25 @@ impl<K, V> OwnedDict<K, V> {
     }
 }
 
-impl<K, V> Deref for OwnedDict<K, V> {
-    type Target = Dict<K, V>;
+impl<DT: DictType> Deref for OwnedDict<DT> {
+    type Target = Dict<DT>;
 
-    fn deref(&self) -> &Dict<K, V> {
+    fn deref(&self) -> &Dict<DT> {
         // SAFETY: self.ptr is a valid, non-null dict alive for the lifetime of
         // this OwnedDict.
         unsafe { Dict::from_raw(self.ptr.as_ptr()) }
     }
 }
 
-impl<K, V> DerefMut for OwnedDict<K, V> {
-    fn deref_mut(&mut self) -> &mut Dict<K, V> {
+impl<DT: DictType> DerefMut for OwnedDict<DT> {
+    fn deref_mut(&mut self) -> &mut Dict<DT> {
         // SAFETY: self.ptr is a valid, non-null dict alive for the lifetime of
         // this OwnedDict, and we hold exclusive access via &mut self.
         unsafe { Dict::from_raw_mut(self.ptr.as_ptr()) }
     }
 }
 
-impl<K, V> Drop for OwnedDict<K, V> {
+impl<DT: DictType> Drop for OwnedDict<DT> {
     fn drop(&mut self) {
         // SAFETY: self.ptr was obtained from RS_dictCreate and has not been
         // released yet.
@@ -255,42 +284,33 @@ impl<K, V> Drop for OwnedDict<K, V> {
 
 /// A single entry in a [`Dict`], yielded by [`DictIterator`].
 ///
-/// `'a` is the lifetime of the underlying dict data; `K` and `V` are the
-/// types returned by [`key`](Self::key) and [`val`](Self::val).
-pub struct DictEntry<'a, K = *mut c_void, V = *mut c_void> {
+/// `'a` is the lifetime of the underlying dict data.
+pub struct DictEntry<'a, DT: DictType> {
     entry: *mut ffi::dictEntry,
-    _phantom: PhantomData<(&'a (), K, V)>,
+    _phantom: PhantomData<(&'a (), DT)>,
 }
 
-impl<'a, K, V> DictEntry<'a, K, V> {
+impl<'a, DT: DictType> DictEntry<'a, DT> {
     const fn new(entry: *mut ffi::dictEntry) -> Self {
-        Self { entry, _phantom: PhantomData }
+        Self {
+            entry,
+            _phantom: PhantomData,
+        }
     }
-}
 
-impl<'a, K: DictValue<'a>, V: DictValue<'a>> DictEntry<'a, K, V> {
     /// Return the key of this entry.
-    ///
-    /// Corresponds to the C macro `dictGetKey(entry)` (`entry->key`),
-    /// converted to `K` via [`DictValue`].
-    pub fn key(&self) -> K {
-        // SAFETY: self.entry is a valid non-null dictEntry* (invariant of DictEntry).
+    pub fn key(&self) -> DT::K<'a> {
+        // SAFETY: self.entry is a valid non-null dictEntry*.
         let ptr = unsafe { (*self.entry).key };
-        // SAFETY: the caller selected K to match the actual key type stored in this dict.
-        unsafe { K::from_dict_ptr(ptr) }
+        unsafe { <DT::K<'a> as DictValue<'a>>::from_dict_ptr(ptr) }
     }
 
     /// Return the value of this entry.
-    ///
-    /// Corresponds to the C macro `dictGetVal(entry)` (`entry->v.val`),
-    /// converted to `V` via [`DictValue`].
-    pub fn val(&self) -> V {
+    pub fn val(&self) -> DT::V<'a> {
         // SAFETY: self.entry is a valid non-null dictEntry*.
         let v = unsafe { &(*self.entry).v };
-        // SAFETY: the dict value union variant is a pointer-sized void pointer.
         let ptr = unsafe { v.val };
-        // SAFETY: the caller selected V to match the actual value type stored in this dict.
-        unsafe { V::from_dict_ptr(ptr) }
+        unsafe { <DT::V<'a> as DictValue<'a>>::from_dict_ptr(ptr) }
     }
 }
 
@@ -300,39 +320,45 @@ impl<'a, K: DictValue<'a>, V: DictValue<'a>> DictEntry<'a, K, V> {
 /// [`ffi::RS_dictGetIterator`] / [`ffi::RS_dictNext`] /
 /// [`ffi::RS_dictReleaseIterator`] and releases the underlying C iterator on
 /// drop.
-pub struct DictIterator<'a, K = *mut c_void, V = *mut c_void> {
+pub struct DictIterator<'a, DT: DictType> {
     iter: *mut ffi::dictIterator,
-    _phantom: PhantomData<(&'a (), K, V)>,
+    _phantom: PhantomData<(&'a (), DT)>,
 }
 
-impl<'a, K, V> DictIterator<'a, K, V> {
+impl<'a, DT: DictType> DictIterator<'a, DT> {
     /// Create an iterator directly from a raw `dict*`.
     ///
     /// Prefer [`Dict::iter`] when a [`Dict`] reference is available.
     ///
     /// # Safety
     ///
-    /// `dict` must be a valid, non-null `dict*` whose keys and values are
-    /// of types `K` and `V`, and that remains live for `'a`.
+    /// `dict` must be a valid, non-null `dict*` consistent with the key and
+    /// value types of `DT`, and must remain live for `'a`.
     pub unsafe fn new(dict: *mut ffi::dict) -> Self {
         // SAFETY: caller guarantees dict is valid and non-null.
         let iter = unsafe { ffi::RS_dictGetIterator(dict) };
-        Self { iter, _phantom: PhantomData }
+        Self {
+            iter,
+            _phantom: PhantomData,
+        }
     }
 }
 
-impl<'a, K: DictValue<'a>, V: DictValue<'a>> Iterator for DictIterator<'a, K, V> {
-    type Item = DictEntry<'a, K, V>;
+impl<'a, DT: DictType> Iterator for DictIterator<'a, DT> {
+    type Item = DictEntry<'a, DT>;
 
     fn next(&mut self) -> Option<Self::Item> {
-        // SAFETY: self.iter is a valid iterator obtained during construction
-        // and not yet released.
+        // SAFETY: self.iter is a valid iterator obtained during construction.
         let entry = unsafe { ffi::RS_dictNext(self.iter) };
-        if entry.is_null() { None } else { Some(DictEntry::new(entry)) }
+        if entry.is_null() {
+            None
+        } else {
+            Some(DictEntry::new(entry))
+        }
     }
 }
 
-impl<K, V> Drop for DictIterator<'_, K, V> {
+impl<DT: DictType> Drop for DictIterator<'_, DT> {
     fn drop(&mut self) {
         // SAFETY: self.iter is a valid iterator obtained during construction.
         unsafe { ffi::RS_dictReleaseIterator(self.iter) };
