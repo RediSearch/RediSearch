@@ -13,6 +13,8 @@
 #include "redisearch_rs/headers/query_error.h"
 #include "hybrid/hybrid_cursor_mappings.h"
 
+#include <string_view>
+
 #define TEST_BLOB_DATA "AQIDBAUGBwgJCg=="
 
 extern "C" {
@@ -432,12 +434,11 @@ TEST_F(HybridBuildMRCommandTest, testMinimalCommand) {
 // option, not by argv text. A SEARCH query token or PARAMS value equal to
 // "EXPLAINSCORE" must not trigger forwarding; sendExplainScore=true must.
 TEST_F(HybridBuildMRCommandTest, testExplainScoreNotForwardedFromArgvText) {
-    auto countToken = [](const MRCommand *cmd, const char *tok) {
-        size_t tokLen = strlen(tok);
+    auto countToken = [](const MRCommand *cmd, std::string_view tok) {
         int n = 0;
         for (int i = 0; i < cmd->num; i++) {
-            if (cmd->lens[i] == tokLen &&
-                strncasecmp(cmd->strs[i], tok, tokLen) == 0) {
+            if (cmd->lens[i] == tok.size() &&
+                strncasecmp(cmd->strs[i], tok.data(), tok.size()) == 0) {
                 n++;
             }
         }
