@@ -89,8 +89,6 @@ impl TermSuffixIndex {
         }
     }
 
-    /// Every proper suffix of `term`, longest first, down to its final
-    /// codepoint. Empty for a single-codepoint `term`.
     fn suffixes_of(term: &str) -> impl Iterator<Item = &str> {
         term.char_indices()
             .skip(1)
