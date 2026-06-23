@@ -1897,105 +1897,111 @@ def test_create_multi_value_json():
                        '6', 'TYPE', 'FLOAT32', 'DIM', dim, 'DISTANCE_METRIC', 'L2',).ok()
             env.assertEqual(to_dict(env.cmd(debug_cmd(), "VECSIM_INFO", "idx", "vec"))['IS_MULTI_VALUE'], 0, message=f'{algo}, {path}')
 
-@skip(no_json=True)
-def test_index_multi_value_json():
-    # Flaky under coverage (MOD-15571); skip only on coverage runs until the date below.
-    if CODE_COVERAGE:
-        skipTestUntil("2026-06-12", reason="Flaky test under coverage, see MOD-15571")
+def index_multi_value_json(data_t):
     env = Env(moduleArgs='DEFAULT_DIALECT 2 MIN_OPERATION_WORKERS 0')
     conn = getConnectionByEnv(env)
     dim = 4
     per_doc = 5
 
-    for data_t in VECSIM_DATA_TYPES:
-        # Skipping on sanitizer due to MOD-12768
-        run_svs_test = data_t in ('FLOAT32', 'FLOAT16')
-        n = 100
-        conn.flushall()
+    run_svs_test = data_t in ('FLOAT32', 'FLOAT16')
+    n = 100
 
-        # Scale factor to avoid FLOAT16/BFLOAT16 overflow: using 1/8 keeps values and distances within safe range
-        # For FLOAT16 with n=250: max value = 250/8 = 31.25, max L2 distance = 4 * 31.25^2 ≈ 3906 (< 65504)
-        scale = 8.0
+    # Scale factor to avoid FLOAT16/BFLOAT16 overflow: using 1/8 keeps values and distances within safe range
+    # For FLOAT16 with n=250: max value = 250/8 = 31.25, max L2 distance = 4 * 31.25^2 ≈ 3906 (< 65504)
+    scale = 8.0
 
-        args = ['FT.CREATE', 'idx', 'ON', 'JSON', 'SCHEMA',
-                '$.vecs[*]', 'AS', 'hnsw', 'VECTOR', 'HNSW', '6', 'TYPE', data_t, 'DIM', dim, 'DISTANCE_METRIC', 'L2',
-                '$.vecs[*]', 'AS', 'flat', 'VECTOR', 'FLAT', '6', 'TYPE', data_t, 'DIM', dim, 'DISTANCE_METRIC', 'L2']
+    args = ['FT.CREATE', 'idx', 'ON', 'JSON', 'SCHEMA',
+            '$.vecs[*]', 'AS', 'hnsw', 'VECTOR', 'HNSW', '6', 'TYPE', data_t, 'DIM', dim, 'DISTANCE_METRIC', 'L2',
+            '$.vecs[*]', 'AS', 'flat', 'VECTOR', 'FLAT', '6', 'TYPE', data_t, 'DIM', dim, 'DISTANCE_METRIC', 'L2']
+    if run_svs_test:
+        # Add enough vectors to trigger svs backend index initialization
+        n = 250 * env.shardsCount
+        args += ['$.vecs[*]', 'AS', 'svs', 'VECTOR', 'SVS-VAMANA', '10', 'TYPE', data_t, 'DIM', dim, 'DISTANCE_METRIC', 'L2', 'CONSTRUCTION_WINDOW_SIZE', n, 'SEARCH_WINDOW_SIZE', n]
+
+    env.expect(*args).ok()
+
+    for i in range(0, n, 2):
+        # Test setting vectors with python list
+        conn.json().set(i, '.', {'vecs': [[(i + j) / scale] * dim for j in range(per_doc)]})
+        # Test setting vectors with numpy array of the same type
+        conn.json().set(i + 1, '.', {'vecs': [
+            create_np_array_typed([(i + 1 + j) / scale] * dim, data_t).tolist() for j in range(per_doc)]})
+
+    score_field_name = 'dist'
+    k = min(10, n)
+    element = create_np_array_typed([0]*dim, data_t)
+    cmd_knn = ['FT.SEARCH', 'idx', '', 'PARAMS', '2', 'b', element.tobytes(), 'RETURN', '1', score_field_name, 'SORTBY', score_field_name]
+
+    expected_res_knn = []  # the expected ids are going to be unique
+    for i in range(k):
+        expected_res_knn.append(str(i))                                 # Expected id
+        dist = i * i * dim / (scale * scale)
+        # Server returns int for whole numbers, float otherwise
+        expected_res_knn.append([score_field_name, str(int(dist) if dist == int(dist) else dist)])
+
+    radius = (dim * k**2 + 40) / (scale * scale)
+    element = create_np_array_typed([n / scale]*dim, data_t)
+    cmd_range = ['FT.SEARCH', 'idx', '', 'PARAMS', '2', 'b', element.tobytes(), 'RETURN', '1', score_field_name, 'LIMIT', 0, n]
+    expected_res_range = []
+    for i in range(n-k-per_doc+1, n-per_doc+1):
+        expected_res_range.append(str(i))
+        dist = dim * (n-per_doc-i+1)**2 / (scale * scale)
+        # Server returns int for whole numbers, float otherwise
+        expected_res_range.append([score_field_name, str(int(dist) if dist == int(dist) else dist)])
+    for i in range(n-per_doc+1, n):        # Ids for which there is a vector whose distance to the query vec is zero.
+        expected_res_range.append(str(i))
+        expected_res_range.append([score_field_name, '0'])
+    expected_res_range.insert(0, int(len(expected_res_range)/2))
+
+    for _ in env.reloadingIterator():
+        waitForIndex(env, 'idx')
+        info = index_info(env, 'idx')
+        env.assertEqual(info['num_docs'], n, message=f'data_t: {data_t}')
+        env.assertEqual(info['num_records'], 0, message=f'data_t: {data_t}')
+        env.assertEqual(info['hash_indexing_failures'], 0, message=f'data_t: {data_t}')
+
+        cmd_knn[2] = f'*=>[KNN {k} @hnsw $b AS {score_field_name}]'
+        hnsw_res = conn.execute_command(*cmd_knn)[1:]
+        env.assertEqual(hnsw_res, expected_res_knn, message=f'data_t: {data_t}')
+
+        cmd_knn[2] = f'*=>[KNN {k} @flat $b AS {score_field_name}]'
+        flat_res = conn.execute_command(*cmd_knn)[1:]
+        env.assertEqual(flat_res, expected_res_knn, message=f'data_t: {data_t}')
+
+        cmd_range[2] = f'@hnsw:[VECTOR_RANGE {radius} $b]=>{{$yield_distance_as:{score_field_name}}}'
+        hnsw_res = conn.execute_command(*cmd_range)
+        try:
+            env.assertEqual(sortedResults(hnsw_res), expected_res_range, message=f'data_t: {data_t}')
+        except Exception as e:
+            env.debugPrint(f"Failed comparing results: {e} for data_t: {data_t}", force=True)
+            raise e
+
+        cmd_range[2] = f'@flat:[VECTOR_RANGE {radius} $b]=>{{$yield_distance_as:{score_field_name}}}'
+        flat_res = conn.execute_command(*cmd_range)
+        env.assertEqual(sortedResults(flat_res), expected_res_range, message=f'data_t: {data_t}')
+
         if run_svs_test:
-            # Add enough vectors to trigger svs backend index initialization
-            n = 250 * env.shardsCount
-            args += ['$.vecs[*]', 'AS', 'svs', 'VECTOR', 'SVS-VAMANA', '10', 'TYPE', data_t, 'DIM', dim, 'DISTANCE_METRIC', 'L2', 'CONSTRUCTION_WINDOW_SIZE', n, 'SEARCH_WINDOW_SIZE', n]
+            env.assertGreater(get_tiered_backend_debug_info(env, 'idx', 'svs')['INDEX_SIZE'], 0)
+            cmd_knn[2] = f'*=>[KNN {k} @svs $b AS {score_field_name}]'
+            svs_res = conn.execute_command(*cmd_knn)[1:]
+            env.assertEqual(svs_res, expected_res_knn, message=f'data_t: {data_t}')
 
-        env.expect(*args).ok()
+            cmd_range[2] = f'@svs:[VECTOR_RANGE {radius} $b]=>{{$yield_distance_as:{score_field_name}}}'
+            svs_res = conn.execute_command(*cmd_range)
+            env.assertEqual(sortedResults(svs_res), expected_res_range, message=f'data_t: {data_t}')
 
-        for i in range(0, n, 2):
-            # Test setting vectors with python list
-            conn.json().set(i, '.', {'vecs': [[(i + j) / scale] * dim for j in range(per_doc)]})
-            # Test setting vectors with numpy array of the same type
-            conn.json().set(i + 1, '.', {'vecs': [
-                create_np_array_typed([(i + 1 + j) / scale] * dim, data_t).tolist() for j in range(per_doc)]})
 
-        score_field_name = 'dist'
-        k = min(10, n)
-        element = create_np_array_typed([0]*dim, data_t)
-        cmd_knn = ['FT.SEARCH', 'idx', '', 'PARAMS', '2', 'b', element.tobytes(), 'RETURN', '1', score_field_name, 'SORTBY', score_field_name]
-
-        expected_res_knn = []  # the expected ids are going to be unique
-        for i in range(k):
-            expected_res_knn.append(str(i))                                 # Expected id
-            dist = i * i * dim / (scale * scale)
-            # Server returns int for whole numbers, float otherwise
-            expected_res_knn.append([score_field_name, str(int(dist) if dist == int(dist) else dist)])
-
-        radius = (dim * k**2 + 40) / (scale * scale)
-        element = create_np_array_typed([n / scale]*dim, data_t)
-        cmd_range = ['FT.SEARCH', 'idx', '', 'PARAMS', '2', 'b', element.tobytes(), 'RETURN', '1', score_field_name, 'LIMIT', 0, n]
-        expected_res_range = []
-        for i in range(n-k-per_doc+1, n-per_doc+1):
-            expected_res_range.append(str(i))
-            dist = dim * (n-per_doc-i+1)**2 / (scale * scale)
-            # Server returns int for whole numbers, float otherwise
-            expected_res_range.append([score_field_name, str(int(dist) if dist == int(dist) else dist)])
-        for i in range(n-per_doc+1, n):        # Ids for which there is a vector whose distance to the query vec is zero.
-            expected_res_range.append(str(i))
-            expected_res_range.append([score_field_name, '0'])
-        expected_res_range.insert(0, int(len(expected_res_range)/2))
-
-        for _ in env.reloadingIterator():
-            waitForIndex(env, 'idx')
-            info = index_info(env, 'idx')
-            env.assertEqual(info['num_docs'], n, message=f'data_t: {data_t}')
-            env.assertEqual(info['num_records'], 0, message=f'data_t: {data_t}')
-            env.assertEqual(info['hash_indexing_failures'], 0, message=f'data_t: {data_t}')
-
-            cmd_knn[2] = f'*=>[KNN {k} @hnsw $b AS {score_field_name}]'
-            hnsw_res = conn.execute_command(*cmd_knn)[1:]
-            env.assertEqual(hnsw_res, expected_res_knn, message=f'data_t: {data_t}')
-
-            cmd_knn[2] = f'*=>[KNN {k} @flat $b AS {score_field_name}]'
-            flat_res = conn.execute_command(*cmd_knn)[1:]
-            env.assertEqual(flat_res, expected_res_knn, message=f'data_t: {data_t}')
-
-            cmd_range[2] = f'@hnsw:[VECTOR_RANGE {radius} $b]=>{{$yield_distance_as:{score_field_name}}}'
-            hnsw_res = conn.execute_command(*cmd_range)
-            try:
-                env.assertEqual(sortedResults(hnsw_res), expected_res_range, message=f'data_t: {data_t}')
-            except Exception as e:
-                env.debugPrint(f"Failed comparing results: {e} for data_t: {data_t}", force=True)
-                raise e
-
-            cmd_range[2] = f'@flat:[VECTOR_RANGE {radius} $b]=>{{$yield_distance_as:{score_field_name}}}'
-            flat_res = conn.execute_command(*cmd_range)
-            env.assertEqual(sortedResults(flat_res), expected_res_range, message=f'data_t: {data_t}')
-
-            if run_svs_test:
-                env.assertGreater(get_tiered_backend_debug_info(env, 'idx', 'svs')['INDEX_SIZE'], 0)
-                cmd_knn[2] = f'*=>[KNN {k} @svs $b AS {score_field_name}]'
-                svs_res = conn.execute_command(*cmd_knn)[1:]
-                env.assertEqual(svs_res, expected_res_knn, message=f'data_t: {data_t}')
-
-                cmd_range[2] = f'@svs:[VECTOR_RANGE {radius} $b]=>{{$yield_distance_as:{score_field_name}}}'
-                svs_res = conn.execute_command(*cmd_range)
-                env.assertEqual(sortedResults(svs_res), expected_res_range, message=f'data_t: {data_t}')
+# Generate one test per data type. Running all data types in a single test shared one RLTest
+# per-test timeout budget; on the coverage Coordinator job the SVS backend rebuild on reload
+# (FLOAT32/FLOAT16) multiplied across shards overran that budget and timed out (MOD-15571).
+# Splitting gives each data type its own budget and lets them run on separate parallel workers,
+# without weakening coverage.
+multi_value_json_test_gen = lambda dt: skip(no_json=True)(lambda: index_multi_value_json(dt))
+for _data_t in VECSIM_DATA_TYPES:
+    _test_name = f"test_index_multi_value_json_{_data_t}"
+    _test_func = multi_value_json_test_gen(_data_t)
+    _test_func.__name__ = _test_name
+    globals()[_test_name] = _test_func
 
 @skip(no_json=True)
 def test_bad_index_multi_value_json():

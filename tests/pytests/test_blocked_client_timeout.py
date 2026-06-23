@@ -4894,12 +4894,20 @@ class TestCoordinatorTimeoutReturnStrictResp2:
 
         # Warmup hybrid query and store the query vector for tests.
         self.hybrid_query_vec = np.array([0.0, 0.0], dtype=np.float32).tobytes()
-        self.env.expect(
-            'FT.HYBRID', 'hybrid_idx',
-            'SEARCH', '*',
-            'VSIM', '@embedding', '$BLOB',
-            'PARAMS', '2', 'BLOB', self.hybrid_query_vec
-        ).noError()
+        try:
+            warmup_res = self.env.cmd(
+                'FT.HYBRID', 'hybrid_idx',
+                'SEARCH', '*',
+                'VSIM', '@embedding', '$BLOB',
+                'PARAMS', '2', 'BLOB', self.hybrid_query_vec)
+        except Exception as e:
+            # MOD-16428: surface the actual reply for the macOS x86_64 flake,
+            # whose error string is otherwise absent from the server logs.
+            self.env.assertTrue(
+                False, message=f"warmup FT.HYBRID raised {type(e).__name__}: {e!r}")
+            raise
+        self.env.assertNotEqual(
+            warmup_res, None, message=f"warmup FT.HYBRID empty reply: {warmup_res!r}")
 
     def test_return_strict_timeout_at_claim_sync_point_profile_hybrid_resp2(self):
         """RESP2 FT.PROFILE HYBRID early-timeout preserves the profile envelope.

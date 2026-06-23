@@ -2,6 +2,19 @@ from common import *
 import json
 import os
 
+_DONT_CACHE_TIP = 'dont_cache'
+_COMMANDS_WITHOUT_DONT_CACHE = {'FT.SUGGET', 'FT.SUGLEN'}
+_MANUAL_PUBLIC_COMMANDS_WITH_DONT_CACHE = {
+    'FT.GET',
+    'FT.MGET',
+    'FT.CURSOR|GC',
+}
+_CLUSTER_CONTROL_COMMANDS_WITH_DONT_CACHE = {
+    'SEARCH.CLUSTERSET',
+    'SEARCH.CLUSTERREFRESH',
+    'SEARCH.CLUSTERINFO',
+}
+
 def _load_command_expectations():
     """Load and parse the command info expectations file."""
     commands_json_path = os.path.join(os.path.dirname(__file__), '..', '..', 'commands.json')
@@ -21,6 +34,23 @@ def _lists_equal_insensitive(a, b):
     Returns True if they contain the same items (ignoring case and order).
     """
     return set(map(str.lower, a)) == set(map(str.lower, b))
+
+def _tolower_list(values):
+    return [value.lower() for value in values]
+
+def _get_command_info(conn, cmd_name):
+    info = conn.execute_command("COMMAND", "INFO", cmd_name)
+    if not info or not isinstance(info, dict):
+        return None
+    if cmd_name in info:
+        return info[cmd_name]
+
+    cmd_name_lower = cmd_name.lower()
+    for returned_name, cmd_info in info.items():
+        if returned_name.lower() == cmd_name_lower:
+            return cmd_info
+
+    return None
 
 def _convert_flags_to_boolean_fields(flags_list):
     """
@@ -386,6 +416,11 @@ def test_command_info_tips_field():
 
     for cmd_name, expected_data in commands_with_tips.items():
         cmd_upper = cmd_name.upper().replace(' ', '|')
+        if env.isCluster() and cmd_name.startswith('FT.CONFIG'):
+            # In cluster mode the coordinator does not register public FT.CONFIG,
+            # but the local _FT.CONFIG subcommands use the same command info.
+            cmd_upper = '_' + cmd_upper
+
         expected_tips = expected_data['command_tips']
 
         try:
@@ -417,6 +452,64 @@ def test_command_info_tips_field():
     # Strict assertion - all commands with tips should pass
     env.assertEqual(len(failed_tips), 0,
                    message=f"All commands with tips should have correct tips field. Failed: {failed_tips}")
+
+"""Test commands.json DONT_CACHE policy for CSC cacheability."""
+def test_command_info_cacheability_tips_policy():
+    env = Env(protocol=3)
+    try:
+        commands_json = _load_command_expectations()
+    except Exception as e:
+        env.fail(str(e))
+
+    unexpected_dont_cache = []
+    missing_dont_cache = []
+
+    for cmd_name, command_data in commands_json.items():
+        tips = _tolower_list(command_data.get('command_tips', []))
+        if cmd_name in _COMMANDS_WITHOUT_DONT_CACHE:
+            if _DONT_CACHE_TIP in tips:
+                unexpected_dont_cache.append(cmd_name)
+        elif _DONT_CACHE_TIP not in tips:
+            missing_dont_cache.append(cmd_name)
+
+    env.assertEqual(unexpected_dont_cache, [],
+                    message=f"Commands expected without {_DONT_CACHE_TIP} must not have it: {unexpected_dont_cache}")
+    env.assertEqual(missing_dont_cache, [],
+                    message=f"Non-cacheable commands must have {_DONT_CACHE_TIP}: {missing_dont_cache}")
+
+    conn = env.getConnection()
+    runtime_dont_cache = []
+
+    for cmd_name in _COMMANDS_WITHOUT_DONT_CACHE:
+        info = conn.execute_command("COMMAND", "INFO", cmd_name)
+        if not info or not isinstance(info, dict) or cmd_name not in info:
+            runtime_dont_cache.append(f"{cmd_name}: No command info returned")
+            continue
+
+        tips = _tolower_list(info[cmd_name].get('tips', []))
+        if _DONT_CACHE_TIP in tips:
+            runtime_dont_cache.append(cmd_name)
+
+    env.assertEqual(runtime_dont_cache, [],
+                    message=f"Commands expected without {_DONT_CACHE_TIP} expose it in COMMAND INFO: {runtime_dont_cache}")
+
+    manual_commands_with_dont_cache = set(_MANUAL_PUBLIC_COMMANDS_WITH_DONT_CACHE)
+    if env.isCluster():
+        manual_commands_with_dont_cache.update(_CLUSTER_CONTROL_COMMANDS_WITH_DONT_CACHE)
+
+    missing_manual_dont_cache = []
+    for cmd_name in manual_commands_with_dont_cache:
+        info = _get_command_info(conn, cmd_name)
+        if not info:
+            missing_manual_dont_cache.append(f"{cmd_name}: No command info returned")
+            continue
+
+        tips = _tolower_list(info.get('tips', []))
+        if _DONT_CACHE_TIP not in tips:
+            missing_manual_dont_cache.append(cmd_name)
+
+    env.assertEqual(missing_manual_dont_cache, [],
+                    message=f"Manual commands expected with {_DONT_CACHE_TIP} do not expose it in COMMAND INFO: {missing_manual_dont_cache}")
 
 """Test the structure of command info for specific well-known commands."""
 def test_specific_command_docs_structure():
