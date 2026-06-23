@@ -220,22 +220,22 @@ static void doAssignIds(RSAddDocumentCtx *cur, RedisSearchCtx *ctx) {
 
       bool failure = docId == 0;
 
-      // Gate on oldDocId, not oldLen: a vector/tag/numeric-only doc has length 0,
-      // so gating on oldLen would miss those replaces and leak numDocuments.
-      // Requires a successful write (on failure nothing was added or replaced);
-      // oldLen is still the right amount to subtract from totalDocsLen (0 is a no-op).
-      if (!failure && oldDocId != 0) {
-        // We replaced a document in the above call, update the stats accordingly
+      // Gate on oldDocId, not oldLen: a vector/tag/numeric-only doc has no
+      // full-text tokens, so its length is 0 and gating on oldLen would miss
+      // those replaces and leak numDocuments. oldLen is still the right amount
+      // to subtract from totalDocsLen (subtracting 0 is a no-op).
+      if (oldDocId != 0) {
+        // We deleted a document in the above call, update the stats accordingly
         RS_ASSERT(spec->stats.scoring.numDocuments > 0);
         spec->stats.scoring.numDocuments--;
         RS_ASSERT(spec->stats.scoring.totalDocsLen >= oldLen);
         spec->stats.scoring.totalDocsLen -= oldLen;
-        updated = true;
+        updated = docId != 0; // If docId is 0, the document was not added
       }
 
       // Vector indexes are cleaned explicitly and not managed by the disk layer or GC,
       // so they must be updated explicitly when a document is replaced.
-      if (!failure && oldDocId != 0 && (spec->flags & Index_HasVecSim)) {
+      if (oldDocId != 0 && (spec->flags & Index_HasVecSim)) {
         for (int i = 0; i < spec->numFields; ++i) {
           if (spec->fields[i].types == INDEXFLD_T_VECTOR) {
             VecSimIndex *vecsim = openVectorIndex(ctx->redisCtx, &spec->fields[i], DONT_CREATE_INDEX);
@@ -247,13 +247,17 @@ static void doAssignIds(RSAddDocumentCtx *cur, RedisSearchCtx *ctx) {
 
       if (!failure) {
         cur->doc->docId = docId;
-        // Store docId in key metadata. The disk batch is already committed, so a
-        // failure here has no clean recovery and a stale mapping would corrupt
-        // the next update's replace stats; crash to restart from a clean state.
+        // Store docId in key metadata for fast lookup
         int rc = DocIdMeta_Set(ctx->redisCtx, cur->doc->docKey, spec->specId, docId);
-        RS_LOG_ASSERT_ALWAYS(rc == REDISMODULE_OK, "DocIdMeta_Set failed after a successful disk commit");
-        spec->stats.scoring.totalDocsLen += cur->fwIdx->totalFreq;
-        ++spec->stats.scoring.numDocuments;
+        failure = rc != REDISMODULE_OK;
+
+        if (failure) {
+          uint32_t docLen = 0;
+          SearchDisk_DeleteDocumentById(spec->diskSpec, docId, &docLen);
+        } else {
+          spec->stats.scoring.totalDocsLen += cur->fwIdx->totalFreq;
+          ++spec->stats.scoring.numDocuments;
+        }
       }
 
       if (failure) {
