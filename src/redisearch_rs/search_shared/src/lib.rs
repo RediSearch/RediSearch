@@ -51,8 +51,6 @@ pub extern "C" fn SearchShared_IteratorsApiIsSet() -> std::ffi::c_int {
 /// [`SearchShared_InteropMarkerSet`] and a C harness reads it back via
 /// [`SearchShared_InteropMarkerGet`]; if the read observes the plugin's write,
 /// both `.so`s bind the single instance in `libsearch_shared.so`.
-use redisearch_rs as _;
-
 static INTEROP_MARKER: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
 
 /// Write side of the allocation-free interop marker. Stores `value` into the

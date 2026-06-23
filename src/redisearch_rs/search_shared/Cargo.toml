@@ -26,5 +26,4 @@ query_term.workspace = true
 query_error.workspace = true
 index_result.workspace = true
 index_spec.workspace = true
-redisearch_rs.workspace = true
 workspace_hack.workspace = true
