@@ -757,6 +757,26 @@ TEST_F(ParseHybridTest, testExternalCommandWith_NUM_SSTRING) {
   }
 }
 
+TEST_F(ParseHybridTest, testExternalCommandWithWithScores) {
+  // WITHSCORES is an internal-only flag used by the coordinator to ferry per-shard
+  // scores back to the aggregator. The public FT.HYBRID command must reject it.
+  RMCK::ArgvList args(ctx, "FT.HYBRID", index_name.c_str(),
+        "SEARCH", "hello", "VSIM", "@vector", "$BLOB", "PARAMS", "2", "BLOB", TEST_BLOB_DATA, "WITHSCORES");
+
+  QueryError status = QueryError_Default();
+  ArgsCursor ac = {0};
+  HybridRequest_InitArgsCursor(hybridRequest, &ac, args, args.size());
+  parseHybridCommand(ctx, &ac, hybridRequest->sctx, &result, &status, false, EXEC_NO_FLAGS);
+  EXPECT_EQ(QueryError_GetCode(&status), QUERY_ERROR_CODE_PARSE_ARGS) << "Public FT.HYBRID should reject WITHSCORES";
+  QueryError_ClearError(&status);
+
+  // Clean up any partial allocations from the failed parse
+  if (result.vector && result.vector->ast.root) {
+    QAST_Destroy(&result.vector->ast);
+    result.vector->ast.root = NULL;
+  }
+}
+
 TEST_F(ParseHybridTest, testInternalCommandWith_NUM_SSTRING) {
   RMCK::ArgvList args(ctx, "FT.HYBRID", index_name.c_str(),
         "SEARCH", "hello", "VSIM", "@vector", "$BLOB", "PARAMS", "2", "BLOB", TEST_BLOB_DATA, "_NUM_SSTRING", SLOTS_STR);
