@@ -106,6 +106,27 @@ if(NOT TARGET cheadergen_generate)
   endif()
 endif()
 
+# Verify the generated C headers are self-contained (each compiles when
+# included on its own). The include directories are sourced from this
+# directory's INCLUDE_DIRECTORIES property — i.e. the project's own
+# `include_directories(...)` — so the check can never drift from the real C
+# build. Not part of the default build; invoke explicitly:
+#   cmake --build <dir> --target cheadergen_check_self_contained
+if(NOT TARGET cheadergen_check_self_contained)
+  get_property(_rs_header_check_inc_dirs DIRECTORY PROPERTY INCLUDE_DIRECTORIES)
+  set(_rs_header_check_inc_args "")
+  foreach(_dir ${_rs_header_check_inc_dirs})
+    if(_dir)
+      list(APPEND _rs_header_check_inc_args "-I${_dir}")
+    endif()
+  endforeach()
+  add_custom_target(cheadergen_check_self_contained
+        COMMAND ${CMAKE_CURRENT_SOURCE_DIR}/check_headers_self_contained.sh ${_rs_header_check_inc_args}
+        COMMENT "Checking generated C headers are self-contained"
+    )
+  add_dependencies(cheadergen_check_self_contained cheadergen_generate)
+endif()
+
 # Create a custom command to ensure the library exists
 add_custom_command(
     OUTPUT ${RUST_LIB_PATH}
