@@ -357,6 +357,15 @@ impl<'lock> IndexSpecReadGuard<'lock> {
         self.0.fields
     }
 
+    /// Returns the spec's fields as a slice.
+    pub const fn field_specs(&self) -> &[FieldSpec] {
+        let len = self.0.numFields as usize;
+        // SAFETY: `fields` is a valid array of `numFields` ffi::FieldSpec elements that lives
+        // at least as long as this guard. FieldSpec is #[repr(transparent)] over ffi::FieldSpec,
+        // so the cast is sound.
+        unsafe { std::slice::from_raw_parts(self.0.fields.cast_const().cast::<FieldSpec>(), len) }
+    }
+
     /// Returns a const raw pointer to the underlying `ffi::IndexSpec`.
     pub const fn as_ptr(&self) -> *const ffi::IndexSpec {
         self.0 as *const ffi::IndexSpec
