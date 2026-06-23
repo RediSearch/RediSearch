@@ -13,10 +13,12 @@
 use std::{iter, num::NonZeroUsize};
 
 use itertools::Itertools;
-use numeric_score_source::{NumericScoreSource, new_numeric_top_k_unfiltered};
+use numeric_score_source::{
+    NumericScoreSource, new_numeric_top_k_filtered, new_numeric_top_k_unfiltered,
+};
 use rqe_core::DocId;
-use rqe_iterators::RQEIterator;
 use rqe_iterators::metric::MetricSortedById;
+use rqe_iterators::{IdList, RQEIterator};
 use top_k::{ScoreBatch, ScoreSource};
 
 /// Wrap `(doc_id, score)` pairs (ascending by id) as a `NumericScoreSource`.
@@ -24,6 +26,17 @@ fn source(pairs: &[(DocId, f64)]) -> NumericScoreSource<'static, MetricSortedByI
     let ids = pairs.iter().map(|(id, _)| *id).collect::<Vec<_>>();
     let scores = pairs.iter().map(|(_, s)| *s).collect::<Vec<_>>();
     NumericScoreSource::new(MetricSortedById::new(ids, scores))
+}
+
+/// Like [`source`] but with an explicit per-batch cap, to exercise multi-batch
+/// behavior on small inputs.
+fn source_with_batch_size(
+    pairs: &[(DocId, f64)],
+    batch_size: usize,
+) -> NumericScoreSource<'static, MetricSortedById<'static>> {
+    let ids = pairs.iter().map(|(id, _)| *id).collect::<Vec<_>>();
+    let scores = pairs.iter().map(|(_, s)| *s).collect::<Vec<_>>();
+    NumericScoreSource::with_batch_size(MetricSortedById::new(ids, scores), batch_size)
 }
 
 /// Drain a batch into a `Vec`.
@@ -45,6 +58,68 @@ fn next_batch_yields_every_record_in_doc_id_order() {
 fn empty_source_yields_no_batch() {
     let mut src = source(&[]);
     assert!(src.next_batch().unwrap().is_none());
+}
+
+#[test]
+fn next_batch_splits_into_bounded_batches() {
+    // batch_size 2 over 5 records: bounded batches in doc-id order, every record
+    // appearing once across batches, none larger than the cap, then EOF.
+    let mut src = source_with_batch_size(&[(1, 9.0), (2, 8.0), (3, 7.0), (4, 6.0), (5, 5.0)], 2);
+
+    let mut batches = Vec::new();
+    while let Some(batch) = src.next_batch().unwrap() {
+        let drained = drain(batch);
+        assert!(drained.len() <= 2, "batch exceeded the cap: {drained:?}");
+        batches.push(drained);
+    }
+
+    // Two full batches plus a trailing partial one.
+    assert_eq!(
+        batches,
+        vec![
+            vec![(1, 9.0), (2, 8.0)],
+            vec![(3, 7.0), (4, 6.0)],
+            vec![(5, 5.0)]
+        ]
+    );
+    // Source is exhausted: a further read stays empty without a rewind.
+    assert!(src.next_batch().unwrap().is_none());
+}
+
+/// Drive a filtered top-k iterator to exhaustion, collecting yielded
+/// `(doc_id, score)` pairs. The child filter passes exactly `child_ids`.
+fn run_filtered(
+    pairs: &[(DocId, f64)],
+    child_ids: Vec<DocId>,
+    batch_size: usize,
+    k: usize,
+    ascending: bool,
+) -> Vec<(DocId, f64)> {
+    let mut it = new_numeric_top_k_filtered(
+        source_with_batch_size(pairs, batch_size),
+        IdList::<true>::new(child_ids),
+        NonZeroUsize::new(k).unwrap(),
+        ascending,
+    );
+    let mut got = Vec::new();
+    while let Some(result) = it.read().unwrap() {
+        // SAFETY: the numeric source builds every result with `build_numeric`,
+        // so each yielded record is numeric.
+        let score = unsafe { result.as_numeric_unchecked() };
+        got.push((result.doc_id, score));
+    }
+    got
+}
+
+#[test]
+fn filtered_top_k_finds_high_score_beyond_first_batch() {
+    // Regression test for bounded batches: the best-scoring match (doc 4, the
+    // second batch with batch_size 2) must win even though an earlier batch
+    // already filled the heap to k. A premature `Stop` on a full heap would
+    // wrongly return doc 2 from the first batch.
+    let pairs = [(1, 1.0), (2, 2.0), (3, 3.0), (4, 100.0), (5, 5.0)];
+    let got = run_filtered(&pairs, vec![2, 4], 2, 1, false);
+    assert_eq!(got, vec![(4, 100.0)]);
 }
 
 #[test]
