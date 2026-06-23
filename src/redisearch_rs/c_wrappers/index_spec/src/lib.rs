@@ -197,6 +197,65 @@ impl<'lock> IndexSpecWriteGuard<'lock> {
         }
     }
 
+    /// Fetch a mutable reference to the inverted index for a missing-docs entry.
+    ///
+    /// Creates a temporary [`HiddenString`] from `field_name` to look up the
+    /// entry in `missingFieldDict`, then frees it. Returns `None` if no entry
+    /// exists for that field name.
+    ///
+    /// # Safety invariants
+    ///
+    /// The returned reference borrows `self` mutably. Drop it before calling
+    /// [`remove_missing_field`](Self::remove_missing_field) on the same guard.
+    pub fn missing_field_mut(&mut self, field_name: &[u8]) -> Option<&mut InvertedIndex> {
+        // SAFETY: NewHiddenString copies `field_name` into a heap-allocated HiddenString;
+        // we only need it for the duration of the lookup and free it immediately after.
+        let hs = unsafe {
+            ffi::NewHiddenString(
+                field_name.as_ptr().cast::<c_char>(),
+                field_name.len(),
+                false,
+            )
+        };
+        // SAFETY: missingFieldDict is a valid non-null dict (invariant of a properly
+        // initialised IndexSpec); hs is a valid HiddenString key compatible with the
+        // dict's hash/compare callbacks.
+        let val_ptr = unsafe { ffi::RS_dictFetchValue(self.0.missingFieldDict, hs as *mut _) };
+        // SAFETY: hs was allocated by NewHiddenString and is no longer needed.
+        unsafe { ffi::HiddenString_Free(hs, false) };
+
+        if val_ptr.is_null() {
+            return None;
+        }
+        // SAFETY: non-null values in missingFieldDict are valid InvertedIndex pointers
+        // allocated by NewInvertedIndex_Ex. We hold the write lock (acquired in Self::new),
+        // so we have exclusive access to this index.
+        Some(unsafe { &mut *val_ptr.cast::<InvertedIndex>() })
+    }
+
+    /// Remove the missing-docs entry for `field_name` from `missingFieldDict`.
+    ///
+    /// The dict's `valDestructor` (`InvIndFreeCb`) frees the associated inverted
+    /// index on removal. Must **not** be called while any reference to that
+    /// inverted index is live (e.g. a reference returned by
+    /// [`missing_field_mut`](Self::missing_field_mut)).
+    pub fn remove_missing_field(&mut self, field_name: &[u8]) {
+        // SAFETY: NewHiddenString copies `field_name`; the key is compatible with the
+        // dict's hash/compare callbacks.
+        let hs = unsafe {
+            ffi::NewHiddenString(
+                field_name.as_ptr().cast::<c_char>(),
+                field_name.len(),
+                false,
+            )
+        };
+        // SAFETY: missingFieldDict is valid and non-null; hs is a valid key.
+        // valDestructor = InvIndFreeCb will free the InvertedIndex.
+        // Caller guarantees no live references to the inverted index exist.
+        unsafe { ffi::RS_dictDelete(self.0.missingFieldDict, hs as *mut _) };
+        unsafe { ffi::HiddenString_Free(hs, false) };
+    }
+
     /// Apply a signed delta to the spec's `totalInvertedIndexBlocks` counter.
     ///
     /// Uses a relaxed atomic add, matching `IndexStats_BlockCountAdd` in C.
