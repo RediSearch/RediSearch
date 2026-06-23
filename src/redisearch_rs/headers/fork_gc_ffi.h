@@ -41,6 +41,24 @@ extern "C" {
 #endif // __cplusplus
 
 /**
+ * Collect GC delta data for every numeric and geo field in the spec and send
+ * it to the parent process over the pipe.
+ *
+ * For each NUMERIC or GEO field whose tree has been initialised, sends the
+ * field name and unique ID as a header, followed by one entry per tree node
+ * with GC work, then a per-field terminator. A final terminator is sent once
+ * all fields have been processed.
+ *
+ * # Safety
+ *
+ * 1. `gc` must point to a valid [`ffi::ForkGC`] whose `pipe_write_fd` is an
+ *    open, writable file descriptor.
+ * 2. `sctx` must point to a valid [`ffi::RedisSearchCtx`] whose `spec` field
+ *    is a non-null, properly initialised `IndexSpec`.
+ */
+void FGC_childCollectNumeric(ForkGC *gc, RedisSearchCtx *sctx);
+
+/**
  * Collect GC delta data for the spec's `existingDocs` inverted index and
  * send it to the parent process over the pipe.
  *
