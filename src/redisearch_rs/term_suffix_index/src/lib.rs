@@ -158,6 +158,16 @@ impl TermSuffixIndex {
     /// matching is case-insensitive. Returns `None` when no token in the
     /// pattern can seed the search (every token is empty or contains `?`).
     /// A term may be yielded more than once (once per matching suffix entry).
+    ///
+    /// `?` matches a single *byte*, not a codepoint. The final filter runs
+    /// [`WildcardPattern`] over the raw UTF-8, and that matcher advances one
+    /// byte per `?` — it is the same byte-granular matcher the wider query
+    /// engine uses for wildcard search (the Rust counterpart of C's
+    /// `Wildcard_MatchChar`). So against a multibyte term, `?` lines up with a
+    /// single byte of a codepoint, not the whole character: `caf?` will not
+    /// match `café`. This is not an approximation introduced here — it is the
+    /// engine's pre-existing `?` behavior, which we deliberately reuse rather
+    /// than diverge from with a second, codepoint-aware matcher.
     pub fn iter_wildcard(&self, pattern: &str) -> Option<impl Iterator<Item = Rc<str>>> {
         let lowered = unicode_tolower(pattern);
         let (token, followed_by_star) = choose_token(&lowered)?;
