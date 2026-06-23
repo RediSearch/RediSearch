@@ -124,7 +124,10 @@ fn length_one_proper_suffix_is_indexed() {
     let mut sut = TermSuffixIndex::new();
     sut.add("ab");
 
-    assert_eq!(collect_set(sut.iter_suffix("ab")), HashSet::from(["ab".to_string()]));
+    assert_eq!(
+        collect_set(sut.iter_suffix("ab")),
+        HashSet::from(["ab".to_string()])
+    );
     assert!(collect_set(sut.iter_suffix("b")).contains("ab"));
     assert!(collect_set(sut.iter_contains("a")).contains("ab"));
 }
