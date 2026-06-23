@@ -1,0 +1,14 @@
+[package]
+edition.workspace = true
+license-file.workspace = true
+name = "numeric_score_source"
+publish.workspace = true
+version.workspace = true
+
+[dependencies]
+index_result.workspace = true
+rqe_core.workspace = true
+rqe_iterator_type.workspace = true
+rqe_iterators.workspace = true
+top_k = {path = "../top_k"}
+workspace_hack.workspace = true

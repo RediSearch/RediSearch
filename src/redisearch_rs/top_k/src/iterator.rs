@@ -217,7 +217,7 @@ impl<'index, S: ScoreSource + 'index, C: RQEIterator<'index> + 'index> TopKItera
             if let Some(child) = &mut self.child {
                 intersect_batch_with_child(child, &mut batch, &mut self.heap)?;
             } else {
-                // No filter child: every source record is a candidate, so feed
+                // No filter child: every source batch record is a candidate, so feed
                 // the whole batch through the heap, which retains the top k.
                 while let Some((doc_id, score)) = batch.next() {
                     self.heap.push(doc_id, score);

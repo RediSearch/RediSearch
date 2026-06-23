@@ -51,6 +51,7 @@ members = [
     "top_k_bencher",
     "vector_score_source",
     "vector_score_source_bencher",
+    "numeric_score_source",
     "trie_rs",
     "ttl_table",
     "utf8parse",
@@ -128,6 +129,7 @@ index_result = { path = "./index_result" }
 index_spec_cache = { path = "./c_wrappers/index_spec_cache" }
 inverted_index = { path = "./inverted_index" }
 numeric_range_tree = { path = "./numeric_range_tree" }
+numeric_score_source = { path = "./numeric_score_source" }
 redis_reply = { path = "./redis_reply" }
 qint = { path = "./qint" }
 query = { path = "./c_wrappers/query" }
