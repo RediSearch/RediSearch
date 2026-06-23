@@ -13,6 +13,7 @@
 //! comparable to the C iterator numbers — their purpose is to provide a
 //! regression guard for the shared skeleton before real sources are plugged in.
 
+use top_k::iterator::TiebreakStrategy::LowerDocIdWins;
 // Pull in the lib to ensure FFI stubs and mock allocator symbols are linked.
 use top_k_bencher as _;
 
@@ -41,7 +42,7 @@ fn bench_heap_insert(c: &mut Criterion) {
         &(n, k),
         |b, &(n, k)| {
             b.iter(|| {
-                let mut heap = TopKHeap::new(k, asc);
+                let mut heap = TopKHeap::new(k, asc, LowerDocIdWins);
                 for i in 0..n {
                     heap.push(i as u64, i as f64);
                 }
@@ -58,7 +59,7 @@ fn bench_heap_insert(c: &mut Criterion) {
         &(n, k),
         |b, &(n, k)| {
             b.iter(|| {
-                let mut heap = TopKHeap::new(k, asc);
+                let mut heap = TopKHeap::new(k, asc, LowerDocIdWins);
                 for i in (0..n).rev() {
                     heap.push(i as u64, i as f64);
                 }
@@ -79,7 +80,7 @@ fn bench_heap_insert(c: &mut Criterion) {
         BenchmarkId::new("insert_rand", format!("{n}→k{k}")),
         |b| {
             b.iter(|| {
-                let mut heap = TopKHeap::new(k, asc);
+                let mut heap = TopKHeap::new(k, asc, LowerDocIdWins);
                 for &i in &scores {
                     heap.push(i, i as f64);
                 }
@@ -100,7 +101,7 @@ fn bench_heap_pop_all(c: &mut Criterion) {
         |b, &k| {
             b.iter_batched(
                 || {
-                    let mut heap = TopKHeap::new(k, asc);
+                    let mut heap = TopKHeap::new(k, asc, LowerDocIdWins);
                     for i in 0..k.get() {
                         heap.push(i as u64, i as f64);
                     }
@@ -135,7 +136,7 @@ fn bench_intersection_overlap(c: &mut Criterion) {
                     (source, child)
                 },
                 |(source, child)| {
-                    let mut it = TopKIterator::new(source, Some(child), k, asc);
+                    let mut it = TopKIterator::new(source, Some(child), k, asc, true);
                     while black_box(it.read()).unwrap().is_some() {}
                 },
                 BatchSize::SmallInput,
@@ -164,7 +165,7 @@ fn bench_intersection_disjoint(c: &mut Criterion) {
                     (source, child)
                 },
                 |(source, child)| {
-                    let mut it = TopKIterator::new(source, Some(child), k, asc);
+                    let mut it = TopKIterator::new(source, Some(child), k, asc, true);
                     while black_box(it.read()).unwrap().is_some() {}
                 },
                 BatchSize::SmallInput,
@@ -198,8 +199,14 @@ fn bench_adhoc_vs_batches(c: &mut Criterion) {
                     (source, child)
                 },
                 |(source, child)| {
-                    let mut it =
-                        TopKIterator::new_with_mode(source, Some(child), k, asc, TopKMode::AdhocBF);
+                    let mut it = TopKIterator::new_with_mode(
+                        source,
+                        Some(child),
+                        k,
+                        asc,
+                        true,
+                        TopKMode::AdhocBF,
+                    );
                     while it.read().unwrap().is_some() {}
                     black_box(it.at_eof())
                 },
@@ -218,8 +225,14 @@ fn bench_adhoc_vs_batches(c: &mut Criterion) {
                     (source, child)
                 },
                 |(source, child)| {
-                    let mut it =
-                        TopKIterator::new_with_mode(source, Some(child), k, asc, TopKMode::Batches);
+                    let mut it = TopKIterator::new_with_mode(
+                        source,
+                        Some(child),
+                        k,
+                        asc,
+                        true,
+                        TopKMode::Batches,
+                    );
                     while it.read().unwrap().is_some() {}
                     black_box(it.at_eof())
                 },

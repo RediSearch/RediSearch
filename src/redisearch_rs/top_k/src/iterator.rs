@@ -72,6 +72,12 @@ enum Phase {
     YieldingDirect,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum TiebreakStrategy {
+    LowerDocIdWins,
+    HigherDocIdWins,
+}
+
 /// A generic top-k iterator parameterized over a [`ScoreSource`].
 ///
 /// Implements the execution mode described in the design doc:
@@ -88,6 +94,9 @@ pub struct TopKIterator<'index, S: ScoreSource> {
     direct_batch: Option<S::Batch>,
     k: NonZeroUsize,
     compare: fn(f64, f64) -> Ordering,
+    /// selects which `doc_id` wins on equal scores; see
+    /// [`TopKHeap::new`].
+    tiebreak_strategy: TiebreakStrategy,
     phase: Phase,
     /// Heap contents drained into score order for yielding.
     results: Vec<ScoredResult>,
@@ -103,18 +112,22 @@ impl<'index, S: ScoreSource + 'index> TopKIterator<'index, S> {
     /// The execution mode is inferred from `child`:
     /// - `None` → [`TopKMode::Unfiltered`]
     /// - `Some(_)` → [`TopKMode::Batches`]
+    ///
+    /// `tiebreak_strategy` selects which `doc_id` wins on equal scores; see
+    /// [`TopKHeap::new`].
     pub fn new(
         source: S,
         child: Option<Box<dyn RQEIterator<'index> + 'index>>,
         k: NonZeroUsize,
         compare: fn(f64, f64) -> Ordering,
+        tiebreak_strategy: TiebreakStrategy,
     ) -> Self {
         let mode = if child.is_some() {
             TopKMode::Batches
         } else {
             TopKMode::Unfiltered
         };
-        Self::_new_with_mode(source, child, k, compare, mode)
+        Self::_new_with_mode(source, child, k, compare, tiebreak_strategy, mode)
     }
 
     /// Create a new [`TopKIterator`] with an explicit initial mode.
@@ -127,9 +140,10 @@ impl<'index, S: ScoreSource + 'index> TopKIterator<'index, S> {
         child: Option<Box<dyn RQEIterator<'index> + 'index>>,
         k: NonZeroUsize,
         compare: fn(f64, f64) -> Ordering,
+        tiebreak_strategy: TiebreakStrategy,
         mode: TopKMode,
     ) -> Self {
-        Self::_new_with_mode(source, child, k, compare, mode)
+        Self::_new_with_mode(source, child, k, compare, tiebreak_strategy, mode)
     }
 
     /// Create a new [`TopKIterator`] with an explicit initial mode.
@@ -138,10 +152,11 @@ impl<'index, S: ScoreSource + 'index> TopKIterator<'index, S> {
         child: Option<Box<dyn RQEIterator<'index> + 'index>>,
         k: NonZeroUsize,
         compare: fn(f64, f64) -> Ordering,
+        tiebreak_strategy: TiebreakStrategy,
         mode: TopKMode,
     ) -> Self {
         Self {
-            heap: TopKHeap::new(k, compare),
+            heap: TopKHeap::new(k, compare, tiebreak_strategy),
             source,
             child,
             mode,
@@ -149,6 +164,7 @@ impl<'index, S: ScoreSource + 'index> TopKIterator<'index, S> {
             direct_batch: None,
             k,
             compare,
+            tiebreak_strategy,
             phase: Phase::NotStarted,
             results: Vec::new(),
             yield_pos: 0,
@@ -226,7 +242,7 @@ impl<'index, S: ScoreSource + 'index> TopKIterator<'index, S> {
                     // rescans every match from scratch, so batch-phase entries
                     // are redundant. Keeping them would re-admit the same doc id
                     // (TopKHeap::push only de-dups against the worst element).
-                    self.heap = TopKHeap::new(self.k, self.compare);
+                    self.heap = TopKHeap::new(self.k, self.compare, self.tiebreak_strategy);
                     self.collect_adhoc()?;
                     return Ok(());
                 }
@@ -234,7 +250,7 @@ impl<'index, S: ScoreSource + 'index> TopKIterator<'index, S> {
                     // Clear the heap: the source restarts with new parameters
                     // (e.g. expanded numeric range) and will re-emit previously
                     // collected docs. Keeping stale entries would cause duplicates.
-                    self.heap = TopKHeap::new(self.k, self.compare);
+                    self.heap = TopKHeap::new(self.k, self.compare, self.tiebreak_strategy);
                     self.source.rewind();
                     if let Some(child) = &mut self.child {
                         child.rewind();
@@ -274,7 +290,10 @@ impl<'index, S: ScoreSource + 'index> TopKIterator<'index, S> {
     /// the [`Yielding`](Phase::Yielding) phase.
     fn finalize_collection(&mut self) {
         // Replace heap with a fresh one; drain_sorted consumes the old one.
-        let old_heap = std::mem::replace(&mut self.heap, TopKHeap::new(self.k, self.compare));
+        let old_heap = std::mem::replace(
+            &mut self.heap,
+            TopKHeap::new(self.k, self.compare, self.tiebreak_strategy),
+        );
         self.results = old_heap.drain_sorted();
         self.yield_pos = 0;
         self.phase = Phase::Yielding;
@@ -371,7 +390,7 @@ impl<'index, S: ScoreSource + 'index> RQEIterator<'index> for TopKIterator<'inde
             child.rewind();
         }
         self.mode = self.initial_mode;
-        self.heap = TopKHeap::new(self.k, self.compare);
+        self.heap = TopKHeap::new(self.k, self.compare, self.tiebreak_strategy);
         self.direct_batch = None;
         self.results.clear();
         self.yield_pos = 0;
