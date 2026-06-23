@@ -208,11 +208,20 @@ static void withCountErrorCb(MRIteratorCallbackCtx *ctx) {
       (AggregateIteratorContext *)MRIteratorCallback_GetPrivateData(ctx);
   MRIterator *it = MRIteratorCallback_GetIterator(ctx);
   iterCtx->numResponded++;
-  if (AREQ_TimedOut(iterCtx->areq)) {
-    MRIteratorCallback_SetTimedOut(MRIterator_GetCtx(it));
+  // A lost shard (connection drop / send failure) carries no error to surface and
+  // is silently omitted, as in the non-WITHCOUNT path. Unlike an error reply there
+  // is nothing to propagate, so do not enter Phase B early: that would swap the
+  // remaining shards to netCursorCallback and stop accumulating their totals. Wait
+  // for the other shards (or a timeout) so their counts are still summed. On a
+  // timeout we must dispatch.
+  bool timedOut = AREQ_TimedOut(iterCtx->areq);
+  if (timedOut || iterCtx->numResponded == MRIterator_GetNumShards(it)) {
+    if (timedOut) {
+      MRIteratorCallback_SetTimedOut(MRIterator_GetCtx(it));
+    }
+    MRIterator_SwapCallbacks(it, netCursorCallback, NULL);
+    dispatchDeferred(iterCtx);
   }
-  MRIterator_SwapCallbacks(it, netCursorCallback, NULL);
-  dispatchDeferred(iterCtx);
 }
 
 void processResultFormat(uint32_t *flags, MRReply *map) {
