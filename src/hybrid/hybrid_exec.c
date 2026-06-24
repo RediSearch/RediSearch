@@ -861,7 +861,6 @@ static int buildPipelineAndExecute(StrongRef hybrid_ref, HybridPipelineParams *h
                                    bool internal, bool depleteInBackground) {
   // Build the pipeline and execute
   HybridRequest *hreq = StrongRef_Get(hybrid_ref);
-  hreq->reqflags = hybridParams->aggregationParams.common.reqflags;
   bool isCursor = hreq->reqflags & QEXEC_F_IS_CURSOR;
 
   // Start measuring pipeline build time if profiling is enabled
@@ -1027,7 +1026,7 @@ static int HybridQueryCursorTimeoutReturnStrictCallback(RedisModuleCtx *ctx, Red
     array_free(hreq->cursors);
     hreq->cursors = NULL;
   } else {
-    // Cursors were no creatd - reply with empty cursors reply
+    // Cursors were not created - reply with empty cursors reply
     common_hybrid_query_reply_empty(ctx,QUERY_ERROR_CODE_TIMED_OUT, true, IsProfile(hreq));
   }
 
@@ -1128,6 +1127,7 @@ static blockedClientHybridCtx *blockedClientHybridCtx_New(StrongRef hybrid_ref,
 static int HybridRequest_BuildPipelineAndExecute(StrongRef hybrid_ref, HybridPipelineParams *hybridParams, RedisModuleCtx *ctx,
                     RedisSearchCtx *sctx, QueryError* status, bool internal) {
   HybridRequest *hreq = StrongRef_Get(hybrid_ref);
+  hreq->reqflags = hybridParams->aggregationParams.common.reqflags;
   if (RunInThread(ctx)) {
     // Multi-threaded execution path
     StrongRef spec_ref = IndexSpec_GetStrongRefUnsafe(sctx->spec);
