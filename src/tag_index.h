@@ -16,9 +16,9 @@
 #include "vector_index.h"
 #include "indexer.h"
 #include "search_disk_api.h"
-#include "triemap_ffi.h"
 
 struct InvertedIndex;
+typedef struct TrieMapIterator TrieMapIterator;
 
 #ifdef __cplusplus
 extern "C" {
@@ -131,9 +131,7 @@ static inline uint32_t TagIndex_GetId(const TagIndex *idx) {
 }
 
 /* Return an iterator over the TagIndex values */
-static inline TrieMapIterator* TagIndex_IterateValues(const TagIndex *idx) {
-  return TrieMap_Iterate(idx->values);
-}
+TrieMapIterator *TagIndex_IterateValues(const TagIndex *idx);
 
 /* Preprocess a document tag field, split the content in data into fdata `tags` array
    Return 0 if there's no content to index in the field (its value is NULL), 1 otherwise

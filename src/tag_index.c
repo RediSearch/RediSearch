@@ -342,6 +342,10 @@ TagIndex *TagIndex_Ensure(FieldSpec *spec, RedisSearchDiskIndexSpec *diskSpec) {
   return spec->tagOpts.tagIndex;
 }
 
+TrieMapIterator *TagIndex_IterateValues(const TagIndex *idx) {
+  return TrieMap_Iterate(idx->values);
+}
+
 /* Serialize all the tags in the index to the redis client */
 void TagIndex_SerializeValues(TagIndex *idx, RedisModuleCtx *ctx) {
   TrieMapIterator *it = TagIndex_IterateValues(idx);
