@@ -2034,6 +2034,96 @@ class TestCoordinatorTimeout:
             run_command_on_all_shards(env, 'CONFIG', 'SET',
                                       ON_TIMEOUT_CONFIG, prev_on_timeout_policy)
 
+    def test_return_strict_hybrid_cursor_mapping_timeout_during_depletion(self):
+        """RETURN_STRICT _FT.HYBRID cursor-mapping timeout while depleters are active.
+
+        The shard creates the SEARCH/VSIM cursor handles, then starts depleting
+        the two subquery pipelines. With LOAD, one safe-loader depleter parks at
+        the Redis GIL gate. Firing the shard blocked-client timeout there must
+        return from CLIENT UNBLOCK instead of deadlocking in the timeout callback.
+        """
+        env = self.env
+        skipIfNoEnableAssert(env)
+
+        non_coord_shards = non_coord_shard_conns(env)
+        env.assertGreater(len(non_coord_shards), 0,
+                          message="Test requires a non-coordinator shard")
+        target_shard = non_coord_shards[0]
+
+        prev_on_timeout_policy = env.cmd('CONFIG', 'GET', ON_TIMEOUT_CONFIG)[ON_TIMEOUT_CONFIG]
+        run_command_on_all_shards(env, 'CONFIG', 'SET', ON_TIMEOUT_CONFIG, 'return-strict')
+
+        sync_point = 'AfterSafeLoaderGILHandshake'
+        query_args = [
+            'FT.HYBRID', 'hybrid_idx',
+            'SEARCH', '*',
+            'VSIM', '@embedding', '$BLOB',
+            'PARAMS', '2', 'BLOB', self.hybrid_query_vec,
+            'LOAD', '1', '@name',
+        ]
+        query_result = []
+        cleanup_target_shard = True
+
+        try:
+            target_shard.execute_command(debug_cmd(), 'SYNC_POINT', 'CLEAR')
+            target_shard.execute_command(debug_cmd(), 'SYNC_POINT', 'ARM', sync_point)
+
+            t_query = threading.Thread(
+                target=call_and_store,
+                args=(env.cmd, query_args, query_result),
+                daemon=True
+            )
+            t_query.start()
+
+            blocked_client_id = _wait_pinned_shard_with_blocked_cmd(
+                target_shard, sync_point, '_FT.HYBRID')
+
+            unblock_result = []
+            unblock_errors = []
+
+            def unblock_target_shard():
+                try:
+                    unblock_result.append(
+                        target_shard.execute_command('CLIENT', 'UNBLOCK',
+                                                     blocked_client_id, 'TIMEOUT'))
+                except Exception as e:
+                    unblock_errors.append(e)
+
+            t_unblock = threading.Thread(target=unblock_target_shard, daemon=True)
+            t_unblock.start()
+            t_unblock.join(timeout=3)
+            cleanup_target_shard = not t_unblock.is_alive()
+            env.assertFalse(
+                t_unblock.is_alive(),
+                message="CLIENT UNBLOCK hung while _FT.HYBRID cursor-mapping "
+                        "depleters were parked at the safe-loader GIL gate")
+            env.assertEqual(unblock_errors, [],
+                            message=f"CLIENT UNBLOCK failed: {unblock_errors}")
+            env.assertEqual(unblock_result, [1],
+                            message=f"Expected CLIENT UNBLOCK to return 1, got {unblock_result}")
+
+            target_shard.execute_command(debug_cmd(), 'SYNC_POINT', 'SIGNAL', sync_point)
+            wait_for_client_unblocked(target_shard, blocked_client_id)
+
+            t_query.join(timeout=10)
+            env.assertFalse(t_query.is_alive(), message="FT.HYBRID thread should have finished")
+            env.assertEqual(len(query_result), 1, message="Expected exactly one FT.HYBRID reply")
+
+            result = query_result[0]
+            env.assertTrue(isinstance(result, dict),
+                           message=f"RETURN_STRICT cursor-mapping timeout should not hard-error: {result}")
+            assert_timeout_warning(env, result,
+                                   message=f"FT.HYBRID cursor-mapping depleter timeout, got: {result}")
+        finally:
+            if cleanup_target_shard:
+                try:
+                    target_shard.execute_command(debug_cmd(), 'SYNC_POINT', 'SIGNAL', sync_point)
+                    target_shard.execute_command(debug_cmd(), 'SYNC_POINT', 'CLEAR')
+                except Exception:
+                    pass
+                run_command_on_all_shards(env, 'CONFIG', 'SET',
+                                          ON_TIMEOUT_CONFIG, prev_on_timeout_policy)
+
     def test_return_strict_timeout_at_claim_sync_point_aggregate(self):
         """RETURN_STRICT timeout while BG is parked before AREQ_TryClaimAggregateResults.
 
