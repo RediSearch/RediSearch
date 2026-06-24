@@ -91,13 +91,13 @@ fn unfiltered_returns_top_k_nearest_by_score() {
     let mut it = new_vector_top_k_unfiltered(source, NonZeroUsize::new(k).unwrap());
 
     // The unfiltered path streams VecSim's reply ordered by score, so the k
-    // nearest neighbours come out best-first: id 100 (distance 0) down to 91.
+    // nearest neighbours come out best-first.
     let ids = collect_ids(&mut it);
     assert_eq!(ids, (91..=100).rev().collect::<Vec<_>>());
     assert!(it.at_eof());
 
     drop(it);
-    // Stest_utilsve references to the index remain.
+    // SAFETY: no live references to the index remain.
     unsafe { VecSimIndex_Free(index.as_ptr()) };
 }
 
@@ -115,8 +115,8 @@ fn unfiltered_results_are_metric_kind_with_exact_distance() {
     // Estimate is capped at k (k < index size here).
     assert_eq!(it.num_estimated(), k);
 
-    // Unfiltered streams by score, so ids 100..=91 come out best-first. Each
-    // result is a Metric carrying the exact squared-L2 distance DIM*(n-id)^2.
+    // Unfiltered streams by score, so results come out best-first. Each result
+    // is a Metric carrying the exact squared-L2 distance DIM*(n-id)^2.
     let mut expected_id = n as t_docId;
     while let Some(res) = it.read().unwrap() {
         assert_eq!(res.kind(), RSResultKind::Metric);
@@ -220,7 +220,7 @@ fn filtered_batches_partial_child_intersects() {
     );
 
     // Only multiples of `step` pass the filter; best-first gives the top-k of
-    // those: 100, 96, 92, ... 64.
+    // those.
     let ids = collect_ids(&mut it);
     let expected: Vec<t_docId> = (0..k).map(|c| (n - step * c) as t_docId).collect();
     assert_eq!(ids, expected);
@@ -267,8 +267,8 @@ fn filtered_adhoc_drops_nan_distance_docs() {
 
     // The adhoc-BF path looks up a distance per child id. Ids that were never
     // added to the vector index have no label, so VecSim returns NaN — the
-    // source must drop them. Mixing real ids (91..=100) with phantom ids
-    // (> n) exercises that filter against a real index, no mock needed.
+    // source must drop them. Mixing real ids with phantom ids (> n) exercises
+    // that filter against a real index, no mock needed.
     let real: Vec<t_docId> = (91..=100).collect();
     let phantom: Vec<t_docId> = vec![201, 202, 203];
     let mut child_ids = real.clone();
@@ -369,14 +369,14 @@ fn unfiltered_skips_expired_docs() {
     let k = 10;
     let index = build_hnsw_index(n);
 
-    // Mark the two nearest neighbours (ids 100, 99) expired.
+    // Mark the two nearest neighbours expired.
     let checker = MockExpirationChecker::new(HashSet::from([100, 99]));
     // SAFETY: index outlives the iterator (freed at end of scope).
     let source = unsafe { make_source_with_expiration(index, n, k, n, Some(checker)) };
     let mut it = new_vector_top_k_unfiltered(source, NonZeroUsize::new(k).unwrap());
 
-    // Top-k by score is ids 100..=91; the two expired nearest neighbours are
-    // dropped without refill, leaving 98..=91.
+    // The two expired nearest neighbours are
+    // dropped without refill.
     let ids = collect_ids(&mut it);
     assert_eq!(ids, (91..=98).rev().collect::<Vec<_>>());
 
@@ -392,9 +392,10 @@ fn filtered_batches_drops_expired_without_refill() {
     let k = 3;
     let index = build_hnsw_index(n);
 
-    // Child filter passes 90..=100, so the best k are [100, 99, 98]. Doc 100
-    // is expired: it still occupies its heap slot during collection (stopping
-    // batch refill), and is dropped at yield — leaving [99, 98], not [99, 98, 97].
+    // Child filter passes the candidates, so the best k are the closest
+    // neighbours. The nearest is expired: it still occupies its heap slot during
+    // collection (stopping batch refill), and is dropped at yield — leaving the
+    // count short, not refilled from the next-best doc.
     let child_ids: Vec<t_docId> = (90..=100).collect();
     let checker = MockExpirationChecker::new(HashSet::from([100]));
     // SAFETY: index outlives the iterator (freed at end of scope).
@@ -424,9 +425,9 @@ fn filtered_adhoc_drops_expired_without_refill() {
     let k = 3;
     let index = build_hnsw_index(n);
 
-    // Same shape as the batches test, on the adhoc-BF path: expired doc 100
+    // Same shape as the batches test, on the adhoc-BF path: the expired nearest
     // claims a heap slot during the child scan and is dropped at yield, so the
-    // count shrinks instead of refilling from doc 97.
+    // count shrinks instead of refilling from the next-best doc.
     let child_ids: Vec<t_docId> = (90..=100).collect();
     let checker = MockExpirationChecker::new(HashSet::from([100]));
     // SAFETY: index outlives the iterator (freed at end of scope).

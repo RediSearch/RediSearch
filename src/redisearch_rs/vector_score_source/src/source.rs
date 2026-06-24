@@ -408,9 +408,10 @@ impl<'index, E: ExpirationChecker> ScoreSource for VectorScoreSource<'index, E> 
 
     fn check_timeout(&mut self) -> Result<(), RQEIteratorError> {
         // SAFETY: `as_mut()` gives a valid, exclusive borrow for the call; the
-        // source is single-threaded so the aliased raw pointer in
-        // `query_params.timeoutCtx` is idle. The callee reads the deadline and
-        // bumps the counter without retaining the pointer.
+        // source is single-threaded so no other access to the aliased raw
+        // pointer in `query_params.timeoutCtx` is live during the call. The
+        // callee reads the deadline and bumps the counter without retaining the
+        // pointer.
         let timeout = unsafe { RS_VecSimCheckTimeout(self.timeout_ctx.as_mut()) };
         if timeout != 0 {
             return Err(RQEIteratorError::TimedOut);
