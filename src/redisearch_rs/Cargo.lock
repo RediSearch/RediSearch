@@ -3303,7 +3303,6 @@ dependencies = [
  "c_ffi_utils",
  "cheadergen",
  "ffi",
- "fnv",
  "libc",
  "query_error",
  "redis-module",
@@ -3322,7 +3321,6 @@ version = "0.0.1"
 dependencies = [
  "cheadergen",
  "ffi",
- "fnv",
  "libc",
  "query_error",
  "redis_mock",

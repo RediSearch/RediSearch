@@ -922,8 +922,9 @@ def _test_pagers(protocol):
         results2 = _get_results(res2)
         env.assertEqual(len(results1), len(results2))
 
-        # Compare common part of the results
-        if any(x in query for x in ('SORTBY', 'GROUPBY')):
+        # Compare common part of the results (order-sensitive only for SORTBY;
+        # GROUPBY without SORTBY has no deterministic iteration order in cluster mode)
+        if 'SORTBY' in query:
             env.assertEqual(results1[offset:limit + offset + 1],
                             results2[0:limit - offset], message=query)
 
