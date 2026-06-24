@@ -478,7 +478,7 @@ def test_flex_disk_hnsw_float16(env):
     ).ok()
 
     # Unsupported element types are still rejected on disk.
-    for vec_type in ('FLOAT64', 'BFLOAT16'):
+    for vec_type in ('FLOAT64', 'BFLOAT16', 'INT8', 'UINT8'):
         env.expect(
             'FT.CREATE', f'idx_{vec_type.lower()}', 'ON', 'HASH', 'SKIPINITIALSCAN', 'SCHEMA',
             'v', 'VECTOR', 'HNSW', '14',

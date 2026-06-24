@@ -1498,6 +1498,20 @@ struct SimulateInFlexGuard {
   }
 };
 
+// Removes a parsed spec from the globals on scope exit, even if an ASSERT_*
+// aborts the test body before the explicit cleanup is reached. No-op when the
+// ref is already gone (parse failed, or it was released earlier). (MOD-15148)
+struct SpecCleanupGuard {
+  StrongRef ref;
+  explicit SpecCleanupGuard(StrongRef r) : ref(r) {
+  }
+  ~SpecCleanupGuard() {
+    if (StrongRef_Get(ref)) {
+      Indexes_RemoveSpecFromGlobals(ref, false);
+    }
+  }
+};
+
 // MOD-15148: disk HNSW validation accepts FLOAT16 alongside FLOAT32, and keeps
 // rejecting every other element type. All schemas carry ON HASH SKIPINITIALSCAN
 // because Flex specs require the SkipInitialScan flag (src/spec.c).
@@ -1535,6 +1549,8 @@ TEST_F(IndexTest, testDiskHnswAcceptsFloat16) {
     };
     StrongRef ref =
         IndexSpec_ParseC(NULL, "idx_fp16", args, sizeof(args) / sizeof(const char *), &err);
+    // Cleans up on scope exit even if an assertion below aborts the test.
+    SpecCleanupGuard cleanup(ref);
     IndexSpec *s = (IndexSpec *)StrongRef_Get(ref);
     ASSERT_FALSE(QueryError_HasError(&err)) << QueryError_GetUserError(&err);
     ASSERT_TRUE(s);
@@ -1549,8 +1565,6 @@ TEST_F(IndexTest, testDiskHnswAcceptsFloat16) {
     ASSERT_EQ(prim->algo, VecSimAlgo_HNSWLIB);
     ASSERT_EQ(prim->algoParams.hnswParams.type, VecSimType_FLOAT16);
     ASSERT_EQ(f->vectorOpts.expBlobSize, (size_t)dim * 2);  // VecSimType_sizeof(FLOAT16) == 2
-
-    Indexes_RemoveSpecFromGlobals(ref, false);
   }
 
   // Negative: every other element type is still rejected on disk.
