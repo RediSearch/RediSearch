@@ -60,7 +60,7 @@ static inline bool handleAndReplyWarning(RedisModule_Reply *reply, QueryError *e
   bool timeoutOccurred = false;
   if (returnCode == RS_RESULT_TIMEDOUT && !ignoreTimeout) {
     // Track warnings in global statistics
-    QueryWarningsGlobalStats_UpdateWarning(QUERY_WARNING_CODE_TIMED_OUT, QUERY_TIMEOUT_STAGE_PIPELINE, 1, COORD_ERR_WARN);
+    QueryWarningsGlobalStats_UpdateWarning(QUERY_WARNING_CODE_TIMED_OUT, 1, COORD_ERR_WARN);
     ReplyWarning(reply, QueryWarning_Strwarning(QUERY_WARNING_CODE_TIMED_OUT), suffix);
     timeoutOccurred = true;
   } else if (returnCode == RS_RESULT_ERROR) {
@@ -68,7 +68,7 @@ static inline bool handleAndReplyWarning(RedisModule_Reply *reply, QueryError *e
     ReplyWarning(reply, QueryError_GetUserError(err), suffix);
     QueryError_ClearError(err);  // Free allocated message strings
   } else if (QueryError_HasReachedMaxPrefixExpansionsWarning(err)) {
-    QueryWarningsGlobalStats_UpdateWarning(QUERY_WARNING_CODE_REACHED_MAX_PREFIX_EXPANSIONS, QUERY_TIMEOUT_STAGE_PIPELINE, 1, COORD_ERR_WARN);
+    QueryWarningsGlobalStats_UpdateWarning(QUERY_WARNING_CODE_REACHED_MAX_PREFIX_EXPANSIONS, 1, COORD_ERR_WARN);
     ReplyWarning(reply, QUERY_WMAXPREFIXEXPANSIONS, suffix);
   }
 
@@ -83,7 +83,7 @@ static int replyForHybridPreExecutionTimeout(RedisModuleCtx *ctx, bool internal,
       ShouldReplyWithTimeoutError(RS_RESULT_TIMEDOUT, timeoutPolicy, isProfile);
 
   if (shouldReplyWithError) {
-    QueryErrorsGlobalStats_UpdateError(QUERY_ERROR_CODE_TIMED_OUT, QUERY_TIMEOUT_STAGE_QUEUE, 1, !internal);
+    QueryErrorsGlobalStats_UpdateError(QUERY_ERROR_CODE_TIMED_OUT, 1, !internal);
     return RedisModule_ReplyWithError(ctx, QueryError_Strerror(QUERY_ERROR_CODE_TIMED_OUT));
   }
 
@@ -273,14 +273,24 @@ static int HREQ_populateReplyWithResults(RedisModule_Reply *reply,
  * Handles error/timeout checking and sends error reply if needed.
  * Returns true if an error was sent (caller should skip to cleanup).
  */
+/* Record a per-stage timeout for a hybrid request into the blocked-client
+ * breakdown, iff it timed out via the blocked-client mechanism
+ * (HybridRequest_TimedOut is set only by the blocked-client timeout callbacks). */
+static inline void recordHREQTimeoutStage(HybridRequest *hreq, bool isError, bool coord) {
+  if (HybridRequest_TimedOut(hreq)) {
+    QueryTimeoutStageStats_Record(HybridRequest_TimeoutStage(hreq), isError, coord);
+  }
+}
+
 static bool handleSendChunkError_hybrid(HybridRequest *hreq, RedisModule_Reply *reply,
   QueryError *err, int rc) {
   if (ShouldReplyWithError(QueryError_GetCode(err), hreq->reqConfig.timeoutPolicy, IsProfile(hreq))) {
-    QueryErrorsGlobalStats_UpdateError(QueryError_GetCode(err), QUERY_TIMEOUT_STAGE_PIPELINE, 1, COORD_ERR_WARN);
+    QueryErrorsGlobalStats_UpdateError(QueryError_GetCode(err), 1, COORD_ERR_WARN);
     RedisModule_Reply_Error(reply, QueryError_GetUserError(err));
     return true;
   } else if (ShouldReplyWithTimeoutError(rc, hreq->reqConfig.timeoutPolicy, IsProfile(hreq))) {
-    QueryErrorsGlobalStats_UpdateError(QUERY_ERROR_CODE_TIMED_OUT, QUERY_TIMEOUT_STAGE_PIPELINE, 1, COORD_ERR_WARN);
+    QueryErrorsGlobalStats_UpdateError(QUERY_ERROR_CODE_TIMED_OUT, 1, COORD_ERR_WARN);
+    recordHREQTimeoutStage(hreq, /*isError=*/true, COORD_ERR_WARN);
     ReplyWithTimeoutError(reply);
     return true;
   }
@@ -316,13 +326,14 @@ static void finishSendChunkReply_hybrid(HybridRequest *hreq, RedisModule_Reply *
     RedisModule_Reply_SimpleString(reply, QUERY_WINDEXING_FAILURE);
   }
   if (QueryError_HasQueryOOMWarning(qctx->err)) {
-    QueryWarningsGlobalStats_UpdateWarning(QUERY_WARNING_CODE_OUT_OF_MEMORY_COORD, QUERY_TIMEOUT_STAGE_PIPELINE, 1, COORD_ERR_WARN);
+    QueryWarningsGlobalStats_UpdateWarning(QUERY_WARNING_CODE_OUT_OF_MEMORY_COORD, 1, COORD_ERR_WARN);
     // Cluster mode only: handled directly here instead of through handleAndReplyWarning()
     // because this warning is not related to subqueries or post-processing terminology
     RedisModule_Reply_SimpleString(reply, QUERY_WOOM_COORD);
   }
   if (QueryError_GetCode(qctx->err) == QUERY_ERROR_CODE_TIMED_OUT) {
-    QueryWarningsGlobalStats_UpdateWarning(QUERY_WARNING_CODE_TIMED_OUT, QUERY_TIMEOUT_STAGE_PIPELINE, 1, COORD_ERR_WARN);
+    QueryWarningsGlobalStats_UpdateWarning(QUERY_WARNING_CODE_TIMED_OUT, 1, COORD_ERR_WARN);
+    recordHREQTimeoutStage(hreq, /*isError=*/false, COORD_ERR_WARN);
     RedisModule_Reply_SimpleString(reply, QueryWarning_Strwarning(QUERY_WARNING_CODE_TIMED_OUT));
   }
   // The cap flag is mirrored on both subqueries by parseHybridCommand; checking
@@ -480,7 +491,7 @@ void HREQ_ReplyOrStoreError(HybridRequest *hreq, RedisModuleCtx *ctx, QueryError
                                     IsInternal(hreq), IsProfile(hreq));
     QueryError_ClearError(status);
   } else {
-    QueryErrorsGlobalStats_UpdateError(QueryError_GetCode(status), HybridRequest_TimeoutStage(hreq), 1, !IsInternal(hreq));
+    QueryErrorsGlobalStats_UpdateError(QueryError_GetCode(status), 1, !IsInternal(hreq));
     QueryError_ReplyAndClear(ctx, status);
   }
 }
@@ -599,10 +610,10 @@ void sendChunk_ReplyOnly_HybridEmptyResults(RedisModule_Reply *reply, QueryError
     // warning
     RedisModule_ReplyKV_Array(reply, "warnings");
     if (QueryError_GetCode(err) == QUERY_ERROR_CODE_TIMED_OUT) {
-        QueryWarningsGlobalStats_UpdateWarning(QUERY_WARNING_CODE_TIMED_OUT, QUERY_TIMEOUT_STAGE_PIPELINE, 1, COORD_ERR_WARN);
+        QueryWarningsGlobalStats_UpdateWarning(QUERY_WARNING_CODE_TIMED_OUT, 1, COORD_ERR_WARN);
         RedisModule_Reply_SimpleString(reply, QueryWarning_Strwarning(QUERY_WARNING_CODE_TIMED_OUT));
     } else if (QueryError_HasQueryOOMWarning(err)) {
-        QueryWarningsGlobalStats_UpdateWarning(QUERY_WARNING_CODE_OUT_OF_MEMORY_COORD, QUERY_TIMEOUT_STAGE_PIPELINE, 1, COORD_ERR_WARN);
+        QueryWarningsGlobalStats_UpdateWarning(QUERY_WARNING_CODE_OUT_OF_MEMORY_COORD, 1, COORD_ERR_WARN);
         // This function is called by Coordinator or SA
         RedisModule_Reply_SimpleString(reply, QUERY_WOOM_COORD);
     }
@@ -681,7 +692,7 @@ static inline void replyWithCursors(RedisModuleCtx *replyCtx, arrayof(Cursor*) c
     }
     RedisModule_ReplyKV_Array(reply, "warnings"); // >warnings
     if (timedOut) {
-      QueryWarningsGlobalStats_UpdateWarning(QUERY_WARNING_CODE_TIMED_OUT, QUERY_TIMEOUT_STAGE_PIPELINE, 1, SHARD_ERR_WARN);
+      QueryWarningsGlobalStats_UpdateWarning(QUERY_WARNING_CODE_TIMED_OUT, 1, SHARD_ERR_WARN);
       RedisModule_Reply_SimpleString(reply, QueryWarning_Strwarning(QUERY_WARNING_CODE_TIMED_OUT));
     }
     for (size_t i = 0; i < hreq->nrequests; i++) {
@@ -690,7 +701,7 @@ static inline void replyWithCursors(RedisModuleCtx *replyCtx, arrayof(Cursor*) c
         const char *suffix = (i == SEARCH_INDEX) ? SEARCH_SUFFIX : VSIM_SUFFIX;
         char buf[128];
         snprintf(buf, sizeof(buf), "%s %s", QUERY_WMAXPREFIXEXPANSIONS, suffix);
-        QueryWarningsGlobalStats_UpdateWarning(QUERY_WARNING_CODE_REACHED_MAX_PREFIX_EXPANSIONS, QUERY_TIMEOUT_STAGE_PIPELINE, 1, SHARD_ERR_WARN);
+        QueryWarningsGlobalStats_UpdateWarning(QUERY_WARNING_CODE_REACHED_MAX_PREFIX_EXPANSIONS, 1, SHARD_ERR_WARN);
         RedisModule_Reply_SimpleString(reply, buf);
       }
     }
@@ -884,7 +895,7 @@ static int HybridQueryTimeoutFailCallback(RedisModuleCtx *ctx, RedisModuleString
   if (!node || !node->privdata) {
     // Shouldn't happen, but handle gracefully
     RedisModule_Log(ctx, "warning", "HybridQueryTimeoutFailCallback: no node or privdata");
-    QueryErrorsGlobalStats_UpdateError(QUERY_ERROR_CODE_TIMED_OUT, QUERY_TIMEOUT_STAGE_PIPELINE, 1, COORD_ERR_WARN);
+    QueryErrorsGlobalStats_UpdateError(QUERY_ERROR_CODE_TIMED_OUT, 1, COORD_ERR_WARN);
     RedisModule_ReplyWithError(ctx, QueryError_Strerror(QUERY_ERROR_CODE_TIMED_OUT));
     return REDISMODULE_OK;
   }
@@ -908,7 +919,8 @@ static int HybridQueryTimeoutFailCallback(RedisModuleCtx *ctx, RedisModuleString
   HybridRequest_UnlockCursors(hreq);
 
   // Reply with timeout error
-  QueryErrorsGlobalStats_UpdateError(QUERY_ERROR_CODE_TIMED_OUT, HybridRequest_TimeoutStage(hreq), 1, !IsInternal(hreq->requests[0]));
+  QueryErrorsGlobalStats_UpdateError(QUERY_ERROR_CODE_TIMED_OUT, 1, !IsInternal(hreq->requests[0]));
+  recordHREQTimeoutStage(hreq, /*isError=*/true, !IsInternal(hreq->requests[0]));
   RedisModule_ReplyWithError(ctx, QueryError_Strerror(QUERY_ERROR_CODE_TIMED_OUT));
 
   return REDISMODULE_OK;
@@ -932,7 +944,7 @@ static int HybridQueryCursorReplyCallback(RedisModuleCtx *ctx, RedisModuleString
   HybridRequest *req = (HybridRequest *)node->privdata;
 
   if (QueryError_HasError(&req->storedReplyState.err)) {
-    QueryErrorsGlobalStats_UpdateError(QueryError_GetCode(&req->storedReplyState.err), QUERY_TIMEOUT_STAGE_PIPELINE, 1, SHARD_ERR_WARN);
+    QueryErrorsGlobalStats_UpdateError(QueryError_GetCode(&req->storedReplyState.err), 1, SHARD_ERR_WARN);
     QueryError_ReplyAndClear(ctx, &req->storedReplyState.err);
     return REDISMODULE_OK;
   }
@@ -965,7 +977,7 @@ static int HybridQueryReplyCallback(RedisModuleCtx *ctx, RedisModuleString **arg
   if (!req->storedReplyState.hasStoredResults) {
     // Background thread didn't store results - some early error occurred.
     if (QueryError_HasError(&req->storedReplyState.err)) {
-      QueryErrorsGlobalStats_UpdateError(QueryError_GetCode(&req->storedReplyState.err), QUERY_TIMEOUT_STAGE_PIPELINE, 1, COORD_ERR_WARN);
+      QueryErrorsGlobalStats_UpdateError(QueryError_GetCode(&req->storedReplyState.err), 1, COORD_ERR_WARN);
       QueryError_ReplyAndClear(ctx, &req->storedReplyState.err);
     } else {
       RedisModule_ReplyWithError(ctx, "Internal error: no results stored");
@@ -1060,7 +1072,7 @@ static inline int CleanupAndReplyStatus(RedisModuleCtx *ctx, StrongRef hybrid_re
     freeHybridParams(hybridParams);
     DefaultCleanup(hybrid_ref);
     // Update global query errors, this path is only used for SA and internal
-    QueryErrorsGlobalStats_UpdateError(QueryError_GetCode(status), QUERY_TIMEOUT_STAGE_QUEUE, 1, !internal);
+    QueryErrorsGlobalStats_UpdateError(QueryError_GetCode(status), 1, !internal);
     return QueryError_ReplyAndClear(ctx, status);
 }
 
@@ -1132,7 +1144,7 @@ int hybridCommandHandler(RedisModuleCtx *ctx, RedisModuleString **argv, int argc
   // Memory guardrail
   if (QueryMemoryGuard(ctx)) {
     if (RSGlobalConfig.requestConfigParams.oomPolicy == OomPolicy_Fail) {
-      QueryErrorsGlobalStats_UpdateError(QUERY_ERROR_CODE_OUT_OF_MEMORY, QUERY_TIMEOUT_STAGE_QUEUE, 1, !internal);
+      QueryErrorsGlobalStats_UpdateError(QUERY_ERROR_CODE_OUT_OF_MEMORY, 1, !internal);
       return QueryMemoryGuardFailure_WithReply(ctx);
     }
     // Assuming OOM policy is return since we didn't ignore the memory guardrail

@@ -165,14 +165,23 @@ size_t IndexesGlobalStats_GetLogicallyDeletedDocs() {
   return READ(RSGlobalStats.totalStats.logically_deleted);
 }
 
+// Records a blocked-client query timeout into the per-stage breakdown. See the
+// header for why this is a subset of the aggregate `timeout` counter.
+void QueryTimeoutStageStats_Record(QueryTimeoutStage stage, bool isError, bool coord) {
+  QueriesGlobalStats *q = &RSGlobalStats.totalStats.queries;
+  QueryTimeoutStageStats *stages =
+      isError ? (coord ? &q->coord_errors.timeout_by_stage : &q->shard_errors.timeout_by_stage)
+              : (coord ? &q->coord_warnings.timeout_by_stage : &q->shard_warnings.timeout_by_stage);
+  IncrTimeoutStage(stages, stage, 1);
+}
+
 // Updates the global query errors statistics.
 // `coord` indicates whether the error occurred on the coordinator or on a shard.
 // Standalone shards are considered as coords
 // Will ignore not supported error codes.
 // Currently supports : syntax, parse_args, timeout, oom, unavailable_slots
-// `stage` is only consulted for the timeout code (per-stage breakdown).
 // `toAdd` can be negative to decrease the counter.
-void QueryErrorsGlobalStats_UpdateError(QueryErrorCode code, QueryTimeoutStage stage, int toAdd, bool coord) {
+void QueryErrorsGlobalStats_UpdateError(QueryErrorCode code, int toAdd, bool coord) {
   QueryErrorsGlobalStats *queries_errors = coord ? &RSGlobalStats.totalStats.queries.coord_errors : &RSGlobalStats.totalStats.queries.shard_errors;
   switch (code) {
     case QUERY_ERROR_CODE_SYNTAX:
@@ -184,7 +193,6 @@ void QueryErrorsGlobalStats_UpdateError(QueryErrorCode code, QueryTimeoutStage s
       break;
     case QUERY_ERROR_CODE_TIMED_OUT:
       INCR_BY(queries_errors->timeout, toAdd);
-      IncrTimeoutStage(&queries_errors->timeout_by_stage, stage, toAdd);
       break;
     case QUERY_ERROR_CODE_OUT_OF_MEMORY:
       INCR_BY(queries_errors->oom, toAdd);
@@ -200,14 +208,12 @@ void QueryErrorsGlobalStats_UpdateError(QueryErrorCode code, QueryTimeoutStage s
 // Standalone shards are considered as coords
 // Will ignore not supported warning codes.
 // Currently supports : timeout, oom, max_prefix_expansion, asm_inaccuracy
-// `stage` is only consulted for the timeout code (per-stage breakdown).
 // `toAdd` can be negative to decrease the counter.
-void QueryWarningsGlobalStats_UpdateWarning(QueryWarningCode code, QueryTimeoutStage stage, int toAdd, bool coord) {
+void QueryWarningsGlobalStats_UpdateWarning(QueryWarningCode code, int toAdd, bool coord) {
   QueryWarningGlobalStats *queries_warnings = coord ? &RSGlobalStats.totalStats.queries.coord_warnings : &RSGlobalStats.totalStats.queries.shard_warnings;
   switch (code) {
     case QUERY_WARNING_CODE_TIMED_OUT:
       INCR_BY(queries_warnings->timeout, toAdd);
-      IncrTimeoutStage(&queries_warnings->timeout_by_stage, stage, toAdd);
       break;
     case QUERY_WARNING_CODE_OUT_OF_MEMORY_SHARD:
       INCR_BY(queries_warnings->oom, toAdd);

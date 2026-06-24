@@ -14,6 +14,7 @@
 #include <stdatomic.h>
 #include <pthread.h>
 #include "cursor.h"
+#include "info/global_stats.h"
 
 typedef struct QueryError QueryError;
 
@@ -115,6 +116,15 @@ static inline QueryTimeoutStage CoordRequestCtx_TimeoutStage(CoordRequestCtx *ct
  */
 static inline bool CoordRequestCtx_TimedOut(CoordRequestCtx *ctx) {
   return RS_AtomicBoolLoadRelaxed(&ctx->timedOut);
+}
+
+// Record a per-stage timeout for a coordinator request into the blocked-client
+// breakdown, iff it timed out via the blocked-client mechanism. Coordinator
+// timeouts are always attributed to the coord (COORD_ERR_WARN) side.
+static inline void CoordRequestCtx_RecordTimeoutStage(CoordRequestCtx *ctx, bool isError) {
+  if (CoordRequestCtx_TimedOut(ctx)) {
+    QueryTimeoutStageStats_Record(CoordRequestCtx_TimeoutStage(ctx), isError, COORD_ERR_WARN);
+  }
 }
 
 /**

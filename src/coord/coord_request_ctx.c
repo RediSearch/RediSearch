@@ -166,7 +166,7 @@ void CoordRequestCtx_ReplyOrStoreError(CoordRequestCtx *req, RedisModuleCtx *ctx
     // Clear the original to avoid leaking heap-allocated strings.
     QueryError_ClearError(status);
   } else {
-    QueryErrorsGlobalStats_UpdateError(QueryError_GetCode(status), QUERY_TIMEOUT_STAGE_PIPELINE, 1, COORD_ERR_WARN);
+    QueryErrorsGlobalStats_UpdateError(QueryError_GetCode(status), 1, COORD_ERR_WARN);
     QueryError_ReplyAndClear(ctx, status);
   }
 }

@@ -172,21 +172,26 @@ size_t IndexesGlobalStats_GetLogicallyDeletedDocs();
 * Standalone shards are considered as coords.
 * Will ignore not supported error codes.
 * Currently supports : syntax, parse_args, timeout, oom, unavailable_slots
-* `stage` is only consulted for the timeout code, where it additionally
-* increments the matching per-stage counter; it is ignored for other codes.
 * `toAdd` can be negative to decrease the counter.
 */
-void QueryErrorsGlobalStats_UpdateError(QueryErrorCode error, QueryTimeoutStage stage, int toAdd, bool coord);
+void QueryErrorsGlobalStats_UpdateError(QueryErrorCode error, int toAdd, bool coord);
 
 // Updates the global query warnings statistics.
 // `coord` indicates whether the warning occurred on the coordinator or on a shard.
 // Standalone shards are considered as coords
 // Will ignore not supported warning codes.
 // Currently supports : timeout, oom, max_prefix_expansion, asm_inaccuracy
-// `stage` is only consulted for the timeout code, where it additionally
-// increments the matching per-stage counter; it is ignored for other codes.
 // `toAdd` can be negative to decrease the counter.
-void QueryWarningsGlobalStats_UpdateWarning(QueryWarningCode code, QueryTimeoutStage stage, int toAdd, bool coord);
+void QueryWarningsGlobalStats_UpdateWarning(QueryWarningCode code, int toAdd, bool coord);
+
+// Records a single blocked-client query timeout into the per-stage breakdown
+// (`timeout_by_stage`), attributing it to the pipeline stage the query had
+// reached when the deadline fired. This is a strict subset of the aggregate
+// `timeout` counter: only timeouts surfaced through a blocked-client timeout
+// callback are broken down here, so the three stages sum to <= the aggregate.
+// `isError` selects the error vs warning counter (FAIL policy -> error,
+// RETURN/RETURN_STRICT -> warning); `coord` selects coord vs shard.
+void QueryTimeoutStageStats_Record(QueryTimeoutStage stage, bool isError, bool coord);
 
 // Update the number of active io threads.
 void GlobalStats_UpdateUvRunningQueries(int toAdd);

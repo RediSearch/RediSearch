@@ -22,28 +22,6 @@ TIMEOUT_WARNING = TIMEOUT_ERROR
 def run_cmd_expect_timeout(env, query_args):
     env.expect(*query_args).error().contains(TIMEOUT_ERROR)
 
-def _assert_coord_timeout_error_sum_invariant(env):
-    """The aggregate coord timeout-error counter must equal the sum of its
-    per-stage parts (queue + pipeline + reply)."""
-    sec = info_modules_to_dict(env)[COORD_WARN_ERR_SECTION]
-    env.assertEqual(
-        int(sec[TIMEOUT_ERROR_COORD_METRIC]),
-        int(sec[TIMEOUT_ERROR_COORD_QUEUE_METRIC])
-        + int(sec[TIMEOUT_ERROR_COORD_PIPELINE_METRIC])
-        + int(sec[TIMEOUT_ERROR_COORD_REPLY_METRIC]),
-        message="aggregate coord timeout-error counter must equal the sum of its per-stage parts")
-
-def _assert_coord_timeout_warning_sum_invariant(env):
-    """The aggregate coord timeout-warning counter must equal the sum of its
-    per-stage parts (queue + pipeline + reply)."""
-    sec = info_modules_to_dict(env)[COORD_WARN_ERR_SECTION]
-    env.assertEqual(
-        int(sec[TIMEOUT_WARNING_COORD_METRIC]),
-        int(sec[TIMEOUT_WARNING_COORD_QUEUE_METRIC])
-        + int(sec[TIMEOUT_WARNING_COORD_PIPELINE_METRIC])
-        + int(sec[TIMEOUT_WARNING_COORD_REPLY_METRIC]),
-        message="aggregate coord timeout-warning counter must equal the sum of its per-stage parts")
-
 def _coord_cursor_total(env, idx='idx'):
     """Return the coordinator's global cursor count, or 0 if cursor_stats is absent."""
     info = env.cmd('FT.INFO', idx)
@@ -466,7 +444,6 @@ class TestCoordinatorTimeout:
                             base_err_pipeline + 1,
                             message=f"Coordinator fan-out timeout should bump the PIPELINE stage after {query_args[0]}")
         _verify_metrics_not_changed(env, env, before_info, [TIMEOUT_ERROR_COORD_METRIC])
-        _assert_coord_timeout_error_sum_invariant(env)
 
         env.expect('CONFIG', 'SET', ON_TIMEOUT_CONFIG, prev_on_timeout_policy).ok()
 
@@ -623,7 +600,6 @@ class TestCoordinatorTimeout:
                             base_err_queue + 1,
                             message=f"Timeout before coord pickup should bump the QUEUE stage after {cmd_name}")
         _verify_metrics_not_changed(env, env, before_info, [TIMEOUT_ERROR_COORD_METRIC])
-        _assert_coord_timeout_error_sum_invariant(env)
 
         env.expect('CONFIG', 'SET', ON_TIMEOUT_CONFIG, prev_on_timeout_policy).ok()
 
@@ -1566,7 +1542,6 @@ class TestCoordinatorTimeout:
                         base_err_reply + 1,
                         message=f"Coordinator timeout before store should bump the REPLY stage after {cmd_name}")
         _verify_metrics_not_changed(env, env, before_info, [TIMEOUT_ERROR_COORD_METRIC])
-        _assert_coord_timeout_error_sum_invariant(env)
 
         # Cleanup
         resetStoreResultsDebug(env)
@@ -1629,7 +1604,6 @@ class TestCoordinatorTimeout:
                         base_err_reply + 1,
                         message=f"Coordinator timeout after store should bump the REPLY stage after {cmd_name}")
         _verify_metrics_not_changed(env, env, before_info, [TIMEOUT_ERROR_COORD_METRIC])
-        _assert_coord_timeout_error_sum_invariant(env)
 
         # Cleanup
         resetStoreResultsDebug(env)
@@ -2022,7 +1996,6 @@ class TestCoordinatorTimeout:
                         base_warn_queue + 1,
                         message="Timeout warning before the pipeline should bump the QUEUE stage")
         _verify_metrics_not_changed(env, env, before_info, [TIMEOUT_WARNING_COORD_METRIC])
-        _assert_coord_timeout_warning_sum_invariant(env)
 
         env.cmd(debug_cmd(), 'SYNC_POINT', 'CLEAR')
         env.cmd('CONFIG', 'SET', ON_TIMEOUT_CONFIG, prev_on_timeout_policy)
@@ -5696,7 +5669,6 @@ class TestShardTimeout:
 
         # Verify no other metrics changed, and the aggregate equals the per-stage sum.
         _verify_metrics_not_changed(env, env, before_info, [TIMEOUT_ERROR_COORD_METRIC])
-        _assert_coord_timeout_error_sum_invariant(env)
 
         env.expect('CONFIG', 'SET', ON_TIMEOUT_CONFIG, prev_on_timeout_policy).ok()
 
@@ -5778,7 +5750,6 @@ class TestShardTimeout:
 
         # Verify no other metrics changed, and the aggregate equals the per-stage sum.
         _verify_metrics_not_changed(env, env, before_info, [TIMEOUT_ERROR_COORD_METRIC])
-        _assert_coord_timeout_error_sum_invariant(env)
 
         env.expect('CONFIG', 'SET', ON_TIMEOUT_CONFIG, prev_on_timeout_policy).ok()
 
@@ -5903,7 +5874,6 @@ class TestShardTimeout:
                 base_err_reply + 1,
                 message=f"{cmd_name} timeout before store should bump the REPLY-stage counter")
         _verify_metrics_not_changed(env, env, before_info, [TIMEOUT_ERROR_COORD_METRIC])
-        _assert_coord_timeout_error_sum_invariant(env)
 
         # Cleanup
         resetStoreResultsDebug(env)
@@ -5964,7 +5934,6 @@ class TestShardTimeout:
                 base_err_reply + 1,
                 message=f"{cmd_name} timeout after store should bump the REPLY-stage counter")
         _verify_metrics_not_changed(env, env, before_info, [TIMEOUT_ERROR_COORD_METRIC])
-        _assert_coord_timeout_error_sum_invariant(env)
 
         # Cleanup
         resetStoreResultsDebug(env)

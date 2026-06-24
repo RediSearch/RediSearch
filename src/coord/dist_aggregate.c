@@ -735,10 +735,11 @@ int DistAggregateTimeoutFailCallback(RedisModuleCtx *ctx, RedisModuleString **ar
 
   CoordRequestCtx_UnlockSetRequest(CoordReqCtx);
 
-  // Reply with timeout error, attributed to the stage the coord request reached
-  // (QUEUE if it had not been picked up yet, otherwise PIPELINE while fanning out).
-  QueryErrorsGlobalStats_UpdateError(QUERY_ERROR_CODE_TIMED_OUT,
-                                     CoordRequestCtx_TimeoutStage(CoordReqCtx), 1, COORD_ERR_WARN);
+  // Reply with timeout error. Record the per-stage breakdown attributed to the
+  // stage the coord request reached (QUEUE if not picked up yet, else PIPELINE
+  // while fanning out / reducing).
+  QueryErrorsGlobalStats_UpdateError(QUERY_ERROR_CODE_TIMED_OUT, 1, COORD_ERR_WARN);
+  CoordRequestCtx_RecordTimeoutStage(CoordReqCtx, /*isError=*/true);
   RedisModule_ReplyWithError(ctx, QueryError_Strerror(QUERY_ERROR_CODE_TIMED_OUT));
 
   return REDISMODULE_OK;
@@ -788,6 +789,9 @@ int DistAggregateTimeoutReturnStrictCallback(RedisModuleCtx *ctx, RedisModuleStr
     // Intentionally claim as worker-owned here: query-level coord aggregate timeouts do not use
     // the cursor-read timeout-owner cleanup path, and the worker must still observe a claimed
     // aggregation phase so it stores/signals the timed-out state for partial-result handling.
+    // The empty reply uses a fresh AREQ, so record the per-stage timeout here:
+    // not picked up / pre-pipeline -> QUEUE (CoordRequestCtx_TimeoutStage reflects this).
+    CoordRequestCtx_RecordTimeoutStage(CoordReqCtx, /*isError=*/false);
     // Reply with empty results
     coord_aggregate_query_reply_empty(ctx, argv, argc, QUERY_ERROR_CODE_TIMED_OUT);
     return REDISMODULE_OK;
@@ -830,7 +834,7 @@ int DistAggregateReplyCallback(RedisModuleCtx *ctx, RedisModuleString **argv, in
   if (!req) {
     // We expect CoordReqCtx to hold the error if req is NULL
     if (QueryError_HasError(&CoordReqCtx->preRequestError)) {
-      QueryErrorsGlobalStats_UpdateError(QueryError_GetCode(&CoordReqCtx->preRequestError), QUERY_TIMEOUT_STAGE_QUEUE, 1, COORD_ERR_WARN);
+      QueryErrorsGlobalStats_UpdateError(QueryError_GetCode(&CoordReqCtx->preRequestError), 1, COORD_ERR_WARN);
       QueryError_ReplyAndClear(ctx, &CoordReqCtx->preRequestError);
       return REDISMODULE_OK;
     }
@@ -843,7 +847,7 @@ int DistAggregateReplyCallback(RedisModuleCtx *ctx, RedisModuleString **argv, in
   if (!req->storedReplyState.hasStoredResults) {
     // Background thread didn't store results - some early error occurred.
     if (QueryError_HasError(&req->storedReplyState.err)) {
-      QueryErrorsGlobalStats_UpdateError(QueryError_GetCode(&req->storedReplyState.err), AREQ_TimeoutStage(req), 1, COORD_ERR_WARN);
+      QueryErrorsGlobalStats_UpdateError(QueryError_GetCode(&req->storedReplyState.err), 1, COORD_ERR_WARN);
       QueryError_ReplyAndClear(ctx, &req->storedReplyState.err);
     } else {
       RedisModule_ReplyWithError(ctx, "Internal error: no results stored");
@@ -895,6 +899,8 @@ int DistCursorReadTimeoutReturnStrictCallback(RedisModuleCtx *ctx, RedisModuleSt
     long long cid;
     int rc = RedisModule_StringToLongLong(argv[3], &cid);
     RS_ASSERT(rc == REDISMODULE_OK);
+    // Empty reply uses a fresh AREQ; record here. BG never took it -> QUEUE.
+    CoordRequestCtx_RecordTimeoutStage(reqCtx, /*isError=*/false);
     return coord_cursor_read_empty_reply_timeout(ctx, cid);
   }
 
@@ -917,7 +923,8 @@ int DistCursorReadTimeoutReturnStrictCallback(RedisModuleCtx *ctx, RedisModuleSt
     // only such bail in cursorRead can't fire); kept for forward-compat.
     QueryError *err = &req->storedReplyState.err;
     RS_ASSERT(QueryError_HasError(err));
-    QueryErrorsGlobalStats_UpdateError(QueryError_GetCode(err), AREQ_TimeoutStage(req), 1, COORD_ERR_WARN);
+    QueryErrorsGlobalStats_UpdateError(QueryError_GetCode(err), 1, COORD_ERR_WARN);
+    CoordRequestCtx_RecordTimeoutStage(reqCtx, /*isError=*/true);
     QueryError_ReplyAndClear(ctx, err);
   }
   return REDISMODULE_OK;

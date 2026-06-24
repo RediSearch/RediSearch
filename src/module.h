@@ -122,6 +122,11 @@ typedef struct {
   void *reducer;
   bool queryOOM;
   bool timedOut;
+  // QueryTimeoutStage. The FT.SEARCH coordinator path is Map-Reduce based (no
+  // RequestSyncCtx marker), so it carries its own execution-phase marker: QUEUE
+  // until the coord handler is dequeued, then PIPELINE while fanning out/reducing.
+  // Set by the handler (BG) via __atomic, read by the timeout callbacks (main).
+  int execPhase;
 
   struct searchReducerCtx *rctx;
 } searchRequestCtx;
