@@ -16,6 +16,7 @@
 #include "vector_index.h"
 #include "indexer.h"
 #include "search_disk_api.h"
+#include "triemap_ffi.h"
 
 struct InvertedIndex;
 
@@ -127,6 +128,11 @@ char *TagIndex_SepString(char sep, char **s, size_t *toklen, bool indexEmpty);
  */
 static inline uint32_t TagIndex_GetId(const TagIndex *idx) {
   return idx->uniqueId;
+}
+
+/* Return an iterator over the TagIndex values */
+static inline TrieMapIterator* TagIndex_IterateValues(const TagIndex *idx) {
+  return TrieMap_Iterate(idx->values);
 }
 
 /* Preprocess a document tag field, split the content in data into fdata `tags` array

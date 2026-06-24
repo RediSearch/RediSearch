@@ -774,7 +774,7 @@ DEBUG_COMMAND(DumpTagIndex) {
     goto end;
   }
 
-  iter = TrieMap_Iterate(tagIndex->values);
+  iter = TagIndex_IterateValues(tagIndex);
   RedisModule_ReplyWithArray(sctx->redisCtx, REDISMODULE_POSTPONED_ARRAY_LEN);
   while (TrieMapIterator_Next(iter, &tag, &len, (void **)&iv)) {
     RedisModule_ReplyWithArray(sctx->redisCtx, 2);
@@ -1410,7 +1410,7 @@ DEBUG_COMMAND(InfoTagIndex) {
   }
 
   limit = options.limit ? options.limit : 0;
-  iter = TrieMap_Iterate(idx->values);
+  iter = TagIndex_IterateValues(idx);
 
   nelem += 2;
   RedisModule_ReplyWithLiteral(ctx, "values");

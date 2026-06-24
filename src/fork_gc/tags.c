@@ -51,7 +51,7 @@ void FGC_childCollectTags(ForkGC *gc, RedisSearchCtx *sctx) {
       tagHeader header = {.field = HiddenString_GetUnsafe(tagFields[i]->fieldName, NULL),
                           .uniqueId = TagIndex_GetId(tagIdx)};
 
-      TrieMapIterator *iter = TrieMap_Iterate(tagIdx->values);
+      TrieMapIterator *iter = TagIndex_IterateValues(tagIdx);
       char *ptr;
       tm_len_t len;
       InvertedIndex *value;
