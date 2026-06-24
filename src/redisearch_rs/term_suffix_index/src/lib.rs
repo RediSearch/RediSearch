@@ -124,6 +124,12 @@ impl TermSuffixIndex {
         }
     }
 
+    /// Iterate over every key in the index — each member term plus every
+    /// indexed proper suffix — in lexicographical order.
+    pub fn keys(&self) -> impl Iterator<Item = String> + '_ {
+        self.inner.iter().map(|(key, _)| key)
+    }
+
     fn suffixes_of(term: &str) -> impl Iterator<Item = &str> {
         term.char_indices()
             .skip(1)
