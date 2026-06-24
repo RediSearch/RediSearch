@@ -29,10 +29,10 @@ redis_mock::mock_or_stub_missing_redis_c_symbols!();
 /// `MissingFieldDictType` uses `dictTypeHeapHiddenStrings`, which copies the
 /// key via `keyDup`, so the temporary `HiddenString` can be freed immediately
 /// after insertion.
-fn add_entry(
-    dict: &mut OwnedDict<MissingFieldDictType>,
+fn add_entry<'a>(
+    dict: &mut OwnedDict<'a, MissingFieldDictType>,
     field_name: &[u8],
-    ii: Option<&OpaqueInvertedIndex>,
+    ii: Option<&'a OpaqueInvertedIndex>,
 ) {
     // SAFETY: NewHiddenString copies `field_name`; the dict's keyDup copies
     // the HiddenString itself, so we free the original immediately after insert.
