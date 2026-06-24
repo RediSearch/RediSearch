@@ -10,6 +10,8 @@
 #include "commands.h"
 #include "types_ffi.h"
 #include "debug_commands.h"
+#include "indexes.h"
+#include "indexes_scan.h"
 #include "coord/debug_command_names.h"
 #include "VecSim/vec_sim_debug.h"
 #include "inverted_index.h"
@@ -473,13 +475,12 @@ DEBUG_COMMAND(DumpTerms) {
   rune *rstr = NULL;
   t_len slen = 0;
   float score = 0;
-  int dist = 0;
   size_t termLen;
 
   RedisModule_ReplyWithArray(ctx, Trie_Size(sctx->spec->terms));
 
-  TrieIterator *it = Trie_Iterate(sctx->spec->terms, "", 0, 0, 1);
-  while (TrieIterator_Next(it, &rstr, &slen, NULL, &score, NULL, &dist)) {
+  TrieIterator *it = Trie_IterateAll(sctx->spec->terms);
+  while (TrieIterator_Next(it, &rstr, &slen, NULL, &score, NULL, NULL)) {
     char *res = runesToStr(rstr, slen, &termLen);
     RedisModule_ReplyWithStringBuffer(ctx, res, termLen);
     rm_free(res);
@@ -974,22 +975,32 @@ DEBUG_COMMAND(GCForceInvoke) {
   if (argc == 4) {
     RedisModule_StringToLongLong(argv[3], &timeout);
   }
-  StrongRef ref = IndexSpec_LoadUnsafe(RedisModule_StringPtrLen(argv[2], NULL));
+  StrongRef ref = Indexes_LoadIndexSpecUnsafe(RedisModule_StringPtrLen(argv[2], NULL));
   IndexSpec *sp = StrongRef_Get(ref);
   if (!sp) {
     const char *idx = RedisModule_StringPtrLen(argv[2], NULL);
     return RedisModule_ReplyWithErrorFormat(ctx, "%s: %s", QueryError_Strerror(QUERY_ERROR_CODE_NO_INDEX), idx);
   }
 
-  if (sp->diskSpec) {
-    SearchDisk_RunGC(sp->diskSpec);
-    RedisModule_ReplyWithSimpleString(ctx, "DONE");
-    return REDISMODULE_OK;
-  } else if (sp->gc) {
+  // Indexes normally own a GCContext (`sp->gc`). Routing the forced invoke
+  // through it runs the periodic callback with force=true, which for the disk
+  // path performs the compaction *and* accumulates the per-cycle GC stats
+  // (bytes_collected, cycles, timing). Calling SearchDisk_RunGC directly here
+  // would bypass that accounting and leave FT.INFO/INFO reporting stale stats
+  // after a forced GC. The fallback below covers the only case where a disk
+  // index has no GCContext (GC globally disabled or a temporary index).
+  if (sp->gc) {
     RedisModuleBlockedClient *bc = RedisModule_BlockClient(
         ctx, GCForceInvokeReply, GCForceInvokeReplyTimeout, NULL, timeout);
     GCContext_ForceInvoke(sp->gc, bc);
     return REDISMODULE_OK;
+  } else if (sp->diskSpec) {
+    // Fallback described above: with no GCContext there is no DiskGC stats
+    // context to accumulate into and FT.INFO/INFO render no GC section, so run
+    // the compaction inline and let the stats go nowhere.
+    DiskGCRunStats stats = {0};
+    SearchDisk_RunGC(sp->diskSpec, &stats);
+    return RedisModule_ReplyWithSimpleString(ctx, "DONE");
   }
   return RedisModule_ReplyWithError(ctx, "GC is not available for this index");
 }
@@ -1003,7 +1014,7 @@ DEBUG_COMMAND(DiskFlush) {
   if (argc != 3) {
     return RedisModule_WrongArity(ctx);
   }
-  StrongRef ref = IndexSpec_LoadUnsafe(RedisModule_StringPtrLen(argv[2], NULL));
+  StrongRef ref = Indexes_LoadIndexSpecUnsafe(RedisModule_StringPtrLen(argv[2], NULL));
   IndexSpec *sp = StrongRef_Get(ref);
   if (!sp) {
     const char *idx = RedisModule_StringPtrLen(argv[2], NULL);
@@ -1026,7 +1037,7 @@ DEBUG_COMMAND(GCForceBGInvoke) {
   if (argc < 3) {
     return RedisModule_WrongArity(ctx);
   }
-  StrongRef ref = IndexSpec_LoadUnsafe(RedisModule_StringPtrLen(argv[2], NULL));
+  StrongRef ref = Indexes_LoadIndexSpecUnsafe(RedisModule_StringPtrLen(argv[2], NULL));
   IndexSpec *sp = StrongRef_Get(ref);
   if (!sp) {
     const char *idx = RedisModule_StringPtrLen(argv[2], NULL);
@@ -1044,7 +1055,7 @@ DEBUG_COMMAND(GCStopFutureRuns) {
   if (argc < 3) {
     return RedisModule_WrongArity(ctx);
   }
-  StrongRef ref = IndexSpec_LoadUnsafe(RedisModule_StringPtrLen(argv[2], NULL));
+  StrongRef ref = Indexes_LoadIndexSpecUnsafe(RedisModule_StringPtrLen(argv[2], NULL));
   IndexSpec *sp = StrongRef_Get(ref);
   if (!sp) {
     const char *idx = RedisModule_StringPtrLen(argv[2], NULL);
@@ -1065,7 +1076,7 @@ DEBUG_COMMAND(GCContinueFutureRuns) {
   if (argc < 3) {
     return RedisModule_WrongArity(ctx);
   }
-  StrongRef ref = IndexSpec_LoadUnsafe(RedisModule_StringPtrLen(argv[2], NULL));
+  StrongRef ref = Indexes_LoadIndexSpecUnsafe(RedisModule_StringPtrLen(argv[2], NULL));
   IndexSpec *sp = StrongRef_Get(ref);
   if (!sp) {
     const char *idx = RedisModule_StringPtrLen(argv[2], NULL);
@@ -1133,7 +1144,7 @@ DEBUG_COMMAND(ttl) {
   IndexLoadOptions lopts = {.nameC = RedisModule_StringPtrLen(argv[2], NULL),
                             .flags = INDEXSPEC_LOAD_NOTIMERUPDATE};
 
-  StrongRef ref = IndexSpec_LoadUnsafeEx(&lopts);
+  StrongRef ref = Indexes_LoadIndexSpecUnsafeEx(&lopts);
   IndexSpec *sp = StrongRef_Get(ref);
   if (!sp) {
     const char *idx = RedisModule_StringPtrLen(argv[2], NULL);
@@ -1164,7 +1175,7 @@ DEBUG_COMMAND(ttlPause) {
   IndexLoadOptions lopts = {.nameC = RedisModule_StringPtrLen(argv[2], NULL),
                             .flags = INDEXSPEC_LOAD_NOTIMERUPDATE};
 
-  StrongRef ref = IndexSpec_LoadUnsafeEx(&lopts);
+  StrongRef ref = Indexes_LoadIndexSpecUnsafeEx(&lopts);
   IndexSpec *sp = StrongRef_Get(ref);
   if (!sp) {
     const char *idx = RedisModule_StringPtrLen(argv[2], NULL);
@@ -1201,7 +1212,7 @@ DEBUG_COMMAND(ttlExpire) {
   IndexLoadOptions lopts = {.nameC = RedisModule_StringPtrLen(argv[2], NULL),
                             .flags = INDEXSPEC_LOAD_NOTIMERUPDATE};
 
-  StrongRef ref = IndexSpec_LoadUnsafeEx(&lopts);
+  StrongRef ref = Indexes_LoadIndexSpecUnsafeEx(&lopts);
   IndexSpec *sp = StrongRef_Get(ref);
   if (!sp) {
     const char *idx = RedisModule_StringPtrLen(argv[2], NULL);
@@ -1217,7 +1228,7 @@ DEBUG_COMMAND(ttlExpire) {
   lopts.flags &= ~INDEXSPEC_LOAD_NOTIMERUPDATE; // Re-enable timer updates
   // We validated that the index exists and is temporary, so we know that
   // calling this function will set or reset a timer.
-  IndexSpec_LoadUnsafeEx(&lopts);
+  Indexes_LoadIndexSpecUnsafeEx(&lopts);
   sp->timeout = timeout; // Restore the original timeout
 
   return RedisModule_ReplyWithSimpleString(ctx, "OK");
@@ -1241,7 +1252,7 @@ DEBUG_COMMAND(setMonitorExpiration) {
   IndexLoadOptions lopts = {.nameC = RedisModule_StringPtrLen(argv[2], NULL),
                             .flags = INDEXSPEC_LOAD_NOTIMERUPDATE};
 
-  StrongRef ref = IndexSpec_LoadUnsafeEx(&lopts);
+  StrongRef ref = Indexes_LoadIndexSpecUnsafeEx(&lopts);
   IndexSpec *sp = StrongRef_Get(ref);
   if (!sp) {
     const char *idx = RedisModule_StringPtrLen(argv[2], NULL);
@@ -1518,7 +1529,7 @@ DEBUG_COMMAND(DocInfo) {
       RSDocumentMetadata *dmd_disk = rm_calloc(1, sizeof(RSDocumentMetadata));
       dmd_disk->sortVector = RSSortingVector_Empty();
       dmd_disk->ref_count = 1;
-      if (SearchDisk_GetDocumentMetadata(sctx->spec->diskSpec, docId, dmd_disk, NULL)) {
+      if (SearchDisk_GetDocumentMetadata(sctx->spec->diskSpec, sctx, docId, dmd_disk, NULL)) {
         dmd = dmd_disk;
       } else {
         DMD_Return(dmd_disk);
@@ -2021,7 +2032,7 @@ DEBUG_COMMAND(getDebugScannerStatus) {
   IndexLoadOptions lopts = {.nameC = RedisModule_StringPtrLen(argv[2], NULL),
                             .flags = INDEXSPEC_LOAD_NOTIMERUPDATE};
 
-  StrongRef ref = IndexSpec_LoadUnsafeEx(&lopts);
+  StrongRef ref = Indexes_LoadIndexSpecUnsafeEx(&lopts);
   IndexSpec *sp = StrongRef_Get(ref);
 
   if (!sp) {
@@ -2150,7 +2161,7 @@ DEBUG_COMMAND(debugScannerUpdateConfig) {
   IndexLoadOptions lopts = {.nameC = RedisModule_StringPtrLen(argv[2], NULL),
                             .flags = INDEXSPEC_LOAD_NOTIMERUPDATE};
 
-  StrongRef ref = IndexSpec_LoadUnsafeEx(&lopts);
+  StrongRef ref = Indexes_LoadIndexSpecUnsafeEx(&lopts);
   IndexSpec *sp = StrongRef_Get(ref);
 
   if (!sp) {

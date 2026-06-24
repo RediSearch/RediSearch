@@ -91,7 +91,7 @@ typedef struct HybridRequest {
 
 // Timeout helper functions for HybridRequest (mirrors AREQ pattern)
 static inline bool HybridRequest_TimedOut(HybridRequest *req) {
-  return RS_AtomicBoolLoadRelaxed(&req->syncCtx.timedOut);
+  return RequestSyncCtx_GetTimedOut(&req->syncCtx);
 }
 // Sets the hybrid request's timedOut flag and propagates it to every subquery
 // AREQ. Propagation flips each subquery's RPNet abort flag so a BG worker

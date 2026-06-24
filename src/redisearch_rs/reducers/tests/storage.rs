@@ -7,12 +7,13 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 
-//! Unit tests for the bounded [`Storage`] shared by the COLLECT reducer
-//! variants.
+//! Unit tests for the bounded COLLECT storage families ([`ArrayStorage`] and
+//! [`HeapStorage`]) selected by [`Storage`].
 
 extern crate redisearch_rs;
 
-use reducers::collect::storage::{DEFAULT_LIMIT, Storage};
+use reducers::collect::heap::HeapEntry;
+use reducers::collect::storage::{ArrayStorage, DEFAULT_LIMIT, HeapStorage, ProjectedRow, Storage};
 use rlookup::{RLookupKey, RLookupKeyFlags, RLookupRow};
 use value::SharedValue;
 
@@ -30,10 +31,12 @@ fn sort_vals(v: f64) -> Box<[Option<SharedValue>]> {
     vec![Some(SharedValue::new_num(v))].into_boxed_slice()
 }
 
-fn row(key: &RLookupKey<'_>, v: f64) -> RLookupRow<'static> {
+/// A one-field [`ProjectedRow`] tagged with `v`, as a reducer's `project`
+/// closure would produce.
+fn projected(key: &RLookupKey<'_>, v: f64) -> ProjectedRow {
     let mut r = RLookupRow::new();
     r.write_key(key, SharedValue::new_num(v));
-    r
+    ProjectedRow::new(r)
 }
 
 /// `project` closure that increments `counter` on each call.
@@ -41,39 +44,63 @@ fn counting_project<'a>(
     counter: &'a mut usize,
     key: &'a RLookupKey<'_>,
     tag: f64,
-) -> impl FnOnce() -> RLookupRow<'static> + 'a {
+) -> impl FnOnce() -> ProjectedRow + 'a {
     move || {
         *counter += 1;
-        row(key, tag)
+        projected(key, tag)
     }
 }
 
-fn drained_nums(key: &RLookupKey<'_>, drained: &[RLookupRow<'_>]) -> Vec<f64> {
+fn drained_nums(key: &RLookupKey<'_>, drained: &[ProjectedRow]) -> Vec<f64> {
     drained
         .iter()
-        .map(|r| r.get(key).expect("row missing key").as_num().expect("num"))
+        .map(|pr| {
+            pr.row()
+                .get(key)
+                .expect("row missing key")
+                .as_num()
+                .expect("num")
+        })
         .collect()
 }
 
+/// Unwrap the array family from a [`Storage`] built with `sortby = false`.
+fn as_array(storage: &mut Storage<()>) -> &mut ArrayStorage {
+    match storage {
+        Storage::Array(a) => a,
+        Storage::Heap(_) => panic!("expected ArrayStorage"),
+    }
+}
+
+/// Unwrap the heap family from a [`Storage`] built with `sortby = true`.
+fn as_heap(storage: &mut Storage<()>) -> &mut HeapStorage<()> {
+    match storage {
+        Storage::Heap(h) => h,
+        Storage::Array(_) => panic!("expected HeapStorage"),
+    }
+}
+
 #[test]
-fn insert_entry_array_caps_at_cap_in_insertion_order() {
+fn array_push_caps_at_cap_in_insertion_order() {
     let key = make_key();
     let mut s = Storage::new(false, Some((0, 3)), 0);
+    let a = as_array(&mut s);
     for i in 0..5 {
-        s.insert_entry(|| sort_vals(i as f64), (), || row(&key, i as f64));
+        a.push(|| projected(&key, i as f64));
     }
-    let drained: Vec<_> = s.drain().collect();
+    let drained: Vec<_> = a.drain().collect();
     assert_eq!(drained.len(), 3);
     assert_eq!(drained_nums(&key, &drained), vec![0.0, 1.0, 2.0]);
 }
 
 #[test]
-fn insert_entry_array_drops_excess_without_calling_project() {
+fn array_push_drops_excess_without_calling_project() {
     let key = make_key();
     let mut counter = 0;
     let mut s = Storage::new(false, Some((0, 2)), 0);
+    let a = as_array(&mut s);
     for v in [1.0_f64, 2.0, 3.0, 4.0] {
-        s.insert_entry(|| sort_vals(v), (), counting_project(&mut counter, &key, v));
+        a.push(counting_project(&mut counter, &key, v));
     }
     assert_eq!(
         counter, 2,
@@ -82,42 +109,45 @@ fn insert_entry_array_drops_excess_without_calling_project() {
 }
 
 #[test]
-fn insert_entry_heap_keeps_top_k_under_asc() {
+fn heap_consider_keeps_top_k_under_asc() {
     let key = make_key();
     let mut s = Storage::new(true, Some((0, 3)), SORT_ASC);
+    let h = as_heap(&mut s);
     for i in [4.0_f64, 1.0, 5.0, 2.0, 0.0, 3.0] {
-        s.insert_entry(|| sort_vals(i), (), || row(&key, i));
+        h.consider(sort_vals(i), (), || projected(&key, i));
     }
-    let drained: Vec<_> = s.drain().collect();
+    let drained: Vec<_> = h.drain().map(HeapEntry::into_projected).collect();
     // ASC: smallest is best; heap drains best→worst.
     assert_eq!(drained_nums(&key, &drained), vec![0.0, 1.0, 2.0]);
 }
 
 #[test]
-fn insert_entry_heap_keeps_top_k_under_desc() {
+fn heap_consider_keeps_top_k_under_desc() {
     let key = make_key();
     let mut s = Storage::new(true, Some((0, 3)), SORT_DESC);
+    let h = as_heap(&mut s);
     for i in [4.0_f64, 1.0, 5.0, 2.0, 0.0, 3.0] {
-        s.insert_entry(|| sort_vals(i), (), || row(&key, i));
+        h.consider(sort_vals(i), (), || projected(&key, i));
     }
-    let drained: Vec<_> = s.drain().collect();
+    let drained: Vec<_> = h.drain().map(HeapEntry::into_projected).collect();
     // DESC: largest is best; heap drains best→worst.
     assert_eq!(drained_nums(&key, &drained), vec![5.0, 4.0, 3.0]);
 }
 
 #[test]
-fn insert_entry_heap_skips_project_for_doomed_candidates() {
+fn heap_consider_skips_project_for_doomed_candidates() {
     let key = make_key();
     let mut counter = 0;
     let mut s = Storage::new(true, Some((0, 2)), SORT_ASC);
+    let h = as_heap(&mut s);
     // Fill with the two best candidates first.
     for v in [0.0_f64, 1.0] {
-        s.insert_entry(|| sort_vals(v), (), counting_project(&mut counter, &key, v));
+        h.consider(sort_vals(v), (), counting_project(&mut counter, &key, v));
     }
     // Each subsequent candidate is worse than the worst survivor (1.0)
     // under ASC, so `project` must not run.
     for v in [2.0_f64, 3.0, 4.0] {
-        s.insert_entry(|| sort_vals(v), (), counting_project(&mut counter, &key, v));
+        h.consider(sort_vals(v), (), counting_project(&mut counter, &key, v));
     }
     assert_eq!(
         counter, 2,
@@ -126,14 +156,15 @@ fn insert_entry_heap_skips_project_for_doomed_candidates() {
 }
 
 #[test]
-fn insert_entry_heap_invokes_project_on_eviction() {
+fn heap_consider_invokes_project_on_eviction() {
     let key = make_key();
     let mut counter = 0;
     let mut s = Storage::new(true, Some((0, 2)), SORT_ASC);
+    let h = as_heap(&mut s);
     // Each insert is strictly better than the current worst, so every
     // candidate must be projected.
     for v in [5.0_f64, 3.0, 1.0] {
-        s.insert_entry(|| sort_vals(v), (), counting_project(&mut counter, &key, v));
+        h.consider(sort_vals(v), (), counting_project(&mut counter, &key, v));
     }
     assert_eq!(counter, 3);
 }
@@ -142,10 +173,11 @@ fn insert_entry_heap_invokes_project_on_eviction() {
 fn drain_array_applies_skip_take() {
     let key = make_key();
     let mut s = Storage::new(false, Some((1, 2)), 0);
+    let a = as_array(&mut s);
     for i in 0..5 {
-        s.insert_entry(|| sort_vals(i as f64), (), || row(&key, i as f64));
+        a.push(|| projected(&key, i as f64));
     }
-    let drained: Vec<_> = s.drain().collect();
+    let drained: Vec<_> = a.drain().collect();
     assert_eq!(drained_nums(&key, &drained), vec![1.0, 2.0]);
 }
 
@@ -153,21 +185,64 @@ fn drain_array_applies_skip_take() {
 fn drain_heap_applies_skip_take_after_best_first_order() {
     let key = make_key();
     let mut s = Storage::new(true, Some((1, 2)), SORT_ASC);
+    let h = as_heap(&mut s);
     for i in [4.0_f64, 1.0, 5.0, 2.0, 0.0, 3.0] {
-        s.insert_entry(|| sort_vals(i), (), || row(&key, i));
+        h.consider(sort_vals(i), (), || projected(&key, i));
     }
     // Top-3 under ASC = [0, 1, 2] best→worst; offset 1, count 2 → [1, 2].
-    let drained: Vec<_> = s.drain().collect();
+    let drained: Vec<_> = h.drain().map(HeapEntry::into_projected).collect();
     assert_eq!(drained_nums(&key, &drained), vec![1.0, 2.0]);
 }
 
 #[test]
-fn insert_entry_heap_uses_default_limit_when_no_explicit_limit() {
+fn heap_uses_default_limit_when_no_explicit_limit() {
     let key = make_key();
     let mut s = Storage::new(true, None, SORT_ASC);
+    let h = as_heap(&mut s);
     for i in 0..(DEFAULT_LIMIT as usize + 5) {
-        s.insert_entry(|| sort_vals(i as f64), (), || row(&key, i as f64));
+        h.consider(sort_vals(i as f64), (), || projected(&key, i as f64));
+    }
+    let drained: Vec<_> = h.drain().map(HeapEntry::into_projected).collect();
+    assert_eq!(drained.len(), DEFAULT_LIMIT as usize);
+}
+
+#[test]
+fn storage_drain_heap_yields_rows_best_first() {
+    // The `Storage::drain` convenience discards each entry's ranking key and
+    // yields values best→worst, which is all the client-facing local reducer
+    // needs.
+    let key = make_key();
+    let mut s = Storage::new(true, Some((0, 3)), SORT_ASC);
+    {
+        let h = as_heap(&mut s);
+        for i in [4.0_f64, 1.0, 5.0, 2.0, 0.0, 3.0] {
+            h.consider(sort_vals(i), (), || projected(&key, i));
+        }
     }
     let drained: Vec<_> = s.drain().collect();
-    assert_eq!(drained.len(), DEFAULT_LIMIT as usize);
+    assert_eq!(drained_nums(&key, &drained), vec![0.0, 1.0, 2.0]);
+}
+
+#[test]
+fn heap_drain_entries_expose_sort_vals_in_best_first_order() {
+    // The heap-family drain keeps each value's ranking key so the remote reducer
+    // can re-attach the deferred SORTBY columns (see `HeapEntry::into_parts`).
+    let key = make_key();
+    let mut s = Storage::new(true, Some((0, 3)), SORT_ASC);
+    let h = as_heap(&mut s);
+    for i in [4.0_f64, 1.0, 5.0, 2.0, 0.0, 3.0] {
+        h.consider(sort_vals(i), (), || projected(&key, i));
+    }
+    let snapshots: Vec<f64> = h
+        .drain()
+        .map(|entry| {
+            let (ranking_key, _value) = entry.into_parts();
+            ranking_key.sort_vals()[0]
+                .as_ref()
+                .and_then(|v| v.as_num())
+                .expect("sort snapshot present")
+        })
+        .collect();
+    // Best→worst under ASC = smallest sort values first.
+    assert_eq!(snapshots, vec![0.0, 1.0, 2.0]);
 }

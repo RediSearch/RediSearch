@@ -280,18 +280,18 @@ dependencies = [
 
 [[package]]
 name = "cheadergen"
-version = "0.2.3"
+version = "0.3.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "05b761058a928fa8f932d79ed1ad18b417ef2238a90f3a605cda6365b40c9658"
+checksum = "f990f00a175950d110316af42ed9703ec3b1483db11cc544c4d13043729ef436"
 dependencies = [
  "cheadergen_macros",
 ]
 
 [[package]]
 name = "cheadergen_macros"
-version = "0.2.3"
+version = "0.3.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "057f8322e701b896c5bbc5ac64aed5f17174a32e12ca8f34315a26ed8e83619a"
+checksum = "056a8e8de9bc1cab97c960b74f97210d4b0527d3566c5c30048f1aec2cee1818"
 dependencies = [
  "proc-macro2",
  "quote 1.0.45",
@@ -1754,11 +1754,28 @@ version = "0.0.1"
 dependencies = [
  "build_utils",
  "ffi",
+ "index_result",
+ "inverted_index",
  "proptest",
+ "query",
  "query_eval",
+ "query_node_type",
  "redis_mock",
  "redisearch_rs",
+ "rqe_core",
+ "rqe_iterators",
+ "rqe_iterators_test_utils",
  "thiserror",
+ "workspace_hack",
+]
+
+[[package]]
+name = "query_eval_ffi"
+version = "0.0.1"
+dependencies = [
+ "ffi",
+ "query_eval",
+ "rqe_iterators",
  "workspace_hack",
 ]
 
@@ -1977,6 +1994,7 @@ name = "redis_json_api"
 version = "0.0.1"
 dependencies = [
  "ffi",
+ "lending-iterator",
  "redis-module",
  "thiserror",
  "workspace_hack",
@@ -2020,6 +2038,7 @@ dependencies = [
  "module_init_ffi",
  "numeric_range_tree_ffi",
  "query_error_ffi",
+ "query_eval_ffi",
  "query_term_ffi",
  "quote 1.0.45",
  "redis-module",
@@ -2355,6 +2374,7 @@ dependencies = [
  "numeric_range_tree_ffi",
  "proptest",
  "query_error_ffi",
+ "query_eval_ffi",
  "query_term_ffi",
  "redis_mock",
  "reducers_ffi",
@@ -2699,10 +2719,43 @@ dependencies = [
 ]
 
 [[package]]
+name = "spellcheck_dictionary"
+version = "0.0.1"
+dependencies = [
+ "ffi",
+ "proptest",
+ "rstest",
+ "string_utils",
+ "strsim",
+ "trie_rs",
+ "workspace_hack",
+]
+
+[[package]]
 name = "stable_deref_trait"
 version = "1.2.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "6ce2be8dc25455e1f91df71bfa12ad37d7af1092ae736f3a6cd0e37bc7810596"
+
+[[package]]
+name = "string_utils"
+version = "0.0.1"
+dependencies = [
+ "build_utils",
+ "ffi",
+ "proptest",
+ "redis_mock",
+ "redisearch_rs",
+ "string_utils",
+ "thiserror",
+ "workspace_hack",
+]
+
+[[package]]
+name = "strsim"
+version = "0.11.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "7da8b5736845d9f2fcb837ea5d9e2628564b3b043a70948a3f0b778838c5fb4f"
 
 [[package]]
 name = "strum"
@@ -2814,8 +2867,10 @@ dependencies = [
 name = "term_suffix_index"
 version = "0.0.1"
 dependencies = [
- "ffi",
  "proptest",
+ "rqe_wildcard",
+ "rstest",
+ "string_utils",
  "trie_rs",
  "workspace_hack",
 ]
@@ -2921,7 +2976,6 @@ name = "top_k"
 version = "0.0.1"
 dependencies = [
  "build_utils",
- "ffi",
  "index_result",
  "index_spec",
  "inverted_index",
@@ -3249,7 +3303,6 @@ dependencies = [
  "c_ffi_utils",
  "cheadergen",
  "ffi",
- "fnv",
  "libc",
  "query_error",
  "redis-module",
@@ -3268,7 +3321,6 @@ version = "0.0.1"
 dependencies = [
  "cheadergen",
  "ffi",
- "fnv",
  "libc",
  "query_error",
  "redis_mock",
@@ -3304,6 +3356,15 @@ dependencies = [
  "ffi",
  "rqe_core",
  "varint",
+ "workspace_hack",
+]
+
+[[package]]
+name = "vecsim"
+version = "0.0.1"
+dependencies = [
+ "ffi",
+ "rqe_core",
  "workspace_hack",
 ]
 

@@ -20,6 +20,10 @@ jobs:
           submodules: recursive
       - name: Setup specific
         working-directory: .install
+        env:
+          # Use committed Rust C headers; cheadergen is not installed on the
+          # benchmark EC2 runner (see redis/redis#15220 for the same pattern).
+          REDISEARCH_GENERATE_HEADERS: "0"
         run: ./install_script.sh sudo
       - name: Setup sccache
         if: ${{ env.IS_FORK_PR != 'true' }}

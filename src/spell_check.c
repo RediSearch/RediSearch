@@ -118,7 +118,7 @@ static bool SpellCheck_IsTermExistsInTrie(Trie *t, const char *term, size_t len,
   float score = 0;
   int dist = 0;
   bool retVal = false;
-  TrieIterator *it = Trie_Iterate(t, term, len, 0, 0);
+  TrieIterator *it = Trie_IterateFuzzy(t, term, len, 0, TRIE_MATCH_EDIT_DISTANCE);
   // TrieIterator can be NULL when rune length exceed TRIE_MAX_PREFIX
   if (it == NULL) {
     return retVal;
@@ -141,7 +141,7 @@ static void SpellCheck_FindSuggestions(SpellCheckCtx *scCtx, Trie *t, const char
   int dist = 0;
   size_t suggestionLen;
 
-  TrieIterator *it = Trie_Iterate(t, term, len, (int)scCtx->distance, 0);
+  TrieIterator *it = Trie_IterateFuzzy(t, term, len, (int)scCtx->distance, TRIE_MATCH_EDIT_DISTANCE);
   // TrieIterator can be NULL when rune length exceed TRIE_MAX_PREFIX
   if (it == NULL) {
     return;
@@ -158,14 +158,13 @@ static void SpellCheck_FindSuggestions(SpellCheckCtx *scCtx, Trie *t, const char
 }
 
 RS_Suggestion **spellCheck_GetSuggestions(RS_Suggestions *s) {
-  TrieIterator *iter = Trie_Iterate(s->suggestionsTrie, "", 0, 0, 1);
+  TrieIterator *iter = Trie_IterateAll(s->suggestionsTrie);
   RS_Suggestion **ret = array_new(RS_Suggestion *, Trie_Size(s->suggestionsTrie));
   rune *rstr = NULL;
   t_len slen = 0;
   float score = 0;
-  int dist = 0;
   size_t termLen;
-  while (TrieIterator_Next(iter, &rstr, &slen, NULL, &score, NULL, &dist)) {
+  while (TrieIterator_Next(iter, &rstr, &slen, NULL, &score, NULL, NULL)) {
     char *res = runesToStr(rstr, slen, &termLen);
     array_append(ret, RS_SuggestionCreate(res, termLen, score));
   }

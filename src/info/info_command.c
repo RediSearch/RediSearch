@@ -11,6 +11,8 @@
 
 #include "triemap_ffi.h"
 #include "spec.h"
+#include "indexes.h"
+#include "indexes_scan.h"
 #include "inverted_index_ffi.h"
 #include "vector_index.h"
 #include "cursor.h"
@@ -196,6 +198,7 @@ void fillReplyWithIndexInfo(RedisSearchCtx* sctx, RedisModule_Reply *reply, bool
           REPLY_KVSTR("distance_metric", VecSimMetric_ToString(hnsw_params.metric));
           REPLY_KVINT("M", hnsw_params.M);
           REPLY_KVINT("ef_construction", hnsw_params.efConstruction);
+          REPLY_KVINT("ef_runtime", hnsw_params.efRuntime);
           if (fs->vectorOpts.diskCtx.indexName) {
             REPLY_KVSTR("rerank", fs->vectorOpts.diskCtx.rerank ? "true" : "false");
           }
@@ -376,7 +379,7 @@ void fillReplyWithIndexInfo(RedisSearchCtx* sctx, RedisModule_Reply *reply, bool
 int IndexInfoCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
   if (argc < 2) return RedisModule_WrongArity(ctx);
 
-  StrongRef ref = IndexSpec_LoadUnsafe(RedisModule_StringPtrLen(argv[1], NULL));
+  StrongRef ref = Indexes_LoadIndexSpecUnsafe(RedisModule_StringPtrLen(argv[1], NULL));
   IndexSpec *sp = StrongRef_Get(ref);
   if (!sp) {
     const char *idx = RedisModule_StringPtrLen(argv[1], NULL);

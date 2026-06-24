@@ -9,6 +9,7 @@
 #include "config.h"
 #include "notifications.h"
 #include "spec.h"
+#include "indexes.h"
 #include "doc_types.h"
 #include "redismodule.h"
 #include "rdb.h"
@@ -24,7 +25,6 @@
 #include "iterators_ffi.h"
 #include "module_init_ffi.h"
 
-#define JSON_LEN 5 // length of string "json."
 RedisModuleString *global_RenameFromKey = NULL;
 extern RedisModuleCtx *RSDummyContext;
 RedisModuleString **hashFields = NULL;
@@ -55,13 +55,41 @@ RedisModuleString **hashFields = NULL;
   X(loaded)                               \
   X(copy_to)
 
+// RedisJSON write events that should trigger a document reindex. Unlike the
+// events above, the event string contains a dot, which is not a valid C token,
+// so each entry carries both an identifier (used to generate the enum value)
+// and the actual event string. Each gets its own enum value so individual
+// commands can be handled differently in the future.
+//
+// These events are NOT pointer-cached like the core events: RedisJSON emits
+// them through redismodule-rs, which builds a fresh temporary CString per call
+// and frees it once the notification returns (see notify_keyspace_event in
+// raw.rs). The pointer is therefore neither stable nor long-lived, so we always
+// match them with strcmp instead of caching the pointer.
+#define REDIS_JSON_NOTIFICATION_EVENT_LIST(X) \
+  X(json_set,       "json.set")               \
+  X(json_merge,     "json.merge")             \
+  X(json_mset,      "json.mset")              \
+  X(json_del,       "json.del")               \
+  X(json_numincrby, "json.numincrby")         \
+  X(json_nummultby, "json.nummultby")         \
+  X(json_strappend, "json.strappend")         \
+  X(json_arrappend, "json.arrappend")         \
+  X(json_arrinsert, "json.arrinsert")         \
+  X(json_arrpop,    "json.arrpop")            \
+  X(json_arrtrim,   "json.arrtrim")           \
+  X(json_toggle,    "json.toggle")
+
 // Define an enum value for each event.
 #define DECLARE_EVENT_ENUM(E) E##_cmd,
+#define DECLARE_JSON_EVENT_ENUM(ID, STR) ID##_cmd,
 enum RedisCmd {
   _null_cmd = 0,
   REDIS_NOTIFICATION_EVENT_LIST(DECLARE_EVENT_ENUM)
+  REDIS_JSON_NOTIFICATION_EVENT_LIST(DECLARE_JSON_EVENT_ENUM)
 };
 #undef DECLARE_EVENT_ENUM
+#undef DECLARE_JSON_EVENT_ENUM
 
 // Declare a static variable for each event to hold the cached pointer.
 // This caches the event string pointer for future comparisons to avoid strcmp in hot paths.
@@ -79,8 +107,17 @@ static void freeHashFields() {
   }
 }
 
-int HashNotificationCallback(RedisModuleCtx *ctx, int type, const char *event,
-                             RedisModuleString *key) {
+int HandleKeyspaceNotification(RedisModuleCtx *ctx, int type, enum RedisCmd redisCommand,
+                               RedisModuleString *key);
+
+// Transform the event string into its corresponding enum value. The core events
+// (REDIS_NOTIFICATION_EVENT_LIST) are pointer-cached: Redis core passes static
+// string literals, so once we have matched an event with strcmp we remember its
+// pointer and short-circuit future notifications with a pointer comparison. The
+// RedisJSON events cannot be cached this way (see REDIS_JSON_NOTIFICATION_EVENT_LIST)
+// and are always matched with strcmp. Returns _null_cmd for anything we don't
+// subscribe to.
+static enum RedisCmd GetRedisCmd(const char *event) {
 
 #define CHECK_CACHED_EVENT(E)     \
   else if (event == E##_event) {  \
@@ -93,18 +130,62 @@ int HashNotificationCallback(RedisModuleCtx *ctx, int type, const char *event,
     E##_event = event;            \
   }
 
+#define CHECK_JSON_EVENT(ID, STR)  \
+  else if (!strcmp(event, STR)) {  \
+    redisCommand = ID##_cmd;       \
+  }
+
   enum RedisCmd redisCommand;
-  RedisModuleKey *kp;
-  DocumentType kType;
-
-  // Transform the event string into its corresponding enum value,
-  // while caching the event string pointer for future comparisons to avoid strcmp in hot paths.
-  // First "iterate" over the cached events, then fall back to strcmp and cache if found.
-
   if (false) {} // dummy first statement to allow the else-if chain
   REDIS_NOTIFICATION_EVENT_LIST(CHECK_CACHED_EVENT)
   REDIS_NOTIFICATION_EVENT_LIST(CHECK_AND_CACHE_EVENT)
+  REDIS_JSON_NOTIFICATION_EVENT_LIST(CHECK_JSON_EVENT)
   else redisCommand = _null_cmd;
+  return redisCommand;
+
+#undef CHECK_CACHED_EVENT
+#undef CHECK_AND_CACHE_EVENT
+#undef CHECK_JSON_EVENT
+}
+
+// Payload carried to a deferred per-key notification job. The per-key job
+// callback only receives (ctx, key, pd), so the original notification type and
+// the precomputed event enum are stashed here. We deliberately do not keep the
+// raw event string: RedisJSON event strings are freed once the notification
+// returns (see GetRedisCmd), and the enum already carries everything the handler
+// needs.
+typedef struct {
+  int type;
+  enum RedisCmd redisCommand;
+} KeyspaceNotificationJob;
+
+void HandlePerKeyJobFunc(RedisModuleCtx *ctx, RedisModuleString *key, void *pd) {
+  KeyspaceNotificationJob *job = pd;
+  HandleKeyspaceNotification(ctx, job->type, job->redisCommand, key);
+}
+
+int KeySpaceNotificationCallback(RedisModuleCtx *ctx, int type, const char *event,
+                                RedisModuleString *key) {
+  enum RedisCmd redisCommand = GetRedisCmd(event);
+  // When running on SearchDisk, defer the actual handling of every event other
+  // than "loaded" to a post-notification per-key job, so indexing runs outside
+  // the keyspace-notification context.
+  if (SearchDisk_IsEnabled() && redisCommand != loaded_cmd) {
+    KeyspaceNotificationJob *job = rm_malloc(sizeof(*job));
+    job->type = type;
+    job->redisCommand = redisCommand;
+    int rc = RedisModule_AddPostNotificationJobForKey(ctx, HandlePerKeyJobFunc, key, job, rm_free);
+    RS_LOG_ASSERT(rc == REDISMODULE_OK, "Failed to add post-notification job for key");
+    return REDISMODULE_OK;
+  }
+  return HandleKeyspaceNotification(ctx, type, redisCommand, key);
+}
+
+int HandleKeyspaceNotification(RedisModuleCtx *ctx, int type, enum RedisCmd redisCommand,
+                               RedisModuleString *key) {
+
+  RedisModuleKey *kp;
+  DocumentType kType;
 
   switch (redisCommand) {
 
@@ -160,6 +241,24 @@ int HashNotificationCallback(RedisModuleCtx *ctx, int type, const char *event,
     case restore_cmd:
     case copy_to_cmd:
       Indexes_UpdateMatchingWithSchemaRules(ctx, key, getDocTypeFromString(key), hashFields);
+      break;
+
+    // Any RedisJSON write event reindexes the doc. Each command has its own enum
+    // value, so if a command ever needs different handling, split it out of this
+    // group instead of changing the whole set.
+    case json_set_cmd:
+    case json_merge_cmd:
+    case json_mset_cmd:
+    case json_del_cmd:
+    case json_numincrby_cmd:
+    case json_nummultby_cmd:
+    case json_strappend_cmd:
+    case json_arrappend_cmd:
+    case json_arrinsert_cmd:
+    case json_arrpop_cmd:
+    case json_arrtrim_cmd:
+    case json_toggle_cmd:
+      Indexes_UpdateMatchingWithSchemaRules(ctx, key, DocumentType_Json, hashFields);
       break;
 
     case rename_from_cmd:
@@ -235,28 +334,6 @@ int HashNotificationCallback(RedisModuleCtx *ctx, int type, const char *event,
       RS_ASSERT(!SearchDisk_IsEnabled());
       Indexes_DeleteMatchingWithSchemaRules(ctx, key, getDocTypeFromString(key), hashFields);
       break;
-  }
-
-
-/********************************************************
- *              Handling RedisJSON commands             *
- ********************************************************/
-  if (!strncmp(event, "json.", JSON_LEN)) {
-    if (!strcmp(event + JSON_LEN, "set") ||
-        !strcmp(event + JSON_LEN, "merge") ||
-        !strcmp(event + JSON_LEN, "mset") ||
-        !strcmp(event + JSON_LEN, "del") ||
-        !strcmp(event + JSON_LEN, "numincrby") ||
-        !strcmp(event + JSON_LEN, "nummultby") ||
-        !strcmp(event + JSON_LEN, "strappend") ||
-        !strcmp(event + JSON_LEN, "arrappend") ||
-        !strcmp(event + JSON_LEN, "arrinsert") ||
-        !strcmp(event + JSON_LEN, "arrpop") ||
-        !strcmp(event + JSON_LEN, "arrtrim") ||
-        !strcmp(event + JSON_LEN, "toggle")) {
-      // update index
-      Indexes_UpdateMatchingWithSchemaRules(ctx, key, DocumentType_Json, hashFields);
-    }
   }
 
   freeHashFields();
@@ -662,7 +739,7 @@ void Initialize_KeyspaceNotifications() {
       REDISMODULE_NOTIFY_EXPIRED | REDISMODULE_NOTIFY_EVICTED |
       REDISMODULE_NOTIFY_LOADED | REDISMODULE_NOTIFY_MODULE;
     }
-    RedisModule_SubscribeToKeyspaceEvents(RSDummyContext, notifyFlags, HashNotificationCallback);
+    RedisModule_SubscribeToKeyspaceEvents(RSDummyContext, notifyFlags, KeySpaceNotificationCallback);
     RS_KeyspaceEvents_Initialized = true;
   }
 }

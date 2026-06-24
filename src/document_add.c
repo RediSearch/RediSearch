@@ -7,6 +7,7 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 #include "document.h"
+#include "indexes.h"
 #include "err.h"
 #include "util/logging.h"
 #include "module.h"
@@ -231,7 +232,7 @@ int RSAddDocumentCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc
     return RedisModule_WrongArity(ctx);
   }
 
-  ref = IndexSpec_LoadUnsafe(RedisModule_StringPtrLen(argv[1], NULL));
+  ref = Indexes_LoadIndexSpecUnsafe(RedisModule_StringPtrLen(argv[1], NULL));
   sp = StrongRef_Get(ref);
   if (!sp) {
     const char *idx = RedisModule_StringPtrLen(argv[1], NULL);

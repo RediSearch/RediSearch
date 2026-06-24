@@ -18,12 +18,11 @@
 #include "obfuscation/hidden.h"
 
 void FGC_childCollectTerms(ForkGC *gc, RedisSearchCtx *sctx) {
-  TrieIterator *iter = Trie_Iterate(sctx->spec->terms, "", 0, 0, 1);
+  TrieIterator *iter = Trie_IterateAll(sctx->spec->terms);
   rune *rstr = NULL;
   t_len slen = 0;
   float score = 0;
-  int dist = 0;
-  while (TrieIterator_Next(iter, &rstr, &slen, NULL, &score, NULL, &dist)) {
+  while (TrieIterator_Next(iter, &rstr, &slen, NULL, &score, NULL, NULL)) {
     size_t termLen;
     char *term = runesToStr(rstr, slen, &termLen);
     InvertedIndex *idx = Redis_OpenInvertedIndex(sctx->spec, term, termLen, DONT_CREATE_INDEX, NULL);
@@ -122,7 +121,8 @@ FGCError FGC_parentHandleTerms(ForkGC *gc) {
     }
     sctx->spec->stats.scoring.numTerms--;
     sctx->spec->stats.termsSize -= len;
-    if (sctx->spec->suffix) {
+    // Empty terms (INDEXEMPTY) are never inserted into the suffix trie, so skip the delete.
+    if (sctx->spec->suffix && len) {
       deleteSuffixTrie(sctx->spec->suffix, term, len);
     }
   }

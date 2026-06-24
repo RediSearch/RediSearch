@@ -20,6 +20,18 @@ name: Backport merged pull request (Codex agent)
 #
 # Behavior is defined by .github/codex/prompts/pr-backport-auto.md. This workflow
 # only resolves inputs, writes a small context file, and invokes Codex.
+#
+# Expected "skipped" runs — this is normal, not a misconfiguration:
+#   GitHub creates a workflow run for EVERY matching event and only then
+#   evaluates the job `if:` below. There is no `on:`-level filter for label
+#   name, comment body, or merged state, so any non-matching event (a label
+#   added to an unrelated PR, an ordinary comment, a closed-but-unmerged PR)
+#   produces a run whose single job is skipped. Skipped jobs report success and
+#   never block merging. The `issue_comment` skips live only in the Actions tab;
+#   the `pull_request_target: labeled` skips show as a grey check on the PR.
+#   Suppressing them entirely would mean dropping the `labeled` trigger (losing
+#   the "label an already-merged PR" auto-path, which `/backport-agent` already
+#   covers) — a deliberate trade-off we have chosen NOT to make here.
 
 on:
   pull_request_target:
@@ -135,9 +147,16 @@ jobs:
           fetch-depth: 0
 
       - name: Configure git identity
+        # Set the identity GLOBALLY (not just in this checkout). The Codex
+        # sandbox mounts this checkout's `.git` read-only by design (it blocks
+        # an agent from rewriting history/refs), so the agent does its git
+        # writes (fetch/cherry-pick/commit/push) inside a fresh clone under
+        # /tmp; a repo-local identity would not be inherited there and the
+        # cherry-pick would abort with "Committer identity unknown". A global
+        # identity is picked up by any clone the agent creates.
         run: |
-          git config user.name "redis-pr-app[bot]"
-          git config user.email "redis-pr-app[bot]@users.noreply.github.com"
+          git config --global user.name "redis-pr-app[bot]"
+          git config --global user.email "redis-pr-app[bot]@users.noreply.github.com"
 
       # The script in scripts/auto_backport/resolve_create.py is the source
       # of truth for the resolve logic — it derives the target-branch list

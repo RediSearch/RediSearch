@@ -186,11 +186,9 @@ void dfa_build(dfaNode *parent, SparseAutomaton *a, Vector *cache) {
     }
   }
   sparseVector_free(nv);
-
-  //}
 }
 
-DFAFilter *NewDFAFilter(rune *str, size_t len, int maxDist, int prefixMode) {
+DFAFilter *NewDFAFilter(rune *str, size_t len, int maxDist, TrieMatchMode mode) {
   Vector *cache = NewVector(dfaNode *, 8);
 
   SparseAutomaton a = NewSparseAutomaton(str, len, maxDist);
@@ -205,7 +203,7 @@ DFAFilter *NewDFAFilter(rune *str, size_t len, int maxDist, int prefixMode) {
   ret->stack = NewVector(dfaNode *, 8);
   ret->distStack = NewVector(int, 8);
   ret->a = a;
-  ret->prefixMode = prefixMode;
+  ret->mode = mode;
   Vector_Push(ret->stack, dr);
   Vector_Push(ret->distStack, (maxDist + 1));
 
@@ -273,12 +271,11 @@ FilterCode FilterFunc(rune b, void *ctx, int *matched, void *matchCtx, runeTrans
       if (pdist) {
         *pdist = MIN(next->distance, minDist);
       }
-      //    if (fc->prefixMode) next = NULL;
     }
     Vector_Push(fc->stack, next);
     Vector_Push(fc->distStack, MIN(next->distance, minDist));
     return F_CONTINUE;
-  } else if (fc->prefixMode && *matched) {
+  } else if (fc->mode == TRIE_MATCH_PREFIX && *matched) {
     Vector_Push(fc->stack, NULL);
     Vector_Push(fc->distStack, minDist);
     return F_CONTINUE;

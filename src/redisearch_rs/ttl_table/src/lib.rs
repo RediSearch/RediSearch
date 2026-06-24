@@ -14,7 +14,9 @@
 //! - A direct-modulo bucket array (`slot = doc_id % max_size`) — no hashing,
 //!   so monotonically allocated docIds map to sequential slots and the CPU
 //!   prefetcher can stream upcoming bucket headers into L1.
-//! - Per-bucket contiguous-vec collision chains (a [`MediumThinVec`] of entries).
+//! - Per-bucket contiguous-vec collision chains (a [`MediumThinVec`] of entries),
+//!   grown by `MediumThinVec`'s native exponential strategy (doubling, seeded at
+//!   4), as are the per-entry field-expiration lists.
 //! - Lazy growth: the bucket array starts empty and grows geometrically
 //!   (+1.5×, capped at `1 << 20` and clamped to `max_size`) only as `add`
 //!   demands more slots.
@@ -34,7 +36,7 @@ use std::{iter::Chain, num::NonZeroUsize, ops::Deref};
 use ffi::t_expirationTimePoint as timespec;
 pub use field::FieldExpirationPredicate;
 use rqe_core::{DocId, FieldIndex, FieldMask};
-use thin_vec::MediumThinVec;
+use thin_vec::{AlignedU32, MediumThinVec, ThinVec};
 
 /// A single field's expiration record.
 ///
@@ -58,8 +60,10 @@ pub struct FieldExpiration {
 pub struct FieldExpirations {
     /// Backing store for the field list.
     ///
-    /// We use [`MediumThinVec`] rather than the default `ThinVec` for performance reason.
-    inner: MediumThinVec<FieldExpiration>,
+    /// We use a `ThinVec` with an over-aligned [`AlignedU32`] capacity rather than
+    /// the default `ThinVec` for performance: the over-alignment lets `data_raw`
+    /// elide its `capacity == 0` guard on the verify hot path.
+    inner: ThinVec<FieldExpiration, AlignedU32>,
 }
 
 impl FieldExpirations {
@@ -68,7 +72,7 @@ impl FieldExpirations {
     /// No heap allocation is performed until the first insertion.
     pub const fn new() -> Self {
         Self {
-            inner: MediumThinVec::new(),
+            inner: ThinVec::new(),
         }
     }
 
@@ -76,7 +80,7 @@ impl FieldExpirations {
     /// at least `cap` entries.
     pub fn with_capacity(cap: usize) -> Self {
         Self {
-            inner: MediumThinVec::with_capacity(cap),
+            inner: ThinVec::with_capacity(cap),
         }
     }
 
@@ -147,12 +151,17 @@ impl FieldExpirations {
             }
         }
 
-        // Grow the collision chain linearly if needed.
-        if self.inner.capacity() == self.inner.len() {
-            self.inner.reserve_exact(1);
-        }
-
+        // `MediumThinVec::push` grows the chain exponentially when full.
         self.inner.push(fe);
+    }
+
+    pub fn capacity(&self) -> usize {
+        self.inner.capacity()
+    }
+
+    /// Shrinks the backing store so its capacity equals its length.
+    pub fn shrink_to_fit(&mut self) {
+        self.inner.shrink_to_fit();
     }
 }
 
@@ -276,10 +285,7 @@ impl TimeToLiveTable {
             "duplicate docId in TTL table"
         );
 
-        // Grow the collision chain linearly if needed.
-        if slot.capacity() == slot.len() {
-            slot.reserve_exact(1);
-        }
+        // `MediumThinVec::push` grows the chain exponentially when full.
         slot.push(TimeToLiveEntry {
             doc_id,
             field_expirations,
@@ -782,6 +788,24 @@ mod tests {
     use super::*;
 
     #[test]
+    fn field_expirations_capacity_and_shrink_to_fit() {
+        let mut fields = FieldExpirations::new();
+        assert_eq!(fields.len(), 0);
+        assert_eq!(fields.capacity(), 0);
+
+        // The first push seeds the backing store's native exponential growth,
+        // leaving spare capacity beyond `len`.
+        fields.push(fe(FIELD_INDEX_1, FUTURE));
+        assert_eq!(fields.len(), 1);
+        assert!(fields.capacity() > fields.len());
+
+        // Shrinking releases the spare capacity so it matches `len`.
+        fields.shrink_to_fit();
+        assert_eq!(fields.capacity(), fields.len());
+        assert_eq!(fields.len(), 1);
+    }
+
+    #[test]
     fn verify_field_returns_true_for_doc_colliding_with_a_known_doc() {
         // doc_id 1 is in the table; doc_id 9 also hashes to slot 1 but is
         // absent. Per docs: if the document has no entry, both predicates
@@ -898,16 +922,17 @@ mod tests {
 
         let slot = t.slot(DOC_ID_1);
 
+        // `MediumThinVec`'s native growth seeds capacity at 4 on the first push.
         t.add(DOC_ID_1, fes([fe(FIELD_INDEX_1, FUTURE)]));
-        assert_eq!(t.buckets[slot].capacity(), 1);
+        assert_eq!(t.buckets[slot].capacity(), 4);
 
         // Same bucket
         const DOC_ID_2: DocId = DOC_ID_1 + MAX as DocId;
         assert_eq!(slot, t.slot(DOC_ID_2));
 
-        // Increase the bucket capacity
+        // Spare capacity is still available: no reallocation.
         t.add(DOC_ID_2, fes([fe(FIELD_INDEX_1, FUTURE)]));
-        assert_eq!(t.buckets[slot].capacity(), 2);
+        assert_eq!(t.buckets[slot].capacity(), 4);
 
         t.remove(DOC_ID_1);
 
@@ -915,9 +940,9 @@ mod tests {
         const DOC_ID_3: DocId = DOC_ID_1 + 2 * MAX as DocId;
         assert_eq!(slot, t.slot(DOC_ID_3));
 
-        // Don't increase the bucket capacity
+        // Reusing the freed slot stays within the high-water-mark capacity.
         t.add(DOC_ID_3, fes([fe(FIELD_INDEX_1, FUTURE)]));
-        assert_eq!(t.buckets[slot].capacity(), 2);
+        assert_eq!(t.buckets[slot].capacity(), 4);
     }
 
     #[test]
@@ -935,7 +960,7 @@ mod tests {
         t.add(DOC_ID_1, fes([fe(FIELD_INDEX_1, FUTURE)]));
         t.add(COLLIDER, fes([fe(FIELD_INDEX_1, PAST)]));
         let peak_cap = t.buckets[slot].capacity();
-        assert_eq!(peak_cap, t.buckets[slot].len());
+        assert!(peak_cap >= t.buckets[slot].len());
 
         // One entry left: allocation is retained at the high-water mark.
         t.remove(DOC_ID_1);

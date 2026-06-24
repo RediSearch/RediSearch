@@ -40,7 +40,8 @@ pub unsafe extern "C" fn NewOptionalIterator(
 
     // Handle NULL child: equivalent to an empty iterator — return a wildcard fallback.
     let Some(child_nn) = NonNull::new(child) else {
-        // SAFETY: thanks to 2.
+        // SAFETY: thanks to 2. `new_wildcard_iterator` pulls the disk snapshot
+        // (if any) from `query.sctx.diskSnapshot` itself.
         let wc = unsafe { rqe_iterators::wildcard::new_wildcard_iterator(query, 0.0) };
         return RQEIteratorWrapper::boxed_new(wc);
     };

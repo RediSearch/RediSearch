@@ -20,6 +20,7 @@
 #include "rmalloc.h"
 #include "rules.h"
 #include "spec.h"
+#include "indexes.h"
 #include "extension.h"
 #include "util/dict.h"
 #include "resp3.h"

@@ -31,6 +31,12 @@ int coord_aggregate_query_reply_empty(RedisModuleCtx *ctx, RedisModuleString **a
 // When isProfile is true, wraps the reply with profile structure.
 int common_hybrid_query_reply_empty(RedisModuleCtx *ctx, QueryErrorCode errCode, bool internal, bool isProfile);
 
+// Coordinator empty reply for FT.HYBRID commands.
+// Derives the profile flag from the command itself (FT.PROFILE prefix) and
+// forwards to common_hybrid_query_reply_empty, so callers do not have to track
+// isProfile. Mirrors coord_aggregate_query_reply_empty.
+int coord_hybrid_query_reply_empty(RedisModuleCtx *ctx, RedisModuleString **argv, int argc, QueryErrorCode errCode);
+
 // Single-shard empty reply for SEARCH and AGGREGATE commands.
 // Handles both RESP2 and RESP3 with command-appropriate formatting.
 // Works for both SEARCH and AGGREGATE by compiling query for format detection.
