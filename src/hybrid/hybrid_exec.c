@@ -790,8 +790,7 @@ int HybridRequest_StartCursors(StrongRef hybrid_ref, RedisModuleCtx *replyCtx, Q
         // RETURN policy: keep cursors with partial results, emit warning in reply
         depletionTimedOut = true;
       } else {
-        // Fatal error or FAIL/RETURN-STRICT policy — free everything
-        // RETURN-STRICT follows fail semantics on Cursor Mapping reply
+        // Fatal error or FAIL policy — free everything
         array_free_ex(req->cursors, Cursor_Free(*(Cursor**)ptr));
         req->cursors = NULL;
         HybridRequest_UnlockCursors(req);
@@ -970,6 +969,48 @@ static int HybridQueryTimeoutReturnStrictCallback(RedisModuleCtx *ctx, RedisModu
   return REDISMODULE_OK;
 }
 
+// Timeout callback for HybridRequest execution in Run in Threads mode.
+// Called on the main thread when the blocking client times out (RETURN-STRICT policy only).
+// Acquires cursorMutex to synchronize with HybridRequest_StartCursors:
+// - If cursors were already created, we free them here
+// - If cursors haven't been created yet, StartCursors will see timedOut and skip creation
+static int HybridQueryCursorTimeoutReturnStrictCallback(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
+  UNUSED(argv);
+  UNUSED(argc);
+
+  BlockedQueryNode *node = RedisModule_GetBlockedClientPrivateData(ctx);
+  if (!node || !node->privdata) {
+    // Shouldn't happen, but handle gracefully
+    RedisModule_Log(ctx, "warning", "HybridQueryTimeoutFailCallback: no node or privdata");
+    QueryErrorsGlobalStats_UpdateError(QUERY_ERROR_CODE_TIMED_OUT, 1, COORD_ERR_WARN);
+    RedisModule_ReplyWithError(ctx, QueryError_Strerror(QUERY_ERROR_CODE_TIMED_OUT));
+    return REDISMODULE_OK;
+  }
+
+  HybridRequest *hreq = (HybridRequest *)node->privdata;
+
+  // Lock to synchronize with cursor creation in HybridRequest_StartCursors.
+  // After setting timedOut, any subsequent cursor creation attempt will be skipped.
+  // If cursors were already created, we free them here.
+  HybridRequest_LockCursors(hreq);
+
+  // Signal timeout to background thread
+  HybridRequest_SetTimedOut(hreq);
+
+  if (hreq->cursors) {
+    // If Cursor were created - reply with them
+    replyWithCursors(ctx, hreq->cursors, hreq, true);
+    array_free(hreq->cursors);
+    hreq->cursors = NULL;
+  } else {
+    // Cursors were no creatd - reply with empty cursors reply
+    common_hybrid_query_reply_empty(ctx,QUERY_ERROR_CODE_TIMED_OUT, true, IsProfile(hreq));
+  }
+
+  HybridRequest_UnlockCursors(hreq);
+  return REDISMODULE_OK;
+}
+
 // Reply callback for AREQ execution in Run in Threads mode (FAIL policy).
 // Called on the main thread when the background thread calls UnblockClient.
 // For internal hybrid requests (cursor reply)
@@ -1083,11 +1124,13 @@ static int HybridRequest_BuildPipelineAndExecute(StrongRef hybrid_ref, HybridPip
       blockClientCtx.timeoutMS = hreq->reqConfig.queryTimeoutMS;
       hreq->useReplyCallback = true;
 
-      if (timeoutPolicy == TimeoutPolicy_Fail || internal) {
-        // Cursor Mapping Timeout should return an error regardless of the policy
+      if (timeoutPolicy == TimeoutPolicy_Fail) {
         blockClientCtx.timeoutCallback = HybridQueryTimeoutFailCallback;
       } else {
-        blockClientCtx.timeoutCallback = HybridQueryTimeoutReturnStrictCallback;
+        RS_ASSERT(timeoutPolicy == TimeoutPolicy_ReturnStrict);
+        blockClientCtx.timeoutCallback = internal
+            ? HybridQueryCursorTimeoutReturnStrictCallback
+            : HybridQueryTimeoutReturnStrictCallback;
         hreq->syncCtx.requiresAggregateResultsSync = true;
       }
     }
