@@ -18,7 +18,7 @@ use ffi::{
 };
 use top_k::TopKMode;
 use vector_score_source::new_vector_top_k_filtered_boxed;
-use vector_score_source::test_support::{
+use vector_score_source::test_utils::{
     build_flat_index, make_child, make_source_with_mode, uniform_blob,
 };
 

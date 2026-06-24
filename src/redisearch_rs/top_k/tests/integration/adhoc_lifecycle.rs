@@ -31,17 +31,14 @@ fn make_child<'a>(ids: Vec<DocId>) -> Box<dyn RQEIterator<'a> + 'a> {
     Box::new(IdList::<true>::new(ids))
 }
 
-/// Counts `begin_adhoc` / `end_adhoc` calls and tracks whether each
-/// `lookup_score` falls inside the scan window.
+/// A `ScoreSource` that remembers how it was called, so tests can check it.
 #[derive(Default)]
 struct CallCountingScoreSource {
     begin_calls: u32,
     end_calls: u32,
     lookups_after_begin_before_end: u32,
     lookups_outside_scan: u32,
-    /// When set, [`ScoreSource::should_rerank`] returns `true`.
     rerank: bool,
-    /// Number of times [`ScoreSource::rerank`] was invoked.
     rerank_calls: u32,
 }
 
@@ -91,10 +88,9 @@ impl ScoreSource for CallCountingScoreSource {
     }
 
     fn rerank(&mut self, _results: &mut [ScoredResult]) {
-        // Rerank must run inside the scan window, before `end_adhoc`.
         assert!(
             self.begin_calls > self.end_calls,
-            "rerank must run before end_adhoc"
+            "Rerank must run inside the scan window, before `end_adhoc`."
         );
         self.rerank_calls += 1;
     }

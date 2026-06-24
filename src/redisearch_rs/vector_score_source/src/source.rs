@@ -455,7 +455,7 @@ mod tests {
     use super::refine_child_estimated;
     use crate::{
         VectorScoreSource,
-        test_support::{build_flat_index, make_source, uniform_blob},
+        test_utils::{build_flat_index, make_source, uniform_blob},
     };
 
     #[test]
