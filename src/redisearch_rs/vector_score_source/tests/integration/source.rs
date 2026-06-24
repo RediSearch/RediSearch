@@ -22,7 +22,7 @@ use ffi::{VecSimIndex, VecSimIndex_Free, t_docId};
 use index_result::RSResultKind;
 use rqe_iterators::RQEIterator;
 use top_k::{TopKIterator, TopKMode};
-use vector_score_source::test_support::{self, asc, collect_ids, make_child, uniform_blob};
+use vector_score_source::test_utils::{self, asc, collect_ids, make_child, uniform_blob};
 use vector_score_source::{
     VectorScoreSource, new_vector_top_k_filtered, new_vector_top_k_unfiltered,
 };
@@ -31,10 +31,10 @@ const DIM: usize = 4;
 
 /// HNSW index of `n` vectors `[i; DIM]` at this suite's fixed dimensionality.
 fn build_hnsw_index(n: usize) -> NonNull<VecSimIndex> {
-    test_support::build_hnsw_index(n, DIM)
+    test_utils::build_hnsw_index(n, DIM)
 }
 
-/// Source querying the corner `[n; DIM]` with `efRuntime = n`. `child_est` seeds
+/// test_utilsing the corner `[n; DIM]` with `efRuntime = n`. `child_est` seeds
 /// the batch-size heuristic — production passes `child.num_estimated()`.
 ///
 /// # Safety
@@ -47,7 +47,7 @@ unsafe fn make_source(
     child_est: usize,
 ) -> VectorScoreSource<'static> {
     // SAFETY: caller upholds the `index` lifetime contract.
-    unsafe { test_support::make_source(index, uniform_blob(n as f32, DIM), n, k, child_est) }
+    unsafe { test_utils::make_source(index, uniform_blob(n as f32, DIM), n, k, child_est) }
 }
 
 #[test]
@@ -68,7 +68,7 @@ fn unfiltered_returns_top_k_nearest_by_score() {
     assert!(it.at_eof());
 
     drop(it);
-    // SAFETY: no live references to the index remain.
+    // Stest_utilsve references to the index remain.
     unsafe { VecSimIndex_Free(index.as_ptr()) };
 }
 

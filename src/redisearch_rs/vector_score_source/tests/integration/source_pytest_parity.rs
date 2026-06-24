@@ -25,7 +25,7 @@ use ffi::VecSimIndex_Free;
 use rqe_core::DocId;
 use rqe_iterators::{RQEIterator, RQEIteratorError};
 use top_k::{TopKIterator, TopKMode};
-use vector_score_source::test_support::{
+use vector_score_source::test_utils::{
     asc, build_flat_cosine_index, build_flat_index, build_hnsw_index, collect_ids, make_child,
     make_source, uniform_blob,
 };

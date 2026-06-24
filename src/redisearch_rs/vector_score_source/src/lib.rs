@@ -27,7 +27,7 @@ redis_mock::mock_or_stub_missing_redis_c_symbols!();
 pub mod score_batch;
 pub mod source;
 #[cfg(feature = "unittest")]
-pub mod test_support;
+pub mod test_utils;
 
 pub use score_batch::VecSimScoreBatch;
 pub use source::VectorScoreSource;
