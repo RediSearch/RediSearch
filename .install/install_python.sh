@@ -43,5 +43,13 @@ if [[ -n "${GITHUB_PATH:-}" ]]; then
     echo "$uv_bin_dir" >> "$GITHUB_PATH"
 fi
 
+# Some container images, including Alpine, reset PATH for root login shells,
+# hiding the GITHUB_PATH/Dockerfile PATH additions when later CI steps run
+# under `bash -l`. Keep uv visible for those shells too.
+if [[ -d /etc/profile.d && ( -w /etc/profile.d || $(id -u) -eq 0 ) ]]; then
+    printf 'export PATH="%s:$PATH"\n' "$uv_bin_dir" > /etc/profile.d/redisearch-uv.sh
+    chmod 0644 /etc/profile.d/redisearch-uv.sh
+fi
+
 # Print where `uv` is located for debugging purposes
 echo "uv binary location: $uv_bin"
