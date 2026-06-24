@@ -360,7 +360,12 @@ impl<'index, E: ExpirationChecker> ScoreSource for VectorScoreSource<'index, E> 
                     guard.is_none(),
                     "begin_adhoc called twice without end_adhoc"
                 );
-                *guard = Some(self.index.acquire_shared_locks(&self.query_vector));
+                // SAFETY: discharges `acquire_shared_locks`' conditions for the
+                // guard's lifetime, which `begin_adhoc`/`end_adhoc` bound:
+                // `query_vector` is owned by `self`, so its heap buffer stays
+                // allocated (1) at a stable address across moves (2), and it is
+                // never mutated while the guard is held (3).
+                *guard = Some(unsafe { self.index.acquire_shared_locks(&self.query_vector) });
             }
             AdhocPathState::Disk { ctx } => {
                 debug_assert!(ctx.is_none(), "begin_adhoc called twice without end_adhoc");
