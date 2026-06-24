@@ -19,6 +19,8 @@ use index_spec::IndexSpecReadGuard;
 use inverted_index::opaque::InvertedIndex as OpaqueInvertedIndex;
 use inverted_index::{GcScanDelta, InvertedIndex, doc_ids_only::DocIdsOnly};
 
+// Link both Rust-provided and C-provided symbols
+extern crate redisearch_rs;
 // Provide Redis allocator shims so the C dict functions can allocate memory.
 redis_mock::mock_or_stub_missing_redis_c_symbols!();
 
