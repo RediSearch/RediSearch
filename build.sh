@@ -1070,7 +1070,7 @@ run_python_tests() {
     else
       DEPLOYMENT_TYPE="coordinator"
     fi
-    capture_coverage flow_$DEPLOYMENT_TYPE
+    capture_coverage "flow_$DEPLOYMENT_TYPE"
   fi
 }
 
