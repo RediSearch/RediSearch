@@ -448,6 +448,51 @@ def test_flex_disk_hnsw_rerank_value(env):
 
 
 @skip(cluster=True)
+@with_simulate_in_flex(True)
+def test_flex_disk_hnsw_float16(env):
+    # MOD-15148: disk HNSW vector indexes accept FLOAT16 in addition to FLOAT32,
+    # while every other element type is still rejected. Creation only.
+    env.expect(
+        'FT.CREATE', 'idx_fp16', 'ON', 'HASH', 'SKIPINITIALSCAN', 'SCHEMA',
+        'v', 'VECTOR', 'HNSW', '14',
+        'TYPE', 'FLOAT16',
+        'DIM', '4',
+        'DISTANCE_METRIC', 'L2',
+        'M', '16',
+        'EF_CONSTRUCTION', '200',
+        'EF_RUNTIME', '10',
+        'RERANK', 'TRUE',
+    ).ok()
+
+    # FLOAT32 remains accepted (no regression).
+    env.expect(
+        'FT.CREATE', 'idx_fp32', 'ON', 'HASH', 'SKIPINITIALSCAN', 'SCHEMA',
+        'v', 'VECTOR', 'HNSW', '14',
+        'TYPE', 'FLOAT32',
+        'DIM', '4',
+        'DISTANCE_METRIC', 'L2',
+        'M', '16',
+        'EF_CONSTRUCTION', '200',
+        'EF_RUNTIME', '10',
+        'RERANK', 'TRUE',
+    ).ok()
+
+    # Unsupported element types are still rejected on disk.
+    for vec_type in ('FLOAT64', 'BFLOAT16'):
+        env.expect(
+            'FT.CREATE', f'idx_{vec_type.lower()}', 'ON', 'HASH', 'SKIPINITIALSCAN', 'SCHEMA',
+            'v', 'VECTOR', 'HNSW', '14',
+            'TYPE', vec_type,
+            'DIM', '4',
+            'DISTANCE_METRIC', 'L2',
+            'M', '16',
+            'EF_CONSTRUCTION', '200',
+            'EF_RUNTIME', '10',
+            'RERANK', 'TRUE',
+        ).error().contains('Disk index does not support')
+
+
+@skip(cluster=True)
 @with_simulate_in_flex(False)
 def test_ram_hnsw_rerank_rejected(env):
     # In RAM mode RERANK is a disk-only option and must be rejected outright,

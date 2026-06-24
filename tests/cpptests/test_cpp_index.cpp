@@ -1484,3 +1484,109 @@ TEST_F(IndexTest, testHybridIteratorReducerWithWildcardChild) {
   ASSERT_EQ(hi->searchMode, VECSIM_STANDARD_KNN);
   hybridIt->Free(hybridIt);
 }
+
+// Forces disk-mode validation on (SearchDisk_IsEnabledForValidation() reads
+// RSGlobalConfig.simulateInFlex) and restores the previous value on scope exit,
+// even if an ASSERT_* aborts the test body. (MOD-15148)
+struct SimulateInFlexGuard {
+  bool prev;
+  SimulateInFlexGuard() : prev(RSGlobalConfig.simulateInFlex) {
+    RSGlobalConfig.simulateInFlex = true;
+  }
+  ~SimulateInFlexGuard() {
+    RSGlobalConfig.simulateInFlex = prev;
+  }
+};
+
+// MOD-15148: disk HNSW validation accepts FLOAT16 alongside FLOAT32, and keeps
+// rejecting every other element type. All schemas carry ON HASH SKIPINITIALSCAN
+// because Flex specs require the SkipInitialScan flag (src/spec.c).
+TEST_F(IndexTest, testDiskHnswAcceptsFloat16) {
+  SimulateInFlexGuard flexGuard;
+  const size_t dim = 4;
+
+  // Positive: FLOAT16 disk HNSW parses, and the stored params carry the FP16
+  // type and the matching 2-byte blob size.
+  {
+    QueryError err = QueryError_Default();
+    const char *args[] = {
+        "ON",
+        "HASH",
+        "SKIPINITIALSCAN",
+        "SCHEMA",
+        "v",
+        "VECTOR",
+        "HNSW",
+        "14",
+        "TYPE",
+        "FLOAT16",
+        "DIM",
+        "4",
+        "DISTANCE_METRIC",
+        "L2",
+        "M",
+        "16",
+        "EF_CONSTRUCTION",
+        "200",
+        "EF_RUNTIME",
+        "10",
+        "RERANK",
+        "TRUE",
+    };
+    StrongRef ref =
+        IndexSpec_ParseC(NULL, "idx_fp16", args, sizeof(args) / sizeof(const char *), &err);
+    IndexSpec *s = (IndexSpec *)StrongRef_Get(ref);
+    ASSERT_FALSE(QueryError_HasError(&err)) << QueryError_GetUserError(&err);
+    ASSERT_TRUE(s);
+
+    const FieldSpec *f = IndexSpec_GetFieldWithLength(s, "v", 1);
+    ASSERT_TRUE(f != NULL);
+    ASSERT_TRUE(FIELD_IS(f, INDEXFLD_T_VECTOR));
+    // HNSW is stored as a TIERED wrapper; the HNSW params live under primaryIndexParams.
+    ASSERT_EQ(f->vectorOpts.vecSimParams.algo, VecSimAlgo_TIERED);
+    VecSimParams *prim = f->vectorOpts.vecSimParams.algoParams.tieredParams.primaryIndexParams;
+    ASSERT_TRUE(prim != NULL);
+    ASSERT_EQ(prim->algo, VecSimAlgo_HNSWLIB);
+    ASSERT_EQ(prim->algoParams.hnswParams.type, VecSimType_FLOAT16);
+    ASSERT_EQ(f->vectorOpts.expBlobSize, (size_t)dim * 2);  // VecSimType_sizeof(FLOAT16) == 2
+
+    Indexes_RemoveSpecFromGlobals(ref, false);
+  }
+
+  // Negative: every other element type is still rejected on disk.
+  const char *unsupportedTypes[] = {"FLOAT64", "BFLOAT16", "INT8", "UINT8"};
+  for (const char *vecType : unsupportedTypes) {
+    QueryError err = QueryError_Default();
+    const char *args[] = {
+        "ON",
+        "HASH",
+        "SKIPINITIALSCAN",
+        "SCHEMA",
+        "v",
+        "VECTOR",
+        "HNSW",
+        "14",
+        "TYPE",
+        vecType,
+        "DIM",
+        "4",
+        "DISTANCE_METRIC",
+        "L2",
+        "M",
+        "16",
+        "EF_CONSTRUCTION",
+        "200",
+        "EF_RUNTIME",
+        "10",
+        "RERANK",
+        "TRUE",
+    };
+    StrongRef ref =
+        IndexSpec_ParseC(NULL, "idx_bad", args, sizeof(args) / sizeof(const char *), &err);
+    ASSERT_TRUE(QueryError_HasError(&err)) << "type " << vecType << " should be rejected";
+    ASSERT_EQ(nullptr, StrongRef_Get(ref));
+    ASSERT_NE(nullptr, strstr(QueryError_GetUserError(&err), "Disk index does not support"))
+        << "type " << vecType << " got: " << QueryError_GetUserError(&err);
+    QueryError_ClearError(&err);
+  }
+}
