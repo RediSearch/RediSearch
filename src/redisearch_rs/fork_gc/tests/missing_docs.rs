@@ -51,6 +51,7 @@ fn make_spec(dict: &OwnedDict<MissingFieldDictType>) -> ffi::IndexSpec {
 
 /// When the dict has no entries, only a Terminator is written.
 #[test]
+#[cfg_attr(miri, ignore = "accesses extern static `dictTypeHeapHiddenStrings`")]
 fn empty_dict_writes_only_terminator() {
     let dict = OwnedDict::create();
     let spec = make_spec(&dict);
@@ -68,6 +69,7 @@ fn empty_dict_writes_only_terminator() {
 
 /// Entries whose value is `None` (no inverted index) are skipped silently.
 #[test]
+#[cfg_attr(miri, ignore = "accesses extern static `dictTypeHeapHiddenStrings`")]
 fn null_value_entry_is_skipped() {
     let mut dict = OwnedDict::create();
     add_entry(&mut dict, b"no_index_field", None);
@@ -86,6 +88,7 @@ fn null_value_entry_is_skipped() {
 
 /// An entry whose inverted index is empty produces no delta, so it is skipped.
 #[test]
+#[cfg_attr(miri, ignore = "accesses extern static `dictTypeHeapHiddenStrings`")]
 fn empty_inverted_index_is_skipped() {
     let ii = Box::new(OpaqueInvertedIndex::DocIdsOnly(
         InvertedIndex::<DocIdsOnly>::new(IndexFlags_Index_DocIdsOnly),
@@ -117,6 +120,7 @@ fn empty_inverted_index_is_skipped() {
 /// The spec's `DocTable` is zeroed, so `DocTable_Exists` returns `false` for
 /// every doc ID — every recorded doc is treated as deleted.
 #[test]
+#[cfg_attr(miri, ignore = "accesses extern static `dictTypeHeapHiddenStrings`")]
 fn entry_with_deleted_docs_writes_delta_frame() {
     let mut ii = InvertedIndex::<DocIdsOnly>::new(IndexFlags_Index_DocIdsOnly);
     ii.add_record(&RSIndexResult::build_virt().doc_id(1).build())
@@ -156,6 +160,7 @@ fn entry_with_deleted_docs_writes_delta_frame() {
 /// Multiple entries each produce their own Data frame + delta, followed by a
 /// single Terminator.
 #[test]
+#[cfg_attr(miri, ignore = "accesses extern static `dictTypeHeapHiddenStrings`")]
 fn multiple_entries_write_multiple_delta_frames() {
     let make_ii = |doc_id| {
         let mut ii = InvertedIndex::<DocIdsOnly>::new(IndexFlags_Index_DocIdsOnly);
