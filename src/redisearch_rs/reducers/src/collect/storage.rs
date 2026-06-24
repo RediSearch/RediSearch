@@ -16,6 +16,7 @@
 //! sort-key snapshot.
 
 use std::hash::{Hash, Hasher};
+use std::mem;
 
 use fnv::Fnv64;
 use itertools::Either;
@@ -95,17 +96,14 @@ impl Hash for ProjectedRow {
     /// an empty slot distinct from a present value; see the [`PartialEq`] impl for
     /// the eq/hash consistency caveat.
     fn hash<H: Hasher>(&self, state: &mut H) {
-        // Seed with the standard FNV offset basis (non-zero): with a zero seed,
-        // a leading `None` discriminant byte (`0`) would be absorbed
+        // Seed with the standard FNV offset basis (non-zero): with a zero seed, a
+        // leading `None` discriminant (hashed as zero bytes) would be absorbed
         // (`0 ^ 0 == 0`, `* PRIME == 0`), collapsing e.g. `[None, x]` onto `[x]`.
         let mut fnv = Fnv64::default();
         for slot in self.effective_values() {
-            match slot {
-                None => fnv.write(&[0]),
-                Some(v) => {
-                    fnv.write(&[1]);
-                    hash_value(v, &mut fnv);
-                }
+            mem::discriminant(slot).hash(&mut fnv);
+            if let Some(v) = slot {
+                hash_value(v, &mut fnv);
             }
         }
         state.write_u64(fnv.finish());
