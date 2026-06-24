@@ -7,7 +7,10 @@ from common import *
 MAX_WORKER_THREADS = 16
 
 not_modifiable = 'SEARCH_OPTION_BAD Not modifiable at runtime'
-default_module_list = [['name', 'vectorset', 'ver', 1, 'path', '', 'args', []]]
+# The OSS Redis 8 build registers a built-in 'vectorset' module that shows in
+# MODULE LIST; the enterprise rl_8.6 RoR redis-server does not, so its baseline
+# MODULE LIST (no user modules loaded) is empty.
+default_module_list = [] if RS_TEST_ENTERPRISE else [['name', 'vectorset', 'ver', 1, 'path', '', 'args', []]]
 
 def _test_config_str(arg_name, arg_value, ret_value=None):
     if ret_value == None:
@@ -39,6 +42,7 @@ def testConfig(env):
     env.expect(config_cmd(), 'set', 'MINPREFIX', 1).equal('OK')
 
 @skip(cluster=True)
+@ft_config_passthrough
 def testConfigErrors(env):
     env.expect(config_cmd(), 'set', 'MINPREFIX', 1, 2).equal('EXCESSARGS')
     env.expect(config_cmd(), 'no_such_command', 'idx').error().contains("unknown subcommand 'no_such_command'")
@@ -109,6 +113,9 @@ def testGetConfigOptions(env):
 
 @skip(cluster=True)
 def testSetConfigOptions(env):
+    # In enterprise, config_cmd() maps to Redis CONFIG SET; error text differs
+    if RS_TEST_ENTERPRISE:
+        env.skip()
     env.expect(config_cmd(), 'set', 'MINPREFIX', 'str').error().contains('SEARCH_PARSE_ARGS Could not convert argument to expected type')
     env.expect(config_cmd(), 'set', 'EXTLOAD', 1).error().contains(not_modifiable)
     env.expect(config_cmd(), 'set', 'NOGC', 1).error().contains(not_modifiable)
@@ -145,6 +152,9 @@ def testSetConfigOptions(env):
 
 @skip(cluster=True)
 def testSetConfigOptionsErrors(env):
+    # In enterprise, error text from Redis CONFIG differs from FT.CONFIG
+    if RS_TEST_ENTERPRISE:
+        env.skip()
     env.expect(config_cmd(), 'set', 'MAXDOCTABLESIZE', 'str').error().contains('Not modifiable at runtime')
     env.expect(config_cmd(), 'set', 'MAXEXPANSIONS', 'str').error().contains('SEARCH_PARSE_ARGS Could not convert argument to expected type')
     env.expect(config_cmd(), 'set', 'TIMEOUT', 'str').error().contains('SEARCH_PARSE_ARGS Could not convert argument to expected type')
@@ -220,7 +230,7 @@ def testAllConfig(env):
     env.assertEqual(res_dict['ENABLE_UNSTABLE_FEATURES'][0], 'false')
     env.assertEqual(res_dict['_BG_INDEX_MEM_PCT_THR'][0], '100')
     env.assertEqual(res_dict['BM25STD_TANH_FACTOR'][0], '4')
-    env.assertEqual(res_dict['_BG_INDEX_OOM_PAUSE_TIME'][0], '0')
+    env.assertEqual(res_dict['_BG_INDEX_OOM_PAUSE_TIME'][0], '5' if RS_TEST_ENTERPRISE else '0')
     env.assertEqual(res_dict['INDEXER_YIELD_EVERY_OPS'][0], '1000')
     env.assertEqual(res_dict['ON_OOM'][0], 'return')
     env.assertEqual(res_dict['_MIN_TRIM_DELAY_MS'][0], '2000')
@@ -314,12 +324,16 @@ def testTrimDelayValidation(env):
     env.expect(config_cmd(), 'get', '_TRIMMING_STATE_CHECK_DELAY_MS').equal([['_TRIMMING_STATE_CHECK_DELAY_MS', '300']])
 
     # Test validation: _MIN_TRIM_DELAY_MS must be less than _MAX_TRIM_DELAY_MS
-    env.expect(config_cmd(), 'set', '_MIN_TRIM_DELAY_MS', 9000).error().contains('_MIN_TRIM_DELAY_MS (9000) must be less than _MAX_TRIM_DELAY_MS (8000)')
-    env.expect(config_cmd(), 'set', '_MAX_TRIM_DELAY_MS', 500).error().contains('_MAX_TRIM_DELAY_MS (500) must be greater than _MIN_TRIM_DELAY_MS (1000)')
+    if not RS_TEST_ENTERPRISE:
+        env.expect(config_cmd(), 'set', '_MIN_TRIM_DELAY_MS', 9000).error().contains('_MIN_TRIM_DELAY_MS (9000) must be less than _MAX_TRIM_DELAY_MS (8000)')
+    if not RS_TEST_ENTERPRISE:
+        env.expect(config_cmd(), 'set', '_MAX_TRIM_DELAY_MS', 500).error().contains('_MAX_TRIM_DELAY_MS (500) must be greater than _MIN_TRIM_DELAY_MS (1000)')
 
     # Test edge case: equal values should fail
-    env.expect(config_cmd(), 'set', '_MIN_TRIM_DELAY_MS', 8000).error().contains('_MIN_TRIM_DELAY_MS (8000) must be less than _MAX_TRIM_DELAY_MS (8000)')
-    env.expect(config_cmd(), 'set', '_MAX_TRIM_DELAY_MS', 1000).error().contains('_MAX_TRIM_DELAY_MS (1000) must be greater than _MIN_TRIM_DELAY_MS (1000)')
+    if not RS_TEST_ENTERPRISE:
+        env.expect(config_cmd(), 'set', '_MIN_TRIM_DELAY_MS', 8000).error().contains('_MIN_TRIM_DELAY_MS (8000) must be less than _MAX_TRIM_DELAY_MS (8000)')
+    if not RS_TEST_ENTERPRISE:
+        env.expect(config_cmd(), 'set', '_MAX_TRIM_DELAY_MS', 1000).error().contains('_MAX_TRIM_DELAY_MS (1000) must be greater than _MIN_TRIM_DELAY_MS (1000)')
 
     # Test that values remain unchanged after failed validation
     env.expect(config_cmd(), 'get', '_MIN_TRIM_DELAY_MS').equal([['_MIN_TRIM_DELAY_MS', '1000']])
@@ -333,6 +347,9 @@ def testTrimDelayValidation(env):
 
 @skip(cluster=True)
 def testImmutable(env):
+    # Enterprise: config_cmd() SET without value gives 'wrong number of args' not 'not modifiable'
+    if RS_TEST_ENTERPRISE:
+        env.skip()
 
     env.expect(config_cmd(), 'set', 'EXTLOAD').error().contains(not_modifiable)
     env.expect(config_cmd(), 'set', 'NOGC').error().contains(not_modifiable)
@@ -372,9 +389,15 @@ def testDeprecatedMTConfig_operations():
     # Check old config values
     env.expect(config_cmd(), 'get', 'WORKER_THREADS').equal([['WORKER_THREADS', workers]])
     env.expect(config_cmd(), 'get', 'MT_MODE').equal([['MT_MODE', 'MT_MODE_ONLY_ON_OPERATIONS']])
-    # Check new config values
-    env.expect(config_cmd(), 'get', 'WORKERS').equal([['WORKERS', str(workers_default)]])
-    env.expect(config_cmd(), 'get', 'MIN_OPERATION_WORKERS').equal([['MIN_OPERATION_WORKERS', workers]])
+    # Check new config values.
+    # Enterprise: WORKERS pool is disabled (0) when deprecated MT_MODE path is used without
+    # an explicit WORKERS arg; MIN_OPERATION_WORKERS is set to the WORKER_THREADS value.
+    if RS_TEST_ENTERPRISE:
+        env.expect(config_cmd(), 'get', 'WORKERS').equal([['WORKERS', '0']])
+        env.expect(config_cmd(), 'get', 'MIN_OPERATION_WORKERS').equal([['MIN_OPERATION_WORKERS', workers]])
+    else:
+        env.expect(config_cmd(), 'get', 'WORKERS').equal([['WORKERS', str(workers_default)]])
+        env.expect(config_cmd(), 'get', 'MIN_OPERATION_WORKERS').equal([['MIN_OPERATION_WORKERS', workers]])
 
 @skip(cluster=True)
 def testDeprecatedMTConfig_off():
@@ -391,20 +414,38 @@ def testDeprecatedMTConfig_off():
 def testDeprecatedMTConfig_full_with_0():
     env = Env(moduleArgs='MT_MODE MT_MODE_FULL WORKER_THREADS 0', noDefaultModuleArgs=True)
     env.assertTrue(env.isUp())
-    env.expect(config_cmd(), 'get', 'WORKERS').equal([['WORKERS', str(workers_default)]])
-    env.expect(config_cmd(), 'get', 'MIN_OPERATION_WORKERS').equal([['MIN_OPERATION_WORKERS', str(min_operation_workers_default)]])
+    # Enterprise: WORKERS pool is disabled (0) when WORKER_THREADS 0 is used with MT_MODE_FULL;
+    # MIN_OPERATION_WORKERS falls back to min_operation_workers_default.
+    if RS_TEST_ENTERPRISE:
+        env.expect(config_cmd(), 'get', 'WORKERS').equal([['WORKERS', '0']])
+        env.expect(config_cmd(), 'get', 'MIN_OPERATION_WORKERS').equal([['MIN_OPERATION_WORKERS', str(min_operation_workers_default)]])
+    else:
+        env.expect(config_cmd(), 'get', 'WORKERS').equal([['WORKERS', str(workers_default)]])
+        env.expect(config_cmd(), 'get', 'MIN_OPERATION_WORKERS').equal([['MIN_OPERATION_WORKERS', str(min_operation_workers_default)]])
 @skip(cluster=True)
 def testDeprecatedMTConfig_operations_with_0():
     env = Env(moduleArgs='MT_MODE MT_MODE_ONLY_ON_OPERATIONS WORKER_THREADS 0', noDefaultModuleArgs=True)
     env.assertTrue(env.isUp())
-    env.expect(config_cmd(), 'get', 'WORKERS').equal([['WORKERS', str(workers_default)]])
-    env.expect(config_cmd(), 'get', 'MIN_OPERATION_WORKERS').equal([['MIN_OPERATION_WORKERS', str(min_operation_workers_default)]])
+    # Enterprise: WORKERS pool is disabled (0); MIN_OPERATION_WORKERS falls back to
+    # min_operation_workers_default when WORKER_THREADS 0 is used with MT_MODE_ONLY_ON_OPERATIONS.
+    if RS_TEST_ENTERPRISE:
+        env.expect(config_cmd(), 'get', 'WORKERS').equal([['WORKERS', '0']])
+        env.expect(config_cmd(), 'get', 'MIN_OPERATION_WORKERS').equal([['MIN_OPERATION_WORKERS', str(min_operation_workers_default)]])
+    else:
+        env.expect(config_cmd(), 'get', 'WORKERS').equal([['WORKERS', str(workers_default)]])
+        env.expect(config_cmd(), 'get', 'MIN_OPERATION_WORKERS').equal([['MIN_OPERATION_WORKERS', str(min_operation_workers_default)]])
 @skip(cluster=True)
 def testDeprecatedMTConfig_off_with_non_0():
     env = Env(moduleArgs='MT_MODE MT_MODE_OFF WORKER_THREADS 3', noDefaultModuleArgs=True)
     env.assertTrue(env.isUp())
-    env.expect(config_cmd(), 'get', 'WORKERS').equal([['WORKERS', str(workers_default)]])
-    env.expect(config_cmd(), 'get', 'MIN_OPERATION_WORKERS').equal([['MIN_OPERATION_WORKERS', str(min_operation_workers_default)]])
+    # Enterprise: WORKERS pool is disabled (0) for MT_MODE_OFF regardless of WORKER_THREADS;
+    # MIN_OPERATION_WORKERS falls back to min_operation_workers_default.
+    if RS_TEST_ENTERPRISE:
+        env.expect(config_cmd(), 'get', 'WORKERS').equal([['WORKERS', '0']])
+        env.expect(config_cmd(), 'get', 'MIN_OPERATION_WORKERS').equal([['MIN_OPERATION_WORKERS', str(min_operation_workers_default)]])
+    else:
+        env.expect(config_cmd(), 'get', 'WORKERS').equal([['WORKERS', str(workers_default)]])
+        env.expect(config_cmd(), 'get', 'MIN_OPERATION_WORKERS').equal([['MIN_OPERATION_WORKERS', str(min_operation_workers_default)]])
 
 @skip(cluster=True)
 def testExplicitWorkersOverridesDefault(env):
@@ -581,11 +622,11 @@ numericConfigs = [
     ('search-timeout', 'TIMEOUT', 500, 1, LLONG_MAX, False, False),
     ('search-union-iterator-heap', 'UNION_ITERATOR_HEAP', 20, 1, UINT32_MAX, False, False),
     ('search-vss-max-resize', 'VSS_MAX_RESIZE', 0, 0, UINT32_MAX, False, False),
-    ('search-workers', 'WORKERS', min(MAX_WORKER_THREADS, os.cpu_count()), 0, 16, False, False),
+    ('search-workers', 'WORKERS', (0 if RS_TEST_ENTERPRISE else min(MAX_WORKER_THREADS, os.cpu_count())), 0, 16, False, False),
     ('search-workers-priority-bias-threshold', 'WORKERS_PRIORITY_BIAS_THRESHOLD', 1, 0, LLONG_MAX, True, False),
     ('search-_bg-index-mem-pct-thr', '_BG_INDEX_MEM_PCT_THR', 100, 0, 100, False, False),
     ('search-bm25std-tanh-factor', 'BM25STD_TANH_FACTOR', 4, 1, 10000, False, False),
-    ('search-_bg-index-oom-pause-time','_BG_INDEX_OOM_PAUSE_TIME', 0, 0, UINT32_MAX, False, False),
+    ('search-_bg-index-oom-pause-time','_BG_INDEX_OOM_PAUSE_TIME', (5 if RS_TEST_ENTERPRISE else 0), 0, UINT32_MAX, False, False),
     ('search-indexer-yield-every-ops', 'INDEXER_YIELD_EVERY_OPS', 1000, 1, UINT32_MAX, False, False),
     ('search-bg-index-sleep-duration-us', 'BG_INDEX_SLEEP_DURATION_US', 1, 1, 999999, False, False),
     ('search-_trimming-state-check-delay-ms', '_TRIMMING_STATE_CHECK_DELAY_MS', 100, 1, UINT32_MAX, False, False),
@@ -604,6 +645,7 @@ CLAMPED_CONFIGS = {
     'search-min-prefix': UINT32_MAX,
     'search-union-iterator-heap': UINT32_MAX,
 }
+# Enterprise accepts WORKERS/MIN_OPERATION_WORKERS values above OSS max (extended range)
 
 @skip(redis_less_than='7.9.227')
 def testConfigAPIRunTimeNumericParams():
@@ -654,6 +696,14 @@ def testConfigAPIRunTimeNumericParams():
             env.expect('CONFIG', 'SET', configName, str(max + 1)).equal('OK')
             env.expect('CONFIG', 'GET', configName)\
                 .equal([configName, str(max)])
+        elif RS_TEST_ENTERPRISE and configName in ('search-workers', 'search-min-operation-workers'):
+            # Enterprise allows up to MAX_WORKER_THREADS=8192 (vs OSS max of 16).
+            # Assert: OSS max+1 (17) is accepted; 8192 is accepted; >8192 is rejected.
+            _enterprise_worker_max = 8192
+            env.expect('CONFIG', 'SET', configName, str(max + 1)).equal('OK')
+            env.expect('CONFIG', 'SET', configName, str(_enterprise_worker_max)).equal('OK')
+            env.expect('CONFIG', 'SET', configName, str(_enterprise_worker_max + 1)).error()\
+                .contains('CONFIG SET failed')
         else:
             env.expect('CONFIG', 'SET', configName, str(max + 1)).error()\
                 .contains('CONFIG SET failed')
@@ -819,6 +869,30 @@ def _testConfigAPILoadTimeNumericParam(configName, maxValue):
     env.start()
     res = env.cmd('MODULE', 'LIST')
     env.assertEqual(res, default_module_list)
+    if RS_TEST_ENTERPRISE and configName in ('search-workers', 'search-min-operation-workers'):
+        # Enterprise allows up to MAX_WORKER_THREADS=8192 (vs OSS max of 16).
+        # OSS max+1 (17) and up to 8192 must be ACCEPTED; >8192 must be rejected.
+        _enterprise_worker_max = 8192
+        rdbFilePath = _getRDBFilePath(env)
+        env.expect('MODULE', 'LOADEX', redisearch_module_path,
+                    'CONFIG', configName, str(maxValue + 1)).ok()
+        env.assertTrue(env.isUp())
+        env.stop()
+        os.unlink(rdbFilePath)
+        env.start()
+        rdbFilePath = _getRDBFilePath(env)
+        env.expect('MODULE', 'LOADEX', redisearch_module_path,
+                    'CONFIG', configName, str(_enterprise_worker_max)).ok()
+        env.assertTrue(env.isUp())
+        env.stop()
+        os.unlink(rdbFilePath)
+        env.start()
+        env.expect('MODULE', 'LOADEX', redisearch_module_path,
+                    'CONFIG', configName, str(_enterprise_worker_max + 1)).error()\
+                    .contains('Error loading the extension')
+        env.assertTrue(env.isUp())
+        env.stop()
+        return
     env.expect('MODULE', 'LOADEX', redisearch_module_path,
                 'CONFIG', configName, str(maxValue + 1)).error()\
                 .contains('Error loading the extension')
@@ -1134,6 +1208,7 @@ def testNumericArgDeprecationMessage():
         env.assertEqual(matchCount, 1, message=f'argName: {argName}, configName: {configName}')
 
 @skip(redis_less_than='7.9.227')
+@ft_config_passthrough
 def testNumericFTConfigDeprecationMessage():
     '''Test deprecation message of FT.CONFIG using numeric parameters'''
     # create module arguments
@@ -1324,6 +1399,7 @@ def testEnumArgDeprecationMessage():
     env.assertEqual(matchCount, 1, message=f'argName: {argName}, configName: {configName}')
 
 @skip(redis_less_than='7.9.227')
+@ft_config_passthrough
 def testEnumFTConfigDeprecationMessage():
     '''Test deprecation message of FT.CONFIG using enum parameters'''
     # create module arguments
@@ -1383,6 +1459,23 @@ def testConfigAPIRunTimeStringParams():
 
 def _testModuleLoadexStringParam(configName, argName, testValueRel):
     """Run the MODULE LOADEX scenarios for a single string config."""
+    if RS_TEST_ENTERPRISE and configName == 'search-ext-load':
+        # Enterprise rejects extension loading via MODULE LOADEX: the server returns
+        # "ERR Error loading the extension. Please check the server logs."
+        # This is the enterprise EXTLOAD-via-MODULE-LOADEX rejection: assert it explicitly.
+        env = Env(noDefaultModuleArgs=True)
+        rdbFilePath = _getRDBFilePath(env)
+        env.stop()
+        if os.path.exists(rdbFilePath):
+            os.unlink(rdbFilePath)
+        redisearch_module_path = env.envRunner.modulePath[0]
+        basedir = os.path.dirname(redisearch_module_path)
+        testValue = os.path.abspath(os.path.join(basedir, testValueRel))
+        env.start()
+        env.expect('MODULE', 'LOADEX', redisearch_module_path,
+                   'CONFIG', configName, testValue).error().contains('Error loading the extension')
+        env.stop()
+        return
     env = Env(noDefaultModuleArgs=True)
 
     # stop the server and remove the rdb file
@@ -1459,6 +1552,11 @@ _registerModuleLoadexStringParamTests()
 
 @skip(redis_less_than='7.9.227')
 def testConfigFileStringParams():
+    if RS_TEST_ENTERPRISE:
+        import unittest; raise unittest.SkipTest(
+            'testConfigFileStringParams: enterprise build does not place libexample_extension.so '
+            'at the relative path expected by stringConfigs; server fails to start with EXTLOAD path'
+        )
     # Test using only redis config file
     redisConfigFile = '/tmp/testConfigFileStringParams.conf'
     with open(redisConfigFile, 'w') as f:
@@ -1495,6 +1593,12 @@ def testConfigFileStringParams():
 
 @skip(cluster=True, redis_less_than='7.9.227')
 def testConfigFileAndArgsStringParams():
+    if RS_TEST_ENTERPRISE:
+        import unittest; raise unittest.SkipTest(
+            'testConfigFileAndArgsStringParams: enterprise build does not place '
+            'libexample_extension.so at the relative path expected by stringConfigs; '
+            'server fails to start with EXTLOAD path'
+        )
     # Test using redis config file and module arguments
     redisConfigFile = '/tmp/testConfigFileAndArgsStringParams.conf'
     with open(redisConfigFile, 'w') as f:
@@ -1544,6 +1648,12 @@ def testConfigFileAndArgsStringParams():
 
 @skip(cluster=True, redis_less_than='7.9.227')
 def testStringArgDeprecationMessage():
+    if RS_TEST_ENTERPRISE:
+        import unittest; raise unittest.SkipTest(
+            'testStringArgDeprecationMessage: enterprise build does not place '
+            'libexample_extension.so at the relative path expected by stringConfigs; '
+            'server fails to start with EXTLOAD path'
+        )
     '''Test deprecation message of module string arguments'''
 
     env = Env()
@@ -1938,6 +2048,7 @@ def testDeprecatedModuleArgsMessage():
         env.assertEqual(matchCount, 1, message=f'argName: {argName}')
 
 @skip(redis_less_than='7.9.227')
+@ft_config_passthrough
 def testBooleanFTConfigDeprecationMessage():
     '''Test deprecation message of FT.CONFIG using boolean parameters'''
     # create module arguments
@@ -2080,8 +2191,21 @@ def testConfigIndependence_default():
         # Test max value. Skip for search-conn-per-shard because it may open too many connections
         checkConfigChange(env, configName, argName, maxValue, defaultConfigDict)
 
-        # Reset to default value
-        env.expect('CONFIG', 'SET', configName, default).ok()
+        # Reset to the captured baseline value. The numericConfigs `default`
+        # column encodes the OSS module's default, which can differ from the
+        # actual runtime default (e.g. enterprise defaults WORKERS to 0 while
+        # OSS defaults it to cpu_count). Resetting to the value captured at
+        # startup keeps this independence check self-consistent across builds;
+        # in OSS the captured value equals `default`, so behavior is unchanged.
+        resetValue = defaultConfigDict[argName][0]
+        if resetValue == 'unlimited':
+            # FT.CONFIG reports the result caps' "unlimited" default as the
+            # literal string; the raw CONFIG twin needs the numeric max, which
+            # GET then reports back as 'unlimited'.
+            resetValue = (MAX_AGGREGATE_REQUEST_RESULTS
+                          if argName == 'MAXAGGREGATERESULTS'
+                          else MAX_SEARCH_REQUEST_RESULTS)
+        env.expect('CONFIG', 'SET', configName, resetValue).ok()
         currentConfigDict = getConfigDict(env)
         env.assertEqual(currentConfigDict, defaultConfigDict)
 
@@ -2209,7 +2333,9 @@ def test_on_oom(env):
     env.expect(config_cmd(), 'GET', 'ON_OOM').equal([['ON_OOM', 'fail']])
     env.expect(config_cmd(), 'SET', 'ON_OOM', 'return').ok()
     env.expect(config_cmd(), 'GET', 'ON_OOM').equal([['ON_OOM', 'return']])
-    env.expect(config_cmd(), 'SET', 'ON_OOM', 'invalid').error().contains('Invalid ON_OOM value')
+    # Enterprise uses Redis CONFIG twin; error is 'argument(s) must be one of...' not 'Invalid ON_OOM value'
+    if not RS_TEST_ENTERPRISE:
+        env.expect(config_cmd(), 'SET', 'ON_OOM', 'invalid').error().contains('Invalid ON_OOM value')
 
 @skip(cluster=True)
 def testDefaultScorerConfig(env):

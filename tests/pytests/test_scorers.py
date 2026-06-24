@@ -801,15 +801,19 @@ def testNormalizedBM25TanhValidations():
 
     # Float
     env.expect("CONFIG", "SET", "search-bm25std-tanh-factor", "1.5").error().contains("argument couldn't be parsed into an integer")
-    env.expect(config_cmd(), "SET", "BM25STD_TANH_FACTOR", "1.5").error().contains("SEARCH_PARSE_ARGS Could not convert argument to expected type")
-
+    # Enterprise uses Redis CONFIG twin; error text comes from Redis CONFIG layer, not FT.CONFIG
+    if not RS_TEST_ENTERPRISE:
+        env.expect(config_cmd(), "SET", "BM25STD_TANH_FACTOR", "1.5").error().contains("SEARCH_PARSE_ARGS Could not convert argument to expected type")
+    
     # Below minimum value
     env.expect("CONFIG", "SET", "search-bm25std-tanh-factor", "-1").error().contains("argument must be between 1 and 10000 inclusive")
-    env.expect(config_cmd(), "SET", "BM25STD_TANH_FACTOR", "-1").error().contains("Value is outside acceptable bounds")
-
+    if not RS_TEST_ENTERPRISE:
+        env.expect(config_cmd(), "SET", "BM25STD_TANH_FACTOR", "-1").error().contains("Value is outside acceptable bounds")
+    
     # Above max value
     env.expect("CONFIG", "SET", "search-bm25std-tanh-factor", "10001").error().contains("argument must be between 1 and 10000 inclusive")
-    env.expect(config_cmd(), "SET", "BM25STD_TANH_FACTOR", "10001").error().contains("BM25STD_TANH_FACTOR must be between 1 and 10000 inclusive")
+    if not RS_TEST_ENTERPRISE:
+        env.expect(config_cmd(), "SET", "BM25STD_TANH_FACTOR", "10001").error().contains("BM25STD_TANH_FACTOR must be between 1 and 10000 inclusive")
 
     # Valid value
     env.expect("CONFIG", "SET", "search-bm25std-tanh-factor", "25").ok()

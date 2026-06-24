@@ -32,6 +32,18 @@ members = [
     "rqe_core",
     "rqe_iterators",
     "rqe_iterators_bencher",
+    "redisearch_core",
+    # NOTE: `redisearch_disk_plugin` is intentionally NOT listed here. It produces
+    # the dlopened disk plugin `redisearch_disk.so` and depends on the superrepo
+    # crate `redisearch_disk` via a path (`../../../../../redisearch_disk`) that
+    # exists ONLY in the RediSearchEnterprise superrepo, not in a bare OSS
+    # `deps/RediSearch` checkout. Listing it as a member would make `cargo metadata`
+    # / `cargo clippy --workspace` fail in OSS (member manifests load before
+    # `--exclude` applies). The superrepo build (`build.sh build_conditional_plugin`)
+    # injects it as a member at build time so it is compiled in the SAME workspace /
+    # feature-unification as `redisearch_core` — which is required for the single
+    # `search_shared` (and thin_vec / index_result monomorphization) SVH that the
+    # dlopen seam relies on. See REDISEARCH_PLUGIN_MEMBER handling in build.sh.
     "rqe_iterators_test_utils",
     "search_result",
     "slots_tracker",

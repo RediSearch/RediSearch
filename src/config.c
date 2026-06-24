@@ -640,7 +640,12 @@ CONFIG_GETTER(getWorkThreads) {
 // workers
 static int set_workers(const char *name, long long val, void *privdata, RedisModuleString **err) {
   REDISMODULE_NOT_USED(name);
-  REDISMODULE_NOT_USED(err);
+  if (val > MAX_WORKERS_CONFIG) {
+    RS_ASSERT(err);
+    *err = RedisModule_CreateStringPrintf(NULL, "Number of worker threads cannot exceed %d",
+                                         MAX_WORKERS_CONFIG);
+    return REDISMODULE_ERR;
+  }
   if (val < MIN_WORKER_THREADS_FLEX && SearchDisk_IsEnabledForValidation()) {
     RedisModule_Log(RSDummyContext, "warning", "WORKERS must be at least %d in Flex mode, setting to %d", MIN_WORKER_THREADS_FLEX, MIN_WORKER_THREADS_FLEX);
     val = MIN_WORKER_THREADS_FLEX;
@@ -684,7 +689,12 @@ CONFIG_GETTER(getMinOperationWorkers) {
 static int set_min_operation_workers(const char *name,
                       long long val, void *privdata, RedisModuleString **err) {
   REDISMODULE_NOT_USED(name);
-  REDISMODULE_NOT_USED(err);
+  if (val > MAX_WORKERS_CONFIG) {
+    RS_ASSERT(err);
+    *err = RedisModule_CreateStringPrintf(NULL, "Number of worker threads cannot exceed %d",
+                                         MAX_WORKERS_CONFIG);
+    return REDISMODULE_ERR;
+  }
   *(size_t *)privdata = (size_t) val;
   // Will only change the number of workers if we are in an event,
   // and `numWorkerThreads` is less than `minOperationWorkers`.
@@ -2227,7 +2237,7 @@ int RegisterModuleConfig_Local(RedisModuleCtx *ctx) {
     RedisModule_RegisterNumericConfig(
       ctx, "search-min-operation-workers", MIN_OPERATION_WORKERS,
       REDISMODULE_CONFIG_UNPREFIXED, 0,
-      MAX_WORKER_THREADS, get_min_operation_workers,
+      MAX_WORKERS_CONFIG, get_min_operation_workers,
       set_min_operation_workers, NULL,
       (void *)&(RSGlobalConfig.minOperationWorkers)
     )
@@ -2323,7 +2333,7 @@ int RegisterModuleConfig_Local(RedisModuleCtx *ctx) {
     RedisModule_RegisterNumericConfig(
       ctx, "search-workers", (long long)defaultWorkers,
       REDISMODULE_CONFIG_UNPREFIXED, 0,
-      MAX_WORKER_THREADS, get_workers, set_workers, NULL,
+      MAX_WORKERS_CONFIG, get_workers, set_workers, NULL,
       (void *)&RSGlobalConfig
     )
   )

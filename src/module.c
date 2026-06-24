@@ -4844,8 +4844,28 @@ static int RediSearch_InitModuleConfig(RedisModuleCtx *ctx, RedisModuleString **
   return REDISMODULE_OK;
 }
 
+// Renamed from `RedisModule_OnLoad`: when the module is delivered as a Rust
+// `cdylib` (conditional cdylib disk-plugin architecture), rustc's auto-generated
+// version script localizes every non-Rust-`#[no_mangle]` symbol, which would
+// hide the module entry from Redis' `dlsym(handle, "RedisModule_OnLoad")`. So a
+// thin Rust `#[no_mangle] RedisModule_OnLoad` shim (in the `redisearch_core`
+// crate) is the real exported entry and forwards here. The symbol stays
+// `visibility("default")` so the Rust shim can resolve it.
+//
+// For the LEGACY build (the normal, self-contained C-linked `redisearch.so`,
+// CONDITIONAL_PLUGIN unset/0) there is no Rust shim, so the module must still
+// export `RedisModule_OnLoad` itself, or Redis' `dlsym` finds no entry point and
+// the module fails to load. A WEAK, default-visibility alias provides it: in the
+// legacy `.so` it is the (only) `RedisModule_OnLoad` Redis resolves; in the
+// cdylib build the Rust `#[no_mangle] RedisModule_OnLoad` is a STRONG definition
+// that overrides this weak alias (no duplicate-symbol error), and the weak alias
+// is excluded from the plugin export set (`collect_c_core_globals` keeps only
+// strong T/D/B/R symbols, never weak W).
+extern int RedisModule_OnLoad(RedisModuleCtx *ctx, RedisModuleString **argv, int argc)
+    __attribute__((visibility("default"), weak, alias("RediSearch_OnLoad_Impl")));
+
 int __attribute__((visibility("default")))
-RedisModule_OnLoad(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
+RediSearch_OnLoad_Impl(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
 
   if (RedisModule_Init(ctx, REDISEARCH_MODULE_NAME, REDISEARCH_MODULE_VERSION,
                        REDISMODULE_APIVER_1) == REDISMODULE_ERR) {
