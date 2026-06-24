@@ -16,6 +16,7 @@ use std::cmp::Ordering;
 
 use crate::{
     IteratorType, RQEIterator, RQEIteratorError, RQEValidateStatus, SkipToOutcome,
+    deferred::ResultsProducer,
     profile_print::{ProfilePrint, ProfilePrintCtx},
     utils::OwnedSlice,
 };
@@ -36,6 +37,16 @@ pub struct IdList<'index, const SORTED: bool> {
     offset: usize,
     /// A reusable result object to avoid allocations on each [`read`](RQEIterator::read) call.
     result: RSIndexResult<'index>,
+    /// An optional deferred producer of [`ids`](Self::ids).
+    ///
+    /// When `Some`, the ID list has not been produced yet: it is generated lazily on the first
+    /// [`read`](RQEIterator::read)/[`skip_to`](RQEIterator::skip_to) via [`ensure_materialized`](Self::ensure_materialized),
+    /// at which point the producer is consumed (set back to `None`). This lets the expensive query
+    /// run after the spec lock is released (see MOD-16437 and [`crate::deferred`]).
+    producer: Option<ResultsProducer>,
+    /// Upper-bound estimate returned by [`num_estimated`](RQEIterator::num_estimated) while a
+    /// [`producer`](Self::producer) is still pending (the real count is unknown until it runs).
+    num_estimated_hint: usize,
 }
 
 impl<'index, const SORTED: bool> IdList<'index, SORTED> {
@@ -73,7 +84,49 @@ impl<'index, const SORTED: bool> IdList<'index, SORTED> {
             ids,
             offset: 0,
             result,
+            producer: None,
+            num_estimated_hint: 0,
         }
+    }
+
+    /// Creates a new ID list iterator whose IDs are produced lazily on first access.
+    ///
+    /// The `producer` runs on the first [`read`](RQEIterator::read)/[`skip_to`](RQEIterator::skip_to),
+    /// populating the (initially empty) ID list. Until then, [`num_estimated`](RQEIterator::num_estimated)
+    /// returns `num_estimated_hint` and the iterator reports itself as not at EOF, so callers will read it.
+    /// See [`crate::deferred`].
+    pub fn with_producer(
+        producer: ResultsProducer,
+        num_estimated_hint: usize,
+        result: RSIndexResult<'index>,
+    ) -> Self {
+        Self {
+            ids: OwnedSlice::default(),
+            offset: 0,
+            result,
+            producer: Some(producer),
+            num_estimated_hint,
+        }
+    }
+
+    /// Run the pending [`producer`](Self::producer), if any, populating [`ids`](Self::ids).
+    ///
+    /// Returns the produced metric slice (if the producer yielded one) so a wrapping
+    /// [`Metric`](crate::metric::Metric) can adopt it; returns `Ok(None)` when there is no
+    /// pending producer or it yielded no metrics. The producer is consumed on the first call,
+    /// so subsequent calls are no-ops.
+    ///
+    /// On timeout the producer is still consumed (freeing its context) and the ID list stays
+    /// empty, so the iterator reports EOF on the read that follows the propagated error.
+    pub(crate) fn ensure_materialized(
+        &mut self,
+    ) -> Result<Option<OwnedSlice<f64>>, RQEIteratorError> {
+        let Some(producer) = self.producer.take() else {
+            return Ok(None);
+        };
+        let (ids, metrics) = producer.produce()?;
+        self.ids = ids;
+        Ok(metrics)
     }
 }
 
@@ -204,6 +257,10 @@ impl<'index, const SORTED_BY_ID: bool> RQEIterator<'index> for IdList<'index, SO
 
     #[inline(always)]
     fn read(&mut self) -> Result<Option<&mut RSIndexResult<'index>>, RQEIteratorError> {
+        // Materialize a pending deferred producer (no-op for eagerly-built lists). Any
+        // metric slice it yields is discarded: a plain ID list never produces one, and a
+        // metric-yielding list is owned by the wrapping `Metric`, which materializes first.
+        self.ensure_materialized()?;
         Ok(self.read_and_get_offset()?.map(|t| t.0))
     }
 
@@ -212,6 +269,7 @@ impl<'index, const SORTED_BY_ID: bool> RQEIterator<'index> for IdList<'index, SO
         &mut self,
         doc_id: DocId,
     ) -> Result<Option<SkipToOutcome<'_, 'index>>, RQEIteratorError> {
+        self.ensure_materialized()?;
         Ok(self._skip_to(doc_id).map(|found| {
             if found {
                 SkipToOutcome::Found(&mut self.result)
@@ -229,7 +287,12 @@ impl<'index, const SORTED_BY_ID: bool> RQEIterator<'index> for IdList<'index, SO
 
     #[inline(always)]
     fn num_estimated(&self) -> usize {
-        self.ids.len()
+        if self.producer.is_some() {
+            // The real count is unknown until the producer runs; return the upper-bound hint.
+            self.num_estimated_hint
+        } else {
+            self.ids.len()
+        }
     }
 
     #[inline(always)]
@@ -239,7 +302,9 @@ impl<'index, const SORTED_BY_ID: bool> RQEIterator<'index> for IdList<'index, SO
 
     #[inline(always)]
     fn at_eof(&self) -> bool {
-        self.get_current().is_none()
+        // A pending producer hasn't run yet, so the list is not (necessarily) exhausted —
+        // report not-at-EOF so callers read it and trigger materialization.
+        self.producer.is_none() && self.get_current().is_none()
     }
 
     #[inline(always)]

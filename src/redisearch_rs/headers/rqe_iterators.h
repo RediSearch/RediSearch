@@ -21,6 +21,8 @@ typedef enum MetricType {
  */
 typedef struct ProfilePrintCtx ProfilePrintCtx;
 
+typedef uint64_t t_docId;
+
 /**
  * Configuration parameters related to the query execution.
  */
@@ -64,3 +66,41 @@ typedef struct ProfileCounters {
    */
   bool eof;
 } ProfileCounters;
+
+/**
+ * Results produced by a [`ResultsProducer`] when it is first run.
+ *
+ * The `ids` and `metrics` arrays are allocated by the C producer using the Redis
+ * allocator; ownership transfers to the iterator, which frees them via
+ * `RedisModule_Free` (see [`OwnedSlice::from_c`]).
+ */
+typedef struct VectorRangeResults {
+  /**
+   * Pointer to the array of `num` matching document IDs. May be null when
+   * `num` is zero or `timed_out` is set.
+   */
+  t_docId *ids;
+  /**
+   * Pointer to the array of `num` metric (distance) values, parallel to `ids`.
+   * Null when the query does not yield a metric.
+   */
+  double *metrics;
+  /**
+   * Number of entries in `ids` (and `metrics`, when non-null).
+   */
+  size_t num;
+  /**
+   * Set when the underlying query timed out before producing results.
+   */
+  bool timed_out;
+} VectorRangeResults;
+
+/**
+ * Type of the C callback that runs the deferred query and returns its results.
+ */
+typedef struct VectorRangeResults (*ProduceResultsFn)(void *ctx);
+
+/**
+ * Type of the C callback that frees the producer context.
+ */
+typedef void (*FreeProducerCtxFn)(void *ctx);

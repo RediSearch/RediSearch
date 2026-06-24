@@ -11,6 +11,7 @@
 
 use crate::{
     IteratorType, RQEIterator, RQEIteratorError, RQEValidateStatus, SkipToOutcome,
+    deferred::ResultsProducer,
     id_list::IdList,
     profile_print::{ProfilePrint, ProfilePrintCtx},
     utils::OwnedSlice,
@@ -100,6 +101,39 @@ impl<'index, const SORTED_BY_ID: bool> Metric<'index, SORTED_BY_ID> {
         }
     }
 
+    /// Creates a metric iterator whose IDs and metric values are produced lazily on first access.
+    ///
+    /// The `producer` runs on the first [`read`](RQEIterator::read)/[`skip_to`](RQEIterator::skip_to),
+    /// populating both the underlying ID list and this iterator's metric data. This lets the
+    /// expensive query run after the spec lock is released (see MOD-16437 and [`crate::deferred`]).
+    /// `num_estimated_hint` is the upper-bound estimate reported until the producer runs.
+    pub fn with_producer(
+        producer: ResultsProducer,
+        num_estimated_hint: usize,
+        type_: MetricType,
+    ) -> Self {
+        Self {
+            base: IdList::with_producer(
+                producer,
+                num_estimated_hint,
+                RSIndexResult::build_metric().build(),
+            ),
+            metric_data: OwnedSlice::default(),
+            type_,
+            own_key: std::ptr::null_mut(),
+            key_handle: std::ptr::null_mut(),
+        }
+    }
+
+    /// Materialize a pending deferred producer on the underlying ID list (if any), adopting the
+    /// metric slice it yields. A no-op once produced. See [`IdList::ensure_materialized`].
+    fn ensure_materialized(&mut self) -> Result<(), RQEIteratorError> {
+        if let Some(metric_data) = self.base.ensure_materialized()? {
+            self.metric_data = metric_data;
+        }
+        Ok(())
+    }
+
     /// Set the [`RLookupKeyHandle`] for the metric iterator.
     ///
     /// # Safety
@@ -130,6 +164,7 @@ impl<'index, const SORTED_BY_ID: bool> RQEIterator<'index> for Metric<'index, SO
     }
 
     fn read(&mut self) -> Result<Option<&mut RSIndexResult<'index>>, RQEIteratorError> {
+        self.ensure_materialized()?;
         if self.base.at_eof() {
             return Ok(None);
         }
@@ -147,6 +182,7 @@ impl<'index, const SORTED_BY_ID: bool> RQEIterator<'index> for Metric<'index, SO
         &mut self,
         doc_id: DocId,
     ) -> Result<Option<SkipToOutcome<'_, 'index>>, RQEIteratorError> {
+        self.ensure_materialized()?;
         let Some(found) = self.base._skip_to(doc_id) else {
             return Ok(None);
         };

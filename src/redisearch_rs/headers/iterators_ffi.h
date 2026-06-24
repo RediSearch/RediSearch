@@ -249,6 +249,31 @@ QueryIterator *NewGeoRangeIterator(const RedisSearchCtx *ctx, GeoFilter *gf, con
 QueryIterator *NewInvIndIterator_MissingQuery(const InvertedIndex *idx, const RedisSearchCtx *sctx, t_fieldIndex field_index);
 
 /**
+ * Creates a lazily-evaluated vector range iterator.
+ *
+ * Unlike [`NewMetricIteratorSortedById`](crate::metric::NewMetricIteratorSortedById) and the
+ * other ID-list/metric constructors, the matching documents are **not** computed here. Instead
+ * the `produce` callback runs the underlying vector range query on the first `Read`/`SkipTo`,
+ * after which the resulting iterator behaves exactly like an eagerly-built metric (when
+ * `yields_metric`) or ID-list iterator. Deferring the query lets the caller release the spec
+ * lock before it executes, so writes can proceed concurrently (see MOD-16437).
+ *
+ * `sorted_by_id` selects between the by-ID and by-score variants; `num_estimated` is the
+ * upper-bound estimate reported until the query runs; `type_` is the metric type (only used
+ * when `yields_metric`).
+ *
+ * # Safety
+ *
+ * 1. `produce` and `free_ctx` must be valid C callbacks satisfying the contract of
+ *    [`ResultsProducer::new`].
+ * 2. `ctx` must remain valid until the iterator is freed; ownership transfers to the iterator,
+ *    which frees it via `free_ctx`.
+ * 3. `produce` must return arrays allocated with the Redis allocator; the iterator takes
+ *    ownership and frees them via `RedisModule_Free`.
+ */
+QueryIterator *NewLazyVectorRangeIterator(ProduceResultsFn produce, FreeProducerCtxFn free_ctx, void *ctx, bool yields_metric, bool sorted_by_id, size_t num_estimated, enum MetricType type_);
+
+/**
  * Creates a new iterator over a list of unsorted document IDs.
  *
  * # Safety
