@@ -58,13 +58,10 @@ impl ProjectedRow {
         self.0
     }
 
-    /// The collected values with trailing `None` slots dropped.
+    /// The collected values with trailing `None` slots trimmed off.
     ///
-    /// Slots are indexed by key, so a `None` marks a key absent from this row.
     /// Trailing `None`s only reflect how far the highest-index written key
-    /// reached, not content, so they are trimmed before hashing/comparison
-    /// (`[3, None]` ≡ `[3]`). Interior/leading `None`s are kept: they are
-    /// positionally significant (`[None, 3]` ≠ `[3]`).
+    /// reached, not content, so they carry no meaning for [`Hash`]/[`Eq`].
     fn effective_values(&self) -> &[Option<SharedValue>] {
         let slots = self.0.dyn_values();
         let end = slots.iter().rposition(Option::is_some).map_or(0, |i| i + 1);
