@@ -32,6 +32,7 @@ typedef struct QueryProcessingCtx {
   bool isProfile;
   RSTimeoutPolicy timeoutPolicy;
   bool canYieldPartialResults;
+  bool skipIndexResultDeepCopy;
 } QueryProcessingCtx;
 
 

@@ -322,6 +322,7 @@ typedef struct QueryProcessingCtx {
   bool isProfile;
   RSTimeoutPolicy timeoutPolicy;
   bool canYieldPartialResults;
+  bool skipIndexResultDeepCopy;
 } QueryProcessingCtx;
 """
 
@@ -330,6 +331,7 @@ includes = ["score_explain.h"]
 after_includes = """
 /* SearchResult flags */
 static const uint8_t Result_ExpiredDoc = 1 << 0;
+static const uint8_t Result_OwnsIndexResult = 1 << 1;
 
 /* Forward decl + reference-counted pointer to a const RSDocumentMetadata.
  * Declared directly here (rather than auto-generated from the document_metadata
