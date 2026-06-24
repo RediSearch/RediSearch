@@ -298,9 +298,6 @@ impl<'lock> IndexSpecReadGuard<'lock> {
     }
 
     /// Return the spec's `missingFieldDict` as a typed [`Dict`].
-    ///
-    /// Keys are field names ([`HiddenStringRef`]); values are the per-field
-    /// missing-doc inverted index (`None` when no such index exists).
     pub fn missing_field_dict(&self) -> &Dict<MissingFieldDictType> {
         debug_assert!(
             !self.0.missingFieldDict.is_null(),
