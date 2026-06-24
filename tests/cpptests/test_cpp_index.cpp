@@ -1498,9 +1498,13 @@ struct SimulateInFlexGuard {
   }
 };
 
-// Removes a parsed spec from the globals on scope exit, even if an ASSERT_*
-// aborts the test body before the explicit cleanup is reached. No-op when the
-// ref is already gone (parse failed, or it was released earlier). (MOD-15148)
+// Consumes the parsed spec's StrongRef on scope exit (via
+// Indexes_RemoveSpecFromGlobals), so the spec/prefix globals are cleaned up even
+// if an ASSERT_* aborts the test body. The StrongRef_Get check skips removal
+// only when the parse failed (the ref carries no object). This guard must be the
+// sole owner of the ref: do NOT also call Indexes_RemoveSpecFromGlobals on the
+// same ref, since that consumes it and the StrongRef_Get here would then be a
+// use-after-free. (MOD-15148)
 struct SpecCleanupGuard {
   StrongRef ref;
   explicit SpecCleanupGuard(StrongRef r) : ref(r) {
