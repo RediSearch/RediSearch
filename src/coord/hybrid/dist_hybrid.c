@@ -757,7 +757,7 @@ static void DistHybridCleanups(RedisModuleCtx *ctx,
 
     if (hreq && QueryError_GetCode(status) == QUERY_ETIMEDOUT &&
         hreq->reqConfig.timeoutPolicy != TimeoutPolicy_Fail) {
-        // A cursor-setup timeout under RETURN / RETURN-STRICT must not surface as an
+        // A cursor-setup timeout under RETURN must not surface as an
         // error: no cursor mappings were established, so reply an empty result set
         // carrying the timeout warning (and the FT.PROFILE envelope when applicable),
         // matching the read-phase RETURN behavior.
