@@ -4340,10 +4340,8 @@ class TestCoordinatorTimeout:
 
     def _assert_unsorted_partial_reply(self, env, result, expected_rows,
                                        pause_after_n, other_docs):
-        # Temporary until MOD-15971 defines deterministic internal cursor
-        # draining after RETURN_STRICT shard timeouts.
-        env.assertGreaterEqual(len(result.get('results', [])), expected_rows,
-                               message="rows in reply")
+        env.assertEqual(len(result.get('results', [])), expected_rows,
+                        message="rows in reply")
 
     def _run_one_shard_timesout(self, *, coord_cmd, shard_cmd, query_args,
                                 assert_reply, coord_cmd_prefix=None,
@@ -4437,17 +4435,15 @@ class TestCoordinatorTimeout:
     def test_return_strict_one_shard_timesout_flat_aggregate(self):
         """Flat aggregate, one shard times out mid-pipeline.
 
-        Temporarily expect at least ``pause_after_n + other_docs`` rows: the
-        timed-out shard ships its buffered prefix, and the current internal
-        cursor loop may drain additional rows before completion (MOD-15971).
+        Expect exactly ``pause_after_n + other_docs`` rows: the timed-out shard
+        ships its buffered prefix, other shards ship their full local result
+        sets, and the strict timeout depletes the timed-out shard cursor.
         """
         skipIfNoEnableAssert(self.env)
 
         def assert_flat_reply(env, result, expected_rows, pause_after_n, other_docs):
-            # Temporary until MOD-15971 defines deterministic internal cursor
-            # draining after RETURN_STRICT shard timeouts.
-            env.assertGreaterEqual(len(result.get('results', [])), expected_rows,
-                                   message="rows in reply")
+            env.assertEqual(len(result.get('results', [])), expected_rows,
+                            message="rows in reply")
 
         self._run_one_shard_timesout(
             coord_cmd='FT.AGGREGATE', shard_cmd='_FT.AGGREGATE',
@@ -4483,18 +4479,15 @@ class TestCoordinatorTimeout:
     def test_return_strict_one_shard_timesout_groupby_aggregate(self):
         """GROUPBY one-shard timeout.
 
-        Temporarily expect at least ``pause_after_n + other_docs`` groups: doc
-        names are unique, so re-grouping at the coord neither merges nor drops
-        any group key, while the current internal cursor loop may drain more
-        rows (MOD-15971).
+        Expect exactly ``pause_after_n + other_docs`` groups: doc names are
+        unique, so re-grouping at the coord neither merges nor drops any group
+        key, and the strict timeout depletes the timed-out shard cursor.
         """
         skipIfNoEnableAssert(self.env)
 
         def assert_groupby_reply(env, result, expected_rows, pause_after_n, other_docs):
-            # Temporary until MOD-15971 defines deterministic internal cursor
-            # draining after RETURN_STRICT shard timeouts.
-            env.assertGreaterEqual(len(result.get('results', [])), expected_rows,
-                                   message="rows in reply")
+            env.assertEqual(len(result.get('results', [])), expected_rows,
+                            message="rows in reply")
 
         self._run_one_shard_timesout(
             coord_cmd='FT.AGGREGATE', shard_cmd='_FT.AGGREGATE',
@@ -4713,18 +4706,15 @@ class TestCoordinatorTimeout:
     def test_return_strict_all_shards_timesout_flat_aggregate(self):
         """Flat aggregate, every shard times out.
 
-        Temporarily expect at least ``sum(pauses)`` rows: every shard's
-        admitted rows survive, and the current internal cursor loop may drain
-        more rows (MOD-15971).
+        Expect exactly ``sum(pauses)`` rows: every shard's admitted rows
+        survive, and each timed-out shard cursor is depleted.
         """
         skipIfNoEnableAssert(self.env)
 
         def assert_flat_reply(env, result, pauses, shards_count):
             expected = sum(pauses)
-            # Temporary until MOD-15971 defines deterministic internal cursor
-            # draining after RETURN_STRICT shard timeouts.
-            env.assertGreaterEqual(len(result.get('results', [])), expected,
-                                   message="rows in reply")
+            env.assertEqual(len(result.get('results', [])), expected,
+                            message="rows in reply")
 
         self._run_all_shards_timesout(
             coord_cmd='FT.AGGREGATE', shard_cmd='_FT.AGGREGATE',
@@ -4735,18 +4725,15 @@ class TestCoordinatorTimeout:
     def test_return_strict_all_shards_timesout_withcount_aggregate(self):
         """WITHCOUNT all-shards-timeout (barrier + RPDepleter).
 
-        Temporarily expect at least ``sum(pauses)`` rows: every shard's
-        admitted rows survive, and the current internal cursor loop may drain
-        more rows (MOD-15971).
+        Expect exactly ``sum(pauses)`` rows: every shard's admitted rows
+        survive, and each timed-out shard cursor is depleted.
         """
         skipIfNoEnableAssert(self.env)
 
         def assert_withcount_reply(env, result, pauses, shards_count):
             expected = sum(pauses)
-            # Temporary until MOD-15971 defines deterministic internal cursor
-            # draining after RETURN_STRICT shard timeouts.
-            env.assertGreaterEqual(len(result.get('results', [])), expected,
-                                   message="rows in reply")
+            env.assertEqual(len(result.get('results', [])), expected,
+                            message="rows in reply")
 
         # WITHCOUNT must precede pipeline steps (LOAD/GROUPBY/...).
         self._run_all_shards_timesout(
@@ -4781,9 +4768,9 @@ class TestCoordinatorTimeout:
     def test_return_strict_all_shards_timesout_partial_each_aggregate(self):
         """All-shards-timeout with distinct per-shard pause counts.
 
-        Temporarily expect at least ``sum(pauses)`` rows. Distinct pause values
-        reject regressions where admitted rows are lost, while the current
-        internal cursor loop may drain additional rows (MOD-15971).
+        Expect exactly ``sum(pauses)`` rows. Distinct pause values reject
+        regressions where admitted rows are lost or extra rows are drained after
+        strict timeout depletes each shard cursor.
         """
         skipIfNoEnableAssert(self.env)
 
@@ -4797,10 +4784,8 @@ class TestCoordinatorTimeout:
 
         def assert_partial_each_reply(env, result, pauses, shards_count):
             expected = sum(pauses)
-            # Temporary until MOD-15971 defines deterministic internal cursor
-            # draining after RETURN_STRICT shard timeouts.
-            env.assertGreaterEqual(len(result.get('results', [])), expected,
-                                   message="rows in reply")
+            env.assertEqual(len(result.get('results', [])), expected,
+                            message="rows in reply")
 
         self._run_all_shards_timesout(
             coord_cmd='FT.AGGREGATE', shard_cmd='_FT.AGGREGATE',
