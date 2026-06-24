@@ -70,15 +70,11 @@ impl ProjectedRow {
 }
 
 /// Compares the trailing-trimmed slots (see [`ProjectedRow::effective_values`])
-/// position-by-position, reusing [`compare_on_equality_only`] — the engine's
-/// canonical value-equality comparator — for present values.
+/// position-by-position with [`compare_on_equality_only`].
 ///
-/// Consistency caveat: the partner [`Hash`] impl digests present values with
-/// [`hash_value`], so the two disagree wherever [`compare_on_equality_only`]
-/// equates values [`hash_value`] distinguishes (num↔string coercion, all maps,
-/// NaN). These are pre-existing comparator quirks, fixable in `value::comparison`
-/// without touching this impl; the C dedup paths (`group_by.c`,
-/// `count_distinct.c`) likewise key on the hash alone.
+/// This can disagree with the [`Hash`] impl's [`hash_value`], which distinguishes
+/// some values the comparator equates (num↔string, maps, NaN) — a pre-existing
+/// comparator quirk, not addressed here.
 impl PartialEq for ProjectedRow {
     fn eq(&self, other: &Self) -> bool {
         let (a, b) = (self.effective_values(), other.effective_values());
