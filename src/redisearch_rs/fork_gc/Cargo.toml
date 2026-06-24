@@ -10,8 +10,6 @@ test = false
 doctest = false
 
 [features]
-# Activated by the self dev-dependency below so that build.rs links the C
-# library when compiling tests. See https://github.com/rust-lang/cargo/issues/4789
 unittest = []
 
 [build-dependencies]
@@ -21,11 +19,11 @@ build_utils = { path = "../build_utils" }
 workspace = true
 
 [dependencies]
-ffi = { workspace = true }
-inverted_index = { workspace = true }
-libc = { workspace = true }
-nix = { workspace = true }
-redis-module = { workspace = true }
+ffi.workspace = true
+inverted_index.workspace = true
+libc.workspace = true
+nix.workspace = true
+redis-module.workspace = true
 rmp-serde.workspace = true
 index_spec.workspace = true
 serde.workspace = true
@@ -33,14 +31,13 @@ tracing.workspace = true
 workspace_hack.workspace = true
 
 [dev-dependencies]
-dict = { workspace = true }
-ffi = { workspace = true }
-hidden_string = { workspace = true }
-index_result = { workspace = true }
+dict.workspace = true
+ffi.workspace = true
+hidden_string.workspace = true
+index_result.workspace = true
 inverted_index = { workspace = true, features = ["test_utils"] }
 rqe_core = { workspace = true }
 # Self-dependency activates the `unittest` feature so build.rs links the C library.
 fork_gc = { path = ".", features = ["unittest"] }
-# Provides FFI symbol guards and the mock Redis allocator.
 redisearch_rs = { path = "../c_entrypoint/redisearch_rs", features = ["mock_allocator"] }
-redis_mock = { workspace = true }
+redis_mock.workspace = true
