@@ -16,7 +16,7 @@ use std::ptr::{self, NonNull};
 
 /// Per-invocation mock state, owned by the [`with_json_api`] stack frame.
 struct MockState {
-    /// The document `openKeyWithFlags` resolves to. `None` models a missing key.
+    /// The document `openKeyWithFlags` resolves to. `None` models a missing document.
     doc: Option<serde_json::Value>,
     /// Keeps serialized buffers (`getJSON` / `getJSONFromIter`) alive for the
     /// lifetime of the mock: `redis_mock`'s `RedisModule_CreateString` stores
@@ -27,7 +27,7 @@ struct MockState {
 /// Run `f` with a [`RedisJsonApi`] backed by an in-memory `doc`.
 ///
 /// `doc` is the value `openKeyWithFlags` resolves to; pass `None` to model a
-/// missing key. The returned context pointer must be handed to whatever opens
+/// missing document. The returned context pointer must be handed to whatever opens
 /// the document (e.g. `JsonFormat::new(ctx, &api, api_version)`); it is a
 /// disguised pointer to the mock state and is only valid for the duration of
 /// `f`.
@@ -82,7 +82,9 @@ static VTABLE: ffi::RedisJSONAPI = ffi::RedisJSONAPI {
 ///
 /// # Safety
 ///
-/// 1. `ctx` must be a valid, non-null pointer to a mock context created by this module
+/// 1. `json` must be a [valid], non-null pointer to a mock JSON value created by this module
+///
+/// [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
 const unsafe fn node<'a>(json: ffi::RedisJSON) -> &'a serde_json::Value {
     // Safety: ensured by caller (1.)
     unsafe { &*json.cast::<serde_json::Value>() }
@@ -111,18 +113,21 @@ fn module_string(ptr: *const u8, len: usize) -> *mut ffi::RedisModuleString {
 
 /// Evaluate the minimal JSONPath subset the loader uses against `root`.
 fn eval_path(root: &serde_json::Value, path: &str) -> Vec<*const serde_json::Value> {
-    let Some(rest) = path.strip_prefix('$') else {
-        panic!("mock: unsupported JSON path `{path}` (must start with `$`)");
-    };
+    let rest = path
+        .strip_prefix('$')
+        .expect("mock: unsupported JSON path `{path}` (must start with `$`)");
+
     if rest.is_empty() {
         return vec![ptr::from_ref(root)];
     }
+
     if rest == "[*]" {
         return match root {
             serde_json::Value::Array(a) => a.iter().map(ptr::from_ref).collect(),
             _ => Vec::new(),
         };
     }
+
     // A plain `$.key`: a present key matches, an absent key (or non-object root)
     // is a missing field. Anything carrying further path syntax is a multi-level
     // or wildcard path this mock does not model.
@@ -134,13 +139,16 @@ fn eval_path(root: &serde_json::Value, path: &str) -> Vec<*const serde_json::Val
             _ => Vec::new(),
         };
     }
-    panic!("mock: unsupported JSON path `{path}`");
+
+    unimplemented!("mock: unsupported JSON path `{path}`");
 }
 
 /// # Safety
 ///
-/// 1. `ctx` must be a valid, non-null pointer to a mock context created by this module
-unsafe extern "C-unwind" fn open_key_with_flags(
+/// 1. `ctx` must be a [valid], non-null pointer to a mock context created by this module.
+///
+/// [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
+unsafe extern "C" fn open_key_with_flags(
     ctx: *mut ffi::RedisModuleCtx,
     _key_name: *mut ffi::RedisModuleString,
     _flags: c_int,
@@ -153,7 +161,6 @@ unsafe extern "C-unwind" fn open_key_with_flags(
     }
 }
 
-/// Boxed state behind a `JSONResultsIterator`.
 struct Results {
     items: Vec<*const serde_json::Value>,
     pos: usize,
@@ -161,18 +168,18 @@ struct Results {
 
 /// # Safety
 ///
-/// 1. `json` must be a valid, non-null pointer to a mock JSON object created by this module
-/// 2. `path` must be a valid, non-null pointer to a null-terminated c string.
-unsafe extern "C-unwind" fn get(
-    json: ffi::RedisJSON,
-    path: *const c_char,
-) -> ffi::JSONResultsIterator {
+/// 1. `json` must be a [valid], non-null pointer to a mock JSON object created by this module.
+/// 2. `path` must be a [valid], non-null pointer to a null-terminated c string.
+///
+/// [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
+unsafe extern "C" fn get(json: ffi::RedisJSON, path: *const c_char) -> ffi::JSONResultsIterator {
     // SAFETY: ensured by caller (2.)
     let Ok(path) = unsafe { CStr::from_ptr(path) }.to_str() else {
         return ptr::null();
     };
     // SAFETY: ensured by caller (1.)
-    let items = eval_path(unsafe { node(json) }, path);
+    let json = unsafe { node(json) };
+    let items = eval_path(json, path);
     if items.is_empty() {
         // A null iterator signals "no match"; the wrapper maps it to absence.
         return ptr::null();
@@ -182,8 +189,10 @@ unsafe extern "C-unwind" fn get(
 
 /// # Safety
 ///
-/// 1. `iter` must be a valid, non-null pointer to a results iterator created by this module
-unsafe extern "C-unwind" fn next(iter: ffi::JSONResultsIterator) -> ffi::RedisJSON {
+/// 1. `iter` must be a [valid], non-null pointer to a results iterator created by this module.
+///
+/// [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
+unsafe extern "C" fn next(iter: ffi::JSONResultsIterator) -> ffi::RedisJSON {
     // Safety: ensured by caller (1.)
     let it = unsafe { &mut *iter.cast::<Results>().cast_mut() };
     match it.items.get(it.pos) {
@@ -197,35 +206,43 @@ unsafe extern "C-unwind" fn next(iter: ffi::JSONResultsIterator) -> ffi::RedisJS
 
 /// # Safety
 ///
-/// 1. `iter` must be a valid, non-null pointer to a results iterator created by this module
-const unsafe extern "C-unwind" fn len(iter: ffi::JSONResultsIterator) -> usize {
+/// 1. `iter` must be a [valid], non-null pointer to a results iterator created by this module.
+///
+/// [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
+const unsafe extern "C" fn len(iter: ffi::JSONResultsIterator) -> usize {
     // Safety: ensured by caller (1.)
     unsafe { &*iter.cast::<Results>() }.items.len()
 }
 
 /// # Safety
 ///
-/// 1. `iter` must be a valid, non-null pointer to a results iterator created by this module
-unsafe extern "C-unwind" fn reset_iter(iter: ffi::JSONResultsIterator) {
+/// 1. `iter` must be a [valid], non-null pointer to a results iterator created by this module.
+///
+/// [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
+unsafe extern "C" fn reset_iter(iter: ffi::JSONResultsIterator) {
     // Safety: ensured by caller (1.)
     unsafe { &mut *iter.cast::<Results>().cast_mut() }.pos = 0;
 }
 
 /// # Safety
 ///
-/// 1. `iter` must be a valid, non-null pointer to a results iterator created by this module.
+/// 1. `iter` must be a [valid], non-null pointer to a results iterator created by this module.
 /// 2. this function must be called exactly once, for a given `ptr`.
-unsafe extern "C-unwind" fn free_iter(iter: ffi::JSONResultsIterator) {
+///
+/// [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
+unsafe extern "C" fn free_iter(iter: ffi::JSONResultsIterator) {
     // Safety: ensured by caller (1., 2.)
     drop(unsafe { Box::from_raw(iter.cast::<Results>().cast_mut()) });
 }
 
 /// # Safety
 ///
-/// 1. `iter` must be a valid, non-null pointer to a results iterator created by this module
-/// 2. `ctx` must be a valid, non-null pointer to a mock context created by this module.
-/// 4. `str` must be a valid, non-null pointer to a `*mut RedisModuleString`.
-unsafe extern "C-unwind" fn get_json_from_iter(
+/// 1. `iter` must be a [valid], non-null pointer to a results iterator created by this module.
+/// 2. `ctx` must be a [valid], non-null pointer to a mock context created by this module.
+/// 3. `str` must be a [valid], non-null pointer to a `*mut RedisModuleString`.
+///
+/// [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
+unsafe extern "C" fn get_json_from_iter(
     iter: ffi::JSONResultsIterator,
     ctx: *mut ffi::RedisModuleCtx,
     str: *mut *mut ffi::RedisModuleString,
@@ -256,8 +273,10 @@ unsafe extern "C-unwind" fn get_json_from_iter(
 
 /// # Safety
 ///
-/// 1. `json` must be a valid, non-null pointer to a mock JSON object created by this module
-unsafe extern "C-unwind" fn get_type(json: ffi::RedisJSON) -> ffi::JSONType {
+/// 1. `json` must be a [valid], non-null pointer to a mock JSON object created by this module.
+///
+/// [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
+unsafe extern "C" fn get_type(json: ffi::RedisJSON) -> ffi::JSONType {
     // SAFETY: ensured by caller (1.)
     match unsafe { node(json) } {
         serde_json::Value::String(_) => ffi::JSONType_JSONType_String,
@@ -272,9 +291,11 @@ unsafe extern "C-unwind" fn get_type(json: ffi::RedisJSON) -> ffi::JSONType {
 
 /// # Safety
 ///
-/// 1. `json` must be a valid, non-null pointer to a mock JSON object created by this module
-/// 2. `count` must be a valid, non-null pointer to a `usize`.
-unsafe extern "C-unwind" fn get_len(json: ffi::RedisJSON, count: *mut usize) -> c_int {
+/// 1. `json` must be a [valid], non-null pointer to a mock JSON object created by this module.
+/// 2. `count` must be a [valid], non-null pointer to a `usize`.
+///
+/// [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
+unsafe extern "C" fn get_len(json: ffi::RedisJSON, count: *mut usize) -> c_int {
     // Safety: ensured by caller (1.)
     let value = match unsafe { node(json) } {
         serde_json::Value::Object(m) => m.len(),
@@ -290,9 +311,11 @@ unsafe extern "C-unwind" fn get_len(json: ffi::RedisJSON, count: *mut usize) -> 
 
 /// # Safety
 ///
-/// 1. `json` must be a valid, non-null pointer to a mock JSON object created by this module
-/// 2. `integer` must be a valid, non-null pointer to a `c_longlong`.
-unsafe extern "C-unwind" fn get_int(json: ffi::RedisJSON, integer: *mut c_longlong) -> c_int {
+/// 1. `json` must be a [valid], non-null pointer to a mock JSON object created by this module.
+/// 2. `integer` must be a [valid], non-null pointer to a `c_longlong`.
+///
+/// [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
+unsafe extern "C" fn get_int(json: ffi::RedisJSON, integer: *mut c_longlong) -> c_int {
     // Safety: ensured by caller (1.)
     let Some(i) = unsafe { node(json) }.as_i64() else {
         return ffi::REDISMODULE_ERR as i32;
@@ -306,9 +329,11 @@ unsafe extern "C-unwind" fn get_int(json: ffi::RedisJSON, integer: *mut c_longlo
 
 /// # Safety
 ///
-/// 1. `json` must be a valid, non-null pointer to a mock JSON object created by this module
-/// 2. `dbl` must be a valid, non-null pointer to a `f64`.
-unsafe extern "C-unwind" fn get_double(json: ffi::RedisJSON, dbl: *mut f64) -> c_int {
+/// 1. `json` must be a [valid], non-null pointer to a mock JSON object created by this module.
+/// 2. `dbl` must be a [valid], non-null pointer to a `f64`.
+///
+/// [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
+unsafe extern "C" fn get_double(json: ffi::RedisJSON, dbl: *mut f64) -> c_int {
     // Safety: ensured by caller (1.)
     let Some(d) = unsafe { node(json) }.as_f64() else {
         return ffi::REDISMODULE_ERR as i32;
@@ -322,9 +347,11 @@ unsafe extern "C-unwind" fn get_double(json: ffi::RedisJSON, dbl: *mut f64) -> c
 
 /// # Safety
 ///
-/// 1. `json` must be a valid, non-null pointer to a mock JSON object created by this module
-/// 2. `boolean` must be a valid, non-null pointer to a `c_int`.
-unsafe extern "C-unwind" fn get_boolean(json: ffi::RedisJSON, boolean: *mut c_int) -> c_int {
+/// 1. `json` must be a [valid], non-null pointer to a mock JSON object created by this module.
+/// 2. `boolean` must be a [valid], non-null pointer to a `c_int`.
+///
+/// [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
+unsafe extern "C" fn get_boolean(json: ffi::RedisJSON, boolean: *mut c_int) -> c_int {
     // Safety: ensured by caller (1.)
     let Some(b) = unsafe { node(json) }.as_bool() else {
         return ffi::REDISMODULE_ERR as i32;
@@ -338,10 +365,12 @@ unsafe extern "C-unwind" fn get_boolean(json: ffi::RedisJSON, boolean: *mut c_in
 
 /// # Safety
 ///
-/// 1. `json` must be a valid, non-null pointer to a mock JSON object created by this module
-/// 2. `str` must be a valid, non-null pointer to a `*const c_char`.
-/// 3. `len` must be a valid, non-null pointer to a `usize`.
-unsafe extern "C-unwind" fn get_string(
+/// 1. `json` must be a [valid], non-null pointer to a mock JSON object created by this module.
+/// 2. `str` must be a [valid], non-null pointer to a `*const c_char`.
+/// 3. `len` must be a [valid], non-null pointer to a `usize`.
+///
+/// [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
+unsafe extern "C" fn get_string(
     json: ffi::RedisJSON,
     str: *mut *const c_char,
     len: *mut usize,
@@ -363,10 +392,12 @@ unsafe extern "C-unwind" fn get_string(
 
 /// # Safety
 ///
-/// 1. `json` must be a valid, non-null pointer to a mock JSON object created by this module.
-/// 2. `ctx` must be a valid, non-null pointer to a mock context created by this module.
-/// 3. `str` must be a valid pointer to a `*mut RedisModuleString`.
-unsafe extern "C-unwind" fn get_json(
+/// 1. `json` must be a [valid], non-null pointer to a mock JSON object created by this module.
+/// 2. `ctx` must be a [valid], non-null pointer to a mock context created by this module.
+/// 3. `str` must be a [valid] pointer to a `*mut RedisModuleString`.
+///
+/// [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
+unsafe extern "C" fn get_json(
     json: ffi::RedisJSON,
     ctx: *mut ffi::RedisModuleCtx,
     str: *mut *mut ffi::RedisModuleString,
@@ -386,13 +417,11 @@ unsafe extern "C-unwind" fn get_json(
 
 /// # Safety
 ///
-/// 1. `json` must be a valid, non-null pointer to a mock JSON object created by this module.
-/// 2. `ptr` must be a valid, non_null pointer to a mock JSON object created by this module.
-unsafe extern "C-unwind" fn get_at(
-    json: ffi::RedisJSON,
-    index: usize,
-    ptr: ffi::RedisJSONPtr,
-) -> c_int {
+/// 1. `json` must be a [valid], non-null pointer to a mock JSON object created by this module.
+/// 2. `ptr` must be a [valid], non_null pointer to a mock JSON object created by this module.
+///
+/// [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
+unsafe extern "C" fn get_at(json: ffi::RedisJSON, index: usize, ptr: ffi::RedisJSONPtr) -> c_int {
     // Safety: ensured by caller (1.)
     let Some(elem) = unsafe { node(json) }.as_array().and_then(|a| a.get(index)) else {
         return ffi::REDISMODULE_ERR as i32;
@@ -404,8 +433,6 @@ unsafe extern "C-unwind" fn get_at(
     ffi::REDISMODULE_OK as i32
 }
 
-/// Boxed state behind a `JSONKeyValuesIterator`. Key pointers reference the
-/// document's own key strings (kept alive by the [`MockState`]).
 struct KeyValues {
     entries: Vec<(*const c_char, usize, *const serde_json::Value)>,
     pos: usize,
@@ -413,8 +440,10 @@ struct KeyValues {
 
 /// # Safety
 ///
-/// 1. `json` must be a valid, non-null pointer to a mock JSON object created by this module.
-unsafe extern "C-unwind" fn get_key_values(json: ffi::RedisJSON) -> ffi::JSONKeyValuesIterator {
+/// 1. `json` must be a [valid], non-null pointer to a mock JSON object created by this module.
+///
+/// [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
+unsafe extern "C" fn get_key_values(json: ffi::RedisJSON) -> ffi::JSONKeyValuesIterator {
     // Safety: ensured by caller (1.)
     let serde_json::Value::Object(map) = (unsafe { node(json) }) else {
         return ptr::null();
@@ -428,10 +457,12 @@ unsafe extern "C-unwind" fn get_key_values(json: ffi::RedisJSON) -> ffi::JSONKey
 
 /// # Safety
 ///
-/// 1. `iter` must be a valid, non-null pointer to a mock key-values iterator created by this module.
-/// 2. `key_name` must be a valid, non-null pointer to a `*mut RedisModuleString`.
-/// 3. `ptr` must be a valid, non-null pointer to a JSON object created by this module.
-unsafe extern "C-unwind" fn next_key_value(
+/// 1. `iter` must be a [valid], non-null pointer to a mock key-values iterator created by this module.
+/// 2. `key_name` must be a [valid], non-null pointer to a `*mut RedisModuleString`.
+/// 3. `ptr` must be a [valid], non-null pointer to a JSON object created by this module.
+///
+/// [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
+unsafe extern "C" fn next_key_value(
     iter: ffi::JSONKeyValuesIterator,
     key_name: *mut *mut ffi::RedisModuleString,
     ptr: ffi::RedisJSONPtr,
@@ -456,21 +487,25 @@ unsafe extern "C-unwind" fn next_key_value(
 
 /// # Safety
 ///
-/// 1. `iter` must be a valid, non-null pointer to a mock key-values iterator created by this module.
-unsafe extern "C-unwind" fn free_key_values_iter(iter: ffi::JSONKeyValuesIterator) {
+/// 1. `iter` must be a [valid], non-null pointer to a mock key-values iterator created by this module.
+///
+/// [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
+unsafe extern "C" fn free_key_values_iter(iter: ffi::JSONKeyValuesIterator) {
     // Safety: ensured by caller (1.)
     drop(unsafe { Box::from_raw(iter.cast::<KeyValues>().cast_mut()) });
 }
 
-extern "C-unwind" fn alloc_json() -> ffi::RedisJSONPtr {
+extern "C" fn alloc_json() -> ffi::RedisJSONPtr {
     Box::into_raw(Box::new(ptr::null::<c_void>()))
 }
 
 /// # Safety
 ///
-/// 1. `ptr` must be a valid, non-null pointer to a mock JSON object created by this module.
+/// 1. `ptr` must be a [valid], non-null pointer to a mock JSON object created by this module.
 /// 2. this function must be called exactly once, for a given `ptr`.
-unsafe extern "C-unwind" fn free_json(ptr: ffi::RedisJSONPtr) {
+///
+/// [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
+unsafe extern "C" fn free_json(ptr: ffi::RedisJSONPtr) {
     // Safety: ensured by caller (1., 2.)
     drop(unsafe { Box::from_raw(ptr) });
 }
