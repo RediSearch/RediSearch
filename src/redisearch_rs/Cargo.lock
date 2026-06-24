@@ -2868,6 +2868,9 @@ name = "term_suffix_index"
 version = "0.0.1"
 dependencies = [
  "proptest",
+ "rqe_wildcard",
+ "rstest",
+ "string_utils",
  "trie_rs",
  "workspace_hack",
 ]
