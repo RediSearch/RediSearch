@@ -86,17 +86,13 @@ unsafe impl<'a> DictValue<'a> for HiddenStringRef<'a> {
 // Some(&T). The caller must ensure non-null pointers address a valid T for 'a.
 unsafe impl<'a, T: 'a> DictValue<'a> for Option<&'a T> {
     unsafe fn from_dict_ptr(ptr: *mut c_void) -> Self {
-        // SAFETY: caller guarantees non-null ptr is a valid *const T for 'a.
-        if ptr.is_null() {
-            None
-        } else {
-            Some(unsafe { &*ptr.cast::<T>() })
-        }
+        // SAFETY: ptr is non-null and valid for 'a per the trait contract.
+        std::ptr::NonNull::new(ptr.cast::<T>()).map(|p| unsafe { p.as_ref() })
     }
     fn into_dict_ptr(self) -> *mut c_void {
         match self {
             None => std::ptr::null_mut(),
-            Some(r) => (r as *const T).cast_mut().cast(),
+            Some(r) => std::ptr::from_ref(r).cast_mut().cast(),
         }
     }
 }
@@ -251,7 +247,7 @@ impl<DT: DictType> OwnedDict<DT> {
     }
 
     /// Return the raw dict pointer for use in FFI calls that take `*mut ffi::dict`.
-    pub fn as_ptr(&self) -> *mut ffi::dict {
+    pub const fn as_ptr(&self) -> *mut ffi::dict {
         self.ptr.as_ptr()
     }
 }
@@ -302,6 +298,7 @@ impl<'a, DT: DictType> DictEntry<'a, DT> {
     pub fn key(&self) -> DT::K<'a> {
         // SAFETY: self.entry is a valid non-null dictEntry*.
         let ptr = unsafe { (*self.entry).key };
+        // SAFETY: ptr is the key of a valid dictEntry, consistent with DT::K.
         unsafe { <DT::K<'a> as DictValue<'a>>::from_dict_ptr(ptr) }
     }
 
@@ -309,7 +306,9 @@ impl<'a, DT: DictType> DictEntry<'a, DT> {
     pub fn val(&self) -> DT::V<'a> {
         // SAFETY: self.entry is a valid non-null dictEntry*.
         let v = unsafe { &(*self.entry).v };
+        // SAFETY: v.val is the value pointer of a valid dictEntry, consistent with DT::V.
         let ptr = unsafe { v.val };
+        // SAFETY: ptr is a valid value pointer consistent with DT::V.
         unsafe { <DT::V<'a> as DictValue<'a>>::from_dict_ptr(ptr) }
     }
 }
