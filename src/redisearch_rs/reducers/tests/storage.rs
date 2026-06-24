@@ -12,6 +12,9 @@
 
 extern crate redisearch_rs;
 
+use std::collections::hash_map::DefaultHasher;
+use std::hash::{Hash, Hasher};
+
 use reducers::collect::heap::HeapEntry;
 use reducers::collect::storage::{ArrayStorage, DEFAULT_LIMIT, HeapStorage, ProjectedRow, Storage};
 use rlookup::{RLookupKey, RLookupKeyFlags, RLookupRow};
@@ -221,6 +224,91 @@ fn storage_drain_heap_yields_rows_best_first() {
     }
     let drained: Vec<_> = s.drain().collect();
     assert_eq!(drained_nums(&key, &drained), vec![0.0, 1.0, 2.0]);
+}
+
+// ===== ProjectedRow `Hash` / `Eq` =====
+
+/// Build a [`ProjectedRow`] with an exact `dyn_values` layout: slot `i` is `None`
+/// when `slots[i]` is `None`, otherwise the number is written at `dstidx == i`.
+/// `set_dyn_capacity` pre-fills every slot with `None`, so trailing `None`s in
+/// `slots` are materialized (not truncated) — letting us exercise the
+/// trailing-strip rule explicitly.
+fn pr(slots: &[Option<f64>]) -> ProjectedRow {
+    let mut row = RLookupRow::new();
+    row.set_dyn_capacity(slots.len());
+    for (i, slot) in slots.iter().enumerate() {
+        if let Some(n) = slot {
+            let mut key = RLookupKey::new(c"v", RLookupKeyFlags::empty());
+            key.dstidx = i as u16;
+            row.write_key(&key, SharedValue::new_num(*n));
+        }
+    }
+    ProjectedRow::new(row)
+}
+
+fn hash_of(pr: &ProjectedRow) -> u64 {
+    let mut h = DefaultHasher::new();
+    pr.hash(&mut h);
+    h.finish()
+}
+
+/// `Some` is shorthand for `Some(x)` in the layout literals below.
+const fn n(x: f64) -> Option<f64> {
+    Some(x)
+}
+
+#[test]
+fn projected_row_all_none_equal_regardless_of_length() {
+    let a = pr(&[None]);
+    let b = pr(&[None, None, None]);
+    assert!(a == b);
+    assert_eq!(hash_of(&a), hash_of(&b));
+    // An empty layout is also all-`None` once trimmed.
+    assert!(a == pr(&[]));
+    assert_eq!(hash_of(&a), hash_of(&pr(&[])));
+}
+
+#[test]
+fn projected_row_trailing_none_is_ignored() {
+    // Interior `None` kept, trailing `None`(s) dropped.
+    let a = pr(&[None, n(3.0), None]);
+    let b = pr(&[None, n(3.0), None, None]);
+    assert!(a == b);
+    assert_eq!(hash_of(&a), hash_of(&b));
+
+    // Trailing `None` after a value collapses to the bare value.
+    let c = pr(&[n(3.0), None]);
+    let d = pr(&[n(3.0)]);
+    assert!(c == d);
+    assert_eq!(hash_of(&c), hash_of(&d));
+}
+
+#[test]
+fn projected_row_leading_none_is_positional() {
+    // A leading empty slot is content: `[None, 3]` is a different row than `[3]`.
+    let a = pr(&[None, n(3.0)]);
+    let b = pr(&[n(3.0)]);
+    assert!(a != b);
+    assert_ne!(hash_of(&a), hash_of(&b));
+}
+
+#[test]
+fn projected_row_compares_values_position_by_position() {
+    assert!(pr(&[n(1.0), n(2.0)]) == pr(&[n(1.0), n(2.0)]));
+    assert_eq!(
+        hash_of(&pr(&[n(1.0), n(2.0)])),
+        hash_of(&pr(&[n(1.0), n(2.0)]))
+    );
+
+    // Order matters.
+    assert!(pr(&[n(1.0), n(2.0)]) != pr(&[n(2.0), n(1.0)]));
+    assert_ne!(
+        hash_of(&pr(&[n(1.0), n(2.0)])),
+        hash_of(&pr(&[n(2.0), n(1.0)]))
+    );
+
+    // Differing value at the same position.
+    assert!(pr(&[n(1.0), n(2.0)]) != pr(&[n(1.0), n(9.0)]));
 }
 
 #[test]

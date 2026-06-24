@@ -2065,6 +2065,7 @@ dependencies = [
  "build_utils",
  "bumpalo",
  "ffi",
+ "fnv",
  "itertools 0.14.0",
  "min-max-heap",
  "query_error",

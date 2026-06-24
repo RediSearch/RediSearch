@@ -15,10 +15,15 @@
 //! array-vs-heap once, in its `add` method, so only the heap path ever builds a
 //! sort-key snapshot.
 
+use std::hash::{Hash, Hasher};
+
+use fnv::Fnv64;
 use itertools::Either;
 use min_max_heap::MinMaxHeap;
 use rlookup::RLookupRow;
 use value::SharedValue;
+use value::comparison::compare_on_equality_only;
+use value::hash::hash_value;
 
 use super::heap::{HeapEntry, RankingKey};
 
@@ -51,6 +56,75 @@ impl ProjectedRow {
     /// Consume the wrapper, returning the inner row.
     pub fn into_row(self) -> RLookupRow<'static> {
         self.0
+    }
+
+    /// The collected values with trailing `None` slots dropped.
+    ///
+    /// A projected row's dynamic values are indexed by `RLookupKey::dstidx`, so a
+    /// `None` slot marks a key with no value in this row. Trailing `None`s are an
+    /// artefact of how far the highest-index written key reached, not content, so
+    /// they are stripped before hashing/comparison: this makes e.g. `[3, None]`
+    /// equal to `[3]`. Interior/leading `None`s are kept — they are positionally
+    /// significant (an empty slot at a specific key), so `[None, 3]` differs from
+    /// `[3]`.
+    fn effective_values(&self) -> &[Option<SharedValue>] {
+        let slots = self.0.dyn_values();
+        let end = slots.iter().rposition(Option::is_some).map_or(0, |i| i + 1);
+        &slots[..end]
+    }
+}
+
+/// Equality over the trailing-trimmed collected values (see
+/// [`ProjectedRow::effective_values`]). Two rows are equal when their effective
+/// slots match position-by-position: both empty, or both present and equal under
+/// [`compare_on_equality_only`] — the same comparator the rest of the engine
+/// uses for value equality.
+///
+/// Consistency caveat: the partner [`Hash`] impl hashes present values with
+/// [`hash_value`] (the `RSValue_Hash` primitive). These two are meant to agree,
+/// but `compare_on_equality_only` currently equates some values that `hash_value`
+/// distinguishes (num↔string coercion such as `3` vs `"3"`, all maps, NaN). Those
+/// are pre-existing comparator quirks; when fixed in `value::comparison` this impl
+/// becomes fully `Hash`/`Eq`-consistent with no change here. Until then such a
+/// pair would not dedup in a `HashSet`. Matches the C dedup paths, which key on
+/// the 64-bit hash alone (`group_by.c`, `count_distinct.c`).
+impl PartialEq for ProjectedRow {
+    fn eq(&self, other: &Self) -> bool {
+        let (a, b) = (self.effective_values(), other.effective_values());
+        a.len() == b.len()
+            && a.iter().zip(b).all(|(x, y)| match (x, y) {
+                (None, None) => true,
+                (Some(p), Some(q)) => compare_on_equality_only(p, q),
+                _ => false,
+            })
+    }
+}
+
+impl Eq for ProjectedRow {}
+
+impl Hash for ProjectedRow {
+    /// Fold the effective values into a single `RSValue_Hash`-based digest.
+    ///
+    /// Each slot writes a one-byte discriminant so an empty slot stays
+    /// distinguishable from a present value at that position; present values are
+    /// folded through [`hash_value`]. See [`ProjectedRow::effective_values`] for
+    /// the trailing-`None` rule and the [`PartialEq`] impl for the consistency
+    /// caveat.
+    fn hash<H: Hasher>(&self, state: &mut H) {
+        // Seed with the standard FNV offset basis (non-zero): with a zero seed,
+        // a leading `None` discriminant byte (`0`) would be absorbed
+        // (`0 ^ 0 == 0`, `* PRIME == 0`), collapsing e.g. `[None, x]` onto `[x]`.
+        let mut fnv = Fnv64::default();
+        for slot in self.effective_values() {
+            match slot {
+                None => fnv.write(&[0]),
+                Some(v) => {
+                    fnv.write(&[1]);
+                    hash_value(v, &mut fnv);
+                }
+            }
+        }
+        state.write_u64(fnv.finish());
     }
 }
 
