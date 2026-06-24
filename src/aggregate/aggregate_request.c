@@ -1816,7 +1816,7 @@ int AREQ_BuildPipelineWithAggregationParams(AREQ *req,
                                             const AggregationPipelineParams *aggregationParams,
                                             QueryError *status) {
   Pipeline_Initialize(&req->pipeline, req->reqConfig.timeoutPolicy, status);
-  if (!(AREQ_RequestFlags(req) & QEXEC_F_IS_COORDINATOR)) {
+  if (!IsCoordinator(req)) {
     QueryPipelineParams params = {
       .common = {
         .sctx = req->sctx,

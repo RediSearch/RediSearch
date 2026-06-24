@@ -763,7 +763,7 @@ void iterStartCb(void *p) {
       // it->len/pending/inProcess remain at their initial value of 1.
       // Run privateDataInit so the private data is properly initialized
       // before the synthetic error notification is delivered.
-      void *privateData = MRIteratorCallback_GetPrivateData(&it->cbxs[0]);
+      void *privateData = MRIterator_GetPrivateData(it);
       if (privateData && it->ctx.privateDataInit) {
         it->ctx.privateDataInit(privateData, it);
       }
@@ -780,7 +780,7 @@ void iterStartCb(void *p) {
   it->ctx.inProcess = numShards; // Initially all commands are in process
 
   // Call privateData init callback if set
-  void *privateData = MRIteratorCallback_GetPrivateData(&it->cbxs[0]);
+  void *privateData = MRIterator_GetPrivateData(it);
   if (privateData && it->ctx.privateDataInit) {
     it->ctx.privateDataInit(privateData, it);
   }
@@ -804,7 +804,7 @@ void iterStartCb(void *p) {
     it->cbxs[targetShardIdx].cmd.targetShardIdx = targetShardIdx;
     MRCommand_SetSlotInfo(&it->cbxs[targetShardIdx].cmd, shards[targetShardIdx].slotRanges);
 
-    it->cbxs[targetShardIdx].privateData = MRIteratorCallback_GetPrivateData(&it->cbxs[0]);
+    it->cbxs[targetShardIdx].privateData = MRIterator_GetPrivateData(it);
   }
 
   // Set the first command to target the first shard (while not having copied it)
@@ -864,7 +864,7 @@ void iterCursorMappingCb(void *p) {
   // Create FT.CURSOR READ commands for each mapping
   for (size_t i = 1; i < numShardsWithMapping; i++) {
     it->cbxs[i].it = it;
-    it->cbxs[i].privateData = MRIteratorCallback_GetPrivateData(&it->cbxs[0]);
+    it->cbxs[i].privateData = MRIterator_GetPrivateData(it);
 
     it->cbxs[i].cmd = MRCommand_Copy(cmd);
 

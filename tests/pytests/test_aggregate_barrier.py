@@ -1,14 +1,14 @@
 """
-Tests for ShardResponseBarrier functionality in FT.AGGREGATE with WITHCOUNT.
+Tests for distributed FT.AGGREGATE WITHCOUNT first-reply collection.
 
 These tests verify that the coordinator properly waits for all shards' first responses
 before returning results when WITHCOUNT is specified, ensuring accurate total_results.
 
 Test Categories:
 1. Delayed shard responses - verify coordinator waits for all shards
-2. Concurrent queries - verify thread safety of atomic operations
+2. Concurrent queries - verify correctness under concurrent WITHCOUNT queries
 3. Error handling - verify behavior when shards return errors
-4. Timeout handling - verify barrier respects query timeout
+4. Timeout handling - verify WITHCOUNT respects query timeout
 """
 
 from common import *
@@ -392,8 +392,8 @@ def _test_barrier_concurrent_queries(protocol):
     """
     Test thread safety: multiple concurrent WITHCOUNT queries.
 
-    This tests the atomic operations in ShardResponseBarrier when
-    multiple queries are running simultaneously.
+    This tests the WITHCOUNT first-reply collection when multiple queries
+    are running simultaneously.
     """
     env = Env(moduleArgs='DEFAULT_DIALECT 2', protocol=protocol)
     num_docs = 100 * env.shardsCount
