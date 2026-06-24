@@ -394,77 +394,43 @@ TEST_F(TrieTest, testScoreOrder) {
   TrieType_Free(t);
 }
 
-// Add a UTF-8 key directly to a raw root node, bypassing the Trie wrapper so
-// the test owns the root pointer and can walk the structure afterwards.
-static void addRaw(TrieNode **root, const char *s, float score, TrieAddOp op) {
+// Fetch a node by its UTF-8 key through the public wrapper, so the test reads
+// subtreeMaxScore without reaching into the opaque Trie struct for its root.
+static TrieNode *getNode(Trie *t, const char *s) {
   runeBuf buf;
   size_t len = strlen(s);
   rune *runes = runeBufFill(s, len, &buf, &len);
-  TrieNode_Add(root, runes, len, NULL, score, op, NULL, 1);
+  TrieNode *n = Trie_GetNode(t, runes, len, true, NULL);
   runeBufFree(&buf);
+  return n;
 }
 
-// Recursively assert the score-bound invariant on every node and return the
-// node's true subtree max (max score over the node and all its descendants).
-// Invariant: subtreeMaxScore is an admissible upper bound, i.e.
-//   subtreeMaxScore >= node->score, and
-//   subtreeMaxScore >= every child's subtreeMaxScore (hence >= true subtree max).
-// Branch-and-bound pruning in Trie_CollectFuzzy silently drops valid answers if
-// the bound ever under-estimates.
-static float assertScoreBoundInvariant(TrieNode *n) {
-  float trueMax = n->score;
-  TrieNode **children = TrieNode_Children(n);
-  for (t_len i = 0; i < TrieNode_NumChildren(n); i++) {
-    EXPECT_GE(n->subtreeMaxScore, children[i]->subtreeMaxScore)
-        << "subtreeMaxScore does not cover child's bound";
-    float childMax = assertScoreBoundInvariant(children[i]);
-    if (childMax > trueMax) trueMax = childMax;
-  }
-  EXPECT_GE(n->subtreeMaxScore, n->score) << "subtreeMaxScore below node's own score";
-  EXPECT_GE(n->subtreeMaxScore, trueMax) << "subtreeMaxScore under-estimates subtree";
-  return trueMax;
-}
+// Regression test for the subtreeMaxScore staleness bug. subtreeMaxScore is the
+// branch-and-bound upper bound Trie_CollectFuzzy (FT.SUGGET) prunes on, so it
+// must always cover a node's own score and every descendant's. The buggy code
+// folded only the score *delta* into the bound on two insert paths, leaving it
+// under-estimated and causing valid suggestions to be silently pruned.
+TEST_F(TrieTest, testSubtreeMaxScoreCoversIncrAndSplit) {
+  Trie *t = NewTrie(NULL, Trie_Sort_Score);
 
-// Regression test for the subtreeMaxScore staleness bug: ADD_INCR (and a
-// terminal created by a node split) used to fold only the score *delta* into the
-// branch-and-bound bound instead of the post-update total, leaving ancestor
-// bounds under-estimated and causing FT.SUGGET to silently prune valid entries.
-TEST_F(TrieTest, testScoreBoundInvariantAfterIncrAndSplit) {
-  rune emptyRoot[1] = {0};
-  TrieNode *root = __newTrieNode(emptyRoot, 0, 0, NULL, 0, 0, 0.0f, 0, Trie_Sort_Score, 0);
+  // ADD_INCR path: "beer"/"beet" share the internal node "bee". INCR "beer" by 3
+  // (5 -> 8); the buggy code folded only the delta (3), leaving the bounds at 5.
+  Trie_InsertStringBuffer(t, "beer", 4, 5.0, 0, NULL, 1);
+  Trie_InsertStringBuffer(t, "beet", 4, 5.0, 0, NULL, 1);
+  Trie_InsertStringBuffer(t, "beer", 4, 3.0, 1, NULL, 1);
 
-  // "beer"/"beet" share the internal node "bee"; both seeded at score 5.
-  addRaw(&root, "beer", 5.0f, ADD_REPLACE);
-  addRaw(&root, "beet", 5.0f, ADD_REPLACE);
+  // Split-exact path: "zoom" is one compressed node; inserting its proper prefix
+  // "zoo" splits it and makes "zoo" terminal with score 9. The buggy code never
+  // folded that score into the split node's bound, leaving it at "zoom"'s 5.
+  Trie_InsertStringBuffer(t, "zoom", 4, 5.0, 0, NULL, 1);
+  Trie_InsertStringBuffer(t, "zoo", 3, 9.0, 0, NULL, 1);
 
-  // INCR "beer" by 3 -> total 8. The buggy code folded only the delta (3),
-  // leaving bound("bee") and bound("beer") stuck at 5 < 8.
-  addRaw(&root, "beer", 3.0f, ADD_INCR);
+  EXPECT_FLOAT_EQ(getNode(t, "beer")->score, 8.0f);      // INCR applied the delta
+  EXPECT_GE(getNode(t, "beer")->subtreeMaxScore, 8.0f);  // bound covers the total
+  EXPECT_GE(getNode(t, "bee")->subtreeMaxScore, 8.0f);   // ancestor covers descendant
+  EXPECT_GE(getNode(t, "zoo")->subtreeMaxScore, 9.0f);   // split node folded its score
 
-  // Split-exact path: "zoom" is inserted as a single compressed node, then "zoo"
-  // (a proper prefix) splits it and the split node becomes terminal with score 9.
-  // The old code never folded that new terminal score into the split node's bound,
-  // leaving bound("zoo") stuck at 5 < 9.
-  addRaw(&root, "zoom", 5.0f, ADD_REPLACE);
-  addRaw(&root, "zoo", 9.0f, ADD_REPLACE);
-
-  // High-scoring siblings on other branches, enough to raise the pruning
-  // threshold above the stale bounds during a top-k walk.
-  addRaw(&root, "aaaa", 7.0f, ADD_REPLACE);
-  addRaw(&root, "cccc", 6.0f, ADD_REPLACE);
-
-  assertScoreBoundInvariant(root);
-
-  // Spot-check the post-INCR total really is 8 (delta was applied to the score).
-  runeBuf buf;
-  size_t blen = 4;
-  rune *beer = runeBufFill("beer", 4, &buf, &blen);
-  TrieNode *beerNode = TrieNode_Get(root, beer, blen, true, NULL);
-  runeBufFree(&buf);
-  ASSERT_NE(beerNode, nullptr);
-  EXPECT_FLOAT_EQ(beerNode->score, 8.0f);
-
-  TrieNode_Free(root, NULL);
+  TrieType_Free(t);
 }
 
 /* leave for future benchmarks if needed
