@@ -790,7 +790,7 @@ int DistAggregateTimeoutReturnStrictCallback(RedisModuleCtx *ctx, RedisModuleStr
     // the cursor-read timeout-owner cleanup path, and the worker must still observe a claimed
     // aggregation phase so it stores/signals the timed-out state for partial-result handling.
     // The empty reply uses a fresh AREQ, so record the per-stage timeout here:
-    // not picked up / pre-pipeline -> QUEUE (CoordRequestCtx_TimeoutStage reflects this).
+    // not picked up / pre-pipeline -> QUEUE (CoordRequestCtx_ExecutionStage reflects this).
     CoordRequestCtx_RecordTimeoutStage(CoordReqCtx, /*isError=*/false);
     // Reply with empty results
     coord_aggregate_query_reply_empty(ctx, argv, argc, QUERY_ERROR_CODE_TIMED_OUT);

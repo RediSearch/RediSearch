@@ -53,8 +53,23 @@ typedef struct {
   size_t vectorTotalDocsIndexed;
 } FieldsGlobalStats;
 
-// Per-stage breakdown of the query-timeout counter. The sum of the three
-// stages equals the corresponding aggregate `timeout` counter.
+// The stage of the query-processing pipeline in which a timeout occurred. Used
+// to break down the query-timeout metric by where in the lifecycle the deadline
+// was exceeded. The values double as an "execution phase" marker on
+// RequestSyncCtx: the executing (background) thread advances it monotonically
+// QUEUE -> PIPELINE -> REPLY, and the main-thread timeout callbacks read it to
+// classify a timeout.
+typedef enum {
+  QUERY_TIMEOUT_STAGE_QUEUE = 0,    // before the result-processor pipeline started running
+  QUERY_TIMEOUT_STAGE_PIPELINE = 1, // during result-processor pipeline execution
+  QUERY_TIMEOUT_STAGE_REPLY = 2,    // during reply serialization
+  QUERY_TIMEOUT_STAGE_COUNT
+} QueryTimeoutStage;
+
+// Per-stage breakdown of the query-timeout counter. This is a strict subset of
+// the aggregate `timeout` counter: only timeouts surfaced through a
+// blocked-client timeout callback are broken down here, so the three stages sum
+// to <= the aggregate.
 typedef struct {
   size_t queue;    // timed out before the result-processor pipeline started running
   size_t pipeline; // timed out during result-processor pipeline execution
@@ -64,15 +79,15 @@ typedef struct {
 typedef struct {
   size_t syntax; // Number of syntax errors
   size_t arguments; // Number of parse arguments errors
-  size_t timeout; // Number of timeout errors (aggregate; == timeout_by_stage sum)
-  QueryTimeoutStageStats timeout_by_stage; // Per-stage breakdown of timeout errors
+  size_t timeout; // Number of timeout errors (aggregate; timeout_by_stage is a subset)
+  QueryTimeoutStageStats timeout_by_stage; // Per-stage breakdown of blocked-client timeout errors
   size_t oom; // Number of OOM errors
   size_t unavailableSlots; // Number of ASM inaccuracy errors
 } QueryErrorsGlobalStats;
 
 typedef struct {
-  size_t timeout; // Aggregate timeout warnings (== timeout_by_stage sum)
-  QueryTimeoutStageStats timeout_by_stage; // Per-stage breakdown of timeout warnings
+  size_t timeout; // Aggregate timeout warnings (timeout_by_stage is a subset)
+  QueryTimeoutStageStats timeout_by_stage; // Per-stage breakdown of blocked-client timeout warnings
   size_t oom;
   size_t maxPrefixExpansion;
   size_t asm_inaccuracy;

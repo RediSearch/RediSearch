@@ -24,6 +24,7 @@
 #include "slot_ranges.h"
 #include "profile/profile.h"
 #include "rs_wall_clock.h"
+#include "info/global_stats.h" // QueryTimeoutStage (execution-phase marker + timeout breakdown)
 
 #include "rmutil/rm_assert.h"
 
@@ -186,7 +187,9 @@ typedef struct RequestSyncCtx {
   RS_Atomic(bool) timedOut;
   // Execution-phase marker (QueryTimeoutStage values), advanced monotonically by
   // the executing thread (QUEUE -> PIPELINE -> REPLY). The main-thread timeout
-  // callbacks read it to attribute a timeout to the pipeline stage it occurred in.
+  // callbacks only read it to attribute a timeout to the pipeline stage it
+  // occurred in. Once `timedOut` is set the marker is frozen (see
+  // RequestSyncCtx_SetExecutionStage), so the value the callback reads is stable.
   RS_Atomic(int) execPhase;
   // Reference count for shared ownership between timeout callback (main thread) and background thread
   uint8_t refcount;
@@ -244,12 +247,18 @@ static inline void RequestSyncCtx_ClearTimedOut(RequestSyncCtx *ctx) {
 
 // Read the current execution phase as a QueryTimeoutStage. Used to attribute a
 // timeout to the stage the request had reached when the deadline fired.
-static inline QueryTimeoutStage RequestSyncCtx_GetTimeoutStage(RequestSyncCtx *ctx) {
+static inline QueryTimeoutStage RequestSyncCtx_GetExecutionStage(RequestSyncCtx *ctx) {
   return (QueryTimeoutStage)RS_AtomicIntLoadRelaxed(&ctx->execPhase);
 }
 // Advance the execution phase. Called by the executing thread as it progresses;
-// the phase only ever moves forward within a single execution.
-static inline void RequestSyncCtx_SetTimeoutStage(RequestSyncCtx *ctx, QueryTimeoutStage stage) {
+// the phase only ever moves forward within a single execution. Once a timeout
+// has been signalled the marker is frozen: this guarantees the stage a
+// main-thread timeout callback reads cannot change underneath it (the callback
+// sets `timedOut` before reading the marker).
+static inline void RequestSyncCtx_SetExecutionStage(RequestSyncCtx *ctx, QueryTimeoutStage stage) {
+  if (RequestSyncCtx_GetTimedOut(ctx)) {
+    return;
+  }
   RS_AtomicIntStoreRelaxed(&ctx->execPhase, (int)stage);
 }
 
@@ -607,12 +616,12 @@ static inline void AREQ_SetTimedOut(AREQ *req) {
   RequestSyncCtx_SetTimedOut(&req->syncCtx);
 }
 // The pipeline stage the request had reached, used to attribute a timeout.
-static inline QueryTimeoutStage AREQ_TimeoutStage(AREQ *req) {
-  return RequestSyncCtx_GetTimeoutStage(&req->syncCtx);
+static inline QueryTimeoutStage AREQ_ExecutionStage(AREQ *req) {
+  return RequestSyncCtx_GetExecutionStage(&req->syncCtx);
 }
 // Advance the request's execution-phase marker (QUEUE -> PIPELINE -> REPLY).
-static inline void AREQ_SetTimeoutStage(AREQ *req, QueryTimeoutStage stage) {
-  RequestSyncCtx_SetTimeoutStage(&req->syncCtx, stage);
+static inline void AREQ_SetExecutionStage(AREQ *req, QueryTimeoutStage stage) {
+  RequestSyncCtx_SetExecutionStage(&req->syncCtx, stage);
 }
 #ifdef ENABLE_ASSERT
 // SyncPointStopFn predicate adapter for AREQ_TimedOut. Pass the AREQ as `arg`

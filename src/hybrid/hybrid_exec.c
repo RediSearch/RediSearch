@@ -227,14 +227,14 @@ static void startPipelineHybrid(HybridRequest *hreq, ResultProcessor *rp, Search
   // The pipeline is about to run: advance the execution-phase marker so a timeout
   // from here on is attributed to PIPELINE. The pre-pipeline bail-outs above
   // intentionally leave the marker at QUEUE.
-  HybridRequest_SetTimeoutStage(hreq, QUERY_TIMEOUT_STAGE_PIPELINE);
+  HybridRequest_SetExecutionStage(hreq, QUERY_TIMEOUT_STAGE_PIPELINE);
 
   startPipelineCommon(&ctx, rp, results, r, rc);
 
   // Pipeline done without timing out; the caller now enters the reply phase
   // (marker only; never forces a timeout).
   if (*rc != RS_RESULT_TIMEDOUT) {
-    HybridRequest_SetTimeoutStage(hreq, QUERY_TIMEOUT_STAGE_REPLY);
+    HybridRequest_SetExecutionStage(hreq, QUERY_TIMEOUT_STAGE_REPLY);
   }
 }
 
@@ -278,7 +278,7 @@ static int HREQ_populateReplyWithResults(RedisModule_Reply *reply,
  * (HybridRequest_TimedOut is set only by the blocked-client timeout callbacks). */
 static inline void recordHREQTimeoutStage(HybridRequest *hreq, bool isError, bool coord) {
   if (HybridRequest_TimedOut(hreq)) {
-    QueryTimeoutStageStats_Record(HybridRequest_TimeoutStage(hreq), isError, coord);
+    QueryTimeoutStageStats_Record(HybridRequest_ExecutionStage(hreq), isError, coord);
   }
 }
 

@@ -1181,6 +1181,12 @@ void AREQ_ResetForCursorReadReturnStrict(AREQ *req) {
   req->syncCtx.safeLoaderHoldingGIL = false;
   pthread_mutex_unlock(&req->syncCtx.aggregateResultsLock);
   RequestSyncCtx_ClearTimedOut(&req->syncCtx);
+  // Fresh execution of a reused cursor AREQ: reset the execution-phase marker so a
+  // read that times out while still queued is attributed to QUEUE rather than a
+  // stale stage left over from a previous read. Done after ClearTimedOut so the
+  // freeze in RequestSyncCtx_SetExecutionStage does not block it. Covers both the
+  // shard and coordinator RETURN_STRICT cursor-read paths.
+  RequestSyncCtx_SetExecutionStage(&req->syncCtx, QUERY_TIMEOUT_STAGE_QUEUE);
   ResultProcessor *root = AREQ_QueryProcessingCtx(req)->rootProc;
   if (root && root->type == RP_NETWORK) {
     ((RPNet *)root)->drainOnly = false;

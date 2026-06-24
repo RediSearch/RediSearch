@@ -102,13 +102,13 @@ void *CoordRequestCtx_GetRequest(CoordRequestCtx *ctx);
  * execution-phase marker (PIPELINE while fanning out / reducing, REPLY while
  * serializing the reply).
  */
-static inline QueryTimeoutStage CoordRequestCtx_TimeoutStage(CoordRequestCtx *ctx) {
+static inline QueryTimeoutStage CoordRequestCtx_ExecutionStage(CoordRequestCtx *ctx) {
   void *req = CoordRequestCtx_GetRequest(ctx);
   if (!req) {
     return QUERY_TIMEOUT_STAGE_QUEUE;
   }
-  return ctx->type == COMMAND_HYBRID ? HybridRequest_TimeoutStage((HybridRequest *)req)
-                                     : AREQ_TimeoutStage((AREQ *)req);
+  return ctx->type == COMMAND_HYBRID ? HybridRequest_ExecutionStage((HybridRequest *)req)
+                                     : AREQ_ExecutionStage((AREQ *)req);
 }
 
 /**
@@ -123,7 +123,7 @@ static inline bool CoordRequestCtx_TimedOut(CoordRequestCtx *ctx) {
 // timeouts are always attributed to the coord (COORD_ERR_WARN) side.
 static inline void CoordRequestCtx_RecordTimeoutStage(CoordRequestCtx *ctx, bool isError) {
   if (CoordRequestCtx_TimedOut(ctx)) {
-    QueryTimeoutStageStats_Record(CoordRequestCtx_TimeoutStage(ctx), isError, COORD_ERR_WARN);
+    QueryTimeoutStageStats_Record(CoordRequestCtx_ExecutionStage(ctx), isError, COORD_ERR_WARN);
   }
 }
 

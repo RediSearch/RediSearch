@@ -433,18 +433,18 @@ static void startPipeline(AREQ *req, ResultProcessor *rp, SearchResult ***result
   // The result-processor pipeline is about to run: advance the execution-phase
   // marker so a timeout from here on is attributed to the PIPELINE stage. The
   // pre-pipeline bail-outs above intentionally leave the marker at QUEUE.
-  AREQ_SetTimeoutStage(req, QUERY_TIMEOUT_STAGE_PIPELINE);
+  AREQ_SetExecutionStage(req, QUERY_TIMEOUT_STAGE_PIPELINE);
 
   startPipelineCommon(&ctx, rp, results, r, rc);
 
-  // The pipeline produced its results without timing out; the caller now enters
-  // the reply/serialization phase. Advance the marker so a timeout from here on
-  // -- most importantly a blocked-client deadline that fires while a stored reply
-  // is still pending on the main thread -- is attributed to the REPLY stage.
-  // This only moves the marker; it never forces a timeout, so it cannot suppress
-  // streamed (RETURN-policy) results.
+  // The pipeline finished without timing out; advance the marker so a timeout from
+  // here on is attributed to the REPLY stage (most importantly a blocked-client
+  // deadline that fires while a stored reply is still pending on the main thread).
+  // Only the FAIL/RETURN_STRICT blocked-client paths read the marker for the
+  // breakdown; RETURN streams its remaining rows inline and records no per-stage
+  // timeout, so advancing here cannot mis-attribute streamed (RETURN) results.
   if (*rc != RS_RESULT_TIMEDOUT) {
-    AREQ_SetTimeoutStage(req, QUERY_TIMEOUT_STAGE_REPLY);
+    AREQ_SetExecutionStage(req, QUERY_TIMEOUT_STAGE_REPLY);
   }
 }
 
@@ -553,7 +553,7 @@ typedef struct {
  * of the aggregate (inline / BG-detected timeouts are not blocked-client). */
 static inline void recordAREQTimeoutStage(AREQ *req, bool isError) {
   if (AREQ_TimedOut(req)) {
-    QueryTimeoutStageStats_Record(AREQ_TimeoutStage(req), isError, !IsInternal(req));
+    QueryTimeoutStageStats_Record(AREQ_ExecutionStage(req), isError, !IsInternal(req));
   }
 }
 
@@ -1650,8 +1650,9 @@ static int QueryTimeoutReturnStrictCallback(RedisModuleCtx *ctx, RedisModuleStri
     // We were able to claim the aggregation results.
     // That means that the background thread didn't reach the aggregation phase (startPipelineCommon) yet.
     // The empty reply goes through a fresh AREQ, so record the per-stage timeout
-    // here: a won claim means the pipeline had not started -> QUEUE stage.
-    QueryTimeoutStageStats_Record(QUERY_TIMEOUT_STAGE_QUEUE, /*isError=*/false, !IsInternal(req));
+    // on the real request here. A won claim means the BG bailed before advancing
+    // the marker past QUEUE, so reading the marker attributes this to QUEUE.
+    recordAREQTimeoutStage(req, /*isError=*/false);
     // Reply with empty results
     single_shard_common_query_reply_empty(ctx, argv, argc, 0, QUERY_ERROR_CODE_TIMED_OUT);
     return REDISMODULE_OK;
@@ -1661,8 +1662,10 @@ static int QueryTimeoutReturnStrictCallback(RedisModuleCtx *ctx, RedisModuleStri
   // Wait would deadlock (it needs the GIL we hold). Preempt it and reply empty;
   // the worker finishes once we release the GIL. See aggregate.h.
   if (RequestSyncCtx_TimeoutPreemptSafeLoaderGIL(&req->syncCtx)) {
-    // Parked at the safe-loader GIL gate, before producing pipeline output -> QUEUE.
-    QueryTimeoutStageStats_Record(QUERY_TIMEOUT_STAGE_QUEUE, /*isError=*/false, !IsInternal(req));
+    // The BG lost the claim race, so it is parked inside startPipelineCommon at
+    // the safe-loader GIL gate -- the marker has already advanced to PIPELINE.
+    // Read it so this is attributed to PIPELINE, not QUEUE.
+    recordAREQTimeoutStage(req, /*isError=*/false);
     single_shard_common_query_reply_empty(ctx, argv, argc, 0, QUERY_ERROR_CODE_TIMED_OUT);
     return REDISMODULE_OK;
   }
@@ -1817,9 +1820,10 @@ static int CursorReadTimeoutReturnStrictCallback(RedisModuleCtx *ctx, RedisModul
   if (AREQ_TryClaimAggregateResults(req)) {
     // The worker has not entered the stored-results phase yet. Reply in the
     // normal RETURN_STRICT cursor shape; when the worker observes the failed
-    // claim, it parks the already-taken cursor for the advertised id.
-    // Won claim => pipeline had not started -> QUEUE stage.
-    QueryTimeoutStageStats_Record(QUERY_TIMEOUT_STAGE_QUEUE, /*isError=*/false, !IsInternal(req));
+    // claim, it parks the already-taken cursor for the advertised id. A won claim
+    // means the BG bailed before advancing past QUEUE -> reading the marker
+    // attributes this to QUEUE.
+    recordAREQTimeoutStage(req, /*isError=*/false);
     return cursor_read_empty_reply_timeout(ctx, node->cursorId, IsInternal(req));
   }
 
@@ -1827,7 +1831,9 @@ static int CursorReadTimeoutReturnStrictCallback(RedisModuleCtx *ctx, RedisModul
   // Wait would deadlock (it needs the GIL we hold). Preempt it and reply with an
   // exhausted cursor (id 0); the worker finishes once we release the GIL.
   if (RequestSyncCtx_TimeoutPreemptSafeLoaderGIL(&req->syncCtx)) {
-    QueryTimeoutStageStats_Record(QUERY_TIMEOUT_STAGE_QUEUE, /*isError=*/false, !IsInternal(req));
+    // BG lost the claim and is parked inside startPipelineCommon at the
+    // safe-loader GIL gate: the marker has already advanced to PIPELINE.
+    recordAREQTimeoutStage(req, /*isError=*/false);
     return cursor_read_empty_reply_timeout(ctx, 0, IsInternal(req));
   }
 
@@ -2355,7 +2361,7 @@ int RSCursorReadCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc)
     // Fresh execution of a reused cursor AREQ: reset the timeout-stage marker so a
     // read that times out while still queued is attributed to QUEUE rather than a
     // stale stage left over from a previous read.
-    AREQ_SetTimeoutStage(cursor->execState, QUERY_TIMEOUT_STAGE_QUEUE);
+    AREQ_SetExecutionStage(cursor->execState, QUERY_TIMEOUT_STAGE_QUEUE);
     BlockClientCtx blockClientCtx = {0};
     if (cursor->queryTimeoutPolicy != TimeoutPolicy_Return) {
       AREQ *req = cursor->execState;
@@ -2404,6 +2410,11 @@ int RSCursorReadCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc)
         Cursor_Free(cursor);
         return REDISMODULE_OK;
       }
+      // Fresh execution of a reused cursor AREQ: reset the execution-phase marker
+      // (not timed out -- checked above) before publishing it to the ctx, so a
+      // coord timeout that fires before startPipeline re-advances the marker reads
+      // QUEUE rather than a stale stage from a previous read.
+      AREQ_SetExecutionStage(cursor->execState, QUERY_TIMEOUT_STAGE_QUEUE);
       // Attach AREQ to the ctx (IncrRefs, propagates useReplyCallback/timedOut).
       CoordRequestCtx_SetRequest(reqCtx, cursor->execState);
       CoordRequestCtx_UnlockSetRequest(reqCtx);
