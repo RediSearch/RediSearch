@@ -93,9 +93,9 @@ pub fn eval_node<'index>(
     node: &QueryNodeRef,
 ) -> Option<Evaluated<'index>> {
     match node.as_enum() {
-        QueryNode::Null => Some(Evaluated::Rust(eval_null())),
-        QueryNode::Wildcard => Some(Evaluated::Rust(eval_wildcard(ctx, node))),
-        QueryNode::Ids { keys, doc_ids } => Some(Evaluated::Rust(eval_ids(ctx, keys, doc_ids))),
+        QueryNode::Null => Some(eval_null()),
+        QueryNode::Wildcard => Some(eval_wildcard(ctx, node)),
+        QueryNode::Ids { keys, doc_ids } => Some(eval_ids(ctx, keys, doc_ids)),
         QueryNode::Missing { field } => eval_missing(ctx, field).map(Evaluated::Rust),
         // Node types not yet ported to Rust are delegated back to the C
         // dispatcher.
@@ -123,15 +123,15 @@ fn eval_node_c<'index>(
 }
 
 /// `QN_NULL` — stopword queries produce an empty iterator.
-fn eval_null<'index>() -> EvalResult<'index> {
-    Box::new(Empty)
+fn eval_null<'index>() -> Evaluated<'index> {
+    Evaluated::Rust(Box::new(Empty))
 }
 
 /// `QN_WILDCARD` — the `*` query that matches every document.
 fn eval_wildcard<'index>(
     ctx: &'index mut QueryEvalContext,
     node: &QueryNodeRef,
-) -> EvalResult<'index> {
+) -> Evaluated<'index> {
     let weight = node.opts().weight;
     // SAFETY: `new_wildcard_iterator` preconditions map to
     // `QueryEvalContext::new` invariants as follows:
@@ -149,7 +149,7 @@ fn eval_wildcard<'index>(
     // 8. `SEARCH_ENTERPRISE_ITERATORS` is initialised when `diskSpec` is
     //    non-null — the enterprise module sets it during `OnLoad`.
     let it = unsafe { rqe_iterators::wildcard::new_wildcard_iterator(ctx.as_non_null(), weight) };
-    Box::new(it)
+    Evaluated::Rust(Box::new(it))
 }
 
 /// `QN_IDS` — filter by explicit document key names.
@@ -167,7 +167,7 @@ fn eval_ids<'index>(
     ctx: &'index mut QueryEvalContext,
     keys: &[ffi::sds],
     doc_ids: Option<&[DocId]>,
-) -> EvalResult<'index> {
+) -> Evaluated<'index> {
     // Pre-resolved `doc_ids` are only produced on the search-on-disk path, so
     // they must be accompanied by a non-null `spec.diskSpec`. Guard the
     // invariant.
@@ -206,10 +206,10 @@ fn eval_ids<'index>(
         ids.dedup();
     }
 
-    Box::new(IdListSorted::with_result(
+    Evaluated::Rust(Box::new(IdListSorted::with_result(
         ids,
         RSIndexResult::build_virt().weight(1.0).build(),
-    ))
+    )))
 }
 
 /// `QN_MISSING` — matches documents where a field has no indexed value.
