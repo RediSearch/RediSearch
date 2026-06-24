@@ -12,6 +12,9 @@ use std::hash::Hasher;
 use value::hash::{hash_stable, hash_value};
 use value::{Array, Map, RedisString, SharedValue, String, Trio, Value};
 
+// The same as used in `aggregate/reducers/count_distinct.c`
+const STABLE_SEED: u64 = 0x5f61767a;
+
 fn hash(value: &Value) -> u64 {
     let mut hasher = DefaultHasher::new();
     hash_value(value, &mut hasher);
@@ -189,7 +192,7 @@ fn hash_stable_does_not_depend_on_the_per_process_seed() {
     // `DefaultHasher` (the algorithm `hash_stable` uses) confirms that no
     // per-process secret is mixed in.
     let value = Value::String(String::from_vec(b"hello".to_vec()));
-    let hval = 0x5f61767a;
+    let hval = STABLE_SEED;
 
     let actual = hash_stable(&value, hval);
 
