@@ -63,6 +63,18 @@ struct TermSuffixIndex *NewTermSuffixIndex(void);
 void TermSuffixIndex_Free(struct TermSuffixIndex *t);
 
 /**
+ * Estimated heap memory currently held by the index, in bytes.
+ *
+ * # Safety
+ *
+ * 1. `t` must be a [valid], non-null pointer obtained from
+ *    [`NewTermSuffixIndex`].
+ *
+ * [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
+ */
+size_t TermSuffixIndex_MemUsage(const struct TermSuffixIndex *t);
+
+/**
  * Add `term` (`len` UTF-8 bytes) to the index. Adding an existing,
  * empty or non-UTF-8 term is a no-op.
  *
@@ -93,16 +105,20 @@ void TermSuffixIndex_Add(struct TermSuffixIndex *t, const char *term, size_t len
 void TermSuffixIndex_Remove(struct TermSuffixIndex *t, const char *term, size_t len);
 
 /**
- * Estimated heap memory currently held by the index, in bytes.
+ * Iterate over every key stored in the index — each member term plus
+ * every indexed proper suffix — in lexicographical order.
+ *
+ * Advance with [`TermSuffixIndexIterator_Next`].
  *
  * # Safety
  *
  * 1. `t` must be a [valid], non-null pointer obtained from
  *    [`NewTermSuffixIndex`].
+ * 2. `t` must not be modified or freed while the iterator lives.
  *
  * [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
  */
-size_t TermSuffixIndex_MemUsage(const struct TermSuffixIndex *t);
+struct TermSuffixIndexIterator *TermSuffixIndex_IterateAll(const struct TermSuffixIndex *t);
 
 /**
  * Invoke `callback` once per member term containing the UTF-8 needle
@@ -162,22 +178,6 @@ void TermSuffixIndex_IterateSuffix(const struct TermSuffixIndex *t, const char *
  * [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
  */
 struct TermSuffixIndexIterator *TermSuffixIndex_IterateWildcard(const struct TermSuffixIndex *t, const char *str, size_t len);
-
-/**
- * Iterate over every key stored in the index — each member term plus
- * every indexed proper suffix — in lexicographical order.
- *
- * Advance with [`TermSuffixIndexIterator_Next`].
- *
- * # Safety
- *
- * 1. `t` must be a [valid], non-null pointer obtained from
- *    [`NewTermSuffixIndex`].
- * 2. `t` must not be modified or freed while the iterator lives.
- *
- * [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
- */
-struct TermSuffixIndexIterator *TermSuffixIndex_IterateAll(const struct TermSuffixIndex *t);
 
 /**
  * Advance the iterator. Returns 1 and stores the next string into

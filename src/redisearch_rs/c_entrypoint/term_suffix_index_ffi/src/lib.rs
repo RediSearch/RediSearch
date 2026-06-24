@@ -79,6 +79,23 @@ pub unsafe extern "C" fn TermSuffixIndex_Free(t: *mut TermSuffixIndex) {
     drop(unsafe { Box::from_raw(t) });
 }
 
+/// Estimated heap memory currently held by the index, in bytes.
+///
+/// # Safety
+///
+/// 1. `t` must be a [valid], non-null pointer obtained from
+///    [`NewTermSuffixIndex`].
+///
+/// [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn TermSuffixIndex_MemUsage(t: *const TermSuffixIndex) -> usize {
+    debug_assert!(!t.is_null(), "t cannot be NULL");
+
+    // Safety: ensured by caller (1.)
+    let TermSuffixIndex(index) = unsafe { &*t };
+    index.mem_usage()
+}
+
 /// Add `term` (`len` UTF-8 bytes) to the index. Adding an existing,
 /// empty or non-UTF-8 term is a no-op.
 ///
@@ -143,21 +160,32 @@ pub unsafe extern "C" fn TermSuffixIndex_Remove(
     index.remove(term);
 }
 
-/// Estimated heap memory currently held by the index, in bytes.
+/// Iterate over every key stored in the index — each member term plus
+/// every indexed proper suffix — in lexicographical order.
+///
+/// Advance with [`TermSuffixIndexIterator_Next`].
 ///
 /// # Safety
 ///
 /// 1. `t` must be a [valid], non-null pointer obtained from
 ///    [`NewTermSuffixIndex`].
+/// 2. `t` must not be modified or freed while the iterator lives.
 ///
 /// [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn TermSuffixIndex_MemUsage(t: *const TermSuffixIndex) -> usize {
+pub unsafe extern "C" fn TermSuffixIndex_IterateAll<'si>(
+    t: *const TermSuffixIndex,
+) -> *mut TermSuffixIndexIterator<'si> {
     debug_assert!(!t.is_null(), "t cannot be NULL");
 
-    // Safety: ensured by caller (1.)
+    // Safety: ensured by caller (1., 2.)
     let TermSuffixIndex(index) = unsafe { &*t };
-    index.mem_usage()
+
+    let iter = Box::new(index.keys().map(Rc::from));
+    Box::into_raw(Box::new(TermSuffixIndexIterator {
+        iter,
+        current: None,
+    }))
 }
 
 /// Invoke `callback` once per member term containing the UTF-8 needle
@@ -311,34 +339,6 @@ pub unsafe extern "C" fn TermSuffixIndex_IterateWildcard<'si>(
             Box::new(std::iter::empty())
         }
     };
-    Box::into_raw(Box::new(TermSuffixIndexIterator {
-        iter,
-        current: None,
-    }))
-}
-
-/// Iterate over every key stored in the index — each member term plus
-/// every indexed proper suffix — in lexicographical order.
-///
-/// Advance with [`TermSuffixIndexIterator_Next`].
-///
-/// # Safety
-///
-/// 1. `t` must be a [valid], non-null pointer obtained from
-///    [`NewTermSuffixIndex`].
-/// 2. `t` must not be modified or freed while the iterator lives.
-///
-/// [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
-#[unsafe(no_mangle)]
-pub unsafe extern "C" fn TermSuffixIndex_IterateAll<'si>(
-    t: *const TermSuffixIndex,
-) -> *mut TermSuffixIndexIterator<'si> {
-    debug_assert!(!t.is_null(), "t cannot be NULL");
-
-    // Safety: ensured by caller (1., 2.)
-    let TermSuffixIndex(index) = unsafe { &*t };
-
-    let iter = Box::new(index.keys().map(Rc::from));
     Box::into_raw(Box::new(TermSuffixIndexIterator {
         iter,
         current: None,
