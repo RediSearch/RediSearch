@@ -15,7 +15,7 @@ use index_result::RSIndexResult;
 use rqe_core::DocId;
 use rqe_iterators::ExpirationChecker;
 
-/// A mock expiration checker that flags a fixed set of doc ids as expired.
+/// A mock expiration checker that marks a fixed set of doc ids as expired.
 ///
 /// This lets a consumer of [`ExpirationChecker`] exercise its own skip-on-expired
 /// logic without standing up a real TTL table and search context.
@@ -30,7 +30,7 @@ impl MockExpirationChecker {
         Self { expired_docs }
     }
 
-    /// Flag an additional doc id as expired.
+    /// Mark an additional doc id as expired.
     pub fn mark_expired(&mut self, doc_id: DocId) {
         self.expired_docs.insert(doc_id);
     }

@@ -165,7 +165,8 @@ pub unsafe fn make_source_with_mode(
     k: usize,
     child_est: usize,
 ) -> VectorScoreSource<'static> {
-    // SAFETY: caller guarantees `index` outlives the returned source.
+    // SAFETY: forwarded to `make_source_inner`; caller upholds this fn's
+    // `# Safety` 1 and 2.
     unsafe {
         make_source_inner(
             index,
@@ -184,7 +185,10 @@ pub unsafe fn make_source_with_mode(
 ///
 /// # Safety
 ///
-/// `index` must outlive the returned source (and any iterator built from it).
+/// 1. `index` must outlive the returned source (and any iterator built from it).
+/// 2. `query` must match `index`'s type and dimension, the layout VecSim reads
+///    in full on every query path; a shorter blob is read out of bounds. Use
+///    [`uniform_blob`]/[`blob`] sized to the index `dim`.
 pub unsafe fn make_source_with_expiration<E: ExpirationChecker>(
     index: NonNull<VecSimIndex>,
     query: Vec<u8>,
@@ -193,7 +197,8 @@ pub unsafe fn make_source_with_expiration<E: ExpirationChecker>(
     child_est: usize,
     expiration: Option<E>,
 ) -> VectorScoreSource<'static, E> {
-    // SAFETY: caller guarantees `index` outlives the returned source.
+    // SAFETY: forwarded to `make_source_inner`; caller upholds this fn's
+    // `# Safety` 1 and 2.
     unsafe {
         make_source_inner(
             index,
@@ -211,7 +216,10 @@ pub unsafe fn make_source_with_expiration<E: ExpirationChecker>(
 ///
 /// # Safety
 ///
-/// `index` must outlive the returned source (and any iterator built from it).
+/// 1. `index` must outlive the returned source (and any iterator built from it).
+/// 2. `query` must match `index`'s type and dimension, the layout VecSim reads
+///    in full on every query path; a shorter blob is read out of bounds. Use
+///    [`uniform_blob`]/[`blob`] sized to the index `dim`.
 unsafe fn make_source_inner<E: ExpirationChecker>(
     index: NonNull<VecSimIndex>,
     query: Vec<u8>,
