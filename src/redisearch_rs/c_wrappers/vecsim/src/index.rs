@@ -103,15 +103,55 @@ fn expected_blob_len(ptr: NonNull<VecSimIndex>) -> usize {
     info.dim * bytes_per_elem
 }
 
+/// Query blob the guard hands to per-id distance lookups.
+enum AdhocQuery {
+    /// Cosine: a freshly normalized copy owned by the guard.
+    Normalized(Vec<u8>),
+    /// Non-cosine: aliases the caller's blob with no copy, valid for the guard's
+    /// lifetime per `acquire_shared_locks`' safety contract.
+    Borrowed { ptr: NonNull<u8> },
+}
+
+impl AdhocQuery {
+    /// Pointer to the query blob, valid for the bytes VecSim reads on a distance
+    /// lookup. For [`Borrowed`](Self::Borrowed) this is the caller's blob, valid
+    /// per the `acquire_shared_locks` safety contract.
+    const fn ptr(&self) -> *const c_void {
+        match self {
+            AdhocQuery::Normalized(blob) => blob.as_ptr().cast::<c_void>(),
+            AdhocQuery::Borrowed { ptr } => ptr.as_ptr().cast_const().cast::<c_void>(),
+        }
+    }
+}
+
 /// Returns a query blob ready for direct distance lookups against this index.
 ///
 /// Cosine indexes require normalized queries, so cosine inputs are normalized
-/// (see [`VecSim_Normalize`]); all other metrics are returned unchanged.
-fn prepare_query(ptr: NonNull<VecSimIndex>, query_vector: &[u8]) -> Vec<u8> {
+/// into an owned [`Normalized`](AdhocQuery::Normalized) copy (see
+/// [`VecSim_Normalize`]); all other metrics borrow `query_vector` unchanged as
+/// [`Borrowed`](AdhocQuery::Borrowed), copying nothing.
+///
+/// # Safety
+///
+/// The non-cosine [`Borrowed`](AdhocQuery::Borrowed) result aliases
+/// `query_vector` by raw pointer. For as long as the returned [`AdhocQuery`] is
+/// used, that blob must:
+///
+/// 1. stay allocated — VecSim reads it on every distance lookup;
+/// 2. keep a stable address — the stored pointer is never refreshed, so moving
+///    the buffer (e.g. a reallocation) would dangle it;
+/// 3. stay unmodified — lookups must observe the original query bytes.
+///
+/// The cosine [`Normalized`](AdhocQuery::Normalized) result owns its copy and
+/// imposes none of these.
+unsafe fn prepare_query(ptr: NonNull<VecSimIndex>, query_vector: &[u8]) -> AdhocQuery {
     // SAFETY: `ptr` is a valid VecSimIndex for at least as long as the caller's borrow.
     let info = unsafe { VecSimIndex_BasicInfo(ptr.as_ptr()) };
     if info.metric != VecSimMetric_VecSimMetric_Cosine {
-        return query_vector.to_vec();
+        // No copy: alias the caller's blob. `NonNull::dangling` is only reached
+        // for an empty blob (len 0), which is never dereferenced.
+        let ptr = NonNull::new(query_vector.as_ptr().cast_mut()).unwrap_or(NonNull::dangling());
+        return AdhocQuery::Borrowed { ptr };
     }
 
     // SAFETY: reads only immutable index metadata.
@@ -127,7 +167,7 @@ fn prepare_query(ptr: NonNull<VecSimIndex>, query_vector: &[u8]) -> Vec<u8> {
     //    appended norm) stays in bounds.
     // 2. `info.dim` and `info.type_` come from this index's own metadata.
     unsafe { VecSim_Normalize(blob.as_mut_ptr().cast::<c_void>(), info.dim, info.type_) };
-    blob
+    AdhocQuery::Normalized(blob)
 }
 
 impl<'index> IndexRef<'index> {
@@ -255,11 +295,26 @@ impl<'index> IndexRef<'index> {
     /// The query is normalized for cosine indexes (see [`prepare_query`]), so
     /// the caller passes a plain query just like for
     /// [`top_k_query`](Self::top_k_query).
-    pub fn acquire_shared_locks(
+    ///
+    /// # Safety
+    ///
+    /// Only non-cosine indexes rely on this — they borrow the blob without
+    /// copying (see [`AdhocQuery::Borrowed`]); cosine indexes own a normalized
+    /// copy and are unaffected. For a non-cosine index, `query_vector`'s blob
+    /// must uphold [`prepare_query`]'s conditions for the entire lifetime of the
+    /// returned [`SharedLockGuard`]:
+    ///
+    /// 1. stay allocated;
+    /// 2. keep a stable address (never reallocated);
+    /// 3. stay unmodified.
+    pub unsafe fn acquire_shared_locks(
         &self,
         query_vector: &QueryVector<'index>,
     ) -> SharedLockGuard<'index> {
-        let query = prepare_query(self.inner, query_vector.as_bytes());
+        // SAFETY: the caller upholds conditions (1)–(3) on `query_vector` for
+        // the guard's lifetime, which is exactly what `prepare_query`'s
+        // `Borrowed` result requires.
+        let query = unsafe { prepare_query(self.inner, query_vector.as_bytes()) };
         // SAFETY: `self.inner` upholds its invariant.
         unsafe { VecSimTieredIndex_AcquireSharedLocks(self.inner.as_ptr()) };
         SharedLockGuard {
@@ -301,9 +356,10 @@ impl<'index> IndexRef<'index> {
 #[must_use = "the shared locks are released when the guard is dropped"]
 pub struct SharedLockGuard<'index> {
     index: IndexRef<'index>,
-    /// Query blob, normalized once for cosine indexes at construction, reused
-    /// by every [`get_distance_from`](Self::get_distance_from) call.
-    query: Vec<u8>,
+    /// Query blob reused by every [`get_distance_from`](Self::get_distance_from)
+    /// call: an owned normalized copy for cosine indexes, or a borrow of the
+    /// caller's blob (no copy) for non-cosine — see [`AdhocQuery`].
+    query: AdhocQuery,
 }
 
 impl SharedLockGuard<'_> {
@@ -316,12 +372,14 @@ impl SharedLockGuard<'_> {
         // 2. The tiered-index shared locks are held for the lifetime of
         //    `self`, satisfying the `_Unsafe` precondition.
         // 3. `self.query` was sized and (for cosine) normalized to match the
-        //    index in `acquire_shared_locks`.
+        //    index in `acquire_shared_locks`. For the non-cosine `Borrowed`
+        //    variant the pointer aliases the caller's blob, whose validity for
+        //    `self`'s lifetime is guaranteed by `acquire_shared_locks`' contract.
         let distance = unsafe {
             VecSimIndex_GetDistanceFrom_Unsafe(
                 self.index.inner.as_ptr(),
                 doc_id as usize,
-                self.query.as_ptr().cast::<c_void>(),
+                self.query.ptr(),
             )
         };
         (!distance.is_nan()).then_some(distance)
