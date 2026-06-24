@@ -228,22 +228,27 @@ fn storage_drain_heap_yields_rows_best_first() {
 
 // ===== ProjectedRow `Hash` / `Eq` =====
 
-/// Build a [`ProjectedRow`] with an exact `dyn_values` layout: slot `i` is `None`
-/// when `slots[i]` is `None`, otherwise the number is written at `dstidx == i`.
-/// `set_dyn_capacity` pre-fills every slot with `None`, so trailing `None`s in
-/// `slots` are materialized (not truncated) — letting us exercise the
-/// trailing-strip rule explicitly.
-fn pr(slots: &[Option<f64>]) -> ProjectedRow {
+/// Build a [`ProjectedRow`] with an exact `dyn_values` layout: slot `i` is left
+/// `None` when `slots[i]` is `None`, otherwise the value is written at
+/// `dstidx == i`. `set_dyn_capacity` pre-fills every slot with `None`, so
+/// trailing `None`s in `slots` are materialized (not truncated) — letting us
+/// exercise the trailing-strip rule explicitly.
+fn pr_vals(slots: Vec<Option<SharedValue>>) -> ProjectedRow {
     let mut row = RLookupRow::new();
     row.set_dyn_capacity(slots.len());
-    for (i, slot) in slots.iter().enumerate() {
-        if let Some(n) = slot {
+    for (i, slot) in slots.into_iter().enumerate() {
+        if let Some(v) = slot {
             let mut key = RLookupKey::new(c"v", RLookupKeyFlags::empty());
             key.dstidx = i as u16;
-            row.write_key(&key, SharedValue::new_num(*n));
+            row.write_key(&key, v);
         }
     }
     ProjectedRow::new(row)
+}
+
+/// Numeric shorthand for [`pr_vals`].
+fn pr(slots: &[Option<f64>]) -> ProjectedRow {
+    pr_vals(slots.iter().map(|s| s.map(SharedValue::new_num)).collect())
 }
 
 fn hash_of(pr: &ProjectedRow) -> u64 {
@@ -252,9 +257,14 @@ fn hash_of(pr: &ProjectedRow) -> u64 {
     h.finish()
 }
 
-/// `Some` is shorthand for `Some(x)` in the layout literals below.
+/// `Some` number, for the layout literals below.
 const fn n(x: f64) -> Option<f64> {
     Some(x)
+}
+
+/// `Some` string value, for the layout literals below.
+fn s(bytes: &str) -> Option<SharedValue> {
+    Some(SharedValue::new_string(bytes.as_bytes().to_vec()))
 }
 
 #[test]
@@ -309,6 +319,45 @@ fn projected_row_compares_values_position_by_position() {
 
     // Differing value at the same position.
     assert!(pr(&[n(1.0), n(2.0)]) != pr(&[n(1.0), n(9.0)]));
+}
+
+#[test]
+fn projected_row_string_values() {
+    // Equal string rows hash and compare equal.
+    let a = pr_vals(vec![s("foo"), s("bar")]);
+    let b = pr_vals(vec![s("foo"), s("bar")]);
+    assert!(a == b);
+    assert_eq!(hash_of(&a), hash_of(&b));
+
+    // A differing string at one position breaks equality.
+    let c = pr_vals(vec![s("foo"), s("baz")]);
+    assert!(a != c);
+    assert_ne!(hash_of(&a), hash_of(&c));
+
+    // The trailing-strip and leading-positional rules hold for strings too.
+    assert!(pr_vals(vec![s("foo"), None]) == pr_vals(vec![s("foo")]));
+    assert_eq!(
+        hash_of(&pr_vals(vec![s("foo"), None])),
+        hash_of(&pr_vals(vec![s("foo")]))
+    );
+    assert!(pr_vals(vec![None, s("foo")]) != pr_vals(vec![s("foo")]));
+    assert_ne!(
+        hash_of(&pr_vals(vec![None, s("foo")])),
+        hash_of(&pr_vals(vec![s("foo")]))
+    );
+}
+
+#[test]
+fn projected_row_mixed_value_types() {
+    // Rows mixing numbers and strings compare and hash by position.
+    let a = pr_vals(vec![n(1.0).map(SharedValue::new_num), s("x")]);
+    let b = pr_vals(vec![n(1.0).map(SharedValue::new_num), s("x")]);
+    assert!(a == b);
+    assert_eq!(hash_of(&a), hash_of(&b));
+
+    let c = pr_vals(vec![n(1.0).map(SharedValue::new_num), s("y")]);
+    assert!(a != c);
+    assert_ne!(hash_of(&a), hash_of(&c));
 }
 
 #[test]
