@@ -1493,6 +1493,9 @@ struct SimulateInFlexGuard {
   SimulateInFlexGuard() : prev(RSGlobalConfig.simulateInFlex) {
     RSGlobalConfig.simulateInFlex = true;
   }
+  // Non-copyable/movable: a copy would restore the flag twice on scope exit.
+  SimulateInFlexGuard(const SimulateInFlexGuard &) = delete;
+  SimulateInFlexGuard &operator=(const SimulateInFlexGuard &) = delete;
   ~SimulateInFlexGuard() {
     RSGlobalConfig.simulateInFlex = prev;
   }
@@ -1509,6 +1512,10 @@ struct SpecCleanupGuard {
   StrongRef ref;
   explicit SpecCleanupGuard(StrongRef r) : ref(r) {
   }
+  // Non-copyable/movable: a copy would let two destructors each consume the same
+  // StrongRef, double-removing the spec (use-after-free).
+  SpecCleanupGuard(const SpecCleanupGuard &) = delete;
+  SpecCleanupGuard &operator=(const SpecCleanupGuard &) = delete;
   ~SpecCleanupGuard() {
     if (StrongRef_Get(ref)) {
       Indexes_RemoveSpecFromGlobals(ref, false);
