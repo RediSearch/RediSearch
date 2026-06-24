@@ -749,6 +749,8 @@ int HybridRequest_StartCursors(StrongRef hybrid_ref, RedisModuleCtx *replyCtx, Q
     // This ensures that if timeout fires:
     // 1. Before we create cursors: we'll see timedOut flag and skip creation
     // 2. After we create cursors: timeout callback will free them properly
+    // Depletion runs after this lock is released; depleters may need the Redis
+    // GIL, and the timeout callback must not block on cursorMutex while holding it.
     HybridRequest_LockCursors(req);
 
     // Check if we timed out before creating cursors
@@ -797,6 +799,8 @@ int HybridRequest_StartCursors(StrongRef hybrid_ref, RedisModuleCtx *replyCtx, Q
       return REDISMODULE_ERR;
     }
 
+    HybridRequest_UnlockCursors(req);
+
     int rc;
     if (backgroundDepletion) {
       rc = RPSafeDepleter_DepleteAll(depleters, status);
@@ -815,8 +819,11 @@ int HybridRequest_StartCursors(StrongRef hybrid_ref, RedisModuleCtx *replyCtx, Q
         depletionTimedOut = true;
       } else {
         // Fatal error or FAIL policy — free everything
-        array_free_ex(req->cursors, Cursor_Free(*(Cursor**)ptr));
-        req->cursors = NULL;
+        HybridRequest_LockCursors(req);
+        if (req->cursors) {
+          array_free_ex(req->cursors, Cursor_Free(*(Cursor**)ptr));
+          req->cursors = NULL;
+        }
         HybridRequest_UnlockCursors(req);
         if (!QueryError_HasError(status)) {
           if (rc == RS_RESULT_TIMEDOUT) {
@@ -828,8 +835,6 @@ int HybridRequest_StartCursors(StrongRef hybrid_ref, RedisModuleCtx *replyCtx, Q
         return REDISMODULE_ERR;
       }
     }
-
-    HybridRequest_UnlockCursors(req);
 
     // Pause after store cursors (hybrid cursors only)
     debugPauseHybridStoreCursors(req, false);
@@ -922,13 +927,14 @@ static int HybridQueryTimeoutFailCallback(RedisModuleCtx *ctx, RedisModuleString
 
   HybridRequest *hreq = (HybridRequest *)node->privdata;
 
+  // Signal timeout to background thread
+  HybridRequest_SetTimedOut(hreq);
+
   // Lock to synchronize with cursor creation in HybridRequest_StartCursors.
   // After setting timedOut, any subsequent cursor creation attempt will be skipped.
   // If cursors were already created, we free them here.
   HybridRequest_LockCursors(hreq);
 
-  // Signal timeout to background thread
-  HybridRequest_SetTimedOut(hreq);
 
   // Free cursors if they were already created
   if (hreq->cursors) {
@@ -1012,13 +1018,14 @@ static int HybridQueryCursorTimeoutReturnStrictCallback(RedisModuleCtx *ctx, Red
 
   HybridRequest *hreq = (HybridRequest *)node->privdata;
 
+  // Signal timeout to background thread
+  HybridRequest_SetTimedOut(hreq);
+
   // Lock to synchronize with cursor creation in HybridRequest_StartCursors.
   // After setting timedOut, any subsequent cursor creation attempt will be skipped.
   // If cursors were already created, we free them here.
   HybridRequest_LockCursors(hreq);
 
-  // Signal timeout to background thread
-  HybridRequest_SetTimedOut(hreq);
 
   if (hreq->cursors) {
     // If Cursor were created - reply with them
@@ -1054,6 +1061,11 @@ static int HybridQueryCursorReplyCallback(RedisModuleCtx *ctx, RedisModuleString
   if (QueryError_HasError(&req->storedReplyState.err)) {
     QueryErrorsGlobalStats_UpdateError(QueryError_GetCode(&req->storedReplyState.err), 1, SHARD_ERR_WARN);
     QueryError_ReplyAndClear(ctx, &req->storedReplyState.err);
+    return REDISMODULE_OK;
+  }
+
+  if (!req->cursors) {
+    // Timeout callback already owned the cursor-mapping reply.
     return REDISMODULE_OK;
   }
 
