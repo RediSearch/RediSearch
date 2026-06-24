@@ -123,6 +123,12 @@ void TagIndex_Free(TagIndex *index);
 
 char *TagIndex_SepString(char sep, char **s, size_t *toklen, bool indexEmpty);
 
+/* Return the unique id generated in `NewTagIndex`.
+ */
+static inline uint32_t TagIndex_GetId(const TagIndex *idx) {
+  return idx->uniqueId;
+}
+
 /* Preprocess a document tag field, split the content in data into fdata `tags` array
    Return 0 if there's no content to index in the field (its value is NULL), 1 otherwise
  */

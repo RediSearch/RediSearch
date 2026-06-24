@@ -49,7 +49,7 @@ void FGC_childCollectTags(ForkGC *gc, RedisSearchCtx *sctx) {
       }
 
       tagHeader header = {.field = HiddenString_GetUnsafe(tagFields[i]->fieldName, NULL),
-                          .uniqueId = tagIdx->uniqueId};
+                          .uniqueId = TagIndex_GetId(tagIdx)};
 
       TrieMapIterator *iter = TrieMap_Iterate(tagIdx->values);
       char *ptr;
@@ -145,7 +145,7 @@ FGCError FGC_parentHandleTags(ForkGC *gc) {
     tagIdx = TagIndex_Open(fs);
     RS_LOG_ASSERT_FMT(tagIdx, "tag field '%.*s' was not opened", (int)fieldNameLen, fieldName);
 
-    if (tagIdx->uniqueId != tagUniqueId) {
+    if (TagIndex_GetId(tagIdx) != tagUniqueId) {
       status = FGC_CHILD_ERROR;
       goto loop_cleanup;
     }
