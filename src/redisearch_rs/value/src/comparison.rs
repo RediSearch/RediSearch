@@ -199,20 +199,20 @@ pub fn compare(
         // empty string — identical to the Array/Map/Undefined arms above.
         (Value::Number(n1), Value::Trio(t2)) => match try_value_as_number(t2.left()) {
             Some(n2) => n1.partial_cmp(&n2).ok_or(CompareError::NaNFloat),
-            None => compare_number_to_unconvertible(num_to_str_cmp_fallback),
+            None => number_type_vs_unconvertible(num_to_str_cmp_fallback),
         },
         (Value::Trio(t1), Value::Number(n2)) => match try_value_as_number(t1.left()) {
             Some(n1) => n1.partial_cmp(n2).ok_or(CompareError::NaNFloat),
-            None => compare_number_to_unconvertible(num_to_str_cmp_fallback).map(Ordering::reverse),
+            None => number_type_vs_unconvertible(num_to_str_cmp_fallback).map(Ordering::reverse),
         },
 
         // Compare a number (regardless of value) to an 'unconvertible' type as if it is a
         // 'number-to-empty-string' comparison.
         (Value::Number(_), Value::Array(_) | Value::Map(_) | Value::Undefined) => {
-            compare_number_to_unconvertible(num_to_str_cmp_fallback)
+            number_type_vs_unconvertible(num_to_str_cmp_fallback)
         }
         (Value::Array(_) | Value::Map(_) | Value::Undefined, Value::Number(_)) => {
-            compare_number_to_unconvertible(num_to_str_cmp_fallback).map(Ordering::reverse)
+            number_type_vs_unconvertible(num_to_str_cmp_fallback).map(Ordering::reverse)
         }
 
         // A string type compared against an incompatible type treats the other side as empty string.
@@ -279,7 +279,7 @@ fn compare_number_to_string(
 /// If `num_to_str_cmp_fallback` is enabled then a string representation of
 /// a number will always be greater, so no need to actually do a comparison.
 /// If `num_to_str_cmp_fallback` is disabled then no comparison is possible.
-const fn compare_number_to_unconvertible(
+const fn number_type_vs_unconvertible(
     num_to_str_cmp_fallback: bool,
 ) -> Result<Ordering, CompareError> {
     if num_to_str_cmp_fallback {
