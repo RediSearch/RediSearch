@@ -815,6 +815,16 @@ build_test_dependencies() {
         echo "Some tests may fail if they depend on this extension"
       fi
     fi
+
+    # Pre-build the Rust test harnesses. Skipped for COV/SAN/MIRI: those use different commands or
+    # instrumentation whose artifacts the plain test run would not reuse anyway.
+    if [[ "$RUN_RUST_TESTS" == "1" && "$COV" != "1" && "$RUN_MIRI" != "1" && "$SAN" != "address" ]]; then
+      echo "Pre-building Rust test harnesses (profile $RUST_PROFILE)..."
+      export BINDIR
+      ( cd "$ROOT/src/redisearch_rs" && \
+        RUSTFLAGS="${RUSTFLAGS}" cargo $RUST_TOOLCHAIN_MODIFIER nextest run \
+          --no-run --cargo-profile=$RUST_PROFILE --workspace $TEST_FILTER )
+    fi
   fi
 }
 
