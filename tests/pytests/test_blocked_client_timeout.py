@@ -4812,11 +4812,9 @@ class TestCoordinatorTimeoutReturnStrictResp2:
             verify_shard_init(self.env.getConnection(i))
 
         conn = getConnectionByEnv(self.env)
+
         self.env.expect('FT.CREATE', 'idx', 'PREFIX', '1', 'doc',
                         'SCHEMA', 'name', 'TEXT').ok()
-        for i in range(self.n_docs):
-            conn.execute_command('HSET', f'doc{i}', 'name', f'hello{i}')
-
         # Index with a vector field for FT.HYBRID tests (different prefix).
         self.env.expect(
             'FT.CREATE', 'hybrid_idx', 'PREFIX', '1', 'hybrid_doc', 'SCHEMA',
@@ -4824,7 +4822,10 @@ class TestCoordinatorTimeoutReturnStrictResp2:
             'embedding', 'VECTOR', 'FLAT', '6', 'TYPE', 'FLOAT32', 'DIM', '2',
             'DISTANCE_METRIC', 'L2'
         ).ok()
+
         for i in range(self.n_docs):
+            conn.execute_command('HSET', f'doc{i}', 'name', f'hello{i}')
+
             vec = np.array([float(i), float(i)], dtype=np.float32).tobytes()
             conn.execute_command('HSET', f'hybrid_doc{i}', 'name', f'hello{i}',
                                  'embedding', vec)
