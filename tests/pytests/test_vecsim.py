@@ -1878,35 +1878,35 @@ def test_create_multi_value_json():
                        '6', 'TYPE', 'FLOAT32', 'DIM', dim, 'DISTANCE_METRIC', 'L2',).ok()
             env.assertEqual(to_dict(env.cmd(debug_cmd(), "VECSIM_INFO", "idx", "vec"))['IS_MULTI_VALUE'], 0, message=f'{algo}, {path}')
 
-@skip(no_json=True)
-def test_index_multi_value_json():
-    # Flaky under coverage (MOD-15571); skip only on coverage runs until the date below.
-    if CODE_COVERAGE:
-        skipTestUntil("2026-06-12", reason="Flaky test under coverage, see MOD-15571")
-    env = Env(moduleArgs='DEFAULT_DIALECT 2 MIN_OPERATION_WORKERS 0')
-    conn = getConnectionByEnv(env)
-    dim = 4
-    per_doc = 5
+class TestIndexMultiValueJsonReload:
+    """Multi-value JSON vector indexing (HNSW / FLAT / SVS-VAMANA) across data types, with a reload.
 
-    for data_t in VECSIM_DATA_TYPES:
-        # Skipping on sanitizer due to MOD-12768
-        run_svs_test = data_t in ('FLOAT32', 'FLOAT16')
-        n = 100
+    Split per vector algorithm so the expensive SVS-VAMANA graph rebuild on DEBUG RELOAD gets its
+    own RLTest per-test timeout budget. Originally a single test ran every algorithm and data type
+    under one budget and timed out on the coverage Coordinator job (MOD-15571). All methods share a
+    single environment to avoid paying the (coverage-instrumented) cluster startup cost per algorithm.
+    """
+
+    def __init__(self):
+        skipTest(no_json=True)
+        self.env = Env(moduleArgs='DEFAULT_DIALECT 2 MIN_OPERATION_WORKERS 0')
+        self.dim = 4
+        self.per_doc = 5
+        # Scale factor to avoid FLOAT16/BFLOAT16 overflow: using 1/8 keeps values and distances within
+        # safe range. For FLOAT16 with n=250: max value = 250/8 = 31.25, max L2 distance ≈ 3906 (< 65504)
+        self.scale = 8.0
+
+    def _check_algo(self, field, algo, data_t, n, extra_params=None, is_svs=False):
+        env = self.env
+        conn = getConnectionByEnv(env)
+        dim, per_doc, scale = self.dim, self.per_doc, self.scale
         conn.flushall()
 
-        # Scale factor to avoid FLOAT16/BFLOAT16 overflow: using 1/8 keeps values and distances within safe range
-        # For FLOAT16 with n=250: max value = 250/8 = 31.25, max L2 distance = 4 * 31.25^2 ≈ 3906 (< 65504)
-        scale = 8.0
-
-        args = ['FT.CREATE', 'idx', 'ON', 'JSON', 'SCHEMA',
-                '$.vecs[*]', 'AS', 'hnsw', 'VECTOR', 'HNSW', '6', 'TYPE', data_t, 'DIM', dim, 'DISTANCE_METRIC', 'L2',
-                '$.vecs[*]', 'AS', 'flat', 'VECTOR', 'FLAT', '6', 'TYPE', data_t, 'DIM', dim, 'DISTANCE_METRIC', 'L2']
-        if run_svs_test:
-            # Add enough vectors to trigger svs backend index initialization
-            n = 250 * env.shardsCount
-            args += ['$.vecs[*]', 'AS', 'svs', 'VECTOR', 'SVS-VAMANA', '10', 'TYPE', data_t, 'DIM', dim, 'DISTANCE_METRIC', 'L2', 'CONSTRUCTION_WINDOW_SIZE', n, 'SEARCH_WINDOW_SIZE', n]
-
-        env.expect(*args).ok()
+        attrs = ['TYPE', data_t, 'DIM', dim, 'DISTANCE_METRIC', 'L2']
+        if extra_params:
+            attrs += extra_params
+        env.expect('FT.CREATE', 'idx', 'ON', 'JSON', 'SCHEMA',
+                   '$.vecs[*]', 'AS', field, 'VECTOR', algo, str(len(attrs)), *attrs).ok()
 
         for i in range(0, n, 2):
             # Test setting vectors with python list
@@ -1944,39 +1944,49 @@ def test_index_multi_value_json():
         for _ in env.reloadingIterator():
             waitForIndex(env, 'idx')
             info = index_info(env, 'idx')
-            env.assertEqual(info['num_docs'], n, message=f'data_t: {data_t}')
-            env.assertEqual(info['num_records'], 0, message=f'data_t: {data_t}')
-            env.assertEqual(info['hash_indexing_failures'], 0, message=f'data_t: {data_t}')
+            env.assertEqual(info['num_docs'], n, message=f'{algo}, data_t: {data_t}')
+            env.assertEqual(info['num_records'], 0, message=f'{algo}, data_t: {data_t}')
+            env.assertEqual(info['hash_indexing_failures'], 0, message=f'{algo}, data_t: {data_t}')
 
-            cmd_knn[2] = f'*=>[KNN {k} @hnsw $b AS {score_field_name}]'
-            hnsw_res = conn.execute_command(*cmd_knn)[1:]
-            env.assertEqual(hnsw_res, expected_res_knn, message=f'data_t: {data_t}')
+            if is_svs:
+                env.assertGreater(get_tiered_backend_debug_info(env, 'idx', field)['INDEX_SIZE'], 0,
+                                  message=f'data_t: {data_t}')
 
-            cmd_knn[2] = f'*=>[KNN {k} @flat $b AS {score_field_name}]'
-            flat_res = conn.execute_command(*cmd_knn)[1:]
-            env.assertEqual(flat_res, expected_res_knn, message=f'data_t: {data_t}')
+            cmd_knn[2] = f'*=>[KNN {k} @{field} $b AS {score_field_name}]'
+            knn_res = conn.execute_command(*cmd_knn)[1:]
+            env.assertEqual(knn_res, expected_res_knn, message=f'{algo}, data_t: {data_t}')
 
-            cmd_range[2] = f'@hnsw:[VECTOR_RANGE {radius} $b]=>{{$yield_distance_as:{score_field_name}}}'
-            hnsw_res = conn.execute_command(*cmd_range)
+            cmd_range[2] = f'@{field}:[VECTOR_RANGE {radius} $b]=>{{$yield_distance_as:{score_field_name}}}'
+            range_res = conn.execute_command(*cmd_range)
             try:
-                env.assertEqual(sortedResults(hnsw_res), expected_res_range, message=f'data_t: {data_t}')
+                env.assertEqual(sortedResults(range_res), expected_res_range, message=f'{algo}, data_t: {data_t}')
             except Exception as e:
-                env.debugPrint(f"Failed comparing results: {e} for data_t: {data_t}", force=True)
+                env.debugPrint(f"Failed comparing range results: {e} for {algo}, data_t: {data_t}", force=True)
                 raise e
 
-            cmd_range[2] = f'@flat:[VECTOR_RANGE {radius} $b]=>{{$yield_distance_as:{score_field_name}}}'
-            flat_res = conn.execute_command(*cmd_range)
-            env.assertEqual(sortedResults(flat_res), expected_res_range, message=f'data_t: {data_t}')
+    def test_hnsw(self):
+        for data_t in VECSIM_DATA_TYPES:
+            self._check_algo('hnsw', 'HNSW', data_t, n=100)
 
-            if run_svs_test:
-                env.assertGreater(get_tiered_backend_debug_info(env, 'idx', 'svs')['INDEX_SIZE'], 0)
-                cmd_knn[2] = f'*=>[KNN {k} @svs $b AS {score_field_name}]'
-                svs_res = conn.execute_command(*cmd_knn)[1:]
-                env.assertEqual(svs_res, expected_res_knn, message=f'data_t: {data_t}')
+    def test_flat(self):
+        for data_t in VECSIM_DATA_TYPES:
+            self._check_algo('flat', 'FLAT', data_t, n=100)
 
-                cmd_range[2] = f'@svs:[VECTOR_RANGE {radius} $b]=>{{$yield_distance_as:{score_field_name}}}'
-                svs_res = conn.execute_command(*cmd_range)
-                env.assertEqual(sortedResults(svs_res), expected_res_range, message=f'data_t: {data_t}')
+    def _check_svs(self, data_t):
+        # Use enough vectors to trigger the SVS backend (Vamana graph) build. SEARCH_WINDOW_SIZE = n
+        # keeps the search effectively exhaustive, so KNN/range results stay exact regardless of graph
+        # connectivity; CONSTRUCTION_WINDOW_SIZE keeps the index default. Under coverage with
+        # MIN_OPERATION_WORKERS 0 the graph is rebuilt synchronously during DEBUG RELOAD, so each data
+        # type runs as its own test to keep that rebuild within a single per-test timeout (MOD-15571).
+        n = 250 * self.env.shardsCount
+        self._check_algo('svs', 'SVS-VAMANA', data_t, n,
+                         extra_params=['SEARCH_WINDOW_SIZE', n], is_svs=True)
+
+    def test_svs_float32(self):
+        self._check_svs('FLOAT32')
+
+    def test_svs_float16(self):
+        self._check_svs('FLOAT16')
 
 @skip(no_json=True)
 def test_bad_index_multi_value_json():
