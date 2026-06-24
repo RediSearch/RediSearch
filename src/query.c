@@ -1185,10 +1185,6 @@ static QueryIterator *Query_EvalTagLexRangeNode(QueryEvalCtx *q, TagIndex *idx, 
   TrieMap *t = idx->values;
   TrieCallbackCtx ctx = {.q = q, .opts = &qn->opts, .weight = weight, .tagIdx = idx};
 
-  if (!t) {
-    return NULL;
-  }
-
   if(qn->lxrng.begin) {
     size_t beginLen = strlen(qn->lxrng.begin);
     tag_strtolower(&(qn->lxrng.begin), &beginLen, caseSensitive);
@@ -1225,7 +1221,7 @@ static QueryIterator *Query_EvalTagPrefixNode(QueryEvalCtx *q, TagIndex *idx, Qu
   if (tok->len < q->config->minTermPrefix) {
     return NULL;
   }
-  if (!idx || !idx->values) return NULL;
+  if (!idx) return NULL;
 
   size_t itsSz = 0, itsCap = 8;
   QueryIterator **its = rm_calloc(itsCap, sizeof(*its));
@@ -1308,7 +1304,7 @@ static QueryIterator *Query_EvalTagWildcardNode(QueryEvalCtx *q, TagIndex *idx,
                      QueryNode *qn, double weight,
                      t_fieldIndex fieldIndex, bool caseSensitive) {
   RS_ASSERT(qn->type == QN_WILDCARD_QUERY);
-  if (!idx || !idx->values) return NULL;
+  if (!idx) return NULL;
 
   RSToken *tok = &qn->verb.tok;
 
