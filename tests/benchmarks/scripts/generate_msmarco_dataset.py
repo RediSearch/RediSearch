@@ -281,10 +281,11 @@ def generate_setup_commands_from_shards(
 
             if doc_format == "json":
                 # Build a single JSON document. tags stays a scalar
-                # comma-separated string (no JSON array) to honor the
-                # no-multivalue constraint. json_dumps handles escaping;
-                # normalize_text only strips newlines/CR so the indexed text
-                # matches the HASH dataset.
+                # comma-separated string (no JSON array) so that indexing it as
+                # TAG with an explicit SEPARATOR "," splits it identically to the
+                # HASH dataset (JSON TAG fields otherwise default to no separator).
+                # json_dumps handles escaping; normalize_text only strips
+                # newlines/CR so the indexed text matches the HASH dataset.
                 json_doc = json_dumps({
                     "doc_id": doc_id,
                     "url": normalize_text(doc.get("url", "")),
@@ -364,8 +365,7 @@ def generate_query_commands(
     output_file: Path,
     query_category: str,
     index_name: str,
-    num_queries: int = 100000,
-    include_tag_queries: bool = True
+    num_queries: int = 100000
 ) -> int:
     """
     Generate BENCH.QUERY_*.csv file with FT.SEARCH commands.
@@ -376,9 +376,6 @@ def generate_query_commands(
         query_category: Category of queries (baseline, phrase, and, or, not, tag, all)
         index_name: RediSearch index name
         num_queries: Number of queries to generate (cycles through available queries)
-        include_tag_queries: When False, omit queries with @tags:{...} predicates.
-            Used for the JSON dataset, whose schema does not index tags (no
-            multivalue), so such queries would reference an unindexed field.
 
     Returns:
         Number of queries generated
@@ -388,9 +385,7 @@ def generate_query_commands(
     # Get queries for this category
     if query_category == "all":
         queries = []
-        for cat_name, cat_queries in BENCHMARK_QUERIES.items():
-            if cat_name == "tag" and not include_tag_queries:
-                continue
+        for cat_queries in BENCHMARK_QUERIES.values():
             queries.extend(cat_queries)
     elif query_category in BENCHMARK_QUERIES:
         queries = BENCHMARK_QUERIES[query_category]
@@ -576,17 +571,12 @@ def main():
     # Generate query commands
     if not args.skip_queries:
         print("\n")
-        # The JSON schema intentionally does not index tags (no multivalue), so
-        # skip tag-predicate query categories that would reference an unindexed
-        # field and fail at query time.
-        include_tag_queries = args.doc_format != "json"
+        # Both HASH and JSON index tags (tags TAG SEPARATOR ","), so every query
+        # category — including tag predicates — is valid for both formats.
         query_categories = ["baseline", "phrase", "and", "or", "not", "tag", "all"]
-        if not include_tag_queries:
-            query_categories.remove("tag")
         for category in query_categories:
             query_file = args.output_dir / f"{args.dataset_name}.redisearch.commands.BENCH.QUERY_{category}.csv"
-            generate_query_commands(query_file, category, args.index_name, args.num_queries,
-                                    include_tag_queries=include_tag_queries)
+            generate_query_commands(query_file, category, args.index_name, args.num_queries)
 
     print(f"\n{'='*70}")
     print(f"✓ Dataset generation complete!")
@@ -604,16 +594,19 @@ def main():
         print(f"    $.url      AS url      TEXT \\")
         print(f"    $.title    AS title    TEXT \\")
         print(f"    $.headings AS headings TEXT \\")
-        print(f"    $.body     AS body     TEXT")
+        print(f"    $.body     AS body     TEXT \\")
+        print(f'    $.tags     AS tags     TAG SEPARATOR ","')
     else:
         print(f"  FT.CREATE {args.index_name} ON HASH PREFIX 1 {args.key_prefix} SCHEMA \\")
         print(f"    url TEXT \\")
         print(f"    title TEXT \\")
         print(f"    headings TEXT \\")
-        print(f"    body TEXT")
-    # tags is carried in the document as a comma-separated scalar string but is
-    # not indexed: the schema is TEXT-only and identical for HASH and JSON.
-    print(f"  # tags: comma-separated scalar string in the doc; not indexed (TEXT-only schema).")
+        print(f"    body TEXT \\")
+        print(f'    tags TAG SEPARATOR ","')
+    # tags is stored as a comma-separated scalar string in both HASH and JSON and
+    # indexed as TAG. JSON TAG fields default to no separator, so the explicit
+    # SEPARATOR "," is required for JSON to split the scalar identically to HASH.
+    print(f'  # tags: comma-separated scalar string; indexed as TAG (explicit SEPARATOR "," for JSON).')
 
     print(f"\nNext steps:")
     print(f"  1. Review generated files")
