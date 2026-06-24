@@ -166,8 +166,8 @@ impl TermSuffixIndex {
     /// byte per `?` — it is the same byte-granular matcher the wider query
     /// engine uses for wildcard search (the Rust counterpart of C's
     /// `Wildcard_MatchChar`). So against a multibyte term, `?` lines up with a
-    /// single byte of a codepoint, not the whole character: `caf?` will not
-    /// match `café`. This is not an approximation introduced here — it is the
+    /// single byte of a codepoint, not the whole character: `entr?` will not
+    /// match `entré`. This is not an approximation introduced here — it is the
     /// engine's pre-existing `?` behavior, which we deliberately reuse rather
     /// than diverge from with a second, codepoint-aware matcher.
     pub fn iter_wildcard(&self, pattern: &str) -> Option<impl Iterator<Item = Rc<str>>> {
