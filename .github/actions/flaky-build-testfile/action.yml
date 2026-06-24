@@ -65,9 +65,9 @@ runs:
 
     - name: Filter out flaky marks
       id: filter
-      uses: redislabsdev/redisearch-ci-common/.github/actions/flaky-filter@v1
+      uses: redislabsdev/redisearch-ci-common/.github/actions/flaky-filter@5d3485c26571f609cec76dad6ad0b27bd1b1d0d7 # v1.0.1
       with:
         redis-url: ${{ inputs.redis-url }}
         tests: ${{ steps.enumerate.outputs.list }}
         output: /tmp/flaky/run_${{ inputs.variant }}.txt
-        ci-common-ref: v1
+        ci-common-ref: 5d3485c26571f609cec76dad6ad0b27bd1b1d0d7

@@ -445,12 +445,12 @@ jobs:
       - name: Record standalone failures to flaky DB
         if: ${{ always() && inputs.standalone && env.IS_FORK_PR != 'true' }}
         continue-on-error: true
-        uses: redislabsdev/redisearch-ci-common/.github/actions/flaky-record-results@v1
+        uses: redislabsdev/redisearch-ci-common/.github/actions/flaky-record-results@5d3485c26571f609cec76dad6ad0b27bd1b1d0d7 # v1.0.1
         with:
           redis-url: ${{ secrets.FLAKY_TESTS_REDIS_URL }}
           failed-file: .failed_standalone.txt
           job-name: ${{ needs.get-config.outputs.name }} standalone
-          ci-common-ref: v1
+          ci-common-ref: 5d3485c26571f609cec76dad6ad0b27bd1b1d0d7
 
       - name: Build TESTFILE excluding flaky tests (coordinator)
         id: coordinator_testfile
@@ -487,12 +487,12 @@ jobs:
       - name: Record coordinator failures to flaky DB
         if: ${{ always() && inputs.coordinator && env.IS_FORK_PR != 'true' }}
         continue-on-error: true
-        uses: redislabsdev/redisearch-ci-common/.github/actions/flaky-record-results@v1
+        uses: redislabsdev/redisearch-ci-common/.github/actions/flaky-record-results@5d3485c26571f609cec76dad6ad0b27bd1b1d0d7 # v1.0.1
         with:
           redis-url: ${{ secrets.FLAKY_TESTS_REDIS_URL }}
           failed-file: .failed_coordinator.txt
           job-name: ${{ needs.get-config.outputs.name }} coordinator
-          ci-common-ref: v1
+          ci-common-ref: 5d3485c26571f609cec76dad6ad0b27bd1b1d0d7
 
       - name: Rust tests (MIRI)
         if: inputs.san == 'address' && inputs.unit-tests

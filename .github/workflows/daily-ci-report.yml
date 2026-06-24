@@ -99,7 +99,7 @@ jobs:
       - name: Run Codex CI triage
         id: ai_triage
         if: steps.failure_report.outputs.failure_exists == 'true'
-        uses: redislabsdev/redisearch-ci-common/.github/actions/codex-ci-triage@v1
+        uses: redislabsdev/redisearch-ci-common/.github/actions/codex-ci-triage@5d3485c26571f609cec76dad6ad0b27bd1b1d0d7 # v1.0.1
         with:
           openai-api-key: ${{ secrets.CI_TRIAGE_OPENAI_API_KEY }}
           prompt-file: .github/codex/prompts/ci-triage.md

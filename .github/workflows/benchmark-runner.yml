@@ -366,7 +366,7 @@ jobs:
             ##\[error\]
       - name: Run Codex triage
         id: triage
-        uses: redislabsdev/redisearch-ci-common/.github/actions/codex-ci-triage@v1
+        uses: redislabsdev/redisearch-ci-common/.github/actions/codex-ci-triage@5d3485c26571f609cec76dad6ad0b27bd1b1d0d7 # v1.0.1
         with:
           openai-api-key: ${{ secrets.CI_TRIAGE_OPENAI_API_KEY }}
           prompt-file: .github/codex/prompts/benchmark-triage.md
