@@ -18,7 +18,6 @@
 use std::hash::{Hash, Hasher};
 use std::mem;
 
-use fnv::Fnv64;
 use itertools::Either;
 use min_max_heap::MinMaxHeap;
 use rlookup::RLookupRow;
@@ -91,22 +90,17 @@ impl PartialEq for ProjectedRow {
 impl Eq for ProjectedRow {}
 
 impl Hash for ProjectedRow {
-    /// Digests the trailing-trimmed slots (see [`ProjectedRow::effective_values`])
-    /// into one [`Fnv64`] fold via [`hash_value`]. A per-slot discriminant keeps
-    /// an empty slot distinct from a present value; see the [`PartialEq`] impl for
-    /// the eq/hash consistency caveat.
+    /// Hashes the trailing-trimmed slots (see [`ProjectedRow::effective_values`])
+    /// via [`hash_value`]. A per-slot discriminant keeps an empty slot distinct
+    /// from a present value; see the [`PartialEq`] impl for the eq/hash
+    /// consistency caveat.
     fn hash<H: Hasher>(&self, state: &mut H) {
-        // Seed with the standard FNV offset basis (non-zero): with a zero seed, a
-        // leading `None` discriminant (hashed as zero bytes) would be absorbed
-        // (`0 ^ 0 == 0`, `* PRIME == 0`), collapsing e.g. `[None, x]` onto `[x]`.
-        let mut fnv = Fnv64::default();
         for slot in self.effective_values() {
-            mem::discriminant(slot).hash(&mut fnv);
+            mem::discriminant(slot).hash(state);
             if let Some(v) = slot {
-                hash_value(v, &mut fnv);
+                hash_value(v, state);
             }
         }
-        state.write_u64(fnv.finish());
     }
 }
 
