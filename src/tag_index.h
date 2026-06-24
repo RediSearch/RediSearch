@@ -142,6 +142,20 @@ size_t TagIndex_NUniqueValues(const TagIndex *idx);
  */
 int TagIndex_DeleteTagValue(TagIndex *idx, const char *tagVal, size_t tagValLen);
 
+// must match `tm_iter_mode` defined in triemap_ffi.h
+typedef enum tag_iter_mode {
+    TAG_PREFIX_MODE = 0,
+    TAG_CONTAINS_MODE = 1,
+    TAG_SUFFIX_MODE = 2,
+    TAG_WILDCARD_MODE = 3,
+} tag_iter_mode;
+
+/**
+ * Iterate over the values that match the given predicate.
+ * See [`TrieMap_IterateWithFilter`] for more details.
+ */
+TrieMapIterator *TagIndex_IterateValueWithFilter(TagIndex *idx, const char *tagVal, size_t tagValLen, tag_iter_mode mode);
+
 /* Preprocess a document tag field, split the content in data into fdata `tags` array
    Return 0 if there's no content to index in the field (its value is NULL), 1 otherwise
  */

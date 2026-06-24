@@ -354,6 +354,10 @@ int TagIndex_DeleteTagValue(TagIndex *idx, const char *tagVal, size_t tagValLen)
   return TrieMap_Delete(idx->values, tagVal, tagValLen, (void (*)(void *))InvertedIndex_Free);
 }
 
+TrieMapIterator *TagIndex_IterateValueWithFilter(TagIndex *idx, const char *tagVal, size_t tagValLen, tag_iter_mode mode) {
+  return TrieMap_IterateWithFilter(idx->values, tagVal, tagValLen, (tm_iter_mode)mode);
+}
+
 /* Serialize all the tags in the index to the redis client */
 void TagIndex_SerializeValues(TagIndex *idx, RedisModuleCtx *ctx) {
   TrieMapIterator *it = TagIndex_IterateValues(idx);
