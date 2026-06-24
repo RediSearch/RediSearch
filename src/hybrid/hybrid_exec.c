@@ -76,6 +76,24 @@ static inline bool handleAndReplyWarning(RedisModule_Reply *reply, QueryError *e
   return timeoutOccurred;
 }
 
+static bool HybridRequest_HasShardTimedOutWarning(const HybridRequest *hreq) {
+  for (size_t i = 0; i < hreq->nrequests; ++i) {
+    if (hreq->requests[i]->stateflags & QEXEC_S_SHARD_TIMED_OUT_WARNING) {
+      return true;
+    }
+  }
+  return false;
+}
+
+static bool HybridRequest_HasTimedOutSubquery(const HybridRequest *hreq) {
+  for (size_t i = 0; i < hreq->nrequests; ++i) {
+    if (hreq->subqueriesReturnCodes[i] == RS_RESULT_TIMEDOUT) {
+      return true;
+    }
+  }
+  return false;
+}
+
 static int replyForHybridPreExecutionTimeout(RedisModuleCtx *ctx, bool internal,
                                              ProfileOptions profileOptions) {
   const bool isProfile = profileOptions & EXEC_WITH_PROFILE;
@@ -329,7 +347,13 @@ static void finishSendChunkReply_hybrid(HybridRequest *hreq, RedisModule_Reply *
     // because this warning is not related to subqueries or post-processing terminology
     RedisModule_Reply_SimpleString(reply, QUERY_WOOM_COORD);
   }
-  if (QueryError_GetCode(qctx->err) == QUERY_ERROR_CODE_TIMED_OUT) {
+  const bool timeoutWarningReplied = QueryError_GetCode(qctx->err) == QUERY_ERROR_CODE_TIMED_OUT;
+  if (timeoutWarningReplied) {
+    QueryWarningsGlobalStats_UpdateWarning(QUERY_WARNING_CODE_TIMED_OUT, 1, COORD_ERR_WARN);
+    RedisModule_Reply_SimpleString(reply, QueryWarning_Strwarning(QUERY_WARNING_CODE_TIMED_OUT));
+  }
+  if (!timeoutWarningReplied && HybridRequest_HasShardTimedOutWarning(hreq) &&
+      !HybridRequest_HasTimedOutSubquery(hreq)) {
     QueryWarningsGlobalStats_UpdateWarning(QUERY_WARNING_CODE_TIMED_OUT, 1, COORD_ERR_WARN);
     RedisModule_Reply_SimpleString(reply, QueryWarning_Strwarning(QUERY_WARNING_CODE_TIMED_OUT));
   }

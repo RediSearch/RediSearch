@@ -779,6 +779,7 @@ static int HybridRequest_prepareCursors(HybridRequest *hreq, QueryError *status)
     const RSTimeoutPolicy timeoutPolicy = hreq->reqConfig.timeoutPolicy;
     bool maxPrefixSearch = false;
     bool maxPrefixVsim = false;
+    bool shardTimedOutWarning = false;
 
     const struct timespec *deadline =
         (hreq->sctx && HybridRequest_ShouldCheckTimeout(hreq))
@@ -787,11 +788,17 @@ static int HybridRequest_prepareCursors(HybridRequest *hreq, QueryError *status)
 
     // Errors from cursor establishment go into the dispatcher's `status` so
     // DistHybridCleanups can reply with them.
-    if (!ProcessHybridCursorMappings(cmd, searchMappingsRef, vsimMappingsRef, knnCtx, status, oomPolicy, timeoutPolicy, &maxPrefixSearch, &maxPrefixVsim, deadline, &hreq->syncCtx)) {
+    if (!ProcessHybridCursorMappings(cmd, searchMappingsRef, vsimMappingsRef, knnCtx, status,
+                                     oomPolicy, timeoutPolicy, &maxPrefixSearch, &maxPrefixVsim,
+                                     &shardTimedOutWarning, deadline, &hreq->syncCtx)) {
         // Handle error
         StrongRef_Release(searchMappingsRef);
         StrongRef_Release(vsimMappingsRef);
         return REDISMODULE_ERR;
+    }
+
+    if (shardTimedOutWarning) {
+        hreq->requests[SEARCH_INDEX]->stateflags |= QEXEC_S_SHARD_TIMED_OUT_WARNING;
     }
 
     // Propagate max-prefix-expansion warning to the specific subquery that triggered it.

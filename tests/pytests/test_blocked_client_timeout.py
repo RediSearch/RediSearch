@@ -1965,6 +1965,75 @@ class TestCoordinatorTimeout:
             run_command_on_all_shards(env, 'CONFIG', 'SET',
                                       ON_TIMEOUT_CONFIG, prev_on_timeout_policy)
 
+    def test_return_strict_timeout_replies_existing_hybrid_cursor_mapping(self):
+        """RETURN_STRICT timeout after a shard created its _FT.HYBRID cursor mapping."""
+        env = self.env
+        skipIfNoEnableAssert(env)
+
+        non_coord_shards = non_coord_shard_conns(env)
+        env.assertGreater(len(non_coord_shards), 0,
+                          message="Test requires a non-coordinator shard")
+        target_shard = non_coord_shards[0]
+
+        prev_on_timeout_policy = env.cmd('CONFIG', 'GET', ON_TIMEOUT_CONFIG)[ON_TIMEOUT_CONFIG]
+        run_command_on_all_shards(env, 'CONFIG', 'SET', ON_TIMEOUT_CONFIG, 'return-strict')
+
+        query_args = [
+            'FT.HYBRID', 'hybrid_idx',
+            'SEARCH', '*',
+            'VSIM', '@embedding', '$BLOB',
+            'PARAMS', '2', 'BLOB', self.hybrid_query_vec
+        ]
+        query_result = []
+        blocked_client_id = [None]
+
+        def target_shard_paused_after_mapping_created():
+            paused = target_shard.execute_command(
+                debug_cmd(), 'QUERY_CONTROLLER', 'GET_IS_HYBRID_STORE_CURSORS_PAUSED') == 1
+            cid = get_query_client(target_shard, '_FT.HYBRID')
+            if cid:
+                blocked_client_id[0] = cid
+            return paused and cid is not None, {'paused': paused, 'client_id': cid}
+
+        try:
+            target_shard.execute_command(
+                debug_cmd(), 'QUERY_CONTROLLER', 'SET_PAUSE_AFTER_HYBRID_STORE_CURSORS', 'true')
+
+            t_query = threading.Thread(
+                target=call_and_store,
+                args=(env.cmd, query_args, query_result),
+                daemon=True
+            )
+            t_query.start()
+
+            wait_for_condition(
+                target_shard_paused_after_mapping_created,
+                'Timeout waiting for shard to pause after creating _FT.HYBRID cursor mappings'
+            )
+
+            target_shard.execute_command('CLIENT', 'UNBLOCK', blocked_client_id[0], 'TIMEOUT')
+            wait_for_client_unblocked(target_shard, blocked_client_id[0])
+
+            t_query.join(timeout=10)
+            env.assertFalse(t_query.is_alive(), message="FT.HYBRID thread should have finished")
+            env.assertEqual(len(query_result), 1, message="Expected exactly one FT.HYBRID reply")
+
+            result = query_result[0]
+            env.assertTrue(isinstance(result, dict),
+                           message=f"RETURN_STRICT cursor-mapping timeout should not hard-error: {result}")
+            assert_timeout_warning(env, result,
+                                   message=f"FT.HYBRID existing cursor-mapping timeout, got: {result}")
+        finally:
+            try:
+                target_shard.execute_command(
+                    debug_cmd(), 'QUERY_CONTROLLER', 'SET_PAUSE_AFTER_HYBRID_STORE_CURSORS', 'false')
+                target_shard.execute_command(
+                    debug_cmd(), 'QUERY_CONTROLLER', 'SET_HYBRID_STORE_CURSORS_RESUME')
+            except Exception:
+                pass
+            run_command_on_all_shards(env, 'CONFIG', 'SET',
+                                      ON_TIMEOUT_CONFIG, prev_on_timeout_policy)
+
     def test_return_strict_timeout_at_claim_sync_point_aggregate(self):
         """RETURN_STRICT timeout while BG is parked before AREQ_TryClaimAggregateResults.
 
