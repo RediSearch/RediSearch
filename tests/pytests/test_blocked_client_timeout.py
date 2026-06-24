@@ -5900,6 +5900,283 @@ class TestShardTimeout:
             'PARAMS', '2', 'BLOB', self.hybrid_query_vec
         ])
 
+    def _standalone_hybrid_query(self, extra_args=None):
+        args = [
+            'FT.HYBRID', 'hybrid_idx',
+            'SEARCH', '*',
+            'VSIM', '@embedding', '$BLOB',
+            'PARAMS', '2', 'BLOB', self.hybrid_query_vec,
+        ]
+        if extra_args:
+            args += list(extra_args)
+        return args
+
+    def _standalone_hybrid_full_result_query(self, extra_args=None):
+        args = [
+            'FT.HYBRID', 'hybrid_idx',
+            'SEARCH', '*',
+            'VSIM', '@embedding', '$BLOB',
+            'KNN', '2', 'K', '10000',
+            'COMBINE', 'RRF', '2', 'WINDOW', '10000',
+            'PARAMS', '2', 'BLOB', self.hybrid_query_vec,
+            'LIMIT', '0', '10000',
+        ]
+        if extra_args:
+            args += list(extra_args)
+        return args
+
+    def test_return_strict_timeout_before_worker_pickup_hybrid(self):
+        """Standalone RETURN_STRICT FT.HYBRID timeout while queued in workers."""
+        env = self.env
+
+        prev_policy = env.cmd('CONFIG', 'GET', ON_TIMEOUT_CONFIG)[ON_TIMEOUT_CONFIG]
+        env.expect('CONFIG', 'SET', ON_TIMEOUT_CONFIG, 'return-strict').ok()
+
+        before_info = info_modules_to_dict(env)
+        base_warn_coord = int(before_info[COORD_WARN_ERR_SECTION][TIMEOUT_WARNING_COORD_METRIC])
+        base_err_coord = int(before_info[COORD_WARN_ERR_SECTION][TIMEOUT_ERROR_COORD_METRIC])
+        initial_jobs_done = getWorkersThpoolStats(env)['totalJobsDone']
+
+        env.expect(debug_cmd(), 'WORKERS', 'pause').ok()
+        query_result = []
+        try:
+            t_query = threading.Thread(
+                target=call_and_store,
+                args=(env.cmd, self._standalone_hybrid_query(), query_result),
+                daemon=True,
+            )
+            t_query.start()
+            blocked_client_id = wait_for_blocked_query_client(env, 'FT.HYBRID')
+            env.expect('CLIENT', 'UNBLOCK', blocked_client_id, 'TIMEOUT').equal(1)
+            wait_for_client_unblocked(env, blocked_client_id)
+
+            t_query.join(timeout=10)
+            env.assertFalse(t_query.is_alive(), message="FT.HYBRID thread should have finished")
+            env.assertEqual(len(query_result), 1, message="Expected one FT.HYBRID reply")
+            result = query_result[0]
+            env.assertEqual(result['total_results'], 0, message=f"Expected empty reply, got: {result}")
+            env.assertEqual(result.get('results', []), [],
+                            message=f"Expected no rows, got: {result.get('results')}")
+            assert_timeout_warning(env, result,
+                                   message=f"standalone FT.HYBRID queued return-strict, got: {result}")
+
+            after_info = info_modules_to_dict(env)
+            env.assertEqual(after_info[COORD_WARN_ERR_SECTION][TIMEOUT_ERROR_COORD_METRIC],
+                            str(base_err_coord),
+                            message="RETURN_STRICT FT.HYBRID must not bump coord error metric")
+            env.assertEqual(after_info[COORD_WARN_ERR_SECTION][TIMEOUT_WARNING_COORD_METRIC],
+                            str(base_warn_coord + 1),
+                            message="Coord timeout warning should be +1")
+            _verify_metrics_not_changed(env, env, before_info, [TIMEOUT_WARNING_COORD_METRIC])
+        finally:
+            env.expect(debug_cmd(), 'WORKERS', 'resume').ok()
+            wait_for_condition(
+                lambda: (getWorkersThpoolStats(env)['totalJobsDone'] > initial_jobs_done,
+                         {'totalJobsDone': getWorkersThpoolStats(env)['totalJobsDone']}),
+                'Timeout while waiting for queued FT.HYBRID worker to finish'
+            )
+            env.expect('CONFIG', 'SET', ON_TIMEOUT_CONFIG, prev_policy).ok()
+
+    def test_return_strict_timeout_at_claim_sync_point_hybrid_standalone(self):
+        """Standalone RETURN_STRICT FT.HYBRID timeout before the tail claims results."""
+        env = self.env
+        skipIfNoEnableAssert(env)
+        sync_point = 'BeforeHybridResultsClaim'
+
+        prev_policy = env.cmd('CONFIG', 'GET', ON_TIMEOUT_CONFIG)[ON_TIMEOUT_CONFIG]
+        env.expect('CONFIG', 'SET', ON_TIMEOUT_CONFIG, 'return-strict').ok()
+        before_info = info_modules_to_dict(env)
+        base_warn_coord = int(before_info[COORD_WARN_ERR_SECTION][TIMEOUT_WARNING_COORD_METRIC])
+        base_err_coord = int(before_info[COORD_WARN_ERR_SECTION][TIMEOUT_ERROR_COORD_METRIC])
+
+        query_result = []
+        signaled = False
+        try:
+            env.expect(debug_cmd(), 'SYNC_POINT', 'CLEAR').ok()
+            env.expect(debug_cmd(), 'SYNC_POINT', 'ARM', sync_point).ok()
+
+            t_query = threading.Thread(
+                target=call_and_store,
+                args=(env.cmd, self._standalone_hybrid_query(), query_result),
+                daemon=True,
+            )
+            t_query.start()
+            wait_for_condition(
+                lambda: (env.cmd(debug_cmd(), 'SYNC_POINT', 'IS_WAITING', sync_point) == 1, {}),
+                f'worker never reached {sync_point}'
+            )
+            blocked_client_id = wait_for_blocked_query_client(env, 'FT.HYBRID')
+            env.expect('CLIENT', 'UNBLOCK', blocked_client_id, 'TIMEOUT').equal(1)
+            wait_for_client_unblocked(env, blocked_client_id)
+            env.expect(debug_cmd(), 'SYNC_POINT', 'SIGNAL', sync_point).ok()
+            signaled = True
+
+            t_query.join(timeout=10)
+            env.assertFalse(t_query.is_alive(), message="FT.HYBRID thread should have finished")
+            env.assertEqual(len(query_result), 1, message="Expected one FT.HYBRID reply")
+            result = query_result[0]
+            env.assertEqual(result['total_results'], 0, message=f"Expected empty reply, got: {result}")
+            env.assertEqual(result.get('results', []), [],
+                            message=f"Expected no rows, got: {result.get('results')}")
+            assert_timeout_warning(env, result,
+                                   message=f"standalone FT.HYBRID claim race, got: {result}")
+
+            after_info = info_modules_to_dict(env)
+            env.assertEqual(after_info[COORD_WARN_ERR_SECTION][TIMEOUT_ERROR_COORD_METRIC],
+                            str(base_err_coord),
+                            message="RETURN_STRICT FT.HYBRID must not bump coord error metric")
+            env.assertEqual(after_info[COORD_WARN_ERR_SECTION][TIMEOUT_WARNING_COORD_METRIC],
+                            str(base_warn_coord + 1),
+                            message="Coord timeout warning should be +1")
+            _verify_metrics_not_changed(env, env, before_info, [TIMEOUT_WARNING_COORD_METRIC])
+        finally:
+            if not signaled:
+                env.expect(debug_cmd(), 'SYNC_POINT', 'SIGNAL', sync_point).ok()
+            env.expect(debug_cmd(), 'SYNC_POINT', 'CLEAR').ok()
+            env.expect('CONFIG', 'SET', ON_TIMEOUT_CONFIG, prev_policy).ok()
+
+    def test_return_strict_timeout_after_store_hybrid_standalone(self):
+        """Standalone RETURN_STRICT FT.HYBRID returns rows already stored by BG."""
+        env = self.env
+        skipIfNoEnableAssert(env)
+
+        prev_policy = env.cmd('CONFIG', 'GET', ON_TIMEOUT_CONFIG)[ON_TIMEOUT_CONFIG]
+        env.expect('CONFIG', 'SET', ON_TIMEOUT_CONFIG, 'return-strict').ok()
+        before_info = info_modules_to_dict(env)
+        setPauseAfterStoreResults(env, True, internal=False)
+
+        query_result = []
+        try:
+            t_query = threading.Thread(
+                target=call_and_store,
+                args=(env.cmd, self._standalone_hybrid_full_result_query(), query_result),
+                daemon=True,
+            )
+            t_query.start()
+            blocked_client_id = wait_for_blocked_query_client(env, 'FT.HYBRID')
+            wait_for_condition(
+                lambda: (getIsStoreResultsPaused(env) == 1, {'paused': getIsStoreResultsPaused(env)}),
+                'Timeout while waiting for FT.HYBRID to pause after storing results'
+            )
+            env.expect('CLIENT', 'UNBLOCK', blocked_client_id, 'TIMEOUT').equal(1)
+            wait_for_client_unblocked(env, blocked_client_id)
+
+            t_query.join(timeout=10)
+            env.assertFalse(t_query.is_alive(), message="FT.HYBRID thread should have finished")
+            env.assertEqual(len(query_result), 1, message="Expected one FT.HYBRID reply")
+            result = query_result[0]
+            env.assertEqual(result['total_results'], self.n_docs,
+                            message=f"Expected full result count, got: {result}")
+            env.assertEqual(len(result.get('results', [])), self.n_docs,
+                            message=f"Expected full stored result set, got: {result}")
+            env.assertEqual(result.get('warnings', []), [],
+                            message=f"Completed stored results should not warn: {result}")
+            _verify_metrics_not_changed(env, env, before_info, [])
+        finally:
+            resetStoreResultsDebug(env)
+            env.expect('CONFIG', 'SET', ON_TIMEOUT_CONFIG, prev_policy).ok()
+
+    def test_return_strict_hybrid_no_deadlock_at_safe_loader_gil_standalone(self):
+        """Standalone RETURN_STRICT FT.HYBRID must not deadlock at depleter safe-loader GIL."""
+        env = self.env
+        skipIfNoEnableAssert(env)
+        sync_point = 'AfterSafeLoaderGILHandshake'
+
+        prev_policy = env.cmd('CONFIG', 'GET', ON_TIMEOUT_CONFIG)[ON_TIMEOUT_CONFIG]
+        env.expect('CONFIG', 'SET', ON_TIMEOUT_CONFIG, 'return-strict').ok()
+        before_info = info_modules_to_dict(env)
+        base_warn_coord = int(before_info[COORD_WARN_ERR_SECTION][TIMEOUT_WARNING_COORD_METRIC])
+        base_err_coord = int(before_info[COORD_WARN_ERR_SECTION][TIMEOUT_ERROR_COORD_METRIC])
+
+        query_result = []
+        try:
+            env.expect(debug_cmd(), 'SYNC_POINT', 'CLEAR').ok()
+            env.expect(debug_cmd(), 'SYNC_POINT', 'ARM', sync_point).ok()
+
+            t_query = threading.Thread(
+                target=call_and_store,
+                args=(env.cmd, self._standalone_hybrid_query(['LOAD', '1', '@name']), query_result),
+                daemon=True,
+            )
+            t_query.start()
+            blocked_client_id = wait_for_blocked_query_client(env, 'FT.HYBRID')
+            wait_for_condition(
+                lambda: (env.cmd(debug_cmd(), 'SYNC_POINT', 'IS_WAITING', sync_point) == 1, {}),
+                f'worker never reached {sync_point}'
+            )
+            env.expect('CLIENT', 'UNBLOCK', blocked_client_id, 'TIMEOUT').equal(1)
+            wait_for_client_unblocked(env, blocked_client_id)
+
+            t_query.join(timeout=10)
+            env.assertFalse(t_query.is_alive(),
+                            message="FT.HYBRID thread hung at safe-loader GIL")
+            env.assertEqual(len(query_result), 1, message="Expected one FT.HYBRID reply")
+            result = query_result[0]
+            env.assertEqual(result.get('results', []), [],
+                            message=f"Expected no rows after safe-loader timeout, got: {result}")
+            assert_timeout_warning(env, result,
+                                   message=f"standalone FT.HYBRID safe-loader timeout, got: {result}")
+
+            after_info = info_modules_to_dict(env)
+            env.assertEqual(after_info[COORD_WARN_ERR_SECTION][TIMEOUT_ERROR_COORD_METRIC],
+                            str(base_err_coord),
+                            message="RETURN_STRICT FT.HYBRID must not bump coord error metric")
+            env.assertEqual(after_info[COORD_WARN_ERR_SECTION][TIMEOUT_WARNING_COORD_METRIC],
+                            str(base_warn_coord + 1),
+                            message="Coord timeout warning should be +1")
+            _verify_metrics_not_changed(env, env, before_info, [TIMEOUT_WARNING_COORD_METRIC])
+        finally:
+            env.expect(debug_cmd(), 'SYNC_POINT', 'SIGNAL', sync_point).ok()
+            env.expect(debug_cmd(), 'SYNC_POINT', 'CLEAR').ok()
+            env.expect('CONFIG', 'SET', ON_TIMEOUT_CONFIG, prev_policy).ok()
+
+    def test_return_strict_hybrid_stored_rows_are_not_drained_standalone(self):
+        """Standalone RETURN_STRICT FT.HYBRID replies only with rows BG stored."""
+        env = self.env
+        skipIfNoEnableAssert(env)
+
+        prev_policy = env.cmd('CONFIG', 'GET', ON_TIMEOUT_CONFIG)[ON_TIMEOUT_CONFIG]
+        env.expect('CONFIG', 'SET', ON_TIMEOUT_CONFIG, 'return-strict').ok()
+        before_info = info_modules_to_dict(env)
+        base_warn_coord = int(before_info[COORD_WARN_ERR_SECTION][TIMEOUT_WARNING_COORD_METRIC])
+        base_err_coord = int(before_info[COORD_WARN_ERR_SECTION][TIMEOUT_ERROR_COORD_METRIC])
+
+        resetAggregateResultsDebug(env)
+        setPauseAfterAggregateResult(env, 1)
+        query_result = []
+        try:
+            t_query = threading.Thread(
+                target=call_and_store,
+                args=(env.cmd, self._standalone_hybrid_full_result_query(), query_result),
+                daemon=True,
+            )
+            t_query.start()
+            blocked_client_id = _wait_shard_paused_after_aggregate_result(env, 'FT.HYBRID')
+            env.expect('CLIENT', 'UNBLOCK', blocked_client_id, 'TIMEOUT').equal(1)
+            wait_for_client_unblocked(env, blocked_client_id)
+            resetAggregateResultsDebug(env)
+
+            t_query.join(timeout=10)
+            env.assertFalse(t_query.is_alive(), message="FT.HYBRID thread should have finished")
+            env.assertEqual(len(query_result), 1, message="Expected one FT.HYBRID reply")
+            result = query_result[0]
+            env.assertEqual(len(result.get('results', [])), 1,
+                            message=f"Expected exactly the one stored row, got: {result}")
+            assert_timeout_warning(env, result,
+                                   message=f"standalone FT.HYBRID no-drain timeout, got: {result}")
+
+            after_info = info_modules_to_dict(env)
+            env.assertEqual(after_info[COORD_WARN_ERR_SECTION][TIMEOUT_ERROR_COORD_METRIC],
+                            str(base_err_coord),
+                            message="RETURN_STRICT FT.HYBRID must not bump coord error metric")
+            env.assertEqual(after_info[COORD_WARN_ERR_SECTION][TIMEOUT_WARNING_COORD_METRIC],
+                            str(base_warn_coord + 1),
+                            message="Coord timeout warning should be +1")
+            _verify_metrics_not_changed(env, env, before_info, [TIMEOUT_WARNING_COORD_METRIC])
+        finally:
+            resetAggregateResultsDebug(env)
+            env.expect('CONFIG', 'SET', ON_TIMEOUT_CONFIG, prev_policy).ok()
+
     def test_no_timeout_cursor(self):
         """
         Test that FAIL policy doesn't break cursor reads when there is no timeout.
