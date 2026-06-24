@@ -136,6 +136,12 @@ TrieMapIterator *TagIndex_IterateValues(const TagIndex *idx);
 /* Return the number of unique values that the given `TagIndex` is holding */
 size_t TagIndex_NUniqueValues(const TagIndex *idx);
 
+/**
+ * Mark the tag value node as deleted.
+ * See [`TrieMap_Delete`] for more details.
+ */
+int TagIndex_DeleteTagValue(TagIndex *idx, const char *tagVal, size_t tagValLen);
+
 /* Preprocess a document tag field, split the content in data into fdata `tags` array
    Return 0 if there's no content to index in the field (its value is NULL), 1 otherwise
  */

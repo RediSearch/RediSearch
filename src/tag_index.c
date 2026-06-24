@@ -350,6 +350,10 @@ size_t TagIndex_NUniqueValues(const TagIndex *idx) {
   return TrieMap_NUniqueKeys(idx->values);
 }
 
+int TagIndex_DeleteTagValue(TagIndex *idx, const char *tagVal, size_t tagValLen) {
+  return TrieMap_Delete(idx->values, tagVal, tagValLen, (void (*)(void *))InvertedIndex_Free);
+}
+
 /* Serialize all the tags in the index to the redis client */
 void TagIndex_SerializeValues(TagIndex *idx, RedisModuleCtx *ctx) {
   TrieMapIterator *it = TagIndex_IterateValues(idx);
