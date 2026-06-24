@@ -53,10 +53,10 @@ struct TermSuffixIndex *NewTermSuffixIndex(void);
  *
  * # Safety
  *
- * - `t` must point to a valid [`TermSuffixIndex`] obtained from
- *   [`NewTermSuffixIndex`] and cannot be NULL.
- * - No iterator obtained from `t` may be alive.
- * - `t` must not be used after this call.
+ * 1. `t` must be a valid, non-null pointer obtained from
+ *    [`NewTermSuffixIndex`].
+ * 2. No iterator obtained from `t` may be alive.
+ * 3. `t` must not be used after this call.
  */
 void TermSuffixIndex_Free(struct TermSuffixIndex *t);
 
@@ -66,10 +66,10 @@ void TermSuffixIndex_Free(struct TermSuffixIndex *t);
  *
  * # Safety
  *
- * - `t` must point to a valid [`TermSuffixIndex`] obtained from
- *   [`NewTermSuffixIndex`] and cannot be NULL.
- * - `term` must point to a valid byte sequence of length `len`.
- * - No iterator obtained from `t` may be alive.
+ * 1. `t` must be a valid, non-null pointer obtained from
+ *    [`NewTermSuffixIndex`].
+ * 2. `term` must point to a valid byte sequence of length `len`.
+ * 3. No iterator obtained from `t` may be alive.
  */
 void TermSuffixIndex_Add(struct TermSuffixIndex *t, const char *term, size_t len);
 
@@ -79,10 +79,10 @@ void TermSuffixIndex_Add(struct TermSuffixIndex *t, const char *term, size_t len
  *
  * # Safety
  *
- * - `t` must point to a valid [`TermSuffixIndex`] obtained from
- *   [`NewTermSuffixIndex`] and cannot be NULL.
- * - `term` must point to a valid byte sequence of length `len`.
- * - No iterator obtained from `t` may be alive.
+ * 1. `t` must be a valid, non-null pointer obtained from
+ *    [`NewTermSuffixIndex`].
+ * 2. `term` must point to a valid byte sequence of length `len`.
+ * 3. No iterator obtained from `t` may be alive.
  */
 void TermSuffixIndex_Remove(struct TermSuffixIndex *t, const char *term, size_t len);
 
@@ -91,8 +91,8 @@ void TermSuffixIndex_Remove(struct TermSuffixIndex *t, const char *term, size_t 
  *
  * # Safety
  *
- * - `t` must point to a valid [`TermSuffixIndex`] obtained from
- *   [`NewTermSuffixIndex`] and cannot be NULL.
+ * 1. `t` must be a valid, non-null pointer obtained from
+ *    [`NewTermSuffixIndex`].
  */
 size_t TermSuffixIndex_MemUsage(const struct TermSuffixIndex *t);
 
@@ -104,11 +104,11 @@ size_t TermSuffixIndex_MemUsage(const struct TermSuffixIndex *t);
  *
  * # Safety
  *
- * - `t` must point to a valid [`TermSuffixIndex`] obtained from
- *   [`NewTermSuffixIndex`] and cannot be NULL.
- * - `str` must point to a valid byte sequence of length `len`.
- * - `callback` cannot be NULL and must not modify or free `t`, nor
- *   retain the term pointer beyond the call.
+ * 1. `t` must be a valid, non-null pointer obtained from
+ *    [`NewTermSuffixIndex`].
+ * 2. `str` must point to a valid byte sequence of length `len`.
+ * 3. `callback` cannot be NULL and must not modify or free `t`, nor
+ *    retain the term pointer beyond the call.
  */
 void TermSuffixIndex_IterateContains(const struct TermSuffixIndex *t, const char *str, size_t len, TermSuffixIterateCallback callback, void *ctx);
 
@@ -120,11 +120,11 @@ void TermSuffixIndex_IterateContains(const struct TermSuffixIndex *t, const char
  *
  * # Safety
  *
- * - `t` must point to a valid [`TermSuffixIndex`] obtained from
- *   [`NewTermSuffixIndex`] and cannot be NULL.
- * - `str` must point to a valid byte sequence of length `len`.
- * - `callback` cannot be NULL and must not modify or free `t`, nor
- *   retain the term pointer beyond the call.
+ * 1. `t` must be a valid, non-null pointer obtained from
+ *    [`NewTermSuffixIndex`].
+ * 2. `str` must point to a valid byte sequence of length `len`.
+ * 3. `callback` cannot be NULL and must not modify or free `t`, nor
+ *    retain the term pointer beyond the call.
  */
 void TermSuffixIndex_IterateSuffix(const struct TermSuffixIndex *t, const char *str, size_t len, TermSuffixIterateCallback callback, void *ctx);
 
@@ -141,11 +141,11 @@ void TermSuffixIndex_IterateSuffix(const struct TermSuffixIndex *t, const char *
  *
  * # Safety
  *
- * - `t` must point to a valid [`TermSuffixIndex`] obtained from
- *   [`NewTermSuffixIndex`] and cannot be NULL.
- * - `str` must point to a valid byte sequence of length `len`.
- * - Both `t` and the pattern bytes `(str, len)` must stay valid and
- *   unmodified while the iterator lives.
+ * 1. `t` must be a valid, non-null pointer obtained from
+ *    [`NewTermSuffixIndex`].
+ * 2. `str` must point to a valid byte sequence of length `len`.
+ * 3. Both `t` and the pattern bytes `(str, len)` must stay valid and
+ *    unmodified while the iterator lives.
  */
 struct TermSuffixIndexIterator *TermSuffixIndex_IterateWildcard(const struct TermSuffixIndex *t, const char *str, size_t len);
 
@@ -157,9 +157,9 @@ struct TermSuffixIndexIterator *TermSuffixIndex_IterateWildcard(const struct Ter
  *
  * # Safety
  *
- * - `t` must point to a valid [`TermSuffixIndex`] obtained from
- *   [`NewTermSuffixIndex`] and cannot be NULL.
- * - `t` must not be modified or freed while the iterator lives.
+ * 1. `t` must be a valid, non-null pointer obtained from
+ *    [`NewTermSuffixIndex`].
+ * 2. `t` must not be modified or freed while the iterator lives.
  */
 struct TermSuffixIndexIterator *TermSuffixIndex_IterateAll(const struct TermSuffixIndex *t);
 
@@ -173,12 +173,12 @@ struct TermSuffixIndexIterator *TermSuffixIndex_IterateAll(const struct TermSuff
  *
  * # Safety
  *
- * - `it` must point to a valid [`TermSuffixIndexIterator`] and cannot
- *   be NULL.
- * - `str` and `len` must be valid, non-NULL pointers to writable
- *   locations.
- * - The [`TermSuffixIndex`] the iterator was obtained from must still
- *   be alive and unmodified.
+ * 1. `it` must be a valid, non-null pointer to a live
+ *    [`TermSuffixIndexIterator`].
+ * 2. `str` and `len` must be valid, non-null pointers to writable
+ *    locations.
+ * 3. The [`TermSuffixIndex`] the iterator was obtained from must still
+ *    be alive and unmodified.
  */
 int TermSuffixIndexIterator_Next(struct TermSuffixIndexIterator *it, const char * *str, size_t *len);
 
@@ -189,9 +189,9 @@ int TermSuffixIndexIterator_Next(struct TermSuffixIndexIterator *it, const char 
  *
  * # Safety
  *
- * - `it` must point to a valid [`TermSuffixIndexIterator`] and cannot
- *   be NULL.
- * - `it` must not be used after this call.
+ * 1. `it` must be a valid, non-null pointer to a live
+ *    [`TermSuffixIndexIterator`].
+ * 2. `it` must not be used after this call.
  */
 void TermSuffixIndexIterator_Free(struct TermSuffixIndexIterator *it);
 

@@ -65,16 +65,15 @@ pub extern "C" fn NewTermSuffixIndex() -> *mut TermSuffixIndex {
 ///
 /// # Safety
 ///
-/// - `t` must point to a valid [`TermSuffixIndex`] obtained from
-///   [`NewTermSuffixIndex`] and cannot be NULL.
-/// - No iterator obtained from `t` may be alive.
-/// - `t` must not be used after this call.
+/// 1. `t` must be a valid, non-null pointer obtained from
+///    [`NewTermSuffixIndex`].
+/// 2. No iterator obtained from `t` may be alive.
+/// 3. `t` must not be used after this call.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn TermSuffixIndex_Free(t: *mut TermSuffixIndex) {
     debug_assert!(!t.is_null(), "t cannot be NULL");
 
-    // SAFETY: `t` is a valid, non-null pointer from `NewTermSuffixIndex`
-    // with no outstanding iterators.
+    // Safety: ensured by caller (1., 2., 3.)
     drop(unsafe { Box::from_raw(t) });
 }
 
@@ -83,10 +82,10 @@ pub unsafe extern "C" fn TermSuffixIndex_Free(t: *mut TermSuffixIndex) {
 ///
 /// # Safety
 ///
-/// - `t` must point to a valid [`TermSuffixIndex`] obtained from
-///   [`NewTermSuffixIndex`] and cannot be NULL.
-/// - `term` must point to a valid byte sequence of length `len`.
-/// - No iterator obtained from `t` may be alive.
+/// 1. `t` must be a valid, non-null pointer obtained from
+///    [`NewTermSuffixIndex`].
+/// 2. `term` must point to a valid byte sequence of length `len`.
+/// 3. No iterator obtained from `t` may be alive.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn TermSuffixIndex_Add(
     t: *mut TermSuffixIndex,
@@ -96,9 +95,9 @@ pub unsafe extern "C" fn TermSuffixIndex_Add(
     debug_assert!(!t.is_null(), "t cannot be NULL");
     debug_assert!(!term.is_null(), "term cannot be NULL");
 
-    // SAFETY: `t` is a valid, non-null pointer with no outstanding iterators.
+    // Safety: ensured by caller (1., 3.)
     let TermSuffixIndex(index) = unsafe { &mut *t };
-    // SAFETY: `term` points to `len` valid bytes.
+    // Safety: ensured by caller (2.)
     let bytes = unsafe { std::slice::from_raw_parts(term.cast::<u8>(), len) };
 
     let Ok(term) = std::str::from_utf8(bytes) else {
@@ -113,10 +112,10 @@ pub unsafe extern "C" fn TermSuffixIndex_Add(
 ///
 /// # Safety
 ///
-/// - `t` must point to a valid [`TermSuffixIndex`] obtained from
-///   [`NewTermSuffixIndex`] and cannot be NULL.
-/// - `term` must point to a valid byte sequence of length `len`.
-/// - No iterator obtained from `t` may be alive.
+/// 1. `t` must be a valid, non-null pointer obtained from
+///    [`NewTermSuffixIndex`].
+/// 2. `term` must point to a valid byte sequence of length `len`.
+/// 3. No iterator obtained from `t` may be alive.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn TermSuffixIndex_Remove(
     t: *mut TermSuffixIndex,
@@ -126,9 +125,9 @@ pub unsafe extern "C" fn TermSuffixIndex_Remove(
     debug_assert!(!t.is_null(), "t cannot be NULL");
     debug_assert!(!term.is_null(), "term cannot be NULL");
 
-    // SAFETY: `t` is a valid, non-null pointer with no outstanding iterators.
+    // Safety: ensured by caller (1., 3.)
     let TermSuffixIndex(index) = unsafe { &mut *t };
-    // SAFETY: `term` points to `len` valid bytes.
+    // Safety: ensured by caller (2.)
     let bytes = unsafe { std::slice::from_raw_parts(term.cast::<u8>(), len) };
 
     let Ok(term) = std::str::from_utf8(bytes) else {
@@ -142,13 +141,13 @@ pub unsafe extern "C" fn TermSuffixIndex_Remove(
 ///
 /// # Safety
 ///
-/// - `t` must point to a valid [`TermSuffixIndex`] obtained from
-///   [`NewTermSuffixIndex`] and cannot be NULL.
+/// 1. `t` must be a valid, non-null pointer obtained from
+///    [`NewTermSuffixIndex`].
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn TermSuffixIndex_MemUsage(t: *const TermSuffixIndex) -> usize {
     debug_assert!(!t.is_null(), "t cannot be NULL");
 
-    // SAFETY: `t` is a valid, non-null pointer.
+    // Safety: ensured by caller (1.)
     let TermSuffixIndex(index) = unsafe { &*t };
     index.mem_usage()
 }
@@ -160,11 +159,11 @@ pub unsafe extern "C" fn TermSuffixIndex_MemUsage(t: *const TermSuffixIndex) -> 
 ///
 /// # Safety
 ///
-/// - `t` must point to a valid [`TermSuffixIndex`] obtained from
-///   [`NewTermSuffixIndex`] and cannot be NULL.
-/// - `str` must point to a valid byte sequence of length `len`.
-/// - `callback` cannot be NULL and must not modify or free `t`, nor
-///   retain the term pointer beyond the call.
+/// 1. `t` must be a valid, non-null pointer obtained from
+///    [`NewTermSuffixIndex`].
+/// 2. `str` must point to a valid byte sequence of length `len`.
+/// 3. `callback` cannot be NULL and must not modify or free `t`, nor
+///    retain the term pointer beyond the call.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn TermSuffixIndex_IterateContains(
     t: *const TermSuffixIndex,
@@ -180,9 +179,9 @@ pub unsafe extern "C" fn TermSuffixIndex_IterateContains(
         return;
     };
 
-    // SAFETY: `t` is a valid, non-null pointer, not modified for this call.
+    // Safety: ensured by caller (1.)
     let TermSuffixIndex(index) = unsafe { &*t };
-    // SAFETY: `str` points to `len` valid bytes.
+    // Safety: ensured by caller (2.)
     let bytes = unsafe { std::slice::from_raw_parts(str.cast::<u8>(), len) };
 
     let Ok(needle) = std::str::from_utf8(bytes) else {
@@ -190,8 +189,7 @@ pub unsafe extern "C" fn TermSuffixIndex_IterateContains(
         return;
     };
     for term in index.iter_contains(needle) {
-        // SAFETY: `callback` tolerates a non-NUL-terminated term pointer
-        // valid for the call.
+        // Safety: ensured by caller (3.)
         let outcome = unsafe {
             callback(
                 term.as_ptr().cast::<c_char>(),
@@ -213,11 +211,11 @@ pub unsafe extern "C" fn TermSuffixIndex_IterateContains(
 ///
 /// # Safety
 ///
-/// - `t` must point to a valid [`TermSuffixIndex`] obtained from
-///   [`NewTermSuffixIndex`] and cannot be NULL.
-/// - `str` must point to a valid byte sequence of length `len`.
-/// - `callback` cannot be NULL and must not modify or free `t`, nor
-///   retain the term pointer beyond the call.
+/// 1. `t` must be a valid, non-null pointer obtained from
+///    [`NewTermSuffixIndex`].
+/// 2. `str` must point to a valid byte sequence of length `len`.
+/// 3. `callback` cannot be NULL and must not modify or free `t`, nor
+///    retain the term pointer beyond the call.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn TermSuffixIndex_IterateSuffix(
     t: *const TermSuffixIndex,
@@ -233,9 +231,9 @@ pub unsafe extern "C" fn TermSuffixIndex_IterateSuffix(
         return;
     };
 
-    // SAFETY: `t` is a valid, non-null pointer, not modified for this call.
+    // Safety: ensured by caller (1.)
     let TermSuffixIndex(index) = unsafe { &*t };
-    // SAFETY: `str` points to `len` valid bytes.
+    // Safety: ensured by caller (2.)
     let bytes = unsafe { std::slice::from_raw_parts(str.cast::<u8>(), len) };
 
     let Ok(needle) = std::str::from_utf8(bytes) else {
@@ -243,8 +241,7 @@ pub unsafe extern "C" fn TermSuffixIndex_IterateSuffix(
         return;
     };
     for term in index.iter_suffix(needle) {
-        // SAFETY: `callback` tolerates a non-NUL-terminated term pointer
-        // valid for the call.
+        // Safety: ensured by caller (3.)
         let outcome = unsafe {
             callback(
                 term.as_ptr().cast::<c_char>(),
@@ -271,11 +268,11 @@ pub unsafe extern "C" fn TermSuffixIndex_IterateSuffix(
 ///
 /// # Safety
 ///
-/// - `t` must point to a valid [`TermSuffixIndex`] obtained from
-///   [`NewTermSuffixIndex`] and cannot be NULL.
-/// - `str` must point to a valid byte sequence of length `len`.
-/// - Both `t` and the pattern bytes `(str, len)` must stay valid and
-///   unmodified while the iterator lives.
+/// 1. `t` must be a valid, non-null pointer obtained from
+///    [`NewTermSuffixIndex`].
+/// 2. `str` must point to a valid byte sequence of length `len`.
+/// 3. Both `t` and the pattern bytes `(str, len)` must stay valid and
+///    unmodified while the iterator lives.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn TermSuffixIndex_IterateWildcard<'si>(
     t: *const TermSuffixIndex,
@@ -285,9 +282,9 @@ pub unsafe extern "C" fn TermSuffixIndex_IterateWildcard<'si>(
     debug_assert!(!t.is_null(), "t cannot be NULL");
     debug_assert!(!str.is_null(), "str cannot be NULL");
 
-    // SAFETY: `t` is a valid, non-null pointer that outlives the iterator.
+    // Safety: ensured by caller (1., 3.)
     let TermSuffixIndex(index) = unsafe { &*t };
-    // SAFETY: `str` points to `len` valid bytes that outlive the iterator.
+    // Safety: ensured by caller (2., 3.)
     let bytes = unsafe { std::slice::from_raw_parts(str.cast::<u8>(), len) };
 
     let iter: Box<dyn Iterator<Item = Rc<str>>> = match std::str::from_utf8(bytes) {
@@ -313,16 +310,16 @@ pub unsafe extern "C" fn TermSuffixIndex_IterateWildcard<'si>(
 ///
 /// # Safety
 ///
-/// - `t` must point to a valid [`TermSuffixIndex`] obtained from
-///   [`NewTermSuffixIndex`] and cannot be NULL.
-/// - `t` must not be modified or freed while the iterator lives.
+/// 1. `t` must be a valid, non-null pointer obtained from
+///    [`NewTermSuffixIndex`].
+/// 2. `t` must not be modified or freed while the iterator lives.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn TermSuffixIndex_IterateAll<'si>(
     t: *const TermSuffixIndex,
 ) -> *mut TermSuffixIndexIterator<'si> {
     debug_assert!(!t.is_null(), "t cannot be NULL");
 
-    // SAFETY: `t` is a valid, non-null pointer that outlives the iterator.
+    // Safety: ensured by caller (1., 2.)
     let TermSuffixIndex(index) = unsafe { &*t };
 
     let iter = Box::new(index.keys().map(Rc::from));
@@ -341,12 +338,12 @@ pub unsafe extern "C" fn TermSuffixIndex_IterateAll<'si>(
 ///
 /// # Safety
 ///
-/// - `it` must point to a valid [`TermSuffixIndexIterator`] and cannot
-///   be NULL.
-/// - `str` and `len` must be valid, non-NULL pointers to writable
-///   locations.
-/// - The [`TermSuffixIndex`] the iterator was obtained from must still
-///   be alive and unmodified.
+/// 1. `it` must be a valid, non-null pointer to a live
+///    [`TermSuffixIndexIterator`].
+/// 2. `str` and `len` must be valid, non-null pointers to writable
+///    locations.
+/// 3. The [`TermSuffixIndex`] the iterator was obtained from must still
+///    be alive and unmodified.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn TermSuffixIndexIterator_Next(
     it: *mut TermSuffixIndexIterator,
@@ -357,7 +354,7 @@ pub unsafe extern "C" fn TermSuffixIndexIterator_Next(
     debug_assert!(!str.is_null(), "str cannot be NULL");
     debug_assert!(!len.is_null(), "len cannot be NULL");
 
-    // SAFETY: `it` is a valid, non-null pointer to a live iterator.
+    // Safety: ensured by caller (1., 3.)
     let iterator = unsafe { &mut *it };
 
     let Some(term) = iterator.iter.next() else {
@@ -365,11 +362,11 @@ pub unsafe extern "C" fn TermSuffixIndexIterator_Next(
     };
     let term = iterator.current.insert(term);
 
-    // SAFETY: `str` points to a writable location.
+    // Safety: ensured by caller (2.)
     unsafe {
         *str = term.as_ptr().cast::<c_char>();
     }
-    // SAFETY: `len` points to a writable location.
+    // Safety: ensured by caller (2.)
     unsafe {
         *len = term.len();
     }
@@ -382,13 +379,13 @@ pub unsafe extern "C" fn TermSuffixIndexIterator_Next(
 ///
 /// # Safety
 ///
-/// - `it` must point to a valid [`TermSuffixIndexIterator`] and cannot
-///   be NULL.
-/// - `it` must not be used after this call.
+/// 1. `it` must be a valid, non-null pointer to a live
+///    [`TermSuffixIndexIterator`].
+/// 2. `it` must not be used after this call.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn TermSuffixIndexIterator_Free(it: *mut TermSuffixIndexIterator) {
     debug_assert!(!it.is_null(), "it cannot be NULL");
 
-    // SAFETY: `it` is a valid, non-null pointer to a live iterator.
+    // Safety: ensured by caller (1., 2.)
     drop(unsafe { Box::from_raw(it) });
 }
