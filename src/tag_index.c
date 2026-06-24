@@ -346,6 +346,10 @@ TrieMapIterator *TagIndex_IterateValues(const TagIndex *idx) {
   return TrieMap_Iterate(idx->values);
 }
 
+size_t TagIndex_NUniqueValues(const TagIndex *idx) {
+  return TrieMap_NUniqueKeys(idx->values);
+}
+
 /* Serialize all the tags in the index to the redis client */
 void TagIndex_SerializeValues(TagIndex *idx, RedisModuleCtx *ctx) {
   TrieMapIterator *it = TagIndex_IterateValues(idx);

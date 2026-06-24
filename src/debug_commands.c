@@ -1398,7 +1398,7 @@ DEBUG_COMMAND(InfoTagIndex) {
 
   RedisModule_ReplyWithArray(ctx, REDISMODULE_POSTPONED_ARRAY_LEN);
   RedisModule_ReplyWithLiteral(ctx, "num_values");
-  RedisModule_ReplyWithLongLong(ctx, TrieMap_NUniqueKeys(idx->values));
+  RedisModule_ReplyWithLongLong(ctx, TagIndex_NUniqueValues(idx));
   nelem += 2;
 
   if (options.dumpIdEntries) {
