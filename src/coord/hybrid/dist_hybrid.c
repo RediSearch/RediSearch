@@ -1156,6 +1156,17 @@ void DEBUG_RSExecDistHybrid(RedisModuleCtx *ctx, RedisModuleString **argv, int a
     // RSGlobalConfig on this BG thread (races FT.CONFIG SET).
     applyCoordReqConfigTimeoutPolicy(hreq, CoordRequestCtx_GetTimeoutPolicy(reqCtx));
 
+    // The SEARCH/VSIM debug timeouts are applied on the shards (the subqueries
+    // run there), forwarded via the _FT.DEBUG-wrapped shard command. The tail
+    // (merge) pipeline runs only here on the coordinator, so its timeout can't
+    // be forwarded -- apply it directly to the coordinator's tail pipeline,
+    // which prepareForExecution has already built. Done after the policy re-pin
+    // so the injected processor sits on the final, dispatch-time pipeline.
+    if (debugParams.tail_timeout_count > 0 && hreq->tailPipeline) {
+      PipelineAddTimeoutAfterCount(&hreq->tailPipeline->qctx, hreq->sctx,
+                                   debugParams.tail_timeout_count);
+    }
+
     if (HybridRequest_prepareCursors(hreq, &status) != REDISMODULE_OK) {
         DistHybridCleanups(ctx, cmdCtx, sp, &strong_ref, hreq, &status);
         return;
