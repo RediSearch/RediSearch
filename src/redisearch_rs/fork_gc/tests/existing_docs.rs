@@ -81,6 +81,7 @@ fn empty_existing_docs_writes_only_terminator() {
 /// (stub returns false), `scan_gc` produces a delta. The output is an Empty
 /// frame, the serialised [`GcScanDelta`], then a Terminator.
 #[test]
+#[cfg_attr(miri, ignore = "calls FFI function `DocTable_Exists`")]
 fn existing_docs_with_deleted_entries_writes_delta() {
     let mut ii = InvertedIndex::<DocIdsOnly>::new(IndexFlags_Index_DocIdsOnly);
     ii.add_record(&RSIndexResult::build_virt().doc_id(1).build())
@@ -154,6 +155,7 @@ fn apply_returns_err_when_existing_docs_absent() {
 }
 
 #[test]
+#[cfg_attr(miri, ignore = "calls FFI function `DocTable_Exists`")]
 fn roundtrip_all_docs_deleted_clears_index() {
     let mut ii = InvertedIndex::<DocIdsOnly>::new(IndexFlags_Index_DocIdsOnly);
     ii.add_record(&RSIndexResult::build_virt().doc_id(1).build())
