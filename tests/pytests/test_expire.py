@@ -1144,3 +1144,42 @@ def test_expire_past_timestamp_removes_doc(env):
 
     env.expect('EXISTS', 'doc:1').equal(0)
     env.expect('FT.SEARCH', 'idx', '*', 'NOCONTENT').equal([1, 'doc:2'])
+
+
+@skip(cluster=True, redis_less_than="7.4")
+def test_mod16507_no_nil_field_array_under_workers(env):
+    # MOD-16507: with WORKERS>0 the result loader runs on a worker thread and the safe
+    # loader releases the spec read lock before taking the GIL. In that window a
+    # concurrent re-index on the main thread (a write, or hash-field-TTL expiry) can
+    # pop a matched doc's DMD (marking it Document_Deleted, assigning a new docId).
+    # The loader must DROP such a result, not emit the doc id followed by a nil
+    # field-array (RESP2 $-1) - which redis-py decodes to None and which breaks
+    # clients that assume every matched document carries a field array.
+    env = Env(moduleArgs='WORKERS 4')
+    conn = getConnectionByEnv(env)
+    env.expect('FT.CREATE', 'idx', 'ON', 'HASH', 'PREFIX', '1', 'doc:',
+               'SCHEMA', 'title', 'TEXT', 'SORTABLE', 'cat', 'TAG').ok()
+
+    NDOCS = 300
+    # Re-seed every doc and expire its indexed SORTABLE field with a tiny, staggered
+    # TTL so the field is reaped around query time, forcing a re-index that races the
+    # worker-thread loader. Pre-fix this surfaces a nil field-array within a handful
+    # of iterations; post-fix the offending doc is dropped from the result set.
+    with TimeLimit(120, 'mod16507 repro loop timed out'):
+        for it in range(200):
+            pipe = conn.pipeline(transaction=False)
+            for d in range(NDOCS):
+                key = f'doc:{d}'
+                pipe.hset(key, mapping={'title': f'item {d}', 'cat': 'x'})
+                pipe.execute_command('HPEXPIRE', key, 2 + (d % 8), 'FIELDS', '1', 'title')
+            pipe.execute()
+
+            # res = [count, key1, fields1, key2, fields2, ...]; every fieldsN must be a
+            # field array, never nil.
+            res = conn.execute_command('FT.SEARCH', 'idx', '*', 'LIMIT', '0', str(NDOCS))
+            for i in range(2, len(res), 2):
+                env.assertTrue(
+                    res[i] is not None,
+                    message=f'iter {it}: matched doc {res[i - 1]} returned a nil field-array')
+                if res[i] is None:
+                    return

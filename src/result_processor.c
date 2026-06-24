@@ -968,15 +968,27 @@ static void rpLoader_loadDocument(RPLoader *self, SearchResult *r) {
   }
 }
 
+// A result flagged Result_ExpiredDoc carries no fields: its document was deleted or
+// re-indexed between the iterator yielding it and the loader running (the safe loader
+// briefly releases the spec read lock to take the GIL). Such a result must not reach
+// the client, where it would serialize as a nil field-array (RESP2 $-1). The loader
+// drops it from the stream instead of emitting it. [MOD-16507]
+static inline bool loaderResultIsEmittable(const SearchResult *r) {
+  return !(SearchResult_GetFlags(r) & Result_ExpiredDoc);
+}
+
 static int rploaderNext(ResultProcessor *base, SearchResult *r) {
   RPLoader *lc = (RPLoader *)base;
-  int rc = base->upstream->Next(base->upstream, r);
-  if (rc != RS_RESULT_OK) {
-    return rc;
+  int rc;
+  while ((rc = base->upstream->Next(base->upstream, r)) == RS_RESULT_OK) {
+    rpLoader_loadDocument(lc, r);
+    if (loaderResultIsEmittable(r)) {
+      return RS_RESULT_OK;
+    }
+    // Document was invalidated mid-query: drop it and reuse r for the next fetch.
+    SearchResult_Clear(r);
   }
-
-  rpLoader_loadDocument(lc, r);
-  return RS_RESULT_OK;
+  return rc;
 }
 
 static void rploaderFreeInternal(ResultProcessor *base) {
@@ -1168,14 +1180,18 @@ static void rpSafeLoader_Load(RPSafeLoader *self) {
 
 static int rpSafeLoaderNext_Yield(ResultProcessor *rp, SearchResult *result_output) {
   RPSafeLoader *self = (RPSafeLoader *)rp;
-  SearchResult *curr_res = GetNextResult(self);
+  SearchResult *curr_res;
 
-  if (curr_res) {
-    SetResult(curr_res, result_output);
-    return RS_RESULT_OK;
-  } else {
-    return rpSafeLoader_ResetAndReturnLastCode(self, result_output);
+  while ((curr_res = GetNextResult(self))) {
+    if (loaderResultIsEmittable(curr_res)) {
+      SetResult(curr_res, result_output);
+      return RS_RESULT_OK;
+    }
+    // Document was invalidated mid-query: drop it. GetNextResult has already advanced
+    // past this slot, so rpSafeLoaderFree won't reclaim it - release it here.
+    SearchResult_Clear(curr_res);
   }
+  return rpSafeLoader_ResetAndReturnLastCode(self, result_output);
 }
 
 /*********************************************************************************/
