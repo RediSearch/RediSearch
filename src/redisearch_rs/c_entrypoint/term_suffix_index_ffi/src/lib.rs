@@ -65,10 +65,12 @@ pub extern "C" fn NewTermSuffixIndex() -> *mut TermSuffixIndex {
 ///
 /// # Safety
 ///
-/// 1. `t` must be a valid, non-null pointer obtained from
+/// 1. `t` must be a [valid], non-null pointer obtained from
 ///    [`NewTermSuffixIndex`].
 /// 2. No iterator obtained from `t` may be alive.
 /// 3. `t` must not be used after this call.
+///
+/// [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn TermSuffixIndex_Free(t: *mut TermSuffixIndex) {
     debug_assert!(!t.is_null(), "t cannot be NULL");
@@ -82,10 +84,12 @@ pub unsafe extern "C" fn TermSuffixIndex_Free(t: *mut TermSuffixIndex) {
 ///
 /// # Safety
 ///
-/// 1. `t` must be a valid, non-null pointer obtained from
+/// 1. `t` must be a [valid], non-null pointer obtained from
 ///    [`NewTermSuffixIndex`].
-/// 2. `term` must point to a valid byte sequence of length `len`.
+/// 2. `term` must point to a [valid] byte sequence of length `len`.
 /// 3. No iterator obtained from `t` may be alive.
+///
+/// [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn TermSuffixIndex_Add(
     t: *mut TermSuffixIndex,
@@ -112,10 +116,12 @@ pub unsafe extern "C" fn TermSuffixIndex_Add(
 ///
 /// # Safety
 ///
-/// 1. `t` must be a valid, non-null pointer obtained from
+/// 1. `t` must be a [valid], non-null pointer obtained from
 ///    [`NewTermSuffixIndex`].
-/// 2. `term` must point to a valid byte sequence of length `len`.
+/// 2. `term` must point to a [valid] byte sequence of length `len`.
 /// 3. No iterator obtained from `t` may be alive.
+///
+/// [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn TermSuffixIndex_Remove(
     t: *mut TermSuffixIndex,
@@ -141,8 +147,10 @@ pub unsafe extern "C" fn TermSuffixIndex_Remove(
 ///
 /// # Safety
 ///
-/// 1. `t` must be a valid, non-null pointer obtained from
+/// 1. `t` must be a [valid], non-null pointer obtained from
 ///    [`NewTermSuffixIndex`].
+///
+/// [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn TermSuffixIndex_MemUsage(t: *const TermSuffixIndex) -> usize {
     debug_assert!(!t.is_null(), "t cannot be NULL");
@@ -159,11 +167,13 @@ pub unsafe extern "C" fn TermSuffixIndex_MemUsage(t: *const TermSuffixIndex) -> 
 ///
 /// # Safety
 ///
-/// 1. `t` must be a valid, non-null pointer obtained from
+/// 1. `t` must be a [valid], non-null pointer obtained from
 ///    [`NewTermSuffixIndex`].
-/// 2. `str` must point to a valid byte sequence of length `len`.
+/// 2. `str` must point to a [valid] byte sequence of length `len`.
 /// 3. `callback` cannot be NULL and must not modify or free `t`, nor
 ///    retain the term pointer beyond the call.
+///
+/// [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn TermSuffixIndex_IterateContains(
     t: *const TermSuffixIndex,
@@ -211,11 +221,13 @@ pub unsafe extern "C" fn TermSuffixIndex_IterateContains(
 ///
 /// # Safety
 ///
-/// 1. `t` must be a valid, non-null pointer obtained from
+/// 1. `t` must be a [valid], non-null pointer obtained from
 ///    [`NewTermSuffixIndex`].
-/// 2. `str` must point to a valid byte sequence of length `len`.
+/// 2. `str` must point to a [valid] byte sequence of length `len`.
 /// 3. `callback` cannot be NULL and must not modify or free `t`, nor
 ///    retain the term pointer beyond the call.
+///
+/// [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn TermSuffixIndex_IterateSuffix(
     t: *const TermSuffixIndex,
@@ -268,11 +280,13 @@ pub unsafe extern "C" fn TermSuffixIndex_IterateSuffix(
 ///
 /// # Safety
 ///
-/// 1. `t` must be a valid, non-null pointer obtained from
+/// 1. `t` must be a [valid], non-null pointer obtained from
 ///    [`NewTermSuffixIndex`].
-/// 2. `str` must point to a valid byte sequence of length `len`.
+/// 2. `str` must point to a [valid] byte sequence of length `len`.
 /// 3. Both `t` and the pattern bytes `(str, len)` must stay valid and
 ///    unmodified while the iterator lives.
+///
+/// [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn TermSuffixIndex_IterateWildcard<'si>(
     t: *const TermSuffixIndex,
@@ -310,9 +324,11 @@ pub unsafe extern "C" fn TermSuffixIndex_IterateWildcard<'si>(
 ///
 /// # Safety
 ///
-/// 1. `t` must be a valid, non-null pointer obtained from
+/// 1. `t` must be a [valid], non-null pointer obtained from
 ///    [`NewTermSuffixIndex`].
 /// 2. `t` must not be modified or freed while the iterator lives.
+///
+/// [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn TermSuffixIndex_IterateAll<'si>(
     t: *const TermSuffixIndex,
@@ -338,12 +354,14 @@ pub unsafe extern "C" fn TermSuffixIndex_IterateAll<'si>(
 ///
 /// # Safety
 ///
-/// 1. `it` must be a valid, non-null pointer to a live
+/// 1. `it` must be a [valid], non-null pointer to a live
 ///    [`TermSuffixIndexIterator`].
-/// 2. `str` and `len` must be valid, non-null pointers to writable
+/// 2. `str` and `len` must be [valid], non-null pointers to writable
 ///    locations.
 /// 3. The [`TermSuffixIndex`] the iterator was obtained from must still
 ///    be alive and unmodified.
+///
+/// [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn TermSuffixIndexIterator_Next(
     it: *mut TermSuffixIndexIterator,
@@ -379,9 +397,11 @@ pub unsafe extern "C" fn TermSuffixIndexIterator_Next(
 ///
 /// # Safety
 ///
-/// 1. `it` must be a valid, non-null pointer to a live
+/// 1. `it` must be a [valid], non-null pointer to a live
 ///    [`TermSuffixIndexIterator`].
 /// 2. `it` must not be used after this call.
+///
+/// [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn TermSuffixIndexIterator_Free(it: *mut TermSuffixIndexIterator) {
     debug_assert!(!it.is_null(), "it cannot be NULL");
