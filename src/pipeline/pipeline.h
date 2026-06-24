@@ -2,10 +2,26 @@
 
 #include "aggregate/aggregate_plan.h"
 #include "query.h"
+#include "query_flags.h"
 
 #ifdef __cplusplus
 extern "C" {
 #endif
+
+/**
+ * Whether a buffering result processor must preserve each result's
+ * `RSIndexResult` past the point where it is buffered across an iterator
+ * advance, by deep-copying it.
+ *
+ * The index result is only read downstream of the buffering point by the
+ * highlighter (`QEXEC_F_SEND_HIGHLIGHT`) and by the `matched_terms()` aggregate
+ * function, which in turn only sees rich results when scores are requested.
+ * When neither is the case, the borrow can simply be dropped instead of copied.
+ */
+static inline bool QEFlags_RequireIndexResultsDownstream(QEFlags flags) {
+  return (flags & QEXEC_F_SEND_HIGHLIGHT) ||
+         (flags & (QEXEC_F_SEND_SCORES | QEXEC_F_SEND_SCORES_AS_FIELD));
+}
 
 /**
  * Common parameters shared across different pipeline types in RediSearch.

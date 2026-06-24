@@ -280,18 +280,18 @@ dependencies = [
 
 [[package]]
 name = "cheadergen"
-version = "0.2.3"
+version = "0.3.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "05b761058a928fa8f932d79ed1ad18b417ef2238a90f3a605cda6365b40c9658"
+checksum = "f990f00a175950d110316af42ed9703ec3b1483db11cc544c4d13043729ef436"
 dependencies = [
  "cheadergen_macros",
 ]
 
 [[package]]
 name = "cheadergen_macros"
-version = "0.2.3"
+version = "0.3.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "057f8322e701b896c5bbc5ac64aed5f17174a32e12ca8f34315a26ed8e83619a"
+checksum = "056a8e8de9bc1cab97c960b74f97210d4b0527d3566c5c30048f1aec2cee1818"
 dependencies = [
  "proc-macro2",
  "quote 1.0.45",
@@ -2869,6 +2869,9 @@ name = "term_suffix_index"
 version = "0.0.1"
 dependencies = [
  "proptest",
+ "rqe_wildcard",
+ "rstest",
+ "string_utils",
  "trie_rs",
  "workspace_hack",
 ]
@@ -3301,7 +3304,6 @@ dependencies = [
  "c_ffi_utils",
  "cheadergen",
  "ffi",
- "fnv",
  "libc",
  "query_error",
  "redis-module",
@@ -3320,7 +3322,6 @@ version = "0.0.1"
 dependencies = [
  "cheadergen",
  "ffi",
- "fnv",
  "libc",
  "query_error",
  "redis_mock",

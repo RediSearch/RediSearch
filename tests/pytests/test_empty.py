@@ -334,12 +334,13 @@ def testEmptyTag():
         conn.execute_command('HSET', 'h3', 't', 'movie')
         conn.execute_command('HSET', 'h4', 't', '')
         cmd = f'FT.AGGREGATE {idx} * GROUPBY 1 @t REDUCE COUNT 0 AS count'.split(' ')
+        res = conn.execute_command(*cmd)
         expected = [
-            ANY, \
             ['t', '', 'count', '2'], \
             ['t', 'movie', 'count', '2']
         ]
-        cmd_assert(env, cmd, expected)
+        # The order of the groups themselves is not guaranteed, so compare the group rows regardless of order.
+        env.assertEqual(sorted(res[1:]), sorted(expected))
 
         # --------------------------- SEPARATOR --------------------------------
         # Remove added documents

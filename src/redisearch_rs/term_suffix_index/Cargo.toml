@@ -9,8 +9,11 @@ publish.workspace = true
 workspace = true
 
 [dependencies]
+rqe_wildcard.workspace = true
+string_utils.workspace = true
 trie_rs.workspace = true
 workspace_hack.workspace = true
 
 [dev-dependencies]
 proptest = { workspace = true, features = ["std"] }
+rstest.workspace = true
