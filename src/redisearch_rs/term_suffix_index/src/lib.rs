@@ -172,7 +172,7 @@ impl TermSuffixIndex {
     /// than diverge from with a second, codepoint-aware matcher.
     pub fn iter_wildcard(&self, pattern: &str) -> Option<impl Iterator<Item = Rc<str>>> {
         let lowered = unicode_tolower(pattern);
-        let (token, followed_by_star) = choose_token(&lowered)?;
+        let (token, followed_by_star) = Self::choose_token(&lowered)?;
 
         // A token followed by `*` can sit anywhere inside a match,
         // so every suffix entry starting with it is a candidate. A
@@ -198,31 +198,31 @@ impl TermSuffixIndex {
             .collect();
         Some(matches.into_iter())
     }
-}
 
-/// Returns the anchor token to look up for a wildcard `pattern`
-/// (e.g. `"ab*cd"`), paired with whether a `*` follows it.
-///
-/// The anchor is the `*`-separated token expected to narrow the
-/// candidate set the most. Returns [`None`] if no token is
-/// eligible, i.e. every token is empty (a bare `*`) or contains
-/// `?` or `\`.
-fn choose_token(pattern: &str) -> Option<(&str, bool)> {
-    pattern
-        .split_inclusive('*')
-        .map(|token| match token.strip_suffix('*') {
-            Some(stripped) => (stripped, true),
-            None => (token, false),
-        })
-        .filter(|(token, _)| !token.is_empty() && !token.contains(['?', '\\']))
-        .max_by_key(|&(token, followed_by_star)| {
-            token.chars().count() as i32
-                - if followed_by_star {
-                    STARRED_ANCHOR_PENALTY
-                } else {
-                    0
-                }
-        })
+    /// Returns the anchor token to look up for a wildcard `pattern`
+    /// (e.g. `"ab*cd"`), paired with whether a `*` follows it.
+    ///
+    /// The anchor is the `*`-separated token expected to narrow the
+    /// candidate set the most. Returns [`None`] if no token is
+    /// eligible, i.e. every token is empty (a bare `*`) or contains
+    /// `?` or `\`.
+    fn choose_token(pattern: &str) -> Option<(&str, bool)> {
+        pattern
+            .split_inclusive('*')
+            .map(|token| match token.strip_suffix('*') {
+                Some(stripped) => (stripped, true),
+                None => (token, false),
+            })
+            .filter(|(token, _)| !token.is_empty() && !token.contains(['?', '\\']))
+            .max_by_key(|&(token, followed_by_star)| {
+                token.chars().count() as i32
+                    - if followed_by_star {
+                        STARRED_ANCHOR_PENALTY
+                    } else {
+                        0
+                    }
+            })
+    }
 }
 
 #[cfg(test)]
@@ -243,6 +243,6 @@ mod tests {
     #[case::tokens_with_question_mark_or_backslash_ineligible("a?cd*\\ab*ef", Some(("ef", false)))]
     #[case::length_counts_codepoints_not_bytes("日本語*ab", Some(("ab", false)))]
     fn choose_token_test(#[case] pattern: &str, #[case] expected: Option<(&str, bool)>) {
-        assert_eq!(choose_token(pattern), expected);
+        assert_eq!(TermSuffixIndex::choose_token(pattern), expected);
     }
 }
