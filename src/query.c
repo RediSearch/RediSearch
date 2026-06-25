@@ -1182,7 +1182,6 @@ void tag_strtolower(char **pstr, size_t *len, int caseSensitive) {
 
 static QueryIterator *Query_EvalTagLexRangeNode(QueryEvalCtx *q, TagIndex *idx, QueryNode *qn,
                                                 double weight, bool caseSensitive) {
-  TrieMap *t = idx->values;
   TrieCallbackCtx ctx = {.q = q, .opts = &qn->opts, .weight = weight, .tagIdx = idx};
 
   if(qn->lxrng.begin) {
@@ -1201,7 +1200,7 @@ static QueryIterator *Query_EvalTagLexRangeNode(QueryEvalCtx *q, TagIndex *idx, 
   const char *begin = qn->lxrng.begin, *end = qn->lxrng.end;
   int nbegin = begin ? strlen(begin) : -1, nend = end ? strlen(end) : -1;
 
-  TrieMap_IterateRange(t, begin, nbegin, qn->lxrng.includeBegin, end, nend, qn->lxrng.includeEnd,
+  TagIndex_IterateRangeValues(idx, begin, nbegin, qn->lxrng.includeBegin, end, nend, qn->lxrng.includeEnd,
                        tagRangeIterCb, &ctx);
 
   return NewUnionIterator(ctx.its, ctx.nits, true, qn->opts.weight, QN_LEXRANGE, NULL, q->config);

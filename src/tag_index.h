@@ -19,6 +19,7 @@
 
 struct InvertedIndex;
 typedef struct TrieMapIterator TrieMapIterator;
+typedef void (*TrieMapRangeCallback)(const char *, size_t, void *, void *);
 
 #ifdef __cplusplus
 extern "C" {
@@ -155,6 +156,23 @@ typedef enum tag_iter_mode {
  * See [`TrieMap_IterateWithFilter`] for more details.
  */
 TrieMapIterator *TagIndex_IterateValueWithFilter(TagIndex *idx, const char *tagVal, size_t tagValLen, tag_iter_mode mode);
+
+/**
+ * Iterate the value tags within the specified key range.
+ * 
+ * See [`TrieMap_IterateRange`] for more details
+ */
+void TagIndex_IterateRangeValues(
+  const TagIndex *idx, 
+  const char *min,
+  int minlen,
+  bool includeMin,
+  const char *max,
+  int maxlen,
+  bool includeMax,
+  TrieMapRangeCallback callback,
+  void* ctx
+);
 
 /* Preprocess a document tag field, split the content in data into fdata `tags` array
    Return 0 if there's no content to index in the field (its value is NULL), 1 otherwise
