@@ -165,8 +165,6 @@ void TermSuffixIndex_IterateSuffix(const struct TermSuffixIndex *tsi, const char
  * 1. `tsi` must be a [valid], non-null pointer obtained from
  *    [`TermSuffixIndex_New`].
  * 2. `pattern` must point to a [valid] byte sequence of length `len`.
- * 3. Both `tsi` and the pattern bytes `(pattern, len)` must stay valid and
- *    unmodified while the iterator lives.
  *
  * [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
  */

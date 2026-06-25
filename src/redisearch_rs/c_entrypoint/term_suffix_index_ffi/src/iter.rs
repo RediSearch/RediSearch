@@ -195,8 +195,6 @@ pub unsafe extern "C" fn TermSuffixIndex_IterateSuffix(
 /// 1. `tsi` must be a [valid], non-null pointer obtained from
 ///    [`TermSuffixIndex_New`].
 /// 2. `pattern` must point to a [valid] byte sequence of length `len`.
-/// 3. Both `tsi` and the pattern bytes `(pattern, len)` must stay valid and
-///    unmodified while the iterator lives.
 ///
 /// [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
 #[unsafe(no_mangle)]
@@ -208,9 +206,9 @@ pub unsafe extern "C" fn TermSuffixIndex_IterateWildcard<'si>(
     debug_assert!(!tsi.is_null(), "tsi cannot be NULL");
     debug_assert!(!pattern.is_null(), "pattern cannot be NULL");
 
-    // Safety: ensured by caller (1., 3.)
+    // Safety: ensured by caller (1.)
     let index = unsafe { &*tsi };
-    // Safety: ensured by caller (2., 3.)
+    // Safety: ensured by caller (2.)
     let bytes = unsafe { slice::from_raw_parts(pattern.cast::<u8>(), len) };
 
     let iter: Box<dyn Iterator<Item = Rc<str>>> = match str::from_utf8(bytes) {
