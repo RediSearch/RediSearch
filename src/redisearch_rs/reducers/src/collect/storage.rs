@@ -127,12 +127,8 @@ impl<D: Ord> Storage<D> {
         }
     }
 
-    /// Yields values best→worst on the ranked arm, arrival order otherwise.
-    ///
-    /// The ranked arm drops each [`RankingKey`] here because the client-facing
-    /// local reducer never re-emits sort columns; the remote reducer, which does
-    /// on the shard path, drains [`RankedStorage`] directly instead — see
-    /// [`RemoteCollectCtx::finalize`][super::remote::RemoteCollectCtx::finalize].
+    /// Yields the stored values best→worst (ranked) or in arrival order
+    /// (unranked); the ranked arm's [`RankingKey`]s are discarded.
     pub fn drain(&mut self) -> impl ExactSizeIterator<Item = ProjectedRow> {
         match self {
             Self::Unranked(u) => Either::Left(u.drain()),
