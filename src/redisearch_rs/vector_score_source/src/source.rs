@@ -111,10 +111,11 @@ pub struct VectorScoreSource<'index, E: ExpirationChecker> {
     /// Field-expiration filter for the vector field, consulted at yield time
     /// via [`ScoreSource::is_expired`]. Use [`NoOpChecker`](rqe_iterators::NoOpChecker) to disable.
     expiration: E,
-    /// `true` once `next_batch_unfiltered` has been called; subsequent calls
+    /// `true` once the unfiltered top-k query has succeeded; subsequent calls
     /// short-circuit to `Ok(None)` so the source honors the single-shot
     /// contract without re-issuing the HNSW query (which would also re-poll
-    /// the timeout context and could spuriously fail). Reset by `rewind`.
+    /// the timeout context and could spuriously fail). A timed-out query
+    /// leaves this clear so a retry re-issues it. Reset by `rewind`.
     unfiltered_consumed: bool,
 
     /// Score key for this iterator's metric output; set by the metrics loader.
@@ -228,12 +229,15 @@ impl<'index, E: ExpirationChecker> VectorScoreSource<'index, E> {
             return fixed;
         }
         let index_size = self.index_size();
-        let child_est = self.child_num_estimated;
-        let estimate = self.k_remaining * index_size /
-             // guard div-by-zero
-            child_est.max(1);
-        // The `+ 1` guarantees a non-zero size.
-        NonZeroUsize::new(estimate + 1).unwrap()
+        // `max(1)` guards the divide; `k_remaining` can reach MAX_KNN_K, so form
+        // the ratio in floating point first to keep the product from overflowing
+        // `usize` before the divide brings it back down.
+        let child_est = self.child_num_estimated.max(1);
+        let estimate = self.k_remaining as f64 * (index_size as f64 / child_est as f64);
+        // Saturating cast clamps an oversized estimate into `usize`; `+ 1`
+        // guarantees a non-zero size.
+        let estimate = (estimate as usize).saturating_add(1);
+        NonZeroUsize::new(estimate).unwrap()
     }
 }
 
@@ -245,7 +249,6 @@ impl<'index, E: ExpirationChecker> ScoreSource for VectorScoreSource<'index, E> 
         if self.unfiltered_consumed {
             return Ok(None);
         }
-        self.unfiltered_consumed = true;
         self.query_params.timeoutCtx = self.timeout_ctx_ptr();
         let reply = self
             .index
@@ -256,6 +259,10 @@ impl<'index, E: ExpirationChecker> ScoreSource for VectorScoreSource<'index, E> 
                 ReplyOrder::ByScore,
             )
             .map_err(|QueryError::TimedOut| RQEIteratorError::TimedOut)?;
+        // Mark consumed only after the query succeeds: a timeout above propagates
+        // with the flag still clear, so a retry re-issues the query instead of
+        // taking the fast path and returning EOF.
+        self.unfiltered_consumed = true;
         Ok(reply
             .and_then(|r| r.into_results())
             .map(VecSimScoreBatch::new))
@@ -436,9 +443,9 @@ impl<'index, E: ExpirationChecker> ScoreSource for VectorScoreSource<'index, E> 
     {
         let mut result = RSIndexResult::build_metric(score).doc_id(doc_id).build();
         if !self.own_key.is_null() {
-            // SAFETY: `own_key` is set by `getAdditionalMetricsRP` in pipeline_construction.c
-            // before any reads occur, and lives for `'idx` (⊇ `'r`). `ffi::RLookupKey` is the
-            // C header that `MetricsVec` stores: the `#[repr(C)]` prefix of `RLookupKey<'idx>`.
+            // SAFETY: when non-null, `own_key` points to a live `RLookupKey` that the query
+            // set up before reading any results and keeps alive for at least `'r`. The cast
+            // is valid because `RLookupKey<'idx>` starts with a `#[repr(C)]` `ffi::RLookupKey`.
             let key: &'r ffi::RLookupKey = unsafe { &*(self.own_key as *const ffi::RLookupKey) };
             result.metrics.push_with_key(key, score);
         }
