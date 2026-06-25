@@ -38,6 +38,7 @@ extern "C" {
 #include <stdio.h>
 #include <time.h>
 #include <float.h>
+#include <iterator>  // std::size
 #include <vector>
 #include <cstdint>
 #include <random>
@@ -1608,6 +1609,9 @@ TEST_F(IndexTest, testDiskHnswAcceptsFloat16) {
     };
     StrongRef ref =
         IndexSpec_ParseC(nullptr, "idx_bad", args, std::size(args), &err);
+    // Cleans up if a regression ever lets an unsupported type parse, so a failing
+    // assertion below cannot leak the created spec into later tests.
+    SpecCleanupGuard cleanup(ref);
     ASSERT_TRUE(QueryError_HasError(&err)) << "type " << vecType << " should be rejected";
     ASSERT_EQ(nullptr, StrongRef_Get(ref));
     ASSERT_NE(nullptr, strstr(QueryError_GetUserError(&err), "Disk index does not support"))
