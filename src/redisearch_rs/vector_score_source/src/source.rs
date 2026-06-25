@@ -289,6 +289,9 @@ impl<'index, E: ExpirationChecker> ScoreSource for VectorScoreSource<'index, E> 
             if self.batch_iter.is_none() {
                 return Ok(None);
             }
+            // Seed the largest-batch tracker. A user-pinned size is constant, so
+            // it is also the maximum; a dynamic size starts at 0 and grows below.
+            self.max_batch_size = self.fixed_batch_size;
         }
 
         if !self
@@ -302,6 +305,14 @@ impl<'index, E: ExpirationChecker> ScoreSource for VectorScoreSource<'index, E> 
 
         let batch_size = self.compute_next_batch_size();
         self.num_iterations += 1;
+
+        // Track the largest dynamically-computed batch and the (zero-based)
+        // iteration that produced it. A user-pinned size never varies, so the
+        // maximum stays at the seed above and the iteration index stays at 0.
+        if self.fixed_batch_size == 0 && batch_size.get() > self.max_batch_size {
+            self.max_batch_size = batch_size.get();
+            self.max_batch_iteration = self.num_iterations - 1;
+        }
 
         let batch_iter = self.batch_iter.as_mut().expect("just initialised above");
         let reply = batch_iter
@@ -418,6 +429,8 @@ impl<'index, E: ExpirationChecker> ScoreSource for VectorScoreSource<'index, E> 
     fn rewind(&mut self) {
         self.batch_iter = None;
         self.num_iterations = 0;
+        self.max_batch_size = 0;
+        self.max_batch_iteration = 0;
         self.k_remaining = self.k;
         self.child_num_estimated = self.initial_child_num_estimated;
         self.unfiltered_consumed = false;
@@ -630,6 +643,41 @@ mod tests {
         assert_eq!(
             source.child_num_estimated, 3,
             "rewind restores clamped seed"
+        );
+
+        drop(source);
+        // SAFETY: no live references to the index remain.
+        unsafe { VecSimIndex_Free(index.as_ptr()) };
+    }
+
+    /// The largest-batch profile metrics track each dynamically-computed batch
+    /// (size plus its zero-based iteration) and reset on rewind.
+    #[test]
+    #[cfg_attr(miri, ignore = "requires C FFI (VecSim)")]
+    fn largest_batch_metrics_track_and_reset() {
+        let index = build_flat_index(20, 1);
+        // SAFETY: index is freed after the source is dropped at end of scope.
+        let mut source = unsafe { flat_source(index, 3, 20) };
+
+        // drive two batches, shrinking the child estimate between them so
+        // the second computed size is larger, then rewind.
+        source.next_batch().unwrap();
+        let first = source.max_batch_size;
+        source.child_num_estimated = 5;
+        source.next_batch().unwrap();
+        let (grown_size, grown_iter) = (source.max_batch_size, source.max_batch_iteration);
+        source.rewind();
+
+        assert!(first > 0, "first batch seeds the maximum");
+        assert!(
+            grown_size > first,
+            "the larger second batch raises the maximum"
+        );
+        assert_eq!(grown_iter, 1, "recorded at its iteration");
+        assert_eq!(
+            (source.max_batch_size, source.max_batch_iteration),
+            (0, 0),
+            "rewind clears the metrics"
         );
 
         drop(source);
