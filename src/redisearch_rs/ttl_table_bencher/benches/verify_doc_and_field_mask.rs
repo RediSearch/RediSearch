@@ -19,8 +19,7 @@ use ttl_table::{
     test_utils::{NOW, identity_ft_id},
 };
 use ttl_table_bencher::{
-    DocsInput, FieldExpirationInput, convert_into_ffi_docs, create_and_populate,
-    create_and_populate_c, create_docs, random_mask,
+    DocsInput, FieldExpirationInput, create_and_populate, create_docs, random_mask,
 };
 
 fn doc_inputs() -> Vec<DocsInput> {
@@ -62,7 +61,6 @@ fn verify_doc_and_field_mask_doc_default(c: &mut Criterion) {
 
         for doc_input in &doc_inputs {
             let inputs = create_docs(*doc_input, rand::rng());
-            let c_inputs = convert_into_ffi_docs(&inputs);
             let table = create_and_populate(max_size, inputs);
 
             let mask = random_mask(&mut rng);
@@ -86,39 +84,6 @@ fn verify_doc_and_field_mask_doc_default(c: &mut Criterion) {
                     }
                     black_box(acc)
                 }, BatchSize::LargeInput);
-            });
-
-            // SAFETY: bench data is always created with those guarantees.
-            let table = unsafe { create_and_populate_c(max_size, c_inputs) };
-
-            let ft_id_to_field_index = ft_id_to_field_index.as_ptr();
-
-            group.bench_function(BenchmarkId::from_parameter(format!("slot_size={}/pop_count={}/doc_filled_at={}/field_filled_at={}/expired={}/mask={:#010b}/lang=C", max_size, doc_input.count, doc_input.fill_probability, doc_input.field_expiration_input.fill_probability, doc_input.field_expiration_input.expired_probability, mask)), |b| {
-                b.iter_batched(
-                    || {
-                        (0..(doc_input.count as u64)).collect::<Vec<_>>()
-                    },
-                    |doc_ids| {
-                        let mut acc = 0u64;
-                        for doc_id in doc_ids {
-                            // SAFETY: caller's invariant — `fields` is non-empty, sorted by
-                            // index, and unique per `doc_id`. Ownership transfers to the table.
-                            let ok = unsafe {
-                                ffi::TimeToLiveTable_VerifyDocAndFieldMask(
-                                    table.0,
-                                    black_box(doc_id),
-                                    black_box(mask),
-                                    ffi::FieldExpirationPredicate_FIELD_EXPIRATION_PREDICATE_DEFAULT,
-                                    &NOW,
-                                    ft_id_to_field_index,
-                                )
-                            };
-                            acc += ok as u64;
-                        }
-                        black_box(acc)
-                    },
-                    BatchSize::LargeInput,
-                )
             });
         }
     }

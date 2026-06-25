@@ -172,14 +172,3 @@ fn test_create_and_populate() {
 
     assert!(table.is_empty());
 }
-
-#[cfg(not(miri))]
-#[test]
-fn test_create_and_populate_c() {
-    // SAFETY: inputs is empty, so no array ownership is transferred.
-    let table = unsafe { create_and_populate_c(NonZero::try_from(2).unwrap(), vec![]) };
-
-    // SAFETY: `VerifyInit` ran, so `as_ptr()` is non-null.
-    assert!(unsafe { ffi::TimeToLiveTable_IsEmpty(table.as_ptr()) });
-    // `table` drops here, exercising `TimeToLiveTable_Destroy`.
-}

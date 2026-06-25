@@ -135,7 +135,7 @@ int DocTable_SetSortingVector(DocTable *t, RSDocumentMetadata *dmd, RSSortingVec
  */
 void DocTable_SetByteOffsets(RSDocumentMetadata *dmd, RSByteOffsets *offsets);
 
-void DocTable_UpdateExpiration(DocTable *t, RSDocumentMetadata* dmd, t_expirationTimePoint ttl, arrayof(FieldExpiration) allFieldSorted);
+void DocTable_UpdateExpiration(DocTable *t, RSDocumentMetadata* dmd, t_expirationTimePoint ttl, FieldExpirations allFieldSorted);
 
 // Sets only the doc-level TTL on `dmd` (relaxed atomic store on
 // `expirationTimeNs`) without touching the per-field TTL table. Safe to call
@@ -151,7 +151,16 @@ void DocTable_SetDocExpiration(RSDocumentMetadata *dmd, t_expirationTimePoint tt
 // no other doc still has an entry; otherwise it replaces the entry. Caller
 // must hold the spec write lock.
 void DocTable_UpdateFieldExpiration(DocTable *t, RSDocumentMetadata *dmd,
-                                    arrayof(FieldExpiration) sortedFieldWithExpiration);
+                                    FieldExpirations sortedFieldWithExpiration);
+
+// Takes ownership of the FieldExpirations at `*src`, resets `*src` to the
+// empty sentinel, and returns the moved value. Safe to call on an already-empty
+// sentinel.
+static inline FieldExpirations DocTable_TakeFieldExpirations(FieldExpirations *src) {
+  FieldExpirations result = *src;
+  *src = FieldExpirations_Empty();
+  return result;
+}
 
 bool DocTable_IsDocExpired(DocTable* t, const RSDocumentMetadata* dmd, struct timespec* expirationPoint);
 
@@ -178,12 +187,12 @@ static inline bool DocTable_CheckWideFieldMaskExpirationPredicate(const DocTable
   return TimeToLiveTable_VerifyDocAndWideFieldMask(t->ttl, docId, fieldMask, predicate, expirationPoint, ftIdToFieldIndex);
 }
 
-// Borrowed read of the field-expiration array for `docId`. Returns NULL if
-// this index has never registered any field-level TTLs (`t->ttl == NULL`)
-// or if `docId` has no field-level entry. See
+// Borrowed read of the field-expiration array for `docId`. Returns an empty
+// slice (`{NULL, 0}`) if this index has never registered any field-level
+// TTLs (`t->ttl == NULL`) or if `docId` has no field-level entry. See
 // TimeToLiveTable_GetFieldExpirations for lifetime / aliasing rules.
-static inline const arrayof(FieldExpiration) DocTable_GetFieldExpirations(const DocTable *t, t_docId docId) {
-  if (!t->ttl) return NULL;
+static inline struct FieldExpirationSlice DocTable_GetFieldExpirations(const DocTable *t, t_docId docId) {
+  if (!t->ttl) return FieldExpirationsSlice_Empty();
   return TimeToLiveTable_GetFieldExpirations(t->ttl, docId);
 }
 

@@ -66,7 +66,6 @@ add_subdirectory(util/mempool)
 add_subdirectory(util/dict)
 add_subdirectory(util/hash)
 add_subdirectory(coord)
-add_subdirectory(ttl_table)
 
 #----------------------------------------------------------------------------------------------
 # Source files for the core library
@@ -125,7 +124,6 @@ set(FINAL_OBJECTS
     $<TARGET_OBJECTS:metaphone>
     $<TARGET_OBJECTS:fast_float_strtod>
     $<TARGET_OBJECTS:redisearch-coord>
-    $<TARGET_OBJECTS:ttl_table>
 )
 
 # Export FINAL_OBJECTS to parent scope for the top-level redisearch target
@@ -143,7 +141,6 @@ target_link_libraries(redisearch_c
     VectorSimilarity
     redisearch-coord
     uv_a
-    ttl_table
     ${HIREDIS_LIBS})
 
 add_dependencies(redisearch_c VectorSimilarity)

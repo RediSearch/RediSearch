@@ -7,9 +7,14 @@
 #include <stddef.h>
 #include <stdint.h>
 #include <stdlib.h>
+#include "redisearch.h"
 #include "field.h"
 #include "rqe_core.h"
 #include "ttl_table_rs.h"
+
+// `TimeToLiveTable` is opaque on the C side — only passed by pointer.
+typedef struct TimeToLiveTable TimeToLiveTable;
+
 
 /**
  * Borrowed view of a contiguous run of [`FieldExpiration`] entries.
@@ -208,18 +213,6 @@ void FieldExpirations_Push(FieldExpirations *v, struct FieldExpiration fe);
 size_t FieldExpirations_Len(const FieldExpirations *v);
 
 /**
- * Borrow the contents of `*v` as a [`FieldExpirationSlice`].
- *
- * The returned pointer aliases storage owned by `*v`.
- *
- * # Safety
- *  - `v` must be non-null.
- *  - `*v` must be either an initialized [`FieldExpirations`] (returned by a
- *    constructor in this module).
- */
-struct FieldExpirationSlice FieldExpirations_AsSlice(const FieldExpirations *v);
-
-/**
  * Drop the [`FieldExpirations`] at `*v` and leave it in an empty,
  * reusable state.
  *
@@ -242,6 +235,11 @@ struct FieldExpirationSlice FieldExpirations_AsSlice(const FieldExpirations *v);
  *  - No other reference to `*v` may exist for the duration of the call.
  */
 void FieldExpirations_Free(FieldExpirations *v);
+
+/**
+ * Return empty FieldExpirationSlice
+ */
+struct FieldExpirationSlice FieldExpirationsSlice_Empty(void);
 
 #ifdef __cplusplus
 }  // extern "C"
