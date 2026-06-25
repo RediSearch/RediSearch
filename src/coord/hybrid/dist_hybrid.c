@@ -697,10 +697,6 @@ static int HybridRequest_prepareForExecution(HybridRequest *hreq,
 
     // For debug commands, wrap the shard command with _FT.DEBUG prefix and
     // append the debug parameters so the shard-side debug handler can apply them.
-    // TIMEOUT_AFTER_N_TAIL is forwarded too but is a no-op on the shards: an
-    // internal shard command builds no tail pipeline, so applyHybridDebugTimeout
-    // skips it there. The tail timeout takes effect on the coordinator's tail
-    // pipeline (see DEBUG_RSExecDistHybrid).
     if (debugParams) {
       MRCommand_Insert(&xcmd, 0, "_FT.DEBUG", sizeof("_FT.DEBUG") - 1);
       // The _FT.DEBUG prefix shifts every existing argument by one; adjust the
@@ -1161,7 +1157,7 @@ void DEBUG_RSExecDistHybrid(RedisModuleCtx *ctx, RedisModuleString **argv, int a
     applyCoordReqConfigTimeoutPolicy(hreq, CoordRequestCtx_GetTimeoutPolicy(reqCtx));
 
     // The tail (merge) pipeline runs only on the coordinator, so the tail debug
-    // timeout takes effect here (the shards forward it but have no tail pipeline).
+    // timeout takes effect here.
     if (debugParams.tail_timeout_count > 0 && hreq->tailPipeline) {
       PipelineAddTimeoutAfterCount(&hreq->tailPipeline->qctx, hreq->sctx,
                                    debugParams.tail_timeout_count);
