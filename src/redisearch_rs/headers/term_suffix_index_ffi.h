@@ -68,36 +68,6 @@ void TermSuffixIndex_Free(struct TermSuffixIndex *t);
 size_t TermSuffixIndex_MemUsage(const struct TermSuffixIndex *t);
 
 /**
- * Add `term` (`len` UTF-8 bytes) to the index. Adding an existing,
- * empty or non-UTF-8 term is a no-op.
- *
- * # Safety
- *
- * 1. `t` must be a [valid], non-null pointer obtained from
- *    [`TermSuffixIndex_New`].
- * 2. `term` must point to a [valid] byte sequence of length `len`.
- * 3. No iterator obtained from `t` may be alive.
- *
- * [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
- */
-void TermSuffixIndex_Add(struct TermSuffixIndex *t, const char *term, size_t len);
-
-/**
- * Remove `term` (`len` UTF-8 bytes) from the index. Removing an absent,
- * empty or non-UTF-8 term is a no-op.
- *
- * # Safety
- *
- * 1. `t` must be a [valid], non-null pointer obtained from
- *    [`TermSuffixIndex_New`].
- * 2. `term` must point to a [valid] byte sequence of length `len`.
- * 3. No iterator obtained from `t` may be alive.
- *
- * [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
- */
-void TermSuffixIndex_Remove(struct TermSuffixIndex *t, const char *term, size_t len);
-
-/**
  * Iterate over every key stored in the index — each member term plus
  * every indexed proper suffix — in lexicographical order.
  *
@@ -112,6 +82,21 @@ void TermSuffixIndex_Remove(struct TermSuffixIndex *t, const char *term, size_t 
  * [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
  */
 struct TermSuffixIndexIterator *TermSuffixIndex_IterateAll(const struct TermSuffixIndex *t);
+
+/**
+ * Add `term` (`len` UTF-8 bytes) to the index. Adding an existing,
+ * empty or non-UTF-8 term is a no-op.
+ *
+ * # Safety
+ *
+ * 1. `t` must be a [valid], non-null pointer obtained from
+ *    [`TermSuffixIndex_New`].
+ * 2. `term` must point to a [valid] byte sequence of length `len`.
+ * 3. No iterator obtained from `t` may be alive.
+ *
+ * [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
+ */
+void TermSuffixIndex_Add(struct TermSuffixIndex *t, const char *term, size_t len);
 
 /**
  * Invoke `callback` once per member term containing the UTF-8 needle
@@ -130,6 +115,21 @@ struct TermSuffixIndexIterator *TermSuffixIndex_IterateAll(const struct TermSuff
  * [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
  */
 void TermSuffixIndex_IterateContains(const struct TermSuffixIndex *t, const char *str, size_t len, TermSuffixIterateCallback callback, void *ctx);
+
+/**
+ * Remove `term` (`len` UTF-8 bytes) from the index. Removing an absent,
+ * empty or non-UTF-8 term is a no-op.
+ *
+ * # Safety
+ *
+ * 1. `t` must be a [valid], non-null pointer obtained from
+ *    [`TermSuffixIndex_New`].
+ * 2. `term` must point to a [valid] byte sequence of length `len`.
+ * 3. No iterator obtained from `t` may be alive.
+ *
+ * [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
+ */
+void TermSuffixIndex_Remove(struct TermSuffixIndex *t, const char *term, size_t len);
 
 /**
  * Invoke `callback` once per member term ending with the UTF-8 needle
