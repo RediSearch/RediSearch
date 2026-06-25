@@ -91,8 +91,8 @@ struct TermSuffixIndexIterator *TermSuffixIndex_IterateAll(const struct TermSuff
  *
  * 1. `tsi` must be a [valid], non-null pointer obtained from
  *    [`TermSuffixIndex_New`].
- * 2. `term` must point to a [valid] byte sequence of length `len`.
- * 3. No iterator obtained from `tsi` may be alive.
+ * 2. No iterator obtained from `tsi` may be alive.
+ * 3. `term` must point to a [valid] byte sequence of length `len`.
  *
  * # Panics
  *
@@ -132,8 +132,8 @@ void TermSuffixIndex_IterateContains(const struct TermSuffixIndex *tsi, const ch
  *
  * 1. `tsi` must be a [valid], non-null pointer obtained from
  *    [`TermSuffixIndex_New`].
- * 2. `term` must point to a [valid] byte sequence of length `len`.
- * 3. No iterator obtained from `tsi` may be alive.
+ * 2. No iterator obtained from `tsi` may be alive.
+ * 3. `term` must point to a [valid] byte sequence of length `len`.
  *
  * # Panics
  *

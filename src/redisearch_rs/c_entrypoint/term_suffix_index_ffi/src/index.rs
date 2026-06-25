@@ -63,8 +63,8 @@ pub unsafe extern "C" fn TermSuffixIndex_MemUsage(tsi: *const TermSuffixIndex) -
 ///
 /// 1. `tsi` must be a [valid], non-null pointer obtained from
 ///    [`TermSuffixIndex_New`].
-/// 2. `term` must point to a [valid] byte sequence of length `len`.
-/// 3. No iterator obtained from `tsi` may be alive.
+/// 2. No iterator obtained from `tsi` may be alive.
+/// 3. `term` must point to a [valid] byte sequence of length `len`.
 ///
 /// # Panics
 ///
@@ -80,9 +80,9 @@ pub unsafe extern "C" fn TermSuffixIndex_Add(
     debug_assert!(!tsi.is_null(), "tsi cannot be NULL");
     debug_assert!(!term.is_null(), "term cannot be NULL");
 
-    // Safety: ensured by caller (1., 3.)
+    // Safety: ensured by caller (1., 2.)
     let index = unsafe { &mut *tsi };
-    // Safety: ensured by caller (2.)
+    // Safety: ensured by caller (3.)
     let bytes = unsafe { slice::from_raw_parts(term.cast::<u8>(), len) };
 
     let term = str::from_utf8(bytes).expect("term must be valid UTF-8");
@@ -96,8 +96,8 @@ pub unsafe extern "C" fn TermSuffixIndex_Add(
 ///
 /// 1. `tsi` must be a [valid], non-null pointer obtained from
 ///    [`TermSuffixIndex_New`].
-/// 2. `term` must point to a [valid] byte sequence of length `len`.
-/// 3. No iterator obtained from `tsi` may be alive.
+/// 2. No iterator obtained from `tsi` may be alive.
+/// 3. `term` must point to a [valid] byte sequence of length `len`.
 ///
 /// # Panics
 ///
@@ -113,9 +113,9 @@ pub unsafe extern "C" fn TermSuffixIndex_Remove(
     debug_assert!(!tsi.is_null(), "tsi cannot be NULL");
     debug_assert!(!term.is_null(), "term cannot be NULL");
 
-    // Safety: ensured by caller (1., 3.)
+    // Safety: ensured by caller (1., 2.)
     let index = unsafe { &mut *tsi };
-    // Safety: ensured by caller (2.)
+    // Safety: ensured by caller (3.)
     let bytes = unsafe { slice::from_raw_parts(term.cast::<u8>(), len) };
 
     let term = str::from_utf8(bytes).expect("term must be valid UTF-8");
