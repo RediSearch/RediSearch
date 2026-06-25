@@ -99,7 +99,6 @@ pub struct TopKIterator<
     C: RQEIterator<'index> + 'index = Box<dyn RQEIterator<'index> + 'index>,
 > {
     source: S,
-    child: Option<C>,
     mode: TopKMode,
     /// Preserved so [`rewind`](Self::rewind) can restore the original mode.
     initial_mode: TopKMode,
@@ -114,6 +113,11 @@ pub struct TopKIterator<
     results: Vec<HeapResult<'index>>,
     yield_pos: usize,
     current: Option<RSIndexResult<'index>>,
+    /// Declared after `heap`, `results`, and `current` so it is dropped last:
+    /// those buffers hold captured child records whose term borrows alias data
+    /// owned by this iterator (see [`capture_child_record`]), and Rust drops
+    /// fields in declaration order. Keep `child` below them.
+    child: Option<C>,
     last_doc_id: DocId,
     at_eof: bool,
     /// Diagnostic counters — not reset on [`rewind`](Self::rewind).
@@ -541,9 +545,10 @@ fn capture_child_record<'index>(record: &RSIndexResult<'index>) -> RSIndexResult
     // SAFETY: the only borrows `owned` retains are the `RSQueryTerm`s and the
     // `dmd` pointer — all owned by the child iterator and the index read guard,
     // never by `record`'s transient per-read storage. The `TopKIterator` owns
-    // the child and drops it only after every stored record (heap entries and
-    // `results`) is dropped, and the index guard outlives the iterator, so those
-    // borrows stay valid for `'index`; widening the lifetime is therefore sound.
+    // the child and, because `child` is declared after `heap`, `results`, and
+    // `current`, drops it only after every stored record in those buffers is
+    // dropped; the index guard outlives the iterator. So those borrows stay
+    // valid for `'index`; widening the lifetime is therefore sound.
     // The offsets are owned copies, so they do not dangle when the child
     // advances, and dropping the copy frees only those offsets — it never
     // dereferences the borrowed term.
