@@ -65,12 +65,13 @@ typedef struct HybridRequest {
     // Protects cursor array access to ensure proper cleanup on timeout.
     pthread_mutex_t cursorMutex;
 
-    // Array of cursors for reply_callback path (internal hybrid search).
+    // Array of depleted cursors for reply_callback path (internal hybrid search).
+    // Non-NULL only after the initial cursor pipelines are safe to publish.
     // Protected by cursorMutex to synchronize with timeout callback.
     // Cleanup is handled by:
     // - reply_callback: frees array after replying with cursor IDs
-    // - timeout_callback: acquires lock and frees cursors if they were already created
-    // - HybridRequest_StartCursors: checks timedOut flag before creating, or frees on error
+    // - timeout_callback: acquires lock and consumes published cursors, if any
+    // - HybridRequest_StartCursors: checks timedOut flag before publishing, or frees on error
     arrayof(struct Cursor*) cursors;
 
     // Optional debug parameters for _FT.DEBUG FT.HYBRID.
