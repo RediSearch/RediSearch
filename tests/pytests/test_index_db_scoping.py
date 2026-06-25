@@ -459,6 +459,131 @@ def testSwapdbMidScanCancelsAndRestarts(env):
         env.assertNotContains('idx', db1.execute_command('FT._LIST'))
 
 
+# These two tests are liveness/recovery tests, NOT correctness tests of the
+# in-flight read. SWAPDB rebinds an index while a content-loading read (a plain
+# FT.AGGREGATE or an FT.CURSOR READ) is parked mid-flight on a worker. That
+# read's execution context is still selected to the pre-swap DB, and the
+# RedisModuleEvent_SwapDB event fires only AFTER Redis has physically swapped the
+# keyspaces, so the parked read - once released - may load documents from the
+# swapped-in DB and return wrong or missing fields. That stale-result window is a
+# known, currently-unhandled limitation (see the PR notes). What these tests pin
+# is that it stays a *result* problem and never a liveness one: the worker always
+# completes (no hang/deadlock/crash), the server stays responsive, and the
+# rebound index serves correct fresh queries on its new DB afterwards.
+
+@skip(cluster=True)
+def testSwapdbWhileSearchParkedRecovers():
+    """A threaded content-loading FT.AGGREGATE parked just before the safe loader
+    takes the GIL, raced against SWAPDB, must always finish and the rebound index
+    must keep working on its new DB."""
+    env = Env(moduleArgs='WORKERS 1')
+    skipIfNoEnableAssert(env)
+
+    sync_point = 'BeforeSafeLoaderGILLock'
+    with _conn_on_db(env, 1) as db1, _conn_on_db(env, 2) as db2:
+        db1.execute_command('FT.CREATE', 'idx', 'PREFIX', '1', 'k:', 'SCHEMA', 't', 'TEXT')
+        for i in range(10):
+            db1.execute_command('HSET', f'k:{i}', 't', 'v')
+        _wait_for_index(db1, 'idx')
+
+        db1.execute_command(debug_cmd(), 'SYNC_POINT', 'CLEAR')
+        db1.execute_command(debug_cmd(), 'SYNC_POINT', 'ARM', sync_point)
+
+        # The query runs on its own connection so db1 stays free to drive SWAPDB
+        # and the sync point while the worker is parked.
+        result = []
+        def run_query():
+            try:
+                with _conn_on_db(env, 1) as qconn:
+                    result.append(
+                        qconn.execute_command('FT.AGGREGATE', 'idx', '*', 'LOAD', '1', '@t'))
+            except Exception as e:
+                result.append(e)
+        t_query = threading.Thread(target=run_query, daemon=True)
+        t_query.start()
+
+        wait_for_condition(
+            lambda: (db1.execute_command(debug_cmd(), 'SYNC_POINT', 'IS_WAITING', sync_point) == 1, {}),
+            f'Timeout waiting for {sync_point} sync point')
+
+        # Rebind idx 1 -> 2 while the search worker is parked, then release it.
+        # Its returned rows may be wrong/empty (known stale-result window); we do
+        # NOT assert on them - only that the worker comes back.
+        db1.execute_command('SWAPDB', 1, 2)
+        db1.execute_command(debug_cmd(), 'SYNC_POINT', 'SIGNAL', sync_point)
+
+        t_query.join(timeout=15)
+        env.assertFalse(t_query.is_alive(),
+                        message='search worker must finish after SWAPDB, not hang')
+        env.assertEqual(len(result), 1)
+        db1.execute_command(debug_cmd(), 'SYNC_POINT', 'CLEAR')
+
+        # Everything continues to work: the index moved to DB 2 and serves correct
+        # fresh queries (content load included); it is gone from DB 1.
+        env.assertEqual(db2.execute_command('FT.SEARCH', 'idx', '*', 'LIMIT', '0', '0')[0], 10)
+        env.assertNotContains('idx', db1.execute_command('FT._LIST'))
+        fresh = db2.execute_command('FT.AGGREGATE', 'idx', '*', 'LOAD', '1', '@t', 'LIMIT', '0', '100')
+        env.assertEqual(fresh[0], 10, message=fresh)
+
+
+@skip(cluster=True)
+def testSwapdbWhileCursorReadParkedRecovers():
+    """An FT.CURSOR READ parked before sendChunk, raced against SWAPDB, must
+    always finish; the rebound cursor is then invalidated (gone on both DBs) and
+    the moved index keeps serving fresh queries."""
+    env = Env(moduleArgs='WORKERS 1')
+    skipIfNoEnableAssert(env)
+
+    sync_point = 'BeforeCursorReadSendChunk'
+    with _conn_on_db(env, 1) as db1, _conn_on_db(env, 2) as db2:
+        db1.execute_command('FT.CREATE', 'idx', 'PREFIX', '1', 'k:', 'SCHEMA', 't', 'TEXT')
+        for i in range(20):
+            db1.execute_command('HSET', f'k:{i}', 't', 'v')
+        _wait_for_index(db1, 'idx')
+
+        # Open a cursor that does not drain in one read (COUNT 2 over 20 docs).
+        with _conn_on_db(env, 1) as cconn:
+            _rows, cid = cconn.execute_command(
+                'FT.AGGREGATE', 'idx', '*', 'LOAD', '1', '@t', 'WITHCURSOR', 'COUNT', '2')
+        env.assertTrue(cid != 0, message=f'expected an open cursor, got {cid}')
+
+        db1.execute_command(debug_cmd(), 'SYNC_POINT', 'CLEAR')
+        db1.execute_command(debug_cmd(), 'SYNC_POINT', 'ARM', sync_point)
+
+        result = []
+        def run_read():
+            try:
+                with _conn_on_db(env, 1) as rconn:
+                    result.append(rconn.execute_command('FT.CURSOR', 'READ', 'idx', str(cid)))
+            except Exception as e:
+                result.append(e)
+        t_read = threading.Thread(target=run_read, daemon=True)
+        t_read.start()
+
+        wait_for_condition(
+            lambda: (db1.execute_command(debug_cmd(), 'SYNC_POINT', 'IS_WAITING', sync_point) == 1, {}),
+            f'Timeout waiting for {sync_point} sync point')
+
+        # Rebind idx 1 -> 2 while the cursor read is parked, then release it.
+        db1.execute_command('SWAPDB', 1, 2)
+        db1.execute_command(debug_cmd(), 'SYNC_POINT', 'SIGNAL', sync_point)
+
+        t_read.join(timeout=15)
+        env.assertFalse(t_read.is_alive(),
+                        message='cursor read worker must finish after SWAPDB, not hang')
+        env.assertEqual(len(result), 1)
+        db1.execute_command(debug_cmd(), 'SYNC_POINT', 'CLEAR')
+
+        # The rebound cursor was invalidated (Phase 4 marked it; Cursor_Pause freed
+        # it when the parked read completed), so its id is gone on BOTH DBs.
+        env.assertRaises(redis.ResponseError, db1.execute_command,
+                         'FT.CURSOR', 'READ', 'idx', str(cid))
+        env.assertRaises(redis.ResponseError, db2.execute_command,
+                         'FT.CURSOR', 'READ', 'idx', str(cid))
+        # The moved index still serves correct fresh queries on DB 2.
+        env.assertEqual(db2.execute_command('FT.SEARCH', 'idx', '*', 'LIMIT', '0', '0')[0], 20)
+
+
 # =============================================================================
 # Q2 - queries only work on the selected DB
 # =============================================================================
