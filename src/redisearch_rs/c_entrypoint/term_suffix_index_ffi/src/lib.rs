@@ -16,8 +16,6 @@
 use std::ffi::{c_char, c_int, c_void};
 use std::rc::Rc;
 
-use term_suffix_index::TermSuffixIndex as TermSuffixIndexImpl;
-
 /// Callback invoked once per term yielded by
 /// [`TermSuffixIndex_IterateContains`] or [`TermSuffixIndex_IterateSuffix`].
 ///
@@ -39,7 +37,7 @@ pub type TermSuffixIterateCallback = Option<
 ///
 /// Opaque to C; obtained from [`TermSuffixIndex_New`] and freed with
 /// [`TermSuffixIndex_Free`].
-pub struct TermSuffixIndex(TermSuffixIndexImpl);
+pub use term_suffix_index::TermSuffixIndex;
 
 /// Yields the strings matched by an iteration over a [`TermSuffixIndex`].
 ///
@@ -58,7 +56,7 @@ pub struct TermSuffixIndexIterator<'si> {
 /// [`TermSuffixIndex_Free`].
 #[unsafe(no_mangle)]
 pub extern "C" fn TermSuffixIndex_New() -> *mut TermSuffixIndex {
-    Box::into_raw(Box::new(TermSuffixIndex(TermSuffixIndexImpl::new())))
+    Box::into_raw(Box::new(TermSuffixIndex::new()))
 }
 
 /// Free a [`TermSuffixIndex`] and all terms it owns.
@@ -92,7 +90,7 @@ pub unsafe extern "C" fn TermSuffixIndex_MemUsage(t: *const TermSuffixIndex) -> 
     debug_assert!(!t.is_null(), "t cannot be NULL");
 
     // Safety: ensured by caller (1.)
-    let TermSuffixIndex(index) = unsafe { &*t };
+    let index = unsafe { &*t };
     index.mem_usage()
 }
 
@@ -117,7 +115,7 @@ pub unsafe extern "C" fn TermSuffixIndex_Add(
     debug_assert!(!term.is_null(), "term cannot be NULL");
 
     // Safety: ensured by caller (1., 3.)
-    let TermSuffixIndex(index) = unsafe { &mut *t };
+    let index = unsafe { &mut *t };
     // Safety: ensured by caller (2.)
     let bytes = unsafe { std::slice::from_raw_parts(term.cast::<u8>(), len) };
 
@@ -149,7 +147,7 @@ pub unsafe extern "C" fn TermSuffixIndex_Remove(
     debug_assert!(!term.is_null(), "term cannot be NULL");
 
     // Safety: ensured by caller (1., 3.)
-    let TermSuffixIndex(index) = unsafe { &mut *t };
+    let index = unsafe { &mut *t };
     // Safety: ensured by caller (2.)
     let bytes = unsafe { std::slice::from_raw_parts(term.cast::<u8>(), len) };
 
@@ -179,7 +177,7 @@ pub unsafe extern "C" fn TermSuffixIndex_IterateAll<'si>(
     debug_assert!(!t.is_null(), "t cannot be NULL");
 
     // Safety: ensured by caller (1., 2.)
-    let TermSuffixIndex(index) = unsafe { &*t };
+    let index = unsafe { &*t };
 
     let iter = Box::new(index.keys().map(Rc::from));
     Box::into_raw(Box::new(TermSuffixIndexIterator {
@@ -218,7 +216,7 @@ pub unsafe extern "C" fn TermSuffixIndex_IterateContains(
     };
 
     // Safety: ensured by caller (1.)
-    let TermSuffixIndex(index) = unsafe { &*t };
+    let index = unsafe { &*t };
     // Safety: ensured by caller (2.)
     let bytes = unsafe { std::slice::from_raw_parts(str.cast::<u8>(), len) };
 
@@ -272,7 +270,7 @@ pub unsafe extern "C" fn TermSuffixIndex_IterateSuffix(
     };
 
     // Safety: ensured by caller (1.)
-    let TermSuffixIndex(index) = unsafe { &*t };
+    let index = unsafe { &*t };
     // Safety: ensured by caller (2.)
     let bytes = unsafe { std::slice::from_raw_parts(str.cast::<u8>(), len) };
 
@@ -325,7 +323,7 @@ pub unsafe extern "C" fn TermSuffixIndex_IterateWildcard<'si>(
     debug_assert!(!str.is_null(), "str cannot be NULL");
 
     // Safety: ensured by caller (1., 3.)
-    let TermSuffixIndex(index) = unsafe { &*t };
+    let index = unsafe { &*t };
     // Safety: ensured by caller (2., 3.)
     let bytes = unsafe { std::slice::from_raw_parts(str.cast::<u8>(), len) };
 

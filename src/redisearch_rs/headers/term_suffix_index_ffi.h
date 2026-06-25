@@ -9,15 +9,6 @@
 #include <stdlib.h>
 
 /**
- * A set of indexed terms supporting substring, ends-with, exact and
- * wildcard lookups.
- *
- * Opaque to C; obtained from [`TermSuffixIndex_New`] and freed with
- * [`TermSuffixIndex_Free`].
- */
-typedef struct TermSuffixIndex TermSuffixIndex;
-
-/**
  * Yields the strings matched by an iteration over a [`TermSuffixIndex`].
  *
  * Opaque to C; obtained from [`TermSuffixIndex_IterateWildcard`] or
@@ -26,6 +17,8 @@ typedef struct TermSuffixIndex TermSuffixIndex;
  * [`TermSuffixIndexIterator_Free`].
  */
 typedef struct TermSuffixIndexIterator TermSuffixIndexIterator;
+
+typedef struct TermSuffixIndex TermSuffixIndex;
 
 /**
  * Callback invoked once per term yielded by
