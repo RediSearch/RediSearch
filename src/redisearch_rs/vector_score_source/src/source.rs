@@ -387,6 +387,7 @@ impl<'index> ScoreSource for VectorScoreSource<'index> {
     }
 
     fn iterator_type(&self) -> rqe_iterators::IteratorType {
+        // TODO: MOD-14206: Rename.
         rqe_iterators::IteratorType::Hybrid
     }
 
@@ -397,6 +398,12 @@ impl<'index> ScoreSource for VectorScoreSource<'index> {
         self.k_remaining = k.saturating_sub(heap_count);
         if heap_count >= k {
             return BatchStrategy::Stop;
+        }
+
+        if self.requested_search_mode() == VecSearchMode_HYBRID_BATCHES
+            && self.fixed_batch_size != 0
+        {
+            return BatchStrategy::Continue;
         }
 
         // Refine `child_num_estimated` from actual batch hit rate so subsequent heuristic
