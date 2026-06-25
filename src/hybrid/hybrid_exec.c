@@ -606,10 +606,7 @@ static inline void freeHybridParams(HybridPipelineParams *hybridParams) {
   if (hybridParams == NULL) {
     return;
   }
-  if (hybridParams->scoringCtx) {
-    HybridScoringContext_Free(hybridParams->scoringCtx);
-    hybridParams->scoringCtx = NULL;
-  }
+  HybridPipelineParams_Cleanup(hybridParams);
   rm_free(hybridParams);
 }
 

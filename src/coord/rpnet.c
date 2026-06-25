@@ -12,13 +12,13 @@
 #include "rpnet.h"
 #include "rmr/reply.h"
 #include "rmr/rmr.h"
-#include "hiredis/sds.h"
 #include "coord/dist_utils.h"
 #include "debug_commands.h"
+#include "score_explain_mr.h"
+#include "rmalloc.h"
 
 
 #define CURSOR_EOF 0
-
 
 static RSValue *MRReply_ToValue(MRReply *r) {
   if (!r) return RSValue_NullStatic();
@@ -637,10 +637,25 @@ int rpnetNext(ResultProcessor *self, SearchResult *r) {
 
   // The score is optional, in hybrid we need the score for the sorter and hybrid merger
   // We expect for it to exist in hybrid since we send WITHSCORES to the shard and we should use resp3
-  // when opening shard connections
+  // when opening shard connections.
   if (score) {
-    RS_LOG_ASSERT(MRReply_Type(score) == MR_REPLY_DOUBLE, "invalid score record");
-    SearchResult_SetScore(r, MRReply_Double(score));
+    const bool expectExplain = (nc->areq->reqflags & QEXEC_F_SEND_SCOREEXPLAIN) != 0;
+    if (expectExplain) {
+      RS_LOG_ASSERT(MRReply_Type(score) == MR_REPLY_ARRAY &&
+                        MRReply_Length(score) == SE_REPLY_NODE_ARITY,
+                    "EXPLAINSCORE expected score paired with explain tree");
+      const MRReply *scoreValue = MRReply_ArrayElement(score, 0);
+      const MRReply *explainReply = MRReply_ArrayElement(score, 1);
+      RS_LOG_ASSERT(scoreValue && MRReply_Type(scoreValue) == MR_REPLY_DOUBLE,
+                    "invalid score record");
+      SearchResult_SetScore(r, MRReply_Double(scoreValue));
+      if (explainReply) {
+        SearchResult_SetScoreExplain(r, SE_FromMRReply(explainReply));
+      }
+    } else {
+      RS_LOG_ASSERT(MRReply_Type(score) == MR_REPLY_DOUBLE, "invalid score record");
+      SearchResult_SetScore(r, MRReply_Double(score));
+    }
   }
 
   for (size_t i = 0; i < fields_length; i += 2) {

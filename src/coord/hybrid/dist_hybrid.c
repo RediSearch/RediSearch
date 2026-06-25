@@ -235,6 +235,7 @@ static void MRCommand_appendVsim(MRCommand *xcmd, RedisModuleString **argv,
 // modification by the command modifier callback in SHARD_K_RATIO optimization).
 void HybridRequest_buildMRCommand(RedisModuleString **argv, int argc,
                             ProfileOptions profileOptions,
+                            bool sendExplainScore,
                             MRCommand *xcmd, arrayof(char*) serialized,
                             IndexSpec *sp, int *outKArgIndex) {
   RS_ASSERT(outKArgIndex != NULL);
@@ -333,6 +334,12 @@ void HybridRequest_buildMRCommand(RedisModuleString **argv, int argc,
   if (argOffset != -1) {
     MRCommand_AppendRstr(xcmd, argv[argOffset]);
     MRCommand_AppendRstr(xcmd, argv[argOffset + 1]);
+  }
+
+  // Forward EXPLAINSCORE so the shard's text scorer produces an RSScoreExplain
+  // tree and the shard's merger wraps it.
+  if (sendExplainScore) {
+    MRCommand_Append(xcmd, "EXPLAINSCORE", strlen("EXPLAINSCORE"));
   }
 
   // Add WITHCURSOR
@@ -672,6 +679,7 @@ static int HybridRequest_prepareForExecution(HybridRequest *hreq,
     for (size_t i = 0; i < hreq->nrequests; i++) {
         AREQ *areq = hreq->requests[i];
         if (AGGPLN_Distribute(AREQ_AGGPlan(areq), status) != REDISMODULE_OK) {
+            HybridPipelineParams_Cleanup(&hybridParams);
             return REDISMODULE_ERR;
         }
     }
@@ -681,13 +689,15 @@ static int HybridRequest_prepareForExecution(HybridRequest *hreq,
 
     arrayof(char*) serialized = HybridRequest_BuildDistributedPipeline(hreq, &hybridParams, lookups, status);
     if (!serialized) {
+      HybridPipelineParams_Cleanup(&hybridParams);
       return REDISMODULE_ERR;
     }
 
     // Construct the command string
     MRCommand xcmd;
-    HybridRequest_buildMRCommand(argv, argc, profileOptions, &xcmd, serialized,
-                                 sp, &hreq->kArgIndex);
+    bool sendExplainScore = (hreq->reqflags & QEXEC_F_SEND_SCOREEXPLAIN) != 0;
+    HybridRequest_buildMRCommand(argv, argc, profileOptions, sendExplainScore,
+                                 &xcmd, serialized, sp, &hreq->kArgIndex);
 
     xcmd.protocol = HYBRID_RESP_PROTOCOL_VERSION;
     xcmd.forCursor = hreq->reqflags & QEXEC_F_IS_CURSOR;
