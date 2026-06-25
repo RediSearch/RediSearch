@@ -13,6 +13,7 @@ ffi.workspace = true
 thiserror.workspace = true
 workspace_hack.workspace = true
 lending-iterator.workspace = true
+serde_json = { workspace = true, optional = true }
 
 [target.'cfg(all(target_env="musl", target_os="linux"))'.dependencies.redis-module]
 # Statically link to the libclang on aarch64-unknown-linux-musl,
@@ -25,6 +26,9 @@ default-features = false
 [target.'cfg(not(all(target_env="musl", target_os="linux")))'.dependencies.redis-module]
 workspace = true
 default-features = true
+
+[features]
+test-mock = ["dep:serde_json"]
 
 [lints]
 workspace = true
