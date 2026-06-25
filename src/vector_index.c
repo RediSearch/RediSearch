@@ -99,30 +99,6 @@ static size_t drainVectorQueryReply(VecSimQueryReply *reply, bool yields_metric,
   return res_num;
 }
 
-QueryIterator *createMetricIteratorFromVectorQueryResults(VecSimQueryReply *reply, const bool yields_metric, const bool sorted_by_id) {
-  t_docId *docIdsList = NULL;
-  double *metricList = NULL;
-  size_t res_num = drainVectorQueryReply(reply, yields_metric, &docIdsList, &metricList);
-  if (res_num == 0) {
-    return NULL;
-  }
-
-  // Move ownership on the arrays to the iterator.
-  if (yields_metric) {
-      if (sorted_by_id) {
-          return NewMetricIteratorSortedById(docIdsList, metricList, res_num, VECTOR_DISTANCE);
-      } else {
-          return NewMetricIteratorSortedByScore(docIdsList, metricList, res_num, VECTOR_DISTANCE);
-      }
-  } else {
-      if (sorted_by_id) {
-          return NewSortedIdListIterator(docIdsList, res_num, 1.0);
-      } else {
-          return NewUnsortedIdListIterator(docIdsList, res_num, 1.0);
-      }
-  }
-}
-
 // Context for a deferred vector range query. Captured at iterator-build time (under the spec
 // lock) but the actual VecSim query runs lazily on the first read (after the lock is released),
 // so writes can proceed concurrently with range queries. See MOD-16437.
@@ -178,6 +154,29 @@ static VectorRangeResults vectorRangeProduceMetric(void *ctxp) {
 
 static void vectorRangeFreeCtx(void *ctxp) {
   rm_free(ctxp);
+}
+
+// Builds a lazily-evaluated vector range iterator from already-resolved query parameters. Shared
+// by NewVectorIterator's range branch and by unit tests, so both drive the same deferred path
+// (the query runs on the iterator's first read, after the spec lock is released; see MOD-16437).
+// `vector` is borrowed and must outlive the iterator; `timeout` is the query deadline (monotonic
+// clock). Ownership of the freshly-allocated context transfers to the returned iterator.
+QueryIterator *NewLazyVectorRangeIteratorFromParams(VecSimIndex *vecsim, const void *vector,
+                                                    double radius, VecSimQueryParams qParams,
+                                                    VecSimQueryReply_Order order, bool yields_metric,
+                                                    struct timespec timeout) {
+  VectorRangeProducerCtx *ctx = rm_malloc(sizeof(*ctx));
+  *ctx = (VectorRangeProducerCtx){
+      .vecsim = vecsim,
+      .vector = vector,
+      .radius = radius,
+      .qParams = qParams,
+      .order = order,
+      .timeoutCtx = {.timeout = timeout, .counter = 0},
+  };
+  ProduceResultsFn produce = yields_metric ? vectorRangeProduceMetric : vectorRangeProduceIdList;
+  return NewLazyVectorRangeIterator(produce, vectorRangeFreeCtx, ctx, yields_metric,
+                                    order == BY_ID, VecSimIndex_IndexSize(vecsim), VECTOR_DISTANCE);
 }
 
 static bool VectorQuery_HasParam(const VectorQuery *vq, const char *param_name, size_t param_name_len) {
@@ -276,25 +275,13 @@ QueryIterator *NewVectorIterator(QueryEvalCtx *q, VectorQuery *vq, QueryIterator
                                     &qParams, QUERY_TYPE_RANGE, q->status) != VecSim_OK)  {
         return NULL;
       }
-      bool yields_metric = vq->scoreField != NULL;
-      bool sorted_by_id = vq->range.order == BY_ID;
-
       // Defer the actual range query to the first read, so it runs after the spec lock is
       // released and writes can proceed concurrently (see MOD-16437). The query vector is
       // borrowed from the AST (which outlives the iterator), matching the KNN path.
-      VectorRangeProducerCtx *ctx = rm_malloc(sizeof(*ctx));
-      *ctx = (VectorRangeProducerCtx){
-          .vecsim = vecsim,
-          .vector = vq->range.vector,
-          .radius = vq->range.radius,
-          .qParams = qParams,
-          .order = vq->range.order,
-          .timeoutCtx = {.timeout = q->sctx->time.timeout, .counter = 0},
-      };
-      ProduceResultsFn produce = yields_metric ? vectorRangeProduceMetric : vectorRangeProduceIdList;
-      return NewLazyVectorRangeIterator(produce, vectorRangeFreeCtx, ctx, yields_metric,
-                                        sorted_by_id, VecSimIndex_IndexSize(vecsim),
-                                        VECTOR_DISTANCE);
+      return NewLazyVectorRangeIteratorFromParams(vecsim, vq->range.vector, vq->range.radius,
+                                                  qParams, vq->range.order,
+                                                  /*yields_metric=*/vq->scoreField != NULL,
+                                                  q->sctx->time.timeout);
     }
   }
   return NULL;
