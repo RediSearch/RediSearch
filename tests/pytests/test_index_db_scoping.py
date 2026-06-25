@@ -100,6 +100,56 @@ def testInitialScanIgnoresOtherDbKeys(env):
 
 
 @skip(cluster=True)
+def testInitialScanFilterEvaluatedOnIndexDb(env):
+    """The schema FILTER applied during the initial background scan must read the
+    candidate document's fields from the index's own DB (DB 14), not DB 0.
+
+    A same-named key exists on DB 0 whose field value FAILS the filter, while the
+    real DB-14 key PASSES it. If the scan evaluates the filter against the DB-0
+    key (the historical RSDummyContext bug), the valid DB-14 documents are wrongly
+    skipped and the index comes back empty."""
+    conn0 = getConnectionByEnv(env)  # DB 0, env-owned
+    with _conn_on_db(env, 14) as db14:
+        # DB-0 decoys: same key names, but n fails the @n > 10 filter.
+        conn0.execute_command('HSET', 'doc1', 't', 'beta', 'n', '1')
+        conn0.execute_command('HSET', 'doc2', 't', 'beta', 'n', '2')
+        # Real DB-14 docs present before FT.CREATE: n passes the filter.
+        db14.execute_command('HSET', 'doc1', 't', 'beta', 'n', '20')
+        db14.execute_command('HSET', 'doc2', 't', 'beta', 'n', '30')
+
+        db14.execute_command('FT.CREATE', 'idxf', 'FILTER', '@n > 10',
+                             'SCHEMA', 't', 'TEXT', 'n', 'NUMERIC')
+        _wait_for_index(db14, 'idxf')
+
+        # Both DB-14 docs pass the filter and must be indexed; the DB-0 decoys
+        # (which fail it) must not influence the decision.
+        res = db14.execute_command('FT.SEARCH', 'idxf', 'beta', 'NOCONTENT')
+        env.assertEqual(toSortedFlatList(res), toSortedFlatList([2, 'doc1', 'doc2']), message=res)
+
+
+@skip(cluster=True)
+def testInitialScanFilterDoesNotIndexFromOtherDbValue(env):
+    """The mirror image: a DB-14 doc FAILS the filter while its same-named DB-0
+    twin PASSES it. Evaluating the filter against the DB-0 key would wrongly admit
+    the DB-14 doc to the index. The filter must be read from DB 14, so the doc is
+    correctly excluded."""
+    conn0 = getConnectionByEnv(env)  # DB 0, env-owned
+    with _conn_on_db(env, 14) as db14:
+        # DB-0 decoy passes the filter (@n > 10)...
+        conn0.execute_command('HSET', 'doc1', 't', 'beta', 'n', '99')
+        # ...but the real DB-14 doc fails it.
+        db14.execute_command('HSET', 'doc1', 't', 'beta', 'n', '1')
+
+        db14.execute_command('FT.CREATE', 'idxf', 'FILTER', '@n > 10',
+                             'SCHEMA', 't', 'TEXT', 'n', 'NUMERIC')
+        _wait_for_index(db14, 'idxf')
+
+        # The DB-14 doc fails its own DB's filter, so the index stays empty.
+        res = db14.execute_command('FT.SEARCH', 'idxf', 'beta', 'NOCONTENT')
+        env.assertEqual(toSortedFlatList(res), toSortedFlatList([0]), message=res)
+
+
+@skip(cluster=True)
 def testNotificationsAreScopedPerDb(env):
     """A write on DB N must only feed indexes bound to DB N. Two indexes with the
     same PREFIX but on different DBs must not see each other's documents."""

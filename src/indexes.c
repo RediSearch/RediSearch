@@ -967,7 +967,7 @@ void Indexes_UpdateMatchingHashFieldExpiration(RedisModuleCtx *ctx, RedisModuleS
     // index. Matches the SpecOp_Add / SpecOp_Del split the slow path
     // produces in Indexes_UpdateMatchingWithSchemaRules.
     if (specHasIndexMissing(spec)) {
-      if (SchemaRule_ShouldIndex(spec, key, type)) {
+      if (SchemaRule_ShouldIndex(ctx, spec, key, type)) {
         IndexSpec_UpdateDoc(spec, ctx, key, type);
       } else {
         IndexSpec_DeleteDoc(spec, ctx, key);
