@@ -145,8 +145,11 @@ int applyHybridDebugTimeout(HybridRequest *hreq, const HybridDebugParams *params
     PipelineAddTimeoutAfterCount(AREQ_QueryProcessingCtx(vector_req), AREQ_SearchCtx(vector_req), params->vsim_timeout_count);
   }
 
-  // Apply timeout to tail pipeline
-  if (params->tail_timeout_count > 0 && hreq->tailPipeline) {
+  // Apply timeout to tail pipeline, but only when it was actually built. Internal
+  // shard commands (cluster) build just the depletion pipeline and leave the tail
+  // pipeline empty (endProc == NULL). PipelineAddTimeoutAfterCount can't link the
+  // processor into an empty chain, so it would leak it -- skip in that case.
+  if (params->tail_timeout_count > 0 && hreq->tailPipeline && hreq->tailPipeline->qctx.endProc) {
     PipelineAddTimeoutAfterCount(&hreq->tailPipeline->qctx, hreq->sctx, params->tail_timeout_count);
   }
 

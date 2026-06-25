@@ -601,16 +601,6 @@ static void applyCoordReqConfigTimeoutPolicy(HybridRequest *hreq, RSTimeoutPolic
     HybridRequest_SetSkipTimeoutChecks(hreq, !shouldCheckInPipelineTimeoutCoord(hreq));
 }
 
-// TIMEOUT_AFTER_N_TAIL targets the tail (merge) pipeline, which in cluster mode
-// runs only on the coordinator. It must not be forwarded to the shards: a shard
-// would apply it to its own pipeline, which is semantically wrong and leaks the
-// timeout processor when it fires (only SEARCH/VSIM timeouts belong on shards).
-static bool isTailTimeoutArg(RedisModuleString *arg) {
-  size_t n;
-  const char *s = RedisModule_StringPtrLen(arg, &n);
-  return n == sizeof("TIMEOUT_AFTER_N_TAIL") - 1 && !strncmp(s, "TIMEOUT_AFTER_N_TAIL", n);
-}
-
 static int HybridRequest_prepareForExecution(HybridRequest *hreq,
         RedisModuleCtx *ctx, RedisModuleString **argv, int argc, IndexSpec *sp,
         size_t numShards, QueryError *status,
@@ -707,36 +697,21 @@ static int HybridRequest_prepareForExecution(HybridRequest *hreq,
 
     // For debug commands, wrap the shard command with _FT.DEBUG prefix and
     // append the debug parameters so the shard-side debug handler can apply them.
-    // TIMEOUT_AFTER_N_TAIL is filtered out here (see isTailTimeoutArg) and applied
-    // on the coordinator instead, so only the SEARCH/VSIM timeouts reach the shards.
+    // TIMEOUT_AFTER_N_TAIL is forwarded too but is a no-op on the shards: an
+    // internal shard command builds no tail pipeline, so applyHybridDebugTimeout
+    // skips it there. The tail timeout takes effect on the coordinator's tail
+    // pipeline (see DEBUG_RSExecDistHybrid).
     if (debugParams) {
-      // Debug timeout params come in token+value pairs; count the forwarded ones.
-      unsigned long long nparams = debugParams->debug_params_count;
-      int fwdCount = 0;
-      for (unsigned long long i = 0; i + 1 < nparams; i += 2) {
-        if (!isTailTimeoutArg(debugParams->debug_argv[i])) fwdCount += 2;
-      }
-
-      // With only TIMEOUT_AFTER_N_TAIL set there is nothing for the shards to do;
-      // leave the plain command unwrapped (a DEBUG_PARAMS_COUNT of 0 is rejected).
-      if (fwdCount > 0) {
-        MRCommand_Insert(&xcmd, 0, "_FT.DEBUG", sizeof("_FT.DEBUG") - 1);
-        // The _FT.DEBUG prefix shifts every existing argument by one; adjust the
-        // saved K argument index so the SHARD_K_RATIO modifier rewrites the right
-        // slot.
-        if (hreq->kArgIndex >= 0) hreq->kArgIndex += 1;
-        for (unsigned long long i = 0; i + 1 < nparams; i += 2) {
-          if (isTailTimeoutArg(debugParams->debug_argv[i])) continue;
-          size_t n;
-          const char *tok = RedisModule_StringPtrLen(debugParams->debug_argv[i], &n);
-          MRCommand_Append(&xcmd, tok, n);
-          const char *val = RedisModule_StringPtrLen(debugParams->debug_argv[i + 1], &n);
-          MRCommand_Append(&xcmd, val, n);
-        }
-        MRCommand_Append(&xcmd, "DEBUG_PARAMS_COUNT", sizeof("DEBUG_PARAMS_COUNT") - 1);
-        char countBuf[16];
-        int countLen = snprintf(countBuf, sizeof(countBuf), "%d", fwdCount);
-        MRCommand_Append(&xcmd, countBuf, countLen);
+      MRCommand_Insert(&xcmd, 0, "_FT.DEBUG", sizeof("_FT.DEBUG") - 1);
+      // The _FT.DEBUG prefix shifts every existing argument by one; adjust the
+      // saved K argument index so the SHARD_K_RATIO modifier rewrites the right
+      // slot.
+      if (hreq->kArgIndex >= 0) hreq->kArgIndex += 1;
+      int debug_argv_count = (int)debugParams->debug_params_count + 2;
+      for (int i = 0; i < debug_argv_count; i++) {
+        size_t n;
+        const char *arg = RedisModule_StringPtrLen(debugParams->debug_argv[i], &n);
+        MRCommand_Append(&xcmd, arg, n);
       }
     }
 
@@ -1185,8 +1160,8 @@ void DEBUG_RSExecDistHybrid(RedisModuleCtx *ctx, RedisModuleString **argv, int a
     // RSGlobalConfig on this BG thread (races FT.CONFIG SET).
     applyCoordReqConfigTimeoutPolicy(hreq, CoordRequestCtx_GetTimeoutPolicy(reqCtx));
 
-    // The tail (merge) pipeline runs on the coordinator, so its debug timeout
-    // can't be forwarded to the shards like SEARCH/VSIM are; apply it here.
+    // The tail (merge) pipeline runs only on the coordinator, so the tail debug
+    // timeout takes effect here (the shards forward it but have no tail pipeline).
     if (debugParams.tail_timeout_count > 0 && hreq->tailPipeline) {
       PipelineAddTimeoutAfterCount(&hreq->tailPipeline->qctx, hreq->sctx,
                                    debugParams.tail_timeout_count);
