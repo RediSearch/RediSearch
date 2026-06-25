@@ -413,11 +413,15 @@ def test_MOD_1517(env):
              ['field1', None, 'field2', 'val2', 'amount1Sum', '1', 'amount2Sum', '1'],
              ['field1', 'val1', 'field2', None, 'amount1Sum', '1', 'amount2Sum', '1']]
 
-  env.expect('FT.AGGREGATE', 'idx', '*',
+  actual = conn.execute_command('FT.AGGREGATE', 'idx', '*',
              'LOAD', '2', '@amount1', '@amount2',
              'GROUPBY', '2', '@field1', '@field2',
              'REDUCE', 'SUM', '1', '@amount1', 'AS', 'amount1Sum',
-             'REDUCE', 'SUM', '1', '@amount2', 'as', 'amount2Sum').equal(res)
+             'REDUCE', 'SUM', '1', '@amount2', 'as', 'amount2Sum')
+
+  # The order of the groups themselves is not guaranteed, so compare the group rows regardless of order.
+  env.assertEqual(actual[0], res[0])
+  env.assertEqual(sorted(actual[1:], key=str), sorted(res[1:], key=str))
 
 @skip(msan=True, no_json=True)
 def test_MOD1544(env):

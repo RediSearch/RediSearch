@@ -33,6 +33,7 @@
 #include "coord_request_ctx.h"
 #include "aggregate/reply_empty.h"
 #include "aggregate/aggregate_exec_common.h"
+#include "cursor.h"
 
 static const RLookupKey *keyForField(RPNet *nc, const char *s) {
   RLOOKUP_FOREACH(kk, nc->lookup, {
@@ -779,7 +780,6 @@ int DistAggregateTimeoutReturnStrictCallback(RedisModuleCtx *ctx, RedisModuleStr
   CoordRequestCtx_UnlockSetRequest(CoordReqCtx);
 
   AREQ *req = (AREQ *)CoordRequestCtx_GetRequest(CoordReqCtx);
-
   if (!req || AREQ_TryClaimAggregateResults(req)) {
     // Either the request is NULL or We were able to claim the aggregation results.
     // That means that the background thread didn't reach the aggregation phase (startPipelineCommon) yet.
@@ -800,6 +800,9 @@ int DistAggregateTimeoutReturnStrictCallback(RedisModuleCtx *ctx, RedisModuleStr
 
   // BG signals only after AREQ_StoreResults
   RS_ASSERT(req->storedReplyState.hasStoredResults);
+  if (AREQ_RequestFlags(req) & QEXEC_F_IS_CURSOR) {
+    req->storedReplyState.rc = RS_RESULT_TIMEDOUT;
+  }
 
   // Harvest any shard replies that landed in the channel before the deadline.
   // No-op for already-complete runs.
@@ -883,17 +886,21 @@ int DistCursorReadTimeoutReturnStrictCallback(RedisModuleCtx *ctx, RedisModuleSt
   CoordRequestCtx_LockSetRequest(reqCtx);
   CoordRequestCtx_SetTimedOut(reqCtx);
   AREQ *req = (AREQ *)CoordRequestCtx_GetRequest(reqCtx);
-  CoordRequestCtx_UnlockSetRequest(reqCtx);
-
-  if (!req) {
+  if (req) {
+    CoordRequestCtx_UnlockSetRequest(reqCtx);
+  } else {
     // BG never took the cursor (or hit the early TimedOut check and bailed
     // before taking). No condvar signal will arrive; reply directly with
-    // cursor-shaped empty + cid. Cid was validated by CursorCommand on the
-    // main thread before BC arming, so argv[3] is trusted.
+    // a depleted cursor. Cid was validated by CursorCommand on the main thread
+    // before BC arming, so argv[3] is trusted. Purge while still holding
+    // setRequestLock: BG cannot pass its TimedOut check and take the cursor
+    // concurrently.
     long long cid;
     int rc = RedisModule_StringToLongLong(argv[3], &cid);
     RS_ASSERT(rc == REDISMODULE_OK);
-    return coord_cursor_read_empty_reply_timeout(ctx, cid);
+    Cursors_Purge(GetGlobalCursor((uint64_t)cid), (uint64_t)cid);
+    CoordRequestCtx_UnlockSetRequest(reqCtx);
+    return coord_cursor_read_empty_reply_timeout(ctx, 0);
   }
 
   // BG has taken the cursor. Wake the abort channel — unblocks BG from
@@ -907,6 +914,7 @@ int DistCursorReadTimeoutReturnStrictCallback(RedisModuleCtx *ctx, RedisModuleSt
     // Drain anything queued before the deadline, then serialize and dispose
     // the stashed cursor (Pause if more rows remain, Free on EOF) inside
     // AREQ_ReplyWithStoredResults.
+    req->storedReplyState.rc = RS_RESULT_TIMEDOUT;
     drainPartialResultsAfterTimeout(req);
     AREQ_ReplyWithStoredResults(ctx, req);
   } else {
