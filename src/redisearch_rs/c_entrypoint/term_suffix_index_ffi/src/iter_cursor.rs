@@ -14,7 +14,6 @@
 //! [`TermSuffixIndexIterator_Free`]. Used by `FT.DEBUG DUMP_SUFFIX_TRIE`.
 
 use std::ffi::{c_char, c_int};
-use std::rc::Rc;
 
 use super::*;
 
@@ -24,10 +23,10 @@ use super::*;
 /// with [`TermSuffixIndexIterator_Next`], freed with
 /// [`TermSuffixIndexIterator_Free`].
 pub struct TermSuffixIndexIterator<'si> {
-    iter: Box<dyn Iterator<Item = Rc<str>> + 'si>,
+    iter: Box<dyn Iterator<Item = String> + 'si>,
     /// Keeps the most recently yielded string alive so the pointer
     /// handed to C stays valid until the next advance (or free).
-    current: Option<Rc<str>>,
+    current: Option<String>,
 }
 
 /// Iterate over every key stored in the index — each member term plus
@@ -54,7 +53,7 @@ pub unsafe extern "C" fn TermSuffixIndex_IterateAll<'si>(
     // Safety: ensured by caller (1., 2.)
     let index = unsafe { &*tsi };
 
-    let iter = Box::new(index.keys().map(Rc::from));
+    let iter = Box::new(index.keys());
     Box::into_raw(Box::new(TermSuffixIndexIterator {
         iter,
         current: None,
