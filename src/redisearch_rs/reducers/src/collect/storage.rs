@@ -15,10 +15,15 @@
 //! array-vs-heap once, in its `add` method, so only the heap path ever builds a
 //! sort-key snapshot.
 
+use std::hash::{Hash, Hasher};
+use std::mem;
+
 use itertools::Either;
 use min_max_heap::MinMaxHeap;
 use rlookup::RLookupRow;
 use value::SharedValue;
+use value::comparison::compare_on_equality_only;
+use value::hash::hash_value;
 
 use super::heap::{HeapEntry, RankingKey};
 
@@ -51,6 +56,51 @@ impl ProjectedRow {
     /// Consume the wrapper, returning the inner row.
     pub fn into_row(self) -> RLookupRow<'static> {
         self.0
+    }
+
+    /// The collected values with trailing `None` slots trimmed off.
+    ///
+    /// Trailing `None`s only reflect how far the highest-index written key
+    /// reached, not content, so they carry no meaning for [`Hash`]/[`Eq`].
+    fn effective_values(&self) -> &[Option<SharedValue>] {
+        let slots = self.0.dyn_values();
+        let end = slots.iter().rposition(Option::is_some).map_or(0, |i| i + 1);
+        &slots[..end]
+    }
+}
+
+/// Compares the trailing-trimmed slots (see [`ProjectedRow::effective_values`])
+/// position-by-position with [`compare_on_equality_only`].
+///
+/// This can disagree with the [`Hash`] impl's [`hash_value`], which distinguishes
+/// some values the comparator equates (num↔string, maps, NaN) — a pre-existing
+/// comparator quirk, not addressed here.
+impl PartialEq for ProjectedRow {
+    fn eq(&self, other: &Self) -> bool {
+        let (a, b) = (self.effective_values(), other.effective_values());
+        a.len() == b.len()
+            && a.iter().zip(b).all(|(x, y)| match (x, y) {
+                (None, None) => true,
+                (Some(p), Some(q)) => compare_on_equality_only(p, q),
+                _ => false,
+            })
+    }
+}
+
+impl Eq for ProjectedRow {}
+
+impl Hash for ProjectedRow {
+    /// Hashes the trailing-trimmed slots (see [`ProjectedRow::effective_values`])
+    /// via [`hash_value`]. A per-slot discriminant keeps an empty slot distinct
+    /// from a present value; see the [`PartialEq`] impl for the eq/hash
+    /// consistency caveat.
+    fn hash<H: Hasher>(&self, state: &mut H) {
+        for slot in self.effective_values() {
+            mem::discriminant(slot).hash(state);
+            if let Some(v) = slot {
+                hash_value(v, state);
+            }
+        }
     }
 }
 
