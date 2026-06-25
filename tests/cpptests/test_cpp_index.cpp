@@ -1559,20 +1559,20 @@ TEST_F(IndexTest, testDiskHnswAcceptsFloat16) {
         "TRUE",
     };
     StrongRef ref =
-        IndexSpec_ParseC(NULL, "idx_fp16", args, sizeof(args) / sizeof(const char *), &err);
+        IndexSpec_ParseC(nullptr, "idx_fp16", args, std::size(args), &err);
     // Cleans up on scope exit even if an assertion below aborts the test.
     SpecCleanupGuard cleanup(ref);
-    IndexSpec *s = (IndexSpec *)StrongRef_Get(ref);
+    auto *s = (IndexSpec *)StrongRef_Get(ref);
     ASSERT_FALSE(QueryError_HasError(&err)) << QueryError_GetUserError(&err);
     ASSERT_TRUE(s);
 
     const FieldSpec *f = IndexSpec_GetFieldWithLength(s, "v", 1);
-    ASSERT_TRUE(f != NULL);
+    ASSERT_TRUE(f != nullptr);
     ASSERT_TRUE(FIELD_IS(f, INDEXFLD_T_VECTOR));
     // HNSW is stored as a TIERED wrapper; the HNSW params live under primaryIndexParams.
     ASSERT_EQ(f->vectorOpts.vecSimParams.algo, VecSimAlgo_TIERED);
-    VecSimParams *prim = f->vectorOpts.vecSimParams.algoParams.tieredParams.primaryIndexParams;
-    ASSERT_TRUE(prim != NULL);
+    const VecSimParams *prim = f->vectorOpts.vecSimParams.algoParams.tieredParams.primaryIndexParams;
+    ASSERT_TRUE(prim != nullptr);
     ASSERT_EQ(prim->algo, VecSimAlgo_HNSWLIB);
     ASSERT_EQ(prim->algoParams.hnswParams.type, VecSimType_FLOAT16);
     ASSERT_EQ(f->vectorOpts.expBlobSize, (size_t)dim * 2);  // VecSimType_sizeof(FLOAT16) == 2
@@ -1607,7 +1607,7 @@ TEST_F(IndexTest, testDiskHnswAcceptsFloat16) {
         "TRUE",
     };
     StrongRef ref =
-        IndexSpec_ParseC(NULL, "idx_bad", args, sizeof(args) / sizeof(const char *), &err);
+        IndexSpec_ParseC(nullptr, "idx_bad", args, std::size(args), &err);
     ASSERT_TRUE(QueryError_HasError(&err)) << "type " << vecType << " should be rejected";
     ASSERT_EQ(nullptr, StrongRef_Get(ref));
     ASSERT_NE(nullptr, strstr(QueryError_GetUserError(&err), "Disk index does not support"))
