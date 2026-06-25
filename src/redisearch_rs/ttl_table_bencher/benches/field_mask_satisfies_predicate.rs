@@ -7,7 +7,7 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 
-//! Read-side benchmarks for `TimeToLiveTable::verify_doc_and_field_mask`.
+//! Read-side benchmarks for `TimeToLiveTable::field_mask_satisfies_predicate`.
 
 use std::hint::black_box;
 use std::num::NonZeroUsize;
@@ -48,8 +48,8 @@ fn doc_inputs() -> Vec<DocsInput> {
     doc_inputs
 }
 
-fn verify_doc_and_field_mask_doc_default(c: &mut Criterion) {
-    let mut group = c.benchmark_group("verify_doc_and_field_mask/doc_default");
+fn field_mask_satisfies_predicate_doc_default(c: &mut Criterion) {
+    let mut group = c.benchmark_group("field_mask_satisfies_predicate/doc_default");
 
     let doc_inputs = doc_inputs();
 
@@ -93,5 +93,5 @@ fn verify_doc_and_field_mask_doc_default(c: &mut Criterion) {
     group.finish();
 }
 
-criterion_group!(benches, verify_doc_and_field_mask_doc_default);
+criterion_group!(benches, field_mask_satisfies_predicate_doc_default);
 criterion_main!(benches);
