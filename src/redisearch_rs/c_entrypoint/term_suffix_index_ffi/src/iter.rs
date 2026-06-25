@@ -71,8 +71,8 @@ pub unsafe extern "C" fn TermSuffixIndex_IterateAll<'si>(
     }))
 }
 
-/// Invoke `callback` once per member term containing the UTF-8 needle
-/// `(str, len)` as a substring; a term may be reported more than once.
+/// Invoke `cb` once per member term containing the UTF-8 needle
+/// `(needle, len)` as a substring; a term may be reported more than once.
 /// Iteration stops early when the callback returns a non-zero value. An
 /// empty or non-UTF-8 needle reports no matches.
 ///
@@ -80,30 +80,30 @@ pub unsafe extern "C" fn TermSuffixIndex_IterateAll<'si>(
 ///
 /// 1. `tsi` must be a [valid], non-null pointer obtained from
 ///    [`TermSuffixIndex_New`].
-/// 2. `str` must point to a [valid] byte sequence of length `len`.
-/// 3. `callback` cannot be NULL and must not modify or free `tsi`, nor
+/// 2. `needle` must point to a [valid] byte sequence of length `len`.
+/// 3. `cb` cannot be NULL and must not modify or free `tsi`, nor
 ///    retain the term pointer beyond the call.
 ///
 /// [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn TermSuffixIndex_IterateContains(
     tsi: *const TermSuffixIndex,
-    str: *const c_char,
+    needle: *const c_char,
     len: usize,
-    callback: TermSuffixIterateCallback,
+    cb: TermSuffixIterateCallback,
     ctx: *mut c_void,
 ) {
     debug_assert!(!tsi.is_null(), "tsi cannot be NULL");
-    debug_assert!(!str.is_null(), "str cannot be NULL");
-    let Some(callback) = callback else {
-        debug_assert!(false, "callback cannot be NULL");
+    debug_assert!(!needle.is_null(), "needle cannot be NULL");
+    let Some(cb) = cb else {
+        debug_assert!(false, "cb cannot be NULL");
         return;
     };
 
     // Safety: ensured by caller (1.)
     let index = unsafe { &*tsi };
     // Safety: ensured by caller (2.)
-    let bytes = unsafe { std::slice::from_raw_parts(str.cast::<u8>(), len) };
+    let bytes = unsafe { std::slice::from_raw_parts(needle.cast::<u8>(), len) };
 
     let Ok(needle) = std::str::from_utf8(bytes) else {
         debug_assert!(false, "needle must be valid UTF-8");
@@ -112,7 +112,7 @@ pub unsafe extern "C" fn TermSuffixIndex_IterateContains(
     for term in index.iter_contains(needle) {
         // Safety: ensured by caller (3.)
         let outcome = unsafe {
-            callback(
+            cb(
                 term.as_ptr().cast::<c_char>(),
                 term.len(),
                 ctx,
@@ -125,8 +125,8 @@ pub unsafe extern "C" fn TermSuffixIndex_IterateContains(
     }
 }
 
-/// Invoke `callback` once per member term ending with the UTF-8 needle
-/// `(str, len)`; each matching term is reported exactly once. Iteration
+/// Invoke `cb` once per member term ending with the UTF-8 needle
+/// `(needle, len)`; each matching term is reported exactly once. Iteration
 /// stops early when the callback returns a non-zero value. An empty or
 /// non-UTF-8 needle reports no matches.
 ///
@@ -134,30 +134,30 @@ pub unsafe extern "C" fn TermSuffixIndex_IterateContains(
 ///
 /// 1. `tsi` must be a [valid], non-null pointer obtained from
 ///    [`TermSuffixIndex_New`].
-/// 2. `str` must point to a [valid] byte sequence of length `len`.
-/// 3. `callback` cannot be NULL and must not modify or free `tsi`, nor
+/// 2. `needle` must point to a [valid] byte sequence of length `len`.
+/// 3. `cb` cannot be NULL and must not modify or free `tsi`, nor
 ///    retain the term pointer beyond the call.
 ///
 /// [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn TermSuffixIndex_IterateSuffix(
     tsi: *const TermSuffixIndex,
-    str: *const c_char,
+    needle: *const c_char,
     len: usize,
-    callback: TermSuffixIterateCallback,
+    cb: TermSuffixIterateCallback,
     ctx: *mut c_void,
 ) {
     debug_assert!(!tsi.is_null(), "tsi cannot be NULL");
-    debug_assert!(!str.is_null(), "str cannot be NULL");
-    let Some(callback) = callback else {
-        debug_assert!(false, "callback cannot be NULL");
+    debug_assert!(!needle.is_null(), "needle cannot be NULL");
+    let Some(cb) = cb else {
+        debug_assert!(false, "cb cannot be NULL");
         return;
     };
 
     // Safety: ensured by caller (1.)
     let index = unsafe { &*tsi };
     // Safety: ensured by caller (2.)
-    let bytes = unsafe { std::slice::from_raw_parts(str.cast::<u8>(), len) };
+    let bytes = unsafe { std::slice::from_raw_parts(needle.cast::<u8>(), len) };
 
     let Ok(needle) = std::str::from_utf8(bytes) else {
         debug_assert!(false, "needle must be valid UTF-8");
@@ -166,7 +166,7 @@ pub unsafe extern "C" fn TermSuffixIndex_IterateSuffix(
     for term in index.iter_suffix(needle) {
         // Safety: ensured by caller (3.)
         let outcome = unsafe {
-            callback(
+            cb(
                 term.as_ptr().cast::<c_char>(),
                 term.len(),
                 ctx,
@@ -180,7 +180,7 @@ pub unsafe extern "C" fn TermSuffixIndex_IterateSuffix(
 }
 
 /// Iterate over every member term matching the wildcard pattern
-/// `(str, len)` (`*` matches any run of characters, `?` exactly one
+/// `(pattern, len)` (`*` matches any run of characters, `?` exactly one
 /// byte); a term may be yielded more than once.
 ///
 /// Returns NULL when the pattern has no literal token that can anchor
@@ -193,24 +193,24 @@ pub unsafe extern "C" fn TermSuffixIndex_IterateSuffix(
 ///
 /// 1. `tsi` must be a [valid], non-null pointer obtained from
 ///    [`TermSuffixIndex_New`].
-/// 2. `str` must point to a [valid] byte sequence of length `len`.
-/// 3. Both `tsi` and the pattern bytes `(str, len)` must stay valid and
+/// 2. `pattern` must point to a [valid] byte sequence of length `len`.
+/// 3. Both `tsi` and the pattern bytes `(pattern, len)` must stay valid and
 ///    unmodified while the iterator lives.
 ///
 /// [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn TermSuffixIndex_IterateWildcard<'si>(
     tsi: *const TermSuffixIndex,
-    str: *const c_char,
+    pattern: *const c_char,
     len: usize,
 ) -> *mut TermSuffixIndexIterator<'si> {
     debug_assert!(!tsi.is_null(), "tsi cannot be NULL");
-    debug_assert!(!str.is_null(), "str cannot be NULL");
+    debug_assert!(!pattern.is_null(), "pattern cannot be NULL");
 
     // Safety: ensured by caller (1., 3.)
     let index = unsafe { &*tsi };
     // Safety: ensured by caller (2., 3.)
-    let bytes = unsafe { std::slice::from_raw_parts(str.cast::<u8>(), len) };
+    let bytes = unsafe { std::slice::from_raw_parts(pattern.cast::<u8>(), len) };
 
     let iter: Box<dyn Iterator<Item = Rc<str>>> = match std::str::from_utf8(bytes) {
         Ok(pattern) => match index.iter_wildcard(pattern) {
