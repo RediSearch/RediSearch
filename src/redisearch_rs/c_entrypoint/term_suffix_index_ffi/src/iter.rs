@@ -15,39 +15,13 @@ use std::{ptr, slice, str};
 
 use super::*;
 
-/// Callback invoked once per term yielded by
-/// [`TermSuffixIndex_IterateContains`], [`TermSuffixIndex_IterateSuffix`]
-/// or [`TermSuffixIndex_IterateWildcard`].
-///
-/// `term` points to `len` UTF-8 bytes, NOT NUL-terminated, valid only
-/// for the duration of the call. `ctx` is the caller context passed to
-/// the iterate function; `payload` is always NULL. Return 0 to continue
-/// the iteration; any other value stops it.
-pub type TermSuffixIterateCallback = Option<
-    unsafe extern "C" fn(
-        term: *const c_char,
-        len: usize,
-        ctx: *mut c_void,
-        payload: *mut c_void,
-    ) -> c_int,
->;
-
-/// Yields the keys of a [`TermSuffixIndex`].
-///
-/// Opaque to C; obtained from [`TermSuffixIndex_IterateAll`], advanced
-/// with [`TermSuffixIndexIterator_Next`], freed with
-/// [`TermSuffixIndexIterator_Free`].
-pub struct TermSuffixIndexIterator<'si> {
-    iter: Box<dyn Iterator<Item = Rc<str>> + 'si>,
-    /// Keeps the most recently yielded string alive so the pointer
-    /// handed to C stays valid until the next advance (or free).
-    current: Option<Rc<str>>,
-}
-
 /// Iterate over every key stored in the index — each member term plus
 /// every indexed proper suffix — in lexicographical order.
 ///
-/// Advance with [`TermSuffixIndexIterator_Next`].
+/// The caller owns the returned iterator: advance it with
+/// [`TermSuffixIndexIterator_Next`] and free it exactly once with
+/// [`TermSuffixIndexIterator_Free`] when done (including when it is
+/// exhausted or abandoned early).
 ///
 /// # Safety
 ///
@@ -70,6 +44,86 @@ pub unsafe extern "C" fn TermSuffixIndex_IterateAll<'si>(
         iter,
         current: None,
     }))
+}
+
+/// Advance the iterator. Returns 1 and stores the next string into
+/// `(*str, *len)` if there is one, or returns 0 once exhausted.
+///
+/// Returning 0 does not free the iterator; it must still be released
+/// with [`TermSuffixIndexIterator_Free`].
+///
+/// The string written to `*str` is NOT NUL-terminated, owned by the
+/// iterator, and only valid until the next call to
+/// [`TermSuffixIndexIterator_Next`] or [`TermSuffixIndexIterator_Free`].
+///
+/// # Safety
+///
+/// 1. `it` must be a [valid], non-null pointer to a live
+///    [`TermSuffixIndexIterator`].
+/// 2. `str` and `len` must be [valid], non-null pointers to writable
+///    locations.
+/// 3. The [`TermSuffixIndex`] the iterator was obtained from must still
+///    be alive and unmodified.
+///
+/// [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn TermSuffixIndexIterator_Next(
+    it: *mut TermSuffixIndexIterator,
+    str: *mut *const c_char,
+    len: *mut usize,
+) -> c_int {
+    debug_assert!(!it.is_null(), "it cannot be NULL");
+    debug_assert!(!str.is_null(), "str cannot be NULL");
+    debug_assert!(!len.is_null(), "len cannot be NULL");
+
+    // Safety: ensured by caller (1., 3.)
+    let iterator = unsafe { &mut *it };
+
+    let Some(term) = iterator.iter.next() else {
+        return 0;
+    };
+    let term = iterator.current.insert(term);
+
+    // Safety: ensured by caller (2.)
+    unsafe {
+        *str = term.as_ptr().cast::<c_char>();
+    }
+    // Safety: ensured by caller (2.)
+    unsafe {
+        *len = term.len();
+    }
+    1
+}
+
+/// Free an iterator obtained from [`TermSuffixIndex_IterateAll`].
+/// Invalidates any string pointer previously returned by
+/// [`TermSuffixIndexIterator_Next`].
+///
+/// # Safety
+///
+/// 1. `it` must be a [valid], non-null pointer to a live
+///    [`TermSuffixIndexIterator`].
+/// 2. `it` must not be used after this call.
+///
+/// [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn TermSuffixIndexIterator_Free(it: *mut TermSuffixIndexIterator) {
+    debug_assert!(!it.is_null(), "it cannot be NULL");
+
+    // Safety: ensured by caller (1., 2.)
+    drop(unsafe { Box::from_raw(it) });
+}
+
+/// Yields the keys of a [`TermSuffixIndex`].
+///
+/// Opaque to C; obtained from [`TermSuffixIndex_IterateAll`], advanced
+/// with [`TermSuffixIndexIterator_Next`], freed with
+/// [`TermSuffixIndexIterator_Free`].
+pub struct TermSuffixIndexIterator<'si> {
+    iter: Box<dyn Iterator<Item = Rc<str>> + 'si>,
+    /// Keeps the most recently yielded string alive so the pointer
+    /// handed to C stays valid until the next advance (or free).
+    current: Option<Rc<str>>,
 }
 
 /// Invoke `cb` once per member term containing the UTF-8 needle
@@ -246,67 +300,19 @@ pub unsafe extern "C" fn TermSuffixIndex_IterateWildcard(
     1
 }
 
-/// Advance the iterator. Returns 1 and stores the next string into
-/// `(*str, *len)` if there is one, or returns 0 once exhausted.
+/// Callback invoked once per term yielded by
+/// [`TermSuffixIndex_IterateContains`], [`TermSuffixIndex_IterateSuffix`]
+/// or [`TermSuffixIndex_IterateWildcard`].
 ///
-/// The string written to `*str` is NOT NUL-terminated, owned by the
-/// iterator, and only valid until the next call to
-/// [`TermSuffixIndexIterator_Next`] or [`TermSuffixIndexIterator_Free`].
-///
-/// # Safety
-///
-/// 1. `it` must be a [valid], non-null pointer to a live
-///    [`TermSuffixIndexIterator`].
-/// 2. `str` and `len` must be [valid], non-null pointers to writable
-///    locations.
-/// 3. The [`TermSuffixIndex`] the iterator was obtained from must still
-///    be alive and unmodified.
-///
-/// [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
-#[unsafe(no_mangle)]
-pub unsafe extern "C" fn TermSuffixIndexIterator_Next(
-    it: *mut TermSuffixIndexIterator,
-    str: *mut *const c_char,
-    len: *mut usize,
-) -> c_int {
-    debug_assert!(!it.is_null(), "it cannot be NULL");
-    debug_assert!(!str.is_null(), "str cannot be NULL");
-    debug_assert!(!len.is_null(), "len cannot be NULL");
-
-    // Safety: ensured by caller (1., 3.)
-    let iterator = unsafe { &mut *it };
-
-    let Some(term) = iterator.iter.next() else {
-        return 0;
-    };
-    let term = iterator.current.insert(term);
-
-    // Safety: ensured by caller (2.)
-    unsafe {
-        *str = term.as_ptr().cast::<c_char>();
-    }
-    // Safety: ensured by caller (2.)
-    unsafe {
-        *len = term.len();
-    }
-    1
-}
-
-/// Free an iterator obtained from [`TermSuffixIndex_IterateAll`].
-/// Invalidates any string pointer previously returned by
-/// [`TermSuffixIndexIterator_Next`].
-///
-/// # Safety
-///
-/// 1. `it` must be a [valid], non-null pointer to a live
-///    [`TermSuffixIndexIterator`].
-/// 2. `it` must not be used after this call.
-///
-/// [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
-#[unsafe(no_mangle)]
-pub unsafe extern "C" fn TermSuffixIndexIterator_Free(it: *mut TermSuffixIndexIterator) {
-    debug_assert!(!it.is_null(), "it cannot be NULL");
-
-    // Safety: ensured by caller (1., 2.)
-    drop(unsafe { Box::from_raw(it) });
-}
+/// `term` points to `len` UTF-8 bytes, NOT NUL-terminated, valid only
+/// for the duration of the call. `ctx` is the caller context passed to
+/// the iterate function; `payload` is always NULL. Return 0 to continue
+/// the iteration; any other value stops it.
+pub type TermSuffixIterateCallback = Option<
+    unsafe extern "C" fn(
+        term: *const c_char,
+        len: usize,
+        ctx: *mut c_void,
+        payload: *mut c_void,
+    ) -> c_int,
+>;
