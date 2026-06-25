@@ -37,7 +37,7 @@ pub type TermSuffixIterateCallback = Option<
 /// A set of indexed terms supporting substring, ends-with, exact and
 /// wildcard lookups.
 ///
-/// Opaque to C; obtained from [`NewTermSuffixIndex`] and freed with
+/// Opaque to C; obtained from [`TermSuffixIndex_New`] and freed with
 /// [`TermSuffixIndex_Free`].
 pub struct TermSuffixIndex(TermSuffixIndexImpl);
 
@@ -57,7 +57,7 @@ pub struct TermSuffixIndexIterator<'si> {
 /// Create a new, empty [`TermSuffixIndex`]. Free it with
 /// [`TermSuffixIndex_Free`].
 #[unsafe(no_mangle)]
-pub extern "C" fn NewTermSuffixIndex() -> *mut TermSuffixIndex {
+pub extern "C" fn TermSuffixIndex_New() -> *mut TermSuffixIndex {
     Box::into_raw(Box::new(TermSuffixIndex(TermSuffixIndexImpl::new())))
 }
 
@@ -66,7 +66,7 @@ pub extern "C" fn NewTermSuffixIndex() -> *mut TermSuffixIndex {
 /// # Safety
 ///
 /// 1. `t` must be a [valid], non-null pointer obtained from
-///    [`NewTermSuffixIndex`].
+///    [`TermSuffixIndex_New`].
 /// 2. No iterator obtained from `t` may be alive.
 /// 3. `t` must not be used after this call.
 ///
@@ -84,7 +84,7 @@ pub unsafe extern "C" fn TermSuffixIndex_Free(t: *mut TermSuffixIndex) {
 /// # Safety
 ///
 /// 1. `t` must be a [valid], non-null pointer obtained from
-///    [`NewTermSuffixIndex`].
+///    [`TermSuffixIndex_New`].
 ///
 /// [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
 #[unsafe(no_mangle)]
@@ -102,7 +102,7 @@ pub unsafe extern "C" fn TermSuffixIndex_MemUsage(t: *const TermSuffixIndex) -> 
 /// # Safety
 ///
 /// 1. `t` must be a [valid], non-null pointer obtained from
-///    [`NewTermSuffixIndex`].
+///    [`TermSuffixIndex_New`].
 /// 2. `term` must point to a [valid] byte sequence of length `len`.
 /// 3. No iterator obtained from `t` may be alive.
 ///
@@ -134,7 +134,7 @@ pub unsafe extern "C" fn TermSuffixIndex_Add(
 /// # Safety
 ///
 /// 1. `t` must be a [valid], non-null pointer obtained from
-///    [`NewTermSuffixIndex`].
+///    [`TermSuffixIndex_New`].
 /// 2. `term` must point to a [valid] byte sequence of length `len`.
 /// 3. No iterator obtained from `t` may be alive.
 ///
@@ -168,7 +168,7 @@ pub unsafe extern "C" fn TermSuffixIndex_Remove(
 /// # Safety
 ///
 /// 1. `t` must be a [valid], non-null pointer obtained from
-///    [`NewTermSuffixIndex`].
+///    [`TermSuffixIndex_New`].
 /// 2. `t` must not be modified or freed while the iterator lives.
 ///
 /// [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
@@ -196,7 +196,7 @@ pub unsafe extern "C" fn TermSuffixIndex_IterateAll<'si>(
 /// # Safety
 ///
 /// 1. `t` must be a [valid], non-null pointer obtained from
-///    [`NewTermSuffixIndex`].
+///    [`TermSuffixIndex_New`].
 /// 2. `str` must point to a [valid] byte sequence of length `len`.
 /// 3. `callback` cannot be NULL and must not modify or free `t`, nor
 ///    retain the term pointer beyond the call.
@@ -250,7 +250,7 @@ pub unsafe extern "C" fn TermSuffixIndex_IterateContains(
 /// # Safety
 ///
 /// 1. `t` must be a [valid], non-null pointer obtained from
-///    [`NewTermSuffixIndex`].
+///    [`TermSuffixIndex_New`].
 /// 2. `str` must point to a [valid] byte sequence of length `len`.
 /// 3. `callback` cannot be NULL and must not modify or free `t`, nor
 ///    retain the term pointer beyond the call.
@@ -309,7 +309,7 @@ pub unsafe extern "C" fn TermSuffixIndex_IterateSuffix(
 /// # Safety
 ///
 /// 1. `t` must be a [valid], non-null pointer obtained from
-///    [`NewTermSuffixIndex`].
+///    [`TermSuffixIndex_New`].
 /// 2. `str` must point to a [valid] byte sequence of length `len`.
 /// 3. Both `t` and the pattern bytes `(str, len)` must stay valid and
 ///    unmodified while the iterator lives.

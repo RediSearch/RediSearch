@@ -162,7 +162,7 @@ fn with_index<F>(terms: &[&str], f: F)
 where
     F: FnOnce(*mut TermSuffixIndex),
 {
-    let t = NewTermSuffixIndex();
+    let t = TermSuffixIndex_New();
     for term in terms {
         // Safety: `term` points to `term.len()` valid UTF-8 bytes and
         // no iterator on `t` is alive.
@@ -171,7 +171,7 @@ where
 
     f(t);
 
-    // Safety: `t` was obtained from `NewTermSuffixIndex` and all
+    // Safety: `t` was obtained from `TermSuffixIndex_New` and all
     // iterators have been freed by the callback.
     unsafe { TermSuffixIndex_Free(t) };
 }
