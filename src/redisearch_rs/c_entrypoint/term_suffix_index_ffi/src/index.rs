@@ -24,34 +24,34 @@ pub extern "C" fn TermSuffixIndex_New() -> *mut TermSuffixIndex {
 ///
 /// # Safety
 ///
-/// 1. `t` must be a [valid], non-null pointer obtained from
+/// 1. `tsi` must be a [valid], non-null pointer obtained from
 ///    [`TermSuffixIndex_New`].
-/// 2. No iterator obtained from `t` may be alive.
-/// 3. `t` must not be used after this call.
+/// 2. No iterator obtained from `tsi` may be alive.
+/// 3. `tsi` must not be used after this call.
 ///
 /// [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn TermSuffixIndex_Free(t: *mut TermSuffixIndex) {
-    debug_assert!(!t.is_null(), "t cannot be NULL");
+pub unsafe extern "C" fn TermSuffixIndex_Free(tsi: *mut TermSuffixIndex) {
+    debug_assert!(!tsi.is_null(), "tsi cannot be NULL");
 
     // Safety: ensured by caller (1., 2., 3.)
-    drop(unsafe { Box::from_raw(t) });
+    drop(unsafe { Box::from_raw(tsi) });
 }
 
 /// Estimated heap memory currently held by the index, in bytes.
 ///
 /// # Safety
 ///
-/// 1. `t` must be a [valid], non-null pointer obtained from
+/// 1. `tsi` must be a [valid], non-null pointer obtained from
 ///    [`TermSuffixIndex_New`].
 ///
 /// [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn TermSuffixIndex_MemUsage(t: *const TermSuffixIndex) -> usize {
-    debug_assert!(!t.is_null(), "t cannot be NULL");
+pub unsafe extern "C" fn TermSuffixIndex_MemUsage(tsi: *const TermSuffixIndex) -> usize {
+    debug_assert!(!tsi.is_null(), "tsi cannot be NULL");
 
     // Safety: ensured by caller (1.)
-    let index = unsafe { &*t };
+    let index = unsafe { &*tsi };
     index.mem_usage()
 }
 
@@ -60,23 +60,23 @@ pub unsafe extern "C" fn TermSuffixIndex_MemUsage(t: *const TermSuffixIndex) -> 
 ///
 /// # Safety
 ///
-/// 1. `t` must be a [valid], non-null pointer obtained from
+/// 1. `tsi` must be a [valid], non-null pointer obtained from
 ///    [`TermSuffixIndex_New`].
 /// 2. `term` must point to a [valid] byte sequence of length `len`.
-/// 3. No iterator obtained from `t` may be alive.
+/// 3. No iterator obtained from `tsi` may be alive.
 ///
 /// [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn TermSuffixIndex_Add(
-    t: *mut TermSuffixIndex,
+    tsi: *mut TermSuffixIndex,
     term: *const c_char,
     len: usize,
 ) {
-    debug_assert!(!t.is_null(), "t cannot be NULL");
+    debug_assert!(!tsi.is_null(), "tsi cannot be NULL");
     debug_assert!(!term.is_null(), "term cannot be NULL");
 
     // Safety: ensured by caller (1., 3.)
-    let index = unsafe { &mut *t };
+    let index = unsafe { &mut *tsi };
     // Safety: ensured by caller (2.)
     let bytes = unsafe { std::slice::from_raw_parts(term.cast::<u8>(), len) };
 
@@ -92,23 +92,23 @@ pub unsafe extern "C" fn TermSuffixIndex_Add(
 ///
 /// # Safety
 ///
-/// 1. `t` must be a [valid], non-null pointer obtained from
+/// 1. `tsi` must be a [valid], non-null pointer obtained from
 ///    [`TermSuffixIndex_New`].
 /// 2. `term` must point to a [valid] byte sequence of length `len`.
-/// 3. No iterator obtained from `t` may be alive.
+/// 3. No iterator obtained from `tsi` may be alive.
 ///
 /// [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn TermSuffixIndex_Remove(
-    t: *mut TermSuffixIndex,
+    tsi: *mut TermSuffixIndex,
     term: *const c_char,
     len: usize,
 ) {
-    debug_assert!(!t.is_null(), "t cannot be NULL");
+    debug_assert!(!tsi.is_null(), "tsi cannot be NULL");
     debug_assert!(!term.is_null(), "term cannot be NULL");
 
     // Safety: ensured by caller (1., 3.)
-    let index = unsafe { &mut *t };
+    let index = unsafe { &mut *tsi };
     // Safety: ensured by caller (2.)
     let bytes = unsafe { std::slice::from_raw_parts(term.cast::<u8>(), len) };
 

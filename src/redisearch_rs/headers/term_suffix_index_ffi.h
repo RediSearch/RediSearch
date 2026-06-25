@@ -46,26 +46,26 @@ struct TermSuffixIndex *TermSuffixIndex_New(void);
  *
  * # Safety
  *
- * 1. `t` must be a [valid], non-null pointer obtained from
+ * 1. `tsi` must be a [valid], non-null pointer obtained from
  *    [`TermSuffixIndex_New`].
- * 2. No iterator obtained from `t` may be alive.
- * 3. `t` must not be used after this call.
+ * 2. No iterator obtained from `tsi` may be alive.
+ * 3. `tsi` must not be used after this call.
  *
  * [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
  */
-void TermSuffixIndex_Free(struct TermSuffixIndex *t);
+void TermSuffixIndex_Free(struct TermSuffixIndex *tsi);
 
 /**
  * Estimated heap memory currently held by the index, in bytes.
  *
  * # Safety
  *
- * 1. `t` must be a [valid], non-null pointer obtained from
+ * 1. `tsi` must be a [valid], non-null pointer obtained from
  *    [`TermSuffixIndex_New`].
  *
  * [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
  */
-size_t TermSuffixIndex_MemUsage(const struct TermSuffixIndex *t);
+size_t TermSuffixIndex_MemUsage(const struct TermSuffixIndex *tsi);
 
 /**
  * Iterate over every key stored in the index — each member term plus
@@ -75,13 +75,13 @@ size_t TermSuffixIndex_MemUsage(const struct TermSuffixIndex *t);
  *
  * # Safety
  *
- * 1. `t` must be a [valid], non-null pointer obtained from
+ * 1. `tsi` must be a [valid], non-null pointer obtained from
  *    [`TermSuffixIndex_New`].
- * 2. `t` must not be modified or freed while the iterator lives.
+ * 2. `tsi` must not be modified or freed while the iterator lives.
  *
  * [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
  */
-struct TermSuffixIndexIterator *TermSuffixIndex_IterateAll(const struct TermSuffixIndex *t);
+struct TermSuffixIndexIterator *TermSuffixIndex_IterateAll(const struct TermSuffixIndex *tsi);
 
 /**
  * Add `term` (`len` UTF-8 bytes) to the index. Adding an existing,
@@ -89,14 +89,14 @@ struct TermSuffixIndexIterator *TermSuffixIndex_IterateAll(const struct TermSuff
  *
  * # Safety
  *
- * 1. `t` must be a [valid], non-null pointer obtained from
+ * 1. `tsi` must be a [valid], non-null pointer obtained from
  *    [`TermSuffixIndex_New`].
  * 2. `term` must point to a [valid] byte sequence of length `len`.
- * 3. No iterator obtained from `t` may be alive.
+ * 3. No iterator obtained from `tsi` may be alive.
  *
  * [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
  */
-void TermSuffixIndex_Add(struct TermSuffixIndex *t, const char *term, size_t len);
+void TermSuffixIndex_Add(struct TermSuffixIndex *tsi, const char *term, size_t len);
 
 /**
  * Invoke `callback` once per member term containing the UTF-8 needle
@@ -106,15 +106,15 @@ void TermSuffixIndex_Add(struct TermSuffixIndex *t, const char *term, size_t len
  *
  * # Safety
  *
- * 1. `t` must be a [valid], non-null pointer obtained from
+ * 1. `tsi` must be a [valid], non-null pointer obtained from
  *    [`TermSuffixIndex_New`].
  * 2. `str` must point to a [valid] byte sequence of length `len`.
- * 3. `callback` cannot be NULL and must not modify or free `t`, nor
+ * 3. `callback` cannot be NULL and must not modify or free `tsi`, nor
  *    retain the term pointer beyond the call.
  *
  * [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
  */
-void TermSuffixIndex_IterateContains(const struct TermSuffixIndex *t, const char *str, size_t len, TermSuffixIterateCallback callback, void *ctx);
+void TermSuffixIndex_IterateContains(const struct TermSuffixIndex *tsi, const char *str, size_t len, TermSuffixIterateCallback callback, void *ctx);
 
 /**
  * Remove `term` (`len` UTF-8 bytes) from the index. Removing an absent,
@@ -122,14 +122,14 @@ void TermSuffixIndex_IterateContains(const struct TermSuffixIndex *t, const char
  *
  * # Safety
  *
- * 1. `t` must be a [valid], non-null pointer obtained from
+ * 1. `tsi` must be a [valid], non-null pointer obtained from
  *    [`TermSuffixIndex_New`].
  * 2. `term` must point to a [valid] byte sequence of length `len`.
- * 3. No iterator obtained from `t` may be alive.
+ * 3. No iterator obtained from `tsi` may be alive.
  *
  * [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
  */
-void TermSuffixIndex_Remove(struct TermSuffixIndex *t, const char *term, size_t len);
+void TermSuffixIndex_Remove(struct TermSuffixIndex *tsi, const char *term, size_t len);
 
 /**
  * Invoke `callback` once per member term ending with the UTF-8 needle
@@ -139,15 +139,15 @@ void TermSuffixIndex_Remove(struct TermSuffixIndex *t, const char *term, size_t 
  *
  * # Safety
  *
- * 1. `t` must be a [valid], non-null pointer obtained from
+ * 1. `tsi` must be a [valid], non-null pointer obtained from
  *    [`TermSuffixIndex_New`].
  * 2. `str` must point to a [valid] byte sequence of length `len`.
- * 3. `callback` cannot be NULL and must not modify or free `t`, nor
+ * 3. `callback` cannot be NULL and must not modify or free `tsi`, nor
  *    retain the term pointer beyond the call.
  *
  * [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
  */
-void TermSuffixIndex_IterateSuffix(const struct TermSuffixIndex *t, const char *str, size_t len, TermSuffixIterateCallback callback, void *ctx);
+void TermSuffixIndex_IterateSuffix(const struct TermSuffixIndex *tsi, const char *str, size_t len, TermSuffixIterateCallback callback, void *ctx);
 
 /**
  * Iterate over every member term matching the wildcard pattern
@@ -162,15 +162,15 @@ void TermSuffixIndex_IterateSuffix(const struct TermSuffixIndex *t, const char *
  *
  * # Safety
  *
- * 1. `t` must be a [valid], non-null pointer obtained from
+ * 1. `tsi` must be a [valid], non-null pointer obtained from
  *    [`TermSuffixIndex_New`].
  * 2. `str` must point to a [valid] byte sequence of length `len`.
- * 3. Both `t` and the pattern bytes `(str, len)` must stay valid and
+ * 3. Both `tsi` and the pattern bytes `(str, len)` must stay valid and
  *    unmodified while the iterator lives.
  *
  * [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
  */
-struct TermSuffixIndexIterator *TermSuffixIndex_IterateWildcard(const struct TermSuffixIndex *t, const char *str, size_t len);
+struct TermSuffixIndexIterator *TermSuffixIndex_IterateWildcard(const struct TermSuffixIndex *tsi, const char *str, size_t len);
 
 /**
  * Advance the iterator. Returns 1 and stores the next string into

@@ -50,19 +50,19 @@ pub struct TermSuffixIndexIterator<'si> {
 ///
 /// # Safety
 ///
-/// 1. `t` must be a [valid], non-null pointer obtained from
+/// 1. `tsi` must be a [valid], non-null pointer obtained from
 ///    [`TermSuffixIndex_New`].
-/// 2. `t` must not be modified or freed while the iterator lives.
+/// 2. `tsi` must not be modified or freed while the iterator lives.
 ///
 /// [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn TermSuffixIndex_IterateAll<'si>(
-    t: *const TermSuffixIndex,
+    tsi: *const TermSuffixIndex,
 ) -> *mut TermSuffixIndexIterator<'si> {
-    debug_assert!(!t.is_null(), "t cannot be NULL");
+    debug_assert!(!tsi.is_null(), "tsi cannot be NULL");
 
     // Safety: ensured by caller (1., 2.)
-    let index = unsafe { &*t };
+    let index = unsafe { &*tsi };
 
     let iter = Box::new(index.keys().map(Rc::from));
     Box::into_raw(Box::new(TermSuffixIndexIterator {
@@ -78,22 +78,22 @@ pub unsafe extern "C" fn TermSuffixIndex_IterateAll<'si>(
 ///
 /// # Safety
 ///
-/// 1. `t` must be a [valid], non-null pointer obtained from
+/// 1. `tsi` must be a [valid], non-null pointer obtained from
 ///    [`TermSuffixIndex_New`].
 /// 2. `str` must point to a [valid] byte sequence of length `len`.
-/// 3. `callback` cannot be NULL and must not modify or free `t`, nor
+/// 3. `callback` cannot be NULL and must not modify or free `tsi`, nor
 ///    retain the term pointer beyond the call.
 ///
 /// [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn TermSuffixIndex_IterateContains(
-    t: *const TermSuffixIndex,
+    tsi: *const TermSuffixIndex,
     str: *const c_char,
     len: usize,
     callback: TermSuffixIterateCallback,
     ctx: *mut c_void,
 ) {
-    debug_assert!(!t.is_null(), "t cannot be NULL");
+    debug_assert!(!tsi.is_null(), "tsi cannot be NULL");
     debug_assert!(!str.is_null(), "str cannot be NULL");
     let Some(callback) = callback else {
         debug_assert!(false, "callback cannot be NULL");
@@ -101,7 +101,7 @@ pub unsafe extern "C" fn TermSuffixIndex_IterateContains(
     };
 
     // Safety: ensured by caller (1.)
-    let index = unsafe { &*t };
+    let index = unsafe { &*tsi };
     // Safety: ensured by caller (2.)
     let bytes = unsafe { std::slice::from_raw_parts(str.cast::<u8>(), len) };
 
@@ -132,22 +132,22 @@ pub unsafe extern "C" fn TermSuffixIndex_IterateContains(
 ///
 /// # Safety
 ///
-/// 1. `t` must be a [valid], non-null pointer obtained from
+/// 1. `tsi` must be a [valid], non-null pointer obtained from
 ///    [`TermSuffixIndex_New`].
 /// 2. `str` must point to a [valid] byte sequence of length `len`.
-/// 3. `callback` cannot be NULL and must not modify or free `t`, nor
+/// 3. `callback` cannot be NULL and must not modify or free `tsi`, nor
 ///    retain the term pointer beyond the call.
 ///
 /// [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn TermSuffixIndex_IterateSuffix(
-    t: *const TermSuffixIndex,
+    tsi: *const TermSuffixIndex,
     str: *const c_char,
     len: usize,
     callback: TermSuffixIterateCallback,
     ctx: *mut c_void,
 ) {
-    debug_assert!(!t.is_null(), "t cannot be NULL");
+    debug_assert!(!tsi.is_null(), "tsi cannot be NULL");
     debug_assert!(!str.is_null(), "str cannot be NULL");
     let Some(callback) = callback else {
         debug_assert!(false, "callback cannot be NULL");
@@ -155,7 +155,7 @@ pub unsafe extern "C" fn TermSuffixIndex_IterateSuffix(
     };
 
     // Safety: ensured by caller (1.)
-    let index = unsafe { &*t };
+    let index = unsafe { &*tsi };
     // Safety: ensured by caller (2.)
     let bytes = unsafe { std::slice::from_raw_parts(str.cast::<u8>(), len) };
 
@@ -191,24 +191,24 @@ pub unsafe extern "C" fn TermSuffixIndex_IterateSuffix(
 ///
 /// # Safety
 ///
-/// 1. `t` must be a [valid], non-null pointer obtained from
+/// 1. `tsi` must be a [valid], non-null pointer obtained from
 ///    [`TermSuffixIndex_New`].
 /// 2. `str` must point to a [valid] byte sequence of length `len`.
-/// 3. Both `t` and the pattern bytes `(str, len)` must stay valid and
+/// 3. Both `tsi` and the pattern bytes `(str, len)` must stay valid and
 ///    unmodified while the iterator lives.
 ///
 /// [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn TermSuffixIndex_IterateWildcard<'si>(
-    t: *const TermSuffixIndex,
+    tsi: *const TermSuffixIndex,
     str: *const c_char,
     len: usize,
 ) -> *mut TermSuffixIndexIterator<'si> {
-    debug_assert!(!t.is_null(), "t cannot be NULL");
+    debug_assert!(!tsi.is_null(), "tsi cannot be NULL");
     debug_assert!(!str.is_null(), "str cannot be NULL");
 
     // Safety: ensured by caller (1., 3.)
-    let index = unsafe { &*t };
+    let index = unsafe { &*tsi };
     // Safety: ensured by caller (2., 3.)
     let bytes = unsafe { std::slice::from_raw_parts(str.cast::<u8>(), len) };
 
