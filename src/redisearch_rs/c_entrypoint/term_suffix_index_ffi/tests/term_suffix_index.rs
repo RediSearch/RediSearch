@@ -127,32 +127,22 @@ fn mem_usage_grows_with_content() {
 #[test]
 fn iterate_wildcard_yields_matching_terms() {
     with_index(&["bike", "biker", "trike", "cool"], |t| {
-        let pattern = "*ike*";
+        let (rc, actual) = collect_wildcard(t, "*ike*");
 
-        // Safety: `t` is valid, `pattern` points to valid UTF-8 bytes
-        // that outlive the iterator, and `t` outlives the iterator.
-        let it =
-            unsafe { TermSuffixIndex_IterateWildcard(t, pattern.as_ptr().cast(), pattern.len()) };
-        assert!(!it.is_null(), "'ike' anchors the search");
-        let actual = drain(it);
-
+        assert_eq!(rc, 1, "'ike' anchors the search");
         assert_eq!(actual, to_set(&["bike", "biker", "trike"]));
     });
 }
 
 #[test]
-fn iterate_wildcard_without_anchor_returns_null() {
+fn iterate_wildcard_without_anchor_returns_zero() {
     with_index(&["bike"], |t| {
         // Every `*`-separated token contains `?`, so none can seed a
         // subtree or exact lookup — the search has no anchor.
-        let pattern = "?*?e";
+        let (rc, actual) = collect_wildcard(t, "?*?e");
 
-        // Safety: `t` is valid and `pattern` points to valid UTF-8
-        // bytes.
-        let it =
-            unsafe { TermSuffixIndex_IterateWildcard(t, pattern.as_ptr().cast(), pattern.len()) };
-
-        assert!(it.is_null(), "caller must fall back to a full scan");
+        assert_eq!(rc, 0, "caller must fall back to a full scan");
+        assert!(actual.is_empty());
     });
 }
 
@@ -176,6 +166,23 @@ where
     unsafe { TermSuffixIndex_Free(t) };
 }
 
+/// Callback that inserts each reported term into the `HashSet<String>`
+/// pointed to by `ctx`.
+unsafe extern "C" fn collect_cb(
+    term: *const c_char,
+    len: usize,
+    ctx: *mut c_void,
+    _payload: *mut c_void,
+) -> c_int {
+    // Safety: `term` points to `len` valid UTF-8 bytes for the
+    // duration of this call.
+    let bytes = unsafe { std::slice::from_raw_parts(term.cast::<u8>(), len) };
+    // Safety: `ctx` points at the live set below.
+    let yielded = unsafe { &mut *ctx.cast::<HashSet<String>>() };
+    yielded.insert(String::from_utf8(bytes.to_vec()).unwrap());
+    0
+}
+
 /// Drive a callback-based iterate function with `needle` and collect
 /// every reported term into a set.
 fn collect(
@@ -189,21 +196,6 @@ fn collect(
         *mut c_void,
     ),
 ) -> HashSet<String> {
-    unsafe extern "C" fn collect_cb(
-        term: *const c_char,
-        len: usize,
-        ctx: *mut c_void,
-        _payload: *mut c_void,
-    ) -> c_int {
-        // Safety: `term` points to `len` valid UTF-8 bytes for the
-        // duration of this call.
-        let bytes = unsafe { std::slice::from_raw_parts(term.cast::<u8>(), len) };
-        // Safety: `ctx` points at the live set below.
-        let yielded = unsafe { &mut *ctx.cast::<HashSet<String>>() };
-        yielded.insert(String::from_utf8(bytes.to_vec()).unwrap());
-        0
-    }
-
     let mut yielded = HashSet::new();
     // Safety: `t` is valid, `needle` points to valid UTF-8 bytes, and
     // `ctx` points at a live set.
@@ -217,6 +209,24 @@ fn collect(
         )
     };
     yielded
+}
+
+/// Drive [`TermSuffixIndex_IterateWildcard`] and collect every reported
+/// term into a set, returning the function's status code alongside it.
+fn collect_wildcard(t: *mut TermSuffixIndex, pattern: &str) -> (c_int, HashSet<String>) {
+    let mut yielded = HashSet::new();
+    // Safety: `t` is valid, `pattern` points to valid UTF-8 bytes, and
+    // `ctx` points at a live set.
+    let rc = unsafe {
+        TermSuffixIndex_IterateWildcard(
+            t,
+            pattern.as_ptr().cast(),
+            pattern.len(),
+            Some(collect_cb),
+            (&raw mut yielded).cast(),
+        )
+    };
+    (rc, yielded)
 }
 
 /// Drain an iterator into the set of strings it yields, then free it.

@@ -9,11 +9,10 @@
 #include <stdlib.h>
 
 /**
- * Yields the strings matched by an iteration over a [`TermSuffixIndex`].
+ * Yields the keys of a [`TermSuffixIndex`].
  *
- * Opaque to C; obtained from [`TermSuffixIndex_IterateWildcard`] or
- * [`TermSuffixIndex_IterateAll`], advanced with
- * [`TermSuffixIndexIterator_Next`], freed with
+ * Opaque to C; obtained from [`TermSuffixIndex_IterateAll`], advanced
+ * with [`TermSuffixIndexIterator_Next`], freed with
  * [`TermSuffixIndexIterator_Free`].
  */
 typedef struct TermSuffixIndexIterator TermSuffixIndexIterator;
@@ -22,7 +21,8 @@ typedef struct TermSuffixIndex TermSuffixIndex;
 
 /**
  * Callback invoked once per term yielded by
- * [`TermSuffixIndex_IterateContains`] or [`TermSuffixIndex_IterateSuffix`].
+ * [`TermSuffixIndex_IterateContains`], [`TermSuffixIndex_IterateSuffix`]
+ * or [`TermSuffixIndex_IterateWildcard`].
  *
  * `term` points to `len` UTF-8 bytes, NOT NUL-terminated, valid only
  * for the duration of the call. `ctx` is the caller context passed to
@@ -166,20 +166,22 @@ size_t TermSuffixIndex_MemUsage(const struct TermSuffixIndex *tsi);
 void TermSuffixIndex_IterateSuffix(const struct TermSuffixIndex *tsi, const char *needle, size_t len, TermSuffixIterateCallback cb, void *ctx);
 
 /**
- * Iterate over every member term matching the wildcard pattern
+ * Invoke `cb` once per member term matching the wildcard pattern
  * `(pattern, len)` (`*` matches any run of characters, `?` exactly one
- * byte); a term may be yielded more than once.
+ * byte); a term may be reported more than once. Iteration stops early
+ * when the callback returns a non-zero value.
  *
- * Returns NULL when the pattern has no literal token that can anchor
- * the search; the caller must then fall back to a full scan.
- *
- * Advance with [`TermSuffixIndexIterator_Next`].
+ * Returns 0 when the pattern has no literal token that can anchor the
+ * search; the caller must then fall back to a full scan. Returns 1
+ * otherwise, even when no term matched.
  *
  * # Safety
  *
  * 1. `tsi` must be a [valid], non-null pointer obtained from
  *    [`TermSuffixIndex_New`].
  * 2. `pattern` must point to a [valid] byte sequence of length `len`.
+ * 3. `cb` cannot be NULL and must not modify or free `tsi`, nor
+ *    retain the term pointer beyond the call.
  *
  * # Panics
  *
@@ -187,7 +189,7 @@ void TermSuffixIndex_IterateSuffix(const struct TermSuffixIndex *tsi, const char
  *
  * [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
  */
-struct TermSuffixIndexIterator *TermSuffixIndex_IterateWildcard(const struct TermSuffixIndex *tsi, const char *pattern, size_t len);
+int TermSuffixIndex_IterateWildcard(const struct TermSuffixIndex *tsi, const char *pattern, size_t len, TermSuffixIterateCallback cb, void *ctx);
 
 /**
  * Advance the iterator. Returns 1 and stores the next string into
@@ -211,8 +213,8 @@ struct TermSuffixIndexIterator *TermSuffixIndex_IterateWildcard(const struct Ter
 int TermSuffixIndexIterator_Next(struct TermSuffixIndexIterator *it, const char * *str, size_t *len);
 
 /**
- * Free an iterator obtained from one of the `TermSuffixIndex_Iterate*`
- * functions. Invalidates any string pointer previously returned by
+ * Free an iterator obtained from [`TermSuffixIndex_IterateAll`].
+ * Invalidates any string pointer previously returned by
  * [`TermSuffixIndexIterator_Next`].
  *
  * # Safety

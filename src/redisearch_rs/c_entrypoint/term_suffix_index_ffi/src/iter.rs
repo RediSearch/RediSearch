@@ -16,7 +16,8 @@ use std::{ptr, slice, str};
 use super::*;
 
 /// Callback invoked once per term yielded by
-/// [`TermSuffixIndex_IterateContains`] or [`TermSuffixIndex_IterateSuffix`].
+/// [`TermSuffixIndex_IterateContains`], [`TermSuffixIndex_IterateSuffix`]
+/// or [`TermSuffixIndex_IterateWildcard`].
 ///
 /// `term` points to `len` UTF-8 bytes, NOT NUL-terminated, valid only
 /// for the duration of the call. `ctx` is the caller context passed to
@@ -31,11 +32,10 @@ pub type TermSuffixIterateCallback = Option<
     ) -> c_int,
 >;
 
-/// Yields the strings matched by an iteration over a [`TermSuffixIndex`].
+/// Yields the keys of a [`TermSuffixIndex`].
 ///
-/// Opaque to C; obtained from [`TermSuffixIndex_IterateWildcard`] or
-/// [`TermSuffixIndex_IterateAll`], advanced with
-/// [`TermSuffixIndexIterator_Next`], freed with
+/// Opaque to C; obtained from [`TermSuffixIndex_IterateAll`], advanced
+/// with [`TermSuffixIndexIterator_Next`], freed with
 /// [`TermSuffixIndexIterator_Free`].
 pub struct TermSuffixIndexIterator<'si> {
     iter: Box<dyn Iterator<Item = Rc<str>> + 'si>,
@@ -182,20 +182,22 @@ pub unsafe extern "C" fn TermSuffixIndex_IterateSuffix(
     }
 }
 
-/// Iterate over every member term matching the wildcard pattern
+/// Invoke `cb` once per member term matching the wildcard pattern
 /// `(pattern, len)` (`*` matches any run of characters, `?` exactly one
-/// byte); a term may be yielded more than once.
+/// byte); a term may be reported more than once. Iteration stops early
+/// when the callback returns a non-zero value.
 ///
-/// Returns NULL when the pattern has no literal token that can anchor
-/// the search; the caller must then fall back to a full scan.
-///
-/// Advance with [`TermSuffixIndexIterator_Next`].
+/// Returns 0 when the pattern has no literal token that can anchor the
+/// search; the caller must then fall back to a full scan. Returns 1
+/// otherwise, even when no term matched.
 ///
 /// # Safety
 ///
 /// 1. `tsi` must be a [valid], non-null pointer obtained from
 ///    [`TermSuffixIndex_New`].
 /// 2. `pattern` must point to a [valid] byte sequence of length `len`.
+/// 3. `cb` cannot be NULL and must not modify or free `tsi`, nor
+///    retain the term pointer beyond the call.
 ///
 /// # Panics
 ///
@@ -203,13 +205,20 @@ pub unsafe extern "C" fn TermSuffixIndex_IterateSuffix(
 ///
 /// [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn TermSuffixIndex_IterateWildcard<'si>(
+pub unsafe extern "C" fn TermSuffixIndex_IterateWildcard(
     tsi: *const TermSuffixIndex,
     pattern: *const c_char,
     len: usize,
-) -> *mut TermSuffixIndexIterator<'si> {
+    cb: TermSuffixIterateCallback,
+    ctx: *mut c_void,
+) -> c_int {
     debug_assert!(!tsi.is_null(), "tsi cannot be NULL");
     debug_assert!(!pattern.is_null(), "pattern cannot be NULL");
+    let Some(cb) = cb else {
+        debug_assert!(false, "cb cannot be NULL");
+        // No way to report matches; have the caller fall back to a full scan.
+        return 0;
+    };
 
     // Safety: ensured by caller (1.)
     let index = unsafe { &*tsi };
@@ -217,14 +226,24 @@ pub unsafe extern "C" fn TermSuffixIndex_IterateWildcard<'si>(
     let bytes = unsafe { slice::from_raw_parts(pattern.cast::<u8>(), len) };
 
     let pattern = str::from_utf8(bytes).expect("pattern must be valid UTF-8");
-    let iter: Box<dyn Iterator<Item = Rc<str>>> = match index.iter_wildcard(pattern) {
-        Some(matches) => Box::new(matches),
-        None => return ptr::null_mut(),
+    let Some(matches) = index.iter_wildcard(pattern) else {
+        return 0;
     };
-    Box::into_raw(Box::new(TermSuffixIndexIterator {
-        iter,
-        current: None,
-    }))
+    for term in matches {
+        // Safety: ensured by caller (3.)
+        let outcome = unsafe {
+            cb(
+                term.as_ptr().cast::<c_char>(),
+                term.len(),
+                ctx,
+                ptr::null_mut(),
+            )
+        };
+        if outcome != 0 {
+            break;
+        }
+    }
+    1
 }
 
 /// Advance the iterator. Returns 1 and stores the next string into
@@ -273,8 +292,8 @@ pub unsafe extern "C" fn TermSuffixIndexIterator_Next(
     1
 }
 
-/// Free an iterator obtained from one of the `TermSuffixIndex_Iterate*`
-/// functions. Invalidates any string pointer previously returned by
+/// Free an iterator obtained from [`TermSuffixIndex_IterateAll`].
+/// Invalidates any string pointer previously returned by
 /// [`TermSuffixIndexIterator_Next`].
 ///
 /// # Safety
