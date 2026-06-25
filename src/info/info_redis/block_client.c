@@ -44,7 +44,7 @@ RedisModuleBlockedClient *BlockQueryClientWithTimeout(RedisModuleCtx *ctx, Stron
   // Take a reference for the timeout callback access via node->privdata.
   // This reference is released in FreeQueryNode via the freePrivData callback after timeout/reply callback completes.
   AREQ_IncrRef(req);
-  BlockedQueryNode *node = BlockedQueries_AddQuery(blockedQueries, spec_ref, &req->ast, req,
+  BlockedQueryNode *node = BlockedQueries_AddQuery(blockedQueries, spec_ref, req,
                                                     (BlockedQueryNode_FreePrivData)AREQ_DecrRef);
 
   // Prepare context for the worker thread
@@ -61,7 +61,7 @@ RedisModuleBlockedClient *BlockQueryClientWithTimeout(RedisModuleCtx *ctx, Stron
 RedisModuleBlockedClient *BlockCursorClient(RedisModuleCtx *ctx, Cursor *cursor, size_t count, int timeoutMS) {
   BlockedQueries *blockedQueries = MainThread_GetBlockedQueries();
   RS_LOG_ASSERT(blockedQueries, "MainThread_InitBlockedQueries was not called, or function not called from main thread");
-  BlockedCursorNode *node = BlockedQueries_AddCursor(blockedQueries, cursor->spec_ref, cursor->id, &cursor->execState->ast, count);
+  BlockedCursorNode *node = BlockedQueries_AddCursor(blockedQueries, cursor->spec_ref, cursor->id, count);
   // Prepare context for the worker thread
   // Since we are still in the main thread, and we already validated the
   // spec's existence, it is safe to directly get the strong reference from the spec
