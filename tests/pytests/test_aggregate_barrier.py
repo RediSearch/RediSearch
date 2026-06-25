@@ -594,3 +594,131 @@ def test_barrier_shard_timeout_with_return_policy_resp2():
 @skip(cluster=False)
 def test_barrier_shard_timeout_with_return_policy_resp3():
     _test_barrier_shard_timeout_with_return_policy(3)
+
+
+#------------------------------------------------------------------------------
+# Error / drop paths during first-reply collection
+#------------------------------------------------------------------------------
+
+def _kill_coordinator_connections(shard_conn):
+    """Kill the coordinator's internal connections to this shard.
+
+    Internal connections carry the 'I' flag in CLIENT LIST (they authenticate
+    with the internal secret and show up as a superuser, so they are not
+    targetable by `CLIENT KILL USER`). Returns the number of connections killed.
+    """
+    listing = shard_conn.execute_command('CLIENT', 'LIST')
+    if isinstance(listing, bytes):
+        listing = listing.decode(errors='replace')
+    killed = 0
+    for line in listing.splitlines():
+        fields = dict(tok.split('=', 1) for tok in line.split() if '=' in tok)
+        if 'I' in fields.get('flags', '') and fields.get('id'):
+            killed += shard_conn.execute_command('CLIENT', 'KILL', 'ID', fields['id'])
+    return killed
+
+
+@skip(cluster=False)
+def test_withcount_shard_connection_drop():
+    """Exercises the WITHCOUNT no-reply error callback (withCountErrorCb).
+
+    One shard is parked before its first read so its _FT.AGGREGATE is in flight,
+    then the coordinator's internal connection to that shard is dropped. The NULL
+    reply drives mrIteratorCallback_Error -> withCountErrorCb: the lost shard is
+    counted and silently omitted (as in the non-WITHCOUNT path), and the request
+    completes with the remaining shards' results instead of hanging.
+    """
+    env = Env(moduleArgs='DEFAULT_DIALECT 2 WORKERS 1', shardsCount=3)
+    skipIfNoEnableAssert(env)
+    conn = getConnectionByEnv(env)
+
+    env.expect('FT.CREATE', 'idx', 'ON', 'HASH', 'SCHEMA', 't', 'TEXT').ok()
+    num_docs = 300
+    for i in range(num_docs):
+        conn.execute_command('HSET', f'doc:{i}', 't', f'hello world {i}')
+    waitForIndexFinishScan(env)
+
+    blocked = env.getConnection(3)  # a non-coordinator shard
+    sp = 'BeforeFirstRead'
+    try:
+        blocked.execute_command(debug_cmd(), 'SYNC_POINT', 'CLEAR')
+        blocked.execute_command(debug_cmd(), 'SYNC_POINT', 'ARM', sp)
+
+        cmd = ['FT.AGGREGATE', 'idx', '*', 'WITHCOUNT', 'LIMIT', 0, 5]
+        res = []
+        t = threading.Thread(target=_run_query_store_result, args=(conn, cmd, res), daemon=True)
+        t.start()
+        wait_for_condition(
+            lambda: (blocked.execute_command(debug_cmd(), 'SYNC_POINT', 'IS_WAITING', sp) == 1, {}),
+            'blocked shard did not reach sync point')
+
+        # Drop the coordinator's connection(s) to this shard; the in-flight
+        # _FT.AGGREGATE then fails with a NULL reply -> withCountErrorCb.
+        killed = _kill_coordinator_connections(blocked)
+        env.assertGreater(killed, 0, message="expected to drop an internal connection")
+
+        # Release the parked worker (its reply, if any, lands on a dead conn).
+        blocked.execute_command(debug_cmd(), 'SYNC_POINT', 'SIGNAL', sp)
+
+        t.join(timeout=10)
+        env.assertEqual(len(res), 1, message="query should have completed (no hang)")
+        env.assertFalse(isinstance(res[0], Exception), message=f"unexpected error: {res[0]}")
+        total = _get_total_results(res[0])
+        env.assertGreater(total, 0, message="should return the responding shards' results")
+        env.assertLess(total, num_docs,
+                       message=f"lost shard should be omitted (total<{num_docs}), got {total}")
+    finally:
+        blocked.execute_command(debug_cmd(), 'SYNC_POINT', 'CLEAR')
+
+
+@skip(cluster=False)
+def test_withcount_index_dropped_during_collection():
+    """Exercises the spec-dropped branch of executeAggregateDeferred (Phase B).
+
+    A shard is parked before its first read so first-reply collection (Phase A)
+    is in flight and the dispatcher has already released its strong spec ref
+    (only a weak ref remains). FT.DROPINDEX then frees the coordinator spec.
+    When the shard is released, Phase B re-promotes the weak ref, gets NULL, and
+    replies SEARCH_INDEX_DROPPED_BG instead of hanging on the blocked client.
+    """
+    env = Env(moduleArgs='DEFAULT_DIALECT 2 WORKERS 1', shardsCount=3)
+    skipIfNoEnableAssert(env)
+    conn = getConnectionByEnv(env)
+
+    env.expect('FT.CREATE', 'idx', 'ON', 'HASH', 'SCHEMA', 't', 'TEXT').ok()
+    num_docs = 300
+    for i in range(num_docs):
+        conn.execute_command('HSET', f'doc:{i}', 't', f'hello world {i}')
+    waitForIndexFinishScan(env)
+
+    blocked = env.getConnection(3)
+    sp = 'BeforeFirstRead'
+    try:
+        blocked.execute_command(debug_cmd(), 'SYNC_POINT', 'CLEAR')
+        blocked.execute_command(debug_cmd(), 'SYNC_POINT', 'ARM', sp)
+
+        cmd = ['FT.AGGREGATE', 'idx', '*', 'WITHCOUNT', 'LIMIT', 0, 5]
+        res = []
+        t = threading.Thread(target=_run_query_store_result, args=(conn, cmd, res), daemon=True)
+        t.start()
+        wait_for_condition(
+            lambda: (blocked.execute_command(debug_cmd(), 'SYNC_POINT', 'IS_WAITING', sp) == 1, {}),
+            'blocked shard did not reach sync point')
+
+        # Drop the index while Phase A is parked: only the weak ref is held, so
+        # this frees the coordinator spec and Phase B's re-promote will fail.
+        conn.execute_command('FT.DROPINDEX', 'idx')
+
+        # Release the parked shard so Phase B runs and re-promotes the dead ref.
+        blocked.execute_command(debug_cmd(), 'SYNC_POINT', 'SIGNAL', sp)
+
+        t.join(timeout=10)
+        env.assertEqual(len(res), 1, message="query should have completed (no hang)")
+        env.assertTrue(isinstance(res[0], redis.exceptions.ResponseError),
+                       message=f"expected DROPPED_BACKGROUND error, got: {res[0]}")
+        env.assertContains('dropped', str(res[0]).lower())
+    finally:
+        try:
+            blocked.execute_command(debug_cmd(), 'SYNC_POINT', 'CLEAR')
+        except Exception:
+            pass
