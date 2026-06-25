@@ -87,9 +87,8 @@ unsafe fn c_producer(
         let guard = &guard;
         // SAFETY: `produce` and `ctx` are valid per the contract of `NewLazyVectorRangeIterator`.
         let results = unsafe { (produce)(guard.ctx) };
-        if results.timed_out {
-            return Err(RQEIteratorError::TimedOut);
-        }
+        // Take ownership of any arrays the producer handed back *before* inspecting `timed_out`, so
+        // they are freed even on the timeout path (where the iterator drops these `OwnedSlice`s).
         let ids = if results.ids.is_null() {
             OwnedSlice::default()
         } else {
@@ -104,6 +103,10 @@ unsafe fn c_producer(
             // allocated with the Redis allocator, and transfers ownership to us.
             Some(unsafe { OwnedSlice::from_c(results.metrics, results.num) })
         };
+        if results.timed_out {
+            // `ids`/`metrics` drop here, freeing anything the producer allocated alongside the flag.
+            return Err(RQEIteratorError::TimedOut);
+        }
         Ok(ProducedResults { ids, metrics })
     })
 }

@@ -79,7 +79,7 @@ impl<'index, const SORTED: bool> IdList<'index, SORTED> {
 
     /// Replace the ID list, resetting the iterator to the start.
     ///
-    /// Used by the lazy variants ([`IdListLazy`], [`Metric`](crate::metric::Metric)'s lazy wrapper)
+    /// Used by the lazy variants ([`IdListLazy`], [`MetricLazy`](crate::metric::MetricLazy))
     /// to populate an initially-empty iterator once the deferred producer has run.
     pub(crate) fn set_ids(&mut self, ids: OwnedSlice<DocId>) {
         if SORTED {
